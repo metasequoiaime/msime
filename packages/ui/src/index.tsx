@@ -3614,6 +3614,7 @@ function SettingsShell(props: SettingsPageProps) {
               {client.home && page === "try-keyboard" && (
                 <TryKeyboardPage
                   actions={client.home}
+                  switchAway={!harmonyPlatform}
                   chat={client.chat}
                   onLogin={openAccountLogin}
                   onOpenUrl={

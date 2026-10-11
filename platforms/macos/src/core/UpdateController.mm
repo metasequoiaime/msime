@@ -2,7 +2,7 @@
 
 #import <Sparkle/Sparkle.h>
 
-// 官网下载页的 macOS 一栏读的就是本仓库的 macos-v 发布，GitHub 按钮旁边有国内镜像（阿里云 OSS），国内打开 GitHub 发布页下载常常只有几十 KB/s。
+// 官网下载页的 macOS 一栏读的就是本仓库的 macos-v 发布，GitHub 按钮旁边有国内镜像（dl.msime.app），国内打开 GitHub 发布页下载常常只有几十 KB/s。
 static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/?platform=macos";
 
 // Sparkle needs an application bundle: a feed URL, a version, a code signature. Started anywhere else

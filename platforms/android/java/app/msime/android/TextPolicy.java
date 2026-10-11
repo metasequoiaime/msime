@@ -17,9 +17,14 @@ public final class TextPolicy {
             || (codePoint >= 'a' && codePoint <= 'z');
     }
 
+    /** Return whether a code point is one of the ten ASCII decimal digits. */
+    public static boolean isAsciiDigit(int codePoint) {
+        return codePoint >= '0' && codePoint <= '9';
+    }
+
     /** Return whether a code point is an ASCII Latin letter or decimal digit. */
     public static boolean isAsciiLetterOrDigit(int codePoint) {
-        return isAsciiLetter(codePoint) || (codePoint >= '0' && codePoint <= '9');
+        return isAsciiLetter(codePoint) || isAsciiDigit(codePoint);
     }
 
     /** Return whether text is a non-empty ASCII token made of letters, digits, hyphens and underscores. */
@@ -200,6 +205,12 @@ public final class TextPolicy {
     /** Return whether text is non-blank, valid Unicode, control-free and within a UTF-8 byte bound. */
     public static boolean boundedNonBlank(String value, int maxBytes) {
         return hasText(value) && utf8Length(value) <= maxBytes
+            && !hasControl(value) && validUnicode(value);
+    }
+
+    /** Return whether text is non-empty, Unicode-valid, control-free and within a UTF-8 byte bound. */
+    public static boolean boundedNonEmpty(String value, int maxBytes) {
+        return value != null && !value.isEmpty() && utf8Length(value) <= maxBytes
             && !hasControl(value) && validUnicode(value);
     }
 

@@ -41,9 +41,8 @@ public final class LocalAsrPolicy {
      * <p>Only a directory the shared installer produced can be used here; a Whisper model file, which desktop hosts also accept as `asr_model_path`, has no recognizer on Android. That is reported when the dictation starts ({@link #installed}), not by falling back to the platform recogniser: a user who chose on-device recognition did not agree to the audio going to whatever service the device ships.
      */
     public static boolean usable(String provider, String modelPath) {
-        if (!PROVIDER.equals(provider) || modelPath == null) return false;
-        if (modelPath.isEmpty() || TextPolicy.utf8Length(modelPath) > MAX_PATH_LENGTH) return false;
-        if (TextPolicy.hasControl(modelPath) || !TextPolicy.validUnicode(modelPath)) return false;
+        if (!PROVIDER.equals(provider)
+                || !TextPolicy.boundedNonEmpty(modelPath, MAX_PATH_LENGTH)) return false;
         return modelPath.startsWith("/");
     }
 

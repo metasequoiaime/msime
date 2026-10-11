@@ -24,9 +24,13 @@ def main() -> None:
 
     if not re.search(r"long\s+lifecycleGeneration\s*=\s*s\.inputLifecycleGeneration\(\)", contribution):
         raise SystemExit("voice contribution must capture the input-service generation")
-    if not re.search(
-        r"if\s*\(\s*lifecycleGeneration\s*!=\s*s\.inputLifecycleGeneration\(\)\s*\|\|\s*!s\.imePrivacyGate\.contributesVoice\(\)\s*\)\s*return",
-        contribution,
+    worker_guard = contribution[contribution.index("worker.execute") : contribution.index("new VoiceContributionApi", contribution.index("worker.execute"))]
+    if not re.search(r"if\s*\(", worker_guard) or any(
+        required not in worker_guard
+        for required in (
+            "lifecycleGeneration != s.inputLifecycleGeneration()",
+            "!s.imePrivacyGate.contributesVoice()",
+        )
     ):
         raise SystemExit("queued voice contribution must re-check generation and privacy before upload")
     stop = restart.index("stop(false);")

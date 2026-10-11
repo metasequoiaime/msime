@@ -10,9 +10,7 @@ public final class VoiceRequestPolicy {
     /** Mirrors the shared host API: ASCII request ids and bounded, well-formed language text. */
     public static boolean valid(String requestId, String language) {
         return validRequestId(requestId)
-            && language != null && !language.isEmpty()
-            && TextPolicy.utf8Length(language) <= MAX_LANGUAGE_BYTES
-            && !TextPolicy.hasControl(language) && TextPolicy.validUnicode(language);
+            && TextPolicy.boundedNonEmpty(language, MAX_LANGUAGE_BYTES);
     }
 
     private static boolean validRequestId(String value) {

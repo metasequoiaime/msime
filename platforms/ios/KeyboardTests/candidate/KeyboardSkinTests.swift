@@ -470,7 +470,7 @@ final class KeyboardSkinTests: XCTestCase {
     let item = SavedKeyboardSkin(name: "照片夜色", design: design)
     CustomSkinLibrary.save([item])
     var chosen: CustomKeyboardSkin?
-    let picker = KeyboardSkinPickerView(selected: GlobalThemeCatalog.systemId, document: [:], onSelect: { _ in },
+    let picker = KeyboardSkinPickerView(selected: GlobalThemeCatalog.systemId, document: [:], dark: false, onSelect: { _ in },
                                         onSelectDesign: { chosen = $0 }, onClose: {})
     func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
     let button = try XCTUnwrap(descendants(picker).first { $0.accessibilityIdentifier == "savedSkinCard-" + item.id.uuidString } as? UIButton)
@@ -516,7 +516,8 @@ final class KeyboardSkinTests: XCTestCase {
       controller.viewWillAppear(false)
       controller.view.layoutIfNeeded()
       let skin = KeyboardTheme.current
-      XCTAssertEqual(skin.id, id)
+      // 属于另一种明暗的主题按跟随系统画。
+      XCTAssertEqual(skin.id, GlobalThemeCatalog.effectiveId(id, dark: controller.traitCollection.userInterfaceStyle == .dark))
       let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "returnKey" } as? UIButton)
       if let design = skin.design {
         let surface = try XCTUnwrap(key.configuration?.background.customView as? SkinKeySurfaceView)
@@ -710,6 +711,38 @@ final class KeyboardSkinTests: XCTestCase {
       let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { controller.view.layer.render(in: $0.cgContext) }
       let attachment = XCTAttachment(image: image)
       attachment.name = "实际键盘-" + name; attachment.lifetime = .keepAlways; add(attachment)
+    }
+  }
+
+  /// 固定明暗的主题只在那一种明暗下提供；所选主题属于另一种明暗时按跟随系统画，所选值不改。
+  @MainActor func testFixedModeThemesAreOfferedOnlyInTheirMode() throws {
+    let dark = GlobalThemeCatalog.entries.filter { $0.appearance == .dark }.map(\.id)
+    let light = GlobalThemeCatalog.entries.filter { $0.appearance == .light }.map(\.id)
+    XCTAssertFalse(dark.isEmpty)
+    XCTAssertFalse(light.isEmpty)
+    for id in [GlobalThemeCatalog.systemId, GlobalThemeCatalog.customId] {
+      XCTAssertTrue(GlobalThemeCatalog.fits(id, dark: true), id)
+      XCTAssertTrue(GlobalThemeCatalog.fits(id, dark: false), id)
+    }
+    XCTAssertEqual(GlobalThemeCatalog.ids(offeredIn: true), GlobalThemeCatalog.ids.filter { !light.contains($0) })
+    XCTAssertEqual(GlobalThemeCatalog.ids(offeredIn: false), GlobalThemeCatalog.ids.filter { !dark.contains($0) })
+    for id in dark {
+      XCTAssertEqual(GlobalThemeCatalog.effectiveId(id, dark: true), id)
+      XCTAssertEqual(GlobalThemeCatalog.effectiveId(id, dark: false), GlobalThemeCatalog.systemId)
+      XCTAssertEqual(KeyboardTheme.resolve(document: ["global_theme": id], dark: false).id, GlobalThemeCatalog.systemId)
+      XCTAssertEqual(KeyboardTheme.resolve(document: ["global_theme": id], dark: true).id, id)
+      XCTAssertEqual(KeyboardTheme.resolve(document: ["global_theme": id]).id, id)
+    }
+    for id in light {
+      XCTAssertEqual(GlobalThemeCatalog.effectiveId(id, dark: false), id)
+      XCTAssertEqual(GlobalThemeCatalog.effectiveId(id, dark: true), GlobalThemeCatalog.systemId)
+    }
+    func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
+    for mode in [false, true] {
+      let picker = KeyboardSkinPickerView(selected: GlobalThemeCatalog.systemId, document: [:], dark: mode,
+                                          onSelect: { _ in }, onSelectDesign: { _ in }, onClose: {})
+      let cards = Set(descendants(picker).compactMap(\.accessibilityIdentifier).filter { $0.hasPrefix("skinCard-") })
+      XCTAssertEqual(cards, Set(GlobalThemeCatalog.ids(offeredIn: mode).map { "skinCard-\($0)" }), "dark \(mode)")
     }
   }
 

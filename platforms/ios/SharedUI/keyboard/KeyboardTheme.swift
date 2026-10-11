@@ -88,13 +88,21 @@ struct KeyboardTheme: Equatable {
     return KeyboardTheme(id: light.id, palette: light.keyboard, darkPalette: darkPalette, appearance: nil, design: design)
   }
 
-  /// The selected theme of `document`, or of the App Group without one.
-  static func resolve(document: [String: Any]?) -> KeyboardTheme {
-    resolve(document == nil ? GlobalThemePreference.selected : GlobalThemePreference.theme(in: document), document: document)
+  /// `document` 里所选的主题，没有文档时取 App Group 里的。给了 `dark` 时按那种明暗取实际生效的主题（`GlobalThemeCatalog.effectiveId`）：所选主题属于另一种明暗时是跟随系统。
+  static func resolve(document: [String: Any]?, dark: Bool? = nil) -> KeyboardTheme {
+    let selected = document == nil ? GlobalThemePreference.selected : GlobalThemePreference.theme(in: document)
+    return resolve(dark.map { GlobalThemeCatalog.effectiveId(selected, dark: $0) } ?? selected, document: document)
   }
 
   private static let lock = NSLock()
   private static var stored: KeyboardTheme?
+  /// 键盘画在哪种明暗下，由键盘在明暗变化时经 `reload(_:dark:)` 设置；之后的每次 `reload` 都按它取实际生效的主题。App 里不设置，`current` 就是所选的主题。
+  private static var storedMode: Bool?
+  static var mode: Bool? {
+    lock.lock()
+    defer { lock.unlock() }
+    return storedMode
+  }
 
   /// The theme the keyboard draws now. The keyboard sets it from its session's document whenever the document or the selection changes (`reload`); until then, and in the app, it is resolved from the shared document once.
   static var current: KeyboardTheme {
@@ -104,14 +112,23 @@ struct KeyboardTheme: Equatable {
     return theme ?? reload(MetasequoiaInputSessionBridge.loadSharedPreferences())
   }
 
-  /// Resolve the selected theme of `document` again and make it `current`.
+  /// 重新解析 `document` 所选的主题并设为 `current`；键盘设置过明暗时取那种明暗下实际生效的主题。
   @discardableResult
   static func reload(_ document: [String: Any]?) -> KeyboardTheme {
-    let theme = resolve(document: document)
+    let theme = resolve(document: document, dark: mode)
     lock.lock()
     stored = theme
     lock.unlock()
     return theme
+  }
+
+  /// 记下键盘画在哪种明暗下，再按它 `reload`；nil 不再按明暗换主题。
+  @discardableResult
+  static func reload(_ document: [String: Any]?, dark: Bool?) -> KeyboardTheme {
+    lock.lock()
+    storedMode = dark
+    lock.unlock()
+    return reload(document)
   }
 
   var title: String { GlobalThemeCatalog.title(id) }

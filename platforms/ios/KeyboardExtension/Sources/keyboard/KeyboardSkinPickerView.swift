@@ -16,8 +16,9 @@ final class KeyboardSkinPickerView: UIView {
 
   private let grid: KeyboardPagedGridView
 
-  /// `document` 是格子解析皮肤所用的共享文档，所以「自定义」格子显示的是按配置画出的自定义主题。选中环和名称用键盘当前皮肤的颜色，不用各格子所展示皮肤的颜色。
-  init(selected: String, document: [String: Any]? = MetasequoiaInputSessionBridge.loadSharedPreferences(), showsHeader: Bool = true,
+  /// `document` 是格子解析皮肤所用的共享文档，所以「自定义」格子显示的是按配置画出的自定义主题。选中环和名称用键盘当前皮肤的颜色，不用各格子所展示皮肤的颜色。`dark` 是键盘当前的明暗，只列这一明暗下的主题（`GlobalThemeCatalog.ids(offeredIn:)`）。
+  init(selected: String, document: [String: Any]? = MetasequoiaInputSessionBridge.loadSharedPreferences(), dark: Bool,
+       showsHeader: Bool = true,
        formFactor: KeyboardFormFactor = .phone,
        onSelect: @escaping (String) -> Void, onSelectDesign: @escaping (CustomKeyboardSkin) -> Void, onClose: @escaping () -> Void) {
     grid = KeyboardPagedGridView(
@@ -30,7 +31,7 @@ final class KeyboardSkinPickerView: UIView {
     backgroundColor = showsHeader ? .secondarySystemBackground : .clear
     grid.apply(skin: panel)
 
-    var tiles: [KeyboardSkinTileView] = GlobalThemeCatalog.ids.map { id in
+    var tiles: [KeyboardSkinTileView] = GlobalThemeCatalog.ids(offeredIn: dark).map { id in
       let skin = KeyboardTheme.resolve(id, document: document)
       let tile = KeyboardSkinTileView(preview: skin, title: skin.title, selected: skin.id == selected, panel: panel)
       tile.accessibilityIdentifier = "skinCard-\(skin.id)"

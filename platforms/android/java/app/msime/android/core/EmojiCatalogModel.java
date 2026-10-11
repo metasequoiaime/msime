@@ -1,7 +1,6 @@
 package app.msime.android;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.function.Predicate;
 
@@ -53,10 +52,8 @@ public final class EmojiCatalogModel {
 
     public static Page validatePage(
             List<Item> items, int requestedOffset, int limit, long nextOffset, boolean complete) {
-        if (requestedOffset < 0 || limit < 1 || limit > 255 || items == null
-                || items.size() > limit || nextOffset < requestedOffset
-                || nextOffset > (long) requestedOffset + limit
-                || nextOffset > Integer.MAX_VALUE || (!complete && nextOffset == requestedOffset))
+        if (limit > 255 || items == null
+                || !BoundsPolicy.validPageCursor(requestedOffset, items.size(), limit, nextOffset, complete))
             throw new IllegalArgumentException("Invalid emoji catalog page");
         return new Page(items, (int) nextOffset, complete);
     }
@@ -70,28 +67,17 @@ public final class EmojiCatalogModel {
 
     /** Most-recent first, deduplicated, and bounded without retaining invalid persisted values. */
     public static List<String> normalizeRecents(List<String> stored) {
-        LinkedHashSet<String> unique = new LinkedHashSet<>(RECENTS_LIMIT);
-        if (stored != null) {
-            for (String text : stored) {
-                if (text == null || text.isEmpty()
-                        || !TextPolicy.withinCodePoints(text, MAX_TEXT_CODE_POINTS)) continue;
-                unique.add(text);
-                if (unique.size() == RECENTS_LIMIT) break;
-            }
-        }
-        return List.copyOf(unique);
+        return ListPolicy.normalizeRecents(stored, RECENTS_LIMIT,
+            text -> text != null && !text.isEmpty()
+                && TextPolicy.withinCodePoints(text, MAX_TEXT_CODE_POINTS));
     }
 
     public static List<String> recordRecent(List<String> stored, String selected) {
         if (selected == null || selected.isEmpty()
                 || !TextPolicy.withinCodePoints(selected, MAX_TEXT_CODE_POINTS))
             throw new IllegalArgumentException("Invalid recent emoji");
-        ArrayList<String> reordered = new ArrayList<>(RECENTS_LIMIT);
-        reordered.add(selected);
-        for (String text : normalizeRecents(stored)) {
-            if (!selected.equals(text)) reordered.add(text);
-            if (reordered.size() == RECENTS_LIMIT) break;
-        }
-        return List.copyOf(reordered);
+        return ListPolicy.recordRecent(stored, selected, RECENTS_LIMIT,
+            text -> text != null && !text.isEmpty()
+                && TextPolicy.withinCodePoints(text, MAX_TEXT_CODE_POINTS));
     }
 }

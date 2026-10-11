@@ -879,6 +879,28 @@ group("bounds and deduplicates asynchronous online AI candidates", () => {
   );
 });
 
+group("online candidate identity changes with provider eligibility", () => {
+  const query = {
+    generation: 1,
+    session_id: 7,
+    identity: "fixture",
+    cache_key: "ni'hao",
+    cloud_eligible: true,
+    ai_eligible: true,
+    cloud_candidates: true,
+    ai_assistant: { enabled: true, model: "fixture", candidate_limit: 2 },
+  };
+  const original = OnlineCandidatePolicy.signature(query);
+  check(
+    OnlineCandidatePolicy.signature({ ...query, cloud_eligible: false }) !== original,
+    "cloud eligibility invalidates an online request while AI remains eligible",
+  );
+  check(
+    OnlineCandidatePolicy.signature({ ...query, ai_eligible: false }) !== original,
+    "AI eligibility invalidates an online request while cloud remains eligible",
+  );
+});
+
 group("native success replies require a value", () => {
   check(NativeReplyPolicy.hasValue({}), "an object value is present");
   check(

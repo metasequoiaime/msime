@@ -1,6 +1,6 @@
-import { useState } from "react";
 import type { HostCapabilities } from "../index";
 import { GroupList, Row } from "../core/platform-controls";
+import { useTemporaryFlag } from "../core/use-temporary-flag";
 import { ActionButton } from "./action-button";
 import * as doc from "./document-style";
 import { platformOsName } from "./label-helpers";
@@ -63,15 +63,9 @@ export interface SystemInfoSectionProps extends SystemInfoSource {
 
 /** 「关于」页的「系统信息」分组：逐项列出，最后一行一键复制，反馈问题时贴进报告。 */
 export function SystemInfoSection({ copyText, ...source }: SystemInfoSectionProps) {
-  const [copied, setCopied] = useState(false);
+  const [copied, showCopied] = useTemporaryFlag(1600);
   const entries = systemInfoEntries(source);
-  const copy = copyText
-    ? () =>
-        copyText(systemInfoText(entries)).then(() => {
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 1600);
-        })
-    : undefined;
+  const copy = copyText ? () => copyText(systemInfoText(entries)).then(showCopied) : undefined;
   return (
     <GroupList title="系统信息">
       {entries.map(({ label, value }) => (

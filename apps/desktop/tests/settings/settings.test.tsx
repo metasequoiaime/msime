@@ -5057,6 +5057,79 @@ test("Android AI skin draw prepares artwork, saves a proposal and continues edit
   expect(screen.queryByRole("dialog", { name: "AI 皮肤抽卡" })).toBeNull();
 });
 
+test("AI skin draw drops a result that arrives after cancellation", async () => {
+  const generatedProposals = [
+    {
+      name: "取消后不应显示",
+      description: "合成设计说明",
+      artworkPrompt: "原创背景场景，中央留白",
+      design: savedSkinDesign(),
+      artwork: {
+        b64_json:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        mime_type: "image/png" as const,
+        width: 1,
+        height: 1,
+      },
+    },
+  ];
+  const pendingGenerate = deferred<typeof generatedProposals>();
+  const pendingRetry = deferred<typeof generatedProposals>();
+  const cancel = vi.fn().mockResolvedValue(undefined);
+  const aiSkins = {
+    generate: vi
+      .fn()
+      .mockReturnValueOnce(pendingGenerate.promise)
+      .mockReturnValueOnce(pendingRetry.promise),
+    cancel,
+    onProgress: vi.fn().mockResolvedValue(() => {}),
+  };
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        customTouchKeyboardSkins: true,
+        aiSkins,
+        customSkinLibrary: { load: async () => [], mutate: vi.fn() },
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
+  fireEvent.click(screen.getByRole("button", { name: "设计我的皮肤" }));
+  const editor = screen.getByLabelText("自定义皮肤编辑器");
+  await waitFor(() =>
+    expect(
+      (within(editor).getByRole("button", { name: "AI 皮肤抽卡" }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(within(editor).getByRole("button", { name: "AI 皮肤抽卡" }));
+  fireEvent.click(screen.getByRole("button", { name: "抽三张皮肤" }));
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(screen.getByText("已取消生成")).toBeTruthy();
+  const draw = screen.getByRole("button", { name: "抽三张皮肤" }) as HTMLButtonElement;
+  expect(draw.disabled).toBe(false);
+  fireEvent.click(draw);
+  expect(aiSkins.generate).toHaveBeenCalledTimes(2);
+  expect(draw.disabled).toBe(true);
+
+  await act(async () => {
+    pendingGenerate.resolve(generatedProposals);
+    await pendingGenerate.promise;
+  });
+  expect(screen.queryByRole("heading", { name: "取消后不应显示" })).toBeNull();
+  expect(draw.disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "取消" })).toBeTruthy();
+
+  await act(async () => {
+    pendingRetry.resolve([{ ...generatedProposals[0], name: "重新抽取成功" }]);
+    await pendingRetry.promise;
+  });
+  expect(await screen.findByRole("heading", { name: "重新抽取成功" })).toBeTruthy();
+  expect(draw.disabled).toBe(false);
+});
+
 test("AI skin publish ignores a same-tick duplicate submission", async () => {
   const pendingPublish = deferred<void>();
   const publish = vi.fn().mockReturnValue(pendingPublish.promise);

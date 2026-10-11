@@ -35,7 +35,7 @@ import urllib.request
 from pathlib import Path
 
 CHUNK = 1024 * 1024
-# 国内镜像（阿里云 OSS 香港，见 msime-web README「国内镜像」）：`<前缀><原地址>`，没缓存过的发布资产由 OSS 回源 GitHub。国内直连 GitHub 下载词库常常只有几十 KB/s。MSIME_DOWNLOAD_MIRROR 可以换成别的前缀，设为空串则只用原地址（测试靠它不出网）。
+# 国内镜像（Cloudflare R2，见 msime-web README「国内镜像」）：`<前缀><原地址>`，没缓存过的发布资产由镜像从 GitHub 取一次后留存。国内直连 GitHub 下载词库常常只有几十 KB/s。MSIME_DOWNLOAD_MIRROR 可以换成别的前缀，设为空串则只用原地址（测试靠它不出网）。
 MIRROR_PREFIX = os.environ.get("MSIME_DOWNLOAD_MIRROR", "https://dl.msime.app/gh/")
 # IBus, Fcitx5 and the host refresh path all reject runtime-options.json above this size.
 RUNTIME_OPTIONS_LIMIT = 16 * 1024

@@ -3,13 +3,10 @@ import { privacyUrl } from "../settings/app-resources";
 import { AccountInputField } from "./account-input-field";
 import { AccountStatusMessages } from "./account-status-messages";
 import { useAccountAction } from "./account-operation";
+import { useAccountGoogleLogin } from "./use-account-google-login";
+import { useAccountVerification, type AccountChannel } from "./use-account-verification";
 import * as account from "./account-style";
-import type {
-  AccountChallenge,
-  AccountClient,
-  AccountProviders,
-  AccountUser,
-} from "./account-page";
+import type { AccountClient, AccountProviders, AccountUser } from "./account-page";
 
 /**
  * HarmonyOS 手机的底部面板：页面上覆盖一层 .35 的遮罩，再从底边升起一张卡片，带拖动条、22px 标题、可选副标题和 30px 关闭按钮。遮罩、关闭按钮和 Escape 都能关闭它，除非 `closeDisabled` 在其操作进行期间让它保持打开。
@@ -109,8 +106,6 @@ export function BottomSheet({
   );
 }
 
-type Channel = "email" | "phone";
-
 /**
  * HarmonyOS 手机上的「登录水杉」：把页面原先内嵌绘制的邮箱和手机验证码登录放进设计里的底部面板，再加上宿主提供时的 Google 登录。HarmonyOS 没有 Apple 登录；Google 登录由宿主用系统浏览器加本机回环完成（`googleLogin`），面板只显示等待和取消。页面从未登录的个人资料卡片打开它，其他页面要求登录时也直接打开。
  *
@@ -135,94 +130,53 @@ export function LoginSheet({
 }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [channel, setChannel] = useState<Channel | null>(null);
-  const [target, setTarget] = useState("");
-  const [code, setCode] = useState("");
-  const [challenge, setChallenge] = useState<AccountChallenge | null>(null);
-  const [expiresAt, setExpiresAt] = useState(0);
-  const [resendAt, setResendAt] = useState(0);
-  const [now, setNow] = useState(() => Date.now());
-  const [googleWaiting, setGoogleWaiting] = useState(false);
-  const googleWaitingRef = useRef(false);
   const { busy, mounted, clientGeneration, perform } = useAccountAction(
     client,
     setError,
     setNotice,
   );
-
-  const cancelGoogle = () => {
-    if (!googleWaitingRef.current || !client.googleCancel) return;
-    // 同一次等待只取消一次：关面板时 onClose 和卸载清理都会走到这里。
-    googleWaitingRef.current = false;
-    // 等着的 googleLogin 会报告结果；取消失败只说明已经没有可取消的了。
-    void client.googleCancel().catch(() => undefined);
-  };
+  const {
+    channel,
+    target,
+    code,
+    setCode,
+    challenge,
+    expiresAt,
+    resendSeconds,
+    expired,
+    selectChannel,
+    updateTarget,
+    sendCode,
+    signIn: runVerificationSignIn,
+  } = useAccountVerification({ client, mounted, clientGeneration, setNotice });
+  const {
+    waiting: googleWaiting,
+    cancel: cancelGoogle,
+    signIn: runGoogleLogin,
+  } = useAccountGoogleLogin({ client, mounted, clientGeneration, cancelOnce: true });
 
   // 关掉面板或换了客户端时，不留一个还在等浏览器的本机监听。
   useEffect(() => () => cancelGoogle(), [client]);
 
-  useEffect(() => {
-    if (!challenge) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [challenge]);
-
-  const chooseChannel = (value: Channel) => {
+  const chooseChannel = (value: AccountChannel) => {
     if (value === channel) return;
-    setChannel(value);
-    setTarget("");
-    setCode("");
-    setChallenge(null);
+    selectChannel(value);
     setError("");
     setNotice("");
   };
 
-  const requestCode = () =>
-    void perform(async () => {
-      const generation = clientGeneration.current;
-      if (!channel) return;
-      const normalized = target.trim();
-      if (!normalized) throw { code: "account_invalid" };
-      const value = await client.requestCode(channel, normalized);
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      const timestamp = Date.now();
-      setNow(timestamp);
-      setChallenge(value);
-      setExpiresAt(timestamp + value.expiresIn * 1000);
-      setResendAt(timestamp + 60_000);
-      setCode("");
-      setNotice("验证码已发送，请查收。");
-    });
+  const requestCode = () => void perform(sendCode);
 
   const signIn = () =>
     void perform(async () => {
-      const generation = clientGeneration.current;
-      if (!challenge || !/^\d{6}$/.test(code) || expiresAt <= Date.now())
-        throw { code: "account_invalid" };
-      const result = await client.login(challenge.challengeId, code);
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      if (!result.user) throw { code: "account_unavailable" };
-      onSignedIn(result.user);
+      const result = await runVerificationSignIn();
+      if (result) onSignedIn(result.user);
     });
 
   const signInWithGoogle = () =>
     void perform(async () => {
-      const generation = clientGeneration.current;
-      if (!client.googleLogin) throw { code: "account_unavailable" };
-      googleWaitingRef.current = true;
-      setGoogleWaiting(true);
-      let result: { user?: AccountUser | null };
-      try {
-        result = await client.googleLogin();
-      } finally {
-        if (mounted.current && generation === clientGeneration.current) {
-          googleWaitingRef.current = false;
-          setGoogleWaiting(false);
-        }
-      }
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      if (!result.user) throw { code: "account_unavailable" };
-      onSignedIn(result.user);
+      const result = await runGoogleLogin();
+      if (result) onSignedIn(result.user);
     });
 
   const refreshProviders = () =>
@@ -241,8 +195,6 @@ export function LoginSheet({
       onClearedExpired();
     });
 
-  const resendSeconds = Math.max(0, Math.ceil((resendAt - now) / 1000));
-  const expired = Boolean(challenge) && expiresAt <= now;
   const targetLabel = channel === "email" ? "邮箱地址" : "手机号（含国家区号）";
   // 后端可能为没有对应客户端的宿主也开着 Google，所以还要看宿主有没有 googleLogin。
   const googleAvailable = providers.google === true && Boolean(client.googleLogin);
@@ -314,9 +266,7 @@ export function LoginSheet({
               disabled={busy}
               autoFocus
               onChange={(value) => {
-                setTarget(value);
-                setChallenge(null);
-                setCode("");
+                updateTarget(value);
               }}
             />
             <button

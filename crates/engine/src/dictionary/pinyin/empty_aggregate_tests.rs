@@ -165,6 +165,27 @@ fn sparse_longer_pages_do_not_reserve_all_future_limit_slots() {
 }
 
 #[test]
+fn first_nonempty_longer_page_reuses_page_storage() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = pinyin_db(
+        directory.path(),
+        &[("tbl_3_p", "ping'guo'shu", "首个页面", 10)],
+    );
+    let database = PinyinDatabase::open(&path);
+    let key = segments(&["ping", "guo"]);
+    // limit 为 1 时首个页面正好填满，验证页面存储可以直接接管。
+    let limit = 1;
+    drop(original_query_longer_phrases(&database, &key, 3, limit));
+    drop(database.query_longer_phrases(&key, 3, limit));
+    let (old, before) = count(|| original_query_longer_phrases(&database, &key, 3, limit));
+    let (new, after) = count(|| database.query_longer_phrases(&key, 3, limit));
+    assert_eq!(new, old);
+    assert_eq!(after + 1, before);
+    assert_eq!(new.capacity(), limit);
+    assert_eq!(old.capacity(), 3 * limit);
+}
+
+#[test]
 fn aggregate_hits_keep_fields_order_and_bounded_storage() {
     let directory = tempfile::tempdir().unwrap();
     let path = pinyin_db(

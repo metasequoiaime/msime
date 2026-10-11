@@ -43,10 +43,7 @@ public final class InputDiagnosticPolicy {
         String chinese = CHINESE.get(normalized);
         if (chinese != null) return chinese;
         if (normalized.length() <= MAX_LENGTH) return normalized;
-        int end = MAX_LENGTH - 1;
-        // 避免截断 emoji 时把孤立的高代理项带入诊断提示。
-        if (end > 0 && Character.isHighSurrogate(normalized.charAt(end - 1))) end--;
-        return normalized.substring(0, end) + "…";
+        return TextPolicy.clipSurrogateSafe(normalized, MAX_LENGTH - 1) + "…";
     }
 
     public static boolean visible(String value) {

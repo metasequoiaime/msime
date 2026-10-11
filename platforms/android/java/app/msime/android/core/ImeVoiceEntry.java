@@ -455,7 +455,8 @@ final class ImeVoiceEntry {
         try {
             worker.execute(() -> {
                 if (lifecycleGeneration != s.inputLifecycleGeneration()
-                        || !s.imePrivacyGate.contributesVoice()) return;
+                        || !s.imePrivacyGate.contributesVoice()
+                        || !AndroidLocalSettings.load(s).bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO)) return;
                 try {
                     new VoiceContributionApi(new CloudApi(s)).upload(contribution);
                 } catch (CloudApi.Failure | RuntimeException error) {

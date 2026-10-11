@@ -114,13 +114,22 @@ enum ChineseInputScheme: String, CaseIterable {
   /// 这个方案在云端设置文档里的 `input.schema`，云端带不了的方案为 nil。云端只认 quanpin、shuangpin、wubi、japanese 和 korean，任何设备收到其他值都会拒绝整份文档（`IOSPreferencePlan`），所以粤拼、注音、越南语、藏文和笔画不写这个字段，保留账号里的方案，与 Tauri 的 `local_account_preferences` 一致。
   var cloudSchema: String? {
     switch self {
-    // 全拼 14 键在云端还没有自己的键，按全拼上传（`platform.ios.nine_key` 为 false），在别的设备上落成全拼 26 键。
+    // 全拼的 26 键、9 键、14 键和手写都是全拼，用哪种键盘由 `cloudKeyboardLayout` 说明。
     case .quanpin, .nineKey, .fourteenKey, .handwriting: "quanpin"
     case .shuangpin, .ziranma, .microsoft, .shoudao: "shuangpin"
     case .wubi: "wubi"
     case .japanese, .japaneseNineKey: "japanese"
     case .korean: "korean"
     case .cantonese, .zhuyin, .vietnamese, .tibetan, .stroke: nil
+    }
+  }
+  /// 这个方案在云端的 `platform.ios.keyboard_layout`，与 Android 的 `platform.android.keyboard_layout` 同一套词。只随 `input.schema` 一起上传；旧版本不认识它，所以同时照旧上传 `platform.ios.nine_key`，那台设备上 14 键和手写落成全拼 26 键。
+  var cloudKeyboardLayout: String {
+    switch self {
+    case .nineKey, .japaneseNineKey: "nine_key"
+    case .fourteenKey: "fourteen_key"
+    case .handwriting: "handwriting"
+    default: "twenty_six_key"
     }
   }
   static func scheme(sharedIdentifier value: String) -> ChineseInputScheme? {

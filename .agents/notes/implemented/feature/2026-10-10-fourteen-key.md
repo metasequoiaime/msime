@@ -78,7 +78,7 @@ View 的 `key_grid` 是 `"none" | "nine_key" | "fourteen_key"`，`nine_key: bool
 
 - Android 直接上传 `platform.android.keyboard_layout = "fourteen_key"`；服务端接受 32 字节以内的任意字符串，旧版客户端遇到未知值只跳过这一个键。
 - 鸿蒙导入端的 LAYOUTS 有 `fourteen_key`，这个键的未知值从「整份拒收」改为跳过。本版导出时本机是 `fourteen_key` 就省略这个键；上传按 merge 覆盖云端快照，省略等于保留云端旧值，旧鸿蒙不会拒收。下一版再开放导出。
-- iOS 云端只有布尔键 `platform.ios.nine_key`，这一版 14 键上传 `input.schema=quanpin`、`nine_key=false`，在别的设备上落成全拼 26 键；`platform.ios.keyboard_layout` 是 msime-cloud 仓库之后的改动。在本机「应用云端设置」时，云端是这组值而本机是 14 键就保留本机：原生 App 经 `IOSPreferencePlan.scheme(keeping:)`，Tauri 公共组件的 iOS 工程经 `IosPreferencePlan::requested_native`，同一条规则。云端是九键或别的方案时照常切换。
+- iOS 云端只有布尔键 `platform.ios.nine_key`，这一版 14 键上传 `input.schema=quanpin`、`nine_key=false`，在别的设备上落成全拼 26 键；`platform.ios.keyboard_layout` 是 msime-cloud 仓库之后的改动，已由 [iOS 账号同步带上触屏键盘布局](2026-10-11-ios-keyboard-layout-sync.md) 接上，下面保留 14 键的规则只对没有这个键的旧文档生效。在本机「应用云端设置」时，云端是这组值而本机是 14 键就保留本机：原生 App 经 `IOSPreferencePlan.scheme(keeping:)`，Tauri 公共组件的 iOS 工程经 `IosPreferencePlan::requested_native`，同一条规则。云端是九键或别的方案时照常切换。
 - client-core 先于任何宿主认识 `fourteen_key`：偏好严格解析，未知值会让整份偏好读不出来。
 
 ### Android 宿主
@@ -144,7 +144,7 @@ View 的 `key_grid` 是 `"none" | "nine_key" | "fourteen_key"`，`nine_key: bool
   - 14 键歧义仍高（86 种重码，另有 sha 对 a'ga 这类跨音节歧义），常量沿用九键的。真实词库下 bu 和 ni 同组码，BN UI GH AS OP 的首选是「不好」，「你好」排第二；三端手工验收以「你好」在候选里、锁定 ni 后成为首选为准。
   - 候选行的 `pinyin` 字段在 14 键下是组码字母，凡是把它当真拼音用的地方都会悄悄出错；宿主不能展示候选的 `pinyin`。
   - 降级：选了 14 键后装回旧版，偏好严格解析整份读不出来。照现有的严格解析接受这个代价，写进发布说明；宿主绝不能先于 client-core 写 `fourteen_key`。
-  - iOS 的 14 键不跨设备同步，别的设备落成全拼 26 键；本机应用云端时保留 14 键的规则也意味着，另一台设备上特意选的全拼 26 键不会覆盖这台的 14 键。`platform.ios.keyboard_layout` 落地后这两条都要重访。
+  - iOS 的 14 键不跨设备同步，别的设备落成全拼 26 键；本机应用云端时保留 14 键的规则也意味着，另一台设备上特意选的全拼 26 键不会覆盖这台的 14 键。`platform.ios.keyboard_layout` 落地后这两条都要重访（已重访，见 [iOS 账号同步带上触屏键盘布局](2026-10-11-ios-keyboard-layout-sync.md)）。
   - 三端的非穷举判断（`== QUANPIN_NINE_KEY_LAYOUT`、`== .nineKey`、`=== 'nine_key'`）以后再加布局，还要逐处列清单。
   - 14 键 golden 没有 C++ 参考实现，预期由 Rust 自己生成，只防回归，正确性以单测和评测为准。
   - 皮肤预览、引导页和打字统计热力图对 14 键用户仍画 26 键或九键；14 键热力图键盘下一步再画（键位 id 已经记录）。

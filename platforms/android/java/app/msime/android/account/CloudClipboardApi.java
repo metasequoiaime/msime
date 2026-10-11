@@ -78,9 +78,8 @@ public final class CloudClipboardApi {
                 if (pinned == null || id == null || text == null || updated == null || device == null) {
                     throw invalid();
                 }
-                if (!validId(id) || !CloudClipboardTextPolicy.valid(text) || updated.isEmpty()
-                        || TextPolicy.utf8Length(updated) > 128 || TextPolicy.hasControl(updated)
-                        || !TextPolicy.validUnicode(updated)) throw invalid();
+                if (!validId(id) || !CloudClipboardTextPolicy.valid(text)
+                        || !TextPolicy.boundedNonEmpty(updated, 128)) throw invalid();
                 if (TextPolicy.utf8Length(device) > 128 || TextPolicy.hasControl(device)
                         || !TextPolicy.validUnicode(device)) device = "";
                 items.add(new Item(id, text, updated, pinned, device));

@@ -257,6 +257,48 @@ fn online_provider_deduplicates_before_enforcing_source_quota() {
 
 #[cfg(unix)]
 #[test]
+fn online_provider_filtered_sources_keep_empty_result_unallocated() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("online.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut line = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(stream.try_clone().unwrap()),
+            &mut line,
+        )
+        .unwrap();
+        std::io::Write::write_all(
+            &mut stream,
+            br#"{"candidates":[{"text":"cloud","source":0}]}"#,
+        )
+        .unwrap();
+        std::io::Write::write_all(&mut stream, b"\n").unwrap();
+    });
+    let query: OnlineQuery = serde_json::from_value(json!({
+        "scheme": 0,
+        "generation": 1,
+        "identity": "identity",
+        "query_text": "nihao",
+        "cache_key": "cache",
+        "pinyin_segments": ["ni", "hao"],
+        "cloud_eligible": true,
+        "cloud_candidates": false,
+        "ai_eligible": false,
+        "session_id": 5
+    }))
+    .unwrap();
+    let result = UnixSocketProvider::new(socket)
+        .query_candidates(query)
+        .unwrap();
+    assert!(result.is_empty());
+    assert_eq!(result.capacity(), 0);
+    server.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn online_provider_rejects_control_characters_in_query_fields() {
     let directory = private_tempdir();
     let socket = directory.path().join("missing.sock");

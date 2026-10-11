@@ -262,6 +262,15 @@ enum GlobalThemeCatalog {
   static func contains(_ id: String?) -> Bool { id.map { entry($0) != nil } ?? false }
   /// 自定义主题能画在其上的主题：`system` 或内置主题；`custom` 和只在部分宿主上提供的 `native` 不行（client-core `GlobalTheme::is_base`）。
   static func isBase(_ id: String?) -> Bool { contains(id) && id != customId && id != nativeId }
+  /// 固定明暗的主题只属于那一种明暗：浅色模式下不提供深色主题，深色模式下不提供浅色主题，否则键盘和周围的界面颜色反着，风格割裂。`system`、`custom` 和目录里没有的 id 没有固定明暗，两种模式都提供。
+  static func fits(_ id: String, dark: Bool) -> Bool {
+    guard let appearance = entry(id)?.appearance else { return true }
+    return (appearance == .dark) == dark
+  }
+  /// 某一明暗下提供的主题，按目录顺序。
+  static func ids(offeredIn dark: Bool) -> [String] { ids.filter { fits($0, dark: dark) } }
+  /// 某一明暗下实际生效的全局主题：所选主题属于另一种明暗时按 `system` 画。偏好里存的值不改，切回原来的明暗时原来的主题照旧生效。
+  static func effectiveId(_ id: String, dark: Bool) -> String { fits(id, dark: dark) ? id : systemId }
 }
 
 /// 候选皮肤包放进自定义主题的哪个槽位：它清单 `base` 的明暗（client-core `theme::skin_appearance`）。包也只在这个明暗下绘制。

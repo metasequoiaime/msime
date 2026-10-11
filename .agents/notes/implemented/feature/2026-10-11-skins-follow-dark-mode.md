@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-鸿蒙键盘的皮肤面板和设置里的皮肤网格，不管系统是浅色还是深色，都把五个内置主题全部列出来。浅色模式下选了「水杉」「夜」「墨」这类深色主题，键盘是黑的，周围的应用、工具栏、候选栏和设置页是白的，风格很割裂；深色模式下选「浅色」「纸白」也一样。
+鸿蒙、Android 和 iOS 的键盘皮肤面板和设置里的皮肤页，不管系统是浅色还是深色，都把五个内置主题全部列出来；Android 和 iOS 还让固定明暗的主题盖过系统明暗，把整个键盘拉到主题自己的明暗。浅色模式下选了「水杉」「夜」「墨」这类深色主题，键盘是黑的，周围的应用、工具栏、候选栏和设置页是白的，风格很割裂；深色模式下选「浅色」「纸白」也一样。
 
 ## Decision
 
@@ -14,6 +14,8 @@ Status: implemented
 - 已选的主题属于另一种明暗时，按 `system` 画，面板和网格里也是「跟随系统」显示为选中。所选的值不改写：切回原来的明暗，原来的主题照旧生效。
 - 设置页皮肤网格里的外部皮肤包按 `skinDrawsIn(base, dark)` 同样过滤。
 - 鸿蒙键盘侧由 `GlobalTheme.fitsMode` / `GlobalTheme.effectiveId` 决定，`KeyboardSession.resolveTheme`、`keyboardSkin`、`themeSkins` 都经过它；设置页侧在 `skinGridCards` 里做同样的判断。
+- Android 由 `KeyboardSkin.fitsMode` / `KeyboardSkin.effectiveTheme` 决定：键盘的 `MSIMEInputService.surfaceSkin`（键盘、候选条、表情和手写面板都经过它，各按自己那块面板的明暗）、键盘里的皮肤面板 `ImePanels.renderSkinPicker`、设置侧的 `HostStore.keyboardSkin` 和皮肤页 `SkinsPage`。
+- iOS 由 `GlobalThemeCatalog.fits` / `ids(offeredIn:)` / `effectiveId` 决定。键盘把自己的明暗交给 `KeyboardTheme.reload(_:dark:)`，于是 `KeyboardTheme.current` 本身就是实际生效的主题，七十多处读它的地方不用改；明暗变化时（`traitCollectionDidChange`）重新解析。键盘的 `overrideUserInterfaceStyle` 只按「键盘明暗」偏好设置，不再按主题的固定明暗设置：否则选了「夜间」键盘先被拉成深色，再读到深色，「夜间」就永远合适，规则形同虚设。候选条配色 `CandidatePalette.resolveTheme` 和 App 的皮肤页 `SkinSettingsView` 也按同样规则过滤和选中；App 里没有键盘自己的明暗，「键盘明暗」跟随时取应用外观，与 `CandidatePreviewCard` 相同。
 
 ## Alternatives considered
 
@@ -23,4 +25,4 @@ Status: implemented
 ## Consequences
 
 - **收益**：键盘和周围界面的明暗始终一致；切换系统明暗不丢失所选主题。
-- **代价**：想在浅色系统里用深色键盘的人做不到了，只能用「自定义」。这次在模拟器上验证了浅色模式（面板只列跟随系统、浅色、纸白、自定义），深色模式只有单元测试覆盖。
+- **代价**：想在浅色系统里用深色键盘的人做不到了，只能把「键盘明暗」设成深色，或者用「自定义」。鸿蒙在模拟器上验证了浅色模式（面板只列跟随系统、浅色、纸白、自定义），深色模式只有单元测试覆盖；Android 只有主机侧冒烟测试和编译，iOS 只有模拟器上的单元测试，都没有在设备上切换明暗看过。

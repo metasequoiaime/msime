@@ -47,9 +47,7 @@ public final class VoiceContributionApi {
     }
 
     private static boolean nonEmpty(String value) {
-        return value != null && !value.isEmpty()
-            && TextPolicy.utf8Length(value) <= MAX_METADATA_FIELD_LENGTH
-            && !TextPolicy.hasControl(value) && TextPolicy.validUnicode(value);
+        return TextPolicy.boundedNonEmpty(value, MAX_METADATA_FIELD_LENGTH);
     }
 
     /** 上传一次贡献，返回服务端给的 id。不合规的贡献直接拒绝，不发请求。 */

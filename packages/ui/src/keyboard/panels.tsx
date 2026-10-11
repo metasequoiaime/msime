@@ -1,3 +1,4 @@
+import { downloadBlob } from "../core/download-blob";
 import { useConfirm } from "../core/confirm";
 import { clamp } from "../core/number";
 import { utf8ByteLength } from "../core/text";
@@ -2503,18 +2504,11 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       }
       const text = cloudResponseText(result);
       if (typeof text !== "string") throw new Error("provider returned no file");
-      const anchor = document.createElement("a");
-      const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
-      anchor.href = url;
-      anchor.download = result.filename || `msime-${kind}-dictionary.tsv`;
-      document.body.appendChild(anchor);
-      try {
-        anchor.click();
-        setNotice("云词库已导出");
-      } finally {
-        anchor.remove();
-        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      }
+      downloadBlob(
+        new Blob([text], { type: "text/plain;charset=utf-8" }),
+        result.filename || `msime-${kind}-dictionary.tsv`,
+      );
+      setNotice("云词库已导出");
     }, "导出失败，请确认 provider 已连接");
   }
 
@@ -2531,20 +2525,11 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       }
       const text = cloudResponseText(result);
       if (typeof text !== "string" || !text) throw new Error("provider returned no snapshot");
-      const anchor = document.createElement("a");
-      const url = URL.createObjectURL(
+      downloadBlob(
         new Blob([text], { type: "application/x-ndjson;charset=utf-8" }),
+        result.filename || "msime-dictionary-snapshot.ndjson",
       );
-      anchor.href = url;
-      anchor.download = result.filename || "msime-dictionary-snapshot.ndjson";
-      document.body.appendChild(anchor);
-      try {
-        anchor.click();
-        setNotice("完整云词库快照已导出");
-      } finally {
-        anchor.remove();
-        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      }
+      setNotice("完整云词库快照已导出");
     } catch {
       if (mounted.current && lifecycle === lifecycleRevision.current)
         setNotice("导出完整云词库快照失败");

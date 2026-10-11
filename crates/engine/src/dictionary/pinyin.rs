@@ -180,6 +180,11 @@ impl PinyinDatabase {
                 query_capacity(limit),
             );
             if !page.is_empty() {
+                if rows.is_empty() && page.len() == limit {
+                    // 首个非空页直接接管，避免再分配并搬移一份相同的行存储。
+                    rows = page;
+                    continue;
+                }
                 // 短页只按实际行数预留，满页才按剩余页的上限一次性预留。
                 let remaining_pages = extra_syllables - extra + 1;
                 let planned = if page.len() == limit {
