@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-**进程开关。** `msime_client_scripts_enable(bool) -> bool` 是进程级的 `AtomicBool`，返回开关的实际状态，在 `msime_client.h` 声明。只在桌面开发构建里生效：`cfg(debug_assertions)` 之外和移动端恒返回 false，`on` 被忽略。4 个桌面入口在第一个会话之前各调用一次 `msime_client_scripts_enable(true)`：
+**进程开关。** `msime_client_scripts_enable(bool) -> bool` 是进程级的 `AtomicBool`，返回开关的实际状态，在 `msime_client.h` 声明。在桌面上生效，移动端恒返回 false，`on` 被忽略。在授权的加固落地之前它还要求 `cfg(debug_assertions)`，release 构建恒为 false；加固随 [授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md) 落地后，这个条件去掉了。4 个桌面入口在第一个会话之前各调用一次 `msime_client_scripts_enable(true)`：
 
 | 宿主 | 进程 | 调用位置 |
 |---|---|---|
@@ -71,12 +71,12 @@ Mac Studio（arm64，同时跑着 CI runner，数字有抖动，同一份测量�
 
 - 由 `measure_delivery_cost`（`crates/host-api/src/tests/script_plugins.rs`，默认忽略）直接对着会话的脚本集合量，十万次取平均；一次按键的派发本身是几十到几百微秒，抖动远大于脚本这点开销，所以不从整键时间里减。夹具的词库里 `ni` 只有一个候选，测量照着它补满一页。这是测试构建：墙钟熔断的计时换成了测试开关，进程开关和 panic 总开关读的是线程局部变量，产品里每次投递还多一次 `Instant::elapsed`。dev 比 release 慢约 3 倍，是因为 host-api 自己没有 opt-level 覆盖。
 - 体积只做了归属估算，不是增量：release 的 `libmsime_host_api.dylib` 是 33.66 MB，`__text` 17.73 MB，按符号名归到解释器的代码约 0.95 MB（wasmparser 622 KB、wasmi 284 KB、msime-script-runtime 9 KB、host-api 的 `scripts` 模块 36 KB；libm 和 spin 的符号都被内联或裁掉了）。不含只读数据；泛型实例化按名字里出现 `wasmi`、`wasmparser` 计入；没有和改动之前的构建对比。
-- `cargo test --release -p msime-host-api the_real_process_switch_gates_delivery_and_stays_off_in_release_builds` 通过：release 构建里 `msime_client_scripts_enable(true)` 返回 false，打开之后也一个事件都不投递。
+- 这一测试现名 `the_real_process_switch_gates_delivery_in_debug_and_release_builds`，release 构建里打开开关也投递（见 [授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md)）。加固之前的版本 `cargo test --release -p msime-host-api the_real_process_switch_gates_delivery_and_stays_off_in_release_builds` 通过：release 构建里 `msime_client_scripts_enable(true)` 返回 false，打开之后也一个事件都不投递。
 - 没量：x64 `msime_host_api.dll` 的体积增量（Studio 没装 Windows 目标，要等 Windows 交叉构建或 CI 产物）；macOS 输入法可执行文件的体积增量（它静态链接 `libmsime_host_api.a`，要分别在改动前后构建输入法本身再比，上面的 dylib 归属代替不了）。
 
 ## Testing
 
-`cargo test -p msime-host-api`（`tests/script_plugins.rs` 22 例，外加默认忽略的测量）：普通字段收到全部观察类事件，按键不投递；SECURE、PRIVATE、ELEVATED、没有 KNOWN 位时一个事件都没有，换回普通字段照常运行；聚焦进新字段后属性确认之前什么都不运行（聚焦前报告过属性时 `focus_in` 照常投递，否则从第一个键开始）；字段变成 SECURE 时实例当场丢弃，回来后重建；没有授权时文本类 import 返回 `DENIED`，授权后读到上屏文本；`SELECTED` 只在 `candidate_selected` 里有，body 不带结束组字的标点；`read_composition` 下 `input` 带打的字符、`composition_update` 带预编辑串；每次 focus（含只有 `focus(true)` 的换字段）都重建实例；一个插件烧满 fuel 不影响下一个；同一轮里连发会用完轮配额，每个新键补满；同一轮里换字段重建的实例接着用这一轮剩下的配额，trap 过的插件这次聚焦里不再重建；三次聚焦各失败一次就停用，没停用之前失焦什么都不写，停用后 `script-health.json` 只有 id、哈希和类别，`revision` 变化后恢复；初始化失败立即停用；慢投递按墙钟熔断；没选择加入的会话什么都不运行；产品里的进程开关（不经测试覆盖）关着不投递，开发构建打开就投递，release 构建打开了也不投递；旁路调用的视图事件不投递；宿主一侧 panic 关掉全部脚本而上屏照常；后台编译时 panic 的模块被停用而不是一直等；磁盘上的包经后台编译线程编译后运行；哈希对不上的授权从不运行。`lifecycle_alloc.rs` 的零分配断言不变（没有脚本时投递路径在第一项检查就返回）。`scripts/test-script-plugin-hosts.py` 守住入口。
+`cargo test -p msime-host-api`（`tests/script_plugins.rs` 22 例，授权页落地后加上 MAC 的那一例是 23 例，外加默认忽略的测量）：普通字段收到全部观察类事件，按键不投递；SECURE、PRIVATE、ELEVATED、没有 KNOWN 位时一个事件都没有，换回普通字段照常运行；聚焦进新字段后属性确认之前什么都不运行（聚焦前报告过属性时 `focus_in` 照常投递，否则从第一个键开始）；字段变成 SECURE 时实例当场丢弃，回来后重建；没有授权时文本类 import 返回 `DENIED`，授权后读到上屏文本；`SELECTED` 只在 `candidate_selected` 里有，body 不带结束组字的标点；`read_composition` 下 `input` 带打的字符、`composition_update` 带预编辑串；每次 focus（含只有 `focus(true)` 的换字段）都重建实例；一个插件烧满 fuel 不影响下一个；同一轮里连发会用完轮配额，每个新键补满；同一轮里换字段重建的实例接着用这一轮剩下的配额，trap 过的插件这次聚焦里不再重建；三次聚焦各失败一次就停用，没停用之前失焦什么都不写，停用后 `script-health.json` 只有 id、哈希和类别，`revision` 变化后恢复；初始化失败立即停用；慢投递按墙钟熔断；没选择加入的会话什么都不运行；产品里的进程开关（不经测试覆盖）关着不投递，打开就投递（release 构建也一样，见 [授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md)）；旁路调用的视图事件不投递；宿主一侧 panic 关掉全部脚本而上屏照常；后台编译时 panic 的模块被停用而不是一直等；磁盘上的包经后台编译线程编译后运行；哈希对不上的授权从不运行。`lifecycle_alloc.rs` 的零分配断言不变（没有脚本时投递路径在第一项检查就返回）。`scripts/test-script-plugin-hosts.py` 守住入口。
 
 ## Alternatives considered
 
@@ -96,8 +96,8 @@ Mac Studio（arm64，同时跑着 CI runner，数字有抖动，同一份测量�
 - 收益：脚本只在 4 个桌面进程、普通字段、开发构建里运行，Windows TIP 从不打开开关并有契约检查守着；编译不在按键和 focus 路径上；坏插件只影响它自己，失败不改变上屏；健康文件和诊断行都不带文本。
 - 代价：每个事件对每个插件多一次进程级 `Mutex` 的加锁（熔断窗口）和一次 `catch_unwind`；宿主一侧投递一个事件在 release 里约 170 ns。不读文本的插件也在每次 focus 重建；trap 过的插件在这个字段里剩下的时间不运行；没在聚焦前报告属性的宿主，脚本收不到 `focus_in`。缓存里的模块按根目录淘汰，同一进程里哈希不断变化的包在重读授权之前会多占一份。健康文件说不出插件失败过几次、怎么失败的。
 - 在第 2 阶段各宿主接入生命周期（`msime_client_set_lifecycle`、`set_field_traits`、`key`）之前，没有任何会话满足运行条件，脚本实际上不会在产品里运行；开发构建里自测要等那些分支合入。
-- release 构建打开开关是第 5 阶段的事，前提是 [脚本插件进入插件包体系](2026-10-12-script-plugin-kind-and-grants.md) 写的三条对策（macOS 钥匙串 MAC、Windows 提权窗口不跑脚本、Linux 与 Windows 把残余风险写进授权页）都已落地。
-- 同一用户下伪造了授权的进程（U11）也能改 `revision` 让熔断复位，每复位一次就能再触发一次停用、读一次健康文件。macOS 的钥匙串 MAC（第 5 阶段）把 `revision` 也签进去；Linux 和 Windows 上这是 U11 已接受的残余风险的一部分。
+- release 构建打开开关是第 5 阶段的事，前提是 [脚本插件进入插件包体系](2026-10-12-script-plugin-kind-and-grants.md) 写的三条对策（macOS 钥匙串 MAC、Windows 提权窗口不跑脚本、Linux 与 Windows 把残余风险写进授权页）都已落地。三条对策和开关随 [授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md) 落地。
+- 同一用户下伪造了授权的进程（U11）也能改 `revision` 让熔断复位，每复位一次就能再触发一次停用、读一次健康文件。macOS 的钥匙串 MAC 把 `revision` 也签进去（[授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md)）；Linux 和 Windows 上这是 U11 已接受的残余风险的一部分。
 - 已知缺口：x64 DLL 和 macOS 输入法可执行文件的体积增量没量；wasmi 2.0 与 1.1.0 的差分 fuzz 没做（见 [沙箱运行时](2026-10-12-script-runtime-sandbox.md)）；pack-tool 还没有直接依赖运行时，`msime-pack run` 在第 6 阶段。
 
 相关：[桌面端生命周期核心](../../proposed/architecture/2026-10-11-desktop-lifecycle-core.md) 推导出这里投递的事件；[沙箱运行时](2026-10-12-script-runtime-sandbox.md) 提供 `ScriptInstance`、ABI 和配额；数据类插件的门控与诊断见 [插件门控如实显示](../bug-fix/2026-10-09-plugin-gates-and-wubi-table-modes.md)。
