@@ -191,9 +191,16 @@ impl Drop for Fixture {
     }
 }
 
-/// 本测试线程打开进程开关、清空脚本日志，建一个全拼会话（`ni`、`hao`、`nihao` 都有候选）。
+/// 测试进程的授权 MAC 密钥。密钥是进程级的、只认第一次交进来的那把，所以每个测试都交同一把。
+const TEST_GRANTS_KEY: [u8; script_grants::MAC_KEY_BYTES] = [5; script_grants::MAC_KEY_BYTES];
+
+/// 本测试线程打开进程开关、清空脚本日志，交进授权的 MAC 密钥（macOS 上没有它就没有条目生效），建一个全拼会话（`ni`、`hao`、`nihao` 都有候选）。
 fn fixture() -> Fixture {
     TEST_SWITCH.with(|switch| switch.set(Some(true)));
+    // SAFETY: 指针指向 32 个可读字节。
+    assert!(unsafe {
+        msime_client_script_grants_key(TEST_GRANTS_KEY.as_ptr(), TEST_GRANTS_KEY.len())
+    });
     TEST_PANICKED.with(|panicked| panicked.set(false));
     TEST_SLOW.with(|slow| slow.set(false));
     TEST_SCRIPT_LOG.with(|log| log.borrow_mut().clear());
@@ -269,7 +276,28 @@ fn install(fixture: &Fixture, scripts: &[Script], revision: u64) -> Vec<String> 
     hashes
 }
 
-fn write_grants(fixture: &Fixture, revision: u64, plugins: Vec<Value>) {
+/// 写授权文件。没写 `mac` 的条目用测试密钥按这个 `revision` 签名，和设置应用写出来的一样。
+fn write_grants(fixture: &Fixture, revision: u64, mut plugins: Vec<Value>) {
+    for entry in &mut plugins {
+        if entry.get("mac").is_some() {
+            continue;
+        }
+        let granted: CapabilitySet = entry["granted"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|name| Capability::parse(name.as_str().unwrap()).unwrap())
+            .collect();
+        entry["mac"] = script_grants::entry_mac(
+            &TEST_GRANTS_KEY,
+            revision,
+            entry["id"].as_str().unwrap(),
+            entry["hash"].as_str().unwrap(),
+            entry["enabled"].as_bool().unwrap(),
+            granted,
+        )
+        .into();
+    }
     let document = json!({ "format_version": 1, "revision": revision, "plugins": plugins });
     std::fs::write(
         script_grants::document_path(&fixture.plugins),
@@ -328,6 +356,49 @@ fn the_real_process_switch_gates_delivery_and_stays_off_in_release_builds() {
     assert!(!msime_client_scripts_enable(false));
     commit_nihao(fixture.handle);
     assert!(take_log().is_empty());
+}
+
+#[test]
+fn a_grant_whose_mac_does_not_verify_never_runs_on_macos() {
+    let fixture = fixture();
+    let hash = unique_hash(&fixture, "forged");
+    let module = || {
+        compile_text(
+            &logger(),
+            Declaration {
+                capabilities: CapabilitySet::EMPTY,
+                hooks: OBSERVE.iter().copied().collect::<HookSet>(),
+                memory_pages: 1,
+            },
+        )
+        .unwrap()
+    };
+    insert_ready(&fixture.plugins, &hash, module());
+    // 同一用户下的进程手写的条目：哈希对、启用了，但 MAC 是它自己的密钥签的。
+    let forged = script_grants::entry_mac(&[1; 32], 1, "forged", &hash, true, CapabilitySet::EMPTY);
+    write_grants(
+        &fixture,
+        1,
+        vec![json!({"id": "forged", "hash": hash, "enabled": true, "granted": [], "mac": forged})],
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    commit_nihao(fixture.handle);
+    // macOS 上不运行；Windows 和 Linux 不带 MAC，同一用户下的伪造是写在授权页上的残余风险。
+    assert_eq!(take_log().is_empty(), cfg!(target_os = "macos"));
+
+    // 设置应用用本进程的密钥签过名的同一条（`revision` 变了，重新聚焦时重读）照常运行。macOS 上上一次重读时没有条目生效，缓存里不再启用的模块已被淘汰，所以重新放进去。
+    insert_ready(&fixture.plugins, &hash, module());
+    write_grants(
+        &fixture,
+        2,
+        vec![json!({"id": "forged", "hash": hash, "enabled": true, "granted": []})],
+    );
+    assert_eq!(read(msime_client_focus(fixture.handle, false))["ok"], true);
+    msime_client_set_field_traits(fixture.handle, TRAIT_KNOWN);
+    assert_eq!(read(msime_client_focus(fixture.handle, true))["ok"], true);
+    take_log();
+    commit_nihao(fixture.handle);
+    assert!(!take_log().is_empty());
 }
 
 #[test]

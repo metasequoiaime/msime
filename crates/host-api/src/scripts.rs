@@ -121,6 +121,27 @@ fn switched_on() -> bool {
     }
 }
 
+/// `msime_client_script_grants_key` 的实现：把 macOS 宿主从钥匙串取到的密钥交给 client-core 的授权读取方。返回本进程现在用的是不是这把密钥；长度不对或移动端返回 false。
+pub(crate) fn set_grants_key(key: &[u8]) -> bool {
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos"))
+    ))]
+    {
+        msime_client_core::plugins::script_grants::set_mac_key(key)
+    }
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos"))
+    )))]
+    {
+        let _ = key;
+        false
+    }
+}
+
 /// 移动端没有脚本插件：同样的接口，什么都不做。解释器不进这些目标的产物。
 #[cfg(not(any(
     target_os = "macos",
