@@ -117,10 +117,22 @@ export function AiSkinGeneration({
 
   useEffect(
     () => () => {
-      if (requestRef.current && busy) void client.cancel(requestRef.current).catch(() => undefined);
+      if (requestRef.current) void client.cancel(requestRef.current).catch(() => undefined);
     },
-    [busy, client],
+    [client],
   );
+
+  const cancelGeneration = () => {
+    const id = requestRef.current;
+    if (!id) return;
+    // 先使本地请求代次失效；服务端取消可能在生成结果之后才返回，迟到的结果不能重新出现在页面上。
+    requestRef.current = "";
+    setRequestId("");
+    generateRunning.current = false;
+    setBusy(false);
+    setMessage("已取消生成");
+    void client.cancel(id).catch(() => undefined);
+  };
 
   const generate = async () => {
     if (busy || generateRunning.current) return;
@@ -146,15 +158,17 @@ export function AiSkinGeneration({
           },
         })),
       );
-      if (!mounted.current) return;
+      if (!mounted.current || requestRef.current !== id) return;
       setProposals(prepared);
     } catch (error) {
-      if (errorCode(error) !== "ai_skin_cancelled")
+      if (requestRef.current === id && errorCode(error) !== "ai_skin_cancelled")
         if (mounted.current) setMessage(aiSkinMessage(error));
     } finally {
-      generateRunning.current = false;
-      if (mounted.current) setBusy(false);
-      if (requestRef.current === id) requestRef.current = "";
+      if (requestRef.current === id) {
+        generateRunning.current = false;
+        requestRef.current = "";
+        if (mounted.current) setBusy(false);
+      }
     }
   };
 
@@ -282,11 +296,7 @@ export function AiSkinGeneration({
         {busy && (
           <StatusMessage role="status">
             主题插画已完成 {completed}/3，可能需要几分钟…{" "}
-            <ActionButton
-              action={() => client.cancel(requestRef.current)}
-              className="secondary"
-              label="取消"
-            />
+            <ActionButton action={cancelGeneration} className="secondary" label="取消" />
           </StatusMessage>
         )}
         {message && <StatusMessage role="status">{message}</StatusMessage>}
