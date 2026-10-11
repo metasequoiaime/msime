@@ -74,7 +74,65 @@ final class BackendPreferencesTests: XCTestCase {
     XCTAssertEqual(merged.revision, 42)
     XCTAssertEqual(merged.settings["appearance.page_size"], .integer(7))
     XCTAssertEqual(merged.settings["input.schema"], .string("wubi"))
-    XCTAssertThrowsError(try BackendAccountClient.mergedPreferences(base, replacing: ["platform.ios.nine_key": .boolean(true)], schema: schema))
+    XCTAssertThrowsError(try BackendAccountClient.mergedPreferences(base, replacing: ["platform.ios.nine_key": .boolean(true)], schema: schema),
+                         "nothing the server knows is a failed upload, not an empty success")
+    XCTAssertThrowsError(try BackendAccountClient.mergedPreferences(base, replacing: ["input.schema": .boolean(true)], schema: schema),
+                         "a known key with the wrong type is still refused")
+  }
+
+  /// 本机比服务端新：服务端字段表里还没有的键（例如 backend v0.54.0 之前的 `platform.ios.keyboard_layout`）留在本机，其余照常上传，与 Android 和 Tauri 的 iOS 工程一样按字段表过滤，不让整次上传失败。
+  func testKeysTheServerDoesNotKnowYetStayLocal() throws {
+    let base = BackendAccountClient.Preferences(revision: 3, settings: ["platform.android.keyboard_layout": .string("nine_key")])
+    let older = BackendAccountClient.PreferenceSchema(
+      fields: ["input.schema": .init(type: "string"), "platform.ios.nine_key": .init(type: "boolean")],
+      maximum_bytes: 65536, update_mode: "replace", revision_required: true)
+    let local: [String: BackendPreferenceValue] = [
+      "input.schema": .string("quanpin"), "platform.ios.nine_key": .boolean(false),
+      "platform.ios.keyboard_layout": .string("fourteen_key"),
+    ]
+    let merged = try BackendAccountClient.mergedPreferences(base, replacing: local, schema: older)
+    XCTAssertEqual(merged.settings, [
+      "platform.android.keyboard_layout": .string("nine_key"),
+      "input.schema": .string("quanpin"), "platform.ios.nine_key": .boolean(false),
+    ])
+    var fields = older.fields
+    fields["platform.ios.keyboard_layout"] = .init(type: "string")
+    let current = BackendAccountClient.PreferenceSchema(fields: fields, maximum_bytes: 65536, update_mode: "replace", revision_required: true)
+    XCTAssertEqual(try BackendAccountClient.mergedPreferences(base, replacing: local, schema: current)
+      .settings["platform.ios.keyboard_layout"], .string("fourteen_key"))
+  }
+
+  /// 有 `platform.ios.keyboard_layout` 时以它为准，没有时退回 `platform.ios.nine_key`；云端写明 26 键时本机的 14 键也照常换掉，不认识的布局当作没有。
+  func testKeyboardLayoutDecidesTheTouchSchemeWhenPresent() throws {
+    func plan(_ schema: String, layout: String?, nineKey: Bool? = nil) throws -> IOSPreferencePlan {
+      var values: [String: BackendPreferenceValue] = ["input.schema": .string(schema)]
+      if let layout { values["platform.ios.keyboard_layout"] = .string(layout) }
+      if let nineKey { values["platform.ios.nine_key"] = .boolean(nineKey) }
+      return try IOSPreferencePlan(values, themes: themes)
+    }
+    // 新版本上传的 14 键：别的 iOS 设备落成 14 键。
+    XCTAssertEqual(try plan("quanpin", layout: "fourteen_key", nineKey: false).scheme, "fourteenKey")
+    XCTAssertEqual(try plan("quanpin", layout: "fourteen_key", nineKey: false).scheme(keeping: "quanpin"), "fourteenKey")
+    XCTAssertEqual(try plan("quanpin", layout: "handwriting", nineKey: false).scheme, "handwriting")
+    XCTAssertEqual(try plan("quanpin", layout: "nine_key", nineKey: true).scheme, "nineKey")
+    // 写明的 26 键是那台设备的选择，本机的 14 键照常换成 26 键。
+    let twentySix = try plan("quanpin", layout: "twenty_six_key", nineKey: false)
+    XCTAssertEqual(twentySix.scheme, "quanpin")
+    XCTAssertEqual(twentySix.scheme(keeping: "fourteenKey"), "quanpin")
+    // 两个键说法不一时听 `keyboard_layout` 的。
+    XCTAssertEqual(try plan("quanpin", layout: "twenty_six_key", nineKey: true).scheme, "quanpin")
+    // 没有 `keyboard_layout`（旧版本上传的文档）或取值不认识：退回 `nine_key`，并保留本机的 14 键。
+    let older = try plan("quanpin", layout: nil, nineKey: false)
+    XCTAssertNil(older.scheme(keeping: "fourteenKey"))
+    let future = try plan("quanpin", layout: "twelve_key", nineKey: true)
+    XCTAssertEqual(future.scheme, "nineKey")
+    XCTAssertFalse(future.hasKeyboardLayout)
+    XCTAssertNil(try plan("quanpin", layout: "twelve_key", nineKey: false).scheme(keeping: "fourteenKey"))
+    // 日语只有 26 键和九键；别的方案没有布局可选。
+    XCTAssertEqual(try plan("japanese", layout: "nine_key", nineKey: false).scheme, "japaneseNineKey")
+    XCTAssertEqual(try plan("japanese", layout: "twenty_six_key", nineKey: true).scheme, "japanese")
+    XCTAssertEqual(try plan("wubi", layout: "fourteen_key").scheme, "wubi")
+    XCTAssertThrowsError(try IOSPreferencePlan(["platform.ios.keyboard_layout": .boolean(true)], themes: themes))
   }
   func testPhotoSizedPrivateSettingsStayIntactWithinNegotiatedLimit() throws {
     let photo = String(repeating: "A", count: 4 * ((512000 + 2) / 3))
@@ -233,6 +291,16 @@ final class BackendPreferencesTests: XCTestCase {
     XCTAssertEqual(full, local)
     IOSPreferencePlan.filterDownloaded(&full, offered: nil)
     XCTAssertEqual(full, local)
+
+    // 触屏布局和九键开关一样只随方案同步：单方案版本两个方向都去掉它。
+    var layout = local
+    layout["platform.ios.keyboard_layout"] = .string("nine_key")
+    IOSPreferencePlan.filterUploaded(&layout, offered: MSIMEAppEdition.inputSchemes(in: try editionInfo("wubi")))
+    XCTAssertNil(layout["platform.ios.keyboard_layout"])
+    layout["input.schema"] = .string("quanpin")
+    layout["platform.ios.keyboard_layout"] = .string("nine_key")
+    IOSPreferencePlan.filterDownloaded(&layout, offered: MSIMEAppEdition.inputSchemes(in: try editionInfo("wubi")))
+    XCTAssertNil(layout["platform.ios.keyboard_layout"])
 
     // 五笔版只有一个方案：方案和随它的九键开关不上传也不应用，双拼方案不上传，五笔版本照常上传。
     let wubi = MSIMEAppEdition.inputSchemes(in: try editionInfo("wubi"))

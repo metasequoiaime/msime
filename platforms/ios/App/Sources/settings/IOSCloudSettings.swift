@@ -28,7 +28,8 @@ enum IOSCloudSettings {
     // A scheme the cloud cannot carry (Cantonese, Zhuyin, Vietnamese, Tibetan, Stroke) leaves the account's scheme as it is: every other device would reject the whole document over an `input.schema` it does not know.
     if let name = scheme.cloudSchema {
       settings["input.schema"] = .string(name)
-      // 全拼 14 键在云端还没有自己的键，按全拼、不是九键上传，在别的设备上落成全拼 26 键。
+      // 键盘布局（26 键、九键、14 键、手写）写进 `platform.ios.keyboard_layout`；还不认识它的旧版本只读 `platform.ios.nine_key`，所以照旧一起上传，14 键在那里落成全拼 26 键。服务端字段表里还没有 `keyboard_layout` 时，`mergedPreferences` 把它留在本机，其余照常上传。
+      settings["platform.ios.keyboard_layout"] = .string(scheme.cloudKeyboardLayout)
       settings["platform.ios.nine_key"] = .boolean(scheme == .nineKey || scheme == .japaneseNineKey)
     }
     if let profile = scheme.shuangpinProfile { settings["input.shuangpin_schema"] = .string(profile) }
@@ -66,7 +67,7 @@ enum IOSCloudSettings {
         if let design { customTheme["keyboard"] = design }
         document["custom_theme"] = customTheme
       }
-      // 云端的全拼、不是九键时，本机的 14 键保留（`IOSPreferencePlan.scheme(keeping:)`）。
+      // 云端有 `platform.ios.keyboard_layout` 时按它切换；没有时云端的全拼、不是九键保留本机的 14 键（`IOSPreferencePlan.scheme(keeping:)`）。
       let local = InputSchemePreference.current(in: document).scheme
       if let scheme = plan.scheme(keeping: local.rawValue).flatMap(ChineseInputScheme.init(rawValue:)) {
         writtenScheme = InputSchemePreference.write({ $0.scheme = scheme }, into: &document)

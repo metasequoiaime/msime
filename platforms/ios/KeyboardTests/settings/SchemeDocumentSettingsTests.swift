@@ -165,6 +165,42 @@ final class SchemeDocumentSettingsTests: XCTestCase {
     }
   }
 
+  /// 每个入口在云端的触屏布局：全拼的 26 键、九键、14 键和手写各有自己的值，与 Android 的 `platform.android.keyboard_layout` 同一套词。
+  func testEveryEntryNamesItsCloudKeyboardLayout() {
+    for scheme in ChineseInputScheme.allCases {
+      let expected: String
+      switch scheme {
+      case .nineKey, .japaneseNineKey: expected = "nine_key"
+      case .fourteenKey: expected = "fourteen_key"
+      case .handwriting: expected = "handwriting"
+      default: expected = "twenty_six_key"
+      }
+      XCTAssertEqual(scheme.cloudKeyboardLayout, expected, "\(scheme)")
+    }
+  }
+
+  /// 「上传本机设置」带上 `platform.ios.keyboard_layout`，同时照旧带上给旧版本读的 `platform.ios.nine_key`：本机的 14 键在新版本那里落成 14 键，在旧版本那里落成全拼 26 键。
+  func testCloudUploadCarriesTheKeyboardLayoutBesideTheNineKeySwitch() throws {
+    let keys = ["scheme", "touch_keyboard_schemes", "touch_keyboard_layout", "last_chinese_scheme", "shuangpin_profile"]
+    let previous = MetasequoiaInputSessionBridge.loadSharedPreferences()
+    let previousMirror = (InputSchemePreference.scheme, InputSchemePreference.enabledSchemes)
+    addTeardownBlock {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { document in
+        for key in keys { document[key] = previous?[key] }
+      }
+      InputSchemePreference.scheme = previousMirror.0
+      InputSchemePreference.enabledSchemes = previousMirror.1
+    }
+    for (scheme, layout, nineKey) in [(ChineseInputScheme.fourteenKey, "fourteen_key", false),
+                                      (.nineKey, "nine_key", true), (.quanpin, "twenty_six_key", false)] {
+      XCTAssertTrue(InputSchemePreference.select(scheme), "\(scheme)")
+      let settings = try IOSCloudSettings.snapshot()
+      XCTAssertEqual(settings["input.schema"], .string("quanpin"), "\(scheme)")
+      XCTAssertEqual(settings["platform.ios.keyboard_layout"], .string(layout), "\(scheme)")
+      XCTAssertEqual(settings["platform.ios.nine_key"], .boolean(nineKey), "\(scheme)")
+    }
+  }
+
   /// 「上传本机设置」带上的是文档里的简繁，不是 App Group 镜像里的旧值；两个方向都要对。
   func testCloudUploadCarriesTheDocumentsOutputFormOverAStaleMirror() throws {
     restoreSharedOutputFormAfterTest()

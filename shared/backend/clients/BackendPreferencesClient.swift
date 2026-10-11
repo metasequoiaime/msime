@@ -44,14 +44,19 @@ extension BackendAccountClient {
     guard Self.validPreferenceSchema(value) else { throw Failure(status: 0) }
     return value
   }
+  /// 把本机要上传的值并进云端文档。只上传服务端字段表（`/preferences/schema`）里有的键，与 Android（host-api `android_data.rs`）和 Tauri 的 iOS 工程（`ios_account.rs`）一样：客户端比服务端新、多出一个服务端还不认识的键时，那一项留在本机，其余照常上传，不让整次上传失败。字段表里有、类型却对不上的值仍然拒绝；一项都不在字段表里时也拒绝，免得把一份什么也没改的文档当成上传成功。
   static func mergedPreferences(_ base: Preferences, replacing values: [String: BackendPreferenceValue], schema: PreferenceSchema) throws -> Preferences {
     guard validPreferences(base), validPreferenceSchema(schema) else { throw Failure(status: 0) }
+    var known: [String: BackendPreferenceValue] = [:]
     for (key, value) in values {
-      guard let field = schema.fields[key], field.type == value.kind || (field.type == "number" && value.kind == "integer") else { throw Failure(status: 503) }
+      guard let field = schema.fields[key] else { continue }
+      guard field.type == value.kind || (field.type == "number" && value.kind == "integer") else { throw Failure(status: 503) }
+      known[key] = value
     }
+    guard !known.isEmpty else { throw Failure(status: 503) }
     // Preserve every other platform's fields. A revision conflict is returned to
     // the user, never resolved by an automatic last-writer-wins retry.
-    let merged = Preferences(revision: base.revision, settings: base.settings.merging(values) { _, new in new })
+    let merged = Preferences(revision: base.revision, settings: base.settings.merging(known) { _, new in new })
     guard validPreferences(merged), try JSONEncoder().encode(merged).count <= min(schema.maximum_bytes, 1024 * 1024) else { throw Failure(status: 400) }
     return merged
   }
