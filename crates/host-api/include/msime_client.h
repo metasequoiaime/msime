@@ -768,11 +768,23 @@ char *msime_client_voice_provider_stream_events(
  * Callback runs synchronously on the caller thread and must not throw.
  * All three stream calls return {"ok":true,"value":{"text":...}} on success and value null when the provider gave no result. A provider that names a missing optional dependency returns {"ok":false,"error":"voice_dependency_missing:websockets"}, "voice_dependency_missing:recorder" or "voice_dependency_missing:local_asr". */
 typedef void (*msime_client_voice_level_callback)(float level, void *context);
+/* Return true to stop a streaming provider read. The callback runs on the
+ * provider worker at least every 100ms and must not throw. */
+typedef bool (*msime_client_voice_cancellation_callback)(void *context);
 char *msime_client_voice_provider_stream_feedback(
     const uint8_t *query, size_t query_length, const uint8_t *socket_path,
     size_t socket_length, msime_client_voice_update_callback callback,
     msime_client_voice_status_callback status_callback,
     msime_client_voice_level_callback level_callback, void *context);
+/* Cancellable variant used by detached hosts. The legacy feedback entry point
+ * remains equivalent to passing a null cancellation callback. */
+char *msime_client_voice_provider_stream_feedback_cancelled(
+    const uint8_t *query, size_t query_length, const uint8_t *socket_path,
+    size_t socket_length, msime_client_voice_update_callback callback,
+    msime_client_voice_status_callback status_callback,
+    msime_client_voice_level_callback level_callback,
+    msime_client_voice_cancellation_callback cancellation_callback,
+    void *context);
 /* Request cancellation of a provider capture session by generation. */
 char *msime_client_voice_provider_cancel(const uint8_t *socket_path,
                                          size_t socket_length,

@@ -107,6 +107,7 @@
 #include <vector>
 #include <cstring>
 #include <cctype>
+#include <atomic>
 #include <mutex>
 #include <thread>
 #include <tuple>
@@ -264,6 +265,7 @@ std::string panelPreview(const std::string &text) {
 
 struct FcitxVoiceMailbox {
   std::mutex mutex;
+  std::atomic_bool cancelled{false};
   std::string partial;
   std::string final;
   uint8_t phase = 0;
@@ -272,6 +274,12 @@ struct FcitxVoiceMailbox {
   bool level_seen = false;
   bool final_ready = false;
 };
+
+extern "C" bool fcitxVoiceCancelled(void *context) noexcept {
+  if (!context) return true;
+  auto *mailbox = static_cast<FcitxVoiceMailbox *>(context);
+  return mailbox->cancelled.load(std::memory_order_relaxed);
+}
 
 std::unique_ptr<msime::linux_host::WaveOverlaySurface>
 create_fcitx_wave_overlay_surface(
@@ -588,6 +596,7 @@ public:
     emoji_complete_ = false;
     emoji_previous_offsets_.clear();
     if (voice_job_.valid() && !voice_socket_.empty() && voice_generation_ != 0) {
+      if (voice_mailbox_) voice_mailbox_->cancelled.store(true, std::memory_order_relaxed);
       const auto socket = voice_socket_;
       const auto generation = voice_generation_;
       msime::host_api::discard_string(msime_client_voice_provider_cancel(
@@ -2881,10 +2890,11 @@ public:
       request["stream"] = true;
       const auto query = request.dump();
       auto raw = msime::host_api::own_string(
-          msime_client_voice_provider_stream_feedback(
+          msime_client_voice_provider_stream_feedback_cancelled(
               reinterpret_cast<const uint8_t *>(query.data()), query.size(),
               reinterpret_cast<const uint8_t *>(socket.data()), socket.size(),
-              fcitxVoiceUpdate, fcitxVoiceStatus, fcitxVoiceLevel, mailbox.get()));
+              fcitxVoiceUpdate, fcitxVoiceStatus, fcitxVoiceLevel,
+              fcitxVoiceCancelled, mailbox.get()));
       if (!raw) throw std::runtime_error("MSIME request failed");
       // A provider that gave no result (value null) or named a missing dependency (ok:false) is a provider failure, as in the IBus host, not an empty recognition.
       const auto document = Json::parse(raw.get());
@@ -2920,6 +2930,7 @@ public:
   }
   bool cancelVoice() {
     if (!voice_loading_) return false;
+    if (voice_mailbox_) voice_mailbox_->cancelled.store(true, std::memory_order_relaxed);
     const auto socket = voice_socket_;
     const auto generation = voice_generation_;
     if (!socket.empty() && generation != 0)

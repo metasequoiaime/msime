@@ -11,6 +11,12 @@ if "class DetachedJobTracker" not in text:
     raise SystemExit("missing detached-job tracker")
 if "std::condition_variable idle_" not in text:
     raise SystemExit("detached-job tracker has no idle wait")
+if "std::atomic_bool cancelled" not in text:
+    raise SystemExit("voice mailbox has no worker cancellation flag")
+if "fcitxVoiceCancelled" not in text:
+    raise SystemExit("missing Fcitx voice cancellation callback")
+if "msime_client_voice_provider_stream_feedback_cancelled" not in text:
+    raise SystemExit("Fcitx voice stream does not pass cancellation to the host API")
 if not re.search(r"template <class F> std::shared_future<Json> detachedJob\(F work\)\s*\{\s*return fcitx_detached_jobs\.start", text):
     raise SystemExit("detachedJob does not register workers with the tracker")
 

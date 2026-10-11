@@ -244,6 +244,39 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream_feedback(
     level_callback: Option<unsafe extern "C" fn(f32, *mut c_void)>,
     context: *mut c_void,
 ) -> *mut c_char {
+    unsafe {
+        msime_client_voice_provider_stream_feedback_cancelled(
+            query,
+            query_length,
+            socket_path,
+            socket_length,
+            callback,
+            status_callback,
+            level_callback,
+            None,
+            context,
+        )
+    }
+}
+
+/// Stream voice text, phases and levels while polling a host-owned cancellation callback.
+///
+/// # Safety
+/// Buffers and callbacks must remain valid for the duration of this synchronous call. Callbacks
+/// must not unwind; the cancellation callback must be safe to call from the stream worker.
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_voice_provider_stream_feedback_cancelled(
+    query: *const u8,
+    query_length: usize,
+    socket_path: *const u8,
+    socket_length: usize,
+    callback: Option<unsafe extern "C" fn(*const u8, usize, bool, *mut c_void)>,
+    status_callback: Option<unsafe extern "C" fn(u8, *mut c_void)>,
+    level_callback: Option<unsafe extern "C" fn(f32, *mut c_void)>,
+    cancellation_callback: Option<unsafe extern "C" fn(*mut c_void) -> bool>,
+    context: *mut c_void,
+) -> *mut c_char {
     response(|| {
         if query.is_null() || socket_path.is_null() || query_length > 16_384 || socket_length > 4096
         {
@@ -290,23 +323,26 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream_feedback(
                 }
             }
         };
-        let value = UnixSocketProvider::new(path).voice_stream_with_options_diagnosed(
-            &query.language,
-            query.generation,
-            &query.options,
-            None,
-            &mut update,
-            if status_callback.is_some() {
-                Some(&mut status)
-            } else {
-                None
-            },
-            if level_callback.is_some() {
-                Some(&mut level)
-            } else {
-                None
-            },
-        );
+        let mut cancellation =
+            || cancellation_callback.is_some_and(|callback| unsafe { callback(context) });
+        let value = UnixSocketProvider::new(path)
+            .voice_stream_with_options_diagnosed_with_callback(
+                &query.language,
+                query.generation,
+                &query.options,
+                cancellation_callback.map(|_| &mut cancellation as &mut dyn FnMut() -> bool),
+                &mut update,
+                if status_callback.is_some() {
+                    Some(&mut status)
+                } else {
+                    None
+                },
+                if level_callback.is_some() {
+                    Some(&mut level)
+                } else {
+                    None
+                },
+            );
         match value {
             Ok(text) => Ok(json!({"text": text})),
             // A named missing dependency is the one provider failure reported as an error, so hosts can show what to install; older callers see it as any other failed call.

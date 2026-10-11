@@ -549,6 +549,70 @@ fn voice_provider_rejects_events_without_generation_binding() {
 
 #[cfg(unix)]
 #[test]
+fn voice_provider_callback_cancellation_is_checked_before_connecting() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("voice.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let provider = UnixSocketProvider::new(socket);
+    let mut cancelled = || true;
+    assert_eq!(
+        provider.voice_stream_with_options_diagnosed_with_callback(
+            "zh-cn",
+            7,
+            &Value::Null,
+            Some(&mut cancelled),
+            &mut |_, _| {},
+            None,
+            None,
+        ),
+        Err(None)
+    );
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "a cancelled voice request connected to the provider"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn voice_provider_callback_cancellation_interrupts_a_waiting_read() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("voice.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(stream.try_clone().unwrap()),
+            &mut request,
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        let _ = std::io::Write::write_all(&mut stream, b"\n");
+    });
+    let provider = UnixSocketProvider::new(socket);
+    let calls = std::sync::Arc::new(AtomicUsize::new(0));
+    let probe_calls = calls.clone();
+    let mut cancelled = move || probe_calls.fetch_add(1, Ordering::Relaxed) >= 2;
+    assert_eq!(
+        provider.voice_stream_with_options_diagnosed_with_callback(
+            "zh-cn",
+            7,
+            &Value::Null,
+            Some(&mut cancelled),
+            &mut |_, _| {},
+            None,
+            None,
+        ),
+        Err(None)
+    );
+    assert!(calls.load(Ordering::Relaxed) >= 2);
+    server.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn voice_provider_rejects_unknown_event_types() {
     let directory = private_tempdir();
     let socket = directory.path().join("voice.sock");

@@ -163,10 +163,10 @@ fn read_voice_provider_line(
     stream: &mut UnixStream,
     pending: &mut Vec<u8>,
     deadline: std::time::Instant,
-    cancelled: Option<&AtomicBool>,
+    mut cancelled: Option<&mut VoiceCancellation<'_>>,
 ) -> Option<String> {
     loop {
-        if cancelled.is_some_and(|value| value.load(Ordering::Relaxed)) {
+        if cancelled.as_mut().is_some_and(|value| value.is_cancelled()) {
             return None;
         }
         let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
@@ -195,6 +195,22 @@ fn read_voice_provider_line(
                     std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
                 ) => {}
             Err(_) => return None,
+        }
+    }
+}
+
+#[cfg(unix)]
+enum VoiceCancellation<'a> {
+    Atomic(&'a AtomicBool),
+    Callback(&'a mut dyn FnMut() -> bool),
+}
+
+#[cfg(unix)]
+impl VoiceCancellation<'_> {
+    fn is_cancelled(&mut self) -> bool {
+        match self {
+            Self::Atomic(value) => value.load(Ordering::Relaxed),
+            Self::Callback(callback) => callback(),
         }
     }
 }
@@ -695,12 +711,61 @@ impl UnixSocketProvider {
         status: Option<&mut dyn FnMut(&str)>,
         level: Option<&mut dyn FnMut(f32)>,
     ) -> Result<String, Option<&'static str>> {
+        self.voice_stream_with_options_diagnosed_cancellation(
+            language,
+            generation,
+            options,
+            cancelled.map(VoiceCancellation::Atomic),
+            update,
+            status,
+            level,
+        )
+    }
+
+    /// Same stream as [`Self::voice_stream_with_options_diagnosed`], with a
+    /// host callback polled while the provider socket is waiting for a frame.
+    /// This lets C hosts cancel a detached worker without sharing Rust atomics.
+    #[cfg(unix)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn voice_stream_with_options_diagnosed_with_callback(
+        &self,
+        language: &str,
+        generation: u64,
+        options: &Value,
+        cancelled: Option<&mut dyn FnMut() -> bool>,
+        update: &mut dyn FnMut(&str, bool),
+        status: Option<&mut dyn FnMut(&str)>,
+        level: Option<&mut dyn FnMut(f32)>,
+    ) -> Result<String, Option<&'static str>> {
+        self.voice_stream_with_options_diagnosed_cancellation(
+            language,
+            generation,
+            options,
+            cancelled.map(VoiceCancellation::Callback),
+            update,
+            status,
+            level,
+        )
+    }
+
+    #[cfg(unix)]
+    #[allow(clippy::too_many_arguments)]
+    fn voice_stream_with_options_diagnosed_cancellation(
+        &self,
+        language: &str,
+        generation: u64,
+        options: &Value,
+        mut cancelled: Option<VoiceCancellation<'_>>,
+        update: &mut dyn FnMut(&str, bool),
+        status: Option<&mut dyn FnMut(&str)>,
+        level: Option<&mut dyn FnMut(f32)>,
+    ) -> Result<String, Option<&'static str>> {
         let mut missing_dependency = None;
         self.voice_stream_session(
             language,
             generation,
             options,
-            cancelled,
+            &mut cancelled,
             update,
             status,
             level,
@@ -716,7 +781,7 @@ impl UnixSocketProvider {
         language: &str,
         generation: u64,
         options: &Value,
-        cancelled: Option<&AtomicBool>,
+        cancelled: &mut Option<VoiceCancellation<'_>>,
         update: &mut dyn FnMut(&str, bool),
         mut status: Option<&mut dyn FnMut(&str)>,
         mut level: Option<&mut dyn FnMut(f32)>,
@@ -724,7 +789,7 @@ impl UnixSocketProvider {
     ) -> Option<String> {
         if generation == 0
             || !msime_client_core::is_bounded_text(language, 64)
-            || cancelled.is_some_and(|value| value.load(Ordering::Relaxed))
+            || cancelled.as_mut().is_some_and(|value| value.is_cancelled())
         {
             return None;
         }
@@ -765,7 +830,8 @@ impl UnixSocketProvider {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(730);
         let mut pending = Vec::with_capacity(16_384);
         loop {
-            let line = read_voice_provider_line(&mut stream, &mut pending, deadline, cancelled)?;
+            let line =
+                read_voice_provider_line(&mut stream, &mut pending, deadline, cancelled.as_mut())?;
             let value = serde_json::from_str::<Value>(line.trim_end()).ok()?;
             // Every stream event belongs to the request generation.
             if value.get("generation").and_then(Value::as_u64) != Some(generation) {
