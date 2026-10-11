@@ -298,6 +298,8 @@ pub struct HostCapabilities {
     pub wordbook_packs: bool,
     /// 宿主的符号面板显示已安装的符号集插件。没打开时插件详情说明本机的符号面板不显示插件符号集。
     pub symbol_set_packs: bool,
+    /// 设置页的「脚本插件（实验）」分组：列出已安装的脚本插件、授权、调整执行顺序。只有运行脚本的桌面输入法进程（macOS 输入法、Windows Server、IBus 引擎、Fcitx5 addon）所在的平台打开。
+    pub script_plugins: bool,
     /// The host plays the sound packs in `plugins`: a sample per key class, the melody, the commit sound and the achievement jingle. Only an input process that sees the keys can, and only where it has somewhere to play them; a host without the player keeps the settings but offers no switches for them.
     pub key_sound: bool,
     /// The host routes the `/` command and `@` mention modes: it hands `/` and `@` to the runtime, stops treating digits as candidate numbers while a mode spells with them, and loads the enabled command tables and the name list into the Engine. The `V` mode needs only the digit routing and is covered by the same flag.
@@ -672,6 +674,8 @@ impl HostCapabilities {
             wordbook_packs: platform.is_desktop(),
             // Windows 和 Linux 桌面的符号面板是 Tauri 层的表情面板（`load_emoji_catalog`），Linux 的 Fcitx5 菜单和 macOS 的原生表情与符号面板另外读同一批插件组。HarmonyOS 在自己的设置投影里按形态打开；Android 和 iOS 没有接入。
             symbol_set_packs: platform.is_desktop(),
+            // 三个桌面平台的输入法进程在启动时打开脚本插件（`msime_client_scripts_enable`），授权由设置应用经 client-core 的 `script_grants` 写入；macOS 的授权条目带钥匙串密钥签的 MAC。移动端没有脚本插件。各宿主接入生命周期核心（`msime_client_set_lifecycle`）之前，会话不满足运行条件，授权写下了也不会运行。
+            script_plugins: platform.is_desktop(),
             // The three desktop hosts play the packs, route V, / and @ by the Engine's spelling symbols and stream music while they are the active input method. HarmonyOS claims key sounds, music and the triggers per form factor in its own settings projection (2in1 only); the phone and tablet hosts wire none of them. A switch with nothing behind it reads as a setting being ignored, so each host flips here only in the change that wires it.
             // Android 的按键音由 IME 进程的 SoundPool 播放（与本项同一波接入），所以 Android 也声明；手机和平板上的 HarmonyOS 与 iOS 仍未接入。
             key_sound: platform.is_desktop() || platform == HostPlatform::Android,

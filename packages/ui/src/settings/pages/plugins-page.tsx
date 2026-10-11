@@ -25,6 +25,8 @@ export function PluginsSettingsPage({ hidden = false }: { hidden?: boolean }) {
     showHelpcode,
     showWordbookPacks,
     showSymbolSetPacks,
+    showScriptPlugins,
+    host,
     selectPage,
   } = useSettingsForm();
   const vocabulary = client.vocabularyReview;
@@ -62,6 +64,8 @@ export function PluginsSettingsPage({ hidden = false }: { hidden?: boolean }) {
         helpcode={showHelpcode}
         wordbookPacks={showWordbookPacks}
         symbolSetPacks={showSymbolSetPacks}
+        scriptPlugins={showScriptPlugins}
+        platform={host?.platform}
         onOpenWordbook={openWordbook}
         onOpenPage={selectPage}
         active={page === "plugins" && !hidden}

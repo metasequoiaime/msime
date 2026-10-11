@@ -528,6 +528,8 @@ export function CommunityPluginPublishDialog({
         const loaded: LocalPluginOption[] = [];
         for (const item of catalog.packages) {
           if (item.builtin) continue;
+          // 桌面的目录里有脚本插件，它们不能发布到社区（`PUBLISHABLE_KINDS` 里没有 script）。
+          if (!communityPluginKinds.includes(item.kind)) continue;
           loaded.push({
             key: optionKey(item.kind, item.id),
             kind: item.kind,

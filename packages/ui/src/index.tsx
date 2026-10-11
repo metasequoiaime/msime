@@ -727,6 +727,17 @@ export {
   type PluginKind,
   type PluginPackage,
   type PluginsSectionProps,
+  SCRIPT_CAPABILITIES,
+  ScriptGrantDialog,
+  capabilityLabels,
+  scriptGrantState,
+  scriptResidualRisk,
+  toggleCapability,
+  type ScriptCapability,
+  type ScriptGrant,
+  type ScriptGrantDialogProps,
+  type ScriptGrantsResult,
+  type ScriptHealth,
 } from "./settings/plugins-section";
 export {
   DEFAULT_MELODY_PACK,
@@ -1734,6 +1745,8 @@ export interface HostCapabilities {
   wordbook_packs: boolean;
   /** 符号面板显示已安装的符号集插件。 */
   symbol_set_packs: boolean;
+  /** 插件页显示「脚本插件（实验）」分组和授权页（三个桌面宿主）。 */
+  script_plugins?: boolean;
   /** The input schemes this host offers; the others are shown disabled. */
   input_schemes: InputScheme[];
   /** 运行中的版本，不是 full 时才有。缺省就是 full：所有方案都属于本版本，`input_schemes` 之外的方案只是这个宿主暂不支持，显示为禁用；有它时，`edition.input_schemes` 之外的方案在本版本里不存在，设置页直接不列出。 */
@@ -2492,6 +2505,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     typingEffectsFlashOnly,
     showWordbookPacks,
     showSymbolSetPacks,
+    showScriptPlugins,
   } = capabilities;
   const {
     fullwidthChord,
@@ -3042,6 +3056,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     typingEffectsFlashOnly,
     showWordbookPacks,
     showSymbolSetPacks,
+    showScriptPlugins,
     snapshot,
     draft,
     setDraft,

@@ -13,6 +13,7 @@ export const kindLabels: Record<PluginKind, string> = {
   helpcode: "辅助码表",
   wordbook: "单词本",
   symbol_set: "符号集",
+  script: "脚本插件",
 };
 
 /** 按键旋律（`mode = "sequence"` 的音效包）的类型显示名。 */
@@ -25,7 +26,7 @@ export function packKindLabel(pack: Pick<PluginPackage, "kind" | "mode">): strin
     : kindLabels[pack.kind];
 }
 
-/** The order the 我的插件 list groups the installed packs in. */
+/** The order the 我的插件 list groups the installed packs in. 脚本插件不在其中：它们有自己的「脚本插件（实验）」分组，只在宿主运行脚本插件时显示。 */
 export const kindOrder: readonly PluginKind[] = [
   "sound",
   "effect",
@@ -70,6 +71,20 @@ export function pluginErrorMessage(error: unknown, fallback: string): string {
       return "这个 id 属于内置插件，不能覆盖或删除。";
     case "plugin_storage":
       return "插件目录不可用，请检查数据目录的权限。";
+    case "plugin_script_memory":
+      return "启用后会超出输入法留给脚本插件的内存（64 MiB），先停用别的脚本插件再试。";
+    case "plugin_script_limit":
+      return "最多同时启用 8 个脚本插件，先停用一个再试。";
+    case "plugin_script_changed":
+      return "这个插件在你打开授权之后被换成了别的内容，请返回列表重新打开它再授权。";
+    case "plugin_script_keychain":
+      return "读不到钥匙串里的授权密钥，授权没有写入。请在系统询问时允许水杉输入法设置访问钥匙串，然后再试。";
+    case "plugin_script_grants_format":
+      return "授权文件是更新版本的水杉输入法写的，这个版本不能修改它。";
+    case "plugin_script_grant_invalid":
+      return `授权不符合要求${reason}。`;
+    case "plugin_script_missing":
+      return `找不到这个脚本插件${reason}。`;
     case "mention_invalid":
       return `名单有误${reason}。`;
     case "mention_format":
@@ -188,6 +203,9 @@ export function packMarker(
     // 单词本没有偏好：选中哪本书在背单词里；符号集装上就显示。
     case "wordbook":
     case "symbol_set":
+      return null;
+    // 脚本插件的标记由「脚本插件（实验）」分组按授权状态给出。
+    case "script":
       return null;
   }
 }

@@ -83,6 +83,8 @@ export function settingsCapabilities({
   const typingEffectsFlashOnly = showTypingEffectStyles && harmony;
   const showWordbookPacks = host ? host.wordbook_packs : false;
   const showSymbolSetPacks = host ? host.symbol_set_packs : false;
+  // 没有宿主时不显示：脚本插件只有运行它们的桌面输入法进程才有意义。
+  const showScriptPlugins = host?.script_plugins === true;
   return {
     nativeVoicePlatform,
     showModeScope,
@@ -129,5 +131,6 @@ export function settingsCapabilities({
     typingEffectsFlashOnly,
     showWordbookPacks,
     showSymbolSetPacks,
+    showScriptPlugins,
   } as const;
 }

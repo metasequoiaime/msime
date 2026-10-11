@@ -4,7 +4,9 @@
 
 use crate::DictionaryHostOptions;
 use msime_client_core::plugins::mentions::{MentionEntry, MentionStore};
+use msime_client_core::plugins::script_grants::{self, ScriptGrants};
 use msime_client_core::plugins::{self, PluginCatalog, PluginFailure, PluginSummary};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
@@ -101,7 +103,7 @@ async fn blocking<T: Send + 'static>(
         .map_err(|_| PluginFailure::code("storage"))?
 }
 
-/// 已安装的包和内置包，以及每个不是包的文件夹出了什么问题。脚本插件不列出：授权页（第 5 阶段）落地之前，设置页不展示它们。
+/// 已安装的包和内置包，以及每个不是包的文件夹出了什么问题。脚本插件也列出（带声明的钩子、申请的能力和内容哈希），页面只在宿主声明了 `script_plugins` 时展示它们。
 #[tauri::command]
 pub async fn plugin_catalog(
     app: tauri::AppHandle,
@@ -111,7 +113,10 @@ pub async fn plugin_catalog(
     let root = state.0.clone();
     let options = options.inner().clone();
     blocking(move || {
-        Ok(plugins::scan(&root, builtin_sound_packs(&app, &options).as_deref()).without_scripts())
+        Ok(plugins::scan(
+            &root,
+            builtin_sound_packs(&app, &options).as_deref(),
+        ))
     })
     .await
 }
@@ -126,6 +131,10 @@ pub async fn import_plugin_pack(
 ) -> Result<Option<PluginSummary>, PluginFailure> {
     let root = state.0.clone();
     blocking(move || {
+        // 导入脚本包时授权文件里其余条目要按新的 revision 重新签名，所以有授权文件时先把密钥交进来。
+        if script_grants::document_path(&root).exists() {
+            install_grant_key(&app);
+        }
         let dialog = app.dialog().file().set_parent(&window);
         // The dialog runs on the main thread; this worker only waits for the answer.
         let picked = match source {
@@ -153,12 +162,240 @@ fn import_pack_at(source: &Path, root: &Path) -> Result<PluginSummary, PluginFai
 /// Remove an installed pack. A built-in sound pack cannot be removed.
 #[tauri::command]
 pub async fn remove_plugin_pack(
+    app: tauri::AppHandle,
     state: State<'_, PluginsState>,
     kind: String,
     id: String,
 ) -> Result<(), PluginFailure> {
     let root = state.0.clone();
-    blocking(move || plugins::remove_named(&root, &kind, &id)).await
+    blocking(move || {
+        // 删脚本包时授权文件里其余条目要按新的 revision 重新签名。
+        if kind == "script" && script_grants::document_path(&root).exists() {
+            install_grant_key(&app);
+        }
+        plugins::remove_named(&root, &kind, &id)
+    })
+    .await
+}
+
+/// 授权页上的一个条目：`script-grants.json` 里的一条，加上它在本进程里能不能通过校验。
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct ScriptGrantView {
+    pub id: String,
+    /// 授权时包的内容哈希；和目录里这个包现在的 `content_hash` 不同时，页面显示"已更新，需要重新授权"。
+    pub hash: String,
+    pub enabled: bool,
+    pub granted: Vec<&'static str>,
+    /// macOS 上 MAC 校验通过；其他平台恒为 true。为 false 的条目不运行，页面要求重新授权。
+    pub verified: bool,
+}
+
+/// 输入法进程停用了的一个插件：`<user_data>/script-health.json` 的一条。
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct ScriptHealthView {
+    pub id: String,
+    pub hash: String,
+    /// `invalid`、`init`、`failed` 或 `slow`。
+    pub disabled: String,
+}
+
+/// 授权页读到的全部：授权（按执行顺序）、输入法记下的停用，以及这个平台的条目要不要带 MAC、本进程有没有密钥。
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct ScriptGrantsView {
+    pub revision: u64,
+    pub plugins: Vec<ScriptGrantView>,
+    pub health: Vec<ScriptHealthView>,
+    /// 条目要带 MAC 才生效（macOS）。
+    pub mac_required: bool,
+    /// 本进程拿到了钥匙串里的密钥。`mac_required` 而没有密钥时，页面说明授权写不进去。
+    pub signed: bool,
+}
+
+/// 设置应用是授权文件的写入方：macOS 上在第一次读写之前从钥匙串取出（没有就生成）MAC 密钥交给 client-core，访问控制表一起信任输入法 bundle（已安装的那份和本应用资源里的那份，签名相同）。取不到时不报错：读照常，写入由 `script_grants` 以 `plugin_script_keychain` 拒绝。其他平台不带 MAC，什么都不做。
+#[cfg(target_os = "macos")]
+fn install_grant_key(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    if script_grants::has_mac_key() {
+        return;
+    }
+    let bundle = crate::macos_input_source::input_source_bundle_name();
+    let peers: Vec<PathBuf> = [
+        crate::macos_input_source::installed_bundle_path().ok(),
+        app.path()
+            .resource_dir()
+            .ok()
+            .map(|resources| resources.join(bundle)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let peers: Vec<&Path> = peers.iter().map(PathBuf::as_path).collect();
+    if let Ok(key) = msime_host_macos::script_grant_key(&peers) {
+        script_grants::set_mac_key(&key);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn install_grant_key(_app: &tauri::AppHandle) {}
+
+/// 健康文件名，与 host-api 的 `scripts::process::HEALTH_FILE` 一致。
+const SCRIPT_HEALTH_FILE: &str = "script-health.json";
+/// 健康文件的字节上限：最多 256 个条目，每条一个 id、一个哈希和一个类别。
+const MAX_SCRIPT_HEALTH_BYTES: u64 = 64 * 1024;
+
+/// 输入法写下的停用记录。文件不在、读不出、格式不认识时为空：那只是说没有停用记录。
+fn script_health(user_data: Option<&Path>) -> Vec<ScriptHealthView> {
+    #[derive(serde::Deserialize)]
+    struct Document {
+        format_version: u64,
+        #[serde(default)]
+        plugins: Vec<serde_json::Value>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Entry {
+        id: String,
+        hash: String,
+        disabled: String,
+    }
+    let Some(path) = user_data
+        .filter(|directory| directory.is_absolute())
+        .map(|directory| directory.join(SCRIPT_HEALTH_FILE))
+    else {
+        return Vec::new();
+    };
+    let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+        return Vec::new();
+    };
+    if !metadata.is_file() || metadata.len() > MAX_SCRIPT_HEALTH_BYTES {
+        return Vec::new();
+    }
+    let Some(document) = std::fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Document>(&bytes).ok())
+        .filter(|document| document.format_version == 1)
+    else {
+        return Vec::new();
+    };
+    document
+        .plugins
+        .into_iter()
+        .filter_map(|value| serde_json::from_value::<Entry>(value).ok())
+        .filter(|entry| {
+            matches!(
+                entry.disabled.as_str(),
+                "invalid" | "init" | "failed" | "slow"
+            )
+        })
+        .map(|entry| ScriptHealthView {
+            id: entry.id,
+            hash: entry.hash,
+            disabled: entry.disabled,
+        })
+        .collect()
+}
+
+fn grants_view(grants: ScriptGrants, user_data: Option<&Path>) -> ScriptGrantsView {
+    ScriptGrantsView {
+        revision: grants.revision,
+        plugins: grants
+            .plugins
+            .into_iter()
+            .map(|grant| ScriptGrantView {
+                granted: grant
+                    .granted
+                    .iter()
+                    .map(|capability| capability.as_str())
+                    .collect(),
+                id: grant.id,
+                hash: grant.hash,
+                enabled: grant.enabled,
+                verified: grant.verified,
+            })
+            .collect(),
+        health: script_health(user_data),
+        mac_required: script_grants::MAC_REQUIRED,
+        signed: script_grants::has_mac_key(),
+    }
+}
+
+/// 宿主选项里的 `user_data`：输入法写健康文件的目录。
+fn user_data(options: &DictionaryHostOptions) -> Option<PathBuf> {
+    options
+        .snapshot()
+        .ok()?
+        .get("user_data")?
+        .as_str()
+        .map(PathBuf::from)
+}
+
+/// 脚本插件的授权、执行顺序和输入法记下的停用。
+#[tauri::command]
+pub async fn script_grants(
+    app: tauri::AppHandle,
+    state: State<'_, PluginsState>,
+    options: State<'_, DictionaryHostOptions>,
+) -> Result<ScriptGrantsView, PluginFailure> {
+    let root = state.0.clone();
+    let options = options.inner().clone();
+    blocking(move || {
+        let user_data = user_data(&options);
+        // 没装脚本包、也没有授权文件时不碰钥匙串：打开插件页不该为一个用不上的功能去生成密钥或弹出钥匙串授权框。
+        let scripts_installed =
+            std::fs::read_dir(plugins::kind_directory(&root, plugins::PluginKind::Script))
+                .is_ok_and(|mut entries| entries.next().is_some());
+        if scripts_installed || script_grants::document_path(&root).exists() {
+            install_grant_key(&app);
+        }
+        Ok(grants_view(
+            script_grants::read(&root),
+            user_data.as_deref(),
+        ))
+    })
+    .await
+}
+
+/// 授予、调整或撤销一个脚本插件的授权。`hash` 是页面展示给用户的那个内容哈希，包在这之后被换过时返回 `plugin_script_changed`；启用时超出同时启用的个数或内存总账分别返回 `plugin_script_limit`、`plugin_script_memory`。
+#[tauri::command]
+pub async fn set_script_grant(
+    app: tauri::AppHandle,
+    state: State<'_, PluginsState>,
+    options: State<'_, DictionaryHostOptions>,
+    id: String,
+    hash: String,
+    enabled: bool,
+    granted: Vec<String>,
+) -> Result<ScriptGrantsView, PluginFailure> {
+    let root = state.0.clone();
+    let options = options.inner().clone();
+    blocking(move || {
+        let user_data = user_data(&options);
+        install_grant_key(&app);
+        let granted = script_grants::capabilities(&granted)?;
+        let grants = script_grants::set(&root, &id, &hash, enabled, granted)?;
+        Ok(grants_view(grants, user_data.as_deref()))
+    })
+    .await
+}
+
+/// 调整执行顺序：`ids` 按给出的顺序排在最前。
+#[tauri::command]
+pub async fn reorder_scripts(
+    app: tauri::AppHandle,
+    state: State<'_, PluginsState>,
+    options: State<'_, DictionaryHostOptions>,
+    ids: Vec<String>,
+) -> Result<ScriptGrantsView, PluginFailure> {
+    let root = state.0.clone();
+    let options = options.inner().clone();
+    blocking(move || {
+        let user_data = user_data(&options);
+        install_grant_key(&app);
+        Ok(grants_view(
+            script_grants::reorder(&root, &ids)?,
+            user_data.as_deref(),
+        ))
+    })
+    .await
 }
 
 /// The @ mode's name list, empty before one was saved.
@@ -258,6 +495,59 @@ mod tests {
             Some(PathBuf::from("/opt/msime/share/msime-client/sound-packs"))
         );
         assert_eq!(linux_installed_sound_packs(Path::new("/")), None);
+    }
+
+    #[test]
+    fn script_health_lists_only_the_four_disabled_categories() {
+        let user_data = tempfile::tempdir().unwrap();
+        assert!(script_health(Some(user_data.path())).is_empty());
+        assert!(script_health(Some(Path::new("relative"))).is_empty());
+        assert!(script_health(None).is_empty());
+        let file = user_data.path().join(SCRIPT_HEALTH_FILE);
+        fs::write(
+            &file,
+            r#"{"format_version":1,"plugins":[{"id":"a","hash":"h1","disabled":"failed"},{"id":"b","hash":"h2","disabled":"unreachable"},{"id":"c"},{"id":"d","hash":"h4","disabled":"slow"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            script_health(Some(user_data.path())),
+            [
+                ScriptHealthView {
+                    id: "a".into(),
+                    hash: "h1".into(),
+                    disabled: "failed".into(),
+                },
+                ScriptHealthView {
+                    id: "d".into(),
+                    hash: "h4".into(),
+                    disabled: "slow".into(),
+                },
+            ]
+        );
+        // 不认识的格式或读不懂的文件当作没有停用记录。
+        fs::write(
+            &file,
+            r#"{"format_version":2,"plugins":[{"id":"a","hash":"h1","disabled":"failed"}]}"#,
+        )
+        .unwrap();
+        assert!(script_health(Some(user_data.path())).is_empty());
+        fs::write(&file, "not json").unwrap();
+        assert!(script_health(Some(user_data.path())).is_empty());
+    }
+
+    #[test]
+    fn the_grants_view_carries_the_order_the_signature_and_the_platform_rule() {
+        let view = grants_view(
+            ScriptGrants {
+                revision: 4,
+                plugins: Vec::new(),
+            },
+            None,
+        );
+        assert_eq!(view.revision, 4);
+        assert!(view.plugins.is_empty());
+        assert_eq!(view.mac_required, cfg!(target_os = "macos"));
+        assert_eq!(view.signed, script_grants::has_mac_key());
     }
 
     #[test]

@@ -315,7 +315,7 @@ test("rates and takes down through the gallery", async () => {
   await waitFor(() => expect(communityClient.delete).toHaveBeenCalledWith(owned.id));
 });
 
-test("publishing offers every installed pack that is not built in, effect packs included, and retries under the same id", async () => {
+test("publishing offers every installed pack that is not built in, effect packs included, script plugins left out, and retries under the same id", async () => {
   const publish = vi
     .fn()
     .mockRejectedValueOnce({ code: "community_unavailable" })
@@ -328,6 +328,7 @@ test("publishing offers every installed pack that is not built in, effect packs 
         pack("sound", "default", true),
         pack("effect", "sparkle"),
         pack("command_table", "dates"),
+        pack("script", "pangu"),
         pack("sound", "rain"),
       ])}
     />,

@@ -9,7 +9,7 @@ test("plugins section reuses the shared owner generation lifecycle", () => {
     }),
   )[0];
 
-  expect(source).toContain("useAsyncGeneration(active, client, mentionsEditable)");
+  expect(source).toContain("useAsyncGeneration(active, client, mentionsEditable, scriptsShown)");
   expect(source).not.toContain("const clientGeneration = useRef(0)");
   expect(source).not.toContain("const generation = ++clientGeneration.current");
   expect(source).toContain("useAsyncActionRunner(");

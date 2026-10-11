@@ -305,7 +305,7 @@ pub enum PluginContent {
 }
 
 impl PluginCatalog {
-    /// 去掉脚本插件的包和问题行。设置页在授权页（第 5 阶段）落地之前不展示脚本插件，桌面外壳和 `msime_client_plugins` 的目录命令都经过这里；移动端没有脚本插件，原样返回。
+    /// 去掉脚本插件的包和问题行。host-api 的 `msime_client_plugins` 目录命令经过这里：用它的宿主（Android、HarmonyOS）没有授权页。桌面外壳的目录命令列出脚本插件，由设置页按 `script_plugins` 决定展示与否；移动端没有脚本插件，原样返回。
     pub fn without_scripts(mut self) -> Self {
         self.packages.retain(|package| !package.kind().is_script());
         self.issues.retain(|issue| !issue.kind.is_script());

@@ -17,8 +17,25 @@ import {
   type MissingSelection,
   type PluginTableModes,
 } from "./plugin-catalog-helpers";
-import type { PluginCatalogResult, PluginKind } from "./plugin-types";
+import type {
+  PluginCatalogResult,
+  PluginKind,
+  PluginPackage,
+  ScriptGrantsResult,
+} from "./plugin-types";
 import { ActionButton } from "./action-button";
+import { scriptMarker } from "./plugin-script-view";
+
+/** 「脚本插件（实验）」分组要的东西：宿主运行脚本插件时才有。 */
+export type PluginListScripts = {
+  packages: readonly PluginPackage[];
+  /** 还没读到时为 null，行尾按未授权标记。 */
+  grants: ScriptGrantsResult | null;
+  /** 宿主会运行的插件 id，按执行顺序。 */
+  running: readonly string[];
+  /** Windows 和 Linux 上的残余风险说明，macOS 上为 null。 */
+  risk: string | null;
+};
 
 /** A row that opens a view, in the markup `SubPageEntries` gives its rows: named by its title, described by its description and its trailing marker. `rowKey` is what focus returns to when the view is closed. */
 function PluginNavRow({
@@ -92,6 +109,8 @@ export interface PluginListViewProps {
   onOpen: (target: "sound-effects" | "mentions") => void;
   onOpenPack: (kind: PluginKind, id: string) => void;
   onOpenMissing: (kind: PluginKind, id: string) => void;
+  /** 宿主运行脚本插件时的「脚本插件（实验）」分组；不运行时为 null，脚本包和它们的问题行都不列出。 */
+  scripts?: PluginListScripts | null;
 }
 
 /** 我的插件：先是不属于任何一个插件包的设置入口，再是按类型分组、各自打开详情的已安装插件，导入这一行放在最后，因为导入是少见的操作。 */
@@ -114,6 +133,7 @@ export function PluginListView({
   onOpen,
   onOpenPack,
   onOpenMissing,
+  scripts = null,
 }: PluginListViewProps) {
   const groups = kindOrder.flatMap((kind) => {
     const packs = catalog.packages.filter((pack) => pack.kind === kind);
@@ -122,6 +142,11 @@ export function PluginListView({
     const shown = packs.length > 0 || gone.length > 0 || (kind === "command_table" && triggers);
     return shown ? [{ kind, packs, gone }] : [];
   });
+  const scriptPacks = scripts?.packages ?? [];
+  // 宿主不运行脚本插件时，脚本文件夹的问题行也不列出：那里根本用不上它们。
+  const issues = scripts
+    ? catalog.issues
+    : catalog.issues.filter((issue) => issue.kind !== "script");
   return (
     <>
       {(soundEffects || mentionsEditable) && (
@@ -153,9 +178,10 @@ export function PluginListView({
             插件列表没有读取成功，重新打开这个页面会再试一次。
           </SettingsEmptyMessage>
         )}
-        {hasClient && catalogState === "loaded" && groups.length === 0 && (
-          <SettingsEmptyMessage>没有插件</SettingsEmptyMessage>
-        )}
+        {hasClient &&
+          catalogState === "loaded" &&
+          groups.length === 0 &&
+          scriptPacks.length === 0 && <SettingsEmptyMessage>没有插件</SettingsEmptyMessage>}
         {groups.map(({ kind, packs, gone }) => (
           <GroupList key={kind} title={kindLabels[kind]}>
             {kind === "command_table" && triggers && (
@@ -206,6 +232,28 @@ export function PluginListView({
             ))}
           </GroupList>
         ))}
+        {scripts && scriptPacks.length > 0 && (
+          <GroupList title="脚本插件（实验）">
+            <SettingsGroupNote>
+              脚本插件会在输入法里运行第三方代码，只做你在授权时允许的事；导入后默认不运行，打开它的详情授权后才启用。
+              {scripts.risk ? ` ${scripts.risk}` : ""}
+            </SettingsGroupNote>
+            {scriptPacks.map((pack) => (
+              <PluginNavRow
+                key={pack.id}
+                title={pack.name}
+                description={
+                  [pack.version, pack.author ? `作者 ${pack.author}` : null]
+                    .filter(Boolean)
+                    .join(" · ") || undefined
+                }
+                marker={scriptMarker(pack, scripts.grants, scripts.running)}
+                rowKey={`pack/script/${pack.id}`}
+                onOpen={() => onOpenPack("script", pack.id)}
+              />
+            ))}
+          </GroupList>
+        )}
       </div>
       {hasClient && (
         <GroupList title="导入插件">
@@ -213,7 +261,9 @@ export function PluginListView({
             <span className={controls.rowText}>
               <span className={controls.rowTitle}>从文件导入</span>
               <span className={controls.rowDescription}>
-                只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证
+                {scripts
+                  ? "数据插件只含音频、指令模板等数据；脚本插件（实验）带可执行代码，导入后要经授权才会运行。每个包须声明许可证"
+                  : "只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证"}
               </span>
             </span>
             <SettingsManagerActions as="span" className="shrink-0">
@@ -232,10 +282,10 @@ export function PluginListView({
           {notice && <SettingsGroupNote role="status">{notice}</SettingsGroupNote>}
         </GroupList>
       )}
-      {catalog.issues.length > 0 && (
+      {issues.length > 0 && (
         <GroupList title="无法载入的插件">
           <SettingsManagerBlock role="list" aria-label="无法载入的插件">
-            {catalog.issues.map((issue) => (
+            {issues.map((issue) => (
               <SettingsManagerNote role="listitem" key={`${issue.kind}/${issue.folder}`}>
                 {kindLabels[issue.kind]} {issue.folder || "目录"} 无法载入：{issue.reason}
               </SettingsManagerNote>
