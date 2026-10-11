@@ -355,10 +355,11 @@ fn the_real_process_switch_gates_delivery_in_debug_and_release_builds() {
     opt_in(&fixture, TRAIT_KNOWN);
     commit_nihao(fixture.handle);
     assert!(take_log().is_empty());
-    // 开发构建和 release 构建（`cargo test --release`）一样：桌面上打开就投递。第 5 阶段起 release 构建也打开，前提是 macOS 的授权条目带 MAC（见 `a_grant_whose_mac_does_not_verify_never_runs_on_macos`）。
-    assert!(msime_client_scripts_enable(true));
+    // 开发构建和 release 构建（`cargo test --release`）一样：macOS 和 Linux 上打开就投递。第 5 阶段起 release 构建也打开，前提是 macOS 的授权条目带 MAC（见 `a_grant_whose_mac_does_not_verify_never_runs_on_macos`）。Windows 的原生设置应用还没有授权页，那里只有开发构建打开。
+    let runs = !cfg!(all(target_os = "windows", not(debug_assertions)));
+    assert_eq!(msime_client_scripts_enable(true), runs);
     commit_nihao(fixture.handle);
-    assert!(!take_log().is_empty());
+    assert_eq!(!take_log().is_empty(), runs);
     assert!(!msime_client_scripts_enable(false));
     commit_nihao(fixture.handle);
     assert!(take_log().is_empty());

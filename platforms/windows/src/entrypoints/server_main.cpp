@@ -871,7 +871,7 @@ int wmain(int argc, wchar_t **argv) {
     auto &diagnostic_log = *new DiagnosticLog(config.state_root / L"logs" / L"server.log");
     host_api_diagnostic_log.store(&diagnostic_log, std::memory_order_release);
     msime_client_set_diagnostic_sink(write_host_api_diagnostic);
-    // 脚本插件只在 Server 里运行；TIP 和 Server 共用同一份宿主 DLL，但 TIP 从不调用它（scripts/test-script-plugin-hosts.py）。release 构建里这一行什么都不做（msime_client.h）。
+    // 脚本插件只在 Server 里运行；TIP 和 Server 共用同一份宿主 DLL，但 TIP 从不调用它（scripts/test-script-plugin-hosts.py）。Windows 的 release 构建里这一行什么都不做：设置应用（platforms/windows/settings）还没有授权页（msime_client.h）。
     msime_client_scripts_enable(true);
     // Operator notices go to the terminal of a preview run and, when the server switch is on, to the diagnostic file - the only place a managed Server's notices can be read.
     const auto notice = [&diagnostic_log](const std::string &line) {

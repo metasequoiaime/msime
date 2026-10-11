@@ -1,4 +1,4 @@
-# Agent Note: 脚本插件的授权页与 macOS 钥匙串 MAC：设置应用签名、输入法只认签过名的条目，桌面 release 构建打开脚本
+# Agent Note: 脚本插件的授权页与 macOS 钥匙串 MAC：设置应用签名、输入法只认签过名的条目，macOS 和 Linux 的 release 构建打开脚本
 
 Status: implemented
 
@@ -9,7 +9,7 @@ Status: implemented
 - 授权文件在用户可写的目录下，同一用户下任何没有特权的进程都能放进一个脚本包、再手写一条带正确内容哈希的授权，在输入法进程里拿到读取、改写上屏文本的能力。在 macOS 上这绕过了 TCC 的输入监控授权。所以 release 构建里进程开关恒为关，脚本只在开发构建里运行。
 - 设置页看不到脚本插件：目录命令经 `without_scripts` 去掉它们，`host_surface` 没有对应的开关，用户只能手写授权文件。
 
-设计给 release 构建定的前提是三条对策同时落地：macOS 的授权条目带钥匙串密钥签的 MAC，Windows 的提权窗口里不运行脚本（第 3 阶段已经按 `ELEVATED` 做到），Windows 和 Linux 把同一用户能伪造授权这一残余风险写在授权页上。
+设计给 release 构建定的前提是三条对策同时落地：macOS 的授权条目带钥匙串密钥签的 MAC，Windows 的提权窗口里不运行脚本（第 3 阶段已经按 `ELEVATED` 做到），Windows 和 Linux 把同一用户能伪造授权这一残余风险写在授权页上。Windows 的设置是原生 WinUI 应用（platforms/windows/settings），不是这里的共享设置页：它的插件页经 host-api 的 `msime_client_plugins` 列目录，没有授权页，也就没有地方写这一残余风险，所以 Windows 的 release 构建仍不运行脚本，等它有了同样的授权页再打开。
 
 ## Decision
 
@@ -33,17 +33,17 @@ Status: implemented
 
 **密钥怎样到达校验方。** 输入法：`input_method_main.mm` 在独立设置窗口的分支返回之后、`msime_client_scripts_enable(true)` 之前调用 `MSIMEInstallScriptGrantKey`，取到就经新的 FFI `msime_client_script_grants_key(key, 32)` 交给 host-api，再由 host-api 交给 client-core；取不到记一行日志，这个进程里没有任何条目生效。设置应用：`desktop_plugins::install_grant_key` 调用 `msime_host_macos::script_grant_key`，时机是写授权和调整顺序之前、读授权时（只在装了脚本包或已有授权文件时）、导入之前（只在已有授权文件时）和删脚本包之前，所以没用到脚本插件的用户打开插件页不会碰钥匙串；取到之后不再重复（`has_mac_key`），取不到时下一次命令再试。Windows 和 Linux 不调用它。
 
-**进程开关在桌面的 release 构建里也生效。** `msime_client_scripts_enable` 去掉了 `debug_assertions` 条件，移动端仍恒为 false。4 个入口、Windows TIP 从不调用、五项运行条件都不变。
+**进程开关在 macOS 和 Linux 的 release 构建里也生效。** `msime_client_scripts_enable` 在 macOS 和 Linux 上去掉了 `debug_assertions` 条件，Windows 仍只在开发构建里生效（原因见上），移动端仍恒为 false。4 个入口、Windows TIP 从不调用、五项运行条件都不变。
 
 **设置页（`packages/ui`、`apps/desktop`）。**
 
-- `host_surface.script_plugins` 在 macOS、Windows、Linux 为 true。桌面外壳的 `plugin_catalog` 不再经过 `without_scripts`，目录里带脚本包的钩子、申请的能力和内容哈希；`without_scripts` 只剩 host-api 的 `msime_client_plugins`（Android、HarmonyOS 用）在用。页面只在 `script_plugins` 为真、并且客户端有授权方法时显示"脚本插件（实验）"分组，否则脚本包和脚本文件夹的问题行都不列出。
+- `host_surface.script_plugins` 在 macOS 和 Linux 为 true，Windows 为 false（它的设置不是这个页面，release 构建也不运行脚本）。桌面外壳的 `plugin_catalog` 不再经过 `without_scripts`，目录里带脚本包的钩子、申请的能力和内容哈希；`without_scripts` 只剩 host-api 的 `msime_client_plugins`（Windows 的原生设置应用、Android、HarmonyOS 用）在用。桌面外壳的导入在 macOS 和 Linux 上直接调用 `plugins::import`，导入的脚本包出现在授权页上；没有授权页的导入路径（host-api 的导入动作、Windows 上的桌面外壳）走 `plugins::import_from_settings`，release 构建里拒绝脚本包，见 [脚本插件进入插件包体系](2026-10-12-script-plugin-kind-and-grants.md)。页面只在 `script_plugins` 为真、并且客户端有授权方法时显示"脚本插件（实验）"分组，否则脚本包和脚本文件夹的问题行都不列出。
 - 新增 Tauri 命令 `script_grants`、`set_script_grant`、`reorder_scripts`，都回整份 `ScriptGrantsView`：条目（含 `verified`）、`<user_data>/script-health.json` 里的停用记录、`mac_required` 和 `signed`。`PluginClient` 上对应的三个方法是可选的，HarmonyOS 的客户端不用改。
 - 列表的标记按顺序判断：没有条目是"未授权"，条目的哈希和包现在的内容哈希不同是"已更新，需要重新授权"，macOS 上设置应用没有密钥时启用的条目是"已启用 · 无法核对授权"（本应用算出的校验结果一律为假，可输入法有自己的密钥，说明不了它运不运行；`scriptGrantsCheckable`），校验不过是"需要重新授权"，启用的是"已启用 · 第 N 位"（被输入法停用时是"已被输入法停用"），其余"未启用"。第几位按输入法实际运行的集合算：启用、校验通过、哈希对得上，前 8 个。
 - 详情页显示声明的钩子（白话的"在什么时候运行"）、申请的每项能力和它的白话说明与是否已授予、内容哈希前 12 位、授权状态和停用原因、启用开关、执行顺序（提前、推后只在运行的插件之间换位）和删除。打开开关先弹授权对话框，对话框的初始焦点在"取消"，关掉后焦点回到打开它的开关或按钮；停用原因只在启用时显示。关掉开关就是 `set(enabled = false, granted = [])`，撤销全部授权，按设计在下一次聚焦时生效。macOS 上 `mac_required && !signed` 时开关和调整按钮禁用，并说明读不到钥匙串。
 - 授权对话框：清单申请的每项能力一个复选框，新授权时一项都不预先勾选；勾选一项把它依赖的那一项一起勾上，取消一项把依赖它的一起取消（`toggleCapability`）；`rewrite_commit` 和 `read_composition` 一项勾着时另一项禁用并写明原因。被宿主拒绝时对话框留着并说明原因，超出内存总账（`plugin_script_memory`）、同时启用超过 8 个、包在打开对话框之后被换过、钥匙串读不到各有一句话。包被换过（`plugin_script_changed`）时页面先重读目录和授权，换成现在的内容哈希，再说明；再确认时只交出新版本申请、对话框列着的那几项，旧版本申请过、新版本不再申请的一项即使原来勾着也不交出去。
 - 社区的发布对话框只列 `communityPluginKinds` 里的类型：桌面的目录里有了脚本包，但它们不能发布（`PUBLISHABLE_KINDS` 里没有 script）。
-- Windows 和 Linux 的列表分组、详情页和对话框写明：以你的身份运行的其他程序可以不经过这个页面直接写入授权；Windows 另写明以管理员身份运行的窗口里不运行脚本插件。macOS 写明伪造的授权不会生效。
+- Windows 和 Linux 的列表分组、详情页和对话框写明：以你的身份运行的其他程序可以不经过这个页面直接写入授权；Windows 另写明以管理员身份运行的窗口里不运行脚本插件。macOS 写明伪造的授权不会生效。Windows 的这几句现在没有用户看得到（Windows 上 `script_plugins` 为假，原生设置应用不用这个页面），留给 Windows 有授权页之后照搬。
 
 ## MAC 挡住和挡不住的
 
@@ -75,7 +75,8 @@ Status: implemented
 
 - 收益：macOS 上授权文件不再能被同一用户下的程序伪造（回滚除外），release 构建因此可以运行脚本；Windows 和 Linux 的残余风险写在用户做决定的地方。用户第一次能在设置页上看到、授权、撤销、排序脚本插件，看到输入法停用了哪个、为什么。
 - 代价：用了弃用的 SecKeychain 接口，哪天 Apple 移除它们，macOS 上就取不到密钥，所有脚本停止运行（失败即关闭），要改走数据保护钥匙串和描述文件。macOS 上手写授权文件自测不再生效，开发时要经设置页授权（或用测试里的 `entry_mac` 按本机密钥签名）。输入法启动时登录钥匙串还锁着、或者访问控制表里没有它，这个进程里就不运行任何脚本，直到下次启动。输入法创建密钥时 LaunchServices 找不到设置应用的话，设置应用第一次读密钥会弹系统授权框。
-- 各宿主接入生命周期核心（`msime_client_set_lifecycle`）之前，会话不满足运行条件：授权页在三个桌面平台上都出现、授权能写进去，但输入法还不会运行任何脚本。
+- 各宿主接入生命周期核心（`msime_client_set_lifecycle`）之前，会话不满足运行条件：授权页在 macOS 和 Linux 上出现、授权能写进去，但输入法还不会运行任何脚本。
+- Windows 的 release 构建不运行脚本，原生设置应用的插件页也不列出脚本包；在那里导入脚本包，release 构建拒绝。要在 Windows 上打开，先给 platforms/windows/settings 加上授权页（列出脚本包、授权、调整顺序、写明残余风险），再放开 `scripts` 的进程开关和 `script_plugins`。
 - `revision` 现在是十几位的数（微秒），设置页和测试只按"变大"判断，不再断言具体值。
 - 已知缺口：整份授权文件的回滚；结束输入法进程让熔断清空；替换用户可写目录里的输入法 bundle；没有团队标识的构建不防预先放置的密钥；钥匙串项的数据能不能被同一用户下的程序改写没有验证：在没有分区的临时钥匙串上实测，不在访问控制表里的程序能不弹框地改写这一项的数据（把访问控制表的 encrypt 授权也限定给创建者仍然挡不住），改写成它知道的密钥之后，输入法和设置应用下次启动就会接受它签的授权；登录钥匙串的分区挡不挡得住这一步，要在签了名的真实安装上验证。钥匙串的整条路径（创建、对方读取、分区核对、拒绝弹框）只有参数检查和分区解析有自动化测试，没有在签了名的真实安装上走过。
 
