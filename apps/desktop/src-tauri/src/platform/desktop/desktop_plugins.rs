@@ -294,6 +294,14 @@ fn script_health(user_data: Option<&Path>) -> Vec<ScriptHealthView> {
         .collect()
 }
 
+/// 读授权时要不要先取钥匙串里的密钥：装了脚本包，或者已经有授权文件。都没有时不碰钥匙串：打开插件页不该为一个用不上的功能去生成密钥或弹出钥匙串授权框。
+fn uses_scripts(root: &Path) -> bool {
+    let scripts_installed =
+        std::fs::read_dir(plugins::kind_directory(root, plugins::PluginKind::Script))
+            .is_ok_and(|mut entries| entries.next().is_some());
+    scripts_installed || script_grants::document_path(root).exists()
+}
+
 fn grants_view(grants: ScriptGrants, user_data: Option<&Path>) -> ScriptGrantsView {
     ScriptGrantsView {
         revision: grants.revision,
@@ -339,11 +347,7 @@ pub async fn script_grants(
     let options = options.inner().clone();
     blocking(move || {
         let user_data = user_data(&options);
-        // 没装脚本包、也没有授权文件时不碰钥匙串：打开插件页不该为一个用不上的功能去生成密钥或弹出钥匙串授权框。
-        let scripts_installed =
-            std::fs::read_dir(plugins::kind_directory(&root, plugins::PluginKind::Script))
-                .is_ok_and(|mut entries| entries.next().is_some());
-        if scripts_installed || script_grants::document_path(&root).exists() {
+        if uses_scripts(&root) {
             install_grant_key(&app);
         }
         Ok(grants_view(
@@ -536,18 +540,75 @@ mod tests {
     }
 
     #[test]
-    fn the_grants_view_carries_the_order_the_signature_and_the_platform_rule() {
+    fn the_grants_view_keeps_the_order_the_verification_and_the_capability_names() {
+        let capabilities = |names: &[&str]| {
+            script_grants::capabilities(
+                &names
+                    .iter()
+                    .map(|name| (*name).to_owned())
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap()
+        };
+        let grant = |id: &str, enabled: bool, granted, verified: bool| script_grants::ScriptGrant {
+            id: id.into(),
+            hash: id.repeat(64 / id.len()),
+            enabled,
+            granted,
+            mac: None,
+            verified,
+        };
+        let rewriting = capabilities(&["rewrite_commit", "read_commit"]);
         let view = grants_view(
             ScriptGrants {
                 revision: 4,
-                plugins: Vec::new(),
+                plugins: vec![
+                    grant("b", true, rewriting, false),
+                    grant("a", false, capabilities(&[]), true),
+                ],
             },
             None,
         );
         assert_eq!(view.revision, 4);
-        assert!(view.plugins.is_empty());
+        // 文件里的顺序就是执行顺序，原样交给页面；校验结果和能力名也原样带过去。
+        assert_eq!(
+            view.plugins,
+            [
+                ScriptGrantView {
+                    id: "b".into(),
+                    hash: "b".repeat(64),
+                    enabled: true,
+                    granted: vec!["read_commit", "rewrite_commit"],
+                    verified: false,
+                },
+                ScriptGrantView {
+                    id: "a".into(),
+                    hash: "a".repeat(64),
+                    enabled: false,
+                    granted: Vec::new(),
+                    verified: true,
+                },
+            ]
+        );
+        assert!(view.health.is_empty());
         assert_eq!(view.mac_required, cfg!(target_os = "macos"));
-        assert_eq!(view.signed, script_grants::has_mac_key());
+    }
+
+    #[test]
+    fn the_keychain_is_touched_only_once_scripts_are_in_use() {
+        let state = tempfile::tempdir().unwrap();
+        let root = state.path().join("plugins");
+        assert!(!uses_scripts(&root));
+        // 空的脚本文件夹不算装了脚本包。
+        let scripts = plugins::kind_directory(&root, plugins::PluginKind::Script);
+        fs::create_dir_all(&scripts).unwrap();
+        assert!(!uses_scripts(&root));
+        fs::create_dir(scripts.join("pangu")).unwrap();
+        assert!(uses_scripts(&root));
+        fs::remove_dir(scripts.join("pangu")).unwrap();
+        // 包删光了，授权文件还在：要读的签名仍然需要密钥。
+        fs::write(script_grants::document_path(&root), b"{}").unwrap();
+        assert!(uses_scripts(&root));
     }
 
     #[test]
