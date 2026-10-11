@@ -314,7 +314,8 @@ impl UnixSocketProvider {
         let ai_limit = query.ai_candidate_limit();
         let limits = [1, ai_limit];
         let mut source_counts = [0; 2];
-        let mut candidates = Vec::with_capacity(replies.len());
+        let reply_count = replies.len();
+        let mut candidates = Vec::new();
         for reply in replies {
             if reply.text.is_empty()
                 || !msime_client_core::is_bounded_text(&reply.text, 4096)
@@ -337,6 +338,10 @@ impl UnixSocketProvider {
             source_counts[source] += 1;
             if source_counts[source] > limits[source] {
                 return None;
+            }
+            if candidates.is_empty() {
+                // 来源过滤可能丢弃整批响应，命中前不为未使用的候选槽位分配存储。
+                candidates.reserve_exact(reply_count);
             }
             candidates.push((reply.text, reply.source));
         }
