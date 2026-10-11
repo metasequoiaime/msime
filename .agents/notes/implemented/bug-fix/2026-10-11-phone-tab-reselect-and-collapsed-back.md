@@ -1,0 +1,30 @@
+# Agent Note: 手机上再点当前标签回到首页，滚动后的子页面也能返回
+
+Status: implemented
+
+## Problem
+
+仓库负责人在鸿蒙手机上点底部「设置」，打开的是「皮肤」页，标题栏里没有返回箭头，回不到设置首页。
+
+- 底部每个标签记住自己最后停留的那一页（`mobileLastPageByTab`），从别的标签点回来就到那一页。可已经在这个标签里时再点它，`selectMobileTab` 还是选那一页，等于原地不动，没有办法一下回到标签首页。
+- 推入页的返回按钮只画在大标题 `SettingsPageHeader` 里。页面往下滚，大标题连同返回按钮一起滚走，顶上换成吸顶的收起标题栏（`collapsedTitle`），它只有字，而且不接收点按。滚过以后只能靠系统返回手势回去。
+
+## Decision
+
+- `selectMobileTab`：点的就是当前所在的标签时，直接回到这个标签的首页（`selectPage(primary)`，照常压一条历史记录）；从别的标签点过来时照旧回到它记住的那一页。
+- 收起的标题栏在推入页上画一个返回按钮（`collapsedBackButton`，`pointer-events-auto`，左侧居中），调用和大标题里那个相同的 `goBack`。只在标题栏可见时才渲染，透明时点不到。标题栏不再整体 `aria-hidden`，只把重复的标题文字标成 `aria-hidden`，按钮留在无障碍树里。
+
+## Alternatives considered
+
+- **再点当前标签时用 `replace` 回首页，不压历史。** 系统返回手势就不能从首页回到刚才的子页面了；常见应用在这种情况下返回也是退出或回上一处，两种都说得通，选了和普通导航一致的压历史。
+- **让大标题里的返回按钮吸顶。** 要改大标题的布局和滚动收起的动画；收起的标题栏本来就吸顶，在它上面加按钮改动最小。
+
+## Verification
+
+- `apps/desktop/tests/core/mobile-tab-bar.test.tsx`：
+  - 在「皮肤」里点「统计」再点「设置」，回到「皮肤」；再点一次「设置」，回到首页。
+  - 「皮肤」页滚动后，收起的标题栏多一个「返回」，点它回到首页。
+- `apps/desktop/tests/settings/mobile-app-chrome.test.tsx` 改为按吸顶的 class 找收起的标题栏。
+- HarmonyOS 6.0.2 phone 模拟器：
+  - 在「皮肤」里点「设置」，回到设置首页。
+  - 「键盘」页往下滚，顶上出现「← 键盘」，点箭头回到设置首页。
