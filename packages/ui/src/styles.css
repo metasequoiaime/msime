@@ -112,13 +112,12 @@
   --animate-splash-name: splash-rise 0.5s 1.1s both;
   --animate-splash-tagline: splash-rise 0.5s 1.35s both;
   --animate-splash-hint: splash-rise 0.5s 1.6s both;
-  /* HarmonyOS 启动页（dc.html `msCircIn`、`msRipple`、`msLogoIn`、`msLoad`）：圆盘落下，一圈白环从它向外扩散两次，标志在其上旋转入场同时描出线条，底部一条细进度条在启动页停留期间填满。 */
-  --animate-splash-circ-in: splash-circ-in 0.65s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  /* HarmonyOS 启动页（dc.html `msRipple`、`msLoad`）：接着系统启动窗往下播。启动窗画的是近黑底上的浅色圆盘和空白标志方块，所以开屏第一帧就是这个画面，再把圆盘和方块淡入当季配色，描出标志线条，一圈白环从圆盘向外扩散两次，底部一条细进度条在启动页停留期间填满。设计稿里圆盘落下、标志旋转入场的两段不再播：启动窗已经画好了它们落定的样子，再播一遍就是从头重来。 */
+  /* 淡入当季配色靠盖在上面的启动窗颜色图层淡出，而不是直接对颜色做动画：ArkWeb 在 `color-mix()` 和普通颜色之间插值会算出纯黄、纯红的中间帧。 */
+  --animate-splash-veil: splash-veil 0.6s ease-out 0.1s both;
   /* 不设 fill mode：圆环在动画前后都停在自身的 `opacity: 0`，只在扩散时可见。 */
   --animate-splash-ripple: splash-ripple 1.2s ease-out 1.45s 2;
-  --animate-splash-logo-in: splash-logo-in 0.6s cubic-bezier(0.2, 0.8, 0.3, 1) 0.25s both;
-  /* 这里标志线条的描绘比其他手机的启动页更晚也更快，在旋转入场即将落定时才开始。 */
-  --animate-splash-logo-draw: splash-draw 0.8s cubic-bezier(0.65, 0, 0.35, 1) 0.65s both;
+  --animate-splash-logo-draw: splash-draw 0.8s cubic-bezier(0.65, 0, 0.35, 1) 0.3s both;
   --animate-splash-load: splash-load 2.4s ease-out both;
   /* 改版的动效（dc.html `msBadgeIn` … `msPushIn`）：成就徽章上浮入场，奖牌点按时弹出并晃动、一道高光扫过，进度环和进度条填充，底部面板上滑，toast 或遮罩淡入，压入的页面从尾侧滑入。需要错开时间的调用处自己加 `animation-delay`；每一个都像启动页一样配上 `motion-reduce:animate-none`。 */
   --animate-ms-badge-in: ms-badge-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -132,17 +131,9 @@
   /* `backwards`, not `both`: a transform animation still in effect after it ends makes the pushed page the containing block for every fixed descendant, so dialogs and their backdrops stopped at the content's height instead of covering the screen. The end state is the element's own style anyway. */
   --animate-ms-push-in: ms-push-in 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
 
-  @keyframes splash-circ-in {
-    0% {
-      transform: scale(0.4);
+  @keyframes splash-veil {
+    to {
       opacity: 0;
-    }
-    60% {
-      transform: scale(1.06);
-      opacity: 1;
-    }
-    100% {
-      transform: scale(1);
     }
   }
   /* 设计用圆盘的 box-shadow 做波纹；改用一个单独的圆环 span 向外缩放，表现同样的动效，又不必每帧重绘圆盘自身的投影。 */
@@ -154,19 +145,6 @@
     to {
       transform: scale(1.2);
       opacity: 0;
-    }
-  }
-  @keyframes splash-logo-in {
-    0% {
-      transform: scale(0.5) rotate(-12deg);
-      opacity: 0;
-    }
-    70% {
-      transform: scale(1.08) rotate(2deg);
-      opacity: 1;
-    }
-    100% {
-      transform: none;
     }
   }
   @keyframes splash-load {

@@ -176,6 +176,8 @@ interface NativeBridge {
   onboardingFinished(): void;
   /** `{"ok":true,"value":string|null}`：键盘要求本窗口打开的页面，只交出一次，第二次读取回复 null。 */
   pendingPage(): string;
+  /** 页面的第一帧已经上屏：宿主撤掉页面加载期间盖在网页上的启动画面。 */
+  launchPainted(): void;
 }
 
 declare global {
@@ -1713,6 +1715,34 @@ function cacheLaunchTheme(dark: boolean, theme: ResolvedAppTheme | null): void {
   }
 }
 
+/** 告诉宿主页面已经画出来了。只在页面加载时调用：桥接对象在页面加载前就已注册，等它只是以防万一；等不到时宿主几秒后自己撤掉启动画面。 */
+function reportLaunchPainted(): void {
+  whenBridgeReady()
+    .then((native) => {
+      if (typeof native.launchPainted === "function") native.launchPainted();
+    })
+    .catch(() => undefined);
+}
+
+/**
+ * 子树第一次提交后再等两帧（第一帧回调时这一帧还没上屏）调用 `onPainted`。
+ *
+ * 冷启动时宿主在网页上盖着和系统启动窗一模一样的启动画面，页面加载期间不露出空白的网页；开屏的第一帧又和启动窗一样，所以第一帧上屏后撤掉盖板，看起来是同一个画面接着动起来。每次重画都要包着同一个子树，否则开屏会重新挂载、动画从头播。
+ */
+function AfterFirstPaint({ onPainted, children }: { onPainted: () => void; children: ReactNode }) {
+  useEffect(() => {
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(onPainted);
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
+  }, [onPainted]);
+  return children;
+}
+
 /** 状态栏和导航栏属于窗口，只有宿主够得着。 */
 function hostChrome(native: NativeBridge): HostChromeClient | undefined {
   return typeof native.setSystemBars === "function"
@@ -1737,11 +1767,13 @@ if (root) {
   const launchDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
   app.render(
     <StrictMode>
-      {phoneLaunch ? (
-        <HarmonyLaunchSplash appTheme={cachedLaunchTheme(launchDark)} onDone={finishSplash} />
-      ) : (
-        <SettingsStartupPage />
-      )}
+      <AfterFirstPaint onPainted={reportLaunchPainted}>
+        {phoneLaunch ? (
+          <HarmonyLaunchSplash appTheme={cachedLaunchTheme(launchDark)} onDone={finishSplash} />
+        ) : (
+          <SettingsStartupPage />
+        )}
+      </AfterFirstPaint>
     </StrictMode>,
   );
   whenBridgeReady()
@@ -1752,11 +1784,13 @@ if (root) {
         cacheLaunchTheme(launchDark, launchTheme);
         app.render(
           <StrictMode>
-            <HarmonyLaunchSplash
-              appTheme={launchTheme}
-              chrome={hostChrome(native)}
-              onDone={finishSplash}
-            />
+            <AfterFirstPaint onPainted={reportLaunchPainted}>
+              <HarmonyLaunchSplash
+                appTheme={launchTheme}
+                chrome={hostChrome(native)}
+                onDone={finishSplash}
+              />
+            </AfterFirstPaint>
           </StrictMode>,
         );
       }

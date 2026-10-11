@@ -506,10 +506,10 @@ test("a HarmonyOS phone colours the system bars to the splash and then to the st
     />,
   );
 
-  // 启动画面底色是季节强调色以 20% 叠在 `#0A0B0A` 上，内容为浅色。
+  // 启动画面底色是系统启动窗的 `#0A0B0A`，不随季节变，内容为浅色。
   expect(setSystemBars).toHaveBeenLastCalledWith({
-    background: "#2c1a11",
-    navigationBar: "#2c1a11",
+    background: "#0A0B0A",
+    navigationBar: "#0A0B0A",
     dark: true,
   });
   fireEvent.click(screen.getByRole("button", { name: "跳过开屏" }));

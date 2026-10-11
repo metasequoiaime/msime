@@ -118,16 +118,16 @@ function HarmonySplash({ onDone }: { onDone: () => void }) {
       <span className={onboarding.hSplashDiscBox} aria-hidden="true">
         <span className={onboarding.hSplashRipple} />
         <span className={onboarding.hSplashDisc} />
+        <span className={onboarding.hSplashDiscVeil} />
         <svg className={onboarding.hSplashLogo} viewBox="0 0 116 132">
           <path className={onboarding.hSplashFrame} d={msimeFramePath} />
+          <path className={onboarding.hSplashFrameVeil} d={msimeFramePath} />
           <path className={onboarding.hSplashStroke} d={msimeStrokePath} pathLength={1} />
         </svg>
       </span>
-      <span className={onboarding.splashName} aria-hidden="true">
-        水杉输入法
-      </span>
-      <span className={onboarding.splashTagline} aria-hidden="true">
-        METASEQUOIA IME
+      <span className={onboarding.hSplashCaption} aria-hidden="true">
+        <span className={onboarding.splashName}>水杉输入法</span>
+        <span className={onboarding.splashTagline}>METASEQUOIA IME</span>
       </span>
       <span className={onboarding.hSplashTrack} aria-hidden="true">
         <span className={onboarding.hSplashFill} />

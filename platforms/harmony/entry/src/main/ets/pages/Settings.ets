@@ -240,6 +240,12 @@ const BRIDGE_NAME: string = 'msimeHarmony';
 const PLATFORM: string = 'harmony';
 /** 欢迎开屏是否已播放过的标记，与应用主题文件同在状态目录。 */
 const SPLASH_SEEN_FILE: string = 'welcome-splash.json';
+// 启动画面的三种颜色，和系统启动窗、网页开屏第一帧（`onboarding-style.ts` 的 `hSplash`、`hSplashDiscVeil`、`hSplashFrameVeil`）相同，改一处就要改全部。
+const LAUNCH_BACKGROUND: string = '#0A0B0A';
+const LAUNCH_DISC: string = '#EDF0F0';
+const LAUNCH_FRAME: string = '#2E3A40';
+// 页面一直没报告第一帧上屏时，启动画面最多盖这么久。
+const LAUNCH_COVER_LIMIT_MS: number = 4000;
 /** The settings page and native save bridge hold one complete export in memory. */
 const MAX_DICTIONARY_EXPORT_BYTES: number = 32 * 1024 * 1024;
 
@@ -574,6 +580,8 @@ struct Settings {
   @State noticeHeld: boolean = true;
   // 页面上次要求状态栏采用的颜色，即页面自己的背景（应用主题下为当季背景）；页面提出前为空，此时由资源默认值代替。通知卡片背后的列也用这个颜色，让卡片边距露出的是页面，而不是另一种灰色的色带。
   @State pageBackground: string = '';
+  // 页面第一帧上屏之前盖在网页上的启动画面，见 `launchCoverView`。
+  @State launchCover: boolean = true;
   /** Bumped for every notice fetch and when the page disappears, so late answers cannot repaint it. */
   private noticeRequest: number = 0;
 
@@ -586,6 +594,13 @@ struct Settings {
     this.bridge.onPageBackground = (colour: string): void => {
       this.pageBackground = colour;
     };
+    this.bridge.onLaunchPainted = (): void => {
+      this.launchCover = false;
+    };
+    // 页面没能报告（脚本出错、桥接没连上）时也不能一直盖着：几秒后撤掉，露出页面自己的错误说明。
+    setTimeout((): void => {
+      this.launchCover = false;
+    }, LAUNCH_COVER_LIMIT_MS);
     // Started here rather than on demand: the page reads the answer synchronously, and the reply
     // carries whether it is ready so the page waits instead of acting on a default.
     this.bridge.refreshSetupState();
@@ -742,47 +757,71 @@ struct Settings {
     this.bridge.unwatchSetup();
   }
 
+  /**
+   * 冷启动时盖在网页上的启动画面，和系统启动窗画的是同一个画面：近黑底（`start_window_background`），正中一个浅色圆盘，盘上是还没描笔画的标志方块（`start_window_icon`）。网页开屏的第一帧也是这个画面（styles.css 的 `splash-veil`），页面报告第一帧上屏（`launchPainted`）后撤掉它，所以从启动窗到开屏看起来是同一个画面接着动起来，中间不露出还没画出东西的网页。
+   *
+   * 它和网页开屏一样按网页区域居中，尺寸照开屏换算：圆盘 180vp，标志方块是 100vp 标志框里 `msimeFramePath` 那个矩形，78.8 × 90.9vp。
+   */
+  @Builder
+  launchCoverView() {
+    Stack() {
+      Circle().width(180).height(180).fill(LAUNCH_DISC)
+      Rect().width(78.8).height(90.9).fill(LAUNCH_FRAME)
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(LAUNCH_BACKGROUND)
+    .transition(TransitionEffect.OPACITY.animation({ duration: 120 }))
+  }
+
   build() {
     Column() {
       if (this.notices.length > 0 && !this.noticeHeld) {
         this.noticeCard()
       }
-      Web({ src: $rawfile('settings/index.html'), controller: this.controller })
-        .javaScriptAccess(true)
-        .domStorageAccess(true)
-        .fileAccess(true)
-        // 页面按 `prefers-color-scheme` 自己绘制深色主题。`WebDarkMode.Auto` 把系统的模式传给这个媒体查询；强制深色保持关闭，因为反转一个本就有深色配色的页面会把它反转回浅色。
-        .darkMode(WebDarkMode.Auto)
-        .forceDarkAccess(false)
-        // Web 组件自己的底色和背后的页面一样：页面画出第一帧之前不再先闪一下 WebView 默认的白色（冷启动时它夹在深色启动窗和开屏之间）。
-        .backgroundColor(this.pageBackground.length > 0 ? this.pageBackground : $r('app.color.settings_page_background'))
-        .onPageEnd((event: OnPageEndEvent): void => {
-          this.bridge.pageLoaded();
-        })
-        // Registered through the controller rather than the attribute: the attribute form takes an
-        // async list but never settles the promises it hands the page, which is worse than the bug
-        // it was meant to fix — the page hangs on its startup screen instead of quietly receiving
-        // nothing. onControllerAttached runs before the first load, so the page still finds the
-        // object already there rather than racing it.
-        .onControllerAttached(() => {
-          try {
-            this.controller.registerJavaScriptProxy(this.bridge, BRIDGE_NAME,
-              ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
-                'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
-                'dictionaryManifest', 'dictionary', 'cloudDictionaryDownload',
-                'typingStatistics', 'openExternalUrl', 'copyText',
-                'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
-                'keyboardFeedback', 'onboardingStatus',
-                'showInputMethodPicker', 'importSkinFolder', 'startRequest', 'plugins',
-                'setupStatus', 'appTheme', 'setSystemBars', 'splashSeen', 'markSplashSeen',
-                'onboardingStarted', 'onboardingFinished', 'pendingPage'],
-              []);
-          } catch (error) {
-            KeyboardLog.error(`settings bridge not registered: ${describeError(error)}`);
-          }
-        })
-        .width('100%')
-        .layoutWeight(1)
+      Stack() {
+        Web({ src: $rawfile('settings/index.html'), controller: this.controller })
+          .javaScriptAccess(true)
+          .domStorageAccess(true)
+          .fileAccess(true)
+          // 页面按 `prefers-color-scheme` 自己绘制深色主题。`WebDarkMode.Auto` 把系统的模式传给这个媒体查询；强制深色保持关闭，因为反转一个本就有深色配色的页面会把它反转回浅色。
+          .darkMode(WebDarkMode.Auto)
+          .forceDarkAccess(false)
+          // Web 组件自己的底色和背后的页面一样：页面画出第一帧之前不再先闪一下 WebView 默认的白色（冷启动时它夹在深色启动窗和开屏之间）。
+          .backgroundColor(this.pageBackground.length > 0 ? this.pageBackground : $r('app.color.settings_page_background'))
+          .onPageEnd((event: OnPageEndEvent): void => {
+            this.bridge.pageLoaded();
+          })
+          // Registered through the controller rather than the attribute: the attribute form takes an
+          // async list but never settles the promises it hands the page, which is worse than the bug
+          // it was meant to fix — the page hangs on its startup screen instead of quietly receiving
+          // nothing. onControllerAttached runs before the first load, so the page still finds the
+          // object already there rather than racing it.
+          .onControllerAttached(() => {
+            try {
+              this.controller.registerJavaScriptProxy(this.bridge, BRIDGE_NAME,
+                ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
+                  'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
+                  'dictionaryManifest', 'dictionary', 'cloudDictionaryDownload',
+                  'typingStatistics', 'openExternalUrl', 'copyText',
+                  'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
+                  'keyboardFeedback', 'onboardingStatus',
+                  'showInputMethodPicker', 'importSkinFolder', 'startRequest', 'plugins',
+                  'setupStatus', 'appTheme', 'setSystemBars', 'splashSeen', 'markSplashSeen',
+                  'onboardingStarted', 'onboardingFinished', 'pendingPage', 'launchPainted'],
+                []);
+            } catch (error) {
+              KeyboardLog.error(`settings bridge not registered: ${describeError(error)}`);
+            }
+          })
+          .width('100%')
+          .height('100%')
+        if (this.launchCover) {
+          this.launchCoverView()
+        }
+      }
+      .width('100%')
+      .layoutWeight(1)
     }
     .width('100%')
     .height('100%')
@@ -819,6 +858,8 @@ class SettingsBridge {
   onNoticeHold: ((held: boolean) => void) | undefined = undefined;
   // 由页面组件设置：告知网页绘制的背景，即页面随系统栏颜色最后一次发来的值。
   onPageBackground: ((colour: string) => void) | undefined = undefined;
+  // 由页面组件设置：页面第一帧已上屏，撤掉启动画面。
+  onLaunchPainted: (() => void) | undefined = undefined;
   // 系统当前键盘改变时重新读取设置状态；在系统键盘对话框里选择键盘就会这样改变，而窗口始终没有离开前台。
   private imeChanged: (property: inputMethod.InputMethodProperty, subtype: InputMethodSubtype) => void =
     (property: inputMethod.InputMethodProperty, subtype: InputMethodSubtype): void => {
@@ -3069,6 +3110,11 @@ class SettingsBridge {
     if (!this.writeStateFile(SPLASH_SEEN_FILE, '{"seen":true}')) {
       KeyboardLog.error('splash flag not saved');
     }
+  }
+
+  /** 页面的第一帧已经上屏，撤掉盖在网页上的启动画面。 */
+  launchPainted(): void {
+    this.onLaunchPainted?.();
   }
 
   /** 设置页面加载完成前键盘请求打开的页面，只交出一次：第二次读取返回 null。 */
