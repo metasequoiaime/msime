@@ -275,6 +275,9 @@ public final class AiSkinPage extends DetailPage {
         subtitle = null;
         palette = null;
         busyOverlay = null;
+        // The save callback is fenced to the old view; do not leave a rebuilt page's action
+        // disabled after that callback is discarded.
+        saving = false;
         super.onDestroyView();
     }
 
