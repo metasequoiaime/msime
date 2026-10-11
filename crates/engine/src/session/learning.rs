@@ -335,7 +335,12 @@ impl InputSession {
             return None;
         }
         let request = self.engine.request();
-        let key = autocorrect_suppression_key(&request.raw_input, &request.raw_input_with_cases);
+        let cases = if request.enable_quanpin_helpcode {
+            &request.raw_input_with_cases
+        } else {
+            &request.raw_input
+        };
+        let key = autocorrect_suppression_key(&request.raw_input, cases);
         // An input the store cannot hold (longer than its limit) is not a write failure to report on every Enter.
         if !is_storable_autocorrect_suppression(&key) {
             return None;

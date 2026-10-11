@@ -2036,6 +2036,73 @@ fn idle_keys_pass_through() {
 }
 
 #[test]
+fn shifted_letter_keeps_unfinished_quanpin_when_helpcode_is_off() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_m VALUES('ma','m','马',100);\
+INSERT INTO tbl_1_m VALUES('mao','m','猫',100);",
+    );
+    let mut session = fixture.session_with(|options| options.helpcode = false);
+    type_text(&mut session, "ma");
+    assert!(words(&session).contains(&"马".to_owned()));
+
+    let shifted = session.character(b'O', true);
+    assert!(shifted.handled);
+    assert!(shifted.commit.is_none());
+    assert_eq!(session.snapshot().preedit, "maO");
+    assert!(words(&session).contains(&"猫".to_owned()));
+    assert_eq!(
+        session.command(Command::CommitRaw).commit.as_deref(),
+        Some("maO")
+    );
+}
+
+#[test]
+fn shifted_letter_inserts_at_caret_without_committing_quanpin() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.helpcode = false);
+    type_text(&mut session, "nihao");
+    session.set_caret(Some(2));
+
+    let shifted = session.character(b'O', true);
+    assert!(shifted.handled);
+    assert!(shifted.commit.is_none());
+    assert_eq!(session.snapshot().preedit, "niOhao");
+}
+
+#[test]
+fn shifted_letter_keeps_unfinished_shuangpin_when_helpcode_is_off() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.helpcode = false;
+    });
+    type_text(&mut session, "ma");
+
+    let shifted = session.character(b'O', true);
+    assert!(shifted.handled);
+    assert!(shifted.commit.is_none());
+    assert_eq!(session.snapshot().preedit, "maO");
+    assert_eq!(
+        session.command(Command::CommitRaw).commit.as_deref(),
+        Some("maO")
+    );
+}
+
+#[test]
+fn shifted_letter_can_finish_a_shuangpin_online_query_without_helpcode() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.helpcode = false;
+    });
+    type_text(&mut session, "ni'h");
+
+    assert!(session.character(b'C', true).handled);
+    assert!(session.online_query().is_some());
+}
+
+#[test]
 fn uppercase_helpcode_and_duplicate_apostrophe_gates() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session();
@@ -2048,7 +2115,8 @@ fn uppercase_helpcode_and_duplicate_apostrophe_gates() {
 
     let mut disabled = fixture.session_with(|options| options.helpcode = false);
     type_text(&mut disabled, "ni");
-    assert!(!disabled.character(b'H', false).handled);
+    assert!(disabled.character(b'H', false).handled);
+    assert_eq!(disabled.snapshot().preedit, "niH");
 }
 
 #[test]

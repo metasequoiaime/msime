@@ -784,7 +784,12 @@ impl ImeSession {
             return;
         }
         self.typo_profile.refresh_if_changed();
-        let key = autocorrect_suppression_key(&request.raw_input, &request.raw_input_with_cases);
+        let cases = if request.enable_quanpin_helpcode {
+            &request.raw_input_with_cases
+        } else {
+            &request.raw_input
+        };
+        let key = autocorrect_suppression_key(&request.raw_input, cases);
         if !self.typo_profile.suppressed(&key) {
             return;
         }

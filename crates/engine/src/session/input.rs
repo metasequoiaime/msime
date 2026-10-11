@@ -300,12 +300,11 @@ impl InputSession {
         let microsoft_final =
             value == b';' && scheme == SchemeType::Shuangpin && self.profile.uses_semicolon_key();
         let japanese_long_vowel = value == b'-' && scheme == SchemeType::JapaneseRomaji;
-        let active_helpcode = value.is_ascii_uppercase()
+        let composing_pinyin_uppercase = value.is_ascii_uppercase()
             && self.has_composition()
-            && ((scheme == SchemeType::Quanpin && self.quanpin_helpcode_enabled)
-                || (scheme == SchemeType::Shuangpin && self.shuangpin_helpcode_enabled));
+            && matches!(scheme, SchemeType::Quanpin | SchemeType::Shuangpin);
         if !lowercase_letter
-            && !active_helpcode
+            && !composing_pinyin_uppercase
             && value != b'\''
             && !microsoft_final
             && !japanese_long_vowel

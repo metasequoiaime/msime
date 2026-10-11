@@ -722,7 +722,8 @@ fn helpcode_settings_reach_the_real_engine() {
             value.helpcode = enabled;
             let mut session = Session::new(&value).unwrap();
             type_text(&mut session, b"ni");
-            assert_eq!(session.character(b'H', true).unwrap().handled, enabled);
+            assert!(session.character(b'H', true).unwrap().handled);
+            assert_eq!(session.snapshot().unwrap().preedit, "niH");
         }
     }
     value.helpcode_schema = "unknown".into();

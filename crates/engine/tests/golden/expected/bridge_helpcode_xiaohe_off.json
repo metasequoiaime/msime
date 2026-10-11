@@ -55,33 +55,35 @@
    "op": "char",
    "arg": "H",
    "result": {
-    "handled": false
+    "handled": true
    },
    "snapshot": {
     "scheme": "quanpin",
     "local_mode": "none",
-    "preedit": "ni",
-    "raw_segmentation": "ni",
-    "normalized_segmentation": "ni",
-    "editing_text": "ni",
-    "caret": 2,
+    "preedit": "niH",
+    "raw_segmentation": "ni'H",
+    "normalized_segmentation": "ni'h",
+    "editing_text": "niH",
+    "caret": 3,
     "dedicated_english": false,
     "shuangpin_profile": "xiaohe",
     "segment_boundaries": [
      0,
-     2
+     2,
+     3
     ],
     "candidate_count": 0,
     "candidates": [],
     "online_query": {
      "scheme": "quanpin",
-     "query_text": "ni",
-     "cache_key": "ni",
+     "query_text": "ni'h",
+     "cache_key": "nih",
      "pinyin_segments": [
-      "ni"
+      "ni",
+      "h"
      ],
      "cloud_eligible": true,
-     "ai_eligible": true
+     "ai_eligible": false
     }
    }
   }

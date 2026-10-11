@@ -174,15 +174,22 @@ mod tests {
     use crate::quanpin::QuanpinScheme;
     use crate::types::SchemeKey;
 
-    fn request(text: &str) -> QueryRequest {
+    fn request_with_helpcode(text: &str, enabled: bool) -> QueryRequest {
         let mut scheme = QuanpinScheme::new();
         for byte in text.bytes() {
             scheme.handle_key(SchemeKey::Letter(byte));
         }
-        let mut request = scheme.build_request();
-        request.enable_quanpin_helpcode = true;
+        let mut request = QueryRequest {
+            enable_quanpin_helpcode: enabled,
+            ..QueryRequest::default()
+        };
+        scheme.build_request_into(&mut request);
         request.sentence_alternatives = true;
         request
+    }
+
+    fn request(text: &str) -> QueryRequest {
+        request_with_helpcode(text, true)
     }
 
     fn words(items: &[WordItem]) -> Vec<&str> {
@@ -241,11 +248,10 @@ mod tests {
         let fixture = fixture();
         let mut engine = QuanpinEngine::new(&fixture.paths);
         let keymap = keymap();
-        let mut disabled = request("nihaoRN");
-        disabled.enable_quanpin_helpcode = false;
+        let disabled = request_with_helpcode("nihaoRN", false);
         let rows = engine.query(&disabled, Some(&keymap));
-        // The scheme stripped the helpcode letters from the segmentation either way.
-        assert_eq!(disabled.segmentation, "ni'hao");
+        assert_eq!(disabled.segmentation, "ni'hao'r'n");
+        assert!(words(&rows).contains(&"你好"));
         assert!(words(&rows).contains(&"拟好"));
     }
 

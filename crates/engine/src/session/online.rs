@@ -357,7 +357,7 @@ impl InputSession {
                     return state;
                 }
                 let last = base.effective_raw_input_with_cases.bytes().last();
-                let ends_with_input_key = matches!(last, Some(b'a'..=b'z' | b';'));
+                let ends_with_input_key = matches!(last, Some(b'a'..=b'z' | b'A'..=b'Z' | b';'));
                 state.should_query =
                     ends_with_input_key && is_complete_input(&base.effective_raw_input, profile);
                 if state.should_query {
@@ -368,8 +368,11 @@ impl InputSession {
                 }
             }
             SchemeType::Quanpin => {
-                state.cache_key =
-                    strip_active_helpcodes(&request.raw_input, &request.raw_input_with_cases);
+                state.cache_key = if request.enable_quanpin_helpcode {
+                    strip_active_helpcodes(&request.raw_input, &request.raw_input_with_cases)
+                } else {
+                    request.raw_input.clone()
+                };
                 if self.has_active_helpcode() {
                     return state;
                 }

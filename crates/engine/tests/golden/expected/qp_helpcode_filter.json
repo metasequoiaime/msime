@@ -488,22 +488,23 @@
    "op": "char",
    "arg": "C",
    "result": {
-    "handled": false
+    "handled": true
    },
    "snapshot": {
     "scheme": "quanpin",
     "local_mode": "none",
-    "preedit": "nihao",
-    "raw_segmentation": "ni'hao",
-    "normalized_segmentation": "ni'hao",
-    "editing_text": "nihao",
-    "caret": 5,
+    "preedit": "nihaoC",
+    "raw_segmentation": "ni'hao'C",
+    "normalized_segmentation": "ni'hao'c",
+    "editing_text": "nihaoC",
+    "caret": 6,
     "dedicated_english": false,
     "shuangpin_profile": "xiaohe",
     "segment_boundaries": [
      0,
      2,
-     5
+     5,
+     6
     ],
     "candidate_count": 5,
     "candidates": [
@@ -514,7 +515,7 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 200,
-      "answers_key": true
+      "answers_key": false
      },
      {
       "word": "拟好",
@@ -523,7 +524,7 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 100,
-      "answers_key": true
+      "answers_key": false
      },
      {
       "word": "𠀀方案𠮷",
@@ -532,7 +533,7 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 90,
-      "answers_key": true
+      "answers_key": false
      },
      {
       "word": "C语言 2",
@@ -541,7 +542,7 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 80,
-      "answers_key": true
+      "answers_key": false
      },
      {
       "word": "GitHub",
@@ -550,19 +551,20 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 70,
-      "answers_key": true
+      "answers_key": false
      }
     ],
     "online_query": {
      "scheme": "quanpin",
-     "query_text": "ni'hao",
-     "cache_key": "nihao",
+     "query_text": "ni'hao'c",
+     "cache_key": "nihaoc",
      "pinyin_segments": [
       "ni",
-      "hao"
+      "hao",
+      "c"
      ],
      "cloud_eligible": true,
-     "ai_eligible": true
+     "ai_eligible": false
     }
    }
   },

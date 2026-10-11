@@ -311,8 +311,14 @@ impl InputSession {
         let selected = remove_delimiters(pinyin);
         // 五笔临时拼音反查的引导键 `z` 不是拼音，选词只在它后面那段拼音里计算。
         let (raw, raw_with_cases) = self.pinyin_spelling(request);
-        let raw_without_helpcodes = strip_active_helpcodes(raw, raw_with_cases);
-        let cased_without_helpcodes = strip_active_helpcodes_with_cases(raw, raw_with_cases);
+        let (raw_without_helpcodes, cased_without_helpcodes) = if request.enable_quanpin_helpcode {
+            (
+                strip_active_helpcodes(raw, raw_with_cases),
+                strip_active_helpcodes_with_cases(raw, raw_with_cases),
+            )
+        } else {
+            (raw.to_owned(), raw_with_cases.to_owned())
+        };
         let consumed_raw =
             raw_length_for_effective_prefix(&cased_without_helpcodes, selected.len());
         let normalized_length = request.normalized_input.len() - self.pinyin_lookup_prefix_len();
@@ -330,7 +336,11 @@ impl InputSession {
     fn pinyin_spelling<'a>(&self, request: &'a QueryRequest) -> (&'a str, &'a str) {
         let prefix = self.pinyin_lookup_prefix_len();
         let raw = request.raw_input.get(prefix..).unwrap_or_default();
-        let raw_with_cases = request.raw_input_with_cases.get(prefix..).unwrap_or(raw);
+        let raw_with_cases = request
+            .raw_input_with_cases
+            .get(prefix..)
+            .filter(|cases| !cases.is_empty())
+            .unwrap_or(raw);
         (raw, raw_with_cases)
     }
 
@@ -425,11 +435,19 @@ impl InputSession {
             let (full_pure_pinyin, raw_without_helpcodes, cased_without_helpcodes) = {
                 let request = self.engine.request();
                 let (raw, raw_with_cases) = self.pinyin_spelling(request);
-                (
-                    request.normalized_input[lookup_prefix..].to_owned(),
-                    strip_active_helpcodes(raw, raw_with_cases),
-                    strip_active_helpcodes_with_cases(raw, raw_with_cases),
-                )
+                if request.enable_quanpin_helpcode {
+                    (
+                        request.normalized_input[lookup_prefix..].to_owned(),
+                        strip_active_helpcodes(raw, raw_with_cases),
+                        strip_active_helpcodes_with_cases(raw, raw_with_cases),
+                    )
+                } else {
+                    (
+                        request.normalized_input[lookup_prefix..].to_owned(),
+                        raw.to_owned(),
+                        raw_with_cases.to_owned(),
+                    )
+                }
             };
             transition.full_pure_pinyin = full_pure_pinyin;
             let consumed =
