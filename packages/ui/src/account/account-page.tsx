@@ -7,6 +7,7 @@ import { FluentIcon, type FluentIconName } from "../core/fluent-icons";
 import type { AppThemeClient } from "../core/host-contracts";
 import { GroupList, NavGroup, NavRow, Row } from "../core/platform-controls";
 import { useToast } from "../core/toast";
+import { useTemporaryFlag } from "../core/use-temporary-flag";
 import { privacyUrl } from "../settings/app-resources";
 import type { SettingsPageId } from "../settings/settings-page-registry";
 import { themeEntry } from "../theme/global-theme";
@@ -175,7 +176,7 @@ function MobileAccountProfilePage({
   const [confirmation, setConfirmation] = useState<
     "logout" | "logout-all" | "relogin" | "delete" | null
   >(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, showCopied] = useTemporaryFlag(1800);
   const { busy, mounted, clientGeneration, perform } = useAccountAction(
     client,
     setError,
@@ -220,7 +221,7 @@ function MobileAccountProfilePage({
     copyAccountIdToClipboard({
       id: user.id,
       isMounted: () => mounted.current,
-      setCopied,
+      onCopied: showCopied,
       setError,
     });
   };
@@ -387,9 +388,7 @@ function HarmonyProfilePage({
     copyAccountIdToClipboard({
       id: user.id,
       isMounted: () => mounted.current,
-      setCopied: (copied) => {
-        if (copied) showToast("已复制");
-      },
+      onCopied: () => showToast("已复制"),
       setError,
     });
 
@@ -1013,7 +1012,7 @@ function AccountDetailsPage({
   const [editingProfile, setEditingProfile] = useState(false);
   const [mobileSubpage, setMobileSubpage] = useState<AccountSubpage | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
-  const [copiedAccountId, setCopiedAccountId] = useState(false);
+  const [copiedAccountId, showCopiedAccountId] = useTemporaryFlag(1800);
   const { busy, mounted, clientGeneration, perform } = useAccountAction(
     client,
     setError,
@@ -1204,7 +1203,7 @@ function AccountDetailsPage({
     copyAccountIdToClipboard({
       id: user?.id,
       isMounted: () => mounted.current,
-      setCopied: setCopiedAccountId,
+      onCopied: showCopiedAccountId,
       setError,
     });
   };
