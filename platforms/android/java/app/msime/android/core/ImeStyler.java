@@ -57,7 +57,7 @@ final class ImeStyler {
      * 跟随系统皮肤按应用主题取色：`system` 皮肤换成 {@link KeyboardSkin#system(boolean, AppThemePalette.Seed)}，其他皮肤原样返回。SVC 每次按偏好重建 `skin` 时拿到的是 classic 基础色，这里在着色时统一换掉，所以不必改 SVC 的每个赋值点。
      */
     KeyboardSkin themed(KeyboardSkin target) {
-        if (target == null || target.designed() || !"system".equals(target.id())) return target;
+        if (target == null || !target.followsAppTheme()) return target;
         if (target == seededLight || target == seededDark) return target;
         if (seed == null) refreshAppTheme(true);
         if (target.dark()) {

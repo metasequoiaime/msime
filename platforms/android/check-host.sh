@@ -54,6 +54,12 @@ if rg -n 'VariantGroup|showJapaneseVariants' \
   echo "Android must not duplicate Engine-owned Japanese kana variant tables" >&2
   exit 1
 fi
+# 偏好每秒重读一次，重读前后的键盘皮肤要按实际画出来的样子比（KeyboardSkin#displayKey，KeyboardSkinDisplayKeySmoke 覆盖它的语义）。直接比 `skin.key()` 时，渲染写回的当季配色和重读重建的 classic 基础色永远不等，跟随系统皮肤下键盘每秒整页重画一次。
+if rg -n 'previousSkin = skin\.key\(\)|previousSkin\.equals\(skin\.key\(\)\)' "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q 'previousSkin\.equals\(skin\.displayKey\(' "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Android preference reloads must compare the drawn skin (KeyboardSkin#displayKey), not skin.key()" >&2
+  exit 1
+fi
 # 日语九键的五向提示按下就显示（#6716）：0.3.1 曾把它推迟到系统长按时长之后，用户感觉每个假名都慢半拍。提示已收进被按的键里，不再需要这个延迟。
 if rg -n 'getLongPressTimeout' "$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java"; then
   echo "The Japanese nine-key flick guide must show on touch-down, not after the long-press timeout" >&2

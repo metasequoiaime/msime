@@ -2225,7 +2225,9 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousPreferencesReady = preferencesSnapshot != null;
         String previousView = view == null ? "" : view.toString();
         String previousNotice = preferencesNotice;
-        String previousSkin = skin.key();
+        // 比的是实际画出来的皮肤（经应用主题着色后），不是 `skin.key()`：渲染时 `skin` 被换成当季配色，重读时又按偏好重建回 classic 基础色，两者永远不等（见 KeyboardSkin#displayKey）。
+        String previousSkin = skin.displayKey(imeStyler.appThemeSeed());
+        AndroidLocalSettings.Snapshot previousLocalSettings = localSettings;
         String previousAppearance = candidateAppearanceKey();
         String previousGeometry = touchGeometryKey();
         AiPolishConfiguration previousAi = aiPolishConfiguration;
@@ -2250,7 +2252,9 @@ public final class MSIMEInputService extends InputMethodService {
         }
         offerRecentClipOnHistoryEnabled(previousClipboard);
         if (previousPreferencesReady != (preferencesSnapshot != null)
-                || !previousNotice.equals(preferencesNotice) || !previousSkin.equals(skin.key())
+                || !previousNotice.equals(preferencesNotice)
+                || !previousSkin.equals(skin.displayKey(imeStyler.appThemeSeed()))
+                || !previousLocalSettings.equals(localSettings)
                 || !previousAppearance.equals(candidateAppearanceKey())
                 || !previousGeometry.equals(touchGeometryKey())
                 || (previousAi == null ? aiPolishConfiguration != null
@@ -2271,6 +2275,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void applyPreferencesSnapshot(JSONObject snapshot) throws JSONException {
         refreshLocalSettings();
+        // 应用主题在本地设置里，季节随月份变：每次重读都按刚读到的本地设置重新解析种子，下面的候选条外观和 reloadPreferences 的皮肤比较才用的是同一个当前种子。渲染时的 refreshSeasonIfNeeded 一分钟才查一次，只靠它的话设置页换了应用主题，键盘最多要等一分钟。
+        imeStyler.refreshAppTheme(true);
         JSONObject previousPreferences = preferencesSnapshot == null
             ? null : preferencesSnapshot.optJSONObject("preferences");
         boolean previousCloudCandidates = previousPreferences == null

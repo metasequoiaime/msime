@@ -374,6 +374,19 @@ public final class KeyboardSkin {
     /** Whether this is the user's full custom design, drawn with its own key drawable and background. */
     public boolean designed() { return designed; }
     public String key() { return id + ":" + dark + (designKey.isEmpty() ? "" : ":" + designKey); }
+
+    /** 跟随系统皮肤：画出来的颜色不看自己的槽位，而是由应用主题当前季节的种子按明暗推导（见 `ImeStyler.themed`）；用户设计和命名皮肤原样画。 */
+    public boolean followsAppTheme() { return !designed && "system".equals(id); }
+
+    /**
+     * 这张皮肤在应用主题种子 `seed` 下实际画出来的样子的键，用来判断偏好重读后键盘要不要重画。
+     *
+     * <p>不能直接比 {@link #key()}：服务每次按偏好重建的跟随系统皮肤是 classic 基础色，渲染时才被 `ImeStyler.themed` 换成当季配色并写回，于是重读前后两个 `key()` 一个是当季色、一个是 classic 色，永远不相等，偏好每秒轮询一次就整页重画一次。跟随系统皮肤的颜色只由明暗和种子决定，这里只取这两样；种子的 id 和季节对所有皮肤都算进去，因为工具栏品牌键的 logo 色不论哪张皮肤都取应用主题的季节色（`ImeToolbar.styleTopRow`）。
+     */
+    public String displayKey(AppThemePalette.Seed seed) {
+        String surface = followsAppTheme() ? id + ":" + dark : key();
+        return seed == null ? surface : surface + "@" + seed.id + ":" + seed.season;
+    }
     public String background() { return background; }
     public String keyBackground() { return keyBackground; }
     public String keyForeground() { return keyForeground; }
