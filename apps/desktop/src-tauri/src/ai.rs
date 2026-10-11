@@ -92,7 +92,18 @@ pub(crate) fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<Strin
             code: "ai_models_unavailable",
         },
     })?;
-    let document: Value = serde_json::from_slice(&body).map_err(|_| CommandError {
+    let models = parse_ai_models_response(&body)?;
+    if models.is_empty() {
+        return Err(CommandError {
+            code: "ai_models_invalid",
+        });
+    }
+    Ok(models)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn parse_ai_models_response(body: &[u8]) -> Result<Vec<String>, CommandError> {
+    let document: Value = serde_json::from_slice(body).map_err(|_| CommandError {
         code: "ai_models_invalid",
     })?;
     let data = document
@@ -101,7 +112,7 @@ pub(crate) fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<Strin
         .ok_or(CommandError {
             code: "ai_models_invalid",
         })?;
-    let mut models = Vec::with_capacity(MAX_MODELS);
+    let mut models = Vec::new();
     for id in data
         .iter()
         .filter_map(|item| item.get("id").and_then(Value::as_str))
@@ -110,14 +121,60 @@ pub(crate) fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<Strin
         })
         .take(MAX_MODELS)
     {
+        if models.is_empty() {
+            models.reserve_exact(MAX_MODELS);
+        }
         models.push(id.to_owned());
     }
-    if models.is_empty() {
-        return Err(CommandError {
-            code: "ai_models_invalid",
-        });
-    }
     Ok(models)
+}
+
+#[cfg(all(test, not(target_os = "linux")))]
+mod model_tests {
+    use super::*;
+
+    #[test]
+    fn empty_and_filtered_model_lists_do_not_reserve_capacity() {
+        for body in [
+            br#"{"data":[]}"#.as_slice(),
+            br#"{"data":[{}, {"id":null}, {"id":""}, {"id":"bad\nmodel"}]}"#.as_slice(),
+        ] {
+            let empty = parse_ai_models_response(body).unwrap();
+            assert!(empty.is_empty());
+            assert_eq!(empty.capacity(), 0);
+        }
+    }
+
+    #[test]
+    fn valid_model_lists_keep_order_and_capacity() {
+        let valid = parse_ai_models_response(
+            br#"{"data":[{"id":"fixture-model"}, {}, {"id":"fixture-next"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(valid, ["fixture-model", "fixture-next"]);
+        assert_eq!(valid.capacity(), MAX_MODELS);
+    }
+
+    #[test]
+    fn model_lists_keep_the_limit_and_reject_malformed_envelopes() {
+        let data: Vec<_> = (0..=MAX_MODELS)
+            .map(|index| serde_json::json!({ "id": format!("fixture-{index}") }))
+            .collect();
+        let body = serde_json::to_vec(&serde_json::json!({ "data": data })).unwrap();
+        let models = parse_ai_models_response(&body).unwrap();
+        assert_eq!(models.len(), MAX_MODELS);
+        assert_eq!(models.first().unwrap(), "fixture-0");
+        assert_eq!(
+            models.last().unwrap(),
+            &format!("fixture-{}", MAX_MODELS - 1)
+        );
+        for body in [b"{invalid".as_slice(), br#"{}"#, br#"{"data":null}"#] {
+            assert_eq!(
+                parse_ai_models_response(body).unwrap_err().code,
+                "ai_models_invalid"
+            );
+        }
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
