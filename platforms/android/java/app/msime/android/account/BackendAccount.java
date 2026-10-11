@@ -30,8 +30,6 @@ import app.msime.android.clipboard.CloudClipboardTextPolicy;
  * stops a token minted for some other app, or captured from an earlier sign-in, being replayed here.
  */
 public final class BackendAccount {
-    /** Maximum number of models accepted in the chat catalogue. */
-    public static final int MAX_CHAT_MODELS = 33;
     /** Fixed hexadecimal length of account challenge and clipboard identifiers. */
     public static final int HEX_ID_LENGTH = 64;
     private static final String SESSION_STORE = "msime_account_session_v2";
@@ -58,7 +56,6 @@ public final class BackendAccount {
             this(id, purpose, expiresIn, "");
         }
     }
-    public record ChatModel(String id) {}
     public record ChatMessage(String role, String content) {}
     public record ClipboardItem(String id, String text, String updatedAt) {}
     public record ClipboardPage(boolean enabled, List<ClipboardItem> items) {}
@@ -511,50 +508,8 @@ public final class BackendAccount {
         }
     }
 
-    /** Loads the bounded model catalogue used by the keyboard tryout chat. */
-    public List<ChatModel> chatModels() throws Exception {
-        return chatModels(null);
-    }
-
-    /** 只在页面传入的会话仍是当前会话时加载模型目录。 */
-    public List<ChatModel> chatModels(String expectedSessionId) throws Exception {
-        SessionCredential session = currentSession();
-        requireSession(session, expectedSessionId);
-        if (session.token().isEmpty()) throw new IllegalStateException("HTTP 401");
-        JSONObject response = authorizedRequest("GET", "/v1/models", null, session);
-        org.json.JSONArray data = response.optJSONArray("data");
-        if (data == null || data.length() == 0 || data.length() > 64)
-            throw new IllegalStateException("invalid model catalogue");
-        List<ChatModel> models = new ArrayList<>(data.length());
-        for (int index = 0; index < data.length(); index++) {
-            JSONObject item = data.optJSONObject(index);
-            String id = item == null ? "" : TextPolicy.trimmed(optionalStringField(item.opt("id"), ""));
-            if (id.isEmpty() || id.length() > 256) throw new IllegalStateException("invalid model catalogue");
-            models.add(new ChatModel(id));
-        }
-        String defaultModel = optionalStringField(response.opt("default_model"), "");
-        if (!validChatModels(models, defaultModel))
-            throw new IllegalStateException("invalid model catalogue");
-        return ListPolicy.copyOrEmpty(models);
-    }
-
-    static boolean validChatModels(List<ChatModel> models, String defaultModel) {
-        if (models == null || models.isEmpty() || models.size() > MAX_CHAT_MODELS
-                || !TextPolicy.boundedNonEmpty(defaultModel, 200))
-            return false;
-        java.util.HashSet<String> ids = new java.util.HashSet<>(models.size());
-        boolean hasDefault = false;
-        for (ChatModel model : models) {
-            if (model == null || !TextPolicy.boundedNonEmpty(model.id(), 200)
-                    || !ids.add(model.id())) return false;
-            if (defaultModel.equals(model.id())) hasDefault = true;
-        }
-        return hasDefault;
-    }
-
-    static boolean validChatRequest(List<ChatMessage> messages, String model) {
-        if (!TextPolicy.boundedNonEmpty(model, 200)
-                || messages == null || messages.isEmpty() || messages.size() > 16) return false;
+    static boolean validChatRequest(List<ChatMessage> messages) {
+        if (messages == null || messages.isEmpty() || messages.size() > 16) return false;
         int bytes = 0;
         for (ChatMessage message : messages) {
             if (message == null || !("user".equals(message.role()) || "assistant".equals(message.role())
@@ -581,9 +536,9 @@ public final class BackendAccount {
     }
 
     /** Sends one bounded non-streaming chat request; callers must run it off the UI thread. */
-    public String chat(List<ChatMessage> messages, String model) throws Exception {
+    public String chat(List<ChatMessage> messages) throws Exception {
         SessionCredential session = currentSession();
-        JSONObject body = chatBody(messages, model, session.token()).put("stream", false);
+        JSONObject body = chatBody(messages, session.token()).put("stream", false);
         return chatContent(authorizedRequest("POST", "/v1/chat/completions", body, session));
     }
 
@@ -592,17 +547,17 @@ public final class BackendAccount {
      *
      * <p>请求与 {@link #chat} 相同，只多了 `"stream": true`；服务端回 OpenAI 兼容的 SSE（`data: <chat.completion.chunk>`，以 `data: [DONE]` 结束）。不认识 stream 的旧后端回 HTTP 400，这时退回 {@link #chat}，把整段回复一次交给 listener。{@code call} 可以从任何线程取消，取消会断开连接，阻塞中的读取立刻失败。
      */
-    public String chatStream(List<ChatMessage> messages, String model, ChatCall call, ChatStreamListener listener)
+    public String chatStream(List<ChatMessage> messages, ChatCall call, ChatStreamListener listener)
             throws Exception {
-        return chatStream(messages, model, call, listener, null);
+        return chatStream(messages, call, listener, null);
     }
 
     /** 只在页面传入的会话仍是当前会话时发送聊天流。 */
-    public String chatStream(List<ChatMessage> messages, String model, ChatCall call, ChatStreamListener listener,
+    public String chatStream(List<ChatMessage> messages, ChatCall call, ChatStreamListener listener,
             String expectedSessionId) throws Exception {
         SessionCredential session = currentSession();
         requireSession(session, expectedSessionId);
-        JSONObject body = chatBody(messages, model, session.token()).put("stream", true);
+        JSONObject body = chatBody(messages, session.token()).put("stream", true);
         ChatStreamListener guarded = delta -> {
             try {
                 ensureCurrentSession(session);
@@ -683,9 +638,13 @@ public final class BackendAccount {
         }
     }
 
-    /** 校验对话请求并组装请求体（不含 stream 字段），{@link #chat} 和 {@link #chatStream} 共用同一套上限。 */
-    private static JSONObject chatBody(List<ChatMessage> messages, String model, String token) throws Exception {
-        if (token.isEmpty() || !validChatRequest(messages, model))
+    /**
+     * 校验对话请求并组装请求体（不含 stream 字段），{@link #chat} 和 {@link #chatStream} 共用同一套上限。
+     *
+     * <p>请求体不带 `model`：用哪个模型由服务端决定，省略时后端用它配置的默认模型，用户在客户端选不了，客户端也不去 `/v1/models` 替用户挑一个。
+     */
+    private static JSONObject chatBody(List<ChatMessage> messages, String token) throws Exception {
+        if (token.isEmpty() || !validChatRequest(messages))
             throw new IllegalStateException("invalid chat request");
         org.json.JSONArray payloadMessages = new org.json.JSONArray();
         for (int index = 0; index < messages.size(); index++) {
@@ -696,7 +655,7 @@ public final class BackendAccount {
             payloadMessages.put(new JSONObject().put("role", message.role())
                 .put("content", message.content()));
         }
-        return new JSONObject().put("messages", payloadMessages).put("model", model).put("max_tokens", 2048);
+        return new JSONObject().put("messages", payloadMessages).put("max_tokens", 2048);
     }
 
     /** 非流式回复里的 choices[0].message.content：按 {@link #validChatResponse} 校验。 */

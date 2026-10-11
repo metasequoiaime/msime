@@ -17,7 +17,7 @@ Android 原生宿主已经有 AI 对话，就是设置首页状态卡上「试�
 - 没有「‹ 设置」返回键，标题是「对话」；返回键照 `HomeActivity` 的规则回到设置 tab，键盘升起时系统先收键盘。
 - 点底部那一格进来不弹键盘；切到别的 tab 时把键盘收起来，不让它盖在另一个 tab 上。
 - 底部让开 tab 栏加系统导航栏，键盘升起时改让键盘（`WindowInsetsPolicy.bottomContentInset`，与 `PageInsetsPolicy` 同一个公式）；顶部和左右由 `HomeActivity` 给内容区垫好。
-- 账号变了不能 `finish()`：每次回到眼前（`onBecameVisible`）和每个回调到达时核对会话，变了就停掉请求、清空对话、改绑现在的会话并重新加载模型目录。模型目录的回调按加载开始时的会话过滤，旧账号那一次迟到的结果不会被当成新账号的目录。
+- 账号变了不能 `finish()`：每次回到眼前（`onBecameVisible`）和每个回调到达时核对会话，变了就停掉请求、清空对话、改绑现在的会话。聊天请求带着发起时的会话，旧账号那一次迟到的回复不会落到新账号的对话里。对话页不加载模型目录，模型由服务端决定，见 [Android 对话页不选模型](2026-10-11-android-chat-server-picks-model.md)。
 
 **「试用键盘」按钮切到对话 tab 并弹出键盘。** 试用键盘本来就是在这个输入框里打字，对话 tab 接手以后不再另开一页，设置首页状态卡上的「试用键盘」改为 `HomeActivity.openChat()`：切到对话 tab，再经 `ChatFragment.focusInput()` 把焦点交给输入框、弹出键盘。按钮本身留着，它是状态卡上「启用 → 设为默认 → 打字试试」的最后一步；iOS 的同一处也是这样改的。Android 的「AI 润色与回复」页没有「AI 对话」行，设置搜索的索引（`PageId` 关键词）里也没有指向对话页的条目，这两处没有要改的入口。
 
@@ -37,10 +37,10 @@ Android 原生宿主已经有 AI 对话，就是设置首页状态卡上「试�
 ## Consequences
 
 - **收益**：底部回到四格，第二格就是已有的 AI 对话，打开即用；试用键盘和对话是同一个输入框，不再有两份页面。对话 tab 和其他 tab 一样 hide/show，切走再回来对话还在。深链下标、菜单和 `TAB_IDS` 三处由冒烟核对，不会再出现空位。
-- **代价与已知上限**：对话只在内存里，进程被杀、换深浅模式或换季重建 `HomeActivity` 时清空，和原来关掉试用页一样。在「我的」里换账号以后，对话 tab 回到眼前时清空对话并重新加载模型，正在流式到达的回复会被丢掉。旧版本发出的下标 1 如果本意是社区，现在会打开对话；仓库内没有这样的发送方。`HomeActivity` 显式写了 `adjustResize`，理论上会影响原先靠系统猜测的页面，实际上这些页面都按 inset 让位，猜出来的也是 resize。
+- **代价与已知上限**：对话只在内存里，进程被杀、换深浅模式或换季重建 `HomeActivity` 时清空，和原来关掉试用页一样。在「我的」里换账号以后，对话 tab 回到眼前时清空对话并改绑新会话，正在流式到达的回复会被丢掉。旧版本发出的下标 1 如果本意是社区，现在会打开对话；仓库内没有这样的发送方。`HomeActivity` 显式写了 `adjustResize`，理论上会影响原先靠系统猜测的页面，实际上这些页面都按 inset 让位，猜出来的也是 resize。
 
 ## Verification
 
 - `platforms/android/tests/home/BottomTabsSmoke.java` 核对菜单、`TAB_IDS` 和 `TAB_*` 的对应；`platforms/android/tests/settings/HostDeepLinkSmoke.java` 钉住 `TAB_CHAT == 1`。
-- `scripts/test-android-keyboard-tryout.py` 等八个源码契约脚本改为检查 `ChatFragment.java`，并新增一条：模型目录的成功和失败回调都按加载开始时的会话丢掉旧结果。
+- `scripts/test-android-keyboard-tryout.py` 等八个源码契约脚本改为检查 `ChatFragment.java`，并新增一条：聊天请求的成功和失败回调都丢掉已经过期的那一次。
 - `platforms/android/check-host.sh`、全部 `scripts/test-android-*.py` 和 Gradle `compileFullDebugJavaWithJavac` 通过。没有在模拟器上装包验证（tab 切换、键盘弹出与让位、返回键、换账号后的重置都没有在设备上走过）：本机没有现成的 Android 原生库，完整 APK 要先交叉编译 Rust，而本机磁盘剩余不足 50 GB。合并前需要在 API 28 和 35 模拟器上走一遍。

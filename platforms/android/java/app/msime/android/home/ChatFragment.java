@@ -49,7 +49,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * AI 对话，也是试用键盘：一个只为了把键盘调出来而存在的输入框，按设计做成聊天样式。
  *
- * <p>这里的键盘是绑定到这个输入框上的真正输入法，不是首页的静态预览。打的字不会被读取、保存或发送到任何地方；只有在用户登录、加载了 AI 模型并点发送之后，那一条消息才会作为 AI 对话发出去。没有加载模型时发送键保持禁用，对话区只有水杉的问候。
+ * <p>这里的键盘是绑定到这个输入框上的真正输入法，不是首页的静态预览。打的字不会被读取、保存或发送到任何地方；只有用户点了发送，那一条消息才会作为 AI 对话发给水杉的后端。用哪个模型由服务端决定：页面不加载模型目录，请求里也不带 `model`，用户在这里选不了模型。没登录时发出去会得到失败提示，对话区开头只有水杉的问候。
  *
  * <p>这一页有两种承载方式。主要的是 {@link HomeActivity} 底部第二格的「对话」tab：没有返回键，标题是「对话」，点 tab 进来不弹键盘，切走时收起键盘；设置首页状态卡上的「试用键盘」切到这个 tab 并经 {@link #focusInput} 把键盘弹出来。另一种是 {@link KeyboardTryoutActivity} 单独承载（参数 {@link #ARG_STANDALONE}），留给 Tauri 共享设置的「屏幕键盘」页：和原来的试用页一样有「‹ 设置」返回，一打开就弹键盘，账号变了就关掉。
  */
@@ -70,17 +70,12 @@ public final class ChatFragment extends HomeTabFragment {
     private final Handler mainHandler = MainThreadPolicy.mainHandler();
     private final ExecutorService worker = Executors.newSingleThreadExecutor(
         ThreadPolicy.namedFactory("msime-keyboard-tryout"));
-    private final ArrayList<BackendAccount.ChatModel> models = new ArrayList<>(BackendAccount.MAX_CHAT_MODELS);
     private final List<BackendAccount.ChatMessage> messages = new ArrayList<>(13);
     private Future<?> operation;
     private int generation;
     private boolean sending;
-    /** 模型目录正在加载。 */
-    private boolean loadingModels;
     /** 页面绑定的真实账号会话；空值表示绑定时没有登录。 */
     private String pageSessionId = "";
-    /** 目录还没到时就发出的一句：已经画成气泡，目录到了再真正发给模型。 */
-    private String pendingSend;
     /** 正在流式到达的那条回复；没有请求在进行时为 null。只在界面线程上读写。 */
     private StreamingReply streaming;
     private boolean standalone;
@@ -173,7 +168,7 @@ public final class ChatFragment extends HomeTabFragment {
 
         ViewPolicy.afterTextChanged(field, text -> {
             if (text.length() > DRAFT_LIMIT) text.delete(DRAFT_LIMIT, text.length());
-            // 请求进行中按钮是「停止」，继续编辑或清空草稿都不能禁用取消操作。默认就能和 AI 对话：有字就能发，目录还没加载完时发出的那句等目录到了再发。
+            // 请求进行中按钮是「停止」，继续编辑或清空草稿都不能禁用取消操作。默认就能和 AI 对话：有字就能发。
             ViewPolicy.setEnabled(sendAi, sending || text.length() > 0);
         });
 
@@ -184,8 +179,6 @@ public final class ChatFragment extends HomeTabFragment {
         ViewPolicy.bindClick(view.findViewById(R.id.tryout_clear), () -> clear(field, sendAi));
 
         greet();
-        // 进页面就在后台加载模型目录，不再要用户先点「加载 AI」。
-        loadModels(field, sendAi);
 
         // 单独打开这一页就是用户在要键盘，所以不等点按就把它弹出来；tab 由 HomeActivity 决定什么时候弹（见 focusInput）。
         if (standalone) focusInput();
@@ -225,62 +218,10 @@ public final class ChatFragment extends HomeTabFragment {
     /** 清空：停掉进行中的请求，清掉草稿、对话和上下文，回到只有问候的样子。 */
     private void clear(EditText field, MaterialButton send) {
         if (sending) cancelChat(send);
-        pendingSend = null;
         messages.clear();
         if (chat != null) chat.removeAllViews();
         field.setText("");
         greet();
-    }
-
-    /** 后台加载模型目录；成功后刷新发送键，并把目录到之前发出的那句真正发出去。 */
-    private void loadModels(EditText field, MaterialButton send) {
-        if (loadingModels) return;
-        loadingModels = true;
-        Context app = requireContext().getApplicationContext();
-        // 加载开始时绑定的会话：tab 上换了账号以后页面会改绑新会话并重新加载，旧账号那一次迟到的结果按它丢掉。
-        String session = pageSessionId;
-        operation = worker.submit(() -> {
-            try {
-                List<BackendAccount.ChatModel> loaded = new BackendAccount(app).chatModels(session);
-                mainHandler.post(() -> {
-                    if (!alive() || !session.equals(pageSessionId)) return;
-                    if (!pageSessionCurrent()) {
-                        abortForSessionChange();
-                        return;
-                    }
-                    models.clear();
-                    models.ensureCapacity(loaded.size());
-                    models.addAll(loaded);
-                    loadingModels = false;
-                    // 目录加载期间可能已经打了草稿。这里直接刷新按钮状态，不等下一次编辑通知。
-                    ViewPolicy.setEnabled(send, sending || field.length() > 0);
-                    flushPendingSend(send);
-                });
-            } catch (Exception error) {
-                mainHandler.post(() -> {
-                    if (!alive() || !session.equals(pageSessionId)) return;
-                    if (!pageSessionCurrent()) {
-                        abortForSessionChange();
-                        return;
-                    }
-                    loadingModels = false;
-                    flushPendingSend(send);
-                });
-            }
-        });
-    }
-
-    /** 目录到了（或没拿到）时处理等着的那句：有模型就发，没有就在对话里说明。 */
-    private void flushPendingSend(MaterialButton send) {
-        String text = pendingSend;
-        pendingSend = null;
-        if (text == null) return;
-        if (models.isEmpty()) {
-            appendBubble(FAILURE, false);
-            finishChat(send);
-            return;
-        }
-        dispatchChat(text, send);
     }
 
     private void sendChat(EditText field, MaterialButton send) {
@@ -288,13 +229,6 @@ public final class ChatFragment extends HomeTabFragment {
         if (text.isEmpty()) return;
         field.setText("");
         appendBubble(text, true);
-        if (models.isEmpty()) {
-            // 目录还没到：这句先画出来，按钮变成「停止」，目录到了再发。
-            pendingSend = text;
-            showStop(send);
-            loadModels(field, send);
-            return;
-        }
         dispatchChat(text, send);
     }
 
@@ -318,14 +252,13 @@ public final class ChatFragment extends HomeTabFragment {
         List<BackendAccount.ChatMessage> request = new ArrayList<>(messages.size() + 1);
         request.add(new BackendAccount.ChatMessage("system", SYSTEM_PROMPT));
         request.addAll(messages);
-        final String selectedModel = models.get(0).id();
         final String session = pageSessionId;
         Context app = requireContext().getApplicationContext();
         StreamingReply reply = new StreamingReply(token);
         streaming = reply;
         operation = worker.submit(() -> {
             try {
-                String full = new BackendAccount(app).chatStream(request, selectedModel, reply.call, reply::append,
+                String full = new BackendAccount(app).chatStream(request, reply.call, reply::append,
                     session);
                 mainHandler.post(() -> {
                     if (token != generation || !alive()) return;
@@ -358,7 +291,6 @@ public final class ChatFragment extends HomeTabFragment {
         StreamingReply reply = streaming;
         streaming = null;
         generation++;
-        pendingSend = null;
         if (reply != null) {
             reply.call.cancel();
             // 停止时保留已经到达的部分，并让它进入上下文，和屏幕上看到的一致。
@@ -445,11 +377,10 @@ public final class ChatFragment extends HomeTabFragment {
     }
 
     /**
-     * 页面所属账号已经改变：丢弃目录、草稿和聊天流。单独承载时关闭页面；tab 关不掉，就回到刚打开的样子，改绑现在的账号并重新加载模型目录。
+     * 页面所属账号已经改变：丢弃草稿和聊天流。单独承载时关闭页面；tab 关不掉，就回到刚打开的样子，改绑现在的账号。
      */
     private void abortForSessionChange() {
         generation++;
-        pendingSend = null;
         if (streaming != null) streaming.call.cancel();
         streaming = null;
         if (operation != null) operation.cancel(true);
@@ -461,14 +392,11 @@ public final class ChatFragment extends HomeTabFragment {
         MaterialButton send = sendAi;
         if (field == null || send == null) return;
         pageSessionId = new BackendAccount(requireContext()).sessionId();
-        loadingModels = false;
-        models.clear();
         messages.clear();
         if (chat != null) chat.removeAllViews();
         field.setText("");
         finishChat(send);
         greet();
-        loadModels(field, send);
     }
 
     private boolean pageSessionCurrent() {
@@ -549,9 +477,7 @@ public final class ChatFragment extends HomeTabFragment {
 
     @Override public void onDestroyView() {
         generation++;
-        pendingSend = null;
         sending = false;
-        loadingModels = false;
         if (streaming != null) streaming.call.cancel();
         streaming = null;
         mainHandler.removeCallbacksAndMessages(null);

@@ -194,18 +194,10 @@ public final class AccountSessionRoutingSmoke {
             streamCalls.incrementAndGet();
             throw new AssertionError("old session must not open a chat stream");
         });
-        boolean oldModelsCancelled = false;
-        try {
-            chat.chatModels("session-a");
-        } catch (java.util.concurrent.CancellationException expected) {
-            oldModelsCancelled = true;
-        }
-        check(oldModelsCancelled && chatRequests.get() == 0,
-            "a model catalogue queued by the old session cannot use the new session");
         boolean oldChatCancelled = false;
         try {
             chat.chatStream(java.util.List.of(new BackendAccount.ChatMessage("user", "synthetic message")),
-                "synthetic-model", new BackendAccount.ChatCall(), delta -> { }, "session-a");
+                new BackendAccount.ChatCall(), delta -> { }, "session-a");
         } catch (java.util.concurrent.CancellationException expected) {
             oldChatCancelled = true;
         }

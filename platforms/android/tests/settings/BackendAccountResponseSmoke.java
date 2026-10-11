@@ -97,40 +97,20 @@ public final class BackendAccountResponseSmoke {
         check("synthetic".equals(BackendAccount.optionalStringField("synthetic", "fallback")),
             "string account response is accepted");
 
-        check(BackendAccount.validChatModels(List.of(
-                new BackendAccount.ChatModel("synthetic-model")), "synthetic-model"),
-            "model catalog accepts a valid default");
-        check(!BackendAccount.validChatModels(List.of(
-                new BackendAccount.ChatModel("synthetic-model"),
-                new BackendAccount.ChatModel("synthetic-model")), "synthetic-model"),
-            "model catalog rejects duplicate ids");
-        check(!BackendAccount.validChatModels(List.of(
-                new BackendAccount.ChatModel("你".repeat(100))), "你".repeat(100)),
-            "model catalog applies UTF-8 byte bounds");
-        check(!BackendAccount.validChatModels(List.of(
-                new BackendAccount.ChatModel("bad\u0000model")), "bad\u0000model"),
-            "model catalog rejects control characters");
-        check(!BackendAccount.validChatModels(List.of(
-                new BackendAccount.ChatModel("bad\ud800model")), "bad\ud800model"),
-            "model catalog rejects malformed Unicode");
-
         List<BackendAccount.ChatMessage> messages = new java.util.ArrayList<>();
         messages.add(new BackendAccount.ChatMessage("system", "system prompt"));
         for (int index = 1; index < 16; index++) {
             messages.add(new BackendAccount.ChatMessage(index % 2 == 0 ? "assistant" : "user",
                 "你".repeat(1_000)));
         }
-        check(BackendAccount.validChatRequest(messages, "synthetic-model"),
+        check(BackendAccount.validChatRequest(messages),
             "chat accepts the shared sixteen-message and UTF-8 bounds");
         check(!BackendAccount.validChatRequest(List.of(
-                new BackendAccount.ChatMessage("user", "bad\u0000text")), "synthetic-model"),
+                new BackendAccount.ChatMessage("user", "bad\u0000text"))),
             "chat request rejects disallowed controls");
         check(!BackendAccount.validChatRequest(List.of(
-                new BackendAccount.ChatMessage("user", "bad\ud800text")), "synthetic-model"),
+                new BackendAccount.ChatMessage("user", "bad\ud800text"))),
             "chat request rejects malformed Unicode");
-        check(!BackendAccount.validChatRequest(List.of(
-                new BackendAccount.ChatMessage("user", "valid")), "bad\u0000model"),
-            "chat request rejects control characters in the model");
         check(!BackendAccount.validChatResponse("user", "synthetic reply"),
             "chat response requires an assistant role");
         check(!BackendAccount.validChatResponse("assistant", "bad\u0000reply"),

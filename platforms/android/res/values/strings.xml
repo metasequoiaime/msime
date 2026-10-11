@@ -27,7 +27,6 @@
     <string name="tryout_dismiss_keyboard">收起键盘</string>
     <string name="tryout_heading">边打字，边试键盘</string>
     <string name="tryout_body">点下面的输入框就能调出水杉输入法。试试你的皮肤、输入方案和模糊音；这里打的字只留在这一页，不会被读取或保存。</string>
-    <string name="tryout_ai_absent">登录后点“加载 AI”选择模型；对话请求只发送你明确提交的消息。</string>
     <string name="tryout_hint">输入文字，试试键盘</string>
     <string name="tryout_switch_ime">当前不是水杉输入法？点此切换</string>
     <string name="preparation_running">正在准备词库，首次启动需要一点时间…</string>

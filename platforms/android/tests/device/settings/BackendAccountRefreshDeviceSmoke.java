@@ -118,52 +118,51 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
         BackendAccount account = new BackendAccount(store, (method, path, body, token) -> {
             int call = calls.incrementAndGet();
             if ("/v1/auth/refresh".equals(path)) return tokens(NEXT_ACCESS, NEXT_REFRESH);
-            check("/v1/models".equals(path), "account retry keeps the original endpoint");
+            check(CLIPBOARD.equals(path), "account retry keeps the original endpoint");
             if (call == 1) throw new BackendAccount.RequestException(401);
             check(NEXT_ACCESS.equals(token), "account retry uses the refreshed access token");
-            return new JSONObject().put("data", new org.json.JSONArray()
-                .put(new JSONObject().put("id", "synthetic-model")))
-                .put("default_model", "synthetic-model");
+            return clipboardPage();
         });
 
-        check(account.chatModels().size() == 1, "an account 401 retries after refresh");
+        check(account.clipboard("").enabled(), "an account 401 retries after refresh");
         check(calls.get() == 3, "account request, refresh and retry are each issued once");
         check(!new JSONObject(store.load()).optString("session_id").isEmpty(),
             "refresh retains a persisted login identity");
     }
 
-    private static JSONObject models() throws Exception {
-        return new JSONObject().put("data", new org.json.JSONArray()
-            .put(new JSONObject().put("id", "synthetic-model")))
-            .put("default_model", "synthetic-model");
+    /** 会话相关的用例借云剪贴板的读取做一次普通的账号请求：空搜索的路径和一页空结果。 */
+    private static final String CLIPBOARD = "/v1/users/me/clipboard?q=";
+
+    private static JSONObject clipboardPage() throws Exception {
+        return new JSONObject().put("enabled", true).put("items", new org.json.JSONArray());
     }
 
     private static void oldRequestDoesNotRetryAfterNewLogin() throws Exception {
         MemoryStore store = new MemoryStore(activeSession());
-        String oldId = new BackendAccount(store, (method, path, body, token) -> models()).currentSession().sessionId();
+        String oldId = new BackendAccount(store, (method, path, body, token) -> clipboardPage()).currentSession().sessionId();
         BackendAccount replacement = new BackendAccount(store,
             (method, path, body, token) -> tokens(NEXT_ACCESS, NEXT_REFRESH));
-        AtomicInteger modelCalls = new AtomicInteger();
+        AtomicInteger clipboardCalls = new AtomicInteger();
         BackendAccount old = new BackendAccount(store, (method, path, body, token) -> {
-            if ("/v1/models".equals(path)) {
-                if (modelCalls.incrementAndGet() == 1) {
+            if (CLIPBOARD.equals(path)) {
+                if (clipboardCalls.incrementAndGet() == 1) {
                     replacement.login(new BackendAccount.Challenge("synthetic-challenge", "synthetic-nonce"),
                         "synthetic-credential");
                     throw new BackendAccount.RequestException(401);
                 }
-                return models();
+                return clipboardPage();
             }
             throw new AssertionError("unexpected account request");
         });
 
         boolean cancelled = false;
         try {
-            old.chatModels();
+            old.clipboard("");
         } catch (java.util.concurrent.CancellationException expected) {
             cancelled = true;
         }
         check(cancelled, "a rejected old request must not retry with a new login");
-        check(modelCalls.get() == 1, "the new login must not receive the old request");
+        check(clipboardCalls.get() == 1, "the new login must not receive the old request");
         check(!oldId.equals(new JSONObject(store.load()).optString("session_id")),
             "new login has a new identity");
     }
@@ -173,15 +172,15 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
         BackendAccount replacement = new BackendAccount(store,
             (method, path, body, token) -> tokens(NEXT_ACCESS, NEXT_REFRESH));
         BackendAccount old = new BackendAccount(store, (method, path, body, token) -> {
-            check("/v1/models".equals(path), "models endpoint");
+            check(CLIPBOARD.equals(path), "clipboard endpoint");
             replacement.login(new BackendAccount.Challenge("synthetic-challenge", "synthetic-nonce"),
                 "synthetic-credential");
-            return models();
+            return clipboardPage();
         });
 
         boolean cancelled = false;
         try {
-            old.chatModels();
+            old.clipboard("");
         } catch (java.util.concurrent.CancellationException expected) {
             cancelled = true;
         }
@@ -205,7 +204,7 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
 
         boolean cancelled = false;
         try {
-            secondary.chatModels();
+            secondary.clipboard("");
         } catch (java.util.concurrent.CancellationException expected) {
             cancelled = true;
         }
@@ -216,14 +215,14 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
     private static void oldRequestDiscardsSuccessAfterSignOut() throws Exception {
         MemoryStore store = new MemoryStore(activeSession());
         BackendAccount account = new BackendAccount(store, (method, path, body, token) -> {
-            check("/v1/models".equals(path), "models endpoint");
-            new BackendAccount(store, (m, p, b, t) -> models()).signOut();
-            return models();
+            check(CLIPBOARD.equals(path), "clipboard endpoint");
+            new BackendAccount(store, (m, p, b, t) -> clipboardPage()).signOut();
+            return clipboardPage();
         });
 
         boolean cancelled = false;
         try {
-            account.chatModels();
+            account.clipboard("");
         } catch (java.util.concurrent.CancellationException expected) {
             cancelled = true;
         }
@@ -239,7 +238,7 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
         BackendAccount replacement = new BackendAccount(store,
             (method, path, body, token) -> tokens(NEXT_ACCESS, NEXT_REFRESH));
         AtomicInteger calls = new AtomicInteger();
-        BackendAccount old = new BackendAccount(store, (method, path, body, token) -> models(), null,
+        BackendAccount old = new BackendAccount(store, (method, path, body, token) -> clipboardPage(), null,
             (body, token, call, listener) -> {
                 calls.incrementAndGet();
                 replacement.login(new BackendAccount.Challenge("synthetic-challenge", "synthetic-nonce"),
@@ -248,7 +247,7 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
             });
         boolean cancelled = false;
         try {
-            old.chatStream(chatRequest(), "synthetic-model", new BackendAccount.ChatCall(), delta -> {});
+            old.chatStream(chatRequest(), new BackendAccount.ChatCall(), delta -> {});
         } catch (java.util.concurrent.CancellationException expected) {
             cancelled = true;
         }
@@ -261,7 +260,7 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
         BackendAccount replacement = new BackendAccount(store,
             (method, path, body, token) -> tokens(NEXT_ACCESS, NEXT_REFRESH));
         AtomicInteger deltas = new AtomicInteger();
-        BackendAccount old = new BackendAccount(store, (method, path, body, token) -> models(), null,
+        BackendAccount old = new BackendAccount(store, (method, path, body, token) -> clipboardPage(), null,
             (body, token, call, listener) -> {
                 replacement.login(new BackendAccount.Challenge("synthetic-challenge", "synthetic-nonce"),
                     "synthetic-credential");
@@ -270,7 +269,7 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
             });
         boolean cancelled = false;
         try {
-            old.chatStream(chatRequest(), "synthetic-model", new BackendAccount.ChatCall(),
+            old.chatStream(chatRequest(), new BackendAccount.ChatCall(),
                 delta -> deltas.incrementAndGet());
         } catch (java.util.concurrent.CancellationException expected) {
             cancelled = true;
@@ -286,7 +285,7 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
         AtomicInteger fallbackCalls = new AtomicInteger();
         BackendAccount old = new BackendAccount(store, (method, path, body, token) -> {
             fallbackCalls.incrementAndGet();
-            return models();
+            return clipboardPage();
         }, null, (body, token, call, listener) -> {
             replacement.login(new BackendAccount.Challenge("synthetic-challenge", "synthetic-nonce"),
                 "synthetic-credential");
@@ -294,7 +293,7 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
         });
         boolean cancelled = false;
         try {
-            old.chatStream(chatRequest(), "synthetic-model", new BackendAccount.ChatCall(), delta -> {});
+            old.chatStream(chatRequest(), new BackendAccount.ChatCall(), delta -> {});
         } catch (java.util.concurrent.CancellationException expected) {
             cancelled = true;
         }
@@ -310,13 +309,14 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
             return tokens(NEXT_ACCESS, NEXT_REFRESH);
         }, null, (body, token, call, listener) -> {
             calls.incrementAndGet();
+            check(!body.has("model"), "chat stream leaves the model to the server");
             if (ACCESS.equals(token)) throw new BackendAccount.RequestException(401);
             check(NEXT_ACCESS.equals(token), "chat stream retry uses refreshed token");
             listener.onDelta("synthetic reply");
             return "synthetic reply";
         });
         AtomicInteger deltas = new AtomicInteger();
-        String reply = account.chatStream(chatRequest(), "synthetic-model", new BackendAccount.ChatCall(),
+        String reply = account.chatStream(chatRequest(), new BackendAccount.ChatCall(),
             delta -> deltas.incrementAndGet());
         check("synthetic reply".equals(reply), "same login chat stream returns reply");
         check(calls.get() == 2 && deltas.get() == 1, "same login chat stream retries once and delivers delta");
@@ -327,13 +327,14 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
         BackendAccount account = new BackendAccount(store, (method, path, body, token) -> {
             check(ACCESS.equals(token) && "/v1/chat/completions".equals(path), "fallback keeps request identity");
             check(!body.optBoolean("stream", true), "fallback disables streaming");
+            check(!body.has("model"), "fallback leaves the model to the server");
             return new JSONObject().put("choices", new org.json.JSONArray().put(new JSONObject()
                 .put("message", new JSONObject().put("role", "assistant").put("content", "synthetic reply"))));
         }, null, (body, token, call, listener) -> {
             throw new BackendAccount.RequestException(400);
         });
         AtomicInteger deltas = new AtomicInteger();
-        String reply = account.chatStream(chatRequest(), "synthetic-model", new BackendAccount.ChatCall(),
+        String reply = account.chatStream(chatRequest(), new BackendAccount.ChatCall(),
             delta -> deltas.incrementAndGet());
         check("synthetic reply".equals(reply) && deltas.get() == 1,
             "same login fallback delivers one complete reply");
