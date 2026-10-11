@@ -2080,9 +2080,14 @@ fn phrase_tables_hold_bounded_rows_and_merge_in_priority_order() {
             ("yx".to_owned(), "邮箱".to_owned()),
         ]
     );
+    let enabled = vec!["office".to_owned()];
+    assert_eq!(
+        phrase_table::enabled_phrases(root.path(), &enabled).capacity(),
+        phrase_table::MAX_ENABLED_PHRASES
+    );
     assert_eq!(
         phrase_table::enabled_phrases(root.path(), &[]).capacity(),
-        phrase_table::MAX_ENABLED_PHRASES
+        0
     );
     let summary = load_package(root.path(), None, PluginKind::PhraseTable, "office").unwrap();
     let json = serde_json::to_value(&summary).unwrap();
