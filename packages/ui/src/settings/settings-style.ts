@@ -312,6 +312,9 @@ export const pageHeaderTabRoot =
 export const pageHeaderHome =
   "max-phone:harmony:px-1 max-phone:harmony:pt-1.5 max-phone:harmony:pb-5";
 /** HarmonyOS 手机上从推入标签页的页面返回的方式：标题前一个 40px 的圆形按钮，向列的边距伸出 10px、向标题靠 6px，让箭头与内容对齐。 */
+/** 收起的标题栏里的返回按钮：标题栏本身不接收点按，只有它接收。 */
+export const collapsedBackButton =
+  "pointer-events-auto absolute top-1/2 left-2 flex size-10 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-[var(--p-text)] active:bg-[var(--p-press)] focus-visible:outline-2 focus-visible:outline-accent";
 export const pageBackButton =
   "-mr-1.5 -ml-2.5 flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-[var(--p-text)] active:bg-[var(--p-press)] focus-visible:outline-2 focus-visible:outline-accent";
 /** The way back from a sub-page (AI 对话, 背单词, 帮助) to the page it opens from, above the title. */

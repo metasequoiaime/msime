@@ -340,3 +340,37 @@ test("the desktop AI 辅助 page keeps its row into the chat", async () => {
   fireEvent.click(await screen.findByRole("button", { name: /^AI 对话/ }));
   expect(await screen.findByRole("region", { name: "AI 对话" })).toBeTruthy();
 });
+
+// 已经在「设置」标签里、停在它的某个子页面时，再点「设置」回到设置首页；从别的标签点过来才回到它记住的那一页。
+test("tapping the tab you are on goes back to its first page", async () => {
+  mount();
+  await settingsFormReady();
+  openRootRow("皮肤");
+  expect(await screen.findByRole("heading", { level: 1, name: "皮肤" })).toBeTruthy();
+  const bar = () => screen.getByRole("navigation", { name: "主要功能" });
+
+  fireEvent.click(within(bar()).getByRole("button", { name: "统计" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "统计" })).toBeTruthy();
+  fireEvent.click(within(bar()).getByRole("button", { name: "设置" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "皮肤" })).toBeTruthy();
+
+  fireEvent.click(within(bar()).getByRole("button", { name: "设置" }));
+  expect(await screen.findByRole("region", { name: "首页" })).toBeTruthy();
+});
+
+// 子页面往下滚，大标题连同它的返回按钮一起滚走，顶上换成收起的标题栏：那里也要有返回按钮，否则只能靠系统手势回去。
+test("a scrolled sub-page keeps its way back in the collapsed title bar", async () => {
+  mount();
+  await settingsFormReady();
+  openRootRow("皮肤");
+  await screen.findByRole("heading", { level: 1, name: "皮肤" });
+  expect(screen.getAllByRole("button", { name: "返回" })).toHaveLength(1);
+
+  const content = document.getElementById("settings-content")!;
+  content.scrollTop = 200;
+  fireEvent.scroll(content);
+  const backs = screen.getAllByRole("button", { name: "返回" });
+  expect(backs).toHaveLength(2);
+  fireEvent.click(backs[0]!);
+  expect(await screen.findByRole("region", { name: "首页" })).toBeTruthy();
+});

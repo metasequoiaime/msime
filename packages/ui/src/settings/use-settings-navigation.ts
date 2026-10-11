@@ -104,6 +104,11 @@ export function useSettingsNavigation({
     if (!mobilePrimaryPageIds.includes(tab as MobilePrimaryPageId)) return;
     const primary = tab as MobilePrimaryPageId;
     if (primary === "account") setAccountLoginReturnPage(null);
+    // 已经在这个标签里时再点它，回到这个标签的首页，和常见的手机应用一样；从别的标签点过来才回到它记住的那一页。
+    if (primary === mobileActiveTab) {
+      selectPage(primary);
+      return;
+    }
     const remembered = mobileLastPageByTab.current[primary];
     const available = availablePages.some((item) => item.id === remembered);
     selectPage(available && !mobileHiddenPageIds.includes(remembered) ? remembered : primary);

@@ -441,7 +441,8 @@ test("a phone page collapses its large title into a compact bar once scrolled", 
   await settingsFormReady();
   const main = document.getElementById("settings-content")!;
   const title = screen.getByRole("heading", { level: 1 }).textContent!;
-  const bar = [...main.querySelectorAll('[aria-hidden="true"]')].find(
+  // 栏里的标题是装饰（`h1` 仍是页面的名字），推入页上它还带一个返回按钮，所以按吸顶的 class 找栏，不按 aria-hidden。
+  const bar = [...main.querySelectorAll("div")].find(
     (node) => node.textContent === title && node.className.includes("max-phone:sticky"),
   );
   if (!bar) throw new Error("no compact title bar");
@@ -460,8 +461,8 @@ test("a phone page collapses its large title into a compact bar once scrolled", 
     }),
   );
   expect(
-    [...document.getElementById("settings-content")!.querySelectorAll('[aria-hidden="true"]')].some(
-      (node) => node.className.includes("max-phone:sticky"),
+    [...document.getElementById("settings-content")!.querySelectorAll("div")].some((node) =>
+      node.className.includes("max-phone:sticky"),
     ),
   ).toBe(false);
 });

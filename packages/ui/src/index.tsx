@@ -421,6 +421,7 @@ import {
   type McpServerStatus,
 } from "./settings/mcp-connect";
 import * as settings from "./settings/settings-style";
+import { FluentIcon } from "./core/fluent-icons";
 import {
   AccountPage,
   type AccountClient,
@@ -3582,12 +3583,19 @@ function SettingsShell(props: SettingsPageProps) {
             }
           >
             {collapsingTitle && (
-              // The large title's compact stand-in once it scrolls away. Decorative: the `h1` below still names the page.
-              <div
-                className={settings.collapsedTitle(titleCollapsedOn === page)}
-                aria-hidden="true"
-              >
-                {pageTitle}
+              // The large title's compact stand-in once it scrolls away. The title is decorative: the `h1` below still names the page. The back button is not: the large header's own scrolls away with the title, and a pushed page that has been scrolled had no way back but the system gesture.
+              <div className={settings.collapsedTitle(titleCollapsedOn === page)}>
+                {pushedPage && titleCollapsedOn === page && (
+                  <button
+                    type="button"
+                    className={settings.collapsedBackButton}
+                    aria-label="返回"
+                    onClick={goBack}
+                  >
+                    <FluentIcon name="arrow_left" size={22} />
+                  </button>
+                )}
+                <span aria-hidden="true">{pageTitle}</span>
               </div>
             )}
             {macShell && (
