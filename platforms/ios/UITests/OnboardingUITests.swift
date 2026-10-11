@@ -710,6 +710,48 @@ final class OnboardingUITests: XCTestCase {
     app.buttons["designOptionSheetCancel"].tap()
   }
 
+  /// 五笔查码（#6789）：选用 98 五笔后，输入 页「更多」里出现 五笔查码；查「段舞」列出两个字在 86 和 98 码表里的编码，98 那一列标「（当前）」。编码来自键盘扩展包里的随包码表，App 进程直接读。
+  @MainActor
+  func testWubiCodeLookupListsBothTables() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    defer { restoreSchemeVisibility(in: app) }
+    reachSettingsLink("inputSettingsLink", in: app)
+    settingsEntry("inputSettingsLink", in: app).tap()
+    XCTAssertTrue(openSchemeSheet(.mandarin, in: app))
+    app.buttons["inputSchemeGroup_wubi"].tap()
+    let wubi98 = app.buttons["inputScheme_wubi_wubi98"]
+    XCTAssertTrue(wubi98.waitForExistence(timeout: 5))
+    wubi98.tap()
+    tapRevealed("wubiCodeLookupLink", in: app)
+    XCTAssertTrue(app.navigationBars["五笔查码"].waitForExistence(timeout: 5))
+    let field = app.descendants(matching: .any)["wubiCodeLookupText"]
+    XCTAssertTrue(field.waitForExistence(timeout: 5))
+    field.tap()
+    field.typeText("段舞")
+    app.buttons["wubiCodeLookupButton"].tap()
+    let first = app.descendants(matching: .any)["wubiCodeLookupRow-0"]
+    XCTAssertTrue(first.waitForExistence(timeout: 10), visible(app))
+    XCTAssertEqual(first.label, "段，86 五笔 wdm wdmc，98 五笔（当前） th thdc")
+    XCTAssertEqual(app.descendants(matching: .any)["wubiCodeLookupRow-1"].label,
+                   "舞，86 五笔 rlg rlgh，98 五笔（当前） tgl tglg")
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "Wubi code lookup"
+    screenshot.lifetime = .deleteOnSuccess
+    add(screenshot)
+
+    // 换回 86 五笔和全拼，后面的用例不受这里选的方案影响。
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(openSchemeSheet(.mandarin, in: app))
+    app.buttons["inputSchemeGroup_wubi"].tap()
+    let wubi86 = app.buttons["inputScheme_wubi_wubi86"]
+    XCTAssertTrue(wubi86.waitForExistence(timeout: 5))
+    wubi86.tap()
+    XCTAssertTrue(openSchemeSheet(.mandarin, in: app))
+    app.buttons["inputScheme_quanpin"].tap()
+  }
+
   /// 输入 页 语言与方案 卡片里的各语言，以其行标识符的后缀表示。
   private enum InputLanguageRow: String {
     case mandarin, japanese
