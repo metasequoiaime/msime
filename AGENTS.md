@@ -5,6 +5,7 @@
 ## 改动范围
 
 - 只暂存明确列出的路径，不用 `git add -A`。
+- **一个 issue 一个 PR。** 处理 GitHub issue 时，每个 issue 单独一条分支、一个 PR，正文写 `Fixes #N`（只做了其中一部分时写 `Refs #N`，不自动关闭）。不要把几个 issue 合进同一个 PR，即使它们是同一次一起处理的。做某件事时顺带发现、没有对应 issue 的小问题，并进那件事的 PR，不必另开。#7045 把 7 个互不相关的 issue（AI 候选占位、Linux 设置窗口闪烁、DeepL、五笔查码、Android 图片发送、Caps Lock 切换、候选栏跟随光标）塞进一个横跨六个平台的 PR，审查、合并和回滚都没法按 issue 分开，几项还没补完的验证也跟着其余的一起进了 develop。见 `.agents/notes/implemented/process/2026-10-11-one-issue-one-pr.md`。
 - 不复制相邻仓库的未提交内容；上游来源以远端实际默认分支和固定提交为准。
 - 日志、测试和提交中不得包含真实输入、凭据或私人资料，测试数据使用合成值。
 - CI 会在 Pull Request 上运行，提交前仍先跑本地 quick 门禁。发布 workflow 一律手动触发，不要在任务没有明确要求发布时去碰它们。
