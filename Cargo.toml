@@ -97,3 +97,11 @@ opt-level = 3
 
 [profile.dev.package.symphonia-codec-vorbis]
 opt-level = 3
+
+# ewts 0.1.3（藏文方案的威利转换）在 `converter.rs:136` 用 `self.ind - 2` 回看，第二个辅音就是 `w` 这类可作下加字的字母时（`bw`、`yw`）`usize` 下溢。release 不检查溢出，回绕后 `get_con_at` 得到 `None`，退回独立的 wa（`བཝ`），这就是用户一直拿到的结果；检查溢出的构建则在这一键 panic。对这一个 crate 关掉检查，dev、release 和任何全局打开 overflow-checks 的构建都得到同一个结果。release 段同时打开 debug-assertions：cargo 只在两者取值不同时才显式传 `-C overflow-checks=off`，否则 `RUSTFLAGS=-Cdebug-assertions`（cargo-fuzz 就是这样构建的）会把溢出检查重新带回来；ewts 里没有 `debug_assert!`，打开它不改变任何行为。上游修复是 emgyrz/ewts-rs#1，上游发版后删掉这两段。fuzz/Cargo.toml 有同样的一段。
+[profile.dev.package.ewts]
+overflow-checks = false
+
+[profile.release.package.ewts]
+debug-assertions = true
+overflow-checks = false

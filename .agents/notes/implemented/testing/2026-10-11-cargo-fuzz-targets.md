@@ -40,6 +40,8 @@ Status: implemented
 
 `host_session` 报过一次 31 秒的 slow unit（日文方案下的退格、移动和重排序列）。单独重放只要 105 ms，两次结果相同；当时 Studio 的 load average 在 116 左右，几个会话在同时编译，所以记为环境噪声，不是性能问题。
 
+之后在 MacBook Pro 上的长时间运行里，`host_session` 跑到约 21 万次时在藏文方案下撞到 ewts 0.1.3 的 `usize` 下溢（最短输入 `bw`），处理见 [对 ewts 关掉溢出检查](../bug-fix/2026-10-11-ewts-overflow-checks.md)；最短复现输入已加入 `fuzz/seeds/host_session/tibetan-subscript-wa`。
+
 ## Consequences
 
 收益：两处最高风险的入口有了可以长时间运行、可复现的变异测试，ASan 能抓到 C ABI 和 `unsafe` 路径上的越界与释放后使用。`plugin_pack` 还会顺带检查 zip 炸弹和路径穿越类的拒绝逻辑，至少不会 panic 或失控。威胁模型指向这些 harness，安全扫描能据此找到入口。

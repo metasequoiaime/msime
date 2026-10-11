@@ -41,3 +41,8 @@ path = "fuzz_targets/host_session.rs"
 test = false
 doc = false
 bench = false
+
+# 与根 Cargo.toml 的同名段相同，理由见那里：cargo-fuzz 以 release 加 `-Cdebug-assertions` 构建，只写 overflow-checks = false 不会生效，藏文方案下打 `bw` 就会在 ewts 里溢出 panic，而发版构建从不在这里 panic。
+[profile.release.package.ewts]
+debug-assertions = true
+overflow-checks = false
