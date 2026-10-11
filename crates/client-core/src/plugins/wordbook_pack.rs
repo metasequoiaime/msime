@@ -93,8 +93,16 @@ fn read_entries(directory: &Path, file: &str) -> Result<Vec<WordbookEntry>, Stri
 
 /// 词表文本的严格解析，规则见模块文档。
 pub(crate) fn parse_words(bytes: &[u8], name: &str) -> Result<Vec<WordbookEntry>, String> {
-    let mut entries = Vec::with_capacity(wordbook::MAX_ENTRIES);
-    let mut seen = HashSet::with_capacity(wordbook::MAX_ENTRIES);
+    let entries = parse_word_entries(bytes, name)?;
+    if entries.is_empty() {
+        return Err(format!("{name} 里没有任何单词"));
+    }
+    Ok(entries)
+}
+
+fn parse_word_entries(bytes: &[u8], name: &str) -> Result<Vec<WordbookEntry>, String> {
+    let mut entries = Vec::new();
+    let mut seen = HashSet::new();
     for (number, line) in data_lines(bytes, name)? {
         if line.is_empty() || line.starts_with('#') {
             continue;
@@ -119,6 +127,10 @@ pub(crate) fn parse_words(bytes: &[u8], name: &str) -> Result<Vec<WordbookEntry>
                 "{name} 第 {number} 行的单词或释义为空，或者某一列太长、含有控制字符"
             ));
         }
+        if entries.is_empty() {
+            entries.reserve_exact(wordbook::MAX_ENTRIES);
+            seen.reserve(wordbook::MAX_ENTRIES);
+        }
         if !seen.insert(entry.word.clone()) {
             return Err(format!("{name} 里「{}」出现了不止一次", entry.word));
         }
@@ -126,9 +138,6 @@ pub(crate) fn parse_words(bytes: &[u8], name: &str) -> Result<Vec<WordbookEntry>
             return Err(format!("{name} 的单词数超过 {}", wordbook::MAX_ENTRIES));
         }
         entries.push(entry);
-    }
-    if entries.is_empty() {
-        return Err(format!("{name} 里没有任何单词"));
     }
     Ok(entries)
 }
@@ -175,4 +184,16 @@ pub fn summaries(root: &Path) -> Vec<crate::vocabulary::library::WordbookSummary
         .collect();
     books.sort_by(|a, b| (&a.name, &a.id).cmp(&(&b.name, &b.id)));
     books
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_wordbook_does_not_reserve_entry_capacity() {
+        let entries = parse_word_entries(b"# only a comment\n\n", "words.tsv").unwrap();
+        assert!(entries.is_empty());
+        assert_eq!(entries.capacity(), 0);
+    }
 }
