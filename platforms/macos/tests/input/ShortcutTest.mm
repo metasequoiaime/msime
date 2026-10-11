@@ -5848,7 +5848,7 @@ static void TestStyledExternalSkin(MSIMEInputController *controller, HiddenCandi
     assert(mkdtemp(temporary));
     const std::filesystem::path root(temporary);
     std::filesystem::create_directories(root / "styled" / "assets");
-    auto writeManifest = [&](const char *align) {
+    auto writeManifest = [&](const char *align, const char *lightSurface = "#FFF7FA") {
         std::ofstream manifest(root / "styled" / "skin.toml");
         manifest << R"toml(schema_version = 1
 id = "styled"
@@ -5874,7 +5874,7 @@ fit = "stretch"
 surface = "#121314"
 translation = "#9FB4E0"
 [candidate.light]
-surface = "#FFF7FA"
+surface = ")toml" << lightSurface << R"toml("
 [toolbar]
 corner_radius_dip = 5
 [toolbar.dark]
@@ -5948,6 +5948,28 @@ background = "#F4F8FF"
     NSImageView *decoration = (id)chrome.subviews.lastObject;
     assert([decoration isKindOfClass:NSImageView.class]);
     assert(std::abs(NSMidX(decoration.frame) - NSWidth(chrome.bounds) / 2) < 0.01);
+    for (NSView *child in chrome.subviews) assert(![child isKindOfClass:NSVisualEffectView.class]);
+    // A package with an intrinsically translucent card needs a real behind-window
+    // material inside its rounded card. The decoration band remains transparent.
+    writeManifest("center", "#D9D9DB99");
+    panel.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    [styled reloadSkins];
+    [controller appearanceChanged:nil];
+    chrome = (id)panel.contentView;
+    NSVisualEffectView *material = nil;
+    for (NSView *child in chrome.subviews)
+        if ([child isKindOfClass:NSVisualEffectView.class]) material = (id)child;
+    assert(material != nil);
+    assert(material.blendingMode == NSVisualEffectBlendingModeBehindWindow);
+    assert(material.state == NSVisualEffectStateActive);
+    assert(NSMinY(material.frame) == 0 && NSHeight(material.frame) == NSHeight(chrome.bounds) - chrome.cardTopInset);
+    assert(material.maskImage != nil);
+    // A fully clear card stays clear, even though the same package is selected.
+    writeManifest("center", "#D9D9DB00");
+    [styled reloadSkins];
+    [controller appearanceChanged:nil];
+    chrome = (id)panel.contentView;
+    for (NSView *child in chrome.subviews) assert(![child isKindOfClass:NSVisualEffectView.class]);
     panel.appearance = nil;
     std::filesystem::remove_all(root);
 }
@@ -9610,6 +9632,7 @@ int main(int argc, char **argv) {
             assert(styledChrome.cornerRadius == 6.0 && layoutPanel.alphaValue == 1.0);
             assert(std::abs(styledChrome.fillColor.alphaComponent - plain.surface.a * 0.5) < 0.002);
             assert(std::abs(styledChrome.strokeColor.alphaComponent - plain.border.a * 0.5) < 0.002);
+            for (NSView *child in styledChrome.subviews) assert(![child isKindOfClass:NSVisualEffectView.class]);
             scaledRow = candidateRow(NO);
             assert([scaledRow.fillColor isEqual:SkinColor(plain.selected)] && scaledRow.cornerRadius <= styledChrome.cornerRadius);
             if (MSIMECandidateButton *highlighted = candidateRow(YES)) assert([highlighted.titleColor isEqual:SkinColor(plain.selectedText)]);
