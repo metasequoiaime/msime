@@ -2,7 +2,7 @@
 //!
 //! 模块用手写的 wasm 二进制：client-core 不依赖 wat，测试也不提交 `.wasm`。
 
-use super::script_grants::{self, ScriptGrantError, ScriptGrants};
+use super::script_grants::{self, Keying, Placement, ScriptGrantError, ScriptGrants};
 use super::script_pack::{self, ScriptPack};
 use super::*;
 use msime_script_runtime::{limits, Capability, CapabilitySet, Hook, HookSet};
@@ -534,7 +534,17 @@ fn grants_are_bound_to_the_content_hash() {
     assert_eq!(script_grants::read(&root), ScriptGrants::default());
 
     let grants = script_grants::set(&root, "pangu", &hash, true, read_commit()).unwrap();
-    assert_eq!(grants.revision, 1);
+    // 每次写入 revision 都变大，不小于当前时间的微秒数。
+    let mut revision = grants.revision;
+    assert!(revision > 1 << 50 && revision < script_grants::MAX_REVISION);
+    let mut advanced = |grants: &ScriptGrants| {
+        assert!(
+            grants.revision > revision,
+            "{} <= {revision}",
+            grants.revision
+        );
+        revision = grants.revision;
+    };
     assert_eq!(script_grants::read(&root), grants);
     let enabled: Vec<_> = grants.enabled().map(|grant| grant.id.as_str()).collect();
     assert_eq!(enabled, ["pangu"]);
@@ -550,13 +560,13 @@ fn grants_are_bound_to_the_content_hash() {
         Err(ScriptGrantError::Missing(_))
     ));
 
-    // 原样重新导入：授权保留，revision 加 1。
+    // 原样重新导入：授权保留，revision 变大。
     assert_eq!(
         import_pack(files.path(), &root, "pangu", &script, &wasm),
         hash
     );
     let grants = script_grants::read(&root);
-    assert_eq!(grants.revision, 2);
+    advanced(&grants);
     assert!(grants.get("pangu").unwrap().enabled);
     assert_eq!(grants.get("pangu").unwrap().granted, read_commit());
 
@@ -565,7 +575,7 @@ fn grants_are_bound_to_the_content_hash() {
     let new_hash = import_pack(files.path(), &root, "pangu", &updated, &wasm);
     assert_ne!(new_hash, hash);
     let grants = script_grants::read(&root);
-    assert_eq!(grants.revision, 3);
+    advanced(&grants);
     let entry = grants.get("pangu").unwrap();
     assert!(!entry.enabled);
     assert!(entry.granted.is_empty());
@@ -574,12 +584,12 @@ fn grants_are_bound_to_the_content_hash() {
 
     // 用新哈希重新授权。
     let grants = script_grants::set(&root, "pangu", &new_hash, true, read_commit()).unwrap();
-    assert_eq!(grants.revision, 4);
+    advanced(&grants);
     assert_eq!(grants.get("pangu").unwrap().hash, new_hash);
     // 撤销：条目还在，停用。
     let grants =
         script_grants::set(&root, "pangu", &new_hash, false, CapabilitySet::EMPTY).unwrap();
-    assert_eq!(grants.revision, 5);
+    advanced(&grants);
     assert!(!grants.get("pangu").unwrap().enabled);
 }
 
@@ -591,12 +601,12 @@ fn removing_a_script_pack_drops_its_grant_so_a_reimport_starts_ungranted() {
     let root = state.path().join("plugins");
     let (script, wasm) = reader("pangu");
     let hash = import_pack(files.path(), &root, "pangu", &script, &wasm);
-    script_grants::set(&root, "pangu", &hash, true, read_commit()).unwrap();
+    let granted = script_grants::set(&root, "pangu", &hash, true, read_commit()).unwrap();
 
     remove_named(&root, "script", "pangu").unwrap();
     assert!(!root.join("script/pangu").exists());
     let grants = script_grants::read(&root);
-    assert_eq!(grants.revision, 2);
+    assert!(grants.revision > granted.revision);
     assert!(grants.plugins.is_empty());
 
     import_pack(files.path(), &root, "pangu", &script, &wasm);
@@ -813,30 +823,59 @@ fn grant_failures_carry_their_own_codes() {
     }
 }
 
+/// 只有一个条目、`revision` 为 `revision` 的文件里那一条的位置。
+fn alone(revision: u64) -> Placement {
+    Placement {
+        revision,
+        position: 0,
+        count: 1,
+    }
+}
+
 #[test]
-fn the_mac_covers_every_field_of_an_entry_and_the_revision() {
+fn the_mac_covers_every_field_of_an_entry_its_place_and_the_revision() {
     let hash = "a".repeat(64);
-    let base = script_grants::entry_mac(&TEST_KEY, 3, "pangu", &hash, true, read_commit());
+    let mac = |placement: Placement, id: &str, hash: &str, enabled: bool, granted| {
+        script_grants::entry_mac(&TEST_KEY, placement, id, hash, enabled, granted)
+    };
+    let base = mac(alone(3), "pangu", &hash, true, read_commit());
     assert_eq!(base.len(), 64);
-    assert_eq!(
-        base,
-        script_grants::entry_mac(&TEST_KEY, 3, "pangu", &hash, true, read_commit())
-    );
+    assert_eq!(base, mac(alone(3), "pangu", &hash, true, read_commit()));
     for other in [
-        script_grants::entry_mac(&TEST_KEY, 4, "pangu", &hash, true, read_commit()),
-        script_grants::entry_mac(&TEST_KEY, 3, "pangu2", &hash, true, read_commit()),
-        script_grants::entry_mac(&TEST_KEY, 3, "pangu", &"b".repeat(64), true, read_commit()),
-        script_grants::entry_mac(&TEST_KEY, 3, "pangu", &hash, false, read_commit()),
-        script_grants::entry_mac(&TEST_KEY, 3, "pangu", &hash, true, CapabilitySet::EMPTY),
-        script_grants::entry_mac(
-            &TEST_KEY,
-            3,
+        mac(alone(4), "pangu", &hash, true, read_commit()),
+        mac(
+            Placement {
+                position: 1,
+                count: 2,
+                ..alone(3)
+            },
+            "pangu",
+            &hash,
+            true,
+            read_commit(),
+        ),
+        mac(
+            Placement {
+                count: 2,
+                ..alone(3)
+            },
+            "pangu",
+            &hash,
+            true,
+            read_commit(),
+        ),
+        mac(alone(3), "pangu2", &hash, true, read_commit()),
+        mac(alone(3), "pangu", &"b".repeat(64), true, read_commit()),
+        mac(alone(3), "pangu", &hash, false, read_commit()),
+        mac(alone(3), "pangu", &hash, true, CapabilitySet::EMPTY),
+        mac(
+            alone(3),
             "pangu",
             &hash,
             true,
             read_commit().with(Capability::RewriteCommit),
         ),
-        script_grants::entry_mac(&[8; 32], 3, "pangu", &hash, true, read_commit()),
+        script_grants::entry_mac(&[8; 32], alone(3), "pangu", &hash, true, read_commit()),
     ] {
         assert_ne!(other, base);
     }
@@ -866,7 +905,7 @@ fn a_grant_whose_mac_does_not_verify_is_listed_but_never_runs_on_macos() {
         Some(
             script_grants::entry_mac(
                 &TEST_KEY,
-                grants.revision,
+                alone(grants.revision),
                 "pangu",
                 &hash,
                 true,
@@ -894,9 +933,15 @@ fn a_grant_whose_mac_does_not_verify_is_listed_but_never_runs_on_macos() {
         },
         &|value| {
             let revision = value["revision"].as_u64().unwrap();
-            value["plugins"][0]["mac"] =
-                script_grants::entry_mac(&[9; 32], revision, "pangu", &hash, true, read_commit())
-                    .into();
+            value["plugins"][0]["mac"] = script_grants::entry_mac(
+                &[9; 32],
+                alone(revision),
+                "pangu",
+                &hash,
+                true,
+                read_commit(),
+            )
+            .into();
         },
     ];
     for forge in forgeries {
@@ -947,7 +992,7 @@ fn reordering_changes_the_execution_order_and_keeps_the_signatures() {
     assert_eq!(order(&before), ["first", "second", "third"]);
 
     let grants = script_grants::reorder(&root, &["third".into(), "first".into()]).unwrap();
-    assert_eq!(grants.revision, before.revision + 1);
+    assert!(grants.revision > before.revision);
     // 列出的排在最前，没列出的按原来的相对顺序排在后面；重排之后每一条都按新的 revision 重新签名，照常运行。
     assert_eq!(order(&grants), ["third", "first", "second"]);
     assert_eq!(script_grants::read(&root), grants);
@@ -974,7 +1019,7 @@ fn a_new_content_hash_voids_the_grant_even_when_the_file_still_names_the_old_one
     let (script, wasm) = reader("pangu");
     let hash = import_pack(files.path(), &root, "pangu", &script, &wasm);
     script_grants::set(&root, "pangu", &hash, true, read_commit()).unwrap();
-    // 包被换了内容（不经导入，直接改文件）：条目仍写着旧哈希、签名也对，但和已安装的包对不上，宿主不运行它；授权页拿当前哈希去写会被要求重新授权。
+    // 包被换了内容（不经导入，直接改文件）：条目仍写着旧哈希、签名也对，读出来和已安装的包对不上（宿主据此不运行它，见 host-api 的 `a_grant_whose_hash_no_longer_matches_the_pack_never_runs`，那里的条目同样带着正确的签名）。授权页拿旧哈希写入被拒绝，拿现在的哈希重新授权才生效。
     fs::write(
         root.join("script/pangu/plugin.toml"),
         script.replace("version = '1.0.0'", "version = '1.0.1'"),
@@ -1002,4 +1047,247 @@ fn a_new_content_hash_voids_the_grant_even_when_the_file_still_names_the_old_one
         grants.get("pangu").unwrap().hash,
         installed.pack.content_hash
     );
+}
+
+/// 这个测试要模拟的 macOS 规则：条目必须带用 `key` 校验通过的 MAC。不管测试跑在哪个平台上都按 macOS 的规则校验。
+fn macos(key: Option<&[u8; script_grants::MAC_KEY_BYTES]>) -> Keying<'_> {
+    Keying {
+        key,
+        required: true,
+    }
+}
+
+#[test]
+fn without_a_key_macos_refuses_to_write_and_runs_nothing() {
+    signing();
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    let mut hashes = Vec::new();
+    for id in ["first", "second"] {
+        let (script, wasm) = reader(id);
+        let hash = import_pack(files.path(), &root, id, &script, &wasm);
+        script_grants::set(&root, id, &hash, true, read_commit()).unwrap();
+        hashes.push(hash);
+    }
+    let document = script_grants::document_path(&root);
+    let original = fs::read(&document).unwrap();
+    assert_eq!(
+        script_grants::read_with(&root, macos(Some(&TEST_KEY)))
+            .enabled()
+            .count(),
+        2
+    );
+
+    // 没有密钥的 macOS 进程：读出来的条目全都校验不过，一个都不运行，但照样列给设置页。
+    let grants = script_grants::read_with(&root, macos(None));
+    assert_eq!(grants.plugins.len(), 2);
+    assert!(grants.plugins.iter().all(|grant| !grant.verified));
+    assert_eq!(grants.enabled().count(), 0);
+    assert_eq!(grants.authenticated_revision(), None);
+    // 写入和重排一律拒绝，文件一个字节都不动：写出去等于撤销全部授权。
+    assert!(matches!(
+        script_grants::set_with(
+            &root,
+            macos(None),
+            "first",
+            &hashes[0],
+            false,
+            CapabilitySet::EMPTY
+        ),
+        Err(ScriptGrantError::Keychain)
+    ));
+    assert!(matches!(
+        script_grants::reorder_with(&root, macos(None), &["second".into()]),
+        Err(ScriptGrantError::Keychain)
+    ));
+    assert_eq!(fs::read(&document).unwrap(), original);
+
+    // 不要求 MAC 的平台（Windows、Linux）没有密钥照常读写，条目不带 MAC。
+    let unsigned = Keying {
+        key: None,
+        required: false,
+    };
+    assert_eq!(
+        script_grants::read_with(&root, unsigned).enabled().count(),
+        2
+    );
+    let grants = script_grants::reorder_with(&root, unsigned, &["second".into()]).unwrap();
+    assert!(grants
+        .plugins
+        .iter()
+        .all(|grant| grant.verified && grant.mac.is_none()));
+    assert_eq!(
+        grants
+            .enabled()
+            .map(|grant| grant.id.as_str())
+            .collect::<Vec<_>>(),
+        ["second", "first"]
+    );
+}
+
+#[test]
+fn moving_dropping_or_adding_signed_entries_voids_their_signatures() {
+    signing();
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    for id in ["first", "second", "third"] {
+        let (script, wasm) = reader(id);
+        let hash = import_pack(files.path(), &root, id, &script, &wasm);
+        script_grants::set(&root, id, &hash, true, read_commit()).unwrap();
+    }
+    let document = script_grants::document_path(&root);
+    let original = fs::read(&document).unwrap();
+    let verified = |edit: &dyn Fn(&mut Vec<serde_json::Value>)| -> Vec<(String, bool)> {
+        let mut value: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        edit(value["plugins"].as_array_mut().unwrap());
+        fs::write(&document, serde_json::to_vec(&value).unwrap()).unwrap();
+        script_grants::read_with(&root, macos(Some(&TEST_KEY)))
+            .plugins
+            .into_iter()
+            .map(|grant| (grant.id, grant.verified))
+            .collect()
+    };
+    let pairs = |expected: &[(&str, bool)]| -> Vec<(String, bool)> {
+        expected
+            .iter()
+            .map(|(id, verified)| ((*id).to_owned(), *verified))
+            .collect()
+    };
+    assert_eq!(
+        verified(&|_| {}),
+        pairs(&[("first", true), ("second", true), ("third", true)])
+    );
+    // 同一用户下的程序在文件里换两条的位置，想改掉用户定的执行顺序：换过位置的两条都不运行。
+    assert_eq!(
+        verified(&|plugins| plugins.swap(0, 1)),
+        pairs(&[("second", false), ("first", false), ("third", true)])
+    );
+    // 删掉一条或者插进一条没签名的：条目总数变了，全部不运行。
+    assert_eq!(
+        verified(&|plugins| {
+            plugins.remove(2);
+        }),
+        pairs(&[("first", false), ("second", false)])
+    );
+    assert_eq!(
+        verified(&|plugins| {
+            let mut forged = plugins[0].clone();
+            forged["id"] = "forged".into();
+            forged.as_object_mut().unwrap().remove("mac");
+            plugins.push(forged);
+        }),
+        pairs(&[
+            ("first", false),
+            ("second", false),
+            ("third", false),
+            ("forged", false)
+        ])
+    );
+}
+
+#[test]
+fn a_forged_revision_neither_freezes_nor_reuses_signed_revisions() {
+    signing();
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    let (script, wasm) = reader("pangu");
+    let hash = import_pack(files.path(), &root, "pangu", &script, &wasm);
+    let document = script_grants::document_path(&root);
+
+    // 一份没签名的文件把 revision 写成 `u64::MAX`：之后的写入不接着它加，每次写入的 revision 仍然各不相同。
+    fs::write(
+        &document,
+        format!(
+            "{{\"format_version\":1,\"revision\":{},\"plugins\":[]}}",
+            u64::MAX
+        ),
+    )
+    .unwrap();
+    let first = script_grants::set(&root, "pangu", &hash, true, read_commit()).unwrap();
+    let second = script_grants::set(&root, "pangu", &hash, false, read_commit()).unwrap();
+    assert!(first.revision < script_grants::MAX_REVISION);
+    assert!(second.revision > first.revision);
+    assert!(second.revision < script_grants::MAX_REVISION);
+
+    // 把 revision 改小（或者放回一份旧文件）之后，下一次写入也不会再用一遍签过名的 revision。
+    let signed = script_grants::set(&root, "pangu", &hash, true, read_commit()).unwrap();
+    fs::write(
+        &document,
+        "{\"format_version\":1,\"revision\":1,\"plugins\":[]}",
+    )
+    .unwrap();
+    let after = script_grants::set(&root, "pangu", &hash, true, read_commit()).unwrap();
+    assert!(after.revision > signed.revision);
+}
+
+#[test]
+fn only_a_signed_file_carries_a_revision_that_resets_the_breaker() {
+    signing();
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    let (script, wasm) = reader("pangu");
+    let hash = import_pack(files.path(), &root, "pangu", &script, &wasm);
+    let read = || script_grants::read_with(&root, macos(Some(&TEST_KEY)));
+    // 文件不在、没有条目：没有能让熔断复位的 revision。
+    assert_eq!(read().authenticated_revision(), None);
+    let grants = script_grants::set(&root, "pangu", &hash, true, read_commit()).unwrap();
+    assert_eq!(read().authenticated_revision(), Some(grants.revision));
+
+    let document = script_grants::document_path(&root);
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&fs::read(&document).unwrap()).unwrap();
+    value["revision"] = (grants.revision + 1).into();
+    fs::write(&document, serde_json::to_vec(&value).unwrap()).unwrap();
+    assert_eq!(read().authenticated_revision(), None);
+    fs::write(
+        &document,
+        format!(
+            "{{\"format_version\":1,\"revision\":{},\"plugins\":[]}}",
+            grants.revision + 2
+        ),
+    )
+    .unwrap();
+    assert_eq!(read().authenticated_revision(), None);
+}
+
+#[test]
+fn admission_counts_every_place_the_input_method_fills() {
+    signing();
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    let mut packs = Vec::new();
+    for index in 0..=limits::MAX_ENABLED_SCRIPTS {
+        let id = format!("small{index}");
+        let (script, wasm) = reader(&id);
+        let hash = import_pack(files.path(), &root, &id, &script, &wasm);
+        packs.push((id, hash, script));
+    }
+    let (last, rest) = packs.split_last().unwrap();
+    for (id, hash, _) in rest {
+        script_grants::set(&root, id, hash, true, read_commit()).unwrap();
+    }
+    // 一个包被直接改了内容：它的条目哈希对不上、不会运行，但输入法取前 8 个启用条目时它占着一个位置，新启用的插件会排在第 9 位、永远不运行，所以照样拒绝。
+    let (stale, _, script) = &rest[0];
+    fs::write(
+        root.join("script").join(stale).join(MANIFEST_FILE),
+        script.replace("version = '1.0.0'", "version = '1.0.1'"),
+    )
+    .unwrap();
+    assert!(matches!(
+        script_grants::set(&root, &last.0, &last.1, true, read_commit()),
+        Err(ScriptGrantError::Limit)
+    ));
+    // 一个包目录被直接删掉：写入时顺带去掉它的条目，腾出的位置给新启用的插件。
+    let (gone, _, _) = &rest[1];
+    fs::remove_dir_all(root.join("script").join(gone)).unwrap();
+    let grants = script_grants::set(&root, &last.0, &last.1, true, read_commit()).unwrap();
+    assert!(grants.get(gone).is_none());
+    assert!(grants.get(stale).is_some());
+    assert!(grants.enabled().any(|grant| grant.id == last.0));
+    assert_eq!(grants.enabled().count(), limits::MAX_ENABLED_SCRIPTS);
 }

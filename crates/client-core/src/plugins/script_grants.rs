@@ -7,15 +7,16 @@
 //! - 放在插件目录而不放进偏好文档：偏好文档会被宿主复制、被账号同步读取，授权不该跟着走；它也不同步。`PluginPreferences` 带 `deny_unknown_fields`，往里加键会让旧版输入法读不了偏好。
 //! - 数组顺序就是执行顺序。只有 `enabled` 的条目会运行，按顺序最多 `limits::MAX_ENABLED_SCRIPTS` 个。
 //! - **哈希绑定**：条目的 `hash` 必须等于已安装包当前的内容哈希（`script_pack::content_hash`）才生效，包的清单或模块一变，授权全部作废。实际生效的能力是 `granted` 和清单 `permissions` 的交集。
-//! - **只有一个写入方**，就是这里。写入时持有 `import::lock_plugin_root`（和导入、删包同一把锁），整份文件原子替换，每次写入 `revision` 加 1；读取方因此不加锁，看到的要么是旧文件，要么是新文件。删包、重新导入时在同一把锁里更新条目。`revision` 变化时宿主恢复被熔断的插件。
+//! - **只有一个写入方**，就是这里。写入时持有 `import::lock_plugin_root`（和导入、删包同一把锁），整份文件原子替换，每次写入 `revision` 都变大（[`next_revision`]：上一份加 1 和当前时间的微秒数取大的那个）；读取方因此不加锁，看到的要么是旧文件，要么是新文件。删包、重新导入时在同一把锁里更新条目。`revision` 变大时宿主恢复被熔断的插件，macOS 上只认至少有一个条目通过校验的文件里的 `revision`（[`ScriptGrants::authenticated_revision`]）。
 //! - **读取方容忍未知字段**（不用 `deny_unknown_fields`），给以后的版本加字段留余地；但 `format_version` 不认识、文件读不出或不是合法 JSON 时，一律按"没有任何脚本启用"处理。单个条目不合规（id 或哈希格式不对、授权违反依赖或互斥规则）只跳过这一条。
-//! - **macOS 上每个条目要带 MAC 才生效**（[`MAC_REQUIRED`]）：`mac` 是用进程级密钥（[`set_mac_key`]）对 (id, hash, enabled, granted, revision) 算的 HMAC-SHA256。密钥是存在钥匙串里的 32 字节随机数，钥匙串项只信任签了名的输入法和设置应用，由宿主在启动时（输入法）或第一次用到时（设置应用）交进来。没有密钥、没有 `mac` 或校验不过的条目照常读出来给设置页看，但 `verified` 为 false，[`ScriptGrants::enabled`] 不列出它。写入时只给原来就校验通过的条目和这次写的条目重新签名（`revision` 每次都变，所以每次写入都要重签），从不替一条没校验过的条目补签：那样等于设置应用替伪造者背书。macOS 上没有密钥时 [`set`] 和 [`reorder`] 一律拒绝（`plugin_script_keychain`）。
+//! - **macOS 上每个条目要带 MAC 才生效**（[`MAC_REQUIRED`]）：`mac` 是用进程级密钥（[`set_mac_key`]）对 (id, hash, enabled, granted, revision, 条目在文件里的位置, 条目总数) 算的 HMAC-SHA256，所以挪动、删掉或插入条目都让签名失效，执行顺序也在签名里。密钥是存在钥匙串里的 32 字节随机数，钥匙串项只信任签了名的输入法和设置应用，由宿主在启动时（输入法）或第一次用到时（设置应用）交进来。没有密钥、没有 `mac` 或校验不过的条目照常读出来给设置页看，但 `verified` 为 false，[`ScriptGrants::enabled`] 不列出它。写入时只给原来就校验通过的条目和这次写的条目重新签名（`revision` 每次都变，所以每次写入都要重签），从不替一条没校验过的条目补签：那样等于设置应用替伪造者背书。macOS 上没有密钥时 [`set`] 和 [`reorder`] 一律拒绝（`plugin_script_keychain`）。
 //! - Windows 和 Linux 不带 MAC：同一用户下的任何进程都能手写一条带正确哈希的授权，这是设计接受的残余风险，由授权页写明；Windows 的提权窗口里永远不运行脚本。
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use hmac::{Hmac, KeyInit, Mac};
 use msime_script_runtime::{limits, Capability, CapabilitySet};
@@ -40,6 +41,8 @@ pub const MAC_KEY_BYTES: usize = 32;
 pub const MAC_REQUIRED: bool = cfg!(target_os = "macos");
 /// MAC 的域分隔前缀，让它不可能和别处用同一把密钥对同样字节算的 HMAC 相同。
 const MAC_DOMAIN: &[u8] = b"msime-script-grant\0";
+/// `revision` 的上限，2^53。写入方写出的值远小于它（当前时间的微秒数要到 2255 年才到）；读到更大的值说明文件不是写入方写的，下一次写入不接着它往上加，免得一份 `revision` 为 `u64::MAX` 的伪造文件让以后每次写入都停在同一个值上。它也是 JavaScript 能精确表示的最大整数，设置页拿到的 `revision` 不失真。
+pub const MAX_REVISION: u64 = 1 << 53;
 
 /// 进程级的 MAC 密钥，第一次交进来的那把生效。
 static MAC_KEY: OnceLock<[u8; MAC_KEY_BYTES]> = OnceLock::new();
@@ -57,26 +60,52 @@ pub fn has_mac_key() -> bool {
     MAC_KEY.get().is_some()
 }
 
+/// 一次读写用的密钥和规则。产品里总是 [`Keying::process`]；测试经它模拟没有密钥的 macOS 进程和不要求 MAC 的平台，不受进程级密钥只认第一把的限制。
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Keying<'a> {
+    pub(super) key: Option<&'a [u8; MAC_KEY_BYTES]>,
+    /// 条目必须带校验通过的 MAC 才生效：产品里是 [`MAC_REQUIRED`]。
+    pub(super) required: bool,
+}
+
+impl Keying<'static> {
+    /// 本进程的密钥和本平台的规则。
+    pub(super) fn process() -> Self {
+        Self {
+            key: MAC_KEY.get(),
+            required: MAC_REQUIRED,
+        }
+    }
+}
+
+/// 一个条目签名时所在的那份文件：`revision`、条目在 `plugins` 里的位置和条目总数。三者都签进 MAC：每次写入的 `revision` 都不同，所以两份文件里的条目拼不到一起；位置和总数让挪动、删掉或插入条目都让签名失效，执行顺序因此也受签名保护。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Placement {
+    pub revision: u64,
+    pub position: usize,
+    pub count: usize,
+}
+
 /// 一个条目的 MAC，64 位小写十六进制。宿主的测试用它手写带 MAC 的授权文件。
 pub fn entry_mac(
     key: &[u8; MAC_KEY_BYTES],
-    revision: u64,
+    placement: Placement,
     id: &str,
     hash: &str,
     enabled: bool,
     granted: CapabilitySet,
 ) -> String {
     hex::encode(
-        mac_state(key, revision, id, hash, enabled, granted)
+        mac_state(key, placement, id, hash, enabled, granted)
             .finalize()
             .into_bytes(),
     )
 }
 
-/// HMAC-SHA256 覆盖的字节，依次是域前缀、`revision`（8 字节小端）、id、hash、`enabled`（一个字节）、授予的能力个数（8 字节小端），再按 `Capability::ALL` 的顺序逐个写能力名；每一段前面都带它的字节数（8 字节小端），字节在两段之间挪动不会得到同一个 MAC。写名字而不写位：能力的位编号以后可以变，名字是授权文件里的契约。
+/// HMAC-SHA256 覆盖的字节，依次是域前缀、`revision`、位置、条目总数（各 8 字节小端）、id、hash、`enabled`（一个字节）、授予的能力个数（8 字节小端），再按 `Capability::ALL` 的顺序逐个写能力名；每一段前面都带它的字节数（8 字节小端），字节在两段之间挪动不会得到同一个 MAC。写名字而不写位：能力的位编号以后可以变，名字是授权文件里的契约。
 fn mac_state(
     key: &[u8; MAC_KEY_BYTES],
-    revision: u64,
+    placement: Placement,
     id: &str,
     hash: &str,
     enabled: bool,
@@ -88,7 +117,9 @@ fn mac_state(
         mac.update(bytes);
     };
     field(MAC_DOMAIN);
-    field(&revision.to_le_bytes());
+    field(&placement.revision.to_le_bytes());
+    field(&(placement.position as u64).to_le_bytes());
+    field(&(placement.count as u64).to_le_bytes());
     field(id.as_bytes());
     field(hash.as_bytes());
     field(&[u8::from(enabled)]);
@@ -99,8 +130,12 @@ fn mac_state(
     mac
 }
 
-/// 条目的 `mac` 是否是本进程的密钥在 `revision` 下对它算出来的。比较是常量时间的。
-fn mac_verifies(key: Option<&[u8; MAC_KEY_BYTES]>, revision: u64, grant: &ScriptGrant) -> bool {
+/// 条目的 `mac` 是否是 `key` 在 `placement` 下对它算出来的。比较是常量时间的。
+fn mac_verifies(
+    key: Option<&[u8; MAC_KEY_BYTES]>,
+    placement: Placement,
+    grant: &ScriptGrant,
+) -> bool {
     let (Some(key), Some(tag)) = (key, grant.mac.as_deref()) else {
         return false;
     };
@@ -109,7 +144,7 @@ fn mac_verifies(key: Option<&[u8; MAC_KEY_BYTES]>, revision: u64, grant: &Script
     };
     mac_state(
         key,
-        revision,
+        placement,
         &grant.id,
         &grant.hash,
         grant.enabled,
@@ -117,6 +152,20 @@ fn mac_verifies(key: Option<&[u8; MAC_KEY_BYTES]>, revision: u64, grant: &Script
     )
     .verify_slice(&tag)
     .is_ok()
+}
+
+/// 下一次写入的 `revision`：比 `current` 大，并且不小于当前时间的微秒数。只加 1 的话，同一用户下的程序把 `revision` 改小（或者放回一份旧文件）之后，写入方会再用一遍以前签过名的 `revision`，两份文件里位置相同的条目就能拼成一份用户从没确认过的授权；取当前时间之后，每次写入的 `revision` 都比以前签过的大（时钟不往回拨时）。写入方写出的值总小于 [`MAX_REVISION`]；`current` 到了 `MAX_REVISION - 1` 或更大时，它不是写入方写的，不接着它加。
+fn next_revision(current: u64) -> u64 {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            u64::try_from(elapsed.as_micros()).unwrap_or(MAX_REVISION)
+        })
+        .min(MAX_REVISION - 1);
+    if current >= MAX_REVISION - 1 {
+        return now;
+    }
+    (current + 1).max(now)
 }
 
 /// 一个脚本插件的授权。
@@ -153,6 +202,14 @@ impl ScriptGrants {
 
     pub fn get(&self, id: &str) -> Option<&ScriptGrant> {
         self.plugins.iter().find(|grant| grant.id == id)
+    }
+
+    /// 能让宿主恢复被熔断的插件的 `revision`：至少一个条目通过校验时才有。macOS 上 MAC 覆盖 `revision`，有一条校验通过就说明这个 `revision` 出自持有密钥的写入方；一份没有签名的文件（或者文件不在、读不出）给不出它，同一用户下的程序就没法靠换文件、删文件让熔断复位。其他平台的条目恒通过校验，这里只要求文件里有条目。
+    pub fn authenticated_revision(&self) -> Option<u64> {
+        self.plugins
+            .iter()
+            .any(|grant| grant.verified)
+            .then_some(self.revision)
     }
 }
 
@@ -205,7 +262,12 @@ pub fn document_path(root: &Path) -> PathBuf {
 
 /// 当前的授权。不加锁：写入方整份原子替换。文件不存在、读不出、不是合法 JSON 或 `format_version` 不认识时，返回空授权（没有任何脚本启用）。
 pub fn read(root: &Path) -> ScriptGrants {
-    match load_document(root) {
+    read_with(root, Keying::process())
+}
+
+/// [`read`]，用给定的密钥和规则校验。
+pub(super) fn read_with(root: &Path, keying: Keying<'_>) -> ScriptGrants {
+    match load_document(root, keying) {
         Stored::Parsed(grants) => grants,
         Stored::Missing | Stored::Unreadable | Stored::UnknownFormat => ScriptGrants::default(),
     }
@@ -213,9 +275,21 @@ pub fn read(root: &Path) -> ScriptGrants {
 
 /// 授予、调整或撤销脚本插件 `id` 的授权，返回写入后的整份授权。
 ///
-/// `hash` 是授权页展示给用户的那个内容哈希：写入前在锁里重新读一遍包、算一遍哈希，不一致时返回 [`ScriptGrantError::Changed`]，免得用户授权的是一个版本、生效的是另一个。`granted` 必须是清单 `permissions` 的子集，并满足依赖和互斥规则。启用时检查同时启用的个数和进程内存总账。新条目排在最后执行。这次写的条目由本进程的密钥签名（有密钥时），所以设置页上原来校验不过的条目经用户重新授权后恢复生效。
+/// `hash` 是授权页展示给用户的那个内容哈希：写入前在锁里重新读一遍包、算一遍哈希，不一致时返回 [`ScriptGrantError::Changed`]，免得用户授权的是一个版本、生效的是另一个。`granted` 必须是清单 `permissions` 的子集，并满足依赖和互斥规则。启用时检查同时启用的个数和进程内存总账。新条目排在最后执行。这次写的条目由本进程的密钥签名（有密钥时），所以设置页上原来校验不过的条目经用户重新授权后恢复生效。包目录已经不在的条目顺带去掉（和删包时一样）：它们永远不会运行，却占着输入法运行的前 `limits::MAX_ENABLED_SCRIPTS` 个位置，页面上又列不出来、撤销不了。
 pub fn set(
     root: &Path,
+    id: &str,
+    hash: &str,
+    enabled: bool,
+    granted: CapabilitySet,
+) -> Result<ScriptGrants, ScriptGrantError> {
+    set_with(root, Keying::process(), id, hash, enabled, granted)
+}
+
+/// [`set`]，用给定的密钥和规则签名、校验。
+pub(super) fn set_with(
+    root: &Path,
+    keying: Keying<'_>,
     id: &str,
     hash: &str,
     enabled: bool,
@@ -225,7 +299,7 @@ pub fn set(
         return Err(ScriptGrantError::Invalid("插件 id 无效".into()));
     }
     // macOS 上没有密钥时写出去的条目全都校验不过，连别的条目原有的签名也会因为 `revision` 变了而失效，等于撤销全部授权，所以不写。
-    if MAC_REQUIRED && !has_mac_key() {
+    if keying.required && keying.key.is_none() {
         return Err(ScriptGrantError::Keychain);
     }
     crate::storage::reject_symlink(root).map_err(|_| ScriptGrantError::Storage)?;
@@ -258,12 +332,16 @@ pub fn set(
     granted
         .check_rules()
         .map_err(|error| ScriptGrantError::Invalid(rule_message(error)))?;
-    let mut grants = match load_document(root) {
+    let mut grants = match load_document(root, keying) {
         Stored::Parsed(grants) => grants,
         // 读不出的文件本来就等于没有任何授权，整份重写。
         Stored::Missing | Stored::Unreadable => ScriptGrants::default(),
         Stored::UnknownFormat => return Err(ScriptGrantError::Format),
     };
+    let packs = super::kind_directory(root, super::PluginKind::Script);
+    grants.plugins.retain(|grant| {
+        !matches!(fs::symlink_metadata(packs.join(&grant.id)), Err(error) if error.kind() == io::ErrorKind::NotFound)
+    });
     if enabled {
         admit(root, &grants, &installed)?;
     }
@@ -276,18 +354,32 @@ pub fn set(
         mac: None,
         verified: true,
     };
+    let count = grants.plugins.len();
     match grants.plugins.iter_mut().find(|grant| grant.id == id) {
         Some(existing) => *existing = entry,
+        // 读取时只认前 `MAX_ENTRIES` 条，再多一条读回来就对不上签名里的条目总数。
+        None if count >= MAX_ENTRIES => {
+            return Err(ScriptGrantError::Invalid("授权的脚本插件太多".into()));
+        }
         None => grants.plugins.push(entry),
     }
-    grants.revision = grants.revision.saturating_add(1);
-    write(root, &writes, &mut grants)?;
+    grants.revision = next_revision(grants.revision);
+    write(root, &writes, &mut grants, keying)?;
     Ok(grants)
 }
 
 /// 调整执行顺序：`ids` 里的条目按给出的顺序排在最前，没列出的条目按原来的相对顺序排在后面。`ids` 里有重复或没有授权条目的 id 时什么都不写。返回写入后的整份授权。
 pub fn reorder(root: &Path, ids: &[String]) -> Result<ScriptGrants, ScriptGrantError> {
-    if MAC_REQUIRED && !has_mac_key() {
+    reorder_with(root, Keying::process(), ids)
+}
+
+/// [`reorder`]，用给定的密钥和规则签名、校验。
+pub(super) fn reorder_with(
+    root: &Path,
+    keying: Keying<'_>,
+    ids: &[String],
+) -> Result<ScriptGrants, ScriptGrantError> {
+    if keying.required && keying.key.is_none() {
         return Err(ScriptGrantError::Keychain);
     }
     crate::storage::reject_symlink(root).map_err(|_| ScriptGrantError::Storage)?;
@@ -295,7 +387,7 @@ pub fn reorder(root: &Path, ids: &[String]) -> Result<ScriptGrants, ScriptGrantE
         return Err(ScriptGrantError::Missing("插件文件夹不存在".into()));
     }
     let writes = lock_plugin_root(root)?;
-    let mut grants = match load_document(root) {
+    let mut grants = match load_document(root, keying) {
         Stored::Parsed(grants) => grants,
         Stored::Missing | Stored::Unreadable => ScriptGrants::default(),
         Stored::UnknownFormat => return Err(ScriptGrantError::Format),
@@ -315,29 +407,32 @@ pub fn reorder(root: &Path, ids: &[String]) -> Result<ScriptGrants, ScriptGrantE
     }
     ordered.append(&mut grants.plugins);
     grants.plugins = ordered;
-    grants.revision = grants.revision.saturating_add(1);
-    write(root, &writes, &mut grants)?;
+    grants.revision = next_revision(grants.revision);
+    write(root, &writes, &mut grants, keying)?;
     Ok(grants)
 }
 
-/// 启用 `installed` 之前的准入检查：同时启用的个数，和进程内存总账。只算其他条目里真会运行的：启用的、包还在、哈希对得上的。
+/// 启用 `installed` 之前的准入检查：同时启用的个数，和进程内存总账。个数按输入法占位置的方式算：其他启用并且校验通过的条目，不管包载不载得了、哈希对不对得上，它们都占着输入法运行的前 `limits::MAX_ENABLED_SCRIPTS` 个位置（输入法取前几个之后才核对哈希），少算一个就会让新启用的插件排到位置之外、永远不运行。内存只算其中真会占内存的：包还在、哈希对得上的。
 fn admit(
     root: &Path,
     grants: &ScriptGrants,
     installed: &script_pack::LoadedScript,
 ) -> Result<(), ScriptGrantError> {
-    let others: Vec<script_pack::LoadedScript> = grants
+    let others: Vec<&ScriptGrant> = grants
         .enabled()
         .filter(|grant| grant.id != installed.id)
+        .collect();
+    if others.len() >= limits::MAX_ENABLED_SCRIPTS {
+        return Err(ScriptGrantError::Limit);
+    }
+    let others: Vec<script_pack::LoadedScript> = others
+        .into_iter()
         .filter_map(|grant| {
             script_pack::load(root, &grant.id)
                 .ok()
                 .filter(|other| other.pack.content_hash == grant.hash)
         })
         .collect();
-    if others.len() >= limits::MAX_ENABLED_SCRIPTS {
-        return Err(ScriptGrantError::Limit);
-    }
     let footprint =
         |script: &script_pack::LoadedScript| (script.wasm.len(), script.pack.memory_pages);
     if !limits::fits_memory_budget(
@@ -359,7 +454,8 @@ pub(super) fn installing(
     hash: &str,
     replaces_installed: bool,
 ) -> io::Result<()> {
-    let Stored::Parsed(mut grants) = load_document(root) else {
+    let keying = Keying::process();
+    let Stored::Parsed(mut grants) = load_document(root, keying) else {
         return Ok(());
     };
     let Some(entry) = grants.plugins.iter_mut().find(|grant| grant.id == id) else {
@@ -370,13 +466,14 @@ pub(super) fn installing(
         entry.granted = CapabilitySet::EMPTY;
         entry.mac = None;
     }
-    grants.revision = grants.revision.saturating_add(1);
-    write(root, writes, &mut grants)
+    grants.revision = next_revision(grants.revision);
+    write(root, writes, &mut grants, keying)
 }
 
 /// 删除一个脚本包时、移走包目录之前调用，持有插件目录的写锁：去掉它的条目，`revision` 加 1。没有条目、文件不存在、读不出或格式不认识时不动它。
 pub(super) fn removing(root: &Path, writes: &RootWrites, id: &str) -> io::Result<()> {
-    let Stored::Parsed(mut grants) = load_document(root) else {
+    let keying = Keying::process();
+    let Stored::Parsed(mut grants) = load_document(root, keying) else {
         return Ok(());
     };
     let before = grants.plugins.len();
@@ -384,8 +481,8 @@ pub(super) fn removing(root: &Path, writes: &RootWrites, id: &str) -> io::Result
     if grants.plugins.len() == before {
         return Ok(());
     }
-    grants.revision = grants.revision.saturating_add(1);
-    write(root, writes, &mut grants)
+    grants.revision = next_revision(grants.revision);
+    write(root, writes, &mut grants, keying)
 }
 
 /// 磁盘上的授权文件是什么状态。
@@ -433,7 +530,7 @@ struct WireEntry<'a> {
     mac: Option<&'a str>,
 }
 
-fn load_document(root: &Path) -> Stored {
+fn load_document(root: &Path, keying: Keying<'_>) -> Stored {
     let path = document_path(root);
     if crate::storage::reject_symlink(&path).is_err() {
         return Stored::Unreadable;
@@ -475,9 +572,14 @@ fn load_document(root: &Path) -> Stored {
         }
         plugins.push(grant);
     }
-    let key = MAC_KEY.get();
-    for grant in &mut plugins {
-        grant.verified = !MAC_REQUIRED || mac_verifies(key, document.revision, grant);
+    let count = plugins.len();
+    for (position, grant) in plugins.iter_mut().enumerate() {
+        let placement = Placement {
+            revision: document.revision,
+            position,
+            count,
+        };
+        grant.verified = !keying.required || mac_verifies(keying.key, placement, grant);
     }
     Stored::Parsed(ScriptGrants {
         revision: document.revision,
@@ -485,7 +587,7 @@ fn load_document(root: &Path) -> Stored {
     })
 }
 
-/// 一个条目，不合规时 `None`（跳过这一条，不影响别的）。`verified` 由调用方按整份文件的 `revision` 校验后填上。
+/// 一个条目，不合规时 `None`（跳过这一条，不影响别的）。`verified` 由调用方按整份文件的 `revision`、条目的位置和总数校验后填上。
 fn entry(value: serde_json::Value) -> Option<ScriptGrant> {
     let raw: RawEntry = serde_json::from_value(value).ok()?;
     if !safe_id(&raw.id) || !is_hash(&raw.hash) {
@@ -515,15 +617,25 @@ fn is_hash(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// 整份原子替换。`_writes` 证明调用方持有插件目录的写锁。`revision` 已经由调用方加过：有密钥时给 `verified` 的条目按新的 `revision` 重新签名，其余条目不带 MAC；写完后 `verified` 按新的签名更新，和随后 [`read`] 读到的一致。
-fn write(root: &Path, _writes: &RootWrites, grants: &mut ScriptGrants) -> io::Result<()> {
-    let key = MAC_KEY.get();
+/// 整份原子替换。`_writes` 证明调用方持有插件目录的写锁。`revision` 已经由调用方换过：有密钥时给 `verified` 的条目按新的 `revision` 和各自现在的位置、条目总数重新签名，其余条目不带 MAC；写完后 `verified` 按新的签名更新，和随后 [`read`] 读到的一致。
+fn write(
+    root: &Path,
+    _writes: &RootWrites,
+    grants: &mut ScriptGrants,
+    keying: Keying<'_>,
+) -> io::Result<()> {
     let revision = grants.revision;
-    for grant in &mut grants.plugins {
-        grant.mac = match key {
+    let count = grants.plugins.len();
+    for (position, grant) in grants.plugins.iter_mut().enumerate() {
+        let placement = Placement {
+            revision,
+            position,
+            count,
+        };
+        grant.mac = match keying.key {
             Some(key) if grant.verified => Some(entry_mac(
                 key,
-                revision,
+                placement,
                 &grant.id,
                 &grant.hash,
                 grant.enabled,
@@ -531,7 +643,7 @@ fn write(root: &Path, _writes: &RootWrites, grants: &mut ScriptGrants) -> io::Re
             )),
             _ => None,
         };
-        grant.verified = !MAC_REQUIRED || grant.mac.is_some();
+        grant.verified = !keying.required || grant.mac.is_some();
     }
     let document = WireDocument {
         format_version: FORMAT_VERSION,

@@ -10,7 +10,8 @@ use crate::scripts::{
     insert_ready, TEST_COMPILE_PANIC_ID, TEST_PANIC, TEST_PANICKED, TEST_SCRIPT_LOG, TEST_SLOW,
     TEST_SWITCH,
 };
-use msime_client_core::plugins::{import, script_grants, MANIFEST_FILE};
+use msime_client_core::plugins::script_grants::{self, Placement};
+use msime_client_core::plugins::{import, MANIFEST_FILE};
 use msime_script_runtime::abi::commit_field;
 use msime_script_runtime::{
     abi::status, compile_text, Capability, CapabilitySet, Declaration, Hook, HookSet,
@@ -276,9 +277,10 @@ fn install(fixture: &Fixture, scripts: &[Script], revision: u64) -> Vec<String> 
     hashes
 }
 
-/// 写授权文件。没写 `mac` 的条目用测试密钥按这个 `revision` 签名，和设置应用写出来的一样。
+/// 写授权文件。没写 `mac` 的条目用测试密钥按这个 `revision`、条目的位置和总数签名，和设置应用写出来的一样。
 fn write_grants(fixture: &Fixture, revision: u64, mut plugins: Vec<Value>) {
-    for entry in &mut plugins {
+    let count = plugins.len();
+    for (position, entry) in plugins.iter_mut().enumerate() {
         if entry.get("mac").is_some() {
             continue;
         }
@@ -290,7 +292,11 @@ fn write_grants(fixture: &Fixture, revision: u64, mut plugins: Vec<Value>) {
             .collect();
         entry["mac"] = script_grants::entry_mac(
             &TEST_GRANTS_KEY,
-            revision,
+            Placement {
+                revision,
+                position,
+                count,
+            },
             entry["id"].as_str().unwrap(),
             entry["hash"].as_str().unwrap(),
             entry["enabled"].as_bool().unwrap(),
@@ -375,7 +381,18 @@ fn a_grant_whose_mac_does_not_verify_never_runs_on_macos() {
     };
     insert_ready(&fixture.plugins, &hash, module());
     // 同一用户下的进程手写的条目：哈希对、启用了，但 MAC 是它自己的密钥签的。
-    let forged = script_grants::entry_mac(&[1; 32], 1, "forged", &hash, true, CapabilitySet::EMPTY);
+    let forged = script_grants::entry_mac(
+        &[1; 32],
+        Placement {
+            revision: 1,
+            position: 0,
+            count: 1,
+        },
+        "forged",
+        &hash,
+        true,
+        CapabilitySet::EMPTY,
+    );
     write_grants(
         &fixture,
         1,
