@@ -2127,7 +2127,7 @@ void settled_rerank_schedule(IBusEngine *engine) {
         }
         return G_SOURCE_REMOVE;
       },
-      engine, nullptr);
+      g_object_ref(engine), [](gpointer data) { g_object_unref(data); });
 }
 
 void translation_schedule(IBusEngine *engine) {
