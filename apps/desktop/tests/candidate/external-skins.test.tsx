@@ -1303,12 +1303,18 @@ test("the geometry stylesheet aligns the decoration and clips the background to 
     /\[data-decoration-align="center"\]\.skin-decoration-image,[^{]*\{left:max\(0px,calc\(50%-var\(--msime-skin-decoration-width,0px\)\/2\)\);object-position:centerbottom;/,
   );
   // pad_x / pad_y are the card's own padding, one name for both.
-  expect(card).toContain("--msime-candidate-pad-x:1px;--msime-candidate-pad-y:2px;");
-  expect(card).toContain("--msime-candidate-pad-x:2px;--msime-candidate-pad-y:2px;");
+  expect(card).toContain(
+    "--msime-candidate-pad-x:var(--msime-host-pad,1px);--msime-candidate-pad-y:var(--msime-host-pad,2px);",
+  );
+  expect(card).toContain(
+    "--msime-candidate-pad-x:var(--msime-host-pad,2px);--msime-candidate-pad-y:var(--msime-host-pad,2px);",
+  );
   expect(
     card.match(/padding:var\(--msime-candidate-pad-y\)var\(--msime-candidate-pad-x\)/g),
   ).toHaveLength(2);
-  expect(card).toContain("border-radius:var(--msime-skin-radius,6px)");
+  expect(card).toContain(
+    "border-radius:var(--msime-skin-radius,var(--msime-host-card-radius,6px))",
+  );
   expect(card).toContain(
     ".container:has(>.skin-background-image){position:relative;overflow:hidden",
   );

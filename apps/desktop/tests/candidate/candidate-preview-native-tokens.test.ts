@@ -1,6 +1,9 @@
 import { expect, test } from "vitest";
 import { candidatePaletteStyle, themeEntry, type CandidateThemePalette } from "@msime/ui";
 import { utilityCss } from "../support/utility-css";
+import candidateSkin from "../../../../platforms/macos/src/candidate/CandidateSkin.cpp?raw";
+import candidateSkinHeader from "../../../../platforms/macos/src/candidate/CandidateSkin.h?raw";
+import candidateChrome from "../../../../platforms/macos/src/candidate/CandidateChrome.h?raw";
 
 const card = utilityCss("skin-card-preview").replace(/\s+/g, "");
 
@@ -71,4 +74,123 @@ test("the selected row reads the selected foregrounds and the bar switch, fallin
   expect(card).toContain(".first.num{color:var(--cand-selected-num,var(--cand-num));}");
   expect(card).toContain(".first.cand-no{color:var(--cand-selected-num,var(--cand-num));}");
   expect(card.match(/display:var\(--cand-selected-bar,block\)/g)).toHaveLength(2);
+});
+
+// ---- macOS 宿主默认值与原生 token 对齐 ----
+
+/** 原生 `Rgb(0xRRGGBB, a)` / `Rgba{r, g, b, a}` 写成样式表里的小写 `#rrggbb` 或 `#rrggbbaa`。 */
+function hex(expression: string): string {
+  const channel = (value: number) =>
+    Math.round(value * 255)
+      .toString(16)
+      .padStart(2, "0");
+  const rgb = /^Rgb\(0x([0-9A-Fa-f]{6})(?:,\s*([\d.]+)f)?\)$/.exec(expression);
+  if (rgb) {
+    const alpha = rgb[2] === undefined ? 1 : Number(rgb[2]);
+    return `#${rgb[1].toLowerCase()}${alpha === 1 ? "" : channel(alpha)}`;
+  }
+  const rgba = /^Rgba\{([\d.]+)f,\s*([\d.]+)f,\s*([\d.]+)f,\s*([\d.]+)f\}$/.exec(expression);
+  if (!rgba) throw new Error(`unparsed native colour ${expression}`);
+  const [r, g, b, a] = rgba.slice(1).map(Number);
+  return `#${[r, g, b].map(channel).join("")}${a === 1 ? "" : channel(a)}`;
+}
+
+/** `NativeCandidateTokens` 里某个分支（`dark` 为真或否）给出的颜色 token。 */
+function nativeColours(dark: boolean): Record<string, string> {
+  const body = /SkinTokens NativeCandidateTokens\(bool dark\)\s*\{([\s\S]*?)\n\}/.exec(
+    candidateSkin,
+  )![1];
+  const branch = /if \(dark\)\s*\{([\s\S]*?)\n {4}\}\s*else\s*\{([\s\S]*?)\n {4}\}/.exec(body)!;
+  const shared = body.slice(branch.index + branch[0].length);
+  const colours: Record<string, string> = {};
+  for (const [, name, value] of `${branch[dark ? 1 : 2]}${shared}`.matchAll(
+    /tokens\.(\w+) = ([^;]+);/g,
+  ))
+    colours[name] = value.startsWith("tokens.") ? value : hex(value);
+  return colours;
+}
+
+/** 一条平铺规则里的自定义属性声明，值统一成小写、去掉空白。 */
+function declarations(selector: string): Record<string, string> {
+  const escaped = selector.replace(/\s+/g, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rule = new RegExp(`(?:^|[;{}])${escaped}\\{([^{}]*)\\}`).exec(
+    card.replace(/\/\*[\s\S]*?\*\//g, ""),
+  );
+  if (!rule) throw new Error(`no rule for ${selector}`);
+  return Object.fromEntries(
+    [...rule[1].matchAll(/(--[a-z0-9-]+):([^;]+);/g)].map(([, name, value]) => [
+      name,
+      value.toLowerCase(),
+    ]),
+  );
+}
+
+const mac = ':is([data-platform="mac"]) .skin-card-preview';
+
+test.each([
+  ["light", false],
+  ["dark", true],
+] as const)("the macOS %s preview defaults are the native candidate tokens", (theme, dark) => {
+  const native = nativeColours(dark);
+  expect(declarations(`${mac}[data-preview-theme="${theme}"]`)).toEqual({
+    "--cand-bg": native.surface,
+    "--cand-border": native.border,
+    "--cand-text": native.text,
+    "--cand-num": native.number,
+    "--cand-accent": native.accent,
+    "--cand-hover": native.hover,
+  });
+});
+
+test("the macOS preview selects with a solid accent, white text and no bar, in the native geometry", () => {
+  const native = nativeColours(false);
+  // 选中底跟随强调色（包括调色板换过的强调色），与 `ResolveSkin` 相同。
+  expect(native.selected).toBe("tokens.accent");
+  const tokenField = (name: string) =>
+    Number(new RegExp(`float ${name} = ([\\d.]+)f;`).exec(candidateSkinHeader)![1]);
+  expect(tokenField("selectedRadius")).toBe(tokenField("candidateRadius"));
+  expect(/bool showSelectedBar = (\w+);/.exec(candidateSkinHeader)![1]).toBe("false");
+  const rowPadding = Number(/MSIMECandidateRowPadding = ([\d.]+);/.exec(candidateChrome)![1]);
+  expect(declarations(`${mac}[data-preview-theme]`)).toEqual({
+    "--cand-selected": "var(--cand-accent)",
+    "--cand-selected-text": `var(--cand-mac-selected-text,${native.selectedText})`,
+    "--cand-selected-num": `var(--cand-mac-selected-num,${native.selectedNumber})`,
+    "--cand-selected-bar": "none",
+    "--msime-host-card-radius": `${tokenField("radius")}px`,
+    "--msime-host-row-radius": `${tokenField("candidateRadius")}px`,
+    "--msime-host-border-width": `${tokenField("borderWidth")}px`,
+    "--msime-host-pad": `${tokenField("pad")}px`,
+    "--msime-host-row-pad-y": `${rowPadding / 2}px`,
+  });
+});
+
+test("the card geometry reads the host values, keeping the old ones where no host sets them", () => {
+  // 皮肤包或用户设的圆角（`--msime-skin-radius`）先于宿主默认值。
+  expect(
+    card.match(/border-radius:var\(--msime-skin-radius,var\(--msime-host-card-radius,6px\)\)/g),
+  ).toHaveLength(2);
+  expect(
+    card.match(/border:var\(--msime-host-border-width,1\.5px\)solidvar\(--cand-border\)/g),
+  ).toHaveLength(2);
+  expect(card).toContain(
+    "--msime-candidate-pad-x:var(--msime-host-pad,1px);--msime-candidate-pad-y:var(--msime-host-pad,2px);",
+  );
+  expect(card).toContain(
+    "--msime-candidate-pad-x:var(--msime-host-pad,2px);--msime-candidate-pad-y:var(--msime-host-pad,2px);",
+  );
+  // 行圆角：宿主的行圆角，用户设了窗口圆角时不超过它。
+  expect(
+    card.match(
+      /--msime-candidate-row-radius:min\(var\(--msime-host-row-radius,4px\),var\(--msime-candidate-user-radius,var\(--msime-host-row-radius,4px\)\)\);/g,
+    ),
+  ).toHaveLength(2);
+  expect(card.match(/border-radius:var\(--msime-candidate-row-radius\)/g)).toHaveLength(4);
+  // 没有宿主时的默认配色保持原样。
+  expect(declarations('.skin-card-preview[data-preview-theme="light"]')["--cand-selected"]).toBe(
+    "#e8e8e8",
+  );
+  // 不透明度对所有卡片生效，主题页的卡片也跟着用户设置淡出。
+  expect(card).toContain(
+    "background:color-mix(insrgb,var(--cand-bg)var(--msime-candidate-opacity,100%),transparent);",
+  );
 });

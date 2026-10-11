@@ -790,27 +790,7 @@
     font-size: var(--appearance-preedit-font-size, 16px);
   }
 
-  /* A row is never rounder than a card radius the user chose, the rule the hosts follow; a package's radius leaves the rows at their own corners. */
-  &.skin-card-preview .candidate .cand,
-  &.skin-card-preview .candidate .first {
-    border-radius: min(4px, var(--msime-candidate-user-radius, 4px));
-  }
-
-  /* 不透明度 fades only the card's fill and outline; text and the selected row stay opaque. Guarded because a `var()` inside an unsupported `color-mix()` would leave the card with no fill at all. */
-  @supports (background: color-mix(in srgb, red 50%, transparent)) {
-    &.skin-card-preview .candidate .container {
-      background: color-mix(
-        in srgb,
-        var(--cand-bg) var(--msime-candidate-opacity, 100%),
-        transparent
-      );
-      border-color: color-mix(
-        in srgb,
-        var(--cand-border) var(--msime-candidate-opacity, 100%),
-        transparent
-      );
-    }
-  }
+  /* 用户设的窗口圆角和不透明度在 `skin-card-preview` 里画，「主题」页的卡片也要跟着它们变。 */
 }
 /*
  * The skin preview card.
@@ -919,6 +899,34 @@
     --cand-hover: #ececec;
     --cand-selected: #e8e8e8;
   }
+  /* macOS 宿主的默认值：原生候选窗画的 `NativeCandidateTokens`（`platforms/macos/src/candidate/CandidateSkin.cpp`）和 `SkinTokens` 的几何默认值（`CandidateSkin.h`），行上下各留的边距来自 `CandidateChrome.h` 的 `MSIMECandidateRowPadding`。改原生 token 时同步改这里，`candidate-preview-native-tokens.test.ts` 会对照原生源码检查。选中底跟随强调色（调色板换了强调色也跟着换），文字白色、序号 82% 白，不画竖条；调色板没给选中前景色时用 `candidatePaletteStyle` 按选中底推导出的 `--cand-mac-selected-*`。主题的调色板写在内联样式上，仍然压过这里，与原生「主题槽位叠在原生 token 上」一致。Windows、Linux 的默认值块还没有，它们仍画上面那套。 */
+  :is([data-platform="mac"]) &[data-preview-theme="light"] {
+    --cand-bg: #fffffff7;
+    --cand-border: #0000001f;
+    --cand-text: #1d1d1f;
+    --cand-num: #6e6e73;
+    --cand-accent: #2c7a4b;
+    --cand-hover: #0000000f;
+  }
+  :is([data-platform="mac"]) &[data-preview-theme="dark"] {
+    --cand-bg: #28282af7;
+    --cand-border: #ffffff1f;
+    --cand-text: #f5f5f7;
+    --cand-num: #98989d;
+    --cand-accent: #5fbf84;
+    --cand-hover: #ffffff1a;
+  }
+  :is([data-platform="mac"]) &[data-preview-theme] {
+    --cand-selected: var(--cand-accent);
+    --cand-selected-text: var(--cand-mac-selected-text, #ffffff);
+    --cand-selected-num: var(--cand-mac-selected-num, #ffffffd1);
+    --cand-selected-bar: none;
+    --msime-host-card-radius: 10px;
+    --msime-host-row-radius: 6px;
+    --msime-host-border-width: 1px;
+    --msime-host-pad: 6px;
+    --msime-host-row-pad-y: 6px;
+  }
   /* ---- The candidate window inside the card. ---- */
   /* MSIME-Windows 04a8df56 candidate preview styles, GPL-3.0; scoped to skin cards. */
   /* Keep the row for upstream adjacent-sibling decoration selectors. */
@@ -957,9 +965,14 @@
     pointer-events: none;
   }
   & .wnd-h {
-    /* The card's inner padding, named so the decoration geometry (`external-skin-decorated`) reads the same pad_x / pad_y the card is drawn with. */
-    --msime-candidate-pad-x: 1px;
-    --msime-candidate-pad-y: 2px;
+    /* 卡片内边距，单独命名是为了让装饰图的几何（`external-skin-decorated`）读到与卡片相同的 pad_x / pad_y。宿主给了 `--msime-host-pad` 时用宿主的。 */
+    --msime-candidate-pad-x: var(--msime-host-pad, 1px);
+    --msime-candidate-pad-y: var(--msime-host-pad, 2px);
+    /* 行圆角取宿主的行圆角；用户设了窗口圆角时行不比它更圆，皮肤包的圆角不改行圆角，与各宿主相同。 */
+    --msime-candidate-row-radius: min(
+      var(--msime-host-row-radius, 4px),
+      var(--msime-candidate-user-radius, var(--msime-host-row-radius, 4px))
+    );
     /* Preview card is narrower than a real candwnd host; constrain to parent. */
     max-width: 100%;
     width: 100%;
@@ -971,7 +984,7 @@
       margin-left: 0px;
       background: var(--cand-bg);
       padding: var(--msime-candidate-pad-y) var(--msime-candidate-pad-x);
-      border-radius: var(--msime-skin-radius, 6px);
+      border-radius: var(--msime-skin-radius, var(--msime-host-card-radius, 6px));
       box-shadow: var(--cand-shadow);
       min-width: 7em;
       /* Allow wrapping so the sample row is not clipped in settings preview.
@@ -983,7 +996,7 @@
       overflow-wrap: anywhere;
       word-break: break-word;
       user-select: none;
-      border: 1.5px solid var(--cand-border);
+      border: var(--msime-host-border-width, 1.5px) solid var(--cand-border);
     }
 
     .cursor {
@@ -1004,8 +1017,8 @@
     }
 
     .cand {
-      border-radius: 4px;
-      padding: 2px 4px 2px 0;
+      border-radius: var(--msime-candidate-row-radius);
+      padding: var(--msime-host-row-pad-y, 2px) 4px var(--msime-host-row-pad-y, 2px) 0;
     }
 
     .cand:hover {
@@ -1031,7 +1044,7 @@
     .first {
       position: relative;
       background-color: var(--cand-selected);
-      border-radius: 4px;
+      border-radius: var(--msime-candidate-row-radius);
     }
 
     /* 选中竖条：调色板的 `show_selected_bar` 经 `--cand-selected-bar` 决定画不画，没给时由平台默认值决定，再没有就画。 */
@@ -1094,15 +1107,19 @@
     }
   }
   & .wnd-v {
-    --msime-candidate-pad-x: 2px;
-    --msime-candidate-pad-y: 2px;
+    --msime-candidate-pad-x: var(--msime-host-pad, 2px);
+    --msime-candidate-pad-y: var(--msime-host-pad, 2px);
+    --msime-candidate-row-radius: min(
+      var(--msime-host-row-radius, 4px),
+      var(--msime-candidate-user-radius, var(--msime-host-row-radius, 4px))
+    );
 
     .container {
       margin-top: 0px;
       margin-left: 0px;
       background: var(--cand-bg);
       padding: var(--msime-candidate-pad-y) var(--msime-candidate-pad-x);
-      border-radius: var(--msime-skin-radius, 6px);
+      border-radius: var(--msime-skin-radius, var(--msime-host-card-radius, 6px));
       box-shadow: var(--cand-shadow);
       min-width: 7em;
       width: min(720px, fit-content);
@@ -1111,7 +1128,7 @@
       overflow-wrap: anywhere;
       word-break: break-word;
       user-select: none;
-      border: 1.5px solid var(--cand-border);
+      border: var(--msime-host-border-width, 1.5px) solid var(--cand-border);
     }
 
     .cursor {
@@ -1133,9 +1150,9 @@
     }
 
     .cand {
-      border-radius: 4px;
-      padding-top: 1px;
-      padding-bottom: 1px;
+      border-radius: var(--msime-candidate-row-radius);
+      padding-top: var(--msime-host-row-pad-y, 1px);
+      padding-bottom: var(--msime-host-row-pad-y, 1px);
     }
 
     .cand:hover {
@@ -1148,7 +1165,7 @@
 
     .first {
       background-color: var(--cand-selected);
-      border-radius: 4px;
+      border-radius: var(--msime-candidate-row-radius);
     }
 
     /* 选中竖条，规则同横排。 */
@@ -1203,6 +1220,22 @@
 
     .hidden-pinyin {
       visibility: hidden;
+    }
+  }
+
+  /* 不透明度只淡化卡片的底色和边框，文字和选中行保持不透明。放在 `@supports` 里，是因为不支持 `color-mix()` 时其中的 `var()` 会让卡片整个没有底色。 */
+  @supports (background: color-mix(in srgb, red 50%, transparent)) {
+    & .candidate .container {
+      background: color-mix(
+        in srgb,
+        var(--cand-bg) var(--msime-candidate-opacity, 100%),
+        transparent
+      );
+      border-color: color-mix(
+        in srgb,
+        var(--cand-border) var(--msime-candidate-opacity, 100%),
+        transparent
+      );
     }
   }
 
