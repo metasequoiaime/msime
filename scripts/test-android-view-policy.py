@@ -268,6 +268,18 @@ def main() -> None:
     image_policy = (ANDROID_JAVA / "app/msime/android/ImageViewPolicy.java").read_text(encoding="utf-8")
     if "ViewPolicy.newSquareParamsPx(" not in image_policy:
         raise AssertionError("ImageViewPolicy 没有调用共享正方形布局参数工厂")
+    # isGone(null) 为假，`!isGone(x)` 不能代替判空；同一行接着改 x 的可见性却没判空，视图还没建好时就会空指针（6862a33265 在 ImeNineKeyPanel.dismiss 引入过）。
+    unguarded = re.compile(
+        r"!\s*ViewPolicy\.isGone\(([\w.]+)\)\)\s*\{?\s*ViewPolicy\."
+        r"(?:hide|show|setVisible|setVisibleIfChanged|setInvisible|setVisibilityForText)\(\1[,)]")
+    for path in ANDROID_JAVA.rglob("*.java"):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            match = unguarded.search(line)
+            if match and f"{match.group(1)} != null" not in line:
+                raise AssertionError(f"{path}:{number} 用 !ViewPolicy.isGone 代替了判空：{line.strip()}")
+    nine_key_panel = (ANDROID_JAVA / "app/msime/android/core/ImeNineKeyPanel.java").read_text(encoding="utf-8")
+    if "if (root != null && !ViewPolicy.isGone(root)) ViewPolicy.hide(root);" not in nine_key_panel:
+        raise AssertionError("ImeNineKeyPanel.dismiss 没有在 root 建好前判空")
     print("android view policy: recursive enabled state is shared")
 
 

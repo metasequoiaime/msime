@@ -469,7 +469,7 @@ public final class ViewPolicy {
         return view != null && view.getVisibility() == View.VISIBLE;
     }
 
-    /** 判断视图是否已从布局中隐藏。 */
+    /** 判断视图是否非空且已从布局中隐藏。null 返回 false，所以 {@code !isGone(view)} 不代表视图非空；hide、show 等改可见性的方法不接受 null，接着调用前调用方要自己判空。 */
     public static boolean isGone(View view) {
         return view != null && view.getVisibility() == View.GONE;
     }
