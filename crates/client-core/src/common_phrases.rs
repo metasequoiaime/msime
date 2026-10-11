@@ -124,6 +124,23 @@ fn normalize_line_breaks(text: &str) -> String {
     text.replace("\r\n", "\n").replace('\r', "\n")
 }
 
+fn normalized_pack_texts(resource: &CommunityResource) -> (Vec<String>, usize) {
+    let mut skipped = 0;
+    let mut normalized = Vec::new();
+    for phrase in &resource.content.phrases {
+        let text = normalize_line_breaks(&phrase.text);
+        if !valid_phrase_text(&text) {
+            skipped += 1;
+            continue;
+        }
+        if normalized.is_empty() {
+            normalized.reserve(resource.content.phrases.len());
+        }
+        normalized.push(text);
+    }
+    (normalized, skipped)
+}
+
 #[derive(Clone, Debug)]
 pub struct CommonPhrasesStore {
     file: PathBuf,
@@ -251,16 +268,7 @@ impl CommonPhrasesStore {
         if resource.kind != CommunityResourceKind::Phrase || validate_resource(resource).is_err() {
             return Err(CommonPhrasesError::Invalid);
         }
-        let mut skipped = 0;
-        let mut normalized = Vec::with_capacity(resource.content.phrases.len());
-        for phrase in &resource.content.phrases {
-            let text = normalize_line_breaks(&phrase.text);
-            if !valid_phrase_text(&text) {
-                skipped += 1;
-                continue;
-            }
-            normalized.push(text);
-        }
+        let (normalized, mut skipped) = normalized_pack_texts(resource);
         // Borrow normalized text while finding first occurrences, then move only the accepted
         // strings into the pack after releasing the set.
         let mut seen = HashSet::with_capacity(normalized.len());

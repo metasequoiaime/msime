@@ -252,6 +252,18 @@ fn common_phrases_pack_limits_and_kind_are_enforced() {
 }
 
 #[test]
+fn invalid_local_pack_phrases_do_not_reserve_normalization_capacity() {
+    let long = "字".repeat(MAX_PHRASE_UTF16 + 1);
+    let resource = pack(1, 1, &[&long]);
+
+    let (normalized, skipped) = super::normalized_pack_texts(&resource);
+
+    assert!(normalized.is_empty());
+    assert_eq!(normalized.capacity(), 0);
+    assert_eq!(skipped, 1);
+}
+
+#[test]
 fn common_phrases_file_size_is_bounded() {
     let (_root, store) = fresh();
     // 每条正好 1000 个 UTF-16 单元、约 3 KB；自己的 200 条加上几个满包，总会超过 2 MB。
