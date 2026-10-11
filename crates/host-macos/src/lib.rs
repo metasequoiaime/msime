@@ -262,6 +262,56 @@ pub fn notify_typing_statistics_enabled(enabled: bool) {
     unsafe { msime_macos_notify_typing_statistics_enabled(name.as_ptr(), enabled) };
 }
 
+/// 脚本插件授权密钥在钥匙串里的服务名后缀，前面是本版本设置应用的 bundle identifier。与 platforms/macos/src/input/input_method_main.mm 里输入法用的一致。
+pub const SCRIPT_GRANT_KEY_SERVICE_SUFFIX: &str = ".script-grants";
+
+/// 脚本插件授权的 MAC 密钥（client-core 的 `plugins::script_grants`）：从登录钥匙串取出，还没有时生成一把写进去，访问控制表信任本应用和 `peers` 列出的应用 bundle（设置应用传输入法 bundle 的路径）。钥匙串项只认本团队签名创建的那一项，规则见 `native/script_grant_key.mm`。设置应用允许系统弹出钥匙串授权框。失败时返回 OSStatus。
+#[cfg(target_os = "macos")]
+pub fn script_grant_key(peers: &[&std::path::Path]) -> Result<[u8; 32], i32> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    // errSecParam：参数不对。
+    const PARAM: i32 = -50;
+    let identity = packaged_macos_identity().map_err(|_| PARAM)?;
+    let service = CString::new(format!(
+        "{}{SCRIPT_GRANT_KEY_SERVICE_SUFFIX}",
+        identity.settings_bundle_id
+    ))
+    .map_err(|_| PARAM)?;
+    let peers: Vec<CString> = peers
+        .iter()
+        .filter_map(|path| CString::new(path.as_os_str().as_bytes()).ok())
+        .collect();
+    let pointers: Vec<*const std::ffi::c_char> = peers.iter().map(|peer| peer.as_ptr()).collect();
+    unsafe extern "C" {
+        fn msime_macos_script_grant_key(
+            service: *const std::ffi::c_char,
+            peers: *const *const std::ffi::c_char,
+            peer_count: usize,
+            allow_interaction: bool,
+            out: *mut u8,
+            out_length: usize,
+        ) -> i32;
+    }
+    let mut key = [0u8; 32];
+    // SAFETY: `service` 和 `peers` 里的字符串以 NUL 结尾，`pointers` 有 `pointers.len()` 项，调用期间都有效；`key` 是 32 个可写字节。原生代码不保留任何一个指针。
+    let status = unsafe {
+        msime_macos_script_grant_key(
+            service.as_ptr(),
+            pointers.as_ptr(),
+            pointers.len(),
+            true,
+            key.as_mut_ptr(),
+            key.len(),
+        )
+    };
+    if status == 0 {
+        Ok(key)
+    } else {
+        Err(status)
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn quiesce_input_sessions() {}
 
