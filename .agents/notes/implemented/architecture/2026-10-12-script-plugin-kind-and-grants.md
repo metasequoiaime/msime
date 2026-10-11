@@ -22,7 +22,7 @@ Status: implemented
 
 - 格式 `{"format_version":1,"revision":N,"plugins":[{"id","hash","enabled","granted":[...],"mac"}]}`，数组顺序就是执行顺序。和 `mentions.json` 同级，不进偏好文档、不同步（偏好文档会被宿主复制、被账号同步读取，`PluginPreferences` 还带 `deny_unknown_fields`）。
 - 读取方不加锁、容忍未知字段；`format_version` 不认识、文件读不出、不是合法 JSON、是符号链接时，按"没有任何脚本启用"处理。单个条目不合规（id 或哈希的形状不对、授予的能力违反规则）只跳过这一条；同一个 id 只认第一条；不认识的能力名丢掉。启用的条目按顺序最多 8 个。
-- 写入只在这里，持有 `import::lock_plugin_root`（与导入、删包同一把锁），整份原子替换，每次 `revision += 1`。`set(root, id, hash, enabled, granted)` 在锁里重新读包、重新算哈希，与调用方给出的不一致时返回 `plugin_script_changed`；`granted` 必须是清单 `permissions` 的子集并满足规则；模块必须通过校验。启用时做准入：同时启用不超过 8 个，进程内存总账（`limits::fits_memory_budget`：每个脚本的线性内存预留加按 4 倍模块大小估算的字节码，再加一份值栈）不超过 64 MiB，否则返回 `plugin_script_limit` 或 `plugin_script_memory`。`format_version` 不认识的文件不覆盖（`plugin_script_grants_format`），读不出的文件整份重写。
+- 写入只在这里，持有 `import::lock_plugin_root`（与导入、删包同一把锁），整份原子替换，每次写入 `revision` 都变大（取上一份加 1 和当前时间微秒数中较大的一个，上限 2^53，见 [授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md)）。`set(root, id, hash, enabled, granted)` 在锁里重新读包、重新算哈希，与调用方给出的不一致时返回 `plugin_script_changed`；`granted` 必须是清单 `permissions` 的子集并满足规则；模块必须通过校验。启用时做准入：同时启用不超过 8 个，进程内存总账（`limits::fits_memory_budget`：每个脚本的线性内存预留加按 4 倍模块大小估算的字节码，再加一份值栈）不超过 64 MiB，否则返回 `plugin_script_limit` 或 `plugin_script_memory`。`format_version` 不认识的文件不覆盖（`plugin_script_grants_format`），读不出的文件整份重写。
 - 删包时在同一把锁里、移走包目录之前去掉条目；导入脚本包时在替换包目录之前更新条目：内容哈希没变、并且是原地覆盖一个已安装的包，授权保留；否则停用、清空授予项、保留旧哈希（授权页据此显示"已更新，需要重新授权"）。先改授权再动包：写授权失败时包没变，换包失败时授权已经收紧。包目录被手工删掉后再导入同样的内容，留下的条目也不会复活。
 - 输入法进程只认 `hash` 等于已安装包当前内容哈希的条目，实际能力是 `granted` 与清单 `permissions` 的交集。
 

@@ -36,13 +36,13 @@ Windows TIP、设置应用（Tauri）和 MCP 从不调用。`scripts/test-script
 
 **实例。** 每个选择加入的会话一组（`scripts::ScriptSet`），按授权顺序，第一次需要投递一个它声明过的钩子时才实例化。初始化预算是所有插件合计 `FOCUS_INIT_FUEL`，每次 focus 和每一轮都给满；被本轮剩下的预算卡住（而不是被插件自己的 `INIT_FUEL` 上限卡住）的插件推迟到下一轮，不算失败。轮次是每个不带 `PASSTHROUGH` 的 `msime_client_key` 加一，fuel 按轮给，轮配额记在插件上而不是实例上：同一轮里重建的实例（换了字段、属性变过）接着用这一轮剩下的，不重新给满 125 000。**一个插件 trap 之后，这次聚焦里不再重建它的实例**，下一次聚焦才重新实例化；否则一个每 50 次故意失败 2 次的插件永远不熔断，每次失败后都在按键路径上重跑一遍至多 5 000 000 fuel 的初始化。返回负数不算 trap，实例照用。**每次 `msime_client_focus` 和 destroy 都把这个会话的全部实例丢弃**：`focus(false)` 在 `focus_out` 送达之后丢，`focus(true)` 在任何事件之前丢（只有 `focus(true)`、没有失焦的换字段也算）。import 只读写本次调用的上下文，从不回调宿主，会话正借给这次调用。
 
-**授权的重读。** `focus(true)` 紧挨着 `refresh_plugin_tables` 给 `script-grants.json` 打戳（`key_sound::stamp`，带 inode）；戳变了就整份重读，计划换掉。会话第一次需要投递时如果还没读过（宿主在聚焦之后才选择加入）也读一次。Windows 没有 inode，靠原子替换带来的新修改时间；授权的 `revision` 另外驱动熔断的恢复。
+**授权的重读。** `focus(true)` 紧挨着 `refresh_plugin_tables` 给 `script-grants.json` 打戳（`key_sound::stamp`，带 inode）；戳变了就整份重读，计划换掉。会话第一次需要投递时如果还没读过（宿主在聚焦之后才选择加入）也读一次。Windows 没有 inode，靠原子替换带来的新修改时间；授权的 `revision` 另外驱动熔断的恢复：只认至少一个条目通过校验的文件里的 `revision`（`ScriptGrants::authenticated_revision`），并且要比本进程以前看到过的大。
 
 **进程级模块缓存与后台编译线程。** 缓存按内容哈希存放编译好的 `ScriptModule`。会话只登记请求、查结果；名为 `msime-script-compile` 的后台线程在第一次登记时才起（从不运行脚本的进程不起任何线程），用 `script_pack::load` 读包、核对哈希、按 ABI v1 校验并 Eager 编译。还没编译好的插件这一次跳过，不算失败。已安装的包和授权的哈希对不上（授权之后包被换过）或者包读不出时记为待重试，包清单的戳变了再登记；模块不合规时按哈希永久记下，插件随即停用。重读授权时淘汰本插件根目录下不再启用的模块。
 
 **内存总账的兜底。** 授权时已经按单个会话做过准入检查（`limits::fits_memory_budget`）。实例化时再按进程记一次账：活着的实例的线性内存预留，加缓存里每个模块的开销（`limits::module_memory_bytes`：编译结果按每字节 128 倍加 256 KiB 估算的上界，再加它自己的 Engine 留着的一份值栈），合计不超过 `PROCESS_MEMORY_BYTES`（64 MiB），放不下就这一次不实例化，不算失败。估算为什么是上界、为什么每个模块有自己的 Engine，见 [沙箱运行时](2026-10-12-script-runtime-sandbox.md)；因为各用各的 Engine，淘汰一个模块时总账减掉的那份是真的释放了。实例在每次 focus 都丢弃，所以只有聚焦着的会话占着线性内存。
 
-**熔断是进程级的**，键为 (插件根目录, id, 哈希)：初始化失败、ABI 不符和模块不合规立即停用；否则最近 50 次投递里失败 3 次，或者最近 20 次里有 3 次超过 4 ms（只做事后熔断，fuel 才是硬限制；测试里墙钟可注入），就停用。一次失败只丢弃这个插件这一次的结果，后面的插件照常执行。停用持续到授权文件的 `revision` 变化或进程重启。停用时报告一行 `script plugin disabled: <id> <reason>`，reason 是封闭的原因码（`unreachable`、`out_of_fuel`、`init_failed`、`slow` 等），每次停用只报一次。
+**熔断是进程级的**，键为 (插件根目录, id, 哈希)：初始化失败、ABI 不符和模块不合规立即停用；否则最近 50 次投递里失败 3 次，或者最近 20 次里有 3 次超过 4 ms（只做事后熔断，fuel 才是硬限制；测试里墙钟可注入），就停用。一次失败只丢弃这个插件这一次的结果，后面的插件照常执行。停用持续到授权文件里签过名的 `revision` 变大或进程重启。停用时报告一行 `script plugin disabled: <id> <reason>`，reason 是封闭的原因码（`unreachable`、`out_of_fuel`、`init_failed`、`slow` 等），每次停用只报一次。
 
 **健康文件只记停用。** 有插件停用或恢复过时，失焦和 destroy 把 `<user_data>/script-health.json` 交给后台线程原子替换：
 
@@ -50,7 +50,7 @@ Windows TIP、设置应用（Tauri）和 MCP 从不调用。`scripts/test-script
 {"format_version":1,"plugins":[{"id":"…","hash":"…","disabled":"failed"}]}
 ```
 
-`disabled` 只有 4 个类别：`invalid`（模块不合规或编译时 panic）、`init`（实例化或初始化失败）、`failed`（投递失败太多）、`slow`。不记失败次数，不按原因细分，没停用的插件不出现，没有变化时不写。哪种 trap、失败几次都由脚本自己选，窗口里不到 3 次又永远不熔断：按次数或原因写出去，同一用户下伪造了授权的进程每次失焦后对比文件，就有了一条能反复使用、按位传出已读文本的通道。只记停用之后，熔断后要等 `revision` 变化或进程重启才能再触发，剩下的就是设计 U5 接受的一次性信道。具体原因码仍照设计 §4.5 进诊断，每次停用一次。
+`disabled` 只有 4 个类别：`invalid`（模块不合规或编译时 panic）、`init`（实例化或初始化失败）、`failed`（投递失败太多）、`slow`。不记失败次数，不按原因细分，没停用的插件不出现，没有变化时不写。进程重启也是恢复：本进程第一次读某个插件根目录的授权时，健康文件在就标记为待写，下一次失焦按本进程的状态重写它（`adopt_health`），设置页不再显示上一个进程留下的停用；只在开关打开的进程里发生，不运行脚本的进程不改写它。哪种 trap、失败几次都由脚本自己选，窗口里不到 3 次又永远不熔断：按次数或原因写出去，同一用户下伪造了授权的进程每次失焦后对比文件，就有了一条能反复使用、按位传出已读文本的通道。只记停用之后，熔断后要等签过名的 `revision` 变大或进程重启才能再触发，剩下的就是设计 U5 接受的一次性信道。具体原因码仍照设计 §4.5 进诊断，每次停用一次。
 
 **panic。** 宿主一侧投递每个插件都包一层 `catch_unwind`；捕获到 panic 就关掉本进程的全部脚本直到重启，报告一次，这次调用照常返回上屏结果。后台编译线程的每个任务也包一层：编译时 panic 同样关掉全部脚本，那个模块记为不合规（`compile_panicked`），不会永远停在待编译、既不运行也不停用。
 
@@ -76,13 +76,13 @@ Mac Studio（arm64，同时跑着 CI runner，数字有抖动，同一份测量�
 
 ## Testing
 
-`cargo test -p msime-host-api`（`tests/script_plugins.rs` 22 例，授权页落地后加上 MAC 的那一例是 23 例，外加默认忽略的测量）：普通字段收到全部观察类事件，按键不投递；SECURE、PRIVATE、ELEVATED、没有 KNOWN 位时一个事件都没有，换回普通字段照常运行；聚焦进新字段后属性确认之前什么都不运行（聚焦前报告过属性时 `focus_in` 照常投递，否则从第一个键开始）；字段变成 SECURE 时实例当场丢弃，回来后重建；没有授权时文本类 import 返回 `DENIED`，授权后读到上屏文本；`SELECTED` 只在 `candidate_selected` 里有，body 不带结束组字的标点；`read_composition` 下 `input` 带打的字符、`composition_update` 带预编辑串；每次 focus（含只有 `focus(true)` 的换字段）都重建实例；一个插件烧满 fuel 不影响下一个；同一轮里连发会用完轮配额，每个新键补满；同一轮里换字段重建的实例接着用这一轮剩下的配额，trap 过的插件这次聚焦里不再重建；三次聚焦各失败一次就停用，没停用之前失焦什么都不写，停用后 `script-health.json` 只有 id、哈希和类别，`revision` 变化后恢复；初始化失败立即停用；慢投递按墙钟熔断；没选择加入的会话什么都不运行；产品里的进程开关（不经测试覆盖）关着不投递，打开就投递（release 构建也一样，见 [授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md)）；旁路调用的视图事件不投递；宿主一侧 panic 关掉全部脚本而上屏照常；后台编译时 panic 的模块被停用而不是一直等；磁盘上的包经后台编译线程编译后运行；哈希对不上的授权从不运行。`lifecycle_alloc.rs` 的零分配断言不变（没有脚本时投递路径在第一项检查就返回）。`scripts/test-script-plugin-hosts.py` 守住入口。
+`cargo test -p msime-host-api`（`tests/script_plugins.rs` 22 例，授权页落地后加上 MAC、来回换授权文件不复位熔断、重启后接管健康文件的几例是 26 例，外加默认忽略的测量）：普通字段收到全部观察类事件，按键不投递；SECURE、PRIVATE、ELEVATED、没有 KNOWN 位时一个事件都没有，换回普通字段照常运行；聚焦进新字段后属性确认之前什么都不运行（聚焦前报告过属性时 `focus_in` 照常投递，否则从第一个键开始）；字段变成 SECURE 时实例当场丢弃，回来后重建；没有授权时文本类 import 返回 `DENIED`，授权后读到上屏文本；`SELECTED` 只在 `candidate_selected` 里有，body 不带结束组字的标点；`read_composition` 下 `input` 带打的字符、`composition_update` 带预编辑串；每次 focus（含只有 `focus(true)` 的换字段）都重建实例；一个插件烧满 fuel 不影响下一个；同一轮里连发会用完轮配额，每个新键补满；同一轮里换字段重建的实例接着用这一轮剩下的配额，trap 过的插件这次聚焦里不再重建；三次聚焦各失败一次就停用，没停用之前失焦什么都不写，停用后 `script-health.json` 只有 id、哈希和类别，签过名的 `revision` 变大后恢复，换成没有条目的文件、删掉文件、（macOS 上）签名不对的文件再放回原来那份都不恢复；本进程第一次读授权时健康文件在就按本进程的状态重写，不在就不写；初始化失败立即停用；慢投递按墙钟熔断；没选择加入的会话什么都不运行；产品里的进程开关（不经测试覆盖）关着不投递，打开就投递（release 构建也一样，见 [授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md)）；旁路调用的视图事件不投递；宿主一侧 panic 关掉全部脚本而上屏照常；后台编译时 panic 的模块被停用而不是一直等；磁盘上的包经后台编译线程编译后运行；哈希对不上的授权从不运行。`lifecycle_alloc.rs` 的零分配断言不变（没有脚本时投递路径在第一项检查就返回）。`scripts/test-script-plugin-hosts.py` 守住入口。
 
 ## Alternatives considered
 
 - **只丢弃授予了 `read_*` 能力的实例（设计 §4.7 第 4 条的字面要求），不读文本的实例跨 focus 保留。** 最强的理由是不读文本的插件（例如只数事件的统计）能把状态留在实例里，换字段也不必重新初始化。不用：macOS 每个客户端应用一个会话，不读文本的实例会在每个曾经聚焦过的会话里各留一份线性内存，进程总账很快被不在前台的会话占满，前台会话的插件就因为放不下而一直跳过；全部丢弃让只有聚焦着的会话占内存，也少一条要推理的分支。代价是这类插件的状态只活在一个字段里。
 - **在会话线程的 focus 路径上编译（设计 §3.4 的退路）。** 最强的理由是不需要线程和跨线程缓存，模块到手就能用。不用：编译 512 KiB 的模块在 dev 构建里要十几到二十几毫秒，IBus 改一个设置就重建会话，Fcitx5 卡住就是卡住整个守护进程的事件循环；`wasmi::Module` 是 Send + Sync 的断言已经通过，后台编译没有障碍。
-- **熔断按会话计。** 最强的理由是状态随会话自然释放，不需要进程级的表和锁。不用：IBus 频繁重建会话，坏插件会在每个新会话里再失败一轮；按 (根目录, id, 哈希) 计，换一版内容（哈希变了）或改授权（`revision` 变了）才恢复。剩下约 1 bit 的跨字段信道（设计 U5）是已接受的风险。
+- **熔断按会话计。** 最强的理由是状态随会话自然释放，不需要进程级的表和锁。不用：IBus 频繁重建会话，坏插件会在每个新会话里再失败一轮；按 (根目录, id, 哈希) 计，换一版内容（哈希变了）或改授权（签过名的 `revision` 变大）才恢复。剩下约 1 bit 的跨字段信道（设计 U5）是已接受的风险。
 - **本阶段就把 `before_commit` 当观察类事件投递。** 最强的理由是 pangu 这类只声明了 `before_commit` 的插件在开发构建里就能看到自己被调用。不用：`before_commit` 每次都在重新实例化的快照上运行，它的意义在改写；第 4 阶段把改写、可改写条件和它的观察语义一起接通，免得作者先按"只能看"写了插件、再被改写的规则改掉行为。
 - **进程开关放进 HostOptions。** 最强的理由是不用新 FFI，宿主已经在写这份文档。不用：`HostOptions` 带 `deny_unknown_fields`，往一个仍被旧版输入法读取的文件里加键会让它再也开不了会话；而且开关属于进程，不属于某个会话。
 - **host-api 的测试也按字节手写 wasm（client-core 的做法）。** 最强的理由是不需要 `test-support` 特性，测试依赖图和产品完全一样。不用：这里的模块要读文本、写日志、循环、trap、维护全局计数，手写指令编码容易错、难审；`wat` 已经作为 wasmi 的测试特性批准过，只在测试构建里出现。只有后台编译线程那一例需要真的 `.wasm` 文件，那一个仍然手写。
@@ -97,7 +97,7 @@ Mac Studio（arm64，同时跑着 CI runner，数字有抖动，同一份测量�
 - 代价：每个事件对每个插件多一次进程级 `Mutex` 的加锁（熔断窗口）和一次 `catch_unwind`；宿主一侧投递一个事件在 release 里约 170 ns。不读文本的插件也在每次 focus 重建；trap 过的插件在这个字段里剩下的时间不运行；没在聚焦前报告属性的宿主，脚本收不到 `focus_in`。缓存里的模块按根目录淘汰，同一进程里哈希不断变化的包在重读授权之前会多占一份。健康文件说不出插件失败过几次、怎么失败的。
 - 在第 2 阶段各宿主接入生命周期（`msime_client_set_lifecycle`、`set_field_traits`、`key`）之前，没有任何会话满足运行条件，脚本实际上不会在产品里运行；开发构建里自测要等那些分支合入。
 - release 构建打开开关是第 5 阶段的事，前提是 [脚本插件进入插件包体系](2026-10-12-script-plugin-kind-and-grants.md) 写的三条对策（macOS 钥匙串 MAC、Windows 提权窗口不跑脚本、Linux 与 Windows 把残余风险写进授权页）都已落地。三条对策和开关随 [授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md) 落地。
-- 同一用户下伪造了授权的进程（U11）也能改 `revision` 让熔断复位，每复位一次就能再触发一次停用、读一次健康文件。macOS 的钥匙串 MAC 把 `revision` 也签进去（[授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md)）；Linux 和 Windows 上这是 U11 已接受的残余风险的一部分。
+- 同一用户下伪造了授权的进程（U11）也能改 `revision` 让熔断复位，每复位一次就能再触发一次停用、读一次健康文件。macOS 上 `revision` 签在 MAC 里，熔断只认签过名、比以前大的 `revision`，换文件、删文件、放回旧文件都不复位（[授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md)）；Linux 和 Windows 上这是 U11 已接受的残余风险的一部分。同一用户下的进程还能直接结束输入法进程让它重启，重启同样清空熔断，这条在三个平台上都挡不住，每用一次都要让输入法重启一次。
 - 已知缺口：x64 DLL 和 macOS 输入法可执行文件的体积增量没量；wasmi 2.0 与 1.1.0 的差分 fuzz 没做（见 [沙箱运行时](2026-10-12-script-runtime-sandbox.md)）；pack-tool 还没有直接依赖运行时，`msime-pack run` 在第 6 阶段。
 
 相关：[桌面端生命周期核心](../../proposed/architecture/2026-10-11-desktop-lifecycle-core.md) 推导出这里投递的事件；[沙箱运行时](2026-10-12-script-runtime-sandbox.md) 提供 `ScriptInstance`、ABI 和配额；数据类插件的门控与诊断见 [插件门控如实显示](../bug-fix/2026-10-09-plugin-gates-and-wubi-table-modes.md)。
