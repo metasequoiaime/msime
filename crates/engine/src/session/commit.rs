@@ -242,6 +242,14 @@ impl InputSession {
             self.reset_composition();
             return committed(text, diagnostic);
         };
+        // 辅助码关闭时处在辅助码位置的字面大写字母：候选是按去掉它的拼写查出来的，结束组字时接回上屏文字（#7106）。
+        let literal_tail =
+            if selected.source.is_dictionary() || selected.source.is_sentence_learning() {
+                self.literal_capitals_in_helpcode_position().to_owned()
+            } else {
+                String::new()
+            };
+        let finished = |text: Option<String>| text.map(|text| text + &literal_tail);
         let has_dictionary_reading = selected.source.is_dictionary();
         // Whole sentences from the lattice carry a canonical reading and join the phrase being composed like dictionary rows do.
         let has_generated_reading =
@@ -256,7 +264,7 @@ impl InputSession {
             self.record_context_into(&mut diagnostic, Some(&selected), false, false);
             self.chain.last_pick = None;
             self.reset_composition();
-            return committed(text, diagnostic);
+            return committed(finished(text), diagnostic);
         }
 
         // A user row of three or more characters answering the whole composition is almost always a sentence stored by sentence learning; counting it as one word would teach the model a sentence as a word. User rows come back as Database like shipped ones, so the journal's insert record tells them apart; checked last because it reads a file.
@@ -340,7 +348,7 @@ impl InputSession {
             diagnostic = Some(diagnostics::PHRASE_NOT_PERSISTED.to_owned());
         }
         self.reset_composition();
-        committed(text, diagnostic)
+        committed(finished(text), diagnostic)
     }
 
     /// Chain bookkeeping for a nine-key commit: the grid bypasses this session, so the word after it must not read the word before it as its context. The committed text is not needed, since it only fed the dropped learning-undo ledger.

@@ -20,6 +20,7 @@ Status: implemented
   - 其他方案不收，与原来一样。
 - `handle_character` 用 `原文 + 新字母` 调它；`insert_at_caret` 用插入后的文本调它，光标在组字中间时与行末键入同一条界线。
 - 会被读成辅助码的字母（完整拼音后的位置：`ni`+H、`nihao`+O、`woyong`+M），开关关着时仍照参考引擎和 PR #347 交还宿主，上屏加插入。其余大写字母（前面的拼写不完整：`mac`、`iphon`）和开关开着时一样作为字面字母并入组字，回车上屏 `macOS`。
+- 按字面并入的大写字母可能在键入之后才落到辅助码的位置：部分选词选走前缀（`thaoM` 选「特」剩 `haoM`），或者光标编辑、删除让它前面变成完整拼音。全拼切分仍不看开关地把它剥掉查候选，原来选词推进组字和选词完成判断也都按剥掉后的原文算，字母会被静默吞掉。新增 `literal_capitals_in_helpcode_position()`（全拼、辅助码关、不在本地模式时返回原文尾部处在辅助码位置的大写字母）：`advance_composition_after_selection` 推进组字时把它接回剩余原文，`commit_selection` 结束组字时把它接在上屏文字后面（只对按拼音读法回答的行：词库、整句、在线、键盘模型行）。结果是「好M」，和先上屏「好」再插入 M 一样，候选仍按去掉它的拼写查。
 
 宿主一律不改：macOS、Windows（TSF 和 Server 都经 `msime_client_character`）、Linux IBus 和 fcitx5 都由引擎的 `handled` 决定。golden 不变：7 个辅助码关闭场景（`qp_helpcode_disabled_uppercase` 和 6 个 `bridge_helpcode_*_off`）都是 `ni`+H，仍在辅助码位置；`session/tests.rs` 和 `host/tests.rs` 里的 `ni`+H 探针同样不变。
 
@@ -30,13 +31,15 @@ Status: implemented
 - **关掉辅助码时组字中的大写字母一律放行** — 最简单，一行条件，开关开不开对「并入组字」完全一致。但全拼方案层不看开关地剥掉活动辅助码（`quanpin/scheme.rs` 的 `apply_segmentation` 注释原文是 "stripped whatever the request's helpcode switch says"，选词完成判断和选词后推进组字、在线请求的缓存键也都不看开关）。放行完整拼音后的大写字母，`nihao`+O+空格会上屏「你好」，O 被静默吞掉，比原 bug 更糟。它还会让「中文后接首字母大写的英文词」退化：`woyong`+Mac 原来得到「我用Mac」，放行后整串变成组字 `woyongMac`。它还要改 7 个 golden 场景。不采用。
 - **宿主层收到 `unhandled` 时不上屏** — 只改 macOS 一处就能消除症状。但规则会变成每个宿主各一份，Android、Windows、Linux 的表现继续各不相同，违背 ARCHITECTURE.md「行为规则只在引擎一份」。不采用。
 - **让全拼剥离辅助码时看开关，再一律放行** — 这是最彻底的修法，也能关掉下面说的剩余窗口。但 `apply_segmentation` 在 `build_request` 里运行，早于 `apply_request_options` 把开关写进请求（`ime/mod.rs`），要把开关一路传进方案层、选词层和在线请求层，改动面大，还会改变辅助码关闭时现有场景的切分结果。超出一个 bug 修复的范围，不放进这次。
+- **只在末尾片段不是简拼形态时才并入**（评审建议，用来保住简拼后接大写字母的旧行为）— 不可行：`mac` 本身就是 `ma` + 简拼 `c`，这正是首选会是「马车」的原因。`looks_like_syllable_with_jianpin_tail("mac")` 为真，用它收窄会把 #7106 原样留下；`sj` 这种全辅音串它反而判为假。不完整拼写里，简拼和英文在键入时分不开，唯一能分开的是查英文词典猜用户意图，那是新的启发式，不是缺陷修复。不采用，把取舍写进下面的「与参考引擎的偏离」交维护者决定。
+- **部分选词后把剩余原文改成不产生活动辅助码**（评审建议，用来关掉部分选词丢字）— 剩余原文就是用户键入的字母，改写它（转小写或插分隔符）会改变回车上屏的原文和预编辑显示。改为不动原文、在推进和上屏时把字母接回，见 Decision 最后一条。
 - **新增「组字中大写字母上屏 / 并入」偏好** — 现有偏好里没有这类开关，`local_modes.shift_letter_entry` 只管没有组字时。把一个缺陷修复做成用户要理解的选项不值得。不采用。
 
 ## Consequences
 
-- **收益**：拼写不完整时按 Shift+字母不再让首选静默上屏，回车上屏带大小写的原文（`macOS`），与辅助码开着时的现有行为一致；不会丢字，因为并入的字母本来就不会被检测成活动辅助码。Android 原来在 `mac`+O 时吞掉字母（`ChineseHelpcodePolicy` 不看开关、忽略返回值），现在引擎收下，也一起修好。Windows 段落恢复按原顺序逐字节重放原文，新闸门只看前缀，重放时每个大写字母看到的前缀与当初相同，结果一致。
-- **与参考引擎的偏离**：拼写不完整、辅助码关闭时，组字中的大写字母不再 `unhandled`。现有 golden 没有覆盖这种情况。
-- **剩余的丢字窗口**：组字里已有按字面并入的大写字母时，光标编辑可能让它前面变成完整拼音。例如 `xiaozO`，把光标移到 `z` 后插入 `i`，得到 `xiaoziO`，这时全拼会不看开关地把 O 剥掉，空格选词后 O 丢失；Backspace、DeleteForward 删掉中间字母也可能造成同样的情况。这需要光标编辑带大写字母的组字，概率很低。真有人报，就做上面第三个备选：让剥离看开关。
+- **收益**：拼写不完整时按 Shift+字母不再让首选静默上屏，回车上屏带大小写的原文（`macOS`），与辅助码开着时的现有行为一致。并入的字母在键入时不在辅助码位置；之后经部分选词、光标编辑或删除落到辅助码位置时，选词推进和上屏会把它接回，不会被选词吞掉。Android 原来在 `mac`+O 时吞掉字母（`ChineseHelpcodePolicy` 不看开关、忽略返回值），现在引擎收下，也一起修好。Windows 段落恢复按原顺序逐字节重放原文，新闸门只看前缀，重放时每个大写字母看到的前缀与当初相同，结果一致。
+- **与参考引擎的偏离**：拼写不完整、辅助码关闭时，组字中的大写字母不再 `unhandled`。现有 golden 没有覆盖这种情况。受影响最大的是简拼：关掉辅助码、习惯打简拼的用户，`sj`+Shift+A、`nih`+Shift+C 原来照参考引擎和 PR #347 上屏首选再插入字母（「手机A」「你好C」），现在字母并入组字，回车上屏原码 `sjA`、`nihC`，空格把大写字母当拼音一起查。要得到「手机A」，得先空格选词再按 Shift+A。这是 `mac`+O 不上屏的代价：两者都是「不完整拼写 + 大写字母」，键入时分不开（见备选「只在末尾片段不是简拼形态时才并入」）。#7106 的报告者要求「和常规输入法保持一致，此时不要上屏」，但这项取舍影响所有平台（包括 Windows 旗舰），需要维护者确认；`capital_after_jianpin_joins_composition_when_helpcode_is_off` 把新行为固定下来，不接受就从这条测试改起。
+- **剩余窗口：候选不看接回的字母**：落到辅助码位置的字面大写字母仍被全拼切分、在线请求不看开关地剥掉，候选列表按没有它的拼写查，预编辑里它还在，上屏时接回。要让候选也看到它，就做上面第三个备选：让剥离看开关。整句改字（`conversion.rs`）经 `commit_selection` 上屏，同样接回。
 - **并入的大写字母按小写参与查询**：`macOS` 按空格得到的是把它读成拼音的中文候选，与辅助码开着时的现有行为相同；回车始终上屏原文。不做微软拼音「吗cOS」那种中英混排候选。
 - **Caps Lock**：大写锁定时，拼写不完整的组字里的大写字母也会并入，不再先上屏首选。Windows TSF 对 Caps Lock 的注释是组字中吞掉，方向一致；macOS 的 `MSIMECapsLockFreshUppercaseBypass` 只在没有组字时生效，不受影响。
 - **双拼同一条界线**：双拼原文不是英文拼写，并入的大写字母按双拼键解码，但双拼的剥离看开关，不会丢字。
@@ -44,10 +47,12 @@ Status: implemented
 
 ## Verification
 
-`crates/engine/src/session/tests.rs` 的三条用例在旧闸门上都在 `handled` 断言处失败，修复后通过：
+`crates/engine/src/session/tests.rs` 的前三条用例在旧闸门上都在 `handled` 断言处失败，修复后通过：
 
 - `capital_after_incomplete_spelling_joins_composition_when_helpcode_is_off`：全拼、辅助码关，`mac`+O+S 组字为 `macOS`、不上屏，CommitRaw 上屏 `macOS`；`nihao`+O、`woyong`+M 仍 `unhandled`；没有组字时 O 仍 `unhandled`；辅助码开时 `mac`+O 和 `nihao`+O 都收下。
 - `capital_inserted_at_the_caret_follows_the_same_helpcode_boundary`：`mac` 光标左移一位插入 X，收下，CommitRaw 上屏 `maXc`。
 - `shuangpin_capital_joins_only_where_it_cannot_read_as_a_helpcode`：小鹤双拼、辅助码关，`ni`+H 仍 `unhandled`，`m`+A 收下并上屏 `mA`；辅助码开时 `ni`+H 收下。
+- `capital_after_jianpin_joins_composition_when_helpcode_is_off`：固定简拼的偏离，辅助码关，`nih`+C 收下、不上屏，CommitRaw 上屏 `nihC`。
+- `literal_capital_survives_when_it_lands_in_the_helpcode_position`：辅助码关，`thao`+M 选「特」后预编辑为 `haoM`，再选「好」上屏 `好M`；`haox`+M 光标左移、Backspace 得 `haoM`，选「好」上屏 `好M`；辅助码开时 `hao`+M 选「好」上屏 `好`。没有接回逻辑时它在第一处上屏断言失败（得到「好」）。
 
 `cargo test -p msime-engine`（含 golden，场景无变化）、`cargo test -p msime-input-runtime -p msime-host-api`、`cargo clippy -p msime-engine --all-targets -- -D warnings`、`cargo fmt --check` 均通过。

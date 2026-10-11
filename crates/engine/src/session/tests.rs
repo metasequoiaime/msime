@@ -2148,6 +2148,57 @@ fn shuangpin_capital_joins_only_where_it_cannot_read_as_a_helpcode() {
     assert!(enabled.character(b'H', true).handled);
 }
 
+// 简拼和 `mac` 一样是不完整的拼写，分不出用户是在打简拼还是英文，所以 `nih` 后的大写字母关掉辅助码时同样并入组字，不再上屏首选加插入（与参考引擎的偏离，见 #7106 的决策笔记）。
+#[test]
+fn capital_after_jianpin_joins_composition_when_helpcode_is_off() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut disabled = fixture.session_with(|options| options.helpcode = false);
+    type_text(&mut disabled, "nih");
+    let joined = disabled.character(b'C', true);
+    assert!(joined.handled);
+    assert_eq!(joined.commit, None);
+    assert_eq!(preedit_letters(&disabled), "nihC");
+    assert_eq!(
+        disabled.command(Command::CommitRaw).commit.as_deref(),
+        Some("nihC")
+    );
+}
+
+// 并入的大写字母在部分选词或删除之后可能落到完整拼音后面；关掉辅助码时它仍是字面字母，候选按去掉它的拼写查，结束组字时接回上屏文字，不能被静默丢掉。
+#[test]
+fn literal_capital_survives_when_it_lands_in_the_helpcode_position() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut disabled = fixture.session_with(|options| options.helpcode = false);
+    type_text(&mut disabled, "thao");
+    assert!(disabled.character(b'M', true).handled);
+    let partial = select_word(&mut disabled, "特");
+    assert_eq!(partial.commit.as_deref(), Some("特"));
+    assert_eq!(preedit_letters(&disabled), "haoM");
+    assert_eq!(
+        select_word(&mut disabled, "好").commit.as_deref(),
+        Some("好M")
+    );
+
+    type_text(&mut disabled, "haox");
+    assert!(disabled.character(b'M', true).handled);
+    disabled.command(Command::MoveLeft);
+    disabled.command(Command::Backspace);
+    assert_eq!(preedit_letters(&disabled), "haoM");
+    assert_eq!(
+        select_word(&mut disabled, "好").commit.as_deref(),
+        Some("好M")
+    );
+
+    // 辅助码开着时，同一位置的大写字母就是辅助码，选词后不接回。
+    let mut enabled = fixture.session();
+    type_text(&mut enabled, "hao");
+    assert!(enabled.character(b'M', true).handled);
+    assert_eq!(
+        select_word(&mut enabled, "好").commit.as_deref(),
+        Some("好")
+    );
+}
+
 #[test]
 fn segment_boundaries_per_scheme() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);

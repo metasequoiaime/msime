@@ -439,9 +439,17 @@ impl InputSession {
             transition.full_pure_pinyin = full_pure_pinyin;
             let consumed =
                 raw_length_for_effective_prefix(&cased_without_helpcodes, selected.len());
-            let rest = remove_consumed_leading_separators(&raw_without_helpcodes[consumed..]);
-            let rest_with_cases =
-                remove_consumed_leading_separators(&cased_without_helpcodes[consumed..]);
+            // 辅助码关闭时按字面并入的大写字母不是辅助码，留在剩余原文里。
+            let literal_tail = self.literal_capitals_in_helpcode_position();
+            let rest = format!(
+                "{}{}",
+                remove_consumed_leading_separators(&raw_without_helpcodes[consumed..]),
+                literal_tail.to_ascii_lowercase()
+            );
+            let rest_with_cases = format!(
+                "{}{literal_tail}",
+                remove_consumed_leading_separators(&cased_without_helpcodes[consumed..])
+            );
             if self.is_wubi() {
                 // The rest of a spelling the user is still in the middle of stays pinyin; the wubi table answering it would swap schemes underneath them.
                 self.engine.keep_pinyin_tail();
@@ -454,7 +462,8 @@ impl InputSession {
                 self.engine
                     .replace_active_raw_input(&rest, &rest_with_cases);
             } else {
-                self.engine.replace_active_raw_input(rest, rest_with_cases);
+                self.engine
+                    .replace_active_raw_input(&rest, &rest_with_cases);
             }
             self.online_requests.invalidate();
             self.update_mixed_candidates();
@@ -644,6 +653,24 @@ impl InputSession {
             | SchemeType::Tibetan
             | SchemeType::Stroke => false,
         }
+    }
+
+    /// 全拼、辅助码关闭时，原文尾部处在辅助码位置的大写字母：它是按字面并入的字母，不是辅助码。键入时闸门不让它落在这个位置，但部分选词、光标编辑和删除之后，它前面可能才变成完整拼音（`thaoM` 选走「特」剩 `haoM`）。全拼切分仍不看开关地把它剥掉查候选，所以选词推进组字时要把它留在剩余原文里，结束组字时接在上屏文字后面，结果和先上屏再插入这个字母一样，不会被静默丢掉（#7106）。辅助码开着、不是全拼或在本地模式里时为空。
+    pub(super) fn literal_capitals_in_helpcode_position(&self) -> &str {
+        if self.quanpin_helpcode_enabled
+            || self.engine.current_scheme_type() != SchemeType::Quanpin
+            || self.local_mode != LocalInputMode::None
+            || self.dedicated_english
+        {
+            return "";
+        }
+        let request = self.engine.request();
+        let length =
+            detect_active_helpcode_length(&request.raw_input, &request.raw_input_with_cases);
+        let cased = self.raw_with_cases();
+        cased
+            .get(cased.len().saturating_sub(length)..)
+            .unwrap_or("")
     }
 
     /// input_session.cpp:775-793.
