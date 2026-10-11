@@ -211,6 +211,36 @@ test("the dialog offers the requested capabilities, links dependencies and disab
   expect(onConfirm).toHaveBeenCalledWith(["read_composition"]);
 });
 
+test("a capability the replaced pack no longer requests neither blocks its exclusive partner nor is granted", async () => {
+  const before = script({
+    id: "both",
+    permissions: ["read_composition", "read_commit", "rewrite_commit"],
+  });
+  const onConfirm = vi.fn(async (_granted: ScriptCapability[]) => undefined);
+  const dialog = (pack: PluginPackage) => (
+    <ScriptGrantDialog
+      pack={pack}
+      initial={[]}
+      stale={false}
+      unverified={false}
+      onConfirm={onConfirm}
+      onCancel={vi.fn()}
+    />
+  );
+  const { rerender } = render(dialog(before));
+  fireEvent.click(check("修改输入的文字"));
+  expect((check("读取正在输入的内容") as HTMLInputElement).disabled).toBe(true);
+
+  // 页面重读之后 `pack` 换成不再申请「修改输入的文字」的新版本：它不再挡着互斥的那一项，也不交出去。
+  rerender(dialog({ ...before, permissions: ["read_composition", "read_commit"] }));
+  expect(screen.queryByRole("checkbox", { name: /^修改输入的文字/ })).toBeNull();
+  expect((check("读取正在输入的内容") as HTMLInputElement).disabled).toBe(false);
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "授权并启用" }));
+  });
+  expect(onConfirm).toHaveBeenCalledWith(["read_commit"]);
+});
+
 test("the dialog says a changed pack needs granting again and keeps open with the reason a refusal gives", async () => {
   const onConfirm = vi.fn(async () => {
     throw { code: "plugin_script_memory" };

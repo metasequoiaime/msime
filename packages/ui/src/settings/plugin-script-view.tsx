@@ -273,6 +273,8 @@ export function ScriptGrantDialog({
   const [granted, setGranted] = useState<ScriptCapability[]>(() =>
     sortCapabilities(initial.filter((item) => requested.includes(item))),
   );
+  // 现在列着、勾着的那几项。包在对话框打开之后被换过（`plugin_script_changed`，页面重读后 `pack` 换成新版本）时，`granted` 里可能还留着新版本不再申请的一项：它不显示，不能算作勾着去禁用互斥的另一项，也不能被交出去、被宿主以「清单没有申请」拒绝。
+  const selected = granted.filter((item) => requested.includes(item));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const titleId = useId();
@@ -284,7 +286,7 @@ export function ScriptGrantDialog({
   }, []);
   const items = requested.map((capability) => {
     const partner = exclusivePartner(capability);
-    const blockedBy = partner && granted.includes(partner) ? partner : null;
+    const blockedBy = partner && selected.includes(partner) ? partner : null;
     const required = CAPABILITY_REQUIRES[capability];
     const notes = [
       required ? `需要同时授予「${capabilityLabels[required].title}」。` : null,
@@ -292,7 +294,7 @@ export function ScriptGrantDialog({
     ].filter(Boolean);
     return {
       value: capability,
-      checked: granted.includes(capability),
+      checked: selected.includes(capability),
       disabled: busy || blockedBy !== null,
       label: (
         <span className="flex flex-col">
@@ -309,8 +311,7 @@ export function ScriptGrantDialog({
     setBusy(true);
     setError("");
     try {
-      // 只交出现在列着、勾着的那几项：包在对话框打开之后被换过（`plugin_script_changed`，页面重读后 `pack` 换成新版本）时，`granted` 里可能还留着新版本不再申请的一项，它不显示，却会被交出去、被宿主以「清单没有申请」拒绝。
-      await onConfirm(granted.filter((item) => requested.includes(item)));
+      await onConfirm(selected);
     } catch (failure) {
       setError(pluginErrorMessage(failure, "授权没有写入，请重试。"));
       setBusy(false);
