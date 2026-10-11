@@ -309,7 +309,8 @@ export function ScriptGrantDialog({
     setBusy(true);
     setError("");
     try {
-      await onConfirm(granted);
+      // 只交出现在列着、勾着的那几项：包在对话框打开之后被换过（`plugin_script_changed`，页面重读后 `pack` 换成新版本）时，`granted` 里可能还留着新版本不再申请的一项，它不显示，却会被交出去、被宿主以「清单没有申请」拒绝。
+      await onConfirm(granted.filter((item) => requested.includes(item)));
     } catch (failure) {
       setError(pluginErrorMessage(failure, "授权没有写入，请重试。"));
       setBusy(false);

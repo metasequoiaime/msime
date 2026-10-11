@@ -41,7 +41,7 @@ Status: implemented
 - 新增 Tauri 命令 `script_grants`、`set_script_grant`、`reorder_scripts`，都回整份 `ScriptGrantsView`：条目（含 `verified`）、`<user_data>/script-health.json` 里的停用记录、`mac_required` 和 `signed`。`PluginClient` 上对应的三个方法是可选的，HarmonyOS 的客户端不用改。
 - 列表的标记按顺序判断：没有条目是"未授权"，条目的哈希和包现在的内容哈希不同是"已更新，需要重新授权"，macOS 上设置应用没有密钥时启用的条目是"已启用 · 无法核对授权"（本应用算出的校验结果一律为假，可输入法有自己的密钥，说明不了它运不运行；`scriptGrantsCheckable`），校验不过是"需要重新授权"，启用的是"已启用 · 第 N 位"（被输入法停用时是"已被输入法停用"），其余"未启用"。第几位按输入法实际运行的集合算：启用、校验通过、哈希对得上，前 8 个。
 - 详情页显示声明的钩子（白话的"在什么时候运行"）、申请的每项能力和它的白话说明与是否已授予、内容哈希前 12 位、授权状态和停用原因、启用开关、执行顺序（提前、推后只在运行的插件之间换位）和删除。打开开关先弹授权对话框，对话框的初始焦点在"取消"，关掉后焦点回到打开它的开关或按钮；停用原因只在启用时显示。关掉开关就是 `set(enabled = false, granted = [])`，撤销全部授权，按设计在下一次聚焦时生效。macOS 上 `mac_required && !signed` 时开关和调整按钮禁用，并说明读不到钥匙串。
-- 授权对话框：清单申请的每项能力一个复选框，新授权时一项都不预先勾选；勾选一项把它依赖的那一项一起勾上，取消一项把依赖它的一起取消（`toggleCapability`）；`rewrite_commit` 和 `read_composition` 一项勾着时另一项禁用并写明原因。被宿主拒绝时对话框留着并说明原因，超出内存总账（`plugin_script_memory`）、同时启用超过 8 个、包在打开对话框之后被换过、钥匙串读不到各有一句话。包被换过（`plugin_script_changed`）时页面先重读目录和授权，换成现在的内容哈希，再说明。
+- 授权对话框：清单申请的每项能力一个复选框，新授权时一项都不预先勾选；勾选一项把它依赖的那一项一起勾上，取消一项把依赖它的一起取消（`toggleCapability`）；`rewrite_commit` 和 `read_composition` 一项勾着时另一项禁用并写明原因。被宿主拒绝时对话框留着并说明原因，超出内存总账（`plugin_script_memory`）、同时启用超过 8 个、包在打开对话框之后被换过、钥匙串读不到各有一句话。包被换过（`plugin_script_changed`）时页面先重读目录和授权，换成现在的内容哈希，再说明；再确认时只交出新版本申请、对话框列着的那几项，旧版本申请过、新版本不再申请的一项即使原来勾着也不交出去。
 - 社区的发布对话框只列 `communityPluginKinds` 里的类型：桌面的目录里有了脚本包，但它们不能发布（`PUBLISHABLE_KINDS` 里没有 script）。
 - Windows 和 Linux 的列表分组、详情页和对话框写明：以你的身份运行的其他程序可以不经过这个页面直接写入授权；Windows 另写明以管理员身份运行的窗口里不运行脚本插件。macOS 写明伪造的授权不会生效。
 
@@ -86,5 +86,5 @@ Status: implemented
 - `platforms/macos` 的 ctest `shared-script-grant-key`：分区说明的解析（本团队、别的团队、`unsigned:`、`apple-tool:`、读不懂的说明）和参数检查，不碰真实钥匙串。
 - `apps/desktop/src-tauri` 的 `desktop_plugins` 测试：健康文件只认四个停用类别，格式不认识或读不懂时当作没有记录；授权视图原样保留条目顺序、校验结果和能力名；只在装了脚本包或已有授权文件时才碰钥匙串（`uses_scripts`）。
 - 移动端：`cargo check -p msime-client-core -p msime-host-api --all-targets` 在 `aarch64-apple-ios`、`aarch64-linux-android`、`aarch64-unknown-linux-ohos` 上通过，`cargo check -p msime-desktop --target aarch64-linux-android --lib` 通过，`cargo tree -p msime-host-api -e normal -i wasmi` 在这三个目标上为空。
-- `apps/desktop/tests/settings/script-plugins.test.tsx`：依赖联动、互斥、对话框的"已更新，需要重新授权"和被总账拒绝时的原因、分组只在 `script_plugins` 时出现、Windows 和 Linux 的残余风险说明、macOS 没有密钥时不能启用、撤销和重排调用的参数；没有密钥时启用的条目显示"无法核对"而不是"需要重新授权"，删除确认写明其他授权会一起失效；包被换过时页面重读后按新的哈希写入；对话框从"取消"开始、关掉后焦点回到开关；停用原因只在启用时显示。
+- `apps/desktop/tests/settings/script-plugins.test.tsx`：依赖联动、互斥、对话框的"已更新，需要重新授权"和被总账拒绝时的原因、分组只在 `script_plugins` 时出现、Windows 和 Linux 的残余风险说明、macOS 没有密钥时不能启用、撤销和重排调用的参数；没有密钥时启用的条目显示"无法核对"而不是"需要重新授权"，删除确认写明其他授权会一起失效；包被换过时页面重读后按新的哈希写入，新版本不再申请的能力即使原来勾着也不交出去；对话框从"取消"开始、关掉后焦点回到开关；停用原因只在启用时显示。
 - 没有验证：签了名的真实安装上的端到端流程（设置应用授权、输入法读到密钥并运行、钥匙串拒绝时页面的样子）。

@@ -454,6 +454,39 @@ test("a pack changed after the page read it is reread before the dialog explains
   expect(setScriptGrant).toHaveBeenLastCalledWith("pangu", NEW_HASH, true, []);
 });
 
+test("after the pack changes under the dialog, only what the new version requests is granted", async () => {
+  let current = catalog;
+  const setScriptGrant = vi.fn(async () => {
+    current = {
+      ...catalog,
+      packages: catalog.packages.map((pack) =>
+        pack.id === "pangu"
+          ? { ...pack, content_hash: NEW_HASH, permissions: ["read_commit" as const] }
+          : pack,
+      ),
+    };
+    throw { code: "plugin_script_changed" };
+  });
+  renderSection(fakeClient({ catalog: vi.fn(async () => current), setScriptGrant }));
+  await openScript("中英文之间加空格");
+  fireEvent.click(screen.getByRole("switch", { name: "启用" }));
+  fireEvent.click(check("修改输入的文字"));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "授权并启用" }));
+  });
+  expect(setScriptGrant).toHaveBeenLastCalledWith("pangu", HASH, true, [
+    "read_commit",
+    "rewrite_commit",
+  ]);
+  // 新版本不再申请「修改输入的文字」：对话框不再列出它，再确认时也不把它交出去。
+  expect(screen.queryByRole("checkbox", { name: /^修改输入的文字/ })).toBeNull();
+  expect(check("读取输入的文字")).toHaveProperty("checked", true);
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "授权并启用" }));
+  });
+  expect(setScriptGrant).toHaveBeenLastCalledWith("pangu", NEW_HASH, true, ["read_commit"]);
+});
+
 test("the grant dialog starts on cancel and gives focus back to the switch that opened it", async () => {
   renderSection(fakeClient());
   await openScript("中英文之间加空格");
