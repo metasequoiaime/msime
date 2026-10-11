@@ -76,6 +76,18 @@ test("the selected row reads the selected foregrounds and the bar switch, fallin
   expect(card.match(/display:var\(--cand-selected-bar,block\)/g)).toHaveLength(2);
 });
 
+test("a hovered selected row keeps the selected fill its foregrounds are drawn for", () => {
+  // `.cand:hover` 与 `.first:hover` 特异性相同，后写的胜出：横排、竖排里都必须是选中行的规则排在后面，否则悬停把选中底换成 `--cand-hover`，白字落在白卡片上。
+  const order = [
+    ...card.matchAll(
+      /\.cand:hover\{background-color:var\(--cand-hover\);\}|\.first:hover\{background-color:var\(--cand-selected\);\}/g,
+    ),
+  ].map(([rule]) => (rule.startsWith(".first") ? "selected" : "hover"));
+  expect(order).toEqual(["hover", "selected", "hover", "selected"]);
+  // 原生 macOS 的选中悬停色就是选中色。
+  expect(candidateSkin).toContain("tokens.selectedHover = tokens.selected;");
+});
+
 // ---- macOS 宿主默认值与原生 token 对齐 ----
 
 /** 原生 `Rgb(0xRRGGBB, a)` / `Rgba{r, g, b, a}` 写成样式表里的小写 `#rrggbb` 或 `#rrggbbaa`。 */

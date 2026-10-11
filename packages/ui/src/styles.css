@@ -1047,6 +1047,11 @@
       border-radius: var(--msime-candidate-row-radius);
     }
 
+    /* 选中行悬停时仍是选中底，文字才一直落在 `selected_text` 所配的底色上；与原生 macOS 的 `selectedHover = selected`、Windows 选中底即悬停底一致。 */
+    .first:hover {
+      background-color: var(--cand-selected);
+    }
+
     /* 选中竖条：调色板的 `show_selected_bar` 经 `--cand-selected-bar` 决定画不画，没给时由平台默认值决定，再没有就画。 */
     .first::before {
       content: "";
@@ -1166,6 +1171,10 @@
     .first {
       background-color: var(--cand-selected);
       border-radius: var(--msime-candidate-row-radius);
+    }
+
+    .first:hover {
+      background-color: var(--cand-selected);
     }
 
     /* 选中竖条，规则同横排。 */

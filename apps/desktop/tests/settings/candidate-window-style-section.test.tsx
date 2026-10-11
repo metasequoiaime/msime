@@ -6,10 +6,12 @@ import {
   CandidateFontPresetRow,
   CandidateScaleRow,
   CandidateWindowStyleSection,
+  SettingsPage,
   settingsCapabilities,
   type HostPlatform,
   type Preferences,
 } from "@msime/ui";
+import candidateSkinHeader from "../../../../platforms/macos/src/candidate/CandidateSkin.h?raw";
 import {
   candidateFontPresetAvailable,
   candidateFontPresetPatch,
@@ -141,8 +143,11 @@ test("the corner radius follows the skin until set, and returns to it", () => {
   expect(set.onChange).toHaveBeenCalledWith({ candidate_corner_radius: undefined });
 });
 
+/** 原生 macOS 候选窗的卡片圆角（`SkinTokens::radius`），也是样式表 macOS 默认值块的 `--msime-host-card-radius`（`candidate-preview-native-tokens.test.ts` 对照）。 */
+const macosNativeRadius = String(Number(/float radius = ([\d.]+)f;/.exec(candidateSkinHeader)![1]));
+
 test.each([
-  ["macos", "10"],
+  ["macos", macosNativeRadius],
   ["windows", "6"],
   ["linux", "6"],
 ] as const)(
@@ -152,6 +157,37 @@ test.each([
     expect((screen.getByRole("slider", { name: "圆角大小" }) as HTMLInputElement).value).toBe(
       value,
     );
+  },
+);
+
+test.each([
+  ["macos", macosNativeRadius],
+  ["windows", "6"],
+] as const)(
+  "the 候选窗口 page on a %s host passes its platform to the radius slider",
+  async (platform, value) => {
+    render(
+      <SettingsPage
+        initialPage="appearance"
+        client={{
+          load: vi.fn().mockResolvedValue({
+            format_version: 1,
+            revision: 1,
+            preferences: {
+              scheme: "quanpin",
+              shuangpin_profile: "xiaohe",
+              candidate_page_size: 5,
+              learning: true,
+              chinese_punctuation: true,
+            },
+          }),
+          save: vi.fn(),
+          host: testHost({ platform, candidate_corner_radius: true }),
+        }}
+      />,
+    );
+    const slider = (await screen.findByRole("slider", { name: "圆角大小" })) as HTMLInputElement;
+    expect(slider.value).toBe(value);
   },
 );
 
