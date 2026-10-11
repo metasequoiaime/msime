@@ -115,12 +115,15 @@ impl ClipboardHistoryStore {
                 };
                 values.retain(|value| valid_stored(&value.text));
                 sort_entries(&mut values);
-                let mut entries = Vec::with_capacity(MAX_ENTRIES);
+                let mut entries = Vec::new();
                 for value in values {
                     if !entries
                         .iter()
                         .any(|entry: &ClipboardHistoryEntry| entry.text == value.text)
                     {
+                        if entries.is_empty() {
+                            entries.reserve_exact(MAX_ENTRIES);
+                        }
                         entries.push(value);
                         if entries.len() == MAX_ENTRIES {
                             break;
@@ -528,6 +531,17 @@ mod tests {
     }
 
     #[test]
+    fn loading_empty_history_does_not_reserve_entries() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("clipboard_history.json");
+        fs::write(&path, b"[]").unwrap();
+        let mut store = ClipboardHistoryStore::open(&path);
+        store.load().unwrap();
+        assert!(store.entries.is_empty());
+        assert_eq!(store.entries.capacity(), 0);
+    }
+
+    #[test]
     fn preserves_multiline_and_control_text_and_rejects_nul() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("clipboard_history.json");
@@ -583,6 +597,7 @@ mod tests {
         let mut store = ClipboardHistoryStore::open(&path);
         store.load().unwrap();
         assert_eq!(store.entries().len(), MAX_ENTRIES);
+        assert_eq!(store.entries.capacity(), MAX_ENTRIES);
         assert_eq!(store.entries()[0].text, "synthetic-first");
         assert_eq!(store.entries()[49].text, "synthetic-48");
     }
