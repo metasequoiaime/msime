@@ -346,7 +346,7 @@ fn kinds(log: &[(i32, String)]) -> Vec<i32> {
 }
 
 #[test]
-fn the_real_process_switch_gates_delivery_and_stays_off_in_release_builds() {
+fn the_real_process_switch_gates_delivery_in_debug_and_release_builds() {
     // 这个测试线程不覆盖开关，投递走产品里的全局开关。别的测试都在自己的线程上覆盖它，这里改全局开关不影响它们；没覆盖开关、也没写授权的会话计划是空的，同样不受影响。
     let fixture = fixture();
     TEST_SWITCH.with(|switch| switch.set(None));
@@ -355,10 +355,10 @@ fn the_real_process_switch_gates_delivery_and_stays_off_in_release_builds() {
     opt_in(&fixture, TRAIT_KNOWN);
     commit_nihao(fixture.handle);
     assert!(take_log().is_empty());
-    // 开发构建里打开就投递；release 构建（`cargo test --release`）里恒为 false，打开了也什么都不投递，这一条就是第 3 阶段的验收。
-    assert_eq!(msime_client_scripts_enable(true), cfg!(debug_assertions));
+    // 开发构建和 release 构建（`cargo test --release`）一样：桌面上打开就投递。第 5 阶段起 release 构建也打开，前提是 macOS 的授权条目带 MAC（见 `a_grant_whose_mac_does_not_verify_never_runs_on_macos`）。
+    assert!(msime_client_scripts_enable(true));
     commit_nihao(fixture.handle);
-    assert_eq!(!take_log().is_empty(), cfg!(debug_assertions));
+    assert!(!take_log().is_empty());
     assert!(!msime_client_scripts_enable(false));
     commit_nihao(fixture.handle);
     assert!(take_log().is_empty());

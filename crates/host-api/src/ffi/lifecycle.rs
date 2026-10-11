@@ -91,7 +91,7 @@ pub extern "C" fn msime_client_set_lifecycle(handle: u64, flags: u32) -> u32 {
     })
 }
 
-/// 进程级：打开或关闭脚本插件，返回开关的实际状态。只由 4 个桌面入口（macOS 输入法进程、Windows Server、IBus 引擎进程、Fcitx5 addon）在启动时调用；Windows TIP、设置应用和 MCP 从不调用。release 构建和移动端恒返回 false：授权的加固（macOS 钥匙串 MAC）落地之前，发布出去的输入法不运行脚本。
+/// 进程级：打开或关闭脚本插件，返回开关的实际状态。只由 4 个桌面入口（macOS 输入法进程、Windows Server、IBus 引擎进程、Fcitx5 addon）在启动时调用；Windows TIP、设置应用和 MCP 从不调用。移动端恒返回 false。
 #[no_mangle]
 pub extern "C" fn msime_client_scripts_enable(on: bool) -> bool {
     crate::scripts::enable(on)
