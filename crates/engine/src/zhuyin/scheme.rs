@@ -503,13 +503,12 @@ impl ZhuyinScheme {
         self.list.clear();
         let positions = list_positions(&self.syllables);
         for start in 0..count {
-            let entries = self
+            let mut entries = self
                 .dictionary
                 .lookup_readings(&positions[start..count], usize::MAX)?;
-            self.list.reserve(entries.len());
             // 九键下同一个字可能在同一位置的两个读音下各有一条，只留较重的那条。
-            let mut entries = entries;
             deduplicate_reading_entries(&mut entries);
+            self.list.reserve(entries.len());
             self.list
                 .extend(entries.into_iter().map(|(key, entry)| ListCandidate {
                     text: entry.text,
@@ -984,6 +983,30 @@ mod tests {
         deduplicate_reading_entries(&mut large);
         assert_eq!(large.len(), SMALL_READING_DEDUP + 1);
         assert_eq!(large[0].1.text, "大字0");
+    }
+
+    #[test]
+    fn opening_a_list_reserves_only_unique_reading_rows() {
+        let entries = [
+            ("r0", "字", 0),
+            ("r1", "字", 0),
+            ("r2", "字", 0),
+            ("r3", "字", 0),
+            ("r4", "字", 0),
+            ("r5", "字", 0),
+            ("r6", "字", 0),
+            ("r7", "字", 0),
+        ];
+        let (_dir, mut scheme) = scheme_with(&entries);
+        scheme.syllables = vec![syllable(
+            "keys",
+            &["r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7"],
+        )];
+
+        scheme.open_list().unwrap();
+
+        assert_eq!(scheme.list.len(), 1);
+        assert!(scheme.list.capacity() < entries.len());
     }
 
     #[test]
