@@ -328,14 +328,25 @@ impl LanguageDictionary {
             let mut statement = self.connection.prepare_cached(
                 "SELECT key, text, weight FROM entries WHERE key >= ?1 AND key < ?2 AND key GLOB ?3",
             )?;
+            let mut lower = String::new();
+            let mut upper = String::new();
+            let mut glob = String::new();
             for reading in first.iter() {
-                let lower = format!("{reading} ");
-                let upper = format!("{reading}!");
-                let mut glob = String::with_capacity(reading.len() * 2 + 1 + tail.len());
+                // 每个首读音查询结束后复用范围与 GLOB 的存储，容量不足时再补足。
+                lower.clear();
+                lower.reserve_exact(reading.len() + 1);
+                lower.push_str(reading);
+                lower.push(' ');
+                upper.clear();
+                upper.reserve_exact(reading.len() + 1);
+                upper.push_str(reading);
+                upper.push('!');
+                glob.clear();
+                glob.reserve_exact(reading.len() * 2 + 1 + tail.len());
                 push_glob_literal(&mut glob, reading);
                 glob.push(' ');
                 glob.push_str(&tail);
-                let mut rows = statement.query((lower, upper, glob))?;
+                let mut rows = statement.query((lower.as_str(), upper.as_str(), glob.as_str()))?;
                 while let Some(row) = rows.next()? {
                     let key = row.get_ref(0)?.as_str().map_err(|error| {
                         rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(error))
@@ -948,6 +959,90 @@ mod tests {
             allocations <= 10,
             "多个读音查询不应为每个读音建立临时结果向量：{allocations}"
         );
+    }
+
+    #[test]
+    fn missing_alternative_readings_reuse_query_string_storage() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("msime-zhuyin.db");
+        build(&path, &FORMAT_VERSION.to_string());
+        let dictionary = open_read_only(&path).unwrap();
+        let first = readings(&[
+            "ㄅㄚ", "ㄆㄚ", "ㄇㄚ", "ㄈㄚ", "ㄉㄚ", "ㄊㄚ", "ㄋㄚ", "ㄌㄚ",
+        ]);
+        let rest = readings(&["ㄏㄠˇ"]);
+        // 预热语句缓存，只统计一次多读音未命中查询的 Rust 分配。
+        assert!(dictionary
+            .lookup_readings(&[&first, &rest], usize::MAX)
+            .unwrap()
+            .is_empty());
+        let (actual, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            dictionary
+                .lookup_readings(&[&first, &rest], usize::MAX)
+                .unwrap()
+        });
+        assert!(actual.is_empty());
+        assert_eq!(actual.capacity(), 0);
+        assert!(
+            allocations <= 8,
+            "多个首读音不应各自分配查询字符串：{allocations}"
+        );
+    }
+
+    #[test]
+    fn reused_reading_query_strings_keep_literal_keys_order_and_limits() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("msime-zhuyin.db");
+        build(&path, &FORMAT_VERSION.to_string());
+        let connection = Connection::open(&path).unwrap();
+        for (key, text, weight) in [
+            ("a tail", "row-a", 5),
+            ("b tale", "row-b", 90),
+            ("synthetic*?[ tail", "same", 70),
+            ("ㄋㄧˇ tail", "same", 70),
+            ("syntheticXX[ tail", "wrong-literal", 1000),
+            ("a taie", "wrong-reading", 1000),
+            ("a tail extra", "wrong-span", 1000),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO entries VALUES (?1, ?2, ?3)",
+                    (key, text, weight),
+                )
+                .unwrap();
+        }
+        drop(connection);
+        let dictionary = open_read_only(&path).unwrap();
+        // 短、长、Unicode、GLOB 元字符及重复读音交替，验证复用不会残留上一次的键。
+        let first = readings(&["a", "ㄋㄧˇ", "a", "synthetic*?[", "b"]);
+        let rest = readings(&["tail", "tale"]);
+        let expected = [
+            ("b tale", "row-b", 90),
+            ("synthetic*?[ tail", "same", 70),
+            ("ㄋㄧˇ tail", "same", 70),
+            ("a tail", "row-a", 5),
+            ("a tail", "row-a", 5),
+        ]
+        .map(|(key, text, weight)| {
+            (
+                key.to_owned(),
+                LanguageEntry {
+                    text: text.to_owned(),
+                    weight,
+                },
+            )
+        });
+        for limit in [0, 1, 3, usize::MAX] {
+            let actual = dictionary.lookup_readings(&[&first, &rest], limit).unwrap();
+            assert_eq!(actual, expected[..limit.min(expected.len())]);
+        }
+        let actual = dictionary
+            .lookup_readings(&[&first, &rest], usize::MAX)
+            .unwrap();
+        drop(first);
+        drop(rest);
+        drop(dictionary);
+        assert_eq!(actual, expected);
     }
 
     #[test]
