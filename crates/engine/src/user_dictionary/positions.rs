@@ -83,9 +83,13 @@ fn fixed_rows(user_db: &Path, context: &str) -> Result<Vec<(String, String, i32)
     let rows = statement.query_map(params![context], |row| {
         Ok((row.get(0)?, row.get(1)?, row.get(2)?))
     })?;
-    let mut result = Vec::with_capacity(FIXED_SLOT_COUNT);
+    let mut result = Vec::new();
     for row in rows {
-        result.push(row?);
+        let row = row?;
+        if result.is_empty() {
+            result.reserve_exact(FIXED_SLOT_COUNT);
+        }
+        result.push(row);
     }
     Ok(result)
 }
@@ -327,6 +331,17 @@ mod tests {
         let rows = fixed_rows(&journal, "ni").unwrap();
         assert_eq!(rows.len(), 5);
         assert_eq!(rows.capacity(), 5);
+    }
+
+    #[test]
+    fn empty_fixed_rows_do_not_reserve_unused_slots() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+
+        let rows = fixed_rows(&journal, "ni").unwrap();
+
+        assert!(rows.is_empty());
+        assert_eq!(rows.capacity(), 0);
     }
 
     #[test]
