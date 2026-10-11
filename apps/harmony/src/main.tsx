@@ -160,6 +160,8 @@ interface NativeBridge {
    * `{"ok":true,"ready":boolean,"value":{"enabled":boolean|null,"current":boolean|null}}`：本键盘是否已在系统中启用、是否为当前输入法。和 `onboardingStatus` 一样是同步调用，宿主第一次读取完成前 `ready` 一直为 false。
    */
   setupStatus(): string;
+  /** 现在重新读一次设置状态，有变化时照常调用 `msimeHarmonySetupChanged`。从键盘的 🌐 菜单切换输入法不会触发宿主监听的 `imeChange`，引导打开期间靠它轮询。 */
+  refreshSetupStatus(): void;
   /**
    * 应用主题：`{operation:"load"}` 和 `{operation:"save",id}` 回复 `{ok,value:{id}}`；`{operation:"resolve",dark}` 回复 `msime_client_resolve_app_theme` 对已保存主题在本月的解析结果；`{operation:"catalog"}` 回复 `msime_client_app_theme_catalog` 的结果。
    */
@@ -414,6 +416,11 @@ function imeSetupClient(native: NativeBridge): ImeSetupClient | undefined {
         setupListeners.delete(listener);
       };
     },
+    // 宿主重读后有变化时经 `msimeHarmonySetupChanged` 推回来，和别的变化一样。
+    refresh:
+      typeof native.refreshSetupStatus === "function"
+        ? () => native.refreshSetupStatus()
+        : undefined,
   };
 }
 

@@ -35,6 +35,8 @@ function closeKeyboardSwitchGuide() {
 
 /** 设为默认之后多停这么久，让用户看到「已设为默认」再关。 */
 const DONE_MS = 900;
+/** 引导开着时多久请宿主重读一次设置状态：从 🌐 菜单切换输入法不会触发宿主监听的事件，只能自己去问。 */
+const REFRESH_MS = 1000;
 
 const backdrop = "fixed inset-0 z-50 bg-black/30 animate-ms-fade-in motion-reduce:animate-none";
 const card =
@@ -60,6 +62,12 @@ function KeyboardSwitchGuide({ setup }: { setup?: ImeSetupClient }) {
   useEffect(() => {
     input.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (done || !setup?.refresh) return;
+    const timer = window.setInterval(() => setup.refresh?.(), REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [done, setup]);
 
   useEffect(() => {
     if (!done) return;

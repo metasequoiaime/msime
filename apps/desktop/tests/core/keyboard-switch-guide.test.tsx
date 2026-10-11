@@ -57,3 +57,23 @@ test("the guide closes itself once 水杉 is the keyboard", async () => {
   });
   expect(screen.queryByRole("dialog")).toBeNull();
 });
+
+// 从 🌐 菜单切换输入法时宿主收不到系统事件：引导开着就每秒请宿主重读一次，设好了就不再问。
+test("the guide asks the host to re-read the setup until 水杉 is the keyboard", async () => {
+  vi.useFakeTimers();
+  const setup = fakeSetup({ enabled: true, current: false });
+  const refresh = vi.fn();
+  render(<KeyboardSwitchGuideHost setup={{ ...setup.client, refresh }} />);
+  await act(() => openKeyboardSwitchGuide());
+
+  act(() => {
+    vi.advanceTimersByTime(3000);
+  });
+  expect(refresh).toHaveBeenCalledTimes(3);
+
+  setup.push({ enabled: true, current: true });
+  act(() => {
+    vi.advanceTimersByTime(3000);
+  });
+  expect(refresh).toHaveBeenCalledTimes(3);
+});

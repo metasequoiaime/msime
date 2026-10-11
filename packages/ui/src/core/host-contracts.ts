@@ -52,6 +52,8 @@ export interface ImeSetupClient {
   read(): ImeSetupState | null;
   /** 宿主观察到变化时（例如从系统设置返回）以新状态调用；返回取消订阅函数。 */
   subscribe(listener: (state: ImeSetupState) => void): () => void;
+  /** 请宿主现在重新读一次，有变化时照常通知订阅者。用于宿主看不到变化的时候：HarmonyOS 上从键盘的 🌐 菜单切换输入法，不会触发宿主监听的 `imeChange`。 */
+  refresh?(): void;
 }
 
 export interface HostChromeClient {

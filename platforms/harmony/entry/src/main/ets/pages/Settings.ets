@@ -804,7 +804,7 @@ struct Settings {
                   'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                   'keyboardFeedback', 'onboardingStatus',
                   'showInputMethodPicker', 'importSkinFolder', 'startRequest', 'plugins',
-                  'setupStatus', 'appTheme', 'setSystemBars', 'splashSeen', 'markSplashSeen',
+                  'setupStatus', 'refreshSetupStatus', 'appTheme', 'setSystemBars', 'splashSeen', 'markSplashSeen',
                   'onboardingStarted', 'onboardingFinished', 'pendingPage', 'launchPainted'],
                 []);
             } catch (error) {
@@ -2851,6 +2851,11 @@ class SettingsBridge {
   setupStatus(): string {
     const reply: SetupStatusReply = { ok: true, ready: this.onboardingReady, value: this.setup };
     return JSON.stringify(reply);
+  }
+
+  /** 页面请求现在重读一次设置状态。从键盘的 🌐 菜单切换输入法不会触发 `imeChange`，页面的「设为默认」引导打开期间靠它轮询；读到变化时照常推给页面。 */
+  refreshSetupStatus(): void {
+    this.refreshSetupState();
   }
 
   /** 页面的欢迎流程已结束（完成或跳过），通知卡片可以回来。 */
