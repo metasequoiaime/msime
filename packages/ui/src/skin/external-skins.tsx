@@ -9,6 +9,11 @@ import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
 import { SkinCardHeader } from "./skin-card-header";
 import { SkinPreviewStage } from "./skin-preview-stage";
 import { SkinPreviewSurface } from "./skin-preview-surface";
+import {
+  candidateOpacityPercent,
+  candidateWindowStyle,
+  type CandidateWindowStylePreferences,
+} from "../candidate/candidate-window-style";
 import * as settings from "../settings/settings-style";
 import { SettingsExternalMeta } from "../settings/settings-external-meta";
 import { SettingsGroupBlock } from "../settings/settings-group-block";
@@ -185,6 +190,7 @@ export function ExternalSkinCard({
   activeTheme,
   toolbarPreview,
   onPublish,
+  windowStyle,
 }: {
   skin: ExternalSkin;
   /** 自定义主题正在使用，且这个包在浅色或深色槽位里。 */
@@ -203,6 +209,8 @@ export function ExternalSkinCard({
   toolbarPreview: boolean;
   /** Offers the package to the community; absent on hosts without the candidate-skin community. */
   onPublish?: (id: string) => void;
+  /** 用户在「候选窗口」页设的窗口圆角和不透明度，卡片和候选窗一样画在包的几何之上；不传时按包自己的画。 */
+  windowStyle?: CandidateWindowStylePreferences;
 }) {
   const [override, setOverride] = useState<"dark" | "light" | null>(null);
   useEffect(() => setOverride(null), [activeTheme]);
@@ -247,7 +255,15 @@ export function ExternalSkinCard({
     // The package drawn over its base theme, as `resolve()` layers them; a card has no pickers.
     ...customCandidateStyle(skin.base, undefined, palette),
     ...skinGeometryStyle(skin, theme),
+    // 放在包的几何之后：用户设的圆角压过包的圆角，与各宿主相同。
+    ...candidateWindowStyle(windowStyle ?? {}),
   } as CSSProperties;
+  // 窗口不透明度连同包的背景图一起淡化，背景图本来就画在卡片底色上。
+  const opacity = candidateOpacityPercent(windowStyle?.candidate_opacity_percent) / 100;
+  const drawnBackground = background.drawn && {
+    ...background.drawn,
+    opacity: background.drawn.opacity * opacity,
+  };
   const note = `${settings.skinCardDescription} ${settings.externalResourceNote}`;
   return (
     <article
@@ -316,7 +332,7 @@ export function ExternalSkinCard({
               decorated={decorated}
               image={decodeFailed ? undefined : image?.url}
               onImageError={onImageError}
-              background={background.drawn}
+              background={drawnBackground}
               onBackgroundError={background.onError}
             />
           </SkinPreviewStage>
@@ -326,7 +342,7 @@ export function ExternalSkinCard({
               decorated={decorated}
               image={decodeFailed ? undefined : image?.url}
               onImageError={onImageError}
-              background={background.drawn}
+              background={drawnBackground}
               onBackgroundError={background.onError}
             />
           </SkinPreviewStage>

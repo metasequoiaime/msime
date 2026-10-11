@@ -91,6 +91,8 @@ export function CandidateScaleRow({ preferences, onChange }: CandidateScaleRowPr
 
 export interface CandidateWindowStyleSectionProps {
   preferences: Pick<Preferences, "candidate_opacity_percent" | "candidate_corner_radius">;
+  /** 宿主平台，决定「跟随皮肤」时滑块停在哪个圆角上。 */
+  platform?: HostPlatform;
   showOpacity: boolean;
   showCornerRadius: boolean;
   onChange: (patch: Partial<Preferences>) => void;
@@ -98,12 +100,15 @@ export interface CandidateWindowStyleSectionProps {
   children?: ReactNode;
 }
 
-/** What the slider shows while the card follows the skin and the host: the radius the preview draws then. */
-const followedCornerRadius = 6;
+/** 卡片跟随皮肤和宿主时滑块显示的圆角，即那时预览画的卡片圆角：macOS 是原生候选窗的 10pt（`skin-card-preview` 里 macOS 默认值块的 `--msime-host-card-radius`），其他平台的预览还没有自己的默认值块，仍是 6。 */
+function followedCornerRadius(platform: HostPlatform | undefined): number {
+  return platform === "macos" ? 10 : 6;
+}
 
 /** 「候选窗口」页的「窗口样式」组：窗口的不透明度和圆角。颜色和明暗只在「主题」页编辑，本页在这一组末尾链接过去。 */
 export function CandidateWindowStyleSection({
   preferences,
+  platform,
   showOpacity,
   showCornerRadius,
   onChange,
@@ -136,7 +141,7 @@ export function CandidateWindowStyleSection({
             <span className={settings.sliderControl}>
               <Slider
                 {...candidateCornerRadiusSlider}
-                value={radius ?? followedCornerRadius}
+                value={radius ?? followedCornerRadius(platform)}
                 valueText={radius === null ? "跟随皮肤" : `${radius}pt`}
                 onChange={(value) => onChange(candidateCornerRadiusPatch(value))}
               />

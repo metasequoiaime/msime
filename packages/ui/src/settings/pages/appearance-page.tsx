@@ -179,6 +179,7 @@ export function AppearanceSettingsPage() {
       </GroupList>
       <CandidateWindowStyleSection
         preferences={draft}
+        platform={host?.platform}
         showOpacity={showCandidateWindowOpacity}
         showCornerRadius={showCandidateCornerRadius}
         onChange={appearanceActions.onPreferencesChange}
@@ -313,6 +314,7 @@ function HarmonyPhoneCandidateGroups() {
       {(showCandidateWindowOpacity || showCandidateCornerRadius) && (
         <CandidateWindowStyleSection
           preferences={draft}
+          platform={host?.platform}
           showOpacity={showCandidateWindowOpacity}
           showCornerRadius={showCandidateCornerRadius}
           onChange={appearanceActions.onPreferencesChange}

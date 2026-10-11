@@ -1280,6 +1280,25 @@ test("a styled package draws its decoration image, alignment, background, radius
   expect(drawn(card, "--msime-toolbar-handle")).toBe("");
 });
 
+test("a package card follows the user's window radius and opacity, as the candidate window does", async () => {
+  const readImage = vi.fn().mockResolvedValue(imageData);
+  render(
+    packageCard(styledSkin, {
+      activeTheme: "dark",
+      readImage,
+      windowStyle: { candidate_corner_radius: 3, candidate_opacity_percent: 60 },
+    }),
+  );
+  const card = screen.getByRole("article");
+  await waitFor(() => expect(card.querySelectorAll("img.skin-background-image")).toHaveLength(2));
+  // 用户设的圆角压过皮肤包自己的 12px，行也不比它更圆；不透明度连背景图一起淡化。
+  expect(drawn(card, "--msime-skin-radius")).toBe("3px");
+  expect(drawn(card, "--msime-candidate-user-radius")).toBe("3px");
+  expect(drawn(card, "--msime-candidate-opacity")).toBe("60%");
+  const image = card.querySelector<HTMLImageElement>(".container > img.skin-background-image")!;
+  expect(Number(image.style.opacity)).toBeCloseTo(0.35 * 0.6);
+});
+
 test("a background that fails to load keeps the plain card and says so", async () => {
   const readImage = vi.fn(async (_id: string, relative: string) => {
     if (relative === "assets/background.png") throw new Error("synthetic");

@@ -66,6 +66,7 @@ function renderSection(overrides: Partial<SectionOptions> = {}) {
       </GroupList>
       <CandidateWindowStyleSection
         preferences={options.preferences}
+        platform={options.platform}
         showOpacity={options.showOpacity}
         showCornerRadius={options.showCornerRadius}
         onChange={onChange}
@@ -139,6 +140,20 @@ test("the corner radius follows the skin until set, and returns to it", () => {
   fireEvent.click(button);
   expect(set.onChange).toHaveBeenCalledWith({ candidate_corner_radius: undefined });
 });
+
+test.each([
+  ["macos", "10"],
+  ["windows", "6"],
+  ["linux", "6"],
+] as const)(
+  "following the skin, the %s radius slider shows the radius the preview draws",
+  (platform, value) => {
+    renderSection({ platform });
+    expect((screen.getByRole("slider", { name: "圆角大小" }) as HTMLInputElement).value).toBe(
+      value,
+    );
+  },
+);
 
 test("the rows a host cannot draw are hidden", () => {
   renderSection({

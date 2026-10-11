@@ -16,6 +16,7 @@ import {
   skinSlot,
 } from "../../theme/global-theme";
 import { SkinCandidatePreview } from "../../skin/skin-candidate-preview";
+import { candidateWindowStyle } from "../../candidate/candidate-window-style";
 import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
 import { SkinCardHeader } from "../../skin/skin-card-header";
 import { SkinPreviewStage } from "../../skin/skin-preview-stage";
@@ -399,14 +400,16 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                     <SkinPreviewSurface
                       data-global-theme={id}
                       data-preview-theme={previewTheme}
-                      style={
-                        id === "custom"
+                      style={{
+                        ...(id === "custom"
                           ? customCandidateStyle(
                               draft.custom_theme?.base,
                               draft.custom_theme?.candidate_colors,
                             )
-                          : themeCandidateStyle(id)
-                      }
+                          : themeCandidateStyle(id)),
+                        // 用户设的窗口圆角和不透明度对每个主题都生效，卡片照实际候选窗画，与 macOS 原生设置页的预览一致。
+                        ...candidateWindowStyle(draft),
+                      }}
                       aria-hidden="true"
                     >
                       <div className={settings.skinCandidateStages}>
@@ -445,6 +448,7 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                   key={`package:${skin.id}`}
                   skin={skin}
                   selected={skinsInUse.includes(skin.id)}
+                  windowStyle={draft}
                   // A host that draws one layout judges a skin by that layout, not by a setting it ignores.
                   layout={host?.fixed_candidate_layout ?? draft.candidate_layout ?? "vertical"}
                   // 皮肤包放进它 base 所属的槽位（浅色皮肤给浅色模式，深色皮肤给深色模式，`system` 底两个都放），另一个槽位不动。清单的 base 成为自定义主题的底，即 `resolve()` 画在包下面的那个，所以预览一致，取下皮肤后也保留这个底。
