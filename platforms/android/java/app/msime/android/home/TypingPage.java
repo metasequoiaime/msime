@@ -227,6 +227,13 @@ public final class TypingPage extends DetailPage {
             }
         }
 
+        // 五笔查码（#6789）：本版本的方案列表里启用了五笔才列出，与共享设置页「五笔查码」一组出现的条件一致。
+        if (enabled.contains(KeyboardScheme.WUBI)) {
+            GroupCard wubi = GroupCard.add(target, "五笔");
+            wubi.nav(PageId.WUBI_LOOKUP.title(), "查汉字的 86、98 五笔编码", null,
+                () -> SettingsNavigator.open(context, PageId.WUBI_LOOKUP, null));
+        }
+
         GroupCard chinese = GroupCard.add(target, "中文");
         InputFeatureToggle traditional = InputFeatureToggle.TRADITIONAL_OUTPUT;
         boolean traditionalOn = preferences.optBoolean(traditional.key(), traditional.enabledByDefault());

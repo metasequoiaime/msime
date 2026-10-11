@@ -17,6 +17,7 @@ platforms/android/tests/device/keyboard/NumberRowDeviceSmoke.java
 platforms/android/tests/device/keyboard/CaretCandidatesDeviceSmoke.java
 platforms/android/tests/device/voice/HandwritingDeviceSmoke.java
 platforms/android/tests/device/settings/PreferencesDeviceSmoke.java
+platforms/android/tests/device/settings/WubiLookupDeviceSmoke.java
 platforms/android/tests/device/keyboard/KeyboardHeightDeviceSmoke.java
 platforms/android/tests/device/keyboard/FuzzyPinyinDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidateGlossDeviceSmoke.java
