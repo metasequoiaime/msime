@@ -1034,9 +1034,10 @@
       border-radius: 4px;
     }
 
-    /* bar */
+    /* 选中竖条：调色板的 `show_selected_bar` 经 `--cand-selected-bar` 决定画不画，没给时由平台默认值决定，再没有就画。 */
     .first::before {
       content: "";
+      display: var(--cand-selected-bar, block);
       position: absolute;
       left: 0;
       top: 53%;
@@ -1068,6 +1069,15 @@
       font-size: 0.8em;
       color: var(--cand-num);
       margin-right: 0;
+    }
+
+    /* 选中行的文字和序号用主题的 `selected_text` / `selected_number`，没给时与普通行相同。 */
+    .first .text {
+      color: var(--cand-selected-text, var(--cand-text));
+    }
+
+    .first .num {
+      color: var(--cand-selected-num, var(--cand-num));
     }
 
     .pinyin {
@@ -1141,9 +1151,10 @@
       border-radius: 4px;
     }
 
-    /* bar */
+    /* 选中竖条，规则同横排。 */
     .first::before {
       content: "";
+      display: var(--cand-selected-bar, block);
       position: absolute;
       left: 0;
       top: 50%;
@@ -1172,6 +1183,15 @@
       font-size: 0.8em;
       color: var(--cand-num);
       margin-right: 1.5px;
+    }
+
+    /* 选中行的文字和序号，规则同横排。 */
+    .first .text {
+      color: var(--cand-selected-text, var(--cand-text));
+    }
+
+    .first .cand-no {
+      color: var(--cand-selected-num, var(--cand-num));
     }
 
     .pinyin {

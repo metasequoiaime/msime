@@ -197,7 +197,7 @@ export function themeEntry(id: string | undefined): ThemeCatalogEntry {
   return themeCatalog.find((entry) => entry.id === id) ?? themeCatalog[0];
 }
 
-/** The `--cand-*` custom properties the vendored candidate markup reads, for the slots a palette sets. Unset slots keep the stylesheet's own platform defaults. */
+/** 候选预览读的 `--cand-*` 自定义属性，只写调色板设了的槽位；没设的槽位留给样式表里按宿主平台给的默认值。`show_selected_bar` 写成 `--cand-selected-bar`（`block` 或 `none`），null 时不写，由平台决定画不画竖条。另外两个 `--cand-mac-selected-*` 只有 macOS 的默认值块会读，见 `macSelectedForegrounds`。 */
 export function candidatePaletteStyle(palette: CandidateThemePalette | null): CSSProperties {
   if (!palette) return {};
   const slots: [string, string | null][] = [
@@ -208,9 +208,40 @@ export function candidatePaletteStyle(palette: CandidateThemePalette | null): CS
     ["--cand-accent", palette.accent],
     ["--accent-strong", palette.accent],
     ["--cand-selected", palette.selected],
+    ["--cand-selected-text", palette.selected_text],
+    ["--cand-selected-num", palette.selected_number],
     ["--cand-hover", palette.hover],
+    [
+      "--cand-selected-bar",
+      palette.show_selected_bar === null ? null : palette.show_selected_bar ? "block" : "none",
+    ],
+    ...macSelectedForegrounds(palette),
   ];
   return Object.fromEntries(slots.filter(([, value]) => value !== null)) as CSSProperties;
+}
+
+/** macOS `DeriveSelectedForegrounds`（`platforms/macos/src/candidate/CandidateSkin.cpp`）：调色板没给选中行文字或序号颜色时，原生按实际画出的选中底推导。选中底是 `selected`，没有时跟随 `accent`；它的不透明度低于 0.85 时文字和序号退回普通行的颜色，否则按相对亮度 0.45 取白或 #1A1A1A，序号再取 82% 不透明。两者都没有时原生画的是平台强调色，留给样式表的白字。结果写成 `--cand-mac-selected-text` / `--cand-mac-selected-num`，只在 `skin-card-preview` 的 macOS 默认值块里读，其他平台不受影响。 */
+function macSelectedForegrounds(palette: CandidateThemePalette): [string, string | null][] {
+  const fill = normalizedColor(palette.selected ?? palette.accent ?? "");
+  if (!fill) return [];
+  const alpha = fill.length === 9 ? parseInt(fill.slice(7), 16) / 255 : 1;
+  const channel = (offset: number) => {
+    const value = parseInt(fill.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+  const contrast = luminance < 0.45 ? "#FFFFFF" : "#1A1A1A";
+  const translucent = alpha < 0.85;
+  return [
+    [
+      "--cand-mac-selected-text",
+      palette.selected_text === null ? (translucent ? "var(--cand-text)" : contrast) : null,
+    ],
+    [
+      "--cand-mac-selected-num",
+      palette.selected_number === null ? (translucent ? "var(--cand-num)" : `${contrast}D1`) : null,
+    ],
+  ];
 }
 
 /** The candidate preview style of a global theme id: a built-in palette, or nothing for `system`, `custom` and unknown ids. */
