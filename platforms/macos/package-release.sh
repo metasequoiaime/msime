@@ -349,7 +349,7 @@ check_app() {
   # On-device voice models run in this helper, which loads the sherpa-onnx runtime beside it; the CMake build fetches the runtime from resources/voice-runtime.lock.json and stages both.
   test -x "$nested/Contents/MacOS/msime-voice-local"
   test -s "$nested/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
-  codesign -d --entitlements - --xml "$nested" 2>/dev/null | grep -q 'com.apple.security.device.audio-input' || {
+  grep -q 'com.apple.security.device.audio-input' <<< "$(codesign -d --entitlements - --xml "$nested" 2>/dev/null)" || {
     echo "the embedded input method lost its entitlements: $nested" >&2
     exit 1
   }
@@ -386,7 +386,7 @@ check_app() {
   # universal 包里任何一个只含单一架构的 Mach-O，都会让另一种 Mac 上的输入法、设置应用或某个功能起不来，而单一架构的开发机上看不出来。
   local file
   while IFS= read -r -d '' file; do
-    if file -b "$file" | grep -q '^Mach-O'; then
+    if grep -q '^Mach-O' <<< "$(file -b "$file")"; then
       # lipo -verify_arch 一次只接受一种架构（传多个会报 requires exactly one input file），所以逐个核对。
       local architecture
       for architecture in "${architectures[@]}"; do

@@ -6,6 +6,12 @@ if ! command -v rg >/dev/null 2>&1; then
   echo "ripgrep (rg) is required by the Android host contract checks" >&2
   exit 1
 fi
+# 管道下游的 `rg -q` 一律换成它：先把标准输入整个读完，再交给 `rg -q` 判断。`rg -q` 读到第一处命中就退出，上游的 printf、sed 或 rg 若还有没写完的输出，再写就收到 SIGPIPE（`printf: write error: Broken pipe`），在 pipefail 下整条管道返回失败，于是同一份源码时过时不过，取决于上游分几次写、下游何时退出。变量本身直接用 here-string（`rg -q pattern <<< "$var"`），不用经过管道。scripts/test-gate-pipe-early-exit.py 会拦下新写的 `| rg -q`。
+rg_q_stdin() {
+  local input
+  input=$(cat)
+  rg -q "$@" <<< "$input"
+}
 android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
 if [[ -z "$android_sdk" ]]; then
   echo "Set ANDROID_SDK_ROOT to an installed Android SDK" >&2
@@ -540,7 +546,7 @@ fi
 # 只有实时读到的偏好能触发清空。onCreateInputView 原先按字段初始值清空，每次进入编辑器又先应用 runtime-options 副本，而副本的 clipboard_history 永远是出厂默认的关，于是每换一个输入框、每切回本键盘一次，历史就被抹掉（#5602）。
 if rg -A 40 'onCreateInputView\(\) \{' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
-    | rg -q 'clipboardHistory\.clear'; then
+    | rg_q_stdin 'clipboardHistory\.clear'; then
   echo "Android onCreateInputView must not clear the clipboard history before live preferences arrive" >&2
   exit 1
 fi
@@ -552,22 +558,22 @@ fi
 # 偏好的来源由调用处明说：读 runtime-options.json 之后应用的那一份必须标成 RUNTIME_OPTIONS_COPY，剪贴板开关也只从这个来源推出，不能再借一个意思不同的布尔量。那一处一旦被当成实时偏好，每换一个输入框历史又会被清空（#5602）。
 if ! rg -A 12 'HostOptionsPolicy\.readRuntimeOptions\(getFilesDir\(\)\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
-    | rg -q 'applyEditorPreferences\(preferences, ClipboardHistoryRetentionPolicy\.Source\.RUNTIME_OPTIONS_COPY\)' \
+    | rg_q_stdin 'applyEditorPreferences\(preferences, ClipboardHistoryRetentionPolicy\.Source\.RUNTIME_OPTIONS_COPY\)' \
   || rg -A 12 'HostOptionsPolicy\.readRuntimeOptions\(getFilesDir\(\)\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
-    | rg -q 'Source\.LIVE|applyEditorPreferences\(preferences\)' \
+    | rg_q_stdin 'Source\.LIVE|applyEditorPreferences\(preferences\)' \
   || ! rg -q 'applyClipboardPreference\(JSONObject preferences,$' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
   || ! rg -A 1 'applyClipboardPreference\(JSONObject preferences,$' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
-    | rg -q 'ClipboardHistoryRetentionPolicy\.Source source\)'; then
+    | rg_q_stdin 'ClipboardHistoryRetentionPolicy\.Source source\)'; then
   echo "Android must apply the runtime-options preference copy as RUNTIME_OPTIONS_COPY, and derive the clipboard switch only from that source (#5602)" >&2
   exit 1
 fi
 for site in onCreateInputView applyClipboardPreference; do
   if rg -A 40 "$site\([^)]*\) \{" \
       "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
-      | rg -q 'clipboardHistory\.clear\(\)'; then
+      | rg_q_stdin 'clipboardHistory\.clear\(\)'; then
     echo "Android clipboard housekeeping in $site must use clearQuietly" >&2
     exit 1
   fi
@@ -576,52 +582,52 @@ done
 if rg -A 30 'void (clearClipboardHistory|renderClipboardHistory|renderClipboardItemActions|setClipboardItemPinned|removeClipboardItem)\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
-    | rg -q 'new (AlertDialog|PopupMenu)'; then
+    | rg_q_stdin 'new (AlertDialog|PopupMenu)'; then
   echo "Android clipboard panel must not raise dialogs or popup menus from the input method" >&2
   exit 1
 fi
 # 「添加到常用语」经常用语存储写入（校验、去重、上限和同步标记都在那里），它要等文件锁，必须放在工作线程上，不能在主线程卡住键盘（#5909）。
 if ! rg -A 12 'void addClipboardTextToPhrases\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
-    | rg -q 'preferencesWorker\.execute' \
+    | rg_q_stdin 'preferencesWorker\.execute' \
   || ! rg -A 12 'void addClipboardTextToPhrases\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
-    | rg -q 'CommonPhrasesStore\.add\(s, text\)'; then
+    | rg_q_stdin 'CommonPhrasesStore\.add\(s, text\)'; then
   echo "Android clipboard add-to-phrases must write through CommonPhrasesStore on the preferences worker (#5909)" >&2
   exit 1
 fi
 # 左滑删除只在 ClipboardSwipePolicy 判定为横滑后才接手：接手时不让外层面板拦截去滚动，并给卡片补一个取消，撤掉按下态、长按和点按，松手不会插入（#5962）。
 swipe_body=$(rg -A 60 'private final class ClipboardSwipeCell implements' \
   "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" || true)
-if ! printf '%s\n' "$swipe_body" | rg -q 'ClipboardSwipePolicy\.claims\(' \
-  || ! printf '%s\n' "$swipe_body" | rg -q 'requestDisallowInterceptTouchEvent\(true\)' \
-  || ! printf '%s\n' "$swipe_body" | rg -q 'ACTION_CANCEL\);'; then
+if ! rg -q 'ClipboardSwipePolicy\.claims\(' <<< "$swipe_body" \
+  || ! rg -q 'requestDisallowInterceptTouchEvent\(true\)' <<< "$swipe_body" \
+  || ! rg -q 'ACTION_CANCEL\);' <<< "$swipe_body"; then
   echo "Android clipboard swipe must claim only through ClipboardSwipePolicy, keep the panel from scrolling and cancel the card's own press (#5962)" >&2
   exit 1
 fi
 # 「编辑」打开应用里的编辑页，不在键盘里弹对话框或放文本框（#5971）。打开之前要把系统剪贴板当前那一条记为已处理，否则改完回来一打开面板，补读又把原文记回来；交给编辑页的是认出这一条的键，不是文字。编辑页的 PageId 名必须和键盘这边写死的页面名一致。
 edit_body=$(rg -A 12 'void editClipboardItem\(' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
-if ! printf '%s\n' "$edit_body" | rg -q 'forgetCurrentClip\(\);' \
-  || ! printf '%s\n' "$edit_body" | rg -q 'ClipboardHistoryPolicy\.editKey\(' \
-  || ! printf '%s\n' "$edit_body" | rg -q 'openHostPage\(ClipboardHistoryPolicy\.EDIT_PAGE, args\)' \
-  || printf '%s\n' "$edit_body" | rg -q 'new (AlertDialog|PopupMenu|EditText)' \
+if ! rg -q 'forgetCurrentClip\(\);' <<< "$edit_body" \
+  || ! rg -q 'ClipboardHistoryPolicy\.editKey\(' <<< "$edit_body" \
+  || ! rg -q 'openHostPage\(ClipboardHistoryPolicy\.EDIT_PAGE, args\)' <<< "$edit_body" \
+  || rg -q 'new (AlertDialog|PopupMenu|EditText)' <<< "$edit_body" \
   || ! rg -q 'public static final String EDIT_PAGE = "CLIPBOARD_EDIT";' \
     "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardHistoryPolicy.java" \
   || ! rg -q '^    CLIPBOARD_EDIT\("ClipboardEditPage", ' \
     "$repo_root/platforms/android/java/app/msime/android/home/PageId.java" \
   || ! rg -A 20 'private void renderClipboardItemActions\(' \
-    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" | rg -q 's\.editClipboardItem\(item\)'; then
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" | rg_q_stdin 's\.editClipboardItem\(item\)'; then
   echo "Android clipboard edit must open the app's CLIPBOARD_EDIT page with the entry's key after forgetting the current clip, never a dialog in the input method (#5971)" >&2
   exit 1
 fi
 # 「搜索」打开应用里可搜索的剪贴板历史页，不在键盘里放查询框（#5973）。打开之前同样把系统剪贴板当前那一条记为已处理，用户可能在那一页删掉或改掉它。页面名必须和 PageId 一致，入口要在面板顶行里。
 search_body=$(rg -A 6 'void openClipboardSearch\(' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
-if ! printf '%s\n' "$search_body" | rg -q 'forgetCurrentClip\(\);' \
-  || ! printf '%s\n' "$search_body" | rg -q 'putReturnToCaller\(args\);' \
-  || ! printf '%s\n' "$search_body" | rg -q 'openHostPage\(ClipboardSearchPolicy\.SEARCH_PAGE, args\)' \
-  || printf '%s\n' "$search_body" | rg -q 'new (AlertDialog|PopupMenu|EditText)' \
+if ! rg -q 'forgetCurrentClip\(\);' <<< "$search_body" \
+  || ! rg -q 'putReturnToCaller\(args\);' <<< "$search_body" \
+  || ! rg -q 'openHostPage\(ClipboardSearchPolicy\.SEARCH_PAGE, args\)' <<< "$search_body" \
+  || rg -q 'new (AlertDialog|PopupMenu|EditText)' <<< "$search_body" \
   || ! rg -q 'public static final String SEARCH_PAGE = "CLIPBOARD_SEARCH";' \
     "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardSearchPolicy.java" \
   || ! rg -q '^    CLIPBOARD_SEARCH\("ClipboardSearchPage", ' \
@@ -639,20 +645,20 @@ fi
 # 分词界面的词片要放在它自己的滚动区里，「取消」「插入」那一行留在滚动区外、贴着面板底边；操作行跟着词片一起滚时，长文字滚到末尾它就不见了（#5645）。
 if ! rg -A 30 'void renderClipboardSegmentation\(\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
-    | rg -q 'new ScrollView\('; then
+    | rg_q_stdin 'new ScrollView\('; then
   echo "Android clipboard segmentation must scroll its word pieces separately from the pinned action bar (#5645)" >&2
   exit 1
 fi
 # 「最近复制」占着工具栏那一行时，剪贴板历史入口要留在这一行上，不能逼用户先点 × 把这条永久关掉；从剪贴板插入过之后它也不能再回来，否则工具栏又换成刚插入的文字（#5692）。
 if ! rg -A 20 'void addRecentClipRow\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImeToolbar.java" \
-    | rg -q 'Icon\.CLIPBOARD'; then
+    | rg_q_stdin 'Icon\.CLIPBOARD'; then
   echo "Android recent-clip row must keep the clipboard history entry (#5692)" >&2
   exit 1
 fi
 if ! rg -A 12 'void insertClipboardText\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
-    | rg -q 'recentClip\.dismiss\(\)'; then
+    | rg_q_stdin 'recentClip\.dismiss\(\)'; then
   echo "Android clipboard insertion must retire the recent-clip suggestion (#5692)" >&2
   exit 1
 fi
@@ -664,19 +670,19 @@ offer_read_line=$(printf '%s\n' "$offer_body" | rg -n 'getPrimaryClipDescription
 if ! rg -q 'return RecentClipboardSuggestion\.enabled\(clipboardHistoryEnabled, clipboardSuggestionEnabled\);' "$service_java" \
   || rg -n 'clipboardSuggestionEnabled' "$service_java" \
     | rg -v 'boolean clipboardSuggestionEnabled = true;|clipboardSuggestionEnabled = localSettings\.bool|RecentClipboardSuggestion\.enabled\(clipboardHistoryEnabled, clipboardSuggestionEnabled\)' \
-    | rg -q . \
+    | rg_q_stdin . \
   || [[ -z "$offer_gate_line" || -z "$offer_read_line" || "$offer_read_line" -lt "$offer_gate_line" ]] \
-  || ! printf '%s\n' "$offer_body" | rg -q 'clip == null \|\| clip\.sensitive\(\)\) return;' \
-  || ! printf '%s\n' "$offer_body" | rg -q 'if \(image\.sensitive\(\)\) return;' \
-  || ! rg -B 2 -A 2 'String recent = ' "$service_java" | rg -q 'recentClipEnabled\(\)'; then
+  || ! rg -q 'clip == null \|\| clip\.sensitive\(\)\) return;' <<< "$offer_body" \
+  || ! rg -q 'if \(image\.sensitive\(\)\) return;' <<< "$offer_body" \
+  || ! rg -B 2 -A 2 'String recent = ' "$service_java" | rg_q_stdin 'recentClipEnabled\(\)'; then
   echo "Android recent-clip suggestion must stay off, and must not read the clipboard, while clipboard history is off; sensitive clips are never offered (#5692)" >&2
   exit 1
 fi
 # 「最近复制」的图片（#6781）只在当前输入框经 contentMimeTypes 声明收得下、并且副本的扩展名经 FileProvider 反查仍是图片时占这一行；发出去的是本应用 FileProvider 给的缓存副本并带读权限，不是剪贴板里的原 URI，副本目录必须在 FileProvider 的路径表里。
 if ! rg -A 6 'boolean recentImageSendable\(' "$service_java" \
-    | rg -q 'ClipboardImagePolicy\.accepts\(info\.contentMimeTypes, mimeType\)' \
+    | rg_q_stdin 'ClipboardImagePolicy\.accepts\(info\.contentMimeTypes, mimeType\)' \
   || ! rg -A 7 'boolean recentImageSendable\(' "$service_java" \
-    | rg -q 'clipboardImageExtension\(mimeType\) != null' \
+    | rg_q_stdin 'clipboardImageExtension\(mimeType\) != null' \
   || ! rg -q 'ClipboardImageCache\.replace\(input, directory, extension,' "$service_java" \
   || ! rg -q 'boolean recentImage = recentAllowed && recentImageSendable\(nowMs\);' "$service_java" \
   || ! rg -q 'Uri uri = ClipboardImageCache\.contentUri\(this, copy\);' "$service_java" \
@@ -704,7 +710,7 @@ fi
 # 已处理身份里有文字的散列和长度，短密码、验证码凭它能穷举还原。系统标为敏感的内容从不记录，清空或删除后也不能把它的身份落盘。
 if ! rg -A 6 'private void forgetCurrentClip\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
-    | rg -q '!clip\.sensitive\(\)'; then
+    | rg_q_stdin '!clip\.sensitive\(\)'; then
   echo "Android must not persist the identity of a clip the system marked sensitive" >&2
   exit 1
 fi
@@ -740,7 +746,7 @@ if ! rg -q 'VoiceConfiguration\.read' \
 fi
 # 键盘每换一个输入框都会重建引擎会话（#5680）。会话建好时要直接用上建会话前读到的那份实时偏好作为第一份快照，没有会话的那一段工具栏按钮开关要用上次真正读到的；否则冷启动的应用里皮肤、输入方式两个按钮先灰约一秒，剪贴板按钮先缺一格、其余按钮跟着挪位。
 if ! sed -n '/private void startEngineSession(String optionsText, String livePreferences)/,/^    }$/p' "$account_service" \
-    | rg -q 'applyPreferencesSnapshot\(value\(livePreferences\)\)' \
+    | rg_q_stdin 'applyPreferencesSnapshot\(value\(livePreferences\)\)' \
   || ! rg -q '"handwriting_theme", "touch_toolbar"\}' "$account_service" \
   || ! rg -q 'live \|\| rememberedToolbar == null' "$account_service"; then
   echo "Android toolbar must not start each editor from the factory-default preference copy" >&2
@@ -748,11 +754,11 @@ if ! sed -n '/private void startEngineSession(String optionsText, String livePre
 fi
 # 候选条的配色和字号同理（#5933）：副本是出厂的薄荷设计，按它重算会让每个新输入框的候选条先铺一层薄荷底、字号回到出厂的 18/15，实时偏好到了才换回来。只有实时偏好重算候选条外观，冷启动的第一帧按皮肤片段算，片段里要记着候选条用到的字段；按片段着色之前要先读本地设置，否则应用主题种子按默认值缓存。
 if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^    }$/p' "$account_service" \
-    | rg -q '^\s*if \(live\) applyCandidateAppearance\(preferences\);' \
+    | rg_q_stdin '^\s*if \(live\) applyCandidateAppearance\(preferences\);' \
   || ! sed -n '/JSONObject hint = readSkinHint();/,/^        }$/p' "$account_service" \
-    | rg -q 'applyCandidateAppearance\(hint\);' \
+    | rg_q_stdin 'applyCandidateAppearance\(hint\);' \
   || ! sed -n '/super\.onCreate();/,/JSONObject hint = readSkinHint();/p' "$account_service" \
-    | rg -q 'refreshLocalSettings\(\);' \
+    | rg_q_stdin 'refreshLocalSettings\(\);' \
   || ! rg -q '"candidate_theme", "candidate_font_family"' "$account_service" \
   || ! rg -q 'private boolean candidateHorizontal = true;' "$account_service"; then
   echo "Android candidate strip must not start each editor from the factory-default preference copy" >&2
@@ -760,9 +766,9 @@ if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^  
 fi
 # 键距、行距、语音快捷键、数字键顺序、双拼键位提示和 26 键数字键盘同理：按副本算，调过键距的用户每换一个输入框键盘都先按出厂间距排一帧。只有实时偏好重算键盘几何，冷启动的第一帧按皮肤片段算，片段里要记着这几个字段。
 if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^    }$/p' "$account_service" \
-    | rg -q '^\s*if \(live\) applyTouchGeometry\(preferences\);' \
+    | rg_q_stdin '^\s*if \(live\) applyTouchGeometry\(preferences\);' \
   || ! sed -n '/JSONObject hint = readSkinHint();/,/^        }$/p' "$account_service" \
-    | rg -q 'applyTouchGeometry\(hint\);' \
+    | rg_q_stdin 'applyTouchGeometry\(hint\);' \
   || ! rg -q '"touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",' "$account_service" \
   || ! rg -q '"touch_voice_shortcut", NineKeyLayout\.NUMBER_KEYPAD_ORDER_KEY, ShuangpinKeyHintPolicy\.PREFERENCE_KEY, NineKeyLayout\.TWENTY_SIX_KEY_NUMBER_LAYOUT_KEY,' "$account_service"; then
   echo "Android keyboard geometry must not start each editor from the factory-default preference copy" >&2
@@ -770,7 +776,7 @@ if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^  
 fi
 # 键盘开着时切换「双拼键位提示」：reloadPreferences 只在 touchGeometryKey() 变了时才 render()，开关不在这个键里，已经画好的字母键就一直留着旧提示，直到下次重建键盘。
 if ! sed -n '/private String touchGeometryKey() {$/,/^    }$/p' "$account_service" \
-    | rg -q 'shuangpinKeyHintsEnabled'; then
+    | rg_q_stdin 'shuangpinKeyHintsEnabled'; then
   echo "Android touchGeometryKey must include the shuangpin key hint switch so a live change redraws the keys" >&2
   exit 1
 fi
@@ -779,7 +785,7 @@ if ! rg -q 'bindInputMethodPicker\(languageButton\)' "$account_service" \
   || ! rg -q 'manager\.showInputMethodPicker\(\)' "$account_service" \
   || rg -q 'setEnabled\(languageButton, session != 0\)' "$account_service" \
   || ! rg -q 'setActiveAlpha\(languageButton, canToggle' "$account_service" \
-  || ! sed -n '/languageButton\.setOnClickListener/,/});/p' "$account_service" | rg -q 'if \(session == 0\) return;' \
+  || ! sed -n '/languageButton\.setOnClickListener/,/});/p' "$account_service" | rg_q_stdin 'if \(session == 0\) return;' \
   || ! rg -q 's\.bindInputMethodPicker\(language\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java"; then
   echo "Android 中/英 keys must open the system input method picker on long press" >&2
@@ -801,8 +807,8 @@ if [[ $(rg -c 's\.backspaceKey\(' "$layout_rows") != $(rg -c 's\.imeLetterRows\.
   exit 1
 fi
 # 文本编辑面板（#5625）是工具栏面板的一员：closeToolbarPanels 要关掉它、anyToolbarPanelOpen 要算上它，否则换输入框时它会留在下一个编辑器的键盘上，收起键也不会变成「返回键盘」。
-if ! sed -n '/void closeToolbarPanels()/,/^    }$/p' "$account_service" | rg -q 'imeTextEditPanel\.close\(\)' \
-  || ! sed -n '/boolean anyToolbarPanelOpen()/,/^    }$/p' "$account_service" | rg -q 'shown\(textEditPanel\)|ViewPolicy\.isVisible\(textEditPanel\)'; then
+if ! sed -n '/void closeToolbarPanels()/,/^    }$/p' "$account_service" | rg_q_stdin 'imeTextEditPanel\.close\(\)' \
+  || ! sed -n '/boolean anyToolbarPanelOpen()/,/^    }$/p' "$account_service" | rg_q_stdin 'shown\(textEditPanel\)|ViewPolicy\.isVisible\(textEditPanel\)'; then
   echo "Android text edit panel must close and count like the other toolbar panels" >&2
   exit 1
 fi

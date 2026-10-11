@@ -475,7 +475,7 @@ android_clang="$android_ndk/toolchains/llvm/prebuilt/$android_host_tag/bin/aarch
 if ! scoped desktop android; then
   :
 elif [ -n "$android_host_tag" ] && [ -x "$android_clang" ] \
-  && rustup target list --installed 2>/dev/null | grep -q '^aarch64-linux-android$'; then
+  && grep -q '^aarch64-linux-android$' <<< "$(rustup target list --installed 2>/dev/null)"; then
   env "CC_aarch64_linux_android=$android_clang" \
     "CXX_aarch64_linux_android=${android_clang}++" \
     "AR_aarch64_linux_android=$android_ndk/toolchains/llvm/prebuilt/$android_host_tag/bin/llvm-ar" \
@@ -506,7 +506,7 @@ if ! scoped wasm; then
   :
 elif [ -n "$wasm_cc" ] && [ -n "$wasm_ar" ] \
   && printf 'int x;\n' | "$wasm_cc" --target=wasm32-unknown-unknown -x c -c -o /dev/null - >/dev/null 2>&1 \
-  && rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$'; then
+  && grep -q '^wasm32-unknown-unknown$' <<< "$(rustup target list --installed 2>/dev/null)"; then
   env "CC_wasm32_unknown_unknown=$wasm_cc" "AR_wasm32_unknown_unknown=$wasm_ar" \
     cargo check --locked -p msime-engine-wasm --target wasm32-unknown-unknown 2>&1 | tail -3
   [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check --target wasm32-unknown-unknown"
