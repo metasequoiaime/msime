@@ -1,0 +1,43 @@
+# cargo-fuzz 的模糊测试 crate。它有自己的 `[workspace]` 和 Cargo.lock，不属于根 workspace：`cargo build`、`cargo test` 和 `verify-local.sh` 都不会碰它，主 workspace 的依赖树也不因它多出 libfuzzer-sys。
+#
+# 运行需要 nightly 和 cargo-fuzz（`rustup toolchain install nightly`、`cargo install cargo-fuzz`），在仓库根目录：
+#
+#   cargo +nightly fuzz run plugin_pack fuzz/seeds/plugin_pack --target-dir target/fuzz
+#   cargo +nightly fuzz run host_session fuzz/seeds/host_session --target-dir target/fuzz
+#
+# 产物放在 `target/fuzz`：带插桩和 sanitizer 的构建不能与 `target/` 下的普通构建共用产物，放在 `target/` 之内是为了沿用仓库唯一的产物目录。第一个参数之后的目录是语料：libFuzzer 把新发现的输入写进第一个语料目录，所以想保持 `fuzz/seeds` 干净时先给一个空目录，例如 `fuzz/corpus/<目标>`（已忽略）。崩溃输入写在 `fuzz/artifacts/<目标>/`，用 `cargo +nightly fuzz run <目标> <文件> --target-dir target/fuzz` 复现。每个目标测什么、为什么这样测，见 `.agents/notes/implemented/testing/2026-10-11-cargo-fuzz-targets.md`。
+
+[package]
+name = "msime-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+msime-client-core = { path = "../crates/client-core" }
+msime-host-api = { path = "../crates/host-api" }
+# 与根 workspace 同一个版本：engine 链接的是同一份 libsqlite3-sys，两个版本不能同时链进一个程序。
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde_json = "1"
+tempfile = "3"
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "plugin_pack"
+path = "fuzz_targets/plugin_pack.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "host_session"
+path = "fuzz_targets/host_session.rs"
+test = false
+doc = false
+bench = false
