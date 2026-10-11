@@ -1,3 +1,4 @@
+import { TextPolicy } from "../TextPolicy";
 /**
  * Space after a just-committed Chinese punctuation rewrites it as ASCII.
  *
@@ -101,7 +102,7 @@ export class SmartPunctuationSpacePolicy {
     if (committed === null || committed === undefined) {
       return null;
     }
-    const points: number[] = Array.from(committed).map(
+    const points: number[] = TextPolicy.characters(committed).map(
       (value: string): number => value.codePointAt(0) ?? 0,
     );
     if (points.length !== 1) {

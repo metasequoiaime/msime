@@ -1,3 +1,4 @@
+import { TextPolicy } from "../keyboard/TextPolicy";
 /**
  * Notices from the MSIME service, shown as a dismissible card above the settings page.
  *
@@ -16,12 +17,12 @@ const MAX_TITLE_CHARACTERS: number = 200;
 
 /** Light and dark text colours follow the system, matching the native card around the body. */
 const PAGE_STYLE: string =
-  'html,body{margin:0;padding:0;background:transparent;}' +
-  'body{font:14px/1.5 sans-serif;color:#1f2329;word-wrap:break-word;overflow-wrap:anywhere;}' +
-  'p{margin:0 0 6px;}ul,ol{margin:0 0 6px;padding-left:20px;}' +
-  'a{color:#0a59f7;}code,pre{font-family:monospace;font-size:13px;}' +
-  'pre{white-space:pre-wrap;margin:0 0 6px;}' +
-  '@media (prefers-color-scheme: dark){body{color:#e5e5e5;}a{color:#5291ff;}}';
+  "html,body{margin:0;padding:0;background:transparent;}" +
+  "body{font:14px/1.5 sans-serif;color:#1f2329;word-wrap:break-word;overflow-wrap:anywhere;}" +
+  "p{margin:0 0 6px;}ul,ol{margin:0 0 6px;padding-left:20px;}" +
+  "a{color:#0a59f7;}code,pre{font-family:monospace;font-size:13px;}" +
+  "pre{white-space:pre-wrap;margin:0 0 6px;}" +
+  "@media (prefers-color-scheme: dark){body{color:#e5e5e5;}a{color:#5291ff;}}";
 
 /**
  * Nothing may load and nothing may run: the body is already escaped, and this is the second wall. Inline styles are the page's own.
@@ -29,16 +30,20 @@ const PAGE_STYLE: string =
 const CONTENT_SECURITY_POLICY: string = "default-src 'none'; style-src 'unsafe-inline'";
 
 function validText(value: unknown, maximum: number): value is string {
-  return typeof value === 'string' && value.length > 0 && [...value].length <= maximum;
+  return (
+    typeof value === "string" && value.length > 0 && TextPolicy.characters(value).length <= maximum
+  );
 }
 
 /** Keep the host-side id contract identical to client-core so dismissals can be persisted. */
 function validId(value: unknown): value is string {
   return (
-    typeof value === 'string' &&
+    typeof value === "string" &&
     value.length <= 64 &&
     value.length > 0 &&
-    [...value].every((character: string): boolean => /^[A-Za-z0-9_-]$/.test(character))
+    TextPolicy.characters(value).every((character: string): boolean =>
+      /^[A-Za-z0-9_-]$/.test(character),
+    )
   );
 }
 
@@ -61,17 +66,18 @@ export class NoticePolicy {
     } catch {
       return [];
     }
-    if (parsed === null || typeof parsed !== 'object') return [];
+    if (parsed === null || typeof parsed !== "object") return [];
     const envelope = parsed as Record<string, unknown>;
-    if (envelope.ok !== true || envelope.value === null || typeof envelope.value !== 'object') return [];
+    if (envelope.ok !== true || envelope.value === null || typeof envelope.value !== "object")
+      return [];
     const items: unknown = (envelope.value as Record<string, unknown>).items;
     if (!Array.isArray(items)) return [];
     const notices: NoticeItem[] = [];
     for (const item of items as unknown[]) {
-      if (item === null || typeof item !== 'object' || Array.isArray(item)) continue;
+      if (item === null || typeof item !== "object" || Array.isArray(item)) continue;
       const fields = item as Record<string, unknown>;
       if (!validId(fields.id) || !validText(fields.title, MAX_TITLE_CHARACTERS)) continue;
-      if (typeof fields.html !== 'string') continue;
+      if (typeof fields.html !== "string") continue;
       notices.push({ id: fields.id, title: fields.title, html: fields.html });
     }
     return notices;
@@ -81,7 +87,11 @@ export class NoticePolicy {
   static accepted(reply: string): boolean {
     try {
       const parsed: unknown = JSON.parse(reply);
-      return parsed !== null && typeof parsed === 'object' && (parsed as Record<string, unknown>).ok === true;
+      return (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        (parsed as Record<string, unknown>).ok === true
+      );
     } catch {
       return false;
     }
@@ -109,7 +119,11 @@ export class NoticePolicy {
    */
   static externalLink(url: string): string | null {
     const lower: string = url.toLowerCase();
-    if (lower.startsWith('https://') || lower.startsWith('http://') || lower.startsWith('mailto:')) {
+    if (
+      lower.startsWith("https://") ||
+      lower.startsWith("http://") ||
+      lower.startsWith("mailto:")
+    ) {
       return url;
     }
     return null;
@@ -118,6 +132,6 @@ export class NoticePolicy {
   /** Whether a navigation is the card loading its own page rather than a link being followed. */
   static ownPage(url: string): boolean {
     const lower: string = url.toLowerCase();
-    return lower === '' || lower === 'about:blank' || lower.startsWith('data:');
+    return lower === "" || lower === "about:blank" || lower.startsWith("data:");
   }
 }

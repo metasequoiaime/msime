@@ -1,3 +1,4 @@
+import { TextPolicy } from "../TextPolicy";
 /**
  * Text boundaries for direct English completion, ported from
  * platforms/android/java/app/msime/android/keyboard/EnglishSuggestionPolicy.java and
@@ -46,7 +47,7 @@ export class EnglishSuggestionPolicy {
       return "";
     }
     const letters: string[] = [];
-    const characters: string[] = Array.from(beforeCursor);
+    const characters: string[] = TextPolicy.characters(beforeCursor);
     for (let index: number = characters.length - 1; index >= 0; index--) {
       const normalized: string = EnglishSuggestionPolicy.normalize(characters[index]);
       if (normalized.length === 0) {

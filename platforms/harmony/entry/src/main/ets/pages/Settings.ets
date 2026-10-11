@@ -2272,7 +2272,7 @@ class SettingsBridge {
     const secretKey: string = (config.secret_key ?? '').trim();
     const region: string = (config.region ?? '').trim();
     if (!this.validCredentialSecret(secretId, 4096) || !this.validCredentialSecret(secretKey, 4096)
-      || region.length > 64 || Array.from(region).some((character: string): boolean => {
+      || region.length > 64 || TextPolicy.characters(region).some((character: string): boolean => {
         return !(/[A-Za-z0-9-]/.test(character));
       })) {
       return this.credentialReply(false, '请填写有效的腾讯云 SecretId、SecretKey 和地域。');
@@ -2636,7 +2636,7 @@ class SettingsBridge {
   private validCredentialSecret(value: string, maxBytes: number): boolean {
     return value.length > 0 && utf8Length(value) <= maxBytes && !TextPolicy.hasControl(value)
       && !value.startsWith('<') && !value.startsWith('FAKESECRET_')
-      && !Array.from(value).every((character: string): boolean => character === '*');
+      && !TextPolicy.characters(value).every((character: string): boolean => character === '*');
   }
 
   /** AI 接口地址：https 不限主机，http 只能指向本机或局域网（AiEndpointPolicy）。 */

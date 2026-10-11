@@ -1,5 +1,6 @@
 import { utf8Length } from "../Utf8";
 
+import { TextPolicy } from "../TextPolicy";
 /**
  * The decisions behind on-device speech recognition, kept free of ArkUI, NAPI and the sherpa-onnx HAR so they run under node.
  *
@@ -86,7 +87,7 @@ export class LocalAsrPolicy {
   static correctedText(value: unknown, fallback: string): string {
     if (value === null || typeof value !== "object" || Array.isArray(value)) return fallback;
     const text: Object | undefined = (value as Record<string, Object>).text;
-    return typeof text === "string" && text.length > 0 ? text as string : fallback;
+    return typeof text === "string" && text.length > 0 ? (text as string) : fallback;
   }
 
   /** Accept a bounded native hotword list, or null when the response crosses its contract. */
@@ -105,7 +106,8 @@ export class LocalAsrPolicy {
         textValue.trim().length === 0 ||
         LocalAsrPolicy.invalidHotwordText(textValue, MAX_HOTWORD_TEXT_BYTES) ||
         LocalAsrPolicy.invalidHotwordText(pinyinValue, MAX_HOTWORD_PINYIN_BYTES)
-      ) return null;
+      )
+        return null;
       hotwords.push({ text: textValue, pinyin: pinyinValue });
     }
     return hotwords;
@@ -139,7 +141,8 @@ export class LocalAsrPolicy {
   static modelUnderRoot(modelPath: string | undefined, trustedRoot: string | undefined): string {
     const directory: string = LocalAsrPolicy.modelDirectory(modelPath);
     const root: string = LocalAsrPolicy.modelDirectory(trustedRoot);
-    if (directory.length === 0 || root.length === 0 || root === "/" || directory === root) return "";
+    if (directory.length === 0 || root.length === 0 || root === "/" || directory === root)
+      return "";
     return directory.startsWith(`${root}/`) ? directory : "";
   }
 
@@ -244,7 +247,7 @@ export class LocalAsrPolicy {
       let clean: string = "";
       let usable: boolean = true;
       let previousSpace: boolean = true;
-      for (const character of Array.from(word)) {
+      for (const character of TextPolicy.characters(word)) {
         if (character.length === 1 && character.charCodeAt(0) < 0x80) {
           if (/\s/.test(character) || character === "/") {
             if (!previousSpace) clean += " ";
@@ -323,7 +326,7 @@ export class LocalAsrPolicy {
    * Remove the spaces the recognizers put where Chinese text has none: around CJK punctuation, between the letters of a spelled-out initialism, leading, trailing and repeated.
    */
   static tidyTranscript(text: string): string {
-    const characters: string[] = Array.from(text);
+    const characters: string[] = TextPolicy.characters(text);
     let out: string = "";
     for (let index: number = 0; index < characters.length; index++) {
       const character: string = characters[index];
@@ -346,7 +349,7 @@ export class LocalAsrPolicy {
 
   private static invalidHotwordText(value: string, maximumBytes: number): boolean {
     if (utf8Length(value) > maximumBytes) return true;
-    return Array.from(value).some((character: string): boolean => {
+    return TextPolicy.characters(value).some((character: string): boolean => {
       const code: number = character.codePointAt(0) ?? 0;
       return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
     });

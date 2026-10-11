@@ -1,5 +1,5 @@
-import { utf8Length } from './Utf8';
-import { TextPolicy } from './TextPolicy';
+import { utf8Length } from "./Utf8";
+import { TextPolicy } from "./TextPolicy";
 
 export interface CommunityReplyTemplate {
   readonly id: string;
@@ -8,8 +8,8 @@ export interface CommunityReplyTemplate {
 }
 
 function hasDisallowedPromptControl(value: string): boolean {
-  return Array.from(value).some((character: string): boolean => {
-    if (character === '\n' || character === '\t') return false;
+  return TextPolicy.characters(value).some((character: string): boolean => {
+    if (character === "\n" || character === "\t") return false;
     return TextPolicy.hasControl(character);
   });
 }
@@ -30,29 +30,37 @@ export class CommunityReplyLibraryPolicy {
     } catch {
       return [];
     }
-    if (!Array.isArray(decoded) || decoded.length > CommunityReplyLibraryPolicy.MAX_ITEMS) return [];
+    if (!Array.isArray(decoded) || decoded.length > CommunityReplyLibraryPolicy.MAX_ITEMS)
+      return [];
     const result: CommunityReplyTemplate[] = [];
     const ids: string[] = [];
     for (const value of decoded) {
-      if (value === null || typeof value !== 'object') return [];
+      if (value === null || typeof value !== "object") return [];
       const item: Record<string, Object> = value as Record<string, Object>;
-      const content: Record<string, Object> | null = item.content !== undefined
-        && item.content !== null && typeof item.content === 'object'
-        ? item.content as Record<string, Object> : null;
-      const id: string = typeof item.id === 'string' ? item.id : '';
-      const kind: string = typeof item.kind === 'string' ? item.kind : '';
-      if (kind !== 'reply') continue;
-      const name: string = typeof item.name === 'string' ? item.name : '';
-      const prompt: string = content !== null && typeof content.prompt === 'string'
-        ? content.prompt : '';
-      if (id.trim().length === 0 || name.trim().length === 0 || name !== name.trim()
-        || prompt.trim().length === 0 || ids.includes(id)
-        || utf8Length(id) > CommunityReplyLibraryPolicy.MAX_FIELD_BYTES
-        || Array.from(name).length > CommunityReplyLibraryPolicy.MAX_NAME_CHARACTERS
-        || Array.from(prompt).length > CommunityReplyLibraryPolicy.MAX_PROMPT_CHARACTERS
-        || TextPolicy.hasControl(id)
-        || TextPolicy.hasControl(name)
-        || hasDisallowedPromptControl(prompt)) return [];
+      const content: Record<string, Object> | null =
+        item.content !== undefined && item.content !== null && typeof item.content === "object"
+          ? (item.content as Record<string, Object>)
+          : null;
+      const id: string = typeof item.id === "string" ? item.id : "";
+      const kind: string = typeof item.kind === "string" ? item.kind : "";
+      if (kind !== "reply") continue;
+      const name: string = typeof item.name === "string" ? item.name : "";
+      const prompt: string =
+        content !== null && typeof content.prompt === "string" ? content.prompt : "";
+      if (
+        id.trim().length === 0 ||
+        name.trim().length === 0 ||
+        name !== name.trim() ||
+        prompt.trim().length === 0 ||
+        ids.includes(id) ||
+        utf8Length(id) > CommunityReplyLibraryPolicy.MAX_FIELD_BYTES ||
+        TextPolicy.characters(name).length > CommunityReplyLibraryPolicy.MAX_NAME_CHARACTERS ||
+        TextPolicy.characters(prompt).length > CommunityReplyLibraryPolicy.MAX_PROMPT_CHARACTERS ||
+        TextPolicy.hasControl(id) ||
+        TextPolicy.hasControl(name) ||
+        hasDisallowedPromptControl(prompt)
+      )
+        return [];
       ids.push(id);
       result.push({ id: id, name: name, prompt: prompt });
     }

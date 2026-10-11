@@ -128,9 +128,12 @@ export class CloudClipboardPolicy {
     expectedBinding: string,
     currentBinding: string,
   ): boolean {
-    return visible && state === CloudClipboardState.READY
-      && expectedBinding.length > 0
-      && expectedBinding === currentBinding;
+    return (
+      visible &&
+      state === CloudClipboardState.READY &&
+      expectedBinding.length > 0 &&
+      expectedBinding === currentBinding
+    );
   }
 
   /** Whether a completed send still belongs to the currently active send request. */
@@ -224,7 +227,9 @@ export class CloudClipboardPolicy {
       typeof updatedAt !== "string" ||
       updatedAt.length === 0 ||
       utf8Length(updatedAt) > MAX_UPDATED_AT_BYTES ||
-      [...updatedAt].some((character: string): boolean => isControl(character.codePointAt(0) ?? 0))
+      TextPolicy.characters(updatedAt).some((character: string): boolean =>
+        isControl(character.codePointAt(0) ?? 0),
+      )
     ) {
       return null;
     }

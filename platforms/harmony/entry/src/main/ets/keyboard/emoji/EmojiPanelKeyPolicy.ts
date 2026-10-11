@@ -1,5 +1,6 @@
-import { KeyboardGeometry } from '../KeyboardGeometry';
+import { KeyboardGeometry } from "../KeyboardGeometry";
 
+import { TextPolicy } from "../TextPolicy";
 /**
  * What a hardware key does while the 2in1 emoji panel is open, ported from `EmojiPanel::OnKeyDown` and the panel's search box in MSIME-Windows/server/src/emoji-panel/EmojiPanel.cpp.
  *
@@ -83,7 +84,7 @@ export class EmojiPanelKeyPolicy {
       if (query.length === 0) {
         return none;
       }
-      const characters: string[] = Array.from(query);
+      const characters: string[] = TextPolicy.characters(query);
       characters.pop();
       return decision(EmojiPanelKeyAction.SEARCH, 0, characters.join(""));
     }
@@ -118,7 +119,7 @@ export class EmojiPanelKeyPolicy {
       return count > 0 ? decision(EmojiPanelKeyAction.ACTIVATE, current, query) : none;
     }
     if (key.unicodeChar > 0x20 && key.unicodeChar !== 0x7f) {
-      if (Array.from(query).length >= EMOJI_QUERY_MAX_LENGTH) {
+      if (TextPolicy.characters(query).length >= EMOJI_QUERY_MAX_LENGTH) {
         return decision(EmojiPanelKeyAction.MOVE, current, query);
       }
       return decision(EmojiPanelKeyAction.SEARCH, 0, query + String.fromCodePoint(key.unicodeChar));

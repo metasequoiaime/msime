@@ -1,3 +1,4 @@
+import { TextPolicy } from "../TextPolicy";
 /**
  * What the 2in1 emoji panel shows when the pointer rests on an item, ported from `ClipboardTooltipText`, `DisplayNameForItem` and `ArmTooltip` in MSIME-Windows/server/src/emoji-panel/EmojiPanel.cpp.
  *
@@ -40,7 +41,7 @@ export class EmojiPanelTooltipPolicy {
     while (tip.endsWith("\n")) {
       tip = tip.substring(0, tip.length - 1);
     }
-    const characters: string[] = Array.from(tip);
+    const characters: string[] = TextPolicy.characters(tip);
     if (characters.length > CLIPBOARD_TOOLTIP_MAX_CHARS) {
       return characters.slice(0, CLIPBOARD_TOOLTIP_MAX_CHARS).join("") + "...";
     }

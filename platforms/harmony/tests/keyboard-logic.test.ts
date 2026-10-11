@@ -2533,6 +2533,18 @@ group("a runtime selection that changes nothing produces no update", () => {
 
 console.log("NineKeyLayout");
 
+group("TextPolicy.characters splits by code point, not by UTF-16 code unit", () => {
+  // 鸿蒙的 ArkTS 运行时上 Array.from 和展开都按码元拆，emoji 会变成两个落单的代理项；这个函数用 for...of，在那里也按字符拆。
+  const parts = TextPolicy.characters("a😊b");
+  check(parts.length === 3 && parts[1] === "😊", "an emoji is one character");
+  check(TextPolicy.characters("").length === 0, "an empty string has no characters");
+  check(!TextPolicy.hasControl("你好👋"), "an emoji is not a control character");
+  check(
+    TextPolicy.validMultiline("第一行\n😊", 100, true),
+    "a multi-line text with an emoji is valid",
+  );
+});
+
 group("the quanpin grid is three by three and sends characters, not labels", () => {
   const rows: NineKey[][] = NineKeyLayout.rows();
   check(rows.length === 3, "three rows");
@@ -13735,8 +13747,13 @@ group("the account assistant answers with a model list and one reply", () => {
     timeoutMs?: number;
   }[] = [];
   let models = '{"data":[{"id":"fast"},{"id":"careful"}],"default_model":"careful"}';
+  // MiniMax-M3 这样的回复：带 emoji，message 里还有一个 reasoning_content。鸿蒙的 ArkTS 运行时把 emoji 按码元拆成两个落单的代理项，逐字符校验曾因此把整条回复拒掉、页面显示「聊天服务暂不可用」。
   let completion = JSON.stringify({
-    choices: [{ message: { role: "assistant", content: "第一行\n第二行" } }],
+    choices: [
+      {
+        message: { role: "assistant", content: "第一行\n第二行 👋😊", reasoning_content: "想一想" },
+      },
+    ],
   });
   const transport: AccountTransport = {
     request: async (method, path, _token, body, timeoutMs) => {
@@ -13790,7 +13807,10 @@ group("the account assistant answers with a model list and one reply", () => {
         check(reply.ok === true, "a completion is accepted");
         // A conversation is written in paragraphs. The bridge's other validators reject control
         // characters, which would have refused every multi-line answer the assistant gives.
-        check(reply.value.content === "第一行\n第二行", "newlines in a reply are content");
+        check(
+          reply.value.content === "第一行\n第二行 👋😊",
+          "newlines and emoji in a reply are content",
+        );
         const sent = calls.find((call) => call.path === "/v1/chat/completions");
         check(sent?.body?.max_tokens === 2048, "the shared request shape is sent");
         check(sent?.body?.stream === false, "and it does not ask for a stream");

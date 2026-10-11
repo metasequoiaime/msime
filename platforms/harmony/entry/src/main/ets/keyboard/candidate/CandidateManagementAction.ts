@@ -1,5 +1,6 @@
 import { SchemeTraits } from "../SchemeTraits";
 
+import { TextPolicy } from "../TextPolicy";
 /**
  * Candidate-management menu order and host operation metadata, ported from
  * platforms/android/java/app/msime/android/CandidateManagementAction.java.
@@ -91,7 +92,7 @@ export class CandidateManagementAction {
 
   /** Windows omits deletion for a single Unicode code point. */
   static hasMultipleCodePoints(text: string): boolean {
-    return Array.from(text).length !== 1;
+    return TextPolicy.characters(text).length !== 1;
   }
 
   /** Dictionary mutations are only valid for local/user-dictionary candidates, in a scheme that learns into the main dictionary; the others' candidates are not in it to pin, demote or remove. */
@@ -136,7 +137,7 @@ export class CandidateManagementAction {
       return null;
     }
     // A gloss is a dictionary line and can run long; the menu is one row on a phone.
-    const shown: string[] = Array.from(text);
+    const shown: string[] = TextPolicy.characters(text);
     const title: string =
       shown.length > MAX_GLOSS_TITLE_CHARACTERS
         ? shown.slice(0, MAX_GLOSS_TITLE_CHARACTERS - 1).join("") + "…"
@@ -157,7 +158,7 @@ export class CandidateManagementAction {
       return null;
     }
     const text: string = gloss.trim();
-    const characters: string[] = Array.from(text);
+    const characters: string[] = TextPolicy.characters(text);
     const title: string =
       characters.length > MAX_GLOSS_TITLE_CHARACTERS
         ? characters.slice(0, MAX_GLOSS_TITLE_CHARACTERS - 1).join("") + "…"

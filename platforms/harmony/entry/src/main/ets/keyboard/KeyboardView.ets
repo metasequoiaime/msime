@@ -119,6 +119,7 @@ import { PrivacyGate } from './PrivacyGate';
 import { PhraseList, PHRASE_LIST_ERROR, PHRASE_LIST_LOADING, PHRASE_LIST_READY } from './faces/PhraseList';
 import { VoiceListening } from './faces/VoiceListening';
 
+import { TextPolicy } from './TextPolicy';
 /**
  * The 26-key touch keyboard, laid out to the same metrics as the iOS extension in
  * platforms/ios/KeyboardExtension/Sources/KeyboardViewController.swift, which is the reference
@@ -3003,7 +3004,7 @@ struct KeyboardView {
     const word: number = KeyboardFormFactor.isDesktop()
       ? CandidateWidthPolicy.chipContentVp(candidate, index, this.settings.candidateFontSize,
         CandidateNumberFontPolicy.size(this.settings.candidateFontSize))
-      : Array.from(candidate.text).length * this.settings.candidateFontSize;
+      : TextPolicy.characters(candidate.text).length * this.settings.candidateFontSize;
     if (!KeyboardSession.shared.glossesExpected()) {
       return CandidateChipWidth.chip(word, false, 0, padding);
     }
@@ -4013,7 +4014,7 @@ struct KeyboardView {
 
   /** 注释最多能画多宽：它的列宽，或上方的词更宽时取词宽。 */
   private chipGlossMaxWidth(candidate: CandidateEntry): number {
-    return CandidateChipWidth.content(Array.from(candidate.text).length * this.chipFontSize(), true,
+    return CandidateChipWidth.content(TextPolicy.characters(candidate.text).length * this.chipFontSize(), true,
       this.chipGlossColumn());
   }
 
@@ -5402,7 +5403,7 @@ struct KeyboardView {
   private deleteReplySourceCharacter(): void {
     if (this.replySource.length === 0) return;
     this.resetReplyResults();
-    const characters: string[] = Array.from(this.replySource);
+    const characters: string[] = TextPolicy.characters(this.replySource);
     characters.pop();
     this.replySource = characters.join('');
     this.replyNotice = this.replySource.length === 0 ? '剪贴板里没有文字' : '选择风格生成回复';

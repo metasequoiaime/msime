@@ -1,5 +1,6 @@
-import { KeyboardGeometry } from '../KeyboardGeometry';
+import { KeyboardGeometry } from "../KeyboardGeometry";
 
+import { TextPolicy } from "../TextPolicy";
 export interface HandwritingPoint {
   x: number;
   y: number;
@@ -43,7 +44,7 @@ export class HandwritingStrokePolicy {
     }
     const count: number = Math.min(Math.floor(limit), HANDWRITING_MAX_CANDIDATES);
     const output: string[] = [];
-    for (const character of Array.from(value.replace(/[\u0000-\u001f\u007f]/g, ""))) {
+    for (const character of TextPolicy.characters(value.replace(/[\u0000-\u001f\u007f]/g, ""))) {
       if (/\s/u.test(character) || output.includes(character)) {
         continue;
       }

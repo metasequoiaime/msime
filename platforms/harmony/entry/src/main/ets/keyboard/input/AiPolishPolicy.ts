@@ -1,3 +1,4 @@
+import { TextPolicy } from "../TextPolicy";
 /**
  * What may be polished, and what the editor has to be told to replace it.
  *
@@ -49,7 +50,7 @@ export interface PolishReplacement {
  * what it captured. A wrong unit then costs a refusal rather than a corrupted message.
  */
 export function codePointLength(value: string): number {
-  return Array.from(value).length;
+  return TextPolicy.characters(value).length;
 }
 
 export class AiPolishPolicy {
@@ -63,7 +64,7 @@ export class AiPolishPolicy {
    */
   static source(before: string): string {
     if (before.length === 0) return "";
-    const characters = Array.from(before);
+    const characters = TextPolicy.characters(before);
     const bounded =
       characters.length > MAX_POLISH_SOURCE_CHARACTERS
         ? characters.slice(characters.length - MAX_POLISH_SOURCE_CHARACTERS).join("")
