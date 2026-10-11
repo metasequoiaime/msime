@@ -32,8 +32,13 @@ def main() -> int:
     if "JsonPolicy.strictBoolean" not in smoke:
         print(f"{SMOKE}: 缺少 JsonPolicy.strictBoolean 合同检查", file=sys.stderr)
         return 1
-    if any("JsonPolicy.strictString" not in text for text in (source, recognizer, smoke)):
+    if any("JsonPolicy.strictString" not in text for text in (recognizer, smoke)):
         print(f"{SMOKE}: 缺少 JsonPolicy.strictString 合同检查", file=sys.stderr)
+        return 1
+    # 转写文本可以直接用 JsonPolicy.strictString，也可以交给共享转写边界 AiProviderResponse.boundedText（它内部就是 JsonPolicy.strictStringOrEmpty）。
+    source_shared = ("JsonPolicy.strictString", "AiProviderResponse.boundedText(value, MAX_TRANSCRIPT)")
+    if not any(call in source for call in source_shared):
+        print(f"{SOURCE}: 转写文本没有经过共享 JSON 字符串策略", file=sys.stderr)
         return 1
     print("Android 本地语音识别已复用共享 JSON 类型策略")
     return 0

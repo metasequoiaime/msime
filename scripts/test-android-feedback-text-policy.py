@@ -17,7 +17,9 @@ def main() -> int:
     errors = []
     if "public static int length(" in api:
         errors.append(f"{API}: 不应保留文本长度转发方法")
-    if "TextPolicy.codePointLength(text) > MAX_TEXT" not in api:
+    # 校验可以直接比较码点数，也可以交给共享的 TextPolicy.validBoundedText（它内部按同一个码点上限判断）。
+    api_shared = ("TextPolicy.codePointLength(text) > MAX_TEXT", "TextPolicy.validBoundedText(text, MAX_TEXT)")
+    if not any(call in api for call in api_shared):
         errors.append(f"{API}: 反馈校验应直接调用共享文本长度策略")
     if "import app.msime.android.TextPolicy;" not in page:
         errors.append(f"{PAGE}: 应直接导入 TextPolicy")
