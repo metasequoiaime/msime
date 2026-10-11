@@ -1,8 +1,8 @@
 //! 进程级的部分：模块缓存和后台编译线程、内存总账、熔断与健康文件、panic 总开关。
 //!
 //! - **模块缓存**按内容哈希存放编译好的 `ScriptModule`（内部是 `Arc`，可以跨线程共享）。会话线程只登记请求、查结果；读包、核对哈希、校验和 Eager 编译都在后台编译线程上做，不在按键和 focus 路径上。还没编译好的插件这一次跳过，不算失败。
-//! - **熔断**按 (插件根目录, id, 哈希) 计，不按会话：IBus 改一个设置就重建会话，按会话熔断会让坏插件在每个新会话里重来一次。初始化失败、ABI 不符或模块不合规立即停用；否则最近 50 次投递里失败 3 次、或最近 20 次里有 3 次超过 4 ms，就停用。停用持续到授权文件的 `revision` 变化或进程重启。
-//! - **健康文件** `<user_data>/script-health.json` 只记被停用的插件和停用的类别（`invalid`、`init`、`failed`、`slow`），在失焦和 destroy 时交给后台线程写出，只有停用或恢复之后才重写。不记失败次数，也不按原因细分：哪种 trap、失败几次都由脚本自己选，按次数或原因写出去，同一用户下的进程每次失焦后对比文件，就是一条能反复使用、按位传文本的通道；只记停用，熔断之后要等 `revision` 变化或进程重启才能再触发，剩下的是设计接受的一次性约 1 bit。具体的原因码只在停用时进一次诊断。
+//! - **熔断**按 (插件根目录, id, 哈希) 计，不按会话：IBus 改一个设置就重建会话，按会话熔断会让坏插件在每个新会话里重来一次。初始化失败、ABI 不符或模块不合规立即停用；否则最近 50 次投递里失败 3 次、或最近 20 次里有 3 次超过 4 ms，就停用。停用持续到授权文件里签过名的 `revision` 变大（`observe_revision`）或进程重启。
+//! - **健康文件** `<user_data>/script-health.json` 只记被停用的插件和停用的类别（`invalid`、`init`、`failed`、`slow`），在失焦和 destroy 时交给后台线程写出，只有停用或恢复之后才重写；进程重启也是恢复，本进程第一次读授权时文件在就重写一次（`adopt_health`）。不记失败次数，也不按原因细分：哪种 trap、失败几次都由脚本自己选，按次数或原因写出去，同一用户下的进程每次失焦后对比文件，就是一条能反复使用、按位传文本的通道；只记停用，熔断之后要等签过名的 `revision` 变大或进程重启才能再触发，剩下的是设计接受的一次性约 1 bit。具体的原因码只在停用时进一次诊断。
 //! - **panic 总开关**：投递里任何一处 panic 都关掉本进程的全部脚本，直到进程重启；那次调用照常返回上屏结果。
 //!
 //! import 从不回调宿主，所以这里的锁都不会在脚本代码运行时被重入；锁的顺序固定为先 `REGISTRY` 后单个 `Health`，从不反过来。
@@ -442,8 +442,10 @@ impl Health {
 
 #[derive(Default)]
 struct Registry {
-    /// 每个插件根目录最近一次看到的授权 `revision`。
+    /// 每个插件根目录看到过的最大的授权 `revision`（只算签过名的，见 `ScriptGrants::authenticated_revision`）。
     revisions: HashMap<PathBuf, u64>,
+    /// 本进程读过授权的插件根目录：第一次读时接管健康文件（`adopt_health`）。
+    adopted: HashSet<PathBuf>,
     entries: HashMap<(PathBuf, String, String), Arc<Health>>,
     /// 有没写出去的变化的根目录。
     dirty: HashSet<PathBuf>,
@@ -483,11 +485,15 @@ pub(crate) fn health_snapshot(root: &Path, id: &str, hash: &str) -> (u32, Option
     )
 }
 
-/// 会话重读了授权：`revision` 和上次看到的不同（用户在设置页改过授权、删过或重新导入过包），这个根目录下被熔断的插件全部恢复。第一次看到时只记下来。
+/// 会话重读了授权，`revision` 是签过名的：比以前看到过的都大（用户在设置页改过授权、删过或重新导入过包），这个根目录下被熔断的插件全部恢复。第一次看到时只记下来；不比以前大的（放回一份旧文件）什么都不做，所以复位只能跟着写入方真的写入一次发生，不能靠来回换文件反复触发。
 pub(super) fn observe_revision(root: &Path, revision: u64) {
     let mut registry = lock(&REGISTRY);
-    let previous = registry.revisions.insert(root.to_owned(), revision);
-    if previous.is_none_or(|previous| previous == revision) {
+    let previous = registry.revisions.get(root).copied();
+    if previous.is_some_and(|previous| revision <= previous) {
+        return;
+    }
+    registry.revisions.insert(root.to_owned(), revision);
+    if previous.is_none() {
         return;
     }
     for ((entry_root, _, _), health) in &registry.entries {
@@ -496,6 +502,19 @@ pub(super) fn observe_revision(root: &Path, revision: u64) {
         }
     }
     registry.dirty.insert(root.to_owned());
+}
+
+/// 本进程第一次为这个根目录读授权时调用：健康文件里已有的停用记录是上一个输入法进程留下的，停用只持续到进程重启，本进程里那些插件已经恢复了。文件在时标记为待写，下一次失焦按本进程的状态重写它，设置页不再显示早已解除的停用；文件不在时不写，没有变化就不写的约定不变。只在开关打开的进程里调用（会话重读授权的前提），所以不运行脚本的进程（Windows TIP、设置应用）从不改写别人的记录。
+pub(super) fn adopt_health(root: &Path, file: Option<&Path>) {
+    if lock(&REGISTRY).adopted.contains(root) {
+        return;
+    }
+    // 不在持锁时碰文件系统。
+    let stale = file.is_some_and(Path::exists);
+    let mut registry = lock(&REGISTRY);
+    if registry.adopted.insert(root.to_owned()) && stale {
+        registry.dirty.insert(root.to_owned());
+    }
 }
 
 /// 测试用的屏障：后台线程按顺序处理，`file` 写出来时，之前交过去的写入都已经完成。

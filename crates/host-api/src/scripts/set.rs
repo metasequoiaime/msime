@@ -151,7 +151,11 @@ impl ScriptSet {
             return;
         }
         let grants = script_grants::read(&root);
-        process::observe_revision(&root, grants.revision);
+        process::adopt_health(&root, self.health_file.as_deref());
+        // 只认签过名的 revision：没有签名的文件（或者文件不在）不能让熔断复位，否则同一用户下的程序换一次文件就能让一个被熔断的插件重来一遍。
+        if let Some(revision) = grants.authenticated_revision() {
+            process::observe_revision(&root, revision);
+        }
         self.plan = grants
             .enabled()
             .map(|grant| Entry {

@@ -806,6 +806,117 @@ fn repeated_failures_trip_the_breaker_until_the_revision_changes() {
     assert_eq!(kinds(&take_log()), [Hook::Commit.code()]);
 }
 
+/// 失焦，等后台线程把这之前交过去的健康文件写完。
+fn flush(fixture: &Fixture) {
+    read(msime_client_focus(fixture.handle, false));
+    let barrier = fixture.user_data.join("barrier.json");
+    let _ = std::fs::remove_file(&barrier);
+    crate::scripts::health_barrier(&barrier);
+    wait_for(|| barrier.exists().then_some(()));
+}
+
+#[test]
+fn swapping_grant_files_never_resets_the_breaker() {
+    let fixture = fixture();
+    let scripts = || [Script::new("trapper", trapper(), &[Hook::Commit])];
+    let hashes = install(&fixture, &scripts(), 5);
+    opt_in(&fixture, TRAIT_KNOWN);
+    for focus in 0..3 {
+        if focus > 0 {
+            read(msime_client_focus(fixture.handle, true));
+        }
+        commit_nihao(fixture.handle);
+    }
+    assert_eq!(take_log().len(), 3);
+    assert_eq!(
+        process_health(&fixture, "trapper", &hashes[0]),
+        (3, Some("unreachable"))
+    );
+    let document = script_grants::document_path(&fixture.plugins);
+    let signed = std::fs::read(&document).unwrap();
+    let mut unsigned: Value = serde_json::from_slice(&signed).unwrap();
+    unsigned["revision"] = 6.into();
+    unsigned["plugins"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("mac");
+    // 同一用户下的程序来回换文件：一份没有条目的、删掉文件、（macOS 上）一份签名不对的，然后放回原来签过名的那份。每换一次就重新聚焦，让会话重读授权。
+    let swaps: Vec<Option<Vec<u8>>> = [
+        Some(br#"{"format_version":1,"revision":6,"plugins":[]}"#.to_vec()),
+        None,
+    ]
+    .into_iter()
+    .chain(
+        cfg!(target_os = "macos")
+            .then(|| serde_json::to_vec(&unsigned).unwrap())
+            .map(Some),
+    )
+    .collect();
+    for swap in swaps {
+        match swap {
+            Some(bytes) => std::fs::write(&document, bytes).unwrap(),
+            None => std::fs::remove_file(&document).unwrap(),
+        }
+        read(msime_client_focus(fixture.handle, false));
+        read(msime_client_focus(fixture.handle, true));
+        // 放回签过名的那份（字节和原来的一样），模块也重新放进缓存：中间那次重读淘汰了它。
+        install(&fixture, &scripts(), 5);
+        assert_eq!(std::fs::read(&document).unwrap(), signed);
+        read(msime_client_focus(fixture.handle, false));
+        read(msime_client_focus(fixture.handle, true));
+        commit_nihao(fixture.handle);
+        // 仍然停用：放回来的那份 revision 没有比以前看到过的大，中间那份没有签名。
+        assert!(take_log().is_empty());
+        assert_eq!(
+            process_health(&fixture, "trapper", &hashes[0]).1,
+            Some("unreachable")
+        );
+    }
+    // 设置应用真的写入一次（签名的 revision 变大）才恢复。
+    install(&fixture, &scripts(), 7);
+    read(msime_client_focus(fixture.handle, false));
+    read(msime_client_focus(fixture.handle, true));
+    commit_nihao(fixture.handle);
+    assert_eq!(kinds(&take_log()), [Hook::Commit.code()]);
+}
+
+#[test]
+fn a_restarted_process_clears_the_stopped_plugins_its_predecessor_recorded() {
+    let fixture = fixture();
+    // 上一个输入法进程停用过 logger；停用只持续到进程重启。本进程第一次读授权时接管这份文件，下一次失焦按本进程的状态重写它。
+    let file = fixture.user_data.join("script-health.json");
+    let hashes = install(
+        &fixture,
+        &[Script::new("logger", logger(), &[Hook::Commit])],
+        1,
+    );
+    std::fs::write(
+        &file,
+        serde_json::to_vec(&json!({"format_version": 1, "plugins": [{"id": "logger", "hash": hashes[0], "disabled": "failed"}]})).unwrap(),
+    )
+    .unwrap();
+    opt_in(&fixture, TRAIT_KNOWN);
+    commit_nihao(fixture.handle);
+    assert_eq!(kinds(&take_log()), [Hook::Commit.code()]);
+    flush(&fixture);
+    let health: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(health, json!({"format_version": 1, "plugins": []}));
+}
+
+#[test]
+fn a_new_process_without_a_health_file_writes_none() {
+    let fixture = fixture();
+    install(
+        &fixture,
+        &[Script::new("logger", logger(), &[Hook::Commit])],
+        1,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    commit_nihao(fixture.handle);
+    flush(&fixture);
+    assert!(!fixture.user_data.join("script-health.json").exists());
+}
+
 #[test]
 fn a_failed_init_disables_the_plugin_at_once() {
     let fixture = fixture();
