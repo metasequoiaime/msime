@@ -293,30 +293,79 @@ pub fn personal_dictionary_entries_with(
     limit: usize,
     include_learned_pinyin: bool,
 ) -> Result<PersonalDictionaryPage> {
+    read_personal_dictionary_page(
+        paths,
+        main_dictionary,
+        offset,
+        limit,
+        include_learned_pinyin,
+        None,
+    )
+}
+
+/// 指定词库先筛选再分页；拼音带学习权重且排除单字，其他词库只导出用户词条。
+pub fn personal_dictionary_export_entries_for_kind(
+    paths: &RuntimePaths,
+    main_dictionary: bool,
+    kind: PersonalDictionaryKind,
+    offset: usize,
+    limit: usize,
+) -> Result<PersonalDictionaryPage> {
+    read_personal_dictionary_page(
+        paths,
+        main_dictionary,
+        offset,
+        limit,
+        kind == PersonalDictionaryKind::Pinyin,
+        Some(kind),
+    )
+}
+
+fn read_personal_dictionary_page(
+    paths: &RuntimePaths,
+    main_dictionary: bool,
+    offset: usize,
+    limit: usize,
+    include_learned_pinyin: bool,
+    kind: Option<PersonalDictionaryKind>,
+) -> Result<PersonalDictionaryPage> {
     if limit == 0 || limit > MAX_PAGE_LIMIT || offset > MAX_PAGE_OFFSET {
         return Err(failed(INVALID_PAGE));
     }
     paths.validate().map_err(|_| failed(STORAGE_UNAVAILABLE))?;
     let journal = paths.user(assets::USER_JOURNAL);
-    // Listing never creates the journal (J:1939).
+    // 列表读取不创建日志（J:1939）。
     if !journal.exists() {
         return Ok(PersonalDictionaryPage::default());
     }
     let connection = open_database(&journal, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|_| failed(DICTIONARY_NOT_READ))?;
+    let sql = if kind.is_some() {
+        "SELECT dictionary,key,value,weight FROM user_dictionary_operations WHERE operation='upsert' AND (user_inserted=1 OR (?3 AND dictionary='pinyin')) AND NOT (?3 AND dictionary='pinyin' AND length(value)<=1) AND (?4 OR dictionary='english') AND dictionary=?5 ORDER BY dictionary,key,value LIMIT ?1 OFFSET ?2"
+    } else {
+        "SELECT dictionary,key,value,weight FROM user_dictionary_operations WHERE operation='upsert' AND (user_inserted=1 OR (?3 AND dictionary='pinyin')) AND NOT (?3 AND dictionary='pinyin' AND length(value)<=1) AND (?4 OR dictionary='english') ORDER BY dictionary,key,value LIMIT ?1 OFFSET ?2"
+    };
     let mut statement = connection
-        .prepare(
-            "SELECT dictionary,key,value,weight FROM user_dictionary_operations WHERE operation='upsert' AND (user_inserted=1 OR (?3 AND dictionary='pinyin')) AND NOT (?3 AND dictionary='pinyin' AND length(value)<=1) AND (?4 OR dictionary='english') ORDER BY dictionary,key,value LIMIT ?1 OFFSET ?2",
-        )
+        .prepare(sql)
         .map_err(|_| failed(DICTIONARY_NOT_READ))?;
     let mut page = PersonalDictionaryPage::default();
     let read = (|| -> rusqlite::Result<()> {
-        let mut rows = statement.query(params![
-            page_bind(limit + 1),
-            page_bind(offset),
-            i64::from(include_learned_pinyin),
-            i64::from(main_dictionary)
-        ])?;
+        let mut rows = if let Some(kind) = kind {
+            statement.query(params![
+                page_bind(limit + 1),
+                page_bind(offset),
+                i64::from(include_learned_pinyin),
+                i64::from(main_dictionary),
+                kind.journal_name()
+            ])?
+        } else {
+            statement.query(params![
+                page_bind(limit + 1),
+                page_bind(offset),
+                i64::from(include_learned_pinyin),
+                i64::from(main_dictionary)
+            ])?
+        };
         while let Some(row) = rows.next()? {
             if page.entries.len() == limit {
                 page.has_more = true;
@@ -885,6 +934,109 @@ mod tests {
                 entry(PersonalDictionaryKind::Pinyin, "ni'hao", "你好", 1),
                 entry(PersonalDictionaryKind::QuickPhrase, "dh", "电\u{fffd}", 5),
             ]
+        );
+    }
+
+    #[test]
+    fn kind_export_filters_before_offset_and_keeps_export_rules() {
+        use PersonalDictionaryKind::*;
+        let root = tempfile::tempdir().unwrap();
+        let paths = fixture(root.path());
+        let journal = paths.user(assets::USER_JOURNAL);
+        ensure_user_database(&journal).unwrap();
+        let connection = open_database(&journal, OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap();
+        for kind in [Pinyin, Wubi, QuickPhrase, English, Wubi98] {
+            for (key, value, weight) in [
+                ("a", "合成甲", 11),
+                ("a", "合成乙", 12),
+                ("b", "合成丙", 13),
+            ] {
+                connection.execute(
+                    "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted) VALUES(?1,?2,?3,'upsert',?4,1)",
+                    params![kind.journal_name(), key, value, weight],
+                ).unwrap();
+            }
+            connection.execute(
+                "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted) VALUES(?1,'x','合成学习','upsert',21,0), (?1,'y','合成删除','delete',0,1)",
+                [kind.journal_name()],
+            ).unwrap();
+        }
+        connection.execute_batch(
+            "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted) VALUES
+             ('pinyin','c','合','upsert',22,1),
+             ('japanese','a','合成未知','upsert',23,1);",
+        ).unwrap();
+        drop(connection);
+        for kind in [Pinyin, Wubi, QuickPhrase, English, Wubi98] {
+            let mut expected = vec![
+                entry(kind, "a", "合成乙", 12),
+                entry(kind, "a", "合成甲", 11),
+                entry(kind, "b", "合成丙", 13),
+            ];
+            if kind == Pinyin {
+                expected.push(entry(kind, "x", "合成学习", 21));
+            }
+            let first =
+                personal_dictionary_export_entries_for_kind(&paths, true, kind, 0, 2).unwrap();
+            assert_eq!(first.entries, expected[..2]);
+            assert!(first.has_more);
+            let last =
+                personal_dictionary_export_entries_for_kind(&paths, true, kind, 2, 2).unwrap();
+            assert_eq!(last.entries, expected[2..]);
+            assert!(!last.has_more);
+            assert_eq!(
+                personal_dictionary_export_entries_for_kind(&paths, true, kind, expected.len(), 1)
+                    .unwrap(),
+                PersonalDictionaryPage::default()
+            );
+            let restricted =
+                personal_dictionary_export_entries_for_kind(&paths, false, kind, 0, 1000).unwrap();
+            assert_eq!(
+                restricted.entries,
+                if kind == English {
+                    expected
+                } else {
+                    Vec::new()
+                }
+            );
+            assert!(!restricted.has_more);
+        }
+    }
+
+    #[test]
+    fn kind_export_validates_pages_and_reads_without_creating_a_journal() {
+        use PersonalDictionaryKind::English;
+        let root = tempfile::tempdir().unwrap();
+        let paths = fixture(root.path());
+        let journal = paths.user(assets::USER_JOURNAL);
+        assert_eq!(
+            personal_dictionary_export_entries_for_kind(&paths, true, English, 1_000_000, 1000)
+                .unwrap(),
+            PersonalDictionaryPage::default()
+        );
+        assert!(!journal.exists());
+        for (offset, limit) in [(0, 0), (0, 1001), (1_000_001, 1)] {
+            assert_eq!(
+                personal_dictionary_export_entries_for_kind(&paths, true, English, offset, limit)
+                    .unwrap_err()
+                    .to_string(),
+                INVALID_PAGE
+            );
+        }
+        let mut relative = paths.clone();
+        relative.user_data = "relative".into();
+        assert_eq!(
+            personal_dictionary_export_entries_for_kind(&relative, true, English, 0, 1)
+                .unwrap_err()
+                .to_string(),
+            STORAGE_UNAVAILABLE
+        );
+        std::fs::write(&journal, b"synthetic invalid database").unwrap();
+        assert_eq!(
+            personal_dictionary_export_entries_for_kind(&paths, true, English, 0, 1)
+                .unwrap_err()
+                .to_string(),
+            DICTIONARY_NOT_READ
         );
     }
 

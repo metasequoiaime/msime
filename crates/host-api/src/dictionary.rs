@@ -795,41 +795,17 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             )
             .map_err(|_| "dictionary access unavailable")?
             .ok_or("dictionary maintenance busy")?;
-            let mut cursor = 0usize;
-            // Export pages are fetched in fixed 1000-entry chunks; reserve one
-            // chunk so the first filtered page does not grow the accumulator.
-            let mut matching = Vec::with_capacity(1000);
-            let mut source_has_more = true;
-            while source_has_more && matching.len() < offset.saturating_add(limit) {
-                // The pinyin export also carries the weights learned or set for bundled words, and leaves out single characters, as the reference's does; the other dictionaries export the user's own words only.
-                let page = msime_engine::host::dictionary_export_entries(
-                    &options,
-                    cursor,
-                    1000,
-                    kind == Kind::Pinyin,
-                )
-                .map_err(|_| "dictionary read rejected")?;
-                if page.entries.is_empty() {
-                    source_has_more = false;
-                    break;
-                }
-                cursor = cursor.saturating_add(page.entries.len());
-                source_has_more = page.has_more;
-                matching.extend(
-                    page.entries
-                        .into_iter()
-                        .filter(|entry| entry.kind == kind.into()),
-                );
-                if cursor > 1_000_000 {
-                    break;
-                }
-            }
-            let has_more = matching.len() > offset.saturating_add(limit)
-                || (source_has_more && matching.len() >= offset.saturating_add(limit));
-            let text = matching
+            let page = msime_engine::host::dictionary_export_entries_for_kind(
+                &options,
+                kind.into(),
+                offset,
+                limit,
+            )
+            .map_err(|_| "dictionary read rejected")?;
+            let has_more = page.has_more;
+            let text = page
+                .entries
                 .into_iter()
-                .skip(offset)
-                .take(limit)
                 .map(|entry| {
                     if format == "windows" {
                         format!("{}\t{}\t{}", entry.key, entry.value, entry.weight)

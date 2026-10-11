@@ -709,12 +709,10 @@ fn font_catalog_boundary_lists_sorted_bounded_families() {
         assert_eq!(result, json!({ "ok": false, "error": "unsupported" }));
         return;
     }
+    #[cfg(windows)]
+    assert_eq!(result["ok"], true, "Windows 始终具备系统字体集合");
     // A Linux machine without fontconfig cannot list anything; that is a failure response, never a panic or a partial list.
     if result["ok"] == false {
-        assert!(
-            !cfg!(windows),
-            "Windows always has a system font collection"
-        );
         assert!(matches!(
             result["error"].as_str(),
             Some("font_catalog" | "font_catalog_limit")

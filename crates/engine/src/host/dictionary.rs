@@ -61,6 +61,22 @@ pub fn dictionary_export_entries(
     ))
 }
 
+/// 只查询指定词库的一页，偏移和后续页状态都以该词库为准。
+pub fn dictionary_export_entries_for_kind(
+    options: &EngineOptions,
+    kind: DictionaryKind,
+    offset: usize,
+    limit: usize,
+) -> Result<DictionaryPage> {
+    released(personal::personal_dictionary_export_entries_for_kind(
+        &runtime_paths(options),
+        main_dictionary(options),
+        kind,
+        offset,
+        limit,
+    ))
+}
+
 pub fn dictionary_table_entries(
     options: &EngineOptions,
     kind: DictionaryKind,
