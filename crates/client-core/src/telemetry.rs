@@ -671,13 +671,16 @@ impl TelemetryStore {
 }
 
 fn crash_record_paths(directory: &Path) -> Result<Vec<PathBuf>, TelemetryError> {
-    let mut records = Vec::with_capacity(MAX_CRASH_RECORDS_PER_START);
+    let mut records = Vec::new();
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
         let path = entry.path();
         if entry.file_type()?.is_file()
             && path.extension().and_then(|value| value.to_str()) == Some(CRASH_EXTENSION)
         {
+            if records.is_empty() {
+                records.reserve_exact(MAX_CRASH_RECORDS_PER_START);
+            }
             records.push(path);
         }
     }

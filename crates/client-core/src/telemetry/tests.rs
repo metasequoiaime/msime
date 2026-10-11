@@ -434,6 +434,9 @@ fn telemetry_queue_capacity_is_bounded_by_the_queue_limit() {
 #[test]
 fn crash_record_paths_reserve_one_start_batch() {
     let directory = tempfile::tempdir().unwrap();
+    let empty = super::crash_record_paths(directory.path()).unwrap();
+    assert!(empty.is_empty());
+    assert_eq!(empty.capacity(), 0);
     std::fs::write(directory.path().join("synthetic.crash"), b"fixture").unwrap();
     let records = super::crash_record_paths(directory.path()).unwrap();
     assert_eq!(records.len(), 1);
