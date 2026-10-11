@@ -101,8 +101,8 @@ struct CloudDictionaryView: View {
               title: "应用到本机", detail: "把整份云词库交给本机键盘",
               symbol: "iphone.and.arrow.forward")
           }
-          NavigationLink(destination: CloudDictionaryFilesView(kind: kind,
-            accountID: userID, session: session, imported: { try await load(offset: 0) })) {
+          NavigationLink(destination: CloudDictionaryFilesView(accountID: userID,
+            kind: kind, session: session, imported: { try await load(offset: 0) })) {
             CloudDictionaryRowLabel(
               title: "导入与导出", detail: "用文件搬运词条",
               symbol: "doc.badge.arrow.up.fill")
