@@ -35,15 +35,31 @@ pub fn hanzi_to_pinyin(main_db: &Path, text: &str) -> String {
         return exact;
     }
     let singles = cached_single_hanzi_map(&connection, main_db);
-    let mut readings = Vec::with_capacity(length);
+    let Some(readings) = collect_single_hanzi_readings(text, &singles) else {
+        return String::new();
+    };
+    readings.join("'")
+}
+
+fn collect_single_hanzi_readings<'a>(
+    text: &str,
+    singles: &'a HanziReadings,
+) -> Option<Vec<&'a str>> {
     let mut buffer = [0; 4];
     for character in text.chars() {
-        let Some(reading) = singles.get(character.encode_utf8(&mut buffer) as &str) else {
-            return String::new();
-        };
+        if !singles.contains_key(character.encode_utf8(&mut buffer) as &str) {
+            return None;
+        }
+    }
+    let mut readings = Vec::with_capacity(text.chars().count());
+    let mut buffer = [0; 4];
+    for character in text.chars() {
+        let reading = singles
+            .get(character.encode_utf8(&mut buffer) as &str)
+            .expect("单字读音已在预检中确认");
         readings.push(reading.as_str());
     }
-    readings.join("'")
+    Some(readings)
 }
 
 /// The bridge's own Han ranges (bridge.cpp:143-148). Narrower than `text::is_han`: no U+3007 and nothing past U+2FA1F, and the import path keeps rejecting those.
@@ -261,6 +277,16 @@ mod tests {
             "ni'ni'ni'ni'ni'ni'ni'ni"
         );
         assert_eq!(hanzi_to_pinyin(&path, "你猫"), "");
+    }
+
+    #[test]
+    fn missing_single_reading_does_not_allocate_fallback_storage() {
+        let singles = HanziReadings::from([(String::from("你"), String::from("ni"))]);
+        let (readings, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            collect_single_hanzi_readings("猫", &singles)
+        });
+        assert!(readings.is_none());
+        assert_eq!(allocations, 0);
     }
 
     #[test]
