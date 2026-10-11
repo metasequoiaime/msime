@@ -4026,7 +4026,16 @@ struct VoiceStreamContext {
   MsimeVoiceWorker::Progress progress;
   std::function<void(uint8_t)> status;
   std::function<void(float)> level;
+  std::function<bool()> cancelled;
 };
+extern "C" bool voice_provider_cancelled(void *context) noexcept {
+  auto *stream = static_cast<VoiceStreamContext *>(context);
+  try {
+    return !stream || !stream->cancelled || stream->cancelled();
+  } catch (...) {
+    return true;
+  }
+}
 extern "C" void voice_provider_level_update(float level, void *context) {
   auto *stream = static_cast<VoiceStreamContext *>(context);
   try {
@@ -4285,11 +4294,12 @@ void voice_start_impl(IBusEngine *engine) {
             }
             return G_SOURCE_REMOVE;
           }, result, nullptr);
-        }};
-        auto *raw = msime_client_voice_provider_stream_feedback(
+        }, [&cancelled] { return cancelled.load(); }};
+        auto *raw = msime_client_voice_provider_stream_feedback_cancelled(
             reinterpret_cast<const uint8_t *>(query.data()), query.size(),
             reinterpret_cast<const uint8_t *>(socket.data()), socket.size(),
-            voice_provider_stream_update, voice_provider_status_update, voice_provider_level_update, &stream);
+            voice_provider_stream_update, voice_provider_status_update,
+            voice_provider_level_update, voice_provider_cancelled, &stream);
         auto owned = msime::host_api::own_string(raw);
         if (cancelled.load() || !raw)
           return std::string{};
