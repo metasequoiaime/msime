@@ -5,7 +5,7 @@ use reqwest::blocking::{Client, Response};
 use reqwest::{Method, StatusCode, Url};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::future::Future;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -39,23 +39,29 @@ pub(crate) fn valid_model_catalog<'a>(
     maximum_models: usize,
     maximum_id_bytes: usize,
 ) -> bool {
-    let mut ids = Vec::with_capacity(maximum_models);
-    ids.extend(models);
-    !ids.is_empty()
-        && ids.len() <= maximum_models
-        && !default_model.is_empty()
-        && crate::text::is_bounded_text(default_model, maximum_id_bytes)
-        && ids.contains(&default_model)
-        && ids
-            .iter()
-            .all(|id| !id.is_empty() && crate::text::is_bounded_text(id, maximum_id_bytes))
-        && {
-            let mut unique = std::collections::HashSet::with_capacity(ids.len());
-            for id in &ids {
-                unique.insert(id);
-            }
-            unique.len() == ids.len()
+    if maximum_models == 0
+        || default_model.is_empty()
+        || !crate::text::is_bounded_text(default_model, maximum_id_bytes)
+    {
+        return false;
+    }
+    let mut ids = HashSet::new();
+    let mut default_present = false;
+    for id in models {
+        if id.is_empty() || !crate::text::is_bounded_text(id, maximum_id_bytes) {
+            return false;
         }
+        if ids.len() >= maximum_models || !ids.insert(id) {
+            return false;
+        }
+        if id == default_model {
+            default_present = true;
+        }
+        if ids.len() == 1 {
+            ids.reserve(maximum_models.saturating_sub(ids.len()));
+        }
+    }
+    default_present && !ids.is_empty()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

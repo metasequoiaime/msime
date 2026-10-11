@@ -133,6 +133,23 @@ fn validates_chat_catalog_and_request_boundaries() {
 }
 
 #[test]
+fn model_catalog_validation_stops_after_the_first_invalid_id() {
+    let consumed = std::cell::Cell::new(0);
+    let models = std::iter::from_fn(|| {
+        let index = consumed.get();
+        consumed.set(index + 1);
+        match index {
+            0 => Some(""),
+            1 => Some("unused"),
+            _ => None,
+        }
+    });
+
+    assert!(!valid_model_catalog(models, "unused", 33, 200));
+    assert_eq!(consumed.get(), 1);
+}
+
+#[test]
 fn validates_dictionary_boundaries() {
     let valid_id = "0123456789abcdef".repeat(4);
     assert_eq!(
