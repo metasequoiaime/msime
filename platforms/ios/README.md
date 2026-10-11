@@ -279,7 +279,7 @@ xcodebuild test -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEClient
 
 必须允许签名。测试宿主带 App Group entitlement，被测键盘要靠它读共享偏好；用 `CODE_SIGNING_ALLOWED=NO` 构建会剥掉 entitlement，宿主在套件中途被杀，后面的用例全部不报告。模拟器上 `CODE_SIGN_IDENTITY=-` 即 ad-hoc 签名，不需要任何开发者证书。
 
-当前结果为 **836 项、7 跳过、0 失败**（`MSIMEKeyboardTests` 689 含 7 跳过、`MSIMESharedTests` 75、`MSIMEServiceTests` 72；Xcode 27 / iOS 27.0 模拟器，未暂存可选的注音与笔画词库）。除下述释义用例外，另有 6 条依赖注音或笔画词库的用例在词库缺席时跳过；暂存对应词库后会执行。**先 `xcodegen generate`**：提交在仓库里的工程会漏掉后加的源文件（实测漏过 `KeyboardAppLauncher.swift`，整套编译不过），所以它不是权威来源，`project.yml` 才是。
+当前结果为 **849 项、7 跳过、0 失败**（`MSIMEKeyboardTests` 701 含 7 跳过、`MSIMESharedTests` 76、`MSIMEServiceTests` 72；Xcode 27 / iOS 27.0 模拟器，未暂存可选的注音与笔画词库）。除下述释义用例外，另有 6 条依赖注音或笔画词库的用例在词库缺席时跳过；暂存对应词库后会执行。**先 `xcodegen generate`**：提交在仓库里的工程会漏掉后加的源文件（实测漏过 `KeyboardAppLauncher.swift`，整套编译不过），所以它不是权威来源，`project.yml` 才是。
 
 跑之前建一台干净模拟器再删掉，不要用手边那台：测试宿主带 App Group，读的是共享容器里的偏好，上一次运行留下的值会改变结果。
 
