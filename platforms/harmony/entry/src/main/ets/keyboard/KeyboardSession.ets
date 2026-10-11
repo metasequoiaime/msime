@@ -40,7 +40,6 @@ import { FullWidthInputPolicy } from './input/FullWidthInputPolicy';
 import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { ChineseOutputPolicy } from './input/ChineseOutputPolicy';
 import { KeyboardFeedback, FeedbackSettings, HapticPlan, HapticStrength } from './KeyboardFeedback';
-import { NumberKeypadOrder, TwentySixKeyNumberLayout } from './input/NineKeyLayout';
 import { HardwareKeyRouter, HardwareNavigationPreferences, HardwareSpelling } from './HardwareKeyRouter';
 import vibrator from '@ohos.vibrator';
 import common from '@ohos.app.ability.common';
@@ -846,10 +845,6 @@ interface PreparedPreferences {
   touch_keyboard_height_adjustment: number;
   /** Show the native Harmony voice entry in the top touch-keyboard shortcut bar. */
   touch_voice_shortcut: boolean;
-  /** 九键数字层的排列：`phone`（1 2 3 在上）或 `calculator`（7 8 9 在上）；旧文档没有这个键，按 `phone`。 */
-  touch_number_keypad_order?: string;
-  /** 26 键按「123」切到的数字层：`row`（一行 1 到 0）或 `nine_key`（九宫格数字层）；旧文档没有这个键，按 `row`。 */
-  touch_twenty_six_key_number_layout?: string;
   /** 26 键双拼字母键底部的声母/韵母提示；旧文档没有这个键，按开。 */
   touch_shuangpin_key_hints?: boolean;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -985,10 +980,6 @@ export interface KeyboardPreferences {
   readonly keySpacingTenths: number;
   readonly rowSpacingTenths: number;
   readonly heightAdjustment: number;
-  /** `NumberKeypadOrder` 归一后的九键数字层排列。 */
-  readonly numberKeypadOrder: string;
-  /** `TwentySixKeyNumberLayout` 归一后的 26 键数字层。 */
-  readonly twentySixKeyNumberLayout: string;
   /** `touch_shuangpin_key_hints`：关掉时 26 键双拼不画键位提示。 */
   readonly shuangpinKeyHints: boolean;
 }
@@ -1244,8 +1235,6 @@ export class KeyboardSession implements HardwareKeyTarget {
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
-    numberKeypadOrder: NumberKeypadOrder.PHONE,
-    twentySixKeyNumberLayout: TwentySixKeyNumberLayout.ROW,
     shuangpinKeyHints: true
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
@@ -1512,9 +1501,6 @@ export class KeyboardSession implements HardwareKeyTarget {
       rowSpacingTenths: KeyboardGeometry.rowSpacing(preferences.touch_row_spacing_tenths),
       heightAdjustment:
         KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
-      numberKeypadOrder: NumberKeypadOrder.normalized(preferences.touch_number_keypad_order),
-      twentySixKeyNumberLayout:
-        TwentySixKeyNumberLayout.normalized(preferences.touch_twenty_six_key_number_layout),
       shuangpinKeyHints: preferences.touch_shuangpin_key_hints !== false
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.

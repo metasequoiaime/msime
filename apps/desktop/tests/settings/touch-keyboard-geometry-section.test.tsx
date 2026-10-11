@@ -167,85 +167,6 @@ test("disables the tablet switch while saving", () => {
   expect((screen.getByLabelText("滑动方向") as HTMLSelectElement).disabled).toBe(true);
 });
 
-test("offers the number keypad order only where the host has a nine-key digit layer", () => {
-  const onNumberKeypadOrderChange = vi.fn();
-  const { rerender } = render(<TouchKeyboardGeometrySection {...baseProps} />);
-  expect(screen.queryByText("九宫格数字顺序")).toBeNull();
-
-  rerender(
-    <TouchKeyboardGeometrySection
-      {...baseProps}
-      tabletFullKeys={undefined}
-      tabletSplitKeyboard={undefined}
-      numberKeypadOrder="phone"
-      onNumberKeypadOrderChange={onNumberKeypadOrderChange}
-    />,
-  );
-  expect(screen.getByText("九宫格数字顺序")).toBeTruthy();
-  expect(screen.getByRole("radio", { name: "123 在上" })).toHaveProperty("checked", true);
-  fireEvent.click(screen.getByRole("radio", { name: "789 在上" }));
-  expect(onNumberKeypadOrderChange).toHaveBeenCalledWith("calculator");
-});
-
-test("offers the 26-key number layout next to the keypad order when the host has it", () => {
-  const onTwentySixKeyNumberLayoutChange = vi.fn();
-  const { rerender } = render(
-    <TouchKeyboardGeometrySection
-      {...baseProps}
-      tabletFullKeys={undefined}
-      tabletSplitKeyboard={undefined}
-      numberKeypadOrder="phone"
-      onNumberKeypadOrderChange={vi.fn()}
-    />,
-  );
-  expect(screen.queryByText("26 键按 123")).toBeNull();
-
-  rerender(
-    <TouchKeyboardGeometrySection
-      {...baseProps}
-      tabletFullKeys={undefined}
-      tabletSplitKeyboard={undefined}
-      numberKeypadOrder="phone"
-      onNumberKeypadOrderChange={vi.fn()}
-      twentySixKeyNumberLayout="row"
-      onTwentySixKeyNumberLayoutChange={onTwentySixKeyNumberLayoutChange}
-    />,
-  );
-  const layoutRow = screen.getByText("26 键按 123");
-  expect(
-    layoutRow.compareDocumentPosition(screen.getByText("九宫格数字顺序")) &
-      Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-  expect(screen.getByRole("radio", { name: "数字一行" })).toHaveProperty("checked", true);
-  fireEvent.click(screen.getByRole("radio", { name: "九宫格" }));
-  expect(onTwentySixKeyNumberLayoutChange).toHaveBeenCalledWith("nine_key");
-});
-
-test("puts the number keypad order after 中文键盘 when the size group is already 布局", () => {
-  render(
-    <TouchKeyboardGeometrySection
-      {...baseProps}
-      tabletFullKeys={undefined}
-      tabletSplitKeyboard={undefined}
-      numberKeypadOrder="calculator"
-      onNumberKeypadOrderChange={vi.fn()}
-      layoutRows={<div>中文键盘</div>}
-    />,
-  );
-  // HarmonyOS 手机的尺寸组就叫「布局」，不再另起一个同名分组。
-  expect(screen.getAllByText("布局")).toHaveLength(1);
-  const layoutRow = screen.getByText("中文键盘");
-  const orderRow = screen.getByText("九宫格数字顺序");
-  expect(
-    layoutRow.compareDocumentPosition(orderRow) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-  expect(
-    orderRow.compareDocumentPosition(screen.getByText("键盘高度")) &
-      Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-  expect(screen.getByRole("radio", { name: "789 在上" })).toHaveProperty("checked", true);
-});
-
 test("offers the shuangpin key hint switch only where the host draws the hints", () => {
   const onShuangpinKeyHintsChange = vi.fn();
   const { rerender } = render(<TouchKeyboardGeometrySection {...baseProps} />);
@@ -274,18 +195,17 @@ test("puts the shuangpin key hint switch in the size group when that group is al
       {...baseProps}
       tabletFullKeys={undefined}
       tabletSplitKeyboard={undefined}
-      numberKeypadOrder="phone"
       shuangpinKeyHints={false}
       onShuangpinKeyHintsChange={vi.fn()}
       layoutRows={<div>中文键盘</div>}
     />,
   );
+  // HarmonyOS 手机的尺寸组就叫「布局」，不再另起一个同名分组。
   expect(screen.getAllByText("布局")).toHaveLength(1);
   const hints = screen.getByRole("switch", { name: "双拼键位提示" }) as HTMLInputElement;
   expect(hints.checked).toBe(false);
   expect(
-    screen.getByText("九宫格数字顺序").compareDocumentPosition(hints) &
-      Node.DOCUMENT_POSITION_FOLLOWING,
+    screen.getByText("中文键盘").compareDocumentPosition(hints) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
   expect(
     hints.compareDocumentPosition(screen.getByText("键盘高度")) & Node.DOCUMENT_POSITION_FOLLOWING,

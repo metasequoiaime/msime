@@ -115,10 +115,6 @@ public final class FourteenKeyLayoutSmoke {
             "the bottom row is the 26-key one");
         check(KeyboardActionRow.layerTitle(fourteen, false).equals("123")
             && KeyboardActionRow.layerTitle(fourteen, true).equals("14键"), "the layer key titles");
-        // 123 跟随 `touch_twenty_six_key_number_layout`，分体时不借九宫格（14 键不分体，这里只是同一条规则）。
-        check(NineKeyLayout.twentySixKeyDigits(fourteen, true, true, false), "the 9-grid digit face is borrowed");
-        check(!NineKeyLayout.twentySixKeyDigits(fourteen, true, false, false), "the row 123 layer by default");
-        check(!NineKeyLayout.twentySixKeyDigits(fourteen, false, true, false), "letters stay letters");
         // 三栏面板与九键共用：按 14 键的布局判断，字母层组字时画三栏，123 层不画。
         check(KeyboardLayout.drawsKeyGrid(fourteen), "the 14 keys are a key-grid face");
         check(NineKeyPanelPolicy.threeColumn(fourteen, true, false, true), "the three-column panel opens while composing");

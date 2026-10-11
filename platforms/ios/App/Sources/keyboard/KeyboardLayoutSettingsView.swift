@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// 键盘页，对应 Android 的 `KeyboardOptionsPage`：带高度拖柄的实时预览，然后是布局（中文键盘 26 / 14 / 9 键、26 键按 123、九宫格数字顺序、双拼键位提示、高度和间距）、按键反馈、手势、iPad 选项、恢复默认和更多（候选栏、键盘工具栏、AI 润色与回复）。
+/// 键盘页，对应 Android 的 `KeyboardOptionsPage`：带高度拖柄的实时预览，然后是布局（中文键盘 26 / 14 / 9 键、双拼键位提示、高度和间距）、按键反馈、手势、iPad 选项、恢复默认和更多（候选栏、键盘工具栏、AI 润色与回复）。
 ///
 /// 设计稿里的按键弹出预览没有做：键盘本身不支持。手势里的滑动输入符号和长按空格语音输入与 Android 一样是本机开关（`KeyboardLayoutPreference.swipeSymbols`、`spaceVoice`），默认开。工具栏语音按钮的开关挪到了语音输入页，由那一页单独写 `touch_voice_shortcut`；这里每次只保存用户刚动的那一项几何尺寸，见 `save(_:)`。
 struct KeyboardLayoutSettingsView: View {
@@ -17,8 +17,6 @@ struct KeyboardLayoutSettingsView: View {
   @State private var swipeSymbols = KeyboardLayoutPreference.swipeSymbols
   @State private var spaceVoice = KeyboardLayoutPreference.spaceVoice
   @State private var tabOpensCandidates = true
-  @State private var numberKeypadOrder = KeyboardLayoutPreference.numberKeypadOrder
-  @State private var twentySixKeyNumberLayout = KeyboardLayoutPreference.twentySixKeyNumberLayout
   @State private var shuangpinKeyHints = KeyboardLayoutPreference.shuangpinKeyHints
   @State private var dragBase: (height: Double, keySpacing: Double, rowSpacing: Double)?
   @State private var dragAxis: Axis?
@@ -159,23 +157,6 @@ struct KeyboardLayoutSettingsView: View {
   private var layoutGroup: some View {
     DesignGroup(title: "布局", footer: saveFailed ? Self.saveFailedNote : nil) {
       chineseKeyboardRow
-      DesignDivider()
-      // 与 Android 键盘页一样排在中文键盘之后、键盘高度之前。
-      DesignSelectRow(
-        title: "26 键按 123", subtitle: "26 键按 123 时出来的数字键盘",
-        options: KeyboardLayoutPreference.TwentySixKeyNumberLayout.allCases.map { DesignOption(title: $0.title, value: $0) },
-        selection: Binding(get: { twentySixKeyNumberLayout }, set: { saveTwentySixKeyNumberLayout($0) }),
-        sheetTitle: "26 键按 123",
-        sheetMessage: "数字一行把 1 到 0 排在符号上面；九宫格换成和 9 键一样的 3×3 大数字键，排列跟着下面的九宫格数字顺序，符号仍可长按 123 打开。iPad 全尺寸键盘有自己的数字行，始终是一行。",
-        identifier: "appTwentySixKeyNumberLayoutPicker")
-      DesignDivider()
-      DesignSelectRow(
-        title: "九宫格数字顺序", subtitle: "九宫格数字键的排列",
-        options: KeyboardLayoutPreference.NumberKeypadOrder.allCases.map { DesignOption(title: $0.title, value: $0) },
-        selection: Binding(get: { numberKeypadOrder }, set: { saveNumberKeypadOrder($0) }),
-        sheetTitle: "九宫格数字顺序",
-        sheetMessage: "123 在上和电话拨号盘一样；789 在上时 1 2 3 在最下面，和计算器、电脑小键盘一样。字母键的排列不变。",
-        identifier: "appNumberKeypadOrderPicker")
       DesignDivider()
       // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。
       if ChineseInputScheme.shuangpin.isOfferedByEdition {
@@ -403,20 +384,6 @@ struct KeyboardLayoutSettingsView: View {
     if saveFailed { readPreferences() }
   }
 
-  private func saveNumberKeypadOrder(_ order: KeyboardLayoutPreference.NumberKeypadOrder) {
-    saveFailed = !KeyboardLayoutPreference.saveNumberKeypadOrder(order)
-    numberKeypadOrder = saveFailed
-      ? KeyboardLayoutPreference.NumberKeypadOrder.shared(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
-      : order
-  }
-
-  private func saveTwentySixKeyNumberLayout(_ layout: KeyboardLayoutPreference.TwentySixKeyNumberLayout) {
-    saveFailed = !KeyboardLayoutPreference.saveTwentySixKeyNumberLayout(layout)
-    twentySixKeyNumberLayout = saveFailed
-      ? KeyboardLayoutPreference.TwentySixKeyNumberLayout.shared(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
-      : layout
-  }
-
   private func saveShuangpinKeyHints(_ enabled: Bool) {
     saveFailed = !KeyboardLayoutPreference.saveShuangpinKeyHints(enabled)
     shuangpinKeyHints = saveFailed
@@ -451,10 +418,6 @@ struct KeyboardLayoutSettingsView: View {
     keySpacing = KeyboardLayoutPreference.keySpacing
     rowSpacing = KeyboardLayoutPreference.rowSpacing
     height = KeyboardLayoutPreference.heightAdjustment
-    numberKeypadOrder = KeyboardLayoutPreference.NumberKeypadOrder.shared(in: preferences)
-    KeyboardLayoutPreference.numberKeypadOrder = numberKeypadOrder
-    twentySixKeyNumberLayout = KeyboardLayoutPreference.TwentySixKeyNumberLayout.shared(in: preferences)
-    KeyboardLayoutPreference.twentySixKeyNumberLayout = twentySixKeyNumberLayout
     shuangpinKeyHints = KeyboardLayoutPreference.sharedShuangpinKeyHints(in: preferences)
     KeyboardLayoutPreference.shuangpinKeyHints = shuangpinKeyHints
   }

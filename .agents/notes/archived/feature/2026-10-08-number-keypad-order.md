@@ -1,6 +1,7 @@
 # Agent Note: 九宫格数字层的计算器排列
 
 Status: implemented
+Archived: 2026-10-11
 
 ## Problem
 

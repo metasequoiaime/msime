@@ -1,6 +1,7 @@
 # Agent Note: 手机 26 键的「123」可以换成九宫格数字层
 
 Status: implemented
+Archived: 2026-10-11
 
 ## Problem
 

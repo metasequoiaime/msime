@@ -59,12 +59,7 @@ import { ReplyKeyboardPolicy } from "../entry/src/main/ets/keyboard/ReplyKeyboar
 import { ReplyContextPolicy } from "../entry/src/main/ets/keyboard/ReplyContextPolicy";
 import { CommunityReplyLibraryPolicy } from "../entry/src/main/ets/keyboard/CommunityReplyLibraryPolicy";
 import { TextPolicy } from "../entry/src/main/ets/keyboard/TextPolicy";
-import {
-  NineKeyLayout,
-  NineKey,
-  NumberKeypadOrder,
-  TwentySixKeyNumberLayout,
-} from "../entry/src/main/ets/keyboard/input/NineKeyLayout";
+import { NineKeyLayout, NineKey } from "../entry/src/main/ets/keyboard/input/NineKeyLayout";
 import {
   NineKeyPanelBackspace,
   NineKeyPanelMode,
@@ -2584,79 +2579,6 @@ group("the digit layer re-labels the grid instead of handing over ten across", (
       (symbol: string) => !NineKeyLayout.punctuation().includes(symbol),
     ),
     "and offers marks the letter layer does not already carry",
-  );
-});
-
-group("the digit layer can be laid out like a calculator", () => {
-  const faces = (rows: NineKey[][]): string =>
-    rows
-      .flat()
-      .map((key: NineKey) => key.label)
-      .join("");
-  check(
-    faces(NineKeyLayout.digits(NumberKeypadOrder.CALCULATOR)) === "789456123",
-    "calculator order puts 7 8 9 on top and 1 2 3 at the bottom",
-  );
-  check(
-    faces(NineKeyLayout.digits(NumberKeypadOrder.PHONE)) === "123456789",
-    "phone order is the default telephone grid",
-  );
-  check(faces(NineKeyLayout.digits()) === "123456789", "no order given is the phone order");
-  check(
-    faces(NineKeyLayout.digits("abacus")) === "123456789",
-    "an order this build does not know falls back to the phone grid",
-  );
-  check(
-    NineKeyLayout.digits(NumberKeypadOrder.CALCULATOR)
-      .flat()
-      .every((key: NineKey) => key.input === key.label),
-    "every calculator cell still sends the digit it prints",
-  );
-  check(
-    NineKeyLayout.rows()[0][1].label === "ABC" && NineKeyLayout.rows()[2][2].label === "WXYZ",
-    "the letter layer keeps its order whatever the digit layer does",
-  );
-  check(
-    NumberKeypadOrder.normalized(undefined) === NumberKeypadOrder.PHONE &&
-      NumberKeypadOrder.normalized(null) === NumberKeypadOrder.PHONE &&
-      NumberKeypadOrder.normalized("calculator") === NumberKeypadOrder.CALCULATOR,
-    "an older document without the key reads as the phone order",
-  );
-});
-
-group("the twenty-six key 123 can open the nine-key digit layer", () => {
-  const NINE = TwentySixKeyNumberLayout.NINE_KEY;
-  check(
-    TwentySixKeyNumberLayout.opensNineKeyDigits(NINE, true, true, true),
-    "nine_key on a touch 26-key digit layer draws the nine-key digits",
-  );
-  check(
-    !TwentySixKeyNumberLayout.opensNineKeyDigits(TwentySixKeyNumberLayout.ROW, true, true, true),
-    "row keeps the 1–0 page",
-  );
-  check(
-    !TwentySixKeyNumberLayout.opensNineKeyDigits(undefined, true, true, true) &&
-      !TwentySixKeyNumberLayout.opensNineKeyDigits(null, true, true, true) &&
-      !TwentySixKeyNumberLayout.opensNineKeyDigits("grid", true, true, true),
-    "an older document or an unknown value keeps the 1–0 page",
-  );
-  check(
-    !TwentySixKeyNumberLayout.opensNineKeyDigits(NINE, true, false, true),
-    "the letter layer is never replaced",
-  );
-  check(
-    !TwentySixKeyNumberLayout.opensNineKeyDigits(NINE, false, true, true),
-    "the 2in1 screen keyboard keeps its own symbol rows",
-  );
-  check(
-    !TwentySixKeyNumberLayout.opensNineKeyDigits(NINE, true, true, false),
-    "faces that are not the 26-key letter rows (nine-key, kana, zhuyin, stroke, handwriting) are left alone",
-  );
-  check(
-    TwentySixKeyNumberLayout.normalized("nine_key") === NINE &&
-      TwentySixKeyNumberLayout.normalized(undefined) === TwentySixKeyNumberLayout.ROW &&
-      TwentySixKeyNumberLayout.normalized("calculator") === TwentySixKeyNumberLayout.ROW,
-    "only nine_key reads as the grid; everything else is the row",
   );
 });
 

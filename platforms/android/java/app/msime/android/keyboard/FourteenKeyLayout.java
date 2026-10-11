@@ -34,7 +34,7 @@ public final class FourteenKeyLayout {
     /** 一个字母键（两个字母）在一行里的宽度份额；一行五个键正好是 26 键第一行十个字母的宽度。 */
     public static final float LETTER_WEIGHT = 2f;
 
-    /** 符号层（123 层和借用的九宫格数字键面）上返回 14 键的键面。 */
+    /** 符号层（123 层）上返回 14 键的键面。 */
     public static final String LAYER_TITLE = "14键";
 
     private FourteenKeyLayout() {}
