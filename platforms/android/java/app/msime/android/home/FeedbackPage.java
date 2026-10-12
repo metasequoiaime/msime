@@ -371,9 +371,7 @@ public final class FeedbackPage extends DetailPage {
 
     /** 没装 Telegram 又没有浏览器时，退而复制链接。 */
     private void openTelegram() {
-        try {
-            startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(TELEGRAM_URL)));
-        } catch (android.content.ActivityNotFoundException missing) {
+        if (!LinkActions.open(requireContext(), TELEGRAM_URL)) {
             copy("Telegram", TELEGRAM_URL, "已复制群组链接");
         }
     }

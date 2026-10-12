@@ -1049,11 +1049,10 @@ impl OnlineProviderWorker {
             .name("msime-online-provider".into())
             .spawn(move || {
                 while incoming.recv().is_ok() {
-                    // Windows waits for input to settle instead of querying
-                    // every intermediate text; a submit during the wait just
-                    // replaces the query read when it ends.
+                    // Wait for a full quiet period after the latest submit;
+                    // intermediate text is replaced without querying it.
                     if !debounce.is_zero() {
-                        let deadline = std::time::Instant::now() + debounce;
+                        let mut deadline = std::time::Instant::now() + debounce;
                         loop {
                             let remaining =
                                 deadline.saturating_duration_since(std::time::Instant::now());
@@ -1061,7 +1060,7 @@ impl OnlineProviderWorker {
                                 break;
                             }
                             match incoming.recv_timeout(remaining) {
-                                Ok(()) => {}
+                                Ok(()) => deadline = std::time::Instant::now() + debounce,
                                 Err(mpsc::RecvTimeoutError::Timeout) => break,
                                 Err(mpsc::RecvTimeoutError::Disconnected) => return,
                             }

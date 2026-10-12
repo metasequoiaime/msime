@@ -236,7 +236,7 @@ export function PluginListView({
           <GroupList title="脚本插件（实验）">
             <SettingsGroupNote>
               脚本插件会在输入法里运行第三方代码，只做你在授权时允许的事；导入后默认不运行，打开它的详情授权后才启用。
-              {scripts.risk ? ` ${scripts.risk}` : ""}
+              {scripts.risk ?? ""}
             </SettingsGroupNote>
             {scriptPacks.map((pack) => (
               <PluginNavRow

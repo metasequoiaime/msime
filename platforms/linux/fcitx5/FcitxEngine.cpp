@@ -2268,6 +2268,15 @@ public:
                       {"_socket", socket}};
         });
   }
+  static Json sentenceTranslationQuery(Json query, const std::string &text,
+                                       const std::string &target_language) {
+    query["sentence"] = true;
+    query["target_language"] = target_language;
+    // startTranslation reads each candidate's text before sending the provider
+    // its string-only wire format. Keep the Host API candidate shape here.
+    query["candidates"] = Json::array({Json{{"text", text}}});
+    return query;
+  }
   void translateSentence() {
     constexpr size_t kMaxSentenceChars = 512;
     if (!session_ || !ic_.hasFocus() || restricted() || privateInput() ||
@@ -2283,9 +2292,9 @@ public:
       const auto text = selected->value("text", std::string{});
       if (text.empty() || msime::linux_host::utf8_scalar_count(text) > kMaxSentenceChars)
         return;
-      query["sentence"] = true;
-      query["target_language"] = preferences_.value("translation_target_language", std::string("en"));
-      query["candidates"] = Json::array({text});
+      query = sentenceTranslationQuery(
+          std::move(query), text,
+          preferences_.value("translation_target_language", std::string("en")));
       translation_pending_.clear();
       startTranslation(query, false, Json::array(), true);
     } catch (...) {}

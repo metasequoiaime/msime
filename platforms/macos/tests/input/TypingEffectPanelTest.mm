@@ -1,4 +1,5 @@
 #import "../../src/input/TypingEffectPanel.h"
+#import "../../src/candidate/CandidateWindowLevel.h"
 #import <AppKit/AppKit.h>
 #include <cstdio>
 #include <stdexcept>
@@ -35,7 +36,8 @@ int main() {
             Require(panel == MSIMETypingEffectPanel.sharedPanel, "panel is not shared");
             Require(panel.ignoresMouseEvents && panel.floatingPanel && !panel.opaque && !panel.canBecomeKeyWindow && !panel.canBecomeMainWindow, "panel could take clicks or focus");
             Require((panel.styleMask & NSWindowStyleMaskNonactivatingPanel) != 0, "panel would activate the input method");
-            Require(panel.level < NSPopUpMenuWindowLevel, "panel is not under the candidate window");
+            Require(panel.level == MSIMECandidateWindowLevel() - 1, "panel is not just under the candidate window");
+            Require(panel.level > NSScreenSaverWindowLevel, "panel is under screenshot overlays");
             Require((panel.collectionBehavior & NSWindowCollectionBehaviorFullScreenAuxiliary) != 0, "panel cannot appear beside a full-screen window");
             Require(!panel.configured && panel.intensity == 50 && !panel.isVisible && !panel.emitting, "panel not idle before use");
 

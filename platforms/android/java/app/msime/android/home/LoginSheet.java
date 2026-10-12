@@ -9,9 +9,7 @@ import app.msime.android.DimensionPolicy;
 import app.msime.android.TextPolicy;
 
 import android.app.Activity;
-import android.content.ActivityNotFoundException;
 import android.content.Context;
-import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
@@ -22,7 +20,6 @@ import android.graphics.PixelFormat;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.net.Uri;
 import android.text.InputFilter;
 import android.text.InputType;
 import android.text.SpannableString;
@@ -348,9 +345,7 @@ final class LoginSheet {
         int start = text.indexOf("《隐私政策》");
         spanned.setSpan(new ClickableSpan() {
             @Override public void onClick(View widget) {
-                try {
-                    activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_URL)));
-                } catch (ActivityNotFoundException absent) {
+                if (!LinkActions.open(activity, PRIVACY_URL)) {
                     say("这台设备上没有可以打开网页的浏览器");
                 }
             }

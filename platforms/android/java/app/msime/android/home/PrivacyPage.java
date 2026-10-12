@@ -1,9 +1,6 @@
 package app.msime.android.home;
 
-import android.content.ActivityNotFoundException;
 import android.content.Context;
-import android.content.Intent;
-import android.net.Uri;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import app.msime.android.InputFeatureToggle;
@@ -110,9 +107,7 @@ public final class PrivacyPage extends ReloadingDetailPage {
     }
 
     private void openPolicy() {
-        try {
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(POLICY)).addCategory(Intent.CATEGORY_BROWSABLE));
-        } catch (ActivityNotFoundException absent) {
+        if (!LinkActions.openBrowsable(requireContext(), POLICY)) {
             MsToast.show(requireContext(), "这台设备上没有可以打开网页的应用");
         }
     }
