@@ -45,7 +45,7 @@ export const sliderControlWide =
   "block min-w-0 flex-1 harmony:flex harmony:h-[30px] harmony:items-center";
 export const sliderWithValueWide = `${sliderWithValue} w-full`;
 /** HarmonyOS 手机键盘页「尺寸」组顶部的预览：不带「预览」标签，底下一行拖动提示，和它调的滑块在同一张卡片里。 */
-export const phoneKeyboardPreview = "min-w-0 [padding:var(--p-row-pad)]";
+export const phoneKeyboardPreview = groupBlock;
 export const phoneKeyboardPreviewHint =
   "m-0 mt-2.5 text-center [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 /** 一张卡片末尾整行居中的警示文字按钮，例如「恢复默认」：不再另写标题和说明。 */
