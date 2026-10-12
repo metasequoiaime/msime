@@ -6,7 +6,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "platforms/android/java/app/msime/android/home/ExpressionPage.java"
-BASE = ROOT / "platforms/android/java/app/msime/android/home/ReloadingDetailPage.java"
+BASE = ROOT / "platforms/android/java/app/msime/android/home/ColumnDetailPage.java"
 
 
 class AndroidExpressionInstallViewLifecycleContract(unittest.TestCase):
