@@ -20,15 +20,15 @@ Status: implemented
 
 **`script_grants.rs`：`<plugins root>/script-grants.json` 的唯一读写方。**
 
-- 格式 `{"format_version":1,"revision":N,"plugins":[{"id","hash","enabled","granted":[...],"mac"}]}`，数组顺序就是执行顺序。和 `mentions.json` 同级，不进偏好文档、不同步（偏好文档会被宿主复制、被账号同步读取，`PluginPreferences` 还带 `deny_unknown_fields`）。
+- 格式 `{"format_version":1,"revision":N,"plugins":[{"id","hash","enabled","granted":[...]}]}`，数组顺序就是执行顺序。和 `mentions.json` 同级，不进偏好文档、不同步（偏好文档会被宿主复制、被账号同步读取，`PluginPreferences` 还带 `deny_unknown_fields`）。
 - 读取方不加锁、容忍未知字段；`format_version` 不认识、文件读不出、不是合法 JSON、是符号链接时，按"没有任何脚本启用"处理。单个条目不合规（id 或哈希的形状不对、授予的能力违反规则）只跳过这一条；同一个 id 只认第一条；不认识的能力名丢掉。启用的条目按顺序最多 8 个。
-- 写入只在这里，持有 `import::lock_plugin_root`（与导入、删包同一把锁），整份原子替换，每次写入 `revision` 都变大（取上一份加 1 和当前时间微秒数中较大的一个，上限 2^53，见 [授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md)）。`set(root, id, hash, enabled, granted)` 在锁里重新读包、重新算哈希，与调用方给出的不一致时返回 `plugin_script_changed`；`granted` 必须是清单 `permissions` 的子集并满足规则；模块必须通过校验。启用时做准入：同时启用不超过 8 个，进程内存总账（`limits::fits_memory_budget`：每个脚本的线性内存预留加按 4 倍模块大小估算的字节码，再加一份值栈）不超过 64 MiB，否则返回 `plugin_script_limit` 或 `plugin_script_memory`。`format_version` 不认识的文件不覆盖（`plugin_script_grants_format`），读不出的文件整份重写。
+- 写入只在这里，持有 `import::lock_plugin_root`（与导入、删包同一把锁），整份原子替换，每次写入 `revision` 都变大（取上一份加 1 和当前时间微秒数中较大的一个，上限 2^53，见 [授权页](2026-10-12-script-grants-settings-page-without-keychain.md)）。`set(root, id, hash, enabled, granted)` 在锁里重新读包、重新算哈希，与调用方给出的不一致时返回 `plugin_script_changed`；`granted` 必须是清单 `permissions` 的子集并满足规则；模块必须通过校验。启用时做准入：同时启用不超过 8 个，进程内存总账（`limits::fits_memory_budget`：每个脚本的线性内存预留加按 4 倍模块大小估算的字节码，再加一份值栈）不超过 64 MiB，否则返回 `plugin_script_limit` 或 `plugin_script_memory`。`format_version` 不认识的文件不覆盖（`plugin_script_grants_format`），读不出的文件整份重写。
 - 删包时在同一把锁里、移走包目录之前去掉条目；导入脚本包时在替换包目录之前更新条目：内容哈希没变、并且是原地覆盖一个已安装的包，授权保留；否则停用、清空授予项、保留旧哈希（授权页据此显示"已更新，需要重新授权"）。先改授权再动包：写授权失败时包没变，换包失败时授权已经收紧。包目录被手工删掉后再导入同样的内容，留下的条目也不会复活。
 - 输入法进程只认 `hash` 等于已安装包当前内容哈希的条目，实际能力是 `granted` 与清单 `permissions` 的交集。
 
-**威胁模型与发布构建。** 授权文件和插件目录都在用户可写的宿主状态根下，同一用户下任何没有特权的进程都能放进一个 script 包、再手写一条带正确哈希的授权。在加固落地之前，发布构建里 `msime_client_scripts_enable` 恒返回 false（见 [脚本插件在输入法进程里](2026-10-12-script-plugins-in-the-input-method-process.md)），这个文件只在开发构建里起作用。`mac` 字段是 macOS 的钥匙串 MAC：macOS 上校验不过的条目不运行，签名规则、密钥的来历和发布构建打开开关见 [授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md)。输入法进程在聚焦时按带 inode 的戳重读它，后台编译线程用 `script_pack::load` 读包并核对哈希。
+**威胁模型与发布构建。** 授权文件和插件目录都在用户可写的宿主状态根下，同一用户下任何没有特权的进程都能放进一个 script 包、再手写一条带正确哈希的授权。在加固落地之前，发布构建里 `msime_client_scripts_enable` 恒返回 false（见 [脚本插件在输入法进程里](2026-10-12-script-plugins-in-the-input-method-process.md)），这个文件只在开发构建里起作用。授权不签名：设计原本要在 macOS 上用钥匙串密钥给条目签 MAC，实现之后又去掉了，用户决定授权不使用钥匙串；读取方容忍未知字段，早期开发构建写过的 `mac` 字段照常忽略。三个桌面平台的残余风险相同，macOS 和 Linux 写在授权页上，发布构建打开开关见 [授权页](2026-10-12-script-grants-settings-page-without-keychain.md)。输入法进程在聚焦时按带 inode 的戳重读它，后台编译线程用 `script_pack::load` 读包并核对哈希。
 
-**设置页在第 5 阶段之前看不到脚本插件。** `PluginCatalog::without_scripts()` 去掉脚本包和脚本文件夹的问题行。授权页落地之后只有 host-api 的 `msime_client_plugins` 目录命令（Android、HarmonyOS 用）还经过它，桌面外壳的 `plugin_catalog` 列出脚本插件，`host_surface.script_plugins` 在三个桌面平台为真，见 [授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md)。导入命令不拦脚本包，开发构建里自测时还要靠它（或手工拷进 `script/<id>/`）装包，再手写授权。`PUBLISHABLE_KINDS` 和 `KINDS_DECLARATION` 不变，`script` 不能发布到社区。
+**设置页在第 5 阶段之前看不到脚本插件。** `PluginCatalog::without_scripts()` 去掉脚本包和脚本文件夹的问题行。授权页落地之后只有 host-api 的 `msime_client_plugins` 目录命令（Android、HarmonyOS 用）还经过它，桌面外壳的 `plugin_catalog` 列出脚本插件，`host_surface.script_plugins` 在 macOS 和 Linux 为真（Windows 的设置是原生应用，没有授权页），见 [授权页](2026-10-12-script-grants-settings-page-without-keychain.md)。导入命令不拦脚本包，开发构建里自测时还要靠它（或手工拷进 `script/<id>/`）装包，再手写授权。`PUBLISHABLE_KINDS` 和 `KINDS_DECLARATION` 不变，`script` 不能发布到社区。
 
 ## Testing
 
@@ -49,7 +49,7 @@ Status: implemented
 ## Consequences
 - 收益：移动端的类型集合、报错原文和依赖图逐字节不变；导入、`msime-pack validate` 和输入法加载走同一份模块校验；授权绑定在用户看过的那份内容上，换内容就作废。
 - 代价：`plugins.rs` 里多了一批按 cfg 分开的分支；授权文件有了第二种写入时机（导入和删包时在同一把锁里改条目）。
-- 在 macOS 的钥匙串 MAC 落地之前，授权文件可以被同一用户下的任何进程伪造；只有发布构建里 `scripts_enable` 恒为 false 挡着。第 5 阶段打开发布构建之前，三条对策（macOS MAC、Windows 提权窗口不跑脚本、Linux 与 Windows 把残余风险写进授权页）必须都已落地；它们随 [授权页与钥匙串 MAC](2026-10-12-script-grants-keychain-mac-and-settings-page.md) 落地，发布构建的开关随之打开。
+- 授权文件可以被同一用户下的任何进程伪造。第 5 阶段之前只有发布构建里 `scripts_enable` 恒为 false 挡着；设计原本要求打开发布构建之前落地三条对策（macOS 钥匙串 MAC、Windows 提权窗口不跑脚本、Linux 与 Windows 把残余风险写进授权页）。钥匙串 MAC 实现之后被用户否决，现在 macOS 和 Linux 一样把残余风险写进授权页、发布构建打开开关，Windows 的发布构建仍不运行脚本，见 [授权页](2026-10-12-script-grants-settings-page-without-keychain.md)。
 - 准入检查按编译膨胀的上界估算（每字节 128 倍加 256 KiB 固定开销，再加一份值栈），不是按普通代码的约 3.3 倍：产品里量不到真实值，没有"加载时按实际编译结果再查一次"的那一层。所以普通插件在总账里也记得偏多：几十 KiB 的插件每个约 5 MiB；256 KiB、64 页的模块约 36 MiB，同时只能启用一个。
 - `set` 每次启用都要读出其他已启用的包算总账，最多 8 个、每个至多 256 KiB，只在设置页操作时发生。
 - `scan` 现在会完整编译每个已安装的脚本包（dev 构建里 512 KiB 约 20 ms），设置页的目录命令在后台线程上跑，输入法进程的按键和 focus 路径不调用 `scan`。每次校验用一个随结果释放的 Engine，反复刷新目录不会越攒越多。

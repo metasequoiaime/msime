@@ -35,7 +35,7 @@ Status: implemented
 
 - 收益：插件页不再在开关或方案不允许时声称插件在用；五笔的 `/`、`@` 在 Linux 和 Windows 上真正进得去；运行期失败在 macOS 诊断日志里看得到类别。
 - 代价：宿主多了两份要与 Engine 同步的判断，靠 parity 脚本兜底；macOS 日志只到类别，具体是哪个包、什么错误仍要另行复现。
-- 桌面脚本插件（`kind = "script"`）在插件页上有自己的「脚本插件（实验）」分组，只在宿主声明了 `script_plugins` 时显示；`msime_client_plugins` 的目录命令经 `PluginCatalog::without_scripts()` 去掉它们，见 [脚本插件进入插件包体系](../architecture/2026-10-12-script-plugin-kind-and-grants.md) 和 [授权页与钥匙串 MAC](../architecture/2026-10-12-script-grants-keychain-mac-and-settings-page.md)。脚本插件不走这里的门控和诊断：它在输入法进程里只在普通字段里、按授权运行，停用经 `script plugin disabled` 这一类诊断行报告，被停用的插件和停用的类别写进 `script-health.json`，见 [脚本插件在输入法进程里](../architecture/2026-10-12-script-plugins-in-the-input-method-process.md)。
+- 桌面脚本插件（`kind = "script"`）在插件页上有自己的「脚本插件（实验）」分组，只在宿主声明了 `script_plugins` 时显示；`msime_client_plugins` 的目录命令经 `PluginCatalog::without_scripts()` 去掉它们，见 [脚本插件进入插件包体系](../architecture/2026-10-12-script-plugin-kind-and-grants.md) 和 [授权页](../architecture/2026-10-12-script-grants-settings-page-without-keychain.md)。脚本插件不走这里的门控和诊断：它在输入法进程里只在普通字段里、按授权运行，停用经 `script plugin disabled` 这一类诊断行报告，被停用的插件和停用的类别写进 `script-health.json`，见 [脚本插件在输入法进程里](../architecture/2026-10-12-script-plugins-in-the-input-method-process.md)。
 - 未覆盖：iOS、Android 键盘工具栏仍只在拼音方案里提供 K、`/`、`@` 入口；鸿蒙共享沙箱未做；Linux 和 Windows tip 所在的应用进程没有注册诊断出口，仍写 stderr；Windows Server 的注册见 [Windows 剪贴板采集跳过敏感内容、面板上屏计入打字统计、host-api 诊断出口](../feature/2026-10-10-windows-clipboard-privacy-panel-statistics-host-diagnostics.md)。会话创建时只报一次的失败，macOS 在首次会话前就按偏好配置好日志，见 [macOS 首次会话诊断日志时序](2026-10-10-macos-diagnostic-startup.md)；日志关着时它们照样不记。
 
 ## Verification
