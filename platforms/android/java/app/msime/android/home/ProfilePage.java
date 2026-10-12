@@ -599,8 +599,8 @@ public final class ProfilePage extends ReloadingDetailPage {
         if ("session_changed".equals(failure.code)) return "登录已改变，请重新打开页面";
         if (failure.signedOut()) return "登录已失效，请重新登录";
         if (failure.rateLimited()) return "操作太频繁，请稍后再试";
-        if (failure.status == 413) return "图片超过 1 MB，请换一张小一些的";
-        if (failure.status == 415 || "invalid_avatar".equals(failure.code)) return "头像只支持 PNG 或 JPEG 图片";
+        if (failure.payloadTooLarge()) return "图片超过 1 MB，请换一张小一些的";
+        if (failure.unsupportedMediaType() || "invalid_avatar".equals(failure.code)) return "头像只支持 PNG 或 JPEG 图片";
         if (failure.unavailable() || failure.status == 503) return "这项功能暂未开放";
         return "没有完成，请稍后再试";
     }

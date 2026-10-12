@@ -602,7 +602,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
         if (failure.network()) return "连不上水杉云，请检查网络";
         if (failure.unavailable()) return "这项服务暂未开放";
         if (failure.rateLimited()) return "上传太频繁，请稍后再试";
-        if (failure.status == 413) return "日志太大，请少选几类再上传";
+        if (failure.payloadTooLarge()) return "日志太大，请少选几类再上传";
         if (failure.signedOut()) return "账号会话已失效，请稍后重试";
         if (failure.status == 400) return "日志未通过校验，未上传";
         return "操作失败，请重试";
