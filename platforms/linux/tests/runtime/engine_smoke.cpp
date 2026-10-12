@@ -799,15 +799,32 @@ int main(int argc, char **argv) {
       require(key(IBUS_E, chord_mask) && wait_until([&] { return !seen.english_mode; }),
               "leaving dedicated English failed");
       key(IBUS_e, chord_mask | IBUS_RELEASE_MASK);
-      // 关掉后又交给应用。
+      // 关掉后又交给应用。热重载之前按下的仍会切换，那次保存落盘、菜单跟上之后再按，直到不再被吃掉。
       set_preferences(false, "shuangpin", "shuangpin");
+      const auto settled = [&] {
+        try {
+          const auto scheme = stored().value("scheme", std::string("quanpin"));
+          return seen.scheme_entries[scheme == "japanese" ? "Scheme/Japanese" : "Scheme/Shuangpin"];
+        } catch (...) {
+          return false;
+        }
+      };
       bool ignored = false;
       require(wait_until([&] {
-                if (!ignored) ignored = !chord();
+                if (!ignored && settled()) {
+                  const auto before = stored().value("scheme", std::string("quanpin"));
+                  if (!chord())
+                    ignored = true;
+                  else
+                    wait_until([&] { return stored().value("scheme", std::string("quanpin")) != before && settled(); });
+                }
                 return ignored;
               }),
               "Disabling Ctrl+Shift+J did not hot-reload");
-      require(stored_becomes("shuangpin", "shuangpin"), "a disabled Ctrl+Shift+J changed the scheme");
+      const auto last = stored();
+      for (int repeat = 0; repeat < 3; ++repeat)
+        require(!chord(), "a disabled Ctrl+Shift+J was taken");
+      require(stored() == last, "a disabled Ctrl+Shift+J changed the scheme");
       invoke("Disable");
       finish();
       std::cout << "IBus Ctrl+Shift+J Japanese toggle, repeat, English modes and hot-reload passed\n";
