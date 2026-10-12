@@ -42,7 +42,6 @@ import app.msime.android.TypingStatisticsSummary.Overview;
 import app.msime.android.TypingStatisticsSummary.Share;
 import app.msime.android.ViewPolicy;
 import app.msime.android.policy.HostOptionsPolicy;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -140,13 +139,9 @@ public final class StatisticsFragment extends HomeTabFragment {
             return true;
         });
         menu.getMenu().add("清空统计").setOnMenuItemClickListener(item -> {
-            new MaterialAlertDialogBuilder(requireContext())
-                .setTitle("清除全部统计")
-                .setMessage("今日、累计、全部分类、按键计数和已解锁的成就都会清空，且无法恢复。键盘会从下一次输入重新开始记录。")
-                .setNegativeButton("取消", null)
-                .setPositiveButton("清除", (dialog, which) -> HostTask.run(this,
-                    context -> HostStore.resetStatistics(context), value -> reload()))
-                .show();
+            MessageDialog.confirm(requireContext(), "清除全部统计",
+                "今日、累计、全部分类、按键计数和已解锁的成就都会清空，且无法恢复。键盘会从下一次输入重新开始记录。",
+                "清除", () -> HostTask.run(this, context -> HostStore.resetStatistics(context), value -> reload()));
             return true;
         });
         menu.show();

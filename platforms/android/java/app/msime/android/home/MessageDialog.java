@@ -14,4 +14,15 @@ final class MessageDialog {
             .setPositiveButton("好", null)
             .show();
     }
+
+    /** A confirmation with no side effect when dismissed or cancelled. */
+    static void confirm(Context context, CharSequence title, CharSequence message,
+            CharSequence actionLabel, Runnable action) {
+        new MaterialAlertDialogBuilder(context)
+            .setTitle(title)
+            .setMessage(message)
+            .setNegativeButton("取消", null)
+            .setPositiveButton(actionLabel, (dialog, which) -> action.run())
+            .show();
+    }
 }

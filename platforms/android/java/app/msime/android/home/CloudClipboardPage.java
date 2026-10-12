@@ -392,24 +392,17 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     private void confirmClear() {
         CloudClipboardApi api = loadedApi;
         if (api == null) return;
-        new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("清空云剪贴板？")
-            .setMessage("所有设备上同步的记录都会删除，置顶的也不例外。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("清空", (dialog, which) -> mutate(() -> { api.clear(); return null; }, "已清空"))
-            .show();
+        MessageDialog.confirm(requireContext(), "清空云剪贴板？", "所有设备上同步的记录都会删除，置顶的也不例外。",
+            "清空", () -> mutate(() -> { api.clear(); return null; }, "已清空"));
     }
 
     private void confirmApprove(CloudClipboardApi.Device device) {
         CloudClipboardApi api = loadedApi;
         if (api == null) return;
-        new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("允许「" + deviceName(device) + "」？")
-            .setMessage("核对两台设备上的核对码一致再允许：\n\n" + device.code()
-                + "\n\n允许后，那台设备可以读取和上传这个账号的云剪贴板。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("允许", (dialog, which) -> mutate(() -> api.approve(device.deviceId()), "已允许"))
-            .show();
+        MessageDialog.confirm(requireContext(), "允许「" + deviceName(device) + "」？",
+            "核对两台设备上的核对码一致再允许：\n\n" + device.code()
+                + "\n\n允许后，那台设备可以读取和上传这个账号的云剪贴板。",
+            "允许", () -> mutate(() -> api.approve(device.deviceId()), "已允许"));
     }
 
     private void reject(CloudClipboardApi.Device device) {
@@ -421,22 +414,16 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     private void confirmRemove(CloudClipboardApi.Device device) {
         CloudClipboardApi api = loadedApi;
         if (api == null) return;
-        new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("移除「" + deviceName(device) + "」？")
-            .setMessage("移除会换一把新的密钥，只交给这台设备。" + KEY_CHANGE)
-            .setNegativeButton("取消", null)
-            .setPositiveButton("移除", (dialog, which) -> mutate(() -> api.remove(device.deviceId()), "已移除"))
-            .show();
+        MessageDialog.confirm(requireContext(), "移除「" + deviceName(device) + "」？",
+            "移除会换一把新的密钥，只交给这台设备。" + KEY_CHANGE,
+            "移除", () -> mutate(() -> api.remove(device.deviceId()), "已移除"));
     }
 
     private void confirmReset() {
         CloudClipboardApi api = loadedApi;
         if (api == null) return;
-        new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("重置云剪贴板？")
-            .setMessage("重置会换一把新的密钥，只交给这台设备。" + KEY_CHANGE)
-            .setNegativeButton("取消", null)
-            .setPositiveButton("重置", (dialog, which) -> mutate(() -> api.reset(), "已重置"))
-            .show();
+        MessageDialog.confirm(requireContext(), "重置云剪贴板？",
+            "重置会换一把新的密钥，只交给这台设备。" + KEY_CHANGE,
+            "重置", () -> mutate(() -> api.reset(), "已重置"));
     }
 }

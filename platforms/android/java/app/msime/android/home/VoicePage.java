@@ -412,12 +412,10 @@ public final class VoicePage extends ReloadingDetailPage {
     private void manageModel(LocalVoiceModels.Model model, boolean selected) {
         OptionSheet sheet = new OptionSheet(requireContext(), model.title(), null);
         if (!selected) sheet.option("使用这个模型", false, () -> saveVoice("asr_model_path", model.path()));
-        sheet.option("删除", false, () -> new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("删除「" + model.title() + "」？")
-            .setMessage(selected ? "这是正在使用的模型，删除后本地识别和离线识别要重新下载或选用别的模型。" : "删除后要用时需要重新下载。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("删除", (dialog, which) -> removeModel(model, selected))
-            .show());
+        sheet.option("删除", false, () -> MessageDialog.confirm(requireContext(),
+            "删除「" + model.title() + "」？",
+            selected ? "这是正在使用的模型，删除后本地识别和离线识别要重新下载或选用别的模型。" : "删除后要用时需要重新下载。",
+            "删除", () -> removeModel(model, selected)));
         sheet.show();
     }
 
@@ -704,16 +702,13 @@ public final class VoicePage extends ReloadingDetailPage {
             return;
         }
         if (row != null) row.setChecked(false);
-        new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("上传语音以改进识别？")
-            .setMessage("开启后，每次语音输入的音频和识别出的文字会上传到水杉云，只用于改进语音识别。数据保存 180 天，到期自动删除；你可以随时在这里关闭。隐私模式、密码框和不允许个性化学习的输入框里不会上传。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("开启", (dialog, which) -> {
+        MessageDialog.confirm(requireContext(), "上传语音以改进识别？",
+            "开启后，每次语音输入的音频和识别出的文字会上传到水杉云，只用于改进语音识别。数据保存 180 天，到期自动删除；你可以随时在这里关闭。隐私模式、密码框和不允许个性化学习的输入框里不会上传。",
+            "开启", () -> {
                 GroupCard.Row current = contributeRow;
                 if (current != null) current.setChecked(true);
                 saveLocal(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO, true);
-            })
-            .show();
+            });
     }
 
     private void saveVoice(String member, Object value) {
