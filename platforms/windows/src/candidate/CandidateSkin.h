@@ -232,9 +232,16 @@ inline CandidateSkinAnimation candidate_skin_animation(const nlohmann::json &cat
                                                        const std::string &id) {
   CandidateSkinAnimation animation;
   const auto *package = detail::candidate_skin_package(catalog, id);
-  if (!package || package->value("schemaVersion", 1) != 2 ||
-      !package->contains("animation") || !package->at("animation").is_object())
+  if (!package || package->value("schemaVersion", 1) != 2)
     return animation;
+  if (!package->contains("animation") || !package->at("animation").is_object()) {
+    animation.enter = CandidateSkinAnimationPreset::fade_scale;
+    animation.exit = CandidateSkinAnimationPreset::fade;
+    animation.selection = CandidateSkinAnimationPreset::spring;
+    animation.duration_ms = 180;
+    animation.stagger_ms = 14;
+    return animation;
+  }
   const auto &value = package->at("animation");
   animation.enter = candidate_skin_animation_preset(
       value, "enter", CandidateSkinAnimationPreset::fade_scale);
