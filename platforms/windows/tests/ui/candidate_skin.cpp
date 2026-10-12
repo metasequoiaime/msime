@@ -175,6 +175,29 @@ int main() {
   const auto plain = apply_toolbar_skin(base, candidate_skin_toolbar(catalog, "mascot"), true);
   require(plain.surface == base.surface && plain.radius == base.radius && !plain.divider);
 
+  // Schema v2 exposes only the shared fixed presets and bounded durations.
+  Json animated = styled;
+  animated["packages"][0]["schemaVersion"] = 2;
+  animated["packages"][0]["animation"] = {{"enter", "spring"},
+                                             {"exit", "fade"},
+                                             {"selection", "glow"},
+                                             {"durationMs", 240},
+                                             {"staggerMs", 18}};
+  const auto motion = candidate_skin_animation(animated, "mascot");
+  require(motion.enter == CandidateSkinAnimationPreset::spring &&
+          motion.exit == CandidateSkinAnimationPreset::fade &&
+          motion.selection == CandidateSkinAnimationPreset::glow &&
+          motion.duration_ms == 240 && motion.stagger_ms == 18);
+  const auto defaults = candidate_skin_animation(
+      Json{{"packages", Json::array({Json{{"id", "default"}, {"schemaVersion", 2}}})}},
+      "default");
+  require(defaults.enter == CandidateSkinAnimationPreset::fade_scale &&
+          defaults.exit == CandidateSkinAnimationPreset::fade &&
+          defaults.selection == CandidateSkinAnimationPreset::spring &&
+          defaults.duration_ms == 180 && defaults.stagger_ms == 14);
+  animated["packages"][0]["animation"]["durationMs"] = 9999;
+  require(candidate_skin_animation(animated, "mascot").duration_ms == 180);
+
   // Background placement: stretch fills, cover crops the overflow, contain letterboxes.
   const CandidateSkinRect card{0, 0, 200, 100};
   const auto stretch = candidate_background_rects(CandidateSkinFit::stretch, card, 50, 50);

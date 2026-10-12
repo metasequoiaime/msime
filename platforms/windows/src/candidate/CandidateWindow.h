@@ -103,6 +103,11 @@ public:
   }
   // The card radius a package asks for; none keeps the theme's.
   void set_skin_corner_radius(std::optional<float> radius) { skin_radius_ = radius; }
+  // The package's bounded native motion model. Reduced motion in Windows
+  // disables it at paint time without changing the candidate semantics.
+  void set_skin_animation(CandidateSkinAnimation animation) {
+    animation_ = animation;
+  }
   // preferences.plugins.effect_intensity, 0-100: how bright the typing flash is until a session publishes its resolved effect settings. The style, the combo and those settings come with each key from the input thread (TypingEffectSignal).
   void set_effect_intensity(uint32_t intensity) { effect_intensity_ = (std::min)(intensity, 100u); }
   // 光标处的打字特效浮层：每取到一个特效就交给它画火花、光标行闪光和连击徽标。返回 true 表示浮层在负责连击数，卡片就不在拼音行里再画一份；没有设置或返回 false 时，卡片照旧自己画计数、各样式都闪。
@@ -142,6 +147,12 @@ private:
   void take_typing_effect();
   // Repaint for the next flash frame, and stop the timer once the flash has faded.
   void typing_effect_tick(UINT_PTR timer);
+  void skin_animation_tick();
+  void begin_skin_animation(CandidateSkinAnimationPreset preset);
+  void finish_skin_animation();
+  void hide_now();
+  bool skin_motion_enabled() const;
+  float skin_motion_progress() const;
   // Device pixels per DIP for a window DPI, including the user's scale. Layout, rendering, the logo and hit testing all read this one factor.
   double layout_scale(unsigned dpi) const {
     return static_cast<double>(dpi ? dpi : 96) / 96.0 * style_.scale();
@@ -215,6 +226,11 @@ private:
   CandidateSkinAlign decoration_align_ = CandidateSkinAlign::right;
   CandidateSkinBackground background_;
   std::optional<float> skin_radius_;
+  CandidateSkinAnimation animation_;
+  CandidateSkinAnimationPreset active_animation_ = CandidateSkinAnimationPreset::none;
+  uint64_t animation_started_ = 0;
+  bool animation_active_ = false;
+  bool finishing_animation_ = false;
   CandidateWindowStyle style_;
   // Pixels reserved above the card for the artwork, computed when the card is
   // sized and reused when it is painted so the two cannot disagree.

@@ -1522,6 +1522,7 @@ int wmain(int argc, wchar_t **argv) {
       candidates.set_skin_decoration(assets.decoration);
       candidates.set_skin_background(assets.background);
       candidates.set_skin_corner_radius(assets.corner_radius);
+      candidates.set_skin_animation(assets.animation);
       candidate_skin_applied = theme.candidate_skin;
     }
     candidates.set_follow_cursor(follow_cursor->load(std::memory_order_acquire));
@@ -2152,6 +2153,7 @@ int wmain(int argc, wchar_t **argv) {
             candidates.set_skin_decoration(assets.decoration);
             candidates.set_skin_background(assets.background);
             candidates.set_skin_corner_radius(assets.corner_radius);
+            candidates.set_skin_animation(assets.animation);
             candidate_skin_applied = theme.candidate_skin;
           }
           candidate_dark_applied = dark;

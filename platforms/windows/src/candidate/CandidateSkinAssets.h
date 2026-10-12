@@ -18,6 +18,7 @@ struct CandidateSkinAssets {
   std::optional<float> corner_radius;
   CandidateSkinBackground background;
   CandidateSkinToolbar toolbar;
+  CandidateSkinAnimation animation;
 };
 inline CandidateSkinAssets
 candidate_skin_assets(const nlohmann::json &catalog, const std::string &id,
@@ -28,6 +29,7 @@ candidate_skin_assets(const nlohmann::json &catalog, const std::string &id,
           candidate_skin_decoration(catalog, id, root),
           candidate_skin_corner_radius(catalog, id),
           candidate_skin_background(catalog, id, root),
-          candidate_skin_toolbar(catalog, id)};
+          candidate_skin_toolbar(catalog, id),
+          candidate_skin_animation(catalog, id)};
 }
 } // namespace msime::windows

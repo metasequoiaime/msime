@@ -12,6 +12,7 @@
 #include "TypingEffectSignal.h"
 #include "WindowShadow.h"
 #include <algorithm>
+#include <cmath>
 #include <commctrl.h>
 #include <iterator>
 #include "../../../../shared/contracts/msime_edition.h"
@@ -43,6 +44,7 @@ constexpr wchar_t class_name[] = L"MSIME.Client.Preview.Candidates" MSIME_EDITIO
 // 打字闪光和 Power Mode 抖动持续期间约每秒重画 30 帧，结束后停掉定时器；连击定时器只在显示的计数过期时触发一次。
 constexpr UINT_PTR typing_flash_timer = 0x4501;
 constexpr UINT_PTR typing_combo_timer = 0x4502;
+constexpr UINT_PTR skin_animation_timer = 0x4503;
 constexpr UINT typing_flash_frame_millis = 30;
 // Affect only this UI operation; restore the caller's thread context even on
 // failure. The created HWND retains PMv2 awareness for its entire lifetime.
@@ -309,6 +311,7 @@ CandidateWindow::Apartment::~Apartment() {
     CoUninitialize();
 }
 CandidateWindow::~CandidateWindow() {
+  finish_skin_animation();
   // 先断开读屏拿着的提供者，再销毁窗口。
   accessible_.reset();
   if (tooltip_)
@@ -344,6 +347,58 @@ void CandidateWindow::set_palette(CandidatePalette palette) {
   palette_ = std::move(palette);
   painted_.reset();
   if (window_)
+    InvalidateRect(window_, nullptr, FALSE);
+}
+
+bool CandidateWindow::skin_motion_enabled() const {
+  if (!animation_active_ || active_animation_ == CandidateSkinAnimationPreset::none ||
+      animation_.duration_ms == 0)
+    return false;
+  BOOL enabled = TRUE;
+  if (!SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &enabled, 0))
+    enabled = TRUE;
+  return enabled != FALSE;
+}
+
+float CandidateWindow::skin_motion_progress() const {
+  if (!skin_motion_enabled())
+    return 1.0f;
+  const auto elapsed = GetTickCount64() - animation_started_;
+  return static_cast<float>(std::min<uint64_t>(elapsed, animation_.duration_ms)) /
+         static_cast<float>(animation_.duration_ms);
+}
+
+void CandidateWindow::begin_skin_animation(CandidateSkinAnimationPreset preset) {
+  if (preset == CandidateSkinAnimationPreset::none || animation_.duration_ms == 0) {
+    finish_skin_animation();
+    return;
+  }
+  active_animation_ = preset;
+  animation_started_ = GetTickCount64();
+  animation_active_ = true;
+  SetTimer(window_, skin_animation_timer, 16, nullptr);
+}
+
+void CandidateWindow::finish_skin_animation() {
+  animation_active_ = false;
+  active_animation_ = CandidateSkinAnimationPreset::none;
+  if (window_)
+    KillTimer(window_, skin_animation_timer);
+}
+
+void CandidateWindow::skin_animation_tick() {
+  if (!animation_active_) {
+    KillTimer(window_, skin_animation_timer);
+    return;
+  }
+  if (!skin_motion_enabled() || skin_motion_progress() >= 1.0f) {
+    const bool finishing = finishing_animation_;
+    finishing_animation_ = false;
+    finish_skin_animation();
+    if (finishing)
+      hide_now();
+  }
+  if (IsWindowVisible(window_))
     InvalidateRect(window_, nullptr, FALSE);
 }
 void CandidateWindow::set_theme_palette(CandidatePalette palette) {
@@ -427,7 +482,8 @@ void CandidateWindow::invalidate_geometry() {
   if (window_)
     InvalidateRect(window_, nullptr, FALSE);
 }
-void CandidateWindow::hide() {
+void CandidateWindow::hide_now() {
+  finish_skin_animation();
   // The composition is over, so the next one starts its flip decision fresh.
   tallest_ = 0;
   // And its position fresh: "keep the first position" lasts until the card
@@ -446,6 +502,20 @@ void CandidateWindow::hide() {
   if (accessible_)
     accessible_->publish({AccessibleContainer::List, candidate_accessible_name, {}});
   ShowWindow(window_, SW_HIDE);
+}
+
+void CandidateWindow::hide() {
+  if (!finishing_animation_ && IsWindowVisible(window_) && skin_motion_enabled() &&
+      animation_.exit != CandidateSkinAnimationPreset::none) {
+    finishing_animation_ = true;
+    active_animation_ = animation_.exit;
+    animation_started_ = GetTickCount64();
+    animation_active_ = true;
+    SetTimer(window_, skin_animation_timer, 16, nullptr);
+    InvalidateRect(window_, nullptr, FALSE);
+    return;
+  }
+  hide_now();
 }
 // Measuring the page reads Engine text, so unusable presentation data reaches
 // this path as well as the paint one. The owner's thread learns nothing about
@@ -699,6 +769,18 @@ void CandidateWindow::reposition() {
   }
   const auto dpi = GetDpiForWindow(window_);
   const auto bounds = card_bounds(*value, work, dpi);
+  const bool was_visible = IsWindowVisible(window_) != FALSE;
+  const auto previous_highlight = [&]() -> std::optional<size_t> {
+    if (!shown_) return std::nullopt;
+    for (size_t index = 0; index < shown_->candidates.size(); ++index)
+      if (shown_->candidates[index].highlighted) return index;
+    return std::nullopt;
+  }();
+  const auto next_highlight = [&]() -> std::optional<size_t> {
+    for (size_t index = 0; index < value->candidates.size(); ++index)
+      if (value->candidates[index].highlighted) return index;
+    return std::nullopt;
+  }();
   if (!SetWindowPos(window_, HWND_TOPMOST, bounds.x, bounds.y, bounds.width,
                     bounds.height, SWP_NOACTIVATE | SWP_SHOWWINDOW))
     throw std::runtime_error("Candidate positioning failed");
@@ -721,6 +803,10 @@ void CandidateWindow::reposition() {
   }
   shown_ = value;
   shown_dpi_ = dpi;
+  if (!was_visible)
+    begin_skin_animation(animation_.enter);
+  else if (previous_highlight != next_highlight)
+    begin_skin_animation(animation_.selection);
   InvalidateRect(window_, nullptr, FALSE);
 }
 // Measure the page, size the card from the shared geometry and keep it inside
@@ -1006,8 +1092,37 @@ void CandidateWindow::paint() {
       size.height - decoration_offset_ -
           static_cast<float>(shadow_insets_.top + shadow_insets_.bottom),
       decoration_offset_, shadow_insets_);
+  const float motion_progress = skin_motion_progress();
+  const float eased = motion_progress * motion_progress * (3.0f - 2.0f * motion_progress);
+  const bool motion_entering = animation_active_ &&
+                               (active_animation_ == CandidateSkinAnimationPreset::fade ||
+                                active_animation_ == CandidateSkinAnimationPreset::fade_scale ||
+                                active_animation_ == CandidateSkinAnimationPreset::slide_up ||
+                                active_animation_ == CandidateSkinAnimationPreset::spring ||
+                                active_animation_ == CandidateSkinAnimationPreset::glow);
+  float motion_alpha = 1.0f;
+  float motion_scale = 1.0f;
+  float motion_offset_y = 0.0f;
+  if (motion_entering) {
+    motion_alpha = finishing_animation_
+                       ? (active_animation_ == CandidateSkinAnimationPreset::glow
+                              ? 1.0f - 0.18f * eased
+                              : 1.0f - eased)
+                       : (active_animation_ == CandidateSkinAnimationPreset::glow
+                              ? 0.82f + 0.18f * eased
+                              : eased);
+    if (active_animation_ == CandidateSkinAnimationPreset::fade_scale ||
+        active_animation_ == CandidateSkinAnimationPreset::spring)
+      motion_scale = active_animation_ == CandidateSkinAnimationPreset::spring
+                         ? 0.96f + 0.04f * (eased + 0.08f * std::sin(eased * 6.2831853f) * (1.0f - eased))
+                         : 0.96f + 0.04f * eased;
+    if (active_animation_ == CandidateSkinAnimationPreset::slide_up)
+      motion_offset_y = 8.0f * (1.0f - eased);
+  }
   auto brush = [&](const CandidateColor &color) {
-    auto *value = device_.GetSolidColorBrush(D2D1::ColorF(color.r, color.g, color.b, color.a));
+    auto faded = color;
+    faded.a *= motion_alpha;
+    auto *value = device_.GetSolidColorBrush(D2D1::ColorF(faded.r, faded.g, faded.b, faded.a));
     if (!value)
       throw std::runtime_error("Candidate brush unavailable");
     return value;
@@ -1042,12 +1157,15 @@ void CandidateWindow::paint() {
   target->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
   // Power Mode 的抖动：整张卡片连同阴影横向位移一两个设备无关像素，阴影的透明边距装得下；抖完回到原位，点击区域不受影响。
   // 每帧都设一次：上一帧若在 EndDraw 之前抛出，留在目标上的位移不会带进这一帧。
-  target->SetTransform(
-      effect_shaking_
-          ? D2D1::Matrix3x2F::Translation(
-                typing_shake_offset(static_cast<uint32_t>(GetTickCount64() - effect_started_), effect_settings_.intensity),
-                0.0f)
-          : D2D1::Matrix3x2F::Identity());
+  const float shake = effect_shaking_
+                          ? typing_shake_offset(static_cast<uint32_t>(GetTickCount64() - effect_started_), effect_settings_.intensity)
+                          : 0.0f;
+  auto transform = D2D1::Matrix3x2F::Translation(shake, motion_offset_y);
+  if (motion_scale != 1.0f)
+    transform = transform * D2D1::Matrix3x2F::Scale(
+                              motion_scale, motion_scale,
+                              D2D1::Point2F{size.width / 2.0f, size.height / 2.0f});
+  target->SetTransform(transform);
   const D2D1_RECT_F card_rect{
       static_cast<float>(frame.card_left) + inset,
       static_cast<float>(frame.card_top) + inset,
@@ -1723,7 +1841,11 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         return 0;
       case WM_TIMER:
         if (wparam != typing_flash_timer && wparam != typing_combo_timer)
-          break;
+          if (wparam == skin_animation_timer) {
+            self->skin_animation_tick();
+            return 0;
+          } else
+            break;
         self->typing_effect_tick(static_cast<UINT_PTR>(wparam));
         return 0;
       case WM_CLOSE:

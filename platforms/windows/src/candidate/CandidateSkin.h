@@ -39,6 +39,16 @@ struct CandidateSkinToolbar {
   std::optional<float> radius;
   CandidateSkinToolbarColors dark, light;
 };
+
+// 与共享皮肤清单相同的固定动效预设；Windows 只执行这些安全原语，不读取皮肤提供的脚本。
+enum class CandidateSkinAnimationPreset { none, fade, fade_scale, slide_up, spring, glow };
+struct CandidateSkinAnimation {
+  CandidateSkinAnimationPreset enter = CandidateSkinAnimationPreset::none;
+  CandidateSkinAnimationPreset exit = CandidateSkinAnimationPreset::none;
+  CandidateSkinAnimationPreset selection = CandidateSkinAnimationPreset::none;
+  unsigned duration_ms = 0;
+  unsigned stagger_ms = 0;
+};
 namespace detail {
 inline const nlohmann::json *candidate_skin_package(const nlohmann::json &catalog,
                                                     const std::string &id) {
@@ -202,6 +212,47 @@ inline CandidateSkinToolbar candidate_skin_toolbar(const nlohmann::json &catalog
   toolbar.dark = colors("dark");
   toolbar.light = colors("light");
   return toolbar;
+}
+
+inline CandidateSkinAnimationPreset candidate_skin_animation_preset(
+    const nlohmann::json &value, const char *key,
+    CandidateSkinAnimationPreset fallback) {
+  if (!value.is_object() || !value.contains(key) || !value.at(key).is_string())
+    return fallback;
+  const auto preset = value.at(key).get<std::string>();
+  if (preset == "fade") return CandidateSkinAnimationPreset::fade;
+  if (preset == "fade_scale") return CandidateSkinAnimationPreset::fade_scale;
+  if (preset == "slide_up") return CandidateSkinAnimationPreset::slide_up;
+  if (preset == "spring") return CandidateSkinAnimationPreset::spring;
+  if (preset == "glow") return CandidateSkinAnimationPreset::glow;
+  return preset == "none" ? CandidateSkinAnimationPreset::none : fallback;
+}
+
+inline CandidateSkinAnimation candidate_skin_animation(const nlohmann::json &catalog,
+                                                       const std::string &id) {
+  CandidateSkinAnimation animation;
+  const auto *package = detail::candidate_skin_package(catalog, id);
+  if (!package || package->value("schemaVersion", 1) != 2 ||
+      !package->contains("animation") || !package->at("animation").is_object())
+    return animation;
+  const auto &value = package->at("animation");
+  animation.enter = candidate_skin_animation_preset(
+      value, "enter", CandidateSkinAnimationPreset::fade_scale);
+  animation.exit = candidate_skin_animation_preset(
+      value, "exit", CandidateSkinAnimationPreset::fade);
+  animation.selection = candidate_skin_animation_preset(
+      value, "selection", CandidateSkinAnimationPreset::spring);
+  if (value.contains("durationMs") && value.at("durationMs").is_number_unsigned()) {
+    const auto duration = value.at("durationMs").get<unsigned>();
+    if (duration >= 40 && duration <= 600) animation.duration_ms = duration;
+  }
+  if (value.contains("staggerMs") && value.at("staggerMs").is_number_unsigned()) {
+    const auto stagger = value.at("staggerMs").get<unsigned>();
+    if (stagger <= 80) animation.stagger_ms = stagger;
+  }
+  if (animation.duration_ms == 0) animation.duration_ms = 180;
+  if (animation.stagger_ms == 0) animation.stagger_ms = 14;
+  return animation;
 }
 // The toolbar palette with a package's own toolbar colours and radius drawn over what the theme derives: background is the bar surface, handle the drag strip (the accent there), divider the separator, icon the glyphs, hover the hovered button.
 inline CandidatePalette apply_toolbar_skin(CandidatePalette palette,
