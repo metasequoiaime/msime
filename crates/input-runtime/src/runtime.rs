@@ -1630,7 +1630,7 @@ impl<E: InputEngine> Runtime<E> {
         // their seat as a group. The reference has only one of each to place and silently drops the
         // rest; dropping a candidate the user was offered is not an option here.
         //
-        // The Engine never puts English first while a Chinese candidate exists, whatever its weight or pin, except for a word the user fixed at position 1 (`apply_candidate_positions`). An English candidate at index zero with locals present is that word. It keeps the first seat and the leading English seat is not filled a second time.
+        // 有中文候选时，引擎只在两种情况下把英文放在首位，从不看权重或置顶：输入拆不成完整音节、英文正好完全匹配整段输入（`CandidateQueries::mixed`），或者用户把这个词固定在第一位（`apply_candidate_positions`）。所以本地候选还在、首位却是英文时，就是这样一个词：它保留首位，领先的英文座位不再填第二个英文词。
         let is_local =
             |source: u8| !matches!(source, CLOUD | AI | AI_PENDING | ENGLISH | EMOJI | KAOMOJI);
         let first_source = |source: u8| {

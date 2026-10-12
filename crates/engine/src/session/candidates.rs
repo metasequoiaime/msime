@@ -486,6 +486,8 @@ impl InputSession {
 
     /// Mixed rows and fixed positions over one decoded list.
     fn mixed_from(&mut self, decoded: Vec<WordItem>) -> Vec<WordItem> {
+        // 拼音拆不开时完全匹配的英文可以占首位，但有两种情况不行：光标前缀解码时选英文会扔掉光标后的输入（`commit_selection` 整段结束组字）；辅助码激活时大写的辅助码被转成小写拼进了查英文的输入，那串字母不是用户要的英文词。
+        let english_may_lead = !self.prefix_active && !self.has_active_helpcode();
         let association_input = if self.prefix_active {
             self.prefix_query_input.as_str()
         } else {
@@ -500,6 +502,7 @@ impl InputSession {
             self.expressive_options,
             self.dedicated_english,
             self.local_mode,
+            english_may_lead,
         );
         self.insert_inline_date_time(&mut mixed);
         self.apply_candidate_positions(&mut mixed);

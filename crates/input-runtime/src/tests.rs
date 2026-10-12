@@ -7713,4 +7713,26 @@ fn the_reranker_never_weighs_ai_rows_or_their_placeholder() {
     all(target_os = "linux", not(target_env = "ohos"))
 ))]
 mod candidate_transform;
+/// 拼音拆不开、英文完全匹配时引擎把英文放在首位（如 `hello`），句子模型不把它偏爱的中文行转到英文前面。英文行不算词典命中，若不挡住，开了句子模型的用户就看不到引擎的这个安排。首行换成整句时模型照常提它偏爱的行。
+#[test]
+fn the_reranker_leaves_a_leading_english_word_in_place() {
+    use msime_engine::ordering::{rerank_pick, ParallelOrderRows};
+    let mut reranker = Reranker::new(std::sync::Arc::new(favouring_model(
+        &['何', '咯', '和'],
+        &['和'],
+    )));
+    let texts: Vec<String> = ["hello", "何咯", "和"].map(str::to_owned).to_vec();
+    let answers = vec![true; 3];
+    let corrected = vec![false; 3];
+    for (leader, expected) in [(LATTICE_SOURCE, Some(2)), (4, None)] {
+        let sources = vec![leader, LATTICE_SOURCE, 0];
+        let rows = ParallelOrderRows::new(&texts, &sources, &answers, &corrected);
+        assert_eq!(
+            rerank_pick(&mut reranker, "", 0, true, &rows),
+            expected,
+            "leader source {leader}"
+        );
+    }
+}
+
 mod facts;

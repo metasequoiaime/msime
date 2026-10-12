@@ -196,7 +196,7 @@ impl CandidateQueries {
         candidates
     }
 
-    /// 英文、emoji、颜文字混入拼音列表，规则见 `insert_mixed_rows`（英文沿用 candidate_queries.cpp:101-195 的优先位置）。不是全拼、双拼，在本地模式或专用英文里，或者什么都没开时原样返回。
+    /// 英文、emoji、颜文字混入拼音列表，规则见 `insert_mixed_rows`。英文第一行默认进 candidate_queries.cpp:101-195 的优先位置（首选之后）；只有 `english_may_lead` 为真、输入拆不成完整音节（全拼 `is_complete_pinyin_input`，双拼 `is_complete_input`），且去重后剩下的第一行英文正好就是整段输入时，它才占首位。这条规则从不比较英文和拼音的权重，两边不在一个尺度上（#1040、#1063）。不是全拼、双拼，在本地模式或专用英文里，或者什么都没开时原样返回。
     #[allow(clippy::too_many_arguments)]
     pub fn mixed(
         &mut self,
@@ -207,6 +207,7 @@ impl CandidateQueries {
         expressive: MixedExpressiveOptions,
         dedicated_english: bool,
         local_mode: LocalInputMode,
+        english_may_lead: bool,
     ) -> Vec<WordItem> {
         let anything_enabled = english.mixed_candidates
             || expressive.emoji_candidates
@@ -242,16 +243,39 @@ impl CandidateQueries {
         } else {
             Vec::new()
         };
-        insert_mixed_rows(candidates, english_rows, emoji_rows, kaomoji_rows)
+        // 只有查到了英文才算音节完整性：双拼的判定每段要分配一次。
+        let english_lead = (english_may_lead
+            && !english_rows.is_empty()
+            && !self.spells_whole_syllables(prefix, scheme))
+        .then_some(prefix);
+        insert_mixed_rows(
+            candidates,
+            english_rows,
+            emoji_rows,
+            kaomoji_rows,
+            english_lead,
+        )
+    }
+
+    /// 输入能不能整段切成完整音节。全拼看严格的完整音节（不认纠错和别名），双拼看是不是每两键一个音节；其余方案不让英文领先，按完整算。
+    fn spells_whole_syllables(&self, input: &str, scheme: SchemeType) -> bool {
+        match scheme {
+            SchemeType::Quanpin => crate::pinyin::segment::is_complete_pinyin_input(input),
+            SchemeType::Shuangpin => {
+                crate::shuangpin::query::is_complete_input(input, self.profile)
+            }
+            _ => true,
+        }
     }
 }
 
-/// 每组先按文字与列表、与前面各组去重。英文的第一行放进优先位置（首选之后，有云候选、AI 候选时再往后），其余接在末尾。emoji、颜文字接在它描绘的那个候选词后面，接不上的排在末尾，见 `anchor_expressive_rows`。
+/// 每组先按文字与列表、与前面各组去重。英文的第一行放进优先位置（首选之后，有云候选、AI 候选时再往后），其余接在末尾；`english_lead` 是调用方判定英文可以领先的那段输入（拼音拆不开的整段），去重后剩下的第一行英文正好拼出它时占首位，有云候选、AI 候选时也一样，其余英文照旧接在末尾。完全匹配的那行因为和候选重复被去掉时不领先，不拿补全词顶上。emoji、颜文字接在它描绘的那个候选词后面，接不上的排在末尾，见 `anchor_expressive_rows`。
 fn insert_mixed_rows(
     mut candidates: Vec<WordItem>,
     mut english: Vec<WordItem>,
     mut emoji: Vec<ExpressiveRow>,
     mut kaomoji: Vec<ExpressiveRow>,
+    english_lead: Option<&str>,
 ) -> Vec<WordItem> {
     if english.is_empty() && emoji.is_empty() && kaomoji.is_empty() {
         return candidates;
@@ -287,7 +311,11 @@ fn insert_mixed_rows(
 
     let mut english = english.into_iter();
     if let Some(first) = english.next() {
-        let slot = priority_slot(&candidates);
+        let slot = if english_lead.is_some_and(|input| first.pinyin == input) {
+            0
+        } else {
+            priority_slot(&candidates)
+        };
         candidates.insert(slot, first);
         candidates.extend(english);
     }
@@ -301,10 +329,10 @@ pub(crate) fn insert_expressive_rows(
     emoji: Vec<ExpressiveRow>,
     kaomoji: Vec<ExpressiveRow>,
 ) -> Vec<WordItem> {
-    insert_mixed_rows(candidates, Vec::new(), emoji, kaomoji)
+    insert_mixed_rows(candidates, Vec::new(), emoji, kaomoji, None)
 }
 
-/// 首选之后；有云候选时在它之后，有 AI 候选或 AI 占位行时再往后一位。占位行和 AI 候选同样算，回答到达前后英文行的位置才不变（#6888）。
+/// 英文第一行默认的位置：首选之后；有云候选时在它之后，有 AI 候选或 AI 占位行时再往后一位。占位行和 AI 候选同样算，回答到达前后英文行的位置才不变（#6888）。拼音拆不开、英文完全匹配时不用它，英文直接占首位（见 `insert_mixed_rows`）。
 fn priority_slot(candidates: &[WordItem]) -> usize {
     let (has_ai, has_cloud) = candidates.iter().fold((false, false), |(ai, cloud), item| {
         (
@@ -483,7 +511,7 @@ mod tests {
             row("Nimbus", CandidateSource::EnglishDictionary),
             row("倪", CandidateSource::EnglishDictionary),
         ];
-        let list = insert_mixed_rows(chinese(), english, Vec::new(), Vec::new());
+        let list = insert_mixed_rows(chinese(), english, Vec::new(), Vec::new(), None);
         assert_eq!(words(&list), vec!["你", "Ni", "倪", "Ninja", "Nimbus"]);
         assert_eq!(list[2].source, CandidateSource::Database);
     }
@@ -525,7 +553,7 @@ mod tests {
             plain("(^_^)", CandidateSource::Kaomoji),
             plain("(T_T)", CandidateSource::Kaomoji),
         ];
-        let list = insert_mixed_rows(chinese(), english, emoji, kaomoji);
+        let list = insert_mixed_rows(chinese(), english, emoji, kaomoji, None);
         assert_eq!(
             words(&list),
             vec!["你", "Ni", "倪", "Ninja", "😀", "😁", "(^_^)", "(T_T)"]
@@ -534,7 +562,7 @@ mod tests {
         let many = (0..5)
             .map(|index| plain(&format!("表情{index}"), CandidateSource::Emoji))
             .collect();
-        let list = insert_mixed_rows(chinese(), Vec::new(), many, Vec::new());
+        let list = insert_mixed_rows(chinese(), Vec::new(), many, Vec::new(), None);
         assert_eq!(words(&list), vec!["你", "倪", "表情0", "表情1", "表情2"]);
     }
 
@@ -551,7 +579,7 @@ mod tests {
             depicting("🐔", CandidateSource::Emoji, "鸡 鸡头 chicken"),
             plain("🎁", CandidateSource::Emoji),
         ];
-        let merged = insert_mixed_rows(list, Vec::new(), emoji, Vec::new());
+        let merged = insert_mixed_rows(list, Vec::new(), emoji, Vec::new(), None);
         assert_eq!(words(&merged), vec!["里", "李", "鸡", "🐔", "几", "🎁"]);
 
         // 🇺🇲 只是编码以 meiguo 开头，接不上 美国，排到末尾；🇺🇸 紧跟 美国（#5907）。
@@ -563,7 +591,7 @@ mod tests {
             depicting("🇺🇲", CandidateSource::Emoji, "美国本土外小岛屿 flag:"),
             depicting("🇺🇸", CandidateSource::Emoji, "美国 美利坚 星条旗"),
         ];
-        let merged = insert_mixed_rows(list, Vec::new(), emoji, Vec::new());
+        let merged = insert_mixed_rows(list, Vec::new(), emoji, Vec::new(), None);
         assert_eq!(words(&merged), vec!["美国", "🇺🇸", "没过", "🇺🇲"]);
         // 关键词要整个相等，「美」不算。
         let merged = insert_mixed_rows(
@@ -574,6 +602,7 @@ mod tests {
             Vec::new(),
             vec![depicting("🇺🇸", CandidateSource::Emoji, "美国 星条旗")],
             Vec::new(),
+            None,
         );
         assert_eq!(words(&merged), vec!["美", "", "🇺🇸"]);
     }
@@ -585,7 +614,7 @@ mod tests {
         let emoji = vec![depicting("🐔", CandidateSource::Emoji, "倪 chicken")];
 
         let (list, allocations) = crate::ime::personal_rerank::allocations::count(|| {
-            insert_mixed_rows(candidates, Vec::new(), emoji, Vec::new())
+            insert_mixed_rows(candidates, Vec::new(), emoji, Vec::new(), None)
         });
 
         assert_eq!(words(&list), vec!["你", "倪", "🐔"]);
@@ -612,7 +641,7 @@ mod tests {
             depicting("(*/ω＼*)", CandidateSource::Kaomoji, "hai xiu 害羞"),
             plain("(T_T)", CandidateSource::Kaomoji),
         ];
-        let merged = insert_mixed_rows(list, Vec::new(), emoji, kaomoji);
+        let merged = insert_mixed_rows(list, Vec::new(), emoji, kaomoji, None);
         assert_eq!(
             words(&merged),
             vec![
@@ -637,6 +666,7 @@ mod tests {
             Vec::new(),
             vec![depicting("😄", CandidateSource::Emoji, "开心")],
             vec![depicting("(^_^)", CandidateSource::Kaomoji, "😄")],
+            None,
         );
         assert_eq!(words(&merged), vec!["开心", "😄", "开心", "(^_^)"]);
     }
@@ -662,6 +692,7 @@ mod tests {
                 plain("😀", CandidateSource::Emoji),
             ],
             vec![depicting("(^_^)", CandidateSource::Kaomoji, "你")],
+            None,
         );
         assert_eq!(
             words(&merged),
@@ -678,6 +709,7 @@ mod tests {
             vec![row("Ni", CandidateSource::EnglishDictionary)],
             Vec::new(),
             Vec::new(),
+            None,
         );
         assert_eq!(words(&with_cloud), vec!["你", "云", "Ni", "倪"]);
 
@@ -687,6 +719,7 @@ mod tests {
             vec![row("Ni", CandidateSource::EnglishDictionary)],
             Vec::new(),
             Vec::new(),
+            None,
         );
         assert_eq!(words(&with_ai), vec!["你", "云", "智", "Ni", "倪"]);
     }
@@ -701,6 +734,7 @@ mod tests {
                 vec![row("Ni", CandidateSource::EnglishDictionary)],
                 Vec::new(),
                 Vec::new(),
+                None,
             )
         };
         let pending = with_row(CandidateSource::AiPending, "…");
@@ -719,6 +753,7 @@ mod tests {
             ],
             vec![plain("😀", CandidateSource::Emoji)],
             Vec::new(),
+            None,
         );
         assert_eq!(words(&list), vec!["Ni", "Ninja", "😀"]);
     }
@@ -740,7 +775,7 @@ mod tests {
         };
         assert_eq!(
             insert_expressive_rows(list(), emoji(), kaomoji()),
-            insert_mixed_rows(list(), Vec::new(), emoji(), kaomoji())
+            insert_mixed_rows(list(), Vec::new(), emoji(), kaomoji(), None)
         );
         assert_eq!(
             words(&insert_expressive_rows(list(), emoji(), kaomoji())),
@@ -768,6 +803,7 @@ mod tests {
             (0..3)
                 .map(|index| depicting(&format!("ka{index}"), CandidateSource::Kaomoji, "你"))
                 .collect(),
+            None,
         );
 
         assert_eq!(list.len(), 12);
@@ -804,7 +840,7 @@ mod tests {
             .collect();
 
         let (merged, allocations) = crate::ime::personal_rerank::allocations::count(|| {
-            insert_mixed_rows(candidates, english, emoji, kaomoji)
+            insert_mixed_rows(candidates, english, emoji, kaomoji, None)
         });
 
         assert_eq!(merged.len(), 128 + 5 + MIXED_FETCH_LIMIT * 2);
@@ -825,6 +861,7 @@ mod tests {
                 plain("😀", CandidateSource::Emoji),
             ],
             vec![plain("😀", CandidateSource::Kaomoji)],
+            None,
         );
         assert_eq!(words(&list), vec!["你", "Ni", "倪", "😀"]);
         assert_eq!(list[3].source, CandidateSource::Emoji);
@@ -908,6 +945,7 @@ mod tests {
                 expressive,
                 dedicated,
                 local,
+                true,
             );
             assert_eq!(
                 list,
@@ -957,5 +995,240 @@ mod tests {
 
         assert_eq!(candidates.len(), 11);
         assert_eq!(candidates.capacity(), 11);
+    }
+
+    /// 英文库里的一行：`key` 是小写词，`display` 是显示的写法。
+    fn english(key: &str, display: &str) -> WordItem {
+        WordItem::new(key, display, 1, CandidateSource::EnglishDictionary, "")
+    }
+
+    /// 真实词库里 `hello` 拆不开（he'l'lo），全拼给出的是拼起来的 何咯 和单字 和。
+    fn hello_chinese() -> Vec<WordItem> {
+        vec![
+            WordItem::new("hello", "何咯", 1, CandidateSource::Generated, "he'lo"),
+            WordItem::new("he", "和", 1, CandidateSource::Database, "he"),
+        ]
+    }
+
+    #[test]
+    fn an_exact_english_word_leads_input_pinyin_cannot_spell() {
+        let rows = || vec![english("hello", "hello"), english("hellos", "hellos")];
+        let led = insert_mixed_rows(
+            hello_chinese(),
+            rows(),
+            Vec::new(),
+            Vec::new(),
+            Some("hello"),
+        );
+        assert_eq!(words(&led), vec!["hello", "何咯", "和", "hellos"]);
+        // 调用方没判定可以领先时仍是优先位置。
+        let slotted = insert_mixed_rows(hello_chinese(), rows(), Vec::new(), Vec::new(), None);
+        assert_eq!(words(&slotted), vec!["何咯", "hello", "和", "hellos"]);
+        // 第一行只是补全（输入 `hell`）时不领先。
+        let completion = insert_mixed_rows(
+            hello_chinese(),
+            rows(),
+            Vec::new(),
+            Vec::new(),
+            Some("hell"),
+        );
+        assert_eq!(words(&completion), vec!["何咯", "hello", "和", "hellos"]);
+    }
+
+    #[test]
+    fn only_the_first_exact_english_row_leads() {
+        let list = insert_mixed_rows(
+            hello_chinese(),
+            vec![
+                english("hello", "hello"),
+                english("hello", "Hello"),
+                english("hellos", "hellos"),
+            ],
+            Vec::new(),
+            Vec::new(),
+            Some("hello"),
+        );
+        assert_eq!(words(&list), vec!["hello", "何咯", "和", "Hello", "hellos"]);
+    }
+
+    #[test]
+    fn a_leading_english_word_keeps_the_first_seat_ahead_of_cloud_and_ai_rows() {
+        for ai in [CandidateSource::AiSuggestion, CandidateSource::AiPending] {
+            let mut list = hello_chinese();
+            list.insert(1, row("云", CandidateSource::CloudSuggestion));
+            list.insert(2, row("智", ai));
+            let merged = insert_mixed_rows(
+                list,
+                vec![english("hello", "hello")],
+                Vec::new(),
+                Vec::new(),
+                Some("hello"),
+            );
+            assert_eq!(
+                words(&merged),
+                vec!["hello", "何咯", "云", "智", "和"],
+                "{ai:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_deduplicated_exact_word_lets_no_completion_lead() {
+        // 拼音词库里也有拉丁写法的词（`GitHub`），完全匹配的英文行和它重复时被去掉，剩下的补全词仍进优先位置。
+        let mut list = hello_chinese();
+        list.push(WordItem::new(
+            "hello",
+            "hello",
+            1,
+            CandidateSource::Database,
+            "",
+        ));
+        let merged = insert_mixed_rows(
+            list,
+            vec![english("hello", "hello"), english("hellos", "hellos")],
+            Vec::new(),
+            Vec::new(),
+            Some("hello"),
+        );
+        assert_eq!(words(&merged), vec!["何咯", "hellos", "和", "hello"]);
+        assert_eq!(merged[3].source, CandidateSource::Database);
+    }
+
+    /// 用给定英文词建一个英文库，返回查询器；`TempDir` 要活到查询结束。
+    fn queries_with_english(
+        profile: &'static ShuangpinProfile,
+        rows: &[(&str, &str, i64)],
+    ) -> (tempfile::TempDir, CandidateQueries) {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join(assets::ENGLISH_DICTIONARY);
+        crate::ensure_english_schema(&database).unwrap();
+        let connection = Connection::open(&database).unwrap();
+        for row in rows {
+            connection
+                .execute(
+                    "INSERT INTO english_words(word,display,weight) VALUES(?1,?2,?3)",
+                    *row,
+                )
+                .unwrap();
+        }
+        let paths = RuntimePaths {
+            dictionaries: directory.path().to_owned(),
+            ..RuntimePaths::default()
+        };
+        (directory, CandidateQueries::new(&paths, profile))
+    }
+
+    fn mix(
+        queries: &mut CandidateQueries,
+        candidates: Vec<WordItem>,
+        prefix: &str,
+        scheme: SchemeType,
+        minimum_prefix: usize,
+        english_may_lead: bool,
+    ) -> Vec<WordItem> {
+        queries.mixed(
+            candidates,
+            prefix,
+            scheme,
+            EnglishInputOptions {
+                mixed_candidates: true,
+                minimum_prefix,
+            },
+            MixedExpressiveOptions::default(),
+            false,
+            LocalInputMode::None,
+            english_may_lead,
+        )
+    }
+
+    #[test]
+    fn quanpin_english_leads_only_input_that_is_not_whole_syllables() {
+        let (_directory, mut queries) = queries_with_english(
+            default_profile(),
+            &[
+                ("hello", "hello", 100),
+                ("change", "change", 100),
+                ("women", "women", 100),
+                ("home", "home", 100),
+            ],
+        );
+        let quanpin = SchemeType::Quanpin;
+        let list = mix(&mut queries, hello_chinese(), "hello", quanpin, 5, true);
+        assert_eq!(words(&list), vec!["hello", "何咯", "和"]);
+        // 会话不让英文领先时（光标前缀、辅助码）仍在优先位置。
+        let list = mix(&mut queries, hello_chinese(), "hello", quanpin, 5, false);
+        assert_eq!(words(&list), vec!["何咯", "hello", "和"]);
+        // chang'e、wo'men 是完整音节：英文完全匹配也只进优先位置。
+        let chinese = |key: &str, word: &str| {
+            vec![WordItem::new(key, word, 1, CandidateSource::Database, key)]
+        };
+        let list = mix(
+            &mut queries,
+            chinese("chang'e", "嫦娥"),
+            "change",
+            quanpin,
+            5,
+            true,
+        );
+        assert_eq!(words(&list), vec!["嫦娥", "change"]);
+        let list = mix(
+            &mut queries,
+            chinese("wo'men", "我们"),
+            "women",
+            quanpin,
+            5,
+            true,
+        );
+        assert_eq!(words(&list), vec!["我们", "women"]);
+        // 最短前缀照旧：`home`（ho'me 拆不开）四个字母，前缀 5 时根本不查英文，放宽到 4 才领先。
+        let list = mix(
+            &mut queries,
+            chinese("hou'me", "后面"),
+            "home",
+            quanpin,
+            5,
+            true,
+        );
+        assert_eq!(words(&list), vec!["后面"]);
+        let list = mix(
+            &mut queries,
+            chinese("hou'me", "后面"),
+            "home",
+            quanpin,
+            4,
+            true,
+        );
+        assert_eq!(words(&list), vec!["home", "后面"]);
+    }
+
+    #[test]
+    fn shuangpin_english_leads_only_keys_that_are_not_whole_syllables() {
+        // 小鹤：奇数长度的 `hello` 拆不成两键一个音节；`home` 是 ho（huo）me，两键都成音节。
+        let (_directory, mut queries) = queries_with_english(
+            default_profile(),
+            &[("hello", "hello", 100), ("home", "home", 100)],
+        );
+        let shuangpin = SchemeType::Shuangpin;
+        let chinese = |key: &str, word: &str| {
+            vec![WordItem::new(key, word, 1, CandidateSource::Database, "")]
+        };
+        let list = mix(
+            &mut queries,
+            chinese("hello", "和"),
+            "hello",
+            shuangpin,
+            4,
+            true,
+        );
+        assert_eq!(words(&list), vec!["hello", "和"]);
+        let list = mix(
+            &mut queries,
+            chinese("home", "火么"),
+            "home",
+            shuangpin,
+            4,
+            true,
+        );
+        assert_eq!(words(&list), vec!["火么", "home"]);
     }
 }

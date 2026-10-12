@@ -652,6 +652,113 @@ fn caret_prefix_mixes_english_for_the_prefix_only() {
     assert!(!words(&session).contains(&"nice".to_owned()));
 }
 
+/// 真实词库里 `hello` 拆不开（he'l'lo），全拼只能给出 和、何 这类前半截的字；英文库里正好有这个词。
+const HELLO_FIXTURE: &str = "CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_h VALUES('he','h','和',200);\
+INSERT INTO tbl_1_h VALUES('he','h','何',100);\
+CREATE TABLE tbl_1_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_l VALUES('lo','l','咯',100);";
+
+fn candidate_sources(session: &Session) -> Vec<CandidateSource> {
+    session
+        .snapshot()
+        .candidates
+        .into_iter()
+        .map(|item| item.source)
+        .collect()
+}
+
+/// 拼音拆不开、英文完全匹配整段输入时英文占首位，空格上屏英文；结束组字的标点也整段上屏这个英文词。能切成完整音节的 `he` 照旧是中文首选。
+#[test]
+fn an_exact_english_word_leads_input_pinyin_cannot_spell() {
+    let fixture = Fixture::new(HELLO_FIXTURE).with_english(
+        "INSERT INTO english_words VALUES('hello','hello',100);\
+INSERT INTO english_words VALUES('he','he',500);",
+    );
+    let mut session = fixture.session_with(|options| options.english.mixed_candidates = true);
+    type_text(&mut session, "hello");
+    assert_eq!(words(&session)[0], "hello", "{:?}", words(&session));
+    assert_eq!(
+        candidate_sources(&session)[0],
+        CandidateSource::EnglishDictionary
+    );
+    assert!(
+        candidate_sources(&session)[1..]
+            .iter()
+            .any(|source| *source != CandidateSource::EnglishDictionary),
+        "{:?}",
+        words(&session)
+    );
+    let result = session.punctuation(b',');
+    assert_eq!(result.commit.as_deref(), Some("hello，"), "{result:?}");
+
+    type_text(&mut session, "he");
+    assert_eq!(words(&session)[0], "和", "{:?}", words(&session));
+    assert_eq!(words(&session)[1], "he", "{:?}", words(&session));
+}
+
+/// 辅助码激活时大写的辅助码被转成小写拼进查英文的输入（`niC` 查的是 `nic`），光标前缀解码时选英文会扔掉光标后的输入：两种情况英文都不领先。
+#[test]
+fn helpcode_and_caret_prefix_keep_an_exact_english_word_behind_the_first_seat() {
+    let fixture = Fixture::new(CARET_PREFIX_FIXTURE)
+        .with_english("INSERT INTO english_words VALUES('nic','nic',100);");
+    let mut session = fixture.session_with(|options| options.english.mixed_candidates = true);
+    // 对照：`nic` 拆不开，英文领先。
+    type_text(&mut session, "nic");
+    assert_eq!(words(&session)[0], "nic", "{:?}", words(&session));
+    session.command(Command::Cancel);
+
+    type_text(&mut session, "ni");
+    assert!(session.character(b'C', false).handled);
+    assert!(session.input.has_active_helpcode());
+    assert_ne!(words(&session)[0], "nic", "{:?}", words(&session));
+    assert!(
+        words(&session).contains(&"nic".to_owned()),
+        "{:?}",
+        words(&session)
+    );
+    session.command(Command::Cancel);
+
+    type_text(&mut session, "nicnihao");
+    session.set_caret(Some(3));
+    assert_eq!(session.prefix_end(), 3);
+    assert!(session.input.prefix_active);
+    assert_ne!(words(&session)[0], "nic", "{:?}", words(&session));
+    assert!(
+        words(&session).contains(&"nic".to_owned()),
+        "{:?}",
+        words(&session)
+    );
+}
+
+/// 英文领先时紧跟着的第二行才是拼音的首选，选它仍是默认选择：不调词频，不写日志。
+#[test]
+fn picking_the_chinese_row_behind_a_leading_english_word_is_the_default_pick() {
+    let fixture = Fixture::new(HELLO_FIXTURE)
+        .with_english("INSERT INTO english_words VALUES('hello','hello',100);");
+    let mut session = fixture.session_with(|options| {
+        options.english.mixed_candidates = true;
+        options.personal_context = false;
+        options.frequency.mode = FrequencyAdjustmentMode::Promote;
+        options.frequency.trigger_count = 1;
+    });
+    type_text(&mut session, "hello");
+    assert_eq!(
+        candidate_sources(&session)[0],
+        CandidateSource::EnglishDictionary
+    );
+    let index = session.input.ranking_index(1).unwrap();
+    assert_eq!(index, 1);
+    assert!(session.input.ranking_list()[1].source.is_dictionary());
+
+    let (learned, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.input.learn_candidate(index));
+
+    assert_eq!(learned, None);
+    assert_eq!(allocations, 0, "默认选择走了调词频：{allocations} 次分配");
+    assert!(!fixture.journal().exists());
+}
+
 /// The prefix request carries the session's fuzzy rules.
 #[test]
 fn caret_prefix_applies_fuzzy_pinyin() {

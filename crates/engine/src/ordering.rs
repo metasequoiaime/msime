@@ -16,6 +16,9 @@ const CATALOG_SOURCES: [u8; 3] = [5, 6, 7];
 /// `CandidateSource::AiSuggestion` 和它的占位行 `AiPending`：在线座位规则（`normalize_online_slots`）总把它们放回 AI 座位，模型提它们也没用；更要紧的是，若让 AI 候选参与比较，它一到就可能抢走本来要提到首位的本地候选，回答到达时本地候选的次序就变了（#6888）。
 const AI_SEAT_SOURCES: [u8; 2] = [3, 12];
 
+/// `CandidateSource::EnglishDictionary`。混输英文只在拼音拆不开、英文完全匹配（或用户固定在第一位）时才由引擎放到首位，那是引擎有意的安排；句子模型读的是中文，不能因为英文行不算词典命中就把中文行转到它前面。
+const ENGLISH_SOURCE: u8 = 4;
+
 /// 候选列表通常不超过一页；短列表的文本引用放在栈上，较大列表继续走堆缓冲。
 const SMALL_RERANK_TEXTS: usize = 128;
 
@@ -193,7 +196,7 @@ impl<'a> OrderRowSource<'a> for ParallelOrderRows<'a> {
 
 /// rerank() 的决策部分：返回应当移到首位的行下标；None 表示不动。
 ///
-/// `scheme` 是 `SchemeType` 序号；不允许重排的方案（韩文汉字表）返回 None，五笔且 `!answered_by_pinyin_fallback` 时返回 None，行数 < 2 时返回 None。`Reranker::best_where` 是 `&mut self`，因此这里取 `&mut`。
+/// `scheme` 是 `SchemeType` 序号；不允许重排的方案（韩文汉字表）返回 None，五笔且 `!answered_by_pinyin_fallback` 时返回 None，行数 < 2 时返回 None，首行是英文时返回 None。`Reranker::best_where` 是 `&mut self`，因此这里取 `&mut`。
 pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     reranker: &mut Reranker,
     context: &str,
@@ -210,6 +213,10 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
         return None;
     }
     if rows.len() < 2 {
+        return None;
+    }
+    // 引擎让英文领先的列表原样保留，见 `ENGLISH_SOURCE`。
+    if rows.get(0).source == ENGLISH_SOURCE {
         return None;
     }
     // A dictionary hit earns the model's deference because it carries corpus frequency for the

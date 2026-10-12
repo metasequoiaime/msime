@@ -105,7 +105,13 @@ impl InputSession {
         if selected_source.is_sentence_learning() {
             return self.learn_sentence_candidate(index);
         }
-        if self.frequency.mode == FrequencyAdjustmentMode::Disabled || index == 0 {
+        // 混输英文占了首位（拼音拆不开、英文完全匹配，或者用户把英文固定在第一位）时，紧跟着的第二行才是拼音给的首选：选它仍是默认的选择，不调词频，也不写日志。
+        let english_leads = index == 1
+            && self
+                .ranking_list()
+                .first()
+                .is_some_and(|item| item.source == CandidateSource::EnglishDictionary);
+        if self.frequency.mode == FrequencyAdjustmentMode::Disabled || index == 0 || english_leads {
             return None;
         }
         if !selected_source.is_dictionary()

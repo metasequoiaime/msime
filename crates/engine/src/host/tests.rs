@@ -1575,9 +1575,9 @@ fn commit_raw_applies_windows_english_learning_policy() {
     assert_eq!(learned, "hello");
 }
 
-// The shipped msime-english.db weighs its words by Google unigram counts while the pinyin tables use their own scale, so an English weight says nothing about a Chinese one. Mixed input therefore never seats an English word ahead of the leading Chinese candidate: not on its shipped weight, not after it is committed, not after it is pinned. Pinning only reorders it among the English words.
+// 随包的 msime-english.db 按 Google unigram 计数给权重，拼音词库用的是自己的尺度，英文权重说明不了中文权重的高低（#1040、#1063 两次按权重提英文都撤回了）。所以输入能切成完整音节时（这里的 `ni`），混输从不让英文领先拼音的首选：不凭随包权重，不因为上屏过，也不因为置顶过；置顶只在英文词之间调顺序。英文只在拼音拆不开、英文完全匹配整段输入，或者用户把它固定在第一位时才领先，那条规则不比较权重，见 `CandidateQueries::mixed`。
 #[test]
-fn mixed_english_never_takes_the_first_seat_from_chinese() {
+fn mixed_english_never_outranks_chinese_on_complete_pinyin() {
     const ENGLISH: u8 = 4;
     let dir = tempfile::tempdir().unwrap();
     let mut value = options(dir.path());
