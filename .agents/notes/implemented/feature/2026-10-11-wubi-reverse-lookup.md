@@ -33,6 +33,8 @@ Status: implemented
 
 共享设置页的「输入」页在五笔的设置显示时（当前方案是五笔、触屏方案里启用了五笔，或只有五笔的版本），在方案组之后画一个「五笔查码」组（`packages/ui/src/settings/wubi-code-lookup-section.tsx`）：一个文本框、一个「查码」按钮和一张表，表里先列整段词（有的话），再逐字列出 86 和 98 两列编码，当前所选码表那一列标「（当前）」，码表里没有的写「—」。说明文字同时告诉用户打字时可以按 `z` 加拼音查。
 
+共享设置页的输入文字一变化，就作废尚未完成的查码请求，清掉旧结果和错误，并允许对新文字立即查码；过期请求即使晚于新请求返回也不再回写。否则用户把「你好」改成「世界」后，会继续看到「你好」的编码，旧请求未结束时还无法查询新文字。
+
 页面只经 `DictionaryClient.wubiCodes` 拿结果；宿主没有提供它时整组不画。各宿主的接法：
 
 - macOS、Linux：Tauri 设置应用的 `dictionary` 客户端（`apps/desktop/src/main.tsx`）发 `dictionary_request`，到 `dictionary_request_json`。
@@ -68,6 +70,7 @@ Status: implemented
 - `cargo test -p msime-engine --test golden`：更新后的三个场景与其余场景全部通过。
 - `cargo test -p msime-engine --lib -- wubi::lookup`：每个字全部编码短码在前、重复编码并成一个；非汉字跳过、重复的字只列一次、带标点的一段不当词查；码表没有的字列出但没有编码；缺 `wubi98` 表或整个文件时只有那一列为空；超过 64 个不同汉字截断。
 - `pnpm --filter @msime/desktop exec vitest run`（全量 524 个文件通过），其中 `tests/settings/wubi-code-lookup-section.test.tsx`：整段词在前、两列编码与当前码表标记；没有汉字和截断的提示；失败时报错并清掉旧结果；「输入」页在五笔方案且宿主有 `wubiCodes` 时画出这一组并用它查，全拼方案或宿主没给 `wubiCodes` 时不画。
+- 查码输入变化和过期响应由 `tests/settings/wubi-code-lookup-section.test.tsx` 覆盖：编辑立即隐藏旧表格、允许新请求，旧请求晚返回也不覆盖新结果。
 - Windows 那一行（`platforms/windows/settings/main.cpp`）没有在本机构建：WinUI 设置窗口只能用 MSVC 编译，交给 CI 的 Windows 构建；它照搬同一文件里辅助码插件那一行的 `shell_row(..., nav::shell_links::input)`。
 - `platforms/harmony/tests/run.sh`：`DictionaryMaintenancePolicy` 把 `wubi_codes` 当读操作（组字时允许、不要维护、不进队列）。
 - `cargo test -p msime-host-api --lib -- dictionary::tests::wubi`：两个入口对同一请求给出相同回答，个人词库队列不建目录、用户数据目录不变；超长文字两个入口都拒绝。

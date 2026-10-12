@@ -2,7 +2,7 @@
 import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import {
   SettingsPage,
   WubiCodeLookupSection,
@@ -78,6 +78,45 @@ test("查码 reports a failure without leaving an old result on screen", async (
   fireEvent.click(screen.getByRole("button", { name: "查码" }));
   expect((await screen.findByRole("alert")).textContent).toBe("查码失败，请稍后重试。");
   expect(screen.queryByRole("table", { name: "五笔编码" })).toBeNull();
+});
+
+test("editing the lookup text clears the previous result", async () => {
+  render(<WubiCodeLookupSection lookup={vi.fn().mockResolvedValue(answer)} />);
+  const input = screen.getByLabelText("要查五笔编码的文字");
+  fireEvent.change(input, { target: { value: "你好" } });
+  fireEvent.click(screen.getByRole("button", { name: "查码" }));
+  await screen.findByRole("table", { name: "五笔编码" });
+
+  fireEvent.change(input, { target: { value: "世界" } });
+  expect(screen.queryByRole("table", { name: "五笔编码" })).toBeNull();
+});
+
+test("an obsolete lookup cannot replace the result for edited text", async () => {
+  let finishOld!: (value: WubiCodeLookup) => void;
+  const oldRequest = new Promise<WubiCodeLookup>((resolve) => {
+    finishOld = resolve;
+  });
+  const newAnswer: WubiCodeLookup = {
+    phrase: null,
+    characters: [{ text: "世", wubi86: ["anv"], wubi98: ["anv"] }],
+    truncated: false,
+  };
+  const lookup = vi.fn().mockReturnValueOnce(oldRequest).mockResolvedValueOnce(newAnswer);
+  render(<WubiCodeLookupSection lookup={lookup} />);
+  const input = screen.getByLabelText("要查五笔编码的文字");
+  const button = screen.getByRole("button", { name: "查码" });
+  fireEvent.change(input, { target: { value: "你好" } });
+  fireEvent.click(button);
+
+  fireEvent.change(input, { target: { value: "世界" } });
+  expect((button as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(button);
+  await screen.findByRole("table", { name: "五笔编码" });
+  expect(rows()[1]).toContain("世");
+
+  await act(async () => finishOld(answer));
+  expect(rows()[1]).toContain("世");
+  expect(rows().some((row) => row.includes("你好"))).toBe(false);
 });
 
 function snapshot(preferences: Partial<Snapshot["preferences"]>): Snapshot {
