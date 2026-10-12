@@ -34,28 +34,33 @@ fn corrections_may_lead(scheme: u8) -> bool {
     scheme_type(scheme) != Some(SchemeType::Shuangpin)
 }
 
-/// Apply a permutation in place. `order` maps each new seat to its old seat.
+/// 原地应用排列，`order` 将每个新座位映射到旧座位。
 ///
-/// The order is built as a permutation of the candidate seats, so each cycle can be rotated with
-/// swaps. Keeping the operation in place matters here because the same order is applied to eight
-/// parallel arrays, several of which contain candidate strings.
+/// 按循环交换候选所有权，不复制元素。记录已访问座位，让每条循环只遍历一次；
+/// 短列表用栈缓冲，大列表才申请辅助缓冲，恒等排列直接返回。
 pub fn apply_order<T>(items: &mut [T], order: &[usize]) {
     debug_assert_eq!(items.len(), order.len());
+    if order.iter().enumerate().all(|(seat, row)| seat == *row) {
+        return;
+    }
+    let mut stack_visited = [false; 128];
+    let mut heap_visited;
+    let visited = if items.len() <= stack_visited.len() {
+        &mut stack_visited[..items.len()]
+    } else {
+        heap_visited = vec![false; items.len()];
+        &mut heap_visited[..]
+    };
     for start in 0..items.len() {
-        // Process each cycle only from its smallest member, without allocating a visited bitmap.
-        let mut current = order[start];
-        let mut smallest = start;
-        while current != start {
-            smallest = smallest.min(current);
-            current = order[current];
-        }
-        if smallest != start {
+        if visited[start] {
             continue;
         }
-        current = start;
+        visited[start] = true;
+        let mut current = start;
         while order[current] != start {
             let next = order[current];
             items.swap(current, next);
+            visited[next] = true;
             current = next;
         }
     }
@@ -443,6 +448,100 @@ mod tests {
         let mut values = vec!["zero", "one", "two", "three", "four"];
         apply_order(&mut values, &[2, 4, 1, 0, 3]);
         assert_eq!(values, vec!["two", "four", "one", "zero", "three"]);
+    }
+
+    #[test]
+    fn in_place_order_preserves_ownership_and_storage_boundaries() {
+        struct Value(usize);
+        for count in [0, 1, 127, 128, 129, 256, 8192] {
+            let mut order: Vec<usize> = (0..count).collect();
+            if count > 1 {
+                order[1..].rotate_left(1);
+            }
+            let mut values: Vec<Value> = (0..count).map(Value).collect();
+            let pointer = values.as_ptr();
+            let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                apply_order(&mut values, &order);
+            });
+            assert_eq!(values.as_ptr(), pointer);
+            assert!(allocations <= usize::from(count > 128));
+            assert_eq!(
+                values.iter().map(|value| value.0).collect::<Vec<_>>(),
+                order
+            );
+        }
+        let mut values: Vec<usize> = (0..8192).collect();
+        let order = values.clone();
+        let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            apply_order(&mut values, &order);
+        });
+        assert_eq!(values, order);
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn in_place_order_matches_every_small_permutation() {
+        fn visit(order: &mut [usize], start: usize) {
+            if start == order.len() {
+                let mut values: Vec<usize> = (0..order.len()).collect();
+                apply_order(&mut values, order);
+                assert_eq!(values, order);
+                return;
+            }
+            for next in start..order.len() {
+                order.swap(start, next);
+                visit(order, start + 1);
+                order.swap(start, next);
+            }
+        }
+        for count in 0..=7 {
+            visit(&mut (0..count).collect::<Vec<_>>(), 0);
+        }
+    }
+
+    #[test]
+    #[ignore = "长循环的配对计时，需在空闲主机上显式运行"]
+    fn long_candidate_permutations_have_linear_scaling() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn elapsed(count: usize) -> u128 {
+            let order: Vec<usize> = std::iter::once(0)
+                .chain(2..count)
+                .chain(std::iter::once(1))
+                .collect();
+            let mut values: Vec<usize> = (0..count).collect();
+            apply_order(&mut values, &order);
+            assert_eq!(values, order);
+            let begin = Instant::now();
+            for _ in 0..32768 / count {
+                apply_order(black_box(&mut values), black_box(&order));
+            }
+            black_box(values);
+            begin.elapsed().as_nanos()
+        }
+        // 两种长度处理相同总行数；交替先后顺序取中位数，预算留出主机噪声。
+        let mut small = Vec::new();
+        let mut large = Vec::new();
+        for round in 0..5 {
+            if round % 2 == 0 {
+                small.push(elapsed(128));
+                large.push(elapsed(8192));
+            } else {
+                large.push(elapsed(8192));
+                small.push(elapsed(128));
+            }
+        }
+        small.sort_unstable();
+        large.sort_unstable();
+        eprintln!(
+            "permutation_equal_rows_small_ns={} large_ns={}",
+            small[2], large[2]
+        );
+        assert!(
+            large[2] <= small[2] * 16,
+            "同等总行数的长排列成本过高: {large:?} / {small:?}"
+        );
     }
 
     /// Only `CandidateSource::Generated` names alternative readings of one key. Every other source
