@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { EditionInfo, InputScheme } from "../index";
 import { Row } from "../core/platform-controls";
 import { ActionButton } from "./action-button";
@@ -141,14 +141,23 @@ export function MacosInputModeEntriesSection({
   );
   const current = missing.find((entry) => entry.scheme === scheme);
 
-  let description: string;
+  let description: ReactNode;
   if (missing.length === 0) {
     description = `输入法菜单里已经有${edition?.display_name ?? fullName}的全部入口。`;
   } else {
-    const where = missing.map((entry) => `「${entry.name}」在「${entry.language}」下`).join("，");
-    description = `${
-      current ? `菜单栏里还没有「${current.name}」，要先把它加进输入法列表才能从菜单栏切过去。` : ""
-    }macOS 只允许你自己添加：点「打开键盘设置」，在「输入法」一行点「编辑…」，再点左下角「+」，在左栏选或搜索对应的语言后添加。还没加入的：${where}。`;
+    description = (
+      <>
+        <span className="block">
+          {current
+            ? `菜单栏里还没有「${current.name}」，加进输入法列表后才能从菜单栏切过去。`
+            : `还有 ${missing.length} 个入口没加进输入法菜单。`}
+          {
+            "macOS 只能手动添加：打开键盘设置，在「输入法」一行点「编辑…」，再点左下角「+」，按下面的语言找。"
+          }
+        </span>
+        <MissingEntries entries={missing} />
+      </>
+    );
   }
 
   const openSettings = () => {
@@ -166,5 +175,29 @@ export function MacosInputModeEntriesSection({
         <ActionButton action={openSettings} className="secondary" label="打开键盘设置" />
       )}
     </Row>
+  );
+}
+
+/** 还没加入的入口按系统设置「添加」对话框里的语言分组，每组一行：语言在前，入口名排在后面，顺序与输入法菜单一致。 */
+function MissingEntries({ entries }: { entries: readonly ModeEntry[] }) {
+  const groups = new Map<string, ModeEntry[]>();
+  for (const entry of entries)
+    groups.set(entry.language, [...(groups.get(entry.language) ?? []), entry]);
+  return (
+    <span role="list" aria-label="还没加入的入口" className="mt-2 flex flex-col gap-1.5">
+      {[...groups].map(([language, members]) => (
+        <span key={language} role="listitem" className="flex flex-wrap items-center gap-1.5">
+          <span className="w-16 shrink-0">{language}</span>
+          {members.map((entry) => (
+            <span
+              key={entry.mode}
+              className="rounded-[var(--p-seg-item-r)] bg-[var(--p-seg-bg)] px-2 py-0.5 whitespace-nowrap [color:var(--p-text)]"
+            >
+              {entry.name}
+            </span>
+          ))}
+        </span>
+      ))}
+    </span>
   );
 }
