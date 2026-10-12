@@ -12,6 +12,8 @@ struct SettingsSyncView: View {
   @State private var applying = false
   @State private var uploading = false
   @State private var pending: Task<Void, Never>?
+  /// 让离开页面后仍在取消中的旧请求不能释放新页面的忙碌状态或覆盖新数据。
+  @State private var requestID = UUID()
   private let device = UIDevice.current.userInterfaceIdiom == .pad ? " iPad " : " iPhone "
 
   var body: some View {
@@ -21,7 +23,7 @@ struct SettingsSyncView: View {
                         detail: cloud.map { "第 \($0.revision) 版" } ?? "尚未读取",
                         symbol: "icloud")
         SettingsActionRow(title: "刷新", detail: "重新读取云端当前版本", symbol: "arrow.clockwise") {
-          pending = Task { await load() }
+          startLoad()
         }
       } header: {
         SettingsGroupHeader(title: "云端")
@@ -45,68 +47,126 @@ struct SettingsSyncView: View {
     .settingsStatus(busy: busy, message: message)
     .disabled(busy)
     .navigationTitle("设置同步")
-    .task { await load() }
-    .onDisappear { pending?.cancel(); cloud = nil }
+    .task { startLoad() }
+    .onDisappear {
+      requestID = UUID()
+      pending?.cancel()
+      pending = nil
+      busy = false
+      cloud = nil; schema = nil; loadedUserID = nil; loadedSessionID = nil
+    }
     .alert("上传本机设置？", isPresented: $uploading) {
       Button("取消", role: .cancel) { }
-      Button("上传") { pending = Task { await upload() } }
+      Button("上传") { startUpload() }
     } message: { Text("更新云端对应设置，包括自定义皮肤的背景图片；保留其他平台专属设置。版本冲突时需刷新后重新确认。") }
     .alert("应用云端设置？", isPresented: $applying) {
       Button("取消", role: .cancel) { }
       Button("应用") {
-        pending = Task { await apply() }
+        startApply()
       }
     } message: { Text("将替换本机对应设置，包括词库学习开关；不会下载词库或开启数据上传。") }
   }
-  @MainActor private func load() async {
+  @MainActor private func startLoad() {
     guard !busy else { return }
+    let id = UUID()
+    requestID = id
     busy = true; message = nil
-    defer { busy = false }
+    pending = Task { await load(requestID: id) }
+  }
+  @MainActor private func load(requestID id: UUID) async {
+    defer { if requestID == id { busy = false; pending = nil } }
     do {
       let identity = try await session.credentials()
+      guard requestID == id else { return }
       let fields = try await session.authenticated(matchingUserID: identity.userID,
                                                    matchingSessionID: identity.sessionID) { token in
         try await client.preferenceSchema(token: token)
       }.value
+      guard requestID == id else { return }
       let values = try await session.authenticated(matchingUserID: identity.userID,
                                                    matchingSessionID: identity.sessionID) { token in
         try await client.preferences(token: token)
       }.value
+      guard requestID == id else { return }
       try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+      guard requestID == id else { return }
       try Task.checkCancellation()
       schema = fields; cloud = values; loadedUserID = identity.userID; loadedSessionID = identity.sessionID
-    } catch is CancellationError { }
-    catch { message = "无法读取云端设置，请稍后重试。" }
+    } catch is CancellationError {
+      guard requestID == id else { return }
+    }
+    catch {
+      guard requestID == id else { return }
+      message = "无法读取云端设置，请稍后重试。"
+    }
   }
-  @MainActor private func apply() async {
+  @MainActor private func startApply() {
+    guard !busy, let cloud, let loadedUserID, let loadedSessionID else { return }
+    let id = UUID()
+    requestID = id
+    busy = true; message = nil
+    pending = Task { await apply(cloud: cloud, userID: loadedUserID, sessionID: loadedSessionID, requestID: id) }
+  }
+  @MainActor private func apply(cloud: BackendAccountClient.Preferences,
+                                userID: String,
+                                sessionID: UUID,
+                                requestID id: UUID) async {
+    defer { if requestID == id { busy = false; pending = nil } }
     do {
-      guard let cloud, let loadedUserID, let loadedSessionID else { throw BackendAccountClient.Failure(status: 401) }
-      try await session.requireSession(matchingUserID: loadedUserID, matchingSessionID: loadedSessionID)
+      try await session.requireSession(matchingUserID: userID, matchingSessionID: sessionID)
+      guard requestID == id else { return }
       try Task.checkCancellation()
       try IOSCloudSettings.apply(cloud.settings)
+      guard requestID == id else { return }
       message = "已应用云端设置。"
-    } catch is CancellationError { }
-    catch { message = "账号已变化或云端设置不兼容，本机设置未更改，请重新读取。" }
+    } catch is CancellationError {
+      guard requestID == id else { return }
+    }
+    catch {
+      guard requestID == id else { return }
+      message = "账号已变化或云端设置不兼容，本机设置未更改，请重新读取。"
+    }
   }
-  @MainActor private func upload() async {
+  @MainActor private func startUpload() {
     guard !busy, let cloud, let schema, let loadedUserID, let loadedSessionID else { return }
+    let id = UUID()
+    requestID = id
     busy = true; message = nil
-    defer { busy = false }
+    pending = Task {
+      await upload(cloud: cloud, schema: schema, userID: loadedUserID, sessionID: loadedSessionID, requestID: id)
+    }
+  }
+  @MainActor private func upload(cloud: BackendAccountClient.Preferences,
+                                 schema: BackendAccountClient.PreferenceSchema,
+                                 userID: String,
+                                 sessionID: UUID,
+                                 requestID id: UUID) async {
+    defer { if requestID == id { busy = false; pending = nil } }
     do {
       let values = try BackendAccountClient.mergedPreferences(cloud, replacing: IOSCloudSettings.snapshot(), schema: schema)
-      let identity = try await session.credentials(matchingUserID: loadedUserID,
-                                                   matchingSessionID: loadedSessionID)
+      let identity = try await session.credentials(matchingUserID: userID,
+                                                   matchingSessionID: sessionID)
+      guard requestID == id else { return }
       try Task.checkCancellation()
       let updated = try await session.authenticated(matchingUserID: identity.userID,
                                                    matchingSessionID: identity.sessionID) { token in
         try await client.putPreferences(values, token: token)
       }.value
+      guard requestID == id else { return }
       try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+      guard requestID == id else { return }
+      try Task.checkCancellation()
       self.cloud = updated
       message = "本机设置已上传。"
-    } catch is CancellationError { }
+    } catch is CancellationError {
+      guard requestID == id else { return }
+    }
     catch let error as BackendAccountClient.Failure {
+      guard requestID == id else { return }
       message = error.status == 409 ? "云端设置已被其他设备更新，请刷新后重新确认。" : error.localizedDescription
-    } catch { message = "上传未完成，请稍后重试。" }
+    } catch {
+      guard requestID == id else { return }
+      message = "上传未完成，请稍后重试。"
+    }
   }
 }
