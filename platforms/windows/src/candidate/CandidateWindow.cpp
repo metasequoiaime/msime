@@ -484,6 +484,7 @@ void CandidateWindow::invalidate_geometry() {
 }
 void CandidateWindow::hide_now() {
   finish_skin_animation();
+  exit_value_.reset();
   // The composition is over, so the next one starts its flip decision fresh.
   tallest_ = 0;
   // And its position fresh: "keep the first position" lasts until the card
@@ -505,8 +506,11 @@ void CandidateWindow::hide_now() {
 }
 
 void CandidateWindow::hide() {
-  if (!finishing_animation_ && IsWindowVisible(window_) && skin_motion_enabled() &&
+  if (finishing_animation_)
+    return;
+  if (IsWindowVisible(window_) && skin_motion_enabled() &&
       animation_.exit != CandidateSkinAnimationPreset::none) {
+    exit_value_ = shown_;
     finishing_animation_ = true;
     active_animation_ = animation_.exit;
     animation_started_ = GetTickCount64();
@@ -649,6 +653,8 @@ void CandidateWindow::keep_on_top() {
 }
 void CandidateWindow::reposition() {
   auto value = reader_();
+  if ((!value || !value->visible) && finishing_animation_ && exit_value_)
+    value = exit_value_;
   if (!value || !value->visible) {
     hide();
     return;
@@ -1061,7 +1067,9 @@ void CandidateWindow::paint() {
   Painting painting(window_);
   if (!painting.dc)
     throw std::runtime_error("Candidate painting unavailable");
-  const auto value = reader_(); // Never paint the last cached owner's text.
+  auto value = reader_(); // Never paint the last cached owner's text unless an exit animation owns that last frame.
+  if ((!value || !value->visible) && finishing_animation_ && exit_value_)
+    value = exit_value_;
   if (!value || !value->visible) {
     hide();
     return;
@@ -1113,11 +1121,15 @@ void CandidateWindow::paint() {
                               : eased);
     if (active_animation_ == CandidateSkinAnimationPreset::fade_scale ||
         active_animation_ == CandidateSkinAnimationPreset::spring)
-      motion_scale = active_animation_ == CandidateSkinAnimationPreset::spring
-                         ? 0.96f + 0.04f * (eased + 0.08f * std::sin(eased * 6.2831853f) * (1.0f - eased))
-                         : 0.96f + 0.04f * eased;
+      motion_scale = finishing_animation_
+                         ? (active_animation_ == CandidateSkinAnimationPreset::spring
+                                ? 1.0f - 0.04f * (eased + 0.08f * std::sin(eased * 6.2831853f) * (1.0f - eased))
+                                : 1.0f - 0.04f * eased)
+                         : (active_animation_ == CandidateSkinAnimationPreset::spring
+                                ? 0.96f + 0.04f * (eased + 0.08f * std::sin(eased * 6.2831853f) * (1.0f - eased))
+                                : 0.96f + 0.04f * eased);
     if (active_animation_ == CandidateSkinAnimationPreset::slide_up)
-      motion_offset_y = 8.0f * (1.0f - eased);
+      motion_offset_y = finishing_animation_ ? -8.0f * eased : 8.0f * (1.0f - eased);
   }
   auto brush = [&](const CandidateColor &color) {
     auto faded = color;
