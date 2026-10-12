@@ -215,8 +215,8 @@ scope_classify() {
     flake.nix | flake.lock) echo linux ;;
     platforms/macos/*) echo macos; echo named ;;
     platforms/ios/* | resources/* | scripts/* | tools/*) echo named ;;
-    # 没有 --quick 阶段从这些路径构建：常驻的契约检查、Rust workspace 检查和 agent-notes 阶段覆盖它们。
-    docs/* | crates/dict-builder/* | crates/pack-tool/* | crates/mcp-server/* | \
+    # 没有 --quick 阶段从这些路径构建：常驻的契约检查、Rust workspace 检查和 agent-notes 阶段覆盖它们。脚本插件（plugins/）不属于任何平台，由 CI 的 Script plugins 作业和 scripts/test-script-plugins.sh 测试。
+    docs/* | crates/dict-builder/* | crates/pack-tool/* | crates/mcp-server/* | plugins/* | \
       .agents/* | *.md | LICENSE | .editorconfig) ;;
     *) echo all ;;
   esac
