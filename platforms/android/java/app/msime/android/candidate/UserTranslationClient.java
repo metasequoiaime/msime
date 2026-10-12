@@ -16,7 +16,7 @@ import org.json.JSONObject;
  * <li>只翻译不超过 {@link #MAX_SOURCE_CODE_POINTS} 个字的词，按码点计，与共享层按 Unicode 标量计数一致；更长的词不发。</li>
  * <li>腾讯一次最多 {@link #TENCENT_BATCH} 个词，带秒级时间戳；小牛和自定义一词一请求，小牛带毫秒时间戳。源语言固定是中文，目标语言是 store 传进来的代码。</li>
  * <li>逐词（逐批）之间问一次 store 的 stale，用户接着打字后立刻停下，不把过期的一页发完。</li>
- * <li>负缓存和退避见 {@link UserTranslationMemory}。</li>
+ * <li>问过的词连同回答（包括「没有译文」）记在 {@link UserTranslationMemory} 里，再问时直接用记下的，不联网；失败后的退避也在那里。</li>
  * </ul>
  *
  * <p>路由不可变，换服务或换凭据时键盘新建一个客户端，旧客户端的负缓存随之丢掉。描述器和回复带着凭据和候选词，任何地方都不记录它们。
@@ -49,14 +49,18 @@ public final class UserTranslationClient implements CandidateTranslationStore.Se
             throws Exception {
         ArrayList<String> result = new ArrayList<>(Collections.nCopies(texts.size(), (String) null));
         String language = TextPolicy.lowercaseTrimmed(target);
-        if (!route.userService() || language.isEmpty() || memory.serviceBackingOff()) return result;
+        if (!route.userService() || language.isEmpty()) return result;
         ArrayList<Integer> eligible = new ArrayList<>(texts.size());
         for (int index = 0; index < texts.size(); index++) {
             String word = texts.get(index);
             if (word == null || word.isEmpty()
-                    || word.codePointCount(0, word.length()) > MAX_SOURCE_CODE_POINTS
-                    || !memory.shouldAsk(language, word)) continue;
-            eligible.add(index);
+                    || word.codePointCount(0, word.length()) > MAX_SOURCE_CODE_POINTS) continue;
+            String known = memory.answer(language, word);
+            if (known != null) {
+                result.set(index, known.isEmpty() ? null : known);
+                continue;
+            }
+            if (memory.shouldAsk(language, word)) eligible.add(index);
         }
         if (route.provider() == CandidateTranslationRoute.Provider.TENCENT) {
             for (int start = 0; start < eligible.size(); start += TENCENT_BATCH) {
@@ -148,7 +152,7 @@ public final class UserTranslationClient implements CandidateTranslationStore.Se
         String shown = TextPolicy.stripSpaceChars(gloss);
         boolean usable = shown != null && !shown.isEmpty() && !shown.equals(word)
             && TextPolicy.utf8Length(shown) <= MAX_GLOSS_BYTES;
-        memory.answered(language, word, !usable);
+        memory.answered(language, word, usable ? shown : null);
         return usable ? shown : null;
     }
 

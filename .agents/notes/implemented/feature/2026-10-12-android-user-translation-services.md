@@ -15,7 +15,7 @@ Status: implemented
 - **键盘**：账号路径原封不动，另加一条并行的用户服务路径。路由变化（含凭据）时丢掉旧的用户 `CandidateTranslationStore`，按新路由新建一个，`UserTranslationClient` 持有不可变的路由，所以工作线程不会读到改了一半的凭据，也不需要 `bindTo`。`scheduleUserCandidateTranslations` 的门槛与账号路径相同（没有本地模式、不是日文方案、方案显示释义），另外跳过表情和颜文字候选（source 6、7），只取前 10 个候选。`mergedCandidateGlosses` 的在线行在路由是用户服务时从用户 store 读，账号那一支不变；`glossLines` 的在线参数改成「账号或用户服务」。
 - **请求**：只翻译码点数不超过 40 的词；腾讯每批最多 9 个词、秒级时间戳；小牛和自定义一词一请求，小牛带毫秒时间戳；源语言固定 zh，目标语言是 store 传进来的代码。`TranslationHttpTransport` 照云候选的写法：不跟随重定向，超时夹在 1 到 10 秒，只接受 2xx，回复用 `readWithin` 加守护线程在总时限内读完，有 `body_utf8` 时逐字节原样发送。地址再查一遍（https，或 `localhost`、`127.0.0.1`、`[::1]` 的 http，不带用户名、密码和片段），不只信描述器，因为 `network_security_config.xml` 整体允许明文。
 - **停得下来**：`CandidateTranslationStore.Service` 多了一个带 `BooleanSupplier stale` 的默认方法，store 传入「epoch 已变」的判断（`requestEpoch` 改成 volatile），逐词（逐批）请求之间问一次。worker 是单线程、长度 1 的队列，过期的一页不停下就会占着它、继续花用户的额度。
-- **负缓存和退避**（`UserTranslationMemory`，随客户端一起按路由重建）：回答了但没有能显示的译文（空、与原词相同、超长）的词不再问；单个词的回复是失败时这个词 30 秒内不再问；整个请求没有回复（连不上、超时、非 2xx，或腾讯回报错）时整个服务 30 秒内不发请求。原因是每次 `render()` 都会让 store 重新排一次请求，而 store 只缓存非空译文。
+- **记下回答和退避**（`UserTranslationMemory`，随客户端一起按路由重建，最多 512 个词）：问过的词连同回答记下，同一路由下不再问；没有能显示的译文（空、与原词相同、超长）也是回答，记为空，相当于负缓存。正面的回答也要记，因为 store 在重绘时会作废还在路上的回答：第一种目标语言的译文到达后键盘重绘，`refresh` 先 `cancel`，正在请求第二种语言的那一批就被丢掉，不记的话下一轮会原样再请求一遍；单个词的回复是失败时这个词 30 秒内不再问；整个请求没有回复（连不上、超时、非 2xx，或腾讯回报错）时整个服务 30 秒内不发请求。另一个原因是每次 `render()` 都会让 store 重新排一次请求，而 store 只缓存非空译文。
 - **设置**：新的「翻译服务」页（`home/TranslationServicePage`，`PageId.TRANSLATION_SERVICE`），从「输入 → 翻译」和「我的 → 隐私」都能进。五个选项：不使用、水杉账号、小牛翻译、腾讯云机器翻译、自定义（DeepLX 或 DeepL API）。选服务时三个 `enabled` 互斥，腾讯没选时显式写 false，`translation_account` 只在选账号时写 true、否则删掉，照 `use-translation-settings.ts` 的 `setTranslationProvider` 和 iOS 的 `select`。字段规则在纯 Java 的 `TranslationServiceSettingsPolicy`，照 `Preferences::validate` 当场说明哪个字段为什么不行，不合规的不写入。密钥行只显示「已填写」「未填写」。隐私页的「用水杉账号翻译候选」打开时在同一次读改写里关掉三个自有服务，否则自有服务优先，这个开关开了也不生效。
 - **顺带修好的缺陷**：`applyPreferencesSnapshot` 里 `CandidateTranslationPolicy.displayInvalidated` 原来在把新值赋给字段之后才比较，前后两份永远相同，开关翻译、换目标语言后候选下的旧译文要等下一次按键才消失。现在在赋值之前比较，并把路由变化算进去。
 
@@ -37,7 +37,7 @@ Status: implemented
 
 收益：Android 用户可以用小牛、腾讯或自定义服务（含 DeepL）给离线词典查不到的词补译文，请求格式、签名和解析只有共享层一处权威实现；选路与共享层一致，凭据不全时不联网、不改用别的服务；换服务立即清掉旧译文。
 
-代价和缺口：选路是 Java 对 Rust 的镜像；小牛和自定义一词一请求，最坏 10 个词乘两种语言乘 2.5 秒，靠可取消的逐词循环、负缓存和退避控制，额度消耗写进了设置页和 `PRIVACY.md`；英文译文不写回用户释义库；Tauri 合包里的共享设置页在 Android 上仍隐藏服务选择（`translation-settings-bindings.ts`、`translation-candidate-settings.ts`），合包用户只能在原生页配置；英文候选的 en→zh 方向、`/fy` 命令翻译、AI 翻译和 40 字上限都没做。隐私页开关的语义变了：打开「用水杉账号翻译候选」会关掉用户自己的服务。
+代价和缺口：选路是 Java 对 Rust 的镜像；小牛和自定义一词一请求，最坏 10 个词乘两种语言乘 2.5 秒，靠可取消的逐词循环、记下的回答和退避控制，额度消耗写进了设置页和 `PRIVACY.md`；英文译文不写回用户释义库；Tauri 合包里的共享设置页在 Android 上仍隐藏服务选择（`translation-settings-bindings.ts`、`translation-candidate-settings.ts`），合包用户只能在原生页配置；英文候选的 en→zh 方向、`/fy` 命令翻译、AI 翻译和 40 字上限都没做。隐私页开关的语义变了：打开「用水杉账号翻译候选」会关掉用户自己的服务。
 
 ## Verification
 
