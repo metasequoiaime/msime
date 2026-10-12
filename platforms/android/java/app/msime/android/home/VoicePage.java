@@ -235,7 +235,7 @@ public final class VoicePage extends ReloadingDetailPage {
             service.nav("识别接口", VoiceProviderPolicy.endpointProblem(provider, endpoint),
                 VoiceProviderPolicy.doubaoEndpointLabel(endpoint), () -> pickDoubaoEndpoint(provider, endpoint));
             String resource = InputViewValuePolicy.textOr(voice, "asr_resource_id", "").trim();
-            service.nav("资源 ID", null, resource.isEmpty() ? "默认" : shorten(resource), () -> editText("资源 ID",
+            service.nav("资源 ID", null, resource.isEmpty() ? "默认" : HomeTextPolicy.shortLabel(resource), () -> editText("资源 ID",
                 "火山引擎控制台里开通的识别资源；留空使用 volc.seedasr.sauc.duration", resource,
                 value -> saveVoice("asr_resource_id", value)));
             testRow(service, "voice.asr");
@@ -244,10 +244,10 @@ public final class VoicePage extends ReloadingDetailPage {
         }
         service.nav("API Key", null, hasToken ? "已设置" : "未设置", () -> editToken("asr", provider, "API Key"));
         String model = InputViewValuePolicy.textOr(voice, "asr_model", "").trim();
-        service.nav("模型", null, model.isEmpty() ? "默认" : shorten(model), () -> editText("模型",
+        service.nav("模型", null, model.isEmpty() ? "默认" : HomeTextPolicy.shortLabel(model), () -> editText("模型",
             "留空使用该服务的默认识别模型", model, value -> saveVoice("asr_model", value)));
         String problem = VoiceProviderPolicy.endpointProblem(provider, endpoint);
-        service.nav("接口地址", problem, endpoint.isEmpty() ? "默认" : shorten(endpoint),
+        service.nav("接口地址", problem, endpoint.isEmpty() ? "默认" : HomeTextPolicy.shortLabel(endpoint),
             () -> editEndpoint("asr", provider, endpoint));
         testRow(service, "voice.asr");
         service.footer("说完后录音上传到所选服务识别。API Key 只保存在本机，不随设置同步。");
@@ -548,9 +548,6 @@ public final class VoicePage extends ReloadingDetailPage {
         return slots;
     }
 
-    private static String shorten(String value) {
-        return value.length() <= 24 ? value : value.substring(0, 23) + "…";
-    }
 
     /** 「润色」组：开关，打开后是服务、密钥、模型、接口、方案和「测试」。键盘读的同样是这些 `polish_*` 字段。 */
     private void polishGroup(LinearLayout target, JSONObject voice, State state) {
@@ -573,17 +570,17 @@ public final class VoicePage extends ReloadingDetailPage {
         polish.nav("润色服务", null, VoicePolishSettingsPolicy.providerLabel(provider), () -> pickPolishProvider(provider));
         polish.nav("润色 API Key", null, hasToken ? "已设置" : "未设置", () -> editToken("polish", provider, "API Key"));
         String model = InputViewValuePolicy.textOr(voice, "polish_model", "").trim();
-        polish.nav("润色模型", null, model.isEmpty() ? "默认" : shorten(model), () -> editText("润色模型",
+        polish.nav("润色模型", null, model.isEmpty() ? "默认" : HomeTextPolicy.shortLabel(model), () -> editText("润色模型",
             "留空使用该服务的默认模型", model, value -> saveVoice("polish_model", value)));
         String endpoint = InputViewValuePolicy.textOr(voice, "polish_endpoint", "").trim();
         polish.nav("润色接口地址", VoiceProviderPolicy.endpointProblem(provider, endpoint),
-            endpoint.isEmpty() ? "默认" : shorten(endpoint), () -> editEndpoint("polish", provider, endpoint));
+            endpoint.isEmpty() ? "默认" : HomeTextPolicy.shortLabel(endpoint), () -> editEndpoint("polish", provider, endpoint));
         String prompt = InputViewValuePolicy.textOr(voice, "polish_prompt_id", "");
         polish.nav("润色方案", null, VoicePolishSettingsPolicy.promptLabel(prompt), () -> pickPrompt(prompt));
         String field = VoicePolishSettingsPolicy.customField(prompt);
         if (field != null) {
             String custom = InputViewValuePolicy.textOr(voice, field, "");
-            polish.nav("方案内容", null, custom.trim().isEmpty() ? "未填写" : shorten(custom.trim()),
+            polish.nav("方案内容", null, custom.trim().isEmpty() ? "未填写" : HomeTextPolicy.shortLabel(custom.trim()),
                 () -> editCustomPrompt(field, custom));
         }
         testRow(polish, "voice.polish");

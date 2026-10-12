@@ -110,7 +110,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
     private void renderNiuTrans(LinearLayout target, JSONObject niutrans) {
         GroupCard group = GroupCard.add(target, "小牛翻译");
         String appId = text(niutrans, "app_id");
-        group.nav("App ID", null, appId.isEmpty() ? "未填写" : shorten(appId), () -> edit("App ID", null, appId,
+        group.nav("App ID", null, appId.isEmpty() ? "未填写" : HomeTextPolicy.shortLabel(appId), () -> edit("App ID", null, appId,
             InputType.TYPE_CLASS_TEXT, TranslationServiceSettingsPolicy::niutransProblem, "niutrans", "app_id"));
         group.nav("API Key", null, filled(text(niutrans, "apikey")), () -> edit("API Key", "小牛翻译控制台里的 API Key，保存在本机", "",
             secretInput(), TranslationServiceSettingsPolicy::niutransProblem, "niutrans", "apikey"));
@@ -136,7 +136,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
         GroupCard group = GroupCard.add(target, "自定义接口");
         String endpoint = text(custom, "endpoint");
         group.nav("接口地址", endpointIssue.isEmpty() ? "https 地址，或本机回环的 http 地址" : endpointIssue,
-            endpoint.isEmpty() ? "未设置" : shorten(endpoint), () -> edit("接口地址",
+            endpoint.isEmpty() ? "未设置" : HomeTextPolicy.shortLabel(endpoint), () -> edit("接口地址",
                 "兼容 DeepLX 的 POST 接口，例如 http://127.0.0.1:1188/translate；或 DeepL 官方 API https://api-free.deepl.com/v2/translate",
                 endpoint, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI,
                 TranslationServicePage::endpointProblem, "custom_translation", "endpoint"));
@@ -279,8 +279,4 @@ public final class TranslationServicePage extends ReloadingDetailPage {
         return value.isEmpty() ? "未填写" : "已填写";
     }
 
-    private static String shorten(String value) {
-        String single = value.replace('\n', ' ');
-        return single.length() <= 24 ? single : single.substring(0, 23) + "…";
-    }
 }
