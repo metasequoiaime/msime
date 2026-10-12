@@ -966,6 +966,11 @@ add_executable(candidate-pagination-test tests/candidate/CandidatePaginationTest
 target_include_directories(candidate-pagination-test PRIVATE src)
 target_compile_options(candidate-pagination-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME candidate-pagination COMMAND candidate-pagination-test)
+# 展开的候选网格（#7307）里光标怎么走、可见的是哪几行。
+add_executable(candidate-expanded-grid-test tests/candidate/CandidateExpandedGridTest.cpp)
+target_include_directories(candidate-expanded-grid-test PRIVATE src)
+target_compile_options(candidate-expanded-grid-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME candidate-expanded-grid COMMAND candidate-expanded-grid-test)
 # src/candidate/CandidatePanel.mm is the panel of the Apple snapshot's direct-engine controller, which is gone; only candidate-panel-test builds it.
 # Installing a dictionary over the one already in place. Every refusal here protects that file, and
 # the install itself must not be able to leave the user without one.

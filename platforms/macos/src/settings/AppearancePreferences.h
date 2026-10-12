@@ -46,6 +46,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic) BOOL showsAppLogo;
 /// 候选窗首行是否画「1 / 3」和 ‹ › 翻页按钮（共享偏好 `show_candidate_page_number`）。没有共享值也没有本机值时画，与共享偏好的默认一致。它不改变键盘和滚轮翻页，但滚轮翻页（`navigation.mouse_wheel`）默认关，关掉它后鼠标只能靠滚轮翻页。
 @property(nonatomic) BOOL showsCandidatePageNumber;
+/// 「展开候选」（共享偏好 `expand_candidates`）：横排候选窗按 ↓ 展开成多行候选网格。没有共享值也没有本机值时关闭。
+@property(nonatomic) BOOL expandCandidates;
 @property(nonatomic, copy) NSString *inputScheme;
 /// The Chinese scheme to go back to when leaving japanese or korean: the current scheme while it is Chinese, otherwise the one left for japanese or korean here or the shared `last_chinese_scheme`, 全拼 when neither is known.
 @property(nonatomic, readonly) NSString *lastChineseScheme;

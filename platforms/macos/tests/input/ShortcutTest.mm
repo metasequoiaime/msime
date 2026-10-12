@@ -2732,6 +2732,339 @@ static void TestGlossSenseTraditionalOutput(MSIMEAppearancePreferences *appearan
     appearance.traditionalOutput = savedTraditional;
 }
 
+// 展开候选网格的会话替身：一代候选是 total 个「<prefix><序号>」，每页 pageSize 个，视图是第 0 页、第一个高亮。msime_client_all_candidates 答这一代的全部候选，msime_client_select_any_candidate 只接受这一代。
+@interface ExpandedGridSession : ShortcutSession
+@property(nonatomic) uint64_t generation;
+@property(nonatomic) NSUInteger total;
+@property(nonatomic) NSUInteger pageSize;
+@property(nonatomic, copy) NSString *prefix;
+@property(nonatomic, copy) NSString *editing;
+@property(nonatomic) NSUInteger allCandidateCalls;
+@property(nonatomic) NSUInteger selectAnyCalls;
+@property(nonatomic) uint64_t selectAnyGeneration;
+@property(nonatomic) NSUInteger selectAnyIndex;
+@end
+@implementation ExpandedGridSession
+- (NSDictionary *)gridCandidate:(NSUInteger)index highlighted:(BOOL)highlighted {
+    return @{@"text": [NSString stringWithFormat:@"%@%lu", self.prefix, (unsigned long)index],
+             @"id": @{@"session": @1, @"generation": @(self.generation), @"index": @(index)},
+             @"highlighted": @(highlighted)};
+}
+- (NSDictionary *)gridView {
+    NSMutableArray *page = [NSMutableArray array];
+    for (NSUInteger index = 0; index < MIN(self.pageSize, self.total); ++index)
+        [page addObject:[self gridCandidate:index highlighted:index == 0]];
+    return @{@"focused": @YES, @"session": @1, @"generation": @(self.generation), @"editing_text": self.editing,
+             @"preedit": self.editing, @"caret_position": @(self.editing.length), @"page": @0,
+             @"page_count": @((self.total + self.pageSize - 1) / self.pageSize), @"candidates": page};
+}
+- (NSDictionary *)allCandidatesWithError:(NSError **)error {
+    (void)error;
+    ++self.allCandidateCalls;
+    NSMutableArray *all = [NSMutableArray array];
+    for (NSUInteger index = 0; index < self.total; ++index) [all addObject:[self gridCandidate:index highlighted:NO]];
+    return @{@"session": @1, @"generation": @(self.generation), @"preedit": self.editing, @"candidates": all};
+}
+- (NSDictionary *)selectAnyCandidateGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
+    (void)error;
+    ++self.selectAnyCalls;
+    self.selectAnyGeneration = generation;
+    self.selectAnyIndex = index;
+    [self recordCall:@"select_any"];
+    if (generation != self.generation || index >= self.total) return nil;
+    return @{@"handled": @YES, @"commit": [NSString stringWithFormat:@"%@%lu", self.prefix, (unsigned long)index],
+             @"view": @{@"focused": @YES, @"session": @1, @"generation": @(self.generation + 1), @"editing_text": @"",
+                        @"caret_position": @0, @"candidates": @[]}};
+}
+@end
+
+static MSIMECandidateButton *ExpandedGridSubview(NSPanel *panel, NSInteger tag) {
+    for (NSView *view in panel.contentView.subviews)
+        if ([view isKindOfClass:MSIMECandidateButton.class] && view.tag == tag) return (MSIMECandidateButton *)view;
+    return nil;
+}
+
+static NSUInteger ExpandedGridHighlightedTag(NSPanel *panel) {
+    for (NSView *view in panel.contentView.subviews)
+        if ([view isKindOfClass:MSIMECandidateButton.class] && view.tag >= 0 && ((MSIMECandidateButton *)view).candidateHighlighted)
+            return (NSUInteger)view.tag;
+    return NSNotFound;
+}
+
+// 「展开候选」（#7307）：横排候选窗按 ↓ 展开多行网格，网格里 ←/→ 行内、↑/↓ 行间、数字选高亮行、空格和回车选高亮、Esc 或第一行 ↑ 收起而组字保留，网格不认的键先收起再照常处理；偏好关闭、竖排、只有一页时 ↓ 和 ←/→ 和以前一样；选择带着复制时的一代，过期的一代什么也不选。
+static void TestExpandedCandidateGrid() {
+    NSString *suite = [@"msime.expanded-grid." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    prefs.vertical = NO;
+    prefs.pageSize = 5;
+    prefs.englishMode = NO;
+    assert(!prefs.expandCandidates);
+    // 共享文档读写同一个值：缺字段是关，打开后写回 expand_candidates。
+    assert([[prefs sharedPreferencesByMerging:@{}][@"expand_candidates"] isEqual:@NO]);
+    [prefs applySharedCandidatePreferences:@{@"expand_candidates": @YES}];
+    assert(prefs.expandCandidates);
+    [prefs applySharedCandidatePreferences:@{@"expand_candidates": @"yes"}];
+    assert(prefs.expandCandidates);
+    [prefs applySharedCandidatePreferences:@{@"expand_candidates": @NO}];
+    assert(!prefs.expandCandidates);
+    NSButton *toggle = (id)PreferenceControl(prefs, NSSelectorFromString(@"expandCandidatesChanged:"));
+    assert(toggle && toggle.state == NSControlStateValueOff);
+
+    ModeController *controller = [ModeController alloc];
+    ExpandedGridSession *session = [ExpandedGridSession new];
+    session.generation = 7;
+    session.total = 23;
+    session.pageSize = 5;
+    session.prefix = @"词";
+    session.editing = @"shi";
+    ShortcutClient *client = [ShortcutClient new];
+    client.caret = NSMakeRect(200, 400, 1, 18);
+    HiddenCandidatePanel *panel = [[HiddenCandidatePanel alloc] init];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:panel forKey:@"panel"];
+    void (^compose)(void) = ^{
+        [controller setValue:[session gridView] forKey:@"view"];
+        [controller renderCandidates];
+        assert(panel.isVisible);
+    };
+    BOOL (^expanded)(void) = ^BOOL { return [controller valueForKey:@"expandedCandidates"] != nil; };
+    NSUInteger (^cursor)(void) = ^NSUInteger { return [[controller valueForKey:@"expandedCursor"] unsignedIntegerValue]; };
+    auto press = [&](unsigned short code) { return [controller handleEvent:ModeKey(code, 0, NO) client:client]; };
+
+    // 偏好关闭：↓ 照旧移高亮，←/→ 照旧整句改字，不读完整候选，候选窗上也没有展开按钮。
+    compose();
+    assert(!ExpandedGridSubview(panel, -3));
+    session.lastCommand = UINT32_MAX;
+    assert(press(125));
+    assert(session.lastCommand == MSIME_NEXT_CANDIDATE && session.allCandidateCalls == 0 && !expanded());
+    compose();
+    assert(press(123));
+    assert(session.lastCommand == MSIME_CONVERSION_LEFT && !expanded());
+
+    // 打开偏好但候选窗是竖排：↓ 照旧，没有展开按钮。
+    prefs.expandCandidates = YES;
+    prefs.vertical = YES;
+    compose();
+    assert(!ExpandedGridSubview(panel, -3));
+    session.lastCommand = UINT32_MAX;
+    assert(press(125));
+    assert(session.lastCommand == MSIME_NEXT_CANDIDATE && session.allCandidateCalls == 0 && !expanded());
+    prefs.vertical = NO;
+
+    // 只有一页：没有可展开的，↓ 照旧。
+    session.total = 4;
+    compose();
+    assert(!ExpandedGridSubview(panel, -3));
+    session.lastCommand = UINT32_MAX;
+    assert(press(125));
+    assert(session.lastCommand == MSIME_NEXT_CANDIDATE && !expanded());
+    session.total = 23;
+
+    // 横排、多页：网格外 ←/→ 不变，首行有展开按钮。
+    compose();
+    MSIMECandidateButton *expandButton = ExpandedGridSubview(panel, -3);
+    assert(expandButton && [expandButton.identifier isEqual:@"candidate-expand"] && [expandButton.accessibilityLabel isEqual:@"展开候选"]);
+    session.lastCommand = UINT32_MAX;
+    assert(press(124));
+    assert(session.lastCommand == MSIME_CONVERSION_RIGHT && !expanded());
+
+    // ↓ 展开：读一次完整候选，不发任何 Engine 命令；23 个候选排成 5 行，高亮停在原来高亮的第一个。
+    compose();
+    session.lastCommand = UINT32_MAX;
+    const NSUInteger reads = session.allCandidateCalls;
+    assert(press(125));
+    assert(expanded() && session.allCandidateCalls == reads + 1 && session.lastCommand == UINT32_MAX);
+    assert(cursor() == 0 && ExpandedGridHighlightedTag(panel) == 0);
+    assert(ExpandedGridSubview(panel, 22) && !ExpandedGridSubview(panel, 23));
+    MSIMECandidateButton *collapse = ExpandedGridSubview(panel, -3);
+    assert(collapse && [collapse.identifier isEqual:@"candidate-collapse"]);
+    // 只有高亮那一行标序号，数字键选的就是那一行。
+    assert([ExpandedGridSubview(panel, 1).title hasPrefix:@"2  "] && [ExpandedGridSubview(panel, 6).title hasPrefix:@"  "]);
+
+    // →、↓ 移动；最后一行短时停在它的最后一个；← 在行内；↑ 回到上一行同一列。
+    assert(press(124) && cursor() == 1);
+    assert(press(125) && cursor() == 6);
+    assert(press(125) && press(125) && cursor() == 16);
+    assert(press(125) && cursor() == 21);
+    assert(press(125) && cursor() == 21);
+    assert(press(123) && cursor() == 20);
+    assert(press(123) && cursor() == 20);
+    assert(press(126) && cursor() == 15 && ExpandedGridHighlightedTag(panel) == 15);
+    assert([ExpandedGridSubview(panel, 16).title hasPrefix:@"2  "] && [ExpandedGridSubview(panel, 1).title hasPrefix:@"  "]);
+    // 翻页键一次滚过可见的几行（这里 5 行都可见），到头为止、不收起。
+    assert(press(116) && cursor() == 0 && expanded());
+    assert(press(121) && cursor() == 20);
+    // 网格里的移动一个 Engine 命令也没发。
+    assert(session.lastCommand == UINT32_MAX && session.selectCalls == 0);
+
+    // 数字键选高亮那一行里的第几个，带着复制时的一代走 select_any。
+    assert(press(126) && cursor() == 15);
+    client.committed = nil;
+    assert(press(20)); // 3
+    assert(session.selectAnyCalls == 1 && session.selectAnyGeneration == 7 && session.selectAnyIndex == 17);
+    assert([client.committed isEqual:@"词17"] && !expanded() && session.selectCalls == 0);
+
+    // 空格和回车选高亮的那一个。
+    compose();
+    assert(press(125) && press(125) && cursor() == 5);
+    assert(press(49));
+    assert(session.selectAnyCalls == 2 && session.selectAnyIndex == 5 && !expanded());
+    compose();
+    assert(press(125) && press(124) && cursor() == 1);
+    assert(press(36));
+    assert(session.selectAnyCalls == 3 && session.selectAnyIndex == 1 && session.rawCommitCalls == 0 && !expanded());
+
+    // Esc 收起网格，组字和候选都在，也没有取消组字。
+    compose();
+    session.lastCommand = UINT32_MAX;
+    assert(press(125) && expanded());
+    assert(press(53));
+    assert(!expanded() && session.lastCommand == UINT32_MAX && panel.isVisible);
+    assert([[controller valueForKey:@"view"][@"editing_text"] isEqual:@"shi"]);
+    // 第一行再按 ↑ 同样只收起；收起后 ↑ 回到原来的规则。
+    assert(press(125) && expanded());
+    assert(press(126));
+    assert(!expanded() && session.lastCommand == UINT32_MAX && ExpandedGridSubview(panel, -3));
+    assert(press(126));
+    assert(session.lastCommand == MSIME_PREVIOUS_CANDIDATE);
+
+    // 网格不认的键先收起网格，再照常交给 Engine。
+    compose();
+    assert(press(125) && expanded());
+    const NSUInteger letters = session.asciiCalls;
+    [controller handleEvent:ModeKey(0, 0, NO) client:client]; // 'a'
+    assert(!expanded() && session.asciiCalls == letters + 1);
+
+    // 鼠标：首行的展开按钮打开网格，点网格里的候选先报告指针再选，收起按钮收起。
+    compose();
+    [controller toggleExpandedCandidates:ExpandedGridSubview(panel, -3)];
+    assert(expanded() && cursor() == 0);
+    [controller toggleExpandedCandidates:ExpandedGridSubview(panel, -3)];
+    assert(!expanded());
+    [controller toggleExpandedCandidates:ExpandedGridSubview(panel, -3)];
+    assert(expanded());
+    session.calls = nil;
+    [controller selectExpandedCandidate:ExpandedGridSubview(panel, 12)];
+    assert(session.selectAnyCalls == 4 && session.selectAnyIndex == 12 && !expanded());
+    NSString *pointerKey = [NSString stringWithFormat:@"key:%u", MSIME_KEY_POINTER];
+    assert([session.calls containsObject:@"select_any"] &&
+           [session.calls indexOfObject:pointerKey] < [session.calls indexOfObject:@"select_any"]);
+
+    // 关掉偏好或改成竖排后，下一次重画收起网格。
+    compose();
+    assert(press(125) && expanded());
+    prefs.expandCandidates = NO;
+    [controller renderCandidates];
+    assert(!expanded());
+    prefs.expandCandidates = YES;
+    assert(press(125) && expanded());
+    prefs.vertical = YES;
+    [controller renderCandidates];
+    assert(!expanded());
+    prefs.vertical = NO;
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+// 展开的网格只认复制时的那一代（#7307）：组字不变而候选换了一代（云候选、AI 回答、整句重排）时按新的一代重载，高亮留在原来那个词上；组字变了就收起；视图已经换了一代而网格还没重画时点到的候选什么也不选。
+static void TestExpandedCandidateGridGeneration() {
+    NSString *suite = [@"msime.expanded-grid-generation." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    prefs.vertical = NO;
+    prefs.pageSize = 5;
+    prefs.englishMode = NO;
+    prefs.expandCandidates = YES;
+    ModeController *controller = [ModeController alloc];
+    ExpandedGridSession *session = [ExpandedGridSession new];
+    session.generation = 3;
+    session.total = 12;
+    session.pageSize = 5;
+    session.prefix = @"甲";
+    session.editing = @"jia";
+    ShortcutClient *client = [ShortcutClient new];
+    client.caret = NSMakeRect(200, 400, 1, 18);
+    HiddenCandidatePanel *panel = [[HiddenCandidatePanel alloc] init];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:panel forKey:@"panel"];
+    BOOL (^expanded)(void) = ^BOOL { return [controller valueForKey:@"expandedCandidates"] != nil; };
+    NSUInteger (^cursor)(void) = ^NSUInteger { return [[controller valueForKey:@"expandedCursor"] unsignedIntegerValue]; };
+    auto press = [&](unsigned short code) { return [controller handleEvent:ModeKey(code, 0, NO) client:client]; };
+    [controller setValue:[session gridView] forKey:@"view"];
+    [controller renderCandidates];
+    assert(press(125) && press(125) && cursor() == 5);
+    assert([[controller valueForKey:@"expandedGeneration"] isEqual:@3]);
+
+    // 同一组字的新一代到达（异步结果经 apply:）：网格留着、换成新的一代，高亮还是「甲5」。新的一代多了两个候选。
+    session.generation = 4;
+    session.total = 14;
+    const NSUInteger reads = session.allCandidateCalls;
+    [controller apply:@{@"view": [session gridView]}];
+    assert(expanded() && session.allCandidateCalls == reads + 1);
+    assert([[controller valueForKey:@"expandedGeneration"] isEqual:@4] && cursor() == 5);
+    assert(ExpandedGridSubview(panel, 13) && ExpandedGridHighlightedTag(panel) == 5);
+    // 网格里的移动不再读完整候选。
+    assert(press(124) && cursor() == 6 && session.allCandidateCalls == reads + 1);
+    // 选择带着新的一代。
+    assert(press(49));
+    assert(session.selectAnyCalls == 1 && session.selectAnyGeneration == 4 && session.selectAnyIndex == 6 && !expanded());
+
+    // 新的一代里原来的词没了（换了一批文字）：高亮夹在范围内。
+    session.generation = 5;
+    session.total = 12;
+    [controller setValue:[session gridView] forKey:@"view"];
+    [controller renderCandidates];
+    assert(press(125) && press(125) && press(125) && press(124) && cursor() == 11);
+    session.generation = 6;
+    session.total = 9;
+    session.prefix = @"乙";
+    [controller apply:@{@"view": [session gridView]}];
+    assert(expanded() && cursor() == 8 && [[controller valueForKey:@"expandedGeneration"] isEqual:@6]);
+
+    // 组字变了（比如又打了一个字母）：网格收起，普通候选窗照常显示新的一页。
+    session.generation = 7;
+    session.editing = @"jian";
+    [controller apply:@{@"view": [session gridView]}];
+    assert(!expanded() && panel.isVisible && ExpandedGridSubview(panel, -3));
+
+    // 视图已经是新的一代、网格还没重画时点网格里的候选：不调 select_any，网格收起。
+    [controller renderCandidates];
+    [controller toggleExpandedCandidates:ExpandedGridSubview(panel, -3)];
+    assert(expanded());
+    MSIMECandidateButton *stale = ExpandedGridSubview(panel, 7);
+    assert(stale);
+    session.generation = 8;
+    session.editing = @"jiang";
+    [controller setValue:[session gridView] forKey:@"view"];
+    const NSUInteger picks = session.selectAnyCalls;
+    [controller selectExpandedCandidate:stale];
+    assert(session.selectAnyCalls == picks && !expanded());
+
+    // Engine 自己拒绝过期的一代（复制之后它又换了一代）：什么也不上屏，网格收起，组字还在。
+    [controller renderCandidates];
+    assert(press(125) && expanded());
+    session.generation = 9;
+    client.committed = nil;
+    assert(press(49));
+    assert(session.selectAnyCalls == picks + 1 && session.selectAnyGeneration == 8 && !client.committed && !expanded());
+    assert([[controller valueForKey:@"view"][@"editing_text"] isEqual:@"jiang"]);
+
+    // 焦点换到另一个客户端：旧客户端的组字随失焦结束，网格跟着收起。
+    session.generation = 10;
+    [controller setValue:[session gridView] forKey:@"view"];
+    [controller renderCandidates];
+    assert(press(125) && expanded());
+    ShortcutClient *other = [ShortcutClient new];
+    other.caret = NSMakeRect(300, 400, 1, 18);
+    [controller handleEvent:ModeKey(0, 0, NO) client:other];
+    assert(!expanded());
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutSession *session = [ShortcutSession new];
@@ -10856,6 +11189,8 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestJapaneseConversionKeys(appearance); }
         @autoreleasepool { TestGlossSensePage(appearance); }
         @autoreleasepool { TestGlossSenseTraditionalOutput(appearance); }
+        @autoreleasepool { TestExpandedCandidateGrid(); }
+        @autoreleasepool { TestExpandedCandidateGridGeneration(); }
         @autoreleasepool { TestSegmentEditingChords(appearance); }
         @autoreleasepool { TestSchemeTraitsFromView(appearance); }
         @autoreleasepool { TestSchemeKeyRouting(); }
