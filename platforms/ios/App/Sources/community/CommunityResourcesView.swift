@@ -409,6 +409,9 @@ struct CommunityResourceDetail: View {
   @State private var confirmImport = false
   @State private var confirmDelete = false
   @State private var editing = false
+  @State private var pending: Task<Void, Never>?
+  @State private var requestID = UUID()
+  @State private var visible = false
   @Environment(\.dismiss) private var dismiss
   private var item: CommunityResource { updated ?? initial }
   var body: some View {
@@ -445,26 +448,33 @@ struct CommunityResourceDetail: View {
           Text(item.content.prompt ?? "").font(.body).textSelection(.enabled)
             .padding().frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
-          Button("添加到高情商回复键盘") { run {
+          Button("添加到高情商回复键盘") { run { id in
             try await SkinCommunityAPI.shared.saveResource(item.id, saved: true)
+            try ensureCurrent(id)
             let latest = try await SkinCommunityAPI.shared.resource(item.id)
+            try ensureCurrent(id)
             try await Task.detached(priority: .userInitiated) {
               try CommunityLibrary.save(latest)
             }.value
+            try ensureCurrent(id)
             updated = latest
             message = "已添加。在高情商回复键盘点击「模板」即可选择；只有点击生成时才会发送文字。"
           }}.buttonStyle(.borderedProminent).disabled(busy)
         }
-        Button(item.saved ? "取消收藏" : "收藏，关注后续更新") { run {
+        Button(item.saved ? "取消收藏" : "收藏，关注后续更新") { run { id in
           try await SkinCommunityAPI.shared.saveResource(item.id, saved: !item.saved)
-          updated = try await SkinCommunityAPI.shared.resource(item.id)
+          try ensureCurrent(id)
+          let latest = try await SkinCommunityAPI.shared.resource(item.id)
+          try ensureCurrent(id)
+          updated = latest
         }}.disabled(busy)
         if item.kind == .reply {
-          Button("从本机高情商回复键盘移除") { run {
-            let id = item.id
+          Button("从本机高情商回复键盘移除") { run { id in
+            let resourceID = item.id
             try await Task.detached(priority: .userInitiated) {
-              try CommunityLibrary.remove(id)
+              try CommunityLibrary.remove(resourceID)
             }.value
+            try ensureCurrent(id)
             message = "已从本机移除，社区收藏保留。"
           }}.disabled(busy)
         }
@@ -472,9 +482,12 @@ struct CommunityResourceDetail: View {
           HStack {
             Text("评分")
             ForEach(1...5, id: \.self) { stars in
-              Button { run {
+              Button { run { id in
                 try await SkinCommunityAPI.shared.rateResource(item.id, stars: stars)
-                updated = try await SkinCommunityAPI.shared.resource(item.id)
+                try ensureCurrent(id)
+                let latest = try await SkinCommunityAPI.shared.resource(item.id)
+                try ensureCurrent(id)
+                updated = latest
               }} label: { Image(systemName: stars <= item.my_rating ? "star.fill" : "star") }
                 .accessibilityLabel("\(stars) 星").disabled(busy || !item.saved)
             }
@@ -487,26 +500,68 @@ struct CommunityResourceDetail: View {
         if busy { ProgressView() }
       }.padding(20)
     }.background(Color(uiColor: .systemGroupedBackground)).navigationTitle(item.kind == .dictionary ? "词库详情" : "回复模板")
-      .task { run { updated = try await SkinCommunityAPI.shared.resource(initial.id) } }
-      .sheet(isPresented: $editing, onDismiss: { run { updated = try await SkinCommunityAPI.shared.resource(initial.id) } }) {
+      .task {
+        visible = true
+        run { id in
+        let latest = try await SkinCommunityAPI.shared.resource(initial.id)
+        try ensureCurrent(id)
+        updated = latest
+        }
+      }
+      .sheet(isPresented: $editing, onDismiss: { run { id in
+        let latest = try await SkinCommunityAPI.shared.resource(initial.id)
+        try ensureCurrent(id)
+        updated = latest
+      } }) {
         CommunityResourceEditor(kind: item.kind, existing: item)
       }
       .confirmationDialog("确认导入预览中的 \(item.content.entries?.count ?? 0) 条词条？", isPresented: $confirmImport, titleVisibility: .visible) {
-        Button("确认导入") { let selected = item; run {
+        Button("确认导入") { let selected = item; run { id in
           try PersonalDictionaryStore().enqueueImport((selected.content.entries ?? []).map { try $0.localWord() })
+          try ensureCurrent(id)
           CommunityDictionaryImports.record(selected.id)
           message = "已加入本机导入队列，打开水杉键盘后处理。可在「查看导入状态」检查每条结果。"
         }}
       }
       .confirmationDialog("下架后其他用户将无法获取此作品，已有本地副本保留。", isPresented: $confirmDelete, titleVisibility: .visible) {
-        Button("下架", role: .destructive) { run { try await SkinCommunityAPI.shared.unpublishResource(item.id); dismiss() } }
+        Button("下架", role: .destructive) { run { id in
+          try await SkinCommunityAPI.shared.unpublishResource(item.id)
+          try ensureCurrent(id)
+          dismiss()
+        } }
       }
       .alert("社区", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
         Button("好", role: .cancel) {}
       } message: { Text(message ?? "") }
+      .onAppear { visible = true }
+      .onDisappear {
+      visible = false
+      requestID = UUID()
+      pending?.cancel()
+      pending = nil
+      busy = false
+      }
   }
-  private func run(_ action: @escaping @MainActor () async throws -> Void) {
-    runCommunityAction(busy: $busy, message: $message, action: action)
+  private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
+    guard visible, !busy else { return }
+    let id = UUID()
+    requestID = id
+    busy = true; message = nil
+    pending = Task {
+      defer {
+        if requestID == id {
+          busy = false
+          pending = nil
+        }
+      }
+      do { try await action(id) }
+      catch is CancellationError { }
+      catch { if visible, requestID == id { message = error.localizedDescription } }
+    }
+  }
+  @MainActor private func ensureCurrent(_ id: UUID) throws {
+    try Task.checkCancellation()
+    guard visible, requestID == id else { throw CancellationError() }
   }
 }
 
