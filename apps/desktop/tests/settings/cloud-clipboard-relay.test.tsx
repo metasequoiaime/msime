@@ -96,7 +96,12 @@ test("a refused relay token is not read as signed out of the account", () => {
   expect(cloudClipboardErrorMessage({ code: "account_unauthorized" }, "失败")).toBe(
     CLOUD_CLIPBOARD_SIGNED_OUT,
   );
-  for (const code of ["relay_not_configured", "relay_unavailable", "relay_storage"]) {
+  for (const code of [
+    "relay_not_configured",
+    "relay_unavailable",
+    "relay_storage",
+    "clipboard_full",
+  ]) {
     expect(cloudClipboardFailure({ code })).toBe("unavailable");
     expect(cloudClipboardErrorMessage({ code }, "失败")).not.toBe("失败");
   }
@@ -176,4 +181,55 @@ test("hosts that cannot route through a relay do not offer it", async () => {
   );
   await settingsFormReady();
   expect(screen.queryByText("云剪贴板同步方式")).toBeNull();
+});
+
+test("saving a relay on the clipboard page checks the cloud clipboard again over the new route", async () => {
+  const save = vi.fn(async (revision: number, preferences: Preferences) =>
+    snapshot(preferences, revision + 1),
+  );
+  // 没登录时账号路径答未登录；保存中继之后同一个请求经中继答可用。
+  const cloudClipboardRequest = vi
+    .fn()
+    .mockRejectedValueOnce({ code: "account_unauthorized" })
+    .mockResolvedValue({ enabled: true, items: [], e2e: { status: "ready" } });
+  render(
+    <SettingsPage
+      initialPage="tools"
+      client={{
+        load: vi.fn().mockResolvedValue(snapshot({ ...base, clipboard_history: true })),
+        save,
+        cloudClipboardRelay: true,
+        cloudClipboardRequest,
+        clipboard: {
+          clear: vi.fn(),
+          list: vi
+            .fn()
+            .mockResolvedValue([
+              { text: "合成剪贴板记录", timestampMs: 1_700_000_000_000, pinned: false },
+            ]),
+        },
+      }}
+    />,
+  );
+  await settingsFormReady();
+  expect(await screen.findByText(CLOUD_CLIPBOARD_SIGNED_OUT)).toBeDefined();
+  const send = await screen.findByRole("button", { name: "发到云剪贴板" });
+  expect(send.hasAttribute("disabled")).toBe(true);
+
+  fireEvent.click(screen.getByRole("radio", { name: "自建中继" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "中继地址" }), {
+    target: { value: "https://relay.example.test/msime" },
+  });
+  fireEvent.change(screen.getByLabelText("中继令牌"), { target: { value: TOKEN } });
+  fireEvent.click(screen.getByRole("button", { name: "保存中继设置" }));
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+
+  await waitFor(() => expect(cloudClipboardRequest).toHaveBeenCalledTimes(2));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "发到云剪贴板" }).hasAttribute("disabled")).toBe(
+      false,
+    ),
+  );
+  expect(screen.queryByText(CLOUD_CLIPBOARD_SIGNED_OUT)).toBeNull();
 });
