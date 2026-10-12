@@ -1,0 +1,101 @@
+import app.msime.android.CandidateTranslationPolicy;
+import app.msime.android.CandidateTranslationRoute;
+import app.msime.android.CandidateTranslationRoute.Provider;
+
+/**
+ * 候选翻译选路对照共享层 `crates/host-api/src/ffi/providers.rs` 的 `selected_translation_services`：选路是 Java 对 Rust 的镜像，Rust 改了优先级而这里没跟上时由这张表拦下。
+ */
+public final class CandidateTranslationRouteSmoke {
+    /** 一行偏好：候选翻译开关、水杉账号，再是小牛、自定义、腾讯各自的启用和凭据。 */
+    private record Row(String name, boolean translations, boolean account,
+            boolean niutrans, String appId, String niutransKey,
+            boolean custom, String endpoint, String customKey,
+            boolean tencent, String secretId, String secretKey, String region, Provider expected) {
+        CandidateTranslationRoute route() {
+            return CandidateTranslationPolicy.route(translations, account, niutrans, appId, niutransKey,
+                custom, endpoint, customKey, tencent, secretId, secretKey, region);
+        }
+    }
+
+    public static void main(String[] args) {
+        Row[] rows = {
+            // 共享偏好的默认值：候选翻译开着、腾讯默认启用但没有凭据，所以什么都不发。
+            new Row("default preferences", true, false, false, "", "", false, "", "",
+                true, "", "", "ap-guangzhou", Provider.NONE),
+            new Row("explicit account", true, true, false, "", "", false, "", "",
+                true, "", "", "ap-guangzhou", Provider.ACCOUNT),
+            new Row("NiuTrans with credentials", true, false, true, "app", "key", false, "", "",
+                false, "", "", "", Provider.NIUTRANS),
+            new Row("NiuTrans without a key never falls back", true, true, true, "app", "", true,
+                "https://translate.example/api", "", true, "AKIDsynthetic", "synthetic", "", Provider.NONE),
+            new Row("custom without a key", true, false, false, "", "", true,
+                "http://127.0.0.1:1188/translate", "", false, "", "", "", Provider.CUSTOM),
+            new Row("custom with a blank endpoint", true, false, false, "", "", true, " \t ", "key",
+                false, "", "", "", Provider.NONE),
+            new Row("custom wins over the account", true, true, false, "", "", true,
+                "https://translate.example/api", "", false, "", "", "", Provider.CUSTOM),
+            new Row("NiuTrans wins over custom", true, false, true, "app", "key", true,
+                "https://translate.example/api", "", false, "", "", "", Provider.NIUTRANS),
+            new Row("custom wins over Tencent", true, false, false, "", "", true,
+                "https://translate.example/api", "", true, "AKIDsynthetic", "synthetic", "", Provider.CUSTOM),
+            new Row("usable Tencent wins over the account", true, true, false, "", "", false, "", "",
+                true, "AKIDsynthetic", "synthetic", "", Provider.TENCENT),
+            new Row("disabled Tencent leaves the account", true, true, false, "", "", false, "", "",
+                false, "AKIDsynthetic", "synthetic", "", Provider.ACCOUNT),
+            new Row("Tencent placeholder is no credential", true, true, false, "", "", false, "", "",
+                true, "<SecretId>", "synthetic", "", Provider.ACCOUNT),
+            new Row("Tencent FAKESECRET is no credential", true, false, false, "", "", false, "", "",
+                true, "AKIDsynthetic", "FAKESECRET_key", "", Provider.NONE),
+            new Row("NiuTrans whitespace is no credential", true, false, true, " \n", "key", false, "", "",
+                false, "", "", "", Provider.NONE),
+            new Row("translations off sends nothing to NiuTrans", false, false, true, "app", "key", false, "", "",
+                false, "", "", "", Provider.NONE),
+            new Row("translations off sends nothing to custom", false, false, false, "", "", true,
+                "https://translate.example/api", "", false, "", "", "", Provider.NONE),
+            new Row("translations off sends nothing to Tencent", false, false, false, "", "", false, "", "",
+                true, "AKIDsynthetic", "synthetic", "", Provider.NONE),
+            new Row("translations off sends nothing to the account", false, true, false, "", "", false, "", "",
+                false, "", "", "", Provider.NONE),
+        };
+        for (Row row : rows) {
+            Provider actual = row.route().provider();
+            check(actual == row.expected(), row.name() + ": expected " + row.expected() + ", got " + actual);
+        }
+
+        check(!CandidateTranslationPolicy.usableCredential("<key>")
+                && !CandidateTranslationPolicy.usableCredential("FAKESECRET_x")
+                && !CandidateTranslationPolicy.usableCredential(" \t\r\n")
+                && !CandidateTranslationPolicy.usableCredential(null)
+                && CandidateTranslationPolicy.usableCredential(" key "),
+            "placeholders, FAKESECRET_ samples and blank values are not credentials");
+
+        CandidateTranslationRoute tencent = CandidateTranslationPolicy.route(true, false, false, "", "",
+            false, "", "", true, " AKIDsynthetic ", "secret-value", "");
+        check("AKIDsynthetic".equals(tencent.secretId()), "credentials are trimmed");
+        check(CandidateTranslationRoute.DEFAULT_TENCENT_REGION.equals(tencent.region()),
+            "an empty Tencent region takes the shared default");
+        check(!tencent.toString().contains("secret-value") && !tencent.toString().contains("AKID"),
+            "toString never carries credentials");
+        check(!tencent.scope().contains("secret-value"), "the cache scope never carries credentials");
+
+        CandidateTranslationRoute custom = CandidateTranslationPolicy.route(true, false, false, "", "",
+            true, " https://translate.example/api ", "key-one", false, "", "", "");
+        CandidateTranslationRoute rotated = CandidateTranslationPolicy.route(true, false, false, "", "",
+            true, "https://translate.example/api", "key-two", false, "", "", "");
+        CandidateTranslationRoute same = CandidateTranslationPolicy.route(true, false, false, "", "",
+            true, "https://translate.example/api", "key-one", false, "", "", "");
+        check("https://translate.example/api".equals(custom.endpoint()), "the endpoint is trimmed");
+        check(!custom.scope().equals(rotated.scope()) && !custom.equals(rotated),
+            "changing the key changes the route and its cache scope");
+        check(custom.scope().equals(same.scope()) && custom.equals(same) && custom.hashCode() == same.hashCode(),
+            "the same settings give the same route");
+        check(custom.userService() && !CandidateTranslationRoute.ACCOUNT.userService()
+                && !CandidateTranslationRoute.NONE.userService(),
+            "only NiuTrans, custom and Tencent are user services");
+        System.out.println("Android candidate translation route mirrors the shared provider selection");
+    }
+
+    private static void check(boolean condition, String message) {
+        if (!condition) throw new AssertionError(message);
+    }
+}

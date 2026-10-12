@@ -203,6 +203,75 @@ public final class CandidateTranslationStoreSmoke {
             releasePendingLineage.countDown();
             pendingLineageWorker.shutdownNow();
         }
+        // 用户自己的服务对没有译文的位置返回 null：只缓存有译文的词，其余的照样通知宿主已到达的那部分。
+        FakeScheduler partialScheduler = new FakeScheduler();
+        ExecutorService partialWorker = Executors.newSingleThreadExecutor();
+        AtomicInteger partialArrivals = new AtomicInteger();
+        CandidateTranslationStore partialStore = new CandidateTranslationStore(
+            (texts, target) -> java.util.Arrays.asList("hello", null, "world"),
+            partialWorker, partialScheduler, generation -> partialArrivals.incrementAndGet());
+        try {
+            partialStore.refresh(List.of("你好", "没有", "世界"), List.of("en"), 3);
+            partialScheduler.runDelayed();
+            partialWorker.shutdown();
+            check(partialWorker.awaitTermination(2, TimeUnit.SECONDS), "partial worker stopped");
+            partialScheduler.runPosted();
+            check("hello".equals(partialStore.gloss("你好", "en"))
+                    && "world".equals(partialStore.gloss("世界", "en")),
+                "non-null translations beside a null slot are cached");
+            check(partialStore.gloss("没有", "en") == null, "a null slot is not cached");
+            check(partialArrivals.get() == 1, "a partial answer notifies the host once");
+        } finally {
+            partialWorker.shutdownNow();
+        }
+
+        // 逐词请求的服务能看到这次请求已经过期，在下一个词之前停下。
+        FakeScheduler staleScheduler = new FakeScheduler();
+        ExecutorService staleWorker = Executors.newSingleThreadExecutor();
+        CountDownLatch firstWord = new CountDownLatch(1);
+        CountDownLatch cancelled = new CountDownLatch(1);
+        AtomicInteger askedWords = new AtomicInteger();
+        java.util.concurrent.atomic.AtomicBoolean sawStale = new java.util.concurrent.atomic.AtomicBoolean();
+        CandidateTranslationStore.Service perWord = new CandidateTranslationStore.Service() {
+            @Override public List<String> translate(List<String> texts, String target) {
+                throw new AssertionError("the store must pass its staleness signal");
+            }
+
+            @Override public List<String> translate(List<String> texts, String target,
+                    java.util.function.BooleanSupplier stale) throws Exception {
+                java.util.ArrayList<String> result = new java.util.ArrayList<>();
+                for (String text : texts) {
+                    if (stale.getAsBoolean()) {
+                        sawStale.set(true);
+                        result.add(null);
+                        continue;
+                    }
+                    askedWords.incrementAndGet();
+                    result.add(text + " translation");
+                    firstWord.countDown();
+                    cancelled.await(2, TimeUnit.SECONDS);
+                }
+                return result;
+            }
+        };
+        CandidateTranslationStore staleStore = new CandidateTranslationStore(
+            perWord, staleWorker, staleScheduler, generation -> { });
+        try {
+            staleStore.refresh(List.of("一", "二", "三"), List.of("en"), 5);
+            staleScheduler.runDelayed();
+            check(firstWord.await(2, TimeUnit.SECONDS), "per-word request started");
+            staleStore.cancel();
+            cancelled.countDown();
+            staleWorker.shutdown();
+            check(staleWorker.awaitTermination(2, TimeUnit.SECONDS), "per-word worker stopped");
+            check(sawStale.get() && askedWords.get() == 1,
+                "a cancelled refresh stops a per-word service before its next word");
+            staleScheduler.runPosted();
+            check(staleStore.gloss("一", "en") == null, "the stale page populates nothing");
+        } finally {
+            cancelled.countDown();
+            staleWorker.shutdownNow();
+        }
         System.out.println("Android candidate translation store: stale request fencing passed");
     }
 

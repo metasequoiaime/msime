@@ -64,13 +64,61 @@ public final class CandidateTranslationPolicy {
     }
 
     /**
-     * Whether candidate words may be sent to the MSIME account endpoint (api.msime.app).
+     * 候选词这一次发给哪个在线服务，逐条照共享层 `crates/host-api/src/ffi/providers.rs` 的 `selected_translation_services`：
      *
-     * <p>Only an explicit `translation_account` choice selects it, and a user's own NiuTrans or custom service always wins over it, so nothing is sent when the user never chose. This mirrors the `translation_account` rule in the shared core (`msime_client_translation_query` in `crates/host-api/src/ffi/providers.rs`) except for the Tencent clause: this host has no Tencent client and neither Android settings surface can enter Tencent credentials. The shared settings page also writes Tencent's `enabled` to false when the account is chosen; the native feature switch writes only `translation_account`. Plain booleans because the JVM smokes cannot load org.json.
+     * <ul>
+     * <li>候选翻译关闭时什么都不发。共享层在这种情况下只排除水杉账号，用户自己的服务由宿主按这个开关拦下（Linux 的 provider 也是这样）。</li>
+     * <li>水杉账号（api.msime.app）只在用户明确选了它、并且小牛和自定义都没启用、腾讯也不是「启用且两项凭据都可用」时才用，从不作为回落。</li>
+     * <li>其余按 小牛 > 自定义 > 腾讯 选。选中的服务不可用时结果是 {@link CandidateTranslationRoute#NONE}，不改用别的服务：小牛要两项凭据都可用；自定义只要求接口地址去掉首尾空白后不为空，API Key 可以为空（DeepLX 允许不带密钥），DeepL 地址缺密钥这类情况由共享描述器在请求时拒绝；腾讯的 `enabled` 默认就是开着的，所以只有两项凭据都可用才算选中。</li>
+     * </ul>
+     *
+     * <p>参数都是基本类型，因为 JVM 冒烟加载不了 org.json。凭据去掉首尾的空格、制表符和换行，与共享层的 `trim_matches` 相同。
      */
-    public static boolean accountSelected(boolean candidateTranslations,
-            boolean translationAccount, boolean niutransEnabled, boolean customEnabled) {
-        return candidateTranslations && translationAccount && !niutransEnabled && !customEnabled;
+    public static CandidateTranslationRoute route(boolean candidateTranslations, boolean translationAccount,
+            boolean niutransEnabled, String niutransAppId, String niutransApiKey,
+            boolean customEnabled, String customEndpoint, String customApiKey,
+            boolean tencentEnabled, String tencentSecretId, String tencentSecretKey, String tencentRegion) {
+        if (!candidateTranslations) return CandidateTranslationRoute.NONE;
+        String secretId = credentialTrimmed(tencentSecretId);
+        String secretKey = credentialTrimmed(tencentSecretKey);
+        boolean tencentUsable = tencentEnabled && usableCredential(secretId) && usableCredential(secretKey);
+        if (translationAccount && !niutransEnabled && !customEnabled && !tencentUsable)
+            return CandidateTranslationRoute.ACCOUNT;
+        if (niutransEnabled) {
+            String appId = credentialTrimmed(niutransAppId);
+            String apiKey = credentialTrimmed(niutransApiKey);
+            return usableCredential(appId) && usableCredential(apiKey)
+                ? CandidateTranslationRoute.niutrans(appId, apiKey) : CandidateTranslationRoute.NONE;
+        }
+        if (customEnabled) {
+            String endpoint = credentialTrimmed(customEndpoint);
+            return endpoint.isEmpty() ? CandidateTranslationRoute.NONE
+                : CandidateTranslationRoute.custom(endpoint, credentialTrimmed(customApiKey));
+        }
+        if (tencentUsable)
+            return CandidateTranslationRoute.tencent(secretId, secretKey, credentialTrimmed(tencentRegion));
+        return CandidateTranslationRoute.NONE;
+    }
+
+    /** 与共享层 `translation::usable_credential` 相同：去掉首尾空白后不为空，不是 `<...>` 这样的占位符，也不以 `FAKESECRET_` 开头。 */
+    public static boolean usableCredential(String value) {
+        String trimmed = credentialTrimmed(value);
+        return !trimmed.isEmpty() && !(trimmed.startsWith("<") && trimmed.endsWith(">"))
+            && !trimmed.startsWith("FAKESECRET_");
+    }
+
+    /** 去掉首尾的空格、制表符、回车和换行，与共享层的 `trim_matches([' ', '\t', '\r', '\n'])` 相同。 */
+    static String credentialTrimmed(String value) {
+        if (value == null) return "";
+        int start = 0;
+        int end = value.length();
+        while (start < end && trimmable(value.charAt(start))) start++;
+        while (end > start && trimmable(value.charAt(end - 1))) end--;
+        return value.substring(start, end);
+    }
+
+    private static boolean trimmable(char value) {
+        return value == ' ' || value == '\t' || value == '\r' || value == '\n';
     }
 
     /** A delayed account translation may be applied only while the same binding snapshot is current. */
@@ -78,15 +126,17 @@ public final class CandidateTranslationPolicy {
         return requested != null && !requested.isEmpty() && requested.equals(current);
     }
 
-    /** 偏好变化后当前候选行中的译文必须先清空，再等待新配置的回答。 */
+    /** 偏好变化后当前候选行中的译文必须先清空，再等待新配置的回答。换了翻译服务或凭据（路由变了）也算。 */
     public static boolean displayInvalidated(boolean previousEnglishGloss,
             boolean nextEnglishGloss, boolean previousTranslations,
             boolean nextTranslations, boolean previousAccount, boolean nextAccount,
-            List<String> previousTargets, List<String> nextTargets) {
+            List<String> previousTargets, List<String> nextTargets,
+            CandidateTranslationRoute previousRoute, CandidateTranslationRoute nextRoute) {
         return previousEnglishGloss != nextEnglishGloss
             || previousTranslations != nextTranslations
             || previousAccount != nextAccount
-            || !java.util.Objects.equals(previousTargets, nextTargets);
+            || !java.util.Objects.equals(previousTargets, nextTargets)
+            || !java.util.Objects.equals(previousRoute, nextRoute);
     }
 
     /** Count rows that can actually be filled by the enabled offline/online paths. The offline switch covers English and every target in {@code offlineTargets}. */
@@ -128,7 +178,7 @@ public final class CandidateTranslationPolicy {
         return List.copyOf(result);
     }
 
-    /** One candidate's rows in target order: the offline gloss for a target first, the account translation where there is none. */
+    /** 一个候选按目标语言顺序排列的各行：某个目标有离线释义就用离线释义，没有时才用在线译文（水杉账号或用户自己的服务）。鸿蒙相反，在线优先、离线补缺。 */
     public static String mergeGlosses(List<String> targets, Map<String, String> offline,
             Map<String, String> online) {
         if (targets == null) return "";

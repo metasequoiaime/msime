@@ -289,13 +289,28 @@ if ! rg -q 'msime::windows::polish_prompt_for' \
   echo "Android must read the polish presets from the shared table, not a copy" >&2
   exit 1
 fi
-# Candidate words reach api.msime.app only after an explicit account choice (PRIVACY.md). The policy smoke covers accountSelected itself; this pins the service to it: the fetch, the apply and the reserved rows read candidateTranslationAccount, and both preference paths derive it through the policy.
+# Candidate words reach api.msime.app only after an explicit account choice (PRIVACY.md). CandidateTranslationRouteSmoke covers the route itself; this pins the service to it: the fetch, the apply and the reserved rows read candidateTranslationAccount, both preference paths derive it through the policy, and the account is only the route's ACCOUNT provider.
 account_service="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
 if ! rg -qU 'void scheduleCandidateTranslations\(\) \{\s*if \(!candidateTranslationAccount ' "$account_service" \
   || ! rg -qU 'void applyCandidateTranslations\(long generation\) \{\s*if \(!candidateTranslationAccount ' "$account_service" \
-  || ! rg -qU 'glossLines\(\s*candidateTranslationTargets, candidateEnglishGloss, candidateTranslationAccount,\s*candidateOfflineTargets\(\)\)' "$account_service" \
-  || [ "$(rg -c '= candidateTranslationAccountFrom\(preferences\);' "$account_service")" != 2 ]; then
+  || ! rg -qU 'glossLines\(\s*candidateTranslationTargets, candidateEnglishGloss,\s*candidateTranslationAccount \|\| candidateTranslationRoute\.userService\(\),\s*candidateOfflineTargets\(\)\)' "$account_service" \
+  || [ "$(rg -c '= candidateTranslationAccountFrom\(preferences\);' "$account_service")" != 2 ] \
+  || ! rg -qF 'return candidateTranslationRouteFrom(preferences).provider() == CandidateTranslationRoute.Provider.ACCOUNT;' "$account_service"; then
   echo "Android must fetch candidate translations from the account only after an explicit choice" >&2
+  exit 1
+fi
+# 候选词发给用户自己的翻译服务（小牛、自定义、腾讯）也只能经过同一个选路：两条偏好路径都用 CandidateTranslationPolicy.route 算出路由，取译文和应用译文都先看路由是不是用户服务。请求头（含鉴权和腾讯的签名头）一律来自共享层的描述器，Java 里不许自己拼。
+user_translation_client="$repo_root/platforms/android/java/app/msime/android/candidate/UserTranslationClient.java"
+user_translation_transport="$repo_root/platforms/android/java/app/msime/android/candidate/TranslationHttpTransport.java"
+if ! rg -qU 'void scheduleUserCandidateTranslations\(\) \{\s*if \(!candidateTranslationRoute\.userService\(\) ' "$account_service" \
+  || ! rg -qU 'void applyUserCandidateTranslations\(long generation\) \{\s*if \(!candidateTranslationRoute\.userService\(\) ' "$account_service" \
+  || [ "$(rg -c '= candidateTranslationRouteFrom\(preferences\);' "$account_service")" != 2 ] \
+  || ! rg -qF 'return CandidateTranslationPolicy.route(' "$account_service"; then
+  echo "Android must send candidate words to the user's own translation service only through the shared route" >&2
+  exit 1
+fi
+if rg -n 'Authorization|DeepL-Auth-Key|Bearer|X-TC-' "$user_translation_client" "$user_translation_transport"; then
+  echo "Android user translation requests must take every header from the shared descriptor" >&2
   exit 1
 fi
 # Turning 匿名使用统计 off has to stop reporting and clear the queue at once (the toggle promises it), not on the next start: the host process keeps Telemetry's own flag, so the privacy page must hand the saved value to Telemetry.setEnabled.

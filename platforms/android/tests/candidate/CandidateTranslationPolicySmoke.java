@@ -1,5 +1,6 @@
 import app.msime.android.CandidateGlossPolicy;
 import app.msime.android.CandidateTranslationPolicy;
+import app.msime.android.CandidateTranslationRoute;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -138,28 +139,40 @@ public final class CandidateTranslationPolicySmoke {
         check(CandidateTranslationPolicy.reservedGlossRows(1, true) == 1
                 && CandidateTranslationPolicy.reservedGlossRows(2, true) == 2,
             "the 훈음 shares the first gloss row, so Korean reserves no more rows than any other scheme");
-        // The account endpoint receives candidate words, so only an explicit choice may reach it.
-        check(!CandidateTranslationPolicy.accountSelected(true, false, false, false),
+        // 水杉账号会收到候选词，只有明确选了它才走；用户自己的服务（含凭据可用的腾讯）总是优先。
+        check(!account(true, false, false, false, false),
             "candidate translations alone never select the account");
-        check(!CandidateTranslationPolicy.accountSelected(false, false, false, false),
+        check(!account(false, false, false, false, false),
             "nothing chosen sends nothing");
-        check(CandidateTranslationPolicy.accountSelected(true, true, false, false),
+        check(account(true, true, false, false, false),
             "an explicit account choice selects the account");
-        check(!CandidateTranslationPolicy.accountSelected(false, true, false, false),
+        check(!account(false, true, false, false, false),
             "turning candidate translations off overrides the account choice");
-        check(!CandidateTranslationPolicy.accountSelected(true, true, true, false),
+        check(!account(true, true, true, false, false),
             "the user's own NiuTrans service wins over the account");
-        check(!CandidateTranslationPolicy.accountSelected(true, true, false, true),
+        check(!account(true, true, false, true, false),
             "the user's own custom service wins over the account");
+        check(!account(true, true, false, false, true),
+            "usable Tencent credentials win over the account");
+        CandidateTranslationRoute none = CandidateTranslationRoute.NONE;
         check(CandidateTranslationPolicy.displayInvalidated(true, false, true, true,
-                true, true, List.of("en"), List.of("en")),
+                true, true, List.of("en"), List.of("en"), none, none),
             "turning off offline glosses clears the displayed rows");
         check(CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
-                true, true, List.of("en"), List.of("ja")),
+                true, true, List.of("en"), List.of("ja"), none, none),
             "changing translation targets clears the displayed rows");
         check(!CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
-                true, true, List.of("en"), List.of("en")),
+                true, true, List.of("en"), List.of("en"), none, none),
             "unrelated preference refresh keeps the displayed rows");
+        check(CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
+                false, false, List.of("en"), List.of("en"), none, customRoute("key")),
+            "choosing a translation service clears the displayed rows");
+        check(CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
+                false, false, List.of("en"), List.of("en"), customRoute("old"), customRoute("new")),
+            "changing a service credential clears the displayed rows");
+        check(!CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
+                false, false, List.of("en"), List.of("en"), customRoute("key"), customRoute("key")),
+            "rereading the same service keeps the displayed rows");
         check(CandidateTranslationPolicy.acceptsBinding("7:account-a", "7:account-a"),
             "a translation response remains valid for the same account binding");
         check(CandidateTranslationPolicy.acceptsBinding("7:", "7:"),
@@ -169,6 +182,18 @@ public final class CandidateTranslationPolicySmoke {
                 && !CandidateTranslationPolicy.acceptsBinding("7:account-a", null),
             "a binding change or unavailable account rejects a stale translation response");
         System.out.println("Android candidate translation language policy passed");
+    }
+
+    private static boolean account(boolean translations, boolean account, boolean niutrans,
+            boolean custom, boolean tencent) {
+        return CandidateTranslationPolicy.route(translations, account, niutrans, "app", "key",
+            custom, "https://translate.example/api", "", tencent, "AKIDsynthetic", "synthetic", "")
+            .provider() == CandidateTranslationRoute.Provider.ACCOUNT;
+    }
+
+    private static CandidateTranslationRoute customRoute(String key) {
+        return CandidateTranslationPolicy.route(true, false, false, "", "", true,
+            "https://translate.example/api", key, false, "", "", "");
     }
 
     private static void check(boolean condition, String message) {

@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.function.BooleanSupplier;
 
 /** Debounced, display-only online candidate translation cache. All callbacks run on main. */
 public final class CandidateTranslationStore {
@@ -18,6 +19,14 @@ public final class CandidateTranslationStore {
 
     public interface Service {
         List<String> translate(List<String> texts, String target) throws Exception;
+
+        /**
+         * 同上，另带一个「这次请求是否已经过期」的判断：用户接着打字后 store 换了 epoch，它就返回 true。逐词请求的服务在每个词之前问一次，过期就停下，免得旧的一页占着单线程的 worker、继续花用户服务的额度。返回的列表仍要与 {@code texts} 等长，没问到的位置填 null。
+         */
+        default List<String> translate(List<String> texts, String target, BooleanSupplier stale)
+                throws Exception {
+            return translate(texts, target);
+        }
     }
     public interface Listener {
         void onArrival(long generation);
@@ -32,7 +41,8 @@ public final class CandidateTranslationStore {
     private Runnable pending;
     private String signature;
     private String binding;
-    private long requestEpoch;
+    // 主线程写，worker 在逐词请求之间读（见 Service#translate 的 stale），所以是 volatile。
+    private volatile long requestEpoch;
 
     public CandidateTranslationStore(Context context, ExecutorService worker, Handler main,
                                      Listener listener) {
@@ -132,11 +142,13 @@ public final class CandidateTranslationStore {
         signature = stamp;
         try {
             worker.execute(() -> {
+                BooleanSupplier stale = () -> epoch != requestEpoch;
                 for (Map.Entry<String, ArrayList<String>> request : requests.entrySet()) {
+                    if (stale.getAsBoolean()) return;
                     String target = request.getKey();
                     ArrayList<String> missing = request.getValue();
                     try {
-                        List<String> values = service.translate(missing, target);
+                        List<String> values = service.translate(missing, target, stale);
                         scheduler.post(() -> absorb(epoch, target, generation, missing, values));
                     } catch (Exception ignored) {
                         // Optional display data must never disturb input or expose response text.
