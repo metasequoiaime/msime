@@ -516,11 +516,7 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
 
   /// 服务器返回的 ISO 8601 时间戳，带不带小数秒都能解析。
   static func cloudDate(_ value: String) -> Date? {
-    let parser = ISO8601DateFormatter()
-    parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    if let date = parser.date(from: value) { return date }
-    parser.formatOptions = [.withInternetDateTime]
-    return parser.date(from: value)
+    CloudClipboardTimePolicy.date(value)
   }
 
   func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

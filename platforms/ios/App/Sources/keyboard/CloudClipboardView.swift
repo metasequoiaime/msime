@@ -40,12 +40,6 @@ struct CloudClipboardView: View {
 
   private static let retentionChoices: [(title: String, value: Int)] = [("1 天", 1), ("7 天", 7), ("30 天", 30), ("一直", 0)]
 
-  private static let isoFractional: ISO8601DateFormatter = {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return formatter
-  }()
-  private static let iso = ISO8601DateFormatter()
   private static let relative: RelativeDateTimeFormatter = {
     let formatter = RelativeDateTimeFormatter()
     formatter.locale = Locale(identifier: "zh-Hans")
@@ -412,7 +406,7 @@ struct CloudClipboardView: View {
     var parts: [String] = []
     if item.pinned == true { parts.append("已置顶") }
     if let device = item.device { parts.append(device) }
-    if let date = Self.isoFractional.date(from: item.updated_at) ?? Self.iso.date(from: item.updated_at) {
+    if let date = CloudClipboardTimePolicy.date(item.updated_at) {
       parts.append(Self.relative.localizedString(for: min(date, Date()), relativeTo: Date()))
     }
     return parts.joined(separator: " · ")
