@@ -23,7 +23,7 @@ Status: implemented
 
 - 原生窗口不再为辅助码拉起共享应用；插件的导入和删除仍在「插件」页（目前还是共享应用的页面）。
 - 在别处导入或删除插件后，要重新进入「输入」页才看得到，与共享页相同；资源目录里新增的自定义码表要重开窗口。
-- 选项文字和规则写死在 `main.cpp`，`helpcode-page.tsx` 改了要同步改这里。
+- 选项文字和规则写死在 `main.cpp`，`helpcode-page.tsx` 改了要同步改这里，以及 Android 的 `HelpcodeChoicePolicy`（见 [移动端导入单个辅助码表](2026-10-12-mobile-helpcode-table-import.md)），共有两份照搬。
 
 ## Verification
 

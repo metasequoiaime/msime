@@ -111,6 +111,36 @@ int main()
     const auto traitsOldClient = FanyImeProtocol::Negotiate(hello, traitsCapabilities);
     CHECK(traitsOldClient.accepted);
     CHECK((traitsOldClient.capabilities & FanyImeProtocol::FieldTraits) == 0);
+    // JapaneseToggleShortcut 同样是可选能力，不和已有的能力位重叠。
+    static_assert((FanyImeProtocol::Capabilities & FanyImeProtocol::JapaneseToggleShortcut) == 0);
+    static_assert((FanyImeProtocol::RequiredCapabilities & FanyImeProtocol::JapaneseToggleShortcut) == 0);
+    static_assert((FanyImeProtocol::JapaneseToggleShortcut &
+                   (FanyImeProtocol::RequestIds | FanyImeProtocol::FocusEpochs | FanyImeProtocol::FramedVoice |
+                    FanyImeProtocol::CharacterSetShortcut | FanyImeProtocol::KeyboardCompositionCancel |
+                    FanyImeProtocol::GameHostCandidate | FanyImeProtocol::FieldTraits)) == 0);
+    // 新 TIP 配旧 Server 协商不到，TIP 把组合键交给应用；旧 TIP 配新 Server 也协商不到；双方都宣告时才协商成功。
+    const auto japaneseCapabilities = FanyImeProtocol::Capabilities | FanyImeProtocol::JapaneseToggleShortcut;
+    const auto japaneseHello = FanyImeProtocol::Hello(7, 23, japaneseCapabilities);
+    const auto japaneseOldServer = FanyImeProtocol::Negotiate(japaneseHello);
+    CHECK(japaneseOldServer.accepted);
+    CHECK((japaneseOldServer.capabilities & FanyImeProtocol::JapaneseToggleShortcut) == 0);
+    CHECK((FanyImeProtocol::ReplyCapabilities(FanyImeProtocol::Reply(japaneseHello, japaneseOldServer)) &
+           FanyImeProtocol::JapaneseToggleShortcut) == 0);
+    const auto japaneseNewServer = FanyImeProtocol::Negotiate(japaneseHello, japaneseCapabilities);
+    CHECK(japaneseNewServer.accepted);
+    const auto japaneseReply = FanyImeProtocol::Reply(japaneseHello, japaneseNewServer);
+    CHECK(FanyImeProtocol::AcceptReply(japaneseReply, 23));
+    CHECK((FanyImeProtocol::ReplyCapabilities(japaneseReply) & FanyImeProtocol::JapaneseToggleShortcut) != 0);
+    const auto japaneseOldClient = FanyImeProtocol::Negotiate(hello, japaneseCapabilities);
+    CHECK(japaneseOldClient.accepted);
+    CHECK((japaneseOldClient.capabilities & FanyImeProtocol::JapaneseToggleShortcut) == 0);
+    // 修饰键只认 Ctrl+Shift：单按、Ctrl+J、Shift+J、Ctrl+Alt+Shift+J 都不算，和简繁的 F 也不混。
+    CHECK(FanyImeProtocol::IsJapaneseToggleShortcut('J', 3));
+    CHECK(FanyImeProtocol::IsJapaneseToggleShortcut('J', 0x80000003u));
+    for (unsigned modifiers = 0; modifiers < 8; ++modifiers)
+        CHECK(FanyImeProtocol::IsJapaneseToggleShortcut('J', modifiers) == (modifiers == 3));
+    CHECK(!FanyImeProtocol::IsJapaneseToggleShortcut('F', 3));
+    CHECK(!FanyImeProtocol::IsCharacterSetShortcut('J', 3));
     // 载荷：停用的键盘、空上下文和安全桌面都是 SECURE，提权进程是 ELEVATED，别的位从不出现。
     static_assert(FanyImeFieldTraits::Reported == (FanyImeFieldTraits::Secure | FanyImeFieldTraits::Elevated));
     CHECK(FanyImeFieldTraits::Observe(false, false, false) == 0u);

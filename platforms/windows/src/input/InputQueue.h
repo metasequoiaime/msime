@@ -106,6 +106,10 @@ public:
   toggle_character_set(const FocusLease &lease,
                        const FanyImeNamedpipeData &packet, bool enabled,
                        const std::function<bool(bool)> &persist = {});
+  // Ctrl+Shift+J：开关打开且会话在中文状态时调用 `persist`，方案经偏好发布生效；不改组字。
+  std::optional<PendingReply>
+  toggle_japanese(const FocusLease &lease, const FanyImeNamedpipeData &packet,
+                  bool enabled, const std::function<bool()> &persist = {});
   std::optional<PendingReply>
   basic_key(const FocusLease &lease, const FanyImeNamedpipeData &packet,
             TsfPreeditStyle style,
@@ -138,6 +142,10 @@ public:
     check_thread();
     return character_set_shortcut_enabled_;
   }
+  bool japanese_toggle_shortcut_enabled() const {
+    check_thread();
+    return japanese_toggle_shortcut_enabled_;
+  }
   std::optional<PendingReply> navigate(const FocusLease &lease,
                                        const FanyImeNamedpipeData &packet,
                                        const NavigationBindings &bindings);
@@ -164,6 +172,8 @@ private:
   WordCharacterBinding word_character_ = WordCharacterBinding::Disabled;
   TsfPreeditStyle tsf_preedit_style_ = TsfPreeditStyle::Local;
   bool character_set_shortcut_enabled_ = true;
+  // keybindings.toggle_japanese_ctrl_shift_j，缺省关。
+  bool japanese_toggle_shortcut_enabled_ = false;
   std::optional<PreferenceSnapshot> preferences_;
   bool quiesced_ = false;
   std::unordered_map<uint64_t, Client> clients_;

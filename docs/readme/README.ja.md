@@ -97,7 +97,7 @@ pnpm tauri dev
 
 Android の統合パッケージのビルドとデバイステストについては [Android ホスト](../../platforms/android/README.md#tauri--react-共享设置合包)を参照してください。Tauri の設定とネイティブの `:ime` サービスは同じパッケージの別プロセスで、プライベートな files/bootstrap/state を共有します。設定ウィンドウを閉じても入力メソッドのプロセスは終了しません。iOS の製品ホストは `platforms/ios` のネイティブ App で、ネイティブのキーボード拡張を埋め込み、App Group を通じて状態を共有します。iOS 上の Tauri/React は共有の機能と画面を提供する共通コンポーネントにすぎず、独立した App としては起動しません。署名とデバイスへのインストール手順は [iOS ホスト](../../platforms/ios/README.md)を参照してください。
 
-共有設定は shuangpin_profile として xiaohe（小鶴）、ziranma（自然碼）、shoudao（首道）、microsoft（微軟）をサポートします。省略時は小鶴として読み込み、不明な値は拒否します。設定画面では、双拼以外の方式ではこの選択を無効にしますが、選択済みの値は保持します。方式の変更は、変換が終わってから Engine を差し替えるという規則に従います。
+共有設定は shuangpin_profile として xiaohe（小鶴）、ziranma（自然碼）、shoudao（首道）、microsoft（微軟）、および custom（自分で定義する双拼。キー表は shuangpin_custom_profile に保存）をサポートします。省略時は小鶴として読み込み、不明な値は拒否します。設定画面では、双拼以外の方式ではこの選択を無効にしますが、選択済みの値は保持します。macOS と Linux の設定画面では、組み込みの方式を起点に自分のキー配列を編集し、JSON で読み込み・書き出しができます。キー表は Engine の検証を通ったときだけ保存でき、使えないキー表のときは小鶴で動作します。方式の変更は、変換が終わってから Engine を差し替えるという規則に従います。
 
 Linux のローカルビルド、隔離した D-Bus / IBus テスト、インストール後の初回設定については [Linux ホスト](../../platforms/linux/README.md)を参照してください。ホストは設定ファイルの自動再読み込みに対応しており、インストール後は同梱の `msime-linux-setup` が辞書を揃えて実行設定を準備します。`msime-linux-setup --download` は `resources/desktop-dictionary.lock.json` に従って不足している辞書を取得し、グラフィカルなエントリは `runtime-options.json` がない場合に同じ初回設定画面を開きます。
 

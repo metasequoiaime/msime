@@ -355,9 +355,6 @@ impl VocabularyProgressStore {
             }
             Err(_) => return Err(VocabularyProgressError::InvalidDocument),
         };
-        if file.metadata()?.len() > MAX_DOCUMENT_BYTES {
-            return Err(VocabularyProgressError::InvalidDocument);
-        }
         let bytes = crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
             VocabularyProgressError::InvalidDocument
         })?;

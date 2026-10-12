@@ -21,7 +21,7 @@ export function SummaryRow({
   return (
     <Row title={title} description={description} hidden={hidden}>
       <span
-        className={`${controls.rowDescription} text-right${breakAnywhere ? " break-anywhere" : ""}`}
+        className={`${controls.rowDescription} text-right${breakAnywhere ? " wrap-anywhere" : ""}`}
       >
         {children}
       </span>

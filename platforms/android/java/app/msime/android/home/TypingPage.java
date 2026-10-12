@@ -1,11 +1,16 @@
 package app.msime.android.home;
 
 import android.content.Context;
+import android.net.Uri;
 import android.os.Bundle;
 import android.widget.LinearLayout;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import app.msime.android.AppEdition;
 import app.msime.android.CandidateTranslationPolicy;
+import app.msime.android.HttpBodyPolicy;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.NativeClient;
@@ -16,6 +21,8 @@ import app.msime.android.SchemePreferences;
 import app.msime.android.policy.HostOptionsPolicy;
 import app.msime.android.core.InputViewValuePolicy;
 import app.msime.android.core.InputViewValuePolicy;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -27,13 +34,13 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 输入页：语言与方案、中文（字符集、拼音纠错、模糊音、云候选）、辅助码方案和翻译（候选词翻译、离线英文释义、目标语言）。
+ * 输入页：语言与方案、中文（字符集、中英文之间加空格、拼音纠错、模糊音、云候选）、辅助码方案和翻译（候选词翻译、离线英文释义、目标语言）。
  *
  * <p>语言列表是键盘自己的方案列表 `touch_keyboard_schemes.enabled` 按语言分组后的样子：普通话一直在，其他语言在列表里有它的方案时出现。在语言的面板里选一个方案，经 {@link SchemePreferences#withScheme} 同时写 `scheme` 那几个键和 `touch_keyboard_schemes.selected`（并在缺失时加进 `enabled`），否则键盘会按旧的 `selected` 解析方案；「移除」把这门语言的方案全部移出 `enabled`，键盘正用着它时先切回剩下的第一个方案；「添加语言」把这门语言的第一个方案加进 `enabled`，不切换。粤语只有粤拼（P18：仓颉、速成没有方案和码表）；英语没有自己的触屏方案（中英切换键一直在），所以不出现在列表里。
  *
  * <p>日语的日文词典，粤拼、注音和笔画共用的语言词库，以及英文以外目标语言的离线释义都是按需下载的资源包（{@link ResourcePacks}）。还没下载的语言照样列在「添加语言」里，标出要下载的大小；添加时先把方案写进 `enabled`，再经 {@link ResourcePackService} 下载（按流量计费的网络先确认），词典到达前键盘不列出它，装好后下一次进入输入框就出现。已经添加、词典还没到的语言在列表里显示下载状态：需下载、下载中 x%、校验中、失败和原因，点开可以下载、取消、重试或移除。页面从不自己发起下载，只响应用户的点击。
  *
- * <p>辅助码方案列表来自 `NativeClient.hostCapabilities` 的 `helpcode_schemas`，没有这个字段时用不含郑码的内置列表（P14）；开关和方案都写进当前方案所属的那一份（双拼用 `shuangpin_helpcode`，其余用 `quanpin_helpcode`），关掉时不再列出方案。共享的辅助码设置没有「部首 / 笔画 / 混合」模式，所以本页不提供模式选择。
+ * <p>辅助码方案列表先是内置方案，来自 `NativeClient.hostCapabilities` 的 `helpcode_schemas`，没有这个字段时用不含郑码的内置列表（P14）；后面是用户导入的码表（#7176），即 `msime_client_plugins` 的 `catalog` 里 `kind = "helpcode"` 的包。开关和方案都写进当前方案所属的那一份（双拼用 `shuangpin_helpcode`，其余用 `quanpin_helpcode`），选导入的码表写 `plugins.helpcode_pack_*`，规则见 {@link HelpcodeChoicePolicy}；关掉时不再列出方案。「导入辅助码表…」经系统文件选择器（SAF）选一个 `.txt`，严格按 UTF-8 解码后交给 `import_helpcode_table`，成功后自动选中它；「管理已导入的码表」里可以删除，删的是正在用的码表时退回内置方案。共享的辅助码设置没有「部首 / 笔画 / 混合」模式，所以本页不提供模式选择。
  */
 public final class TypingPage extends DetailPage {
     /** 深链参数：打开时展开「添加语言」（键盘的输入方式面板「+ 添加语言」用）。 */
@@ -80,9 +87,14 @@ public final class TypingPage extends DetailPage {
      * @param packs 本机已具备的资源包 id：方案用的那两个按 {@link KeyboardScheme#availablePacks} 算（含随包的日文词典），其余按 {@link ResourcePacks} 报告已安装的
      * @param resourcePacks 共享层列出的每个资源包（状态和下载大小）；读不出来时为空
      * @param bundledGlosses 随安装包解压在资源目录旁的离线释义覆盖的目标语言（不带离线释义的安装包为空）
+     * @param helpcodePacks 用户导入的辅助码表（已安装的 `helpcode` 插件包）；读不出来时为空
      */
     private record State(JSONObject preferences, String languageDictionaries, Set<String> packs,
-            Map<String, ResourcePacks.Pack> resourcePacks, Set<String> bundledGlosses, List<String[]> helpcodeSchemas) {}
+            Map<String, ResourcePacks.Pack> resourcePacks, Set<String> bundledGlosses, List<String[]> helpcodeSchemas,
+            List<HelpcodeChoicePolicy.Pack> helpcodePacks) {}
+
+    /** 进程被杀后恢复「导入辅助码表」是为哪一份方案发起的。 */
+    private static final String SAVED_IMPORT_SHUANGPIN = "helpcode_import_shuangpin";
 
     @Nullable private LinearLayout column;
     private boolean adding;
@@ -94,6 +106,20 @@ public final class TypingPage extends DetailPage {
         if (finished) reload();
         else if (lastState != null) render(lastState);
     };
+    /** 正在进行的码表导入是为双拼（true）还是全拼那一份发起的：导入成功后选中到这一份。 */
+    private boolean importShuangpin;
+    private final ActivityResultLauncher<String[]> openTable =
+        registerForActivityResult(new ActivityResultContracts.OpenDocument(), this::onTablePicked);
+
+    @Override public void onCreate(@Nullable Bundle saved) {
+        super.onCreate(saved);
+        if (saved != null) importShuangpin = saved.getBoolean(SAVED_IMPORT_SHUANGPIN, false);
+    }
+
+    @Override public void onSaveInstanceState(@NonNull Bundle out) {
+        super.onSaveInstanceState(out);
+        out.putBoolean(SAVED_IMPORT_SHUANGPIN, importShuangpin);
+    }
 
     @Override protected void buildContent(LinearLayout column, Bundle args) {
         this.column = column;
@@ -135,7 +161,38 @@ public final class TypingPage extends DetailPage {
         for (String[] entry : TARGET_LANGUAGES) targets.add(entry[0]);
         return new State(preferences, HostStore.languageDictionaries(context), Set.copyOf(packs),
             Map.copyOf(resourcePacks), Set.copyOf(CandidateTranslationPolicy.offlineTargets(targets, resources)),
-            helpcodeSchemas());
+            helpcodeSchemas(), helpcodePacks(context));
+    }
+
+    /** 已导入的辅助码表：`msime_client_plugins` 的 `catalog` 里 `kind = "helpcode"` 的包。读不出来时为空，方案列表照样列出内置方案。 */
+    private static List<HelpcodeChoicePolicy.Pack> helpcodePacks(Context context) {
+        List<HelpcodeChoicePolicy.Pack> packs = new ArrayList<>();
+        try {
+            JSONObject response = plugins(context, new JSONObject().put("operation", "catalog"));
+            JSONObject value = JsonPolicy.strictTrue(response.opt("ok")) ? response.optJSONObject("value") : null;
+            JSONArray packages = value == null ? null : value.optJSONArray("packages");
+            if (packages == null) return List.of();
+            for (int index = 0; index < packages.length(); index++) {
+                JSONObject pack = packages.optJSONObject(index);
+                if (pack == null || !"helpcode".equals(pack.optString("kind", ""))) continue;
+                String id = pack.optString("id", "");
+                if (id.isEmpty()) continue;
+                String name = pack.optString("name", "");
+                packs.add(new HelpcodeChoicePolicy.Pack(id, name.isEmpty() ? id : name));
+            }
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            return List.of();
+        }
+        return List.copyOf(packs);
+    }
+
+    /** 一次 `msime_client_plugins` 调用：插件目录是键盘读的那一份 runtime option `preferences_directory`（{@link HostStore#directory}），不自己拼路径。读写文件，要在工作线程上调用。 */
+    private static JSONObject plugins(Context context, JSONObject action) throws JSONException {
+        JSONObject request = new JSONObject()
+            .put("state_root", HostStore.directory(context))
+            .put("sound_packs", JSONObject.NULL)
+            .put("action", action);
+        return new JSONObject(NativeClient.plugins(request.toString()));
     }
 
     /** host capabilities 的 `helpcode_schemas`（字符串 id，或 `{id|schema, name|title}`）；没有或读不懂时是内置列表。 */
@@ -238,6 +295,10 @@ public final class TypingPage extends DetailPage {
         InputFeatureToggle traditional = InputFeatureToggle.TRADITIONAL_OUTPUT;
         boolean traditionalOn = preferences.optBoolean(traditional.key(), traditional.enabledByDefault());
         chinese.nav("中文字符集", null, traditionalOn ? "繁体" : "简体", () -> pickCharset(traditionalOn));
+        InputFeatureToggle spacing = InputFeatureToggle.CHINESE_ENGLISH_SPACING;
+        chinese.toggle(spacing.title(), spacing.description(),
+            preferences.optBoolean(spacing.key(), spacing.enabledByDefault()),
+            checked -> save(values -> values.put(spacing.key(), checked)));
         JSONObject quanpin = preferences.optJSONObject("quanpin");
         boolean autocorrect = quanpin == null || (quanpin.optBoolean("autocorrect_transposition", true)
             && quanpin.optBoolean("autocorrect_neighbor", true));
@@ -266,8 +327,11 @@ public final class TypingPage extends DetailPage {
         aux.toggle("启用辅助码", (shuangpin ? "双拼" : "全拼") + "组字时，先按 Shift 再输入的字母用来缩小候选",
             helpcodeOn, checked -> saveHelpcode(family, shuangpin, "enabled", checked));
         if (helpcodeOn) {
-            aux.nav("辅助码方案", shuangpin ? "双拼" : "全拼", labelOf(state.helpcodeSchemas(), schema),
-                () -> pickHelpcode(family, shuangpin, state.helpcodeSchemas(), schema));
+            JSONObject plugins = preferences.optJSONObject("plugins");
+            String selectedPack = plugins == null ? "" : plugins.optString(HelpcodeChoicePolicy.packKey(shuangpin), "");
+            aux.nav("辅助码方案", shuangpin ? "双拼" : "全拼",
+                HelpcodeChoicePolicy.rowValue(state.helpcodePacks(), selectedPack, labelOf(state.helpcodeSchemas(), schema)),
+                () -> pickHelpcode(family, shuangpin, state, schema, selectedPack));
             // 共享设置页的同一个开关（#6997）：只关显示，Shift 筛选照常可用。缺整个对象时按各自默认（双拼显示、全拼不显示），对象里缺这一项时按 serde 的默认显示。
             boolean shownInCandidates = helpcode == null ? shuangpin : helpcode.optBoolean("show_in_candidate_window", true);
             aux.toggle(shuangpin ? "在候选栏中显示双拼辅助码" : "在候选栏中显示全拼辅助码",
@@ -593,28 +657,133 @@ public final class TypingPage extends DetailPage {
         });
     }
 
-    private void pickHelpcode(String family, boolean shuangpin, List<String[]> schemas, String selected) {
-        OptionSheet sheet = new OptionSheet(requireContext(), "辅助码方案", shuangpin ? "双拼" : "全拼");
-        for (String[] entry : schemas) {
+    /** 方案列表：内置方案，已导入的码表，「导入辅助码表…」，有导入的码表时再加「管理已导入的码表」。 */
+    private void pickHelpcode(String family, boolean shuangpin, State state, String schema, String selectedPack) {
+        Context context = requireContext();
+        String selected = HelpcodeChoicePolicy.selectedValue(schema, selectedPack);
+        OptionSheet sheet = new OptionSheet(context, "辅助码方案", shuangpin ? "双拼" : "全拼");
+        for (String[] entry : state.helpcodeSchemas()) {
             String id = entry[0];
-            sheet.option(entry[1], id.equals(selected), () -> saveHelpcode(family, shuangpin, "schema", id));
+            sheet.option(entry[1], id.equals(selected), () -> chooseHelpcode(family, shuangpin, id, selectedPack));
+        }
+        for (HelpcodeChoicePolicy.Option option : HelpcodeChoicePolicy.packOptions(state.helpcodePacks(), selectedPack)) {
+            sheet.option(option.label(), option.value().equals(selected),
+                () -> chooseHelpcode(family, shuangpin, option.value(), selectedPack));
+        }
+        sheet.option("导入辅助码表…", false, () -> {
+            importShuangpin = shuangpin;
+            // SAF 给 .txt 报的 MIME 不一定是 text/plain，所以一并放行 octet-stream，内容由 client-core 校验。
+            openTable.launch(new String[] {"text/plain", "application/octet-stream"});
+        });
+        List<HelpcodeChoicePolicy.Pack> packs = state.helpcodePacks();
+        if (!packs.isEmpty()) {
+            sheet.submenu("管理已导入的码表", false, () -> {
+                OptionSheet next = new OptionSheet(context, "已导入的码表", "删除后，正在用它的方案改回内置方案");
+                for (HelpcodeChoicePolicy.Pack pack : packs) next.destructive("删除「" + pack.name() + "」", () -> removeHelpcodePack(pack));
+                return next;
+            });
         }
         sheet.show();
     }
 
-    /** `*_helpcode` 拒绝未知字段且 `schema` 必填，缺这个对象时按各自的默认值补齐再改。 */
-    private void saveHelpcode(String family, boolean shuangpin, String member, Object value) {
+    /** 在方案列表里选了 `value`（内置方案 id 或 `pack:<id>`），规则见 {@link HelpcodeChoicePolicy#choose}；只改 `plugins` 里这一个键，按键音包等其他键保留。 */
+    private void chooseHelpcode(String family, boolean shuangpin, String value, String selectedPack) {
+        HelpcodeChoicePolicy.Change change = HelpcodeChoicePolicy.choose(value, selectedPack);
         save(values -> {
-            JSONObject helpcode = values.optJSONObject(family);
-            if (helpcode == null) {
-                helpcode = new JSONObject()
-                    .put("enabled", true)
-                    .put("schema", shuangpin ? "lantian" : "ziranma")
-                    .put("show_in_candidate_window", shuangpin);
-                values.put(family, helpcode);
+            if (change.schema() != null) helpcodeObject(values, family, shuangpin).put("schema", change.schema());
+            if (change.pack() != null) {
+                KeyboardSheets.child(values, "plugins").put(HelpcodeChoicePolicy.packKey(shuangpin), change.pack());
             }
-            helpcode.put(member, value);
         });
+    }
+
+    private void onTablePicked(@Nullable Uri uri) {
+        if (uri == null || getView() == null) return;
+        boolean shuangpin = importShuangpin;
+        HostTask.run(this, context -> importTable(context, uri, shuangpin), message -> {
+            MsToast.show(requireContext(), message == null ? HelpcodeChoicePolicy.importFailure("", null) : message);
+            reload();
+        });
+    }
+
+    /** 读文件、严格解码、导入，成功后选中到发起导入的那一份方案；返回给用户看的提示。要在工作线程上调用。 */
+    private static String importTable(Context context, Uri uri, boolean shuangpin) {
+        String fileName = LexiconPage.displayName(context, uri);
+        byte[] bytes;
+        try (InputStream input = context.getContentResolver().openInputStream(uri)) {
+            if (input == null) return "读取文件失败，请重新选择。";
+            bytes = HttpBodyPolicy.readBounded(input, HelpcodeChoicePolicy.MAX_TABLE_BYTES);
+        } catch (IOException | SecurityException error) {
+            return "读取文件失败，请重新选择。";
+        }
+        HelpcodeChoicePolicy.Decoded decoded = HelpcodeChoicePolicy.decode(bytes);
+        if (decoded.text() == null) return decoded.failure();
+        JSONObject value;
+        try {
+            JSONObject response = plugins(context, new JSONObject()
+                .put("operation", "import_helpcode_table")
+                .put("file_name", fileName)
+                .put("text", decoded.text()));
+            if (!JsonPolicy.strictTrue(response.opt("ok"))) {
+                String detail = response.optString("detail", "");
+                return HelpcodeChoicePolicy.importFailure(response.optString("error", ""), detail.isEmpty() ? null : detail);
+            }
+            value = response.optJSONObject("value");
+        } catch (JSONException error) {
+            return null;
+        }
+        String id = value == null ? "" : value.optString("id", "");
+        if (id.isEmpty()) return null;
+        String name = value.optString("name", id);
+        String key = HelpcodeChoicePolicy.packKey(shuangpin);
+        JSONObject saved = KeyboardSheets.write(context, values -> KeyboardSheets.child(values, "plugins").put(key, id));
+        return HelpcodeChoicePolicy.importedMessage(name, value.optLong("entries", 0), saved != null);
+    }
+
+    /** 删除一个导入的码表；全拼或双拼正选着它时把那一份选择清成空字符串，退回内置方案。 */
+    private void removeHelpcodePack(HelpcodeChoicePolicy.Pack pack) {
+        HostTask.run(this, context -> {
+            try {
+                JSONObject response = plugins(context, new JSONObject()
+                    .put("operation", "remove").put("kind", "helpcode").put("id", pack.id()));
+                if (!JsonPolicy.strictTrue(response.opt("ok"))) return null;
+            } catch (JSONException error) {
+                return null;
+            }
+            boolean[] cleared = {false};
+            JSONObject saved = KeyboardSheets.write(context, values -> {
+                JSONObject plugins = values.optJSONObject("plugins");
+                if (plugins == null) return;
+                for (String key : HelpcodeChoicePolicy.PACK_KEYS) {
+                    if (HelpcodeChoicePolicy.clearsSelection(pack.id(), plugins.optString(key, ""))) {
+                        plugins.put(key, "");
+                        cleared[0] = true;
+                    }
+                }
+            });
+            // 清选择没写成时，选择仍指着已删的包：键盘照样退回内置方案（host-api 载不入包就用 `schema`），本页把它显示成「未找到」，用户可以再选一次。
+            return HelpcodeChoicePolicy.removedMessage(pack.name(), cleared[0] && saved != null);
+        }, message -> {
+            MsToast.show(requireContext(), message == null ? "删除失败，请重试" : message);
+            reload();
+        });
+    }
+
+    /** `*_helpcode` 拒绝未知字段且 `schema` 必填，缺这个对象时按各自的默认值补齐再交出去改。 */
+    private static JSONObject helpcodeObject(JSONObject values, String family, boolean shuangpin) throws JSONException {
+        JSONObject helpcode = values.optJSONObject(family);
+        if (helpcode == null) {
+            helpcode = new JSONObject()
+                .put("enabled", true)
+                .put("schema", shuangpin ? "lantian" : "ziranma")
+                .put("show_in_candidate_window", shuangpin);
+            values.put(family, helpcode);
+        }
+        return helpcode;
+    }
+
+    private void saveHelpcode(String family, boolean shuangpin, String member, Object value) {
+        save(values -> helpcodeObject(values, family, shuangpin).put(member, value));
     }
 
     private void pickTargetLanguage(String selected, boolean glossOn, State state) {

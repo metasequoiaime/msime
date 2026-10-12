@@ -12,9 +12,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
-use msime_engine::language_dictionary;
-
-use crate::sqlite;
 
 pub const CHARACTERS: &str = "sources/cantonese/jyut6ping3.chars.dict.yaml";
 pub const WORDS: &str = "sources/cantonese/jyut6ping3.words.dict.yaml";
@@ -322,38 +319,13 @@ pub fn build(
 
 /// Writes `dictionary` to `path` in the engine's language dictionary schema, replacing any earlier file, and freezes it so the same inputs give the same bytes.
 pub fn write(dictionary: &Dictionary, path: &Path, source_commit: &str) -> Result<()> {
-    if path.exists() {
-        std::fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
-    }
-    let mut connection = sqlite::open(path)?;
-    connection.execute_batch(language_dictionary::SCHEMA)?;
-    let transaction = connection.transaction()?;
-    {
-        let mut metadata = transaction.prepare("INSERT INTO metadata VALUES (?1, ?2)")?;
-        for (name, value) in [
-            (
-                language_dictionary::METADATA_FORMAT_VERSION,
-                language_dictionary::FORMAT_VERSION.to_string().as_str(),
-            ),
-            (language_dictionary::METADATA_SOURCE_COMMIT, source_commit),
-            (language_dictionary::METADATA_LICENSE, LICENSE),
-        ] {
-            metadata.execute((name, value))?;
-        }
-        let mut syllables = transaction.prepare("INSERT INTO syllables VALUES (?1)")?;
-        for syllable in &dictionary.syllables {
-            syllables.execute((syllable,))?;
-        }
-        let mut entries = transaction.prepare("INSERT INTO entries VALUES (?1, ?2, ?3)")?;
-        for ((key, text), weight) in &dictionary.entries {
-            entries.execute((key, text, weight))?;
-        }
-    }
-    transaction.commit()?;
-    sqlite::analyze(&connection, false)?;
-    sqlite::integrity_check(&connection)?;
-    drop(connection);
-    sqlite::freeze(path)
+    crate::language_writer::write(
+        path,
+        source_commit,
+        LICENSE,
+        dictionary.syllables.iter().map(String::as_str),
+        &dictionary.entries,
+    )
 }
 
 /// What `verify` counted in a written database.
@@ -366,31 +338,21 @@ pub struct Counts {
 
 /// Opens a written database the way the engine does and fails when it is below `floors` or a key of `EXPECTED` lacks its text in the top three.
 pub fn verify(path: &Path, floors: Floors) -> Result<Counts> {
-    let dictionary = language_dictionary::open_read_only(path)
-        .map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
-    let connection =
-        sqlite::open_read_only(path).with_context(|| format!("opening {}", path.display()))?;
-    let count = |sql: &str| -> Result<usize> {
-        let count: i64 = connection.query_row(sql, [], |row| row.get(0))?;
-        Ok(usize::try_from(count)?)
-    };
+    let (dictionary, connection) = crate::language_verify::open(path)?;
+    let count = |sql| crate::language_verify::count(&connection, sql);
     let counts = Counts {
         syllables: count("SELECT count(*) FROM syllables")?,
         characters: count("SELECT count(*) FROM entries WHERE length(text) = 1")?,
         words: count("SELECT count(*) FROM entries WHERE length(text) > 1")?,
     };
-    for (what, found, floor) in [
-        ("syllables", counts.syllables, floors.syllables),
-        ("character entries", counts.characters, floors.characters),
-        ("word entries", counts.words, floors.words),
-    ] {
-        if found < floor {
-            bail!(
-                "{}: {found} {what}, below the floor of {floor}",
-                path.display()
-            );
-        }
-    }
+    crate::language_verify::check_floors(
+        path,
+        &[
+            ("syllables", counts.syllables, floors.syllables),
+            ("character entries", counts.characters, floors.characters),
+            ("word entries", counts.words, floors.words),
+        ],
+    )?;
     for (key, text) in EXPECTED {
         let top = dictionary
             .lookup(key, 3)
@@ -409,6 +371,7 @@ pub fn verify(path: &Path, floors: Floors) -> Result<Counts> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use msime_engine::language_dictionary;
 
     const HEADER: &str = "# Rime dictionary\n# encoding: utf-8\n\n---\nname: jyut6ping3.chars\nversion: \"2026.08.10\"\nsort: by_weight\n...\n\n";
 

@@ -439,7 +439,7 @@ impl Hook {
         self as i32
     }
 
-    /// 可修改的钩子。修改类 import 只在这两个钩子里可用，第 3 阶段一律返回 `DENIED`。
+    /// 可修改的钩子。修改类 import 只在这两个钩子里可用，别的钩子里返回 `DENIED`：`rewrite_commit` 只在 `before_commit`，三个候选类只在 `candidates`。
     pub fn modifies(self) -> bool {
         matches!(self, Self::BeforeCommit | Self::Candidates)
     }
@@ -495,6 +495,52 @@ pub fn local_mode_allows_text(local_mode: u8) -> bool {
     local_mode <= 5
 }
 
+/// 修改类 import 的约定。它们只暂存动作，钩子正常返回（非负）之后宿主才采用；trap、fuel 耗尽或返回负数时，这个插件这一次暂存的动作全部丢弃。
+///
+/// - `rewrite_commit(src, len) -> i32`：只在 `before_commit` 里、这次上屏可改写（`event_scalar(REWRITABLE) == 1`）时可用，否则 `DENIED`。把 `[src, src + len)` 的 UTF-8 文本作为新的 body，tail（标点、顶字的尾巴）由宿主原样接回。区间越界直接 trap；超过 [`crate::limits::MAX_REWRITE_BYTES`] 字节或 [`crate::limits::rewrite_utf16_limit`] 个 UTF-16 码元返回 `LIMIT`；不是 UTF-8、为空、含控制字符（Cc）、格式字符（Cf）或行、段分隔符（U+2028、U+2029）返回 `INVALID`。成功返回 0，再调一次覆盖上一次。多个插件依次改写，后面的插件读到的 body 是前面改写过的，长度上限仍按原文算。
+/// - `candidates_order(src, count) -> i32`、`candidates_hide(src, count) -> i32`：只在 `candidates` 里可用，否则 `DENIED`。`[src, src + 4 × count)` 是 `count` 个小端 u32 行号，指 `read_candidates` 读到的那份窗口（插件变换之前的顺序）。行号越界、重复或 `count` 超过窗口行数返回 `INVALID`，区间越界 trap。`order` 把这些行按给出的顺序排到前面，其余行保持原来的相对顺序，再调一次覆盖上一次；`hide` 把这些行降到列表末尾并隐藏，多次调用取并集。锁定的座位（固定了位置的词、云和 AI 行、五笔四码唯一时的首位）和引擎下标 0 的行由宿主静默忽略，插件看不出来，返回值照样是 0。
+/// - `candidates_annotate(index, src, len) -> i32`：只在 `candidates` 里可用。给窗口第 `index` 行加注释，不超过 [`crate::limits::MAX_ANNOTATION_UTF16`] 个 UTF-16 码元（超出返回 `LIMIT`），不含 Cc、Cf、U+2028 和 U+2029（否则 `INVALID`），空串表示不加；同一行再调一次覆盖。注释另放一格显示，不改引擎的注释，其他插件也读不到它。
+///
+/// 多个插件的候选操作都针对同一份原始窗口、按候选身份（文本加来源）记下，再按授权顺序合成：重排后面的插件优先，隐藏取并集，注释后面的覆盖前面的。
+pub mod modification {}
+
+/// 插件交回的文本（改写后的上屏、候选注释）里不许出现的字符：控制字符（Cc）、格式字符（Cf），以及行分隔符 U+2028（Zl）和段分隔符 U+2029（Zp）。Cf 包括双向控制符（U+202A..U+202E、U+2066..U+2069）、零宽字符（U+200B..U+200F、U+2060..U+2064、U+FEFF）和标签字符，它们能让显示的文本和实际写进文档的不一样。U+2028 和 U+2029 不是 Cc，却和换行一样断行：macOS 的宿主把候选释义交给会话时就拿 U+2028 当换行（`InputController.mm` 的 `MSIMEGlossLineSeparator`），不拦它们，拦 `\n` 就没有意义。Cf 的列表按 Unicode 15.1 写死，标准库没有通用类别的查询；以后的版本新增的 Cf 字符不在表里。
+///
+/// 这条规则是插件专用的，不改 client-core 的 `text` 模块：那里的检查用在别的输入边界上。
+pub fn is_forbidden_plugin_char(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            u32::from(c),
+            0x00AD
+                | 0x0600..=0x0605
+                | 0x061C
+                | 0x06DD
+                | 0x070F
+                | 0x0890..=0x0891
+                | 0x08E2
+                | 0x180E
+                | 0x200B..=0x200F
+                | 0x2028..=0x2029
+                | 0x202A..=0x202E
+                | 0x2060..=0x2064
+                | 0x2066..=0x206F
+                | 0xFEFF
+                | 0xFFF9..=0xFFFB
+                | 0x110BD
+                | 0x110CD
+                | 0x13430..=0x1343F
+                | 0x1BCA0..=0x1BCA3
+                | 0x1D173..=0x1D17A
+                | 0xE0001
+                | 0xE0020..=0xE007F
+        )
+}
+
+/// `text` 里有没有 [`is_forbidden_plugin_char`] 的字符。
+pub fn has_forbidden_plugin_char(text: &str) -> bool {
+    text.chars().any(is_forbidden_plugin_char)
+}
+
 /// import 的值类型，只用到这两种。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Ty {
@@ -528,7 +574,7 @@ const fn spec(
     }
 }
 
-/// `msime` 命名空间的全部 import。表里有的才能导入；修改类 import 第 3 阶段已经在表里，但调用一律返回 `DENIED`，第 4 阶段接通。
+/// `msime` 命名空间的全部 import。表里有的才能导入。修改类 import 的约定见 [`modification`]。
 pub(crate) const IMPORTS: [ImportSpec; 15] = [
     spec("event_scalar", None, I32_TO_I64),
     spec("log", None, (&[Ty::I32, Ty::I32, Ty::I32], &[])),

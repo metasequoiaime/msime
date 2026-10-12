@@ -21,6 +21,16 @@ std::optional<PendingReply> InputState::toggle_character_set(
     return std::nullopt;
   return owner->toggle_character_set(lease, packet, enabled, persist);
 }
+std::optional<PendingReply>
+InputState::toggle_japanese(const FocusLease &lease,
+                            const FanyImeNamedpipeData &packet, bool enabled,
+                            const std::function<bool()> &persist) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  if (!owner)
+    return std::nullopt;
+  return owner->toggle_japanese(lease, packet, enabled, persist);
+}
 std::optional<nlohmann::json>
 InputState::candidate_action(const FocusLease &lease, uint64_t session,
                              uint64_t generation, size_t index,
@@ -58,6 +68,10 @@ InputState::InputState(FocusGate &gate, size_t clients, std::string options)
       document.value("preferences", nlohmann::json::object())
           .value("keybindings", nlohmann::json::object())
           .value("toggle_character_set_ctrl_shift_f", true);
+  japanese_toggle_shortcut_enabled_ =
+      document.value("preferences", nlohmann::json::object())
+          .value("keybindings", nlohmann::json::object())
+          .value("toggle_japanese_ctrl_shift_j", false);
 }
 InputState::~InputState() { shutdown(); }
 void InputState::shutdown() noexcept {
@@ -432,11 +446,15 @@ void InputState::publish_preferences(const PreferenceSnapshot &snapshot) {
   const bool character_set_shortcut =
       document.value("keybindings", nlohmann::json::object())
           .value("toggle_character_set_ctrl_shift_f", true);
+  const bool japanese_toggle_shortcut =
+      document.value("keybindings", nlohmann::json::object())
+          .value("toggle_japanese_ctrl_shift_j", false);
   preferences_ = snapshot;
   navigation_ = navigation;
   word_character_ = word;
   tsf_preedit_style_ = style;
   character_set_shortcut_enabled_ = character_set_shortcut;
+  japanese_toggle_shortcut_enabled_ = japanese_toggle_shortcut;
   for (auto &[id, client] : clients_) {
     (void)id;
     if (client.session)

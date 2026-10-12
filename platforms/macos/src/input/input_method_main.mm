@@ -1,6 +1,7 @@
 #import <AppKit/AppKit.h>
 #import <InputMethodKit/InputMethodKit.h>
 #import "InputModeIdentifiers.h"
+#import "InputModeStatusItem.h"
 #import "InputSourceRegistration.h"
 #import "../settings/PreferencesWindowController.h"
 #import "../settings/RuntimeOptions.h"
@@ -133,6 +134,8 @@ int main(int argc, const char *argv[]) {
                     [preferences resetAllRuntimeInputState];
                     MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
                     [[MSIMEFloatingToolbarPanel sharedPanel] deactivateForInputSourceSwitch];
+                    // 切到 ABC 等别的输入源后，菜单栏状态项不能留着一个过期的「中」；切回来时 activateServer: 的同步会按当前模式重新放上。焦点在客户端之间移动不会走到这里，所以 deactivateServer: 不隐藏它。
+                    [[MSIMEInputModeStatusItem sharedItem] hide];
                 }];
         Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
         id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;

@@ -1,4 +1,5 @@
 import { FluentIcon } from "../core/fluent-icons";
+import { ActionButton } from "../core/action-button";
 import * as settings from "./settings-style";
 
 export interface SettingsPageHeaderProps {
@@ -8,6 +9,9 @@ export interface SettingsPageHeaderProps {
   onBack?: () => void;
   /** 设置 根页面，HarmonyOS 手机会让它的标题与下方的搜索胶囊拉开更大的距离。 */
   home?: boolean;
+  /** Full-screen subpages use a second-level heading below the settings page title. */
+  level?: 1 | 2;
+  backDisabled?: boolean;
 }
 
 /** Shared page heading for the settings content surface. */
@@ -16,6 +20,8 @@ export function SettingsPageHeader({
   hiddenOnPhone,
   onBack,
   home,
+  level = 1,
+  backDisabled = false,
 }: SettingsPageHeaderProps) {
   const classes = [
     settings.pageHeader,
@@ -25,18 +31,21 @@ export function SettingsPageHeader({
   return (
     <header className={classes.filter(Boolean).join(" ")}>
       {onBack && (
-        <button
-          type="button"
+        <ActionButton
+          action={onBack}
           className={settings.pageBackButton}
-          aria-label="返回"
-          onClick={onBack}
-        >
-          <FluentIcon name="arrow_left" size={22} />
-        </button>
+          disabled={backDisabled}
+          ariaLabel="返回"
+          label={<FluentIcon name="arrow_left" size={22} />}
+        />
       )}
-      <h1 className={settings.pageTitle} id="page-title">
-        {title}
-      </h1>
+      {level === 2 ? (
+        <h2 className={settings.pageTitle}>{title}</h2>
+      ) : (
+        <h1 className={settings.pageTitle} id="page-title">
+          {title}
+        </h1>
+      )}
     </header>
   );
 }

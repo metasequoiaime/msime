@@ -84,8 +84,10 @@ public final class UpdateApiSmoke {
         File downloaded = api.download(update, cache, null);
         check(downloaded.isFile() && downloaded.getName().equals("msime-android.apk"), "verified file kept");
         check(downloaded.getParentFile().getName().equals("updates"), "stored under cache/updates");
-        check(seen.indexOf(UpdateApi.MIRROR_PREFIX + update.apkUrl()) >= 0 && seen.indexOf(update.apkUrl()) > seen.indexOf(UpdateApi.MIRROR_PREFIX + update.apkUrl()),
-            "the mirror is tried first and GitHub after it fails");
+        check(seen.indexOf(UpdateApi.MIRROR_PREFIX + update.checksumUrl()) >= 0
+                && seen.indexOf(update.checksumUrl()) > seen.indexOf(UpdateApi.MIRROR_PREFIX + update.checksumUrl())
+                && seen.indexOf(update.apkUrl()) > seen.indexOf(update.checksumUrl()),
+            "the mirror checksum is tried first, then the GitHub checksum and APK");
 
         // 镜像能用时完全不碰 GitHub。
         List<String> mirrorSeen = new ArrayList<>();
@@ -104,12 +106,50 @@ public final class UpdateApiSmoke {
         UpdateApi corrupted = new UpdateApi(url -> {
             if (url.equals(UpdateApi.MIRROR_PREFIX + update.checksumUrl())) return body(good + "  msime-android.apk\n");
             if (url.equals(UpdateApi.MIRROR_PREFIX + update.apkUrl())) return new UpdateApi.Exchange(200, null, corrupt.length, new ByteArrayInputStream(corrupt));
+            if (url.equals(update.checksumUrl())) return body(good + "  msime-android.apk\n");
             if (url.equals(update.apkUrl())) return new UpdateApi.Exchange(200, null, apk.length, new ByteArrayInputStream(apk));
             return new UpdateApi.Exchange(404, null, 0, new ByteArrayInputStream(new byte[0]));
         });
         File corruptedCache = Files.createTempDirectory("update-smoke-corrupt").toFile();
         check(good.equals(DigestPolicy.sha256Hex(corrupted.download(update, corruptedCache, null))), "a corrupt mirror copy falls back to GitHub");
         check(!new File(corruptedCache, "updates/msime-android.apk.part").exists(), "the corrupt copy is not left behind");
+
+        // 镜像的校验文件过期时，GitHub 的 APK 必须用 GitHub 自己的校验文件核对。
+        List<String> staleChecksumSeen = new ArrayList<>();
+        UpdateApi staleChecksum = new UpdateApi(url -> {
+            staleChecksumSeen.add(url);
+            if (url.equals(UpdateApi.MIRROR_PREFIX + update.checksumUrl()))
+                return body("cd".repeat(32) + "  msime-android.apk\n");
+            if (url.equals(UpdateApi.MIRROR_PREFIX + update.apkUrl()) || url.equals(update.apkUrl()))
+                return new UpdateApi.Exchange(200, null, apk.length, new ByteArrayInputStream(apk));
+            if (url.equals(update.checksumUrl())) return body(good + "  msime-android.apk\n");
+            return new UpdateApi.Exchange(404, null, 0, new ByteArrayInputStream(new byte[0]));
+        });
+        File staleChecksumCache = Files.createTempDirectory("update-smoke-stale-checksum").toFile();
+        check(good.equals(DigestPolicy.sha256Hex(staleChecksum.download(update, staleChecksumCache, null))),
+            "GitHub APK is checked against its own checksum after mirror mismatch");
+        check(staleChecksumSeen.contains(update.checksumUrl()), "GitHub checksum is requested for GitHub APK");
+        check(!new File(staleChecksumCache, "updates/msime-android.apk.part").exists(),
+            "mirror checksum mismatch leaves no partial APK");
+
+        // 镜像 APK 不可用时，也不能拿镜像的 SHA 接受 GitHub 上不匹配的 APK。
+        UpdateApi mismatchedGithub = new UpdateApi(url -> {
+            if (url.equals(UpdateApi.MIRROR_PREFIX + update.checksumUrl()))
+                return body(good + "  msime-android.apk\n");
+            if (url.equals(update.checksumUrl()))
+                return body("cd".repeat(32) + "  msime-android.apk\n");
+            if (url.equals(update.apkUrl()))
+                return new UpdateApi.Exchange(200, null, apk.length, new ByteArrayInputStream(apk));
+            return new UpdateApi.Exchange(404, null, 0, new ByteArrayInputStream(new byte[0]));
+        });
+        File mismatchedGithubCache = Files.createTempDirectory("update-smoke-github-mismatch").toFile();
+        try {
+            mismatchedGithub.download(update, mismatchedGithubCache, null);
+            throw new AssertionError("GitHub APK must not use the mirror checksum");
+        } catch (UpdateApi.Failure expected) {
+            check(!new File(mismatchedGithubCache, "updates/msime-android.apk").exists(),
+                "GitHub APK is not kept with a mismatched GitHub checksum");
+        }
 
         // Cancelling from the progress callback must remove the partial APK.
         File cancelledCache = Files.createTempDirectory("update-smoke-cancelled").toFile();

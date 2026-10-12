@@ -162,6 +162,31 @@ test("macOS exposes the non-activating input-mode HUD preference", async () => {
   expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ input_mode_hud: false }));
 });
 
+test("macOS offers the menu bar input mode status item, off by default", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save,
+        host: testHost({ platform: "macos" }),
+      }}
+    />,
+  );
+  await openInputSettings();
+  // 状态项和切换提示同在「中英文」组；缺字段的文档读成关闭，和 Rust 的默认值一致。
+  const toggle = screen.getByRole("switch", { name: "菜单栏显示中/英状态" }) as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  fireEvent.click(toggle);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ input_mode_status_item: true }));
+});
+
 test("Wubi unique-candidate auto-commit is a shared preference on every host", async () => {
   const wubiInitial = {
     ...initial,
@@ -1113,6 +1138,31 @@ test("traditional Chinese output toggle persists", async () => {
   expect(client.save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
     traditional_chinese_output: true,
+  });
+});
+
+test("Chinese-English spacing toggle persists", async () => {
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const toggle = (await screen.findByRole("switch", {
+    name: "中英文之间加空格",
+  })) as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  fireEvent.click(toggle);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    chinese_english_spacing: true,
   });
 });
 
@@ -3313,6 +3363,7 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
     candidate_window_opacity: false,
     candidate_corner_radius: false,
     input_mode_hud: false,
+    input_mode_status_item: false,
     candidate_english_font: false,
     english_suggestions: false,
     helpcode_shift_entry: false,
@@ -3557,6 +3608,7 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
     candidate_window_opacity: false,
     candidate_corner_radius: false,
     input_mode_hud: false,
+    input_mode_status_item: false,
     candidate_english_font: false,
     english_suggestions: false,
     helpcode_shift_entry: true,
@@ -6581,6 +6633,7 @@ const referenceSections: {
       "默认中英文",
       "中英文状态",
       "繁体输出",
+      "中英文之间加空格",
       "云候选",
       "中英混输",
       "拼音方案调频",
@@ -7211,6 +7264,7 @@ test.each(optionHosts)(
       "翻页方式",
       "云候选",
       "繁体输出",
+      "中英文之间加空格",
       "拼音方案调频",
     ];
     const ordered = present.filter((text) => expected.includes(text));

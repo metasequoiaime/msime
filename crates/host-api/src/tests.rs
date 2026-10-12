@@ -622,16 +622,21 @@ fn host_capability_boundary_describes_each_platform() {
     assert_eq!(linux["value"]["candidate_corner_radius"], true);
     assert_eq!(linux["value"]["candidate_window_scale"], false);
     assert_eq!(linux["value"]["candidate_window_opacity"], false);
+    // 菜单栏状态项是 macOS 独有的：Linux 由 Fcitx5/IBus 面板显示模式。
+    assert_eq!(linux["value"]["input_mode_status_item"], false);
 
     let windows = capabilities("windows");
     assert_eq!(windows["value"]["restart_input_method"], true);
     assert_eq!(windows["value"]["panel_windows"], true);
     // Typing statistics used to be gated on an Android user-agent match.
     assert_eq!(windows["value"]["typing_statistics"], true);
+    // Windows 有托盘语言栏，不提供菜单栏状态项。
+    assert_eq!(windows["value"]["input_mode_status_item"], false);
 
     let macos = capabilities("macos");
     assert_eq!(macos["value"]["restart_input_method"], true);
     assert_eq!(macos["value"]["candidate_follow_cursor"], true);
+    assert_eq!(macos["value"]["input_mode_status_item"], true);
 
     let android = capabilities("android");
     assert_eq!(android["value"]["panel_windows"], false);
@@ -892,6 +897,89 @@ fn account_cloud_clipboard_refuses_without_a_signed_in_session_or_a_valid_action
         assert_eq!(call(action)["error"], "invalid_cloud_clipboard");
     }
     assert!(!directory.path().join("account-session.json").exists());
+}
+
+#[test]
+fn relay_cloud_clipboard_checks_its_input_and_the_configured_relay_before_the_network() {
+    let preferences = tempfile::tempdir().unwrap();
+    let keystore = tempfile::tempdir().unwrap();
+    let preferences_path = preferences.path().to_str().unwrap().to_owned();
+    let keystore_path = keystore.path().to_str().unwrap().to_owned();
+    let source = || {
+        let bytes = preferences_path.as_bytes();
+        read(unsafe { msime_client_cloud_clipboard_source(bytes.as_ptr(), bytes.len()) })
+    };
+    let call = |body: serde_json::Value| {
+        let body = serde_json::to_vec(&body).unwrap();
+        read(unsafe { msime_client_relay_cloud_clipboard(body.as_ptr(), body.len()) })
+    };
+    let request = |action: serde_json::Value| {
+        json!({
+            "preferences_directory": preferences_path,
+            "directory": keystore_path,
+            "device_name": "合成设备",
+            "action": action,
+        })
+    };
+
+    // 没配置中继：走账号，中继入口直接答 relay_not_configured。
+    assert_eq!(source()["value"]["source"], "account");
+    assert_eq!(
+        call(request(json!({ "operation": "list", "search": "" })))["error"],
+        "relay_not_configured"
+    );
+    let relative = b"relative";
+    assert_eq!(
+        read(unsafe { msime_client_cloud_clipboard_source(relative.as_ptr(), relative.len()) })
+            ["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_cloud_clipboard_source(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_relay_cloud_clipboard(std::ptr::null(), 0) })["error"],
+        "invalid_cloud_clipboard"
+    );
+
+    let store = PreferencesStore::new(preferences.path());
+    let mut configured = store.load().unwrap().preferences;
+    // 端口 9 上没有服务，真发出去的请求答 relay_unavailable。
+    configured.cloud_clipboard_relay.url = "http://127.0.0.1:9".into();
+    configured.cloud_clipboard_relay.token = "synthetic-relay-token".into();
+    store.save(0, configured).unwrap();
+    assert_eq!(source()["value"]["source"], "relay");
+
+    for body in [
+        request(json!({ "operation": "set_retention", "days": 3 })),
+        request(json!({ "operation": "pin", "id": "entry-1", "pinned": true })),
+        request(json!({})),
+        json!({ "preferences_directory": "relative", "directory": keystore_path, "action": { "operation": "clear" } }),
+        json!({ "preferences_directory": preferences_path, "directory": "relative", "action": { "operation": "clear" } }),
+        json!({ "preferences_directory": preferences_path, "directory": keystore_path, "action": { "operation": "clear" }, "extra": true }),
+    ] {
+        assert_eq!(
+            call(body.clone())["error"],
+            "invalid_cloud_clipboard",
+            "{body}"
+        );
+    }
+    assert_eq!(
+        call(request(json!({ "operation": "clear" })))["error"],
+        "relay_unavailable"
+    );
+    // 中继的三个新动作只在中继入口里有，账号入口照旧拒绝。
+    let account = serde_json::to_vec(&json!({
+        "directory": keystore_path,
+        "action": { "operation": "set_retention", "days": 7 },
+    }))
+    .unwrap();
+    assert_eq!(
+        read(unsafe { msime_client_account_cloud_clipboard(account.as_ptr(), account.len()) })
+            ["error"],
+        "invalid_cloud_clipboard"
+    );
 }
 
 #[test]
@@ -1197,6 +1285,111 @@ fn custom_shuangpin_profile_reaches_engine_options_or_falls_back_to_xiaohe() {
 }
 
 #[test]
+fn builtin_shuangpin_tables_are_valid_custom_profiles() {
+    for profile in [
+        ShuangpinProfile::Xiaohe,
+        ShuangpinProfile::Ziranma,
+        ShuangpinProfile::Shoudao,
+        ShuangpinProfile::Microsoft,
+    ] {
+        let table = builtin_shuangpin_custom_profile(profile).unwrap();
+        assert_eq!(
+            (
+                table.initials.len(),
+                table.finals.len(),
+                table.zero_initials.len()
+            ),
+            (3, 33, 12),
+            "{profile:?}"
+        );
+        assert_eq!(
+            custom_shuangpin_profile_problem(&table),
+            None,
+            "{profile:?}"
+        );
+        assert_eq!(
+            validate_custom_shuangpin_profile(&table),
+            Ok(()),
+            "{profile:?}"
+        );
+    }
+    assert_eq!(
+        builtin_shuangpin_custom_profile(ShuangpinProfile::Xiaohe)
+            .unwrap()
+            .finals["ing"],
+        "k"
+    );
+    assert_eq!(
+        builtin_shuangpin_custom_profile(ShuangpinProfile::Microsoft)
+            .unwrap()
+            .finals["ing"],
+        ";"
+    );
+    assert_eq!(
+        builtin_shuangpin_custom_profile(ShuangpinProfile::Custom),
+        None
+    );
+}
+
+/// 设置页拿到的问题逐项对应 Engine 的错误，JSON 里只有这种错误用得到的字段。
+#[test]
+fn custom_shuangpin_problems_name_the_unit_key_and_code() {
+    let edited = |edit: &dyn Fn(&mut msime_client_core::preferences::ShuangpinCustomProfile)| {
+        let mut table = custom_shuangpin_table();
+        edit(&mut table);
+        let problem = custom_shuangpin_profile_problem(&table);
+        // 不留存的检查与 MCP 保存前用的校验结论相同。
+        assert_eq!(
+            problem.is_none(),
+            validate_custom_shuangpin_profile(&table).is_ok()
+        );
+        problem.map(|problem| serde_json::to_value(problem).unwrap())
+    };
+    assert_eq!(edited(&|_| {}), None);
+    assert_eq!(
+        edited(&|table| {
+            table.initials.insert("b".into(), "b".into());
+        }),
+        Some(json!({ "kind": "unknown_unit", "part": "initials", "unit": "b" }))
+    );
+    assert_eq!(
+        edited(&|table| {
+            table.finals.remove("iong");
+        }),
+        Some(json!({ "kind": "missing_unit", "part": "finals", "unit": "iong" }))
+    );
+    assert_eq!(
+        edited(&|table| {
+            table.zero_initials.insert("a".into(), ";A".into());
+        }),
+        Some(json!({ "kind": "invalid_key", "part": "zero_initials", "unit": "a", "key": ";a" }))
+    );
+    assert_eq!(
+        edited(&|table| {
+            table.initials.insert("sh".into(), "s".into());
+        }),
+        Some(json!({ "kind": "initial_key_taken", "part": "initials", "unit": "sh", "key": "s" }))
+    );
+    assert_eq!(
+        edited(&|table| {
+            table.zero_initials.insert("a".into(), "ua".into());
+        }),
+        Some(json!({ "kind": "ambiguous_code", "code": "ua", "first": "sha", "second": "a" }))
+    );
+    // 偏好里的表是对象，同一个单位写不出两次；这一种只可能从 Engine 的表来，照样逐项对应。
+    assert_eq!(
+        serde_json::to_value(ShuangpinCustomProblem::from(
+            ShuangpinCustomProfileError::DuplicateUnit {
+                part: ShuangpinCustomTablePart::Finals,
+                unit: "iu".into(),
+            }
+        ))
+        .unwrap(),
+        json!({ "kind": "duplicate_unit", "part": "finals", "unit": "iu" })
+    );
+}
+
+#[test]
 fn japanese_mode_switch_defers_and_restores_chinese_profile() {
     use msime_client_core::preferences::ChineseScheme;
     let dir = tempfile::tempdir().unwrap();
@@ -1431,6 +1624,140 @@ fn url_commits_stay_half_width_in_full_width_mode() {
     let finished = read(msime_client_punctuation(handle, b'<'));
     assert_eq!(finished["value"]["commit_context"]["local_mode"], "url");
     assert_eq!(finished["value"]["commit"], "www.a\u{ff1c}");
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+/// 把一次合成的上屏交给 `complete_transition`，返回宿主拿到的上屏文本。`scheme` 和 `local_mode` 是上屏前记下的 `commit_context`。
+fn completed_commit(
+    handle: u64,
+    commit: &str,
+    scheme: u8,
+    local_mode: &str,
+    full_width: bool,
+) -> Option<String> {
+    SESSIONS.with(|sessions| {
+        let mut sessions = sessions.borrow_mut();
+        let session = sessions.get_mut(&handle).unwrap();
+        let mut view = session.runtime.view();
+        if full_width {
+            view.character_width = CharacterWidth::Fullwidth;
+        }
+        session
+            .complete_transition(Transition {
+                handled: true,
+                commit: Some(commit.to_owned()),
+                commit_context: Some(msime_input_runtime::OutputContext {
+                    scheme,
+                    local_mode: local_mode.to_owned(),
+                    script_conversion: true,
+                    typing_statistics: true,
+                }),
+                diagnostic: None,
+                view,
+            })
+            .commit
+    })
+}
+
+// 「中英文之间加空格」只在开关打开、中文方案、普通组字或快捷短语、超级简拼的上屏里加；网址、日期等快捷模式和非中文方案原样。关着时上屏一字不改。
+#[test]
+fn chinese_english_spacing_follows_the_switch_and_the_commit_mode() {
+    let directory = tempfile::tempdir().unwrap();
+    let handle = test_host(directory.path());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let text = "用Rust写插件";
+    assert_eq!(
+        completed_commit(handle, text, 0, "none", false).as_deref(),
+        Some(text)
+    );
+
+    let preferences = Preferences {
+        chinese_english_spacing: true,
+        ..chinese_preferences()
+    };
+    assert_eq!(update(handle, 1, &preferences)["ok"], true);
+    for local_mode in ["none", "quick_phrase", "super_jianpin"] {
+        assert_eq!(
+            completed_commit(handle, text, 0, local_mode, false).as_deref(),
+            Some("用 Rust 写插件"),
+            "{local_mode}"
+        );
+    }
+    // 五笔和粤拼同样是中文方案。
+    for scheme in [2, 5] {
+        assert_eq!(
+            completed_commit(handle, "800人", scheme, "none", false).as_deref(),
+            Some("800 人"),
+            "{scheme}"
+        );
+    }
+    for local_mode in [
+        "url",
+        "date_time",
+        "command",
+        "expression",
+        "mention",
+        "unicode",
+        "temporary_english",
+        "temporary_japanese",
+    ] {
+        assert_eq!(
+            completed_commit(handle, text, 0, local_mode, false).as_deref(),
+            Some(text),
+            "{local_mode}"
+        );
+    }
+    // 日文、韩文方案不加。
+    for scheme in [3, 4] {
+        assert_eq!(
+            completed_commit(handle, text, scheme, "none", false).as_deref(),
+            Some(text),
+            "{scheme}"
+        );
+    }
+    // 全角在前：字母已是全角，不加空格，也就不会出现 U+3000。
+    let wide = completed_commit(handle, text, 0, "none", true).unwrap();
+    assert_eq!(wide, "用Ｒｕｓｔ写插件");
+    assert!(!wide.contains('\u{3000}'));
+
+    let off = Preferences {
+        chinese_english_spacing: false,
+        ..preferences
+    };
+    assert_eq!(update(handle, 2, &off)["ok"], true);
+    assert_eq!(
+        completed_commit(handle, text, 0, "none", false).as_deref(),
+        Some(text)
+    );
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+// 端到端：K 模式快捷短语「用Rust写」经完整的派发链路上屏为「用 Rust 写」。
+#[test]
+fn chinese_english_spacing_reaches_a_quick_phrase_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    install_phrase_table(dir.path(), "spacing", &[("yrx", "用Rust写")]);
+    let mut preferences = chinese_preferences();
+    preferences.plugins.phrase_tables = vec!["spacing".into()];
+    preferences.chinese_english_spacing = true;
+    let handle = plugin_host(dir.path(), preferences.clone());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let commit_phrase = || {
+        let entered = read(msime_client_character(handle, b'K', true));
+        assert_eq!(entered["ok"], true, "{entered}");
+        for key in b"yrx" {
+            let typed = read(msime_client_character(handle, *key, false));
+            assert_eq!(typed["ok"], true, "{typed}");
+        }
+        read(msime_client_command(handle, 1))["value"].clone()
+    };
+    let committed = commit_phrase();
+    assert_eq!(committed["commit_context"]["local_mode"], "quick_phrase");
+    assert_eq!(committed["commit"], "用 Rust 写");
+
+    preferences.chinese_english_spacing = false;
+    assert_eq!(update(handle, 1, &preferences)["ok"], true);
+    assert_eq!(commit_phrase()["commit"], "用Rust写");
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
@@ -11842,6 +12169,65 @@ fn plugins_boundary_lists_imports_removes_and_keeps_the_name_list() {
     );
     assert_eq!(
         read(unsafe { msime_client_plugins(std::ptr::null(), 4) })["error"],
+        "invalid"
+    );
+}
+
+/// 移动端导入单个码表：`import_helpcode_table` 把正文装成辅助码表包，选中后会话里「你」的码换成表里的；坏表以 `plugin_invalid` 和带行号的中文原因被拒。
+#[test]
+fn plugins_boundary_imports_a_helpcode_table_the_session_then_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("state");
+    let call = |action: Value| {
+        let request = serde_json::to_vec(
+            &json!({"state_root": state, "sound_packs": null, "action": action}),
+        )
+        .unwrap();
+        read(unsafe { msime_client_plugins(request.as_ptr(), request.len()) })
+    };
+    let imported = call(json!({
+        "operation": "import_helpcode_table",
+        "file_name": "我的码.txt",
+        "text": "\u{FEFF}# name: 我的辅助码\r\n你=zz\r\n",
+    }));
+    assert_eq!(imported["ok"], true, "{imported}");
+    assert_eq!(imported["value"]["kind"], "helpcode");
+    assert_eq!(imported["value"]["name"], "我的辅助码");
+    assert_eq!(imported["value"]["entries"], 1);
+    let id = imported["value"]["id"].as_str().unwrap().to_owned();
+    assert!(id.starts_with("custom-"), "{id}");
+    let catalog = call(json!({"operation": "catalog"}));
+    assert!(
+        catalog["value"]["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|pack| pack["id"] == id.as_str() && pack["kind"] == "helpcode"),
+        "{catalog}"
+    );
+
+    let mut preferences = chinese_preferences();
+    preferences.scheme = msime_client_core::preferences::InputScheme::Shuangpin;
+    preferences.plugins.helpcode_pack_shuangpin = id.clone();
+    let handle = plugin_host(dir.path(), preferences);
+    assert_eq!(session_helpcode(handle).as_deref(), Some("zz"));
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+
+    let refused = call(json!({
+        "operation": "import_helpcode_table",
+        "file_name": "mine.txt",
+        "text": "你=ab\n你=cd\n",
+    }));
+    assert_eq!(
+        refused,
+        json!({
+            "ok": false,
+            "error": "plugin_invalid",
+            "detail": "mine.txt 里「你」出现了不止一次（第 1 行和第 2 行）",
+        })
+    );
+    assert_eq!(
+        call(json!({"operation": "import_helpcode_table", "file_name": "mine.txt"}))["error"],
         "invalid"
     );
 }

@@ -173,4 +173,27 @@ inline std::string effective_input_scheme(std::string_view id, std::string_view 
   return std::string(kEditionDefaultScheme);
 }
 
+// Ctrl+Shift+J 在中文方案和日语之间切换只在本版本同时提供日语和至少一个中文方案时有意义（full 版）。拼音、五笔和各语言版不吃这个组合键，交给应用。
+inline bool offers_japanese_toggle() {
+  if (!edition_offers_scheme("japanese")) return false;
+  for (const auto id : kEditionInputSchemes)
+    if (scheme::IsChinese(scheme_number(id))) return true;
+  return false;
+}
+
+// Ctrl+Shift+J 的目标方案，空串表示不切换。`running` 是 effective_input_scheme 的结果：它是中文方案时去日语；是日语、韩文、越南文或藏文时回到 `last_chinese_scheme`，它跑不起来时依次退到版本的默认方案和第一个跑得起来的中文方案，和 Windows 的 `japanese_toggle_target` 一致。调用方离开中文时要把 `running` 记进 `last_chinese_scheme`：菜单换方案只在目标是中文方案时才记它。
+inline std::string japanese_toggle_target(std::string_view running, std::string_view last_chinese_scheme,
+                                          LanguageDictionaryAvailability dictionaries) {
+  if (!offers_japanese_toggle()) return {};
+  if (scheme::IsChinese(scheme_number(running)))
+    return input_scheme_available("japanese", dictionaries) ? std::string("japanese") : std::string();
+  if (scheme::IsChinese(scheme_number(last_chinese_scheme)) && input_scheme_available(last_chinese_scheme, dictionaries))
+    return std::string(last_chinese_scheme);
+  if (scheme::IsChinese(scheme_number(kEditionDefaultScheme)) && input_scheme_available(kEditionDefaultScheme, dictionaries))
+    return std::string(kEditionDefaultScheme);
+  for (const auto id : kInputSchemeIds)
+    if (scheme::IsChinese(scheme_number(id)) && input_scheme_available(id, dictionaries)) return std::string(id);
+  return {};
+}
+
 } // namespace msime::linux_host

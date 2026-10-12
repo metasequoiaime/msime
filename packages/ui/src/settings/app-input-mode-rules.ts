@@ -1,4 +1,5 @@
 import type { AppInputModeRule } from "../index";
+import { utf8ByteLength } from "../core/text";
 
 /** 与 `client-core::preferences` 的 `MAX_APP_INPUT_MODE_RULES`、`MAX_APP_INPUT_MODE_RULE_ID_BYTES` 一致。 */
 export const maxAppInputModeRules = 32;
@@ -31,7 +32,7 @@ export function appInputModeRuleProblem(
   windows: boolean,
 ): AppInputModeRuleProblem | null {
   if (!id) return "empty";
-  if (new TextEncoder().encode(id).length > maxAppInputModeRuleIdBytes) return "too_long";
+  if (utf8ByteLength(id) > maxAppInputModeRuleIdBytes) return "too_long";
   // 与 Rust 的 `char::is_control` 相同（U+0000–U+001F、U+007F–U+009F），再加上两个路径分隔符。
   for (const character of id) {
     const code = character.codePointAt(0) ?? 0;

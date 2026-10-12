@@ -24,10 +24,22 @@ impl Inventory {
         S: Into<String>,
     {
         let mut inventory = Self::default();
+        let mut first_prefixes = [false; 256];
         for syllable in syllables {
             let syllable = syllable.into();
-            for end in 1..syllable.len() {
-                inventory.prefixes.insert(syllable[..end].to_owned());
+            if syllable.len() > 1 {
+                let first = usize::from(syllable.as_bytes()[0]);
+                // 首字节未见时，整个真前缀链都是新项，直接插入以免额外查询。
+                let known_first = first_prefixes[first];
+                for end in (1..syllable.len()).rev() {
+                    let prefix = &syllable[..end];
+                    // 已登记的前缀也包含全部更短前缀，不必重复查询或复制。
+                    if known_first && (end == 1 || inventory.prefixes.contains(prefix)) {
+                        break;
+                    }
+                    inventory.prefixes.insert(prefix.to_owned());
+                }
+                first_prefixes[first] = true;
             }
             inventory.longest = inventory.longest.max(syllable.len());
             inventory.syllables.insert(syllable);
@@ -362,6 +374,57 @@ pub(crate) mod tests {
 
     fn first(input: &str) -> Vec<String> {
         read(input, &segment(input, &inventory())[0])
+    }
+
+    #[test]
+    fn inventory_allocates_only_distinct_prefixes() {
+        let syllables: Vec<String> = (b'a'..=b'z')
+            .map(|last| format!("baa{}", char::from(last)))
+            .collect();
+        let (inventory, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| Inventory::new(syllables));
+
+        assert_eq!(inventory.longest, 4);
+        assert_eq!(inventory.syllables.len(), 26);
+        assert_eq!(inventory.prefixes.len(), 3);
+        for prefix in ["b", "ba", "baa"] {
+            assert!(inventory.is_prefix(prefix));
+        }
+        for last in b'a'..=b'z' {
+            let syllable = format!("baa{}", char::from(last));
+            assert!(inventory.contains(&syllable));
+            assert!(!inventory.is_prefix(&syllable));
+        }
+        assert!(allocations <= 10, "共享前缀库存分配次数: {allocations}");
+        eprintln!("inventory_shared_prefix_allocations={allocations}");
+    }
+
+    #[test]
+    fn inventory_preserves_nested_prefixes_and_empty_inputs() {
+        let empty = Inventory::new(std::iter::empty::<String>());
+        assert_eq!(empty.longest, 0);
+        assert!(empty.syllables.is_empty());
+        assert!(empty.prefixes.is_empty());
+        for syllables in [
+            ["abc", "ab", "a", "abd", "abc", ""],
+            ["", "abc", "abd", "a", "ab", "abc"],
+            ["a", "ab", "abc", "abd", "abc", ""],
+        ] {
+            let inventory = Inventory::new(syllables);
+            assert_eq!(inventory.longest, 3);
+            assert_eq!(inventory.syllables.len(), 5);
+            assert_eq!(inventory.prefixes.len(), 2);
+            for syllable in ["", "a", "ab", "abc", "abd"] {
+                assert!(inventory.contains(syllable));
+            }
+            for prefix in ["a", "ab"] {
+                assert!(inventory.is_prefix(prefix));
+            }
+            for absent in ["", "abc", "abd", "b", "ac"] {
+                assert!(!inventory.is_prefix(absent));
+            }
+            assert_eq!(read("abcabd", &best("abcabd", &inventory)), ["abc", "abd"]);
+        }
     }
 
     #[test]

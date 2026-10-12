@@ -1992,7 +1992,15 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   }
 
   function refresh(nextSearch = searchRef.current) {
-    return run((revision) => load(revision, nextSearch), "无法访问云剪贴板服务");
+    return run(async (revision) => {
+      try {
+        await load(revision, nextSearch);
+      } catch (error) {
+        // 错误码各有说明（例如自建中继拒绝了令牌、本设备待批准），认不出的仍说服务访问不了。
+        if (revision === refreshRevision.current)
+          setNotice(cloudClipboardErrorMessage(error, "无法访问云剪贴板服务"));
+      }
+    }, "无法访问云剪贴板服务");
   }
 
   useEffect(() => {
@@ -3926,7 +3934,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
                   }
                 >
                   <strong>
-                    {index + 1}. <span className="break-anywhere">{candidate.word}</span>
+                    {index + 1}. <span className="wrap-anywhere">{candidate.word}</span>
                   </strong>
                   <small>
                     {candidate.code} · 权重 {candidate.weight}
@@ -4038,7 +4046,7 @@ const panelEmpty = `m-0 flex min-h-[220px] items-center justify-center text-cent
  * was only there to win a specificity fight with the grid rule -- a fight utilities do not have.
  */
 const panelTile = (flow: boolean) =>
-  `flex min-w-0 items-center justify-center overflow-hidden rounded-[9px] border border-transparent bg-transparent text-center font-emoji-text leading-[1.2] break-anywhere ${panelText} hover:border-[#555560] hover:bg-[#303038] focus-visible:border-[#555560] focus-visible:bg-[#303038] group-data-[panel-theme=light]:hover:border-[#c8ccd5] group-data-[panel-theme=light]:hover:bg-[#eceef3] group-data-[panel-theme=light]:focus-visible:border-[#c8ccd5] group-data-[panel-theme=light]:focus-visible:bg-[#eceef3] disabled:cursor-wait disabled:opacity-55 ${
+  `flex min-w-0 items-center justify-center overflow-hidden rounded-[9px] border border-transparent bg-transparent text-center font-emoji-text leading-[1.2] wrap-anywhere ${panelText} hover:border-[#555560] hover:bg-[#303038] focus-visible:border-[#555560] focus-visible:bg-[#303038] group-data-[panel-theme=light]:hover:border-[#c8ccd5] group-data-[panel-theme=light]:hover:bg-[#eceef3] group-data-[panel-theme=light]:focus-visible:border-[#c8ccd5] group-data-[panel-theme=light]:focus-visible:bg-[#eceef3] disabled:cursor-wait disabled:opacity-55 ${
     flow
       ? "max-w-full flex-[0_1_auto] min-h-12 px-3 py-2.5 text-xl whitespace-pre-wrap"
       : "min-h-[66px] p-1.5 text-[29px]"

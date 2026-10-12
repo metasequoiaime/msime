@@ -104,6 +104,11 @@ fn read_display_names(path: &Path) -> (String, String) {
     let Ok(text) = std::str::from_utf8(&bytes) else {
         return (String::new(), String::new());
     };
+    display_names(text)
+}
+
+/// 码表开头注释里的显示名：`# name:` 和 `# name_en:`（冒号也可以是全角），遇到第一行非空、非注释的内容就停；没有时为空字符串。开头的 BOM、行尾的 `\r` 和两端的空格、制表符都不算进名字。
+pub(crate) fn display_names(text: &str) -> (String, String) {
     let mut name = String::new();
     let mut name_en = String::new();
     for (index, raw_line) in text.lines().enumerate() {

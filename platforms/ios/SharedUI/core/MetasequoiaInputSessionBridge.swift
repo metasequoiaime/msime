@@ -381,6 +381,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "shuangpin_preedit_uses_raw",
     // 输入页的「只出单字」：同样在会话空闲时重建 Engine。
     "single_character_only",
+    // 标点页的「中英文之间加空格」：会话在上屏时读最新请求的偏好，交给活着的会话后下一次上屏就生效。
+    "chinese_english_spacing",
     // Whole objects: the app merges single fields into them, and the document's copy is the one it wrote.
     "quanpin", "mixed_input", "quanpin_helpcode", "shuangpin_helpcode", "local_modes",
     // 整句联想 on the 输入 page: the session attaches or drops the keyboard sentence model once idle, so turning 增强 off stops it in the keyboard that is already open.

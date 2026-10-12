@@ -4567,6 +4567,111 @@ static void TestModifierTaps() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// 菜单栏状态项（#7066）：共享偏好 input_mode_status_item 默认关闭；打开后每次切换中英文都把状态项摆成控制器算出的模式，换方案时显示真实方案，⌃⇧E 的英文候选模式仍是「中」；载入的共享文档里关上时立即隐藏，打开时立即按当前模式显示，不等下一次切换；原生设置窗口的开关关上时，没有客户端的控制器也立即隐藏。状态项换成记录用的替身，测试进程不往菜单栏放东西。
+static void TestInputModeStatusItem() {
+    NSString *suite = [@"msime.mode-status-item." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(!prefs.inputModeStatusItem);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"input_mode_status_item"] isEqual:@NO]);
+    [prefs applySharedCandidatePreferences:@{@"input_mode_status_item": @YES}];
+    assert(prefs.inputModeStatusItem);
+    // 不是布尔值的字段不算数，沿用已有的值。
+    [prefs applySharedCandidatePreferences:@{@"input_mode_status_item": @"false"}];
+    assert(prefs.inputModeStatusItem);
+    [prefs applySharedCandidatePreferences:@{@"input_mode_status_item": @NO}];
+    assert(!prefs.inputModeStatusItem);
+    // 原生设置窗口的开关写同一个偏好，重开后仍在。
+    NSButton *toggle = (id)PreferenceControl(prefs, NSSelectorFromString(@"inputModeStatusItemChanged:"));
+    assert(toggle.state == NSControlStateValueOff);
+    toggle.state = NSControlStateValueOn;
+    assert([NSApp sendAction:toggle.action to:toggle.target from:toggle]);
+    assert(prefs.inputModeStatusItem && [[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults] inputModeStatusItem]);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"input_mode_status_item"] isEqual:@YES]);
+
+    prefs.inputModeStatusItem = NO;
+    prefs.inputScheme = @"quanpin";
+    prefs.englishMode = NO;
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    ShortcutSession *session = [ShortcutSession new];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:@{@"editing_text":@"", @"caret_position":@0, @"candidates":@[]} forKey:@"view"];
+    NSMutableArray *shown = [NSMutableArray array];
+    [controller setValue:^(NSString *mode) { [shown addObject:mode ?: NSNull.null]; } forKey:@"inputModeStatusItemPresenter"];
+    auto tap = [&](double time) {
+        assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, time) client:client]);
+        assert([controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, time + 0.1) client:client]);
+    };
+
+    // 关着时切换只会确认它隐藏着，从不显示。
+    tap(1.0);
+    assert(prefs.englishMode && shown.count > 0 && [shown.lastObject isEqual:NSNull.null]);
+    assert(![shown containsObject:MSIMEEnglishInputModeID] && ![shown containsObject:MSIMEChineseInputModeID]);
+
+    // 打开的共享文档立即按当前模式显示，不等下一次切换。
+    [controller applySharedToolbarPreferences:@{@"input_mode_status_item": @YES}];
+    assert(prefs.inputModeStatusItem && [shown.lastObject isEqual:MSIMEEnglishInputModeID]);
+    tap(2.0);
+    assert(!prefs.englishMode && [shown.lastObject isEqual:MSIMEChineseInputModeID]);
+    tap(3.0);
+    assert(prefs.englishMode && [shown.lastObject isEqual:MSIMEEnglishInputModeID]);
+    tap(4.0);
+    assert(!prefs.englishMode && [shown.lastObject isEqual:MSIMEChineseInputModeID]);
+
+    // 换到双拼时显示「双」，不论系统里有没有加入「双」这个输入源。
+    prefs.inputScheme = @"shuangpin";
+    [controller applySharedToolbarPreferences:@{@"input_mode_status_item": @YES}];
+    assert([shown.lastObject isEqual:MSIMEShuangpinInputModeID]);
+    tap(5.0);
+    assert([shown.lastObject isEqual:MSIMEEnglishInputModeID]);
+    tap(6.0);
+    assert([shown.lastObject isEqual:MSIMEShuangpinInputModeID]);
+    prefs.inputScheme = @"quanpin";
+
+    // ⌃⇧E 的英文候选模式不是英文模式：键仍经过引擎，从「英」进入它时状态项和系统图标一样回到「中」。
+    [controller applySharedToolbarPreferences:@{@"input_mode_status_item": @YES}];
+    tap(6.5);
+    assert(prefs.englishMode && [shown.lastObject isEqual:MSIMEEnglishInputModeID]);
+    assert([controller handleEvent:ModeKey(14, NSEventModifierFlagControl | NSEventModifierFlagShift, NO) client:client]);
+    assert(session.dedicatedEnglish && !prefs.englishMode && [shown.lastObject isEqual:MSIMEChineseInputModeID]);
+    assert([controller handleEvent:ModeKey(14, NSEventModifierFlagControl | NSEventModifierFlagShift, NO) client:client]);
+    assert(!session.dedicatedEnglish);
+    // 松开 E 和 ⌃⇧，像真实键盘那样，下一次单按 Shift 才从没有修饰键的状态开始。
+    assert(![controller handleEvent:TapEvent(NSEventTypeKeyUp, 14, NSEventModifierFlagControl | NSEventModifierFlagShift, 6.8) client:client]);
+    assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 59, 0, 6.9) client:client]);
+
+    // 关上的共享文档立即隐藏，之后的切换也不再显示。
+    [controller applySharedToolbarPreferences:@{@"input_mode_status_item": @NO}];
+    assert(!prefs.inputModeStatusItem && [shown.lastObject isEqual:NSNull.null]);
+    const NSUInteger hidden = shown.count;
+    tap(7.0);
+    assert(prefs.englishMode && shown.count > hidden);
+    for (NSUInteger index = hidden; index < shown.count; ++index) assert([shown[index] isEqual:NSNull.null]);
+
+    // 没有客户端的控制器（输入法不在前台时收到通知）只隐藏，不把状态项放回菜单栏。
+    [controller setValue:nil forKey:@"activeClient"];
+    const NSUInteger before = shown.count;
+    [controller applySharedToolbarPreferences:@{@"input_mode_status_item": @YES}];
+    assert(shown.count == before);
+
+    // 原生设置窗口在输入法进程里，拨它的开关时没有控制器持有客户端，文档也不会被重新载入：关上经 appearanceChanged: 立即隐藏，打开不把状态项放回菜单栏，等下一次获得焦点。
+    [controller setValue:nil forKey:@"session"];
+    [NSNotificationCenter.defaultCenter addObserver:controller selector:@selector(appearanceChanged:)
+                                               name:MSIMEAppearanceDidChangeNotification object:prefs];
+    toggle.state = NSControlStateValueOff;
+    assert([NSApp sendAction:toggle.action to:toggle.target from:toggle]);
+    assert(!prefs.inputModeStatusItem && shown.count == before + 1 && [shown.lastObject isEqual:NSNull.null]);
+    toggle.state = NSControlStateValueOn;
+    assert([NSApp sendAction:toggle.action to:toggle.target from:toggle]);
+    assert(prefs.inputModeStatusItem && shown.count == before + 1);
+    [NSNotificationCenter.defaultCenter removeObserver:controller name:MSIMEAppearanceDidChangeNotification object:prefs];
+    prefs.englishMode = NO;
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // 单按 Caps Lock 切换中英文。合成的时钟、按键状态和撤回大写锁定：单测不能动跑测试那台机器的真实大写锁定。
 static std::int64_t gCapsNow = 0;
 static bool gCapsHeld = false;
@@ -10634,6 +10739,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestInputSourceModeReset(); }
         @autoreleasepool { TestRealSessionComposition(); }
         @autoreleasepool { TestModifierTaps(); }
+        @autoreleasepool { TestInputModeStatusItem(); }
         @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
         @autoreleasepool { TestCapsLockTap(); }
         @autoreleasepool { TestStaleClientDeactivation(); }

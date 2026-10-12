@@ -72,7 +72,7 @@ export function StatisticsMetric({ metric }: { metric: StatisticsOverviewMetric 
       <span title={metric.title}>{metric.label}</span>
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 [&>small]:text-xs [&>small]:[color:var(--p-sub)]">
         <strong
-          className="text-[22px] font-[650] leading-tight break-anywhere tabular-nums [color:var(--p-accent-text)]"
+          className="text-[22px] font-[650] leading-tight wrap-anywhere tabular-nums [color:var(--p-accent-text)]"
           aria-label={metric.ariaLabel}
         >
           {metric.value}

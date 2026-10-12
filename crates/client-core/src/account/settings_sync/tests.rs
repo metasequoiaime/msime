@@ -107,6 +107,9 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
     preferences.custom_translation.api_key = "SENTINEL-translation".into();
     preferences.tencent_tmt.secret_id = "SENTINEL-secret-id".into();
     preferences.tencent_tmt.secret_key = "SENTINEL-secret-key".into();
+    // 云剪贴板中继是本机的配置，地址和令牌都不进同步文档。
+    preferences.cloud_clipboard_relay.url = "https://SENTINEL-relay.example.test".into();
+    preferences.cloud_clipboard_relay.token = "SENTINEL-relay-token".into();
     let exported = export_android_settings(&preferences, Some(&feedback())).unwrap();
     let keys: Vec<&str> = exported.keys().map(String::as_str).collect();
     assert_eq!(
@@ -884,13 +887,19 @@ fn settings_sync_custom_keyboard_skin_library_is_bounded_and_an_array() {
 
 #[test]
 fn settings_sync_desktop_export_is_only_the_shared_input_keys() {
-    let preferences = Preferences {
+    let mut preferences = Preferences {
         scheme: InputScheme::Wubi,
         traditional_chinese_output: true,
         ..Preferences::default()
     };
+    preferences.cloud_clipboard_relay.url = "https://SENTINEL-relay.example.test".into();
+    preferences.cloud_clipboard_relay.token = "SENTINEL-relay-token".into();
     let exported = export_desktop_settings(&preferences);
     assert!(exported.keys().all(|key| key.starts_with("input.")));
+    assert!(exported.values().all(|value| !matches!(
+        value,
+        AccountPreferenceValue::String(text) if text.contains("SENTINEL")
+    )));
     let android = export_android_settings(&preferences, None).unwrap();
     let shared: BTreeMap<_, _> = android
         .into_iter()

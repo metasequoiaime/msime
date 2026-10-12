@@ -256,6 +256,9 @@ if(BUILD_TESTING)
     add_test(NAME ibus-caps-lock-tap
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --caps-lock)
     set_tests_properties(ibus-caps-lock-tap PROPERTIES TIMEOUT 60)
+    add_test(NAME ibus-japanese-toggle
+      COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --japanese-toggle)
+    set_tests_properties(ibus-japanese-toggle PROPERTIES TIMEOUT 60)
   endif()
   add_executable(linux-navigation-bindings-test tests/input/navigation_bindings.cpp)
   target_compile_options(linux-navigation-bindings-test PRIVATE -Wall -Wextra -Werror)

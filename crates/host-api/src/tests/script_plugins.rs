@@ -1,17 +1,19 @@
-//! 脚本插件经 C ABI 的行为：运行条件和隐私门控、按授权的文本、每次 focus 重建实例、每插件配额、按轮的 fuel、熔断与健康文件、panic 总开关、后台编译线程，以及不投递的事件。
+//! 脚本插件经 C ABI 的行为：运行条件和隐私门控、按授权的文本、每次 focus 重建实例、每插件配额、按轮的 fuel、熔断与健康文件、panic 总开关、后台编译线程、不投递的事件，以及两个修改类钩子（改写上屏、候选的重排、隐藏和注释）。
 //!
 //! 模块用 WAT 写（`msime-script-runtime` 的 `test-support`），编译好直接放进进程缓存，哈希每个测试各不相同；只有后台编译线程那一例从磁盘上的包走完整路径，模块按字节手写。脚本经 `log` 把看到的东西写出来：级别是事件类型或 import 的返回码，文本是读到的文本。测试线程有自己的进程开关和 panic 总开关，互不影响。
 
 use super::*;
 use crate::lifecycle::{
-    LifecycleEvent, KEY_PASSTHROUGH, TRAIT_ELEVATED, TRAIT_KNOWN, TRAIT_PRIVATE, TRAIT_SECURE,
+    LifecycleEvent, COMMIT_OBSERVE_ONLY, HOST_HOLDS_PIECES, KEY_PASSTHROUGH, TRAIT_ELEVATED,
+    TRAIT_KNOWN, TRAIT_PRIVATE, TRAIT_SECURE,
 };
 use crate::scripts::{
     insert_ready, TEST_COMPILE_PANIC_ID, TEST_PANIC, TEST_PANICKED, TEST_SCRIPT_LOG, TEST_SLOW,
     TEST_SWITCH,
 };
 use msime_client_core::plugins::{import, script_grants, MANIFEST_FILE};
-use msime_script_runtime::abi::commit_field;
+use msime_input_runtime::{CandidateOps, TransformRow};
+use msime_script_runtime::abi::{commit_field, event_field};
 use msime_script_runtime::{
     abi::status, compile_text, Capability, CapabilitySet, Declaration, Hook, HookSet,
 };
@@ -133,7 +135,7 @@ fn init_failure() -> String {
     )
 }
 
-/// 空转 `rounds` 圈再写出事件类型。
+/// 空转 `rounds` 圈再写出事件类型。一千圈约七千 fuel，不到观察类钩子上限的一半：被本轮配额截断时不算失败。
 fn burner(rounds: u32) -> String {
     format!(
         r#"(module
@@ -193,6 +195,11 @@ impl Drop for Fixture {
 
 /// 本测试线程打开进程开关、清空脚本日志，建一个全拼会话（`ni`、`hao`、`nihao` 都有候选）。
 fn fixture() -> Fixture {
+    fixture_with(chinese_preferences())
+}
+
+/// 同 [`fixture`]，偏好由调用方给。
+fn fixture_with(preferences: Preferences) -> Fixture {
     TEST_SWITCH.with(|switch| switch.set(Some(true)));
     TEST_PANICKED.with(|panicked| panicked.set(false));
     TEST_SLOW.with(|slow| slow.set(false));
@@ -224,7 +231,7 @@ fn fixture() -> Fixture {
             .unwrap();
     }
     let user_data = path("user");
-    let options = json!({ "api_version": 1, "resources": resources, "user_data": user_data, "cache": path("cache"), "dictionaries": dictionaries, "preferences_directory": state, "preferences": chinese_preferences() }).to_string();
+    let options = json!({ "api_version": 1, "resources": resources, "user_data": user_data, "cache": path("cache"), "dictionaries": dictionaries, "preferences_directory": state, "preferences": preferences }).to_string();
     let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
     assert_eq!(created["ok"], true, "{created}");
     Fixture {
@@ -345,7 +352,7 @@ fn an_ordinary_field_delivers_the_observe_events_and_no_key_down() {
     assert_eq!(commit_nihao(fixture.handle), "你好");
     let log = kinds(&take_log());
     let code = |hook: Hook| hook.code();
-    // 第一键：input, start, update, shown；之后四键各 input, update, shown；空格选首选：input, selected, commit, end, hidden。before_commit 第 4 阶段才投递。
+    // 第一键：input, start, update, shown；之后四键各 input, update, shown；空格选首选：input, selected, commit, end, hidden。before_commit 不在这个插件声明的钩子里。
     let mut expected = vec![
         code(Hook::Input),
         code(Hook::CompositionStart),
@@ -634,11 +641,11 @@ fn fuel_is_given_per_turn_and_a_new_key_refills_it() {
     let fixture = fixture();
     let hashes = install(
         &fixture,
-        &[Script::new("burner", burner(2000), &[Hook::Input])],
+        &[Script::new("burner", burner(1000), &[Hook::Input])],
         1,
     );
     opt_in(&fixture, TRAIT_KNOWN);
-    // 每次 input 花几千 fuel，单次远低于观察类钩子的 25 000 上限。
+    // 每次 input 花几千 fuel，不到观察类钩子 25 000 上限的一半。
     for _ in 0..50 {
         msime_client_key(fixture.handle, 0);
         read(msime_client_reset_cache(fixture.handle));
@@ -658,7 +665,7 @@ fn the_turn_quota_belongs_to_the_plugin_not_to_one_instance() {
     let fixture = fixture();
     let hashes = install(
         &fixture,
-        &[Script::new("burner", burner(2000), &[Hook::Input])],
+        &[Script::new("burner", burner(1000), &[Hook::Input])],
         1,
     );
     opt_in(&fixture, TRAIT_KNOWN);
@@ -696,11 +703,11 @@ fn an_exhausted_turn_skips_the_plugin_and_never_trips_the_breaker() {
     let fixture = fixture();
     let hashes = install(
         &fixture,
-        &[Script::new("burner", burner(2000), &[Hook::Input])],
+        &[Script::new("burner", burner(1000), &[Hook::Input])],
         1,
     );
     opt_in(&fixture, TRAIT_KNOWN);
-    // 修饰键组合、快捷键和失焦命令不经过 msime_client_key，这些派发和上一次按键共用一轮。每次聚焦都把这一轮花光：插件只是被跳过，连着四次也不熔断（按失败计时第三次就停用了）。
+    // 修饰键组合、快捷键和失焦命令不经过 msime_client_key，这些派发和上一次按键共用一轮。每次聚焦都把这一轮花光：每次投递都不到自己上限的一半，被截断的那一次用掉的只会更少，插件只是被跳过，连着四次也不熔断（按失败计时第三次就停用了）。
     for _ in 0..4 {
         msime_client_set_field_traits(fixture.handle, TRAIT_KNOWN);
         read(msime_client_focus(fixture.handle, true));
@@ -716,6 +723,58 @@ fn an_exhausted_turn_skips_the_plugin_and_never_trips_the_breaker() {
     read(msime_client_focus(fixture.handle, true));
     letter(fixture.handle, b'n');
     assert_eq!(kinds(&take_log()), [Hook::Input.code()]);
+}
+
+/// 每个事件先写出事件类型；`candidates` 接着死循环，其余钩子空转一千圈（几千 fuel）后返回。
+fn candidates_spinner() -> String {
+    format!(
+        r#"(module
+  (import "msime" "log" (func $log (param i32 i32 i32)))
+  {HEADER}
+  (func (export "msime_on_event") (param $kind i32) (result i32) (local $i i32)
+    (call $log (local.get $kind) (i32.const 0) (i32.const 0))
+    (if (i32.eq (local.get $kind) (i32.const {candidates}))
+      (then (loop $forever (br $forever))))
+    (loop $spin
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br_if $spin (i32.lt_u (local.get $i) (i32.const 1000))))
+    (i32.const 0)))"#,
+        candidates = Hook::Candidates.code(),
+    )
+}
+
+#[test]
+fn a_loop_in_candidates_after_input_trips_the_breaker() {
+    let fixture = fixture();
+    let hashes = install(
+        &fixture,
+        &[Script::new(
+            "candidates-spinner",
+            candidates_spinner(),
+            &[Hook::Input, Hook::Candidates],
+        )],
+        1,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    // 同一轮里 `input` 先花掉几千 fuel，`candidates` 的死循环于是先撞上轮配额（它的单次上限和轮配额相等）。这一次用掉的远超自己上限的一半，算一次失败：每次聚焦失败一次，第 3 次停用。
+    for focus in 0..4 {
+        if focus > 0 {
+            read(msime_client_focus(fixture.handle, true));
+        }
+        // 死循环不影响打字；trap 之后这次聚焦里不再重建实例，第二个字母什么都不投递。
+        letter(fixture.handle, b'n');
+        letter(fixture.handle, b'i');
+        let expected: &[i32] = if focus < 3 {
+            &[Hook::Input.code(), Hook::Candidates.code()]
+        } else {
+            &[]
+        };
+        assert_eq!(kinds(&take_log()), expected, "focus {focus}");
+    }
+    assert_eq!(
+        process_health(&fixture, "candidates-spinner", &hashes[0]),
+        (3, Some("out_of_fuel"))
+    );
 }
 
 #[test]
@@ -1045,7 +1104,7 @@ fn measure_delivery_cost() {
                 view: Some(&view),
                 ..Default::default()
             };
-            let scripts = state.scripts_mut();
+            let mut scripts = state.scripts_mut();
             let started = Instant::now();
             for _ in 0..rounds {
                 scripts.next_turn();
@@ -1064,6 +1123,626 @@ fn measure_delivery_cost() {
         "per delivery ({} build): composition_update to an empty hook {update:?}; candidates_shown with read_candidates, {rows} rows copied {shown:?}",
         if cfg!(debug_assertions) { "dev" } else { "release" }
     );
+    assert!(take_log().is_empty());
+}
+
+// ---- 修改类钩子 ----
+
+/// `before_commit`：先写出这次能否改写，读 body、接上 `suffix` 后改写，再写出 `rewrite_commit` 的返回码；最后执行 `finish`（返回值或 trap）。
+fn appender(suffix: &str, finish: &str) -> String {
+    format!(
+        r#"(module
+  (import "msime" "event_scalar" (func $event (param i32) (result i64)))
+  (import "msime" "commit_text" (func $text (param i32 i32 i32) (result i32)))
+  (import "msime" "rewrite_commit" (func $rewrite (param i32 i32) (result i32)))
+  (import "msime" "log" (func $log (param i32 i32 i32)))
+  {HEADER}
+  (data (i32.const 32) "{suffix}")
+  (func (export "msime_on_event") (param $kind i32) (result i32) (local $n i32)
+    (call $log (i32.wrap_i64 (call $event (i32.const {rewritable}))) (i32.const 0) (i32.const 0))
+    (local.set $n (call $text (i32.const {body}) (i32.const 64) (i32.const 1024)))
+    (if (i32.ge_s (local.get $n) (i32.const 0))
+      (then
+        (memory.copy (i32.add (i32.const 64) (local.get $n)) (i32.const 32) (i32.const {len}))
+        (call $log (call $rewrite (i32.const 64) (i32.add (local.get $n) (i32.const {len}))) (i32.const 0) (i32.const 0))))
+    {finish}))"#,
+        rewritable = event_field::REWRITABLE,
+        body = commit_field::COMMIT_BODY,
+        len = suffix.len(),
+    )
+}
+
+/// `before_commit`：不管原文，把 body 改写成数据段里的 `bytes`（WAT 字符串转义），写出返回码。
+fn replacer(bytes: &str, len: usize) -> String {
+    format!(
+        r#"(module
+  (import "msime" "commit_text" (func $text (param i32 i32 i32) (result i32)))
+  (import "msime" "rewrite_commit" (func $rewrite (param i32 i32) (result i32)))
+  (import "msime" "log" (func $log (param i32 i32 i32)))
+  {HEADER}
+  (data (i32.const 32) "{bytes}")
+  (func (export "msime_on_event") (param $kind i32) (result i32)
+    (call $log (call $rewrite (i32.const 32) (i32.const {len})) (i32.const 0) (i32.const 0))
+    (i32.const 0)))"#
+    )
+}
+
+fn rewriting(script: Script) -> Script {
+    script
+        .reading(Capability::ReadCommit, true)
+        .reading(Capability::RewriteCommit, true)
+}
+
+/// `candidates`：写出事件类型，再按 `body` 调用修改类 import；[0..) 是数据段 `data`。
+fn transformer(data: &str, body: &str) -> String {
+    format!(
+        r#"(module
+  (import "msime" "candidate_count" (func $count (result i32)))
+  (import "msime" "candidates_order" (func $order (param i32 i32) (result i32)))
+  (import "msime" "candidates_hide" (func $hide (param i32 i32) (result i32)))
+  (import "msime" "candidates_annotate" (func $annotate (param i32 i32 i32) (result i32)))
+  (import "msime" "log" (func $log (param i32 i32 i32)))
+  (memory (export "memory") 1)
+  (func (export "msime_abi") (result i32) (i32.const 1))
+  (data (i32.const 0) "{data}")
+  (func (export "msime_on_event") (param $kind i32) (result i32)
+    (call $log (local.get $kind) (i32.const 0) (i32.const 0))
+    {body}
+    (i32.const 0)))"#
+    )
+}
+
+fn transforming(script: Script) -> Script {
+    script
+        .reading(Capability::ReadCandidates, true)
+        .reading(Capability::RerankCandidates, true)
+        .reading(Capability::FilterCandidates, true)
+        .reading(Capability::AnnotateCandidates, true)
+}
+
+/// 读候选窗口：每一行写出 `事件类型 × 100 + 行号` 和文本，再写出 `事件类型 × 100 + 50 + 行号` 和引擎注释。
+fn window_reader() -> String {
+    r#"(module
+  (import "msime" "candidate_count" (func $count (result i32)))
+  (import "msime" "candidate_text" (func $text (param i32 i32 i32) (result i32)))
+  (import "msime" "candidate_annotation" (func $annotation (param i32 i32 i32) (result i32)))
+  (import "msime" "log" (func $log (param i32 i32 i32)))
+  (memory (export "memory") 1)
+  (func (export "msime_abi") (result i32) (i32.const 1))
+  (func $write (param $level i32) (param $n i32)
+    (call $log (local.get $level) (i32.const 0)
+      (select (local.get $n) (i32.const 0) (i32.ge_s (local.get $n) (i32.const 0)))))
+  (func (export "msime_on_event") (param $kind i32) (result i32) (local $i i32) (local $rows i32)
+    (local.set $rows (call $count))
+    (block $done
+      (loop $next
+        (br_if $done (i32.ge_s (local.get $i) (local.get $rows)))
+        (call $write (i32.add (i32.mul (local.get $kind) (i32.const 100)) (local.get $i))
+          (call $text (local.get $i) (i32.const 0) (i32.const 256)))
+        (call $write (i32.add (i32.mul (local.get $kind) (i32.const 100)) (i32.add (local.get $i) (i32.const 50)))
+          (call $annotation (local.get $i) (i32.const 0) (i32.const 256)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $next)))
+    (i32.const 0)))"#
+        .to_owned()
+}
+
+/// 打 `nihao`，返回调用之后的视图。
+fn compose_nihao(handle: u64) -> Value {
+    for key in b"nihao" {
+        letter(handle, *key);
+    }
+    read(msime_client_view(handle))["value"].clone()
+}
+
+fn view_texts(view: &Value) -> Vec<String> {
+    view["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|candidate| candidate["text"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// 空格选首选，返回上屏文本。
+fn space(handle: u64) -> String {
+    msime_client_key(handle, 1);
+    let picked = read(msime_client_command(handle, 1));
+    assert_eq!(picked["ok"], true, "{picked}");
+    picked["value"]["commit"].as_str().unwrap().to_owned()
+}
+
+#[test]
+fn before_commit_rewrites_the_body_and_hands_the_tail_back() {
+    let fixture = fixture();
+    install(
+        &fixture,
+        &[
+            rewriting(Script::new(
+                "tilde",
+                appender("~", "(i32.const 0)"),
+                &[Hook::BeforeCommit],
+            )),
+            // 第二个插件读到的 body 是第一个改写过的。
+            rewriting(Script::new(
+                "bang",
+                appender("!", "(i32.const 0)"),
+                &[Hook::BeforeCommit],
+            )),
+            Script::new(
+                "observer",
+                commit_reader(commit_field::COMMIT),
+                &[Hook::Commit],
+            )
+            .reading(Capability::ReadCommit, true),
+        ],
+        1,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    compose_nihao(fixture.handle);
+    take_log();
+    // 逗号结束组字：body 是"你好"，tail 是全角逗号，改写后原样接回。
+    msime_client_key(fixture.handle, 0);
+    let finished = read(msime_client_punctuation(fixture.handle, b','));
+    assert_eq!(finished["value"]["commit"], "你好~!，");
+    assert_eq!(
+        take_log(),
+        [
+            (1, String::new()),
+            (0, String::new()),
+            (1, String::new()),
+            (0, String::new()),
+            (Hook::Commit.code(), "你好~!，".to_owned()),
+        ]
+    );
+    // 空格选词没有 tail。
+    compose_nihao(fixture.handle);
+    assert_eq!(space(fixture.handle), "你好~!");
+}
+
+#[test]
+fn a_failed_or_rejected_rewrite_commits_the_original_text() {
+    let cases: [(&str, String); 5] = [
+        ("trap", appender("~", "unreachable")),
+        ("negative", appender("~", "(i32.const -1)")),
+        (
+            "fuel",
+            appender("~", "(loop $forever (br $forever)) (i32.const 0)"),
+        ),
+        ("newline", replacer(r"\0a", 1)),
+        ("override", replacer(r"\e2\80\ae", 3)),
+    ];
+    for (name, wat) in cases {
+        let fixture = fixture();
+        install(
+            &fixture,
+            &[rewriting(Script::new(
+                "rewriter",
+                wat,
+                &[Hook::BeforeCommit],
+            ))],
+            1,
+        );
+        opt_in(&fixture, TRAIT_KNOWN);
+        compose_nihao(fixture.handle);
+        assert_eq!(space(fixture.handle), "你好", "{name}");
+        if name == "newline" || name == "override" {
+            assert_eq!(kinds(&take_log()), [status::INVALID], "{name}");
+        }
+        take_log();
+    }
+}
+
+#[test]
+fn every_rewrite_is_limited_by_the_original_body() {
+    // 原文"你好"是 2 个码元，上限取 256。第一个插件放大到 256 个，第二个插件读到的 body 虽有 256 个码元，上限仍是 256：它的 600 个字母拿到 LIMIT，上屏停在第一个插件的结果。
+    let first = "a".repeat(256);
+    let second = "b".repeat(600);
+    let fixture = fixture();
+    install(
+        &fixture,
+        &[
+            rewriting(Script::new(
+                "grow",
+                replacer(&first, first.len()),
+                &[Hook::BeforeCommit],
+            )),
+            rewriting(Script::new(
+                "grow-more",
+                replacer(&second, second.len()),
+                &[Hook::BeforeCommit],
+            )),
+        ],
+        1,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    compose_nihao(fixture.handle);
+    take_log();
+    assert_eq!(space(fixture.handle), first);
+    assert_eq!(kinds(&take_log()), [0, status::LIMIT]);
+}
+
+#[test]
+fn observe_only_and_edge_commits_are_delivered_but_never_rewritten() {
+    let fixture = fixture();
+    install(
+        &fixture,
+        &[rewriting(Script::new(
+            "tilde",
+            appender("~", "(i32.const 0)"),
+            &[Hook::BeforeCommit],
+        ))],
+        1,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    // Windows 的做法：TIP 自己已经把文字写进文档的派发，Server 在派发前置 COMMIT_OBSERVE_ONLY、派发后清掉。空格选词和回车原样上屏都只能看。
+    for (command, original) in [(1, "你好"), (2, "nihao")] {
+        compose_nihao(fixture.handle);
+        take_log();
+        msime_client_set_lifecycle(fixture.handle, COMMIT_OBSERVE_ONLY);
+        msime_client_key(fixture.handle, 1);
+        let committed = read(msime_client_command(fixture.handle, command));
+        msime_client_set_lifecycle(fixture.handle, 0);
+        assert_eq!(committed["value"]["commit"], original);
+        assert_eq!(kinds(&take_log()), [0, status::DENIED]);
+    }
+    // 清掉之后同样两条路径都能改写：选中候选和原样上屏的读音。
+    for (command, rewritten) in [(1, "你好~"), (2, "nihao~")] {
+        compose_nihao(fixture.handle);
+        take_log();
+        msime_client_key(fixture.handle, 1);
+        let committed = read(msime_client_command(fixture.handle, command));
+        assert_eq!(committed["value"]["commit"], rewritten);
+        assert_eq!(kinds(&take_log()), [1, 0]);
+    }
+    // 以词定字一律不可改写。
+    let view = compose_nihao(fixture.handle);
+    take_log();
+    let generation = view["generation"].as_u64().unwrap();
+    msime_client_key(fixture.handle, 0);
+    let edge = read(msime_client_select_edge(fixture.handle, generation, 0, 0));
+    assert_eq!(edge["value"]["commit"], "你");
+    assert_eq!(kinds(&take_log()), [0, status::DENIED]);
+}
+
+#[test]
+fn private_fields_are_never_rewritten() {
+    let fixture = fixture();
+    install(
+        &fixture,
+        &[rewriting(Script::new(
+            "tilde",
+            appender("~", "(i32.const 0)"),
+            &[Hook::BeforeCommit],
+        ))],
+        1,
+    );
+    for traits in [
+        TRAIT_KNOWN | TRAIT_SECURE,
+        TRAIT_KNOWN | TRAIT_PRIVATE,
+        TRAIT_KNOWN | TRAIT_ELEVATED,
+        0,
+    ] {
+        read(msime_client_focus(fixture.handle, false));
+        opt_in(&fixture, traits);
+        compose_nihao(fixture.handle);
+        assert_eq!(space(fixture.handle), "你好", "traits {traits:#x}");
+        assert!(take_log().is_empty());
+    }
+}
+
+#[test]
+fn a_reranked_list_commits_the_displayed_row_and_reads_never_see_other_plugins() {
+    let fixture = fixture();
+    install(
+        &fixture,
+        &[
+            // 前两行对调，原来的首行加注释"注"。
+            transforming(Script::new(
+                "swap",
+                transformer(
+                    r"\01\00\00\00\00\00\00\00\e6\b3\a8",
+                    "(drop (call $order (i32.const 0) (i32.const 2)))
+                     (drop (call $annotate (i32.const 0) (i32.const 8) (i32.const 3)))",
+                ),
+                &[Hook::Candidates],
+            )),
+            Script::new(
+                "reader",
+                window_reader(),
+                &[Hook::Candidates, Hook::CandidatesShown],
+            )
+            .reading(Capability::ReadCandidates, true),
+        ],
+        1,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    let view = compose_nihao(fixture.handle);
+    let log = take_log();
+    // 最后一键：reader 在 candidates 里读到的是变换之前的窗口，显示的是对调之后的。
+    let candidates = Hook::Candidates.code() * 100;
+    let last_read = |level: i32| {
+        log.iter()
+            .rev()
+            .find(|(logged, _)| *logged == level)
+            .map(|(_, text)| text.clone())
+            .unwrap()
+    };
+    let original_first = last_read(candidates);
+    let original_second = last_read(candidates + 1);
+    let rows = view_texts(&view);
+    assert_eq!(rows[0], original_second);
+    assert_eq!(rows[1], original_first);
+    // 注释另放一格，跟着原来的首行走；引擎的注释和 reader 读到的注释里都没有它。
+    assert_eq!(view["candidates"][1]["script_annotation"], "注");
+    assert!(view["candidates"][0].get("script_annotation").is_none());
+    assert!(log.iter().all(|(_, text)| text != "注"));
+    // candidates_shown 读到的是显示的顺序（重排和隐藏是用户看到的），注释仍是引擎的。
+    assert_eq!(
+        last_read(Hook::CandidatesShown.code() * 100),
+        original_second
+    );
+    // 空格选的是显示的首行。
+    assert_eq!(space(fixture.handle), original_second);
+}
+
+#[test]
+fn a_hidden_row_cannot_be_committed_and_row_zero_cannot_be_hidden() {
+    let fixture = fixture();
+    install(
+        &fixture,
+        &[transforming(Script::new(
+            "filter",
+            // 隐藏第 0、1 行：引擎下标 0 的那一行留下。
+            transformer(
+                r"\00\00\00\00\01\00\00\00",
+                "(drop (call $hide (i32.const 0) (i32.const 2)))",
+            ),
+            &[Hook::Candidates],
+        ))],
+        1,
+    );
+    // 密码框里脚本不运行，先拿到原来的列表。
+    opt_in(&fixture, TRAIT_KNOWN | TRAIT_SECURE);
+    let original = view_texts(&compose_nihao(fixture.handle));
+    read(msime_client_command(fixture.handle, 3));
+    assert!(original.len() >= 2, "{original:?}");
+    msime_client_set_field_traits(fixture.handle, TRAIT_KNOWN);
+    let rows = view_texts(&compose_nihao(fixture.handle));
+    read(msime_client_command(fixture.handle, 3));
+    let mut expected = original.clone();
+    expected.remove(1);
+    assert_eq!(rows, expected);
+    // 每个可见行都能用数字选中，选中的就是显示的那一行；可见行之后的数字什么都不上屏。
+    for (slot, text) in rows.iter().enumerate() {
+        assert_eq!(view_texts(&compose_nihao(fixture.handle)), rows);
+        msime_client_key(fixture.handle, 0);
+        let picked = read(msime_client_character(
+            fixture.handle,
+            b'1' + slot as u8,
+            false,
+        ));
+        assert_eq!(picked["value"]["commit"], text.as_str());
+    }
+    compose_nihao(fixture.handle);
+    msime_client_key(fixture.handle, 0);
+    let beyond = read(msime_client_character(
+        fixture.handle,
+        b'1' + rows.len() as u8,
+        false,
+    ));
+    assert!(beyond["value"]["commit"].is_null(), "{beyond}");
+    read(msime_client_command(fixture.handle, 3));
+}
+
+#[test]
+fn side_channel_calls_replay_the_plugins_without_running_them() {
+    let fixture = fixture_with(Preferences {
+        cloud_candidates: true,
+        ..chinese_preferences()
+    });
+    install(
+        &fixture,
+        &[transforming(Script::new(
+            "swap",
+            transformer(
+                r"\01\00\00\00\00\00\00\00",
+                "(drop (call $order (i32.const 0) (i32.const 2)))",
+            ),
+            &[Hook::Candidates],
+        ))],
+        1,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    let typed = view_texts(&compose_nihao(fixture.handle));
+    assert!(!take_log().is_empty());
+    let query = read(msime_client_online_query(fixture.handle))["value"].to_string();
+    let candidates = serde_json::to_vec(&json!(["云候选"])).unwrap();
+    let applied = read(unsafe {
+        msime_client_apply_online_candidates(
+            fixture.handle,
+            query.as_ptr(),
+            query.len(),
+            candidates.as_ptr(),
+            candidates.len(),
+            0,
+        )
+    });
+    assert_eq!(applied["value"]["applied"], true, "{applied}");
+    // 云候选坐进它的座位，插件的对调按身份重放，插件本身没有运行。
+    let rows = view_texts(&applied["value"]["view"]);
+    assert_eq!(rows[0], typed[0]);
+    assert!(rows.contains(&"云候选".to_owned()));
+    read(msime_client_rerank_settled(fixture.handle));
+    read(msime_client_view(fixture.handle));
+    assert!(take_log().is_empty());
+}
+
+#[test]
+fn the_candidates_hook_runs_only_in_whitelisted_local_modes() {
+    let fixture = fixture();
+    install(
+        &fixture,
+        &[transforming(Script::new(
+            "swap",
+            transformer(
+                r"\01\00\00\00\00\00\00\00",
+                "(drop (call $order (i32.const 0) (i32.const 2)))",
+            ),
+            &[Hook::Candidates],
+        ))],
+        1,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    letter(fixture.handle, b'n');
+    take_log();
+    let window = [
+        TransformRow {
+            text: "你",
+            code: "ni",
+            annotation: "",
+            source: 0,
+        },
+        TransformRow {
+            text: "泥",
+            code: "ni",
+            annotation: "",
+            source: 0,
+        },
+    ];
+    let run = |local_mode: &str| {
+        SESSIONS.with(|sessions| {
+            let mut sessions = sessions.borrow_mut();
+            let session = sessions.get_mut(&fixture.handle).unwrap();
+            let state = session.lifecycle.as_deref_mut().unwrap();
+            let mut out = Vec::new();
+            state
+                .scripts_mut()
+                .candidates(&window, local_mode, &mut out);
+            out
+        })
+    };
+    // 提及、网址、命令等模式不在白名单里：一个插件都不运行。
+    for mode in ["mention", "url", "command", "expression", "unknown"] {
+        assert!(run(mode).is_empty(), "{mode}");
+        assert!(take_log().is_empty(), "{mode}");
+    }
+    for mode in ["none", "temporary_english", "emoji"] {
+        assert_eq!(
+            run(mode),
+            [CandidateOps {
+                order: vec![1, 0],
+                ..CandidateOps::default()
+            }],
+            "{mode}"
+        );
+        assert_eq!(kinds(&take_log()), [Hook::Candidates.code()], "{mode}");
+    }
+}
+
+#[test]
+fn pieces_the_host_holds_are_never_rewritten() {
+    let fixture = fixture();
+    install(
+        &fixture,
+        &[rewriting(Script::new(
+            "tilde",
+            appender("~", "(i32.const 0)"),
+            &[Hook::BeforeCommit],
+        ))],
+        1,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    // 选"你"只用掉 ni，读音还剩 hao：部分选词。
+    let pick_ni = |handle: u64| {
+        let view = compose_nihao(handle);
+        let index = view_texts(&view)
+            .iter()
+            .position(|text| text == "你")
+            .unwrap();
+        let generation = view["generation"].as_u64().unwrap();
+        take_log();
+        msime_client_key(handle, 0);
+        let picked = read(msime_client_select(handle, generation, index));
+        assert_eq!(picked["ok"], true, "{picked}");
+        picked["value"]["commit"].as_str().unwrap().to_owned()
+    };
+    // 宿主不暂存时，部分选词的那一段照样可改写。
+    assert_eq!(pick_ni(fixture.handle), "你~");
+    assert_eq!(kinds(&take_log()), [1, 0]);
+    read(msime_client_command(fixture.handle, 3));
+    // Windows 的做法：宿主自己暂存部分选词，补齐整个词时才把各段拼好写进文档。部分选词的那一段和补齐它的那一段都只能看。
+    assert_eq!(
+        msime_client_set_lifecycle(fixture.handle, HOST_HOLDS_PIECES),
+        HOST_HOLDS_PIECES
+    );
+    assert_eq!(pick_ni(fixture.handle), "你");
+    assert_eq!(kinds(&take_log()), [0, status::DENIED]);
+    assert_eq!(space(fixture.handle), "好");
+    assert_eq!(kinds(&take_log()), [0, status::DENIED]);
+    // 组字结束之后，下一个整词照样可改写。
+    compose_nihao(fixture.handle);
+    take_log();
+    assert_eq!(space(fixture.handle), "你好~");
+    assert_eq!(kinds(&take_log()), [1, 0]);
+}
+
+#[test]
+fn observe_only_dispatches_neither_run_nor_replay_the_transform() {
+    let fixture = fixture_with(Preferences {
+        cloud_candidates: true,
+        ..chinese_preferences()
+    });
+    install(
+        &fixture,
+        &[transforming(Script::new(
+            "swap",
+            transformer(
+                r"\01\00\00\00\00\00\00\00",
+                "(drop (call $order (i32.const 0) (i32.const 2)))",
+            ),
+            &[Hook::Candidates],
+        ))],
+        1,
+    );
+    opt_in(&fixture, TRAIT_KNOWN);
+    // Windows 上 TIP 自己选词的列表：Server 每次派发前设上 COMMIT_OBSERVE_ONLY、派发后清掉。插件一次都不运行，列表是引擎的顺序，数字 1 选的就是它的首行。
+    for key in b"nihao" {
+        msime_client_set_lifecycle(fixture.handle, COMMIT_OBSERVE_ONLY);
+        letter(fixture.handle, *key);
+        msime_client_set_lifecycle(fixture.handle, 0);
+    }
+    let plain = view_texts(&read(msime_client_view(fixture.handle))["value"]);
+    assert!(plain.len() >= 2, "{plain:?}");
+    assert!(take_log().is_empty());
+    msime_client_set_lifecycle(fixture.handle, COMMIT_OBSERVE_ONLY);
+    msime_client_key(fixture.handle, 0);
+    let picked = read(msime_client_character(fixture.handle, b'1', false));
+    msime_client_set_lifecycle(fixture.handle, 0);
+    assert_eq!(picked["value"]["commit"], plain[0].as_str());
+    assert!(take_log().is_empty());
+
+    // 没设这个位的派发照常对调。
+    let swapped = view_texts(&compose_nihao(fixture.handle));
+    assert_eq!(swapped[..2], [plain[1].clone(), plain[0].clone()]);
+    assert!(!take_log().is_empty());
+    // 设着这个位时旁路调用也不重放：云候选到达后首行回到引擎的首行。
+    msime_client_set_lifecycle(fixture.handle, COMMIT_OBSERVE_ONLY);
+    let query = read(msime_client_online_query(fixture.handle))["value"].to_string();
+    let candidates = serde_json::to_vec(&json!(["云候选"])).unwrap();
+    let applied = read(unsafe {
+        msime_client_apply_online_candidates(
+            fixture.handle,
+            query.as_ptr(),
+            query.len(),
+            candidates.as_ptr(),
+            candidates.len(),
+            0,
+        )
+    });
+    msime_client_set_lifecycle(fixture.handle, 0);
+    assert_eq!(applied["value"]["applied"], true, "{applied}");
+    assert_eq!(view_texts(&applied["value"]["view"])[0], plain[0]);
     assert!(take_log().is_empty());
 }
 

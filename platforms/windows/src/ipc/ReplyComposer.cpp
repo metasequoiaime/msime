@@ -459,6 +459,24 @@ std::optional<PendingReply> ReplyComposer::toggle_character_set(
   return stage(result, ReplyPath::NoReply,
                (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0);
 }
+std::optional<PendingReply> ReplyComposer::toggle_japanese(
+    ServerSession &session, const FanyImeNamedpipeData &packet,
+    uint64_t epoch, bool enabled, const std::function<bool()> &persist) {
+  if (pending_ || packet.client_id != client_ || epoch != epoch_ ||
+      packet.event_type != FanyImePipeEventType::KeyEvent ||
+      !packet.request_id || packet.request_id == FANY_IME_NO_REQUEST_ID)
+    throw std::logic_error("Invalid Windows Japanese toggle route");
+  armed_gloss_column_ = 0;
+  const auto view = session.view();
+  if (enabled && session.input_enabled() &&
+      !view.value("dedicated_english", false) && persist)
+    (void)persist();
+  traditional_output_ = traditional_projection(session);
+  KeyResult result{client_, epoch_, packet.request_id, false,
+                   nlohmann::json{{"commit", nullptr}, {"view", view}}};
+  return stage(result, ReplyPath::NoReply,
+               (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0);
+}
 std::optional<PendingReply>
 ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                     uint64_t epoch, TsfPreeditStyle style) {

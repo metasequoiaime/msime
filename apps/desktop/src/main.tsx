@@ -250,6 +250,10 @@ const client: SettingsClient = {
   scanSkinCatalog: () => invoke("scan_skin_catalog"),
   listHelpcodeSchemas: () => invoke<CustomHelpcodeSchema[]>("list_helpcode_schemas"),
   resolveTheme: (request) => invoke("resolve_theme", { request }),
+  // 两个都是无副作用的计算（host-api 不留存的校验和内置方案的表），桌面宿主都注册了，输入页据此提供自定义双拼的编辑、导入和导出。
+  validateShuangpinCustomProfile: (profile) =>
+    invoke("validate_shuangpin_custom_profile", { profile }),
+  builtinShuangpinTable: (name) => invoke("builtin_shuangpin_table", { name }),
   readSkinToolbarCss: (id, relative) =>
     relative
       ? invoke("read_skin_stylesheet", { id, relative })
@@ -783,6 +787,8 @@ function DesktopSettings() {
               : {}),
             ...(host.platform === "linux"
               ? {
+                  // 云剪贴板可以改走自建中继：Linux 的设置页和云剪贴板面板都在这个 Tauri 进程里，按偏好选路（`cloud_clipboard_request`）。macOS 的输入法菜单在没登录时仍退回原生窗口、Windows 的设置窗口是原生 WinUI，这两处接上之前不显示这一组。
+                  cloudClipboardRelay: true,
                   customTouchKeyboardSkins: true,
                   customSkinLibrary: {
                     load: () => invoke("load_custom_skin_library"),

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { GroupList } from "../core/platform-controls";
 import { StatusMessage } from "../core/status-message";
 import { ActionButton } from "./action-button";
@@ -43,17 +43,28 @@ export function WubiCodeLookupSection({ lookup, profile = "wubi86" }: WubiCodeLo
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WubiCodeLookup | null>(null);
   const [error, setError] = useState("");
-  // 查码进行中按钮不可点，所以同一时刻只有一个请求，回答总是最后一次查的。
+  const generation = useRef(0);
+  const edit = (value: string) => {
+    generation.current++;
+    setText(value);
+    setBusy(false);
+    setResult(null);
+    setError("");
+  };
   const search = async () => {
+    const requestGeneration = ++generation.current;
     setBusy(true);
     setError("");
     try {
-      setResult(await lookup(text));
+      const answer = await lookup(text);
+      if (generation.current === requestGeneration) setResult(answer);
     } catch {
-      setResult(null);
-      setError("查码失败，请稍后重试。");
+      if (generation.current === requestGeneration) {
+        setResult(null);
+        setError("查码失败，请稍后重试。");
+      }
     } finally {
-      setBusy(false);
+      if (generation.current === requestGeneration) setBusy(false);
     }
   };
 
@@ -78,7 +89,7 @@ export function WubiCodeLookupSection({ lookup, profile = "wubi86" }: WubiCodeLo
           maxLength={WUBI_CODE_LOOKUP_MAX_LENGTH}
           className={`${settings.fieldInput} min-h-16 w-full resize-y leading-relaxed`}
           value={text}
-          onChange={setText}
+          onChange={edit}
         />
         <SettingsManagerActions>
           <ActionButton action={search} disabled={busy || !text.trim()} label="查码" />

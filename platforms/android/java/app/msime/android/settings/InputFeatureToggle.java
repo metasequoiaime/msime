@@ -33,6 +33,8 @@ public enum InputFeatureToggle {
         "输入前引号、前括号时补上后半个"),
     TRADITIONAL_OUTPUT(Group.OUTPUT, "traditional_chinese_output", false, "繁体输出",
         "上屏前把简体转成繁体，不改变词库"),
+    CHINESE_ENGLISH_SPACING(Group.OUTPUT, "chinese_english_spacing", false, "中英文之间加空格",
+        "一次上屏的文字里，汉字与英文字母、数字相邻处自动加一个空格，如「用Rust写」上屏为「用 Rust 写」。两次上屏之间不加；网址、日期等快捷模式和全角输入不受影响，译文和释义上屏、常用语、剪贴板和语音结果也不加"),
 
     CLIPBOARD_HISTORY(Group.PRIVACY, "clipboard_history", false, "剪贴板历史",
         "在键盘里保留最近复制的内容，仅存本机；关闭会立即清空"),

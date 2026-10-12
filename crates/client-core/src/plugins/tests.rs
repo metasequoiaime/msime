@@ -694,7 +694,28 @@ fn enabled_command_tables_merge_in_priority_order() {
     let first = vec!["first".to_owned()];
     assert_eq!(
         command_table::enabled_commands(root.path(), &first).capacity(),
-        command_table::MAX_COMMANDS
+        2
+    );
+    let merged = command_table::enabled_commands(
+        root.path(),
+        &[
+            "first".into(),
+            "missing".into(),
+            "broken".into(),
+            "second".into(),
+        ],
+    );
+    assert_eq!(merged.len(), 3);
+    assert_eq!(merged.capacity(), 4);
+    assert_eq!(merged[0].template, "one");
+    assert_eq!(merged[2].trigger, "tel");
+    let repeated = command_table::enabled_commands(root.path(), &vec!["first".into(); 10]);
+    assert_eq!(repeated.len(), 2);
+    assert_eq!(repeated.capacity(), 4);
+    assert_eq!(
+        command_table::enabled_commands(root.path(), &["missing".into(), "broken".into()])
+            .capacity(),
+        0
     );
     assert!(enabled(&[]).is_empty());
     assert!(enabled(&["../first"]).is_empty());
@@ -718,10 +739,29 @@ fn enabled_command_tables_merge_in_priority_order() {
     };
     installed_commands(root.path(), "many", &many(0));
     installed_commands(root.path(), "more", &many(1000));
+    installed_commands(root.path(), "overlap", &many(100));
     assert_eq!(
         enabled(&["many", "more"]).len(),
         command_table::MAX_COMMANDS
     );
+    let saturated = command_table::enabled_commands(
+        root.path(),
+        &["many".into(), "many".into(), "more".into(), "first".into()],
+    );
+    assert_eq!(saturated.len(), command_table::MAX_COMMANDS);
+    assert_eq!(saturated.capacity(), command_table::MAX_COMMANDS);
+    let expected = enabled(&["many", "more"]);
+    assert_eq!(
+        saturated
+            .into_iter()
+            .map(|row| (row.trigger, row.template))
+            .collect::<Vec<_>>(),
+        expected
+    );
+    let overlap = command_table::enabled_commands(root.path(), &["many".into(), "overlap".into()]);
+    assert_eq!(overlap.len(), command_table::MAX_COMMANDS);
+    assert_eq!(overlap.capacity(), command_table::MAX_COMMANDS);
+    assert_eq!(overlap.last().unwrap().trigger, "ajv");
 }
 
 #[cfg(unix)]
@@ -2169,7 +2209,28 @@ fn phrase_tables_hold_bounded_rows_and_merge_in_priority_order() {
     let enabled = vec!["office".to_owned()];
     assert_eq!(
         phrase_table::enabled_phrases(root.path(), &enabled).capacity(),
-        phrase_table::MAX_ENABLED_PHRASES
+        2
+    );
+    let merged = phrase_table::enabled_phrases(
+        root.path(),
+        &[
+            "office".into(),
+            "missing".into(),
+            "over".into(),
+            "home".into(),
+        ],
+    );
+    assert_eq!(merged.len(), 4);
+    assert_eq!(merged.capacity(), 4);
+    assert_eq!(merged[0].text, "电话");
+    assert_eq!(merged[3].text, "地址");
+    let saturated = phrase_table::enabled_phrases(root.path(), &vec!["full".into(); 5]);
+    assert_eq!(saturated.len(), phrase_table::MAX_ENABLED_PHRASES);
+    assert_eq!(saturated.capacity(), phrase_table::MAX_ENABLED_PHRASES);
+    assert_eq!(saturated.last().unwrap().text, "191");
+    assert_eq!(
+        phrase_table::enabled_phrases(root.path(), &["missing".into(), "over".into()]).capacity(),
+        0
     );
     assert_eq!(
         phrase_table::enabled_phrases(root.path(), &[]).capacity(),
@@ -2489,4 +2550,161 @@ fn symbol_sets_list_their_groups_by_pack_name_in_manifest_order() {
     let json = serde_json::to_value(&summary).unwrap();
     assert_eq!(json["kind"], "symbol_set");
     assert_eq!(json["groups"][1]["tab"], "kaomoji");
+}
+
+/// 导入单个码表时的包 id：`custom-` 加小写的文件名主干，组不成合法 id 时用主干哈希。
+fn hashed_helpcode_id(stem: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!(
+        "custom-{}",
+        &hex::encode(Sha256::digest(stem.to_lowercase().as_bytes()))[..12]
+    )
+}
+
+/// `root` 下残留的暂存目录。
+fn staging_leftovers(root: &Path) -> Vec<String> {
+    fs::read_dir(root)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with(".staging-"))
+        .collect()
+}
+
+#[test]
+fn an_imported_helpcode_table_gets_a_readable_or_hashed_id() {
+    let root = tempdir().unwrap();
+    let table = "你=ab\n".as_bytes();
+    let ascii = helpcode_pack::import_table(root.path(), "Mine.TXT", table).unwrap();
+    assert_eq!(ascii.id, "custom-mine");
+    assert_eq!(ascii.name, "Mine");
+    assert_eq!(ascii.version, "1");
+    assert_eq!(ascii.license, "NOASSERTION");
+    assert_eq!(ascii.description.as_deref(), Some("从 Mine.TXT 导入"));
+
+    let chinese = helpcode_pack::import_table(root.path(), "我的码.txt", table).unwrap();
+    assert_eq!(chinese.id, hashed_helpcode_id("我的码"));
+    assert_eq!(chinese.name, "我的码");
+
+    // `custom-` 占 7 字节，id 最长 64 字节：57 字节的主干还可读，58 字节就退到哈希。
+    let longest = "a".repeat(57);
+    let fits = helpcode_pack::import_table(root.path(), &format!("{longest}.txt"), table).unwrap();
+    assert_eq!(fits.id, format!("custom-{longest}"));
+    let longer = "a".repeat(58);
+    let hashed = helpcode_pack::import_table(root.path(), &format!("{longer}.txt"), table).unwrap();
+    assert_eq!(hashed.id, hashed_helpcode_id(&longer));
+    let spaced = helpcode_pack::import_table(root.path(), "my table.txt", table).unwrap();
+    assert_eq!(spaced.id, hashed_helpcode_id("my table"));
+}
+
+#[test]
+fn an_imported_helpcode_table_is_named_by_its_header_within_the_manifest_bounds() {
+    let root = tempdir().unwrap();
+    let named = helpcode_pack::import_table(
+        root.path(),
+        "radicals.txt",
+        "\u{FEFF}# name： 我的部首码\r\n你=ab\r\n".as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(named.name, "我的部首码");
+
+    // 30 个汉字是 90 字节，清单的 name 最多 80 字节：在字符边界上截成 26 个字。
+    let long_name = "码".repeat(30);
+    let long = helpcode_pack::import_table(
+        root.path(),
+        "long.txt",
+        format!("# name: {long_name}\n你=ab\n").as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(long.name, "码".repeat(26));
+
+    // 引号和反斜杠经 toml 序列化，清单仍然合法，名字原样保留。
+    let quoted =
+        helpcode_pack::import_table(root.path(), "say \"hi\" \\ 'x'.txt", b"\xE4\xBD\xA0=a\n")
+            .unwrap();
+    assert_eq!(quoted.name, "say \"hi\" \\ 'x'");
+    assert_eq!(
+        load_package(root.path(), None, PluginKind::Helpcode, &quoted.id)
+            .unwrap()
+            .name,
+        quoted.name
+    );
+
+    // `# name:` 只有空白、文件名主干只有控制字符时，用固定的名字。
+    let blank = helpcode_pack::import_table(
+        root.path(),
+        "\u{1}.txt",
+        "# name: \u{3000}\n你=ab\n".as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(blank.name, "自定义辅助码");
+    assert_eq!(blank.id, hashed_helpcode_id("\u{1}"));
+    assert_eq!(blank.description.as_deref(), Some("从 .txt 导入"));
+}
+
+#[test]
+fn an_imported_helpcode_table_is_held_to_the_strict_rules_with_line_numbers() {
+    let root = tempdir().unwrap();
+    let refused = |table: &str| match helpcode_pack::import_table(
+        root.path(),
+        "mine.txt",
+        table.as_bytes(),
+    ) {
+        Err(PluginError::Invalid(reason)) => reason,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        refused("你=ab\n好=cd\n你=ef\n"),
+        "mine.txt 里「你」出现了不止一次（第 1 行和第 3 行）"
+    );
+    assert_eq!(
+        refused("你=ab\n好=abc\n"),
+        "mine.txt 第 2 行的码必须是 1 到 2 个小写字母"
+    );
+    assert_eq!(refused("# 只有注释\n"), "mine.txt 里没有任何辅助码");
+    assert_eq!(refused(""), "mine.txt 里没有任何辅助码");
+    match helpcode_pack::import_table(root.path(), "gbk.txt", b"\xC4\xE3=ab\n") {
+        Err(PluginError::Invalid(reason)) => assert_eq!(reason, "gbk.txt 不是 UTF-8 编码"),
+        other => panic!("{other:?}"),
+    }
+    let mut oversized = helpcode_lines(1);
+    oversized.resize(helpcode_pack::MAX_TABLE_BYTES as usize + 1, b'\n');
+    match helpcode_pack::import_table(root.path(), "big.txt", &oversized) {
+        Err(PluginError::Invalid(reason)) => assert_eq!(reason, "big.txt 超过 1 MiB"),
+        other => panic!("{other:?}"),
+    }
+    // 被拒的码表什么都不装，也不留暂存目录。
+    assert!(scan(root.path(), None).packages.is_empty());
+    assert!(!root.path().exists() || staging_leftovers(root.path()).is_empty());
+}
+
+#[test]
+fn importing_a_helpcode_table_again_replaces_the_pack_and_leaves_no_staging() {
+    let root = tempdir().unwrap();
+    let first = helpcode_pack::import_table(root.path(), "mine.txt", "你=ab\n".as_bytes()).unwrap();
+    assert_eq!(
+        first.directory,
+        kind_directory(root.path(), PluginKind::Helpcode).join("custom-mine")
+    );
+    let codes = helpcode_pack::load_codes(root.path(), "custom-mine").unwrap();
+    assert_eq!(codes["你"], "ab");
+
+    let second =
+        helpcode_pack::import_table(root.path(), "mine.txt", "你=cd\n好=ef\n".as_bytes()).unwrap();
+    assert_eq!(second.id, "custom-mine");
+    let codes = helpcode_pack::load_codes(root.path(), "custom-mine").unwrap();
+    assert_eq!(codes.len(), 2);
+    assert_eq!(codes["你"], "cd");
+
+    let catalog = scan(root.path(), None);
+    assert_eq!(catalog.issues, []);
+    assert_eq!(catalog.packages.len(), 1);
+    let json = serde_json::to_value(&catalog.packages[0]).unwrap();
+    assert_eq!(json["kind"], "helpcode");
+    assert_eq!(json["id"], "custom-mine");
+    assert_eq!(json["entries"], 2);
+    assert_eq!(staging_leftovers(root.path()), Vec::<String>::new());
+    assert_eq!(
+        staging_leftovers(&kind_directory(root.path(), PluginKind::Helpcode)),
+        Vec::<String>::new()
+    );
 }
