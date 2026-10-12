@@ -23,6 +23,7 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+#[cfg(test)]
 use std::fs;
 use std::io::{Cursor, Write};
 use std::path::Path;
@@ -66,20 +67,7 @@ const MISMATCH: &str = "plugin_community_mismatch";
 const STORAGE: &str = "storage";
 
 fn write_private_archive(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    }
-    let mut file = options.open(path)?;
+    let mut file = crate::file_lock::create_private_file(path)?;
     file.write_all(bytes)?;
     file.sync_all()
 }
