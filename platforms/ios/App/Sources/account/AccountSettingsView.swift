@@ -541,9 +541,7 @@ private struct MeGroup<Content: View>: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 7) {
       if let title {
-        Text(title).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle)
-          .padding(.horizontal, 4)
-          .accessibilityAddTraits(.isHeader)
+        SettingsGroupHeader(title: title).padding(.horizontal, 4)
       }
       DesignCard(radius: MetasequoiaTheme.tabCardRadius) { content }
     }

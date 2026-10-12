@@ -295,5 +295,6 @@ struct SettingsGroupHeader: View {
   let title: String
   var body: some View {
     Text(title).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle).textCase(nil)
+      .accessibilityAddTraits(.isHeader)
   }
 }

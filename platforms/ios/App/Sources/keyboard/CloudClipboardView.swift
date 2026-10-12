@@ -171,9 +171,7 @@ struct CloudClipboardView: View {
   /// 等待本机批准的其他设备。
   private var approvals: some View {
     VStack(alignment: .leading, spacing: 7) {
-      Text("等待批准的设备").font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle)
-        .accessibilityAddTraits(.isHeader)
-        .padding(.horizontal, 16)
+      SettingsGroupHeader(title: "等待批准的设备").padding(.horizontal, 16)
       DesignCard(radius: MetasequoiaTheme.tabCardRadius) {
         ForEach(Array(awaitingApproval.enumerated()), id: \.element.id) { index, device in
           if index > 0 { DesignDivider() }
@@ -204,9 +202,7 @@ struct CloudClipboardView: View {
   @ViewBuilder private var deviceList: some View {
     if let list = devices?.devices, !list.isEmpty {
       VStack(alignment: .leading, spacing: 7) {
-        Text("设备").font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle)
-          .accessibilityAddTraits(.isHeader)
-          .padding(.horizontal, 16)
+        SettingsGroupHeader(title: "设备").padding(.horizontal, 16)
         DesignCard(radius: MetasequoiaTheme.tabCardRadius) {
           ForEach(Array(list.enumerated()), id: \.element.id) { index, device in
             if index > 0 { DesignDivider() }
@@ -316,8 +312,7 @@ struct CloudClipboardView: View {
   private var recent: some View {
     VStack(alignment: .leading, spacing: 7) {
       HStack {
-        Text("最近").font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle)
-          .accessibilityAddTraits(.isHeader)
+        SettingsGroupHeader(title: "最近")
         Spacer()
         if !items.isEmpty {
           Button("清空") { confirmsClear = true }

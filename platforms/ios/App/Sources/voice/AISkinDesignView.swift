@@ -263,9 +263,7 @@ struct AISkinDesignView: View {
 
   private var describeGroup: some View {
     VStack(alignment: .leading, spacing: 7) {
-      Text("描述").font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle)
-        .padding(.horizontal, 20)
-        .accessibilityAddTraits(.isHeader)
+      SettingsGroupHeader(title: "描述").padding(.horizontal, 20)
       VStack(alignment: .leading, spacing: 0) {
         ZStack(alignment: .topLeading) {
           if model.prompt.isEmpty {

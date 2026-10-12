@@ -37,9 +37,7 @@ struct SkinSettingsView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 28) {
         VStack(alignment: .leading, spacing: 7) {
-          Text("皮肤").font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle)
-            .padding(.horizontal, 20)
-            .accessibilityAddTraits(.isHeader)
+          SettingsGroupHeader(title: "皮肤").padding(.horizontal, 20)
           LazyVGrid(columns: Self.columns, spacing: 18) {
             // 只列键盘当前明暗下的主题：浅色键盘不提供深色主题，反之亦然。
             ForEach(themeCards.filter { GlobalThemeCatalog.fits($0.id, dark: keyboardDark) }, id: \.id) { themeTile($0) }
@@ -53,9 +51,7 @@ struct SkinSettingsView: View {
           }
         }
         VStack(alignment: .leading, spacing: 7) {
-          Text("社区皮肤").font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle)
-            .padding(.horizontal, 20)
-            .accessibilityAddTraits(.isHeader)
+          SettingsGroupHeader(title: "社区皮肤").padding(.horizontal, 20)
           communitySkinGrid
           DesignCard {
             NavigationLink(destination: SkinCommunityView()) {
