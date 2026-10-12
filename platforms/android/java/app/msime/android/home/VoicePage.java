@@ -219,7 +219,7 @@ public final class VoicePage extends ReloadingDetailPage {
 
         String box = InputViewValuePolicy.textOr(voice, "asr_token", "").trim();
         JSONObject slots = voice.optJSONObject("asr_tokens");
-        boolean hasToken = !box.isEmpty() || (slots != null && !slots.optString(provider, "").trim().isEmpty());
+        boolean hasToken = hasToken(box, slots, provider);
         String endpoint = InputViewValuePolicy.textOr(voice, "asr_endpoint", "").trim();
         if (DoubaoAsrPolicy.isStreaming(provider)) {
             boolean legacy = VoiceProviderPolicy.legacyAuth(InputViewValuePolicy.textOr(voice, "doubao_auth_mode", ""));
@@ -548,6 +548,10 @@ public final class VoicePage extends ReloadingDetailPage {
     }
 
 
+    private static boolean hasToken(String direct, @Nullable JSONObject slots, String provider) {
+        return !direct.isEmpty() || (slots != null && !slots.optString(provider, "").trim().isEmpty());
+    }
+
     /** 「润色」组：开关，打开后是服务、密钥、模型、接口、方案和「测试」。键盘读的同样是这些 `polish_*` 字段。 */
     private void polishGroup(LinearLayout target, JSONObject voice, State state) {
         GroupCard polish = GroupCard.add(target, "润色");
@@ -556,7 +560,7 @@ public final class VoicePage extends ReloadingDetailPage {
         String provider = InputViewValuePolicy.textOr(voice, "polish_provider", "");
         String box = InputViewValuePolicy.textOr(voice, "polish_token", "").trim();
         JSONObject slots = voice.optJSONObject("polish_tokens");
-        boolean hasToken = !box.isEmpty() || (slots != null && !slots.optString(provider, "").trim().isEmpty());
+        boolean hasToken = hasToken(box, slots, provider);
         String status = VoicePolishSettingsPolicy.status(enabled, state.polishConfigured(), hasToken);
         // 两个开关在共享设置页一起写，任一个开着键盘就会润色，所以关的时候两个都关。
         polish.toggle("润色识别结果", status != null ? status : "识别后交给大模型整理文字再上屏", enabled, checked -> savePreferences(
