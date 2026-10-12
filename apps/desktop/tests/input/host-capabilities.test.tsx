@@ -42,6 +42,7 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     candidate_selection_appearance: true,
     candidate_follow_cursor: true,
     input_mode_hud: false,
+    input_mode_status_item: false,
     candidate_english_font: false,
     english_suggestions: false,
     shuangpin_preedit: false,
@@ -729,6 +730,19 @@ test("the mode badge switch follows the capability rather than the macOS platfor
   mount({ host: capabilities({ platform: "macos", input_mode_hud: false }) });
   await settingsFormReady();
   expect(screen.queryByLabelText("中英文切换提示")).toBeNull();
+});
+
+test("the menu bar status item switch appears only where the host declares it", async () => {
+  // 只有 macOS 宿主在菜单栏放状态项；Windows 有托盘语言栏、Linux 有输入法面板，不提供这个开关。
+  mount({ host: capabilities({ platform: "macos", input_mode_status_item: true }) });
+  await settingsFormReady();
+  expect(screen.getByLabelText("菜单栏显示中/英状态")).toBeTruthy();
+  for (const platform of ["windows", "linux"] as const) {
+    cleanup();
+    mount({ host: capabilities({ platform, input_mode_status_item: false }) });
+    await settingsFormReady();
+    expect(screen.queryByLabelText("菜单栏显示中/英状态")).toBeNull();
+  }
 });
 
 test("a host whose skin folder is unreachable is offered an import, not a folder", async () => {

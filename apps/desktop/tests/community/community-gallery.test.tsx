@@ -2,6 +2,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
+  createCommunityGalleryClient,
   useCommunityGallery,
   type CommunityGalleryClient,
 } from "../../../../packages/ui/src/community/community-gallery";
@@ -27,6 +28,30 @@ function client(
     ...overrides,
   };
 }
+
+test("adapts result-valued actions and omits unavailable reporting", async () => {
+  const source = {
+    detail: vi.fn().mockResolvedValue(item("one")),
+    rate: vi.fn().mockResolvedValue({ stars: 5 }),
+    delete: vi.fn().mockResolvedValue({ deleted: true }),
+  };
+  const list = vi.fn().mockResolvedValue({ items: [item("one")], has_more: false });
+  const gallery = createCommunityGalleryClient<Item>(source, list, (id) => source.delete(id));
+
+  expect(gallery.report).toBeUndefined();
+  expect(await gallery.list(0, "", false)).toEqual({ items: [item("one")], has_more: false });
+  expect(await gallery.rate("one", 5)).toBeUndefined();
+  expect(await gallery.unpublish("one")).toBeUndefined();
+  expect(source.rate).toHaveBeenCalledWith("one", 5);
+  expect(source.delete).toHaveBeenCalledWith("one");
+
+  const report = vi.fn().mockResolvedValue(undefined);
+  const reportable = createCommunityGalleryClient<Item>({ ...source, report }, list, (id) =>
+    source.delete(id),
+  );
+  await reportable.report?.("one", "垃圾广告", "合成说明");
+  expect(report).toHaveBeenCalledWith("one", "垃圾广告", "合成说明");
+});
 
 const galleryErrorMessage = () => "请先登录";
 const galleryNeedsSignIn = (value: unknown) => value === galleryFailure;
@@ -95,6 +120,22 @@ test("replaces the selected detail and matching list item together", async () =>
 
   expect(result.current.selected?.name).toBe("更新后的作品");
   expect(result.current.items[0]?.name).toBe("更新后的作品");
+});
+
+test("owner updates refresh the selected detail and its card with one notice", async () => {
+  const first = item("one");
+  const gallery = client({ list: vi.fn().mockResolvedValue({ items: [first], has_more: false }) });
+  const update = vi.fn().mockResolvedValue({ ...first, name: "新分类" });
+  const { result } = renderHook(() => useCommunityGallery({ client: gallery }));
+
+  await waitFor(() => expect(result.current.items).toHaveLength(1));
+  act(() => result.current.setSelected(first));
+  await act(async () => result.current.updateSelected(update, "已更新分类。"));
+
+  expect(update).toHaveBeenCalledWith("one");
+  expect(result.current.selected?.name).toBe("新分类");
+  expect(result.current.items[0]?.name).toBe("新分类");
+  expect(result.current.actionNotice).toBe("已更新分类。");
 });
 
 test("maps request failures and exposes when sign-in is required", async () => {

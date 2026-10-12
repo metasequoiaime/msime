@@ -4,7 +4,7 @@
 use super::google::valid_google_loopback_target;
 use super::*;
 
-pub(super) fn validate_clipboard_search(value: &str) -> Result<(), AccountError> {
+pub(crate) fn validate_clipboard_search(value: &str) -> Result<(), AccountError> {
     validate_bounded_text(value, 1024)
 }
 
@@ -26,7 +26,7 @@ pub(super) fn validate_providers(
     }
 }
 
-pub(super) fn validate_clipboard_text(value: &str) -> Result<(), AccountError> {
+pub(crate) fn validate_clipboard_text(value: &str) -> Result<(), AccountError> {
     if value.trim().is_empty()
         || !crate::is_bounded_utf16(value, 4000)
         || value.contains('\0')
@@ -38,7 +38,7 @@ pub(super) fn validate_clipboard_text(value: &str) -> Result<(), AccountError> {
     }
 }
 
-pub(super) fn validate_clipboard_id(value: &str) -> Result<(), AccountError> {
+pub(crate) fn validate_clipboard_id(value: &str) -> Result<(), AccountError> {
     if !crate::text::is_lower_hex(value, 64) {
         Err(AccountError::Invalid)
     } else {
@@ -46,7 +46,7 @@ pub(super) fn validate_clipboard_id(value: &str) -> Result<(), AccountError> {
     }
 }
 
-pub(super) fn validate_clipboard_item(value: &AccountClipboardItem) -> Result<(), AccountError> {
+pub(crate) fn validate_clipboard_item(value: &AccountClipboardItem) -> Result<(), AccountError> {
     validate_clipboard_id(&value.id)?;
     validate_clipboard_text(&value.text)?;
     if value.updated_at.is_empty() || !crate::text::is_bounded_text(&value.updated_at, 128) {
@@ -55,7 +55,7 @@ pub(super) fn validate_clipboard_item(value: &AccountClipboardItem) -> Result<()
     Ok(())
 }
 
-pub(super) fn validate_clipboard_page(value: &AccountClipboardPage) -> Result<(), AccountError> {
+pub(crate) fn validate_clipboard_page(value: &AccountClipboardPage) -> Result<(), AccountError> {
     if value.items.len() > 50 {
         return Err(AccountError::Unavailable);
     }
@@ -415,7 +415,7 @@ pub(super) fn read_bounded_response(
 }
 
 /// Largest error body read to find the server's error code; the backend's error documents are a few dozen bytes.
-pub(super) const MAX_ERROR_BODY_BYTES: u64 = 4096;
+pub(crate) const MAX_ERROR_BODY_BYTES: u64 = 4096;
 
 pub(super) fn error_from_response(response: Response) -> AccountError {
     let status = response.status();

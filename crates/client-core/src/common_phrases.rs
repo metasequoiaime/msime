@@ -381,9 +381,6 @@ impl CommonPhrasesStore {
             }
             Err(_) => return Err(CommonPhrasesError::Corrupt),
         };
-        if file.metadata()?.len() > MAX_FILE_BYTES {
-            return Err(CommonPhrasesError::Corrupt);
-        }
         let bytes = crate::bounded_io::read_bounded_file(file, MAX_FILE_BYTES, || {
             CommonPhrasesError::Corrupt
         })?;

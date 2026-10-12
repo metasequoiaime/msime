@@ -1002,8 +1002,9 @@ int main(int argc, char **argv) {
     require(argc == 2 || (argc == 3 && (std::string(argv[2]) == "--ai" ||
                                        std::string(argv[2]) == "--ctrl-space" ||
                                        std::string(argv[2]) == "--caps-lock" ||
+                                       std::string(argv[2]) == "--japanese-toggle" ||
                                        std::string(argv[2]) == "--local-modes")),
-            "usage: fcitx5-native-test <verified-resources> [--ai|--ctrl-space|--caps-lock|--local-modes]");
+            "usage: fcitx5-native-test <verified-resources> [--ai|--ctrl-space|--caps-lock|--japanese-toggle|--local-modes]");
     const bool ai = argc == 3 && std::string(argv[2]) == "--ai";
     const std::string suggestion = ai ? "合成候选" : "在线";
     char temporary[] = "/tmp/msime-fcitx5-test-XXXXXX";
@@ -1523,6 +1524,96 @@ int main(int argc, char **argv) {
       removeFixtureTree(directory);
       msime::linux_host::replace_caps_lock_release_for_testing(nullptr, nullptr);
       std::cout << "Fcitx5 Caps Lock tap, long press, chords, failed release and hot-reload passed\n";
+      return 0;
+    }
+    // Ctrl+Shift+J 在中文方案和日语之间切换，从真实的 keyEvent 驱动：缺省关时交给应用；打开后中文方案去日语并记下这个中文方案，再按回到它；一次按下只切换一次；组字中先上屏；英文模式和 Engine 的英文模式里交给应用。
+    if (argc == 3 && std::string(argv[2]) == "--japanese-toggle") {
+      const fcitx::KeyStates ctrlShift{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift};
+      const auto chordKey = [&](bool release) {
+        fcitx::KeyEvent event(&ic, fcitx::Key(release ? FcitxKey_j : FcitxKey_J, ctrlShift), release);
+        engine.keyEvent(entry, event);
+        return event.accepted();
+      };
+      const auto stored = [&] {
+        auto snapshot = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+        return snapshot.at("preferences");
+      };
+      const auto storedBecomes = [&](const char *scheme, const char *last) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (std::chrono::steady_clock::now() < deadline) {
+          const auto preferences = stored();
+          if (preferences.value("scheme", std::string("quanpin")) == scheme &&
+              preferences.value("last_chinese_scheme", std::string("quanpin")) == last)
+            return true;
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return false;
+      };
+      const auto setPreferences = [&](bool enabled, const char *scheme, const char *last) {
+        auto snapshot = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+        const auto revision = snapshot.at("revision").get<uint64_t>();
+        snapshot["preferences"]["keybindings"]["toggle_japanese_ctrl_shift_j"] = enabled;
+        snapshot["preferences"]["scheme"] = scheme;
+        snapshot["preferences"]["last_chinese_scheme"] = last;
+        const auto document = snapshot.dump();
+        response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(),
+            revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        do {
+          state->refreshPreferences();
+          if (state->japanese_toggle_enabled_ == enabled && state->effectiveScheme() == scheme) return;
+          std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        } while (std::chrono::steady_clock::now() < deadline);
+        require(false, "Ctrl+Shift+J preference did not hot-reload");
+      };
+      require(state->ensure() && state->input_enabled_, "Ctrl+Shift+J test does not start in Chinese");
+      // 缺省关：组合键交给应用，方案不变。
+      require(!state->japanese_toggle_enabled_ && !chordKey(false) && !chordKey(true) &&
+                  state->effectiveScheme() == "quanpin",
+              "Ctrl+Shift+J was taken with the preference off");
+      // 打开后从双拼出发；存储里记着的上一个中文方案故意是全拼，切走时要换成双拼。
+      setPreferences(true, "shuangpin", "quanpin");
+      require(chordKey(false) && state->view_.value("scheme", 0u) == 3 && storedBecomes("japanese", "shuangpin"),
+              "Ctrl+Shift+J did not switch shuangpin to Japanese and remember shuangpin");
+      // 按住时的自动重复和松开都归这次按下，不再切换。
+      for (int repeat = 0; repeat < 3; ++repeat)
+        require(chordKey(false) && state->view_.value("scheme", 0u) == 3, "a held Ctrl+Shift+J switched more than once");
+      require(chordKey(true), "the Ctrl+Shift+J release escaped");
+      require(chordKey(false) && chordKey(true) && state->view_.value("scheme", 0u) == 1 &&
+                  storedBecomes("shuangpin", "shuangpin"),
+              "Ctrl+Shift+J did not return from Japanese to shuangpin");
+      // 组字中按下：先上屏，再切换。
+      const auto committed = ic.committed;
+      for (const auto sym : {FcitxKey_n, FcitxKey_i}) {
+        fcitx::KeyEvent letter(&ic, fcitx::Key(sym));
+        engine.keyEvent(entry, letter);
+        require(letter.accepted(), "Ctrl+Shift+J composition test did not compose");
+      }
+      require(chordKey(false) && chordKey(true) && ic.committed.size() > committed.size() &&
+                  ic.inputPanel().clientPreedit().toString().empty() && state->view_.value("scheme", 0u) == 3,
+              "Ctrl+Shift+J did not commit the composition before switching");
+      require(chordKey(false) && chordKey(true) && state->view_.value("scheme", 0u) == 1, "Ctrl+Shift+J did not switch back");
+      // 英文模式交给应用。
+      engine.input_mode_action_.activate(&ic);
+      require(!state->input_enabled_ && !chordKey(false) && !chordKey(true) && state->effectiveScheme() == "shuangpin",
+              "Ctrl+Shift+J was taken in English mode");
+      engine.input_mode_action_.activate(&ic);
+      // Engine 自己的英文模式（Ctrl+Shift+E）里 Fcitx5 仍是中文状态，这时同样交给应用。
+      require(state->input_enabled_ && state->toggleEnglish() && state->view_.value("dedicated_english", false),
+              "dedicated English fixture failed");
+      require(!chordKey(false) && !chordKey(true) && state->effectiveScheme() == "shuangpin",
+              "Ctrl+Shift+J was taken in the Engine's English mode");
+      require(state->toggleEnglish() && !state->view_.value("dedicated_english", true), "leaving dedicated English failed");
+      // 关掉后又交给应用。
+      setPreferences(false, "shuangpin", "shuangpin");
+      require(!chordKey(false) && !chordKey(true) && state->effectiveScheme() == "shuangpin",
+              "a disabled Ctrl+Shift+J was taken");
+      state->close();
+      removeFixtureTree(directory);
+      std::cout << "Fcitx5 Ctrl+Shift+J Japanese toggle, repeat, composition, English modes and hot-reload passed\n";
       return 0;
     }
     // The host's statistics gate, not the store, is what keeps an opt-out from reaching the statistics file. First with statistics off after a preference tick, then with them turned on in the store while the host has not ticked since: a commit or passthrough key that slipped past the host would be recorded by that open store and replace the document, so only the host's cached switch can keep it untouched. The preference reload below is the tick that opens the gate, and the check after it proves recording resumes.

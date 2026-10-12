@@ -9,6 +9,7 @@ import {
   type CommunityResourceClient,
 } from "../community/community-resources";
 import { useSettingsForm } from "./settings-form-context";
+import { useAsyncGeneration } from "./use-async-generation";
 import * as settings from "./settings-style";
 
 /** 「回复模板」一组列出的社区回复模板数。AI 辅助页上还有别的设置，列得比「发现词库」的 8 个少。 */
@@ -44,6 +45,7 @@ function ReplyTemplatesGroup({
   onBrowseMore: () => void;
 }) {
   const toast = useToast();
+  const generation = useAsyncGeneration(community);
   const [items, setItems] = useState<CommunityResource[] | null>(null);
   const [failure, setFailure] = useState("");
   const [notice, setNotice] = useState("");
@@ -51,14 +53,16 @@ function ReplyTemplatesGroup({
   // 本次进入页面后添加过的模板。宿主不报告哪些模板已在键盘里，与社区图库一样每行起初都是「添加」，再添加一次只会保留同一个模板。
   const [added, setAdded] = useState<ReadonlySet<string>>(() => new Set());
   useEffect(() => {
-    let current = true;
+    const current = generation.current;
     community
       .list("reply", "", "", 0)
-      .then((page) => current && setItems(page.items.slice(0, REPLY_PREVIEW_LIMIT)))
-      .catch(() => current && setFailure("社区回复模板暂时读不到，请稍后再试。"));
-    return () => {
-      current = false;
-    };
+      .then(
+        (page) =>
+          generation.current === current && setItems(page.items.slice(0, REPLY_PREVIEW_LIMIT)),
+      )
+      .catch(
+        () => generation.current === current && setFailure("社区回复模板暂时读不到，请稍后再试。"),
+      );
   }, [community]);
   const add = async (item: CommunityResource) => {
     if (adding) return;

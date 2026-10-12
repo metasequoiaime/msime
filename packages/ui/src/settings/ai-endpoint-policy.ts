@@ -1,5 +1,7 @@
 // AI 辅助接口地址的传输策略，与 crates/client-core/src/ai/endpoint.rs 逐条一致：https 不限主机；http 只能指向本机或局域网（回环、RFC 1918、100.64.0.0/10、链路本地、IPv6 唯一本地地址、`.local`），因为 API Token 不能明文经过互联网。检查时不做 DNS 解析，除 `localhost` 和 `.local` 以外的域名一律按公网处理。两边共用 shared/contracts/ai-endpoint/cases.json 里的用例。
 
+import { utf8ByteLength } from "../core/text";
+
 const MAX_ENDPOINT_BYTES = 2048;
 
 export type AiEndpointProblem = "invalid" | "cleartext_public";
@@ -33,7 +35,7 @@ function checkAiEndpoint(endpoint: string): { url: URL | null; problem: AiEndpoi
   const invalid = { url: null, problem: "invalid" as const };
   if (
     !endpoint ||
-    new TextEncoder().encode(endpoint).length > MAX_ENDPOINT_BYTES ||
+    utf8ByteLength(endpoint) > MAX_ENDPOINT_BYTES ||
     // 控制字符一律不收；`new URL` 会悄悄删掉换行和制表符，不能交给它判断。
     /[\u0000-\u001f\u007f-\u009f]/.test(endpoint) ||
     // `#` 之后都是片段，哪怕是空的；`URL.hash` 对空片段返回空字符串，只能看原文。

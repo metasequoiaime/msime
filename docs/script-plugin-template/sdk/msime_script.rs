@@ -328,7 +328,7 @@ pub mod candidates {
     }
 }
 
-/// `rewrite_commit`（依赖 `read_commit`，不能和 `read_composition` 同时申请）：只在 `before_commit` 里。宿主目前一律返回 `Err(Error::Denied)`。
+/// `rewrite_commit`（依赖 `read_commit`，不能和 `read_composition` 同时申请）：只在 `before_commit` 里，事件的「能否改写」不为真时返回 `Err(Error::Denied)`。
 pub mod rewrite {
     use super::{check, sys, Error};
 
@@ -342,7 +342,7 @@ pub mod rewrite {
     }
 }
 
-/// `rerank_candidates`（依赖 `read_candidates`）：只在 `candidates` 里。宿主目前一律返回 `Err(Error::Denied)`。
+/// `rerank_candidates`（依赖 `read_candidates`）：只在 `candidates` 里，别的钩子里返回 `Err(Error::Denied)`。
 pub mod rerank {
     use super::{check, sys, Error};
 
@@ -356,7 +356,7 @@ pub mod rerank {
     }
 }
 
-/// `filter_candidates`（依赖 `read_candidates`）：只在 `candidates` 里。宿主目前一律返回 `Err(Error::Denied)`。
+/// `filter_candidates`（依赖 `read_candidates`）：只在 `candidates` 里，别的钩子里返回 `Err(Error::Denied)`。
 pub mod filter {
     use super::{check, sys, Error};
 
@@ -370,7 +370,7 @@ pub mod filter {
     }
 }
 
-/// `annotate_candidates`（依赖 `read_candidates`）：只在 `candidates` 里。宿主目前一律返回 `Err(Error::Denied)`。
+/// `annotate_candidates`（依赖 `read_candidates`）：只在 `candidates` 里，别的钩子里返回 `Err(Error::Denied)`。
 pub mod annotate {
     use super::{check, sys, Error};
 

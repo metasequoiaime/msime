@@ -36,7 +36,7 @@ struct ExpressionSettingsView: View {
             .accessibilityIdentifier("smartPunctuationToggle")
           DesignDivider()
           NavigationLink(destination: PunctuationSettingsView()) {
-            DesignNavRowLabel(title: "更多标点设置", subtitle: "固定标点、全角输入和智能标点细则")
+            DesignNavRowLabel(title: "更多标点设置", subtitle: "固定标点、全角输入、中英文空格和智能标点细则")
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("punctuationSettingsLink")

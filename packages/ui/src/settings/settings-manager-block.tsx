@@ -1,19 +1,9 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import * as settings from "./settings-style";
+import { SettingsLayoutBlock, type SettingsLayoutBlockProps } from "./settings-layout-block";
 
-export interface SettingsManagerBlockProps extends Omit<
-  ComponentPropsWithoutRef<"div">,
-  "children" | "className"
-> {
-  children?: ReactNode;
-  className?: string;
-}
+export type SettingsManagerBlockProps = SettingsLayoutBlockProps;
 
 /** Shared flex container for settings manager content and results. */
-export function SettingsManagerBlock({ children, className, ...props }: SettingsManagerBlockProps) {
-  return (
-    <div {...props} className={`${settings.managerBlock}${className ? ` ${className}` : ""}`}>
-      {children}
-    </div>
-  );
+export function SettingsManagerBlock(props: SettingsManagerBlockProps) {
+  return <SettingsLayoutBlock baseClass={settings.managerBlock} {...props} />;
 }

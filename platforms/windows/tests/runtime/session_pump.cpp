@@ -266,6 +266,66 @@ void session_pump_tests(const std::string &options) {
             transport.writes[4].first == FanyImePipeRole::ToTsf);
     queue.stop();
   }
+  for (bool enabled : {false, true}) {
+    // Ctrl+Shift+J 由生产路由交给 InputState：开关关着时不调用 persist，开着时一次按键调用一次；两种情况都回一个不带帧的 NoReply，TIP 不读它。
+    auto configured = nlohmann::json::parse(options);
+    configured["preferences"]["keybindings"]["toggle_japanese_ctrl_shift_j"] =
+        enabled;
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, configured.dump());
+    FixtureTransport transport;
+    transport.packets.resize(4);
+    auto &toggle = transport.packets[1];
+    toggle.keycode = 'J';
+    toggle.wch = 'j';
+    toggle.modifiers_down = 0b11;
+    toggle.request_id = 2;
+    transport.packets[2] = toggle;
+    transport.packets[2].request_id = 3;
+    auto &punctuation = transport.packets.back();
+    punctuation.keycode = 0xBC;
+    punctuation.wch = ',';
+    punctuation.modifiers_down = 0;
+    punctuation.request_id = 4;
+    size_t persist_calls = 0, toggle_deliveries = 0, character_sets = 0;
+    const auto production = production_key_handler(
+        [&](bool) {
+          ++character_sets;
+          return true;
+        },
+        [&] {
+          ++persist_calls;
+          return true;
+        });
+    SessionPump::Presentation presentation;
+    presentation.delivered = [&](const FocusLease &, const PendingReply &reply,
+                                 const FanyImeNamedpipeData &packet) {
+      if (!FanyImeProtocol::IsJapaneseToggleShortcut(packet.keycode,
+                                                     packet.modifiers_down))
+        return;
+      ++toggle_deliveries;
+      require(!reply.encoded);
+    };
+    SessionPump pump(
+        transport, queue, gate,
+        [&](InputState &state, const FocusLease &lease,
+            const FanyImeNamedpipeData &packet) {
+          if (FanyImeProtocol::IsJapaneseToggleShortcut(packet.keycode,
+                                                        packet.modifiers_down))
+            return production(state, lease, packet);
+          auto reply = state.configured_key(
+              lease, packet, TsfPreeditStyle::Local, {});
+          require(reply && reply->encoded && static_cast<bool>(*reply->encoded));
+          require(reply->source.transition.at("commit") == "，");
+          return reply;
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; },
+        presentation);
+    require(pump.run(transport.ticket) == PumpResult::Disconnected);
+    require(toggle_deliveries == 2 && character_sets == 0);
+    require(persist_calls == (enabled ? 2u : 0u));
+    queue.stop();
+  }
   {
     FocusGate gate;
     InputQueue queue(gate, 2, 8, options);

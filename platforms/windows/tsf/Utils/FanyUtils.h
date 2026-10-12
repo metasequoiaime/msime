@@ -38,6 +38,8 @@ struct SwitchLanguageHotkeys
     bool fullwidth_alt_shift_h = true;
     // 单按 Caps Lock 切换中英文，缺省关。
     bool caps_lock = false;
+    // keybindings.toggle_japanese_ctrl_shift_j：中文状态下 Ctrl+Shift+J 在中文方案和日语之间切换，缺省关。
+    bool japanese_toggle_ctrl_shift_j = false;
 };
 // Read keybindings.switch_language_* from shared PreferencesStore, or the defaults when it is unreadable.
 SwitchLanguageHotkeys ReadConfiguredSwitchLanguageHotkeys();

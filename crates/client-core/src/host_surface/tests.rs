@@ -283,6 +283,18 @@ fn capabilities_describe_each_host() {
         let host = HostCapabilities::for_platform(platform);
         assert!(!host.caps_lock_language_switch && !host.shift_letter_entry_switch);
     }
+    // 「Ctrl+Shift+J 在中文和日语之间切换」只在 Windows 和 Linux 上提供：macOS 用系统输入模式「日」轮换，移动端还没有接上。
+    for platform in [HostPlatform::Windows, HostPlatform::Linux] {
+        assert!(HostCapabilities::for_platform(platform).japanese_toggle_shortcut);
+    }
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(!HostCapabilities::for_platform(platform).japanese_toggle_shortcut);
+    }
     // 能在光标旁放徽标的宿主才声明它：触屏键盘在键面上就显示了模式。Windows 的 Server 自己画，Linux 交给 Fcitx5 面板。
     assert!(macos.input_mode_hud);
     assert!(windows.input_mode_hud);
@@ -296,6 +308,17 @@ fn capabilities_describe_each_host() {
     assert!(!HostCapabilities::for_platform(HostPlatform::Ios).app_input_mode_rules);
     assert!(!HostCapabilities::for_platform(HostPlatform::Android).input_mode_hud);
     assert!(!HostCapabilities::for_platform(HostPlatform::Ios).input_mode_hud);
+    // 菜单栏状态项只有 macOS 画：Windows 有托盘语言栏，Linux 有输入法面板，触屏键盘的键面已显示模式。
+    assert!(macos.input_mode_status_item);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(!HostCapabilities::for_platform(platform).input_mode_status_item);
+    }
     // Mobile hosts draw no toolbar at all.
     let android = HostCapabilities::for_platform(HostPlatform::Android);
     assert!(android.mobile_settings);

@@ -5,7 +5,6 @@ import android.graphics.Rect;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
-import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
@@ -25,8 +24,6 @@ public final class CaretCandidatesDeviceSmoke extends DeviceSmoke {
     /** {@code AndroidLocalSettings.FILE_NAME} 与 {@code HARDWARE_CARET_CANDIDATES}；设备套件不编译宿主的设置类，这里写同样的字面值。 */
     private static final String LOCAL_SETTINGS_FILE = "android-settings.json";
     private static final String CARET_CANDIDATES_SETTING = "platform.android.hardware_caret_candidates";
-    /** `uinput` 接上的键盘的标准输入，往里写注入命令就是在那块键盘上按键；没有接时为空。 */
-    private FileOutputStream uinputInput;
 
     @Override protected String successDescription() {
         return "candidate strip beside the caret for physical typing, nothing drawn while idle, the bottom strip for an editor without cursor anchors, the strip below a wrapped composition, and one back press leaving an idle editor";
@@ -141,82 +138,6 @@ public final class CaretCandidatesDeviceSmoke extends DeviceSmoke {
             if (originalLocal == null) Files.deleteIfExists(localSettings.toPath());
             else publish(localSettings, originalLocal);
             restartIme();
-        }
-    }
-
-    /** 一块非虚拟、字母型的键盘：`uinput` 接上的那块，或 `hw.keyboard=yes` 的 AVD 自带的那块。设备接上后要过一会儿才出现在列表里。 */
-    private static int physicalKeyboard() {
-        long deadline = SystemClock.uptimeMillis() + 10000;
-        do {
-            for (int id : InputDevice.getDeviceIds()) {
-                InputDevice device = InputDevice.getDevice(id);
-                if (device != null && !device.isVirtual()
-                        && device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC) return id;
-            }
-            SystemClock.sleep(200);
-        } while (SystemClock.uptimeMillis() < deadline);
-        throw new AssertionError("No physical alphabetic keyboard: API " + Build.VERSION.SDK_INT
-            + " before 31 needs an AVD with hw.keyboard=yes");
-    }
-
-    /**
-     * 用 `uinput` 接上一块 USB 键盘（26 个字母键和空格），返回命令的标准输出、标准输入和标准错误；标准输入一直开着，键盘就一直接着。
-     */
-    private ParcelFileDescriptor[] plugKeyboard() throws Exception {
-        ParcelFileDescriptor[] streams = automation.executeShellCommandRwe("uinput -");
-        StringBuilder keys = new StringBuilder();
-        // Linux 键码：KEY_Q..KEY_P 是 16..25，KEY_A..KEY_L 是 30..38，KEY_Z..KEY_M 是 44..50，空格 57。
-        for (int[] range : new int[][] {{16, 25}, {30, 38}, {44, 50}, {57, 57}}) {
-            for (int code = range[0]; code <= range[1]; code++) keys.append(keys.length() == 0 ? "" : ",").append(code);
-        }
-        String register = "{\"id\":1,\"command\":\"register\",\"name\":\"MSIME test keyboard\",\"vid\":6353,"
-            + "\"pid\":26514,\"bus\":\"usb\",\"configuration\":[{\"type\":\"UI_SET_EVBIT\",\"data\":[1]},"
-            + "{\"type\":\"UI_SET_KEYBIT\",\"data\":[" + keys + "]}]}\n";
-        uinputInput = new FileOutputStream(streams[1].getFileDescriptor());
-        uinputInput.write(register.getBytes(StandardCharsets.UTF_8));
-        uinputInput.flush();
-        return streams;
-    }
-
-    /** 本套件用到的键对应的 Linux 键码。 */
-    private static int linuxKey(int keyCode) {
-        return switch (keyCode) {
-            case KeyEvent.KEYCODE_N -> 49;
-            case KeyEvent.KEYCODE_I -> 23;
-            case KeyEvent.KEYCODE_H -> 35;
-            case KeyEvent.KEYCODE_A -> 30;
-            case KeyEvent.KEYCODE_O -> 24;
-            case KeyEvent.KEYCODE_SPACE -> 57;
-            default -> throw new AssertionError("No Linux key code for " + KeyEvent.keyCodeToString(keyCode));
-        };
-    }
-
-    /** 关掉 `uinput` 的标准输入：命令退出，键盘拔掉。 */
-    private void unplugKeyboard(ParcelFileDescriptor[] streams) throws Exception {
-        uinputInput = null;
-        for (ParcelFileDescriptor stream : streams) stream.close();
-    }
-
-    /** 逐个按下、松开这些键：接了 `uinput` 键盘时从那块键盘的 evdev 打进去，走真实的输入读取链路；否则以 AVD 自带键盘的设备号注入。 */
-    private void type(int device, int... keyCodes) throws Exception {
-        for (int keyCode : keyCodes) {
-            if (uinputInput != null) {
-                int code = linuxKey(keyCode);
-                String inject = "{\"id\":1,\"command\":\"inject\",\"events\":[1," + code + ",1,0,0,0,1," + code
-                    + ",0,0,0,0]}\n";
-                uinputInput.write(inject.getBytes(StandardCharsets.UTF_8));
-                uinputInput.flush();
-                SystemClock.sleep(120);
-                continue;
-            }
-            long now = SystemClock.uptimeMillis();
-            KeyEvent down = new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0, 0, device, 0, 0,
-                InputDevice.SOURCE_KEYBOARD);
-            KeyEvent up = new KeyEvent(now, now + 30, KeyEvent.ACTION_UP, keyCode, 0, 0, device, 0, 0,
-                InputDevice.SOURCE_KEYBOARD);
-            if (!automation.injectInputEvent(down, true) || !automation.injectInputEvent(up, true))
-                throw new AssertionError("Key injection failed");
-            SystemClock.sleep(80);
         }
     }
 

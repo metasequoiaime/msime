@@ -7660,4 +7660,10 @@ fn the_reranker_never_weighs_ai_rows_or_their_placeholder() {
     }
 }
 
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos"))
+))]
+mod candidate_transform;
 mod facts;

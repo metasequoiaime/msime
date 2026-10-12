@@ -40,6 +40,8 @@ export interface ClipboardHistorySectionProps {
   onError: (message: string) => void;
   /** Present while the page is shown on a host that offers the cloud clipboard; each history entry then gets a 发到云剪贴板 action. Nothing is uploaded unless the user picks an entry. */
   cloudRequest?: CloudClipboardRequest;
+  /** 云剪贴板现在走哪条路，例如已保存的自建中继地址和令牌；它一变（同一页上保存或改回了中继）就重新查一次可用状态，不沿用另一条路的结果。 */
+  cloudRoute?: string;
   children?: ReactNode;
 }
 
@@ -54,6 +56,7 @@ export function ClipboardHistorySection({
   onToggle,
   onError,
   cloudRequest,
+  cloudRoute,
   children,
 }: ClipboardHistorySectionProps) {
   const [entries, setEntries] = useState<ClipboardHistoryEntry[]>([]);
@@ -63,7 +66,7 @@ export function ClipboardHistorySection({
   const [cloudNotice, setCloudNotice] = useState("");
   const [sending, setSending] = useState(false);
   const historyShown = historyEnabled && Boolean(client?.list);
-  const cloudRevision = useAsyncGeneration(cloudRequest, historyShown);
+  const cloudRevision = useAsyncGeneration(cloudRequest, historyShown, cloudRoute);
   const historyGeneration = useAsyncGeneration(
     client,
     ios,
@@ -113,7 +116,7 @@ export function ClipboardHistorySection({
         if (revision === cloudRevision.current) setCloud(cloudClipboardFailure(error));
       },
     );
-  }, [cloudRequest, cloudRevision, historyShown]);
+  }, [cloudRequest, cloudRevision, historyShown, cloudRoute]);
 
   const sendToCloud = async (text: string) => {
     if (!cloudRequest || cloud !== "ready" || sending) return;

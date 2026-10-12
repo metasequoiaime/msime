@@ -39,9 +39,8 @@ import {
 import * as skin from "./touch-skin-style";
 import * as doc from "../settings/document-style";
 import * as community from "../community/community-style";
-import * as settings from "../settings/settings-style";
+import { SettingsPageHeader } from "../settings/settings-page-header";
 import { ActionButton } from "../core/action-button";
-import { FluentIcon } from "../core/fluent-icons";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 import { useMountedRef } from "../settings/use-mounted-ref";
 
@@ -247,16 +246,12 @@ export function AiSkinGeneration({
       >
         {fullScreen ? (
           <>
-            <header className={settings.pageHeader}>
-              <ActionButton
-                action={onClose}
-                className={settings.pageBackButton}
-                disabled={busy}
-                ariaLabel="返回"
-                label={<FluentIcon name="arrow_left" size={22} />}
-              />
-              <h2 className={settings.pageTitle}>AI 皮肤抽卡</h2>
-            </header>
+            <SettingsPageHeader
+              title="AI 皮肤抽卡"
+              onBack={onClose}
+              backDisabled={busy}
+              level={2}
+            />
             <p className={doc.generationNote}>一次抽出三张原创皮肤，遇到喜欢的就留下。</p>
           </>
         ) : (
@@ -568,15 +563,7 @@ export function TouchKeyboardSkinEditor({
     >
       {fullScreen && (
         <>
-          <header className={settings.pageHeader}>
-            <ActionButton
-              action={onClose}
-              className={settings.pageBackButton}
-              ariaLabel="返回"
-              label={<FluentIcon name="arrow_left" size={22} />}
-            />
-            <h2 className={settings.pageTitle}>设计我的皮肤</h2>
-          </header>
+          <SettingsPageHeader title="设计我的皮肤" onBack={onClose} level={2} />
           <p className={doc.generationNote}>修改后自动保存，键盘随即换上</p>
         </>
       )}

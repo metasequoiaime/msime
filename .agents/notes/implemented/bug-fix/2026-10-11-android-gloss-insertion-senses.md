@@ -28,7 +28,7 @@ Android 长按候选弹出的菜单里，每一项就是一条可上屏的释义
 
 `我的` 长按后菜单是 `my` 和 `mine` 两项，点哪项上屏哪项。代价有两点：菜单不再按语言分组，两种语言共有的义项合并成一项；账号或在线译文里本身含分号的整句也会被切成几项，这和桌面、鸿蒙的行为一致。用逗号分隔义项的在线译文仍然是一项。
 
-iOS 的 `KeyboardViewController.candidateGlosses(at:)` 同样按语言整条上屏，没有切义项，属于另一个平台，不在这次改动里。本地模式、方案 3 和韩语关闭长按上屏（`candidateGlossInsertionEnabled`）是现有设计，这里不动。候选提示位被辅助码占用时译文只在长按里出现的问题另见 [辅助码和释义共用一行](2026-10-11-android-helpcode-gloss-share-hint-row.md)。
+iOS 的 `KeyboardViewController.candidateGlosses(at:)` 同样按语言整条上屏，没有切义项，属于另一个平台，不在这次改动里。本地模式、方案 3 和韩语关闭长按上屏（`candidateGlossInsertionEnabled`）是现有设计，这里不动。候选提示位被辅助码占用时译文只在长按里出现的问题另见 [辅助码和释义共用一行](2026-10-11-android-helpcode-gloss-share-hint-row.md)。实体键盘的 Ctrl+Enter 上屏译文用同一份义项列表，见 [Ctrl+Enter 上屏候选译文](../feature/2026-10-12-android-ctrl-enter-translation.md)。
 
 ## Verification
 

@@ -60,6 +60,7 @@ export function settingsCapabilities({
   const showCandidateWindowOpacity = host ? host.candidate_window_opacity : true;
   const showCandidateCornerRadius = host ? host.candidate_corner_radius : true;
   const showInputModeHUD = host ? host.input_mode_hud : false;
+  const showInputModeStatusItem = host ? host.input_mode_status_item : false;
   const showVoiceCaptureDevices =
     !android && (host ? host.voice_capture_devices : false) && canListVoiceCaptureDevices;
   const showDesktopMaintenanceShortcuts = host
@@ -114,6 +115,7 @@ export function settingsCapabilities({
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
     showInputModeHUD,
+    showInputModeStatusItem,
     showVoiceCaptureDevices,
     showDesktopMaintenanceShortcuts,
     showFullwidthChord,
