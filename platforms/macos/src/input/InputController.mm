@@ -6758,6 +6758,16 @@ static BOOL MSIMESentenceCandidateText(NSString *text) {
                                      showSelectedBar:(BOOL)showSelectedBar inset:(CGFloat)inset paging:(BOOL)paging
                                              visible:(NSRect)visible preeditWidth:(CGFloat)preeditWidth
                                         minimumWidth:(CGFloat)minimumWidth {
+    return [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:showSelectedBar inset:inset
+                                paging:paging visible:visible preeditWidth:preeditWidth minimumWidth:minimumWidth
+                         reservesGloss:YES];
+}
+
+// `reservesGloss` 为 NO 时横排的一行不为还没到的释义预留高度，只按已有的内容排：展开的候选网格用它，网格里只有 Engine 当前那一页会请求释义，其余行一直空着那一行会把网格撑得很稀。
+- (MSIMECandidatePageGeometry)candidatePageGeometry:(NSArray *)candidates font:(NSFont *)font glossFont:(NSFont *)glossFont
+                                     showSelectedBar:(BOOL)showSelectedBar inset:(CGFloat)inset paging:(BOOL)paging
+                                             visible:(NSRect)visible preeditWidth:(CGFloat)preeditWidth
+                                        minimumWidth:(CGFloat)minimumWidth reservesGloss:(BOOL)reservesGloss {
     MSIMECandidatePageGeometry geometry;
     const BOOL vertical = _appearance.vertical;
     const BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
@@ -6846,7 +6856,7 @@ static BOOL MSIMESentenceCandidateText(NSString *text) {
         return MSIMECandidateRunMeasure(texts[row], annotations[row], translations[row], font, glossFont, scale)(run, runWidth);
     };
     // Horizontal rows keep the height a gloss will need even before it arrives, so the card does not grow under the user seconds after the composition started.
-    const CGFloat minimumHeight = vertical ? 0 : candidateRow + [self reservedGlossHeightForFont:glossFont];
+    const CGFloat minimumHeight = vertical || !reservesGloss ? 0 : candidateRow + [self reservedGlossHeightForFont:glossFont];
     geometry.rows = msime::mac::LayoutCandidatePage(items, geometry.lineWidth, metrics, !vertical, measure, minimumHeight);
     for (auto &row : geometry.rows) {
         // Whole points keep neighbouring buttons touching and their text on the pixel grid.
@@ -7115,7 +7125,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
         NSArray<NSDictionary *> *slice = [_expandedCandidates subarrayWithRange:NSMakeRange(start, MIN(columns, count - start))];
         layouts.push_back([self candidatePageGeometry:slice font:font glossFont:glossFont showSelectedBar:tokens.showSelectedBar
                                                 inset:inset paging:NO visible:visible preeditWidth:0
-                                         minimumWidth:MAX(skin.minWidthDip, skin.decorationWidthDip)]);
+                                         minimumWidth:MAX(skin.minWidthDip, skin.decorationWidthDip) reservesGloss:NO]);
         [rowCandidates addObject:slice];
         width = MAX(width, layouts.back().width);
         rowsHeight += layouts.back().rowsHeight;
