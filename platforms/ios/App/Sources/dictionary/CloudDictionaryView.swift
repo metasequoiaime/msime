@@ -12,6 +12,7 @@ struct CloudDictionaryView: View {
   @State private var editing: Edit?
   @State private var deleting: BackendAccountClient.DictionaryEntry?
   @State private var downloading: BackendAccountClient.DictionaryEntry?
+  @State private var requestID = UUID()
   @State private var pending: Task<Void, Never>?
   private let client = BackendAccountClient()
   private let session = BackendAccountSession.shared
@@ -135,8 +136,19 @@ struct CloudDictionaryView: View {
         .disabled(busy || userID == nil)
     }
     .task { run { try await load(offset: 0) } }
-    .onChange(of: kind) { _ in page = nil; run { try await load(offset: 0) } }
-    .onDisappear { pending?.cancel(); page = nil }
+    .onChange(of: kind) { _ in
+      pending?.cancel()
+      requestID = UUID()
+      busy = false
+      page = nil
+      run { try await load(offset: 0) }
+    }
+    .onDisappear {
+      requestID = UUID()
+      pending?.cancel()
+      busy = false
+      page = nil
+    }
     .sheet(item: $editing) { edit in
       CloudDictionaryEditor(kind: edit.kind, value: edit.entry.map { .init(code: $0.code, word: $0.word, weight: $0.weight) }) { value in
         let credentials = try await session.credentials(matchingUserID: edit.userID, matchingSessionID: sessionID)
@@ -187,21 +199,32 @@ struct CloudDictionaryView: View {
     return identity.token
   }
   @MainActor private func load(offset: Int) async throws {
+    let id = requestID
+    let requestedKind = kind
     guard let identity = try await session.user()?.id else { throw BackendAccountClient.Failure(status: 401) }
     let credentials = try await session.credentials(matchingUserID: identity, matchingSessionID: sessionID)
-    let result = try await client.dictionary(kind, search: search, offset: offset,
+    let result = try await client.dictionary(requestedKind, search: search, offset: offset,
       session: session, matchingUserID: credentials.userID, matchingSessionID: credentials.sessionID)
+    try Task.checkCancellation()
+    guard requestID == id, kind == requestedKind else { return }
     sessionID = credentials.sessionID
     page = result; userID = identity
   }
   @MainActor private func run(_ work: @escaping @MainActor () async throws -> Void) {
     guard !busy else { return }
+    let id = UUID()
+    requestID = id
     busy = true; message = nil
     pending = Task {
-      defer { busy = false }
+      defer {
+        if requestID == id {
+          busy = false
+          pending = nil
+        }
+      }
       do { try await work() }
       catch is CancellationError { }
-      catch { message = error.localizedDescription }
+      catch { if requestID == id { message = error.localizedDescription } }
     }
   }
 }
