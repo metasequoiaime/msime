@@ -9,13 +9,11 @@ import { createAboutSettingsActions } from "../about-settings-actions";
 import { OtherPlatformDownloadRows } from "./download-page";
 import { ActionButton } from "../action-button";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
-import { downloadMirrorPrefix } from "../app-resources";
+import { androidPrivacyUrl, downloadMirrorPrefix, privacyUrl } from "../app-resources";
 import { mirrorDownloadUrl } from "../update-manifest";
 import { SystemInfoSection } from "../system-info-section";
 import { schemeTitle } from "../label-helpers";
 
-const privacyUrl = "https://msime.app/privacy/";
-const androidPrivacyUrl = "https://msime.app/privacy/";
 /** 当前运行的版本已是最新时 `useUpdateCheck` 报告的内容。 */
 const latestStatus = "已是最新版本";
 
