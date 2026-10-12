@@ -8,3 +8,5 @@ export const deepseekDocumentationUrl = "https://api-docs.deepseek.com/";
 export const siliconFlowTextDocumentationUrl =
   "https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation";
 export const groqDocumentationUrl = "https://console.groq.com/docs/quickstart";
+export const openAiModelsDocumentationUrl =
+  "https://developers.openai.com/api/docs/models/gpt-4.1-mini";

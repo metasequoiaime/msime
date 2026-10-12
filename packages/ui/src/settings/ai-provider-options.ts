@@ -5,6 +5,7 @@ import {
   groqChatEndpoint,
   groqDocumentationUrl,
   openAiChatEndpoint,
+  openAiModelsDocumentationUrl,
   siliconFlowChatEndpoint,
   siliconFlowTextDocumentationUrl,
 } from "../core/provider-resources";
@@ -36,7 +37,7 @@ export const AI_PROVIDER_OPTIONS: readonly {
     endpoint: openAiChatEndpoint,
     model: "gpt-4.1-mini",
     models: ["gpt-4.1-mini"],
-    documentation: "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
+    documentation: openAiModelsDocumentationUrl,
   },
   {
     id: "anthropic",

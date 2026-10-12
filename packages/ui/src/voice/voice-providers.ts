@@ -21,6 +21,7 @@ import {
   groqChatEndpoint,
   groqDocumentationUrl,
   openAiChatEndpoint,
+  openAiModelsDocumentationUrl,
   siliconFlowChatEndpoint,
   siliconFlowTextDocumentationUrl,
 } from "../core/provider-resources";
@@ -117,7 +118,7 @@ export const POLISH_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
     endpoint: openAiChatEndpoint,
     model: "gpt-4o-mini",
     models: ["gpt-4o-mini", "gpt-4.1-mini"],
-    documentation: "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
+    documentation: openAiModelsDocumentationUrl,
   },
   deepseek: {
     endpoint: deepseekChatEndpoint,
