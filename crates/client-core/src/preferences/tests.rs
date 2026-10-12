@@ -4027,6 +4027,8 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
     edited.tencent_tmt.secret_key = "fixture-tencent-key".into();
     edited.niutrans.app_id = "fixture-niutrans-app".into();
     edited.niutrans.apikey = "fixture-niutrans-key".into();
+    edited.cloud_clipboard_relay.url = "https://relay.example.test/msime".into();
+    edited.cloud_clipboard_relay.token = "fixture-relay-token".into();
 
     let restored = edited.restored_to_defaults();
     let defaults = Preferences::default();
@@ -4056,6 +4058,7 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
         "fixture-tencent-id",
         "fixture-tencent-key",
         "fixture-niutrans-key",
+        "fixture-relay-token",
     ] {
         assert!(
             document.contains(secret),
@@ -4075,6 +4078,10 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
     assert_eq!(
         restored.voice_input.asr_model_mirror,
         "https://mirror.example.test/"
+    );
+    assert_eq!(
+        restored.cloud_clipboard_relay.url,
+        "https://relay.example.test/msime"
     );
     // The seeding marker is not a setting: clearing it would re-seed rules the user turned off.
     assert!(restored.fuzzy_pinyin.seeded);
@@ -5016,6 +5023,8 @@ fn diagnostic_snapshot_strips_secrets_from_endpoints() {
         "https://polish.example.com/chat?key=secret-value".into();
     preferences.ai_assistant.endpoint = "https://secret-value@ai.example.com/v1".into();
     preferences.custom_translation.endpoint = "not a url secret-value".into();
+    preferences.cloud_clipboard_relay.url =
+        "https://relay.example.com/msime?token=secret-value".into();
     let redacted = preferences.redacted_for_diagnostics();
     assert!(!redacted.to_string().contains("secret-value"), "{redacted}");
     assert_eq!(
@@ -5031,6 +5040,10 @@ fn diagnostic_snapshot_strips_secrets_from_endpoints() {
         "https://ai.example.com/v1"
     );
     assert_eq!(redacted["custom_translation"]["endpoint"], REDACTED);
+    assert_eq!(
+        redacted["cloud_clipboard_relay"]["url"],
+        "https://relay.example.com/msime"
+    );
 
     // 没填的地址照样是空的。
     preferences.custom_translation.endpoint.clear();
@@ -5060,4 +5073,59 @@ fn restoring_defaults_keeps_exactly_the_listed_credentials() {
             _ => panic!("{path} changed type"),
         }
     }
+}
+
+/// 中继的地址和令牌要么都空，要么都合规；没配置时不写进文档，旧版本读得了。
+#[test]
+fn cloud_clipboard_relay_is_both_or_nothing_and_left_out_until_configured() {
+    let defaults = Preferences::default();
+    let document = serde_json::to_value(&defaults).unwrap();
+    assert!(document.get("cloud_clipboard_relay").is_none());
+    assert!(!defaults.cloud_clipboard_relay.is_configured());
+
+    let configured = |url: &str, token: &str| {
+        let mut preferences = Preferences::default();
+        preferences.cloud_clipboard_relay.url = url.into();
+        preferences.cloud_clipboard_relay.token = token.into();
+        preferences
+    };
+    let token = "synthetic-relay-token";
+    for (url, token, valid) in [
+        ("https://relay.example.test", token, true),
+        ("https://relay.example.test/msime/", token, true),
+        ("http://127.0.0.1:8787", token, true),
+        ("http://localhost:8787/msime", token, true),
+        ("http://relay.example.test", token, false),
+        ("https://relay.example.test/?q=1", token, false),
+        ("https://user:secret@relay.example.test", token, false),
+        ("https://relay.example.test#frag", token, false),
+        ("ftp://relay.example.test", token, false),
+        ("https://relay.example.test", "", false),
+        ("https://relay.example.test", "too-short", false),
+        ("https://relay.example.test", "has a space in it", false),
+        ("", token, false),
+    ] {
+        let preferences = configured(url, token);
+        assert_eq!(
+            preferences.validate().is_ok(),
+            valid,
+            "{url} {token}: {:?}",
+            preferences.validate()
+        );
+        if !valid {
+            assert!(matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidCloudClipboardRelay)
+            ));
+        }
+    }
+
+    let preferences = configured("https://relay.example.test", token);
+    let text = serde_json::to_string(&preferences).unwrap();
+    let back: Preferences = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        back.cloud_clipboard_relay,
+        preferences.cloud_clipboard_relay
+    );
+    assert!(back.cloud_clipboard_relay.is_configured());
 }

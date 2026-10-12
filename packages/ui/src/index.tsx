@@ -1789,6 +1789,8 @@ export type Preferences = {
   voice_input?: VoiceInputPreferences;
   local_modes?: LocalModePreferences;
   clipboard_history?: boolean;
+  /** 自建云剪贴板中继的地址和令牌；缺省或地址为空表示走水杉账号。两项要么都空，要么都合规，见 `crates/client-core/src/clipboard_relay.rs`。 */
+  cloud_clipboard_relay?: { url: string; token: string };
   cloud_candidates?: boolean;
   candidate_translations?: boolean;
   candidate_english_gloss?: boolean;
