@@ -44,8 +44,7 @@ struct PrivacySettingsView: View {
               Text("隐私政策").font(.system(size: 17)).foregroundStyle(.primary)
               Spacer(minLength: 8)
               Text("msime.app").font(.system(size: 16)).foregroundStyle(MetasequoiaTheme.sub)
-              Image(systemName: "arrow.up.right").font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(MetasequoiaTheme.sub.opacity(0.55)).accessibilityHidden(true)
+              DesignExternalLinkIcon()
             }
             .padding(.vertical, 8)
             .padding(.horizontal, 20)

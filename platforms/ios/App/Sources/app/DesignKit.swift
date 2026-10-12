@@ -197,6 +197,16 @@ struct DesignChevron: View {
   }
 }
 
+/// Shared trailing icon for links that leave the current settings surface.
+struct DesignExternalLinkIcon: View {
+  var body: some View {
+    Image(systemName: "arrow.up.right")
+      .font(.system(size: 13, weight: .semibold))
+      .foregroundStyle(MetasequoiaTheme.sub.opacity(0.55))
+      .accessibilityHidden(true)
+  }
+}
+
 /// 推入新页面的行的标签：可选的 29pt 图标框、标题和副标题、可选的值，以及箭头。放在 `NavigationLink` 里并加上 `.buttonStyle(PressFillButtonStyle())`。
 struct DesignNavRowLabel: View {
   let title: String
