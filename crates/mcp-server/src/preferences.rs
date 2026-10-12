@@ -289,6 +289,8 @@ pub struct PreferencesView {
     pub input_mode_hud: bool,
     /// 在候选窗和悬浮工具栏左端显示水杉 logo（macOS 和 Windows；其他宿主始终显示，没有这个开关）。
     pub show_app_logo: bool,
+    /// 候选窗显示页码（Linux 是辅助文本里的当前页/总页数，macOS 是首行的「1 / 3」和 ‹ › 翻页按钮）；关闭后键盘和滚轮照常翻页。
+    pub show_candidate_page_number: bool,
     pub fuzzy_pinyin: bool,
     /// The mode a newly focused text field starts in.
     pub default_ime_mode: StartMode,
@@ -341,6 +343,7 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             number_row_selection: preferences.number_row_selection,
             input_mode_hud: preferences.input_mode_hud,
             show_app_logo: preferences.show_app_logo,
+            show_candidate_page_number: preferences.show_candidate_page_number,
             fuzzy_pinyin: preferences.fuzzy_pinyin.enabled,
             default_ime_mode: preferences.default_ime_mode.into(),
             app_input_mode_rules: preferences
@@ -393,6 +396,7 @@ pub struct PreferencesChange {
     pub number_row_selection: Option<bool>,
     pub input_mode_hud: Option<bool>,
     pub show_app_logo: Option<bool>,
+    pub show_candidate_page_number: Option<bool>,
     /// Turning fuzzy pinyin on for the first time also turns on every fuzzy rule, as the settings page does.
     pub fuzzy_pinyin: Option<bool>,
     pub default_ime_mode: Option<StartMode>,
@@ -432,6 +436,7 @@ impl PreferencesChange {
             && self.number_row_selection.is_none()
             && self.input_mode_hud.is_none()
             && self.show_app_logo.is_none()
+            && self.show_candidate_page_number.is_none()
             && self.fuzzy_pinyin.is_none()
             && self.default_ime_mode.is_none()
             && self.app_input_mode_rules.is_none()
@@ -491,6 +496,9 @@ impl PreferencesChange {
         }
         if let Some(value) = self.show_app_logo {
             preferences.show_app_logo = value;
+        }
+        if let Some(value) = self.show_candidate_page_number {
+            preferences.show_candidate_page_number = value;
         }
         if let Some(value) = self.fuzzy_pinyin {
             preferences.fuzzy_pinyin.enabled = value;
@@ -1052,6 +1060,27 @@ mod tests {
             ..change(updated.revision)
         };
         assert!(update(directory.path(), &options, Edition::full(), &invalid).is_err());
+    }
+
+    /// 页码开关默认开着，代理能关掉它，写进共享偏好的就是宿主读的 `show_candidate_page_number`（#7316）。
+    #[test]
+    fn the_page_number_switch_is_read_and_written() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
+        let before = load(directory.path(), Edition::full()).unwrap();
+        assert!(before.show_candidate_page_number);
+
+        let hidden: PreferencesChange = serde_json::from_value(json!({
+            "expected_revision": before.revision,
+            "show_candidate_page_number": false,
+        }))
+        .unwrap();
+        assert!(!hidden.is_empty());
+        let updated = update(directory.path(), &options, Edition::full(), &hidden).unwrap();
+        assert!(!updated.show_candidate_page_number);
+        let stored = PreferencesStore::new(directory.path()).load().unwrap();
+        assert!(!stored.preferences.show_candidate_page_number);
     }
 
     /// 代理只能开关游戏里的候选窗，用户写下的两张进程表原样保留。
