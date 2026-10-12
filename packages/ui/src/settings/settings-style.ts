@@ -4,6 +4,8 @@
  * panel launchers, and the desktop window chrome.
  */
 
+import { compactFieldLabel } from "../core/form-style";
+
 /*
  * The window each platform draws around the pages. The `--p-*` tokens the root's `data-platform` selects (see `theme/platform-tokens.ts`) carry the colours and type the platforms share a name for; the `win:` / `mac:` / `linux:` / `hm2:` variants declared in styles.css reach the rest -- widths, paddings and the few surfaces the design colours for one platform only.
  */
@@ -174,7 +176,7 @@ export const managerActions = "flex flex-wrap gap-1.5 [&_.secondary]:mt-0 [&_.pr
 export const importPreview =
   "flex max-h-70 flex-col gap-[7px] overflow-y-auto rounded-lg border border-edge bg-raised px-3 py-2.5 [&>span]:text-xs [&>span]:text-muted [&>div]:flex [&>div]:flex-col [&>div]:gap-0.5 [&>div]:border-t [&>div]:border-[var(--divider-color)] [&>div]:pt-[7px] [&>div_span]:wrap-anywhere [&_code]:text-[11px] [&_code]:text-muted";
 
-export const field = "flex flex-col gap-[5px] text-xs text-secondary";
+export const field = compactFieldLabel;
 export const fieldInput =
   "min-w-25 rounded-md border border-edge bg-[var(--dropdown-bg)] px-2 py-1.5 text-body";
 export const fieldSelect = `${fieldInput} min-w-[150px]`;

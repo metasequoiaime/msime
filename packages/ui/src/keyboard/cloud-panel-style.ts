@@ -7,6 +7,8 @@
  * difference visible instead of leaving it to be rediscovered from hex codes further down a file.
  */
 
+import { compactFieldLabel } from "../core/form-style";
+
 // ---- cloud clipboard: its own dark chrome, like the emoji panel beside it ----
 
 const clipText = "text-[#f5f5f7]";
@@ -63,7 +65,7 @@ export const dictionaryBody =
   "flex min-h-[calc(100vh-38px)] flex-col gap-3.5 overflow-y-auto px-6 py-[22px]";
 export const dictionaryNote = "m-0 text-xs text-muted";
 /** A labelled field: caption above, control below, as every toolbar and form row here is built. */
-export const dictionaryField = "flex flex-col gap-[5px] text-xs text-secondary";
+export const dictionaryField = compactFieldLabel;
 export const dictionaryInput =
   "min-w-[120px] rounded-[7px] border border-edge bg-[var(--dropdown-bg)] px-[9px] py-[7px] text-body";
 export const dictionaryButton =
