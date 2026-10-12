@@ -33,10 +33,10 @@ const TEXT_BUFFER: usize = MAX_TEXT + 4;
 const OUT_BUFFER: usize = MAX_UNITS * 4 + 4;
 /// 一次投递的工作量预算，单位约等于 fuel。各项单价按 rustc 1.97.1、wasmi 2.0 实测取整、往高里取，所以实际花费不超过预算；`candidates` 单次上限是 125 000，同一个按键里的几次投递共用一份，这里留在 40 000 以内。正常的窗口（20 行、每行几个字）用不完。
 const WORK_BUDGET: u32 = 34_000;
-/// 每一行的固定开销：读文本、解码的入口、行循环和最后的注释循环。
+/// 每一行的固定开销：读文本（超过 128 字节、宿主返回 LIMIT 的行也算）、解码的入口、行循环和最后的注释循环。
 const ROW_COST: u32 = 360;
-/// 每个字：解码、查表、写出逐字转换的结果。下标是压缩值的第 20..23 位，即 `慢路径 | 字节数 << 1`：ASCII（2）约 97，U+3400..U+FDFF 的三字节字符（6）约 230，其余三字节字符（7）约 290，两字节字符（5）约 400，四字节字符（9）约 435。
-const CHAR_COSTS: [u32; 16] = [0, 0, 100, 0, 0, 420, 240, 300, 0, 460, 0, 0, 0, 0, 0, 0];
+/// 每个字：解码、查表、写出逐字转换的结果。下标是压缩值的第 20..23 位，即 `慢路径 | 字节数 << 1`，单价取同一下标里最贵的那条路径：ASCII（2）约 101；U+3400..U+FDFF 的三字节字符（6）约 235；其余三字节字符（7）走 [`outside`] 的快速区间约 294（全角标点），落进 [`kana_mark`] 约 317（注音符号、「・」），落进 [`forbidden_mark`] 约 427（“”‘’…— 这类通用标点、泰文等）；两字节字符（5）快速区间约 405（é），否则约 538（©、阿拉伯字母）；四字节字符（9）查表约 413、快速区间约 405，否则约 538。
+const CHAR_COSTS: [u32; 16] = [0, 0, 110, 0, 0, 560, 245, 440, 0, 560, 0, 0, 0, 0, 0, 0];
 /// 有注释的行：读来源、交给宿主、写进日志。
 const ANNOTATION_COST: u32 = 450;
 /// 有在词组里会变的字的多字候选：准备词组匹配（每个字一份）。
@@ -200,13 +200,14 @@ fn charge(work_left: &mut u32, cost: u32) -> bool {
 /// 读第 `row` 行，逐字查表并写出逐字转换的结果；有单字表的键时交给 [`finish_row`]。
 #[inline(never)]
 fn process_row(state: &mut State, row: usize) -> u8 {
+    // 先扣再读：超过 128 字节的行（宿主返回 LIMIT）也要一次宿主调用，同样算一行的开销。
+    if !charge(&mut state.work_left, ROW_COST) {
+        return SPENT;
+    }
     let len = match candidates::bytes(row as u32, &mut state.text[..MAX_TEXT]) {
         Ok(text) => text.len(),
         Err(error) => return failure(error),
     };
-    if !charge(&mut state.work_left, ROW_COST) {
-        return SPENT;
-    }
     match scan(
         &state.text,
         len,
