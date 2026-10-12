@@ -136,6 +136,9 @@ constexpr jsize kCreateOptionsLimit = 1 * 1024 * 1024;
 constexpr jsize kMobileClipboardHistoryRequestLimit = 524288;
 // 与 msime_client_cloud_clipboard_e2e 的上限一致：继续一步的请求带着一整页密文响应。
 constexpr jsize kCloudClipboardE2eRequestLimit = 2 * 1024 * 1024;
+// 与 msime_client_cloud_clipboard_source、msime_client_relay_cloud_clipboard 和 msime_client_relay_cloud_clipboard_exchange 写在头文件里的上限一致。
+constexpr jsize kCloudClipboardSourceDirectoryLimit = 16384;
+constexpr jsize kCloudClipboardRelayRequestLimit = 131072;
 constexpr jsize kVocabularyReviewRequestLimit = 8 * 1024 * 1024;
 constexpr jsize kPrepareHostRequestLimit = 16384;
 constexpr jsize kSavePreferencesDirectoryLimit = 16384;
@@ -339,6 +342,18 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_mobileClipboard
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_cloudClipboardE2eRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kCloudClipboardE2eRequestLimit,
         msime_client_cloud_clipboard_e2e);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_cloudClipboardSourceRaw(JNIEnv *env, jclass, jbyteArray directory) {
+    return bounded_request(env, directory, kCloudClipboardSourceDirectoryLimit,
+        msime_client_cloud_clipboard_source);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_cloudClipboardRelayRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kCloudClipboardRelayRequestLimit,
+        msime_client_relay_cloud_clipboard);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_cloudClipboardRelayExchangeRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kCloudClipboardRelayRequestLimit,
+        msime_client_relay_cloud_clipboard_exchange);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_doubaoDecodeFrameRaw(JNIEnv *env, jclass, jbyteArray frame) {
     if (!frame) return response(env, msime_client_doubao_decode_frame(nullptr, 0));

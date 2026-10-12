@@ -15,6 +15,7 @@ import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.FutureTask;
 import javax.net.ssl.HttpsURLConnection;
+import org.json.JSONException;
 import org.json.JSONObject;
 import app.msime.android.clipboard.CloudClipboardTextPolicy;
 
@@ -859,7 +860,12 @@ public final class BackendAccount {
         requireSession(session, expectedSessionId);
         if (session.token().isEmpty() || !validClipboardSearch(search))
             throw new IllegalStateException("invalid clipboard request");
-        JSONObject response = new JSONObject(runClipboard(local, CloudClipboardE2e.Operation.list(search), session));
+        return clipboardPage(runClipboard(local, CloudClipboardE2e.Operation.list(search), session));
+    }
+
+    /** 驱动 `list` 的结果（经自建中继时形状相同，见 {@link CloudClipboardRelay}）读成键盘要的那一页；形状不对时抛出。 */
+    static ClipboardPage clipboardPage(String json) throws JSONException {
+        JSONObject response = new JSONObject(json);
         org.json.JSONArray values = response.optJSONArray("items");
         JSONObject e2e = response.optJSONObject("e2e");
         if (values == null || values.length() > 50 || e2e == null)
@@ -916,7 +922,12 @@ public final class BackendAccount {
         requireSession(session, expectedSessionId);
         if (session.token().isEmpty() || !CloudClipboardTextPolicy.valid(text))
             throw new IllegalStateException("invalid clipboard request");
-        JSONObject item = new JSONObject(runClipboard(local, CloudClipboardE2e.Operation.add(text), session));
+        return clipboardItem(runClipboard(local, CloudClipboardE2e.Operation.add(text), session));
+    }
+
+    /** 驱动 `add` 的结果（经自建中继时形状相同）：新上传的那一条；形状不对时抛出。 */
+    static ClipboardItem clipboardItem(String json) throws JSONException {
+        JSONObject item = new JSONObject(json);
         String id = optionalStringField(item.opt("id"), "");
         String returnedText = optionalStringField(item.opt("text"), "");
         String updated = optionalStringField(item.opt("updated_at"), "");

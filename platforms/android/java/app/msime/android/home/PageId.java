@@ -68,7 +68,7 @@ public enum PageId {
         "在电脑上打开", "复制链接", "电脑", "发送链接", "Windows", "macOS", "Linux", "HarmonyOS", "手机和平板",
         "iOS", "iPadOS", "Android"),
     CLOUD_CLIPBOARD("CloudClipboardPage", "云剪贴板", HostDeepLink.TAB_ACCOUNT,
-        "保留时长", "最近", "清空"),
+        "保留时长", "最近", "清空", "云剪贴板同步方式", "同步方式", "自建中继", "中继地址", "中继令牌"),
     CLIPBOARD_EDIT("ClipboardEditPage", "编辑剪贴板记录", HostDeepLink.TAB_SETTINGS),
     CLIPBOARD_SEARCH("ClipboardSearchPage", "剪贴板历史", HostDeepLink.TAB_SETTINGS,
         "搜索剪贴板", "剪贴板记录", "复制过的文字"),

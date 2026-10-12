@@ -1,17 +1,15 @@
 //! Cloud clipboard requests over the account session, for every Tauri host that holds one.
 //!
-//! iOS 和 Android 只经账号会话答这个页面；三个桌面外壳在 provider socket、自建中继和输入法原生会话都没有答复时才退回账号会话。分派本身在 `msime_host_api::cloud_clipboard::account_request`，Windows 原生设置窗口也经 C ABI 调用它；这里只是带上本目标 `AccountState` 持有的会话，把它挪出异步运行时。
+//! iOS 和 Android 只经账号会话答这个页面，共享偏好里配置了自建中继时一律拒绝（[`require_no_relay`]）；三个桌面外壳在 provider socket、自建中继和输入法原生会话都没有答复时才退回账号会话。分派本身在 `msime_host_api::cloud_clipboard::account_request`，Windows 原生设置窗口也经 C ABI 调用它；这里只是带上本目标 `AccountState` 持有的会话，把它挪出异步运行时。
 //!
 //! 列表、上传和设备管理（`devices`、`approve`、`reject`、`remove`、`reset`）经端到端加密驱动，结果形状见 `docs/cloud-clipboard-e2e.md` 的「共享面板的动作」；驱动给出的错误码（例如 `clipboard_device_pending`）原样作为 `CommandError` 的 `code` 交给面板。
 
 use msime_client_core::account::{AccountApi, AccountSessionStorage, BackendAccountSession};
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use msime_client_core::{clipboard_relay::RelayConfig, preferences::PreferencesStore};
 use serde_json::Value;
 use std::sync::Arc;
 
 /// 共享偏好里配置的自建中继（`docs/cloud-clipboard-relay.md`）；没有配置时为 `None`。偏好读不了时是 `storage`，配置不合规时是 `relay_not_configured`。不联网。
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) fn configured_relay(
     store: &PreferencesStore,
 ) -> Result<Option<RelayConfig>, crate::CommandError> {
@@ -20,6 +18,17 @@ pub(crate) fn configured_relay(
         .map_err(|_| crate::CommandError { code: "storage" })?;
     RelayConfig::from_preferences(&snapshot.preferences.cloud_clipboard_relay)
         .map_err(|error| crate::CommandError { code: error.code() })
+}
+
+/// 只能经水杉账号答云剪贴板的外壳（iOS、Android 的 Tauri 工程）在发出每个请求之前调用：共享偏好里配置了自建中继时拒绝，错误码 `relay_unsupported`；读不出偏好或中继配置不合规时同样拒绝（`storage`、`relay_not_configured`）。用户选了中继，内容就不能发往水杉账号的服务。这两个外壳不经中继答：Android 的中继由原生宿主跑，密钥串经 AndroidKeyStore 加密保存，这个进程里没有那份密钥串，也不该另存一份明文的。不联网。
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+pub(crate) fn require_no_relay(store: &PreferencesStore) -> Result<(), crate::CommandError> {
+    match configured_relay(store)? {
+        Some(_) => Err(crate::CommandError {
+            code: "relay_unsupported",
+        }),
+        None => Ok(()),
+    }
 }
 
 /// 经自建中继答一个云剪贴板动作，`directory` 是本机放中继密钥串的目录。会联网，只在阻塞线程上调用。
@@ -449,8 +458,29 @@ mod tests {
         assert!(fixture.calls.lock().unwrap().is_empty());
     }
 
+    /// 只经账号答的外壳：没配置中继时放行；配置了中继、或中继配置读不出时一律拒绝，不会退回账号。
+    #[test]
+    fn account_only_shells_refuse_while_a_relay_is_configured() {
+        use super::require_no_relay;
+        use msime_client_core::preferences::PreferencesStore;
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        assert_eq!(require_no_relay(&store).map_err(|error| error.code), Ok(()));
+        let mut preferences = store.load().unwrap().preferences;
+        preferences.cloud_clipboard_relay.url = "https://relay.example.test/msime".into();
+        preferences.cloud_clipboard_relay.token = "synthetic-relay-token".into();
+        store.save(0, preferences).unwrap();
+        assert_eq!(
+            require_no_relay(&store).map_err(|error| error.code),
+            Err("relay_unsupported")
+        );
+        // 偏好文件坏了读不出来：不知道用户选的是哪条路，同样不发。
+        std::fs::write(directory.path().join("preferences.json"), b"{").unwrap();
+        assert!(require_no_relay(&store).is_err());
+    }
+
     /// 中继按共享偏好选路：没配置时为 `None`，交给账号；配置了就给出规范化的地址。请求会联网，由 `msime-clipboard-relay` 的端到端测试覆盖。
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     #[test]
     fn the_relay_route_reads_the_shared_preferences() {
         use super::configured_relay;

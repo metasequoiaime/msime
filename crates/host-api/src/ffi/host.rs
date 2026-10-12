@@ -1997,6 +1997,46 @@ pub unsafe extern "C" fn msime_client_relay_cloud_clipboard(
     })
 }
 
+/// 向宿主给出的中继发端到端加密驱动给出的一个请求，答 `{status, body}`。不读偏好、不读写密钥串，会联网，格式见头文件。
+/// # Safety
+/// `request` 指向 `length` 个可读的 JSON 字节，空指针会被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_relay_cloud_clipboard_exchange(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        const INVALID: &str = "invalid_cloud_clipboard";
+        if request.is_null() || length > MAX_DESKTOP_CLIPBOARD_REQUEST_BYTES {
+            return Err(INVALID.into());
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct ExchangeRequest {
+            url: String,
+            token: String,
+            method: String,
+            path: String,
+            #[serde(default)]
+            body: Option<String>,
+        }
+        // SAFETY: 由文档写明的调用方约定保证。
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: ExchangeRequest = serde_json::from_slice(bytes).map_err(|_| INVALID)?;
+        // 地址和令牌按偏好里的同一套规则校验：不是 HTTPS（或本机回环的 HTTP）就不发。
+        let config =
+            msime_client_core::clipboard_relay::RelayConfig::new(&request.url, &request.token)
+                .map_err(|error| error.code().to_owned())?;
+        crate::cloud_clipboard::relay_exchange(
+            config,
+            &request.method,
+            &request.path,
+            request.body.as_deref(),
+        )
+        .map_err(str::to_owned)
+    })
+}
+
 /// 云剪贴板该走哪条路：偏好里配置了中继时是 `relay`，否则是 `account`。不联网。
 /// # Safety
 /// `directory` 必须指向 `length` 个可读字节，空指针会被拒绝。

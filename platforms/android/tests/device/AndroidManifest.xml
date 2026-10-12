@@ -29,6 +29,7 @@
     <instrumentation android:name="app.msime.android.test.AccountStorageDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.CloudClipboardKeystoreDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.CloudClipboardDriverDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.CloudClipboardRelayDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.BackendAccountRefreshDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.ClipboardImageDeviceSmoke" android:targetPackage="app.msime.android" />
     <application android:label="MSIME Editor Fixture" android:allowBackup="false">

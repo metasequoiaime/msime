@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   CLOUD_CLIPBOARD_RELAY_UNAUTHORIZED,
+  CLOUD_CLIPBOARD_RELAY_UNSUPPORTED,
   CLOUD_CLIPBOARD_SIGNED_OUT,
   SettingsPage,
   cloudClipboardAvailabilityNote,
@@ -111,6 +112,16 @@ test("a refused relay token is not read as signed out of the account", () => {
     expect(cloudClipboardFailure({ code })).toBe("unavailable");
     expect(cloudClipboardErrorMessage({ code }, "失败")).not.toBe("失败");
   }
+});
+
+test("a host that refuses the account while a relay is configured says so instead of asking to sign in", () => {
+  // iOS、Android 的 Tauri 工程只能经水杉账号收发，配置了中继时 `cloud_clipboard_request` 答 relay_unsupported。
+  const refused = { code: "relay_unsupported" };
+  expect(cloudClipboardFailure(refused)).toBe("relay_unsupported");
+  expect(cloudClipboardErrorMessage(refused, "失败")).toBe(CLOUD_CLIPBOARD_RELAY_UNSUPPORTED);
+  expect(cloudClipboardAvailabilityNote("relay_unsupported")).toBe(
+    CLOUD_CLIPBOARD_RELAY_UNSUPPORTED,
+  );
 });
 
 function snapshot(preferences: Preferences, revision = 7) {

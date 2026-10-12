@@ -50,8 +50,7 @@ final class NoticeBanner {
                 .put("platform", "android")
                 .put("channel", "app");
             JSONObject root = new JSONObject(NativeClient.notices(request.toString()));
-            JSONObject value = JsonPolicy.strictTrue(root.opt("ok"))
-                ? root.optJSONObject("value") : null;
+            JSONObject value = JsonPolicy.objectValue(root);
             JSONArray items = value == null ? null : value.optJSONArray("items");
             List<Notice> notices = new ArrayList<>(items == null ? 0 : items.length());
             for (int index = 0; items != null && index < items.length(); index++) {

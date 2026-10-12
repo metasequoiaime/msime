@@ -108,7 +108,7 @@ public final class MSIMEInputService extends InputMethodService {
      * composition still holds. This is Apple's `finishComposition`, not `CommitRaw`, so a
      * composition ended this way reaches the editor as 你好 rather than as the pinyin letters.
      */
-    private static final int FINISH_COMPOSITION_COMMAND = 9;
+    static final int FINISH_COMPOSITION_COMMAND = 9;
     /** Shared host command 10 delegates small-kana, dakuten and handakuten cycling to Engine. */
     static final int CYCLE_KANA_VARIANT_COMMAND = 10;
     // 键盘的构建、渲染与扩展点（见各类说明）；onCreate 里创建。
@@ -132,6 +132,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeCalculator imeCalculator;
     ImeEmailSuffixes imeEmailSuffixes;
     ImeTranslationSenses imeTranslationSenses;
+    ImeStylusHandwriting imeStylusHandwriting;
     long session;
     InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
@@ -203,11 +204,11 @@ public final class MSIMEInputService extends InputMethodService {
     CloudClipboardPanelPolicy.Tab clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
     CloudClipboardPanelPolicy.Status cloudClipboardStatus = CloudClipboardPanelPolicy.Status.LOADING;
     java.util.List<BackendAccount.ClipboardItem> cloudClipboardItems = java.util.List.of();
-    /** Account identity that owns the currently displayed cloud rows; empty means no account. */
+    /** 当前画出来的云端条目归谁：水杉账号编号，或者配置了自建中继时中继的绑定（`relay:` 开头，见 CloudClipboardRelayPolicy#binding）；空串表示没有。 */
     String cloudClipboardAccountId = "";
-    /** Binding lineage that owns the currently displayed cloud rows. */
+    /** 账号的登录代次；中继为 0。 */
     long cloudClipboardBindingGeneration = -1L;
-    /** Backend session that supplied the current cloud page; uploads stay on this session. */
+    /** 供出当前这一页的账号会话（中继时是中继的绑定）；上传只发给它。 */
     String cloudClipboardSessionId = "";
     // Bumped whenever the field or the open panel changes; a cloud answer started under an older value is dropped rather than drawn into a field it was not fetched for.
     long cloudClipboardGeneration;
@@ -406,7 +407,7 @@ public final class MSIMEInputService extends InputMethodService {
     private String shuangpinHintsProfile = "";
     private java.util.Map<String, String> shuangpinHints = java.util.Map.of();
     /** 本包所属的版本：键盘只列出本版本提供的方案入口，偏好里的方案本版本没有时回退到本版本的默认方案。 */
-    private final AppEdition edition = AppEdition.current();
+    final AppEdition edition = AppEdition.current();
     /** 空闲时候选栏左侧显示的产品名，取自本版本的应用名（full 是「水杉输入法」，五笔版是「水杉五笔」）。 */
     private String productName = "";
     KeyboardScheme selectedScheme = KeyboardScheme.fallback(edition);
@@ -1400,6 +1401,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeCalculator = new ImeCalculator(this);
         imeEmailSuffixes = new ImeEmailSuffixes(this);
         imeTranslationSenses = new ImeTranslationSenses(this);
+        imeStylusHandwriting = new ImeStylusHandwriting(this, HANDWRITING_DEBOUNCE_MILLIS);
         // 必须在 super.onCreate() 之前：InputMethodService 在那里按这个主题建输入法窗口，之后再设会抛异常。按名字查是因为 core/ 要能脱离 Gradle 生成的 R 编译（check-host.sh 的 JVM 冒烟）；res/values/themes.xml 说明了这个主题为什么存在。
         // 五笔、拼音等版本的 applicationId 带后缀，资源表的包名仍是命名空间，两个都试。
         int theme = getResources().getIdentifier("Theme.MSIME.InputMethod", "style", getPackageName());
@@ -1472,6 +1474,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeEmailSuffixes.clear();
         imeTranslationSenses.clear();
         translationConsumedKeyCode = -1;
+        imeStylusHandwriting.inputFinished();
         // 也覆盖 onFinishInputView(true)：那条路径不经过 finishInputViewPresentation。
         imeVoiceEntry.cancel();
         stop(true);
@@ -1616,6 +1619,7 @@ public final class MSIMEInputService extends InputMethodService {
         clearClipboardImages();
         clipboardImageWorker.shutdown();
         imeVoiceEntry.shutdown();
+        imeStylusHandwriting.shutdown();
         imeKeyFeedback.shutdown();
         imeLayoutRows.shutdown();
         imeDebugOverlay.shutdown();
@@ -1631,6 +1635,25 @@ public final class MSIMEInputService extends InputMethodService {
         super.onDestroy();
     }
     @Override public boolean onEvaluateFullscreenMode() { return false; }
+
+    @Override public void onPrepareStylusHandwriting() {
+        imeStylusHandwriting.prepare();
+    }
+
+    /** 用户拿手写笔在输入框上写字，系统问要不要接（Android 14 起，#7080）；接不接见 {@link StylusHandwritingPolicy#start}。 */
+    @Override public boolean onStartStylusHandwriting() {
+        return imeStylusHandwriting.start();
+    }
+
+    /** 笔的事件直接交给墨迹视图（原因见 {@link StylusInkView}）；仍交给系统默认实现，它在落笔时排上「闲置五分钟回收书写窗口」的计时，派发到视图的那份视图不处理。 */
+    @Override public void onStylusHandwritingMotionEvent(android.view.MotionEvent event) {
+        imeStylusHandwriting.motion(event);
+        super.onStylusHandwritingMotionEvent(event);
+    }
+
+    @Override public void onFinishStylusHandwriting() {
+        imeStylusHandwriting.finished();
+    }
 
     /**
      * 接着实体键盘时系统按「使用实体键盘时显示虚拟键盘」决定显不显示输入法窗口。关着时系统不显示，组词的候选就无处可看：走引擎的输入框照样显示窗口，但只给候选条（#5584）。
@@ -3053,8 +3076,7 @@ public final class MSIMEInputService extends InputMethodService {
     private JSONObject onlineQuery(long targetSession) {
         try {
             JSONObject envelope = new JSONObject(NativeClient.onlineQuery(targetSession));
-            return JsonPolicy.strictTrue(envelope.opt("ok"))
-                ? envelope.optJSONObject("value") : null;
+            return JsonPolicy.objectValue(envelope);
         } catch (JSONException | RuntimeException | LinkageError error) {
             return null;
         }
@@ -3150,8 +3172,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (raw == null) return null;
         try {
             JSONObject envelope = new JSONObject(raw);
-            return JsonPolicy.strictTrue(envelope.opt("ok"))
-                ? envelope.optJSONObject("value") : null;
+            return JsonPolicy.objectValue(envelope);
         } catch (JSONException | RuntimeException error) {
             return null;
         }

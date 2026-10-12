@@ -72,9 +72,7 @@ public final class CandidateTranslationPolicy {
     }
 
     private static boolean insertableGloss(String gloss, List<String> selected) {
-        return !gloss.isEmpty() && !selected.contains(gloss)
-            && TextPolicy.utf8Length(gloss) <= 4096
-            && !TextPolicy.hasControl(gloss) && TextPolicy.validUnicode(gloss);
+        return TextPolicy.boundedNonBlank(gloss, 4096) && !selected.contains(gloss);
     }
 
     /**

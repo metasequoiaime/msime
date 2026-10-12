@@ -104,7 +104,9 @@
         // without it the keyboard sat in that list with a name and no logo.
         "icon": "$media:app_icon",
         "type": "inputMethod",
-        "exported": true
+        "exported": true,
+        // 「输入法应用内数据共享」：与设置应用共用的共享沙箱（context.getGroupDir）。这个 ID 由 AppGallery Connect 签发，签名 Profile 的 data-group-ids 必须带着同一个值，否则 getGroupDir 拿不到目录，两边退回各自的 files/state。代码里的同一个值在 keyboard/SharedStateMirror.ets 的 DATA_GROUP_ID。
+        "dataGroupIds": ["group.1516753898738609107"]
       }
     ]
   }

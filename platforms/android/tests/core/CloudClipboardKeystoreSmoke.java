@@ -10,7 +10,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Stream;
 
-/** 云剪贴板密钥串的文件存储：加密落盘、原子替换、一个安装只有一个设备身份、退出登录删除。AndroidKeyStore 换成可逆的假加密，真加密在设备冒烟里测。 */
+/** 云剪贴板密钥串的文件存储：加密落盘、原子替换、一个安装只有一个设备身份、退出登录删除；自建中继的那份另存一个文件、按中继的绑定区分。AndroidKeyStore 换成可逆的假加密，真加密在设备冒烟里测。 */
 public final class CloudClipboardKeystoreSmoke {
     private static final String IDENTITY_A = "v1." + "A".repeat(43);
     private static final String IDENTITY_B = "v1." + "B".repeat(43);
@@ -21,10 +21,9 @@ public final class CloudClipboardKeystoreSmoke {
         try {
             run(directory);
         } finally {
-            try (Stream<Path> files = Files.list(directory)) {
-                for (Path file : files.toList()) Files.deleteIfExists(file);
+            try (Stream<Path> files = Files.walk(directory)) {
+                for (Path file : files.sorted(java.util.Comparator.reverseOrder()).toList()) Files.deleteIfExists(file);
             }
-            Files.deleteIfExists(directory);
         }
         System.out.println("Android cloud clipboard keystore storage passed");
     }
@@ -103,6 +102,59 @@ public final class CloudClipboardKeystoreSmoke {
                 pool.shutdownNow();
             }
             main.delete();
+        }
+
+        relay(directory, sealer, main);
+    }
+
+    /** 自建中继的密钥串：子目录第一次用到时才建、只有本人能进；只认自己那个中继的内容；换了中继不算身份冲突，直接覆盖；与账号的那份互不相干。 */
+    private static void relay(Path directory, Toy sealer, CloudClipboardKeystore account) throws Exception {
+        boolean refused = false;
+        try {
+            CloudClipboardKeystore.forRelay(directory, "", sealer);
+        } catch (IllegalArgumentException expected) {
+            refused = true;
+        }
+        check(refused, "a relay keystore needs a binding");
+
+        Path keys = directory.resolve("cloud-clipboard-relay");
+        String bindingA = "relay:" + "a".repeat(32);
+        String bindingB = "relay:" + "b".repeat(32);
+        CloudClipboardKeystore settingsA = CloudClipboardKeystore.forRelay(keys, bindingA, sealer);
+        CloudClipboardKeystore keyboardA = CloudClipboardKeystore.forRelay(keys, bindingA, sealer);
+        CloudClipboardKeystore settingsB = CloudClipboardKeystore.forRelay(keys, bindingB, sealer);
+        check(settingsA.load() == null, "nothing is stored for a relay at first");
+        check(java.nio.file.attribute.PosixFilePermissions.toString(Files.getPosixFilePermissions(keys)).equals("rwx------"),
+            "the relay keystore directory is private");
+
+        account.save(IDENTITY_A, null);
+        check(settingsA.load() == null, "the account keystore is not the relay's");
+        account.delete();
+
+        // 这个改动之前 Rust 在同一位置写过明文 JSON：读作没有，第一次保存时被加密的那份替换。
+        Path file = keys.resolve(CloudClipboardKeystore.RELAY_FILE_NAME);
+        Files.writeString(file, "{\"relay\":\"https://relay.example.test\",\"space\":\"00\",\"keystore\":\"" + IDENTITY_B + "\"}");
+        check(settingsA.load() == null, "a plain-text keystore from before is not read");
+        settingsA.save(KEYED_A, null);
+        check(KEYED_A.equals(keyboardA.load()), "the keyboard reads what the settings page wrote for the same relay");
+        String raw = new String(Files.readAllBytes(file), StandardCharsets.ISO_8859_1);
+        check(!raw.contains("AAAA") && !raw.contains("BBBB") && !raw.contains(bindingA) && !raw.contains("keystore"),
+            "the relay keystore and its binding are sealed, the plain-text one is gone");
+
+        check(settingsB.load() == null, "another relay or token reads as absent");
+        settingsB.save(IDENTITY_B, null);
+        check(IDENTITY_B.equals(settingsB.load()), "switching relays stores a new identity without a conflict");
+        check(keyboardA.load() == null, "the old relay's keystore is replaced");
+        try {
+            CloudClipboardKeystore.forRelay(keys, bindingB, sealer).save(IDENTITY_A, null);
+            throw new AssertionError("a second identity for the same relay must be refused");
+        } catch (CloudClipboardE2e.IdentityConflict conflict) {
+            check(IDENTITY_B.equals(conflict.stored), "the relay conflict hands back the stored keystore");
+        }
+        try (Stream<Path> files = Files.list(keys)) {
+            List<String> names = files.map(path -> path.getFileName().toString()).sorted().toList();
+            check(names.equals(List.of(CloudClipboardKeystore.RELAY_FILE_NAME, CloudClipboardKeystore.RELAY_FILE_NAME + ".lock")),
+                "the relay directory holds only its keystore and lock: " + names);
         }
     }
 

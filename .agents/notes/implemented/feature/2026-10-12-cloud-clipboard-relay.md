@@ -32,7 +32,7 @@ Status: implemented
 
 - **收益**：不登录水杉账号也能用云剪贴板，内容和元数据都只在用户自己的中继上；中继拿不到密钥，和官方服务的安全性质相同。协议、客户端和参考中继在同一个仓库里，端到端测试用真实客户端连真实中继。
 - **代价**：中继的密钥串在所有平台上都是应用私有目录里的文件，弱于账号路径在 iOS 上的钥匙串和 Android 上的 AndroidKeyStore 加密。令牌明文在偏好文件里，和语音、翻译的凭据一样靠文件权限保护。协议有两份服务端实现要保持一致。新增依赖 axum 0.8（带进 axum-core、matchit、httpdate），只有参考中继用。
-- **已知缺口（后续改动）**：设置页的中继字段只在 Linux 显示。Windows 的设置窗口是原生 WinUI，要在 `platforms/windows/settings/main.cpp` 画出同步方式、地址和令牌，并按 `msime_client_cloud_clipboard_source` 选用中继的 C ABI；macOS 输入法菜单的「云剪贴板…」未登录时退回原生窗口（`DesktopCloudClipboard.mm`），要在配置了中继时直接打开 Tauri 面板；Linux Fcitx5 键盘的云剪贴板栏只认 provider socket（`FcitxEngine.cpp`），没有 socket 但配置了中继时要改走中继的 C ABI。Android（JNI）、iOS（App Group 容器里的密钥串，并排除备份）、HarmonyOS（NAPI；共享沙箱落地前键盘读不到偏好，只有设置应用能用）和 Tauri 移动端的 `cloud_clipboard_request` 都还没接，设置页因此不在这些宿主上显示中继。账号页里「云剪贴板」入口仍按是否登录显示，Linux 上配置中继后从「剪贴板」页打开面板。PRIVACY.md 的云剪贴板一节已写明中继的数据流向，各平台接入时再补对应平台的说明。
+- **已知缺口（后续改动）**：设置页的中继字段只在 Linux 显示。Windows 的设置窗口是原生 WinUI，要在 `platforms/windows/settings/main.cpp` 画出同步方式、地址和令牌，并按 `msime_client_cloud_clipboard_source` 选用中继的 C ABI；macOS 输入法菜单的「云剪贴板…」未登录时退回原生窗口（`DesktopCloudClipboard.mm`），要在配置了中继时直接打开 Tauri 面板；Linux Fcitx5 键盘的云剪贴板栏只认 provider socket（`FcitxEngine.cpp`），没有 socket 但配置了中继时要改走中继的 C ABI。Android 原生宿主已经经 JNI 接上，设置页在「我的 → 云剪贴板」，密钥串由宿主用 AndroidKeyStore 加密、请求经只发请求的 `msime_client_relay_cloud_clipboard_exchange`，取舍见 [Android 接入自建中继](2026-10-12-android-cloud-clipboard-relay.md)。iOS（App Group 容器里的密钥串，并排除备份）和 HarmonyOS（NAPI；共享沙箱落地前键盘读不到偏好，只有设置应用能用）还没接，设置页因此不在这些宿主上显示中继；Tauri 移动端的 `cloud_clipboard_request` 在配置了中继时拒绝（`relay_unsupported`），不走账号。账号页里「云剪贴板」入口仍按是否登录显示，Linux 上配置中继后从「剪贴板」页打开面板。PRIVACY.md 的云剪贴板一节已写明中继的数据流向，各平台接入时再补对应平台的说明。
 
 ## Verification
 

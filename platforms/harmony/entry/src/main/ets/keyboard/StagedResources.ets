@@ -171,7 +171,7 @@ export class StagedResources {
   }
 
   /** Replace a live resource tree only after its replacement is complete. */
-  private static replaceDirectory(staging: string, destination: string): void {
+  static replaceDirectory(staging: string, destination: string): void {
     const previous: string = `${destination}.${util.generateRandomUUID(false)}.previous`;
     let moved: boolean = false;
     let installed: boolean = false;

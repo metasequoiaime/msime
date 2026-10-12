@@ -179,7 +179,7 @@ public final class StatisticsFragment extends HomeTabFragment {
                     .put("user_only", true));
             JSONObject root = new JSONObject(NativeClient.dictionary(request.toString()));
             if (!JsonPolicy.strictTrue(root.opt("ok"))) return null;
-            JSONObject value = root.optJSONObject("value");
+            JSONObject value = JsonPolicy.objectValue(root);
             if (value == null || !value.has("count")) return null;
             Long count = JsonPolicy.strictLong(value.opt("count"));
             return count == null ? null : BoundsPolicy.nonNegative(count);

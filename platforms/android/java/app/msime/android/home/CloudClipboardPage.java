@@ -8,20 +8,28 @@ import app.msime.android.ImageViewPolicy;
 import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.graphics.Typeface;
+import android.text.InputType;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
 import app.msime.android.CloudApi;
+import app.msime.android.DeviceNamePolicy;
 import app.msime.android.CloudClipboardApi;
 import app.msime.android.CloudClipboardNativeDriver;
+import app.msime.android.CloudClipboardRelay;
+import app.msime.android.JsonPolicy;
 import app.msime.android.R;
 import app.msime.android.ViewPolicy;
+import app.msime.android.clipboard.CloudClipboardRelayPolicy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.util.List;
 import java.util.concurrent.Callable;
 import app.msime.android.CloudClipboardTimePolicy;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 /**
  * 云剪贴板：主开关与保留时长一张卡；本机等待允许时是本机的核对码和说明；本机能读时依次是「等待允许」的其他设备（允许 / 拒绝）、「最近」列表（文本、置顶 · 设备 · 时间，行尾置顶与删除，右上角「清空」）和「设备」列表（移除、重置）。
@@ -29,20 +37,34 @@ import app.msime.android.CloudClipboardTimePolicy;
  * <p>文案如实写：端到端加密，文字在设备上加密后才上传，水杉云只保存密文，关闭即删除（`docs/cloud-clipboard-e2e.md`）。不用口令：新设备由已有设备允许，允许前两台设备上显示同一串 16 位核对码，让用户核对一致再点。移除设备和重置都会换一把只有本机持有的新密钥、删掉云端全部记录，其他设备都要在本机上重新允许，确认框里写明这一点。保留时长 1 / 7 / 30 天或一直保留，由服务端定期清理过期记录（{@link CloudClipboardApi}）。这一页从不读取系统剪贴板，点一条记录才把它复制过去。
  *
  * <p>只有真实账号有云剪贴板；没有登录时整页只显示一句说明。
+ *
+ * <p>最上面一张卡是「云剪贴板同步方式」：水杉账号，或者用户自建的中继（`docs/cloud-clipboard-relay.md`）。选了中继就只走中继（{@link CloudClipboardRelay}），不需要登录，下面的开关、列表和设备都是中继上的；中继出错也不退回水杉账号。地址和令牌在对话框里填好、校验通过后点「保存」才写进共享偏好（`cloud_clipboard_relay`），规则与共享设置页相同（{@link CloudClipboardRelayPolicy}）；令牌框打开时是空的，不回显已存的令牌。
  */
 public final class CloudClipboardPage extends ReloadingDetailPage {
     private static final String DESCRIPTION = "在你登录的设备之间同步，端到端加密，水杉云只保存密文，关闭即删除";
     private static final String KEY_CHANGE = "云端现有的记录会全部删除，其他设备都要在这台设备上重新允许后才能继续同步。";
+    private static final String RELAY_DESCRIPTION = "在你的设备之间经自建中继同步，端到端加密，中继只保存密文，关闭即删除";
     private static final List<String> RETENTION_LABELS = List.of("1 天", "7 天", "30 天", "一直");
     private record Loaded(CloudClipboardApi api, CloudClipboardApi.Overview overview) {}
+    /** 偏好里的中继：`url` 为空表示走水杉账号；令牌只记有没有，不留在页面上。 */
+    private record Relay(String url, boolean tokenSaved) {
+        boolean configured() { return CloudClipboardRelayPolicy.configured(url); }
+    }
 
     @Nullable private CloudClipboardApi.Overview overview;
     @Nullable private CloudClipboardApi loadedApi;
     private boolean busy;
     private boolean signedOut;
     private long generation;
+    /** 读到的同步方式；还没读到或偏好读不了时为 null，这时不画「同步方式」那张卡。 */
+    @Nullable private Relay relay;
     @Override protected void onContentReady() {
         render();
+    }
+
+    @Override protected boolean shouldReloadWhenVisible() {
+        // 写操作完成后会自行重读；此时抢跑读取可能先于写操作返回，留下旧列表。
+        return !busy;
     }
 
     @Override protected void onContentDestroyed() {
@@ -51,6 +73,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         loadedApi = null;
         busy = false;
         signedOut = false;
+        relay = null;
     }
 
     @Override protected void reload() {
@@ -61,7 +84,17 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         loadedApi = null;
         signedOut = false;
         render();
+        HostTask.run(this, CloudClipboardPage::readRelay, read -> {
+            if (request != generation) return;
+            relay = read;
+            render();
+        });
         NetworkTask.run(this, () -> {
+            // 配置了中继就只走中继，以共享层的判断为准；读不了偏好或中继配置不合规时抛出，不退回水杉账号。
+            if (CloudClipboardRelay.selected(CloudClipboardRelay.preferencesDirectory(application))) {
+                CloudClipboardApi api = new CloudClipboardApi(CloudClipboardRelay.open(application));
+                return new Loaded(api, api.load());
+            }
             CloudApi cloud = new CloudApi(application);
             CloudClipboardApi api = new CloudClipboardApi(
                 cloud.forAccountSession(cloud.currentAccountSessionId()),
@@ -110,9 +143,12 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         });
     }
 
-    /** 失败时给人看的一句话；驱动的错误码在 {@link CloudApi.Failure#code} 里。 */
+    /**
+     * 失败时给人看的一句话；驱动、账号服务或中继的错误码在 {@link CloudApi.Failure#code} 里。先看错误码再看是不是没连上：驱动和中继报的错 `status` 也是 0（例如本机还在等待允许），只按 `status` 会都说成连不上服务器。
+     */
     static String failureMessage(CloudApi.Failure failure, String fallback) {
-        if (failure.network()) return "连不上服务器，请检查网络后重试";
+        String relayMessage = CloudClipboardRelayPolicy.failureMessage(failure.code);
+        if (relayMessage != null) return relayMessage;
         return switch (failure.code) {
             case "clipboard_key_conflict" -> "另一台设备刚刚改了云剪贴板，请稍后再试";
             case "clipboard_device_limit" -> "这个账号登记的设备已满 20 台，请先移除不用的设备";
@@ -120,7 +156,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
             case "clipboard_device_pending" -> "这台设备还在等待允许";
             case "not_found" -> "那台设备已经不在了，请刷新后再试";
             case "session_changed" -> "登录已改变，请重新打开页面";
-            default -> fallback;
+            default -> failure.network() ? "连不上服务器，请检查网络后重试" : fallback;
         };
     }
 
@@ -129,17 +165,20 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         if (target == null) return;
         Context context = target.getContext();
         target.removeAllViews();
+        renderSyncMode(target);
 
         if (signedOut) {
             GroupCard card = GroupCard.add(target, null);
-            card.note("登录水杉账号后，复制的文字可以在你的设备之间同步。" + DESCRIPTION + "。");
+            card.note("登录水杉账号后，复制的文字可以在你的设备之间同步。" + DESCRIPTION
+                + "。不想登录的话，可以在上面把同步方式改成自建中继。");
             return;
         }
 
         CloudClipboardApi.Overview current = overview;
         CloudClipboardApi.Page page = current == null ? null : current.page();
         GroupCard settings = GroupCard.add(target, null).withDividers(Ui.ROW_PADDING_H);
-        GroupCard.Row toggle = settings.toggle("云剪贴板", DESCRIPTION, page != null && page.enabled(), this::setEnabled);
+        GroupCard.Row toggle = settings.toggle("云剪贴板", viaRelay() ? RELAY_DESCRIPTION : DESCRIPTION,
+            page != null && page.enabled(), this::setEnabled);
         toggle.setEnabled(page != null);
 
         LinearLayout retention = LayoutPolicy.row(context);
@@ -173,6 +212,107 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         renderDevices(target, devices);
     }
 
+    /** 「云剪贴板同步方式」：水杉账号或自建中继；选了中继时列出地址和令牌，点了都打开同一个填写框。 */
+    private void renderSyncMode(LinearLayout target) {
+        Relay current = relay;
+        if (current == null) return;
+        GroupCard card = GroupCard.add(target, "云剪贴板同步方式").withDividers(Ui.ROW_PADDING_H);
+        card.nav("同步方式", "自建中继不需要登录水杉账号：内容仍在本机加密，中继只保存密文，新设备照样要在已有设备上核对后允许",
+            current.configured() ? "自建中继" : "水杉账号", () -> pickSyncMode(current));
+        if (!current.configured()) return;
+        card.nav("中继地址", null, shorten(current.url()), () -> editRelay(current));
+        card.nav("中继令牌", null, current.tokenSaved() ? "已填写" : "未填写", () -> editRelay(current));
+        card.footer("云剪贴板现在只经这个中继同步，中继出错时也不会改用水杉账号。换了地址或令牌后，这台设备要在中继上重新登记，并在其他设备上重新允许。");
+    }
+
+    private void pickSyncMode(Relay current) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "云剪贴板同步方式", null);
+        sheet.option("水杉账号", !current.configured(), () -> {
+            if (current.configured()) confirmAccount();
+        });
+        sheet.option("自建中继", current.configured(), () -> {
+            if (!current.configured()) editRelay(current);
+        });
+        sheet.show();
+    }
+
+    /**
+     * 填写中继地址和令牌。两项都按共享规则当场检查，不合规时在输入框下说明原因并禁用「保存」。已经配置过中继时令牌框可以留空，表示保留已存的令牌。
+     */
+    private void editRelay(Relay current) {
+        boolean keepToken = current.configured() && current.tokenSaved();
+        InputDialog dialog = new InputDialog(requireContext(), "自建中继",
+            "例如 https://relay.example.com/msime。必须是 HTTPS，证书要由公网信任的机构签发（自签证书和私有 CA 连不上）；HTTP 只用于本机测试（127.0.0.1）。令牌由中继管理员生成，每个令牌对应中继上一份独立的云剪贴板；它只存在本机，不随设置导出或账号同步。");
+        EditText url = dialog.addField("中继地址", current.url(),
+            InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        EditText token = dialog.addField(keepToken ? "中继令牌（留空保持不变）" : "中继令牌", "",
+            InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        dialog.setValidator(values -> {
+            String urlProblem = CloudClipboardRelayPolicy.urlProblem(values.get(0));
+            String tokenProblem = keepToken && values.get(1).isEmpty()
+                ? null : CloudClipboardRelayPolicy.tokenProblem(values.get(1));
+            url.setError(values.get(0).isEmpty() ? null : urlProblem);
+            token.setError(values.get(1).isEmpty() ? null : tokenProblem);
+            return urlProblem == null && tokenProblem == null;
+        });
+        dialog.setPrimary("保存", values -> KeyboardSheets.save(this, preferences -> {
+            String address = values.get(0);
+            String secret = values.get(1);
+            if (secret.isEmpty() && keepToken) {
+                JSONObject saved = preferences.optJSONObject(CloudClipboardRelayPolicy.PREFERENCE);
+                secret = saved == null ? "" : JsonPolicy.strictStringOrEmpty(saved.opt("token"));
+            }
+            if (CloudClipboardRelayPolicy.urlProblem(address) != null
+                    || CloudClipboardRelayPolicy.tokenProblem(secret) != null)
+                throw new JSONException("cloud clipboard relay is not valid");
+            preferences.put(CloudClipboardRelayPolicy.PREFERENCE,
+                new JSONObject().put("url", address).put("token", secret));
+        }, () -> {
+            MsToast.show(requireContext(), "已保存，云剪贴板改走自建中继");
+            reload();
+        }, this::reload));
+        dialog.show();
+    }
+
+    /** 改回水杉账号：清掉偏好里的中继地址和令牌，中继上的内容和本机的中继密钥串都不动。 */
+    private void confirmAccount() {
+        new MaterialAlertDialogBuilder(requireContext())
+            .setTitle("改回水杉账号？")
+            .setMessage("会清除本机保存的中继地址和令牌，中继上的内容不受影响。之后云剪贴板经水杉账号同步，要登录才能用。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("改回", (dialog, which) -> KeyboardSheets.save(this,
+                preferences -> preferences.remove(CloudClipboardRelayPolicy.PREFERENCE), () -> {
+                    MsToast.show(requireContext(), "已改回水杉账号");
+                    reload();
+                }, this::reload))
+            .show();
+    }
+
+    /** 偏好里的中继；偏好读不了时为 null。读文件，在工作线程上调用。 */
+    @Nullable private static Relay readRelay(Context context) {
+        JSONObject preferences = KeyboardSheets.preferences(context);
+        if (preferences == null) return null;
+        JSONObject saved = preferences.optJSONObject(CloudClipboardRelayPolicy.PREFERENCE);
+        if (saved == null) return new Relay("", false);
+        return new Relay(JsonPolicy.strictStringOrEmpty(saved.opt("url")),
+            !JsonPolicy.strictStringOrEmpty(saved.opt("token")).isEmpty());
+    }
+
+    /** 下面的开关、列表和设备是不是中继上的；同步方式还没读到时按水杉账号的说法。 */
+    private boolean viaRelay() {
+        Relay current = relay;
+        return current != null && current.configured();
+    }
+
+    /** 存内容的那一方，写进说明和确认框。 */
+    private String store() {
+        return viaRelay() ? "中继" : "水杉云";
+    }
+
+    private static String shorten(String value) {
+        return value.length() <= 32 ? value : value.substring(0, 31) + "…";
+    }
+
     /** 本机还没被允许：本机的核对码、去哪里允许，以及没有其他设备可用时的「重置」。 */
     private void renderWaiting(LinearLayout target, Context context, CloudClipboardApi.Devices devices) {
         GroupCard card = GroupCard.add(target, "这台设备等待允许").withDividers(Ui.ROW_PADDING_H);
@@ -199,7 +339,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
             ViewPolicy.setCenteredVertically(row);
             ViewPolicy.setPaddingDp(context, row, 16, 12, 12, 12);
             LinearLayout texts = LayoutPolicy.column(context);
-            texts.addView(ViewPolicy.styledLabel(context, deviceName(device), 15, 500, ThemeColorPolicy.text(context)));
+            texts.addView(ViewPolicy.styledLabel(context, DeviceNamePolicy.display(device.name()), 15, 500, ThemeColorPolicy.text(context)));
             String when = CloudClipboardTimePolicy.relative(device.createdAt());
             if (!when.isEmpty()) {
                 TextView meta = ViewPolicy.styledLabel(context, when + "申请", 12, 400, ThemeColorPolicy.subText(context));
@@ -211,9 +351,9 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
             codeParams.topMargin = DimensionPolicy.pixels(context, 4);
             texts.addView(codeLabel(context, device.code(), 15), codeParams);
             row.addView(texts, LayoutPolicy.weightedWrapParams(1f));
-            row.addView(HomeButtonPolicy.tonalButton(context, "拒绝", "拒绝" + deviceName(device), 500,
+            row.addView(HomeButtonPolicy.tonalButton(context, "拒绝", "拒绝" + DeviceNamePolicy.display(device.name()), 500,
                 () -> reject(device)), LayoutPolicy.rowGapParams(context, 8));
-            row.addView(HomeButtonPolicy.tonalButton(context, "允许", "允许" + deviceName(device), 500,
+            row.addView(HomeButtonPolicy.tonalButton(context, "允许", "允许" + DeviceNamePolicy.display(device.name()), 500,
                 () -> confirmApprove(device)), LayoutPolicy.rowGapParams(context, 8));
             card.addView(row);
         }
@@ -268,16 +408,12 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
             String when = CloudClipboardTimePolicy.relative(device.createdAt());
             String subtitle = "核对码 " + device.code() + (when.isEmpty() ? "" : " · " + when + "加入");
             if (device.current()) {
-                card.value(deviceName(device), subtitle, "本机");
+                card.value(DeviceNamePolicy.display(device.name()), subtitle, "本机");
             } else {
-                card.button(deviceName(device), subtitle, "移除", () -> confirmRemove(device));
+                card.button(DeviceNamePolicy.display(device.name()), subtitle, "移除", () -> confirmRemove(device));
             }
         }
         card.button("重置云剪贴板", "换一把新密钥，所有设备重新允许", "重置", this::confirmReset);
-    }
-
-    private static String deviceName(CloudClipboardApi.Device device) {
-        return device.name().isEmpty() ? "未知设备" : device.name();
     }
 
     /** 核对码用等宽字显示，读屏逐位念。 */
@@ -345,7 +481,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
 
     /** 「已置顶 · 设备 · 时间」，没有的部分省掉。 */
     private static String meta(CloudClipboardApi.Item item) {
-        String when = relative(item.updatedAt());
+        String when = CloudClipboardTimePolicy.relative(item.updatedAt());
         int capacity = (item.pinned() ? 3 : 0) + item.device().length() + when.length() + 6;
         StringBuilder out = new StringBuilder(capacity);
         if (item.pinned()) out.append("已置顶");
@@ -361,10 +497,6 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     }
 
     /** 刚刚、N 分钟前、N 小时前、昨天，再早就写月日。读不出时间时为空。 */
-    static String relative(String timestamp) {
-        return CloudClipboardTimePolicy.relative(timestamp);
-    }
-
     private void setEnabled(boolean enabled) {
         CloudClipboardApi api = loadedApi;
         if (api == null) return;
@@ -374,7 +506,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         }
         new MaterialAlertDialogBuilder(requireContext())
             .setTitle("关闭云剪贴板？")
-            .setMessage("关闭后，保存在水杉云上的全部记录都会删除，所有设备的登记也一起删除，再次开启时其他设备要重新允许。")
+            .setMessage("关闭后，保存在" + store() + "上的全部记录都会删除，所有设备的登记也一起删除，再次开启时其他设备要重新允许。")
             .setNegativeButton("取消", (dialog, which) -> render())
             .setOnCancelListener(dialog -> render())
             .setPositiveButton("关闭", (dialog, which) -> mutate(() -> { api.setEnabled(false); return null; }, "已关闭"))
@@ -399,9 +531,9 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     private void confirmApprove(CloudClipboardApi.Device device) {
         CloudClipboardApi api = loadedApi;
         if (api == null) return;
-        MessageDialog.confirm(requireContext(), "允许「" + deviceName(device) + "」？",
+        MessageDialog.confirm(requireContext(), "允许「" + DeviceNamePolicy.display(device.name()) + "」？",
             "核对两台设备上的核对码一致再允许：\n\n" + device.code()
-                + "\n\n允许后，那台设备可以读取和上传这个账号的云剪贴板。",
+                + "\n\n允许后，那台设备可以读取和上传" + (viaRelay() ? "这个中继令牌下" : "这个账号") + "的云剪贴板。",
             "允许", () -> mutate(() -> api.approve(device.deviceId()), "已允许"));
     }
 
@@ -414,7 +546,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     private void confirmRemove(CloudClipboardApi.Device device) {
         CloudClipboardApi api = loadedApi;
         if (api == null) return;
-        MessageDialog.confirm(requireContext(), "移除「" + deviceName(device) + "」？",
+        MessageDialog.confirm(requireContext(), "移除「" + DeviceNamePolicy.display(device.name()) + "」？",
             "移除会换一把新的密钥，只交给这台设备。" + KEY_CHANGE,
             "移除", () -> mutate(() -> api.remove(device.deviceId()), "已移除"));
     }

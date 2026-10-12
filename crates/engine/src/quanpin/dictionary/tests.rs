@@ -571,6 +571,94 @@ fn sentence_rows_follow_the_exact_hits_and_precede_longer_phrases() {
 }
 
 #[test]
+fn heavier_longer_phrase_does_not_take_the_first_seat_from_the_exact_reading() {
+    // #7345：打错字了 比 打错字 重，但选它会多上屏一个用户没打的 了，首位必须是读音完全一致的词。
+    let fixture = Fixture::new();
+    fixture
+        .insert("da'cuo'zi", "打错字", 565)
+        .insert("da'cuo'zi", "大错字", 1)
+        .insert("da'cuo'zi'le", "打错字了", 1010);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let listed = query(&mut dictionary, "dacuozi", "da'cuo'zi", NONE);
+    assert_eq!(listed[0].word, "打错字");
+    assert!(
+        position(&listed, "打错字了") < position(&listed, "大错字"),
+        "补全词仍应排在冷僻同音词之前"
+    );
+}
+
+#[test]
+fn light_exact_reading_still_leads_heavier_continuations() {
+    // #7345：都没人 只有 3，后面的 都没人买 都没人管 都没人管理 都在 100 以上。
+    let fixture = Fixture::new();
+    fixture
+        .insert("dou'mei'ren", "都没人", 3)
+        .insert("dou'mei'ren'mai", "都没人买", 129)
+        .insert("dou'mei'ren'guan", "都没人管", 100)
+        .insert("dou'mei'ren'guan'li", "都没人管理", 100);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let listed = query(&mut dictionary, "doumeiren", "dou'mei'ren", NONE);
+    assert_eq!(
+        words(&listed[..4]),
+        ["都没人", "都没人买", "都没人管", "都没人管理"]
+    );
+}
+
+#[test]
+fn sentence_rows_follow_a_light_exact_hit_and_precede_heavier_longer_phrases() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("da'cuo'zi", "打错字", 565)
+        .insert("da'cuo'zi'le", "打错字了", 1010)
+        .insert("da", "大", 1000)
+        .insert("cuo", "错", 1000)
+        .insert("zi", "子", 1000);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    dictionary.set_sentence_alternatives(true);
+    let listed = query(&mut dictionary, "dacuozi", "da'cuo'zi", NONE);
+    assert_eq!(listed[0].word, "打错字");
+    let longer = position(&listed, "打错字了");
+    assert!(longer > 1, "整句块应夹在完整读音词和补全词之间");
+    assert!(listed[1..longer]
+        .iter()
+        .all(|item| item.source == CandidateSource::Generated && item.sentence_association));
+}
+
+#[test]
+fn sentence_leads_longer_phrases_when_no_exact_reading_exists() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("da'cuo'zi'le", "打错字了", 1010)
+        .insert("da", "大", 1000)
+        .insert("cuo", "错", 1000)
+        .insert("zi", "子", 1000);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let listed = query(&mut dictionary, "dacuozi", "da'cuo'zi", NONE);
+    assert!(
+        listed[0].source == CandidateSource::Generated && listed[0].sentence_association,
+        "没有完整读音词时整句应排在补全词之前: {:?}",
+        words(&listed)
+    );
+    assert!(position(&listed, "打错字了") > 0);
+}
+
+#[test]
+fn prefix_only_row_does_not_pin_the_first_seat_over_a_heavier_continuation() {
+    // 没有 zhi'liang'jian 这一行时，同长度查询退到前缀区间，返回的 质量奖 读音是 jiang 而不是键入的 jian，不能被钉在首位压过更重的 质量检验。
+    let fixture = Fixture::new();
+    fixture
+        .insert("zhi'liang'jiang", "质量奖", 10)
+        .insert("zhi'liang'jian'yan", "质量检验", 500);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let listed = query(&mut dictionary, "zhiliangjian", "zhi'liang'jian", NONE);
+    assert!(
+        position(&listed, "质量检验") < position(&listed, "质量奖"),
+        "前缀读音的同长度行应和补全词一起按权重排: {:?}",
+        words(&listed)
+    );
+}
+
+#[test]
 fn sparse_first_syllables_borrow_their_split_readings() {
     let fixture = Fixture::new();
     fixture

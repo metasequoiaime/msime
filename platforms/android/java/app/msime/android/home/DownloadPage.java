@@ -174,7 +174,7 @@ public final class DownloadPage extends DetailPage {
         if (error instanceof CloudApi.Failure failure) {
             if (DownloadLinkApi.noVerifiedEmail(failure)) return "账号还没有验证过的邮箱，请改用「复制链接」";
             if (failure.signedOut()) return "登录后才能发到邮箱，也可以改用「复制链接」";
-            if (failure.status == 429) return "发送得太频繁了，请过一会儿再试";
+            if (failure.rateLimited()) return "发送得太频繁了，请过一会儿再试";
             if (failure.unavailable()) return "暂时不能发送邮件，请改用「复制链接」";
             if (failure.network()) return "连不上服务器，请检查网络后重试";
         }

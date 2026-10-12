@@ -21,21 +21,23 @@ function check(condition: boolean, message: string): void {
 
 console.log("Harmony shared sandbox capability policy");
 
-group("an unsigned or unconfigured build reports the fallback explicitly", () => {
-  const status = HarmonySharedSandboxPolicy.status();
-  check(status.kind === "fallback", "empty group id uses the fallback state directory");
-  check(
-    status.reason === "data-group-id-unconfigured",
-    "the reason identifies the missing capability",
-  );
-  check(!status.available, "the fallback is not reported as shared");
+group("no group directory falls back to the private state directory", () => {
+  for (const directory of [null, ""]) {
+    const status = HarmonySharedSandboxPolicy.status(directory);
+    check(!status.available, "a missing group directory is never reported as shared");
+    check(status.directory === "", "the fallback carries no directory");
+    check(status.reason === "group-directory-unavailable", "the reason is stable for the log");
+  }
 });
 
-group("the current package cannot claim a group id without a signed profile", () => {
-  const status = HarmonySharedSandboxPolicy.status();
-  check(status.kind === "fallback", "the package uses the fallback state directory");
-  check(status.reason === "data-group-id-unconfigured", "the reason is stable for the UI");
-  check(status.available === false, "sharing is never claimed by the unsigned package");
+group("a group directory from getGroupDir is shared", () => {
+  const status = HarmonySharedSandboxPolicy.status("/data/storage/el2/group/synthetic");
+  check(status.available, "the directory is reported as shared");
+  check(
+    status.directory === "/data/storage/el2/group/synthetic",
+    "the directory is passed through",
+  );
+  check(status.reason === "", "an available sandbox has no reason");
 });
 
 console.log(`${checks - failures} checks passed; ${failures} failed`);

@@ -22,7 +22,7 @@ Status: implemented
 - 辅助码方案菜单（Linux IBus / Fcitx5、macOS 与 Windows 原生设置）在辅助码插件生效时显示插件，从菜单选内置方案即清掉该方案的插件选择，与设置页 `helpcode-page.tsx` 的契约一致；macOS 原生设置把缺 `plugins` 或缺键视为没有选插件，与 Rust 省略空值的写法一致。
 - host-api 提供 `msime_client_set_diagnostic_sink`，声音播放器、插件表和辅助码表的运行期失败经它送出，没注册时仍写 stderr；已注册的出口在被替换后仍可能被进行中的报告调用，所以必须在进程内一直可调用。macOS 在启动时注册，只记冒号前的类别（不记包名、路径和错误原文），日志关着时不记，守住 `diagnostic.log` 已写明的隐私约定。
 - macOS 第一次激活时还没有会话的控制器，在会话建好后补一次背景音乐的占用。
-- `docs/plugins.md` 加平台支持表，写明 Android、iOS 没有插件页，鸿蒙键盘目前读不到设置应用导入的包（见 [鸿蒙共享沙箱提案](../../proposed/architecture/2026-10-09-harmony-ime-shared-sandbox.md)）。
+- `docs/plugins.md` 加平台支持表，写明 Android、iOS 没有插件页，鸿蒙键盘目前读不到设置应用导入的包（见 [鸿蒙共享沙箱提案](../../implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md)）。
 
 ## Alternatives considered
 

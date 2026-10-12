@@ -258,6 +258,49 @@ public final class NativeClient {
         return TextPolicy.utf8(cloudClipboardE2eRaw(payload));
     }
 
+    /** 共享 `msime_client_cloud_clipboard_source` 的偏好目录上限。 */
+    public static final int CLOUD_CLIPBOARD_SOURCE_DIRECTORY_LIMIT = 16 * 1024;
+    /** 共享 `msime_client_relay_cloud_clipboard` 和 `msime_client_relay_cloud_clipboard_exchange` 的请求上限。 */
+    public static final int CLOUD_CLIPBOARD_RELAY_REQUEST_LIMIT = 128 * 1024;
+
+    /**
+     * 云剪贴板该走哪条路：`directory` 是共享偏好目录，返回 `{"ok":true,"value":{"source":"relay"|"account"}}`；读不了偏好时 error 是 `storage`，中继配置不合规时是 `relay_not_configured`。只读文件、不联网。
+     *
+     * <p>配置了中继就只走中继，见 {@link CloudClipboardRelay}。
+     */
+    public static String cloudClipboardSource(String directory) {
+        byte[] payload = utf8(directory);
+        if (payload.length > CLOUD_CLIPBOARD_SOURCE_DIRECTORY_LIMIT)
+            throw new IllegalArgumentException("Preferences directory is too long");
+        return TextPolicy.utf8(cloudClipboardSourceRaw(payload));
+    }
+
+    /**
+     * 经自建中继答一个云剪贴板动作：请求是 `{preferences_directory, directory, device_name, action}`，格式和错误码见 `crates/host-api/include/msime_client.h` 与 `docs/cloud-clipboard-relay.md`。
+     *
+     * <p>Android 只用它发不涉及内容、不碰密钥串的动作（开关、置顶、保留、删除、清空）：经它跑端到端加密的动作时 Rust 会把密钥串写成明文文件，Android 的密钥串改由 {@link CloudClipboardRelay} 用 AndroidKeyStore 加密保存，那些动作走 {@link #relayCloudClipboardExchange}。
+     *
+     * <p>阻塞在网络上（每个请求最多 30 秒），只在工作线程上调用，不要在主线程或输入线程上调用。
+     */
+    public static String relayCloudClipboard(String request) {
+        byte[] payload = utf8(request);
+        if (payload.length > CLOUD_CLIPBOARD_RELAY_REQUEST_LIMIT)
+            throw new IllegalArgumentException("Cloud clipboard relay request is too large");
+        return TextPolicy.utf8(cloudClipboardRelayRaw(payload));
+    }
+
+    /**
+     * 向中继发端到端加密驱动给出的一个请求：请求是 `{url, token, method, path, body}`，`url` 和 `token` 是这次操作开始时从偏好里读到的那一份；返回 `{"ok":true,"value":{"status":…,"body":"…"}}`，状态码和正文原样交回驱动。Rust 只负责校验地址和令牌、把请求限定在中继基地址下的云剪贴板接口、带上令牌、限制响应大小，不读偏好、不读写任何密钥串。请求里有令牌，不要写日志。错误码见 `crates/host-api/include/msime_client.h`。
+     *
+     * <p>阻塞在网络上（最多 30 秒），只在工作线程上调用。
+     */
+    public static String relayCloudClipboardExchange(String request) {
+        byte[] payload = utf8(request);
+        if (payload.length > CLOUD_CLIPBOARD_RELAY_REQUEST_LIMIT)
+            throw new IllegalArgumentException("Cloud clipboard relay request is too large");
+        return TextPolicy.utf8(cloudClipboardRelayExchangeRaw(payload));
+    }
+
     /**
      * Decode a Doubao streaming response frame with the shared implementation.
      *
@@ -758,6 +801,9 @@ public final class NativeClient {
         byte[] custom3);
     private static native byte[] mobileClipboardHistoryRaw(byte[] request);
     private static native byte[] cloudClipboardE2eRaw(byte[] request);
+    private static native byte[] cloudClipboardSourceRaw(byte[] directory);
+    private static native byte[] cloudClipboardRelayRaw(byte[] request);
+    private static native byte[] cloudClipboardRelayExchangeRaw(byte[] request);
     private static native byte[] doubaoDecodeFrameRaw(byte[] frame);
     private static native byte[] doubaoStartFrameRaw(boolean itn, boolean punctuation, boolean ddc,
         byte[] boostingTableId);

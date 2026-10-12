@@ -1154,16 +1154,35 @@ final class ImePanels {
         renderClipboardHistory();
     }
 
+    /** 「云端」这一刻归谁：`id` 是水杉账号编号或中继的绑定，`generation` 是账号的登录代次（中继为 0），`relay` 说明走哪条路。 */
+    private record CloudOwner(boolean relay, String id, long generation) {}
+
     /**
-     * Ask the service for this account's cloud list, off the main thread.
+     * 「云端」这一刻归谁。偏好里配置了自建中继时是中继，绑定由地址和令牌算出（{@link CloudClipboardRelay#binding}），不需要登录；否则是水杉账号的登录绑定，读不到时为 null。
+     *
+     * <p>只看内存里的偏好快照，不读文件，主线程上可以调用。快照最多晚一秒（偏好每秒重读一次），所以后台线程真正发请求之前还会再问一次共享层（{@link CloudClipboardRelay#selected}），两边不一致就按失败处理，绝不改走账号。
+     */
+    private CloudOwner cloudClipboardOwner() {
+        JSONObject preferences = s.preferencesSnapshot == null ? null : s.preferencesSnapshot.optJSONObject("preferences");
+        String relay = CloudClipboardRelay.binding(preferences);
+        if (!relay.isEmpty()) return new CloudOwner(true, relay, 0L);
+        app.msime.android.SyncSwitch.Binding binding = SyncSignals.binding(s);
+        return binding == null ? null : new CloudOwner(false, binding.accountId(), binding.generation());
+    }
+
+    /**
+     * Ask the service (or the user's own relay) for the cloud list, off the main thread.
      *
      * <p>The answer is drawn only if the field and the panel are still the ones it was asked for; otherwise it is dropped. Errors carry no response text, and nothing about the request is logged.
+     *
+     * <p>配置了中继就只读中继；面板打开后中继设置变了（换了地址或令牌、改回了账号），这次读取按失败处理，下次刷新时按新的设置来。
      */
     void refreshCloudClipboard() {
         if (!cloudClipboardAllowed()) return;
-        app.msime.android.SyncSwitch.Binding binding = SyncSignals.binding(s);
-        String accountId = binding == null ? "" : binding.accountId();
-        long bindingGeneration = binding == null ? -1L : binding.generation();
+        CloudOwner owner = cloudClipboardOwner();
+        String accountId = owner == null ? "" : owner.id();
+        long bindingGeneration = owner == null ? -1L : owner.generation();
+        boolean relay = owner != null && owner.relay();
         s.cloudClipboardAccountId = accountId;
         s.cloudClipboardBindingGeneration = bindingGeneration;
         long generation = ++s.cloudClipboardGeneration;
@@ -1171,7 +1190,7 @@ final class ImePanels {
         s.cloudClipboardItems = java.util.List.of();
         s.cloudClipboardSessionId = "";
         if (s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD) renderClipboardHistory();
-        if (binding == null || accountId.isEmpty()) {
+        if (owner == null || accountId.isEmpty()) {
             s.cloudClipboardStatus = CloudClipboardPanelPolicy.Status.SIGNED_OUT;
             if (s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD) renderClipboardHistory();
             return;
@@ -1182,18 +1201,30 @@ final class ImePanels {
                 java.util.List<BackendAccount.ClipboardItem> items = java.util.List.of();
                 String sessionId = "";
                 try {
-                    BackendAccount account = new BackendAccount(s);
-                    // Throws when the session owner cannot tell right now, which is a retry, not a sign-in.
-                    BackendAccount.SessionCredential session = account.currentSession();
-                    if (session.token().isEmpty()) {
-                        status = CloudClipboardPanelPolicy.Status.SIGNED_OUT;
-                    } else {
-                        BackendAccount.ClipboardPage page = account.clipboard("", session.sessionId(),
-                            CloudClipboardNativeDriver.local(s));
+                    // 快照和偏好文件对不上（中继设置刚改过）时抛出 relay_changed，按失败处理，绝不在配置了中继时经账号读。
+                    CloudClipboardRelay route = CloudClipboardRelay.forPanel(s, relay, accountId);
+                    if (route != null) {
+                        BackendAccount.ClipboardPage page = BackendAccount.clipboardPage(
+                            route.drive(CloudClipboardE2e.Operation.list("")));
                         status = CloudClipboardPanelPolicy.loaded(page.enabled(), page.pending(), page.items().size());
                         if (CloudClipboardPanelPolicy.showsItems(status)) items = page.items();
-                        sessionId = session.sessionId();
+                        sessionId = accountId;
+                    } else {
+                        BackendAccount account = new BackendAccount(s);
+                        // Throws when the session owner cannot tell right now, which is a retry, not a sign-in.
+                        BackendAccount.SessionCredential session = account.currentSession();
+                        if (session.token().isEmpty()) {
+                            status = CloudClipboardPanelPolicy.Status.SIGNED_OUT;
+                        } else {
+                            BackendAccount.ClipboardPage page = account.clipboard("", session.sessionId(),
+                                CloudClipboardNativeDriver.local(s));
+                            status = CloudClipboardPanelPolicy.loaded(page.enabled(), page.pending(), page.items().size());
+                            if (CloudClipboardPanelPolicy.showsItems(status)) items = page.items();
+                            sessionId = session.sessionId();
+                        }
                     }
+                } catch (CloudApi.Failure error) {
+                    status = CloudClipboardPanelPolicy.failed(error.status, error.code);
                 } catch (BackendAccount.RequestException error) {
                     status = CloudClipboardPanelPolicy.failed(error.status, error.code);
                 } catch (Exception | LinkageError error) {
@@ -1224,12 +1255,13 @@ final class ImePanels {
         }
     }
 
-    /** Send one local entry to the account's cloud clipboard, because the user asked for exactly this one. */
+    /** Send one local entry to the cloud clipboard (the account's, or the user's own relay when one is set), because the user asked for exactly this one. */
     void uploadClipboardText(String text) {
         boolean cloudAllowed = cloudClipboardAllowed();
-        app.msime.android.SyncSwitch.Binding binding = SyncSignals.binding(s);
-        String accountId = binding == null ? "" : binding.accountId();
-        long bindingGeneration = binding == null ? -1L : binding.generation();
+        CloudOwner owner = cloudClipboardOwner();
+        String accountId = owner == null ? "" : owner.id();
+        long bindingGeneration = owner == null ? -1L : owner.generation();
+        boolean relay = owner != null && owner.relay();
         if (!CloudClipboardPanelPolicy.acceptsBinding(
                 s.cloudClipboardAccountId, s.cloudClipboardBindingGeneration,
                 accountId, bindingGeneration) || s.cloudClipboardSessionId.isEmpty()) {
@@ -1237,9 +1269,7 @@ final class ImePanels {
             return;
         }
         if (!CloudClipboardPanelPolicy.canUpload(cloudAllowed, s.cloudClipboardStatus, text)) {
-            s.notice(s.cloudClipboardStatus == CloudClipboardPanelPolicy.Status.SIGNED_OUT
-                    || s.cloudClipboardStatus == CloudClipboardPanelPolicy.Status.DISABLED
-                    || s.cloudClipboardStatus == CloudClipboardPanelPolicy.Status.PENDING
+            s.notice(CloudClipboardPanelPolicy.explains(s.cloudClipboardStatus)
                     ? CloudClipboardPanelPolicy.message(s.cloudClipboardStatus, 0)
                     : "这条记录无法发到云剪贴板");
             return;
@@ -1250,7 +1280,15 @@ final class ImePanels {
             s.cloudClipboardWorker.execute(() -> {
                 CloudClipboardPanelPolicy.Status failure = null;
                 try {
-                    new BackendAccount(s).addClipboard(text, sessionId, CloudClipboardNativeDriver.local(s));
+                    // 中继设置在这一页读出之后改过时抛出 relay_changed：不发，绝不在配置了中继时发到账号，也不发到刚换掉的中继。
+                    CloudClipboardRelay route = CloudClipboardRelay.forPanel(s, relay, sessionId);
+                    if (route != null) {
+                        BackendAccount.clipboardItem(route.drive(CloudClipboardE2e.Operation.add(text)));
+                    } else {
+                        new BackendAccount(s).addClipboard(text, sessionId, CloudClipboardNativeDriver.local(s));
+                    }
+                } catch (CloudApi.Failure error) {
+                    failure = CloudClipboardPanelPolicy.failed(error.status, error.code);
                 } catch (BackendAccount.RequestException error) {
                     failure = CloudClipboardPanelPolicy.failed(error.status, error.code);
                 } catch (Exception | LinkageError error) {
@@ -1266,9 +1304,7 @@ final class ImePanels {
                         return;
                     }
                     s.notice(result == null ? "已发到云剪贴板"
-                        : result == CloudClipboardPanelPolicy.Status.SIGNED_OUT
-                            || result == CloudClipboardPanelPolicy.Status.DISABLED
-                            || result == CloudClipboardPanelPolicy.Status.PENDING
+                        : CloudClipboardPanelPolicy.explains(result)
                             ? CloudClipboardPanelPolicy.message(result, 0)
                             : "未能发到云剪贴板，请稍后重试");
                     // Re-read rather than splice the entry in: the service deduplicates and orders the list.
@@ -1282,11 +1318,11 @@ final class ImePanels {
 
     void insertCloudClipboardText(String text) {
         // Re-checked at the tap: the list was drawn for this field, but a field never gets cloud text once it has turned sensitive.
-        app.msime.android.SyncSwitch.Binding binding = SyncSignals.binding(s);
-        if (binding == null || !CloudClipboardPanelPolicy.canUseCloudRows(
+        CloudOwner owner = cloudClipboardOwner();
+        if (owner == null || !CloudClipboardPanelPolicy.canUseCloudRows(
                 cloudClipboardAllowed(), s.cloudClipboardStatus,
                 s.cloudClipboardAccountId, s.cloudClipboardBindingGeneration,
-                binding.accountId(), binding.generation())) {
+                owner.id(), owner.generation())) {
             s.closeClipboardHistory();
             return;
         }
@@ -1294,9 +1330,9 @@ final class ImePanels {
     }
 
     private boolean acceptsCurrentBinding(String accountId, long bindingGeneration) {
-        app.msime.android.SyncSwitch.Binding current = SyncSignals.binding(s);
+        CloudOwner current = cloudClipboardOwner();
         return current != null && CloudClipboardPanelPolicy.acceptsBinding(
-            accountId, bindingGeneration, current.accountId(), current.generation());
+            accountId, bindingGeneration, current.id(), current.generation());
     }
 
     /** 顶行的「清空」点过一次、正在等用户确认；换分段、重开面板都会撤销。 */
