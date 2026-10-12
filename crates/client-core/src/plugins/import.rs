@@ -6,7 +6,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 
@@ -14,6 +14,7 @@ use super::{
     is_builtin, kind_directory, load_directory, PluginError, PluginSummary, MAX_PACK_FILES,
     UNKNOWN_KIND,
 };
+use crate::storage::StagingDirectory as Staging;
 
 /// Serializes every write to the plugins root in this process. The file lock below does the same across processes (the settings window and an input process both install and remove packs), but a lock on a file is not something every platform promises to hold between two threads of one process.
 static PLUGIN_ROOT_WRITES: Mutex<()> = Mutex::new(());
@@ -79,16 +80,11 @@ pub(super) fn import_inner(
     let _writes = lock_plugin_root(root)?;
     sweep_leftovers(root, SystemTime::now());
     let staging = Staging::new(root.join(format!(".staging-{}", uuid::Uuid::new_v4().simple())))?;
+    staging.create()?;
     #[cfg(unix)]
-    let staging_directory = {
-        staging.create()?;
-        Some(staging.open_directory()?)
-    };
+    let staging_directory = Some(staging.open_directory()?);
     #[cfg(not(unix))]
-    let staging_directory: Option<File> = {
-        fs::create_dir(&staging.path)?;
-        None
-    };
+    let staging_directory: Option<File> = None;
     stage(source, archive, &staging.path, staging_directory.as_ref())?;
     let mut summary = check_staged(&staging.path)?;
     let kind = summary.kind();
@@ -215,60 +211,6 @@ fn check_staged(staging: &Path) -> Result<PluginSummary, PluginError> {
         return Err(PluginError::Reserved);
     }
     Ok(summary)
-}
-
-/// Removes the staging directory however the import ends; after a successful rename there is nothing left to remove.
-struct Staging {
-    path: PathBuf,
-    #[cfg(unix)]
-    parent: File,
-    #[cfg(unix)]
-    name: std::ffi::OsString,
-}
-
-impl Staging {
-    fn new(path: PathBuf) -> io::Result<Self> {
-        #[cfg(unix)]
-        {
-            let parent_path = path.parent().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidInput, "staging has no parent")
-            })?;
-            let name = path
-                .file_name()
-                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "staging has no name"))?
-                .to_owned();
-            let parent = crate::storage::open_private_directory(parent_path)?;
-            Ok(Self { path, parent, name })
-        }
-        #[cfg(not(unix))]
-        {
-            Ok(Self { path })
-        }
-    }
-
-    #[cfg(unix)]
-    fn create(&self) -> io::Result<()> {
-        rustix::fs::mkdirat(
-            &self.parent,
-            &self.name,
-            rustix::fs::Mode::from_raw_mode(0o700),
-        )
-        .map_err(io::Error::from)
-    }
-
-    #[cfg(unix)]
-    fn open_directory(&self) -> io::Result<File> {
-        crate::storage::open_private_directory_at(&self.parent, &self.name)
-    }
-}
-
-impl Drop for Staging {
-    fn drop(&mut self) {
-        #[cfg(unix)]
-        let _ = crate::storage::remove_private_tree_at(&self.parent, &self.name);
-        #[cfg(not(unix))]
-        let _ = fs::remove_dir_all(&self.path);
-    }
 }
 
 /// Staging, set-aside and replaced directories a crashed import or removal left behind, once they are `LEFTOVER_AGE` old by their modification time at `now`. One whose age cannot be read is left alone.

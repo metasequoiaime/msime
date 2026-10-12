@@ -257,9 +257,9 @@ fn partial_publish_rename_stays_in_open_directories_after_root_replacement() {
     let partials = partial_directory(&root, "pack").unwrap();
     let staging = Staging::new(root.join(".staging-pack-new")).unwrap();
     staging.create().unwrap();
-    staging.create_model_directory().unwrap();
+    staging.create_child(OsStr::new("model")).unwrap();
     let pack_dir = staging.path.join("model");
-    let pack_directory = staging.open_model_directory().unwrap();
+    let pack_directory = staging.open_child(OsStr::new("model")).unwrap();
     let name = OsStr::new("a.dat");
     let partial_name = OsStr::new("partial-a");
     fs::write(partials.path().join(partial_name), b"synthetic").unwrap();
@@ -299,7 +299,7 @@ fn model_directory_creation_stays_in_the_open_staging_directory() {
     fs::rename(&root, &moved).unwrap();
     symlink(&outside, &root).unwrap();
 
-    staging.create_model_directory().unwrap();
+    staging.create_child(OsStr::new("model")).unwrap();
 
     assert!(moved.join(".staging-pack-new/model").is_dir());
     assert!(!outside.join(".staging-pack-new").exists());
@@ -317,8 +317,8 @@ fn archive_member_creation_stays_in_the_open_model_directory() {
     fs::create_dir(&outside).unwrap();
     let staging = Staging::new(root.join(".staging-pack-new")).unwrap();
     staging.create().unwrap();
-    staging.create_model_directory().unwrap();
-    let pack_directory = staging.open_model_directory().unwrap();
+    staging.create_child(OsStr::new("model")).unwrap();
+    let pack_directory = staging.open_child(OsStr::new("model")).unwrap();
     fs::create_dir_all(outside.join(".staging-pack-new/model")).unwrap();
     let moved = state.path().join("models-moved");
     fs::rename(&root, &moved).unwrap();
@@ -372,8 +372,8 @@ fn adoption_rename_stays_in_open_source_and_model_directories() {
     let source_directory = crate::storage::open_private_directory(&source).unwrap();
     let staging = Staging::new(root.join(".staging-pack-new")).unwrap();
     staging.create().unwrap();
-    staging.create_model_directory().unwrap();
-    let pack_directory = staging.open_model_directory().unwrap();
+    staging.create_child(OsStr::new("model")).unwrap();
+    let pack_directory = staging.open_child(OsStr::new("model")).unwrap();
     let moved_root = state.path().join("models-moved");
     let moved_source = state.path().join("resources-moved");
     fs::rename(&root, &moved_root).unwrap();
@@ -404,9 +404,9 @@ fn tar_extraction_stays_in_the_open_model_directory() {
     fs::create_dir(&outside).unwrap();
     let staging = Staging::new(root.join(".staging-fixture-new")).unwrap();
     staging.create().unwrap();
-    staging.create_model_directory().unwrap();
+    staging.create_child(OsStr::new("model")).unwrap();
     let model_dir = staging.path.join("model");
-    let model_directory = staging.open_model_directory().unwrap();
+    let model_directory = staging.open_child(OsStr::new("model")).unwrap();
     let archive_path = state.path().join("fixture.tar.bz2");
     fs::write(&archive_path, &archive).unwrap();
     let moved = state.path().join("models-moved");

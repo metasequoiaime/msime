@@ -2,6 +2,7 @@
 //!
 //! A model lives in `<root>/<id>/`. The directory is recognised as an installed model by `msime-model.json`, the catalog entry copied verbatim, which the installer writes last and only after every file the entry names is in place; the recognizer (`shared/voice/LocalAsr.cpp`) reads nothing else to find its files. Everything is assembled in a staging directory beside the target and renamed into place, so a crash, a cancel or a failed checksum never leaves a directory that looks installed.
 
+use crate::storage::StagingDirectory as Staging;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -1033,94 +1034,6 @@ fn content_range_start(value: &str) -> Option<u64> {
     start.trim().parse().ok()
 }
 
-/// Removes the staging directory however the install ends.
-struct Staging {
-    path: PathBuf,
-    #[cfg(unix)]
-    parent: File,
-    #[cfg(unix)]
-    name: std::ffi::OsString,
-}
-
-impl Staging {
-    fn new(path: PathBuf) -> io::Result<Self> {
-        #[cfg(unix)]
-        {
-            let parent_path = path.parent().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidInput, "staging has no parent")
-            })?;
-            let name = path
-                .file_name()
-                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "staging has no name"))?
-                .to_owned();
-            let parent = crate::storage::open_private_directory(parent_path)?;
-            Ok(Self { path, parent, name })
-        }
-        #[cfg(not(unix))]
-        {
-            Ok(Self { path })
-        }
-    }
-
-    /// Create the staging directory through the parent descriptor. The path is
-    /// retained for APIs that need it, but must not be used to create the
-    /// directory after the parent has been opened: the root entry may have
-    /// been replaced by a symlink in between those operations.
-    fn create(&self) -> io::Result<()> {
-        #[cfg(unix)]
-        {
-            rustix::fs::mkdirat(
-                &self.parent,
-                &self.name,
-                rustix::fs::Mode::from_raw_mode(0o700),
-            )
-            .map_err(io::Error::from)
-        }
-        #[cfg(not(unix))]
-        {
-            fs::create_dir(&self.path)
-        }
-    }
-
-    fn create_model_directory(&self) -> io::Result<()> {
-        #[cfg(unix)]
-        {
-            let staging = crate::storage::open_private_directory_at(&self.parent, &self.name)?;
-            rustix::fs::mkdirat(
-                &staging,
-                OsStr::new("model"),
-                rustix::fs::Mode::from_raw_mode(0o700),
-            )
-            .map_err(io::Error::from)
-        }
-        #[cfg(not(unix))]
-        {
-            fs::create_dir(self.path.join("model"))
-        }
-    }
-
-    #[cfg(unix)]
-    fn open_model_directory(&self) -> io::Result<File> {
-        crate::storage::open_private_directory_at(&self.parent, &self.name).and_then(|staging| {
-            crate::storage::open_private_directory_at(&staging, OsStr::new("model"))
-        })
-    }
-
-    #[cfg(unix)]
-    fn open_directory(&self) -> io::Result<File> {
-        crate::storage::open_private_directory_at(&self.parent, &self.name)
-    }
-}
-
-impl Drop for Staging {
-    fn drop(&mut self) {
-        #[cfg(unix)]
-        let _ = crate::storage::remove_private_tree_at(&self.parent, &self.name);
-        #[cfg(not(unix))]
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
-
 pub(crate) fn install_model(
     root: &Path,
     model: &CatalogModel,
@@ -1141,9 +1054,9 @@ pub(crate) fn install_model(
     let staging = Staging::new(root.join(format!(".staging-{}-{}", model.id, unique_suffix())))?;
     staging.create()?;
     let model_dir = staging.path.join("model");
-    staging.create_model_directory()?;
+    staging.create_child(OsStr::new("model"))?;
     #[cfg(unix)]
-    let model_directory = Some(staging.open_model_directory()?);
+    let model_directory = Some(staging.open_child(OsStr::new("model"))?);
     #[cfg(unix)]
     let staging_directory = Some(staging.open_directory()?);
     #[cfg(not(unix))]
@@ -1488,9 +1401,9 @@ pub(crate) fn install_files_with(
     let staging = Staging::new(root.join(format!(".staging-{}-{}", id, unique_suffix())))?;
     staging.create()?;
     let pack_dir = staging.path.join("model");
-    staging.create_model_directory()?;
+    staging.create_child(OsStr::new("model"))?;
     #[cfg(unix)]
-    let pack_directory = Some(staging.open_model_directory()?);
+    let pack_directory = Some(staging.open_child(OsStr::new("model"))?);
     #[cfg(not(unix))]
     let pack_directory = None;
     let partials = partial_directory(root, id)?;
@@ -1711,9 +1624,9 @@ pub(crate) fn install_archive_members_with(
     let staging = Staging::new(root.join(format!(".staging-{}-{}", id, unique_suffix())))?;
     staging.create()?;
     let pack_dir = staging.path.join("model");
-    staging.create_model_directory()?;
+    staging.create_child(OsStr::new("model"))?;
     #[cfg(unix)]
-    let pack_directory = Some(staging.open_model_directory()?);
+    let pack_directory = Some(staging.open_child(OsStr::new("model"))?);
     #[cfg(not(unix))]
     let pack_directory = None;
     let partials = partial_directory(root, id)?;
@@ -1915,11 +1828,11 @@ pub(crate) fn adopt_files(
     let staging = Staging::new(root.join(format!(".staging-{}-{}", id, unique_suffix())))?;
     staging.create()?;
     let pack_dir = staging.path.join("model");
-    staging.create_model_directory()?;
+    staging.create_child(OsStr::new("model"))?;
     #[cfg(unix)]
     let staging_directory = staging.open_directory()?;
     #[cfg(unix)]
-    let pack_directory = staging.open_model_directory()?;
+    let pack_directory = staging.open_child(OsStr::new("model"))?;
     // 改名之前先落盘来源记录：进程在发布前被杀时，下次收编或安装这个包时按它把文件放回来源（[`restore_interrupted_adoption`]）。
     #[cfg(unix)]
     crate::storage::write_private_file_at(

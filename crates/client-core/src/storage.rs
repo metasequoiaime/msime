@@ -13,6 +13,84 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(unix)]
 static PRIVATE_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// 暂存目录的创建和清理都绑定到同一个父目录句柄。
+pub(crate) struct StagingDirectory {
+    pub(crate) path: PathBuf,
+    #[cfg(unix)]
+    parent: File,
+    #[cfg(unix)]
+    name: OsString,
+}
+
+impl StagingDirectory {
+    pub(crate) fn new(path: PathBuf) -> io::Result<Self> {
+        #[cfg(unix)]
+        {
+            let parent_path = path.parent().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "staging has no parent")
+            })?;
+            let name = path
+                .file_name()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "staging has no name"))?
+                .to_owned();
+            let parent = open_private_directory(parent_path)?;
+            Ok(Self { path, parent, name })
+        }
+        #[cfg(not(unix))]
+        {
+            Ok(Self { path })
+        }
+    }
+
+    pub(crate) fn create(&self) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            rustix::fs::mkdirat(
+                &self.parent,
+                &self.name,
+                rustix::fs::Mode::from_raw_mode(0o700),
+            )
+            .map_err(io::Error::from)
+        }
+        #[cfg(not(unix))]
+        {
+            fs::create_dir(&self.path)
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn open_directory(&self) -> io::Result<File> {
+        open_private_directory_at(&self.parent, &self.name)
+    }
+
+    pub(crate) fn create_child(&self, name: &OsStr) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            let directory = self.open_directory()?;
+            rustix::fs::mkdirat(&directory, name, rustix::fs::Mode::from_raw_mode(0o700))
+                .map_err(io::Error::from)
+        }
+        #[cfg(not(unix))]
+        {
+            fs::create_dir(self.path.join(name))
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn open_child(&self, name: &OsStr) -> io::Result<File> {
+        open_private_directory_at(&self.open_directory()?, name)
+    }
+}
+
+impl Drop for StagingDirectory {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        let _ = remove_private_tree_at(&self.parent, &self.name);
+        #[cfg(not(unix))]
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
 /// Apple 平台不逐级打开：iOS 沙盒不允许应用以读方式打开容器的祖先目录（`/private/var/mobile/Containers/Shared/AppGroup` 这些），逐级 `RDONLY` 在走到 App Group 容器之前就 EPERM，统计、账号、剪贴板等私有文件读写全部失败，而 Darwin 没有 `O_PATH`。`O_NOFOLLOW_ANY` 让内核在一次解析里拒绝路径上任何一级符号链接，与逐级 `NOFOLLOW` 一样不留检查与打开之间的窗口，解析只需要祖先的搜索权限。路径经过 `msime-path-trust` 列出的系统别名（`/var`、`/tmp`）时先换成它唯一受信任的目标再打开。
 #[cfg(target_vendor = "apple")]
 pub(crate) fn open_private_directory(parent: &Path) -> io::Result<File> {
