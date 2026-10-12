@@ -12,7 +12,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -81,9 +80,7 @@ public final class AboutPage extends DetailPage {
 
     /** 用浏览器或别的应用打开一个链接；没有应用接得住时提示一句。 */
     static void openLink(Context context, String url) {
-        try {
-            context.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-        } catch (RuntimeException unavailable) {
+        if (!LinkActions.open(context, url)) {
             MsToast.show(context, "没有可以打开这个链接的应用");
         }
     }

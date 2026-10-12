@@ -2,7 +2,6 @@ package app.msime.android.home;
 
 import android.content.ActivityNotFoundException;
 import android.content.Context;
-import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
@@ -387,9 +386,7 @@ public final class VoicePage extends ReloadingDetailPage {
 
     private void openUrl(String url) {
         if (url.isEmpty()) return;
-        try {
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-        } catch (ActivityNotFoundException error) {
+        if (!LinkActions.open(requireContext(), url)) {
             MsToast.show(requireContext(), "没有可以打开链接的应用");
         }
     }
