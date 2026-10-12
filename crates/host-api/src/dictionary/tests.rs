@@ -498,6 +498,90 @@ fn a_lookup_names_where_each_candidate_came_from_and_leaves_the_user_data_alone(
     assert_eq!(tree(&directory.path().join("user")), before);
 }
 
+/// 一个只有一条词条、连接矩阵为 1×1 的 MSJPDT1 日文模型，布局同 `msime_engine` 里 `japanese::decoder::test_model::bytes`（那个只在 engine 自己的测试里可见）。
+fn single_lemma_japanese_model(reading: &str, surface: &str, cost: i32) -> Vec<u8> {
+    let strings = [reading.as_bytes(), surface.as_bytes()].concat();
+    let mut token = Vec::new();
+    token.extend_from_slice(&0u32.to_le_bytes());
+    token.extend_from_slice(&(reading.len() as u16).to_le_bytes());
+    token.extend_from_slice(&(reading.len() as u32).to_le_bytes());
+    token.extend_from_slice(&(surface.len() as u16).to_le_bytes());
+    token.extend_from_slice(&0u16.to_le_bytes());
+    token.extend_from_slice(&0u16.to_le_bytes());
+    token.extend_from_slice(&cost.to_le_bytes());
+    let token_offset = 56u64;
+    let connection_offset = token_offset + token.len() as u64;
+    let string_offset = connection_offset + 2;
+    let mut file = b"MSJPDT1\0".to_vec();
+    for value in [1u32, 1, 1, 0] {
+        file.extend_from_slice(&value.to_le_bytes());
+    }
+    for value in [
+        token_offset,
+        connection_offset,
+        string_offset,
+        strings.len() as u64,
+    ] {
+        file.extend_from_slice(&value.to_le_bytes());
+    }
+    file.extend_from_slice(&token);
+    file.extend_from_slice(&0i16.to_le_bytes());
+    file.extend_from_slice(&strings);
+    file
+}
+
+/// 日文混输开着时，查询会话照用户的设置混进日文转换，来源报成 `Japanese`；关着时没有这一行。
+#[test]
+#[cfg(not(target_os = "android"))]
+fn a_lookup_keeps_the_users_japanese_mixing() {
+    let directory = tempfile::tempdir().unwrap();
+    let plain = word_fixture(
+        directory.path(),
+        "INSERT INTO tbl_2_c VALUES('ce''shi','cs','测试',100);",
+    );
+    std::fs::write(
+        directory.path().join("resources/msime-japanese.dat"),
+        single_lemma_japanese_model("おはよう", "おはよう", 500),
+    )
+    .unwrap();
+    let root = directory.path().to_str().unwrap();
+    let mut preferences = msime_client_core::preferences::Preferences::default();
+    preferences.mixed_input.japanese = true;
+    let mixing = DictionaryOptions::from_host_document(json!({
+        "api_version": 1,
+        "resources": format!("{root}/resources"),
+        "user_data": format!("{root}/user"),
+        "cache": format!("{root}/cache"),
+        "dictionaries": format!("{root}/dictionaries"),
+        "preferences": preferences,
+        "preferences_directory": root,
+    }))
+    .unwrap();
+
+    let candidates = lookup_candidates(&mixing, None, "ohayou", 10).unwrap();
+    assert_eq!(
+        candidates.first(),
+        Some(&LookupCandidate {
+            text: "おはよう".into(),
+            code: "ohayou".into(),
+            origin: CandidateOrigin::Japanese,
+            weight: None,
+        }),
+        "{candidates:?}"
+    );
+    assert_eq!(
+        candidates
+            .iter()
+            .filter(|candidate| candidate.origin == CandidateOrigin::Japanese)
+            .count(),
+        1
+    );
+    assert!(lookup_candidates(&plain, None, "ohayou", 10)
+        .unwrap()
+        .iter()
+        .all(|candidate| candidate.origin != CandidateOrigin::Japanese));
+}
+
 /// 五笔四码唯一的词在第四键就自动上屏了，查询仍要把它报告成这串编码的唯一候选，而不是空列表。
 #[test]
 #[cfg(not(target_os = "android"))]

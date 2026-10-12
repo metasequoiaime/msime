@@ -2270,6 +2270,8 @@ pub enum CandidateOrigin {
     Kaomoji,
     Generated,
     Fallback,
+    /// 日文混输（实验选项）给整段罗马字补的日文转换，例如 `ohayou` 的おはよう；来自日文模型，不是哪个词库里的一行。
+    Japanese,
 }
 
 /// A candidate typing a code offers, in the order the Engine ranks it.
@@ -2335,6 +2337,7 @@ pub fn lookup_candidates(
     options.local_expression = false;
     options.local_command = false;
     options.local_mention = false;
+    // 日文混输照用户的设置留着：它不学习、不改用户数据，查询看到的就是用户打这串键时看到的那一行日文（`msime expand ohayou`）。
     let _access = DictionaryAccess::try_session(
         Path::new(&options.user_data),
         Path::new(&options.dictionaries),
@@ -2407,6 +2410,7 @@ pub fn lookup_candidates(
                 7 => (CandidateOrigin::Kaomoji, None),
                 8 => (CandidateOrigin::Generated, None),
                 9 => (CandidateOrigin::Fallback, None),
+                13 => (CandidateOrigin::Japanese, None),
                 // Cloud (2) and AI (3) suggestions come only from providers this session never has; one here means the lookup is no longer local.
                 _ => return Err("the lookup produced a candidate that is not local".to_owned()),
             };

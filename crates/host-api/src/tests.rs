@@ -182,7 +182,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         english_minimum_prefix: 2,
         mixed_emoji: false,
         mixed_kaomoji: false,
-        mixed_japanese: false,
+        mixed_japanese: true,
         local_unicode: true,
         local_date_time: true,
         local_quick_phrase: true,
@@ -222,6 +222,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
     assert!(options.local_kaomoji);
     assert!(options.local_temporary_english);
     assert!(options.local_temporary_japanese);
+    assert!(options.mixed_japanese);
 
     std::fs::remove_file(root.path().join("msime-others.db")).unwrap();
     std::fs::remove_file(root.path().join("msime-japanese.dat")).unwrap();
@@ -229,6 +230,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
     assert!(!options.local_emoji);
     assert!(!options.local_kaomoji);
     assert!(!options.local_temporary_japanese);
+    assert!(!options.mixed_japanese);
     assert!(options.local_temporary_english);
     assert!(options.local_unicode);
     assert!(options.local_date_time);
@@ -1055,6 +1057,9 @@ fn mixed_input_changes_defer_until_composition_ends() {
     let mut initial = chinese_preferences();
     initial.mixed_input.emoji = false;
     initial.mixed_input.kaomoji = false;
+    // 日文混输要有日文模型才交给 Engine，资源目录里先放一份。
+    std::fs::create_dir_all(dir.path().join("resources")).unwrap();
+    std::fs::write(dir.path().join("resources/msime-japanese.dat"), b"fixture").unwrap();
     let handle = test_host_preferences(dir.path(), initial);
     read(msime_client_focus(handle, true));
     read(msime_client_character(handle, b'U', true));
@@ -1065,6 +1070,7 @@ fn mixed_input_changes_defer_until_composition_ends() {
             minimum_prefix: 8,
             emoji: true,
             kaomoji: true,
+            japanese: true,
         },
         ..Preferences::default()
     };
@@ -1076,6 +1082,7 @@ fn mixed_input_changes_defer_until_composition_ends() {
         assert!(options.mixed_english);
         assert!(!options.mixed_emoji);
         assert!(!options.mixed_kaomoji);
+        assert!(!options.mixed_japanese);
     });
     read(msime_client_command(handle, 3));
     SESSIONS.with(|sessions| {
@@ -1084,6 +1091,7 @@ fn mixed_input_changes_defer_until_composition_ends() {
         assert!(!options.mixed_english);
         assert_eq!(options.english_minimum_prefix, 8);
         assert!(options.mixed_emoji && options.mixed_kaomoji);
+        assert!(options.mixed_japanese);
     });
     preferences.mixed_input.minimum_prefix = 9;
     assert_eq!(update(handle, 2, &preferences)["ok"], false);
@@ -2921,6 +2929,7 @@ fn nine_key_digits_offer_ranked_english_across_the_host_boundary() {
                 minimum_prefix: 2,
                 emoji: false,
                 kaomoji: false,
+                japanese: false,
             },
             ..chinese_preferences()
         },
@@ -9442,11 +9451,14 @@ fn the_wubi_lock_accepts_resources_without_japanese_and_gates_temporary_japanese
     std::fs::write(&downloaded, b"japanese").unwrap();
     options.japanese_dictionary = downloaded.to_str().unwrap().to_owned();
     options.local_temporary_japanese = true;
+    options.mixed_japanese = true;
     let mut full_options = options.clone();
     apply_local_mode_resource_gates(&mut options, wubi);
     assert!(!options.local_temporary_japanese);
+    assert!(!options.mixed_japanese);
     apply_local_mode_resource_gates(&mut full_options, Edition::full());
     assert!(full_options.local_temporary_japanese);
+    assert!(full_options.mixed_japanese);
 
     // 五笔版不带键盘神经联想的模型，偏好打开了也不交给 Engine；full 照旧。
     options.sentence_association.neural_keyboard = true;
@@ -13283,6 +13295,7 @@ fn a_downloaded_japanese_pack_keeps_temporary_japanese_available() {
     let state = root.path().join("state");
     let mut preferences = Preferences::default();
     preferences.local_modes.temporary_japanese = true;
+    preferences.mixed_input.japanese = true;
     let options = || {
         let document = json!({ "api_version": 1, "resources": resources, "user_data": "/u", "cache": "/c", "dictionaries": "/d", "preferences": preferences, "preferences_directory": state });
         serde_json::from_value::<HostOptions>(document)
@@ -13294,6 +13307,7 @@ fn a_downloaded_japanese_pack_keeps_temporary_japanese_available() {
     let without = options();
     assert_eq!(without.japanese_dictionary, "");
     assert!(!without.local_temporary_japanese);
+    assert!(!without.mixed_japanese);
 
     // 只在暂存目录里：仍然不算。
     let staging = resource_packs::root(&state)
@@ -13319,6 +13333,7 @@ fn a_downloaded_japanese_pack_keeps_temporary_japanese_available() {
         pack.join("msime-japanese.dat").to_str().unwrap()
     );
     assert!(with.local_temporary_japanese);
+    assert!(with.mixed_japanese);
 
     // 资源目录内置的那份照旧可用，字段为空时 Engine 读它。
     std::fs::remove_dir_all(resource_packs::root(&state)).unwrap();
@@ -13326,6 +13341,7 @@ fn a_downloaded_japanese_pack_keeps_temporary_japanese_available() {
     let bundled = options();
     assert_eq!(bundled.japanese_dictionary, "");
     assert!(bundled.local_temporary_japanese);
+    assert!(bundled.mixed_japanese);
 }
 
 #[test]
