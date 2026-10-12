@@ -1886,6 +1886,9 @@ pub struct KeybindingPreferences {
     /// 单按 Caps Lock 切换中英文：按下后在 300 毫秒内松开、期间没有别的键，算一次轻点，切换输入法自己的中英文模式，并把大写锁定撤回关闭；按住更久照常打开大写锁定。大写锁定已经开着时按它照常关掉，不切换。默认关；只有声明 `HostCapabilities::caps_lock_language_switch` 的宿主读它。
     #[serde(default)]
     pub switch_language_caps_lock: bool,
+    /// Ctrl+Shift+J 在中文和日语之间切换：中文状态下，当前是中文方案时切到日语方案，并把这个中文方案记进 `last_chinese_scheme`；当前是日语或其他非中文方案时回到 `last_chinese_scheme`。英文模式下组合键交给应用。默认关，因为浏览器把它当作打开开发者工具或下载页；只有声明 `HostCapabilities::japanese_toggle_shortcut` 的宿主读它。
+    #[serde(default)]
+    pub toggle_japanese_ctrl_shift_j: bool,
 }
 
 impl Default for KeybindingPreferences {
@@ -1898,6 +1901,7 @@ impl Default for KeybindingPreferences {
             toggle_character_set_ctrl_shift_f: true,
             toggle_fullwidth_option_shift_h: true,
             switch_language_caps_lock: false,
+            toggle_japanese_ctrl_shift_j: false,
         }
     }
 }

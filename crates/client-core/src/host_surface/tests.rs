@@ -283,6 +283,18 @@ fn capabilities_describe_each_host() {
         let host = HostCapabilities::for_platform(platform);
         assert!(!host.caps_lock_language_switch && !host.shift_letter_entry_switch);
     }
+    // 「Ctrl+Shift+J 在中文和日语之间切换」只在 Windows 和 Linux 上提供：macOS 用系统输入模式「日」轮换，移动端还没有接上。
+    for platform in [HostPlatform::Windows, HostPlatform::Linux] {
+        assert!(HostCapabilities::for_platform(platform).japanese_toggle_shortcut);
+    }
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(!HostCapabilities::for_platform(platform).japanese_toggle_shortcut);
+    }
     // 能在光标旁放徽标的宿主才声明它：触屏键盘在键面上就显示了模式。Windows 的 Server 自己画，Linux 交给 Fcitx5 面板。
     assert!(macos.input_mode_hud);
     assert!(windows.input_mode_hud);

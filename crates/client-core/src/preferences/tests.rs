@@ -138,6 +138,42 @@ fn caps_lock_language_switch_defaults_off_and_persists_an_explicit_enable() {
 }
 
 #[test]
+fn japanese_toggle_defaults_off_and_persists_an_explicit_enable() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let snapshot = store.load().unwrap();
+    assert!(
+        !snapshot
+            .preferences
+            .keybindings
+            .toggle_japanese_ctrl_shift_j
+    );
+    // 早于这个开关的文档没有这个键，读出来是关。
+    let mut value = serde_json::to_value(&snapshot.preferences).unwrap();
+    assert_eq!(
+        value["keybindings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("toggle_japanese_ctrl_shift_j"),
+        Some(false.into())
+    );
+    let legacy: Preferences = serde_json::from_value(value.clone()).unwrap();
+    assert!(!legacy.keybindings.toggle_japanese_ctrl_shift_j);
+    // 打开它不改动其他快捷键。
+    value["keybindings"]["toggle_japanese_ctrl_shift_j"] = true.into();
+    let enabled: Preferences = serde_json::from_value(value).unwrap();
+    store.save(snapshot.revision, enabled).unwrap();
+    let keybindings = store.load().unwrap().preferences.keybindings;
+    assert_eq!(
+        keybindings,
+        KeybindingPreferences {
+            toggle_japanese_ctrl_shift_j: true,
+            ..KeybindingPreferences::default()
+        }
+    );
+}
+
+#[test]
 fn voice_commit_mode_defaults_for_legacy_documents() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["voice_input"]
