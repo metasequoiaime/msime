@@ -1,4 +1,5 @@
 #import "../../src/input/InputModeHUDPanel.h"
+#import "../../src/candidate/CandidateWindowLevel.h"
 #import <AppKit/AppKit.h>
 #include <cmath>
 #include <cstdio>
@@ -27,6 +28,8 @@ int main() {
             Require(!MSIMEInputModeHUDUsableCaretRect(NSZeroRect) && !MSIMEInputModeHUDUsableCaretRect(NSMakeRect(0, 0, 1, 0)) && MSIMEInputModeHUDUsableCaretRect(caret), "caret validation mismatch");
             MSIMEInputModeHUDPanel *hud = MSIMEInputModeHUDPanel.sharedPanel;
             Require(hud == MSIMEInputModeHUDPanel.sharedPanel && hud.ignoresMouseEvents && hud.floatingPanel && !hud.opaque, "HUD panel contract mismatch");
+            // 和候选窗同层级，截图工具的遮罩盖不住它（#7326）。
+            Require(hud.level == MSIMECandidateWindowLevel() && hud.level > NSScreenSaverWindowLevel, "HUD is not at the candidate window level");
             Require(hud.displayedText == nil, "HUD was visible before use");
             // The badge is the floating toolbar's height, (font + 20) x scale: 44pt at the toolbar's default 24pt and 100%.
             Require(hud.panelSize.height == 44.0 && hud.panelSize.width < 100.0, "HUD default size is not the toolbar's");

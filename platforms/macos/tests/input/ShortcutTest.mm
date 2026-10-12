@@ -9593,6 +9593,9 @@ int main(int argc, char **argv) {
         [controller setValue:nil forKey:@"panel"];
         [controller renderCandidates];
         MSIMECandidatePanel *ownPanel = [controller valueForKey:@"panel"];
+        // 候选窗开在截图工具遮罩和屏保层级之上，仍在光标之下（#7326）。
+        assert(ownPanel.level == MSIMECandidateWindowLevel() && ownPanel.level > NSScreenSaverWindowLevel &&
+               ownPanel.level < CGWindowLevelForKey(kCGCursorWindowLevelKey));
         void (^pageHandler)(BOOL) = ownPanel.pageHandler;
         [ownPanel orderOut:nil];
         [controller setValue:layoutPanel forKey:@"panel"];
@@ -9877,6 +9880,13 @@ int main(int argc, char **argv) {
         NSMenu *candidateMenu = clickCandidate.menu;
         NSEvent *rightClick = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil eventNumber:1 clickCount:1 pressure:1];
         assert([clickCandidate menuForEvent:rightClick] == candidateMenu);
+        // AppKit 把右键菜单开在来源窗口层级加一，候选窗开着菜单时必须留在原层级。降回弹出菜单层级会让候选窗和菜单一起掉到截图遮罩下面（#7326）。
+        layoutPanel.level = MSIMECandidateWindowLevel();
+        id<NSMenuDelegate> candidateMenuDelegate = candidateMenu.delegate;
+        if ([candidateMenuDelegate respondsToSelector:@selector(menuWillOpen:)]) [candidateMenuDelegate menuWillOpen:candidateMenu];
+        assert(layoutPanel.level == MSIMECandidateWindowLevel());
+        if ([candidateMenuDelegate respondsToSelector:@selector(menuDidClose:)]) [candidateMenuDelegate menuDidClose:candidateMenu];
+        assert(layoutPanel.level == MSIMECandidateWindowLevel());
         assert(candidateMenu.numberOfItems == 3);
         assert([[candidateMenu itemAtIndex:0].title isEqual:@"置顶"]);
         assert([[candidateMenu itemAtIndex:1].title isEqual:@"固定排位"]);
