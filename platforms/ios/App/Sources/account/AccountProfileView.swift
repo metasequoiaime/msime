@@ -56,6 +56,8 @@ struct AccountProfileEditor: View {
   @State private var confirmLogoutAll = false
   @State private var confirmRelogin = false
   @State private var confirmDeleteAccount = false
+  @State private var operation: Task<Void, Never>?
+  @State private var actionGeneration = UUID()
 
   private var displayName: String {
     profile?.user.preferredDisplayName ?? initialUser?.preferredDisplayName ?? "水杉用户"
@@ -131,6 +133,12 @@ struct AccountProfileEditor: View {
     } message: { Text(actionMessage ?? "") }
     .tint(MetasequoiaTheme.accent)
     .task { await load() }
+    .onDisappear {
+      actionGeneration = UUID()
+      operation?.cancel()
+      operation = nil
+      busy = false
+    }
   }
 
   /// 84pt 的强调色圆盘显示名字的首字，下面是名字、有邮箱时的邮箱，以及账号用哪种方式登录。
@@ -245,16 +253,19 @@ struct AccountProfileEditor: View {
 
   /// 四个动作都以「这台设备不再登录」收尾,所以走同一条路:调用、回调父视图、退回上一页。失败时留在原地把原因说出来。
   private func perform(_ action: @escaping () async throws -> Void) {
+    let id = UUID()
+    actionGeneration = id
     busy = true
     actionMessage = nil
-    Task {
-      defer { busy = false }
+    operation = Task {
+      defer { if actionGeneration == id { busy = false; operation = nil } }
       do {
         try await action()
+        guard actionGeneration == id else { return }
         onSignedOut()
         dismiss()
       } catch {
-        guard !isCancellation(error) else { return }
+        guard actionGeneration == id, !isCancellation(error) else { return }
         actionMessage = error.localizedDescription
       }
     }
