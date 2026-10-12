@@ -125,9 +125,9 @@ fn staging_cleanup_does_not_follow_a_replaced_root() {
     fs::create_dir(&root).unwrap();
     fs::create_dir(&outside).unwrap();
     let staging_path = root.join(".staging-pack-dead");
-    fs::create_dir(&staging_path).unwrap();
+    let staging = Staging::new(staging_path.clone()).unwrap();
+    staging.create().unwrap();
     fs::write(staging_path.join("fixture.bin"), b"synthetic").unwrap();
-    let staging = Staging::new(staging_path).unwrap();
     let moved = state.path().join("models-moved");
     fs::rename(&root, &moved).unwrap();
     symlink(&outside, &root).unwrap();

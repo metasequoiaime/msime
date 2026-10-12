@@ -1,4 +1,4 @@
-import { Row } from "../core/platform-controls";
+import { LinkRow } from "../core/platform-controls";
 import type { InputScheme, VietnamesePreferences } from "../index";
 import {
   cantoneseInputSchemeOptions,
@@ -15,17 +15,26 @@ import { SwitchRow } from "./switch-row";
 import { SegmentedRow } from "./segmented-row";
 
 export type InputSchemeDetailsScheme = InputScheme;
-export type ShuangpinProfile = "xiaohe" | "ziranma" | "shoudao" | "microsoft";
+export type ShuangpinProfile = "xiaohe" | "ziranma" | "shoudao" | "microsoft" | "custom";
 export type WubiProfile = "wubi86" | "wubi98";
 
-/** 双拼方案的选项。这里和下面的五笔方案都写成返回 Fragment 的普通函数，鸿蒙手机的 `SelectRow` 才能从中读出面板选项。 */
-function shuangpinProfileOptions() {
+/**
+ * 双拼方案的选项。这里和下面的五笔方案都写成返回 Fragment 的普通函数，鸿蒙手机的 `SelectRow` 才能从中读出面板选项。
+ *
+ * 「自定义双拼」在宿主能编辑它（`editable`）时列出；文档里已经是它而宿主编辑不了时也列出，但不能选，否则受控的选择框找不到这一项，会把第一项显示成当前方案。
+ */
+function shuangpinProfileOptions(editable: boolean, current: ShuangpinProfile) {
   return (
     <>
       <option value="xiaohe">小鹤双拼</option>
       <option value="ziranma">自然码双拼</option>
       <option value="shoudao">首道双拼</option>
       <option value="microsoft">微软双拼</option>
+      {(editable || current === "custom") && (
+        <option value="custom" disabled={!editable}>
+          自定义双拼
+        </option>
+      )}
     </>
   );
 }
@@ -51,6 +60,8 @@ export interface InputSchemeDetailsSectionProps {
   /** 「输入时显示双拼键位提示」的当前值；宿主不画双拼键位图时不传，这一行不出现。 */
   shuangpinKeymapHint?: boolean;
   onShuangpinProfileChange: (profile: ShuangpinProfile) => void;
+  /** 宿主能校验自定义双拼表时传入，打开自定义双拼的编辑页。有它时方案里多一项「自定义双拼」：选它先打开编辑页，在那里保存一张能用的表才切过去，与 MCP 不让选一张不能用的表相同；已经是自定义双拼时下面多一行「编辑自定义键位」。 */
+  onEditCustomShuangpin?: () => void;
   onWubiProfileChange?: (profile: WubiProfile) => void;
   onShuangpinKeymapHintChange?: (enabled: boolean) => void;
   /** The document's Vietnamese options; absent means the defaults, Telex with modern tone placement. */
@@ -78,6 +89,7 @@ export function InputSchemeDetailsSection({
   touchKeyboardHasWubi = false,
   shuangpinKeymapHint,
   onShuangpinProfileChange,
+  onEditCustomShuangpin,
   onWubiProfileChange,
   onShuangpinKeymapHintChange,
   vietnamese,
@@ -105,10 +117,23 @@ export function InputSchemeDetailsSection({
         hidden={hideChineseSchemeOptions}
         disabled={macos && scheme !== "shuangpin"}
         value={shuangpinProfile}
-        onChange={(event) => onShuangpinProfileChange(event.target.value as ShuangpinProfile)}
+        onChange={(event) => {
+          const profile = event.target.value as ShuangpinProfile;
+          if (profile === "custom" && onEditCustomShuangpin) onEditCustomShuangpin();
+          else onShuangpinProfileChange(profile);
+        }}
       >
-        {shuangpinProfileOptions()}
+        {shuangpinProfileOptions(Boolean(onEditCustomShuangpin), shuangpinProfile)}
       </SelectRow>
+      {onEditCustomShuangpin && shuangpinProfile === "custom" && (
+        <div hidden={hideChineseSchemeOptions}>
+          <LinkRow
+            title="编辑自定义键位"
+            description="改键、导入或导出这张双拼表。"
+            onClick={onEditCustomShuangpin}
+          />
+        </div>
+      )}
       {shuangpinKeymapHint !== undefined && (
         <SwitchRow
           title="输入时显示双拼键位提示"

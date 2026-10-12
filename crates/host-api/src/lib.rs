@@ -38,10 +38,13 @@ use msime_client_core::voice::doubao_frame::{
 };
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine::host::{
-    validate_shuangpin_custom_profile, CandidateEdge, Command, EngineOptions, Session,
-    ShuangpinCustomTable,
+    check_shuangpin_custom_profile, shuangpin_builtin_table, validate_shuangpin_custom_profile,
+    CandidateEdge, Command, EngineOptions, Session, ShuangpinCustomProfileError,
+    ShuangpinCustomTable, ShuangpinCustomTablePart,
 };
-use msime_engine::{release_japanese_dictionary_cache, SchemeSet, SchemeType};
+use msime_engine::{
+    release_japanese_dictionary_cache, SchemeSet, SchemeType, ShuangpinProfileKind,
+};
 use msime_input_runtime::HandwritingQuery;
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
@@ -64,6 +67,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 mod bounded_file;
+mod chinese_english_spacing;
 mod dictionary;
 // The exports live in `ffi`, but Rust consumers - this crate's own tests and
 // examples, and anything linking the rlib - have always reached them at the
@@ -783,6 +787,14 @@ impl HostSession {
         self.resources_pending = true;
     }
 
+    /// 「中英文之间加空格」开关，跟着最新请求的偏好走：它只是上屏后处理，不是 Engine 状态，不必等组字结束后重建。
+    fn chinese_english_spacing(&self) -> bool {
+        self.requested
+            .as_ref()
+            .map_or(&self.applied, |snapshot| &snapshot.preferences)
+            .chinese_english_spacing
+    }
+
     fn complete_transition(&mut self, mut result: Transition) -> Transition {
         let generation = self.runtime.generation();
         let note = match self.apply_pending() {
@@ -818,6 +830,16 @@ impl HostSession {
                         }
                     })
                     .collect();
+            }
+        }
+        // 中英文之间加空格排在全角转换之后：先加的半角空格会被转成 U+3000；全角下字母已是全角，本来就不会触发。宿主的简繁转换在拿到上屏文本之后才做，OpenCC 只换汉字、不动空格。之后的 `before_commit` 看到的是加过空格的文本。
+        if let Some(commit) = result.commit.as_mut() {
+            if self.chinese_english_spacing()
+                && chinese_english_spacing::applies(result.commit_context.as_ref())
+            {
+                if let Some(spaced) = chinese_english_spacing::space(commit) {
+                    *commit = spaced;
+                }
             }
         }
         // Dispatch already built the view for this transition. Rebuild it only
@@ -898,6 +920,121 @@ fn engine_shuangpin_custom_table(profile: &ShuangpinCustomProfile) -> ShuangpinC
 pub fn validate_custom_shuangpin_profile(profile: &ShuangpinCustomProfile) -> Result<(), String> {
     validate_shuangpin_custom_profile(&engine_shuangpin_custom_table(profile))
         .map_err(|error| error.to_string())
+}
+
+/// 自定义双拼表为什么不能用，按 Engine 的 `ShuangpinCustomProfileError` 逐项摊开，给设置页按种类写自己的提示、标出出错的那一格。Engine 在第一个错误处就停，所以一次只有一条。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ShuangpinCustomProblem {
+    pub kind: ShuangpinCustomProblemKind,
+    /// 出错的是表的哪一部分：`initials`、`finals` 或 `zero_initials`。编码冲突不属于某一部分，没有这一项；多字母声母占了别的键时是 `initials`。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub part: Option<&'static str>,
+    /// 出错的单位，例如 `zh`、`iong`、`er`。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    /// 不合法或已被占用的键（已转成小写）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// 两个音节撞上的那个两键编码，以及这两个音节。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub second: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShuangpinCustomProblemKind {
+    UnknownUnit,
+    DuplicateUnit,
+    MissingUnit,
+    InvalidKey,
+    InitialKeyTaken,
+    AmbiguousCode,
+}
+
+impl ShuangpinCustomProblem {
+    fn of_kind(kind: ShuangpinCustomProblemKind) -> Self {
+        Self {
+            kind,
+            part: None,
+            unit: None,
+            key: None,
+            code: None,
+            first: None,
+            second: None,
+        }
+    }
+}
+
+impl From<ShuangpinCustomProfileError> for ShuangpinCustomProblem {
+    fn from(error: ShuangpinCustomProfileError) -> Self {
+        use ShuangpinCustomProblemKind as Kind;
+        match error {
+            ShuangpinCustomProfileError::UnknownUnit { part, unit } => Self {
+                part: Some(part.name()),
+                unit: Some(unit),
+                ..Self::of_kind(Kind::UnknownUnit)
+            },
+            ShuangpinCustomProfileError::DuplicateUnit { part, unit } => Self {
+                part: Some(part.name()),
+                unit: Some(unit),
+                ..Self::of_kind(Kind::DuplicateUnit)
+            },
+            ShuangpinCustomProfileError::MissingUnit { part, unit } => Self {
+                part: Some(part.name()),
+                unit: Some(unit.to_owned()),
+                ..Self::of_kind(Kind::MissingUnit)
+            },
+            ShuangpinCustomProfileError::InvalidKey { part, unit, key } => Self {
+                part: Some(part.name()),
+                unit: Some(unit),
+                key: Some(key),
+                ..Self::of_kind(Kind::InvalidKey)
+            },
+            ShuangpinCustomProfileError::InitialKeyTaken { unit, key } => Self {
+                part: Some(ShuangpinCustomTablePart::Initials.name()),
+                unit: Some(unit.to_owned()),
+                key: Some(key),
+                ..Self::of_kind(Kind::InitialKeyTaken)
+            },
+            ShuangpinCustomProfileError::AmbiguousCode {
+                code,
+                first,
+                second,
+            } => Self {
+                code: Some(code),
+                first: Some(first),
+                second: Some(second),
+                ..Self::of_kind(Kind::AmbiguousCode)
+            },
+        }
+    }
+}
+
+/// 编辑中的自定义双拼表有什么问题，能用时是 `None`。结论与 [`validate_custom_shuangpin_profile`] 相同，但用 Engine 不留存的检查：设置页每改一个键就问一次，每张合法的中间表都留下来就是永久泄漏。
+pub fn custom_shuangpin_profile_problem(
+    profile: &ShuangpinCustomProfile,
+) -> Option<ShuangpinCustomProblem> {
+    check_shuangpin_custom_profile(&engine_shuangpin_custom_table(profile))
+        .err()
+        .map(ShuangpinCustomProblem::from)
+}
+
+/// 内置双拼方案写成自定义表的样子，作为编辑自定义方案的起点；`Custom` 本身没有内置的表，返回 `None`。
+pub fn builtin_shuangpin_custom_profile(
+    profile: ShuangpinProfile,
+) -> Option<ShuangpinCustomProfile> {
+    let table =
+        ShuangpinProfileKind::from_u8(profile_code(profile)).and_then(shuangpin_builtin_table)?;
+    let map = |pairs: Vec<(String, String)>| pairs.into_iter().collect();
+    Some(ShuangpinCustomProfile {
+        initials: map(table.initials),
+        finals: map(table.finals),
+        zero_initials: map(table.zero_initials),
+    })
 }
 
 /// 把双拼方案写进 Engine 选项。选的是自定义方案时先让 Engine 校验用户的表：表是空的或不合法时按小鹤运行，返回原因，免得一张写坏的表让 Engine 建不起来、整个输入法停在旧会话上。
@@ -2150,7 +2287,7 @@ fn dispatch(handle: u64, action: Action) -> *mut c_char {
 
 /// 派发一个动作。`host` 只对命令 19、20 有值：动作同 Cancel、Finish，生命周期里的类别是 `HostCommit`（结束原因记 HostCommit）或 `FocusLoss`（上屏来源记 FocusLoss，不出声不画）。
 ///
-/// 选择加入生命周期的会话按这个顺序：调用前采样并发 `input` → `runtime.dispatch`（脚本的 `candidates` 在里面的 refresh 和展开之后）→ 统计 → 读派发事实 → `complete_transition`（全角转换在这里，之后才是宿主拿到的字节）→ `before_commit`（脚本可以改写 body）→ 其余事件和内置消费者 → 序列化，FEEDBACK 开着时插入 `feedback`。没选择加入的会话只走原来的几步。
+/// 选择加入生命周期的会话按这个顺序：调用前采样并发 `input` → `runtime.dispatch`（脚本的 `candidates` 在里面的 refresh 和展开之后）→ 统计 → 读派发事实 → `complete_transition`（全角转换、再中英文之间加空格都在这里，之后才是宿主拿到的字节，宿主再做简繁转换）→ `before_commit`（脚本可以改写 body）→ 其余事件和内置消费者 → 序列化，FEEDBACK 开着时插入 `feedback`。没选择加入的会话只走原来的几步。
 fn dispatch_call(handle: u64, action: Action, host: Option<lifecycle::InputClass>) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {

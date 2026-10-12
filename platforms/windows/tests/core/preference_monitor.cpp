@@ -40,6 +40,7 @@ void preference_monitor_tests(const std::string &options,
     {"brackets", true}, {"tab", false}, {"page_up_down", false}, {"arrows", false}};
   document["preferences"]["word_character"] = {{"enabled", true}, {"keys", "minus_equal"}};
   document["preferences"]["keybindings"]["toggle_character_set_ctrl_shift_f"] = false;
+  document["preferences"]["keybindings"]["toggle_japanese_ctrl_shift_j"] = true;
   write(document.dump());
   FocusGate gate;
   InputQueue input(gate, 1, 1, options);
@@ -111,6 +112,8 @@ void preference_monitor_tests(const std::string &options,
             "Live word binding was not published or was reverted by stale settings");
     require(!state.character_set_shortcut_enabled(),
             "Live character-set shortcut setting was not published");
+    require(state.japanese_toggle_shortcut_enabled(),
+            "Live Japanese toggle shortcut setting was not published");
     require(!navigation.minus_equal && !navigation.comma_period && navigation.brackets &&
             !navigation.tab && !navigation.page_up_down && !navigation.arrows,
             "Live navigation settings were not published or were reverted by stale settings");

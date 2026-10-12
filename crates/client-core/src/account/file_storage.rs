@@ -53,7 +53,12 @@ impl FileAccountSessionStorage {
         }
     }
 
-    fn create_directory(&self) -> Result<(), AccountError> {
+    /// 会话文件所在的目录。桌面端把自建中继的密钥串（`crate::clipboard_relay`）放在同一个目录里。
+    pub fn directory(&self) -> &Path {
+        &self.directory
+    }
+
+    pub(crate) fn create_directory(&self) -> Result<(), AccountError> {
         crate::storage::reject_symlink(&self.directory).map_err(|_| AccountError::Storage)?;
         std::fs::create_dir_all(&self.directory).map_err(|_| AccountError::Storage)?;
         let metadata =
@@ -186,8 +191,12 @@ fn save_bytes(
 }
 
 impl FileAccountSessionStorage {
-    /// 读目录里的一个私有文件；不存在时为 `None`。
-    fn read_private(&self, name: &str, maximum: u64) -> Result<Option<Vec<u8>>, AccountError> {
+    /// 读目录里的一个私有文件；不存在时为 `None`。自建中继的密钥串（`crate::clipboard_relay`）也经它读。
+    pub(crate) fn read_private(
+        &self,
+        name: &str,
+        maximum: u64,
+    ) -> Result<Option<Vec<u8>>, AccountError> {
         crate::storage::reject_symlink(&self.directory).map_err(|_| AccountError::Storage)?;
         #[cfg(unix)]
         let directory = match crate::storage::open_private_directory(&self.directory) {
@@ -228,6 +237,12 @@ impl FileAccountSessionStorage {
         }
         // The file can be replaced after symlink_metadata returns. Read through a bounded handle so the size check cannot turn into an unbounded allocation.
         read_bounded_file(file, maximum).map(Some)
+    }
+
+    /// 原子替换目录里的一个私有文件（仅本人可读写），目录不存在时先建好。
+    pub(crate) fn write_private(&self, name: &str, bytes: &[u8]) -> Result<(), AccountError> {
+        self.create_directory()?;
+        save_bytes(self, name, bytes)
     }
 
     fn remove_private(&self, name: &str) -> Result<(), AccountError> {

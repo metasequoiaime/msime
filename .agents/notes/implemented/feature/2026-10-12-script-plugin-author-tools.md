@@ -49,6 +49,7 @@ Status: implemented
 - `test-support` 特性现在有两个使用方（host-api 和 pack-tool 的测试）。沙箱运行时那篇写明这条路线在依赖批准范围之外、需要单独确认；不批准时两处的 WAT 模块都要改成手写二进制。
 - pack-tool 新增的 `serde`、`serde_json` 是工作区里已有的依赖，`Cargo.lock` 只多了 `msime-pack-tool` 自己的三条依赖边，没有新的第三方 crate。
 - 模板在 Mac Studio 上没有 `wasm32-unknown-unknown` 目标（`rust-toolchain.toml` 只装了 rustfmt 和 clippy），验证时改用已经装好的 `wasm32-wasip2`、链接器换成 `rust-lld` 编出 core 模块（2158 字节，版本头 `01 00 00 00`），`msime-pack validate` 输出 `ok pangu-spacing script 1.0.0`，`run --grant all` 的输出就是模板 README 里的那四行；按 README 的 `wasm32-unknown-unknown` 命令本身没有跑过。C 头文件只在本机用 clang 的 wasm32 后端编译检查过（`-fsyntax-only` 和 `-c`），本机没有 `wasm-ld`，没有链接过。
+- 模板的 pangu-spacing 和内置的[中英文之间加空格](2026-10-12-chinese-english-spacing.md)做的是同一件事。内置开关排在全角转换之后、`before_commit` 之前，第 4 阶段接通改写后，脚本读到的 body 已经加过空格；pangu 只在相邻处插入，不会重复加。
 
 ## Verification
 

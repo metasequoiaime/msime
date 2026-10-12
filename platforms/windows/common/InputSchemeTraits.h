@@ -318,6 +318,55 @@ constexpr int effective_scheme(std::string_view scheme_name, std::string_view la
     return offered.fallback;
 }
 
+// Ctrl+Shift+J 在中文和日语之间切换只在版本同时提供日语和至少一个中文方案时有意义（full 版）。拼音、五笔和各语言版不吃这个组合键，交给应用。
+constexpr bool offers_japanese_toggle(OfferedSchemes offered = edition_schemes())
+{
+    if (!offered.offers(Japanese))
+        return false;
+    for (int scheme = Quanpin; scheme <= Stroke; ++scheme)
+        if (IsChinese(scheme) && offered.offers(scheme))
+            return true;
+    return false;
+}
+
+// Ctrl+Shift+J 的目标方案，-1 表示不切换。`running` 是 Engine 实际运行的方案（effective_scheme 的结果）：它是中文方案时去日语；是日语、韩文、越南文或藏文时回到 `last_chinese_scheme`，它在这个版本里跑不起来时依次退到版本的默认方案和第一个跑得起来的中文方案，和 effective_scheme 的回退一致。调用方在切到日语时把 `running` 记进 `last_chinese_scheme`。
+constexpr int japanese_toggle_target(int running, std::string_view last_chinese_scheme,
+                                     LanguageDictionaryPresence installed, OfferedSchemes offered = edition_schemes())
+{
+    if (!offers_japanese_toggle(offered))
+        return -1;
+    if (IsChinese(running))
+        return Japanese;
+    const int last = scheme_from_name(last_chinese_scheme);
+    if (IsChinese(last) && offered.offers(last) && scheme_installed(last, installed))
+        return last;
+    if (IsChinese(offered.fallback) && offered.offers(offered.fallback) && scheme_installed(offered.fallback, installed))
+        return offered.fallback;
+    for (int scheme = Quanpin; scheme <= Stroke; ++scheme)
+        if (IsChinese(scheme) && offered.offers(scheme) && scheme_installed(scheme, installed))
+            return scheme;
+    return -1;
+}
+
+// Ctrl+Shift+J 写回存储的两项，-1 表示不切换、什么都不写。
+struct JapaneseToggleWrite
+{
+    int scheme = -1;
+    int last_chinese_scheme = -1;
+};
+
+// 从存储里的 `scheme` 和 `last_chinese_scheme` 算出 Ctrl+Shift+J 要写回的两项：先按 effective_scheme 得出 Engine 实际运行的方案，再由 japanese_toggle_target 得出目标。离开中文时把实际运行的中文方案记进 `last_chinese_scheme`，回到中文时目标本身就是它。和托盘的 store_input_scheme 一样维护这一项，只是记的是实际运行的方案，不是存储里可能跑不起来的那个。
+constexpr JapaneseToggleWrite japanese_toggle_write(std::string_view scheme_name, std::string_view last_chinese_scheme,
+                                                    LanguageDictionaryPresence installed,
+                                                    OfferedSchemes offered = edition_schemes())
+{
+    const int running = effective_scheme(scheme_name, last_chinese_scheme, installed, offered);
+    const int target = japanese_toggle_target(running, last_chinese_scheme, installed, offered);
+    if (target < 0)
+        return {};
+    return {target, IsChinese(running) ? running : target};
+}
+
 // The mode of a configured `scheme` preference. An unknown name is Chinese: host-api falls back to quanpin for it.
 constexpr InputMode input_mode(std::string_view scheme_name) { return input_mode(scheme_from_name(scheme_name)); }
 

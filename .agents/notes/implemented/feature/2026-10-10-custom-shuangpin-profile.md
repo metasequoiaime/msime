@@ -1,4 +1,4 @@
-# Agent Note: 自定义双拼方案（引擎与共享层）
+# Agent Note: 自定义双拼方案（引擎、共享层与桌面设置页）
 
 Status: implemented
 
@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-这次只做自定义 26 键双拼在 Engine 和共享层的部分；九键双拼另见 [九键双拼](../../proposed/feature/2026-10-10-nine-key-shuangpin.md)。
+自定义 26 键双拼在 Engine 和共享层先落地，随后是共享 React 设置页的编辑器（macOS 和 Linux）；九键双拼另见 [九键双拼](../../proposed/feature/2026-10-10-nine-key-shuangpin.md)。
 
 - **表的形状与内置方案相同**：`ShuangpinCustomTable` 三部分，`initials` 只给 `zh` `ch` `sh`（单字母声母固定在自己的字母键上），`finals` 给齐 33 个韵母，`zero_initials` 给 12 个零声母音节各一个两键编码。键是字母或 `;`，大写当小写。`custom::FINALS`、`ZERO_INITIALS` 就是内置方案的单位集合，`builtin_profiles_use_the_same_units` 核对四张内置表与它们一致。
 - **合不合法只由 Engine 判定**（`shuangpin::custom`）：单位要认识、不重复、不缺；声母和韵母一个键，零声母两个键；`;` 只能做韵母或零声母编码的第二个键（方案只在奇数长度的片段后接受它）；多字母声母不能放在单字母声母的键上，也不能两个共用一个键；任何一个两键编码不能解出两个不同的音节，零声母编码不能占掉一个声母加韵母的音节（零声母表先查，占掉的那个音节就打不出来），零声母编码之间不能重复。错误是带位置的枚举 `CustomProfileError`，`Display` 是给日志和代理看的英文。四张内置表写成自定义表都能通过，而且 26×27 个编码逐个解出来与内置方案相同（`builtin_tables_pass_and_decode_as_the_builtin_profile`）。
@@ -21,7 +21,10 @@ Status: implemented
 - **共享偏好**：`ShuangpinProfile::Custom`（`"custom"`）和 `Preferences::shuangpin_custom_profile`（三个单位到键的 JSON 对象，空表不写进文件）。`client-core` 不依赖 Engine，只挡结构上明显不对的东西（每部分最多 64 项、单位是小写字母且不超过 8 字节、键是可见 ASCII 且不超过 4 字节）。选别的方案时表留着，切回 `custom` 还能用。导入导出直接用这个 JSON 形状。
 - **host-api 先校验再交给 Engine**：`apply_shuangpin_profile` 在建 Engine 选项时调 `validate_custom_shuangpin_profile`，表不能用就按小鹤运行，偏好变更的响应里带诊断 `Custom shuangpin profile unusable because <原因>; using Xiaohe.`（只在实际跑双拼时报告）；建会话时没有地方带原因，同样按小鹤。一张写坏的表不会让 Engine 建不起来、把输入法卡在旧会话上。
 - **账号同步不带它**：账号 schema 没有 `custom`，也装不下表。选着自定义方案时不上传 `input.shuangpin_schema`，账号保留上次的值；反过来应用账号文档时，本机选着自定义方案就不拿账号里的内置方案覆盖它，否则 Android 合并上传后再应用回来会把本机的自定义方案改回账号里那个旧值。账号里出现 `custom` 时作为本机不认识的值跳过。与 `account_input_schema` 对待账号还没收录的方案一致。
-- **MCP**：`get_preferences` 显示 `shuangpin_profile: custom` 和保存着的表，`update_preferences` 可以整张替换表、选 `custom`；给了表或要选 `custom` 时先用 host-api 的同一个校验，不能用就拒绝并说明原因，不会存下一张输入法只能悄悄退回小鹤的表。这是目前唯一能在产品里设置自定义方案的入口（桌面端经代理）。
+- **MCP**：`get_preferences` 显示 `shuangpin_profile: custom` 和保存着的表，`update_preferences` 可以整张替换表、选 `custom`；给了表或要选 `custom` 时先用 host-api 的同一个校验，不能用就拒绝并说明原因，不会存下一张输入法只能悄悄退回小鹤的表。Windows、Android、iOS 和鸿蒙上它仍是唯一的入口。
+- **桌面设置页的编辑器**：共享 React 设置页的输入页，「双拼方案」多一项「自定义双拼」，宿主提供 `SettingsClient.validateShuangpinCustomProfile` 和 `builtinShuangpinTable` 时才出现（macOS 和 Linux 的 Tauri 设置窗口经同名命令 `validate_shuangpin_custom_profile`、`builtin_shuangpin_table` 提供）。选它先打开编辑页，在那里保存一张能用的表才切到 `custom`，与 MCP 不让选一张不能用的表的规则相同；已经是 `custom` 时下面多一行「编辑自定义键位」。编辑页是输入页里的一个视图（`ShuangpinCustomEditor`，写法同插件页的详情）。和插件页详情不同，去设置表单里的别的页时它不关，只随输入页一起藏起来，回来时还是那张没保存的表，因为只有编辑页的返回会先问一声再丢掉没保存的键位；去统计、账户、社区这类不挂设置表单的页，或关掉设置窗口时，整个表单连同编辑页一起卸下，没保存的键位不问就丢了。它可以从四个内置方案之一填满整张表、逐格改键、导入导出 JSON；文件就是偏好里 `shuangpin_custom_profile` 的形状，只在本机读写，导出走 `saveExport`，宿主没有时退回下载链接。每改一个键，去抖 150 ms 后问宿主一次；不能用时禁用保存和导出，写明问题并标出出错的那一格。导入的文件先按形状解析（多出来的键、不是字符串的键位都拒绝，与偏好的 `deny_unknown_fields` 一致）再交宿主校验，不合法就整份拒绝，不冲掉正在编辑的草稿。保存只写 `shuangpin_profile: "custom"` 和 `shuangpin_custom_profile`，随设置页的自动保存生效。
+- **逐键校验用不留存的检查**：`validate_custom_profile` 每遇到一张新的合法表就 leak 一份进按内容去重的列表，编辑过程中的每张合法中间表都不是用户最后要用的那张，按键级校验会让设置进程永久泄漏，列表的线性查找也越来越慢。所以 Engine 另有 `check_custom_profile`：只做规范化和编码检查，结论与 `validate_custom_profile` 相同（`check_agrees_with_validate`），什么也不留下（`check_leaves_nothing_behind`）；内置方案的表由 `builtin_table` 给出。host-api 的 `custom_shuangpin_profile_problem` 用前者，把 `CustomProfileError` 逐项摊成 `{kind, part, unit, key, code, first, second}`，页面按种类写中文提示；`builtin_shuangpin_custom_profile` 用后者。原来的 `validate_custom_shuangpin_profile` 不变，MCP 和建会话仍用它。Engine 在第一个错误处就停，所以页面一次只报一处，改好一处再看下一处。
+- **宿主编辑不了时**：选项里不列出「自定义双拼」；文档里已经是 `custom` 时照样列出但不能选，否则受控的选择框找不到这一项，会把第一项显示成当前方案。触屏方案把 `custom` 当作小鹤的键盘（`touchSchemeOf`，与 Android 的 `KeyboardScheme.fromPreferences` 一致），标题写「自定义双拼」；引导流程选双拼卡片时偏好里仍是 `custom`，触屏方案写 `xiaohe`，不把 `custom` 写进 `touch_keyboard_schemes`，Rust 的 `TouchKeyboardScheme` 没有这个值，整份偏好会存不进去。
 
 ## Alternatives considered
 
@@ -31,12 +34,18 @@ Status: implemented
 - **在 `client-core` 里做完整校验**：偏好一写进去就知道合不合法。但 `client-core` 不能依赖 Engine（四条边界之一），合法性又取决于 Engine 接受的音节集合（`accepted_syllables`，含历史排除项），在 `client-core` 再写一份规则就是两份实现开始漂移。`client-core` 只限大小，合法性由 Engine 回答，写偏好的一方（host-api、MCP，以后的设置页）在保存前问它。
 - **自定义表允许重新安排单字母声母**：有的输入法支持。但现有方案没有一个这样做，单键片段也一直按「多字母声母的键，否则字母本身」读（`initial_for_key`）；放开它要改切分规则、键面提示和简拼。issue 点名的方案也不需要。
 - **把 `microsoft_shuangpin` 改名成 `semicolon_final`**：名字更准。但 Windows（TSF 与 Server 的 IPC 回复）、Linux、鸿蒙都按这个字段名读，改名要动跨进程协议；只改文档说明含义，字段名留着。
+- **编辑页沿用 `validate_custom_profile` 校验**：少一个函数，第二次校验同一张表时直接命中。但设置页每改一个键就校验一次，留下的是一串用户从没用过的中间表，常驻内存随编辑次数增长，不能回收；建会话那一侧本来就会再校验一次，命中的好处在设置进程里用不上。
+- **在页面里用 TypeScript 再写一份校验**：不用往返宿主，没有命令的宿主（鸿蒙的 NAPI 桥）也能编辑。但合法性取决于 Engine 接受的音节集合和切分规则，两份实现会开始漂移，与上面「不在 `client-core` 里做完整校验」是同一个理由。
+- **另做一个收集全部错误的检查**：一次标出所有出错的格。但规范化和编码检查都是逐项遇错即返回的结构，改成收集要重写两段循环，编码冲突之间还互相牵连（改一个键可能同时消掉好几条）；编辑页每改一个键就重新校验，逐处显示已经能引着用户改完。
+- **编辑页照社区图库的写法做成全屏子视图、压一条历史记录**：手机上能用系统返回手势关上。但这一步只有桌面宿主能编辑（触屏宿主本来就不显示「双拼方案」这一行），桌面上页内视图的现成写法是插件页的详情：返回链接、焦点落点都一致；触屏宿主接入时再按需要补历史记录。
+- **Tauri 的 `save_preferences` 也校验自定义表**：页面之外多一道防线。但它一次存整份偏好，偏好里一旦有一张不能用的表（只可能来自手改的文件或旧版本），设置页上任何别的改动都会存不进去；而表不能用时运行时已经按小鹤回退。所以只在编辑页挡住，保存路径不加。
 
 ## Consequences
 
 - **收益**：Engine 能跑任意一张合法的 26 键双拼表，与内置方案共用同一套切分、整句、辅助码和 `;` 处理；表不合法时有带位置的原因，宿主按小鹤运行而不是建不起会话。默认行为不变：没有人选 `custom` 时，偏好文件、Engine 选项和账号同步都与原来相同。
 - **代价**：进程会为用过的每一张不同的合法表常驻几 KB，不能回收。`EngineOptions` 多一个字段，每个构造处都要写。
-- **还不能用的地方**：六个平台的设置页和触屏方案选择器都还只列四种双拼。macOS 设置保存其他选项、Android 切换方案时原来会把 `custom` 规范成小鹤写回，#6657、#6660 已改为保留它，但两处都还没有选择或编辑它的入口；iOS 和鸿蒙按触屏方案写偏好，选不到它。自定义方案的键面提示还没有（FFI 只收方案名），React 设置页的 `ShuangpinProfile` 类型也没有 `custom`。这些是各平台接入的后续工作。
+- **代价（设置页）**：设置窗口每改一个键往返一次宿主（校验一张表约 50 µs），共享页多一个编辑视图和两个可选的 `SettingsClient` 方法；编辑器一次只报一个问题。
+- **还不能用的地方**：只有 macOS 和 Linux 的设置窗口能编辑、导入导出并选用自定义方案。鸿蒙（2in1 和手机）也用这份 React 页，但它的 `SettingsClient` 走 NAPI，没有那两个方法，要等 C ABI 和桥接上；Windows 的 WinUI 设置页、Android 的 `TypingPage` 和 iOS 的设置都还只列四种双拼。鸿蒙键盘切方案、iOS 选双拼卡片时仍会把 `custom` 改回小鹤，共享页在触屏宿主上点小鹤卡片也写 `xiaohe`。同在 macOS 和 Linux 上，宿主自己的双拼方案菜单也只认四种内置方案（`ShuangpinProfileNames.h`）：选着 `custom` 时，IBus 的「双拼方案」菜单一项也不勾，Fcitx5 的动作只显示「双拼方案」，按一次 Fcitx5 的动作就从小鹤开始轮换、写进 `xiaohe`，表还留着，要回到自定义方案得去设置页；macOS 进程内的原生备用设置窗口（`AppearancePreferences.mm`）也把 `custom` 显示成小鹤。自定义方案的键面提示和键位图还是空的（FFI 只收方案名），用户在 macOS 打开「输入时显示双拼键位提示」会看到空的键位图。这些是各平台接入的后续工作。
 
 ## Verification
 
@@ -44,3 +53,4 @@ Status: implemented
 - `rbuild cargo test -p msime-client-core`（1183 项）、`-p msime-host-api`（395 项，新增 `custom_shuangpin_profile_reaches_engine_options_or_falls_back_to_xiaohe`）、`-p msime-input-runtime`、`-p msime-mcp-server`（新增 `a_custom_shuangpin_profile_needs_a_table_the_engine_accepts`）全过；`cargo clippy` 上述五个 crate `--all-targets -D warnings` 无警告。
 - 热路径：在 Mac Studio（负载 77–95，数字有噪声）上用出货词库、从评测句子集转出的 299 句小鹤键序（3752 键）逐键计 `character` + `snapshot`，三轮共 11256 个样本。分支上内置小鹤 p50 0.40–0.49 ms、自定义的等价表 p50 0.39–0.45 ms，基线提交上内置小鹤 p50 0.46–0.49 ms；两种方案逐键首选完全相同。校验一张新表约 50 µs（进程里第一次还要建音节集合，约 120 µs），已经留下的表约 3–5 µs。基准是临时程序，没有提交。
 - 审查后的补充：`cargo test -p msime-engine --lib shuangpin::`（69 项）和 `custom_profile`（新增 `custom_profile_accepts_semicolon_used_only_by_a_zero_initial_code`：ing 不在 `;` 上、零声母 a 编码为 `o;` 时 `xko;` 解成 xing'a，快照的 `microsoft_shuangpin` 为真）、`cargo test -p msime-client-core --lib settings_sync`（16 项，本机自定义方案不被账号里的小鹤覆盖）全过。Windows 的 `windows-edit-policy`（`shuangpin_uses_semicolon_key` 的各种偏好）在 macOS 上用 clang++ `-Wall -Wextra -Werror` 编过并通过，Server 和 TIP 的改动靠 CI 的 Windows 构建检查，没有在 Windows 上手动试。
+- 设置页编辑器：`rbuild cargo test -p msime-engine --lib shuangpin::custom`（13 项，新增 `check_agrees_with_validate`、`check_leaves_nothing_behind`、`custom_has_no_builtin_table`）、`rbuild cargo test -p msime-host-api`（544 项，新增 `builtin_shuangpin_tables_are_valid_custom_profiles`、`custom_shuangpin_problems_name_the_unit_key_and_code`）、`rbuild cargo test -p msime-mcp-server` 全过，`cargo clippy -p msime-engine -p msime-host-api --all-targets -D warnings` 无警告。`pnpm --dir apps/desktop test` 全过（新增 `shuangpin-custom-editor.test.tsx`：内置方案填入、问题提示与禁用保存、导入非法 JSON 和不能用的表被拒绝、导出能原样导回、宿主不支持时没有入口、文档里已有 `custom` 时选项仍在、经输入页保存写出 `custom` 和表、去别的设置页再回来时没保存的表还在；触屏方案与引导流程各加一项），`pnpm --dir apps/desktop typecheck`、`pnpm run lint`、`python3 scripts/test-preferences-field-parity.py` 通过。Tauri 的两个命令没有在本机编译（macOS 上 `msime-desktop` 整包排除），由 PR 上 `ci-platforms.yml` 在 Linux 跑的 `msime-desktop` clippy 和单测覆盖；没有在 macOS 设置窗口里真机试过。

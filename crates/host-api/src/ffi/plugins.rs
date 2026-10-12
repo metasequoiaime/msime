@@ -156,7 +156,7 @@ pub unsafe extern "C" fn msime_client_music_pack(request: *const u8, length: usi
 /// Largest `msime_client_plugins` request: a full name list at its document bound, with room for JSON escaping and the two paths.
 const MAX_PLUGINS_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 
-/// The 插件 page's pack store and @ name list, for a settings host other than the desktop shell. Every rule and every failure code is client-core's, the same ones the desktop shell answers its page with.
+/// 插件页的包仓库和 @ 名单，给桌面外壳以外的设置宿主：鸿蒙的插件页，以及 Android、iOS 设置里导入辅助码表。所有规则和失败码都来自 client-core，与桌面外壳回答设置页的相同。
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 /// The returned response must be released with `msime_client_string_free`.
@@ -175,6 +175,7 @@ pub unsafe extern "C" fn msime_client_plugins(request: *const u8, length: usize)
         Catalog,
         Import { source: String },
         Remove { kind: String, id: String },
+        ImportHelpcodeTable { file_name: String, text: String },
         LoadMentions,
         SaveMentions { entries: Vec<MentionEntry> },
     }
@@ -209,6 +210,10 @@ pub unsafe extern "C" fn msime_client_plugins(request: *const u8, length: usize)
                 }
                 serde_json::to_value(plugins::import_from_settings(Path::new(&source), &root)?)
             }
+            // 移动端选到的是 content URI 或 security-scoped URL，没有能交给 `import` 的路径：宿主严格按 UTF-8 解码后把码表正文放进请求。
+            PluginAction::ImportHelpcodeTable { file_name, text } => serde_json::to_value(
+                plugins::helpcode_pack::import_table(&root, &file_name, text.as_bytes())?,
+            ),
             PluginAction::Remove { kind, id } => {
                 plugins::remove_named(&root, &kind, &id)?;
                 Ok(Value::Null)

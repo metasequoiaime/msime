@@ -436,6 +436,7 @@ for name in (
     "mode_ctrl_space_enabled_",
     "mode_ctrl_alt_space_enabled_",
     "character_set_shortcut_enabled_",
+    "japanese_toggle_enabled_",
 ):
     assert name in source, name
 for key in (
@@ -445,8 +446,23 @@ for key in (
     "switch_language_ctrl_alt_space",
     "switch_language_caps_lock",
     "toggle_character_set_ctrl_shift_f",
+    "toggle_japanese_ctrl_shift_j",
 ):
     assert key in source, key
+# Ctrl+Shift+J 在中文方案和日语之间切换：两个宿主都读这个键（Fcitx5 启动和热重载各一次，IBus 两处），离开中文时补记 last_chinese_scheme，英文模式之后才处理，Engine 自己的英文模式里交给应用，Fcitx5 一次按下只切换一次。
+assert source.count('"toggle_japanese_ctrl_shift_j"') == 2
+assert ibus_source.count('keybindings.value("toggle_japanese_ctrl_shift_j", false)') == 2
+assert "msime::linux_host::japanese_toggle_target(" in source
+assert "msime::linux_host::japanese_toggle_target(" in ibus_source
+assert 'saveStringPreference("last_chinese_scheme", running);' in source
+assert '{"last_chinese_scheme", leaving_chinese ? running : next}' in ibus_source
+assert source.index("if (!toggleJapanese()) return false;") > source.index(
+    "English mode still honours fullwidth output"
+)
+assert '!view_.value("dedicated_english", false)) {\n    if (!toggleJapanese()) return false;' in source
+assert '!s.view.value("dedicated_english", false)) {\n    if (!toggle_japanese_scheme(engine))' in ibus_source
+assert "toggle_chord_held_ = FcitxKey_j;" in source
+assert "sym == FcitxKey_J ? FcitxKey_j : sym" in source
 # A bare modifier is measured on its release, and only when nothing else was typed
 # while it was held; the press half only arms it.
 assert "pure_shift_candidate_" in source and "pure_ctrl_candidate_" in source

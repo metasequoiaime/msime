@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsStr;
 #[cfg(unix)]
 use std::ffi::OsString;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Read, Seek, Write};
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
@@ -35,22 +35,7 @@ const CHUNK: usize = 64 * 1024;
 /// Upper bound on archive members, so a hostile archive of empty entries cannot keep the extractor busy indefinitely.
 const MAX_ARCHIVE_ENTRIES: usize = 100_000;
 
-fn create_private_file(path: &Path) -> io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    }
-    options.open(path)
-}
+use crate::file_lock::create_private_file;
 
 fn extract_archive_member<R: Read>(
     entry: &mut R,

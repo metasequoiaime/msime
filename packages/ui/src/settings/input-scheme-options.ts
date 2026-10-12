@@ -53,6 +53,15 @@ export function isChineseScheme(scheme: InputScheme): scheme is ChineseScheme {
   return !(nonChineseSchemes as readonly InputScheme[]).includes(scheme);
 }
 
+/** 「Ctrl+Shift+J 在中文和日语之间切换」的开关只在宿主处理这个组合键、并且本版本同时提供中文方案和日语时显示。版本缺省（full）时两者都有。 */
+export function offersJapaneseToggle(host?: HostCapabilities): boolean {
+  if (!host?.japanese_toggle_shortcut) return false;
+  const editionSchemes = host.edition?.input_schemes;
+  return (
+    !editionSchemes || (editionSchemes.includes("japanese") && editionSchemes.some(isChineseScheme))
+  );
+}
+
 /** The schemes offered when there is no host (the browser preview and tests). */
 export const baseInputSchemes: readonly InputScheme[] = [
   "quanpin",

@@ -262,7 +262,7 @@ msime::linux_host::CandidateTheme candidate_theme(const Json &preferences) {
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, GlobalTheme, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, ShuangpinPreedit, WubiCodeHint, WubiAutoCommitUnique, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, CharacterWidth, VoiceEnabled };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, GlobalTheme, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, ShuangpinPreedit, WubiCodeHint, WubiAutoCommitUnique, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, JapaneseToggle, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, CharacterWidth, VoiceEnabled };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 struct FailedMenuSave {
   MenuPreference preference;
@@ -418,6 +418,8 @@ struct State {
   bool mode_chord_held = false;
   // Ctrl+Shift+F owns its stroke the way mode_chord_held owns Space: repeats while it is held toggle nothing, even while the first toggle's save is still pending.
   bool character_set_chord_held = false;
+  // Ctrl+Shift+J 同样一次按下只切换一次。
+  bool japanese_chord_held = false;
   std::set<guint> host_shortcut_strokes;
   gint64 modifier_toggle_deadline = 0;
   void reset_mode_modifiers() {
@@ -432,6 +434,7 @@ struct State {
     caps_lock_down = false;
     mode_chord_held = false;
     character_set_chord_held = false;
+    japanese_chord_held = false;
     host_shortcut_strokes.clear();
   }
   bool mode_shift_enabled = true;
@@ -443,6 +446,8 @@ struct State {
   msime::input::CapsLockTap caps_lock_tap;
   bool caps_lock_down = false;
   bool character_set_shortcut_enabled = true;
+  // Ctrl+Shift+J 在中文方案和日语之间切换（keybindings.toggle_japanese_ctrl_shift_j），缺省关。
+  bool japanese_toggle_enabled = false;
   bool number_row_selection = true;
   std::optional<bool> number_row_override;
   char last_smart_punctuation = 0;
@@ -808,6 +813,7 @@ struct State {
     mode_caps_lock_enabled = keybindings.value("switch_language_caps_lock", false);
     character_set_shortcut_enabled =
         keybindings.value("toggle_character_set_ctrl_shift_f", true);
+    japanese_toggle_enabled = keybindings.value("toggle_japanese_ctrl_shift_j", false);
     traditional_output = traditional_output_override.value_or(
         preferences.value("traditional_chinese_output", false));
     cloud_candidates = cloud_candidates_override.value_or(
@@ -1068,6 +1074,7 @@ struct State {
     mode_caps_lock_enabled = keybindings.value("switch_language_caps_lock", false);
     character_set_shortcut_enabled =
         keybindings.value("toggle_character_set_ctrl_shift_f", true);
+    japanese_toggle_enabled = keybindings.value("toggle_japanese_ctrl_shift_j", false);
   }
   bool refresh_provider_sockets(IBusEngine *engine) {
     const auto online = provider_socket_fallback(
@@ -5909,6 +5916,7 @@ void reset(IBusEngine *engine) {
     // A chord release that never arrives must not swallow the next stroke of the same key.
     state(engine).mode_chord_held = false;
     state(engine).character_set_chord_held = false;
+    state(engine).japanese_chord_held = false;
     state(engine).ai_context.clear();
     state(engine).native_compose.reset();
     state(engine).backspace_hold.reset();
@@ -6130,6 +6138,26 @@ void toggle_input_mode(IBusEngine *engine) {
   publish_mode(engine);
   show_input_mode_hint(engine);
 }
+// Ctrl+Shift+J：当前跑的是中文方案就切到日语，是日语等外语就回到 last_chinese_scheme（InputSchemes.h 的 japanese_toggle_target）。和属性菜单的「输入方案」一样经 save_menu_preference 写进存储，由 host-api 在组字结束、运行时空闲后应用；菜单只在目标是中文方案时记 last_chinese_scheme，所以离开中文时这里把当时跑的中文方案一起写进去。没有偏好存储的预览实例不处理，组合键交给应用。上一次保存还没落盘时紧接着再按（快速按两下想切回去），这一下吃掉但不切换，和 Windows 工作线程忙时一样，不让浏览器拿去开开发者工具；返回值表示按键归不归输入法。
+bool toggle_japanese_scheme(IBusEngine *engine) {
+  auto &s = state(engine);
+  const auto directory = configured.value("preferences_directory", std::string{});
+  if (directory.empty() || directory.front() != '/')
+    return false;
+  const auto running = effective_scheme(s);
+  const auto next = msime::linux_host::japanese_toggle_target(
+      running, configured.at("preferences").value("last_chinese_scheme", std::string("quanpin")),
+      configured_dictionaries);
+  if (next.empty())
+    return false;
+  if (menu_save_pending)
+    return true;
+  const bool leaving_chinese =
+      msime::linux_host::scheme::IsChinese(msime::linux_host::scheme_number(running));
+  save_menu_preference(engine, MenuPreference::JapaneseToggle,
+                       Json{{"scheme", next}, {"last_chinese_scheme", leaving_chinese ? running : next}});
+  return true;
+}
 gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) {
   auto &s = state(engine);
   // A router lease cannot be issued before engine construction completes.
@@ -6279,6 +6307,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   }
   if ((key == IBUS_f || key == IBUS_F) && s.character_set_chord_held) {
     if (release) s.character_set_chord_held = false;
+    return TRUE;
+  }
+  if ((key == IBUS_j || key == IBUS_J) && s.japanese_chord_held) {
+    if (release) s.japanese_chord_held = false;
     return TRUE;
   }
   if (flags & IBUS_RELEASE_MASK) {
@@ -6437,6 +6469,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       render(engine, s.view);
       publish_mode(engine);
     });
+    return TRUE;
+  }
+  // 英文模式在上面已经交给应用；Engine 自己的英文模式（Ctrl+Shift+E）里同样交给应用，和 Windows 一致。
+  if (s.japanese_toggle_enabled && (key == IBUS_j || key == IBUS_J) &&
+      modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK) &&
+      !s.view.value("dedicated_english", false)) {
+    if (!toggle_japanese_scheme(engine))
+      return FALSE;
+    s.japanese_chord_held = true;
     return TRUE;
   }
   if (fullwidth_toggle) {
@@ -7773,7 +7814,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->helpcode_schema_override.reset();
           if (request.preference == MenuPreference::ShuangpinProfile)
             self->state->shuangpin_profile_override.reset();
-          if (request.preference == MenuPreference::InputScheme)
+          if (request.preference == MenuPreference::InputScheme ||
+              request.preference == MenuPreference::JapaneseToggle)
             self->state->scheme_override.reset();
           if (request.preference == MenuPreference::NineKey)
             self->state->nine_key_override.reset();
@@ -7903,6 +7945,11 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             if (msime::linux_host::scheme::IsChinese(
                     msime::linux_host::scheme_number(request.value.get<std::string>())))
               snapshot["preferences"]["last_chinese_scheme"] = request.value;
+            break;
+          case MenuPreference::JapaneseToggle:
+            // 目标方案和要记住的中文方案在按键时就定下了：离开中文时记下当时跑的中文方案，回到中文时记下目标本身。
+            snapshot["preferences"]["scheme"] = request.value.at("scheme");
+            snapshot["preferences"]["last_chinese_scheme"] = request.value.at("last_chinese_scheme");
             break;
           case MenuPreference::NineKey:
             snapshot["preferences"]["touch_keyboard_layout"] =

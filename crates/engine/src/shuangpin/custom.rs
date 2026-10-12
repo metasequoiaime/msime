@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 use std::fmt;
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 
 use super::profile::{accepted_syllables, default_profile, profile};
 use super::ShuangpinProfile;
@@ -121,11 +121,7 @@ pub fn custom_profile(
     table: &ShuangpinCustomTable,
 ) -> Result<&'static ShuangpinProfile, CustomProfileError> {
     let canonical = canonicalize(table)?;
-    static INTERNED: OnceLock<Mutex<Vec<&'static ShuangpinProfile>>> = OnceLock::new();
-    let mut interned = INTERNED
-        .get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner);
+    let mut interned = interned();
     if let Some(found) = interned.iter().find(|profile| canonical.matches(profile)) {
         return Ok(found);
     }
@@ -166,6 +162,36 @@ pub fn session_profile(
 /// 只回答表能不能用。合法的表同样按内容留下一份，随后用它建会话（每次偏好变更都会先校验再重建）时直接复用，不再逐个编码检查一遍。
 pub fn validate_custom_profile(table: &ShuangpinCustomTable) -> Result<(), CustomProfileError> {
     custom_profile(table).map(|_| ())
+}
+
+/// 与 [`validate_custom_profile`] 的结论相同，但什么也不留下：不进按内容去重的那份列表，也不 leak。给编辑中的表用，例如设置页每改一个键就问一次：编辑过程中的每一张合法的中间表都不是用户最后要用的那张，留下来就是永久泄漏，列表也越查越慢。真要用这张表建会话时仍走 [`custom_profile`]。
+pub fn check_custom_profile(table: &ShuangpinCustomTable) -> Result<(), CustomProfileError> {
+    check_codes(&canonicalize(table)?)
+}
+
+/// 内置方案写成自定义表的样子，用作编辑自定义方案的起点；`Custom` 没有内置的表，返回 `None`。单位按内置表里的顺序排列，顺序对表的含义没有影响。
+pub fn builtin_table(kind: ShuangpinProfileKind) -> Option<ShuangpinCustomTable> {
+    fn owned(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(unit, key)| ((*unit).to_owned(), (*key).to_owned()))
+            .collect()
+    }
+    let source = profile(kind)?;
+    Some(ShuangpinCustomTable {
+        initials: owned(source.initials),
+        finals: owned(source.finals),
+        zero_initials: owned(source.zero_initials),
+    })
+}
+
+/// 进程里按内容只留一份的合法方案（[`custom_profile`]）。
+fn interned() -> MutexGuard<'static, Vec<&'static ShuangpinProfile>> {
+    static INTERNED: OnceLock<Mutex<Vec<&'static ShuangpinProfile>>> = OnceLock::new();
+    INTERNED
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
 }
 
 fn leak_pairs(pairs: Vec<(&'static str, String)>) -> &'static [(&'static str, &'static str)] {
@@ -391,12 +417,7 @@ mod tests {
     }
 
     fn table_of(kind: ShuangpinProfileKind) -> ShuangpinCustomTable {
-        let source = profile(kind).unwrap();
-        ShuangpinCustomTable {
-            initials: owned(source.initials),
-            finals: owned(source.finals),
-            zero_initials: owned(source.zero_initials),
-        }
+        builtin_table(kind).unwrap()
     }
 
     fn set(units: impl IntoIterator<Item = &'static str>) -> Vec<&'static str> {
@@ -628,6 +649,63 @@ mod tests {
                 second: "o".to_owned(),
             })
         );
+    }
+
+    #[test]
+    fn custom_has_no_builtin_table() {
+        assert_eq!(builtin_table(ShuangpinProfileKind::Custom), None);
+    }
+
+    /// 不留存的检查与会留存的校验对同一批表结论相同，包括错误的种类和位置。
+    #[test]
+    fn check_agrees_with_validate() {
+        let mut tables: Vec<ShuangpinCustomTable> = BUILTIN.into_iter().map(table_of).collect();
+        tables.push(ShuangpinCustomTable::default());
+        for (part, unit, key) in [
+            (CustomTablePart::Finals, "ang", "k"),
+            (CustomTablePart::Finals, "ing", ";"),
+            (CustomTablePart::Finals, "iu", "1"),
+            (CustomTablePart::Initials, "sh", "s"),
+            (CustomTablePart::Initials, "zh", "a"),
+            (CustomTablePart::ZeroInitials, "a", "ua"),
+            (CustomTablePart::ZeroInitials, "o", "aa"),
+            (CustomTablePart::ZeroInitials, "o", "o;"),
+        ] {
+            let mut table = table_of(ShuangpinProfileKind::Xiaohe);
+            let entries = match part {
+                CustomTablePart::Initials => &mut table.initials,
+                CustomTablePart::Finals => &mut table.finals,
+                CustomTablePart::ZeroInitials => &mut table.zero_initials,
+            };
+            replace(entries, unit, key);
+            tables.push(table);
+        }
+        let mut missing = table_of(ShuangpinProfileKind::Microsoft);
+        missing.finals.retain(|(unit, _)| unit != "iong");
+        tables.push(missing);
+        for table in &tables {
+            assert_eq!(check_custom_profile(table), validate_custom_profile(table));
+        }
+        assert!(tables
+            .iter()
+            .any(|table| check_custom_profile(table).is_ok()));
+        assert!(tables
+            .iter()
+            .any(|table| check_custom_profile(table).is_err()));
+    }
+
+    #[test]
+    fn check_leaves_nothing_behind() {
+        // 别的测试不会用到的一张合法表：自然码的表，零声母 o 改用 `o;`。
+        let mut table = table_of(ShuangpinProfileKind::Ziranma);
+        replace(&mut table.zero_initials, "o", "o;");
+        let canonical = canonicalize(&table).unwrap();
+        let interned_now = || interned().iter().any(|profile| canonical.matches(profile));
+        assert_eq!(check_custom_profile(&table), Ok(()));
+        assert_eq!(check_custom_profile(&table), Ok(()));
+        assert!(!interned_now());
+        validate_custom_profile(&table).unwrap();
+        assert!(interned_now());
     }
 
     #[test]

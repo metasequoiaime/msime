@@ -337,6 +337,15 @@ bool IsCharacterSetInputModeToggle(UINT code, UINT modifiers)
            FanyUtils::ReadConfiguredSwitchLanguageHotkeys().character_set_ctrl_shift_f;
 }
 
+// Ctrl+Shift+J 在中文方案和日语之间切换：开关打开、Server 协商到这一位、本版本同时提供两头时才吃。Engine 自己的英文模式（Ctrl+Shift+E）里 TIP 仍报告中文，这时组合键交给应用，和中文输入法关着时一样。
+bool IsJapaneseInputModeToggle(UINT code, UINT modifiers)
+{
+    return FanyImeProtocol::IsJapaneseToggleShortcut(code, modifiers) && (GetAsyncKeyState(VK_LWIN) & 0x8000) == 0 &&
+           (GetAsyncKeyState(VK_RWIN) & 0x8000) == 0 && msime::windows::scheme::offers_japanese_toggle() &&
+           SupportsJapaneseToggleShortcut() && !Global::DedicatedEnglish.active(GetTickCount64()) &&
+           FanyUtils::ReadConfiguredSwitchLanguageHotkeys().japanese_toggle_ctrl_shift_j;
+}
+
 void PostOwnerMessageWithSyncFallback(HWND window, UINT message, WPARAM wParam = 0, LPARAM lParam = 0)
 {
     if (!window || !IsWindow(window))
@@ -1002,6 +1011,16 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
             }
             return TRUE;
         }
+        // 方案由 Server 写进偏好，host-api 等这次组字结束、运行时空闲后才换方案，所以组字中按下不动组字，和托盘换方案一样。
+        if (!_serverUnavailableFallbackActive && IsJapaneseInputModeToggle(*pCodeOut, shortcutModifiers))
+        {
+            if (pKeyState)
+            {
+                pKeyState->Category = CATEGORY_COMPOSING;
+                pKeyState->Function = FUNCTION_TOGGLE_JAPANESE;
+            }
+            return TRUE;
+        }
         // Keep the Chinese compartment open: this only toggles the Server-owned English candidate sub-mode. Korean, Zhuyin and Vietnamese have no such mode here: the TIP composes them in its own host session, which would not follow a mode only the Server session entered, so the chord belongs to the application like any other Ctrl chord.
         if (!hostComposed && IsEnglishInputModeToggle(*pCodeOut, shortcutModifiers))
         {
@@ -1632,6 +1651,13 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
     {
         keyState->Category = CATEGORY_COMPOSING;
         keyState->Function = FUNCTION_TOGGLE_CHARACTER_SET;
+        return true;
+    }
+    if (projectedImeOpen && !_serverUnavailableFallbackActive && !_IsKeyboardDisabled() &&
+        IsJapaneseInputModeToggle(*classifiedCode, capturedModifiers))
+    {
+        keyState->Category = CATEGORY_COMPOSING;
+        keyState->Function = FUNCTION_TOGGLE_JAPANESE;
         return true;
     }
     // Korean, Zhuyin and Vietnamese have no Server-owned English candidate mode, as in _IsKeyEaten.
@@ -2295,7 +2321,8 @@ bool CMetasequoiaIME::_QueueDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wP
                                             WCHAR translatedWch, UINT modifiersDown, const _KEYSTROKE_STATE &keyState)
 {
     // Repeats are owned but do not enqueue another global configuration toggle.
-    if (keyState.Function == FUNCTION_TOGGLE_CHARACTER_SET && (lParam & 0x40000000) != 0)
+    if ((keyState.Function == FUNCTION_TOGGLE_CHARACTER_SET || keyState.Function == FUNCTION_TOGGLE_JAPANESE) &&
+        (lParam & 0x40000000) != 0)
         return true;
     if (pContext == nullptr || !_DeferredKeyQueueHasCapacity())
     {
@@ -2717,7 +2744,7 @@ void CMetasequoiaIME::_DrainOneDeferredKeyDown()
     if (_serverUnavailableFallbackActive)
     {
         _KEYSTROKE_STATE offlineState = key.keyState;
-        if (offlineState.Function == FUNCTION_TOGGLE_CHARACTER_SET)
+        if (offlineState.Function == FUNCTION_TOGGLE_CHARACTER_SET || offlineState.Function == FUNCTION_TOGGLE_JAPANESE)
         {
             _CompleteDeferredKeyReplay(replayToken);
             return;
@@ -3030,6 +3057,11 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
             // TestKeyDown owned this key. Do not send it as ordinary input.
             return KeyDownDispatchResult::Complete;
         }
+        // 同上：吃下这个键之后换上的旧 Server 不认识它，不能当普通按键送进组字。
+        if (KeystrokeState.Function == FUNCTION_TOGGLE_JAPANESE && !SupportsJapaneseToggleShortcut())
+        {
+            return KeyDownDispatchResult::Complete;
+        }
 
         // 日语转换开始之后的回车上屏 Server 高亮的候选（Global/JapaneseConversionPolicy.h）：按候选键处理并带上 CandidateActive，Server 走选中高亮候选的回车路径，TIP 读它的回复上屏，而不是自己宿主会话里的假名。
         const bool japaneseCandidateEnter =
@@ -3087,7 +3119,7 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
         _NoteFieldTraitsForServer();
         PerfTimer sendKeyEventTimer;
         const KeyEventSendResult sendResult = SendKeyEventToUIProcess(&requestId);
-        if (KeystrokeState.Function == FUNCTION_TOGGLE_CHARACTER_SET)
+        if (KeystrokeState.Function == FUNCTION_TOGGLE_CHARACTER_SET || KeystrokeState.Function == FUNCTION_TOGGLE_JAPANESE)
         {
             // No document edit or response is needed. In particular, an ambiguous
             // delivery must never replay a toggle after reconnecting.

@@ -145,16 +145,21 @@ final class ImeLetterRows {
     }
 
     /**
-     * 字母键的按压：开着「按键弹出」（`touch_key_popup`）时浮出气泡。开着「滑动输入符号」（`platform.android.swipe_down_symbols`）时，沿设置的方向（`platform.android.swipe_symbols_direction`）滑过 14 dp 松手输入右上角的提示字符；长按到系统长按时长也输入它，长按不受这两项设置影响。两种手势触发后气泡改显示提示字符，没有触发时照常交给按钮自己的点击。
+     * 字母键的按压：开着「按键弹出」（`touch_key_popup`）时浮出气泡。开着「滑动输入符号」（`platform.android.swipe_down_symbols`）时，沿设置的方向（`platform.android.swipe_symbols_direction`）滑过 14 dp 松手输入右上角的提示字符；长按到系统长按时长也输入它，长按不受这两项设置影响。两种手势触发后气泡改显示右上角的键面，没有触发时照常交给按钮自己的点击。
+     *
+     * <p>中文标点生效时（{@link MSIMEInputService#sendsChinesePunctuation}），Engine 会转写的那几个提示（( ) " ? !，见 {@link LetterHintTable#routesThroughEngine}）气泡显示中文键面，松手交给 {@link MSIMEInputService#punctuation}：组字中先按首选结束再接中文标点，智能标点、成对补全和引号交替都照常生效（#7069）。这里不走 `type()`，一次性 Shift 不会被一个标点用掉，与按字面上屏的其他提示一致。中文标点状态在手势触发时读，不在建键时记下，切换中文标点不必为此重建键行。
+     *
+     * @param input 键的字母，提示字符按它查 {@link LetterHintTable}
      */
-    private void bindLetterGestures(Button key, String hint) {
+    private void bindLetterGestures(Button key, String input) {
+        final String hint = LetterHintTable.hint(input);
         final float[] downY = new float[1];
         final boolean[] triggered = new boolean[1];
         Runnable hold = () -> {
             if (triggered[0] || !key.isPressed()) return;
             triggered[0] = true;
             // 长按不看「按键弹出」：这是手势已触发的唯一提示。
-            showKeyPreview(key, hint);
+            showKeyPreview(key, LetterHintTable.face(input, s.sendsChinesePunctuation()));
         };
         key.setOnTouchListener((view, event) -> {
             switch (event.getActionMasked()) {
@@ -176,7 +181,8 @@ final class ImeLetterRows {
                                 DimensionPolicy.fromPixels(s, event.getY()))) {
                         triggered[0] = true;
                         key.removeCallbacks(hold);
-                        if (keyPreview != null && keyPreviewOwner == key) keyPreview.setLabel(hint);
+                        if (keyPreview != null && keyPreviewOwner == key)
+                            keyPreview.setLabel(LetterHintTable.face(input, s.sendsChinesePunctuation()));
                     }
                     return triggered[0];
                 }
@@ -191,7 +197,10 @@ final class ImeLetterRows {
                     key.setPressed(false);
                     s.imeKeyFeedback.playFeedback(key);
                     s.countKey(key);
-                    s.imeLayoutRows.commitNineKeyLiteral(hint);
+                    // Engine 不收时（会话还没起来）退回按字面上屏，和注音九键的逗号键、commitNineKeyPeriod 同一个写法。
+                    boolean engine = s.sendsChinesePunctuation() && LetterHintTable.routesThroughEngine(hint)
+                        && s.punctuation(hint.charAt(0));
+                    if (!engine) s.imeLayoutRows.commitNineKeyLiteral(hint);
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL -> {
@@ -606,10 +615,11 @@ final class ImeLetterRows {
                 keyButton = hintButton;
                 s.shuangpinKeyButtons.add(hintButton);
                 s.shuangpinKeyInputs.add(input);
-                String hint = standardLetters ? LetterHintTable.hint(input) : null;
-                hintButton.setCornerHint(hint);
+                // 键面随中文标点切换，之后由 render() 里的 updateLetterCornerHints 就地更新。
+                hintButton.setCornerHint(standardLetters
+                    ? LetterHintTable.face(input, s.sendsChinesePunctuation()) : null);
                 KeyboardTypographyPolicy.setKeyTextSize(hintButton, 22);
-                bindLetterGestures(hintButton, hint);
+                bindLetterGestures(hintButton, standardLetters ? input : null);
             } else {
                 keyButton = s.keyboardKey(face, face, () -> s.type(input.charAt(0)));
             }

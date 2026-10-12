@@ -4,6 +4,7 @@ import { createSettingsDraftActions } from "../settings-draft-actions";
 import { useSettingsForm } from "../settings-form-context";
 import { ShortcutsSettingsSection } from "../shortcuts-settings-section";
 import { createShortcutsSettingsActions } from "../shortcuts-settings-actions";
+import { offersJapaneseToggle } from "../input-scheme-options";
 
 /** The 快捷键 page of the settings form. */
 export function ShortcutSettingsPage() {
@@ -56,6 +57,7 @@ export function ShortcutSettingsPage() {
       fullwidthChord={fullwidthChord}
       windows={windowsPlatform}
       capsLockLanguageSwitch={host?.caps_lock_language_switch ?? false}
+      japaneseToggle={offersJapaneseToggle(host)}
       navigation={navigation}
       // iOS 键盘扩展收不到实体键，以词定字靠长按候选，没有可列的键。
       wordCharacter={iosPlatform ? undefined : wordCharacter}

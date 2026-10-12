@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::ffi::{OsStr, OsString};
 #[cfg(any(not(unix), test))]
 use std::fs::OpenOptions;
@@ -16,6 +17,7 @@ static PRIVATE_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// 暂存目录的创建和清理都绑定到同一个父目录句柄。
 pub(crate) struct StagingDirectory {
     pub(crate) path: PathBuf,
+    created: Cell<bool>,
     #[cfg(unix)]
     parent: File,
     #[cfg(unix)]
@@ -34,28 +36,36 @@ impl StagingDirectory {
                 .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "staging has no name"))?
                 .to_owned();
             let parent = open_private_directory(parent_path)?;
-            Ok(Self { path, parent, name })
+            Ok(Self {
+                path,
+                created: Cell::new(false),
+                parent,
+                name,
+            })
         }
         #[cfg(not(unix))]
         {
-            Ok(Self { path })
+            Ok(Self {
+                path,
+                created: Cell::new(false),
+            })
         }
     }
 
     pub(crate) fn create(&self) -> io::Result<()> {
         #[cfg(unix)]
-        {
-            rustix::fs::mkdirat(
-                &self.parent,
-                &self.name,
-                rustix::fs::Mode::from_raw_mode(0o700),
-            )
-            .map_err(io::Error::from)
-        }
+        let result = rustix::fs::mkdirat(
+            &self.parent,
+            &self.name,
+            rustix::fs::Mode::from_raw_mode(0o700),
+        )
+        .map_err(io::Error::from);
         #[cfg(not(unix))]
-        {
-            fs::create_dir(&self.path)
+        let result = fs::create_dir(&self.path);
+        if result.is_ok() {
+            self.created.set(true);
         }
+        result
     }
 
     #[cfg(unix)]
@@ -84,6 +94,9 @@ impl StagingDirectory {
 
 impl Drop for StagingDirectory {
     fn drop(&mut self) {
+        if !self.created.get() {
+            return;
+        }
         #[cfg(unix)]
         let _ = remove_private_tree_at(&self.parent, &self.name);
         #[cfg(not(unix))]
@@ -946,6 +959,26 @@ pub(crate) fn create_directory_and_check(path: &Path) -> io::Result<bool> {
 mod tests {
     #[cfg(unix)]
     use super::*;
+
+    #[test]
+    fn failed_staging_create_preserves_existing_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(".staging-synthetic");
+        std::fs::create_dir(&path).unwrap();
+        std::fs::write(path.join("sentinel"), b"synthetic-data").unwrap();
+
+        let staging = super::StagingDirectory::new(path.clone()).unwrap();
+        assert_eq!(
+            staging.create().unwrap_err().kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+        drop(staging);
+
+        assert_eq!(
+            std::fs::read(path.join("sentinel")).unwrap(),
+            b"synthetic-data"
+        );
+    }
 
     #[cfg(unix)]
     #[test]

@@ -465,6 +465,52 @@ bool store_input_scheme(const std::filesystem::path &directory,
     return false;
   }
 }
+// Ctrl+Shift+J 交给工作线程的一次请求，目标由 toggle_japanese_scheme 从存储算出，所以不带参数。
+struct JapaneseToggleRequest {};
+// Ctrl+Shift+J：从存储读出偏好，按 Engine 实际运行的方案算出目标和要记的 last_chinese_scheme（scheme::japanese_toggle_write），带 revision 写回，和 store_input_scheme 一样维护 last_chinese_scheme。在工作线程上运行，读和写之间别的界面写进去的新修订会让保存失败，这一次按键就不切换，不会覆盖别人的写入。成功时返回写进去的方案，不切换或失败时为空。
+std::optional<std::string> toggle_japanese_scheme(
+    const std::filesystem::path &directory,
+    msime::windows::scheme::LanguageDictionaryPresence installed) {
+  try {
+    const auto root = directory.u8string();
+    auto loaded = msime::host_api::own_string(
+        msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size()));
+    if (!loaded)
+      return std::nullopt;
+    const auto response = nlohmann::json::parse(loaded.get());
+    if (!response.value("ok", false) || !response.at("value").is_object())
+      return std::nullopt;
+    auto snapshot = response.at("value");
+    const auto revision = snapshot.at("revision").get<uint64_t>();
+    auto &preferences = snapshot.at("preferences");
+    const auto write = msime::windows::scheme::japanese_toggle_write(
+        preferences.value("scheme", std::string("quanpin")),
+        preferences.value("last_chinese_scheme", std::string("quanpin")),
+        installed);
+    if (write.scheme < 0)
+      return std::nullopt;
+    const std::string next(msime::windows::scheme::scheme_name(write.scheme));
+    preferences["last_chinese_scheme"] = std::string(
+        msime::windows::scheme::scheme_name(write.last_chinese_scheme));
+    preferences["scheme"] = next;
+    const auto serialized = snapshot.dump();
+    auto saved = msime::host_api::own_string(
+        msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size(),
+            revision, reinterpret_cast<const uint8_t *>(serialized.data()),
+            serialized.size()));
+    if (!saved)
+      return std::nullopt;
+    const auto saved_response = nlohmann::json::parse(saved.get());
+    if (!saved_response.value("ok", false) ||
+        !saved_response.at("value").is_object())
+      return std::nullopt;
+    return next;
+  } catch (...) {
+    return std::nullopt;
+  }
+}
 // The Cantonese, Zhuyin and Stroke dictionaries the package installed beside the resources, where host-api looks for them (language_dictionaries_beside). They arrive with a package, so one look at startup holds for the process.
 msime::windows::scheme::LanguageDictionaryPresence
 installed_language_dictionaries(const std::filesystem::path &resources) {
@@ -1003,6 +1049,17 @@ int wmain(int argc, wchar_t **argv) {
           (void)persist_traditional_output(directory, *traditional_output,
                                            click.desired);
         });
+    // TSF 的 Ctrl+Shift+J 同样经一个有界工作线程写偏好，同样要在 WindowsServer 构造之前就有。写成功后立刻更新托盘看到的方案，方案本身由偏好监视器发布给会话。
+    SingleClickWorker<JapaneseToggleRequest> japanese_toggles(
+        [directory = config.state_root, language_dictionaries, tray_preferences,
+         tray_preferences_mutex](const JapaneseToggleRequest &) {
+          const auto scheme =
+              toggle_japanese_scheme(directory, language_dictionaries);
+          if (!scheme)
+            return;
+          std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
+          tray_preferences->scheme = *scheme;
+        });
     auto candidate_fonts = std::make_shared<CandidateFontMailbox>();
     auto candidate_style = std::make_shared<CandidateWindowStyleMailbox>();
     auto toolbar_settings = std::make_shared<FloatingToolbarMailbox>();
@@ -1037,7 +1094,8 @@ int wmain(int argc, wchar_t **argv) {
         production ? (FanyImeProtocol::Capabilities |
                       FanyImeProtocol::CharacterSetShortcut |
                       FanyImeProtocol::GameHostCandidate |
-                      FanyImeProtocol::FieldTraits)
+                      FanyImeProtocol::FieldTraits |
+                      FanyImeProtocol::JapaneseToggleShortcut)
                    : (FanyImeProtocol::RequiredCapabilities |
                       FanyImeProtocol::GameHostCandidate |
                       FanyImeProtocol::FieldTraits);
@@ -1212,9 +1270,14 @@ int wmain(int argc, wchar_t **argv) {
     WindowsServer server(
         options, session_options.dump(),
         production
-              ? production_key_handler([&character_set_clicks](bool desired) {
-                return character_set_clicks.submit(CharacterSetClick{desired});
-              })
+              ? production_key_handler(
+                  [&character_set_clicks](bool desired) {
+                    return character_set_clicks.submit(
+                        CharacterSetClick{desired});
+                  },
+                  [&japanese_toggles] {
+                    return japanese_toggles.submit(JapaneseToggleRequest{});
+                  })
             : preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
     // Its palette is applied once the theme is resolved, alongside the toolbar's.
@@ -1339,21 +1402,24 @@ int wmain(int argc, wchar_t **argv) {
       CandidatePageWorker &pages;
       ModeClickWorker &modes;
       CharacterSetClickWorker &character_sets;
+      SingleClickWorker<JapaneseToggleRequest> &japanese;
       SingleClickWorker<FocusLease> &english;
       ~ClickShutdown() {
         clicks.request_stop();
         pages.request_stop();
         modes.request_stop();
         character_sets.request_stop();
+        japanese.request_stop();
         english.request_stop();
         server.request_stop();
         clicks.stop();
         pages.stop();
         modes.stop();
         character_sets.stop();
+        japanese.stop();
         english.stop();
       }
-    } click_shutdown{server, clicks, pages, mode_clicks, character_set_clicks, english_reads};
+    } click_shutdown{server, clicks, pages, mode_clicks, character_set_clicks, japanese_toggles, english_reads};
     // 托盘「英文候选模式」：在焦点会话上设置 Engine 的英文模式，最多等 2 秒，所以不在 UI 线程上做。成功后立刻发布，下一轮循环就把新状态推给 TIP（DedicatedEnglishChanged），重新打开的卡片也不必等 250 毫秒一次的读取。声明在 click_shutdown 之后，先于它析构，等它做完时 Server 仍在运行。
     SingleClickWorker<DedicatedEnglishSwitch> english_switches(
         [&](const DedicatedEnglishSwitch &request) {
