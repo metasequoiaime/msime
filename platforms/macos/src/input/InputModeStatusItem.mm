@@ -40,6 +40,7 @@ static NSString *const MSIMEInputModeStatusItemAutosaveName = @"MSIMEInputModeSt
 
 - (void)hide {
     if (!_item) return;
+    // 整个移除而不是设 visible = NO：macOS 27.0.1 上实测把带 autosaveName 的状态项设成不可见会删掉记下的 `NSStatusItem Preferred Position <名字>`，removeStatusItem: 则保留它，下次用同一个名字新建时回到原处。
     [NSStatusBar.systemStatusBar removeStatusItem:_item];
     _item = nil;
     _shownMode = nil;

@@ -4567,7 +4567,7 @@ static void TestModifierTaps() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
-// 菜单栏状态项（#7066）：共享偏好 input_mode_status_item 默认关闭；打开后每次切换中英文都把状态项摆成控制器算出的模式，换方案时显示真实方案，⌃⇧E 的英文候选模式仍是「中」；共享文档里关上时立即隐藏，打开时立即按当前模式显示，不等下一次切换。状态项换成记录用的替身，测试进程不往菜单栏放东西。
+// 菜单栏状态项（#7066）：共享偏好 input_mode_status_item 默认关闭；打开后每次切换中英文都把状态项摆成控制器算出的模式，换方案时显示真实方案，⌃⇧E 的英文候选模式仍是「中」；载入的共享文档里关上时立即隐藏，打开时立即按当前模式显示，不等下一次切换；原生设置窗口的开关关上时，没有客户端的控制器也立即隐藏。状态项换成记录用的替身，测试进程不往菜单栏放东西。
 static void TestInputModeStatusItem() {
     NSString *suite = [@"msime.mode-status-item." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -4656,6 +4656,18 @@ static void TestInputModeStatusItem() {
     const NSUInteger before = shown.count;
     [controller applySharedToolbarPreferences:@{@"input_mode_status_item": @YES}];
     assert(shown.count == before);
+
+    // 原生设置窗口在输入法进程里，拨它的开关时没有控制器持有客户端，文档也不会被重新载入：关上经 appearanceChanged: 立即隐藏，打开不把状态项放回菜单栏，等下一次获得焦点。
+    [controller setValue:nil forKey:@"session"];
+    [NSNotificationCenter.defaultCenter addObserver:controller selector:@selector(appearanceChanged:)
+                                               name:MSIMEAppearanceDidChangeNotification object:prefs];
+    toggle.state = NSControlStateValueOff;
+    assert([NSApp sendAction:toggle.action to:toggle.target from:toggle]);
+    assert(!prefs.inputModeStatusItem && shown.count == before + 1 && [shown.lastObject isEqual:NSNull.null]);
+    toggle.state = NSControlStateValueOn;
+    assert([NSApp sendAction:toggle.action to:toggle.target from:toggle]);
+    assert(prefs.inputModeStatusItem && shown.count == before + 1);
+    [NSNotificationCenter.defaultCenter removeObserver:controller name:MSIMEAppearanceDidChangeNotification object:prefs];
     prefs.englishMode = NO;
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
