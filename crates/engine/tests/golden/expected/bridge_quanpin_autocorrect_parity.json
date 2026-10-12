@@ -259,7 +259,7 @@
       "weight": 100,
       "corrected_from": "sshang",
       "annotation": "sshang",
-      "answers_key": false
+      "answers_key": true
      }
     ],
     "online_query": {

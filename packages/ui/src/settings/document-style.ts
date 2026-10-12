@@ -40,7 +40,7 @@ export const versionRow = "cursor-default items-start hover:bg-[var(--p-row-bg)]
 export const updateButton = "mt-0 shrink-0 grow-0 basis-auto";
 export const updateStatus = "mt-[5px]! mb-0! text-xs";
 export const updateResult =
-  "[padding:var(--p-row-pad)] [color:var(--p-sub)] [&>p]:mt-0 [&>p]:mb-2 [&>p]:text-xs [&_code]:inline-block [&_code]:max-w-full [&_code]:break-anywhere";
+  "[padding:var(--p-row-pad)] [color:var(--p-sub)] [&>p]:mt-0 [&>p]:mb-2 [&>p]:text-xs [&_code]:inline-block [&_code]:max-w-full [&_code]:wrap-anywhere";
 export const updateWarning = "text-danger!";
 
 // ---- HarmonyOS 的「关于」和「反馈」页 ----
@@ -68,7 +68,7 @@ export const rowButton =
 
 /** 「系统信息」行尾的值：次要文字色，右对齐，长的发行版名或设备型号在行内折行，可以选中复制。 */
 export const systemInfoValue =
-  "max-w-[60%] text-right break-anywhere select-text [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
+  "max-w-[min(35ch,45vw)] text-right [overflow-wrap:anywhere] select-text [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 
 /** 「描述」卡片：用分组的底色和圆角包住一个无边框的 textarea。 */
 export const feedbackTextCard = "overflow-hidden rounded-[20px] bg-[var(--p-group-bg)]";
@@ -90,7 +90,7 @@ export const feedbackCard =
 export const feedbackIcon =
   "flex size-[38px] items-center justify-center rounded-[10px] border [border-color:var(--p-hair)]";
 export const feedbackBody =
-  "min-w-0 [&>p]:mt-[3px] [&>p]:mb-[5px] [&>p]:[font-size:var(--p-sub-fs)] [&>p]:[color:var(--p-sub)] [&_code]:block [&_code]:break-anywhere [&_code]:text-xs [&_code]:[color:var(--p-sub)]";
+  "min-w-0 [&>p]:mt-[3px] [&>p]:mb-[5px] [&>p]:[font-size:var(--p-sub-fs)] [&>p]:[color:var(--p-sub)] [&_code]:block [&_code]:wrap-anywhere [&_code]:text-xs [&_code]:[color:var(--p-sub)]";
 export const feedbackTitle = "[font-size:var(--p-row-fs)] font-semibold [color:var(--p-text)]";
 
 // ---- the AI skin generator ----

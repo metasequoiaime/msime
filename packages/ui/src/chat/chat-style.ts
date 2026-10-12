@@ -21,7 +21,7 @@ export const empty =
 export const message = (mine: boolean) => `mt-0 mb-3 flex ${mine ? "justify-end" : ""}`;
 /** The bubble. A sent one is filled with the strong accent, which white text can actually sit on. */
 export const bubble = (mine: boolean) =>
-  `max-w-[82%] rounded-[14px] px-3.5 py-[11px] whitespace-pre-wrap break-anywhere ${
+  `max-w-[82%] rounded-[14px] px-3.5 py-[11px] whitespace-pre-wrap wrap-anywhere ${
     mine ? "bg-accent-strong text-white" : "bg-raised text-body"
   }`;
 export const pending = "text-muted";
@@ -43,7 +43,7 @@ export const touchBar = "flex shrink-0 items-center gap-2";
 export const touchChip = `m-0 inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-full ${hairline} bg-[var(--p-group-bg)] px-3 py-1.5 text-[13px] [font-family:inherit] [color:var(--p-text)] active:opacity-70 disabled:cursor-default disabled:opacity-40`;
 export const touchLog = "-mx-1 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-1 pt-1 pb-2";
 const touchBubble =
-  "m-0 max-w-[82%] rounded-[18px] px-3.5 py-2.5 text-[15px] leading-[1.5] break-anywhere";
+  "m-0 max-w-[82%] rounded-[18px] px-3.5 py-2.5 text-[15px] leading-[1.5] wrap-anywhere";
 export const touchMine = `${touchBubble} self-end whitespace-pre-wrap [background:var(--accent-color)] [color:var(--p-on-accent)]`;
 export const touchReply = `${touchBubble} self-start bg-[var(--p-group-bg)] [color:var(--p-text)] [&_ol]:my-1 [&_ol]:pl-5 [&_p]:my-0 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_ul]:my-1 [&_ul]:pl-5`;
 export const touchPending = `${touchBubble} self-start bg-[var(--p-group-bg)] [color:var(--p-sub)]`;

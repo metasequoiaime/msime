@@ -7,8 +7,6 @@ use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 #[cfg(unix)]
 use std::ffi::OsString;
-#[cfg(any(not(unix), test))]
-use std::fs::OpenOptions;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 #[cfg(unix)]
@@ -245,22 +243,7 @@ impl Drop for ResourceStage {
 }
 
 #[cfg(any(not(unix), test))]
-fn create_private_file(path: &Path) -> std::io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    }
-    options.open(path)
-}
+use crate::file_lock::create_private_file;
 
 #[cfg(unix)]
 fn create_private_file_at(directory: &File, name: &str) -> std::io::Result<File> {

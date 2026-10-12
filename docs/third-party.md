@@ -317,6 +317,16 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 | `tar` | 0.4 | MIT OR Apache-2.0 | 解包模型归档 |
 | `bzip2` | 0.6 | MIT OR Apache-2.0 | 解压 `.tar.bz2`。0.6 默认使用纯 Rust 的 `libbz2-rs-sys` 后端，该 crate 的许可证是 `bzip2-1.0.6`（bzip2 原作的 BSD 式许可，要求保留版权声明） |
 
+## 云剪贴板参考中继（`crates/clipboard-relay`）
+
+用户自己部署的服务端程序 `msime-clipboard-relay`，不进任何平台的安装包。它用的数据库、序列化和摘要 crate 与 workspace 其余部分共用同一版本，只为它新引入了 HTTP 服务器：
+
+| crate | 版本 | 许可证 | 用途 |
+| --- | --- | --- | --- |
+| `axum`（关闭默认特性，只开 `tokio`、`http1`）及其 `axum-core` | 0.8 / 0.5 | MIT | 中继的 HTTP/1 服务器；接口逻辑在不碰网络的 `store` 里 |
+| `matchit`（经 `axum`） | 0.8 | MIT AND BSD-3-Clause | axum 的路由表；中继只用一个兜底处理函数，不注册路由 |
+| `httpdate`（经 `axum`） | 1.0 | MIT OR Apache-2.0 | 响应的 `Date` 头 |
+
 ## 各平台引入的第三方 SDK
 
 | 平台 | 组件 | 许可 |

@@ -6,16 +6,14 @@
 //!
 //! 补充表从不移动 98 表的行。表里各行的权重按构建的规则算出（`msime::wubi98_rows`：主表按编码内先后给 10 的倍数，Fcitx 补充表的行给 1）。补充词在其编码下的权重低于该编码原有的最低权重，并且不高于 `wubi86_supplement::SUPPLEMENT_CEILING`，也就低于主表所有的行（最低是 10），所以在前缀列表里也排在它们之后。同一编码下的几个补充词按 rime-ice 权重从高到低、再按词排序，从这个上限起依次减 1，最低为 0；构建把本文件插在两张 98 表之后，所以同权重时原有行在前，同一编码内保持本文件的顺序。原本四码只有一个词、输入法会自动上屏的编码，一旦有补充词共用就不再自动上屏；报告会统计这类编码。
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashSet};
 use std::fmt::Write as _;
 
 use anyhow::{bail, Result};
 
 use crate::msime;
-use crate::places_supplement::weighted_rows;
-use crate::wubi86_supplement::{
-    full_codes, is_word, word_code, MIN_PINYIN_WEIGHT, REPORT_EXAMPLES, SUPPLEMENT_CEILING,
-};
+use crate::wubi86_supplement::{MIN_PINYIN_WEIGHT, REPORT_EXAMPLES, SUPPLEMENT_CEILING};
+use crate::wubi_supplement::{frequencies, is_word, pinyin_words, rank};
 use crate::{text, wubi86_supplement};
 
 pub const OUTPUT: &str = "sources/wubi/wubi98-supplement.txt";
@@ -61,25 +59,12 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         .iter()
         .map(|(code, value, weight)| (code.clone(), value.as_str(), *weight))
         .collect();
-    let codes = full_codes(&rows);
     let wubi98_words: HashSet<&str> = rows
         .iter()
         .filter(|(_, value, _)| value.chars().count() >= 2)
         .map(|(_, value, _)| *value)
         .collect();
-    let mut lowest: HashMap<&str, i64> = HashMap::new();
-    let mut per_code: HashMap<&str, usize> = HashMap::new();
-    for (code, _, weight) in &rows {
-        let slot = lowest.entry(code.as_str()).or_insert(*weight);
-        *slot = (*slot).min(*weight);
-        *per_code.entry(code.as_str()).or_default() += 1;
-    }
-
-    let mut frequency: HashMap<&str, i64> = HashMap::new();
-    for (value, _, weight) in weighted_rows(inputs.base) {
-        let slot = frequency.entry(value).or_insert(weight);
-        *slot = (*slot).max(weight);
-    }
+    let frequency = frequencies(inputs.base);
 
     let jidian: BTreeSet<&str> = text::universal_lines(text::without_bom(inputs.jidian))
         .into_iter()
@@ -90,11 +75,7 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
     if jidian.is_empty() {
         bail!("{JIDIAN} has no words");
     }
-    let pinyin: BTreeSet<&str> = frequency
-        .iter()
-        .filter(|(word, weight)| word.chars().count() == 2 && **weight >= MIN_PINYIN_WEIGHT)
-        .map(|(word, _)| *word)
-        .collect();
+    let pinyin = pinyin_words(&frequency, MIN_PINYIN_WEIGHT);
 
     let mut outside_basic_cjk = 0;
     let candidates: BTreeSet<&str> = jidian
@@ -109,45 +90,23 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
         })
         .collect();
 
-    let mut by_code: BTreeMap<String, Vec<(&str, Option<i64>)>> = BTreeMap::new();
-    let mut underivable = Vec::new();
-    for word in candidates {
-        match word_code(&codes, word) {
-            Ok(code) => by_code
-                .entry(code)
-                .or_default()
-                .push((word, frequency.get(word).copied())),
-            Err(c) => underivable.push((word.to_owned(), c)),
-        }
-    }
-
-    let mut entries = Vec::new();
-    let mut unique_codes_shared = 0;
-    for (code, mut words) in by_code {
-        // rime-ice 权重高的在前，rime-ice 没有的排最后，再按词排序，使顺序不依赖哈希顺序。
-        words.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
-        let ceiling = match lowest.get(code.as_str()) {
-            Some(lowest) => SUPPLEMENT_CEILING.min(lowest - 1),
-            None => SUPPLEMENT_CEILING,
-        };
-        if code.len() == 4 && per_code.get(code.as_str()) == Some(&1) {
-            unique_codes_shared += 1;
-        }
-        for (rank, (word, _)) in words.into_iter().enumerate() {
-            entries.push(Entry {
-                word: word.to_owned(),
-                code: code.clone(),
-                weight: (ceiling - rank as i64).max(0),
-                from_jidian: jidian.contains(word),
-                from_pinyin: pinyin.contains(word),
-            });
-        }
-    }
+    let ranked = rank(&rows, candidates, &frequency, SUPPLEMENT_CEILING);
+    let entries = ranked
+        .entries
+        .into_iter()
+        .map(|row| Entry {
+            word: row.word.to_owned(),
+            code: row.code,
+            weight: row.weight,
+            from_jidian: jidian.contains(row.word),
+            from_pinyin: pinyin.contains(row.word),
+        })
+        .collect();
     Ok(Supplement {
         entries,
-        underivable,
+        underivable: ranked.underivable,
         outside_basic_cjk,
-        unique_codes_shared,
+        unique_codes_shared: ranked.unique_codes_shared,
     })
 }
 

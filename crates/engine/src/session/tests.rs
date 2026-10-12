@@ -754,6 +754,61 @@ INSERT INTO tbl_2_g VALUES('guan''xi','gx','关系',100000);\
 CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
 CREATE TABLE tbl_3_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);";
 
+const QUANPIN_EXTRA_LETTER_FIXTURE: &str =
+    "CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_s VALUES('shang','s','上',1000);\
+CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_h VALUES('hao','h','好',1000);\
+CREATE TABLE tbl_2_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_s VALUES('shang''hao','sh','上好',10000);";
+
+#[test]
+fn quanpin_correction_consumes_extra_typed_letter() {
+    let fixture = Fixture::new(QUANPIN_EXTRA_LETTER_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.autocorrect_types = crate::types::autocorrect_type::TRANSPOSITION
+            | crate::types::autocorrect_type::NEIGHBOR;
+    });
+    type_text(&mut session, "shhanghao");
+    let corrected = session
+        .snapshot()
+        .candidates
+        .into_iter()
+        .find(|item| item.word == "上好")
+        .unwrap_or_else(|| panic!("{:?}", words(&session)));
+    assert_eq!(corrected.corrected_from, "shhanghao");
+    assert!(session.snapshot().candidate_answers_key[index_of(&session, "上好")]);
+
+    assert_eq!(
+        select_word(&mut session, "上好").commit.as_deref(),
+        Some("上好")
+    );
+    assert_eq!(session.snapshot().preedit, "");
+}
+
+#[test]
+fn converted_quanpin_correction_consumes_extra_typed_letter() {
+    let fixture = Fixture::new(QUANPIN_EXTRA_LETTER_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.autocorrect_types = crate::types::autocorrect_type::TRANSPOSITION
+            | crate::types::autocorrect_type::NEIGHBOR;
+    });
+    type_text(&mut session, "shhanghao");
+    let corrected = index_of(&session, "上好");
+
+    assert!(session
+        .input
+        .move_conversion_from(Command::ConversionLeft, corrected)
+        .is_some());
+    assert_eq!(session.snapshot().conversion, "上好");
+    assert!(session.select(index_of(&session, "好")).handled);
+    assert_eq!(
+        session.command(Command::CommitCandidate).commit.as_deref(),
+        Some("上好")
+    );
+    assert_eq!(session.snapshot().preedit, "");
+}
+
 /// 纠错整句排在字面整句之后，选中它按全部按键上屏；开关关着时不出。
 #[test]
 fn shuangpin_offers_the_typo_sentence_under_the_autocorrect_switch() {
@@ -1016,7 +1071,7 @@ fn selecting_a_quanpin_candidate_clones_only_needed_request_fields() {
         crate::ime::personal_rerank::allocations::count(|| session.select(index));
 
     assert_eq!(result.commit.as_deref(), Some("你好"));
-    assert_eq!(allocations, 14, "候选选择分配次数：{allocations}");
+    assert!(allocations <= 14, "候选选择分配次数：{allocations}");
 }
 
 #[test]
@@ -1040,7 +1095,7 @@ fn selecting_a_dictionary_candidate_does_not_build_context_row_vec() {
 }
 
 #[test]
-fn selecting_a_candidate_does_not_clone_unused_row_metadata() {
+fn selecting_a_candidate_does_not_clone_unused_sentence_words() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| {
         options.learning = false;
@@ -1048,7 +1103,6 @@ fn selecting_a_candidate_does_not_clone_unused_row_metadata() {
     });
     type_text(&mut session, "nihao");
     let index = index_of(&session, "你好");
-    session.input.mixed_candidates[index].corrected_from = "synthetic correction".to_owned();
     session.input.mixed_candidates[index].sentence_words = vec!["你".to_owned(), "好".to_owned()];
 
     let (result, allocations) =

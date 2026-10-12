@@ -1,7 +1,6 @@
 package app.msime.android.test;
 
 import android.graphics.Rect;
-import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
@@ -170,7 +169,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             tap(field("msime-test-plain"));
             await(described("按键 Q W"));
         } finally {
-            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }
@@ -221,23 +220,10 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
         throw new AssertionError("Synthetic UI state did not go away; IME showed " + imeTexts());
     }
 
-    private void restartIme() throws Exception {
-        shell("ime disable app.msime.android/.MSIMEInputService");
-        shell("ime enable app.msime.android/.MSIMEInputService");
-        shell("ime set app.msime.android/.MSIMEInputService");
-        SystemClock.sleep(1000);
-    }
 
     private void openEditor() throws Exception {
-        shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
     }
 
-    private void shell(String command) throws Exception {
-        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(
-                automation.executeShellCommand(command))) {
-            byte[] buffer = new byte[1024];
-            while (input.read(buffer) != -1) { }
-        }
-    }
 
 }

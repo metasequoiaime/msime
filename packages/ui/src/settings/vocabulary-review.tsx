@@ -23,7 +23,7 @@ const metricLabel = "text-xs text-muted";
 const cardFace = (mobile: boolean) =>
   `flex ${mobile ? "min-h-[190px]" : "min-h-[230px]"} w-full cursor-pointer flex-col items-center justify-center gap-3 rounded-[14px] border border-edge bg-raised px-5 py-7 text-center shadow-card`;
 const cardWord = (mobile: boolean) =>
-  `m-0 break-anywhere font-[650] leading-tight text-body ${mobile ? "text-[30px]" : "text-[38px]"}`;
+  `m-0 wrap-anywhere font-[650] leading-tight text-body ${mobile ? "text-[30px]" : "text-[38px]"}`;
 const cardPhonetic = "m-0 text-sm text-secondary";
 const cardMeaning = "m-0 max-w-[46ch] text-[15px] leading-relaxed text-body";
 const cardHint = "m-0 text-xs text-muted";

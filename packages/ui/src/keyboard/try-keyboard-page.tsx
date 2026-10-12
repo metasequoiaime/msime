@@ -38,7 +38,7 @@ type Bubble = {
 const hairline = "border-0 [box-shadow:inset_0_0_0_1px_var(--p-hair)]";
 const chip = `m-0 shrink-0 cursor-pointer whitespace-nowrap rounded-full ${hairline} bg-[var(--p-group-bg)] px-3 py-1.5 text-[13px] [font-family:inherit] [color:var(--p-text)] active:opacity-70`;
 const bubbleBase =
-  "max-w-[80%] rounded-[18px] px-3.5 py-2.5 text-[15px] leading-[1.5] break-anywhere";
+  "max-w-[80%] rounded-[18px] px-3.5 py-2.5 text-[15px] leading-[1.5] wrap-anywhere";
 const sendButton =
   "m-0 flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 p-0 [background:var(--accent-color)] [color:var(--p-on-accent)] active:opacity-80 disabled:cursor-default disabled:opacity-40";
 

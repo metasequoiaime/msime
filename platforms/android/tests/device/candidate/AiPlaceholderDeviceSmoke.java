@@ -1,6 +1,5 @@
 package app.msime.android.test;
 
-import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
@@ -62,12 +61,12 @@ public final class AiPlaceholderDeviceSmoke extends DeviceSmoke {
             try {
                 stage = "AI preferences";
                 publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
-                shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
-                shell("ime disable app.msime.android/.MSIMEInputService");
-                shell("ime enable app.msime.android/.MSIMEInputService");
-                shell("ime set app.msime.android/.MSIMEInputService");
+                shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+                shellDiscard("ime disable app.msime.android/.MSIMEInputService");
+                shellDiscard("ime enable app.msime.android/.MSIMEInputService");
+                shellDiscard("ime set app.msime.android/.MSIMEInputService");
                 SystemClock.sleep(1000);
-                shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+                shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
                 stage = "editor focus";
                 tap(field("msime-test-plain"));
                 await(field("msime-test-plain").and(AccessibilityNodeInfo::isFocused));
@@ -142,10 +141,10 @@ public final class AiPlaceholderDeviceSmoke extends DeviceSmoke {
                     && node.getText().length() > committed
                     && node.getText().toString().endsWith(ANSWER)));
             } catch (Exception | AssertionError error) {
-                shell("screencap -p /data/local/tmp/msime-ai-placeholder-failure.png");
+                shellDiscard("screencap -p /data/local/tmp/msime-ai-placeholder-failure.png");
                 throw error;
             } finally {
-                shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+                shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
                 if (original == null) Files.deleteIfExists(preferences.toPath());
                 else publish(preferences, original);
             }
@@ -223,12 +222,6 @@ public final class AiPlaceholderDeviceSmoke extends DeviceSmoke {
         return true;
     }
 
-    private void shell(String command) throws Exception {
-        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))) {
-            byte[] buffer = new byte[1024];
-            while (input.read(buffer) != -1) { /* Discard synthetic command output. */ }
-        }
-    }
 
 
     /**

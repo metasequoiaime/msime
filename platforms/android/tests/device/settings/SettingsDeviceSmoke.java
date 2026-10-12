@@ -2,7 +2,6 @@ package app.msime.android.test;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
@@ -97,7 +96,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             stage = "Android system back restores settings page";
             js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '输入').click(); true");
             awaitJs("document.querySelector('#page-title')?.textContent === '输入'");
-            shell("input keyevent 4");
+            shellDiscard("input keyevent 4");
             awaitJs("document.querySelector('#page-title')?.textContent === '首页'");
             stage = "React touch scheme settings";
             js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '输入').click(); true");
@@ -269,11 +268,11 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
                 + ").value === '60' && (" + ROW_SPACING + ").value === '70' && !("
                 + VOICE_SHORTCUT + ").checked");
             stage = "cross-process system input uses saved preferences";
-            shell("ime disable app.msime.android/.MSIMEInputService");
-            shell("ime enable app.msime.android/.MSIMEInputService");
-            shell("ime set app.msime.android/.MSIMEInputService");
+            shellDiscard("ime disable app.msime.android/.MSIMEInputService");
+            shellDiscard("ime enable app.msime.android/.MSIMEInputService");
+            shellDiscard("ime set app.msime.android/.MSIMEInputService");
             SystemClock.sleep(1000);
-            shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+            shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
             stage = "cross-process keyboard uses saved skin";
             awaitAnyNode(node -> equalsText("app.msime.android", node.getPackageName())
@@ -286,16 +285,16 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             stage = "cross-process scheme picker uses shared visibility";
             assertSharedSchemePicker();
             stage = "scheme visibility survives IME restart";
-            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
-            shell("ime disable app.msime.android/.MSIMEInputService");
-            shell("ime enable app.msime.android/.MSIMEInputService");
-            shell("ime set app.msime.android/.MSIMEInputService");
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            shellDiscard("ime disable app.msime.android/.MSIMEInputService");
+            shellDiscard("ime enable app.msime.android/.MSIMEInputService");
+            shellDiscard("ime set app.msime.android/.MSIMEInputService");
             SystemClock.sleep(1000);
-            shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+            shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
             assertSharedSchemePicker();
         } finally {
-            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
             if (originalSkinLibrary == null) Files.deleteIfExists(skinLibrary.toPath());
             else { skinLibrary.getParentFile().mkdirs(); publish(skinLibrary, originalSkinLibrary); }
@@ -385,11 +384,5 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     }
     private JSONArray readSkinLibrary(File file) throws Exception {
         return new JSONArray(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
-    }
-    private void shell(String command) throws Exception {
-        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))) {
-            byte[] buffer = new byte[1024];
-            while (input.read(buffer) != -1) { }
-        }
     }
 }

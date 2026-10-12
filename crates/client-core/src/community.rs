@@ -14,6 +14,23 @@ pub(crate) fn valid_text(value: &str, minimum: usize, maximum: usize, multiline:
 /// The query that asks the server to include [`CommunityModeration`] on the signed-in user's own items. It is opt-in because released clients refuse items with fields they do not know.
 pub(crate) const MODERATION_FIELDS: &str = "fields=moderation";
 
+#[derive(Serialize)]
+pub(crate) struct CommunityRatingRequest {
+    pub stars: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CommunityRatingResponse {
+    pub stars: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CommunityDeletionResponse {
+    pub deleted: bool,
+}
+
 /// Where the signed-in user's own published item stands with the moderators. Publication is moderated afterwards: an item is public as soon as it is published and moderators can remove it. Show the owner only that an item was removed (已下架); never a pending state, and the server never sends the reason.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -50,6 +67,29 @@ pub(crate) fn valid_description(value: &str) -> bool {
     valid_text(value, 0, 280, true)
 }
 
+/// 从本地资源信息生成社区发布表单的默认名称和简介。
+pub(crate) fn suggested_publication_fields(
+    name: &str,
+    description: Option<&str>,
+    fallback_id: &str,
+) -> (String, String) {
+    let suggested: String = name.chars().take(32).collect();
+    let suggested = suggested.trim();
+    let suggested_name = if valid_name(suggested) {
+        suggested.to_owned()
+    } else {
+        fallback_id.chars().take(32).collect()
+    };
+    let description: String = description.unwrap_or_default().chars().take(280).collect();
+    let description = description.trim();
+    let suggested_description = if valid_description(description) {
+        description.to_owned()
+    } else {
+        String::new()
+    };
+    (suggested_name, suggested_description)
+}
+
 pub(crate) fn valid_author(value: &str) -> bool {
     valid_text(value, 1, 128, false) && value.trim() == value
 }
@@ -65,5 +105,6 @@ pub(crate) fn valid_rating(rating_count: u64, rating_average: f64, my_rating: u8
 pub mod report;
 pub mod resource;
 pub mod resource_library;
+pub(crate) mod write_actions;
 
 use serde::{Deserialize, Serialize};

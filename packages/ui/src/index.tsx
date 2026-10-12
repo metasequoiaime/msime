@@ -658,6 +658,7 @@ export {
   CLOUD_CLIPBOARD_DISABLED,
   CLOUD_CLIPBOARD_MAX_UTF16,
   CLOUD_CLIPBOARD_PENDING,
+  CLOUD_CLIPBOARD_RELAY_UNAUTHORIZED,
   CLOUD_CLIPBOARD_SIGNED_OUT,
   CLOUD_CLIPBOARD_UNAVAILABLE,
   cloudClipboardAvailabilityNote,
@@ -870,6 +871,10 @@ export {
   TraditionalChineseOutputSection,
   type TraditionalChineseOutputSectionProps,
 } from "./settings/traditional-chinese-output-section";
+export {
+  ChineseEnglishSpacingSection,
+  type ChineseEnglishSpacingSectionProps,
+} from "./settings/chinese-english-spacing-section";
 export {
   CloudCandidatesSection,
   type CloudCandidatesSectionProps,
@@ -1791,6 +1796,8 @@ export type Preferences = {
   voice_input?: VoiceInputPreferences;
   local_modes?: LocalModePreferences;
   clipboard_history?: boolean;
+  /** 自建云剪贴板中继的地址和令牌；缺省或地址为空表示走水杉账号。两项要么都空，要么都合规，见 `crates/client-core/src/clipboard_relay.rs`。 */
+  cloud_clipboard_relay?: { url: string; token: string };
   cloud_candidates?: boolean;
   candidate_translations?: boolean;
   candidate_english_gloss?: boolean;
@@ -1901,6 +1908,8 @@ export type Preferences = {
   punctuation_lock?: "follow" | "chinese" | "english";
   caps_lock_ascii_punctuation?: boolean;
   traditional_chinese_output?: boolean;
+  /** 中英文之间加空格：上屏文本里汉字与 ASCII 字母、数字相邻处加一个半角空格。缺省为关，关着时文档里没有这个键。 */
+  chinese_english_spacing?: boolean;
   /** Sound packs, music and command tables; the document leaves it out while every value is the default. */
   plugins?: PluginPreferences;
 };
@@ -2252,8 +2261,10 @@ export interface SettingsClient {
    * the review inline rather than offering a button that opens nothing. */
   openVocabulary?: () => Promise<void>;
   openCloudClipboard?: () => Promise<void>;
-  /** Sends cloud clipboard requests from the settings window itself, over the signed-in account; with it the local clipboard history can send an entry to the cloud. */
+  /** 设置窗口自己发云剪贴板请求，经登录的水杉账号或配置的自建中继；有它时本机剪贴板历史可以把一条发到云剪贴板。 */
   cloudClipboardRequest?: CloudClipboardRequest;
+  /** 这个宿主的云剪贴板会按偏好 `cloud_clipboard_relay` 改走自建中继；有它时「剪贴板」页显示同步方式和中继的地址、令牌。 */
+  cloudClipboardRelay?: boolean;
   openCloudDictionary?: () => Promise<void>;
   restartInputMethod?: () => Promise<void>;
   /** macOS installs/updates the separate InputMethodKit bundle before registering it. */

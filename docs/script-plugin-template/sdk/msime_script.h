@@ -194,7 +194,7 @@ MSIME_IMPORT(candidate_code) int32_t msime_candidate_code(int32_t index, char *d
 MSIME_IMPORT(candidate_annotation) int32_t msime_candidate_annotation(int32_t index, char *dst, int32_t cap);
 MSIME_IMPORT(candidate_meta) int64_t msime_candidate_meta(int32_t index, int32_t field);
 
-/* ---- 修改类：签名已经是 ABI 的一部分，宿主目前一律返回 MSIME_DENIED，接通之后以 docs/plugins.md 为准 ---- */
+/* ---- 修改类：rewrite_commit 只在 before_commit 里、其余三个只在 candidates 里有效，别处返回 MSIME_DENIED；规则见 docs/plugins.md ---- */
 
 /* rewrite_commit（依赖 read_commit，不能和 read_composition 同时申请）：把上屏文本的可改写段换成 text，只在 before_commit 里。 */
 MSIME_IMPORT(rewrite_commit) int32_t msime_rewrite_commit(const char *text, int32_t len);

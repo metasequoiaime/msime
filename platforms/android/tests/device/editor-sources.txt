@@ -16,6 +16,7 @@ platforms/android/tests/device/keyboard/MicrosoftShuangpinDeviceSmoke.java
 platforms/android/tests/device/keyboard/EmailSuffixDeviceSmoke.java
 platforms/android/tests/device/keyboard/NumberRowDeviceSmoke.java
 platforms/android/tests/device/keyboard/CaretCandidatesDeviceSmoke.java
+platforms/android/tests/device/keyboard/HardwareTranslationDeviceSmoke.java
 platforms/android/tests/device/voice/HandwritingDeviceSmoke.java
 platforms/android/tests/device/settings/PreferencesDeviceSmoke.java
 platforms/android/tests/device/settings/WubiLookupDeviceSmoke.java

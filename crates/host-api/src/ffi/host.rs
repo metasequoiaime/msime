@@ -1947,6 +1947,81 @@ pub unsafe extern "C" fn msime_client_account_cloud_clipboard(
     })
 }
 
+/// 经自建云剪贴板中继答一个动作；中继配置在偏好里。会联网，格式见头文件。
+/// # Safety
+/// `request` 指向 `length` 个可读的 JSON 字节，空指针会被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_relay_cloud_clipboard(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        const INVALID: &str = "invalid_cloud_clipboard";
+        if request.is_null() || length > MAX_DESKTOP_CLIPBOARD_REQUEST_BYTES {
+            return Err(INVALID.into());
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct RelayRequest {
+            preferences_directory: String,
+            directory: String,
+            #[serde(default)]
+            device_name: Option<String>,
+            action: Value,
+        }
+        // SAFETY: 由文档写明的调用方约定保证。
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: RelayRequest = serde_json::from_slice(bytes).map_err(|_| INVALID)?;
+        let absolute = |path: &str| path.len() <= 16384 && std::path::Path::new(path).is_absolute();
+        if !absolute(&request.preferences_directory) || !absolute(&request.directory) {
+            return Err(INVALID.into());
+        }
+        crate::cloud_clipboard::validate_relay_request(&request.action).map_err(|_| INVALID)?;
+        let config = crate::cloud_clipboard::configured_relay(std::path::Path::new(
+            &request.preferences_directory,
+        ))
+        .map_err(str::to_owned)?
+        .ok_or("relay_not_configured")?;
+        // 宿主没给名称或给的不能用时，与账号路径一样取计算机名或平台名；驱动登记前还会再清理一遍。
+        let device_name = request
+            .device_name
+            .filter(|name| !name.trim().is_empty() && is_bounded_text(name, 256))
+            .unwrap_or_else(msime_client_core::account::cloud_clipboard_device_name);
+        crate::cloud_clipboard::relay_request(
+            config,
+            std::path::Path::new(&request.directory),
+            &device_name,
+            &request.action,
+        )
+        .map_err(str::to_owned)
+    })
+}
+
+/// 云剪贴板该走哪条路：偏好里配置了中继时是 `relay`，否则是 `account`。不联网。
+/// # Safety
+/// `directory` 必须指向 `length` 个可读字节，空指针会被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_cloud_clipboard_source(
+    directory: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if directory.is_null() || length > 16384 {
+            return Err("invalid preferences directory buffer".into());
+        }
+        // SAFETY: 由文档写明的调用方约定保证。
+        let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
+        let directory = super::parse_absolute_path(
+            bytes,
+            "invalid preferences directory encoding",
+            "preferences directory must be absolute",
+        )?;
+        let source = crate::cloud_clipboard::source(std::path::Path::new(directory))
+            .map_err(str::to_owned)?;
+        Ok(json!({ "source": source }))
+    })
+}
+
 /// Try to read preferences without waiting for the writer lock.
 /// # Safety
 /// `directory` must point to `length` readable bytes. Null is rejected.
