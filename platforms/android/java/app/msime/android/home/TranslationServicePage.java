@@ -11,6 +11,7 @@ import app.msime.android.JsonPolicy;
 import app.msime.android.NativeClient;
 import app.msime.android.TranslationServiceSettingsPolicy;
 import app.msime.android.TranslationServiceSettingsPolicy.Choice;
+import app.msime.android.core.InputViewValuePolicy;
 import java.util.function.Function;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -48,7 +49,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
     @Nullable private static State read(Context context) {
         JSONObject preferences = KeyboardSheets.preferences(context);
         if (preferences == null) return null;
-        String endpoint = text(preferences.optJSONObject("custom_translation"), "endpoint");
+        String endpoint = InputViewValuePolicy.text(preferences.optJSONObject("custom_translation"), "endpoint");
         String issue = "";
         boolean buildable = false;
         try {
@@ -59,7 +60,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
             JSONObject custom = preferences.optJSONObject("custom_translation");
             JSONObject probe = new JSONObject()
                 .put("config", new JSONObject().put("enabled", true).put("endpoint", endpoint)
-                    .put("api_key", text(custom, "api_key")))
+                    .put("api_key", InputViewValuePolicy.text(custom, "api_key")))
                 .put("text", "你好").put("source_language", "zh").put("target_language", "en");
             buildable = !endpoint.isEmpty()
                 && envelope(NativeClient.customTranslationHttpRequest(probe.toString())) != null;
@@ -86,7 +87,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
             JsonPolicy.strictBoolean(preferences.opt("translation_account"), false),
             JsonPolicy.strictBoolean(niutrans.opt("enabled"), false),
             JsonPolicy.strictBoolean(custom.opt("enabled"), false),
-            tencentEnabled, text(tencent, "secret_id"), text(tencent, "secret_key"));
+            tencentEnabled, InputViewValuePolicy.text(tencent, "secret_id"), InputViewValuePolicy.text(tencent, "secret_key"));
         Choice selected = chosen == Choice.TENCENT && stored == Choice.NONE && tencentEnabled ? Choice.TENCENT : stored;
         boolean translations = JsonPolicy.strictBoolean(preferences.opt("candidate_translations"), true);
 
@@ -116,21 +117,21 @@ public final class TranslationServicePage extends ReloadingDetailPage {
 
     private void renderNiuTrans(LinearLayout target, JSONObject niutrans) {
         GroupCard group = GroupCard.add(target, "小牛翻译");
-        String appId = text(niutrans, "app_id");
+        String appId = InputViewValuePolicy.text(niutrans, "app_id");
         group.nav("App ID", null, appId.isEmpty() ? "未填写" : HomeTextPolicy.shortLabel(appId), () -> edit("App ID", null, appId,
             InputType.TYPE_CLASS_TEXT, TranslationServiceSettingsPolicy::niutransProblem, "niutrans", "app_id"));
-        group.nav("API Key", null, filled(text(niutrans, "apikey")), () -> edit("API Key", "小牛翻译控制台里的 API Key，保存在本机", "",
+        group.nav("API Key", null, filled(InputViewValuePolicy.text(niutrans, "apikey")), () -> edit("API Key", "小牛翻译控制台里的 API Key，保存在本机", "",
             secretInput(), TranslationServiceSettingsPolicy::niutransProblem, "niutrans", "apikey"));
         group.footer("在小牛翻译开放平台创建应用后取得 App ID 和 API Key。");
     }
 
     private void renderTencent(LinearLayout target, JSONObject tencent) {
         GroupCard group = GroupCard.add(target, "腾讯云机器翻译");
-        String region = text(tencent, "region");
-        group.nav("SecretId", null, filled(text(tencent, "secret_id")), () -> edit("SecretId", "腾讯云访问密钥的 SecretId，保存在本机", "",
+        String region = InputViewValuePolicy.text(tencent, "region");
+        group.nav("SecretId", null, filled(InputViewValuePolicy.text(tencent, "secret_id")), () -> edit("SecretId", "腾讯云访问密钥的 SecretId，保存在本机", "",
             InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
             TranslationServiceSettingsPolicy::secretIdProblem, "tencent_tmt", "secret_id"));
-        group.nav("SecretKey", null, filled(text(tencent, "secret_key")), () -> edit("SecretKey", "腾讯云访问密钥的 SecretKey，保存在本机", "",
+        group.nav("SecretKey", null, filled(InputViewValuePolicy.text(tencent, "secret_key")), () -> edit("SecretKey", "腾讯云访问密钥的 SecretKey，保存在本机", "",
             secretInput(), TranslationServiceSettingsPolicy::secretProblem, "tencent_tmt", "secret_key"));
         group.nav("地域", null, region.isEmpty() ? CandidateTranslationRoute.DEFAULT_TENCENT_REGION : region,
             () -> edit("地域", "留空使用 " + CandidateTranslationRoute.DEFAULT_TENCENT_REGION, region,
@@ -141,13 +142,13 @@ public final class TranslationServicePage extends ReloadingDetailPage {
 
     private void renderCustom(LinearLayout target, JSONObject custom, String endpointIssue) {
         GroupCard group = GroupCard.add(target, "自定义接口");
-        String endpoint = text(custom, "endpoint");
+        String endpoint = InputViewValuePolicy.text(custom, "endpoint");
         group.nav("接口地址", endpointIssue.isEmpty() ? "https 地址，或本机回环的 http 地址" : endpointIssue,
             endpoint.isEmpty() ? "未设置" : HomeTextPolicy.shortLabel(endpoint), () -> edit("接口地址",
                 "兼容 DeepLX 的 POST 接口，例如 http://127.0.0.1:1188/translate；或 DeepL 官方 API https://api-free.deepl.com/v2/translate",
                 endpoint, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI,
                 TranslationServicePage::endpointProblem, "custom_translation", "endpoint"));
-        group.nav("API Key", "DeepL 官方 API 必填；DeepLX 没设密钥时留空", filled(text(custom, "api_key")),
+        group.nav("API Key", "DeepL 官方 API 必填；DeepLX 没设密钥时留空", filled(InputViewValuePolicy.text(custom, "api_key")),
             () -> edit("API Key", "DeepL 填 Auth Key（Free 密钥以 :fx 结尾），保存在本机；留空表示不需要", "",
                 secretInput(), TranslationServiceSettingsPolicy::secretProblem, "custom_translation", "api_key"));
         group.footer("DeepL 官方地址按 DeepL 的格式请求，并按密钥自动选 Free 或 Pro 主机；其他地址按 DeepLX 的格式请求。使用 DeepL 时候选词会发送到 DeepL，按 DeepL 的数据政策处理。远程服务必须用 https，http 只能指向本机回环地址，不能是局域网地址。");
@@ -158,9 +159,9 @@ public final class TranslationServicePage extends ReloadingDetailPage {
             JSONObject tencent, boolean customBuildable) {
         GroupCard group = GroupCard.add(target, null);
         CandidateTranslationRoute route = CandidateTranslationPolicy.route(true, false,
-            selected == Choice.NIUTRANS, text(niutrans, "app_id"), text(niutrans, "apikey"),
-            selected == Choice.CUSTOM, text(custom, "endpoint"), text(custom, "api_key"),
-            selected == Choice.TENCENT, text(tencent, "secret_id"), text(tencent, "secret_key"), text(tencent, "region"));
+            selected == Choice.NIUTRANS, InputViewValuePolicy.text(niutrans, "app_id"), InputViewValuePolicy.text(niutrans, "apikey"),
+            selected == Choice.CUSTOM, InputViewValuePolicy.text(custom, "endpoint"), InputViewValuePolicy.text(custom, "api_key"),
+            selected == Choice.TENCENT, InputViewValuePolicy.text(tencent, "secret_id"), InputViewValuePolicy.text(tencent, "secret_key"), InputViewValuePolicy.text(tencent, "region"));
         boolean complete = route.userService() && (selected != Choice.CUSTOM || customBuildable);
         if (!complete) group.note("凭据不完整，键盘暂不联网翻译，也不会改用其他服务。");
         group.button("测试连接", "用已保存的设置翻译一次「测试」，最长约 15 秒", "测试", () -> {
@@ -182,14 +183,14 @@ public final class TranslationServicePage extends ReloadingDetailPage {
         try {
             switch (selected) {
                 case NIUTRANS:
-                    config.put("app_id", text(niutrans, "app_id")).put("apikey", text(niutrans, "apikey"));
+                    config.put("app_id", InputViewValuePolicy.text(niutrans, "app_id")).put("apikey", InputViewValuePolicy.text(niutrans, "apikey"));
                     break;
                 case TENCENT:
-                    config.put("secret_id", text(tencent, "secret_id")).put("secret_key", text(tencent, "secret_key"))
-                        .put("region", text(tencent, "region"));
+                    config.put("secret_id", InputViewValuePolicy.text(tencent, "secret_id")).put("secret_key", InputViewValuePolicy.text(tencent, "secret_key"))
+                        .put("region", InputViewValuePolicy.text(tencent, "region"));
                     break;
                 case CUSTOM:
-                    config.put("endpoint", text(custom, "endpoint")).put("api_key", text(custom, "api_key"));
+                    config.put("endpoint", InputViewValuePolicy.text(custom, "endpoint")).put("api_key", InputViewValuePolicy.text(custom, "api_key"));
                     break;
                 default:
                     break;
@@ -216,7 +217,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
             KeyboardSheets.child(preferences, "custom_translation").put("enabled", choice == Choice.CUSTOM);
             JSONObject tencent = KeyboardSheets.child(preferences, "tencent_tmt");
             tencent.put("enabled", choice == Choice.TENCENT);
-            if (text(tencent, "region").isEmpty())
+            if (InputViewValuePolicy.text(tencent, "region").isEmpty())
                 tencent.put("region", CandidateTranslationRoute.DEFAULT_TENCENT_REGION);
             if (choice == Choice.ACCOUNT) preferences.put("translation_account", true);
             else preferences.remove("translation_account");
@@ -251,10 +252,6 @@ public final class TranslationServicePage extends ReloadingDetailPage {
     private static JSONObject section(JSONObject preferences, String key) {
         JSONObject value = preferences.optJSONObject(key);
         return value == null ? new JSONObject() : value;
-    }
-
-    private static String text(@Nullable JSONObject object, String key) {
-        return object == null ? "" : JsonPolicy.strictStringOrEmpty(object.opt(key));
     }
 
     /** 接口地址能不能存，问共享层：它与保存偏好时的校验是同一条规则，带下划线的主机名、国际化域名这类 https 地址不会被页面误拒。 */
