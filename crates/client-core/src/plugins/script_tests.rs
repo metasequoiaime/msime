@@ -1011,6 +1011,12 @@ fn a_forged_revision_neither_freezes_nor_rewinds_the_writer() {
         ),
     )
     .unwrap();
+    // 输入法进程不能先记住这个极大 revision：设置页随后写出的正常值比它小，
+    // 熔断状态就永远不会因授权变化而恢复。
+    assert_eq!(
+        script_grants::read(&root),
+        script_grants::ScriptGrants::default()
+    );
     let first = script_grants::set(&root, "pangu", &hash, true, read_commit()).unwrap();
     let second = script_grants::set(&root, "pangu", &hash, false, read_commit()).unwrap();
     assert!(first.revision < script_grants::MAX_REVISION);

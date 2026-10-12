@@ -486,6 +486,11 @@ fn load_document(root: &Path) -> Stored {
     let Ok(document) = serde_json::from_slice::<RawDocument>(&bytes) else {
         return Stored::Unreadable;
     };
+    // 写入方不会产生超出 JavaScript 精确整数范围的 revision。若先把
+    // 伪造的极大值交给宿主，后续正常写入反而比它小，熔断状态不会恢复。
+    if document.revision >= MAX_REVISION {
+        return Stored::Unreadable;
+    }
     let mut plugins: Vec<ScriptGrant> = Vec::new();
     for value in document.plugins.into_iter().take(MAX_ENTRIES) {
         let Some(grant) = entry(value) else {

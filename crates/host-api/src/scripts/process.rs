@@ -1,8 +1,8 @@
 //! 进程级的部分：模块缓存和后台编译线程、内存总账、熔断与健康文件、panic 总开关。
 //!
 //! - **模块缓存**按内容哈希存放编译好的 `ScriptModule`（内部是 `Arc`，可以跨线程共享）。会话线程只登记请求、查结果；读包、核对哈希、校验和 Eager 编译都在后台编译线程上做，不在按键和 focus 路径上。还没编译好的插件这一次跳过，不算失败。
-//! - **熔断**按 (插件根目录, id, 哈希) 计，不按会话：IBus 改一个设置就重建会话，按会话熔断会让坏插件在每个新会话里重来一次。初始化失败、ABI 不符或模块不合规立即停用；否则最近 50 次投递里失败 3 次、或最近 20 次里有 3 次超过 4 ms，就停用。停用持续到授权文件的 `revision` 比以前看到过的都大（`observe_revision`）或进程重启。
-//! - **健康文件** `<user_data>/script-health.json` 只记被停用的插件和停用的类别（`invalid`、`init`、`failed`、`slow`），在失焦和 destroy 时交给后台线程写出，只有停用或恢复之后才重写；进程重启也是恢复，本进程第一次读授权时文件在就重写一次（`adopt_health`）。不记失败次数，也不按原因细分：哪种 trap、失败几次都由脚本自己选，按次数或原因写出去，同一用户下的进程每次失焦后对比文件，就是一条能反复使用、按位传文本的通道；只记停用，熔断之后要等 `revision` 变大或进程重启才能再触发，剩下的是设计接受的一次性约 1 bit。具体的原因码只在停用时进一次诊断。
+//! - **熔断**按 (插件根目录, id, 哈希) 计，不按会话：IBus 改一个设置就重建会话，按会话熔断会让坏插件在每个新会话里重来一次。初始化失败、ABI 不符或模块不合规立即停用；否则最近 50 次投递里失败 3 次、或最近 20 次里有 3 次超过 4 ms，就停用。停用持续到授权文件的 `revision` 比以前看到过的都大（`observe_revision`）、写入方在上界回绕到时间戳，或进程重启。
+//! - **健康文件** `<user_data>/script-health.json` 只记被停用的插件和停用的类别（`invalid`、`init`、`failed`、`slow`），在失焦和 destroy 时交给后台线程写出，只有停用或恢复之后才重写；进程重启也是恢复，本进程第一次读授权时文件在就重写一次（`adopt_health`）。不记失败次数，也不按原因细分：哪种 trap、失败几次都由脚本自己选，按次数或原因写出去，同一用户下的进程每次失焦后对比文件，就是一条能反复使用、按位传文本的通道；只记停用，熔断之后要等新的授权代次或进程重启才能再触发，剩下的是设计接受的一次性约 1 bit。具体的原因码只在停用时进一次诊断。
 //! - **panic 总开关**：投递里任何一处 panic 都关掉本进程的全部脚本，直到进程重启；那次调用照常返回上屏结果。
 //!
 //! import 从不回调宿主，所以这里的锁都不会在脚本代码运行时被重入；锁的顺序固定为先 `REGISTRY` 后单个 `Health`，从不反过来。
@@ -491,7 +491,12 @@ pub(crate) fn health_snapshot(root: &Path, id: &str, hash: &str) -> (u32, Option
 pub(super) fn observe_revision(root: &Path, revision: u64) {
     let mut registry = lock(&REGISTRY);
     let previous = registry.revisions.get(root).copied();
-    if previous.is_some_and(|previous| revision <= previous) {
+    // 写入方在 MAX_REVISION - 1 之后回到当前时间的微秒数。这个唯一的
+    // 回绕也代表一次新的授权写入；缺失或无效文件读成的 0 仍不能复位熔断。
+    let wrapped = previous == Some(msime_client_core::plugins::script_grants::MAX_REVISION - 1)
+        && revision > 0
+        && revision < msime_client_core::plugins::script_grants::MAX_REVISION - 1;
+    if previous.is_some_and(|previous| revision <= previous) && !wrapped {
         return;
     }
     registry.revisions.insert(root.to_owned(), revision);
