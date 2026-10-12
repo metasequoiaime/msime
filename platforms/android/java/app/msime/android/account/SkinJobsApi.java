@@ -72,8 +72,7 @@ public final class SkinJobsApi {
             }
             try {
                 JSONObject root = new JSONObject(response == null ? "" : response);
-                JSONArray plans = JsonPolicy.strictTrue(root.opt("ok"))
-                    ? root.optJSONArray("value") : null;
+                JSONArray plans = JsonPolicy.arrayValue(root);
                 if (plans == null) throw invalid("ai_skin_response");
                 return plans;
             } catch (JSONException error) {
