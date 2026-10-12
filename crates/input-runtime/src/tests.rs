@@ -1577,6 +1577,97 @@ fn promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai() {
     );
 }
 
+// 日文混输行（来源 13）按英文的规矩坐：领先时保持首位（英文已领先时第二位），云候选、AI 候选到达不挪它；不领先时坐英文的优先座位，排在英文前面。
+#[test]
+fn mixed_japanese_rows_keep_their_seat_like_english() {
+    let seated = |words: &[&str], sources: Vec<u8>| {
+        let mut runtime = Runtime::new(
+            Fixture {
+                scheme: 0,
+                local_mode: "none".into(),
+                words: words.iter().map(|word| (*word).into()).collect(),
+                codes: (0..words.len()).map(|n| format!("code-{n}")).collect(),
+                sources,
+                ..Fixture::default()
+            },
+            9,
+        )
+        .unwrap();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime)
+            .view
+            .candidates
+            .into_iter()
+            .map(|candidate| candidate.text)
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        seated(
+            &["おはよう", "噢哈有", "哦", "云候选", "AI联想"],
+            vec![13, 8, 0, 2, 3]
+        ),
+        vec!["おはよう", "噢哈有", "云候选", "AI联想", "哦"]
+    );
+    assert_eq!(
+        seated(
+            &["hello", "へっぉ", "何咯", "和", "云候选"],
+            vec![4, 13, 8, 0, 2]
+        ),
+        vec!["hello", "へっぉ", "何咯", "云候选", "和"]
+    );
+    assert_eq!(
+        seated(
+            &["开始", "開始", "kaishi", "开", "云候选", "AI联想"],
+            vec![0, 13, 4, 0, 2, 3]
+        ),
+        vec!["开始", "云候选", "AI联想", "開始", "kaishi", "开"]
+    );
+}
+
+/// 上屏日文混输行时不做简繁转换；前面暂存着中文词段时，暂存段和日文一起上屏，照旧转换。
+#[test]
+fn committing_a_mixed_japanese_row_skips_script_conversion() {
+    let runtime_with = |remaining: Option<&str>| {
+        let mut runtime = Runtime::new(
+            Fixture {
+                scheme: 0,
+                local_mode: "none".into(),
+                words: vec!["海滩".into(), "おはよう".into()],
+                sources: vec![0, 13],
+                remaining_after_select: remaining.map(str::to_owned),
+                ..Fixture::default()
+            },
+            5,
+        )
+        .unwrap();
+        runtime.set_phrase_preedit(true);
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime);
+        runtime
+    };
+
+    let mut runtime = runtime_with(None);
+    let id = runtime.view().candidates[1].id;
+    let committed = runtime.dispatch(Action::Select(id)).unwrap();
+    assert_eq!(committed.commit.as_deref(), Some("おはよう"));
+    assert!(!committed.commit_context.unwrap().script_conversion);
+    // 选中文行照旧转换。
+    type_key(&mut runtime);
+    let id = runtime.view().candidates[0].id;
+    let committed = runtime.dispatch(Action::Select(id)).unwrap();
+    assert!(committed.commit_context.unwrap().script_conversion);
+
+    let mut runtime = runtime_with(Some("p"));
+    let id = runtime.view().candidates[0].id;
+    let held = runtime.dispatch(Action::Select(id)).unwrap();
+    assert_eq!(held.view.phrase_prefix, "海滩");
+    let id = runtime.view().candidates[1].id;
+    let committed = runtime.dispatch(Action::Select(id)).unwrap();
+    assert_eq!(committed.commit.as_deref(), Some("海滩おはよう"));
+    assert!(committed.commit_context.unwrap().script_conversion);
+}
+
 // An English word the user fixed to a seat stays there when a cloud or AI reply arrives, as the reference's `FixedEnglishCandidateKeepsItsMixedCandidatePosition` expects. Without the fixed-English pass the seating would put it behind the online candidates.
 #[test]
 fn fixed_english_candidate_keeps_its_seat_when_online_candidates_arrive() {
