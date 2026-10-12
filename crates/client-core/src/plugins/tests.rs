@@ -694,7 +694,28 @@ fn enabled_command_tables_merge_in_priority_order() {
     let first = vec!["first".to_owned()];
     assert_eq!(
         command_table::enabled_commands(root.path(), &first).capacity(),
-        command_table::MAX_COMMANDS
+        2
+    );
+    let merged = command_table::enabled_commands(
+        root.path(),
+        &[
+            "first".into(),
+            "missing".into(),
+            "broken".into(),
+            "second".into(),
+        ],
+    );
+    assert_eq!(merged.len(), 3);
+    assert_eq!(merged.capacity(), 4);
+    assert_eq!(merged[0].template, "one");
+    assert_eq!(merged[2].trigger, "tel");
+    let repeated = command_table::enabled_commands(root.path(), &vec!["first".into(); 10]);
+    assert_eq!(repeated.len(), 2);
+    assert_eq!(repeated.capacity(), 4);
+    assert_eq!(
+        command_table::enabled_commands(root.path(), &["missing".into(), "broken".into()])
+            .capacity(),
+        0
     );
     assert!(enabled(&[]).is_empty());
     assert!(enabled(&["../first"]).is_empty());
@@ -718,10 +739,29 @@ fn enabled_command_tables_merge_in_priority_order() {
     };
     installed_commands(root.path(), "many", &many(0));
     installed_commands(root.path(), "more", &many(1000));
+    installed_commands(root.path(), "overlap", &many(100));
     assert_eq!(
         enabled(&["many", "more"]).len(),
         command_table::MAX_COMMANDS
     );
+    let saturated = command_table::enabled_commands(
+        root.path(),
+        &["many".into(), "many".into(), "more".into(), "first".into()],
+    );
+    assert_eq!(saturated.len(), command_table::MAX_COMMANDS);
+    assert_eq!(saturated.capacity(), command_table::MAX_COMMANDS);
+    let expected = enabled(&["many", "more"]);
+    assert_eq!(
+        saturated
+            .into_iter()
+            .map(|row| (row.trigger, row.template))
+            .collect::<Vec<_>>(),
+        expected
+    );
+    let overlap = command_table::enabled_commands(root.path(), &["many".into(), "overlap".into()]);
+    assert_eq!(overlap.len(), command_table::MAX_COMMANDS);
+    assert_eq!(overlap.capacity(), command_table::MAX_COMMANDS);
+    assert_eq!(overlap.last().unwrap().trigger, "ajv");
 }
 
 #[cfg(unix)]

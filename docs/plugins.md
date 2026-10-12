@@ -375,7 +375,7 @@ memory_pages = 4                # 可选，1 到 64，默认 16
 | `filter_candidates`   | 把候选降到末尾并隐藏                                             | `read_candidates`                            | `candidates_hide`                                                                                |
 | `annotate_candidates` | 给候选加注释                                                     | `read_candidates`                            | `candidates_annotate`                                                                            |
 
-后四项是修改类能力。它们的函数和签名已经是 ABI 的一部分、能通过校验，但输入法目前一律返回 `DENIED`（-1），上屏和候选保持原样，`before_commit` 和 `candidates` 两个钩子也还不投递。
+后四项是修改类能力：`rewrite_commit` 只在 `before_commit` 里有效，其余三个只在 `candidates` 里有效，在别的钩子里调用返回 `DENIED`。`rewrite_commit` 还要事件的「能否改写」为真（选中候选、原样上屏或暂存段送出，本地模式 `none`，不是以词定字，输入框是普通输入框，宿主没把这一段暂存在自己手里），否则也返回 `DENIED`；它只改标点和顶字尾巴之前的那一段，后面的插件读到的是前面改写过的文本。几个插件的重排、隐藏和注释按授权顺序合成；被隐藏的候选不出现在列表里，也选不到；插件的注释由输入法另外显示，不替换候选原来的注释。
 
 ### 钩子
 
@@ -386,14 +386,14 @@ memory_pages = 4                # 可选，1 到 64，默认 16
 | `input`               | 6    | 一次操作开始前                                   | 操作类别；`read_composition`：这次打的字符                 |
 | `selection_retracted` | 7    | 撤回暂存词组里的一次选择                         | 撤回方式                                                   |
 | `candidate_selected`  | 8    | 选中了候选                                       | 选法、结果；`read_commit`：选中的文本、座位                |
-| `before_commit`       | 9    | 上屏之前（修改类，尚未投递）                     | 来源、能否改写；`read_commit`：上屏文本和可改写段          |
+| `before_commit`       | 9    | 上屏之前（修改类）                               | 来源、能否改写；`read_commit`：上屏文本和可改写段          |
 | `commit`              | 10   | 上屏之后                                         | 来源、是否接着组字、是否引擎生成；`read_commit`：同上      |
 | `composition_end`     | 11   | 组字结束                                         | 原因                                                       |
 | `composition_start`   | 12   | 组字开始                                         | `read_composition`：预编辑串、读音、光标                   |
 | `composition_update`  | 13   | 组字变化                                         | 同上                                                       |
 | `candidates_shown`    | 14   | 候选窗口显示或换了内容                           | `read_candidates`：当前页、页码、高亮                      |
 | `candidates_hidden`   | 15   | 候选窗口隐藏                                     | 原因                                                       |
-| `candidates`          | 17   | 候选列表排好之后、显示之前（修改类，尚未投递）   | `read_candidates`：插件变换之前的顺序和注释               |
+| `candidates`          | 17   | 候选列表排好之后、显示之前（修改类）             | `read_candidates`：插件变换之前的顺序和注释               |
 
 - 每个事件都带本地模式，`candidate_selected` 和 `commit` 带的是上屏时的模式。
 - 同一次操作里的顺序：`input` → `selection_retracted` → `candidate_selected` → `before_commit` → `commit` → `composition_end` 或 `composition_start` → `composition_update` → `candidates_shown` 或 `candidates_hidden`。
@@ -417,15 +417,15 @@ memory_pages = 4                # 可选，1 到 64，默认 16
 | 模块文件           | 1 字节到 256 KiB                                                                                                            |
 | 线性内存           | `memory_pages` 页（每页 64 KiB），实例化时一次预留，之后 `memory.grow` 越过它就 trap                                        |
 | 初始化             | 每个插件 5 000 000 fuel（`msime_abi` 加 `msime_init`）；每次聚焦和每一轮所有插件合计 5 000 000，超出的插件推迟到下一轮      |
-| 每一轮             | 每个插件 125 000 fuel。一轮是宿主交来一个按键到下一个按键之间，同一个键引起的多次调用共用一轮                               |
-| 单次钩子           | `candidates` 125 000，`before_commit` 100 000，其余 25 000；实际可用的是这个和本轮剩下的较小者                              |
+| 每一轮             | 每个插件 125 000 fuel，`before_commit` 另有自己的一份 100 000。一轮是宿主交来一个按键到下一个按键之间，同一个键引起的多次调用共用一轮                                |
+| 单次钩子           | `candidates` 125 000，`before_commit` 100 000，其余 25 000；实际可用的是这个和本轮剩下的（`before_commit` 看它自己那一份）较小者                               |
 | 函数调用           | 每次调用 `msime` 的函数扣 100 fuel，每复制 4 字节再扣 1                                                                     |
 | 值栈               | 64 KiB，递归最深 256 层                                                                                                     |
 | 表                 | 最多 4 张，每张 10 000 个元素                                                                                               |
 | 同时启用           | 8 个                                                                                                                        |
 | 进程内存总账       | 64 MiB：每个插件按「线性内存 + 模块大小 × 128 + 256 KiB + 64 KiB」估算，启用时检查，放不下就拒绝启用                        |
 
-- fuel 是唯一的硬时间限制，大约一条 wasm 指令一个单位。超出配额算这个插件的一次失败，不影响别的插件；一个插件拿到多少配额和别的插件做了什么无关。
+- fuel 是唯一的硬时间限制，大约一条 wasm 指令一个单位。超出单个钩子的上限算这个插件的一次失败，不影响别的插件；一个插件拿到多少配额和别的插件做了什么无关。本轮的配额用完不算失败：修饰键组合、快捷键、失焦这类没有先交来按键的调用和上一个按键共用一轮，花光它的可能是之前几次正常的投递。本轮剩下的为 0 时插件跳过这次投递；运行到一半被本轮剩下的配额截断时这一次的动作全部丢弃，实例和失败时一样丢弃，这一次用掉的不到本钩子上限的一半时不算失败，达到一半就和超出本钩子上限一样算一次 fuel 用完的失败。`candidates` 的单次上限和每轮配额都是 125 000，同一轮里 `input` 先花过 fuel 时它的死循环会先撞上每轮配额，按这条规则照样算失败、照样熔断。
 - 最大的模块（256 KiB、64 页）在总账里约 36 MiB，同时只能启用一个；几十 KiB 的普通插件每个约 5 MiB。
 
 ### 隐私规则
@@ -440,7 +440,7 @@ memory_pages = 4                # 可选，1 到 64，默认 16
 ### 失败
 
 - 一次失败指 trap（`unreachable`、越界、除零等）、超出 fuel 配额、栈溢出、内存越过预留，或 `msime_on_event` 返回负数。失败时丢弃这个插件这一次的全部动作，上屏和候选保持原样，后面的插件照常运行。
-- 钩子运行到一半的失败（trap、fuel 用完、栈溢出、内存越过预留）之后实例丢弃，这个插件在当前输入框里不再运行，下一次聚焦时重新实例化。返回负数、本轮配额在调用之前就已用完（不运行，直接算一次 fuel 耗尽）时实例照用；`before_commit` 每次都在一次性的快照实例上运行，它的失败也不影响插件的实例。
+- 钩子运行到一半的失败（trap、fuel 用完、栈溢出、内存越过预留）之后实例丢弃，这个插件在当前输入框里不再运行，下一次聚焦时重新实例化。运行到一半被本轮配额截断时实例同样丢弃，这一次用掉的不到本钩子上限的一半时不算失败，达到一半算一次 fuel 用完的失败（见[限制](#限制)）。返回负数、本轮配额在调用之前就已用完（不运行，跳过）时实例照用；`before_commit` 每次都在一次性的快照实例上运行，它的失败也不影响插件的实例。
 - 停用：初始化失败（含 `msime_abi` 不是 1、`msime_init` 返回负数）和模块不合规立即停用；否则最近 50 次投递里失败 3 次，或者最近 20 次里有 3 次超过 4 ms，就停用。停用持续到授权变化或输入法进程重启。
 - 输入法自己在投递时出错，会关掉本进程的全部脚本直到重启，上屏照常。
 - 停用的插件记在 `<数据目录>/script-health.json`，只有 id、内容哈希和类别（`invalid`、`init`、`failed`、`slow`），不记失败次数和原因。
@@ -490,20 +490,19 @@ target/debug/msime-pack run path/to/pack --events events.jsonl --grant all
 输出的每一行：
 
 ```text
-{"seq":1,"event":"before_commit","status":"ok","fuel":6347,"init_fuel":2,"actions":[{"import":"rewrite_commit","result":"denied"}],"log":[{"level":"debug","text":"用 Rust 写插件"}]}
+{"seq":1,"event":"before_commit","status":"ok","fuel":6303,"init_fuel":2,"actions":[{"import":"rewrite_commit","result":"ok"}],"log":[{"level":"debug","text":"用 Rust 写插件"}]}
 ```
 
 - `seq` 是第几个事件，`event` 是钩子名，`fuel` 是这次投递用掉的 fuel。
 - `init_fuel` 只在这个事件之前实例化或尝试实例化时出现，是初始化用掉的 fuel。在 `init:<原因>` 和 `deferred` 行上，它是失败或被截断的那次尝试用掉的 fuel，同样从本轮的初始化预算里扣除，不要把它算成一次完成的实例化。
-- `actions` 是这次调用修改类函数的记录和输入法给的结果，目前都是 `denied`；失败时这些动作在输入法里全部丢弃。
+- `actions` 是这次调用修改类函数的记录和输入法给的结果（`ok`、`denied`、`absent`、`invalid`、`limit`）；失败或被本轮配额截断时这些动作在输入法里全部丢弃。
 - `log` 是插件经 `log` 写的每一行，`msime_init` 里写的跟在实例化的那个事件上。
-- `status`：`ok`；`not_subscribed`（清单没声明这个钩子）；本次钩子自己的 fuel 上限耗尽时是失败原因 `out_of_fuel`，其他失败原因有 `stack_overflow`、`memory_limit`、`memory_out_of_bounds`、`unreachable`、`trap`、`negative_return`；本轮共享 fuel 配额先用完时是 `turn_exhausted`，它不算失败，若执行被截断导致实例不可用，下一次事件是 `suspended`；初始化失败 `init:<原因>`（如 `init:init_failed`、`init:abi_mismatch`），之后的事件是 `disabled`；实例因失败丢弃之后（见[失败](#失败)）、下一次 `focus_in` 之前是 `suspended`；初始化预算被本轮用完时是 `deferred`。
+- `status`：`ok`；`not_subscribed`（清单没声明这个钩子）；本次钩子自己的 fuel 上限耗尽，或者被本轮配额截断时已经用掉本钩子上限的一半或更多，是失败原因 `out_of_fuel`，其他失败原因有 `stack_overflow`、`memory_limit`、`memory_out_of_bounds`、`unreachable`、`trap`、`negative_return`；本轮共享 fuel 配额先用完时是 `turn_exhausted`（调用之前就已用完，或者被截断时这一次用掉的不到本钩子上限的一半），它不算失败，若执行被截断导致实例不可用，下一次事件是 `suspended`；初始化失败 `init:<原因>`（如 `init:init_failed`、`init:abi_mismatch`），之后的事件是 `disabled`；实例因失败丢弃之后（见[失败](#失败)）、下一次 `focus_in` 之前是 `suspended`；初始化预算被本轮用完时是 `deferred`。
 
 实例的生命周期按输入法的规则：第一次需要投递时才实例化，`focus_in` 之前和 `focus_out` 之后丢弃实例，同一轮里重建的实例接着用这一轮剩下的配额。和输入法不同的地方：
 
 - 输入框永远按普通输入框处理，不模拟密码框和隐私字段。
 - 不做按次数和按耗时的停用，每次失败都报告，任何失败都让退出码为 1。
-- `before_commit` 和 `candidates` 照样投递，方便在修改类能力接通之前先写好插件；输入法目前还不投递这两个钩子。
 - 不检查进程内存总账，单个插件总放得下。
 
 ## 校验

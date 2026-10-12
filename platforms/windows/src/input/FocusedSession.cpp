@@ -234,6 +234,20 @@ std::optional<PendingReply> FocusedSession::toggle_character_set(
   });
   return result;
 }
+std::optional<PendingReply> FocusedSession::toggle_japanese(
+    const FocusLease &lease, const FanyImeNamedpipeData &packet, bool enabled,
+    const std::function<bool()> &persist) {
+  check_thread();
+  if (!prepared(lease))
+    return std::nullopt;
+  std::optional<PendingReply> result;
+  gate_.with_active(lease, [&] {
+    result = composer_->toggle_japanese(session_, packet, lease.epoch, enabled,
+                                        persist);
+    attach_online_query(lease, result);
+  });
+  return result;
+}
 std::optional<PendingReply>
 FocusedSession::navigate(const FocusLease &lease,
                          const FanyImeNamedpipeData &packet,

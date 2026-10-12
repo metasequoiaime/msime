@@ -20,6 +20,28 @@ export interface CommunityGalleryClient<T extends { id: string }> {
   report?(id: string, reason: CommunityReportReason, detail: string): Promise<void>;
 }
 
+/** Adapts shared detail and action commands; callers retain their own list mapping. */
+export function createCommunityGalleryClient<T extends { id: string }>(
+  client: Pick<CommunityGalleryClient<T>, "detail" | "report"> & {
+    rate(id: string, stars: number): Promise<unknown>;
+  },
+  list: CommunityGalleryClient<T>["list"],
+  unpublish: (id: string) => Promise<unknown>,
+): CommunityGalleryClient<T> {
+  const report = client.report;
+  return {
+    list,
+    detail: client.detail,
+    rate: async (id, stars) => {
+      await client.rate(id, stars);
+    },
+    unpublish: async (id) => {
+      await unpublish(id);
+    },
+    ...(report && { report: (id, reason, detail) => client.report!(id, reason, detail) }),
+  };
+}
+
 export interface CommunityGalleryOptions<T extends { id: string }> {
   client: CommunityGalleryClient<T>;
   initialMine?: boolean;
@@ -221,6 +243,24 @@ export function useCommunityGallery<T extends { id: string }>({
     [actionBusy, client, isCurrent, runAction, selected],
   );
 
+  /** Applies an owner edit to both the open detail and its gallery card, ignoring a stale client result. */
+  const updateSelected = useCallback(
+    async (update: (id: string) => Promise<T>, notice: string) => {
+      if (!selected) return;
+      const target = selected;
+      await runAction(
+        async (generation) => {
+          const updated = await update(target.id);
+          if (!isCurrent(generation)) return;
+          replaceSelected(updated);
+          setActionNotice(notice);
+        },
+        { clearNotice: true },
+      );
+    },
+    [isCurrent, replaceSelected, runAction, selected],
+  );
+
   const unpublishSelected = useCallback(
     async (successMessage: string) => {
       if (!selected || actionBusy) return;
@@ -282,6 +322,7 @@ export function useCommunityGallery<T extends { id: string }>({
     open,
     closeDetail,
     rateSelected,
+    updateSelected,
     unpublishSelected,
     reportSelected,
     isCurrent,

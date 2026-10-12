@@ -1,19 +1,26 @@
-//! 每个会话的脚本集合：按授权顺序的插件、各自延迟创建的实例、轮次和初始化预算，以及把一个生命周期事件变成脚本看到的 `Event`。
+//! 每个会话的脚本集合：按授权顺序的插件、各自延迟创建的实例、轮次和初始化预算，把一个生命周期事件变成脚本看到的 `Event`，以及两个修改类钩子（`candidates`、`before_commit`）。
 
 use super::process::{self, Health, Lookup, Reservation, Trip};
-use super::CallTexts;
+use super::{CallTexts, RewriteRequest};
 use crate::key_sound::{stamp, PackStamp};
 use crate::lifecycle::{Context, InputClass, LifecycleEvent, LocalModeClass};
 use msime_client_core::plugins::{kind_directory, script_grants, PluginKind, MANIFEST_FILE};
-use msime_input_runtime::View;
-use msime_script_runtime::{
-    limits, CandidateRow, Candidates, CapabilitySet, CommitTexts, Composition, Event, Failure,
-    Hook, InitFailure, Outcome, ScriptInstance, ScriptModule,
+use msime_input_runtime::{
+    CandidateOps, CandidateTransform, TransformRow, View, MAX_TRANSFORM_ROWS,
 };
+use msime_script_runtime::{
+    abi, limits, Actions, CandidateRow, Candidates, CapabilitySet, CommitTexts, Composition, Event,
+    Failure, Hook, InitFailure, Outcome, ScriptInstance, ScriptModule,
+};
+use std::cell::RefCell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
+
+// runtime 交来的窗口整个交给插件，两边的行数上限必须一致。
+const _: () = assert!(MAX_TRANSFORM_ROWS == limits::MAX_CANDIDATE_ROWS);
 
 #[cfg(test)]
 thread_local! {
@@ -37,8 +44,8 @@ struct Entry {
     instance: Option<Live>,
     /// 这次聚焦里 trap 过（包括运行到一半被本轮配额截断）：实例已经丢弃，到下一次聚焦之前不再重建。否则一个每 50 次故意失败 2 次的插件永远不熔断，每次失败后都在按键路径上重跑一遍初始化。
     trapped: bool,
-    /// 这个插件最近一次投递所在的轮次和那一轮还剩的 fuel。轮配额按插件算：同一轮里重建的实例（换了字段、属性变过）接着用剩下的，而不是重新给满。
-    turn: Option<(u64, u64)>,
+    /// 这个插件最近一次投递所在的轮次，和那一轮其余钩子、`before_commit` 各还剩的 fuel。轮配额按插件算：同一轮里重建的实例（换了字段、属性变过）接着用剩下的，而不是重新给满。
+    turn: Option<(u64, u64, u64)>,
 }
 
 /// 一个活着的实例和它在内存总账里占的那份。
@@ -66,6 +73,8 @@ pub(crate) struct ScriptSet {
     traits_confirmed: bool,
     /// 上一个键或上一次聚焦变化之后宿主报告过属性：聚焦前报告的属性属于新字段，可以直接确认。
     traits_since_key: bool,
+    /// 宿主最近一次报告的字段属性。候选变换由 runtime 调用，手上没有生命周期的状态，运行条件看这里。
+    context: Context,
 }
 
 impl ScriptSet {
@@ -85,6 +94,7 @@ impl ScriptSet {
 
     /// 宿主报告了字段属性（不论变没变）：属性确认过了。变得不能运行脚本（SECURE、PRIVATE、ELEVATED 或未知）时，正在跑的实例当场丢弃。
     pub(crate) fn traits_reported(&mut self, context: Context) {
+        self.context = context;
         self.traits_confirmed = true;
         self.traits_since_key = true;
         if !context.ordinary_field() {
@@ -209,7 +219,7 @@ impl ScriptSet {
             Some(c) => Some(&*c.encode_utf8(&mut buffer)),
             None => None,
         };
-        self.deliver_all(&event);
+        self.deliver_all(&event, |_| {});
     }
 
     /// 把生命周期核心推导出的一个事件交给各插件。不投递给脚本的事件（按键、字段属性、激活、会话结束、`before_commit`）在这里就返回。
@@ -293,17 +303,135 @@ impl ScriptSet {
             }
             _ => {}
         }
-        self.deliver_all(&delivered);
+        self.deliver_all(&delivered, |_| {});
     }
 
-    /// 按授权顺序交给每个插件。一个插件的失败只算它自己的；宿主一侧任何 panic 都关掉本进程的全部脚本，调用照常返回。
-    fn deliver_all(&mut self, event: &Event<'_>) {
+    /// 候选变换（`candidates` 钩子）：窗口是 runtime 内置排序之后、任何插件变换之前的前 20 行。每个插件都看这同一份窗口，正常返回的插件把暂存的操作依次放进 `out`，失败的插件这一次的操作全部作废。本地模式不在白名单里时一个插件都不运行。
+    pub(crate) fn candidates(
+        &mut self,
+        window: &[TransformRow<'_>],
+        local_mode: &str,
+        out: &mut Vec<CandidateOps>,
+    ) {
+        let context = self.context;
+        if !self.prepare(context) {
+            return;
+        }
+        let local_mode = LocalModeClass::of(local_mode) as u8;
+        if !abi::local_mode_allows_text(local_mode) {
+            return;
+        }
+        let mut rows = [CandidateRow::default(); limits::MAX_CANDIDATE_ROWS];
+        let count = window.len().min(rows.len());
+        for (row, source) in rows.iter_mut().zip(window) {
+            *row = CandidateRow {
+                text: source.text,
+                code: source.code,
+                annotation: source.annotation,
+                source: source.source,
+            };
+        }
+        let mut event = Event::new(Hook::Candidates);
+        event.scalars.local_mode = Some(local_mode);
+        event.candidates = Some(Candidates {
+            rows: &rows[..count],
+            page: None,
+            highlighted: None,
+        });
+        self.deliver_all(&event, |actions| {
+            if actions.order.is_empty()
+                && actions.hidden.is_empty()
+                && actions.annotations.is_empty()
+            {
+                return;
+            }
+            out.push(CandidateOps {
+                order: actions.order.clone(),
+                hidden: actions.hidden.clone(),
+                annotations: actions.annotations.clone(),
+            });
+        });
+    }
+
+    /// 上屏前（`before_commit`）：按授权顺序交给每个声明了它的插件，每次都在复位到快照的新实例上运行。可改写时，后面的插件读到的 body 是前面改写过的，最后的 body 返回给调用方；改写结果的长度上限按原文算，事件里带着原文的长度，`rewrite_commit` 照它返回 `LIMIT`；这里再查一遍，超出的那一次不采用。不可改写时照样投递，插件只能看，返回 `None`。
+    pub(crate) fn before_commit(
+        &mut self,
+        context: Context,
+        request: &RewriteRequest<'_>,
+    ) -> Option<String> {
+        if !self.prepare(context) {
+            return None;
+        }
+        let local_mode = request.local_mode.map(mode);
+        let original_utf16 = request.body.encode_utf16().count();
+        let limit = limits::rewrite_utf16_limit(original_utf16);
+        let mut rewritten: Option<String> = None;
+        let mut full = String::new();
+        let turn = self.turn;
+        let mut panicked = false;
+        for entry in &mut self.plan {
+            let body = rewritten.as_deref().unwrap_or(request.body);
+            full.clear();
+            full.push_str(body);
+            full.push_str(request.tail);
+            let mut event = Event::new(Hook::BeforeCommit);
+            event.scalars.origin = Some(request.origin);
+            event.scalars.rewritable = Some(request.rewritable);
+            event.scalars.local_mode = local_mode;
+            event.commit = CommitTexts {
+                selected: request.selected,
+                commit: Some(&full),
+                body: Some(body),
+                seat: None,
+                original_body_utf16: Some(original_utf16),
+            };
+            let init_left = &mut self.init_left;
+            let outcome = catch_unwind(AssertUnwindSafe(|| {
+                match deliver_one(entry, turn, init_left, &event) {
+                    Outcome::Delivered { .. } => entry
+                        .instance
+                        .as_ref()
+                        .and_then(|live| live.instance.actions().rewrite.clone()),
+                    Outcome::NotSubscribed
+                    | Outcome::TurnExhausted { .. }
+                    | Outcome::Failed { .. } => None,
+                }
+            }));
+            match outcome {
+                Ok(Some(body))
+                    if request.rewritable
+                        && body.len() <= limits::MAX_REWRITE_BYTES
+                        && body.encode_utf16().count() <= limit =>
+                {
+                    rewritten = Some(body);
+                }
+                Ok(_) => {}
+                Err(_) => {
+                    panicked = true;
+                    break;
+                }
+            }
+        }
+        if panicked {
+            process::panic_caught();
+            self.drop_instances();
+            return None;
+        }
+        rewritten
+    }
+
+    /// 按授权顺序交给每个插件，正常返回的插件把它这一次暂存的动作交给 `delivered`。一个插件的失败只算它自己的；宿主一侧任何 panic 都关掉本进程的全部脚本，调用照常返回。
+    fn deliver_all(&mut self, event: &Event<'_>, mut delivered: impl FnMut(&Actions)) {
         let turn = self.turn;
         let mut panicked = false;
         for entry in &mut self.plan {
             let init_left = &mut self.init_left;
             if catch_unwind(AssertUnwindSafe(|| {
-                deliver_one(entry, turn, init_left, event);
+                if let Outcome::Delivered { .. } = deliver_one(entry, turn, init_left, event) {
+                    if let Some(live) = entry.instance.as_ref() {
+                        delivered(live.instance.actions());
+                    }
+                }
             }))
             .is_err()
             {
@@ -318,50 +446,81 @@ impl ScriptSet {
     }
 }
 
-/// 一个插件收一个事件：查缓存拿模块、需要时实例化、投递、记账。
-fn deliver_one(entry: &mut Entry, turn: u64, init_left: &mut u64, event: &Event<'_>) {
+/// 挂在 runtime 上的候选变换：和生命周期共用同一个脚本集合。runtime 只在派发类调用里调用它，这时生命周期没有借着集合；万一借着就跳过，不 panic。
+pub(crate) struct ScriptTransform(Rc<RefCell<ScriptSet>>);
+
+impl ScriptTransform {
+    pub(crate) fn new(scripts: Rc<RefCell<ScriptSet>>) -> Self {
+        Self(scripts)
+    }
+}
+
+impl CandidateTransform for ScriptTransform {
+    fn transform(
+        &mut self,
+        window: &[TransformRow<'_>],
+        local_mode: &str,
+        out: &mut Vec<CandidateOps>,
+    ) {
+        if let Ok(mut scripts) = self.0.try_borrow_mut() {
+            scripts.candidates(window, local_mode, out);
+        }
+    }
+}
+
+/// 一个插件收一个事件：查缓存拿模块、需要时实例化、投递、记账。没有运行（停用、还没编译好、没声明这个钩子、推迟实例化）时返回 `NotSubscribed`。
+fn deliver_one(entry: &mut Entry, turn: u64, init_left: &mut u64, event: &Event<'_>) -> Outcome {
     #[cfg(test)]
     if TEST_PANIC.with(|panic| panic.replace(false)) {
         panic!("injected host-side panic");
     }
     if entry.health.disabled() {
         entry.instance = None;
-        return;
+        return Outcome::NotSubscribed;
     }
     if entry.module.is_none() {
         match process::lookup(&entry.hash) {
             Lookup::Ready(module) => entry.module = Some(module),
-            Lookup::Waiting => return,
+            Lookup::Waiting => return Outcome::NotSubscribed,
             Lookup::Invalid(reason) => {
                 entry.health.disable(Trip::Invalid, reason);
-                return;
+                return Outcome::NotSubscribed;
             }
         }
     }
     let Some(module) = entry.module.as_ref() else {
-        return;
+        return Outcome::NotSubscribed;
     };
     // 只在声明过的钩子上实例化和投递。
     if !module.declaration().hooks.contains(event.hook) {
-        return;
+        return Outcome::NotSubscribed;
     }
-    // 这个插件本轮的配额已经用完：跳过到下一轮，也不为它在按键路径上重新初始化。
-    if entry.turn == Some((turn, 0)) {
-        return;
+    // 这个插件本轮里这个钩子所用的那份配额（`before_commit` 自己一份，其余钩子合用一份）已经用完：跳过到下一轮，也不为它在按键路径上重新初始化。
+    if let Some((last, left, before_commit_left)) = entry.turn {
+        let left = if event.hook == Hook::BeforeCommit {
+            before_commit_left
+        } else {
+            left
+        };
+        if last == turn && left == 0 {
+            return Outcome::TurnExhausted { fuel: 0 };
+        }
     }
     if entry.instance.is_none() {
         let budget = *init_left;
         if budget == 0 || entry.trapped {
-            return;
+            return Outcome::NotSubscribed;
         }
         let Some(reservation) = process::reserve(module.reserved_memory_bytes()) else {
-            return;
+            return Outcome::NotSubscribed;
         };
         match ScriptInstance::new(module, entry.granted, budget) {
             Ok(mut instance) => {
                 *init_left = budget.saturating_sub(instance.init_fuel());
-                if let Some((last, left)) = entry.turn.filter(|(last, _)| *last == turn) {
-                    instance.resume_turn(last, left);
+                if let Some((last, left, before_commit_left)) =
+                    entry.turn.filter(|(last, ..)| *last == turn)
+                {
+                    instance.resume_turn(last, left, before_commit_left);
                 }
                 #[cfg(test)]
                 let instance = {
@@ -380,26 +539,30 @@ fn deliver_one(entry: &mut Entry, turn: u64, init_left: &mut u64, event: &Event<
                 *init_left = budget.saturating_sub(fuel);
                 // 被本轮剩下的初始化预算卡住，而不是插件自己的上限：推迟到下一轮，不算失败。
                 if failure == Failure::OutOfFuel && budget < limits::INIT_FUEL {
-                    return;
+                    return Outcome::NotSubscribed;
                 }
                 entry.health.disable(Trip::Init, failure.as_str());
-                return;
+                return Outcome::NotSubscribed;
             }
         }
     }
     let Some(live) = entry.instance.as_mut() else {
-        return;
+        return Outcome::NotSubscribed;
     };
     let started = Instant::now();
     let outcome = live.instance.deliver(turn, event);
     let slow = process::slow(started);
     if !matches!(outcome, Outcome::NotSubscribed) {
-        entry.turn = Some((turn, live.instance.turn_fuel_left()));
+        entry.turn = Some((
+            turn,
+            live.instance.turn_fuel_left(),
+            live.instance.before_commit_fuel_left(),
+        ));
     }
     match outcome {
         Outcome::NotSubscribed => {}
         Outcome::Delivered { .. } => entry.health.record(None, slow),
-        // 本轮配额用完不算失败（宿主不在每次派发前都开一轮）；运行过的照样按墙钟记一次。
+        // 本轮配额用完不算失败（宿主不在每次派发前都开一轮）；运行过的照样按墙钟记一次。被截断时已经用掉本钩子上限一半的，runtime 报的是 `Failed`，走下面的失败分支。
         Outcome::TurnExhausted { fuel } => {
             if fuel > 0 {
                 entry.health.record(None, slow);
@@ -421,6 +584,7 @@ fn deliver_one(entry: &mut Entry, turn: u64, init_left: &mut u64, event: &Event<
             }
         }
     }
+    outcome
 }
 
 /// 生命周期事件对应的钩子；不投递给脚本的事件为 `None`。
@@ -437,7 +601,7 @@ fn hook(event: &LifecycleEvent) -> Option<Hook> {
         LifecycleEvent::CompositionUpdate => Hook::CompositionUpdate,
         LifecycleEvent::CandidatesShown { .. } => Hook::CandidatesShown,
         LifecycleEvent::CandidatesHidden(_) => Hook::CandidatesHidden,
-        // 修改类钩子第 4 阶段才投递；其余只给核心。
+        // `before_commit` 要改写上屏，走 `ScriptSet::before_commit`；其余只给核心。
         LifecycleEvent::BeforeCommit { .. }
         | LifecycleEvent::TraitsChanged { .. }
         | LifecycleEvent::Activated

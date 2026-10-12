@@ -71,6 +71,9 @@ public:
   std::optional<PendingReply> toggle_character_set(
       const FocusLease &lease, const FanyImeNamedpipeData &packet,
       bool enabled, const std::function<bool(bool)> &persist);
+  std::optional<PendingReply> toggle_japanese(
+      const FocusLease &lease, const FanyImeNamedpipeData &packet,
+      bool enabled, const std::function<bool()> &persist);
   std::optional<PendingReply> edit(const FocusLease &lease,
       const FanyImeNamedpipeData &packet, TsfPreeditStyle style);
   std::optional<PendingReply> navigate(const FocusLease &lease,

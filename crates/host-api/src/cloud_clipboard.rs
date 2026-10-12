@@ -1,13 +1,16 @@
-//! Cloud clipboard requests: the shape every host accepts ([`validate_request`]) and the account-backed answer ([`account_request`]).
+//! 云剪贴板请求：每个宿主都接受的形状（[`validate_request`]）、经水杉账号的答复（[`account_request`]），以及经自建中继的答复（[`relay_request`]，见 `docs/cloud-clipboard-relay.md`）。
 
 use msime_client_core::account::{
     AccountApi, AccountClipboardError, AccountError, AccountSessionStorage, BackendAccountSession,
 };
+use msime_client_core::clipboard_relay::{RelayClipboard, RelayConfig, RelayError, RETENTION_DAYS};
+use msime_client_core::preferences::PreferencesStore;
 use msime_client_core::{
     has_disallowed_control_with_options, is_bounded_ascii_identifier, is_bounded_text,
     is_bounded_utf16, is_lower_hex,
 };
 use serde_json::{json, Value};
+use std::path::Path;
 
 pub fn validate_request(request: &Value) -> Result<(), &'static str> {
     let operation = request
@@ -62,6 +65,109 @@ pub fn validate_request(request: &Value) -> Result<(), &'static str> {
         _ => return Err("invalid cloud clipboard request"),
     }
     Ok(())
+}
+
+/// 中继分支接受的动作：[`validate_request`] 的九个，再加上只在中继分支里有的 `pin {id, pinned}`、`set_retention {days}`（0、1、7、30）和 `clear`。账号分支不接受这三个，账号路径的行为因此不变；原生的 Android、iOS 和 macOS 界面已经有置顶、保留期和清空，改走中继时靠它们保持对等。
+pub fn validate_relay_request(request: &Value) -> Result<(), &'static str> {
+    const INVALID: &str = "invalid cloud clipboard request";
+    match request.get("operation").and_then(Value::as_str) {
+        Some("pin") => {
+            let id = request.get("id").and_then(Value::as_str).ok_or(INVALID)?;
+            if !is_lower_hex(id, 64) || !request.get("pinned").is_some_and(Value::is_boolean) {
+                return Err(INVALID);
+            }
+            Ok(())
+        }
+        Some("set_retention") => {
+            let days = request.get("days").and_then(Value::as_u64).ok_or(INVALID)?;
+            if !RETENTION_DAYS
+                .iter()
+                .any(|allowed| u64::from(*allowed) == days)
+            {
+                return Err(INVALID);
+            }
+            Ok(())
+        }
+        Some("clear") => Ok(()),
+        _ => validate_request(request),
+    }
+}
+
+/// 偏好目录里配置的中继；没有配置时为 `None`。偏好读不了时是 `storage`，配置不合规时是 `relay_not_configured`。不联网。
+pub fn configured_relay(preferences_directory: &Path) -> Result<Option<RelayConfig>, &'static str> {
+    let snapshot = PreferencesStore::new(preferences_directory)
+        .load()
+        .map_err(|_| "storage")?;
+    RelayConfig::from_preferences(&snapshot.preferences.cloud_clipboard_relay)
+        .map_err(|error| error.code())
+}
+
+/// 宿主据此决定云剪贴板走哪条路：配置了中继时是 `relay`，否则是 `account`。不联网。
+pub fn source(preferences_directory: &Path) -> Result<&'static str, &'static str> {
+    Ok(if configured_relay(preferences_directory)?.is_some() {
+        "relay"
+    } else {
+        "account"
+    })
+}
+
+/// 经自建中继答一个云剪贴板动作，动作集见 [`validate_relay_request`]，结果形状与 [`account_request`] 相同；`pin`、`clear` 答 `{}`，`set_retention` 答 `{retention_days}`。`keystore_directory` 是本机放中继密钥串的目录，同一台设备上的各个进程要传同一个。会联网，不要在界面线程上调用。动作不合规时是 `invalid_cloud_clipboard`，中继拒绝令牌时是 `relay_unauthorized`，其余是驱动或中继给出的错误码（见 `RelayError::code`）。
+pub fn relay_request(
+    config: RelayConfig,
+    keystore_directory: &Path,
+    device_name: &str,
+    action: &Value,
+) -> Result<Value, &'static str> {
+    const INVALID: &str = "invalid_cloud_clipboard";
+    validate_relay_request(action).map_err(|_| INVALID)?;
+    let relay = RelayClipboard::new(config, keystore_directory, device_name)
+        .map_err(|error| error.code())?;
+    let field = |name: &str| action.get(name).and_then(Value::as_str).ok_or(INVALID);
+    let flag = |name: &str| action.get(name).and_then(Value::as_bool).ok_or(INVALID);
+    let done = |result: Result<(), RelayError>, value: Value| {
+        result.map(|()| value).map_err(|error| error.code())
+    };
+    match action
+        .get("operation")
+        .and_then(Value::as_str)
+        .ok_or(INVALID)?
+    {
+        "list" => relay_value(
+            relay.list(
+                action
+                    .get("search")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+            ),
+        ),
+        "add" => relay_value(relay.add(field("text")?)),
+        "delete" => done(relay.delete(field("id")?), json!({})),
+        "set_enabled" => {
+            let enabled = flag("enabled")?;
+            done(relay.set_enabled(enabled), json!({ "enabled": enabled }))
+        }
+        "devices" => relay_value(relay.devices()),
+        "approve" => relay_value(relay.approve(field("device_id")?)),
+        "reject" => relay_value(relay.reject(field("device_id")?)),
+        "remove" => relay_value(relay.remove(field("device_id")?)),
+        "reset" => relay_value(relay.reset()),
+        "pin" => done(relay.set_pinned(field("id")?, flag("pinned")?), json!({})),
+        "set_retention" => {
+            let days = action
+                .get("days")
+                .and_then(Value::as_u64)
+                .and_then(|days| u32::try_from(days).ok())
+                .ok_or(INVALID)?;
+            done(relay.set_retention(days), json!({ "retention_days": days }))
+        }
+        "clear" => done(relay.clear(), json!({})),
+        _ => Err(INVALID),
+    }
+}
+
+fn relay_value<T: serde::Serialize>(result: Result<T, RelayError>) -> Result<Value, &'static str> {
+    let value = result.map_err(|error| error.code())?;
+    serde_json::to_value(value).map_err(|_| RelayError::Unavailable.code())
 }
 
 /// One cloud clipboard action answered through the account session: the `list`, `set_enabled`, `add` and `delete` the 云剪贴板 panel sends, plus the device management of end-to-end encryption (`devices`, `approve`, `reject`, `remove`, `reset`, see `docs/cloud-clipboard-e2e.md`). Blocks on the network, so callers run it off their UI thread. The Tauri shells pass the session their `AccountState` holds; the native Windows settings window (`msime_client_account_cloud_clipboard`) passes one over the signed-in session file the shell writes. An action that is not one of these, or lacks its field, is `invalid_cloud_clipboard` and never reaches the backend; a failed call is the account error's code, `account_unauthorized` when no one is signed in, or the driver's code (for example `clipboard_device_pending`).
@@ -161,6 +267,105 @@ mod tests {
                 );
             }
             assert!(validate_request(&json!({"operation":operation,"device_id":32})).is_err());
+        }
+    }
+
+    #[test]
+    fn pin_retention_and_clear_are_relay_only() {
+        let id = "0123456789abcdef".repeat(4);
+        for action in [
+            json!({"operation":"pin","id":id,"pinned":true}),
+            json!({"operation":"set_retention","days":0}),
+            json!({"operation":"set_retention","days":30}),
+            json!({"operation":"clear"}),
+        ] {
+            assert!(validate_relay_request(&action).is_ok(), "{action}");
+            assert!(validate_request(&action).is_err(), "{action}");
+        }
+        for action in [
+            json!({"operation":"pin","id":id}),
+            json!({"operation":"pin","id":"entry-1","pinned":true}),
+            json!({"operation":"pin","id":id.to_uppercase(),"pinned":false}),
+            json!({"operation":"set_retention","days":3}),
+            json!({"operation":"set_retention","days":-1}),
+            json!({"operation":"set_retention"}),
+            json!({"operation":"unknown"}),
+        ] {
+            assert!(validate_relay_request(&action).is_err(), "{action}");
+        }
+        // 共用的九个动作在中继分支里照样接受。
+        assert!(validate_relay_request(&json!({"operation":"list","search":""})).is_ok());
+        assert!(validate_relay_request(&json!({"operation":"devices"})).is_ok());
+    }
+
+    mod relay {
+        use super::super::{configured_relay, relay_request, source};
+        use msime_client_core::clipboard_relay::RelayConfig;
+        use msime_client_core::preferences::{Preferences, PreferencesStore};
+        use serde_json::json;
+
+        fn store_with(url: &str, token: &str) -> tempfile::TempDir {
+            let directory = tempfile::tempdir().unwrap();
+            let store = PreferencesStore::new(directory.path());
+            let mut preferences = Preferences::default();
+            preferences.cloud_clipboard_relay.url = url.into();
+            preferences.cloud_clipboard_relay.token = token.into();
+            store.save(0, preferences).unwrap();
+            directory
+        }
+
+        #[test]
+        fn the_source_follows_the_preferences() {
+            let empty = tempfile::tempdir().unwrap();
+            assert_eq!(source(empty.path()), Ok("account"));
+            assert_eq!(configured_relay(empty.path()), Ok(None));
+            let configured =
+                store_with("https://relay.example.test/msime/", "synthetic-relay-token");
+            assert_eq!(source(configured.path()), Ok("relay"));
+            assert_eq!(
+                configured_relay(configured.path()).unwrap().unwrap().url(),
+                "https://relay.example.test/msime"
+            );
+        }
+
+        #[test]
+        fn malformed_relay_actions_never_reach_the_network() {
+            let keystore = tempfile::tempdir().unwrap();
+            // 端口 9 上没有服务：动作若真的发出去，得到的会是 `relay_unavailable`。
+            let config =
+                || RelayConfig::new("http://127.0.0.1:9", "synthetic-relay-token").unwrap();
+            for action in [
+                json!({}),
+                json!({ "operation": "unknown" }),
+                json!({ "operation": "add" }),
+                json!({ "operation": "pin", "id": "entry-1", "pinned": true }),
+                json!({ "operation": "set_retention", "days": 2 }),
+            ] {
+                assert_eq!(
+                    relay_request(config(), keystore.path(), "合成设备", &action),
+                    Err("invalid_cloud_clipboard"),
+                    "{action}"
+                );
+            }
+            assert_eq!(
+                relay_request(
+                    config(),
+                    keystore.path(),
+                    "合成设备",
+                    &json!({ "operation": "delete", "id": "entry-1" })
+                ),
+                Err("invalid_cloud_clipboard")
+            );
+            assert_eq!(
+                relay_request(
+                    config(),
+                    keystore.path(),
+                    "合成设备",
+                    &json!({ "operation": "clear" })
+                ),
+                Err("relay_unavailable")
+            );
+            assert!(std::fs::read_dir(keystore.path()).unwrap().next().is_none());
         }
     }
 

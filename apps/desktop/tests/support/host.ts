@@ -43,6 +43,7 @@ export function testHost(
     candidate_corner_radius: false,
     candidate_follow_cursor: false,
     input_mode_hud: macos,
+    input_mode_status_item: macos,
     candidate_english_font: platform === "windows" || macos || android,
     english_suggestions: android,
     helpcode_shift_entry: android || harmony,

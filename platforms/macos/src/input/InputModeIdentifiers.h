@@ -138,6 +138,19 @@ static inline NSString *MSIMEInputModeIDForSchemeIn(NSDictionary *info, NSString
     return MSIMEInputModeDeclaredIn(info, mode) ? mode : MSIMEChineseInputModeID;
 }
 
+// 菜单栏状态项显示这个模式时用的图标文件名，与系统输入法菜单里该模式的图标是同一张：取 bundle 里该模式的 tsInputModeMenuIconFileKey，取值路径与 MSIMEInputModeDeclaredIn 相同。本版本没有声明这个模式时（五笔版把五笔的图标放在 .Hans 上）取主模式 .Hans 的，再没有时取输入法本身的 tsInputMethodIconFileKey，最后是 MSIMEClientInputMethodMenuIcon.tiff。
+static inline NSString *MSIMEInputModeMenuIconFileIn(NSDictionary *info, NSString *identifier) {
+    id component = info[@"ComponentInputModeDict"];
+    id modes = [component isKindOfClass:NSDictionary.class] ? component[@"tsInputModeListKey"] : nil;
+    for (NSString *mode in @[identifier ?: @"", MSIMEChineseInputModeID]) {
+        id entry = [modes isKindOfClass:NSDictionary.class] ? modes[mode] : nil;
+        id file = [entry isKindOfClass:NSDictionary.class] ? entry[@"tsInputModeMenuIconFileKey"] : nil;
+        if ([file isKindOfClass:NSString.class] && [file length]) return file;
+    }
+    id file = info[@"tsInputMethodIconFileKey"];
+    return [file isKindOfClass:NSString.class] && [file length] ? file : @"MSIMEClientInputMethodMenuIcon.tiff";
+}
+
 // 一个模式在输入法菜单里的名字（与 InfoPlist.strings 一致），以及系统设置「添加」对话框把它归在哪个语言下（对应 Info.plist.in 的 TISIntendedLanguage）。macOS 27 不允许进程启用键盘输入模式，设置窗口靠这两项告诉用户去哪里自己添加；共享设置页 `macos-input-mode-entries-section.tsx` 里有同一张表。不是 full 的版本名字随版本而变，直接读 bundle 里 zh-Hans 的 InfoPlist.strings。
 static inline NSString *MSIMEInputModeMenuName(NSString *identifier) {
     if (!MSIMEEditionIsFull()) {

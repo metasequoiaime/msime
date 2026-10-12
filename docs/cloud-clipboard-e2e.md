@@ -53,7 +53,7 @@
 
 ## 服务端接口
 
-都在 `https://api.msime.app` 下，需要登录。错误一律是 `{"error":{"code":"...","message":"..."}}`。
+都在 `https://api.msime.app` 下，需要登录。用户自建的中继实现同一组接口，挂在中继的基地址下、用中继令牌鉴权，差别见 [自建中继](cloud-clipboard-relay.md)。错误一律是 `{"error":{"code":"...","message":"..."}}`。
 
 ### `GET /v1/users/me/clipboard/keys?device_id=<id>`
 
@@ -155,7 +155,7 @@
 
 ### 宿主的职责
 
-- 保存 `keystore`：每台设备（每个应用安装）只有一份，输入法进程、设置进程和 Tauri 设置页读写同一份，否则同一台设备会在服务端登记成几台、要批准几次。存放位置见下一节，写入一律原子替换，退出登录时与会话一起删除。
+- 保存 `keystore`：每台设备（每个应用安装）只有一份，输入法进程、设置进程和 Tauri 设置页读写同一份，否则同一台设备会在服务端登记成几台、要批准几次。存放位置见下一节，写入一律原子替换，退出登录时与会话一起删除。配置了自建中继时，已经接上中继的宿主（目前是 Tauri 桌面端的设置页和云剪贴板面板）只走中继，密钥串另存一份、退出登录不删除，见 [自建中继](cloud-clipboard-relay.md) 的「本机的密钥串」。
 - 设置页显示待批准的设备和核对码，提供「允许」「拒绝」「移除」和「重置云剪贴板」；本机待批准时显示自己的核对码，并说明去哪里批准。移除和重置之后其他设备都要重新批准，确认框里要写明。
 - 键盘只用 `list` 和 `add`；本机待批准时显示一句提示，不上传。
 - 置顶、保留期、删除、清空和开关仍直接调用原来的接口，不经过驱动。
@@ -169,6 +169,7 @@
 | iOS | 钥匙串通用密码项，service `app.msime.backend.account`，account `cloud-clipboard-keystore`，与账号会话同一个 App Group 访问组 | App、键盘扩展与 Tauri 设置页 |
 | Android | 应用私有目录下的 `cloud-clipboard-keystore`，与账号会话一样先用 AndroidKeyStore 加密 | 主进程、`:ime` 进程与 Tauri 设置页 |
 | HarmonyOS | 与账号会话同一个应用私有目录下的 `cloud-clipboard-keystore` | 设置应用与键盘 |
+| 自建中继（目前是 Tauri 桌面端） | 与 `account-session.json` 同一目录下的 `cloud-clipboard-relay-keystore`，记着它属于哪个中继和令牌空间，仅本人可读写 | 设置页与云剪贴板面板（Rust） |
 
 文件里只有密钥串本身；读取时忽略末尾的换行，否则手工编辑或换行风格不同的写入会让密钥串解析失败，驱动随之生成新的设备身份，这台设备就要重新批准。
 

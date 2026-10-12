@@ -35,6 +35,7 @@ export function InputSettingsPage() {
     showModeScope,
     showCharacterWidth,
     showInputModeHUD,
+    showInputModeStatusItem,
     showPluginTriggers,
     showHelpcode,
     showHelpcodeShiftEntry,
@@ -226,6 +227,7 @@ export function InputSettingsPage() {
         ios={iosPlatform}
         // 中英文切换提示在所有平台都放在这里；macOS 以前把它放在快捷键页。
         showInputModeHUD={showInputModeHUD}
+        showInputModeStatusItem={showInputModeStatusItem}
         showModeScope={showModeScope}
         modeExtra={
           showAppInputModeRules && (

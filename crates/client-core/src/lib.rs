@@ -22,6 +22,8 @@ pub mod calendar;
 pub mod candidate_document;
 pub mod chinese_conversion;
 pub mod clipboard;
+/// 自建云剪贴板中继的客户端：自己联网，所以不在只做 sans-IO 的 `cloud` 下面。
+pub mod clipboard_relay;
 pub mod cloud;
 pub mod common_phrases;
 pub mod community;

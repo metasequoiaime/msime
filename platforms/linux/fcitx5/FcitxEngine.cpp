@@ -791,6 +791,20 @@ public:
     render();
     return true;
   }
+  // Ctrl+Shift+J：当前跑的是中文方案就切到日语，是日语等外语就回到 last_chinese_scheme（core/InputSchemes.h 的 japanese_toggle_target）。换方案走状态区菜单的 selectScheme，组字中先上屏原文。selectScheme 只在目标是中文方案时记 last_chinese_scheme，所以离开中文时这里先记下当前方案，回来时才回到它。
+  bool toggleJapanese() {
+    if (!session_ || restricted() || privateInput()) return false;
+    const auto running = effectiveScheme();
+    const auto next = msime::linux_host::japanese_toggle_target(
+        running, preferences_.value("last_chinese_scheme", std::string("quanpin")), scheme_dictionaries_);
+    if (next.empty()) return false;
+    if (msime::linux_host::scheme::IsChinese(msime::linux_host::scheme_number(running))) {
+      saveStringPreference("last_chinese_scheme", running);
+      // 存储读回之前紧接着再按一次，也要回到这个方案。
+      preferences_["last_chinese_scheme"] = running;
+    }
+    return selectScheme(next.c_str());
+  }
   bool cycleShuangpinProfile() {
     if (!session_ || msime::linux_host::strict_json_value(view_, "scheme", 0u) != 1 || restricted() || privateInput())
       return false;
@@ -1769,6 +1783,7 @@ public:
     mode_caps_lock_enabled_ = keybindings.value("switch_language_caps_lock", false);
     character_set_shortcut_enabled_ =
         keybindings.value("toggle_character_set_ctrl_shift_f", true);
+    japanese_toggle_enabled_ = keybindings.value("toggle_japanese_ctrl_shift_j", false);
     // Windows starts a new context in Chinese unless the user said otherwise.
     // Applied once per input context, not once per session: refocusing or
     // rebuilding the Engine session must keep the mode the user chose rather than
@@ -1950,6 +1965,7 @@ public:
             mode_caps_lock_enabled_ = reloaded.value("switch_language_caps_lock", mode_caps_lock_enabled_);
             character_set_shortcut_enabled_ = reloaded.value(
                 "toggle_character_set_ctrl_shift_f", character_set_shortcut_enabled_);
+            japanese_toggle_enabled_ = reloaded.value("toggle_japanese_ctrl_shift_j", japanese_toggle_enabled_);
             // The toolbar follows the reloaded switches without waiting for the
             // next focus change, the way the IBus property menu does.
             refreshToolbar();
@@ -3806,6 +3822,8 @@ public:
   msime::input::CapsLockTap caps_lock_tap_;
   bool caps_lock_down_ = false;
   bool character_set_shortcut_enabled_ = true;
+  // Ctrl+Shift+J 在中文方案和日语之间切换（keybindings.toggle_japanese_ctrl_shift_j），缺省关。
+  bool japanese_toggle_enabled_ = false;
   // A bare modifier switches on release, and only if nothing else was typed
   // while it was held. Windows measures the same gesture; so does the IBus host.
   bool ime_mode_chosen_ = false;
@@ -7137,9 +7155,9 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (event.isRelease()) maintenance_reload_held_ = false;
     return true;
   }
-  // A toggle chord flips its setting once per press, as on Windows: auto-repeat while it is held is swallowed instead of flipping the setting back and forth, and the release ends the hold. F and f are one key, because letting go of Shift first changes the keysym of the release.
+  // 切换类组合键一次按下只翻转一次，和 Windows 一样：按住时的自动重复被吃掉，不会来回翻转，松开结束这次按住。F 和 f 算同一个键，因为先松开 Shift 会改变松开事件的 keysym；J 和 j 同理。
   if (toggle_chord_held_ != FcitxKey_None &&
-      (sym == FcitxKey_F ? FcitxKey_f : sym) == toggle_chord_held_) {
+      (sym == FcitxKey_F ? FcitxKey_f : sym == FcitxKey_J ? FcitxKey_j : sym) == toggle_chord_held_) {
     if (event.isRelease()) toggle_chord_held_ = FcitxKey_None;
     return true;
   }
@@ -7420,6 +7438,14 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     // The composition stays: the character set only changes how its candidates are written, as on Windows.
     if (!toggleTraditional()) return false;
     toggle_chord_held_ = FcitxKey_f;
+    return true;
+  }
+  // 英文模式在上面已经交给应用；Engine 自己的英文模式（Ctrl+Shift+E）里同样交给应用，和 Windows 一致。
+  if (japanese_toggle_enabled_ && ctrl && shift && !alt && (sym == FcitxKey_j || sym == FcitxKey_J) &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper}) &&
+      !view_.value("dedicated_english", false)) {
+    if (!toggleJapanese()) return false;
+    toggle_chord_held_ = FcitxKey_j;
     return true;
   }
   if (ctrl && shift && !alt && (sym == FcitxKey_e || sym == FcitxKey_E)) {

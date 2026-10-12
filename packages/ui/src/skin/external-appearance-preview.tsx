@@ -29,6 +29,7 @@ import { ActionButton } from "../core/action-button";
 import { StatusMessage } from "../core/status-message";
 import { SkinPreviewStage } from "./skin-preview-stage";
 import { SkinPreviewSurface } from "./skin-preview-surface";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 
 /** The host's own `resolve()` answer for `request`, when the host has a theme call; `undefined` until it arrives, when it fails, and for a request it was not asked for. */
 function useResolvedTheme(
@@ -37,19 +38,17 @@ function useResolvedTheme(
 ): ResolvedTheme | undefined {
   const key = JSON.stringify(request);
   const [result, setResult] = useState<{ key: string; theme: ResolvedTheme }>();
+  const generation = useAsyncGeneration(resolve, key);
   useEffect(() => {
     if (!resolve) return;
-    let current = true;
+    const current = generation.current;
     resolve(JSON.parse(key) as ResolveThemeRequest).then(
       (theme) => {
-        if (current) setResult({ key, theme });
+        if (generation.current === current) setResult({ key, theme });
       },
       () => {},
     );
-    return () => {
-      current = false;
-    };
-  }, [resolve, key]);
+  }, [resolve, key, generation]);
   return resolve && result?.key === key ? result.theme : undefined;
 }
 
@@ -191,21 +190,20 @@ export function ExternalAppearancePreview({
   const id = candidateSkinFor(preferences.custom_theme, dark);
   const key = useMemo(() => ({}), [scan, id, active, revision, refresh]);
   const [result, setResult] = useState<{ key: object; skin?: ExternalSkin; failed?: boolean }>();
+  const generation = useAsyncGeneration(scan, key, active, id);
   useEffect(() => {
-    let current = true;
+    const current = generation.current;
     if (active && scan)
       void (async () => {
         try {
           const catalog = await scan();
-          if (current) setResult({ key, skin: catalog.packages.find((skin) => skin.id === id) });
+          if (generation.current === current)
+            setResult({ key, skin: catalog.packages.find((skin) => skin.id === id) });
         } catch {
-          if (current) setResult({ key, failed: true });
+          if (generation.current === current) setResult({ key, failed: true });
         }
       })();
-    return () => {
-      current = false;
-    };
-  }, [key, active, scan, id]);
+  }, [key, active, scan, id, generation]);
   if (!active) return null;
   if (!scan)
     return (

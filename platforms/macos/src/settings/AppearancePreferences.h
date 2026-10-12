@@ -40,6 +40,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic) BOOL candidateFollowCursor;
 /// Show the short non-activating Chinese/English mode badge near the caret.
 @property(nonatomic) BOOL inputModeHUD;
+/// 在菜单栏放一个状态项常驻显示当前输入模式（共享偏好 `input_mode_status_item`），没有共享值也没有本机值时不显示。
+@property(nonatomic) BOOL inputModeStatusItem;
 /// 候选窗和悬浮工具栏左端是否画水杉 logo（共享偏好 `show_app_logo`）。没有共享值也没有本机值时按新装处理，不画。
 @property(nonatomic) BOOL showsAppLogo;
 @property(nonatomic, copy) NSString *inputScheme;

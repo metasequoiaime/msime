@@ -167,6 +167,7 @@ SwitchLanguageHotkeys ReadConfiguredSwitchLanguageHotkeys()
             result.character_set_ctrl_shift_f = keybindings.value("toggle_character_set_ctrl_shift_f", true);
             result.fullwidth_alt_shift_h = keybindings.value("toggle_fullwidth_option_shift_h", true);
             result.caps_lock = keybindings.value("switch_language_caps_lock", false);
+            result.japanese_toggle_ctrl_shift_j = keybindings.value("toggle_japanese_ctrl_shift_j", false);
             return result;
         }
     }

@@ -18,6 +18,8 @@ Fcitx5 现在也消费共享 `keybindings` 的五个模式快捷键与 `default_
 
 同一组里的「单按 Caps Lock 切换中英文」（`keybindings.switch_language_caps_lock`，缺省关）与下拉框互不排斥。两个宿主按 `Caps_Lock` 符号认键（被 xkb 选项改成 Control、Escape 的 Caps Lock 不算，被 `shift:both_capslock` 一类选项改成 `Caps_Lock` 的 Shift 也不算）：按下前大写锁定是关的、没有和修饰键一起按、按着期间没有按别的键、300 毫秒内松开，就先用 `XkbLockModifiers` 撤回大写锁定，撤回成功再像裸 Shift 一样切换（组字中先上屏原文），松开事件照常交给应用。撤回只在 X11 会话里做得到（`src/system/CapsLockRelease.cpp`，构建时找到 libX11 才编进来）；`WAYLAND_DISPLAY` 有值或 `XDG_SESSION_TYPE=wayland` 时锁定状态归合成器，宿主不布防，轻点照常是大写锁定。
 
+同一组里还有「Ctrl+Shift+J 在中文和日语之间切换」（`keybindings.toggle_japanese_ctrl_shift_j`，缺省关，只在同时提供日语和中文方案的 full 版里出现）。中文状态下按它，当前跑的是中文方案就切到日语，并把这个中文方案写进 `last_chinese_scheme`；跑的是日语、韩语、越南语或藏语就回到 `last_chinese_scheme`，它跑不起来时按 `effective_input_scheme` 的规则退回（`src/core/InputSchemes.h` 的 `japanese_toggle_target`）。英文模式和 Engine 自己的英文模式（Ctrl+Shift+E）里组合键交给应用；浏览器里它是开发者工具的快捷键，所以缺省关。Fcitx5 走状态区换方案的同一条路，组字中先上屏再切换；IBus 和属性菜单一样经 `save_menu_preference` 写偏好库，正在组的字由宿主库等这次组字结束后才换方案。状态区和属性菜单换方案只在目标是中文方案时记 `last_chinese_scheme`，快捷键离开中文时自己补记。一次按下只切换一次，按住的自动重复和松开都归这次按下。专项验收：`ibus-engine-smoke <已验证词库目录> --japanese-toggle` 与 `fcitx5-native-test <已验证词库目录> --japanese-toggle`。
+
 Fcitx5 状态栏切换输入方案、双拼方案和辅助码方案时，除了写共享偏好库，还给当前输入上下文留一个 override：会话按 `runtime-options.json` 建立，而这份文件只有设置页会同步。override 只在与偏好库一致时保留；设置页或别的窗口改过偏好库后，偏好热重载和新建会话都会丢掉它、改用偏好库的值，所以与 Windows 一样，设置页改方案所有窗口都跟着变。新建会话时这几项一律取偏好库的值，不取 `runtime-options.json` 里可能已过时的值，状态栏选辅助码方案时一并清掉的辅助码表插件也一样；状态栏切输入方案时与 IBus 一样清掉辅助码方案 override，全拼下选的辅助码不会带进双拼。保存失败的选择不回滚：与 IBus 的 `failed_menu_save` 一样，待重试的保存跨焦点保留，只在保存成功或偏好目录变更时清掉，「未落盘」标记记在各个 override 自己身上，偏好库真正存下这个值之前菜单不会跳回去。
 
 Fcitx5 的 `ime_mode_scope` 也真正决定中英文状态的记忆范围：`app` 按输入上下文报告的程序名保存有界的应用级状态，`global` 在当前 Fcitx5 进程内共享一个状态；失焦时先记录（会话留给托盘菜单，到有输入上下文获得焦点时才关闭，见「状态区」的说明；托盘上的中英文切换会更新这份记录），重新聚焦并重建会话时恢复，而不是重新套用 `default_ime_mode`。匿名或缺失程序名使用共享的匿名槽位，不把状态写入偏好文件。
@@ -535,6 +537,8 @@ Linux 桌面外壳现在提供与 Windows、macOS 同样的九个账号命令（
 云剪贴板使用独立的 `msime-linux-cloud-clipboard /absolute/provider.sock` 入口。它验证列表、明确添加、删除和启停请求后，经同一类用户管理服务转发 `{"version":1,"kind":"cloud_clipboard","request":...}`；服务负责账号凭据、云端保留和冲突处理，不自动读取本地剪贴板。
 
 桌面设置可在 HostOptions 中配置 `cloud_dictionary_provider_socket` 和 `cloud_clipboard_provider_socket` 两个绝对 Unix socket；未配置时分别回退到 `MSIME_CLOUD_DICTIONARY_PROVIDER_SOCKET` 和 `MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET`。这两个字段会随 runtime-options 原样保留，但不会进入 Engine 选项或输入会话。
+
+共享设置页「剪贴板」的「云剪贴板同步方式」可以改成自建中继（地址和令牌存在共享偏好的 `cloud_clipboard_relay`，协议与部署见 `docs/cloud-clipboard-relay.md`）。设置窗口和云剪贴板面板此后按这个顺序选路：配置的 `cloud_clipboard_provider_socket`（或环境变量），然后是中继，然后是自动发现的 socket，最后是水杉账号。中继的本机密钥串 `cloud-clipboard-relay-keystore` 与 `account-session.json` 在同一个状态目录。Fcitx5 键盘里的云剪贴板栏目前仍只认 provider socket，还不会走中继。
 
 IBus 面板注册 `InputMode` 开关：选中时按当前输入方案转换，关闭时直接透传编辑器输入。面板符号为「文」或「A」，日语方案开启转换时为「日」，韩语方案为谚文「한」，粤拼、注音、笔画、越南文、藏文方案分别为「粤」「注」「笔」「越」「藏」（与其它宿主一致），CapsLock 打开时无论哪种模式都显示「⇪」（与 Windows 语言栏图标的优先级一致），不把日语、韩语等已配置方案误标为中文。Fcitx5 宿主通过输入法子模式标签在托盘和面板上显示同样的状态，用词与模式提示一致：「中」「英」「粤」「注」「笔」「日」「한」「越」「藏」「⇪」。CapsLock 状态取自按键事件（松开 CapsLock 时即更新）。切到直接输入前通过 Engine 完成高亮组合；再次聚焦保留当前实例的选择，关闭期间的候选点击和翻页无效。密码等受限字段及失焦时开关不可用，恢复正常字段后继续使用原选择。按 `ime_mode_scope` 分别记忆客户端或共享全局状态，不写回偏好文件或重启持久化，也不占用桌面已有的输入源切换快捷键。
 

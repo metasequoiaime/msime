@@ -2483,16 +2483,20 @@ fn a_lookup_overtaken_by_a_new_start_time_result_is_not_kept() {
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[test]
 fn cloud_clipboard_route_keeps_providers_ahead_of_the_account() {
-    use super::{cloud_clipboard_route, CloudClipboardRoute};
+    use super::{cloud_clipboard_route, CloudClipboardRoute, CommandError};
     use std::path::PathBuf;
 
+    let never_relay =
+        || -> Result<Option<&'static str>, CommandError> { panic!("relay consulted") };
+    let no_relay = || Ok(None::<&'static str>);
     let never_native = || -> Option<&'static str> { panic!("native session consulted") };
     let never_discover = || -> Option<PathBuf> { panic!("discovery consulted") };
 
-    // A configured socket wins over the native session and discovery.
+    // 显式配置的 socket 胜过中继、原生会话和自动发现的 socket。
     assert_eq!(
         cloud_clipboard_route(
             Some("/run/synthetic/cloud-clipboard.sock".into()),
+            never_relay,
             never_native,
             never_discover,
         )
@@ -2501,19 +2505,45 @@ fn cloud_clipboard_route_keeps_providers_ahead_of_the_account() {
     );
     // A configured socket that is not absolute is refused rather than quietly answered by the account.
     assert_eq!(
-        cloud_clipboard_route(Some("relative.sock".into()), never_native, never_discover)
-            .unwrap_err()
-            .code,
+        cloud_clipboard_route(
+            Some("relative.sock".into()),
+            never_relay,
+            never_native,
+            never_discover
+        )
+        .unwrap_err()
+        .code,
         "unavailable"
+    );
+    // 配置了中继时，中继排在输入法原生会话和自动发现的 socket 之前；中继配置读不出时报错，不退回账号。
+    assert_eq!(
+        cloud_clipboard_route(None, || Ok(Some("relay")), never_native, never_discover).unwrap(),
+        CloudClipboardRoute::Relay("relay")
+    );
+    assert_eq!(
+        cloud_clipboard_route(
+            None,
+            || -> Result<Option<&str>, CommandError> {
+                Err(CommandError {
+                    code: "relay_not_configured",
+                })
+            },
+            never_native,
+            never_discover,
+        )
+        .unwrap_err()
+        .code,
+        "relay_not_configured"
     );
     // The input method's own session comes before a discovered socket.
     assert_eq!(
-        cloud_clipboard_route(None, || Some("native"), never_discover).unwrap(),
+        cloud_clipboard_route(None, no_relay, || Some("native"), never_discover).unwrap(),
         CloudClipboardRoute::Native("native")
     );
     assert_eq!(
         cloud_clipboard_route(
             None,
+            no_relay,
             || None::<&str>,
             || Some(PathBuf::from("/run/synthetic/discovered.sock")),
         )
@@ -2522,12 +2552,13 @@ fn cloud_clipboard_route_keeps_providers_ahead_of_the_account() {
     );
     // With no provider at all, and for a discovered path that is not absolute, the signed-in account serves the request.
     assert_eq!(
-        cloud_clipboard_route(None, || None::<&str>, || None).unwrap(),
+        cloud_clipboard_route(None, no_relay, || None::<&str>, || None).unwrap(),
         CloudClipboardRoute::Account
     );
     assert_eq!(
         cloud_clipboard_route(
             None,
+            no_relay,
             || None::<&str>,
             || Some(PathBuf::from("relative.sock")),
         )
