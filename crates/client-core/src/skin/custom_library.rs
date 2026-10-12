@@ -194,9 +194,6 @@ impl CustomSkinLibraryStore {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(_) => return Err(CustomSkinLibraryError::Invalid),
         };
-        if file.metadata()?.len() > MAXIMUM_BYTES {
-            return Err(CustomSkinLibraryError::Invalid);
-        }
         let bytes = crate::bounded_io::read_bounded_file(file, MAXIMUM_BYTES, || {
             CustomSkinLibraryError::Invalid
         })?;

@@ -131,6 +131,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeTextEditPanel imeTextEditPanel;
     ImeCalculator imeCalculator;
     ImeEmailSuffixes imeEmailSuffixes;
+    ImeTranslationSenses imeTranslationSenses;
     long session;
     InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
@@ -492,6 +493,8 @@ public final class MSIMEInputService extends InputMethodService {
     private long modifierTapStartedAt = -1;
     private int modifierTapKeyCode = -1;
     private boolean modifierTapInvalid;
+    /** Ctrl+Enter 上屏译文和义项页吃掉的那个键：它按住时的自动重复和随后的抬起也吃掉，免得上屏之后重复的回车或数字落到已经空闲的输入框里（聊天应用会把消息发出去），没有时为 -1。 */
+    private int translationConsumedKeyCode = -1;
     private String defaultImeMode = "chinese";
     private String imeModeScope = "app";
     private String currentEditorPackage = "";
@@ -1388,6 +1391,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeTextEditPanel = new ImeTextEditPanel(this);
         imeCalculator = new ImeCalculator(this);
         imeEmailSuffixes = new ImeEmailSuffixes(this);
+        imeTranslationSenses = new ImeTranslationSenses(this);
         // 必须在 super.onCreate() 之前：InputMethodService 在那里按这个主题建输入法窗口，之后再设会抛异常。按名字查是因为 core/ 要能脱离 Gradle 生成的 R 编译（check-host.sh 的 JVM 冒烟）；res/values/themes.xml 说明了这个主题为什么存在。
         // 五笔、拼音等版本的 applicationId 带后缀，资源表的包名仍是命名空间，两个都试。
         int theme = getResources().getIdentifier("Theme.MSIME.InputMethod", "style", getPackageName());
@@ -1458,6 +1462,8 @@ public final class MSIMEInputService extends InputMethodService {
         imeBottomRow.resetSpaceCursor();
         imeCalculator.clear();
         imeEmailSuffixes.clear();
+        imeTranslationSenses.clear();
+        translationConsumedKeyCode = -1;
         // 也覆盖 onFinishInputView(true)：那条路径不经过 finishInputViewPresentation。
         imeVoiceEntry.cancel();
         stop(true);
@@ -3184,6 +3190,8 @@ public final class MSIMEInputService extends InputMethodService {
                 JSONObject next = applied.getJSONObject("view");
                 if (CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE)
                         != targetSession) return;
+                // 在线结果会推进 generation：组字和高亮候选没变时义项页跟过去，不让它被这次刷新关掉。
+                imeTranslationSenses.followOnlineRefresh(next);
                 view = next;
                 render();
                 JSONObject current = onlineQuery(targetSession);
@@ -4082,6 +4090,35 @@ public final class MSIMEInputService extends InputMethodService {
             return true;
         }
         if (modifierTapStartedAt >= 0 && keyCode != modifierTapKeyCode) modifierTapInvalid = true;
+        if (event.getRepeatCount() == 0) translationConsumedKeyCode = -1;
+        else if (keyCode == translationConsumedKeyCode) return true;
+        // Ctrl+Enter 打开的义项页（#7079）先于数字选词、以词定字和修饰键分支：页面开着时数字、空格、回车、方向键和 Esc 都归它，其他键关页后照常处理。
+        if (imeTranslationSenses.active()) {
+            int pageKey = HardwareTranslationCommitPolicy.pageKey(keyCode, event.isShiftPressed(),
+                event.isCtrlPressed(), event.isAltPressed(), event.isMetaPressed(), event.getRepeatCount(),
+                imeTranslationSenses.size());
+            if (pageKey == HardwareTranslationCommitPolicy.PASS) {
+                imeTranslationSenses.clear();
+                render();
+            } else {
+                if (event.getRepeatCount() == 0 && HardwareTranslationCommitPolicy.holdsKey(pageKey))
+                    translationConsumedKeyCode = keyCode;
+                switch (pageKey) {
+                    case HardwareTranslationCommitPolicy.IGNORE -> { }
+                    case HardwareTranslationCommitPolicy.COMMIT_HIGHLIGHT -> imeTranslationSenses.commitHighlighted();
+                    case HardwareTranslationCommitPolicy.CLOSE -> {
+                        imeTranslationSenses.clear();
+                        render();
+                    }
+                    case HardwareTranslationCommitPolicy.PREVIOUS -> imeTranslationSenses.move(-1);
+                    case HardwareTranslationCommitPolicy.NEXT -> imeTranslationSenses.move(1);
+                    case HardwareTranslationCommitPolicy.FIRST -> imeTranslationSenses.moveTo(0);
+                    case HardwareTranslationCommitPolicy.LAST -> imeTranslationSenses.moveTo(imeTranslationSenses.size() - 1);
+                    default -> imeTranslationSenses.commit(pageKey);
+                }
+                return true;
+            }
+        }
         // F9 while a Korean syllable composes converts it to Hanja, or closes its open list. The key stays the input method's whatever the Engine answers: a lone jamo has no Hanja, and F9 handed on would reach the editor beside a syllable still composing. A held key converts once, so the list does not flicker open and shut. With nothing composing F9 is the editor's as before.
         if (KoreanInputPolicy.hanjaKey(keyCode, event.isShiftPressed(), event.isCtrlPressed(),
                 event.isAltPressed(), event.isMetaPressed()) && session != 0 && koreanConvertsHanja()) {
@@ -4166,6 +4203,8 @@ public final class MSIMEInputService extends InputMethodService {
                 && runMaintenanceChord(maintenance)) {
             return true;
         }
+        // 组字中只按着 Ctrl 的回车上屏高亮候选的译文（#7079），也在下面的修饰键分支之前，否则那里会先把原文上屏、再把回车交给应用。
+        if (handleTranslationCommitKey(keyCode, event)) return true;
         if (session == 0 || event.isCtrlPressed() || event.isAltPressed() || event.isMetaPressed()) {
             if (session != 0 && connection != null) {
                 // Preserve displayed source text before the editor handles a shortcut.
@@ -4226,6 +4265,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public boolean onKeyUp(int keyCode, KeyEvent event) {
+        // 按下归了输入法的键，抬起也不交给应用：先松开 Ctrl 再松开回车时，这个不带修饰键的抬起会让单行输入框执行编辑器动作。
+        if (keyCode == translationConsumedKeyCode) {
+            translationConsumedKeyCode = -1;
+            return true;
+        }
         if (keyCode == modifierTapKeyCode && modifierTapStartedAt >= 0) {
             long elapsed = android.os.SystemClock.uptimeMillis() - modifierTapStartedAt;
             boolean valid = !modifierTapInvalid && elapsed <= 600;
@@ -6440,6 +6484,50 @@ public final class MSIMEInputService extends InputMethodService {
         if (session != 0) command(3);
     }
 
+    /**
+     * 实体键盘 Ctrl+Enter（#7079）：组字中、候选非空、当前方案允许插入译文时接住这个键。高亮候选的译文按 {@link CandidateTranslationPolicy#insertionGlosses} 拆成义项（与长按菜单相同，两种目标语言都拆进来），一个义项直接上屏，几个打开义项页，没有（或释义显示关着）就吃掉按键。返回 false 时交给原来的修饰键分支。
+     */
+    private boolean handleTranslationCommitKey(int keyCode, KeyEvent event) {
+        boolean eligible = session != 0 && connection != null && hasEngineComposition()
+            && view.optJSONArray("candidates") != null && view.optJSONArray("candidates").length() > 0
+            && candidateGlossInsertionEnabled();
+        int slot = highlightedCandidateSlot(view);
+        JSONObject candidate = slot < 0 ? null : visibleCandidate(slot);
+        java.util.List<String> senses = java.util.List.of();
+        if (eligible && candidate != null && (candidateEnglishGloss || candidateTranslationsEnabled)) {
+            String translation = candidate.isNull("translation")
+                ? "" : JsonPolicy.strictStringOrEmpty(candidate.opt("translation"));
+            senses = CandidateTranslationPolicy.insertionGlosses(translation);
+        }
+        int action = HardwareTranslationCommitPolicy.ctrlEnter(keyCode, event.isShiftPressed(),
+            event.isCtrlPressed(), event.isAltPressed(), event.isMetaPressed(), event.getRepeatCount(),
+            eligible, senses.size());
+        if (action == HardwareTranslationCommitPolicy.NONE) return false;
+        if (event.getRepeatCount() == 0) translationConsumedKeyCode = keyCode;
+        if (action == HardwareTranslationCommitPolicy.COMMIT) {
+            JSONObject id = candidate.optJSONObject("id");
+            String text = chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view);
+            closeCandidatePanel();
+            insertCandidateGloss(slot, id, text, senses.get(0));
+        } else if (action == HardwareTranslationCommitPolicy.OPEN_PAGE) {
+            closeCandidatePanel();
+            imeTranslationSenses.open(senses, InputViewValuePolicy.textOr(candidate, "text", ""));
+            render();
+            if (horizontalCandidateScroll != null) horizontalCandidateScroll.scrollTo(0, 0);
+            if (verticalCandidateScroll != null) verticalCandidateScroll.scrollTo(0, 0);
+        }
+        return true;
+    }
+
+    /** 义项页上屏一个义项：和长按菜单的 {@link #insertCandidateGloss} 一样，按本地输入上屏后用命令 3 结束组字。页面是否还属于当前组字由 {@link ImeTranslationSenses#commit} 先核对。 */
+    void commitTranslationSense(String sense) {
+        if (connection == null || session == 0 || !commitText(sense, TypingSource.LOCAL)) {
+            render();
+            return;
+        }
+        command(3);
+    }
+
     private boolean expandedCandidateIsCurrent(JSONObject candidate, JSONObject id, String text) {
         if (!candidatePanelOpen || candidatePanelSnapshot == null || view == null || candidate == null
                 || id == null
@@ -6558,15 +6646,21 @@ public final class MSIMEInputService extends InputMethodService {
             wordCharacter.optString("keys", WordCharacterPolicy.BRACKETS));
     }
 
-    /** The candidate the strip is showing as highlighted, which 以词定字 takes its character from. */
-    private JSONObject highlightedCandidate() {
-        JSONArray entries = view == null ? null : view.optJSONArray("candidates");
-        if (entries == null) return null;
+    /** `from` 这份 view 的候选条上高亮候选的位置，没有时为 -1。 */
+    static int highlightedCandidateSlot(JSONObject from) {
+        JSONArray entries = from == null ? null : from.optJSONArray("candidates");
+        if (entries == null) return -1;
         for (int index = 0; index < entries.length(); index++) {
             JSONObject candidate = entries.optJSONObject(index);
-            if (candidate != null && InputViewValuePolicy.booleanValue(candidate, "highlighted", false)) return candidate;
+            if (candidate != null && InputViewValuePolicy.booleanValue(candidate, "highlighted", false)) return index;
         }
-        return null;
+        return -1;
+    }
+
+    /** The candidate the strip is showing as highlighted, which 以词定字 takes its character from. */
+    private JSONObject highlightedCandidate() {
+        int slot = highlightedCandidateSlot(view);
+        return slot < 0 ? null : visibleCandidate(slot);
     }
 
     /**
@@ -8595,6 +8689,10 @@ public final class MSIMEInputService extends InputMethodService {
         JSONArray entries = view.optJSONArray("candidates");
         if (handwriting) {
             renderSharedHandwritingCandidates(activeCandidates);
+        } else if (imeTranslationSenses.active()) {
+            // 义项页占用候选行：不画引擎候选，也不显示展开键和页码，义项都在这一页上。
+            imeTranslationSenses.render(activeCandidates, candidateHorizontal);
+            if (candidatePage != null) candidatePage.setText("");
         } else if (imeEmailSuffixes.active()) {
             // 邮箱后缀和英文建议占同一个候选行；打到 `@` 之后英文建议本来也没有，先给后缀。
             imeEmailSuffixes.render(activeCandidates);

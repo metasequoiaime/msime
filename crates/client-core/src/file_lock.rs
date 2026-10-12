@@ -212,6 +212,25 @@ pub fn open_private_file(path: impl AsRef<Path>) -> io::Result<File> {
     Ok(file)
 }
 
+/// Create a new private file without following a final symlink.
+/// Callers still decide when to write and sync the returned handle.
+pub(crate) fn create_private_file(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    options.open(path)
+}
+
 /// 相对于已检查的父目录打开私有文件；Unix 调用方会绑定到该目录句柄。
 pub fn open_private_file_in(path: impl AsRef<Path>) -> io::Result<File> {
     crate::storage::open_private_file_in(path.as_ref())
