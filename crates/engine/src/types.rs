@@ -21,6 +21,8 @@ pub enum CandidateSource {
     NeuralKeyboard = 11,
     /// AI 候选的占位行（#6888）：会话开着 AI、当前组字可以问 AI 时，先占住 AI 候选的座位，回答到了由第一条 AI 候选替换；回答为空或失败时文字换成「—」，留到组字变化为止。它不能上屏、不学习、不计入统计，宿主把它画成暗色。
     AiPending = 12,
+    /// 日文混输（实验选项，默认关）混进全拼、双拼候选的那一行：整段输入按罗马字转换出的最佳日文。它不属于下面任何一个谓词，所以选中时整段上屏并结束组字（与混输英文同一条路），不调词频、不记整句、不进个人上下文，也不能置顶、固定或删除；宿主不对它做简繁转换。
+    MixedJapanese = 13,
 }
 
 impl CandidateSource {
@@ -38,6 +40,7 @@ impl CandidateSource {
             9 => Self::Fallback,
             11 => Self::NeuralKeyboard,
             12 => Self::AiPending,
+            13 => Self::MixedJapanese,
             _ => return None,
         })
     }
@@ -1361,7 +1364,26 @@ impl Default for PersonalDictionaryEntry {
 
 #[cfg(test)]
 mod tests {
-    use super::{SchemeSet, SchemeType};
+    use super::{CandidateSource, SchemeSet, SchemeType};
+
+    /// 线上的来源编号按值往返；10 空着（原 `NeuralDesktop`，未发布就删了）。日文混输行（13）不属于任何谓词：上屏走整段结束组字的路，不学习，不坐在线座位。
+    #[test]
+    fn candidate_sources_round_trip_and_mixed_japanese_matches_no_predicate() {
+        for value in 0..=u8::MAX {
+            match CandidateSource::from_u8(value) {
+                Some(source) => assert_eq!(source as u8, value),
+                None => assert!(value == 10 || value > 13, "{value}"),
+            }
+        }
+        let japanese = CandidateSource::MixedJapanese;
+        assert_eq!(CandidateSource::from_u8(13), Some(japanese));
+        assert!(!japanese.is_dictionary());
+        assert!(!japanese.is_generated_or_fallback());
+        assert!(!japanese.is_sentence_learning());
+        assert!(!japanese.is_online());
+        assert!(!japanese.takes_online_seat());
+        assert!(!japanese.holds_ai_seat());
+    }
 
     type Row = (&'static str, fn(SchemeType) -> bool, [bool; 5]);
     type Named = (&'static str, fn(SchemeType) -> bool);

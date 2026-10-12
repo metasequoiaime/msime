@@ -355,6 +355,19 @@ pub(crate) fn is_romaji_complete(input: &str) -> bool {
     has_kana && pending.is_empty()
 }
 
+/// 平假名读音的拍数：拗音和外来音里的小写ぁぃぅぇぉゃゅょゎ跟前一个假名合成一拍，不单算（しょう、ふぁん各两拍）；促音っ、拨音ん、长音ー各算一拍。
+pub(crate) fn count_morae(hiragana: &str) -> usize {
+    hiragana
+        .chars()
+        .filter(|kana| {
+            !matches!(
+                kana,
+                'ぁ' | 'ぃ' | 'ぅ' | 'ぇ' | 'ぉ' | 'ゃ' | 'ゅ' | 'ょ' | 'ゎ'
+            )
+        })
+        .count()
+}
+
 /// 逐个发出假名，返回尚未消费的尾部；调用方持有规范化输入的存储。
 fn scan_romaji(normalized: &str, emit: impl FnMut(&'static str)) -> &str {
     scan_romaji_with(normalized, false, emit)
@@ -567,6 +580,22 @@ mod tests {
     use std::borrow::Cow;
 
     use super::*;
+
+    /// 拍数不算拗音和外来音的小写假名，促音、拨音、长音各算一拍。
+    #[test]
+    fn morae_merge_small_kana_into_the_previous_one() {
+        for (hiragana, morae) in [
+            ("しょう", 2),
+            ("かいし", 3),
+            ("きょうと", 3),
+            ("ふぁん", 2),
+            ("がっこう", 4),
+            ("らーめん", 4),
+            ("", 0),
+        ] {
+            assert_eq!(count_morae(hiragana), morae, "{hiragana}");
+        }
+    }
 
     #[test]
     fn pending_prefix_warm_queries_do_not_allocate() {

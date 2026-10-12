@@ -105,13 +105,22 @@ impl InputSession {
         if selected_source.is_sentence_learning() {
             return self.learn_sentence_candidate(index);
         }
-        // 混输英文占了首位（拼音拆不开、英文完全匹配，或者用户把英文固定在第一位）时，紧跟着的第二行才是拼音给的首选：选它仍是默认的选择，不调词频，也不写日志。
-        let english_leads = index == 1
-            && self
-                .ranking_list()
-                .first()
-                .is_some_and(|item| item.source == CandidateSource::EnglishDictionary);
-        if self.frequency.mode == FrequencyAdjustmentMode::Disabled || index == 0 || english_leads {
+        // 混输英文或日文混输行占了首位（拼音拆不开、英文完全匹配，用户把英文固定在第一位，或者日文领先；英文和日文可以先后占住前两位）时，紧跟在这些领先行后面的那一行才是拼音给的首选：选它仍是默认的选择，不调词频，也不写日志。
+        let leading = self
+            .ranking_list()
+            .iter()
+            .take_while(|item| {
+                matches!(
+                    item.source,
+                    CandidateSource::EnglishDictionary | CandidateSource::MixedJapanese
+                )
+            })
+            .count();
+        let default_behind_leaders = leading > 0 && index == leading;
+        if self.frequency.mode == FrequencyAdjustmentMode::Disabled
+            || index == 0
+            || default_behind_leaders
+        {
             return None;
         }
         if !selected_source.is_dictionary()

@@ -76,6 +76,8 @@ pub(super) struct InputSession {
     pub local_mode_options: LocalModeOptions,
     pub english_options: EnglishInputOptions,
     pub expressive_options: MixedExpressiveOptions,
+    /// 日文混输开着（`SessionOptions::japanese_mixing`）。
+    pub japanese_mixing: bool,
     pub dedicated_english: bool,
     pub dedicated_english_preedit: String,
     pub dedicated_english_candidates: Vec<WordItem>,
@@ -157,6 +159,7 @@ impl InputSession {
             local_mode_options: LocalModeOptions::default(),
             english_options: EnglishInputOptions::default(),
             expressive_options: MixedExpressiveOptions::default(),
+            japanese_mixing: false,
             dedicated_english: false,
             dedicated_english_preedit: String::new(),
             dedicated_english_candidates: Vec::new(),
@@ -213,6 +216,10 @@ impl InputSession {
             .queries
             .set_quick_phrase_table(&options.quick_phrase_table);
         session.expressive_options = options.expressive;
+        session.japanese_mixing = options.japanese_mixing;
+        if options.japanese_mixing {
+            session.engine.warm_up_japanese();
+        }
         session.set_wubi_input_options(options.wubi);
         session.set_personal_context_enabled(options.personal_context);
 

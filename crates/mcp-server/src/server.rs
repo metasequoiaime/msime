@@ -563,7 +563,7 @@ impl MsimeServer {
 
     #[tool(
         name = "lookup_candidates",
-        description = "Show the candidates typing a code offers from the local dictionaries, in the input method's order, with where each came from and the weight of each dictionary word. Explains why a word ranks where it does. Types into a session of its own that learns nothing; no cloud or AI suggestions are included.",
+        description = "Show the candidates typing a code offers from the local dictionaries, in the input method's order, with where each came from and the weight of each dictionary word. Explains why a word ranks where it does. Types into a session of its own that learns nothing; no cloud or AI suggestions are included. With the experimental Japanese mixing option on, the Japanese conversion it adds for whole romaji is included, with origin japanese.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn lookup_candidates(

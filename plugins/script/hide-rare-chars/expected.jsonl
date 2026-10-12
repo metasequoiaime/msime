@@ -1,0 +1,27 @@
+{"seq": 1, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_hide", "result": "ok"}], "log": [{"level": "debug", "text": "hide 2,4"}]}
+{"seq": 2, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_hide", "result": "ok"}], "log": [{"level": "debug", "text": "hide 2"}]}
+{"seq": 3, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep"}]}
+{"seq": 4, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_hide", "result": "ok"}], "log": [{"level": "debug", "text": "hide 1,2,3"}]}
+{"seq": 5, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_hide", "result": "ok"}], "log": [{"level": "debug", "text": "hide 2"}]}
+{"seq": 6, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_hide", "result": "ok"}], "log": [{"level": "debug", "text": "hide 4"}]}
+{"seq": 7, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep"}]}
+{"seq": 8, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: kana"}]}
+{"seq": 9, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_hide", "result": "ok"}], "log": [{"level": "debug", "text": "hide 2"}]}
+{"seq": 10, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: kana"}]}
+{"seq": 11, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: kana"}]}
+{"seq": 12, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep"}]}
+{"seq": 13, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: japanese"}]}
+{"seq": 14, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: absent"}]}
+{"seq": 15, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep"}]}
+{"seq": 16, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep"}]}
+{"seq": 17, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_hide", "result": "ok"}], "log": [{"level": "debug", "text": "hide 2,4"}]}
+{"seq": 18, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_hide", "result": "ok"}], "log": [{"level": "debug", "text": "hide 1,2,5"}]}
+{"seq": 19, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_hide", "result": "ok"}], "log": [{"level": "debug", "text": "hide 2"}]}
+{"seq": 20, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep"}]}
+{"seq": 21, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep stop 4"}]}
+{"seq": 22, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep stop 5"}]}
+{"seq": 23, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_hide", "result": "ok"}], "log": [{"level": "debug", "text": "hide 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19"}]}
+{"seq": 24, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_hide", "result": "ok"}], "log": [{"level": "debug", "text": "hide 1,2 stop 3"}]}
+{"seq": 25, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep stop 2"}]}
+{"seq": 26, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep stop 2"}]}
+{"seq": 27, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_hide", "result": "ok"}], "log": [{"level": "debug", "text": "hide 2,6,8 stop 11"}]}

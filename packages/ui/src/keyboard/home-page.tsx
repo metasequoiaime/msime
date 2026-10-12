@@ -1,7 +1,7 @@
 import { useId, useState, type KeyboardEvent } from "react";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
 import { groupTitle } from "../core/platform-controls-style";
-import { keyboardThemeId, themeEntry } from "../theme/global-theme";
+import { globalThemeTitle, keyboardThemeId, themeEntry } from "../theme/global-theme";
 import { useCandidatePreviewTheme } from "../candidate/candidate-preview-theme";
 import { ActionButton } from "../core/action-button";
 import { FluentIcon } from "../core/fluent-icons";
@@ -15,7 +15,6 @@ import {
   RootSettingsList,
   RootSettingsRowView,
   rootSettingsGroups,
-  skinTitle as rootSkinTitle,
   type RootPage,
 } from "./root-settings-list";
 
@@ -266,7 +265,7 @@ function DesktopHomePage({
   const selected = themeEntry(preferences.global_theme).id;
   const skin = keyboardThemeId(selected, preferences.custom_theme);
   const customDesign = preferences.custom_theme?.keyboard ?? undefined;
-  const skinTitle = rootSkinTitle(preferences);
+  const skinTitle = globalThemeTitle(preferences.global_theme);
   const invokeAction = (action?: () => Promise<void>) => {
     if (action) void action();
   };

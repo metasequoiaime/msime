@@ -354,12 +354,15 @@ static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
     id corrected = candidate[@"corrected"];
     if (MSIMEStrictBoolean(corrected)) text = [text stringByAppendingString:@"*"];
     if ([annotation isKindOfClass:NSString.class]) text = [text stringByAppendingString:annotation];
-    text = MSIMEChineseOutputString(text, traditional);
     id source = candidate[@"source"];
+    const BOOL integerSource = [source isKindOfClass:NSNumber.class] &&
+                               CFGetTypeID((__bridge CFTypeRef)source) != CFBooleanGetTypeID() &&
+                               !CFNumberIsFloatType((__bridge CFNumberRef)source);
+    // Engine CandidateSource MixedJapanese=13：日文混输行是日文，不做简转繁（学校不能显示成學校）；上屏时 input-runtime 也为它关掉 script_conversion。
+    if (!(integerSource && [source isEqual:@13])) text = MSIMEChineseOutputString(text, traditional);
     // Engine CandidateSource: CloudSuggestion=2, AiSuggestion=3. These badges
     // are presentation-only, matching the Windows candidate-view suffixes.
-    if ([source isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)source) != CFBooleanGetTypeID() &&
-        !CFNumberIsFloatType((__bridge CFNumberRef)source)) {
+    if (integerSource) {
         if ([source isEqual:@2]) return [text stringByAppendingString:@" ☁️"];
         if ([source isEqual:@3]) return [text stringByAppendingString:@" 🤖"];
     }

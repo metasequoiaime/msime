@@ -9,6 +9,8 @@ export interface InputLanguageOptionsSectionProps {
   grouped?: boolean;
   includeMixed?: boolean;
   mixedInput?: MixedInputPreferences;
+  /** 本版本带临时日文，决定是否列出日文混输开关；见 `MixedInputSectionProps.temporaryJapanese`。缺省为 true。 */
+  temporaryJapanese?: boolean;
   includeCandidateControls?: boolean;
   showCandidateEnglishGloss?: boolean;
   candidateEnglishGloss?: boolean;
@@ -31,6 +33,7 @@ export function InputLanguageOptionsSection({
   grouped = false,
   includeMixed = false,
   mixedInput,
+  temporaryJapanese = true,
   includeCandidateControls = false,
   showCandidateEnglishGloss = false,
   candidateEnglishGloss,
@@ -49,7 +52,11 @@ export function InputLanguageOptionsSection({
   const content = (
     <>
       {includeMixed && mixedInput && onMixedInputChange && (
-        <MixedInputSection preferences={mixedInput} onChange={onMixedInputChange} />
+        <MixedInputSection
+          preferences={mixedInput}
+          temporaryJapanese={temporaryJapanese}
+          onChange={onMixedInputChange}
+        />
       )}
       {betweenMixedAndCandidates}
       {includeCandidateControls && showCandidateEnglishGloss && onCandidateEnglishGlossChange && (

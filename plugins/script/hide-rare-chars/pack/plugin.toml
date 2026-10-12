@@ -1,0 +1,14 @@
+schema_version = 2
+kind = "script"
+id = "hide-rare-chars"
+name = "隐藏生僻字"
+version = "1.0.0"
+license = "MIT AND Unicode-3.0 AND Apache-2.0"
+description = "隐藏候选窗口里含生僻字（《通用规范汉字表》及其繁体形以外的汉字）的候选；首行、用户词、快捷短语、云和 AI 候选不动，日文候选窗口不动"
+permissions = ["read_candidates", "filter_candidates"]
+
+[script]
+abi = 1
+module = "hide-rare-chars.wasm"
+hooks = ["candidates"]
+memory_pages = 2

@@ -14,7 +14,7 @@ Status: implemented
 - 每次取用都对一遍文件身份：长度、修改时间，unix 加设备号和 inode，Windows 加创建时间；身份取自打开文件的句柄，就是被映射的那个 inode。Android 的引导资源（`files/bootstrap/resources/msime-japanese.dat`）和资源包（`<state_root>/resource-packs/japanese/msime-japanese.dat`）都是固定路径、更新时 rename 替换，所以同一路径换了文件就读新的；文件不在或换了的条目在下一次取用（`shared`、预热）时丢掉，不再钉住已删文件的映射和磁盘空间。没有取用就不检查：Android 的资源包由主进程的 `ResourcePackService` 安装，模型却映射在 :ime 进程里，在安装路径上调 `release_shared` 碰不到那份缓存，所以不这样做。
 - 读失败不缓存，文件下次出现就能读到。读文件时不持缓存锁，另有一把 `LOADING` 锁让后台预热和第一个查询撞上时只读一遍；读到一半被 `release_shared` 清过的结果按代次判断，不写回。
 - `Session::reset_cache`（宿主的清缓存动作：各宿主的维护快捷键，以及 iOS 键盘扩展的 `didReceiveMemoryWarning`）调用 `JapaneseDictionary::release_shared` 放掉缓存的全部强引用；正在用它的会话照常用到结束。放掉和因满了被挤出去的模型降为 `Weak` 留在缓存里，还有会话在用时，再要同一路径拿回的就是这一份，并重新被强引用着；没人用了才在下一次取用时丢掉。否则清缓存之后、旧会话还拿着模型时来的新会话会另读一份，内存告警时反而多出一份。读到一半被清过的结果也按这个办法只留 `Weak`。引擎内部因为学习、删词而调的 `InputSession::reset_cache` 不碰它，否则每次提交都会把缓存清掉。
-- 预热只在 `ProviderRegistry::activate(SchemeType::JapaneseRomaji)` 时做（建会话的初始方案、切方案、临时日文都经过这里），在名为 `msime-japanese-model` 的后台线程读；已在缓存、已预载或正在预热时什么也不做。起不了线程（网页引擎）时第一个查询照旧自己读。`JapaneseProvider::new` 仍然不读模型。
+- 预热只在 `ProviderRegistry::activate(SchemeType::JapaneseRomaji)` 时做（建会话的初始方案、切方案、临时日文都经过这里），在名为 `msime-japanese-model` 的后台线程读；已在缓存、已预载或正在预热时什么也不做。起不了线程（网页引擎）时第一个查询照旧自己读。`JapaneseProvider::new` 仍然不读模型。另一个入口是日文混输（实验选项，默认关）：开着时建会话就经 `ProviderRegistry::warm_up_japanese` 预热同一份模型，见 [全拼、双拼里混进一行日文整段转换](../feature/2026-10-12-mixed-japanese-candidates.md)。
 
 ## Alternatives considered
 

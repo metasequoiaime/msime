@@ -6,7 +6,8 @@ use super::input::InputSession;
 use crate::assets;
 use crate::diagnostics;
 use crate::ime::personal_rerank::personal_context_rerank_order;
-use crate::ime::queries::MODE_ENGLISH_LIMIT;
+use crate::ime::queries::{MixedJapaneseRow, MODE_ENGLISH_LIMIT};
+use crate::ime::MixedJapaneseConversion;
 use crate::local::date_time::{inline_date_time_keyword, insert_inline_date_time, LocalDateTime};
 use crate::local::jianpin::jianpin_ranking_context;
 use crate::pinyin::segment::{cut_pinyin_by_mode, join_segments, CutMode};
@@ -76,6 +77,8 @@ impl InputSession {
             self.reserve_ai_seat(&mut decoded);
         }
         self.personal_reranked = false;
+        // 日文整段转换只算一次：个人上下文重排生效时下面要混排两张表。
+        let japanese = self.mixed_japanese_conversion();
         // 提交链起点没有上下文，候选偏好由词频设置负责。
         let reordered = match self.chain.previous.as_deref() {
             Some(previous) if self.personal_context_applies() => {
@@ -97,12 +100,12 @@ impl InputSession {
                 // 先复制原始行到可复用的显示缓冲，再按索引原地重排，避免重新分配每个字符串。
                 clone_candidate_rows(&decoded, &mut reranked);
                 order.reorder(&mut reranked);
-                self.mixed_candidates = self.mixed_from(reranked);
+                self.mixed_candidates = self.mixed_from(reranked, japanese.as_ref());
                 // 学习使用字典给出的顺序，因此另存未重排的混排列表。
-                self.ranking_candidates = Some(self.mixed_from(decoded));
+                self.ranking_candidates = Some(self.mixed_from(decoded, japanese.as_ref()));
                 self.personal_reranked = true;
             }
-            None => self.mixed_candidates = self.mixed_from(decoded),
+            None => self.mixed_candidates = self.mixed_from(decoded, japanese.as_ref()),
         }
     }
 
@@ -484,8 +487,54 @@ impl InputSession {
         None
     }
 
+    /// 日文混输的门槛里会话这一层的部分：选项开着，没有本地模式、专用英文、光标前缀解码和激活的辅助码。其余门槛（全拼或双拼、只有 a-z、整段是完整罗马字、至少两个假名、信号）见 `ImeSession::mixed_japanese_conversion`。光标前缀里选这一行会把光标后的输入一起扔掉（整段结束组字）；辅助码激活时输入里混着辅助码，那串字母不是罗马字。
+    fn mixed_japanese_conversion(&mut self) -> Option<MixedJapaneseConversion> {
+        if !self.japanese_mixing
+            || self.local_mode != LocalInputMode::None
+            || self.dedicated_english
+            || self.prefix_active
+            || self.has_active_helpcode()
+        {
+            return None;
+        }
+        self.engine.mixed_japanese_conversion()
+    }
+
+    /// 日文混输要混进 `decoded` 的那一行。整段文字是转换结果，`pinyin` 是整段输入（选中即结束组字），`canonical_pinyin` 为空，权重 0。拼音拆不开时只看「认得」：认得才领先，只有精确词条、整句不认得时进优先位置（打错的拼音常常碰巧是某个词条的读音）。拼音拆得开时，打头的非英文行不是能结束整段组字的词典词（快照里 `answers_key` 用的同一个判定）才领先，否则进优先位置。
+    fn mixed_japanese_row(
+        &self,
+        decoded: &[WordItem],
+        conversion: &MixedJapaneseConversion,
+    ) -> MixedJapaneseRow {
+        let chinese_whole_word = decoded
+            .iter()
+            .find(|item| item.source != CandidateSource::EnglishDictionary)
+            .is_some_and(|item| {
+                item.source.is_dictionary() && self.selection_completes_composition(item)
+            });
+        let lead = if conversion.pinyin_incomplete {
+            conversion.known
+        } else {
+            !chinese_whole_word
+        };
+        let mut item = WordItem::new(
+            self.engine.request().raw_input.as_str(),
+            conversion.text.as_str(),
+            0,
+            CandidateSource::MixedJapanese,
+            "",
+        );
+        item.scheme = SchemeType::JapaneseRomaji;
+        MixedJapaneseRow { item, lead }
+    }
+
     /// Mixed rows and fixed positions over one decoded list.
-    fn mixed_from(&mut self, decoded: Vec<WordItem>) -> Vec<WordItem> {
+    fn mixed_from(
+        &mut self,
+        decoded: Vec<WordItem>,
+        japanese: Option<&MixedJapaneseConversion>,
+    ) -> Vec<WordItem> {
+        let japanese = japanese.map(|conversion| self.mixed_japanese_row(&decoded, conversion));
         // 拼音拆不开时完全匹配的英文可以占首位，但有两种情况不行：光标前缀解码时选英文会扔掉光标后的输入（`commit_selection` 整段结束组字）；辅助码激活时大写的辅助码被转成小写拼进了查英文的输入，那串字母不是用户要的英文词。
         let english_may_lead = !self.prefix_active && !self.has_active_helpcode();
         let association_input = if self.prefix_active {
@@ -503,6 +552,7 @@ impl InputSession {
             self.dedicated_english,
             self.local_mode,
             english_may_lead,
+            japanese,
         );
         self.insert_inline_date_time(&mut mixed);
         self.apply_candidate_positions(&mut mixed);

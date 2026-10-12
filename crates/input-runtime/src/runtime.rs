@@ -1548,9 +1548,20 @@ impl<E: InputEngine> Runtime<E> {
         OutputContext {
             scheme: self.cached.scheme,
             local_mode: self.cached.local_mode.clone(),
-            script_conversion: script_conversion(self.cached.scheme, &self.cached.local_mode),
+            script_conversion: script_conversion(self.cached.scheme, &self.cached.local_mode)
+                && !self.commits_mixed_japanese(),
             typing_statistics: local_mode_counts_as_typing(&self.cached.local_mode),
         }
+    }
+
+    /// 这次上屏的是日文混输行（`CandidateSource::MixedJapanese`），前面也没有暂存的中文词段：上屏的整段都是日文，不做简繁转换。前面暂存着中文词段时，暂存段和日文一起上屏，宿主只能整段转或整段不转，这时照旧转换，中文不被漏掉。
+    fn commits_mixed_japanese(&self) -> bool {
+        const MIXED_JAPANESE: u8 = 13;
+        self.phrase_prefix.is_empty()
+            && self.facts.selection.is_some_and(|selection| {
+                selection.source == MIXED_JAPANESE
+                    && selection.outcome == SelectionOutcome::Committed
+            })
     }
 
     fn transition(&mut self, result: EngineResult) -> Transition {
@@ -1606,6 +1617,7 @@ impl<E: InputEngine> Runtime<E> {
         const EMOJI: u8 = 6;
         const KAOMOJI: u8 = 7;
         const AI_PENDING: u8 = 12;
+        const JAPANESE: u8 = 13;
         let is_ai = |source: u8| matches!(source, AI | AI_PENDING);
 
         let snapshot = &self.cached;
@@ -1633,8 +1645,14 @@ impl<E: InputEngine> Runtime<E> {
         // rest; dropping a candidate the user was offered is not an option here.
         //
         // 有中文候选时，引擎只在两种情况下把英文放在首位，从不看权重或置顶：输入拆不成完整音节、英文正好完全匹配整段输入（`CandidateQueries::mixed`），或者用户把这个词固定在第一位（`apply_candidate_positions`）。所以本地候选还在、首位却是英文时，就是这样一个词：它保留首位，领先的英文座位不再填第二个英文词。
-        let is_local =
-            |source: u8| !matches!(source, CLOUD | AI | AI_PENDING | ENGLISH | EMOJI | KAOMOJI);
+        //
+        // 日文混输行（`CandidateSource::MixedJapanese`，只有一行）按英文的规矩坐：引擎让它领先时它在首位，英文已经领先时在第二位，云候选、AI 候选到达后保持不动；不领先时它坐英文的优先座位，排在英文那一行前面。
+        let is_local = |source: u8| {
+            !matches!(
+                source,
+                CLOUD | AI | AI_PENDING | ENGLISH | EMOJI | KAOMOJI | JAPANESE
+            )
+        };
         let first_source = |source: u8| {
             snapshot
                 .candidate_sources
@@ -1648,6 +1666,9 @@ impl<E: InputEngine> Runtime<E> {
             .count();
         let first_english = first_source(ENGLISH);
         let promoted_english = first_english == Some(0) && local_count != 0;
+        let first_japanese = first_source(JAPANESE);
+        let promoted_japanese =
+            local_count != 0 && first_japanese == Some(usize::from(promoted_english));
         let has_cloud = snapshot.candidate_sources.contains(&CLOUD);
         let first_emoji = first_source(EMOJI);
         let first_kaomoji = first_source(KAOMOJI);
@@ -1692,6 +1713,9 @@ impl<E: InputEngine> Runtime<E> {
         if promoted_english {
             order.push(0);
         }
+        if promoted_japanese {
+            order.extend(first_japanese);
+        }
         // The hiragana/katakana pair of a single complete kana keeps seats 1 and 2 ahead of every online candidate, as the reference's `preserve_single_kana_pair` does (server/src/ipc/event_listener.cpp); the reading is the converted kana, so one character in U+3041..U+3096 is its `IsSingleKanaConversion`.
         let mut reading = snapshot.reading.chars();
         let single_kana = scheme_type(snapshot.scheme) == Some(SchemeType::JapaneseRomaji)
@@ -1710,6 +1734,9 @@ impl<E: InputEngine> Runtime<E> {
             append_group(&mut order, CLOUD, 0, None);
             order.extend(ai_seat);
         }
+        if !promoted_japanese {
+            order.extend(first_japanese);
+        }
         if !promoted_english {
             if let Some(index) = first_english {
                 order.push(index);
@@ -1726,6 +1753,7 @@ impl<E: InputEngine> Runtime<E> {
         }
         append_local(&mut order, local_prefix, None);
         append_group(&mut order, ENGLISH, 1, None);
+        append_group(&mut order, JAPANESE, 1, None);
         append_group(&mut order, EMOJI, 1, None);
         append_group(&mut order, KAOMOJI, 1, None);
         // An English candidate the user fixed to a seat goes back to that seat after the seating, so a cloud or AI reply does not push it behind the online candidates (reference: server/src/ipc/candidate_selection_policy.h, the fixed-English pass at the end of NormalizeMixedCandidateOrder). Seats are 1-based and 0 means unfixed; a seat past the end clamps to the end, as the reference's `insert_at` does.

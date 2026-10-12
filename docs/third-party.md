@@ -6,7 +6,7 @@
 
 ## 本项目
 
-源码为 **GPL-3.0-only**，全文在根目录 [LICENSE](../LICENSE)。Rust workspace 的 `license` 字段、Linux 打包元数据和共享客户端都声明同一许可证。
+源码为 **GPL-3.0-only**，全文在根目录 [LICENSE](../LICENSE)。Rust workspace 的 `license` 字段、Linux 打包元数据和共享客户端都声明同一许可证。例外是 `docs/script-plugin-template/`（脚本插件的模板与 SDK）和 `plugins/script/`（[脚本插件合集](#脚本插件合集pluginsscript)）的代码，用 MIT，全文在这两个目录各自的 `LICENSE`；它们不属于 Rust workspace，也不随输入法分发。
 
 ## 输入引擎（`crates/engine`）
 
@@ -282,6 +282,15 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 | [modood/Administrative-divisions-of-China](https://github.com/modood/Administrative-divisions-of-China) 的省、地、县三级行政区划，提交 `c49d495b40ac73eb1a66f6eeae5f8fd10696f035` | WTFPL（全文在 `resources/licenses/Administrative-divisions-of-China-WTFPL.txt`）；上游整理自国家统计局公布的统计用区划代码与城乡划分代码 | `crates/engine/src/local/places.tsv`，`@` 模式在用户自己的列表之后补充的内置地名（3302 个，约 126 KB，`include_str!` 编进引擎）。`msime-dict-build places` 读 `dist/provinces.csv`、`dist/cities.csv`、`dist/areas.csv` 三个文件生成这张表，三者的 URL、长度与 SHA-256 固定在 `resources/dictionary-sources.lock.json` 的 `places/` 条目；拼音由生成器按字注音，再用 `crates/dict-builder/src/places.rs` 的 `READINGS` 纠正地名专用读音。只取地名和上级关系，不带区划代码。设置里「@ 地名」默认关闭 |
 | [libhangul](https://github.com/libhangul/libhangul) 的 `data/hanja/hanja.txt`，提交 `717409ce61524bb3d8426060a384822f21354c62` | BSD-3-Clause（文件头单独声明，Copyright (c) 2005,2006 Choe Hwanjin；全文在 `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`）。libhangul 仓库整体是 LGPL-2.1，但本仓只取这一份单独声明 BSD-3 的数据文件。上游提交历史说明 2006–2007 年部分读音和词表整理自国立国语院的材料，这些材料能否以 BSD 再授权无法独立核实，属于上游作者的声明 | `crates/engine/src/korean/hanja.tsv`，韩语模式把正在组字的音节转换成汉字时的候选表（555 个音节、28416 行，约 430 KB，`include_str!` 编进引擎）。`msime-dict-build hanja --dictionary <msime-dictionary checkout>` 读 msime-dictionary 原样收录的这一个文件（`sources/korean/hanja.txt`，大小与 SHA-256 由该仓 `upstream.lock.json` 固定）生成这张表，libhangul 提交记在 `resources/dictionary-sources.lock.json` 的 `libhangul` 引用里。只取单音节条目：键是一个预组合音节，值是基本多文种平面内的一个统一汉字，即 CJK 统一汉字、扩展 A 区汉字，或兼容汉字区里 NFC 不改写的 12 个统一汉字（U+FA0E 﨎、U+FA11 﨑 等）；真正的兼容汉字（NFC 会改写，固定版本的单音节条目里没有）、辅助平面汉字和两字值都丢弃；每个音节内保持上游顺序，保留上游的训音（훈음）注释，约 27% 的行有训音，扩展 A 区一行都没有。词条级数据（约 5.7 MB）不使用。BSD-3 第 2 条要求二进制分发时附带版权声明和条款，表编进引擎后随六个平台的引擎一起分发，所以六个平台的通知渠道都收录这份文本：Windows 的 `Collect-Notices.ps1`，macOS 输入法包的 `Resources/Licenses`（`CMakeLists.txt` 与 `THIRD_PARTY_NOTICES.txt`），Linux 安装的声明（`CMakeLists.txt` 与 `data/THIRD_PARTY_NOTICES.txt`），Android 的 `assets/native-notices`（`build-native.sh`），iOS App 的资源（`project.yml`），HarmonyOS 的 `resfile/licenses`（`stage-resources.sh`）。`scripts/test-korean-hanja-table.py` 检查这几处都还在 |
 | [OpenCC](https://github.com/BYVoid/OpenCC) 词典，提交 `26753884f1984add422f3b0249ccee8613deaff6` | Apache-2.0 | `crates/client-core/data/opencc/`，许可证全文在同目录 `LICENSE`。`STPhrases.txt`、`STCharacters.txt`、`CJK_Compatibility_Ideographs.txt` 原样取自该提交的 `data/dictionary/`；`STPhrases_GeneratedFromRegionalPhrases.txt` 是该提交的 OpenCC 构建产物（`data/scripts/generate_st_phrases_from_regional_phrases.py` 用 `t2s.json` 生成），本仓不重新生成。提交号与来源 MSIME-Windows 的 `vendor/opencc` 子模块一致。只使用数据，不链接 OpenCC 的 C++ 库；`chinese_conversion.rs` 按 `s2t.json` 的规则实现转换。Windows 通知由 `Collect-Notices.ps1` 一并收集 |
+
+## 脚本插件合集（`plugins/script/`）
+
+这些插件不随输入法分发，由用户从源码构建后自己导入；插件代码用 MIT。带第三方数据的插件把数据变换成紧凑的二进制表，用 `include_bytes!` 编进 wasm 模块，生成器和产物都提交进仓库，`scripts/test-script-plugin-data.py` 检查两者一致（ci-platforms.yml 的 Script plugins 作业设 `MSIME_FETCH=1`，下载锁定的 Unihan zip 后也核对常用字集；不联网的 contracts 工作流只核对简繁对照表）。插件包里随附许可证原文和一份 `NOTICE.txt`，写明来源、版本和生成器。
+
+| 组件 | 许可证 | 位置与说明 |
+| --- | --- | --- |
+| Unicode Han Database（Unihan）17.0.0 的 `kTGH`（《通用规范汉字表》）与 `kTraditionalVariant` | Unicode-3.0（全文在 `resources/licenses/Unicode-License-V3.txt`） | `plugins/script/data/common-chars.bin`，生僻字类插件共用的常用字集（8105 字并上它们的繁体形，共 11 049 字，约 4 KiB）。`plugins/script/tools/gen_common_chars.py` 读 `resources/character-glosses.lock.json` 锁定的 `Unihan-17.0.0.zip`（校验 sha256）生成，来源说明在同目录的 `common-chars-NOTICE.txt`。插件包随附 `Unicode-License-V3.txt` |
+| [OpenCC](https://github.com/BYVoid/OpenCC) 词典，提交 `26753884f1984add422f3b0249ccee8613deaff6` | Apache-2.0（全文在 `crates/client-core/data/opencc/LICENSE`） | 读的是上面「编译进共享库的数据」里 vendored 的同一份文件。常用字集取 `STCharacters.txt` 里《通用规范汉字表》各字的繁体单字值（只由 OpenCC 补进集合的有 151 字）。traditional-glyph 的简繁对照表 `plugins/script/traditional-glyph/data/s2t.bin`（约 121 KiB）由 `plugins/script/tools/gen_s2t_table.py` 从 `STCharacters.txt`（全部单字）、`STPhrases.txt` 和 `STPhrases_GeneratedFromRegionalPhrases.txt`（只留逐字转换会转错的 2–4 字词组）生成，GB2312 判定用的是 Python 自带的编解码器，不另带数据。变换生成的表属于修改过的衍生数据，按 Apache-2.0 第 4 条在插件包的 `NOTICE.txt` 里写明；插件包随附 `OpenCC-LICENSE.txt`，组装时（`plugins/script/tools/assemble.py`）逐字节核对它和仓库里的原件相同 |
 
 ## 本地语音识别
 

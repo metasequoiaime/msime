@@ -295,7 +295,7 @@ struct SessionAiCredential {
 
 /// 本地模式由偏好开关，但它们读的词典是不可变的运行时资源。可选资源不在时，触发键不能被吞掉：在资源齐全之前，Engine 看到的这个模式必须是关的。
 ///
-/// 版本不提供的功能同样当作资源不在：五笔版的资源锁不带日文词典和键盘神经模型，临时日文和键盘神经联想无论偏好怎么写都是关的。资源目录按版本的锁校验，本来就放不进日文词典，这里再按版本表关一次，是为了状态目录里留有下载来的日文资源包时也不会打开它。
+/// 版本不提供的功能同样当作资源不在：五笔版的资源锁不带日文词典和键盘神经模型，临时日文、日文混输和键盘神经联想无论偏好怎么写都是关的。资源目录按版本的锁校验，本来就放不进日文词典，这里再按版本表关一次，是为了状态目录里留有下载来的日文资源包时也不会打开它。
 fn apply_local_mode_resource_gates(options: &mut EngineOptions, edition: &Edition) {
     let resources = std::path::Path::new(&options.resources);
     let has_emoji_catalog = resources.join("msime-others.db").is_file();
@@ -310,6 +310,8 @@ fn apply_local_mode_resource_gates(options: &mut EngineOptions, edition: &Editio
     options.local_kaomoji &= has_emoji_catalog;
     options.local_temporary_english &= has_english_dictionary;
     options.local_temporary_japanese &= has_japanese_model && edition.features.temporary_japanese;
+    // 日文混输和临时日文读同一份模型、同一个日文 provider（会话方案集里有 `JapaneseRomaji` 才建），门槛也一样；模型不在时只剩假名，不算转换。
+    options.mixed_japanese &= has_japanese_model && edition.features.temporary_japanese;
     // 键盘神经联想读的模型同样随版本的资源锁走；不带它的版本无论偏好怎么写都不打开。
     options.sentence_association.neural_keyboard &= edition.features.neural_keyboard;
 }
@@ -600,6 +602,7 @@ impl HostSession {
         options.english_minimum_prefix = preferences.mixed_input.minimum_prefix;
         options.mixed_emoji = preferences.mixed_input.emoji;
         options.mixed_kaomoji = preferences.mixed_input.kaomoji;
+        options.mixed_japanese = preferences.mixed_input.japanese;
         options.local_unicode = preferences.local_modes.unicode;
         options.local_date_time = preferences.local_modes.date_time;
         options.local_quick_phrase = preferences.local_modes.quick_phrase;
@@ -1579,6 +1582,7 @@ impl HostOptions {
             english_minimum_prefix: self.preferences.mixed_input.minimum_prefix,
             mixed_emoji: self.preferences.mixed_input.emoji,
             mixed_kaomoji: self.preferences.mixed_input.kaomoji,
+            mixed_japanese: self.preferences.mixed_input.japanese,
             local_unicode: self.preferences.local_modes.unicode,
             local_date_time: self.preferences.local_modes.date_time,
             local_quick_phrase: self.preferences.local_modes.quick_phrase,

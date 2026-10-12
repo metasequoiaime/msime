@@ -95,7 +95,7 @@ export function InputSettingsPage() {
     flush: retrySave,
   });
   const japanesePack = resourcePackStatus(resourcePacks, "japanese");
-  // 不带临时日文的版本（host-api 也始终把它关掉）不列出这个开关和它的词库。
+  // 不带临时日文的版本（host-api 也始终把它和日文混输关掉）不列出这个开关、它的词库和日文混输开关。
   const temporaryJapanese = host?.edition?.temporary_japanese ?? true;
   // 不带键盘神经模型的版本（host-api 也始终把它关掉）在触屏宿主上不列出神经联想开关。
   const neuralKeyboard = host?.edition?.neural_keyboard ?? true;
@@ -273,6 +273,7 @@ export function InputSettingsPage() {
         }
         mixedInput={mixedInput}
         onMixedInputChange={(mixed_input) => onPreferencesChange({ mixed_input })}
+        temporaryJapanese={temporaryJapanese}
         paging={
           !harmonyPhone && (
             <NavigationSection

@@ -35,6 +35,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         english_minimum_prefix: 2,
         mixed_emoji: false,
         mixed_kaomoji: false,
+        mixed_japanese: false,
         local_unicode: true,
         local_date_time: true,
         local_quick_phrase: true,
@@ -495,6 +496,58 @@ fn a_lookup_names_where_each_candidate_came_from_and_leaves_the_user_data_alone(
     assert!(lookup_candidates(&options, None, "ceshi", 0).is_err());
     assert!(lookup_candidates(&options, None, "ceshi", MAX_LOOKUP_CANDIDATES + 1).is_err());
     assert_eq!(tree(&directory.path().join("user")), before);
+}
+
+/// 日文混输开着时，查询会话照用户的设置混进日文转换，来源报成 `Japanese`；关着时没有这一行。
+#[test]
+#[cfg(not(target_os = "android"))]
+fn a_lookup_keeps_the_users_japanese_mixing() {
+    let directory = tempfile::tempdir().unwrap();
+    let plain = word_fixture(
+        directory.path(),
+        "INSERT INTO tbl_2_c VALUES('ce''shi','cs','测试',100);",
+    );
+    std::fs::write(
+        directory.path().join("resources/msime-japanese.dat"),
+        crate::tests::single_lemma_japanese_model("おはよう", "おはよう", 500),
+    )
+    .unwrap();
+    let root = directory.path().to_str().unwrap();
+    let mut preferences = msime_client_core::preferences::Preferences::default();
+    preferences.mixed_input.japanese = true;
+    let mixing = DictionaryOptions::from_host_document(json!({
+        "api_version": 1,
+        "resources": format!("{root}/resources"),
+        "user_data": format!("{root}/user"),
+        "cache": format!("{root}/cache"),
+        "dictionaries": format!("{root}/dictionaries"),
+        "preferences": preferences,
+        "preferences_directory": root,
+    }))
+    .unwrap();
+
+    let candidates = lookup_candidates(&mixing, None, "ohayou", 10).unwrap();
+    assert_eq!(
+        candidates.first(),
+        Some(&LookupCandidate {
+            text: "おはよう".into(),
+            code: "ohayou".into(),
+            origin: CandidateOrigin::Japanese,
+            weight: None,
+        }),
+        "{candidates:?}"
+    );
+    assert_eq!(
+        candidates
+            .iter()
+            .filter(|candidate| candidate.origin == CandidateOrigin::Japanese)
+            .count(),
+        1
+    );
+    assert!(lookup_candidates(&plain, None, "ohayou", 10)
+        .unwrap()
+        .iter()
+        .all(|candidate| candidate.origin != CandidateOrigin::Japanese));
 }
 
 /// 五笔四码唯一的词在第四键就自动上屏了，查询仍要把它报告成这串编码的唯一候选，而不是空列表。

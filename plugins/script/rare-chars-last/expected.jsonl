@@ -1,0 +1,29 @@
+{"seq": 1, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,2,4 rare 1,3"}]}
+{"seq": 2, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,1,3 rare 0,2"}]}
+{"seq": 3, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep"}]}
+{"seq": 4, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep rare 0,1,2,3"}]}
+{"seq": 5, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep rare 2,3"}]}
+{"seq": 6, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,2,3 rare 1"}]}
+{"seq": 7, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,3 rare 2"}]}
+{"seq": 8, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 2 rare 1"}]}
+{"seq": 9, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,2,3 rare 1"}]}
+{"seq": 10, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: kana"}]}
+{"seq": 11, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: japanese"}]}
+{"seq": 12, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep"}]}
+{"seq": 13, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,2,3,4,5,6 rare 1"}]}
+{"seq": 14, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,2,3 rare 1"}]}
+{"seq": 15, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,2,3 rare 1"}]}
+{"seq": 16, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,2,3 rare 1"}]}
+{"seq": 17, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,1,3 rare 2"}]}
+{"seq": 18, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,2 rare 1"}]}
+{"seq": 19, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep"}]}
+{"seq": 20, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep"}]}
+{"seq": 21, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: absent"}]}
+{"seq": 22, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,1,3 rare 2 unread 1"}]}
+{"seq": 23, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,2 rare 1"}]}
+{"seq": 24, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep unread 8,9,10,11,12,13,14,15,16,17,18,19"}]}
+{"seq": 25, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep unread 16,17,18,19"}]}
+{"seq": 26, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,6,7,8,9,10,11,12,13,14,15,16,17,18,19 rare 0,1,2,3,4,5 unread 6,7,8,9,10,11,12,13,14,15,16,17,18,19"}]}
+{"seq": 27, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,2,3 rare 1 unread 2,3"}]}
+{"seq": 28, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 0,1,3,5 rare 2,4"}]}
+{"seq": 29, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_order", "result": "ok"}], "log": [{"level": "debug", "text": "order 4,5,6,8,9,10,11,12,13,14,15,17,18,19 rare 16 unread 17,18,19"}]}

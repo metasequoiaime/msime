@@ -218,6 +218,7 @@
 		3B2D4A753C402BE8F74B9CED /* CloudSyncState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81B63FCD53218F052853D1DD /* CloudSyncState.swift */; };
 		3BA1A23A7D063FE1327560B8 /* KeyboardBrandMarkButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEB93D86E9601DFA050B6A32 /* KeyboardBrandMarkButton.swift */; };
 		3BC69FA421A9258B16BC95A2 /* SkinKeySurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1253B506002669ABD2E8323B /* SkinKeySurfaceView.swift */; };
+		3C3D003B92D91BA9C27DE4CA /* CloudClipboardTimePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A045C67FE4D3D0EDE9F574 /* CloudClipboardTimePolicy.swift */; };
 		3D3F31AE61B61B25C947C9EC /* CustomService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C721F2EB6F186F5A7C93B12 /* CustomService.swift */; };
 		3D6810B991EAB97C21AA9F8A /* KeyboardBrand.png in Resources */ = {isa = PBXBuildFile; fileRef = 998740623BE3E698150DCE1E /* KeyboardBrand.png */; };
 		3D7EC81B52FFB582928DB997 /* BackendSnapshotClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A88CE15A172F9A54B2186B3 /* BackendSnapshotClient.swift */; };
@@ -490,6 +491,7 @@
 		8EA282D8FB2169A558CAA4E0 /* KeyboardIconPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = B063B1760382A73A3B650384 /* KeyboardIconPaths.swift */; };
 		8EBEE4573852A99A6F79767A /* SharedNumber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90BC92FC1B37877C543213DF /* SharedNumber.swift */; };
 		8EBF344988D9C60C73DA7B38 /* KeyboardServiceFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40CC09A165A6615AB613AD90 /* KeyboardServiceFallbackTests.swift */; };
+		8EFCA1155DB84DD934A228F4 /* CloudClipboardTimePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A045C67FE4D3D0EDE9F574 /* CloudClipboardTimePolicy.swift */; };
 		8F1FBAA931A65702C0CF189E /* SchemeDocumentSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927C918D7BFAD1A07BA6622E /* SchemeDocumentSettingsTests.swift */; };
 		901BB4A2F37A9913DC06A8D7 /* KeyboardPrivacyPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBE00EFC3A5D853020887969 /* KeyboardPrivacyPreference.swift */; };
 		9083CF22972F148E879F20F5 /* SharedNumber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90BC92FC1B37877C543213DF /* SharedNumber.swift */; };
@@ -512,6 +514,7 @@
 		94302724FBB6EF85554A9204 /* GeneratedKeyboardSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC587235772F54E138C05322 /* GeneratedKeyboardSkin.swift */; };
 		9444AEA990CC78F76BFD5054 /* MetasequoiaInputSessionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BB65376FD7113B8AD828FB /* MetasequoiaInputSessionBridge.swift */; };
 		945BD02878DFC070ADF001D3 /* CustomKeyboardSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11272E51943034A200457067 /* CustomKeyboardSkin.swift */; };
+		94C7757A38725CD34A440F8D /* CloudClipboardTimePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A045C67FE4D3D0EDE9F574 /* CloudClipboardTimePolicy.swift */; };
 		94EB2082B124AED1D7E584B2 /* ClipboardHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4370A5DEF25DF58EF4406C3 /* ClipboardHistoryStore.swift */; };
 		94ECC34D100F5452329830CC /* CustomServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 716E207A03038AD57047C999 /* CustomServiceTests.swift */; };
 		950BE6D1733608E4EF7C1B7E /* KeyboardLayoutPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BFF7F69104E516219FFBA2B /* KeyboardLayoutPreference.swift */; };
@@ -519,6 +522,7 @@
 		958BECCA94E573DB016798F6 /* KeyboardPhrasesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F062B819666D4A4D9287AD8D /* KeyboardPhrasesView.swift */; };
 		9644D119B1C54F9EFD8C4D20 /* CandidatePanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C7C92F9595C8AC39C9A03C /* CandidatePanelSnapshot.swift */; };
 		9692B7F90A2A531577DAF2CE /* OnlineTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 720F2C5C7D633B6ECA1913B2 /* OnlineTransport.swift */; };
+		96F41804754520CC58688C26 /* SettingsOptionLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C134242D7F10017B55CF992C /* SettingsOptionLabel.swift */; };
 		978CA38256899EF37D37C680 /* KeyboardSkinBackgroundView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF3ED60154586A3CB9CCD107 /* KeyboardSkinBackgroundView.swift */; };
 		97B24611C8D1FFFFB3A4F937 /* DiagnosticLogSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22B00BF172EF20CF2DA5EC53 /* DiagnosticLogSettingsView.swift */; };
 		9804D17EE0E0071706ACD3C2 /* MetasequoiaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F03A68AA9F5CC4B135BEAD1 /* MetasequoiaTheme.swift */; };
@@ -605,9 +609,11 @@
 		B16E1F19505648A62CC4C1BC /* BackendDictionaryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFA5AC2ED8E38D8E073C2C85 /* BackendDictionaryClient.swift */; };
 		B1A2369A77062FDEF7BD12C7 /* SpaceCursorMovement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 574E6D9379A517BF9C5CEB82 /* SpaceCursorMovement.swift */; };
 		B28586C994CA2F0D4425851B /* CandidateMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62B836D28DBED9680F0BBDD3 /* CandidateMarker.swift */; };
+		B2D406BD3029AAA4AF982BBF /* CloudClipboardTimePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86A6C4BAD194E965A914892 /* CloudClipboardTimePolicyTests.swift */; };
 		B2D9B9A7A9E6AB944761C169 /* HelpcodeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A648FB41B90E98C5CE44CA23 /* HelpcodeSettingsView.swift */; };
 		B2F2E2D860583EEB6908C0F1 /* BackendClipboardClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4369EF0C43578B0AF4B5B379 /* BackendClipboardClient.swift */; };
 		B317FA0C7076125AA816D9FB /* SplashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B175FCF7AAD7C2AC6688205 /* SplashView.swift */; };
+		B376052746955E56FBACB168 /* CloudClipboardTimePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A045C67FE4D3D0EDE9F574 /* CloudClipboardTimePolicy.swift */; };
 		B3925080F278AF81719F415A /* KeyboardVoicePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85BAC20261DD7AC0622794B /* KeyboardVoicePanelView.swift */; };
 		B3CF55FE03F31B2075B32162 /* BackendCommunityResourceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7FA6A2465AAF8B5759E2157 /* BackendCommunityResourceClient.swift */; };
 		B43B0B725FE05BA0550DAF6E /* KeyboardInputContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = D22544622BDEADB0149155DF /* KeyboardInputContext.swift */; };
@@ -1167,6 +1173,7 @@
 		927C918D7BFAD1A07BA6622E /* SchemeDocumentSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemeDocumentSettingsTests.swift; sourceTree = "<group>"; };
 		92FBA11810BAA522AC091061 /* CandidateOptionsSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateOptionsSettingsTests.swift; sourceTree = "<group>"; };
 		94F8DF30A61A7F6604ED4032 /* BackendCandidateClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendCandidateClient.swift; sourceTree = "<group>"; };
+		96A045C67FE4D3D0EDE9F574 /* CloudClipboardTimePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudClipboardTimePolicy.swift; sourceTree = "<group>"; };
 		97E22A6161FBAC5C568F868A /* KeyGapRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyGapRouting.swift; sourceTree = "<group>"; };
 		98498F1E1231D37B96B2E7AB /* AppAppearancePreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAppearancePreference.swift; sourceTree = "<group>"; };
 		98B1A9D27C521DC3E8D516BD /* TauriDictionarySnapshotBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TauriDictionarySnapshotBridge.swift; sourceTree = "<group>"; };
@@ -1232,6 +1239,7 @@
 		BF41D83CCAA1F9E41B826090 /* KeyboardChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardChatView.swift; sourceTree = "<group>"; };
 		BFADAD721CAEAF58A6D87659 /* AICandidatePreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICandidatePreferenceTests.swift; sourceTree = "<group>"; };
 		C0DC8199813CDBAA3590BDFF /* AccountSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSettingsView.swift; sourceTree = "<group>"; };
+		C134242D7F10017B55CF992C /* SettingsOptionLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsOptionLabel.swift; sourceTree = "<group>"; };
 		C291B76AEFF066DD38603B68 /* ProviderPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderPickerView.swift; sourceTree = "<group>"; };
 		C2B1EE2B74FA847FA78E98B1 /* SkinAppearanceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinAppearanceSettingsView.swift; sourceTree = "<group>"; };
 		C2C1C58F342313B58E0BF995 /* CommonPhrasesBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommonPhrasesBridge.swift; sourceTree = "<group>"; };
@@ -1279,6 +1287,7 @@
 		D6B39680438342CF72AF68D2 /* CandidateTranslationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateTranslationTests.swift; sourceTree = "<group>"; };
 		D72C27A94C9C42BA4F28E33C /* LocalSpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSpeechRecognizer.swift; sourceTree = "<group>"; };
 		D7513F9E654F6379AEB99C79 /* KeyboardServiceFallback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardServiceFallback.swift; sourceTree = "<group>"; };
+		D86A6C4BAD194E965A914892 /* CloudClipboardTimePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudClipboardTimePolicyTests.swift; sourceTree = "<group>"; };
 		D877D6A4E98C4CAED197AC82 /* TranslationProviderSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationProviderSettingsView.swift; sourceTree = "<group>"; };
 		D8A34DB3894A5E4FB8CD81C1 /* AboutAndDownloadViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutAndDownloadViews.swift; sourceTree = "<group>"; };
 		D8B381E4EB8A994D9BAA5646 /* CloudSyncMarkingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncMarkingTests.swift; sourceTree = "<group>"; };
@@ -1601,6 +1610,7 @@
 			isa = PBXGroup;
 			children = (
 				C4370A5DEF25DF58EF4406C3 /* ClipboardHistoryStore.swift */,
+				96A045C67FE4D3D0EDE9F574 /* CloudClipboardTimePolicy.swift */,
 			);
 			path = clipboard;
 			sourceTree = "<group>";
@@ -1715,6 +1725,7 @@
 				C291B76AEFF066DD38603B68 /* ProviderPickerView.swift */,
 				EABB18AC690CFF2CE8BDB5C9 /* PunctuationSettingsView.swift */,
 				C55F7AB6E6761F32673FD1CF /* SettingsAutosave.swift */,
+				C134242D7F10017B55CF992C /* SettingsOptionLabel.swift */,
 				6E848582BF93CA319552C7A8 /* SettingsSyncView.swift */,
 				C2B1EE2B74FA847FA78E98B1 /* SkinAppearanceSettingsView.swift */,
 				2DFE17ED3E9DB00FB995626A /* StatisticsAchievements.swift */,
@@ -1925,6 +1936,14 @@
 			path = keyboard;
 			sourceTree = "<group>";
 		};
+		8865D591BF301CAC37809E8D /* clipboard */ = {
+			isa = PBXGroup;
+			children = (
+				D86A6C4BAD194E965A914892 /* CloudClipboardTimePolicyTests.swift */,
+			);
+			path = clipboard;
+			sourceTree = "<group>";
+		};
 		893D017D5E87F84FAB789265 /* keyboard */ = {
 			isa = PBXGroup;
 			children = (
@@ -2077,6 +2096,7 @@
 			children = (
 				9E14833B6AD4784EDF1214D9 /* TestFlightSubmissionTests.py */,
 				36947032CC2B1544FA507B8A /* candidate */,
+				8865D591BF301CAC37809E8D /* clipboard */,
 				07C2980C0E4015877287557B /* core */,
 				D55ABD0C783059587D822287 /* dictionary */,
 				B1672EB81C83ECDDD543E48D /* input */,
@@ -2712,6 +2732,7 @@
 				8D10A680C41E40835FD56B5C /* ClipboardHistoryTests.swift in Sources */,
 				E3DBD022245CA7EA8FCDE266 /* CloudCandidatePreference.swift in Sources */,
 				85B42AA26418B805D10DD115 /* CloudClipboardDriver.swift in Sources */,
+				8EFCA1155DB84DD934A228F4 /* CloudClipboardTimePolicy.swift in Sources */,
 				795F331A41B50D6F53E07DBC /* CloudDictionaryTransfer.swift in Sources */,
 				125946F8D2A74C025396390D /* CloudDictionaryTransferTests.swift in Sources */,
 				D39DB6F3DD7D3A23DD5A5854 /* CloudSnapshotStagingTests.swift in Sources */,
@@ -2940,6 +2961,7 @@
 				94EB2082B124AED1D7E584B2 /* ClipboardHistoryStore.swift in Sources */,
 				5324859832D2C5426F4F1FC9 /* CloudCandidatePreference.swift in Sources */,
 				EE785AA7FA9E38CC24ED92C0 /* CloudClipboardDriver.swift in Sources */,
+				3C3D003B92D91BA9C27DE4CA /* CloudClipboardTimePolicy.swift in Sources */,
 				E01870696D6C21BCEC3188F0 /* CloudSyncState.swift in Sources */,
 				DEEEE5C362916E4DF40EAFEA /* CommonPhrasesBridge.swift in Sources */,
 				3F7DF678C5C7B7408CD894D0 /* CommonPhrasesRequestState.swift in Sources */,
@@ -3102,6 +3124,8 @@
 				39FAEAE03E6F2BFB2CA1F449 /* ClipboardHistoryStore.swift in Sources */,
 				F57BB7659DD384A91B77C403 /* CloudCandidatePreference.swift in Sources */,
 				D104AED0E84E37A090DBB7F3 /* CloudClipboardDriver.swift in Sources */,
+				B376052746955E56FBACB168 /* CloudClipboardTimePolicy.swift in Sources */,
+				B2D406BD3029AAA4AF982BBF /* CloudClipboardTimePolicyTests.swift in Sources */,
 				931C18533F352DF104950528 /* CloudSyncMarkingTests.swift in Sources */,
 				E2576916BB01EE66A86228B6 /* CloudSyncState.swift in Sources */,
 				70676AFFCF880A7935F01E09 /* CloudSyncStateTests.swift in Sources */,
@@ -3354,6 +3378,7 @@
 				BED9E2600AD0A9B23CADAF36 /* CloudCandidatePreference.swift in Sources */,
 				9C9D91E0202F223838291FE8 /* CloudCandidatesView.swift in Sources */,
 				8A00F0B1D7492B26629BD6B1 /* CloudClipboardDriver.swift in Sources */,
+				94C7757A38725CD34A440F8D /* CloudClipboardTimePolicy.swift in Sources */,
 				5B51CCD104CFC35594E7CAD3 /* CloudClipboardView.swift in Sources */,
 				8E3F222AE2582987819622D9 /* CloudDictionaryApplyView.swift in Sources */,
 				A4AF779E3FCF6CACE05C33B7 /* CloudDictionaryCatalogView.swift in Sources */,
@@ -3459,6 +3484,7 @@
 				F6DC532426FA15739D2EC01E /* SentenceAssociationPreference.swift in Sources */,
 				BAFC930527B8C82D5DF7E91A /* SettingsAutosave.swift in Sources */,
 				C5E456C0F2A36B00C15FB721 /* SettingsDesign.swift in Sources */,
+				96F41804754520CC58688C26 /* SettingsOptionLabel.swift in Sources */,
 				11F334E467D1BEA9649234CB /* SettingsRouter.swift in Sources */,
 				1CA935C56B4434389F6A0DCA /* SettingsRows.swift in Sources */,
 				699557FB707612D2085E3A30 /* SettingsSyncView.swift in Sources */,

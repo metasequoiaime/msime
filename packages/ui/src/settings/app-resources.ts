@@ -1,5 +1,30 @@
 export const logo = new URL("../assets/msime.svg", import.meta.url).href;
 
+/** Navigation icons shared by the settings registry and its host-specific shells. */
+export const settingsIcons = {
+  input: new URL("../assets/input.svg", import.meta.url).href,
+  expression: new URL("../assets/expression.svg", import.meta.url).href,
+  shortcuts: new URL("../assets/shortcut.svg", import.meta.url).href,
+  dictionary: new URL("../assets/dictionary.svg", import.meta.url).href,
+  skin: new URL("../assets/skin.svg", import.meta.url).href,
+  appearance: new URL("../assets/appearance.svg", import.meta.url).href,
+  floatingToolbar: new URL("../assets/floating-toolbar.svg", import.meta.url).href,
+  screenKeyboard: new URL("../assets/screen-keyboard.svg", import.meta.url).href,
+  voice: new URL("../assets/voice-input.svg", import.meta.url).href,
+  handwriting: new URL("../assets/handwriting.svg", import.meta.url).href,
+  utilities: new URL("../assets/utilities.svg", import.meta.url).href,
+  statistics: new URL("../assets/statistics.svg", import.meta.url).href,
+  plugins: new URL("../assets/plugins.svg", import.meta.url).href,
+  ai: new URL("../assets/ai.svg", import.meta.url).href,
+  account: new URL("../assets/account.svg", import.meta.url).href,
+  community: new URL("../assets/community.svg", import.meta.url).href,
+  developer: new URL("../assets/developer.svg", import.meta.url).href,
+  feedback: new URL("../assets/feedback.svg", import.meta.url).href,
+  about: new URL("../assets/about.svg", import.meta.url).href,
+  help: new URL("../assets/help.svg", import.meta.url).href,
+  vocabulary: new URL("../assets/vocabulary.svg", import.meta.url).href,
+} as const;
+
 export const windowIcons = {
   minimize: new URL("../assets/minimize.svg", import.meta.url).href,
   maximize: new URL("../assets/maximize.svg", import.meta.url).href,

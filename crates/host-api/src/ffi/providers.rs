@@ -324,12 +324,14 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             // machine.
             //
             // Emoji and kaomoji sources never qualify, whatever their text: many kaomoji carry Han characters ("(*Φ皿Φ*)") and would otherwise queue behind real words on the serial on-device model and spend account quota, as Windows' BuildTranslationQuery already refuses.
+            //
+            // 日文混输行（来源 13）同样不请求：私、開始 这样的汉字是日文，当中文请求释义会在日文下面写出中文意思，还花掉额度。
             let mut candidates = Vec::with_capacity(candidates_view.candidates.len());
             candidates.extend(candidates_view.candidates.iter().map(|candidate| {
                 json!({
                     "text": candidate.text,
                     "online_gloss":
-                        !msime_client_core::translation::is_emoji_or_kaomoji_source(
+                        !msime_client_core::translation::source_gets_no_gloss(
                             candidate.source,
                         ) && msime_client_core::translation::is_cloud_translatable_chinese(
                             &candidate.text,

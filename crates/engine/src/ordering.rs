@@ -19,6 +19,9 @@ const AI_SEAT_SOURCES: [u8; 2] = [3, 12];
 /// `CandidateSource::EnglishDictionary`。混输英文只在拼音拆不开、英文完全匹配（或用户固定在第一位）时才由引擎放到首位，那是引擎有意的安排；句子模型读的是中文，不能因为英文行不算词典命中就把中文行转到它前面。这道检查不分方案和模式：只有英文行的列表（比如专用英文模式、临时英文）首行也是英文，同样不重排，这是有意的：模型读的是中文，比较英文行没有意义。
 const ENGLISH_SOURCE: u8 = 4;
 
+/// `CandidateSource::MixedJapanese`：日文混输行。它领先时是引擎判定拼音给不出整段的词，和领先的英文一样不重排；它在别的位置时也不让模型拿它比较、把它提到首位，句子模型读的是中文。
+const MIXED_JAPANESE_SOURCE: u8 = 13;
+
 /// 候选列表通常不超过一页；短列表的文本引用放在栈上，较大列表继续走堆缓冲。
 const SMALL_RERANK_TEXTS: usize = 128;
 
@@ -215,8 +218,8 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     if rows.len() < 2 {
         return None;
     }
-    // 引擎让英文领先的列表原样保留，见 `ENGLISH_SOURCE`。
-    if rows.get(0).source == ENGLISH_SOURCE {
+    // 引擎让英文或日文混输行领先的列表原样保留，见 `ENGLISH_SOURCE`、`MIXED_JAPANESE_SOURCE`。
+    if matches!(rows.get(0).source, ENGLISH_SOURCE | MIXED_JAPANESE_SOURCE) {
         return None;
     }
     // A dictionary hit earns the model's deference because it carries corpus frequency for the
@@ -235,6 +238,7 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
         row.answers_key
             && !CATALOG_SOURCES.contains(&row.source)
             && !AI_SEAT_SOURCES.contains(&row.source)
+            && row.source != MIXED_JAPANESE_SOURCE
             && (corrections_lead || !row.corrected)
     };
     // Only candidates that answer the key are scored, so they are the ones the window has to leave room for.

@@ -88,6 +88,8 @@ pub struct EngineOptions {
     pub english_minimum_prefix: u8,
     pub mixed_emoji: bool,
     pub mixed_kaomoji: bool,
+    /// 日文混输（实验，`SessionOptions::japanese_mixing`）。宿主只在会话带日文、日文模型在场时打开它。
+    pub mixed_japanese: bool,
     pub local_unicode: bool,
     pub local_date_time: bool,
     pub local_quick_phrase: bool,
@@ -188,6 +190,7 @@ pub fn prepare_options_for(
         english_minimum_prefix: 5,
         mixed_emoji: false,
         mixed_kaomoji: false,
+        mixed_japanese: false,
         local_unicode: true,
         local_date_time: true,
         local_quick_phrase: true,
@@ -281,6 +284,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         emoji_candidates: options.mixed_emoji,
         kaomoji_candidates: options.mixed_kaomoji,
     };
+    session.japanese_mixing = options.mixed_japanese;
     session.local_modes = LocalModeOptions {
         unicode: options.local_unicode,
         date_time: options.local_date_time,

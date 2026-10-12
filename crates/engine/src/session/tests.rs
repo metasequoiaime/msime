@@ -765,6 +765,475 @@ fn picking_the_chinese_row_behind_a_leading_english_word_is_the_default_pick() {
     assert!(!fixture.journal().exists());
 }
 
+// ---- 日文混输（实验选项）----
+
+/// 日文混输的拼音词库：`kaishi` 有整段的词 开始，`ohayou`、`sugoi`、`tabemasu` 只有单字。
+const JAPANESE_MIXING_FIXTURE: &str =
+    "CREATE TABLE tbl_2_k(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_k VALUES('kai''shi','ks','开始',300);\
+CREATE TABLE tbl_1_k(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_k VALUES('kai','k','开',100);\
+CREATE TABLE tbl_1_s(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_s VALUES('shi','s','是',100),('su','s','苏',100);\
+CREATE TABLE tbl_1_o(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_o VALUES('o','o','哦',100);\
+CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_h VALUES('ha','h','哈',100);\
+CREATE TABLE tbl_1_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_y VALUES('you','y','有',100),('yo','y','哟',90);\
+CREATE TABLE tbl_1_t(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_t VALUES('ta','t','他',100);\
+CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_m VALUES('ma','m','吗',100);";
+
+/// 日文模型：おはよう、かいし（開始）、すごい有完整词条，食べ和ます拼出 `tabemasu`；没有にはお之类的词条，`nihao` 只能靠未知假名拼出来。かい、しょう是两拍的词条；すこし（少し）的成本超过「认得」的上限（每假名 1800）。
+fn japanese_mixing_model() -> Vec<u8> {
+    crate::japanese::decoder::test_model::bytes(
+        &[
+            ("おはよう", "おはよう", 0, 0, 500),
+            ("かい", "会", 0, 0, 400),
+            ("かいし", "開始", 0, 0, 800),
+            ("しょう", "章", 0, 0, 400),
+            ("すこし", "少し", 0, 0, 6000),
+            ("すごい", "すごい", 0, 0, 600),
+            ("たべ", "食べ", 0, 0, 700),
+            ("ます", "ます", 0, 0, 300),
+        ],
+        1,
+        &[0],
+    )
+}
+
+fn japanese_mixing_fixture() -> Fixture {
+    let fixture = Fixture::new(JAPANESE_MIXING_FIXTURE);
+    std::fs::write(
+        fixture.path().join(assets::JAPANESE_MODEL),
+        japanese_mixing_model(),
+    )
+    .unwrap();
+    fixture
+}
+
+fn japanese_session(fixture: &Fixture, configure: impl FnOnce(&mut SessionOptions)) -> Session {
+    fixture.session_with(|options| {
+        options.japanese_mixing = true;
+        configure(options);
+    })
+}
+
+/// 列表里日文混输行的下标；没有时为 `None`，有两行就失败。
+fn japanese_index(session: &Session) -> Option<usize> {
+    let sources = candidate_sources(session);
+    let mut rows = sources
+        .iter()
+        .enumerate()
+        .filter(|(_, source)| **source == CandidateSource::MixedJapanese)
+        .map(|(index, _)| index);
+    let first = rows.next();
+    assert_eq!(rows.next(), None, "{:?}", words(session));
+    first
+}
+
+/// 拼音给不出整段的词（`ohayou` 只有单字凑出来的读法）时日文领先；`kaishi` 有整段的词 开始，日文进优先位置；拼音拆不开的 `sugoi` 领先。行的各字段按约定填写。
+#[test]
+fn a_japanese_conversion_leads_or_follows_the_whole_chinese_word() {
+    let fixture = japanese_mixing_fixture();
+    let mut session = japanese_session(&fixture, |_| {});
+
+    type_text(&mut session, "ohayou");
+    assert_eq!(japanese_index(&session), Some(0), "{:?}", words(&session));
+    let row = session.snapshot().candidates[0].clone();
+    assert_eq!(row.word, "おはよう");
+    assert_eq!(row.pinyin, "ohayou");
+    assert_eq!(row.canonical_pinyin, "");
+    assert_eq!(row.weight, 0);
+    assert_eq!(row.scheme, SchemeType::JapaneseRomaji);
+    assert!(session.snapshot().candidate_answers_key[0]);
+    session.command(Command::Cancel);
+
+    type_text(&mut session, "kaishi");
+    assert_eq!(
+        &words(&session)[..2],
+        ["开始", "開始"],
+        "{:?}",
+        words(&session)
+    );
+    assert_eq!(japanese_index(&session), Some(1));
+    session.command(Command::Cancel);
+
+    type_text(&mut session, "sugoi");
+    assert_eq!(words(&session)[0], "すごい", "{:?}", words(&session));
+    session.command(Command::Cancel);
+
+    // 没有精确词条：拼音拆不开且整句的每个假名都认得时才给，`tabemasu` 给出 食べます。
+    type_text(&mut session, "tabemasu");
+    assert_eq!(words(&session)[0], "食べます", "{:?}", words(&session));
+    session.command(Command::Cancel);
+
+    // `nihao` 拼得开，又没有精确词条；`hello` 拼不开，但整句要靠未知假名：都不给。
+    for raw in ["nihao", "hello"] {
+        type_text(&mut session, raw);
+        assert_eq!(
+            japanese_index(&session),
+            None,
+            "{raw}: {:?}",
+            words(&session)
+        );
+        session.command(Command::Cancel);
+    }
+}
+
+/// 两拍的精确词条不算精确：拼得开的 `kai`（かい）、`shou`（しょう，拗音的小写假名不单算拍）都不混日文。拼音拆不开时只有精确词条、整句不认得的 `sukoshi`（少し）给一行但不领先，进优先位置。
+#[test]
+fn short_exact_readings_stay_out_and_unknown_readings_do_not_lead() {
+    let fixture = japanese_mixing_fixture();
+    let mut session = japanese_session(&fixture, |_| {});
+    for raw in ["kai", "shou"] {
+        type_text(&mut session, raw);
+        assert_eq!(
+            japanese_index(&session),
+            None,
+            "{raw}: {:?}",
+            words(&session)
+        );
+        session.command(Command::Cancel);
+    }
+
+    type_text(&mut session, "sukoshi");
+    assert_eq!(japanese_index(&session), Some(1), "{:?}", words(&session));
+    assert_eq!(words(&session)[1], "少し");
+}
+
+/// 日文混输的门槛：选项关着、会话不带日文、模型缺失、带撇号、不到两个假名、末尾还有待定字母、辅助码激活、光标前缀解码、专用英文，都不混日文。
+#[test]
+fn japanese_mixing_stays_out_unless_every_gate_passes() {
+    let fixture = japanese_mixing_fixture();
+    let mut off = fixture.session();
+    type_text(&mut off, "ohayou");
+    assert_eq!(japanese_index(&off), None);
+
+    let mut quanpin_only = japanese_session(&fixture, |options| {
+        options.enabled_schemes = SchemeSet::of(&[SchemeType::Quanpin]);
+    });
+    type_text(&mut quanpin_only, "ohayou");
+    assert_eq!(japanese_index(&quanpin_only), None);
+
+    let missing = Fixture::new(JAPANESE_MIXING_FIXTURE);
+    let mut missing = japanese_session(&missing, |_| {});
+    type_text(&mut missing, "ohayou");
+    assert_eq!(japanese_index(&missing), None);
+
+    let mut session = japanese_session(&fixture, |_| {});
+    for raw in ["kai'shi", "su", "kaish"] {
+        type_text(&mut session, raw);
+        assert_eq!(
+            japanese_index(&session),
+            None,
+            "{raw}: {:?}",
+            words(&session)
+        );
+        session.command(Command::Cancel);
+    }
+
+    // `ohayo` 能切成 o'ha'yo，大写的 U 是辅助码，转成小写正好是 `ohayou`。
+    type_text(&mut session, "ohayo");
+    assert!(session.character(b'U', false).handled);
+    assert!(session.input.has_active_helpcode());
+    assert_eq!(japanese_index(&session), None, "{:?}", words(&session));
+    session.command(Command::Cancel);
+
+    type_text(&mut session, "kaishi");
+    session.set_caret(Some(3));
+    assert!(session.input.prefix_active);
+    assert_eq!(japanese_index(&session), None, "{:?}", words(&session));
+    session.command(Command::Cancel);
+
+    session.set_dedicated_english(true);
+    type_text(&mut session, "ohayou");
+    assert_eq!(japanese_index(&session), None, "{:?}", words(&session));
+}
+
+/// 双拼也混：小鹤下 `sugoi` 是奇数长度，拆不开，日文领先；辅助码开着时第五键是辅助码，不混。
+#[test]
+fn shuangpin_mixes_a_japanese_conversion_too() {
+    let fixture = japanese_mixing_fixture();
+    let mut session = japanese_session(&fixture, |options| options.scheme = SchemeType::Shuangpin);
+    type_text(&mut session, "sugoi");
+    // 双拼辅助码开着时奇数长度的第五键算辅助码，不混日文。
+    assert!(session.input.has_active_helpcode());
+    assert_eq!(japanese_index(&session), None, "{:?}", words(&session));
+
+    let mut session = japanese_session(&fixture, |options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.helpcode = false;
+    });
+    type_text(&mut session, "sugoi");
+    assert_eq!(japanese_index(&session), Some(0), "{:?}", words(&session));
+    assert_eq!(words(&session)[0], "すごい");
+}
+
+/// 英文已经因为拼音拆不开、完全匹配占了首位时，领先的日文排在它后面；跟在这两行后面的中文才是默认选择。
+#[test]
+fn a_leading_japanese_conversion_follows_a_leading_english_word() {
+    let fixture = japanese_mixing_fixture()
+        .with_english("INSERT INTO english_words VALUES('tabemasu','tabemasu',100);");
+    let mut session = japanese_session(&fixture, |options| {
+        options.english.mixed_candidates = true;
+        options.personal_context = false;
+        options.frequency.mode = FrequencyAdjustmentMode::Promote;
+    });
+    type_text(&mut session, "tabemasu");
+    assert_eq!(
+        &words(&session)[..2],
+        ["tabemasu", "食べます"],
+        "{:?}",
+        words(&session)
+    );
+    assert_eq!(
+        candidate_sources(&session)[..2],
+        [
+            CandidateSource::EnglishDictionary,
+            CandidateSource::MixedJapanese
+        ]
+    );
+    let index = session.input.ranking_index(2).unwrap();
+    assert!(session.input.ranking_list()[index].source.is_dictionary());
+    assert_eq!(session.input.learn_candidate(index), None);
+    assert!(!fixture.journal().exists());
+}
+
+/// 文字和已有候选重复时不加日文行；有云候选时不领先的日文排在云候选后面，领先的仍在首位。
+#[test]
+fn japanese_rows_skip_duplicates_and_respect_the_online_seats() {
+    let fixture = japanese_mixing_fixture();
+    Connection::open(fixture.main_db())
+        .and_then(|connection| {
+            connection.execute_batch("INSERT INTO tbl_2_k VALUES('kai''shi','ks','開始',50);")
+        })
+        .unwrap();
+    let mut session = japanese_session(&fixture, |_| {});
+    type_text(&mut session, "kaishi");
+    assert_eq!(japanese_index(&session), None, "{:?}", words(&session));
+    assert_eq!(
+        words(&session)
+            .iter()
+            .filter(|word| *word == "開始")
+            .count(),
+        1
+    );
+    session.command(Command::Cancel);
+
+    let fixture = japanese_mixing_fixture();
+    let mut session = japanese_session(&fixture, |_| {});
+    type_text(&mut session, "kaishi");
+    let query = session.online_query().expect("全拼查询");
+    assert!(session.apply_online_candidates(
+        &query,
+        &["云候选".to_owned()],
+        CandidateSource::CloudSuggestion
+    ));
+    assert_eq!(
+        &words(&session)[..3],
+        ["开始", "云候选", "開始"],
+        "{:?}",
+        words(&session)
+    );
+    session.command(Command::Cancel);
+
+    type_text(&mut session, "ohayou");
+    let query = session.online_query().expect("全拼查询");
+    assert!(session.apply_online_candidates(
+        &query,
+        &["云候选".to_owned()],
+        CandidateSource::CloudSuggestion
+    ));
+    assert_eq!(words(&session)[0], "おはよう", "{:?}", words(&session));
+}
+
+/// 选中日文行整段上屏并结束组字：不推进组字、不学习（没有日志）、个人上下文链断开；它不能置顶、固定位置或删除。
+#[test]
+fn committing_a_japanese_row_ends_the_composition_and_learns_nothing() {
+    let fixture = japanese_mixing_fixture();
+    let mut session = japanese_session(&fixture, |options| {
+        options.frequency.mode = FrequencyAdjustmentMode::Promote;
+        options.frequency.trigger_count = 1;
+    });
+    // 先上屏一个中文词，个人上下文链有了上一个词。
+    type_text(&mut session, "kaishi");
+    assert_eq!(session.select(0).commit.as_deref(), Some("开始"));
+    assert_eq!(session.input.chain.previous.as_deref(), Some("开始"));
+    let journal_rows = |fixture: &Fixture| {
+        if fixture.journal().exists() {
+            count(&fixture.journal(), "SELECT COUNT(*) FROM sqlite_master")
+        } else {
+            0
+        }
+    };
+    let before = journal_rows(&fixture);
+
+    type_text(&mut session, "kaishi");
+    let index = japanese_index(&session).unwrap();
+    assert!(!session.pin(index).handled);
+    assert!(!session.remove(index).handled);
+    assert!(!session.fix_position(index, 1).handled);
+    assert_eq!(japanese_index(&session), Some(index));
+    assert!(!session
+        .input
+        .is_editable_source(&session.snapshot().candidates[index]));
+    let ranking = session.input.ranking_index(index).unwrap();
+    assert_eq!(session.input.learn_candidate(ranking), None);
+
+    let result = session.select(index);
+    assert_eq!(result.commit.as_deref(), Some("開始"));
+    let snapshot = session.snapshot();
+    assert!(snapshot.editing_text.is_empty() && snapshot.candidates.is_empty());
+    assert_eq!(session.input.chain.previous, None);
+    assert_eq!(journal_rows(&fixture), before);
+
+    // 领先的日文行，空格（首行）和结束组字的标点都整段上屏。
+    type_text(&mut session, "ohayou");
+    assert_eq!(session.select(0).commit.as_deref(), Some("おはよう"));
+    type_text(&mut session, "ohayou");
+    assert_eq!(
+        session.punctuation(b',').commit.as_deref(),
+        Some("おはよう，")
+    );
+    assert!(session.snapshot().editing_text.is_empty());
+}
+
+/// 日文领先时紧跟着的中文是默认选择：不调词频，不写日志。
+#[test]
+fn picking_the_chinese_row_behind_a_leading_japanese_row_is_the_default_pick() {
+    let fixture = japanese_mixing_fixture();
+    let mut session = japanese_session(&fixture, |options| {
+        options.personal_context = false;
+        options.frequency.mode = FrequencyAdjustmentMode::Promote;
+    });
+    type_text(&mut session, "tabemasu");
+    assert_eq!(japanese_index(&session), Some(0));
+    let index = session.input.ranking_index(1).unwrap();
+    assert!(session.input.ranking_list()[index].source.is_dictionary());
+    assert_eq!(session.input.learn_candidate(index), None);
+    assert!(!fixture.journal().exists());
+}
+
+/// 日文行不出辅助码：辅助码是给拼音筛汉字的，汉字写的日文词照样不标。
+#[test]
+fn japanese_rows_carry_no_helpcode() {
+    let fixture = Fixture::new(JAPANESE_MIXING_FIXTURE);
+    std::fs::write(
+        fixture.path().join(assets::JAPANESE_MODEL),
+        crate::japanese::decoder::test_model::bytes(&[("すごい", "好", 0, 0, 600)], 1, &[0]),
+    )
+    .unwrap();
+    let mut session = japanese_session(&fixture, |_| {});
+    type_text(&mut session, "sugoi");
+    let index = japanese_index(&session).unwrap();
+    assert_eq!(words(&session)[index], "好");
+    assert_eq!(session.snapshot().candidate_annotations[index], "");
+}
+
+/// 开着日文混输时建会话就在后台预热日文模型；关着时不碰它。
+#[test]
+fn japanese_mixing_warms_the_model_when_the_session_is_built() {
+    use crate::japanese::decoder::{JapaneseDictionary, SHARED_CACHE_TEST_LOCK};
+    let _serial = SHARED_CACHE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let fixture = japanese_mixing_fixture();
+    let model = fixture.path().join(assets::JAPANESE_MODEL);
+    let _off = fixture.session();
+    JapaneseDictionary::wait_until_warmed(&model);
+    assert!(!JapaneseDictionary::is_shared(&model));
+    let _on = japanese_session(&fixture, |_| {});
+    JapaneseDictionary::wait_until_warmed(&model);
+    assert!(JapaneseDictionary::is_shared(&model));
+}
+
+/// 出货词库加真实日文模型时日文混输的实际效果（产品默认的混输英文：从 5 个字母起）。需要 `MSIME_EVAL_RESOURCES`（含 `msime-pinyin.db`、`msime-english.db` 的资源目录），日文模型取 `MSIME_JAPANESE_MODEL`，没有时取资源目录里的 `msime-japanese.dat`；缺一样就跳过。`--nocapture` 看每个输入的前几行。
+#[test]
+fn real_resources_mix_japanese_conversions() {
+    let Some(resources) = std::env::var_os("MSIME_EVAL_RESOURCES") else {
+        eprintln!("skipped: MSIME_EVAL_RESOURCES is not set to a resource directory");
+        return;
+    };
+    let model = std::env::var_os("MSIME_JAPANESE_MODEL")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(&resources).join(assets::JAPANESE_MODEL));
+    if !model.is_file() {
+        eprintln!("skipped: no Japanese model at {}", model.display());
+        return;
+    }
+    let user = tempfile::tempdir().expect("user directory");
+    let mut prepared = crate::host::prepare_options(
+        resources.to_str().expect("UTF-8 resource path"),
+        user.path().join("user").to_str().unwrap(),
+        user.path().join("cache").to_str().unwrap(),
+        "real-japanese-mixing",
+    )
+    .expect("prepared options");
+    prepared.japanese_dictionary = model.to_string_lossy().into_owned();
+    prepared.mixed_japanese = true;
+    let options = crate::host::options::session_options(&prepared).expect("session options");
+    let mut session = Session::new(options).expect("session");
+    let mut shown = |raw: &str| {
+        type_text(&mut session, raw);
+        let snapshot = session.snapshot();
+        let head: Vec<String> = snapshot
+            .candidates
+            .iter()
+            .take(5)
+            .map(|item| format!("{}({})", item.word, item.source as u8))
+            .collect();
+        eprintln!("{raw:12} {}", head.join(" "));
+        let japanese = snapshot
+            .candidates
+            .iter()
+            .position(|item| item.source == CandidateSource::MixedJapanese);
+        let words: Vec<String> = snapshot
+            .candidates
+            .into_iter()
+            .map(|item| item.word)
+            .collect();
+        session.command(Command::Cancel);
+        (words, japanese)
+    };
+    for (raw, text) in [
+        ("ohayou", "おはよう"),
+        ("arigatou", "ありがとう"),
+        ("konnnichiha", "こんにちは"),
+        ("sugoi", "すごい"),
+        ("watashi", "私"),
+    ] {
+        let (words, japanese) = shown(raw);
+        assert_eq!(japanese, Some(0), "{raw}: {words:?}");
+        assert_eq!(words[0], text, "{raw}");
+    }
+    let (words, japanese) = shown("kaishi");
+    assert_eq!(&words[..2], ["开始", "開始"], "{words:?}");
+    assert_eq!(japanese, Some(1));
+    // 两拍的读音（すし、はお、かい、よう、しょう）有词条也不算精确；`wode`、`tamen` 只用来看效果。
+    for raw in [
+        "sushi",
+        "konnichiha",
+        "nihao",
+        "women",
+        "xiexie",
+        "shenme",
+        "zaijian",
+        "hao",
+        "kai",
+        "you",
+        "shou",
+    ] {
+        let (words, japanese) = shown(raw);
+        assert_eq!(japanese, None, "{raw}: {words:?}");
+    }
+    for raw in ["wode", "tamen"] {
+        shown(raw);
+    }
+}
+
 /// The prefix request carries the session's fuzzy rules.
 #[test]
 fn caret_prefix_applies_fuzzy_pinyin() {

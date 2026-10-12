@@ -263,6 +263,8 @@ pub enum Origin {
     Generated,
     /// The typed keys themselves, when nothing else matched.
     Fallback,
+    /// A Japanese conversion of the whole typed romaji, offered when the experimental Japanese mixing option is on, such as おはよう for `ohayou`.
+    Japanese,
 }
 
 impl From<CandidateOrigin> for Origin {
@@ -277,6 +279,7 @@ impl From<CandidateOrigin> for Origin {
             CandidateOrigin::Kaomoji => Self::Kaomoji,
             CandidateOrigin::Generated => Self::Generated,
             CandidateOrigin::Fallback => Self::Fallback,
+            CandidateOrigin::Japanese => Self::Japanese,
         }
     }
 }
@@ -309,4 +312,24 @@ impl From<LookupCandidate> for CandidateView {
 pub struct LookupView {
     /// In the order the input method ranks them, first to last.
     pub candidates: Vec<CandidateView>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 日文混输行在查询结果里叫 `japanese`，没有词条权重。
+    #[test]
+    fn a_japanese_mixing_candidate_is_reported_with_the_japanese_origin() {
+        let view = CandidateView::from(LookupCandidate {
+            text: "おはよう".into(),
+            code: "ohayou".into(),
+            origin: CandidateOrigin::Japanese,
+            weight: None,
+        });
+        assert_eq!(
+            serde_json::to_value(view).unwrap(),
+            serde_json::json!({ "text": "おはよう", "code": "ohayou", "origin": "japanese" })
+        );
+    }
 }

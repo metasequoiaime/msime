@@ -675,7 +675,11 @@ impl InputSession {
             .map(|item| {
                 let helpcode = match keymap {
                     Some(keymap)
-                        if enabled && item.source != CandidateSource::EnglishDictionary =>
+                        if enabled
+                            && !matches!(
+                                item.source,
+                                CandidateSource::EnglishDictionary | CandidateSource::MixedJapanese
+                            ) =>
                     {
                         compute_helpcodes(&item.word, uppercase_all, keymap)
                     }

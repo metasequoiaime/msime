@@ -15,6 +15,30 @@ export function VoiceLanguageOptions({ systemVoice = false }: VoiceLanguageOptio
   );
 }
 
+/** Display a stored language code in the same names used by the voice settings choices. */
+export function voiceLanguageTitle(language: string | undefined): string {
+  const code = (language ?? "").trim();
+  switch (code.toLowerCase()) {
+    case "":
+    case "zh":
+    case "zh-cn":
+      return "普通话";
+    case "yue":
+    case "zh-hk":
+      return "粤语";
+    case "en":
+    case "en-us":
+      return "英语";
+    case "ja":
+    case "ja-jp":
+      return "日语";
+    case "auto":
+      return "普通话 + 英语";
+    default:
+      return code;
+  }
+}
+
 /** 手机语音页提供的识别语言，按设计稿的顺序。它们是 Android 的 `VoicePage` 写入 `voice_input.language` 的值。 */
 export const MOBILE_VOICE_LANGUAGES = [
   { value: "zh-cn", label: "普通话" },

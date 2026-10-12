@@ -6,9 +6,9 @@ use std::sync::Arc;
 use super::decoder::JapaneseDictionary;
 #[cfg(test)]
 use super::matrix::search_converted;
-use super::matrix::{search_converted_into, JapaneseConversion};
+use super::matrix::{best_path, search_converted_into, BestPath, JapaneseConversion};
 use super::romaji::{
-    convert_romaji_into, hiragana_to_katakana_into, is_single_kana_conversion,
+    convert_romaji_into, count_morae, hiragana_to_katakana_into, is_single_kana_conversion,
     kana_for_romaji_prefix_view, RomajiConversion,
 };
 use crate::cache::FifoCache;
@@ -36,6 +36,15 @@ fn join_reading(prefix: &str, suffix: &str) -> String {
     reading.push_str(prefix);
     reading.push_str(suffix);
     reading
+}
+
+/// 整段读音的精确词条和长度，见 [`JapaneseProvider::whole_reading_lemma`]。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WholeReadingLemma {
+    /// 整段读音正好是某个词条的读音。
+    pub exact: bool,
+    /// 读音的拍数（`count_morae`：拗音、ふぁ一类的小写假名不单算）。
+    pub morae: usize,
 }
 
 pub struct JapaneseProvider {
@@ -330,6 +339,41 @@ impl JapaneseProvider {
         }
     }
 
+    /// 整段罗马字读音有没有完全相同读音的词条，以及读音有几拍（日文混输「精确」信号的原料，规则见 `ImeSession::mixed_japanese_conversion`）。`request` 是日文请求，同 [`JapaneseProvider::query_into`]；读音还有待定字母、不到两个假名，或者模型缺失时答 `None`：只能给假名行的时候不算日文。
+    pub(crate) fn whole_reading_lemma(
+        &mut self,
+        request: &QueryRequest,
+    ) -> Option<WholeReadingLemma> {
+        let dictionary = self.whole_reading_dictionary(request)?;
+        let mut exact = false;
+        dictionary.for_each_exact_lemma_view(&self.conversion.hiragana, 1, |_| exact = true);
+        Some(WholeReadingLemma {
+            exact,
+            morae: count_morae(&self.conversion.hiragana),
+        })
+    }
+
+    /// 整段罗马字读音的最佳整句和它用了几个未知假名（日文混输的转换文字和「认得」信号），与 `query_into` 第一行的整句是同一条路径。答 `None` 的条件同 [`JapaneseProvider::whole_reading_lemma`]。
+    pub(crate) fn whole_reading_best_path(&mut self, request: &QueryRequest) -> Option<BestPath> {
+        let dictionary = self.whole_reading_dictionary(request)?;
+        best_path(&dictionary, &self.conversion.hiragana)
+    }
+
+    /// 把整段读音转换进 `self.conversion`，读音完整、至少两个假名、模型读得到时交回模型。
+    fn whole_reading_dictionary(
+        &mut self,
+        request: &QueryRequest,
+    ) -> Option<Arc<JapaneseDictionary>> {
+        if !request.valid || request.scheme != SchemeType::JapaneseRomaji {
+            return None;
+        }
+        convert_romaji_into(&request.raw_input, &mut self.conversion);
+        if !self.conversion.complete || self.conversion.hiragana.chars().nth(1).is_none() {
+            return None;
+        }
+        self.dictionary()
+    }
+
     fn dictionary(&mut self) -> Option<Arc<JapaneseDictionary>> {
         self.dictionary
             .get_or_insert_with(|| JapaneseDictionary::shared(&self.model))
@@ -341,6 +385,9 @@ impl JapaneseProvider {
 mod tests {
     #[path = "pending_tests.rs"]
     mod pending_tests;
+
+    #[path = "mixed_tests.rs"]
+    mod mixed_tests;
 
     use super::super::decoder::test_model;
     use super::*;

@@ -44,6 +44,7 @@ fn options(root: &Path) -> EngineOptions {
         english_minimum_prefix: 5,
         mixed_emoji: false,
         mixed_kaomoji: false,
+        mixed_japanese: false,
         local_unicode: true,
         local_date_time: true,
         local_quick_phrase: true,
@@ -655,6 +656,8 @@ fn prepared_options_disable_quanpin_autocorrect_by_default() {
     assert!(!prepared.autocorrect_transposition);
     assert!(!prepared.autocorrect_neighbor);
     assert_eq!(prepared.english_minimum_prefix, 5);
+    // 日文混输是实验选项，产品默认关。
+    assert!(!prepared.mixed_japanese);
     assert_eq!(
         Path::new(&prepared.dictionaries),
         root.path()
@@ -1901,6 +1904,7 @@ fn session_options_map_every_host_field() {
     value.english_minimum_prefix = 7;
     value.mixed_emoji = true;
     value.mixed_kaomoji = true;
+    value.mixed_japanese = true;
     value.local_date_time = false;
     value.local_temporary_japanese = false;
     value.sentence_association.neural_keyboard = true;
@@ -1943,6 +1947,7 @@ fn session_options_map_every_host_field() {
     assert!(!mapped.english.mixed_candidates);
     assert_eq!(mapped.english.minimum_prefix, 7);
     assert!(mapped.expressive.emoji_candidates && mapped.expressive.kaomoji_candidates);
+    assert!(mapped.japanese_mixing);
     assert!(!mapped.local_modes.date_time && !mapped.local_modes.temporary_japanese);
     assert!(mapped.local_modes.unicode && mapped.local_modes.temporary_english);
     assert!(mapped.sentence_association.neural_keyboard);
@@ -2205,6 +2210,8 @@ fn gloss_keys_follow_the_bridge_rules() {
     );
     assert_eq!(candidate_gloss_key("天气", 6), None);
     assert_eq!(candidate_gloss_key("天气", 7), None);
+    // 日文混输行的汉字是日文，不当中文查释义。
+    assert_eq!(candidate_gloss_key("私", 13), None);
     assert_eq!(candidate_gloss_key("- '", 4), None);
     assert_eq!(candidate_gloss_key("123", 0), None);
     assert_eq!(candidate_gloss_key("〇", 0), None);

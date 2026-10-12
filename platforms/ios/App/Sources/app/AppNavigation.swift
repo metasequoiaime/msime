@@ -69,6 +69,7 @@ struct AccountLoginSheet: View {
     .presentationCornerRadius(20)
     .presentationBackground(MetasequoiaTheme.canvas)
     .accessibilityIdentifier("accountLoginSheet")
+    .onDisappear { model.invalidate() }
   }
 
   private var compactDetent: PresentationDetent { contentHeight.map { .height($0) } ?? .medium }

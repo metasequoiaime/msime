@@ -1766,6 +1766,9 @@ pub struct MixedInputPreferences {
     pub minimum_prefix: u8,
     pub emoji: bool,
     pub kaomoji: bool,
+    /// 实验选项：全拼、双拼里给整段罗马字补一个日文转换候选（ohayou → おはよう）。后加的成员，缺省为关；关着时不写进文档，旧版本和只写前四项的宿主都还能读。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub japanese: bool,
 }
 
 impl Default for MixedInputPreferences {
@@ -1775,6 +1778,7 @@ impl Default for MixedInputPreferences {
             minimum_prefix: 5,
             emoji: source_mixed_emoji_default(),
             kaomoji: false,
+            japanese: false,
         }
     }
 }

@@ -1,0 +1,14 @@
+schema_version = 2
+kind = "script"
+id = "rare-chars-last"
+name = "生僻字靠后"
+version = "1.0.0"
+license = "MIT AND Unicode-3.0 AND Apache-2.0"
+description = "把含生僻字（不在《通用规范汉字表》及其繁体形里的汉字）的候选移到候选窗口末尾，其余候选保持原来的顺序；首选不动"
+permissions = ["read_candidates", "rerank_candidates"]
+
+[script]
+abi = 1
+module = "rare-chars-last.wasm"
+hooks = ["candidates"]
+memory_pages = 2

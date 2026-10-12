@@ -43,3 +43,35 @@ test("disabling English mixed input disables its threshold without changing its 
   expect(threshold.disabled).toBe(true);
   expect(threshold.value).toBe("5");
 });
+
+test("Japanese mixed input is off when the document predates it and toggles on its own", () => {
+  const onChange = vi.fn();
+  const view = render(<MixedInputSection preferences={preferences} onChange={onChange} />);
+
+  const japanese = screen.getByRole("switch", { name: /^日文混输（实验）/ }) as HTMLInputElement;
+  expect(japanese.checked).toBe(false);
+  fireEvent.click(japanese);
+  expect(onChange).toHaveBeenLastCalledWith({ ...preferences, japanese: true });
+
+  view.rerender(
+    <MixedInputSection preferences={{ ...preferences, japanese: true }} onChange={onChange} />,
+  );
+  expect(
+    (screen.getByRole("switch", { name: /^日文混输（实验）/ }) as HTMLInputElement).checked,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("switch", { name: /^日文混输（实验）/ }));
+  expect(onChange).toHaveBeenLastCalledWith({ ...preferences, japanese: false });
+});
+
+test("an edition without temporary Japanese does not list Japanese mixed input", () => {
+  render(
+    <MixedInputSection
+      preferences={{ ...preferences, japanese: true }}
+      temporaryJapanese={false}
+      onChange={vi.fn()}
+    />,
+  );
+
+  expect(screen.queryByRole("switch", { name: /^日文混输（实验）/ })).toBeNull();
+  expect(screen.getByRole("switch", { name: /^颜文字混输/ })).toBeTruthy();
+});

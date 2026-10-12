@@ -156,6 +156,12 @@ fn text(code: i32, buffer: &[u8]) -> Result<&str, Error> {
     core::str::from_utf8(&buffer[..len]).map_err(|_| Error::Invalid)
 }
 
+/// 复制文本到 `buffer`，不做 UTF-8 校验，直接交回其中的那一段字节。
+fn raw(code: i32, buffer: &[u8]) -> Result<&[u8], Error> {
+    let len = check(i64::from(code))? as usize;
+    Ok(&buffer[..len])
+}
+
 fn cap(buffer: &[u8]) -> i32 {
     i32::try_from(buffer.len()).unwrap_or(i32::MAX)
 }
@@ -265,7 +271,7 @@ pub mod composition {
 
 /// `read_commit`：选中的候选和上屏文本。
 pub mod commit {
-    use super::{cap, check, sys, text as decoded, Error};
+    use super::{cap, check, raw, sys, text as decoded, Error};
 
     /// 文本：选中的候选（`candidate_selected`）。
     pub const SELECTED: i32 = 0;
@@ -282,6 +288,12 @@ pub mod commit {
         decoded(code, buffer)
     }
 
+    /// 和 [`text`] 一样，但不做 UTF-8 校验，交回字节。宿主给的总是合法 UTF-8，而校验在解释器里每个汉字要上百 fuel，逐字扫描文本的插件用它更省。
+    pub fn bytes(field: i32, buffer: &mut [u8]) -> Result<&[u8], Error> {
+        let code = unsafe { sys::commit_text(field, buffer.as_mut_ptr(), cap(buffer)) };
+        raw(code, buffer)
+    }
+
     /// 文本字段的字节数，或者 `SEAT`。
     pub fn scalar(field: i32) -> Result<u64, Error> {
         check(unsafe { sys::commit_scalar(field) })
@@ -290,7 +302,7 @@ pub mod commit {
 
 /// `read_candidates`：候选窗口里的前 20 行，插件变换之前的顺序和注释（`candidates_shown`、`candidates`）。
 pub mod candidates {
-    use super::{cap, check, sys, text as decoded, Error};
+    use super::{cap, check, raw, sys, text as decoded, Error};
 
     pub const SOURCE: i32 = 0;
     pub const TEXT_LEN: i32 = 1;
@@ -309,6 +321,12 @@ pub mod candidates {
     pub fn text(index: u32, buffer: &mut [u8]) -> Result<&str, Error> {
         let code = unsafe { sys::candidate_text(index as i32, buffer.as_mut_ptr(), cap(buffer)) };
         decoded(code, buffer)
+    }
+
+    /// 第 `index` 行的文本，不做 UTF-8 校验，交回字节；理由同 [`super::commit::bytes`]。
+    pub fn bytes(index: u32, buffer: &mut [u8]) -> Result<&[u8], Error> {
+        let code = unsafe { sys::candidate_text(index as i32, buffer.as_mut_ptr(), cap(buffer)) };
+        raw(code, buffer)
     }
 
     pub fn code(index: u32, buffer: &mut [u8]) -> Result<&str, Error> {

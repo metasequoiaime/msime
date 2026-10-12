@@ -56,6 +56,8 @@ pub struct SessionOptions {
     pub local_modes: LocalModeOptions,
     pub english: EnglishInputOptions,
     pub expressive: MixedExpressiveOptions,
+    /// 日文混输（实验选项，默认关）：全拼、双拼组字时，整段输入像日文罗马字就混进一行日文转换（来源 `MixedJapanese`），见 `ImeSession::mixed_japanese_conversion`。需要会话带日文（`enabled_schemes` 含 `JapaneseRomaji`）和日文模型；开着时建会话就在后台预热模型。
+    pub japanese_mixing: bool,
     pub wubi: WubiInputOptions,
     /// Learn word sequences and pick pairs; also needs `learning`.
     pub personal_context: bool,
@@ -101,6 +103,7 @@ impl SessionOptions {
             local_modes: LocalModeOptions::default(),
             english: EnglishInputOptions::default(),
             expressive: MixedExpressiveOptions::default(),
+            japanese_mixing: false,
             wubi: WubiInputOptions::default(),
             personal_context: true,
             sentence_association: SentenceAssociationOptions::default(),

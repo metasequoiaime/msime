@@ -12,6 +12,8 @@ use crate::cantonese::{CantoneseCandidate, CantoneseDictionary, CantoneseScheme,
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::helpcode::SharedKeymap;
+use crate::japanese::matrix::BestPath;
+use crate::japanese::provider::WholeReadingLemma;
 use crate::japanese::JapaneseProvider;
 use crate::korean::hanja;
 use crate::language_dictionary::{self, LanguageDictionary};
@@ -422,6 +424,29 @@ impl ProviderRegistry {
             japanese.query_into(request, destination);
         } else {
             destination.clear();
+        }
+    }
+
+    /// 日文混输：整段罗马字读音有没有完全相同读音的词条，读音有几拍。会话不带日文（`enabled` 里没有 `JapaneseRomaji`）时没有 provider，答 `None`；其余见 `JapaneseProvider::whole_reading_lemma`。
+    pub(super) fn japanese_whole_reading_lemma(
+        &mut self,
+        request: &QueryRequest,
+    ) -> Option<WholeReadingLemma> {
+        self.japanese.as_mut()?.whole_reading_lemma(request)
+    }
+
+    /// 日文混输：整段罗马字读音的最佳整句。没有 provider 时答 `None`；其余见 `JapaneseProvider::whole_reading_best_path`。
+    pub(super) fn japanese_whole_reading_best_path(
+        &mut self,
+        request: &QueryRequest,
+    ) -> Option<BestPath> {
+        self.japanese.as_mut()?.whole_reading_best_path(request)
+    }
+
+    /// 日文混输开着时由会话构造调用：在后台把日文模型读进进程级缓存，拼音组字的第一个键不必在按键线程上等这个 66 MB 的文件。没有 provider 时什么也不做。
+    pub(super) fn warm_up_japanese(&self) {
+        if let Some(japanese) = &self.japanese {
+            japanese.warm_up_in_background();
         }
     }
 

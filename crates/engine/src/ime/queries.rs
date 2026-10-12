@@ -196,7 +196,7 @@ impl CandidateQueries {
         candidates
     }
 
-    /// 英文、emoji、颜文字混入拼音列表，规则见 `insert_mixed_rows`。英文第一行默认进 candidate_queries.cpp:101-195 的优先位置（首选之后）；只有 `english_may_lead` 为真、输入拆不成完整音节（全拼 `is_complete_pinyin_input`，双拼 `is_complete_input`），且去重后剩下的第一行英文正好就是整段输入时，它才占首位。这条规则从不比较英文和拼音的权重，两边不在一个尺度上（#1040、#1063）。不是全拼、双拼，在本地模式或专用英文里，或者什么都没开时原样返回。
+    /// 英文、emoji、颜文字和日文混输行混入拼音列表，规则见 `insert_mixed_rows_with_japanese`。英文第一行默认进 candidate_queries.cpp:101-195 的优先位置（首选之后）；只有 `english_may_lead` 为真、输入拆不成完整音节（全拼 `is_complete_pinyin_input`，双拼 `is_complete_input`），且去重后剩下的第一行英文正好就是整段输入时，它才占首位。这条规则从不比较英文和拼音的权重，两边不在一个尺度上（#1040、#1063）。`japanese` 是调用方已经判定要混入的那一行日文（见 `InputSession::mixed_japanese_row`），这里只决定它的位置。不是全拼、双拼，在本地模式或专用英文里，或者什么都没开时原样返回。
     #[allow(clippy::too_many_arguments)]
     pub fn mixed(
         &mut self,
@@ -208,10 +208,12 @@ impl CandidateQueries {
         dedicated_english: bool,
         local_mode: LocalInputMode,
         english_may_lead: bool,
+        japanese: Option<MixedJapaneseRow>,
     ) -> Vec<WordItem> {
         let anything_enabled = english.mixed_candidates
             || expressive.emoji_candidates
-            || expressive.kaomoji_candidates;
+            || expressive.kaomoji_candidates
+            || japanese.is_some();
         if !anything_enabled
             || dedicated_english
             || local_mode != LocalInputMode::None
@@ -246,38 +248,61 @@ impl CandidateQueries {
         // 只有查到了英文才算音节完整性：双拼的判定每段要分配一次。
         let english_lead = (english_may_lead
             && !english_rows.is_empty()
-            && !self.spells_whole_syllables(prefix, scheme))
+            && !spells_whole_syllables(prefix, scheme, self.profile))
         .then_some(prefix);
-        insert_mixed_rows(
+        insert_mixed_rows_with_japanese(
             candidates,
             english_rows,
             emoji_rows,
             kaomoji_rows,
             english_lead,
+            japanese,
         )
     }
+}
 
-    /// 输入能不能整段切成完整音节。全拼看严格的完整音节（不认纠错和别名），双拼看是不是每两键一个音节；其余方案不让英文领先，按完整算。
-    fn spells_whole_syllables(&self, input: &str, scheme: SchemeType) -> bool {
-        match scheme {
-            SchemeType::Quanpin => crate::pinyin::segment::is_complete_pinyin_input(input),
-            SchemeType::Shuangpin => {
-                crate::shuangpin::query::is_complete_input(input, self.profile)
-            }
-            _ => true,
-        }
+/// 输入能不能整段切成完整音节。全拼看严格的完整音节（不认纠错和别名），双拼看是不是每两键一个音节；其余方案不让英文、日文领先，按完整算。
+pub(crate) fn spells_whole_syllables(
+    input: &str,
+    scheme: SchemeType,
+    profile: &ShuangpinProfile,
+) -> bool {
+    match scheme {
+        SchemeType::Quanpin => crate::pinyin::segment::is_complete_pinyin_input(input),
+        SchemeType::Shuangpin => crate::shuangpin::query::is_complete_input(input, profile),
+        _ => true,
     }
+}
+
+/// 日文混输要混进列表的那一行（来源 `MixedJapanese`），以及它是否领先。
+#[derive(Debug, Clone, PartialEq)]
+pub struct MixedJapaneseRow {
+    pub item: WordItem,
+    /// 占首位，否则进优先位置；规则见 `InputSession::mixed_japanese_row`。
+    pub lead: bool,
 }
 
 /// 每组先按文字与列表、与前面各组去重。英文的第一行放进优先位置（首选之后，有云候选、AI 候选时再往后），其余接在末尾；`english_lead` 是调用方判定英文可以领先的那段输入（拼音拆不开的整段），去重后剩下的第一行英文正好拼出它时占首位，有云候选、AI 候选时也一样，其余英文照旧接在末尾。完全匹配的那行因为和候选重复被去掉时不领先，不拿补全词顶上。emoji、颜文字接在它描绘的那个候选词后面，接不上的排在末尾，见 `anchor_expressive_rows`。
 fn insert_mixed_rows(
+    candidates: Vec<WordItem>,
+    english: Vec<WordItem>,
+    emoji: Vec<ExpressiveRow>,
+    kaomoji: Vec<ExpressiveRow>,
+    english_lead: Option<&str>,
+) -> Vec<WordItem> {
+    insert_mixed_rows_with_japanese(candidates, english, emoji, kaomoji, english_lead, None)
+}
+
+/// `insert_mixed_rows` 再加上日文混输的那一行：在英文之后、emoji 和颜文字之前放进列表。文字和已有候选（含刚放进去的英文）重复时不加。领先时占首位，英文已经按 `english_lead` 占了首位时排在它后面（下标 1）；不领先时进和英文相同的优先位置（`priority_slot`），排在英文那一行前面。
+fn insert_mixed_rows_with_japanese(
     mut candidates: Vec<WordItem>,
     mut english: Vec<WordItem>,
     mut emoji: Vec<ExpressiveRow>,
     mut kaomoji: Vec<ExpressiveRow>,
     english_lead: Option<&str>,
+    japanese: Option<MixedJapaneseRow>,
 ) -> Vec<WordItem> {
-    if english.is_empty() && emoji.is_empty() && kaomoji.is_empty() {
+    if english.is_empty() && emoji.is_empty() && kaomoji.is_empty() && japanese.is_none() {
         return candidates;
     }
     // 借用现有候选词并原地筛掉重复项；释放这些借用后再把候选行移入结果。
@@ -307,17 +332,30 @@ fn insert_mixed_rows(
     retain_masked_rows(&mut english, english_unique);
     retain_masked_rows(&mut emoji, emoji_unique);
     retain_masked_rows(&mut kaomoji, kaomoji_unique);
-    candidates.reserve(english.len() + emoji.len() + kaomoji.len());
+    candidates
+        .reserve(english.len() + emoji.len() + kaomoji.len() + usize::from(japanese.is_some()));
 
     let mut english = english.into_iter();
+    let mut english_led = false;
     if let Some(first) = english.next() {
-        let slot = if english_lead.is_some_and(|input| first.pinyin == input) {
+        english_led = english_lead.is_some_and(|input| first.pinyin == input);
+        let slot = if english_led {
             0
         } else {
             priority_slot(&candidates)
         };
         candidates.insert(slot, first);
         candidates.extend(english);
+    }
+    if let Some(japanese) =
+        japanese.filter(|row| !candidates.iter().any(|item| item.word == row.item.word))
+    {
+        let slot = if japanese.lead {
+            usize::from(english_led)
+        } else {
+            priority_slot(&candidates)
+        };
+        candidates.insert(slot, japanese.item);
     }
     anchor_expressive_rows(&mut candidates, emoji, kaomoji);
     candidates
@@ -946,6 +984,7 @@ mod tests {
                 dedicated,
                 local,
                 true,
+                None,
             );
             assert_eq!(
                 list,
@@ -995,6 +1034,179 @@ mod tests {
 
         assert_eq!(candidates.len(), 11);
         assert_eq!(candidates.capacity(), 11);
+    }
+
+    fn japanese(word: &str, lead: bool) -> Option<MixedJapaneseRow> {
+        let mut item = WordItem::new("kaishi", word, 0, CandidateSource::MixedJapanese, "");
+        item.scheme = SchemeType::JapaneseRomaji;
+        Some(MixedJapaneseRow { item, lead })
+    }
+
+    fn kaishi_chinese() -> Vec<WordItem> {
+        vec![
+            WordItem::new("kaishi", "开始", 1, CandidateSource::Database, "kai'shi"),
+            WordItem::new("kai", "开", 1, CandidateSource::Database, "kai"),
+        ]
+    }
+
+    /// 领先的日文行占首位；不领先时进优先位置，排在英文那一行前面；emoji 照旧接在它描绘的词后面。
+    #[test]
+    fn a_japanese_row_leads_or_takes_the_priority_slot_ahead_of_english() {
+        let led = insert_mixed_rows_with_japanese(
+            kaishi_chinese(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            japanese("開始", true),
+        );
+        assert_eq!(words(&led), vec!["開始", "开始", "开"]);
+
+        let slotted = insert_mixed_rows_with_japanese(
+            kaishi_chinese(),
+            vec![english("kaishi", "kaishi")],
+            vec![depicting("🎬", CandidateSource::Emoji, "开始")],
+            Vec::new(),
+            None,
+            japanese("開始", false),
+        );
+        assert_eq!(words(&slotted), vec!["开始", "🎬", "開始", "kaishi", "开"]);
+
+        // 只有一行中文时，不领先的日文跟在它后面、英文前面。
+        let short = insert_mixed_rows_with_japanese(
+            vec![WordItem::new(
+                "kaishi",
+                "开始",
+                1,
+                CandidateSource::Database,
+                "kai'shi",
+            )],
+            vec![english("kaishi", "kaishi")],
+            Vec::new(),
+            Vec::new(),
+            None,
+            japanese("開始", false),
+        );
+        assert_eq!(words(&short), vec!["开始", "開始", "kaishi"]);
+    }
+
+    /// 英文按拼音拆不开、完全匹配占了首位时，领先的日文排第二。
+    #[test]
+    fn a_leading_japanese_row_follows_a_leading_english_word() {
+        let list = insert_mixed_rows_with_japanese(
+            hello_chinese(),
+            vec![english("hello", "hello")],
+            Vec::new(),
+            Vec::new(),
+            Some("hello"),
+            japanese("へっぉ", true),
+        );
+        assert_eq!(words(&list), vec!["hello", "へっぉ", "何咯", "和"]);
+        // 英文没有领先（只是补全）时日文占首位。
+        let list = insert_mixed_rows_with_japanese(
+            hello_chinese(),
+            vec![english("hellos", "hellos")],
+            Vec::new(),
+            Vec::new(),
+            Some("hello"),
+            japanese("へっぉ", true),
+        );
+        assert_eq!(words(&list), vec!["へっぉ", "何咯", "hellos", "和"]);
+    }
+
+    /// 有云候选、AI 候选或占位行时，不领先的日文和英文一样往后让，领先的仍在首位。
+    #[test]
+    fn japanese_rows_respect_the_cloud_and_ai_seats() {
+        for (ai, slot) in [
+            (None, 2),
+            (Some(CandidateSource::AiSuggestion), 3),
+            (Some(CandidateSource::AiPending), 3),
+        ] {
+            let with_online = || {
+                let mut list = kaishi_chinese();
+                list.insert(1, row("云", CandidateSource::CloudSuggestion));
+                if let Some(ai) = ai {
+                    list.insert(2, row("智", ai));
+                }
+                list
+            };
+            let slotted = insert_mixed_rows_with_japanese(
+                with_online(),
+                vec![english("kaishi", "kaishi")],
+                Vec::new(),
+                Vec::new(),
+                None,
+                japanese("開始", false),
+            );
+            assert_eq!(slotted[slot].word, "開始", "{ai:?} {:?}", words(&slotted));
+            assert_eq!(slotted[slot + 1].word, "kaishi", "{ai:?}");
+            let led = insert_mixed_rows_with_japanese(
+                with_online(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                None,
+                japanese("開始", true),
+            );
+            assert_eq!(led[0].word, "開始", "{ai:?}");
+        }
+    }
+
+    /// 日文文字和已有候选（含混进来的英文）重复时不加。
+    #[test]
+    fn a_duplicate_japanese_row_is_dropped() {
+        let mut list = kaishi_chinese();
+        list.push(WordItem::new(
+            "kaishi",
+            "開始",
+            1,
+            CandidateSource::Database,
+            "kai'shi",
+        ));
+        let merged = insert_mixed_rows_with_japanese(
+            list,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            japanese("開始", true),
+        );
+        assert_eq!(words(&merged), vec!["开始", "开", "開始"]);
+        assert!(merged
+            .iter()
+            .all(|item| item.source != CandidateSource::MixedJapanese));
+
+        let merged = insert_mixed_rows_with_japanese(
+            kaishi_chinese(),
+            vec![english("kaishi", "OK")],
+            Vec::new(),
+            Vec::new(),
+            None,
+            japanese("OK", false),
+        );
+        assert_eq!(words(&merged), vec!["开始", "OK", "开"]);
+        assert_eq!(merged[1].source, CandidateSource::EnglishDictionary);
+    }
+
+    /// 只开了日文混输（英文、emoji、颜文字都关）时 `mixed` 也要把日文行混进去。
+    #[test]
+    fn mixed_inserts_a_japanese_row_with_everything_else_off() {
+        let mut queries = CandidateQueries::new(
+            &RuntimePaths::default(),
+            crate::shuangpin::profile::default_profile(),
+        );
+        let list = queries.mixed(
+            kaishi_chinese(),
+            "kaishi",
+            SchemeType::Quanpin,
+            EnglishInputOptions::default(),
+            MixedExpressiveOptions::default(),
+            false,
+            LocalInputMode::None,
+            true,
+            japanese("開始", false),
+        );
+        assert_eq!(words(&list), vec!["开始", "開始", "开"]);
     }
 
     /// 英文库里的一行：`key` 是小写词，`display` 是显示的写法。
@@ -1138,6 +1350,7 @@ mod tests {
             false,
             LocalInputMode::None,
             english_may_lead,
+            None,
         )
     }
 
