@@ -944,9 +944,9 @@
     pointer-events: none;
   }
   & .wnd-h {
-    /* 卡片内边距，单独命名是为了让装饰图的几何（`external-skin-decorated`）读到与卡片相同的 pad_x / pad_y。宿主给了 `--msime-host-pad` 时用宿主的。 */
-    --msime-candidate-pad-x: var(--msime-host-pad, 1px);
-    --msime-candidate-pad-y: var(--msime-host-pad, 2px);
+    /* 卡片内边距，单独命名是为了让装饰图的几何（`external-skin-decorated`）读到与卡片相同的 pad_x / pad_y。用户设了内边距（`--msime-candidate-user-pad`）时用它，否则宿主给了 `--msime-host-pad` 时用宿主的。 */
+    --msime-candidate-pad-x: var(--msime-candidate-user-pad, var(--msime-host-pad, 1px));
+    --msime-candidate-pad-y: var(--msime-candidate-user-pad, var(--msime-host-pad, 2px));
     /* 行圆角取宿主的行圆角；用户设了窗口圆角时行不比它更圆，皮肤包的圆角不改行圆角，与各宿主相同。 */
     --msime-candidate-row-radius: min(
       var(--msime-host-row-radius, 4px),
@@ -1091,8 +1091,8 @@
     }
   }
   & .wnd-v {
-    --msime-candidate-pad-x: var(--msime-host-pad, 2px);
-    --msime-candidate-pad-y: var(--msime-host-pad, 2px);
+    --msime-candidate-pad-x: var(--msime-candidate-user-pad, var(--msime-host-pad, 2px));
+    --msime-candidate-pad-y: var(--msime-candidate-user-pad, var(--msime-host-pad, 2px));
     --msime-candidate-row-radius: min(
       var(--msime-host-row-radius, 4px),
       var(--msime-candidate-user-radius, var(--msime-host-row-radius, 4px))

@@ -3362,6 +3362,7 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
     candidate_window_scale: false,
     candidate_window_opacity: false,
     candidate_corner_radius: false,
+    candidate_padding: false,
     input_mode_hud: false,
     input_mode_status_item: false,
     candidate_english_font: false,
@@ -3607,6 +3608,7 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
     candidate_window_scale: false,
     candidate_window_opacity: false,
     candidate_corner_radius: false,
+    candidate_padding: false,
     input_mode_hud: false,
     input_mode_status_item: false,
     candidate_english_font: false,
@@ -7387,7 +7389,9 @@ test("on macOS the page number switch names the page arrows and saves show_candi
   const toggle = within(appearance).getByLabelText("显示页码和翻页按钮") as HTMLInputElement;
   expect(toggle.checked).toBe(true);
   expect(
-    within(appearance).getByText("关闭后候选窗不再显示「1 / 3」和 ‹ ›，键盘、滚轮翻页照常。"),
+    within(appearance).getByText(
+      "关闭后候选窗不再显示「1 / 3」和 ‹ ›，仍可用键盘翻页；鼠标滚轮翻页默认关闭，需要时在「输入 › 选词与翻页」里打开。",
+    ),
   ).toBeTruthy();
   fireEvent.click(toggle);
   saveSettingsNow();

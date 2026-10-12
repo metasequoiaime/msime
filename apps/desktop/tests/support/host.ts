@@ -41,6 +41,7 @@ export function testHost(
     candidate_window_scale: false,
     candidate_window_opacity: false,
     candidate_corner_radius: false,
+    candidate_padding: false,
     candidate_follow_cursor: false,
     input_mode_hud: macos,
     input_mode_status_item: macos,

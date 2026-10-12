@@ -137,6 +137,8 @@ ResolvedSkin StyledCandidateSkin(ResolvedSkin skin, const CandidateWindowStyle &
         tokens.candidateRadius = std::min(tokens.candidateRadius, tokens.radius);
         tokens.selectedRadius = std::min(tokens.selectedRadius, tokens.radius);
     }
+    // 用户设的内边距先于皮肤包和原生的 6pt，和圆角一样在缩放之前替换，所以「整体大小」照样把它放大（#7316）。窗口绘制时仍至少留 2pt，见 InputController 的 inset。
+    if (style.padding) tokens.pad = static_cast<float>(std::clamp(*style.padding, 0.0, 16.0));
     const float opacity = static_cast<float>(std::clamp(style.opacity, 0.0, 1.0));
     tokens.surface.a *= opacity;
     tokens.border.a *= opacity;

@@ -280,6 +280,43 @@ static void TestCandidateWindowStyle(MSIMEAppearancePreferences *preferences, NS
     preferences.candidateCornerRadius = @33;
     assert(preferences.candidateScalePercent == 125 && preferences.candidateOpacityPercent == 80 && preferences.candidateCornerRadius == nil);
 
+    // 内边距 (#7316) works like the radius: it follows the skin until set, a document's value inside 0-16 is honoured, the slider writes it here and 跟随皮肤 hands it back with an explicit null.
+    {
+        NSSlider *padding = (id)FindControl(root, @"内边距");
+        NSButton *followPadding = (id)FindControl(root, @"内边距跟随皮肤");
+        assert([padding isKindOfClass:NSSlider.class] && [followPadding isKindOfClass:NSButton.class]);
+        assert(padding.minValue == 2 && padding.maxValue == 16);
+        [preferences applySharedCandidatePreferences:@{}];
+        assert(preferences.candidatePadding == nil && !followPadding.enabled);
+        assert(padding.integerValue == lround([preferences resolvedSkinForDark:NO].tokens.pad));
+        assert([preferences sharedPreferencesByMerging:@{}][@"candidate_padding"] == NSNull.null);
+        [preferences applySharedCandidatePreferences:@{@"candidate_padding": @3}];
+        assert([preferences.candidatePadding isEqual:@3] && followPadding.enabled && padding.integerValue == 3);
+        assert([preferences candidateWindowSkinForDark:NO].tokens.pad == 3.0f);
+        for (id invalid in @[ @17, @(-1), @"3", @YES, @2.5 ]) {
+            [preferences applySharedCandidatePreferences:@{@"candidate_padding": invalid}];
+            assert([preferences.candidatePadding isEqual:@3]);
+        }
+        [preferences applySharedCandidatePreferences:@{@"candidate_padding": @0}];
+        assert([preferences.candidatePadding isEqual:@0]);
+        [preferences applySharedCandidatePreferences:@{@"candidate_padding": NSNull.null}];
+        assert(preferences.candidatePadding == nil);
+
+        padding.integerValue = 2;
+        [NSApp sendAction:padding.action to:padding.target from:padding];
+        assert([preferences.candidatePadding isEqual:@2]);
+        MSIMEAppearancePreferences *again = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot];
+        assert([again.candidatePadding isEqual:@2]);
+        NSDictionary *paddedDocument = MSIMEMergePreferenceSnapshot(@{@"candidate_padding": @9}, [preferences sharedPreferencesByMerging:@{}]);
+        assert([paddedDocument[@"candidate_padding"] isEqual:@2]);
+        [NSApp sendAction:followPadding.action to:followPadding.target from:followPadding];
+        assert(preferences.candidatePadding == nil);
+        paddedDocument = MSIMEMergePreferenceSnapshot(paddedDocument, [preferences sharedPreferencesByMerging:@{}]);
+        assert(paddedDocument[@"candidate_padding"] == NSNull.null);
+        preferences.candidatePadding = @17;
+        assert(preferences.candidatePadding == nil);
+    }
+
     // 字体预设: this host's family for the preset, all of the preset's names at the front of the fallback list, then what the user had, without repeats.
     preferences.fallbackFonts = @[@"Menlo", @"SimSun"];
     [presets selectItemAtIndex:1];

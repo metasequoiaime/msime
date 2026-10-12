@@ -10107,6 +10107,21 @@ int main(int argc, char **argv) {
             appearance.candidateCornerRadius = nil;
             [controller appearanceChanged:nil];
             assert(NSEqualSizes(layoutPanel.frame.size, unscaled));
+            // 内边距 (#7316) moves the candidates toward the card's edge on every side: 2pt instead of the skin's own pad takes twice the difference off the card's height and never widens it (the 7em minimum width may hold it), and 跟随皮肤 restores it.
+            {
+                const CGFloat skinPad = [appearance candidateWindowSkinForDark:[match isEqual:NSAppearanceNameDarkAqua]].tokens.pad;
+                assert(skinPad > 2.0);
+                const NSRect rowBefore = candidateRow(NO).frame;
+                appearance.candidatePadding = @2;
+                [controller appearanceChanged:nil];
+                const NSSize compact = layoutPanel.frame.size;
+                assert(std::abs(compact.height - (unscaled.height - 2 * (skinPad - 2.0))) < 0.5);
+                assert(compact.width <= unscaled.width);
+                assert(std::abs(candidateRow(NO).frame.origin.x - (rowBefore.origin.x - (skinPad - 2.0))) < 0.5);
+                appearance.candidatePadding = nil;
+                [controller appearanceChanged:nil];
+                assert(NSEqualSizes(layoutPanel.frame.size, unscaled));
+            }
             assert([((MSIMECandidateChromeView *)layoutPanel.contentView).fillColor isEqual:SkinColor(plain.surface)]);
         }
         // Palette and native drawing coverage: every global theme, two layouts and both appearances.

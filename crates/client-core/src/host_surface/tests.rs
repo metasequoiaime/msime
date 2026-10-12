@@ -768,6 +768,25 @@ fn candidate_window_style_is_offered_where_the_host_draws_the_card() {
     assert_eq!(flags(HostPlatform::Ios), (false, false, false));
 }
 
+/// 卡片内边距目前只有 macOS 候选窗读，其他宿主不显示这个滑块（#7316）。
+#[test]
+fn only_macos_offers_the_candidate_padding() {
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Macos,
+        HostPlatform::Linux,
+        HostPlatform::Harmony,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+    ] {
+        assert_eq!(
+            HostCapabilities::for_platform(platform).candidate_padding,
+            platform == HostPlatform::Macos,
+            "{platform:?}"
+        );
+    }
+}
+
 #[test]
 fn full_offers_every_compiled_scheme_and_leaves_the_capabilities_alone() {
     let full = Edition::full();

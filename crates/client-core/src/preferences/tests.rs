@@ -4659,8 +4659,48 @@ fn candidate_window_style_rejects_out_of_range_values() {
     ));
     assert_eq!(
         PreferencesError::InvalidCandidateWindowStyle.to_string(),
-        "candidate window scale must be 50-200%, opacity 50-100% and corner radius 0-32"
+        "candidate window scale must be 50-200%, opacity 50-100%, corner radius 0-32 and padding 0-16"
     );
+}
+
+/// 卡片内边距缺省时不写进文档，旧版设置应用读得了；0 是真的选择，不能和「跟随皮肤」混成一样；超过 16 拒收（#7316）。
+#[test]
+fn candidate_padding_is_absent_by_default_and_bounded() {
+    let preferences = Preferences::default();
+    assert_eq!(preferences.candidate_padding, None);
+    let value = serde_json::to_value(&preferences).unwrap();
+    assert!(value.get("candidate_padding").is_none());
+
+    for padding in [0, 2, 16] {
+        let padded = Preferences {
+            candidate_padding: Some(padding),
+            ..Preferences::default()
+        };
+        assert!(padded.validate().is_ok(), "{padding} was refused");
+        let value = serde_json::to_value(&padded).unwrap();
+        assert_eq!(value["candidate_padding"], padding);
+        let decoded: Preferences = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded, padded);
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let padded = Preferences {
+        candidate_padding: Some(3),
+        ..Preferences::default()
+    };
+    store.save(0, padded.clone()).unwrap();
+    assert_eq!(store.load().unwrap().preferences, padded);
+    assert!(matches!(
+        store.save(
+            1,
+            Preferences {
+                candidate_padding: Some(17),
+                ..Preferences::default()
+            }
+        ),
+        Err(PreferencesError::InvalidCandidateWindowStyle)
+    ));
 }
 
 fn wubi_edition() -> &'static crate::edition::Edition {
