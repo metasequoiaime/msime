@@ -125,7 +125,7 @@ View 的 `key_grid` 是 `"none" | "nine_key" | "fourteen_key"`，`nine_key: bool
 ## Alternatives considered
 
 - **14 键复用 `character` 送组码。** 最强的理由是改动最小：九键就是这样接的，宿主、C ABI、runtime 都不用加入口。但硬件键盘的字母也走 `character`（Android `onKeyDown` 之后的分支），用 `character` 送组码会让物理 q 变成有歧义的 QW 组，而物理 w 仍是确切字母；九键能复用 `character`，是因为拼音里没有数字。另开 `grid_key` 后，组码只能由触屏键面送进来。
-- **另写一个 14 键解码器。** 理由是互不干扰，九键的热路径一行不动。但九宫格的路径搜索、锁定、切分、整句种子、简拼、英文混入、学习都与「字母怎么变成码」无关，只依赖码表；另写一份就是两套要同步维护的解码器，以后的九键改进（如 [九键整句改由数字层统一词网格解码](../../proposed/feature/2026-10-09-nine-key-digit-lattice.md)）也要做两遍。`KeyGrid` 是 Copy 枚举加 match，不引入 trait。[九键双拼](../../proposed/feature/2026-10-10-nine-key-shuangpin.md) 同样需要按方案构造 `SpellingTable`，它可以在 `KeyGrid` 上再加一种网格。
+- **另写一个 14 键解码器。** 理由是互不干扰，九键的热路径一行不动。但九宫格的路径搜索、锁定、切分、整句种子、简拼、英文混入、学习都与「字母怎么变成码」无关，只依赖码表；另写一份就是两套要同步维护的解码器，以后的九键改进（如 [九键整句改由数字层统一词网格解码](../../proposed/feature/2026-10-09-nine-key-digit-lattice.md)）也要做两遍。`KeyGrid` 是 Copy 枚举加 match，不引入 trait。[九键双拼](2026-10-10-nine-key-shuangpin.md) 同样需要按方案构造 `SpellingTable`，它可以在 `KeyGrid` 上再加一种网格。
 - **鸿蒙导出时把 `fourteen_key` 写成 `twenty_six_key`。** 理由是旧鸿蒙客户端一定读得懂，不会整份拒收。但上传按 merge 把本机的键覆盖到云端快照上，写 `twenty_six_key` 会把同一账号的其他鸿蒙设备切回 26 键；省略这个键等于保留云端旧值，同样不会被旧版拒收。
 - **拼音选择条沿用 Android 九键的挂法，叠在候选行上。** 理由是现成代码（`attachSpellings(candidateViewport, true)`），14 键键面没有九键那样的左列空间。但它会盖住候选，用户在选拼音和看候选之间只能二选一；放在读音行右侧、横向滚动，两者同时可见，三端也能放在同一位置。
 - **首版就做逐位确定字母（长按选中的字母约束这一位，而不是结束组字再上屏）。** 理由是更接近用户想要的「这一位就是 w」，长按不打断组字。但这要把 `initial` 推广成逐位约束，影响锁定、切分、种子和简拼的每条路径，范围与 14 键本身相当；首版沿用九键的长按行为，逐位字母另行排期。
