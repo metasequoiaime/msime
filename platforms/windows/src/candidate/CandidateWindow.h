@@ -232,6 +232,8 @@ private:
   uint64_t animation_started_ = 0;
   bool animation_active_ = false;
   bool finishing_animation_ = false;
+  // The running animation is the selection preset: it moves only the highlighted row, never the whole card.
+  bool selection_animation_ = false;
   std::optional<CandidatePresentation> exit_value_;
   CandidateWindowStyle style_;
   // Pixels reserved above the card for the artwork, computed when the card is

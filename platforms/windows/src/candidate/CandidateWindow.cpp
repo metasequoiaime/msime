@@ -371,6 +371,7 @@ float CandidateWindow::skin_motion_progress() const {
 void CandidateWindow::begin_skin_animation(CandidateSkinAnimationPreset preset) {
   // 新的显示或选中变化会打断旧的退出帧，退出快照不能覆盖新会话。
   finishing_animation_ = false;
+  selection_animation_ = false;
   exit_value_.reset();
   if (preset == CandidateSkinAnimationPreset::none || animation_.duration_ms == 0) {
     finish_skin_animation();
@@ -384,6 +385,7 @@ void CandidateWindow::begin_skin_animation(CandidateSkinAnimationPreset preset) 
 
 void CandidateWindow::finish_skin_animation() {
   animation_active_ = false;
+  selection_animation_ = false;
   active_animation_ = CandidateSkinAnimationPreset::none;
   if (window_)
     KillTimer(window_, skin_animation_timer);
@@ -524,6 +526,7 @@ void CandidateWindow::hide() {
       shown_->visible) {
     exit_value_ = shown_;
     finishing_animation_ = true;
+    selection_animation_ = false;
     active_animation_ = animation_.exit;
     animation_started_ = GetTickCount64();
     animation_active_ = true;
@@ -825,10 +828,14 @@ void CandidateWindow::reposition() {
   }
   shown_ = value;
   shown_dpi_ = dpi;
-  if (!was_visible)
+  if (!was_visible) {
     begin_skin_animation(animation_.enter);
-  else if (previous_highlight != next_highlight)
+  } else if (previous_highlight != next_highlight &&
+             (!animation_active_ || selection_animation_)) {
+    // A highlight move while the card is still entering lets the entrance finish rather than restarting the card.
     begin_skin_animation(animation_.selection);
+    selection_animation_ = animation_active_;
+  }
   InvalidateRect(window_, nullptr, FALSE);
 }
 // Measure the page, size the card from the shared geometry and keep it inside
@@ -1118,7 +1125,9 @@ void CandidateWindow::paint() {
       decoration_offset_, shadow_insets_);
   const float motion_progress = skin_motion_progress();
   const float eased = motion_progress * motion_progress * (3.0f - 2.0f * motion_progress);
-  const bool motion_entering = animation_active_ &&
+  // The selection preset animates the highlighted row below; only the enter and exit presets move the whole card.
+  const bool selection_motion = animation_active_ && selection_animation_;
+  const bool motion_entering = animation_active_ && !selection_animation_ &&
                                (active_animation_ == CandidateSkinAnimationPreset::fade ||
                                 active_animation_ == CandidateSkinAnimationPreset::fade_scale ||
                                 active_animation_ == CandidateSkinAnimationPreset::slide_up ||
@@ -1147,6 +1156,8 @@ void CandidateWindow::paint() {
     if (active_animation_ == CandidateSkinAnimationPreset::slide_up)
       motion_offset_y = finishing_animation_ ? -8.0f * eased : 8.0f * (1.0f - eased);
   }
+  // brush() caches one brush per colour and the cache never shrinks, so the per-frame opacity takes the typing flash's finite steps.
+  motion_alpha = typing_effect_quantized_alpha(motion_alpha);
   auto brush = [&](const CandidateColor &color) {
     auto faded = color;
     faded.a *= motion_alpha;
@@ -1386,10 +1397,28 @@ void CandidateWindow::paint() {
                            static_cast<float>(frame.card_left + row.right),
                            static_cast<float>(frame.card_top + row.bottom)};
     if (value->candidates[i].highlighted || hovered_ == i) {
-      const D2D1_ROUNDED_RECT selection{rect, row_radius, row_radius};
-      target->FillRoundedRectangle(selection, brush(value->candidates[i].highlighted
-                                                        ? palette_.selected
-                                                        : palette_.hover));
+      const bool moving = selection_motion && value->candidates[i].highlighted;
+      D2D1_RECT_F fill = rect;
+      auto fill_color = value->candidates[i].highlighted ? palette_.selected : palette_.hover;
+      if (moving && active_animation_ == CandidateSkinAnimationPreset::spring) {
+        // The highlight grows from 94% past its size and settles; the text stays where hit testing expects it.
+        const float grow = 0.94f + 0.06f * eased + 0.12f * std::sin(eased * 3.1415927f) * (1.0f - eased);
+        const float half_width = (rect.right - rect.left) * grow * 0.5f;
+        const float half_height = (rect.bottom - rect.top) * grow * 0.5f;
+        const float center_x = (rect.left + rect.right) * 0.5f;
+        const float center_y = (rect.top + rect.bottom) * 0.5f;
+        fill = {center_x - half_width, center_y - half_height, center_x + half_width,
+                center_y + half_height};
+      } else if (moving && active_animation_ != CandidateSkinAnimationPreset::glow) {
+        fill_color.a *= typing_effect_quantized_alpha(0.45f + 0.55f * eased);
+      }
+      const D2D1_ROUNDED_RECT selection{fill, row_radius, row_radius};
+      target->FillRoundedRectangle(selection, brush(fill_color));
+      if (moving && active_animation_ == CandidateSkinAnimationPreset::glow) {
+        auto glow = palette_.accent;
+        glow.a = typing_effect_quantized_alpha(0.65f * (1.0f - eased));
+        target->DrawRoundedRectangle(selection, brush(glow), 2.0f);
+      }
       if (value->candidates[i].highlighted && palette_.show_selected_bar) {
         const auto extent = candidate_selection_bar(
             rect.left, rect.top, rect.bottom, metrics.candidate_row);
