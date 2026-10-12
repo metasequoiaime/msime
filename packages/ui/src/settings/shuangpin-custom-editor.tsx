@@ -93,6 +93,8 @@ export function ShuangpinCustomEditor({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // 宿主没能回答这张表能不能用；改下一个键时重新问。
+  const [checkFailed, setCheckFailed] = useState(false);
   const generation = useRef(0);
   const mounted = useRef(true);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -113,6 +115,7 @@ export function ShuangpinCustomEditor({
   useEffect(() => {
     const current = ++generation.current;
     setProblem(undefined);
+    setCheckFailed(false);
     const timer = window.setTimeout(() => {
       client
         .validate(draft)
@@ -120,8 +123,7 @@ export function ShuangpinCustomEditor({
           if (mounted.current && current === generation.current) setProblem(result ?? null);
         })
         .catch(() => {
-          if (mounted.current && current === generation.current)
-            setError("无法校验键位表，请稍后重试。");
+          if (mounted.current && current === generation.current) setCheckFailed(true);
         });
     }, VALIDATE_DELAY_MS);
     return () => window.clearTimeout(timer);
@@ -372,6 +374,7 @@ export function ShuangpinCustomEditor({
         </Row>
       </GroupList>
       {problem && <ErrorAlert>{shuangpinCustomProblemMessage(problem)}</ErrorAlert>}
+      {checkFailed && <ErrorAlert>无法校验键位表，改动任意一个键后会重新校验。</ErrorAlert>}
       {error && <ErrorAlert>{error}</ErrorAlert>}
       {notice && <StatusMessage role="status">{notice}</StatusMessage>}
     </div>

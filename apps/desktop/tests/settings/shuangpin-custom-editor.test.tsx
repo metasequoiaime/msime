@@ -379,3 +379,15 @@ test("without host support the input page offers no custom shuangpin", async () 
   expect(Array.from(profile.options).map((option) => option.value)).not.toContain("custom");
   expect(screen.queryByRole("button", { name: "编辑自定义键位" })).toBeNull();
 });
+
+test("a host that cannot answer leaves saving off and asks again after the next edit", async () => {
+  const client = fakeClient();
+  client.validate.mockRejectedValueOnce(new Error("bridge"));
+  renderEditor({ client, saved: xiaohe, active: false });
+  expect(await screen.findByText("无法校验键位表，改动任意一个键后会重新校验。")).toBeTruthy();
+  expect(button("保存并选用").disabled).toBe(true);
+
+  fireEvent.change(cell("韵母 ing"), { target: { value: ";" } });
+  await waitFor(() => expect(button("保存并选用").disabled).toBe(false));
+  expect(screen.queryByText("无法校验键位表，改动任意一个键后会重新校验。")).toBeNull();
+});
