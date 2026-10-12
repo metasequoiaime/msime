@@ -136,7 +136,7 @@ constexpr jsize kCreateOptionsLimit = 1 * 1024 * 1024;
 constexpr jsize kMobileClipboardHistoryRequestLimit = 524288;
 // 与 msime_client_cloud_clipboard_e2e 的上限一致：继续一步的请求带着一整页密文响应。
 constexpr jsize kCloudClipboardE2eRequestLimit = 2 * 1024 * 1024;
-// 与 msime_client_cloud_clipboard_source 和 msime_client_relay_cloud_clipboard 写在头文件里的上限一致。
+// 与 msime_client_cloud_clipboard_source、msime_client_relay_cloud_clipboard 和 msime_client_relay_cloud_clipboard_exchange 写在头文件里的上限一致。
 constexpr jsize kCloudClipboardSourceDirectoryLimit = 16384;
 constexpr jsize kCloudClipboardRelayRequestLimit = 131072;
 constexpr jsize kVocabularyReviewRequestLimit = 8 * 1024 * 1024;
@@ -350,6 +350,10 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_cloudClipboardS
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_cloudClipboardRelayRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kCloudClipboardRelayRequestLimit,
         msime_client_relay_cloud_clipboard);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_cloudClipboardRelayExchangeRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kCloudClipboardRelayRequestLimit,
+        msime_client_relay_cloud_clipboard_exchange);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_doubaoDecodeFrameRaw(JNIEnv *env, jclass, jbyteArray frame) {
     if (!frame) return response(env, msime_client_doubao_decode_frame(nullptr, 0));

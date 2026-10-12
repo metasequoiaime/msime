@@ -27,17 +27,20 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 在应用进程里经 JNI 跑云剪贴板的自建中继（`msime_client_cloud_clipboard_source` 与 `msime_client_relay_cloud_clipboard`）：对面是本进程里一台只说 HTTP/1.1 的回环中继，背后是驱动冒烟里那个按协议写的假服务端（{@link CloudClipboardDriverDeviceSmoke.Server}）。
+ * 在应用进程里经 JNI 跑云剪贴板的自建中继（`msime_client_cloud_clipboard_source`、`msime_client_relay_cloud_clipboard` 与 `msime_client_relay_cloud_clipboard_exchange`）：对面是本进程里一台只说 HTTP/1.1 的回环中继，背后是驱动冒烟里那个按协议写的假服务端（{@link CloudClipboardDriverDeviceSmoke.Server}）。
  *
- * <p>JVM 冒烟碰不到 Rust 的联网和落盘；这里验证 JNI 导出、请求形状、路径前缀、静态令牌、401 报成 `relay_unauthorized`（不是账号未登录），以及 Rust 在应用的 noBackupFilesDir 下建得起密钥串目录（SELinux 和目录权限只有设备上才有）。用的是临时的偏好目录和临时的密钥串目录，不碰应用自己的偏好、账号会话和密钥串，也不连外网。
+ * <p>JVM 冒烟碰不到 Rust 的联网和落盘；这里验证 JNI 导出、请求形状、路径前缀、静态令牌、401 报成 `relay_unauthorized`（不是账号未登录），以及密钥串在应用的 noBackupFilesDir 下建得起、写得进（SELinux 和目录权限只有设备上才有）。用的是临时的偏好目录、临时的密钥串目录和专用的 AndroidKeyStore 密钥，不碰应用自己的偏好、账号会话和密钥串，也不连外网。
  *
- * <p>前半段直接把手写的 JSON 交给 NativeClient，核对 Rust 一侧；后半段（{@link #glue}）经设置页和键盘实际用的 Java 这一层再走一遍：`CloudClipboardRelay` 的动作换名（`status` 叫 `devices`）、拆 `{ok,value}`、绑定和键盘的选路（{@code forPanel}），`CloudClipboardApi` 用中继的结果读页面和设备，`BackendAccount.clipboardPage` / `clipboardItem` 读中继的列表和上传结果。这一层改坏了，前半段照样通过，只有后半段会失败。
+ * <p>前半段直接把手写的 JSON 交给共享入口 `msime_client_relay_cloud_clipboard`，核对 Rust 一侧（桌面经它跑端到端加密，密钥串由 Rust 存成明文文件；设备 A、B 是这样两台）。后半段（{@link #glue}）经设置页和键盘实际用的 Java 这一层再走一遍：`CloudClipboardRelay` 在 Java 里跑驱动、经 `exchange` 发请求、把密钥串用 AndroidKeyStore 加密写进 `cloud-clipboard-relay-keystore`，绑定和键盘的选路（{@code forPanel}），`CloudClipboardApi` 用中继的结果读页面和设备，`BackendAccount.clipboardPage` / `clipboardItem` 读中继的列表和上传结果。设备 J、C 是这样两台，它们与 A、B 互相批准、互传。这一层改坏了，前半段照样通过，只有后半段会失败。
  */
 public final class CloudClipboardRelayDeviceSmoke extends Instrumentation {
     private static final String TOKEN = "synthetic-relay-token-0001";
     private static final String PREFIX = "/msime";
     private static final String API = "/v1/users/me/clipboard";
     private static final String TEXT = "合成的中继剪贴板文本 synthetic";
+    /** 冒烟专用的 AndroidKeyStore 密钥，不用应用自己的那把；跑完删掉。 */
+    private static final String SMOKE_KEY = "app.msime.android.test.cloud-clipboard-relay-smoke.key";
+    private static Object sealer;
 
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
@@ -50,10 +53,12 @@ public final class CloudClipboardRelayDeviceSmoke extends Instrumentation {
         File keysA = new File(getTargetContext().getNoBackupFilesDir(), "cloud-clipboard-relay-smoke-a");
         File keysB = new File(getTargetContext().getNoBackupFilesDir(), "cloud-clipboard-relay-smoke-b");
         File keysC = new File(getTargetContext().getNoBackupFilesDir(), "cloud-clipboard-relay-smoke-c");
+        File keysJ = new File(getTargetContext().getNoBackupFilesDir(), "cloud-clipboard-relay-smoke-j");
         try (Relay relay = new Relay()) {
-            run(relay, scratch, keysA, keysB, keysC);
+            sealer = smokeSealer();
+            run(relay, scratch, keysA, keysB, keysC, keysJ);
             result.putString("stream",
-                "MSIME_DEVICE_SMOKE_PASSED: cloud clipboard relay over JNI: source, prefix, bearer token, register, approve, encrypted add, list, pin, delete, unauthorized and unavailable; through CloudClipboardRelay, CloudClipboardApi and BackendAccount: keyboard route, settings overview, approve, remove, pin, retention, delete, clear and relay_changed\n");
+                "MSIME_DEVICE_SMOKE_PASSED: cloud clipboard relay over JNI: source, prefix, bearer token, register, approve, encrypted add, list, pin, delete, unauthorized and unavailable; through CloudClipboardRelay, CloudClipboardApi and BackendAccount: AndroidKeyStore-sealed keystore, exchange, keyboard route, settings overview, approve, remove, pin, retention, delete, clear, relay_changed, unauthorized and unavailable\n");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError | LinkageError error) {
             result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: cloud clipboard relay ("
@@ -64,10 +69,19 @@ public final class CloudClipboardRelayDeviceSmoke extends Instrumentation {
             delete(keysA);
             delete(keysB);
             delete(keysC);
+            delete(keysJ);
+            try {
+                java.security.KeyStore store = java.security.KeyStore.getInstance("AndroidKeyStore");
+                store.load(null);
+                store.deleteEntry(SMOKE_KEY);
+            } catch (Exception ignored) {
+                // 删不掉的冒烟密钥只是 AndroidKeyStore 里一个不再用的条目。
+            }
         }
     }
 
-    private static void run(Relay relay, File scratch, File keysA, File keysB, File keysC) throws Exception {
+    private static void run(Relay relay, File scratch, File keysA, File keysB, File keysC, File keysJ)
+            throws Exception {
         delete(scratch);
         File preferences = new File(scratch, "state");
         check(preferences.mkdirs(), "the scratch preferences directory is created");
@@ -89,10 +103,10 @@ public final class CloudClipboardRelayDeviceSmoke extends Instrumentation {
         check("relay".equals(value(source(directory)).getString("source")), "a configured relay is the only route");
         check(relay.requests() == 0, "asking for the route sends nothing");
 
-        // 第一台设备建钥；中继只见到带前缀的路径和静态令牌，Rust 在 noBackupFilesDir 下建出密钥串目录。
+        // 第一台设备经共享入口建钥；中继只见到带前缀的路径和静态令牌，Rust 在 noBackupFilesDir 下建出密钥串目录。
         JSONObject devices = value(relay(directory, keysA, "Device A", new JSONObject().put("operation", "devices")));
         check("ready".equals(devices.getString("status")), "the first device creates the key on the relay");
-        check(new File(keysA, "cloud-clipboard-relay-keystore").isFile(), "the relay keystore is written under noBackupFilesDir");
+        check(new File(keysA, "cloud-clipboard-relay-keystore").isFile(), "the shared entry writes its keystore under noBackupFilesDir");
         check(relay.requests() > 0 && relay.badRequests() == 0, "every request carried the path prefix and the bearer token");
 
         JSONObject added = value(relay(directory, keysA, "Device A", new JSONObject().put("operation", "add").put("text", TEXT)));
@@ -127,95 +141,140 @@ public final class CloudClipboardRelayDeviceSmoke extends Instrumentation {
         check(relay.server.items.isEmpty(), "delete reaches the relay");
 
         String binding = relayBinding(directory);
-        CloudClipboardApi settingsA = glue(relay, directory, keysA, keysC, binding);
+        CloudClipboardApi settingsJ = glue(relay, directory, keysA, keysC, keysJ, binding);
 
         // 令牌被拒是 relay_unauthorized，不会被当成水杉账号未登录。
         configure(directory, url, "synthetic-relay-token-0002");
         check("relay_unauthorized".equals(error(relay(directory, keysA, "Device A", list()))),
             "a rejected token is relay_unauthorized");
+        check("relay_unauthorized".equals(failureCode(() -> new CloudClipboardApi(openRelay(directory, keysJ, "Device J")).list(""))),
+            "a rejected token is relay_unauthorized through the exchange too");
         // 换了令牌：已打开的设置页和键盘按旧绑定发的请求都不再发出。
         check(CODE_CHANGED.equals(failureCode(() -> {
-            settingsA.requireCurrentSession();
+            settingsJ.requireCurrentSession();
             return null;
         })), "a settings page opened on the old token is relay_changed");
-        check(CODE_CHANGED.equals(failureCode(() -> forPanel(directory, keysA, true, binding))),
+        check(CODE_CHANGED.equals(failureCode(() -> forPanel(directory, keysJ, true, binding))),
             "a keyboard holding the old binding sends nothing to the new relay");
         check(!binding.equals(relayBinding(directory)), "a new token is a new binding");
         // 没有服务的回环端口：连不上是 relay_unavailable。
         configure(directory, "http://127.0.0.1:" + relay.closedPort() + PREFIX, TOKEN);
         check("relay_unavailable".equals(error(relay(directory, keysA, "Device A", list()))),
             "an unreachable relay is relay_unavailable");
+        check("relay_unavailable".equals(failureCode(() -> new CloudClipboardApi(openRelay(directory, keysJ, "Device J")).list(""))),
+            "an unreachable relay is relay_unavailable through the exchange too");
         check("invalid_cloud_clipboard".equals(error(relay(directory, keysA, "Device A",
             new JSONObject().put("operation", "pin").put("id", "short").put("pinned", true)))),
             "a malformed action is refused before the network");
     }
 
     /**
-     * 经设置页和键盘实际用的 Java 这一层走一遍：此时中继上已有密钥，设备 A、B 已批准，没有条目。设备 C 是新的一台，经设置页的读法登记、等待、被 A 批准，最后被 A 移除。返回设备 A 的设置页接口，调用方换令牌后再用它核对 `relay_changed`。
+     * 经设置页和键盘实际用的 Java 这一层走一遍：此时中继上已有密钥，设备 A、B（经共享入口）已批准，没有条目。设备 J 经设置页的读法登记、等待、被 A 批准，之后由它当键盘和设置页；设备 C 是再新的一台，由 J 在设置页上批准，最后被 J 移除。返回设备 J 的设置页接口，调用方换令牌后再用它核对 `relay_changed`。
      */
-    private static CloudClipboardApi glue(Relay relay, String directory, File keysA, File keysC, String binding)
+    private static CloudClipboardApi glue(Relay relay, String directory, File keysA, File keysC, File keysJ, String binding)
             throws Exception {
         check(binding.startsWith("relay:") && !binding.contains(TOKEN), "the binding names the relay without the token");
         int before = relay.requests();
         // 配置了中继：面板按账号来问被拒，绑定对不上被拒，都不联网。
-        check(CODE_CHANGED.equals(failureCode(() -> forPanel(directory, keysA, false, "synthetic-account"))),
+        check(CODE_CHANGED.equals(failureCode(() -> forPanel(directory, keysJ, false, "synthetic-account"))),
             "a configured relay never lets the keyboard fall back to the account");
-        check(CODE_CHANGED.equals(failureCode(() -> forPanel(directory, keysA, true, STALE_BINDING))),
+        check(CODE_CHANGED.equals(failureCode(() -> forPanel(directory, keysJ, true, STALE_BINDING))),
             "a binding from another relay is refused");
         check(relay.requests() == before, "refused routes send nothing");
 
-        // 键盘：上传一条、读列表，都经 BackendAccount 解析中继的回答。
-        CloudClipboardApi.Backend keyboard = forPanel(directory, keysA, true, binding);
+        // 设备 J：设置页打开时登记并等待；密钥串用 AndroidKeyStore 加密写进 noBackupFilesDir 下的那份。
+        CloudClipboardApi settingsJ = new CloudClipboardApi(openRelay(directory, keysJ, "Device J"));
+        settingsJ.requireCurrentSession();
+        CloudClipboardApi.Overview waitingJ = settingsJ.load();
+        check(CloudClipboardApi.STATUS_PENDING.equals(waitingJ.devices().status()), "a new device waits on the settings page");
+        checkSealed(keysJ);
+        String idJ = null;
+        JSONArray seen = value(relay(directory, keysA, "Device A", new JSONObject().put("operation", "devices"))).getJSONArray("devices");
+        for (int index = 0; index < seen.length(); index++) {
+            JSONObject entry = seen.getJSONObject(index);
+            if ("Device J".equals(entry.getString("name"))) {
+                check(!entry.getBoolean("approved") && entry.getString("code").equals(waitingJ.devices().code()),
+                    "the approver sees device J waiting with the same code");
+                idJ = entry.getString("device_id");
+            }
+        }
+        check(idJ != null, "device J registered on the relay");
+        value(relay(directory, keysA, "Device A", new JSONObject().put("operation", "approve").put("device_id", idJ)));
+
+        // 键盘：上传一条、读列表，都经 BackendAccount 解析中继的回答；设备 A 解得开 J 上传的那条。
+        CloudClipboardApi.Backend keyboard = forPanel(directory, keysJ, true, binding);
         check(keyboard != null, "the keyboard on a relay gets the relay");
         BackendAccount.ClipboardItem uploaded = clipboardItem(keyboard.drive(CloudClipboardE2e.Operation.add(TEXT)));
         check(TEXT.equals(uploaded.text()) && CloudClipboardApi.validId(uploaded.id()), "the keyboard reads the relay's add result");
+        String ciphertext = relay.server.items.get(0).getString("ciphertext");
+        check(ciphertext.startsWith("v1.") && !ciphertext.contains("synthetic"), "the relay holds only ciphertext from the Java driver loop");
         BackendAccount.ClipboardPage panel = clipboardPage(keyboard.drive(CloudClipboardE2e.Operation.list("")));
         check(panel.enabled() && CloudClipboardApi.STATUS_READY.equals(panel.status()) && !panel.pending()
             && panel.items().size() == 1 && TEXT.equals(panel.items().get(0).text()), "the keyboard reads the relay's list");
+        JSONArray readA = value(relay(directory, keysA, "Device A", list())).getJSONArray("items");
+        check(readA.length() == 1 && TEXT.equals(readA.getJSONObject(0).getString("text")),
+            "a device on the shared entry decrypts what the Android keystore device uploaded");
+        checkSealed(keysJ);
 
         // 设置页：status 换名成 devices，再读列表。
-        CloudClipboardApi settingsA = new CloudClipboardApi(openRelay(directory, keysA, "Device A"));
-        settingsA.requireCurrentSession();
-        CloudClipboardApi.Overview overviewA = settingsA.load();
-        check(CloudClipboardApi.STATUS_READY.equals(overviewA.devices().status()) && overviewA.devices().approved().size() == 2
-            && overviewA.devices().pending().isEmpty(), "the settings page reads the relay's devices");
-        check(overviewA.page().enabled() && overviewA.page().items().size() == 1
-            && uploaded.id().equals(overviewA.page().items().get(0).id()), "the settings page reads the relay's list");
+        CloudClipboardApi.Overview overviewJ = settingsJ.load();
+        check(CloudClipboardApi.STATUS_READY.equals(overviewJ.devices().status()) && overviewJ.devices().approved().size() == 3
+            && overviewJ.devices().pending().isEmpty(), "the settings page reads the relay's devices");
+        check(overviewJ.page().enabled() && overviewJ.page().items().size() == 1
+            && uploaded.id().equals(overviewJ.page().items().get(0).id()), "the settings page reads the relay's list");
 
-        // 第三台设备经设置页登记并等待，A 在设置页上核对码、批准。
+        // 第四台设备 C 经设置页登记并等待，J 在设置页上核对码、批准。
         CloudClipboardApi settingsC = new CloudClipboardApi(openRelay(directory, keysC, "Device C"));
         CloudClipboardApi.Overview waiting = settingsC.load();
         check(CloudClipboardApi.STATUS_PENDING.equals(waiting.devices().status()) && waiting.page().items().isEmpty()
-            && waiting.page().retentionDays() == -1, "a new device waits on the settings page");
-        List<CloudClipboardApi.Device> pending = settingsA.devices().pending();
+            && waiting.page().retentionDays() == -1, "another new device waits on the settings page");
+        List<CloudClipboardApi.Device> pending = settingsJ.devices().pending();
         check(pending.size() == 1 && "Device C".equals(pending.get(0).name())
             && pending.get(0).code().equals(waiting.devices().code()), "the approver sees the new device and the same code");
         String idC = pending.get(0).deviceId();
-        CloudClipboardApi.Devices approved = settingsA.approve(idC);
-        check(approved.pending().isEmpty() && approved.approved().size() == 3, "approve goes through device_id");
+        CloudClipboardApi.Devices approved = settingsJ.approve(idC);
+        check(approved.pending().isEmpty() && approved.approved().size() == 4, "approve goes through device_id");
         CloudClipboardApi.Page readC = settingsC.list("");
         check(readC.items().size() == 1 && TEXT.equals(readC.items().get(0).text()), "the approved device decrypts the list");
         check(settingsC.list("absent").items().isEmpty(), "search runs on the device");
 
-        // 置顶、保留时长、删除、清空：中继专有的动作。
-        settingsA.setPinned(uploaded.id(), true);
-        check(relay.server.items.get(0).getBoolean("pinned") && settingsA.list("").items().get(0).pinned(),
+        // 置顶、保留时长、删除、清空：中继专有的动作，经共享入口直接请求，不碰密钥串。
+        settingsJ.setPinned(uploaded.id(), true);
+        check(relay.server.items.get(0).getBoolean("pinned") && settingsJ.list("").items().get(0).pinned(),
             "pin goes through the relay and the list shows it");
-        settingsA.setRetention(7);
+        settingsJ.setRetention(7);
         check(relay.retention() == 7, "retention goes through the relay");
         String second = clipboardItem(keyboard.drive(CloudClipboardE2e.Operation.add(TEXT + " 2"))).id();
-        settingsA.delete(uploaded.id());
+        settingsJ.delete(uploaded.id());
         check(relay.server.items.size() == 1 && second.equals(relay.server.items.get(0).getString("id")),
             "delete removes only that item");
-        settingsA.clear();
-        check(relay.server.items.isEmpty() && settingsA.list("").items().isEmpty(), "clear empties the relay");
+        settingsJ.clear();
+        check(relay.server.items.isEmpty() && settingsJ.list("").items().isEmpty(), "clear empties the relay");
 
         // 移除 C：换钥，C 不再在设备列表里。
-        CloudClipboardApi.Devices removed = settingsA.remove(idC);
+        CloudClipboardApi.Devices removed = settingsJ.remove(idC);
         boolean stillListed = false;
         for (CloudClipboardApi.Device device : removed.devices()) stillListed |= idC.equals(device.deviceId());
         check(!stillListed, "remove goes through device_id");
-        return settingsA;
+        checkSealed(keysJ);
+        checkSealed(keysC);
+        return settingsJ;
+    }
+
+    /**
+     * 设置页和键盘用的那份密钥串：只有加密后的 `cloud-clipboard-relay-keystore` 和它的锁，没有共享入口那种明文 JSON，也没有它的锁文件；文件第一个字节是格式版本 1，内容里看不到密钥串的 `v1.` 前缀、绑定和 JSON 字段名。
+     */
+    private static void checkSealed(File keys) throws Exception {
+        File file = new File(keys, "cloud-clipboard-relay-keystore");
+        check(file.isFile(), "the sealed relay keystore is written under noBackupFilesDir");
+        byte[] raw = java.nio.file.Files.readAllBytes(file.toPath());
+        String text = new String(raw, StandardCharsets.ISO_8859_1);
+        check(raw.length > 29 && raw[0] == 1 && !text.contains("v1.") && !text.contains("relay:") && !text.contains("keystore"),
+            "the relay keystore is sealed by AndroidKeyStore, not plain text");
+        String[] names = keys.list();
+        java.util.Arrays.sort(names);
+        check(java.util.Arrays.equals(names, new String[] {"cloud-clipboard-relay-keystore", "cloud-clipboard-relay-keystore.lock"}),
+            "only the sealed keystore and its lock are there: " + java.util.Arrays.toString(names));
     }
 
     private static JSONObject list() throws Exception {
@@ -236,18 +295,29 @@ public final class CloudClipboardRelayDeviceSmoke extends Instrumentation {
     private static final String CODE_CHANGED = "relay_changed";
     private static final String STALE_BINDING = "relay:00000000000000000000000000000000";
 
-    /** 设置页打开中继的那一步（`CloudClipboardRelay.open`），目录和设备名换成临时的。 */
+    private static final String SEALER = "app.msime.android.CloudClipboardKeystore$Sealer";
+
+    /** 冒烟专用的 AndroidKeyStore 密钥（{@link #SMOKE_KEY}），做法与应用加密中继密钥串的那把相同（`CloudClipboardKeystore.AndroidKeystoreSealer`，包内可见）。 */
+    private static Object smokeSealer() throws Exception {
+        java.lang.reflect.Constructor<?> constructor =
+            Class.forName("app.msime.android.CloudClipboardKeystore$AndroidKeystoreSealer").getDeclaredConstructor(String.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(SMOKE_KEY);
+    }
+
+    /** 设置页打开中继的那一步（`CloudClipboardRelay.open`），目录、设备名和 AndroidKeyStore 密钥换成冒烟自己的。 */
     private static CloudClipboardApi.Backend openRelay(String directory, File keystore, String device) throws Exception {
-        return (CloudClipboardApi.Backend) invoke(RELAY, "open", new Class<?>[] {String.class, String.class, String.class},
-            directory, keystore.getAbsolutePath(), device);
+        return (CloudClipboardApi.Backend) invoke(RELAY, "open",
+            new Class<?>[] {String.class, String.class, String.class, Class.forName(SEALER)},
+            directory, keystore.getAbsolutePath(), device, sealer);
     }
 
     /** 键盘后台线程上的选路（`CloudClipboardRelay.forPanel`）：null 是走账号。 */
     private static CloudClipboardApi.Backend forPanel(String directory, File keystore, boolean relay, String binding)
             throws Exception {
         return (CloudClipboardApi.Backend) invoke(RELAY, "forPanel",
-            new Class<?>[] {String.class, String.class, String.class, boolean.class, String.class},
-            directory, keystore.getAbsolutePath(), "Device A", relay, binding);
+            new Class<?>[] {String.class, String.class, String.class, Class.forName(SEALER), boolean.class, String.class},
+            directory, keystore.getAbsolutePath(), "Device J", sealer, relay, binding);
     }
 
     /** 键盘在主线程上按偏好快照记下的绑定（`CloudClipboardRelay.binding`）。 */

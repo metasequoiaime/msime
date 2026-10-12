@@ -34,13 +34,35 @@ public final class CloudClipboardRelayPolicy {
 
     private static final String FULL_URL = "请填写以 https:// 开头的完整中继地址。";
     private static final String[] LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "[::1]"};
-    /** 绑定取 SHA-256 的前 16 字节，与 Rust 给令牌空间编号的长度相同；它只在本机内存里比较，不落盘、不发出去。 */
+    /** 绑定取 SHA-256 的前 16 字节，与 Rust 给令牌空间编号的长度相同；它在本机内存里比较，落盘只在 AndroidKeyStore 加密的中继密钥串里（标明那份属于哪个中继），不发出去。 */
     private static final int BINDING_BYTES = 16;
 
     /** 云剪贴板走的路。 */
     public enum Route { ACCOUNT, RELAY }
 
     private CloudClipboardRelayPolicy() {}
+
+    /**
+     * 驱动和中继给出的已知错误码，与 `crates/client-core/src/account/clipboard.rs` 的 `CLIPBOARD_ERROR_CODES` 相同。Android 自己跑中继的驱动（{@link app.msime.android.CloudClipboardRelay}），驱动报的错要按 Rust 那条路（`RelayError::code`）同样归类，面板和设置页才给出相同的说法。
+     */
+    // 不用 Set.of：它要 API 30，minSdk 是 28。
+    private static final java.util.List<String> KNOWN_CODES = Arrays.asList(
+        "clipboard_device_pending", "clipboard_sync_disabled", "clipboard_key_conflict", "clipboard_device_limit",
+        "clipboard_e2e_required", "invalid_clipboard_device", "invalid_clipboard_key", "invalid_clipboard_ciphertext",
+        "invalid_clipboard_text", "invalid_device_id", "invalid_search", "invalid_response", "invalid_state",
+        "not_found", "account_invalid", "account_unauthorized", "account_rate_limited", "account_storage",
+        "account_cancelled", "account_conflict", "account_unavailable", "account_banned", CODE_FULL,
+        CODE_UNAUTHORIZED, CODE_NOT_CONFIGURED, CODE_UNAVAILABLE, CODE_STORAGE);
+
+    /** 经中继跑驱动时，驱动报的错（状态码和码）交给界面的错误码：已知的码原样保留，其余按状态码归类，400 是请求不合规，404 是不存在，别的都算中继不可用。 */
+    public static String driverFailureCode(int status, String code) {
+        if (code != null && KNOWN_CODES.contains(code)) return code;
+        return switch (status) {
+            case 400 -> "invalid_cloud_clipboard";
+            case 404 -> "not_found";
+            default -> CODE_UNAVAILABLE;
+        };
+    }
 
     /** 中继地址的问题，没有问题时为 null：https（http 只放行本机回环地址）、有主机名、可以带路径前缀，不带查询串、片段和用户信息，不超过 2048 字节。 */
     public static String urlProblem(String url) {

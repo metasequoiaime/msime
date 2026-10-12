@@ -115,6 +115,17 @@ public final class CloudClipboardRelayPolicySmoke {
         }
         check(CloudClipboardRelayPolicy.failureMessage("clipboard_device_pending") == null
             && CloudClipboardRelayPolicy.failureMessage(null) == null, "other codes keep the page's own wording");
+        // Android 自己跑中继的驱动：驱动报的错与 Rust 的 `RelayError::code` 同样归类。
+        check("clipboard_device_pending".equals(CloudClipboardRelayPolicy.driverFailureCode(0, "clipboard_device_pending")),
+            "a known driver code is kept");
+        check(CloudClipboardRelayPolicy.CODE_FULL.equals(CloudClipboardRelayPolicy.driverFailureCode(409, "clipboard_full")),
+            "the relay's own known code is kept");
+        check("invalid_cloud_clipboard".equals(CloudClipboardRelayPolicy.driverFailureCode(400, "bad_request")),
+            "an unknown 400 is an invalid request");
+        check("not_found".equals(CloudClipboardRelayPolicy.driverFailureCode(404, "http_404")), "an unknown 404 is not_found");
+        check(CloudClipboardRelayPolicy.CODE_UNAVAILABLE.equals(CloudClipboardRelayPolicy.driverFailureCode(500, "http_500"))
+            && CloudClipboardRelayPolicy.CODE_UNAVAILABLE.equals(CloudClipboardRelayPolicy.driverFailureCode(0, null)),
+            "anything else is an unavailable relay");
         System.out.println("CloudClipboardRelayPolicySmoke ok");
     }
 
