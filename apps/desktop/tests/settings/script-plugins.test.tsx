@@ -116,6 +116,18 @@ async function openScript(name: string) {
   await screen.findByRole("heading", { name });
 }
 
+test("script detail shows shared pack metadata before its content fingerprint", async () => {
+  renderSection(fakeClient());
+  await openScript("中英文之间加空格");
+
+  const info = screen.getByRole("region", { name: "信息" });
+  expect(within(info).getByText("脚本插件（实验）")).toBeTruthy();
+  expect(within(info).getByText("1.0.0")).toBeTruthy();
+  expect(within(info).getByText("测试者")).toBeTruthy();
+  expect(within(info).getByText("MIT")).toBeTruthy();
+  expect(within(info).getByText(HASH.slice(0, 12))).toBeTruthy();
+});
+
 function renderDialog(
   pack: PluginPackage,
   props: Partial<Parameters<typeof ScriptGrantDialog>[0]> = {},

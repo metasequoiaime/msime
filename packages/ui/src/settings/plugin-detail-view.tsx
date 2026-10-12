@@ -29,6 +29,7 @@ import {
   type MissingSelection,
 } from "./plugin-catalog-helpers";
 import { PluginViewHeader } from "./plugin-view-header";
+import { PluginInfoGroup } from "./plugin-info-group";
 import type { PluginPackage, PluginSettingsPage } from "./plugin-types";
 import { SummaryRow } from "./summary-row";
 import { SwitchRow } from "./switch-row";
@@ -108,28 +109,13 @@ export function PluginDetailView({
   return (
     <>
       <PluginViewHeader title={pack.name} onBack={onBack} />
-      <GroupList title="信息">
-        <SummaryRow title="类型" breakAnywhere>
-          {packKindLabel(pack)}
-        </SummaryRow>
-        <SummaryRow title="版本" breakAnywhere>
-          {pack.version}
-        </SummaryRow>
-        {pack.author && (
-          <SummaryRow title="作者" breakAnywhere>
-            {pack.author}
-          </SummaryRow>
-        )}
-        <SummaryRow title="许可证" breakAnywhere>
-          {pack.license}
-        </SummaryRow>
+      <PluginInfoGroup pack={pack} kindLabel={packKindLabel(pack)}>
         {pack.builtin && (
           <SummaryRow title="来源" breakAnywhere>
             内置，不能删除
           </SummaryRow>
         )}
-        {pack.description && <SettingsGroupNote>{pack.description}</SettingsGroupNote>}
-      </GroupList>
+      </PluginInfoGroup>
       <PackContent pack={pack} />
       <GroupList title="使用">
         <PackActions

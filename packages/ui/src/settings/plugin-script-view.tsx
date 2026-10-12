@@ -6,6 +6,7 @@ import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { SettingsManagerNote } from "./settings-manager-note";
 import { PluginViewHeader } from "./plugin-view-header";
+import { PluginInfoGroup } from "./plugin-info-group";
 import { SummaryRow } from "./summary-row";
 import { SwitchRow } from "./switch-row";
 import { ActionButton } from "./action-button";
@@ -431,29 +432,14 @@ export function ScriptPluginDetailView({
   return (
     <>
       <PluginViewHeader title={pack.name} onBack={onBack} />
-      <GroupList title="信息">
-        <SummaryRow title="类型" breakAnywhere>
-          脚本插件（实验）
-        </SummaryRow>
-        <SummaryRow title="版本" breakAnywhere>
-          {pack.version}
-        </SummaryRow>
-        {pack.author && (
-          <SummaryRow title="作者" breakAnywhere>
-            {pack.author}
-          </SummaryRow>
-        )}
-        <SummaryRow title="许可证" breakAnywhere>
-          {pack.license}
-        </SummaryRow>
+      <PluginInfoGroup pack={pack} kindLabel="脚本插件（实验）">
         <SummaryRow
           title="内容指纹"
           description="插件内容的哈希前 12 位；内容一变，指纹就变，之前的授权随之作废。"
         >
           <code>{shortHash(pack.content_hash)}</code>
         </SummaryRow>
-        {pack.description && <SettingsGroupNote>{pack.description}</SettingsGroupNote>}
-      </GroupList>
+      </PluginInfoGroup>
       <GroupList title="在这些时候运行">
         {(pack.hooks ?? []).map((hook) => (
           <Row key={hook} title={hookLabels[hook] ?? hook} />
