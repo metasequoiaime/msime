@@ -126,13 +126,14 @@ struct CommunityResourcesView: View {
   @ViewBuilder private func pill(_ item: CommunityResource) -> some View {
     let pending = adding.contains(item.id)
     if installed.contains(item.id) {
-      CommunityPillLabel(title: "已添加", offersAction: false, size: .row)
+      DesignPillLabel(title: "已添加", style: .neutral, size: .regular)
         .accessibilityLabel("已添加，\(item.name)")
     } else {
       Button {
         if item.kind == .dictionary { confirmingImport = item } else { add(item) }
       } label: {
-        CommunityPillLabel(title: pending ? "添加中" : "添加", size: .row).opacity(pending ? 0.6 : 1)
+        DesignPillLabel(title: pending ? "添加中" : "添加", size: .regular)
+          .opacity(pending ? 0.6 : 1)
       }
       .buttonStyle(.plain).disabled(pending)
       .accessibilityLabel("\(pending ? "添加中" : "添加")，\(item.name)")
@@ -259,7 +260,8 @@ struct CommunityReplyTemplatesSection: View {
       }
       Spacer(minLength: 8)
       Button { add(item) } label: {
-        CommunityPillLabel(title: title, offersAction: !isAdded, size: .row).opacity(isAdding ? 0.6 : 1)
+        DesignPillLabel(title: title, style: isAdded ? .neutral : .tonal, size: .regular)
+          .opacity(isAdding ? 0.6 : 1)
       }
       .buttonStyle(.borderless)
       .disabled(isAdded || isAdding)

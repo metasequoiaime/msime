@@ -1,39 +1,6 @@
 import SwiftUI
 import UIKit
 
-/// 这几个页面共用的胶囊按钮和标签：胶囊里的 13pt 半粗体文字。
-private struct PagePill: View {
-  enum Style { case filled, tonal, neutral }
-
-  let title: String
-  var style: Style = .tonal
-
-  var body: some View {
-    Text(title)
-      .font(.system(size: 13, weight: .semibold))
-      .foregroundStyle(foreground)
-      .lineLimit(1)
-      .padding(.horizontal, 14).padding(.vertical, 6)
-      .background(background, in: Capsule())
-  }
-
-  private var foreground: Color {
-    switch style {
-    case .filled: MetasequoiaTheme.onAccent
-    case .tonal: MetasequoiaTheme.accent
-    case .neutral: MetasequoiaTheme.sub
-    }
-  }
-
-  private var background: Color {
-    switch style {
-    case .filled: MetasequoiaTheme.accent
-    case .tonal: MetasequoiaTheme.accentSoft
-    case .neutral: MetasequoiaTheme.segBg
-    }
-  }
-}
-
 // MARK: - 其他平台下载
 
 /// 「其他平台下载」里的一个平台行。`release` 是下载页接受的平台键。
@@ -113,7 +80,7 @@ struct DesktopDownloadView: View {
         copied = true
         ToastCenter.shared.show("已复制下载链接")
       } label: {
-        PagePill(title: copied ? "已复制" : "复制链接", style: .filled)
+        DesignPillLabel(title: copied ? "已复制" : "复制链接", style: .filled, size: .page)
       }
       .buttonStyle(.plain)
       .accessibilityLabel(copied ? "已复制下载页链接" : "复制下载页链接")
@@ -145,10 +112,10 @@ struct DesktopDownloadView: View {
       .accessibilityElement(children: .combine)
       Spacer(minLength: 8)
       if platform.isCurrentDevice {
-        PagePill(title: "当前设备", style: .neutral)
+        DesignPillLabel(title: "当前设备", style: .neutral, size: .page)
       } else {
         Button { openURL(Self.releaseURL(platform.release)) } label: {
-          PagePill(title: "获取")
+          DesignPillLabel(title: "获取", size: .page)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("获取，\(platform.name)")
@@ -306,12 +273,12 @@ struct AboutView: View {
 
   @ViewBuilder private var updatePill: some View {
     switch update {
-    case .idle: PagePill(title: "检查更新", style: .filled)
-    case .checking: PagePill(title: "正在检查…", style: .filled).opacity(0.7)
+    case .idle: DesignPillLabel(title: "检查更新", style: .filled, size: .page)
+    case .checking: DesignPillLabel(title: "正在检查…", style: .filled, size: .page).opacity(0.7)
     case .latest:
       Text("✓ 已是最新版本").font(.system(size: 13, weight: .semibold)).foregroundStyle(MetasequoiaTheme.accent)
         .padding(.vertical, 6)
-    case .available: PagePill(title: "有新版本 ›", style: .filled)
+    case .available: DesignPillLabel(title: "有新版本 ›", style: .filled, size: .page)
     }
   }
 

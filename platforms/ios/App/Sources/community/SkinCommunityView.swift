@@ -190,7 +190,8 @@ private struct CommunitySkinCard: View {
   let action: () -> Void
 
   private var pillLabel: some View {
-    CommunityPillLabel(title: state.title, offersAction: state != .inUse).opacity(state == .taking ? 0.6 : 1)
+    DesignPillLabel(title: state.title, style: state == .inUse ? .neutral : .tonal)
+      .opacity(state == .taking ? 0.6 : 1)
   }
 
   var body: some View {

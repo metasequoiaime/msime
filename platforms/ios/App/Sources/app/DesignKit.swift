@@ -111,6 +111,44 @@ struct DesignDivider: View {
 
 // MARK: - 行
 
+/// Shared tinted capsule label used for compact status and action pills.
+struct DesignPillLabel: View {
+  enum Style { case filled, tonal, neutral }
+  enum Size { case compact, regular, page }
+
+  let title: String
+  var style: Style = .tonal
+  var size: Size = .compact
+
+  var body: some View {
+    Text(title)
+      .font(.system(size: size == .compact ? 12 : 13, weight: .semibold))
+      .foregroundStyle(foreground)
+      .lineLimit(1)
+      .fixedSize()
+      .padding(.vertical, size == .compact ? 4 : size == .regular ? 5 : 6)
+      .padding(.horizontal, size == .compact ? 12 : 14)
+      .background(background, in: Capsule())
+      .contentShape(Capsule())
+  }
+
+  private var foreground: Color {
+    switch style {
+    case .filled: MetasequoiaTheme.onAccent
+    case .tonal: MetasequoiaTheme.accent
+    case .neutral: MetasequoiaTheme.sub
+    }
+  }
+
+  private var background: Color {
+    switch style {
+    case .filled: MetasequoiaTheme.accent
+    case .tonal: MetasequoiaTheme.accentSoft
+    case .neutral: MetasequoiaTheme.segBg
+    }
+  }
+}
+
 /// 所有行共用的布局：最小高度 52pt，内边距 8/20，17pt 标题，其下 2pt 处是可选的 13pt 副标题，再加上行尾的内容。
 private struct DesignRowLayout<Leading: View, Trailing: View>: View {
   let title: String
