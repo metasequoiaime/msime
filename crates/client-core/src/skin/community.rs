@@ -9,8 +9,9 @@ use crate::account::{
 };
 use crate::cloud::dictionary::percent_encode;
 use crate::community::{
-    valid_author, valid_description, valid_name, valid_query, valid_rating, CommunityModeration,
-    MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS, MODERATION_FIELDS,
+    valid_author, valid_description, valid_name, valid_query, valid_rating,
+    CommunityDeletionResponse, CommunityModeration, CommunityRatingRequest,
+    CommunityRatingResponse, MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS, MODERATION_FIELDS,
 };
 use crate::preferences::TouchKeyboardSkinDesign;
 use reqwest::Method;
@@ -53,12 +54,6 @@ struct CommunitySkinDownload {
     design: TouchKeyboardSkinDesign,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CommunitySkinRating {
-    stars: u8,
-}
-
 #[derive(Serialize)]
 struct CommunitySkinPublishRequest<'a> {
     id: Uuid,
@@ -74,12 +69,6 @@ struct CommunitySkinPublishRequest<'a> {
 #[serde(deny_unknown_fields)]
 struct CommunitySkinPublishResponse {
     id: Uuid,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CommunitySkinUnpublishResponse {
-    deleted: bool,
 }
 
 pub trait CommunitySkinApi: Send + Sync + 'static {
@@ -184,16 +173,12 @@ impl CommunitySkinApi for BackendAccountClient {
         if id.is_nil() || !(1..=5).contains(&stars) {
             return Err(AccountError::Invalid);
         }
-        #[derive(Serialize)]
-        struct RatingRequest {
-            stars: u8,
-        }
         let path = format!("/v1/community/skins/{}/rating", id.hyphenated());
-        let result = self.json::<CommunitySkinRating, _>(
+        let result = self.json::<CommunityRatingResponse, _>(
             Method::PUT,
             &path,
             Some(token),
-            Some(&RatingRequest { stars }),
+            Some(&CommunityRatingRequest { stars }),
         )?;
         if result.stars != stars {
             return Err(AccountError::Unavailable);
@@ -235,12 +220,8 @@ impl CommunitySkinApi for BackendAccountClient {
             return Err(AccountError::Invalid);
         }
         let path = format!("/v1/community/skins/{}", id.hyphenated());
-        let result = self.json::<CommunitySkinUnpublishResponse, ()>(
-            Method::DELETE,
-            &path,
-            Some(token),
-            None,
-        )?;
+        let result =
+            self.json::<CommunityDeletionResponse, ()>(Method::DELETE, &path, Some(token), None)?;
         if !result.deleted {
             return Err(AccountError::Unavailable);
         }

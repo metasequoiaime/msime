@@ -12,8 +12,8 @@ use crate::account::{
 use crate::cloud::dictionary::percent_encode;
 use crate::community::{
     suggested_publication_fields, valid_author, valid_description, valid_name, valid_query,
-    valid_rating, CommunityModeration, MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS,
-    MODERATION_FIELDS,
+    valid_rating, CommunityDeletionResponse, CommunityModeration, CommunityRatingRequest,
+    CommunityRatingResponse, MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS, MODERATION_FIELDS,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use reqwest::Method;
@@ -232,18 +232,6 @@ struct CandidateSkinSyncList {
     skins: Vec<CandidateSkinSyncEntry>,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CandidateSkinRating {
-    stars: u8,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CandidateSkinUnpublishResponse {
-    deleted: bool,
-}
-
 pub trait CandidateSkinCommunityApi: Send + Sync + 'static {
     fn candidate_skins(
         &self,
@@ -420,16 +408,12 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
         if id.is_nil() || !(1..=5).contains(&stars) {
             return Err(AccountError::Invalid);
         }
-        #[derive(Serialize)]
-        struct RatingRequest {
-            stars: u8,
-        }
         let path = format!("/v1/community/candidate-skins/{}/rating", id.hyphenated());
-        let result = self.json::<CandidateSkinRating, _>(
+        let result = self.json::<CommunityRatingResponse, _>(
             Method::PUT,
             &path,
             Some(token),
-            Some(&RatingRequest { stars }),
+            Some(&CommunityRatingRequest { stars }),
         )?;
         if result.stars != stars {
             return Err(AccountError::Unavailable);
@@ -442,12 +426,8 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
             return Err(AccountError::Invalid);
         }
         let path = format!("/v1/community/candidate-skins/{}", id.hyphenated());
-        let result = self.json::<CandidateSkinUnpublishResponse, ()>(
-            Method::DELETE,
-            &path,
-            Some(token),
-            None,
-        )?;
+        let result =
+            self.json::<CommunityDeletionResponse, ()>(Method::DELETE, &path, Some(token), None)?;
         if !result.deleted {
             return Err(AccountError::Unavailable);
         }

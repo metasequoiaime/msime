@@ -14,6 +14,23 @@ pub(crate) fn valid_text(value: &str, minimum: usize, maximum: usize, multiline:
 /// The query that asks the server to include [`CommunityModeration`] on the signed-in user's own items. It is opt-in because released clients refuse items with fields they do not know.
 pub(crate) const MODERATION_FIELDS: &str = "fields=moderation";
 
+#[derive(Serialize)]
+pub(crate) struct CommunityRatingRequest {
+    pub stars: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CommunityRatingResponse {
+    pub stars: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CommunityDeletionResponse {
+    pub deleted: bool,
+}
+
 /// Where the signed-in user's own published item stands with the moderators. Publication is moderated afterwards: an item is public as soon as it is published and moderators can remove it. Show the owner only that an item was removed (已下架); never a pending state, and the server never sends the reason.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

@@ -13,8 +13,8 @@ use crate::account::{
 use crate::cloud::dictionary::percent_encode;
 use crate::community::{
     suggested_publication_fields, valid_author, valid_description, valid_name, valid_query,
-    valid_rating, CommunityModeration, MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS,
-    MODERATION_FIELDS,
+    valid_rating, CommunityDeletionResponse, CommunityModeration, CommunityRatingRequest,
+    CommunityRatingResponse, MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS, MODERATION_FIELDS,
 };
 use crate::skin::catalog::safe_id;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -194,18 +194,6 @@ impl CommunityPluginPublishRequest {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CommunityPluginRating {
-    stars: u8,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CommunityPluginDeleteResponse {
-    deleted: bool,
-}
-
 pub trait CommunityPluginApi: Send + Sync + 'static {
     /// One page of published packs; `mine` lists only the signed-in user's own, removed ones included, with their moderation state.
     fn community_plugins(
@@ -337,16 +325,12 @@ impl CommunityPluginApi for BackendAccountClient {
         if id.is_nil() || !(1..=5).contains(&stars) {
             return Err(AccountError::Invalid);
         }
-        #[derive(Serialize)]
-        struct RatingRequest {
-            stars: u8,
-        }
         let path = format!("/v1/community/plugins/{}/rating", id.hyphenated());
-        let result = self.json::<CommunityPluginRating, _>(
+        let result = self.json::<CommunityRatingResponse, _>(
             Method::PUT,
             &path,
             Some(token),
-            Some(&RatingRequest { stars }),
+            Some(&CommunityRatingRequest { stars }),
         )?;
         if result.stars != stars {
             return Err(AccountError::Unavailable);
@@ -359,12 +343,8 @@ impl CommunityPluginApi for BackendAccountClient {
             return Err(AccountError::Invalid);
         }
         let path = format!("/v1/community/plugins/{}", id.hyphenated());
-        let result = self.json::<CommunityPluginDeleteResponse, ()>(
-            Method::DELETE,
-            &path,
-            Some(token),
-            None,
-        )?;
+        let result =
+            self.json::<CommunityDeletionResponse, ()>(Method::DELETE, &path, Some(token), None)?;
         if !result.deleted {
             return Err(AccountError::Unavailable);
         }
