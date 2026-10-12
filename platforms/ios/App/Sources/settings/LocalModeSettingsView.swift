@@ -24,10 +24,7 @@ struct LocalModeSettingsView: View {
       Section {
         ForEach(Self.modes, id: \.0) { key, title, detail in
           Toggle(isOn: stored(key)) {
-            VStack(alignment: .leading, spacing: 2) {
-              Text(title)
-              Text(detail).font(.footnote).foregroundStyle(.secondary)
-            }
+            SettingsOptionLabel(title: title, detail: detail)
           }.accessibilityIdentifier("localMode.\(key)")
         }
       } footer: {
