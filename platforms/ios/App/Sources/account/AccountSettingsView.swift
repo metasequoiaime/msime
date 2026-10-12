@@ -508,13 +508,24 @@ struct AppleAccountSection: View {
   @State private var needsRecovery = false
   @State private var busy = false
   @State private var message: String?
+  @State private var pending: Task<Void, Never>?
+  @State private var visible = false
+  @State private var requestID = UUID()
 
   var body: some View {
     Section {
       AccountLoginOptions(model: model) { _ in signedIn = true }
         .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
         // task 挂在这一行上，不挂在 Section 上：Form 会把 Section 上的修饰符分给每一行，出现「清除失效登录状态」那一行时会再读一次登录状态。
-        .task { await checkSession() }
+        .task { visible = true; startCheckSession() }
+        .onDisappear {
+          visible = false
+          requestID = UUID()
+          pending?.cancel()
+          pending = nil
+          busy = false
+          model.invalidate()
+        }
       if needsRecovery {
         Button("清除失效登录状态") { clearExpiredLogin() }
           .disabled(busy)
@@ -526,12 +537,23 @@ struct AppleAccountSection: View {
   }
 
   /// 读一次本机的登录状态：读不出来（不是取消）就提供清除。
-  @MainActor private func checkSession() async {
+  @MainActor private func startCheckSession() {
+    guard visible else { return }
+    let id = UUID()
+    requestID = id
+    pending?.cancel()
+    pending = Task { await checkSession(id: id) }
+  }
+
+  @MainActor private func checkSession(id: UUID) async {
+    defer { if requestID == id { pending = nil } }
     do {
       _ = try await SkinCommunityAPI.shared.currentUser()
+      try ensureCurrent(id)
       needsRecovery = false
+    } catch is CancellationError {
     } catch {
-      if !AccountRequestPolicy.isCancellation(error) {
+      if visible, requestID == id, !AccountRequestPolicy.isCancellation(error) {
         needsRecovery = true
         message = error.localizedDescription
       }
@@ -539,18 +561,38 @@ struct AppleAccountSection: View {
   }
 
   private func clearExpiredLogin() {
-    guard !busy else { return }
+    run { id in
+      try await SkinCommunityAPI.shared.clearExpiredLogin()
+      try ensureCurrent(id)
+      needsRecovery = false
+      message = nil
+    }
+  }
+
+  private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
+    guard visible, !busy else { return }
+    let id = UUID()
+    requestID = id
+    pending?.cancel()
+    pending = nil
     busy = true
-    Task { @MainActor in
-      defer { busy = false }
+    pending = Task { @MainActor in
+      defer { if requestID == id { busy = false; pending = nil } }
       do {
-        try await SkinCommunityAPI.shared.clearExpiredLogin()
-        needsRecovery = false
-        message = nil
+        try await action(id)
+        try ensureCurrent(id)
+      } catch is CancellationError {
       } catch {
-        if !AccountRequestPolicy.isCancellation(error) { message = error.localizedDescription }
+        if visible, requestID == id, !AccountRequestPolicy.isCancellation(error) {
+          message = error.localizedDescription
+        }
       }
     }
+  }
+
+  @MainActor private func ensureCurrent(_ id: UUID) throws {
+    try Task.checkCancellation()
+    guard visible, requestID == id else { throw CancellationError() }
   }
 }
 
