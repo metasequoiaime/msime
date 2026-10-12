@@ -55,6 +55,7 @@
 #import "../settings/ShuangpinKeymapPanel.h"
 #import "../core/FloatingToolbarPanel.h"
 #import "InputModeHUDPanel.h"
+#import "InputModeStatusItem.h"
 #import "TypingEffectPanel.h"
 #import "InputModeIdentifiers.h"
 #import "../voice/VoiceInputService.h"
@@ -1058,6 +1059,8 @@ static NSImage *MSIMECandidateLogoImage() {
     MSIMEClientSession *_session;
     // Stands in for TISEnableInputSource when set, so a test can see which opt-in mode a scheme change enables.
     OSStatus (^_optInInputModeEnabler)(NSString *identifier);
+    // 设置后代替菜单栏状态项，测试由此看到状态项被摆成哪个模式（nil 表示隐藏），不在测试进程里真的建 NSStatusItem。
+    void (^_inputModeStatusItemPresenter)(NSString *modeID);
     MSIMEVoiceInputService *_voiceService;
     MSIMEVoiceWaveOverlay *_voiceOverlay;
     MSIMEVoiceCuePlayer *_voiceCuePlayer;
@@ -3711,6 +3714,21 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     }
     NSString *mode = MSIMEInputModeID(MSIMEInputModeFor(_appearance.englishMode, scheme));
     MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), mode, client, MSIMEInputSourceIsEnabled);
+    // 菜单栏状态项显示控制器算出的模式，而不是 MSIMESelectSystemInputMode 回退后的那个：「双」「五」等模式没有加成输入源时系统图标停在「中」，状态项仍显示真实方案。
+    [self presentInputModeStatusItem:_appearance.inputModeStatusItem ? mode : nil];
+}
+// 控制器此刻的输入模式：英文模式是「英」，其余按实际运行的方案（MSIMEEffectiveInputScheme）。
+- (NSString *)currentInputModeID {
+    NSString *scheme = MSIMEEffectiveInputScheme(_appearance.inputScheme, _appearance.lastChineseScheme, [self inputSchemeHostOptions]);
+    return MSIMEInputModeID(MSIMEInputModeFor(_appearance.englishMode, scheme));
+}
+// 把菜单栏状态项摆成 `mode`，nil 表示隐藏。只有输入法进程（Info.plist 声明了 IMK 连接名）真的往菜单栏放东西；测试进程不碰菜单栏，测试经 inputModeStatusItemPresenter 换上替身。
+- (void)presentInputModeStatusItem:(NSString *)mode {
+    if (_inputModeStatusItemPresenter) { _inputModeStatusItemPresenter(mode); return; }
+    if (!NSBundle.mainBundle.infoDictionary[@"InputMethodConnectionName"]) return;
+    MSIMEInputModeStatusItem *item = [MSIMEInputModeStatusItem sharedItem];
+    if (mode) [item showMode:mode];
+    else [item hide];
 }
 // The system reports the mode the user picked from the input menu or reached with Ctrl+Space; the controller's Chinese/English state and, for every mode but 英, its scheme follow it. A report that only repeats the mode already shown, or one delivered from inside this controller's own selectInputMode:, leaves the state alone.
 - (void)setValue:(id)value forTag:(long)tag client:(id)sender {
@@ -5056,6 +5074,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [_appearance applySharedInputPreferences:preferences];
     [_appearance applySharedCandidatePreferences:preferences];
     if (!_appearance.inputModeHUD) [[MSIMEInputModeHUDPanel sharedPanel] orderOut:nil];
+    // 菜单栏状态项的开关在这里立即生效，不等下一次切换中英文或获得焦点：组字中推迟应用文档的分支只走到这里，不会调 sync。关上时总是隐藏；打开时只有持有客户端的控制器按当前模式显示，输入法不在前台时收到的通知不把它放回菜单栏。
+    if (!_appearance.inputModeStatusItem) [self presentInputModeStatusItem:nil];
+    else if (_activeClient) [self presentInputModeStatusItem:[self currentInputModeID]];
     [_appearance applySharedAssistancePreferences:preferences];
     [_appearance applySharedToolbarPreferences:preferences];
     [_appearance applySharedLocalModes:preferences[@"local_modes"]];

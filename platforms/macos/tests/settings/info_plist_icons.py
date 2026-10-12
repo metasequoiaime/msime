@@ -90,6 +90,10 @@ def main() -> int:
                     f"{value} is missing the {missing} page; the menu slot crops what it is given"
                 )
 
+    # 菜单栏状态项（InputModeStatusItem.mm）在 plist 取不到模式图标时，最后写死回退到这张，它必须就是输入法本身声明的那张菜单图标。
+    if "MSIMEClientInputMethodMenuIcon.tiff" not in named.get("tsInputMethodIconFileKey", set()):
+        failures.append("tsInputMethodIconFileKey no longer names MSIMEClientInputMethodMenuIcon.tiff, the status item's last fallback in InputModeIdentifiers.h")
+
     with plist_path.open("rb") as handle:
         modes = (plistlib.load(handle).get("ComponentInputModeDict", {}).get("tsInputModeListKey", {}) or {})
     mode_icons: dict[str, str] = {}

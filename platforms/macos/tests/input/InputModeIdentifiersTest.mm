@@ -109,6 +109,26 @@ int main() {
                     [MSIMEInputModeIDForSchemeIn(@{}, @"wubi") isEqualToString:MSIMEWubiInputModeID] &&
                     [MSIMEInputModeIDForSchemeIn(@{}, @"shuangpin") isEqualToString:MSIMEShuangpinInputModeID],
                 "The settings window would look for a mode the edition does not declare.");
+        // 菜单栏状态项（#7066）的图标与系统输入法菜单同一张：full 每个模式各有自己的，「英」是 English.tiff；五笔版没有 .Wubi，取 .Hans 上的五笔图标；缺项时回退到输入法本身的图标。
+        NSDictionary *fullIcons = @{@"ComponentInputModeDict": @{@"tsInputModeListKey": @{
+            MSIMEChineseInputModeID: @{@"tsInputModeMenuIconFileKey": @"MSIMEClientInputMethodMenuIconChinese.tiff"},
+            MSIMEShuangpinInputModeID: @{@"tsInputModeMenuIconFileKey": @"MSIMEClientInputMethodMenuIconShuangpin.tiff"},
+            MSIMEEnglishInputModeID: @{@"tsInputModeMenuIconFileKey": @"MSIMEClientInputMethodMenuIconEnglish.tiff"}}},
+            @"tsInputMethodIconFileKey": @"MSIMEClientInputMethodMenuIcon.tiff"};
+        NSDictionary *wubiIcons = @{@"MSIMEEdition": @"wubi", @"ComponentInputModeDict": @{@"tsInputModeListKey": @{
+            MSIMEChineseInputModeID: @{@"tsInputModeMenuIconFileKey": @"MSIMEClientInputMethodMenuIconWubi.tiff"},
+            MSIMEEnglishInputModeID: @{@"tsInputModeMenuIconFileKey": @"MSIMEClientInputMethodMenuIconEnglish.tiff"}}}};
+        require([MSIMEInputModeMenuIconFileIn(fullIcons, MSIMEEnglishInputModeID) isEqualToString:@"MSIMEClientInputMethodMenuIconEnglish.tiff"] &&
+                    [MSIMEInputModeMenuIconFileIn(fullIcons, MSIMEChineseInputModeID) isEqualToString:@"MSIMEClientInputMethodMenuIconChinese.tiff"] &&
+                    [MSIMEInputModeMenuIconFileIn(fullIcons, MSIMEShuangpinInputModeID) isEqualToString:@"MSIMEClientInputMethodMenuIconShuangpin.tiff"] &&
+                    [MSIMEInputModeMenuIconFileIn(wubiIcons, MSIMEWubiInputModeID) isEqualToString:@"MSIMEClientInputMethodMenuIconWubi.tiff"] &&
+                    [MSIMEInputModeMenuIconFileIn(wubiIcons, MSIMEEnglishInputModeID) isEqualToString:@"MSIMEClientInputMethodMenuIconEnglish.tiff"],
+                "The menu bar status item would not show the icon the input menu shows for the mode.");
+        require([MSIMEInputModeMenuIconFileIn(@{@"ComponentInputModeDict": @{@"tsInputModeListKey": @{}}, @"tsInputMethodIconFileKey": @"Custom.tiff"}, MSIMEJapaneseInputModeID) isEqualToString:@"Custom.tiff"] &&
+                    [MSIMEInputModeMenuIconFileIn(@{}, MSIMEEnglishInputModeID) isEqualToString:@"MSIMEClientInputMethodMenuIcon.tiff"] &&
+                    [MSIMEInputModeMenuIconFileIn(@{@"ComponentInputModeDict": @[]}, nil) isEqualToString:@"MSIMEClientInputMethodMenuIcon.tiff"] &&
+                    [MSIMEInputModeMenuIconFileIn(@{@"ComponentInputModeDict": @{@"tsInputModeListKey": @{MSIMEEnglishInputModeID: @{@"tsInputModeMenuIconFileKey": @""}}}}, MSIMEEnglishInputModeID) isEqualToString:@"MSIMEClientInputMethodMenuIcon.tiff"],
+                "A bundle without the mode's icon left the status item without a fallback.");
         require(MSIMEInputModeFor(NO, @"quanpin") == MSIMEInputMode::Chinese && MSIMEInputModeFor(NO, nil) == MSIMEInputMode::Chinese,
                 "Quanpin or an unset scheme did not show 中.");
         require(MSIMEInputModeFor(YES, @"japanese") == MSIMEInputMode::English && MSIMEInputModeFor(YES, @"korean") == MSIMEInputMode::English &&
