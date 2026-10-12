@@ -432,6 +432,9 @@ struct CommunityResourceEditor: View {
   @State private var busy = false
   @State private var message: String?
   @State private var confirming = false
+  @State private var pending: Task<Void, Never>?
+  @State private var requestID = UUID()
+  @State private var visible = false
   @Environment(\.dismiss) private var dismiss
   var body: some View {
     NavigationView {
@@ -487,37 +490,66 @@ struct CommunityResourceEditor: View {
           do { words = try (existing.content.entries ?? []).map { try $0.localWord() } } catch { message = error.localizedDescription }
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
-          busy = true
-          Task {
-            defer { busy = false }
-            do {
-              let url = try result.get()
+          guard visible else { return }
+          do {
+            let url = try result.get()
+            run { id in
               let imported = try await Task.detached { try PersonalDictionaryImport.read(from: url) }.value
+              try ensureCurrent(id)
               guard imported.entries.allSatisfy({ PersonalWordKind.communityCases.contains($0.kind) }) else { throw CommunityFailure(message: "社区词库暂不支持 98 五笔词条，请从文件中去掉后再选择。") }
               let ids = Set(words.map(\.id)); let additions = imported.entries.filter { !ids.contains($0.id) }
               guard words.count + additions.count <= 128 else { throw CommunityFailure(message: "每份社区词库最多 128 条，请先精简文件。") }
               words += additions
-            } catch { message = error.localizedDescription }
-          }
+            }
+          } catch { message = error.localizedDescription }
         }
         .confirmationDialog("确认公开发布「\(name)」？", isPresented: $confirming, titleVisibility: .visible) {
           Button("公开发布") {
-            busy = true
-            Task {
-              defer { busy = false }
-              do {
-                let content = CommunityResourceContent(entries: kind == .dictionary ? words.map(CommunityWord.init) : nil,
-                  prompt: kind == .reply ? prompt : nil)
-                try await SkinCommunityAPI.shared.publishResource(id: publicationID, kind: kind, name: name,
-                  description: description, content: content, revision: existing?.revision ?? 0)
-                onPublished(); dismiss()
-              } catch { message = error.localizedDescription }
+            run { id in
+              let content = CommunityResourceContent(entries: kind == .dictionary ? words.map(CommunityWord.init) : nil,
+                prompt: kind == .reply ? prompt : nil)
+              try await SkinCommunityAPI.shared.publishResource(id: publicationID, kind: kind, name: name,
+                description: description, content: content, revision: existing?.revision ?? 0)
+              try ensureCurrent(id)
+              onPublished(); dismiss()
             }
           }
         }
         .alert("发布作品", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
           Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
-    }.navigationViewStyle(.stack)
+    }
+    .navigationViewStyle(.stack)
+    .onAppear { visible = true }
+    .onDisappear {
+      visible = false
+      requestID = UUID()
+      pending?.cancel()
+      pending = nil
+      busy = false
+    }
+  }
+
+  @MainActor private func ensureCurrent(_ id: UUID) throws {
+    try Task.checkCancellation()
+    guard visible, requestID == id else { throw CancellationError() }
+  }
+
+  @MainActor private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
+    guard visible, !busy else { return }
+    let id = UUID()
+    requestID = id
+    busy = true; message = nil
+    pending = Task {
+      defer {
+        if requestID == id {
+          busy = false
+          pending = nil
+        }
+      }
+      do { try await action(id) }
+      catch is CancellationError { }
+      catch { if visible, requestID == id { message = error.localizedDescription } }
+    }
   }
 }
