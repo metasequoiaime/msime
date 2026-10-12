@@ -8,7 +8,13 @@
  */
 
 import { fieldLabel } from "../core/form-style";
-import { looseStack, standardPage, standardStack, tightStack } from "../core/page-style";
+import {
+  looseStack,
+  spaciousStack,
+  standardPage,
+  standardStack,
+  tightStack,
+} from "../core/page-style";
 import { mobileGroupSurface } from "../core/platform-controls-style";
 import { rowHeading, rowText } from "../core/row-style";
 
@@ -125,7 +131,7 @@ export const iconState = (selected: boolean) =>
 // ---- HarmonyOS 手机上的 我的 ----
 
 /** 标签页的纵向堆叠：外壳在它上方画 30px 的 我的 标题，卡片与各分组之间间隔 18px。 */
-export const mePage = "flex flex-col gap-[18px]";
+export const mePage = spaciousStack;
 /** 个人资料卡片：未登录时点击登录，已登录时打开 个人资料。 */
 export const meCard =
   "m-0 flex w-full min-w-0 cursor-pointer items-center gap-3.5 rounded-[20px] border-0 bg-[var(--p-group-bg)] p-4 text-left [font-family:inherit] [color:var(--p-text)] active:bg-[var(--p-press)] disabled:cursor-default";

@@ -10,3 +10,5 @@ export const standardStack = "flex flex-col gap-3";
 export const looseStack = "flex flex-col gap-4";
 /** Shared flexible spacer used to push trailing controls to the far edge. */
 export const flexSpacer = "flex-1";
+/** Shared spacious vertical stack for account sections. */
+export const spaciousStack = "flex flex-col gap-[18px]";

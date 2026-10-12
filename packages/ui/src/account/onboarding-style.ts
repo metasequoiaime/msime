@@ -6,7 +6,7 @@
  * all share one column so the text does not run the full width of a desktop window.
  */
 
-import { flexSpacer, tightStack } from "../core/page-style";
+import { flexSpacer, spaciousStack, tightStack } from "../core/page-style";
 
 const column = "mx-auto w-[min(560px,100%)]";
 
@@ -17,7 +17,7 @@ export const skip = "ml-auto border-0 bg-transparent px-0 py-[5px] text-[13px] t
 export const progress = "mt-0 mb-[3px] text-xs tabular-nums text-accent";
 
 export const body = `${column} flex-1 pt-7 pb-5 max-tight:pt-[22px]`;
-export const section = "flex flex-col gap-[18px]";
+export const section = spaciousStack;
 export const sectionTitle = "m-0 text-[27px] font-bold tracking-[-0.02em] max-tight:text-2xl";
 export const lead = "mt-[-8px] mb-1 text-[15px] leading-relaxed text-secondary";
 
