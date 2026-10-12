@@ -355,7 +355,8 @@ int main(int argc, char **argv) {
   if (argc != 2 && !(argc == 3 && (std::string(argv[2]) == "--page-number" ||
                                   std::string(argv[2]) == "--ctrl-space" ||
                                   std::string(argv[2]) == "--empty-translation" ||
-                                  std::string(argv[2]) == "--caps-lock")))
+                                  std::string(argv[2]) == "--caps-lock" ||
+                                  std::string(argv[2]) == "--japanese-toggle")))
     return 2;
   try {
     // This fixture asserts RegisterProperties and must exercise the real menu path.
@@ -716,6 +717,100 @@ int main(int argc, char **argv) {
       finish();
       msime::linux_host::replace_caps_lock_release_for_testing(nullptr, nullptr);
       std::cout << "IBus Caps Lock tap, long press, chords, failed release and hot-reload passed\n";
+      return 0;
+    }
+    // Ctrl+Shift+J 在中文方案和日语之间切换，从真实的 process_key 驱动：缺省关时交给应用；打开后中文方案去日语并把这个中文方案写进 last_chinese_scheme，再按回到它；一次按下只切换一次；英文模式和 Engine 的英文模式里交给应用。
+    if (argc == 3 && std::string(argv[2]) == "--japanese-toggle") {
+      msime_ibus_configure(options.dump());
+      invoke("FocusIn");
+      require(wait_until([&] { return seen.input_enabled; }), "Ctrl+Shift+J test does not start in Chinese");
+      const guint chord_mask = IBUS_CONTROL_MASK | IBUS_SHIFT_MASK;
+      // 一次按下和松开；松开的归属和按下一致。
+      const auto chord = [&] {
+        const bool pressed = key(IBUS_J, chord_mask);
+        require(key(IBUS_j, chord_mask | IBUS_RELEASE_MASK) == pressed,
+                "Ctrl+Shift+J press and release have different ownership");
+        return pressed;
+      };
+      const auto stored = [&] {
+        nlohmann::json snapshot;
+        std::ifstream(root / "preferences.json") >> snapshot;
+        return snapshot.at("preferences");
+      };
+      const auto stored_becomes = [&](const char *scheme, const char *last) {
+        return wait_until([&] {
+          try {
+            const auto preferences = stored();
+            return preferences.value("scheme", std::string("quanpin")) == scheme &&
+                   preferences.value("last_chinese_scheme", std::string("quanpin")) == last;
+          } catch (...) {
+            return false;
+          }
+        });
+      };
+      const auto set_preferences = [&](bool enabled, const char *scheme, const char *last) {
+        nlohmann::json snapshot;
+        std::ifstream(root / "preferences.json") >> snapshot;
+        snapshot["revision"] = snapshot.at("revision").get<uint64_t>() + 1;
+        snapshot["preferences"]["keybindings"]["toggle_japanese_ctrl_shift_j"] = enabled;
+        snapshot["preferences"]["scheme"] = scheme;
+        snapshot["preferences"]["last_chinese_scheme"] = last;
+        std::ofstream(root / "next.json") << snapshot.dump();
+        std::filesystem::rename(root / "next.json", root / "preferences.json");
+      };
+      // 缺省关：组合键交给应用，方案不变。
+      require(!chord() && stored().value("scheme", std::string("quanpin")) == "quanpin",
+              "Ctrl+Shift+J was taken with the preference off");
+      // 打开后从双拼出发；存储里记着的上一个中文方案故意是全拼，切走时要换成双拼。
+      set_preferences(true, "shuangpin", "quanpin");
+      bool switched = false;
+      require(wait_until([&] {
+                if (!switched) switched = chord();
+                return switched;
+              }),
+              "Enabling Ctrl+Shift+J did not hot-reload");
+      require(stored_becomes("japanese", "shuangpin"),
+              "Ctrl+Shift+J did not switch shuangpin to Japanese and remember shuangpin");
+      require(wait_until([&] { return seen.scheme_entries["Scheme/Japanese"]; }),
+              "the scheme menu does not show Japanese after Ctrl+Shift+J");
+      require(key('a') && wait_until([&] {
+                return !seen.candidates.empty() && seen.candidates.front().find("あ") != std::string::npos;
+              }),
+              "Ctrl+Shift+J did not switch the Engine to Japanese");
+      invoke("Reset");
+      // 按住时的自动重复归这次按下，不再切换。
+      require(key(IBUS_J, chord_mask), "Ctrl+Shift+J back to Chinese was not taken");
+      for (int repeat = 0; repeat < 3; ++repeat)
+        require(key(IBUS_J, chord_mask), "a held Ctrl+Shift+J repeat escaped");
+      require(key(IBUS_j, chord_mask | IBUS_RELEASE_MASK), "the Ctrl+Shift+J release escaped");
+      require(stored_becomes("shuangpin", "shuangpin"), "Ctrl+Shift+J did not return from Japanese to shuangpin");
+      // 英文模式交给应用。
+      invoke("PropertyActivate", g_variant_new("(su)", "InputMode", PROP_STATE_UNCHECKED));
+      require(wait_until([&] { return !seen.input_enabled; }), "English mode fixture failed");
+      require(!chord() && stored_becomes("shuangpin", "shuangpin"), "Ctrl+Shift+J was taken in English mode");
+      invoke("PropertyActivate", g_variant_new("(su)", "InputMode", PROP_STATE_CHECKED));
+      require(wait_until([&] { return seen.input_enabled; }), "Chinese mode fixture failed");
+      // Engine 自己的英文模式（Ctrl+Shift+E）里 IBus 仍是中文状态，这时同样交给应用。
+      require(key(IBUS_E, chord_mask) && wait_until([&] { return seen.english_mode; }),
+              "dedicated English fixture failed");
+      key(IBUS_e, chord_mask | IBUS_RELEASE_MASK);
+      require(!chord() && stored_becomes("shuangpin", "shuangpin"),
+              "Ctrl+Shift+J was taken in the Engine's English mode");
+      require(key(IBUS_E, chord_mask) && wait_until([&] { return !seen.english_mode; }),
+              "leaving dedicated English failed");
+      key(IBUS_e, chord_mask | IBUS_RELEASE_MASK);
+      // 关掉后又交给应用。
+      set_preferences(false, "shuangpin", "shuangpin");
+      bool ignored = false;
+      require(wait_until([&] {
+                if (!ignored) ignored = !chord();
+                return ignored;
+              }),
+              "Disabling Ctrl+Shift+J did not hot-reload");
+      require(stored_becomes("shuangpin", "shuangpin"), "a disabled Ctrl+Shift+J changed the scheme");
+      invoke("Disable");
+      finish();
+      std::cout << "IBus Ctrl+Shift+J Japanese toggle, repeat, English modes and hot-reload passed\n";
       return 0;
     }
     if (argc == 3) {
