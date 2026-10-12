@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { SettingsGroupNote } from "./settings-group-note";
 import * as surface from "../keyboard/panel-surface-style";
 import { GroupList } from "../core/platform-controls";
+import * as platform from "../core/platform-controls-style";
 import { handwritingPrivacyText } from "./handwriting-platform-notice";
 import * as settings from "./settings-style";
 import { OpenPanelRow } from "./open-panel-row";
@@ -30,12 +31,6 @@ const strokeColorOptions: readonly [HandwritingStrokeColor, string][] = [
   ["white", "白色"],
   ["blue", "蓝色"],
 ];
-
-/** 分组与其下方的说明，两者间距与分组标题到其各行的间距一样紧凑。 */
-const groupWithFooter = "flex min-w-0 flex-col gap-[var(--p-g-title-gap)]";
-/** HarmonyOS 手机上分组下方 13px 的脚注，与分组标题对齐。 */
-const groupFooter =
-  "m-0 [padding:var(--p-g-title-pad)] text-[13px] leading-[18px] [color:var(--p-sub)]";
 
 /**
  * 滑块移动期间其值保存在页面上，静止后保存一次。否则拖动的每一步都会单独保存一次键盘设置文件，而一次仍在进行的保存会让下一次保存变成空操作，从而丢掉手指最后停留的值。
@@ -105,7 +100,7 @@ function HarmonyHandwritingPadGroups({
           onChange={setDelay}
         />
       </GroupList>
-      <div className={groupWithFooter}>
+      <div className={platform.group}>
         <GroupList title="笔迹">
           <SelectRow
             title="笔迹颜色"
@@ -137,7 +132,7 @@ function HarmonyHandwritingPadGroups({
             onChange={setWidth}
           />
         </GroupList>
-        <p className={groupFooter}>{handwritingPrivacyText("harmony")}</p>
+        <p className={platform.groupFooter}>{handwritingPrivacyText("harmony")}</p>
       </div>
     </>
   );

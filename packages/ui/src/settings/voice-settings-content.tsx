@@ -41,13 +41,8 @@ import {
 import type { ProviderPresetControlFactory } from "./provider-preset-control";
 import type { useProviderCredentials, VoiceCredentialBindings } from "./use-provider-credentials";
 import { GroupList, LinkRow, MoreOptions } from "../core/platform-controls";
+import * as platform from "../core/platform-controls-style";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
-
-/** 分组及其下方的说明，二者间距与分组标题到其各行的间距相同。 */
-const groupWithFooter = "flex min-w-0 flex-col gap-[var(--p-g-title-gap)]";
-/** HarmonyOS 手机上分组下方的 13px 脚注，与分组标题对齐。 */
-const groupFooter =
-  "m-0 [padding:var(--p-g-title-pad)] text-[13px] leading-[18px] [color:var(--p-sub)]";
 
 /** HarmonyOS 手机上豆包「服务配置」行的状态，与键盘的 `DoubaoCredentialPolicy` 同一套判断：密钥取当前框，空时取 `asr_tokens.doubao`；一项都没填时键盘用系统识别，填了一部分时键盘报缺项。 */
 export function doubaoServiceStatus(voiceInput: VoiceInputPreferences): string {
@@ -415,7 +410,7 @@ export function VoiceSettingsContent({
             />
           )}
         </GroupList>
-        <div className={groupWithFooter}>
+        <div className={platform.group}>
           <GroupList title="识别服务">
             <VoiceInputServiceRows
               enabled={voiceInput.enabled}
@@ -440,7 +435,7 @@ export function VoiceSettingsContent({
               <LinkRow title="服务配置" value={serviceStatus} onClick={openPhoneService} />
             )}
           </GroupList>
-          <p className={groupFooter}>
+          <p className={platform.groupFooter}>
             {harmonyPhoneVoiceFooter({
               localVoice,
               localVoiceModelsAvailable: Boolean(client.localVoiceModels),

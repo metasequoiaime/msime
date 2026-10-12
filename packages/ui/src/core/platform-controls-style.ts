@@ -7,6 +7,8 @@ import { rowText as sharedRowText } from "./row-style";
 // ---- groups and rows ----
 
 export const group = "flex min-w-0 flex-col gap-[var(--p-g-title-gap)]";
+export const groupFooter =
+  "m-0 [padding:var(--p-g-title-pad)] text-[13px] leading-[18px] [color:var(--p-sub)]";
 export const groupTitle =
   "m-0 [padding:var(--p-g-title-pad)] [font-size:var(--p-g-title-fs)] [font-weight:var(--p-g-title-w)] [color:var(--p-g-title-fg)]";
 /**
