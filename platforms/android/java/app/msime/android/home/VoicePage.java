@@ -50,7 +50,7 @@ import org.json.JSONObject;
  *
  * <p>「上传语音以改进识别」（本地设置的 `platform.android.voice_contribute_audio`，只在本机、不同步）默认关闭；每次从关切到开都先弹确认框说明上传什么、保存多久，用户确认后才写（P19）。
  */
-public final class VoicePage extends DetailPage {
+public final class VoicePage extends ReloadingDetailPage {
     private static final String[] LANGUAGES = {"zh-cn", "yue", "en", "auto"};
     private static final String[] LANGUAGE_LABELS = {"普通话", "粤语", "英语", "普通话 + 英语"};
     private static final String[] TRIGGER_LABELS = {"长按空格", "工具栏按钮", "无"};
@@ -75,7 +75,6 @@ public final class VoicePage extends DetailPage {
     /** 一次「测试」的结果：{@code message} 是共享层给的中文结果，不含凭据。 */
     private record TestResult(boolean ok, String message) {}
 
-    @Nullable private LinearLayout column;
     @Nullable private GroupCard.Row contributeRow;
     @Nullable private State lastState;
     /** 正在测试的服务（`voice.asr` / `voice.polish`）：测试中再点同一行不再发请求，免得排起一串请求和对话框。 */
@@ -90,7 +89,7 @@ public final class VoicePage extends DetailPage {
         registerForActivityResult(new ActivityResultContracts.OpenMultipleDocuments(), this::onImportPicked);
     /** 运行库或本地模型的下载进度变了就重画；下载结束时重读一遍安装状态。 */
     private final ResourcePackService.Listener packListener = (pack, finished) -> {
-        if (column == null || !(ResourcePacks.VOICE_RUNTIME.equals(pack) || ResourcePackService.isVoiceModel(pack)))
+        if (contentColumn() == null || !(ResourcePacks.VOICE_RUNTIME.equals(pack) || ResourcePackService.isVoiceModel(pack)))
             return;
         if (finished) reload();
         else if (lastState != null) render(lastState);
@@ -113,27 +112,19 @@ public final class VoicePage extends DetailPage {
         out.putLongArray(SAVED_IMPORT_SIZES, target.sizes());
     }
 
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
+    @Override protected void onContentReady() {
         ResourcePackService.addListener(packListener);
-        reload();
     }
 
-    @Override protected void onBecameVisible() {
-        if (column != null) reload();
-    }
-
-    @Override public void onDestroyView() {
+    @Override protected void onContentDestroyed() {
         ResourcePackService.removeListener(packListener);
-        column = null;
         contributeRow = null;
         lastState = null;
         // HostTask fences its callback to this view, so a test still in flight when the view goes away never reports back; the marker must not lock the rebuilt page out of testing again.
         testing.clear();
-        super.onDestroyView();
     }
 
-    private void reload() {
+    @Override protected void reload() {
         HostTask.run(this, VoicePage::read, this::render);
     }
 
@@ -168,7 +159,7 @@ public final class VoicePage extends DetailPage {
     }
 
     private void render(@Nullable State state) {
-        LinearLayout target = column;
+        LinearLayout target = contentColumn();
         if (target == null) return;
         lastState = state;
         target.removeAllViews();

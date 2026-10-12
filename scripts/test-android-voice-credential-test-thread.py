@@ -7,6 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "platforms/android/java/app/msime/android/home/VoicePage.java"
+BASE = ROOT / "platforms/android/java/app/msime/android/home/ReloadingDetailPage.java"
 
 
 class VoiceCredentialTestThreadContract(unittest.TestCase):
@@ -24,9 +25,10 @@ class VoiceCredentialTestThreadContract(unittest.TestCase):
         self.assertRegex(body, r"if \(!testing\.add\(service\)\) return;")
         self.assertIn("testing.remove(service);", body)
         self.assertLess(body.index("testing.add(service)"), body.index("HostTask.runNetwork("))
-        on_destroy = re.search(r"public void onDestroyView\(\) \{(?P<body>.*?)\n    \}", source, re.S)
-        self.assertIsNotNone(on_destroy, "could not locate VoicePage.onDestroyView")
+        on_destroy = re.search(r"protected void onContentDestroyed\(\) \{(?P<body>.*?)\n    \}", source, re.S)
+        self.assertIsNotNone(on_destroy, "could not locate VoicePage.onContentDestroyed")
         self.assertIn("testing.clear();", on_destroy.group("body"))
+        self.assertIn("onContentDestroyed();", BASE.read_text())
 
 
 if __name__ == "__main__":

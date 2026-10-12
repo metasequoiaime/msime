@@ -18,6 +18,7 @@ CONSUMERS = (
     "LexiconPage.java",
     "PhrasesPage.java",
     "SkinsPage.java",
+    "VoicePage.java",
 )
 
 
@@ -115,6 +116,19 @@ def main() -> int:
         or "reload(true)" not in lexicon
     ):
         errors.append("LexiconPage: 缓存显示、发现列表或手动刷新行为未保留")
+
+    voice = (HOME / "VoicePage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in voice
+        or "ResourcePackService.addListener(packListener);" not in voice
+        or "@Override protected void onContentDestroyed()" not in voice
+        or "ResourcePackService.removeListener(packListener);" not in voice
+        or "contributeRow = null;" not in voice
+        or "lastState = null;" not in voice
+        or "testing.clear();" not in voice
+        or "if (contentColumn() == null" not in voice
+    ):
+        errors.append("VoicePage: 资源包监听器或视图绑定状态未迁移到生命周期钩子")
 
     if errors:
         print("\n".join(errors), file=sys.stderr)
