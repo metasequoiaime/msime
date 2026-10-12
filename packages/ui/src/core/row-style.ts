@@ -9,3 +9,5 @@ export const subtleMeta = "text-[12px] [color:var(--p-sub)]";
 
 /** Shared compact horizontal alignment for small controls and indicators. */
 export const inlineItems = "flex items-center gap-1.5";
+/** Shared compact control row for trailing actions and touch bars. */
+export const controlRow = "flex shrink-0 items-center gap-2";

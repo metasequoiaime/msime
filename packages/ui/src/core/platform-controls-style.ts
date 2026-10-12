@@ -2,7 +2,7 @@
  * Class strings for the platform controls in `platform-controls.tsx`. Every length and colour is a `--p-*` token from the `[data-platform]` layer in `styles.css`, so one markup takes each platform's shape. Values that Tailwind could read either as a colour or as a size (`text-`, `shadow-`, `border-`) are written as arbitrary properties so the property is never inferred.
  */
 
-import { rowText as sharedRowText, subtleMeta } from "./row-style";
+import { controlRow, rowText as sharedRowText, subtleMeta } from "./row-style";
 
 // ---- groups and rows ----
 
@@ -28,7 +28,7 @@ export const rowIcon = "size-5 shrink-0 items-center justify-center [display:var
 export const rowText = sharedRowText;
 export const rowTitle = "block [font-size:var(--p-row-fs)] [color:var(--p-text)]";
 export const rowDescription = "block [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
-export const rowControl = "flex shrink-0 items-center gap-2";
+export const rowControl = controlRow;
 /** 控件要整行宽度的行（文本框、整行滑块）。HarmonyOS 手机只有约 360px 宽，控件放在标题旁边会把说明挤成几个字一行、把地址截断，所以那里控件换到标题下方独占一行，和标题之间只隔 6px；其余平台与 `row` 相同。 */
 export const wideRow = `${row} harmony:flex-wrap harmony:gap-y-1.5`;
 export const wideRowControl = `${rowControl} harmony:w-full harmony:shrink`;
@@ -143,7 +143,7 @@ export const navRowValue = {
   me: "max-w-[55%] min-w-0 shrink-0 truncate text-[14px] [color:var(--p-sub)]",
 } as const;
 export const navRowChevron = "-ml-1 shrink-0 self-center opacity-55 [color:var(--p-sub)]";
-export const navRowTrailing = "flex shrink-0 items-center gap-2";
+export const navRowTrailing = controlRow;
 
 // ---- navigation ----
 

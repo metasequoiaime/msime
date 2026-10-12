@@ -1,5 +1,6 @@
 import { touchHairline } from "../core/touch-style";
 import { mutedText } from "../core/text-style";
+import { controlRow } from "../core/row-style";
 
 /**
  * The account chat playground.
@@ -42,7 +43,7 @@ export const login = "self-start";
 
 /** 整页：顶部一行小胶囊、中间对话、底部输入栏，对话区自己滚动。 */
 export const touchPage = "flex min-h-0 flex-1 flex-col gap-2.5";
-export const touchBar = "flex shrink-0 items-center gap-2";
+export const touchBar = controlRow;
 export const touchChip = `m-0 inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-full ${touchHairline} bg-[var(--p-group-bg)] px-3 py-1.5 text-[13px] [font-family:inherit] [color:var(--p-text)] active:opacity-70 disabled:cursor-default disabled:opacity-40`;
 export const touchLog = "-mx-1 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-1 pt-1 pb-2";
 const touchBubble =
