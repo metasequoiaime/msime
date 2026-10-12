@@ -13,6 +13,7 @@ use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::helpcode::SharedKeymap;
 use crate::japanese::matrix::BestPath;
+use crate::japanese::provider::WholeReadingLemma;
 use crate::japanese::JapaneseProvider;
 use crate::korean::hanja;
 use crate::language_dictionary::{self, LanguageDictionary};
@@ -426,12 +427,12 @@ impl ProviderRegistry {
         }
     }
 
-    /// 日文混输：整段罗马字读音有没有完全相同读音的词条。会话不带日文（`enabled` 里没有 `JapaneseRomaji`）时没有 provider，答 `None`；其余见 `JapaneseProvider::whole_reading_has_lemma`。
-    pub(super) fn japanese_whole_reading_has_lemma(
+    /// 日文混输：整段罗马字读音有没有完全相同读音的词条，读音有几拍。会话不带日文（`enabled` 里没有 `JapaneseRomaji`）时没有 provider，答 `None`；其余见 `JapaneseProvider::whole_reading_lemma`。
+    pub(super) fn japanese_whole_reading_lemma(
         &mut self,
         request: &QueryRequest,
-    ) -> Option<bool> {
-        self.japanese.as_mut()?.whole_reading_has_lemma(request)
+    ) -> Option<WholeReadingLemma> {
+        self.japanese.as_mut()?.whole_reading_lemma(request)
     }
 
     /// 日文混输：整段罗马字读音的最佳整句。没有 provider 时答 `None`；其余见 `JapaneseProvider::whole_reading_best_path`。

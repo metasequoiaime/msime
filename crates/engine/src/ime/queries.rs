@@ -278,7 +278,7 @@ pub(crate) fn spells_whole_syllables(
 #[derive(Debug, Clone, PartialEq)]
 pub struct MixedJapaneseRow {
     pub item: WordItem,
-    /// 占首位（拼音给不出整段的词时），否则进优先位置。
+    /// 占首位，否则进优先位置；规则见 `InputSession::mixed_japanese_row`。
     pub lead: bool,
 }
 

@@ -786,12 +786,15 @@ INSERT INTO tbl_1_t VALUES('ta','t','他',100);\
 CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
 INSERT INTO tbl_1_m VALUES('ma','m','吗',100);";
 
-/// 日文模型：おはよう、かいし（開始）、すごい有完整词条，食べ和ます拼出 `tabemasu`；没有にはお之类的词条，`nihao` 只能靠未知假名拼出来。
+/// 日文模型：おはよう、かいし（開始）、すごい有完整词条，食べ和ます拼出 `tabemasu`；没有にはお之类的词条，`nihao` 只能靠未知假名拼出来。かい、しょう是两拍的词条；すこし（少し）的成本超过「认得」的上限（每假名 1800）。
 fn japanese_mixing_model() -> Vec<u8> {
     crate::japanese::decoder::test_model::bytes(
         &[
             ("おはよう", "おはよう", 0, 0, 500),
+            ("かい", "会", 0, 0, 400),
             ("かいし", "開始", 0, 0, 800),
+            ("しょう", "章", 0, 0, 400),
+            ("すこし", "少し", 0, 0, 6000),
             ("すごい", "すごい", 0, 0, 600),
             ("たべ", "食べ", 0, 0, 700),
             ("ます", "ます", 0, 0, 300),
@@ -878,6 +881,27 @@ fn a_japanese_conversion_leads_or_follows_the_whole_chinese_word() {
         );
         session.command(Command::Cancel);
     }
+}
+
+/// 两拍的精确词条不算精确：拼得开的 `kai`（かい）、`shou`（しょう，拗音的小写假名不单算拍）都不混日文。拼音拆不开时只有精确词条、整句不认得的 `sukoshi`（少し）给一行但不领先，进优先位置。
+#[test]
+fn short_exact_readings_stay_out_and_unknown_readings_do_not_lead() {
+    let fixture = japanese_mixing_fixture();
+    let mut session = japanese_session(&fixture, |_| {});
+    for raw in ["kai", "shou"] {
+        type_text(&mut session, raw);
+        assert_eq!(
+            japanese_index(&session),
+            None,
+            "{raw}: {:?}",
+            words(&session)
+        );
+        session.command(Command::Cancel);
+    }
+
+    type_text(&mut session, "sukoshi");
+    assert_eq!(japanese_index(&session), Some(1), "{:?}", words(&session));
+    assert_eq!(words(&session)[1], "少し");
 }
 
 /// 日文混输的门槛：选项关着、会话不带日文、模型缺失、带撇号、不到两个假名、末尾还有待定字母、辅助码激活、光标前缀解码、专用英文，都不混日文。
@@ -1188,21 +1212,25 @@ fn real_resources_mix_japanese_conversions() {
     let (words, japanese) = shown("kaishi");
     assert_eq!(&words[..2], ["开始", "開始"], "{words:?}");
     assert_eq!(japanese, Some(1));
-    let (words, japanese) = shown("sushi");
-    assert_eq!(
-        words.get(japanese.expect("寿司")).map(String::as_str),
-        Some("寿司")
-    );
+    // 两拍的读音（すし、はお、かい、よう、しょう）有词条也不算精确；`wode`、`tamen` 只用来看效果。
     for raw in [
+        "sushi",
         "konnichiha",
         "nihao",
         "women",
         "xiexie",
         "shenme",
         "zaijian",
+        "hao",
+        "kai",
+        "you",
+        "shou",
     ] {
         let (words, japanese) = shown(raw);
         assert_eq!(japanese, None, "{raw}: {words:?}");
+    }
+    for raw in ["wode", "tamen"] {
+        shown(raw);
     }
 }
 

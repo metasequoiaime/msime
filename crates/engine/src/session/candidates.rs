@@ -500,19 +500,28 @@ impl InputSession {
         self.engine.mixed_japanese_conversion()
     }
 
-    /// 日文混输要混进 `decoded` 的那一行。整段文字是转换结果，`pinyin` 是整段输入（选中即结束组字），`canonical_pinyin` 为空，权重 0。拼音拆不开，或者打头的非英文行不是能结束整段组字的词典词（快照里 `answers_key` 用的同一个判定）时领先，否则进优先位置。
+    /// 日文混输要混进 `decoded` 的那一行。整段文字是转换结果，`pinyin` 是整段输入（选中即结束组字），`canonical_pinyin` 为空，权重 0。拼音拆不开时只看「认得」：认得才领先，只有精确词条、整句不认得时进优先位置（打错的拼音常常碰巧是某个词条的读音）。拼音拆得开时，打头的非英文行不是能结束整段组字的词典词（快照里 `answers_key` 用的同一个判定）才领先，否则进优先位置。
     fn mixed_japanese_row(
         &self,
         decoded: &[WordItem],
         conversion: &MixedJapaneseConversion,
     ) -> MixedJapaneseRow {
-        let chinese_whole_word = decoded
-            .iter()
-            .find(|item| item.source != CandidateSource::EnglishDictionary)
-            .is_some_and(|item| {
-                item.source.is_dictionary()
-                    && self.selection_completes_composition(&item.pinyin, &item.word, item.scheme)
-            });
+        let lead = if conversion.pinyin_incomplete {
+            conversion.known
+        } else {
+            let chinese_whole_word = decoded
+                .iter()
+                .find(|item| item.source != CandidateSource::EnglishDictionary)
+                .is_some_and(|item| {
+                    item.source.is_dictionary()
+                        && self.selection_completes_composition(
+                            &item.pinyin,
+                            &item.word,
+                            item.scheme,
+                        )
+                });
+            !chinese_whole_word
+        };
         let mut item = WordItem::new(
             self.engine.request().raw_input.as_str(),
             conversion.text.as_str(),
@@ -521,10 +530,7 @@ impl InputSession {
             "",
         );
         item.scheme = SchemeType::JapaneseRomaji;
-        MixedJapaneseRow {
-            item,
-            lead: conversion.pinyin_incomplete || !chinese_whole_word,
-        }
+        MixedJapaneseRow { item, lead }
     }
 
     /// Mixed rows and fixed positions over one decoded list.
