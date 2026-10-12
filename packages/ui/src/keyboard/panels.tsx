@@ -4007,9 +4007,6 @@ const emojiPages: { id: EmojiPage; label: string; icon: string }[] = [
  * thirty rules whose only job was to restate the first thirty. The pairs are named once here and the
  * light half rides along as a `group-data` variant, so a colour that changes changes in one place.
  */
-const panelSurface = "bg-[#202027] group-data-[panel-theme=light]:bg-[#f7f8fa]";
-const panelText = "text-[#f5f5f7] group-data-[panel-theme=light]:text-[#202124]";
-const panelMuted = "text-[#aeb0b7] group-data-[panel-theme=light]:text-[#656a73]";
 const panelDim = "text-[#b8b8c0] group-data-[panel-theme=light]:text-[#656a73]";
 const panelDivider = "border-white/[0.09] group-data-[panel-theme=light]:border-[#d9dce3]";
 /** A raised field: the search box, a clipboard row, the delete button beside one. */
@@ -4030,7 +4027,7 @@ const panelToolbar = `mb-2 flex min-h-[34px] items-center gap-[9px] border-b pb-
  * generates. Interpolating a constant that already holds literals is fine; building `[&>button]:` +
  * a name is not. */
 const panelAction = `${panelTextButton} px-2.5 py-[5px] text-xs`;
-const panelHeading = `m-0 text-sm font-semibold ${panelText}`;
+const panelHeading = `m-0 text-sm font-semibold ${surface.panelText}`;
 const panelContent =
   "min-h-0 flex-1 overflow-y-auto px-6 pt-2 pb-[52px] max-phone:px-3.5 [scrollbar-color:#77747d_transparent]";
 const panelChip = (chosen: boolean) =>
@@ -4039,14 +4036,14 @@ const panelChip = (chosen: boolean) =>
       ? `${panelAccentBorder} ${panelChosen}`
       : `border-transparent bg-transparent ${panelDim} ${panelRaise} focus-visible:bg-[#303038] focus-visible:text-[#f5f5f7] group-data-[panel-theme=light]:focus-visible:bg-[#eceef3] group-data-[panel-theme=light]:focus-visible:text-[#202124]`
   }`;
-const panelEmpty = `m-0 flex min-h-[220px] items-center justify-center text-center text-sm ${panelMuted}`;
+const panelEmpty = `m-0 flex min-h-[220px] items-center justify-center text-center text-sm ${surface.panelMuted}`;
 /*
  * A tile. Grid tiles are uniform squares; flow tiles hold kaomoji and captioned symbols, so they size
  * to their content and wrap their text instead. The `:nth-child(n)` the stylesheet used on the group
  * was only there to win a specificity fight with the grid rule -- a fight utilities do not have.
  */
 const panelTile = (flow: boolean) =>
-  `flex min-w-0 items-center justify-center overflow-hidden rounded-[9px] border border-transparent bg-transparent text-center font-emoji-text leading-[1.2] wrap-anywhere ${panelText} hover:border-[#555560] hover:bg-[#303038] focus-visible:border-[#555560] focus-visible:bg-[#303038] group-data-[panel-theme=light]:hover:border-[#c8ccd5] group-data-[panel-theme=light]:hover:bg-[#eceef3] group-data-[panel-theme=light]:focus-visible:border-[#c8ccd5] group-data-[panel-theme=light]:focus-visible:bg-[#eceef3] disabled:cursor-wait disabled:opacity-55 ${
+  `flex min-w-0 items-center justify-center overflow-hidden rounded-[9px] border border-transparent bg-transparent text-center font-emoji-text leading-[1.2] wrap-anywhere ${surface.panelText} hover:border-[#555560] hover:bg-[#303038] focus-visible:border-[#555560] focus-visible:bg-[#303038] group-data-[panel-theme=light]:hover:border-[#c8ccd5] group-data-[panel-theme=light]:hover:bg-[#eceef3] group-data-[panel-theme=light]:focus-visible:border-[#c8ccd5] group-data-[panel-theme=light]:focus-visible:bg-[#eceef3] disabled:cursor-wait disabled:opacity-55 ${
     flow
       ? "max-w-full flex-[0_1_auto] min-h-12 px-3 py-2.5 text-xl whitespace-pre-wrap"
       : "min-h-[66px] p-1.5 text-[29px]"
@@ -4563,13 +4560,13 @@ export function EmojiPanel({
   return (
     <main
       {...navigation}
-      className={`native-panel group flex min-h-screen flex-col overflow-hidden ${panelSurface} ${panelText}`}
+      className={`native-panel group flex min-h-screen flex-col overflow-hidden ${surface.panelSurface} ${surface.panelText}`}
       data-panel-theme={theme}
       aria-label="表情与符号"
     >
       <NativePanelHeader
         title="Emoji and more"
-        className={`native-panel-header flex-[0_0_38px] border-b ${panelDivider} ${panelSurface} ${panelText} [&>button]:text-[#aeb0b7] group-data-[panel-theme=light]:[&>button]:text-[#656a73]`}
+        className={`native-panel-header flex-[0_0_38px] border-b ${panelDivider} ${surface.panelSurface} ${surface.panelText} [&>button]:text-[#aeb0b7] group-data-[panel-theme=light]:[&>button]:text-[#656a73]`}
         closeDisabled={clipboardBusy}
         onClose={() => void closeEmoji()}
       />
@@ -4977,7 +4974,7 @@ export function EmojiPanel({
         </section>
       )}
       <p
-        className={`m-0 min-h-[30px] flex-[0_0_30px] border-t px-6 py-1.5 text-center text-xs ${panelDivider} ${panelMuted}`}
+        className={`m-0 min-h-[30px] flex-[0_0_30px] border-t px-6 py-1.5 text-center text-xs ${panelDivider} ${surface.panelMuted}`}
         role="status"
       >
         {notice ||

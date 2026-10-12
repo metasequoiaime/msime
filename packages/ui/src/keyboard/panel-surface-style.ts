@@ -7,9 +7,9 @@
  * stylesheet's habit of writing every declaration twice.
  */
 
-const panelText = "text-[#f5f5f7] group-data-[panel-theme=light]:text-[#202124]";
-const panelMuted = "text-[#aeb0b7] group-data-[panel-theme=light]:text-[#656a73]";
-const panelSurface = "bg-[#202027] group-data-[panel-theme=light]:bg-[#f7f8fa]";
+export const panelText = "text-[#f5f5f7] group-data-[panel-theme=light]:text-[#202124]";
+export const panelMuted = "text-[#aeb0b7] group-data-[panel-theme=light]:text-[#656a73]";
+export const panelSurface = "bg-[#202027] group-data-[panel-theme=light]:bg-[#f7f8fa]";
 const panelEdge = "border-[#45454f] group-data-[panel-theme=light]:border-[#c8ccd5]";
 const panelField = `rounded-[7px] border bg-[#2b2b33] ${panelEdge} ${panelText} group-data-[panel-theme=light]:bg-white`;
 
