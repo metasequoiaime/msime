@@ -3190,6 +3190,8 @@ public final class MSIMEInputService extends InputMethodService {
                 JSONObject next = applied.getJSONObject("view");
                 if (CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE)
                         != targetSession) return;
+                // 在线结果会推进 generation：组字和高亮候选没变时义项页跟过去，不让它被这次刷新关掉。
+                imeTranslationSenses.followOnlineRefresh(next);
                 view = next;
                 render();
                 JSONObject current = onlineQuery(targetSession);
@@ -4099,7 +4101,8 @@ public final class MSIMEInputService extends InputMethodService {
                 imeTranslationSenses.clear();
                 render();
             } else {
-                if (event.getRepeatCount() == 0) translationConsumedKeyCode = keyCode;
+                if (event.getRepeatCount() == 0 && HardwareTranslationCommitPolicy.holdsKey(pageKey))
+                    translationConsumedKeyCode = keyCode;
                 switch (pageKey) {
                     case HardwareTranslationCommitPolicy.IGNORE -> { }
                     case HardwareTranslationCommitPolicy.COMMIT_HIGHLIGHT -> imeTranslationSenses.commitHighlighted();
@@ -6488,7 +6491,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean eligible = session != 0 && connection != null && hasEngineComposition()
             && view.optJSONArray("candidates") != null && view.optJSONArray("candidates").length() > 0
             && candidateGlossInsertionEnabled();
-        int slot = highlightedCandidateSlot();
+        int slot = highlightedCandidateSlot(view);
         JSONObject candidate = slot < 0 ? null : visibleCandidate(slot);
         java.util.List<String> senses = java.util.List.of();
         if (eligible && candidate != null && (candidateEnglishGloss || candidateTranslationsEnabled)) {
@@ -6508,7 +6511,7 @@ public final class MSIMEInputService extends InputMethodService {
             insertCandidateGloss(slot, id, text, senses.get(0));
         } else if (action == HardwareTranslationCommitPolicy.OPEN_PAGE) {
             closeCandidatePanel();
-            imeTranslationSenses.open(senses);
+            imeTranslationSenses.open(senses, InputViewValuePolicy.textOr(candidate, "text", ""));
             render();
             if (horizontalCandidateScroll != null) horizontalCandidateScroll.scrollTo(0, 0);
             if (verticalCandidateScroll != null) verticalCandidateScroll.scrollTo(0, 0);
@@ -6643,9 +6646,9 @@ public final class MSIMEInputService extends InputMethodService {
             wordCharacter.optString("keys", WordCharacterPolicy.BRACKETS));
     }
 
-    /** 候选条上高亮候选的位置，没有时为 -1。 */
-    private int highlightedCandidateSlot() {
-        JSONArray entries = view == null ? null : view.optJSONArray("candidates");
+    /** `from` 这份 view 的候选条上高亮候选的位置，没有时为 -1。 */
+    static int highlightedCandidateSlot(JSONObject from) {
+        JSONArray entries = from == null ? null : from.optJSONArray("candidates");
         if (entries == null) return -1;
         for (int index = 0; index < entries.length(); index++) {
             JSONObject candidate = entries.optJSONObject(index);
@@ -6656,7 +6659,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** The candidate the strip is showing as highlighted, which 以词定字 takes its character from. */
     private JSONObject highlightedCandidate() {
-        int slot = highlightedCandidateSlot();
+        int slot = highlightedCandidateSlot(view);
         return slot < 0 ? null : visibleCandidate(slot);
     }
 

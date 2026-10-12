@@ -16,10 +16,10 @@ Status: implemented
 - 释义显示开关（`candidate_english_gloss` 或账号译文）不算进「接不接」，只决定义项是不是空的。接住以后：0 个义项吃掉按键、什么也不做；1 个义项直接上屏；2 个及以上打开义项页。按住不放的自动重复只吃掉。
 - 义项取高亮候选的 `translation`，经 `CandidateTranslationPolicy.insertionGlosses` 拆分：先按换行分语言行，再按 `;` / `；` 拆义项，两种目标语言都拆进来，最多 9 项。和同一平台的长按菜单是同一份列表。
 - 单义项走现成的 `insertCandidateGloss(slot, id, chineseOutput(text), gloss)`，它带 `candidateIsCurrent` 的身份核对。`text` 必须是 `chineseOutput` 之后的文字，因为核对拿的就是它。上屏前先 `closeCandidatePanel()`，展开面板不会和义项页同时出现。
-- 义项页是 `core/ImeTranslationSenses`，形状照 `ImeEmailSuffixes`。它记下打开时的 session 和 generation，`active()` 要求两者都没变、view 不为空、仍在组字。所以任何推进 generation 的引擎回复（继续打字、点选、换输入框）和把 view 置空的 `onUpdateSelection` 都会让它自动失效，不用每条路径记得关页。异步释义经 `applyCandidateGlosses` 换 view 时 generation 不变，页面保留。`render()` 在邮箱后缀之前画它：候选行只放义项，按钮前标 `1 `…`9 `，高亮项画成选中，读屏是「译文 n：xxx」。横排、竖排都画，展开键和页码不显示，点按上屏，不能长按。
+- 义项页是 `core/ImeTranslationSenses`，形状照 `ImeEmailSuffixes`。它记下打开时的 session 和 generation，`active()` 要求两者都没变、view 不为空、仍在组字。所以任何推进 generation 的引擎回复（继续打字、点选、换输入框）和把 view 置空的 `onUpdateSelection` 都会让它自动失效，不用每条路径记得关页。异步释义经 `applyCandidateGlosses` 换 view 时 generation 不变，页面保留。云候选和 AI 候选（包括 AI 落空时把占位换成「—」）不一样：runtime 采用它们时会像一次输入那样推进 generation（`input-runtime` 的 `apply_online_candidate_snapshot` / `resolve_online_candidates_owned`），用户却什么也没做。如果义项页因此关掉，用户接着按的数字或空格就落到候选条上，选中的是中文候选而不是正在选的译文。所以 `applyOnlineResult` 换 view 之前先调 `followOnlineRefresh`：开页时记下的组字（`editing_text`）和高亮候选原文都没变，页面就改认新的 generation；任一变了（比如 AI 候选顶到了高亮位置）页面随旧 generation 失效。这个判断在策略类的 `pageSurvivesRefresh` 里，冒烟钉住。`render()` 在邮箱后缀之前画它：候选行只放义项，按钮前标 `1 `…`9 `，高亮项画成选中，读屏是「译文 n：xxx」。横排、竖排都画，展开键和页码不显示，点按上屏，不能长按。
 - 页内按键由 `pageKey` 分派，排在 `onKeyDown` 最前面，紧跟单按修饰键的处理，早于韩语 F9、数字选词和以词定字。数字 1–9（含小键盘）选第几项，超出义项数时留在页内。空格和回车上屏高亮项。上下左右移动高亮，Home/End 跳到两头。Esc 和返回只关页，组字保留，和鸿蒙的 `exitTranslationPage` 一样。单按的修饰键留在页内。其他键和任何带修饰键的组合都先关页再照常处理，同 macOS 的 `handleGlossSenseEvent`，所以 Ctrl+Enter 会关页再重新开页。
 - 上屏之后用命令 3（`MSIME_CANCEL`）结束组字，和长按路径 `insertCandidateGloss` / `insertExpandedCandidateGloss` 相同。
-- 被这条路接住的键记在 `translationConsumedKeyCode`。它在按住时的自动重复，以及随后的抬起，也都不交给应用，下一次首次按下或 `onFinishInput` 时清掉。
+- 被这条路接住的键记在 `translationConsumedKeyCode`。它在按住时的自动重复，以及随后的抬起，也都不交给应用，下一次首次按下或 `onFinishInput` 时清掉。义项页里只记上屏、关页和留在页内的键（`holdsKey`），不记方向键和 Home/End：自动重复的过滤排在页内分派之前，记下方向键的话它的重复到不了 `pageKey`，按住只会移动一格。
 
 ## 和其他宿主的取舍
 

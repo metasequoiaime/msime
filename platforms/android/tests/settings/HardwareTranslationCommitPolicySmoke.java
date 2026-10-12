@@ -117,6 +117,32 @@ public final class HardwareTranslationCommitPolicySmoke {
         check(HardwareTranslationCommitPolicy.pageKey(KeyEvent.KEYCODE_META_LEFT, false, false, false, true, 0,
                 3) == HardwareTranslationCommitPolicy.IGNORE, "a lone Meta keeps the page");
 
+        // 记作输入法的键（自动重复和抬起都不再交给应用）：上屏、关页和留在页内的键要记，移动高亮的键不记，否则服务在重复到达 pageKey 之前就把它吃掉，按住方向键只会动一格。
+        check(HardwareTranslationCommitPolicy.holdsKey(0), "a picked sense holds its key");
+        check(HardwareTranslationCommitPolicy.holdsKey(page(KeyEvent.KEYCODE_SPACE)), "Space holds its key");
+        check(HardwareTranslationCommitPolicy.holdsKey(page(KeyEvent.KEYCODE_ESCAPE)), "Escape holds its key");
+        check(HardwareTranslationCommitPolicy.holdsKey(page(KeyEvent.KEYCODE_9)),
+            "a digit past the last sense holds its key");
+        for (int arrow : new int[] {KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MOVE_HOME,
+                KeyEvent.KEYCODE_MOVE_END}) {
+            check(!HardwareTranslationCommitPolicy.holdsKey(page(arrow)), "a moving key repeats into the page");
+        }
+        check(!HardwareTranslationCommitPolicy.holdsKey(page(KeyEvent.KEYCODE_A)),
+            "a key that leaves the page is the editor's");
+
+        // 在线候选推进 generation 时：组字和高亮候选都没变，页面跟过去；任一变了或开页时没有记下，页面失效。
+        check(HardwareTranslationCommitPolicy.pageSurvivesRefresh("wo de", "我的", "wo de", "我的"),
+            "a late cloud or AI reply keeps the page");
+        check(!HardwareTranslationCommitPolicy.pageSurvivesRefresh("wo de", "我的", "wo de", "窝的"),
+            "a reply that moves the highlight closes the page");
+        check(!HardwareTranslationCommitPolicy.pageSurvivesRefresh("wo de", "我的", "wo", "我的"),
+            "a changed composition closes the page");
+        check(!HardwareTranslationCommitPolicy.pageSurvivesRefresh("wo de", "我的", "wo de", ""),
+            "a reply with no highlight closes the page");
+        check(!HardwareTranslationCommitPolicy.pageSurvivesRefresh("", "", "", ""),
+            "a page that recorded nothing does not survive");
+
         // 两套结果互不混淆：义项序号都不小于 0，页内常量都是负数，Ctrl+Enter 的结果都不是负数。
         int[] pageResults = {HardwareTranslationCommitPolicy.PASS, HardwareTranslationCommitPolicy.IGNORE,
             HardwareTranslationCommitPolicy.CLOSE, HardwareTranslationCommitPolicy.COMMIT_HIGHLIGHT,

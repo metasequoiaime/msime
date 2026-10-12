@@ -77,6 +77,22 @@ public final class HardwareTranslationCommitPolicy {
         return PASS;
     }
 
+    /**
+     * 义项页把这个结果的键记作「输入法的键」时，它按住的自动重复和随后的抬起都不再交给应用（也不再进 {@link #pageKey}）。上屏、关页和留在页内的键要这样，免得重复的数字或回车落进上屏后已经空闲的输入框；移动高亮的键不记，按住方向键才能连续移动。
+     */
+    public static boolean holdsKey(int pageKey) {
+        return pageKey != PASS && pageKey != PREVIOUS && pageKey != NEXT && pageKey != FIRST && pageKey != LAST;
+    }
+
+    /**
+     * 云候选、AI 候选（以及 AI 落空时把占位换成「—」）异步到达时，runtime 像处理一次输入那样推进 generation，用户却什么也没做。组字和高亮候选都没变时义项页仍然有效，跟到新的 generation 上；任一变了就随旧的 generation 失效。
+     */
+    public static boolean pageSurvivesRefresh(String openedEditing, String openedCandidate,
+                                              String nextEditing, String nextCandidate) {
+        return !openedEditing.isEmpty() && openedEditing.equals(nextEditing)
+            && !openedCandidate.isEmpty() && openedCandidate.equals(nextCandidate);
+    }
+
     private static boolean enter(int keyCode) {
         return keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER;
     }
