@@ -7,13 +7,15 @@
  * it wanted to or not. Each piece is named here instead.
  */
 
+import { fieldLabel } from "../core/form-style";
+
 export const page = "flex flex-col gap-3.5";
 export const section = "section m-0";
 export const heading = "m-0 [font-size:var(--p-row-fs)] font-semibold [color:var(--p-text)]";
 export const note = "mt-[7px] mb-0 [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 export const muted = "text-xs [color:var(--p-sub)]";
 
-export const field = "flex flex-col gap-[7px] text-xs text-secondary";
+export const field = fieldLabel;
 export const input =
   "min-h-[38px] w-full rounded-lg border border-control-border bg-[var(--dropdown-bg)] px-2.5 py-[7px] font-[inherit] text-body focus:border-accent";
 export const primary =

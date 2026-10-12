@@ -8,6 +8,8 @@
  * what stops the next page from being able to do that.
  */
 
+import { fieldLabel } from "../core/form-style";
+
 export const page = "flex flex-col gap-3.5";
 
 export const searchRow = "flex gap-2";
@@ -100,7 +102,7 @@ export const dialogHeading = "flex items-center justify-between gap-3";
 export const dialogTitle = "m-0 text-lg text-body";
 export const dialogClose =
   "size-8 rounded-lg border-0 bg-transparent text-2xl leading-none text-muted not-disabled:hover:bg-[var(--button-secondary-bg)] not-disabled:hover:text-body";
-export const field = "flex flex-col gap-[7px] text-xs text-secondary";
+export const field = fieldLabel;
 export const fieldControl =
   "box-border w-full rounded-lg border border-control-border bg-[var(--dropdown-bg)] px-2.5 py-2 font-[inherit] text-body";
 export const textArea = `${fieldControl} resize-y leading-normal`;
