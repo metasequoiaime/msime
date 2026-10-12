@@ -20,6 +20,8 @@ struct CloudDictionaryFilesView: View {
   @State private var pending: Task<Void, Never>?
   @State private var exported: Export?
   @State private var sessionID: UUID?
+  @State private var requestID = UUID()
+  @State private var visible = false
   private let client = BackendAccountClient()
   private struct Export: Identifiable { let id = UUID(); let url: URL }
   private var lines: [String] { (text ?? "").components(separatedBy: .newlines).filter { !$0.isEmpty } }
@@ -65,7 +67,7 @@ struct CloudDictionaryFilesView: View {
       Section {
         SettingsActionRow(title: "导出文件", detail: "按上面选的格式导出这一类",
                           symbol: "square.and.arrow.up.fill",
-                          enabled: format != .hans) { run { try await export() } }
+                          enabled: format != .hans) { run { id in try await export(id: id) } }
       } header: {
         SettingsGroupHeader(title: "导出云端个人词条")
       } footer: {
@@ -76,7 +78,7 @@ struct CloudDictionaryFilesView: View {
       .designRow()
       Section {
         SettingsActionRow(title: "导出完整快照", detail: "四类词库加排序记录，打包成一个文件",
-                          symbol: "archivebox.fill") { run { try await exportSnapshot() } }
+                          symbol: "archivebox.fill") { run { id in try await exportSnapshot(id: id) } }
         SettingsActionRow(title: "选择快照恢复到云端", detail: "先校验再确认，不会直接写",
                           symbol: "arrow.uturn.backward.circle.fill") {
           choosingSnapshot = true; choosing = true
@@ -104,16 +106,28 @@ struct CloudDictionaryFilesView: View {
     .settingsStatus(busy: busy, busyTitle: "正在传输…", message: message)
     .disabled(busy)
     .navigationTitle("词库文件")
-    .onDisappear { pending?.cancel(); text = nil; preparedSnapshot = nil; restoreRevision = nil }
+    .onAppear { visible = true }
+    .onDisappear {
+      visible = false
+      requestID = UUID()
+      pending?.cancel()
+      pending = nil
+      busy = false
+      text = nil
+      preparedSnapshot = nil
+      restoreRevision = nil
+    }
     .fileImporter(isPresented: $choosing, allowedContentTypes: choosingSnapshot ? [.data] : [.plainText, .tabSeparatedText]) { result in
+      guard visible else { return }
       if choosingSnapshot {
         preparedSnapshot = nil; restoreRevision = nil
         do {
           let url = try result.get()
-          run {
+          run { id in
             let prepared = try await BackendPreparedSnapshot.prepareDocument(url)
             let current = try await client.dictionaryCatalog(.quick, code: "", session: session,
               matchingUserID: accountID, matchingSessionID: sessionID)
+            try ensureCurrent(id)
             preparedSnapshot = prepared; restoreRevision = current.revision
           }
         } catch { message = "未选择可读取的快照文件。" }
@@ -122,10 +136,11 @@ struct CloudDictionaryFilesView: View {
       text = nil; message = nil
       do {
         let url = try result.get()
-        run {
+        run { id in
           let content = try await Task.detached(priority: .userInitiated) {
             try Self.readTextFile(from: url)
           }.value
+          try ensureCurrent(id)
           text = content; fileName = url.lastPathComponent
         }
       } catch { message = error.localizedDescription }
@@ -134,9 +149,10 @@ struct CloudDictionaryFilesView: View {
       Button("取消", role: .cancel) { }
       Button("上传") {
         guard let text else { return }
-        run {
+        run { id in
           let result = try await client.importDictionary(kind, text: text, format: format, session: session,
             matchingUserID: accountID, matchingSessionID: sessionID)
+          try ensureCurrent(id)
           self.text = nil
           message = "云端已导入 \(result.imported) 条；需要下载到本机后才会影响本机输入。"
           try await imported()
@@ -147,10 +163,11 @@ struct CloudDictionaryFilesView: View {
       Button("取消", role: .cancel) { }
       Button("替换云词库", role: .destructive) {
         guard let snapshot = preparedSnapshot, let revision = restoreRevision else { return }
-        run {
+        run { id in
           let result = try await client.restoreDictionarySnapshot(file: snapshot.url,
             expectedSHA256: snapshot.envelope.sha256, revision: revision, session: session,
             matchingUserID: accountID, matchingSessionID: sessionID)
+          try ensureCurrent(id)
           preparedSnapshot = nil; restoreRevision = nil
           message = "云词库已恢复，版本 \(result.revision)。本机词库尚未更新。"
           try await imported()
@@ -174,33 +191,46 @@ struct CloudDictionaryFilesView: View {
     return content
   }
 
-  @MainActor private func exportSnapshot() async throws {
+  @MainActor private func exportSnapshot(id: UUID) async throws {
     let snapshot = try await client.dictionarySnapshot(session: session, matchingUserID: accountID,
                                                        matchingSessionID: sessionID)
-    do { try Task.checkCancellation() }
+    do { try ensureCurrent(id) }
     catch { try? FileManager.default.removeItem(at: snapshot.url.deletingLastPathComponent()); throw error }
     message = "备份文件摘要已校验：云端版本 \(snapshot.envelope.revision)，共 \(snapshot.envelope.records) 条记录。"
     exported = Export(url: snapshot.url)
   }
-  @MainActor private func export() async throws {
+  @MainActor private func export(id: UUID) async throws {
     let url = try await client.exportDictionary(kind, format: format, session: session,
       matchingUserID: accountID, matchingSessionID: sessionID)
-    do { try Task.checkCancellation() }
+    do { try ensureCurrent(id) }
     catch { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()); throw error }
     exported = Export(url: url)
   }
-  @MainActor private func run(_ action: @escaping @MainActor () async throws -> Void) {
-    guard !busy else { return }
+  @MainActor private func ensureCurrent(_ id: UUID) throws {
+    try Task.checkCancellation()
+    guard visible, requestID == id else { throw CancellationError() }
+  }
+
+  @MainActor private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
+    guard visible, !busy else { return }
+    let id = UUID()
+    requestID = id
     busy = true; message = nil
     pending = Task {
-      defer { busy = false }
+      defer {
+        if requestID == id {
+          busy = false
+          pending = nil
+        }
+      }
       do {
         let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
+        try ensureCurrent(id)
         sessionID = identity.sessionID
-        try await action()
+        try await action(id)
       }
       catch is CancellationError { }
-      catch { message = error.localizedDescription }
+      catch { if visible, requestID == id { message = error.localizedDescription } }
     }
   }
 }
