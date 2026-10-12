@@ -48,6 +48,10 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary<NSString *, id> *)resetCacheWithError:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)selectGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error;
 - (nullable NSDictionary *)selectEdgeGeneration:(uint64_t)generation index:(NSUInteger)index edge:(uint8_t)edge error:(NSError **)error;
+/// 当前这一代的完整候选（`msime_client_all_candidates`）：{session, generation, preedit, candidates:[Candidate...]}，candidates 带全局 ID，不只是当前页。
+- (nullable NSDictionary *)allCandidatesWithError:(NSError **)error;
+/// 选 allCandidatesWithError: 复制出来的任意一项（`msime_client_select_any_candidate`）；generation 必须是那次复制时的一代，过期时由 Engine 拒绝。
+- (nullable NSDictionary *)selectAnyCandidateGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error;
 - (nullable NSDictionary *)pinGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error;
 - (nullable NSDictionary *)removeGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error;
 - (nullable NSDictionary *)fixGeneration:(uint64_t)generation index:(NSUInteger)index position:(uint8_t)position error:(NSError **)error;
