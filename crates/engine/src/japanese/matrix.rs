@@ -286,6 +286,126 @@ fn search_with_output(
     output.items
 }
 
+/// 整段读音的最佳路径，外加这条路径上有几个假名是靠未知假名回退（`UNKNOWN_KANA_COST`）拼上的。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BestPath {
+    pub text: String,
+    pub cost: i64,
+    pub unknown_kana: usize,
+    /// 读音的假名个数（按字符数）。
+    pub kana: usize,
+}
+
+#[derive(Debug, Clone)]
+struct PathNode {
+    text: String,
+    cost: i64,
+    right_id: u16,
+    unknown_kana: usize,
+}
+
+/// 与 `Row` 同一条保留规则：未满八条时按插入顺序，第一次超限后按成本稳定地留前八条。
+#[derive(Default)]
+struct PathRow {
+    nodes: Vec<PathNode>,
+    ranked: bool,
+}
+
+impl PathRow {
+    fn extend(
+        &mut self,
+        previous: &PathNode,
+        suffix: &str,
+        cost: i64,
+        right_id: u16,
+        unknown: bool,
+    ) {
+        let node = || PathNode {
+            text: join_text(&previous.text, suffix),
+            cost,
+            right_id,
+            unknown_kana: previous.unknown_kana + usize::from(unknown),
+        };
+        if self.nodes.len() < MAX_NODES_PER_ROW {
+            self.nodes.push(node());
+            return;
+        }
+        if !self.ranked {
+            self.nodes.sort_by_key(|node| node.cost);
+            self.ranked = true;
+        }
+        if cost >= self.nodes.last().expect("full row").cost {
+            return;
+        }
+        self.nodes.pop();
+        let index = self.nodes.partition_point(|node| node.cost <= cost);
+        self.nodes.insert(index, node());
+    }
+}
+
+/// 日文混输判断一串罗马字像不像日文用的最佳整句：和 `search_converted_into` 的第一项是同一条路径（同样的词条跨度、每个位置留前八条、同样的成本和先后），只是每个节点多记了未知假名的个数。不出候选列表，所以不滚动复用行、不做前缀补全；读音为空时答 `None`。
+pub(crate) fn best_path(dictionary: &JapaneseDictionary, reading: &str) -> Option<BestPath> {
+    if reading.is_empty() {
+        return None;
+    }
+    let mut boundaries = Vec::with_capacity(reading.len() + 1);
+    boundaries.push(0);
+    boundaries.extend(
+        reading
+            .char_indices()
+            .map(|(index, character)| index + character.len_utf8()),
+    );
+    let mora_count = boundaries.len() - 1;
+    let mut rows: Vec<PathRow> = (0..=mora_count).map(|_| PathRow::default()).collect();
+    rows[0].nodes.push(PathNode {
+        text: String::new(),
+        cost: 0,
+        right_id: 0,
+        unknown_kana: 0,
+    });
+    for start in 0..mora_count {
+        let previous_row = std::mem::take(&mut rows[start]);
+        if previous_row.nodes.is_empty() {
+            continue;
+        }
+        for end in start + 1..=mora_count.min(start + MAX_LEMMA_MORA) {
+            let key = &reading[boundaries[start]..boundaries[end]];
+            let target = &mut rows[end];
+            dictionary.for_each_exact_lemma_view(key, 24, |lemma| {
+                for previous in &previous_row.nodes {
+                    let cost = previous.cost
+                        + i64::from(lemma.word_cost)
+                        + i64::from(dictionary.connection_cost(previous.right_id, lemma.left_id));
+                    target.extend(previous, lemma.surface, cost, lemma.right_id, false);
+                }
+            });
+        }
+        let kana = &reading[boundaries[start]..boundaries[start + 1]];
+        let target = &mut rows[start + 1];
+        for previous in &previous_row.nodes {
+            target.extend(
+                previous,
+                kana,
+                previous.cost + i64::from(UNKNOWN_KANA_COST),
+                0,
+                true,
+            );
+        }
+    }
+    let mut finals = std::mem::take(&mut rows[mora_count]).nodes;
+    for node in &mut finals {
+        node.cost += i64::from(dictionary.connection_cost(node.right_id, 0));
+    }
+    // 稳定排序取第一条，同分时的先后和句子搜索一致。
+    finals.sort_by_key(|node| node.cost);
+    finals.into_iter().next().map(|node| BestPath {
+        text: node.text,
+        cost: node.cost,
+        unknown_kana: node.unknown_kana,
+        kana: mora_count,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::decoder::test_model;
@@ -622,3 +742,68 @@ mod full_boundary_reference;
 #[cfg(test)]
 #[path = "matrix/boundary_tests.rs"]
 mod boundary_tests;
+
+#[cfg(test)]
+mod best_path_tests {
+    use super::super::decoder::test_model;
+    use super::super::romaji::convert_romaji;
+    use super::*;
+
+    /// 最佳路径和句子搜索的第一项是同一条：文本、成本都相同，跨过最大词条跨度、一行超过八条节点时也一样。
+    #[test]
+    fn best_path_is_the_first_sentence_of_the_search() {
+        for dense in [false, true] {
+            let dictionary = super::rolling_row_tests::fixture(dense);
+            let mut readings: Vec<String> = (1..=40).map(|length| "か".repeat(length)).collect();
+            readings.extend(
+                ["きか", "かき", "か😀か", "甲😀か", "き甲😀かか", "😀😀"].map(str::to_owned),
+            );
+            for reading in readings {
+                let conversion = RomajiConversion {
+                    hiragana: reading.clone(),
+                    pending: String::new(),
+                    complete: true,
+                };
+                let first = search_converted(&dictionary, &conversion, 1)
+                    .into_iter()
+                    .next()
+                    .expect("每个读音都有路径");
+                let best = best_path(&dictionary, &reading).expect("非空读音");
+                assert_eq!(
+                    (best.text.as_str(), best.cost),
+                    (first.text.as_str(), first.cost),
+                    "{reading} dense={dense}"
+                );
+            }
+        }
+    }
+
+    /// 词条覆盖的假名不算未知；没有词条可用的假名按未知假名回退计数。
+    #[test]
+    fn best_path_counts_the_kana_it_could_not_read() {
+        let bytes = test_model::bytes(
+            &[
+                ("おはよう", "おはよう", 0, 0, 500),
+                ("かいし", "開始", 0, 0, 800),
+            ],
+            1,
+            &[0],
+        );
+        let dictionary = JapaneseDictionary::from_bytes(bytes.into_boxed_slice()).expect("词库");
+        let read = |romaji: &str| best_path(&dictionary, &convert_romaji(romaji).hiragana);
+        assert_eq!(
+            read("ohayou"),
+            Some(BestPath {
+                text: "おはよう".to_owned(),
+                cost: 500,
+                unknown_kana: 0,
+                kana: 4,
+            })
+        );
+        let tail = read("kaishiha").expect("路径");
+        assert_eq!((tail.text.as_str(), tail.unknown_kana), ("開始は", 1));
+        let unknown = read("nihao").expect("路径");
+        assert_eq!((unknown.text.as_str(), unknown.unknown_kana), ("にはお", 3));
+        assert_eq!(best_path(&dictionary, ""), None);
+    }
+}

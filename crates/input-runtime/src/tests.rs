@@ -3781,6 +3781,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         english_minimum_prefix: 2,
         mixed_emoji: false,
         mixed_kaomoji: false,
+        mixed_japanese: false,
         local_unicode: true,
         local_date_time: true,
         local_quick_phrase: true,
@@ -7773,6 +7774,38 @@ fn the_reranker_leaves_a_leading_english_word_in_place() {
             rerank_pick(&mut reranker, "", 0, true, &rows),
             expected,
             "leader source {leader}"
+        );
+    }
+}
+
+/// 日文混输行领先时句子模型不重排；它在别的位置时模型也不拿它比较、不把它提到首位。
+#[test]
+fn the_reranker_leaves_mixed_japanese_rows_alone() {
+    use msime_engine::ordering::{rerank_pick, ParallelOrderRows};
+    let mut reranker = Reranker::new(std::sync::Arc::new(favouring_model(
+        &['何', '咯', '和'],
+        &['和'],
+    )));
+    let texts: Vec<String> = ["へっぉ", "何咯", "和"].map(str::to_owned).to_vec();
+    let answers = vec![true; 3];
+    let corrected = vec![false; 3];
+    for (leader, expected) in [(LATTICE_SOURCE, Some(2)), (13, None)] {
+        let sources = vec![leader, LATTICE_SOURCE, 0];
+        let rows = ParallelOrderRows::new(&texts, &sources, &answers, &corrected);
+        assert_eq!(
+            rerank_pick(&mut reranker, "", 0, true, &rows),
+            expected,
+            "leader source {leader}"
+        );
+    }
+    let texts: Vec<String> = ["何咯", "和"].map(str::to_owned).to_vec();
+    for (second, expected) in [(0, Some(1)), (13, None)] {
+        let sources = vec![LATTICE_SOURCE, second];
+        let rows = ParallelOrderRows::new(&texts, &sources, &answers[..2], &corrected[..2]);
+        assert_eq!(
+            rerank_pick(&mut reranker, "", 0, true, &rows),
+            expected,
+            "second source {second}"
         );
     }
 }

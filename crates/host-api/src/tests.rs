@@ -182,6 +182,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         english_minimum_prefix: 2,
         mixed_emoji: false,
         mixed_kaomoji: false,
+        mixed_japanese: false,
         local_unicode: true,
         local_date_time: true,
         local_quick_phrase: true,

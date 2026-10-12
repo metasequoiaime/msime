@@ -1579,6 +1579,7 @@ impl HostOptions {
             english_minimum_prefix: self.preferences.mixed_input.minimum_prefix,
             mixed_emoji: self.preferences.mixed_input.emoji,
             mixed_kaomoji: self.preferences.mixed_input.kaomoji,
+            mixed_japanese: false,
             local_unicode: self.preferences.local_modes.unicode,
             local_date_time: self.preferences.local_modes.date_time,
             local_quick_phrase: self.preferences.local_modes.quick_phrase,
