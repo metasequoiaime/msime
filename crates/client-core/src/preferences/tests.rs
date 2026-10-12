@@ -2651,13 +2651,17 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
             TouchKeyboardScheme::Stroke,
             TouchKeyboardScheme::ZhuyinNineKey,
             TouchKeyboardScheme::FourteenKey,
+            TouchKeyboardScheme::NineKeyShuangpin,
         ]
     );
-    assert_eq!(TouchKeyboardScheme::ALL.len(), 18);
-    // 全拼 14 键也不在以前的默认列表里，没存列表的旧文档不会凭空多出它。
-    assert!(
-        !TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED.contains(&TouchKeyboardScheme::FourteenKey)
-    );
+    assert_eq!(TouchKeyboardScheme::ALL.len(), 19);
+    // 全拼 14 键和九键双拼也不在以前的默认列表里，没存列表的旧文档不会凭空多出它们。
+    for scheme in [
+        TouchKeyboardScheme::FourteenKey,
+        TouchKeyboardScheme::NineKeyShuangpin,
+    ] {
+        assert!(!TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED.contains(&scheme));
+    }
     for (scheme, id) in [
         (TouchKeyboardScheme::Cantonese, "cantonese"),
         (TouchKeyboardScheme::Zhuyin, "zhuyin"),
@@ -2666,6 +2670,7 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
         (TouchKeyboardScheme::Stroke, "stroke"),
         (TouchKeyboardScheme::ZhuyinNineKey, "zhuyin_nine_key"),
         (TouchKeyboardScheme::FourteenKey, "fourteen_key"),
+        (TouchKeyboardScheme::NineKeyShuangpin, "nine_key_shuangpin"),
     ] {
         assert_eq!(serde_json::to_value(scheme).unwrap(), id);
         assert_eq!(
@@ -3234,6 +3239,65 @@ fn custom_shuangpin_profile_round_trips_and_stays_out_of_documents_without_one()
         oversized.validate(),
         Err(PreferencesError::InvalidShuangpinCustomProfile)
     ));
+}
+
+#[test]
+fn nine_key_shuangpin_preferences_round_trip_and_stay_out_of_documents_without_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let saved = store.save(0, Preferences::default()).unwrap();
+    let text = fs::read_to_string(store.path()).unwrap();
+    // 没用过九键双拼的文档与以前的版本相同，以前的版本照样读得懂。
+    assert!(!text.contains("nine_key_shuangpin"));
+    assert_eq!(
+        Preferences::default().nine_key_shuangpin_profile,
+        NineKeyShuangpinProfile::Migala3
+    );
+    let mut preferences = Preferences {
+        touch_keyboard_layout: TouchKeyboardLayout::NineKeyShuangpin,
+        nine_key_shuangpin_profile: NineKeyShuangpinProfile::Custom,
+        ..Preferences::default()
+    };
+    let table = &mut preferences.nine_key_shuangpin_custom_profile;
+    table.initials.insert("zh".into(), "8".into());
+    table.finals.insert("ong".into(), "1".into());
+    table.zero_initials.insert("a".into(), "22".into());
+    let saved = store.save(saved.revision, preferences.clone()).unwrap();
+    let document: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(store.path()).unwrap()).unwrap();
+    assert_eq!(
+        document["preferences"]["touch_keyboard_layout"],
+        "nine_key_shuangpin"
+    );
+    assert_eq!(
+        document["preferences"]["nine_key_shuangpin_profile"],
+        "custom"
+    );
+    assert_eq!(
+        document["preferences"]["nine_key_shuangpin_custom_profile"],
+        serde_json::json!({
+            "initials": { "zh": "8" },
+            "finals": { "ong": "1" },
+            "zero_initials": { "a": "22" }
+        })
+    );
+    assert_eq!(store.load().unwrap(), saved);
+    for (profile, id) in [
+        (NineKeyShuangpinProfile::Migala2, "migala2"),
+        (NineKeyShuangpinProfile::Migala3, "migala3"),
+        (NineKeyShuangpinProfile::Gushi2Low, "gushi2_low"),
+        (NineKeyShuangpinProfile::Custom, "custom"),
+    ] {
+        assert_eq!(serde_json::to_value(profile).unwrap(), id);
+    }
+    // 两张自定义表互不影响：九键的表不合规矩时报它自己的错。
+    let mut invalid = preferences.clone();
+    invalid.nine_key_shuangpin_custom_profile.initials = [("ZH".to_owned(), "8".to_owned())].into();
+    assert!(matches!(
+        invalid.validate(),
+        Err(PreferencesError::InvalidNineKeyShuangpinCustomProfile)
+    ));
+    assert!(preferences.shuangpin_custom_profile.is_empty());
 }
 
 #[test]

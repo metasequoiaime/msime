@@ -53,6 +53,8 @@ pub enum TouchKeyboardLayout {
     Handwriting,
     /// 全拼 14 键：QWERTY 上相邻两个字母一个键（L、M 单独一键），按组消歧，与九键共用九宫格会话。只配全拼。
     FourteenKey,
+    /// 九键双拼：数字键上每个音节固定两位（声母一位、韵母一位），表由 `nine_key_shuangpin_profile` 选，与九键共用九宫格会话（#6572）。引擎方案是全拼，不配别的方案。
+    NineKeyShuangpin,
 }
 
 /// 触屏九宫格数字层的排列。桌面宿主原样保留、不使用。
@@ -408,11 +410,13 @@ pub enum TouchKeyboardScheme {
     ZhuyinNineKey,
     /// 全拼 14 键（`InputScheme::Quanpin` 配 `TouchKeyboardLayout::FourteenKey`）。默认不启用，由用户在「添加语言」或全拼的布局选择里打开。
     FourteenKey,
+    /// 九键双拼（`InputScheme::Quanpin` 配 `TouchKeyboardLayout::NineKeyShuangpin`，表由 `nine_key_shuangpin_profile` 选）。默认不启用。
+    NineKeyShuangpin,
 }
 
 impl TouchKeyboardScheme {
     /// Every touch scheme in picker order. Schemes are appended, never reordered.
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -431,6 +435,7 @@ impl TouchKeyboardScheme {
         Self::Stroke,
         Self::ZhuyinNineKey,
         Self::FourteenKey,
+        Self::NineKeyShuangpin,
     ];
 
     /// 新装时键盘显示的方案：只有中文方案（拼音、双拼、五笔和手写）。日文（9 键和 26 键）、韩文、粤拼、注音（大千和 9 键）、越南文、藏文和笔画都由用户自己在「添加语言」里打开：日文词典和语言词库在 Android 上按需下载，默认不启用它们，新装用户就不会看到一个还没有词典的键盘。全拼 14 键也不默认启用：它是全拼的另一种键面，由用户在全拼的布局选择或「添加语言」里打开。
@@ -916,6 +921,12 @@ pub struct Preferences {
     /// `shuangpin_profile` 为 `custom` 时用的键位表。这里只限制大小，合不合法由 Engine 判定（`msime_engine::host::validate_shuangpin_custom_profile`）；表缺失或不合法时宿主按小鹤运行。选别的方案时保留，切回 `custom` 还能用。
     #[serde(default, skip_serializing_if = "ShuangpinCustomProfile::is_empty")]
     pub shuangpin_custom_profile: ShuangpinCustomProfile,
+    /// 九键双拼（`touch_keyboard_layout` 为 `nine_key_shuangpin`）用哪张表。等于默认值时不写进文件，没用过九键双拼的文档与以前的版本相同。
+    #[serde(default, skip_serializing_if = "NineKeyShuangpinProfile::is_default")]
+    pub nine_key_shuangpin_profile: NineKeyShuangpinProfile,
+    /// `nine_key_shuangpin_profile` 为 `custom` 时用的表，形状与 `shuangpin_custom_profile` 相同，键是数字：`initials` 放 23 个声母，`finals` 放 33 个韵母，各一个数字；`zero_initials` 放 12 个零声母音节，各两位数字。这里只限制大小，合不合法由 Engine 判定（`msime_engine::host::validate_nine_key_shuangpin_table`）；表缺失或不合法时宿主按默认的内置方案运行。选别的方案时保留，空表不写进文件。
+    #[serde(default, skip_serializing_if = "ShuangpinCustomProfile::is_empty")]
+    pub nine_key_shuangpin_custom_profile: ShuangpinCustomProfile,
     #[serde(default = "enabled_by_default")]
     pub shuangpin_preedit_uses_raw: bool,
     /// 「输入时显示双拼键位提示」：双拼组字时在候选窗旁显示当前方案的键位图，高亮刚按下的键，上屏后隐藏。macOS 和 Windows 画它。
@@ -2105,6 +2116,8 @@ impl Default for Preferences {
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
             shuangpin_custom_profile: ShuangpinCustomProfile::default(),
+            nine_key_shuangpin_profile: NineKeyShuangpinProfile::default(),
+            nine_key_shuangpin_custom_profile: ShuangpinCustomProfile::default(),
             shuangpin_preedit_uses_raw: true,
             shuangpin_keymap_hint: None,
             vietnamese: VietnamesePreferences::default(),
@@ -2263,7 +2276,30 @@ pub enum ShuangpinProfile {
     Custom,
 }
 
+/// 九键双拼方案（#6572）。Engine 的编码是声明顺序（`NineKeyShuangpinKind`）；内置的三个方案和它们的来源见 `.agents/notes/implemented/feature/2026-10-10-nine-key-shuangpin.md`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NineKeyShuangpinProfile {
+    /// 米旮旯 2。
+    Migala2,
+    /// 米旮旯 3。
+    #[default]
+    Migala3,
+    /// 辜氏 2 低重码。
+    Gushi2Low,
+    /// 用户自己的表，见 `Preferences::nine_key_shuangpin_custom_profile`。
+    Custom,
+}
+
+impl NineKeyShuangpinProfile {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// 自定义双拼方案的键位表，与 Engine 的 `ShuangpinCustomTable` 一一对应：`initials` 只放 `zh` `ch` `sh`，`finals` 放 33 个韵母，`zero_initials` 放 12 个零声母音节的两键编码；键是小写字母或 `;`，`ü` 写作 `v`。导入导出用的也是这个 JSON 形状。
+///
+/// 九键双拼的自定义表（`Preferences::nine_key_shuangpin_custom_profile`）用同一个形状，对应 Engine 的 `NineKeyShuangpinTable`：`initials` 放全部 23 个声母，键是数字。
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ShuangpinCustomProfile {
@@ -2714,6 +2750,9 @@ impl Preferences {
         if !self.shuangpin_custom_profile.validate() {
             return Err(PreferencesError::InvalidShuangpinCustomProfile);
         }
+        if !self.nine_key_shuangpin_custom_profile.validate() {
+            return Err(PreferencesError::InvalidNineKeyShuangpinCustomProfile);
+        }
         if !self.game_compatibility.validate() {
             return Err(PreferencesError::InvalidGameCompatibility);
         }
@@ -2845,6 +2884,8 @@ pub enum PreferencesError {
     InvalidTouchKeyboardSchemes,
     #[error("custom shuangpin profile table is too large or has non-ASCII units or keys")]
     InvalidShuangpinCustomProfile,
+    #[error("nine-key shuangpin custom table is too large or has non-ASCII units or keys")]
+    InvalidNineKeyShuangpinCustomProfile,
     #[error("custom theme keyboard design is invalid")]
     InvalidTouchKeyboardSkinDesign,
     #[error("custom theme base must be system or a built-in theme")]

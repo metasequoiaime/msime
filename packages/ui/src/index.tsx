@@ -1865,8 +1865,13 @@ export type Preferences = {
   wubi_code_hint?: boolean;
   /** 五笔四码唯一候选自动上屏；缺省为开。 */
   wubi_auto_commit_unique?: boolean;
-  /** 触屏键盘的布局；`fourteen_key` 是全拼 14 键，只配全拼。 */
-  touch_keyboard_layout?: "twenty_six_key" | "nine_key" | "handwriting" | "fourteen_key";
+  /** 触屏键盘的布局；`fourteen_key` 是全拼 14 键，`nine_key_shuangpin` 是九键双拼，都只配全拼。 */
+  touch_keyboard_layout?:
+    | "twenty_six_key"
+    | "nine_key"
+    | "handwriting"
+    | "fourteen_key"
+    | "nine_key_shuangpin";
   touch_keyboard_schemes?: TouchKeyboardSchemePreferences;
   touch_key_spacing_tenths?: number;
   touch_row_spacing_tenths?: number;
@@ -1888,6 +1893,10 @@ export type Preferences = {
   shuangpin_profile: BuiltinShuangpinProfile | "custom";
   /** 自定义双拼的键位表。选别的方案时保留，切回 `custom` 还能用；空表不写进文档。 */
   shuangpin_custom_profile?: ShuangpinCustomProfile;
+  /** 九键双拼用哪张表，只有触屏宿主用；等于默认值 `migala3` 时文档里没有这一项。 */
+  nine_key_shuangpin_profile?: "migala2" | "migala3" | "gushi2_low" | "custom";
+  /** 九键双拼的自定义表，形状同 `shuangpin_custom_profile`，键是数字；空表不写进文档。 */
+  nine_key_shuangpin_custom_profile?: ShuangpinCustomProfile;
   /** 五笔用 86 还是 98 码表，只在方案为五笔时起作用；缺省为 86。 */
   wubi_profile?: "wubi86" | "wubi98";
   /** macOS exposes the native shuangpin preedit presentation in the appearance page. */
