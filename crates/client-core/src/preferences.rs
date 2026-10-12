@@ -853,6 +853,9 @@ pub struct Preferences {
     /// 切换中英文后在光标旁短暂显示一个不抢焦点的「中」/「英」徽标。macOS 和 Windows 自己画，HarmonyOS 和 Linux 交给各自的面板（见 `HostCapabilities::input_mode_hud`），其他宿主保留这个偏好但不画。
     #[serde(default = "enabled_by_default")]
     pub input_mode_hud: bool,
+    /// 在 macOS 菜单栏放一个状态项，常驻显示当前输入模式（中/双/五/日……，英文时为「英」），不需要把「英」加成系统输入源。默认关闭；只有 macOS 宿主画它（见 `HostCapabilities::input_mode_status_item`），其他宿主保留这个偏好但不画。
+    #[serde(default)]
+    pub input_mode_status_item: bool,
     /// 候选窗和悬浮工具栏左端的水杉 logo。新装默认隐藏（见 `Default`）；已存文档缺这个字段时读成显示，升级沿用原来的样子。
     #[serde(default = "enabled_by_default")]
     pub show_app_logo: bool,
@@ -2035,6 +2038,7 @@ impl Default for Preferences {
             diagnostic_log: DiagnosticLogPreferences::default(),
             candidate_follow_cursor: true,
             input_mode_hud: true,
+            input_mode_status_item: false,
             show_app_logo: false,
             scheme: InputScheme::default(),
             wubi_code_hint: true,

@@ -1555,12 +1555,16 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
         "custom_theme",
         "candidate_follow_cursor",
         "input_mode_hud",
+        "input_mode_status_item",
     ] {
         sparse["preferences"].as_object_mut().unwrap().remove(key);
     }
     let bytes = serde_json::to_vec(&sparse).unwrap();
     fs::write(store.path(), &bytes).unwrap();
     let loaded = store.load().unwrap();
+    // 菜单栏状态项是新加的开关，缺字段的旧文档和新装一样读成关闭。
+    assert!(!Preferences::default().input_mode_status_item);
+    assert!(!loaded.preferences.input_mode_status_item);
     // 缺这两项的旧文档按类型默认值读，保持跟随系统；触屏构建的新安装才用薄荷晨光（#2178），所以这里不能直接比 `Preferences::default()`。
     let mut expected = PreferencesSnapshot::default();
     expected.preferences.global_theme = crate::skin::theme::GlobalTheme::default();
@@ -1581,10 +1585,12 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
         toolbar_theme: SettingsTheme::Light,
         candidate_follow_cursor: false,
         input_mode_hud: false,
+        input_mode_status_item: true,
         ..Preferences::default()
     };
     let saved = store.save(0, preferences).unwrap();
     assert_eq!(store.load().unwrap(), saved);
+    assert!(store.load().unwrap().preferences.input_mode_status_item);
 }
 
 #[test]

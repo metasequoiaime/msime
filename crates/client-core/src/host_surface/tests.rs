@@ -296,6 +296,17 @@ fn capabilities_describe_each_host() {
     assert!(!HostCapabilities::for_platform(HostPlatform::Ios).app_input_mode_rules);
     assert!(!HostCapabilities::for_platform(HostPlatform::Android).input_mode_hud);
     assert!(!HostCapabilities::for_platform(HostPlatform::Ios).input_mode_hud);
+    // 菜单栏状态项只有 macOS 画：Windows 有托盘语言栏，Linux 有输入法面板，触屏键盘的键面已显示模式。
+    assert!(macos.input_mode_status_item);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(!HostCapabilities::for_platform(platform).input_mode_status_item);
+    }
     // Mobile hosts draw no toolbar at all.
     let android = HostCapabilities::for_platform(HostPlatform::Android);
     assert!(android.mobile_settings);

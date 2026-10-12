@@ -622,16 +622,21 @@ fn host_capability_boundary_describes_each_platform() {
     assert_eq!(linux["value"]["candidate_corner_radius"], true);
     assert_eq!(linux["value"]["candidate_window_scale"], false);
     assert_eq!(linux["value"]["candidate_window_opacity"], false);
+    // 菜单栏状态项是 macOS 独有的：Linux 由 Fcitx5/IBus 面板显示模式。
+    assert_eq!(linux["value"]["input_mode_status_item"], false);
 
     let windows = capabilities("windows");
     assert_eq!(windows["value"]["restart_input_method"], true);
     assert_eq!(windows["value"]["panel_windows"], true);
     // Typing statistics used to be gated on an Android user-agent match.
     assert_eq!(windows["value"]["typing_statistics"], true);
+    // Windows 有托盘语言栏，不提供菜单栏状态项。
+    assert_eq!(windows["value"]["input_mode_status_item"], false);
 
     let macos = capabilities("macos");
     assert_eq!(macos["value"]["restart_input_method"], true);
     assert_eq!(macos["value"]["candidate_follow_cursor"], true);
+    assert_eq!(macos["value"]["input_mode_status_item"], true);
 
     let android = capabilities("android");
     assert_eq!(android["value"]["panel_windows"], false);
