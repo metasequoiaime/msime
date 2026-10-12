@@ -962,6 +962,9 @@ pub struct Preferences {
     /// Render and commit Chinese Engine output in Traditional Chinese at the host boundary.
     #[serde(default)]
     pub traditional_chinese_output: bool,
+    /// 中英文之间加空格：一次上屏的文本里，汉字与 ASCII 字母、数字相邻处插入一个半角空格（host-api 在全角转换之后做，见 `crates/host-api/src/chinese_english_spacing.rs`）。两次上屏之间不加，候选窗显示不变。默认关；关着时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub chinese_english_spacing: bool,
     pub chinese_punctuation: bool,
     #[serde(default = "smart_punctuation_default")]
     pub smart_punctuation: bool,
@@ -2074,6 +2077,7 @@ impl Default for Preferences {
             quanpin_helpcode: default_quanpin_helpcode(),
             shuangpin_helpcode: default_shuangpin_helpcode(),
             traditional_chinese_output: false,
+            chinese_english_spacing: false,
             chinese_punctuation: true,
             smart_punctuation: smart_punctuation_default(),
             smart_punctuation_repeat: smart_punctuation_default(),

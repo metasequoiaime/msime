@@ -64,6 +64,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 mod bounded_file;
+mod chinese_english_spacing;
 mod dictionary;
 // The exports live in `ffi`, but Rust consumers - this crate's own tests and
 // examples, and anything linking the rlib - have always reached them at the
@@ -783,6 +784,14 @@ impl HostSession {
         self.resources_pending = true;
     }
 
+    /// 「中英文之间加空格」开关，跟着最新请求的偏好走：它只是上屏后处理，不是 Engine 状态，不必等组字结束后重建。
+    fn chinese_english_spacing(&self) -> bool {
+        self.requested
+            .as_ref()
+            .map_or(&self.applied, |snapshot| &snapshot.preferences)
+            .chinese_english_spacing
+    }
+
     fn complete_transition(&mut self, mut result: Transition) -> Transition {
         let generation = self.runtime.generation();
         let note = match self.apply_pending() {
@@ -818,6 +827,16 @@ impl HostSession {
                         }
                     })
                     .collect();
+            }
+        }
+        // 中英文之间加空格排在全角转换之后：先加的半角空格会被转成 U+3000；全角下字母已是全角，本来就不会触发。宿主的简繁转换在拿到上屏文本之后才做，OpenCC 只换汉字、不动空格。之后的 `before_commit` 看到的是加过空格的文本。
+        if let Some(commit) = result.commit.as_mut() {
+            if self.chinese_english_spacing()
+                && chinese_english_spacing::applies(result.commit_context.as_ref())
+            {
+                if let Some(spaced) = chinese_english_spacing::space(commit) {
+                    *commit = spaced;
+                }
             }
         }
         // Dispatch already built the view for this transition. Rebuild it only
@@ -2150,7 +2169,7 @@ fn dispatch(handle: u64, action: Action) -> *mut c_char {
 
 /// 派发一个动作。`host` 只对命令 19、20 有值：动作同 Cancel、Finish，生命周期里的类别是 `HostCommit`（结束原因记 HostCommit）或 `FocusLoss`（上屏来源记 FocusLoss，不出声不画）。
 ///
-/// 选择加入生命周期的会话按这个顺序：调用前采样并发 `input` → `runtime.dispatch`（脚本的 `candidates` 在里面的 refresh 和展开之后）→ 统计 → 读派发事实 → `complete_transition`（全角转换在这里，之后才是宿主拿到的字节）→ `before_commit`（脚本可以改写 body）→ 其余事件和内置消费者 → 序列化，FEEDBACK 开着时插入 `feedback`。没选择加入的会话只走原来的几步。
+/// 选择加入生命周期的会话按这个顺序：调用前采样并发 `input` → `runtime.dispatch`（脚本的 `candidates` 在里面的 refresh 和展开之后）→ 统计 → 读派发事实 → `complete_transition`（全角转换、再中英文之间加空格都在这里，之后才是宿主拿到的字节，宿主再做简繁转换）→ `before_commit`（脚本可以改写 body）→ 其余事件和内置消费者 → 序列化，FEEDBACK 开着时插入 `feedback`。没选择加入的会话只走原来的几步。
 fn dispatch_call(handle: u64, action: Action, host: Option<lifecycle::InputClass>) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {

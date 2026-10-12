@@ -1434,6 +1434,140 @@ fn url_commits_stay_half_width_in_full_width_mode() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
+/// 把一次合成的上屏交给 `complete_transition`，返回宿主拿到的上屏文本。`scheme` 和 `local_mode` 是上屏前记下的 `commit_context`。
+fn completed_commit(
+    handle: u64,
+    commit: &str,
+    scheme: u8,
+    local_mode: &str,
+    full_width: bool,
+) -> Option<String> {
+    SESSIONS.with(|sessions| {
+        let mut sessions = sessions.borrow_mut();
+        let session = sessions.get_mut(&handle).unwrap();
+        let mut view = session.runtime.view();
+        if full_width {
+            view.character_width = CharacterWidth::Fullwidth;
+        }
+        session
+            .complete_transition(Transition {
+                handled: true,
+                commit: Some(commit.to_owned()),
+                commit_context: Some(msime_input_runtime::OutputContext {
+                    scheme,
+                    local_mode: local_mode.to_owned(),
+                    script_conversion: true,
+                    typing_statistics: true,
+                }),
+                diagnostic: None,
+                view,
+            })
+            .commit
+    })
+}
+
+// 「中英文之间加空格」只在开关打开、中文方案、普通组字或快捷短语、超级简拼的上屏里加；网址、日期等快捷模式和非中文方案原样。关着时上屏一字不改。
+#[test]
+fn chinese_english_spacing_follows_the_switch_and_the_commit_mode() {
+    let directory = tempfile::tempdir().unwrap();
+    let handle = test_host(directory.path());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let text = "用Rust写插件";
+    assert_eq!(
+        completed_commit(handle, text, 0, "none", false).as_deref(),
+        Some(text)
+    );
+
+    let preferences = Preferences {
+        chinese_english_spacing: true,
+        ..chinese_preferences()
+    };
+    assert_eq!(update(handle, 1, &preferences)["ok"], true);
+    for local_mode in ["none", "quick_phrase", "super_jianpin"] {
+        assert_eq!(
+            completed_commit(handle, text, 0, local_mode, false).as_deref(),
+            Some("用 Rust 写插件"),
+            "{local_mode}"
+        );
+    }
+    // 五笔和粤拼同样是中文方案。
+    for scheme in [2, 5] {
+        assert_eq!(
+            completed_commit(handle, "800人", scheme, "none", false).as_deref(),
+            Some("800 人"),
+            "{scheme}"
+        );
+    }
+    for local_mode in [
+        "url",
+        "date_time",
+        "command",
+        "expression",
+        "mention",
+        "unicode",
+        "temporary_english",
+        "temporary_japanese",
+    ] {
+        assert_eq!(
+            completed_commit(handle, text, 0, local_mode, false).as_deref(),
+            Some(text),
+            "{local_mode}"
+        );
+    }
+    // 日文、韩文方案不加。
+    for scheme in [3, 4] {
+        assert_eq!(
+            completed_commit(handle, text, scheme, "none", false).as_deref(),
+            Some(text),
+            "{scheme}"
+        );
+    }
+    // 全角在前：字母已是全角，不加空格，也就不会出现 U+3000。
+    let wide = completed_commit(handle, text, 0, "none", true).unwrap();
+    assert_eq!(wide, "用Ｒｕｓｔ写插件");
+    assert!(!wide.contains('\u{3000}'));
+
+    let off = Preferences {
+        chinese_english_spacing: false,
+        ..preferences
+    };
+    assert_eq!(update(handle, 2, &off)["ok"], true);
+    assert_eq!(
+        completed_commit(handle, text, 0, "none", false).as_deref(),
+        Some(text)
+    );
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+// 端到端：K 模式快捷短语「用Rust写」经完整的派发链路上屏为「用 Rust 写」。
+#[test]
+fn chinese_english_spacing_reaches_a_quick_phrase_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    install_phrase_table(dir.path(), "spacing", &[("yrx", "用Rust写")]);
+    let mut preferences = chinese_preferences();
+    preferences.plugins.phrase_tables = vec!["spacing".into()];
+    preferences.chinese_english_spacing = true;
+    let handle = plugin_host(dir.path(), preferences.clone());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let commit_phrase = || {
+        let entered = read(msime_client_character(handle, b'K', true));
+        assert_eq!(entered["ok"], true, "{entered}");
+        for key in b"yrx" {
+            let typed = read(msime_client_character(handle, *key, false));
+            assert_eq!(typed["ok"], true, "{typed}");
+        }
+        read(msime_client_command(handle, 1))["value"].clone()
+    };
+    let committed = commit_phrase();
+    assert_eq!(committed["commit_context"]["local_mode"], "quick_phrase");
+    assert_eq!(committed["commit"], "用 Rust 写");
+
+    preferences.chinese_english_spacing = false;
+    assert_eq!(update(handle, 1, &preferences)["ok"], true);
+    assert_eq!(commit_phrase()["commit"], "用Rust写");
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
 #[test]
 fn korean_scheme_crosses_the_host_boundary() {
     let dir = tempfile::tempdir().unwrap();
