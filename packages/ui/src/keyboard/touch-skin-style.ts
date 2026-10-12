@@ -28,51 +28,94 @@ export const skinCardCheck = "text-center text-[17px] font-bold text-accent";
 
 // ---- the skin editor ----
 
-export const editor = "flex flex-col gap-3.5";
-/** Heading and its actions stack on a phone, where the buttons need the full width to stay tappable. */
-export const editorHeading = "flex items-start justify-between gap-4 max-phone:flex-col";
-export const editorHeadingActions =
-  "flex shrink-0 grow-0 basis-auto gap-2 max-phone:w-full [&>button]:m-0 [&>button]:max-phone:flex-1";
-/** The editor's own primary and destructive buttons, filled rather than outlined. */
+export const editor = "flex flex-col gap-4";
+/** 内嵌时的标题行：标题在左，「完成」在右。 */
+export const editorHeading = "flex items-start justify-between gap-4";
+/** 编辑器自己的主按钮和删除按钮是实心的，不是描边的。 */
 export const editorFilled =
-  "[&_.primary]:rounded-lg [&_.primary]:border [&_.primary]:border-accent [&_.primary]:bg-accent [&_.primary]:px-3 [&_.primary]:py-[7px] [&_.primary]:text-white [&_.danger]:rounded-lg [&_.danger]:border [&_.danger]:border-danger [&_.danger]:bg-danger [&_.danger]:px-3 [&_.danger]:py-[7px] [&_.danger]:text-white";
+  "[&_.primary]:rounded-full [&_.primary]:border [&_.primary]:border-accent [&_.primary]:bg-accent [&_.primary]:px-4 [&_.primary]:py-[7px] [&_.primary]:text-white [&_.danger]:rounded-full [&_.danger]:border [&_.danger]:border-danger [&_.danger]:bg-danger [&_.danger]:px-4 [&_.danger]:py-[7px] [&_.danger]:text-white";
+
+/** 预览卡：上面是键盘预览，下面是撤销、重做、保存和使用。全屏时它吸在顶部，往下翻控件时预览一直看得见；吸顶时用页面底色垫住卡片上方，翻上去的控件不会从卡片边缘露出来。 */
+export const previewDock = (sticky: boolean) =>
+  sticky
+    ? "sticky top-[env(safe-area-inset-top,0px)] z-10 -mx-4 bg-[var(--p-bg)] px-4 pt-1 pb-2"
+    : "";
+export const previewCard =
+  "flex flex-col gap-2.5 overflow-hidden rounded-[var(--p-group-r)] bg-[var(--p-group-bg)] p-2.5 [box-shadow:var(--p-group-shadow)]";
+/** 预览限宽：手机上整宽的键盘有两百多像素高，吸在顶部会挤掉一半屏幕，缩到 300 后下面还能放下五六行控件；桌面的键盘更宽更扁，放宽到 560。 */
+export const previewFrame = (phone: boolean) =>
+  `mx-auto w-full overflow-hidden rounded-[10px] ${phone ? "max-w-[300px]" : "max-w-[560px]"}`;
+export const previewBar = "flex items-center gap-1.5";
+/** 撤销、重做是图标按钮，名称在 `aria-label` 上。 */
+export const iconButton =
+  "m-0 inline-flex size-9 shrink-0 items-center justify-center rounded-full border-0 bg-transparent p-0 [color:var(--p-text)] not-disabled:hover:bg-[var(--p-seg-bg)] disabled:opacity-35 focus-visible:outline-2 focus-visible:outline-accent";
+export const previewBarSpacer = "flex-1";
+/** 次要的胶囊按钮：强调色文字，淡强调色底。 */
+export const tonalButton =
+  "m-0 inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full border-0 bg-accent-soft px-4 font-semibold text-accent disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent";
+
+/** AI 抽卡入口：整行一张淡强调色的卡片，左边标题和一句说明，右边箭头。 */
+export const aiEntry =
+  "m-0 flex w-full items-center gap-3 rounded-[var(--p-group-r)] border-0 bg-accent-soft px-4 py-3 text-left disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent [&>svg]:shrink-0 [&>svg]:text-accent";
+export const aiEntryText =
+  "flex min-w-0 flex-1 flex-col gap-0.5 [&>strong]:text-[15px] [&>strong]:font-semibold [&>strong]:text-accent [&>small]:[font-size:var(--p-sub-fs)] [&>small]:[color:var(--p-sub)]";
+
+/** 分类标签画成分段控件，颜色取自各平台分段控件的同一组令牌。 */
 export const editorTabs =
-  "grid grid-cols-5 overflow-hidden rounded-[9px] border border-edge bg-subtle";
+  "flex gap-0.5 rounded-[var(--p-seg-r)] bg-[var(--p-seg-bg)] p-0.5 [border:var(--p-seg-border)]";
 export const editorTab = (selected: boolean) =>
-  `min-h-11 border-0 border-r border-edge last:border-r-0 ${
-    selected ? "bg-accent-soft font-[650] text-accent" : "bg-transparent text-muted"
+  `m-0 min-h-9 flex-1 rounded-[var(--p-seg-item-r)] border-0 px-1 text-[14px] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${
+    selected
+      ? "bg-[var(--p-seg-on)] font-semibold [color:var(--p-seg-on-fg)] [box-shadow:var(--p-seg-on-shadow)]"
+      : "bg-transparent [color:var(--p-sub)]"
   }`;
-export const editorControls = "flex flex-col gap-3";
-export const controlBlock = "rounded-[10px] border border-edge bg-subtle p-3.5";
-export const controlTitle = "mb-2.5 font-semibold";
+/** 各分类的分组之间的间距与设置页分组之间相同。 */
+export const editorControls = "flex flex-col gap-[var(--p-groups-gap,20px)]";
 
+/** 分组里不是一行设置的内容（预设网格、模板网格、图库）的内边距，与行的左右边距对齐。 */
+export const groupBody = "p-3.5";
+/** 按宽度排列：手机上三列，桌面上一行排得下更多。 */
 export const backgroundGrid =
-  "grid grid-cols-3 gap-2 [&>button]:flex [&>button]:min-h-16 [&>button]:items-end [&>button]:rounded-[9px] [&>button]:border [&>button]:border-black/12 [&>button]:p-[7px] [&>button>span]:rounded-[5px] [&>button>span]:bg-black/58 [&>button>span]:px-1.5 [&>button>span]:py-0.5 [&>button>span]:text-[11px] [&>button>span]:text-white";
-export const formGrid =
-  "grid grid-cols-2 gap-x-[18px] gap-y-3.5 max-phone:grid-cols-1 [&>label]:flex [&>label]:min-w-0 [&>label]:flex-col [&>label]:gap-[7px] [&>label]:text-[13px] [&>label]:text-secondary [&_input[type=range]]:w-full [&_select]:w-full";
-export const colorInput =
-  "size-auto h-8 w-[52px] rounded-[7px] border border-control-border bg-transparent p-0.5";
-/** A checkbox reads as a row, not a stacked field, so it overrides the grid's label direction. */
-export const checkLabel = "flex-row! items-center";
-export const photoButton = "mt-0 inline-flex w-fit cursor-pointer [&>input]:hidden";
-export const warning = "col-span-full my-0.5 text-xs text-danger";
+  "grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-x-2.5 gap-y-3";
+export const backgroundPreset =
+  "m-0 flex min-w-0 flex-col items-center gap-1.5 border-0 bg-transparent p-0 text-[13px] [color:var(--p-text)] focus-visible:outline-none [&:focus-visible>span:first-child]:outline-2 [&:focus-visible>span:first-child]:outline-offset-2 [&:focus-visible>span:first-child]:outline-accent";
+/** 色块本身：选中时外圈一道强调色。 */
+export const backgroundSwatch = (selected: boolean) =>
+  `relative flex aspect-[16/10] w-full items-center justify-center rounded-[10px] shadow-[inset_0_0_0_1px_rgba(0,0,0,.08)] ${
+    selected ? "outline-2 outline-offset-2 outline-accent" : ""
+  }`;
+export const backgroundCheck =
+  "flex size-6 items-center justify-center rounded-full bg-black/45 text-white [&>svg]:size-3.5";
 
-export const templateGrid =
-  "grid grid-cols-2 gap-2.5 max-phone:grid-cols-1 [&>button]:grid [&>button]:min-w-0 [&>button]:grid-cols-[96px_minmax(0,1fr)] [&>button]:items-center [&>button]:gap-2.5 [&>button]:rounded-[10px] [&>button]:border [&>button]:border-black/12 [&>button]:p-2.5 [&>button]:text-left [&>button]:font-[650] [&>button>span]:overflow-hidden [&>button>span]:text-ellipsis [&>button>span]:whitespace-nowrap";
-export const editorPreview = "rounded-[10px] border border-edge bg-subtle p-3";
-export const editorActions = "mb-3 flex justify-end gap-2 [&>button]:m-0";
+/** 颜色行末端：当前色值和一个圆形色块，色块就是原生取色器，只换了画法。 */
+export const colorControl = "flex items-center gap-2.5";
+export const colorValue = "font-mono text-[13px] uppercase [color:var(--p-sub)]";
+export const colorSwatch =
+  "size-8 shrink-0 cursor-pointer appearance-none rounded-full border-0 bg-transparent p-0 [box-shadow:inset_0_0_0_1px_var(--p-hair),0_0_0_1px_var(--p-hair)] disabled:cursor-default disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-full [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-full [&::-moz-color-swatch]:border-0";
+/** 行末端的文字按钮（选择照片、移除照片之类）。 */
+export const rowAction =
+  "m-0 rounded-full border-0 bg-transparent px-2 py-1 font-medium text-accent disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent [&>input]:hidden";
+export const rowActionDanger = `${rowAction} text-danger!`;
+export const warning = "m-0 px-4 py-2.5 text-[13px] text-danger";
+
+export const templateGrid = "grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2.5";
+export const templateCard =
+  "m-0 flex min-w-0 flex-col gap-2 overflow-hidden rounded-[12px] border-0 p-2 text-left font-semibold [box-shadow:inset_0_0_0_1px_rgba(0,0,0,.08)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&>span]:overflow-hidden [&>span]:px-1 [&>span]:text-[13px] [&>span]:text-ellipsis [&>span]:whitespace-nowrap";
+/** 分组下方居中的文字按钮（重置、优化对比度）。 */
+export const footerAction = "flex justify-center";
 export const editorOpen = "mt-3.5";
 
 // ---- the saved-skin library ----
 
 export const libraryDialog =
-  "flex flex-wrap items-end gap-x-3.5 gap-y-2.5 rounded-[10px] border border-accent-soft-border bg-raised p-3.5 [&>label]:flex [&>label]:min-w-[min(260px,100%)] [&>label]:flex-1 [&>label]:flex-col [&>label]:gap-[7px] [&>label]:text-[13px] [&>label]:text-secondary [&_input]:min-h-[34px] [&_input]:rounded-[7px] [&_input]:border [&_input]:border-control-border [&_input]:bg-subtle [&_input]:px-[9px] [&_input]:py-1.5 [&_input]:text-body [&>p]:m-0 [&>p]:flex-[1_1_260px] [&>p]:text-secondary [&>div]:flex [&>div]:shrink-0 [&>div]:grow-0 [&>div]:basis-auto [&>div]:gap-2 [&>div]:max-phone:w-full [&>div>button]:m-0 [&>div>button]:max-phone:flex-1";
-export const libraryNotice = "m-0 rounded-lg bg-accent-soft px-3 py-2.5 text-xs text-secondary";
-export const libraryEmpty = "m-0 leading-normal text-muted";
-export const libraryList = "grid grid-cols-2 gap-2.5 max-phone:grid-cols-1";
+  "flex flex-wrap items-end gap-x-3.5 gap-y-2.5 rounded-[var(--p-group-r)] border border-accent-soft-border bg-[var(--p-group-bg)] p-3.5 [&>label]:flex [&>label]:min-w-[min(260px,100%)] [&>label]:flex-1 [&>label]:flex-col [&>label]:gap-[7px] [&>label]:text-[13px] [&>label]:text-secondary [&_input]:min-h-[34px] [&_input]:rounded-[7px] [&_input]:border [&_input]:border-control-border [&_input]:bg-subtle [&_input]:px-[9px] [&_input]:py-1.5 [&_input]:text-body [&>p]:m-0 [&>p]:flex-[1_1_260px] [&>p]:text-secondary [&>div]:flex [&>div]:shrink-0 [&>div]:grow-0 [&>div]:basis-auto [&>div]:gap-2 [&>div]:max-phone:w-full [&>div>button]:m-0 [&>div>button]:max-phone:flex-1";
+export const libraryNotice =
+  "m-0 rounded-[var(--p-group-r)] bg-accent-soft px-4 py-2.5 text-[13px] [color:var(--p-text)]";
+export const libraryEmpty = "m-0 leading-normal [color:var(--p-sub)]";
+export const libraryList = "grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2.5";
 export const libraryCard =
-  "flex min-w-0 flex-col gap-2 rounded-[10px] border border-edge bg-card p-[9px]";
+  "flex min-w-0 flex-col gap-2 rounded-[12px] p-2 [box-shadow:inset_0_0_0_1px_var(--p-hair)]";
 export const libraryApply =
-  "grid w-full min-w-0 grid-cols-[96px_minmax(0,1fr)] items-center gap-2.5 border-0 bg-transparent p-0 text-left text-body [&>div>strong]:overflow-hidden [&>div>strong]:text-ellipsis [&>div>strong]:whitespace-nowrap [&>strong]:overflow-hidden [&>strong]:text-ellipsis [&>strong]:whitespace-nowrap";
+  "flex w-full min-w-0 flex-col gap-1.5 border-0 bg-transparent p-0 text-left [color:var(--p-text)] [&>div>strong]:overflow-hidden [&>div>strong]:text-ellipsis [&>div>strong]:whitespace-nowrap [&>strong]:overflow-hidden [&>strong]:text-ellipsis [&>strong]:whitespace-nowrap";
 export const libraryActions =
   "flex flex-wrap justify-end gap-1.5 [&>.secondary]:m-0 [&>.secondary]:px-[9px] [&>.secondary]:py-[5px] [&>.danger-text]:px-1 [&>.danger-text]:py-[5px]";
