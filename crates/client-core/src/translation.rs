@@ -182,9 +182,9 @@ pub fn niutrans_auth_string(
     hex::encode(digest)
 }
 
-/// Mirrors the reference `BuildTranslationQuery`: Engine `CandidateSource::Emoji` (6) and `CandidateSource::Kaomoji` (7) are never translated, whatever their text. A kaomoji such as "(*Φ皿Φ*)" contains Han characters and would otherwise pass the Chinese text test, sending a picture to a gloss model that can only put noise under it.
-pub fn is_emoji_or_kaomoji_source(source: u8) -> bool {
-    matches!(source, 6 | 7)
+/// 不管文字是什么都不请求释义的候选来源。Engine `CandidateSource::Emoji`（6）和 `CandidateSource::Kaomoji`（7）照参考实现的 `BuildTranslationQuery`：颜文字如 "(*Φ皿Φ*)" 带汉字，按文字判断会当成中文，把一张图送给释义模型，只会在它下面放噪音。`CandidateSource::MixedJapanese`（13）是全拼、双拼里混进来的日文转换，私、開始 这样的汉字是日文，当中文释义会在日文下面写出中文意思，还白白花掉账号的释义额度；Engine 也不为日文方案和临时日文出释义。
+pub fn source_gets_no_gloss(source: u8) -> bool {
+    matches!(source, 6 | 7 | 13)
 }
 
 pub fn is_cloud_translatable_english(text: &str) -> bool {
@@ -457,6 +457,17 @@ fn value_as_text(value: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn emoji_kaomoji_and_mixed_japanese_sources_get_no_gloss() {
+        for source in [6, 7, 13] {
+            assert!(source_gets_no_gloss(source), "source {source}");
+        }
+        // 词库、生成、英文、云候选照文字判断。
+        for source in [0, 1, 2, 3, 4, 5, 8, 9, 10, 11, 12] {
+            assert!(!source_gets_no_gloss(source), "source {source}");
+        }
+    }
 
     #[test]
     fn accepts_supported_endpoints_only() {

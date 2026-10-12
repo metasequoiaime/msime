@@ -263,8 +263,13 @@ fn open_gloss_dictionary(path: &Path) -> Option<EnglishDictionary> {
 }
 
 /// `candidate_gloss_key` (bridge.cpp:149-188): `(key, chinese_to_english)`, or `None` for a row that gets no gloss. Emoji and kaomoji never do; text of ASCII letters, spaces, `-` and `'` with at least one letter is looked up lowercased as English; otherwise any Han character makes the whole text a Chinese key. `&str` is valid UTF-8, so the C++ rejection of malformed text cannot arise.
+///
+/// 日文混输行（`CandidateSource::MixedJapanese`）也没有释义：私、寿司 这样的汉字是日文，拿去查中文释义会在日文下面写出中文意思，和日文方案、临时日文不出释义一致。
 pub(super) fn candidate_gloss_key(text: &str, source: u8) -> Option<(String, bool)> {
-    if source == CandidateSource::Emoji as u8 || source == CandidateSource::Kaomoji as u8 {
+    if source == CandidateSource::Emoji as u8
+        || source == CandidateSource::Kaomoji as u8
+        || source == CandidateSource::MixedJapanese as u8
+    {
         return None;
     }
     let latin = text

@@ -10032,6 +10032,70 @@ fn translation_queries_only_clear_chinese_candidates_for_the_network() {
     }
 }
 
+/// 一个只有一条词条、连接矩阵为 1×1 的 MSJPDT1 日文模型，布局同 `msime_engine` 里 `japanese::decoder::test_model::bytes`（那个只在 engine 自己的测试里可见）。
+pub(crate) fn single_lemma_japanese_model(reading: &str, surface: &str, cost: i32) -> Vec<u8> {
+    let strings = [reading.as_bytes(), surface.as_bytes()].concat();
+    let mut token = Vec::new();
+    token.extend_from_slice(&0u32.to_le_bytes());
+    token.extend_from_slice(&(reading.len() as u16).to_le_bytes());
+    token.extend_from_slice(&(reading.len() as u32).to_le_bytes());
+    token.extend_from_slice(&(surface.len() as u16).to_le_bytes());
+    token.extend_from_slice(&0u16.to_le_bytes());
+    token.extend_from_slice(&0u16.to_le_bytes());
+    token.extend_from_slice(&cost.to_le_bytes());
+    let token_offset = 56u64;
+    let connection_offset = token_offset + token.len() as u64;
+    let string_offset = connection_offset + 2;
+    let mut file = b"MSJPDT1\0".to_vec();
+    for value in [1u32, 1, 1, 0] {
+        file.extend_from_slice(&value.to_le_bytes());
+    }
+    for value in [
+        token_offset,
+        connection_offset,
+        string_offset,
+        strings.len() as u64,
+    ] {
+        file.extend_from_slice(&value.to_le_bytes());
+    }
+    file.extend_from_slice(&token);
+    file.extend_from_slice(&0i16.to_le_bytes());
+    file.extend_from_slice(&strings);
+    file
+}
+
+/// 日文混输行（来源 13）的汉字是日文：不能当中文请求在线释义，否则「私」下面会写出中文意思，还花掉额度。
+#[test]
+fn translation_queries_never_clear_a_mixed_japanese_row_for_the_network() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("resources")).unwrap();
+    std::fs::write(
+        dir.path().join("resources/msime-japanese.dat"),
+        single_lemma_japanese_model("わたし", "私", 500),
+    )
+    .unwrap();
+    let mut preferences = Preferences {
+        candidate_translations: true,
+        ..chinese_preferences()
+    };
+    preferences.mixed_input.japanese = true;
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    let mut view = Value::Null;
+    for byte in b"watashi" {
+        view = read(msime_client_character(handle, *byte, false))["value"]["view"].clone();
+    }
+    assert_eq!(view["candidates"][0]["text"], "私", "{view}");
+    assert_eq!(view["candidates"][0]["source"], 13, "{view}");
+    let query = read(msime_client_translation_query(handle));
+    assert_eq!(
+        query["value"]["candidates"][0],
+        json!({ "text": "私", "online_gloss": false }),
+        "{query}"
+    );
+    read(msime_client_destroy(handle));
+}
+
 /// Every entry point the C header promises is actually exported, and the other way round.
 ///
 /// Native hosts compile against `include/msime_client.h`; the Rust side is the implementation.

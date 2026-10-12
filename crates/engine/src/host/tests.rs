@@ -2210,6 +2210,8 @@ fn gloss_keys_follow_the_bridge_rules() {
     );
     assert_eq!(candidate_gloss_key("天气", 6), None);
     assert_eq!(candidate_gloss_key("天气", 7), None);
+    // 日文混输行的汉字是日文，不当中文查释义。
+    assert_eq!(candidate_gloss_key("私", 13), None);
     assert_eq!(candidate_gloss_key("- '", 4), None);
     assert_eq!(candidate_gloss_key("123", 0), None);
     assert_eq!(candidate_gloss_key("〇", 0), None);
