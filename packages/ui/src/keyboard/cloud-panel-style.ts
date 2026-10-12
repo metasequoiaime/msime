@@ -74,7 +74,8 @@ export const dictionaryButton =
   "rounded-lg border border-edge bg-[var(--button-secondary-bg)] px-3 py-[7px] text-body not-disabled:hover:bg-[var(--button-secondary-hover)]";
 export const dictionaryToolbar = "flex flex-wrap items-end gap-2.5";
 /** The width query that decides the search field lives here rather than in a stylesheet. */
-export const dictionarySearch = "flex-[1_1_220px] [&>input]:w-full";
+const dictionaryFlexibleField = "flex-[1_1_220px] [&>input]:w-full";
+export const dictionarySearch = dictionaryFlexibleField;
 export const dictionaryActions =
   "flex items-center gap-2 [&>.secondary]:mt-0 [&>.secondary]:cursor-pointer";
 
@@ -103,7 +104,7 @@ export const dictionarySnapshotFact =
 
 export const dictionaryForm =
   "flex flex-wrap items-end gap-2.5 rounded-[9px] border border-edge bg-raised p-3.5";
-export const dictionaryWordField = "flex-[1_1_220px] [&>input]:w-full";
+export const dictionaryWordField = dictionaryFlexibleField;
 export const dictionaryList = "flex min-h-[180px] flex-col gap-2";
 /** A row stacks on a phone, where a word and three actions do not fit side by side. */
 export const dictionaryItem =
