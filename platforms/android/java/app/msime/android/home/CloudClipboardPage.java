@@ -8,7 +8,6 @@ import app.msime.android.ImageViewPolicy;
 import app.msime.android.ThemeColorPolicy;
 import android.content.Context;
 import android.graphics.Typeface;
-import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -31,7 +30,7 @@ import app.msime.android.CloudClipboardTimePolicy;
  *
  * <p>只有真实账号有云剪贴板；没有登录时整页只显示一句说明。
  */
-public final class CloudClipboardPage extends DetailPage {
+public final class CloudClipboardPage extends ReloadingDetailPage {
     private static final String DESCRIPTION = "在你登录的设备之间同步，端到端加密，水杉云只保存密文，关闭即删除";
     private static final String KEY_CHANGE = "云端现有的记录会全部删除，其他设备都要在这台设备上重新允许后才能继续同步。";
     private static final List<String> RETENTION_LABELS = List.of("1 天", "7 天", "30 天", "一直");
@@ -42,29 +41,19 @@ public final class CloudClipboardPage extends DetailPage {
     private boolean busy;
     private boolean signedOut;
     private long generation;
-    @Nullable private LinearLayout column;
-
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
+    @Override protected void onContentReady() {
         render();
-        if (overview == null && !busy) reload();
     }
 
-    @Override public void onDestroyView() {
+    @Override protected void onContentDestroyed() {
         generation++;
         overview = null;
         loadedApi = null;
         busy = false;
         signedOut = false;
-        column = null;
-        super.onDestroyView();
     }
 
-    @Override protected void onBecameVisible() {
-        if (getView() != null) reload();
-    }
-
-    private void reload() {
+    @Override protected void reload() {
         Context application = requireContext().getApplicationContext();
         long request = ++generation;
         busy = true;
@@ -136,7 +125,7 @@ public final class CloudClipboardPage extends DetailPage {
     }
 
     private void render() {
-        LinearLayout target = column;
+        LinearLayout target = contentColumn();
         if (target == null) return;
         Context context = target.getContext();
         target.removeAllViews();

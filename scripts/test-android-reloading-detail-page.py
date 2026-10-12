@@ -11,6 +11,7 @@ HOME = ROOT / "platforms/android/java/app/msime/android/home"
 BASE = HOME / "ReloadingDetailPage.java"
 CONSUMERS = (
     "AiSettingsPage.java",
+    "CloudClipboardPage.java",
     "DeveloperPage.java",
     "ExpressionPage.java",
     "HandwritingPage.java",
@@ -103,6 +104,19 @@ def main() -> int:
         or "@Override protected void onContentDestroyed()" not in developer
     ):
         errors.append("DeveloperPage: 首次渲染或视图销毁时的专有处理未保留")
+
+    cloud_clipboard = (HOME / "CloudClipboardPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in cloud_clipboard
+        or "render();" not in cloud_clipboard
+        or "@Override protected void onContentDestroyed()" not in cloud_clipboard
+        or "generation++;" not in cloud_clipboard
+        or "overview = null;" not in cloud_clipboard
+        or "loadedApi = null;" not in cloud_clipboard
+        or "busy = false;" not in cloud_clipboard
+        or "signedOut = false;" not in cloud_clipboard
+    ):
+        errors.append("CloudClipboardPage: 首次渲染或视图绑定数据清理未保留")
 
     lexicon = (HOME / "LexiconPage.java").read_text(encoding="utf-8")
     if (
