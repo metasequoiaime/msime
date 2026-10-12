@@ -11,7 +11,7 @@ SITES = (
     JAVA / "core/FirstRunPreparation.java",
     JAVA / "core/ResourcePackService.java",
     JAVA / "home/AiSkinPage.java",
-    JAVA / "home/HostTask.java",
+    JAVA / "home/ViewResultDelivery.java",
     JAVA / "home/ChatFragment.java",
     JAVA / "home/LexiconDetailPage.java",
     JAVA / "home/OnboardingChoices.java",
