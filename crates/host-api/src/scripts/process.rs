@@ -444,8 +444,8 @@ impl Health {
 
 #[derive(Default)]
 struct Registry {
-    /// 每个插件根目录看到过的最大的授权 `revision`。
-    revisions: HashMap<PathBuf, u64>,
+    /// 每个插件根目录看到过的最大的授权 `(revision_epoch, revision)`。
+    revisions: HashMap<PathBuf, (u64, u64)>,
     /// 本进程读过授权的插件根目录：第一次读时接管健康文件（`adopt_health`）。
     adopted: HashSet<PathBuf>,
     entries: HashMap<(PathBuf, String, String), Arc<Health>>,
@@ -487,19 +487,15 @@ pub(crate) fn health_snapshot(root: &Path, id: &str, hash: &str) -> (u32, Option
     )
 }
 
-/// 会话重读了授权：`revision` 比以前看到过的都大（用户在设置页改过授权、删过或重新导入过包），这个根目录下被熔断的插件全部恢复。第一次看到时只记下来；不比以前大的（放回一份旧文件、删掉文件）什么都不做，来回换文件不能让熔断反复复位。同一用户下的程序直接写一份 `revision` 更大的文件仍然能让它复位：授权文件不签名，这和它能伪造授权是同一个残余风险。
-pub(super) fn observe_revision(root: &Path, revision: u64) {
+/// 会话重读了授权：`(revision_epoch, revision)` 比以前看到过的都大（用户在设置页改过授权、删过或重新导入过包），这个根目录下被熔断的插件全部恢复。第一次看到时只记下来；不比以前大的（放回一份旧文件、删掉文件）什么都不做，来回换文件不能让熔断反复复位。同一用户下的程序直接写一份更大代次的文件仍然能让它复位：授权文件不签名，这和它能伪造授权是同一个残余风险。
+pub(super) fn observe_revision(root: &Path, revision_epoch: u64, revision: u64) {
     let mut registry = lock(&REGISTRY);
     let previous = registry.revisions.get(root).copied();
-    // 写入方在 MAX_REVISION - 1 之后回到当前时间的微秒数。这个唯一的
-    // 回绕也代表一次新的授权写入；缺失或无效文件读成的 0 仍不能复位熔断。
-    let wrapped = previous == Some(msime_client_core::plugins::script_grants::MAX_REVISION - 1)
-        && revision > 0
-        && revision < msime_client_core::plugins::script_grants::MAX_REVISION - 1;
-    if previous.is_some_and(|previous| revision <= previous) && !wrapped {
+    let next = (revision_epoch, revision);
+    if previous.is_some_and(|previous| next <= previous) {
         return;
     }
-    registry.revisions.insert(root.to_owned(), revision);
+    registry.revisions.insert(root.to_owned(), next);
     if previous.is_none() {
         return;
     }
