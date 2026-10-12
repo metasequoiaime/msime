@@ -124,7 +124,7 @@ export function InputSharedSettingsSection({
         {showInputModeStatusItem && (
           <SwitchRow
             title="菜单栏显示中/英状态"
-            description="在菜单栏常驻显示当前模式：中文时是所用方案（中、双、五、日等），英文时是「英」。不需要把「英」加成系统输入源，关掉切换提示后也能随时看到。中英文按应用记忆时，切到没有输入框的应用后，这里显示的仍是上一个应用的状态。"
+            description="在菜单栏常驻显示当前模式：中文时是所用方案（中、双、五、日等），英文时是「英」。不需要把「英」加成系统输入源，关掉切换提示后也能随时看到。改动在回到输入框后生效。中英文按应用记忆时，切到没有输入框的应用后，这里显示的仍是上一个应用的状态。"
             checked={preferences.input_mode_status_item ?? false}
             onChange={(input_mode_status_item) => onPreferencesChange({ input_mode_status_item })}
           />
