@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { boundedGraphemes } from "../core/text";
+import { boundedGraphemes, utf8ByteLength } from "../core/text";
 import {
   communityPublishFields,
   handleCommunityPublishKeyDown,
@@ -241,7 +241,7 @@ export function CandidateSkinPublishDialog({
   const licenseless = packCode === "candidate_skin_license_required" && skinId !== "";
   const licenseValue = licenseChoice === "other" ? customLicense.trim() : licenseChoice;
   const licenseValid =
-    licenseValue.length > 0 && new TextEncoder().encode(licenseValue).length <= assetLicenseLimit;
+    licenseValue.length > 0 && utf8ByteLength(licenseValue) <= assetLicenseLimit;
   const writeLicense = async () => {
     if (!licenseless || !licenseValid || writingLicense || licenseRunning.current) return;
     const owner = ++licenseOwner.current;
