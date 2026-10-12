@@ -25,6 +25,8 @@ const SENTENCE_BASE: i64 = 900_000;
 const PENDING_PREFIX_LEMMAS: usize = 24;
 const READING_PREFIX_LEMMAS: usize = 16;
 const SENTENCE_LIMIT: usize = 12;
+/// 完整读音接在列表末尾的同音词条上限，只防异常模型；Mozc 词库最大的读音组（こうじ）是 286 条。
+const EXACT_READING_LEMMAS: usize = 512;
 /// Two kana: a one-kana reading is already answered by the kana rows and the sentence search.
 const MIN_PREFIX_READING_BYTES: usize = 6;
 
@@ -44,6 +46,8 @@ pub struct JapaneseProvider {
     conversion: RomajiConversion,
     katakana: String,
     sentences: Vec<JapaneseConversion>,
+    /// 同音词排名缓冲，跨查询复用。
+    exact_ranking: Vec<(i32, u32)>,
 }
 
 /// 按插入顺序保留唯一词面；`used` 之后是上次查询留下的可复用行。
@@ -123,6 +127,7 @@ impl JapaneseProvider {
             conversion: RomajiConversion::default(),
             katakana: String::new(),
             sentences: Vec::new(),
+            exact_ranking: Vec::new(),
         }
     }
 
@@ -159,7 +164,7 @@ impl JapaneseProvider {
             rows.push_kana(&conversion.hiragana, &self.katakana);
         }
 
-        if let Some(dictionary) = dictionary {
+        if let Some(dictionary) = &dictionary {
             // 待定字母的前缀词条先展示；完整读音先展示转换，再追加预测，避免较长联想挤走当前词。
             let complete_prediction = conversion.pending.is_empty()
                 && conversion.hiragana.len() >= MIN_PREFIX_READING_BYTES;
@@ -208,7 +213,7 @@ impl JapaneseProvider {
                     .saturating_mul(READING_PREFIX_LEMMAS)
                     .saturating_add(SENTENCE_LIMIT + 1),
             );
-            search_converted_into(&dictionary, conversion, SENTENCE_LIMIT, &mut self.sentences);
+            search_converted_into(dictionary, conversion, SENTENCE_LIMIT, &mut self.sentences);
             // 消费后释放句子文本，仅保留固定结果限额所需的向量容量。
             for sentence in self.sentences.drain(..) {
                 rows.push(
@@ -237,6 +242,24 @@ impl JapaneseProvider {
             // 读音完整时，平假名本身最晚排在第二位。词库里没有这个假名词条时，它原本跟在全部汉字和联想后面：`tyou`/`chou` 的ちょう排在第 23 个，用户以为打不出来；有词条的きょう、にほん本来就在第二位。
             if conversion.pending.is_empty() {
                 rows.promote(&conversion.hiragana, KANA_SLOT);
+            }
+        }
+
+        // 读音完整时，把这个读音的全部同音词按成本接在最后（#7353）。句子和预测各有限额，しょう在 Mozc 词库里的六十多个词面原本只有十几个能进列表，生僻词翻多少页都翻不到；接在片假名之后，前面各行与原来一样，已列出的词由去重跳过。
+        if let Some(dictionary) = &dictionary {
+            if conversion.pending.is_empty() {
+                dictionary.for_each_exact_lemma_view_reusing(
+                    &conversion.hiragana,
+                    EXACT_READING_LEMMAS,
+                    &mut self.exact_ranking,
+                    |lemma| {
+                        rows.push(
+                            lemma.surface,
+                            PREFIX_LEMMA_BASE - i64::from(lemma.word_cost),
+                            CandidateSource::Database,
+                        );
+                    },
+                );
             }
         }
 
@@ -666,6 +689,71 @@ mod tests {
         );
     }
 
+    /// `count` 个合成同音词共用 `reading`，成本随序号递增：`合成00` 最便宜。
+    fn homophones(reading: &'static str, count: usize) -> Vec<(&'static str, String, i32)> {
+        (0..count)
+            .map(|index| (reading, format!("合成{index:02}"), 100 + index as i32 * 10))
+            .collect()
+    }
+
+    fn homophone_model(
+        all: &[(&'static str, String, i32)],
+        extra: &[test_model::Entry<'_>],
+    ) -> Vec<u8> {
+        let mut entries: Vec<test_model::Entry<'_>> = all
+            .iter()
+            .map(|(reading, surface, cost)| (*reading, surface.as_str(), 0, 0, *cost))
+            .collect();
+        entries.extend_from_slice(extra);
+        test_model::bytes(&entries, 1, &[0])
+    }
+
+    fn synthetic(range: std::ops::Range<usize>) -> Vec<String> {
+        range.map(|index| format!("合成{index:02}")).collect()
+    }
+
+    /// #7353：完整读音的同音词比句子和预测的限额多时，原本只有最便宜的十几个能进列表。其余的按成本接在片假名行之后，一个不漏，前面的行一行不变。
+    #[test]
+    fn a_complete_reading_lists_every_homophone_after_the_first_pages() {
+        let all = homophones("しょう", 40);
+        let model = homophone_model(&all, &[("しょうがっこう", "合成学校", 0, 0, 50)]);
+        let (_root, mut provider) = provider_with(Some(model));
+        let rows = provider.query(&request("syou"));
+        // 原有部分：12 个句子（平假名提到第二位），16 个最便宜的预测里新出现的四个，片假名。
+        let mut expected = synthetic(0..1);
+        expected.push("しょう".to_owned());
+        expected.extend(synthetic(1..12));
+        expected.push("合成学校".to_owned());
+        expected.extend(synthetic(12..15));
+        expected.push("ショウ".to_owned());
+        // 新接上的：其余同音词，按成本。
+        expected.extend(synthetic(15..40));
+        assert_eq!(words(&rows), expected);
+        let first_appended = &rows[expected.len() - 25];
+        assert_eq!(
+            (first_appended.weight, first_appended.source),
+            (PREFIX_LEMMA_BASE - 250, CandidateSource::Database)
+        );
+
+        // 还挂着半截字母时不接：那时列的是待定字母能拼出的词。
+        let pending = provider.query(&request("syouk"));
+        assert!(
+            !words(&pending).contains(&"合成39"),
+            "{:?}",
+            words(&pending)
+        );
+    }
+
+    /// 单个假名也是完整读音：假名行之后先是句子，再是其余同音词。
+    #[test]
+    fn a_single_kana_lists_every_homophone_after_its_sentences() {
+        let all = homophones("か", 30);
+        let (_root, mut provider) = provider_with(Some(homophone_model(&all, &[])));
+        let mut expected = vec!["か".to_owned(), "カ".to_owned()];
+        expected.extend(synthetic(0..30));
+        assert_eq!(words(&provider.query(&request("ka"))), expected);
+    }
+
     #[test]
     fn single_kana_leads_and_without_a_model_only_kana_remain() {
         let (_root, mut provider) = provider_with(None);
@@ -754,5 +842,12 @@ mod tests {
         assert_eq!(words(&kanj)[0], "感じ");
         let sentence = provider.query(&request("watashihagakuseidesu"));
         assert!(sentence.len() > 2, "{:?}", words(&sentence));
+        // #7353：しょう在 Mozc 词库里有六十多个不同词面，生僻的鐘、梢原本排不进列表。
+        let syou = provider.query(&request("syou"));
+        for rare in ["鐘", "梢", "簫"] {
+            assert!(words(&syou).contains(&rare), "{rare}: {:?}", words(&syou));
+        }
+        assert!(syou.len() > 60, "{}", syou.len());
+        assert_eq!(words(&syou)[1], "しょう");
     }
 }
