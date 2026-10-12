@@ -60,45 +60,31 @@ export function wubiProfileTitle(profile: Preferences["wubi_profile"]): string {
   return profile === "wubi98" ? "98 五笔" : "86 五笔";
 }
 
+function touchKeyboardSchemeOptionTitle(scheme: TouchKeyboardScheme): string {
+  return touchKeyboardSchemeOptions.find(([value]) => value === scheme)?.[1] ?? "全拼 26 键";
+}
+
 export function touchKeyboardSchemeTitle(preferences: Preferences): string {
   const selected = preferences.touch_keyboard_schemes?.selected;
   if (selected === "wubi") return wubiProfileTitle(preferences.wubi_profile);
-  if (selected) {
-    return {
-      quanpin: "全拼 26 键",
-      nine_key: "全拼 9 键",
-      xiaohe: "小鹤双拼",
-      ziranma: "自然码双拼",
-      microsoft: "微软双拼",
-      shoudao: "首道双拼",
-      wubi: "86 五笔",
-      japanese_nine_key: "日语 9 键",
-      japanese: "日语 26 键",
-      handwriting: "手写",
-      korean: "韩语 26 键",
-      cantonese: "粤拼 26 键",
-      zhuyin: "大千注音",
-      vietnamese: "越南语 26 键",
-      tibetan: "藏文 26 键",
-      stroke: "笔画",
-      zhuyin_nine_key: "注音 9 键",
-      fourteen_key: "全拼 14 键",
-    }[selected];
-  }
+  if (selected) return touchKeyboardSchemeOptionTitle(selected);
   // 韩语、粤拼、注音、越南语、藏文和笔画各只有一个键盘，不管文档里记的是哪种布局。
-  if (preferences.scheme === "korean") return "韩语 26 键";
-  if (preferences.scheme === "cantonese") return "粤拼 26 键";
-  if (preferences.scheme === "zhuyin") return "大千注音";
-  if (preferences.scheme === "vietnamese") return "越南语 26 键";
-  if (preferences.scheme === "tibetan") return "藏文 26 键";
-  if (preferences.scheme === "stroke") return "笔画";
-  if (preferences.touch_keyboard_layout === "handwriting") return "手写";
+  if (preferences.scheme === "korean") return touchKeyboardSchemeOptionTitle("korean");
+  if (preferences.scheme === "cantonese") return touchKeyboardSchemeOptionTitle("cantonese");
+  if (preferences.scheme === "zhuyin") return touchKeyboardSchemeOptionTitle("zhuyin");
+  if (preferences.scheme === "vietnamese") return touchKeyboardSchemeOptionTitle("vietnamese");
+  if (preferences.scheme === "tibetan") return touchKeyboardSchemeOptionTitle("tibetan");
+  if (preferences.scheme === "stroke") return touchKeyboardSchemeOptionTitle("stroke");
+  if (preferences.touch_keyboard_layout === "handwriting")
+    return touchKeyboardSchemeOptionTitle("handwriting");
   // 14 键只配全拼；别的方案记着这个布局时按各自的键盘命名。
   if (preferences.touch_keyboard_layout === "fourteen_key" && preferences.scheme === "quanpin")
-    return "全拼 14 键";
+    return touchKeyboardSchemeOptionTitle("fourteen_key");
   if (preferences.touch_keyboard_layout === "nine_key")
-    return preferences.scheme === "japanese" ? "日语 9 键" : "全拼 9 键";
-  if (preferences.scheme === "japanese") return "日语 26 键";
+    return touchKeyboardSchemeOptionTitle(
+      preferences.scheme === "japanese" ? "japanese_nine_key" : "nine_key",
+    );
+  if (preferences.scheme === "japanese") return touchKeyboardSchemeOptionTitle("japanese");
   if (preferences.scheme === "wubi") return wubiProfileTitle(preferences.wubi_profile);
   if (preferences.scheme === "shuangpin")
     return preferences.shuangpin_profile === "custom"

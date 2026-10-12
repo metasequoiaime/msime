@@ -12,6 +12,7 @@ import {
 } from "@msime/ui";
 import {
   selectTouchKeyboardScheme,
+  touchKeyboardSchemeOptions,
   touchKeyboardSchemeTitle,
 } from "../../../../packages/ui/src/settings/touch-keyboard-scheme-helpers";
 
@@ -103,6 +104,33 @@ test("the helper exposes the complete stable scheme order", () => {
   ]);
   // 高情商回复是键盘工具栏上的工具，不再是输入方案。
   expect(allTouchKeyboardSchemes as string[]).not.toContain("thoughtful_reply");
+});
+
+test("selected and single-layout titles use the picker labels", () => {
+  const selectedOption = touchKeyboardSchemeOptions.find(([scheme]) => scheme === "ziranma")!;
+  const singleLayoutOption = touchKeyboardSchemeOptions.find(([scheme]) => scheme === "korean")!;
+  const selectedLabel = selectedOption[1];
+  const singleLayoutLabel = singleLayoutOption[1];
+  try {
+    selectedOption[1] = "自然码键盘";
+    singleLayoutOption[1] = "韩语键盘";
+    expect(
+      touchKeyboardSchemeTitle({
+        ...preferences,
+        touch_keyboard_schemes: { ...preferences.touch_keyboard_schemes!, selected: "ziranma" },
+      }),
+    ).toBe("自然码键盘");
+    expect(
+      touchKeyboardSchemeTitle({
+        ...preferences,
+        scheme: "korean",
+        touch_keyboard_schemes: undefined,
+      }),
+    ).toBe("韩语键盘");
+  } finally {
+    selectedOption[1] = selectedLabel;
+    singleLayoutOption[1] = singleLayoutLabel;
+  }
 });
 
 test("applies queued scheme changes to the latest draft", () => {
