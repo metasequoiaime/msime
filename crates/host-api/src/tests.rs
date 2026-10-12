@@ -1348,6 +1348,189 @@ fn custom_shuangpin_profile_reaches_engine_options_or_falls_back_to_xiaohe() {
     read(msime_client_destroy(handle));
 }
 
+/// 九键双拼的布局让全拼会话以九键双拼开始：数字两位一个音节，`View.key_grid` 说出网格而 `nine_key` 为假；换了表就换网格；自定义表不能用时按米旮旯 3 运行并报告原因；别的方案没有它。
+#[test]
+fn a_nine_key_shuangpin_layout_starts_the_grid_with_the_chosen_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        touch_keyboard_layout: TouchKeyboardLayout::NineKeyShuangpin,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    let view = read(msime_client_view(handle));
+    assert_eq!(view["value"]["key_grid"], "nine_key_shuangpin");
+    assert_eq!(view["value"]["nine_key"], false);
+    // 米旮旯 3：ni 是 64，hao 是 47。
+    let mut typed = Value::Null;
+    for &digit in b"6447" {
+        typed = read(msime_client_character(handle, digit, false));
+        assert_eq!(typed["value"]["handled"], true, "{typed}");
+    }
+    let view = &typed["value"]["view"];
+    assert_eq!(view["candidates"][0]["text"], "本地", "{view}");
+    assert_eq!(view["nine_key_reading"], "ni'hao", "{view}");
+    // 数字是组码，不是选词键：米旮旯 3 不用 1 以外的键时也一样，1 在这里是 ong、ou、ing。
+    let one = read(msime_client_character(handle, b'1', false));
+    assert_eq!(one["value"]["view"]["editing_text"], "64471", "{one}");
+    read(msime_client_command(handle, 3));
+
+    // 米旮旯 2 的 ao 在 2：同一个词是 64 42。
+    preferences.nine_key_shuangpin_profile = NineKeyShuangpinProfile::Migala2;
+    assert_eq!(
+        update(handle, 1, &preferences)["value"]["view"]["key_grid"],
+        "nine_key_shuangpin"
+    );
+    for &digit in b"644" {
+        read(msime_client_character(handle, digit, false));
+    }
+    typed = read(msime_client_character(handle, b'2', false));
+    assert_eq!(
+        typed["value"]["view"]["candidates"][0]["text"], "本地",
+        "{typed}"
+    );
+    // 米旮旯 2 不用 0 键：0 不进九宫格，组字照旧。
+    let zero = read(msime_client_character(handle, b'0', false));
+    assert_eq!(zero["value"]["view"]["editing_text"], "6442", "{zero}");
+    read(msime_client_command(handle, 3));
+
+    // 自定义表不能用：按米旮旯 3 运行，诊断里写明原因。
+    preferences.nine_key_shuangpin_profile = NineKeyShuangpinProfile::Custom;
+    let response = update(handle, 2, &preferences);
+    let diagnostic = response["value"]["diagnostic"].as_str().unwrap_or_default();
+    assert!(
+        diagnostic.starts_with(
+            "Nine-key shuangpin table unusable because initials unit \"b\" has no key"
+        ),
+        "{response}"
+    );
+    assert!(diagnostic.ends_with("using migala3."), "{response}");
+    assert_eq!(response["value"]["view"]["key_grid"], "nine_key_shuangpin");
+    for &digit in b"6447" {
+        typed = read(msime_client_character(handle, digit, false));
+    }
+    assert_eq!(
+        typed["value"]["view"]["candidates"][0]["text"], "本地",
+        "{typed}"
+    );
+    read(msime_client_command(handle, 3));
+    // 能用的自定义表（辜氏 2 低重码的表）照用，不再报告。
+    preferences.nine_key_shuangpin_custom_profile =
+        builtin_nine_key_shuangpin_custom_profile(NineKeyShuangpinProfile::Gushi2Low).unwrap();
+    let response = update(handle, 3, &preferences);
+    assert!(response["value"].get("diagnostic").is_none(), "{response}");
+
+    // 宿主可以关掉网格再用 3 打开，表仍按偏好；别的方案没有九键双拼。
+    assert_eq!(
+        read(msime_client_set_key_grid(handle, 0))["value"]["key_grid"],
+        "none"
+    );
+    assert_eq!(
+        read(msime_client_set_key_grid(handle, 3))["value"]["key_grid"],
+        "nine_key_shuangpin"
+    );
+    preferences.scheme = InputScheme::Shuangpin;
+    let shuangpin = update(handle, 4, &preferences);
+    assert_eq!(
+        shuangpin["value"]["view"]["key_grid"], "none",
+        "{shuangpin}"
+    );
+    assert_eq!(read(msime_client_set_key_grid(handle, 3))["ok"], false);
+    read(msime_client_destroy(handle));
+}
+
+fn nine_key_shuangpin_layout(request: Value) -> Value {
+    let request = request.to_string();
+    read(unsafe { msime_client_nine_key_shuangpin_layout(request.as_ptr(), request.len()) })
+}
+
+/// 键面和编辑器从同一个接口取表：内置方案给出它的表和键面；自定义表给出问题的位置，不能用时键面是回退到的米旮旯 3；不认识的方案名报错。
+#[test]
+fn nine_key_shuangpin_layouts_give_tables_problems_and_key_faces() {
+    let migala3 = nine_key_shuangpin_layout(json!({ "profile": "migala3" }));
+    assert_eq!(migala3["ok"], true, "{migala3}");
+    let value = &migala3["value"];
+    assert_eq!(value["effective"], "migala3");
+    assert_eq!(value["problem"], Value::Null);
+    assert_eq!(value["table"]["initials"]["zh"], "8");
+    assert_eq!(value["table"]["zero_initials"]["an"], "25");
+    let keys = value["keys"].as_array().unwrap();
+    let faces: Vec<&str> = keys
+        .iter()
+        .map(|key| key["key"].as_str().unwrap())
+        .collect();
+    assert_eq!(faces, ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]);
+    assert_eq!(keys[1]["initials"], json!(["b", "c"]));
+    assert_eq!(keys[1]["finals"], json!(["a", "ai", "iang"]));
+    assert_eq!(keys[1]["zero_initial"], true);
+    assert_eq!(keys[9]["finals"], json!(["u", "ü", "ei"]));
+
+    let mut table =
+        builtin_nine_key_shuangpin_custom_profile(NineKeyShuangpinProfile::Migala2).unwrap();
+    table.finals.insert("ang".into(), "x".into());
+    let broken = nine_key_shuangpin_layout(json!({ "profile": "custom", "table": table }));
+    let value = &broken["value"];
+    assert_eq!(value["effective"], "migala3", "{broken}");
+    assert_eq!(
+        value["problem"],
+        json!({ "kind": "invalid_key", "part": "finals", "unit": "ang", "key": "x" })
+    );
+    assert_eq!(value["keys"].as_array().unwrap().len(), 10);
+
+    table.finals.insert("ang".into(), "5".into());
+    let custom = nine_key_shuangpin_layout(json!({ "profile": "custom", "table": table }));
+    let value = &custom["value"];
+    assert_eq!(value["effective"], "custom", "{custom}");
+    assert_eq!(value["problem"], Value::Null);
+    // 米旮旯 2 不用 0 键。
+    assert_eq!(value["keys"].as_array().unwrap().len(), 9);
+
+    assert_eq!(
+        nine_key_shuangpin_layout(json!({ "profile": "gushi2" }))["ok"],
+        false
+    );
+    assert_eq!(
+        nine_key_shuangpin_layout(json!({ "profile": "migala3", "extra": 1 }))["ok"],
+        false
+    );
+}
+
+#[test]
+fn builtin_nine_key_shuangpin_tables_are_valid_custom_profiles() {
+    for profile in [
+        NineKeyShuangpinProfile::Migala2,
+        NineKeyShuangpinProfile::Migala3,
+        NineKeyShuangpinProfile::Gushi2Low,
+    ] {
+        let table = builtin_nine_key_shuangpin_custom_profile(profile).unwrap();
+        assert_eq!(
+            (
+                table.initials.len(),
+                table.finals.len(),
+                table.zero_initials.len()
+            ),
+            (23, 33, 12),
+            "{profile:?}"
+        );
+        assert_eq!(nine_key_shuangpin_custom_profile_problem(&table), None);
+        assert_eq!(validate_nine_key_shuangpin_custom_profile(&table), Ok(()));
+    }
+    assert_eq!(
+        builtin_nine_key_shuangpin_custom_profile(NineKeyShuangpinProfile::Custom),
+        None
+    );
+    let mut table =
+        builtin_nine_key_shuangpin_custom_profile(NineKeyShuangpinProfile::Migala3).unwrap();
+    table.zero_initials.remove("er");
+    let problem = nine_key_shuangpin_custom_profile_problem(&table).unwrap();
+    assert_eq!(problem.kind, ShuangpinCustomProblemKind::MissingUnit);
+    assert_eq!(problem.part, Some("zero_initials"));
+    assert_eq!(problem.unit.as_deref(), Some("er"));
+    assert!(validate_nine_key_shuangpin_custom_profile(&table)
+        .unwrap_err()
+        .contains("zero_initials unit \"er\" has no key"));
+}
+
 #[test]
 fn builtin_shuangpin_tables_are_valid_custom_profiles() {
     for profile in [
@@ -2222,7 +2405,7 @@ fn fourteen_key_grid_crosses_the_host_boundary() {
     let handle = test_host(dir.path());
     read(msime_client_focus(handle, true));
     assert_eq!(read(msime_client_view(handle))["value"]["key_grid"], "none");
-    assert_eq!(read(msime_client_set_key_grid(handle, 3))["ok"], false);
+    assert_eq!(read(msime_client_set_key_grid(handle, 4))["ok"], false);
     assert_eq!(read(msime_client_view(handle))["value"]["key_grid"], "none");
     let enabled = read(msime_client_set_key_grid(handle, 2));
     assert_eq!(enabled["value"]["key_grid"], "fourteen_key");
