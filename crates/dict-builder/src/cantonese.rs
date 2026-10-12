@@ -322,38 +322,13 @@ pub fn build(
 
 /// Writes `dictionary` to `path` in the engine's language dictionary schema, replacing any earlier file, and freezes it so the same inputs give the same bytes.
 pub fn write(dictionary: &Dictionary, path: &Path, source_commit: &str) -> Result<()> {
-    if path.exists() {
-        std::fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
-    }
-    let mut connection = sqlite::open(path)?;
-    connection.execute_batch(language_dictionary::SCHEMA)?;
-    let transaction = connection.transaction()?;
-    {
-        let mut metadata = transaction.prepare("INSERT INTO metadata VALUES (?1, ?2)")?;
-        for (name, value) in [
-            (
-                language_dictionary::METADATA_FORMAT_VERSION,
-                language_dictionary::FORMAT_VERSION.to_string().as_str(),
-            ),
-            (language_dictionary::METADATA_SOURCE_COMMIT, source_commit),
-            (language_dictionary::METADATA_LICENSE, LICENSE),
-        ] {
-            metadata.execute((name, value))?;
-        }
-        let mut syllables = transaction.prepare("INSERT INTO syllables VALUES (?1)")?;
-        for syllable in &dictionary.syllables {
-            syllables.execute((syllable,))?;
-        }
-        let mut entries = transaction.prepare("INSERT INTO entries VALUES (?1, ?2, ?3)")?;
-        for ((key, text), weight) in &dictionary.entries {
-            entries.execute((key, text, weight))?;
-        }
-    }
-    transaction.commit()?;
-    sqlite::analyze(&connection, false)?;
-    sqlite::integrity_check(&connection)?;
-    drop(connection);
-    sqlite::freeze(path)
+    crate::language_writer::write(
+        path,
+        source_commit,
+        LICENSE,
+        dictionary.syllables.iter().map(String::as_str),
+        &dictionary.entries,
+    )
 }
 
 /// What `verify` counted in a written database.

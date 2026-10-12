@@ -240,39 +240,14 @@ fn kept(text: &str, weight: i64) -> bool {
 
 /// 按引擎的语言词典结构把 `dictionary` 写到 `path`（先删掉旧文件），最后 freeze，同样的输入得到同样的字节。
 pub fn write(dictionary: &Dictionary, path: &Path, source_commit: &str) -> Result<()> {
-    if path.exists() {
-        std::fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
-    }
-    let mut connection = sqlite::open(path)?;
-    connection.execute_batch(language_dictionary::SCHEMA)?;
-    let transaction = connection.transaction()?;
-    {
-        let mut metadata = transaction.prepare("INSERT INTO metadata VALUES (?1, ?2)")?;
-        for (name, value) in [
-            (
-                language_dictionary::METADATA_FORMAT_VERSION,
-                language_dictionary::FORMAT_VERSION.to_string().as_str(),
-            ),
-            (language_dictionary::METADATA_SOURCE_COMMIT, source_commit),
-            (language_dictionary::METADATA_LICENSE, LICENSE),
-        ] {
-            metadata.execute((name, value))?;
-        }
-        let mut syllables = transaction.prepare("INSERT INTO syllables VALUES (?1)")?;
-        let strokes: BTreeSet<String> = STROKES.iter().map(char::to_string).collect();
-        for stroke in &strokes {
-            syllables.execute((stroke,))?;
-        }
-        let mut entries = transaction.prepare("INSERT INTO entries VALUES (?1, ?2, ?3)")?;
-        for ((key, text), weight) in &dictionary.entries {
-            entries.execute((key, text, weight))?;
-        }
-    }
-    transaction.commit()?;
-    sqlite::analyze(&connection, false)?;
-    sqlite::integrity_check(&connection)?;
-    drop(connection);
-    sqlite::freeze(path)
+    let strokes: BTreeSet<String> = STROKES.iter().map(char::to_string).collect();
+    crate::language_writer::write(
+        path,
+        source_commit,
+        LICENSE,
+        strokes.iter().map(String::as_str),
+        &dictionary.entries,
+    )
 }
 
 /// `verify` 在写好的数据库里数出的值。
