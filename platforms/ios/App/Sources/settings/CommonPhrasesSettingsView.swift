@@ -7,7 +7,7 @@ struct CommonPhrasesSettingsView: View {
   @State private var loadFailed = false
   @State private var adding = false
   @State private var deleting: CommonPhrasesBridge.Phrase?
-  @State private var busy = false
+  @State private var requestState = CommonPhrasesRequestState()
 
   var body: some View {
     List {
@@ -38,7 +38,7 @@ struct CommonPhrasesSettingsView: View {
           .frame(minHeight: 34)
           .contentShape(Rectangle())
         }
-        .disabled(busy || phrases == nil)
+        .disabled(requestState.busy || phrases == nil)
         .accessibilityIdentifier("addCommonPhrase")
         .designRow()
       } footer: {
@@ -70,8 +70,10 @@ struct CommonPhrasesSettingsView: View {
   }
 
   private func reload() {
+    guard let request = requestState.beginReload() else { return }
     Task {
       let loaded = await Task.detached(priority: .userInitiated) { Result { try CommonPhrasesBridge.load() } }.value
+      guard requestState.acceptReload(request) else { return }
       switch loaded {
       case .success(let list):
         phrases = list
@@ -85,11 +87,10 @@ struct CommonPhrasesSettingsView: View {
 
   /// 在主线程之外执行一次写入，并显示它返回的已存储列表，或说明存储拒绝的原因。写入被拒绝时会重新加载，这样在别处被删除的短语（`common_phrases_not_found`）也会从列表中消失。
   private func run(success: String, _ operation: @escaping @Sendable () throws -> [CommonPhrasesBridge.Phrase]) {
-    guard !busy else { return }
-    busy = true
+    guard requestState.beginMutation() else { return }
     Task {
       let result = await Task.detached(priority: .userInitiated) { Result { try operation() } }.value
-      busy = false
+      requestState.finishMutation()
       switch result {
       case .success(let list):
         phrases = list
