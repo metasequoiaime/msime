@@ -41,6 +41,14 @@ pangu-spacing 是第一个按这些规则写的插件。第一版（一个循环
 
 合集的约定：生僻字类插件不点名窗口第 0 行，既不移走也不隐藏。引擎按首位取词的路径（失焦上屏、原样上屏）取的是引擎下标 0，移走它会让屏幕上的首选和实际上屏的不一致；宿主也保证引擎下标 0 不被隐藏。几个插件的重排是排在后面的优先，所以列出全部非生僻行的重排插件应排在执行顺序最前。插件合集的 README 写合成规则，各插件的 README 写自己的取舍。
 
+### 四个候选窗口插件
+
+rare-chars-last、hide-rare-chars、traditional-glyph 和 unicode-codepoint 都挂 `candidates`，每次最多看 20 行，按上面的 fuel 计法各自定了工作量上限，并在夹具里放了塞满工作量的最坏情况（峰值 36 561、37 992、36 130、34 558，都在 62 500 以内）。
+
+- **生僻字判定不调用共用的 `classify`。** `shared/common_chars.rs` 的 `classify` 每个多字节字符都进一次通用解码，再走区段判断和二分查找，实测每个常用汉字约 200–290 fuel、每个 ASCII 字节约 35，20 行的窗口最坏 11 万到 12.5 万，超过 `candidates` 的单次上限。两个插件各自绕开它：hide-rare-chars 的 `src/scan.rs` 按 UTF-8 首字节跳过，只在汉字上调用 `is_han`、`is_common`、`is_kana`（每字约 250、每 ASCII 字节约 17）；rare-chars-last 的 `src/rare.rs` 在编译时把 `common-chars.bin` 展开成 U+3000..U+9FFF 每字 2 位（7 KiB）和辅助平面按 256 字分组（约 2.5 KiB）的查表（每字约 64、每 ASCII 字节约 15，每换一种字符另加约 200），格式变化由编译期断言拦住。`classify` 留作判定规则的参照实现，rare-chars-last 的查表在宿主上和它逐个比对过。两种扫描是否合进 `shared/` 还没定。
+- **工作量上限。** rare-chars-last 一次最多读 768 字节、扫 80 段、每行 256 字节；hide-rare-chars 最多读 640 字节、细看 100 个 U+3000 以上的字（辅助平面字按 3 个算）、每行 256 字节。超出的行不判定、按不生僻处理，日志写明。traditional-glyph 把每一步按实测成本记到 34 000 的预算上，用完后剩下的行不注释，日志末尾加 `(budget)`。unicode-codepoint 只注单个字符和 2–4 个码位的 emoji 序列，最长的注释正好 32 个 UTF-16 码元。
+- **traditional-glyph 的数据只取 2–4 字词组里逐字转换会转错的那些。** 完整的 OpenCC 词组表约 1 MB，放不进 256 KiB 的模块。`tools/gen_s2t_table.py` 只读仓库里 vendored 的 OpenCC，产物 `traditional-glyph/data/s2t.bin` 124 385 字节（单字 4 012 条、词组 7 559 条），模块 127 KiB、3 页内存，是合集里最大的。和 OpenCC 完整算法相比，2–4 字词组 46 535 条里有 3 条不同（都含辅助平面字），5 字以上的 3 257 条里有 175 条不同，插件的 README 写明这些限制。
+
 ## Alternatives considered
 
 - **放进 msime-plugins 仓库。** 最强的理由是那里本来就是社区扩展包合集，插件和输入法分开发版，用户也习惯去那里找包。不用：GitHub 上还没有这个仓库（只有本机的脚手架），它的 README 写明扩展包是纯数据、「不能带任何可执行内容，也不能申请权限」，它的 CI 只按 schema_version 1 校验；脚本包也不能发布到社区库。更要紧的是，这些插件依赖本仓库的 SDK、`msime-pack` 和运行时的 fuel 计法，三者一变插件就要跟着改、跟着重测，放在同一个仓库里，同一个 PR 的 CI 就能发现。
@@ -50,12 +58,15 @@ pangu-spacing 是第一个按这些规则写的插件。第一版（一个循环
 - **改 `msime-pack run`，让它打印重排顺序、隐藏的行、注释和改写结果。** 最强的理由是插件不用为测试写日志，也不用为日志付 fuel。不用：这要改核心工具的输出格式，和已有的金样测试一起动，超出这次的范围；日志每个事件一行，代价是一百多 fuel。以后 `run` 打印了 `instance.actions()`，插件可以去掉日志。
 - **常用字集用 GB2312。** 最强的理由是 Python 自带 codec，生成不需要下载，也不需要另带许可证。不用：它缺不少常用字和人名用字（啰、堃、喆、镕、珺、赟、垚），又收了 125 个通用规范以外的部首和旧字形，通用规范一、二级里有 190 字不在其中。
 - **常用字集用词库字频。** 最强的理由是它反映真实的使用频率。不用：字频来自另一个仓库里 GPL-3.0 的 rime-ice 数据，没有固定摘要，不满足确定性，GPL 还会让插件包整体变成 GPL。
+- **生僻字插件直接调用共用的 `classify`。** 最强的理由是判定只有一份代码，不会两处漂移。不用：按 wasmi 的计法它扫满 20 行要 11 万以上的 fuel，超过 `candidates` 的单次上限，一次失败就记进熔断计数。各自的扫描都和它逐字核对过判定。
+- **traditional-glyph 带完整的 OpenCC 词组表，或者不带词组只做逐字转换。** 带完整表最强的理由是和 OpenCC、和输入法内置的简繁转换完全一致。不用：约 1 MB，超过 256 KiB 的模块上限。只做逐字转换最强的理由是模块小、fuel 少。不用：「头发」会注成「頭發」，多值字在词里大多取错，注释反而误导。
 - **生成数据不提交，构建时现场生成。** 最强的理由是仓库里没有二进制文件。不用：Unihan zip 有 8.5 MB，要联网下载；提交 4 KiB 的产物以后，CI 和贡献者都不需要网络，`--check` 只在有缓存时比对。
 
 ## Consequences
 
 - 收益：插件和它依赖的 SDK、`msime-pack`、运行时在同一个 PR 里一起测；新插件只要建一个目录、写 `fixture.jsonl`，构建和测试脚本自动发现它，不用改共享文件（插件表和第三方说明除外）。每个插件的行为由日志逐行核对，最坏情况的 fuel 有断言卡住。
 - 代价：仓库里多了一类非平台代码，CI 多一个作业（改动时编一次 `msime-pack`，约几分钟）。本地 `verify-local.sh --quick` 不跑插件测试，只改插件时要手动跑 `scripts/test-script-plugins.sh`。
+- 代价：生僻字判定在 `shared/common_chars.rs`、hide-rare-chars 的 `scan.rs` 和 rare-chars-last 的 `rare.rs` 里有三种扫描写法，改常用字集的格式或「生僻」的定义要三处一起改；rare-chars-last 的编译期断言能拦住格式变化，定义变化只能靠夹具。
 - 代价：插件为测试写日志，每个事件多花一百多 fuel；`expected.jsonl` 不记录 fuel，fuel 的漂移只在越过上限一半时才被发现。
 - 插件代码用 MIT（沿用模板），和仓库本身的 GPL-3.0-only 不同；包里带 Unihan 数据的写 Unicode-3.0，带 OpenCC 数据的写 Apache-2.0，第三方说明在 docs/third-party.md 的「脚本插件合集」一节。插件的许可证选择需要仓库维护者确认。
 - 模板 README 加了一句：模板的写法在长 body 上会耗尽 fuel，实际使用装 `plugins/script/pangu-spacing`。模板本身没有改，`msime-pack` 的测试仍然解析它的夹具。
@@ -66,6 +77,7 @@ pangu-spacing 是第一个按这些规则写的插件。第一版（一个循环
 - `scripts/test-script-plugins.sh`：pangu-spacing 的 22 个事件和 `expected.jsonl` 一致，最大 fuel 37 171；不授权时每个事件只有 `skip: denied` 日志，没有动作；文件夹和压缩包都通过 `msime-pack validate`。连续两次构建的压缩包 sha1 相同。把 `expected.jsonl` 改错一行时脚本以 1 退出并打印两边的差异。
 - `python3 scripts/test-script-plugin-data.py`：有缓存时 `common-chars.bin` 与生成结果一致；挪走缓存时打印 skip、以 0 退出。
 - `shared/common_chars.rs` 在宿主上编成临时程序，对 U+0000..U+3FFFF 逐个调用 `is_common`，得到的集合和生成器在 Python 里算出的 11 049 字完全相同。
+- 五个插件合并后 `scripts/test-script-plugins.sh` 全部通过：hide-rare-chars 26 个事件（峰值 fuel 37 992）、pangu-spacing 22 个（37 171）、rare-chars-last 28 个（36 561）、traditional-glyph 34 个（36 130）、unicode-codepoint 17 个（34 558）；`gen_common_chars.py` 和 `gen_s2t_table.py` 的 `--check` 都一致。
 - `actionlint` 对 `ci-platforms.yml` 无报错；`shellcheck` 对两个脚本无报错。
 
 相关：[沙箱运行时](2026-10-12-script-runtime-sandbox.md) 定义 fuel 配额；[脚本插件的作者工具](../feature/2026-10-12-script-plugin-author-tools.md) 定义 `msime-pack run`、SDK 和模板；[脚本插件修改上屏和候选](2026-10-12-script-plugins-modify-commit-and-candidates.md) 定义重排、隐藏、注释的合成规则。

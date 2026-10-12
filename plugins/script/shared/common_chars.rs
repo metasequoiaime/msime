@@ -1,4 +1,4 @@
-//! 生僻字插件（rare-chars-last、hide-rare-chars）共用的常用字集：查找、汉字区段判定和逐字节扫描一行候选。
+//! 生僻字插件（rare-chars-last、hide-rare-chars）共用的常用字集：查找、汉字区段判定和逐字节扫描一行候选（`classify`，参照实现）。
 //!
 //! 插件用 `#[path = "../../shared/common_chars.rs"] mod common_chars;` 引入。数据是 `plugins/script/data/common-chars.bin`，由 `plugins/script/tools/gen_common_chars.py` 生成（格式见那里的 `encode()`），编译时用 `include_bytes!` 放进模块的只读数据，约 4 KiB。只用 `core`。
 //!
@@ -97,6 +97,8 @@ const KANA: u32 = 2;
 /// 逐字节扫描一行候选（宿主给的合法 UTF-8，可以是 `candidates::bytes` 读出的未校验字节）。
 ///
 /// ASCII 字节在循环里直接跳过；多字节字符交给不内联的 [`scalar_flags`]，让循环体保持很小：wasmi 在每轮循环里按循环体词法上的全部指令扣 fuel，慢路径内联进来会让每个 ASCII 字节都付它的钱。
+///
+/// 这是判定规则的参照实现，不适合在候选窗口里逐行调用：实测每个常用汉字约 200–290 fuel、每个 ASCII 字节约 35，扫满 20 行会超过 `candidates` 的单次上限。hide-rare-chars（`src/scan.rs`）和 rare-chars-last（`src/rare.rs`）各有按 fuel 写的扫描，判定和这里逐字相同。
 pub fn classify(text: &[u8]) -> Row {
     let mut flags = 0;
     let mut i = 0;
