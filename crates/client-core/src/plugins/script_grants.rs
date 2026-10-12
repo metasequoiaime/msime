@@ -7,7 +7,7 @@
 //! - 放在插件目录而不放进偏好文档：偏好文档会被宿主复制、被账号同步读取，授权不该跟着走；它也不同步。`PluginPreferences` 带 `deny_unknown_fields`，往里加键会让旧版输入法读不了偏好。
 //! - 数组顺序就是执行顺序。只有 `enabled` 的条目会运行，按顺序最多 `limits::MAX_ENABLED_SCRIPTS` 个。
 //! - **哈希绑定**：条目的 `hash` 必须等于已安装包当前的内容哈希（`script_pack::content_hash`）才生效，包的清单或模块一变，授权全部作废。实际生效的能力是 `granted` 和清单 `permissions` 的交集。
-//! - **只有一个写入方**，就是这里。写入时持有 `import::lock_plugin_root`（和导入、删包同一把锁），整份文件原子替换，每次写入 `revision` 都变大（[`next_revision`]：上一份加 1 和当前时间的微秒数取大的那个）；读取方因此不加锁，看到的要么是旧文件，要么是新文件。删包、重新导入时在同一把锁里更新条目。宿主只在 `revision` 比以前看到过的都大时恢复被熔断的插件。
+//! - **只有一个写入方**，就是这里。写入时持有 `import::lock_plugin_root`（和导入、删包同一把锁），整份文件原子替换，每次写入都推进 `(revision_epoch, revision)`；读取方因此不加锁，看到的要么是旧文件，要么是新文件。删包、重新导入时在同一把锁里更新条目。宿主只在这个代次对比以前看到过的都大时恢复被熔断的插件。
 //! - **读取方容忍未知字段**（不用 `deny_unknown_fields`），给以后的版本加字段留余地；但 `format_version` 不认识、文件读不出或不是合法 JSON 时，一律按"没有任何脚本启用"处理。单个条目不合规（id 或哈希格式不对、授权违反依赖或互斥规则）只跳过这一条。早期开发构建在条目里写过的 `mac` 字段同样当作未知字段忽略，下一次写入时不再写出。
 //! - **授权不签名，所有桌面平台一样**：同一用户下的任何进程都能手写一条带正确哈希的授权，这是设计接受的残余风险，由授权页在三个桌面平台上写明（macOS 和 Linux 是共享设置页，Windows 是原生设置应用）。曾经考虑过在 macOS 上用钥匙串里的密钥给条目签 MAC，用户决定授权不使用钥匙串，取舍见 `.agents/notes/implemented/architecture/` 下本阶段的授权笔记。Windows 的提权窗口里永远不运行脚本。
 //! - 授权页读到的形状（[`ScriptGrantsView`]，带 `script-health.json` 里的停用记录）也在这里，桌面外壳的授权命令和 host-api 的 `msime_client_plugins` 共用。
@@ -35,18 +35,21 @@ pub const MAX_ENTRIES: usize = 256;
 /// `revision` 的上限，2^53。写入方写出的值远小于它（当前时间的微秒数要到 2255 年才到）；读到更大的值说明文件不是写入方写的，下一次写入不接着它往上加，免得一份 `revision` 为 `u64::MAX` 的伪造文件让以后每次写入都停在同一个值上、熔断再也不复位。它也是 JavaScript 能精确表示的最大整数，设置页拿到的 `revision` 不失真。
 pub const MAX_REVISION: u64 = 1 << 53;
 
-/// 下一次写入的 `revision`：比 `current` 大，并且不小于当前时间的微秒数。宿主只在 `revision` 比以前看到过的都大时恢复被熔断的插件；只加 1 的话，同一用户下的程序把 `revision` 改小（或者放回一份旧文件）之后，用户在设置页上的下一次写入可能还不比输入法以前看到过的大，熔断就不随它复位。取当前时间之后，每次写入的 `revision` 都比以前写出的大（时钟不往回拨时）。写入方写出的值总小于 [`MAX_REVISION`]；`current` 到了 `MAX_REVISION - 1` 或更大时，它不是写入方写的，不接着它加。
-fn next_revision(current: u64) -> u64 {
+/// 推进授权代次。普通写入取上一代次加 1 与当前时间微秒数的较大者；
+/// 到上界时回到当前时间，并递增纪元，确保旧纪元文件不能被回放来恢复熔断。
+fn advance_revision(grants: &mut ScriptGrants) {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| {
             u64::try_from(elapsed.as_micros()).unwrap_or(MAX_REVISION)
         })
         .min(MAX_REVISION - 1);
-    if current >= MAX_REVISION - 1 {
-        return now;
+    if grants.revision >= MAX_REVISION - 1 {
+        grants.revision_epoch += 1;
+        grants.revision = now;
+    } else {
+        grants.revision = (grants.revision + 1).max(now);
     }
-    (current + 1).max(now)
 }
 
 /// 一个脚本插件的授权。
@@ -63,6 +66,8 @@ pub struct ScriptGrant {
 /// 整份授权。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ScriptGrants {
+    /// 仅在 revision 回绕时递增；旧文件没有这个字段时为 0。
+    pub revision_epoch: u64,
     pub revision: u64,
     /// 按执行顺序。
     pub plugins: Vec<ScriptGrant>,
@@ -205,7 +210,7 @@ pub fn set(
         }
         None => grants.plugins.push(entry),
     }
-    grants.revision = next_revision(grants.revision);
+    advance_revision(&mut grants);
     write(root, &writes, &grants)?;
     Ok(grants)
 }
@@ -237,7 +242,7 @@ pub fn reorder(root: &Path, ids: &[String]) -> Result<ScriptGrants, ScriptGrantE
     }
     ordered.append(&mut grants.plugins);
     grants.plugins = ordered;
-    grants.revision = next_revision(grants.revision);
+    advance_revision(&mut grants);
     write(root, &writes, &grants)?;
     Ok(grants)
 }
@@ -395,7 +400,7 @@ pub(super) fn installing(
         entry.enabled = false;
         entry.granted = CapabilitySet::EMPTY;
     }
-    grants.revision = next_revision(grants.revision);
+    advance_revision(&mut grants);
     write(root, writes, &grants)
 }
 
@@ -409,7 +414,7 @@ pub(super) fn removing(root: &Path, writes: &RootWrites, id: &str) -> io::Result
     if grants.plugins.len() == before {
         return Ok(());
     }
-    grants.revision = next_revision(grants.revision);
+    advance_revision(&mut grants);
     write(root, writes, &grants)
 }
 
@@ -423,6 +428,8 @@ enum Stored {
 
 #[derive(Deserialize)]
 struct RawDocument {
+    #[serde(default)]
+    revision_epoch: u64,
     #[serde(default)]
     revision: u64,
     #[serde(default)]
@@ -442,6 +449,8 @@ struct RawEntry {
 #[derive(Serialize)]
 struct WireDocument<'a> {
     format_version: u64,
+    #[serde(skip_serializing_if = "is_zero")]
+    revision_epoch: u64,
     revision: u64,
     plugins: Vec<WireEntry<'a>>,
 }
@@ -452,6 +461,10 @@ struct WireEntry<'a> {
     hash: &'a str,
     enabled: bool,
     granted: Vec<&'static str>,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 fn load_document(root: &Path) -> Stored {
@@ -486,6 +499,11 @@ fn load_document(root: &Path) -> Stored {
     let Ok(document) = serde_json::from_slice::<RawDocument>(&bytes) else {
         return Stored::Unreadable;
     };
+    // 写入方不会产生超出 JavaScript 精确整数范围的 revision。若先把
+    // 伪造的极大值交给宿主，后续正常写入反而比它小，熔断状态不会恢复。
+    if document.revision >= MAX_REVISION || document.revision_epoch >= MAX_REVISION {
+        return Stored::Unreadable;
+    }
     let mut plugins: Vec<ScriptGrant> = Vec::new();
     for value in document.plugins.into_iter().take(MAX_ENTRIES) {
         let Some(grant) = entry(value) else {
@@ -497,6 +515,7 @@ fn load_document(root: &Path) -> Stored {
         plugins.push(grant);
     }
     Stored::Parsed(ScriptGrants {
+        revision_epoch: document.revision_epoch,
         revision: document.revision,
         plugins,
     })
@@ -534,6 +553,7 @@ fn is_hash(value: &str) -> bool {
 fn write(root: &Path, _writes: &RootWrites, grants: &ScriptGrants) -> io::Result<()> {
     let document = WireDocument {
         format_version: FORMAT_VERSION,
+        revision_epoch: grants.revision_epoch,
         revision: grants.revision,
         plugins: grants
             .plugins

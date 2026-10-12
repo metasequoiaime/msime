@@ -35,7 +35,7 @@ import org.json.JSONObject;
  *
  * <p>一条记录：点按复制回系统剪贴板；行尾「编辑」打开 {@link ClipboardEditPage}，「删除」从共享存储里删掉这一条。键盘在别的应用的输入框里打开这一页时（{@link ClipboardEditPage#returnsToCaller}）复制之后回到那个应用，接着就能粘贴；从应用里打开、或键盘在水杉自己的输入框里打开时留在这一页。
  */
-public final class ClipboardSearchPage extends DetailPage {
+public final class ClipboardSearchPage extends ReloadingDetailPage {
     private enum State { LOADING, READY, OFF, FAILED }
 
     /** 一次读取的结果：剪贴板历史开关，开着时还有全部条目。 */
@@ -62,8 +62,10 @@ public final class ClipboardSearchPage extends DetailPage {
         query = new ViewModelProvider(this).get(Query.class);
     }
 
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        Context context = column.getContext();
+    @Override protected void onContentReady() {
+        LinearLayout target = contentColumn();
+        if (target == null) return;
+        Context context = target.getContext();
         SearchPill search = new SearchPill(context);
         search.setHint("搜索剪贴板历史");
         search.field().setContentDescription("搜索剪贴板历史");
@@ -73,9 +75,9 @@ public final class ClipboardSearchPage extends DetailPage {
             query.text = text;
             renderResults();
         });
-        column.addView(search, LayoutPolicy.matchWidthWrapParams());
+        target.addView(search, LayoutPolicy.matchWidthWrapParams());
 
-        results = GroupCard.add(column, null).withDividers(Ui.ROW_PADDING_H);
+        results = GroupCard.add(target, null).withDividers(Ui.ROW_PADDING_H);
         // 读取放在 onBecameVisible：每次显示都会调到它，这里再读一次就重复了。
         renderResults();
 
@@ -88,24 +90,23 @@ public final class ClipboardSearchPage extends DetailPage {
         }
     }
 
-    @Override public void onDestroyView() {
+    @Override protected boolean shouldReloadOnContentReady() { return false; }
+
+    @Override protected void onContentDestroyed() {
         results = null;
         // 视图没了，删除的回调就不会再交回来；不清掉的话这一页之后的操作全被挡住。
         busy = false;
-        super.onDestroyView();
     }
 
     /** 第一次显示、从编辑页回来、应用回到前台时都重读：键盘可能刚记下新复制的内容，编辑页可能刚改了一条。 */
-    @Override protected void onBecameVisible() {
-        if (getView() != null && !busy) reload();
-    }
+    @Override protected boolean shouldReloadWhenVisible() { return !busy; }
 
     /**
      * 先看共享偏好里的剪贴板历史开关，开着才列出条目。
      *
      * <p>设置里关掉开关只写偏好，清空历史要等键盘下一次实时读到偏好时才做（{@link ClipboardHistoryRetentionPolicy}）；水杉不是当前输入法、或关掉之后还没弹出过键盘时，历史还在存储里。这一页不经键盘也能打开（设置首页搜索、深链），不看开关就会把用户以为已经清掉的记录全列出来。所以开关关着时不列，并按同一条规则在这里清空：这一页读到的就是实时偏好。
      */
-    private void reload() {
+    @Override protected void reload() {
         HostTask.run(this, context -> {
             JSONObject preferences = KeyboardSheets.preferences(context);
             if (preferences == null) return null;

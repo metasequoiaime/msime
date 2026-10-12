@@ -2291,6 +2291,53 @@ fn online_provider_worker_keeps_only_the_latest_completed_result() {
 }
 
 #[test]
+fn online_provider_worker_debounces_from_the_latest_submission() {
+    let (called_tx, called_rx) = std::sync::mpsc::channel();
+    let worker =
+        OnlineProviderWorker::spawn_with_debounce(1, Duration::from_millis(1_000), move |query| {
+            called_tx.send(query.query_text.clone()).unwrap();
+            None
+        })
+        .unwrap();
+    let query = |text: &str| OnlineQuery {
+        scheme: 0,
+        generation: 1,
+        identity: text.into(),
+        query_text: text.into(),
+        cache_key: text.into(),
+        pinyin_segments: vec![],
+        cloud_eligible: true,
+        ai_eligible: false,
+        cloud_candidates: true,
+        session_id: 9,
+        ai_context: String::new(),
+        ai_assistant: None,
+        ai_cache_only: false,
+    };
+
+    // Warm up the thread, so the measured window tests debounce rather than startup.
+    assert!(worker.submit(query("warmup")));
+    assert_eq!(
+        called_rx.recv_timeout(Duration::from_secs(3)).unwrap(),
+        "warmup"
+    );
+    assert!(worker.submit(query("first")));
+    // Submit 700 ms into a 1000 ms window. An old fixed deadline fires about
+    // 300 ms later; a quiet-period debounce waits another full 1000 ms.
+    std::thread::sleep(Duration::from_millis(700));
+    assert!(worker.submit(query("second")));
+    assert!(matches!(
+        called_rx.recv_timeout(Duration::from_millis(600)),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+    ));
+    assert_eq!(
+        called_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+        "second"
+    );
+    worker.shutdown();
+}
+
+#[test]
 fn cloud_request_requires_eligible_query() {
     assert_eq!(
         WINDOWS_CLOUD_DEBOUNCE,

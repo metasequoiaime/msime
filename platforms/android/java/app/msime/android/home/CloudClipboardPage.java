@@ -61,7 +61,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         loadedApi = null;
         signedOut = false;
         render();
-        AboutPage.network(this, () -> {
+        NetworkTask.run(this, () -> {
             CloudApi cloud = new CloudApi(application);
             CloudClipboardApi api = new CloudClipboardApi(
                 cloud.forAccountSession(cloud.currentAccountSessionId()),
@@ -94,7 +94,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         }
         busy = true;
         long request = ++generation;
-        AboutPage.network(this, work, outcome -> {
+        NetworkTask.run(this, work, outcome -> {
             if (request != generation) return;
             busy = false;
             if (outcome.error() != null) {
@@ -330,7 +330,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         CloudClipboardApi source = loadedApi;
         if (source == null) return;
         long request = generation;
-        AboutPage.network(this, () -> {
+        NetworkTask.run(this, () -> {
             source.requireCurrentSession();
             return item.text();
         }, outcome -> {

@@ -856,6 +856,81 @@ fn repeated_failures_trip_the_breaker_until_the_revision_changes() {
     assert_eq!(kinds(&take_log()), [Hook::Commit.code()]);
 }
 
+#[test]
+fn a_revision_wrapped_by_the_writer_resets_the_breaker() {
+    let fixture = fixture();
+    let scripts = || [Script::new("trapper", trapper(), &[Hook::Commit])];
+    let hashes = install(&fixture, &scripts(), script_grants::MAX_REVISION - 1);
+    opt_in(&fixture, TRAIT_KNOWN);
+    for focus in 0..3 {
+        if focus > 0 {
+            read(msime_client_focus(fixture.handle, true));
+        }
+        commit_nihao(fixture.handle);
+    }
+    assert_eq!(take_log().len(), 3);
+    assert_eq!(
+        process_health(&fixture, "trapper", &hashes[0]).1,
+        Some("unreachable")
+    );
+    read(msime_client_focus(fixture.handle, false));
+    read(msime_client_focus(fixture.handle, true));
+    commit_nihao(fixture.handle);
+    assert!(
+        take_log().is_empty(),
+        "the same maximum revision must not reset the breaker"
+    );
+
+    // 写入方在这个上界之后改用当前时间的微秒数，下一份文件的代次会变小。
+    // 它仍是用户刚改过的授权，熔断应恢复。
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap();
+    let normal_revision = u64::try_from(now.as_micros()).unwrap();
+    assert!(normal_revision < script_grants::MAX_REVISION - 1);
+    install(&fixture, &scripts(), normal_revision);
+    let document = script_grants::document_path(&fixture.plugins);
+    let mut wrapped: Value = serde_json::from_slice(&std::fs::read(&document).unwrap()).unwrap();
+    wrapped["revision_epoch"] = 1.into();
+    let wrapped = serde_json::to_vec(&wrapped).unwrap();
+    std::fs::write(&document, &wrapped).unwrap();
+    read(msime_client_focus(fixture.handle, false));
+    read(msime_client_focus(fixture.handle, true));
+    commit_nihao(fixture.handle);
+    assert_eq!(kinds(&take_log()), [Hook::Commit.code()]);
+
+    // 回绕后的新代次让插件再次失败并熔断。旧的上界文件与新文件交替
+    // 回放时，不应把每次切换都当成一次新的授权修改。
+    for _ in 0..2 {
+        read(msime_client_focus(fixture.handle, false));
+        read(msime_client_focus(fixture.handle, true));
+        commit_nihao(fixture.handle);
+    }
+    assert_eq!(take_log().len(), 2);
+    assert_eq!(
+        process_health(&fixture, "trapper", &hashes[0]).1,
+        Some("unreachable")
+    );
+    for revision in [
+        script_grants::MAX_REVISION - 2,
+        script_grants::MAX_REVISION - 1,
+        normal_revision,
+    ] {
+        if revision == normal_revision {
+            std::fs::write(&document, &wrapped).unwrap();
+        } else {
+            install(&fixture, &scripts(), revision);
+        }
+        read(msime_client_focus(fixture.handle, false));
+        read(msime_client_focus(fixture.handle, true));
+        commit_nihao(fixture.handle);
+        assert!(
+            take_log().is_empty(),
+            "replaying revision {revision} reset the breaker"
+        );
+    }
+}
+
 /// 失焦，等后台线程把这之前交过去的健康文件写完。
 fn flush(fixture: &Fixture) {
     read(msime_client_focus(fixture.handle, false));

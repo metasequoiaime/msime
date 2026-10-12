@@ -12,6 +12,7 @@ BASE = HOME / "ReloadingDetailPage.java"
 CONSUMERS = (
     "AiSettingsPage.java",
     "CloudClipboardPage.java",
+    "ClipboardSearchPage.java",
     "DeveloperPage.java",
     "DevicesPage.java",
     "ExpressionPage.java",
@@ -21,6 +22,7 @@ CONSUMERS = (
     "LexiconPage.java",
     "PhrasesPage.java",
     "ProfilePage.java",
+    "PrivacyPage.java",
     "SkinsPage.java",
     "TypingPage.java",
     "VoicePage.java",
@@ -34,10 +36,8 @@ def main() -> int:
     else:
         source = BASE.read_text(encoding="utf-8")
         required = (
-            "public abstract class ReloadingDetailPage extends DetailPage",
-            "@Nullable private LinearLayout column;",
-            "@Override protected final void buildContent(LinearLayout column, Bundle args)",
-            "this.column = column;",
+            "public abstract class ReloadingDetailPage extends ColumnDetailPage",
+            "@Override protected final void onColumnReady(Bundle args)",
             "onContentReady();",
             "protected void onContentReady()",
             "if (shouldReloadOnContentReady()) reload();",
@@ -45,14 +45,8 @@ def main() -> int:
             "onInitialReloadScheduled();",
             "protected void onInitialReloadScheduled()",
             "@Override protected void onBecameVisible()",
-            "if (column != null && shouldReloadWhenVisible()) reload();",
+            "if (contentColumn() != null && shouldReloadWhenVisible()) reload();",
             "protected boolean shouldReloadWhenVisible()",
-            "@Override public void onDestroyView()",
-            "column = null;",
-            "onContentDestroyed();",
-            "protected void onContentDestroyed()",
-            "@Nullable protected final LinearLayout contentColumn()",
-            "return column;",
             "protected abstract void reload();",
         )
         for snippet in required:
@@ -137,6 +131,21 @@ def main() -> int:
     ):
         errors.append("CloudClipboardPage: 首次渲染或视图绑定数据清理未保留")
 
+    clipboard_search = (HOME / "ClipboardSearchPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in clipboard_search
+        or "SearchPill search = new SearchPill(context);" not in clipboard_search
+        or "renderResults();" not in clipboard_search
+        or "@Override protected boolean shouldReloadOnContentReady()" not in clipboard_search
+        or "return false;" not in clipboard_search
+        or "@Override protected boolean shouldReloadWhenVisible()" not in clipboard_search
+        or "return !busy;" not in clipboard_search
+        or "@Override protected void onContentDestroyed()" not in clipboard_search
+        or "results = null;" not in clipboard_search
+        or "busy = false;" not in clipboard_search
+    ):
+        errors.append("ClipboardSearchPage: 搜索框、可见刷新或视图销毁状态未保留")
+
     lexicon = (HOME / "LexiconPage.java").read_text(encoding="utf-8")
     if (
         "@Override protected void onContentReady()" not in lexicon
@@ -200,6 +209,17 @@ def main() -> int:
         or "@Override protected void onContentDestroyed()" not in profile
     ):
         errors.append("ProfilePage: 首次可见时刷新或临时状态清理未保留")
+
+    privacy = (HOME / "PrivacyPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in privacy
+        or "LinearLayout target = contentColumn();" not in privacy
+        or "@Override protected boolean shouldReloadOnContentReady()" not in privacy
+        or "return false;" not in privacy
+        or "@Override protected void onContentDestroyed()" not in privacy
+        or privacy.count("rows.clear();") < 2
+    ):
+        errors.append("PrivacyPage: 开关绘制、首次可见读取或旧视图引用清理未保留")
 
     if errors:
         print("\n".join(errors), file=sys.stderr)
