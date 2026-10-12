@@ -643,6 +643,22 @@ fn sentence_leads_longer_phrases_when_no_exact_reading_exists() {
 }
 
 #[test]
+fn prefix_only_row_does_not_pin_the_first_seat_over_a_heavier_continuation() {
+    // 没有 zhi'liang'jian 这一行时，同长度查询退到前缀区间，返回的 质量奖 读音是 jiang 而不是键入的 jian，不能被钉在首位压过更重的 质量检验。
+    let fixture = Fixture::new();
+    fixture
+        .insert("zhi'liang'jiang", "质量奖", 10)
+        .insert("zhi'liang'jian'yan", "质量检验", 500);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let listed = query(&mut dictionary, "zhiliangjian", "zhi'liang'jian", NONE);
+    assert!(
+        position(&listed, "质量检验") < position(&listed, "质量奖"),
+        "前缀读音的同长度行应和补全词一起按权重排: {:?}",
+        words(&listed)
+    );
+}
+
+#[test]
 fn sparse_first_syllables_borrow_their_split_readings() {
     let fixture = Fixture::new();
     fixture

@@ -14,15 +14,15 @@ Status: implemented
 
 ## Decision
 
-全长组里有补全词时，首位只留给同长度查询里最重的那一行，补全词只参与第二位起的排序：
+全长组里有补全词时，首位只留给读音和输入完全一致的同长度行里最重的那一行，补全词只参与第二位起的排序：
 
-1. 同长度查询的行先按 `weight` 稳定排序，取第一行固定在首位。
+1. 同长度查询的行先按 `weight` 稳定排序。排第一的那行 `canonical_pinyin` 等于输入的切分时，把它固定在首位。
 2. 其余同长度行和补全词合在一起，再按 `weight` 稳定排序。同权重时同长度行在前，和原先整组稳定排序的结果一致。
-3. 同长度查询一行都没有时，补全词照旧按权重排，整句块由 `whole_sentence_insert_position` 插到首位。
+3. 同长度查询一行都没有，或排第一的那行读音和输入不一致时，不固定首位，同长度行和补全词照旧整组按权重排，整句块由 `whole_sentence_insert_position` 插到首位。
 
 补全词仍然排在冷僻同音词前面（苹果电脑 在 平锅 前面），这是它们并入全长组的原因，不变。补全词的 `pinyin` 仍是键入的切分、`canonical_pinyin` 仍是更长的读音，选中后只消耗已键入的音节，这部分也不变。
 
-首位取的是同长度查询的最重一行，不要求 `canonical_pinyin` 和输入逐字相等。末音节同时是更长音节前缀时（`jian` 和 `jiang`），同长度查询会带回「质量奖」这类前缀行，它的字数和音节数相同，不会多上屏字，所以不另外排除。
+首位要求 `canonical_pinyin` 和输入逐字相等，判据与 `whole_sentence_insert_position` 认定整词的条件一致。同长度查询有精确键时只返回精确键的行，没有时才退到前缀区间（`build_key_like_pattern` 的末音节带 `%`），所以只看排第一的那行就够了。末音节同时是更长音节前缀时（`jian` 和 `jiang`），没有 `zhi'liang'jian` 这一行的输入会带回「质量奖」这类前缀行。它的字数和音节数虽然相同，读音却不是用户打的，#7345 保护首位的理由（首选必须是用户打出来的词）对它不成立，固定它反而会压过更重的补全词「质量检验」。这类前缀行和补全词一起按权重排，和修复前一样。
 
 双拼走同一个 `query_series`，一起修好。改动只在引擎，没有新的偏好项，各平台宿主不受影响。
 
@@ -35,12 +35,12 @@ Status: implemented
 
 ## Consequences
 
-- **收益**：`dacuozi` 首选「打错字」，`doumeiren` 首选「都没人」，补全词排在整句块之后。用锁定词库和产品重排器跑 `convert_eval` 的词级集（`quanpin-words-v1.tsv --limit 3000`，2791 条），top-1 从 0.756 升到 0.781，MRR 从 0.829 升到 0.847；逐条比对 77 条名次变好，1 条变差。
-- **代价**：变差的是 `zhiliangjian`（金样「质量检验」，评测集里被截断的一条），前缀行「质量奖」被固定在全长组首位后，「质量检验」从第 5 位退到第 6 位。补全词的语料权重再高，也只能排第二位起，整词很冷而补全词很常用时（「都没人」3 对「都没人买」129），用户要往后看一位。
+- **收益**：`dacuozi` 首选「打错字」，`doumeiren` 首选「都没人」，补全词排在整句块之后。用锁定词库和产品重排器跑 `convert_eval` 的词级集（`quanpin-words-v1.tsv --limit 3000`，2791 条），top-1 从 0.756 升到 0.781，MRR 从 0.829 升到 0.847，top-5 从 0.941 升到 0.942。不检查读音的初版逐条比对是 77 条名次变好、1 条变差；加上读音条件后，排第一的同长度行读音不一致的输入恢复修复前的整组按权重排序，其余输入和初版相同，那 1 条变差的用例回到原位。
+- **代价**：补全词的语料权重再高，也只能排第二位起，整词很冷而补全词很常用时（「都没人」3 对「都没人买」129），用户要往后看一位。最初的实现不检查读音，把前缀行「质量奖」也固定在首位，`zhiliangjian`（金样「质量检验」）因此从第 5 位退到第 6 位；加上读音一致的条件后它回到第 5 位，「质量奖」排在补全词之后。
 - **基线**：`resources/eval/baseline-words.json` 按这次结果更新。整句集 `sentences`、`harvested`、`neutral` 在改动前的 develop 上就已经和基线不一致，这次改动只让 `harvested` 的 top-1 从 0.321 变成 0.324，没有顺手更新它们；九键和 14 键四个集改动前后都和基线一致。
 - 和 [模糊音下覆盖整个输入的词条排在替补整句之前](2026-10-08-fuzzy-whole-input-before-stand-in-sentence.md) 是同一个方向：整句是没有整词时的补位，补全词同样不该压在用户打出的整词前面。
 
 ## Verification
 
-- `crates/engine/src/quanpin/dictionary/tests.rs` 新增四个测试，全部用合成夹具：`heavier_longer_phrase_does_not_take_the_first_seat_from_the_exact_reading`（打错字 565 对 打错字了 1010，且补全词仍在冷僻同音词「大错字」之前）；`light_exact_reading_still_leads_heavier_continuations`（都没人 3 对 100 到 129 的补全词）；`sentence_rows_follow_a_light_exact_hit_and_precede_heavier_longer_phrases`（开整句候补时整句块夹在整词和补全词之间）；`sentence_leads_longer_phrases_when_no_exact_reading_exists`（没有整词时整句在补全词之前）。前三个在修复前失败，第四个修复前后都通过，钉住没有整词时的既有行为。原有的 `longer_phrases_join_the_full_key_group_by_weight` 和 `sentence_rows_follow_the_exact_hits_and_precede_longer_phrases` 不改动照样通过。
-- 用锁定词库和产品重排器经完整 runtime 打 `dacuozi`、`doumeiren`、`pingguo`：修复前前两个的首选分别是「打错字了」「都没人管理」，修复后是「打错字」「都没人」；`pingguo` 前后都是「苹果」，第三、四位仍是「苹果电脑」「苹果公司」。
+- `crates/engine/src/quanpin/dictionary/tests.rs` 新增五个测试，全部用合成夹具：`heavier_longer_phrase_does_not_take_the_first_seat_from_the_exact_reading`（打错字 565 对 打错字了 1010，且补全词仍在冷僻同音词「大错字」之前）；`light_exact_reading_still_leads_heavier_continuations`（都没人 3 对 100 到 129 的补全词）；`sentence_rows_follow_a_light_exact_hit_and_precede_heavier_longer_phrases`（开整句候补时整句块夹在整词和补全词之间）；`sentence_leads_longer_phrases_when_no_exact_reading_exists`（没有整词时整句在补全词之前）；`prefix_only_row_does_not_pin_the_first_seat_over_a_heavier_continuation`（只有前缀行 质量奖 10 时，更重的补全词 质量检验 500 排在它前面）。前三个在修复前失败，第四个修复前后都通过，钉住没有整词时的既有行为；第五个在不检查读音的初版上失败。原有的 `longer_phrases_join_the_full_key_group_by_weight` 和 `sentence_rows_follow_the_exact_hits_and_precede_longer_phrases` 不改动照样通过。
+- 用锁定词库和产品重排器经完整 runtime 打 `dacuozi`、`doumeiren`、`pingguo`：修复前前两个的首选分别是「打错字了」「都没人管理」，修复后是「打错字」「都没人」；`pingguo` 前后都是「苹果」，第三、四位仍是「苹果电脑」「苹果公司」；`zhiliangjian` 的「质量检验」在第 5 位，「质量奖」在第 8 位。
