@@ -16,7 +16,7 @@ Status: implemented
 
 **内置排序收进 `order_presentation()`**：逐键重排、整句读法降位、在线候选座位三步，refresh、展开和 `rerank_settled` 三处都调它。插件变换排在它之后，只在桌面编译（`crates/input-runtime/src/transform.rs`，cfg 同 script-runtime）；移动端和网页引擎里同名的几个方法什么都不做，可见前缀就是整个列表。
 
-**什么时候运行脚本。** `Runtime::set_candidate_transform` 挂上一个 `CandidateTransform`。`Runtime::dispatch` 在桌面上把一个标记置位再派发，标记期间的 `refresh` 和 `expand_cached_candidates` 调用变换，也就是运行脚本；派发 panic 时先放下标记再继续展开，之后的旁路调用不会误跑脚本。其余所有调用（`apply_online_*`、`resolve/clear_online_candidates`、`rerank_settled`、`all_candidates`、`apply_translations`、`set_caret`、设置类调用）不运行任何脚本代码，只按候选身份（文本加来源）重放本组字内最近一次记下的操作。列表为空时记下的操作清掉；跳过的列表（见下）在派发里清掉记录。
+**什么时候运行脚本。** `Runtime::set_candidate_transform` 挂上一个 `CandidateTransform`。`Runtime::dispatch` 在桌面上把一个标记置位再派发，标记期间的 `refresh` 和 `expand_cached_candidates` 调用变换，也就是运行脚本；派发 panic 时先放下标记再继续展开，之后的旁路调用不会误跑脚本。其余所有调用（`apply_online_*`、`resolve/clear_online_candidates`、`rerank_settled`、`all_candidates`、`apply_translations`、`set_caret`、设置类调用）不运行任何脚本代码，只按候选身份重放本组字内最近一次记下的操作。身份的细分规则见[重复候选的身份修复](../bug-fix/2026-10-12-script-duplicate-candidate-identity.md)。列表为空时记下的操作清掉；跳过的列表（见下）在派发里清掉记录。
 
 **上屏只能观察时停下。** 宿主设着 `COMMIT_OBSERVE_ONLY` 时，host-api 经 `Runtime::suspend_candidate_transform` 把变换暂停：派发里不运行插件，旁路调用也不重放，记下的操作清掉，列表保持内置排序。Windows 上 TIP 在自己的会话里选词的列表（注音等 AlwaysInlinePreedit 方案）按那个会话的顺序选，那个会话从不运行脚本；Server 一侧重排或隐藏，显示的顺序就和数字选中的对不上。所以这类列表的每一次派发都要设着这个位，头文件里写明了。
 

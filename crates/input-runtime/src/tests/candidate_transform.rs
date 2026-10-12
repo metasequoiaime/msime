@@ -459,6 +459,64 @@ fn plugins_compose_in_grant_order_against_the_original_window() {
 }
 
 #[test]
+fn duplicate_rows_keep_distinct_hide_and_annotation_targets_after_refresh() {
+    let mut harness = Harness::new(
+        TransformEngine::new(&["甲", "同", "同", "乙"]),
+        vec![ops(&[], &[1], &[(2, "第二行")])],
+    );
+    harness.key(b'a');
+    let view = harness.runtime.view();
+    assert_eq!(shown(&view), ["甲", "同", "乙"]);
+    assert_eq!(view.candidates[1].annotation, "e2");
+    assert_eq!(
+        view.candidates[1].script_annotation.as_deref(),
+        Some("第二行")
+    );
+    assert_eq!(harness.runtime.engine_order, [0, 2, 3, 1]);
+
+    // 旁路刷新在重复组前插入另一行，原来第二条“同”仍是被注释的可见行。
+    harness.runtime.engine.words.insert(1, "新".into());
+    harness.runtime.refresh_online_candidates().unwrap();
+    let view = harness.runtime.view();
+    assert_eq!(shown(&view), ["甲", "新", "同", "乙"]);
+    assert_eq!(view.candidates[2].annotation, "e3");
+    assert_eq!(
+        view.candidates[2].script_annotation.as_deref(),
+        Some("第二行")
+    );
+    assert_eq!(harness.runtime.engine_order, [0, 1, 3, 4, 2]);
+    assert_eq!(harness.calls(), 1);
+}
+
+#[test]
+fn duplicate_rows_follow_their_own_rerank_and_annotation() {
+    let mut harness = Harness::new(
+        TransformEngine::new(&["甲", "同", "同", "乙"]),
+        vec![ops(&[2, 1], &[], &[(2, "第二行")])],
+    );
+    harness.key(b'a');
+    let view = harness.runtime.view();
+    assert_eq!(harness.runtime.engine_order, [2, 1, 0, 3]);
+    assert_eq!(view.candidates[0].annotation, "e2");
+    assert_eq!(
+        view.candidates[0].script_annotation.as_deref(),
+        Some("第二行")
+    );
+    assert_eq!(view.candidates[1].annotation, "e1");
+    assert_eq!(view.candidates[1].script_annotation, None);
+    harness.runtime.refresh_online_candidates().unwrap();
+    let view = harness.runtime.view();
+    assert_eq!(harness.runtime.engine_order, [2, 1, 0, 3]);
+    assert_eq!(view.candidates[0].annotation, "e2");
+    assert_eq!(
+        view.candidates[0].script_annotation.as_deref(),
+        Some("第二行")
+    );
+    assert_eq!(view.candidates[1].script_annotation, None);
+    assert_eq!(harness.calls(), 1);
+}
+
+#[test]
 fn skipped_lists_run_no_transform_and_hide_nothing() {
     // 聚焦会取消组字，所以这些状态在聚焦之后才设。
     type Setup = fn(&mut TransformEngine);
