@@ -7,6 +7,8 @@
  * stylesheet's habit of writing every declaration twice.
  */
 
+import { minWidthZero } from "../core/row-style";
+
 export const panelText = "text-[#f5f5f7] group-data-[panel-theme=light]:text-[#202124]";
 export const panelMuted = "text-[#aeb0b7] group-data-[panel-theme=light]:text-[#656a73]";
 export const panelSurface = "bg-[#202027] group-data-[panel-theme=light]:bg-[#f7f8fa]";
@@ -36,7 +38,7 @@ export const handwritingPanel = `group ${panelSurface} ${panelText}`;
 /** Canvas beside the recognition column, stacked once the window is too narrow to hold both. */
 export const handwritingBody =
   "grid grid-cols-[minmax(300px,0.43fr)_minmax(360px,0.57fr)] gap-7 p-6 max-phone:grid-cols-1 max-phone:p-3.5";
-export const inkSection = "min-w-0";
+export const inkSection = minWidthZero;
 /*
  * Crosshair while a stroke is in progress, hand otherwise, as the shipped panel does: with no cursor
  * at all the square gives no hint that it can be written on.

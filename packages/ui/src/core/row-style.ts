@@ -11,3 +11,5 @@ export const subtleMeta = "text-[12px] [color:var(--p-sub)]";
 export const inlineItems = "flex items-center gap-1.5";
 /** Shared compact control row for trailing actions and touch bars. */
 export const controlRow = "flex shrink-0 items-center gap-2";
+/** Shared shrinkable column primitive for text-heavy row content. */
+export const minWidthZero = "min-w-0";
