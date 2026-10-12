@@ -238,8 +238,11 @@ struct CommunityResourcesView: View {
 enum CommunityReplyInstall {
   /// 先收藏（需要登录），再把最新版本复制进回复键盘的模板库；返回最新版本。
   @MainActor static func add(_ item: CommunityResource) async throws -> CommunityResource {
+    try Task.checkCancellation()
     try await SkinCommunityAPI.shared.saveResource(item.id, saved: true)
+    try Task.checkCancellation()
     let latest = try await SkinCommunityAPI.shared.resource(item.id)
+    try Task.checkCancellation()
     try await Task.detached(priority: .userInitiated) {
       try CommunityLibrary.save(latest)
     }.value
@@ -265,6 +268,11 @@ struct CommunityReplyTemplatesSection: View {
   @State private var installed: Set<String> = []
   @State private var adding: Set<String> = []
   @State private var message: String?
+  @State private var pending: Task<Void, Never>?
+  @State private var addTasks: [String: Task<Void, Never>] = [:]
+  @State private var addGeneration = UUID()
+  @State private var requestID = UUID()
+  @State private var visible = false
 
   var body: some View {
     Section {
@@ -279,8 +287,21 @@ struct CommunityReplyTemplatesSection: View {
       // 加载和提示挂在这一行上：它总在，而挂在 Section 上的修饰符会分给每一行。
       NavigationLink { CommunityResourcesView(kind: .reply) } label: { Text("浏览更多回复模板") }
         .accessibilityIdentifier("replyCommunityLink")
-        .task { await load() }
-        .onAppear { Task { await refreshInstalled() } }
+        .task {
+          visible = true
+          startLoad()
+        }
+        .onAppear { visible = true }
+        .onDisappear {
+          visible = false
+          requestID = UUID()
+          pending?.cancel()
+          pending = nil
+          addGeneration = UUID()
+          addTasks.values.forEach { $0.cancel() }
+          addTasks.removeAll()
+          adding.removeAll()
+        }
         .alert("社区回复模板", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
           Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
@@ -314,34 +335,69 @@ struct CommunityReplyTemplatesSection: View {
   }
 
   private func add(_ item: CommunityResource) {
-    guard !adding.contains(item.id) else { return }
+    guard visible, !adding.contains(item.id) else { return }
+    let generation = addGeneration
     adding.insert(item.id)
-    Task { @MainActor in
-      defer { adding.remove(item.id) }
+    addTasks[item.id] = Task { @MainActor in
+      defer {
+        if addGeneration == generation {
+          adding.remove(item.id)
+          addTasks[item.id] = nil
+        }
+      }
       do {
         let latest = try await CommunityReplyInstall.add(item)
+        try ensureVisible(generation)
         installed.insert(latest.id)
         if let index = items?.firstIndex(where: { $0.id == latest.id }) { items?[index] = latest }
         ToastCenter.shared.show("已添加「\(latest.name)」")
-      } catch { message = error.localizedDescription }
+      } catch is CancellationError { }
+      catch { if visible, addGeneration == generation { message = error.localizedDescription } }
     }
   }
 
   @MainActor private func refreshInstalled() async {
-    if let ids = await CommunityReplyInstall.installedIDs() { installed = ids }
+    if let ids = await CommunityReplyInstall.installedIDs() {
+      guard visible, !Task.isCancelled else { return }
+      installed = ids
+    }
   }
 
-  @MainActor private func load() async {
+  @MainActor private func load(_ id: UUID) async {
+    guard visible, requestID == id else { return }
     do {
       let page = try await SkinCommunityAPI.shared.resources(.reply)
+      try ensureCurrent(id)
       items = Array(page.items.prefix(Self.limit))
       failed = false
     } catch is CancellationError {
       return
     } catch {
       // 已经加载过的列表保留下来；刷新失败只替换加载提示。
-      if items == nil { failed = true }
+      if visible, requestID == id, items == nil { failed = true }
     }
+  }
+
+  @MainActor private func startLoad() {
+    guard visible else { return }
+    pending?.cancel()
+    let id = UUID()
+    requestID = id
+    pending = Task {
+      defer { if requestID == id { pending = nil } }
+      await refreshInstalled()
+      await load(id)
+    }
+  }
+
+  @MainActor private func ensureVisible(_ generation: UUID) throws {
+    try Task.checkCancellation()
+    guard visible, addGeneration == generation else { throw CancellationError() }
+  }
+
+  @MainActor private func ensureCurrent(_ id: UUID) throws {
+    try Task.checkCancellation()
+    guard visible, requestID == id else { throw CancellationError() }
   }
 }
 
