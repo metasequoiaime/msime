@@ -24,6 +24,9 @@ public final class HttpBodyPolicySmoke {
             && HttpBodyPolicy.isWithinLimit(new byte[4], 4)
             && !HttpBodyPolicy.isWithinLimit(null, 4)
             && !HttpBodyPolicy.isWithinLimit(new byte[5], 4));
+        check(HttpBodyPolicy.isNonEmptyWithinLimit(new byte[] {1}, 1)
+            && !HttpBodyPolicy.isNonEmptyWithinLimit(new byte[0], 1)
+            && !HttpBodyPolicy.isNonEmptyWithinLimit(null, 1));
         check(HttpBodyPolicy.readBounded(new ByteArrayInputStream("hello".getBytes(StandardCharsets.UTF_8)),
             5, () -> true) == null);
         long later = System.nanoTime() + 60_000_000_000L;

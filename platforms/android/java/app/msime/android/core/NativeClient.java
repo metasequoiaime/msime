@@ -161,7 +161,7 @@ public final class NativeClient {
      */
     public static String vocabularyReview(String request) {
         byte[] bytes = request.getBytes(StandardCharsets.UTF_8);
-        if (bytes.length == 0 || bytes.length > VOCABULARY_REQUEST_LIMIT) {
+        if (!HttpBodyPolicy.isNonEmptyWithinLimit(bytes, VOCABULARY_REQUEST_LIMIT)) {
             return "{\"ok\":false,\"error\":\"invalid vocabulary review request\"}";
         }
         return TextPolicy.utf8(vocabularyReviewRaw(bytes));
@@ -327,7 +327,7 @@ public final class NativeClient {
     public static String shuangpinKeyHints(String profile) {
         if (profile == null) throw new IllegalArgumentException("Missing double-pinyin profile");
         byte[] profileBytes = profile.getBytes(StandardCharsets.UTF_8);
-        if (profileBytes.length == 0 || profileBytes.length > SHUANGPIN_PROFILE_LIMIT)
+        if (!HttpBodyPolicy.isNonEmptyWithinLimit(profileBytes, SHUANGPIN_PROFILE_LIMIT))
             throw new IllegalArgumentException("Double-pinyin profile is too large");
         byte[] result = shuangpinKeyHintsRaw(profileBytes);
         if (!HttpBodyPolicy.isWithinLimit(result, SHUANGPIN_HINT_RESPONSE_LIMIT))

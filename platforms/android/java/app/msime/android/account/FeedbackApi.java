@@ -76,7 +76,7 @@ public final class FeedbackApi {
     public static boolean validScreenshot(Screenshot shot) {
         if (shot == null || shot.bytes() == null) return false;
         byte[] data = shot.bytes();
-        if (data.length == 0 || data.length > MAX_SCREENSHOT_BYTES) return false;
+        if (!HttpBodyPolicy.isNonEmptyWithinLimit(data, MAX_SCREENSHOT_BYTES)) return false;
         if ("image/png".equals(shot.contentType())) {
             return data.length >= 8 && (data[0] & 0xff) == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G';
         }

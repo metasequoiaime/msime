@@ -17,6 +17,11 @@ public final class HttpBodyPolicy {
         return body != null && limit >= 0 && body.length <= limit;
     }
 
+    /** Whether an already-read body is non-empty and within its byte limit. */
+    public static boolean isNonEmptyWithinLimit(byte[] body, int limit) {
+        return isWithinLimit(body, limit) && body.length > 0;
+    }
+
     /** Copy a stream without allocating a buffer for every response. */
     public static void copy(InputStream input, OutputStream output) throws IOException {
         if (input == null || output == null) throw new NullPointerException();
