@@ -2,7 +2,6 @@ package app.msime.android.test;
 
 import android.graphics.Rect;
 import android.os.Bundle;
-import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.File;
@@ -47,7 +46,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             if (!localSettings.getParentFile().isDirectory() && !localSettings.getParentFile().mkdirs())
                 throw new AssertionError("Local settings directory unavailable");
             publish(localSettings, localBaseline.toString().getBytes(StandardCharsets.UTF_8));
-            rebindInputMethod();
+            restartIme();
             openEditor();
             stage = "baseline keyboard height";
             int standard = keyHeight("n");
@@ -88,7 +87,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             stage = "hiding mid-adjustment keeps the height";
             openHeightBar();
             setHeight(110);
-            shell("input keyevent KEYCODE_BACK");
+            shellDiscard("input keyevent KEYCODE_BACK");
             awaitHeightSetting(localSettings, 18);
             openEditor();
             int keptHeight = keyHeight("n");
@@ -109,8 +108,8 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
                     + standard + " -> " + resetHeight);
 
             stage = "height survives input method restart";
-            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
-            rebindInputMethod();
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            restartIme();
             openEditor();
             int restarted = keyHeight("n");
             if (Math.abs(restarted - resetHeight) > 2)
@@ -160,7 +159,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
                     .put("selected", "fourteen_key"));
             publish(preferences, new JSONObject().put("format_version", 1).put("revision", revision + 2)
                 .put("preferences", fourteen).toString().getBytes(StandardCharsets.UTF_8));
-            rebindInputMethod();
+            restartIme();
             openEditor();
             Rect pair = new Rect();
             awaitStableBounds(description("按键 Q W")).getBoundsInScreen(pair);
@@ -172,7 +171,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
                 throw new AssertionError("Fourteen-key bottom row is not as tall as its keys: space "
                     + fourteenSpace.height() + " vs QW " + pair.height());
         } finally {
-            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
             if (originalLocal == null) Files.deleteIfExists(localSettings.toPath());
@@ -181,22 +180,16 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     }
 
     private void openEditor() throws Exception {
-        shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
         tap(field("msime-test-plain"));
     }
 
-    private void rebindInputMethod() throws Exception {
-        shell("ime disable app.msime.android/.MSIMEInputService");
-        shell("ime enable app.msime.android/.MSIMEInputService");
-        shell("ime set app.msime.android/.MSIMEInputService");
-        SystemClock.sleep(1000);
-    }
 
     /** 写入这份本地设置、重新绑定输入法后，等键盘停稳再量「n」键在屏幕上的位置：键盘弹出有动画，动画中量到的位置是过渡值。 */
     private Rect settledKeyBounds(File localSettings, JSONObject settings) throws Exception {
         publish(localSettings, new JSONObject().put("version", 1).put("settings", settings).toString()
             .getBytes(StandardCharsets.UTF_8));
-        rebindInputMethod();
+        restartIme();
         openEditor();
         Rect bounds = new Rect();
         awaitStableBounds(key("n")).getBoundsInScreen(bounds);
@@ -272,12 +265,5 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         throw new AssertionError("Height setting was not saved");
     }
 
-    private void shell(String command) throws Exception {
-        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(
-                automation.executeShellCommand(command))) {
-            byte[] buffer = new byte[1024];
-            while (input.read(buffer) != -1) { }
-        }
-    }
 
 }

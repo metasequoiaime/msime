@@ -7,7 +7,6 @@
 //! The corpus pass reproduces the Python builder's reading exactly (1 Mi-character chunks, the `<text>` extraction and noise stripping per chunk, the 120M Han-character stop, singleton pruning past 12M entries, and insertion-ordered tie-breaking at the 1M-entry cut), because each of those decides which entries ship.
 
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
 use std::io::{BufReader, Read};
 use std::path::Path;
 use std::sync::LazyLock;
@@ -309,7 +308,8 @@ pub fn count_corpus(vocabulary: &Vocabulary, corpus: &Path) -> Result<Counts> {
     if vocabulary.len() == 0 {
         bail!("empty vocabulary");
     }
-    let file = open_corpus(corpus).with_context(|| format!("opening {}", corpus.display()))?;
+    let file = crate::private_file::open_read_only(corpus, "ngram corpus is not a regular file")
+        .with_context(|| format!("opening {}", corpus.display()))?;
     let reader = bzip2::read::MultiBzDecoder::new(BufReader::new(file));
     let mut counts = Counts::new(vocabulary);
     let mut words = Vec::new();
@@ -317,30 +317,6 @@ pub fn count_corpus(vocabulary: &Vocabulary, corpus: &Path) -> Result<Counts> {
         counts.count_run(vocabulary, run, &mut words)
     })?;
     Ok(counts)
-}
-
-fn open_corpus(path: &Path) -> std::io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    }
-    let file = options.open(path)?;
-    if !file.metadata()?.is_file() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "ngram corpus is not a regular file",
-        ));
-    }
-    Ok(file)
 }
 
 fn fnv1a64(words: &[&str]) -> u64 {

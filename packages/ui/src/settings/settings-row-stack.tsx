@@ -1,19 +1,9 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import * as settings from "./settings-style";
+import { SettingsLayoutBlock, type SettingsLayoutBlockProps } from "./settings-layout-block";
 
-export interface SettingsRowStackProps extends Omit<
-  ComponentPropsWithoutRef<"div">,
-  "children" | "className"
-> {
-  children?: ReactNode;
-  className?: string;
-}
+export type SettingsRowStackProps = SettingsLayoutBlockProps;
 
 /** Shared stacked layout for related rows inside a settings group. */
-export function SettingsRowStack({ children, className, ...props }: SettingsRowStackProps) {
-  return (
-    <div {...props} className={`${settings.rowStack}${className ? ` ${className}` : ""}`}>
-      {children}
-    </div>
-  );
+export function SettingsRowStack(props: SettingsRowStackProps) {
+  return <SettingsLayoutBlock baseClass={settings.rowStack} {...props} />;
 }

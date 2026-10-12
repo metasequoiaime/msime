@@ -212,9 +212,6 @@ impl KeyboardSkinTrialStore {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(_) => return Err(KeyboardSkinTrialError::Invalid),
         };
-        if file.metadata()?.len() > MAXIMUM_RECORD_BYTES {
-            return Err(KeyboardSkinTrialError::Invalid);
-        }
         let bytes = crate::bounded_io::read_bounded_file(file, MAXIMUM_RECORD_BYTES, || {
             KeyboardSkinTrialError::Invalid
         })?;

@@ -61,10 +61,10 @@ export const externalHeading =
   "mx-1 mt-7 mb-3 flex items-start justify-between gap-[18px] [&>div]:min-w-0";
 export const externalActions =
   "flex shrink-0 grow-0 basis-auto gap-2 [&>button]:mt-0.5 [&>button]:h-[30px] [&>button]:shrink-0 [&>button]:grow-0 [&>button]:basis-auto";
-export const externalDirectory = "mt-1.5 block font-mono text-xs break-anywhere text-muted";
-export const externalMeta = "mt-1 text-xs break-anywhere text-muted";
+export const externalDirectory = "mt-1.5 block font-mono text-xs wrap-anywhere text-muted";
+export const externalMeta = "mt-1 text-xs wrap-anywhere text-muted";
 export const externalDiagnostics =
-  "mx-1 mt-2.5 text-xs break-anywhere text-muted [&>summary]:cursor-pointer [&>ul]:mt-[7px] [&>ul]:mb-0 [&>ul]:pl-5";
+  "mx-1 mt-2.5 text-xs wrap-anywhere text-muted [&>summary]:cursor-pointer [&>ul]:mt-[7px] [&>ul]:mb-0 [&>ul]:pl-5";
 export const externalResourceNote = "px-6 pt-0 pb-3";
 
 /** The theme page shows one card at a time: a horizontal scroll-snap track, so a trackpad or touch swipe moves between cards as well as the arrows do. */
@@ -172,7 +172,7 @@ export const managerBlock = "flex min-w-0 flex-col gap-3 [padding:var(--p-row-pa
 export const managerNote = "m-0 leading-relaxed [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 export const managerActions = "flex flex-wrap gap-1.5 [&_.secondary]:mt-0 [&_.primary]:mt-0";
 export const importPreview =
-  "flex max-h-70 flex-col gap-[7px] overflow-y-auto rounded-lg border border-edge bg-raised px-3 py-2.5 [&>span]:text-xs [&>span]:text-muted [&>div]:flex [&>div]:flex-col [&>div]:gap-0.5 [&>div]:border-t [&>div]:border-[var(--divider-color)] [&>div]:pt-[7px] [&>div_span]:break-anywhere [&_code]:text-[11px] [&_code]:text-muted";
+  "flex max-h-70 flex-col gap-[7px] overflow-y-auto rounded-lg border border-edge bg-raised px-3 py-2.5 [&>span]:text-xs [&>span]:text-muted [&>div]:flex [&>div]:flex-col [&>div]:gap-0.5 [&>div]:border-t [&>div]:border-[var(--divider-color)] [&>div]:pt-[7px] [&>div_span]:wrap-anywhere [&_code]:text-[11px] [&_code]:text-muted";
 
 export const field = "flex flex-col gap-[5px] text-xs text-secondary";
 export const fieldInput =
@@ -185,7 +185,7 @@ export const keyHint = "text-[11px] text-muted";
 export const bundledBadge =
   "rounded border border-edge px-1 py-px text-[11px] leading-none text-muted";
 const listRow =
-  "flex items-center justify-between gap-3 border-t border-[var(--divider-color)] pt-2 [&>span:first-child]:min-w-0 [&>span:first-child]:break-anywhere [&_.secondary]:mt-0 [&_.secondary]:px-[9px] [&_.secondary]:py-1";
+  "flex items-center justify-between gap-3 border-t border-[var(--divider-color)] pt-2 [&>span:first-child]:min-w-0 [&>span:first-child]:wrap-anywhere [&_.secondary]:mt-0 [&_.secondary]:px-[9px] [&_.secondary]:py-1";
 export const phraseList =
   "mt-3.5 mb-0 flex max-h-[clamp(180px,calc(100vh-350px),550px)] list-none flex-col gap-2 overflow-x-hidden overflow-y-auto p-0 [scrollbar-gutter:stable]";
 export const phraseListItem = listRow;
@@ -326,7 +326,7 @@ export const subViewHeader = "flex min-w-0 flex-col items-start gap-1";
 /** A stack of groups inside a page's own stack, spaced as the page spaces them. */
 export const subViewStack = "flex min-w-0 flex-col gap-6";
 export const subViewTitle =
-  "m-0 text-[20px] leading-tight font-semibold [color:var(--p-text)] break-anywhere";
+  "m-0 text-[20px] leading-tight font-semibold [color:var(--p-text)] wrap-anywhere";
 export const pageTitle =
   "m-0 text-[length:var(--p-title-fs)] leading-tight [font-weight:var(--p-title-w)]";
 /**

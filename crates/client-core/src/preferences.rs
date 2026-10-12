@@ -853,6 +853,9 @@ pub struct Preferences {
     /// 切换中英文后在光标旁短暂显示一个不抢焦点的「中」/「英」徽标。macOS 和 Windows 自己画，HarmonyOS 和 Linux 交给各自的面板（见 `HostCapabilities::input_mode_hud`），其他宿主保留这个偏好但不画。
     #[serde(default = "enabled_by_default")]
     pub input_mode_hud: bool,
+    /// 在 macOS 菜单栏放一个状态项，常驻显示当前输入模式（中/双/五/日……，英文时为「英」），不需要把「英」加成系统输入源。默认关闭；只有 macOS 宿主画它（见 `HostCapabilities::input_mode_status_item`），其他宿主保留这个偏好但不画。
+    #[serde(default)]
+    pub input_mode_status_item: bool,
     /// 候选窗和悬浮工具栏左端的水杉 logo。新装默认隐藏（见 `Default`）；已存文档缺这个字段时读成显示，升级沿用原来的样子。
     #[serde(default = "enabled_by_default")]
     pub show_app_logo: bool,
@@ -962,6 +965,9 @@ pub struct Preferences {
     /// Render and commit Chinese Engine output in Traditional Chinese at the host boundary.
     #[serde(default)]
     pub traditional_chinese_output: bool,
+    /// 中英文之间加空格：一次上屏的文本里，汉字与 ASCII 字母、数字相邻处插入一个半角空格（host-api 在全角转换之后做，见 `crates/host-api/src/chinese_english_spacing.rs`）。两次上屏之间不加，候选窗显示不变。默认关；关着时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub chinese_english_spacing: bool,
     pub chinese_punctuation: bool,
     #[serde(default = "smart_punctuation_default")]
     pub smart_punctuation: bool,
@@ -1021,6 +1027,12 @@ pub struct Preferences {
     pub game_compatibility: GameCompatibilityPreferences,
     #[serde(default)]
     pub clipboard_history: bool,
+    /// 云剪贴板改走用户自建的中继（协议见 `docs/cloud-clipboard-relay.md`）：地址为空表示不用中继，走水杉账号。配置了中继时云剪贴板只经中继，不再碰账号。令牌和语音、翻译服务的凭据一样明文存在这份文档里，列在 [`Preferences::credential_slots`]，不进设置文件导出（`settings_document::LOCAL_SECTIONS`）和账号设置同步。没配置时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(
+        default,
+        skip_serializing_if = "CloudClipboardRelayPreferences::is_default"
+    )]
+    pub cloud_clipboard_relay: CloudClipboardRelayPreferences,
     /// 向云候选服务多要一条候选。它会把正在组的拼写发给 `https://inputtools.google.com`，所以新装默认关闭（见 `Default`）；已存文档缺这个字段时读成开启，升级沿用原来的行为。
     #[serde(default = "enabled_by_default")]
     pub cloud_candidates: bool,
@@ -1838,6 +1850,33 @@ impl SecondThirdCandidatePreferences {
     }
 }
 
+/// 自建的云剪贴板中继：基地址和中继管理员发的令牌，两项要么都空（不用中继），要么都合规。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct CloudClipboardRelayPreferences {
+    /// 中继的基地址，例如 `https://relay.example.com/msime`；规则见 [`crate::clipboard_relay::valid_relay_url`]。
+    pub url: String,
+    /// 中继令牌，每个令牌对应中继上一个独立的剪贴板空间；规则见 [`crate::clipboard_relay::valid_relay_token`]。
+    pub token: String,
+}
+
+impl CloudClipboardRelayPreferences {
+    fn is_default(&self) -> bool {
+        self.url.is_empty() && self.token.is_empty()
+    }
+
+    /// 是否配置了中继。配置了就只走中继。
+    pub fn is_configured(&self) -> bool {
+        !self.url.is_empty()
+    }
+
+    fn validate(&self) -> bool {
+        self.is_default()
+            || (crate::clipboard_relay::valid_relay_url(&self.url)
+                && crate::clipboard_relay::valid_relay_token(&self.token))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NavigationPreferences {
@@ -2039,6 +2078,7 @@ impl Default for Preferences {
             diagnostic_log: DiagnosticLogPreferences::default(),
             candidate_follow_cursor: true,
             input_mode_hud: true,
+            input_mode_status_item: false,
             show_app_logo: false,
             scheme: InputScheme::default(),
             wubi_code_hint: true,
@@ -2078,6 +2118,7 @@ impl Default for Preferences {
             quanpin_helpcode: default_quanpin_helpcode(),
             shuangpin_helpcode: default_shuangpin_helpcode(),
             traditional_chinese_output: false,
+            chinese_english_spacing: false,
             chinese_punctuation: true,
             smart_punctuation: smart_punctuation_default(),
             smart_punctuation_repeat: smart_punctuation_default(),
@@ -2097,6 +2138,7 @@ impl Default for Preferences {
             plugins: PluginPreferences::default(),
             game_compatibility: GameCompatibilityPreferences::default(),
             clipboard_history: false,
+            cloud_clipboard_relay: CloudClipboardRelayPreferences::default(),
             // 会把输入内容发出设备的两条路径新装都关闭，由 Windows、macOS、Linux 的首次询问或各平台的设置开关打开。
             cloud_candidates: false,
             candidate_translations: true,
@@ -2511,13 +2553,16 @@ impl Preferences {
         next.niutrans.app_id = self.niutrans.app_id.clone();
         next.niutrans.apikey = self.niutrans.apikey.clone();
 
+        // 中继的地址和令牌成对保留，理由与上面的服务地址相同。
+        next.cloud_clipboard_relay = self.cloud_clipboard_relay.clone();
+
         next.fuzzy_pinyin.seeded = self.fuzzy_pinyin.seeded;
 
         next
     }
 
     /// 偏好里的全部服务凭据（token、密钥、应用 id），按文档里的路径列出。恢复默认设置时原样保留的、导出诊断包时换成 [`REDACTED`] 的，都是这一份清单；`preferences/tests.rs` 用字段名兜底，新加的凭据字段不进清单测试就失败。
-    pub fn credential_slots(&mut self) -> [(&'static str, CredentialSlot<'_>); 12] {
+    pub fn credential_slots(&mut self) -> [(&'static str, CredentialSlot<'_>); 13] {
         [
             (
                 "voice_input.asr_app_key",
@@ -2566,6 +2611,10 @@ impl Preferences {
             (
                 "niutrans.apikey",
                 CredentialSlot::Text(&mut self.niutrans.apikey),
+            ),
+            (
+                "cloud_clipboard_relay.token",
+                CredentialSlot::Text(&mut self.cloud_clipboard_relay.token),
             ),
         ]
     }
@@ -2662,6 +2711,9 @@ impl Preferences {
         }
         if !valid_app_input_mode_rules(&self.app_input_mode_rules) {
             return Err(PreferencesError::InvalidAppInputModeRules);
+        }
+        if !self.cloud_clipboard_relay.validate() {
+            return Err(PreferencesError::InvalidCloudClipboardRelay);
         }
         if !(1..=10).contains(&self.frequency.trigger_count)
             || !(1..=10).contains(&self.frequency.linear_step)
@@ -2822,6 +2874,8 @@ pub enum PreferencesError {
     InvalidGameCompatibility,
     #[error("app input mode rules must use distinct application identifiers of at most 64 bytes without control characters or path separators, at most 32 in total")]
     InvalidAppInputModeRules,
+    #[error("cloud clipboard relay needs an https address (http only for loopback) without query, fragment or credentials, and a token of 16-256 printable ASCII characters")]
+    InvalidCloudClipboardRelay,
     #[error("preferences changed; reload before saving")]
     Conflict,
     #[error("unsupported preferences format")]
@@ -3460,11 +3514,12 @@ pub fn is_sensitive_key(name: &str) -> bool {
 }
 
 /// 用户可以自填的服务地址。地址本身不是凭据，但有的服务把密钥放在查询串或 `user:password@` 里，诊断快照只留协议、主机、端口和路径。
-const DIAGNOSTIC_ENDPOINTS: [&str; 4] = [
+const DIAGNOSTIC_ENDPOINTS: [&str; 5] = [
     "/voice_input/asr_endpoint",
     "/voice_input/polish_endpoint",
     "/ai_assistant/endpoint",
     "/custom_translation/endpoint",
+    "/cloud_clipboard_relay/url",
 ];
 
 /// 去掉地址里的用户信息、查询串和片段；解析不了的地址整个换成 [`REDACTED`]，因为看不出密钥藏在哪。

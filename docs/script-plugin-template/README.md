@@ -2,7 +2,7 @@
 
 这是一个桌面脚本插件（`kind = "script"`）的完整例子：上屏前在中文和英文字母、数字之间加一个空格，「用Rust写插件」上屏为「用 Rust 写插件」。用 Rust 写，编译成 core wasm 模块，在输入法进程里由沙箱解释器运行。规则、能力和限制见 [docs/plugins.md 的「脚本插件」一节](../plugins.md#脚本插件kind--script)。
 
-脚本插件目前只在开发构建的桌面输入法里运行，改写上屏（`rewrite_commit`）还没有接通，宿主一律返回 `DENIED`、按原文上屏；这个例子现在能编译、能通过校验、能在 `msime-pack run` 里看到它想怎么改写。
+脚本插件目前只在开发构建的桌面输入法里运行。这个例子能编译、能通过校验、能在 `msime-pack run` 里看到它的改写和宿主给的结果。
 
 ## 文件
 
@@ -53,13 +53,13 @@ target/debug/msime-pack run docs/script-plugin-template/pack \
 `validate` 输出 `ok pangu-spacing script 1.0.0`。`run` 每个事件一行：
 
 ```text
-{"seq":1,"event":"before_commit","status":"ok","fuel":6347,"init_fuel":2,"actions":[{"import":"rewrite_commit","result":"denied"}],"log":[{"level":"debug","text":"用 Rust 写插件"}]}
-{"seq":2,"event":"before_commit","status":"ok","fuel":7175,"actions":[{"import":"rewrite_commit","result":"denied"}],"log":[{"level":"debug","text":"今天是 2026 年"}]}
-{"seq":3,"event":"before_commit","status":"ok","fuel":10346,"actions":[],"log":[]}
+{"seq":1,"event":"before_commit","status":"ok","fuel":6303,"init_fuel":2,"actions":[{"import":"rewrite_commit","result":"ok"}],"log":[{"level":"debug","text":"用 Rust 写插件"}]}
+{"seq":2,"event":"before_commit","status":"ok","fuel":7115,"actions":[{"import":"rewrite_commit","result":"ok"}],"log":[{"level":"debug","text":"今天是 2026 年"}]}
+{"seq":3,"event":"before_commit","status":"ok","fuel":10258,"actions":[],"log":[]}
 {"seq":4,"event":"before_commit","status":"ok","fuel":215,"actions":[],"log":[]}
 ```
 
-- 第 1、2 行：插件请求改写，宿主返回 `denied`，`log` 里是它想改成的文本。第 2 行的句号在尾巴里，插件只看到、只改写 body。
+- 第 1、2 行：插件改写上屏，宿主接受（`ok`），`log` 里是改写后的文本。第 2 行的句号在尾巴里，插件只看到、只改写 body。
 - 第 3 行：已经有空格，不改。
 - 第 4 行：网址模式下上屏不可改写（`rewritable` 为 0），插件直接返回。
 - 不写 `--grant` 时什么都不授予，`commit_text` 返回 `DENIED`，插件按原文上屏。

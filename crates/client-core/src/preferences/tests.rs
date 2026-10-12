@@ -1591,12 +1591,16 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
         "custom_theme",
         "candidate_follow_cursor",
         "input_mode_hud",
+        "input_mode_status_item",
     ] {
         sparse["preferences"].as_object_mut().unwrap().remove(key);
     }
     let bytes = serde_json::to_vec(&sparse).unwrap();
     fs::write(store.path(), &bytes).unwrap();
     let loaded = store.load().unwrap();
+    // 菜单栏状态项是新加的开关，缺字段的旧文档和新装一样读成关闭。
+    assert!(!Preferences::default().input_mode_status_item);
+    assert!(!loaded.preferences.input_mode_status_item);
     // 缺这两项的旧文档按类型默认值读，保持跟随系统；触屏构建的新安装才用薄荷晨光（#2178），所以这里不能直接比 `Preferences::default()`。
     let mut expected = PreferencesSnapshot::default();
     expected.preferences.global_theme = crate::skin::theme::GlobalTheme::default();
@@ -1617,10 +1621,12 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
         toolbar_theme: SettingsTheme::Light,
         candidate_follow_cursor: false,
         input_mode_hud: false,
+        input_mode_status_item: true,
         ..Preferences::default()
     };
     let saved = store.save(0, preferences).unwrap();
     assert_eq!(store.load().unwrap(), saved);
+    assert!(store.load().unwrap().preferences.input_mode_status_item);
 }
 
 #[test]
@@ -3092,6 +3098,37 @@ fn traditional_chinese_output_legacy_default_and_enabled_roundtrip() {
     assert!(store.load().unwrap().preferences.traditional_chinese_output);
 }
 
+// 「中英文之间加空格」默认关，关着时不写进文档：更旧的版本读同一份文档不会因为不认识这个键而整份失败。打开后保存能读回。
+#[test]
+fn chinese_english_spacing_defaults_off_is_omitted_and_roundtrips() {
+    let defaults = Preferences::default();
+    assert!(!defaults.chinese_english_spacing);
+    let written = serde_json::to_value(&defaults).unwrap();
+    assert!(written.get("chinese_english_spacing").is_none());
+    assert!(
+        !serde_json::from_value::<Preferences>(written)
+            .unwrap()
+            .chinese_english_spacing
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                chinese_english_spacing: true,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    assert!(saved.preferences.chinese_english_spacing);
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(on_disk["preferences"]["chinese_english_spacing"], true);
+    assert_eq!(store.load().unwrap(), saved);
+}
+
 #[test]
 fn shuangpin_profiles_preserve_legacy_files_and_reject_unknown_values() {
     let dir = tempfile::tempdir().unwrap();
@@ -4063,6 +4100,8 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
     edited.tencent_tmt.secret_key = "fixture-tencent-key".into();
     edited.niutrans.app_id = "fixture-niutrans-app".into();
     edited.niutrans.apikey = "fixture-niutrans-key".into();
+    edited.cloud_clipboard_relay.url = "https://relay.example.test/msime".into();
+    edited.cloud_clipboard_relay.token = "fixture-relay-token".into();
 
     let restored = edited.restored_to_defaults();
     let defaults = Preferences::default();
@@ -4092,6 +4131,7 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
         "fixture-tencent-id",
         "fixture-tencent-key",
         "fixture-niutrans-key",
+        "fixture-relay-token",
     ] {
         assert!(
             document.contains(secret),
@@ -4111,6 +4151,10 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
     assert_eq!(
         restored.voice_input.asr_model_mirror,
         "https://mirror.example.test/"
+    );
+    assert_eq!(
+        restored.cloud_clipboard_relay.url,
+        "https://relay.example.test/msime"
     );
     // The seeding marker is not a setting: clearing it would re-seed rules the user turned off.
     assert!(restored.fuzzy_pinyin.seeded);
@@ -5052,6 +5096,8 @@ fn diagnostic_snapshot_strips_secrets_from_endpoints() {
         "https://polish.example.com/chat?key=secret-value".into();
     preferences.ai_assistant.endpoint = "https://secret-value@ai.example.com/v1".into();
     preferences.custom_translation.endpoint = "not a url secret-value".into();
+    preferences.cloud_clipboard_relay.url =
+        "https://relay.example.com/msime?token=secret-value".into();
     let redacted = preferences.redacted_for_diagnostics();
     assert!(!redacted.to_string().contains("secret-value"), "{redacted}");
     assert_eq!(
@@ -5067,6 +5113,10 @@ fn diagnostic_snapshot_strips_secrets_from_endpoints() {
         "https://ai.example.com/v1"
     );
     assert_eq!(redacted["custom_translation"]["endpoint"], REDACTED);
+    assert_eq!(
+        redacted["cloud_clipboard_relay"]["url"],
+        "https://relay.example.com/msime"
+    );
 
     // 没填的地址照样是空的。
     preferences.custom_translation.endpoint.clear();
@@ -5096,4 +5146,59 @@ fn restoring_defaults_keeps_exactly_the_listed_credentials() {
             _ => panic!("{path} changed type"),
         }
     }
+}
+
+/// 中继的地址和令牌要么都空，要么都合规；没配置时不写进文档，旧版本读得了。
+#[test]
+fn cloud_clipboard_relay_is_both_or_nothing_and_left_out_until_configured() {
+    let defaults = Preferences::default();
+    let document = serde_json::to_value(&defaults).unwrap();
+    assert!(document.get("cloud_clipboard_relay").is_none());
+    assert!(!defaults.cloud_clipboard_relay.is_configured());
+
+    let configured = |url: &str, token: &str| {
+        let mut preferences = Preferences::default();
+        preferences.cloud_clipboard_relay.url = url.into();
+        preferences.cloud_clipboard_relay.token = token.into();
+        preferences
+    };
+    let token = "synthetic-relay-token";
+    for (url, token, valid) in [
+        ("https://relay.example.test", token, true),
+        ("https://relay.example.test/msime/", token, true),
+        ("http://127.0.0.1:8787", token, true),
+        ("http://localhost:8787/msime", token, true),
+        ("http://relay.example.test", token, false),
+        ("https://relay.example.test/?q=1", token, false),
+        ("https://user:secret@relay.example.test", token, false),
+        ("https://relay.example.test#frag", token, false),
+        ("ftp://relay.example.test", token, false),
+        ("https://relay.example.test", "", false),
+        ("https://relay.example.test", "too-short", false),
+        ("https://relay.example.test", "has a space in it", false),
+        ("", token, false),
+    ] {
+        let preferences = configured(url, token);
+        assert_eq!(
+            preferences.validate().is_ok(),
+            valid,
+            "{url} {token}: {:?}",
+            preferences.validate()
+        );
+        if !valid {
+            assert!(matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidCloudClipboardRelay)
+            ));
+        }
+    }
+
+    let preferences = configured("https://relay.example.test", token);
+    let text = serde_json::to_string(&preferences).unwrap();
+    let back: Preferences = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        back.cloud_clipboard_relay,
+        preferences.cloud_clipboard_relay
+    );
+    assert!(back.cloud_clipboard_relay.is_configured());
 }

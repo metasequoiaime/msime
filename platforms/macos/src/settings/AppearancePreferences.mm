@@ -47,6 +47,7 @@ NSString *const MSIMEAppearanceInputModeOnlyKey = @"MSIMEClientAppearanceInputMo
 static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
 static NSString *const CandidateFollowCursorKey = @"MSIMEClientCandidateFollowCursor";
 static NSString *const InputModeHUDKey = @"MSIMEClientInputModeHUD";
+static NSString *const InputModeStatusItemKey = @"MSIMEClientInputModeStatusItem";
 static NSString *const AppLogoKey = @"MSIMEClientAppLogo";
 static NSString *const SchemeKey = @"MSIMEClientInputScheme";
 static NSString *const LastSyncedSchemeKey = @"MSIMEClientLastSyncedInputScheme";
@@ -379,6 +380,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         LayoutKey : @"sharedVertical",
         CandidateFollowCursorKey : @"sharedCandidateFollowCursor",
         InputModeHUDKey : @"sharedInputModeHUD",
+        InputModeStatusItemKey : @"sharedInputModeStatusItem",
         AppInputModeRulesKey : @"sharedAppInputModeRules",
         AppLogoKey : @"sharedShowsAppLogo",
         SchemeKey : @"sharedInputScheme",
@@ -522,6 +524,7 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             CandidatePreeditKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsCandidatePreedit); },
             CandidateFollowCursorKey : ^id(MSIMEAppearancePreferences *p) { return @(p.candidateFollowCursor); },
             InputModeHUDKey : ^id(MSIMEAppearancePreferences *p) { return @(p.inputModeHUD); },
+            InputModeStatusItemKey : ^id(MSIMEAppearancePreferences *p) { return @(p.inputModeStatusItem); },
             AppLogoKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsAppLogo); },
             FontFamilyKey : ^id(MSIMEAppearancePreferences *p) { return p.fontFamily ?: NSNull.null; },
             CandidateEnglishFontKey : ^id(MSIMEAppearancePreferences *p) { return p.candidateEnglishFont ?: NSNull.null; },
@@ -1039,12 +1042,14 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSNumber *_sharedVertical;
     NSNumber *_sharedCandidateFollowCursor;
     NSNumber *_sharedInputModeHUD;
+    NSNumber *_sharedInputModeStatusItem;
     NSNumber *_sharedShowsAppLogo;
     NSNumber *_sharedFontSize;
     NSString *_sharedFontFamily;
     id _sharedCandidateEnglishFont;
     NSArray<NSString *> *_sharedFallbackFonts;
     NSSwitch *_inputModeHUDToggle;
+    NSSwitch *_inputModeStatusItemToggle;
     NSSwitch *_appLogoToggle;
     id _sharedTextColor;
     id _sharedNumberColor;
@@ -1314,6 +1319,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     merged[@"candidate_layout"] = self.vertical ? @"vertical" : @"horizontal";
     merged[@"candidate_follow_cursor"] = @(self.candidateFollowCursor);
     merged[@"input_mode_hud"] = @(self.inputModeHUD);
+    merged[@"input_mode_status_item"] = @(self.inputModeStatusItem);
     merged[@"show_app_logo"] = @(self.showsAppLogo);
     merged[@"scheme"] = self.inputScheme;
     // 切到日文、韩文、越南文或藏文时要留一条回去的路。`last_chinese_scheme` 是其他宿主在方案变化时都会写的字段——Fcitx5、IBus、iOS 和 HarmonyOS 都写——共享设置页也靠它把用户送回五笔而不是全拼。这个窗口自己也会设置方案，包括这四个，所以不写的话这个字段会停在别的界面写下的值，回去的路就指错了方案。在这四个方案之一生效期间，只要知道是从哪个方案进来的，也照样写进去，因为输入菜单的 中 也是这样离开它们的。
@@ -1646,6 +1652,15 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)setInputModeHUD:(BOOL)value {
     _sharedInputModeHUD = nil;
     [_defaults setBool:value forKey:InputModeHUDKey];
+    [self preferencesChanged];
+}
+- (BOOL)inputModeStatusItem {
+    if (_sharedInputModeStatusItem) return _sharedInputModeStatusItem.boolValue;
+    return [_defaults boolForKey:InputModeStatusItemKey];
+}
+- (void)setInputModeStatusItem:(BOOL)value {
+    _sharedInputModeStatusItem = nil;
+    [_defaults setBool:value forKey:InputModeStatusItemKey];
     [self preferencesChanged];
 }
 - (BOOL)showsAppLogo {
@@ -2893,6 +2908,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (LocalModeBoolean(followCursor)) _sharedCandidateFollowCursor = followCursor;
     id inputModeHUD = preferences[@"input_mode_hud"];
     if (LocalModeBoolean(inputModeHUD)) _sharedInputModeHUD = inputModeHUD;
+    id inputModeStatusItem = preferences[@"input_mode_status_item"];
+    if (LocalModeBoolean(inputModeStatusItem)) _sharedInputModeStatusItem = inputModeStatusItem;
     id appLogo = preferences[@"show_app_logo"];
     if (LocalModeBoolean(appLogo)) _sharedShowsAppLogo = appLogo;
     id font = preferences[@"candidate_font_size"];
@@ -3138,6 +3155,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _textColorField.stringValue = self.candidateTextColor ?: @"";
     _textColorWell.color = CandidateColor(self.candidateTextColor, [self candidateSkinColorForProperty:@"candidateTextColor"]);
     _inputModeHUDToggle.state = self.inputModeHUD ? NSControlStateValueOn : NSControlStateValueOff;
+    _inputModeStatusItemToggle.state = self.inputModeStatusItem ? NSControlStateValueOn : NSControlStateValueOff;
     _appLogoToggle.state = self.showsAppLogo ? NSControlStateValueOn : NSControlStateValueOff;
     [_themeModeButton selectItemAtIndex:(NSInteger)[ThemeModes() indexOfObject:self.themeMode]];
     [_candidateThemeButton selectItemAtIndex:(NSInteger)[SurfaceThemes() indexOfObject:self.candidateTheme]];
@@ -3424,6 +3442,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _toolbarThemeButton.target = self;
     _toolbarThemeButton.action = @selector(toolbarThemeChanged:);
     _inputModeHUDToggle = MSIMESettingSwitch(self, @selector(inputModeHUDChanged:), @"切换中英文时显示提示");
+    _inputModeStatusItemToggle = MSIMESettingSwitch(self, @selector(inputModeStatusItemChanged:), @"菜单栏显示中/英状态");
     _appLogoToggle = MSIMESettingSwitch(self, @selector(appLogoChanged:), @"显示水杉 logo");
     _preeditFontButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     for (NSUInteger size = 12; size <= 32; ++size)
@@ -3936,6 +3955,11 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
                   detail:@"切换后在光标下方短暂显示「中」或「英」。"
                  control:_inputModeHUDToggle
                      aka:@[@"HUD", @"角标"]],
+        // 系统的输入法图标只在「英」也加成输入源时才跟着变，这个状态项由输入法进程自己放，不依赖它（#7066）。
+        [self settingRow:@"菜单栏显示中/英状态"
+                  detail:@"在菜单栏常驻显示当前模式：中文时是所用方案，英文时是「英」。不需要把「英」加成输入源。"
+                 control:_inputModeStatusItemToggle
+                     aka:@[@"状态栏", @"菜单栏图标"]],
         [self settingRow:@"显示水杉 logo"
                   detail:@"在候选窗和悬浮工具栏左端显示水杉图标。"
                  control:_appLogoToggle
@@ -3981,7 +4005,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         [self sectionHeader:@"候选窗口"
                        keys:@[LayoutKey, PageSizeKey, FontKey, CandidateScaleKey, CandidateOpacityKey,
                               CandidateCornerRadiusKey, PreeditFontKey, CandidatePreeditKey,
-                              CandidateFollowCursorKey, InputModeHUDKey, AppLogoKey]],
+                              CandidateFollowCursorKey, InputModeHUDKey, InputModeStatusItemKey, AppLogoKey]],
         candidateWindowCard,
         [self sectionHeader:@"候选字体" keys:@[FontFamilyKey, CandidateEnglishFontKey, FallbackFontsKey]],
         fontCard,
@@ -5500,6 +5524,7 @@ static NSString *CandidateColorHex(NSColor *color) {
     if (sender.identifier) [self setValue:nil forKey:sender.identifier];
 }
 - (void)inputModeHUDChanged:(NSSwitch *)sender { self.inputModeHUD = sender.state == NSControlStateValueOn; }
+- (void)inputModeStatusItemChanged:(NSSwitch *)sender { self.inputModeStatusItem = sender.state == NSControlStateValueOn; }
 - (void)appLogoChanged:(NSSwitch *)sender { self.showsAppLogo = sender.state == NSControlStateValueOn; }
 - (void)themeModeChanged:(NSPopUpButton *)sender { self.themeMode = ThemeModes()[sender.indexOfSelectedItem]; }
 - (void)candidateThemeChanged:(NSPopUpButton *)sender { self.candidateTheme = SurfaceThemes()[sender.indexOfSelectedItem]; }

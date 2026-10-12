@@ -8,11 +8,11 @@ use crate::abi::Hook;
 pub const INIT_FUEL: u64 = 5_000_000;
 /// 每次 focus 之后所有插件初始化的合计。超出的插件推迟到下一轮再实例化，不算失败；由宿主一侧记账。
 pub const FOCUS_INIT_FUEL: u64 = 5_000_000;
-/// 每个插件每一轮（宿主的一次 `msime_client_key` 到下一次之间，跨同一轮内的多次 FFI）。
+/// 每个插件每一轮（宿主的一次 `msime_client_key` 到下一次之间，跨同一轮内的多次 FFI），`before_commit` 之外的钩子合计。
 pub const TURN_FUEL: u64 = 125_000;
 /// 单次 `candidates` 的上限。
 pub const CANDIDATES_FUEL: u64 = 125_000;
-/// 单次 `before_commit` 的上限。
+/// 单次 `before_commit` 的上限，也是每个插件每一轮 `before_commit` 的合计。它和 [`TURN_FUEL`] 分开记：快照上的改写能用多少 fuel 不能取决于持久实例这一轮用掉了多少，所以一个插件一轮最多用两者之和。
 pub const BEFORE_COMMIT_FUEL: u64 = 100_000;
 /// 其余观察类钩子单次的上限。
 pub const OBSERVE_FUEL: u64 = 25_000;
@@ -55,6 +55,22 @@ pub const MAX_MODULE_BYTES: usize = 256 * 1024;
 pub const MAX_ENABLED_SCRIPTS: usize = 8;
 /// 候选类事件里交给插件的行数上限（窗口内前 20 行）。
 pub const MAX_CANDIDATE_ROWS: usize = 20;
+
+/// 插件给一个候选加的注释最多几个 UTF-16 码元。
+pub const MAX_ANNOTATION_UTF16: usize = 32;
+/// 改写后的 body 最多几个 UTF-8 字节。
+pub const MAX_REWRITE_BYTES: usize = 4096;
+/// 改写后的 body 最多是原文 UTF-16 码元数的几倍。
+pub const REWRITE_GROWTH: usize = 4;
+/// 原文很短时改写后 body 的 UTF-16 码元上限的下限，让一个字也能改写成一小段话。
+pub const MIN_REWRITE_UTF16: usize = 256;
+
+/// 原文 body 有 `original_utf16` 个 UTF-16 码元时，改写结果最多几个：原文的 [`REWRITE_GROWTH`] 倍，至少 [`MIN_REWRITE_UTF16`]。
+pub fn rewrite_utf16_limit(original_utf16: usize) -> usize {
+    original_utf16
+        .saturating_mul(REWRITE_GROWTH)
+        .max(MIN_REWRITE_UTF16)
+}
 
 /// 进程里全部脚本合计的内存总账：线性内存预留、翻译后的字节码和解释器值栈。授权和启用时按它做准入检查，超出就拒绝启用，而不是让脚本在运行时争抢。
 pub const PROCESS_MEMORY_BYTES: usize = 64 * 1024 * 1024;

@@ -104,7 +104,7 @@ const REWRITER_HOOKS: [Hook; 3] = [Hook::FocusIn, Hook::BeforeCommit, Hook::Comm
 const REWRITER_CAPABILITIES: [Capability; 2] = [Capability::ReadCommit, Capability::RewriteCommit];
 
 #[test]
-fn a_rewriter_is_shown_its_snapshot_its_grants_and_a_denied_rewrite() {
+fn a_rewriter_is_shown_its_snapshot_its_grants_and_its_rewrite() {
     let declared = declaration(&REWRITER_CAPABILITIES, &REWRITER_HOOKS);
     let fixture = r#"{"event":"focus_in"}
 {"event":"commit","key":true,"origin":"selection","body":"你好"}
@@ -121,7 +121,7 @@ fn a_rewriter_is_shown_its_snapshot_its_grants_and_a_denied_rewrite() {
         &out,
         r#"{"seq":1,"event":"focus_in","status":"ok","fuel":121,"init_fuel":109,"actions":[],"log":[{"level":"info","text":"init"},{"level":"debug","text":"1"}]}
 {"seq":2,"event":"commit","status":"ok","fuel":121,"actions":[],"log":[{"level":"debug","text":"2"}]}
-{"seq":3,"event":"before_commit","status":"ok","fuel":446,"actions":[{"import":"rewrite_commit","result":"denied"}],"log":[{"level":"debug","text":"1"},{"level":"info","text":"用Rust写"}]}
+{"seq":3,"event":"before_commit","status":"ok","fuel":448,"actions":[{"import":"rewrite_commit","result":"ok"}],"log":[{"level":"debug","text":"1"},{"level":"info","text":"用Rust写"}]}
 {"seq":4,"event":"commit","status":"ok","fuel":121,"actions":[],"log":[{"level":"debug","text":"3"}]}
 {"seq":5,"event":"before_commit","status":"ok","fuel":349,"actions":[],"log":[{"level":"debug","text":"1"},{"level":"warn","text":"absent"}]}
 {"seq":6,"event":"input","status":"not_subscribed","fuel":0,"actions":[],"log":[]}
@@ -145,6 +145,7 @@ fn without_the_grant_the_text_is_denied_and_the_rest_runs_the_same() {
     );
 }
 
+/// 每种失败都报告用掉的 fuel，并让退出码为 1。第 12 行被本轮配额截断（六次 `composition_update` 之后只剩 16 886），这一次用掉的超过 `composition_update` 上限 25 000 的一半，和超出上限一样算 `out_of_fuel`；第 15 行是超出 `commit` 自己的上限。
 #[test]
 fn failures_are_reported_with_their_fuel_and_fail_the_run() {
     let hooks = [
@@ -186,7 +187,7 @@ fn failures_are_reported_with_their_fuel_and_fail_the_run() {
 {"seq":9,"event":"composition_update","status":"ok","fuel":18019,"actions":[],"log":[]}
 {"seq":10,"event":"composition_update","status":"ok","fuel":18019,"actions":[],"log":[]}
 {"seq":11,"event":"composition_update","status":"ok","fuel":18019,"actions":[],"log":[]}
-{"seq":12,"event":"composition_update","status":"turn_exhausted","fuel":16885,"actions":[],"log":[]}
+{"seq":12,"event":"composition_update","status":"out_of_fuel","fuel":16885,"actions":[],"log":[]}
 {"seq":13,"event":"composition_update","status":"suspended","fuel":0,"actions":[],"log":[]}
 {"seq":14,"event":"focus_in","status":"ok","fuel":18,"init_fuel":2,"actions":[],"log":[]}
 {"seq":15,"event":"commit","status":"out_of_fuel","fuel":24999,"actions":[],"log":[]}
@@ -238,9 +239,11 @@ fn an_initialisation_failure_disables_the_plugin() {
     );
 }
 
-/// 同一轮里重建的实例接着用这一轮剩下的配额：六次 `composition_update` 用掉 108 114，`focus_in` 丢掉实例再重建，第七次只剩一万六千多，本轮配额耗尽（`turn_exhausted`，不算失败，所以退出码是 0）；带 `key` 的 `focus_in` 开始新的一轮，重建的实例拿到满额。
+/// 同一轮里重建的实例接着用这一轮剩下的配额：`composition_update` 空转 2 200 圈，六次用掉 118 914，`focus_in` 丢掉实例再重建（花掉 18），第七次只剩 6 068，本轮配额耗尽。被截断的这一次用掉的不到 `composition_update` 上限 25 000 的一半，是 `turn_exhausted`，不算失败，所以退出码是 0（用掉一半以上就是 `out_of_fuel`，见 [`failures_are_reported_with_their_fuel_and_fail_the_run`]）；带 `key` 的 `focus_in` 开始新的一轮，重建的实例拿到满额。
 #[test]
 fn an_instance_rebuilt_in_the_same_turn_resumes_its_fuel() {
+    let module = FAILING.replace("(i32.const 2000)", "(i32.const 2200)");
+    assert_ne!(module, FAILING);
     let declared = declaration(&[], &[Hook::FocusIn, Hook::CompositionUpdate]);
     let fixture = r#"{"event":"composition_update","key":true,"preedit":"n"}
 {"event":"composition_update","preedit":"ni"}
@@ -253,20 +256,20 @@ fn an_instance_rebuilt_in_the_same_turn_resumes_its_fuel() {
 {"event":"focus_in","key":true}
 {"event":"composition_update","preedit":"n"}
 "#;
-    let (status, out) = run_wat(FAILING, declared, CapabilitySet::EMPTY, fixture);
+    let (status, out) = run_wat(&module, declared, CapabilitySet::EMPTY, fixture);
     assert_eq!(status, EXIT_OK);
     assert_golden(
         &out,
-        r#"{"seq":1,"event":"composition_update","status":"ok","fuel":18019,"init_fuel":2,"actions":[],"log":[]}
-{"seq":2,"event":"composition_update","status":"ok","fuel":18019,"actions":[],"log":[]}
-{"seq":3,"event":"composition_update","status":"ok","fuel":18019,"actions":[],"log":[]}
-{"seq":4,"event":"composition_update","status":"ok","fuel":18019,"actions":[],"log":[]}
-{"seq":5,"event":"composition_update","status":"ok","fuel":18019,"actions":[],"log":[]}
-{"seq":6,"event":"composition_update","status":"ok","fuel":18019,"actions":[],"log":[]}
+        r#"{"seq":1,"event":"composition_update","status":"ok","fuel":19819,"init_fuel":2,"actions":[],"log":[]}
+{"seq":2,"event":"composition_update","status":"ok","fuel":19819,"actions":[],"log":[]}
+{"seq":3,"event":"composition_update","status":"ok","fuel":19819,"actions":[],"log":[]}
+{"seq":4,"event":"composition_update","status":"ok","fuel":19819,"actions":[],"log":[]}
+{"seq":5,"event":"composition_update","status":"ok","fuel":19819,"actions":[],"log":[]}
+{"seq":6,"event":"composition_update","status":"ok","fuel":19819,"actions":[],"log":[]}
 {"seq":7,"event":"focus_in","status":"ok","fuel":18,"init_fuel":2,"actions":[],"log":[]}
-{"seq":8,"event":"composition_update","status":"turn_exhausted","fuel":16867,"actions":[],"log":[]}
+{"seq":8,"event":"composition_update","status":"turn_exhausted","fuel":6067,"actions":[],"log":[]}
 {"seq":9,"event":"focus_in","status":"ok","fuel":18,"init_fuel":2,"actions":[],"log":[]}
-{"seq":10,"event":"composition_update","status":"ok","fuel":18019,"actions":[],"log":[]}
+{"seq":10,"event":"composition_update","status":"ok","fuel":19819,"actions":[],"log":[]}
 "#,
     );
 }

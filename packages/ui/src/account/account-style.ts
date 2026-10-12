@@ -78,7 +78,7 @@ export const modalHeading = "flex items-center justify-between gap-3 [&>h2]:m-0"
 
 /** Two columns of facts, one on a phone where a value would otherwise be squeezed to a few glyphs. */
 export const details =
-  "m-0 grid grid-cols-2 gap-3 pt-1 max-phone:grid-cols-1 [&>div]:min-w-0 [&>div]:rounded-lg [&>div]:bg-subtle [&>div]:p-3 [&_dt]:text-xs [&_dt]:[color:var(--p-sub)] [&_dd]:mt-[5px] [&_dd]:mb-0 [&_dd]:ml-0 [&_dd]:break-anywhere [&_dd]:[color:var(--p-text)]";
+  "m-0 grid grid-cols-2 gap-3 pt-1 max-phone:grid-cols-1 [&>div]:min-w-0 [&>div]:rounded-lg [&>div]:bg-subtle [&>div]:p-3 [&_dt]:text-xs [&_dt]:[color:var(--p-sub)] [&_dd]:mt-[5px] [&_dd]:mb-0 [&_dd]:ml-0 [&_dd]:wrap-anywhere [&_dd]:[color:var(--p-text)]";
 export const code = "flex flex-col gap-3 pt-0.5";
 
 // ---- the signed-in settings, drawn as the platform's grouped rows ----

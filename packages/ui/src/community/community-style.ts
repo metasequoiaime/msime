@@ -80,7 +80,7 @@ export const detailStage = "overflow-hidden rounded-xl bg-[var(--skin-preview-st
 export const detailTitle = "flex items-start justify-between gap-3";
 export const detailBadge =
   "shrink-0 grow-0 basis-auto rounded-full bg-accent-soft px-2 py-1 text-[11px] text-accent";
-export const description = "m-0 leading-[1.7] whitespace-pre-wrap break-anywhere text-secondary";
+export const description = "m-0 leading-[1.7] whitespace-pre-wrap wrap-anywhere text-secondary";
 export const metrics = "m-0 text-xs leading-relaxed text-muted";
 /** A block that is separated from the one above it by a rule rather than by space alone. */
 export const divided = "border-t border-[var(--divider-color)] pt-3.5";
@@ -129,7 +129,7 @@ export const entryForm =
 export const entryList =
   "flex max-h-[200px] flex-col gap-1.5 overflow-y-auto [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-2 [&>div]:rounded-lg [&>div]:bg-subtle [&>div]:px-2.5 [&>div]:py-1.5 [&>div]:text-xs [&>div>button]:m-0";
 export const promptPreview =
-  "m-0 max-h-[220px] overflow-auto rounded-[10px] bg-subtle p-3 text-xs leading-relaxed whitespace-pre-wrap break-anywhere text-secondary";
+  "m-0 max-h-[220px] overflow-auto rounded-[10px] bg-subtle p-3 text-xs leading-relaxed whitespace-pre-wrap wrap-anywhere text-secondary";
 export const entryPreview =
   "max-h-[220px] overflow-y-auto rounded-[10px] bg-subtle p-2.5 text-xs [&>div]:flex [&>div]:justify-between [&>div]:gap-2 [&>div]:py-1";
 
