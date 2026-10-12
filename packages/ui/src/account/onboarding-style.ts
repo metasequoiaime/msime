@@ -6,7 +6,7 @@
  * all share one column so the text does not run the full width of a desktop window.
  */
 
-import { tightStack } from "../core/page-style";
+import { flexSpacer, tightStack } from "../core/page-style";
 
 const column = "mx-auto w-[min(560px,100%)]";
 
@@ -76,7 +76,7 @@ export const sheet = (desktop: boolean) =>
   }`;
 
 /** 把 2-in-1 按钮栏里的按钮推到「跳过」右侧。 */
-export const deskSpacer = "flex-1";
+export const deskSpacer = flexSpacer;
 
 // ---- Android: a linear progress bar over the page and a pair of buttons under it ----
 

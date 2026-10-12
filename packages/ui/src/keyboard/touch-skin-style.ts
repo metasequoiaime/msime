@@ -5,7 +5,7 @@
  * and the three call sites differ only in what they put in the preview column.
  */
 
-import { looseStack } from "../core/page-style";
+import { flexSpacer, looseStack } from "../core/page-style";
 import { inlineItems } from "../core/row-style";
 
 // ---- the scheme list on the input page ----
@@ -52,7 +52,7 @@ export const previewBar = inlineItems;
 /** 撤销、重做是图标按钮，名称在 `aria-label` 上。 */
 export const iconButton =
   "m-0 inline-flex size-9 shrink-0 items-center justify-center rounded-full border-0 bg-transparent p-0 [color:var(--p-text)] not-disabled:hover:bg-[var(--p-seg-bg)] disabled:opacity-35 focus-visible:outline-2 focus-visible:outline-accent";
-export const previewBarSpacer = "flex-1";
+export const previewBarSpacer = flexSpacer;
 /** 次要的胶囊按钮：强调色文字，淡强调色底。 */
 export const tonalButton =
   "m-0 inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full border-0 bg-accent-soft px-4 font-semibold text-accent disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent";

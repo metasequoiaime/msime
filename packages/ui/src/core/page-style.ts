@@ -8,3 +8,5 @@ export const tightStack = "flex flex-col gap-2.5";
 export const standardStack = "flex flex-col gap-3";
 /** Shared roomy vertical stack for multi-step controls and editors. */
 export const looseStack = "flex flex-col gap-4";
+/** Shared flexible spacer used to push trailing controls to the far edge. */
+export const flexSpacer = "flex-1";
