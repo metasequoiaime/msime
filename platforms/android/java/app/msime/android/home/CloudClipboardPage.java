@@ -45,6 +45,11 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         render();
     }
 
+    @Override protected boolean shouldReloadWhenVisible() {
+        // 写操作完成后会自行重读；此时抢跑读取可能先于写操作返回，留下旧列表。
+        return !busy;
+    }
+
     @Override protected void onContentDestroyed() {
         generation++;
         overview = null;
