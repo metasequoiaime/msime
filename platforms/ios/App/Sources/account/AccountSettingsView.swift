@@ -19,6 +19,12 @@ struct AccountSettingsView: View {
   @State private var showsLogin = false
   @State private var showsAppTheme = false
   @State private var replay: Replay?
+  @State private var pending: Task<Void, Never>?
+  @State private var operation: Task<Void, Never>?
+  @State private var requestID = UUID()
+  @State private var visible = false
+  @State private var syncTask: Task<Void, Never>?
+  @State private var syncGeneration = UUID()
   @ObservedObject private var cloudSync = CloudSync.shared
   private let api = SkinCommunityAPI.shared
 
@@ -96,8 +102,8 @@ struct AccountSettingsView: View {
     .navigationTitle("我的")
     .navigationBarTitleDisplayMode(.large)
     .tint(MetasequoiaTheme.accent)
-    .task { await reload() }
-    .sheet(isPresented: $showsLogin, onDismiss: { Task { await reload() } }) { AccountLoginSheet() }
+    .task { visible = true; startReload() }
+    .sheet(isPresented: $showsLogin, onDismiss: { startReload() }) { AccountLoginSheet() }
     .designOptionSheet(isPresented: $showsAppTheme, title: "应用主题", message: "四季会随季节自动更换配色",
                        options: appThemeOptions, selected: AppThemePalette.selectedID) { id in
       AppThemePalette.select(id)
@@ -129,6 +135,18 @@ struct AccountSettingsView: View {
         SplashView { dismissReplay() }
       }
     }
+    .onDisappear {
+      visible = false
+      requestID = UUID()
+      pending?.cancel()
+      pending = nil
+      operation?.cancel()
+      operation = nil
+      syncGeneration = UUID()
+      syncTask?.cancel()
+      syncTask = nil
+      busy = false
+    }
   }
 
   // MARK: - 资料卡
@@ -153,10 +171,11 @@ struct AccountSettingsView: View {
       }
       if needsRecovery && !signedIn {
         Button("清除失效登录状态") {
-          run {
+          run { id in
             try await api.clearExpiredLogin()
+            try ensureCurrent(id)
             needsRecovery = false
-            await reload()
+            await reload(id: id)
           }
         }
         .font(.system(size: 13))
@@ -278,11 +297,19 @@ struct AccountSettingsView: View {
 
   /// 打开或关闭云同步，与 Android 的 `setSync` 相同：结果用一条提示说明，打开后马上比对一次（首次的「合并 / 使用云端」选择也当场弹出）。
   private func setCloudSync(_ enabled: Bool) {
-    Task { @MainActor in
+    guard visible else { return }
+    let id = UUID()
+    syncGeneration = id
+    syncTask?.cancel()
+    syncTask = Task { @MainActor in
+      defer { if syncGeneration == id { syncTask = nil } }
       do {
         try await cloudSync.setEnabled(enabled)
+        guard visible, syncGeneration == id, !Task.isCancelled else { return }
         ToastCenter.shared.show(enabled ? "云同步已开启" : "云同步已关闭")
-      } catch {
+      } catch is CancellationError { }
+      catch {
+        guard visible, syncGeneration == id, !Task.isCancelled else { return }
         ToastCenter.shared.show(error is CloudSyncState.Failure ? "登录后才能打开云同步" : "云同步设置没有保存，请重试")
       }
     }
@@ -351,17 +378,33 @@ struct AccountSettingsView: View {
   // MARK: - 加载
 
   /// 先读本地会话，已登录时再取资料和云剪贴板条数。会话读不出来时弹出提示，并提供「清除失效登录状态」。
-  @MainActor private func reload() async {
+  @MainActor private func startReload() {
+    guard visible, !busy else { return }
+    let id = UUID()
+    requestID = id
+    pending?.cancel()
+    pending = Task { await reload(id: id) }
+  }
+
+  @MainActor private func reload(id: UUID) async {
+    defer { if requestID == id { pending = nil } }
     do {
-      user = try await api.currentUser()
-      signedIn = user != nil
+      let currentUser = try await api.currentUser()
+      try ensureCurrent(id)
+      user = currentUser
+      signedIn = currentUser != nil
       needsRecovery = false
+    } catch is CancellationError {
+      return
     } catch {
-      if !AccountRequestPolicy.isCancellation(error) { needsRecovery = true; report(error) }
+      if visible, requestID == id, !AccountRequestPolicy.isCancellation(error) {
+        needsRecovery = true; report(error)
+      }
       return
     }
     // 与当前登录对齐：换了账号或已经退出时，这一步关掉开关、清空同步进度。
     await cloudSync.refresh()
+    guard (try? ensureCurrent(id)) != nil else { return }
     guard signedIn else {
       profile = nil
       clipboardValue = nil
@@ -369,23 +412,26 @@ struct AccountSettingsView: View {
     }
     // 每次从推入的页面返回都会重新加载，所以资料取不到时资料卡只停在「已登录」；原因由资料页自己说明。
     if let result = try? await api.profile() {
+      guard (try? ensureCurrent(id)) != nil else { return }
       profile = result
       user = result.user
     }
-    await loadClipboardCount()
+    await loadClipboardCount(id: id)
   }
 
   /// 「云剪贴板」行尾的条数；本机等待批准、或有其他设备等待本机批准时显示这件事。取不到时这一行不显示值，不为一个数字弹出提示。
-  @MainActor private func loadClipboardCount() async {
+  @MainActor private func loadClipboardCount(id: UUID) async {
     do {
       let page = try await BackendAccountClient().clipboard(e2e: IOSCloudClipboardDriver.e2e, session: .shared)
+      try ensureCurrent(id)
       let waiting = page.e2e?.pending_devices ?? 0
       if !page.enabled { clipboardValue = "已关闭" }
       else if page.isPending { clipboardValue = "等待批准" }
       else if waiting > 0 { clipboardValue = "\(waiting) 台设备待批准" }
       else { clipboardValue = "\(page.items.count) 条" }
-    } catch {
-      if !AccountRequestPolicy.isCancellation(error) { clipboardValue = nil }
+    } catch is CancellationError { }
+    catch {
+      if visible, requestID == id, !AccountRequestPolicy.isCancellation(error) { clipboardValue = nil }
     }
   }
 
@@ -395,7 +441,19 @@ struct AccountSettingsView: View {
     user = nil
     profile = nil
     clipboardValue = nil
-    Task { await cloudSync.refresh() }
+    startCloudRefresh()
+  }
+
+  @MainActor private func startCloudRefresh() {
+    guard visible else { return }
+    let id = UUID()
+    syncGeneration = id
+    syncTask?.cancel()
+    syncTask = Task { @MainActor in
+      defer { if syncGeneration == id { syncTask = nil } }
+      await cloudSync.refresh()
+      guard visible, syncGeneration == id, !Task.isCancelled else { return }
+    }
   }
 
   /// 取消不写进 message,别的都写。alert 绑在 message 上,写进去就是弹出来。
@@ -404,14 +462,27 @@ struct AccountSettingsView: View {
     message = error.localizedDescription
   }
 
-  private func run(_ action: @escaping @MainActor () async throws -> Void) {
-    guard !busy else { return }
+  private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
+    guard visible, !busy else { return }
+    let id = UUID()
+    requestID = id
+    pending?.cancel()
+    pending = nil
     busy = true
-    Task {
-      defer { busy = false }
-      do { try await action() }
-      catch { report(error) }
+    operation = Task {
+      defer { if requestID == id { busy = false; operation = nil } }
+      do {
+        try await action(id)
+        guard visible, requestID == id else { return }
+      }
+      catch is CancellationError { }
+      catch { if visible, requestID == id { report(error) } }
     }
+  }
+
+  @MainActor private func ensureCurrent(_ id: UUID) throws {
+    try Task.checkCancellation()
+    guard visible, requestID == id else { throw CancellationError() }
   }
 
   /// 这些全屏层出现和消失时不带上滑动画：启动页和 iPad 卡片各自绘制入场动画，滑动的遮罩看起来像浮层，而不像重播。
