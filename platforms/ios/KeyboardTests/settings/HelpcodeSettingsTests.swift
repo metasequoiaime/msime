@@ -64,6 +64,59 @@ final class HelpcodeSettingsTests: XCTestCase {
     XCTAssertTrue(first.dropFirst().dropLast().allSatisfy { $0.isLetter }, "\(first) is not a helpcode")
   }
 
+  /// 在设置 App 里导入的码表（#7176）装进键盘读的插件目录，并选中到发起导入的那一份；已经打开的键盘重读设置后按它缩小候选，删掉后退回内置方案。
+  func testImportedTableReachesTheLiveSessionAndRemovalFallsBack() async throws {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    // 自然码 Y 是讠旁，「识」排第一。
+    XCTAssertEqual(compose(bridge, "shi", helpcode: "Y").candidates.first, "识")
+
+    // 合成的码表：只有「是」的码以 y 开头，其余 shi 音的字都以 q 开头。
+    let table = state.appendingPathComponent("测试码表.txt")
+    try "# name: 测试码表\n是=ya\n识=qa\n时=qb\n事=qc\n十=qd\n使=qe\n市=qf\n世=qg\n式=qh\n实=qi\n"
+      .write(to: table, atomically: true, encoding: .utf8)
+    let message = HelpcodeSettingsView.importTable(table, into: HelpcodeSettingsView.quanpin, stateRoot: state)
+    XCTAssertEqual(message, "已导入「测试码表」，共 10 条，已切换到这套辅助码")
+
+    let packs = HelpcodeSettingsView.installedPacks(stateRoot: state)
+    XCTAssertEqual(packs.map(\.name), ["测试码表"])
+    let pack = try XCTUnwrap(packs.first)
+    let document = MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)
+    XCTAssertEqual(HelpcodeChoicePolicy.selectedPack(of: HelpcodeSettingsView.quanpin, in: document), pack.id)
+    XCTAssertEqual(HelpcodeChoicePolicy.selectedPack(of: HelpcodeSettingsView.shuangpin, in: document), "")
+
+    await reload(bridge)
+    XCTAssertEqual(compose(bridge, "shi", helpcode: "Y").candidates.first, "是")
+
+    XCTAssertEqual(HelpcodeSettingsView.remove(pack, stateRoot: state), "已删除「测试码表」，已改回内置方案")
+    XCTAssertEqual(HelpcodeSettingsView.installedPacks(stateRoot: state), [])
+    let cleared = MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)
+    XCTAssertEqual(HelpcodeChoicePolicy.selectedPack(of: HelpcodeSettingsView.quanpin, in: cleared), "")
+
+    await reload(bridge)
+    XCTAssertEqual(compose(bridge, "shi", helpcode: "Y").candidates.first, "识")
+  }
+
+  /// 坏表整张拒绝，提示里是 client-core 给的文件名、原因和行号；GBK 码表在调用 host-api 之前就被拒；什么都没装上。
+  func testRejectedTablesInstallNothing() throws {
+    try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+    let duplicate = state.appendingPathComponent("mine.txt")
+    try "你=ab\n你=cd\n".write(to: duplicate, atomically: true, encoding: .utf8)
+    XCTAssertEqual(HelpcodeSettingsView.importTable(duplicate, into: HelpcodeSettingsView.shuangpin, stateRoot: state),
+                   "无法导入：mine.txt 里「你」出现了不止一次（第 1 行和第 2 行）")
+
+    let gbk = state.appendingPathComponent("gbk.txt")
+    try Data([0xC4, 0xE3, 0x3D, 0x6E, 0x69, 0x0A]).write(to: gbk)
+    XCTAssertEqual(HelpcodeSettingsView.importTable(gbk, into: HelpcodeSettingsView.shuangpin, stateRoot: state),
+                   "码表不是 UTF-8 编码，请先另存为 UTF-8 再导入")
+
+    let large = state.appendingPathComponent("large.txt")
+    try Data(repeating: 0x23, count: HelpcodeChoicePolicy.maximumTableBytes + 1).write(to: large)
+    XCTAssertEqual(HelpcodeSettingsView.importTable(large, into: HelpcodeSettingsView.shuangpin, stateRoot: state),
+                   "码表超过 1 MiB，无法导入")
+
+    XCTAssertEqual(HelpcodeSettingsView.installedPacks(stateRoot: state), [])
+  }
+
   private func update(_ change: (inout [String: Any]) -> Void) {
     XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
       var helpcode = $0["quanpin_helpcode"] as? [String: Any] ?? [:]

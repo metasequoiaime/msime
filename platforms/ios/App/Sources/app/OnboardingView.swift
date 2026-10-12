@@ -58,6 +58,8 @@ struct InputSettingsView: View {
   @State private var wubiAutoCommitUnique = true
   @State private var wubiMixedPinyin = MSIMEAppEdition.wubiMixedPinyinDefault
   @State private var wubiCodeHint = true
+  /// 用户导入的辅助码表（#7176），列在「辅助码方案」的内置方案之后。
+  @State private var helpcodePacks: [HelpcodeChoicePolicy.Pack] = []
   @State private var addingLanguage = false
   @State private var failedGroup: PageGroup?
 
@@ -92,9 +94,22 @@ struct InputSettingsView: View {
     .background(MetasequoiaTheme.canvas.ignoresSafeArea())
     .navigationTitle("输入")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reloadPreferences)
+    .onAppear {
+      reloadPreferences()
+      reloadHelpcodePacks()
+    }
     .onChange(of: scenePhase) { _, phase in
-      if phase == .active { reloadPreferences() }
+      if phase == .active {
+        reloadPreferences()
+        reloadHelpcodePacks()
+      }
+    }
+  }
+
+  /// 已导入的辅助码表只在页面出现时重读：目录会校验每个包的码表，不跟着每次写设置重读。从「更多辅助码设置」导入或删除后回到本页时会再出现一次。
+  private func reloadHelpcodePacks() {
+    Task { @MainActor in
+      helpcodePacks = await Task.detached(priority: .userInitiated) { HelpcodeSettingsView.installedPacks() }.value
     }
   }
 
@@ -323,15 +338,20 @@ struct InputSettingsView: View {
   private var helpcodeGroup: some View {
     let family = HelpcodeSettingsView.family(of: inputScheme)
     let schema = HelpcodeSettingsView.schema(of: family, in: document)
+    let pack = HelpcodeChoicePolicy.selectedPack(of: family, in: document)
+    let selected = HelpcodeChoicePolicy.selectedValue(schema: schema, selectedPack: pack)
     var options = HelpcodeSettingsView.schemas.map { DesignOption(title: $0.1, value: $0.0) }
     // 引擎认识但这份列表里没有的用户码表，仍按它的 id 显示。
     if !options.contains(where: { $0.value == schema }) { options.append(DesignOption(title: schema, value: schema)) }
+    // 导入的码表排在内置方案之后，选中的包不在了时显示「未找到」，规则与「更多辅助码设置」相同。
+    options += HelpcodeChoicePolicy.packOptions(helpcodePacks, selectedPack: pack)
+      .map { DesignOption(title: $0.label, value: $0.value) }
     return DesignGroup(title: "辅助码", footer: footer(.helpcode)) {
       DesignSelectRow(title: "辅助码方案", subtitle: family.label, options: options,
-                      selection: Binding(get: { schema }, set: { value in
-                        guard value != schema else { return }
+                      selection: Binding(get: { selected }, set: { value in
+                        guard value != selected else { return }
                         record(MetasequoiaInputSessionBridge.updateSharedPreferences {
-                          HelpcodeSettingsView.merge("schema", value, into: family, document: &$0)
+                          HelpcodeChoicePolicy.choose(value, for: family, document: &$0)
                         }, .helpcode)
                         reloadPreferences()
                       }),

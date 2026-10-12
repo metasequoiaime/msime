@@ -135,6 +135,8 @@ private func msimeClientResolveOnlineCandidates(
 ) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_dictionary")
 private func msimeClientDictionary(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_plugins")
+private func msimeClientPlugins(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_snapshot_version")
 private func msimeClientSnapshotVersion(_ options: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_snapshot_activate")
@@ -394,6 +396,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "cloud_candidates",
     // Laid over the document from the iOS page size, like cloud candidates; the session applies it once idle, so an open composition keeps its page.
     "candidate_page_size",
+    // 辅助码页选用导入的码表（#7176）写的是 `plugins.helpcode_pack_*`：会话空闲时用新选择重建 Engine，聚焦时再按插件目录的戳换表，所以要交给活着的会话。iOS 键盘自己不写 `plugins` 里的任何键，整个对象以文档为准。
+    "plugins",
   ]
 
   /// Hand the reloaded app-edited fields to the session, leaving every other field as the session has it. The session queues the change behind an open composition, so this never interrupts typing.
@@ -561,6 +565,33 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   static func updateSharedPreferences(stateRoot: URL? = nil,
                                       _ mutate: (inout [String: Any]) -> Void) -> Bool {
     persistSharedPreferences(stateRoot: sharedStateRoot(stateRoot), marksCloudSync: stateRoot == nil, mutate) != nil
+  }
+
+  /// `msime_client_plugins` 失败时的失败码和 client-core 给的原因（码表不合格时带文件名和行号），见 `include/msime_client.h`。
+  struct PluginFailure: Error, Equatable {
+    let code: String
+    var detail: String? = nil
+  }
+
+  /// 插件目录的一次操作（`msime_client_plugins`），给设置 App 导入、列出和删除辅助码表用，不建输入会话。
+  ///
+  /// `state_root` 是 App Group 里的共享状态目录，键盘的 `preferences_directory` 就是它，所以这里装进 `<state_root>/plugins` 的包键盘读得到。会读写文件，导入时还要校验整张码表：调用方放到主线程之外。`stateRoot` 只给测试用。
+  static func plugins(_ action: [String: Any], stateRoot: URL? = nil) -> Result<Any, PluginFailure> {
+    let root = sharedStateRoot(stateRoot)
+    let request: [String: Any] = ["state_root": root, "sound_packs": NSNull(), "action": action]
+    guard !root.isEmpty, JSONSerialization.isValidJSONObject(request),
+          let data = try? JSONSerialization.data(withJSONObject: request) else {
+      return .failure(PluginFailure(code: "invalid"))
+    }
+    let pointer = data.withUnsafeBytes { bytes in
+      msimeClientPlugins(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count))
+    }
+    guard let pointer else { return .failure(PluginFailure(code: "unavailable")) }
+    defer { msimeClientStringFree(pointer) }
+    guard let envelope = (try? JSONSerialization.jsonObject(with: Data(bytes: pointer, count: strlen(pointer))))
+      as? [String: Any] else { return .failure(PluginFailure(code: "invalid_response")) }
+    if envelope["ok"] as? Bool == true { return .success(envelope["value"] ?? NSNull()) }
+    return .failure(PluginFailure(code: envelope["error"] as? String ?? "", detail: envelope["detail"] as? String))
   }
 
   /// `msime_client_save_preferences`'s snapshot bound: large enough for a custom skin's photo.
