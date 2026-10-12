@@ -2207,12 +2207,23 @@ async fn cloud_clipboard_request(
 #[cfg(any(target_os = "ios", target_os = "android"))]
 #[tauri::command]
 async fn cloud_clipboard_request(
+    app: tauri::AppHandle,
     state: tauri::State<'_, platform::mobile::MobileAccountState>,
     action: Value,
 ) -> Result<Value, CommandError> {
     msime_host_api::cloud_clipboard::validate_request(&action).map_err(|_| CommandError {
         code: "invalid_cloud_clipboard",
     })?;
+    // 设置页的「发到云剪贴板」和云剪贴板面板都经这里。用户在原生设置里选了自建中继时，这里只能经账号答，所以拒绝而不是发往水杉账号。
+    let store = app
+        .try_state::<std::sync::Arc<PreferencesStore>>()
+        .map(|store| std::sync::Arc::clone(store.inner()))
+        .ok_or(CommandError { code: "storage" })?;
+    tauri::async_runtime::spawn_blocking(move || {
+        platform::cloud_clipboard::require_no_relay(&store)
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })??;
     platform::cloud_clipboard::cloud_clipboard_request(state.session(), action).await
 }
 
