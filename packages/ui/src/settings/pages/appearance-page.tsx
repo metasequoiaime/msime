@@ -127,6 +127,7 @@ export function AppearanceSettingsPage() {
           {showPageNumber && (
             <CandidatePageNumberSection
               value={draft.show_candidate_page_number}
+              platform={host?.platform}
               onChange={(show_candidate_page_number) =>
                 appearanceActions.onPreferencesChange({ show_candidate_page_number })
               }
@@ -257,6 +258,7 @@ function HarmonyPhoneCandidateGroups() {
         {host?.candidate_page_number === true && (
           <CandidatePageNumberSection
             value={draft.show_candidate_page_number}
+            platform={host?.platform}
             onChange={(show_candidate_page_number) =>
               appearanceActions.onPreferencesChange({ show_candidate_page_number })
             }

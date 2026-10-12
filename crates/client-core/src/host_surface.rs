@@ -180,7 +180,7 @@ pub struct HostCapabilities {
     /// candidate size into the desktop panel's single font, but the composition itself is drawn by
     /// the focused application, so a separate preedit size would have nothing to change there.
     pub candidate_preedit_font: bool,
-    /// The host can hide the candidate panel's page indicator without changing pagination.
+    /// The host can hide the candidate panel's page indicator without changing pagination. On macOS that also hides the ‹ › arrows sharing the card's top row.
     pub candidate_page_number: bool,
     /// 宿主按 `show_app_logo` 显示或隐藏候选窗和悬浮工具栏左端的水杉 logo。
     pub app_logo: bool,
@@ -543,7 +543,8 @@ impl HostCapabilities {
             // candidate size into the panel's font: the IBus panel settings or
             // the Fcitx5 classic UI.
             candidate_font_controls: true,
-            candidate_page_number: matches!(platform, HostPlatform::Linux),
+            // Linux 的开关只去掉辅助文本里的「当前页/总页数」；macOS 候选窗首行的「1 / 3」和 ‹ › 一起隐藏，只留翻页箭头的话首行照样占高度，候选窗不会变紧凑（#7316）。键盘和滚轮翻页两边都不受影响。
+            candidate_page_number: matches!(platform, HostPlatform::Linux | HostPlatform::Macos),
             // macOS 和 Windows 按这个开关画 logo；Linux 和鸿蒙的候选窗照常显示 logo，不提供这个开关。
             app_logo: matches!(platform, HostPlatform::Macos | HostPlatform::Windows),
             // The iOS strip scales its composition line by `candidate_preedit_font_size`.

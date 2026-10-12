@@ -841,7 +841,7 @@ pub struct Preferences {
     pub candidate_layout: CandidateLayout,
     #[serde(default)]
     pub candidate_preedit_style: CandidatePreeditStyle,
-    /// Show the current/total page text in Linux candidate panels, independently of preedit.
+    /// Show the current/total page text in Linux candidate panels, independently of preedit. On macOS it also governs the ‹ › page arrows beside that text, so with the logo and the reading hidden too the card loses its top row. Paging by key and wheel is unaffected on both.
     #[serde(default = "enabled_by_default")]
     pub show_candidate_page_number: bool,
     #[serde(default)]

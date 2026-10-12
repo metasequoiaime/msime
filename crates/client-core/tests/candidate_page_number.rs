@@ -23,7 +23,7 @@ fn legacy_preferences_show_page_numbers_and_the_toggle_roundtrips() {
 }
 
 #[test]
-fn only_linux_exposes_the_page_number_control() {
+fn linux_and_macos_expose_the_page_number_control() {
     for platform in [
         HostPlatform::Linux,
         HostPlatform::Windows,
@@ -34,7 +34,7 @@ fn only_linux_exposes_the_page_number_control() {
     ] {
         assert_eq!(
             HostCapabilities::for_platform(platform).candidate_page_number,
-            platform == HostPlatform::Linux
+            matches!(platform, HostPlatform::Linux | HostPlatform::Macos)
         );
     }
 }

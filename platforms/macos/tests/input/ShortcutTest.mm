@@ -734,6 +734,37 @@ static void TestSharedPunctuation() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// 原生窗口各节「恢复默认值」的入口：删掉本机值，也清掉共享值。
+@interface MSIMEAppearancePreferences (SectionRestore)
+- (void)removeStoredKeys:(NSArray<NSString *> *)keys;
+@end
+
+// `show_candidate_page_number` 在 macOS 上的读写：缺省显示；共享文档里的值优先于本机值；「恢复默认值」清掉两者后写回文档的是默认的显示（#7316）。
+static void TestCandidatePageNumberPreference() {
+    NSString *suite = [@"msime.page-number." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(prefs.showsCandidatePageNumber);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"show_candidate_page_number"] isEqual:@YES]);
+    for (id invalid in @[NSNull.null, @1, @"false"]) {
+        [prefs applySharedCandidatePreferences:@{@"show_candidate_page_number": invalid}];
+        assert(prefs.showsCandidatePageNumber);
+    }
+    [prefs applySharedCandidatePreferences:@{@"show_candidate_page_number": @NO}];
+    assert(!prefs.showsCandidatePageNumber && [defaults objectForKey:@"MSIMEClientCandidatePageNumber"] == nil);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"show_candidate_page_number"] isEqual:@NO]);
+    prefs.showsCandidatePageNumber = YES;
+    assert(prefs.showsCandidatePageNumber && [defaults objectForKey:@"MSIMEClientCandidatePageNumber"] != nil);
+    assert([[prefs sharedPreferencesByMerging:@{@"show_candidate_page_number": @NO}][@"show_candidate_page_number"] isEqual:@YES]);
+    prefs.showsCandidatePageNumber = NO;
+    assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults] showsCandidatePageNumber]);
+    [prefs applySharedCandidatePreferences:@{@"show_candidate_page_number": @NO}];
+    [prefs removeStoredKeys:@[@"MSIMEClientCandidatePageNumber"]];
+    assert(prefs.showsCandidatePageNumber && [defaults objectForKey:@"MSIMEClientCandidatePageNumber"] == nil);
+    assert([[prefs sharedPreferencesByMerging:@{@"show_candidate_page_number": @NO}][@"show_candidate_page_number"] isEqual:@YES]);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 static void TestSharedTraditionalOutput() {
     NSString *suite = [@"msime.traditional." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -9267,6 +9298,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestIndependentAssistancePreferences(); }
         @autoreleasepool { TestSharedPunctuation(); }
         @autoreleasepool { TestSharedTraditionalOutput(); }
+        @autoreleasepool { TestCandidatePageNumberPreference(); }
         @autoreleasepool { TestPageSizeCache(); }
         NSString *suite = [@"app.msime.test.appearance." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -9522,6 +9554,35 @@ int main(int argc, char **argv) {
         const auto pageTokens = [appearance resolvedSkinForDark:[[layoutPanel.contentView.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqual:NSAppearanceNameDarkAqua]].tokens;
         assert(next.titleColor && [next.titleColor isEqual:SkinColor(pageTokens.number)]);
         assert([pageIndicator.textColor isEqual:SkinColor(pageTokens.number)] && pageIndicator.font.pointSize == 13);
+        {
+            // 关掉 `show_candidate_page_number` 时「1 / 3」和 ‹ › 一起不画；logo 和拼音也隐藏时首行不占高度，多页卡片和只有一页的一样高（#7316）。滚轮翻页照常。
+            const BOOL savedPreedit = appearance.showsCandidatePreedit;
+            const BOOL savedLogo = appearance.showsAppLogo;
+            appearance.showsCandidatePreedit = NO;
+            appearance.showsAppLogo = NO;
+            NSMutableDictionary *singlePageView = [pageView mutableCopy];
+            singlePageView[@"page_count"] = @1;
+            [controller setValue:[singlePageView copy] forKey:@"view"];
+            [controller renderCandidates];
+            const CGFloat singlePageHeight = layoutPanel.frame.size.height;
+            [controller setValue:[pageView copy] forKey:@"view"];
+            [controller renderCandidates];
+            assert(PageButton(layoutPanel.contentView, -1) && layoutPanel.frame.size.height > singlePageHeight);
+            appearance.showsCandidatePageNumber = NO;
+            [controller renderCandidates];
+            assert(!PageButton(layoutPanel.contentView, -1) && !PageButton(layoutPanel.contentView, -2));
+            for (NSView *child in layoutPanel.contentView.subviews) assert(![child.identifier isEqual:@"candidate-page-indicator"]);
+            assert(layoutPanel.frame.size.height == singlePageHeight);
+            assert(!layoutPanel.hasPreviousPage && layoutPanel.hasNextPage);
+            appearance.showsCandidatePageNumber = YES;
+            [controller renderCandidates];
+            assert(PageButton(layoutPanel.contentView, -1));
+            appearance.showsCandidatePreedit = savedPreedit;
+            appearance.showsAppLogo = savedLogo;
+            [controller renderCandidates];
+            previous = (id)PageButton(layoutPanel.contentView, -1);
+            next = (id)PageButton(layoutPanel.contentView, -2);
+        }
         // Fractional page counts are malformed JSON integers. Rendering must not truncate 2.5
         // into a usable two-page card and expose navigation for it.
         NSMutableDictionary *fractionalPageView = [pageView mutableCopy];
