@@ -16,6 +16,7 @@
 import { fillProviderDefaults, known, swapTokenSlot, type TokenMap } from "./provider-helpers";
 import {
   deepseekChatEndpoint,
+  deepseekDocumentationUrl,
   everyApiModelsUrl,
   groqChatEndpoint,
   openAiChatEndpoint,
@@ -120,7 +121,7 @@ export const POLISH_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
     endpoint: deepseekChatEndpoint,
     model: "deepseek-v4-flash",
     models: ["deepseek-v4-flash", "deepseek-v4-pro"],
-    documentation: "https://api-docs.deepseek.com/",
+    documentation: deepseekDocumentationUrl,
   },
   groq: {
     endpoint: groqChatEndpoint,

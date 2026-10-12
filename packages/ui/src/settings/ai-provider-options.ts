@@ -1,5 +1,6 @@
 import {
   deepseekChatEndpoint,
+  deepseekDocumentationUrl,
   everyApiModelsUrl,
   groqChatEndpoint,
   openAiChatEndpoint,
@@ -57,7 +58,7 @@ export const AI_PROVIDER_OPTIONS: readonly {
     endpoint: deepseekChatEndpoint,
     model: "deepseek-v4-flash",
     models: ["deepseek-v4-flash", "deepseek-v4-pro"],
-    documentation: "https://api-docs.deepseek.com/",
+    documentation: deepseekDocumentationUrl,
   },
   {
     id: "qwen",
