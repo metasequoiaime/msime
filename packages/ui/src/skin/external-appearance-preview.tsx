@@ -190,21 +190,20 @@ export function ExternalAppearancePreview({
   const id = candidateSkinFor(preferences.custom_theme, dark);
   const key = useMemo(() => ({}), [scan, id, active, revision, refresh]);
   const [result, setResult] = useState<{ key: object; skin?: ExternalSkin; failed?: boolean }>();
+  const generation = useAsyncGeneration(scan, key, active, id);
   useEffect(() => {
-    let current = true;
+    const current = generation.current;
     if (active && scan)
       void (async () => {
         try {
           const catalog = await scan();
-          if (current) setResult({ key, skin: catalog.packages.find((skin) => skin.id === id) });
+          if (generation.current === current)
+            setResult({ key, skin: catalog.packages.find((skin) => skin.id === id) });
         } catch {
-          if (current) setResult({ key, failed: true });
+          if (generation.current === current) setResult({ key, failed: true });
         }
       })();
-    return () => {
-      current = false;
-    };
-  }, [key, active, scan, id]);
+  }, [key, active, scan, id, generation]);
   if (!active) return null;
   if (!scan)
     return (

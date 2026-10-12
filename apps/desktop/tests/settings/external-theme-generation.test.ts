@@ -10,5 +10,6 @@ test("external theme preview reuses the shared async generation guard", () => {
   )[0];
 
   expect(source).toContain("useAsyncGeneration(resolve, key)");
+  expect(source).toContain("useAsyncGeneration(scan, key, active, id)");
   expect(source).toContain("generation.current === current");
 });
