@@ -1,7 +1,7 @@
 // Fixed source: MSIME-Apple@11c950a63ec57656cd78b3f75aa621c293bfe453,
 // platforms/ios/SharedUI/CustomKeyboardSkin.swift and KeyboardSkinCollection.swift.
 import { boundedGraphemes } from "../core/text";
-import { clamp as clampNumber } from "../core/number";
+import { clamp as clampNumber, clampFinite } from "../core/number";
 
 export function skinColorNumber(value: string): number {
   return Number.parseInt(value.slice(1), 16);
@@ -465,8 +465,6 @@ export function normalizeTouchKeyboardSkinDesign(
   value: TouchKeyboardSkinDesign,
 ): TouchKeyboardSkinDesign {
   const color = (entry: number) => Math.round(entry) & 0xffffff;
-  const clamp = (entry: number, min: number, max: number, fallback: number) =>
-    Number.isFinite(entry) ? clampNumber(entry, min, max) : fallback;
   return {
     ...value,
     background: color(value.background),
@@ -474,18 +472,22 @@ export function normalizeTouchKeyboardSkinDesign(
     keyForeground: color(value.keyForeground),
     accent: color(value.accent),
     actionBackground: color(value.actionBackground),
-    cornerRadius: clamp(value.cornerRadius, 0, 20, 8),
-    borderWidth: clamp(value.borderWidth, 0, 2, 0),
-    shadow: clamp(value.shadow, 0, 0.4, 0),
+    cornerRadius: clampFinite(value.cornerRadius, 0, 20, 8),
+    borderWidth: clampFinite(value.borderWidth, 0, 2, 0),
+    shadow: clampFinite(value.shadow, 0, 0.4, 0),
     pattern: value.pattern >= 0 && value.pattern <= 3 ? value.pattern : 0,
-    keyOpacity: value.keyOpacity === undefined ? undefined : clamp(value.keyOpacity, 0.25, 1, 1),
+    keyOpacity:
+      value.keyOpacity === undefined ? undefined : clampFinite(value.keyOpacity, 0.25, 1, 1),
     gradientEnd: value.gradientEnd === undefined ? undefined : color(value.gradientEnd),
     patternOpacity:
-      value.patternOpacity === undefined ? undefined : clamp(value.patternOpacity, 0, 0.5, 0.15),
+      value.patternOpacity === undefined
+        ? undefined
+        : clampFinite(value.patternOpacity, 0, 0.5, 0.15),
     customBorderColor:
       value.customBorderColor === undefined ? undefined : color(value.customBorderColor),
-    photoShade: value.photoShade === undefined ? undefined : clamp(value.photoShade, 0, 0.8, 0.25),
+    photoShade:
+      value.photoShade === undefined ? undefined : clampFinite(value.photoShade, 0, 0.8, 0.25),
     photoPosition:
-      value.photoPosition === undefined ? undefined : clamp(value.photoPosition, 0, 1, 0.5),
+      value.photoPosition === undefined ? undefined : clampFinite(value.photoPosition, 0, 1, 0.5),
   };
 }
