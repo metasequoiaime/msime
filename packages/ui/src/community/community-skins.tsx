@@ -9,7 +9,11 @@ import {
   communityNeedsSignIn,
   communityPublishLoginAction,
 } from "./community-helpers";
-import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
+import {
+  createCommunityGalleryClient,
+  useCommunityGallery,
+  type CommunityGalleryClient,
+} from "./community-gallery";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailSummary } from "./community-detail-summary";
 import { StatusMessage } from "../core/status-message";
@@ -486,19 +490,15 @@ export function CommunitySkinsPage({
   const categoryFilter = useCommunitySkinCategoryFilter();
   const categoryRequest = categoryFilter.request;
   const galleryClient = useMemo<CommunityGalleryClient<CommunitySkin>>(
-    () => ({
-      list: async (offset, search, mine) => {
-        const page = await client.list(offset, search, mine ?? false, categoryRequest.current);
-        return { items: page.skins, has_more: page.has_more };
-      },
-      detail: client.detail,
-      rate: client.rate,
-      unpublish: client.unpublish,
-      ...(client.report && {
-        report: (id: string, reason: CommunityReportReason, detail: string) =>
-          client.report!(id, reason, detail),
-      }),
-    }),
+    () =>
+      createCommunityGalleryClient(
+        client,
+        async (offset, search, mine) => {
+          const page = await client.list(offset, search, mine ?? false, categoryRequest.current);
+          return { items: page.skins, has_more: page.has_more };
+        },
+        (id) => client.unpublish(id),
+      ),
     [client, categoryRequest],
   );
   const gallery = useCommunityGallery({

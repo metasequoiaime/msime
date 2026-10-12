@@ -20,6 +20,28 @@ export interface CommunityGalleryClient<T extends { id: string }> {
   report?(id: string, reason: CommunityReportReason, detail: string): Promise<void>;
 }
 
+/** Adapts shared detail and action commands; callers retain their own list mapping. */
+export function createCommunityGalleryClient<T extends { id: string }>(
+  client: Pick<CommunityGalleryClient<T>, "detail" | "report"> & {
+    rate(id: string, stars: number): Promise<unknown>;
+  },
+  list: CommunityGalleryClient<T>["list"],
+  unpublish: (id: string) => Promise<unknown>,
+): CommunityGalleryClient<T> {
+  const report = client.report;
+  return {
+    list,
+    detail: client.detail,
+    rate: async (id, stars) => {
+      await client.rate(id, stars);
+    },
+    unpublish: async (id) => {
+      await unpublish(id);
+    },
+    ...(report && { report: (id, reason, detail) => client.report!(id, reason, detail) }),
+  };
+}
+
 export interface CommunityGalleryOptions<T extends { id: string }> {
   client: CommunityGalleryClient<T>;
   initialMine?: boolean;

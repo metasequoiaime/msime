@@ -18,7 +18,11 @@ import {
   communityPluginMessage,
   communityPublishLoginAction,
 } from "./community-helpers";
-import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
+import {
+  createCommunityGalleryClient,
+  useCommunityGallery,
+  type CommunityGalleryClient,
+} from "./community-gallery";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailSummary } from "./community-detail-summary";
 import * as style from "./community-style";
@@ -179,23 +183,15 @@ export function CommunityPluginsPage({
   // The gallery hook pages by offset and search; the kind filter rides along through a ref so a page appended by 加载更多 keeps the filter the first page was read with.
   const kindFilter = useRef<CommunityPluginKind | null>(null);
   const galleryClient = useMemo<CommunityGalleryClient<CommunityPlugin>>(
-    () => ({
-      list: async (offset, search, mine) => {
-        const page = await client.list(offset, search, kindFilter.current, mine ?? false);
-        return { items: page.plugins, has_more: page.has_more, skipped: page.skipped };
-      },
-      detail: client.detail,
-      rate: async (id, stars) => {
-        await client.rate(id, stars);
-      },
-      unpublish: async (id) => {
-        await client.delete(id);
-      },
-      ...(client.report && {
-        report: (id: string, reason: CommunityReportReason, detail: string) =>
-          client.report!(id, reason, detail),
-      }),
-    }),
+    () =>
+      createCommunityGalleryClient(
+        client,
+        async (offset, search, mine) => {
+          const page = await client.list(offset, search, kindFilter.current, mine ?? false);
+          return { items: page.plugins, has_more: page.has_more, skipped: page.skipped };
+        },
+        (id) => client.delete(id),
+      ),
     [client],
   );
   const gallery = useCommunityGallery({

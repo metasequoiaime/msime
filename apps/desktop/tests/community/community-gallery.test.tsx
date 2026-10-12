@@ -2,6 +2,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
+  createCommunityGalleryClient,
   useCommunityGallery,
   type CommunityGalleryClient,
 } from "../../../../packages/ui/src/community/community-gallery";
@@ -27,6 +28,30 @@ function client(
     ...overrides,
   };
 }
+
+test("adapts result-valued actions and omits unavailable reporting", async () => {
+  const source = {
+    detail: vi.fn().mockResolvedValue(item("one")),
+    rate: vi.fn().mockResolvedValue({ stars: 5 }),
+    delete: vi.fn().mockResolvedValue({ deleted: true }),
+  };
+  const list = vi.fn().mockResolvedValue({ items: [item("one")], has_more: false });
+  const gallery = createCommunityGalleryClient<Item>(source, list, (id) => source.delete(id));
+
+  expect(gallery.report).toBeUndefined();
+  expect(await gallery.list(0, "", false)).toEqual({ items: [item("one")], has_more: false });
+  expect(await gallery.rate("one", 5)).toBeUndefined();
+  expect(await gallery.unpublish("one")).toBeUndefined();
+  expect(source.rate).toHaveBeenCalledWith("one", 5);
+  expect(source.delete).toHaveBeenCalledWith("one");
+
+  const report = vi.fn().mockResolvedValue(undefined);
+  const reportable = createCommunityGalleryClient<Item>({ ...source, report }, list, (id) =>
+    source.delete(id),
+  );
+  await reportable.report?.("one", "垃圾广告", "合成说明");
+  expect(report).toHaveBeenCalledWith("one", "垃圾广告", "合成说明");
+});
 
 const galleryErrorMessage = () => "请先登录";
 const galleryNeedsSignIn = (value: unknown) => value === galleryFailure;
