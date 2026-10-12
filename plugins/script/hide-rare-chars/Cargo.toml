@@ -1,0 +1,12 @@
+[package]
+name = "hide-rare-chars"
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+# 独立的 crate，不属于仓库的 Cargo 工作区。目标、栈大小和 release 配置在 plugins/script/.cargo/config.toml 里，所有插件共用。
+[workspace]
