@@ -30,8 +30,7 @@ import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityCard } from "./community-card";
 import { CommunityMetrics } from "./community-metrics";
-import { CommunityInstallButton } from "./community-install-button";
-import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
+import { CommunityInstallActions } from "./community-install-actions";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityActionNotice } from "./community-action-notice";
@@ -460,34 +459,28 @@ export function CommunityCandidateSkinsPage({
           actionNotice={actionNotice}
           loadingText="正在读取皮肤详情…"
         />
-        {installed ? (
-          <>
-            <CommunityActionNotice>已安装到外部皮肤。</CommunityActionNotice>
-            {onOpenSkinPage && (
-              <ActionButton
-                action={onOpenSkinPage}
-                className={`primary ${style.action}`}
-                label="去启用"
-              />
-            )}
-          </>
-        ) : (
-          <CommunityInstallButton
-            actionBusy={actionBusy}
-            detailBusy={detailBusy}
-            confirmReplace={confirmReplace}
-            onInstall={() => void install(false)}
-          />
-        )}
-        {confirmReplace && (
-          <CommunityReplaceConfirmation
-            ariaLabel="确认替换皮肤"
-            message={<>已存在同名皮肤“{selected.package_id}”，安装会整体替换它。</>}
-            actionBusy={actionBusy}
-            onConfirm={() => void install(true)}
-            onCancel={() => setConfirmReplace(false)}
-          />
-        )}
+        <CommunityInstallActions
+          installed={installed}
+          installedContent={
+            <>
+              <CommunityActionNotice>已安装到外部皮肤。</CommunityActionNotice>
+              {onOpenSkinPage && (
+                <ActionButton
+                  action={onOpenSkinPage}
+                  className={`primary ${style.action}`}
+                  label="去启用"
+                />
+              )}
+            </>
+          }
+          actionBusy={actionBusy}
+          detailBusy={detailBusy}
+          confirmReplace={confirmReplace}
+          replaceAriaLabel="确认替换皮肤"
+          replaceMessage={<>已存在同名皮肤“{selected.package_id}”，安装会整体替换它。</>}
+          onInstall={(replace) => void install(replace)}
+          onCancelReplace={() => setConfirmReplace(false)}
+        />
         {selected.owned && (
           <ActionButton
             action={() =>

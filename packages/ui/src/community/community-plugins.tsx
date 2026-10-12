@@ -42,8 +42,7 @@ import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityCard } from "./community-card";
 import { CommunityMetrics } from "./community-metrics";
-import { CommunityInstallButton } from "./community-install-button";
-import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
+import { CommunityInstallActions } from "./community-install-actions";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityDetailFrame } from "./community-detail-frame";
@@ -318,30 +317,26 @@ export function CommunityPluginsPage({
           actionNotice={actionNotice}
           loadingText="正在读取插件详情…"
         />
-        {installed ? (
-          <CommunityActionNotice>已安装到插件目录，可在「我的插件」中选用。</CommunityActionNotice>
-        ) : (
-          <CommunityInstallButton
-            actionBusy={actionBusy}
-            detailBusy={detailBusy}
-            confirmReplace={confirmReplace}
-            onInstall={() => void install(false)}
-          />
-        )}
-        {confirmReplace && (
-          <CommunityReplaceConfirmation
-            ariaLabel="确认替换插件"
-            message={
-              <>
-                已安装同 id 的{kindLabels[selected.kind]}“{selected.plugin_id}
-                ”，安装会整体替换它。
-              </>
-            }
-            actionBusy={actionBusy}
-            onConfirm={() => void install(true)}
-            onCancel={() => setConfirmReplace(false)}
-          />
-        )}
+        <CommunityInstallActions
+          installed={installed}
+          installedContent={
+            <CommunityActionNotice>
+              已安装到插件目录，可在「我的插件」中选用。
+            </CommunityActionNotice>
+          }
+          actionBusy={actionBusy}
+          detailBusy={detailBusy}
+          confirmReplace={confirmReplace}
+          replaceAriaLabel="确认替换插件"
+          replaceMessage={
+            <>
+              已安装同 id 的{kindLabels[selected.kind]}“{selected.plugin_id}
+              ”，安装会整体替换它。
+            </>
+          }
+          onInstall={(replace) => void install(replace)}
+          onCancelReplace={() => setConfirmReplace(false)}
+        />
         <CommunityModerationSection
           owned={selected.owned}
           actionBusy={actionBusy}
