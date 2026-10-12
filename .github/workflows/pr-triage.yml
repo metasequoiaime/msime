@@ -77,7 +77,9 @@ jobs:
             }
 
             // Keep exactly one type label in step with the title, so retitling feat -> fix does not leave "enhancement" behind. "breaking" follows the "!" marker the same way.
-            const current = new Set(context.payload.pull_request.labels.map((l) => l.name));
+            // Live labels, not the payload's: see the size job below.
+            const live = await github.paginate(github.rest.issues.listLabelsOnIssue, { owner, repo, issue_number, per_page: 100 });
+            const current = new Set(live.map((l) => l.name));
             const wanted = new Set();
             if (typeLabels[match[1]]) wanted.add(typeLabels[match[1]]);
             if (match[3]) wanted.add('breaking');
@@ -114,7 +116,9 @@ jobs:
             const label = sizes.find(([, limit]) => changed < limit)[0];
             core.info(`${changed} changed lines -> ${label}`);
 
-            const current = context.payload.pull_request.labels.map((l) => l.name);
+            // Read the labels now rather than from the event payload: a re-run replays the original payload, whose labels may already be gone, and removing a missing label fails with 404.
+            const live = await github.paginate(github.rest.issues.listLabelsOnIssue, { owner, repo, issue_number: pull_number, per_page: 100 });
+            const current = live.map((l) => l.name);
             for (const name of current.filter((n) => n.startsWith('size/') && n !== label)) {
               await github.rest.issues.removeLabel({ owner, repo, issue_number: pull_number, name });
             }
