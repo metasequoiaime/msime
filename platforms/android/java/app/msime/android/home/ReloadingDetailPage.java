@@ -10,8 +10,12 @@ public abstract class ReloadingDetailPage extends DetailPage {
 
     @Override protected final void buildContent(LinearLayout column, Bundle args) {
         this.column = column;
+        onContentReady();
         reload();
     }
+
+    /** Allows a page to paint retained content before its first asynchronous refresh. */
+    protected void onContentReady() {}
 
     @Override protected void onBecameVisible() {
         if (column != null) reload();

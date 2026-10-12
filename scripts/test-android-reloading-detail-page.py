@@ -9,7 +9,13 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 HOME = ROOT / "platforms/android/java/app/msime/android/home"
 BASE = HOME / "ReloadingDetailPage.java"
-CONSUMERS = ("AiSettingsPage.java", "HandwritingPage.java", "SkinsPage.java")
+CONSUMERS = (
+    "AiSettingsPage.java",
+    "HandwritingPage.java",
+    "KeyboardOptionsPage.java",
+    "PhrasesPage.java",
+    "SkinsPage.java",
+)
 
 
 def main() -> int:
@@ -23,6 +29,8 @@ def main() -> int:
             "@Nullable private LinearLayout column;",
             "@Override protected final void buildContent(LinearLayout column, Bundle args)",
             "this.column = column;",
+            "onContentReady();",
+            "protected void onContentReady()",
             "@Override protected void onBecameVisible()",
             "if (column != null) reload();",
             "@Override public void onDestroyView()",
@@ -34,6 +42,10 @@ def main() -> int:
         for snippet in required:
             if snippet not in source:
                 errors.append(f"{BASE}: 生命周期基类缺少：{snippet}")
+        ready = source.find("onContentReady();")
+        refresh = source.find("reload();")
+        if ready >= 0 and refresh >= 0 and ready > refresh:
+            errors.append(f"{BASE}: 已缓存内容必须先于首次刷新显示")
 
     duplicate = re.compile(
         r"(?:buildContent\(LinearLayout column, Bundle args\)|"
@@ -52,6 +64,13 @@ def main() -> int:
             errors.append(f"{path}: reload() 未实现基类合同")
         if "LinearLayout target = contentColumn();" not in source:
             errors.append(f"{path}: 渲染目标未通过 contentColumn() 获取")
+
+    phrases = (HOME / "PhrasesPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in phrases
+        or "if (document != null) render(document);" not in phrases
+    ):
+        errors.append("PhrasesPage: 重建页面时未先显示已缓存的常用语")
 
     if errors:
         print("\n".join(errors), file=sys.stderr)

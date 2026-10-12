@@ -2,7 +2,6 @@ package app.msime.android.home;
 
 import app.msime.android.DimensionPolicy;
 
-import android.os.Bundle;
 import android.text.InputType;
 import android.view.ViewGroup;
 import android.widget.EditText;
@@ -17,26 +16,14 @@ import app.msime.android.ViewPolicy;
  *
  * <p>读写全部经 {@link CommonPhrasesStore}，键盘的「常用语」面板读的是同一份，所以这里改完键盘下次打开面板就能看到。修改经 {@link CommonPhrasesStore#replace}，条目仍属于原来的来源（自己添加的或某个短语包）。
  */
-public final class PhrasesPage extends DetailPage {
-    @Nullable private LinearLayout column;
+public final class PhrasesPage extends ReloadingDetailPage {
     @Nullable private CommonPhrasesStore.Document document;
 
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
+    @Override protected void onContentReady() {
         if (document != null) render(document);
-        reload();
     }
 
-    @Override protected void onBecameVisible() {
-        if (column != null) reload();
-    }
-
-    @Override public void onDestroyView() {
-        column = null;
-        super.onDestroyView();
-    }
-
-    private void reload() {
+    @Override protected void reload() {
         HostTask.run(this, CommonPhrasesStore::load, this::apply);
     }
 
@@ -54,7 +41,7 @@ public final class PhrasesPage extends DetailPage {
     }
 
     private void render(CommonPhrasesStore.Document current) {
-        LinearLayout target = column;
+        LinearLayout target = contentColumn();
         if (target == null) return;
         target.removeAllViews();
         GroupCard list = GroupCard.add(target, "在键盘「常用语」面板中，点一下即可发送");
