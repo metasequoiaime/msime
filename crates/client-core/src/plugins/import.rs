@@ -575,7 +575,7 @@ mod tests {
         fs::create_dir(&root).unwrap();
         fs::create_dir(&outside).unwrap();
         let staging = Staging::new(root.join(".staging-new")).unwrap();
-        fs::create_dir(&staging.path).unwrap();
+        staging.create().unwrap();
         let staging_directory = crate::storage::open_private_directory(&staging.path).unwrap();
         let moved = state.path().join("plugins-moved");
         fs::rename(&root, &moved).unwrap();

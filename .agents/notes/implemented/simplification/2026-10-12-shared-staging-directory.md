@@ -10,6 +10,8 @@ Status: implemented
 
 `storage::StagingDirectory` 统一负责 staging 目录的生命周期。Unix 上先打开父目录，再用这个句柄创建、打开、清理 staging；非 Unix 保留路径创建和清理。插件导入与语音模型安装都使用它；模型所需的 `model/` 子目录通过共用入口的子目录方法创建和打开。
 
+只有 `create()` 成功后，实例才取得清理该 staging 名称的责任。若同名目录已经存在或创建因其他原因失败，析构保留原有目录及其内容。否则一次随机名称碰撞就可能删除另一项操作的暂存数据。
+
 创建出的 staging 路径仍提供给现有后续流程。插件导入和模型安装原有的命名、验证、发布与错误映射不变。此决定沿用[语音模型 staging 句柄](../bug-fix/2026-10-09-local-model-staging-directory-handle.md)和[插件导入残留句柄](../bug-fix/2026-10-09-plugin-import-leftover-directory-handle.md)的安全边界。
 
 ## Alternatives considered
@@ -21,6 +23,8 @@ Status: implemented
 
 一个内部类型维护 staging 目录的创建和清理，减少重复实现。语音模型的特有业务仍留在模型模块；后续路径型发布逻辑保持原状，不能把本次抽取视为对它们的额外安全保证。
 
+清理责任与成功创建绑定，失败的创建不再误删已有目录。实例需要保存这一状态；成功创建后的析构清理仍按原来的父目录句柄或路径执行。
+
 ## Verification
 
-本机 `cargo test -p msime-client-core --lib --locked`、`cargo clippy -p msime-client-core --lib --locked -- -D warnings` 通过；Android 35 专用 AVD 上的完整 `client-core` 测试通过。macOS CMake 原生宿主构建通过。
+创建失败的回归先在旧析构逻辑下复现哨兵文件被删除，再验证修复后保留文件；已有成功创建后的清理测试同步改用 `create()`。本机完整 `client-core` 测试、`clippy --all-targets`、Android 35 专用 AVD 上的完整 `client-core` 测试和 macOS 原生宿主构建均通过。
