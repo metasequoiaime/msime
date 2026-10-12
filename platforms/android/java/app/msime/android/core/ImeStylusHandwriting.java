@@ -38,6 +38,15 @@ final class ImeStylusHandwriting {
         this.serviceDebounce = serviceDebounce;
     }
 
+    /**
+     * 书写可能要开始了（{@code onPrepareStylusHandwriting}：笔悬停在屏幕上，或系统问要不要接之前）。先把识别器建好、开始查模型：建 ML Kit 识别器要些时间，放在 {@link #start} 里会拖慢给系统的答复。本版本没有手写时什么也不建。
+     */
+    void prepare() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+                || !KeyboardScheme.HANDWRITING.offeredBy(s.edition)) return;
+        recognizer();
+    }
+
     /** 系统问要不要接这次书写（{@code onStartStylusHandwriting}）；返回是否接下。 */
     boolean start() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return false;

@@ -1636,6 +1636,10 @@ public final class MSIMEInputService extends InputMethodService {
     }
     @Override public boolean onEvaluateFullscreenMode() { return false; }
 
+    @Override public void onPrepareStylusHandwriting() {
+        imeStylusHandwriting.prepare();
+    }
+
     /** 用户拿手写笔在输入框上写字，系统问要不要接（Android 14 起，#7080）；接不接见 {@link StylusHandwritingPolicy#start}。 */
     @Override public boolean onStartStylusHandwriting() {
         return imeStylusHandwriting.start();
