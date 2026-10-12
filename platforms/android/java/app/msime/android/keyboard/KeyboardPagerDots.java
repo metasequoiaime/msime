@@ -106,15 +106,8 @@ public final class KeyboardPagerDots extends View {
         float total = DimensionPolicy.floatPixels(getContext(), totalWidthDp(count));
         float x = (getWidth() - total) / 2f;
         float top = (getHeight() - dot) / 2f;
-        for (int index = 0; index < count; index++) {
-            float weight = index == active ? progress : index == previous ? 1f - progress : 0f;
-            float width = dot + (wide - dot) * weight;
-            paint.setColor(ColorPolicy.blend(inactiveColor, activeColor,
-                BoundsPolicy.bounded(weight, 0f, 1f)));
-            rect.set(x, top, x + width, top + dot);
-            canvas.drawRoundRect(rect, dot / 2f, dot / 2f, paint);
-            x += width + gap;
-        }
+        PagerDotsRenderer.draw(canvas, paint, rect, count, active, previous, progress,
+            dot, wide, gap, inactiveColor, activeColor, x, top);
     }
 
 }

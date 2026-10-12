@@ -97,14 +97,8 @@ public final class PageDots extends View {
         float total = active + (count - 1) * (dot + gap);
         float x = getPaddingLeft() + (getWidth() - getPaddingLeft() - getPaddingRight() - total) / 2f;
         float top = getPaddingTop() + (getHeight() - getPaddingTop() - getPaddingBottom() - dot) / 2f;
-        for (int i = 0; i < count; i++) {
-            float weight = i == selected ? progress : i == previous ? 1f - progress : 0f;
-            float width = dot + (active - dot) * weight;
-            rect.set(x, top, x + width, top + dot);
-            paint.setColor(ColorPolicy.blend(rest, accent, weight));
-            canvas.drawRoundRect(rect, dot / 2f, dot / 2f, paint);
-            x += width + gap;
-        }
+        PagerDotsRenderer.draw(canvas, paint, rect, count, selected, previous, progress,
+            dot, active, gap, rest, accent, x, top);
     }
 
     @Override protected void onDetachedFromWindow() {
