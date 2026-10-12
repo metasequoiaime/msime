@@ -2770,6 +2770,8 @@ public final class MSIMEInputService extends InputMethodService {
         final String targetResources = candidateGlossResources;
         final String targetStateRoot = candidateGlossStateRoot.isEmpty() ? null : candidateGlossStateRoot;
         final java.util.List<String> offlineTargets = candidateOfflineTargets();
+        // 目标语言含英语时，随包的英文释义也要记进 candidateOfflineGlosses：合并在线译文时靠它让离线释义优先。只在装了非英文离线词典时才记，没装的用户（默认配置）在线译文会把「你好 hello」这类离线英文释义盖掉。
+        final boolean englishTarget = candidateTranslationTargets.contains("en");
         final String request;
         final java.util.Map<String, String> targetRequests =
             new java.util.LinkedHashMap<>(offlineTargets.size());
@@ -2801,7 +2803,7 @@ public final class MSIMEInputService extends InputMethodService {
                     CandidateGlossModel.Result result = CandidateGlossModel.decode(
                         NativeClient.candidateGlosses(request, targetResources));
                     java.util.Map<String, java.util.Map<String, String>> offline = null;
-                    if (!targetRequests.isEmpty()) {
+                    if (!targetRequests.isEmpty() || englishTarget) {
                         offline = new java.util.HashMap<>(targetRequests.size() + 1);
                         offline.put("en", glossMap(result));
                         for (java.util.Map.Entry<String, String> target : targetRequests.entrySet()) {
@@ -2978,7 +2980,7 @@ public final class MSIMEInputService extends InputMethodService {
     /**
      * 一代候选的 apply_translations 载荷：逐个候选、按目标语言顺序，每种语言先取离线释义，没有时取在线译文（账号的，或用户自己服务的）。`includeAccount` 同时管这两种在线来源。
      *
-     * <p>Without an installed non-English dictionary this is the account translations of the first 32 candidates, as before; with one it also covers every candidate the offline dictionaries answered, since the payload replaces the one applied before it.
+     * <p>The offline rows are the bundled English glosses when English is a target, plus every installed non-English dictionary; without either this is the online translations of the first 32 candidates. It also covers every candidate the offline dictionaries answered, since the payload replaces the one applied before it.
      */
     private JSONArray mergedCandidateGlosses(long generation, boolean includeAccount) {
         java.util.Map<String, java.util.Map<String, String>> offline =

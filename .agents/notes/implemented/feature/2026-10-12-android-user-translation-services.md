@@ -18,6 +18,7 @@ Status: implemented
 - **记下回答和退避**（`UserTranslationMemory`，随客户端一起按路由重建，最多 512 个词）：它的寿命跟路由，不跟输入会话。`stop()` 每次换输入框、收起键盘、聊天应用发送后重启输入都会跑，第一版在里面把路由换成 NONE，下一次会话就新建客户端，记下的回答和 30 秒退避全丢了，密钥错或服务挂了时每个新会话都会再发请求，与 `PRIVACY.md` 的承诺不符；现在 `stop()` 只暂置路由（`suspendCandidateTranslationRoute`），偏好算出同一路由时沿用原来的客户端，`check-host.sh` 钉住这一点。问过的词连同回答记下，同一路由下不再问；没有能显示的译文（空、与原词相同、超长）也是回答，记为空，相当于负缓存。正面的回答也要记，因为 store 在重绘时会作废还在路上的回答：第一种目标语言的译文到达后键盘重绘，`refresh` 先 `cancel`，正在请求第二种语言的那一批就被丢掉，不记的话下一轮会原样再请求一遍；单个词的回复是失败时这个词 30 秒内不再问；整个请求没有回复（连不上、超时、非 2xx，或腾讯回报错）时整个服务 30 秒内不发请求。另一个原因是每次 `render()` 都会让 store 重新排一次请求，而 store 只缓存非空译文。
 - **设置**：新的「翻译服务」页（`home/TranslationServicePage`，`PageId.TRANSLATION_SERVICE`），从「输入 → 翻译」和「我的 → 隐私」都能进。五个选项：不使用、水杉账号、小牛翻译、腾讯云机器翻译、自定义（DeepLX 或 DeepL API）。选服务时三个 `enabled` 互斥，腾讯没选时显式写 false，`translation_account` 只在选账号时写 true、否则删掉，照 `use-translation-settings.ts` 的 `setTranslationProvider` 和 iOS 的 `select`。字段规则在纯 Java 的 `TranslationServiceSettingsPolicy`，照 `Preferences::validate` 当场说明哪个字段为什么不行，不合规的不写入。密钥行只显示「已填写」「未填写」。隐私页的「用水杉账号翻译候选」打开时在同一次读改写里关掉三个自有服务，否则自有服务优先，这个开关开了也不生效。
 - **顺带修好的缺陷**：`applyPreferencesSnapshot` 里 `CandidateTranslationPolicy.displayInvalidated` 原来在把新值赋给字段之后才比较，前后两份永远相同，开关翻译、换目标语言后候选下的旧译文要等下一次按键才消失。现在在赋值之前比较，并把路由变化算进去。
+- **设备验收时发现并修好的缺陷**：`scheduleCandidateGlosses` 只在装了非英文离线释义词典时才把结果记进 `candidateOfflineGlosses`，随包的英文释义没有记进去，于是默认配置（目标语言英语、没装别的词典）下 `mergedCandidateGlosses` 看不到离线行，在线译文把「你好 hello」这类离线英文释义盖掉了，离线优先只对非英文词典成立。账号路径原来也是这样。现在目标语言含英语时英文释义也记进去，合并时离线优先；目标语言不含英语时行为不变。
 
 ## 与其他平台的差异
 
@@ -44,4 +45,4 @@ Status: implemented
 - `bash platforms/android/check-host.sh`：契约约束（账号路径的旧约束、用户服务路径只经过路由、两个用户服务类里不许出现鉴权和签名请求头）、JNI 头文件编译检查和全部 JVM 冒烟。新增 `CandidateTranslationRouteSmoke`（对照 providers.rs 的优先级表、凭据判定、`toString` 不带密钥、`scope` 随凭据变化）、`UserTranslationMemorySmoke`、`TranslationHttpTransportPolicySmoke`、`TranslationServiceSettingsPolicySmoke`，`CandidateTranslationStoreSmoke` 加了「null 位置不缓存」「epoch 变了服务能看到并停下」，`CandidateTranslationPolicySmoke` 补了腾讯条件和路由变化清屏。
 - `tests/core/NativeSmoke.java` 加了合成配置的描述器、解析、失败判断和设置页检查调用；它要加载 `libmsime_android.so`，只在设备上跑。
 - 设置页和 `MSIMEInputService` 用 Gradle 的 `compileFullReleaseJavaWithJavac` 编译通过。
-- 没有在模拟器或真机上跑过，也没有构建原生库、跑 `verify-native.sh`；没有用真实的小牛、腾讯或 DeepL 凭据请求过。设备验收（本机 DeepLX mock 加 `adb reverse`、切换服务、第二目标语言、失败回复不重复请求）留到后续的串行验证阶段。
+- 设备验收（API 35 模拟器，本机 DeepLX 兼容 mock 经 `adb reverse` 映射到设备的 127.0.0.1:1188）：局域网 http 地址在设置页被拒、「保存」不可用；回环地址能保存，「测试连接」成功；离线释义查不到的候选显示 mock 译文，离线有英文释义的候选显示离线释义；同一页重打、换输入会话都不再请求；mock 对某个词回 `{"code":500}` 后几次重绘只请求了一次；mock 停掉时整个服务退避约 30 秒；切到「不使用」后不再请求、译文消失；目标语言换成法语后按 FR 请求。`smoke.sh` 在 API 35 全套、API 28 `--core` 通过，`verify-native.sh` 核对了新增的 10 个 host 导出和 10 个 JNI 方法。没有用真实的小牛、腾讯或 DeepL 凭据请求过；原生设置页没有设置第二目标语言（`translation_secondary_language`）的入口，应用不可调试也没法直接改偏好文件，第二目标语言没有在设备上验证。
