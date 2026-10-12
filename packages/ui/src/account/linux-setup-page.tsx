@@ -4,6 +4,7 @@ import * as onboarding from "./onboarding-style";
 import { linuxSetupFailureMessage } from "./linux-setup-errors";
 import { ActionButton } from "../core/action-button";
 import { useAsyncActionRunner } from "../core/use-async-action";
+import { logo } from "../settings/app-resources";
 
 export interface LinuxSetupStatus {
   prepared: boolean;
@@ -83,7 +84,7 @@ export function LinuxSetupPage({
       data-platform="linux"
     >
       <header className={onboarding.header}>
-        <img src={new URL("./assets/msime.svg", import.meta.url).href} alt="" />
+        <img src={logo} alt="" />
         <h1>水杉输入法</h1>
       </header>
       <div className={onboarding.body}>
