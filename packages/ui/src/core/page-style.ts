@@ -4,3 +4,5 @@ export const compactPage = "flex flex-col gap-3.5 max-phone:gap-2.5";
 export const standardPage = "flex flex-col gap-3.5";
 /** Shared compact vertical stack used by dense account controls. */
 export const tightStack = "flex flex-col gap-2.5";
+/** Shared standard vertical stack for prose and form sections. */
+export const standardStack = "flex flex-col gap-3";

@@ -8,7 +8,7 @@
  */
 
 import { fieldLabel } from "../core/form-style";
-import { standardPage, tightStack } from "../core/page-style";
+import { standardPage, standardStack, tightStack } from "../core/page-style";
 import { mobileGroupSurface } from "../core/platform-controls-style";
 import { rowHeading, rowText } from "../core/row-style";
 
@@ -190,7 +190,7 @@ export const sheetTitle = "m-0 text-[22px] font-bold [color:var(--p-text)]";
 export const sheetSubtitle = "m-0 text-[14px] leading-snug [color:var(--p-sub)]";
 export const sheetClose =
   "m-0 flex size-[30px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-[var(--p-seg-bg)] p-0 [color:var(--p-text)] active:opacity-70 disabled:cursor-default disabled:opacity-50";
-export const sheetBody = "flex flex-col gap-3";
+export const sheetBody = standardStack;
 /** 登录选项：用强调色浅色填充的 50px 色调按钮。 */
 export const sheetChoice =
   "m-0 h-[50px] w-full cursor-pointer rounded-xl border-0 bg-[var(--accent-soft)] px-4 text-[17px] font-semibold [font-family:inherit] [color:var(--p-accent-text)] active:opacity-80 disabled:cursor-default disabled:opacity-60 aria-pressed:shadow-[inset_0_0_0_1.5px_var(--accent-color)]";

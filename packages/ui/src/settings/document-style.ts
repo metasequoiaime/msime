@@ -1,5 +1,6 @@
 import { subtleMeta } from "../core/row-style";
 import { mobileGroupSurface } from "../core/platform-controls-style";
+import { standardStack } from "../core/page-style";
 
 /**
  * The prose pages -- about, the guides, feedback -- and the AI skin generator's cards.
@@ -24,7 +25,7 @@ export const note = "flex flex-col gap-[5px] text-secondary [&>span]:text-xs [&>
  * each card with a single row, rules it off, and runs the rest together; the first row is the one
  * that carries the whole card, so it gets the air.
  */
-export const guide = "flex flex-col gap-3";
+export const guide = standardStack;
 export const guideRow =
   "grid grid-cols-[minmax(0,170px)_minmax(0,1fr)] items-baseline gap-5 max-narrow:grid-cols-1 max-narrow:gap-1";
 export const guideLead = "border-b border-[var(--divider-color)] pb-3.5";
