@@ -173,7 +173,7 @@ public final class NativeClient {
         if (queryBytes.length > EMOJI_QUERY_LIMIT || resourcesBytes.length > EMOJI_RESOURCES_LIMIT)
             throw new IllegalArgumentException("Emoji catalog request is too large");
         byte[] result = emojiCatalogRaw(queryBytes, resourcesBytes);
-        if (result == null || result.length > EMOJI_RESPONSE_LIMIT)
+        if (!HttpBodyPolicy.isWithinLimit(result, EMOJI_RESPONSE_LIMIT))
             throw new IllegalStateException("Emoji catalog response is too large");
         return TextPolicy.utf8(result);
     }
@@ -185,7 +185,7 @@ public final class NativeClient {
                 || resourcesBytes.length > GLOSS_RESOURCES_LIMIT)
             throw new IllegalArgumentException("Candidate gloss request is too large");
         byte[] result = candidateGlossesRaw(requestBytes, resourcesBytes);
-        if (result == null || result.length > GLOSS_RESPONSE_LIMIT)
+        if (!HttpBodyPolicy.isWithinLimit(result, GLOSS_RESPONSE_LIMIT))
             throw new IllegalStateException("Candidate gloss response is too large");
         return TextPolicy.utf8(result);
     }
@@ -213,7 +213,7 @@ public final class NativeClient {
             if (resourcesBytes.length > ENGLISH_COMPLETION_RESOURCES_LIMIT)
                 throw new IllegalArgumentException("English completion resources are too large");
             byte[] result = englishCompletionsRaw(requestBytes, resourcesBytes);
-            if (result == null || result.length > ENGLISH_COMPLETION_RESPONSE_LIMIT)
+            if (!HttpBodyPolicy.isWithinLimit(result, ENGLISH_COMPLETION_RESPONSE_LIMIT))
                 throw new IllegalStateException("English completion response is too large");
             return TextPolicy.utf8(result);
         } catch (org.json.JSONException error) {
@@ -330,7 +330,7 @@ public final class NativeClient {
         if (profileBytes.length == 0 || profileBytes.length > SHUANGPIN_PROFILE_LIMIT)
             throw new IllegalArgumentException("Double-pinyin profile is too large");
         byte[] result = shuangpinKeyHintsRaw(profileBytes);
-        if (result == null || result.length > SHUANGPIN_HINT_RESPONSE_LIMIT)
+        if (!HttpBodyPolicy.isWithinLimit(result, SHUANGPIN_HINT_RESPONSE_LIMIT))
             throw new IllegalStateException("Double-pinyin hint response is too large");
         return TextPolicy.utf8(result);
     }
