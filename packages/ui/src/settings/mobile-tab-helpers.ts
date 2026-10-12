@@ -24,25 +24,27 @@ export function harmonyTabIcon(id: string): FluentIconName | undefined {
   return undefined;
 }
 
+const mobilePrimaryTitles: Record<string, string> = {
+  home: "设置",
+  "typing-statistics": "统计",
+  account: "我的",
+};
+
 /** What a mobile tab is called, which is not always what its page is called. */
 export function mobileTabTitle(id: string, title: string): string {
-  if (id === "home") return "设置";
+  if (mobilePrimaryTitles[id]) return mobilePrimaryTitles[id];
   if (id === "chat") return "对话";
-  if (id === "typing-statistics") return "统计";
-  if (id === "account") return "我的";
   return title;
 }
 
 /** 桌面标题不适合移动端界面时，触摸宿主对页面的称呼。「我的」中打开「反馈」的那一行保留自己的「帮助与反馈」标签；这里是页面的标题。 */
 export function mobilePageTitle(id: string, title: string): string {
-  if (id === "home") return "设置";
+  if (mobilePrimaryTitles[id]) return mobilePrimaryTitles[id];
   if (id === "skin") return "皮肤";
   if (id === "expression") return "表达";
   if (id === "appearance") return "候选栏";
   if (id === "screen-keyboard") return "键盘";
   if (id === "developer") return "开发者选项";
-  if (id === "typing-statistics") return "统计";
-  if (id === "account") return "我的";
   if (id === "feedback") return "反馈";
   return title;
 }
