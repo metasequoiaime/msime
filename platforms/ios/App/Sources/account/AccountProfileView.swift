@@ -49,6 +49,9 @@ struct AccountProfileEditor: View {
   @State private var confirmDeleteAccount = false
   @State private var operation: Task<Void, Never>?
   @State private var actionGeneration = UUID()
+  @State private var loadTask: Task<Void, Never>?
+  @State private var loadGeneration = UUID()
+  @State private var visible = false
 
   private var displayName: String {
     profile?.user.preferredDisplayName ?? initialUser?.preferredDisplayName ?? "水杉用户"
@@ -123,11 +126,18 @@ struct AccountProfileEditor: View {
       Button("好", role: .cancel) {}
     } message: { Text(actionMessage ?? "") }
     .tint(MetasequoiaTheme.accent)
-    .task { await load() }
+    .task {
+      visible = true
+      startLoad()
+    }
     .onDisappear {
+      visible = false
       actionGeneration = UUID()
       operation?.cancel()
       operation = nil
+      loadGeneration = UUID()
+      loadTask?.cancel()
+      loadTask = nil
       busy = false
     }
   }
@@ -232,7 +242,7 @@ struct AccountProfileEditor: View {
         Label(loadMessage ?? "", systemImage: "exclamationmark.circle")
           .font(.subheadline).foregroundStyle(MetasequoiaTheme.sub)
           .fixedSize(horizontal: false, vertical: true)
-        Button("重新加载") { Task { await load() } }
+        Button("重新加载") { startLoad() }
           .font(.subheadline.weight(.semibold))
           .foregroundStyle(MetasequoiaTheme.accent)
       }
@@ -263,20 +273,35 @@ struct AccountProfileEditor: View {
   }
 
   /// 每次页面出现都重新读取资料，所以从「昵称」返回后会刷新；只有还没有内容可显示时才显示加载指示。
-  @MainActor private func load() async {
+  @MainActor private func startLoad() {
+    guard visible else { return }
+    let id = UUID()
+    loadGeneration = id
+    loadTask?.cancel()
+    loadTask = Task { await load(id: id) }
+  }
+
+  @MainActor private func load(id: UUID) async {
     loading = profile == nil
     loadMessage = nil
-    defer { loading = false }
+    defer { if loadGeneration == id { loading = false; loadTask = nil } }
     do {
       let result = try await SkinCommunityAPI.shared.profile()
+      try ensureCurrentLoad(id)
       profile = result
       needsRecovery = false
       onSaved(result.user)
+    } catch is CancellationError {
+      return
     } catch {
-      guard !AccountRequestPolicy.isCancellation(error) else { return }
-      needsRecovery = true
-      loadMessage = error.localizedDescription
+      guard visible, loadGeneration == id, !AccountRequestPolicy.isCancellation(error) else { return }
+      needsRecovery = true; loadMessage = error.localizedDescription
     }
+  }
+
+  @MainActor private func ensureCurrentLoad(_ id: UUID) throws {
+    try Task.checkCancellation()
+    guard visible, loadGeneration == id else { throw CancellationError() }
   }
 }
 
@@ -290,6 +315,9 @@ private struct AccountNicknameEditor: View {
   @State private var saving = false
   @State private var message: String?
   @State private var confirmDiscard = false
+  @State private var operation: Task<Void, Never>?
+  @State private var saveGeneration = UUID()
+  @State private var visible = false
 
   init(profile: CommunityProfile, onSaved: @escaping (CommunityProfile) -> Void) {
     self.profile = profile
@@ -381,26 +409,37 @@ private struct AccountNicknameEditor: View {
       Button("继续编辑", role: .cancel) {}
     }
     .tint(MetasequoiaTheme.accent)
-    .onAppear { editing = true }
+    .onAppear { visible = true; editing = true }
+    .onDisappear {
+      visible = false
+      saveGeneration = UUID()
+      operation?.cancel()
+      operation = nil
+      saving = false
+    }
   }
 
   private func save() {
-    guard !saving else { return }
+    guard visible, !saving else { return }
     guard hasChanges else { dismiss(); return }
     guard validName else { return }
     editing = false
     saving = true
     message = nil
     let submittedName = normalizedName
-    Task {
-      defer { saving = false }
+    let id = UUID()
+    saveGeneration = id
+    operation = Task {
+      defer { if saveGeneration == id { saving = false; operation = nil } }
       do {
         let updated = try await SkinCommunityAPI.shared.updateProfile(name: submittedName)
+        guard visible, saveGeneration == id, !Task.isCancelled else { return }
         onSaved(updated)
         ToastCenter.shared.show("昵称已更新")
         dismiss()
-      } catch {
-        guard !AccountRequestPolicy.isCancellation(error) else { return }
+      } catch is CancellationError { }
+      catch {
+        guard visible, saveGeneration == id, !AccountRequestPolicy.isCancellation(error) else { return }
         message = error.localizedDescription
       }
     }
