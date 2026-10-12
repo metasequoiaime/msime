@@ -25,6 +25,7 @@ mod english_supplement;
 mod hanja;
 mod hkcancor;
 mod japanese;
+mod language_verify;
 mod language_writer;
 mod languages;
 mod licensing;

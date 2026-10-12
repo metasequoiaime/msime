@@ -10,10 +10,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
-use msime_engine::language_dictionary;
 use msime_engine::zhuyin::layout::{self, Kind};
-
-use crate::sqlite;
 
 pub const PHRASES: &str = "sources/zhuyin/tsi.csv";
 pub const CHARACTERS: &str = "sources/zhuyin/word.csv";
@@ -263,31 +260,21 @@ pub struct Counts {
 
 /// Opens a written database the way the engine does and fails when it is below `floors` or a key of `expected` lacks its text among its first entries.
 pub fn verify(path: &Path, floors: Floors, expected: &[Expected]) -> Result<Counts> {
-    let dictionary = language_dictionary::open_read_only(path)
-        .map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
-    let connection =
-        sqlite::open_read_only(path).with_context(|| format!("opening {}", path.display()))?;
-    let count = |sql: &str| -> Result<usize> {
-        let count: i64 = connection.query_row(sql, [], |row| row.get(0))?;
-        Ok(usize::try_from(count)?)
-    };
+    let (dictionary, connection) = crate::language_verify::open(path)?;
+    let count = |sql| crate::language_verify::count(&connection, sql);
     let counts = Counts {
         syllables: count("SELECT count(*) FROM syllables")?,
         characters: count("SELECT count(*) FROM entries WHERE length(text) = 1")?,
         phrases: count("SELECT count(*) FROM entries WHERE length(text) > 1")?,
     };
-    for (what, found, floor) in [
-        ("syllables", counts.syllables, floors.syllables),
-        ("character entries", counts.characters, floors.characters),
-        ("phrase entries", counts.phrases, floors.phrases),
-    ] {
-        if found < floor {
-            bail!(
-                "{}: {found} {what}, below the floor of {floor}",
-                path.display()
-            );
-        }
-    }
+    crate::language_verify::check_floors(
+        path,
+        &[
+            ("syllables", counts.syllables, floors.syllables),
+            ("character entries", counts.characters, floors.characters),
+            ("phrase entries", counts.phrases, floors.phrases),
+        ],
+    )?;
     for check in expected {
         let top = dictionary
             .lookup(check.key, check.within)
@@ -311,6 +298,7 @@ pub fn verify(path: &Path, floors: Floors, expected: &[Expected]) -> Result<Coun
 #[cfg(test)]
 mod tests {
     use super::*;
+    use msime_engine::language_dictionary;
 
     const HEADER: &str = "# dc:title,內建詞庫,\n# dc:rights,Copyright (c) 2025 libchewing Core Team,\n# dc:license,LGPL-2.1-or-later,\n# dc:identifier,2025.11.17,\n";
 
