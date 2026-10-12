@@ -100,8 +100,7 @@ public final class AiEndpointPolicy {
     }
 
     private static URI parsed(String endpoint) {
-        if (endpoint == null || endpoint.isEmpty() || TextPolicy.utf8Length(endpoint) > MAX_ENDPOINT_BYTES
-                || TextPolicy.hasControl(endpoint) || !TextPolicy.validUnicode(endpoint)
+        if (!TextPolicy.boundedNonEmpty(endpoint, MAX_ENDPOINT_BYTES)
                 // `#` 之后都是片段，哪怕是空的。
                 || endpoint.contains("#")) return null;
         String value = TextPolicy.trimmed(endpoint);

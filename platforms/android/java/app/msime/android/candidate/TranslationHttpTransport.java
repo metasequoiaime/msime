@@ -45,8 +45,7 @@ public final class TranslationHttpTransport {
      * <p>用 {@link URL} 而不是 {@link java.net.URI} 解析：共享层按 WHATWG 规则（reqwest）放行的 https 地址里，带下划线的主机名、中文等国际化域名、查询串里的 `|` 这类字符，{@code URI} 都会拒绝或取不到主机，结果是设置页说地址不对、键盘每次都不发，而共享层的校验和「测试连接」都说没问题。{@code URL} 只按结构切分，这些地址都能放行；地址的完整校验已经由共享层在保存偏好和构造描述器时做过，这里只守 scheme、回环主机、用户信息和片段这几条安全边界。
      */
     public static boolean allowedURL(String url) {
-        if (url == null || url.isEmpty() || TextPolicy.utf8Length(url) > MAX_URL_BYTES
-                || TextPolicy.hasControl(url) || !TextPolicy.validUnicode(url) || url.indexOf('#') >= 0) return false;
+        if (!TextPolicy.boundedNonEmpty(url, MAX_URL_BYTES) || url.indexOf('#') >= 0) return false;
         // `https:///v1` 要求 `://` 后面紧跟主机，免得路径被当成主机。
         int separator = url.indexOf("://");
         if (separator < 0 || url.length() <= separator + 3 || url.charAt(separator + 3) == '/') return false;
