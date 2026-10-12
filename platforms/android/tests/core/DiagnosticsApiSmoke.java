@@ -1,5 +1,6 @@
 import app.msime.android.CloudApi;
 import app.msime.android.DiagnosticsApi;
+import app.msime.android.DiagnosticEventKind;
 import app.msime.android.JsonPolicy;
 import java.util.ArrayList;
 import java.util.List;
@@ -11,7 +12,7 @@ import java.util.zip.ZipOutputStream;
 public final class DiagnosticsApiSmoke {
     public static void main(String[] arguments) throws Exception {
         // 事件只能按 P19 枚举构造：不在枚举里的种类、负时间都被丢弃。
-        check(DiagnosticsApi.EventKind.values().length == 10, "P19 lists ten event kinds");
+        check(DiagnosticEventKind.values().length == 10, "P19 lists ten event kinds");
         check(DiagnosticsApi.Event.of(1, "key_down", 3) != null, "key_down is accepted");
         check(DiagnosticsApi.Event.of(1, "text", 3) == null, "an unknown kind is dropped");
         check(DiagnosticsApi.Event.of(1, "KEY_DOWN", 3) == null, "kinds are matched exactly");

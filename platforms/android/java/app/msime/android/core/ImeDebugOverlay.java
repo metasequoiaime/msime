@@ -18,29 +18,9 @@ import org.json.JSONObject;
 /**
  * 候选区上方那行提示与调试信息：提示的显示、自动消失与清除；`developer_options.debug_overlay` 打开时，没有提示的空档里显示引擎耗时（按键到候选更新）与候选数；`diagnostic_log.mobile` 打开且隐私判断允许时，把输入事件与耗时写进 `<filesDir>/diagnostics/` 下的两个 jsonl。
  *
- * <p>写入的每一行只能由 {@link Event} 枚举、时间戳和耗时构造（P19），写入方法不接受任何字符串参数，所以输入内容、拼音、候选和按键字符无从进入文件。
+ * <p>写入的每一行只能由 {@link DiagnosticEventKind} 枚举、时间戳和耗时构造（P19），写入方法不接受任何字符串参数，所以输入内容、拼音、候选和按键字符无从进入文件。
  */
 final class ImeDebugOverlay {
-    /** P19 规定的事件种类；输入事件与耗时记录共用，与 client-core 诊断包的白名单一致。 */
-    enum Event {
-        KEY_DOWN("key_down"),
-        KEY_UP("key_up"),
-        CANDIDATE_SHOWN("candidate_shown"),
-        CANDIDATE_SELECTED("candidate_selected"),
-        COMMIT("commit"),
-        BACKSPACE("backspace"),
-        PANEL_OPEN("panel_open"),
-        PANEL_CLOSE("panel_close"),
-        IME_START("ime_start"),
-        IME_FINISH("ime_finish");
-
-        private final String wire;
-
-        Event(String wire) { this.wire = wire; }
-
-        String wire() { return wire; }
-    }
-
     /**
      * 两个本地日志文件：`input-events.jsonl`（`{t_ms,kind}`）与 `perf.jsonl`（`{t_ms,kind,duration_ms}`），各自不超过 1 MiB；写满时丢掉最旧的行，只留到上限的四分之三再续写。
      *
@@ -60,13 +40,13 @@ final class ImeDebugOverlay {
         }
 
         /** 一行输入事件：只有时间戳与种类。 */
-        static String line(Event kind, long timeMillis) {
+        static String line(DiagnosticEventKind kind, long timeMillis) {
             if (kind == null) throw new IllegalArgumentException("event kind");
             return "{\"t_ms\":" + BoundsPolicy.nonNegative(timeMillis) + ",\"kind\":\"" + kind.wire() + "\"}\n";
         }
 
         /** 一行耗时记录：时间戳、种类与耗时（毫秒）。 */
-        static String line(Event kind, long timeMillis, long durationMillis) {
+        static String line(DiagnosticEventKind kind, long timeMillis, long durationMillis) {
             if (kind == null) throw new IllegalArgumentException("event kind");
             return "{\"t_ms\":" + BoundsPolicy.nonNegative(timeMillis) + ",\"kind\":\"" + kind.wire()
                 + "\",\"duration_ms\":" + BoundsPolicy.nonNegative(durationMillis) + "}\n";
@@ -87,11 +67,11 @@ final class ImeDebugOverlay {
             return kept;
         }
 
-        void event(Event kind) {
+        void event(DiagnosticEventKind kind) {
             submit(EVENTS_FILE, line(kind, System.currentTimeMillis()));
         }
 
-        void perf(Event kind, long durationMillis) {
+        void perf(DiagnosticEventKind kind, long durationMillis) {
             submit(PERF_FILE, line(kind, System.currentTimeMillis(), durationMillis));
         }
 
@@ -189,14 +169,14 @@ final class ImeDebugOverlay {
     }
 
     /** 记一个输入事件（只记种类与时间）。 */
-    void recordEvent(Event kind) {
+    void recordEvent(DiagnosticEventKind kind) {
         if (!logging()) return;
         EventLog target = log();
         if (target != null) target.event(kind);
     }
 
     /** 记一条耗时（只记种类、时间与毫秒数）。 */
-    void recordPerf(Event kind, long durationMillis) {
+    void recordPerf(DiagnosticEventKind kind, long durationMillis) {
         if (!logging()) return;
         EventLog target = log();
         if (target != null) target.perf(kind, durationMillis);
@@ -205,14 +185,14 @@ final class ImeDebugOverlay {
     /** 一次按键按下：开始计时，并记 key_down（删除键记 backspace）。 */
     void onKeyPressed(boolean backspace) {
         pendingKeyAt = SystemClock.uptimeMillis();
-        recordEvent(backspace ? Event.BACKSPACE : Event.KEY_DOWN);
+        recordEvent(backspace ? DiagnosticEventKind.BACKSPACE : DiagnosticEventKind.KEY_DOWN);
     }
 
     void showDiagnostic(String value) {
         if (pendingKeyAt >= 0) {
             lastEngineMillis = SystemClock.uptimeMillis() - pendingKeyAt;
             pendingKeyAt = -1;
-            recordPerf(Event.CANDIDATE_SHOWN, lastEngineMillis);
+            recordPerf(DiagnosticEventKind.CANDIDATE_SHOWN, lastEngineMillis);
         }
         showMessage(value);
     }
@@ -244,7 +224,7 @@ final class ImeDebugOverlay {
         }
         s.diagnosticMessage = "";
         // 只在输入结束（stop）与服务销毁时调用，所以同时记一次 ime_finish。
-        recordEvent(Event.IME_FINISH);
+        recordEvent(DiagnosticEventKind.IME_FINISH);
         pendingKeyAt = -1;
     }
 

@@ -21,7 +21,7 @@ import org.json.JSONObject;
 /**
  * 「MCP 开发者访问」的云端接口：上传一份日志快照、读回快照与最近访问、重新生成访问令牌、删除快照（`/v1/users/me/diagnostics`）。
  *
- * <p>上传的内容只来自 Rust 写出的诊断包（`NativeClient.diagnosticBundle`）：配置快照是诊断包里已经脱敏的 `config_snapshot`，这里不自己脱敏；输入事件和性能数据从诊断包里按 P19 白名单校验过的 jsonl 读出，再在这里按 {@link EventKind} 枚举逐条重建，只留 `t_ms`、`kind`、`duration_ms`，不认识的种类整行丢弃。请求体里不会出现任何文本、拼音、候选或按键字面值。
+ * <p>上传的内容只来自 Rust 写出的诊断包（`NativeClient.diagnosticBundle`）：配置快照是诊断包里已经脱敏的 `config_snapshot`，这里不自己脱敏；输入事件和性能数据从诊断包里按 P19 白名单校验过的 jsonl 读出，再在这里按 {@link DiagnosticEventKind} 枚举逐条重建，只留 `t_ms`、`kind`、`duration_ms`，不认识的种类整行丢弃。请求体里不会出现任何文本、拼音、候选或按键字面值。
  *
  * <p>匿名账号也可以上传（`ACCOUNT_OR_ANONYMOUS`）。每个请求都阻塞在网络上，不要在主线程调用。
  */
@@ -65,39 +65,11 @@ public final class DiagnosticsApi {
         }
     }
 
-    /** P19 允许的事件种类；输入事件和性能记录的 `kind` 只能取这些值。 */
-    public enum EventKind {
-        KEY_DOWN("key_down"),
-        KEY_UP("key_up"),
-        CANDIDATE_SHOWN("candidate_shown"),
-        CANDIDATE_SELECTED("candidate_selected"),
-        COMMIT("commit"),
-        BACKSPACE("backspace"),
-        PANEL_OPEN("panel_open"),
-        PANEL_CLOSE("panel_close"),
-        IME_START("ime_start"),
-        IME_FINISH("ime_finish");
-
-        private final String wire;
-
-        EventKind(String wire) { this.wire = wire; }
-
-        public String wire() { return wire; }
-
-        /** 不在枚举里的种类返回 null，调用方丢弃这一条。 */
-        public static EventKind fromWire(String value) {
-            for (EventKind kind : values()) {
-                if (kind.wire.equals(value)) return kind;
-            }
-            return null;
-        }
-    }
-
     /** 一条输入事件或性能记录；`durationMs` 小于 0 表示没有耗时。 */
-    public record Event(long tMs, EventKind kind, long durationMs) {
+    public record Event(long tMs, DiagnosticEventKind kind, long durationMs) {
         /** 按枚举重建一条记录；种类不认识、时间为负时返回 null。 */
         public static Event of(long tMs, String kind, long durationMs) {
-            EventKind known = EventKind.fromWire(kind);
+            DiagnosticEventKind known = DiagnosticEventKind.fromWire(kind);
             if (known == null || tMs < 0) return null;
             return new Event(tMs, known, durationMs < 0 ? -1 : durationMs);
         }

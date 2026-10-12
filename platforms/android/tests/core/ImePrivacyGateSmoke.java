@@ -51,15 +51,17 @@ public final class ImePrivacyGateSmoke {
         check(!ImePrivacyGate.allows(null, false, text, 0), "an unnamed record is never allowed");
 
         // 本地输入日志：行只由枚举、时间戳和耗时构造，写入方法不接受任何文本参数。
-        check(ImeDebugOverlay.EventLog.line(ImeDebugOverlay.Event.KEY_DOWN, 12)
+        check(ImeDebugOverlay.EventLog.line(DiagnosticEventKind.KEY_DOWN, 12)
             .equals("{\"t_ms\":12,\"kind\":\"key_down\"}\n"), "an input event carries only time and kind");
-        check(ImeDebugOverlay.EventLog.line(ImeDebugOverlay.Event.CANDIDATE_SHOWN, 5, 7)
+        check(ImeDebugOverlay.EventLog.line(DiagnosticEventKind.CANDIDATE_SHOWN, 5, 7)
             .equals("{\"t_ms\":5,\"kind\":\"candidate_shown\",\"duration_ms\":7}\n"), "a perf row carries only time, kind and duration");
         String[] kinds = {"key_down", "key_up", "candidate_shown", "candidate_selected", "commit", "backspace",
             "panel_open", "panel_close", "ime_start", "ime_finish"};
-        check(ImeDebugOverlay.Event.values().length == kinds.length, "the P19 event kinds, no more");
+        check(DiagnosticEventKind.values().length == kinds.length, "the P19 event kinds, no more");
         for (int index = 0; index < kinds.length; index++) {
-            check(ImeDebugOverlay.Event.values()[index].wire().equals(kinds[index]), "event kind " + kinds[index]);
+            check(DiagnosticEventKind.values()[index].wire().equals(kinds[index]), "event kind " + kinds[index]);
+            check(DiagnosticEventKind.fromWire(kinds[index]) == DiagnosticEventKind.values()[index],
+                "uploaded event kind " + kinds[index]);
         }
         for (Class<?> type : new Class<?>[] {ImeDebugOverlay.class, ImeDebugOverlay.EventLog.class}) {
             for (Method method : type.getDeclaredMethods()) {

@@ -154,7 +154,7 @@ final class ImeKeyFeedback {
     private void feedback(View source, int keyClass) {
         refreshPreferences();
         if (inside(source, s.candidateViewport) || inside(source, s.expandedCandidates)) {
-            s.imeDebugOverlay.recordEvent(ImeDebugOverlay.Event.CANDIDATE_SELECTED);
+            s.imeDebugOverlay.recordEvent(DiagnosticEventKind.CANDIDATE_SELECTED);
         } else if (inside(source, s.keyRows) || inside(source, s.actionRow)) {
             s.imeDebugOverlay.onKeyPressed(keyClass == KEY_BACKSPACE);
             if (animation != KeyPressAnimator.Style.NONE) {
