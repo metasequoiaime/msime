@@ -127,8 +127,7 @@ public final class VoicePage extends ReloadingDetailPage {
     }
 
     @Nullable private static State read(Context context) {
-        JSONObject snapshot = HostStore.loadPreferences(context);
-        JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
+        JSONObject preferences = KeyboardSheets.preferences(context);
         if (preferences == null) return null;
         VoiceConfiguration configuration = VoiceConfiguration.read(HostStore.directory(context), "settings");
         ResourcePacks.Pack runtime = ResourcePacks.pack(context.getFilesDir(), ResourcePacks.VOICE_RUNTIME);

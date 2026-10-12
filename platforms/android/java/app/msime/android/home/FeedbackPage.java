@@ -344,8 +344,7 @@ public final class FeedbackPage extends DetailPage {
         values.put("os", "Android " + Build.VERSION.RELEASE + "（API " + Build.VERSION.SDK_INT + "）");
         values.put("app_version", appVersion(context));
         values.put("edition", AppEdition.current().id());
-        JSONObject snapshot = HostStore.loadPreferences(context);
-        JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
+        JSONObject preferences = KeyboardSheets.preferences(context);
         if (preferences != null) {
             values.put("scheme", preferences.optString("scheme", ""));
             values.put("keyboard_layout", InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", ""));
