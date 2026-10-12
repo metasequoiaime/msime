@@ -262,7 +262,7 @@ public final class SkinsPage extends ReloadingDetailPage {
         LinearLayout.LayoutParams nameParams = LayoutPolicy.matchWidthWrapParams();
         nameParams.topMargin = DimensionPolicy.pixels(context, 8);
         cell.addView(name, nameParams);
-        cell.setAccessibilityDelegate(KeyboardSheets.buttonDelegate("AI 设计皮肤，描述一句话生成"));
+        cell.setAccessibilityDelegate(HomeButtonPolicy.buttonDelegate("AI 设计皮肤，描述一句话生成"));
         ViewPolicy.makeClickable(cell, context,
             () -> SettingsNavigator.open(requireContext(), PageId.AI_SKIN, null));
         return cell;

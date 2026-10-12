@@ -11,7 +11,6 @@ import app.msime.android.JsonPolicy;
 import app.msime.android.NativeClient;
 import app.msime.android.TranslationServiceSettingsPolicy;
 import app.msime.android.TranslationServiceSettingsPolicy.Choice;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.util.function.Function;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -166,11 +165,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
             HostTask.runNetwork(this, context -> runTest(selected.testService(), config), result -> {
                 testing = false;
                 if (!isAdded()) return;
-                new MaterialAlertDialogBuilder(requireContext())
-                    .setTitle(result.ok() ? "测试成功" : "测试未通过")
-                    .setMessage(result.message())
-                    .setPositiveButton("好", null)
-                    .show();
+                MessageDialog.show(requireContext(), result.ok() ? "测试成功" : "测试未通过", result.message());
             });
         });
         group.footer("选择自己的服务后，键盘把当前一页的中文候选（最多 10 个，每个不超过 40 字）直接发给该服务，不经过水杉服务器。小牛和自定义每个词单独请求一次；设置了第二目标语言时，每种语言各请求一次，都会消耗你在该服务的额度。离线释义查得到的语言仍优先显示离线释义。");

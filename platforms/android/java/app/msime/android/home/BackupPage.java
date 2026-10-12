@@ -155,11 +155,7 @@ public final class BackupPage extends DetailPage {
 
     private void showResult(String title, String message) {
         if (getContext() == null) return;
-        new MaterialAlertDialogBuilder(requireContext())
-            .setTitle(title)
-            .setMessage(message)
-            .setPositiveButton("好", null)
-            .show();
+        MessageDialog.show(requireContext(), title, message);
     }
 
     /** manifest 里的 ISO 时间显示成本地的「2026-10-08 09:15」；读不出来时不显示。 */

@@ -377,7 +377,7 @@ public final class AiSkinPage extends ColumnDetailPage {
                 input.setText(suggestion);
                 input.setSelection(input.length());
             });
-            chip.setAccessibilityDelegate(KeyboardSheets.buttonDelegate("建议描述 " + suggestion));
+            chip.setAccessibilityDelegate(HomeButtonPolicy.buttonDelegate("建议描述 " + suggestion));
             LinearLayout.LayoutParams chipParams = LayoutPolicy.wrapParams();
             chipParams.setMarginEnd(DimensionPolicy.pixels(context, 8));
             chips.addView(chip, chipParams);

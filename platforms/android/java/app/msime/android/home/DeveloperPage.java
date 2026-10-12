@@ -362,13 +362,9 @@ public final class DeveloperPage extends ReloadingDetailPage {
     }
 
     private void confirmRegenerate() {
-        new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("重新生成访问令牌")
-            .setMessage("旧令牌会立即失效，已经拿到它的开发者需要换用新令牌。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("重新生成", (dialog, which) -> regenerate(token -> MsToast.show(requireContext(),
-                "已生成新令牌，可用「发送给开发者」分享")))
-            .show();
+        MessageDialog.confirm(requireContext(), "重新生成访问令牌",
+            "旧令牌会立即失效，已经拿到它的开发者需要换用新令牌。", "重新生成",
+            () -> regenerate(token -> MsToast.show(requireContext(), "已生成新令牌，可用「发送给开发者」分享")));
     }
 
     private void regenerate(Consumer<String> then) {
@@ -409,12 +405,9 @@ public final class DeveloperPage extends ReloadingDetailPage {
             return;
         }
         // 云端只存令牌的哈希，完整令牌只在生成时出现一次；离开过本页就只能换一枚新的再发。
-        new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("发送给开发者")
-            .setMessage("完整令牌只在生成时显示一次。要生成一枚新令牌并分享吗？旧令牌会立即失效。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("生成并分享", (dialog, which) -> regenerate(fresh -> share(url, fresh)))
-            .show();
+        MessageDialog.confirm(requireContext(), "发送给开发者",
+            "完整令牌只在生成时显示一次。要生成一枚新令牌并分享吗？旧令牌会立即失效。",
+            "生成并分享", () -> regenerate(fresh -> share(url, fresh)));
     }
 
     private void share(String url, String token) {
@@ -460,11 +453,8 @@ public final class DeveloperPage extends ReloadingDetailPage {
     }
 
     private void confirmReset() {
-        new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("重置所有设置")
-            .setMessage("所有设置恢复为出厂设置，词库、统计和服务凭据不受影响。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("重置", (dialog, which) -> {
+        MessageDialog.confirm(requireContext(), "重置所有设置",
+            "所有设置恢复为出厂设置，词库、统计和服务凭据不受影响。", "重置", () -> {
                 busy = true;
                 render();
                 HostTask.run(this, context -> {
@@ -496,8 +486,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
                     reload();
                     MsToast.show(requireContext(), "已恢复出厂设置");
                 });
-            })
-            .show();
+            });
     }
 
     // ---- 本地设置 ----

@@ -17,7 +17,6 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.NumberPolicy;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -279,11 +278,8 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
         Model current = model;
         if (current == null || current.collection() == null) return;
         DictionaryCollectionsStore.Collection collection = current.collection();
-        new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("删除「" + collection.name() + "」？")
-            .setMessage("词库和它的词条会从本机删除；同时属于其他已启用词库的词会保留。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("删除", (dialog, which) -> HostTask.run(this,
+        MessageDialog.confirm(requireContext(), "删除「" + collection.name() + "」？",
+            "词库和它的词条会从本机删除；同时属于其他已启用词库的词会保留。", "删除", () -> HostTask.run(this,
                 context -> DictionaryCollectionsStore.delete(context, collection.id()), result -> {
                     if (result == null || !result.ok()) {
                         MsToast.show(requireContext(), result == null ? DictionaryCollectionsStore.failureMessage("") : result.failure());
@@ -291,8 +287,7 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
                     }
                     MsToast.show(requireContext(), "已删除");
                     requireActivity().getOnBackPressedDispatcher().onBackPressed();
-                }))
-            .show();
+                }));
     }
 
     private void onExportPicked(@Nullable Uri uri) {

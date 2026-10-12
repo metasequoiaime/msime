@@ -216,7 +216,7 @@ public final class LexiconPage extends ReloadingDetailPage {
             ViewPolicy.setTextMinHeightDp(context, button, Ui.COMPACT_BUTTON_MIN_HEIGHT);
             ViewPolicy.setEnabled(button, false);
         }
-        button.setAccessibilityDelegate(KeyboardSheets.buttonDelegate(button.getText() + "，" + item.name()));
+        button.setAccessibilityDelegate(HomeButtonPolicy.buttonDelegate(button.getText() + "，" + item.name()));
         LinearLayout.LayoutParams params = LayoutPolicy.rowGapParams(context, Ui.ROW_GAP);
         row.addView(button, params);
         return row;
