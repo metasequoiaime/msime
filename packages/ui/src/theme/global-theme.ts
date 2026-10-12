@@ -197,6 +197,12 @@ export function themeEntry(id: string | undefined): ThemeCatalogEntry {
   return themeCatalog.find((entry) => entry.id === id) ?? themeCatalog[0];
 }
 
+/** Display title shared by settings rows and the home/account summaries. */
+export function globalThemeTitle(id: string | undefined): string {
+  const entry = themeEntry(id);
+  return entry.id === "custom" ? "我的皮肤" : entry.title;
+}
+
 /** 候选预览读的 `--cand-*` 自定义属性，只写调色板设了的槽位；没设的槽位留给样式表里按宿主平台给的默认值。`show_selected_bar` 写成 `--cand-selected-bar`（`block` 或 `none`），null 时不写，由平台决定画不画竖条。另外两个 `--cand-mac-selected-*` 只有 macOS 的默认值块会读，见 `macSelectedForegrounds`。 */
 export function candidatePaletteStyle(palette: CandidateThemePalette | null): CSSProperties {
   if (!palette) return {};

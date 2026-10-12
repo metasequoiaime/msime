@@ -1,7 +1,7 @@
 import type { Preferences } from "../index";
 import { FluentIcon, type FluentIconName } from "../core/fluent-icons";
 import { NavGroup, NavRow } from "../core/platform-controls";
-import { themeEntry } from "../theme/global-theme";
+import { globalThemeTitle } from "../theme/global-theme";
 import { touchKeyboardSchemeTitle } from "../settings/touch-keyboard-scheme-helpers";
 
 /** 「设置」根页面可以链接到的页面，以及手机上显示的标题。 */
@@ -50,12 +50,6 @@ const extraPageIcons: Readonly<Record<string, FluentIconName>> = {
   "typing-statistics": "data_bar_vertical",
 };
 
-/** 「皮肤」行和桌面首页卡片显示的皮肤名称：目录里的标题，用户自己设计的皮肤则为「我的皮肤」。 */
-export function skinTitle(preferences: Preferences): string {
-  const selected = themeEntry(preferences.global_theme).id;
-  return selected === "custom" ? "我的皮肤" : themeEntry(selected).title;
-}
-
 /** 「语音输入」行显示的语音识别语言名称。系统识别器的 locale id 和各服务商的简写都有映射；空值是默认的「普通话」；没有映射的值直接显示代码本身，不去猜测。 */
 export function voiceLanguageTitle(language: string | undefined): string {
   const code = (language ?? "").trim();
@@ -84,7 +78,7 @@ export function voiceLanguageTitle(language: string | undefined): string {
 export function rootPageValue(id: string, preferences: Preferences): string | undefined {
   switch (id) {
     case "skin":
-      return skinTitle(preferences);
+      return globalThemeTitle(preferences.global_theme);
     case "input":
       return touchKeyboardSchemeTitle(preferences);
     case "expression":

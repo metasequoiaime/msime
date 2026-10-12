@@ -10,7 +10,7 @@ import { useToast } from "../core/toast";
 import { useTemporaryFlag } from "../core/use-temporary-flag";
 import { privacyUrl } from "../settings/app-resources";
 import type { SettingsPageId } from "../settings/settings-page-registry";
-import { themeEntry } from "../theme/global-theme";
+import { globalThemeTitle } from "../theme/global-theme";
 import * as doc from "../settings/document-style";
 import * as account from "./account-style";
 import { AccountAvatar } from "./account-avatar";
@@ -1187,12 +1187,7 @@ function AccountDetailsPage({
       void perform(() => loadProfile(generation));
       onLoginComplete?.();
     };
-    const selected = themeEntry(preferences?.global_theme).id;
-    const skinValue = preferences
-      ? selected === "custom"
-        ? "我的皮肤"
-        : themeEntry(selected).title
-      : undefined;
+    const skinValue = preferences ? globalThemeTitle(preferences.global_theme) : undefined;
     const contentRows = Boolean(
       onOpenPage || (user && (onOpenCloudDictionary || onOpenCloudClipboard)),
     );
