@@ -71,7 +71,13 @@ test("relay tokens are 16 to 256 printable ASCII characters", () => {
 });
 
 test("clearing the relay removes the key instead of writing an empty value", () => {
-  const base: Preferences = { scheme: "quanpin", candidate_page_size: 5, learning: true };
+  const base: Preferences = {
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
+  };
   const configured = withCloudClipboardRelay(base, {
     url: "https://relay.example.test",
     token: TOKEN,
