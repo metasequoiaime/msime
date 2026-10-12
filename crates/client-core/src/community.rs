@@ -105,5 +105,6 @@ pub(crate) fn valid_rating(rating_count: u64, rating_average: f64, my_rating: u8
 pub mod report;
 pub mod resource;
 pub mod resource_library;
+pub(crate) mod write_actions;
 
 use serde::{Deserialize, Serialize};

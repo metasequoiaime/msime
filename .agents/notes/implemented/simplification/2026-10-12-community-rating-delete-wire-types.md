@@ -18,3 +18,5 @@ Status: implemented
 ## Consequences
 
 三类社区资源的评分和删除回包共用一份字段定义。新增的类型只在 `client-core` 内部可见，公开 API 与网络格式不变；各资源现有测试继续覆盖请求和回包行为。
+
+后续的[社区写操作共用流程](2026-10-12-community-write-actions.md)接管路径拼接、入参和回包核对；本篇关于 JSON 字段与严格反序列化的决定仍成立。
