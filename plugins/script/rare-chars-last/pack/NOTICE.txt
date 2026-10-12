@@ -1,0 +1,22 @@
+生僻字靠后（rare-chars-last）的第三方数据说明
+
+插件代码按 MIT 许可，全文见 LICENSE.txt。模块里嵌入了一份常用字集，用来判断哪些汉字算生僻字；它的来源和许可证如下。插件构建时又把这份集合展开成按码位查的位图，除「这个字在不在集合里」之外不含任何原始数据。
+
+常用字集（common-chars.bin）的来源说明
+
+这份常用字集由 plugins/script/tools/gen_common_chars.py 从下面两份数据变换生成，只保留「这个字在不在集合里」这一个事实，编码成位图和码位列表。
+
+1. Unicode Han Database（Unihan）17.0.0：https://www.unicode.org/Public/17.0.0/ucd/Unihan.zip
+   文件 Unihan-17.0.0.zip，8518517 字节，SHA-256 f7a48b2b545acfaa77b2d607ae28747404ce02baefee16396c5d2d7a8ef34b5e。
+   使用其中 Unihan_OtherMappings.txt 的 kTGH 字段（《通用规范汉字表》2013 年版）和 Unihan_Variants.txt 的 kTraditionalVariant 字段。
+   许可证：Unicode License v3（Unicode-3.0），全文见同一个包里的 Unicode-License-V3.txt。
+
+2. OpenCC（https://github.com/BYVoid/OpenCC）提交 26753884f1984add422f3b0249ccee8613deaff6 的 data/dictionary/STCharacters.txt。
+   使用其中《通用规范汉字表》各字的繁体单字值。
+   许可证：Apache License 2.0（Apache-2.0），全文见同一个包里的 OpenCC-LICENSE.txt。本文件即 Apache-2.0 第 4 条要求的修改说明：原始词典已被变换为上述二进制集合。
+
+集合的组成：
+- 《通用规范汉字表》（kTGH）：8105 字
+- 这些字的 kTraditionalVariant（不在表内的）：2793 字
+- 只由 OpenCC 补充的繁体形：151 字
+- 合计：11049 字，其中基本区（U+4E00..U+9FFF）10754 字，扩展 A（U+3400..U+4DBF）92 字，其余（辅助平面等）203 字
