@@ -1,12 +1,9 @@
 package app.msime.android.test;
 
 import android.os.Bundle;
-import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
-import android.util.AtomicFile;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.function.Predicate;
@@ -43,7 +40,7 @@ public final class WubiLookupDeviceSmoke extends DeviceSmoke {
         try {
             stage = "Wubi preferences";
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
-            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity --es msime_open_page TYPING");
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity --es msime_open_page TYPING");
 
             stage = "input page lists the lookup";
             tap(settingsText("五笔查码"));
@@ -67,10 +64,10 @@ public final class WubiLookupDeviceSmoke extends DeviceSmoke {
             tap(settingsText("查码").and(AccessibilityNodeInfo::isEnabled));
             await(settingsText("没有可以查的汉字。"));
         } catch (Exception | AssertionError error) {
-            shell("screencap -p /data/local/tmp/msime-wubi-lookup-failure.png");
+            shellDiscard("screencap -p /data/local/tmp/msime-wubi-lookup-failure.png");
             throw error;
         } finally {
-            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }
@@ -94,17 +91,5 @@ public final class WubiLookupDeviceSmoke extends DeviceSmoke {
         SystemClock.sleep(200);
     }
 
-    private void shell(String command) throws Exception {
-        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))) {
-            byte[] buffer = new byte[1024];
-            while (input.read(buffer) != -1) { /* Discard synthetic command output. */ }
-        }
-    }
 
-    private void publish(File file, byte[] contents) throws Exception {
-        AtomicFile target = new AtomicFile(file);
-        FileOutputStream output = target.startWrite();
-        try { output.write(contents); target.finishWrite(output); }
-        catch (Exception error) { target.failWrite(output); throw error; }
-    }
 }

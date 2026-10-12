@@ -1116,6 +1116,31 @@ test("traditional Chinese output toggle persists", async () => {
   });
 });
 
+test("Chinese-English spacing toggle persists", async () => {
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const toggle = (await screen.findByRole("switch", {
+    name: "中英文之间加空格",
+  })) as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  fireEvent.click(toggle);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    chinese_english_spacing: true,
+  });
+});
+
 test("voice settings persist under the shared voice_input contract", async () => {
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(initial),
@@ -6581,6 +6606,7 @@ const referenceSections: {
       "默认中英文",
       "中英文状态",
       "繁体输出",
+      "中英文之间加空格",
       "云候选",
       "中英混输",
       "拼音方案调频",
@@ -7211,6 +7237,7 @@ test.each(optionHosts)(
       "翻页方式",
       "云候选",
       "繁体输出",
+      "中英文之间加空格",
       "拼音方案调频",
     ];
     const ordered = present.filter((text) => expected.includes(text));

@@ -40,7 +40,7 @@ export const clipboardConfirm = `flex flex-wrap items-center gap-2 rounded-[7px]
 export const clipboardList = "min-h-0 flex-1 overflow-y-auto";
 /** A row, with its first child being the text itself: a full-width, wrapping, quiet button. */
 export const clipboardItem =
-  "flex items-start gap-2 border-b border-white/[0.09] py-2.5 [&>button:first-child]:flex-1 [&>button:first-child]:border-0 [&>button:first-child]:bg-transparent [&>button:first-child]:p-0 [&>button:first-child]:text-left [&>button:first-child]:whitespace-pre-wrap [&>button:first-child]:break-anywhere [&>button:first-child]:text-[#f5f5f7]";
+  "flex items-start gap-2 border-b border-white/[0.09] py-2.5 [&>button:first-child]:flex-1 [&>button:first-child]:border-0 [&>button:first-child]:bg-transparent [&>button:first-child]:p-0 [&>button:first-child]:text-left [&>button:first-child]:whitespace-pre-wrap [&>button:first-child]:wrap-anywhere [&>button:first-child]:text-[#f5f5f7]";
 export const clipboardDelete =
   "shrink-0 grow-0 basis-auto rounded-md border-0 bg-[#3a3945] px-2 py-1 text-[#e7b4bb]";
 /** 端到端加密的设备区块：本机待允许的说明、等待允许的设备和设备列表，与开关同一种底框。 */
@@ -91,11 +91,11 @@ export const dictionarySection =
 export const dictionarySectionControl =
   "cursor-pointer rounded-lg border border-edge bg-[var(--button-secondary-bg)] px-3 py-[7px] text-body hover:bg-[var(--button-secondary-hover)] not-disabled:hover:bg-[var(--button-secondary-hover)]";
 export const dictionaryFilePreview =
-  "flex flex-[1_0_100%] flex-wrap items-center gap-2 border-t border-[var(--divider-color)] pt-2 [&>strong]:flex-auto [&>strong]:break-anywhere [&>small]:text-muted";
+  "flex flex-[1_0_100%] flex-wrap items-center gap-2 border-t border-[var(--divider-color)] pt-2 [&>strong]:flex-auto [&>strong]:wrap-anywhere [&>small]:text-muted";
 export const dictionaryFileExcerpt =
-  "m-0 max-h-[180px] flex-[1_0_100%] overflow-auto rounded-md bg-subtle p-2 font-mono text-[12px]/[1.45] whitespace-pre-wrap break-anywhere text-secondary";
+  "m-0 max-h-[180px] flex-[1_0_100%] overflow-auto rounded-md bg-subtle p-2 font-mono text-[12px]/[1.45] whitespace-pre-wrap wrap-anywhere text-secondary";
 export const dictionarySnapshotFact =
-  "flex min-w-[180px] flex-[1_1_220px] flex-col gap-[3px] text-body [&>small]:break-anywhere [&>small]:text-muted";
+  "flex min-w-[180px] flex-[1_1_220px] flex-col gap-[3px] text-body [&>small]:wrap-anywhere [&>small]:text-muted";
 
 export const dictionaryForm =
   "flex flex-wrap items-end gap-2.5 rounded-[9px] border border-edge bg-raised p-3.5";
@@ -103,7 +103,7 @@ export const dictionaryWordField = "flex-[1_1_220px] [&>input]:w-full";
 export const dictionaryList = "flex min-h-[180px] flex-col gap-2";
 /** A row stacks on a phone, where a word and three actions do not fit side by side. */
 export const dictionaryItem =
-  "flex items-center justify-between gap-3 border-t border-[var(--divider-color)] py-2.5 max-phone:flex-col max-phone:items-stretch max-phone:gap-2 [&_strong]:block [&_strong]:font-medium [&_strong]:break-anywhere [&_small]:mt-[3px] [&>.secondary]:mt-0 [&>.secondary]:px-[9px] [&>.secondary]:py-[5px]";
+  "flex items-center justify-between gap-3 border-t border-[var(--divider-color)] py-2.5 max-phone:flex-col max-phone:items-stretch max-phone:gap-2 [&_strong]:block [&_strong]:font-medium [&_strong]:wrap-anywhere [&_small]:mt-[3px] [&>.secondary]:mt-0 [&>.secondary]:px-[9px] [&>.secondary]:py-[5px]";
 export const dictionaryItemMain =
   "block min-w-0 flex-auto border-0 bg-transparent p-0 text-left text-inherit not-disabled:hover:[&_strong]:underline focus-visible:[&_strong]:underline max-phone:w-full";
 export const dictionaryItemStatic = "cursor-default";

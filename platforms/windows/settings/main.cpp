@@ -10790,6 +10790,9 @@ private:
                            }));
     bool_row(output, 0xE8C1, L"繁体输出", L"将提交的简体中文转换为繁体中文",
              L"traditional_chinese_output", false);
+    bool_row(output, 0xE8D2, L"中英文之间加空格",
+             L"一次上屏的文字里，汉字与英文字母、数字相邻处自动加一个空格，如「用Rust写」上屏为「用 Rust 写」。两次上屏之间不加；网址、日期等快捷模式和全角输入不受影响，译文和释义上屏、常用语、剪贴板和语音结果也不加",
+             L"chinese_english_spacing", false);
 
     struct LocalMode {
       const wchar_t *id;

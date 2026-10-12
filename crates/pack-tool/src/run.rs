@@ -1,8 +1,8 @@
 //! `msime-pack run`：按夹具里的事件运行一个脚本插件，每个事件输出一行 JSON。
 //!
-//! 读包、校验和编译走的是导入和输入法进程用的同一份代码（`plugins::load_script_source`、`msime_script_runtime::compile`），执行走的是同一个 `ScriptInstance`：按授权和本地模式复制文本、授权与清单取交集、`before_commit` 在快照上运行、每轮和每个钩子的 fuel 配额、修改类 import 的返回码，全都不是这里重写的。这里只做输入法进程里 `scripts::ScriptSet` 对一个插件做的那几件事：第一次需要投递时实例化（受本轮初始化预算约束），每次聚焦在任何事件之前、失焦在 `focus_out` 之后丢弃实例，trap 之后这次聚焦里不再重建，同一轮里重建的实例接着用这一轮剩下的配额，初始化失败之后停用。
+//! 读包、校验和编译走的是导入和输入法进程用的同一份代码（`plugins::load_script_source`、`msime_script_runtime::compile`），执行走的是同一个 `ScriptInstance`：按授权和本地模式复制文本、授权与清单取交集、`before_commit` 在快照上运行、每轮和每个钩子的 fuel 配额、修改类 import 的返回码，全都不是这里重写的。这里只做输入法进程里 `scripts::ScriptSet` 对一个插件做的那几件事：第一次需要投递时实例化（受本轮初始化预算约束），每次聚焦在任何事件之前、失焦在 `focus_out` 之后丢弃实例，trap 之后这次聚焦里不再重建，本轮配额用完时跳过、运行到一半被截断时同样不再重建，这一次用掉的不到本钩子上限的一半时不算失败（达到一半时 runtime 报 fuel 耗尽，和其余失败一样），同一轮里重建的实例接着用这一轮剩下的两份配额，初始化失败之后停用。
 //!
-//! 和输入法进程不同的地方（夹具表达不了，或者故意更严）：字段永远是普通字段（属性已确认、不是 SECURE、PRIVATE 或 ELEVATED）；不做按次数和按墙钟的熔断，每次失败都报告；`before_commit` 和 `candidates` 照样投递，输入法进程要到第 4 阶段才投递它们；进程内存总账不检查，一个插件总放得下。
+//! 和输入法进程不同的地方（夹具表达不了，或者故意更严）：字段永远是普通字段（属性已确认、不是 SECURE、PRIVATE 或 ELEVATED）；不做按次数和按墙钟的熔断，每次失败都报告；进程内存总账不检查，一个插件总放得下。
 
 use std::io::Write;
 use std::path::Path;
@@ -143,6 +143,8 @@ impl Step {
             commit: self.commit.as_ref().map(|(commit, _)| commit.as_str()),
             body: self.commit.as_ref().map(|(_, body)| body.as_str()),
             seat: self.seat,
+            // 夹具里只有一个插件，body 就是原文。
+            original_body_utf16: None,
         };
         event.candidates = self
             .candidates
@@ -373,14 +375,14 @@ struct Session<'m> {
     module: &'m ScriptModule,
     grants: CapabilitySet,
     instance: Option<ScriptInstance>,
-    /// 这次聚焦里 trap 过：到下一次聚焦之前不再重建。
+    /// 这次聚焦里 trap 过（包括运行到一半被本轮配额截断）：到下一次聚焦之前不再重建。
     trapped: bool,
     /// 初始化失败过：输入法进程会立即停用它。
     disabled: bool,
     turn: u64,
     init_left: u64,
-    /// 插件最近一次投递所在的轮次和那一轮还剩的 fuel，同一轮里重建的实例接着用。
-    plugin_turn: Option<(u64, u64)>,
+    /// 插件最近一次投递所在的轮次，和那一轮其余钩子、`before_commit` 各还剩的 fuel，同一轮里重建的实例接着用。
+    plugin_turn: Option<(u64, u64, u64)>,
     logs: Arc<Mutex<Vec<LogLine>>>,
     actions: Arc<Mutex<Vec<ActionLine>>>,
 }
@@ -450,6 +452,17 @@ impl<'m> Session<'m> {
         if !self.module.declaration().hooks.contains(step.hook) {
             return ("not_subscribed".into(), 0, None, false);
         }
+        // 本轮里这个钩子所用的那份配额已经用完：跳过到下一轮，也不为它重新初始化。
+        if let Some((turn, left, before_commit_left)) = self.plugin_turn {
+            let left = if step.hook == Hook::BeforeCommit {
+                before_commit_left
+            } else {
+                left
+            };
+            if turn == self.turn && left == 0 {
+                return ("turn_exhausted".into(), 0, None, false);
+            }
+        }
         let mut init_fuel = None;
         if self.instance.is_none() {
             if self.trapped {
@@ -463,10 +476,10 @@ impl<'m> Session<'m> {
                 Ok(mut instance) => {
                     self.init_left = budget.saturating_sub(instance.init_fuel());
                     init_fuel = Some(instance.init_fuel());
-                    if let Some((turn, left)) =
-                        self.plugin_turn.filter(|(turn, _)| *turn == self.turn)
+                    if let Some((turn, left, before_commit_left)) =
+                        self.plugin_turn.filter(|(turn, ..)| *turn == self.turn)
                     {
-                        instance.resume_turn(turn, left);
+                        instance.resume_turn(turn, left, before_commit_left);
                     }
                     self.instance = Some(instance);
                 }
@@ -487,13 +500,16 @@ impl<'m> Session<'m> {
         let rows = step.rows();
         let outcome = instance.deliver(self.turn, &step.event(&rows));
         if !matches!(outcome, Outcome::NotSubscribed) {
-            self.plugin_turn = Some((self.turn, instance.turn_fuel_left()));
+            self.plugin_turn = Some((
+                self.turn,
+                instance.turn_fuel_left(),
+                instance.before_commit_fuel_left(),
+            ));
         }
         match outcome {
             Outcome::NotSubscribed => ("not_subscribed".into(), 0, init_fuel, false),
             Outcome::Delivered { fuel, .. } => ("ok".into(), fuel, init_fuel, false),
-            // The shared runtime can exhaust the per-turn budget before this hook's own limit.
-            // This is not a plugin failure, but a partial execution leaves the instance unusable.
+            // 本轮配额用完不算失败；运行到一半被截断的实例丢弃，这次聚焦里不再重建。被截断时已经用掉本钩子上限一半的是 `Failed`，走下面的分支。
             Outcome::TurnExhausted { fuel } => {
                 if !instance.is_usable() {
                     self.trapped = true;

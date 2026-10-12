@@ -3056,6 +3056,37 @@ fn traditional_chinese_output_legacy_default_and_enabled_roundtrip() {
     assert!(store.load().unwrap().preferences.traditional_chinese_output);
 }
 
+// 「中英文之间加空格」默认关，关着时不写进文档：更旧的版本读同一份文档不会因为不认识这个键而整份失败。打开后保存能读回。
+#[test]
+fn chinese_english_spacing_defaults_off_is_omitted_and_roundtrips() {
+    let defaults = Preferences::default();
+    assert!(!defaults.chinese_english_spacing);
+    let written = serde_json::to_value(&defaults).unwrap();
+    assert!(written.get("chinese_english_spacing").is_none());
+    assert!(
+        !serde_json::from_value::<Preferences>(written)
+            .unwrap()
+            .chinese_english_spacing
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                chinese_english_spacing: true,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    assert!(saved.preferences.chinese_english_spacing);
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(on_disk["preferences"]["chinese_english_spacing"], true);
+    assert_eq!(store.load().unwrap(), saved);
+}
+
 #[test]
 fn shuangpin_profiles_preserve_legacy_files_and_reject_unknown_values() {
     let dir = tempfile::tempdir().unwrap();

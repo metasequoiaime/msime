@@ -27,7 +27,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 输入页：语言与方案、中文（字符集、拼音纠错、模糊音、云候选）、辅助码方案和翻译（候选词翻译、离线英文释义、目标语言）。
+ * 输入页：语言与方案、中文（字符集、中英文之间加空格、拼音纠错、模糊音、云候选）、辅助码方案和翻译（候选词翻译、离线英文释义、目标语言）。
  *
  * <p>语言列表是键盘自己的方案列表 `touch_keyboard_schemes.enabled` 按语言分组后的样子：普通话一直在，其他语言在列表里有它的方案时出现。在语言的面板里选一个方案，经 {@link SchemePreferences#withScheme} 同时写 `scheme` 那几个键和 `touch_keyboard_schemes.selected`（并在缺失时加进 `enabled`），否则键盘会按旧的 `selected` 解析方案；「移除」把这门语言的方案全部移出 `enabled`，键盘正用着它时先切回剩下的第一个方案；「添加语言」把这门语言的第一个方案加进 `enabled`，不切换。粤语只有粤拼（P18：仓颉、速成没有方案和码表）；英语没有自己的触屏方案（中英切换键一直在），所以不出现在列表里。
  *
@@ -238,6 +238,10 @@ public final class TypingPage extends DetailPage {
         InputFeatureToggle traditional = InputFeatureToggle.TRADITIONAL_OUTPUT;
         boolean traditionalOn = preferences.optBoolean(traditional.key(), traditional.enabledByDefault());
         chinese.nav("中文字符集", null, traditionalOn ? "繁体" : "简体", () -> pickCharset(traditionalOn));
+        InputFeatureToggle spacing = InputFeatureToggle.CHINESE_ENGLISH_SPACING;
+        chinese.toggle(spacing.title(), spacing.description(),
+            preferences.optBoolean(spacing.key(), spacing.enabledByDefault()),
+            checked -> save(values -> values.put(spacing.key(), checked)));
         JSONObject quanpin = preferences.optJSONObject("quanpin");
         boolean autocorrect = quanpin == null || (quanpin.optBoolean("autocorrect_transposition", true)
             && quanpin.optBoolean("autocorrect_neighbor", true));

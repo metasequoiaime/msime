@@ -1,6 +1,4 @@
 import { useLayoutEffect, useRef } from "react";
-import { ActionButton } from "../core/action-button";
-import { FluentIcon } from "../core/fluent-icons";
 import {
   CommunityResourcesPage,
   type CommunityLocalDictionaryClient,
@@ -10,7 +8,7 @@ import { CommunitySkinsPage, type CommunitySkinClient } from "../community/commu
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import { fullScreenColumn, fullScreenSurface } from "../keyboard/touch-keyboard-skin-editor";
 import type { Preferences } from "../index";
-import * as settings from "./settings-style";
+import { SettingsPageHeader } from "./settings-page-header";
 import { communityGalleryPage, type CommunityGalleryView } from "./use-community-gallery-subview";
 
 const titles = {
@@ -89,15 +87,7 @@ export function CommunityGallerySubview({
   return (
     <div className={fullScreenSurface} role="dialog" aria-modal="true" aria-label={title}>
       <section ref={column} className={fullScreenColumn}>
-        <header className={settings.pageHeader}>
-          <ActionButton
-            action={onClose}
-            className={settings.pageBackButton}
-            ariaLabel="返回"
-            label={<FluentIcon name="arrow_left" size={22} />}
-          />
-          <h2 className={settings.pageTitle}>{title}</h2>
-        </header>
+        <SettingsPageHeader title={title} onBack={onClose} level={2} />
         {gallery}
       </section>
     </div>

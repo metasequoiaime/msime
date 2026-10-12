@@ -464,17 +464,13 @@ impl Session {
             shuangpin_profile: input.profile.kind.name().to_owned(),
             candidate_sources: candidates.iter().map(|item| item.source).collect(),
             candidate_annotations: input.candidate_annotations(),
-            // `pinyin` rather than `canonical_pinyin`: the former is what composition advancement consumes, which is the question being asked.
+            // 纠错候选按原始按键长度消费；普通候选仍按 `pinyin`，两者都由组字推进判断。
             candidate_answers_key: candidates
                 .iter()
                 .map(|item| {
                     // AI 占位行不回答按键：重排模型不能把它提到前面。
                     item.source != CandidateSource::AiPending
-                        && input.selection_completes_composition(
-                            &item.pinyin,
-                            &item.word,
-                            item.scheme,
-                        )
+                        && input.selection_completes_composition(item)
                 })
                 .collect(),
             candidate_list_open: input.candidate_list_open(),

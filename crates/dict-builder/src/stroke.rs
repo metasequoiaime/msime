@@ -12,10 +12,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use msime_engine::language_dictionary;
 
 use crate::sources::{sha256_file, Sources};
-use crate::sqlite;
 use crate::text;
 
 pub const SOURCE: &str = "sources/stroke/stroke.dict.yaml";
@@ -240,39 +238,14 @@ fn kept(text: &str, weight: i64) -> bool {
 
 /// 按引擎的语言词典结构把 `dictionary` 写到 `path`（先删掉旧文件），最后 freeze，同样的输入得到同样的字节。
 pub fn write(dictionary: &Dictionary, path: &Path, source_commit: &str) -> Result<()> {
-    if path.exists() {
-        std::fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
-    }
-    let mut connection = sqlite::open(path)?;
-    connection.execute_batch(language_dictionary::SCHEMA)?;
-    let transaction = connection.transaction()?;
-    {
-        let mut metadata = transaction.prepare("INSERT INTO metadata VALUES (?1, ?2)")?;
-        for (name, value) in [
-            (
-                language_dictionary::METADATA_FORMAT_VERSION,
-                language_dictionary::FORMAT_VERSION.to_string().as_str(),
-            ),
-            (language_dictionary::METADATA_SOURCE_COMMIT, source_commit),
-            (language_dictionary::METADATA_LICENSE, LICENSE),
-        ] {
-            metadata.execute((name, value))?;
-        }
-        let mut syllables = transaction.prepare("INSERT INTO syllables VALUES (?1)")?;
-        let strokes: BTreeSet<String> = STROKES.iter().map(char::to_string).collect();
-        for stroke in &strokes {
-            syllables.execute((stroke,))?;
-        }
-        let mut entries = transaction.prepare("INSERT INTO entries VALUES (?1, ?2, ?3)")?;
-        for ((key, text), weight) in &dictionary.entries {
-            entries.execute((key, text, weight))?;
-        }
-    }
-    transaction.commit()?;
-    sqlite::analyze(&connection, false)?;
-    sqlite::integrity_check(&connection)?;
-    drop(connection);
-    sqlite::freeze(path)
+    let strokes: BTreeSet<String> = STROKES.iter().map(char::to_string).collect();
+    crate::language_writer::write(
+        path,
+        source_commit,
+        LICENSE,
+        strokes.iter().map(String::as_str),
+        &dictionary.entries,
+    )
 }
 
 /// `verify` 在写好的数据库里数出的值。
@@ -287,14 +260,8 @@ pub struct Counts {
 
 /// 像引擎那样打开写好的数据库；`syllables` 不是五个笔画、数量低于 `floors`，或 `expected` 的码前几条里没有对应的字时失败。
 pub fn verify(path: &Path, floors: Floors, expected: &[Expected]) -> Result<Counts> {
-    let dictionary = language_dictionary::open_read_only(path)
-        .map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
-    let connection =
-        sqlite::open_read_only(path).with_context(|| format!("opening {}", path.display()))?;
-    let count = |sql: &str| -> Result<usize> {
-        let count: i64 = connection.query_row(sql, [], |row| row.get(0))?;
-        Ok(usize::try_from(count)?)
-    };
+    let (dictionary, connection) = crate::language_verify::open(path)?;
+    let count = |sql| crate::language_verify::count(&connection, sql);
     let counts = Counts {
         syllables: count("SELECT count(*) FROM syllables")?,
         entries: count("SELECT count(*) FROM entries")?,
@@ -318,18 +285,14 @@ pub fn verify(path: &Path, floors: Floors, expected: &[Expected]) -> Result<Coun
             STROKES.len()
         );
     }
-    for (what, found, floor) in [
-        ("entries", counts.entries, floors.entries),
-        ("characters", counts.characters, floors.characters),
-        ("weighted characters", counts.weighted, floors.weighted),
-    ] {
-        if found < floor {
-            bail!(
-                "{}: {found} {what}, below the floor of {floor}",
-                path.display()
-            );
-        }
-    }
+    crate::language_verify::check_floors(
+        path,
+        &[
+            ("entries", counts.entries, floors.entries),
+            ("characters", counts.characters, floors.characters),
+            ("weighted characters", counts.weighted, floors.weighted),
+        ],
+    )?;
     for check in expected {
         let top = dictionary
             .lookup(check.key, check.within)
@@ -353,6 +316,7 @@ pub fn verify(path: &Path, floors: Floors, expected: &[Expected]) -> Result<Coun
 #[cfg(test)]
 mod tests {
     use super::*;
+    use msime_engine::language_dictionary;
 
     const HEADER: &str = "# Rime dictionary: stroke\n# encoding: utf-8\n#\n# h,s,p,n,z\n\n---\nname: stroke\nversion: \"2.0\"\nsort: by_weight\n...\n\n";
 

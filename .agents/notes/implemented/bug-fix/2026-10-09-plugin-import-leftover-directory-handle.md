@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-Unix staging 保存父目录句柄，析构时按句柄删除；残留扫描仍保留年龄和命名规则，但删除通过扫描目录对应的已打开父目录句柄完成。非 Unix 保留原有路径实现。
+Unix staging 在 `storage::StagingDirectory` 中保存父目录句柄，析构时按句柄删除；残留扫描仍保留年龄和命名规则，但删除通过扫描目录对应的已打开父目录句柄完成。非 Unix 保留原有路径实现。语音模型安装也使用同一类型，见[共用暂存目录生命周期](../simplification/2026-10-12-shared-staging-directory.md)。
 
 ## Alternatives considered
 
