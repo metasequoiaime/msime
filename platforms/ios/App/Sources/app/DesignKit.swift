@@ -128,14 +128,8 @@ private struct DesignRowLayout<Leading: View, Trailing: View>: View {
   var body: some View {
     HStack(spacing: 12) {
       leading
-      VStack(alignment: .leading, spacing: 2) {
-        Text(title).font(.system(size: 17)).foregroundStyle(.primary)
-        if let subtitle {
-          Text(subtitle).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-      }
-      .multilineTextAlignment(.leading)
+      DesignRowLabel(title: title, subtitle: subtitle)
+        .multilineTextAlignment(.leading)
       Spacer(minLength: 8)
       trailing
     }
@@ -199,19 +193,29 @@ struct DesignToggleRow: View {
 
   var body: some View {
     Toggle(isOn: $isOn) {
-      VStack(alignment: .leading, spacing: 2) {
-        Text(title).font(.system(size: 17)).foregroundStyle(.primary)
-        if let subtitle {
-          Text(subtitle).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-      }
+      DesignRowLabel(title: title, subtitle: subtitle)
     }
     .toggleStyle(.switch)
     .tint(MetasequoiaTheme.switchOn)
     .padding(.vertical, 8)
     .padding(.horizontal, 20)
     .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+  }
+}
+
+/// Shared title and optional subtitle layout for settings rows.
+private struct DesignRowLabel: View {
+  let title: String
+  let subtitle: String?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(title).font(.system(size: 17)).foregroundStyle(.primary)
+      if let subtitle {
+        Text(subtitle).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
   }
 }
 
