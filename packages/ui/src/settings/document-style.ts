@@ -40,7 +40,7 @@ export const versionRow = "cursor-default items-start hover:bg-[var(--p-row-bg)]
 export const updateButton = "mt-0 shrink-0 grow-0 basis-auto";
 export const updateStatus = "mt-[5px]! mb-0! text-xs";
 export const updateResult =
-  "[padding:var(--p-row-pad)] [color:var(--p-sub)] [&>p]:mt-0 [&>p]:mb-2 [&>p]:text-xs [&_code]:inline-block [&_code]:max-w-full [&_code]:break-anywhere";
+  "[padding:var(--p-row-pad)] [color:var(--p-sub)] [&>p]:mt-0 [&>p]:mb-2 [&>p]:text-xs [&_code]:inline-block [&_code]:max-w-full [&_code]:wrap-anywhere";
 export const updateWarning = "text-danger!";
 
 // ---- HarmonyOS 的「关于」和「反馈」页 ----
@@ -90,7 +90,7 @@ export const feedbackCard =
 export const feedbackIcon =
   "flex size-[38px] items-center justify-center rounded-[10px] border [border-color:var(--p-hair)]";
 export const feedbackBody =
-  "min-w-0 [&>p]:mt-[3px] [&>p]:mb-[5px] [&>p]:[font-size:var(--p-sub-fs)] [&>p]:[color:var(--p-sub)] [&_code]:block [&_code]:break-anywhere [&_code]:text-xs [&_code]:[color:var(--p-sub)]";
+  "min-w-0 [&>p]:mt-[3px] [&>p]:mb-[5px] [&>p]:[font-size:var(--p-sub-fs)] [&>p]:[color:var(--p-sub)] [&_code]:block [&_code]:wrap-anywhere [&_code]:text-xs [&_code]:[color:var(--p-sub)]";
 export const feedbackTitle = "[font-size:var(--p-row-fs)] font-semibold [color:var(--p-text)]";
 
 // ---- the AI skin generator ----
