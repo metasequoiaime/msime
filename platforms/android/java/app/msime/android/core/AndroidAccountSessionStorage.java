@@ -50,7 +50,7 @@ public final class AndroidAccountSessionStorage implements BackendAccount.Sessio
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.DECRYPT_MODE, loadKey(), new GCMParameterSpec(GCM_TAG_BITS, iv));
         byte[] plaintext = cipher.doFinal(ciphertext);
-        if (plaintext.length == 0 || plaintext.length > MAX_PAYLOAD_BYTES)
+        if (!validPayload(plaintext))
             throw new IllegalStateException("secure_storage");
         return TextPolicy.utf8(plaintext);
     }
@@ -58,7 +58,7 @@ public final class AndroidAccountSessionStorage implements BackendAccount.Sessio
     public synchronized void save(String value) throws Exception {
         if (value == null) throw new IllegalArgumentException("secure_storage");
         byte[] plaintext = TextPolicy.utf8Bytes(value);
-        if (plaintext.length == 0 || plaintext.length > MAX_PAYLOAD_BYTES)
+        if (!validPayload(plaintext))
             throw new IllegalArgumentException("secure_storage");
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE, loadOrCreateKey());
@@ -74,6 +74,10 @@ public final class AndroidAccountSessionStorage implements BackendAccount.Sessio
 
     public synchronized void clear() throws Exception {
         if (!preferences.edit().clear().commit()) throw new IllegalStateException("secure_storage");
+    }
+
+    private static boolean validPayload(byte[] plaintext) {
+        return plaintext != null && plaintext.length > 0 && plaintext.length <= MAX_PAYLOAD_BYTES;
     }
 
     private SecretKey loadKey() throws Exception {
