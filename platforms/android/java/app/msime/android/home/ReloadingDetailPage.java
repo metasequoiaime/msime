@@ -22,8 +22,11 @@ public abstract class ReloadingDetailPage extends DetailPage {
     protected void onInitialReloadScheduled() {}
 
     @Override protected void onBecameVisible() {
-        if (column != null) reload();
+        if (column != null && shouldReloadWhenVisible()) reload();
     }
+
+    /** Allows a page to preserve active editing state when it becomes visible again. */
+    protected boolean shouldReloadWhenVisible() { return true; }
 
     @Override public void onDestroyView() {
         column = null;

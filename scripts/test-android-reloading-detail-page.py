@@ -16,6 +16,7 @@ CONSUMERS = (
     "ExpressionPage.java",
     "HandwritingPage.java",
     "KeyboardOptionsPage.java",
+    "LexiconDetailPage.java",
     "LexiconPage.java",
     "PhrasesPage.java",
     "SkinsPage.java",
@@ -40,7 +41,8 @@ def main() -> int:
             "onInitialReloadScheduled();",
             "protected void onInitialReloadScheduled()",
             "@Override protected void onBecameVisible()",
-            "if (column != null) reload();",
+            "if (column != null && shouldReloadWhenVisible()) reload();",
+            "protected boolean shouldReloadWhenVisible()",
             "@Override public void onDestroyView()",
             "column = null;",
             "onContentDestroyed();",
@@ -131,6 +133,17 @@ def main() -> int:
         or "reload(true)" not in lexicon
     ):
         errors.append("LexiconPage: 缓存显示、发现列表或手动刷新行为未保留")
+
+    lexicon_detail = (HOME / "LexiconDetailPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected boolean shouldReloadWhenVisible()" not in lexicon_detail
+        or "return query.isEmpty();" not in lexicon_detail
+        or "@Override protected void onContentDestroyed()" not in lexicon_detail
+        or "main.removeCallbacksAndMessages(null);" not in lexicon_detail
+        or "entries = null;" not in lexicon_detail
+        or "if (current == null || contentColumn() == null) return;" not in lexicon_detail
+    ):
+        errors.append("LexiconDetailPage: 搜索期间不刷新或视图销毁时的状态清理未保留")
 
     voice = (HOME / "VoicePage.java").read_text(encoding="utf-8")
     if (
