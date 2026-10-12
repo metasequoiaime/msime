@@ -8,9 +8,10 @@
  */
 
 import { fieldLabel } from "../core/form-style";
+import { standardPage } from "../core/page-style";
 import { rowHeading, rowText } from "../core/row-style";
 
-export const page = "flex flex-col gap-3.5";
+export const page = standardPage;
 export const section = "section m-0";
 export const heading = rowHeading;
 export const note = "mt-[7px] mb-0 [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";

@@ -9,10 +9,11 @@
  */
 
 import { fieldLabel } from "../core/form-style";
+import { standardPage } from "../core/page-style";
 import { subtleMeta } from "../core/row-style";
 import { searchRow as sharedSearchRow } from "../core/search-style";
 
-export const page = "flex flex-col gap-3.5";
+export const page = standardPage;
 
 export const searchRow = sharedSearchRow;
 export const searchInput =
