@@ -68,7 +68,7 @@ export const rowButton =
 
 /** 「系统信息」行尾的值：次要文字色，右对齐，长的发行版名或设备型号在行内折行，可以选中复制。 */
 export const systemInfoValue =
-  "max-w-[60%] text-right break-anywhere select-text [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
+  "max-w-[min(35ch,45vw)] text-right [overflow-wrap:anywhere] select-text [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 
 /** 「描述」卡片：用分组的底色和圆角包住一个无边框的 textarea。 */
 export const feedbackTextCard = "overflow-hidden rounded-[20px] bg-[var(--p-group-bg)]";
