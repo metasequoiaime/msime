@@ -13,7 +13,8 @@ constexpr bool candidate_finishes_composition(uint8_t source) noexcept {
          source == 5u ||  // QuickPhrase
          source == 6u ||  // Emoji
          source == 7u ||  // Kaomoji
-         source == 8u;    // Generated sentence
+         source == 8u ||  // Generated sentence
+         source == 13u;   // MixedJapanese: 日文混输行和英文一样整段上屏，引擎选中它就结束组字
 }
 
 } // namespace msime::windows
