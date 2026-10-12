@@ -242,13 +242,13 @@ inline CandidateSkinAnimation candidate_skin_animation(const nlohmann::json &cat
       value, "exit", CandidateSkinAnimationPreset::fade);
   animation.selection = candidate_skin_animation_preset(
       value, "selection", CandidateSkinAnimationPreset::spring);
-  if (value.contains("durationMs") && value.at("durationMs").is_number_unsigned()) {
-    const auto duration = value.at("durationMs").get<unsigned>();
-    if (duration >= 40 && duration <= 600) animation.duration_ms = duration;
+  if (value.contains("durationMs") && value.at("durationMs").is_number_integer()) {
+    const auto duration = value.at("durationMs").get<int64_t>();
+    if (duration >= 40 && duration <= 600) animation.duration_ms = static_cast<unsigned>(duration);
   }
-  if (value.contains("staggerMs") && value.at("staggerMs").is_number_unsigned()) {
-    const auto stagger = value.at("staggerMs").get<unsigned>();
-    if (stagger <= 80) animation.stagger_ms = stagger;
+  if (value.contains("staggerMs") && value.at("staggerMs").is_number_integer()) {
+    const auto stagger = value.at("staggerMs").get<int64_t>();
+    if (stagger >= 0 && stagger <= 80) animation.stagger_ms = static_cast<unsigned>(stagger);
   }
   if (animation.duration_ms == 0) animation.duration_ms = 180;
   if (animation.stagger_ms == 0) animation.stagger_ms = 14;
