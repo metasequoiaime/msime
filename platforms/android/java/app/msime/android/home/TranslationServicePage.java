@@ -34,6 +34,13 @@ public final class TranslationServicePage extends ReloadingDetailPage {
     @Nullable private Choice chosen;
     private boolean testing;
 
+    @Override protected void onContentDestroyed() {
+        // ViewResultDelivery drops a probe result that outlives this view; release its temporary
+        // lock so a rebuilt page can start another test, and let the next read decide the service.
+        testing = false;
+        chosen = null;
+    }
+
     @Override protected void reload() {
         HostTask.run(this, TranslationServicePage::read, this::render);
     }
