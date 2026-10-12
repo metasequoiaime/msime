@@ -72,7 +72,6 @@ public final class VoicePage extends ReloadingDetailPage {
             List<LocalVoiceModels.Model> models, @Nullable String modelsError, boolean polishConfigured) {}
 
     /** 一次「测试」的结果：{@code message} 是共享层给的中文结果，不含凭据。 */
-    private record TestResult(boolean ok, String message) {}
 
     @Nullable private GroupCard.Row contributeRow;
     @Nullable private State lastState;
@@ -645,27 +644,12 @@ public final class VoicePage extends ReloadingDetailPage {
         group.button("测试连接", "用现在保存的设置发一次请求，最长约 15 秒", "测试", () -> {
             MsToast.show(requireContext(), "正在测试…");
             if (!testing.add(service)) return;
-            HostTask.runNetwork(this, context -> runTest(context, service), result -> {
+            HostTask.runNetwork(this, context -> ServiceCredentialTest.voice(HostStore.directory(context), service), result -> {
                 testing.remove(service);
                 if (!isAdded()) return;
                 MessageDialog.show(requireContext(), VoicePolishSettingsPolicy.testTitle(result.ok()), result.message());
             });
         });
-    }
-
-    private static TestResult runTest(Context context, String service) {
-        try {
-            JSONObject request = new JSONObject()
-                .put("preferences_directory", HostStore.directory(context))
-                .put("service", service);
-            JSONObject envelope = new JSONObject(NativeClient.testVoiceCredential(request.toString()));
-            JSONObject value = envelope.optJSONObject("value");
-            if (!envelope.optBoolean("ok", false) || value == null) return new TestResult(false, "测试没能完成，请稍后重试。");
-            return new TestResult(value.optBoolean("ok", false), value.optString("message", ""));
-        } catch (JSONException | RuntimeException | LinkageError error) {
-            // 共享库没加载上、响应读不懂都按测试没完成处理，不让设置页崩掉。
-            return new TestResult(false, "测试没能完成，请稍后重试。");
-        }
     }
 
     private void pickLanguage(String selected, GroupCard.Row row) {

@@ -14,8 +14,8 @@ class VoiceCredentialTestThreadContract(unittest.TestCase):
     def test_probe_runs_on_the_network_pool(self):
         source = SOURCE.read_text()
         # The probe blocks for up to about 15 seconds; on HostTask.run it would queue every settings page's store reads and writes behind it.
-        self.assertRegex(source, r"HostTask\.runNetwork\(this,\s*context\s*->\s*runTest\(")
-        self.assertNotRegex(source, r"HostTask\.run\(this,\s*context\s*->\s*runTest\(")
+        self.assertRegex(source, r"HostTask\.runNetwork\(this,\s*context\s*->\s*ServiceCredentialTest\.voice\(")
+        self.assertNotRegex(source, r"HostTask\.run\(this,\s*context\s*->\s*ServiceCredentialTest\.voice\(")
 
     def test_repeated_taps_do_not_stack_probes(self):
         source = SOURCE.read_text()

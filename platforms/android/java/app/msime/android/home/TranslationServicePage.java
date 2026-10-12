@@ -27,7 +27,6 @@ public final class TranslationServicePage extends ReloadingDetailPage {
     private record State(JSONObject preferences, String endpointIssue, boolean customBuildable) {}
 
     /** 测试连接的结果；message 是共享层给的一句话，不含凭据和服务的回复。 */
-    private record TestResult(boolean ok, String message) {}
 
     /**
      * 本页刚选过的服务。腾讯的 `enabled` 默认开着，凭据填好之前从偏好里分不出「用户选了腾讯」，所以刚选腾讯时按这里显示，好让用户接着填凭据；离开再回来时按偏好显示。
@@ -162,7 +161,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
             testing = true;
             MsToast.show(requireContext(), "正在测试…");
             JSONObject config = testConfig(selected, niutrans, custom, tencent);
-            HostTask.runNetwork(this, context -> runTest(selected.testService(), config), result -> {
+            HostTask.runNetwork(this, context -> ServiceCredentialTest.api(selected.testService(), config), result -> {
                 testing = false;
                 if (!isAdded()) return;
                 MessageDialog.show(requireContext(), result.ok() ? "测试成功" : "测试未通过", result.message());
@@ -192,19 +191,6 @@ public final class TranslationServicePage extends ReloadingDetailPage {
             // 只放字符串，put 不会失败；真失败时用空配置，共享层回答「请填写有效的…」。
         }
         return config;
-    }
-
-    private static TestResult runTest(String service, JSONObject config) {
-        try {
-            JSONObject request = new JSONObject().put("service", service).put("config", config);
-            JSONObject value = envelope(NativeClient.testApiCredential(request.toString()));
-            if (value == null) return new TestResult(false, "测试没能完成，请稍后重试。");
-            return new TestResult(JsonPolicy.strictBoolean(value.opt("ok"), false),
-                JsonPolicy.strictStringOrEmpty(value.opt("message")));
-        } catch (JSONException | RuntimeException | LinkageError error) {
-            // 请求带着凭据，不记录；共享库没加载上、响应读不懂都按测试没完成处理。
-            return new TestResult(false, "测试没能完成，请稍后重试。");
-        }
     }
 
     private void pick(Choice selected) {
