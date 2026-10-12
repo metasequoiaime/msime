@@ -21,9 +21,9 @@ pub mod mcp_clients;
 pub mod settings_dictionary;
 pub mod system_fonts;
 use msime_client_core::preferences::{
-    InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinCustomProfile,
-    ShuangpinProfile, TouchKeyboardLayout, TouchKeyboardScheme, VietnameseInputMethod,
-    VietnamesePreferences, VietnameseToneStyle, WubiProfile,
+    InputScheme, NineKeyShuangpinProfile, Preferences, PreferencesSnapshot, PreferencesStore,
+    ShuangpinCustomProfile, ShuangpinProfile, TouchKeyboardLayout, TouchKeyboardScheme,
+    VietnameseInputMethod, VietnamesePreferences, VietnameseToneStyle, WubiProfile,
 };
 use msime_client_core::punctuation::{
     route as punctuation_route, PunctuationContext, PunctuationRoute,
@@ -38,9 +38,12 @@ use msime_client_core::voice::doubao_frame::{
 };
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine::host::{
-    check_shuangpin_custom_profile, shuangpin_builtin_table, validate_shuangpin_custom_profile,
-    CandidateEdge, Command, EngineOptions, Session, ShuangpinCustomProfileError,
-    ShuangpinCustomTable, ShuangpinCustomTablePart,
+    check_nine_key_shuangpin_table, check_shuangpin_custom_profile,
+    nine_key_shuangpin_builtin_table, nine_key_shuangpin_table_key_hints,
+    resolve_nine_key_shuangpin, shuangpin_builtin_table, validate_nine_key_shuangpin_table,
+    validate_shuangpin_custom_profile, CandidateEdge, Command, EngineOptions,
+    NineKeyShuangpinError, NineKeyShuangpinKeyHint, NineKeyShuangpinKind, NineKeyShuangpinTable,
+    Session, ShuangpinCustomProfileError, ShuangpinCustomTable, ShuangpinCustomTablePart,
 };
 use msime_engine::{
     release_japanese_dictionary_cache, SchemeSet, SchemeType, ShuangpinProfileKind,
@@ -652,8 +655,12 @@ impl HostSession {
                 .set_punctuation_lock(lock)
                 .map_err(|e| e.to_string())?;
         }
-        let layout_changed =
-            preferences.touch_keyboard_layout != self.applied.touch_keyboard_layout;
+        // 九键双拼换了表也算换了布局：宿主设下的九键双拼网格带着旧表。
+        let layout_changed = preferences.touch_keyboard_layout
+            != self.applied.touch_keyboard_layout
+            || preferences.nine_key_shuangpin_profile != self.applied.nine_key_shuangpin_profile
+            || preferences.nine_key_shuangpin_custom_profile
+                != self.applied.nine_key_shuangpin_custom_profile;
         let scheme = SchemeType::from_u8(options.scheme);
         // 只有能打九键的方案（全拼、注音）才有网格；14 键只给全拼，`Runtime::set_key_grid` 已经拦下别的组合。
         let grid_scheme = scheme.is_some_and(SchemeType::nine_key);
@@ -672,6 +679,12 @@ impl HostSession {
         if key_grid.is_some() {
             engine.set_key_grid(key_grid).map_err(|e| e.to_string())?;
         }
+        // 正在用九键双拼而自定义表不能用时报告一次原因，与 26 键自定义双拼按小鹤运行时相同。
+        let fallback = fallback.or_else(|| {
+            matches!(key_grid, Some(KeyGrid::NineKeyShuangpin(_)))
+                .then(|| nine_key_shuangpin_grid(&preferences).1)
+                .flatten()
+        });
         engine
             .set_dedicated_english(self.english_mode)
             .map_err(|e| e.to_string())?;
@@ -1059,6 +1072,174 @@ fn apply_shuangpin_profile(
             Some(format!(
                 "Custom shuangpin profile unusable because {error}; using Xiaohe."
             ))
+        }
+    }
+}
+
+/// 偏好里的九键双拼方案对应的 Engine 方案。
+pub fn nine_key_shuangpin_kind(profile: NineKeyShuangpinProfile) -> NineKeyShuangpinKind {
+    match profile {
+        NineKeyShuangpinProfile::Migala2 => NineKeyShuangpinKind::Migala2,
+        NineKeyShuangpinProfile::Migala3 => NineKeyShuangpinKind::Migala3,
+        NineKeyShuangpinProfile::Gushi2Low => NineKeyShuangpinKind::Gushi2Low,
+        NineKeyShuangpinProfile::Custom => NineKeyShuangpinKind::Custom,
+    }
+}
+
+/// 偏好里的九键双拼表（与 26 键的自定义表同形）换成 Engine 的表。
+fn engine_nine_key_shuangpin_table(profile: &ShuangpinCustomProfile) -> NineKeyShuangpinTable {
+    let pairs = |part: &std::collections::BTreeMap<String, String>| {
+        part.iter()
+            .map(|(unit, key)| (unit.clone(), key.clone()))
+            .collect()
+    };
+    NineKeyShuangpinTable {
+        initials: pairs(&profile.initials),
+        finals: pairs(&profile.finals),
+        zero_initials: pairs(&profile.zero_initials),
+    }
+}
+
+/// 偏好里的九键双拼自定义表能不能用，由 Engine 判定；不能用时是给日志和代理看的英文原因。MCP 等写偏好的一方保存之前用它校验。
+pub fn validate_nine_key_shuangpin_custom_profile(
+    profile: &ShuangpinCustomProfile,
+) -> Result<(), String> {
+    validate_nine_key_shuangpin_table(&engine_nine_key_shuangpin_table(profile))
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+impl From<NineKeyShuangpinError> for ShuangpinCustomProblem {
+    fn from(error: NineKeyShuangpinError) -> Self {
+        use ShuangpinCustomProblemKind as Kind;
+        match error {
+            NineKeyShuangpinError::UnknownUnit { part, unit } => Self {
+                part: Some(part.name()),
+                unit: Some(unit),
+                ..Self::of_kind(Kind::UnknownUnit)
+            },
+            NineKeyShuangpinError::DuplicateUnit { part, unit } => Self {
+                part: Some(part.name()),
+                unit: Some(unit),
+                ..Self::of_kind(Kind::DuplicateUnit)
+            },
+            NineKeyShuangpinError::MissingUnit { part, unit } => Self {
+                part: Some(part.name()),
+                unit: Some(unit.to_owned()),
+                ..Self::of_kind(Kind::MissingUnit)
+            },
+            NineKeyShuangpinError::InvalidKey { part, unit, key } => Self {
+                part: Some(part.name()),
+                unit: Some(unit),
+                key: Some(key),
+                ..Self::of_kind(Kind::InvalidKey)
+            },
+        }
+    }
+}
+
+/// 编辑中的九键双拼表有什么问题，能用时是 `None`。问题与 26 键自定义表同一个形状（只会出现 `unknown_unit`、`duplicate_unit`、`missing_unit` 和 `invalid_key` 四种），给设置页标出出错的那一格；用 Engine 不留存的检查，每改一个键问一次也不泄漏。
+pub fn nine_key_shuangpin_custom_profile_problem(
+    profile: &ShuangpinCustomProfile,
+) -> Option<ShuangpinCustomProblem> {
+    check_nine_key_shuangpin_table(&engine_nine_key_shuangpin_table(profile))
+        .err()
+        .map(ShuangpinCustomProblem::from)
+}
+
+/// 内置九键双拼方案写成自定义表的样子，作为编辑的起点；`Custom` 没有内置的表，返回 `None`。
+pub fn builtin_nine_key_shuangpin_custom_profile(
+    profile: NineKeyShuangpinProfile,
+) -> Option<ShuangpinCustomProfile> {
+    let table = nine_key_shuangpin_builtin_table(nine_key_shuangpin_kind(profile))?;
+    let map = |pairs: Vec<(String, String)>| pairs.into_iter().collect();
+    Some(ShuangpinCustomProfile {
+        initials: map(table.initials),
+        finals: map(table.finals),
+        zero_initials: map(table.zero_initials),
+    })
+}
+
+/// 九键双拼的一个数字键在键面上写什么：这个键上的声母、韵母（`ü` 开头的韵母写成 `ü`），以及零声母编码是否从这个键开始。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct NineKeyShuangpinKeyFace {
+    pub key: String,
+    pub initials: Vec<String>,
+    pub finals: Vec<String>,
+    pub zero_initial: bool,
+}
+
+impl From<NineKeyShuangpinKeyHint> for NineKeyShuangpinKeyFace {
+    fn from(hint: NineKeyShuangpinKeyHint) -> Self {
+        Self {
+            key: hint.key.to_string(),
+            initials: hint.initials,
+            finals: hint.finals,
+            zero_initial: hint.zero_initial,
+        }
+    }
+}
+
+/// 一个九键双拼方案在宿主看来的样子（`msime_client_nine_key_shuangpin_layout`）：输入法实际用的方案和它的表、键面，以及用户表的问题。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct NineKeyShuangpinLayout {
+    /// 输入法实际用的方案：选了 `custom` 而表不能用时是默认的内置方案，与建会话时的回退相同。
+    pub effective: NineKeyShuangpinProfile,
+    /// `effective` 的表，按单位到数字的三个对象。
+    pub table: ShuangpinCustomProfile,
+    /// 选了 `custom` 时用户表的问题，能用时为空。
+    pub problem: Option<ShuangpinCustomProblem>,
+    /// 按电话键盘 1 到 9、0 的顺序，每个用到的数字键的键面。
+    pub keys: Vec<NineKeyShuangpinKeyFace>,
+}
+
+/// 选了 `profile`（`custom` 时用 `custom` 这张表）时输入法用哪张九键双拼表、键面写什么。不留存任何东西，设置页每改一个键都可以问。
+pub fn nine_key_shuangpin_layout(
+    profile: NineKeyShuangpinProfile,
+    custom: &ShuangpinCustomProfile,
+) -> NineKeyShuangpinLayout {
+    let problem = (profile == NineKeyShuangpinProfile::Custom)
+        .then(|| nine_key_shuangpin_custom_profile_problem(custom))
+        .flatten();
+    let effective = match profile {
+        NineKeyShuangpinProfile::Custom if problem.is_some() => NineKeyShuangpinProfile::default(),
+        other => other,
+    };
+    let table =
+        builtin_nine_key_shuangpin_custom_profile(effective).unwrap_or_else(|| custom.clone());
+    let keys = nine_key_shuangpin_table_key_hints(&engine_nine_key_shuangpin_table(&table))
+        .map(|hints| {
+            hints
+                .into_iter()
+                .map(NineKeyShuangpinKeyFace::from)
+                .collect()
+        })
+        .unwrap_or_default();
+    NineKeyShuangpinLayout {
+        effective,
+        table,
+        problem,
+        keys,
+    }
+}
+
+/// 偏好里的九键双拼网格。选了 `custom` 而表不能用时按默认的内置方案运行，同时返回原因，免得一张写坏的表让九键双拼打不了字。
+fn nine_key_shuangpin_grid(preferences: &Preferences) -> (KeyGrid, Option<String>) {
+    let kind = nine_key_shuangpin_kind(preferences.nine_key_shuangpin_profile);
+    let custom = engine_nine_key_shuangpin_table(&preferences.nine_key_shuangpin_custom_profile);
+    match resolve_nine_key_shuangpin(kind, Some(&custom)) {
+        Ok(table) => (KeyGrid::NineKeyShuangpin(table), None),
+        Err(error) => {
+            let fallback = nine_key_shuangpin_kind(NineKeyShuangpinProfile::default());
+            let table =
+                resolve_nine_key_shuangpin(fallback, None).expect("内置的九键双拼表一定合法");
+            (
+                KeyGrid::NineKeyShuangpin(table),
+                Some(format!(
+                    "Nine-key shuangpin table unusable because {error}; using {}.",
+                    fallback.name()
+                )),
+            )
         }
     }
 }
@@ -2498,7 +2679,7 @@ const SELECTION_BATCH: u64 = 32;
 #[cfg(test)]
 mod tests;
 
-/// 只看偏好时，运行 `scheme` 的会话以哪种组码网格开始（宿主的 `msime_client_set_key_grid` 和 `msime_client_set_nine_key_mode` 仍可覆盖，但覆盖只对设下它时的方案有效）。全拼看 `touch_keyboard_layout`：九键是九键，14 键是 14 键。注音只有九键，还要选了「注音 9 键」触屏方案，这个方案只有 Android 键盘会写：`touch_keyboard_layout` 是所有方案共用的一个字段，桌面宿主为全拼九宫格设它（Linux 的九键开关），那里的注音会话必须留在大千键位，不能继承九宫格。
+/// 只看偏好时，运行 `scheme` 的会话以哪种组码网格开始（宿主的 `msime_client_set_key_grid` 和 `msime_client_set_nine_key_mode` 仍可覆盖，但覆盖只对设下它时的方案有效）。全拼看 `touch_keyboard_layout`：九键是九键，14 键是 14 键，九键双拼按 `nine_key_shuangpin_profile` 取表（自定义表不能用时按默认的内置方案）。注音只有九键，还要选了「注音 9 键」触屏方案，这个方案只有 Android 键盘会写：`touch_keyboard_layout` 是所有方案共用的一个字段，桌面宿主为全拼九宫格设它（Linux 的九键开关），那里的注音会话必须留在大千键位，不能继承九宫格。
 pub(crate) fn layout_key_grid(
     scheme: Option<SchemeType>,
     preferences: &Preferences,
@@ -2506,6 +2687,9 @@ pub(crate) fn layout_key_grid(
     match (preferences.touch_keyboard_layout, scheme) {
         (TouchKeyboardLayout::NineKey, Some(SchemeType::Quanpin)) => Some(KeyGrid::NineKey),
         (TouchKeyboardLayout::FourteenKey, Some(SchemeType::Quanpin)) => Some(KeyGrid::FourteenKey),
+        (TouchKeyboardLayout::NineKeyShuangpin, Some(SchemeType::Quanpin)) => {
+            Some(nine_key_shuangpin_grid(preferences).0)
+        }
         (TouchKeyboardLayout::NineKey, Some(SchemeType::Zhuyin)) => {
             let schemes = &preferences.touch_keyboard_schemes;
             // 用户改了启用列表时 Android 可能清掉 `selected`，所以启用了「注音 9 键」而没有选中项时也算。

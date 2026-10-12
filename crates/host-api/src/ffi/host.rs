@@ -681,6 +681,38 @@ pub unsafe extern "C" fn msime_client_shuangpin_zero_initials(
     })
 }
 
+/// 九键双拼方案在宿主看来的样子，见 [`crate::nine_key_shuangpin_layout`]。键面和设置页的编辑器都从这里取，不另存键位。
+/// # Safety
+/// `request` points to `length` readable UTF-8 bytes holding `{"profile": ..., "table"?: ...}`. Null is rejected.
+/// The returned response must be released with `msime_client_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_nine_key_shuangpin_layout(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        profile: msime_client_core::preferences::NineKeyShuangpinProfile,
+        #[serde(default)]
+        table: msime_client_core::preferences::ShuangpinCustomProfile,
+    }
+    response(|| {
+        if request.is_null() || length > 16384 {
+            return Err("invalid nine-key shuangpin request buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract; size checked above.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: Request = serde_json::from_slice(bytes)
+            .map_err(|error| format!("invalid nine-key shuangpin request: {error}"))?;
+        serde_json::to_value(crate::nine_key_shuangpin_layout(
+            request.profile,
+            &request.table,
+        ))
+        .map_err(|error| error.to_string())
+    })
+}
+
 /// Load the shared store on a worker thread; no session handle is accessed.
 /// # Safety
 /// `directory` points to `length` readable UTF-8 bytes. Null is rejected.
