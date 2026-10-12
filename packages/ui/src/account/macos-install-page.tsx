@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { InputSourceStartupStatus } from "../settings/input-source-startup-notice";
 import { ActionButton } from "../core/action-button";
+import { logo } from "../settings/app-resources";
 
 export interface MacosInstallClient {
   /** Copies the input method into `~/Library/Input Methods` and registers it; resolves with the result once both have finished. */
@@ -106,11 +107,7 @@ export function MacosInstallPage({
       {/* The window has no title bar of its own; this strip under the traffic lights moves it. */}
       <div className="absolute inset-x-0 top-0 h-10" data-tauri-drag-region="" />
       <div className="grid size-[88px] place-items-center rounded-[22px] bg-raised shadow-card">
-        <img
-          src={new URL("../assets/msime.svg", import.meta.url).href}
-          alt=""
-          className="size-[60px]"
-        />
+        <img src={logo} alt="" className="size-[60px]" />
       </div>
       <h1 className="mt-5 mb-0 text-[24px] font-[650] tracking-[0.02em]">水杉输入法</h1>
       {phase === "done" && result ? (
