@@ -1,8 +1,6 @@
 package app.msime.android;
 
-import android.media.AudioFormat;
 import android.media.AudioRecord;
-import android.media.MediaRecorder;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -92,15 +90,12 @@ public final class HttpAsrRecognizer {
     }
 
     private byte[] record() throws Refused {
-        int minimum = AudioRecord.getMinBufferSize(WavAudio.SAMPLE_RATE,
-            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+        int minimum = VoicePcmRecorder.minimumBufferBytes();
         if (minimum <= 0) throw new Refused(Failure.UNAVAILABLE);
         int buffer = BoundsPolicy.atLeast(WavAudio.SAMPLE_RATE, minimum);
         AudioRecord recorder;
         try {
-            recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                WavAudio.SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT, buffer);
+            recorder = VoicePcmRecorder.create(buffer);
         } catch (IllegalArgumentException | SecurityException error) {
             throw new Refused(Failure.PERMISSION);
         }
@@ -131,13 +126,7 @@ public final class HttpAsrRecognizer {
             }
             return captured.toByteArray();
         } finally {
-            try {
-                if (recorder.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
-                    recorder.stop();
-                }
-            } catch (IllegalStateException ignored) {
-                // Already stopped; release is what matters.
-            }
+            VoicePcmRecorder.stopIfRecording(recorder);
             recorder.release();
         }
     }

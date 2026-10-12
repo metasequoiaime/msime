@@ -3,9 +3,7 @@ package app.msime.android;
 import android.content.ComponentCallbacks2;
 import android.content.Context;
 import android.content.res.Configuration;
-import android.media.AudioFormat;
 import android.media.AudioRecord;
-import android.media.MediaRecorder;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -254,15 +252,11 @@ public final class LocalAsrRecognizer {
     }
 
     private static AudioRecord openRecorder() throws Refused {
-        int minimum = AudioRecord.getMinBufferSize(WavAudio.SAMPLE_RATE,
-            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+        int minimum = VoicePcmRecorder.minimumBufferBytes();
         if (minimum <= 0) throw new Refused(Failure.UNAVAILABLE);
         AudioRecord recorder;
         try {
-            recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                WavAudio.SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                BoundsPolicy.atLeast(WavAudio.SAMPLE_RATE * 2, minimum));
+            recorder = VoicePcmRecorder.create(BoundsPolicy.atLeast(WavAudio.SAMPLE_RATE * 2, minimum));
         } catch (IllegalArgumentException | SecurityException error) {
             throw new Refused(Failure.PERMISSION);
         }
@@ -310,13 +304,7 @@ public final class LocalAsrRecognizer {
         } catch (IllegalStateException error) {
             failed.set(true);
         } finally {
-            try {
-                if (recorder.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
-                    recorder.stop();
-                }
-            } catch (IllegalStateException ignored) {
-                // Already stopped; release is what matters.
-            }
+            VoicePcmRecorder.stopIfRecording(recorder);
             recorder.release();
         }
     }
