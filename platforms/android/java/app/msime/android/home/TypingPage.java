@@ -161,7 +161,7 @@ public final class TypingPage extends ReloadingDetailPage {
         List<HelpcodeChoicePolicy.Pack> packs = new ArrayList<>();
         try {
             JSONObject response = plugins(context, new JSONObject().put("operation", "catalog"));
-            JSONObject value = JsonPolicy.strictTrue(response.opt("ok")) ? response.optJSONObject("value") : null;
+            JSONObject value = JsonPolicy.objectValue(response);
             JSONArray packages = value == null ? null : value.optJSONArray("packages");
             if (packages == null) return List.of();
             for (int index = 0; index < packages.length(); index++) {

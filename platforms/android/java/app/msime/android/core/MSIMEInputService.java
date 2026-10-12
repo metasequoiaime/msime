@@ -3053,8 +3053,7 @@ public final class MSIMEInputService extends InputMethodService {
     private JSONObject onlineQuery(long targetSession) {
         try {
             JSONObject envelope = new JSONObject(NativeClient.onlineQuery(targetSession));
-            return JsonPolicy.strictTrue(envelope.opt("ok"))
-                ? envelope.optJSONObject("value") : null;
+            return JsonPolicy.objectValue(envelope);
         } catch (JSONException | RuntimeException | LinkageError error) {
             return null;
         }
@@ -3150,8 +3149,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (raw == null) return null;
         try {
             JSONObject envelope = new JSONObject(raw);
-            return JsonPolicy.strictTrue(envelope.opt("ok"))
-                ? envelope.optJSONObject("value") : null;
+            return JsonPolicy.objectValue(envelope);
         } catch (JSONException | RuntimeException error) {
             return null;
         }
