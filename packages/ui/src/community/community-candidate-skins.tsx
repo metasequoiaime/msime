@@ -441,9 +441,11 @@ export function CommunityCandidateSkinsPage({
         />
         <CommunityDetailSummary
           title={selected.name}
-          note={[selectedCategory, selected.author, selected.version && `v${selected.version}`]
-            .filter(Boolean)
-            .join(" · ")}
+          noteParts={[
+            selectedCategory,
+            selected.author,
+            selected.version && `v${selected.version}`,
+          ]}
           owned={selected.owned}
           moderation={selected.moderation}
           ownedLabel={selected.visibility === "private" ? "私有" : "我的作品"}

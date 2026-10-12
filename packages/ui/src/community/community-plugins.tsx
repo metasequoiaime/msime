@@ -291,13 +291,11 @@ export function CommunityPluginsPage({
       >
         <CommunityDetailSummary
           title={selected.name}
-          note={[
+          noteParts={[
             kindLabels[selected.kind],
             selected.author,
             selected.version && `v${selected.version}`,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
+          ]}
           owned={selected.owned}
           moderation={selected.moderation}
           description={selected.description}

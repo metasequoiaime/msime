@@ -763,9 +763,7 @@ export function CommunitySkinsPage({
         </div>
         <CommunityDetailSummary
           title={selected.name}
-          note={[communitySkinCategoryLabel(selected.category), selected.author]
-            .filter(Boolean)
-            .join(" · ")}
+          noteParts={[communitySkinCategoryLabel(selected.category), selected.author]}
           owned={selected.owned}
           moderation={selected.moderation}
           description={selected.description}

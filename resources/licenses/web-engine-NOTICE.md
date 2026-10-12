@@ -1039,13 +1039,14 @@ Public Domain Dataです。使用・変更・配布に関しては一切の制�
 | `smallvec` | 1.16.0 | MIT OR Apache-2.0 | L04、L49 |
 | `sqlite-wasm-rs` | 0.5.5 | MIT | L50 |
 | `strsim` | 0.10.0 | MIT | L51 |
+| `tempfile` | 3.27.0 | MIT OR Apache-2.0 | L04、L52 |
 | `thiserror` | 2.0.21 | MIT OR Apache-2.0 | L32、L22 |
-| `time` | 0.3.55 | MIT OR Apache-2.0 | L39、L52 |
-| `time-core` | 0.1.9 | MIT OR Apache-2.0 | L39、L52 |
-| `typenum` | 1.20.1 | MIT OR Apache-2.0 | L53、L54、L55 |
-| `unicode-ident` | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | L32、L22、L56 |
-| `unicode-segmentation` | 1.13.3 | MIT OR Apache-2.0 | L57、L04、L58 |
-| `vi` | 0.8.0 | 见 license-file | L59 |
+| `time` | 0.3.55 | MIT OR Apache-2.0 | L39、L53 |
+| `time-core` | 0.1.9 | MIT OR Apache-2.0 | L39、L53 |
+| `typenum` | 1.20.1 | MIT OR Apache-2.0 | L54、L55、L56 |
+| `unicode-ident` | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | L32、L22、L57 |
+| `unicode-segmentation` | 1.13.3 | MIT OR Apache-2.0 | L58、L04、L59 |
+| `vi` | 0.8.0 | 见 license-file | L60 |
 | `wasm-bindgen` | 0.2.128 | MIT OR Apache-2.0 | L04、L08 |
 | `wasm-bindgen-shared` | 0.2.128 | MIT OR Apache-2.0 | L04、L08 |
 | `zmij` | 1.0.23 | MIT | L22 |
@@ -1126,7 +1127,7 @@ For more information, please refer to <http://unlicense.org/>
 
 ### L04（LICENSE-APACHE）
 
-用于：`bitflags` 2.13.1、`cfg-if` 1.0.4、`equivalent` 1.0.2、`fastrand` 2.5.0、`hashbrown` 0.16.1、`hashbrown` 0.17.1、`indexmap` 2.14.2、`js-sys` 0.3.105、`log` 0.4.34、`num-bigint` 0.4.8、`num-integer` 0.1.47、`num-rational` 0.4.2、`num-traits` 0.2.19、`once_cell` 1.21.4、`regex` 1.13.1、`regex-automata` 0.4.18、`regex-syntax` 0.8.11、`smallvec` 1.16.0、`unicode-segmentation` 1.13.3、`wasm-bindgen` 0.2.128、`wasm-bindgen-shared` 0.2.128
+用于：`bitflags` 2.13.1、`cfg-if` 1.0.4、`equivalent` 1.0.2、`fastrand` 2.5.0、`hashbrown` 0.16.1、`hashbrown` 0.17.1、`indexmap` 2.14.2、`js-sys` 0.3.105、`log` 0.4.34、`num-bigint` 0.4.8、`num-integer` 0.1.47、`num-rational` 0.4.2、`num-traits` 0.2.19、`once_cell` 1.21.4、`regex` 1.13.1、`regex-automata` 0.4.18、`regex-syntax` 0.8.11、`smallvec` 1.16.0、`tempfile` 3.27.0、`unicode-segmentation` 1.13.3、`wasm-bindgen` 0.2.128、`wasm-bindgen-shared` 0.2.128
 
 ````text
                               Apache License
@@ -5003,6 +5004,38 @@ SOFTWARE.
 
 ### L52（LICENSE-MIT）
 
+用于：`tempfile` 3.27.0
+
+````text
+Copyright (c) 2015 Steven Allen
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+````
+
+### L53（LICENSE-MIT）
+
 用于：`time` 0.3.55、`time-core` 0.1.9
 
 ````text
@@ -5027,7 +5060,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### L53（LICENSE）
+### L54（LICENSE）
 
 用于：`typenum` 1.20.1
 
@@ -5035,7 +5068,7 @@ SOFTWARE.
 MIT OR Apache-2.0
 ````
 
-### L54（LICENSE-APACHE）
+### L55（LICENSE-APACHE）
 
 用于：`typenum` 1.20.1
 
@@ -5243,7 +5276,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ````
 
-### L55（LICENSE-MIT）
+### L56（LICENSE-MIT）
 
 用于：`typenum` 1.20.1
 
@@ -5271,7 +5304,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### L56（LICENSE-UNICODE）
+### L57（LICENSE-UNICODE）
 
 用于：`unicode-ident` 1.0.24
 
@@ -5317,7 +5350,7 @@ dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
 ````
 
-### L57（COPYRIGHT）
+### L58（COPYRIGHT）
 
 用于：`unicode-segmentation` 1.13.3
 
@@ -5331,7 +5364,7 @@ notice may not be copied, modified, or distributed except
 according to those terms.
 ````
 
-### L58（LICENSE-MIT）
+### L59（LICENSE-MIT）
 
 用于：`unicode-segmentation` 1.13.3
 
@@ -5363,7 +5396,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ````
 
-### L59（LICENSE）
+### L60（LICENSE）
 
 用于：`vi` 0.8.0
 
