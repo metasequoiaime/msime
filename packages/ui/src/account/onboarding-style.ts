@@ -6,6 +6,8 @@
  * all share one column so the text does not run the full width of a desktop window.
  */
 
+import { tightStack } from "../core/page-style";
+
 const column = "mx-auto w-[min(560px,100%)]";
 
 export const page =
@@ -170,7 +172,7 @@ export const hSystemActions = "mt-3 flex flex-wrap gap-[9px] [&>button]:m-0";
 export const hNote = "mt-3 mb-0 text-xs leading-[1.7] text-[var(--p-sub)]";
 
 // 第 2 步：每个方案一张卡片，右侧是单选按钮。
-export const hSchemes = "flex flex-col gap-2.5";
+export const hSchemes = tightStack;
 /** 方案卡片；选中的那张带 2px 内嵌强调色圆环（dc.html `o.ring`）。 */
 export const hScheme = (desktop: boolean, selected: boolean) =>
   `${hCard(desktop)} m-0 flex w-full items-center gap-3 border-0 px-4 py-3.5 text-left text-[var(--p-text)] ${

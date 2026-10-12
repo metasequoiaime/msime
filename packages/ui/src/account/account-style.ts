@@ -8,7 +8,7 @@
  */
 
 import { fieldLabel } from "../core/form-style";
-import { standardPage } from "../core/page-style";
+import { standardPage, tightStack } from "../core/page-style";
 import { mobileGroupSurface } from "../core/platform-controls-style";
 import { rowHeading, rowText } from "../core/row-style";
 
@@ -101,7 +101,7 @@ export const confirmation = "rounded-lg border border-edge bg-subtle p-3.5 [&>p]
 export const communityActions =
   "flex items-center justify-between gap-4 [&>div]:min-w-0 [&>.secondary]:m-0 [&>.secondary]:shrink-0 [&>.secondary]:grow-0 [&>.secondary]:basis-auto";
 
-export const mobileMenu = "flex flex-col gap-2.5";
+export const mobileMenu = tightStack;
 export const mobileMenuSummary =
   "w-fit cursor-pointer list-none rounded-lg border border-control-border px-3.5 py-[7px] text-body after:ml-2 after:text-muted after:content-['⌄'] open:after:content-['⌃'] [&::-webkit-details-marker]:hidden";
 export const mobileMenuBody = "flex flex-wrap items-center gap-[9px]";
