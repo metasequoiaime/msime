@@ -17,6 +17,7 @@ import { fillProviderDefaults, known, swapTokenSlot, type TokenMap } from "./pro
 import {
   deepseekChatEndpoint,
   everyApiModelsUrl,
+  groqChatEndpoint,
   openAiChatEndpoint,
   siliconFlowChatEndpoint,
 } from "../core/provider-resources";
@@ -122,7 +123,7 @@ export const POLISH_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
     documentation: "https://api-docs.deepseek.com/",
   },
   groq: {
-    endpoint: "https://api.groq.com/openai/v1/chat/completions",
+    endpoint: groqChatEndpoint,
     model: "llama-3.3-70b-versatile",
     models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
     documentation: "https://console.groq.com/docs/quickstart",

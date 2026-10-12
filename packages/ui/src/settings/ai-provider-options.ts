@@ -1,6 +1,7 @@
 import {
   deepseekChatEndpoint,
   everyApiModelsUrl,
+  groqChatEndpoint,
   openAiChatEndpoint,
   siliconFlowChatEndpoint,
 } from "../core/provider-resources";
@@ -93,7 +94,7 @@ export const AI_PROVIDER_OPTIONS: readonly {
   {
     id: "groq",
     title: "Groq",
-    endpoint: "https://api.groq.com/openai/v1/chat/completions",
+    endpoint: groqChatEndpoint,
     model: "llama-3.3-70b-versatile",
     models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
     documentation: "https://console.groq.com/docs/quickstart",
