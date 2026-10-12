@@ -90,7 +90,7 @@ surface = "#fff7fa"
 border = "rgba(176, 80, 110, 0.22)"
 )toml");
     WriteFile(root / "niya-demo" / "assets" / "character.png", "png");
-    WriteFile(root / "broken" / "skin.toml", "schema_version = 2\nid = \"broken\"\n");
+    WriteFile(root / "broken" / "skin.toml", "schema_version = 3\nid = \"broken\"\n");
 
     std::string error;
     auto package = msime::mac::LoadSkinPackage(root, "niya-demo", &error);
