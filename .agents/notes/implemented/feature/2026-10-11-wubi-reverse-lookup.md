@@ -45,6 +45,8 @@ Status: implemented
 
 Android 原生页的 `WubiLookupRequestState` 也按输入文字和请求代次保存忙碌状态及结果：编辑时清掉旧表格、允许新查询，旧回答不再覆盖新结果；视图销毁时解除未完成请求的忙碌状态，已经完成的结果继续留在 ViewModel 中。`HostTask` 只向发起请求时那棵视图交回结果，旋转后不会调用旧完成回调，因此只靠回调解除 `busy` 会把新视图的查码按钮永久锁住。
 
+iOS 原生页同样用 `WubiLookupRequestState` 管理输入、请求身份和显示状态：`TextField` 的文字变化先保持原有长度截断，再清掉旧表格与失败提示，并解除旧请求占用；完成回调只有身份仍属于当前输入时才写回。状态留在 SwiftUI `@State`，不跨导航页面保存。
+
 字根拆分不做：仓库里没有授权清楚的 86/98 拆分数据（`resources/helpcodes` 里只有拼音辅助码用的字根数据），而且很多字根不是 Unicode 字符，要另配字体或图片。
 
 ## Golden 基准
@@ -74,6 +76,7 @@ Android 原生页的 `WubiLookupRequestState` 也按输入文字和请求代次�
 - `pnpm --filter @msime/desktop exec vitest run`（全量 524 个文件通过），其中 `tests/settings/wubi-code-lookup-section.test.tsx`：整段词在前、两列编码与当前码表标记；没有汉字和截断的提示；失败时报错并清掉旧结果；「输入」页在五笔方案且宿主有 `wubiCodes` 时画出这一组并用它查，全拼方案或宿主没给 `wubiCodes` 时不画。
 - 查码输入变化和过期响应由 `tests/settings/wubi-code-lookup-section.test.tsx` 覆盖：编辑立即隐藏旧表格、允许新请求，旧请求晚返回也不覆盖新结果。
 - Android 原生页的请求状态由 `WubiLookupRequestStateSmoke` 覆盖：编辑后新旧请求逆序完成、视图销毁后旧回调失效且新视图可重试、已完成结果跨视图重建保留。`check-host.sh` 的 216 个 JVM 冒烟与设备套件源码编译、原生 Gradle 工程的 `compileFullDebugJavaWithJavac` 通过；此改动尚未在模拟器上运行。
+- iOS 原生页的 `WubiLookupRequestStateTests` 覆盖编辑后旧成功、旧失败回调失效，以及新请求能立即启动；这两项先在空实现上失败，再在修复后通过。iOS 17 模拟器 SDK 的 SwiftUI 类型检查和 XcodeGen 工程生成通过；此批改动尚未在原生 App 模拟器运行，本机剩余空间不足以完成 Rust 与 Xcode 全量构建。
 - Windows 那一行（`platforms/windows/settings/main.cpp`）没有在本机构建：WinUI 设置窗口只能用 MSVC 编译，交给 CI 的 Windows 构建；它照搬同一文件里辅助码插件那一行的 `shell_row(..., nav::shell_links::input)`。
 - `platforms/harmony/tests/run.sh`：`DictionaryMaintenancePolicy` 把 `wubi_codes` 当读操作（组字时允许、不要维护、不进队列）。
 - `cargo test -p msime-host-api --lib -- dictionary::tests::wubi`：两个入口对同一请求给出相同回答，个人词库队列不建目录、用户数据目录不变；超长文字两个入口都拒绝。
