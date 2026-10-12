@@ -6,12 +6,14 @@
 - 目录名、Cargo.toml 的包名和 plugin.toml 的 id 三者相同；
 - pack/ 里没有 .wasm（模块只来自构建，不提交）；
 - 模块不超过 256 KiB，线性内存的最小页数不超过清单的 memory_pages（不写时 16）；
-- pack/ 里按约定命名的第三方许可证和仓库里的原件逐字节相同。
+- pack/ 里按约定命名的第三方许可证和仓库里的原件逐字节相同；
+- 许可证义务按 crate 实际编进模块的数据推出来：从 src/ 出发顺着 `#[path]` 找到全部源文件，收集其中 `include_bytes!` 的文件，在 [EMBEDDED_DATA] 里查它要求包里带哪些许可证原文、清单的 license 要含哪些 SPDX 标识、NOTICE.txt 要原文包含哪份来源说明。编进了表里没有的数据文件直接失败，先把它的义务登记进表。插件代码本身的 MIT 也一样：pack/LICENSE.txt 必须是 plugins/script/LICENSE 的副本，license 必须含 MIT。
 
 压缩包是确定的：条目按名字排序、放在顶层、时间固定为 1980-01-01、权限 0644、不压缩（deflate 的输出随 zlib 版本变化，插件包只有几百 KiB 以内，不值得为此失去逐字节可复现）。
 
 usage: assemble.py <plugin-dir> <module.wasm>
 """
+import re
 import shutil
 import sys
 import tomllib
@@ -24,9 +26,27 @@ MAX_MODULE_BYTES = 256 * 1024
 DEFAULT_MEMORY_PAGES = 16
 # pack/ 里这些文件名必须是仓库里对应原件的逐字节副本，免得许可证被改了一份、忘了另一份。
 LICENSE_COPIES = {
+    "LICENSE.txt": ROOT / "plugins/script/LICENSE",
     "Unicode-License-V3.txt": ROOT / "resources/licenses/Unicode-License-V3.txt",
     "OpenCC-LICENSE.txt": ROOT / "crates/client-core/data/opencc/LICENSE",
 }
+# 插件代码自己的许可证，每个包都要带。
+CODE_LICENSE = ("LICENSE.txt", "MIT")
+# 编进模块的第三方数据（相对仓库根）→（包里要带的许可证原文、license 要含的 SPDX 标识、NOTICE.txt 要原文包含的来源说明）。traditional-glyph 的 NOTICE.txt 由 gen_s2t_table.py 整份写出、--check 核对，这里不再要求包含哪一份。
+EMBEDDED_DATA = {
+    "plugins/script/data/common-chars.bin": (
+        ("Unicode-License-V3.txt", "OpenCC-LICENSE.txt"),
+        ("Unicode-3.0", "Apache-2.0"),
+        ROOT / "plugins/script/data/common-chars-NOTICE.txt",
+    ),
+    "plugins/script/traditional-glyph/data/s2t.bin": (
+        ("OpenCC-LICENSE.txt",),
+        ("Apache-2.0",),
+        None,
+    ),
+}
+PATH_ATTRIBUTE = re.compile(r'#\[path\s*=\s*"([^"]+)"\]')
+INCLUDE_BYTES = re.compile(r'include_bytes!\(\s*"([^"]+)"\s*\)')
 
 
 def leb128(data: bytes, offset: int) -> tuple[int, int]:
@@ -59,6 +79,48 @@ def minimum_pages(module: bytes) -> int:
     raise SystemExit("模块没有定义线性内存")
 
 
+def embedded_data(plugin: Path) -> set[str]:
+    """crate 编进模块的数据文件（相对仓库根）：src/ 下的源文件，加上顺着 `#[path]` 找到的源文件（相对写它的那个文件所在的目录），其中全部 `include_bytes!` 的目标。注释行里举例写的 `#[path]` 不算。"""
+    pending = sorted((plugin / "src").rglob("*.rs"))
+    seen: set[Path] = set()
+    data: set[str] = set()
+    while pending:
+        source = pending.pop().resolve()
+        if source in seen:
+            continue
+        seen.add(source)
+        text = "\n".join(line for line in source.read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("//"))
+        pending.extend(source.parent / target for target in PATH_ATTRIBUTE.findall(text))
+        for target in INCLUDE_BYTES.findall(text):
+            data.add((source.parent / target).resolve().relative_to(ROOT).as_posix())
+    return data
+
+
+def check_obligations(plugin_id: str, plugin: Path, manifest: dict, names: set[str]) -> None:
+    """包里带齐插件代码和编进模块的第三方数据要求的许可证原文、SPDX 标识和来源说明。"""
+    terms = {term.strip() for term in manifest.get("license", "").split(" AND ")}
+    files, spdx, notices = {CODE_LICENSE[0]}, {CODE_LICENSE[1]}, []
+    for data in sorted(embedded_data(plugin)):
+        if data not in EMBEDDED_DATA:
+            raise SystemExit(f"{plugin_id}: 模块编进了 {data}，但 assemble.py 的 EMBEDDED_DATA 没有登记它的许可证义务")
+        licenses, identifiers, notice = EMBEDDED_DATA[data]
+        files.update(licenses)
+        spdx.update(identifiers)
+        if notice is not None:
+            notices.append(notice)
+    if missing := sorted(files - names):
+        raise SystemExit(f"{plugin_id}: pack/ 缺少 {'、'.join(missing)}")
+    if missing := sorted(spdx - terms):
+        raise SystemExit(f"{plugin_id}: plugin.toml 的 license 缺少 {'、'.join(missing)}（现在是 {manifest.get('license')!r}）")
+    if notices:
+        if "NOTICE.txt" not in names:
+            raise SystemExit(f"{plugin_id}: pack/ 缺少 NOTICE.txt")
+        text = (plugin / "pack/NOTICE.txt").read_text(encoding="utf-8")
+        for notice in notices:
+            if notice.read_text(encoding="utf-8").strip() not in text:
+                raise SystemExit(f"{plugin_id}: pack/NOTICE.txt 没有原文包含 {notice.relative_to(ROOT)}，重新照录一份")
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         raise SystemExit(__doc__.strip().splitlines()[-1])
@@ -77,6 +139,7 @@ def main(argv: list[str]) -> int:
         original = LICENSE_COPIES.get(path.name)
         if original is not None and path.read_bytes() != original.read_bytes():
             raise SystemExit(f"{plugin_id}: pack/{path.name} 和 {original.relative_to(ROOT)} 不一致，重新复制一份")
+    check_obligations(plugin_id, plugin, manifest, {path.name for path in pack_files})
 
     module = module_path.read_bytes()
     if len(module) > MAX_MODULE_BYTES:
