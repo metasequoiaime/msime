@@ -1,7 +1,7 @@
 export type HandwritingPlatform = "ios" | "harmony" | "android";
 
 /** Google ML Kit 的条款和数据披露；iOS 和 Android 用它识别手写。 */
-export const handwritingSdkPrivacyUrl = "https://developers.google.com/ml-kit/terms";
+export { handwritingSdkPrivacyUrl } from "./app-resources";
 
 /** 各平台手写隐私文案的唯一一份：设置窗口的「手写输入」页在 `HandwritingSettingsSection` 里把它放进该平台的组。 */
 export function handwritingPrivacyText(platform: HandwritingPlatform): string {
