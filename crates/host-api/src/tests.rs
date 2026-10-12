@@ -895,6 +895,89 @@ fn account_cloud_clipboard_refuses_without_a_signed_in_session_or_a_valid_action
 }
 
 #[test]
+fn relay_cloud_clipboard_checks_its_input_and_the_configured_relay_before_the_network() {
+    let preferences = tempfile::tempdir().unwrap();
+    let keystore = tempfile::tempdir().unwrap();
+    let preferences_path = preferences.path().to_str().unwrap().to_owned();
+    let keystore_path = keystore.path().to_str().unwrap().to_owned();
+    let source = || {
+        let bytes = preferences_path.as_bytes();
+        read(unsafe { msime_client_cloud_clipboard_source(bytes.as_ptr(), bytes.len()) })
+    };
+    let call = |body: serde_json::Value| {
+        let body = serde_json::to_vec(&body).unwrap();
+        read(unsafe { msime_client_relay_cloud_clipboard(body.as_ptr(), body.len()) })
+    };
+    let request = |action: serde_json::Value| {
+        json!({
+            "preferences_directory": preferences_path,
+            "directory": keystore_path,
+            "device_name": "合成设备",
+            "action": action,
+        })
+    };
+
+    // 没配置中继：走账号，中继入口直接答 relay_not_configured。
+    assert_eq!(source()["value"]["source"], "account");
+    assert_eq!(
+        call(request(json!({ "operation": "list", "search": "" })))["error"],
+        "relay_not_configured"
+    );
+    let relative = b"relative";
+    assert_eq!(
+        read(unsafe { msime_client_cloud_clipboard_source(relative.as_ptr(), relative.len()) })
+            ["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_cloud_clipboard_source(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_relay_cloud_clipboard(std::ptr::null(), 0) })["error"],
+        "invalid_cloud_clipboard"
+    );
+
+    let store = PreferencesStore::new(preferences.path());
+    let mut configured = store.load().unwrap().preferences;
+    // 端口 9 上没有服务，真发出去的请求答 relay_unavailable。
+    configured.cloud_clipboard_relay.url = "http://127.0.0.1:9".into();
+    configured.cloud_clipboard_relay.token = "synthetic-relay-token".into();
+    store.save(0, configured).unwrap();
+    assert_eq!(source()["value"]["source"], "relay");
+
+    for body in [
+        request(json!({ "operation": "set_retention", "days": 3 })),
+        request(json!({ "operation": "pin", "id": "entry-1", "pinned": true })),
+        request(json!({})),
+        json!({ "preferences_directory": "relative", "directory": keystore_path, "action": { "operation": "clear" } }),
+        json!({ "preferences_directory": preferences_path, "directory": "relative", "action": { "operation": "clear" } }),
+        json!({ "preferences_directory": preferences_path, "directory": keystore_path, "action": { "operation": "clear" }, "extra": true }),
+    ] {
+        assert_eq!(
+            call(body.clone())["error"],
+            "invalid_cloud_clipboard",
+            "{body}"
+        );
+    }
+    assert_eq!(
+        call(request(json!({ "operation": "clear" })))["error"],
+        "relay_unavailable"
+    );
+    // 中继的三个新动作只在中继入口里有，账号入口照旧拒绝。
+    let account = serde_json::to_vec(&json!({
+        "directory": keystore_path,
+        "action": { "operation": "set_retention", "days": 7 },
+    }))
+    .unwrap();
+    assert_eq!(
+        read(unsafe { msime_client_account_cloud_clipboard(account.as_ptr(), account.len()) })
+            ["error"],
+        "invalid_cloud_clipboard"
+    );
+}
+
+#[test]
 fn mixed_input_changes_defer_until_composition_ends() {
     use msime_client_core::preferences::MixedInputPreferences;
     let dir = tempfile::tempdir().unwrap();
