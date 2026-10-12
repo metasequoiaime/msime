@@ -1,6 +1,6 @@
 //! traditional-glyph：在候选旁注出繁体字形。单字列出全部繁体写法（发 → 發/髮，台 → 臺/檯/颱/台），多字候选给出按 OpenCC 词表转换后的结果（头发 → 頭髮，而不是逐字的 頭發）。
 //!
-//! 只声明 `candidates`，申请 `read_candidates` 和 `annotate_candidates`。字形以 OpenCC 的 `s2t`（OpenCC 标准繁体）为准，和输入法自己的繁体输出一致；对照表见 [`table`]。
+//! 只声明 `candidates`，申请 `read_candidates` 和 `annotate_candidates`。字形以 OpenCC 的 `s2t`（OpenCC 标准繁体）为准，数据和输入法自己的繁体输出来自同一份 OpenCC 词表；单字和 2 到 4 字的词组和它一致，5 字以上的词组、两个词组拼接处的个别情况和兼容汉字不同（只收了短词组、不做规范化，见 README 的「已知的局限」）。对照表见 [`table`]。
 //!
 //! 每次投递的做法：
 //!
