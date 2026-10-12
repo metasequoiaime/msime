@@ -12,7 +12,7 @@ Status: implemented
 
 **新的共享偏好 `expand_candidates`（设置页叫「展开候选」），默认关闭。** 字段在 `crates/client-core/src/preferences.rs`（`#[serde(default)]`，缺字段的旧文档读成关闭），能力位 `HostCapabilities::expand_candidates` 目前只在 macOS 为真；共享设置页只在这个能力下于「候选窗口 › 布局」组显示开关，原生设置窗口的候选窗口卡片里有同名开关，本机键 `MSIMEClientExpandCandidates` 在该分区的恢复列表里。Windows、Linux 以后接上同一个偏好时只需打开各自的能力位。
 
-**网格之外的方向键规则不变。** 偏好关闭、候选窗竖排、只有一页、候选列表（韩文汉字、注音）或释义页开着时，↓ 和以前一样移高亮；←/→ 无论偏好如何都照旧移光标或改字。只有偏好打开、横排、多页时，↓ 和候选窗首行 ‹ › 后面多出的展开按钮才打开网格。注音组字时 ↓ 打开候选列表（`MSIMECandidateListDownKey`）排在前面，优先于展开。
+**网格之外的方向键规则不变。** 偏好关闭、候选窗竖排、只有一页、候选列表（韩文汉字、注音）或释义页开着时，↓ 和以前一样移高亮；←/→ 无论偏好如何都照旧移光标或改字。只有偏好打开、横排、多页时，↓ 和候选窗首行 ‹ › 后面多出的展开按钮才打开网格。展开按钮跟着页码和翻页按钮按 `show_candidate_page_number` 显示：关掉它们的人要的是只剩候选行的卡片，↓ 照样能展开。注音组字时 ↓ 打开候选列表（`MSIMECandidateListDownKey`）排在前面，优先于展开。
 
 **网格里的键。** 网格开着时它接管键盘（`handleExpandedCandidateEvent:client:`，在 `handleKeyEvent:client:` 里紧跟 `syncPageSize` 之后，先于数字、删除和翻页的判断）：
 
@@ -27,7 +27,7 @@ Status: implemented
 
 **数据与代次。** 网格不经 View 的分页：打开时经 `msime_client_all_candidates` 复制一次当前这一代的全部候选（`MSIMEClientSession allCandidatesWithError:`），只认当前视图这个会话、这一代、身份合法的条目，每一行里按本机置顶词重排，和普通候选窗画那一页时一样；记下这一代和打开时的组字（`editing_text`、`preedit`、`caret_position`、`phrase_prefix`）。选择用 `msime_client_select_any_candidate` 带着复制时的一代（`selectAnyCandidateGeneration:index:error:`），控制器先用 `MSIMECurrentCandidateIdentity` 对照当前视图，Engine 再拒绝过期的一代。每次重画前对照一次当前视图（`expandedCandidatesStillApply`）：视图对象没变就直接画；变了而组字不变（云候选、AI 回答、整句重排到达，或同一代补上释义）就按新的一代重载，高亮留在原来那个词上、找不到时夹在范围内；组字变了、偏好关掉、改成竖排、切到英文、候选列表或释义页打开、失焦，就收起。ABI 没有改动，两个函数在 `crates/host-api/include/msime_client.h` 里早已存在，Android 和 iOS 的展开面板用的就是它们。
 
-**画法。** `renderExpandedCandidates` 和普通候选窗共用皮肤、字体、首行（logo、拼音）和装饰：每一行按普通候选窗排一页的方式排（`candidatePageGeometry:`，即 `CandidateItemLayout.h`），行与行上下叠起来，卡片宽度取最宽的一行；候选按钮由两条路径共用的 `candidateButtonFor:geometry:slot:number:...` 建，`MSIMECandidateButton`、`MSIMECandidateChromeView` 和 `refreshCandidateSkin` 原样复用。网格按钮的标签是它在网格里的位置，高亮跟网格的光标走；首行右端是高亮所在的行「2 / 7」和收起按钮（标签 -3，模板符号图，按皮肤次要色着色）。网格里的候选不挂右键菜单：置顶、删除、固定排位的 Engine 调用只认当前这一页。画网格时清掉 `_renderedCandidateView`，收起后第一次重画走完整重建，而不是在网格的按钮上原地改释义。
+**画法。** `renderExpandedCandidates` 和普通候选窗共用皮肤、字体、首行（logo、拼音）和装饰：每一行按普通候选窗排一页的方式排（`candidatePageGeometry:`，即 `CandidateItemLayout.h`），行与行上下叠起来，卡片宽度取最宽的一行；候选按钮由两条路径共用的 `candidateButtonFor:geometry:slot:number:...` 建，`MSIMECandidateButton`、`MSIMECandidateChromeView` 和 `refreshCandidateSkin` 原样复用。网格按钮的标签是它在网格里的位置，高亮跟网格的光标走；首行右端是高亮所在的行「2 / 7」和收起按钮（标签 -3，模板符号图，按皮肤次要色着色）。网格里的候选不挂右键菜单：置顶、删除、固定排位的 Engine 调用只认当前这一页。双拼键位图按普通候选窗一页的高度让开候选窗，网格开着时先收起它。画网格时清掉 `_renderedCandidateView`，收起后第一次重画走完整重建，而不是在网格的按钮上原地改释义。
 
 ## Alternatives considered
 
@@ -41,5 +41,5 @@ Status: implemented
 ## Consequences
 
 - **收益**：横排候选窗可以一眼看几页、用方向键在页与页之间走，鼠标用户有展开按钮；默认关闭，现有用户的方向键、翻页键和数字键一个都没变。Engine 和 C ABI 没有改动；网格的下标计算可以单独测。
-- **代价与已知上限**：`expand_candidates` 是 `Preferences` 的顶层字段，结构带 `deny_unknown_fields`，早于它的设置应用或 `msime-mcp` 会拒读写过这个字段的文档，与加 `input_mode_status_item` 时相同；MCP 还没有暴露这个开关。设置页没有界面语言切换，开关的文字只有简体中文（仓库目前没有本地化框架，没有地方放繁体和英文文案）。网格里没有右键菜单；收起网格时普通候选窗停在 Engine 原来的那一页和高亮上，不跟网格的光标走。打开网格时只比较「组字是否变化」，所以同一组字下 Engine 主动换掉整批候选（比如设置变了）会被当成重载而不是收起。行高不同（有的行折行或带释义）时滚动会让卡片高度略有变化。Windows 和 Linux 还没有实现，它们的设置页不显示这个开关。
+- **代价与已知上限**：`expand_candidates` 是 `Preferences` 的顶层字段，结构带 `deny_unknown_fields`，早于它的设置应用或 `msime-mcp` 会拒读写过这个字段的文档，与加 `input_mode_status_item` 时相同；MCP 还没有暴露这个开关。设置页没有界面语言切换，开关的文字只有简体中文（仓库目前没有本地化框架，没有地方放繁体和英文文案）。网格里没有右键菜单；收起网格时普通候选窗停在 Engine 原来的那一页和高亮上，不跟网格的光标走。网格不认的标点键先收起网格再交给 Engine，上屏的是 Engine 那一页的高亮，不是网格里的光标。释义只为 Engine 当前那一页请求，网格里其他行的候选没有释义。打开网格时只比较「组字是否变化」，所以同一组字下 Engine 主动换掉整批候选（比如设置变了）会被当成重载而不是收起。行高不同（有的行折行或带释义）时滚动会让卡片高度略有变化。Windows 和 Linux 还没有实现，它们的设置页不显示这个开关。
 - **验证**：`cargo test -p msime-client-core -p msime-host-api` 覆盖偏好默认关闭、缺字段读成关闭、往返，能力位只在 macOS 为真，以及经 C ABI 读到的能力值；`apps/desktop/tests/settings/settings.test.tsx` 断言开关只在 macOS 出现、默认关闭、打开后保存 `expand_candidates: true`。macOS 原生：`candidate-expanded-grid`（`tests/candidate/CandidateExpandedGridTest.cpp`）覆盖行内、行间、短行、第一行 ↑ 收起、翻页和可见窗口；`shortcut` 里的 `TestExpandedCandidateGrid` 覆盖偏好关闭、竖排、只有一页时 ↓ 和 ←/→ 不变，展开不发 Engine 命令，网格里的移动、数字、空格、回车、Esc、第一行 ↑、不认的键、鼠标展开/收起/点选（指针先于选择报告）、偏好关闭或改竖排后收起，以及原生开关与共享文档读写同一个值；`TestExpandedCandidateGridGeneration` 覆盖同一组字换代时重载并保持高亮、原来的词没了时夹住、组字变化时收起、视图已换代时点旧按钮不选、Engine 拒绝过期一代时不上屏、焦点换客户端时收起。真机上的观感（浅色、深色、皮肤装饰、触控板滚动、刘海屏宽度）还没有在装好的输入法里看过。
