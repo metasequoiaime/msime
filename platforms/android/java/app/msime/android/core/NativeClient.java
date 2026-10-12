@@ -258,6 +258,35 @@ public final class NativeClient {
         return TextPolicy.utf8(cloudClipboardE2eRaw(payload));
     }
 
+    /** 共享 `msime_client_cloud_clipboard_source` 的偏好目录上限。 */
+    public static final int CLOUD_CLIPBOARD_SOURCE_DIRECTORY_LIMIT = 16 * 1024;
+    /** 共享 `msime_client_relay_cloud_clipboard` 的请求上限。 */
+    public static final int CLOUD_CLIPBOARD_RELAY_REQUEST_LIMIT = 128 * 1024;
+
+    /**
+     * 云剪贴板该走哪条路：`directory` 是共享偏好目录，返回 `{"ok":true,"value":{"source":"relay"|"account"}}`；读不了偏好时 error 是 `storage`，中继配置不合规时是 `relay_not_configured`。只读文件、不联网。
+     *
+     * <p>配置了中继就只走中继，见 {@link CloudClipboardRelay}。
+     */
+    public static String cloudClipboardSource(String directory) {
+        byte[] payload = utf8(directory);
+        if (payload.length > CLOUD_CLIPBOARD_SOURCE_DIRECTORY_LIMIT)
+            throw new IllegalArgumentException("Preferences directory is too long");
+        return TextPolicy.utf8(cloudClipboardSourceRaw(payload));
+    }
+
+    /**
+     * 经自建中继答一个云剪贴板动作：请求是 `{preferences_directory, directory, device_name, action}`，格式和错误码见 `crates/host-api/include/msime_client.h` 与 `docs/cloud-clipboard-relay.md`。由 Rust 联网、在本机加密解密并保存中继的密钥串，宿主只拼请求、读结果。
+     *
+     * <p>阻塞在网络上（每个请求最多 30 秒），只在工作线程上调用，不要在主线程或输入线程上调用。
+     */
+    public static String relayCloudClipboard(String request) {
+        byte[] payload = utf8(request);
+        if (payload.length > CLOUD_CLIPBOARD_RELAY_REQUEST_LIMIT)
+            throw new IllegalArgumentException("Cloud clipboard relay request is too large");
+        return TextPolicy.utf8(cloudClipboardRelayRaw(payload));
+    }
+
     /**
      * Decode a Doubao streaming response frame with the shared implementation.
      *
@@ -758,6 +787,8 @@ public final class NativeClient {
         byte[] custom3);
     private static native byte[] mobileClipboardHistoryRaw(byte[] request);
     private static native byte[] cloudClipboardE2eRaw(byte[] request);
+    private static native byte[] cloudClipboardSourceRaw(byte[] directory);
+    private static native byte[] cloudClipboardRelayRaw(byte[] request);
     private static native byte[] doubaoDecodeFrameRaw(byte[] frame);
     private static native byte[] doubaoStartFrameRaw(boolean itn, boolean punctuation, boolean ddc,
         byte[] boostingTableId);
