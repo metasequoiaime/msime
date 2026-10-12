@@ -11,12 +11,15 @@ public abstract class ReloadingDetailPage extends DetailPage {
     @Override protected final void buildContent(LinearLayout column, Bundle args) {
         this.column = column;
         onContentReady();
-        reload();
+        if (shouldReloadOnContentReady()) reload();
         onInitialReloadScheduled();
     }
 
     /** Allows a page to paint retained content before its first asynchronous refresh. */
     protected void onContentReady() {}
+
+    /** Allows a page to wait for its first visible callback before loading. */
+    protected boolean shouldReloadOnContentReady() { return true; }
 
     /** Allows a page to start extra work after scheduling its first refresh. */
     protected void onInitialReloadScheduled() {}

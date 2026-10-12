@@ -14,7 +14,6 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
-import android.os.Bundle;
 import android.text.InputFilter;
 import android.view.Gravity;
 import android.view.View;
@@ -59,7 +58,7 @@ import javax.net.ssl.HttpsURLConnection;
  *
  * <p>数据全部来自 {@link DeviceDataApi}。注销账号和删除云端数据要求最近登录：收到 {@link DeviceDataApi.RecentLoginRequired} 时弹登录面板，用户重新登录同一个账号后自动重试一次；登录成了别的账号时不重试，免得删错。关联登录方式走登录面板的 `link` 用途，回来后按关联列表的变化说出关联了哪一种。
  */
-public final class ProfilePage extends DetailPage {
+public final class ProfilePage extends ReloadingDetailPage {
     private static final String[][] PROVIDERS = {{"apple", "Apple"}, {"google", "Google"}, {"email", "邮箱"}};
     private static final String EXPORTS = "exports";
     /** 头像解码后的长边上限（像素）：最大的头像画 88dp，xxxhdpi 下约 352 像素，留一点余量。 */
@@ -69,7 +68,6 @@ public final class ProfilePage extends DetailPage {
 
     private final ActivityResultLauncher<String> picker =
         registerForActivityResult(new ActivityResultContracts.GetContent(), this::onPicked);
-    @Nullable private LinearLayout column;
     @Nullable private Loaded loaded;
     @Nullable private String avatarPickerSessionId;
     private boolean busy;
@@ -80,29 +78,28 @@ public final class ProfilePage extends DetailPage {
             @Nullable DeviceDataApi.DataSummary data, CloudApi.Providers providers, @Nullable Bitmap avatar,
             String sessionId) {}
 
-    @Override public void onDestroyView() {
+    @Override protected void onContentDestroyed() {
         generation++;
-        column = null;
         loaded = null;
         avatarPickerSessionId = null;
         // Work results are fenced to the old view and will be dropped after recreation. Do not
         // leave the rebuilt page permanently disabled while an abandoned operation finishes.
         busy = false;
-        super.onDestroyView();
     }
 
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
+    @Override protected void onContentReady() {
         loaded = null;
         render();
     }
 
-    @Override protected void onBecameVisible() { reload(null); }
+    @Override protected boolean shouldReloadOnContentReady() { return false; }
+
+    @Override protected void reload() { reload(null); }
 
     private void reload(@Nullable Consumer<Loaded> then) {
         long request = ++generation;
         HostTask.runNetwork(this, ProfilePage::load, result -> {
-            if (result == null || request != generation || column == null) return;
+            if (result == null || request != generation || contentColumn() == null) return;
             loaded = result;
             render();
             if (then != null) then.accept(result);
@@ -207,28 +204,28 @@ public final class ProfilePage extends DetailPage {
     }
 
     private void render() {
-        LinearLayout column = this.column;
-        if (column == null) return;
-        column.removeAllViews();
+        LinearLayout target = contentColumn();
+        if (target == null) return;
+        target.removeAllViews();
         Loaded state = loaded;
         if (state == null) {
-            GroupCard.add(column, null).note("正在读取…");
+            GroupCard.add(target, null).note("正在读取…");
             return;
         }
         if (state.profile() == null) {
-            renderUnavailable(column, state.failure());
+            renderUnavailable(target, state.failure());
             return;
         }
         DeviceDataApi.Profile profile = state.profile();
         Context context = requireContext();
-        column.addView(header(context, profile, state.avatar()));
+        target.addView(header(context, profile, state.avatar()));
 
-        GroupCard account = GroupCard.add(column, "账号").withDividers(16);
+        GroupCard account = GroupCard.add(target, "账号").withDividers(16);
         account.nav("昵称", null, profile.displayName(), this::rename);
         account.nav("水杉 ID", null, profile.id(), () -> copy("水杉 ID", profile.id()));
         if (!profile.email().isEmpty()) account.value("邮箱", null, profile.email());
 
-        GroupCard methods = GroupCard.add(column, "登录方式").withDividers(16);
+        GroupCard methods = GroupCard.add(target, "登录方式").withDividers(16);
         for (String[] provider : PROVIDERS) {
             boolean linked = profile.linked(provider[0]);
             if (!linked && !offered(state.providers(), provider[0])) continue;
@@ -236,14 +233,14 @@ public final class ProfilePage extends DetailPage {
         }
         methods.footer("关联后可以用任意一种方式登录同一个账号");
 
-        GroupCard data = GroupCard.add(column, "数据").withDividers(16);
+        GroupCard data = GroupCard.add(target, "数据").withDividers(16);
         data.nav("云端数据", null, state.data() == null ? null : DeviceDataApi.formatBytes(state.data().bytes()),
             this::confirmDeleteData);
         data.nav("导出我的数据", null, null, this::export);
 
-        GroupCard signOut = GroupCard.add(column, null);
+        GroupCard signOut = GroupCard.add(target, null);
         signOut.addView(dangerButton(context, "退出登录", this::confirmSignOut));
-        GroupCard delete = GroupCard.add(column, null);
+        GroupCard delete = GroupCard.add(target, null);
         delete.addView(dangerButton(context, "注销账号", this::confirmDeleteAccount));
         delete.footer("注销后云端的词库、皮肤、设置和社区作品会立即永久删除，无法恢复");
     }

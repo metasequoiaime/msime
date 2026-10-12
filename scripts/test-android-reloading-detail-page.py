@@ -19,6 +19,7 @@ CONSUMERS = (
     "LexiconDetailPage.java",
     "LexiconPage.java",
     "PhrasesPage.java",
+    "ProfilePage.java",
     "SkinsPage.java",
     "TypingPage.java",
     "VoicePage.java",
@@ -38,6 +39,8 @@ def main() -> int:
             "this.column = column;",
             "onContentReady();",
             "protected void onContentReady()",
+            "if (shouldReloadOnContentReady()) reload();",
+            "protected boolean shouldReloadOnContentReady()",
             "onInitialReloadScheduled();",
             "protected void onInitialReloadScheduled()",
             "@Override protected void onBecameVisible()",
@@ -170,6 +173,19 @@ def main() -> int:
         or "if (contentColumn() == null) return;" not in typing
     ):
         errors.append("TypingPage: 添加语言深链或资源包监听器生命周期未保留")
+
+    profile = (HOME / "ProfilePage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in profile
+        or "loaded = null;" not in profile
+        or "render();" not in profile
+        or "@Override protected boolean shouldReloadOnContentReady()" not in profile
+        or "return false;" not in profile
+        or "@Override protected void reload()" not in profile
+        or "reload(null);" not in profile
+        or "@Override protected void onContentDestroyed()" not in profile
+    ):
+        errors.append("ProfilePage: 首次可见时刷新或临时状态清理未保留")
 
     if errors:
         print("\n".join(errors), file=sys.stderr)
