@@ -910,6 +910,46 @@ static BOOL MSIMECandidateMotionEnabled(const msime::mac::SkinAnimation &animati
 static NSTimeInterval MSIMECandidateMotionDuration(const msime::mac::SkinAnimation &animation) {
     return MAX(0.04, MIN(0.6, animation.durationMs / 1000.0));
 }
+
+// The selection preset on the newly highlighted row alone, as the Windows card animates only its highlight. AppKit anchors a layer-backed view's layer at a corner, so the spring's scale carries the translation that keeps it centred on the row.
+static void MSIMEAnimateCandidateSelection(NSView *row, const msime::mac::SkinAnimation &animation, NSColor *accent) {
+    if (animation.selection == msime::mac::SkinAnimationPreset::none || animation.durationMs <= 0.0 ||
+        NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) return;
+    row.wantsLayer = YES;
+    CALayer *layer = row.layer;
+    if (!layer) return;
+    const NSTimeInterval duration = MSIMECandidateMotionDuration(animation);
+    if (animation.selection == msime::mac::SkinAnimationPreset::spring) {
+        const CGFloat dx = layer.bounds.size.width * (0.5 - layer.anchorPoint.x);
+        const CGFloat dy = layer.bounds.size.height * (0.5 - layer.anchorPoint.y);
+        NSValue *(^scaled)(CGFloat) = ^NSValue *(CGFloat factor) {
+            return [NSValue valueWithCATransform3D:CATransform3DScale(
+                CATransform3DMakeTranslation(dx * (1.0 - factor), dy * (1.0 - factor), 0.0), factor, factor, 1.0)];
+        };
+        CAKeyframeAnimation *spring = [CAKeyframeAnimation animationWithKeyPath:@"transform"];
+        spring.values = @[scaled(0.94), scaled(1.025), scaled(1.0)];
+        spring.keyTimes = @[@0.0, @0.65, @1.0];
+        spring.duration = duration;
+        spring.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+        [layer addAnimation:spring forKey:@"msime-candidate-selection"];
+    } else if (animation.selection == msime::mac::SkinAnimationPreset::glow) {
+        layer.shadowColor = accent.CGColor;
+        layer.shadowRadius = 8.0;
+        layer.shadowOffset = CGSizeZero;
+        CAKeyframeAnimation *glow = [CAKeyframeAnimation animationWithKeyPath:@"shadowOpacity"];
+        glow.values = @[@0.0, @0.65, @0.0];
+        glow.keyTimes = @[@0.0, @0.35, @1.0];
+        glow.duration = duration;
+        [layer addAnimation:glow forKey:@"msime-candidate-selection"];
+    } else {
+        CABasicAnimation *fade = [CABasicAnimation animationWithKeyPath:@"opacity"];
+        fade.fromValue = @0.45;
+        fade.toValue = @1.0;
+        fade.duration = duration;
+        fade.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+        [layer addAnimation:fade forKey:@"msime-candidate-selection"];
+    }
+}
 static BOOL MSIMESmartPunctuationSpaceKey(unichar character) {
     switch (character) {
     case '.': case ',': case '!': case '?': case ';': case ':': case '/':
@@ -1156,7 +1196,11 @@ static NSImage *MSIMECandidateLogoImage() {
     // 上一次排版时这种明暗画的皮肤包，空串表示没有画包；外观变化后画的包不同了就要重新排版。
     std::string _renderedCandidateSkin;
     msime::mac::SkinAnimation _renderedCandidateAnimation;
+    // The rendered skin's accent, which the glow selection preset shines in.
+    NSColor *_renderedCandidateAccent;
     NSUInteger _candidateAnimationGeneration;
+    // The highlighted row's slot plus one when the panel was last shown, 0 for none. Compared by slot rather than candidate identity so typing, which brings new candidates under the same highlight, does not replay the selection preset.
+    NSInteger _animatedHighlightSlot;
     BOOL _rerenderingForCandidateSkin;
     CGFloat _tallestVerticalCandidateHeight;
     NSInteger _armedGlossColumn;
@@ -6951,6 +6995,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
 // Every hide of the candidate window goes through here so the diagnostic log can say why it went away, like the source's candidate hide lines. Only a window that was on screen is logged.
 - (void)hideCandidatePanel:(const char *)reason {
     if (msime_macos_diagnostic_enabled() && _panel.isVisible) msime_macos_diagnostic_writef("candidate hide reason=%s", reason);
+    _animatedHighlightSlot = 0;
     const BOOL ordinaryDismissal = reason && (strcmp(reason, "empty") == 0 || strcmp(reason, "english_mode") == 0);
     const BOOL canAnimate = ordinaryDismissal && _panel.isVisible &&
         _renderedCandidateAnimation.exit != msime::mac::SkinAnimationPreset::none &&
@@ -6978,8 +7023,24 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
 
 - (void)showCandidatePanelAnimated:(BOOL)wasVisible {
     ++_candidateAnimationGeneration;
-    [_panel setAlphaValue:1.0];
-    if (wasVisible || !MSIMECandidateMotionEnabled(_renderedCandidateAnimation)) return;
+    // A zero-length animator change takes over from an exit fade still running; assigning alphaValue directly would leave that fade to carry the shown panel on to 0.
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
+        context.duration = 0.0;
+        [_panel.animator setAlphaValue:1.0];
+    } completionHandler:nil];
+    MSIMECandidateButton *highlighted = nil;
+    for (NSView *subview in _panel.contentView.subviews)
+        if ([subview isKindOfClass:MSIMECandidateButton.class] && subview.tag >= 0 &&
+            ((MSIMECandidateButton *)subview).candidateHighlighted)
+            highlighted = (MSIMECandidateButton *)subview;
+    const NSInteger previousSlot = _animatedHighlightSlot;
+    _animatedHighlightSlot = highlighted ? highlighted.tag + 1 : 0;
+    if (wasVisible) {
+        if (highlighted && previousSlot && previousSlot != _animatedHighlightSlot)
+            MSIMEAnimateCandidateSelection(highlighted, _renderedCandidateAnimation, _renderedCandidateAccent);
+        return;
+    }
+    if (!MSIMECandidateMotionEnabled(_renderedCandidateAnimation)) return;
     const BOOL scale = _renderedCandidateAnimation.enter == msime::mac::SkinAnimationPreset::fade_scale ||
                        _renderedCandidateAnimation.enter == msime::mac::SkinAnimationPreset::spring;
     [_panel setAlphaValue:_renderedCandidateAnimation.enter == msime::mac::SkinAnimationPreset::glow ? 0.82 : 0.0];
@@ -7133,6 +7194,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     const auto skin = [_appearance candidateWindowSkinForDark:skinDark];
     _renderedCandidateAnimation = skin.animation;
     const auto tokens = skin.tokens;
+    _renderedCandidateAccent = SkinColor(tokens.accent);
     _skinShowsSelectedBar = tokens.showSelectedBar;
     _renderedCandidateSkin = skin.candidateSkin;
     NSImage *decorationImage = [_appearance decorationImageForDark:skinDark];
@@ -7328,6 +7390,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     const auto skin = [_appearance candidateWindowSkinForDark:skinDark];
     _renderedCandidateAnimation = skin.animation;
     const auto geometry = skin.tokens;
+    _renderedCandidateAccent = SkinColor(geometry.accent);
     _skinShowsSelectedBar = geometry.showSelectedBar;
     _renderedCandidateSkin = skin.candidateSkin;
     // 装饰图取这种明暗画的那个包的，两个槽位可以是两个包。
