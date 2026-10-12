@@ -521,9 +521,7 @@ struct MeRow: View {
       if let value {
         Text(value).font(.system(size: 14)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)
       }
-      Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(MetasequoiaTheme.sub.opacity(0.55))
-        .accessibilityHidden(true)
+      DesignChevron()
     }
     .padding(.vertical, 8)
     .padding(.horizontal, 14)

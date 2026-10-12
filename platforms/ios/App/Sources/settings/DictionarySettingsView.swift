@@ -273,9 +273,7 @@ private struct DictionaryPackRowLabel: View {
         }
       }
       Spacer(minLength: 8)
-      Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(MetasequoiaTheme.sub.opacity(0.6))
-        .accessibilityHidden(true)
+      DesignChevron(opacity: 0.6)
     }
     .padding(.leading, 16)
     .padding(.trailing, 12)

@@ -351,9 +351,7 @@ struct LicensesView: View {
                   Text(notice.detail).font(.system(size: 12)).foregroundStyle(MetasequoiaTheme.sub)
                 }
                 Spacer(minLength: 8)
-                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
-                  .foregroundStyle(MetasequoiaTheme.sub.opacity(0.55))
-                  .accessibilityHidden(true)
+                DesignChevron()
               }
               .padding(.horizontal, 16).padding(.vertical, 8)
               .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)

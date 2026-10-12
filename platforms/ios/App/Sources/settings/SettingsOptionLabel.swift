@@ -53,9 +53,7 @@ struct SettingsNavigationLabel: View {
           .lineLimit(1).truncationMode(valueTruncationMode)
       }
       if showsChevron {
-        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
-          .foregroundStyle(MetasequoiaTheme.sub.opacity(0.55))
-          .accessibilityHidden(true)
+        DesignChevron()
       }
     }
     .padding(.horizontal, 16)
