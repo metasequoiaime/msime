@@ -14,6 +14,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
 import app.msime.android.CloudApi;
+import app.msime.android.DeviceNamePolicy;
 import app.msime.android.CloudClipboardApi;
 import app.msime.android.CloudClipboardNativeDriver;
 import app.msime.android.R;
@@ -204,7 +205,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
             ViewPolicy.setCenteredVertically(row);
             ViewPolicy.setPaddingDp(context, row, 16, 12, 12, 12);
             LinearLayout texts = LayoutPolicy.column(context);
-            texts.addView(ViewPolicy.styledLabel(context, deviceName(device), 15, 500, ThemeColorPolicy.text(context)));
+            texts.addView(ViewPolicy.styledLabel(context, DeviceNamePolicy.display(device.name()), 15, 500, ThemeColorPolicy.text(context)));
             String when = CloudClipboardTimePolicy.relative(device.createdAt());
             if (!when.isEmpty()) {
                 TextView meta = ViewPolicy.styledLabel(context, when + "申请", 12, 400, ThemeColorPolicy.subText(context));
@@ -216,9 +217,9 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
             codeParams.topMargin = DimensionPolicy.pixels(context, 4);
             texts.addView(codeLabel(context, device.code(), 15), codeParams);
             row.addView(texts, LayoutPolicy.weightedWrapParams(1f));
-            row.addView(HomeButtonPolicy.tonalButton(context, "拒绝", "拒绝" + deviceName(device), 500,
+            row.addView(HomeButtonPolicy.tonalButton(context, "拒绝", "拒绝" + DeviceNamePolicy.display(device.name()), 500,
                 () -> reject(device)), LayoutPolicy.rowGapParams(context, 8));
-            row.addView(HomeButtonPolicy.tonalButton(context, "允许", "允许" + deviceName(device), 500,
+            row.addView(HomeButtonPolicy.tonalButton(context, "允许", "允许" + DeviceNamePolicy.display(device.name()), 500,
                 () -> confirmApprove(device)), LayoutPolicy.rowGapParams(context, 8));
             card.addView(row);
         }
@@ -273,16 +274,12 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
             String when = CloudClipboardTimePolicy.relative(device.createdAt());
             String subtitle = "核对码 " + device.code() + (when.isEmpty() ? "" : " · " + when + "加入");
             if (device.current()) {
-                card.value(deviceName(device), subtitle, "本机");
+                card.value(DeviceNamePolicy.display(device.name()), subtitle, "本机");
             } else {
-                card.button(deviceName(device), subtitle, "移除", () -> confirmRemove(device));
+                card.button(DeviceNamePolicy.display(device.name()), subtitle, "移除", () -> confirmRemove(device));
             }
         }
         card.button("重置云剪贴板", "换一把新密钥，所有设备重新允许", "重置", this::confirmReset);
-    }
-
-    private static String deviceName(CloudClipboardApi.Device device) {
-        return device.name().isEmpty() ? "未知设备" : device.name();
     }
 
     /** 核对码用等宽字显示，读屏逐位念。 */
@@ -404,7 +401,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     private void confirmApprove(CloudClipboardApi.Device device) {
         CloudClipboardApi api = loadedApi;
         if (api == null) return;
-        MessageDialog.confirm(requireContext(), "允许「" + deviceName(device) + "」？",
+        MessageDialog.confirm(requireContext(), "允许「" + DeviceNamePolicy.display(device.name()) + "」？",
             "核对两台设备上的核对码一致再允许：\n\n" + device.code()
                 + "\n\n允许后，那台设备可以读取和上传这个账号的云剪贴板。",
             "允许", () -> mutate(() -> api.approve(device.deviceId()), "已允许"));
@@ -419,7 +416,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     private void confirmRemove(CloudClipboardApi.Device device) {
         CloudClipboardApi api = loadedApi;
         if (api == null) return;
-        MessageDialog.confirm(requireContext(), "移除「" + deviceName(device) + "」？",
+        MessageDialog.confirm(requireContext(), "移除「" + DeviceNamePolicy.display(device.name()) + "」？",
             "移除会换一把新的密钥，只交给这台设备。" + KEY_CHANGE,
             "移除", () -> mutate(() -> api.remove(device.deviceId()), "已移除"));
     }
