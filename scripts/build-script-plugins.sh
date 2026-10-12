@@ -12,6 +12,8 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# 产物路径写死在 target/ 下（插件在 plugins/script/.cargo/config.toml，msime-pack 在仓库默认位置）；环境里的 CARGO_TARGET_DIR 会让 cargo 写到别处，组装时就会静默用上旧模块。
+unset CARGO_TARGET_DIR
 cd "$root"
 
 toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
