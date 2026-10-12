@@ -347,7 +347,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
 
     /** 「已置顶 · 设备 · 时间」，没有的部分省掉。 */
     private static String meta(CloudClipboardApi.Item item) {
-        String when = relative(item.updatedAt());
+        String when = CloudClipboardTimePolicy.relative(item.updatedAt());
         int capacity = (item.pinned() ? 3 : 0) + item.device().length() + when.length() + 6;
         StringBuilder out = new StringBuilder(capacity);
         if (item.pinned()) out.append("已置顶");
@@ -363,10 +363,6 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     }
 
     /** 刚刚、N 分钟前、N 小时前、昨天，再早就写月日。读不出时间时为空。 */
-    static String relative(String timestamp) {
-        return CloudClipboardTimePolicy.relative(timestamp);
-    }
-
     private void setEnabled(boolean enabled) {
         CloudClipboardApi api = loadedApi;
         if (api == null) return;
