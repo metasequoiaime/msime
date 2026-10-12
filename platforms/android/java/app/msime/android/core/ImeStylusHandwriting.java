@@ -20,6 +20,8 @@ final class ImeStylusHandwriting {
     private HandwritingRecognizer recognizer;
     private StylusInkView inkView;
     private Window inkWindow;
+    /** 已经交给 WindowManager 铺满屏幕的书写窗口。 */
+    private Window filledWindow;
     private Runnable recognitionTask;
     private Runnable hintTask;
     /** 每次离开输入框加一；排着的识别和迟到的结果拿它判断是不是还在同一个输入框里。 */
@@ -135,17 +137,18 @@ final class ImeStylusHandwriting {
     }
 
     /**
-     * 书写窗口铺满屏幕。系统建窗口时设的是铺满，但窗口用的是输入法的主题（`Theme.DeviceDefault.InputMethod` 是浮动窗口），装 decor 时被改回 wrap_content，API 35 模拟器上只有 840×2400，写到右边的笔迹画不出来。窗口在系统问我们之前就已经加到屏幕上了，改了尺寸要再交给 WindowManager。
+     * 书写窗口铺满屏幕。系统建窗口时设的是铺满，但窗口用的是输入法的主题（`Theme.DeviceDefault.InputMethod` 是浮动窗口），装 decor 时被改回 wrap_content，API 35 模拟器上它只占 [120,0][960,2400]，两边的笔迹和提示画不出来。
+     *
+     * <p>系统问我们之前就把 decor 加到了 WindowManager 上，所以改了尺寸要再交给 WindowManager。判断加没加用 decor 有没有 parent（`addView` 时同步挂上 ViewRootImpl），不用 `isAttachedToWindow`：后者要等第一次 traversal，第一次书写时还是 false，跳过更新后本地属性已是铺满，之后就再也不会更新。
      */
     private void fillScreen(Window window) {
-        WindowManager.LayoutParams attributes = window.getAttributes();
-        if (attributes.width == ViewGroup.LayoutParams.MATCH_PARENT
-                && attributes.height == ViewGroup.LayoutParams.MATCH_PARENT) return;
+        if (window == filledWindow) return;
         window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         View decor = window.peekDecorView();
-        if (decor != null && decor.isAttachedToWindow()) {
-            s.getSystemService(WindowManager.class).updateViewLayout(decor, window.getAttributes());
-        }
+        // 还没加上时，系统稍后按窗口此刻的属性（已是铺满）加，下次书写再确认一遍。
+        if (decor == null || decor.getParent() == null) return;
+        s.getSystemService(WindowManager.class).updateViewLayout(decor, window.getAttributes());
+        filledWindow = window;
     }
 
     private void inkChanged(long revision, java.util.List<java.util.List<HandwritingInk.Point>> strokes) {
