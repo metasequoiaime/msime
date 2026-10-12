@@ -5,14 +5,18 @@ import { CLOUD_PANEL_SESSION_NOTE } from "../cloud-panel-session-notice";
 import { GroupList } from "../../core/platform-controls";
 import { OpenPanelRow } from "../open-panel-row";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
+import { CloudClipboardRelaySection } from "../cloud-clipboard-relay-section";
+import { withCloudClipboardRelay } from "../cloud-clipboard-relay";
 
-/** 设置表单的「剪贴板」页（路由 id 为 `tools`）：本设备上保存的剪贴板历史和云剪贴板。云词库在「词库」页。 */
+/** 设置表单的「剪贴板」页（路由 id 为 `tools`）：本设备上保存的剪贴板历史和云剪贴板，宿主支持时还有云剪贴板的同步方式（水杉账号或自建中继）。云词库在「词库」页。 */
 export function ToolsSettingsPage() {
   const {
     client,
     iosPlatform,
     macosPlatform,
     snapshot,
+    draft,
+    setDraft,
     busy,
     setError,
     page,
@@ -45,6 +49,15 @@ export function ToolsSettingsPage() {
             />
           )}
         </GroupList>
+      )}
+      {client.cloudClipboardRelay && (
+        <CloudClipboardRelaySection
+          relay={draft.cloud_clipboard_relay}
+          disabled={busy}
+          onChange={(relay) =>
+            setDraft((current) => (current ? withCloudClipboardRelay(current, relay) : current))
+          }
+        />
       )}
     </SettingsPageFieldset>
   );

@@ -1992,7 +1992,15 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   }
 
   function refresh(nextSearch = searchRef.current) {
-    return run((revision) => load(revision, nextSearch), "无法访问云剪贴板服务");
+    return run(async (revision) => {
+      try {
+        await load(revision, nextSearch);
+      } catch (error) {
+        // 错误码各有说明（例如自建中继拒绝了令牌、本设备待批准），认不出的仍说服务访问不了。
+        if (revision === refreshRevision.current)
+          setNotice(cloudClipboardErrorMessage(error, "无法访问云剪贴板服务"));
+      }
+    }, "无法访问云剪贴板服务");
   }
 
   useEffect(() => {

@@ -658,6 +658,7 @@ export {
   CLOUD_CLIPBOARD_DISABLED,
   CLOUD_CLIPBOARD_MAX_UTF16,
   CLOUD_CLIPBOARD_PENDING,
+  CLOUD_CLIPBOARD_RELAY_UNAUTHORIZED,
   CLOUD_CLIPBOARD_SIGNED_OUT,
   CLOUD_CLIPBOARD_UNAVAILABLE,
   cloudClipboardAvailabilityNote,
@@ -2250,8 +2251,10 @@ export interface SettingsClient {
    * the review inline rather than offering a button that opens nothing. */
   openVocabulary?: () => Promise<void>;
   openCloudClipboard?: () => Promise<void>;
-  /** Sends cloud clipboard requests from the settings window itself, over the signed-in account; with it the local clipboard history can send an entry to the cloud. */
+  /** Sends cloud clipboard requests from the settings window itself, over the signed-in account or the configured relay; with it the local clipboard history can send an entry to the cloud. */
   cloudClipboardRequest?: CloudClipboardRequest;
+  /** 这个宿主的云剪贴板会按偏好 `cloud_clipboard_relay` 改走自建中继；有它时「剪贴板」页显示同步方式和中继的地址、令牌。 */
+  cloudClipboardRelay?: boolean;
   openCloudDictionary?: () => Promise<void>;
   restartInputMethod?: () => Promise<void>;
   /** macOS installs/updates the separate InputMethodKit bundle before registering it. */

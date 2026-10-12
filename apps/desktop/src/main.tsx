@@ -783,6 +783,8 @@ function DesktopSettings() {
               : {}),
             ...(host.platform === "linux"
               ? {
+                  // 云剪贴板可以改走自建中继：Linux 的设置页和云剪贴板面板都在这个 Tauri 进程里，按偏好选路（`cloud_clipboard_request`）。macOS 的输入法菜单在没登录时仍退回原生窗口、Windows 的设置窗口是原生 WinUI，这两处接上之前不显示这一组。
+                  cloudClipboardRelay: true,
                   customTouchKeyboardSkins: true,
                   customSkinLibrary: {
                     load: () => invoke("load_custom_skin_library"),
