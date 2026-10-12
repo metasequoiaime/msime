@@ -25,6 +25,8 @@ Status: implemented
 
 ## Verification
 
+- `scripts/test-harmony-expanded-candidates.py` 检查绘制宽度使用实际的 `cell.span`、文字读取 `cell.index`；单行、截断与可见宽度上限约束仍然保留。
+
 - `bash platforms/harmony/tests/run.sh`：通过，`expanded candidates stay on one line and inside their row` 组新增行尾拉宽、最后一行不拉宽、整行已满不变、与 `CandidateWrapPolicy.rows` 的行分配一致的断言。
 - `stage-settings.sh`、`ohpm install`、`hvigorw assembleHap --no-daemon`：`CompileArkTS` 通过，出包成功，改动的行没有新增 ArkTS 警告。
 - 未在鸿蒙模拟器或真机上看过排版。

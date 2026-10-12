@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guard the expanded-candidate width contract taken from the Apple Japanese tests."""
+"""守住展开候选的测量宽度、行尾占列与单行截断契约。"""
 
 from pathlib import Path
 
@@ -17,9 +17,9 @@ def main() -> int:
     expanded = view[start : view.index("\n  @Builder\n", grid)]
     required = {
         "shared measured width": "ExpandedCandidateLayout.width" in view
-        and ".width(this.expandedCandidateWidth(index))" in expanded,
+        and ".width(this.expandedCandidateWidth(cell.span))" in expanded,
         "visible-width cap": "Math.min(natural, availableWidth)" in policy,
-        "single-line candidate": "Text(this.expanded[index].text)" in expanded
+        "single-line candidate": "Text(this.expanded[cell.index].text)" in expanded
         and ".maxLines(1)" in expanded
         and "TextOverflow.Ellipsis" in expanded,
         "constrained text column": ".layoutWeight(1)" in expanded,
