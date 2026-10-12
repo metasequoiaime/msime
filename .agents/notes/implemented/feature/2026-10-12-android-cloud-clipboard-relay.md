@@ -36,7 +36,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：Android 用户不登录水杉账号也能用云剪贴板，设置页、键盘「云端」和「发到云剪贴板」只连用户的中继；中继只见到密文。共享层的选路、Rust 的客户端和参考中继都没有改动，Android 只多了 JNI 的两个入口和一层 Java 适配。
-- **代价**：Android 的中继有两条代码路径——端到端加密的操作走 Java 循环加 `exchange`，直接的动作走 Rust 的整操作入口——不再是桌面那样一份 Rust 实现；驱动错误码的归类在 Java 里照抄了一份 Rust 的已知码清单（`CloudClipboardRelayPolicy.driverFailureCode`，JVM 冒烟钉住）。令牌明文存在共享偏好里（与语音、翻译凭据相同），每个 `exchange` 请求经 JNI 带着它，不写日志。每次读写多一次 source 调用和一次偏好读取（都是本地文件，在工作线程上）。键盘配置了中继后偏好刚改的那一秒内点刷新会得到一次「读取失败」，再刷新即可。
+- **代价**：Android 的中继有两条代码路径——端到端加密的操作走 Java 循环加 `exchange`，直接的动作走 Rust 的整操作入口——不再是桌面那样一份 Rust 实现；驱动错误码的归类在 Java 里照抄了一份 Rust 的已知码清单（`CloudClipboardRelayPolicy.driverFailureCode`，JVM 冒烟钉住归类，`scripts/test-android-relay-error-codes.py` 核对两份清单相同）。令牌明文存在共享偏好里（与语音、翻译凭据相同），每个 `exchange` 请求经 JNI 带着它，不写日志。每次读写多一次 source 调用和一次偏好读取（都是本地文件，在工作线程上）。键盘配置了中继后偏好刚改的那一秒内点刷新会得到一次「读取失败」，再刷新即可。
 - **已知缺口**：Tauri 合包（`build-client-apk.sh`，开发用，不随发布）配置了中继时云剪贴板不可用（拒绝，不走账号）。桌面端的中继密钥串仍是 Rust 写的 0600 明文文件（Linux），接系统密钥库要另做。证书只认公网可信的（webpki-roots，不读系统信任库），只在局域网里部署的用户要走 DNS-01 签证书，这在手机上最常见，是母笔记的既定取舍。#6787 仍未完成：macOS、Windows、Linux Fcitx5 键盘栏、iOS 和 HarmonyOS 各自后续接入。
 
 ## Verification
