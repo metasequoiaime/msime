@@ -689,6 +689,12 @@ INSERT INTO english_words VALUES('he','he',500);",
         "{:?}",
         words(&session)
     );
+    // 空格选的是首行。
+    let result = session.select(0);
+    assert_eq!(result.commit.as_deref(), Some("hello"), "{result:?}");
+
+    type_text(&mut session, "hello");
+    assert_eq!(words(&session)[0], "hello", "{:?}", words(&session));
     let result = session.punctuation(b',');
     assert_eq!(result.commit.as_deref(), Some("hello，"), "{result:?}");
 
