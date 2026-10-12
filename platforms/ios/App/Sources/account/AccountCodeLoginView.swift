@@ -4,10 +4,9 @@ import SwiftUI
 import GoogleSignIn
 #endif
 
-/// 任务取消不是错误：关闭弹窗或离开标签页会取消正在进行的请求，URLSession 回的是 `URLError.cancelled`，它的描述就是 "cancelled"。只判 `CancellationError` 不够，因为网络层抛的是另一种。
+/// Google Sign-In adds its own cancellation error to the shared account request policy.
 private func isLoginCancellation(_ error: Error) -> Bool {
-  if error is CancellationError { return true }
-  if let error = error as? URLError { return error.code == .cancelled }
+  if AccountRequestPolicy.isCancellation(error) { return true }
   #if canImport(GoogleSignIn)
   if let error = error as? GIDSignInError { return error.code == .canceled }
   #endif
