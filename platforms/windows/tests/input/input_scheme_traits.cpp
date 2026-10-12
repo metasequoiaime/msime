@@ -111,6 +111,35 @@ int main() {
   assert(!is_chinese_scheme_name("tibetan") && input_language(InputMode::Tibetan) == InputLanguage::Tibetan);
   assert(!is_chinese_scheme_name("pinyin"));
 
+  // Ctrl+Shift+J：中文方案去日语，日语和其他语言回到上次的中文方案。
+  static_assert(offers_japanese_toggle(full));
+  for (const int chinese : {Quanpin, Shuangpin, Wubi, Cantonese, Zhuyin, Stroke})
+    assert(japanese_toggle_target(chinese, "wubi", all, full) == Japanese);
+  for (const int language : {Japanese, Korean, Vietnamese, Tibetan})
+    assert(japanese_toggle_target(language, "shuangpin", all, full) == Shuangpin);
+  assert(japanese_toggle_target(Japanese, "stroke", stroke_only, full) == Stroke);
+  // 上次的中文方案跑不起来（词库没装、不是中文方案或根本没有）时退回默认的全拼，和 effective_scheme 一样。
+  assert(japanese_toggle_target(Japanese, "zhuyin", none, full) == Quanpin);
+  assert(japanese_toggle_target(Japanese, "korean", none, full) == Quanpin);
+  assert(japanese_toggle_target(Japanese, "", none, full) == Quanpin);
+  // 只有日语、或者只有中文方案的版本不切换，按键交给应用。
+  assert(!offers_japanese_toggle(wubi));
+  assert(japanese_toggle_target(Wubi, "wubi", all, wubi) == -1);
+  OfferedSchemes japanese_only;
+  japanese_only.offered[Japanese] = true;
+  japanese_only.fallback = Japanese;
+  assert(!offers_japanese_toggle(japanese_only));
+  assert(japanese_toggle_target(Japanese, "quanpin", all, japanese_only) == -1);
+  // 版本的默认方案不是中文方案时，退到它提供的第一个跑得起来的中文方案。
+  OfferedSchemes japanese_and_stroke;
+  japanese_and_stroke.offered[Japanese] = japanese_and_stroke.offered[Stroke] = true;
+  japanese_and_stroke.fallback = Japanese;
+  assert(offers_japanese_toggle(japanese_and_stroke));
+  assert(japanese_toggle_target(Japanese, "quanpin", stroke_only, japanese_and_stroke) == Stroke);
+  assert(japanese_toggle_target(Japanese, "quanpin", none, japanese_and_stroke) == -1);
+  // 发布的版本里只有 full 同时提供两头。
+  static_assert(offers_japanese_toggle(built) == (MSIME_EDITION_IS_FULL != 0));
+
   // Schemes 0-4 keep the rules they had before Cantonese, Zhuyin and Vietnamese existed: only the pinyin and shape schemes convert to Traditional, only Korean composes letters into text or opens its list.
   assert(ScriptConversionApplies(Quanpin) && ScriptConversionApplies(Wubi) && !ScriptConversionApplies(Japanese) &&
          !ScriptConversionApplies(Korean));

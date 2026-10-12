@@ -37,6 +37,8 @@ void MarkNamedpipeSessionDirty();
 bool MarkNamedpipeSessionDirtyForOwner(_In_ const void *owner);
 bool EnsureNamedpipeFocusSessionActivated();
 bool SupportsCharacterSetShortcut();
+// Server 处理 Ctrl+Shift+J 中日切换（协商到 FanyImeProtocol::JapaneseToggleShortcut）。
+bool SupportsJapaneseToggleShortcut();
 bool SupportsGameHostCandidate();
 bool SupportsKeyboardCompositionCancel(_In_ const void *owner);
 // Server 认得 FieldTraits 事件（协商到 FanyImeProtocol::FieldTraits）。
