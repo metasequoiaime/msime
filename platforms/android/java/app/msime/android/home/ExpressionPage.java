@@ -116,7 +116,7 @@ public final class ExpressionPage extends DetailPage {
             values.optBoolean(english.key(), english.enabledByDefault()),
             checked -> save(edit -> edit.put(english.key(), checked)));
         JSONObject mixed = values.optJSONObject("mixed_input");
-        // 中英混输（#7081）：Engine 和 Android 运行时早就按共享偏好 mixed_input.english / minimum_prefix 在中文候选里补英文词，桌面和 iOS 都能开关、调触发长度，Android 只是没有设置项。滑块行没有副标题，触发长度的说明只能写进开关的副标题；九键、14 键在拼音没有候选时不看这两项照样给英文词，所以副标题不说关闭后完全没有英文。
+        // 中英混输（#7081）：Engine 和 Android 运行时早就按共享偏好 mixed_input.english / minimum_prefix 在中文候选里补英文词，桌面和 iOS 都能开关、调触发长度，Android 只是没有设置项。滑块行没有副标题，触发长度的说明只能写进开关的副标题；九键、14 键在拼音一行候选都没有且没有锁定拼音时、或处在英文模式时不看这两项照样给英文词，所以副标题不说关闭后完全没有英文。
         boolean mixedEnglish = mixed == null || mixed.optBoolean("english", true);
         intelligence.toggle("中英混输", "中文输入时在候选里补充英文单词，输入的字母或按键数达到下面的数目才出现",
             mixedEnglish, checked -> save(edit -> mixedInput(edit).put("english", checked)));
