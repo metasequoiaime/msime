@@ -289,6 +289,21 @@ test("publish messages keep their specific wording", () => {
   );
 });
 
+test("invalid community content keeps gallery and publish wording", () => {
+  const error = { code: "community_invalid" };
+  expect(resourceMessage(error)).toBe("内容无效，请修改后重试。");
+  expect(communitySkinMessage(error)).toBe("搜索内容无效，请修改后重试。");
+  expect(candidateSkinMessage(error)).toBe("内容无效，请修改后重试。");
+  expect(communityPluginMessage(error)).toBe("内容无效，请修改后重试。");
+  expect(candidateSkinMessage(error, true)).toBe(
+    "服务器未接受这款皮肤：请确认图片每边不超过 2048 像素、能被正常解码，且皮肤 ID 不与内置主题重名。",
+  );
+  expect(communityPluginMessage(error, true)).toBe(
+    "服务器未接受这个插件：请确认名称、说明和包内容符合发布要求。",
+  );
+  expect(communitySkinPublishMessage(error)).toBe("名称、说明或皮肤设计不符合发布要求。");
+});
+
 test("unknown error codes keep the community fallback", () => {
   expect(resourceMessage({ code: "toString" })).toBe("社区暂时不可用，请稍后重试。");
 });
