@@ -3,7 +3,9 @@
 use msime_client_core::account::{
     AccountApi, AccountClipboardError, AccountError, AccountSessionStorage, BackendAccountSession,
 };
-use msime_client_core::clipboard_relay::{RelayClipboard, RelayConfig, RelayError, RETENTION_DAYS};
+use msime_client_core::clipboard_relay::{
+    RelayClipboard, RelayConfig, RelayError, RelayTransport, RETENTION_DAYS,
+};
 use msime_client_core::preferences::PreferencesStore;
 use msime_client_core::{
     has_disallowed_control_with_options, is_bounded_ascii_identifier, is_bounded_text,
@@ -163,6 +165,24 @@ pub fn relay_request(
         "clear" => done(relay.clear(), json!({})),
         _ => Err(INVALID),
     }
+}
+
+/// 向中继发端到端加密驱动给出的一个请求，答 `{status, body}`，宿主把它交回驱动（`msime_client_cloud_clipboard_e2e` 的 `resume`）。给自己跑驱动、自己保存密钥串的宿主用：这里不读也不写密钥串。路径不在云剪贴板接口之下、方法不认识或正文过大时是 `invalid_cloud_clipboard`，不发出去；中继拒绝令牌时是 `relay_unauthorized`，连不上或响应过大是 `relay_unavailable`；其余状态码原样交回。会联网，不要在界面线程上调用。
+pub fn relay_exchange(
+    config: RelayConfig,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> Result<Value, &'static str> {
+    let code = |error: RelayError| match error {
+        RelayError::Invalid => "invalid_cloud_clipboard",
+        error => error.code(),
+    };
+    let response = RelayTransport::new(config)
+        .map_err(code)?
+        .send(method, path, body)
+        .map_err(code)?;
+    Ok(json!({ "status": response.status, "body": response.body }))
 }
 
 fn relay_value<T: serde::Serialize>(result: Result<T, RelayError>) -> Result<Value, &'static str> {

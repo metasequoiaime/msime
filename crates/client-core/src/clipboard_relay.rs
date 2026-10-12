@@ -5,6 +5,8 @@
 //! 这个模块自己联网，所以不放在只做 sans-IO 的 `cloud` 下面（见 `cloud.rs` 开头）。它不复用 [`crate::account::BackendAccountClient`]：那个客户端按 `origin.join(path)` 拼地址，会丢掉基地址里的路径前缀，user agent 也是固定的，而账号、词库、头像等全部请求都经过它，为中继改它会牵连所有账号路径。
 //!
 //! 本机的密钥串单独存一份（[`RELAY_KEYSTORE_FILE`]），与水杉账号的那份互不相干，退出账号也不删除它。文件里记着它属于哪个中继地址和哪个令牌空间，换了任何一个都当作没有密钥串，驱动会生成新的设备身份。
+//!
+//! 这份文件只靠文件权限保护。能把密钥串交给系统密钥库加密的宿主不用 [`RelayClipboard`]：Android 自己跑驱动、自己用 AndroidKeyStore 加密保存密钥串，只借 [`RelayTransport`] 发请求（经 `msime_client_relay_cloud_clipboard_exchange`），与它的水杉账号路径一样。
 
 use crate::account::{
     AccountClipboardDevices, AccountClipboardItem, AccountClipboardPage, AccountError,
@@ -206,12 +208,82 @@ struct StoredKeystore {
     keystore: String,
 }
 
+/// 向一个中继发单个请求：只发往配置的基地址下云剪贴板的那组接口，带上令牌，不跟随重定向，响应有上限。[`RelayClipboard`] 的每个请求都经过它；自己跑端到端加密驱动、自己保存密钥串的宿主（Android 用 AndroidKeyStore 加密密钥串，见 `docs/cloud-clipboard-relay.md`）只借它发请求，不落盘。
+pub struct RelayTransport {
+    config: RelayConfig,
+    client: Client,
+}
+
+impl RelayTransport {
+    pub fn new(config: RelayConfig) -> Result<Self, RelayError> {
+        let client = Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(REQUEST_TIMEOUT)
+            .user_agent(format!("MSIME/{}", std::env::consts::OS))
+            .build()
+            .map_err(|_| RelayError::Unavailable)?;
+        Ok(Self { config, client })
+    }
+
+    /// 发一个请求，状态码和正文原样交回，由端到端加密驱动或调用方解读；401 直接是 [`RelayError::Unauthorized`]，不交给驱动。`path` 必须在云剪贴板接口之下（`/v1/users/me/clipboard…`），否则是 [`RelayError::Invalid`]，不发出去。会联网。
+    pub fn send(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&str>,
+    ) -> Result<HttpResponse, RelayError> {
+        let method = match method {
+            "GET" => Method::GET,
+            "PUT" => Method::PUT,
+            "POST" => Method::POST,
+            "DELETE" => Method::DELETE,
+            _ => return Err(RelayError::Invalid),
+        };
+        if body.is_some_and(|body| body.len() > MAX_REQUEST_BYTES) {
+            return Err(RelayError::Invalid);
+        }
+        let url = self.config.request_url(path)?;
+        let mut request = self
+            .client
+            .request(method, url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .bearer_auth(&self.config.token);
+        if let Some(body) = body {
+            request = request
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body.to_owned());
+        }
+        let response = request.send().map_err(|_| RelayError::Unavailable)?;
+        let status = response.status().as_u16();
+        if status == 401 {
+            return Err(RelayError::Unauthorized);
+        }
+        if !response.status().is_success() {
+            // 错误正文只用来读 `error.code`，读不出时驱动按状态码处理。
+            let body = crate::bounded_io::read_bounded(response, MAX_ERROR_BODY_BYTES)
+                .ok()
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+                .unwrap_or_default();
+            return Ok(HttpResponse { status, body });
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_CLIPBOARD_RESPONSE_BYTES as u64)
+        {
+            return Err(RelayError::Unavailable);
+        }
+        let bytes = crate::bounded_io::read_bounded(response, MAX_CLIPBOARD_RESPONSE_BYTES as u64)
+            .map_err(|_| RelayError::Unavailable)?;
+        let body = String::from_utf8(bytes).map_err(|_| RelayError::Unavailable)?;
+        Ok(HttpResponse { status, body })
+    }
+}
+
 /// 经一个自建中继读写云剪贴板。每个方法都会联网，不要在界面线程或输入线程上调用。
 pub struct RelayClipboard {
-    config: RelayConfig,
+    transport: RelayTransport,
     directory: PathBuf,
     device_name: String,
-    client: Client,
 }
 
 impl RelayClipboard {
@@ -225,17 +297,10 @@ impl RelayClipboard {
         if !directory.is_absolute() {
             return Err(RelayError::Invalid);
         }
-        let client = Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(REQUEST_TIMEOUT)
-            .user_agent(format!("MSIME/{}", std::env::consts::OS))
-            .build()
-            .map_err(|_| RelayError::Unavailable)?;
         Ok(Self {
-            config,
+            transport: RelayTransport::new(config)?,
             directory,
             device_name: device_name.to_owned(),
-            client,
         })
     }
 
@@ -348,7 +413,10 @@ impl RelayClipboard {
             operation,
             keystore.as_deref(),
             &self.device_name,
-            |request| self.send(&request.method, &request.path, request.body.as_deref()),
+            |request| {
+                self.transport
+                    .send(&request.method, &request.path, request.body.as_deref())
+            },
             |value| self.save_keystore(value),
             || RelayError::Unavailable,
         )?;
@@ -357,65 +425,12 @@ impl RelayClipboard {
 
     fn direct(&self, method: &str, path: &str, body: Option<Value>) -> Result<(), RelayError> {
         let body = body.map(|body| body.to_string());
-        let response = self.send(method, path, body.as_deref())?;
+        let response = self.transport.send(method, path, body.as_deref())?;
         if (200..300).contains(&response.status) {
             Ok(())
         } else {
             Err(RelayError::Clipboard(DriverError::from_response(&response)))
         }
-    }
-
-    /// 发一个请求，状态码和正文原样交回；401 直接是 [`RelayError::Unauthorized`]，不交给驱动。
-    fn send(
-        &self,
-        method: &str,
-        path: &str,
-        body: Option<&str>,
-    ) -> Result<HttpResponse, RelayError> {
-        let method = match method {
-            "GET" => Method::GET,
-            "PUT" => Method::PUT,
-            "POST" => Method::POST,
-            "DELETE" => Method::DELETE,
-            _ => return Err(RelayError::Invalid),
-        };
-        if body.is_some_and(|body| body.len() > MAX_REQUEST_BYTES) {
-            return Err(RelayError::Invalid);
-        }
-        let url = self.config.request_url(path)?;
-        let mut request = self
-            .client
-            .request(method, url)
-            .header(reqwest::header::ACCEPT, "application/json")
-            .bearer_auth(&self.config.token);
-        if let Some(body) = body {
-            request = request
-                .header(reqwest::header::CONTENT_TYPE, "application/json")
-                .body(body.to_owned());
-        }
-        let response = request.send().map_err(|_| RelayError::Unavailable)?;
-        let status = response.status().as_u16();
-        if status == 401 {
-            return Err(RelayError::Unauthorized);
-        }
-        if !response.status().is_success() {
-            // 错误正文只用来读 `error.code`，读不出时驱动按状态码处理。
-            let body = crate::bounded_io::read_bounded(response, MAX_ERROR_BODY_BYTES)
-                .ok()
-                .and_then(|bytes| String::from_utf8(bytes).ok())
-                .unwrap_or_default();
-            return Ok(HttpResponse { status, body });
-        }
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_CLIPBOARD_RESPONSE_BYTES as u64)
-        {
-            return Err(RelayError::Unavailable);
-        }
-        let bytes = crate::bounded_io::read_bounded(response, MAX_CLIPBOARD_RESPONSE_BYTES as u64)
-            .map_err(|_| RelayError::Unavailable)?;
-        let body = String::from_utf8(bytes).map_err(|_| RelayError::Unavailable)?;
-        Ok(HttpResponse { status, body })
     }
 
     fn storage(&self) -> FileAccountSessionStorage {
@@ -452,16 +467,15 @@ impl RelayClipboard {
         let Ok(stored) = serde_json::from_slice::<StoredKeystore>(&bytes) else {
             return Ok(None);
         };
-        Ok(
-            (stored.relay == self.config.url && stored.space == self.config.space())
-                .then_some(stored.keystore),
-        )
+        Ok((stored.relay == self.transport.config.url
+            && stored.space == self.transport.config.space())
+        .then_some(stored.keystore))
     }
 
     fn save_keystore(&self, keystore: &str) -> Result<(), RelayError> {
         let bytes = serde_json::to_vec(&StoredKeystore {
-            relay: self.config.url.clone(),
-            space: self.config.space(),
+            relay: self.transport.config.url.clone(),
+            space: self.transport.config.space(),
             keystore: keystore.to_owned(),
         })
         .map_err(|_| RelayError::Storage)?;

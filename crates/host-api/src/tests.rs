@@ -983,6 +983,66 @@ fn relay_cloud_clipboard_checks_its_input_and_the_configured_relay_before_the_ne
 }
 
 #[test]
+fn relay_exchange_checks_the_relay_and_the_request_before_the_network() {
+    let call = |body: serde_json::Value| {
+        let body = serde_json::to_vec(&body).unwrap();
+        read(unsafe { msime_client_relay_cloud_clipboard_exchange(body.as_ptr(), body.len()) })
+    };
+    // 端口 9 上没有服务，真发出去的请求答 relay_unavailable。
+    let request = |url: &str, method: &str, path: &str| {
+        json!({
+            "url": url,
+            "token": "synthetic-relay-token",
+            "method": method,
+            "path": path,
+            "body": "{}",
+        })
+    };
+    let loopback = "http://127.0.0.1:9/msime";
+    assert_eq!(
+        call(request(
+            loopback,
+            "GET",
+            "/v1/users/me/clipboard/keys?device_id=0"
+        ))["error"],
+        "relay_unavailable"
+    );
+    // 地址和令牌按偏好的规则校验：不是 HTTPS 的远端地址、太短的令牌都不发。
+    assert_eq!(
+        call(request(
+            "http://relay.example.test",
+            "GET",
+            "/v1/users/me/clipboard"
+        ))["error"],
+        "relay_not_configured"
+    );
+    let mut short = request(loopback, "GET", "/v1/users/me/clipboard");
+    short["token"] = json!("short");
+    assert_eq!(call(short)["error"], "relay_not_configured");
+    // 驱动之外的接口、认不出的方法、多余的字段：不发出去。
+    for body in [
+        request(loopback, "GET", "/v1/users/me/profile"),
+        request(loopback, "GET", "/v1/users/me/clipboard/../profile"),
+        request(loopback, "PATCH", "/v1/users/me/clipboard"),
+        json!({ "url": loopback, "token": "synthetic-relay-token", "method": "GET" }),
+        json!({ "url": loopback, "token": "synthetic-relay-token", "method": "GET", "path": "/v1/users/me/clipboard", "directory": "/tmp" }),
+    ] {
+        assert_eq!(
+            call(body.clone())["error"],
+            "invalid_cloud_clipboard",
+            "{body}"
+        );
+    }
+    let mut large = request(loopback, "PUT", "/v1/users/me/clipboard/settings");
+    large["body"] = json!("x".repeat(70 * 1024));
+    assert_eq!(call(large)["error"], "invalid_cloud_clipboard");
+    assert_eq!(
+        read(unsafe { msime_client_relay_cloud_clipboard_exchange(std::ptr::null(), 0) })["error"],
+        "invalid_cloud_clipboard"
+    );
+}
+
+#[test]
 fn mixed_input_changes_defer_until_composition_ends() {
     use msime_client_core::preferences::MixedInputPreferences;
     let dir = tempfile::tempdir().unwrap();

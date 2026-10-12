@@ -257,3 +257,104 @@ fn oversized_or_unauthenticated_requests_are_refused() {
         b"GET /v1/users/me/clipboard HTTP/1.1\r\nHost: relay\r\nConnection: close\r\n\r\n";
     assert_eq!(raw_status(&server, unauthenticated), 401);
 }
+
+/// 自己跑驱动、自己保存密钥串的宿主（Android 把密钥串交给 AndroidKeyStore 加密）只借 `RelayTransport` 发请求：它与用 `RelayClipboard` 的设备互相批准、互传，密钥串只在宿主自己手里，客户端这边不落任何文件。
+#[test]
+fn a_host_that_keeps_its_own_keystore_pairs_through_the_transport_alone() {
+    use msime_client_core::clipboard_relay::RelayTransport;
+    use msime_client_core::cloud::clipboard_e2e::{self, HttpResponse, Operation};
+
+    let root = tempfile::tempdir().unwrap();
+    let server = start(&root.path().join("relay.db"));
+    let laptop = device(&server, &root.path().join("laptop"), TOKEN, "合成笔记本");
+    assert_eq!(
+        laptop.list("").unwrap().e2e.status,
+        AccountClipboardE2eStatus::Ready
+    );
+
+    let url = format!("http://{}/", server.address());
+    let transport = RelayTransport::new(RelayConfig::new(&url, TOKEN).unwrap()).unwrap();
+    let mut keystore: Option<String> = None;
+    let mut run = |operation: Operation| {
+        let saved = keystore.clone();
+        let mut latest = saved.clone();
+        let result = clipboard_e2e::run(
+            operation,
+            saved.as_deref(),
+            "合成手机",
+            |request| transport.send(&request.method, &request.path, request.body.as_deref()),
+            |value| {
+                latest = Some(value.to_owned());
+                Ok::<(), RelayError>(())
+            },
+            || RelayError::Unavailable,
+        )
+        .unwrap();
+        keystore = latest;
+        result
+    };
+
+    // 登记后等待批准，笔记本上看得到它、核对码一致。
+    let pending = run(Operation::List {
+        search: String::new(),
+    })
+    .unwrap();
+    assert_eq!(pending["e2e"]["status"], "pending");
+    let entry = laptop
+        .devices()
+        .unwrap()
+        .devices
+        .into_iter()
+        .find(|entry| !entry.current)
+        .unwrap();
+    assert_eq!(entry.name, "合成手机");
+    assert_eq!(pending["e2e"]["code"], entry.code.as_str());
+    laptop.approve(&entry.device_id).unwrap();
+
+    // 批准之后互传。
+    laptop.add("合成的第一条").unwrap();
+    let page = run(Operation::List {
+        search: String::new(),
+    })
+    .unwrap();
+    assert_eq!(page["e2e"]["status"], "ready");
+    assert_eq!(page["items"][0]["text"], "合成的第一条");
+    run(Operation::Add {
+        text: "合成的第二条".into(),
+    })
+    .unwrap();
+    assert!(texts(&laptop, "").contains(&"合成的第二条".to_owned()));
+
+    // 状态码原样交回；路径不在云剪贴板接口下、令牌被拒都不交给驱动。
+    let missing: HttpResponse = transport
+        .send(
+            "DELETE",
+            "/v1/users/me/clipboard/devices/ffffffffffffffffffffffffffffffff",
+            None,
+        )
+        .unwrap();
+    assert_eq!(missing.status, 404);
+    assert_eq!(
+        transport
+            .send("GET", "/v1/users/me/profile", None)
+            .unwrap_err(),
+        RelayError::Invalid
+    );
+    let refused =
+        RelayTransport::new(RelayConfig::new(&url, "synthetic-relay-token-unknown").unwrap())
+            .unwrap();
+    assert_eq!(
+        refused
+            .send("GET", "/v1/users/me/clipboard/keys", None)
+            .unwrap_err(),
+        RelayError::Unauthorized
+    );
+    // 中继侧之外，只有笔记本那台 `RelayClipboard` 设备的目录。
+    let mut entries: Vec<_> = std::fs::read_dir(root.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .filter(|name| !name.starts_with("relay.db"))
+        .collect();
+    entries.sort();
+    assert_eq!(entries, ["laptop"]);
+}
