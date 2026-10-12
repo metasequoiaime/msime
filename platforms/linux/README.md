@@ -536,6 +536,8 @@ Linux 桌面外壳现在提供与 Windows、macOS 同样的九个账号命令（
 
 桌面设置可在 HostOptions 中配置 `cloud_dictionary_provider_socket` 和 `cloud_clipboard_provider_socket` 两个绝对 Unix socket；未配置时分别回退到 `MSIME_CLOUD_DICTIONARY_PROVIDER_SOCKET` 和 `MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET`。这两个字段会随 runtime-options 原样保留，但不会进入 Engine 选项或输入会话。
 
+共享设置页「剪贴板」的「云剪贴板同步方式」可以改成自建中继（地址和令牌存在共享偏好的 `cloud_clipboard_relay`，协议与部署见 `docs/cloud-clipboard-relay.md`）。设置窗口和云剪贴板面板此后按这个顺序选路：配置的 `cloud_clipboard_provider_socket`（或环境变量），然后是中继，然后是自动发现的 socket，最后是水杉账号。中继的本机密钥串 `cloud-clipboard-relay-keystore` 与 `account-session.json` 在同一个状态目录。Fcitx5 键盘里的云剪贴板栏目前仍只认 provider socket，还不会走中继。
+
 IBus 面板注册 `InputMode` 开关：选中时按当前输入方案转换，关闭时直接透传编辑器输入。面板符号为「文」或「A」，日语方案开启转换时为「日」，韩语方案为谚文「한」，粤拼、注音、笔画、越南文、藏文方案分别为「粤」「注」「笔」「越」「藏」（与其它宿主一致），CapsLock 打开时无论哪种模式都显示「⇪」（与 Windows 语言栏图标的优先级一致），不把日语、韩语等已配置方案误标为中文。Fcitx5 宿主通过输入法子模式标签在托盘和面板上显示同样的状态，用词与模式提示一致：「中」「英」「粤」「注」「笔」「日」「한」「越」「藏」「⇪」。CapsLock 状态取自按键事件（松开 CapsLock 时即更新）。切到直接输入前通过 Engine 完成高亮组合；再次聚焦保留当前实例的选择，关闭期间的候选点击和翻页无效。密码等受限字段及失焦时开关不可用，恢复正常字段后继续使用原选择。按 `ime_mode_scope` 分别记忆客户端或共享全局状态，不写回偏好文件或重启持久化，也不占用桌面已有的输入源切换快捷键。
 
 `ime_mode_scope` 可设为 `app` 或 `global`。按应用时按 IBus 提供的客户端身份分别记忆每个编辑器的中英文状态；没有客户端身份时回退到 `default_ime_mode`。状态表有界且只保存在当前 IBus 进程内。设为全局时，当前 IBus 进程的输入上下文在获得焦点时同步同一个中英文状态；该状态不写回偏好文件，也不干预桌面环境已有的输入源切换。
