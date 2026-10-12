@@ -11,6 +11,7 @@ HOME = ROOT / "platforms/android/java/app/msime/android/home"
 BASE = HOME / "ReloadingDetailPage.java"
 CONSUMERS = (
     "AiSettingsPage.java",
+    "ExpressionPage.java",
     "HandwritingPage.java",
     "KeyboardOptionsPage.java",
     "PhrasesPage.java",
@@ -31,10 +32,14 @@ def main() -> int:
             "this.column = column;",
             "onContentReady();",
             "protected void onContentReady()",
+            "onInitialReloadScheduled();",
+            "protected void onInitialReloadScheduled()",
             "@Override protected void onBecameVisible()",
             "if (column != null) reload();",
             "@Override public void onDestroyView()",
             "column = null;",
+            "onContentDestroyed();",
+            "protected void onContentDestroyed()",
             "@Nullable protected final LinearLayout contentColumn()",
             "return column;",
             "protected abstract void reload();",
@@ -46,6 +51,10 @@ def main() -> int:
         refresh = source.find("reload();")
         if ready >= 0 and refresh >= 0 and ready > refresh:
             errors.append(f"{BASE}: 已缓存内容必须先于首次刷新显示")
+        first_refresh = source.find("reload();", ready)
+        discover = source.find("onInitialReloadScheduled();", first_refresh)
+        if first_refresh < 0 or discover < first_refresh:
+            errors.append(f"{BASE}: 首次刷新必须先于额外加载任务")
 
     duplicate = re.compile(
         r"(?:buildContent\(LinearLayout column, Bundle args\)|"
@@ -71,6 +80,17 @@ def main() -> int:
         or "if (document != null) render(document);" not in phrases
     ):
         errors.append("PhrasesPage: 重建页面时未先显示已缓存的常用语")
+
+    expression = (HOME / "ExpressionPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in expression
+        or "if (loaded) render();" not in expression
+        or "@Override protected void onInitialReloadScheduled()" not in expression
+        or "loadDiscover();" not in expression
+        or "@Override protected void onContentDestroyed()" not in expression
+        or "installing.clear();" not in expression
+    ):
+        errors.append("ExpressionPage: 首次加载或视图销毁时的专有状态未保留")
 
     if errors:
         print("\n".join(errors), file=sys.stderr)

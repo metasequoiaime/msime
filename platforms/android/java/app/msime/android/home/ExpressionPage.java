@@ -1,7 +1,6 @@
 package app.msime.android.home;
 
 import android.content.Context;
-import android.os.Bundle;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import app.msime.android.CommonPhrasesStore;
@@ -22,7 +21,7 @@ import org.json.JSONObject;
  *
  * <p>「使用英文标点」是 `chinese_punctuation` 取反显示、写入时取反；整句联想三档写 `sentence_association`：关闭是 `word_lattice=false`，标准是 `word_lattice`，增强是 `word_lattice` 加 `neural_keyboard`。发现短语列社区里 `phrase` 类的资源，「添加」经 {@link CommonPhrasesStore#installPack} 装进本机无编码常用语（它会标记云同步的「常用语」），已经装过的包显示「已添加」。
  */
-public final class ExpressionPage extends DetailPage {
+public final class ExpressionPage extends ReloadingDetailPage {
     private static final int DISCOVER_LIMIT = 8;
     private static final String[] SENTENCE_LABELS = {"关闭", "标准", "增强"};
     /** 中英混输的触发长度：共享偏好 `mixed_input.minimum_prefix` 的默认值和保存时校验的范围（client-core `MixedInputPreferences`）。 */
@@ -33,7 +32,6 @@ public final class ExpressionPage extends DetailPage {
     /** 偏好与已经装过的短语包 id（就是社区资源的 id）。 */
     private record Loaded(@Nullable JSONObject preferences, Set<String> packs) {}
 
-    @Nullable private LinearLayout column;
     @Nullable private JSONObject preferences;
     private boolean loaded;
     @Nullable private List<CommunityCatalog.Item> discover;
@@ -41,24 +39,19 @@ public final class ExpressionPage extends DetailPage {
     private HashSet<String> installed = new HashSet<>();
     private final Set<String> installing = new HashSet<>();
 
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
+    @Override protected void onContentReady() {
         if (loaded) render();
-        reload();
+    }
+
+    @Override protected void onInitialReloadScheduled() {
         loadDiscover();
     }
 
-    @Override protected void onBecameVisible() {
-        if (column != null) reload();
-    }
-
-    @Override public void onDestroyView() {
-        column = null;
+    @Override protected void onContentDestroyed() {
         installing.clear();
-        super.onDestroyView();
     }
 
-    private void reload() {
+    @Override protected void reload() {
         HostTask.run(this, context -> {
             JSONObject values = KeyboardSheets.preferences(context);
             CommonPhrasesStore.Result phrases = CommonPhrasesStore.load(context);
@@ -85,7 +78,7 @@ public final class ExpressionPage extends DetailPage {
     }
 
     private void render() {
-        LinearLayout target = column;
+        LinearLayout target = contentColumn();
         if (target == null) return;
         target.removeAllViews();
         JSONObject values = preferences;

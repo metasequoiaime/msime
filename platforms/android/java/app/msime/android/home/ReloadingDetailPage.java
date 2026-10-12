@@ -12,10 +12,14 @@ public abstract class ReloadingDetailPage extends DetailPage {
         this.column = column;
         onContentReady();
         reload();
+        onInitialReloadScheduled();
     }
 
     /** Allows a page to paint retained content before its first asynchronous refresh. */
     protected void onContentReady() {}
+
+    /** Allows a page to start extra work after scheduling its first refresh. */
+    protected void onInitialReloadScheduled() {}
 
     @Override protected void onBecameVisible() {
         if (column != null) reload();
@@ -23,8 +27,12 @@ public abstract class ReloadingDetailPage extends DetailPage {
 
     @Override public void onDestroyView() {
         column = null;
+        onContentDestroyed();
         super.onDestroyView();
     }
+
+    /** Allows a page to release state tied to the current view. */
+    protected void onContentDestroyed() {}
 
     @Nullable protected final LinearLayout contentColumn() {
         return column;
