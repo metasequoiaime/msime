@@ -2,7 +2,7 @@
  * Class strings for the platform controls in `platform-controls.tsx`. Every length and colour is a `--p-*` token from the `[data-platform]` layer in `styles.css`, so one markup takes each platform's shape. Values that Tailwind could read either as a colour or as a size (`text-`, `shadow-`, `border-`) are written as arbitrary properties so the property is never inferred.
  */
 
-import { rowText as sharedRowText } from "./row-style";
+import { rowText as sharedRowText, subtleMeta } from "./row-style";
 
 // ---- groups and rows ----
 
@@ -135,7 +135,7 @@ export const navRowTitle = {
   root: "text-[17px] font-normal",
   me: "text-[16px] font-normal",
 } as const;
-export const navRowDescription = "text-[12px] [color:var(--p-sub)]";
+export const navRowDescription = subtleMeta;
 export const navRowValue = {
   root: "max-w-[55%] min-w-0 shrink-0 truncate text-[16px] [color:var(--p-sub)]",
   me: "max-w-[55%] min-w-0 shrink-0 truncate text-[14px] [color:var(--p-sub)]",

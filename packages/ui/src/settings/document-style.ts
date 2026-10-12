@@ -1,3 +1,5 @@
+import { subtleMeta } from "../core/row-style";
+
 /**
  * The prose pages -- about, the guides, feedback -- and the AI skin generator's cards.
  *
@@ -53,7 +55,7 @@ export const appHeroCircle =
 export const appHeroText = "flex min-w-[160px] flex-1 flex-col gap-[3px]";
 export const appHeroTitle = "text-[18px] font-bold [color:var(--p-text)]";
 export const appHeroVersion = "text-[13px] [color:var(--p-sub)]";
-export const appHeroCopyright = "text-[12px] [color:var(--p-sub)]";
+export const appHeroCopyright = subtleMeta;
 export const appHeroStatus = "m-0 text-[12px] [color:var(--p-sub)]";
 /** 检查更新胶囊：强调色底配强调色上的前景文字；检查发现当前已是最新版本后改为无底色的强调色文字。检查期间保持完整颜色，此时禁用只是为了防止重复点击。 */
 export const updatePill = (latest: boolean) =>

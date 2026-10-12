@@ -9,6 +9,7 @@
  */
 
 import { fieldLabel } from "../core/form-style";
+import { subtleMeta } from "../core/row-style";
 
 export const page = "flex flex-col gap-3.5";
 
@@ -203,7 +204,7 @@ export const harmonyRowTile =
 export const harmonyRowText =
   "m-0 flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 border-0 bg-transparent p-0 text-left font-[inherit] [color:inherit]";
 export const harmonyRowName = "truncate text-[15px] font-semibold [color:var(--p-text)]";
-export const harmonyRowMeta = "text-[12px] [color:var(--p-sub)]";
+export const harmonyRowMeta = subtleMeta;
 export const harmonyRowDescription = "truncate text-[12px] [color:var(--p-sub)]";
 /** 行的「添加 / 已添加」胶囊；颜色来自 `harmonyPillTonal` 或 `harmonyPillDone`。 */
 export const harmonyRowPill =
