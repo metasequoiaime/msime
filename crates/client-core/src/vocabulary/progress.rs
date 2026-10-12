@@ -487,6 +487,26 @@ impl VocabularyProgressStore {
         Ok(document)
     }
 
+    /// Forget a removed book's schedule and clear its selection if it is still selected. Read
+    /// the current settings under the same lock as the replacement so a newer selection from
+    /// another host is neither cleared nor overwritten by a stale snapshot.
+    pub fn remove_wordbook_progress(
+        &self,
+        wordbook: &str,
+    ) -> Result<VocabularyProgress, VocabularyProgressError> {
+        if !wordbook::id_is_well_formed(wordbook) {
+            return Err(VocabularyProgressError::InvalidWordbook);
+        }
+        let lock = self.lock()?;
+        let mut document = self.read_locked(&lock)?;
+        document.cards.remove(wordbook);
+        if document.settings.wordbook == wordbook {
+            document.settings.wordbook.clear();
+        }
+        self.write_locked(&lock, &document)?;
+        Ok(document)
+    }
+
     /// Clear review history while preserving the latest settings. The read and replacement share
     /// one lock, so another host cannot update settings between them, and a crash cannot leave an
     /// intermediate document with default settings.
@@ -877,6 +897,38 @@ mod tests {
         assert!(reset.cards.is_empty());
         assert!(reset.daily.is_empty());
         assert_eq!(store.load().unwrap(), reset);
+    }
+
+    #[test]
+    fn removing_a_book_preserves_a_newer_selection_and_the_day_counts() {
+        let (_directory, store) = store();
+        let book = book_of(&["ubiquitous"]);
+        store
+            .answer(&book, "ubiquitous", ReviewGrade::Known, TODAY)
+            .unwrap();
+        store
+            .set_settings(VocabularyReviewSettings {
+                wordbook: book.id.clone(),
+                ..VocabularyReviewSettings::default()
+            })
+            .unwrap();
+        let stale = store.load().unwrap();
+        store
+            .set_settings(VocabularyReviewSettings {
+                wordbook: "kaoyan".to_owned(),
+                new_per_day: 8,
+                session_limit: 50,
+            })
+            .unwrap();
+
+        let removed = store.remove_wordbook_progress(&book.id).unwrap();
+        assert_ne!(removed.settings.wordbook, stale.settings.wordbook);
+        assert_eq!(removed.settings.wordbook, "kaoyan");
+        assert_eq!(removed.settings.new_per_day, 8);
+        assert_eq!(removed.settings.session_limit, 50);
+        assert!(removed.card(&book.id, "ubiquitous").is_none());
+        assert_eq!(removed.answered_on(TODAY), 1);
+        assert_eq!(store.load().unwrap(), removed);
     }
 
     #[test]

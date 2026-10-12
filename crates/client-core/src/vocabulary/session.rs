@@ -159,7 +159,7 @@ pub fn apply(
             // Validate progress before deleting the book. Removal spans two stores; if the
             // progress document is damaged, returning an error after the library write would
             // still destroy the user's imported material.
-            let document = store.load()?;
+            store.load()?;
             // Checked by name rather than by what is on disk: a host that failed to stage its
             // books would otherwise let the user delete one and find it back after the next
             // install, with its review progress already gone.
@@ -173,13 +173,7 @@ pub fn apply(
             library.remove(&wordbook)?;
             // The book is gone, so its schedule is unreachable. Leaving it would grow the progress
             // document forever and would silently return if the same id ever came back.
-            store.reset_wordbook(&wordbook)?;
-            if document.settings.wordbook == wordbook {
-                store.set_settings(VocabularyReviewSettings {
-                    wordbook: String::new(),
-                    ..document.settings
-                })?;
-            }
+            store.remove_wordbook_progress(&wordbook)?;
         }
         ReviewAction::Reset => {
             // Only the progress. The imported books are the user's own material and are deleted
