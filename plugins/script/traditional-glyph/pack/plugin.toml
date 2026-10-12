@@ -1,0 +1,14 @@
+schema_version = 2
+kind = "script"
+id = "traditional-glyph"
+name = "繁体字形注释"
+version = "1.0.0"
+license = "MIT AND Apache-2.0"
+description = "在候选旁注出繁体字形：单字列出全部繁体写法（发 → 發/髮），词组按 OpenCC 词表转换（头发 → 頭髮）；候选本身是繁体时不注"
+permissions = ["read_candidates", "annotate_candidates"]
+
+[script]
+abi = 1
+module = "traditional-glyph.wasm"
+hooks = ["candidates"]
+memory_pages = 3
