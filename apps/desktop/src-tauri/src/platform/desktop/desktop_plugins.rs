@@ -131,10 +131,6 @@ pub async fn import_plugin_pack(
 ) -> Result<Option<PluginSummary>, PluginFailure> {
     let root = state.0.clone();
     blocking(move || {
-        // 导入脚本包时授权文件里其余条目要按新的 revision 重新签名，所以有授权文件时先把密钥交进来。
-        if script_grants::document_path(&root).exists() {
-            install_grant_key(&app);
-        }
         let dialog = app.dialog().file().set_parent(&window);
         // The dialog runs on the main thread; this worker only waits for the answer.
         let picked = match source {
@@ -162,23 +158,15 @@ fn import_pack_at(source: &Path, root: &Path) -> Result<PluginSummary, PluginFai
 /// Remove an installed pack. A built-in sound pack cannot be removed.
 #[tauri::command]
 pub async fn remove_plugin_pack(
-    app: tauri::AppHandle,
     state: State<'_, PluginsState>,
     kind: String,
     id: String,
 ) -> Result<(), PluginFailure> {
     let root = state.0.clone();
-    blocking(move || {
-        // 删脚本包时授权文件里其余条目要按新的 revision 重新签名。
-        if kind == "script" && script_grants::document_path(&root).exists() {
-            install_grant_key(&app);
-        }
-        plugins::remove_named(&root, &kind, &id)
-    })
-    .await
+    blocking(move || plugins::remove_named(&root, &kind, &id)).await
 }
 
-/// 授权页上的一个条目：`script-grants.json` 里的一条，加上它在本进程里能不能通过校验。
+/// 授权页上的一个条目：`script-grants.json` 里的一条。
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct ScriptGrantView {
     pub id: String,
@@ -186,8 +174,6 @@ pub struct ScriptGrantView {
     pub hash: String,
     pub enabled: bool,
     pub granted: Vec<&'static str>,
-    /// macOS 上 MAC 校验通过；其他平台恒为 true。为 false 的条目不运行，页面要求重新授权。
-    pub verified: bool,
 }
 
 /// 输入法进程停用了的一个插件：`<user_data>/script-health.json` 的一条。
@@ -199,44 +185,13 @@ pub struct ScriptHealthView {
     pub disabled: String,
 }
 
-/// 授权页读到的全部：授权（按执行顺序）、输入法记下的停用，以及这个平台的条目要不要带 MAC、本进程有没有密钥。
+/// 授权页读到的全部：授权（按执行顺序）和输入法记下的停用。
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct ScriptGrantsView {
     pub revision: u64,
     pub plugins: Vec<ScriptGrantView>,
     pub health: Vec<ScriptHealthView>,
-    /// 条目要带 MAC 才生效（macOS）。
-    pub mac_required: bool,
-    /// 本进程拿到了钥匙串里的密钥。`mac_required` 而没有密钥时，页面说明授权写不进去。
-    pub signed: bool,
 }
-
-/// 设置应用是授权文件的写入方：macOS 上在第一次读写之前从钥匙串取出（没有就生成）MAC 密钥交给 client-core，访问控制表一起信任输入法 bundle（已安装的那份和本应用资源里的那份，签名相同）。取不到时不报错：读照常，写入由 `script_grants` 以 `plugin_script_keychain` 拒绝。其他平台不带 MAC，什么都不做。
-#[cfg(target_os = "macos")]
-fn install_grant_key(app: &tauri::AppHandle) {
-    use tauri::Manager;
-    if script_grants::has_mac_key() {
-        return;
-    }
-    let bundle = crate::macos_input_source::input_source_bundle_name();
-    let peers: Vec<PathBuf> = [
-        crate::macos_input_source::installed_bundle_path().ok(),
-        app.path()
-            .resource_dir()
-            .ok()
-            .map(|resources| resources.join(bundle)),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    let peers: Vec<&Path> = peers.iter().map(PathBuf::as_path).collect();
-    if let Ok(key) = msime_host_macos::script_grant_key(&peers) {
-        script_grants::set_mac_key(&key);
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn install_grant_key(_app: &tauri::AppHandle) {}
 
 /// 健康文件名，与 host-api 的 `scripts::process::HEALTH_FILE` 一致。
 const SCRIPT_HEALTH_FILE: &str = "script-health.json";
@@ -294,14 +249,6 @@ fn script_health(user_data: Option<&Path>) -> Vec<ScriptHealthView> {
         .collect()
 }
 
-/// 读授权时要不要先取钥匙串里的密钥：装了脚本包，或者已经有授权文件。都没有时不碰钥匙串：打开插件页不该为一个用不上的功能去生成密钥或弹出钥匙串授权框。
-fn uses_scripts(root: &Path) -> bool {
-    let scripts_installed =
-        std::fs::read_dir(plugins::kind_directory(root, plugins::PluginKind::Script))
-            .is_ok_and(|mut entries| entries.next().is_some());
-    scripts_installed || script_grants::document_path(root).exists()
-}
-
 fn grants_view(grants: ScriptGrants, user_data: Option<&Path>) -> ScriptGrantsView {
     ScriptGrantsView {
         revision: grants.revision,
@@ -317,12 +264,9 @@ fn grants_view(grants: ScriptGrants, user_data: Option<&Path>) -> ScriptGrantsVi
                 id: grant.id,
                 hash: grant.hash,
                 enabled: grant.enabled,
-                verified: grant.verified,
             })
             .collect(),
         health: script_health(user_data),
-        mac_required: script_grants::MAC_REQUIRED,
-        signed: script_grants::has_mac_key(),
     }
 }
 
@@ -339,7 +283,6 @@ fn user_data(options: &DictionaryHostOptions) -> Option<PathBuf> {
 /// 脚本插件的授权、执行顺序和输入法记下的停用。
 #[tauri::command]
 pub async fn script_grants(
-    app: tauri::AppHandle,
     state: State<'_, PluginsState>,
     options: State<'_, DictionaryHostOptions>,
 ) -> Result<ScriptGrantsView, PluginFailure> {
@@ -347,9 +290,6 @@ pub async fn script_grants(
     let options = options.inner().clone();
     blocking(move || {
         let user_data = user_data(&options);
-        if uses_scripts(&root) {
-            install_grant_key(&app);
-        }
         Ok(grants_view(
             script_grants::read(&root),
             user_data.as_deref(),
@@ -361,7 +301,6 @@ pub async fn script_grants(
 /// 授予、调整或撤销一个脚本插件的授权。`hash` 是页面展示给用户的那个内容哈希，包在这之后被换过时返回 `plugin_script_changed`；启用时超出同时启用的个数或内存总账分别返回 `plugin_script_limit`、`plugin_script_memory`。
 #[tauri::command]
 pub async fn set_script_grant(
-    app: tauri::AppHandle,
     state: State<'_, PluginsState>,
     options: State<'_, DictionaryHostOptions>,
     id: String,
@@ -373,7 +312,6 @@ pub async fn set_script_grant(
     let options = options.inner().clone();
     blocking(move || {
         let user_data = user_data(&options);
-        install_grant_key(&app);
         let granted = script_grants::capabilities(&granted)?;
         let grants = script_grants::set(&root, &id, &hash, enabled, granted)?;
         Ok(grants_view(grants, user_data.as_deref()))
@@ -384,7 +322,6 @@ pub async fn set_script_grant(
 /// 调整执行顺序：`ids` 按给出的顺序排在最前。
 #[tauri::command]
 pub async fn reorder_scripts(
-    app: tauri::AppHandle,
     state: State<'_, PluginsState>,
     options: State<'_, DictionaryHostOptions>,
     ids: Vec<String>,
@@ -393,7 +330,6 @@ pub async fn reorder_scripts(
     let options = options.inner().clone();
     blocking(move || {
         let user_data = user_data(&options);
-        install_grant_key(&app);
         Ok(grants_view(
             script_grants::reorder(&root, &ids)?,
             user_data.as_deref(),
@@ -540,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn the_grants_view_keeps_the_order_the_verification_and_the_capability_names() {
+    fn the_grants_view_keeps_the_order_and_the_capability_names() {
         let capabilities = |names: &[&str]| {
             script_grants::capabilities(
                 &names
@@ -550,27 +486,25 @@ mod tests {
             )
             .unwrap()
         };
-        let grant = |id: &str, enabled: bool, granted, verified: bool| script_grants::ScriptGrant {
+        let grant = |id: &str, enabled: bool, granted| script_grants::ScriptGrant {
             id: id.into(),
             hash: id.repeat(64 / id.len()),
             enabled,
             granted,
-            mac: None,
-            verified,
         };
         let rewriting = capabilities(&["rewrite_commit", "read_commit"]);
         let view = grants_view(
             ScriptGrants {
                 revision: 4,
                 plugins: vec![
-                    grant("b", true, rewriting, false),
-                    grant("a", false, capabilities(&[]), true),
+                    grant("b", true, rewriting),
+                    grant("a", false, capabilities(&[])),
                 ],
             },
             None,
         );
         assert_eq!(view.revision, 4);
-        // 文件里的顺序就是执行顺序，原样交给页面；校验结果和能力名也原样带过去。
+        // 文件里的顺序就是执行顺序，原样交给页面；能力名也原样带过去。
         assert_eq!(
             view.plugins,
             [
@@ -579,36 +513,16 @@ mod tests {
                     hash: "b".repeat(64),
                     enabled: true,
                     granted: vec!["read_commit", "rewrite_commit"],
-                    verified: false,
                 },
                 ScriptGrantView {
                     id: "a".into(),
                     hash: "a".repeat(64),
                     enabled: false,
                     granted: Vec::new(),
-                    verified: true,
                 },
             ]
         );
         assert!(view.health.is_empty());
-        assert_eq!(view.mac_required, cfg!(target_os = "macos"));
-    }
-
-    #[test]
-    fn the_keychain_is_touched_only_once_scripts_are_in_use() {
-        let state = tempfile::tempdir().unwrap();
-        let root = state.path().join("plugins");
-        assert!(!uses_scripts(&root));
-        // 空的脚本文件夹不算装了脚本包。
-        let scripts = plugins::kind_directory(&root, plugins::PluginKind::Script);
-        fs::create_dir_all(&scripts).unwrap();
-        assert!(!uses_scripts(&root));
-        fs::create_dir(scripts.join("pangu")).unwrap();
-        assert!(uses_scripts(&root));
-        fs::remove_dir(scripts.join("pangu")).unwrap();
-        // 包删光了，授权文件还在：要读的签名仍然需要密钥。
-        fs::write(script_grants::document_path(&root), b"{}").unwrap();
-        assert!(uses_scripts(&root));
     }
 
     #[test]

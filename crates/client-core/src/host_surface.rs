@@ -674,7 +674,7 @@ impl HostCapabilities {
             wordbook_packs: platform.is_desktop(),
             // Windows 和 Linux 桌面的符号面板是 Tauri 层的表情面板（`load_emoji_catalog`），Linux 的 Fcitx5 菜单和 macOS 的原生表情与符号面板另外读同一批插件组。HarmonyOS 在自己的设置投影里按形态打开；Android 和 iOS 没有接入。
             symbol_set_packs: platform.is_desktop(),
-            // macOS 和 Linux 的输入法进程在启动时打开脚本插件（`msime_client_scripts_enable`），授权由设置应用经 client-core 的 `script_grants` 写入；macOS 的授权条目带钥匙串密钥签的 MAC。Windows 的设置是原生应用（platforms/windows/settings），没有授权页，release 构建的 Server 不运行脚本（host-api 的 `scripts`），所以不声明。移动端没有脚本插件。各宿主接入生命周期核心（`msime_client_set_lifecycle`）之前，会话不满足运行条件，授权写下了也不会运行。
+            // macOS 和 Linux 的输入法进程在启动时打开脚本插件（`msime_client_scripts_enable`），授权由设置应用经 client-core 的 `script_grants` 写入，授权页写明同一用户下的其他程序能伪造授权。Windows 的设置是原生应用（platforms/windows/settings），没有授权页，release 构建的 Server 不运行脚本（host-api 的 `scripts`），所以不声明。移动端没有脚本插件。各宿主接入生命周期核心（`msime_client_set_lifecycle`）之前，会话不满足运行条件，授权写下了也不会运行。
             script_plugins: matches!(platform, HostPlatform::Macos | HostPlatform::Linux),
             // The three desktop hosts play the packs, route V, / and @ by the Engine's spelling symbols and stream music while they are the active input method. HarmonyOS claims key sounds, music and the triggers per form factor in its own settings projection (2in1 only); the phone and tablet hosts wire none of them. A switch with nothing behind it reads as a setting being ignored, so each host flips here only in the change that wires it.
             // Android 的按键音由 IME 进程的 SoundPool 播放（与本项同一波接入），所以 Android 也声明；手机和平板上的 HarmonyOS 与 iOS 仍未接入。

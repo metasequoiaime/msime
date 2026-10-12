@@ -91,23 +91,10 @@ pub extern "C" fn msime_client_set_lifecycle(handle: u64, flags: u32) -> u32 {
     })
 }
 
-/// 进程级：打开或关闭脚本插件，返回开关的实际状态。只由 4 个桌面入口（macOS 输入法进程、Windows Server、IBus 引擎进程、Fcitx5 addon）在启动时调用；Windows TIP、设置应用和 MCP 从不调用。移动端恒返回 false。
+/// 进程级：打开或关闭脚本插件，返回开关的实际状态。只由 4 个桌面入口（macOS 输入法进程、Windows Server、IBus 引擎进程、Fcitx5 addon）在启动时调用；Windows TIP、设置应用和 MCP 从不调用。移动端和 Windows 的 release 构建恒返回 false。
 #[no_mangle]
 pub extern "C" fn msime_client_scripts_enable(on: bool) -> bool {
     crate::scripts::enable(on)
-}
-
-/// 进程级：交进脚本插件授权的 MAC 密钥（32 字节）。macOS 输入法在启动时、第一个会话之前从钥匙串取出密钥后调用；没有密钥时 macOS 上没有任何授权条目生效。只认第一次交进来的那把，返回本进程现在用的是不是这一把；指针为空、长度不对或移动端返回 false。
-/// # Safety
-/// `key` 为空，或者在本次调用期间指向 `length` 个可读字节。
-#[no_mangle]
-pub unsafe extern "C" fn msime_client_script_grants_key(key: *const u8, length: usize) -> bool {
-    if key.is_null() {
-        return false;
-    }
-    // SAFETY: 由调用方的缓冲区约定保证；本函数不保留这段内存。
-    let key = unsafe { std::slice::from_raw_parts(key, length) };
-    catch_unwind(AssertUnwindSafe(|| crate::scripts::set_grants_key(key))).unwrap_or(false)
 }
 
 /// 一次物理按下，开启新的一轮（`PASSTHROUGH` 除外）。FEEDBACK 下出按键音并返回打字特效，位布局同 `msime_client_typing_effect`；没选择加入、类别不认识、SECURE 字段或指针调用时返回 0。

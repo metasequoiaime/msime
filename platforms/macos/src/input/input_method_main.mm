@@ -22,24 +22,6 @@ static bool MSIMEShouldShowPreferences(int argc, const char *argv[]) {
     return false;
 }
 
-extern "C" int32_t msime_macos_script_grant_key(const char *service, const char *const *peers, size_t peer_count,
-                                                bool allow_interaction, uint8_t *out, size_t out_length);
-
-// 脚本插件授权的 MAC 密钥：从登录钥匙串取出，还没有就生成一把，访问控制表信任本输入法和设置应用（crates/host-macos/native/script_grant_key.mm）；交给 host-api 之后，授权文件里只有用它签过名的条目生效。输入法进程不弹钥匙串授权框，取不到时记一行日志，这个进程里没有任何脚本插件运行。服务名与设置应用的 `msime_host_macos::SCRIPT_GRANT_KEY_SERVICE_SUFFIX` 一致。
-static void MSIMEInstallScriptGrantKey(void) {
-    NSString *service = [MSIMESettingsBundleIdentifier() stringByAppendingString:@".script-grants"];
-    NSString *settings = [NSWorkspace.sharedWorkspace URLForApplicationWithBundleIdentifier:MSIMEClientApplicationIdentifier].path;
-    const char *peers[1] = {settings.length ? settings.fileSystemRepresentation : nullptr};
-    uint8_t key[32] = {};
-    const int32_t status = msime_macos_script_grant_key(service.UTF8String, peers, peers[0] ? 1 : 0, false, key, sizeof key);
-    if (status == 0) {
-        msime_client_script_grants_key(key, sizeof key);
-    } else {
-        NSLog(@"MSIME script plugin grant key unavailable: %d", status);
-    }
-    std::memset(key, 0, sizeof key);
-}
-
 static void MSIMEConfigureMovableState(void) {
     NSDictionary *options = MSIMELoadRuntimeOptions();
     NSString *directory = [options[@"preferences_directory"] isKindOfClass:NSString.class]
@@ -116,8 +98,7 @@ int main(int argc, const char *argv[]) {
             [[NSNotificationCenter defaultCenter] removeObserver:closeObserver];
             return 0;
         }
-        // 脚本插件只在输入法进程里运行，上面的独立设置窗口已经返回。先交进授权的 MAC 密钥，再在第一个会话之前打开开关（msime_client.h）。
-        MSIMEInstallScriptGrantKey();
+        // 脚本插件只在输入法进程里运行，上面的独立设置窗口已经返回。在第一个会话之前打开开关，开发构建和 release 构建一样（msime_client.h）。
         msime_client_scripts_enable(true);
         // One input method process is one usage session; the standalone preferences window above is not.
         NSDictionary *reportingOptions = MSIMELoadRuntimeOptions();

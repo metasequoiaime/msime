@@ -68,7 +68,6 @@ impl From<super::script_grants::ScriptGrantError> for PluginFailure {
             ScriptGrantError::Limit => Self::code("plugin_script_limit"),
             ScriptGrantError::Memory => Self::code("plugin_script_memory"),
             ScriptGrantError::Format => Self::code("plugin_script_grants_format"),
-            ScriptGrantError::Keychain => Self::code("plugin_script_keychain"),
             ScriptGrantError::Storage => Self::code("plugin_storage"),
             ScriptGrantError::Io(_) => Self::code("storage"),
         }
