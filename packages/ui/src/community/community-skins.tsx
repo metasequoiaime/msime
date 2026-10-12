@@ -47,6 +47,7 @@ import { boundedGraphemes } from "../core/text";
 import { updateCustomKeyboard } from "../settings/theme-selection-updates";
 import type { Preferences } from "../index";
 import { useAsyncActionRunner } from "../core/use-async-action";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import { useCommunityDetailHistory } from "./use-community-detail-history";
 import { communityPublishFields } from "./community-publish-validation";
@@ -569,22 +570,24 @@ export function CommunitySkinsPage({
   }, [client]);
   // 网格重新显示时就重新读取：详情里的「下载并试用」也会把设计收进皮肤库。
   const browsing = selected === null;
+  const libraryLoadGeneration = useAsyncGeneration(harmony, browsing, localSkinLibrary);
   useEffect(() => {
     if (!harmony || !browsing || !localSkinLibrary) return;
-    let current = true;
-    const generation = libraryGeneration.current;
+    const current = libraryLoadGeneration.current;
+    const mutationGeneration = libraryGeneration.current;
     void localSkinLibrary.load().then(
       (items) => {
-        if (!current || generation !== libraryGeneration.current) return;
+        if (
+          libraryLoadGeneration.current !== current ||
+          mutationGeneration !== libraryGeneration.current
+        )
+          return;
         setLibrary(new Map(items.map((item) => [skinKey(item.id), item])));
       },
       // 皮肤库读不出来时所有卡片都停在「获取」，与 Android 一致；再次获取同一设计会按同一 id 重新归档，不会多出一份。
       () => undefined,
     );
-    return () => {
-      current = false;
-    };
-  }, [harmony, browsing, localSkinLibrary]);
+  }, [harmony, browsing, localSkinLibrary, libraryLoadGeneration]);
 
   const closeDetail = async (fromHistory = false) => {
     if (actionBusy) return;
