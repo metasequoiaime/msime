@@ -92,6 +92,11 @@ public:
                        const FanyImeNamedpipeData &packet, uint64_t epoch,
                        bool enabled,
                        const std::function<bool(bool)> &persist);
+  // Ctrl+Shift+J 只交给 `persist` 去改存储里的方案，和 Ctrl+Shift+F 一样回一个不带帧的 NoReply，不碰组字：host-api 在组字结束、运行时空闲后才应用新方案，正在组的字照常上屏，托盘换方案也是这样。英文状态和 Engine 的英文模式里什么都不做。
+  std::optional<PendingReply>
+  toggle_japanese(ServerSession &session, const FanyImeNamedpipeData &packet,
+                  uint64_t epoch, bool enabled,
+                  const std::function<bool()> &persist);
   // Native configuration-specific priority routes must run first. Null leaves
   // Engine untouched and means this key needs another native route.
   std::optional<PendingReply> basic_key(ServerSession &session,

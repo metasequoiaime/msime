@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { InputModeShortcutsSection } from "@msime/ui";
+import { InputModeShortcutsSection, type HostCapabilities } from "@msime/ui";
+import { offersJapaneseToggle } from "../../../../packages/ui/src/settings/input-scheme-options";
 
 afterEach(() => {
   cleanup();
@@ -316,4 +317,78 @@ test("the Caps Lock language switch names each desktop's limitation", () => {
     expect(screen.getByText(note)).toBeTruthy();
     cleanup();
   }
+});
+
+test("the Japanese toggle is offered only where the host handles Ctrl+Shift+J", () => {
+  const onChange = vi.fn();
+  renderLanguageSwitch({}, onChange);
+  expect(screen.queryByRole("switch", { name: /Ctrl\+Shift\+J/ })).toBeNull();
+  cleanup();
+
+  render(
+    <InputModeShortcutsSection
+      keybindings={keybindings}
+      onChange={onChange}
+      showModeSwitchShortcuts
+      macos={false}
+      showFullwidthChord={false}
+      windows
+      japaneseToggle
+    />,
+  );
+  const toggle = screen.getByRole("switch", { name: /Ctrl\+Shift\+J 在中文和日语之间切换/ });
+  // 缺省为关；打开它只写这一个键，不改动已选的切换键。
+  expect((toggle as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(toggle);
+  expect(onChange).toHaveBeenCalledTimes(1);
+  expect(onChange).toHaveBeenCalledWith({ toggle_japanese_ctrl_shift_j: true });
+  expect((screen.getByLabelText("切换中英文") as HTMLSelectElement).value).toBe("shift");
+  // 说明写出和浏览器开发者工具快捷键的冲突。
+  expect(screen.getByText(/开发者工具/)).toBeTruthy();
+  cleanup();
+
+  render(
+    <InputModeShortcutsSection
+      keybindings={{ ...keybindings, toggle_japanese_ctrl_shift_j: true }}
+      onChange={vi.fn()}
+      showModeSwitchShortcuts
+      macos={false}
+      linux
+      showFullwidthChord={false}
+      windows={false}
+      japaneseToggle
+    />,
+  );
+  expect(
+    (
+      screen.getByRole("switch", {
+        name: /Ctrl\+Shift\+J 在中文和日语之间切换/,
+      }) as HTMLInputElement
+    ).checked,
+  ).toBe(true);
+});
+
+test("the Japanese toggle needs both a Chinese scheme and Japanese in the edition", () => {
+  const host = (overrides: Partial<HostCapabilities>) =>
+    ({ japanese_toggle_shortcut: true, input_schemes: [], ...overrides }) as HostCapabilities;
+  const edition = (input_schemes: HostCapabilities["input_schemes"]) =>
+    ({
+      id: "test",
+      input_schemes,
+      default_scheme: input_schemes[0],
+    }) as HostCapabilities["edition"];
+
+  expect(offersJapaneseToggle(undefined)).toBe(false);
+  // 没有声明能力的宿主（macOS 和移动端）不显示。
+  expect(offersJapaneseToggle(host({ japanese_toggle_shortcut: undefined }))).toBe(false);
+  expect(offersJapaneseToggle(host({ japanese_toggle_shortcut: false }))).toBe(false);
+  // 版本缺省就是 full：中文方案和日语都有。
+  expect(offersJapaneseToggle(host({}))).toBe(true);
+  expect(
+    offersJapaneseToggle(host({ edition: edition(["quanpin", "shuangpin", "japanese"]) })),
+  ).toBe(true);
+  // 五笔版没有日语，日语版没有中文方案，这两种都没有可切的另一头。
+  expect(offersJapaneseToggle(host({ edition: edition(["wubi"]) }))).toBe(false);
+  expect(offersJapaneseToggle(host({ edition: edition(["japanese"]) }))).toBe(false);
+  expect(offersJapaneseToggle(host({ edition: edition(["japanese", "korean"]) }))).toBe(false);
 });

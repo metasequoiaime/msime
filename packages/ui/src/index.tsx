@@ -1,4 +1,9 @@
 import type { DictionaryCollectionsClient } from "./dictionary/dictionary-collections";
+import type {
+  BuiltinShuangpinProfile,
+  ShuangpinCustomProblem,
+  ShuangpinCustomProfile,
+} from "./settings/shuangpin-custom-profile";
 import { useConfirm } from "./core/confirm";
 import { NavItem } from "./core/platform-controls";
 import { ToastProvider } from "./core/toast";
@@ -658,6 +663,7 @@ export {
   CLOUD_CLIPBOARD_DISABLED,
   CLOUD_CLIPBOARD_MAX_UTF16,
   CLOUD_CLIPBOARD_PENDING,
+  CLOUD_CLIPBOARD_RELAY_UNAUTHORIZED,
   CLOUD_CLIPBOARD_SIGNED_OUT,
   CLOUD_CLIPBOARD_UNAVAILABLE,
   cloudClipboardAvailabilityNote,
@@ -871,6 +877,10 @@ export {
   type TraditionalChineseOutputSectionProps,
 } from "./settings/traditional-chinese-output-section";
 export {
+  ChineseEnglishSpacingSection,
+  type ChineseEnglishSpacingSectionProps,
+} from "./settings/chinese-english-spacing-section";
+export {
   CloudCandidatesSection,
   type CloudCandidatesSectionProps,
 } from "./settings/cloud-candidates-section";
@@ -908,6 +918,19 @@ export {
   type ShuangpinProfile,
   type WubiProfile,
 } from "./settings/input-scheme-details-section";
+export {
+  ShuangpinCustomEditor,
+  type ShuangpinCustomEditorProps,
+} from "./settings/shuangpin-custom-editor";
+export {
+  parseShuangpinCustomProfile,
+  shuangpinCustomProblemMessage,
+  type BuiltinShuangpinProfile,
+  type ShuangpinCustomProblem,
+  type ShuangpinCustomProfile,
+  type ShuangpinCustomProfileClient,
+  type ShuangpinCustomTablePart,
+} from "./settings/shuangpin-custom-profile";
 export {
   TranslationProviderSettingsSection,
   type TranslationProviderSettingsSectionProps,
@@ -1602,6 +1625,8 @@ export type KeybindingPreferences = {
   toggle_fullwidth_option_shift_h: boolean;
   /** 单按 Caps Lock 切换中英文，长按照常是大写锁定。缺省为关。 */
   switch_language_caps_lock?: boolean;
+  /** Ctrl+Shift+J 在中文和日语之间切换。缺省为关。 */
+  toggle_japanese_ctrl_shift_j?: boolean;
 };
 export type HostPlatform = "windows" | "macos" | "linux" | "android" | "ios" | "harmony";
 /** Mirrors `client-core::preferences::InputScheme`. */
@@ -1675,6 +1700,8 @@ export interface HostCapabilities {
   candidate_corner_radius: boolean;
   candidate_follow_cursor: boolean;
   input_mode_hud: boolean;
+  /** 宿主在系统菜单栏放一个常驻状态项显示当前输入模式。只有 macOS 提供：Windows 有托盘语言栏，Linux 有输入法面板，触屏键盘的键面已显示模式。 */
+  input_mode_status_item: boolean;
   candidate_english_font: boolean;
   english_suggestions: boolean;
   helpcode_shift_entry: boolean;
@@ -1730,6 +1757,8 @@ export interface HostCapabilities {
   caps_lock_language_switch?: boolean;
   /** 快捷模式只从实体键盘的 Shift+字母进入，「Shift+字母进入快捷模式」总开关在这里有意义（三个桌面宿主）。 */
   shift_letter_entry_switch?: boolean;
+  /** 宿主处理 Ctrl+Shift+J 在中文和日语之间切换（Windows 和 Linux）。本版本还要同时提供中文方案和日语，设置页才显示它的开关。 */
+  japanese_toggle_shortcut?: boolean;
   /** 背单词书目列出单词本插件（`pack-<插件 id>` 词书）。 */
   wordbook_packs: boolean;
   /** 符号面板显示已安装的符号集插件。 */
@@ -1789,6 +1818,8 @@ export type Preferences = {
   voice_input?: VoiceInputPreferences;
   local_modes?: LocalModePreferences;
   clipboard_history?: boolean;
+  /** 自建云剪贴板中继的地址和令牌；缺省或地址为空表示走水杉账号。两项要么都空，要么都合规，见 `crates/client-core/src/clipboard_relay.rs`。 */
+  cloud_clipboard_relay?: { url: string; token: string };
   cloud_candidates?: boolean;
   candidate_translations?: boolean;
   candidate_english_gloss?: boolean;
@@ -1835,7 +1866,10 @@ export type Preferences = {
   /** 应用例外：键是应用标识（macOS 的 bundle id、Windows 的进程基名），值是切到该应用时的起始模式。没有规则时文档里没有这个键。 */
   app_input_mode_rules?: Record<string, AppInputModeRule>;
   last_chinese_scheme?: ChineseScheme | null;
-  shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
+  /** `custom` 用下面的 `shuangpin_custom_profile`；表不能用时输入法按小鹤运行。 */
+  shuangpin_profile: BuiltinShuangpinProfile | "custom";
+  /** 自定义双拼的键位表。选别的方案时保留，切回 `custom` 还能用；空表不写进文档。 */
+  shuangpin_custom_profile?: ShuangpinCustomProfile;
   /** 五笔用 86 还是 98 码表，只在方案为五笔时起作用；缺省为 86。 */
   wubi_profile?: "wubi86" | "wubi98";
   /** macOS exposes the native shuangpin preedit presentation in the appearance page. */
@@ -1859,6 +1893,8 @@ export type Preferences = {
   candidate_follow_cursor?: boolean;
   /** 切换中英文后在光标旁短暂显示的徽标（macOS、Windows、Linux 和鸿蒙 2in1）。 */
   input_mode_hud?: boolean;
+  /** macOS 菜单栏里常驻显示当前输入模式（中/双/五/日……，英文时为「英」）的状态项，默认关闭。 */
+  input_mode_status_item?: boolean;
   candidate_font_family?: string;
   candidate_english_font?: string | null;
   candidate_fallback_fonts?: string[];
@@ -1897,6 +1933,8 @@ export type Preferences = {
   punctuation_lock?: "follow" | "chinese" | "english";
   caps_lock_ascii_punctuation?: boolean;
   traditional_chinese_output?: boolean;
+  /** 中英文之间加空格：上屏文本里汉字与 ASCII 字母、数字相邻处加一个半角空格。缺省为关，关着时文档里没有这个键。 */
+  chinese_english_spacing?: boolean;
   /** Sound packs, music and command tables; the document leaves it out while every value is the default. */
   plugins?: PluginPreferences;
 };
@@ -2186,6 +2224,12 @@ export interface SettingsClient {
    * The colours a host draws for a theme, from the same `resolve` the input method runs (`msime_client_resolve_theme`), with the custom theme's package read from the host's own skin directory. Absent on hosts whose bridge has no theme call; the picker and built-in previews read `themeCatalog` and need no host.
    */
   resolveTheme?: (request: ResolveThemeRequest) => Promise<ResolvedTheme>;
+  /** 编辑中的自定义双拼表有什么问题，能用时是 `null`。与 MCP 保存前的校验结论相同，但宿主不为它留下任何东西，页面每改一个键都可以问。和 `builtinShuangpinTable` 都提供时，输入页才提供自定义双拼的编辑、导入和导出。 */
+  validateShuangpinCustomProfile?: (
+    profile: ShuangpinCustomProfile,
+  ) => Promise<ShuangpinCustomProblem | null>;
+  /** 内置双拼方案的键位表，编辑自定义方案时从它开始。 */
+  builtinShuangpinTable?: (name: BuiltinShuangpinProfile) => Promise<ShuangpinCustomProfile | null>;
   readSkinImage?: SkinImageReader;
   readSkinFont?: SkinFontReader;
   readSkinToolbarCss?: (id: string, relative?: string) => Promise<string | null>;
@@ -2248,8 +2292,10 @@ export interface SettingsClient {
    * the review inline rather than offering a button that opens nothing. */
   openVocabulary?: () => Promise<void>;
   openCloudClipboard?: () => Promise<void>;
-  /** Sends cloud clipboard requests from the settings window itself, over the signed-in account; with it the local clipboard history can send an entry to the cloud. */
+  /** 设置窗口自己发云剪贴板请求，经登录的水杉账号或配置的自建中继；有它时本机剪贴板历史可以把一条发到云剪贴板。 */
   cloudClipboardRequest?: CloudClipboardRequest;
+  /** 这个宿主的云剪贴板会按偏好 `cloud_clipboard_relay` 改走自建中继；有它时「剪贴板」页显示同步方式和中继的地址、令牌。 */
+  cloudClipboardRelay?: boolean;
   openCloudDictionary?: () => Promise<void>;
   restartInputMethod?: () => Promise<void>;
   /** macOS installs/updates the separate InputMethodKit bundle before registering it. */
@@ -2477,6 +2523,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
     showInputModeHUD,
+    showInputModeStatusItem,
     showVoiceCaptureDevices,
     showDesktopMaintenanceShortcuts,
     showFullwidthChord,
@@ -3018,6 +3065,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
     showInputModeHUD,
+    showInputModeStatusItem,
     showVoiceCaptureDevices,
     showFullwidthChord,
     fullwidthChord,

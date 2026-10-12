@@ -87,6 +87,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 - 窗口沿用浮动键盘的做法：输入法窗口铺满、根视图透明、`onComputeInsets` 不让应用让出高度，可触摸区域只有候选栏。候选栏与浮动面板同宽（窗口的 80%，240–480 dp），左边与光标对齐，放在光标所在行下方 4 dp；靠近底边放不下时翻到光标上方，始终夹在系统栏之间。旋转、分屏和窗口变化后按新窗口重新摆，旋转时还让编辑器立即重报一次位置。
 - 空闲时不显示工具栏（与桌面端一样，不打字时什么也不画），所以这时没有工具栏上的展开键；要回到软键盘，关掉这个开关或拔掉键盘。空闲时整个输入法窗口用 `requestHideSelf` 收起（`CaretCandidatePolicy.hidesWindow`），返回键第一下就交给应用，导航栏也不再是收起键盘的样子；候选栏又有内容时（实体键盘开始组字、出现联想或英文建议）用 `requestShowSelf` 叫回来。这一收起不算用户收起键盘，`onFinishInputView` 不做收尾，收起落地前已经又开始组字的，落地后再叫回窗口，组字不会被上屏。打开展开候选等要占键区的面板时，键盘照旧停靠在底部展开。
 
+组字中只按着 Ctrl 的回车（主键盘或小键盘）上屏高亮候选的译文（#7079，`HardwareTranslationCommitPolicy`，排在上面那条「Ctrl/Alt/Meta 组合键交给系统」之前）：译文按长按菜单同一条规则（`CandidateTranslationPolicy.insertionGlosses`，两种目标语言都拆成义项）拆开，一个义项直接上屏，几个义项时候选行换成义项页（`ImeTranslationSenses`），1–9 选第几项、空格或回车上屏高亮项、方向键和 Home/End 移动、Esc 或返回只关页，其他键关页后照常处理；没有译文或释义显示关着时按键被吃掉、什么也不做，免得聊天应用在拼音还没上屏时就把消息发出去。上屏后和长按菜单一样用命令 3 结束组字。只在允许插入译文的方案里接（`candidateGlossInsertionEnabled`：本地模式、日语、韩语和不带释义的方案不接），没有组字时 Ctrl+Enter 照常交给应用。被接住的键按住时的自动重复和随后的抬起也不交给应用。
+
 共享 `number_row_selection` 开启时，硬件键盘数字行 1–9 选择当前候选页对应槽位，每页十个候选时 0 选第十个；选择仍携带 Engine 返回的 session、generation 和候选 index，候选过期或当前没有该槽位时按键交回编辑器。英文、密码和直接输入不抢数字键，关闭偏好也立即恢复系统行为。
 
 硬件键盘快捷键消费共享 `keybindings`：Shift+Space、Ctrl+Alt+Space 和单击 Shift/Ctrl 可切换中英，Ctrl+Shift+F 切换简繁，Alt+Shift+H 切换全角输入；每个开关都按偏好即时生效。修饰键单击只有在 600 ms 内且期间没有按下其他键时才触发，组合键优先于普通编辑器快捷键；不匹配或关闭的快捷键继续交给 Android/编辑器。触屏键盘的 Shift 和“简/繁”按钮仍走各自原生路径。

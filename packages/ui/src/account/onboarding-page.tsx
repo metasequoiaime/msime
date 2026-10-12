@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent } from "rea
 import { Switch } from "../core/platform-controls";
 import { ActionButton } from "../core/action-button";
 import { useAsyncActionRunner } from "../core/use-async-action";
+import { useTimeout } from "../core/use-timeout";
 import { FluentIcon, type FluentIconName } from "../core/fluent-icons";
 import { msimeFramePath, msimeStrokePath } from "../core/brand-logo";
 import { appThemeStyle, seasonAttr } from "../core/app-theme-style";
@@ -83,10 +84,7 @@ export function SetupStep({
 
 /** The splash: the mark draws itself, then the flow opens. A tap anywhere skips it. */
 function Splash({ onDone }: { onDone: () => void }) {
-  useEffect(() => {
-    const timer = window.setTimeout(onDone, SPLASH_MS);
-    return () => window.clearTimeout(timer);
-  }, [onDone]);
+  useTimeout(onDone, SPLASH_MS);
   return (
     <button type="button" className={onboarding.splash} aria-label="跳过开屏" onClick={onDone}>
       <span className={onboarding.splashGlow} aria-hidden="true" />
@@ -109,10 +107,7 @@ function Splash({ onDone }: { onDone: () => void }) {
 
 /** HarmonyOS 首次启动的开屏（dc.html L2692-2698）：第一帧和系统启动窗相同（启动窗底色上的圆盘和水杉标志，跟随系统深浅色），随后淡入当季颜色、泛起波纹、出字，底部一条进度条在开屏停留期间填满。只在首次启动的欢迎流程里播，平时冷启动不播。点一下仍可跳过；设计里没有提示这一点。 */
 function HarmonySplash({ onDone }: { onDone: () => void }) {
-  useEffect(() => {
-    const timer = window.setTimeout(onDone, SPLASH_MS);
-    return () => window.clearTimeout(timer);
-  }, [onDone]);
+  useTimeout(onDone, SPLASH_MS);
   return (
     <button type="button" className={onboarding.hSplash} aria-label="跳过开屏" onClick={onDone}>
       <span className={onboarding.hSplashGlow} aria-hidden="true" />

@@ -83,11 +83,19 @@ fn needs_dangling_segment_delimiter_backspace(raw: &str, caret: usize) -> bool {
 mod engine;
 mod providers;
 mod runtime;
+mod transform;
 mod types;
 
 pub use engine::*;
 pub use providers::*;
 pub use runtime::*;
+// 候选变换只在桌面有公开的东西，移动端的 `transform` 只有几个 crate 内的空方法。
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos"))
+))]
+pub use transform::*;
 pub use types::*;
 
 #[cfg(test)]

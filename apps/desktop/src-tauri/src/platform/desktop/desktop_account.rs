@@ -25,6 +25,8 @@ pub(crate) type Session = BackendAccountSession<BackendAccountClient, Storage>;
 
 pub struct AccountState {
     pub(crate) session: Arc<Session>,
+    /// 会话文件所在的目录。云剪贴板配置了自建中继时，本机的中继密钥串也放在这里，与输入法读写同一份（见 `msime_client_core::clipboard_relay`）。
+    pub(crate) directory: std::path::PathBuf,
 }
 
 /// Builds the backend client and registers the account state around the platform's session storage, plus the candidate-skin, plugin and report community services that authenticate through the same session.
@@ -33,6 +35,7 @@ pub(crate) fn manage(
     storage: Storage,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let client = BackendAccountClient::new()?;
+    let directory = storage.directory().to_path_buf();
     let session = Arc::new(BackendAccountSession::new(client.clone(), storage));
     app.manage(CandidateSkinCommunityState {
         service: Arc::new(BackendCandidateSkinCommunityService::new(
@@ -55,7 +58,7 @@ pub(crate) fn manage(
     // 社区词包与回复模板目前只在 Windows 的设置应用里提供；macOS 由输入法自己的账号窗口提供，Linux 还没有接入。
     #[cfg(target_os = "windows")]
     app.manage(crate::platform::community_resources::CommunityResourceState::new(&session)?);
-    app.manage(AccountState { session });
+    app.manage(AccountState { session, directory });
     Ok(())
 }
 

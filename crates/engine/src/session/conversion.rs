@@ -183,9 +183,7 @@ impl InputSession {
         }
         let row = self.candidates().get(row_index)?;
         // AI 占位行不是一句读法，不能从它进入改字。
-        if row.source == CandidateSource::AiPending
-            || !self.selection_completes_composition(&row.pinyin, &row.word, row.scheme)
-        {
+        if row.source == CandidateSource::AiPending || !self.selection_completes_composition(row) {
             return None;
         }
         let mut edit = ConversionEdit::from_row(row)?;
@@ -287,7 +285,7 @@ impl InputSession {
         item.sentence_association = true;
         item.fixed_position = 0;
         item.fuzzy = false;
-        item.corrected_from.clear();
+        // 改字后仍要按原候选的纠错来源消费全部原始按键。
         let diagnostic = self.learn_conversion_sentence(&item);
         self.caret = None;
         self.commit_selection(Some(item), Some(text), diagnostic)

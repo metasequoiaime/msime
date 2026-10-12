@@ -75,7 +75,7 @@ fn with_host_session<T: Copy>(
 #[no_mangle]
 pub extern "C" fn msime_client_set_lifecycle(handle: u64, flags: u32) -> u32 {
     with_host_session(handle, 0, |session| {
-        match session.lifecycle.as_deref_mut() {
+        let accepted = match session.lifecycle.as_deref_mut() {
             Some(state) => state.set_flags(&session.sound, flags),
             None => {
                 let mut state = lifecycle::LifecycleState::new(handle, flags);
@@ -83,11 +83,19 @@ pub extern "C" fn msime_client_set_lifecycle(handle: u64, flags: u32) -> u32 {
                     session.plugin_roots.installed.clone(),
                     &session.options.user_data,
                 );
+                // 脚本插件的候选变换挂在 runtime 上，只在派发类调用里运行；移动端什么都不挂。
+                state.attach_scripts(&mut session.runtime);
                 let accepted = state.flags();
                 session.lifecycle = Some(Box::new(state));
                 accepted
             }
-        }
+        };
+        // 上屏只能观察时候选变换停下，不运行也不重放。
+        crate::scripts::observe_only(
+            &mut session.runtime,
+            accepted & lifecycle::COMMIT_OBSERVE_ONLY != 0,
+        );
+        accepted
     })
 }
 

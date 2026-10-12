@@ -148,6 +148,22 @@ int main() {
   assert(effective_input_scheme("stroke", "wubi", empty) == "wubi");
   assert(effective_input_scheme("stroke", "stroke", empty) == "quanpin");
 
+  // Ctrl+Shift+J：中文方案去日语，日语和其他语言回到上次的中文方案；只有 full 同时提供两头。
+  assert(offers_japanese_toggle() == (MSIME_EDITION_IS_FULL != 0));
+  if (offers_japanese_toggle()) {
+    for (const char *chinese : {"quanpin", "shuangpin", "wubi"})
+      assert(japanese_toggle_target(chinese, "wubi", empty) == "japanese");
+    for (const char *language : {"japanese", "korean", "vietnamese", "tibetan"})
+      assert(japanese_toggle_target(language, "shuangpin", empty) == "shuangpin");
+    // 上次的中文方案跑不起来（词库没装、不是中文方案或根本没有）时退回默认的全拼，和 effective_input_scheme 一样。
+    assert(japanese_toggle_target("japanese", "zhuyin", empty) == "quanpin");
+    assert(japanese_toggle_target("japanese", "korean", empty) == "quanpin");
+    assert(japanese_toggle_target("japanese", "", empty) == "quanpin");
+  } else {
+    assert(japanese_toggle_target("quanpin", "quanpin", empty).empty());
+    assert(japanese_toggle_target("japanese", "quanpin", empty).empty());
+  }
+
   // A directory with the dictionary name is not a dictionary.
   fs::create_directory(directory / "msime-zhuyin.db");
   std::ofstream(directory / "msime-cantonese.db") << "db";
@@ -168,6 +184,12 @@ int main() {
   assert(input_scheme_available("stroke", stroke_only));
   assert(effective_input_scheme("stroke", "wubi", stroke_only) == "stroke");
   assert(effective_input_scheme("cantonese", "stroke", stroke_only) == "stroke");
+  // 词库装着的粤拼和笔画同样是可切回的中文方案，也是可以切到日语的中文方案。
+  if (offers_japanese_toggle()) {
+    assert(japanese_toggle_target("stroke", "quanpin", stroke_only) == "japanese");
+    assert(japanese_toggle_target("japanese", "stroke", stroke_only) == "stroke");
+    assert(japanese_toggle_target("korean", "cantonese", installed) == "cantonese");
+  }
   // A directory named msime-stroke.db is not a dictionary.
   fs::create_directory(directory / "msime-stroke.db");
   assert(!language_dictionary_availability(options).stroke);

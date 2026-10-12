@@ -176,13 +176,23 @@ pub fn enabled_commands(root: &std::path::Path, enabled: &[String]) -> Vec<Comma
         let super::PluginContent::CommandTable(table) = package.content else {
             continue;
         };
+        let count = table.commands.len().min(MAX_COMMANDS - rows.len());
+        if count == 0 {
+            return rows;
+        }
+        if rows.capacity() - rows.len() < count {
+            let required = rows.len() + count;
+            let target = rows
+                .capacity()
+                .saturating_mul(2)
+                .max(required)
+                .min(MAX_COMMANDS);
+            rows.reserve_exact(target - rows.len());
+        }
+        triggers.reserve(count);
         for row in table.commands {
             if rows.len() == MAX_COMMANDS {
                 return rows;
-            }
-            if rows.is_empty() {
-                rows.reserve_exact(MAX_COMMANDS);
-                triggers.reserve(MAX_COMMANDS);
             }
             if triggers.insert(row.trigger.clone()) {
                 rows.push(row);

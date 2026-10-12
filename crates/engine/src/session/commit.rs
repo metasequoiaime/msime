@@ -14,7 +14,7 @@ use crate::types::{
 };
 use crate::user_dictionary::journal::is_user_inserted;
 
-/// 提交只会读取这些候选字段；纠错提示、权重和固定位置由显示层消费，不必随选择复制。
+/// 提交只会读取这些候选字段；纠错来源用于计算原始按键的消费长度。
 fn clone_selected_candidate(item: &WordItem, copy_sentence_words: bool) -> WordItem {
     WordItem {
         pinyin: item.pinyin.clone(),
@@ -22,6 +22,7 @@ fn clone_selected_candidate(item: &WordItem, copy_sentence_words: bool) -> WordI
         word: item.word.clone(),
         source: item.source,
         scheme: item.scheme,
+        corrected_from: item.corrected_from.clone(),
         sentence_words: if copy_sentence_words && item.source.is_generated_or_fallback() {
             item.sentence_words.clone()
         } else {
@@ -265,11 +266,7 @@ impl InputSession {
             && !self.chain.same_composition
             && !selected.canonical_pinyin.is_empty()
             && count_utf8_chars(&selected.word) >= 3
-            && self.selection_completes_composition(
-                &selected.pinyin,
-                &selected.word,
-                selected.scheme,
-            )
+            && self.selection_completes_composition(&selected)
             && {
                 let mut segments = split_segments(&selected.canonical_pinyin);
                 normalize_umlaut_aliases(&mut segments);
@@ -281,12 +278,7 @@ impl InputSession {
                 )
             };
         let opens_composition = self.phrase_progress.word.is_empty();
-        let transition = self.advance_composition_after_selection(
-            &selected.pinyin,
-            &selected.word,
-            &selected.canonical_pinyin,
-            selected.scheme,
-        );
+        let transition = self.advance_composition_after_selection(&selected);
         self.record_context_into(
             &mut diagnostic,
             Some(&selected),

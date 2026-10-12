@@ -10790,6 +10790,9 @@ private:
                            }));
     bool_row(output, 0xE8C1, L"繁体输出", L"将提交的简体中文转换为繁体中文",
              L"traditional_chinese_output", false);
+    bool_row(output, 0xE8D2, L"中英文之间加空格",
+             L"一次上屏的文字里，汉字与英文字母、数字相邻处自动加一个空格，如「用Rust写」上屏为「用 Rust 写」。两次上屏之间不加；网址、日期等快捷模式和全角输入不受影响，译文和释义上屏、常用语、剪贴板和语音结果也不加",
+             L"chinese_english_spacing", false);
 
     struct LocalMode {
       const wchar_t *id;
@@ -11540,13 +11543,22 @@ private:
              L"keybindings.switch_language_caps_lock", false);
     bool_row(keys, 0xE8C1, L"Ctrl+Shift+F 切换繁体输出", L"在简体与繁体输出之间切换",
              L"keybindings.toggle_character_set_ctrl_shift_f", true);
+    // 只有同时提供日语和中文方案的版本（full）有可切的两头；其他版本不显示，TIP 也不吃这个组合键。
+    const bool offers_chinese =
+        edition_offers_scheme(L"quanpin") || edition_offers_scheme(L"shuangpin") ||
+        edition_offers_scheme(L"wubi") || edition_offers_scheme(L"cantonese") ||
+        edition_offers_scheme(L"zhuyin") || edition_offers_scheme(L"stroke");
+    if (offers_chinese && edition_offers_scheme(L"japanese"))
+      bool_row(keys, 0xE8AB, L"Ctrl+Shift+J 在中文和日语之间切换",
+               L"中文方案下按它切到日语，在日语里再按回到上次的中文方案；英文模式下交给应用。关着时这个组合键交给应用；浏览器里它是开发者工具或下载页的快捷键，打开后在浏览器里会被输入法占用。语言栏图标会变成「日」，系统的输入指示器仍显示中文。",
+               L"keybindings.toggle_japanese_ctrl_shift_j", false);
     bool_row(keys, 0xE8D3, L"Alt+Shift+H 切换全半角",
              L"中文模式下切换全角与半角。关掉后这个组合键交给应用处理；工具栏的全半角开关和 Ctrl+Shift+Space 不受影响。",
              L"keybindings.toggle_fullwidth_option_shift_h", true);
 
     auto reset = add_group(page, L"");
     add_row(reset, 0xE72C, L"恢复默认快捷键",
-            L"切换中英文、Caps Lock、Ctrl+Shift+F 和 Alt+Shift+H 恢复为默认设置",
+            L"切换中英文、Caps Lock、Ctrl+Shift+F、Ctrl+Shift+J 和 Alt+Shift+H 恢复为默认设置",
             button_control(L"恢复默认",
                            [this] {
                              change([](PreferencesDocument &doc) {

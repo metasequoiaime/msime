@@ -13,6 +13,7 @@ export interface InputModeShortcutPreferences {
   toggle_character_set_ctrl_shift_f: boolean;
   toggle_fullwidth_option_shift_h: boolean;
   switch_language_caps_lock?: boolean;
+  toggle_japanese_ctrl_shift_j?: boolean;
   input_mode_hud?: boolean;
 }
 
@@ -31,6 +32,8 @@ export interface InputModeShortcutsSectionProps {
   windows: boolean;
   /** 宿主实现了单按 Caps Lock 切换中英文（`HostCapabilities.caps_lock_language_switch`），显示它的开关。 */
   capsLockLanguageSwitch?: boolean;
+  /** 宿主处理 Ctrl+Shift+J 并且本版本同时提供中文方案和日语（`offersJapaneseToggle`），显示它的开关。 */
+  japaneseToggle?: boolean;
   /** HarmonyOS 手机的「通用」分组：只列出其硬件按键路由处理的组合键，每项都是一个可选「无」的选择，并且没有分组说明。 */
   harmonyPhone?: boolean;
 }
@@ -104,6 +107,7 @@ export function InputModeShortcutsSection({
   fullwidthChord = "Alt+Shift+H",
   windows,
   capsLockLanguageSwitch = false,
+  japaneseToggle = false,
   harmonyPhone = false,
 }: InputModeShortcutsSectionProps) {
   if (!showModeSwitchShortcuts) return null;
@@ -153,6 +157,15 @@ export function InputModeShortcutsSection({
             description={capsLockLanguageSwitchDescription(macos, linux)}
             checked={keybindings.switch_language_caps_lock ?? false}
             onChange={(checked) => onChange({ switch_language_caps_lock: checked })}
+          />
+        )}
+        {/* 只有 Windows 和 Linux 处理它，所以按键名不分 macOS 的写法。 */}
+        {japaneseToggle && (
+          <SwitchRow
+            title="Ctrl+Shift+J 在中文和日语之间切换"
+            description="中文方案下按它切到日语，在日语里再按回到上次的中文方案；英文模式下交给应用。关着时这个组合键交给应用；浏览器里它是开发者工具或下载页的快捷键，打开后在浏览器里会被输入法占用。"
+            checked={keybindings.toggle_japanese_ctrl_shift_j ?? false}
+            onChange={(checked) => onChange({ toggle_japanese_ctrl_shift_j: checked })}
           />
         )}
         <SwitchRow

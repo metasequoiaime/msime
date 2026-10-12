@@ -54,6 +54,7 @@ import { SkinGrid } from "../skin-grid";
 import { mobilePageTitle } from "../mobile-tab-helpers";
 import { pushMobileSettingsState } from "../mobile-navigation";
 import { useMobilePopState } from "../use-mobile-pop-state";
+import { useAsyncGeneration } from "../use-async-generation";
 
 const themeModeOptions = [
   { value: "system", label: "跟随系统" },
@@ -166,43 +167,39 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
   const [savedDesigns, setSavedDesigns] = useState<SavedTouchKeyboardSkin[]>([]);
   const galleryOpen = communityGallery?.category === "skin";
   const gridVisible = phoneGrid && shown && !showTouchSkinEditor && !aiOpen && !galleryOpen;
+  const savedDesignsGeneration = useAsyncGeneration(gridVisible, customSkinLibrary);
   useEffect(() => {
     if (!gridVisible || !customSkinLibrary) return;
-    let current = true;
+    const current = savedDesignsGeneration.current;
     customSkinLibrary.load().then(
       (items) => {
-        if (current) setSavedDesigns(items);
+        if (savedDesignsGeneration.current === current) setSavedDesigns(items);
       },
       // 皮肤库读不出来时只是少了这几张卡片，内置主题照常显示，与 Android 皮肤页一致。
       () => {
-        if (current) setSavedDesigns([]);
+        if (savedDesignsGeneration.current === current) setSavedDesigns([]);
       },
     );
-    return () => {
-      current = false;
-    };
-  }, [gridVisible, customSkinLibrary]);
+  }, [gridVisible, customSkinLibrary, savedDesignsGeneration]);
   // 社区的第一页也列在网格里，点一下就获取并换上，与 Android 键盘皮肤面板一致；更多的在网格下方「浏览更多皮肤」打开的完整图库里。离线或服务不可用时只是没有这几张卡片。
   const { communitySkins } = client;
   const [communityList, setCommunityList] = useState<SavedTouchKeyboardSkin[]>([]);
   const [communityNotice, setCommunityNotice] = useState("");
   const taking = useRef(false);
+  const communityListGeneration = useAsyncGeneration(gridVisible, communitySkins);
   useEffect(() => {
     if (!gridVisible || !communitySkins) return;
-    let current = true;
+    const current = communityListGeneration.current;
     communitySkins.list(0, "", false, null).then(
       (page) => {
-        if (current)
+        if (communityListGeneration.current === current)
           setCommunityList(page.skins.map(({ id, name, design }) => ({ id, name, design })));
       },
       () => {
-        if (current) setCommunityList([]);
+        if (communityListGeneration.current === current) setCommunityList([]);
       },
     );
-    return () => {
-      current = false;
-    };
-  }, [gridVisible, communitySkins]);
+  }, [gridVisible, communitySkins, communityListGeneration]);
   /** 点社区皮肤：和社区页的「获取」一样下载（服务器计入一次下载，设计以社区 id 存进皮肤库），结束试用但不保留，再经表单换上，与「使用」相同。 */
   const takeCommunitySkin = async (skin: SavedTouchKeyboardSkin): Promise<boolean> => {
     if (!communitySkins || taking.current) return false;

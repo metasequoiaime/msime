@@ -166,6 +166,7 @@ fn the_key_path_and_event_derivation_allocate_nothing() {
     let context = Context {
         flags: FEEDBACK,
         traits: TRAIT_KNOWN,
+        pieces_held: false,
     };
     let commit_once = || {
         replay(
