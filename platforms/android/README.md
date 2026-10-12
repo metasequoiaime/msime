@@ -89,6 +89,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 组字中只按着 Ctrl 的回车（主键盘或小键盘）上屏高亮候选的译文（#7079，`HardwareTranslationCommitPolicy`，排在上面那条「Ctrl/Alt/Meta 组合键交给系统」之前）：译文按长按菜单同一条规则（`CandidateTranslationPolicy.insertionGlosses`，两种目标语言都拆成义项）拆开，一个义项直接上屏，几个义项时候选行换成义项页（`ImeTranslationSenses`），1–9 选第几项、空格或回车上屏高亮项、方向键和 Home/End 移动、Esc 或返回只关页，其他键关页后照常处理；没有译文或释义显示关着时按键被吃掉、什么也不做，免得聊天应用在拼音还没上屏时就把消息发出去。上屏后和长按菜单一样用命令 3 结束组字。只在允许插入译文的方案里接（`candidateGlossInsertionEnabled`：本地模式、日语、韩语和不带释义的方案不接），没有组字时 Ctrl+Enter 照常交给应用。被接住的键按住时的自动重复和随后的抬起也不交给应用。
 
+没有实体键盘时，屏幕键盘上组字中的「确认」（回车键）长按做同一件事（#6792）：`HardwareTranslationCommitPolicy.returnHold` 与 Ctrl+Enter 同一个条件和去向，一个义项直接上屏，几个打开同一个义项页（点选即可）；高亮候选没有译文时长按当作点按，照常确认组字（屏幕上的「确认」不会把回车交给应用，不必吃掉）。能用时回车键右上角标「译」（`KeyboardIconKey.setCornerHint`，与字母键角标同一字号和位置），读屏描述是「确认；长按上屏译文」。
+
 共享 `number_row_selection` 开启时，硬件键盘数字行 1–9 选择当前候选页对应槽位，每页十个候选时 0 选第十个；选择仍携带 Engine 返回的 session、generation 和候选 index，候选过期或当前没有该槽位时按键交回编辑器。英文、密码和直接输入不抢数字键，关闭偏好也立即恢复系统行为。
 
 硬件键盘快捷键消费共享 `keybindings`：Shift+Space、Ctrl+Alt+Space 和单击 Shift/Ctrl 可切换中英，Ctrl+Shift+F 切换简繁，Alt+Shift+H 切换全角输入；每个开关都按偏好即时生效。修饰键单击只有在 600 ms 内且期间没有按下其他键时才触发，组合键优先于普通编辑器快捷键；不匹配或关闭的快捷键继续交给 Android/编辑器。触屏键盘的 Shift 和“简/繁”按钮仍走各自原生路径。

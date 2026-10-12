@@ -1,4 +1,4 @@
-# Agent Note: Android 实体键盘 Ctrl+Enter 上屏候选译文
+# Agent Note: Android 实体键盘 Ctrl+Enter 与屏幕键盘长按「确认」上屏候选译文
 
 Status: implemented
 
@@ -21,6 +21,15 @@ Status: implemented
 - 上屏之后用命令 3（`MSIME_CANCEL`）结束组字，和长按路径 `insertCandidateGloss` / `insertExpandedCandidateGloss` 相同。
 - 被这条路接住的键记在 `translationConsumedKeyCode`。它在按住时的自动重复，以及随后的抬起，也都不交给应用，下一次首次按下或 `onFinishInput` 时清掉。义项页里只记上屏、关页和留在页内的键（`holdsKey`），不记方向键和 Home/End：自动重复的过滤排在页内分派之前，记下方向键的话它的重复到不了 `pageKey`，按住只会移动一格。
 
+## 屏幕键盘：长按「确认」
+
+Ctrl+Enter 只照顾到接实体键盘的人，而 #6792 第三点的原话是「希望可以推出快捷键直接可以打出」，绝大多数 Android 用户手里没有实体键盘，对他们来说还是只有长按候选、在菜单里点译文这一条路。所以屏幕键盘上组字时的「确认」（回车键）加一个长按，去向与 Ctrl+Enter 相同：
+
+- `HardwareTranslationCommitPolicy.returnHold(eligible, senseCount)`：`eligible` 与 Ctrl+Enter 同一个条件。1 个义项 `COMMIT`，2 个及以上 `OPEN_PAGE`（义项页本来就能点选）。**没有译文时 `NONE`，长按当作点按，照常确认组字**。这一点与 Ctrl+Enter 的「吃掉」不同：屏幕上的「确认」只结束组字，不会把回车交给应用，没有把拼音发出去的风险，吃掉反而像键坏了。
+- 服务里 Ctrl+Enter 和长按共用 `translationTarget()`（找高亮候选、拆义项）和 `performTranslationCommit()`（直接上屏或开页），`bindReturnTranslationHold` 由 `ImeBottomRow.ensureFaces` 在建回车键面时挂上。所有布局（26 键、九键、14 键、注音、笔画等）共用同一个 `enterButton`，日语九键的「改行」是另一个键，日语本来就不接。
+- 看得见：长按能上屏译文时（`marksReturnKey`，与 `returnHold` 不为 `NONE` 同义），回车键右上角标「译」，字号和位置与字母键的角标相同（`KeyboardIconKey.setCornerHint`），读屏描述是「确认；长按上屏译文」，长按动作也叫「上屏译文」。译文是异步到的，标记随下一次 `render()` 里的 `updateReturnKey` 出现。
+- 长按播放按键反馈、计一次 `Enter`。
+
 ## 和其他宿主的取舍
 
 - **没有译文也吃键**，跟 Windows 和鸿蒙，不跟 macOS 和 Linux。macOS 和两套 Linux 前端只在「候选窗开着、释义开关打开、高亮候选确实有译文」时拦截，否则 Ctrl+Enter 照旧结束组字。issue 正文定的是 Windows 的做法：Windows TIP 只看候选列表开没开（`KeyEventSink.cpp` 的 `_candidateMode != CANDIDATE_NONE`），不看释义开关。理由是在聊天应用里，Ctrl+Enter 常常就是发送键，「这次碰巧没有译文」时把拼音上屏再发出去，比什么也不做糟得多。用户想要原来的效果（上屏原文），按 Enter 就行。
@@ -32,6 +41,8 @@ Status: implemented
 - **只在有译文、释义开着时拦截，否则照旧（macOS / Linux 的做法）**：最强的理由是不改变没开释义的用户的 Ctrl+Enter，原文照样上屏。不采用的原因是聊天应用里按键会被直接发送，而且 issue 已经定了跟 Windows。
 - **把释义开关算进「接不接」**：评审时的第一版就是这样，它和「释义关着时拼音不上屏」这条设备用例互相矛盾。最后让开关只影响义项数。
 - **页内按键交给引擎的候选导航，或复用展开面板**：可以少写一个组件。但释义页不是引擎状态，页里的「候选」是宿主拆出来的字符串，没有 session、generation 和 index 身份，引擎也没法给它们分页。照 `ImeEmailSuffixes` 另画一行，是同一宿主里已经验证过的写法。
+- **候选栏上放一个「译」键（屏幕键盘入口）**：一眼能看到，点一下就上屏。不采用的原因是译文异步到达，这个键会在候选出来之后才插进候选栏，把候选整体往右挤，正要点候选的手指会点错；它还要占候选栏本来就紧的宽度。回车键的长按不改变任何布局，角标「译」只是在已有的键上多画一个字。
+- **长按「确认」没有译文时也吃掉，和 Ctrl+Enter 一致**：两条路的规则完全相同，好记。不采用的原因见上一节：屏幕上的「确认」不会把回车交给应用，吃掉只会让人以为长按坏了。
 - **义项页用 `PopupMenu`，和长按一样**：实体键盘用户的手不在屏幕上，`PopupMenu` 接不到数字键和空格，也和其他平台的义项页对不上。
 - **抬起事件交给应用（评审方案原本的打算，和裸回车 `enter(); return true;` 的现状相同）**：按下被吃掉、抬起却放行，一般不会出事，因为 `TextView` 只在自己看到过按下时才响应抬起。但用户先松 Ctrl 再松回车时，这个抬起不带修饰键，个别直接监听 `KEYCODE_ENTER` 抬起的应用会执行发送。吃掉抬起只需要一个字段，按住时的自动重复也一起挡住了：第一下上屏后组字已经清空，之后的重复事件按理落进空闲状态，会被交给应用。
 
@@ -40,9 +51,11 @@ Status: implemented
 - Android 接实体键盘时，Ctrl+Enter 与桌面端、鸿蒙基本一致：单义项直接上屏，多义项可以用键盘选。没有译文时这个键在组字中不再起作用，这正是 issue 要的。
 - 支持插入译文的方案里，组字中的 Ctrl+Enter 从此不再「上屏原文 + 应用收到回车」。之前依赖这个效果的用户要改按 Enter。不支持的方案和本地模式不变。
 - 已知遗留：上屏的译文不随繁体输出转换，Windows 和 macOS 会转。目标语言里只有日语可能含汉字，影响很小，长按路径也一样没转。iOS 键盘扩展收不到实体键盘事件，不涉及。裸回车 `enter(); return true;` 的抬起仍交给应用，这不在本次范围内。
+- 没有实体键盘的人也有了一步上屏译文的路：组字时回车键角上出现「译」，长按它。代价是回车键在组字时多了一个长按含义，平时习惯按住回车的人会触发译文上屏，但只在角上有「译」时才会。
 - 义项页的失效靠 session 和 generation。引擎不回复的操作（例如只打开工具栏面板）不会关页，页面就留在候选行上，下一次组字变化时自然消失。
 
 ## Verification
 
-- `bash platforms/android/check-host.sh`：新冒烟 `HardwareTranslationCommitPolicySmoke` 通过；结构守卫通过；`MSIMEInputService`、`ImeTranslationSenses` 和设备套件源文件在 `javac -Xlint:all -Werror` 下编译通过。
+- `bash platforms/android/check-host.sh`：新冒烟 `HardwareTranslationCommitPolicySmoke` 通过（也钉住 `returnHold` 与 `marksReturnKey`；把「没有译文时当作点按」改成吃掉后，冒烟在 "a held return without a gloss is a tap" 处失败）；结构守卫通过；`MSIMEInputService`、`ImeTranslationSenses` 和设备套件源文件在 `javac -Xlint:all -Werror` 下编译通过。
+- 屏幕键盘长按由 `tests/device/candidate/CandidateGlossDeviceSmoke.java` 覆盖：「你好」带上 `hello` 释义后，回车键的读屏描述是「确认；长按上屏译文」，对它执行长按动作后输入框是「你好hello」；释义关着时回车键不再提供这个长按。
 - 设备套件 `tests/device/keyboard/HardwareTranslationDeviceSmoke.java` 已登记进 `smoke.sh`。它用 `uinput` 接上的 USB 键盘依次覆盖：「你好」单义项 `hello` 直接上屏；「我的」两个义项开页后按 2、Esc 关页后组字还在、空格上屏第一项；释义关着时吃键；空闲时不接。`uinput` 键盘的辅助方法从 `CaretCandidatesDeviceSmoke` 提到 `DeviceSmoke`，加了 `ctrlChord`，所以 `CaretCandidatesDeviceSmoke` 也要一起重跑。这两个套件写下这篇笔记时还没在模拟器上跑过。设备 CI（`android-device.yml`）在 PR 上不跑，合并前要在本机 API 35 上跑 `smoke.sh`。API 28 只能在 `hw.keyboard=yes` 的 AVD 里手工验证。
