@@ -401,6 +401,11 @@ test("desktop dictionary file page reuses the authenticated client and returns t
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(expect.objectContaining({ operation: "list" })),
   );
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "导入与导出" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
   fireEvent.click(screen.getByRole("button", { name: "导入与导出" }));
   expect(screen.getByText("导入与导出")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "返回云词库" }));
