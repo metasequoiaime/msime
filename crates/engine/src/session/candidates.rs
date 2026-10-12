@@ -506,20 +506,15 @@ impl InputSession {
         decoded: &[WordItem],
         conversion: &MixedJapaneseConversion,
     ) -> MixedJapaneseRow {
+        let chinese_whole_word = decoded
+            .iter()
+            .find(|item| item.source != CandidateSource::EnglishDictionary)
+            .is_some_and(|item| {
+                item.source.is_dictionary() && self.selection_completes_composition(item)
+            });
         let lead = if conversion.pinyin_incomplete {
             conversion.known
         } else {
-            let chinese_whole_word = decoded
-                .iter()
-                .find(|item| item.source != CandidateSource::EnglishDictionary)
-                .is_some_and(|item| {
-                    item.source.is_dictionary()
-                        && self.selection_completes_composition(
-                            &item.pinyin,
-                            &item.word,
-                            item.scheme,
-                        )
-                });
             !chinese_whole_word
         };
         let mut item = WordItem::new(
