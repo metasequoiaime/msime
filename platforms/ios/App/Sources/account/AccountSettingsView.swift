@@ -195,9 +195,7 @@ struct AccountSettingsView: View {
           .lineLimit(1)
       }
       Spacer(minLength: 8)
-      Image(systemName: "chevron.right").font(.system(size: 20))
-        .foregroundStyle(MetasequoiaTheme.sub.opacity(0.55))
-        .accessibilityHidden(true)
+      DesignChevron(fontSize: 20)
     }
     .padding(16)
     .frame(maxWidth: .infinity, alignment: .leading)

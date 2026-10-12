@@ -206,9 +206,7 @@ struct PersonalDictionaryView: View {
         }
       }
       Spacer(minLength: 8)
-      Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(MetasequoiaTheme.sub.opacity(0.6))
-        .accessibilityHidden(true)
+      DesignChevron(opacity: 0.6)
     }
     .frame(minHeight: 44)
     .contentShape(Rectangle())

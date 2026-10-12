@@ -514,9 +514,7 @@ private struct InputLanguageRow<Choice: Hashable>: View {
         if let value {
           Text(value).font(.system(size: 15)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)
         }
-        Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold))
-          .foregroundStyle(MetasequoiaTheme.sub.opacity(0.55))
-          .accessibilityHidden(true)
+        DesignChevron(fontSize: 14)
       }
       .padding(.horizontal, 16)
       .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)

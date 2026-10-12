@@ -187,10 +187,11 @@ private extension DesignRowLayout where Leading == EmptyView {
 /// 导航行和选择行行尾的箭头。
 /// Shared trailing chevron for compact navigation rows.
 struct DesignChevron: View {
+  var fontSize: CGFloat = 13
   var opacity: Double = 0.55
 
   var body: some View {
-    Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
+    Image(systemName: "chevron.right").font(.system(size: fontSize, weight: .semibold))
       .foregroundStyle(MetasequoiaTheme.sub.opacity(opacity))
       .accessibilityHidden(true)
   }

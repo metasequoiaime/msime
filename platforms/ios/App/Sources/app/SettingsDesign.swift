@@ -158,10 +158,7 @@ struct SettingsCardRow: View {
           if let value {
             Text(value).font(.system(size: 17)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)
           }
-          Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(MetasequoiaTheme.sub.opacity(0.55))
-            .padding(.trailing, 2)
-            .accessibilityHidden(true)
+          DesignChevron(fontSize: 14).padding(.trailing, 2)
         }
         .frame(minHeight: 52)
         .overlay(alignment: .bottom) {
