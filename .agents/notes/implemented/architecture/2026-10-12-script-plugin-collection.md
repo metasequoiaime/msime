@@ -43,7 +43,7 @@ pangu-spacing 是第一个按这些规则写的插件。第一版（一个循环
 
 ### 四个候选窗口插件
 
-rare-chars-last、hide-rare-chars、traditional-glyph 和 unicode-codepoint 都挂 `candidates`，每次最多看 20 行，按上面的 fuel 计法各自定了工作量上限，并在夹具里放了塞满工作量的最坏情况（峰值 36 561、37 992、36 130、34 558，都在 62 500 以内）。
+rare-chars-last、hide-rare-chars、traditional-glyph 和 unicode-codepoint 都挂 `candidates`，每次最多看 20 行，按上面的 fuel 计法各自定了工作量上限，并在夹具里放了塞满工作量的最坏情况（峰值 38 672、38 561、35 441、34 558，都在 62 500 以内）。
 
 - **生僻字判定不调用共用的 `classify`。** `shared/common_chars.rs` 的 `classify` 每个多字节字符都进一次通用解码，再走区段判断和二分查找，实测每个常用汉字约 200–290 fuel、每个 ASCII 字节约 35，20 行的窗口最坏 11 万到 12.5 万，超过 `candidates` 的单次上限。两个插件各自绕开它：hide-rare-chars 的 `src/scan.rs` 按 UTF-8 首字节跳过，只在汉字上调用 `is_han`、`is_common`、`is_kana`（每字约 250、每 ASCII 字节约 17）；rare-chars-last 的 `src/rare.rs` 在编译时把 `common-chars.bin` 展开成 U+3000..U+9FFF 每字 2 位（7 KiB）和辅助平面按 256 字分组（约 2.5 KiB）的查表（每字约 64、每 ASCII 字节约 15，每换一种字符另加约 200），格式变化由编译期断言拦住。`classify` 留作判定规则的参照实现，rare-chars-last 的查表在宿主上和它逐个比对过。两种扫描各留在自己的插件里，不合进 `shared/`：它们在模块大小和 fuel 之间取的点不同（hide-rare-chars 不展开数据，模块约 7 KiB，每个汉字约 250；rare-chars-last 多 9.5 KiB 的查表，每个汉字约 64），合成一份就要让其中一个插件放弃自己那一头。判定一致靠 `classify` 这份参照和两个插件的夹具守着。
 - **工作量上限。** rare-chars-last 一次最多读 768 字节、扫 80 段、每行 256 字节；hide-rare-chars 最多读 640 字节、细看 100 个 U+3000 以上的字（辅助平面字按 3 个算）、每行 256 字节。超出的行不判定、按不生僻处理，日志写明。traditional-glyph 把每一步按实测成本记到 34 000 的预算上，用完后剩下的行不注释，日志末尾加 `(budget)`。每个字的单价按字节数分档，同一档里取最贵的路径（“”…— 这类通用标点要多查一张格式字符表，比全角标点贵约 130），超过 128 字节、读不进来的行也扣一行的开销；起初按常见路径定价，20 行通用标点就要约 48 000、混进超长行约 52 000，同一个按键里第三次投递会被本轮配额截断。unicode-codepoint 只注单个字符和 2–4 个码位的 emoji 序列，最长的注释正好 32 个 UTF-16 码元。
@@ -80,5 +80,6 @@ rare-chars-last、hide-rare-chars、traditional-glyph 和 unicode-codepoint 都�
 - `shared/common_chars.rs` 在宿主上编成临时程序，对 U+0000..U+3FFFF 逐个调用 `is_common`，得到的集合和生成器在 Python 里算出的 11 049 字完全相同。
 - 五个插件合并后 `scripts/test-script-plugins.sh` 全部通过：hide-rare-chars 26 个事件（峰值 fuel 37 992）、pangu-spacing 22 个（37 171）、rare-chars-last 28 个（36 561）、traditional-glyph 34 个（36 130）、unicode-codepoint 17 个（34 558）；`gen_common_chars.py` 和 `gen_s2t_table.py` 的 `--check` 都一致。
 - `actionlint` 对 `ci-platforms.yml` 无报错；`shellcheck` 对两个脚本无报错。
+- 评审之后的修正：`scripts/test-script-plugins.sh` 全部通过，hide-rare-chars 27 个事件（峰值 38 561）、pangu-spacing 23 个（43 816）、rare-chars-last 29 个（38 672）、traditional-glyph 38 个（35 441）、unicode-codepoint 17 个（34 558）。四个候选窗口插件各用几千个随机窗口（多种来源；汉字、繁体字、通用标点、泰文、注音、拉丁和阿拉伯字母、emoji、辅助平面字混排；超长行）压测，没有失败，traditional-glyph 最多约 33 900，其余三个的最贵窗口已收进夹具。挪走 Unihan 缓存后 `MSIME_FETCH=1` 重新下载、`--check` 通过；设 `MSIME_REQUIRE_SCRIPT_PLUGINS=1` 而不下载时以 1 退出。删掉一个包的 `OpenCC-LICENSE.txt`、去掉 `Unicode-3.0`、改动照录的 NOTICE 或 `LICENSE.txt` 时组装都会失败。
 
 相关：[沙箱运行时](2026-10-12-script-runtime-sandbox.md) 定义 fuel 配额；[脚本插件的作者工具](../feature/2026-10-12-script-plugin-author-tools.md) 定义 `msime-pack run`、SDK 和模板；[脚本插件修改上屏和候选](2026-10-12-script-plugins-modify-commit-and-candidates.md) 定义重排、隐藏、注释的合成规则。
