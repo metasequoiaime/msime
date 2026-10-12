@@ -650,11 +650,7 @@ public final class VoicePage extends ReloadingDetailPage {
             HostTask.runNetwork(this, context -> runTest(context, service), result -> {
                 testing.remove(service);
                 if (!isAdded()) return;
-                new MaterialAlertDialogBuilder(requireContext())
-                    .setTitle(VoicePolishSettingsPolicy.testTitle(result.ok()))
-                    .setMessage(result.message())
-                    .setPositiveButton("好", null)
-                    .show();
+                MessageDialog.show(requireContext(), VoicePolishSettingsPolicy.testTitle(result.ok()), result.message());
             });
         });
     }
