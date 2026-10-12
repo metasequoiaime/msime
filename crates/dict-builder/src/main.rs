@@ -33,6 +33,7 @@ mod others;
 mod pinyin;
 mod places;
 mod places_supplement;
+mod private_file;
 mod product;
 mod sources;
 mod sqlite;

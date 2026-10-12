@@ -319,27 +319,7 @@ pub fn sha256_file(path: &Path) -> Result<String> {
 }
 
 fn open_private(path: &Path) -> std::io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    }
-    let file = options.open(path)?;
-    if !file.metadata()?.is_file() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "dictionary input is not a regular file",
-        ));
-    }
-    Ok(file)
+    crate::private_file::open_read_only(path, "dictionary input is not a regular file")
 }
 
 pub(crate) fn read_private(path: &Path) -> std::io::Result<Vec<u8>> {
