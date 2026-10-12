@@ -5,30 +5,20 @@ import { preserveAnimationShorthands, preserveFontShorthands } from "./animation
 import { installConditionalFonts, type ConditionalFont } from "./conditional-fonts";
 import { walkCssRules } from "./css-rules";
 import { boundedResourceReader } from "./bounded-resource-reader";
+import { scanCssValue } from "./css-value-scan";
 
 export function splitCssFontList(value: string): string[] {
   const parts: string[] = [];
   let start = 0,
-    depth = 0,
-    quote = "";
-  for (let index = 0; index < value.length; index++) {
-    const char = value[index];
-    if (char === "\\") {
-      index++;
-      continue;
-    }
-    if (quote) {
-      if (char === quote) quote = "";
-      continue;
-    }
-    if (char === '"' || char === "'") quote = char;
-    else if (char === "(") depth++;
+    depth = 0;
+  scanCssValue(value, 0, false, (char, index) => {
+    if (char === "(") depth++;
     else if (char === ")") depth--;
     else if (char === "," && depth === 0) {
       parts.push(value.slice(start, index).trim());
       start = index + 1;
     }
-  }
+  });
   parts.push(value.slice(start).trim());
   return parts;
 }

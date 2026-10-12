@@ -37,6 +37,18 @@ test("preserves layer supports and media import conditions", async () => {
   expect(result.css).toContain(".item");
 });
 
+test("keeps nested functions and commas inside import conditions", async () => {
+  const result = await prepareToolbarImports(
+    '@import url("theme.css") supports(selector(:is(.a, .b))) screen and (min-width: 10px);',
+    "toolbar.css",
+    async () => ".theme { color: red }",
+  );
+  expect(result.partial).toBe(false);
+  expect(result.css).toContain("@supports (selector(:is(.a, .b)))");
+  expect(result.css).toContain("@media screen and (min-width: 10px)");
+  expect(result.css).toContain(".theme");
+});
+
 test("removes charset and decodes quoted and escaped import URLs", async () => {
   const read = vi.fn(async (relative: string) => `.${relative.replace(/\W/g, "-")} { color: red }`);
   const result = await prepareToolbarImports(

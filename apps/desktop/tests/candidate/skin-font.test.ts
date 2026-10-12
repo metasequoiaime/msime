@@ -30,4 +30,9 @@ test("font sources decode package paths but never accept remote/local/traversal 
     'local("a,b")',
     'url("font.woff2") format("woff2")',
   ]);
+  expect(splitCssFontList('local("a,(b)"), url(a\\,b.woff2), local("c")')).toEqual([
+    'local("a,(b)")',
+    "url(a\\,b.woff2)",
+    'local("c")',
+  ]);
 });

@@ -1,5 +1,6 @@
 export type AnimationMode = "animation" | "animation-name";
 import { customPropertyNames, decodeCustomPropertyName } from "./css-custom-property";
+import { scanCssValue } from "./css-value-scan";
 
 // Recognize a whole var() value, preserving commas in strings/functions in its
 // fallback. Partial token substitution is a separate compatibility step.
@@ -7,38 +8,20 @@ export function parseAnimationVariable(value: string): { name: string; fallback?
   value = value.trim();
   if (!/^var\(/i.test(value)) return null;
   let depth = 1,
-    comma = -1,
-    quote = "";
-  for (let index = 4; index < value.length; index++) {
-    const char = value[index];
-    if (char === "\\") {
-      index++;
-      continue;
-    }
-    if (quote) {
-      if (char === quote) quote = "";
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (char === "/" && value[index + 1] === "*") {
-      const end = value.indexOf("*/", index + 2);
-      if (end < 0) return null;
-      index = end + 1;
-      continue;
-    }
+    comma = -1;
+  let result: { name: string; fallback?: string } | null = null;
+  const valid = scanCssValue(value, 4, true, (char, index) => {
     if (char === "(") depth++;
     else if (char === ")") {
-      if (--depth !== 0) continue;
-      if (index !== value.length - 1) return null;
+      if (--depth !== 0) return;
+      if (index !== value.length - 1) return false;
       const name = decodeCustomPropertyName(value.slice(4, comma < 0 ? index : comma));
-      if (name === null) return null;
-      return comma < 0 ? { name } : { name, fallback: value.slice(comma + 1, index).trim() };
+      if (name !== null)
+        result = comma < 0 ? { name } : { name, fallback: value.slice(comma + 1, index).trim() };
+      return false;
     } else if (char === "," && depth === 1 && comma < 0) comma = index;
-  }
-  return null;
+  });
+  return valid ? result : null;
 }
 
 // Duplicate only animation-referenced custom properties under private names.

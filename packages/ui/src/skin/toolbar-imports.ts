@@ -2,6 +2,7 @@ import { utf8ByteLength } from "../core/text";
 import parse from "postcss/lib/parse";
 import { atRule, type AtRule, type ChildNode, type Root } from "postcss";
 import { decodeCssUrl, rebaseCssResources } from "./css-image-value";
+import { scanCssValue } from "./css-value-scan";
 
 const MAX_IMPORTS = 16;
 const MAX_DEPTH = 8;
@@ -40,27 +41,18 @@ function consumeString(value: string): { raw: string; rest: string; quoted: bool
 function consumeFunction(value: string, name: string): { raw: string; rest: string } | null {
   const head = new RegExp(`^${name}\\s*\\(`, "i").exec(value);
   if (!head) return null;
-  let quote = "",
-    depth = 1;
-  for (let index = head[0].length; index < value.length; index++) {
-    const char = value[index];
-    if (char === "\\") {
-      index++;
-      continue;
+  let depth = 1;
+  let end = -1;
+  scanCssValue(value, head[0].length, false, (char, index) => {
+    if (char === "(") depth++;
+    else if (char === ")" && --depth === 0) {
+      end = index;
+      return false;
     }
-    if (quote) {
-      if (char === quote) quote = "";
-      continue;
-    }
-    if (char === '"' || char === "'") quote = char;
-    else if (char === "(") depth++;
-    else if (char === ")" && --depth === 0)
-      return {
-        raw: value.slice(head[0].length, index).trim(),
-        rest: value.slice(index + 1),
-      };
-  }
-  return null;
+  });
+  return end < 0
+    ? null
+    : { raw: value.slice(head[0].length, end).trim(), rest: value.slice(end + 1) };
 }
 
 function packagePath(base: string, relative: string): string | null {

@@ -13,6 +13,10 @@ test.each([
     "var(--name, var(--other, pulse 1s steps(2, end)))",
     { name: "--name", fallback: "var(--other, pulse 1s steps(2, end))" },
   ],
+  [
+    'var(--name, /* , ) */ var(--other, "a,b"))',
+    { name: "--name", fallback: '/* , ) */ var(--other, "a,b")' },
+  ],
 ])("parses whole variable references: %s", (value, expected) => {
   expect(parseAnimationVariable(value as string)).toEqual(expected);
 });
