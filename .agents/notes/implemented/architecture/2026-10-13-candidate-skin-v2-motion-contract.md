@@ -10,7 +10,7 @@ Status: implemented
 
 皮肤清单现在接受版本 1 和版本 2。版本 1 的动画固定为静态；版本 2 可以声明 `[animation]`，但只能从 `none`、`fade`、`fade_scale`、`slide_up`、`spring`、`glow` 六个固定预设中选择，持续时间限制在 40–600ms，交错间隔限制在 0–80ms。没有声明表的 v2 包使用短时的 `fade_scale` / `fade` / `spring` 默认组合。
 
-共享 Rust catalog 解析并序列化这份语义，MCP 的皮肤列表报告它，创建工具和 `make_skin` prompt 描述同一组字段，CLI 帮助也指向 schema v2。Web engine 将预设映射为自己的固定关键帧，不执行包内 CSS 或脚本；候选栏在显示、选中和隐藏时使用动画，并由 `prefers-reduced-motion` 关闭。macOS 的非激活 `NSPanel` 在显示、隐藏和选中候选时分别映射淡入/淡出、弹簧/发光等 Core Animation 效果，并用代次栅栏避免关闭动画的迟到回调收起新一帧。Linux 的 Fcitx5/IBus 面板保留宿主自身的动效能力，因此可以忽略动画字段而不影响候选身份、焦点或 Wayland 定位。
+共享 Rust catalog 解析并序列化这份语义，MCP 的皮肤列表报告它，创建工具和 `make_skin` prompt 描述同一组字段，CLI 帮助也指向 schema v2。Web engine 将预设映射为自己的固定关键帧，不执行包内 CSS 或脚本；候选栏在显示、选中和隐藏时使用动画，并由 `prefers-reduced-motion` 关闭。macOS 的非激活 `NSPanel` 在显示、隐藏和选中候选时分别映射淡入/淡出、弹簧/发光等 Core Animation 效果，并用代次栅栏避免关闭动画的迟到回调收起新一帧。Windows 原生候选窗同样解析这份模型，在 Direct2D 合成层上执行淡入、缩放、上移、弹簧和发光，并把 Windows 的 `SPI_GETCLIENTAREAANIMATION` 作为 reduced-motion 开关。Linux 的 Fcitx5/IBus 面板由桌面面板拥有，保留宿主自身的动效能力，因此忽略动画字段而不影响候选身份、焦点或 Wayland 定位。
 
 ## Alternatives considered
 
@@ -20,6 +20,6 @@ Status: implemented
 
 ## Consequences
 
-动画字段是可同步、可审计的纯数据，旧版静态包仍可读；不支持动画的宿主不会拒绝皮肤或影响输入。Web 候选栏具有淡入、上移、弹簧高亮和淡出效果，macOS 原生候选按钮也会播放选中动效，且系统减弱动态效果时不播放。新增预设需要同时修改 Rust 校验、MCP/CLI 文案、Web 映射、原生映射和测试；预设数量刻意保持小，不能满足任意复杂的逐元素编排。
+动画字段是可同步、可审计的纯数据，旧版静态包仍可读；不支持动画的宿主不会拒绝皮肤或影响输入。Web 候选栏具有淡入、上移、弹簧高亮和淡出效果，macOS 原生候选按钮和 Windows Direct2D 候选卡片也会播放对应动效，且系统减弱动态效果时不播放。新增预设需要同时修改 Rust 校验、MCP/CLI 文案、Web 映射、原生映射和测试；预设数量刻意保持小，不能满足任意复杂的逐元素编排。
 
 验证覆盖 `msime-client-core` 全量单测、MCP server 单测、Host API 皮肤测试、Web skin 单测、macOS 候选面板 Objective-C++ 严格语法检查和 Rust 格式检查；Web 测试还核对动画 CSS 变量只包含有限的 `ms` 数值，不能跳出样式声明。
