@@ -135,6 +135,8 @@ import {
   SmartPunctuationRepeatPolicy, SmartPunctuationRepeatSnapshot
 } from './input/SmartPunctuationRepeatPolicy';
 import { BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
+import { SharedStateMirror } from './SharedStateMirror';
+import { SharedStateSync } from './SharedStateSync';
 import { InlinePreeditPolicy, InlinePreeditStyle } from './input/InlinePreeditPolicy';
 import {
   CompositionBoundary, CompositionBoundaryAction, CompositionBoundaryPolicy
@@ -1174,6 +1176,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   private modeBadge: boolean = true;
   private resourceDirectory: string = '';
   private stateDirectory: string = '';
+  // 共享沙箱里与设置应用交换状态的镜像，没有共享目录时为 null；`sharedFullMode` 报告键盘此刻是否处于完整体验模式，只有那时键盘才能写共享目录。
+  private sharedMirror: SharedStateMirror | null = null;
+  private sharedFullMode: () => boolean = (): boolean => false;
   private cloudClipboardClient: CloudClipboardClient | undefined = undefined;
   private systemDark: boolean = false;
   // What the editor wants its return key to do. Sending this rather than a newline is what makes the
@@ -2985,6 +2990,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.applyView(client.setEnglishMode(this.handle, this.englishMode));
       this.applyView(client.setKeyGrid(this.handle, this.keyGrid));
     }
+    // 先导入设置应用经共享沙箱发布的改动，随后的修订号比较、按键反馈和应用主题的重新读取就会看到它们。
+    this.syncSharedState();
     this.reloadChangedPreferences();
     // 按键反馈和手写板设置是另一个文件，设置应用写它时不会推进偏好修订号，所以每次获得焦点都要读取，而不只在构建会话时读取。文件存在却读不到时保留上次的值，一次读取失败不能把隐私模式当成关闭。
     this.refreshFeedback();
@@ -2993,6 +3000,19 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.refreshAppTheme(true) && this.onViewPreferencesReloaded !== undefined) {
       this.onViewPreferencesReloaded();
     }
+  }
+
+  /** 设置应用和键盘共享沙箱的镜像，由扩展在拿到共享目录后交给会话；`fullMode` 每次调用时读当前的安全模式。 */
+  useSharedSandbox(mirror: SharedStateMirror, fullMode: () => boolean): void {
+    this.sharedMirror = mirror;
+    this.sharedFullMode = fullMode;
+  }
+
+  private syncSharedState(): void {
+    if (this.sharedMirror === null || this.stateDirectory.length === 0) {
+      return;
+    }
+    SharedStateSync.keyboardSync(this.sharedMirror, this.stateDirectory, this.sharedFullMode());
   }
 
   detach(): void {
@@ -3018,6 +3038,10 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.updateMusic();
     this.keyStatisticsEditorKnown = false;
     this.flushKeyPresses();
+    // 完整体验模式下把这次编辑里记下的统计、在键盘里改的偏好发布给设置应用；基础访问模式下键盘写不了共享目录。
+    if (this.sharedMirror !== null && this.sharedFullMode()) {
+      SharedStateSync.keyboardPublish(this.sharedMirror);
+    }
   }
 
   stop(): void {

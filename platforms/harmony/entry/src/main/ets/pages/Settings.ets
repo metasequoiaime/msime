@@ -60,6 +60,8 @@ import { HarmonyTelemetry } from '../telemetry/Telemetry';
 import { TelemetryPolicy } from '../telemetry/TelemetryPolicy';
 import { NoticeItem, NoticePolicy } from '../notices/NoticePolicy';
 import { HarmonySharedSandboxPolicy } from '../keyboard/HarmonySharedSandboxPolicy';
+import { SharedStateMirror } from '../keyboard/SharedStateMirror';
+import { SharedStateSync } from '../keyboard/SharedStateSync';
 
 /** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id, files}` for an import from local files, `{root, id}` for a removal, `{id}` for a cancel. */
 interface LocalVoiceModelRequest {
@@ -603,12 +605,16 @@ struct Settings {
     this.bridge.watchSetup();
     this.loadNotices();
     EntryAbility.onActivated = (): void => {
+      this.bridge.syncShared();
       this.bridge.refreshPreferencesIfChanged();
       this.loadNotices();
       // 从系统的输入法界面返回就是设置状态改变的途径，所以在这里重新读取，与 Android 的 `ImeSetup` 在获得焦点时重新检查一样。
       this.bridge.refreshSetupState();
       // 每次返回都重新解析而不是靠定时器：水杉四季跟随月份，跨月一直开着的窗口不应保留上个月的颜色。
       this.bridge.notifyAppThemeChanged();
+    };
+    EntryAbility.onDeactivated = (): void => {
+      this.bridge.publishShared();
     };
     EntryAbility.onOpenPage = (page: string): void => {
       this.bridge.openPage(page);
@@ -836,6 +842,9 @@ struct Settings {
 class SettingsBridge {
   private stateDirectory: string = '';
   private sharedSandboxAvailable: boolean = false;
+  // 与键盘交换状态的共享沙箱镜像，拿不到共享目录时为 null；`sharedPublishTimer` 合并短时间内的多次改动，只发布一次。
+  private sharedMirror: SharedStateMirror | null = null;
+  private sharedPublishTimer: number = -1;
   // What the page was last handed, so an activation can tell a changed document from an unchanged
   // one. -1 until the page has loaded once, which never compares equal to a real revision.
   private observedRevision: number = -1;
@@ -883,9 +892,16 @@ class SettingsBridge {
   attach(context: common.UIAbilityContext): void {
     this.context = context;
     this.stateDirectory = `${context.filesDir}/state`;
-    const sharedSandbox = HarmonySharedSandboxPolicy.status();
-    this.sharedSandboxAvailable = sharedSandbox.available;
-    KeyboardLog.warn(`shared sandbox unavailable: ${sharedSandbox.reason}`);
+    SharedStateMirror.resolve(context).then((groupDir: string | null): void => {
+      const sharedSandbox = HarmonySharedSandboxPolicy.status(groupDir);
+      this.sharedSandboxAvailable = sharedSandbox.available;
+      if (!sharedSandbox.available) {
+        KeyboardLog.warn(`shared sandbox unavailable: ${sharedSandbox.reason}`);
+        return;
+      }
+      this.sharedMirror = new SharedStateMirror(sharedSandbox.directory, context.filesDir);
+      this.syncShared();
+    });
     this.accountBridge = new HarmonyAccountCloudBridge(context);
     this.aiSkins = this.accountBridge.aiSkins();
     // The same copy the keyboard makes, by the same rule. The page reaches the dictionary through
@@ -896,6 +912,44 @@ class SettingsBridge {
     StagedResources.stageLanguageDictionaries(context.resourceDir, context.filesDir);
   }
 
+
+  /**
+   * 设置窗口回到前台：先把自己的改动发布给键盘，再导入键盘在完整体验模式下发布的改动（键盘里改的偏好、刷新过的账号会话、打字统计）。导入的偏好由随后的 `refreshPreferencesIfChanged` 交给页面。
+   */
+  syncShared(): void {
+    if (this.sharedMirror === null) {
+      return;
+    }
+    SharedStateSync.settingsSync(this.sharedMirror, this.stateDirectory);
+  }
+
+  /** 立即把设置应用管的条目发布给键盘：窗口退到后台时调用，用户接下来多半要去别的应用打字。 */
+  publishShared(): void {
+    if (this.sharedPublishTimer !== -1) {
+      clearTimeout(this.sharedPublishTimer);
+      this.sharedPublishTimer = -1;
+    }
+    if (this.sharedMirror === null) {
+      return;
+    }
+    SharedStateSync.settingsPublish(this.sharedMirror, this.stateDirectory);
+  }
+
+  /**
+   * 改完设置后稍后发布给键盘。同步的桥接方法在开头调用它：发布在方法返回、改动落盘之后才执行。用户在设置页里点开一个输入框时键盘就会导入，所以不能只在窗口退到后台时发布。
+   */
+  private schedulePublish(): void {
+    if (this.sharedMirror === null) {
+      return;
+    }
+    if (this.sharedPublishTimer !== -1) {
+      clearTimeout(this.sharedPublishTimer);
+    }
+    this.sharedPublishTimer = setTimeout((): void => {
+      this.sharedPublishTimer = -1;
+      this.publishShared();
+    }, 300);
+  }
 
   loadPreferences(): string {
     const reply: string = client.loadPreferences(this.stateDirectory);
@@ -976,7 +1030,9 @@ class SettingsBridge {
    * forever. The panel's own rescan is what shows the result.
    */
   importSkinFolder(): string {
-    this.runSkinImport().catch((error: Object): void => {
+    this.runSkinImport().then((): void => {
+      this.schedulePublish();
+    }).catch((error: Object): void => {
       KeyboardLog.error(`skin import failed: ${describeError(error)}`);
     });
     return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
@@ -1354,6 +1410,8 @@ class SettingsBridge {
 
   /** Hands one reply back to the page, under the number it was asked with. */
   private deliverReply(id: number, reply: string): void {
+    // 异步请求（账号、社区皮肤、设置同步等）都经这里交回结果，它们可能改了要发布给键盘的文件。
+    this.schedulePublish();
     if (this.webview === undefined) {
       return;
     }
@@ -1369,6 +1427,7 @@ class SettingsBridge {
    * The 插件 page's pack store and @ name list: `catalog`, `remove`, `load_mentions` and `save_mentions`, answered by `msime_client_plugins` with the same rules and failure codes the desktop shell answers with. The page never names a path: the state root and the bundle's built-in sound packs are filled in here, and an import, which has to wait for the system picker, arrives through `startRequest` as `plugin_import` instead.
    */
   plugins(actionDocument: string): string {
+    this.schedulePublish();
     const refused: string = JSON.stringify({ ok: false, error: 'invalid' });
     if (this.context === undefined) {
       return refused;
@@ -1769,6 +1828,7 @@ class SettingsBridge {
   }
 
   savePreferences(expectedRevision: number, document: string): string {
+    this.schedulePublish();
     const reply: string = client.savePreferences(this.stateDirectory, expectedRevision, document);
     this.rememberRevision(reply);
     // Turning usage reporting off drops what is queued at once rather than at the next start; the keyboard's running session goes with it.
@@ -2009,6 +2069,11 @@ class SettingsBridge {
       }));
       const reply: TypingStatisticsReply = JSON.parse(raw) as TypingStatisticsReply;
       if (reply.ok !== true) return raw;
+      // 开关、保留期和清空都要告诉键盘：统计由键盘记录，设置应用这里只是一份副本。
+      if (action.operation !== 'load' && this.sharedMirror !== null) {
+        SharedStateSync.writeStatisticsSwitch(this.stateDirectory, action.operation === 'reset');
+        this.schedulePublish();
+      }
       if (reply.value === undefined || reply.value === null) {
         return JSON.stringify({ ok: false, error: 'invalid typing statistics response' });
       }
@@ -2729,6 +2794,7 @@ class SettingsBridge {
    * The settings page is a second writer of the same file the keyboard reads. 键盘每次聚焦编辑框时重读它（`KeyboardSession.refreshFeedback`），所以这里的改动在下一次弹出键盘时生效，不必等输入法进程重启。
    */
   keyboardFeedback(request: string): string {
+    this.schedulePublish();
     let action: KeyboardFeedbackAction;
     try {
       action = JSON.parse(request) as KeyboardFeedbackAction;
@@ -3003,6 +3069,7 @@ class SettingsBridge {
    * `load` 和 `save` 读写状态目录里的设备本地选择，键盘也读这个文件；`resolve` 把存储的选择转成本月的颜色以及页面的浅色或深色模式；`catalog` 列出可选项。两个原生回复原样返回，页面读到的结构与每个宿主一致。
    */
   appTheme(request: string): string {
+    this.schedulePublish();
     const refused: string = JSON.stringify({ ok: false, error: 'invalid app theme request' } as AppThemeReply);
     if (request.length === 0 || request.length > 4096) {
       return refused;

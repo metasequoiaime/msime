@@ -36,6 +36,8 @@ import { HardwareBackspaceGuard } from '../keyboard/input/BackspaceHoldPolicy';
 import { HeldKeys, KeyIdPolicy } from '../keyboard/KeyIdPolicy';
 import { HarmonyTelemetry } from '../telemetry/Telemetry';
 import { HarmonySharedSandboxPolicy } from '../keyboard/HarmonySharedSandboxPolicy';
+import { SharedStateMirror } from '../keyboard/SharedStateMirror';
+import { SharedStateSync } from '../keyboard/SharedStateSync';
 
 // Where the badge goes and how long it stays, from platforms/macos/src/input/InputModeHUDPanel.mm: shown long enough to read and gone before the next word. Its size is the floating toolbar's, from InputModeHudPolicy.sizeVp.
 const HUD_SCREEN_MARGIN_VP: number = 8;
@@ -838,6 +840,16 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     }
   }
 
+  /** 用户是否给了键盘完整体验模式。基础访问模式下键盘对共享沙箱只读，只导入、不发布。 */
+  private fullAccessMode(): boolean {
+    try {
+      return engine.getSecurityMode() === inputMethodEngine.SecurityMode.FULL;
+    } catch (error) {
+      KeyboardLog.warn(`security mode unavailable: ${describeError(error)}`);
+      return false;
+    }
+  }
+
   /**
    * Copies the packaged dictionary into the sandbox once, and only once.
    *
@@ -855,10 +867,17 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     const files: string = this.context.filesDir;
     const resources: string = `${files}/engine`;
     const state: string = `${files}/state`;
-    const sharedSandbox = HarmonySharedSandboxPolicy.status();
-    KeyboardLog.warn(`shared sandbox unavailable: ${sharedSandbox.reason}`);
     if (!fs.accessSync(state)) {
       fs.mkdirSync(state, true);
+    }
+    // 设置应用经共享沙箱发布的偏好、皮肤、插件等，在会话第一次读它们之前导入；拿不到共享目录时照旧只用自己的 files/state。
+    const groupDir: string | null = await SharedStateMirror.resolve(this.context);
+    const sharedSandbox = HarmonySharedSandboxPolicy.status(groupDir);
+    if (sharedSandbox.available) {
+      const mirror: SharedStateMirror = new SharedStateMirror(sharedSandbox.directory, files);
+      const fullMode = (): boolean => this.fullAccessMode();
+      KeyboardSession.shared.useSharedSandbox(mirror, fullMode);
+      SharedStateSync.keyboardSync(mirror, state, fullMode());
     }
     // Covers a keyboard enabled without the app ever being opened; the app's first launch does the same, and whichever runs first registers the account.
     client.ensureAnonymousAccount(state).catch((error: Error): void => {
