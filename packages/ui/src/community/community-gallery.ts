@@ -243,6 +243,24 @@ export function useCommunityGallery<T extends { id: string }>({
     [actionBusy, client, isCurrent, runAction, selected],
   );
 
+  /** Applies an owner edit to both the open detail and its gallery card, ignoring a stale client result. */
+  const updateSelected = useCallback(
+    async (update: (id: string) => Promise<T>, notice: string) => {
+      if (!selected) return;
+      const target = selected;
+      await runAction(
+        async (generation) => {
+          const updated = await update(target.id);
+          if (!isCurrent(generation)) return;
+          replaceSelected(updated);
+          setActionNotice(notice);
+        },
+        { clearNotice: true },
+      );
+    },
+    [isCurrent, replaceSelected, runAction, selected],
+  );
+
   const unpublishSelected = useCallback(
     async (successMessage: string) => {
       if (!selected || actionBusy) return;
@@ -304,6 +322,7 @@ export function useCommunityGallery<T extends { id: string }>({
     open,
     closeDetail,
     rateSelected,
+    updateSelected,
     unpublishSelected,
     reportSelected,
     isCurrent,

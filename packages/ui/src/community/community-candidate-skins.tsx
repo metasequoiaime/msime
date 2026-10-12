@@ -304,6 +304,7 @@ export function CommunityCandidateSkinsPage({
     open,
     closeDetail: closeGalleryDetail,
     rateSelected,
+    updateSelected,
     unpublishSelected,
     reportSelected,
     runAction,
@@ -377,34 +378,18 @@ export function CommunityCandidateSkinsPage({
   };
 
   const changeVisibility = async (visibility: CandidateSkinVisibility) => {
-    if (!selected) return;
-    const target = selected;
-    await runAction(
-      async (currentClient) => {
-        const updated = await client.setVisibility(target.id, visibility);
-        if (!gallery.isCurrent(currentClient)) return;
-        gallery.replaceSelected(updated);
-        setActionNotice(
-          visibility === "public"
-            ? "已公开，其他用户现在可以下载这款皮肤。"
-            : "已设为私有，只有你能看到这款皮肤。",
-        );
-      },
-      { clearNotice: true },
+    await updateSelected(
+      (id) => client.setVisibility(id, visibility),
+      visibility === "public"
+        ? "已公开，其他用户现在可以下载这款皮肤。"
+        : "已设为私有，只有你能看到这款皮肤。",
     );
   };
 
   const changeOwnCategory = async (next: CandidateSkinCategory) => {
-    if (!selected) return;
-    const target = selected;
-    await runAction(
-      async (currentClient) => {
-        const updated = await client.setCategory(target.id, next);
-        if (!gallery.isCurrent(currentClient)) return;
-        gallery.replaceSelected(updated);
-        setActionNotice(`已改为「${candidateSkinCategoryLabels[next]}」分类。`);
-      },
-      { clearNotice: true },
+    await updateSelected(
+      (id) => client.setCategory(id, next),
+      `已改为「${candidateSkinCategoryLabels[next]}」分类。`,
     );
   };
 

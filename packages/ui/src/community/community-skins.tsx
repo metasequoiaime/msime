@@ -521,7 +521,6 @@ export function CommunitySkinsPage({
     confirmUnpublish,
     activeSearch,
     setSelected,
-    replaceSelected,
     setActionNotice,
     changeMineOnly,
     setConfirmUnpublish,
@@ -529,6 +528,7 @@ export function CommunitySkinsPage({
     open: openGallery,
     closeDetail: closeGalleryDetail,
     rateSelected,
+    updateSelected,
     unpublishSelected,
     reportSelected,
     runAction,
@@ -658,16 +658,9 @@ export function CommunitySkinsPage({
     categoryFilter.change(next, () => requestList(activeSearch, false));
 
   const changeOwnCategory = async (next: CommunitySkinCategory) => {
-    if (!selected) return;
-    const target = selected;
-    await runAction(
-      async (currentClient) => {
-        const updated = await client.setCategory(target.id, next);
-        if (!gallery.isCurrent(currentClient)) return;
-        replaceSelected(updated);
-        setActionNotice(`已改为「${communitySkinCategoryLabels[next]}」分类。`);
-      },
-      { clearNotice: true },
+    await updateSelected(
+      (id) => client.setCategory(id, next),
+      `已改为「${communitySkinCategoryLabels[next]}」分类。`,
     );
   };
 
