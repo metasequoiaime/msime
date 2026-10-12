@@ -11,6 +11,7 @@ import { makeDefaultAction, useImeSetupState } from "../keyboard/setup-status-ca
 import { KeyboardSwitchGuideHost } from "../keyboard/keyboard-switch-guide";
 import { useSettingsPlatform } from "../theme/settings-platform";
 import { useHarmonyWelcomeSystemBars } from "../settings/use-settings-theme";
+import { logo } from "../settings/app-resources";
 import type { EditionInfo, InputScheme, Preferences } from "../index";
 import * as onboarding from "./onboarding-style";
 
@@ -835,7 +836,7 @@ export function WelcomeFlowPage({
         </div>
       )}
       <header className={onboarding.header}>
-        <img src={new URL("./assets/msime.svg", import.meta.url).href} alt="" />
+        <img src={logo} alt="" />
         <div>
           {/* Android 用上方的进度条显示进度。 */}
           {!android && <p className={onboarding.progress}>{`${step + 1} / ${steps.length}`}</p>}
