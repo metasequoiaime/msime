@@ -1699,6 +1699,8 @@ export interface HostCapabilities {
   candidate_page_number: boolean;
   /** 宿主按 `show_app_logo` 显示或隐藏候选窗和悬浮工具栏左端的水杉 logo（macOS 和 Windows）。 */
   app_logo?: boolean;
+  /** 宿主按 `expand_candidates` 让横排候选窗按 ↓ 展开成多行候选网格（目前只有 macOS）。 */
+  expand_candidates?: boolean;
   candidate_row_colors: boolean;
   candidate_selection_appearance: boolean;
   /** The host outlines the candidate panel in the border colour. Linux does (Fcitx5's classic UI theme) without any hover state. */
@@ -1922,6 +1924,8 @@ export type Preferences = {
   show_candidate_page_number?: boolean;
   /** 候选窗和悬浮工具栏左端的水杉 logo。新装默认隐藏，旧文档缺这个字段时读成显示。 */
   show_app_logo?: boolean;
+  /** 「展开候选」：横排候选窗按 ↓ 展开成多行候选网格，默认关闭。 */
+  expand_candidates?: boolean;
   /** The one theme for the candidate window, floating toolbar, menus and touch keyboard. `theme` stays the light/dark mode that `system` and the settings window follow. */
   global_theme?: GlobalTheme;
   /** What the `custom` global theme is made of: an external candidate skin package, the seven candidate colour pickers and the keyboard editor design. */

@@ -5,6 +5,7 @@ import { GroupList, LinkRow, MoreOptions } from "../../core/platform-controls";
 import { CandidateFollowCursorSection } from "../candidate-follow-cursor-section";
 import { CandidatePageNumberSection } from "../candidate-page-number-section";
 import { CandidateAppLogoSection } from "../candidate-app-logo-section";
+import { CandidateExpandSection } from "../candidate-expand-section";
 import { CandidateFontSizeSliderRow, CandidateSizingSection } from "../candidate-sizing-section";
 import { CandidatePageSizeSection } from "../candidate-page-size-section";
 import { offeredCandidatePageSizes } from "../candidate-page-size";
@@ -54,11 +55,13 @@ export function AppearanceSettingsPage() {
   });
   const showPageNumber = host?.candidate_page_number === true;
   const showAppLogo = host?.app_logo === true;
+  const showExpandCandidates = host?.expand_candidates === true;
   const showLayoutGroup =
     host?.fixed_candidate_page_size === undefined ||
     host?.fixed_candidate_layout === undefined ||
     showPageNumber ||
     showAppLogo ||
+    showExpandCandidates ||
     showCandidateFollowCursor;
   const surfaceName = mobilePlatform ? "候选栏" : "候选窗口";
   if (harmonyPlatform && mobilePlatform) {
@@ -125,6 +128,14 @@ export function AppearanceSettingsPage() {
               appearanceActions.onPreferencesChange({ candidate_page_size })
             }
           />
+          {showExpandCandidates && (
+            <CandidateExpandSection
+              value={draft.expand_candidates}
+              onChange={(expand_candidates) =>
+                appearanceActions.onPreferencesChange({ expand_candidates })
+              }
+            />
+          )}
           {showPageNumber && (
             <CandidatePageNumberSection
               value={draft.show_candidate_page_number}

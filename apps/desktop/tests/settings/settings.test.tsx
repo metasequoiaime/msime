@@ -7444,6 +7444,48 @@ test("the app logo switch starts off and saves show_app_logo", async () => {
   expect(save).toHaveBeenLastCalledWith(7, expect.objectContaining({ show_app_logo: true }));
 });
 
+test("the expand candidates switch is macOS only, starts off and saves expand_candidates", async () => {
+  for (const platform of ["windows", "linux"] as const) {
+    const { unmount } = render(
+      <SettingsPage
+        initialPage="appearance"
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: testHost({ platform }),
+        }}
+      />,
+    );
+    await settingsReady();
+    // Windows 和 Linux 的候选窗还没有展开网格，不给一个宿主不理会的开关。
+    expect(screen.queryByLabelText("展开候选")).toBeNull();
+    unmount();
+  }
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save,
+        host: testHost({ platform: "macos" }),
+      }}
+    />,
+  );
+  await settingsReady();
+  const toggle = screen.getByLabelText("展开候选") as HTMLInputElement;
+  // 默认关闭，缺字段也按关显示。
+  expect(toggle.checked).toBe(false);
+  fireEvent.click(toggle);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenLastCalledWith(7, expect.objectContaining({ expand_candidates: true }));
+});
+
 test("中英混输 sits on the input page's 候选与联想 group, not on 标点与翻译", async () => {
   render(
     <SettingsPage
