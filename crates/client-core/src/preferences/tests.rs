@@ -1954,18 +1954,46 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
         cfg!(any(windows, target_os = "macos"))
     );
     assert_eq!(fs::read(store.path()).unwrap(), bytes);
-    for mask in 0..8 {
+    // 只写前四项的旧对象（`japanese` 之前的文档、各宿主自己拼的对象）照样能读，日文混输按关处理。
+    let mut four_fields = legacy.clone();
+    four_fields["preferences"]["mixed_input"] = serde_json::json!({
+        "english": false,
+        "minimum_prefix": 3,
+        "emoji": true,
+        "kaomoji": true,
+    });
+    fs::write(store.path(), serde_json::to_vec(&four_fields).unwrap()).unwrap();
+    assert_eq!(
+        store.load().unwrap().preferences.mixed_input,
+        MixedInputPreferences {
+            english: false,
+            minimum_prefix: 3,
+            emoji: true,
+            kaomoji: true,
+            japanese: false,
+        }
+    );
+    fs::write(store.path(), &bytes).unwrap();
+    for mask in 0..16 {
         let preferences = Preferences {
             mixed_input: MixedInputPreferences {
                 english: mask & 1 != 0,
                 emoji: mask & 2 != 0,
                 kaomoji: mask & 4 != 0,
-                minimum_prefix: mask + 1,
+                japanese: mask & 8 != 0,
+                minimum_prefix: mask % 8 + 1,
             },
             ..Preferences::default()
         };
         let saved = store.save(u64::from(mask), preferences).unwrap();
         assert_eq!(store.load().unwrap(), saved);
+        // 关着时不写这个键，文档和加这一项之前逐字节一样；开着时才写出来。
+        let written: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+        assert_eq!(
+            written["preferences"]["mixed_input"].get("japanese"),
+            (mask & 8 != 0).then_some(&serde_json::Value::Bool(true))
+        );
     }
     let saved = store.load().unwrap();
     for value in [0, 9, 255] {
