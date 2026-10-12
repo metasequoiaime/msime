@@ -21,33 +21,6 @@ private func providerTitle(_ provider: String) -> String {
   }
 }
 
-/// 设计稿中「我的」子页面的行：16pt 标签，可带次要色的 15pt 值和右箭头，最低 50pt 高，左右内边距 16pt。
-private struct ProfileRowLabel: View {
-  let title: String
-  var value: String? = nil
-  var chevron = true
-
-  var body: some View {
-    HStack(spacing: 8) {
-      Text(title).font(.system(size: 16)).foregroundStyle(.primary)
-      Spacer(minLength: 12)
-      if let value {
-        Text(value).font(.system(size: 15)).foregroundStyle(MetasequoiaTheme.sub)
-          .lineLimit(1).truncationMode(.middle)
-      }
-      if chevron {
-        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
-          .foregroundStyle(MetasequoiaTheme.sub.opacity(0.55))
-          .accessibilityHidden(true)
-      }
-    }
-    .padding(.horizontal, 16)
-    .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
-    .contentShape(Rectangle())
-    .accessibilityElement(children: .combine)
-  }
-}
-
 /// 单独占一张卡片、居中的 16pt 红色行：「退出登录」和「注销账号」。
 private struct ProfileDangerRow: View {
   let title: String
@@ -198,7 +171,8 @@ struct AccountProfileEditor: View {
           onSaved(updated.user)
         }
       } label: {
-        ProfileRowLabel(title: "昵称", value: profile.user.preferredDisplayName)
+        SettingsNavigationLabel(title: "昵称", value: profile.user.preferredDisplayName,
+          valueTruncationMode: .middle)
       }
       .buttonStyle(PressFillButtonStyle())
       .accessibilityIdentifier("accountNicknameLink")
@@ -207,14 +181,16 @@ struct AccountProfileEditor: View {
         UIPasteboard.general.string = profile.user.id
         ToastCenter.shared.show("已复制")
       } label: {
-        ProfileRowLabel(title: "水杉 ID", value: profile.user.id, chevron: false)
+        SettingsNavigationLabel(title: "水杉 ID", value: profile.user.id, showsChevron: false,
+          valueTruncationMode: .middle)
       }
       .buttonStyle(PressFillButtonStyle())
       .accessibilityHint("轻点复制完整 ID")
       .accessibilityIdentifier("copyAccountID")
       if let email {
         DesignDivider()
-        ProfileRowLabel(title: "邮箱", value: email, chevron: false)
+        SettingsNavigationLabel(title: "邮箱", value: email, showsChevron: false,
+          valueTruncationMode: .middle)
       }
     }
   }
@@ -224,7 +200,8 @@ struct AccountProfileEditor: View {
     DesignGroup(title: "登录方式", radius: MetasequoiaTheme.tabCardRadius) {
       ForEach(Array(providers.enumerated()), id: \.element) { index, provider in
         if index > 0 { DesignDivider() }
-        ProfileRowLabel(title: providerTitle(provider), value: "已关联", chevron: false)
+        SettingsNavigationLabel(title: providerTitle(provider), value: "已关联", showsChevron: false,
+          valueTruncationMode: .middle)
       }
     }
   }
@@ -233,7 +210,7 @@ struct AccountProfileEditor: View {
   private var accountActions: some View {
     DesignGroup(title: "账号操作", radius: MetasequoiaTheme.tabCardRadius) {
       Button { confirmLogoutAll = true } label: {
-        ProfileRowLabel(title: "退出所有设备", chevron: false)
+        SettingsNavigationLabel(title: "退出所有设备", showsChevron: false)
       }
       .buttonStyle(PressFillButtonStyle())
       .disabled(busy)
@@ -241,7 +218,7 @@ struct AccountProfileEditor: View {
       if needsRecovery {
         DesignDivider()
         Button { confirmRelogin = true } label: {
-          ProfileRowLabel(title: "重新登录", chevron: false)
+          SettingsNavigationLabel(title: "重新登录", showsChevron: false)
         }
         .buttonStyle(PressFillButtonStyle())
         .disabled(busy)

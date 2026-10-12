@@ -34,29 +34,6 @@ private struct PagePill: View {
   }
 }
 
-/// 「我的」子页面的行：16pt 标签、可选的 15pt 值（sub 色）和箭头，最小高度 50pt，左右内边距 16pt。
-private struct AboutRowLabel: View {
-  let title: String
-  var value: String? = nil
-
-  var body: some View {
-    HStack(spacing: 8) {
-      Text(title).font(.system(size: 16)).foregroundStyle(.primary)
-      Spacer(minLength: 12)
-      if let value {
-        Text(value).font(.system(size: 15)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)
-      }
-      Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(MetasequoiaTheme.sub.opacity(0.55))
-        .accessibilityHidden(true)
-    }
-    .padding(.horizontal, 16)
-    .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
-    .contentShape(Rectangle())
-    .accessibilityElement(children: .combine)
-  }
-}
-
 // MARK: - 其他平台下载
 
 /// 「其他平台下载」里的一个平台行。`release` 是下载页接受的平台键。
@@ -255,31 +232,31 @@ struct AboutView: View {
         hero
         DesignCard(radius: MetasequoiaTheme.tabCardRadius) {
           Link(destination: URL(string: "https://msime.app/")!) {
-            AboutRowLabel(title: "官网", value: "msime.app")
+            SettingsNavigationLabel(title: "官网", value: "msime.app")
           }
           .buttonStyle(PressFillButtonStyle())
           DesignDivider()
           Link(destination: URL(string: "https://msime.app/privacy/")!) {
-            AboutRowLabel(title: "隐私政策")
+              SettingsNavigationLabel(title: "隐私政策")
           }
           .buttonStyle(PressFillButtonStyle())
           if noticeCount > 0 {
             DesignDivider()
             NavigationLink(destination: LicensesView()) {
-              AboutRowLabel(title: "开源许可", value: "\(noticeCount) 个组件")
+              SettingsNavigationLabel(title: "开源许可", value: "\(noticeCount) 个组件")
             }
             .buttonStyle(PressFillButtonStyle())
             .accessibilityIdentifier("aboutLicensesLink")
           }
           DesignDivider()
           Link(destination: URL(string: "https://github.com/metasequoiaime/msime")!) {
-            AboutRowLabel(title: "源代码", value: "GitHub")
+              SettingsNavigationLabel(title: "源代码", value: "GitHub")
           }
           .buttonStyle(PressFillButtonStyle())
           if let review = listing?.reviewURL {
             DesignDivider()
             Link(destination: review) {
-              AboutRowLabel(title: "给我们评分")
+              SettingsNavigationLabel(title: "给我们评分")
             }
             .buttonStyle(PressFillButtonStyle())
           }
