@@ -330,7 +330,7 @@ public final class FeedbackPage extends DetailPage {
 
     private static String failureMessage(Exception error) {
         if (error instanceof CloudApi.Failure failure) {
-            if (failure.status == 429) return "提交得太频繁了，请过一会儿再试";
+            if (failure.rateLimited()) return "提交得太频繁了，请过一会儿再试";
             if (failure.unavailable()) return "反馈服务暂时没有开放，可以改用下面的渠道";
             if (failure.network()) return "连不上服务器，请检查网络后重试";
         }

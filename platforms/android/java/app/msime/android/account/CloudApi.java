@@ -61,6 +61,9 @@ public final class CloudApi {
 
         /** 连不上服务器（DNS、TLS、超时等），没有拿到任何 HTTP 响应。 */
         public boolean network() { return status == 0; }
+
+        /** 服务端要求调用方稍后再试。 */
+        public boolean rateLimited() { return status == 429; }
     }
 
     /** 一次成功的响应。 */

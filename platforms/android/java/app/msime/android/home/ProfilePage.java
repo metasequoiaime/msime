@@ -439,7 +439,7 @@ public final class ProfilePage extends ReloadingDetailPage {
                 return "没有导出，存储空间不可用";
             } catch (CloudApi.Failure failure) {
                 FilePolicy.deleteQuietly(file);
-                if (failure.status == 429) return "今天的导出次数已用完，明天再试";
+                if (failure.rateLimited()) return "今天的导出次数已用完，明天再试";
                 throw failure;
             } finally {
                 if (temporary != null) FilePolicy.deleteQuietly(temporary.toFile());
@@ -598,7 +598,7 @@ public final class ProfilePage extends ReloadingDetailPage {
         if (failure.network()) return "连不上服务器，请检查网络后再试";
         if ("session_changed".equals(failure.code)) return "登录已改变，请重新打开页面";
         if (failure.signedOut()) return "登录已失效，请重新登录";
-        if (failure.status == 429) return "操作太频繁，请稍后再试";
+        if (failure.rateLimited()) return "操作太频繁，请稍后再试";
         if (failure.status == 413) return "图片超过 1 MB，请换一张小一些的";
         if (failure.status == 415 || "invalid_avatar".equals(failure.code)) return "头像只支持 PNG 或 JPEG 图片";
         if (failure.unavailable() || failure.status == 503) return "这项功能暂未开放";

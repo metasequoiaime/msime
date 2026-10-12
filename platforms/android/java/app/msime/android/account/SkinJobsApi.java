@@ -121,7 +121,7 @@ public final class SkinJobsApi {
 
     /** 服务端今天的生成次数已用完（429 `rate_limit_exceeded`）。 */
     public static boolean quotaExhausted(CloudApi.Failure failure) {
-        return failure.status == 429;
+        return failure.rateLimited();
     }
 
     /** 这个部署没有开 AI 皮肤（任何 503），入口应当隐藏。 */

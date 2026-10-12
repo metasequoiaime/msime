@@ -194,7 +194,7 @@ public final class CloudSync {
                 return "云端暂时繁忙，稍后自动重试";
             default: break;
         }
-        if (failure.status == 429 || failure.status >= 500) return "云端暂时繁忙，稍后自动重试（HTTP " + failure.status + "）";
+        if (failure.rateLimited() || failure.status >= 500) return "云端暂时繁忙，稍后自动重试（HTTP " + failure.status + "）";
         return "同步失败（HTTP " + failure.status + (failure.code.isEmpty() ? "" : " " + failure.code) + "）";
     }
 
