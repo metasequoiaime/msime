@@ -232,7 +232,7 @@ export const downloadTile =
   "flex size-9 flex-none items-center justify-center rounded-[9px] bg-[var(--p-seg-bg)] [color:var(--p-text)]";
 export const downloadRowText = rowText;
 export const downloadRowName = "text-[15px] font-semibold";
-export const downloadRowMeta = "text-xs [color:var(--p-sub)]";
+export const downloadRowMeta = muted;
 export const downloadRowPill = (current: boolean) =>
   `shrink-0 whitespace-nowrap rounded-full px-3 py-[5px] text-[13px] font-semibold ${
     current
