@@ -21,6 +21,8 @@ import client from 'libmsimeclient.so';
 export default class EntryAbility extends UIAbility {
   /** Set by the settings page, which owns the bridge that can read and deliver the document. */
   static onActivated: (() => void) | undefined = undefined;
+  /** 设置窗口退到后台时调用，设置页借它把改动立即发布给键盘。 */
+  static onDeactivated: (() => void) | undefined = undefined;
   /** 键盘请求过、设置页面还没取走的页面；设置页面加载完成后会取走它。 */
   static pendingPage: string | null = null;
   /** 由设置页面在打开期间设置，让之后请求的页面能送达已经显示着的设置页面。 */
@@ -78,6 +80,8 @@ export default class EntryAbility extends UIAbility {
       stage.on('windowStageEvent', (event: window.WindowStageEventType): void => {
         if (event === window.WindowStageEventType.ACTIVE) {
           EntryAbility.onActivated?.();
+        } else if (event === window.WindowStageEventType.HIDDEN) {
+          EntryAbility.onDeactivated?.();
         }
       });
     } catch (error) {

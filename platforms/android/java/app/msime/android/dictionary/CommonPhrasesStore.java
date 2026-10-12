@@ -379,7 +379,7 @@ public final class CommonPhrasesStore {
             JSONObject root = new JSONObject(response == null ? "" : response);
             if (!JsonPolicy.strictTrue(root.opt("ok")))
                 return Result.failed(failureMessage(JsonPolicy.strictStringOrEmpty(root.opt("error"))));
-            JSONObject value = root.optJSONObject("value");
+            JSONObject value = JsonPolicy.objectValue(root);
             if (value == null) return Result.failed(failureMessage(""));
             Document document = parse(value);
             if (writes) SyncSignals.markDirty(context, SyncSwitch.PHRASES);

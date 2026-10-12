@@ -1,3 +1,4 @@
-<input-method xmlns:android="http://schemas.android.com/apk/res/android" android:supportsSwitchingToNextInputMethod="true">
+<input-method xmlns:android="http://schemas.android.com/apk/res/android" android:supportsSwitchingToNextInputMethod="true" android:supportsStylusHandwriting="true">
+    <!-- supportsStylusHandwriting：Android 14 起拿手写笔直接在输入框上写字（#7080），识别用 ML Kit 的中文手写模型，接不接见 StylusHandwritingPolicy。日文、越南文、藏文版没有中文手写，它们的 method.xml 不声明。 -->
     <subtype android:imeSubtypeLocale="zh_CN" android:imeSubtypeMode="keyboard" />
 </input-method>

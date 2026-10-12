@@ -611,6 +611,35 @@ impl JapaneseDictionary {
         self.exact_lemmas_with(reading, limit, |id| visit(self.lemma_ref(id)));
     }
 
+    /// 与 [`Self::for_each_exact_lemma_view`] 同样按 `(cost, id)` 访问最便宜的 `limit` 条，排名缓冲由调用方跨查询复用。列整组同音词时限额远大于读音组，按限额预留的排名堆每次都要申请；这里只放读音组本身，热查询不申请。
+    pub(crate) fn for_each_exact_lemma_view_reusing<'a>(
+        &'a self,
+        reading: &str,
+        limit: usize,
+        ranking: &mut Vec<(i32, u32)>,
+        mut visit: impl FnMut(JapaneseLemmaRef<'a>),
+    ) {
+        ranking.clear();
+        if reading.is_empty() || limit == 0 {
+            return;
+        }
+        let start = self.lower_bound(reading);
+        ranking.extend(
+            (start..self.token_count)
+                .map(|index| (index, self.token_at(index)))
+                .take_while(|(_, token)| self.reading(token) == reading)
+                .map(|(index, token)| (token.word_cost, index as u32)),
+        );
+        if ranking.len() > limit {
+            ranking.select_nth_unstable(limit - 1);
+            ranking.truncate(limit);
+        }
+        ranking.sort_unstable();
+        for &(_, id) in ranking.iter() {
+            visit(self.lemma_ref(id));
+        }
+    }
+
     fn exact_lemmas_with<T>(
         &self,
         reading: &str,

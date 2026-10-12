@@ -398,7 +398,7 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
     }
 
     private void savePreference(String key, Object value) {
-        KeyboardSheets.save(this, preferences -> preferences.put(key, value), null, this::reload);
+        savePreferences(preferences -> preferences.put(key, value));
     }
 
     /** 改一个工具栏开关（`touch_toolbar` 的成员或本地设置），写完重画预览（显示方式还会改变按钮行的可用状态）。 */

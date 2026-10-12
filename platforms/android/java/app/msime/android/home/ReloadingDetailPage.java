@@ -31,5 +31,18 @@ public abstract class ReloadingDetailPage extends ColumnDetailPage {
         KeyboardSheets.saveLocal(this, key, value, null, this::reload);
     }
 
+    /** Saves shared preferences and refreshes the page after either outcome. */
+    protected final void savePreferences(KeyboardSheets.Edit edit) {
+        KeyboardSheets.save(this, edit, this::reload, this::reload);
+    }
+
+    /** Saves shared preferences, runs an extra success action, then refreshes the page. */
+    protected final void savePreferences(KeyboardSheets.Edit edit, Runnable then) {
+        KeyboardSheets.save(this, edit, () -> {
+            then.run();
+            reload();
+        }, this::reload);
+    }
+
     protected abstract void reload();
 }

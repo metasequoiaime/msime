@@ -57,3 +57,34 @@ fn exact_stream_preserves_all_fields_limits_ties_and_one_saved_result_vector() {
     assert_eq!(saved.unwrap().surface, "合成長");
     assert_eq!(saved.unwrap().reading, "甲😀かな");
 }
+
+#[test]
+fn reusing_exact_stream_matches_ranked_order_and_reuses_its_buffer() {
+    let surfaces: Vec<_> = (0..300).map(|index| format!("合成{index:03}")).collect();
+    let mut entries: Vec<_> = surfaces
+        .iter()
+        .enumerate()
+        .map(|(index, surface)| ("かな", surface.as_str(), 0, 0, index as i32 % 11 - 5))
+        .collect();
+    entries.extend([("かなし", "合成悲", 0, 0, -90), ("き", "合成木", 0, 0, 0)]);
+    entries.sort_by_key(|entry| entry.0);
+    let dictionary =
+        JapaneseDictionary::from_bytes(test_model::bytes(&entries, 1, &[0]).into_boxed_slice())
+            .expect("合成词库");
+    let mut ranking = Vec::new();
+    for reading in ["", "か", "かな", "かなし", "き", "く"] {
+        for limit in [0, 1, 24, 299, 300, 512] {
+            let expected = dictionary.exact_lemma_views(reading, limit);
+            let mut actual = Vec::new();
+            dictionary.for_each_exact_lemma_view_reusing(reading, limit, &mut ranking, |view| {
+                actual.push(view)
+            });
+            assert_eq!(actual, expected, "读音={reading}，限额={limit}");
+        }
+    }
+    // 缓冲已容下整组，再查同一读音不申请。
+    let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        dictionary.for_each_exact_lemma_view_reusing("かな", 512, &mut ranking, |_| {})
+    });
+    assert_eq!(allocations, 0);
+}

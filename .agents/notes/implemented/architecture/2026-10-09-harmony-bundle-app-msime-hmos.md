@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-在 AppGallery Connect 为鸿蒙版建应用时，包名 `app.msime.harmony` 被拒：「应用包名中包含敏感词或者保留字符 "harmony"」。没有 AGC 应用，就无法申请「输入法应用内数据共享」（见 [共享沙箱方案](../../proposed/architecture/2026-10-09-harmony-ime-shared-sandbox.md)），也无法生成签名 profile。
+在 AppGallery Connect 为鸿蒙版建应用时，包名 `app.msime.harmony` 被拒：「应用包名中包含敏感词或者保留字符 "harmony"」。没有 AGC 应用，就无法申请「输入法应用内数据共享」（见 [共享沙箱方案](../../implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md)），也无法生成签名 profile。
 
 ## Decision
 

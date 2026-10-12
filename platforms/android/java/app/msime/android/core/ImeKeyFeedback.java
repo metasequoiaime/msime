@@ -221,8 +221,7 @@ final class ImeKeyFeedback {
                 PackSounds next = null;
                 try {
                     JSONObject root = new JSONObject(NativeClient.keySoundPack(body));
-                    JSONObject value = JsonPolicy.strictTrue(root.opt("ok"))
-                        ? root.optJSONObject("value") : null;
+                    JSONObject value = JsonPolicy.objectValue(root);
                     JSONObject files = value == null ? null : value.optJSONObject("sounds");
                     if (value != null && "keys".equals(JsonPolicy.strictString(value.opt("mode")))
                             && files != null) {
