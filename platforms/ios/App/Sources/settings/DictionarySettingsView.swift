@@ -121,12 +121,8 @@ struct DictionarySettingsView: View {
     var meta = item.author.isEmpty ? [] : ["@\(item.author)"]
     if let count = item.content.entries?.count { meta.append("\(count) 条") }
     return HStack(spacing: 12) {
-      Text(item.name.first.map(String.init) ?? "词")
-        .font(.system(size: 15, weight: .bold))
-        .foregroundStyle(MetasequoiaTheme.accent)
-        .frame(width: 36, height: 36)
-        .background(MetasequoiaTheme.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .accessibilityHidden(true)
+      DesignInitialTile(text: item.name.first.map(String.init) ?? "词",
+        size: 36, fontSize: 15, fontWeight: .bold, cornerRadius: 8)
       VStack(alignment: .leading, spacing: 2) {
         Text(item.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
         if !meta.isEmpty {
