@@ -12,6 +12,7 @@ BASE = HOME / "ReloadingDetailPage.java"
 CONSUMERS = (
     "AiSettingsPage.java",
     "CloudClipboardPage.java",
+    "ClipboardSearchPage.java",
     "DeveloperPage.java",
     "DevicesPage.java",
     "ExpressionPage.java",
@@ -137,6 +138,21 @@ def main() -> int:
         or "signedOut = false;" not in cloud_clipboard
     ):
         errors.append("CloudClipboardPage: 首次渲染或视图绑定数据清理未保留")
+
+    clipboard_search = (HOME / "ClipboardSearchPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in clipboard_search
+        or "SearchPill search = new SearchPill(context);" not in clipboard_search
+        or "renderResults();" not in clipboard_search
+        or "@Override protected boolean shouldReloadOnContentReady()" not in clipboard_search
+        or "return false;" not in clipboard_search
+        or "@Override protected boolean shouldReloadWhenVisible()" not in clipboard_search
+        or "return !busy;" not in clipboard_search
+        or "@Override protected void onContentDestroyed()" not in clipboard_search
+        or "results = null;" not in clipboard_search
+        or "busy = false;" not in clipboard_search
+    ):
+        errors.append("ClipboardSearchPage: 搜索框、可见刷新或视图销毁状态未保留")
 
     lexicon = (HOME / "LexiconPage.java").read_text(encoding="utf-8")
     if (
