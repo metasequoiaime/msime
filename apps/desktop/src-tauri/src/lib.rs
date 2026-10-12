@@ -2106,6 +2106,25 @@ fn cloud_clipboard_route<N, R>(
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn cloud_clipboard_route_for_action<N, R>(
+    action: &Value,
+    configured: Option<String>,
+    relay: impl FnOnce() -> Result<Option<R>, CommandError>,
+    native: impl FnOnce() -> Option<N>,
+    discover: impl FnOnce() -> Option<PathBuf>,
+) -> Result<CloudClipboardRoute<N, R>, CommandError> {
+    let invalid = || CommandError { code: "invalid" };
+    msime_host_api::cloud_clipboard::validate_relay_request(action).map_err(|_| invalid())?;
+    if msime_host_api::cloud_clipboard::validate_request(action).is_err() {
+        if configured.is_some() {
+            return Err(invalid());
+        }
+        return relay()?.map(CloudClipboardRoute::Relay).ok_or_else(invalid);
+    }
+    cloud_clipboard_route(configured, relay, native, discover)
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn cloud_clipboard_request(
     app: tauri::AppHandle,
@@ -2114,7 +2133,7 @@ async fn cloud_clipboard_request(
     account: tauri::State<'_, desktop_account::AccountState>,
     action: Value,
 ) -> Result<Value, CommandError> {
-    msime_host_api::cloud_clipboard::validate_request(&action)
+    msime_host_api::cloud_clipboard::validate_relay_request(&action)
         .map_err(|_| CommandError { code: "invalid" })?;
     let options = options.inner().clone();
     let label = window.label().to_owned();
@@ -2150,7 +2169,8 @@ async fn cloud_clipboard_request(
         let discover = || discover_session_provider("cloud-clipboard.sock");
         #[cfg(not(unix))]
         let discover = || None::<PathBuf>;
-        match cloud_clipboard_route(configured, relay, native, discover)? {
+        match cloud_clipboard_route_for_action(&routed_action, configured, relay, native, discover)?
+        {
             #[cfg(unix)]
             CloudClipboardRoute::Provider(path) => UnixSocketProvider::new(path)
                 .cloud_clipboard(routed_action)

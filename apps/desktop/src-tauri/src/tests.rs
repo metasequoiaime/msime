@@ -2567,6 +2567,73 @@ fn cloud_clipboard_route_keeps_providers_ahead_of_the_account() {
     );
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[test]
+fn relay_only_clipboard_actions_reach_only_the_relay() {
+    use super::{cloud_clipboard_route_for_action, CloudClipboardRoute};
+    use serde_json::json;
+    use std::path::PathBuf;
+
+    for action in [
+        json!({ "operation": "pin", "id": "a".repeat(64), "pinned": true }),
+        json!({ "operation": "set_retention", "days": 7 }),
+        json!({ "operation": "clear" }),
+    ] {
+        let route = cloud_clipboard_route_for_action(
+            &action,
+            None,
+            || Ok(Some("relay")),
+            || -> Option<&str> { panic!("native session consulted") },
+            || -> Option<PathBuf> { panic!("socket discovery consulted") },
+        )
+        .unwrap();
+        assert_eq!(route, CloudClipboardRoute::Relay("relay"));
+
+        let no_relay = cloud_clipboard_route_for_action(
+            &action,
+            None,
+            || Ok(None::<&str>),
+            || -> Option<&str> { panic!("native session consulted") },
+            || -> Option<PathBuf> { panic!("socket discovery consulted") },
+        );
+        assert_eq!(no_relay.unwrap_err().code, "invalid");
+
+        let socket = cloud_clipboard_route_for_action(
+            &action,
+            Some("/run/synthetic/cloud-clipboard.sock".into()),
+            || -> Result<Option<&str>, _> { panic!("relay consulted") },
+            || -> Option<&str> { panic!("native session consulted") },
+            || -> Option<PathBuf> { panic!("socket discovery consulted") },
+        );
+        assert_eq!(socket.unwrap_err().code, "invalid");
+    }
+
+    for action in [
+        json!({ "operation": "pin", "id": "short", "pinned": true }),
+        json!({ "operation": "set_retention", "days": 5 }),
+        json!({ "operation": "unknown" }),
+    ] {
+        let rejected = cloud_clipboard_route_for_action(
+            &action,
+            None,
+            || -> Result<Option<&str>, _> { panic!("relay consulted") },
+            || -> Option<&str> { panic!("native session consulted") },
+            || -> Option<PathBuf> { panic!("socket discovery consulted") },
+        );
+        assert_eq!(rejected.unwrap_err().code, "invalid");
+    }
+
+    let common = cloud_clipboard_route_for_action(
+        &json!({ "operation": "list" }),
+        None,
+        || Ok(None::<&str>),
+        || Some("native"),
+        || -> Option<PathBuf> { panic!("socket discovery consulted") },
+    )
+    .unwrap();
+    assert_eq!(common, CloudClipboardRoute::Native("native"));
+}
+
 #[test]
 fn cloud_clipboard_target_is_only_valid_for_the_open_it_was_captured_for() {
     use super::FreshInputTarget;
