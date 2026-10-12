@@ -2,6 +2,7 @@ import {
   deepseekChatEndpoint,
   everyApiModelsUrl,
   openAiChatEndpoint,
+  siliconFlowChatEndpoint,
 } from "../core/provider-resources";
 
 /**
@@ -84,7 +85,7 @@ export const AI_PROVIDER_OPTIONS: readonly {
   {
     id: "siliconflow",
     title: "硅基流动",
-    endpoint: "https://api.siliconflow.cn/v1/chat/completions",
+    endpoint: siliconFlowChatEndpoint,
     model: "Qwen/Qwen3.6-27B",
     models: ["Qwen/Qwen3.6-27B"],
     documentation: "https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation",

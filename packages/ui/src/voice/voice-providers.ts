@@ -18,6 +18,7 @@ import {
   deepseekChatEndpoint,
   everyApiModelsUrl,
   openAiChatEndpoint,
+  siliconFlowChatEndpoint,
 } from "../core/provider-resources";
 
 export type ProviderDefaults = {
@@ -103,7 +104,7 @@ export const ASR_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
 
 export const POLISH_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
   siliconflow: {
-    endpoint: "https://api.siliconflow.cn/v1/chat/completions",
+    endpoint: siliconFlowChatEndpoint,
     model: "Qwen/Qwen3-8B",
     models: ["Qwen/Qwen3-8B", "Qwen/Qwen3.6-27B"],
     documentation: "https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation",
