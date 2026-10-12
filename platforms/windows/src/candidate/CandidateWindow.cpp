@@ -1164,7 +1164,7 @@ void CandidateWindow::paint() {
   if (motion_scale != 1.0f)
     transform = transform * D2D1::Matrix3x2F::Scale(
                               motion_scale, motion_scale,
-                              D2D1::Point2F{size.width / 2.0f, size.height / 2.0f});
+                              D2D1::Point2F(size.width / 2.0f, size.height / 2.0f));
   target->SetTransform(transform);
   const D2D1_RECT_F card_rect{
       static_cast<float>(frame.card_left) + inset,
@@ -1840,12 +1840,12 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         self->take_typing_effect();
         return 0;
       case WM_TIMER:
+        if (wparam == skin_animation_timer) {
+          self->skin_animation_tick();
+          return 0;
+        }
         if (wparam != typing_flash_timer && wparam != typing_combo_timer)
-          if (wparam == skin_animation_timer) {
-            self->skin_animation_tick();
-            return 0;
-          } else
-            break;
+          break;
         self->typing_effect_tick(static_cast<UINT_PTR>(wparam));
         return 0;
       case WM_CLOSE:
