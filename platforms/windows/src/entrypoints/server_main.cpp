@@ -467,7 +467,7 @@ bool store_input_scheme(const std::filesystem::path &directory,
 }
 // Ctrl+Shift+J 交给工作线程的一次请求，目标由 toggle_japanese_scheme 从存储算出，所以不带参数。
 struct JapaneseToggleRequest {};
-// Ctrl+Shift+J：从存储读出偏好，按 Engine 实际运行的方案算出目标（scheme::japanese_toggle_target），带 revision 写回，和 store_input_scheme 一样维护 last_chinese_scheme。在工作线程上运行，读和写之间别的界面写进去的新修订会让保存失败，这一次按键就不切换，不会覆盖别人的写入。成功时返回写进去的方案，不切换或失败时为空。
+// Ctrl+Shift+J：从存储读出偏好，按 Engine 实际运行的方案算出目标和要记的 last_chinese_scheme（scheme::japanese_toggle_write），带 revision 写回，和 store_input_scheme 一样维护 last_chinese_scheme。在工作线程上运行，读和写之间别的界面写进去的新修订会让保存失败，这一次按键就不切换，不会覆盖别人的写入。成功时返回写进去的方案，不切换或失败时为空。
 std::optional<std::string> toggle_japanese_scheme(
     const std::filesystem::path &directory,
     msime::windows::scheme::LanguageDictionaryPresence installed) {
@@ -484,22 +484,15 @@ std::optional<std::string> toggle_japanese_scheme(
     auto snapshot = response.at("value");
     const auto revision = snapshot.at("revision").get<uint64_t>();
     auto &preferences = snapshot.at("preferences");
-    const auto last_chinese =
-        preferences.value("last_chinese_scheme", std::string("quanpin"));
-    const int running = msime::windows::scheme::effective_scheme(
-        preferences.value("scheme", std::string("quanpin")), last_chinese,
+    const auto write = msime::windows::scheme::japanese_toggle_write(
+        preferences.value("scheme", std::string("quanpin")),
+        preferences.value("last_chinese_scheme", std::string("quanpin")),
         installed);
-    const int target = msime::windows::scheme::japanese_toggle_target(
-        running, last_chinese, installed);
-    if (target < 0)
+    if (write.scheme < 0)
       return std::nullopt;
-    const std::string next(msime::windows::scheme::scheme_name(target));
-    // 离开中文时记下实际运行的中文方案，回来时回到它；回到中文时它本来就是目标，照样写一次。
-    if (msime::windows::scheme::IsChinese(running))
-      preferences["last_chinese_scheme"] =
-          std::string(msime::windows::scheme::scheme_name(running));
-    else
-      preferences["last_chinese_scheme"] = next;
+    const std::string next(msime::windows::scheme::scheme_name(write.scheme));
+    preferences["last_chinese_scheme"] = std::string(
+        msime::windows::scheme::scheme_name(write.last_chinese_scheme));
     preferences["scheme"] = next;
     const auto serialized = snapshot.dump();
     auto saved = msime::host_api::own_string(

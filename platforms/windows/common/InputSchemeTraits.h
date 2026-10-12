@@ -348,6 +348,25 @@ constexpr int japanese_toggle_target(int running, std::string_view last_chinese_
     return -1;
 }
 
+// Ctrl+Shift+J 写回存储的两项，-1 表示不切换、什么都不写。
+struct JapaneseToggleWrite
+{
+    int scheme = -1;
+    int last_chinese_scheme = -1;
+};
+
+// 从存储里的 `scheme` 和 `last_chinese_scheme` 算出 Ctrl+Shift+J 要写回的两项：先按 effective_scheme 得出 Engine 实际运行的方案，再由 japanese_toggle_target 得出目标。离开中文时把实际运行的中文方案记进 `last_chinese_scheme`，回到中文时目标本身就是它。和托盘的 store_input_scheme 一样维护这一项，只是记的是实际运行的方案，不是存储里可能跑不起来的那个。
+constexpr JapaneseToggleWrite japanese_toggle_write(std::string_view scheme_name, std::string_view last_chinese_scheme,
+                                                    LanguageDictionaryPresence installed,
+                                                    OfferedSchemes offered = edition_schemes())
+{
+    const int running = effective_scheme(scheme_name, last_chinese_scheme, installed, offered);
+    const int target = japanese_toggle_target(running, last_chinese_scheme, installed, offered);
+    if (target < 0)
+        return {};
+    return {target, IsChinese(running) ? running : target};
+}
+
 // The mode of a configured `scheme` preference. An unknown name is Chinese: host-api falls back to quanpin for it.
 constexpr InputMode input_mode(std::string_view scheme_name) { return input_mode(scheme_from_name(scheme_name)); }
 

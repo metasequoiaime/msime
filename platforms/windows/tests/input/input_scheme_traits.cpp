@@ -1,5 +1,6 @@
 #include "InputSchemeTraits.h"
 #include <cassert>
+#include <utility>
 
 using namespace msime::windows::scheme;
 
@@ -139,6 +140,26 @@ int main() {
   assert(japanese_toggle_target(Japanese, "quanpin", none, japanese_and_stroke) == -1);
   // 发布的版本里只有 full 同时提供两头。
   static_assert(offers_japanese_toggle(built) == (MSIME_EDITION_IS_FULL != 0));
+  // Server 写回存储的两项，从存储里的名字算起：离开中文时记下实际运行的中文方案，替换存储里旧的 last_chinese_scheme。
+  const auto toggled = [](const char *scheme, const char *last, LanguageDictionaryPresence installed,
+                           OfferedSchemes offered) {
+    const auto write = japanese_toggle_write(scheme, last, installed, offered);
+    return std::pair{write.scheme, write.last_chinese_scheme};
+  };
+  assert(toggled("shuangpin", "quanpin", all, full) == std::pair(Japanese, Shuangpin));
+  assert(toggled("cantonese", "wubi", all, full) == std::pair(Japanese, Cantonese));
+  // 存储里的粤拼词库没装，实际跑的是上次的五笔，记下的是五笔而不是跑不起来的粤拼。
+  assert(toggled("cantonese", "wubi", none, full) == std::pair(Japanese, Wubi));
+  // 日语和其他语言回到 last_chinese_scheme，它同时也是写回的 last_chinese_scheme。
+  assert(toggled("japanese", "shuangpin", all, full) == std::pair(Shuangpin, Shuangpin));
+  assert(toggled("korean", "stroke", stroke_only, full) == std::pair(Stroke, Stroke));
+  // 上次的中文方案跑不起来时退回全拼，并把全拼记成 last_chinese_scheme。
+  assert(toggled("japanese", "zhuyin", none, full) == std::pair(Quanpin, Quanpin));
+  assert(toggled("tibetan", "", none, full) == std::pair(Quanpin, Quanpin));
+  // 不同时提供两头的版本不切换，什么都不写。
+  assert(toggled("wubi", "wubi", all, wubi) == std::pair(-1, -1));
+  assert(toggled("japanese", "quanpin", all, japanese_only) == std::pair(-1, -1));
+  assert(toggled("japanese", "quanpin", none, japanese_and_stroke) == std::pair(-1, -1));
 
   // Schemes 0-4 keep the rules they had before Cantonese, Zhuyin and Vietnamese existed: only the pinyin and shape schemes convert to Traditional, only Korean composes letters into text or opens its list.
   assert(ScriptConversionApplies(Quanpin) && ScriptConversionApplies(Wubi) && !ScriptConversionApplies(Japanese) &&
