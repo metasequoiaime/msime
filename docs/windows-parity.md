@@ -2146,6 +2146,6 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 
 - **行为**（`keybindings.toggle_japanese_ctrl_shift_j`，缺省关）：中文状态下当前跑的是中文方案时切到日语，并把它记进 `last_chinese_scheme`；跑的是日语、韩语、越南语或藏语时回到 `last_chinese_scheme`，跑不起来按 `effective_scheme` 退回。英文模式、Engine 自己的英文模式（Ctrl+Shift+E）、开关关着和不同时提供两头的版本（只有 full 同时提供）里组合键交给应用。缺省关是因为浏览器把它当作开发者工具或下载页。
 - **协议**：新增可选能力位 `JapaneseToggleShortcut = 1u << 7`，不进 `Capabilities` 和 `RequiredCapabilities`。TIP 只在协商到它时才吃这个组合键，所以新 TIP 配旧 Server 时按键照常交给应用，不会被旧 Server 当普通字母送进组字。`FUNCTION_TOGGLE_JAPANESE` 追加在 `FUNCTION_KOREAN_HANJA_KEY` 之后（38），Ctrl+Shift+F 的四处特例（自动重复、Server 不可用、能力丢失、不读回复）它都照做。
-- **组字中按下**：和托盘换方案一样，Server 只写偏好，回 NoReply，不碰组字；host-api 等组字结束、运行时空闲后才应用新方案，正在组的字照常上屏后才换成日语，TIP 不需要回复路径。Linux 的 Fcitx5 和 IBus 走各自菜单换方案的同一条路，先上屏原文再切换，两边在这一点上不同。
+- **组字中按下**：和托盘换方案一样，Server 只写偏好，回 NoReply，不碰组字；host-api 等组字结束、运行时空闲后才应用新方案，正在组的字照常上屏后才换成日语，TIP 不需要回复路径。Linux 的 IBus 和这里一样只写偏好，等组字结束才换方案；Fcitx5 走状态区菜单的 `selectScheme`，组字中先上屏原文再切换，两个 Linux 宿主在这一点上不同。
 - **已知限制**：只有语言栏图标会变成「日」，系统输入指示器和上屏文字的 `GUID_PROP_LANGID` 仍是中文。托盘「输入方案」一行右侧已经写着当前方案，没有再写出这个快捷键。
 - **验证层级**：`windows-input-scheme-traits`（目标方案的计算）、`msime-tsf-japanese-toggle`（组合键、协商位和 TSF、Server 接线）和 `windows_ipc_contract` 本机 clang 运行通过；`KeyEventSink.cpp`、`Ipc.cpp`、`InputQueue.cpp`、`FocusedSession.cpp`、`ReplyComposer.cpp`、`server_main.cpp` 和 `session_pump.cpp`、`session_smoke.cpp`、`preference_monitor.cpp` 的新用例用 MinGW 做过语法检查，没有完整交叉链接、也没有在 Wine 下运行；`settings/main.cpp` 依赖 WinUI 3，交给 Windows CI。没有在 Windows 上实机按键验证。
