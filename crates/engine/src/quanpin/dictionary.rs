@@ -767,11 +767,17 @@ impl QuanpinDictionary {
             let partial = &segments[..count];
             let mut rows = self.query_single_path(raw, &partial_segmentation, partial);
             if count == segments.len() {
-                // The same-length table often holds only leftovers: all of ping'guo is 苹果 1143881, 评过 1180, 平果 169, 平锅 1, while 苹果电脑 21495 and 苹果公司 19725 sit in tbl_4_p, which a same-length query never sees, so the second seat went to a rare homophone. Continuations join the group by weight, which comes from one corpus and compares across tables. `pinyin` stays the typed string (composition advance consumes only what was typed) and `canonical_pinyin` keeps the full reading for persistence.
+                // 同长度表里常常只剩冷僻同音词：ping'guo 只有 苹果 1143881、评过 1180、平果 169、平锅 1，而 苹果电脑 21495、苹果公司 19725 在 tbl_4_p，同长度查询看不到，第二位就落到冷僻同音词上。所以更长的补全词按权重并入这一组，权重出自同一语料，跨表可比。`pinyin` 仍是键入的切分（上屏只消耗已键入的音节），`canonical_pinyin` 保留完整读音供持久化。
+                // 但首位只留给读音和键入完全一致的同长度行里最重的那一行：补全词上屏会多出用户没打的字，权重再高也不能抢首选（#7345：dacuozi 的首选曾是 打错字了，doumeiren 的首选曾是 都没人管理）。补全词只和其余同长度行竞争第二位起的位置，苹果电脑 仍排在 平锅 前面。同长度查询没有精确键时会退到前缀区间（zhi'liang'jian 只查到 zhi'liang'jiang 的 质量奖），那一行的读音并不是键入的读音，不钉首位，和补全词一起按权重排；同长度查询一行都没有时同样按权重排，整句块随后由 `whole_sentence_insert_position` 插到首位。
                 let longer = self.longer_phrase_candidates(&partial_segmentation, partial);
                 if !longer.is_empty() {
-                    rows.extend(longer);
                     rows.sort_by_key(|item| std::cmp::Reverse(item.weight));
+                    let lead = usize::from(
+                        rows.first()
+                            .is_some_and(|item| item.canonical_pinyin == partial_segmentation),
+                    );
+                    rows.extend(longer);
+                    rows[lead..].sort_by_key(|item| std::cmp::Reverse(item.weight));
                 }
             }
             Self::append_query_rows(&mut result, rows);
