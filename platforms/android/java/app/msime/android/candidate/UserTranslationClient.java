@@ -41,6 +41,11 @@ public final class UserTranslationClient implements CandidateTranslationStore.Se
         this.memory = memory;
     }
 
+    /** 这个客户端绑定的路由；键盘拿它判断偏好重读后能不能沿用这个客户端和它记下的回答。 */
+    public CandidateTranslationRoute route() {
+        return route;
+    }
+
     @Override public List<String> translate(List<String> texts, String target) throws Exception {
         return translate(texts, target, () -> false);
     }

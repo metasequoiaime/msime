@@ -289,7 +289,7 @@ if ! rg -q 'msime::windows::polish_prompt_for' \
   echo "Android must read the polish presets from the shared table, not a copy" >&2
   exit 1
 fi
-# Candidate words reach api.msime.app only after an explicit account choice (PRIVACY.md). CandidateTranslationRouteSmoke covers the route itself; this pins the service to it: the fetch, the apply and the reserved rows read candidateTranslationAccount, both preference paths derive it through the policy, and the account is only the route's ACCOUNT provider.
+# 候选词只有在用户显式选了水杉账号之后才会发到 api.msime.app（见 PRIVACY.md）。路由本身由 CandidateTranslationRouteSmoke 覆盖，这里把键盘钉在路由上：取译文、应用译文和预留的释义行都看 candidateTranslationAccount，两条偏好路径都经过策略算出它，并且账号只是路由里的 ACCOUNT 服务。
 account_service="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
 if ! rg -qU 'void scheduleCandidateTranslations\(\) \{\s*if \(!candidateTranslationAccount ' "$account_service" \
   || ! rg -qU 'void applyCandidateTranslations\(long generation\) \{\s*if \(!candidateTranslationAccount ' "$account_service" \
@@ -307,6 +307,13 @@ if ! rg -qU 'void scheduleUserCandidateTranslations\(\) \{\s*if \(!candidateTran
   || [ "$(rg -c '= candidateTranslationRouteFrom\(preferences\);' "$account_service")" != 2 ] \
   || ! rg -qF 'return CandidateTranslationPolicy.route(' "$account_service"; then
   echo "Android must send candidate words to the user's own translation service only through the shared route" >&2
+  exit 1
+fi
+# 记下的回答和退避（UserTranslationMemory）跟着路由走，不跟着输入会话走：PRIVACY.md 承诺问过的词不再请求、服务失败后 30 秒内不再发请求。stop() 每次换输入框、收起键盘都会跑，它只能暂置路由，不能经 useCandidateTranslationRoute 把客户端换掉；回到同一路由时要沿用原来的客户端。
+if ! rg -qF 'suspendCandidateTranslationRoute();' "$account_service" \
+  || rg -qF 'useCandidateTranslationRoute(CandidateTranslationRoute.NONE)' "$account_service" \
+  || ! rg -qF 'if (userTranslationClient == null || !userTranslationClient.route().equals(next))' "$account_service"; then
+  echo "Android must keep the user translation client's memory across input sessions while the route is unchanged" >&2
   exit 1
 fi
 if rg -n 'Authorization|DeepL-Auth-Key|Bearer|X-TC-' "$user_translation_client" "$user_translation_transport"; then

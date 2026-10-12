@@ -225,6 +225,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** 用户自己的服务一次最多翻译的候选数，与共享层的每页候选上限（`MAX_CANDIDATE_PAGE_SIZE`）相同。 */
     private static final int USER_TRANSLATION_PAGE = 10;
     private CandidateTranslationStore userTranslationStore;
+    // 用户服务的客户端连同它记下的回答和退避（UserTranslationMemory），只在偏好算出另一条路由时才换掉；输入会话结束时 stop() 只把路由暂置为 NONE，下一次会话算出同一路由就接着用它，换输入框、收起再弹出键盘都不会把问过的词重新发一遍。
+    private UserTranslationClient userTranslationClient;
     private long userTranslationAppliedGeneration = -1L;
     private boolean wubiCodeHint = true;
     private boolean wubiMixedPinyin;
@@ -1712,7 +1714,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateTranslationTargets = java.util.List.of("en");
         clearEnglishSuggestions();
         if (candidateTranslationStore != null) candidateTranslationStore.clear();
-        useCandidateTranslationRoute(CandidateTranslationRoute.NONE);
+        suspendCandidateTranslationRoute();
         wubiCodeHint = true;
         wubiMixedPinyin = false;
         wubiProfile = KeyboardScheme.WUBI_86;
@@ -2146,17 +2148,27 @@ public final class MSIMEInputService extends InputMethodService {
         return provider == null ? "" : JsonPolicy.strictStringOrEmpty(provider.opt(key));
     }
 
-    /** 换到新的路由：路由（服务或凭据）变了就丢掉用户服务的 store 和它的负缓存，按新路由重建；旧 store 清空后 epoch 前进，正在逐词请求的旧客户端随即停下。 */
+    /** 换到偏好算出的路由：路由变了就丢掉用户服务的 store 按新路由重建，旧 store 清空后 epoch 前进，正在逐词请求的旧客户端随即停下。客户端和它记下的回答只在路由（服务或凭据）真的换了时才丢掉，stop() 暂置的 NONE 之后回到同一路由时沿用原来的客户端。 */
     private void useCandidateTranslationRoute(CandidateTranslationRoute next) {
         if (next.equals(candidateTranslationRoute)) return;
         candidateTranslationRoute = next;
         if (userTranslationStore != null) userTranslationStore.clear();
-        userTranslationStore = next.userService()
-            ? new CandidateTranslationStore(new UserTranslationClient(next), candidateTranslationWorker, main,
+        if (userTranslationClient == null || !userTranslationClient.route().equals(next))
+            userTranslationClient = next.userService() ? new UserTranslationClient(next) : null;
+        userTranslationStore = userTranslationClient != null
+            ? new CandidateTranslationStore(userTranslationClient, candidateTranslationWorker, main,
                 generation -> applyUserCandidateTranslations(generation))
             : null;
         userTranslationAppliedGeneration = -1L;
         invalidateCandidateGlosses();
+    }
+
+    /** 输入会话结束：路由暂置为 NONE，清掉已显示的译文并停下正在进行的请求，但留着用户服务的客户端，下一次会话由偏好算出同一路由时接着用它记下的回答和退避。 */
+    private void suspendCandidateTranslationRoute() {
+        candidateTranslationRoute = CandidateTranslationRoute.NONE;
+        if (userTranslationStore != null) userTranslationStore.clear();
+        userTranslationStore = null;
+        userTranslationAppliedGeneration = -1L;
     }
 
     private java.util.List<String> translationTargetsFrom(JSONObject preferences) {
@@ -2964,7 +2976,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * The apply_translations payload for one generation: per candidate, each target's offline gloss, else its online translation (the account's, or the user's own service's), in target order. `includeAccount` covers both online sources.
+     * 一代候选的 apply_translations 载荷：逐个候选、按目标语言顺序，每种语言先取离线释义，没有时取在线译文（账号的，或用户自己服务的）。`includeAccount` 同时管这两种在线来源。
      *
      * <p>Without an installed non-English dictionary this is the account translations of the first 32 candidates, as before; with one it also covers every candidate the offline dictionaries answered, since the payload replaces the one applied before it.
      */
