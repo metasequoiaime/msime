@@ -55,4 +55,5 @@ words 集没有任何音节档回退，`baseline-nine-key.json` 随本次更新�
 - 相关：同一个刷新函数的两次性能改动见 [九宫格查询键有界去重](../testing/2026-10-08-nine-key-query-dedup.md) 和 [九宫格候选去重](../testing/2026-10-08-nine-key-candidate-dedup.md)，本次不改变它们的结论。
 - 相关：跨切分比较此后对每个多字词再扣一份奖励，长串的切分截断由按键之间的种子束补上，见 [九键整句在按键之间沿用好切分](../feature/2026-10-10-nine-key-sentence-seeds.md)；本篇「每音节扣一份」仍是其中一项。
 - 相关：九键此后遵守句子联想设置、键盘模型跨切分统一重排一次，见 [九键遵守句子联想设置](../feature/2026-10-09-nine-key-sentence-options.md)；本篇说的切分解码上限不变。
+- 相关：26 键全拼、双拼在列表里已有中文时也让英文领先，但只限输入拆不成完整音节、英文完全匹配整段输入、并且仍受混输开关和最短前缀约束，见 [拼音拆不开且英文完全匹配时，混输英文占首选](../feature/2026-10-12-mixed-english-leads-unsegmentable-input.md)；本篇九宫格的规则不变。
 - 相关：全拼在模糊音下沿用同一方向（覆盖整个输入的词库行先于整句、精确先于模糊），见 [全拼模糊整词排在替补整句之前](2026-10-08-fuzzy-whole-input-before-stand-in-sentence.md)。
