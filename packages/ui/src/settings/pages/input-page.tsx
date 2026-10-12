@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { NavigationSection, defaultNavigation } from "../navigation-section";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList } from "../../core/platform-controls";
@@ -72,7 +72,7 @@ export function InputSettingsPage() {
     visibleTranslationLanguages,
     visibleSecondaryLanguages,
   } = useSettingsForm();
-  // 自定义双拼的编辑页是输入页里的一个视图（像插件页的详情），打开时代替整页内容；宿主能校验表、能给出内置方案的表时才有它。离开输入页时关上，下次进来从整页开始。
+  // 自定义双拼的编辑页是输入页里的一个视图（像插件页的详情），打开时代替整页内容；宿主能校验表、能给出内置方案的表时才有它。去设置表单里的别的页时它不关，只随输入页一起藏起来，回来时还是那张没保存的表；和插件页详情离开就关不同，因为这里有还没保存的键位，而只有编辑页的返回会先问一声再丢掉它们。
   const validateShuangpinCustomProfile = client.validateShuangpinCustomProfile;
   const builtinShuangpinTable = client.builtinShuangpinTable;
   const shuangpinCustomClient = useMemo<ShuangpinCustomProfileClient | undefined>(
@@ -83,9 +83,6 @@ export function InputSettingsPage() {
     [validateShuangpinCustomProfile, builtinShuangpinTable],
   );
   const [shuangpinEditorOpen, setShuangpinEditorOpen] = useState(false);
-  useEffect(() => {
-    if (page !== "input") setShuangpinEditorOpen(false);
-  }, [page]);
   const { onLocalModesChange } = createUtilitiesSettingsActions({ setDraft });
   const { onPreferencesChange, onVoiceChange } = createSettingsDraftActions({ setDraft });
   const { onChange: onHelpcodeChange } = createHelpcodeSettingsActions({ setDraft });

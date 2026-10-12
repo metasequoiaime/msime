@@ -363,6 +363,34 @@ test("leaving the editor with unsaved edits asks first", async () => {
   expect(onBack).not.toHaveBeenCalled();
 });
 
+test("going to another settings page keeps the unsaved table in the editor", async () => {
+  const shuangpin = fakeClient();
+  render(
+    <SettingsPage
+      client={{
+        load: async () => snapshot(),
+        save: vi.fn(),
+        host: testHost({ platform: "linux" }),
+        validateShuangpinCustomProfile: shuangpin.validate,
+        builtinShuangpinTable: shuangpin.builtin,
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const profile = (await screen.findByRole("combobox", { name: "双拼方案" })) as HTMLSelectElement;
+  fireEvent.change(profile, { target: { value: "custom" } });
+  fireEvent.click(await screen.findByRole("button", { name: "填入" }));
+  await waitFor(() => expect(cell("韵母 ing").value).toBe("k"));
+  fireEvent.change(cell("韵母 ing"), { target: { value: ";" } });
+
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+
+  expect(await screen.findByRole("heading", { name: "自定义双拼" })).toBeTruthy();
+  expect(cell("韵母 ing").value).toBe(";");
+});
+
 test("without host support the input page offers no custom shuangpin", async () => {
   render(
     <SettingsPage
