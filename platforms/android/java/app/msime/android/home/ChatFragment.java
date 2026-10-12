@@ -457,14 +457,7 @@ public final class ChatFragment extends HomeTabFragment {
     }
 
     private void openLink(String link) {
-        android.net.Uri uri = android.net.Uri.parse(link);
-        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(java.util.Locale.ROOT);
-        if (!scheme.equals("https") && !scheme.equals("http") && !scheme.equals("mailto")) return;
-        try {
-            startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, uri));
-        } catch (RuntimeException error) {
-            // 没有浏览器时链接只是文字。
-        }
+        LinkActions.openMarkdown(requireContext(), link);
     }
 
     private void scrollToEnd() {
