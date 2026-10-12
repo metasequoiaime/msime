@@ -24,3 +24,4 @@
 {"seq": 24, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_hide", "result": "ok"}], "log": [{"level": "debug", "text": "hide 1,2 stop 3"}]}
 {"seq": 25, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep stop 2"}]}
 {"seq": 26, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "keep stop 2"}]}
+{"seq": 27, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_hide", "result": "ok"}], "log": [{"level": "debug", "text": "hide 2,6,8 stop 11"}]}
