@@ -1011,6 +1011,12 @@ fn a_forged_revision_neither_freezes_nor_rewinds_the_writer() {
         ),
     )
     .unwrap();
+    // 输入法进程不能先记住这个极大 revision：设置页随后写出的正常值比它小，
+    // 熔断状态就永远不会因授权变化而恢复。
+    assert_eq!(
+        script_grants::read(&root),
+        script_grants::ScriptGrants::default()
+    );
     let first = script_grants::set(&root, "pangu", &hash, true, read_commit()).unwrap();
     let second = script_grants::set(&root, "pangu", &hash, false, read_commit()).unwrap();
     assert!(first.revision < script_grants::MAX_REVISION);
@@ -1026,6 +1032,23 @@ fn a_forged_revision_neither_freezes_nor_rewinds_the_writer() {
     .unwrap();
     let after = script_grants::set(&root, "pangu", &hash, true, read_commit()).unwrap();
     assert!(after.revision > written.revision);
+
+    // 合法范围内的最后一个 revision 触发回绕：写入方推进纪元，之后
+    // 继续在新纪元内单调增加，宿主可据此忽略旧文件的回放。
+    fs::write(
+        &document,
+        format!(
+            "{{\"format_version\":1,\"revision\":{},\"plugins\":[]}}",
+            script_grants::MAX_REVISION - 1
+        ),
+    )
+    .unwrap();
+    let wrapped = script_grants::set(&root, "pangu", &hash, true, read_commit()).unwrap();
+    assert_eq!(wrapped.revision_epoch, 1);
+    assert!(wrapped.revision < script_grants::MAX_REVISION - 1);
+    let next = script_grants::set(&root, "pangu", &hash, false, read_commit()).unwrap();
+    assert_eq!(next.revision_epoch, 1);
+    assert!(next.revision > wrapped.revision);
 }
 
 #[test]
@@ -1123,6 +1146,7 @@ fn the_grants_view_keeps_the_order_and_the_capability_names() {
     let rewriting = capabilities(&["rewrite_commit", "read_commit"]);
     let view = script_grants::view(
         ScriptGrants {
+            revision_epoch: 0,
             revision: 4,
             plugins: vec![
                 grant("b", true, rewriting),

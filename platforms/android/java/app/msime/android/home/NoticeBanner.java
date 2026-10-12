@@ -3,8 +3,6 @@ package app.msime.android.home;
 import app.msime.android.TextPolicy;
 
 import android.content.Context;
-import android.content.Intent;
-import android.net.Uri;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.LinearLayout;
@@ -124,14 +122,6 @@ final class NoticeBanner {
     }
 
     private static void open(Context context, String link) {
-        Uri uri = Uri.parse(link);
-        String scheme = TextPolicy.lowercase(uri.getScheme());
-        if (!scheme.equals("https") && !scheme.equals("http") && !scheme.equals("mailto")) return;
-        try {
-            context.startActivity(new Intent(Intent.ACTION_VIEW, uri)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        } catch (RuntimeException error) {
-            // No browser: the link stays text, which is all a notice link is.
-        }
+        LinkActions.openMarkdown(context, link);
     }
 }

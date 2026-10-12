@@ -1,8 +1,8 @@
 //! 进程级的部分：模块缓存和后台编译线程、内存总账、熔断与健康文件、panic 总开关。
 //!
 //! - **模块缓存**按内容哈希存放编译好的 `ScriptModule`（内部是 `Arc`，可以跨线程共享）。会话线程只登记请求、查结果；读包、核对哈希、校验和 Eager 编译都在后台编译线程上做，不在按键和 focus 路径上。还没编译好的插件这一次跳过，不算失败。
-//! - **熔断**按 (插件根目录, id, 哈希) 计，不按会话：IBus 改一个设置就重建会话，按会话熔断会让坏插件在每个新会话里重来一次。初始化失败、ABI 不符或模块不合规立即停用；否则最近 50 次投递里失败 3 次、或最近 20 次里有 3 次超过 4 ms，就停用。停用持续到授权文件的 `revision` 比以前看到过的都大（`observe_revision`）或进程重启。
-//! - **健康文件** `<user_data>/script-health.json` 只记被停用的插件和停用的类别（`invalid`、`init`、`failed`、`slow`），在失焦和 destroy 时交给后台线程写出，只有停用或恢复之后才重写；进程重启也是恢复，本进程第一次读授权时文件在就重写一次（`adopt_health`）。不记失败次数，也不按原因细分：哪种 trap、失败几次都由脚本自己选，按次数或原因写出去，同一用户下的进程每次失焦后对比文件，就是一条能反复使用、按位传文本的通道；只记停用，熔断之后要等 `revision` 变大或进程重启才能再触发，剩下的是设计接受的一次性约 1 bit。具体的原因码只在停用时进一次诊断。
+//! - **熔断**按 (插件根目录, id, 哈希) 计，不按会话：IBus 改一个设置就重建会话，按会话熔断会让坏插件在每个新会话里重来一次。初始化失败、ABI 不符或模块不合规立即停用；否则最近 50 次投递里失败 3 次、或最近 20 次里有 3 次超过 4 ms，就停用。停用持续到授权文件的 `revision` 比以前看到过的都大（`observe_revision`）、写入方在上界回绕到时间戳，或进程重启。
+//! - **健康文件** `<user_data>/script-health.json` 只记被停用的插件和停用的类别（`invalid`、`init`、`failed`、`slow`），在失焦和 destroy 时交给后台线程写出，只有停用或恢复之后才重写；进程重启也是恢复，本进程第一次读授权时文件在就重写一次（`adopt_health`）。不记失败次数，也不按原因细分：哪种 trap、失败几次都由脚本自己选，按次数或原因写出去，同一用户下的进程每次失焦后对比文件，就是一条能反复使用、按位传文本的通道；只记停用，熔断之后要等新的授权代次或进程重启才能再触发，剩下的是设计接受的一次性约 1 bit。具体的原因码只在停用时进一次诊断。
 //! - **panic 总开关**：投递里任何一处 panic 都关掉本进程的全部脚本，直到进程重启；那次调用照常返回上屏结果。
 //!
 //! import 从不回调宿主，所以这里的锁都不会在脚本代码运行时被重入；锁的顺序固定为先 `REGISTRY` 后单个 `Health`，从不反过来。
@@ -444,8 +444,8 @@ impl Health {
 
 #[derive(Default)]
 struct Registry {
-    /// 每个插件根目录看到过的最大的授权 `revision`。
-    revisions: HashMap<PathBuf, u64>,
+    /// 每个插件根目录看到过的最大的授权 `(revision_epoch, revision)`。
+    revisions: HashMap<PathBuf, (u64, u64)>,
     /// 本进程读过授权的插件根目录：第一次读时接管健康文件（`adopt_health`）。
     adopted: HashSet<PathBuf>,
     entries: HashMap<(PathBuf, String, String), Arc<Health>>,
@@ -487,14 +487,15 @@ pub(crate) fn health_snapshot(root: &Path, id: &str, hash: &str) -> (u32, Option
     )
 }
 
-/// 会话重读了授权：`revision` 比以前看到过的都大（用户在设置页改过授权、删过或重新导入过包），这个根目录下被熔断的插件全部恢复。第一次看到时只记下来；不比以前大的（放回一份旧文件、删掉文件）什么都不做，来回换文件不能让熔断反复复位。同一用户下的程序直接写一份 `revision` 更大的文件仍然能让它复位：授权文件不签名，这和它能伪造授权是同一个残余风险。
-pub(super) fn observe_revision(root: &Path, revision: u64) {
+/// 会话重读了授权：`(revision_epoch, revision)` 比以前看到过的都大（用户在设置页改过授权、删过或重新导入过包），这个根目录下被熔断的插件全部恢复。第一次看到时只记下来；不比以前大的（放回一份旧文件、删掉文件）什么都不做，来回换文件不能让熔断反复复位。同一用户下的程序直接写一份更大代次的文件仍然能让它复位：授权文件不签名，这和它能伪造授权是同一个残余风险。
+pub(super) fn observe_revision(root: &Path, revision_epoch: u64, revision: u64) {
     let mut registry = lock(&REGISTRY);
     let previous = registry.revisions.get(root).copied();
-    if previous.is_some_and(|previous| revision <= previous) {
+    let next = (revision_epoch, revision);
+    if previous.is_some_and(|previous| next <= previous) {
         return;
     }
-    registry.revisions.insert(root.to_owned(), revision);
+    registry.revisions.insert(root.to_owned(), next);
     if previous.is_none() {
         return;
     }

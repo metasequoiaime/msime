@@ -60,7 +60,7 @@ import org.json.JSONObject;
  *
  * <p>「使用此皮肤」把设计（背景图压成 JPEG 放进 `photo`，并带上所选的按键音效与动画，P23）存进自定义皮肤库、选中它、在统计里记一次 `record_skin`，提示「已使用「名」」后回到皮肤页。
  */
-public final class AiSkinPage extends DetailPage {
+public final class AiSkinPage extends ColumnDetailPage {
     private static final String STORE = "msime_ai_skin";
     private static final String UNAVAILABLE_UNTIL = "unavailable_until";
     private static final long HIDE_MILLIS = 24L * 60 * 60 * 1000;
@@ -175,7 +175,6 @@ public final class AiSkinPage extends DetailPage {
     }
 
     @Nullable private State state;
-    @Nullable private LinearLayout column;
     @Nullable private KeyboardSkin currentSkin;
     private boolean unavailable;
     /** 「使用此皮肤」正在保存；挡住连点存出两份。成功后页面就退出了，所以只在失败时清掉。 */
@@ -225,8 +224,7 @@ public final class AiSkinPage extends DetailPage {
         return value < 0 || value >= size ? 0 : value;
     }
 
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
+    @Override protected void onColumnReady(Bundle args) {
         unavailable = hidden(requireContext());
         State current = state();
         current.observer = this::onStateChanged;
@@ -245,7 +243,7 @@ public final class AiSkinPage extends DetailPage {
 
     /** 生成结束：页面有视图时才会被调用（observer 在 onDestroyView 时清掉）。 */
     private void onStateChanged() {
-        if (!isAdded() || column == null) return;
+        if (!isAdded() || contentColumn() == null) return;
         unavailable = hidden(requireContext());
         render();
         showPendingMessage();
@@ -266,10 +264,9 @@ public final class AiSkinPage extends DetailPage {
         return current;
     }
 
-    @Override public void onDestroyView() {
+    @Override protected void onContentDestroyed() {
         State current = state;
         if (current != null) current.observer = null;
-        column = null;
         preview = null;
         title = null;
         subtitle = null;
@@ -278,11 +275,10 @@ public final class AiSkinPage extends DetailPage {
         // The save callback is fenced to the old view; do not leave a rebuilt page's action
         // disabled after that callback is discarded.
         saving = false;
-        super.onDestroyView();
     }
 
     private void render() {
-        LinearLayout target = column;
+        LinearLayout target = contentColumn();
         if (target == null) return;
         target.removeAllViews();
         Context context = requireContext();

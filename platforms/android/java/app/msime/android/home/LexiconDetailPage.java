@@ -29,7 +29,7 @@ import java.util.Locale;
  *
  * <p>集合接口没有列出单个集合词条的操作，所以命名词库只显示条数，搜索和导出只对内置词库提供。
  */
-public final class LexiconDetailPage extends DetailPage {
+public final class LexiconDetailPage extends ReloadingDetailPage {
     public static final String ARG_ID = "collection_id";
     public static final String ARG_NAME = "name";
     private static final String BUILTIN_KIND = "pinyin";
@@ -43,7 +43,6 @@ public final class LexiconDetailPage extends DetailPage {
     private final Handler main = MainThreadPolicy.mainHandler();
     private final ActivityResultLauncher<String> createDocument =
         registerForActivityResult(new ActivityResultContracts.CreateDocument("text/plain"), this::onExportPicked);
-    @Nullable private LinearLayout column;
     @Nullable private GroupCard entries;
     @Nullable private Model model;
     private List<DictionaryCollectionsStore.Word> shown = new ArrayList<>(PAGE_SIZE);
@@ -56,20 +55,13 @@ public final class LexiconDetailPage extends DetailPage {
         return name == null || name.isEmpty() ? "词库" : name;
     }
 
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
-        reload();
+    @Override protected boolean shouldReloadWhenVisible() {
+        return query.isEmpty();
     }
 
-    @Override protected void onBecameVisible() {
-        if (column != null && query.isEmpty()) reload();
-    }
-
-    @Override public void onDestroyView() {
+    @Override protected void onContentDestroyed() {
         main.removeCallbacksAndMessages(null);
-        column = null;
         entries = null;
-        super.onDestroyView();
     }
 
     private String collectionId() {
@@ -84,7 +76,7 @@ public final class LexiconDetailPage extends DetailPage {
 
     // ---- 数据 ----
 
-    private void reload() {
+    @Override protected void reload() {
         String id = collectionId();
         boolean builtin = builtin();
         HostTask.run(this, context -> read(context, id, builtin), result -> {
@@ -117,7 +109,7 @@ public final class LexiconDetailPage extends DetailPage {
     // ---- 渲染 ----
 
     private void render() {
-        LinearLayout target = column;
+        LinearLayout target = contentColumn();
         Model current = model;
         if (target == null || current == null) return;
         target.removeAllViews();
@@ -202,7 +194,7 @@ public final class LexiconDetailPage extends DetailPage {
     /** 拼音按编码前缀问 Engine（连内置词一起）；汉字在当前列表里按包含过滤；清空时回到自己的词。 */
     private void search(int generation, String text) {
         Model current = model;
-        if (current == null || column == null) return;
+        if (current == null || contentColumn() == null) return;
         String code = DictionaryCollectionsStore.normalizePinyin(text).replace("'", "");
         if (text.isEmpty()) {
             shown = new ArrayList<>(current.words());

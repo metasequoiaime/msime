@@ -14,7 +14,7 @@ SITES = {
     JAVA / "core/ImeDebugOverlay.java": ("msime-input-events",),
     JAVA / "core/ImeKeyFeedback.java": ("msime-key-sound",),
     JAVA / "core/Telemetry.java": ("msime-telemetry",),
-    JAVA / "home/AboutPage.java": ("msime-home-network",),
+    JAVA / "home/NetworkTask.java": ("msime-home-network",),
     JAVA / "home/HomeActivity.java": ("msime-home-theme",),
     JAVA / "home/HostTask.java": ("msime-settings-host", "msime-settings-network"),
     JAVA / "home/OnboardingChoices.java": ("msime-onboarding-choices",),

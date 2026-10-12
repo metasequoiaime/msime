@@ -1,4 +1,5 @@
 #import "InputModeHUDPanel.h"
+#import "../candidate/CandidateWindowLevel.h"
 
 #import <algorithm>
 #import <cmath>
@@ -74,7 +75,7 @@ NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSize, NSRect visible
                                 backing:NSBackingStoreBuffered defer:YES];
     if (!self) return nil;
     self.floatingPanel = YES;
-    self.level = NSPopUpMenuWindowLevel;
+    self.level = MSIMECandidateWindowLevel();
     self.becomesKeyOnlyIfNeeded = YES;
     self.hidesOnDeactivate = NO;
     self.opaque = NO;

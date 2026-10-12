@@ -12,12 +12,17 @@ BASE = HOME / "ReloadingDetailPage.java"
 CONSUMERS = (
     "AiSettingsPage.java",
     "CloudClipboardPage.java",
+    "ClipboardSearchPage.java",
     "DeveloperPage.java",
+    "DevicesPage.java",
     "ExpressionPage.java",
     "HandwritingPage.java",
     "KeyboardOptionsPage.java",
+    "LexiconDetailPage.java",
     "LexiconPage.java",
     "PhrasesPage.java",
+    "ProfilePage.java",
+    "PrivacyPage.java",
     "SkinsPage.java",
     "TypingPage.java",
     "VoicePage.java",
@@ -31,22 +36,17 @@ def main() -> int:
     else:
         source = BASE.read_text(encoding="utf-8")
         required = (
-            "public abstract class ReloadingDetailPage extends DetailPage",
-            "@Nullable private LinearLayout column;",
-            "@Override protected final void buildContent(LinearLayout column, Bundle args)",
-            "this.column = column;",
+            "public abstract class ReloadingDetailPage extends ColumnDetailPage",
+            "@Override protected final void onColumnReady(Bundle args)",
             "onContentReady();",
             "protected void onContentReady()",
+            "if (shouldReloadOnContentReady()) reload();",
+            "protected boolean shouldReloadOnContentReady()",
             "onInitialReloadScheduled();",
             "protected void onInitialReloadScheduled()",
             "@Override protected void onBecameVisible()",
-            "if (column != null) reload();",
-            "@Override public void onDestroyView()",
-            "column = null;",
-            "onContentDestroyed();",
-            "protected void onContentDestroyed()",
-            "@Nullable protected final LinearLayout contentColumn()",
-            "return column;",
+            "if (contentColumn() != null && shouldReloadWhenVisible()) reload();",
+            "protected boolean shouldReloadWhenVisible()",
             "protected abstract void reload();",
         )
         for snippet in required:
@@ -105,6 +105,19 @@ def main() -> int:
     ):
         errors.append("DeveloperPage: 首次渲染或视图销毁时的专有处理未保留")
 
+    devices = (HOME / "DevicesPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in devices
+        or "showLoading();" not in devices
+        or "@Override protected boolean shouldReloadOnContentReady()" not in devices
+        or "return false;" not in devices
+        or "@Override protected void onContentDestroyed()" not in devices
+        or "generation++;" not in devices
+        or "loadedSessionId = null;" not in devices
+        or "LinearLayout current = contentColumn();" not in devices
+    ):
+        errors.append("DevicesPage: 首次可见时读取或旧请求失效处理未保留")
+
     cloud_clipboard = (HOME / "CloudClipboardPage.java").read_text(encoding="utf-8")
     if (
         "@Override protected void onContentReady()" not in cloud_clipboard
@@ -117,6 +130,21 @@ def main() -> int:
         or "signedOut = false;" not in cloud_clipboard
     ):
         errors.append("CloudClipboardPage: 首次渲染或视图绑定数据清理未保留")
+
+    clipboard_search = (HOME / "ClipboardSearchPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in clipboard_search
+        or "SearchPill search = new SearchPill(context);" not in clipboard_search
+        or "renderResults();" not in clipboard_search
+        or "@Override protected boolean shouldReloadOnContentReady()" not in clipboard_search
+        or "return false;" not in clipboard_search
+        or "@Override protected boolean shouldReloadWhenVisible()" not in clipboard_search
+        or "return !busy;" not in clipboard_search
+        or "@Override protected void onContentDestroyed()" not in clipboard_search
+        or "results = null;" not in clipboard_search
+        or "busy = false;" not in clipboard_search
+    ):
+        errors.append("ClipboardSearchPage: 搜索框、可见刷新或视图销毁状态未保留")
 
     lexicon = (HOME / "LexiconPage.java").read_text(encoding="utf-8")
     if (
@@ -131,6 +159,17 @@ def main() -> int:
         or "reload(true)" not in lexicon
     ):
         errors.append("LexiconPage: 缓存显示、发现列表或手动刷新行为未保留")
+
+    lexicon_detail = (HOME / "LexiconDetailPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected boolean shouldReloadWhenVisible()" not in lexicon_detail
+        or "return query.isEmpty();" not in lexicon_detail
+        or "@Override protected void onContentDestroyed()" not in lexicon_detail
+        or "main.removeCallbacksAndMessages(null);" not in lexicon_detail
+        or "entries = null;" not in lexicon_detail
+        or "if (current == null || contentColumn() == null) return;" not in lexicon_detail
+    ):
+        errors.append("LexiconDetailPage: 搜索期间不刷新或视图销毁时的状态清理未保留")
 
     voice = (HOME / "VoicePage.java").read_text(encoding="utf-8")
     if (
@@ -157,6 +196,30 @@ def main() -> int:
         or "if (contentColumn() == null) return;" not in typing
     ):
         errors.append("TypingPage: 添加语言深链或资源包监听器生命周期未保留")
+
+    profile = (HOME / "ProfilePage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in profile
+        or "loaded = null;" not in profile
+        or "render();" not in profile
+        or "@Override protected boolean shouldReloadOnContentReady()" not in profile
+        or "return false;" not in profile
+        or "@Override protected void reload()" not in profile
+        or "reload(null);" not in profile
+        or "@Override protected void onContentDestroyed()" not in profile
+    ):
+        errors.append("ProfilePage: 首次可见时刷新或临时状态清理未保留")
+
+    privacy = (HOME / "PrivacyPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in privacy
+        or "LinearLayout target = contentColumn();" not in privacy
+        or "@Override protected boolean shouldReloadOnContentReady()" not in privacy
+        or "return false;" not in privacy
+        or "@Override protected void onContentDestroyed()" not in privacy
+        or privacy.count("rows.clear();") < 2
+    ):
+        errors.append("PrivacyPage: 开关绘制、首次可见读取或旧视图引用清理未保留")
 
     if errors:
         print("\n".join(errors), file=sys.stderr)

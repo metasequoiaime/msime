@@ -30,7 +30,7 @@ import app.msime.android.ViewPolicy;
  *
  * <p>保存经 {@link ClipboardHistoryStore#replace}：条目留在原位，时间戳和固定状态不变；改成已有的文字时两条合并成一条；那一条已经被删掉或清空时说出来，不悄悄失败。保存或取消后，从键盘打开的回到原来的应用，接着就能在键盘里插入改好的那条；从剪贴板历史页打开的弹回那一页。
  */
-public final class ClipboardEditPage extends DetailPage {
+public final class ClipboardEditPage extends ColumnDetailPage {
     private enum State { LOADING, READY, MISSING, FAILED }
 
     private State state = State.LOADING;
@@ -39,7 +39,6 @@ public final class ClipboardEditPage extends DetailPage {
     /** 输入框里的草稿，见 {@link Draft}；{@link #onCreate} 里取到。 */
     private Draft draft;
     private boolean saving;
-    @Nullable private LinearLayout column;
     @Nullable private TextView save;
 
     /**
@@ -57,18 +56,15 @@ public final class ClipboardEditPage extends DetailPage {
         draft = new ViewModelProvider(this).get(Draft.class);
     }
 
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
+    @Override protected void onColumnReady(Bundle args) {
         if (state == State.LOADING) load(args.getString(ClipboardHistoryPolicy.EDIT_ENTRY_ARG));
         render();
     }
 
-    @Override public void onDestroyView() {
-        column = null;
+    @Override protected void onContentDestroyed() {
         save = null;
         // HostTask drops a save result bound to the old view; allow the rebuilt editor to retry.
         saving = false;
-        super.onDestroyView();
     }
 
     private void load(@Nullable String key) {
@@ -99,7 +95,7 @@ public final class ClipboardEditPage extends DetailPage {
     }
 
     private void render() {
-        LinearLayout target = column;
+        LinearLayout target = contentColumn();
         if (target == null) return;
         Context context = requireContext();
         target.removeAllViews();

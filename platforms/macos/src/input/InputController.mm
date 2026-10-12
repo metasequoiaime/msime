@@ -8,6 +8,7 @@
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
 #import "../candidate/CandidatePlacement.h"
+#import "../candidate/CandidateWindowLevel.h"
 #import "../candidate/CandidateGlossSenses.h"
 #import "InputSourceRegistration.h"
 #import "../core/UpdateController.h"
@@ -6787,7 +6788,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
             [controller apply:[controller->_session command:previous ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
         };
         _panel = panel;
-        _panel.level = NSPopUpMenuWindowLevel;
+        _panel.level = MSIMECandidateWindowLevel();
         _panel.hasShadow = YES;
         _panel.hidesOnDeactivate = NO;
         _panel.becomesKeyOnlyIfNeeded = YES;

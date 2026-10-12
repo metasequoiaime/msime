@@ -6,7 +6,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "platforms/android/java/app/msime/android/home/LexiconPage.java"
-BASE = ROOT / "platforms/android/java/app/msime/android/home/ReloadingDetailPage.java"
+BASE = ROOT / "platforms/android/java/app/msime/android/home/ColumnDetailPage.java"
 
 
 class AndroidLexiconInstallViewLifecycleContract(unittest.TestCase):

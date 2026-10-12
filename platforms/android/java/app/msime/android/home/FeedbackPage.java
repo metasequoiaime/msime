@@ -258,7 +258,7 @@ public final class FeedbackPage extends DetailPage {
         ContentResolver resolver = requireContext().getContentResolver();
         if (uris.size() > room) MsToast.show(requireContext(), "最多附 " + FeedbackApi.MAX_SCREENSHOTS + " 张截图");
         List<Uri> copy = new ArrayList<>(chosen);
-        AboutPage.network(this, () -> {
+        NetworkTask.run(this, () -> {
             List<byte[]> encoded = new ArrayList<>(copy.size());
             for (Uri uri : copy) {
                 byte[] bytes = reencode(resolver, uri);
@@ -310,7 +310,7 @@ public final class FeedbackPage extends DetailPage {
         boolean withDiagnostics = diagnostics;
         List<FeedbackApi.Screenshot> shots = new ArrayList<>(screenshots.size());
         for (byte[] bytes : screenshots) shots.add(new FeedbackApi.Screenshot("image/jpeg", bytes));
-        submitTask = AboutPage.network(this, () -> new FeedbackApi(new CloudApi(application)).submit(kind, text,
+        submitTask = NetworkTask.run(this, () -> new FeedbackApi(new CloudApi(application)).submit(kind, text,
             UpdateJobService.currentVersion(application), AppEdition.current().id(),
             withDiagnostics ? collectDiagnostics(application) : null, shots), outcome -> {
             submitTask = null;
@@ -371,9 +371,7 @@ public final class FeedbackPage extends DetailPage {
 
     /** 没装 Telegram 又没有浏览器时，退而复制链接。 */
     private void openTelegram() {
-        try {
-            startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(TELEGRAM_URL)));
-        } catch (android.content.ActivityNotFoundException missing) {
+        if (!LinkActions.open(requireContext(), TELEGRAM_URL)) {
             copy("Telegram", TELEGRAM_URL, "已复制群组链接");
         }
     }
