@@ -33,6 +33,8 @@ Status: implemented
 
 共享设置页的「输入」页在五笔的设置显示时（当前方案是五笔、触屏方案里启用了五笔，或只有五笔的版本），在方案组之后画一个「五笔查码」组（`packages/ui/src/settings/wubi-code-lookup-section.tsx`）：一个文本框、一个「查码」按钮和一张表，表里先列整段词（有的话），再逐字列出 86 和 98 两列编码，当前所选码表那一列标「（当前）」，码表里没有的写「—」。说明文字同时告诉用户打字时可以按 `z` 加拼音查。
 
+共享设置页的输入文字一变化，就作废尚未完成的查码请求，清掉旧结果和错误，并允许对新文字立即查码；过期请求即使晚于新请求返回也不再回写。否则用户把「你好」改成「世界」后，会继续看到「你好」的编码，旧请求未结束时还无法查询新文字。
+
 页面只经 `DictionaryClient.wubiCodes` 拿结果；宿主没有提供它时整组不画。各宿主的接法：
 
 - macOS、Linux：Tauri 设置应用的 `dictionary` 客户端（`apps/desktop/src/main.tsx`）发 `dictionary_request`，到 `dictionary_request_json`。
@@ -40,6 +42,10 @@ Status: implemented
 - HarmonyOS：`apps/harmony/src/main.tsx` 的 `dictionary` 客户端经桥方法 `dictionary` 到 `KeyboardSession.dictionary`，再到 `msime_client_dictionary`。
 - Windows：设置窗口是原生 WinUI 的 `msime-client-settings.exe`（`platforms/windows/settings/main.cpp`），自己不画查码组，但同目录的共享应用 `MSIME.exe` 画「输入」页，它用的就是上面 macOS、Linux 那个 `dictionary` 客户端，`dictionary_request` 在 Windows 上同样到 `dictionary_request_json`。所以 WinUI「输入」页的五笔组末尾加一行「五笔查码」，和辅助码插件那一行一样用 `nav::shell_links::input` 打开共享应用的「输入」页。这一行不能省：五笔版只提供五笔，辅助码组不显示，原来本窗口没有任何一行通到共享应用的「输入」页。
 - iOS：分发的产品是原生 `MSIMEApp`（`platforms/ios/README.md`），没有 WebView，承载不了共享设置页。「输入设置」（`InputSettingsView`，`platforms/ios/App/Sources/app/OnboardingView.swift`）的「更多」组在启用了五笔时，三个五笔开关后面加一行「五笔查码」，打开原生的 `WubiCodeLookupView`，文字和排法照共享设置页（`WubiCodeLookup`）。查码在 App 进程里经 `MetasequoiaInputSessionBridge.wubiCodes`：先 `msime_client_prepare_host` 解析选项，再 `msime_client_dictionary` 发 `{operation:"wubi_codes",text}`；资源目录取 `PersonalDictionaryBridge.packagedResources`。App 包里只有词库清单，找到的是键盘扩展包里的 `EngineResources`，和键盘准备宿主用的是同一个目录：状态目录里的资源校验标记（`verified-resources.json`）记着目录路径，App 若用别的路径准备，键盘下次启动会把整套词库重新哈希一遍。共享前端的 iOS 工程（`apps/desktop/src-tauri/gen/apple`）仍经 `mobileDictionary` 带上 `wubiCodes`，但那个工程只是公共组件，不作为产品分发。`z` 反查在 iOS 键盘上照常可用，它在共享引擎里。
+
+Android 原生页的 `WubiLookupRequestState` 也按输入文字和请求代次保存忙碌状态及结果：编辑时清掉旧表格、允许新查询，旧回答不再覆盖新结果；视图销毁时解除未完成请求的忙碌状态，已经完成的结果继续留在 ViewModel 中。`HostTask` 只向发起请求时那棵视图交回结果，旋转后不会调用旧完成回调，因此只靠回调解除 `busy` 会把新视图的查码按钮永久锁住。
+
+iOS 原生页同样用 `WubiLookupRequestState` 管理输入、请求身份和显示状态：`TextField` 的文字变化先保持原有长度截断，再清掉旧表格与失败提示，并解除旧请求占用；完成回调只有身份仍属于当前输入时才写回。状态留在 SwiftUI `@State`，不跨导航页面保存。
 
 字根拆分不做：仓库里没有授权清楚的 86/98 拆分数据（`resources/helpcodes` 里只有拼音辅助码用的字根数据），而且很多字根不是 Unicode 字符，要另配字体或图片。
 
@@ -68,6 +74,9 @@ Status: implemented
 - `cargo test -p msime-engine --test golden`：更新后的三个场景与其余场景全部通过。
 - `cargo test -p msime-engine --lib -- wubi::lookup`：每个字全部编码短码在前、重复编码并成一个；非汉字跳过、重复的字只列一次、带标点的一段不当词查；码表没有的字列出但没有编码；缺 `wubi98` 表或整个文件时只有那一列为空；超过 64 个不同汉字截断。
 - `pnpm --filter @msime/desktop exec vitest run`（全量 524 个文件通过），其中 `tests/settings/wubi-code-lookup-section.test.tsx`：整段词在前、两列编码与当前码表标记；没有汉字和截断的提示；失败时报错并清掉旧结果；「输入」页在五笔方案且宿主有 `wubiCodes` 时画出这一组并用它查，全拼方案或宿主没给 `wubiCodes` 时不画。
+- 查码输入变化和过期响应由 `tests/settings/wubi-code-lookup-section.test.tsx` 覆盖：编辑立即隐藏旧表格、允许新请求，旧请求晚返回也不覆盖新结果。
+- Android 原生页的请求状态由 `WubiLookupRequestStateSmoke` 覆盖：编辑后新旧请求逆序完成、视图销毁后旧回调失效且新视图可重试、已完成结果跨视图重建保留。`check-host.sh` 的 216 个 JVM 冒烟与设备套件源码编译、原生 Gradle 工程的 `compileFullDebugJavaWithJavac` 通过；此改动尚未在模拟器上运行。
+- iOS 原生页的 `WubiLookupRequestStateTests` 覆盖编辑后旧成功、旧失败回调失效，以及新请求能立即启动；这两项先在空实现上失败，再在修复后通过。iOS 17 模拟器 SDK 的 SwiftUI 类型检查和 XcodeGen 工程生成通过；此批改动尚未在原生 App 模拟器运行，本机剩余空间不足以完成 Rust 与 Xcode 全量构建。
 - Windows 那一行（`platforms/windows/settings/main.cpp`）没有在本机构建：WinUI 设置窗口只能用 MSVC 编译，交给 CI 的 Windows 构建；它照搬同一文件里辅助码插件那一行的 `shell_row(..., nav::shell_links::input)`。
 - `platforms/harmony/tests/run.sh`：`DictionaryMaintenancePolicy` 把 `wubi_codes` 当读操作（组字时允许、不要维护、不进队列）。
 - `cargo test -p msime-host-api --lib -- dictionary::tests::wubi`：两个入口对同一请求给出相同回答，个人词库队列不建目录、用户数据目录不变；超长文字两个入口都拒绝。

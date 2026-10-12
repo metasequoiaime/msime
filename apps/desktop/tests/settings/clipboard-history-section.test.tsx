@@ -258,3 +258,38 @@ test("clipboard history reports a failed upload and a lost session", async () =>
   expect(await screen.findByText("登录水杉账号后可在设备间同步剪贴板")).toBeTruthy();
   expect(send.hasAttribute("disabled")).toBe(true);
 });
+
+test("clipboard history checks the cloud clipboard again when its route changes", async () => {
+  const cloudRequest = vi
+    .fn()
+    .mockRejectedValueOnce({ code: "account_unauthorized" })
+    .mockResolvedValue({ enabled: true, items: [] });
+  const props = {
+    client: {
+      clear: vi.fn(),
+      list: vi
+        .fn()
+        .mockResolvedValue([
+          { text: "合成云端记录", timestampMs: 1_700_000_000_000, pinned: false },
+        ]),
+    },
+    historyEnabled: true,
+    persistedHistoryEnabled: true,
+    revision: 1,
+    ios: false,
+    onToggle: vi.fn(),
+    onError: vi.fn(),
+    cloudRequest,
+  };
+  const view = render(<ClipboardHistorySection {...props} cloudRoute="account" />);
+  expect(await screen.findByText("登录水杉账号后可在设备间同步剪贴板")).toBeTruthy();
+
+  view.rerender(<ClipboardHistorySection {...props} cloudRoute="relay" />);
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "发到云剪贴板" }).hasAttribute("disabled")).toBe(
+      false,
+    ),
+  );
+  expect(cloudRequest).toHaveBeenCalledTimes(2);
+  expect(screen.queryByText("登录水杉账号后可在设备间同步剪贴板")).toBeNull();
+});

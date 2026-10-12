@@ -9,6 +9,8 @@ test("cloud clipboard availability reuses the shared generation lifecycle", () =
     }),
   )[0];
 
-  expect(source).toContain("const cloudRevision = useAsyncGeneration(cloudRequest, historyShown)");
+  expect(source).toContain(
+    "const cloudRevision = useAsyncGeneration(cloudRequest, historyShown, cloudRoute)",
+  );
   expect(source).not.toContain("const cloudRevision = useRef(0)");
 });

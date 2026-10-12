@@ -59,6 +59,8 @@ export interface InputSchemeSettingsContentProps {
   onEnableAndSelectTouchKeyboardScheme?: (scheme: TouchKeyboardScheme) => void;
   /** 宿主能查五笔编码时传入（词库请求 `wubi_codes`）；有它且五笔的设置在显示时，方案组之后出现「五笔查码」。 */
   wubiCodeLookup?: WubiCodeLookupClient;
+  /** 宿主能校验自定义双拼表时传入，打开自定义双拼的编辑页；见 `InputSchemeDetailsSection` 的同名属性。 */
+  onEditCustomShuangpin?: () => void;
 }
 
 /** Shared input mode, scheme selector, scheme details, and Wubi composition for settings hosts. */
@@ -80,6 +82,7 @@ export function InputSchemeSettingsContent({
   languageCard = false,
   onEnableAndSelectTouchKeyboardScheme = onSelectTouchKeyboardScheme,
   wubiCodeLookup,
+  onEditCustomShuangpin,
 }: InputSchemeSettingsContentProps) {
   // 方案改动立即写入草稿（随自动保存生效），需要词库的方案再在后台下载，不等下载完成。
   const onSchemeChange = (patch: Partial<Preferences>) => {
@@ -170,6 +173,7 @@ export function InputSchemeSettingsContent({
                   onShuangpinProfileChange={(shuangpin_profile: ShuangpinProfile) =>
                     onPreferencesChange({ shuangpin_profile })
                   }
+                  onEditCustomShuangpin={onEditCustomShuangpin}
                   vietnamese={preferences.vietnamese}
                   onVietnameseChange={(next) => onPreferencesChange({ vietnamese: next })}
                 />
@@ -226,6 +230,7 @@ export function InputSchemeSettingsContent({
           onShuangpinProfileChange={(shuangpin_profile: ShuangpinProfile) =>
             onPreferencesChange({ shuangpin_profile })
           }
+          onEditCustomShuangpin={onEditCustomShuangpin}
           onWubiProfileChange={(wubi_profile: WubiProfile) => onPreferencesChange({ wubi_profile })}
           onShuangpinKeymapHintChange={(shuangpin_keymap_hint) =>
             onPreferencesChange({ shuangpin_keymap_hint })

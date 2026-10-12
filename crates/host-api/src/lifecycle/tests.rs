@@ -51,6 +51,7 @@ fn ordinary() -> Context {
     Context {
         flags: 0,
         traits: TRAIT_KNOWN,
+        pieces_held: false,
     }
 }
 
@@ -354,17 +355,31 @@ fn only_a_plain_typed_pick_in_an_ordinary_field_is_rewritable() {
     assert!(!rewritable(Context::default(), pick, typed(2)));
     for restricted in [TRAIT_SECURE, TRAIT_PRIVATE, TRAIT_ELEVATED] {
         let context = Context {
-            flags: 0,
             traits: TRAIT_KNOWN | restricted,
+            ..ordinary()
         };
         assert!(!rewritable(context, pick, typed(2)), "{restricted:#x}");
     }
     // 其余属性不影响。
     let fullscreen = Context {
-        flags: 0,
         traits: TRAIT_KNOWN | TRAIT_FULLSCREEN | TRAIT_NO_SPELLCHECK,
+        ..ordinary()
     };
     assert!(rewritable(fullscreen, pick, typed(2)));
+    // 宿主暂存部分选词时（Windows），部分选词的那一段、以及暂存过一段之后补齐整个词的上屏都不可改写；宿主不暂存时部分选词照样可改写。
+    let partial = picked(SelectionHow::Select, SelectionOutcome::Partial);
+    assert!(rewritable(ordinary(), partial, typed(1)));
+    let holds = Context {
+        flags: HOST_HOLDS_PIECES,
+        ..ordinary()
+    };
+    assert!(!rewritable(holds, partial, typed(1)));
+    assert!(rewritable(holds, pick, typed(1)));
+    let held = Context {
+        pieces_held: true,
+        ..holds
+    };
+    assert!(!rewritable(held, pick, typed(1)));
 }
 
 #[test]

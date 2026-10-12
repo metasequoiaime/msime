@@ -3,11 +3,9 @@ package app.msime.android.test;
 import android.graphics.Rect;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
-import android.util.AtomicFile;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.function.Predicate;
@@ -37,7 +35,7 @@ public final class NumberRowDeviceSmoke extends DeviceSmoke {
             publish(localSettings, new JSONObject().put("version", 1)
                 .put("settings", new JSONObject().put(NUMBER_ROW_SETTING, true))
                 .toString().getBytes(StandardCharsets.UTF_8));
-            rebindInputMethod();
+            restartIme();
             openEditor();
 
             stage = "number row above the letters";
@@ -64,8 +62,8 @@ public final class NumberRowDeviceSmoke extends DeviceSmoke {
                 stage = "landscape phone hides the number row";
                 accelerometerRotation = shellOutput("settings get system accelerometer_rotation");
                 userRotation = shellOutput("settings get system user_rotation");
-                shell("settings put system accelerometer_rotation 0");
-                shell("settings put system user_rotation 1");
+                shellDiscard("settings put system accelerometer_rotation 0");
+                shellDiscard("settings put system user_rotation 1");
                 awaitEditorOrientation(true);
                 tap(field("msime-test-plain"));
                 awaitStableBounds(key("q"));
@@ -73,19 +71,19 @@ public final class NumberRowDeviceSmoke extends DeviceSmoke {
                 if (findVisible(digit("1")) != null)
                     throw new AssertionError("Number row drawn in a landscape phone window; IME showed " + imeTexts());
                 stage = "portrait brings the number row back";
-                shell("settings put system user_rotation 0");
+                shellDiscard("settings put system user_rotation 0");
                 awaitEditorOrientation(false);
                 tap(field("msime-test-plain"));
                 await(digit("1"));
             }
         } finally {
-            if (userRotation != null) shell("settings put system user_rotation " + settingValue(userRotation, "0"));
+            if (userRotation != null) shellDiscard("settings put system user_rotation " + settingValue(userRotation, "0"));
             if (accelerometerRotation != null)
-                shell("settings put system accelerometer_rotation " + settingValue(accelerometerRotation, "1"));
-            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+                shellDiscard("settings put system accelerometer_rotation " + settingValue(accelerometerRotation, "1"));
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (originalLocal == null) Files.deleteIfExists(localSettings.toPath());
             else publish(localSettings, originalLocal);
-            rebindInputMethod();
+            restartIme();
         }
     }
 
@@ -134,16 +132,10 @@ public final class NumberRowDeviceSmoke extends DeviceSmoke {
     }
 
     private void openEditor() throws Exception {
-        shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
         tap(field("msime-test-plain"));
     }
 
-    private void rebindInputMethod() throws Exception {
-        shell("ime disable app.msime.android/.MSIMEInputService");
-        shell("ime enable app.msime.android/.MSIMEInputService");
-        shell("ime set app.msime.android/.MSIMEInputService");
-        SystemClock.sleep(1000);
-    }
 
     private String shellOutput(String command) throws Exception {
         try (var input = new ParcelFileDescriptor.AutoCloseInputStream(
@@ -157,23 +149,5 @@ public final class NumberRowDeviceSmoke extends DeviceSmoke {
         return value.matches("[0-9]+") ? value : fallback;
     }
 
-    private void shell(String command) throws Exception {
-        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(
-                automation.executeShellCommand(command))) {
-            byte[] buffer = new byte[1024];
-            while (input.read(buffer) != -1) { }
-        }
-    }
 
-    private void publish(File file, byte[] contents) throws Exception {
-        AtomicFile target = new AtomicFile(file);
-        FileOutputStream output = target.startWrite();
-        try {
-            output.write(contents);
-            target.finishWrite(output);
-        } catch (Exception error) {
-            target.failWrite(output);
-            throw error;
-        }
-    }
 }

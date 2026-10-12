@@ -1,6 +1,6 @@
 package app.msime.android;
 
-/** 字母键滑动输入提示字符：从按下点沿设置的方向（`platform.android.swipe_symbols_direction`，下滑或上滑）移动超过 14 dp 时，松手输入该键的提示字符（{@link LetterHintTable}），按键预览也改为显示提示字符。长按同样输入提示字符，不受这里的开关和方向影响。 */
+/** 字母键滑动输入提示字符：从按下点沿设置的方向（`platform.android.swipe_symbols_direction`，下滑或上滑）移动超过 14 dp 时，松手输入该键的提示字符（{@link LetterHintTable}），按键预览也改为显示右上角的键面（中文标点生效时 ( ) " ? ! 显示中文形式，见 {@link LetterHintTable#face}）。长按同样输入提示字符，不受这里的开关和方向影响。 */
 public final class SwipeHintPolicy {
     /** 滑动判定阈值（dp），严格大于才算。 */
     public static final float THRESHOLD_DP = 14f;
@@ -33,7 +33,7 @@ public final class SwipeHintPolicy {
     }
 
     /**
-     * 松手时这个键应输入的文本：沿设置方向滑过阈值且有提示时是提示字符，否则是键本身。
+     * 松手时这个键应输入的文本：沿设置方向滑过阈值且有提示时是规范表里的提示字符，否则是键本身。中文标点生效时，( ) " ? ! 这几个提示实际上屏的是 Engine 转写的中文标点，那一步由 `ImeLetterRows` 交给 Engine 的标点路由（{@link LetterHintTable#routesThroughEngine}），这里仍返回 ASCII 原字符。
      *
      * @param letter 键的字母
      * @param swipeEnabled 「滑动输入符号」是否开启；关闭时不响应滑动

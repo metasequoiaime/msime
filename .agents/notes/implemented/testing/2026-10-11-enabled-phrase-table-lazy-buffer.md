@@ -22,3 +22,5 @@ Status: implemented
 ## Consequences
 
 空短语表不再分配行缓冲；首条有效短语出现时仍一次预留原容量，合并结果和限制保持不变。
+
+[按批次增长容量](2026-10-12-enabled-phrase-batch-capacity.md) 接替有效短语表的固定上限预留；本篇的空结果零容量决定继续成立。

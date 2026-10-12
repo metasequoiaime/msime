@@ -17,10 +17,10 @@ pub const MAX_DOCUMENT_BYTES: usize = 1 << 20;
 /// macOS 原生设置窗口「导出设置…」写出的格式名，内容是 Apple 云同步的键值，不是共享偏好。
 const MACOS_NATIVE_FORMAT: &str = "app.msime.client.settings";
 
-/// 只属于本机、不随设置文件走的偏好：语音、AI 辅助和翻译服务的整组配置（里面有服务密钥，地址、模型和密钥要成对才有意义，本地语音模型的路径也只在这台电脑上成立）、诊断日志开关、匿名使用统计的同意与否，以及剪贴板历史开关。导出时不写，导入时保留本机的值。
+/// 只属于本机、不随设置文件走的偏好：语音、AI 辅助和翻译服务的整组配置（里面有服务密钥，地址、模型和密钥要成对才有意义，本地语音模型的路径也只在这台电脑上成立）、诊断日志开关、匿名使用统计的同意与否、剪贴板历史开关，以及云剪贴板中继的地址和令牌（令牌是凭据，用户保存的设置文件里不该出现它）。导出时不写，导入时保留本机的值。
 ///
 /// 剪贴板历史开关跟着本机走有两层原因：记不记录这台电脑复制过的内容是本机的隐私选择；它默认关闭，大多数文件里都是关的，如果跟着文件走，导入时会把本机开着的历史关掉，而关掉就会清空已存的历史，这些记录找不回来。
-pub const LOCAL_SECTIONS: [&str; 8] = [
+pub const LOCAL_SECTIONS: [&str; 9] = [
     "voice_input",
     "ai_assistant",
     "custom_translation",
@@ -29,6 +29,7 @@ pub const LOCAL_SECTIONS: [&str; 8] = [
     "diagnostic_log",
     "usage_reporting",
     "clipboard_history",
+    "cloud_clipboard_relay",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -211,6 +212,41 @@ mod tests {
             import_document(document.to_string().as_bytes(), &current, Edition::full()).unwrap();
         assert_eq!(imported.usage_reporting, current.usage_reporting);
         assert_eq!(imported.ai_assistant, current.ai_assistant);
+    }
+
+    /// 中继的地址和令牌只属于本机：导出不写，文件里手写的一份被忽略，导入后本机配置的中继原样保留。
+    #[test]
+    fn the_cloud_clipboard_relay_stays_on_this_machine() {
+        let mut exported = Preferences::default();
+        exported.cloud_clipboard_relay.url = "https://relay.example.test/msime".into();
+        exported.cloud_clipboard_relay.token = "synthetic-relay-token-exported".into();
+        let text = export_document(&exported).unwrap();
+        assert!(!text.contains("relay.example.test"), "{text}");
+        assert!(!text.contains("synthetic-relay-token"), "{text}");
+
+        let mut document: Value = serde_json::from_str(&text).unwrap();
+        document["preferences"]["cloud_clipboard_relay"] = serde_json::json!({
+            "url": "https://planted.example.test",
+            "token": "synthetic-relay-token-planted",
+        });
+        let mut current = Preferences::default();
+        current.cloud_clipboard_relay.url = "https://own.example.test".into();
+        current.cloud_clipboard_relay.token = "synthetic-relay-token-current".into();
+        let imported =
+            import_document(document.to_string().as_bytes(), &current, Edition::full()).unwrap();
+        assert_eq!(
+            imported.cloud_clipboard_relay,
+            current.cloud_clipboard_relay
+        );
+
+        // 本机没配置中继时，文件里的那份同样不会被带进来。
+        let imported = import_document(
+            document.to_string().as_bytes(),
+            &Preferences::default(),
+            Edition::full(),
+        )
+        .unwrap();
+        assert!(!imported.cloud_clipboard_relay.is_configured());
     }
 
     #[test]

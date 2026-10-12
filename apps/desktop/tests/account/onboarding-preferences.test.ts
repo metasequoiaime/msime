@@ -129,4 +129,22 @@ describe("completeOnboardingPreferences", () => {
       touch_keyboard_schemes: { enabled: ["wubi", "handwriting"], selected: "wubi" },
     });
   });
+
+  test("the shuangpin card keeps a custom profile but enables the Xiaohe keyboard", () => {
+    const preferences = completeOnboardingPreferences(
+      {
+        ...snapshot,
+        preferences: { ...snapshot.preferences, scheme: "shuangpin", shuangpin_profile: "custom" },
+      },
+      "xiaohe",
+      {},
+    );
+
+    // `custom` 不是触屏方案，写进 `touch_keyboard_schemes` 会让 Rust 端整份偏好读不进来。
+    expect(preferences).toMatchObject({
+      scheme: "shuangpin",
+      shuangpin_profile: "custom",
+      touch_keyboard_schemes: { enabled: ["quanpin", "nine_key", "xiaohe"], selected: "xiaohe" },
+    });
+  });
 });

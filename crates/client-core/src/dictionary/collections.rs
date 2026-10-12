@@ -879,9 +879,6 @@ impl DictionaryCollectionsStore {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(_) => return Err(DictionaryCollectionsError::Corrupt),
         };
-        if file.metadata()?.len() > maximum {
-            return Err(DictionaryCollectionsError::Corrupt);
-        }
         let bytes = crate::bounded_io::read_bounded_file(file, maximum, || {
             DictionaryCollectionsError::Corrupt
         })?;

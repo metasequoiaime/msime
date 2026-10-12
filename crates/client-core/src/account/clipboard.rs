@@ -6,12 +6,12 @@ use crate::cloud::clipboard_e2e::{self, DriverError, Operation};
 use serde_json::Value;
 
 /// 云剪贴板全部接口的路径前缀，驱动只会请求它下面的路径。
-pub(super) const CLIPBOARD_PATH: &str = "/v1/users/me/clipboard";
+pub(crate) const CLIPBOARD_PATH: &str = "/v1/users/me/clipboard";
 /// 云剪贴板响应的上限：列表最多 50 条，每条密文最长 16384 个字符，再加上字段名和其余字段。
-pub(super) const MAX_CLIPBOARD_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const MAX_CLIPBOARD_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_CLIPBOARD_DEVICES: usize = 20;
 
-/// 驱动和宿主会交给共享面板的错误码，原样转交，面板据此给出对应的提示。账号层自己的错误码也在其中，macOS 的原生 provider 可以直接回报它们。
+/// 驱动和宿主会交给共享面板的错误码，原样转交，面板据此给出对应的提示。账号层和自建中继自己的错误码也在其中，macOS 的原生 provider 可以直接回报它们。
 const CLIPBOARD_ERROR_CODES: &[&str] = &[
     "clipboard_device_pending",
     "clipboard_sync_disabled",
@@ -35,6 +35,12 @@ const CLIPBOARD_ERROR_CODES: &[&str] = &[
     "account_conflict",
     "account_unavailable",
     "account_banned",
+    // 自建中继（`crate::clipboard_relay`）：五十条都已置顶、新的一条放不下，令牌被拒、没有配置中继、连不上中继、本机密钥串存不了。
+    "clipboard_full",
+    "relay_unauthorized",
+    "relay_not_configured",
+    "relay_unavailable",
+    "relay_storage",
 ];
 
 /// 把一个云剪贴板错误码换成宿主能长期持有的静态字符串；不认识的码返回 `None`，由调用方按自己的方式归类。
@@ -123,7 +129,7 @@ fn decode<T: DeserializeOwned>(value: Value) -> Result<T, AccountError> {
     serde_json::from_value(value).map_err(|_| AccountError::Unavailable)
 }
 
-fn validate_device_id(device_id: &str) -> Result<(), AccountError> {
+pub(crate) fn validate_device_id(device_id: &str) -> Result<(), AccountError> {
     if crate::text::is_lower_hex(device_id, 32) {
         Ok(())
     } else {
@@ -131,7 +137,7 @@ fn validate_device_id(device_id: &str) -> Result<(), AccountError> {
     }
 }
 
-fn validate_devices(value: &AccountClipboardDevices) -> Result<(), AccountError> {
+pub(crate) fn validate_devices(value: &AccountClipboardDevices) -> Result<(), AccountError> {
     if value.devices.len() > MAX_CLIPBOARD_DEVICES {
         return Err(AccountError::Unavailable);
     }

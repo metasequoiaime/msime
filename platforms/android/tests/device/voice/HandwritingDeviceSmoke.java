@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Rect;
 import android.os.SystemClock;
-import android.os.ParcelFileDescriptor;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
@@ -28,11 +27,11 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
 
     @Override protected void runChecks() throws Exception {
         stage = "handwriting preview wake";
-        shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+        shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
         stage = "handwriting IME rebind";
-        shell("ime disable app.msime.android/.MSIMEInputService");
-        shell("ime enable app.msime.android/.MSIMEInputService");
-        shell("ime set app.msime.android/.MSIMEInputService");
+        shellDiscard("ime disable app.msime.android/.MSIMEInputService");
+        shellDiscard("ime enable app.msime.android/.MSIMEInputService");
+        shellDiscard("ime set app.msime.android/.MSIMEInputService");
         SystemClock.sleep(1000);
         stage = "handwriting editor launch";
         Intent intent = new Intent(getTargetContext(), EditorActivity.class);
@@ -306,11 +305,4 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
         SystemClock.sleep(200);
     }
 
-    private void shell(String command) throws Exception {
-        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(
-                automation.executeShellCommand(command))) {
-            byte[] buffer = new byte[1024];
-            while (input.read(buffer) != -1) { /* Discard synthetic command output. */ }
-        }
-    }
 }

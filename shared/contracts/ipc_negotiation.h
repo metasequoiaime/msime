@@ -21,6 +21,8 @@ constexpr std::uint32_t KeyboardCompositionCancel = 1u << 4;
 constexpr std::uint32_t GameHostCandidate = 1u << 5;
 // 可选：Server 认得 Main 事件 FieldTraits（windows_ipc.h）。TIP 只在协商到这一位之后才发它；协商不到时（新 TIP 配旧 Server、旧 TIP 配新 Server）不发，Server 那边的字段属性保持未知。和 GameHostCandidate 一样不放进 Capabilities 和 RequiredCapabilities。
 constexpr std::uint32_t FieldTraits = 1u << 6;
+// 可选：Ctrl+Shift+J 的 KeyEvent 在中文方案和日语方案之间切换，不改组字，Server 不回复。TIP 只在协商到这一位之后才吃这个组合键并发给 Server；协商不到时（新 TIP 配旧 Server）把它交给应用，免得旧 Server 把它当普通按键送进组字。和 FieldTraits 一样不放进 Capabilities 和 RequiredCapabilities。
+constexpr std::uint32_t JapaneseToggleShortcut = 1u << 7;
 constexpr std::uint32_t Capabilities = RequestIds | FocusEpochs | FramedVoice;
 constexpr std::uint32_t RequiredCapabilities = RequestIds | FocusEpochs;
 
@@ -87,6 +89,12 @@ inline std::uint32_t ReplyCapabilities(const FanyImeNamedpipeDataToTsf &reply)
 constexpr bool IsCharacterSetShortcut(std::uint32_t keycode, std::uint32_t modifiers)
 {
     return keycode == 'F' && (modifiers & 7u) == 3u;
+}
+
+// 和 IsCharacterSetShortcut 一样只认 Ctrl+Shift，带 Alt 的组合不算。
+constexpr bool IsJapaneseToggleShortcut(std::uint32_t keycode, std::uint32_t modifiers)
+{
+    return keycode == 'J' && (modifiers & 7u) == 3u;
 }
 
 inline bool AcceptReply(const FanyImeNamedpipeDataToTsf &reply, std::uint64_t expected_request)

@@ -2,16 +2,13 @@ package app.msime.android.test;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
-import android.util.AtomicFile;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebView;
 import app.msime.android.TypingStatisticsDocument;
 import app.msime.android.TypingStatisticsModel;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.concurrent.CountDownLatch;
@@ -72,10 +69,10 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
             stage = "controlled statistics baseline";
             publish(preferences, preferenceSnapshot.toString().getBytes(StandardCharsets.UTF_8));
             Files.deleteIfExists(statistics.toPath());
-            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
-            shell("ime disable app.msime.android/.MSIMEInputService");
-            shell("ime enable app.msime.android/.MSIMEInputService");
-            shell("ime set app.msime.android/.MSIMEInputService");
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            shellDiscard("ime disable app.msime.android/.MSIMEInputService");
+            shellDiscard("ime enable app.msime.android/.MSIMEInputService");
+            shellDiscard("ime set app.msime.android/.MSIMEInputService");
             SystemClock.sleep(1000);
 
             stage = "IME aggregate write";
@@ -131,7 +128,7 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
             js("(" + REFRESH + ").click(); true");
             awaitJs("(" + RANGE_TOTAL + ")?.textContent === '2'");
         } finally {
-            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             SystemClock.sleep(500);
             restore(preferences, originalPreferences);
             restore(statistics, originalStatistics);
@@ -139,8 +136,8 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
     }
 
     private void typeSyntheticPhrase() throws Exception {
-        shell("am force-stop app.msime.android.test");
-        shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+        shellDiscard("am force-stop app.msime.android.test");
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
         tap(field("msime-test-plain"));
         for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(key(key));
         tap(key("空格"));
@@ -177,7 +174,7 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             settingsActivity = startActivitySync(intent);
         } else {
-            shell("am start -W -n app.msime.android/.MainActivity");
+            shellDiscard("am start -W -n app.msime.android/.MainActivity");
         }
         long deadline = SystemClock.uptimeMillis() + 15000;
         do {
@@ -226,25 +223,7 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
         throw new AssertionError("Expected React statistics state was not observed");
     }
 
-    private void shell(String command) throws Exception {
-        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(
-                automation.executeShellCommand(command))) {
-            byte[] buffer = new byte[1024];
-            while (input.read(buffer) != -1) { /* Discard synthetic command output. */ }
-        }
-    }
 
-    private void publish(File file, byte[] contents) throws Exception {
-        AtomicFile target = new AtomicFile(file);
-        FileOutputStream output = target.startWrite();
-        try {
-            output.write(contents);
-            target.finishWrite(output);
-        } catch (Exception error) {
-            target.failWrite(output);
-            throw error;
-        }
-    }
 
     private void restore(File file, byte[] contents) throws Exception {
         if (contents == null) Files.deleteIfExists(file.toPath());

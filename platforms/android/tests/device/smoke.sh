@@ -98,6 +98,7 @@ for entry in \
     "MoreToolsDeviceSmoke|More tools acceptance failed" \
     "EmojiPickerDeviceSmoke|Emoji picker acceptance failed" \
     "PairedPunctuationDeviceSmoke|Paired punctuation acceptance failed" \
+    "LetterHintPunctuationDeviceSmoke|Letter hint punctuation acceptance failed" \
     "PreferencesDeviceSmoke|Preferences acceptance failed" \
     "KeyboardHeightDeviceSmoke|Keyboard height acceptance failed" \
     "FuzzyPinyinDeviceSmoke|Fuzzy pinyin acceptance failed" \
@@ -112,6 +113,7 @@ for entry in \
     "NumberRowDeviceSmoke|Number row acceptance failed" \
     "ClipboardImageDeviceSmoke|Clipboard image acceptance failed" \
     "CaretCandidatesDeviceSmoke|Caret candidates acceptance failed" \
+    "HardwareTranslationDeviceSmoke|Hardware Ctrl+Enter translation acceptance failed" \
     "AiPlaceholderDeviceSmoke|AI placeholder acceptance failed" \
     "WubiLookupDeviceSmoke|Wubi lookup acceptance failed"
 do

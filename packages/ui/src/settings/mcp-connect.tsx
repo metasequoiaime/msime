@@ -1,3 +1,4 @@
+import { useTemporaryFlag } from "../core/use-temporary-flag";
 import { useCallback, useEffect, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { readOptionalJson, writeOptionalJson } from "../core/optional-storage";
@@ -228,6 +229,7 @@ export function McpConnectSection({
   const [busyClient, setBusyClient] = useState<McpClientId>();
   const [result, setResult] = useState<string>();
   const [copied, setCopied] = useState<string>();
+  const [copyFeedbackVisible, showCopyFeedback] = useTemporaryFlag(1600);
   const [tab, setTab] = useState<McpTab>("claude_code");
   // 用户想要的权限，复制的命令和配置、未连接的助手都按它来。
   const [preferred, setPreferred] = useState<McpFlag[]>(savedFlags);
@@ -325,10 +327,7 @@ export function McpConnectSection({
     void copyText(text).then(() => {
       if (!mounted.current || generation !== clientGeneration.current) return;
       setCopied(key);
-      window.setTimeout(() => {
-        if (mounted.current && generation === clientGeneration.current)
-          setCopied((current) => (current === key ? undefined : current));
-      }, 1600);
+      showCopyFeedback();
     });
   }
 
@@ -360,7 +359,10 @@ export function McpConnectSection({
     const text = tokensText(tokens);
     return (
       <SettingsManagerActions>
-        <ActionButton action={() => copy(key, text)} label={copied === key ? "已复制" : label} />
+        <ActionButton
+          action={() => copy(key, text)}
+          label={copyFeedbackVisible && copied === key ? "已复制" : label}
+        />
       </SettingsManagerActions>
     );
   }

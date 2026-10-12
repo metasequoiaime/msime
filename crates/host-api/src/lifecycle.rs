@@ -9,21 +9,23 @@
 //! 消费者有两类：内置的音效、特效和音乐（`FEEDBACK` 位），以及脚本插件（`crate::scripts`，只在桌面开发构建里、进程开关打开时才有事件可收）。旁路调用的视图事件只给内置消费者。
 
 use crate::key_sound::{self, KeyClass, SessionSound};
-use crate::scripts::{CallTexts, ScriptSet};
+use crate::scripts::{CallTexts, RewriteRequest, ScriptSet};
 use msime_engine::LocalInputMode;
 use msime_input_runtime::{
     DispatchFacts, Runtime, SelectionFact, SelectionHow, SelectionOutcome, SelectionRetraction,
     View,
 };
+use std::cell::RefCell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
 /// 核心驱动按键音、上屏音、打字特效和背景音乐。本会话的 `msime_client_key_sound`、`msime_client_commit_sound`、`msime_client_typing_effect`（事件 0-4）和 `msime_client_music_set_active` 随之变为空操作。
 pub const FEEDBACK: u32 = 0x1;
-/// 之后的上屏只能观察，不能改写。可随时经 `msime_client_set_lifecycle` 切换。
+/// 之后的上屏只能观察，不能改写；设着它时候选变换也停下（`crate::scripts::observe_only`）。可随时经 `msime_client_set_lifecycle` 切换。
 pub const COMMIT_OBSERVE_ONLY: u32 = 0x4;
-/// 宿主自己暂存部分选词（Windows）：部分选词（`candidate_selected` 的 outcome 是 Partial）上屏的那一段还在宿主的前缀里，没进文档，内置消费者不为它出上屏音、不画上屏特效，等整段送出的那次上屏再出。生命周期事件照常发。
+/// 宿主自己暂存部分选词（Windows）：部分选词的上屏只是一段，宿主把各段拼好、补齐整个词时才写进文档，所以这个词的各段上屏都不可改写（见 `rewritable`）。部分选词（`candidate_selected` 的 outcome 是 Partial）上屏的那一段还在宿主的前缀里，没进文档，内置消费者不为它出上屏音、不画上屏特效，等整段送出的那次上屏再出。生命周期事件照常发。
 pub const HOST_HOLDS_PIECES: u32 = 0x8;
 /// `msime_client_set_lifecycle` 接受的全部位，其余位被忽略。
 pub const SUPPORTED_FLAGS: u32 = FEEDBACK | COMMIT_OBSERVE_ONLY | HOST_HOLDS_PIECES;
@@ -248,7 +250,7 @@ pub enum LifecycleEvent {
     },
     SelectionRetracted(SelectionRetraction),
     CandidateSelected(SelectionFact),
-    /// 上屏前，只在派发类调用里出现。本阶段只是内部发出点，不改写。`body_chars` + `tail_chars` 是上屏文本的字符数（Unicode 标量）；tail 是标点或顶字的尾巴，只读。
+    /// 上屏前，只在派发类调用里出现。`body_chars` + `tail_chars` 是改写之前上屏文本的字符数（Unicode 标量）；tail 是标点或顶字的尾巴，只读。可改写时脚本插件可以改写 body，之后的 `commit` 带着改写后的字符数和 `rewritten`。
     BeforeCommit {
         origin: CommitOrigin,
         body_chars: u32,
@@ -364,6 +366,8 @@ pub enum Call {
 pub struct Context {
     pub flags: u32,
     pub traits: u32,
+    /// 设着 `HOST_HOLDS_PIECES` 的会话里，这次组字已经有部分选词交给宿主暂存：之后补齐这个词的上屏也只是最后一段。
+    pub pieces_held: bool,
 }
 
 impl Context {
@@ -374,7 +378,7 @@ impl Context {
     }
 }
 
-/// 从采样和派发事实推导本次调用的事件，按顺序交给 `emit`。纯函数：不读会话、不分配内存。`input` 不在这里：它排在 runtime 调用之前，由调用方先发。
+/// 从采样和派发事实推导本次调用的事件，按顺序交给 `emit`。纯函数：不读会话、不分配内存。`input` 不在这里：它排在 runtime 调用之前，由调用方先发。不改写上屏；会改写的调用方把这三段分开调用，在 `before_commit` 和 `commit` 之间改写。
 #[allow(clippy::too_many_arguments)]
 pub fn derive(
     call: Call,
@@ -386,8 +390,20 @@ pub fn derive(
     page: PageSample,
     mut emit: impl FnMut(LifecycleEvent),
 ) {
-    let dispatch = matches!(call, Call::Dispatch(_));
-    if dispatch {
+    derive_selection(call, facts, &mut emit);
+    if let Some(event) = before_commit_event(call, context, facts, commit) {
+        emit(event);
+    }
+    derive_rest(call, pre, post, facts, commit, false, page, emit);
+}
+
+/// 上屏之前的两个事件，只在派发类调用里：`selection_retracted`、`candidate_selected`。
+pub(crate) fn derive_selection(
+    call: Call,
+    facts: DispatchFacts,
+    emit: &mut impl FnMut(LifecycleEvent),
+) {
+    if matches!(call, Call::Dispatch(_)) {
         if let Some(retraction) = facts.retracted {
             emit(LifecycleEvent::SelectionRetracted(retraction));
         }
@@ -395,23 +411,45 @@ pub fn derive(
             emit(LifecycleEvent::CandidateSelected(selection));
         }
     }
+}
+
+/// `before_commit`：只在派发类调用带着上屏时有。
+pub(crate) fn before_commit_event(
+    call: Call,
+    context: Context,
+    facts: DispatchFacts,
+    commit: Option<CommitSample>,
+) -> Option<LifecycleEvent> {
+    let commit = commit.filter(|_| matches!(call, Call::Dispatch(_)))?;
+    let origin = commit_origin(call, facts);
+    let tail_chars = facts.tail_chars.min(commit.chars);
+    Some(LifecycleEvent::BeforeCommit {
+        origin,
+        body_chars: commit.chars - tail_chars,
+        tail_chars,
+        rewritable: rewritable(origin, context, facts, commit),
+    })
+}
+
+/// `before_commit` 之后的事件：`commit`（`commit` 是改写之后的采样，`rewritten` 由调用方给）、组字的开始或结束、组字更新、候选的显示或隐藏，最后是 focus 和 destroy 的事件。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn derive_rest(
+    call: Call,
+    pre: Sample,
+    post: Sample,
+    facts: DispatchFacts,
+    commit: Option<CommitSample>,
+    rewritten: bool,
+    page: PageSample,
+    mut emit: impl FnMut(LifecycleEvent),
+) {
     // 一次 transition 同时带着上屏和新组字（韩文音节延续）：发 commit{continues}，不发 end 和 start。
     let continues = commit.is_some() && pre.composing && post.composing;
     if let Some(commit) = commit {
-        let origin = commit_origin(call, facts);
-        if dispatch {
-            let tail_chars = facts.tail_chars.min(commit.chars);
-            emit(LifecycleEvent::BeforeCommit {
-                origin,
-                body_chars: commit.chars - tail_chars,
-                tail_chars,
-                rewritable: rewritable(origin, context, facts, commit),
-            });
-        }
         emit(LifecycleEvent::Commit {
-            origin,
+            origin: commit_origin(call, facts),
             chars: commit.chars,
-            rewritten: false,
+            rewritten,
             continues,
             generated: !commit.typed,
         });
@@ -464,7 +502,7 @@ fn commit_origin(call: Call, facts: DispatchFacts) -> CommitOrigin {
     }
 }
 
-/// 上屏能不能被改写（第 4 阶段才真的改写）。以词定字一律不可改写：macOS 开着繁体输出时按宿主自己注入的键重算这段上屏，改写结果会被覆盖。
+/// 上屏能不能被脚本改写：来源是选中候选、原样上屏或暂存段送出，本地模式是 none 且算打字，不是以词定字，没设 `COMMIT_OBSERVE_ONLY`，不是宿主暂存的一段，字段属性已知且不是 SECURE、PRIVATE、ELEVATED。以词定字一律不可改写：macOS 开着繁体输出时按宿主自己注入的键重算这段上屏，改写结果会被覆盖。宿主暂存部分选词时（`HOST_HOLDS_PIECES`，Windows Server 的 `ReplyComposer`），部分选词的上屏和补齐整个词的那次上屏都只是一段，宿主把暂存的前几段接在后面这段前面再写进文档：逐段改写既看不到整个词，也会让文档里是原文的前几段加上改写过的最后一段。
 fn rewritable(
     origin: CommitOrigin,
     context: Context,
@@ -480,7 +518,17 @@ fn rewritable(
             .selection
             .is_some_and(|selection| selection.how == SelectionHow::Edge)
         && context.flags & COMMIT_OBSERVE_ONLY == 0
+        && !held_piece(context.flags, facts)
+        && !(context.flags & HOST_HOLDS_PIECES != 0 && context.pieces_held)
         && context.ordinary_field()
+}
+
+/// 这次上屏是宿主暂存的一段：设着 `HOST_HOLDS_PIECES`，并且是部分选词（选中的上屏了，读音还剩一段）。这一段还没进文档：不可改写（[`rewritable`]），内置消费者也不为它出上屏音、不画上屏特效。补齐整个词的那次上屏不是这样的一段：它不可改写（看 [`Context::pieces_held`]），但整个词这时才写进文档，照常出声。
+fn held_piece(flags: u32, facts: DispatchFacts) -> bool {
+    flags & HOST_HOLDS_PIECES != 0
+        && facts
+            .selection
+            .is_some_and(|selection| selection.outcome == SelectionOutcome::Partial)
 }
 
 fn end_reason(call: Call, committed: bool) -> EndReason {
@@ -510,9 +558,11 @@ pub(crate) struct LifecycleState {
     active: bool,
     /// 本次调用里内置消费者算出的打字特效，FEEDBACK 时由 `msime_client_key` 返回、或写进 transition 的 `feedback`。每次调用开始时清零。
     effect: u32,
-    /// 这个会话的脚本插件。移动端是什么都不做的空壳。
-    scripts: ScriptSet,
-    /// 本次调用的上屏是宿主暂存的一段部分选词（HOST_HOLDS_PIECES 下 outcome 为 Partial），每次调用结束推导事件前重算。
+    /// 这个会话的脚本插件，和挂在 runtime 上的候选变换共用。移动端是什么都不做的空壳。
+    scripts: Rc<RefCell<ScriptSet>>,
+    /// 见 [`Context::pieces_held`]：设着 `HOST_HOLDS_PIECES` 时，这次组字里有部分选词上屏过，组字结束时清掉。
+    pieces_held: bool,
+    /// 本次调用的上屏是宿主暂存的一段（见 [`held_piece`]），由 [`Self::begin_after`] 在每次调用结束、推导事件之前重算，内置消费者据此不为它出声、不画。
     held_piece: bool,
     /// 测试用的消费者：记录事件或故意 panic。
     #[cfg(test)]
@@ -531,7 +581,8 @@ impl LifecycleState {
             traits: 0,
             active: false,
             effect: 0,
-            scripts: ScriptSet::default(),
+            scripts: Rc::default(),
+            pieces_held: false,
             held_piece: false,
             #[cfg(test)]
             probe: None,
@@ -540,18 +591,38 @@ impl LifecycleState {
 
     /// 记下脚本插件的位置：`root` 是 `<state root>/plugins`（宿主没给状态根目录时为 `None`，脚本不运行），健康文件写在 `user_data` 下。
     pub(crate) fn bind_scripts(&mut self, root: Option<std::path::PathBuf>, user_data: &str) {
-        self.scripts.bind(root, user_data);
+        self.with_scripts(|scripts| scripts.bind(root, user_data));
+    }
+
+    /// 把脚本集合挂到 runtime 上，作为它在派发类调用里的候选变换。
+    pub(crate) fn attach_scripts(&self, runtime: &mut msime_input_runtime::Runtime) {
+        crate::scripts::attach(&self.scripts, runtime);
     }
 
     /// `msime_client_focus(true)` 开始时：丢弃上一个字段的脚本实例，按戳重读授权。
     pub(crate) fn scripts_focus_in(&mut self) {
-        self.scripts.focus_in();
+        self.with_scripts(ScriptSet::focus_in);
     }
 
-    /// 测量直接对着脚本集合投递。
-    #[cfg(test)]
-    pub(crate) fn scripts_mut(&mut self) -> &mut ScriptSet {
-        &mut self.scripts
+    /// 测量和测试直接对着脚本集合投递。只有桌面上有这些测试。
+    #[cfg(all(
+        test,
+        any(
+            target_os = "macos",
+            target_os = "windows",
+            all(target_os = "linux", not(target_env = "ohos"))
+        )
+    ))]
+    pub(crate) fn scripts_mut(&mut self) -> std::cell::RefMut<'_, ScriptSet> {
+        self.scripts.borrow_mut()
+    }
+
+    /// 借脚本集合用一次。它只在会话线程上、一次调用之内被借；万一已经借着（runtime 的候选变换正在用）就跳过，不 panic。
+    fn with_scripts<R: Default>(&self, use_scripts: impl FnOnce(&mut ScriptSet) -> R) -> R {
+        match self.scripts.try_borrow_mut() {
+            Ok(mut scripts) => use_scripts(&mut scripts),
+            Err(_) => R::default(),
+        }
     }
 
     pub(crate) fn flags(&self) -> u32 {
@@ -566,6 +637,7 @@ impl LifecycleState {
         Context {
             flags: self.flags,
             traits: self.traits,
+            pieces_held: self.pieces_held,
         }
     }
 
@@ -587,7 +659,8 @@ impl LifecycleState {
             self.emit(sound, LifecycleEvent::TraitsChanged { traits });
         }
         // 不论变没变，脚本都把属性记为确认过；变成 SECURE、PRIVATE、ELEVATED 或未知时，正在跑的脚本实例当场丢弃。
-        self.scripts.traits_reported(self.context());
+        let context = self.context();
+        self.with_scripts(|scripts| scripts.traits_reported(context));
         self.traits
     }
 
@@ -611,8 +684,10 @@ impl LifecycleState {
         self.effect = 0;
         // 交给应用的键不开新的一轮，脚本的 fuel 也按轮给；它也不确认字段属性：Windows 上这类键走 Aux 管道，和 Main 管道上的属性帧没有先后保证，可能先于新字段的属性到达。
         if key & KEY_PASSTHROUGH == 0 {
-            self.scripts.key_reported();
-            self.scripts.next_turn();
+            self.with_scripts(|scripts| {
+                scripts.key_reported();
+                scripts.next_turn();
+            });
         }
         self.emit(
             sound,
@@ -637,8 +712,8 @@ impl LifecycleState {
         self.effect = 0;
         let local_mode = LocalModeClass::of(local_mode);
         self.emit(sound, LifecycleEvent::Input { class, local_mode });
-        self.scripts
-            .input(self.context(), class, local_mode, input_char);
+        let context = self.context();
+        self.with_scripts(|scripts| scripts.input(context, class, local_mode, input_char));
     }
 
     /// 调用结束后推导并发出其余事件。返回本次的打字特效（只有 FEEDBACK 下的上屏会写它）。脚本收不到任何文本，见 [`Self::after_texts`]。
@@ -678,30 +753,140 @@ impl LifecycleState {
         page: PageSample,
         texts: &CallTexts<'_>,
     ) -> u32 {
+        let context = self.begin_after(call, facts);
+        let to_scripts = call != Call::SideChannel;
+        derive(call, context, pre, post, facts, commit, page, |event| {
+            self.consume(sound, event, context, to_scripts, texts);
+        });
+        self.finish_call(sound, call, post, commit.is_some())
+    }
+
+    /// 派发和 focus 的 transition 完成之后（全角转换之后）推导其余事件，并在 `before_commit` 和 `commit` 之间让脚本改写上屏的 body：改写后的 body 接上原来的 tail 写回 `transition.commit`，`commit` 事件带着改写后的字符数和 `rewritten`。runtime 在这之前已经按原文记下了引擎学习和 AI 上文，改写不回灌。返回本次的打字特效。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn after_rewriting(
+        &mut self,
+        sound: &SessionSound,
+        call: Call,
+        pre: Sample,
+        post: Sample,
+        facts: DispatchFacts,
+        transition: &mut msime_input_runtime::Transition,
+        selected: Option<&str>,
+    ) -> u32 {
+        let context = self.begin_after(call, facts);
+        let to_scripts = call != Call::SideChannel;
+        let commit = CommitSample::of(transition);
+        let page = PageSample::of(&transition.view);
+        {
+            let texts = CallTexts::of(transition, facts, selected);
+            derive_selection(call, facts, &mut |event| {
+                self.consume(sound, event, context, to_scripts, &texts);
+            });
+        }
+        let mut rewritten = false;
+        if let Some(event) = before_commit_event(call, context, facts, commit) {
+            self.emit(sound, event);
+            if let (
+                true,
+                LifecycleEvent::BeforeCommit {
+                    origin, rewritable, ..
+                },
+            ) = (to_scripts, event)
+            {
+                rewritten = self.rewrite(context, origin, rewritable, facts, transition, selected);
+            }
+        }
+        let commit = if rewritten {
+            CommitSample::of(transition)
+        } else {
+            commit
+        };
+        let texts = CallTexts::of(transition, facts, selected);
+        derive_rest(call, pre, post, facts, commit, rewritten, page, |event| {
+            self.consume(sound, event, context, to_scripts, &texts);
+        });
+        self.finish_call(sound, call, post, commit.is_some())
+    }
+
+    /// 一次调用结束、推导事件之前，[`Self::after_texts`] 和 [`Self::after_rewriting`] 共用的入口：不是派发的调用清零特效（派发的特效在 `before_dispatch` 清零），重算这次的上屏是不是宿主暂存的一段，交出推导要看的会话设置。内置消费者在两条路径上看到的是同一份判断，派发走的是会改写上屏的那一条。
+    fn begin_after(&mut self, call: Call, facts: DispatchFacts) -> Context {
         if !matches!(call, Call::Dispatch(_)) {
             self.effect = 0;
         }
-        self.held_piece = self.flags & HOST_HOLDS_PIECES != 0
-            && matches!(
-                facts.selection,
-                Some(SelectionFact {
-                    outcome: SelectionOutcome::Partial,
-                    ..
-                })
-            );
-        let context = self.context();
-        let to_scripts = call != Call::SideChannel;
-        derive(call, context, pre, post, facts, commit, page, |event| {
-            self.emit(sound, event);
-            if to_scripts {
-                self.scripts.deliver(&event, context, texts);
-            }
-        });
+        self.held_piece = held_piece(self.flags, facts);
+        self.context()
+    }
+
+    /// 交给脚本的 `before_commit`；有插件改写了 body 时把它接上原来的 tail 写回 `transition.commit`，返回是否改写了。
+    fn rewrite(
+        &mut self,
+        context: Context,
+        origin: CommitOrigin,
+        rewritable: bool,
+        facts: DispatchFacts,
+        transition: &mut msime_input_runtime::Transition,
+        selected: Option<&str>,
+    ) -> bool {
+        let Some(commit) = transition.commit.as_deref() else {
+            return false;
+        };
+        let (body, tail) = facts.split_commit(commit);
+        let request = RewriteRequest {
+            origin: origin as u8,
+            rewritable,
+            local_mode: transition
+                .commit_context
+                .as_ref()
+                .map(|context| context.local_mode.as_str()),
+            body,
+            tail,
+            selected,
+        };
+        let Some(mut rewritten) =
+            self.with_scripts(|scripts| scripts.before_commit(context, &request))
+        else {
+            return false;
+        };
+        if !rewritable || rewritten == body {
+            return false;
+        }
+        rewritten.push_str(tail);
+        transition.commit = Some(rewritten);
+        true
+    }
+
+    /// 一个事件交给内置消费者，不是旁路调用时也交给脚本。
+    fn consume(
+        &mut self,
+        sound: &SessionSound,
+        event: LifecycleEvent,
+        context: Context,
+        to_scripts: bool,
+        texts: &CallTexts<'_>,
+    ) {
+        self.emit(sound, event);
+        if to_scripts {
+            self.with_scripts(|scripts| scripts.deliver(&event, context, texts));
+        }
+    }
+
+    /// 一次调用的事件都发完之后：记下宿主是否暂存着这次组字的部分选词，destroy 交还音乐，失焦和 destroy 丢弃全部脚本实例。返回本次的打字特效。
+    fn finish_call(
+        &mut self,
+        sound: &SessionSound,
+        call: Call,
+        post: Sample,
+        committed: bool,
+    ) -> u32 {
+        // 宿主暂存的部分选词属于这次组字，组字结束（上屏补齐、取消、失焦）时一并清掉。
+        self.pieces_held = self.flags & HOST_HOLDS_PIECES != 0
+            && post.composing
+            && (self.pieces_held || (committed && self.held_piece));
         if call == Call::Destroy {
             self.release_music(sound);
         }
         if matches!(call, Call::Focus(false) | Call::Destroy) {
-            self.scripts.release();
+            self.with_scripts(ScriptSet::release);
         }
         self.effect
     }
@@ -837,35 +1022,24 @@ impl crate::HostSession {
         })
     }
 
-    /// 派发或 focus 的 transition 已经完成（全角转换之后）：推导其余事件。返回 FEEDBACK 下本次的打字特效，没开 FEEDBACK 时为 `None`。
+    /// 派发或 focus 的 transition 已经完成（全角转换之后）：推导其余事件，派发类调用的上屏在 `before_commit` 和 `commit` 之间可能被脚本改写（写回 `transition.commit`）。返回 FEEDBACK 下本次的打字特效，没开 FEEDBACK 时为 `None`。
     pub(crate) fn lifecycle_after(
         &mut self,
         pending: Option<Pending>,
         facts: DispatchFacts,
-        transition: &msime_input_runtime::Transition,
+        transition: &mut msime_input_runtime::Transition,
     ) -> Option<u32> {
         let pending = pending?;
         let after = Sample::of(&self.runtime);
         let state = self.lifecycle.as_deref_mut()?;
-        let texts = CallTexts {
-            view: Some(&transition.view),
-            commit: transition.commit.as_deref(),
-            commit_local_mode: transition
-                .commit_context
-                .as_ref()
-                .map(|context| context.local_mode.as_str()),
-            facts,
-            selected: self.runtime.selected_text(),
-        };
-        let effect = state.after_texts(
+        let effect = state.after_rewriting(
             &self.sound,
             pending.call,
             pending.before,
             after,
             facts,
-            CommitSample::of(transition),
-            PageSample::of(&transition.view),
-            &texts,
+            transition,
+            self.runtime.selected_text(),
         );
         state.feedback().then_some(effect)
     }

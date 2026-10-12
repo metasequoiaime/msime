@@ -95,7 +95,7 @@ pnpm tauri dev
 
 Android 合包构建和设备测试见 [Android 宿主](platforms/android/README.md#tauri--react-共享设置合包)。Tauri 设置与原生 `:ime` 服务同包、不同进程，共享私有 files/bootstrap/state；关闭设置窗口不结束输入法进程。iOS 的产品宿主是 `platforms/ios` 的原生 App，它嵌入原生键盘扩展并通过 App Group 共享状态；Tauri/React 在 iOS 上只作为共享功能与界面的公共组件，不作为独立 App 启动。签名与设备安装步骤见 [iOS 宿主](platforms/ios/README.md)。
 
-共享设置支持 shuangpin_profile：xiaohe（小鹤）、ziranma（自然码）、shoudao（首道）、microsoft（微软）。缺省按小鹤读取，未知值拒绝；设置页在非双拼方案下禁用此选择但保留已选值。方案更改沿用组词结束后替换 Engine 的规则。
+共享设置支持 shuangpin_profile：xiaohe（小鹤）、ziranma（自然码）、shoudao（首道）、microsoft（微软），以及 custom（自定义双拼，键位表存在 shuangpin_custom_profile）。缺省按小鹤读取，未知值拒绝；设置页在非双拼方案下禁用此选择但保留已选值。macOS 和 Linux 的设置页可以从内置方案起步编辑自定义键位、导入导出 JSON，表要通过 Engine 的校验才能保存；表不能用时输入法按小鹤运行。方案更改沿用组词结束后替换 Engine 的规则。
 
 Linux 本地构建、隔离 D-Bus / IBus 测试和安装后的首次配置见 [Linux 宿主](platforms/linux/README.md)。宿主支持设置文件自动重读，安装后由随装的 `msime-linux-setup` 备齐词库并准备运行配置；`msime-linux-setup --download` 按 `resources/desktop-dictionary.lock.json` 取回缺失词库，图形入口在缺少 `runtime-options.json` 时会打开同一套首次配置页。
 

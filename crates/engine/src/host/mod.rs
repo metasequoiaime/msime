@@ -12,8 +12,10 @@ pub mod text;
 
 pub use crate::helpcode::{load_helpcode_keymap, HelpcodeKeymap, SharedKeymap};
 pub use crate::local::catalog::{EmojiCatalogItem, EmojiCatalogSlice, EmojiSymbolGroup};
-// 自定义双拼方案的表和它的校验：宿主（host-api、MCP）在把 `custom` 交给 Engine 之前先校验，不合法就不要传。
+// 自定义双拼方案的表和它的校验：宿主（host-api、MCP）在把 `custom` 交给 Engine 之前先校验，不合法就不要传。编辑中的表（设置页）用不留存的 `check_shuangpin_custom_profile`，内置方案的表是编辑的起点。
 pub use crate::shuangpin::custom::{
+    builtin_table as shuangpin_builtin_table,
+    check_custom_profile as check_shuangpin_custom_profile,
     validate_custom_profile as validate_shuangpin_custom_profile,
     CustomProfileError as ShuangpinCustomProfileError, CustomTablePart as ShuangpinCustomTablePart,
 };
