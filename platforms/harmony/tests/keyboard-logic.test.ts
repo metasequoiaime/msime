@@ -4636,6 +4636,32 @@ group("expanded candidates stay on one line and inside their row", () => {
     rows.join(",") === "0,0,1,2,2,3",
     "spans pack into rows of whole columns, a long candidate starting a row of its own",
   );
+  const describe = (cells: { index: number; span: number }[][]): string =>
+    cells.map((row) => row.map((cell) => `${cell.index}:${cell.span}`).join(" ")).join(" | ");
+  check(
+    describe(ExpandedCandidateLayout.rows([0, 1, 2, 3, 4, 5], [1, 1, 2, 2, 2, 1], 5)) ===
+      "0:1 1:1 2:3 | 3:2 4:2 5:1",
+    "the cell before a wrap stretches to the end of its row, so no row ends in empty columns",
+  );
+  check(
+    describe(ExpandedCandidateLayout.rows([7, 8], [1, 1], 4)) === "7:1 8:1",
+    "the last row is not stretched",
+  );
+  check(
+    describe(ExpandedCandidateLayout.rows([0, 1, 2], [2, 3, 1], 5)) === "0:2 1:3 | 2:1",
+    "a row that is already full keeps its spans",
+  );
+  check(
+    describe(
+      ExpandedCandidateLayout.rows(
+        spans.map((_, index) => index),
+        spans,
+        5,
+      ),
+    ) === "0:1 1:4 | 2:5 | 3:2 4:3 | 5:2",
+    "rows match CandidateWrapPolicy.rows while filling each wrapped row",
+  );
+  check(ExpandedCandidateLayout.rows([], [], 5).length === 0, "an empty list has no rows");
 });
 
 group("a candidate with a gloss offers the gloss as something to type", () => {

@@ -14,10 +14,9 @@ import { LetterKeyFacePolicy } from './input/LetterKeyFacePolicy';
 import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { KeyAccessibilityPolicy } from './input/KeyAccessibilityPolicy';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
-import { CandidateWrapPolicy } from './candidate/CandidateWrapPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import { KeyboardLayoutDragPolicy } from './input/KeyboardLayoutDragPolicy';
-import { ExpandedCandidateLayout } from './candidate/ExpandedCandidateLayout';
+import { ExpandedCandidateCell, ExpandedCandidateLayout } from './candidate/ExpandedCandidateLayout';
 import { ShuangpinKeyHintPolicy } from './input/ShuangpinKeyHintPolicy';
 import { ReturnDispatch, ReturnKeyAction } from './input/ReturnKeyAction';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
@@ -7116,33 +7115,24 @@ struct KeyboardView {
     return ExpandedCandidateLayout.span(natural, this.expandedColumnWidth(), EXPANDED_GAP_VP, this.expandedColumns());
   }
 
-  /** 格子的绘制宽度：所跨的列加上列间的间距，与分配其所在行时用的度量相同。 */
-  private expandedCandidateWidth(index: number): number {
-    const span: number = this.expandedSpan(index);
+  /** 格子的绘制宽度：实际占的列加上列间的间距，与分配其所在行时用的度量相同。 */
+  private expandedCandidateWidth(span: number): number {
     return span * this.expandedColumnWidth() + (span - 1) * EXPANDED_GAP_VP;
   }
 
-  /** 按行排列的绘制格子：`CandidateWrapPolicy` 把每格的跨度按 `expandedColumns()` 列装进各行，所以长候选会另起一行而不是溢出。 */
-  private expandedRows(): number[][] {
+  /** 按行排列的绘制格子：`ExpandedCandidateLayout.rows` 把每格的跨度按 `expandedColumns()` 列装进各行，长候选另起一行而不是溢出，换行前那一格拉宽到行尾。 */
+  private expandedRows(): ExpandedCandidateCell[][] {
     const indices: number[] = this.expandedIndices();
     const spans: number[] = [];
     for (let position: number = 0; position < indices.length; position++) {
       spans.push(this.expandedSpan(indices[position]));
     }
-    const assignment: number[] = CandidateWrapPolicy.rows(this.expandedColumns(), 0, spans);
-    const rows: number[][] = [];
-    for (let position: number = 0; position < assignment.length; position++) {
-      while (rows.length <= assignment[position]) {
-        rows.push([]);
-      }
-      rows[assignment[position]].push(indices[position]);
-    }
-    return rows;
+    return ExpandedCandidateLayout.rows(indices, spans, this.expandedColumns());
   }
 
-  /** 供 `ForEach` 标识一个展开格的内容：它的位置、文字以及是否高亮。 */
-  private expandedCellKey(index: number): string {
-    return `${index}:${this.expanded[index].text}:${this.expandedHighlighted(index)}`;
+  /** 供 `ForEach` 标识一个展开格的内容：它的位置、文字、是否高亮以及占几列（行尾那格的宽度会随后面的候选变）。 */
+  private expandedCellKey(cell: ExpandedCandidateCell): string {
+    return `${cell.index}:${this.expanded[cell.index].text}:${this.expandedHighlighted(cell.index)}:${cell.span}`;
   }
 
   /** 当工具条显示的是网格所列列表的开头时，网格标出工具条高亮的那个候选。 */
@@ -7204,19 +7194,19 @@ struct KeyboardView {
   expandedGrid() {
     Scroll() {
       Column({ space: EXPANDED_GAP_VP }) {
-        ForEach(this.expandedRows(), (row: number[]) => {
+        ForEach(this.expandedRows(), (row: ExpandedCandidateCell[]) => {
           Row({ space: EXPANDED_GAP_VP }) {
-            ForEach(row, (index: number) => {
-              Text(this.expanded[index].text)
-                .width(this.expandedCandidateWidth(index))
+            ForEach(row, (cell: ExpandedCandidateCell) => {
+              Text(this.expanded[cell.index].text)
+                .width(this.expandedCandidateWidth(cell.span))
                 .height(EXPANDED_CELL_HEIGHT_VP)
                 .padding({ left: EXPANDED_CELL_PADDING_VP, right: EXPANDED_CELL_PADDING_VP })
                 .borderRadius(EXPANDED_CELL_RADIUS_VP)
-                .backgroundColor(this.expandedHighlighted(index) ? this.skin.toggleBackground
+                .backgroundColor(this.expandedHighlighted(cell.index) ? this.skin.toggleBackground
                   : this.skin.keyBackground)
                 .fontSize(EXPANDED_FONT_SIZE)
-                .fontWeight(this.expandedHighlighted(index) ? 600 : 400)
-                .fontColor(this.expandedHighlighted(index) ? this.skin.toggleForeground : this.skin.keyForeground)
+                .fontWeight(this.expandedHighlighted(cell.index) ? 600 : 400)
+                .fontColor(this.expandedHighlighted(cell.index) ? this.skin.toggleForeground : this.skin.keyForeground)
                 .fontFamily(this.candidateFontFamily())
                 .textAlign(TextAlign.Center)
                 .maxLines(1)
@@ -7229,22 +7219,22 @@ struct KeyboardView {
                     .brightness(EXPANDED_PRESSED_BRIGHTNESS)
                   }
                 })
-                .accessibilityText(this.expandedLabel(index))
+                .accessibilityText(this.expandedLabel(cell.index))
                 .onClick(() => {
-                  KeyboardSession.shared.chooseAny(index);
+                  KeyboardSession.shared.chooseAny(cell.index);
                   this.show(SURFACE_NONE);
                 })
                 // 原版对这里的长按给出与工具条上相同的注释。只给注释：管理操作按页面而不是按这个列表编号，所以这里没有对它们有意义的序号。
                 .gesture(LongPressGesture().onAction(() => {
-                  if (this.expanded[index].annotationIsTranslation) {
-                    this.expandedGloss = index;
+                  if (this.expanded[cell.index].annotationIsTranslation) {
+                    this.expandedGloss = cell.index;
                   }
                 }))
-            }, (index: number) => this.expandedCellKey(index))
+            }, (cell: ExpandedCandidateCell) => this.expandedCellKey(cell))
           }
           .width('100%')
           .justifyContent(FlexAlign.Start)
-        }, (row: number[]) => row.map((index: number): string => this.expandedCellKey(index)).join('|'))
+        }, (row: ExpandedCandidateCell[]) => row.map((cell: ExpandedCandidateCell): string => this.expandedCellKey(cell)).join('|'))
       }
       .width('100%')
       .padding(EXPANDED_PADDING_VP)
