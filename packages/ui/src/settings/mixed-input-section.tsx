@@ -7,6 +7,8 @@ export type MixedInputPreferences = {
   minimum_prefix: number;
   emoji: boolean;
   kaomoji: boolean;
+  /** 日文混输（实验）。后加的可选成员：Rust 端关着时不写这个键，旧文档和只写前四项的宿主都没有它，缺省按关处理；也因此不放进 `defaultMixedInput`。 */
+  japanese?: boolean;
 };
 
 export const defaultMixedInput: MixedInputPreferences = {
@@ -70,6 +72,12 @@ export function MixedInputSection({ preferences, onChange }: MixedInputSectionPr
           onChange={(checked) => onChange({ ...preferences, [key]: checked })}
         />
       ))}
+      <SwitchRow
+        title="日文混输（实验）"
+        description="全拼、双拼里打出完整的日文罗马字时补充一个日文候选（如 ohayou → おはよう）。用的是临时日文的那份日文词典，词典不在时不生效"
+        checked={preferences.japanese ?? false}
+        onChange={(japanese) => onChange({ ...preferences, japanese })}
+      />
     </>
   );
 }
