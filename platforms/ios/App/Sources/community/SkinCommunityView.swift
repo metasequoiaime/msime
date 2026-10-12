@@ -280,10 +280,7 @@ enum CommunitySkinInstall {
 private struct CommunitySkinCategoryTag: View {
   let category: CommunitySkinCategory
   var body: some View {
-    Text(category.label).font(.system(size: 10, weight: .medium)).lineLimit(1).fixedSize()
-      .foregroundStyle(MetasequoiaTheme.accent)
-      .padding(.horizontal, 6).padding(.vertical, 2)
-      .background(MetasequoiaTheme.accentSoft, in: Capsule())
+    DesignPillLabel(title: category.label, size: .micro)
       .accessibilityLabel("分类：\(category.label)")
   }
 }

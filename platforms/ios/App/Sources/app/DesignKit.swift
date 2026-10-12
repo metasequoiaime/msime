@@ -141,7 +141,7 @@ struct DesignDivider: View {
 /// Shared tinted capsule label used for compact status and action pills.
 struct DesignPillLabel: View {
   enum Style { case filled, tonal, neutral }
-  enum Size { case compact, regular, page }
+  enum Size { case micro, compact, regular, page }
 
   let title: String
   var style: Style = .tonal
@@ -149,12 +149,13 @@ struct DesignPillLabel: View {
 
   var body: some View {
     Text(title)
-      .font(.system(size: size == .compact ? 12 : 13, weight: .semibold))
+      .font(.system(size: size == .micro ? 10 : size == .compact ? 12 : 13,
+        weight: size == .micro ? .medium : .semibold))
       .foregroundStyle(foreground)
       .lineLimit(1)
       .fixedSize()
-      .padding(.vertical, size == .compact ? 4 : size == .regular ? 5 : 6)
-      .padding(.horizontal, size == .compact ? 12 : 14)
+      .padding(.vertical, size == .micro ? 2 : size == .compact ? 4 : size == .regular ? 5 : 6)
+      .padding(.horizontal, size == .micro ? 6 : size == .compact ? 12 : 14)
       .background(background, in: Capsule())
       .contentShape(Capsule())
   }
