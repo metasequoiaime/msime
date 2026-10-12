@@ -1201,21 +1201,14 @@ final class ImePanels {
                 java.util.List<BackendAccount.ClipboardItem> items = java.util.List.of();
                 String sessionId = "";
                 try {
-                    boolean relaySelected = CloudClipboardRelay.selected(CloudClipboardRelay.preferencesDirectory(s));
-                    if (relay != relaySelected) {
-                        // 快照和偏好文件对不上：中继设置刚改过。不读，绝不在配置了中继时经账号读。
-                        status = CloudClipboardPanelPolicy.Status.FAILED;
-                    } else if (relay) {
-                        CloudClipboardRelay route = CloudClipboardRelay.open(s);
-                        if (!route.binding().equals(accountId)) {
-                            status = CloudClipboardPanelPolicy.Status.FAILED;
-                        } else {
-                            BackendAccount.ClipboardPage page = BackendAccount.clipboardPage(
-                                route.drive(CloudClipboardE2e.Operation.list("")));
-                            status = CloudClipboardPanelPolicy.loaded(page.enabled(), page.pending(), page.items().size());
-                            if (CloudClipboardPanelPolicy.showsItems(status)) items = page.items();
-                            sessionId = accountId;
-                        }
+                    // 快照和偏好文件对不上（中继设置刚改过）时抛出 relay_changed，按失败处理，绝不在配置了中继时经账号读。
+                    CloudClipboardRelay route = CloudClipboardRelay.forPanel(s, relay, accountId);
+                    if (route != null) {
+                        BackendAccount.ClipboardPage page = BackendAccount.clipboardPage(
+                            route.drive(CloudClipboardE2e.Operation.list("")));
+                        status = CloudClipboardPanelPolicy.loaded(page.enabled(), page.pending(), page.items().size());
+                        if (CloudClipboardPanelPolicy.showsItems(status)) items = page.items();
+                        sessionId = accountId;
                     } else {
                         BackendAccount account = new BackendAccount(s);
                         // Throws when the session owner cannot tell right now, which is a retry, not a sign-in.
@@ -1287,17 +1280,10 @@ final class ImePanels {
             s.cloudClipboardWorker.execute(() -> {
                 CloudClipboardPanelPolicy.Status failure = null;
                 try {
-                    boolean relaySelected = CloudClipboardRelay.selected(CloudClipboardRelay.preferencesDirectory(s));
-                    if (relay != relaySelected) {
-                        // 中继设置在这一页读出之后改过：不发，绝不在配置了中继时发到账号，也不发到刚换掉的中继。
-                        failure = CloudClipboardPanelPolicy.Status.FAILED;
-                    } else if (relay) {
-                        CloudClipboardRelay route = CloudClipboardRelay.open(s);
-                        if (route.binding().equals(sessionId)) {
-                            BackendAccount.clipboardItem(route.drive(CloudClipboardE2e.Operation.add(text)));
-                        } else {
-                            failure = CloudClipboardPanelPolicy.Status.FAILED;
-                        }
+                    // 中继设置在这一页读出之后改过时抛出 relay_changed：不发，绝不在配置了中继时发到账号，也不发到刚换掉的中继。
+                    CloudClipboardRelay route = CloudClipboardRelay.forPanel(s, relay, sessionId);
+                    if (route != null) {
+                        BackendAccount.clipboardItem(route.drive(CloudClipboardE2e.Operation.add(text)));
                     } else {
                         new BackendAccount(s).addClipboard(text, sessionId, CloudClipboardNativeDriver.local(s));
                     }

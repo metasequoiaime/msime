@@ -38,10 +38,32 @@ public final class CloudClipboardRelay implements CloudClipboardApi.Backend {
      * 按偏好里现在的中继打开：记下这一刻的绑定（{@link CloudClipboardRelayPolicy#binding}），之后据此认出地址或令牌换过。没有配置中继时抛出 `relay_not_configured`，偏好读不了时抛出 `storage`。读文件，要在工作线程上调用。
      */
     public static CloudClipboardRelay open(Context context) throws CloudApi.Failure {
-        String directory = preferencesDirectory(context);
-        String binding = currentBinding(directory);
+        return open(preferencesDirectory(context), keystoreDirectory(context), deviceName());
+    }
+
+    /** 同上，目录和设备名由调用方给出；设备冒烟用临时目录经它跑这一层。 */
+    static CloudClipboardRelay open(String preferencesDirectory, String keystoreDirectory, String deviceName)
+            throws CloudApi.Failure {
+        String binding = currentBinding(preferencesDirectory);
         if (binding.isEmpty()) throw failure(CloudClipboardRelayPolicy.CODE_NOT_CONFIGURED);
-        return new CloudClipboardRelay(directory, keystoreDirectory(context), deviceName(), binding);
+        return new CloudClipboardRelay(preferencesDirectory, keystoreDirectory, deviceName, binding);
+    }
+
+    /**
+     * 键盘面板在后台线程上真正发请求之前的选路。`relay` 和 `binding` 是面板在主线程上按内存里的偏好快照记下的（{@link #binding(JSONObject)}），快照可能晚于偏好文件，所以这里再问一次共享层：两边都说走水杉账号时返回 null，调用方经账号发；两边都是中继且绑定相同时返回这条中继；其余情况（中继设置刚改过）一律抛出 `relay_changed`，绝不在配置了中继时退回账号，也不发到刚换掉的中继。读文件，要在工作线程上调用。
+     */
+    public static CloudClipboardRelay forPanel(Context context, boolean relay, String binding) throws CloudApi.Failure {
+        return forPanel(preferencesDirectory(context), keystoreDirectory(context), deviceName(), relay, binding);
+    }
+
+    /** 同上，目录和设备名由调用方给出；设备冒烟用临时目录经它核对选路。 */
+    static CloudClipboardRelay forPanel(String preferencesDirectory, String keystoreDirectory, String deviceName,
+            boolean relay, String binding) throws CloudApi.Failure {
+        if (relay != selected(preferencesDirectory)) throw failure(CloudClipboardRelayPolicy.CODE_CHANGED);
+        if (!relay) return null;
+        CloudClipboardRelay route = open(preferencesDirectory, keystoreDirectory, deviceName);
+        if (!route.binding.equals(binding)) throw failure(CloudClipboardRelayPolicy.CODE_CHANGED);
+        return route;
     }
 
     /** 共享偏好目录，与键盘读的是同一个 runtime option `preferences_directory`；首次设置之前为空串。 */
@@ -82,11 +104,6 @@ public final class CloudClipboardRelay implements CloudClipboardApi.Backend {
         JSONObject preferences = snapshot.optJSONObject("preferences");
         if (preferences == null) throw failure("storage");
         return binding(preferences);
-    }
-
-    /** 打开时记下的绑定，键盘面板拿它代替账号编号。 */
-    public String binding() {
-        return binding;
     }
 
     /** 驱动的操作换成中继的动作：`status` 在这里叫 `devices`，结果形状与驱动的相同。 */
