@@ -10,11 +10,16 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "packages/ui/src/settings/settings-page-registry.ts"
+RESOURCES = ROOT / "packages/ui/src/settings/app-resources.ts"
 
 
 def main() -> int:
     source = REGISTRY.read_text(encoding="utf-8")
-    icons = sorted(set(re.findall(r'new URL\("\.\./assets/([^"]+\.svg)"', source)))
+    resources = RESOURCES.read_text(encoding="utf-8")
+    icons = sorted(
+        set(re.findall(r'new URL\("\.\./assets/([^"]+\.svg)"', source))
+        | set(re.findall(r'new URL\("\.\./assets/([^"]+\.svg)"', resources))
+    )
     if not icons:
         print(f"{REGISTRY}: 没有找到任何页面图标", file=sys.stderr)
         return 1
