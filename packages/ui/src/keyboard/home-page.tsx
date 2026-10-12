@@ -10,6 +10,7 @@ import type { ImeSetupClient } from "../core/host-contracts";
 import type { Preferences } from "../index";
 import { touchKeyboardSchemeTitle } from "../settings/touch-keyboard-scheme-helpers";
 import { SetupStatusCard } from "./setup-status-card";
+import { logo } from "../settings/app-resources";
 import {
   RootSettingsList,
   RootSettingsRowView,
@@ -296,11 +297,7 @@ function DesktopHomePage({
           <p className="mt-1.5 mb-0 text-muted">从一次顺手的表达开始</p>
         </div>
         {/* 桌面端把品牌标志保留在句子旁，那里的标题栏是窗口装饰，而不是手机屏幕的顶部。 */}
-        <img
-          className="size-12 opacity-80"
-          src={new URL("../assets/msime.svg", import.meta.url).href}
-          alt=""
-        />
+        <img className="size-12 opacity-80" src={logo} alt="" />
       </header>
       <button type="button" className={`${card} flex flex-col gap-3 p-4`} onClick={openKeyboard}>
         <div className="flex items-center justify-between gap-3">
