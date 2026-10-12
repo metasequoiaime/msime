@@ -31,4 +31,5 @@ Status: implemented
 
 - **收益**：设置里的开关在 Android 上第一次真正生效，键盘和符号面板两条路一致；补全和跨过的规则能在 JVM 上测（`tests/keyboard/PairedPunctuationPolicySmoke.java`），`check-host.sh` 加了守卫，防止宿主再次不读这个偏好。
 - **代价**：跨过后半个是删后再写，个别会记录撤销历史的编辑器里会多一步撤销；读不出光标后文字的编辑器里不跨过，用户会得到两个后半个。只在 `check-host.sh`（JVM 冒烟、NDK 编译 `client_jni.cpp`）上验证，没有做原生构建，也没有在真机或模拟器上按过。
+- 26 键字母角标在中文标点下的 ( ) " 同样经 `punctuation()` 上屏，补全、跨过和引号交替与标点键一致，见 [Android 字母角标在中文标点下打中文标点](2026-10-12-android-letter-hint-chinese-punctuation.md)。
 - **#6458 之后**：每补一个后半个多一次同步读（光标后面的一个字），只有光标跑偏时再多读一次光标前面并发方向键。不认 0、又读不出光标后文字的编辑器仍然修不了。设备套件 `PairedPunctuationDeviceSmoke` 在测试编辑器里加了一个把 `commitText` 第二个参数一律当成 1 的输入框（`msime-test-cursor-at-end`），和普通输入框一起检查符号面板、键盘两条路和面板里跨过后半个；vivo 真机上应用实际怎么处理没有拿到，按截图里的现象推断是同一类。
