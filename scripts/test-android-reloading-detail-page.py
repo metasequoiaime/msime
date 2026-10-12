@@ -14,6 +14,7 @@ CONSUMERS = (
     "ExpressionPage.java",
     "HandwritingPage.java",
     "KeyboardOptionsPage.java",
+    "LexiconPage.java",
     "PhrasesPage.java",
     "SkinsPage.java",
 )
@@ -91,6 +92,20 @@ def main() -> int:
         or "installing.clear();" not in expression
     ):
         errors.append("ExpressionPage: 首次加载或视图销毁时的专有状态未保留")
+
+    lexicon = (HOME / "LexiconPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in lexicon
+        or "if (model != null) render();" not in lexicon
+        or "@Override protected void onInitialReloadScheduled()" not in lexicon
+        or "loadDiscover();" not in lexicon
+        or "@Override protected void onContentDestroyed()" not in lexicon
+        or "installing.clear();" not in lexicon
+        or "@Override protected void reload()" not in lexicon
+        or "reload(false);" not in lexicon
+        or "reload(true)" not in lexicon
+    ):
+        errors.append("LexiconPage: 缓存显示、发现列表或手动刷新行为未保留")
 
     if errors:
         print("\n".join(errors), file=sys.stderr)

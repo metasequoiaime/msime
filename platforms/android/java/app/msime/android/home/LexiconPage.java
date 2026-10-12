@@ -42,14 +42,13 @@ import org.json.JSONObject;
  *
  * <p>命名词库的元数据和词条都经 {@link DictionaryCollectionsStore}；导入和导出走系统文件选择器（SAF），不申请存储权限。导入来源对话框只列 client-core 实际接受的格式。
  */
-public final class LexiconPage extends DetailPage {
+public final class LexiconPage extends ReloadingDetailPage {
     private static final String BUILTIN_KIND = "pinyin";
     private static final int DISCOVER_LIMIT = 8;
 
     /** 渲染一次需要的全部数据；`builtinCount` 为负表示读不到。 */
     private record Model(DictionaryCollectionsStore.View view, long builtinCount, boolean learning, String failure) {}
 
-    @Nullable private LinearLayout column;
     @Nullable private Model model;
     @Nullable private List<CommunityCatalog.Item> discover;
     @Nullable private String discoverFailure;
@@ -62,21 +61,20 @@ public final class LexiconPage extends DetailPage {
     private final ActivityResultLauncher<String> createDocument =
         registerForActivityResult(new ActivityResultContracts.CreateDocument("text/plain"), this::onExportPicked);
 
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
+    @Override protected void onContentReady() {
         if (model != null) render();
-        reload(false);
+    }
+
+    @Override protected void onInitialReloadScheduled() {
         loadDiscover();
     }
 
-    @Override protected void onBecameVisible() {
-        if (column != null) reload(false);
+    @Override protected void reload() {
+        reload(false);
     }
 
-    @Override public void onDestroyView() {
-        column = null;
+    @Override protected void onContentDestroyed() {
         installing.clear();
-        super.onDestroyView();
     }
 
     // ---- 数据 ----
@@ -121,7 +119,7 @@ public final class LexiconPage extends DetailPage {
     // ---- 渲染 ----
 
     private void render() {
-        LinearLayout target = column;
+        LinearLayout target = contentColumn();
         Model current = model;
         if (target == null || current == null) return;
         Context context = requireContext();
@@ -179,7 +177,7 @@ public final class LexiconPage extends DetailPage {
 
     /** 第一次读就失败时页面上什么数据也没有；刷新入口在管理卡片里，这里单独留一张卡片给它，不让页面空着没法重试。 */
     private void renderUnavailable() {
-        LinearLayout target = column;
+        LinearLayout target = contentColumn();
         if (target == null) return;
         Context context = requireContext();
         target.removeAllViews();
