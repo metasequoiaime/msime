@@ -1,5 +1,20 @@
 import SwiftUI
 
+@MainActor
+func runCommunityAction(
+  busy: Binding<Bool>,
+  message: Binding<String?>,
+  action: @escaping @MainActor () async throws -> Void
+) {
+  guard !busy.wrappedValue else { return }
+  busy.wrappedValue = true
+  Task {
+    defer { busy.wrappedValue = false }
+    do { try await action() }
+    catch { message.wrappedValue = error.localizedDescription }
+  }
+}
+
 struct CommunitySearchField: View {
   @Binding var text: String
   let placeholder: String

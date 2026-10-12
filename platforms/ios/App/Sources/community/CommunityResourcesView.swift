@@ -407,8 +407,7 @@ struct CommunityResourceDetail: View {
       } message: { Text(message ?? "") }
   }
   private func run(_ action: @escaping @MainActor () async throws -> Void) {
-    guard !busy else { return }; busy = true
-    Task { defer { busy = false }; do { try await action() } catch { message = error.localizedDescription } }
+    runCommunityAction(busy: $busy, message: $message, action: action)
   }
 }
 
