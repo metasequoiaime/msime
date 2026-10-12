@@ -10,7 +10,13 @@ Status: implemented
 
 ## Decision
 
-新选项 `SessionOptions::japanese_mixing`（宿主侧 `EngineOptions::mixed_japanese`，`prepare_options_for` 默认关，`session_options` 映射）。开着时会话构造里调 `ImeSession::warm_up_japanese`，经 `ProviderRegistry::warm_up_japanese` 在后台预热日文模型。
+新选项 `SessionOptions::japanese_mixing`（宿主侧 `EngineOptions::mixed_japanese`，`prepare_options_for` 默认关，`session_options` 映射）。开着时会话构造里调 `ImeSession::warm_up_japanese`，经 `ProviderRegistry::warm_up_japanese` 在后台预热日文模型，拼音会话的第一个键不必在按键线程上读这个 66 MB 的文件。
+
+### 偏好与门控
+
+- 偏好是 `Preferences.mixed_input.japanese`（`MixedInputPreferences::japanese`），默认关，`#[serde(default, skip_serializing_if = "is_false")]`，沿用 `NavigationPreferences.mouse_wheel` 的先例：只写前四项的旧文档和宿主（Android `mixedInput()`、macOS 合并字典、Linux `patch_preference_object`）照样能读，关着时文档逐字节不变。
+- host-api 在 `apply_pending` 和 `into_engine_options` 两处把它映射到 `EngineOptions::mixed_japanese`，再由 `apply_local_mode_resource_gates` 关掉：`options.mixed_japanese &= has_japanese_model && edition.features.temporary_japanese`。条件和临时日文一样：日文 provider 只在会话方案集含 `JapaneseRomaji` 时才建（版本要有 `temporary_japanese`），模型不在时只拼得出假名，不算转换。五笔版即使状态目录里留着下载来的日文资源包也不开。
+- 共享设置页（`packages/ui/src/settings/mixed-input-section.tsx`）在 emoji、颜文字混输之后加一行「日文混输（实验）」，和临时日文一样始终显示、由运行时按词典是否在场门控；打开它不触发日文资源包下载。TS 类型里 `japanese` 是可选成员，不进 `defaultMixedInput`，没有这个键时按关显示。
 
 ### 来源
 
@@ -42,6 +48,12 @@ Status: implemented
 - **学习**：第一阶段「英文领先时第二行是默认选择」推广成「跟在领先的英文、日文行后面的那一行是默认选择」，英文和日文各占前两位时第三行才是。
 - **在线座位**：`msime-input-runtime` 的 `normalize_online_slots` 把 13 当作和英文同类：领先时保持首位（英文领先时第二位），云候选、AI 候选到达不挪；不领先时坐英文的优先座位、排在英文前面。
 - **简繁转换**：上屏日文行时提交上下文的 `script_conversion` 为假（`Runtime::commits_mixed_japanese`）；前面暂存着中文词段、和日文一起上屏时照旧转换，否则暂存的中文会漏转。
+
+### 宿主与工具
+
+- **查询（MCP `lookup_candidates`、`msime expand`）**：查询会话照用户的设置保留日文混输，它不学习、不改用户数据，查询看到的就是用户打这串键时的那一行日文。来源 13 映射成 `CandidateOrigin::Japanese`，MCP 输出的 `origin` 是 `japanese`；以前任何不认识的来源都让查询报错「not local」。
+- **Windows**：`candidate_finishes_composition` 含 13，和英文 4 一致：引擎选中它就结束组字，Server 选词时不带 `HOST_HOLDS_PIECES`、随后发 `MSIME_CANCEL`，整段上屏照常出声、计连击，不被当成暂存的词段。`scripts/test-candidate-sources.py` 只核对 `CandidateActionAvailability.h` 的命名常量，13 不在置顶、固定、删除的白名单里，所以它不用改。
+- **macOS**：`CandidateDisplay` 对来源 13 不做简转繁（学校不显示成學校），上屏由 `commit_context.script_conversion` 为假保证；只有 macOS 宿主读这个字段。
 
 ### 校准（真实模型 `msime-japanese.dat`，66547565 字节）
 
@@ -75,6 +87,10 @@ Status: implemented
 - **每假名上限取 1500** — 最强的理由是更保守，错字里只靠 `known` 给出的从 155 个降到 27 个，打字途中的前缀从 10 个降到 2 个。没有采用，是因为召回从 19/20 掉到 13/20，食べたい、飲みます、疲れた、待って都给不出来；而精确词条本身已经给出 2007 个错字行，`known` 收紧那一点改变不了总量。
 - **按整句的分段数卡（平均每段至少两个假名）** — 最强的理由是不依赖成本尺度。没有采用，是因为它几乎不区分：ちゃうん、ジャンちゃん这类错字段数本来就少。在 1800 的成本上限之外再加「段数不超过假名数一半（向上取整）」，探索时那组 26 条正例（含 ら面、ときょ 这类本不该给的）少了 3 条（19→16），错字只多挡下 11 个（155→144）。
 - **门槛用罗马字独有的拼法（`tsu`、`kya`、双写辅音、`n'`）** — 最强的理由是对拼音零误伤。没有采用，是因为 `ohayou`、`arigatou`、`watashi`、`sushi` 这些最常打的日文都能整段切成拼音音节，一个都碰不到。
+- **只要整段是完整罗马字（`is_romaji_complete`）就给一行** — 最强的理由是最简单，不用查模型就能定。没有采用，是因为绝大多数拼音本身就是完整罗马字（`nihao`→にはお、`women`→をめん），等于给每个拼音词都塞一行假名，列表被淹没。
+- **像临时日文那样切换会话方案** — 最强的理由是现成：Shift+R 已经把唯一的引擎方案换成 `JapaneseRomaji`，候选和上屏全是日文方案自己的规则，不用新来源。没有采用，是因为同一时刻只能有一种语言的列表，做不到拼音照旧、日文只补一行；用户不知道下一个词是哪种语言时，切方案正是要省掉的那一步。
+- **跨语言比分数决定谁领先** — 最强的理由是看起来最「智能」：日文路径成本低于拼音权重就让日文领先。没有采用，是因为日文是 mozc 的连接成本、拼音是词频权重，不在一个尺度上，混输英文早就因此定下「从不比较英文和拼音的权重」（#1040、#1063）。领先只看结构事实：拼音拆不拆得开、拼音有没有整段的词。
+- **打开选项时自动下载日文资源包** — 最强的理由是 macOS、Android 精简包上开箱即用，不必另找下载入口。没有采用，是因为这是实验选项，拨一下开关就拉 66 MB 不合适；临时日文也刻意不触发下载（`needed_by_preferences` 只在方案是日文时要它），两个功能读同一份词典，入口一致。
 - **在 `Session::snapshot` 里把日文行的 `answers_key` 置为假，代替在 `rerank_pick` 里挡** — 最强的理由是不碰网页引擎也用的 `ordering.rs`。没有采用，是因为 `answers_key` 是行本身的事实（选它确实结束组字），第一阶段为英文做过同样的取舍，两条规则放在同一处更好查。
 
 ## Consequences
@@ -88,7 +104,11 @@ Status: implemented
   - `nn` 一律是一个ん（见 [日文罗马字对齐主流输入法](../bug-fix/2026-10-08-japanese-romaji-spellings-and-kana-slot.md)），所以 `konnichiha` 读成こんいちは、得不到こんにちは，要打 `konnnichiha`；它的最佳整句今イチは不算认得，不给日文行。
   - 双拼辅助码开着（产品默认）时，奇数长度的最后一键算辅助码，门槛挡住，`sugoi` 这类奇数长度的输入在双拼里拿不到日文行。
   - 开着选项时每个键多一次罗马字转换和一次精确词条查找，拼音拆不开或有精确词条时再跑一次整句搜索；66 MB 的模型在拼音会话里也被读进内存。第一个键若赶在预热之前，仍要在按键线程上等模型。
-  - 宿主这一层还没接：host-api 的偏好映射和模型门槛（`into_engine_options` 里暂时写死 `mixed_japanese: false`），MCP `lookup_candidates` 的来源映射，Windows `candidate_finishes_composition`，以及 macOS 等宿主显示候选时的繁体转换，都在后续改动里补。
+  - 开着选项的拼音用户进程里多了这份 66 MB 的日文模型（进程级缓存，见下面的模型缓存笔记），没开的用户不读。
+  - 打字统计按会话方案记：`commit_context.scheme` 仍是全拼或双拼，日文行算作拼音输入。
+  - 选日文行什么都不学：不调频、不进个人上下文，也不会因为常选它就让它更容易领先；要学得另加来源 13 专用的规则。
+  - 只有 macOS 认来源 13 的显示和上屏不转繁体。Windows、Linux（IBus、Fcitx5）、iOS、Android、HarmonyOS 按方案号决定简转繁，开着繁体输出时日文行的显示和上屏都会被转（显示和上屏一致，但日文新字体会变成繁体字形）；这些宿主也不给它角标，macOS、Android、iOS 的置顶、固定、删除菜单仍会出现，引擎按 `is_editable_source` 拒绝。
+  - 打开过选项的文档带 `mixed_input.japanese: true`，降级到不认这个键的旧版本时整份偏好被拒（`deny_unknown_fields`）；`skip_serializing_if` 把影响限在打开过它的用户，与 `mouse_wheel` 的取舍相同。
 - 已检索的相关笔记：
   - [拼音拆不开且英文完全匹配时，混输英文占首选](2026-10-12-mixed-english-leads-unsegmentable-input.md)：部分重叠，本篇沿用它的音节判定、优先位置和「领先行后面是默认选择」，两篇互链。
   - [日语模型留在进程级缓存里，切到日文时后台预热](../architecture/2026-10-10-japanese-model-process-cache.md)：部分重叠，预热时机多了「日文混输开着时建会话」，事实处已就地补上并链到本篇。
@@ -99,4 +119,9 @@ Status: implemented
 
 - `cargo test -p msime-engine`：`session::tests` 里的 `a_japanese_conversion_leads_or_follows_the_whole_chinese_word`、`japanese_mixing_stays_out_unless_every_gate_passes`、`shuangpin_mixes_a_japanese_conversion_too`、`a_leading_japanese_conversion_follows_a_leading_english_word`、`japanese_rows_skip_duplicates_and_respect_the_online_seats`、`committing_a_japanese_row_ends_the_composition_and_learns_nothing`、`picking_the_chinese_row_behind_a_leading_japanese_row_is_the_default_pick`、`japanese_rows_carry_no_helpcode`、`japanese_mixing_warms_the_model_when_the_session_is_built`；`ime::queries` 的位置测试；`japanese::matrix::best_path_tests`；`japanese::provider` 的 `whole_reading_signals_need_a_complete_reading_and_the_model`、`the_best_path_is_the_first_provider_row`；`types::tests::candidate_sources_round_trip_and_mixed_japanese_matches_no_predicate`；`host::tests` 的选项默认值与映射。
 - `cargo test -p msime-input-runtime`：`mixed_japanese_rows_keep_their_seat_like_english`、`committing_a_mixed_japanese_row_skips_script_conversion`、`the_reranker_leaves_mixed_japanese_rows_alone`。
+- `cargo test -p msime-client-core`：`mixed_input_legacy_roundtrip_and_bounds`（四项旧对象可读，关着时不写 `japanese`）。
+- `cargo test -p msime-host-api`：`mixed_input_changes_defer_until_composition_ends`、`local_mode_resource_gates_preserve_unrelated_modes`、`the_wubi_lock_accepts_resources_without_japanese_and_gates_temporary_japanese_off`、`a_downloaded_japanese_pack_keeps_temporary_japanese_available`（模型在与不在、full 与五笔版），`dictionary::tests::a_lookup_keeps_the_users_japanese_mixing`（查询首行是来源 `Japanese` 的おはよう，关着时没有）。
+- `cargo test -p msime-mcp-server`：`a_japanese_mixing_candidate_is_reported_with_the_japanese_origin`。
+- 前端：`apps/desktop/tests/settings/mixed-input-section.test.tsx` 与 `settings.test.tsx` 的日文混输开关（缺省为关、单独切换、和其他混输开关一起保存）。
+- Windows：`platforms/windows/tests/input/candidate_completion_policy.cpp` 断言 13 结束组字。
 - 真实模型：`MSIME_JAPANESE_MODEL=<msime-japanese.dat> cargo test -p msime-engine --lib real_model_calibrates_mixed_japanese_signals -- --nocapture`；出货词库：再加 `MSIME_EVAL_RESOURCES=<资源目录>` 跑 `real_resources_mix_japanese_conversions`。两者缺环境变量时跳过。
