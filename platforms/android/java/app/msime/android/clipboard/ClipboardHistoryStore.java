@@ -127,7 +127,7 @@ public final class ClipboardHistoryStore {
                 throw new IllegalStateException("Clipboard history " + operation
                     + " refused: " + (reason == null ? "no reason given" : reason));
             }
-            return response.optJSONObject("value");
+            return JsonPolicy.objectValue(response);
         } catch (JSONException | LinkageError error) {
             throw new IllegalStateException(
                 "Clipboard history " + operation + " could not reach the shared store", error);

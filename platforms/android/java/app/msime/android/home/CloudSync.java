@@ -754,7 +754,7 @@ public final class CloudSync {
         JSONObject root = new JSONObject(response == null ? "" : response);
         if (!JsonPolicy.strictTrue(root.opt("ok")))
             throw new IllegalStateException(root.optString("error", "native call failed"));
-        JSONObject value = root.optJSONObject("value");
+        JSONObject value = JsonPolicy.objectValue(root);
         return value == null ? new JSONObject() : value;
     }
 

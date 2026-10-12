@@ -343,7 +343,7 @@ public final class LocalAsrRecognizer {
             if (!JsonPolicy.strictTrue(response.opt("ok"))) {
                 return new JSONArray();
             }
-            JSONObject value = response.optJSONObject("value");
+            JSONObject value = JsonPolicy.objectValue(response);
             JSONArray words = value == null ? null : value.optJSONArray("hotwords");
             return words == null ? new JSONArray() : words;
         } catch (JSONException | RuntimeException | LinkageError error) {
