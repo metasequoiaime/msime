@@ -35,6 +35,11 @@ test("ignores duplicate skin saves while the first save is pending", async () =>
   );
 
   await waitFor(() => expect(library.load).toHaveBeenCalledOnce());
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "保存设计" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
   fireEvent.click(screen.getByRole("button", { name: "保存设计" }));
   fireEvent.change(screen.getByLabelText("皮肤名称"), { target: { value: "合成皮肤" } });
   const confirm = screen.getByRole("button", { name: "确认保存" });

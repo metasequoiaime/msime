@@ -42,77 +42,120 @@ final class CodeLoginModel: ObservableObject {
   let client = BackendAccountClient()
   let session = BackendAccountSession.shared
   private let api = SkinCommunityAPI.shared
+  private var generation = UUID()
+
+  /// 让登录面板关闭时已经在路上的请求失效。网络客户端未必会及时响应 Task 的取消，
+  /// 所以结果写回前还要用代次再挡一次。
+  func invalidate() {
+    generation = UUID()
+    busy = false
+    appleChallenge = nil
+    preparingApple = false
+    message = nil
+  }
 
   func loadProviders() async {
-    await perform { self.providers = try await self.client.providers() }
+    let id = generation
+    await perform { id in
+      let providers = try await self.client.providers()
+      try self.ensureCurrent(id)
+      self.providers = providers
+    }
+    guard generation == id else { return }
     providersLoaded = true
   }
 
   /// 加载登录方式；其中有 Apple 时，同时获取第一个 Apple challenge。
   func prepare() async {
+    let id = generation
     await loadProviders()
-    await prepareApple()
+    guard generation == id else { return }
+    await prepareApple(expected: id)
   }
 
   func prepareApple() async {
+    await prepareApple(expected: generation)
+  }
+
+  private func prepareApple(expected id: UUID) async {
+    guard generation == id, !Task.isCancelled else { return }
     appleChallenge = nil
     guard providers["apple"] == true else { return }
     preparingApple = true
-    defer { preparingApple = false }
-    do { appleChallenge = try await api.challenge() }
-    catch { report(error) }
+    defer { if generation == id { preparingApple = false } }
+    do {
+      let challenge = try await api.challenge()
+      try ensureCurrent(id)
+      appleChallenge = challenge
+    } catch is CancellationError {
+    } catch {
+      guard generation == id else { return }
+      report(error)
+    }
   }
 
   func requestCode(provider: String, target: String) async -> BackendAccountClient.Challenge? {
     var response: BackendAccountClient.Challenge?
-    await perform {
+    await perform { id in
       guard self.providers[provider] == true else { throw BackendAccountClient.Failure(status: 503) }
-      response = try await self.client.challenge(provider: provider, target: target)
+      let result = try await self.client.challenge(provider: provider, target: target)
+      try self.ensureCurrent(id)
+      response = result
     }
     return response
   }
 
   func signInWithCode(challenge: String, code: String, channel: CodeLoginChannel) async {
-    await perform {
+    await perform { id in
       try await self.session.signIn(challenge: challenge, credential: code, replacingAccount: { accountID in
         try DictionarySnapshotQueue().cancelIfPresent(accountID: accountID)
       })
-      self.user = try await self.session.user()
+      try self.ensureCurrent(id)
+      let user = try await self.session.user()
+      try self.ensureCurrent(id)
+      self.user = user
       if self.user != nil { self.signedInVia = channel.via }
     }
   }
 
   /// 完成「通过 Apple 登录」。凭证的 `state` 必须回传 challenge id，借此把 identity token 和本 App 向后端申请的 nonce 绑在一起。成功以外的任何结果都会重新获取 challenge，因为后端每个 challenge 只接受一次。
   func signInWithApple(_ result: Result<ASAuthorization, Error>) async {
+    let id = generation
     guard let challenge = appleChallenge else { return }
     switch result {
     case .success(let authorization):
       guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
             credential.state == challenge.challenge_id,
             let data = credential.identityToken, let token = String(data: data, encoding: .utf8) else {
+        guard generation == id else { return }
         message = "Apple 登录未返回有效凭据，请重试。"
-        await prepareApple()
+        await prepareApple(expected: id)
         return
       }
       var failed = false
-      await perform {
+      await perform { id in
         do { try await self.api.login(challenge: challenge.challenge_id, identityToken: token) }
         catch { failed = true; throw error }
-        self.user = try await self.api.currentUser()
+        try self.ensureCurrent(id)
+        let user = try await self.api.currentUser()
+        try self.ensureCurrent(id)
+        self.user = user
         if self.user != nil { self.signedInVia = "Apple" }
       }
-      if failed { await prepareApple() }
+      if failed, generation == id { await prepareApple(expected: id) }
     case .failure(let error):
+      guard generation == id else { return }
       if (error as? ASAuthorizationError)?.code != .canceled { message = error.localizedDescription }
-      await prepareApple()
+      await prepareApple(expected: id)
     }
   }
 
   /// 完成「通过 Google 登录」：向后端要 challenge 和 nonce，拉起 Google 的账号选择，让 ID token 带上这个 nonce，再用它换会话。GoogleSignIn 自己在钥匙串里留的 Google 会话拿到 token 后立即清掉，登录状态只由后端会话决定，下次登录也会重新让用户选账号。
   func signInWithGoogle() async {
     #if canImport(GoogleSignIn)
-    await perform {
+    await perform { id in
       let challenge = try await self.client.challenge(provider: "google")
+      try self.ensureCurrent(id)
       guard let nonce = challenge.nonce, let presenter = Self.presenter() else {
         self.message = "现在无法开始 Google 登录，请稍后再试。"
         return
@@ -120,6 +163,7 @@ final class CodeLoginModel: ObservableObject {
       let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presenter, hint: nil,
                                                               additionalScopes: nil, nonce: nonce)
       GIDSignIn.sharedInstance.signOut()
+      try self.ensureCurrent(id)
       guard let token = result.user.idToken?.tokenString else {
         self.message = "Google 登录未返回有效凭据，请重试。"
         return
@@ -127,7 +171,10 @@ final class CodeLoginModel: ObservableObject {
       try await self.session.signIn(challenge: challenge.challenge_id, credential: token, replacingAccount: { accountID in
         try DictionarySnapshotQueue().cancelIfPresent(accountID: accountID)
       })
-      self.user = try await self.session.user()
+      try self.ensureCurrent(id)
+      let user = try await self.session.user()
+      try self.ensureCurrent(id)
+      self.user = user
       if self.user != nil { self.signedInVia = "Google" }
     }
     #endif
@@ -141,12 +188,27 @@ final class CodeLoginModel: ObservableObject {
     return top
   }
 
-  private func perform(_ operation: () async throws -> Void) async {
+  private func perform(_ operation: (UUID) async throws -> Void) async {
     guard !busy else { return }
-    busy = true; message = nil
-    defer { busy = false }
-    do { try await operation() }
-    catch { report(error) }
+    let id = generation
+    busy = true
+    message = nil
+    defer { if generation == id { busy = false } }
+    do {
+      try ensureCurrent(id)
+      try await operation(id)
+    }
+    catch is CancellationError {
+    }
+    catch {
+      guard generation == id else { return }
+      report(error)
+    }
+  }
+
+  private func ensureCurrent(_ id: UUID) throws {
+    try Task.checkCancellation()
+    guard generation == id else { throw CancellationError() }
   }
 
   /// 取消时不提示；后端或社区拒绝时说明原因；其余情况都视为连接没有完成。
@@ -231,6 +293,9 @@ struct CodeLoginView: View {
       .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { pending?.cancel(); dismiss() } } }
     }
     .onChange(of: model.user?.id) { userID in if userID != nil { dismiss() } }
-    .onDisappear { pending?.cancel() }
+    .onDisappear {
+      pending?.cancel()
+      model.invalidate()
+    }
   }
 }
