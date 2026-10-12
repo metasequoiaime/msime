@@ -25,5 +25,9 @@ test("Chinese-English spacing switch is off when the document has no key", () =>
 test("Chinese-English spacing says what it leaves alone", () => {
   render(<ChineseEnglishSpacingSection value={false} onChange={vi.fn()} />);
 
-  expect(screen.getByText(/两次上屏之间不加；网址、日期等快捷模式和全角输入不受影响/)).toBeTruthy();
+  expect(
+    screen.getByText(
+      /两次上屏之间不加；网址、日期等快捷模式和全角输入不受影响，译文和释义上屏、常用语、剪贴板和语音结果也不加/,
+    ),
+  ).toBeTruthy();
 });
