@@ -1,3 +1,5 @@
+import { utf8ByteLength } from "../core/text";
+
 export function tencentCredentialIssue(
   secretId: string,
   secretKey: string,
@@ -18,7 +20,7 @@ export function tencentCredentialIssue(
 
 export function translationEndpointIssue(endpoint: string): string {
   if (!endpoint) return "请填写完整的接口地址。";
-  if (new TextEncoder().encode(endpoint).length > 2048) return "接口地址过长。";
+  if (utf8ByteLength(endpoint) > 2048) return "接口地址过长。";
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(endpoint)) return "接口地址不能包含控制字符。";
   let parsed: URL;

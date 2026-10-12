@@ -1,14 +1,12 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import { ActionButton } from "../core/action-button";
-import { FluentIcon } from "../core/fluent-icons";
 import { fullScreenColumn, fullScreenSurface } from "../keyboard/touch-keyboard-skin-editor";
 import { pushMobileSettingsState } from "./mobile-navigation";
 import { useMobilePopState } from "./use-mobile-pop-state";
 import * as settings from "./settings-style";
+import { SettingsPageHeader } from "./settings-page-header";
 import { SettingsGroupBlock } from "./settings-group-block";
 import type {
   Preferences,
-  ProviderCredentialClient,
   ProviderCredentialStatus,
   SettingsClient,
   VoiceInputPreferences,
@@ -41,7 +39,7 @@ import {
   polishServiceCredentialTestDisabled,
 } from "./voice-credential-test-config";
 import type { ProviderPresetControlFactory } from "./provider-preset-control";
-import type { useProviderCredentials } from "./use-provider-credentials";
+import type { useProviderCredentials, VoiceCredentialBindings } from "./use-provider-credentials";
 import { GroupList, LinkRow, MoreOptions } from "../core/platform-controls";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
 
@@ -60,7 +58,7 @@ export function doubaoServiceStatus(voiceInput: VoiceInputPreferences): string {
   return "已填写";
 }
 
-export interface VoiceSettingsContentProps {
+export interface VoiceSettingsContentProps extends VoiceCredentialBindings {
   disabled: boolean;
   hidden: boolean;
   client: SettingsClient;
@@ -84,19 +82,6 @@ export interface VoiceSettingsContentProps {
   doubaoAuthMode: "api_key" | "legacy";
   updateVoice: (patch: Partial<VoiceInputPreferences>) => void;
   providerCredentials: ProviderCredentialStatus | undefined;
-  voiceCredentialInput: ReturnType<typeof useProviderCredentials>["voiceCredentialInput"];
-  setVoiceCredentialInput: ReturnType<typeof useProviderCredentials>["setVoiceCredentialInput"];
-  providerCredentialBusy: ReturnType<typeof useProviderCredentials>["providerCredentialBusy"];
-  providerCredentialMessages: ReturnType<
-    typeof useProviderCredentials
-  >["providerCredentialMessages"];
-  runVoiceCredential: (
-    kind: VoiceCredentialKind,
-    operation: (
-      credentials: ProviderCredentialClient,
-    ) => ReturnType<ProviderCredentialClient["saveVoice"]>,
-    success: string,
-  ) => Promise<void>;
   credentialTestControl: ReturnType<typeof useProviderCredentials>["credentialTestControl"];
   providerPresetControls: ProviderPresetControlFactory;
   androidPlatform: boolean;
@@ -373,15 +358,7 @@ export function VoiceSettingsContent({
         <SettingsPageFieldset disabled={disabled} hidden={hidden} ariaLabel="语音输入">
           <div className={fullScreenSurface} role="dialog" aria-modal="true" aria-label="服务配置">
             <section className={fullScreenColumn}>
-              <header className={settings.pageHeader}>
-                <ActionButton
-                  action={closePhoneService}
-                  className={settings.pageBackButton}
-                  ariaLabel="返回"
-                  label={<FluentIcon name="arrow_left" size={22} />}
-                />
-                <h2 className={settings.pageTitle}>服务配置</h2>
-              </header>
+              <SettingsPageHeader title="服务配置" onBack={closePhoneService} level={2} />
               <GroupList title="识别服务">
                 {asrProviderSettings}
                 {doubaoOptionsVisible && (

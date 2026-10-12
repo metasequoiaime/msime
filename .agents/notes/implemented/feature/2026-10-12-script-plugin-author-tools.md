@@ -13,16 +13,16 @@ Status: implemented
 **`msime-pack run <pack> --events <fixture.jsonl> [--grant all|cap,...]`**，只在桌面编译（`crates/pack-tool/src/run.rs`，cfg 同运行时；移动端上 `run` 报用法错误）。
 
 - 读包走 client-core 新增的 `plugins::load_script_source`：和 `validate` 同样暂存（文件夹或 `.zip`）、同样检查，再从同一份暂存里按 `DataFiles::Module` 读出模块字节。不是脚本包时报 `plugin_invalid`。编译走 `msime_script_runtime::compile`，执行走 `ScriptInstance`：授权与清单取交集、按授权和 U6 本地模式白名单复制文本、`before_commit` 在 `msime_init` 之后的快照上运行、每轮和每个钩子的 fuel 配额、import 计 fuel、修改类 import 的返回码，全部是产品代码，`run` 不重写任何一条。
-- `run` 只复刻 host-api `scripts::set` 对一个条目做的几件事：第一次需要投递一个声明过的钩子时实例化（受本轮初始化预算约束，被预算卡住时是 `deferred`）；`focus_in` 之前、`focus_out` 之后丢弃实例；trap 之后这次聚焦里不再重建（`suspended`）；同一轮里重建的实例经 `resume_turn` 接着用这一轮剩下的配额；初始化失败之后停用（`disabled`）。
-- 与输入法有意不同的四处，写进作者文档：字段永远是普通字段；不做按次数和按墙钟的熔断，每次失败都报告；`before_commit` 和 `candidates` 照样投递（输入法第 4 阶段才投递），作者可以先把改写类插件写好；不检查进程内存总账，单个插件总放得下。
+- `run` 只复刻 host-api `scripts::set` 对一个条目做的几件事：第一次需要投递一个声明过的钩子时实例化（受本轮初始化预算约束，被预算卡住时是 `deferred`）；`focus_in` 之前、`focus_out` 之后丢弃实例；trap 之后这次聚焦里不再重建（`suspended`）；本轮配额用完时跳过、运行到一半被本轮配额截断时同样不再重建，都是 `turn_exhausted`，不算失败，只有被截断时这一次用掉的达到本钩子上限的一半是 `out_of_fuel`（runtime 判定，见 [沙箱运行时](../architecture/2026-10-12-script-runtime-sandbox.md)）；同一轮里重建的实例经 `resume_turn` 接着用这一轮剩下的配额（其余钩子和 `before_commit` 各一份）；初始化失败之后停用（`disabled`）。
+- 与输入法有意不同的三处，写进作者文档：字段永远是普通字段；不做按次数和按墙钟的熔断，每次失败都报告；不检查进程内存总账，单个插件总放得下。（第 4 阶段接通之前还有一处：`run` 照样投递 `before_commit` 和 `candidates`，输入法当时还不投递；合并第 4 阶段后两边一致，这条差异删掉了。）
 - `--grant` 按授权页的规则（同 `script_grants::set`）：必须是清单 `permissions` 的子集，满足依赖和互斥，错误文案共用 client-core 的 `script_pack::rule_message`（由 `pub(crate)` 改为 `pub`）。不写 `--grant` 什么都不授予，和刚导入、还没授权的包一样。
 - 退出码：没有失败为 0；有任何失败（trap、fuel 耗尽、栈溢出、内存越界、返回负数、初始化失败）或包不合规为 1；命令行、`--grant`、夹具写错或读不出为 2。包和夹具的错误写到标准错误，标准输出只有 JSONL。
 
 **夹具一行一个事件，字段名就是 ABI 里的名字。** `event` 是钩子名；`key: true` 表示这个事件之前宿主交来一个按键（新的一轮，配额和初始化预算给满），对应产品里不带 PASSTHROUGH 的 `msime_client_key`；`local_mode` 是 runtime 的模式名，不写是 `none`。每种事件只接受输入法会给它的字段（按 `scripts::set` 填字段的方式定），多写的字段和缺了的必填字段都是错误，`deny_unknown_fields` 挡住拼错的键。上屏文本写成 `body` 加 `tail`，和产品按 `tail_chars` 切分出的两段一一对应。`before_commit` 不写 `rewritable` 时按夹具能表达的两项（来源是 selection、raw、held_flush，本地模式是 none）推出来。
 
-**输出一行一个事件：** `seq`、`event`、`status`、`fuel`、`actions`、`log`，实例化时多一个 `init_fuel`。`status` 是 `ok`、`not_subscribed`、`Failure::as_str()` 的失败码、`init:<失败码>`、`disabled`、`suspended`、`deferred`。`actions` 是修改类 import 的每次调用和宿主交还的返回码（`denied` 等），`log` 是 `log` 写出的级别和文本，`msime_init` 里写的跟在实例化的那一行上。
+**输出一行一个事件：** `seq`、`event`、`status`、`fuel`、`actions`、`log`，实例化时多一个 `init_fuel`。`status` 是 `ok`、`not_subscribed`、`Failure::as_str()` 的失败码、`init:<失败码>`、`disabled`、`suspended`、`deferred`、`turn_exhausted`。`actions` 是修改类 import 的每次调用和宿主交还的返回码（`ok`、`denied` 等），`log` 是 `log` 写出的级别和文本，`msime_init` 里写的跟在实例化的那一行上。
 
-**运行时为此加了只旁观的调试输出。** `ScriptInstance::with_debug(module, grants, init_fuel, DebugSinks)` 在实例化之前接上 `log` 和新的 `ActionSink`（`FnMut(&'static str, i32)`），`new` 就是不带输出的 `with_debug`。修改类 import 的返回码仍由 import 自己决定（第 3 阶段一律 `DENIED`），设了 `ActionSink` 时只是把 (import 名, 返回码) 交给它；`before_commit` 的快照实例上的调用也交给同一个输出。产品里不设，行为不变。修改类 import 尚未接通时，`run` 就靠它把"请求了、被拒了"列进 `actions`，和产品给插件的返回值一致。
+**运行时为此加了只旁观的调试输出。** `ScriptInstance::with_debug(module, grants, init_fuel, DebugSinks)` 在实例化之前接上 `log` 和新的 `ActionSink`（`FnMut(&'static str, i32)`），`new` 就是不带输出的 `with_debug`。修改类 import 的返回码仍由 import 自己决定（第 3 阶段一律 `DENIED`），设了 `ActionSink` 时只是把 (import 名, 返回码) 交给它；`before_commit` 的快照实例上的调用也交给同一个输出。产品里不设，行为不变。修改类 import 尚未接通时，`run` 就靠它把"请求了、被拒了"列进 `actions`，和产品给插件的返回值一致。第 4 阶段接通之后，四个修改类 import 各包一层，按自己算出的返回码（成功是 0）照样喂给它；动作本身经 `ScriptInstance::actions` 交给宿主，`ActionSink` 仍只旁观。
 
 **枚举字段的取值进入 ABI。** `abi::scalar_values` 列出 `event_scalar` 各枚举字段的名字和数值（来源、选法、结果、原因、本地模式、输入类别、撤回方式），`abi::imports()` 交出 import 白名单的名字和能力。数值本来就是 host-api、input-runtime 各枚举的判别值，此前只写在注释里。host-api 的 `the_abi_scalar_tables_are_the_lifecycle_discriminants` 用穷举 match 逐项核对：枚举加了变体就编译不过，提醒同时在 ABI 里追加。
 
@@ -45,7 +45,7 @@ Status: implemented
 - 收益：作者在本机就能看到每个事件的 fuel、失败原因、授权和本地模式下读到的东西、想做的改写；这些都来自产品的运行时，配额、快照和门控不会和输入法不一致。SDK 的每个编号和 import 名都有测试对着运行时核对，host-api 的枚举判别值也有测试对着 ABI 核对。
 - 代价：`run` 复刻了 `scripts::set` 的五条实例规则（延迟实例化与初始化预算、聚焦丢弃、trap 后不重建、同轮续用配额、初始化失败停用）。改了 `set.rs` 里这些规则，要同步改 `run.rs`，没有测试替两边对拍。
 - 金样里的 fuel 数值取决于 wasmi 的计量。升级或回退 wasmi（沙箱运行时那篇写的 1.1.0 退路）会让 `crates/pack-tool/tests/run.rs` 的金样全部变化，这正是要人看一眼的信号，不是噪音。
-- 第 4 阶段接通修改类 import 时：要么让新的 import 继续把 (名字, 返回码) 交给 `ActionSink`，要么让 `run` 改从 `Outcome` 取动作；SDK 里 `rerank::order`、`filter::hide`、`annotate::set` 的参数含义（行号数组、行号加注释）是按签名写的假设，以第 4 阶段的定义为准，要同步改头文件、绑定和文档；`run` 不再需要"`before_commit` 照样投递"这条差异说明。
+- 第 4 阶段接通修改类 import 后（合并时已做）：接通后的 import 继续把 (名字, 返回码) 交给 `ActionSink`；SDK 里 `rerank::order`、`filter::hide`、`annotate::set` 的参数含义（小端 u32 行号数组、行号加注释）和第 4 阶段的定义一致，头文件、绑定和文档里"宿主一律返回 DENIED"的说法已删；`run` 的"`before_commit` 照样投递"差异说明已删，模板 README 的输出按 `wasm32-unknown-unknown` 重新跑过。
 - `test-support` 特性现在有两个使用方（host-api 和 pack-tool 的测试）。沙箱运行时那篇写明这条路线在依赖批准范围之外、需要单独确认；不批准时两处的 WAT 模块都要改成手写二进制。
 - pack-tool 新增的 `serde`、`serde_json` 是工作区里已有的依赖，`Cargo.lock` 只多了 `msime-pack-tool` 自己的三条依赖边，没有新的第三方 crate。
 - 模板在 Mac Studio 上没有 `wasm32-unknown-unknown` 目标（`rust-toolchain.toml` 只装了 rustfmt 和 clippy），验证时改用已经装好的 `wasm32-wasip2`、链接器换成 `rust-lld` 编出 core 模块（2158 字节，版本头 `01 00 00 00`），`msime-pack validate` 输出 `ok pangu-spacing script 1.0.0`，`run --grant all` 的输出就是模板 README 里的那四行；按 README 的 `wasm32-unknown-unknown` 命令本身没有跑过。C 头文件只在本机用 clang 的 wasm32 后端编译检查过（`-fsyntax-only` 和 `-c`），本机没有 `wasm-ld`，没有链接过。

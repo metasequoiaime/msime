@@ -1,19 +1,9 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import * as settings from "./settings-style";
+import { SettingsLayoutBlock, type SettingsLayoutBlockProps } from "./settings-layout-block";
 
-export interface SettingsPhraseFormProps extends Omit<
-  ComponentPropsWithoutRef<"div">,
-  "children" | "className"
-> {
-  children?: ReactNode;
-  className?: string;
-}
+export type SettingsPhraseFormProps = SettingsLayoutBlockProps;
 
 /** Shared wrapping layout for editable phrase and mention forms. */
-export function SettingsPhraseForm({ children, className, ...props }: SettingsPhraseFormProps) {
-  return (
-    <div {...props} className={`${settings.phraseForm}${className ? ` ${className}` : ""}`}>
-      {children}
-    </div>
-  );
+export function SettingsPhraseForm(props: SettingsPhraseFormProps) {
+  return <SettingsLayoutBlock baseClass={settings.phraseForm} {...props} />;
 }

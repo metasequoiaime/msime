@@ -20,6 +20,7 @@ use crate::shuangpin::ShuangpinProfile;
 use crate::text::count_han_chars;
 use crate::types::{
     request_autocorrect_mask, CandidateSource, LocalInputMode, QueryRequest, SchemeKey, SchemeType,
+    WordItem,
 };
 use crate::wubi::scheme::PINYIN_LOOKUP_PREFIX;
 
@@ -279,36 +280,40 @@ pub(super) fn build_quanpin_autocorrect_display<'a>(request: &'a QueryRequest) -
 }
 
 impl InputSession {
+    /// 纠错候选的读音可能比实际按键短或长；`corrected_from` 记录它实际回答的原文长度。
+    fn selected_quanpin_length(selected: &WordItem) -> usize {
+        if selected.corrected_from.is_empty() {
+            remove_delimiters(&selected.pinyin).len()
+        } else {
+            selected.corrected_from.len()
+        }
+    }
+
     /// input_session_composition.cpp:714-748, with the selected row's scheme deciding the native-wubi branch.
-    pub(super) fn selection_completes_composition(
-        &self,
-        pinyin: &str,
-        word: &str,
-        selected_scheme: SchemeType,
-    ) -> bool {
+    pub(super) fn selection_completes_composition(&self, selected: &WordItem) -> bool {
         // Japanese, Korean and native wubi selections always finish: their advancement never continues.
         if self.engine.current_scheme_type().selection_completes()
-            || selected_scheme == SchemeType::Wubi
+            || selected.scheme == SchemeType::Wubi
         {
             return true;
         }
         let request = self.engine.request();
         if self.is_shuangpin() {
             let base = resolve_shuangpin_composition_base(request, self.shuangpin_profile());
-            let word_length = count_han_chars(word) * 2;
+            let word_length = count_han_chars(&selected.word) * 2;
             let total = base.effective_raw_input.len();
             if base.helpcode_length > 0 {
                 let required = word_length + base.helpcode_length;
                 return !(required < total && word_length < total);
             }
             // With no helpcode the pure pinyin is the whole effective input.
-            let mut consumed = remove_delimiters(pinyin).len();
+            let mut consumed = remove_delimiters(&selected.pinyin).len();
             if consumed == 0 || consumed > total {
                 consumed = word_length.min(total);
             }
             return consumed >= total;
         }
-        let selected = remove_delimiters(pinyin);
+        let selected_length = Self::selected_quanpin_length(selected);
         // 五笔临时拼音反查的引导键 `z` 不是拼音，选词只在它后面那段拼音里计算。
         let (raw, raw_with_cases) = self.pinyin_spelling(request);
         let (raw_without_helpcodes, cased_without_helpcodes) = if request.enable_quanpin_helpcode {
@@ -320,11 +325,11 @@ impl InputSession {
             (raw.to_owned(), raw_with_cases.to_owned())
         };
         let consumed_raw =
-            raw_length_for_effective_prefix(&cased_without_helpcodes, selected.len());
+            raw_length_for_effective_prefix(&cased_without_helpcodes, selected_length);
         let normalized_length = request.normalized_input.len() - self.pinyin_lookup_prefix_len();
-        !(!selected.is_empty()
-            && selected.len() < normalized_length
-            && consumed_raw < raw_without_helpcodes.len())
+        selected.pinyin.is_empty()
+            || selected_length >= normalized_length
+            || consumed_raw >= raw_without_helpcodes.len()
     }
 
     /// 五笔临时拼音反查时引导键 `z` 占的字节数，其余时候为 0。
@@ -347,14 +352,11 @@ impl InputSession {
     /// input_session_composition.cpp:799-911.
     pub(super) fn advance_composition_after_selection(
         &mut self,
-        pinyin: &str,
-        word: &str,
-        canonical: &str,
-        selected_scheme: SchemeType,
+        selected: &WordItem,
     ) -> SelectionTransition {
         let mut transition = SelectionTransition {
-            selected_canonical_pinyin: canonical.to_owned(),
-            wubi_native: selected_scheme == SchemeType::Wubi,
+            selected_canonical_pinyin: selected.canonical_pinyin.clone(),
+            wubi_native: selected.scheme == SchemeType::Wubi,
             ..SelectionTransition::default()
         };
         if self.is_japanese() {
@@ -369,13 +371,12 @@ impl InputSession {
             transition.current_segmentation_with_cases = request.raw_input.clone();
             return transition;
         }
-        transition.continues_composition =
-            !self.selection_completes_composition(pinyin, word, selected_scheme);
+        transition.continues_composition = !self.selection_completes_composition(selected);
         if self.is_shuangpin() {
             let (full_pure_pinyin, rest) = {
                 let request = self.engine.request();
                 let base = resolve_shuangpin_composition_base(request, self.shuangpin_profile());
-                let word_length = count_han_chars(word) * 2;
+                let word_length = count_han_chars(&selected.word) * 2;
                 let total = base.effective_raw_input.len();
                 let full_pure_pinyin = if base.helpcode_length > 0 && total >= base.helpcode_length
                 {
@@ -397,7 +398,7 @@ impl InputSession {
                             ),
                         )
                     } else {
-                        let mut consumed = remove_delimiters(pinyin).len();
+                        let mut consumed = remove_delimiters(&selected.pinyin).len();
                         if consumed == 0 || consumed > total {
                             consumed = word_length.min(total);
                         }
@@ -429,7 +430,6 @@ impl InputSession {
         }
 
         // Quanpin, and the quanpin rows of a wubi composition, which shorten the wubi code the same way.
-        let selected = remove_delimiters(pinyin);
         if transition.continues_composition {
             let lookup_prefix = self.pinyin_lookup_prefix_len();
             let (full_pure_pinyin, raw_without_helpcodes, cased_without_helpcodes) = {
@@ -450,8 +450,10 @@ impl InputSession {
                 }
             };
             transition.full_pure_pinyin = full_pure_pinyin;
-            let consumed =
-                raw_length_for_effective_prefix(&cased_without_helpcodes, selected.len());
+            let consumed = raw_length_for_effective_prefix(
+                &cased_without_helpcodes,
+                Self::selected_quanpin_length(selected),
+            );
             let rest = remove_consumed_leading_separators(&raw_without_helpcodes[consumed..]);
             let rest_with_cases =
                 remove_consumed_leading_separators(&cased_without_helpcodes[consumed..]);

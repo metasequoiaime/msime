@@ -181,17 +181,13 @@ impl ImportReport {
     pub fn record_rejected(&mut self, lines: &[usize]) {
         self.failed += lines.len();
         for line in lines {
-            if self.first_failures.len() >= REPORTED_FAILURES {
-                break;
-            }
             self.first_failures.push(ImportFailure {
                 line: *line,
                 issue: ImportIssue::Rejected,
             });
+            self.first_failures.sort_by_key(|failure| failure.line);
+            self.first_failures.truncate(REPORTED_FAILURES);
         }
-        // Parse failures are reported in line order; keep the combined list in
-        // line order too, so "first appeared at line N" stays true.
-        self.first_failures.sort_by_key(|failure| failure.line);
     }
 }
 
@@ -764,6 +760,25 @@ mod tests {
             .first_failures
             .iter()
             .all(|failure| failure.issue == ImportIssue::Rejected));
+    }
+
+    #[test]
+    fn earlier_engine_rejection_displaces_a_later_parse_failure() {
+        let mut text = String::from("你好\tni'hao\n");
+        for _ in 0..REPORTED_FAILURES {
+            text.push_str("没有制表符\n");
+        }
+        let mut report = parse_ok(ImportKind::Pinyin, "standard", &text);
+        report.record_rejected(&[1]);
+
+        assert_eq!(report.failed, REPORTED_FAILURES + 1);
+        assert_eq!(report.first_failures.len(), REPORTED_FAILURES);
+        assert_eq!(report.first_failures[0].line, 1);
+        assert_eq!(report.first_failures[0].issue, ImportIssue::Rejected);
+        assert_eq!(
+            report.first_failures.last().unwrap().line,
+            REPORTED_FAILURES
+        );
     }
 
     #[test]

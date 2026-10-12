@@ -19,6 +19,7 @@ import app.msime.android.NativeClient;
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ViewPolicy;
 import app.msime.android.WubiCodeLookupPolicy;
+import app.msime.android.WubiLookupRequestState;
 import app.msime.android.core.InputViewValuePolicy;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -41,9 +42,7 @@ public final class WubiLookupPage extends DetailPage {
 
     /** 输入框里的文字和上一次的结果放在 ViewModel 里：旋转、换深浅模式重建 Fragment 时不丢。 */
     public static final class State extends ViewModel {
-        String text = "";
-        @Nullable Result result;
-        boolean busy;
+        final WubiLookupRequestState<Result> lookup = new WubiLookupRequestState<>();
     }
 
     private State state;
@@ -68,7 +67,7 @@ public final class WubiLookupPage extends DetailPage {
         field.setHintTextColor(ThemeColorPolicy.subText(context));
         ViewPolicy.setSymmetricPaddingDp(context, field, 16, 14);
         field.setContentDescription("要查五笔编码的文字");
-        field.setText(state.text);
+        field.setText(state.lookup.text());
         input.card().addView(field, LayoutPolicy.matchWidthWrapParams());
         input.footer(WubiCodeLookupPolicy.DESCRIPTION);
 
@@ -81,14 +80,17 @@ public final class WubiLookupPage extends DetailPage {
 
         results = GroupCard.add(column, null).withDividers(Ui.ROW_PADDING_H);
         ViewPolicy.afterTextChanged(field, text -> {
-            state.text = text.toString();
-            refreshButton();
+            if (state.lookup.edit(text.toString())) {
+                refreshButton();
+                renderResults();
+            }
         });
         refreshButton();
         renderResults();
     }
 
     @Override public void onDestroyView() {
+        state.lookup.viewDestroyed();
         search = null;
         results = null;
         super.onDestroyView();
@@ -98,8 +100,8 @@ public final class WubiLookupPage extends DetailPage {
         Context context = getContext();
         TextView button = search;
         if (context == null || button == null) return;
-        boolean ready = !state.busy && WubiCodeLookupPolicy.searchable(state.text);
-        button.setText(state.busy ? "正在查码…" : "查码");
+        boolean ready = !state.lookup.busy() && WubiCodeLookupPolicy.searchable(state.lookup.text());
+        button.setText(state.lookup.busy() ? "正在查码…" : "查码");
         ViewPolicy.setEnabled(button, ready);
         ViewPolicy.setTextColor(button, ready ? ThemeColorPolicy.onAccent(context) : ThemeColorPolicy.subText(context));
         int fill = ready ? ThemeColorPolicy.accent(context)
@@ -107,15 +109,14 @@ public final class WubiLookupPage extends DetailPage {
         ViewPolicy.setBackground(button, ViewPolicy.ripple(context, fill, DimensionPolicy.pixels(context, Ui.GROUP_RADIUS)));
     }
 
-    /** 查码进行中按钮不可点，同一时刻只有一个请求，显示的总是最后一次查的。 */
+    /** 同一段输入只发一个请求；编辑或视图销毁后，旧回答不能写回。 */
     private void lookup() {
-        if (state.busy || !WubiCodeLookupPolicy.searchable(state.text)) return;
-        String text = state.text;
-        state.busy = true;
+        long requestGeneration = state.lookup.begin();
+        if (requestGeneration == 0) return;
+        String text = state.lookup.text();
         refreshButton();
         HostTask.run(this, context -> query(context, text), result -> {
-            state.busy = false;
-            state.result = result == null ? Result.failure() : result;
+            if (!state.lookup.complete(requestGeneration, result == null ? Result.failure() : result)) return;
             refreshButton();
             renderResults();
         });
@@ -172,7 +173,7 @@ public final class WubiLookupPage extends DetailPage {
         GroupCard card = results;
         if (card == null) return;
         card.card().removeAllViews();
-        Result result = state.result;
+        Result result = state.lookup.result();
         ViewPolicy.setVisible(card.view(), result != null);
         if (result == null) return;
         if (result.failed()) {

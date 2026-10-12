@@ -58,8 +58,7 @@ export const recognitionSection =
 export const candidateGrid =
   "grid grid-cols-4 gap-2 [&>button]:aspect-square [&>button]:rounded-md [&>button]:text-3xl [&>button]:border [&>button]:bg-[#292a31] [&>button]:border-[#45454f] [&>button]:group-data-[panel-theme=light]:border-[#c8ccd5] [&>button]:text-[#f5f5f7] [&>button]:group-data-[panel-theme=light]:text-[#202124] [&>button]:hover:border-[#5fbf84] [&>button]:hover:bg-[#3b3240] [&>button]:group-data-[panel-theme=light]:bg-white [&>button]:group-data-[panel-theme=light]:hover:bg-[#edf0f5]";
 export const candidate = "flex min-w-0 flex-col gap-1";
-export const candidateSubmit =
-  "w-full min-w-0 p-1.5 leading-tight break-anywhere whitespace-normal";
+export const candidateSubmit = "w-full min-w-0 p-1.5 leading-tight wrap-anywhere whitespace-normal";
 /** The copy affordance beside a candidate is a label, not a glyph, so it does not want a square. */
 export const candidateCopy = "aspect-auto! px-2 py-1 text-[13px]!";
 

@@ -182,7 +182,7 @@ function PackContent({ pack }: { pack: PluginPackage }) {
             key={`${index}/${group.title}`}
             title={`${group.tab === "kaomoji" ? "颜文字" : "符号"} · ${group.title}（${group.items.length}）`}
           >
-            <SettingsGroupNote className="break-anywhere">
+            <SettingsGroupNote className="wrap-anywhere">
               {group.items.slice(0, SYMBOL_PREVIEW_ITEMS).join(" ")}
               {group.items.length > SYMBOL_PREVIEW_ITEMS ? " …" : ""}
             </SettingsGroupNote>

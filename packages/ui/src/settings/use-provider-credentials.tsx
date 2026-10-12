@@ -243,3 +243,12 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
     credentialTestControl,
   };
 }
+
+export type VoiceCredentialBindings = Pick<
+  ReturnType<typeof useProviderCredentials>,
+  | "voiceCredentialInput"
+  | "setVoiceCredentialInput"
+  | "providerCredentialBusy"
+  | "providerCredentialMessages"
+  | "runVoiceCredential"
+>;

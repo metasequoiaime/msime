@@ -12,6 +12,7 @@ import { resizeChatComposer } from "./chat-composer-size";
 import { chatRequest } from "./chat-prompt";
 import { chatError } from "./chat-errors";
 import { useAsyncGeneration } from "../settings/use-async-generation";
+import { useTimeout } from "../core/use-timeout";
 import { useMountedRef } from "../settings/use-mounted-ref";
 import {
   makeDefaultAction,
@@ -129,11 +130,7 @@ export function ChatPage({
     if (focusRequest) composer.current?.focus();
   }, [focusRequest]);
 
-  useEffect(() => {
-    if (!autoFocus) return;
-    const timer = window.setTimeout(() => composer.current?.focus(), 0);
-    return () => window.clearTimeout(timer);
-  }, [autoFocus]);
+  useTimeout(() => composer.current?.focus(), autoFocus ? 0 : null);
 
   const requestReply = async (history: DisplayMessage[]) => {
     if (sending || sendingRef.current || !selectedModel) return;

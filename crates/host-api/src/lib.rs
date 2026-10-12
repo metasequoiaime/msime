@@ -2150,7 +2150,7 @@ fn dispatch(handle: u64, action: Action) -> *mut c_char {
 
 /// 派发一个动作。`host` 只对命令 19、20 有值：动作同 Cancel、Finish，生命周期里的类别是 `HostCommit`（结束原因记 HostCommit）或 `FocusLoss`（上屏来源记 FocusLoss，不出声不画）。
 ///
-/// 选择加入生命周期的会话按这个顺序：调用前采样并发 `input` → `runtime.dispatch` → 统计 → 读派发事实 → `complete_transition`（全角转换在这里，之后才是宿主拿到的字节）→ `before_commit` 发出点（本阶段不改写）→ 其余事件和内置消费者 → 序列化，FEEDBACK 开着时插入 `feedback`。没选择加入的会话只走原来的几步。
+/// 选择加入生命周期的会话按这个顺序：调用前采样并发 `input` → `runtime.dispatch`（脚本的 `candidates` 在里面的 refresh 和展开之后）→ 统计 → 读派发事实 → `complete_transition`（全角转换在这里，之后才是宿主拿到的字节）→ `before_commit`（脚本可以改写 body）→ 其余事件和内置消费者 → 序列化，FEEDBACK 开着时插入 `feedback`。没选择加入的会话只走原来的几步。
 fn dispatch_call(handle: u64, action: Action, host: Option<lifecycle::InputClass>) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
@@ -2181,8 +2181,9 @@ fn dispatch_call(handle: u64, action: Action, host: Option<lifecycle::InputClass
                 }
             }
             let facts = session.runtime.facts();
-            let result = session.complete_transition(result);
-            let feedback = session.lifecycle_after(pending, facts, &result);
+            let mut result = session.complete_transition(result);
+            // 脚本插件可能在这里改写上屏的 body（`before_commit`），宿主拿到的是改写之后的文本；引擎学习和 AI 上文已经按原文记下。
+            let feedback = session.lifecycle_after(pending, facts, &mut result);
             let mut value = serde_json::to_value(result).map_err(|e| e.to_string())?;
             if let (Some(effect), Value::Object(fields)) = (feedback, &mut value) {
                 fields.insert("feedback".into(), json!({ "typing_effect": effect }));

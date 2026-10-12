@@ -1,4 +1,4 @@
-//! 每个会话、每个插件一个实例：实例化、按轮和按钩子的 fuel 配额、`before_commit` 的快照复位，以及观察类 import。
+//! 每个会话、每个插件一个实例：实例化、按轮和按钩子的 fuel 配额、`before_commit` 的快照复位，以及观察类和修改类 import。
 //!
 //! import 只读写本次调用的上下文，从不回调宿主：宿主的会话正借给这次调用，回调只会撞上 `"reentrant host call"`。上下文在调用前按授权复制、调用后清空；没有授权的文本根本不复制进来，屏蔽和缺失对插件来说同样是 `ABSENT`。
 
@@ -45,6 +45,8 @@ pub struct CommitTexts<'a> {
     pub commit: Option<&'a str>,
     pub body: Option<&'a str>,
     pub seat: Option<u32>,
+    /// `before_commit` 里原文 body 的 UTF-16 码元数，`rewrite_commit` 的长度上限按它算，插件读不到。多个插件依次改写时，后面的插件拿到的 `body` 是前面改写过的，宿主要在这里填原文的长度；`None` 时按 `body` 算。
+    pub original_body_utf16: Option<usize>,
 }
 
 /// 候选窗口里的一行，插件变换之前的样子。
@@ -154,7 +156,7 @@ pub enum Outcome {
     Delivered { status: i32, fuel: u64 },
     /// 计为插件自己的一次失败。它这次暂存的动作全部丢弃，不影响后面的插件。
     Failed { failure: Failure, fuel: u64 },
-    /// 本轮的配额用完了，不算插件的失败：宿主并不在每次派发之前都开一轮（修饰键组合、快捷键和失焦命令不经过 `msime_client_key`），这样的派发和上一次按键共用一轮，把它花光的可能是之前那几次正常的投递。`fuel` 为 0 时这次没有运行；不为 0 时运行到一半被本轮剩下的配额截断，像 trap 一样暂存的动作全部丢弃，持久实例随之不可用（[`ScriptInstance::is_usable`]）。超出单个钩子自己的上限仍是 [`Outcome::Failed`]。
+    /// 本轮的配额用完了，不算插件的失败：宿主并不在每次派发之前都开一轮（修饰键组合、快捷键和失焦命令不经过 `msime_client_key`），这样的派发和上一次按键共用一轮，把它花光的可能是之前那几次正常的投递。`fuel` 为 0 时这次没有运行；不为 0 时运行到一半被本轮剩下的配额截断，而且这一次用掉的不到本钩子上限（[`limits::hook_fuel`]）的一半，像 trap 一样暂存的动作全部丢弃，持久实例随之不可用（[`ScriptInstance::is_usable`]；`before_commit` 跑在用完即弃的快照实例上，持久实例不受影响）。被本轮配额截断时已经用掉一半或更多，和超出单个钩子自己的上限一样，是 fuel 耗尽的 [`Outcome::Failed`]。
     TurnExhausted { fuel: u64 },
 }
 
@@ -168,6 +170,36 @@ pub struct InitFailure {
 
 /// 调试输出：`log(level, src, len)` 的级别和文本（非法 UTF-8 按替换字符解码）。产品里不设，`log` 就是空操作。
 pub type LogSink = Box<dyn FnMut(i32, &str) + Send>;
+
+/// 修改类钩子这一次暂存的动作，已经按 ABI 的规则校验过（见 [`abi::modification`]）。只有钩子正常返回时才交给宿主，否则为空。
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Actions {
+    /// `rewrite_commit`：新的 body。
+    pub rewrite: Option<String>,
+    /// `candidates_order`：窗口行号，按给出的顺序。
+    pub order: Vec<u32>,
+    /// `candidates_hide`：窗口行号，不重复。
+    pub hidden: Vec<u32>,
+    /// `candidates_annotate`：窗口行号和注释，每行最多一条。
+    pub annotations: Vec<(u32, String)>,
+}
+
+impl Actions {
+    fn clear(&mut self) {
+        self.rewrite = None;
+        self.order.clear();
+        self.hidden.clear();
+        self.annotations.clear();
+    }
+
+    /// 什么动作都没有。
+    pub fn is_empty(&self) -> bool {
+        self.rewrite.is_none()
+            && self.order.is_empty()
+            && self.hidden.is_empty()
+            && self.annotations.is_empty()
+    }
+}
 
 /// 调试输出：修改类 import（`rewrite_commit`、`candidates_*`）的一次调用和宿主交还给插件的返回码。产品里不设；`msime-pack run` 用它把每次改写、重排、隐藏和注释的结果列进输出。只是旁观：返回码由 import 本身决定，设不设它都一样。
 pub type ActionSink = Box<dyn FnMut(&'static str, i32) + Send>;
@@ -227,11 +259,15 @@ struct CallContext {
     commit: OwnedText,
     body: OwnedText,
     seat: Option<u32>,
+    /// 见 [`CommitTexts::original_body_utf16`]。
+    original_body_utf16: Option<usize>,
     candidates_present: bool,
     rows: Vec<OwnedRow>,
     row_count: usize,
     page: Option<u32>,
     highlighted: Option<u32>,
+    /// 修改类 import 暂存的动作，钩子正常返回后才交出去。
+    actions: Actions,
 }
 
 impl CallContext {
@@ -239,6 +275,7 @@ impl CallContext {
     fn load(&mut self, grants: CapabilitySet, event: &Event<'_>) {
         self.hook = Some(event.hook);
         self.scalars = event.scalars;
+        self.actions.clear();
         let text_allowed = event
             .scalars
             .local_mode
@@ -264,6 +301,7 @@ impl CallContext {
         self.commit.load(commit.commit);
         self.body.load(commit.body);
         self.seat = commit.seat;
+        self.original_body_utf16 = commit.original_body_utf16;
 
         self.candidates_present = false;
         self.row_count = 0;
@@ -305,6 +343,7 @@ impl CallContext {
         self.commit.clear();
         self.body.clear();
         self.seat = None;
+        self.original_body_utf16 = None;
         for row in &mut self.rows[..self.row_count] {
             row.text.clear();
             row.code.clear();
@@ -314,6 +353,7 @@ impl CallContext {
         self.row_count = 0;
         self.page = None;
         self.highlighted = None;
+        self.actions.clear();
     }
 
     fn event_scalar(&self, field: i32) -> i64 {
@@ -566,8 +606,12 @@ pub struct ScriptInstance {
     usable: bool,
     turn: Option<u64>,
     turn_fuel_left: u64,
+    /// `before_commit` 本轮还剩的 fuel，和其余钩子的轮配额分开记，见 [`Self::deliver`]。
+    before_commit_fuel_left: u64,
     init_fuel: u64,
     snapshot: Option<Snapshot>,
+    /// 最近一次投递暂存的动作。
+    actions: Actions,
 }
 
 impl ScriptInstance {
@@ -647,8 +691,10 @@ impl ScriptInstance {
             usable: true,
             turn: None,
             turn_fuel_left: limits::TURN_FUEL,
+            before_commit_fuel_left: limits::BEFORE_COMMIT_FUEL,
             init_fuel,
             snapshot,
+            actions: Actions::default(),
         })
     }
 
@@ -666,15 +712,21 @@ impl ScriptInstance {
         self.init_fuel
     }
 
-    /// 本轮还剩多少 fuel。轮次还没开始时是完整的一轮。
+    /// 本轮还剩多少 fuel（`before_commit` 之外的钩子）。轮次还没开始时是完整的一轮。
     pub fn turn_fuel_left(&self) -> u64 {
         self.turn_fuel_left
     }
 
-    /// 接着插件这一轮已经用掉的配额。宿主在同一轮里重建实例时（上一个实例因为换字段或属性变化被丢弃）把这一轮还剩多少交给新实例，轮配额按插件算，不按实例算。
-    pub fn resume_turn(&mut self, turn: u64, fuel_left: u64) {
+    /// `before_commit` 本轮还剩多少 fuel。轮次还没开始时是完整的一份。
+    pub fn before_commit_fuel_left(&self) -> u64 {
+        self.before_commit_fuel_left
+    }
+
+    /// 接着插件这一轮已经用掉的配额。宿主在同一轮里重建实例时（上一个实例因为换字段或属性变化被丢弃）把这一轮两份配额各还剩多少交给新实例，轮配额按插件算，不按实例算。
+    pub fn resume_turn(&mut self, turn: u64, fuel_left: u64, before_commit_fuel_left: u64) {
         self.turn = Some(turn);
         self.turn_fuel_left = fuel_left.min(limits::TURN_FUEL);
+        self.before_commit_fuel_left = before_commit_fuel_left.min(limits::BEFORE_COMMIT_FUEL);
     }
 
     /// 持久实例上出过 trap 之后返回 false：wasm 的状态（例如影子栈指针）可能停在一半，宿主应当丢弃这个实例。
@@ -682,13 +734,21 @@ impl ScriptInstance {
         self.usable
     }
 
+    /// 最近一次投递暂存的动作：只有那次是修改类钩子、并且正常返回（[`Outcome::Delivered`]）时才可能非空。
+    pub fn actions(&self) -> &Actions {
+        &self.actions
+    }
+
     /// 设置或清除调试输出。只有作者工具设它。
     pub fn set_log_sink(&mut self, sink: Option<LogSink>) {
         self.store.data_mut().log_sink = sink;
     }
 
-    /// 投递一个事件。`turn` 是宿主的轮次计数（每个非 PASSTHROUGH 的 `msime_client_key` 加一），换了轮次就重新给满本轮配额；本次能用的 fuel 是本轮剩余和本钩子上限中较小的那个。本轮已经用完时不运行，被本轮剩下的配额截断时不算失败，两者都是 [`Outcome::TurnExhausted`]。`before_commit` 在 `msime_init` 之后的快照上运行，看不到之前任何事件留下的状态。
+    /// 投递一个事件。`turn` 是宿主的轮次计数（每个非 PASSTHROUGH 的 `msime_client_key` 加一），换了轮次就重新给满本轮配额；本次能用的 fuel 是本轮剩余和本钩子上限中较小的那个。本轮已经用完时不运行，是 [`Outcome::TurnExhausted`]；被本轮剩下的配额截断时，这一次用掉的不到本钩子上限的一半也是 [`Outcome::TurnExhausted`]，达到一半就和超出本钩子上限一样是 fuel 耗尽的 [`Outcome::Failed`]。`before_commit` 在 `msime_init` 之后的快照上运行，看不到之前任何事件留下的状态。
+    ///
+    /// `before_commit` 用自己的一份按轮配额（[`limits::BEFORE_COMMIT_FUEL`]），不从其余钩子的轮配额里扣，也不让它们扣：要是共用一份，持久实例在同一轮里先烧掉多少 fuel 就能决定快照上的改写会不会因为 fuel 耗尽被丢掉，之前事件攒下的状态借此影响上屏。它只被同一轮里之前的 `before_commit` 用掉，那些同样只看得到各自的上屏文本。
     pub fn deliver(&mut self, turn: u64, event: &Event<'_>) -> Outcome {
+        self.actions.clear();
         if !self.module.declaration.hooks.contains(event.hook) {
             return Outcome::NotSubscribed;
         }
@@ -701,28 +761,58 @@ impl ScriptInstance {
         if self.turn != Some(turn) {
             self.turn = Some(turn);
             self.turn_fuel_left = limits::TURN_FUEL;
+            self.before_commit_fuel_left = limits::BEFORE_COMMIT_FUEL;
         }
+        let before_commit = event.hook == Hook::BeforeCommit;
+        let left = if before_commit {
+            self.before_commit_fuel_left
+        } else {
+            self.turn_fuel_left
+        };
         let hook_limit = limits::hook_fuel(event.hook);
-        let allowed = self.turn_fuel_left.min(hook_limit);
+        let allowed = left.min(hook_limit);
         if allowed == 0 {
             return Outcome::TurnExhausted { fuel: 0 };
         }
-        let (result, fuel) = if event.hook == Hook::BeforeCommit && self.snapshot.is_some() {
+        let (result, fuel) = if before_commit && self.snapshot.is_some() {
             self.run_on_snapshot(allowed, event)
         } else {
-            let result = run(&mut self.store, self.on_event, allowed, event);
+            let result = run(
+                &mut self.store,
+                self.on_event,
+                allowed,
+                event,
+                &mut self.actions,
+            );
             if matches!(result.0, Err(failure) if failure != Failure::NegativeReturn) {
                 self.usable = false;
             }
             result
         };
-        self.turn_fuel_left -= fuel;
+        if before_commit {
+            self.before_commit_fuel_left -= fuel;
+        } else {
+            self.turn_fuel_left -= fuel;
+        }
         match result {
             Ok(status) => Outcome::Delivered { status, fuel },
-            // 截断它的是本轮剩下的配额，不是本钩子的上限：插件没有超出任何一项自己的限制。wasmi 在剩下的 fuel 不够下一段指令时就停，留下的零头本轮也用不上，记为用完，宿主据此在本轮里不再为它重建实例。
+            // 截断它的是本轮剩下的配额，不是本钩子的上限。wasmi 在剩下的 fuel 不够下一段指令时就停，留下的零头本轮也用不上，记为用完，宿主据此在本轮里不再为它重建实例。用完的是这个钩子所用的那一份：`before_commit` 的配额截断不影响其余钩子的，反过来也一样。
+            //
+            // 这一次自己用掉的不到本钩子上限的一半时不算失败：没经过 `msime_client_key` 的派发只拿到上一次按键剩下的零头，被截断怪不到插件。用掉的达到一半就和超出自己上限一样算失败，否则轮配额和单次上限相等（`candidates`）或相近时，一个死循环只要同一轮里之前的钩子花过一点 fuel，就总是先撞上轮配额，熔断永远落不到它身上。
             Err(Failure::OutOfFuel) if allowed < hook_limit => {
-                self.turn_fuel_left = 0;
-                Outcome::TurnExhausted { fuel }
+                if before_commit {
+                    self.before_commit_fuel_left = 0;
+                } else {
+                    self.turn_fuel_left = 0;
+                }
+                if fuel >= hook_limit / 2 {
+                    Outcome::Failed {
+                        failure: Failure::OutOfFuel,
+                        fuel,
+                    }
+                } else {
+                    Outcome::TurnExhausted { fuel }
+                }
             }
             Err(failure) => Outcome::Failed { failure, fuel },
         }
@@ -751,27 +841,33 @@ impl ScriptInstance {
         };
         store.data_mut().log_sink = self.store.data_mut().log_sink.take();
         store.data_mut().action_sink = self.store.data_mut().action_sink.take();
-        let outcome = run(&mut store, on_event, allowed, event);
+        let outcome = run(&mut store, on_event, allowed, event, &mut self.actions);
         self.store.data_mut().log_sink = store.data_mut().log_sink.take();
         self.store.data_mut().action_sink = store.data_mut().action_sink.take();
         outcome
     }
 }
 
-/// 在 `store` 上跑一次 `msime_on_event`，返回结果和用掉的 fuel。
+/// 在 `store` 上跑一次 `msime_on_event`，返回结果和用掉的 fuel。正常返回时把暂存的动作交给 `actions`，否则 `actions` 为空。
 fn run(
     store: &mut Store<HostState>,
     on_event: TypedFunc<i32, i32>,
     allowed: u64,
     event: &Event<'_>,
+    actions: &mut Actions,
 ) -> (Result<i32, Failure>, u64) {
+    actions.clear();
     if store.set_fuel(allowed).is_err() {
         return (Err(Failure::Instantiate), 0);
     }
     let state = store.data_mut();
     state.context.load(state.grants, event);
     let result = on_event.call(&mut *store, event.hook.code());
-    store.data_mut().context.clear();
+    let context = &mut store.data_mut().context;
+    if matches!(result, Ok(status) if status >= 0) {
+        std::mem::swap(&mut context.actions, actions);
+    }
+    context.clear();
     let fuel = allowed - store.get_fuel().unwrap_or(0).min(allowed);
     let result = match result {
         Ok(status) if status >= 0 => Ok(status),
@@ -980,33 +1076,209 @@ fn candidate_meta(caller: Caller<'_, HostState>, index: i32, field: i32) -> Resu
     })
 }
 
-/// 修改类 import 在第 3 阶段只占位：签名和能力已经是 ABI 的一部分，调用一律 `DENIED`，第 4 阶段接通。设了调试输出时把这次调用和返回码交给它。
-fn modification(mut caller: Caller<'_, HostState>, import: &'static str) -> Result<i32, Error> {
-    charge(&mut caller, 0)?;
-    let status = status::DENIED;
-    if let Some(sink) = caller.data_mut().action_sink.as_mut() {
-        sink(import, status);
+/// 修改类 import 的前置检查：授权里有这项能力，并且正在它所属的钩子里。不满足时返回 `DENIED`。
+fn modification_allowed(
+    caller: &Caller<'_, HostState>,
+    capability: Capability,
+    hook: Hook,
+) -> bool {
+    let state = caller.data();
+    state.grants.contains(capability) && state.context.hook == Some(hook)
+}
+
+fn try_rewrite_commit(
+    caller: &mut Caller<'_, HostState>,
+    src: i32,
+    len: i32,
+) -> Result<i32, Error> {
+    charge(caller, 0)?;
+    if !modification_allowed(caller, Capability::RewriteCommit, Hook::BeforeCommit)
+        || caller.data().context.scalars.rewritable != Some(true)
+    {
+        return Ok(status::DENIED);
     }
-    Ok(status)
+    let context = &caller.data().context;
+    let Some(body) = context.body.get() else {
+        return Ok(status::ABSENT);
+    };
+    // 上限按原文算：后面的插件拿到的 body 已经被前面的改写过，按它算会和宿主采用时的判断对不上。
+    let original_utf16 = context
+        .original_body_utf16
+        .unwrap_or_else(|| body.encode_utf16().count());
+    let limit = limits::rewrite_utf16_limit(original_utf16);
+    let (memory, start, len) = checked_range(caller, src, len)?;
+    if len > limits::MAX_REWRITE_BYTES {
+        return Ok(status::LIMIT);
+    }
+    charge_exact(caller, len as u64 / limits::IMPORT_BYTES_PER_FUEL)?;
+    let (data, state) = memory.data_and_store_mut(&mut *caller);
+    let Ok(text) = std::str::from_utf8(&data[start..start + len]) else {
+        return Ok(status::INVALID);
+    };
+    if text.is_empty() || abi::has_forbidden_plugin_char(text) {
+        return Ok(status::INVALID);
+    }
+    if text.encode_utf16().count() > limit {
+        return Ok(status::LIMIT);
+    }
+    let rewrite = state
+        .context
+        .actions
+        .rewrite
+        .get_or_insert_with(String::new);
+    rewrite.clear();
+    rewrite.push_str(text);
+    Ok(0)
 }
 
-fn rewrite_commit(caller: Caller<'_, HostState>, _src: i32, _len: i32) -> Result<i32, Error> {
-    modification(caller, "rewrite_commit")
+/// `candidates_order` 和 `candidates_hide` 的公共部分：能力和钩子 → 有候选 → 读 `count` 个小端 u32 行号 → 每个都在窗口里、不重复。成功时交出行号和个数，否则是返回码。
+fn candidate_rows(
+    caller: &mut Caller<'_, HostState>,
+    capability: Capability,
+    src: i32,
+    count: i32,
+) -> Result<Result<([u32; limits::MAX_CANDIDATE_ROWS], usize), i32>, Error> {
+    charge(caller, 0)?;
+    if !modification_allowed(caller, capability, Hook::Candidates) {
+        return Ok(Err(status::DENIED));
+    }
+    let context = &caller.data().context;
+    if !context.candidates_present {
+        return Ok(Err(status::ABSENT));
+    }
+    let rows = context.row_count;
+    let Some(count) = usize::try_from(count).ok().filter(|count| *count <= rows) else {
+        return Ok(Err(status::INVALID));
+    };
+    // 行数不超过窗口的 20 行，乘 4 不会溢出。
+    let (memory, start, len) = checked_range(caller, src, (count * 4) as i32)?;
+    charge_exact(caller, len as u64 / limits::IMPORT_BYTES_PER_FUEL)?;
+    let data = memory.data(&*caller);
+    let mut indices = [0u32; limits::MAX_CANDIDATE_ROWS];
+    for slot in 0..count {
+        let at = start + slot * 4;
+        let index = u32::from_le_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]);
+        if index as usize >= rows || indices[..slot].contains(&index) {
+            return Ok(Err(status::INVALID));
+        }
+        indices[slot] = index;
+    }
+    Ok(Ok((indices, count)))
 }
 
-fn candidates_order(caller: Caller<'_, HostState>, _src: i32, _count: i32) -> Result<i32, Error> {
-    modification(caller, "candidates_order")
+fn try_candidates_order(
+    caller: &mut Caller<'_, HostState>,
+    src: i32,
+    count: i32,
+) -> Result<i32, Error> {
+    let (indices, count) = match candidate_rows(caller, Capability::RerankCandidates, src, count)? {
+        Ok(rows) => rows,
+        Err(code) => return Ok(code),
+    };
+    let order = &mut caller.data_mut().context.actions.order;
+    order.clear();
+    order.extend_from_slice(&indices[..count]);
+    Ok(0)
 }
 
-fn candidates_hide(caller: Caller<'_, HostState>, _src: i32, _count: i32) -> Result<i32, Error> {
-    modification(caller, "candidates_hide")
+fn try_candidates_hide(
+    caller: &mut Caller<'_, HostState>,
+    src: i32,
+    count: i32,
+) -> Result<i32, Error> {
+    let (indices, count) = match candidate_rows(caller, Capability::FilterCandidates, src, count)? {
+        Ok(rows) => rows,
+        Err(code) => return Ok(code),
+    };
+    let hidden = &mut caller.data_mut().context.actions.hidden;
+    for index in &indices[..count] {
+        if !hidden.contains(index) {
+            hidden.push(*index);
+        }
+    }
+    Ok(0)
+}
+
+fn try_candidates_annotate(
+    caller: &mut Caller<'_, HostState>,
+    index: i32,
+    src: i32,
+    len: i32,
+) -> Result<i32, Error> {
+    charge(caller, 0)?;
+    if !modification_allowed(caller, Capability::AnnotateCandidates, Hook::Candidates) {
+        return Ok(status::DENIED);
+    }
+    let context = &caller.data().context;
+    if !context.candidates_present {
+        return Ok(status::ABSENT);
+    }
+    let Some(index) = u32::try_from(index)
+        .ok()
+        .filter(|index| (*index as usize) < context.row_count)
+    else {
+        return Ok(status::INVALID);
+    };
+    let (memory, start, len) = checked_range(caller, src, len)?;
+    // 32 个 UTF-16 码元最多 96 个 UTF-8 字节，更长的不用解码就知道放不下。
+    if len > limits::MAX_ANNOTATION_UTF16 * 3 {
+        return Ok(status::LIMIT);
+    }
+    charge_exact(caller, len as u64 / limits::IMPORT_BYTES_PER_FUEL)?;
+    let (data, state) = memory.data_and_store_mut(&mut *caller);
+    let Ok(text) = std::str::from_utf8(&data[start..start + len]) else {
+        return Ok(status::INVALID);
+    };
+    if abi::has_forbidden_plugin_char(text) {
+        return Ok(status::INVALID);
+    }
+    if text.encode_utf16().count() > limits::MAX_ANNOTATION_UTF16 {
+        return Ok(status::LIMIT);
+    }
+    let annotations = &mut state.context.actions.annotations;
+    match annotations.iter_mut().find(|(row, _)| *row == index) {
+        Some((_, annotation)) => {
+            annotation.clear();
+            annotation.push_str(text);
+        }
+        None => annotations.push((index, text.to_owned())),
+    }
+    Ok(0)
+}
+
+/// 设了调试输出时，把修改类 import 的这次调用和交还给插件的返回码交给它。只是旁观：返回码由 import 本身决定，设不设它都一样；trap 不是返回码，不报告。
+fn observed(
+    caller: &mut Caller<'_, HostState>,
+    import: &'static str,
+    result: Result<i32, Error>,
+) -> Result<i32, Error> {
+    if let (Ok(status), Some(sink)) = (&result, caller.data_mut().action_sink.as_mut()) {
+        sink(import, *status);
+    }
+    result
+}
+
+fn rewrite_commit(mut caller: Caller<'_, HostState>, src: i32, len: i32) -> Result<i32, Error> {
+    let result = try_rewrite_commit(&mut caller, src, len);
+    observed(&mut caller, "rewrite_commit", result)
+}
+
+fn candidates_order(mut caller: Caller<'_, HostState>, src: i32, count: i32) -> Result<i32, Error> {
+    let result = try_candidates_order(&mut caller, src, count);
+    observed(&mut caller, "candidates_order", result)
+}
+
+fn candidates_hide(mut caller: Caller<'_, HostState>, src: i32, count: i32) -> Result<i32, Error> {
+    let result = try_candidates_hide(&mut caller, src, count);
+    observed(&mut caller, "candidates_hide", result)
 }
 
 fn candidates_annotate(
-    caller: Caller<'_, HostState>,
-    _index: i32,
-    _src: i32,
-    _len: i32,
+    mut caller: Caller<'_, HostState>,
+    index: i32,
+    src: i32,
+    len: i32,
 ) -> Result<i32, Error> {
-    modification(caller, "candidates_annotate")
+    let result = try_candidates_annotate(&mut caller, index, src, len);
+    observed(&mut caller, "candidates_annotate", result)
 }

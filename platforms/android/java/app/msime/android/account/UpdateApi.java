@@ -304,14 +304,12 @@ public final class UpdateApi {
      * <p>先下到 `.part` 临时文件，核对通过才改名，核对失败的文件不会留下。两次下载同时发生时排队（{@link #DOWNLOAD_LOCK}）；后一次拿到锁时如果前一次已经把同一个版本下好并核对过，直接用它，不再下载一遍。
      */
     public File download(Update update, File cacheDir, Progress progress) throws Failure {
-        String expected = parseChecksum(new String(fetchFromSources(update.checksumUrl(), MAX_CHECKSUM_BYTES), StandardCharsets.UTF_8));
-        if (expected == null) throw new Failure("这个版本没有校验信息，请到官网下载");
         synchronized (DOWNLOAD_LOCK) {
-            return downloadLocked(update, cacheDir, progress, expected);
+            return downloadLocked(update, cacheDir, progress);
         }
     }
 
-    private File downloadLocked(Update update, File cacheDir, Progress progress, String expected) throws Failure {
+    private File downloadLocked(Update update, File cacheDir, Progress progress) throws Failure {
         if (cacheDir == null) throw new Failure("没有空间存放安装包");
         java.nio.file.Path cachePath = cacheDir.toPath();
         if (Files.isSymbolicLink(cachePath)) throw new Failure("更新目录不安全");
@@ -329,13 +327,23 @@ public final class UpdateApi {
             }
         }
         File target = new File(directory, update.fileName());
-        if (verified(target, expected)) return target;
         File partial = new File(directory, update.fileName() + ".part");
         Failure failure = null;
-        for (String source : sources(update.apkUrl())) {
+        List<String> apkSources = sources(update.apkUrl());
+        List<String> checksumSources = sources(update.checksumUrl());
+        for (int index = 0; index < apkSources.size(); index++) {
+            String expected;
+            try {
+                expected = parseChecksum(new String(fetch(checksumSources.get(index), MAX_CHECKSUM_BYTES), StandardCharsets.UTF_8));
+                if (expected == null) throw new Failure("这个版本没有校验信息，请到官网下载");
+            } catch (Failure sourceFailed) {
+                failure = sourceFailed;
+                continue;
+            }
+            if (verified(target, expected)) return target;
             String actual;
             try {
-                actual = downloadFrom(source, partial, progress);
+                actual = downloadFrom(apkSources.get(index), partial, progress);
             } catch (Failure sourceFailed) {
                 failure = sourceFailed;
                 continue;
@@ -492,19 +500,6 @@ public final class UpdateApi {
             throw new Failure("更新服务器暂时不可用（HTTP " + status + "）");
         }
         throw new Failure("更新地址跳转次数过多");
-    }
-
-    /** 按 {@link #sources} 的顺序取一个小文件，第一个成功的源为准。 */
-    byte[] fetchFromSources(String url, int maxBytes) throws Failure {
-        Failure failure = null;
-        for (String source : sources(url)) {
-            try {
-                return fetch(source, maxBytes);
-            } catch (Failure sourceFailed) {
-                failure = sourceFailed;
-            }
-        }
-        throw failure;
     }
 
     /** GET 一个小文件并整个读进内存。 */

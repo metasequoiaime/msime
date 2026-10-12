@@ -11,8 +11,10 @@ use crate::account::{
     BackendAccountClient, BackendAccountSession,
 };
 use crate::cloud::dictionary::percent_encode;
+use crate::community::write_actions::{delete_community_item, rate_community_item};
 use crate::community::{
-    valid_author, valid_description, valid_name, valid_query, valid_rating, CommunityModeration,
+    suggested_publication_fields, valid_author, valid_description, valid_name, valid_query,
+    valid_rating, CommunityDeletionResponse, CommunityModeration, CommunityRatingResponse,
     MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS, MODERATION_FIELDS,
 };
 use crate::skin::catalog::safe_id;
@@ -21,6 +23,7 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+#[cfg(test)]
 use std::fs;
 use std::io::{Cursor, Write};
 use std::path::Path;
@@ -64,20 +67,7 @@ const MISMATCH: &str = "plugin_community_mismatch";
 const STORAGE: &str = "storage";
 
 fn write_private_archive(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    }
-    let mut file = options.open(path)?;
+    let mut file = crate::file_lock::create_private_file(path)?;
     file.write_all(bytes)?;
     file.sync_all()
 }
@@ -191,18 +181,6 @@ impl CommunityPluginPublishRequest {
             archive: BASE64.encode(&packed.archive),
         }
     }
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CommunityPluginRating {
-    stars: u8,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CommunityPluginDeleteResponse {
-    deleted: bool,
 }
 
 pub trait CommunityPluginApi: Send + Sync + 'static {
@@ -333,41 +311,15 @@ impl CommunityPluginApi for BackendAccountClient {
     }
 
     fn rate_community_plugin(&self, id: Uuid, stars: u8, token: &str) -> Result<(), AccountError> {
-        if id.is_nil() || !(1..=5).contains(&stars) {
-            return Err(AccountError::Invalid);
-        }
-        #[derive(Serialize)]
-        struct RatingRequest {
-            stars: u8,
-        }
-        let path = format!("/v1/community/plugins/{}/rating", id.hyphenated());
-        let result = self.json::<CommunityPluginRating, _>(
-            Method::PUT,
-            &path,
-            Some(token),
-            Some(&RatingRequest { stars }),
-        )?;
-        if result.stars != stars {
-            return Err(AccountError::Unavailable);
-        }
-        Ok(())
+        rate_community_item("/v1/community/plugins", id, stars, |path, request| {
+            self.json::<CommunityRatingResponse, _>(Method::PUT, path, Some(token), Some(request))
+        })
     }
 
     fn delete_community_plugin(&self, id: Uuid, token: &str) -> Result<(), AccountError> {
-        if id.is_nil() {
-            return Err(AccountError::Invalid);
-        }
-        let path = format!("/v1/community/plugins/{}", id.hyphenated());
-        let result = self.json::<CommunityPluginDeleteResponse, ()>(
-            Method::DELETE,
-            &path,
-            Some(token),
-            None,
-        )?;
-        if !result.deleted {
-            return Err(AccountError::Unavailable);
-        }
-        Ok(())
+        delete_community_item("/v1/community/plugins", id, |path| {
+            self.json::<CommunityDeletionResponse, ()>(Method::DELETE, path, Some(token), None)
+        })
     }
 }
 
@@ -671,26 +623,8 @@ pub fn pack(root: &Path, kind: PluginKind, id: &str) -> Result<PackedPlugin, Plu
     if checked.kind() != kind || checked.id != summary.id || checked.version != summary.version {
         return Err(PluginFailure::code(MISMATCH));
     }
-    let suggested: String = summary.name.chars().take(32).collect();
-    let suggested = suggested.trim();
-    let suggested_name = if valid_name(suggested) {
-        suggested.to_owned()
-    } else {
-        summary.id.chars().take(32).collect()
-    };
-    let description: String = summary
-        .description
-        .as_deref()
-        .unwrap_or_default()
-        .chars()
-        .take(280)
-        .collect();
-    let description = description.trim();
-    let suggested_description = if valid_description(description) {
-        description.to_owned()
-    } else {
-        String::new()
-    };
+    let (suggested_name, suggested_description) =
+        suggested_publication_fields(&summary.name, summary.description.as_deref(), &summary.id);
     Ok(PackedPlugin {
         kind,
         plugin_id: summary.id,

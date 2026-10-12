@@ -107,4 +107,4 @@ macOS 接入带来的可感知变化：
 
 相关：[Windows 打字特效对齐 macOS](../../implemented/feature/2026-10-10-windows-typing-effects-caret-overlay.md) 是第 2b 阶段 Windows 接入时要改的那套按键音、特效和 Aux 管道路径；[插件选择同步打开播放开关](../../implemented/bug-fix/2026-10-10-plugin-selection-playback-gates.md) 的播放开关在 macOS 上由这里的内置消费者读取。
 
-第 3 阶段的执行器见 [桌面脚本插件的沙箱运行时](../../implemented/architecture/2026-10-12-script-runtime-sandbox.md)：脚本 ABI 的 `Hook` 编号沿用本篇 `LifecycleEvent` 的判别值。本篇推导出的事件如何按授权投递给脚本、哪些不投递，见 [脚本插件在输入法进程里](../../implemented/architecture/2026-10-12-script-plugins-in-the-input-method-process.md)。
+第 3 阶段的执行器见 [桌面脚本插件的沙箱运行时](../../implemented/architecture/2026-10-12-script-runtime-sandbox.md)：脚本 ABI 的 `Hook` 编号沿用本篇 `LifecycleEvent` 的判别值。本篇推导出的事件如何按授权投递给脚本、哪些不投递，见 [脚本插件在输入法进程里](../../implemented/architecture/2026-10-12-script-plugins-in-the-input-method-process.md)；`before_commit` 的改写和候选变换见 [脚本插件改写上屏与重排、注释、过滤候选](../../implemented/architecture/2026-10-12-script-plugins-modify-commit-and-candidates.md)。

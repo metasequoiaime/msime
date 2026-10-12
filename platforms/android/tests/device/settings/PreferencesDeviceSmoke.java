@@ -1,10 +1,7 @@
 package app.msime.android.test;
 
-import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
-import android.util.AtomicFile;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import org.json.JSONObject;
@@ -28,14 +25,14 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
             // Clear the previous editor's focus before the instrumentation-driven
             // rebind; otherwise its delayed hide request can hide the new keyboard.
-            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             // Instrumenting the IME package restarts its process. Rebind the system
             // service before opening the editor; this fixture runs only on the guarded AVD.
-            shell("ime disable app.msime.android/.MSIMEInputService");
-            shell("ime enable app.msime.android/.MSIMEInputService");
-            shell("ime set app.msime.android/.MSIMEInputService");
+            shellDiscard("ime disable app.msime.android/.MSIMEInputService");
+            shellDiscard("ime enable app.msime.android/.MSIMEInputService");
+            shellDiscard("ime set app.msime.android/.MSIMEInputService");
             SystemClock.sleep(1000);
-            shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+            shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             stage = "baseline editor focus";
             tap(field("msime-test-plain"));
             stage = "baseline typing";
@@ -90,11 +87,11 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             tap(described("切换到字母键盘"));
             await(field("msime-test-plain").and(node -> node.getText() != null && node.getText().toString().endsWith("你好，")));
         } catch (Exception | AssertionError error) {
-            shell("screencap -p /data/local/tmp/msime-preferences-failure.png");
+            shellDiscard("screencap -p /data/local/tmp/msime-preferences-failure.png");
             throw error;
         } finally {
             // Stop editor first; the next session starts with the restored configuration.
-            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
         }
     }
@@ -117,17 +114,5 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             if (findAny(window.getRoot(), match) != null)
                 throw new AssertionError("Unexpected rendered candidate slot");
         }
-    }
-    private void shell(String command) throws Exception {
-        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))) {
-            byte[] buffer = new byte[1024];
-            while (input.read(buffer) != -1) { /* Discard synthetic command output. */ }
-        }
-    }
-    private void publish(File file, byte[] contents) throws Exception {
-        AtomicFile target = new AtomicFile(file);
-        FileOutputStream output = target.startWrite();
-        try { output.write(contents); target.finishWrite(output); }
-        catch (Exception error) { target.failWrite(output); throw error; }
     }
 }
