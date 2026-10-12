@@ -1,6 +1,5 @@
 package app.msime.android.home;
 
-import android.os.Bundle;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import app.msime.android.CloudApi;
@@ -12,34 +11,33 @@ import java.util.List;
  *
  * <p>设备名、平台和版本由服务端从登录时的 User-Agent 解析，解析不出时显示「未知设备」。移除当前这台就是退出登录：服务端撤销会话后再清掉本机会话与同步状态（{@link SignIn#signOut}），然后回到「我的」。
  */
-public final class DevicesPage extends DetailPage {
+public final class DevicesPage extends ReloadingDetailPage {
     private record Loaded(String sessionId, List<DeviceDataApi.Session> sessions) {}
-    @Nullable private LinearLayout column;
     @Nullable private String loadedSessionId;
     private long generation;
 
-    @Override public void onDestroyView() {
+    @Override protected void onContentDestroyed() {
         generation++;
         loadedSessionId = null;
-        column = null;
-        super.onDestroyView();
     }
 
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
-        column.removeAllViews();
-        GroupCard.add(column, null).note("正在读取…");
+    @Override protected void onContentReady() {
+        showLoading();
     }
 
-    @Override protected void onBecameVisible() { reload(); }
+    @Override protected boolean shouldReloadOnContentReady() { return false; }
 
-    private void reload() {
+    private void showLoading() {
+        LinearLayout target = contentColumn();
+        if (target == null) return;
+        target.removeAllViews();
+        GroupCard.add(target, null).note("正在读取…");
+    }
+
+    @Override protected void reload() {
         long request = ++generation;
         loadedSessionId = null;
-        if (column != null) {
-            column.removeAllViews();
-            GroupCard.add(column, null).note("正在读取…");
-        }
+        showLoading();
         HostTask.runNetwork(this, context -> {
             try {
                 String sessionId = new DeviceDataApi(context).currentAccountSessionId();
@@ -48,19 +46,20 @@ public final class DevicesPage extends DetailPage {
                 return failure;
             }
         }, result -> {
-            if (column == null || request != generation) return;
-            column.removeAllViews();
+            LinearLayout current = contentColumn();
+            if (current == null || request != generation) return;
+            current.removeAllViews();
             if (result instanceof CloudApi.Failure failure) {
-                GroupCard.add(column, null).note(failure.signedOut() ? "登录后可以在这里查看和移除登录过的设备。"
+                GroupCard.add(current, null).note(failure.signedOut() ? "登录后可以在这里查看和移除登录过的设备。"
                     : failure.network() ? "连不上服务器，请检查网络后再试。" : "设备列表暂时读不到，请稍后再试。");
                 return;
             }
             if (!(result instanceof Loaded loaded)) {
-                GroupCard.add(column, null).note("设备列表暂时读不到，请稍后再试。");
+                GroupCard.add(current, null).note("设备列表暂时读不到，请稍后再试。");
                 return;
             }
             loadedSessionId = loaded.sessionId();
-            render(column, loaded.sessions());
+            render(current, loaded.sessions());
         });
     }
 

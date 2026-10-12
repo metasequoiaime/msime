@@ -13,6 +13,7 @@ CONSUMERS = (
     "AiSettingsPage.java",
     "CloudClipboardPage.java",
     "DeveloperPage.java",
+    "DevicesPage.java",
     "ExpressionPage.java",
     "HandwritingPage.java",
     "KeyboardOptionsPage.java",
@@ -109,6 +110,19 @@ def main() -> int:
         or "@Override protected void onContentDestroyed()" not in developer
     ):
         errors.append("DeveloperPage: 首次渲染或视图销毁时的专有处理未保留")
+
+    devices = (HOME / "DevicesPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in devices
+        or "showLoading();" not in devices
+        or "@Override protected boolean shouldReloadOnContentReady()" not in devices
+        or "return false;" not in devices
+        or "@Override protected void onContentDestroyed()" not in devices
+        or "generation++;" not in devices
+        or "loadedSessionId = null;" not in devices
+        or "LinearLayout current = contentColumn();" not in devices
+    ):
+        errors.append("DevicesPage: 首次可见时读取或旧请求失效处理未保留")
 
     cloud_clipboard = (HOME / "CloudClipboardPage.java").read_text(encoding="utf-8")
     if (
