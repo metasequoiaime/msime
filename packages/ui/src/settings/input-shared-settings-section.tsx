@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { Preferences } from "../index";
 import { GroupList, MoreOptions } from "../core/platform-controls";
+import { ChineseEnglishSpacingSection } from "./chinese-english-spacing-section";
 import { CloudCandidatesSection } from "./cloud-candidates-section";
 import { DefaultImeModeSection } from "./default-ime-mode-section";
 import { FrequencySection, type FrequencyPreferences } from "./frequency-section";
@@ -38,7 +39,7 @@ export interface InputSharedSettingsSectionProps {
   outputExtra?: ReactNode;
   beforeFrequency?: ReactNode;
   afterFrequency?: ReactNode;
-  /** 鸿蒙手机的「输入」页只把主要分组留在视野内：这里的每个分组都放进末尾「更多」分组的同一个「更多选项」折叠中，「繁体输出」开关不放，因为该页以「中文字符集」提供它。除此之外为空的「输出」分组也不放。 */
+  /** 鸿蒙手机的「输入」页只把主要分组留在视野内：这里的每个分组都放进末尾「更多」分组的同一个「更多选项」折叠中，「繁体输出」开关不放，因为该页以「中文字符集」提供它。 */
   foldIntoMore?: boolean;
   onPreferencesChange: (patch: Partial<Preferences>) => void;
 }
@@ -137,12 +138,14 @@ export function InputSharedSettingsSection({
         {learningRow}
         {afterLearning}
       </GroupList>
-      {(!foldIntoMore || outputExtra) && (
-        <GroupList title="输出">
-          {outputExtra}
-          {!foldIntoMore && traditionalOutputRow}
-        </GroupList>
-      )}
+      <GroupList title="输出">
+        {outputExtra}
+        {!foldIntoMore && traditionalOutputRow}
+        <ChineseEnglishSpacingSection
+          value={preferences.chinese_english_spacing}
+          onChange={(chinese_english_spacing) => onPreferencesChange({ chinese_english_spacing })}
+        />
+      </GroupList>
       {beforeFrequency}
       <FrequencySection
         preferences={frequency}

@@ -871,6 +871,10 @@ export {
   type TraditionalChineseOutputSectionProps,
 } from "./settings/traditional-chinese-output-section";
 export {
+  ChineseEnglishSpacingSection,
+  type ChineseEnglishSpacingSectionProps,
+} from "./settings/chinese-english-spacing-section";
+export {
   CloudCandidatesSection,
   type CloudCandidatesSectionProps,
 } from "./settings/cloud-candidates-section";
@@ -1897,6 +1901,8 @@ export type Preferences = {
   punctuation_lock?: "follow" | "chinese" | "english";
   caps_lock_ascii_punctuation?: boolean;
   traditional_chinese_output?: boolean;
+  /** 中英文之间加空格：上屏文本里汉字与 ASCII 字母、数字相邻处加一个半角空格。缺省为关，关着时文档里没有这个键。 */
+  chinese_english_spacing?: boolean;
   /** Sound packs, music and command tables; the document leaves it out while every value is the default. */
   plugins?: PluginPreferences;
 };
