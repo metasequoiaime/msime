@@ -13,8 +13,8 @@ def main() -> int:
     if "strictOk(Object value)" in source:
         print(f"{SOURCE}: 不应保留 strictOk 转发方法", file=sys.stderr)
         return 1
-    if 'JsonPolicy.strictTrue(root.opt("ok"))' not in source:
-        print(f"{SOURCE}: 宿主响应应直接调用 JsonPolicy.strictTrue", file=sys.stderr)
+    if "JsonPolicy.objectValue(root)" not in source:
+        print(f"{SOURCE}: 宿主响应应直接调用 JsonPolicy.objectValue", file=sys.stderr)
         return 1
     print("Android 宿主存储未重复定义共享 JSON 状态策略")
     return 0
