@@ -119,7 +119,13 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
 
     /** Set the pill state of every entry named in `values` (keys from {@link #key}); entries not named keep theirs. */
     public void setActions(Map<String, Action> values) {
-        actions.putAll(values);
+        // The initial disk read can finish after the user has already started an install. Keep
+        // BUSY visible until that operation reports its own terminal state, or the same item can
+        // be tapped again while the first write is still in flight.
+        for (Map.Entry<String, Action> entry : values.entrySet()) {
+            if (actions.get(entry.getKey()) == Action.BUSY) continue;
+            actions.put(entry.getKey(), entry.getValue());
+        }
         notifyDataSetChanged();
     }
 
