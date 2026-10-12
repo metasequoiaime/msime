@@ -3829,6 +3829,16 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
+    /** 26 键字母右上角的提示键面跟中文标点走（#7069）：工具面板、Ctrl + . 或设置页切换中文标点、切换中英文后，j k l v b 的键面就地换成中文或 ASCII，不必重建整排键。键面相同时 setCornerHint 直接返回。 */
+    private void updateLetterCornerHints() {
+        boolean chinese = sendsChinesePunctuation();
+        for (int index = 0; index < shuangpinKeyButtons.size(); index++) {
+            String input = shuangpinKeyInputs.get(index);
+            if (";".equals(input)) continue;
+            shuangpinKeyButtons.get(index).setCornerHint(LetterHintTable.face(input, chinese));
+        }
+    }
+
     private void updateShuangpinKeyHints() {
         int scheme;
         String profile;
@@ -8196,6 +8206,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || imeLetterRows.layerPunctuationStale() || imeLetterRows.numberRowStale())
             imeLetterRows.rebuildKeyRows();
         updateSymbolKeyFaces();
+        updateLetterCornerHints();
         updateShuangpinKeyHints();
         updateQuickPunctuation();
         imeLayoutRows.updateStrokeWildcardKey();
