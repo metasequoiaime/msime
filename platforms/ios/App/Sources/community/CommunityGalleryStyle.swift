@@ -36,9 +36,8 @@ struct CommunityAuthorLabel: View {
   let name: String
   var body: some View {
     HStack(spacing: 5) {
-      Text(String(name.prefix(1))).font(.system(size: 9, weight: .semibold))
-        .foregroundStyle(MetasequoiaTheme.accent).frame(width: 19, height: 19)
-        .background(MetasequoiaTheme.accentSoft, in: Circle())
+      DesignInitialTile(text: String(name.prefix(1)), size: 19, fontSize: 9,
+        fontWeight: .semibold, shape: .circle)
       Text(name).font(.caption).foregroundStyle(.secondary).lineLimit(1)
     }
   }

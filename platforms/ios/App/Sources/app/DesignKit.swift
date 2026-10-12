@@ -42,19 +42,28 @@ struct AppMarkDisc: View {
 
 /// Accent-colored initial tile shared by compact list rows and community cards.
 struct DesignInitialTile: View {
+  enum TileShape { case rounded, circle }
   let text: String
   var size: CGFloat = 40
   var fontSize: CGFloat = 16
   var fontWeight: Font.Weight = .bold
   var cornerRadius: CGFloat = MetasequoiaTheme.tabCardRadius
+  var shape: TileShape = .rounded
 
   var body: some View {
     Text(text)
       .font(.system(size: fontSize, weight: fontWeight))
       .foregroundStyle(MetasequoiaTheme.accent)
       .frame(width: size, height: size)
-      .background(MetasequoiaTheme.accentSoft, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+      .background(MetasequoiaTheme.accentSoft, in: tileShape)
       .accessibilityHidden(true)
+  }
+
+  private var tileShape: AnyShape {
+    switch shape {
+    case .rounded: AnyShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    case .circle: AnyShape(Circle())
+    }
   }
 }
 
