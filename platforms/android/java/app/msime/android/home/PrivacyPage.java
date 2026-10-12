@@ -4,7 +4,6 @@ import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
-import android.os.Bundle;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import app.msime.android.InputFeatureToggle;
@@ -19,7 +18,7 @@ import org.json.JSONObject;
  *
  * <p>三个开关就是 {@link InputFeatureToggle} 里的那三项，标题和说明也取那里，本页是它们在宿主里唯一的位置（实施计划 §2.9）。隐私模式的语义在 Rust 与键盘里（P17）：这里只说明它做什么、不做什么。
  */
-public final class PrivacyPage extends DetailPage {
+public final class PrivacyPage extends ReloadingDetailPage {
     private static final String POLICY = "https://msime.app/privacy/";
     private static final InputFeatureToggle[] NETWORK = {
         InputFeatureToggle.CANDIDATE_TRANSLATION_ACCOUNT, InputFeatureToggle.USAGE_REPORTING,
@@ -29,31 +28,35 @@ public final class PrivacyPage extends DetailPage {
     private final Map<InputFeatureToggle, GroupCard.Row> rows = new EnumMap<>(InputFeatureToggle.class);
     @Nullable private JSONObject preferences;
 
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
+    @Override protected void onContentReady() {
+        LinearLayout target = contentColumn();
+        if (target == null) return;
         rows.clear();
         String app = getString(R.string.app_name);
-        GroupCard intro = GroupCard.add(column, null);
+        GroupCard intro = GroupCard.add(target, null);
         intro.note(app + "本地优先：拼音、词库、自造词和输入统计都在这台设备上处理和保存。只有你打开的联网功能才会连接 api.msime.app，下面逐项列出。");
 
-        GroupCard network = GroupCard.add(column, "联网功能").withDividers(16);
+        GroupCard network = GroupCard.add(target, "联网功能").withDividers(16);
         for (InputFeatureToggle toggle : NETWORK) addToggle(network, toggle);
         network.nav("翻译服务", "改用小牛、腾讯或自定义（DeepLX、DeepL）服务", null,
             () -> SettingsNavigator.open(requireContext(), PageId.TRANSLATION_SERVICE, null));
         network.note("在「翻译服务」里选了小牛、腾讯或自定义服务时，键盘会把当前一页的中文候选词直接发给你配置的第三方服务翻译，不经过水杉服务器，按该服务自己的数据政策处理；凭据只保存在本机。");
 
-        GroupCard local = GroupCard.add(column, "本机数据").withDividers(16);
+        GroupCard local = GroupCard.add(target, "本机数据").withDividers(16);
         for (InputFeatureToggle toggle : LOCAL) addToggle(local, toggle);
 
-        GroupCard incognito = GroupCard.add(column, "隐私模式");
+        GroupCard incognito = GroupCard.add(target, "隐私模式");
         incognito.note("在键盘功能面板里打开隐私模式后，" + app
             + "不学习新词、不调整候选顺序，不记录字数、按键和输入统计，不保存剪贴板历史和云剪贴板，也不做任何数据贡献。云候选、翻译、AI 润色这类你单独打开的联网功能按各自的开关照常工作，不受隐私模式影响。");
 
-        GroupCard links = GroupCard.add(column, null);
+        GroupCard links = GroupCard.add(target, null);
         links.nav("隐私政策", "msime.app", null, this::openPolicy);
         render();
     }
 
-    @Override protected void onBecameVisible() { reload(); }
+    @Override protected boolean shouldReloadOnContentReady() { return false; }
+
+    @Override protected void onContentDestroyed() { rows.clear(); }
 
     private void addToggle(GroupCard group, InputFeatureToggle toggle) {
         GroupCard.Row row = group.toggle(toggle.title(), toggle.description(), toggle.enabledByDefault(),
@@ -62,7 +65,7 @@ public final class PrivacyPage extends DetailPage {
         rows.put(toggle, row);
     }
 
-    private void reload() {
+    @Override protected void reload() {
         HostTask.run(this, HostStore::loadPreferences, snapshot -> {
             preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
             render();

@@ -21,6 +21,7 @@ CONSUMERS = (
     "LexiconPage.java",
     "PhrasesPage.java",
     "ProfilePage.java",
+    "PrivacyPage.java",
     "SkinsPage.java",
     "TypingPage.java",
     "VoicePage.java",
@@ -200,6 +201,17 @@ def main() -> int:
         or "@Override protected void onContentDestroyed()" not in profile
     ):
         errors.append("ProfilePage: 首次可见时刷新或临时状态清理未保留")
+
+    privacy = (HOME / "PrivacyPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in privacy
+        or "LinearLayout target = contentColumn();" not in privacy
+        or "@Override protected boolean shouldReloadOnContentReady()" not in privacy
+        or "return false;" not in privacy
+        or "@Override protected void onContentDestroyed()" not in privacy
+        or privacy.count("rows.clear();") < 2
+    ):
+        errors.append("PrivacyPage: 开关绘制、首次可见读取或旧视图引用清理未保留")
 
     if errors:
         print("\n".join(errors), file=sys.stderr)
