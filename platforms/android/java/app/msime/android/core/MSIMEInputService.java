@@ -203,11 +203,11 @@ public final class MSIMEInputService extends InputMethodService {
     CloudClipboardPanelPolicy.Tab clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
     CloudClipboardPanelPolicy.Status cloudClipboardStatus = CloudClipboardPanelPolicy.Status.LOADING;
     java.util.List<BackendAccount.ClipboardItem> cloudClipboardItems = java.util.List.of();
-    /** Account identity that owns the currently displayed cloud rows; empty means no account. */
+    /** 当前画出来的云端条目归谁：水杉账号编号，或者配置了自建中继时中继的绑定（`relay:` 开头，见 CloudClipboardRelayPolicy#binding）；空串表示没有。 */
     String cloudClipboardAccountId = "";
-    /** Binding lineage that owns the currently displayed cloud rows. */
+    /** 账号的登录代次；中继为 0。 */
     long cloudClipboardBindingGeneration = -1L;
-    /** Backend session that supplied the current cloud page; uploads stay on this session. */
+    /** 供出当前这一页的账号会话（中继时是中继的绑定）；上传只发给它。 */
     String cloudClipboardSessionId = "";
     // Bumped whenever the field or the open panel changes; a cloud answer started under an older value is dropped rather than drawn into a field it was not fetched for.
     long cloudClipboardGeneration;

@@ -12,6 +12,8 @@ import org.json.JSONObject;
  *
  * <p>条目端到端加密（`docs/cloud-clipboard-e2e.md`）：文字只在设备上加密和解密，服务端只保存密文，搜索也在解密之后于本机进行。读列表、读设备和「允许」「拒绝」「移除」「重置」都经共享驱动（{@link CloudClipboardE2e}）完成；置顶、保留时长、删除、清空和开关不涉及内容，仍直接调用原来的接口。只有真实账号有云剪贴板。服务端最多保存 50 条，单条不超过 4000 个 UTF-16 单元；保留时长 0 表示一直保留。
  *
+ * <p>请求经哪条路发出由 {@link Backend} 决定：水杉账号（{@link #CloudClipboardApi(CloudApi, CloudClipboardE2e.Local)}）或用户自建的中继（{@link CloudClipboardRelay}，`docs/cloud-clipboard-relay.md`）。两条路的结果形状相同，解析和校验只在这里写一份。
+ *
  * <p>本类不 import `androidx`、`R` 或 `home/`，check-host 会编译它；请求阻塞在网络上，不要在主线程调用。
  */
 public final class CloudClipboardApi {
@@ -60,17 +62,44 @@ public final class CloudClipboardApi {
     /** 设置页一次读到的全部：设备与本机状态，以及（本机能读时）列表。 */
     public record Overview(Devices devices, Page page) {}
 
-    private final CloudApi api;
-    private final CloudClipboardE2e.Local local;
+    /**
+     * 云剪贴板的一条路：水杉账号（{@link AccountBackend}）或自建中继（{@link CloudClipboardRelay}）。每个方法都阻塞在网络上；失败一律以 {@link CloudApi.Failure} 抛出，`code` 是驱动、账号服务或中继给的错误码。
+     */
+    public interface Backend {
+        /** 跑一个端到端加密的操作，返回驱动结果的 JSON 文本，形状见 `docs/cloud-clipboard-e2e.md`。 */
+        String drive(CloudClipboardE2e.Operation operation) throws CloudApi.Failure;
 
-    public CloudClipboardApi(CloudApi api, CloudClipboardE2e.Local local) {
-        this.api = api;
-        this.local = local;
+        void setEnabled(boolean enabled) throws CloudApi.Failure;
+
+        /** `days` 已由调用方核对过（{@link #validRetention}）。 */
+        void setRetention(int days) throws CloudApi.Failure;
+
+        /** `id` 已由调用方核对过（{@link #validId}）。 */
+        void setPinned(String id, boolean pinned) throws CloudApi.Failure;
+
+        /** `id` 已由调用方核对过（{@link #validId}）。 */
+        void delete(String id) throws CloudApi.Failure;
+
+        void clear() throws CloudApi.Failure;
+
+        /** 确认这一页打开时的那条路还在：账号是同一个登录，中继是同一个地址和令牌。 */
+        void requireCurrent() throws CloudApi.Failure;
     }
 
-    /** Recheck the page's login before copying one of its rows to the system clipboard. */
+    private final Backend backend;
+
+    /** 经水杉账号：请求走 `api` 绑定的那个登录（{@link CloudApi#forAccountSession}）。 */
+    public CloudClipboardApi(CloudApi api, CloudClipboardE2e.Local local) {
+        this(new AccountBackend(api, local));
+    }
+
+    public CloudClipboardApi(Backend backend) {
+        this.backend = backend;
+    }
+
+    /** Recheck the page's login (or, on a relay, its address and token) before copying one of its rows to the system clipboard. */
     public void requireCurrentSession() throws CloudApi.Failure {
-        api.currentAccountSessionId();
+        backend.requireCurrent();
     }
 
     public static boolean validId(String id) {
@@ -105,84 +134,119 @@ public final class CloudClipboardApi {
 
     /** 解密后的列表；`search` 在本机过滤，服务端不再搜索。 */
     public Page list(String search) throws CloudApi.Failure {
-        return parsePage(run(CloudClipboardE2e.Operation.list(search)));
+        return parsePage(backend.drive(CloudClipboardE2e.Operation.list(search)));
     }
 
     /** 设备列表与本机状态（驱动的 `status`）。 */
     public Devices devices() throws CloudApi.Failure {
-        return parseDevices(run(CloudClipboardE2e.Operation.status()));
+        return parseDevices(backend.drive(CloudClipboardE2e.Operation.status()));
     }
 
     /** 把剪贴板密钥封装给这台设备。调用前要让用户核对两台设备上的核对码。 */
     public Devices approve(String deviceId) throws CloudApi.Failure {
-        return parseDevices(run(CloudClipboardE2e.Operation.approve(deviceId)));
+        return parseDevices(backend.drive(CloudClipboardE2e.Operation.approve(deviceId)));
     }
 
     /** 删掉一台待批准设备的登记。 */
     public Devices reject(String deviceId) throws CloudApi.Failure {
-        return parseDevices(run(CloudClipboardE2e.Operation.reject(deviceId)));
+        return parseDevices(backend.drive(CloudClipboardE2e.Operation.reject(deviceId)));
     }
 
     /** 移除一台已批准的设备：换一把新密钥、删掉云端全部记录，其他设备都要重新批准。 */
     public Devices remove(String deviceId) throws CloudApi.Failure {
-        return parseDevices(run(CloudClipboardE2e.Operation.remove(deviceId)));
+        return parseDevices(backend.drive(CloudClipboardE2e.Operation.remove(deviceId)));
     }
 
     /** 重置：换一把只封装给本机的新密钥、删掉云端全部记录，其他设备都要重新批准。 */
     public Devices reset() throws CloudApi.Failure {
-        return parseDevices(run(CloudClipboardE2e.Operation.reset()));
+        return parseDevices(backend.drive(CloudClipboardE2e.Operation.reset()));
     }
 
     public void setEnabled(boolean enabled) throws CloudApi.Failure {
-        api.json("PUT", PATH + "/settings", object("enabled", enabled), CloudApi.Auth.ACCOUNT);
+        backend.setEnabled(enabled);
     }
 
     public void setRetention(int days) throws CloudApi.Failure {
         if (!validRetention(days)) throw new IllegalArgumentException("unsupported retention " + days);
-        api.json("PUT", PATH + "/retention", object("days", days), CloudApi.Auth.ACCOUNT);
+        backend.setRetention(days);
     }
 
     public void setPinned(String id, boolean pinned) throws CloudApi.Failure {
         if (!validId(id)) throw new IllegalArgumentException("invalid clipboard id");
-        api.json("PUT", PATH + "/" + id + "/pin", object("pinned", pinned), CloudApi.Auth.ACCOUNT);
+        backend.setPinned(id, pinned);
     }
 
     public void delete(String id) throws CloudApi.Failure {
         if (!validId(id)) throw new IllegalArgumentException("invalid clipboard id");
-        api.send("DELETE", PATH + "/" + id, null, CloudApi.Auth.ACCOUNT);
+        backend.delete(id);
     }
 
     /** 清空全部记录（开关保持不变）。 */
     public void clear() throws CloudApi.Failure {
-        api.send("DELETE", PATH, null, CloudApi.Auth.ACCOUNT);
+        backend.clear();
     }
 
-    /**
-     * 经驱动跑一个操作。请求走这一页绑定的登录（{@link CloudApi#forAccountSession}），密钥串只在这个登录还在时写入；驱动的错误码原样放进 {@link CloudApi.Failure#code}。
-     */
-    private String run(CloudClipboardE2e.Operation operation) throws CloudApi.Failure {
-        try {
-            return CloudClipboardE2e.run(local, operation, this::exchange, api::currentAccountSessionId);
-        } catch (CloudClipboardE2e.Failure failure) {
-            throw new CloudApi.Failure(failure.status, failure.code, failure.code, 0);
-        } catch (CloudApi.Failure failure) {
-            throw failure;
-        } catch (java.util.concurrent.CancellationException changed) {
-            throw new CloudApi.Failure(409, "session_changed", "account session changed", 0);
-        } catch (java.io.IOException storage) {
-            throw new CloudApi.Failure(0, "secure_storage", "cloud clipboard keystore unavailable", 0);
-        } catch (Exception | LinkageError unexpected) {
-            throw invalid();
+    /** 经水杉账号的那条路：驱动的请求和不涉及内容的几个接口都走同一个绑定好的登录。 */
+    private static final class AccountBackend implements Backend {
+        private final CloudApi api;
+        private final CloudClipboardE2e.Local local;
+
+        AccountBackend(CloudApi api, CloudClipboardE2e.Local local) {
+            this.api = api;
+            this.local = local;
         }
-    }
 
-    private CloudClipboardE2e.Reply exchange(String method, String path, String body) throws CloudApi.Failure {
-        CloudApi.Exchange exchange = api.exchange(method, path,
-            body == null ? null : new CloudApi.Body("application/json", TextPolicy.utf8Bytes(body)),
-            CloudApi.Auth.ACCOUNT);
-        byte[] raw = exchange.body();
-        if (raw != null && raw.length > CloudClipboardE2e.MAX_RESPONSE_BYTES) throw invalid();
-        return new CloudClipboardE2e.Reply(exchange.status(), TextPolicy.utf8(raw));
+        /**
+         * 经驱动跑一个操作。请求走这一页绑定的登录（{@link CloudApi#forAccountSession}），密钥串只在这个登录还在时写入；驱动的错误码原样放进 {@link CloudApi.Failure#code}。
+         */
+        @Override public String drive(CloudClipboardE2e.Operation operation) throws CloudApi.Failure {
+            try {
+                return CloudClipboardE2e.run(local, operation, this::exchange, api::currentAccountSessionId);
+            } catch (CloudClipboardE2e.Failure failure) {
+                throw new CloudApi.Failure(failure.status, failure.code, failure.code, 0);
+            } catch (CloudApi.Failure failure) {
+                throw failure;
+            } catch (java.util.concurrent.CancellationException changed) {
+                throw new CloudApi.Failure(409, "session_changed", "account session changed", 0);
+            } catch (java.io.IOException storage) {
+                throw new CloudApi.Failure(0, "secure_storage", "cloud clipboard keystore unavailable", 0);
+            } catch (Exception | LinkageError unexpected) {
+                throw invalid();
+            }
+        }
+
+        @Override public void setEnabled(boolean enabled) throws CloudApi.Failure {
+            api.json("PUT", PATH + "/settings", object("enabled", enabled), CloudApi.Auth.ACCOUNT);
+        }
+
+        @Override public void setRetention(int days) throws CloudApi.Failure {
+            api.json("PUT", PATH + "/retention", object("days", days), CloudApi.Auth.ACCOUNT);
+        }
+
+        @Override public void setPinned(String id, boolean pinned) throws CloudApi.Failure {
+            api.json("PUT", PATH + "/" + id + "/pin", object("pinned", pinned), CloudApi.Auth.ACCOUNT);
+        }
+
+        @Override public void delete(String id) throws CloudApi.Failure {
+            api.send("DELETE", PATH + "/" + id, null, CloudApi.Auth.ACCOUNT);
+        }
+
+        @Override public void clear() throws CloudApi.Failure {
+            api.send("DELETE", PATH, null, CloudApi.Auth.ACCOUNT);
+        }
+
+        @Override public void requireCurrent() throws CloudApi.Failure {
+            api.currentAccountSessionId();
+        }
+
+        private CloudClipboardE2e.Reply exchange(String method, String path, String body) throws CloudApi.Failure {
+            CloudApi.Exchange exchange = api.exchange(method, path,
+                body == null ? null : new CloudApi.Body("application/json", TextPolicy.utf8Bytes(body)),
+                CloudApi.Auth.ACCOUNT);
+            byte[] raw = exchange.body();
+            if (raw != null && raw.length > CloudClipboardE2e.MAX_RESPONSE_BYTES) throw invalid();
+            return new CloudClipboardE2e.Reply(exchange.status(), TextPolicy.utf8(raw));
+        }
     }
 
     /** 驱动 `list` 的结果：`{"enabled","retention_days","items":[…],"e2e":{…}}`。 */
