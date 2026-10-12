@@ -45,13 +45,19 @@ int main() {
                                               {u"が", u"が"},       {u"いい", u"いい"}, {u"です", u"です"},
                                               {u"ね", u"ね"},       {u"。", u"。"}};
   require(japanese_romaji(sentence) == "kyou wa tenki ga ii desu ne", "sentence");
-  require(japanese_romaji({{u"こんにちは", u"こんにちは"}}) == "konnichiwa", "greeting");
-  require(japanese_romaji({{u"こんばんは", u"こんばんは"}}) == "konbanwa", "evening greeting");
-  require(japanese_romaji({{u"学校", u"がっこう"}, {u"へ", u"へ"}}) == "gakkou e", "particle he");
-  require(japanese_romaji({{u"本", u"ほん"}, {u"を", u"を"}}) == "hon o", "particle wo");
+  const std::vector<JapaneseWord> greeting = {{u"こんにちは", u"こんにちは"}};
+  const std::vector<JapaneseWord> evening = {{u"こんばんは", u"こんばんは"}};
+  const std::vector<JapaneseWord> particle_he = {{u"学校", u"がっこう"}, {u"へ", u"へ"}};
+  const std::vector<JapaneseWord> particle_wo = {{u"本", u"ほん"}, {u"を", u"を"}};
+  require(japanese_romaji(greeting) == "konnichiwa", "greeting");
+  require(japanese_romaji(evening) == "konbanwa", "evening greeting");
+  require(japanese_romaji(particle_he) == "gakkou e", "particle he");
+  require(japanese_romaji(particle_wo) == "hon o", "particle wo");
   // 一个词读不出来，整行不标。
-  require(japanese_romaji({{u"猫", u"ねこ"}, {u"犬", u"犬"}}).empty(), "partial reading is not shown");
-  require(japanese_romaji({}).empty() && japanese_romaji({{u"、", u"、"}}).empty(), "nothing to read");
+  const std::vector<JapaneseWord> partial = {{u"猫", u"ねこ"}, {u"犬", u"犬"}};
+  const std::vector<JapaneseWord> punctuation = {{u"、", u"、"}};
+  require(japanese_romaji(partial).empty(), "partial reading is not shown");
+  require(japanese_romaji({}).empty() && japanese_romaji(punctuation).empty(), "nothing to read");
 
   // IFELanguage 反查的结果：写法取原文（pwchComp），读音取输出（pwchOutput）。取反了的话写法是假名、读音是汉字，含汉字的行一律读不出来。
   {
