@@ -1,3 +1,5 @@
+import { everyApiModelsUrl } from "../core/provider-resources";
+
 /**
  * `models` are the models the provider is known to accept and `documentation`
  * explains the endpoint and how to obtain an API key. These values are
@@ -17,7 +19,7 @@ export const AI_PROVIDER_OPTIONS: readonly {
     endpoint: "https://api.everyapi.ai/v1/chat/completions",
     model: "deepseek-v4-flash",
     models: ["deepseek-v4-flash", "deepseek-v4-pro", "claude-sonnet-5", "glm-5.3-flash"],
-    documentation: "https://everyapi.ai/models",
+    documentation: everyApiModelsUrl,
   },
   {
     id: "openai",

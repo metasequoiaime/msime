@@ -14,6 +14,7 @@
  * a request actually sends is still whatever is stored in preferences.
  */
 import { fillProviderDefaults, known, swapTokenSlot, type TokenMap } from "./provider-helpers";
+import { everyApiModelsUrl } from "../core/provider-resources";
 
 export type ProviderDefaults = {
   endpoint: string;
@@ -79,7 +80,7 @@ export const ASR_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
     endpoint: "https://api.everyapi.ai/v1/audio/transcriptions",
     model: "volc.seedasr.sauc.duration",
     models: ["volc.seedasr.sauc.duration"],
-    documentation: "https://everyapi.ai/models",
+    documentation: everyApiModelsUrl,
   },
   mistral: {
     endpoint: "https://api.mistral.ai/v1/audio/transcriptions",
