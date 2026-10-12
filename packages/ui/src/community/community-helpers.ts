@@ -26,7 +26,9 @@ type CommunityStatusCode =
   | "community_unauthorized"
   | "community_not_found"
   | "community_cancelled"
-  | "community_storage";
+  | "community_storage"
+  | "community_conflict"
+  | "community_rate_limited";
 
 const communityStatusMessages: Record<CommunityStatusCode, string> = {
   community_forbidden: "没有权限执行此操作。",
@@ -34,6 +36,8 @@ const communityStatusMessages: Record<CommunityStatusCode, string> = {
   community_not_found: "作品不存在或已下架。",
   community_cancelled: "账号状态已变化，请重新加载。",
   community_storage: "无法安全读取登录状态，请检查设备安全设置。",
+  community_conflict: "作品状态已变化或已达到发布上限，请刷新后重试。",
+  community_rate_limited: "请求过于频繁，请稍后再试。",
 };
 
 function communityStatusMessage(
@@ -57,10 +61,6 @@ export function resourceMessage(error: unknown): string {
   switch (errorCode(error)) {
     case "community_invalid":
       return "内容无效，请修改后重试。";
-    case "community_conflict":
-      return "作品状态已变化或已达到发布上限，请刷新后重试。";
-    case "community_rate_limited":
-      return "请求过于频繁，请稍后再试。";
     case "community_resource_library_format":
       return "本地模板库无法读取，请检查后重试。";
   }
@@ -86,10 +86,6 @@ export function communitySkinMessage(error: unknown): string {
   switch (errorCode(error)) {
     case "community_invalid":
       return "搜索内容无效，请修改后重试。";
-    case "community_conflict":
-      return "作品状态已变化或已达到发布上限，请刷新后重试。";
-    case "community_rate_limited":
-      return "请求过于频繁，请稍后再试。";
     case "community_skin_library_full":
       return "最多保存 12 套皮肤，请先删除不需要的设计。";
     case "community_skin_invalid_name":
@@ -131,6 +127,8 @@ export function candidateSkinMessage(error: unknown, publishing = false): string
   const moderation = communityModerationMessage(error);
   const status = communityStatusMessage(error, {
     community_forbidden: "下载后才能评分，且不能给自己的作品评分。",
+    community_conflict: "发布信息已变更，或皮肤库已达到数量上限。",
+    community_rate_limited: "发布太频繁，请稍后再试。",
   });
   if (moderation) return moderation;
   if (status) return status;
@@ -157,10 +155,6 @@ export function candidateSkinMessage(error: unknown, publishing = false): string
       return publishing
         ? "服务器未接受这款皮肤：请确认图片每边不超过 2048 像素、能被正常解码，且皮肤 ID 不与内置主题重名。"
         : "内容无效，请修改后重试。";
-    case "community_conflict":
-      return "发布信息已变更，或皮肤库已达到数量上限。";
-    case "community_rate_limited":
-      return "发布太频繁，请稍后再试。";
   }
   return "社区暂时不可用，请稍后重试。";
 }
@@ -172,6 +166,12 @@ export function communityPluginMessage(error: unknown, publishing = false): stri
   const moderation = communityModerationMessage(error);
   const status = communityStatusMessage(error, {
     community_forbidden: "下载后才能评分，且不能给自己的作品评分。",
+    community_conflict: publishing
+      ? "发布信息已变更，或已达到发布上限（最多 20 个、合计 32 MB）。"
+      : "作品状态已变化，请刷新后重试。",
+    community_rate_limited: publishing
+      ? "每小时最多发布 10 次，请稍后再试。"
+      : communityStatusMessages.community_rate_limited,
   });
   if (moderation) return moderation;
   if (status) return status;
@@ -188,12 +188,6 @@ export function communityPluginMessage(error: unknown, publishing = false): stri
       return publishing
         ? "服务器未接受这个插件：请确认名称、说明和包内容符合发布要求。"
         : "内容无效，请修改后重试。";
-    case "community_conflict":
-      return publishing
-        ? "发布信息已变更，或已达到发布上限（最多 20 个、合计 32 MB）。"
-        : "作品状态已变化，请刷新后重试。";
-    case "community_rate_limited":
-      return publishing ? "每小时最多发布 10 次，请稍后再试。" : "请求过于频繁，请稍后再试。";
   }
   return pluginErrorMessage(error, "社区暂时不可用，请稍后重试。");
 }

@@ -250,6 +250,33 @@ test.each([
   expect(communityPluginMessage(error)).toBe(gallery);
 });
 
+test.each([
+  [
+    "community_conflict",
+    "作品状态已变化或已达到发布上限，请刷新后重试。",
+    "发布信息已变更，或皮肤库已达到数量上限。",
+    "作品状态已变化，请刷新后重试。",
+    "发布信息已变更，或已达到发布上限（最多 20 个、合计 32 MB）。",
+  ],
+  [
+    "community_rate_limited",
+    "请求过于频繁，请稍后再试。",
+    "发布太频繁，请稍后再试。",
+    "请求过于频繁，请稍后再试。",
+    "每小时最多发布 10 次，请稍后再试。",
+  ],
+])(
+  "community request status %s keeps gallery and publish wording",
+  (code, shared, candidate, plugin, pluginPublish) => {
+    const error = { code };
+    expect(resourceMessage(error)).toBe(shared);
+    expect(communitySkinMessage(error)).toBe(shared);
+    expect(candidateSkinMessage(error)).toBe(candidate);
+    expect(communityPluginMessage(error)).toBe(plugin);
+    expect(communityPluginMessage(error, true)).toBe(pluginPublish);
+  },
+);
+
 test("publish messages keep their specific wording", () => {
   expect(communitySkinPublishMessage({ code: "community_unauthorized" })).toBe(
     "请先登录后再发布皮肤。",
