@@ -5,8 +5,8 @@
 use msime_client_core::edition::Edition;
 use msime_client_core::preferences::{
     AppInputModeRule, CandidateLayout, CharacterWidthPreference, ChineseScheme, DefaultImeMode,
-    InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinCustomProfile,
-    ShuangpinProfile, WubiProfile,
+    InputScheme, NineKeyShuangpinProfile, Preferences, PreferencesSnapshot, PreferencesStore,
+    ShuangpinCustomProfile, ShuangpinProfile, WubiProfile,
 };
 use rmcp::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -78,6 +78,76 @@ impl From<&ShuangpinCustomProfile> for CustomShuangpinTable {
 
 impl From<&CustomShuangpinTable> for ShuangpinCustomProfile {
     fn from(value: &CustomShuangpinTable) -> Self {
+        Self {
+            initials: value.initials.clone(),
+            finals: value.finals.clone(),
+            zero_initials: value.zero_initials.clone(),
+        }
+    }
+}
+
+/// 触屏九键双拼（手机键盘的「九键双拼」布局）用哪张表。
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(rename_all = "snake_case")]
+pub enum NineKeyProfile {
+    /// 米旮旯 2。
+    Migala2,
+    /// 米旮旯 3。
+    Migala3,
+    /// 辜氏 2 低重码。
+    Gushi2Low,
+    /// 用户自己的表，即 `nine_key_shuangpin_custom_profile`。没有可用的表时不能选它。
+    Custom,
+}
+
+impl From<NineKeyShuangpinProfile> for NineKeyProfile {
+    fn from(value: NineKeyShuangpinProfile) -> Self {
+        match value {
+            NineKeyShuangpinProfile::Migala2 => Self::Migala2,
+            NineKeyShuangpinProfile::Migala3 => Self::Migala3,
+            NineKeyShuangpinProfile::Gushi2Low => Self::Gushi2Low,
+            NineKeyShuangpinProfile::Custom => Self::Custom,
+        }
+    }
+}
+
+impl From<NineKeyProfile> for NineKeyShuangpinProfile {
+    fn from(value: NineKeyProfile) -> Self {
+        match value {
+            NineKeyProfile::Migala2 => Self::Migala2,
+            NineKeyProfile::Migala3 => Self::Migala3,
+            NineKeyProfile::Gushi2Low => Self::Gushi2Low,
+            NineKeyProfile::Custom => Self::Custom,
+        }
+    }
+}
+
+/// 九键双拼的自定义表：每个音节两位数字，第一位是声母所在的键，第二位是韵母所在的键。`initials` 写全 23 个声母（b p m f d t n l g k h j q x r z c s y w zh ch sh），`finals` 写全 33 个韵母（同 26 键自定义表），各一个数字；`zero_initials` 给 12 个零声母音节（a ai an ang ao e ei en eng er o ou）各两位数字。数字是 0 到 9；ü 写作 v。一个两位编码可以对应好几个音节。
+#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct NineKeyShuangpinTable {
+    #[serde(default)]
+    pub initials: BTreeMap<String, String>,
+    #[serde(default)]
+    pub finals: BTreeMap<String, String>,
+    #[serde(default)]
+    pub zero_initials: BTreeMap<String, String>,
+}
+
+impl From<&ShuangpinCustomProfile> for NineKeyShuangpinTable {
+    fn from(value: &ShuangpinCustomProfile) -> Self {
+        Self {
+            initials: value.initials.clone(),
+            finals: value.finals.clone(),
+            zero_initials: value.zero_initials.clone(),
+        }
+    }
+}
+
+impl From<&NineKeyShuangpinTable> for ShuangpinCustomProfile {
+    fn from(value: &NineKeyShuangpinTable) -> Self {
         Self {
             initials: value.initials.clone(),
             finals: value.finals.clone(),
@@ -271,6 +341,10 @@ pub struct PreferencesView {
     pub shuangpin_profile: Profile,
     /// 保存着的自定义双拼键位表，没有时为 null。
     pub shuangpin_custom_profile: Option<CustomShuangpinTable>,
+    /// 触屏九键双拼用哪张表（Android 的九键双拼布局）。
+    pub nine_key_shuangpin_profile: NineKeyProfile,
+    /// 保存着的九键双拼自定义表，没有时为 null。
+    pub nine_key_shuangpin_custom_profile: Option<NineKeyShuangpinTable>,
     /// 每页候选数，1 到 10，第十个用数字键 0 选；Windows、iOS 和鸿蒙最多显示 9 个。
     pub candidate_page_size: u8,
     /// Candidate font size in points, 12 to 32.
@@ -335,6 +409,11 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             shuangpin_profile: preferences.shuangpin_profile.into(),
             shuangpin_custom_profile: (!preferences.shuangpin_custom_profile.is_empty())
                 .then(|| CustomShuangpinTable::from(&preferences.shuangpin_custom_profile)),
+            nine_key_shuangpin_profile: preferences.nine_key_shuangpin_profile.into(),
+            nine_key_shuangpin_custom_profile: (!preferences
+                .nine_key_shuangpin_custom_profile
+                .is_empty())
+            .then(|| NineKeyShuangpinTable::from(&preferences.nine_key_shuangpin_custom_profile)),
             candidate_page_size: preferences.candidate_page_size,
             candidate_font_size: preferences.candidate_font_size,
             candidate_scale_percent: preferences.candidate_scale_percent,
@@ -383,6 +462,10 @@ pub struct PreferencesChange {
     pub shuangpin_profile: Option<Profile>,
     /// 整张替换自定义双拼键位表。不能用的表会被拒绝，并说明哪里不对。
     pub shuangpin_custom_profile: Option<CustomShuangpinTable>,
+    /// `custom` 需要一张可用的九键双拼表：已经保存着，或者在 `nine_key_shuangpin_custom_profile` 里一起给出。只换表，不切换键盘布局。
+    pub nine_key_shuangpin_profile: Option<NineKeyProfile>,
+    /// 整张替换九键双拼自定义表。不能用的表会被拒绝，并说明哪一项不对。
+    pub nine_key_shuangpin_custom_profile: Option<NineKeyShuangpinTable>,
     /// 1 到 10。无论存的是多少，Windows、iOS 和鸿蒙最多显示 9 个。
     pub candidate_page_size: Option<u8>,
     /// 12 to 32.
@@ -432,6 +515,8 @@ impl PreferencesChange {
         self.scheme.is_none()
             && self.shuangpin_profile.is_none()
             && self.shuangpin_custom_profile.is_none()
+            && self.nine_key_shuangpin_profile.is_none()
+            && self.nine_key_shuangpin_custom_profile.is_none()
             && self.candidate_page_size.is_none()
             && self.candidate_font_size.is_none()
             && self.candidate_scale_percent.is_none()
@@ -473,6 +558,12 @@ impl PreferencesChange {
         }
         if let Some(table) = &self.shuangpin_custom_profile {
             preferences.shuangpin_custom_profile = table.into();
+        }
+        if let Some(profile) = self.nine_key_shuangpin_profile {
+            preferences.nine_key_shuangpin_profile = profile.into();
+        }
+        if let Some(table) = &self.nine_key_shuangpin_custom_profile {
+            preferences.nine_key_shuangpin_custom_profile = table.into();
         }
         if let Some(size) = self.candidate_page_size {
             preferences.candidate_page_size = size;
@@ -616,6 +707,15 @@ pub fn update(
         msime_host_api::validate_custom_shuangpin_profile(&preferences.shuangpin_custom_profile)
             .map_err(|error| format!("the custom shuangpin table cannot be used: {error}"))?;
     }
+    // 九键双拼的表同理，由 Engine 校验。
+    if change.nine_key_shuangpin_custom_profile.is_some()
+        || preferences.nine_key_shuangpin_profile == NineKeyShuangpinProfile::Custom
+    {
+        msime_host_api::validate_nine_key_shuangpin_custom_profile(
+            &preferences.nine_key_shuangpin_custom_profile,
+        )
+        .map_err(|error| format!("the nine-key shuangpin table cannot be used: {error}"))?;
+    }
     let snapshot = store
         .save(change.expected_revision, preferences)
         .map_err(|error| error.to_string())?;
@@ -717,6 +817,18 @@ mod tests {
         ] {
             same(json!(Profile::from(profile)), json!(profile));
             assert_eq!(ShuangpinProfile::from(Profile::from(profile)), profile);
+        }
+        for profile in [
+            NineKeyShuangpinProfile::Migala2,
+            NineKeyShuangpinProfile::Migala3,
+            NineKeyShuangpinProfile::Gushi2Low,
+            NineKeyShuangpinProfile::Custom,
+        ] {
+            same(json!(NineKeyProfile::from(profile)), json!(profile));
+            assert_eq!(
+                NineKeyShuangpinProfile::from(NineKeyProfile::from(profile)),
+                profile
+            );
         }
         for profile in [WubiProfile::Wubi86, WubiProfile::Wubi98] {
             same(json!(WubiVersion::from(profile)), json!(profile));
@@ -821,6 +933,66 @@ mod tests {
             stored.preferences.shuangpin_custom_profile,
             ShuangpinCustomProfile::from(&custom_table())
         );
+    }
+
+    #[test]
+    fn a_nine_key_shuangpin_table_is_read_and_written_after_the_engine_accepts_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
+        let before = load(directory.path(), Edition::full()).unwrap();
+        assert_eq!(before.nine_key_shuangpin_profile, NineKeyProfile::Migala3);
+        assert_eq!(before.nine_key_shuangpin_custom_profile, None);
+        let run = |change: &PreferencesChange| {
+            update(directory.path(), &options, Edition::full(), change)
+        };
+        // 内置方案直接能选。
+        let updated = run(&PreferencesChange {
+            nine_key_shuangpin_profile: Some(NineKeyProfile::Gushi2Low),
+            ..change(before.revision)
+        })
+        .unwrap();
+        assert_eq!(
+            updated.nine_key_shuangpin_profile,
+            NineKeyProfile::Gushi2Low
+        );
+        // 没有表就不能选自定义方案；给出的表不能用也拒绝，并指出哪一项。
+        let refused = run(&PreferencesChange {
+            nine_key_shuangpin_profile: Some(NineKeyProfile::Custom),
+            ..change(updated.revision)
+        })
+        .unwrap_err();
+        assert!(
+            refused.starts_with("the nine-key shuangpin table cannot be used: initials unit"),
+            "{refused}"
+        );
+        let table = NineKeyShuangpinTable::from(
+            &msime_host_api::builtin_nine_key_shuangpin_custom_profile(
+                NineKeyShuangpinProfile::Migala2,
+            )
+            .unwrap(),
+        );
+        let mut broken = table.clone();
+        broken.zero_initials.insert("a".into(), "6".into());
+        let refused = run(&PreferencesChange {
+            nine_key_shuangpin_custom_profile: Some(broken),
+            ..change(updated.revision)
+        })
+        .unwrap_err();
+        assert!(
+            refused.contains("zero_initials unit \"a\" has an invalid key \"6\""),
+            "{refused}"
+        );
+        let saved = run(&PreferencesChange {
+            nine_key_shuangpin_profile: Some(NineKeyProfile::Custom),
+            nine_key_shuangpin_custom_profile: Some(table.clone()),
+            ..change(updated.revision)
+        })
+        .unwrap();
+        assert_eq!(saved.nine_key_shuangpin_profile, NineKeyProfile::Custom);
+        assert_eq!(saved.nine_key_shuangpin_custom_profile, Some(table));
+        // 26 键的自定义表不受影响。
+        assert_eq!(saved.shuangpin_custom_profile, None);
     }
 
     #[test]
