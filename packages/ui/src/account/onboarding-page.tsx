@@ -44,11 +44,6 @@ export interface OnboardingActions {
 
 /** How long the first-launch splash stays up before the flow opens on its own. */
 export const SPLASH_MS = 2800;
-/** The panel the mark sits in (the frame of msime_frame.svg without its brush-scatter texture, which is a 200KB raster-like path set). */
-const framePath = "M5.84314 5.8335H109.843V125.833H5.84314V5.8335Z";
-/** The MSIME mark as a single stroke, so the splash can draw it. */
-const logoPath =
-  "M80.394 18.8335L34.3451 36.489L80.394 49.7306L34.3451 71.7999C77.8789 79.1564 118.8 85.1887 31.8431 113.088";
 
 const stepTitles = [
   "把水杉加进键盘",
@@ -89,8 +84,8 @@ function Splash({ onDone }: { onDone: () => void }) {
     <button type="button" className={onboarding.splash} aria-label="跳过开屏" onClick={onDone}>
       <span className={onboarding.splashGlow} aria-hidden="true" />
       <svg className={onboarding.splashLogo} viewBox="0 0 116 132" aria-hidden="true">
-        <path className={onboarding.splashFrame} d={framePath} />
-        <path className={onboarding.splashStroke} d={logoPath} pathLength={1} />
+        <path className={onboarding.splashFrame} d={msimeFramePath} />
+        <path className={onboarding.splashStroke} d={msimeStrokePath} pathLength={1} />
       </svg>
       <span className={onboarding.splashName} aria-hidden="true">
         水杉输入法
