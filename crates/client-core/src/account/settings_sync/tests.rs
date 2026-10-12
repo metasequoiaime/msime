@@ -285,24 +285,29 @@ fn settings_sync_round_trips_every_exported_key() {
     assert!(applied.skipped.is_empty());
 }
 
-/// 全拼 14 键的布局按 `fourteen_key` 上传，读回来还是 14 键，不会落成 26 键。
+/// 全拼 14 键和九键双拼的布局按 `fourteen_key`、`nine_key_shuangpin` 上传，读回来还是原来的布局，不会落成 26 键。九键双拼用哪张表是本机的设置，不上传。
 #[test]
 fn settings_sync_round_trips_the_fourteen_key_layout() {
-    let expected = Preferences {
-        touch_keyboard_layout: TouchKeyboardLayout::FourteenKey,
-        ..Preferences::default()
-    };
-    let exported = export_android_settings(&expected, None).unwrap();
-    assert_eq!(
-        exported.get("platform.android.keyboard_layout"),
-        Some(&AccountPreferenceValue::String("fourteen_key".into()))
-    );
-    let applied = apply(&Preferences::default(), exported, &full_schema());
-    assert_eq!(
-        applied.preferences.touch_keyboard_layout,
-        TouchKeyboardLayout::FourteenKey
-    );
-    assert!(applied.skipped.is_empty());
+    for (layout, id) in [
+        (TouchKeyboardLayout::FourteenKey, "fourteen_key"),
+        (TouchKeyboardLayout::NineKeyShuangpin, "nine_key_shuangpin"),
+    ] {
+        let expected = Preferences {
+            touch_keyboard_layout: layout,
+            ..Preferences::default()
+        };
+        let exported = export_android_settings(&expected, None).unwrap();
+        assert_eq!(
+            exported.get("platform.android.keyboard_layout"),
+            Some(&AccountPreferenceValue::String(id.into()))
+        );
+        assert!(!exported
+            .keys()
+            .any(|key| key.contains("nine_key_shuangpin")));
+        let applied = apply(&Preferences::default(), exported, &full_schema());
+        assert_eq!(applied.preferences.touch_keyboard_layout, layout);
+        assert!(applied.skipped.is_empty());
+    }
 }
 
 #[test]

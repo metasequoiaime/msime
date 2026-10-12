@@ -524,15 +524,18 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
             preferences.last_chinese_scheme = Some(ChineseScheme::Wubi);
             preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
         }
+        // 九键双拼还没有 iOS 键盘，iOS 的方案名也解析不出它；只有别的宿主写进启用列表时才会落到这里，照样按它的布局记下。
         TouchKeyboardScheme::Quanpin
         | TouchKeyboardScheme::NineKey
         | TouchKeyboardScheme::FourteenKey
+        | TouchKeyboardScheme::NineKeyShuangpin
         | TouchKeyboardScheme::Handwriting => {
             preferences.scheme = InputScheme::Quanpin;
             preferences.last_chinese_scheme = Some(ChineseScheme::Quanpin);
             preferences.touch_keyboard_layout = match selected {
                 TouchKeyboardScheme::NineKey => TouchKeyboardLayout::NineKey,
                 TouchKeyboardScheme::FourteenKey => TouchKeyboardLayout::FourteenKey,
+                TouchKeyboardScheme::NineKeyShuangpin => TouchKeyboardLayout::NineKeyShuangpin,
                 TouchKeyboardScheme::Handwriting => TouchKeyboardLayout::Handwriting,
                 _ => TouchKeyboardLayout::TwentySixKey,
             };

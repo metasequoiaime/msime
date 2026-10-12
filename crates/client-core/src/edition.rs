@@ -300,7 +300,8 @@ impl Edition {
             TouchKeyboardScheme::Handwriting => return self.features.handwriting,
             TouchKeyboardScheme::Quanpin
             | TouchKeyboardScheme::NineKey
-            | TouchKeyboardScheme::FourteenKey => InputScheme::Quanpin,
+            | TouchKeyboardScheme::FourteenKey
+            | TouchKeyboardScheme::NineKeyShuangpin => InputScheme::Quanpin,
             TouchKeyboardScheme::Xiaohe
             | TouchKeyboardScheme::Ziranma
             | TouchKeyboardScheme::Microsoft
@@ -807,6 +808,7 @@ mod tests {
                 TouchKeyboardScheme::Shoudao,
                 TouchKeyboardScheme::Handwriting,
                 TouchKeyboardScheme::FourteenKey,
+                TouchKeyboardScheme::NineKeyShuangpin,
             ]
         );
         let japanese = Edition::by_id("japanese").unwrap();
