@@ -10,3 +10,5 @@ export const siliconFlowTextDocumentationUrl =
 export const groqDocumentationUrl = "https://console.groq.com/docs/quickstart";
 export const openAiModelsDocumentationUrl =
   "https://developers.openai.com/api/docs/models/gpt-4.1-mini";
+export const dashScopeChatEndpoint =
+  "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";

@@ -1,6 +1,7 @@
 import {
   deepseekChatEndpoint,
   deepseekDocumentationUrl,
+  dashScopeChatEndpoint,
   everyApiModelsUrl,
   groqChatEndpoint,
   groqDocumentationUrl,
@@ -66,7 +67,7 @@ export const AI_PROVIDER_OPTIONS: readonly {
   {
     id: "qwen",
     title: "通义千问 · 阿里云百炼",
-    endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    endpoint: dashScopeChatEndpoint,
     model: "qwen-plus",
     models: ["qwen-plus"],
     documentation: "https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope",
