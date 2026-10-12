@@ -15,6 +15,7 @@ import { chatError } from "../chat/chat-errors";
 import { errorCode } from "../core/error-code";
 import { errorMessage } from "../core/error-message";
 import { useToast } from "../core/toast";
+import { touchHairline } from "../core/touch-style";
 import { makeDefaultAction, useImeSetupState, type SetupActions } from "./setup-status-card";
 
 /** 草稿上限，与 Android 和 Apple 的试用页相同。2000 个字符最多 8000 字节，在 client-core 单条消息 16 KiB 的上限之内，所以发送前不必再按字节检查。 */
@@ -35,8 +36,8 @@ type Bubble = {
 };
 
 // 细线用内阴影而不是 border：HarmonyOS 的 WebView 有缩放，1px 边框算出来是 0.92px，ArkWeb 重新光栅化这种圆角边框时会把按钮的下半截整块涂成边框色。
-const hairline = "border-0 [box-shadow:inset_0_0_0_1px_var(--p-hair)]";
-const chip = `m-0 shrink-0 cursor-pointer whitespace-nowrap rounded-full ${hairline} bg-[var(--p-group-bg)] px-3 py-1.5 text-[13px] [font-family:inherit] [color:var(--p-text)] active:opacity-70`;
+
+const chip = `m-0 shrink-0 cursor-pointer whitespace-nowrap rounded-full ${touchHairline} bg-[var(--p-group-bg)] px-3 py-1.5 text-[13px] [font-family:inherit] [color:var(--p-text)] active:opacity-70`;
 const bubbleBase =
   "max-w-[80%] rounded-[18px] px-3.5 py-2.5 text-[15px] leading-[1.5] wrap-anywhere";
 const sendButton =
@@ -312,7 +313,7 @@ export function TryKeyboardPage({
           value={draft}
           maxLength={DRAFT_LIMIT}
           enterKeyHint={chat ? "send" : "enter"}
-          className={`m-0 min-h-10 min-w-0 flex-1 resize-none rounded-[20px] ${hairline} bg-[var(--p-group-bg)] px-3.5 py-2 text-[16px] leading-[22px] [color:var(--p-text)] [font-family:inherit] outline-none placeholder:[color:var(--p-sub)]`}
+          className={`m-0 min-h-10 min-w-0 flex-1 resize-none rounded-[20px] ${touchHairline} bg-[var(--p-group-bg)] px-3.5 py-2 text-[16px] leading-[22px] [color:var(--p-text)] [font-family:inherit] outline-none placeholder:[color:var(--p-sub)]`}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={fieldKeyDown}
           onFocus={() => setFocused(true)}

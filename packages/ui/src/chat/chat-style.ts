@@ -1,3 +1,5 @@
+import { touchHairline } from "../core/touch-style";
+
 /**
  * The account chat playground.
  *
@@ -36,11 +38,11 @@ export const login = "self-start";
 // ---- 触屏（鸿蒙手机等）：和「试用键盘」同一套样子 ----
 
 // 细线用内阴影而不是 border：HarmonyOS 的 WebView 有缩放，1px 边框算出来是 0.92px，ArkWeb 重新光栅化圆角边框时会把下半截涂成边框色。
-const hairline = "border-0 [box-shadow:inset_0_0_0_1px_var(--p-hair)]";
+
 /** 整页：顶部一行小胶囊、中间对话、底部输入栏，对话区自己滚动。 */
 export const touchPage = "flex min-h-0 flex-1 flex-col gap-2.5";
 export const touchBar = "flex shrink-0 items-center gap-2";
-export const touchChip = `m-0 inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-full ${hairline} bg-[var(--p-group-bg)] px-3 py-1.5 text-[13px] [font-family:inherit] [color:var(--p-text)] active:opacity-70 disabled:cursor-default disabled:opacity-40`;
+export const touchChip = `m-0 inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-full ${touchHairline} bg-[var(--p-group-bg)] px-3 py-1.5 text-[13px] [font-family:inherit] [color:var(--p-text)] active:opacity-70 disabled:cursor-default disabled:opacity-40`;
 export const touchLog = "-mx-1 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-1 pt-1 pb-2";
 const touchBubble =
   "m-0 max-w-[82%] rounded-[18px] px-3.5 py-2.5 text-[15px] leading-[1.5] wrap-anywhere";
@@ -58,6 +60,6 @@ export const touchEmptyIcon =
 export const touchLogin =
   "m-0 mt-3 cursor-pointer rounded-full border-0 px-6 py-2.5 text-[15px] font-semibold [font-family:inherit] [background:var(--accent-color)] [color:var(--p-on-accent)] active:opacity-80";
 export const touchComposer = "flex shrink-0 items-end gap-2 pb-[env(safe-area-inset-bottom,0px)]";
-export const touchField = `m-0 min-h-10 min-w-0 flex-1 resize-none rounded-[20px] ${hairline} bg-[var(--p-group-bg)] px-3.5 py-2 text-[16px] leading-[22px] [color:var(--p-text)] [font-family:inherit] outline-none placeholder:[color:var(--p-sub)]`;
+export const touchField = `m-0 min-h-10 min-w-0 flex-1 resize-none rounded-[20px] ${touchHairline} bg-[var(--p-group-bg)] px-3.5 py-2 text-[16px] leading-[22px] [color:var(--p-text)] [font-family:inherit] outline-none placeholder:[color:var(--p-sub)]`;
 export const touchSend =
   "m-0 flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 p-0 [background:var(--accent-color)] [color:var(--p-on-accent)] active:opacity-80 disabled:cursor-default disabled:opacity-40";
