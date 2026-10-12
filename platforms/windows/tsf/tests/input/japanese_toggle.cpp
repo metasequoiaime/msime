@@ -103,6 +103,8 @@ void wiring(const std::string &root) {
     const std::string server = read(root + "/../src/entrypoints/server_main.cpp");
     expect(server, "FanyImeProtocol::JapaneseToggleShortcut)", true, "the production Server advertises the capability");
     expect(server, "japanese_toggles.submit(JapaneseToggleRequest{})", true, "the key hands the write to a worker");
+    expect(server, "msime::windows::scheme::japanese_toggle_write(", true,
+           "the worker writes what windows-input-scheme-traits tests");
     expect(server, "japanese.request_stop();", true, "the worker stops with the other click workers");
 }
 } // namespace
