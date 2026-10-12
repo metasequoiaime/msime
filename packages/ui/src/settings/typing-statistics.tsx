@@ -1,5 +1,6 @@
 import { ControlledCheckbox } from "../core/controlled-checkbox";
 import { rowHeading } from "../core/row-style";
+import { compactPage } from "../core/page-style";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useConfirm } from "../core/confirm";
 import {
@@ -78,7 +79,7 @@ const menuItem =
 // The page container. Named because this component returns it from three places -- loading, error and
 // loaded -- and the loading branch was the one that got left behind when the class it used was
 // replaced.
-const page = "flex flex-col gap-3.5 max-phone:gap-2.5";
+const page = compactPage;
 // HarmonyOS 外观下的纵向排列：分段控件、各卡片组和隐私说明之间按设计间隔 22px。
 const summaryPage = "flex flex-col gap-[22px] text-[color:var(--p-text)]";
 const rankChart = "mt-4 mb-[18px] flex flex-col gap-[11px]";
