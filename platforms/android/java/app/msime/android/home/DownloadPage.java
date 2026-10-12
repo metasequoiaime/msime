@@ -42,7 +42,7 @@ public final class DownloadPage extends DetailPage {
     private final Set<String> sending = new HashSet<>(6);
 
     @Override public void onDestroyView() {
-        // AboutPage.network fences its callback to this view. If the view goes away first,
+        // NetworkTask.run fences its callback to this view. If the view goes away first,
         // the callback is dropped, so the transient in-flight marker must not lock the rebuilt
         // page out of retrying that platform.
         sending.clear();
@@ -123,7 +123,7 @@ public final class DownloadPage extends DetailPage {
     private void getRow(GroupCard group, @DrawableRes int icon, String title, String subtitle, String platform) {
         GroupCard.Row row = row(group, icon, title, subtitle);
         Context context = row.view().getContext();
-        TextView button = KeyboardSheets.tonalButton(context, "获取", "获取，" + title, 600,
+        TextView button = HomeButtonPolicy.tonalButton(context, "获取", "获取，" + title, 600,
             () -> AboutPage.openLink(context, DOWNLOAD + "?release=" + platform));
         attach(row, button);
     }
@@ -132,7 +132,7 @@ public final class DownloadPage extends DetailPage {
         GroupCard.Row row = row(group, icon, title, subtitle);
         Context context = row.view().getContext();
         String label = sentPlatforms.contains(platform) ? "已发送" : "发送链接";
-        TextView button = KeyboardSheets.tonalButton(context, label, label + "，" + title, 600);
+        TextView button = HomeButtonPolicy.tonalButton(context, label, label + "，" + title, 600);
         ViewPolicy.setEnabled(button, !sentPlatforms.contains(platform));
         ViewPolicy.bindClick(button, () -> send(platform, button));
         attach(row, button);
@@ -154,7 +154,7 @@ public final class DownloadPage extends DetailPage {
         sending.add(platform);
         button.setText("正在发送…");
         ViewPolicy.setEnabled(button, false);
-        AboutPage.network(this, () -> new DownloadLinkApi(
+        NetworkTask.run(this, () -> new DownloadLinkApi(
             new CloudApi(application).forAccountSession(expectedSessionId)).send(platform), outcome -> {
             sending.remove(platform);
             if (outcome.error() != null) {
@@ -174,7 +174,7 @@ public final class DownloadPage extends DetailPage {
         if (error instanceof CloudApi.Failure failure) {
             if (DownloadLinkApi.noVerifiedEmail(failure)) return "账号还没有验证过的邮箱，请改用「复制链接」";
             if (failure.signedOut()) return "登录后才能发到邮箱，也可以改用「复制链接」";
-            if (failure.status == 429) return "发送得太频繁了，请过一会儿再试";
+            if (failure.rateLimited()) return "发送得太频繁了，请过一会儿再试";
             if (failure.unavailable()) return "暂时不能发送邮件，请改用「复制链接」";
             if (failure.network()) return "连不上服务器，请检查网络后重试";
         }

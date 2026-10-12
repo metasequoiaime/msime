@@ -113,6 +113,20 @@ int main() {
         assert(scaled.tokens.pad == 9.0f && scaled.tokens.borderWidth == skin.tokens.borderWidth);
         assert(scaled.decorationTopDip == 60.0 && scaled.decorationWidthDip == 90.0 && scaled.minWidthDip == 300.0);
         assert(SameColor(scaled.tokens.surface, skin.tokens.surface) && scaled.backgroundOpacity == 0.8);
+
+        // A user padding (#7316) replaces the package's or the native 6pt before the scale multiplies it, and leaves every radius alone; out of range is clamped to the shared 0-16.
+        auto padded = skin;
+        padded.tokens.pad = 10.0f;
+        msime::mac::CandidateWindowStyle padStyle;
+        padStyle.padding = 2.0;
+        const auto compact = msime::mac::StyledCandidateSkin(padded, padStyle);
+        assert(compact.tokens.pad == 2.0f && compact.tokens.radius == padded.tokens.radius && compact.tokens.candidateRadius == padded.tokens.candidateRadius);
+        assert(msime::mac::StyledCandidateSkin(padded, {}).tokens.pad == 10.0f);
+        padStyle.scale = 1.5;
+        assert(msime::mac::StyledCandidateSkin(padded, padStyle).tokens.pad == 3.0f);
+        padStyle.scale = 1.0;
+        padStyle.padding = 40.0;
+        assert(msime::mac::StyledCandidateSkin(padded, padStyle).tokens.pad == 16.0f);
     }
 
     // The picker is the shared catalog, in its order, and only its ids are themes.

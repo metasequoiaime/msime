@@ -841,7 +841,7 @@ pub struct Preferences {
     pub candidate_layout: CandidateLayout,
     #[serde(default)]
     pub candidate_preedit_style: CandidatePreeditStyle,
-    /// Show the current/total page text in Linux candidate panels, independently of preedit.
+    /// Show the current/total page text in Linux candidate panels, independently of preedit. On macOS it also governs the ‹ › page arrows beside that text, so with the logo and the reading hidden too the card loses its top row. Paging by key and wheel is unaffected on both.
     #[serde(default = "enabled_by_default")]
     pub show_candidate_page_number: bool,
     #[serde(default)]
@@ -945,6 +945,9 @@ pub struct Preferences {
     /// Corner radius of the candidate card in points (DIP on Windows), 0-32. It wins over the skin package's `corner_radius_dip`, which wins over the host's own constant; absent means the host or skin decides. Row and selection radii become the smaller of the host's row radius and this.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_corner_radius: Option<u8>,
+    /// Space in points (DIP on Windows) between the candidate card's edge and its candidates, 0-16, before `candidate_scale_percent` multiplies it. It wins over the skin package's padding and the host's own constant (macOS 6pt); absent means the host or skin decides. A host may keep a small floor so the selection highlight does not touch the edge (macOS 2pt).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_padding: Option<u8>,
     #[serde(default = "default_candidate_font_family")]
     pub candidate_font_family: String,
     /// Optional leading face for the Windows candidate glyph fallback chain.
@@ -2109,6 +2112,7 @@ impl Default for Preferences {
             candidate_scale_percent: default_candidate_scale_percent(),
             candidate_opacity_percent: default_candidate_opacity_percent(),
             candidate_corner_radius: None,
+            candidate_padding: None,
             candidate_font_family: default_candidate_font_family(),
             candidate_english_font: None,
             candidate_fallback_fonts: default_candidate_fallback_fonts(),
@@ -2749,6 +2753,7 @@ impl Preferences {
             || self
                 .candidate_corner_radius
                 .is_some_and(|radius| radius > 32)
+            || self.candidate_padding.is_some_and(|padding| padding > 16)
         {
             return Err(PreferencesError::InvalidCandidateWindowStyle);
         }
@@ -2842,7 +2847,7 @@ pub enum PreferencesError {
     InvalidCustomThemeBase,
     #[error("candidate font size must be between 12 and 32")]
     InvalidCandidateFontSize,
-    #[error("candidate window scale must be 50-200%, opacity 50-100% and corner radius 0-32")]
+    #[error("candidate window scale must be 50-200%, opacity 50-100%, corner radius 0-32 and padding 0-16")]
     InvalidCandidateWindowStyle,
     #[error("candidate text color must be #RRGGBB or omitted")]
     InvalidCandidateTextColor,

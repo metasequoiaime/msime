@@ -25,6 +25,7 @@ CONSUMERS = (
     "PrivacyPage.java",
     "SkinsPage.java",
     "TypingPage.java",
+    "TranslationServicePage.java",
     "VoicePage.java",
 )
 
@@ -36,10 +37,8 @@ def main() -> int:
     else:
         source = BASE.read_text(encoding="utf-8")
         required = (
-            "public abstract class ReloadingDetailPage extends DetailPage",
-            "@Nullable private LinearLayout column;",
-            "@Override protected final void buildContent(LinearLayout column, Bundle args)",
-            "this.column = column;",
+            "public abstract class ReloadingDetailPage extends ColumnDetailPage",
+            "@Override protected final void onColumnReady(Bundle args)",
             "onContentReady();",
             "protected void onContentReady()",
             "if (shouldReloadOnContentReady()) reload();",
@@ -47,14 +46,8 @@ def main() -> int:
             "onInitialReloadScheduled();",
             "protected void onInitialReloadScheduled()",
             "@Override protected void onBecameVisible()",
-            "if (column != null && shouldReloadWhenVisible()) reload();",
+            "if (contentColumn() != null && shouldReloadWhenVisible()) reload();",
             "protected boolean shouldReloadWhenVisible()",
-            "@Override public void onDestroyView()",
-            "column = null;",
-            "onContentDestroyed();",
-            "protected void onContentDestroyed()",
-            "@Nullable protected final LinearLayout contentColumn()",
-            "return column;",
             "protected abstract void reload();",
         )
         for snippet in required:

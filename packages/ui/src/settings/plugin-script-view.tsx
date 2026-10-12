@@ -282,7 +282,7 @@ export function ScriptGrantDialog({
           <span>{capabilityLabels[capability].title}</span>
           <span className="text-xs text-secondary">
             {capabilityLabels[capability].description}
-            {notes.length > 0 ? ` ${notes.join("")}` : ""}
+            {notes.join("")}
           </span>
         </span>
       ),

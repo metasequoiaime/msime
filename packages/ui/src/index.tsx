@@ -1709,6 +1709,8 @@ export interface HostCapabilities {
   candidate_window_opacity: boolean;
   /** The host rounds its candidate card by `candidate_corner_radius`, ahead of the skin package's radius. */
   candidate_corner_radius: boolean;
+  /** The host insets its candidates from the card's edge by `candidate_padding`, ahead of the skin package's padding. Only macOS so far. */
+  candidate_padding: boolean;
   candidate_follow_cursor: boolean;
   input_mode_hud: boolean;
   /** 宿主在系统菜单栏放一个常驻状态项显示当前输入模式。只有 macOS 提供：Windows 有托盘语言栏，Linux 有输入法面板，触屏键盘的键面已显示模式。 */
@@ -1903,6 +1905,8 @@ export type Preferences = {
   candidate_opacity_percent?: number;
   /** Candidate card corner radius in points (0-32). Absent or null follows the skin package's radius, then the host's own. */
   candidate_corner_radius?: number | null;
+  /** Space between the candidate card's edge and its candidates in points (0-16), before the scale. Absent or null follows the skin package, then the host's own (macOS 6pt). */
+  candidate_padding?: number | null;
   candidate_follow_cursor?: boolean;
   /** 切换中英文后在光标旁短暂显示的徽标（macOS、Windows、Linux 和鸿蒙 2in1）。 */
   input_mode_hud?: boolean;
@@ -2535,6 +2539,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showCandidateWindowScale,
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
+    showCandidatePadding,
     showInputModeHUD,
     showInputModeStatusItem,
     showVoiceCaptureDevices,
@@ -3078,6 +3083,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showCandidateWindowScale,
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
+    showCandidatePadding,
     showInputModeHUD,
     showInputModeStatusItem,
     showVoiceCaptureDevices,

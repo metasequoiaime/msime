@@ -20,7 +20,7 @@ class AndroidFeedbackViewLifecycleContract(unittest.TestCase):
     def test_submission_keeps_a_cancellable_future(self):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertIn("Future<?> submitTask;", source)
-        self.assertIn("submitTask = AboutPage.network(this", source)
+        self.assertIn("submitTask = NetworkTask.run(this", source)
 
 
 if __name__ == "__main__":

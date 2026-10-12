@@ -1,4 +1,5 @@
 #import "../../src/settings/ShuangpinKeymapPanel.h"
+#import "../../src/candidate/CandidateWindowLevel.h"
 #include <cassert>
 
 int main() {
@@ -6,6 +7,8 @@ int main() {
         [NSApplication sharedApplication];
         MSIMEShuangpinKeymapPanel *panel = [MSIMEShuangpinKeymapPanel new];
         panel.releasedWhenClosed = NO;
+        // 和候选窗同层级，截图工具的遮罩盖不住它（#7326）。
+        assert(panel.level == MSIMECandidateWindowLevel() && panel.level > NSScreenSaverWindowLevel);
         [panel setProfileName:@"xiaohe"];
         for (NSString *preedit in @[@"hk", @"hao", @"hao ", @""]) {
             NSDictionary *view = @{@"editing_text": @"hk", @"preedit": preedit};

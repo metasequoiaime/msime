@@ -1,15 +1,10 @@
 package app.msime.android.home;
 
 import android.os.Bundle;
-import android.widget.LinearLayout;
-import androidx.annotation.Nullable;
 
 /** 在首次构建和每次重新可见时刷新内容的详情页基类。 */
-public abstract class ReloadingDetailPage extends DetailPage {
-    @Nullable private LinearLayout column;
-
-    @Override protected final void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
+public abstract class ReloadingDetailPage extends ColumnDetailPage {
+    @Override protected final void onColumnReady(Bundle args) {
         onContentReady();
         if (shouldReloadOnContentReady()) reload();
         onInitialReloadScheduled();
@@ -25,23 +20,28 @@ public abstract class ReloadingDetailPage extends DetailPage {
     protected void onInitialReloadScheduled() {}
 
     @Override protected void onBecameVisible() {
-        if (column != null && shouldReloadWhenVisible()) reload();
+        if (contentColumn() != null && shouldReloadWhenVisible()) reload();
     }
 
     /** Allows a page to preserve active editing state when it becomes visible again. */
     protected boolean shouldReloadWhenVisible() { return true; }
 
-    @Override public void onDestroyView() {
-        column = null;
-        onContentDestroyed();
-        super.onDestroyView();
+    /** Saves one Android-local setting and refreshes the page after success or failure. */
+    protected final void saveLocalSetting(String key, Object value) {
+        KeyboardSheets.saveLocal(this, key, value, null, this::reload);
     }
 
-    /** Allows a page to release state tied to the current view. */
-    protected void onContentDestroyed() {}
+    /** Saves shared preferences and refreshes the page after either outcome. */
+    protected final void savePreferences(KeyboardSheets.Edit edit) {
+        KeyboardSheets.save(this, edit, this::reload, this::reload);
+    }
 
-    @Nullable protected final LinearLayout contentColumn() {
-        return column;
+    /** Saves shared preferences, runs an extra success action, then refreshes the page. */
+    protected final void savePreferences(KeyboardSheets.Edit edit, Runnable then) {
+        KeyboardSheets.save(this, edit, () -> {
+            then.run();
+            reload();
+        }, this::reload);
     }
 
     protected abstract void reload();

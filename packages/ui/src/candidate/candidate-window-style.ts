@@ -1,10 +1,11 @@
 import type { CSSProperties } from "react";
 
-/** The candidate window style preferences: whole-window scale, card opacity and card corner radius. Mirrors the bounds `Preferences::validate` enforces in client-core. */
+/** The candidate window style preferences: whole-window scale, card opacity, card corner radius and card padding. Mirrors the bounds `Preferences::validate` enforces in client-core. */
 export type CandidateWindowStylePreferences = {
   candidate_scale_percent?: number;
   candidate_opacity_percent?: number;
   candidate_corner_radius?: number | null;
+  candidate_padding?: number | null;
 };
 
 export const defaultCandidateScalePercent = 100;
@@ -14,6 +15,8 @@ export const candidateScaleSlider = { min: 75, max: 150, step: 5 } as const;
 export const candidateOpacitySlider = { min: 50, max: 100, step: 5 } as const;
 /** The core accepts up to 32 like a skin package's `corner_radius_dip`; the slider stops at 16, past which a card reads as a pill. */
 export const candidateCornerRadiusSlider = { min: 0, max: 16, step: 1 } as const;
+/** The core accepts 0-16; the slider starts at 2 because the macOS card keeps 2pt between the selection highlight and its edge, so 0 and 1 would draw the same as 2. */
+export const candidateCardPaddingSlider = { min: 2, max: 16, step: 1 } as const;
 
 function boundedInteger(value: unknown, min: number, max: number): number | null {
   return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max
@@ -34,6 +37,11 @@ export function candidateCornerRadius(value: unknown): number | null {
   return boundedInteger(value, 0, 32);
 }
 
+/** The user's card padding in points, or `null` when the card follows the skin package and then the host. */
+export function candidateCardPadding(value: unknown): number | null {
+  return boundedInteger(value, 0, 16);
+}
+
 /** The preference patch for a scale: the default is written as absent, as the core leaves it out of the document, so moving the slider back to 100% does not leave the draft looking edited. */
 export function candidateScalePatch(value: number): CandidateWindowStylePreferences {
   return { candidate_scale_percent: value === defaultCandidateScalePercent ? undefined : value };
@@ -50,9 +58,15 @@ export function candidateCornerRadiusPatch(value: number | null): CandidateWindo
   return { candidate_corner_radius: value ?? undefined };
 }
 
-/** The preview's custom properties for the window style: the scale zooms the card, the opacity mixes the surface and border towards transparent, and a set radius replaces the skin package's `--msime-skin-radius`. Spread it after the skin geometry so the user's radius wins, as it does on the hosts. The set radius is also `--msime-candidate-user-radius`, the only radius the rows are clamped to: a package's radius leaves them as the hosts leave theirs. */
+/** `null` hands the padding back to the skin package and the host, written as absent like the radius. */
+export function candidateCardPaddingPatch(value: number | null): CandidateWindowStylePreferences {
+  return { candidate_padding: value ?? undefined };
+}
+
+/** The preview's custom properties for the window style: the scale zooms the card, the opacity mixes the surface and border towards transparent, and a set radius replaces the skin package's `--msime-skin-radius`. Spread it after the skin geometry so the user's radius wins, as it does on the hosts. The set radius is also `--msime-candidate-user-radius`, the only radius the rows are clamped to: a package's radius leaves them as the hosts leave theirs. A set padding is `--msime-candidate-user-pad`, which the card's padding takes ahead of the host's `--msime-host-pad`. */
 export function candidateWindowStyle(preferences: CandidateWindowStylePreferences): CSSProperties {
   const radius = candidateCornerRadius(preferences.candidate_corner_radius);
+  const padding = candidateCardPadding(preferences.candidate_padding);
   return {
     "--msime-candidate-scale": String(
       candidateScalePercent(preferences.candidate_scale_percent) / 100,
@@ -61,5 +75,6 @@ export function candidateWindowStyle(preferences: CandidateWindowStylePreference
     ...(radius === null
       ? {}
       : { "--msime-skin-radius": `${radius}px`, "--msime-candidate-user-radius": `${radius}px` }),
+    ...(padding === null ? {} : { "--msime-candidate-user-pad": `${padding}px` }),
   } as CSSProperties;
 }

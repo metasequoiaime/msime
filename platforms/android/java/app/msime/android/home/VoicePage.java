@@ -2,7 +2,6 @@ package app.msime.android.home;
 
 import android.content.ActivityNotFoundException;
 import android.content.Context;
-import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
@@ -73,7 +72,6 @@ public final class VoicePage extends ReloadingDetailPage {
             List<LocalVoiceModels.Model> models, @Nullable String modelsError, boolean polishConfigured) {}
 
     /** 一次「测试」的结果：{@code message} 是共享层给的中文结果，不含凭据。 */
-    private record TestResult(boolean ok, String message) {}
 
     @Nullable private GroupCard.Row contributeRow;
     @Nullable private State lastState;
@@ -129,8 +127,7 @@ public final class VoicePage extends ReloadingDetailPage {
     }
 
     @Nullable private static State read(Context context) {
-        JSONObject snapshot = HostStore.loadPreferences(context);
-        JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
+        JSONObject preferences = KeyboardSheets.preferences(context);
         if (preferences == null) return null;
         VoiceConfiguration configuration = VoiceConfiguration.read(HostStore.directory(context), "settings");
         ResourcePacks.Pack runtime = ResourcePacks.pack(context.getFilesDir(), ResourcePacks.VOICE_RUNTIME);
@@ -237,7 +234,7 @@ public final class VoicePage extends ReloadingDetailPage {
             service.nav("识别接口", VoiceProviderPolicy.endpointProblem(provider, endpoint),
                 VoiceProviderPolicy.doubaoEndpointLabel(endpoint), () -> pickDoubaoEndpoint(provider, endpoint));
             String resource = InputViewValuePolicy.textOr(voice, "asr_resource_id", "").trim();
-            service.nav("资源 ID", null, resource.isEmpty() ? "默认" : shorten(resource), () -> editText("资源 ID",
+            service.nav("资源 ID", null, resource.isEmpty() ? "默认" : HomeTextPolicy.shortLabel(resource), () -> editText("资源 ID",
                 "火山引擎控制台里开通的识别资源；留空使用 volc.seedasr.sauc.duration", resource,
                 value -> saveVoice("asr_resource_id", value)));
             testRow(service, "voice.asr");
@@ -246,10 +243,10 @@ public final class VoicePage extends ReloadingDetailPage {
         }
         service.nav("API Key", null, hasToken ? "已设置" : "未设置", () -> editToken("asr", provider, "API Key"));
         String model = InputViewValuePolicy.textOr(voice, "asr_model", "").trim();
-        service.nav("模型", null, model.isEmpty() ? "默认" : shorten(model), () -> editText("模型",
+        service.nav("模型", null, model.isEmpty() ? "默认" : HomeTextPolicy.shortLabel(model), () -> editText("模型",
             "留空使用该服务的默认识别模型", model, value -> saveVoice("asr_model", value)));
         String problem = VoiceProviderPolicy.endpointProblem(provider, endpoint);
-        service.nav("接口地址", problem, endpoint.isEmpty() ? "默认" : shorten(endpoint),
+        service.nav("接口地址", problem, endpoint.isEmpty() ? "默认" : HomeTextPolicy.shortLabel(endpoint),
             () -> editEndpoint("asr", provider, endpoint));
         testRow(service, "voice.asr");
         service.footer("说完后录音上传到所选服务识别。API Key 只保存在本机，不随设置同步。");
@@ -275,7 +272,7 @@ public final class VoicePage extends ReloadingDetailPage {
      * @param installedModel 已装好的第一个本地模型目录，没有时为 null
      */
     private void saveProvider(String provider, @Nullable String installedModel) {
-        save(preferences -> {
+        savePreferences(preferences -> {
             JSONObject voice = KeyboardSheets.child(preferences, "voice_input");
             String from = InputViewValuePolicy.textOr(voice, "asr_provider", "");
             if (provider.equals(from)) return;
@@ -387,9 +384,7 @@ public final class VoicePage extends ReloadingDetailPage {
 
     private void openUrl(String url) {
         if (url.isEmpty()) return;
-        try {
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-        } catch (ActivityNotFoundException error) {
+        if (!LinkActions.open(requireContext(), url)) {
             MsToast.show(requireContext(), "没有可以打开链接的应用");
         }
     }
@@ -415,12 +410,10 @@ public final class VoicePage extends ReloadingDetailPage {
     private void manageModel(LocalVoiceModels.Model model, boolean selected) {
         OptionSheet sheet = new OptionSheet(requireContext(), model.title(), null);
         if (!selected) sheet.option("使用这个模型", false, () -> saveVoice("asr_model_path", model.path()));
-        sheet.option("删除", false, () -> new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("删除「" + model.title() + "」？")
-            .setMessage(selected ? "这是正在使用的模型，删除后本地识别和离线识别要重新下载或选用别的模型。" : "删除后要用时需要重新下载。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("删除", (dialog, which) -> removeModel(model, selected))
-            .show());
+        sheet.option("删除", false, () -> MessageDialog.confirm(requireContext(),
+            "删除「" + model.title() + "」？",
+            selected ? "这是正在使用的模型，删除后本地识别和离线识别要重新下载或选用别的模型。" : "删除后要用时需要重新下载。",
+            "删除", () -> removeModel(model, selected)));
         sheet.show();
     }
 
@@ -493,7 +486,7 @@ public final class VoicePage extends ReloadingDetailPage {
             field.setError(valid ? null : "含有不能用的字符");
             return valid;
         });
-        dialog.setPrimary("保存", values -> save(preferences -> {
+        dialog.setPrimary("保存", values -> savePreferences(preferences -> {
             JSONObject voice = KeyboardSheets.child(preferences, "voice_input");
             if (!provider.equals(InputViewValuePolicy.textOr(voice, prefix + "_provider", "")))
                 throw new JSONException("provider changed");
@@ -554,9 +547,6 @@ public final class VoicePage extends ReloadingDetailPage {
         return slots;
     }
 
-    private static String shorten(String value) {
-        return value.length() <= 24 ? value : value.substring(0, 23) + "…";
-    }
 
     /** 「润色」组：开关，打开后是服务、密钥、模型、接口、方案和「测试」。键盘读的同样是这些 `polish_*` 字段。 */
     private void polishGroup(LinearLayout target, JSONObject voice, State state) {
@@ -569,7 +559,7 @@ public final class VoicePage extends ReloadingDetailPage {
         boolean hasToken = !box.isEmpty() || (slots != null && !slots.optString(provider, "").trim().isEmpty());
         String status = VoicePolishSettingsPolicy.status(enabled, state.polishConfigured(), hasToken);
         // 两个开关在共享设置页一起写，任一个开着键盘就会润色，所以关的时候两个都关。
-        polish.toggle("润色识别结果", status != null ? status : "识别后交给大模型整理文字再上屏", enabled, checked -> save(
+        polish.toggle("润色识别结果", status != null ? status : "识别后交给大模型整理文字再上屏", enabled, checked -> savePreferences(
             preferences -> {
                 JSONObject next = KeyboardSheets.child(preferences, "voice_input");
                 next.put("polish_text", checked);
@@ -579,17 +569,17 @@ public final class VoicePage extends ReloadingDetailPage {
         polish.nav("润色服务", null, VoicePolishSettingsPolicy.providerLabel(provider), () -> pickPolishProvider(provider));
         polish.nav("润色 API Key", null, hasToken ? "已设置" : "未设置", () -> editToken("polish", provider, "API Key"));
         String model = InputViewValuePolicy.textOr(voice, "polish_model", "").trim();
-        polish.nav("润色模型", null, model.isEmpty() ? "默认" : shorten(model), () -> editText("润色模型",
+        polish.nav("润色模型", null, model.isEmpty() ? "默认" : HomeTextPolicy.shortLabel(model), () -> editText("润色模型",
             "留空使用该服务的默认模型", model, value -> saveVoice("polish_model", value)));
         String endpoint = InputViewValuePolicy.textOr(voice, "polish_endpoint", "").trim();
         polish.nav("润色接口地址", VoiceProviderPolicy.endpointProblem(provider, endpoint),
-            endpoint.isEmpty() ? "默认" : shorten(endpoint), () -> editEndpoint("polish", provider, endpoint));
+            endpoint.isEmpty() ? "默认" : HomeTextPolicy.shortLabel(endpoint), () -> editEndpoint("polish", provider, endpoint));
         String prompt = InputViewValuePolicy.textOr(voice, "polish_prompt_id", "");
         polish.nav("润色方案", null, VoicePolishSettingsPolicy.promptLabel(prompt), () -> pickPrompt(prompt));
         String field = VoicePolishSettingsPolicy.customField(prompt);
         if (field != null) {
             String custom = InputViewValuePolicy.textOr(voice, field, "");
-            polish.nav("方案内容", null, custom.trim().isEmpty() ? "未填写" : shorten(custom.trim()),
+            polish.nav("方案内容", null, custom.trim().isEmpty() ? "未填写" : HomeTextPolicy.shortLabel(custom.trim()),
                 () -> editCustomPrompt(field, custom));
         }
         testRow(polish, "voice.polish");
@@ -609,7 +599,7 @@ public final class VoicePage extends ReloadingDetailPage {
 
     /** 换润色服务：与识别服务相同，凭据换槽，接口和模型清空交给共享层补该服务的默认值。 */
     private void savePolishProvider(String provider) {
-        save(preferences -> {
+        savePreferences(preferences -> {
             JSONObject voice = KeyboardSheets.child(preferences, "voice_input");
             String from = InputViewValuePolicy.textOr(voice, "polish_provider", "");
             if (provider.equals(from)) return;
@@ -650,31 +640,12 @@ public final class VoicePage extends ReloadingDetailPage {
         group.button("测试连接", "用现在保存的设置发一次请求，最长约 15 秒", "测试", () -> {
             MsToast.show(requireContext(), "正在测试…");
             if (!testing.add(service)) return;
-            HostTask.runNetwork(this, context -> runTest(context, service), result -> {
+            HostTask.runNetwork(this, context -> ServiceCredentialTest.voice(HostStore.directory(context), service), result -> {
                 testing.remove(service);
                 if (!isAdded()) return;
-                new MaterialAlertDialogBuilder(requireContext())
-                    .setTitle(VoicePolishSettingsPolicy.testTitle(result.ok()))
-                    .setMessage(result.message())
-                    .setPositiveButton("好", null)
-                    .show();
+                MessageDialog.show(requireContext(), VoicePolishSettingsPolicy.testTitle(result.ok()), result.message());
             });
         });
-    }
-
-    private static TestResult runTest(Context context, String service) {
-        try {
-            JSONObject request = new JSONObject()
-                .put("preferences_directory", HostStore.directory(context))
-                .put("service", service);
-            JSONObject envelope = new JSONObject(NativeClient.testVoiceCredential(request.toString()));
-            JSONObject value = envelope.optJSONObject("value");
-            if (!envelope.optBoolean("ok", false) || value == null) return new TestResult(false, "测试没能完成，请稍后重试。");
-            return new TestResult(value.optBoolean("ok", false), value.optString("message", ""));
-        } catch (JSONException | RuntimeException | LinkageError error) {
-            // 共享库没加载上、响应读不懂都按测试没完成处理，不让设置页崩掉。
-            return new TestResult(false, "测试没能完成，请稍后重试。");
-        }
     }
 
     private void pickLanguage(String selected, GroupCard.Row row) {
@@ -707,24 +678,21 @@ public final class VoicePage extends ReloadingDetailPage {
     private void onContributeChanged(boolean checked) {
         GroupCard.Row row = contributeRow;
         if (!checked) {
-            saveLocal(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO, false);
+            saveLocalSetting(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO, false);
             return;
         }
         if (row != null) row.setChecked(false);
-        new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("上传语音以改进识别？")
-            .setMessage("开启后，每次语音输入的音频和识别出的文字会上传到水杉云，只用于改进语音识别。数据保存 180 天，到期自动删除；你可以随时在这里关闭。隐私模式、密码框和不允许个性化学习的输入框里不会上传。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("开启", (dialog, which) -> {
+        MessageDialog.confirm(requireContext(), "上传语音以改进识别？",
+            "开启后，每次语音输入的音频和识别出的文字会上传到水杉云，只用于改进语音识别。数据保存 180 天，到期自动删除；你可以随时在这里关闭。隐私模式、密码框和不允许个性化学习的输入框里不会上传。",
+            "开启", () -> {
                 GroupCard.Row current = contributeRow;
                 if (current != null) current.setChecked(true);
-                saveLocal(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO, true);
-            })
-            .show();
+                saveLocalSetting(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO, true);
+            });
     }
 
     private void saveVoice(String member, Object value) {
-        save(preferences -> {
+        savePreferences(preferences -> {
             JSONObject voice = preferences.optJSONObject("voice_input");
             if (voice == null) {
                 voice = new JSONObject();
@@ -759,10 +727,6 @@ public final class VoicePage extends ReloadingDetailPage {
         ResourcePackService.request(requireContext(), ResourcePacks.VOICE_RUNTIME, size);
     }
 
-    private void saveLocal(String key, Object value) {
-        KeyboardSheets.saveLocal(this, key, value, null, this::reload);
-    }
-
     /** 长按空格在本地设置，工具栏按钮在共享偏好；先写本地，再写共享。 */
     private void saveTrigger(int trigger) {
         HostTask.run(this, context -> KeyboardSheets.writeLocal(context, AndroidLocalSettings.SPACE_VOICE,
@@ -771,11 +735,7 @@ public final class VoicePage extends ReloadingDetailPage {
             : null, this::afterSave);
     }
 
-    private void save(KeyboardSheets.Edit edit) {
-        HostTask.run(this, context -> KeyboardSheets.write(context, edit), this::afterSave);
-    }
-
-    /** 成功失败都重新渲染：选择行的点击回调捕获的是渲染时的值，不重建的话再次打开会勾着旧选项。 */
+    /** The combined local/shared write needs its own failure message before reloading. */
     private void afterSave(@Nullable JSONObject saved) {
         if (saved == null) MsToast.show(requireContext(), "保存失败，请重试");
         reload();

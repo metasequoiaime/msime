@@ -1029,6 +1029,15 @@ int main(int argc, char **argv) {
       autocorrectMarker();
       koreanHanjaGlossRow();
       scriptAnnotationRow();
+      const auto sentence = FcitxState::sentenceTranslationQuery(
+          Json{{"generation", 17}, {"candidates", Json::array()}}, "合成候选", "fr");
+      require(sentence.at("sentence") == true && sentence.at("target_language") == "fr",
+              "manual sentence translation keeps the requested mode and language");
+      auto providerTexts = Json::array();
+      for (const auto &candidate : sentence.at("candidates"))
+        providerTexts.push_back(candidate.at("text"));
+      require(providerTexts == Json::array({"合成候选"}),
+              "manual sentence candidate reaches the translation provider as text");
       std::cout << "Fcitx5 candidate rows passed\n";
       return 0;
     }

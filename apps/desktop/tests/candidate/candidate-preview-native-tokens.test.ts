@@ -177,7 +177,7 @@ test("the macOS preview selects with a solid accent, white text and no bar, in t
 });
 
 test("the card geometry reads the host values, keeping the old ones where no host sets them", () => {
-  // 皮肤包或用户设的圆角（`--msime-skin-radius`）先于宿主默认值。
+  // 皮肤包或用户设的圆角（`--msime-skin-radius`）先于宿主默认值；用户设的内边距（`--msime-candidate-user-pad`）同样先于宿主的 `--msime-host-pad`。
   expect(
     card.match(/border-radius:var\(--msime-skin-radius,var\(--msime-host-card-radius,6px\)\)/g),
   ).toHaveLength(2);
@@ -185,10 +185,10 @@ test("the card geometry reads the host values, keeping the old ones where no hos
     card.match(/border:var\(--msime-host-border-width,1\.5px\)solidvar\(--cand-border\)/g),
   ).toHaveLength(2);
   expect(card).toContain(
-    "--msime-candidate-pad-x:var(--msime-host-pad,1px);--msime-candidate-pad-y:var(--msime-host-pad,2px);",
+    "--msime-candidate-pad-x:var(--msime-candidate-user-pad,var(--msime-host-pad,1px));--msime-candidate-pad-y:var(--msime-candidate-user-pad,var(--msime-host-pad,2px));",
   );
   expect(card).toContain(
-    "--msime-candidate-pad-x:var(--msime-host-pad,2px);--msime-candidate-pad-y:var(--msime-host-pad,2px);",
+    "--msime-candidate-pad-x:var(--msime-candidate-user-pad,var(--msime-host-pad,2px));--msime-candidate-pad-y:var(--msime-candidate-user-pad,var(--msime-host-pad,2px));",
   );
   // 行圆角：宿主的行圆角，用户设了窗口圆角时不超过它。
   expect(

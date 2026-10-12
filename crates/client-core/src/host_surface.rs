@@ -180,7 +180,7 @@ pub struct HostCapabilities {
     /// candidate size into the desktop panel's single font, but the composition itself is drawn by
     /// the focused application, so a separate preedit size would have nothing to change there.
     pub candidate_preedit_font: bool,
-    /// The host can hide the candidate panel's page indicator without changing pagination.
+    /// The host can hide the candidate panel's page indicator without changing pagination. On macOS that also hides the ‹ › arrows sharing the card's top row.
     pub candidate_page_number: bool,
     /// 宿主按 `show_app_logo` 显示或隐藏候选窗和悬浮工具栏左端的水杉 logo。
     pub app_logo: bool,
@@ -198,6 +198,8 @@ pub struct HostCapabilities {
     pub candidate_window_opacity: bool,
     /// The host rounds its candidate card by `candidate_corner_radius`, ahead of the skin package's radius and its own constant.
     pub candidate_corner_radius: bool,
+    /// The host insets its candidates from the card's edge by `candidate_padding`, ahead of the skin package's padding and its own constant.
+    pub candidate_padding: bool,
     /// The host places its own candidate window and can therefore pin it where
     /// it first appeared. A host whose desktop owns the placement - IBus draws
     /// and positions the candidate list itself - cannot honour the choice, so
@@ -543,7 +545,8 @@ impl HostCapabilities {
             // candidate size into the panel's font: the IBus panel settings or
             // the Fcitx5 classic UI.
             candidate_font_controls: true,
-            candidate_page_number: matches!(platform, HostPlatform::Linux),
+            // Linux 的开关只去掉辅助文本里的「当前页/总页数」；macOS 候选窗首行的「1 / 3」和 ‹ › 一起隐藏，只留翻页箭头的话首行照样占高度，候选窗不会变紧凑（#7316）。键盘和滚轮翻页两边都不受影响。
+            candidate_page_number: matches!(platform, HostPlatform::Linux | HostPlatform::Macos),
             // macOS 和 Windows 按这个开关画 logo；Linux 和鸿蒙的候选窗照常显示 logo，不提供这个开关。
             app_logo: matches!(platform, HostPlatform::Macos | HostPlatform::Windows),
             // The iOS strip scales its composition line by `candidate_preedit_font_size`.
@@ -596,6 +599,8 @@ impl HostCapabilities {
                     | HostPlatform::Linux
                     | HostPlatform::Harmony
             ),
+            // 只有 macOS 候选窗按 `candidate_padding` 改卡片内边距（#7316）。Windows 的卡片内边距写在 `candidate_card_metrics` 里，Fcitx5 主题和鸿蒙卡片各有自己的边距，接上之前不声明，免得设置页出现一个改了没反应的滑块。
+            candidate_padding: matches!(platform, HostPlatform::Macos),
             // macOS CandidatePanel and the HarmonyOS candidate panel track the current insertion
             // rect themselves; expose the shared toggle on both hosts.
             candidate_follow_cursor: matches!(

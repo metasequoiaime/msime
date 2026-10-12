@@ -229,7 +229,7 @@ public final class DoubaoRecognizer {
         try {
             JSONObject response = new JSONObject(NativeClient.doubaoDecodeFrame(payload));
             if (!JsonPolicy.strictTrue(response.opt("ok"))) return null;
-            JSONObject value = response.optJSONObject("value");
+            JSONObject value = JsonPolicy.objectValue(response);
             if (value == null) return null;
             // An error frame ends the session; the code is the provider's and is not shown.
             if (value.has("error_code")) return null;

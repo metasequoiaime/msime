@@ -2,10 +2,7 @@ package app.msime.android.home;
 
 import app.msime.android.TextPolicy;
 import android.app.Activity;
-import android.content.ActivityNotFoundException;
 import android.content.Context;
-import android.content.Intent;
-import android.net.Uri;
 import android.os.Handler;
 import androidx.core.content.ContextCompat;
 import app.msime.android.AppEdition;
@@ -152,10 +149,7 @@ final class SignIn {
                     finished.accept(message);
                     return;
                 }
-                try {
-                    activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(address))
-                        .addCategory(Intent.CATEGORY_BROWSABLE));
-                } catch (ActivityNotFoundException absent) {
+                if (!LinkActions.openBrowsable(activity, address)) {
                     AppleWebSignIn.clearPending(context);
                     if (appleWaiter == finished) appleWaiter = null;
                     finished.accept("这台设备上没有可以打开 Apple 登录页的浏览器");

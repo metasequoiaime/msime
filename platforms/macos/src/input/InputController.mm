@@ -8,6 +8,7 @@
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
 #import "../candidate/CandidatePlacement.h"
+#import "../candidate/CandidateWindowLevel.h"
 #import "../candidate/CandidateGlossSenses.h"
 #import "InputSourceRegistration.h"
 #import "../core/UpdateController.h"
@@ -6668,14 +6669,14 @@ static BOOL MSIMESentenceCandidateText(NSString *text) {
         NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
         const MSIMECandidatePageGeometry geometry =
             [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:_skinShowsSelectedBar inset:12 * scale
-                                 paging:pageCount > 1
+                                 paging:pageCount > 1 && _appearance.showsCandidatePageNumber
                                 visible:screen ? screen.visibleFrame : NSMakeRect(0, 0, 1440, 900) preeditWidth:0 minimumWidth:0];
         clearance = MAX(clearance, geometry.rowsHeight + 24 * scale);
     }
     id preedit = [_view[@"preedit"] isKindOfClass:NSString.class] ? _view[@"preedit"] : editing;
     if ([_view[@"candidates"] count]) {
-        // The card's top row: the brand mark, the reading when it is shown, and the page indicator whenever there is more than one page.
-        CGFloat header = pageCount > 1 || (_appearance.showsAppLogo && MSIMECandidateLogoImage()) ? MSIMECandidateHeaderHeight * scale : 0;
+        // The card's top row: the brand mark, the reading when it is shown, and the page indicator whenever there is more than one page and `show_candidate_page_number` is on.
+        CGFloat header = (pageCount > 1 && _appearance.showsCandidatePageNumber) || (_appearance.showsAppLogo && MSIMECandidateLogoImage()) ? MSIMECandidateHeaderHeight * scale : 0;
         if (_appearance.showsCandidatePreedit && [preedit length]) {
             NSFont *preeditFont = MSIMECandidatePreeditFont(_appearance);
             header = MAX(header, MAX(22.0 * scale, MSIMECandidateTextHeight(preedit, preeditFont) + 6.0 * scale));
@@ -6755,7 +6756,9 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     MSIMEStrictUnsignedIntegerValue(_view[@"page"], &page);
     MSIMEStrictUnsignedIntegerValue(_view[@"page_count"], &pageCount);
     const BOOL paging = pageCount > 1;
-    // 首行打头是水杉 logo（悬浮工具栏和中英提示也是），然后是拼音；「1 / 3」和 ‹ › 在右侧。logo 按 `show_app_logo` 显示，隐藏时拼音顶到左边，没有拼音也只有一页时首行不占高度。
+    // 「1 / 3」和 ‹ › 按 `show_candidate_page_number` 一起显示或隐藏：只藏页码的话箭头还留在首行，首行照样占高度（#7316）。隐藏后键盘和滚轮照常翻页，下面面板的 hasPreviousPage / hasNextPage 不看这个开关。
+    const BOOL pageControls = paging && _appearance.showsCandidatePageNumber;
+    // 首行打头是水杉 logo（悬浮工具栏和中英提示也是），然后是拼音；「1 / 3」和 ‹ › 在右侧。logo 按 `show_app_logo` 显示，隐藏时拼音顶到左边；logo、拼音和翻页控件都不显示时首行不占高度。
     NSImage *logo = _appearance.showsAppLogo ? MSIMECandidateLogoImage() : nil;
     const CGFloat logoSide = MSIMECandidateLogoSide * scale;
     const CGFloat logoWidth = logo ? logoSide + MSIMECandidateLogoGap * scale : 0;
@@ -6763,17 +6766,17 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     const CGFloat arrowWidth = MSIMECandidatePageArrowWidth * scale;
     const CGFloat indicatorGap = MSIMECandidatePageIndicatorGap * scale;
     NSFont *pageIndicatorFont = [NSFont monospacedDigitSystemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:NSFontWeightRegular];
-    NSString *pageIndicator = paging ? [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(page + 1), (unsigned long)pageCount] : @"";
-    const CGFloat pageIndicatorWidth = paging ? ceil([pageIndicator sizeWithAttributes:@{NSFontAttributeName: pageIndicatorFont}].width) : 0;
-    const CGFloat pageControlsWidth = paging ? pageIndicatorWidth + indicatorGap + 2 * arrowWidth : 0;
-    const CGFloat headerHeight = MAX(preeditHeight, paging || logo ? headerRow : 0);
+    NSString *pageIndicator = pageControls ? [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(page + 1), (unsigned long)pageCount] : @"";
+    const CGFloat pageIndicatorWidth = pageControls ? ceil([pageIndicator sizeWithAttributes:@{NSFontAttributeName: pageIndicatorFont}].width) : 0;
+    const CGFloat pageControlsWidth = pageControls ? pageIndicatorWidth + indicatorGap + 2 * arrowWidth : 0;
+    const CGFloat headerHeight = MAX(preeditHeight, pageControls || logo ? headerRow : 0);
     NSFont *numberFont = MSIMECandidateNumberFont(font);
     NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
     const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap : 0;
-    const CGFloat headerWidth = preedit.length || paging || logo ? 2 * inset + logoWidth + preeditWidth + (preedit.length && paging ? indicatorGap : 0) + pageControlsWidth : 0;
+    const CGFloat headerWidth = preedit.length || pageControls || logo ? 2 * inset + logoWidth + preeditWidth + (preedit.length && pageControls ? indicatorGap : 0) + pageControlsWidth : 0;
     const MSIMECandidatePageGeometry pageGeometry =
         [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:geometry.showSelectedBar inset:inset
-                             paging:paging visible:visible preeditWidth:headerWidth
+                             paging:pageControls visible:visible preeditWidth:headerWidth
                        minimumWidth:MAX(skin.minWidthDip, skin.decorationWidthDip)];
     const CGFloat width = pageGeometry.width;
     if (!_panel) {
@@ -6787,7 +6790,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
             [controller apply:[controller->_session command:previous ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
         };
         _panel = panel;
-        _panel.level = NSPopUpMenuWindowLevel;
+        _panel.level = MSIMECandidateWindowLevel();
         _panel.hasShadow = YES;
         _panel.hidesOnDeactivate = NO;
         _panel.becomesKeyOnlyIfNeeded = YES;
@@ -6911,7 +6914,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
         button.alignment = NSTextAlignmentLeft;
         [content addSubview:button];
     }
-    if (paging) {
+    if (pageControls) {
         // Right-aligned in the top row, centred on the reading when that is taller than the arrows.
         const CGFloat controlsBottom = headerBottom + floor((headerHeight - headerRow) / 2);
         const CGFloat arrowsLeft = width - inset - 2 * arrowWidth;
@@ -6954,7 +6957,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
         }
         label.showsCaret = MSIMEStrictBoolean(_view[@"focused"]);
         label.frame = NSMakeRect(inset + logoWidth, headerBottom + floor((headerHeight - preeditHeight) / 2),
-                                 width - 2 * inset - logoWidth - (paging ? pageControlsWidth + indicatorGap : 0), preeditHeight);
+                                 width - 2 * inset - logoWidth - (pageControls ? pageControlsWidth + indicatorGap : 0), preeditHeight);
         [content addSubview:label];
     }
     if (logo) {

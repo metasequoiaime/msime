@@ -10,6 +10,10 @@ public final class NoticeBannerSmoke {
             "notice fields reject booleans instead of coercing them");
         check(JsonPolicy.strictString(null) == null,
             "notice fields reject missing values");
+        check(JsonPolicy.objectValue(null) == null,
+            "failed or missing envelopes have no object value");
+        check(JsonPolicy.arrayValue(null) == null,
+            "failed or missing envelopes have no array value");
         System.out.println("Android notice field policy passed");
     }
 

@@ -59,6 +59,7 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     candidate_window_scale: false,
     candidate_window_opacity: false,
     candidate_corner_radius: false,
+    candidate_padding: false,
     helpcode_shift_entry: mobile,
     skin_directory_import: false,
     touch_toolbar_components: false,

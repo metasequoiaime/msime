@@ -51,12 +51,13 @@ inline float CandidateRowRadius(const SkinTokens &tokens, bool highlighted, bool
     return radius;
 }
 
-// The user's own 候选窗 style from the shared preferences: candidate_scale_percent and candidate_opacity_percent as factors, and candidate_corner_radius in points, none to keep the theme's or the package's card radius. The defaults leave a skin exactly as it was resolved.
+// The user's own 候选窗 style from the shared preferences: candidate_scale_percent and candidate_opacity_percent as factors, candidate_corner_radius in points, none to keep the theme's or the package's card radius, and candidate_padding in points, none to keep the theme's or the package's `pad`. The defaults leave a skin exactly as it was resolved.
 struct CandidateWindowStyle
 {
     double scale = 1.0;
     double opacity = 1.0;
     std::optional<double> cornerRadius;
+    std::optional<double> padding;
 };
 
 struct SkinColors

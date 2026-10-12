@@ -3,6 +3,7 @@ package app.msime.android.home;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import app.msime.android.CloudApi;
+import app.msime.android.DeviceNamePolicy;
 import app.msime.android.DeviceDataApi;
 import java.util.List;
 
@@ -68,7 +69,7 @@ public final class DevicesPage extends ReloadingDetailPage {
         long now = System.currentTimeMillis();
         for (Object item : sessions) {
             if (!(item instanceof DeviceDataApi.Session session)) continue;
-            String name = session.name().isEmpty() ? "未知设备" : session.name();
+            String name = DeviceNamePolicy.display(session.name());
             StringBuilder detail = new StringBuilder(platformName(session.platform()));
             if (!session.appVersion().isEmpty()) detail.append(' ').append(session.appVersion());
             String active = DeviceDataApi.relativeTime(now, session.lastActive());

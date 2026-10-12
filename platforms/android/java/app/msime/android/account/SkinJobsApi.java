@@ -72,8 +72,7 @@ public final class SkinJobsApi {
             }
             try {
                 JSONObject root = new JSONObject(response == null ? "" : response);
-                JSONArray plans = JsonPolicy.strictTrue(root.opt("ok"))
-                    ? root.optJSONArray("value") : null;
+                JSONArray plans = JsonPolicy.arrayValue(root);
                 if (plans == null) throw invalid("ai_skin_response");
                 return plans;
             } catch (JSONException error) {
@@ -121,7 +120,7 @@ public final class SkinJobsApi {
 
     /** 服务端今天的生成次数已用完（429 `rate_limit_exceeded`）。 */
     public static boolean quotaExhausted(CloudApi.Failure failure) {
-        return failure.status == 429;
+        return failure.rateLimited();
     }
 
     /** 这个部署没有开 AI 皮肤（任何 503），入口应当隐藏。 */
@@ -371,8 +370,7 @@ public final class SkinJobsApi {
     private static JSONObject value(String response) throws CloudApi.Failure {
         try {
             JSONObject root = new JSONObject(response == null ? "" : response);
-            JSONObject value = JsonPolicy.strictTrue(root.opt("ok"))
-                ? root.optJSONObject("value") : null;
+            JSONObject value = JsonPolicy.objectValue(root);
             if (value == null) throw invalid("ai_skin_invalid");
             return value;
         } catch (JSONException error) {

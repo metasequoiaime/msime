@@ -239,7 +239,7 @@ final class KeyboardSheets {
         labelParams.setMarginStart(DimensionPolicy.pixels(context, labelMarginStart));
         row.addView(label, labelParams);
         ViewPolicy.makeClickable(row, context, action);
-        row.setAccessibilityDelegate(buttonDelegate(title));
+        row.setAccessibilityDelegate(HomeButtonPolicy.buttonDelegate(title));
         return row;
     }
 
@@ -268,7 +268,7 @@ final class KeyboardSheets {
             ViewPolicy.setTextMinHeightDp(context, button, Ui.COMPACT_BUTTON_MIN_HEIGHT);
             ViewPolicy.setEnabled(button, false);
         }
-        button.setAccessibilityDelegate(buttonDelegate(label + "，" + title));
+        button.setAccessibilityDelegate(HomeButtonPolicy.buttonDelegate(label + "，" + title));
         LinearLayout.LayoutParams params = LayoutPolicy.rowGapParams(context, Ui.ROW_GAP);
         row.addView(button, params);
         return row;
@@ -281,7 +281,7 @@ final class KeyboardSheets {
             ViewPolicy.ripple(context, primary ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.card(context), DimensionPolicy.pixels(context, 16)),
             Ui.ACTION_BUTTON_MIN_HEIGHT, action);
         ViewPolicy.setHorizontalPaddingDp(context, button, 16);
-        button.setAccessibilityDelegate(buttonDelegate(label));
+        button.setAccessibilityDelegate(HomeButtonPolicy.buttonDelegate(label));
         return button;
     }
 
@@ -319,15 +319,6 @@ final class KeyboardSheets {
         return texts;
     }
 
-    static View.AccessibilityDelegate buttonDelegate(CharSequence description) {
-        return new View.AccessibilityDelegate() {
-            @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
-                super.onInitializeAccessibilityNodeInfo(host, info);
-                info.setClassName(Button.class.getName());
-                info.setContentDescription(description);
-            }
-        };
-    }
 
     /** 「我的」页面共用的图标导航行，支持副标题、尾部值和可选点击行为。 */
     static LinearLayout iconNavRow(Context context, @DrawableRes int icon, CharSequence title,
@@ -367,21 +358,4 @@ final class KeyboardSheets {
         return row;
     }
 
-    /** 构造详情卡片行尾的 tonal 胶囊按钮；调用方只需绑定业务点击行为。 */
-    static TextView tonalButton(Context context, CharSequence label, CharSequence description, int weight) {
-        TextView button = ViewPolicy.pillButton(context, label, Ui.TEXT_BUTTON_SMALL, weight,
-            ThemeColorPolicy.accentSoft(context), ThemeColorPolicy.accent(context), Ui.BUTTON_PADDING_H, Ui.BUTTON_PADDING_V,
-            Ui.COMPACT_BUTTON_MIN_HEIGHT, 0);
-        button.setAccessibilityDelegate(buttonDelegate(description));
-        ViewPolicy.setPoliteLiveRegion(button);
-        return button;
-    }
-
-    /** 构造并绑定详情卡片行尾的 tonal 胶囊按钮。 */
-    static TextView tonalButton(Context context, CharSequence label, CharSequence description, int weight,
-            Runnable action) {
-        TextView button = tonalButton(context, label, description, weight);
-        ViewPolicy.bindClick(button, action);
-        return button;
-    }
 }

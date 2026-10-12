@@ -36,6 +36,7 @@ export function AppearanceSettingsPage() {
     showCandidateWindowScale,
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
+    showCandidatePadding,
     snapshot,
     draft,
     setDraft,
@@ -127,6 +128,7 @@ export function AppearanceSettingsPage() {
           {showPageNumber && (
             <CandidatePageNumberSection
               value={draft.show_candidate_page_number}
+              platform={host?.platform}
               onChange={(show_candidate_page_number) =>
                 appearanceActions.onPreferencesChange({ show_candidate_page_number })
               }
@@ -182,6 +184,7 @@ export function AppearanceSettingsPage() {
         platform={host?.platform}
         showOpacity={showCandidateWindowOpacity}
         showCornerRadius={showCandidateCornerRadius}
+        showPadding={showCandidatePadding}
         onChange={appearanceActions.onPreferencesChange}
       >
         <LinkRow
@@ -220,6 +223,7 @@ function HarmonyPhoneCandidateGroups() {
     showCandidateWindowScale,
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
+    showCandidatePadding,
     draft,
     setDraft,
     mobileKeyboardFeedback,
@@ -257,6 +261,7 @@ function HarmonyPhoneCandidateGroups() {
         {host?.candidate_page_number === true && (
           <CandidatePageNumberSection
             value={draft.show_candidate_page_number}
+            platform={host?.platform}
             onChange={(show_candidate_page_number) =>
               appearanceActions.onPreferencesChange({ show_candidate_page_number })
             }
@@ -311,12 +316,13 @@ function HarmonyPhoneCandidateGroups() {
         </MoreOptions>
       </GroupList>
       {/* 手机候选栏有自己的底色和圆角，所以这些只在某个宿主在手机上声明支持时才出现；设计里这一页不放通往主题页的链接。 */}
-      {(showCandidateWindowOpacity || showCandidateCornerRadius) && (
+      {(showCandidateWindowOpacity || showCandidateCornerRadius || showCandidatePadding) && (
         <CandidateWindowStyleSection
           preferences={draft}
           platform={host?.platform}
           showOpacity={showCandidateWindowOpacity}
           showCornerRadius={showCandidateCornerRadius}
+          showPadding={showCandidatePadding}
           onChange={appearanceActions.onPreferencesChange}
         />
       )}

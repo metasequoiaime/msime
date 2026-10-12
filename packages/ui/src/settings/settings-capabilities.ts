@@ -59,6 +59,8 @@ export function settingsCapabilities({
   const showCandidateWindowScale = host ? host.candidate_window_scale : true;
   const showCandidateWindowOpacity = host ? host.candidate_window_opacity : true;
   const showCandidateCornerRadius = host ? host.candidate_corner_radius : true;
+  // 卡片内边距目前只有 macOS 候选窗读；没有宿主时（网页预览）照样给出，与圆角一致。
+  const showCandidatePadding = host ? host.candidate_padding : true;
   const showInputModeHUD = host ? host.input_mode_hud : false;
   const showInputModeStatusItem = host ? host.input_mode_status_item : false;
   const showVoiceCaptureDevices =
@@ -116,6 +118,7 @@ export function settingsCapabilities({
     showCandidateWindowScale,
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
+    showCandidatePadding,
     showInputModeHUD,
     showInputModeStatusItem,
     showVoiceCaptureDevices,
