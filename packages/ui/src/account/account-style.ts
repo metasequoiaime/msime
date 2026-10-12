@@ -8,6 +8,7 @@
  */
 
 import { fieldLabel } from "../core/form-style";
+import { rowText } from "../core/row-style";
 
 export const page = "flex flex-col gap-3.5";
 export const section = "section m-0";
@@ -210,7 +211,7 @@ export const downloadHero =
   "flex min-w-0 items-center gap-3.5 rounded-[20px] bg-[var(--accent-soft)] p-4 [color:var(--p-text)]";
 export const downloadHeroTile =
   "flex size-11 flex-none items-center justify-center rounded-xl [background:var(--accent-color)] [color:var(--p-on-accent)]";
-export const downloadHeroText = "flex min-w-0 flex-1 flex-col gap-0.5";
+export const downloadHeroText = rowText;
 export const downloadHeroTitle = "text-[15px] font-semibold";
 export const downloadHeroUrl = "truncate text-[13px] [color:var(--p-sub)]";
 export const downloadPill =
@@ -221,7 +222,7 @@ export const downloadRow =
 export const downloadRowButton = "cursor-pointer active:bg-[var(--p-press)]";
 export const downloadTile =
   "flex size-9 flex-none items-center justify-center rounded-[9px] bg-[var(--p-seg-bg)] [color:var(--p-text)]";
-export const downloadRowText = "flex min-w-0 flex-1 flex-col gap-0.5";
+export const downloadRowText = rowText;
 export const downloadRowName = "text-[15px] font-semibold";
 export const downloadRowMeta = "text-xs [color:var(--p-sub)]";
 export const downloadRowPill = (current: boolean) =>

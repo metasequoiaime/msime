@@ -2,6 +2,8 @@
  * Class strings for the platform controls in `platform-controls.tsx`. Every length and colour is a `--p-*` token from the `[data-platform]` layer in `styles.css`, so one markup takes each platform's shape. Values that Tailwind could read either as a colour or as a size (`text-`, `shadow-`, `border-`) are written as arbitrary properties so the property is never inferred.
  */
 
+import { rowText as sharedRowText } from "./row-style";
+
 // ---- groups and rows ----
 
 export const group = "flex min-w-0 flex-col gap-[var(--p-g-title-gap)]";
@@ -19,7 +21,7 @@ export const row =
   "flex min-h-[var(--p-row-h)] min-w-0 items-center gap-[var(--p-row-ctl-gap)] rounded-[var(--p-row-r)] bg-[var(--p-row-bg)] [padding:var(--p-row-pad)] [box-shadow:var(--p-row-shadow)]";
 /** Windows leads each card with a glyph; the other platforms set `--p-row-icon: none`. */
 export const rowIcon = "size-5 shrink-0 items-center justify-center [display:var(--p-row-icon)]";
-export const rowText = "flex min-w-0 flex-1 flex-col gap-0.5";
+export const rowText = sharedRowText;
 export const rowTitle = "block [font-size:var(--p-row-fs)] [color:var(--p-text)]";
 export const rowDescription = "block [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 export const rowControl = "flex shrink-0 items-center gap-2";
@@ -126,7 +128,7 @@ export const navRowBody = {
   root: "flex min-h-[52px] min-w-0 flex-1 items-center gap-3",
   me: "flex min-h-[48px] min-w-0 flex-1 items-center gap-3 py-2",
 } as const;
-export const navRowText = "flex min-w-0 flex-1 flex-col gap-0.5";
+export const navRowText = sharedRowText;
 export const navRowTitle = {
   root: "text-[17px] font-normal",
   me: "text-[16px] font-normal",
