@@ -211,9 +211,9 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
             codeParams.topMargin = DimensionPolicy.pixels(context, 4);
             texts.addView(codeLabel(context, device.code(), 15), codeParams);
             row.addView(texts, LayoutPolicy.weightedWrapParams(1f));
-            row.addView(KeyboardSheets.tonalButton(context, "拒绝", "拒绝" + deviceName(device), 500,
+            row.addView(HomeButtonPolicy.tonalButton(context, "拒绝", "拒绝" + deviceName(device), 500,
                 () -> reject(device)), LayoutPolicy.rowGapParams(context, 8));
-            row.addView(KeyboardSheets.tonalButton(context, "允许", "允许" + deviceName(device), 500,
+            row.addView(HomeButtonPolicy.tonalButton(context, "允许", "允许" + deviceName(device), 500,
                 () -> confirmApprove(device)), LayoutPolicy.rowGapParams(context, 8));
             card.addView(row);
         }

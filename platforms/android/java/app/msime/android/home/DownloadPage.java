@@ -123,7 +123,7 @@ public final class DownloadPage extends DetailPage {
     private void getRow(GroupCard group, @DrawableRes int icon, String title, String subtitle, String platform) {
         GroupCard.Row row = row(group, icon, title, subtitle);
         Context context = row.view().getContext();
-        TextView button = KeyboardSheets.tonalButton(context, "获取", "获取，" + title, 600,
+        TextView button = HomeButtonPolicy.tonalButton(context, "获取", "获取，" + title, 600,
             () -> AboutPage.openLink(context, DOWNLOAD + "?release=" + platform));
         attach(row, button);
     }
@@ -132,7 +132,7 @@ public final class DownloadPage extends DetailPage {
         GroupCard.Row row = row(group, icon, title, subtitle);
         Context context = row.view().getContext();
         String label = sentPlatforms.contains(platform) ? "已发送" : "发送链接";
-        TextView button = KeyboardSheets.tonalButton(context, label, label + "，" + title, 600);
+        TextView button = HomeButtonPolicy.tonalButton(context, label, label + "，" + title, 600);
         ViewPolicy.setEnabled(button, !sentPlatforms.contains(platform));
         ViewPolicy.bindClick(button, () -> send(platform, button));
         attach(row, button);

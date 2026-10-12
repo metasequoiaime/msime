@@ -269,7 +269,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         ViewPolicy.setActiveAlpha(pill, action != Action.BUSY, 0.6f);
         if (enabled) ViewPolicy.bindClick(pill, () -> onAction.accept(item));
         else ViewPolicy.bindOptionalClick(pill, null);
-        pill.setAccessibilityDelegate(KeyboardSheets.buttonDelegate(label + "，" + item.name()));
+        pill.setAccessibilityDelegate(HomeButtonPolicy.buttonDelegate(label + "，" + item.name()));
     }
 
     /** What the pill says for this entry in this state; empty for an entry without one. */
