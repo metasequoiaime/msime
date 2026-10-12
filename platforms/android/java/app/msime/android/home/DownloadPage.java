@@ -42,7 +42,7 @@ public final class DownloadPage extends DetailPage {
     private final Set<String> sending = new HashSet<>(6);
 
     @Override public void onDestroyView() {
-        // AboutPage.network fences its callback to this view. If the view goes away first,
+        // NetworkTask.run fences its callback to this view. If the view goes away first,
         // the callback is dropped, so the transient in-flight marker must not lock the rebuilt
         // page out of retrying that platform.
         sending.clear();
@@ -154,7 +154,7 @@ public final class DownloadPage extends DetailPage {
         sending.add(platform);
         button.setText("正在发送…");
         ViewPolicy.setEnabled(button, false);
-        AboutPage.network(this, () -> new DownloadLinkApi(
+        NetworkTask.run(this, () -> new DownloadLinkApi(
             new CloudApi(application).forAccountSession(expectedSessionId)).send(platform), outcome -> {
             sending.remove(platform);
             if (outcome.error() != null) {

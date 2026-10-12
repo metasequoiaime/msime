@@ -27,7 +27,6 @@ import android.widget.TextView;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
-import androidx.fragment.app.Fragment;
 import app.msime.android.AppEdition;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.DeviceInfoReport;
@@ -38,7 +37,6 @@ import app.msime.android.HttpBodyPolicy;
 import app.msime.android.TextPolicy;
 import app.msime.android.R;
 import app.msime.android.ResourcePacks;
-import app.msime.android.ThreadPolicy;
 import app.msime.android.UpdateApi;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.io.File;
@@ -47,11 +45,7 @@ import java.io.InputStream;
 import java.nio.file.LinkOption;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.function.Consumer;
 
 /**
  * 关于：居中的标、应用名与版本、检查更新药丸，更新设置（自动更新、更新通道），设备信息（反馈问题时一键复制，{@link DeviceInfo}），官网、隐私政策、开源许可等链接，页脚一行版权与「输入内容默认只在本机处理」。
@@ -65,9 +59,6 @@ public final class AboutPage extends DetailPage {
     private static final String PRIVACY = "https://msime.app/privacy/";
     private static final String REPOSITORY = "https://github.com/metasequoiaime/msime";
     private static final int MAX_NOTICE_CHARS = 200_000;
-    /** 按需开线程：几十兆的更新下载不能让云剪贴板、反馈这些短请求排在它后面。 */
-    private static final ExecutorService NETWORK = Executors.newCachedThreadPool(
-        ThreadPolicy.namedDaemonFactory("msime-home-network"));
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     /** 检查更新药丸的几种状态。 */
@@ -87,32 +78,6 @@ public final class AboutPage extends DetailPage {
 
     private final ActivityResultLauncher<String> notificationPermission =
         registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {});
-
-    /** 一次后台调用的结果：成功时 `value` 有值，失败时 `error` 有值。 */
-    record Outcome<T>(@Nullable T value, @Nullable Exception error) {}
-
-    /**
-     * 在宿主共用的网络线程上跑一次阻塞调用，回到主线程交结果；页面已经离开时丢掉结果。
-     *
-     * <p>不用 {@link HostTask}：那条线程还要处理共享存储的读写，一次几十兆的下载不能把它们都堵住。返回的 Future 可以用来在离开页面时取消；页面没有视图时不提交，返回 null。
-     */
-    @Nullable
-    static <T> Future<?> network(Fragment fragment, Callable<T> work, Consumer<Outcome<T>> done) {
-        View owner = fragment.getView();
-        if (owner == null) return null;
-        return NETWORK.submit(() -> {
-            Outcome<T> outcome;
-            try {
-                outcome = new Outcome<>(work.call(), null);
-            } catch (Exception error) {
-                outcome = new Outcome<>(null, error);
-            }
-            Outcome<T> result = outcome;
-            MAIN.post(() -> {
-                if (fragment.isAdded() && fragment.getView() == owner) done.accept(result);
-            });
-        });
-    }
 
     /** 用浏览器或别的应用打开一个链接；没有应用接得住时提示一句。 */
     static void openLink(Context context, String url) {
@@ -168,7 +133,7 @@ public final class AboutPage extends DetailPage {
         if (notices == null) {
             AssetManager assets = context.getAssets();
             Context application = context.getApplicationContext();
-            network(this, () -> {
+            NetworkTask.run(this, () -> {
                 List<String> found = new ArrayList<>(listNotices(assets));
                 found.addAll(packNotices(application));
                 return found;
@@ -280,7 +245,7 @@ public final class AboutPage extends DetailPage {
         state = State.CHECKING;
         renderPill();
         UpdateApi.Channel channel = UpdateJobService.channel(context);
-        network(this, () -> new UpdateApi().check(channel, AppEdition.current().id(),
+        NetworkTask.run(this, () -> new UpdateApi().check(channel, AppEdition.current().id(),
             UpdateJobService.currentVersion(context)), outcome -> {
             if (outcome.error() != null) {
                 state = State.IDLE;
@@ -304,7 +269,7 @@ public final class AboutPage extends DetailPage {
         state = State.DOWNLOADING;
         percent = 0;
         renderPill();
-        downloadTask = network(this, () -> {
+        downloadTask = NetworkTask.run(this, () -> {
             File apk = new UpdateApi().download(target, context.getCacheDir(), (done, total) -> {
                 // 离开页面时 onDestroyView 中断了这条线程：停在这一块，不再下完。
                 if (Thread.currentThread().isInterrupted())
@@ -474,7 +439,7 @@ public final class AboutPage extends DetailPage {
 
     private void showNotice(String path) {
         AssetManager assets = requireContext().getAssets();
-        network(this, () -> {
+        NetworkTask.run(this, () -> {
             // 绝对路径是已下载资源包里的许可文本，其余是 APK assets 里的。
             try (InputStream in = path.startsWith("/")
                     ? java.nio.file.Files.newInputStream(new File(path).toPath(), LinkOption.NOFOLLOW_LINKS)
