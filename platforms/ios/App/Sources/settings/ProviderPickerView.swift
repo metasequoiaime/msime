@@ -52,10 +52,8 @@ struct ProviderPickerView: View {
           } label: {
             HStack(spacing: 14) {
               ProviderIcon(id: option.id)
-              VStack(alignment: .leading, spacing: 4) {
-                Text(option.title).font(.body.weight(.medium)).foregroundStyle(.primary)
-                Text(option.subtitle).font(.caption).foregroundStyle(.secondary)
-              }
+              SettingsOptionLabel(title: option.title, detail: option.subtitle,
+                                  titleFont: .body.weight(.medium), detailFont: .caption, spacing: 4)
               Spacer(minLength: 8)
               if selected == option.id {
                 Image(systemName: "checkmark.circle.fill")

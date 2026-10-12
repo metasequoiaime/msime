@@ -33,8 +33,8 @@ struct AISkinGenerationView: View {
           if let message { Text(message).font(.callout).foregroundStyle(.secondary) }
           ForEach(proposals) { proposal in
             VStack(alignment: .leading, spacing: 12) {
-              Text(proposal.name).font(.headline)
-              Text(proposal.description).font(.caption).foregroundStyle(.secondary)
+              SettingsOptionLabel(title: proposal.name, detail: proposal.description,
+                                  titleFont: .headline, detailFont: .caption, spacing: 12)
               CommunityDesignPreview(design: proposal.design).frame(height: 210)
               HStack {
                 Button("使用并继续编辑") { useDesign(proposal.design); dismiss() }

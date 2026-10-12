@@ -217,10 +217,7 @@ private struct CloudDictionaryRowLabel: View {
         .foregroundStyle(MetasequoiaTheme.onAccent)
         .frame(width: 30, height: 30)
         .background(MetasequoiaTheme.accent, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-      VStack(alignment: .leading, spacing: 2) {
-        Text(title).foregroundStyle(.primary)
-        Text(detail).font(.caption).foregroundStyle(.secondary)
-      }
+      SettingsOptionLabel(title: title, detail: detail, detailFont: .caption)
     }
   }
 }
