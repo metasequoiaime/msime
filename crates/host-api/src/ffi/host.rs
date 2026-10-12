@@ -1949,7 +1949,7 @@ pub unsafe extern "C" fn msime_client_account_cloud_clipboard(
 
 /// 经自建云剪贴板中继答一个动作；中继配置在偏好里。会联网，格式见头文件。
 /// # Safety
-/// `request` points to `length` readable JSON bytes. Null is rejected.
+/// `request` 指向 `length` 个可读的 JSON 字节，空指针会被拒绝。
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_relay_cloud_clipboard(
     request: *const u8,
@@ -1969,7 +1969,7 @@ pub unsafe extern "C" fn msime_client_relay_cloud_clipboard(
             device_name: Option<String>,
             action: Value,
         }
-        // SAFETY: guaranteed by the documented caller contract.
+        // SAFETY: 由文档写明的调用方约定保证。
         let bytes = unsafe { std::slice::from_raw_parts(request, length) };
         let request: RelayRequest = serde_json::from_slice(bytes).map_err(|_| INVALID)?;
         let absolute = |path: &str| path.len() <= 16384 && std::path::Path::new(path).is_absolute();
@@ -1999,7 +1999,7 @@ pub unsafe extern "C" fn msime_client_relay_cloud_clipboard(
 
 /// 云剪贴板该走哪条路：偏好里配置了中继时是 `relay`，否则是 `account`。不联网。
 /// # Safety
-/// `directory` must point to `length` readable bytes. Null is rejected.
+/// `directory` 必须指向 `length` 个可读字节，空指针会被拒绝。
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_cloud_clipboard_source(
     directory: *const u8,
@@ -2009,7 +2009,7 @@ pub unsafe extern "C" fn msime_client_cloud_clipboard_source(
         if directory.is_null() || length > 16384 {
             return Err("invalid preferences directory buffer".into());
         }
-        // SAFETY: guaranteed by the documented caller contract.
+        // SAFETY: 由文档写明的调用方约定保证。
         let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
         let directory = super::parse_absolute_path(
             bytes,

@@ -2047,7 +2047,7 @@ async fn dictionary_request(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
-/// Where a desktop cloud clipboard request is served, in order of precedence: a provider socket named in the host options or the environment, the self-hosted relay configured in the shared preferences (`docs/cloud-clipboard-relay.md`), the session of the macOS input method that launched this panel, a provider socket discovered in the user's runtime directory, and otherwise the account this shell is signed in to.
+/// 桌面端一个云剪贴板请求由谁来答，按优先级依次是：宿主选项或环境变量里指定的 provider socket、共享偏好里配置的自建中继（`docs/cloud-clipboard-relay.md`）、打开这个面板的 macOS 输入法的原生会话、在用户运行时目录里发现的 provider socket，都没有时是这个外壳登录的水杉账号。
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[derive(Debug, PartialEq)]
 enum CloudClipboardRoute<N, R> {
@@ -2059,7 +2059,7 @@ enum CloudClipboardRoute<N, R> {
     Account,
 }
 
-/// Picks the [`CloudClipboardRoute`] for one request. A configured socket wins outright, and one that is not an absolute path is an error rather than a reason to fall through: the user asked for that provider, so the account must not answer in its place. 中继在用户显式配置的 socket 之后、输入法原生会话之前：配置了中继就只走中继，读不出中继配置时同样报错而不退回账号。The native session and discovery are only consulted when neither is configured.
+/// 为一个请求选出 [`CloudClipboardRoute`]。显式配置的 socket 直接胜出，不是绝对路径时报错而不是往下找：用户点名要那个 provider，就不能由账号代答。中继在用户显式配置的 socket 之后、输入法原生会话之前：配置了中继就只走中继，读不出中继配置时同样报错而不退回账号。两者都没有配置时才看原生会话和自动发现的 socket。
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn cloud_clipboard_route<N, R>(
     configured: Option<String>,
@@ -2105,7 +2105,7 @@ async fn cloud_clipboard_request(
     let routed_action = action.clone();
     let served = tauri::async_runtime::spawn_blocking(move || {
         let _ = (&label, &options);
-        // Windows has no provider socket, so only the relay and the account remain there.
+        // Windows 没有 provider socket，那里只剩中继和水杉账号两条路。
         #[cfg(unix)]
         let configured = options
             .snapshot()?

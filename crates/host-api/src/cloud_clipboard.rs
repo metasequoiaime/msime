@@ -1,4 +1,4 @@
-//! Cloud clipboard requests: the shape every host accepts ([`validate_request`]), the account-backed answer ([`account_request`]) and the answer from a self-hosted relay ([`relay_request`], see `docs/cloud-clipboard-relay.md`).
+//! 云剪贴板请求：每个宿主都接受的形状（[`validate_request`]）、经水杉账号的答复（[`account_request`]），以及经自建中继的答复（[`relay_request`]，见 `docs/cloud-clipboard-relay.md`）。
 
 use msime_client_core::account::{
     AccountApi, AccountClipboardError, AccountError, AccountSessionStorage, BackendAccountSession,

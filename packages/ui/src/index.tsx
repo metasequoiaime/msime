@@ -2251,7 +2251,7 @@ export interface SettingsClient {
    * the review inline rather than offering a button that opens nothing. */
   openVocabulary?: () => Promise<void>;
   openCloudClipboard?: () => Promise<void>;
-  /** Sends cloud clipboard requests from the settings window itself, over the signed-in account or the configured relay; with it the local clipboard history can send an entry to the cloud. */
+  /** 设置窗口自己发云剪贴板请求，经登录的水杉账号或配置的自建中继；有它时本机剪贴板历史可以把一条发到云剪贴板。 */
   cloudClipboardRequest?: CloudClipboardRequest;
   /** 这个宿主的云剪贴板会按偏好 `cloud_clipboard_relay` 改走自建中继；有它时「剪贴板」页显示同步方式和中继的地址、令牌。 */
   cloudClipboardRelay?: boolean;

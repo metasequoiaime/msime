@@ -17,7 +17,7 @@ export const CLOUD_CLIPBOARD_RELAY_UNAUTHORIZED =
 export const CLOUD_CLIPBOARD_PENDING =
   "本设备还没有获准使用云剪贴板：请打开云剪贴板查看本设备的核对码，再到一台已在使用云剪贴板的设备上点「允许」";
 
-/** Whether this window can send to the cloud clipboard right now: `ready` only when the account is signed in (or a relay is configured), the server reports the clipboard enabled and this device holds the clipboard key. `pending` means this device is waiting for another one to approve it; `relay_unauthorized` means the self-hosted relay refused its token. */
+/** 这个窗口现在能不能发到云剪贴板：只有账号已登录（或配置了中继）、服务端报告云剪贴板已开启、本设备持有剪贴板密钥时才是 `ready`。`pending` 表示本设备在等另一台设备批准；`relay_unauthorized` 表示自建中继拒绝了令牌。 */
 export type CloudClipboardAvailability =
   | "checking"
   | "ready"
@@ -27,7 +27,7 @@ export type CloudClipboardAvailability =
   | "pending"
   | "unavailable";
 
-/** Reads a failed request: an unauthorized account means signed out (or a session that has expired), a refused relay token is its own case because signing in would not help, the end-to-end codes name a device still waiting for approval or a clipboard switched off, anything else means the service could not be reached. */
+/** 解读一次失败的请求：账号未授权算未登录（或会话已过期）；中继令牌被拒单独算一种，因为登录也没用；端到端加密的错误码分别对应本设备待批准和云剪贴板已关闭；其余都算服务访问不了。 */
 export function cloudClipboardFailure(
   error: unknown,
 ): "signed_out" | "relay_unauthorized" | "pending" | "disabled" | "unavailable" {

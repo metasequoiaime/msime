@@ -1,6 +1,6 @@
 //! Cloud clipboard requests over the account session, for every Tauri host that holds one.
 //!
-//! iOS and Android serve the page through their account session alone; the three desktop shells fall back to theirs when no provider socket, self-hosted relay or native input-method session answers. The dispatch itself is `msime_host_api::cloud_clipboard::account_request`, which the native Windows settings window reaches through the C ABI as well; this only moves it off the async runtime with the session this target's `AccountState` holds.
+//! iOS 和 Android 只经账号会话答这个页面；三个桌面外壳在 provider socket、自建中继和输入法原生会话都没有答复时才退回账号会话。分派本身在 `msime_host_api::cloud_clipboard::account_request`，Windows 原生设置窗口也经 C ABI 调用它；这里只是带上本目标 `AccountState` 持有的会话，把它挪出异步运行时。
 //!
 //! 列表、上传和设备管理（`devices`、`approve`、`reject`、`remove`、`reset`）经端到端加密驱动，结果形状见 `docs/cloud-clipboard-e2e.md` 的「共享面板的动作」；驱动给出的错误码（例如 `clipboard_device_pending`）原样作为 `CommandError` 的 `code` 交给面板。
 

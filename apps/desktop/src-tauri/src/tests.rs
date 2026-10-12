@@ -2492,7 +2492,7 @@ fn cloud_clipboard_route_keeps_providers_ahead_of_the_account() {
     let never_native = || -> Option<&'static str> { panic!("native session consulted") };
     let never_discover = || -> Option<PathBuf> { panic!("discovery consulted") };
 
-    // A configured socket wins over the relay, the native session and discovery.
+    // 显式配置的 socket 胜过中继、原生会话和自动发现的 socket。
     assert_eq!(
         cloud_clipboard_route(
             Some("/run/synthetic/cloud-clipboard.sock".into()),
