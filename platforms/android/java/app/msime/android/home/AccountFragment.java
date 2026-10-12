@@ -78,7 +78,7 @@ public final class AccountFragment extends HomeTabFragment {
 
     private void reload() {
         long request = ++generation;
-        HostTask.run(this, context -> new Local(snapshotPreferences(context), new BackendAccount(context).signedIn(),
+        HostTask.run(this, context -> new Local(KeyboardSheets.preferences(context), new BackendAccount(context).signedIn(),
             SyncSwitch.enabled(context), SyncSwitch.validLoginKind(SyncSwitch.loginKind(context)),
             SyncSwitch.lastSyncedAt(context), CloudSync.statusLine(context)), state -> {
                 if (state == null || request != generation || getView() == null) return;
@@ -87,11 +87,6 @@ public final class AccountFragment extends HomeTabFragment {
                 render();
                 if (state.signedIn()) reloadRemote(request);
             });
-    }
-
-    @Nullable private static JSONObject snapshotPreferences(Context context) {
-        JSONObject snapshot = HostStore.loadPreferences(context);
-        return snapshot == null ? null : snapshot.optJSONObject("preferences");
     }
 
     private void reloadRemote(long request) {

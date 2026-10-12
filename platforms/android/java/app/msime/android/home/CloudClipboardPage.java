@@ -14,6 +14,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
 import app.msime.android.CloudApi;
+import app.msime.android.DeviceNamePolicy;
 import app.msime.android.CloudClipboardApi;
 import app.msime.android.CloudClipboardNativeDriver;
 import app.msime.android.R;
@@ -43,6 +44,11 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     private long generation;
     @Override protected void onContentReady() {
         render();
+    }
+
+    @Override protected boolean shouldReloadWhenVisible() {
+        // 写操作完成后会自行重读；此时抢跑读取可能先于写操作返回，留下旧列表。
+        return !busy;
     }
 
     @Override protected void onContentDestroyed() {
@@ -199,7 +205,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
             ViewPolicy.setCenteredVertically(row);
             ViewPolicy.setPaddingDp(context, row, 16, 12, 12, 12);
             LinearLayout texts = LayoutPolicy.column(context);
-            texts.addView(ViewPolicy.styledLabel(context, deviceName(device), 15, 500, ThemeColorPolicy.text(context)));
+            texts.addView(ViewPolicy.styledLabel(context, DeviceNamePolicy.display(device.name()), 15, 500, ThemeColorPolicy.text(context)));
             String when = CloudClipboardTimePolicy.relative(device.createdAt());
             if (!when.isEmpty()) {
                 TextView meta = ViewPolicy.styledLabel(context, when + "申请", 12, 400, ThemeColorPolicy.subText(context));
@@ -211,9 +217,9 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
             codeParams.topMargin = DimensionPolicy.pixels(context, 4);
             texts.addView(codeLabel(context, device.code(), 15), codeParams);
             row.addView(texts, LayoutPolicy.weightedWrapParams(1f));
-            row.addView(KeyboardSheets.tonalButton(context, "拒绝", "拒绝" + deviceName(device), 500,
+            row.addView(HomeButtonPolicy.tonalButton(context, "拒绝", "拒绝" + DeviceNamePolicy.display(device.name()), 500,
                 () -> reject(device)), LayoutPolicy.rowGapParams(context, 8));
-            row.addView(KeyboardSheets.tonalButton(context, "允许", "允许" + deviceName(device), 500,
+            row.addView(HomeButtonPolicy.tonalButton(context, "允许", "允许" + DeviceNamePolicy.display(device.name()), 500,
                 () -> confirmApprove(device)), LayoutPolicy.rowGapParams(context, 8));
             card.addView(row);
         }
@@ -268,16 +274,12 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
             String when = CloudClipboardTimePolicy.relative(device.createdAt());
             String subtitle = "核对码 " + device.code() + (when.isEmpty() ? "" : " · " + when + "加入");
             if (device.current()) {
-                card.value(deviceName(device), subtitle, "本机");
+                card.value(DeviceNamePolicy.display(device.name()), subtitle, "本机");
             } else {
-                card.button(deviceName(device), subtitle, "移除", () -> confirmRemove(device));
+                card.button(DeviceNamePolicy.display(device.name()), subtitle, "移除", () -> confirmRemove(device));
             }
         }
         card.button("重置云剪贴板", "换一把新密钥，所有设备重新允许", "重置", this::confirmReset);
-    }
-
-    private static String deviceName(CloudClipboardApi.Device device) {
-        return device.name().isEmpty() ? "未知设备" : device.name();
     }
 
     /** 核对码用等宽字显示，读屏逐位念。 */
@@ -345,7 +347,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
 
     /** 「已置顶 · 设备 · 时间」，没有的部分省掉。 */
     private static String meta(CloudClipboardApi.Item item) {
-        String when = relative(item.updatedAt());
+        String when = CloudClipboardTimePolicy.relative(item.updatedAt());
         int capacity = (item.pinned() ? 3 : 0) + item.device().length() + when.length() + 6;
         StringBuilder out = new StringBuilder(capacity);
         if (item.pinned()) out.append("已置顶");
@@ -361,10 +363,6 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     }
 
     /** 刚刚、N 分钟前、N 小时前、昨天，再早就写月日。读不出时间时为空。 */
-    static String relative(String timestamp) {
-        return CloudClipboardTimePolicy.relative(timestamp);
-    }
-
     private void setEnabled(boolean enabled) {
         CloudClipboardApi api = loadedApi;
         if (api == null) return;
@@ -392,24 +390,17 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     private void confirmClear() {
         CloudClipboardApi api = loadedApi;
         if (api == null) return;
-        new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("清空云剪贴板？")
-            .setMessage("所有设备上同步的记录都会删除，置顶的也不例外。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("清空", (dialog, which) -> mutate(() -> { api.clear(); return null; }, "已清空"))
-            .show();
+        MessageDialog.confirm(requireContext(), "清空云剪贴板？", "所有设备上同步的记录都会删除，置顶的也不例外。",
+            "清空", () -> mutate(() -> { api.clear(); return null; }, "已清空"));
     }
 
     private void confirmApprove(CloudClipboardApi.Device device) {
         CloudClipboardApi api = loadedApi;
         if (api == null) return;
-        new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("允许「" + deviceName(device) + "」？")
-            .setMessage("核对两台设备上的核对码一致再允许：\n\n" + device.code()
-                + "\n\n允许后，那台设备可以读取和上传这个账号的云剪贴板。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("允许", (dialog, which) -> mutate(() -> api.approve(device.deviceId()), "已允许"))
-            .show();
+        MessageDialog.confirm(requireContext(), "允许「" + DeviceNamePolicy.display(device.name()) + "」？",
+            "核对两台设备上的核对码一致再允许：\n\n" + device.code()
+                + "\n\n允许后，那台设备可以读取和上传这个账号的云剪贴板。",
+            "允许", () -> mutate(() -> api.approve(device.deviceId()), "已允许"));
     }
 
     private void reject(CloudClipboardApi.Device device) {
@@ -421,22 +412,16 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     private void confirmRemove(CloudClipboardApi.Device device) {
         CloudClipboardApi api = loadedApi;
         if (api == null) return;
-        new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("移除「" + deviceName(device) + "」？")
-            .setMessage("移除会换一把新的密钥，只交给这台设备。" + KEY_CHANGE)
-            .setNegativeButton("取消", null)
-            .setPositiveButton("移除", (dialog, which) -> mutate(() -> api.remove(device.deviceId()), "已移除"))
-            .show();
+        MessageDialog.confirm(requireContext(), "移除「" + DeviceNamePolicy.display(device.name()) + "」？",
+            "移除会换一把新的密钥，只交给这台设备。" + KEY_CHANGE,
+            "移除", () -> mutate(() -> api.remove(device.deviceId()), "已移除"));
     }
 
     private void confirmReset() {
         CloudClipboardApi api = loadedApi;
         if (api == null) return;
-        new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("重置云剪贴板？")
-            .setMessage("重置会换一把新的密钥，只交给这台设备。" + KEY_CHANGE)
-            .setNegativeButton("取消", null)
-            .setPositiveButton("重置", (dialog, which) -> mutate(() -> api.reset(), "已重置"))
-            .show();
+        MessageDialog.confirm(requireContext(), "重置云剪贴板？",
+            "重置会换一把新的密钥，只交给这台设备。" + KEY_CHANGE,
+            "重置", () -> mutate(() -> api.reset(), "已重置"));
     }
 }

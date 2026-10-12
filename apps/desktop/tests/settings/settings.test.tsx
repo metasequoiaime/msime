@@ -3362,6 +3362,7 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
     candidate_window_scale: false,
     candidate_window_opacity: false,
     candidate_corner_radius: false,
+    candidate_padding: false,
     input_mode_hud: false,
     input_mode_status_item: false,
     candidate_english_font: false,
@@ -3607,6 +3608,7 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
     candidate_window_scale: false,
     candidate_window_opacity: false,
     candidate_corner_radius: false,
+    candidate_padding: false,
     input_mode_hud: false,
     input_mode_status_item: false,
     candidate_english_font: false,
@@ -7277,7 +7279,7 @@ test.each(optionHosts)(
 
 test.each(optionHosts)(
   "the appearance page runs basic to advanced on %s",
-  async (_platform, host) => {
+  async (platform, host) => {
     render(
       <SettingsPage
         initialPage="appearance"
@@ -7296,7 +7298,7 @@ test.each(optionHosts)(
       "布局",
       "候选项排列方式",
       "每页候选项数量",
-      "显示页码",
+      platform === "macos" ? "显示页码和翻页按钮" : "显示页码",
       "跟随光标",
       "字体与大小",
       "候选字体",
@@ -7355,6 +7357,42 @@ test("the page number switch saves show_candidate_page_number", async () => {
   await settingsReady();
   const toggle = screen.getByLabelText("显示页码") as HTMLInputElement;
   expect(toggle.checked).toBe(true);
+  fireEvent.click(toggle);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenLastCalledWith(
+    7,
+    expect.objectContaining({ show_candidate_page_number: false }),
+  );
+});
+
+// macOS 候选窗首行的「1 / 3」和 ‹ › 由同一个开关管，行名要说出翻页按钮也会一起藏起来（#7316）。
+test("on macOS the page number switch names the page arrows and saves show_candidate_page_number", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save,
+        host: testHost({ platform: "macos", candidate_page_number: true }),
+      }}
+    />,
+  );
+  await settingsReady();
+  const appearance = screen.getByRole("group", { name: "候选窗口" });
+  expect(within(appearance).queryByLabelText("显示页码")).toBeNull();
+  const toggle = within(appearance).getByLabelText("显示页码和翻页按钮") as HTMLInputElement;
+  expect(toggle.checked).toBe(true);
+  expect(
+    within(appearance).getByText(
+      "关闭后候选窗不再显示「1 / 3」和 ‹ ›，仍可用键盘翻页；鼠标滚轮翻页默认关闭，需要时在「输入 › 选词与翻页」里打开。",
+    ),
+  ).toBeTruthy();
   fireEvent.click(toggle);
   saveSettingsNow();
   await screen.findByText("已保存");

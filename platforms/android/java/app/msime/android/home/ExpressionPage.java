@@ -92,14 +92,14 @@ public final class ExpressionPage extends ReloadingDetailPage {
         InputFeatureToggle chinese = InputFeatureToggle.CHINESE_PUNCTUATION;
         punctuation.toggle("使用英文标点", "中文模式下也上屏半角标点",
             !values.optBoolean(chinese.key(), chinese.enabledByDefault()),
-            checked -> save(edit -> edit.put(chinese.key(), !checked)));
+            checked -> savePreferences(edit -> edit.put(chinese.key(), !checked)));
         InputFeatureToggle paired = InputFeatureToggle.PAIRED_PUNCTUATION;
         punctuation.toggle("自动补全成对标点", paired.description(),
             values.optBoolean(paired.key(), paired.enabledByDefault()),
-            checked -> save(edit -> edit.put(paired.key(), checked)));
+            checked -> savePreferences(edit -> edit.put(paired.key(), checked)));
         InputFeatureToggle smart = InputFeatureToggle.SMART_PUNCTUATION;
         punctuation.toggle(smart.title(), smart.description(), values.optBoolean(smart.key(), smart.enabledByDefault()),
-            checked -> save(edit -> edit.put(smart.key(), checked)));
+            checked -> savePreferences(edit -> edit.put(smart.key(), checked)));
 
         GroupCard intelligence = GroupCard.add(target, "智能");
         int sentence = sentenceLevel(values.optJSONObject("sentence_association"));
@@ -107,23 +107,23 @@ public final class ExpressionPage extends ReloadingDetailPage {
         InputFeatureToggle english = InputFeatureToggle.ENGLISH_SUGGESTIONS;
         intelligence.toggle(english.title(), english.description(),
             values.optBoolean(english.key(), english.enabledByDefault()),
-            checked -> save(edit -> edit.put(english.key(), checked)));
+            checked -> savePreferences(edit -> edit.put(english.key(), checked)));
         JSONObject mixed = values.optJSONObject("mixed_input");
         // 中英混输（#7081）：Engine 和 Android 运行时早就按共享偏好 mixed_input.english / minimum_prefix 在中文候选里补英文词，桌面和 iOS 都能开关、调触发长度，Android 只是没有设置项。滑块行没有副标题，触发长度的说明只能写进开关的副标题；九键、14 键在拼音一行候选都没有且没有锁定拼音时、或处在英文模式时不看这两项照样给英文词，所以副标题不说关闭后完全没有英文。
         boolean mixedEnglish = mixed == null || mixed.optBoolean("english", true);
         intelligence.toggle("中英混输", "中文输入时在候选里补充英文单词，输入的字母或按键数达到下面的数目才出现",
-            mixedEnglish, checked -> save(edit -> mixedInput(edit).put("english", checked)));
+            mixedEnglish, checked -> savePreferences(edit -> mixedInput(edit).put("english", checked)));
         GroupCard.Row prefixRow = intelligence.slider("触发字母数", MIXED_PREFIX_MIN, MIXED_PREFIX_MAX, 1,
             mixed == null ? MIXED_PREFIX_DEFAULT : NumberPolicy.strictInt(mixed, "minimum_prefix", MIXED_PREFIX_DEFAULT),
-            Integer::toString, value -> save(edit -> mixedInput(edit).put("minimum_prefix", value)));
+            Integer::toString, value -> savePreferences(edit -> mixedInput(edit).put("minimum_prefix", value)));
         prefixRow.setEnabled(mixedEnglish);
         // 候选里带 emoji / 颜文字（#5667）：Engine 早就会按拼音从随包的 msime-others.db 找匹配的 emoji 和颜文字插进候选（共享偏好 mixed_input.emoji / kaomoji），Android 只是没有开关，默认又是关的。
         intelligence.toggle("候选带 emoji", "全拼（26 键或 9 键）、双拼输入时在候选里加入匹配的 emoji，紧跟在它描绘的词后面，例如「美国」后面是 🇺🇸",
             mixed != null && mixed.optBoolean("emoji", false),
-            checked -> save(edit -> mixedInput(edit).put("emoji", checked)));
+            checked -> savePreferences(edit -> mixedInput(edit).put("emoji", checked)));
         intelligence.toggle("候选带颜文字", "全拼（26 键或 9 键）、双拼输入时在候选里加入匹配的颜文字，排在同一个词的 emoji 之后",
             mixed != null && mixed.optBoolean("kaomoji", false),
-            checked -> save(edit -> mixedInput(edit).put("kaomoji", checked)));
+            checked -> savePreferences(edit -> mixedInput(edit).put("kaomoji", checked)));
 
         GroupCard phrases = GroupCard.add(target, "发现短语").withDividers(58);
         List<CommunityCatalog.Item> items = discover;
@@ -170,7 +170,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
         OptionSheet sheet = new OptionSheet(requireContext(), "整句联想", "更准确，但更耗电");
         for (int index = 0; index < SENTENCE_LABELS.length; index++) {
             int level = index;
-            sheet.option(SENTENCE_LABELS[index], index == selected, () -> save(edit -> {
+            sheet.option(SENTENCE_LABELS[index], index == selected, () -> savePreferences(edit -> {
                 JSONObject association = KeyboardSheets.child(edit, "sentence_association");
                 association.put("word_lattice", level > 0);
                 association.put("neural_keyboard", level > 1);
@@ -199,7 +199,4 @@ public final class ExpressionPage extends ReloadingDetailPage {
         return neural ? 2 : 1;
     }
 
-    private void save(KeyboardSheets.Edit edit) {
-        KeyboardSheets.save(this, edit, this::reload, this::reload);
-    }
 }

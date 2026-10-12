@@ -330,7 +330,7 @@ public final class FeedbackPage extends DetailPage {
 
     private static String failureMessage(Exception error) {
         if (error instanceof CloudApi.Failure failure) {
-            if (failure.status == 429) return "提交得太频繁了，请过一会儿再试";
+            if (failure.rateLimited()) return "提交得太频繁了，请过一会儿再试";
             if (failure.unavailable()) return "反馈服务暂时没有开放，可以改用下面的渠道";
             if (failure.network()) return "连不上服务器，请检查网络后重试";
         }
@@ -344,8 +344,7 @@ public final class FeedbackPage extends DetailPage {
         values.put("os", "Android " + Build.VERSION.RELEASE + "（API " + Build.VERSION.SDK_INT + "）");
         values.put("app_version", appVersion(context));
         values.put("edition", AppEdition.current().id());
-        JSONObject snapshot = HostStore.loadPreferences(context);
-        JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
+        JSONObject preferences = KeyboardSheets.preferences(context);
         if (preferences != null) {
             values.put("scheme", preferences.optString("scheme", ""));
             values.put("keyboard_layout", InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", ""));
@@ -371,9 +370,7 @@ public final class FeedbackPage extends DetailPage {
 
     /** 没装 Telegram 又没有浏览器时，退而复制链接。 */
     private void openTelegram() {
-        try {
-            startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(TELEGRAM_URL)));
-        } catch (android.content.ActivityNotFoundException missing) {
+        if (!LinkActions.open(requireContext(), TELEGRAM_URL)) {
             copy("Telegram", TELEGRAM_URL, "已复制群组链接");
         }
     }

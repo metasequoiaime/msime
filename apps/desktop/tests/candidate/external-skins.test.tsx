@@ -1322,10 +1322,10 @@ test("the geometry stylesheet aligns the decoration and clips the background to 
   );
   // pad_x / pad_y are the card's own padding, one name for both.
   expect(card).toContain(
-    "--msime-candidate-pad-x:var(--msime-host-pad,1px);--msime-candidate-pad-y:var(--msime-host-pad,2px);",
+    "--msime-candidate-pad-x:var(--msime-candidate-user-pad,var(--msime-host-pad,1px));--msime-candidate-pad-y:var(--msime-candidate-user-pad,var(--msime-host-pad,2px));",
   );
   expect(card).toContain(
-    "--msime-candidate-pad-x:var(--msime-host-pad,2px);--msime-candidate-pad-y:var(--msime-host-pad,2px);",
+    "--msime-candidate-pad-x:var(--msime-candidate-user-pad,var(--msime-host-pad,2px));--msime-candidate-pad-y:var(--msime-candidate-user-pad,var(--msime-host-pad,2px));",
   );
   expect(
     card.match(/padding:var\(--msime-candidate-pad-y\)var\(--msime-candidate-pad-x\)/g),

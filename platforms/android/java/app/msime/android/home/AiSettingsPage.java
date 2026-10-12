@@ -80,7 +80,7 @@ public final class AiSettingsPage extends ReloadingDetailPage {
         });
         String problem = endpointProblem(endpoint);
         service.nav("端点 URL", problem != null ? problem : "https 地址，或本机、局域网的 http 地址",
-            endpoint.isEmpty() ? "未设置" : shorten(endpoint),
+            endpoint.isEmpty() ? "未设置" : HomeTextPolicy.shortLabel(endpoint),
             () -> editEndpoint(endpoint, enabled));
         service.nav("模型", null, model.isEmpty() ? "未设置" : model, () -> editText("模型", null, model,
             InputType.TYPE_CLASS_TEXT, value -> saveAi(next -> next.put("model", value))));
@@ -89,7 +89,7 @@ public final class AiSettingsPage extends ReloadingDetailPage {
             origin.isEmpty() ? null : () -> editToken(origin));
 
         GroupCard polish = GroupCard.add(target, "润色");
-        polish.nav("润色提示词", null, prompt.isEmpty() ? "默认" : shorten(prompt), () -> editText("润色提示词",
+        polish.nav("润色提示词", null, prompt.isEmpty() ? "默认" : HomeTextPolicy.shortLabel(prompt), () -> editText("润色提示词",
             "留空使用默认提示词", prompt, InputType.TYPE_CLASS_TEXT,
             value -> saveAi(next -> next.put(promptKey, value))));
         polish.footer("凭据只保存在本机，按端点的来源分别存放。留空凭据表示该来源不需要凭据，不会清掉其他来源已存的凭据。");
@@ -196,8 +196,4 @@ public final class AiSettingsPage extends ReloadingDetailPage {
         }
     }
 
-    private static String shorten(String value) {
-        String single = value.replace('\n', ' ');
-        return single.length() <= 24 ? single : single.substring(0, 23) + "…";
-    }
 }

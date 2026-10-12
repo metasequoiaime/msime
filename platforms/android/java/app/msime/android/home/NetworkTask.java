@@ -1,9 +1,7 @@
 package app.msime.android.home;
 
-import android.view.View;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
-import app.msime.android.MainThreadPolicy;
 import app.msime.android.ThreadPolicy;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -23,7 +21,7 @@ final class NetworkTask {
 
     /** Returns a cancellable task, or null when the fragment has no view. */
     @Nullable static <T> Future<?> run(Fragment fragment, Callable<T> work, Consumer<Outcome<T>> done) {
-        View owner = fragment.getView();
+        ViewResultDelivery owner = ViewResultDelivery.capture(fragment);
         if (owner == null) return null;
         return WORKER.submit(() -> {
             Outcome<T> outcome;
@@ -33,9 +31,7 @@ final class NetworkTask {
                 outcome = new Outcome<>(null, error);
             }
             Outcome<T> result = outcome;
-            MainThreadPolicy.mainHandler().post(() -> {
-                if (fragment.isAdded() && fragment.getView() == owner) done.accept(result);
-            });
+            owner.post(() -> done.accept(result));
         });
     }
 }

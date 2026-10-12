@@ -194,7 +194,7 @@ public final class CloudSync {
                 return "云端暂时繁忙，稍后自动重试";
             default: break;
         }
-        if (failure.status == 429 || failure.status >= 500) return "云端暂时繁忙，稍后自动重试（HTTP " + failure.status + "）";
+        if (failure.rateLimited() || failure.status >= 500) return "云端暂时繁忙，稍后自动重试（HTTP " + failure.status + "）";
         return "同步失败（HTTP " + failure.status + (failure.code.isEmpty() ? "" : " " + failure.code) + "）";
     }
 
@@ -754,7 +754,7 @@ public final class CloudSync {
         JSONObject root = new JSONObject(response == null ? "" : response);
         if (!JsonPolicy.strictTrue(root.opt("ok")))
             throw new IllegalStateException(root.optString("error", "native call failed"));
-        JSONObject value = root.optJSONObject("value");
+        JSONObject value = JsonPolicy.objectValue(root);
         return value == null ? new JSONObject() : value;
     }
 

@@ -1,12 +1,7 @@
 package app.msime.android.home;
 
-import app.msime.android.MainThreadPolicy;
 import android.content.Context;
-import android.os.Handler;
-import android.view.View;
-import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
-import androidx.lifecycle.Lifecycle;
 import app.msime.android.ThreadPolicy;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -29,7 +24,6 @@ public final class HostTask {
     /** HTTP calls get their own threads: one can block for a full connect plus read timeout, and the shared store's reads and writes must not queue behind it. */
     private static final ExecutorService NETWORK = Executors.newCachedThreadPool(
         ThreadPolicy.namedDaemonFactory("msime-settings-network"));
-    private static final Handler MAIN = MainThreadPolicy.mainHandler();
 
     private HostTask() {}
 
@@ -46,9 +40,8 @@ public final class HostTask {
 
     private static <T> void submit(ExecutorService executor, Fragment fragment, Function<Context, T> work,
             Consumer<T> done) {
-        View ownerView = fragment.getView();
-        if (ownerView == null) return;
-        Lifecycle ownerLifecycle = fragment.getViewLifecycleOwner().getLifecycle();
+        ViewResultDelivery owner = ViewResultDelivery.capture(fragment);
+        if (owner == null) return;
         Context context = fragment.getContext();
         if (context == null) return;
         Context application = context.getApplicationContext();
@@ -58,18 +51,10 @@ public final class HostTask {
                 result = work.apply(application);
             } catch (RuntimeException | LinkageError error) {
                 // The host being unavailable is a state every caller renders; it is not a crash.
-                MAIN.post(() -> deliver(fragment, ownerView, ownerLifecycle, done, null));
+                owner.post(() -> done.accept(null));
                 return;
             }
-            MAIN.post(() -> deliver(fragment, ownerView, ownerLifecycle, done, result));
+            owner.post(() -> done.accept(result));
         });
-    }
-
-    private static <T> void deliver(Fragment fragment, View ownerView, Lifecycle ownerLifecycle,
-            Consumer<T> done, @Nullable T result) {
-        // 视图销毁后可能很快重建；旧任务只能交给发起它的那棵视图。
-        if (!fragment.isAdded() || fragment.getView() != ownerView) return;
-        if (!ownerLifecycle.getCurrentState().isAtLeast(Lifecycle.State.CREATED)) return;
-        done.accept(result);
     }
 }

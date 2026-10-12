@@ -28,4 +28,13 @@ final class LinkActions {
             return false;
         }
     }
+
+    /** Opens only the schemes supported by rendered Markdown links. */
+    static boolean openMarkdown(Context context, String url) {
+        Uri uri = Uri.parse(url);
+        String scheme = uri.getScheme();
+        if (scheme == null || !(scheme.equalsIgnoreCase("http")
+                || scheme.equalsIgnoreCase("https") || scheme.equalsIgnoreCase("mailto"))) return false;
+        return open(context, url);
+    }
 }

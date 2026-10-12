@@ -1,9 +1,7 @@
 package app.msime.android.home;
 
 import android.content.Context;
-import android.content.Intent;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.widget.LinearLayout;
 import app.msime.android.R;
 
@@ -24,7 +22,10 @@ public final class HelpPage extends DetailPage {
         enable.value("2. 启用" + app, "在屏幕键盘列表里打开" + app + "的开关，按提示确认。", null);
         enable.value("3. 切换并开始输入", "点任意输入框，再点右下角的键盘图标选择" + app + "。", null);
         enable.nav("打开系统键盘设置", "直接跳到系统里对应的位置", null,
-            () -> open(context, new Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)));
+            () -> {
+                if (!ImeSetup.tryOpenSettings(context))
+                    MsToast.show(context, "这台设备上打不开这个设置");
+            });
 
         GroupCard typing = GroupCard.add(column, "打字").withDividers(Ui.ROW_PADDING_H);
         typing.value("选择候选词", "点候选栏里的词上屏。候选多于一行时，点右端的箭头展开整页。", null);
@@ -40,13 +41,5 @@ public final class HelpPage extends DetailPage {
         more.nav("完整文档", "msime.app，在浏览器里打开", null, () -> AboutPage.openLink(context, DOCUMENTATION));
         more.nav("反馈问题与建议", "在应用内写，可以附上截图和诊断信息", null,
             () -> SettingsNavigator.open(context, PageId.FEEDBACK, null));
-    }
-
-    private static void open(Context context, Intent intent) {
-        try {
-            context.startActivity(intent);
-        } catch (RuntimeException unavailable) {
-            MsToast.show(context, "这台设备上打不开这个设置");
-        }
     }
 }

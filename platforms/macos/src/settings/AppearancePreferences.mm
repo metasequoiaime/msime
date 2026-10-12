@@ -49,6 +49,7 @@ static NSString *const CandidateFollowCursorKey = @"MSIMEClientCandidateFollowCu
 static NSString *const InputModeHUDKey = @"MSIMEClientInputModeHUD";
 static NSString *const InputModeStatusItemKey = @"MSIMEClientInputModeStatusItem";
 static NSString *const AppLogoKey = @"MSIMEClientAppLogo";
+static NSString *const CandidatePageNumberKey = @"MSIMEClientCandidatePageNumber";
 static NSString *const SchemeKey = @"MSIMEClientInputScheme";
 static NSString *const LastSyncedSchemeKey = @"MSIMEClientLastSyncedInputScheme";
 static NSString *const ShuangpinProfileKey = @"MSIMEClientShuangpinProfile";
@@ -153,6 +154,8 @@ static NSString *const PreeditFontKey = @"MSIMEClientCandidatePreeditFontSize";
 static NSString *const CandidateScaleKey = @"MSIMEClientCandidateScalePercent";
 static NSString *const CandidateOpacityKey = @"MSIMEClientCandidateOpacityPercent";
 static NSString *const CandidateCornerRadiusKey = @"MSIMEClientCandidateCornerRadius";
+/// candidate_padding, stored like the radius: points, or an empty string once the user has asked to follow the skin again.
+static NSString *const CandidatePaddingKey = @"MSIMEClientCandidatePadding";
 /// A whole number in [minimum, maximum], as the shared document's integer fields are: a boolean or a fraction is not one.
 static BOOL ValidCandidateStyleInteger(id value, NSInteger minimum, NSInteger maximum) {
     return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
@@ -162,6 +165,7 @@ static BOOL ValidCandidateStyleInteger(id value, NSInteger minimum, NSInteger ma
 static BOOL ValidCandidateScale(id value) { return ValidCandidateStyleInteger(value, 50, 200); }
 static BOOL ValidCandidateOpacity(id value) { return ValidCandidateStyleInteger(value, 50, 100); }
 static BOOL ValidCandidateCornerRadius(id value) { return ValidCandidateStyleInteger(value, 0, 32); }
+static BOOL ValidCandidatePadding(id value) { return ValidCandidateStyleInteger(value, 0, 16); }
 /// The 候选字体 presets in the order the popup lists them: a title, then the families the preset writes. The first family is the one this host puts in 候选字体; all of them go to the front of the fallback list, because the document is shared and the Windows and Linux names are what those hosts will find there. 默认 is the shared default pair (crates/client-core) rather than a preset of its own.
 static NSArray<NSArray<NSString *> *> *CandidateFontPresets() {
     return @[
@@ -383,6 +387,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         InputModeStatusItemKey : @"sharedInputModeStatusItem",
         AppInputModeRulesKey : @"sharedAppInputModeRules",
         AppLogoKey : @"sharedShowsAppLogo",
+        CandidatePageNumberKey : @"sharedShowsCandidatePageNumber",
         SchemeKey : @"sharedInputScheme",
         ShuangpinProfileKey : @"sharedShuangpinProfile",
         ShuangpinPreeditKey : @"sharedShuangpinPreeditUsesRaw",
@@ -413,6 +418,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         CandidateScaleKey : @"sharedCandidateScale",
         CandidateOpacityKey : @"sharedCandidateOpacity",
         CandidateCornerRadiusKey : @"sharedCandidateCornerRadius",
+        CandidatePaddingKey : @"sharedCandidatePadding",
         CandidatePreeditKey : @"sharedCandidatePreedit",
         NavigationKey : @"sharedNavigation",
         WordCharacterKey : @"sharedWordCharacter",
@@ -521,11 +527,13 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             CandidateScaleKey : ^id(MSIMEAppearancePreferences *p) { return @(p.candidateScalePercent); },
             CandidateOpacityKey : ^id(MSIMEAppearancePreferences *p) { return @(p.candidateOpacityPercent); },
             CandidateCornerRadiusKey : ^id(MSIMEAppearancePreferences *p) { return p.candidateCornerRadius ?: NSNull.null; },
+            CandidatePaddingKey : ^id(MSIMEAppearancePreferences *p) { return p.candidatePadding ?: NSNull.null; },
             CandidatePreeditKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsCandidatePreedit); },
             CandidateFollowCursorKey : ^id(MSIMEAppearancePreferences *p) { return @(p.candidateFollowCursor); },
             InputModeHUDKey : ^id(MSIMEAppearancePreferences *p) { return @(p.inputModeHUD); },
             InputModeStatusItemKey : ^id(MSIMEAppearancePreferences *p) { return @(p.inputModeStatusItem); },
             AppLogoKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsAppLogo); },
+            CandidatePageNumberKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsCandidatePageNumber); },
             FontFamilyKey : ^id(MSIMEAppearancePreferences *p) { return p.fontFamily ?: NSNull.null; },
             CandidateEnglishFontKey : ^id(MSIMEAppearancePreferences *p) { return p.candidateEnglishFont ?: NSNull.null; },
             FallbackFontsKey : ^id(MSIMEAppearancePreferences *p) { return p.fallbackFonts ?: NSNull.null; },
@@ -1044,6 +1052,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSNumber *_sharedInputModeHUD;
     NSNumber *_sharedInputModeStatusItem;
     NSNumber *_sharedShowsAppLogo;
+    NSNumber *_sharedShowsCandidatePageNumber;
     NSNumber *_sharedFontSize;
     NSString *_sharedFontFamily;
     id _sharedCandidateEnglishFont;
@@ -1051,6 +1060,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSSwitch *_inputModeHUDToggle;
     NSSwitch *_inputModeStatusItemToggle;
     NSSwitch *_appLogoToggle;
+    NSSwitch *_candidatePageNumberToggle;
     id _sharedTextColor;
     id _sharedNumberColor;
     id _sharedAccentColor;
@@ -1074,6 +1084,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSNumber *_sharedCandidateOpacity;
     /// A radius in points, or NSNull for a document that follows the skin.
     id _sharedCandidateCornerRadius;
+    /// Padding in points, or NSNull for a document that follows the skin.
+    id _sharedCandidatePadding;
     NSSlider *_candidateScaleSlider;
     NSTextField *_candidateScaleLabel;
     NSSlider *_candidateOpacitySlider;
@@ -1081,6 +1093,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSSlider *_candidateCornerRadiusSlider;
     NSTextField *_candidateCornerRadiusLabel;
     NSButton *_candidateCornerRadiusReset;
+    NSSlider *_candidatePaddingSlider;
+    NSTextField *_candidatePaddingLabel;
+    NSButton *_candidatePaddingReset;
     NSPopUpButton *_candidateFontPresetButton;
     NSString *_sharedCandidatePreedit;
     NSNumber *_sharedPageSize;
@@ -1321,6 +1336,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     merged[@"input_mode_hud"] = @(self.inputModeHUD);
     merged[@"input_mode_status_item"] = @(self.inputModeStatusItem);
     merged[@"show_app_logo"] = @(self.showsAppLogo);
+    merged[@"show_candidate_page_number"] = @(self.showsCandidatePageNumber);
     merged[@"scheme"] = self.inputScheme;
     // 切到日文、韩文、越南文或藏文时要留一条回去的路。`last_chinese_scheme` 是其他宿主在方案变化时都会写的字段——Fcitx5、IBus、iOS 和 HarmonyOS 都写——共享设置页也靠它把用户送回五笔而不是全拼。这个窗口自己也会设置方案，包括这四个，所以不写的话这个字段会停在别的界面写下的值，回去的路就指错了方案。在这四个方案之一生效期间，只要知道是从哪个方案进来的，也照样写进去，因为输入菜单的 中 也是这样离开它们的。
     if (![@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:self.inputScheme] || _lastChineseScheme) merged[@"last_chinese_scheme"] = self.lastChineseScheme;
@@ -1396,6 +1412,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     merged[@"candidate_scale_percent"] = @(self.candidateScalePercent);
     merged[@"candidate_opacity_percent"] = @(self.candidateOpacityPercent);
     merged[@"candidate_corner_radius"] = self.candidateCornerRadius ?: (id)NSNull.null;
+    merged[@"candidate_padding"] = self.candidatePadding ?: (id)NSNull.null;
     if (_sharedCandidatePreedit || [_defaults objectForKey:CandidatePreeditKey]) merged[@"candidate_preedit_style"] = self.showsCandidatePreedit ? @"pinyin" : @"empty";
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
     merged[@"smart_punctuation"] = @(self.smartPunctuation);
@@ -1670,6 +1687,15 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)setShowsAppLogo:(BOOL)value {
     _sharedShowsAppLogo = nil;
     [_defaults setBool:value forKey:AppLogoKey];
+    [self preferencesChanged];
+}
+- (BOOL)showsCandidatePageNumber {
+    if (_sharedShowsCandidatePageNumber) return _sharedShowsCandidatePageNumber.boolValue;
+    return [_defaults objectForKey:CandidatePageNumberKey] == nil ? YES : [_defaults boolForKey:CandidatePageNumberKey];
+}
+- (void)setShowsCandidatePageNumber:(BOOL)value {
+    _sharedShowsCandidatePageNumber = nil;
+    [_defaults setBool:value forKey:CandidatePageNumberKey];
     [self preferencesChanged];
 }
 - (BOOL)candidateLearningEnabled {
@@ -2757,11 +2783,22 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     [_defaults setObject:value ? @(value.integerValue) : @"" forKey:CandidateCornerRadiusKey];
     [self preferencesChanged];
 }
+- (NSNumber *)candidatePadding {
+    id value = _sharedCandidatePadding ?: [_defaults objectForKey:CandidatePaddingKey];
+    return ValidCandidatePadding(value) ? @([value integerValue]) : nil;
+}
+- (void)setCandidatePadding:(NSNumber *)value {
+    if (value && !ValidCandidatePadding(value)) { [self refreshControls]; return; }
+    _sharedCandidatePadding = nil;
+    [_defaults setObject:value ? @(value.integerValue) : @"" forKey:CandidatePaddingKey];
+    [self preferencesChanged];
+}
 - (msime::mac::CandidateWindowStyle)candidateWindowStyle {
     msime::mac::CandidateWindowStyle style;
     style.scale = self.candidateScalePercent / 100.0;
     style.opacity = self.candidateOpacityPercent / 100.0;
     if (NSNumber *radius = self.candidateCornerRadius) style.cornerRadius = radius.doubleValue;
+    if (NSNumber *padding = self.candidatePadding) style.padding = padding.doubleValue;
     return style;
 }
 - (msime::mac::ResolvedSkin)candidateWindowSkinForDark:(BOOL)dark {
@@ -2912,6 +2949,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (LocalModeBoolean(inputModeStatusItem)) _sharedInputModeStatusItem = inputModeStatusItem;
     id appLogo = preferences[@"show_app_logo"];
     if (LocalModeBoolean(appLogo)) _sharedShowsAppLogo = appLogo;
+    id pageNumber = preferences[@"show_candidate_page_number"];
+    if (LocalModeBoolean(pageNumber)) _sharedShowsCandidatePageNumber = pageNumber;
     id font = preferences[@"candidate_font_size"];
     // The global theme and the custom theme. Every part of custom_theme is omitted when unset, and omission also clears a previously loaded value, without persisting a local override.
     id globalTheme = preferences[@"global_theme"];
@@ -2959,6 +2998,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id cornerRadius = preferences[@"candidate_corner_radius"];
     if (ValidCandidateCornerRadius(cornerRadius)) _sharedCandidateCornerRadius = cornerRadius;
     else if (!cornerRadius || cornerRadius == NSNull.null) _sharedCandidateCornerRadius = NSNull.null;
+    id padding = preferences[@"candidate_padding"];
+    if (ValidCandidatePadding(padding)) _sharedCandidatePadding = padding;
+    else if (!padding || padding == NSNull.null) _sharedCandidatePadding = NSNull.null;
     id page = preferences[@"candidate_page_size"];
     // Match the shared integer ranges; booleans and fractions are not sizes.
     if (ValidCandidateStyleInteger(font, 12, 32)) _sharedFontSize = font;
@@ -3157,6 +3199,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _inputModeHUDToggle.state = self.inputModeHUD ? NSControlStateValueOn : NSControlStateValueOff;
     _inputModeStatusItemToggle.state = self.inputModeStatusItem ? NSControlStateValueOn : NSControlStateValueOff;
     _appLogoToggle.state = self.showsAppLogo ? NSControlStateValueOn : NSControlStateValueOff;
+    _candidatePageNumberToggle.state = self.showsCandidatePageNumber ? NSControlStateValueOn : NSControlStateValueOff;
     [_themeModeButton selectItemAtIndex:(NSInteger)[ThemeModes() indexOfObject:self.themeMode]];
     [_candidateThemeButton selectItemAtIndex:(NSInteger)[SurfaceThemes() indexOfObject:self.candidateTheme]];
     // A well always shows a colour, so one that is not overridden shows the colour the candidate
@@ -3181,6 +3224,15 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _candidateCornerRadiusSlider.integerValue = cornerRadius.integerValue;
     _candidateCornerRadiusLabel.stringValue = [NSString stringWithFormat:@"%ld pt", (long)cornerRadius.integerValue];
     _candidateCornerRadiusReset.enabled = self.candidateCornerRadius != nil;
+    // The padding the same way: following the skin, the slider shows the skin's own pad.
+    NSNumber *padding = self.candidatePadding;
+    if (_candidatePaddingSlider != nil && padding == nil) {
+        NSAppearanceName match = [NSApp.effectiveAppearance bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
+        padding = @(lround([self resolvedSkinForDark:[match isEqual:NSAppearanceNameDarkAqua]].tokens.pad));
+    }
+    _candidatePaddingSlider.integerValue = padding.integerValue;
+    _candidatePaddingLabel.stringValue = [NSString stringWithFormat:@"%ld pt", (long)padding.integerValue];
+    _candidatePaddingReset.enabled = self.candidatePadding != nil;
     [_candidateFontPresetButton selectItemAtIndex:self.candidateFontPreset];
     [_candidatePreeditButton selectItemAtIndex:self.showsCandidatePreedit ? 0 : 1];
     // -1 deselects, which is what the menu has to show for a state none of its three items describes: an NSPopUpButton showing 「Page Up / Page Down」 over an unticked Page Up / Page Down box is the menu naming a binding the user does not have. The line under it says where the setting actually is, so the empty menu is not the whole answer.
@@ -3444,13 +3496,14 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _inputModeHUDToggle = MSIMESettingSwitch(self, @selector(inputModeHUDChanged:), @"切换中英文时显示提示");
     _inputModeStatusItemToggle = MSIMESettingSwitch(self, @selector(inputModeStatusItemChanged:), @"菜单栏显示中/英状态");
     _appLogoToggle = MSIMESettingSwitch(self, @selector(appLogoChanged:), @"显示水杉 logo");
+    _candidatePageNumberToggle = MSIMESettingSwitch(self, @selector(candidatePageNumberChanged:), @"显示页码和翻页按钮");
     _preeditFontButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     for (NSUInteger size = 12; size <= 32; ++size)
         [_preeditFontButton addItemWithTitle:[NSString stringWithFormat:@"%lu pt", (unsigned long)size]];
     _preeditFontButton.accessibilityLabel = @"候选窗拼音字号";
     _preeditFontButton.target = self;
     _preeditFontButton.action = @selector(preeditFontChanged:);
-    // The three style settings are a size, a fade and a curve the user judges by looking at the preview above, so they are sliders that stop on the steps the shared settings page offers, each with the value it stands at printed beside it.
+    // The style settings are a size, a fade, a curve and a margin the user judges by looking at the preview above, so they are sliders that stop on the steps the shared settings page offers, each with the value it stands at printed beside it.
     NSSlider *(^styleSlider)(double, double, double, NSString *) = ^NSSlider *(double minimum, double maximum, double step, NSString *label) {
         NSSlider *slider = [NSSlider sliderWithValue:minimum minValue:minimum maxValue:maximum target:self action:@selector(candidateStyleSliderChanged:)];
         slider.numberOfTickMarks = (NSInteger)lround((maximum - minimum) / step) + 1;
@@ -3481,6 +3534,13 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _candidateCornerRadiusReset.accessibilityLabel = @"圆角大小跟随皮肤";
     NSStackView *cornerRadiusControls = [NSStackView stackViewWithViews:@[ _candidateCornerRadiusSlider, _candidateCornerRadiusLabel, _candidateCornerRadiusReset ]];
     cornerRadiusControls.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    // 2pt 起：候选窗边缘至少留 2pt（InputController 的 inset），更小的值画出来一样。
+    _candidatePaddingSlider = styleSlider(2.0, 16.0, 1.0, @"内边距");
+    _candidatePaddingLabel = styleValueLabel();
+    _candidatePaddingReset = [NSButton buttonWithTitle:@"跟随皮肤" target:self action:@selector(resetCandidatePadding:)];
+    _candidatePaddingReset.accessibilityLabel = @"内边距跟随皮肤";
+    NSStackView *paddingControls = [NSStackView stackViewWithViews:@[ _candidatePaddingSlider, _candidatePaddingLabel, _candidatePaddingReset ]];
+    paddingControls.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     _candidateFontPresetButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     NSArray<NSArray<NSString *> *> *fontPresets = CandidateFontPresets();
     for (NSUInteger index = 0; index < fontPresets.count; ++index) {
@@ -3946,6 +4006,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
                   detail:@"跟随皮肤时显示皮肤自带的圆角；拖动后以此值覆盖皮肤的圆角。"
                  control:cornerRadiusControls
                      aka:@[@"圆角"]],
+        [self settingRow:@"内边距"
+                  detail:@"候选与窗口边缘之间的距离。跟随皮肤时显示皮肤自带的值；调小后窗口更紧凑。"
+                 control:paddingControls
+                     aka:@[@"边距", @"间距", @"紧凑"]],
         [self settingRow:@"候选窗拼音字号" control:_preeditFontButton],
         [self settingRow:@"候选窗预编辑" control:_candidatePreeditButton],
         [self settingRow:@"候选窗口跟随光标" control:_candidateFollowCursorToggle],
@@ -3964,6 +4028,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
                   detail:@"在候选窗和悬浮工具栏左端显示水杉图标。"
                  control:_appLogoToggle
                      aka:@[@"图标", @"logo"]],
+        [self settingRow:@"显示页码和翻页按钮"
+                  detail:@"关闭后候选窗不再显示「1 / 3」和 ‹ ›，仍可用键盘翻页；鼠标滚轮翻页默认关闭，需要时在「按键 › 候选翻页与选字」里打开。"
+                 control:_candidatePageNumberToggle
+                     aka:@[@"页码", @"翻页箭头", @"紧凑"]],
     ], 0.0);
     candidateWindowCard.accessibilityLabel = @"候选窗口卡片";
     // The three clusters — a field beside a colour well, a field beside a button, a popup beside
@@ -4004,8 +4072,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         [self sectionHeader:@"效果预览" keys:@[]], _preview, previewControls,
         [self sectionHeader:@"候选窗口"
                        keys:@[LayoutKey, PageSizeKey, FontKey, CandidateScaleKey, CandidateOpacityKey,
-                              CandidateCornerRadiusKey, PreeditFontKey, CandidatePreeditKey,
-                              CandidateFollowCursorKey, InputModeHUDKey, InputModeStatusItemKey, AppLogoKey]],
+                              CandidateCornerRadiusKey, CandidatePaddingKey, PreeditFontKey, CandidatePreeditKey,
+                              CandidateFollowCursorKey, InputModeHUDKey, InputModeStatusItemKey, AppLogoKey,
+                              CandidatePageNumberKey]],
         candidateWindowCard,
         [self sectionHeader:@"候选字体" keys:@[FontFamilyKey, CandidateEnglishFontKey, FallbackFontsKey]],
         fontCard,
@@ -5526,22 +5595,26 @@ static NSString *CandidateColorHex(NSColor *color) {
 - (void)inputModeHUDChanged:(NSSwitch *)sender { self.inputModeHUD = sender.state == NSControlStateValueOn; }
 - (void)inputModeStatusItemChanged:(NSSwitch *)sender { self.inputModeStatusItem = sender.state == NSControlStateValueOn; }
 - (void)appLogoChanged:(NSSwitch *)sender { self.showsAppLogo = sender.state == NSControlStateValueOn; }
+- (void)candidatePageNumberChanged:(NSSwitch *)sender { self.showsCandidatePageNumber = sender.state == NSControlStateValueOn; }
 - (void)themeModeChanged:(NSPopUpButton *)sender { self.themeMode = ThemeModes()[sender.indexOfSelectedItem]; }
 - (void)candidateThemeChanged:(NSPopUpButton *)sender { self.candidateTheme = SurfaceThemes()[sender.indexOfSelectedItem]; }
 - (void)preeditFontChanged:(NSPopUpButton *)sender { self.preeditFontSize = sender.indexOfSelectedItem + 12; }
 - (void)candidateStyleSliderChanged:(NSSlider *)sender {
     const NSInteger value = sender.integerValue;
-    NSString *unit = sender == _candidateCornerRadiusSlider ? @" pt" : @"%";
+    NSString *unit = sender == _candidateCornerRadiusSlider || sender == _candidatePaddingSlider ? @" pt" : @"%";
     NSTextField *label = sender == _candidateScaleSlider ? _candidateScaleLabel
-                       : sender == _candidateOpacitySlider ? _candidateOpacityLabel : _candidateCornerRadiusLabel;
+                       : sender == _candidateOpacitySlider ? _candidateOpacityLabel
+                       : sender == _candidatePaddingSlider ? _candidatePaddingLabel : _candidateCornerRadiusLabel;
     label.stringValue = [NSString stringWithFormat:@"%ld%@", (long)value, unit];
     // While the knob is dragged only the figure follows it. The value is written when the knob is let go, or at once from the keyboard, so one drag redraws the candidate window and saves the shared document once rather than at every step it passes.
     if (NSApp.currentEvent.type == NSEventTypeLeftMouseDragged) return;
     if (sender == _candidateScaleSlider) { if (value != self.candidateScalePercent) self.candidateScalePercent = value; }
     else if (sender == _candidateOpacitySlider) { if (value != self.candidateOpacityPercent) self.candidateOpacityPercent = value; }
     else if (sender == _candidateCornerRadiusSlider && ![self.candidateCornerRadius isEqual:@(value)]) self.candidateCornerRadius = @(value);
+    else if (sender == _candidatePaddingSlider && ![self.candidatePadding isEqual:@(value)]) self.candidatePadding = @(value);
 }
 - (void)resetCandidateCornerRadius:(id)sender { (void)sender; self.candidateCornerRadius = nil; }
+- (void)resetCandidatePadding:(id)sender { (void)sender; self.candidatePadding = nil; }
 - (void)candidateFontPresetChanged:(NSPopUpButton *)sender { self.candidateFontPreset = sender.indexOfSelectedItem; }
 - (void)candidatePreeditChanged:(NSPopUpButton *)sender { self.showsCandidatePreedit = sender.indexOfSelectedItem == 0; }
 

@@ -37,7 +37,6 @@ import app.msime.android.TextPolicy;
 import app.msime.android.R;
 import app.msime.android.ResourcePacks;
 import app.msime.android.UpdateApi;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -451,11 +450,7 @@ public final class AboutPage extends DetailPage {
                 MsToast.show(requireContext(), "读不出这份许可");
                 return;
             }
-            new MaterialAlertDialogBuilder(requireContext())
-                .setTitle(noticeTitle(path))
-                .setMessage(outcome.value())
-                .setPositiveButton("好", null)
-                .show();
+            MessageDialog.show(requireContext(), noticeTitle(path), outcome.value());
         });
     }
 

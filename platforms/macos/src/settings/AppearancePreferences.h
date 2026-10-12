@@ -44,6 +44,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic) BOOL inputModeStatusItem;
 /// 候选窗和悬浮工具栏左端是否画水杉 logo（共享偏好 `show_app_logo`）。没有共享值也没有本机值时按新装处理，不画。
 @property(nonatomic) BOOL showsAppLogo;
+/// 候选窗首行是否画「1 / 3」和 ‹ › 翻页按钮（共享偏好 `show_candidate_page_number`）。没有共享值也没有本机值时画，与共享偏好的默认一致。它不改变键盘和滚轮翻页，但滚轮翻页（`navigation.mouse_wheel`）默认关，关掉它后鼠标只能靠滚轮翻页。
+@property(nonatomic) BOOL showsCandidatePageNumber;
 @property(nonatomic, copy) NSString *inputScheme;
 /// The Chinese scheme to go back to when leaving japanese or korean: the current scheme while it is Chinese, otherwise the one left for japanese or korean here or the shared `last_chinese_scheme`, 全拼 when neither is known.
 @property(nonatomic, readonly) NSString *lastChineseScheme;
@@ -66,10 +68,11 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 - (NSFont *)candidateFontOfSize:(CGFloat)size englishFirst:(BOOL)englishFirst;
 @property(nonatomic) NSUInteger preeditFontSize;
 @property(nonatomic) BOOL showsCandidatePreedit;
-/// The candidate window's own style: `candidate_scale_percent` (50-200, 100 by default), which multiplies the candidate fonts and every length of the window; `candidate_opacity_percent` (50-100, 100 by default), which fades only the card surface, its border and a package background; and `candidate_corner_radius` (0-32 points), nil to keep the theme's or the package's card radius. A value outside its range is refused and leaves the setting as it was.
+/// The candidate window's own style: `candidate_scale_percent` (50-200, 100 by default), which multiplies the candidate fonts and every length of the window; `candidate_opacity_percent` (50-100, 100 by default), which fades only the card surface, its border and a package background; `candidate_corner_radius` (0-32 points), nil to keep the theme's or the package's card radius; and `candidate_padding` (0-16 points between the card's edge and its candidates), nil to keep the theme's or the package's `pad`. A value outside its range is refused and leaves the setting as it was.
 @property(nonatomic) NSInteger candidateScalePercent;
 @property(nonatomic) NSInteger candidateOpacityPercent;
 @property(nonatomic, copy) NSNumber *candidateCornerRadius;
+@property(nonatomic, copy) NSNumber *candidatePadding;
 - (msime::mac::CandidateWindowStyle)candidateWindowStyle;
 /// -resolvedSkinForDark: with -candidateWindowStyle laid over it, which is what the candidate window draws. The floating toolbar and the colour wells read the skin as resolved.
 - (msime::mac::ResolvedSkin)candidateWindowSkinForDark:(BOOL)dark;

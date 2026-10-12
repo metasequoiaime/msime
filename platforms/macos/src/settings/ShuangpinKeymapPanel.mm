@@ -1,6 +1,7 @@
 #import "ShuangpinKeymapPanel.h"
 // Migrated from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
 
+#import "../candidate/CandidateWindowLevel.h"
 #include "ShuangpinProfileNames.h"
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
@@ -302,7 +303,7 @@ NSRect MSIMEShuangpinKeymapPanelFrame(NSRect caretRect, NSSize panelSize, CGFloa
     }
 
     self.floatingPanel = YES;
-    self.level = NSPopUpMenuWindowLevel;
+    self.level = MSIMECandidateWindowLevel();
     self.becomesKeyOnlyIfNeeded = YES;
     self.hidesOnDeactivate = NO;
     self.opaque = NO;

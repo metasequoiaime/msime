@@ -19,6 +19,7 @@ import {
 } from "../../../../packages/ui/src/candidate/candidate-font-presets";
 import { GroupList } from "../../../../packages/ui/src/core/platform-controls";
 import {
+  candidateCardPadding,
   candidateCornerRadius,
   candidateOpacityPercent,
   candidateScalePercent,
@@ -37,6 +38,7 @@ interface SectionOptions {
   showScale: boolean;
   showOpacity: boolean;
   showCornerRadius: boolean;
+  showPadding: boolean;
   showFontPresets: boolean;
 }
 
@@ -48,6 +50,7 @@ function renderSection(overrides: Partial<SectionOptions> = {}) {
     showScale: true,
     showOpacity: true,
     showCornerRadius: true,
+    showPadding: false,
     showFontPresets: true,
     ...overrides,
   };
@@ -71,6 +74,7 @@ function renderSection(overrides: Partial<SectionOptions> = {}) {
         platform={options.platform}
         showOpacity={options.showOpacity}
         showCornerRadius={options.showCornerRadius}
+        showPadding={options.showPadding}
         onChange={onChange}
       >
         <p>跳转行</p>
@@ -143,6 +147,36 @@ test("the corner radius follows the skin until set, and returns to it", () => {
   expect(set.onChange).toHaveBeenCalledWith({ candidate_corner_radius: undefined });
 });
 
+/** 原生 macOS 候选窗的卡片内边距（`SkinTokens::pad`），也是样式表 macOS 默认值块的 `--msime-host-pad`。 */
+const macosNativePad = String(Number(/float pad = ([\d.]+)f;/.exec(candidateSkinHeader)![1]));
+
+// #7316：内边距跟在圆角后面，跟随皮肤时滑块停在 macOS 原生的 6pt；滑块从 2 起，因为 macOS 卡片边缘至少留 2pt。
+test("the card padding follows the skin until set, writes the chosen points and returns to the skin", () => {
+  const following = renderSection({ showPadding: true });
+  const group = screen.getByRole("region", { name: "窗口样式" });
+  const titles = [...group.querySelectorAll("[data-row-title]")].map((row) => row.textContent);
+  expect(titles).toEqual(["不透明度", "圆角大小", "内边距"]);
+  const slider = screen.getByRole("slider", { name: "内边距" }) as HTMLInputElement;
+  expect(slider.getAttribute("min")).toBe("2");
+  expect(slider.getAttribute("max")).toBe("16");
+  expect(slider.value).toBe(macosNativePad);
+  expect(screen.getByText("跟随皮肤；调小后候选离窗口边缘更近，窗口更紧凑")).toBeTruthy();
+  fireEvent.change(slider, { target: { value: "2" } });
+  expect(following.onChange).toHaveBeenLastCalledWith({ candidate_padding: 2 });
+
+  cleanup();
+  const set = renderSection({
+    showPadding: true,
+    preferences: { candidate_corner_radius: 10, candidate_padding: 3 },
+  });
+  expect(screen.getByText("3pt，覆盖皮肤自带的内边距")).toBeTruthy();
+  expect((screen.getByRole("slider", { name: "内边距" }) as HTMLInputElement).value).toBe("3");
+  const resets = screen.getAllByRole("button", { name: "跟随皮肤" });
+  expect(resets).toHaveLength(2);
+  fireEvent.click(resets[1]!);
+  expect(set.onChange).toHaveBeenLastCalledWith({ candidate_padding: undefined });
+});
+
 /** 原生 macOS 候选窗的卡片圆角（`SkinTokens::radius`），也是样式表 macOS 默认值块的 `--msime-host-card-radius`（`candidate-preview-native-tokens.test.ts` 对照）。 */
 const macosNativeRadius = String(Number(/float radius = ([\d.]+)f;/.exec(candidateSkinHeader)![1]));
 
@@ -198,24 +232,25 @@ test("the rows a host cannot draw are hidden", () => {
     showCornerRadius: false,
     showFontPresets: false,
   });
-  for (const title of ["整体大小", "不透明度", "圆角大小", "候选字体"])
+  for (const title of ["整体大小", "不透明度", "圆角大小", "内边距", "候选字体"])
     expect(screen.queryByText(title)).toBeNull();
   expect(screen.getByRole("region", { name: "窗口样式" })).toBeTruthy();
 });
 
 test.each([
-  ["windows", { scale: true, opacity: true, radius: true }],
-  ["macos", { scale: true, opacity: true, radius: true }],
-  ["linux", { scale: false, opacity: false, radius: true }],
-  ["harmony", { scale: false, opacity: true, radius: true }],
-  ["ios", { scale: false, opacity: false, radius: false }],
-  ["android", { scale: false, opacity: false, radius: false }],
+  ["windows", { scale: true, opacity: true, radius: true, padding: false }],
+  ["macos", { scale: true, opacity: true, radius: true, padding: true }],
+  ["linux", { scale: false, opacity: false, radius: true, padding: false }],
+  ["harmony", { scale: false, opacity: true, radius: true, padding: false }],
+  ["ios", { scale: false, opacity: false, radius: false, padding: false }],
+  ["android", { scale: false, opacity: false, radius: false, padding: false }],
 ] as const)("%s gates the window style rows on its capabilities", (platform, expected) => {
   const host = testHost({
     platform,
     candidate_window_scale: expected.scale,
     candidate_window_opacity: expected.opacity,
     candidate_corner_radius: expected.radius,
+    candidate_padding: expected.padding,
   });
   const capabilities = settingsCapabilities({
     host,
@@ -234,6 +269,7 @@ test.each([
     scale: capabilities.showCandidateWindowScale,
     opacity: capabilities.showCandidateWindowOpacity,
     radius: capabilities.showCandidateCornerRadius,
+    padding: capabilities.showCandidatePadding,
   }).toEqual(expected);
 });
 
@@ -341,6 +377,11 @@ test("the window style values are bounded like the core's validation", () => {
   expect(candidateCornerRadius(null)).toBe(null);
   expect(candidateCornerRadius(32)).toBe(32);
   expect(candidateCornerRadius(33)).toBe(null);
+  expect(candidateCardPadding(undefined)).toBe(null);
+  expect(candidateCardPadding(0)).toBe(0);
+  expect(candidateCardPadding(16)).toBe(16);
+  expect(candidateCardPadding(17)).toBe(null);
+  expect(candidateCardPadding(2.5)).toBe(null);
 });
 
 test("the preview style carries the scale, the opacity and a set radius only", () => {
@@ -359,6 +400,11 @@ test("the preview style carries the scale, the opacity and a set radius only", (
     "--msime-candidate-opacity": "70%",
     "--msime-skin-radius": "0px",
     "--msime-candidate-user-radius": "0px",
+  });
+  expect(candidateWindowStyle({ candidate_padding: 2 })).toEqual({
+    "--msime-candidate-scale": "1",
+    "--msime-candidate-opacity": "100%",
+    "--msime-candidate-user-pad": "2px",
   });
 });
 

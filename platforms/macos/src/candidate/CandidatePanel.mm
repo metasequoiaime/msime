@@ -1,6 +1,7 @@
 #import "CandidatePanel.h"
 #import "CandidateSkinAppearance.h"
 #import "CandidateTypography.h"
+#import "CandidateWindowLevel.h"
 
 #include "../core/DiagnosticLog.h"
 #include <cmath>
@@ -212,7 +213,7 @@
                         backing:NSBackingStoreBuffered
                           defer:NO];
         _window.releasedWhenClosed = NO;
-        _window.level = NSPopUpMenuWindowLevel;
+        _window.level = MSIMECandidateWindowLevel();
         _window.hidesOnDeactivate = NO;
         _window.opaque = NO;
         _window.backgroundColor = NSColor.clearColor;

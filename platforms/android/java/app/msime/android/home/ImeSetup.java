@@ -43,6 +43,16 @@ final class ImeSetup {
         context.startActivity(new Intent(Settings.ACTION_INPUT_METHOD_SETTINGS));
     }
 
+    /** Opens the keyboard settings and reports whether the system accepted the intent. */
+    static boolean tryOpenSettings(Context context) {
+        try {
+            context.startActivity(new Intent(Settings.ACTION_INPUT_METHOD_SETTINGS));
+            return true;
+        } catch (RuntimeException unavailable) {
+            return false;
+        }
+    }
+
     /** The system's keyboard picker; only an enabled keyboard is listed there, so before that the settings list is the way. */
     static void makeDefault(Context context) {
         if (!enabled(context)) {
