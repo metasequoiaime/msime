@@ -245,24 +245,6 @@ impl JapaneseProvider {
             }
         }
 
-        // 读音完整时，把这个读音的全部同音词按成本接在最后（#7353）。句子和预测各有限额，しょう在 Mozc 词库里的六十多个词面原本只有十几个能进列表，生僻词翻多少页都翻不到；接在片假名之后，前面各行与原来一样，已列出的词由去重跳过。
-        if let Some(dictionary) = &dictionary {
-            if conversion.pending.is_empty() {
-                dictionary.for_each_exact_lemma_view_reusing(
-                    &conversion.hiragana,
-                    EXACT_READING_LEMMAS,
-                    &mut self.exact_ranking,
-                    |lemma| {
-                        rows.push(
-                            lemma.surface,
-                            PREFIX_LEMMA_BASE - i64::from(lemma.word_cost),
-                            CandidateSource::Database,
-                        );
-                    },
-                );
-            }
-        }
-
         if let Some(dynamic) = self.dynamic.get_ref(&request.raw_input) {
             let mut insertion = rows.used.min(if kana_first { 2 } else { 1 });
             for item in dynamic {
@@ -288,6 +270,24 @@ impl JapaneseProvider {
                 rows.used += 1;
                 rows.items[insertion..rows.used].rotate_right(1);
                 insertion += 1;
+            }
+        }
+
+        // 读音完整时，把这个读音的全部同音词按成本接在最后（#7353）。句子和预测各有限额，しょう在 Mozc 词库里的六十多个词面原本只有十几个能进列表，生僻词翻多少页都翻不到；接在片假名和云候选之后，前面各行与原来一样，已列出的词由去重跳过。必须排在云候选插入之后：云候选只跳过前面已有的词，若同音词先接上，与同音词同名的云答案会被当成重复丢掉，既失去第二位（单个假名时第三位），也丢了云来源。
+        if let Some(dictionary) = &dictionary {
+            if conversion.pending.is_empty() {
+                dictionary.for_each_exact_lemma_view_reusing(
+                    &conversion.hiragana,
+                    EXACT_READING_LEMMAS,
+                    &mut self.exact_ranking,
+                    |lemma| {
+                        rows.push(
+                            lemma.surface,
+                            PREFIX_LEMMA_BASE - i64::from(lemma.word_cost),
+                            CandidateSource::Database,
+                        );
+                    },
+                );
             }
         }
         rows.finish_into(destination);
@@ -752,6 +752,40 @@ mod tests {
         let mut expected = vec!["か".to_owned(), "カ".to_owned()];
         expected.extend(synthetic(0..30));
         assert_eq!(words(&provider.query(&request("ka"))), expected);
+    }
+
+    /// 云答案是排在末尾的同音词时，仍占它的位置并保留云来源；同音词尾部不再重复列出它。
+    #[test]
+    fn a_cloud_homophone_keeps_its_seat_ahead_of_the_homophone_tail() {
+        let all = homophones("か", 30);
+        let (_root, mut provider) = provider_with(Some(homophone_model(&all, &[])));
+        assert!(provider.cache_dynamic_candidate("ka", "合成20", CandidateSource::CloudSuggestion));
+        let single_kana = provider.query(&request("ka"));
+        let mut expected = vec!["か".to_owned(), "カ".to_owned(), "合成20".to_owned()];
+        expected.extend(synthetic(0..20));
+        expected.extend(synthetic(21..30));
+        assert_eq!(words(&single_kana), expected);
+        assert_eq!(single_kana[2].source, CandidateSource::CloudSuggestion);
+
+        // 完整读音不是单个假名：云答案在第二位。
+        let all = homophones("しょう", 40);
+        let (_root, mut provider) = provider_with(Some(homophone_model(&all, &[])));
+        assert!(provider.cache_dynamic_candidate(
+            "syou",
+            "合成30",
+            CandidateSource::CloudSuggestion
+        ));
+        let reading = provider.query(&request("syou"));
+        assert_eq!(words(&reading)[..3], ["合成00", "合成30", "しょう"]);
+        assert_eq!(reading[1].source, CandidateSource::CloudSuggestion);
+        assert_eq!(
+            words(&reading)
+                .iter()
+                .filter(|word| **word == "合成30")
+                .count(),
+            1
+        );
+        assert_eq!(reading.len(), 42);
     }
 
     #[test]

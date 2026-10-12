@@ -10,7 +10,9 @@ Status: implemented
 
 ## Decision
 
-读音完整（没有待定字母）时，`JapaneseProvider::query_into` 在片假名行之后、云候选插入之前，把这个读音的全部精确词条按 `(cost, id)` 接在列表末尾，权重与预测行相同（`PREFIX_LEMMA_BASE - word_cost`，来源 `Database`），已列出的词面由 `Rows` 原有的去重跳过。单个假名（`ka`）也是完整读音，走同一段：假名行、句子之后是其余同音词。
+读音完整（没有待定字母）时，`JapaneseProvider::query_into` 在片假名行和云候选插入之后，把这个读音的全部精确词条按 `(cost, id)` 接在列表末尾，权重与预测行相同（`PREFIX_LEMMA_BASE - word_cost`，来源 `Database`），已列出的词面由 `Rows` 原有的去重跳过。单个假名（`ka`）也是完整读音，走同一段：假名行、句子之后是其余同音词。
+
+同音词尾部必须排在云候选之后。云候选插入时会跳过已经列出的词，如果先接同音词，Google 返回的首选只要是这个读音的同音词（句子和预测没列到的那些，正是云候选最该补上的），就会被当成重复丢掉：它既占不到第二位（单个假名时第三位），也失去 `CloudSuggestion` 来源。先插云候选，同音词尾部再按去重跳过它。
 
 接在片假名之后，前面各行一行不变：句子、预测、平假名提到第二位、片假名的位置都和原来相同，第一页的排序和日文评测不受影响。
 
@@ -31,11 +33,11 @@ Status: implemented
 
 ## Verification
 
-修复前新增的合成测试失败：40 个同音词只列出 15 个，单假名的 30 个同音词只列出 12 个。修复后 `syou` 的合成列表逐行等于原列表接上其余 25 个同音词（按成本），`ka` 列出假名行和全部 30 个。decoder 的新入口对 300 条同读音的合成词库，逐字段对照 `exact_lemma_views` 的 `(cost, id)` 顺序，覆盖空读音、未命中、限额 0/1/24/299/300/512，缓冲容下整组后再查不申请。
+修复前新增的合成测试失败：40 个同音词只列出 15 个，单假名的 30 个同音词只列出 12 个。云答案是尾部同音词的合成测试（`ka` 的云答案为第 21 个同音词，`syou` 为第 31 个）在同音词先于云候选接上时失败，云答案只作为 `Database` 行留在尾部；改为先插云候选后，它在第三位或第二位、来源为 `CloudSuggestion`，尾部不重复。修复后 `syou` 的合成列表逐行等于原列表接上其余 25 个同音词（按成本），`ka` 列出假名行和全部 30 个。decoder 的新入口对 300 条同读音的合成词库，逐字段对照 `exact_lemma_views` 的 `(cost, id)` 顺序，覆盖空读音、未命中、限额 0/1/24/299/300/512，缓冲容下整组后再查不申请。
 
 真实词库（`MSIME_EVAL_RESOURCES` 指向 Mozc 词库所在目录）：`syou` 从 21 行变为 75 行，鐘、梢、簫都在列表里，平假名仍在第二位；`kouji` 从 26 行变为 274 行。release 下热查询每次耗时的最优批次：`syou` 132→146 µs，`kou` 227→248 µs，`kouji` 34→111 µs，长句 `watashihagakuseidesu` 不变（精确范围为空）。
 
-`cargo test -p msime-engine` 全部通过（1840 项、golden 31 项），`cargo clippy -p msime-engine --all-targets -- -D warnings` 与 `cargo fmt --check` 通过。
+`cargo test -p msime-engine` 全部通过（1841 项、golden 31 项），`cargo clippy -p msime-engine --all-targets -- -D warnings` 与 `cargo fmt --check` 通过。
 
 ## Consequences
 
