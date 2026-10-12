@@ -22,12 +22,7 @@ import type {
   ScriptGrantsResult,
 } from "./plugin-types";
 import { PluginListView } from "./plugin-list-view";
-import {
-  runningScriptIds,
-  scriptGrantsCheckable,
-  scriptResidualRisk,
-  ScriptPluginDetailView,
-} from "./plugin-script-view";
+import { runningScriptIds, scriptResidualRisk, ScriptPluginDetailView } from "./plugin-script-view";
 import { MissingPluginView, PluginDetailView } from "./plugin-detail-view";
 import { PluginSoundEffectsView } from "./plugin-sound-effects-view";
 import { mentionListIssue, PluginMentionsView } from "./plugin-mentions-view";
@@ -98,7 +93,7 @@ export interface PluginsSectionProps {
   symbolSetPacks?: boolean;
   /** 宿主运行脚本插件（`HostCapabilities.script_plugins`）：显示「脚本插件（实验）」分组和授权页。 */
   scriptPlugins?: boolean;
-  /** 宿主平台（`HostCapabilities.platform`），授权页按它说明 Windows 和 Linux 上的残余风险。 */
+  /** 宿主平台（`HostCapabilities.platform`），授权页按它说明这个平台上同一用户下的程序能伪造授权。 */
   platform?: string;
   /** 在背单词里选中一本书并打开背单词；没有背单词的宿主为空。 */
   onOpenWordbook?: (book: string) => void;
@@ -329,16 +324,9 @@ export function PluginsSection({
   };
 
   const removePack = async (pack: PluginPackage) => {
-    // macOS 上读不到钥匙串时删脚本包，授权文件里其余条目没法重新签名，一起失效：先说清楚。
-    const voidsOtherGrants =
-      pack.kind === "script" &&
-      !scriptGrantsCheckable(scriptGrants) &&
-      Boolean(scriptGrants?.plugins.some((grant) => grant.id !== pack.id));
     const confirmed = await confirm({
       title: `删除${packKindLabel(pack)}`,
-      message: voidsOtherGrants
-        ? `删除「${pack.name}」？包里的文件会从本机移除。现在读不到钥匙串里的授权密钥：删除时如果仍然读不到，其他脚本插件的授权也会一起失效，之后需要重新授权。`
-        : `删除「${pack.name}」？包里的文件会从本机移除。`,
+      message: `删除「${pack.name}」？包里的文件会从本机移除。`,
       confirmLabel: "删除",
       danger: true,
     });

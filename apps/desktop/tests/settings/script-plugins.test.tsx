@@ -73,7 +73,7 @@ const catalog: PluginCatalogResult = {
 };
 
 function grants(overrides: Partial<ScriptGrantsResult> = {}): ScriptGrantsResult {
-  return { revision: 1, plugins: [], health: [], mac_required: false, signed: false, ...overrides };
+  return { revision: 1, plugins: [], health: [], ...overrides };
 }
 
 function fakeClient(overrides: Partial<PluginClient> = {}): PluginClient {
@@ -127,7 +127,6 @@ function renderDialog(
       pack={pack}
       initial={[]}
       stale={false}
-      unverified={false}
       onConfirm={onConfirm}
       onCancel={onCancel}
       {...props}
@@ -222,7 +221,6 @@ test("a capability the replaced pack no longer requests neither blocks its exclu
       pack={pack}
       initial={[]}
       stale={false}
-      unverified={false}
       onConfirm={onConfirm}
       onCancel={vi.fn()}
     />
@@ -257,13 +255,12 @@ test("the dialog says a changed pack needs granting again and keeps open with th
   expect(screen.getByRole("dialog")).toBeTruthy();
 });
 
-test("the grant state follows the content hash, the signature and the switch", () => {
-  const grant = { id: "pangu", hash: HASH, enabled: true, granted: [], verified: true };
+test("the grant state follows the content hash and the switch", () => {
+  const grant = { id: "pangu", hash: HASH, enabled: true, granted: [] };
   expect(scriptGrantState(pangu, undefined)).toBe("ungranted");
   expect(scriptGrantState(pangu, grant)).toBe("enabled");
   expect(scriptGrantState(pangu, { ...grant, enabled: false })).toBe("disabled");
   expect(scriptGrantState(pangu, { ...grant, hash: NEW_HASH })).toBe("stale");
-  expect(scriptGrantState(pangu, { ...grant, verified: false })).toBe("unverified");
 });
 
 test("the script group is hidden unless the host runs script plugins", async () => {
@@ -283,8 +280,8 @@ test("the script group lists each pack with its grant state", async () => {
     scriptGrants: vi.fn(async () =>
       grants({
         plugins: [
-          { id: "pangu", hash: HASH, enabled: true, granted: ["read_commit"], verified: true },
-          { id: "counter", hash: HASH, enabled: false, granted: [], verified: true },
+          { id: "pangu", hash: HASH, enabled: true, granted: ["read_commit"] },
+          { id: "counter", hash: HASH, enabled: false, granted: [] },
         ],
       }),
     ),
@@ -304,9 +301,7 @@ test("the script group lists each pack with its grant state", async () => {
 test("enabling a pack goes through the grant dialog with the hash the page showed", async () => {
   const setScriptGrant = vi.fn(async () =>
     grants({
-      plugins: [
-        { id: "pangu", hash: HASH, enabled: true, granted: ["read_commit"], verified: true },
-      ],
+      plugins: [{ id: "pangu", hash: HASH, enabled: true, granted: ["read_commit"] }],
     }),
   );
   const client = fakeClient({ setScriptGrant });
@@ -340,8 +335,8 @@ test("a refusal over the memory ledger keeps the pack off and says why", async (
   expect((screen.getByRole("switch", { name: "启用" }) as HTMLInputElement).checked).toBe(false);
 });
 
-test("Linux and Windows explain that other programs of the same user can forge grants; macOS does not", async () => {
-  for (const platform of ["linux", "windows"]) {
+test("macOS, Linux and Windows all explain that other programs of the same user can forge grants", async () => {
+  for (const platform of ["macos", "linux", "windows"]) {
     renderSection(fakeClient(), platform);
     await openScript("中英文之间加空格");
     expect(
@@ -349,30 +344,24 @@ test("Linux and Windows explain that other programs of the same user can forge g
     ).toBeGreaterThan(0);
     cleanup();
   }
-  renderSection(
-    fakeClient({ scriptGrants: vi.fn(async () => grants({ mac_required: true, signed: true })) }),
-  );
-  await openScript("中英文之间加空格");
-  expect(screen.queryByText(/以你的身份运行的其他程序/)).toBeNull();
-  await waitFor(() => expect(screen.getByText(/其他程序伪造的授权不会生效/)).toBeTruthy());
 });
 
-test("without the keychain key a macOS page cannot enable a pack", async () => {
-  renderSection(
-    fakeClient({ scriptGrants: vi.fn(async () => grants({ mac_required: true, signed: false })) }),
-  );
+test("a macOS page never mentions the keychain and lets the user enable a pack", async () => {
+  renderSection(fakeClient(), "macos");
   await openScript("中英文之间加空格");
-  await waitFor(() =>
-    expect((screen.getByRole("switch", { name: "启用" }) as HTMLInputElement).disabled).toBe(true),
-  );
-  expect(screen.getByText(/读不到钥匙串里的授权密钥/)).toBeTruthy();
+  const toggle = screen.getByRole("switch", { name: "启用" }) as HTMLInputElement;
+  await waitFor(() => expect(toggle.disabled).toBe(false));
+  expect(document.body.textContent).not.toMatch(/钥匙串|签名|无法核对/);
+  fireEvent.click(toggle);
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(screen.getByRole("dialog").textContent).toContain("在 macOS 上，以你的身份运行的其他程序");
 });
 
 test("turning a pack off revokes its grant, and the order buttons reorder the running packs", async () => {
   const running = grants({
     plugins: [
-      { id: "pangu", hash: HASH, enabled: true, granted: ["read_commit"], verified: true },
-      { id: "counter", hash: NEW_HASH, enabled: true, granted: [], verified: true },
+      { id: "pangu", hash: HASH, enabled: true, granted: ["read_commit"] },
+      { id: "counter", hash: NEW_HASH, enabled: true, granted: [] },
     ],
   });
   const setScriptGrant = vi.fn(async () => grants());
@@ -419,40 +408,6 @@ test("the settings page shows the script group only where the host declares scri
   fireEvent.click(screen.getByRole("button", { name: "插件" }));
   expect(await screen.findByText("脚本插件（实验）")).toBeTruthy();
   expect(client.scriptGrants).toHaveBeenCalled();
-});
-
-test("a macOS page without the keychain key says it cannot check a grant instead of calling it forged", async () => {
-  const grant = { id: "pangu", hash: HASH, enabled: true, granted: [], verified: false };
-  // 设置应用读不到密钥时算出的 `verified` 一律是 false，说明不了输入法运不运行它。
-  expect(scriptGrantState(pangu, grant, false)).toBe("unchecked");
-  expect(scriptGrantState(pangu, { ...grant, enabled: false }, false)).toBe("disabled");
-  expect(scriptGrantState(pangu, grant, true)).toBe("unverified");
-  renderSection(
-    fakeClient({
-      scriptGrants: vi.fn(async () =>
-        grants({
-          mac_required: true,
-          signed: false,
-          plugins: [
-            { id: "pangu", hash: HASH, enabled: true, granted: ["read_commit"], verified: false },
-          ],
-        }),
-      ),
-    }),
-  );
-  const list = await screen.findByLabelText("已安装的插件");
-  const row = await within(list).findByRole("button", { name: "中英文之间加空格" });
-  await waitFor(() => expect(row.textContent).toContain("已启用 · 无法核对授权"));
-  expect(row.textContent).not.toContain("需要重新授权");
-  fireEvent.click(row);
-  await screen.findByRole("heading", { name: "中英文之间加空格" });
-  const status = screen.getByRole("status");
-  expect(status.textContent).toContain("无法核对这条授权");
-  expect(status.textContent).not.toContain("不会运行");
-  const toggle = screen.getByRole("switch", { name: "启用" }) as HTMLInputElement;
-  expect(toggle.checked).toBe(true);
-  expect(toggle.disabled).toBe(true);
-  expect(screen.getByText(/其他脚本插件的授权会一起失效/)).toBeTruthy();
 });
 
 test("a pack changed after the page read it is reread before the dialog explains", async () => {
@@ -531,43 +486,6 @@ test("the grant dialog starts on cancel and gives focus back to the switch that 
   expect(document.activeElement).toBe(screen.getByRole("switch", { name: "启用" }));
 });
 
-test("deleting a script pack without the keychain key warns that the other grants go too", async () => {
-  const confirm = vi.fn(async (_request: unknown) => false);
-  render(
-    <PluginsSection
-      client={fakeClient({
-        scriptGrants: vi.fn(async () =>
-          grants({
-            mac_required: true,
-            signed: false,
-            plugins: [
-              { id: "pangu", hash: HASH, enabled: true, granted: [], verified: false },
-              { id: "counter", hash: NEW_HASH, enabled: true, granted: [], verified: false },
-            ],
-          }),
-        ),
-      })}
-      preferences={defaultPluginPreferences}
-      keySound
-      music
-      triggers
-      active
-      scriptPlugins
-      platform="macos"
-      onChange={vi.fn()}
-      onError={vi.fn()}
-      confirm={confirm}
-    />,
-  );
-  await openScript("中英文之间加空格");
-  await waitFor(() => expect(screen.getByText(/无法核对这条授权/)).toBeTruthy());
-  await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "删除中英文之间加空格" }));
-  });
-  expect(confirm).toHaveBeenCalledTimes(1);
-  expect(JSON.stringify(confirm.mock.calls[0][0])).toContain("其他脚本插件的授权也会一起失效");
-});
-
 test("an IME stop is reported only while the pack is enabled", async () => {
   const health = [{ id: "pangu", hash: HASH, disabled: "failed" as const }];
   renderSection(
@@ -575,7 +493,7 @@ test("an IME stop is reported only while the pack is enabled", async () => {
       scriptGrants: vi.fn(async () =>
         grants({
           health,
-          plugins: [{ id: "pangu", hash: HASH, enabled: false, granted: [], verified: true }],
+          plugins: [{ id: "pangu", hash: HASH, enabled: false, granted: [] }],
         }),
       ),
     }),

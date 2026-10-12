@@ -83,15 +83,13 @@ export type PluginPackage = {
   content_hash?: string;
 };
 
-/** `script-grants.json` 的一条，外加它在本机能不能通过校验：桌面外壳的 `ScriptGrantView`。 */
+/** `script-grants.json` 的一条：桌面外壳的 `ScriptGrantView`。 */
 export type ScriptGrant = {
   id: string;
   /** 授权时包的内容哈希；与包现在的 `content_hash` 不同时授权已经作废。 */
   hash: string;
   enabled: boolean;
   granted: ScriptCapability[];
-  /** macOS 上授权的签名校验通过；Windows 和 Linux 恒为 true。为 false 的条目不运行。 */
-  verified: boolean;
 };
 
 /** 输入法停用了的一个脚本插件（`<user_data>/script-health.json`）：模块不合规、初始化失败、出错太多或太慢。 */
@@ -106,10 +104,6 @@ export type ScriptGrantsResult = {
   revision: number;
   plugins: ScriptGrant[];
   health: ScriptHealth[];
-  /** 授权要带签名才生效（macOS）。 */
-  mac_required: boolean;
-  /** 设置应用拿到了钥匙串里的签名密钥；`mac_required` 而没有时授权写不进去。 */
-  signed: boolean;
 };
 
 /** 插件详情可以链接过去的设置页：辅助码和快捷模式都在「输入」页。 */

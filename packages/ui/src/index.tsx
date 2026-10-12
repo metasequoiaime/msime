@@ -1745,7 +1745,7 @@ export interface HostCapabilities {
   wordbook_packs: boolean;
   /** 符号面板显示已安装的符号集插件。 */
   symbol_set_packs: boolean;
-  /** 插件页显示「脚本插件（实验）」分组和授权页（三个桌面宿主）。 */
+  /** 插件页显示「脚本插件（实验）」分组和授权页（macOS 和 Linux 的宿主）。 */
   script_plugins?: boolean;
   /** The input schemes this host offers; the others are shown disabled. */
   input_schemes: InputScheme[];

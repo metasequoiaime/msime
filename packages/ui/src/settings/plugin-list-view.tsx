@@ -33,7 +33,7 @@ export type PluginListScripts = {
   grants: ScriptGrantsResult | null;
   /** 宿主会运行的插件 id，按执行顺序。 */
   running: readonly string[];
-  /** Windows 和 Linux 上的残余风险说明，macOS 上为 null。 */
+  /** 同一用户下的程序能伪造授权的残余风险说明（`scriptResidualRisk`），不认识的平台为 null。 */
   risk: string | null;
 };
 

@@ -81,8 +81,6 @@ export function pluginErrorMessage(error: unknown, fallback: string): string {
       return "最多同时启用 8 个脚本插件，先停用一个再试。";
     case "plugin_script_changed":
       return "这个插件的内容在你打开之后变了，页面已经重新读取，请看过现在的内容再试。";
-    case "plugin_script_keychain":
-      return "读不到钥匙串里的授权密钥，授权没有写入。请在系统询问时允许水杉输入法设置访问钥匙串，然后再试。";
     case "plugin_script_grants_format":
       return "授权文件是更新版本的水杉输入法写的，这个版本不能修改它。";
     case "plugin_script_grant_invalid":
