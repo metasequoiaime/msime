@@ -111,7 +111,7 @@ export const fieldControl =
 export const textArea = `${fieldControl} resize-y leading-normal`;
 export const agreement = "flex flex-row items-start gap-2 text-xs leading-normal text-secondary";
 export const agreementBox = "mt-0.5 size-4 shrink-0 grow-0 accent-[var(--accent-color)]";
-export const warning = "m-0 text-xs leading-relaxed text-muted";
+export const warning = metrics;
 export const dialogActions =
   "flex justify-end gap-2 border-t border-[var(--divider-color)] pt-1 [&>button]:m-0";
 
