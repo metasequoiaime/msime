@@ -50,6 +50,29 @@ pub(crate) fn valid_description(value: &str) -> bool {
     valid_text(value, 0, 280, true)
 }
 
+/// 从本地资源信息生成社区发布表单的默认名称和简介。
+pub(crate) fn suggested_publication_fields(
+    name: &str,
+    description: Option<&str>,
+    fallback_id: &str,
+) -> (String, String) {
+    let suggested: String = name.chars().take(32).collect();
+    let suggested = suggested.trim();
+    let suggested_name = if valid_name(suggested) {
+        suggested.to_owned()
+    } else {
+        fallback_id.chars().take(32).collect()
+    };
+    let description: String = description.unwrap_or_default().chars().take(280).collect();
+    let description = description.trim();
+    let suggested_description = if valid_description(description) {
+        description.to_owned()
+    } else {
+        String::new()
+    };
+    (suggested_name, suggested_description)
+}
+
 pub(crate) fn valid_author(value: &str) -> bool {
     valid_text(value, 1, 128, false) && value.trim() == value
 }

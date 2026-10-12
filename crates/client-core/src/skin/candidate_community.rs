@@ -11,8 +11,9 @@ use crate::account::{
 };
 use crate::cloud::dictionary::percent_encode;
 use crate::community::{
-    valid_author, valid_description, valid_name, valid_query, valid_rating, CommunityModeration,
-    MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS, MODERATION_FIELDS,
+    suggested_publication_fields, valid_author, valid_description, valid_name, valid_query,
+    valid_rating, CommunityModeration, MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS,
+    MODERATION_FIELDS,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use reqwest::Method;
@@ -1136,26 +1137,8 @@ pub fn pack_as(
         |_| PACKAGE,
     )?;
     let manifest = String::from_utf8(manifest).map_err(|_| PACKAGE)?;
-    let suggested: String = summary.name.chars().take(32).collect();
-    let suggested = suggested.trim();
-    let suggested_name = if valid_name(suggested) {
-        suggested.to_owned()
-    } else {
-        id.chars().take(32).collect()
-    };
-    let description: String = summary
-        .description
-        .as_deref()
-        .unwrap_or_default()
-        .chars()
-        .take(280)
-        .collect();
-    let description = description.trim();
-    let suggested_description = if valid_description(description) {
-        description.to_owned()
-    } else {
-        String::new()
-    };
+    let (suggested_name, suggested_description) =
+        suggested_publication_fields(&summary.name, summary.description.as_deref(), id);
     Ok(PackedSkin {
         package_id: summary.id,
         manifest,

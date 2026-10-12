@@ -12,8 +12,9 @@ use crate::account::{
 };
 use crate::cloud::dictionary::percent_encode;
 use crate::community::{
-    valid_author, valid_description, valid_name, valid_query, valid_rating, CommunityModeration,
-    MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS, MODERATION_FIELDS,
+    suggested_publication_fields, valid_author, valid_description, valid_name, valid_query,
+    valid_rating, CommunityModeration, MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS,
+    MODERATION_FIELDS,
 };
 use crate::skin::catalog::safe_id;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -671,26 +672,8 @@ pub fn pack(root: &Path, kind: PluginKind, id: &str) -> Result<PackedPlugin, Plu
     if checked.kind() != kind || checked.id != summary.id || checked.version != summary.version {
         return Err(PluginFailure::code(MISMATCH));
     }
-    let suggested: String = summary.name.chars().take(32).collect();
-    let suggested = suggested.trim();
-    let suggested_name = if valid_name(suggested) {
-        suggested.to_owned()
-    } else {
-        summary.id.chars().take(32).collect()
-    };
-    let description: String = summary
-        .description
-        .as_deref()
-        .unwrap_or_default()
-        .chars()
-        .take(280)
-        .collect();
-    let description = description.trim();
-    let suggested_description = if valid_description(description) {
-        description.to_owned()
-    } else {
-        String::new()
-    };
+    let (suggested_name, suggested_description) =
+        suggested_publication_fields(&summary.name, summary.description.as_deref(), &summary.id);
     Ok(PackedPlugin {
         kind,
         plugin_id: summary.id,
