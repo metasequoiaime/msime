@@ -23,7 +23,7 @@ def method_body(source: str, signature: str) -> str:
 
 def main() -> None:
     source = SOURCE.read_text(encoding="utf-8")
-    reload = method_body(source, "private void reload()")
+    reload = method_body(source, "@Override protected void reload()")
     required = (
         "cloud = DiagnosticsApi.State.EMPTY;",
         "cloudLoaded = false;",

@@ -11,6 +11,7 @@ HOME = ROOT / "platforms/android/java/app/msime/android/home"
 BASE = HOME / "ReloadingDetailPage.java"
 CONSUMERS = (
     "AiSettingsPage.java",
+    "DeveloperPage.java",
     "ExpressionPage.java",
     "HandwritingPage.java",
     "KeyboardOptionsPage.java",
@@ -92,6 +93,14 @@ def main() -> int:
         or "installing.clear();" not in expression
     ):
         errors.append("ExpressionPage: 首次加载或视图销毁时的专有状态未保留")
+
+    developer = (HOME / "DeveloperPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in developer
+        or "render();" not in developer
+        or "@Override protected void onContentDestroyed()" not in developer
+    ):
+        errors.append("DeveloperPage: 首次渲染或视图销毁时的专有处理未保留")
 
     lexicon = (HOME / "LexiconPage.java").read_text(encoding="utf-8")
     if (

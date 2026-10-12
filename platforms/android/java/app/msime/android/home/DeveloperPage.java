@@ -3,7 +3,6 @@ package app.msime.android.home;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
-import android.os.Bundle;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import androidx.core.content.FileProvider;
@@ -45,14 +44,13 @@ import org.json.JSONObject;
  *
  * <p>调试开关、日志级别、「记录输入日志」和 MCP 上传的内容与保留时长只在本机，存在 {@link AndroidLocalSettings}（`platform.android.developer.*`），不进共享偏好、不同步；「重置所有设置」同时把共享偏好和这份本地设置恢复为默认值。
  */
-public final class DeveloperPage extends DetailPage {
+public final class DeveloperPage extends ReloadingDetailPage {
     private static final String PLATFORM = "android";
     private static final String DIAGNOSTICS_CACHE = "diagnostics";
     private static final String UPLOAD_BUNDLE = "mcp-upload.zip";
     private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT);
     private static final DateTimeFormatter DAY_CLOCK = DateTimeFormatter.ofPattern("M月d日 HH:mm", Locale.ROOT);
 
-    @Nullable private LinearLayout column;
     @Nullable private JSONObject snapshot;
     private AndroidLocalSettings.Snapshot local = AndroidLocalSettings.defaults();
     private DiagnosticsApi.State cloud = DiagnosticsApi.State.EMPTY;
@@ -68,19 +66,12 @@ public final class DeveloperPage extends DetailPage {
 
     private record LoadedCloud(DiagnosticsApi.State state, String accountId, String sessionId) {}
 
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
+    @Override protected void onContentReady() {
         render();
-        reload();
     }
 
-    @Override protected void onBecameVisible() {
-        reload();
-    }
-
-    @Override public void onDestroyView() {
+    @Override protected void onContentDestroyed() {
         generation++;
-        column = null;
         cloudAccountId = "";
         cloudSessionId = "";
         // Work results are fenced to the old view and will be dropped after recreation. Do not
@@ -89,10 +80,9 @@ public final class DeveloperPage extends DetailPage {
         busy = false;
         confirming = false;
         freshToken = null;
-        super.onDestroyView();
     }
 
-    private void reload() {
+    @Override protected void reload() {
         if (getView() == null) return;
         long request = ++generation;
         cloud = DiagnosticsApi.State.EMPTY;
@@ -150,7 +140,7 @@ public final class DeveloperPage extends DetailPage {
     // ---- 渲染 ----
 
     private void render() {
-        LinearLayout target = column;
+        LinearLayout target = contentColumn();
         if (target == null) return;
         target.removeAllViews();
         AndroidLocalSettings.Snapshot settings = local;
