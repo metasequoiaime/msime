@@ -1,5 +1,13 @@
 import SwiftUI
 
+enum AccountRequestPolicy {
+  static func isCancellation(_ error: Error) -> Bool {
+    if error is CancellationError { return true }
+    if let error = error as? URLError { return error.code == .cancelled }
+    return false
+  }
+}
+
 /// 应用的云同步控制器，对应 Android 的 `home/CloudSync`：设置（含当前自定义键盘皮肤）和无编码常用语。
 ///
 /// 只在真实账号且用户打开了同步开关时运行，登录本身不触发。应用每次回到前台（`scenePhase` 变为 `.active`）调用 `onActive`，距上次尝试满 5 分钟、或有分类带着待上传标记且满 30 秒时才真正跑（`BackendSyncPolicy.due`）。某个分类第一次同步而云端已有数据时，先弹「合并 / 使用云端」让用户选，选了才执行。

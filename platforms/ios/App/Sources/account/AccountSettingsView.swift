@@ -1,14 +1,5 @@
 import SwiftUI
 
-/// 任务取消不是错误。切换标签页会让 `.task` 连同它已经发出的请求一起取消,而 URLSession 抛回来的是 `URLError.cancelled` —— 它的 `localizedDescription` 就是 "cancelled"。把它当错误弹出来,结果就是每次切到「我的」都跳一个写着 cancelled 的框。
-///
-/// 只判 `CancellationError` 不够:那是 Swift 结构化并发自己抛的那一种,而这里真正会抛的是网络层那一种,两者没有继承关系。
-private func isCancellation(_ error: Error) -> Bool {
-  if error is CancellationError { return true }
-  if let error = error as? URLError { return error.code == .cancelled }
-  return false
-}
-
 /// 「我的」页，对应 Android 的 `AccountFragment`：先是资料卡，然后是「我的内容」「同步」「通用」三组，以及一组不带标题的下载、帮助、关于和两个重播入口，铺在季节页面底色上。
 ///
 /// 页面先读本地会话并立即绘制，再去取需要联网的内容（资料和云剪贴板条数）；没拿到数字的行就不显示数字。「云同步」和 Android 一样是一个开关，副标题是同步状态（`CloudSync.statusLine`）；手动上传下载设置、管理云词库在它下面的「手动同步」里。
@@ -366,7 +357,7 @@ struct AccountSettingsView: View {
       signedIn = user != nil
       needsRecovery = false
     } catch {
-      if !isCancellation(error) { needsRecovery = true; report(error) }
+      if !AccountRequestPolicy.isCancellation(error) { needsRecovery = true; report(error) }
       return
     }
     // 与当前登录对齐：换了账号或已经退出时，这一步关掉开关、清空同步进度。
@@ -394,7 +385,7 @@ struct AccountSettingsView: View {
       else if waiting > 0 { clipboardValue = "\(waiting) 台设备待批准" }
       else { clipboardValue = "\(page.items.count) 条" }
     } catch {
-      if !isCancellation(error) { clipboardValue = nil }
+      if !AccountRequestPolicy.isCancellation(error) { clipboardValue = nil }
     }
   }
 
@@ -409,7 +400,7 @@ struct AccountSettingsView: View {
 
   /// 取消不写进 message,别的都写。alert 绑在 message 上,写进去就是弹出来。
   private func report(_ error: Error) {
-    guard !isCancellation(error) else { return }
+    guard !AccountRequestPolicy.isCancellation(error) else { return }
     message = error.localizedDescription
   }
 
@@ -469,7 +460,7 @@ struct AppleAccountSection: View {
       _ = try await SkinCommunityAPI.shared.currentUser()
       needsRecovery = false
     } catch {
-      if !isCancellation(error) {
+      if !AccountRequestPolicy.isCancellation(error) {
         needsRecovery = true
         message = error.localizedDescription
       }
@@ -486,7 +477,7 @@ struct AppleAccountSection: View {
         needsRecovery = false
         message = nil
       } catch {
-        if !isCancellation(error) { message = error.localizedDescription }
+        if !AccountRequestPolicy.isCancellation(error) { message = error.localizedDescription }
       }
     }
   }

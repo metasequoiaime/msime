@@ -1,15 +1,6 @@
 import SwiftUI
 import UIKit
 
-/// 任务取消不是错误。切换标签页会让 `.task` 连同它已经发出的请求一起取消,而 URLSession 抛回来的是 `URLError.cancelled` —— 它的 `localizedDescription` 就是 "cancelled"。把它当错误弹出来,结果就是每次切到「我的」都跳一个写着 cancelled 的框。
-///
-/// 只判 `CancellationError` 不够:那是 Swift 结构化并发自己抛的那一种,而这里真正会抛的是网络层那一种,两者没有继承关系。
-private func isCancellation(_ error: Error) -> Bool {
-  if error is CancellationError { return true }
-  if let error = error as? URLError { return error.code == .cancelled }
-  return false
-}
-
 /// 后端在 `identities` 中报告的登录方式的显示名称。
 private func providerTitle(_ provider: String) -> String {
   switch provider {
@@ -265,7 +256,7 @@ struct AccountProfileEditor: View {
         onSignedOut()
         dismiss()
       } catch {
-        guard actionGeneration == id, !isCancellation(error) else { return }
+      guard actionGeneration == id, !AccountRequestPolicy.isCancellation(error) else { return }
         actionMessage = error.localizedDescription
       }
     }
@@ -282,7 +273,7 @@ struct AccountProfileEditor: View {
       needsRecovery = false
       onSaved(result.user)
     } catch {
-      guard !isCancellation(error) else { return }
+      guard !AccountRequestPolicy.isCancellation(error) else { return }
       needsRecovery = true
       loadMessage = error.localizedDescription
     }
@@ -409,7 +400,7 @@ private struct AccountNicknameEditor: View {
         ToastCenter.shared.show("昵称已更新")
         dismiss()
       } catch {
-        guard !isCancellation(error) else { return }
+        guard !AccountRequestPolicy.isCancellation(error) else { return }
         message = error.localizedDescription
       }
     }
