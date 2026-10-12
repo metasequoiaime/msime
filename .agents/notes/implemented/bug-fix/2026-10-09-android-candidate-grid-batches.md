@@ -18,7 +18,7 @@ Status: implemented
 
 ## Alternatives considered
 
-- **换成 `RecyclerView` + `GridLayoutManager`**：滚到哪建到哪、还能回收滚出视口的格子，是 Android 列表的标准做法，几千格时内存也更省。但格子按字宽排（长词占得宽），`GridLayoutManager` 是等宽列，要么改设计成等宽格，要么自己写一个按宽度换行的 `LayoutManager`；后者比现在这个流式布局复杂得多。分批建在用户实际会滚到的范围内（几百格）已经够快，回收不是瓶颈。
+- **换成 `RecyclerView` + `GridLayoutManager`**：滚到哪建到哪、还能回收滚出视口的格子，是 Android 列表的标准做法，几千格时内存也更省。但格子按字宽排（长词占得宽），`GridLayoutManager` 是等宽列，要么改设计成等宽格，要么自己写一个按宽度换行的 `LayoutManager`；后者比现在这个流式布局复杂得多。分批建在用户实际会滚到的范围内（几百格）已经够快，回收不是瓶颈。网格后来改成按列占位、长词占多列（[按列占位并填满每行](2026-10-12-android-candidate-grid-columns.md)），但占几列仍要先量字宽，换成 `LayoutManager` 同样得自己写这一段。
 - **引擎分页给完整候选（`allCandidates` 带 offset/limit）**：能把 15–20 ms 的取数也降下来。但要改 host-api 契约和六个宿主的调用方，而这次测到的瓶颈九成以上在 View 上；取数那一段留给以后真成为瓶颈时再做。
 - **只在后台线程建 View**：View 只能在主线程创建和挂上，建好之后测量布局仍在主线程，省不掉大头。
 - **限制展开面板最多显示前 N 个候选**：最简单，但会让排在后面的生僻字无法从面板里选到，报告人要的是「随翻阅动态生成」，不是截断。

@@ -52,7 +52,7 @@ final class ImeCandidateGrid {
         int total = candidates == null ? 0 : candidates.length();
         int previouslyBuilt = built;
         built = 0;
-        list = new CandidateWrapLayout(s, s.pixels(6));
+        list = new CandidateWrapLayout(s, s.pixels(6), s.pixels(64));
         list.setContentDescription(description);
         // 布局完成后看一眼：第一批没填够一屏多（候选很短、面板很高）时接着追加，不等用户滚动。
         list.addOnLayoutChangeListener((view, left, top, right, bottom,

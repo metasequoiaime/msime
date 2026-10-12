@@ -194,7 +194,9 @@ final class ImeCandidates {
         boolean placeholder = AiPendingCandidatePolicy.isPlaceholder(source);
         button.setAlpha(AiPendingCandidatePolicy.alpha(source));
         expandedCells.add(button);
-        ViewPolicy.setMinimumSize(button, s.pixels(64), s.pixels(44));
+        // 格子宽度由网格的列决定（CandidateGridPolicy），这里只量自然宽度。Button 默认样式自带 88 dp 的 minWidth，View 级的 setMinimumWidth 盖不掉它：每格至少 88 dp，手机上一行只放得下三格，右边空出一截。
+        ViewPolicy.clearMinimumWidth(button);
+        ViewPolicy.setMinimumHeight(button, s.pixels(44));
         LayoutPolicy.setHorizontalPaddingDp(button, s, 10);
         // The completed keyboard tree is styled once by MSIMEInputService.render().
         // Styling here would be repeated immediately after this button is attached.
