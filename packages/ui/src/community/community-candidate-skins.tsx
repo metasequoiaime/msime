@@ -11,9 +11,8 @@ import {
   communityPublishLoginAction,
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
-import { CommunityDetailStatus } from "./community-detail-status";
+import { CommunityDetailSummary } from "./community-detail-summary";
 import { CommunityDetailFrame } from "./community-detail-frame";
-import { CommunityDetailHeader } from "./community-detail-header";
 import * as style from "./community-style";
 import { CommunityGalleryHeader } from "./community-gallery-header";
 import { CommunityScopeButtons } from "./community-scope-buttons";
@@ -440,7 +439,7 @@ export function CommunityCandidateSkinsPage({
           load={loadPreview}
           className={style.detailStage}
         />
-        <CommunityDetailHeader
+        <CommunityDetailSummary
           title={selected.name}
           note={[selectedCategory, selected.author, selected.version && `v${selected.version}`]
             .filter(Boolean)
@@ -449,9 +448,7 @@ export function CommunityCandidateSkinsPage({
           moderation={selected.moderation}
           ownedLabel={selected.visibility === "private" ? "私有" : "我的作品"}
           description={selected.description}
-        />
-        {license && <CommunityMetrics>{license}</CommunityMetrics>}
-        <CommunityDetailStatus
+          metrics={license && <CommunityMetrics>{license}</CommunityMetrics>}
           downloads={selected.downloads}
           ratingCount={selected.rating_count}
           ratingAverage={selected.rating_average}

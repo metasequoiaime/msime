@@ -2005,6 +2005,29 @@ fn translation_sidecar_prefers_the_user_file_and_is_removed_without_one() {
     assert!(!target.exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn translation_sidecar_publication_keeps_open_readers_on_complete_old_content() {
+    use std::io::Read;
+
+    let dir = tempfile::tempdir().unwrap();
+    let value = options(dir.path());
+    let target = Path::new(&value.dictionaries).join("custom_translations.txt");
+    let resource = Path::new(&value.resources).join("custom_translations.txt");
+    let user = Path::new(&value.user_data).join("custom_translations.txt");
+    std::fs::write(&resource, b"fixture\told\n").unwrap();
+    super::options::prepare_translation_sidecar(&value).unwrap();
+    let mut previous = std::fs::File::open(&target).unwrap();
+
+    std::fs::write(&user, b"fixture\tnew\n").unwrap();
+    super::options::prepare_translation_sidecar(&value).unwrap();
+
+    let mut old_contents = String::new();
+    previous.read_to_string(&mut old_contents).unwrap();
+    assert_eq!(old_contents, "fixture\told\n");
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "fixture\tnew\n");
+}
+
 #[test]
 fn translation_sidecar_copy_rejects_an_oversized_source() {
     let dir = tempfile::tempdir().unwrap();

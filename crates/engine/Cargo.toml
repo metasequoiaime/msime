@@ -25,6 +25,7 @@ rusqlite = { workspace = true, features = ["bundled", "backup"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 time = { workspace = true, features = ["formatting", "local-offset"] }
 unicode-segmentation.workspace = true
@@ -42,7 +43,6 @@ rusqlite = { workspace = true, features = ["bundled", "backup", "ffi-sqlite-wasm
 [dev-dependencies]
 # 片假名逐字符转换的旧行为对照，固定版本以免测试基线漂移。
 wana_kana = "=5.0.0"
-tempfile.workspace = true
 
 [lints]
 workspace = true

@@ -186,7 +186,7 @@ fn failures_are_reported_with_their_fuel_and_fail_the_run() {
 {"seq":9,"event":"composition_update","status":"ok","fuel":18019,"actions":[],"log":[]}
 {"seq":10,"event":"composition_update","status":"ok","fuel":18019,"actions":[],"log":[]}
 {"seq":11,"event":"composition_update","status":"ok","fuel":18019,"actions":[],"log":[]}
-{"seq":12,"event":"composition_update","status":"out_of_fuel","fuel":16885,"actions":[],"log":[]}
+{"seq":12,"event":"composition_update","status":"turn_exhausted","fuel":16885,"actions":[],"log":[]}
 {"seq":13,"event":"composition_update","status":"suspended","fuel":0,"actions":[],"log":[]}
 {"seq":14,"event":"focus_in","status":"ok","fuel":18,"init_fuel":2,"actions":[],"log":[]}
 {"seq":15,"event":"commit","status":"out_of_fuel","fuel":24999,"actions":[],"log":[]}
@@ -238,7 +238,7 @@ fn an_initialisation_failure_disables_the_plugin() {
     );
 }
 
-/// 同一轮里重建的实例接着用这一轮剩下的配额：六次 `composition_update` 用掉 108 114，`focus_in` 丢掉实例再重建，第七次只剩一万六千多，耗尽；带 `key` 的 `focus_in` 开始新的一轮，重建的实例拿到满额。
+/// 同一轮里重建的实例接着用这一轮剩下的配额：六次 `composition_update` 用掉 108 114，`focus_in` 丢掉实例再重建，第七次只剩一万六千多，本轮配额耗尽（`turn_exhausted`，不算失败，所以退出码是 0）；带 `key` 的 `focus_in` 开始新的一轮，重建的实例拿到满额。
 #[test]
 fn an_instance_rebuilt_in_the_same_turn_resumes_its_fuel() {
     let declared = declaration(&[], &[Hook::FocusIn, Hook::CompositionUpdate]);
@@ -254,7 +254,7 @@ fn an_instance_rebuilt_in_the_same_turn_resumes_its_fuel() {
 {"event":"composition_update","preedit":"n"}
 "#;
     let (status, out) = run_wat(FAILING, declared, CapabilitySet::EMPTY, fixture);
-    assert_eq!(status, EXIT_INVALID);
+    assert_eq!(status, EXIT_OK);
     assert_golden(
         &out,
         r#"{"seq":1,"event":"composition_update","status":"ok","fuel":18019,"init_fuel":2,"actions":[],"log":[]}
@@ -264,7 +264,7 @@ fn an_instance_rebuilt_in_the_same_turn_resumes_its_fuel() {
 {"seq":5,"event":"composition_update","status":"ok","fuel":18019,"actions":[],"log":[]}
 {"seq":6,"event":"composition_update","status":"ok","fuel":18019,"actions":[],"log":[]}
 {"seq":7,"event":"focus_in","status":"ok","fuel":18,"init_fuel":2,"actions":[],"log":[]}
-{"seq":8,"event":"composition_update","status":"out_of_fuel","fuel":16867,"actions":[],"log":[]}
+{"seq":8,"event":"composition_update","status":"turn_exhausted","fuel":16867,"actions":[],"log":[]}
 {"seq":9,"event":"focus_in","status":"ok","fuel":18,"init_fuel":2,"actions":[],"log":[]}
 {"seq":10,"event":"composition_update","status":"ok","fuel":18019,"actions":[],"log":[]}
 "#,

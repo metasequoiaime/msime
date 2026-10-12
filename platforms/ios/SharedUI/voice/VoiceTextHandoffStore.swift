@@ -48,15 +48,6 @@ final class VoiceTextHandoffStore: @unchecked Sendable {
     guard !SafePath.hasRefusedSymbolicLink(path) else { throw Failure.unavailable }
   }
 
-  private func rejectSymlinkFile(_ path: URL) throws {
-    var status = stat()
-    if lstat(path.standardizedFileURL.path, &status) == 0 {
-      guard status.st_mode & S_IFMT != S_IFLNK else { throw Failure.unavailable }
-    } else if errno != ENOENT {
-      throw Failure.unavailable
-    }
-  }
-
   private func locked<T>(_ action: (URL) throws -> T) throws -> T {
     guard let directory else { throw Failure.unavailable }
     Self.lock.lock()
@@ -70,7 +61,7 @@ final class VoiceTextHandoffStore: @unchecked Sendable {
     guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw Failure.busy }
     defer { flock(descriptor, LOCK_UN) }
     let result = directory.appendingPathComponent("result.json")
-    try rejectSymlinkFile(result)
+    guard !SafePath.hasRefusedSymbolicLink(result) else { throw Failure.unavailable }
     return try action(result)
   }
 

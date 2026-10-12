@@ -168,6 +168,7 @@ pub mod scalar_values {
         ("cancel", 6),
         ("host_commit", 7),
         ("other", 8),
+        ("focus_loss", 9),
     ];
     /// `RETRACTION`：input-runtime 的 `SelectionRetraction`。
     pub const RETRACTION: &[(&str, u8)] = &[("restore", 0), ("drop", 1)];

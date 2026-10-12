@@ -1,6 +1,6 @@
 //! `EngineOptions` and its mapping onto `SessionOptions` (api-contract §2, bridge.cpp:306-407, 698-734).
 
-use std::fs::OpenOptions;
+use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -22,30 +22,30 @@ use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as Vietn
 const MAX_TRANSLATION_SIDECAR_BYTES: u64 = 1024 * 1024;
 
 pub(crate) fn write_private_file_no_follow(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let mut options = OpenOptions::new();
-    options.write(true).create(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    msime_path_trust::reject_symlinked_components(parent)?;
+    match fs::symlink_metadata(path) {
+        Ok(_) => {
+            let file = crate::paths::open_file_no_follow(path)?;
+            if !crate::paths::has_single_link(&file)? {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "translation sidecar is not a single-link regular file",
+                ));
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    }
-    let mut file = options.open(path)?;
-    let metadata = file.metadata()?;
-    if !metadata.is_file() || !crate::paths::has_single_link(&file)? {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "translation sidecar is not a single-link regular file",
-        ));
-    }
-    file.set_len(0)?;
-    file.write_all(bytes)?;
-    file.sync_all()
+    let mut temporary = tempfile::Builder::new()
+        .prefix(".custom-translations-")
+        .tempfile_in(parent)?;
+    temporary.write_all(bytes)?;
+    temporary.as_file().sync_all()?;
+    temporary
+        .persist(path)
+        .map(|_| ())
+        .map_err(|error| error.error)
 }
 
 /// Every field is listed at every construction site; there is deliberately no `Default`.

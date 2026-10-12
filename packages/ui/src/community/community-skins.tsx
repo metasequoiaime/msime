@@ -11,12 +11,11 @@ import {
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
-import { CommunityDetailStatus } from "./community-detail-status";
+import { CommunityDetailSummary } from "./community-detail-summary";
 import { StatusMessage } from "../core/status-message";
 import { CommunityDetailFrame } from "./community-detail-frame";
-import { CommunityDetailHeader } from "./community-detail-header";
 import * as style from "./community-style";
-import { CommunitySearchForm, type CommunitySearchFormProps } from "./community-search-form";
+import type { CommunitySearchFormProps } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import {
   CommunityReportSection,
@@ -762,7 +761,7 @@ export function CommunitySkinsPage({
         <div className={style.detailStage}>
           <ScreenKeyboardPreview theme={theme} skin="custom" customDesign={selected.design} />
         </div>
-        <CommunityDetailHeader
+        <CommunityDetailSummary
           title={selected.name}
           note={[communitySkinCategoryLabel(selected.category), selected.author]
             .filter(Boolean)
@@ -770,8 +769,6 @@ export function CommunitySkinsPage({
           owned={selected.owned}
           moderation={selected.moderation}
           description={selected.description}
-        />
-        <CommunityDetailStatus
           downloads={selected.downloads}
           ratingCount={selected.rating_count}
           ratingAverage={selected.rating_average}

@@ -110,6 +110,7 @@ pub mod input_class {
     pub const CANCEL: u64 = 6;
     pub const HOST_COMMIT: u64 = 7;
     pub const OTHER: u64 = 8;
+    pub const FOCUS_LOSS: u64 = 9;
 }
 
 /// `event::RETRACTION`：撤回暂存选择的方式（`selection_retracted`）。

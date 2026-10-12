@@ -20,8 +20,7 @@ import {
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
-import { CommunityDetailStatus } from "./community-detail-status";
-import { CommunityDetailHeader } from "./community-detail-header";
+import { CommunityDetailSummary } from "./community-detail-summary";
 import * as style from "./community-style";
 import { CommunityGalleryHeader } from "./community-gallery-header";
 import { CommunityModerationSection } from "./community-moderation-section";
@@ -290,7 +289,7 @@ export function CommunityPluginsPage({
         signInRequired={signInRequired}
         onLogin={onLogin}
       >
-        <CommunityDetailHeader
+        <CommunityDetailSummary
           title={selected.name}
           note={[
             kindLabels[selected.kind],
@@ -302,17 +301,17 @@ export function CommunityPluginsPage({
           owned={selected.owned}
           moderation={selected.moderation}
           description={selected.description}
-        />
-        <CommunityMetrics>
-          {[
-            selected.plugin_id,
-            selected.license && `授权 ${selected.license}`,
-            candidateSkinMegabytes(selected.size),
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </CommunityMetrics>
-        <CommunityDetailStatus
+          metrics={
+            <CommunityMetrics>
+              {[
+                selected.plugin_id,
+                selected.license && `授权 ${selected.license}`,
+                candidateSkinMegabytes(selected.size),
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </CommunityMetrics>
+          }
           downloads={selected.downloads}
           ratingCount={selected.rating_count}
           ratingAverage={selected.rating_average}

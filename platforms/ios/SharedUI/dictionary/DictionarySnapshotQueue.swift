@@ -58,14 +58,6 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
   private func rejectSymlinkAncestors(_ path: URL) throws {
     guard !SafePath.hasRefusedSymbolicLink(path) else { throw Failure.unavailable }
   }
-  private func rejectSymlinkFile(_ path: URL) throws {
-    var status = stat()
-    if lstat(path.standardizedFileURL.path, &status) == 0 {
-      guard status.st_mode & S_IFMT != S_IFLNK else { throw Failure.unavailable }
-    } else if errno != ENOENT {
-      throw Failure.unavailable
-    }
-  }
   private func root() throws -> URL {
     guard let directory else { throw Failure.unavailable }
     try rejectSymlinkAncestors(directory)
@@ -74,7 +66,7 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
   }
   private func read(_ root: URL) throws -> DictionarySnapshotQueueState {
     let file = root.appendingPathComponent("state.json")
-    try rejectSymlinkFile(file)
+    guard !SafePath.hasRefusedSymbolicLink(file) else { throw Failure.unavailable }
     guard FileManager.default.fileExists(atPath: file.path) else { return .init() }
     let descriptor = open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
     guard descriptor >= 0 else { throw Failure.unavailable }

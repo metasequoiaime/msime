@@ -724,7 +724,7 @@ fn a_piece_the_host_holds_sounds_only_when_the_whole_phrase_goes_out() {
     let sound = effect_sound();
     // 部分选词：上屏了一段，读音还剩下一截。像真的派发一样先发 input，它清掉按键留下的特效。
     let piece = |state: &mut LifecycleState| {
-        state.before_dispatch(&sound, InputClass::Selection, "none");
+        state.before_dispatch(&sound, InputClass::Selection, "none", None);
         state.after(
             &sound,
             dispatch(InputClass::Selection),
