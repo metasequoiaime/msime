@@ -19,6 +19,7 @@ import {
   deepseekDocumentationUrl,
   everyApiModelsUrl,
   groqChatEndpoint,
+  groqDocumentationUrl,
   openAiChatEndpoint,
   siliconFlowChatEndpoint,
   siliconFlowTextDocumentationUrl,
@@ -128,7 +129,7 @@ export const POLISH_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
     endpoint: groqChatEndpoint,
     model: "llama-3.3-70b-versatile",
     models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
-    documentation: "https://console.groq.com/docs/quickstart",
+    documentation: groqDocumentationUrl,
   },
 };
 

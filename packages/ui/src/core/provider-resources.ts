@@ -7,3 +7,4 @@ export const groqChatEndpoint = "https://api.groq.com/openai/v1/chat/completions
 export const deepseekDocumentationUrl = "https://api-docs.deepseek.com/";
 export const siliconFlowTextDocumentationUrl =
   "https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation";
+export const groqDocumentationUrl = "https://console.groq.com/docs/quickstart";
