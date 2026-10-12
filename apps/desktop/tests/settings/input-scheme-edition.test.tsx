@@ -91,6 +91,7 @@ test("full keeps every scheme, the input modes, helper codes and 临时日语", 
   ).toBeTruthy();
   expect(screen.getByRole("region", { name: "辅助码" })).toBeTruthy();
   expect(screen.getByRole("switch", { name: /^临时日语/ })).toBeTruthy();
+  expect(screen.getByRole("switch", { name: /^日文混输（实验）/ })).toBeTruthy();
   // 全拼时不显示五笔的设置。
   expect(screen.queryByRole("switch", { name: "五笔拼音混输" })).toBeNull();
 });
@@ -121,8 +122,9 @@ test("the wubi edition offers no other scheme and always shows the Wubi settings
   // 五笔不用辅助码，这一组不显示；模糊音在混拼查全拼时照常起作用。
   expect(screen.queryByRole("region", { name: "辅助码" })).toBeNull();
   expect(screen.getByRole("switch", { name: "启用模糊音" })).toBeTruthy();
-  // 五笔版不带临时日文。
+  // 五笔版不带临时日文，用同一份日文词典的日文混输也不列出。
   expect(screen.queryByRole("switch", { name: /^临时日语/ })).toBeNull();
+  expect(screen.queryByRole("switch", { name: /^日文混输（实验）/ })).toBeNull();
   expect(screen.getByRole("switch", { name: /^临时英文/ })).toBeTruthy();
 });
 
@@ -146,6 +148,7 @@ test("the pinyin edition lists only its two schemes and names the fallback for a
   expect(screen.queryByRole("radio", { name: "中文" })).toBeNull();
   expect(screen.getByRole("region", { name: "辅助码" })).toBeTruthy();
   expect(screen.getByRole("switch", { name: /^临时日语/ })).toBeTruthy();
+  expect(screen.getByRole("switch", { name: /^日文混输（实验）/ })).toBeTruthy();
 });
 
 test("a pinyin-edition document naming Japanese shows the scheme host-api runs", async () => {

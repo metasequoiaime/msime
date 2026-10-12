@@ -33,11 +33,17 @@ const supplementalOptions: readonly ["emoji" | "kaomoji", string, string][] = [
 
 export interface MixedInputSectionProps {
   preferences: MixedInputPreferences;
+  /** 本版本带临时日文（`HostCapabilities.edition.temporary_japanese`）；为 false 时不列出日文混输开关，因为 host-api 在这样的版本里始终把它关掉，和临时日语开关一样。缺省为 true。 */
+  temporaryJapanese?: boolean;
   onChange: (preferences: MixedInputPreferences) => void;
 }
 
 /** 共享的中英混输候选控件：输入页「候选与联想」组里云候选之后的几行。 */
-export function MixedInputSection({ preferences, onChange }: MixedInputSectionProps) {
+export function MixedInputSection({
+  preferences,
+  temporaryJapanese = true,
+  onChange,
+}: MixedInputSectionProps) {
   return (
     <>
       <SettingsRowStack role="group" aria-label="中英混输">
@@ -72,12 +78,14 @@ export function MixedInputSection({ preferences, onChange }: MixedInputSectionPr
           onChange={(checked) => onChange({ ...preferences, [key]: checked })}
         />
       ))}
-      <SwitchRow
-        title="日文混输（实验）"
-        description="全拼、双拼里打出完整的日文罗马字时补充一个日文候选（如 ohayou → おはよう）。用的是临时日文的那份日文词典，词典不在时不生效"
-        checked={preferences.japanese ?? false}
-        onChange={(japanese) => onChange({ ...preferences, japanese })}
-      />
+      {temporaryJapanese && (
+        <SwitchRow
+          title="日文混输（实验）"
+          description="全拼、双拼里打出完整的日文罗马字时补充一个日文候选（如 ohayou → おはよう）。用的是临时日文的那份日文词典，词典不在时不生效"
+          checked={preferences.japanese ?? false}
+          onChange={(japanese) => onChange({ ...preferences, japanese })}
+        />
+      )}
     </>
   );
 }

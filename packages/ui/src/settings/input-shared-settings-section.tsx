@@ -31,6 +31,8 @@ export interface InputSharedSettingsSectionProps {
   /** 中英混输、emoji 和颜文字混输，放在「候选与联想」组的云候选之后。 */
   mixedInput?: MixedInputPreferences;
   onMixedInputChange?: (mixedInput: MixedInputPreferences) => void;
+  /** 本版本带临时日文，决定是否列出日文混输开关；见 `MixedInputSectionProps.temporaryJapanese`。缺省为 true。 */
+  temporaryJapanese?: boolean;
   /** 放在「候选与联想」组的「学习选词习惯」之前。 */
   beforeLearning?: ReactNode;
   /** 「候选与联想」组末尾的行。 */
@@ -59,6 +61,7 @@ export function InputSharedSettingsSection({
   showModeScope,
   mixedInput,
   onMixedInputChange,
+  temporaryJapanese = true,
   beforeLearning,
   afterLearning,
   modeExtra,
@@ -140,7 +143,11 @@ export function InputSharedSettingsSection({
       <GroupList title="候选与联想">
         {cloudCandidatesRow}
         {mixedInput && onMixedInputChange && (
-          <MixedInputSection preferences={mixedInput} onChange={onMixedInputChange} />
+          <MixedInputSection
+            preferences={mixedInput}
+            temporaryJapanese={temporaryJapanese}
+            onChange={onMixedInputChange}
+          />
         )}
         <SingleCharacterOnlySection
           value={preferences.single_character_only}

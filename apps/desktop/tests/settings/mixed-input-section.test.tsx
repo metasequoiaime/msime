@@ -62,3 +62,16 @@ test("Japanese mixed input is off when the document predates it and toggles on i
   fireEvent.click(screen.getByRole("switch", { name: /^日文混输（实验）/ }));
   expect(onChange).toHaveBeenLastCalledWith({ ...preferences, japanese: false });
 });
+
+test("an edition without temporary Japanese does not list Japanese mixed input", () => {
+  render(
+    <MixedInputSection
+      preferences={{ ...preferences, japanese: true }}
+      temporaryJapanese={false}
+      onChange={vi.fn()}
+    />,
+  );
+
+  expect(screen.queryByRole("switch", { name: /^日文混输（实验）/ })).toBeNull();
+  expect(screen.getByRole("switch", { name: /^颜文字混输/ })).toBeTruthy();
+});
