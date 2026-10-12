@@ -70,6 +70,22 @@ final class KeyboardCandidatePanelView: UIView {
     return min(columns, max(needed, annotated ? annotatedSpan : 1, 1))
   }
 
+  /// 按顺序把占 `spans` 列的格子装进 `columns` 列的各行，返回每格的行、起始列和实际占的列数。一行剩下的列放不下下一格时换行，与不开启 dense 填充的 CSS 网格一样；换行前那一格拉宽到行尾，网格右边不留空。最后一行不拉宽，一两个候选不会被撑成一整条。Android（`CandidateGridPolicy.place`）与鸿蒙（`ExpandedCandidateLayout.rows`）是同一条规则。
+  static func place(spans: [Int], columns: Int) -> [(row: Int, column: Int, span: Int)] {
+    var cells: [(row: Int, column: Int, span: Int)] = []
+    var row = 0, column = 0
+    for span in spans {
+      if column > 0, column + span > columns {
+        if let last = cells.indices.last { cells[last].span = columns - cells[last].column }
+        row += 1
+        column = 0
+      }
+      cells.append((row, column, span))
+      column += span
+    }
+    return cells
+  }
+
   init(candidates: [String], preedit: String, annotations: [KeyboardCandidateAnnotation] = [],
        markers: [[CandidateMarker]] = [], aiPlaceholders: Set<Int> = [],
        candidateScale: CGFloat = 1, preeditScale: CGFloat = 1, candidateFamilies: [String] = [],
@@ -284,18 +300,13 @@ final class KeyboardCandidatePanelView: UIView {
     let content = max(0, width - padding * 2)
     let columns = Self.columns(width: content)
     let columnWidth = max(0, (content - spacing * CGFloat(columns - 1)) / CGFloat(columns))
-    // 逐行排列：一行剩余空间放不下的候选从下一行开始，与不开启 dense 填充的 CSS 网格一样。
+    let spans = chips.map {
+      Self.span(titleWidth: $0.titleWidth, annotated: $0.glossLines > 0, columns: columns, columnWidth: columnWidth)
+    }
     var rows: [[(chip: CandidateGridButton, column: Int, span: Int)]] = [[]]
-    var column = 0
-    for chip in chips {
-      let span = Self.span(titleWidth: chip.titleWidth, annotated: chip.glossLines > 0,
-                           columns: columns, columnWidth: columnWidth)
-      if column > 0, column + span > columns {
-        rows.append([])
-        column = 0
-      }
-      rows[rows.count - 1].append((chip, column, span))
-      column += span
+    for (chip, cell) in zip(chips, Self.place(spans: spans, columns: columns)) {
+      if cell.row >= rows.count { rows.append([]) }
+      rows[rows.count - 1].append((chip, cell.column, cell.span))
     }
     var y = padding
     for row in rows where !row.isEmpty {

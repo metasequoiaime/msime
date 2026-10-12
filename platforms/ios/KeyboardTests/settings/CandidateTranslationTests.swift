@@ -285,6 +285,32 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertEqual(longChip.bounds.width, short, accuracy: 0.5)
   }
 
+  func testExpandedGridFillsEachWrappedRowToTheEdge() throws {
+    func cells(_ spans: [Int], _ columns: Int) -> [[Int]] {
+      KeyboardCandidatePanelView.place(spans: spans, columns: columns).map { [$0.row, $0.column, $0.span] }
+    }
+    // The cell before a wrap stretches to the end of its row; the last row keeps its spans.
+    XCTAssertEqual(cells([1, 1, 2, 2, 2, 1], 5),
+                   [[0, 0, 1], [0, 1, 1], [0, 2, 3], [1, 0, 2], [1, 2, 2], [1, 4, 1]])
+    XCTAssertEqual(cells([1, 1], 4), [[0, 0, 1], [0, 1, 1]])
+    XCTAssertEqual(cells([2, 3, 1], 5), [[0, 0, 2], [0, 2, 3], [1, 0, 1]])
+    XCTAssertTrue(cells([], 3).isEmpty)
+
+    let panel = KeyboardCandidatePanelView(
+      candidates: ["好", "好", "好", "好", "你今天晚上吃什么呢"], preedit: "hao",
+      display: { $0 }, onSelect: { _ in }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
+    panel.layoutIfNeeded()
+    let chips = try (1...5).map { index in
+      try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-\(index)" })
+    }
+    let edge = try XCTUnwrap(chips[0].superview).bounds.width - KeyboardCandidatePanelView.gridPadding
+    XCTAssertEqual(chips[3].frame.minY, chips[0].frame.minY, accuracy: 0.5)
+    XCTAssertGreaterThan(chips[4].frame.minY, chips[0].frame.minY)
+    XCTAssertEqual(chips[3].frame.maxX, edge, accuracy: 0.5, "the row before the sentence ends flush")
+    XCTAssertLessThan(chips[4].frame.maxX, edge - 1, "the last row is not stretched")
+  }
+
   /// A row is reserved only for a gloss that can actually arrive.
   ///
   /// English has the offline dictionary the keyboard ships with, so it answers without a
