@@ -131,13 +131,8 @@ struct DictionarySettingsView: View {
       }
       Spacer(minLength: 8)
       Button { confirming = item } label: {
-        Text(isAdded ? "已添加" : isAdding ? "添加中" : "添加")
-          .font(.system(size: 13, weight: .semibold))
-          .foregroundStyle(isAdded ? MetasequoiaTheme.sub : MetasequoiaTheme.accent)
-          .padding(.vertical, 5)
-          .padding(.horizontal, 14)
-          .background(isAdded ? MetasequoiaTheme.segBg : MetasequoiaTheme.accentSoft, in: Capsule())
-          .contentShape(Capsule())
+        DesignPillLabel(title: isAdded ? "已添加" : isAdding ? "添加中" : "添加",
+          style: isAdded ? .neutral : .tonal, size: .regular)
       }
       .buttonStyle(.plain)
       .disabled(isAdded || isAdding)
