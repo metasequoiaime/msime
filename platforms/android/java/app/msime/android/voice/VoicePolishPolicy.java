@@ -38,18 +38,12 @@ public final class VoicePolishPolicy {
         return TextPolicy.validAuthority(endpoint, "https://", AiPolishConfiguration.MAX_ENDPOINT_LENGTH)
             && TextPolicy.boundedNonBlank(model, 512)
             && TextPolicy.boundedNonBlank(token, 16 * 1024)
-            && TextPolicy.hasText(prompt)
-            && TextPolicy.utf8Length(prompt) <= MAX_PROMPT_BYTES
-            && !TextPolicy.hasControlExceptWhitespace(prompt)
-            && TextPolicy.validUnicode(prompt);
+            && TextPolicy.boundedNonBlankAllowingWhitespaceControls(prompt, MAX_PROMPT_BYTES);
     }
 
     /** Whether a transcript is worth sending: empty or absurdly long is not. */
     public static boolean sendable(String text) {
-        return TextPolicy.hasText(text)
-            && TextPolicy.utf8Length(text) <= MAX_TEXT_BYTES
-            && !TextPolicy.hasControlExceptWhitespace(text)
-            && TextPolicy.validUnicode(text);
+        return TextPolicy.boundedNonBlankAllowingWhitespaceControls(text, MAX_TEXT_BYTES);
     }
 
     /**
