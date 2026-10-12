@@ -130,16 +130,21 @@ ${platformVariables(PLATFORM_PALETTE.dark)}
 .candidate[data-animation-enter="glow"] .container {
   animation: msime-candidate-glow var(--msime-skin-animation-duration) ease-out both;
 }
-.candidate[data-animation-enter="fade_scale"] .row-wrapper,
-.candidate[data-animation-enter="slide_up"] .row-wrapper {
+.candidate[data-animation-enter="fade_scale"][data-entering] .row-wrapper,
+.candidate[data-animation-enter="slide_up"][data-entering] .row-wrapper {
   animation: msime-candidate-row-reveal var(--msime-skin-animation-duration) cubic-bezier(.16, 1, .3, 1) both;
   animation-delay: calc(var(--msime-candidate-row-index, 0) * var(--msime-skin-animation-stagger));
 }
-.candidate[data-animation-selection="spring"] .cand.first {
+.candidate[data-animation-selection="spring"] .cand.first[data-selecting] {
   animation: msime-candidate-spring var(--msime-skin-animation-duration) cubic-bezier(.22, 1.35, .36, 1) both;
 }
-.candidate[data-animation-selection="glow"] .cand.first {
+.candidate[data-animation-selection="glow"] .cand.first[data-selecting] {
   animation: msime-candidate-glow var(--msime-skin-animation-duration) ease-out both;
+}
+.candidate[data-animation-selection="fade"] .cand.first[data-selecting],
+.candidate[data-animation-selection="fade_scale"] .cand.first[data-selecting],
+.candidate[data-animation-selection="slide_up"] .cand.first[data-selecting] {
+  animation: msime-candidate-select-fade var(--msime-skin-animation-duration) ease-out both;
 }
 .candidate[data-exiting="fade"] .container {
   animation: msime-candidate-fade var(--msime-skin-animation-duration) ease-in reverse both;
@@ -159,6 +164,7 @@ ${platformVariables(PLATFORM_PALETTE.dark)}
 @keyframes msime-candidate-slide-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes msime-candidate-spring { from { transform: scale(.94); } 65% { transform: scale(1.025); } to { transform: scale(1); } }
 @keyframes msime-candidate-glow { from { filter: brightness(1.22); } to { filter: brightness(1); } }
+@keyframes msime-candidate-select-fade { from { opacity: .45; } to { opacity: 1; } }
 @keyframes msime-candidate-row-reveal { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) {
   .candidate[data-animation-enter] .container,
@@ -466,6 +472,8 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
   // 这次组字里画过的最高高度，隐藏时清零。
   let tallest = 0;
   let hideTimer = null;
+  // 上一帧高亮的格位，隐藏时清空：每帧都重建候选行，只有高亮换了格才给新高亮那一行挂选中动效，打字不会重放。
+  let shownHighlight = null;
 
   const isDark = (value) => (value === "auto" ? Boolean(media?.matches) : value);
   let resolved = resolveSkin(skinArg, { dark: isDark(darkArg), layout: layoutArg });
@@ -544,6 +552,10 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
   };
 
   const draw = () => {
+    // 只有从隐藏到显示的这一帧错峰揭开候选行；之后的帧重建的行不再动。
+    const entering = root.hidden;
+    if (entering) root.dataset.entering = "";
+    else delete root.dataset.entering;
     const rows = [];
     if (card.dataset.background !== undefined) rows.push(background);
 
@@ -573,6 +585,7 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
       wrapper.style.setProperty("--msime-candidate-row-index", String(index));
       const cand = element(doc, "div", highlighted ? "row cand first" : "row cand", highlighted ? `${PARTS.candidate} ${PARTS.highlight}` : PARTS.candidate);
       cand.dataset.index = String(index);
+      if (highlighted && shownHighlight !== null && shownHighlight !== index) cand.dataset.selecting = "";
       cand.setAttribute("role", "option");
       cand.setAttribute("aria-selected", String(highlighted));
       const text = element(doc, "div", "text");
@@ -593,6 +606,7 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
       rows.push(wrapper);
     });
     card.replaceChildren(...rows);
+    shownHighlight = Number.isInteger(frame.highlight) && frame.highlight >= 0 && frame.highlight < page.length ? frame.highlight : null;
     root.hidden = false;
     place();
   };
@@ -654,8 +668,10 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     tallest = 0;
     frame = null;
     anchor = null;
+    shownHighlight = null;
     root.hidden = true;
     delete root.dataset.exiting;
+    delete root.dataset.entering;
     delete root.dataset.hover;
   };
 
