@@ -160,7 +160,8 @@ final class ImeLayoutRows {
         cancelPendingInk();
         if (s.handwritingRecognizer != null) {
             s.handwritingRecognizer.setPreContext(
-                handwritingPreferences.mode() == HandwritingPreferences.Mode.LINE ? textBeforeCursor() : "");
+                handwritingPreferences.mode() == HandwritingPreferences.Mode.LINE
+                        ? HandwritingRecognizer.preContext(s.connection) : "");
         }
         long extra = handwritingPreferences.extraDelay(SERVICE_HANDWRITING_DEBOUNCE_MILLIS);
         if (extra == 0 || strokes.isEmpty()) {
@@ -189,13 +190,6 @@ final class ImeLayoutRows {
     private void cancelHandwritingNotice() {
         if (handwritingNoticeReset != null) s.main.removeCallbacks(handwritingNoticeReset);
         handwritingNoticeReset = null;
-    }
-
-    /** 光标前的上文，供行写识别；读不到时为空串。 */
-    private String textBeforeCursor() {
-        if (s.connection == null) return "";
-        CharSequence before = s.connection.getTextBeforeCursor(HandwritingRecognizer.MAX_PRE_CONTEXT, 0);
-        return HandwritingRecognizer.clipPreContext(before == null ? "" : before.toString());
     }
 
     /** 识别结果到了（主线程，排在服务显示候选之后）：叠写自动上屏首选并清空画布；需要时显示首选的拼音。 */

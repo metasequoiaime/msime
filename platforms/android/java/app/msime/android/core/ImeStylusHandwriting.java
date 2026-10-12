@@ -220,7 +220,7 @@ final class ImeStylusHandwriting {
         }
         final HandwritingRecognizer expected = recognizer;
         try {
-            recognizer.setPreContext(textBeforeCursor());
+            recognizer.setPreContext(HandwritingRecognizer.preContext(s.connection));
             recognizer.recognize(request, new HandwritingRecognizer.RecognitionListener() {
                 @Override public void onResult(long revision, java.util.List<String> values) {
                     s.main.post(() -> {
@@ -253,13 +253,6 @@ final class ImeStylusHandwriting {
         s.commitText(s.chineseOutput(candidates.get(0), s.view), TypingSource.HANDWRITING);
         inkView.clear();
         s.render();
-    }
-
-    /** 光标前的上文，供整行识别；读不到时为空串。 */
-    private String textBeforeCursor() {
-        if (s.connection == null) return "";
-        CharSequence before = s.connection.getTextBeforeCursor(HandwritingRecognizer.MAX_PRE_CONTEXT, 0);
-        return HandwritingRecognizer.clipPreContext(before == null ? "" : before.toString());
     }
 
     private void invalidateRecognition() {
