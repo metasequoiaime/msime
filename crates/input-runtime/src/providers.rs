@@ -65,6 +65,12 @@ fn with_terminator(request: &str) -> String {
 }
 
 #[cfg(unix)]
+fn write_request(stream: &mut UnixStream, request: &str) -> std::io::Result<()> {
+    let line = with_terminator(request);
+    stream.write_all(line.as_bytes())
+}
+
+#[cfg(unix)]
 fn valid_ai_provider_endpoint(provider: &str, endpoint: &str) -> bool {
     !provider.is_empty()
         && msime_client_core::is_bounded_text(provider, 64)
@@ -282,11 +288,7 @@ impl UnixSocketProvider {
             .set_write_timeout(Some(std::time::Duration::from_millis(500)))
             .ok()?;
         let request = json!({"version": 1, "kind": "online", "query": query}).to_string();
-        if request.len() > 16384
-            || stream
-                .write_all(with_terminator(&request).as_bytes())
-                .is_err()
-        {
+        if request.len() > 16384 || write_request(&mut stream, &request).is_err() {
             return None;
         }
         // One response deadline: partial writes by the provider must not
@@ -370,11 +372,7 @@ impl UnixSocketProvider {
             .set_write_timeout(Some(std::time::Duration::from_millis(500)))
             .ok()?;
         let request = json!({"version": 1, "kind": "translation", "query": query}).to_string();
-        if request.len() > 16384
-            || stream
-                .write_all(with_terminator(&request).as_bytes())
-                .is_err()
-        {
+        if request.len() > 16384 || write_request(&mut stream, &request).is_err() {
             return None;
         }
         // Leave room for the provider's six-second translation batch budget.
@@ -823,11 +821,7 @@ impl UnixSocketProvider {
             request["query"]["events"] = json!(events);
         }
         let request = request.to_string();
-        if request.len() > 16_384
-            || stream
-                .write_all(with_terminator(&request).as_bytes())
-                .is_err()
-        {
+        if request.len() > 16_384 || write_request(&mut stream, &request).is_err() {
             return None;
         }
         // Up to ten minutes of capture, two sixty-second ASR attempts and
@@ -926,10 +920,7 @@ impl UnixSocketProvider {
             "query": {"generation": generation}
         })
         .to_string();
-        request.len() <= 4096
-            && stream
-                .write_all(with_terminator(&request).as_bytes())
-                .is_ok()
+        request.len() <= 4096 && write_request(&mut stream, &request).is_ok()
     }
 
     /// Ask a user-owned voice provider to finish the active capture session.
@@ -956,10 +947,7 @@ impl UnixSocketProvider {
             "query": {"generation": generation}
         })
         .to_string();
-        request.len() <= 4096
-            && stream
-                .write_all(with_terminator(&request).as_bytes())
-                .is_ok()
+        request.len() <= 4096 && write_request(&mut stream, &request).is_ok()
     }
 
     /// Forward one validated account-backed dictionary operation to the
