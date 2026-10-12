@@ -112,6 +112,7 @@ for entry in \
     "NumberRowDeviceSmoke|Number row acceptance failed" \
     "ClipboardImageDeviceSmoke|Clipboard image acceptance failed" \
     "CaretCandidatesDeviceSmoke|Caret candidates acceptance failed" \
+    "HardwareTranslationDeviceSmoke|Hardware Ctrl+Enter translation acceptance failed" \
     "AiPlaceholderDeviceSmoke|AI placeholder acceptance failed" \
     "WubiLookupDeviceSmoke|Wubi lookup acceptance failed"
 do
