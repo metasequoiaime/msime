@@ -1,6 +1,8 @@
+import { logo } from "./app-resources";
+
 /** 共享设置外壳里的设置页，按导航顺序排列。 */
 export const pages = [
-  { id: "home", title: "首页", icon: new URL("../assets/msime.svg", import.meta.url).href },
+  { id: "home", title: "首页", icon: logo },
   { id: "input", title: "输入", icon: new URL("../assets/input.svg", import.meta.url).href },
   {
     id: "expression",
