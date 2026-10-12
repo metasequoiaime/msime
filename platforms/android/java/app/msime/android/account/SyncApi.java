@@ -511,7 +511,7 @@ public final class SyncApi {
             HttpsURLConnection connection = open(path, "GET", token, NDJSON);
             try {
                 int status = connection.getResponseCode();
-                if (status / 100 == 2) {
+                if (HttpConnectionPolicy.isSuccessful(status)) {
                     try (InputStream input = connection.getInputStream()) {
                         HttpBodyPolicy.copy(input, out);
                     }
@@ -537,7 +537,7 @@ public final class SyncApi {
                     HttpBodyPolicy.copy(input, output);
                 }
                 int status = connection.getResponseCode();
-                if (status / 100 == 2) {
+                if (HttpConnectionPolicy.isSuccessful(status)) {
                     try (InputStream input = connection.getInputStream()) {
                         return new Exchange(status, null,
                             HttpBodyPolicy.readRequired(input, CloudApi.MAX_RESPONSE_BYTES));

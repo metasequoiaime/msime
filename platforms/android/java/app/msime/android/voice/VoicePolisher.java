@@ -64,7 +64,7 @@ public final class VoicePolisher {
             }
             if (cancelled) return null;
             int status = connection.getResponseCode();
-            if (status < 200 || status >= 300) return null;
+            if (!HttpConnectionPolicy.isSuccessful(status)) return null;
             String response;
             try (InputStream input = connection.getInputStream()) {
                 byte[] responseBytes = HttpBodyPolicy.readBounded(input, MAX_RESPONSE_BYTES);

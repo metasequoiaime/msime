@@ -431,7 +431,7 @@ public final class DeviceDataApi {
             connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
             connection.setRequestProperty("Authorization", "Bearer " + token);
             int status = connection.getResponseCode();
-            if (status / 100 == 2) {
+            if (HttpConnectionPolicy.isSuccessful(status)) {
                 try (InputStream input = connection.getInputStream()) {
                     HttpBodyPolicy.copy(input, out);
                 }

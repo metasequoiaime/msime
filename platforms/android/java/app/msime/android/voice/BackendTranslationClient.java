@@ -48,11 +48,11 @@ public final class BackendTranslationClient implements CandidateTranslationStore
                 try (OutputStream output = connection.getOutputStream()) { output.write(request); }
             }
             int status = connection.getResponseCode();
-            InputStream stream = status / 100 == 2 ? connection.getInputStream() : connection.getErrorStream();
+            InputStream stream = HttpConnectionPolicy.isSuccessful(status) ? connection.getInputStream() : connection.getErrorStream();
             byte[] response = new byte[0];
             if (stream != null) {
                 try (InputStream input = stream) {
-                    if (status / 100 == 2) {
+                    if (HttpConnectionPolicy.isSuccessful(status)) {
                         response = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
                     } else {
                         try { response = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES); }

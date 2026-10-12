@@ -508,7 +508,7 @@ public final class CloudApi {
                 try (OutputStream output = connection.getOutputStream()) { output.write(body); }
             }
             int status = connection.getResponseCode();
-            InputStream stream = status / 100 == 2 ? connection.getInputStream() : connection.getErrorStream();
+            InputStream stream = HttpConnectionPolicy.isSuccessful(status) ? connection.getInputStream() : connection.getErrorStream();
             byte[] response = new byte[0];
             if (stream != null) {
                 try (InputStream input = stream) {

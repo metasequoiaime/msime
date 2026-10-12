@@ -795,7 +795,7 @@ public final class BackendAccount {
             if (call.cancelled()) throw new CancellationException("chat cancelled");
             int status = connection.getResponseCode();
             if (call.cancelled()) throw new CancellationException("chat cancelled");
-            if (status / 100 != 2) throw new RequestException(status);
+            if (!HttpConnectionPolicy.isSuccessful(status)) throw new RequestException(status);
             String type = connection.getContentType();
             try (InputStream input = connection.getInputStream()) {
                 if (type == null || !TextPolicy.lowercase(type).startsWith("text/event-stream")) {
@@ -1105,7 +1105,7 @@ public final class BackendAccount {
             AccountHttpRequest.writeJson(connection, method, token, userAgent, payload);
             int status = connection.getResponseCode();
             // 状态码带进消息里：503 是这个登录方式没配，401 是凭据不对，两件事不该长同一个样子。
-            if (status / 100 != 2) throw new RequestException(status);
+            if (!HttpConnectionPolicy.isSuccessful(status)) throw new RequestException(status);
             try (InputStream input = connection.getInputStream()) {
                 byte[] response = readBounded(input);
                 if (response.length == 0) return new JSONObject();
@@ -1125,7 +1125,7 @@ public final class BackendAccount {
             connection = (HttpsURLConnection) new URL(CloudApi.ORIGIN + path).openConnection();
             AccountHttpRequest.writeJson(connection, method, token, CloudApi.USER_AGENT, payload);
             int status = connection.getResponseCode();
-            InputStream stream = status / 100 == 2 ? connection.getInputStream() : connection.getErrorStream();
+            InputStream stream = HttpConnectionPolicy.isSuccessful(status) ? connection.getInputStream() : connection.getErrorStream();
             byte[] response = new byte[0];
             if (stream != null) {
                 try (InputStream input = stream) {

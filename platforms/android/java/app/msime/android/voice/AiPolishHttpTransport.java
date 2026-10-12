@@ -39,7 +39,7 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
             }
             try (OutputStream output = connection.getOutputStream()) { output.write(bytes); }
             int status = connection.getResponseCode();
-            if (status < 200 || status >= 300)
+            if (!HttpConnectionPolicy.isSuccessful(status))
                 throw new AiPolishClient.Failure(AiPolishClient.Reason.UNAVAILABLE);
             byte[] response;
             try (InputStream input = connection.getInputStream()) {

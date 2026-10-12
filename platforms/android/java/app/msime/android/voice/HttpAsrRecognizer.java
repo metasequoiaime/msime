@@ -153,7 +153,7 @@ public final class HttpAsrRecognizer {
             }
             if (cancelled.get()) throw new Refused(Failure.CANCELLED);
             int status = opened.getResponseCode();
-            if (status < 200 || status >= 300) throw new Refused(Failure.NETWORK);
+            if (!HttpConnectionPolicy.isSuccessful(status)) throw new Refused(Failure.NETWORK);
             String text;
             try (InputStream input = opened.getInputStream()) {
                 String response = TextPolicy.utf8(

@@ -51,7 +51,7 @@ public final class OnlineCandidateTransport {
             watchdog = CLOUD_DEADLINES.schedule(connection::disconnect,
                 OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
             int status = connection.getResponseCode();
-            if (status < 200 || status >= 300) return null;
+            if (!HttpConnectionPolicy.isSuccessful(status)) return null;
             try (InputStream input = connection.getInputStream()) {
                 byte[] body = HttpBodyPolicy.readWithin(input,
                     OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES, deadline);
@@ -94,7 +94,7 @@ public final class OnlineCandidateTransport {
             }
             try (OutputStream output = connection.getOutputStream()) { output.write(payload); }
             int status = connection.getResponseCode();
-            if (status < 200 || status >= 300) return null;
+            if (!HttpConnectionPolicy.isSuccessful(status)) return null;
             try (InputStream input = connection.getInputStream()) {
                 byte[] body = HttpBodyPolicy.readBounded(input,
                     OnlineCandidatePolicy.MAX_AI_RESPONSE_BYTES);

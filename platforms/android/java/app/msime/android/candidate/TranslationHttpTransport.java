@@ -109,7 +109,7 @@ public final class TranslationHttpTransport {
             watchdog = DEADLINES.schedule(open::disconnect, timeout, TimeUnit.MILLISECONDS);
             try (OutputStream output = connection.getOutputStream()) { output.write(payload); }
             int status = connection.getResponseCode();
-            if (status < 200 || status >= 300) return null;
+            if (!HttpConnectionPolicy.isSuccessful(status)) return null;
             try (InputStream input = connection.getInputStream()) {
                 return HttpBodyPolicy.readWithin(input, limit, deadline);
             }

@@ -15,4 +15,9 @@ public final class HttpConnectionPolicy {
         connection.setConnectTimeout(connectMillis);
         connection.setReadTimeout(readMillis);
     }
+
+    /** Whether an HTTP response has a successful 2xx status. */
+    public static boolean isSuccessful(int status) {
+        return status >= 200 && status < 300;
+    }
 }
