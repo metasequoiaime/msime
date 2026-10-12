@@ -211,7 +211,7 @@ export const sheetHintError = "m-0 text-[13px] leading-snug text-danger";
 export const sheetFooter = "m-0 text-center text-xs [color:var(--p-sub)]";
 export const sheetFooterLink =
   "m-0 cursor-pointer border-0 bg-transparent p-0 text-xs [font-family:inherit] [color:var(--p-sub)] underline-offset-2 active:underline";
-export const sheetQuiet = "flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5";
+export const sheetQuiet = signInFooter;
 
 // ---- 其他平台下载 ----
 
