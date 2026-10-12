@@ -429,6 +429,56 @@ public final class NativeClient {
         return TextPolicy.utf8(testVoiceCredentialRaw(utf8(requestJson)));
     }
 
+    /** 自定义翻译服务的请求描述器（DeepL 官方地址按 DeepL v2，其他地址按 DeepLX）：请求 {@code {config:{enabled,endpoint,api_key},text,source_language,target_language}}，返回 {@code {ok, value}}，value 是 {@code {url,method,headers,body,timeout_ms,max_response_bytes}}，服务关闭时为 null。描述器带着凭据，不得写进日志。不做 I/O。 */
+    public static String customTranslationHttpRequest(String requestJson) {
+        return TextPolicy.utf8(customTranslationHttpRequestRaw(utf8(requestJson)));
+    }
+
+    /** 小牛翻译的请求描述器：请求 {@code {config:{enabled,app_id,apikey},text,source_language,target_language,timestamp}}（timestamp 是毫秒数字符串），value 带 {@code body_utf8}，要原样发送。不做 I/O。 */
+    public static String niutransTranslationHttpRequest(String requestJson) {
+        return TextPolicy.utf8(niutransTranslationHttpRequestRaw(utf8(requestJson)));
+    }
+
+    /** 腾讯云机器翻译的签名描述器：请求 {@code {config:{enabled,secret_id,secret_key,region},texts,source_language,target_language,timestamp}}（timestamp 是秒），value 带签过名的 {@code body_utf8}，要逐字节原样发送。不做 I/O。 */
+    public static String tencentTranslationHttpRequest(String requestJson) {
+        return TextPolicy.utf8(tencentTranslationHttpRequestRaw(utf8(requestJson)));
+    }
+
+    /** 解析自定义翻译服务的回复：value 是整理过的译文字符串，没有译文或回复不认识时为 null。 */
+    public static String parseCustomTranslationResponse(byte[] body) {
+        return TextPolicy.utf8(parseCustomTranslationResponseRaw(body));
+    }
+
+    /** 解析小牛翻译的回复：value 是整理过的译文字符串，没有译文或回复报错时为 null。 */
+    public static String parseNiuTransTranslationResponse(byte[] body) {
+        return TextPolicy.utf8(parseNiuTransTranslationResponseRaw(body));
+    }
+
+    /** 解析腾讯云机器翻译的回复：value 是与请求等长的数组，没有译文的位置是 null；回复报错或条数不符时 value 为 null。{@code expected} 只接受 1 到 10。 */
+    public static String parseTencentTranslationResponse(byte[] body, int expected) {
+        return TextPolicy.utf8(parseTencentTranslationResponseRaw(body, expected));
+    }
+
+    /** 自定义翻译服务的回复是否表示失败（不是一个回答，哪怕是空的回答）。失败的词以后要再问，只有回答才能负缓存。 */
+    public static boolean customTranslationReplyFailed(byte[] body) {
+        return customTranslationReplyFailedRaw(body);
+    }
+
+    /** 小牛翻译的回复是否表示失败（限流、凭据错误、正文不认识），含义同 {@link #customTranslationReplyFailed}。 */
+    public static boolean niutransTranslationReplyFailed(byte[] body) {
+        return niutransTranslationReplyFailedRaw(body);
+    }
+
+    /** 自定义翻译接口地址下面的提示：value 是 {@code {issue, accepted}}，issue 是给用户看的一句话（没有问题时为空串），accepted 是偏好能否保存这个地址。不做 I/O。 */
+    public static String translationEndpointIssue(String endpoint) {
+        return TextPolicy.utf8(translationEndpointIssueRaw(utf8(endpoint)));
+    }
+
+    /** 翻译服务设置页的「测试连接」：请求 {@code {service, config}}，service 是 translation.custom、translation.niutrans 或 translation.tencent，config 是表单里的值；value 是 {@code {ok, message}}，message 不含凭据和服务的回复。阻塞到约 15 秒，只在工作线程上调用。请求带着凭据，不得写进日志。 */
+    public static String testApiCredential(String requestJson) {
+        return TextPolicy.utf8(testApiCredentialRaw(utf8(requestJson)));
+    }
+
     /** 把升级前已解压在本机的文件收编为资源包：请求 {@code {"state_root","pack","source"}}。要哈希整组文件，只在主进程的工作线程上调用。 */
     public static String resourcePackAdopt(String requestJson) {
         return TextPolicy.utf8(resourcePackAdoptRaw(utf8(requestJson)));
@@ -769,6 +819,16 @@ public final class NativeClient {
     private static native void resourcePackCancelRaw(byte[] pack);
     private static native byte[] resourcePackAdoptRaw(byte[] request);
     private static native byte[] testVoiceCredentialRaw(byte[] request);
+    private static native byte[] customTranslationHttpRequestRaw(byte[] request);
+    private static native byte[] niutransTranslationHttpRequestRaw(byte[] request);
+    private static native byte[] tencentTranslationHttpRequestRaw(byte[] request);
+    private static native byte[] parseCustomTranslationResponseRaw(byte[] body);
+    private static native byte[] parseNiuTransTranslationResponseRaw(byte[] body);
+    private static native byte[] parseTencentTranslationResponseRaw(byte[] body, int expected);
+    private static native boolean customTranslationReplyFailedRaw(byte[] body);
+    private static native boolean niutransTranslationReplyFailedRaw(byte[] body);
+    private static native byte[] translationEndpointIssueRaw(byte[] endpoint);
+    private static native byte[] testApiCredentialRaw(byte[] request);
     private static native byte[] voiceLocalModelsRaw(byte[] request);
     private static native byte[] voiceLocalModelInstallRaw(byte[] request, LocalModelProgress listener);
     private static native byte[] voiceLocalModelCancelRaw(byte[] request);

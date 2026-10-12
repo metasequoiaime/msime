@@ -927,6 +927,25 @@ constexpr jsize kPlatformLimit = 64;
 constexpr jsize kVoiceRequestLimit = 1 * 1024 * 1024;
 constexpr jsize kResourcePackRequestLimit = 16384;
 constexpr jsize kResourcePackIdLimit = 256;
+// 用户自己的翻译服务（小牛、自定义、腾讯）：描述器请求、服务回复和设置页检查的上限，与 msime_client.h 写明的一致。
+constexpr jsize kCustomTranslationRequestLimit = 16384;
+constexpr jsize kTranslationRequestLimit = 65536;
+constexpr jsize kTranslationResponseLimit = 1 * 1024 * 1024;
+constexpr jsize kTranslationSettingsLimit = 65536;
+// 腾讯一批最多的词数，与共享层的每页候选上限相同。
+constexpr jint kTencentBatchLimit = 10;
+
+// 服务回复是否表示失败（而不是一个回答，哪怕为空）。空引用、超限或取不到数组都按失败处理，宿主只对回答做负缓存。
+template <typename Call> jboolean reply_failed(JNIEnv *env, jbyteArray body, Call call) {
+    if (!body) return JNI_TRUE;
+    jsize length = env->GetArrayLength(body);
+    if (length > kTranslationResponseLimit) return JNI_TRUE;
+    jbyte *bytes = env->GetByteArrayElements(body, nullptr);
+    if (!bytes) return JNI_TRUE;
+    bool failed = call(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(body, bytes, JNI_ABORT);
+    return failed ? JNI_TRUE : JNI_FALSE;
+}
 
 // 资源包安装的进度回调上下文：回调在调用 msime_client_resource_pack_install 的同一线程上触发，所以可以直接用这个线程的 JNIEnv。
 struct ResourcePackProgress {
@@ -1055,6 +1074,51 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_accountSettings
 // 语音设置页的「测试」：按偏好目录里存的配置测识别或润色服务，阻塞到约 15 秒，只在工作线程上调用。请求带偏好目录，响应只有结果文案，不含凭据。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_testVoiceCredentialRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kResourcePackRequestLimit, msime_client_test_voice_credential);
+}
+// 候选翻译接用户自己的服务：请求由共享层构造（含签名和鉴权头），回复由共享层解析，Java 只负责收发字节。描述器带着凭据，不得写进日志。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_customTranslationHttpRequestRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kCustomTranslationRequestLimit, msime_client_custom_translation_http_request);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_niutransTranslationHttpRequestRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kTranslationRequestLimit, msime_client_niutrans_translation_http_request);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_tencentTranslationHttpRequestRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kTranslationRequestLimit, msime_client_tencent_translation_http_request);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_parseCustomTranslationResponseRaw(JNIEnv *env, jclass, jbyteArray body) {
+    return bounded_request(env, body, kTranslationResponseLimit, msime_client_parse_custom_translation_response);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_parseNiuTransTranslationResponseRaw(JNIEnv *env, jclass, jbyteArray body) {
+    return bounded_request(env, body, kTranslationResponseLimit, msime_client_parse_niutrans_translation_response);
+}
+// expected 超出 1..10 时交给宿主以空请求拒绝，与 bounded_request 处理超限请求的方式相同。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_parseTencentTranslationResponseRaw(JNIEnv *env, jclass, jbyteArray body, jint expected) {
+    if (!body || expected < 1 || expected > kTencentBatchLimit) {
+        return response(env, msime_client_parse_tencent_translation_response(nullptr, 0, 0));
+    }
+    jsize length = env->GetArrayLength(body);
+    if (length > kTranslationResponseLimit) {
+        return response(env, msime_client_parse_tencent_translation_response(nullptr, 0, 0));
+    }
+    jbyte *bytes = env->GetByteArrayElements(body, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_parse_tencent_translation_response(
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length), static_cast<size_t>(expected));
+    env->ReleaseByteArrayElements(body, bytes, JNI_ABORT);
+    return response(env, result);
+}
+JNIEXPORT jboolean JNICALL Java_app_msime_android_NativeClient_customTranslationReplyFailedRaw(JNIEnv *env, jclass, jbyteArray body) {
+    return reply_failed(env, body, msime_client_custom_translation_reply_failed);
+}
+JNIEXPORT jboolean JNICALL Java_app_msime_android_NativeClient_niutransTranslationReplyFailedRaw(JNIEnv *env, jclass, jbyteArray body) {
+    return reply_failed(env, body, msime_client_niutrans_translation_reply_failed);
+}
+// 翻译服务设置页：接口地址下面的提示不做 I/O；「测试连接」按表单里的值发一次请求，阻塞到约 15 秒，只在工作线程上调用。请求带着凭据，响应只有结果文案。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_translationEndpointIssueRaw(JNIEnv *env, jclass, jbyteArray endpoint) {
+    return bounded_request(env, endpoint, kTranslationSettingsLimit, msime_client_translation_endpoint_issue);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_testApiCredentialRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kTranslationSettingsLimit, msime_client_test_api_credential);
 }
 // 按需下载的资源包（msime_client.h 里 msime_client_resource_pack_* 一节）。列出只读几个文件属性；安装和收编阻塞，只在主进程的工作线程上调用。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePacksRaw(JNIEnv *env, jclass, jbyteArray request) {

@@ -25,6 +25,7 @@ public final class NativeSmoke {
                 "relative").contains("\"ok\":false")) {
             throw new AssertionError("candidate gloss accepted a relative resource path");
         }
+        translationServices();
         Path root = Files.createTempDirectory("msime-jni-");
         try {
             Path preferences = Files.createDirectory(root.resolve("preferences-🌲"));
@@ -131,5 +132,51 @@ public final class NativeSmoke {
                 for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
             }
         }
+    }
+
+    /** 候选翻译接用户自己的服务时经过的 JNI 导出：描述器、回复解析、失败判断和设置页检查，全部用合成配置，不联网。 */
+    private static void translationServices() {
+        String deeplx = NativeClient.customTranslationHttpRequest("{\"config\":{\"enabled\":true,"
+            + "\"endpoint\":\"http://127.0.0.1:1188/translate\",\"api_key\":\"\"},\"text\":\"你好\","
+            + "\"source_language\":\"zh\",\"target_language\":\"en\"}");
+        success(deeplx);
+        if (!deeplx.contains("\"url\":\"http://127.0.0.1:1188/translate\"") || !deeplx.contains("\"headers\":"))
+            throw new AssertionError("DeepLX descriptor lacks its url or headers");
+        if (!NativeClient.customTranslationHttpRequest("{\"config\":{\"enabled\":true,"
+                + "\"endpoint\":\"https://api-free.deepl.com\",\"api_key\":\"\"},\"text\":\"你好\","
+                + "\"source_language\":\"zh\",\"target_language\":\"en\"}").contains("\"ok\":false"))
+            throw new AssertionError("DeepL descriptor was built without a key");
+        String tencent = NativeClient.tencentTranslationHttpRequest("{\"config\":{\"enabled\":true,"
+            + "\"secret_id\":\"AKIDsynthetic\",\"secret_key\":\"synthetic\",\"region\":\"\"},"
+            + "\"texts\":[\"你好\"],\"source_language\":\"zh\",\"target_language\":\"en\",\"timestamp\":1704067200}");
+        success(tencent);
+        if (!tencent.contains("\"body_utf8\":")) throw new AssertionError("Tencent descriptor lacks its signed body");
+        String niutrans = NativeClient.niutransTranslationHttpRequest("{\"config\":{\"enabled\":true,"
+            + "\"app_id\":\"app-id\",\"apikey\":\"api-key\"},\"text\":\"你好\",\"source_language\":\"zh\","
+            + "\"target_language\":\"en\",\"timestamp\":\"1704067200000\"}");
+        success(niutrans);
+        if (!niutrans.contains("\"body_utf8\":")) throw new AssertionError("NiuTrans descriptor lacks its form body");
+        String parsed = NativeClient.parseCustomTranslationResponse(
+            "{\"code\":200,\"data\":\" hello \"}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if (!parsed.contains("\"value\":\"hello\"")) throw new AssertionError(parsed);
+        String batch = NativeClient.parseTencentTranslationResponse(
+            "{\"Response\":{\"TargetTextList\":[\"hello\",\"\"]}}".getBytes(java.nio.charset.StandardCharsets.UTF_8), 2);
+        if (!batch.contains("\"value\":[\"hello\",null]")) throw new AssertionError(batch);
+        if (!NativeClient.parseTencentTranslationResponse(new byte[] {'{', '}'}, 11).contains("\"ok\":false"))
+            throw new AssertionError("Tencent parser accepted an oversized batch");
+        if (!NativeClient.customTranslationReplyFailed("{\"code\":500}".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                || NativeClient.customTranslationReplyFailed("{\"code\":200,\"data\":\"\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+            throw new AssertionError("custom reply failure was misread");
+        if (!NativeClient.niutransTranslationReplyFailed("{\"errorCode\":\"13001\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                || NativeClient.niutransTranslationReplyFailed("{\"tgtText\":\"\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+            throw new AssertionError("NiuTrans reply failure was misread");
+        String issue = NativeClient.translationEndpointIssue("http://192.168.1.2/translate");
+        if (!issue.contains("\"accepted\":false") || issue.contains("\"issue\":\"\""))
+            throw new AssertionError("a LAN http endpoint was accepted: " + issue);
+        String test = NativeClient.testApiCredential("{\"service\":\"translation.custom\",\"config\":{}}");
+        // 不完整的配置在联网之前就得到回答。
+        success(test);
+        if (!test.contains("请填写有效的翻译服务凭据和接口地址。")) throw new AssertionError(test);
+        System.out.println("JNI consumer: translation service descriptors, parsers and settings checks passed");
     }
 }
