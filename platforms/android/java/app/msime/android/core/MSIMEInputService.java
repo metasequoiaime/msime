@@ -3829,7 +3829,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 26 键字母右上角的提示键面跟中文标点走（#7069）：工具面板、Ctrl + . 或设置页切换中文标点、切换中英文后，j k l v b 的键面就地换成中文或 ASCII，不必重建整排键。键面相同时 setCornerHint 直接返回。 */
+    /** 26 键字母右上角的提示键面跟中文标点走（#7069）：设置页改「中文标点」、切换中英文、会话起来后 view 到达，这几种情形都不重建字母层，j k l v b 的键面在这里就地换成中文或 ASCII。工具面板和 Ctrl + . 走 toggleChinesePunctuation()，那里本来就重建键行，建键时已按当时状态取键面。键面相同时 setCornerHint 直接返回。 */
     private void updateLetterCornerHints() {
         boolean chinese = sendsChinesePunctuation();
         for (int index = 0; index < shuangpinKeyButtons.size(); index++) {
