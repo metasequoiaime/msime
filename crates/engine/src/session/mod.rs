@@ -89,14 +89,20 @@ impl Session {
         self.input.clock = clock;
     }
 
-    /// One ASCII character; `shift_only` is a bare Shift+letter (local mode entry). 全拼下九键开启且没有别的组字时，数字 2-9 交给九宫格会话；注音九键的数字由注音编辑器自己处理。
+    /// One ASCII character; `shift_only` is a bare Shift+letter (local mode entry). 全拼下九键开启且没有别的组字时，数字 2-9 交给九宫格会话；九键双拼交的是方案用到的数字（可以有 1 和 0）；注音九键的数字由注音编辑器自己处理。
     pub fn character(&mut self, value: u8, shift_only: bool) -> KeyResult {
-        // English is a mode rather than a scheme, so the grid stays available in it: the same digits spell words instead of syllables. A local mode still takes the keys, and the scheme underneath must be quanpin: 拼音九宫格只认得全拼音节，注音九键走注音编辑器。
-        if self.key_grid == Some(KeyGrid::NineKey)
+        // English is a mode rather than a scheme, so the grid stays available in it: the same digits spell words instead of syllables. A local mode still takes the keys, and the scheme underneath must be quanpin: 拼音九宫格只认得全拼音节，注音九键走注音编辑器。九键双拼没有英文九键，专用英文里数字照常是数字。
+        let grid_digit = match self.key_grid {
+            Some(KeyGrid::NineKey) => (b'2'..=b'9').contains(&value),
+            Some(grid @ KeyGrid::NineKeyShuangpin(_)) => {
+                !self.input.dedicated_english && grid.is_code(value)
+            }
+            _ => false,
+        };
+        if grid_digit
             && self.input.scheme() == SchemeType::Quanpin
             && self.input.local_mode == LocalInputMode::None
             && self.input.preedit().is_empty()
-            && (b'2'..=b'9').contains(&value)
         {
             let result = self.nine_key.character(value);
             return self.after_nine_key(result);

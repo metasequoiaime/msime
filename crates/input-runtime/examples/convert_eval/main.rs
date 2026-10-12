@@ -7,6 +7,7 @@
 //!
 //! Learning is off and each case gets a fresh session, so one case cannot bias the next.
 
+mod grid_keys;
 mod metrics;
 
 use metrics::{Bucket, Observation, Report};
@@ -39,6 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut update = false;
     let mut dump: Option<PathBuf> = None;
     let mut grid: Option<KeyGrid> = None;
+    let mut segmentation_filter: Option<KeyGrid> = None;
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut index = 0;
@@ -57,9 +59,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--baseline" => baseline = Some(PathBuf::from(take(&mut index)?)),
             "--update-baseline" => update = true,
             "--dump" => dump = Some(PathBuf::from(take(&mut index)?)),
-            "--grid" => grid = Some(parse_grid(&take(&mut index)?)?),
+            "--grid" => grid = Some(grid_keys::parse_grid(&take(&mut index)?)?),
             // `--grid nine` 的旧写法，verify-local.sh 和笔记里都用过。
             "--nine-key" => grid = Some(KeyGrid::NineKey),
+            // 只留全拼切成音节只有一种切法的用例，与九键双拼量的是同一批。
+            "--unique-segmentation" => {
+                segmentation_filter = Some(grid_keys::parse_grid("shuangpin-migala3")?)
+            }
             other => return Err(format!("unknown option: {other}").into()),
         }
         index += 1;
@@ -79,6 +85,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // instead of taking a prefix that would be all short words.
         let stride = cases.len().div_ceil(limit.max(1));
         cases = cases.into_iter().step_by(stride.max(1)).collect();
+    }
+    // 九键双拼要先把全拼切成音节，切法不唯一（xian 和 xi'an）的用例打不出确定的数字，不计入。九键也可以用 `--unique-segmentation` 只量这一部分，好和九键双拼比。
+    if let Some(filter) =
+        segmentation_filter.or(grid.filter(|grid| matches!(grid, KeyGrid::NineKeyShuangpin(_))))
+    {
+        let before = cases.len();
+        cases.retain(|case| {
+            grid_keys::grid_keys(filter, &case.input, Some(case.syllables)).is_some()
+        });
+        eprintln!(
+            "{} of {before} cases have one syllable segmentation",
+            cases.len()
+        );
     }
     eprintln!("{} cases from {} set(s)", cases.len(), sets.len());
 
@@ -240,9 +259,11 @@ fn run(
         // Cancel keeps the committed context and seeding appends to it, so without this every case would be ranked against the tail of the contexts of all the cases before it.
         runtime.clear_context();
         runtime.seed_context(&case.context);
-        // 组码只取字母，少数用例带的 `'` 不输入。
+        // 组码只取字母，少数用例带的 `'` 不输入；九键双拼切不出唯一一种音节切法的用例在 `main` 里已经去掉了。
         let input: Vec<u8> = match grid {
-            Some(grid) => grid.encode(&case.input).into_bytes(),
+            Some(grid) => grid_keys::grid_keys(grid, &case.input, Some(case.syllables))
+                .unwrap_or_default()
+                .into_bytes(),
             None => case.input.bytes().collect(),
         };
         for byte in input {
@@ -334,20 +355,11 @@ fn round(value: f64) -> f64 {
     (value * 1000.0).round() / 1000.0
 }
 
-/// `--grid` 的取值。
-fn parse_grid(name: &str) -> Result<KeyGrid, String> {
-    match name {
-        "nine" => Ok(KeyGrid::NineKey),
-        "fourteen" => Ok(KeyGrid::FourteenKey),
-        other => Err(format!("unknown grid: {other} (expected nine or fourteen)")),
-    }
-}
-
-/// 一键怎么送：九键的数字和全键盘的字母走 `Character`，14 键的组码走宿主触屏键面用的 `GridKey`。
+/// 一键怎么送：九键和九键双拼的数字、全键盘的字母走 `Character`，14 键的组码走宿主触屏键面用的 `GridKey`。
 fn key_action(grid: Option<KeyGrid>, byte: u8) -> Action {
     match grid {
         Some(KeyGrid::FourteenKey) => Action::GridKey(byte),
-        Some(KeyGrid::NineKey) | None => Action::Character {
+        Some(KeyGrid::NineKey | KeyGrid::NineKeyShuangpin(_)) | None => Action::Character {
             value: byte,
             shift: false,
         },

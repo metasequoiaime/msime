@@ -639,6 +639,64 @@ pub struct ShuangpinCustomTable {
     pub zero_initials: Vec<(String, String)>,
 }
 
+/// 九键双拼方案（#6572）。序号是宿主 ABI 值，名字是共享偏好 `nine_key_shuangpin_profile` 的取值。内置方案只收录能找到完整、前后一致的公开描述的那几个，来源见 `.agents/notes/implemented/feature/2026-10-10-nine-key-shuangpin.md`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[repr(u8)]
+pub enum NineKeyShuangpinKind {
+    /// 米旮旯 2。
+    Migala2 = 0,
+    /// 米旮旯 3（用 0 键的那一版）。
+    #[default]
+    Migala3 = 1,
+    /// 辜氏 2 低重码。
+    Gushi2Low = 2,
+    /// 用户自己的表，在 [`NineKeyShuangpinTable`] 里，没有内置的表。
+    Custom = 3,
+}
+
+impl NineKeyShuangpinKind {
+    /// 有内置表的方案，按序号。
+    pub const BUILTIN: [Self; 3] = [Self::Migala2, Self::Migala3, Self::Gushi2Low];
+
+    pub fn from_u8(value: u8) -> Option<Self> {
+        Some(match value {
+            0 => Self::Migala2,
+            1 => Self::Migala3,
+            2 => Self::Gushi2Low,
+            3 => Self::Custom,
+            _ => return None,
+        })
+    }
+
+    /// 只认确切的名字，不认识的名字返回 `None`，由调用方决定怎么处理。
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "migala2" => Self::Migala2,
+            "migala3" => Self::Migala3,
+            "gushi2_low" => Self::Gushi2Low,
+            "custom" => Self::Custom,
+            _ => return None,
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Migala2 => "migala2",
+            Self::Migala3 => "migala3",
+            Self::Gushi2Low => "gushi2_low",
+            Self::Custom => "custom",
+        }
+    }
+}
+
+/// 九键双拼的键位表（共享偏好 `nine_key_shuangpin_custom_profile`），形状与 [`ShuangpinCustomTable`] 相同，键换成数字：`initials` 给 23 个声母（含 `zh` `ch` `sh`）各一个数字，`finals` 给 33 个韵母各一个数字，`zero_initials` 给 12 个零声母音节各一个两位数字编码。数字可以是 `0`–`9`，`ü` 写作 `v`。表合不合法由 Engine 判定（见 `nine_key_shuangpin`），顺序无关。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct NineKeyShuangpinTable {
+    pub initials: Vec<(String, String)>,
+    pub finals: Vec<(String, String)>,
+    pub zero_initials: Vec<(String, String)>,
+}
+
 /// 五笔码表版本。序号即宿主 ABI 值（`EngineOptions::wubi_profile`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(u8)]
