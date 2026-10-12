@@ -41,10 +41,7 @@ public final class StylusInkView extends View {
     public StylusInkView(Context context) {
         super(context);
         setContentDescription("手写笔书写区域；停笔后识别并上屏");
-        stroke.setStyle(Paint.Style.STROKE);
-        stroke.setStrokeCap(Paint.Cap.ROUND);
-        stroke.setStrokeJoin(Paint.Join.ROUND);
-        stroke.setStrokeWidth(DimensionPolicy.floatPixels(context, 3));
+        HandwritingStrokeRenderer.configure(stroke, DimensionPolicy.floatPixels(context, 3));
         hintBackground.setColor(0xE6303030);
         hintText.setColor(0xFFFFFFFF);
         hintText.setTextSize(DimensionPolicy.floatPixels(context, 14));
@@ -91,20 +88,7 @@ public final class StylusInkView extends View {
         getLocationOnScreen(location);
         canvas.save();
         canvas.translate(-location[0], -location[1]);
-        for (java.util.List<HandwritingInk.Point> points : ink.strokesForDrawing()) {
-            if (points.isEmpty()) continue;
-            if (points.size() == 1) {
-                HandwritingInk.Point point = points.get(0);
-                canvas.drawPoint(point.x(), point.y(), stroke);
-                continue;
-            }
-            strokePath.reset();
-            strokePath.moveTo(points.get(0).x(), points.get(0).y());
-            for (int index = 1; index < points.size(); index++) {
-                strokePath.lineTo(points.get(index).x(), points.get(index).y());
-            }
-            canvas.drawPath(strokePath, stroke);
-        }
+        HandwritingStrokeRenderer.draw(canvas, stroke, strokePath, ink.strokesForDrawing());
         if (hint != null) drawHint(canvas);
         canvas.restore();
     }
