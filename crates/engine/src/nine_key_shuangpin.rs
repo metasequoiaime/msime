@@ -641,7 +641,7 @@ impl NineKeyShuangpin {
         code
     }
 
-    /// 关键词（日期时间的 `riqi`、`sj` 这类小写字母）正好拼出 `digits`：能切成完整音节时按音节的编码比，否则每个字母当一个声母按声母的键比（简拼）。
+    /// 关键词（日期时间的 `riqi`、`sj` 这类小写字母）正好拼出 `digits`：能切成完整音节时按音节的编码比，否则每个字母当一个音节的首字母按声母的键比（简拼）。首字母 `z` `c` `s` 也可以是 `zh` `ch` `sh`（`sj` 是 shi'jian），与简拼按首字母查词相同。
     pub fn spells_keyword(&self, keyword: &str, digits: &str) -> bool {
         let pieces = crate::pinyin::segment::cut_one_piece_min_segments(keyword, true);
         if !pieces.is_empty() && self.encode(&pieces.join("'")) == digits {
@@ -649,11 +649,10 @@ impl NineKeyShuangpin {
         }
         keyword.len() == digits.len()
             && keyword.bytes().zip(digits.bytes()).all(|(letter, digit)| {
-                let letter = [letter];
-                std::str::from_utf8(&letter)
-                    .ok()
-                    .and_then(|initial| self.initial_key(initial))
-                    == Some(digit)
+                self.canonical
+                    .initials
+                    .iter()
+                    .any(|(initial, key)| *key == digit && initial.as_bytes()[0] == letter)
             })
     }
 
@@ -992,9 +991,11 @@ mod tests {
         assert!(profile.spells_keyword("riqi", "4474"));
         assert!(profile.spells_keyword("rq", "47"));
         assert!(!profile.spells_keyword("rq", "4474"));
-        // shi'jian：sh 8 + i 4，j 5 + ian 9。
+        // shi'jian：sh 8 + i 4，j 5 + ian 9。简拼 sj 的 s 可以是 s（7）也可以是 sh（8）。
         assert!(profile.spells_keyword("shijian", "8459"));
         assert!(profile.spells_keyword("sj", "75"));
+        assert!(profile.spells_keyword("sj", "85"));
+        assert!(!profile.spells_keyword("sj", "95"));
         assert!(profile.spells_initials("zhong'guo", "84"));
         assert!(!profile.spells_initials("zou'guo", "84"));
         assert!(!profile.spells_initials("zhong", "84"));
