@@ -60,6 +60,7 @@ rare-chars-last、hide-rare-chars、traditional-glyph 和 unicode-codepoint 都�
 - **常用字集用词库字频。** 最强的理由是它反映真实的使用频率。不用：字频来自另一个仓库里 GPL-3.0 的 rime-ice 数据，没有固定摘要，不满足确定性，GPL 还会让插件包整体变成 GPL。
 - **生僻字插件直接调用共用的 `classify`。** 最强的理由是判定只有一份代码，不会两处漂移。不用：按 wasmi 的计法它扫满 20 行要 11 万以上的 fuel，超过 `candidates` 的单次上限，一次失败就记进熔断计数。各自的扫描都和它逐字核对过判定。
 - **traditional-glyph 带完整的 OpenCC 词组表，或者不带词组只做逐字转换。** 带完整表最强的理由是和 OpenCC、和输入法内置的简繁转换完全一致。不用：约 1 MB，超过 256 KiB 的模块上限。只做逐字转换最强的理由是模块小、fuel 少。不用：「头发」会注成「頭發」，多值字在词里大多取错，注释反而误导。
+- **插件代码用 GPL-3.0-only，和仓库一致。** 最强的理由是整个仓库一个许可证，README 不用写例外，也没有哪一份代码的归属要单独说明。不用：SDK 经 `#[path]` 编进每个插件，模板合入时就声明了 MIT；合集若用 GPL，复制合集代码或照它写插件的作者就得跟着用 GPL，和模板给作者的承诺相反。合集插件也不随输入法分发，单独成包，MIT 和包里 Unicode-3.0、Apache-2.0 的数据合在一起只是三份宽松许可证。
 - **生成数据不提交，构建时现场生成。** 最强的理由是仓库里没有二进制文件。不用：Unihan zip 有 8.5 MB，要联网下载；提交 4 KiB 的产物以后，CI 和贡献者都不需要网络，`--check` 只在有缓存时比对。
 
 ## Consequences
@@ -68,7 +69,7 @@ rare-chars-last、hide-rare-chars、traditional-glyph 和 unicode-codepoint 都�
 - 代价：仓库里多了一类非平台代码，CI 多一个作业（改动时编一次 `msime-pack`，约几分钟）。本地 `verify-local.sh --quick` 不跑插件测试，只改插件时要手动跑 `scripts/test-script-plugins.sh`。
 - 代价：生僻字判定在 `shared/common_chars.rs`、hide-rare-chars 的 `scan.rs` 和 rare-chars-last 的 `rare.rs` 里有三种扫描写法，改常用字集的格式或「生僻」的定义要三处一起改；rare-chars-last 的编译期断言能拦住格式变化，定义变化只能靠夹具。
 - 代价：插件为测试写日志，每个事件多花一百多 fuel；`expected.jsonl` 不记录 fuel，fuel 的漂移只在越过上限一半时才被发现。
-- 插件代码用 MIT（沿用模板），和仓库本身的 GPL-3.0-only 不同；包里带 Unihan 数据的写 Unicode-3.0，带 OpenCC 数据的写 Apache-2.0，第三方说明在 docs/third-party.md 的「脚本插件合集」一节。插件的许可证选择需要仓库维护者确认。
+- 插件代码和它编进的 SDK 用 MIT，沿用模板（模板的 `Cargo.toml` 和清单在合入 develop 时就声明 MIT）；仓库其余部分仍是 GPL-3.0-only。README 的「许可证」一节和 docs/third-party.md 的「本项目」一节写明这个例外的范围（`docs/script-plugin-template/` 和 `plugins/script/`），全文在这两个目录各自的 `LICENSE`。包里带 Unihan 数据的写 Unicode-3.0，带 OpenCC 数据的写 Apache-2.0，第三方说明在 docs/third-party.md 的「脚本插件合集」一节。
 - 模板 README 加了一句：模板的写法在长 body 上会耗尽 fuel，实际使用装 `plugins/script/pangu-spacing`。模板本身没有改，`msime-pack` 的测试仍然解析它的夹具。
 - pangu-spacing 和内置的[中英文之间加空格](../feature/2026-10-12-chinese-english-spacing.md)开关做相近的事；内置开关在 `before_commit` 之前执行，两个都开不会多出空格。插件的 README 写了两者的区别。
 

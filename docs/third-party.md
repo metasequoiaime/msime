@@ -6,7 +6,7 @@
 
 ## 本项目
 
-源码为 **GPL-3.0-only**，全文在根目录 [LICENSE](../LICENSE)。Rust workspace 的 `license` 字段、Linux 打包元数据和共享客户端都声明同一许可证。
+源码为 **GPL-3.0-only**，全文在根目录 [LICENSE](../LICENSE)。Rust workspace 的 `license` 字段、Linux 打包元数据和共享客户端都声明同一许可证。例外是 `docs/script-plugin-template/`（脚本插件的模板与 SDK）和 `plugins/script/`（[脚本插件合集](#脚本插件合集pluginsscript)）的代码，用 MIT，全文在这两个目录各自的 `LICENSE`；它们不属于 Rust workspace，也不随输入法分发。
 
 ## 输入引擎（`crates/engine`）
 
