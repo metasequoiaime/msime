@@ -14,7 +14,11 @@
  * a request actually sends is still whatever is stored in preferences.
  */
 import { fillProviderDefaults, known, swapTokenSlot, type TokenMap } from "./provider-helpers";
-import { deepseekChatEndpoint, everyApiModelsUrl } from "../core/provider-resources";
+import {
+  deepseekChatEndpoint,
+  everyApiModelsUrl,
+  openAiChatEndpoint,
+} from "../core/provider-resources";
 
 export type ProviderDefaults = {
   endpoint: string;
@@ -105,7 +109,7 @@ export const POLISH_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
     documentation: "https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation",
   },
   openai: {
-    endpoint: "https://api.openai.com/v1/chat/completions",
+    endpoint: openAiChatEndpoint,
     model: "gpt-4o-mini",
     models: ["gpt-4o-mini", "gpt-4.1-mini"],
     documentation: "https://developers.openai.com/api/docs/models/gpt-4.1-mini",

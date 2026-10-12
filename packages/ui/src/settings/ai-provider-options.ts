@@ -1,4 +1,8 @@
-import { deepseekChatEndpoint, everyApiModelsUrl } from "../core/provider-resources";
+import {
+  deepseekChatEndpoint,
+  everyApiModelsUrl,
+  openAiChatEndpoint,
+} from "../core/provider-resources";
 
 /**
  * `models` are the models the provider is known to accept and `documentation`
@@ -24,7 +28,7 @@ export const AI_PROVIDER_OPTIONS: readonly {
   {
     id: "openai",
     title: "OpenAI",
-    endpoint: "https://api.openai.com/v1/chat/completions",
+    endpoint: openAiChatEndpoint,
     model: "gpt-4.1-mini",
     models: ["gpt-4.1-mini"],
     documentation: "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
