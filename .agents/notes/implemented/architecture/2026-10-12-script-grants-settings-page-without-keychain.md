@@ -66,7 +66,8 @@ Windows 的设置是原生 WinUI 应用（platforms/windows/settings），不是
 - 各宿主接入生命周期核心（`msime_client_set_lifecycle`）之前，会话不满足运行条件：授权页在 macOS 和 Linux 上出现、授权能写进去，但输入法还不会运行任何脚本。
 - Windows 的 release 构建不运行脚本，原生设置应用的插件页也不列出脚本包；在那里导入脚本包，release 构建拒绝。要在 Windows 上打开，先给 platforms/windows/settings 加上授权页（列出脚本包、授权、调整顺序、写明残余风险），再放开 `scripts` 的进程开关和 `script_plugins`。
 - `revision` 现在是十几位的数（微秒），设置页和测试只按"变大"判断，不再断言具体值。
-- 已知缺口：结束输入法进程让熔断清空；替换用户可写目录里的输入法 bundle。桌面外壳的导入命令（`desktop_plugins::import_pack_at`）仍调用 `plugins::import_from_settings`，release 构建里拒绝脚本包，所以 macOS 和 Linux 的 release 构建里用户还不能从设置页导入脚本包。
+- 已知缺口：结束输入法进程让熔断清空；替换用户可写目录里的输入法 bundle。
+- 设置页的导入分两条：桌面外壳（`desktop_plugins::import_pack_at`）调 `plugins::import_from_settings`，在开发构建以及 macOS、Linux 的 release 构建里接受脚本包，与 `msime_client_scripts_enable` 打开的构建一致；没有授权页的宿主（`msime_client_plugins`：Windows 原生设置应用、Android、HarmonyOS）调 `plugins::import_without_script_page`，只在开发构建里接受。否则 macOS 和 Linux 的 release 构建运行脚本，用户却装不进脚本包。
 
 ## Verification
 

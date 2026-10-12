@@ -562,12 +562,23 @@ fn the_settings_import_refuses_script_packs_in_release_builds_before_installing_
     assert!(!root.join(script_grants::GRANTS_FILE).exists());
     assert!(script_grants::read(&root).plugins.is_empty());
 
-    // 设置页的导入只在开发构建里接受脚本包。
+    // 没有授权页的设置宿主只在开发构建里接受脚本包。
     assert_eq!(
-        import_from_settings(&source, &root).is_ok(),
+        super::import::import_without_script_page(&source, &root).is_ok(),
         cfg!(debug_assertions)
     );
     assert_eq!(root.join("script/pangu").is_dir(), cfg!(debug_assertions));
+
+    // 桌面外壳的设置页在开发构建，以及 macOS 和 Linux 的 release 构建里接受脚本包；Windows 的 release 构建拒绝。
+    let accepts = cfg!(any(
+        debug_assertions,
+        target_os = "macos",
+        all(target_os = "linux", not(target_env = "ohos"))
+    ));
+    let other = tempdir().unwrap();
+    let other_root = other.path().join("plugins");
+    assert_eq!(import_from_settings(&source, &other_root).is_ok(), accepts);
+    assert_eq!(other_root.join("script/pangu").is_dir(), accepts);
 }
 
 fn read_commit() -> CapabilitySet {
