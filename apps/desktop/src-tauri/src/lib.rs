@@ -2047,24 +2047,26 @@ async fn dictionary_request(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
-/// Where a desktop cloud clipboard request is served, in order of precedence: a provider socket named in the host options or the environment, the session of the macOS input method that launched this panel, a provider socket discovered in the user's runtime directory, and otherwise the account this shell is signed in to.
+/// Where a desktop cloud clipboard request is served, in order of precedence: a provider socket named in the host options or the environment, the self-hosted relay configured in the shared preferences (`docs/cloud-clipboard-relay.md`), the session of the macOS input method that launched this panel, a provider socket discovered in the user's runtime directory, and otherwise the account this shell is signed in to.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-#[cfg_attr(not(unix), allow(dead_code))]
 #[derive(Debug, PartialEq)]
-enum CloudClipboardRoute<N> {
+enum CloudClipboardRoute<N, R> {
+    #[cfg_attr(not(unix), allow(dead_code))]
     Provider(PathBuf),
+    Relay(R),
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Native(N),
     Account,
 }
 
-/// Picks the [`CloudClipboardRoute`] for one request. A configured socket wins outright, and one that is not an absolute path is an error rather than a reason to fall through: the user asked for that provider, so the account must not answer in its place. The native session and discovery are only consulted when nothing is configured.
+/// Picks the [`CloudClipboardRoute`] for one request. A configured socket wins outright, and one that is not an absolute path is an error rather than a reason to fall through: the user asked for that provider, so the account must not answer in its place. 中继在用户显式配置的 socket 之后、输入法原生会话之前：配置了中继就只走中继，读不出中继配置时同样报错而不退回账号。The native session and discovery are only consulted when neither is configured.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-#[cfg_attr(not(unix), allow(dead_code))]
-fn cloud_clipboard_route<N>(
+fn cloud_clipboard_route<N, R>(
     configured: Option<String>,
+    relay: impl FnOnce() -> Result<Option<R>, CommandError>,
     native: impl FnOnce() -> Option<N>,
     discover: impl FnOnce() -> Option<PathBuf>,
-) -> Result<CloudClipboardRoute<N>, CommandError> {
+) -> Result<CloudClipboardRoute<N, R>, CommandError> {
     if let Some(configured) = configured {
         let path = PathBuf::from(configured);
         return if path.is_absolute() {
@@ -2074,6 +2076,9 @@ fn cloud_clipboard_route<N>(
                 code: "unavailable",
             })
         };
+    }
+    if let Some(relay) = relay()? {
+        return Ok(CloudClipboardRoute::Relay(relay));
     }
     if let Some(result) = native() {
         return Ok(CloudClipboardRoute::Native(result));
@@ -2094,53 +2099,71 @@ async fn cloud_clipboard_request(
 ) -> Result<Value, CommandError> {
     msime_host_api::cloud_clipboard::validate_request(&action)
         .map_err(|_| CommandError { code: "invalid" })?;
-    // Windows has no provider socket or native session, so every request goes to the account.
-    #[cfg(unix)]
-    {
-        let options = options.inner().clone();
-        let label = window.label().to_owned();
-        let provider_action = action.clone();
-        let served = tauri::async_runtime::spawn_blocking(move || {
-            let _ = (&app, &label);
-            let document = options.snapshot()?;
-            let configured = document
-                .get("cloud_clipboard_provider_socket")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .or_else(|| {
-                    std::env::var_os("MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET")
-                        .and_then(|value| value.into_string().ok())
-                });
-            #[cfg(target_os = "macos")]
-            let native = || {
-                app.state::<macos_cloud_clipboard::CloudState>()
-                    .request(&label, &provider_action)
-            };
-            #[cfg(not(target_os = "macos"))]
-            let native = || None::<Result<Value, CommandError>>;
-            match cloud_clipboard_route(configured, native, || {
-                discover_session_provider("cloud-clipboard.sock")
-            })? {
-                CloudClipboardRoute::Provider(path) => UnixSocketProvider::new(path)
-                    .cloud_clipboard(provider_action)
-                    .map(Some)
-                    .ok_or(CommandError {
-                        code: "unavailable",
-                    }),
-                CloudClipboardRoute::Native(result) => result.map(Some),
-                CloudClipboardRoute::Account => Ok(None),
+    let options = options.inner().clone();
+    let label = window.label().to_owned();
+    let relay_directory = account.directory.clone();
+    let routed_action = action.clone();
+    let served = tauri::async_runtime::spawn_blocking(move || {
+        let _ = (&label, &options);
+        // Windows has no provider socket, so only the relay and the account remain there.
+        #[cfg(unix)]
+        let configured = options
+            .snapshot()?
+            .get("cloud_clipboard_provider_socket")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| {
+                std::env::var_os("MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET")
+                    .and_then(|value| value.into_string().ok())
+            });
+        #[cfg(not(unix))]
+        let configured = None::<String>;
+        let relay = || match app.try_state::<std::sync::Arc<PreferencesStore>>() {
+            Some(store) => platform::cloud_clipboard::configured_relay(store.inner()),
+            None => Ok(None),
+        };
+        #[cfg(target_os = "macos")]
+        let native = || {
+            app.state::<macos_cloud_clipboard::CloudState>()
+                .request(&label, &routed_action)
+        };
+        #[cfg(not(target_os = "macos"))]
+        let native = || None::<Result<Value, CommandError>>;
+        #[cfg(unix)]
+        let discover = || discover_session_provider("cloud-clipboard.sock");
+        #[cfg(not(unix))]
+        let discover = || None::<PathBuf>;
+        match cloud_clipboard_route(configured, relay, native, discover)? {
+            #[cfg(unix)]
+            CloudClipboardRoute::Provider(path) => UnixSocketProvider::new(path)
+                .cloud_clipboard(routed_action)
+                .map(Some)
+                .ok_or(CommandError {
+                    code: "unavailable",
+                }),
+            #[cfg(not(unix))]
+            CloudClipboardRoute::Provider(_) => Err(CommandError {
+                code: "unavailable",
+            }),
+            CloudClipboardRoute::Relay(config) => {
+                platform::cloud_clipboard::relay_cloud_clipboard_request(
+                    config,
+                    &relay_directory,
+                    &routed_action,
+                )
+                .map(Some)
             }
-        })
-        .await
-        .map_err(|_| CommandError {
-            code: "unavailable",
-        })??;
-        if let Some(value) = served {
-            return Ok(value);
+            CloudClipboardRoute::Native(result) => result.map(Some),
+            CloudClipboardRoute::Account => Ok(None),
         }
+    })
+    .await
+    .map_err(|_| CommandError {
+        code: "unavailable",
+    })??;
+    if let Some(value) = served {
+        return Ok(value);
     }
-    #[cfg(not(unix))]
-    let _ = (app, window, options);
     platform::cloud_clipboard::cloud_clipboard_request(&account.session, action).await
 }
 

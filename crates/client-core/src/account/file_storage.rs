@@ -53,6 +53,11 @@ impl FileAccountSessionStorage {
         }
     }
 
+    /// 会话文件所在的目录。桌面端把自建中继的密钥串（`crate::clipboard_relay`）放在同一个目录里。
+    pub fn directory(&self) -> &Path {
+        &self.directory
+    }
+
     pub(crate) fn create_directory(&self) -> Result<(), AccountError> {
         crate::storage::reject_symlink(&self.directory).map_err(|_| AccountError::Storage)?;
         std::fs::create_dir_all(&self.directory).map_err(|_| AccountError::Storage)?;
