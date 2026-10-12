@@ -72,6 +72,22 @@ test("names the language each missing entry sits under in the add dialog", async
   expect(screen.getByRole("button", { name: "打开键盘设置" })).toBeTruthy();
 });
 
+test("keeps the instructions and the full list folded until asked for", async () => {
+  render(
+    <MacosInputModeEntriesSection
+      client={client([prefix + "Hans"])}
+      scheme="quanpin"
+      inputSchemes={allSchemes}
+      onError={vi.fn()}
+    />,
+  );
+
+  const summary = await screen.findByText(/查看怎么添加和全部 10 个入口/);
+  const details = summary.closest("details");
+  expect(details?.open).toBe(false);
+  expect(details?.textContent).toContain("左下角「+」");
+});
+
 test("leads with the current scheme's entry when it is missing", async () => {
   render(
     <MacosInputModeEntriesSection
@@ -83,7 +99,7 @@ test("leads with the current scheme's entry when it is missing", async () => {
   );
 
   const text = (await screen.findByText(/菜单栏里还没有/)).textContent ?? "";
-  expect(text.startsWith("菜单栏里还没有「水杉输入法 · 粤」")).toBe(true);
+  expect(text.startsWith("菜单栏里还没有「水杉输入法 · 粤」，到「粤语」下添加")).toBe(true);
   expect(text).not.toContain("重新登录");
   // 简体中文下的几个入口排在同一行，不再各写一遍语言。
   expect((await missingGroups())[0]).toEqual([

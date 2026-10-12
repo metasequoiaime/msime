@@ -149,11 +149,8 @@ export function MacosInputModeEntriesSection({
       <>
         <span className="block">
           {current
-            ? `菜单栏里还没有「${current.name}」，加进输入法列表后才能从菜单栏切过去。`
+            ? `菜单栏里还没有「${current.name}」，到「${current.language}」下添加后才能从菜单栏切过去。`
             : `还有 ${missing.length} 个入口没加进输入法菜单。`}
-          {
-            "macOS 只能手动添加：打开键盘设置，在「输入法」一行点「编辑…」，再点左下角「+」，按下面的语言找。"
-          }
         </span>
         <MissingEntries entries={missing} />
       </>
@@ -178,26 +175,41 @@ export function MacosInputModeEntriesSection({
   );
 }
 
-/** 还没加入的入口按系统设置「添加」对话框里的语言分组，每组一行：语言在前，入口名排在后面，顺序与输入法菜单一致。 */
+/** 还没加入的入口默认收起，展开后先说怎么添加，再按系统设置「添加」对话框里的语言分组，每组一行：语言在前，入口名排在后面，顺序与输入法菜单一致。全版本缺的入口可以有八九个，平铺开来会把这一行撑成一大段，而大多数人只用其中一两个。 */
 function MissingEntries({ entries }: { entries: readonly ModeEntry[] }) {
   const groups = new Map<string, ModeEntry[]>();
   for (const entry of entries)
     groups.set(entry.language, [...(groups.get(entry.language) ?? []), entry]);
   return (
-    <span role="list" aria-label="还没加入的入口" className="mt-2 flex flex-col gap-1.5">
-      {[...groups].map(([language, members]) => (
-        <span key={language} role="listitem" className="flex flex-wrap items-center gap-1.5">
-          <span className="w-16 shrink-0">{language}</span>
-          {members.map((entry) => (
-            <span
-              key={entry.mode}
-              className="rounded-[var(--p-seg-item-r)] bg-[var(--p-seg-bg)] px-2 py-0.5 whitespace-nowrap [color:var(--p-text)]"
-            >
-              {entry.name}
-            </span>
-          ))}
+    <details className="group/entries mt-1">
+      <summary className="inline-flex cursor-pointer list-none items-center gap-1 [color:var(--p-accent-text)] [&::-webkit-details-marker]:hidden">
+        查看怎么添加和全部 {entries.length} 个入口
+        <span
+          aria-hidden="true"
+          className="transition-transform group-open/entries:rotate-90 motion-reduce:transition-none"
+        >
+          ›
         </span>
-      ))}
-    </span>
+      </summary>
+      <span className="mt-1.5 block">
+        macOS
+        只能手动添加：点「打开键盘设置」，在「输入法」一行点「编辑…」，再点左下角「+」，在左栏按下面的语言找。
+      </span>
+      <span role="list" aria-label="还没加入的入口" className="mt-2 flex flex-col gap-1.5">
+        {[...groups].map(([language, members]) => (
+          <span key={language} role="listitem" className="flex flex-wrap items-center gap-1.5">
+            <span className="w-16 shrink-0">{language}</span>
+            {members.map((entry) => (
+              <span
+                key={entry.mode}
+                className="rounded-[var(--p-seg-item-r)] bg-[var(--p-seg-bg)] px-2 py-0.5 whitespace-nowrap [color:var(--p-text)]"
+              >
+                {entry.name}
+              </span>
+            ))}
+          </span>
+        ))}
+      </span>
+    </details>
   );
 }
