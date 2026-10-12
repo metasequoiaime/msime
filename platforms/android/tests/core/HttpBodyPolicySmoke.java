@@ -20,6 +20,10 @@ public final class HttpBodyPolicySmoke {
             throw new AssertionError();
         } catch (java.io.IOException expected) { }
         check(HttpBodyPolicy.readBounded(new ByteArrayInputStream(new byte[0]), 4).length == 0);
+        check(HttpBodyPolicy.isWithinLimit(new byte[0], 4)
+            && HttpBodyPolicy.isWithinLimit(new byte[4], 4)
+            && !HttpBodyPolicy.isWithinLimit(null, 4)
+            && !HttpBodyPolicy.isWithinLimit(new byte[5], 4));
         check(HttpBodyPolicy.readBounded(new ByteArrayInputStream("hello".getBytes(StandardCharsets.UTF_8)),
             5, () -> true) == null);
         long later = System.nanoTime() + 60_000_000_000L;

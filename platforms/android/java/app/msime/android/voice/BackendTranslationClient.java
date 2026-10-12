@@ -83,7 +83,7 @@ public final class BackendTranslationClient implements CandidateTranslationStore
             new CloudApi.Body("application/json", request), CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
         if (response.status() != 200) throw new BackendAccount.RequestException(response.status());
         byte[] bytes = response.body();
-        if (bytes == null || bytes.length > MAX_RESPONSE_BYTES)
+        if (!HttpBodyPolicy.isWithinLimit(bytes, MAX_RESPONSE_BYTES))
             throw new IllegalStateException("Translation response is too large");
         List<String> result = parseResponse(bytes, texts.size());
         if (result == null) throw new IllegalStateException("Invalid translation response");

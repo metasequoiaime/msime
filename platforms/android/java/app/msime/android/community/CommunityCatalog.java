@@ -185,7 +185,7 @@ public final class CommunityCatalog {
                     new Page(List.of(), false, CommunityRequest.message(code, status)), status);
             }
             byte[] body = response.body();
-            if (body == null || body.length > maximumResponseBytes(kind))
+            if (!HttpBodyPolicy.isWithinLimit(body, maximumResponseBytes(kind)))
                 throw new java.io.IOException("catalogue response too large");
             return new PageResponse(parse(kind, new JSONObject(TextPolicy.utf8(body))), 200);
         } catch (Exception | LinkageError error) {
