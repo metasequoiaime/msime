@@ -14,9 +14,9 @@
 - `url` 是基地址：`https://`，可以带路径前缀，不能带查询串、片段和用户信息，不超过 2048 字节。`http://` 只接受 `localhost`、`127.0.0.1` 和 `[::1]`，给本机测试用。客户端把基地址规范化（主机名小写、去掉默认端口和末尾的 `/`）后拼上接口路径，例如 `https://relay.example.com/msime/v1/users/me/clipboard/keys?device_id=…`。
 - 客户端的 TLS 用 rustls 和内置的 webpki-roots 根证书，不读系统信任库。中继必须使用公网可信的证书（例如 Let's Encrypt；只在局域网里用的主机名可以走 DNS-01 签发），自签证书、企业 CA 和私有 CA 都连不上。
 - `token` 是中继管理员发的令牌，16 到 256 个可打印 ASCII 字符，不含空格。它和语音、翻译服务的凭据一样明文存在本机的偏好文档里，列在凭据清单（诊断快照里换成 `<redacted>`），不随设置文件导出，不进账号设置同步。
-- 配置了中继，Tauri 设置窗口和云剪贴板面板的请求就只走中继，不会在中继失败时退回水杉账号。还没接上中继的原生入口不看这个键，在 macOS 和 Windows 上手工写进它会让两条路并存，见下文「支持的宿主」里的注意事项。
+- 配置了中继，Tauri 设置窗口和云剪贴板面板、Android 原生宿主的设置页和键盘的请求就只走中继，不会在中继失败时退回水杉账号。还没接上中继的原生入口不看这个键，在 macOS 和 Windows 上手工写进它会让两条路并存，见下文「支持的宿主」里的注意事项。
 
-设置页「剪贴板」的「云剪贴板同步方式」可以填写这两项，目前只在 Linux 上显示（见下文「支持的宿主」）。
+Linux 设置页「剪贴板」的「云剪贴板同步方式」和 Android「我的 → 云剪贴板」页顶部的「云剪贴板同步方式」可以填写这两项，其他宿主还不显示（见下文「支持的宿主」）。
 
 ## 鉴权
 
@@ -45,6 +45,7 @@
 | 宿主 | 位置 |
 | --- | --- |
 | Windows、Linux、macOS 的 Tauri 设置页与云剪贴板面板 | 与 `account-session.json` 同一目录 |
+| Android 原生宿主（设置页和 `:ime` 进程里的键盘共用） | 应用私有的 `noBackupFilesDir/cloud-clipboard-relay/`，不进自动备份和设备迁移 |
 
 它比账号路径的密钥串弱：iOS 的账号密钥串在钥匙串里，Android 的先用 AndroidKeyStore 加密，而中继这份在所有平台上都是应用私有目录里的明文文件，靠文件权限保护。
 
@@ -52,7 +53,8 @@
 
 - Tauri 桌面端（Windows、Linux、macOS）的 `cloud_clipboard_request` 按这个顺序选路：用户显式配置的 provider socket，然后是中继，然后是 macOS 输入法的原生会话、自动发现的 socket，最后是水杉账号。
 - 原生宿主经 C ABI 接入：`msime_client_cloud_clipboard_source` 告诉宿主该走中继还是账号，`msime_client_relay_cloud_clipboard` 在 Rust 里跑完一个动作，比账号路径多出置顶（`pin`）、保留期（`set_retention`）和清空（`clear`）三个动作，格式见 `crates/host-api/include/msime_client.h`。
-- 设置页的中继字段目前只在 Linux 显示。Windows 的设置窗口是原生 WinUI 页面，macOS 输入法菜单的「云剪贴板…」在未登录时仍退回原生窗口，Android、iOS 和 HarmonyOS 的原生宿主还没有接上这两个 C ABI，这些都在后续的改动里做。
+- Android 原生宿主经 JNI 接上了这两个 C ABI：「我的 → 云剪贴板」页、键盘剪贴板面板的「云端」（列表、插入、「发到云剪贴板」）都先问 `msime_client_cloud_clipboard_source`，选了中继就只走 `msime_client_relay_cloud_clipboard`；键盘按偏好快照里的地址和令牌认出中继换过，换过之后旧的条目不再插入、上传不发出。配置了中继时账号页「云剪贴板」那一行不显示条数，也不去问水杉账号。Android 的 Tauri 合包（`build-client-apk.sh`，开发用，不是发布包）里共享设置页的「发到云剪贴板」和共享云剪贴板面板仍只走水杉账号。
+- 设置页的中继字段目前只在 Linux 和 Android 显示。Windows 的设置窗口是原生 WinUI 页面，macOS 输入法菜单的「云剪贴板…」在未登录时仍退回原生窗口，iOS 和 HarmonyOS 的原生宿主还没有接上这两个 C ABI，这些都在后续的改动里做。
 - **注意**：在 macOS 和 Windows 上，下面这些入口还不看 `cloud_clipboard_relay`，登录了水杉账号时仍经账号上传到 `api.msime.app`（内容照旧端到端加密，但元数据留在官方服务上）：Windows 原生设置窗口「剪贴板」页的「发到云剪贴板」（经 `msime_client_account_cloud_clipboard`）；macOS 输入法表情面板里剪贴板历史的「发到云剪贴板」与原生账号窗口里的云剪贴板（`BackendCloudClipboardProvider`），以及未登录时「云剪贴板…」菜单退回的原生窗口。所以这两个平台的设置页暂不显示中继字段；在它们上面手工写偏好启用中继的，先退出水杉账号，这些入口就只会提示未登录、不会上传。
 
 ## 参考实现
