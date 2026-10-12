@@ -9,6 +9,7 @@
 
 import { compactFieldLabel } from "../core/form-style";
 import { compactMutedNote } from "../core/text-style";
+import { searchRow as sharedSearchRow } from "../core/search-style";
 
 // ---- cloud clipboard: its own dark chrome, like the emoji panel beside it ----
 
@@ -21,7 +22,7 @@ export const clipboardHeader = `border-b-[#45454f] bg-[#202027] ${clipText} [&>b
 export const clipboardBody = "flex min-h-[calc(100vh-38px)] flex-col gap-3 px-6 pt-5 pb-4";
 export const clipboardNote = `m-0 text-xs ${clipMuted}`;
 export const clipboardToggle = `flex items-center justify-between px-3 py-2.5 ${clipField}`;
-export const clipboardSearchRow = "flex gap-2";
+export const clipboardSearchRow = sharedSearchRow;
 export const clipboardInput = `min-w-0 flex-1 p-[9px] font-[inherit] ${clipField} ${clipText}`;
 /** A quiet button in this panel; the primary one below overrides the colours. */
 export const clipboardButton = `rounded-md border-0 bg-[#3a3945] px-3 py-2 ${clipText}`;

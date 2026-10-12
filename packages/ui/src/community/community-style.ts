@@ -10,10 +10,11 @@
 
 import { fieldLabel } from "../core/form-style";
 import { subtleMeta } from "../core/row-style";
+import { searchRow as sharedSearchRow } from "../core/search-style";
 
 export const page = "flex flex-col gap-3.5";
 
-export const searchRow = "flex gap-2";
+export const searchRow = sharedSearchRow;
 export const searchInput =
   "min-w-0 flex-1 rounded-[9px] border border-control-border bg-[var(--dropdown-bg)] px-3 py-[9px] font-[inherit] text-body focus:border-accent";
 export const searchSubmit =
