@@ -46,8 +46,15 @@ public final class StylusHandwritingPolicySmoke {
         // 与手写面板状态行同一套说法。
         check(StylusHandwritingPolicy.hint(MISSING).startsWith("首次下载后可离线手写"), "missing-model hint");
         check(StylusHandwritingPolicy.hint(ABSENT).equals("此构建不含手写识别"), "absent-recognizer hint");
+        check(StylusHandwritingPolicy.hint(CHECKING).startsWith("正在检查中文手写模型"), "checking hint");
         check(StylusHandwritingPolicy.SESSION_IDLE_TIMEOUT_MILLIS > HandwritingPreferences.DELAY_MAX,
             "the session outlives the longest recognition wait");
+        // 识别等待加上等模型检查的上限仍在会话里，「还在检查」的提示出来时书写窗口还在屏幕上。
+        check(HandwritingPreferences.DELAY_MAX + StylusHandwritingPolicy.CHECK_TIMEOUT_MILLIS
+                < StylusHandwritingPolicy.SESSION_IDLE_TIMEOUT_MILLIS,
+            "the checking hint appears while the session is still alive");
+        check(StylusHandwritingPolicy.HINT_MILLIS < StylusHandwritingPolicy.SESSION_IDLE_TIMEOUT_MILLIS,
+            "a hint ends the session before the restarted idle timer does");
     }
 
     private static void delay() {

@@ -1641,6 +1641,12 @@ public final class MSIMEInputService extends InputMethodService {
         return imeStylusHandwriting.start();
     }
 
+    /** 笔的事件直接交给墨迹视图（原因见 {@link StylusInkView}）；仍交给系统默认实现，它在落笔时排上「闲置五分钟回收书写窗口」的计时，派发到视图的那份视图不处理。 */
+    @Override public void onStylusHandwritingMotionEvent(android.view.MotionEvent event) {
+        imeStylusHandwriting.motion(event);
+        super.onStylusHandwritingMotionEvent(event);
+    }
+
     @Override public void onFinishStylusHandwriting() {
         imeStylusHandwriting.finished();
     }

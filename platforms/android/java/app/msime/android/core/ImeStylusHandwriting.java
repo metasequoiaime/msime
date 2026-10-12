@@ -2,7 +2,11 @@ package app.msime.android;
 
 import android.graphics.Color;
 import android.os.Build;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowManager;
 import app.msime.android.core.InputViewValuePolicy;
 
 /**
@@ -21,6 +25,9 @@ final class ImeStylusHandwriting {
     /** 每次离开输入框加一；排着的识别和迟到的结果拿它判断是不是还在同一个输入框里。 */
     private long inputGeneration;
     private long hintGeneration = -1;
+    /** 正在等模型检查的那次识别，以及从什么时候开始等（uptime）。 */
+    private HandwritingRequestTracker.Token checkingToken;
+    private long checkingSince;
     private final long serviceDebounce;
     private HandwritingPreferences preferences = HandwritingPreferences.defaults();
 
@@ -41,6 +48,9 @@ final class ImeStylusHandwriting {
             hintGeneration == inputGeneration);
         if (decision == StylusHandwritingPolicy.Decision.DECLINE) return false;
         attach(window);
+        fillScreen(window);
+        android.graphics.Rect screen = s.getSystemService(WindowManager.class).getMaximumWindowMetrics().getBounds();
+        inkView.setArea(screen.width(), screen.height());
         preferences = s.imeLayoutRows.readHandwritingPreferences();
         Integer chosen = preferences.inkColor();
         // 笔迹画在应用的界面上而不是键盘上，键帽文字色（面板里的「跟随皮肤」）在深色皮肤下是白的，浅色应用里看不见；跟随皮肤时改用皮肤的强调色。
@@ -49,13 +59,18 @@ final class ImeStylusHandwriting {
         s.setStylusHandwritingSessionTimeout(
             java.time.Duration.ofMillis(StylusHandwritingPolicy.SESSION_IDLE_TIMEOUT_MILLIS));
         if (decision == StylusHandwritingPolicy.Decision.HINT) {
-            showHint(StylusHandwritingPolicy.hint(current.availability()));
+            showHint(StylusHandwritingPolicy.hint(current.availability()), true);
             return true;
         }
         cancelHint();
         inkView.showHint(null);
         inkView.setAcceptsInk(true);
         return true;
+    }
+
+    /** 会话里的一个手写笔事件（{@code onStylusHandwritingMotionEvent}），直接交给墨迹视图，见 {@link StylusInkView}。 */
+    void motion(MotionEvent event) {
+        if (inkView != null) inkView.handle(event);
     }
 
     /** 会话结束（{@code onFinishStylusHandwriting}），书写窗口已经被系统隐藏。还没识别的笔迹照常按计时识别、上屏，下次书写接着这些笔迹写。 */
@@ -119,6 +134,20 @@ final class ImeStylusHandwriting {
         inkWindow = window;
     }
 
+    /**
+     * 书写窗口铺满屏幕。系统建窗口时设的是铺满，但窗口用的是输入法的主题（`Theme.DeviceDefault.InputMethod` 是浮动窗口），装 decor 时被改回 wrap_content，API 35 模拟器上只有 840×2400，写到右边的笔迹画不出来。窗口在系统问我们之前就已经加到屏幕上了，改了尺寸要再交给 WindowManager。
+     */
+    private void fillScreen(Window window) {
+        WindowManager.LayoutParams attributes = window.getAttributes();
+        if (attributes.width == ViewGroup.LayoutParams.MATCH_PARENT
+                && attributes.height == ViewGroup.LayoutParams.MATCH_PARENT) return;
+        window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        View decor = window.peekDecorView();
+        if (decor != null && decor.isAttachedToWindow()) {
+            s.getSystemService(WindowManager.class).updateViewLayout(decor, window.getAttributes());
+        }
+    }
+
     private void inkChanged(long revision, java.util.List<java.util.List<HandwritingInk.Point>> strokes) {
         invalidateRecognition();
         if (strokes.isEmpty()) return;
@@ -146,13 +175,24 @@ final class ImeStylusHandwriting {
         if (!accepts(token) || recognizer == null) return;
         HandwritingRecognizer.Availability availability = recognizer.availability();
         if (availability == HandwritingRecognizer.Availability.DOWNLOADING) {
-            schedule(token, StylusHandwritingPolicy.AVAILABILITY_POLL_MILLIS);
+            long now = android.os.SystemClock.uptimeMillis();
+            if (checkingToken != token) {
+                checkingToken = token;
+                checkingSince = now;
+            }
+            if (now - checkingSince < StylusHandwritingPolicy.CHECK_TIMEOUT_MILLIS) {
+                schedule(token, StylusHandwritingPolicy.AVAILABILITY_POLL_MILLIS);
+                return;
+            }
+            // 检查迟迟不返回（API 35 模拟器上 ML Kit 的模型检查要几十秒）：丢掉笔迹说一声，查完以后照常能写，所以不算这个输入框提示过。
+            inkView.clear();
+            showHint(StylusHandwritingPolicy.hint(availability), false);
             return;
         }
         if (availability != HandwritingRecognizer.Availability.READY) {
             // 接下时还在检查，查完才知道模型没下载：丢掉这些笔迹，提示一次，结束会话。
             inkView.clear();
-            showHint(StylusHandwritingPolicy.hint(availability));
+            showHint(StylusHandwritingPolicy.hint(availability), true);
             return;
         }
         HandwritingRecognizer.Request request;
@@ -219,13 +259,21 @@ final class ImeStylusHandwriting {
         }
     }
 
-    /** 不记笔迹，只在落笔处显示提示，过一会儿结束会话；这个输入框里不再接手写笔书写。 */
-    private void showHint(String text) {
+    /**
+     * 不记笔迹，只在落笔处显示提示，过一会儿结束会话。会话的闲置计时从此刻重新算，免得提示还没看清系统就把书写窗口收了。
+     *
+     * @param once 是否算这个输入框提示过：模型没下载时算，之后这个输入框里不再接手写笔书写
+     */
+    private void showHint(String text, boolean once) {
         cancelHint();
-        hintGeneration = inputGeneration;
+        if (once) hintGeneration = inputGeneration;
         if (inkView == null) return;
         inkView.setAcceptsInk(false);
         inkView.showHint(text);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            s.setStylusHandwritingSessionTimeout(
+                java.time.Duration.ofMillis(StylusHandwritingPolicy.SESSION_IDLE_TIMEOUT_MILLIS));
+        }
         Runnable task = new Runnable() {
             @Override public void run() {
                 if (hintTask != this) return;

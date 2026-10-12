@@ -15,6 +15,8 @@ public final class StylusHandwritingPolicy {
     public static final long HINT_MILLIS = 2500;
     /** 模型还在检查时，隔多久再看一次能不能识别。 */
     public static final long AVAILABILITY_POLL_MILLIS = 250;
+    /** 到了该识别的时候模型还在检查，最多再等这么久，之后丢掉笔迹并提示还在检查，不让笔迹无声无息地留着。加上最长的识别等待时间仍短于 {@link #SESSION_IDLE_TIMEOUT_MILLIS}，提示出来时会话还在。 */
+    public static final long CHECK_TIMEOUT_MILLIS = 1000;
     /** 交给识别器的书写区域最多这么大，与 {@link HandwritingRecognizer.Request} 的上限一致。 */
     static final float MAX_AREA = 4096;
 
@@ -51,9 +53,11 @@ public final class StylusHandwritingPolicy {
 
     /** 模型没就绪时的提示，用词与键盘里手写面板的状态行一致。 */
     public static String hint(HandwritingRecognizer.Availability availability) {
-        return availability == HandwritingRecognizer.Availability.UNAVAILABLE
-            ? "此构建不含手写识别"
-            : "首次下载后可离线手写：请在键盘的手写面板里下载中文手写模型";
+        return switch (availability) {
+            case UNAVAILABLE -> "此构建不含手写识别";
+            case DOWNLOADING -> "正在检查中文手写模型，请稍后再写";
+            default -> "首次下载后可离线手写：请在键盘的手写面板里下载中文手写模型";
+        };
     }
 
     /**
