@@ -80,7 +80,9 @@ struct DesignGroup<Content: View>: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 7) {
       if let title {
-        SettingsGroupHeader(title: title).padding(.horizontal, 20)
+        Text(title).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle)
+          .padding(.horizontal, 20)
+          .accessibilityAddTraits(.isHeader)
       }
       DesignCard(radius: radius) { content }
       if let footer {
