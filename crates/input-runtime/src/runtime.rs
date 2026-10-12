@@ -549,6 +549,21 @@ impl<E: InputEngine> Runtime<E> {
         Ok(())
     }
 
+    /// Applies a candidate permutation to every parallel view and the Engine seat map.
+    /// Candidate text, code, annotations and source metadata must move together.
+    pub(crate) fn apply_candidate_order(&mut self, order: &[usize]) {
+        ensure_engine_order(&mut self.engine_order, order.len());
+        let snapshot = &mut self.cached;
+        apply_order(&mut snapshot.candidates, order);
+        apply_order(&mut snapshot.candidate_codes, order);
+        apply_order(&mut snapshot.candidate_annotations, order);
+        apply_order(&mut snapshot.candidate_sources, order);
+        apply_order(&mut snapshot.candidate_positions, order);
+        apply_order(&mut snapshot.candidate_corrected, order);
+        apply_order(&mut snapshot.candidate_answers_key, order);
+        apply_order(&mut self.engine_order, order);
+    }
+
     pub fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         self.advance()?;
         self.engine.set_dedicated_english(enabled)?;
@@ -1736,16 +1751,7 @@ impl<E: InputEngine> Runtime<E> {
             return false;
         }
 
-        ensure_engine_order(&mut self.engine_order, count);
-        let snapshot = &mut self.cached;
-        apply_order(&mut snapshot.candidates, &order);
-        apply_order(&mut snapshot.candidate_codes, &order);
-        apply_order(&mut snapshot.candidate_annotations, &order);
-        apply_order(&mut snapshot.candidate_sources, &order);
-        apply_order(&mut snapshot.candidate_positions, &order);
-        apply_order(&mut snapshot.candidate_corrected, &order);
-        apply_order(&mut snapshot.candidate_answers_key, &order);
-        apply_order(&mut self.engine_order, &order);
+        self.apply_candidate_order(&order);
         true
     }
 
@@ -1823,16 +1829,7 @@ impl<E: InputEngine> Runtime<E> {
         let Some(order) = runner_up_order(snapshot.scheme, &order_rows(snapshot)) else {
             return false;
         };
-        ensure_engine_order(&mut self.engine_order, count);
-        let snapshot = &mut self.cached;
-        apply_order(&mut snapshot.candidates, &order);
-        apply_order(&mut snapshot.candidate_codes, &order);
-        apply_order(&mut snapshot.candidate_annotations, &order);
-        apply_order(&mut snapshot.candidate_sources, &order);
-        apply_order(&mut snapshot.candidate_positions, &order);
-        apply_order(&mut snapshot.candidate_corrected, &order);
-        apply_order(&mut snapshot.candidate_answers_key, &order);
-        apply_order(&mut self.engine_order, &order);
+        self.apply_candidate_order(&order);
         true
     }
 

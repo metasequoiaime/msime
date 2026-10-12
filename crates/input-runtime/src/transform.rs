@@ -29,7 +29,7 @@ pub use desktop::{CandidateOps, CandidateTransform, TransformRow, MAX_TRANSFORM_
 ))]
 mod desktop {
     use crate::*;
-    use msime_engine::ordering::{apply_order, ensure_engine_order};
+    use msime_engine::ordering::apply_order;
     use std::collections::HashMap;
 
     /// 交给插件的窗口最多几行。
@@ -360,16 +360,7 @@ mod desktop {
             if order.iter().enumerate().all(|(seat, row)| seat == *row) {
                 return;
             }
-            ensure_engine_order(&mut self.engine_order, count);
-            let snapshot = &mut self.cached;
-            apply_order(&mut snapshot.candidates, &order);
-            apply_order(&mut snapshot.candidate_codes, &order);
-            apply_order(&mut snapshot.candidate_annotations, &order);
-            apply_order(&mut snapshot.candidate_sources, &order);
-            apply_order(&mut snapshot.candidate_positions, &order);
-            apply_order(&mut snapshot.candidate_corrected, &order);
-            apply_order(&mut snapshot.candidate_answers_key, &order);
-            apply_order(&mut self.engine_order, &order);
+            self.apply_candidate_order(&order);
             apply_order(&mut self.plugins.identities, &order);
         }
 
