@@ -53,6 +53,12 @@ public final class CandidateTranslationPolicySmoke {
         check(CandidateTranslationPolicy.insertionGlosses("1;2;3;4;5;6;7;8;9;10\nb")
                 .equals(List.of("1", "2", "3", "4", "5", "6", "7", "8", "b")),
             "a long first target still leaves the second target a menu item");
+        check(CandidateTranslationPolicy.insertionGlosses("1;2;3;4;5;6;7;8;9;10\n1")
+                .equals(List.of("1", "2", "3", "4", "5", "6", "7", "8", "9")),
+            "a duplicate secondary sense does not waste a menu slot");
+        check(CandidateTranslationPolicy.insertionGlosses("1;2;3;4;5;6;7;8;9;10\n")
+                .equals(List.of("1", "2", "3", "4", "5", "6", "7", "8", "9")),
+            "an empty secondary row does not waste a menu slot");
         check(CandidateTranslationPolicy.glossLines(List.of("en"), true, false, Set.of()) == 1,
             "offline English keeps its row when online translation is off");
         check(CandidateTranslationPolicy.glossLines(List.of("ja"), true, false, Set.of()) == 0,

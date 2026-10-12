@@ -49,18 +49,32 @@ public final class CandidateTranslationPolicy {
         ArrayList<String> result = new ArrayList<>(MAX_INSERTION_SENSES);
         String[] rows = translation.split("\\R", -1);
         for (int row = 0; row < rows.length && result.size() < MAX_INSERTION_SENSES; row++) {
-            // 给后面的语言行各留一个位置，免得第一种语言的长释义把第二种语言整行挤出菜单。
-            int limit = MAX_INSERTION_SENSES - Math.min(rows.length - 1 - row, MAX_TARGETS - 1);
             for (String value : rows[row].split("[;；]", -1)) {
-                if (result.size() >= limit) break;
+                if (result.size() >= MAX_INSERTION_SENSES) break;
                 String gloss = TextPolicy.trimmed(value);
-                if (gloss.isEmpty() || result.contains(gloss)
-                        || TextPolicy.utf8Length(gloss) > 4096
-                        || TextPolicy.hasControl(gloss) || !TextPolicy.validUnicode(gloss)) continue;
+                if (!insertableGloss(gloss, result)) continue;
+                // 只有后面的语言行确实有新的可上屏义项，才为它留一个菜单位置。
+                if (result.size() == MAX_INSERTION_SENSES - 1
+                        && hasLaterInsertionSense(rows, row, result)) break;
                 result.add(gloss);
             }
         }
         return List.copyOf(result);
+    }
+
+    private static boolean hasLaterInsertionSense(String[] rows, int row, List<String> selected) {
+        for (int next = row + 1; next < rows.length; next++) {
+            for (String value : rows[next].split("[;；]", -1)) {
+                if (insertableGloss(TextPolicy.trimmed(value), selected)) return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean insertableGloss(String gloss, List<String> selected) {
+        return !gloss.isEmpty() && !selected.contains(gloss)
+            && TextPolicy.utf8Length(gloss) <= 4096
+            && !TextPolicy.hasControl(gloss) && TextPolicy.validUnicode(gloss);
     }
 
     /**
