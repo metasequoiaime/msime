@@ -260,12 +260,7 @@ private struct DictionaryPackRowLabel: View {
 
   var body: some View {
     HStack(spacing: 12) {
-      Text(initial)
-        .font(.system(size: 15, weight: .semibold))
-        .foregroundStyle(MetasequoiaTheme.accent)
-        .frame(width: 30, height: 30)
-        .background(MetasequoiaTheme.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .accessibilityHidden(true)
+      DesignInitialTile(text: initial, size: 30, fontSize: 15, fontWeight: .semibold, cornerRadius: 8)
       VStack(alignment: .leading, spacing: 1) {
         Text(title).font(.system(size: 17)).foregroundStyle(.primary)
         if let meta {

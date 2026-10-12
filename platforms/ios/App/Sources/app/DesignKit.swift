@@ -40,6 +40,24 @@ struct AppMarkDisc: View {
   }
 }
 
+/// Accent-colored initial tile shared by compact list rows and community cards.
+struct DesignInitialTile: View {
+  let text: String
+  var size: CGFloat = 40
+  var fontSize: CGFloat = 16
+  var fontWeight: Font.Weight = .bold
+  var cornerRadius: CGFloat = MetasequoiaTheme.tabCardRadius
+
+  var body: some View {
+    Text(text)
+      .font(.system(size: fontSize, weight: fontWeight))
+      .foregroundStyle(MetasequoiaTheme.accent)
+      .frame(width: size, height: size)
+      .background(MetasequoiaTheme.accentSoft, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+      .accessibilityHidden(true)
+  }
+}
+
 // MARK: - 卡片与分组
 
 /// 分组卡片：季节卡片色的连续圆角矩形，无阴影、无边框。卡片里的行之间没有间距，行与行之间放一个 `DesignDivider`。

@@ -77,12 +77,7 @@ struct CommunityResourceCard: View {
 struct CommunityGlyphTile: View {
   let name: String
   var body: some View {
-    Text(String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)))
-      .font(.system(size: 16, weight: .bold))
-      .foregroundStyle(MetasequoiaTheme.accent)
-      .frame(width: 40, height: 40)
-      .background(MetasequoiaTheme.accentSoft, in: RoundedRectangle(cornerRadius: MetasequoiaTheme.tabCardRadius, style: .continuous))
-      .accessibilityHidden(true)
+    DesignInitialTile(text: String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)))
   }
 }
 
