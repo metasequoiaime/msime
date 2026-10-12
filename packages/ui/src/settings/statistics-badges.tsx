@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import { useToast } from "../core/toast";
+import { statisticsTrack } from "../core/statistics-style";
 import {
   badgeToast,
   caption,
@@ -28,9 +29,6 @@ function glyphSize(glyph: string): string {
   const length = [...glyph].length;
   return length > 2 ? "13px" : length > 1 ? "15px" : "19px";
 }
-
-/** 进度条或进度环的空白部分，即设计稿的 `stTrack`。 */
-const trackClass = "bg-[rgba(255,255,255,0.1)] light-theme:bg-[rgba(0,0,0,0.07)]";
 
 /** 奖章的动效：网格首次绘制时弹入，点按时晃动，之后保持静止，这样晃动结束后不会重放弹入。 */
 type MedalMotion = "pop" | "wiggle" | "rest";
@@ -138,7 +136,7 @@ export function StatisticsBadges({
           <span className="text-[28px] font-bold tabular-nums">{done}</span>
           <span className="text-[15px] text-[color:var(--p-sub)]">/ {total} 已解锁</span>
         </div>
-        <div className={`h-1.5 overflow-hidden rounded-[3px] ${trackClass}`}>
+        <div className={`h-1.5 overflow-hidden rounded-[3px] ${statisticsTrack}`}>
           <div
             className="h-full animate-ms-bar-fill rounded-[3px] bg-[var(--accent-color)] [animation-delay:0.15s] motion-reduce:animate-none"
             style={{ width: `${total === 0 ? 0 : (done / total) * 100}%` }}

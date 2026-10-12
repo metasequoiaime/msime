@@ -1,6 +1,7 @@
 import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { FluentIcon } from "../core/fluent-icons";
 import { formatZhNumber } from "../core/format-number";
+import { statisticsTrack } from "../core/statistics-style";
 import {
   keyLabel,
   phoneHeatmapLeader,
@@ -54,8 +55,6 @@ const subText = "text-[color:var(--p-sub)]";
 const segmentTrack =
   "bg-[rgba(255,255,255,0.08)] light-theme:bg-[color-mix(in_srgb,var(--accent-color)_9%,var(--p-group-bg))]";
 const segmentOn = "bg-[#636366] font-semibold text-[color:var(--p-text)] light-theme:bg-white";
-/** 进度条的空白部分，即设计稿的 `stTrack`。 */
-const trackClass = "bg-[rgba(255,255,255,0.1)] light-theme:bg-[rgba(0,0,0,0.07)]";
 /** 非高亮的柱子：浅色模式下是卡片上 18% 的强调色，深色模式下是 24%（设计稿的 `aM(dark ? 24 : 18)`）。 */
 const quietBar =
   "bg-[color-mix(in_srgb,var(--accent-color)_24%,var(--p-group-bg))] light-theme:bg-[color-mix(in_srgb,var(--accent-color)_18%,var(--p-group-bg))]";
@@ -573,7 +572,7 @@ function KeysPanel({
                     {label}
                   </span>
                   <span
-                    className={`block h-2.5 flex-1 overflow-hidden rounded-[5px] ${trackClass}`}
+                    className={`block h-2.5 flex-1 overflow-hidden rounded-[5px] ${statisticsTrack}`}
                     aria-hidden="true"
                   >
                     <span
