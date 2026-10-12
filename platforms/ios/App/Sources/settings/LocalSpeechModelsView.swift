@@ -21,6 +21,9 @@ final class LocalSpeechModelManager: ObservableObject {
   @Published private(set) var savedMirror = ""
   @Published var mirror = ""
   @Published var status = ""
+  private var refreshTask: Task<Void, Never>?
+  private var operationTasks: [String: Task<Void, Never>] = [:]
+  private var operationGeneration = UUID()
   /// Saves the mirror address as it is typed.
   let mirrorAutosave = SettingsAutosave()
   /// Created the first time the model list is shown, so the AI page, which shares the view type, never makes the directory.
@@ -45,14 +48,19 @@ final class LocalSpeechModelManager: ObservableObject {
 
   func refresh() {
     guard let root else { return }
-    Task {
+    refreshTask?.cancel()
+    let generation = operationGeneration
+    refreshTask = Task { [weak self] in
       do {
         let catalog = try await Task.detached(priority: .userInitiated) { try LocalSpeechModelStore.catalog(root: root) }.value
+        try Task.checkCancellation()
+        guard let self, self.operationGeneration == generation else { return }
         // FunASR-nano needs more memory than an iOS app is given.
-        models = catalog.models.filter { !$0.desktopOnly }
+        self.models = catalog.models.filter { !$0.desktopOnly }
         // A stored path from before an app update points into the old container; keep it pointing at the same model.
-        if let directory = selectedDirectory, directory.path != selectedPath { writeSelection(directory.path) }
-      } catch { status = error.localizedDescription }
+        if let directory = self.selectedDirectory, directory.path != self.selectedPath { self.writeSelection(directory.path) }
+      } catch is CancellationError { }
+      catch { if self?.operationGeneration == generation { self?.status = error.localizedDescription } }
     }
   }
 
@@ -64,7 +72,8 @@ final class LocalSpeechModelManager: ObservableObject {
     installing.insert(model.id)
     progress[model.id] = nil
     status = ""
-    Task {
+    let generation = operationGeneration
+    let task = Task { [weak self] in
       do {
         let id = model.id
         let path = try await Task.detached(priority: .userInitiated) {
@@ -74,18 +83,24 @@ final class LocalSpeechModelManager: ObservableObject {
             }
           }
         }.value
-        installing.remove(model.id)
-        progress[model.id] = nil
+        try Task.checkCancellation()
+        guard let self, self.operationGeneration == generation else { return }
+        self.installing.remove(model.id)
+        self.progress[model.id] = nil
         // The first model downloaded is the one to use; a later one waits for 使用.
-        if selectedDirectory == nil { writeSelection(path.path) }
-        status = "已下载“\(model.title)”。"
-      } catch {
-        installing.remove(model.id)
-        progress[model.id] = nil
-        status = error.localizedDescription
+        if self.selectedDirectory == nil { self.writeSelection(path.path) }
+        self.status = "已下载“\(model.title)”。"
+      } catch is CancellationError { }
+      catch {
+        if self?.operationGeneration == generation {
+          self?.installing.remove(model.id)
+          self?.progress[model.id] = nil
+          self?.status = error.localizedDescription
+        }
       }
-      refresh()
+      if self?.operationGeneration == generation { self?.refresh() }
     }
+    operationTasks[model.id] = task
   }
 
   /// 用用户在文件选择器里选中的文件安装 `model`，不联网。文件按长度和 SHA-256 对上目录，不看文件名；选择器给的是带安全范围的 URL，整个安装期间都保持访问权。
@@ -95,7 +110,8 @@ final class LocalSpeechModelManager: ObservableObject {
     importing.insert(model.id)
     progress[model.id] = nil
     status = ""
-    Task {
+    let generation = operationGeneration
+    let task = Task { [weak self] in
       do {
         let id = model.id
         let path = try await Task.detached(priority: .userInitiated) {
@@ -107,18 +123,20 @@ final class LocalSpeechModelManager: ObservableObject {
             }
           }
         }.value
-        finishImport(model.id)
-        if selectedDirectory == nil { writeSelection(path.path) }
-        status = "已导入“\(model.title)”。"
+        try Task.checkCancellation()
+        guard let self, self.operationGeneration == generation else { return }
+        self.finishImport(model.id)
+        if self.selectedDirectory == nil { self.writeSelection(path.path) }
+        self.status = "已导入“\(model.title)”。"
       } catch let failure as LocalSpeechModelStore.HostFailure {
-        finishImport(model.id)
-        status = Self.importMessage(for: failure)
-      } catch {
-        finishImport(model.id)
-        status = error.localizedDescription
+        if self?.operationGeneration == generation { self?.finishImport(model.id); self?.status = Self.importMessage(for: failure) }
+      } catch is CancellationError { }
+      catch {
+        if self?.operationGeneration == generation { self?.finishImport(model.id); self?.status = error.localizedDescription }
       }
-      refresh()
+      if self?.operationGeneration == generation { self?.refresh() }
     }
+    operationTasks[model.id] = task
   }
 
   private func finishImport(_ id: String) {
@@ -142,6 +160,19 @@ final class LocalSpeechModelManager: ObservableObject {
     Task.detached { LocalSpeechModelStore.cancel(id: id) }
   }
 
+  func cancelPending() {
+    operationGeneration = UUID()
+    refreshTask?.cancel()
+    refreshTask = nil
+    operationTasks.values.forEach { $0.cancel() }
+    let ids = installing
+    operationTasks.removeAll()
+    importing.removeAll()
+    installing.removeAll()
+    progress.removeAll()
+    Task.detached { ids.forEach { LocalSpeechModelStore.cancel(id: $0) } }
+  }
+
   func use(_ model: LocalSpeechModelInfo) {
     guard model.installed else { return }
     if writeSelection(model.path) { status = "已选用“\(model.title)”。" }
@@ -156,14 +187,19 @@ final class LocalSpeechModelManager: ObservableObject {
     // disabling voice input.
     LocalSpeechEngine.shared.release()
     let id = model.id
-    Task {
+    let generation = operationGeneration
+    let task = Task { [weak self] in
       do {
         try await Task.detached { try LocalSpeechModelStore.remove(root: root, id: id) }.value
-        if wasSelected { _ = writeSelection("") }
-        status = "已删除“\(model.title)”。"
-      } catch { status = error.localizedDescription }
-      refresh()
+        try Task.checkCancellation()
+        guard let self, self.operationGeneration == generation else { return }
+        if wasSelected { _ = self.writeSelection("") }
+        self.status = "已删除“\(model.title)”。"
+      } catch is CancellationError { }
+      catch { if self?.operationGeneration == generation { self?.status = error.localizedDescription } }
+      if self?.operationGeneration == generation { self?.refresh() }
     }
+    operationTasks["remove:\(id)"] = task
   }
 
   /// `voice_input.asr_model_mirror`: empty for the catalog's own URLs, otherwise an https prefix put before each download URL. Saved once typing pauses; an address that is not a valid one yet is shown as such and left unsaved.
@@ -246,6 +282,7 @@ struct LocalSpeechModelsSection: View {
       }
     }
     .onAppear { manager.refresh() }
+    .onDisappear { manager.cancelPending() }
     .flushesAutosave(manager.mirrorAutosave)
   }
 }
