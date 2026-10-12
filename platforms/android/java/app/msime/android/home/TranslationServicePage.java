@@ -1,0 +1,286 @@
+package app.msime.android.home;
+
+import android.content.Context;
+import android.text.InputType;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import androidx.annotation.Nullable;
+import app.msime.android.CandidateTranslationPolicy;
+import app.msime.android.CandidateTranslationRoute;
+import app.msime.android.JsonPolicy;
+import app.msime.android.NativeClient;
+import app.msime.android.TranslationServiceSettingsPolicy;
+import app.msime.android.TranslationServiceSettingsPolicy.Choice;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import java.util.function.Function;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+/**
+ * 翻译服务：候选词在离线释义之外，用哪个在线服务补译文。可选不使用、水杉账号、小牛翻译、腾讯云机器翻译、自定义（DeepLX 或 DeepL API）。
+ *
+ * <p>全部写在与桌面、iOS 相同的共享偏好里：`niutrans`、`custom_translation`、`tencent_tmt` 三段和 `translation_account`。选服务时三个 `enabled` 只开一个，腾讯没选时也显式写 false（它的默认值是开着），`translation_account` 只在选水杉账号时写 true，否则删掉，与共享设置页的 `setTranslationProvider` 和 iOS 的 `select` 相同；别的服务的凭据保留，切回来不用重填。凭据与 AI 辅助的令牌一样只存在本机的偏好里，不随设置同步上传；密钥行只显示「已填写」或「未填写」。
+ *
+ * <p>每个字段点开是一个输入框，按共享偏好的校验规则（{@link TranslationServiceSettingsPolicy}）当场说明哪里不行，不合规的值不会写入。键盘怎么选路见 {@link CandidateTranslationPolicy#route}：所选服务凭据不全时不联网，也不改用别的服务。
+ */
+public final class TranslationServicePage extends ReloadingDetailPage {
+    /** 读一次页面要的东西：偏好、接口地址下的提示，以及自定义服务的共享描述器能不能构造（DeepL 地址没填密钥时不能）。 */
+    private record State(JSONObject preferences, String endpointIssue, boolean customBuildable) {}
+
+    /** 测试连接的结果；message 是共享层给的一句话，不含凭据和服务的回复。 */
+    private record TestResult(boolean ok, String message) {}
+
+    /**
+     * 本页刚选过的服务。腾讯的 `enabled` 默认开着，凭据填好之前从偏好里分不出「用户选了腾讯」，所以刚选腾讯时按这里显示，好让用户接着填凭据；离开再回来时按偏好显示。
+     */
+    @Nullable private Choice chosen;
+    private boolean testing;
+
+    @Override protected void reload() {
+        HostTask.run(this, TranslationServicePage::read, this::render);
+    }
+
+    @Nullable private static State read(Context context) {
+        JSONObject preferences = KeyboardSheets.preferences(context);
+        if (preferences == null) return null;
+        String endpoint = text(preferences.optJSONObject("custom_translation"), "endpoint");
+        String issue = "";
+        boolean buildable = false;
+        try {
+            if (!endpoint.isEmpty()) {
+                JSONObject value = envelope(NativeClient.translationEndpointIssue(endpoint));
+                issue = value == null ? "" : JsonPolicy.strictStringOrEmpty(value.opt("issue"));
+            }
+            JSONObject custom = preferences.optJSONObject("custom_translation");
+            JSONObject probe = new JSONObject()
+                .put("config", new JSONObject().put("enabled", true).put("endpoint", endpoint)
+                    .put("api_key", text(custom, "api_key")))
+                .put("text", "你好").put("source_language", "zh").put("target_language", "en");
+            buildable = !endpoint.isEmpty()
+                && envelope(NativeClient.customTranslationHttpRequest(probe.toString())) != null;
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            // 共享库没加载上或回答读不懂：不显示提示，按凭据不完整处理。
+        }
+        return new State(preferences, issue, buildable);
+    }
+
+    private void render(@Nullable State state) {
+        LinearLayout target = contentColumn();
+        if (target == null) return;
+        target.removeAllViews();
+        if (state == null) {
+            GroupCard.add(target, null).note("读取设置失败。请先完成首次设置，或稍后返回重试。");
+            return;
+        }
+        JSONObject preferences = state.preferences();
+        JSONObject niutrans = section(preferences, "niutrans");
+        JSONObject custom = section(preferences, "custom_translation");
+        JSONObject tencent = section(preferences, "tencent_tmt");
+        boolean tencentEnabled = JsonPolicy.strictBoolean(tencent.opt("enabled"), true);
+        Choice stored = TranslationServiceSettingsPolicy.selected(
+            JsonPolicy.strictBoolean(preferences.opt("translation_account"), false),
+            JsonPolicy.strictBoolean(niutrans.opt("enabled"), false),
+            JsonPolicy.strictBoolean(custom.opt("enabled"), false),
+            tencentEnabled, text(tencent, "secret_id"), text(tencent, "secret_key"));
+        Choice selected = chosen == Choice.TENCENT && stored == Choice.NONE && tencentEnabled ? Choice.TENCENT : stored;
+        boolean translations = JsonPolicy.strictBoolean(preferences.opt("candidate_translations"), true);
+
+        GroupCard service = GroupCard.add(target, null);
+        service.nav("翻译服务", "离线释义查不到的词，用这里选的服务补上译文", selected.title(), () -> pick(selected));
+        if (!translations) service.note("「候选词翻译」已关闭，键盘不会联网翻译。打开它在「输入 → 翻译」里。");
+
+        switch (selected) {
+            case NONE:
+                service.note("键盘不会把候选词发给任何在线服务；离线释义照常显示。");
+                break;
+            case ACCOUNT:
+                service.note("候选词会发送到水杉服务器（api.msime.app）翻译，首次使用会自动创建匿名账号。");
+                break;
+            case NIUTRANS:
+                renderNiuTrans(target, niutrans);
+                break;
+            case TENCENT:
+                renderTencent(target, tencent);
+                break;
+            case CUSTOM:
+                renderCustom(target, custom, state.endpointIssue());
+                break;
+        }
+        if (selected.userService()) renderTest(target, selected, niutrans, custom, tencent, state.customBuildable());
+    }
+
+    private void renderNiuTrans(LinearLayout target, JSONObject niutrans) {
+        GroupCard group = GroupCard.add(target, "小牛翻译");
+        String appId = text(niutrans, "app_id");
+        group.nav("App ID", null, appId.isEmpty() ? "未填写" : shorten(appId), () -> edit("App ID", null, appId,
+            InputType.TYPE_CLASS_TEXT, TranslationServiceSettingsPolicy::niutransProblem, "niutrans", "app_id"));
+        group.nav("API Key", null, filled(text(niutrans, "apikey")), () -> edit("API Key", "小牛翻译控制台里的 API Key，保存在本机", "",
+            secretInput(), TranslationServiceSettingsPolicy::niutransProblem, "niutrans", "apikey"));
+        group.footer("在小牛翻译开放平台创建应用后取得 App ID 和 API Key。");
+    }
+
+    private void renderTencent(LinearLayout target, JSONObject tencent) {
+        GroupCard group = GroupCard.add(target, "腾讯云机器翻译");
+        String region = text(tencent, "region");
+        group.nav("SecretId", null, filled(text(tencent, "secret_id")), () -> edit("SecretId", "腾讯云访问密钥的 SecretId，保存在本机", "",
+            InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
+            TranslationServiceSettingsPolicy::secretIdProblem, "tencent_tmt", "secret_id"));
+        group.nav("SecretKey", null, filled(text(tencent, "secret_key")), () -> edit("SecretKey", "腾讯云访问密钥的 SecretKey，保存在本机", "",
+            secretInput(), TranslationServiceSettingsPolicy::secretProblem, "tencent_tmt", "secret_key"));
+        group.nav("地域", null, region.isEmpty() ? CandidateTranslationRoute.DEFAULT_TENCENT_REGION : region,
+            () -> edit("地域", "留空使用 " + CandidateTranslationRoute.DEFAULT_TENCENT_REGION, region,
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
+                TranslationServiceSettingsPolicy::regionProblem, "tencent_tmt", "region"));
+        group.footer("建议为输入法单独创建只授权机器翻译的子账号密钥。腾讯一次最多翻译 9 个候选词。");
+    }
+
+    private void renderCustom(LinearLayout target, JSONObject custom, String endpointIssue) {
+        GroupCard group = GroupCard.add(target, "自定义接口");
+        String endpoint = text(custom, "endpoint");
+        group.nav("接口地址", endpointIssue.isEmpty() ? "https 地址，或本机回环的 http 地址" : endpointIssue,
+            endpoint.isEmpty() ? "未设置" : shorten(endpoint), () -> edit("接口地址",
+                "兼容 DeepLX 的 POST 接口，例如 http://127.0.0.1:1188/translate；或 DeepL 官方 API https://api-free.deepl.com/v2/translate",
+                endpoint, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI,
+                TranslationServiceSettingsPolicy::endpointProblem, "custom_translation", "endpoint"));
+        group.nav("API Key", "DeepL 官方 API 必填；DeepLX 没设密钥时留空", filled(text(custom, "api_key")),
+            () -> edit("API Key", "DeepL 填 Auth Key（Free 密钥以 :fx 结尾），保存在本机；留空表示不需要", "",
+                secretInput(), TranslationServiceSettingsPolicy::secretProblem, "custom_translation", "api_key"));
+        group.footer("DeepL 官方地址按 DeepL 的格式请求，并按密钥自动选 Free 或 Pro 主机；其他地址按 DeepLX 的格式请求。使用 DeepL 时候选词会发送到 DeepL，按 DeepL 的数据政策处理。远程服务必须用 https，http 只能指向本机回环地址，不能是局域网地址。");
+    }
+
+    /** 凭据是否齐全的提示和「测试连接」：测试用的是已经保存的值，与键盘实际用的一致。 */
+    private void renderTest(LinearLayout target, Choice selected, JSONObject niutrans, JSONObject custom,
+            JSONObject tencent, boolean customBuildable) {
+        GroupCard group = GroupCard.add(target, null);
+        CandidateTranslationRoute route = CandidateTranslationPolicy.route(true, false,
+            selected == Choice.NIUTRANS, text(niutrans, "app_id"), text(niutrans, "apikey"),
+            selected == Choice.CUSTOM, text(custom, "endpoint"), text(custom, "api_key"),
+            selected == Choice.TENCENT, text(tencent, "secret_id"), text(tencent, "secret_key"), text(tencent, "region"));
+        boolean complete = route.userService() && (selected != Choice.CUSTOM || customBuildable);
+        if (!complete) group.note("凭据不完整，键盘暂不联网翻译，也不会改用其他服务。");
+        group.button("测试连接", "用已保存的设置翻译一次「测试」，最长约 15 秒", "测试", () -> {
+            if (testing) return;
+            testing = true;
+            MsToast.show(requireContext(), "正在测试…");
+            JSONObject config = testConfig(selected, niutrans, custom, tencent);
+            HostTask.runNetwork(this, context -> runTest(selected.testService(), config), result -> {
+                testing = false;
+                if (!isAdded()) return;
+                new MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(result.ok() ? "测试成功" : "测试未通过")
+                    .setMessage(result.message())
+                    .setPositiveButton("好", null)
+                    .show();
+            });
+        });
+        group.footer("选择自己的服务后，键盘把当前一页的中文候选（最多 10 个，每个不超过 40 字）直接发给该服务，不经过水杉服务器。小牛和自定义每个词单独请求一次；设置了第二目标语言时，每种语言各请求一次，都会消耗你在该服务的额度。离线释义查得到的语言仍优先显示离线释义。");
+    }
+
+    private static JSONObject testConfig(Choice selected, JSONObject niutrans, JSONObject custom, JSONObject tencent) {
+        JSONObject config = new JSONObject();
+        try {
+            switch (selected) {
+                case NIUTRANS:
+                    config.put("app_id", text(niutrans, "app_id")).put("apikey", text(niutrans, "apikey"));
+                    break;
+                case TENCENT:
+                    config.put("secret_id", text(tencent, "secret_id")).put("secret_key", text(tencent, "secret_key"))
+                        .put("region", text(tencent, "region"));
+                    break;
+                case CUSTOM:
+                    config.put("endpoint", text(custom, "endpoint")).put("api_key", text(custom, "api_key"));
+                    break;
+                default:
+                    break;
+            }
+        } catch (JSONException impossible) {
+            // 只放字符串，put 不会失败；真失败时用空配置，共享层回答「请填写有效的…」。
+        }
+        return config;
+    }
+
+    private static TestResult runTest(String service, JSONObject config) {
+        try {
+            JSONObject request = new JSONObject().put("service", service).put("config", config);
+            JSONObject value = envelope(NativeClient.testApiCredential(request.toString()));
+            if (value == null) return new TestResult(false, "测试没能完成，请稍后重试。");
+            return new TestResult(JsonPolicy.strictBoolean(value.opt("ok"), false),
+                JsonPolicy.strictStringOrEmpty(value.opt("message")));
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            // 请求带着凭据，不记录；共享库没加载上、响应读不懂都按测试没完成处理。
+            return new TestResult(false, "测试没能完成，请稍后重试。");
+        }
+    }
+
+    private void pick(Choice selected) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "翻译服务", null);
+        for (Choice choice : Choice.values()) {
+            sheet.option(choice.title(), choice == selected, () -> select(choice));
+        }
+        sheet.show();
+    }
+
+    /** 只开一个服务：三个 `enabled` 互斥，腾讯没选时显式写 false，`translation_account` 只在选水杉账号时写 true。 */
+    private void select(Choice choice) {
+        chosen = choice;
+        KeyboardSheets.save(this, preferences -> {
+            KeyboardSheets.child(preferences, "niutrans").put("enabled", choice == Choice.NIUTRANS);
+            KeyboardSheets.child(preferences, "custom_translation").put("enabled", choice == Choice.CUSTOM);
+            JSONObject tencent = KeyboardSheets.child(preferences, "tencent_tmt");
+            tencent.put("enabled", choice == Choice.TENCENT);
+            if (text(tencent, "region").isEmpty())
+                tencent.put("region", CandidateTranslationRoute.DEFAULT_TENCENT_REGION);
+            if (choice == Choice.ACCOUNT) preferences.put("translation_account", true);
+            else preferences.remove("translation_account");
+        }, this::reload, this::reload);
+    }
+
+    /**
+     * 编辑一个字段：输入框里的值去掉首尾空白后按 `problem` 检查，不合规时在输入框下说明原因并禁用「保存」。密钥字段打开时是空的（不回显已存的密钥），留空保存表示清掉。
+     */
+    private void edit(String title, @Nullable String message, String current, int inputType,
+            Function<String, String> problem, String section, String key) {
+        InputDialog dialog = new InputDialog(requireContext(), title, message);
+        EditText field = dialog.addField(title, current, inputType);
+        dialog.setValidator(values -> {
+            String reason = problem.apply(values.get(0));
+            field.setError(reason);
+            return reason == null;
+        });
+        dialog.setPrimary("保存", values -> KeyboardSheets.save(this, preferences -> {
+            String value = values.get(0);
+            if (problem.apply(value) != null) throw new JSONException(key + " is not valid");
+            if ("region".equals(key) && value.isEmpty()) value = CandidateTranslationRoute.DEFAULT_TENCENT_REGION;
+            KeyboardSheets.child(preferences, section).put(key, value);
+        }, this::reload, this::reload));
+        dialog.show();
+    }
+
+    private static int secretInput() {
+        return InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD;
+    }
+
+    private static JSONObject section(JSONObject preferences, String key) {
+        JSONObject value = preferences.optJSONObject(key);
+        return value == null ? new JSONObject() : value;
+    }
+
+    private static String text(@Nullable JSONObject object, String key) {
+        return object == null ? "" : JsonPolicy.strictStringOrEmpty(object.opt(key));
+    }
+
+    @Nullable private static JSONObject envelope(String response) throws JSONException {
+        if (response == null || response.isEmpty()) return null;
+        JSONObject root = new JSONObject(response);
+        return JsonPolicy.strictTrue(root.opt("ok")) ? root.optJSONObject("value") : null;
+    }
+
+    private static String filled(String value) {
+        return value.isEmpty() ? "未填写" : "已填写";
+    }
+
+    private static String shorten(String value) {
+        String single = value.replace('\n', ' ');
+        return single.length() <= 24 ? single : single.substring(0, 23) + "…";
+    }
+}

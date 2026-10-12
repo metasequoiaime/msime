@@ -277,9 +277,11 @@ public final class TypingPage extends DetailPage {
 
         GroupCard translation = GroupCard.add(target, "翻译");
         InputFeatureToggle translations = InputFeatureToggle.CANDIDATE_TRANSLATIONS;
-        translation.toggle("候选词翻译", "为候选词附上译文；联网翻译在「我的 → 隐私」里开启",
+        translation.toggle("候选词翻译", "为候选词附上译文；联网翻译用哪个服务在下面的「翻译服务」里选",
             preferences.optBoolean(translations.key(), translations.enabledByDefault()),
             checked -> save(values -> values.put(translations.key(), checked)));
+        translation.nav("翻译服务", "离线释义查不到的词用它补上译文", null,
+            () -> SettingsNavigator.open(requireContext(), PageId.TRANSLATION_SERVICE, null));
         InputFeatureToggle gloss = InputFeatureToggle.CANDIDATE_ENGLISH_GLOSS;
         boolean glossOn = preferences.optBoolean(gloss.key(), gloss.enabledByDefault());
         String targetLanguage = InputViewValuePolicy.textOr(preferences, "translation_target_language", "en");

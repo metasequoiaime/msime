@@ -1,6 +1,7 @@
 package app.msime.android.home;
 
 import android.content.ActivityNotFoundException;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -14,7 +15,7 @@ import java.util.Map;
 import org.json.JSONObject;
 
 /**
- * 隐私：联网功能（用水杉账号翻译候选、匿名使用统计）、本机数据（剪贴板历史）、隐私模式说明和隐私政策链接。
+ * 隐私：联网功能（用水杉账号翻译候选、匿名使用统计，以及去「翻译服务」的入口）、本机数据（剪贴板历史）、隐私模式说明和隐私政策链接。
  *
  * <p>三个开关就是 {@link InputFeatureToggle} 里的那三项，标题和说明也取那里，本页是它们在宿主里唯一的位置（实施计划 §2.9）。隐私模式的语义在 Rust 与键盘里（P17）：这里只说明它做什么、不做什么。
  */
@@ -36,6 +37,9 @@ public final class PrivacyPage extends DetailPage {
 
         GroupCard network = GroupCard.add(column, "联网功能").withDividers(16);
         for (InputFeatureToggle toggle : NETWORK) addToggle(network, toggle);
+        network.nav("翻译服务", "改用小牛、腾讯或自定义（DeepLX、DeepL）服务", null,
+            () -> SettingsNavigator.open(requireContext(), PageId.TRANSLATION_SERVICE, null));
+        network.note("在「翻译服务」里选了小牛、腾讯或自定义服务时，键盘会把当前一页的中文候选词直接发给你配置的第三方服务翻译，不经过水杉服务器，按该服务自己的数据政策处理；凭据只保存在本机。");
 
         GroupCard local = GroupCard.add(column, "本机数据").withDividers(16);
         for (InputFeatureToggle toggle : LOCAL) addToggle(local, toggle);
@@ -76,7 +80,7 @@ public final class PrivacyPage extends DetailPage {
     }
 
     private void save(InputFeatureToggle toggle, boolean value) {
-        HostTask.run(this, context -> HostStore.putPreference(context, toggle.key(), value), saved -> {
+        HostTask.run(this, context -> write(context, toggle, value), saved -> {
             if (saved == null) {
                 MsToast.show(requireContext(), "没有保存，请重试");
             } else {
@@ -85,6 +89,20 @@ public final class PrivacyPage extends DetailPage {
                 if (toggle == InputFeatureToggle.USAGE_REPORTING) Telemetry.setEnabled(requireContext(), value);
             }
             render();
+        });
+    }
+
+    /**
+     * 写一个开关。打开「用水杉账号翻译候选」等于在「翻译服务」里选水杉账号：同一次读改写里关掉小牛、自定义和腾讯，否则用户自己的服务仍然优先，这个开关开了也不生效。与共享设置页的 `setTranslationProvider("account")` 相同；关掉它只删 `translation_account`，不动其他服务。
+     */
+    @Nullable private static JSONObject write(Context context, InputFeatureToggle toggle, boolean value) {
+        if (toggle != InputFeatureToggle.CANDIDATE_TRANSLATION_ACCOUNT || !value)
+            return HostStore.putPreference(context, toggle.key(), value);
+        return KeyboardSheets.write(context, preferences -> {
+            KeyboardSheets.child(preferences, "niutrans").put("enabled", false);
+            KeyboardSheets.child(preferences, "custom_translation").put("enabled", false);
+            KeyboardSheets.child(preferences, "tencent_tmt").put("enabled", false);
+            preferences.put(toggle.key(), true);
         });
     }
 
