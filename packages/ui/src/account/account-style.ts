@@ -177,7 +177,7 @@ export const profileRowButton =
 export const profileRowLabel = "shrink-0 text-[16px]";
 export const profileRowValue =
   "min-w-0 flex-1 truncate text-right text-[15px] [color:var(--p-sub)]";
-export const profileRowChevron = "shrink-0 opacity-55 [color:var(--p-sub)]";
+export const profileRowChevron = meCardChevron;
 /** 设计稿里的破坏性操作：一整行居中的红色文字。 */
 export const profileDangerRow =
   "m-0 flex min-h-[50px] w-full cursor-pointer items-center justify-center border-0 bg-transparent px-4 text-[16px] [font-family:inherit] [color:#FF3B30] active:bg-[var(--p-press)] disabled:cursor-default disabled:opacity-50";
@@ -221,7 +221,7 @@ export const downloadHeroTile =
   "flex size-11 flex-none items-center justify-center rounded-xl [background:var(--accent-color)] [color:var(--p-on-accent)]";
 export const downloadHeroText = rowText;
 export const downloadHeroTitle = "text-[15px] font-semibold";
-export const downloadHeroUrl = "truncate text-[13px] [color:var(--p-sub)]";
+export const downloadHeroUrl = meCardSubtitle;
 export const downloadPill =
   "m-0 shrink-0 cursor-pointer whitespace-nowrap rounded-full border-0 px-3.5 py-1.5 text-[13px] font-semibold [font-family:inherit] [background:var(--accent-color)] [color:var(--p-on-accent)] active:opacity-80";
 export const downloadRows = mobileGroupSurface;
