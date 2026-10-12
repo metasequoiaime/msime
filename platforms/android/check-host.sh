@@ -752,6 +752,14 @@ if ! rg -q 'HardwareMaintenancePolicy\.action' \
   echo "Android maintenance chords must route through HardwareMaintenancePolicy and the shared API" >&2
   exit 1
 fi
+# Ctrl+Enter 上屏译文（#7079）同样要排在修饰键分支之前，否则那里先上屏原文、再把回车交给应用；义项页的按键也要经同一个策略分派，HardwareTranslationCommitPolicySmoke 才测得到真实的路由。
+if ! rg -q 'HardwareTranslationCommitPolicy\.ctrlEnter' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q 'HardwareTranslationCommitPolicy\.pageKey' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Android Ctrl+Enter translation commit must route through HardwareTranslationCommitPolicy" >&2
+  exit 1
+fi
 # The Japanese model is process-cached across Android input sessions. The host must release that
 # cache on system memory pressure even after the current session has already been destroyed.
 if ! rg -q '@Override public void onTrimMemory\(int level\)' \
