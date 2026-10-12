@@ -9,7 +9,7 @@
 # 3. 不授予任何能力再跑一遍，每个事件都不能有动作。
 # 核对在 plugins/script/tools/check_run.py。--update 把第 2 步的结果写回 expected.jsonl（写完逐行看过再提交）。
 #
-# 最后运行 scripts/test-script-plugin-data.py，确认提交进仓库的生成数据没有漂移。
+# 最后运行 scripts/test-script-plugin-data.py，确认提交进仓库的生成数据没有漂移。common-chars.bin 的检查要锁定的 Unihan zip：缓存里没有时打印 skip，设 MSIME_FETCH=1 才下载；设了 MSIME_REQUIRE_SCRIPT_PLUGINS=1 时 skip 算失败（CI 两个都设）。
 #
 # 没有 wasm32-unknown-unknown 目标时打印 skip 并以 0 退出；设了 MSIME_REQUIRE_SCRIPT_PLUGINS=1（CI 这样设）时改为失败。msime-pack 用仓库工作区的默认产物目录（target/debug/msime-pack）。
 

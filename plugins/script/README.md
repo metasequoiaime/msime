@@ -36,9 +36,9 @@ scripts/test-script-plugins.sh --update <id>  # 把运行结果写回 <id>/expec
 ```
 
 - 构建产物都在仓库根的 `target/script-plugins/` 下：`cargo/` 是 cargo 的产物目录，`<id>/` 是可以导入的插件包文件夹，`<id>-<version>.zip` 是同样内容的压缩包（条目排序、时间固定、不压缩，同样的源码得到逐字节相同的压缩包）。
-- `test-script-plugins.sh` 先编出 `target/debug/msime-pack`，然后对每个插件：`msime-pack validate` 校验文件夹和压缩包；用 `fixture.jsonl` 跑 `msime-pack run --grant all`，输出去掉 `fuel`、`init_fuel` 后必须和 `expected.jsonl` 逐行相同，每一行的 fuel 不能超过钩子单次上限的一半（`candidates` 62 500，`before_commit` 50 000）；再不授予任何能力跑一遍，每个事件都不能有动作。最后跑 `scripts/test-script-plugin-data.py`，确认生成的数据文件没有漂移。
-- 没有 wasm 目标时测试脚本打印 `skip` 并以 0 退出；CI 设 `MSIME_REQUIRE_SCRIPT_PLUGINS=1`，缺目标就失败。
-- CI：`.github/workflows/ci-platforms.yml` 的「Script plugins」作业在 `plugins/`、模板与 SDK、`crates/script-runtime`、`crates/pack-tool` 或这两个脚本改动时运行 `test-script-plugins.sh`。
+- `test-script-plugins.sh` 先编出 `target/debug/msime-pack`，然后对每个插件：`msime-pack validate` 校验文件夹和压缩包；用 `fixture.jsonl` 跑 `msime-pack run --grant all`，输出去掉 `fuel`、`init_fuel` 后必须和 `expected.jsonl` 逐行相同，每一行的 fuel 不能超过钩子单次上限的一半（`candidates` 62 500，`before_commit` 50 000）；再不授予任何能力跑一遍，每个事件都不能有动作。最后跑 `scripts/test-script-plugin-data.py`，确认生成的数据文件没有漂移；`common-chars.bin` 要用锁定的 Unihan zip 重新生成，缓存里没有 zip 时这一项打印 skip，设 `MSIME_FETCH=1` 才下载。
+- 没有 wasm 目标时测试脚本打印 `skip` 并以 0 退出；CI 设 `MSIME_REQUIRE_SCRIPT_PLUGINS=1`，缺目标就失败，生成数据的检查打印 skip 也算失败。CI 同时设 `MSIME_FETCH=1` 并缓存 Unihan zip，所以 `common-chars.bin` 在 CI 上每次都核对。
+- CI：`.github/workflows/ci-platforms.yml` 的「Script plugins」作业在 `plugins/`、模板与 SDK、`crates/script-runtime`、`crates/pack-tool`、这几个脚本、`resources/licenses/Unicode-License-V3.txt` 或 `resources/character-glosses.lock.json` 改动时运行 `test-script-plugins.sh`。
 
 ## 导入
 

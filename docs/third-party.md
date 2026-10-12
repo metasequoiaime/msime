@@ -285,7 +285,7 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 
 ## 脚本插件合集（`plugins/script/`）
 
-这些插件不随输入法分发，由用户从源码构建后自己导入；插件代码用 MIT。带第三方数据的插件把数据变换成紧凑的二进制表，用 `include_bytes!` 编进 wasm 模块，生成器和产物都提交进仓库，`scripts/test-script-plugin-data.py` 检查两者一致。插件包里随附许可证原文和一份 `NOTICE.txt`，写明来源、版本和生成器。
+这些插件不随输入法分发，由用户从源码构建后自己导入；插件代码用 MIT。带第三方数据的插件把数据变换成紧凑的二进制表，用 `include_bytes!` 编进 wasm 模块，生成器和产物都提交进仓库，`scripts/test-script-plugin-data.py` 检查两者一致（ci-platforms.yml 的 Script plugins 作业设 `MSIME_FETCH=1`，下载锁定的 Unihan zip 后也核对常用字集；不联网的 contracts 工作流只核对简繁对照表）。插件包里随附许可证原文和一份 `NOTICE.txt`，写明来源、版本和生成器。
 
 | 组件 | 许可证 | 位置与说明 |
 | --- | --- | --- |

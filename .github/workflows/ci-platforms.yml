@@ -67,9 +67,9 @@ jobs:
               packages/*|apps/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|.nvmrc|.github/workflows/ci-platforms.yml)
                 ui=true ;;
             esac
-            # 脚本插件合集：插件本身、它们引用的 SDK 与模板、运行它们的沙箱和 msime-pack、两个脚本。plugins/ 和 docs/ 不在下面任何一条里，没有这一条时只改插件的 PR 什么都不跑。
+            # 脚本插件合集：插件本身、它们引用的 SDK 与模板、运行它们的沙箱和 msime-pack、几个脚本，以及插件包逐字节复制的 Unicode 许可证和常用字集生成器读的 Unihan 锁。plugins/ 和 docs/ 不在下面任何一条里，没有这一条时只改插件的 PR 什么都不跑；那两个 resources/ 文件在下面只触发 web 或什么都不触发，改了它们包就过期了。
             case "$path" in
-              plugins/*|docs/script-plugin-template/*|crates/script-runtime/*|crates/pack-tool/*|scripts/build-script-plugins.sh|scripts/test-script-plugins.sh|scripts/test-script-plugin-data.py)
+              plugins/*|docs/script-plugin-template/*|crates/script-runtime/*|crates/pack-tool/*|scripts/build-script-plugins.sh|scripts/test-script-plugins.sh|scripts/test-script-plugin-data.py|resources/licenses/Unicode-License-V3.txt|resources/character-glosses.lock.json)
                 plugins=true ;;
             esac
             case "$path" in
@@ -253,7 +253,7 @@ jobs:
         if: ${{ needs.changes.outputs.engine != 'true' }}
         run: echo 'No engine or shared changes; engine tests skipped.'
 
-  # plugins/script/ 下的脚本插件：编成 wasm、用 msime-pack 校验，按各自的夹具运行并和 expected.jsonl 核对（scripts/test-script-plugins.sh）。插件 crate 没有依赖，几秒就编完，时间主要花在 msime-pack 上，所以和别的 Rust 作业一样走 sccache。MSIME_REQUIRE_SCRIPT_PLUGINS=1 让缺 wasm 目标时失败，而不是像本机那样跳过。
+  # plugins/script/ 下的脚本插件：编成 wasm、用 msime-pack 校验，按各自的夹具运行并和 expected.jsonl 核对（scripts/test-script-plugins.sh）。插件 crate 没有依赖，几秒就编完，时间主要花在 msime-pack 上，所以和别的 Rust 作业一样走 sccache。MSIME_REQUIRE_SCRIPT_PLUGINS=1 让缺 wasm 目标时失败，而不是像本机那样跳过。MSIME_FETCH=1 让 gen_common_chars.py --check 在缓存里没有 Unihan zip 时下载它（按锁校验大小和 sha256），而不是打印 skip：不这样的话 CI 从来不核对 common-chars.bin，手改或过期的字表照样通过。zip 按锁的摘要缓存，锁不变就不重新下载。
   script-plugins:
     needs: changes
     name: Script plugins
@@ -269,10 +269,17 @@ jobs:
       - name: Install sccache
         if: ${{ needs.changes.outputs.plugins == 'true' }}
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Restore the pinned Unihan zip
+        if: ${{ needs.changes.outputs.plugins == 'true' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/script-plugins/cache
+          key: script-plugins-unihan-${{ hashFiles('resources/character-glosses.lock.json') }}
       - name: Build and test the script plugins
         if: ${{ needs.changes.outputs.plugins == 'true' }}
         env:
           MSIME_REQUIRE_SCRIPT_PLUGINS: '1'
+          MSIME_FETCH: '1'
         run: |
           set -euo pipefail
           # 安装 rust-toolchain.toml 钉住的工具链，再给它加上 wasm 目标。
