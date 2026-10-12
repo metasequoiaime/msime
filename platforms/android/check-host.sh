@@ -200,7 +200,7 @@ if ! rg -q 'optBoolean\("paired_punctuation"' \
   echo "Android must honour the shared paired_punctuation preference on punctuation keys and in the symbol panel" >&2
   exit 1
 fi
-# 候选带 emoji / 颜文字是 Engine 已有的混输（共享偏好 mixed_input.emoji / kaomoji），Android 设置曾经没有开关（#5667）。`MixedInputPreferences` 四个字段都必填，只写一个字段的对象会让整份偏好被拒绝，所以写之前要补齐。
+# 中英混输和候选带 emoji / 颜文字都是 Engine 已有的混输（共享偏好 mixed_input.english / minimum_prefix / emoji / kaomoji），Android 设置曾经没有开关（emoji / 颜文字见 #5667，中英混输和触发字母数见 #7081）。`MixedInputPreferences` 四个字段都必填，只写一个字段的对象会让整份偏好被拒绝，所以写之前要补齐。
 expression_page="$repo_root/platforms/android/java/app/msime/android/home/ExpressionPage.java"
 for field in english minimum_prefix emoji kaomoji; do
   if ! rg -q "mixed\.has\(\"$field\"\)" "$expression_page"; then
@@ -208,9 +208,11 @@ for field in english minimum_prefix emoji kaomoji; do
     exit 1
   fi
 done
-if ! rg -q 'mixedInput\(edit\)\.put\("emoji"' "$expression_page" \
+if ! rg -q 'mixedInput\(edit\)\.put\("english"' "$expression_page" \
+  || ! rg -q 'mixedInput\(edit\)\.put\("minimum_prefix"' "$expression_page" \
+  || ! rg -q 'mixedInput\(edit\)\.put\("emoji"' "$expression_page" \
   || ! rg -q 'mixedInput\(edit\)\.put\("kaomoji"' "$expression_page"; then
-  echo "Android expression page must offer the shared emoji and kaomoji candidate switches" >&2
+  echo "Android expression page must offer the shared mixed English, minimum prefix, emoji and kaomoji candidate settings" >&2
   exit 1
 fi
 # The fullwidth state belongs to the runtime, not to a private SharedPreferences file: the Engine
