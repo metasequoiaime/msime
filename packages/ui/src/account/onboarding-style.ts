@@ -201,7 +201,7 @@ export const hGlossRow = (desktop: boolean) =>
   `${hCard(desktop)} mt-3 flex items-center justify-between gap-4 px-3.5 py-3 text-base`;
 
 // 第 4 步：登录带来的好处。
-export const hPerks = "m-0 flex list-none flex-col gap-2.5 p-0";
+export const hPerks = perks;
 export const hPerk = (desktop: boolean) =>
   `${hCard(desktop)} flex items-center gap-3 px-3.5 py-3 text-[15px]`;
 export const hPerkTile =
