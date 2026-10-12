@@ -5,7 +5,6 @@ import android.graphics.Rect;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
-import android.util.AtomicFile;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -49,8 +48,8 @@ public final class CaretCandidatesDeviceSmoke extends DeviceSmoke {
             publish(localSettings, new JSONObject().put("version", 1)
                 .put("settings", new JSONObject().put(CARET_CANDIDATES_SETTING, true))
                 .toString().getBytes(StandardCharsets.UTF_8));
-            rebindInputMethod();
-            shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+            restartIme();
+            shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
             await(field("msime-test-plain").and(AccessibilityNodeInfo::isFocused));
             if (Build.VERSION.SDK_INT >= 30) {
@@ -138,10 +137,10 @@ public final class CaretCandidatesDeviceSmoke extends DeviceSmoke {
             awaitGone(field("msime-test-plain"));
         } finally {
             if (uinput != null) unplugKeyboard(uinput);
-            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (originalLocal == null) Files.deleteIfExists(localSettings.toPath());
             else publish(localSettings, originalLocal);
-            rebindInputMethod();
+            restartIme();
         }
     }
 
@@ -275,30 +274,6 @@ public final class CaretCandidatesDeviceSmoke extends DeviceSmoke {
         return bounds;
     }
 
-    private void rebindInputMethod() throws Exception {
-        shell("ime disable app.msime.android/.MSIMEInputService");
-        shell("ime enable app.msime.android/.MSIMEInputService");
-        shell("ime set app.msime.android/.MSIMEInputService");
-        SystemClock.sleep(1000);
-    }
 
-    private void shell(String command) throws Exception {
-        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(
-                automation.executeShellCommand(command))) {
-            byte[] buffer = new byte[1024];
-            while (input.read(buffer) != -1) { }
-        }
-    }
 
-    private void publish(File file, byte[] contents) throws Exception {
-        AtomicFile target = new AtomicFile(file);
-        FileOutputStream output = target.startWrite();
-        try {
-            output.write(contents);
-            target.finishWrite(output);
-        } catch (Exception error) {
-            target.failWrite(output);
-            throw error;
-        }
-    }
 }

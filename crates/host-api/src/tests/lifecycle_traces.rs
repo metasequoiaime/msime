@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::lifecycle::{
-    Call, CommitOrigin, InputClass, LifecycleEvent, COMMIT_OBSERVE_ONLY, CUES, FEEDBACK,
-    SUPPORTED_FLAGS, TRAIT_KNOWN, TRAIT_SECURE,
+    Call, CommitOrigin, Cue, InputClass, LifecycleEvent, COMMIT_OBSERVE_ONLY, CUES, FEEDBACK,
+    HOST_HOLDS_PIECES, SUPPORTED_FLAGS, TRAIT_KNOWN, TRAIT_SECURE,
 };
 use msime_client_core::plugins::EffectStyle;
 use msime_input_runtime::{SelectionHow, SelectionOutcome};
@@ -110,6 +110,11 @@ fn starts_and_ends(trace: &[String]) -> (usize, usize) {
 
 /// 黄金轨迹专用的全拼词库：除了 ni'hao，`n`（`ni`）和 `h`（`hao`）也有字，所以打下第一键就既开始组字又出候选。共用的 `test_host_with_pinyin_fixture` 只收了 ni'hao，`n` 和 `ni` 没有候选，走不出设计 §2.2 的轨迹。
 fn golden_pinyin_host(root: &std::path::Path) -> u64 {
+    golden_pinyin_host_with(root, chinese_preferences())
+}
+
+/// 同 [`golden_pinyin_host`]，用给定的偏好。
+fn golden_pinyin_host_with(root: &std::path::Path, preferences: Preferences) -> u64 {
     let path = |name| {
         let path = root.join(name);
         std::fs::create_dir_all(&path).unwrap();
@@ -132,7 +137,7 @@ fn golden_pinyin_host(root: &std::path::Path) -> u64 {
             .execute_batch(fixture)
             .unwrap();
     }
-    let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": chinese_preferences() }).to_string();
+    let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences }).to_string();
     let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
     assert_eq!(created["ok"], true, "{created}");
     let handle = created["value"]["session"].as_u64().unwrap();
@@ -680,6 +685,48 @@ fn feedback_moves_the_effects_into_the_core_and_silences_the_old_calls() {
     let picked = read(msime_client_command(handle, 1));
     assert_eq!(picked["value"]["commit"], "本地");
     assert_eq!(picked["value"]["feedback"]["typing_effect"], FLASH | 6);
+    read(msime_client_destroy(handle));
+}
+
+/// 宿主暂存部分选词（Windows）时，部分选词的那一段还没进文档：经真实的派发（会改写上屏的那条路径）也不出上屏音、`feedback` 为 0，补齐整个词的那次上屏才出一次。
+#[test]
+fn a_piece_the_host_holds_sounds_only_when_the_whole_phrase_goes_out() {
+    let commits = || {
+        CUES.with(|cues| std::mem::take(&mut *cues.borrow_mut()))
+            .into_iter()
+            .filter(|cue| *cue == Cue::Commit)
+            .count()
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let handle = golden_pinyin_host_with(dir.path(), effect_preferences());
+    let flags = FEEDBACK | HOST_HOLDS_PIECES;
+    assert_eq!(msime_client_set_lifecycle(handle, flags), flags);
+    msime_client_set_field_traits(handle, TRAIT_KNOWN);
+    let mut typed = Value::Null;
+    for key in b"nihao" {
+        typed = letter(handle, *key);
+    }
+    commits();
+    // 选"你"只用掉 ni，读音还剩 hao：部分选词。
+    let view = &typed["value"]["view"];
+    let generation = view["generation"].as_u64().unwrap();
+    let ni = view["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|candidate| candidate["text"] == "你")
+        .unwrap();
+    msime_client_key(handle, 0x80);
+    let piece = read(msime_client_select(handle, generation, ni));
+    assert_eq!(piece["value"]["commit"], "你", "{piece}");
+    assert_eq!(piece["value"]["feedback"]["typing_effect"], 0);
+    assert_eq!(commits(), 0, "a held piece asks for no commit sound");
+    // 补齐整个词的那次上屏：宿主把暂存的"你"接在前面写进文档，这时出一次。
+    msime_client_key(handle, 1);
+    let whole = read(msime_client_command(handle, 1));
+    assert_eq!(whole["value"]["commit"], "好", "{whole}");
+    assert_ne!(whole["value"]["feedback"]["typing_effect"], 0);
+    assert_eq!(commits(), 1);
     read(msime_client_destroy(handle));
 }
 

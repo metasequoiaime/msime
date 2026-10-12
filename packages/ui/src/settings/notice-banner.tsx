@@ -94,7 +94,7 @@ export function NoticeBanner({
           </div>
           {notice.body && (
             <div
-              className="mt-1.5 text-sm leading-relaxed text-secondary break-anywhere [&_a]:underline [&_p]:my-1 [&_ul]:my-1 [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:pl-5"
+              className="mt-1.5 text-sm leading-relaxed text-secondary wrap-anywhere [&_a]:underline [&_p]:my-1 [&_ul]:my-1 [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:pl-5"
               onClick={openLink}
               // A middle click would otherwise let the webview open the link in a window of its own (WebView2 does) instead of the system browser.
               onAuxClick={openLink}

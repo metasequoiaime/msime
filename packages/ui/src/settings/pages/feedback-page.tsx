@@ -112,7 +112,7 @@ export function FeedbackSettingsPage() {
           >
             <div className={doc.note}>
               <strong>会一起附上的信息</strong>
-              <span className="block break-anywhere">{supportDiagnostics}</span>
+              <span className="block wrap-anywhere">{supportDiagnostics}</span>
             </div>
             <SettingsManagerActions>
               {client.copyText && (

@@ -328,6 +328,186 @@ items = ["→", "←", "⇒"]
 - 不需要选用：安装后就出现在符号面板里，卸载后消失。`symbols` 组以插件名作为一个分类，排在内置符号之后；`kaomoji` 组排在颜文字的「All」之后。不与内置符号去重。
 - 目前显示插件符号集的是 Windows 和 Linux 的符号面板、macOS 的表情与符号面板，以及鸿蒙电脑的键盘选择器（鸿蒙的键盘目前读不到设置应用导入的包，见[平台支持](#平台支持)）；不支持的设备会在插件详情里说明。
 
+## 脚本插件（`kind = "script"`）
+
+脚本插件是唯一带可执行内容的类型：包里有一个 core wasm 模块，在桌面输入法进程里由沙箱解释器运行，按用户逐项授予的能力读组字、上屏文本和候选。它还是实验功能。想直接开始：复制 [script-plugin-template](script-plugin-template/)，那是一个用 Rust 写的完整例子（中英文之间加空格），附带 C 头文件和 Rust 绑定。
+
+### 在哪里运行
+
+- 只在桌面：macOS 的输入法进程、Windows 的 `MetasequoiaImeServer`、Linux 的 IBus 引擎进程和 Fcitx5 addon。Windows 上被注入各个应用的 TSF 模块里从不运行脚本。iOS、Android 和鸿蒙（包括鸿蒙电脑）不认这个类型，导入时报「不支持这个 schema_version」。
+- macOS 和 Linux 的发布构建运行脚本，Windows 只在开发构建里运行：Windows 的原生设置应用还没有授权页。Windows 上以管理员身份运行的窗口里从不运行脚本。
+- 授权文件 `<数据目录>/plugins/script-grants.json` 在用户可写的目录下，不签名：同一用户下的其他程序能伪造一条授权，让脚本在输入法里运行。授权页上写明了这一点；只装你信得过的脚本包。
+- 输入法要接入生命周期事件之后才会把事件交给脚本，各平台陆续接入。
+- 在设置的「插件 → 我的插件」里导入（macOS 和 Linux；Windows 只有开发构建能导入）。导入后插件默认停用：在「脚本插件（实验）」里打开它，在授权对话框里逐项勾选清单申请的能力才会运行，几个脚本插件的执行顺序也在那里调整。授权绑定在包的内容哈希上，清单或模块改了一个字节，授权就作废，页面显示「已更新，需要重新授权」。
+- 不能发布到社区库：「发布我的插件」不列出脚本包，社区后端也只收 `schema_version = 1` 的包。只能本地导入。
+
+### 清单
+
+```toml
+schema_version = 2              # 脚本插件必须写 2，其他类型仍然写 1
+kind = "script"
+id = "pangu-spacing"
+name = "中英文之间加空格"
+version = "1.0.0"
+license = "MIT"
+permissions = ["read_commit", "rewrite_commit"]
+
+[script]
+abi = 1                         # 只能是 1
+module = "pangu.wasm"           # 包里的一个 .wasm 文件，1 字节到 256 KiB
+hooks = ["before_commit"]       # 只投递声明过的钩子
+memory_pages = 4                # 可选，1 到 64，默认 16
+```
+
+- 通用字段同[上面](#通用字段)，只有 `schema_version` 和 `permissions` 不同。
+- `permissions` 只能是下表里的能力名，不能重复，依赖要一起申请，`rewrite_commit` 和 `read_composition` 不能同时申请。
+- 申请了的能力，模块里必须至少导入一个属于它的函数；导入了的函数，清单必须申请它所属的能力。两个方向都查。
+- `[script]` 只有这四个键。模块按数据文件的规则检查：必须存在、不能为空、扩展名 `.wasm`、算进 16 个文件里。
+- 导入和 `msime-pack validate` 会按 ABI v1 校验模块（只编译，不执行），输入法加载时用的是同一份校验。
+
+### 能力
+
+| 能力                  | 能读或能做                                                       | 依赖                                         | 函数                                                                                             |
+| --------------------- | ---------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| 不需要                | 事件的枚举字段（类型、来源、选法、原因、本地模式等）；写日志     |                                              | `event_scalar`、`log`                                                                            |
+| `read_composition`    | 预编辑串、读音、这次打的字符、光标位置                           |                                              | `composition_text`、`composition_scalar`                                                         |
+| `read_commit`         | 选中的候选、上屏文本、其中可改写的一段、座位                     |                                              | `commit_text`、`commit_scalar`                                                                   |
+| `read_candidates`     | 候选窗口里的前 20 行（文本、编码、注释、来源）、页码、高亮位置   |                                              | `candidate_count`、`candidate_text`、`candidate_code`、`candidate_annotation`、`candidate_meta` |
+| `rewrite_commit`      | 改写上屏文本里可改写的一段（标点、顶字的尾巴只读）               | `read_commit`；不能和 `read_composition` 同时 | `rewrite_commit`                                                                                 |
+| `rerank_candidates`   | 重排候选                                                         | `read_candidates`                            | `candidates_order`                                                                               |
+| `filter_candidates`   | 把候选降到末尾并隐藏                                             | `read_candidates`                            | `candidates_hide`                                                                                |
+| `annotate_candidates` | 给候选加注释                                                     | `read_candidates`                            | `candidates_annotate`                                                                            |
+
+后四项是修改类能力：`rewrite_commit` 只在 `before_commit` 里有效，其余三个只在 `candidates` 里有效，在别的钩子里调用返回 `DENIED`。`rewrite_commit` 还要事件的「能否改写」为真（选中候选、原样上屏或暂存段送出，本地模式 `none`，不是以词定字，输入框是普通输入框，宿主没把这一段暂存在自己手里），否则也返回 `DENIED`；它只改标点和顶字尾巴之前的那一段，后面的插件读到的是前面改写过的文本。几个插件的重排、隐藏和注释按授权顺序合成；被隐藏的候选不出现在列表里，也选不到；插件的注释由输入法另外显示，不替换候选原来的注释。
+
+### 钩子
+
+| 钩子                  | 编号 | 什么时候                                         | 能读到的字段                                               |
+| --------------------- | ---- | ------------------------------------------------ | ---------------------------------------------------------- |
+| `focus_in`            | 0    | 输入框获得焦点                                   | 本地模式                                                   |
+| `focus_out`           | 1    | 输入框失去焦点                                   | 本地模式                                                   |
+| `input`               | 6    | 一次操作开始前                                   | 操作类别；`read_composition`：这次打的字符                 |
+| `selection_retracted` | 7    | 撤回暂存词组里的一次选择                         | 撤回方式                                                   |
+| `candidate_selected`  | 8    | 选中了候选                                       | 选法、结果；`read_commit`：选中的文本、座位                |
+| `before_commit`       | 9    | 上屏之前（修改类）                               | 来源、能否改写；`read_commit`：上屏文本和可改写段          |
+| `commit`              | 10   | 上屏之后                                         | 来源、是否接着组字、是否引擎生成；`read_commit`：同上      |
+| `composition_end`     | 11   | 组字结束                                         | 原因                                                       |
+| `composition_start`   | 12   | 组字开始                                         | `read_composition`：预编辑串、读音、光标                   |
+| `composition_update`  | 13   | 组字变化                                         | 同上                                                       |
+| `candidates_shown`    | 14   | 候选窗口显示或换了内容                           | `read_candidates`：当前页、页码、高亮                      |
+| `candidates_hidden`   | 15   | 候选窗口隐藏                                     | 原因                                                       |
+| `candidates`          | 17   | 候选列表排好之后、显示之前（修改类）             | `read_candidates`：插件变换之前的顺序和注释               |
+
+- 每个事件都带本地模式，`candidate_selected` 和 `commit` 带的是上屏时的模式。
+- 同一次操作里的顺序：`input` → `selection_retracted` → `candidate_selected` → `before_commit` → `commit` → `composition_end` 或 `composition_start` → `composition_update` → `candidates_shown` 或 `candidates_hidden`。
+- 按键本身不投递，免得泄露打字节奏。在线候选、AI 候选、停顿后的重排这类不由按键触发的更新也不投递，免得泄露停顿和网络时序。
+- 事件本身不带文本。文本只能在钩子运行期间经授权的函数读取。
+
+### 模块要求（ABI v1）
+
+- 格式是 core wasm（`wasm32-unknown-unknown`），不接受文本格式，没有 WASI，没有 JIT。
+- 必须导出 `memory`（恰好一块 32 位线性内存，不能导入，最小页数不超过 `memory_pages`）、`msime_abi() -> i32`（返回 1）和 `msime_on_event(kind: i32) -> i32`（`kind` 是钩子编号，返回负数算这一次失败）。可选导出 `msime_init() -> i32`，实例化后调用一次，返回负数算初始化失败；初始化时读不到任何事件字段。
+- import 只能是 `msime` 下上表里的函数，签名必须一致。不能有 start 函数。
+- 可以用 MVP 加上 mutable-global、sign-ext、sat-float-to-int、multi-value、bulk-memory、reference-types；不能用 threads、memory64、multi-memory、exceptions、tail-call、extended-const、GC、SIMD。
+- 函数返回非负数表示成功（复制的字节数、字段值），负数是 `DENIED`（-1，没有授予所属能力）、`ABSENT`（-2，事件里没有这个字段，或者被隐私规则屏蔽，两者故意不可区分）、`INVALID`（-3，字段编号或参数不对）、`LIMIT`（-4，缓冲区放不下，什么都没复制）。
+- 文本都是 UTF-8。取文本的函数依次检查能力（`DENIED`）、字段（`INVALID` 或 `ABSENT`）、整个目标缓冲区是否都在线性内存里（越界直接 trap）、放不放得下（`LIMIT`）。前两步返回时不看目标缓冲区，所以坏指针不一定 trap；复制之前一定已经检查过范围。
+- 编号的完整列表在 [sdk/msime_script.h](script-plugin-template/sdk/msime_script.h) 和 [sdk/msime_script.rs](script-plugin-template/sdk/msime_script.rs)，两份都和输入法里的定义逐项核对过。编号只会追加，不会改值。
+
+### 限制
+
+| 项                 | 值                                                                                                                          |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| 模块文件           | 1 字节到 256 KiB                                                                                                            |
+| 线性内存           | `memory_pages` 页（每页 64 KiB），实例化时一次预留，之后 `memory.grow` 越过它就 trap                                        |
+| 初始化             | 每个插件 5 000 000 fuel（`msime_abi` 加 `msime_init`）；每次聚焦和每一轮所有插件合计 5 000 000，超出的插件推迟到下一轮      |
+| 每一轮             | 每个插件 125 000 fuel，`before_commit` 另有自己的一份 100 000。一轮是宿主交来一个按键到下一个按键之间，同一个键引起的多次调用共用一轮                                |
+| 单次钩子           | `candidates` 125 000，`before_commit` 100 000，其余 25 000；实际可用的是这个和本轮剩下的（`before_commit` 看它自己那一份）较小者                               |
+| 函数调用           | 每次调用 `msime` 的函数扣 100 fuel，每复制 4 字节再扣 1                                                                     |
+| 值栈               | 64 KiB，递归最深 256 层                                                                                                     |
+| 表                 | 最多 4 张，每张 10 000 个元素                                                                                               |
+| 同时启用           | 8 个                                                                                                                        |
+| 进程内存总账       | 64 MiB：每个插件按「线性内存 + 模块大小 × 128 + 256 KiB + 64 KiB」估算，启用时检查，放不下就拒绝启用                        |
+
+- fuel 是唯一的硬时间限制，大约一条 wasm 指令一个单位。超出单个钩子的上限算这个插件的一次失败，不影响别的插件；一个插件拿到多少配额和别的插件做了什么无关。本轮的配额用完不算失败：修饰键组合、快捷键、失焦这类没有先交来按键的调用和上一个按键共用一轮，花光它的可能是之前几次正常的投递。本轮剩下的为 0 时插件跳过这次投递；运行到一半被本轮剩下的配额截断时这一次的动作全部丢弃，实例和失败时一样丢弃，这一次用掉的不到本钩子上限的一半时不算失败，达到一半就和超出本钩子上限一样算一次 fuel 用完的失败。`candidates` 的单次上限和每轮配额都是 125 000，同一轮里 `input` 先花过 fuel 时它的死循环会先撞上每轮配额，按这条规则照样算失败、照样熔断。
+- 最大的模块（256 KiB、64 页）在总账里约 36 MiB，同时只能启用一个；几十 KiB 的普通插件每个约 5 MiB。
+
+### 隐私规则
+
+- 密码框、标为隐私的输入框、Windows 上以管理员身份运行的窗口，以及输入法不知道属性的输入框里，不实例化、不投递任何事件，正在运行的实例当场丢弃。
+- 每次聚焦（获得和失去焦点）和输入会话结束时，全部实例都丢弃，所以插件的状态只活在一个输入框里，不能把一个应用里的内容带到另一个应用。
+- 没有授权的文本根本不会复制给插件。本地模式不是 `none`、临时英文、临时日文、超级简拼、emoji 或颜文字时（例如网址、命令、快捷短语、提及），文本类函数一律返回 `ABSENT`，连光标位置、座位和页码也一样。
+- `before_commit` 每次都在 `msime_init` 刚结束时的快照上运行：其他钩子攒下的状态、上一次 `before_commit` 的改动都看不到，这一次的改动也留不下来。表和没有导出的 global 回到模块声明的初值，`msime_init` 对它们的改动不保留（Rust 编译出的栈指针在函数返回时已经复原，不受影响）；要在 `before_commit` 里用 `msime_init` 算好的东西，放在线性内存或导出的 global 里。
+- `rewrite_commit` 不能和 `read_composition` 同时申请，改写结果只能是这一次上屏文本的函数，不能夹带放弃的组字或更早的输入。
+- `log` 在输入法里是空操作，不写任何日志；只有 `msime-pack run` 会打出来。
+
+### 失败
+
+- 一次失败指 trap（`unreachable`、越界、除零等）、超出 fuel 配额、栈溢出、内存越过预留，或 `msime_on_event` 返回负数。失败时丢弃这个插件这一次的全部动作，上屏和候选保持原样，后面的插件照常运行。
+- 钩子运行到一半的失败（trap、fuel 用完、栈溢出、内存越过预留）之后实例丢弃，这个插件在当前输入框里不再运行，下一次聚焦时重新实例化。运行到一半被本轮配额截断时实例同样丢弃，这一次用掉的不到本钩子上限的一半时不算失败，达到一半算一次 fuel 用完的失败（见[限制](#限制)）。返回负数、本轮配额在调用之前就已用完（不运行，跳过）时实例照用；`before_commit` 每次都在一次性的快照实例上运行，它的失败也不影响插件的实例。
+- 停用：初始化失败（含 `msime_abi` 不是 1、`msime_init` 返回负数）和模块不合规立即停用；否则最近 50 次投递里失败 3 次，或者最近 20 次里有 3 次超过 4 ms，就停用。停用持续到授权变化或输入法进程重启。
+- 输入法自己在投递时出错，会关掉本进程的全部脚本直到重启，上屏照常。
+- 停用的插件记在 `<数据目录>/script-health.json`，只有 id、内容哈希和类别（`invalid`、`init`、`failed`、`slow`），不记失败次数和原因。
+
+### 用 msime-pack run 试运行
+
+`msime-pack run` 按一份事件夹具运行一个脚本包，每个事件输出一行 JSON。读包、校验、编译和执行用的都是输入法里的同一份代码：按授权和本地模式复制文本、授权和清单取交集、`before_commit` 的快照、每轮和每个钩子的 fuel 配额、修改类函数的返回码。
+
+```sh
+cargo build -p msime-pack-tool --bin msime-pack
+target/debug/msime-pack run path/to/pack --events events.jsonl --grant all
+```
+
+- `<pack>` 是包的文件夹或 `.zip`，先按 `validate` 的规则检查，不合规时在标准错误上输出和 `validate` 一样的错误行。
+- `--grant all` 授予清单申请的全部能力；`--grant read_commit,rewrite_commit` 逐项授予，规则同授权页（必须是清单申请过的、满足依赖和互斥）；不写时什么都不授予，和刚导入的包一样。
+- 退出码：没有任何失败为 0；有任何失败（包括初始化失败）或包不合规为 1；命令行、`--grant` 或夹具写错为 2。
+
+夹具一行一个 JSON 对象，空行跳过：
+
+```text
+{"event":"focus_in"}
+{"event":"input","key":true,"input_class":"character","input_char":"n"}
+{"event":"composition_update","preedit":"n","reading":"n","caret":1}
+{"event":"candidates_shown","candidates":[{"text":"你","code":"ni"},{"text":"呢","code":"ne"}],"page":0,"highlighted":0}
+{"event":"before_commit","key":true,"origin":"selection","body":"用Rust写","tail":"。"}
+{"event":"commit","origin":"selection","body":"用Rust写","tail":"。"}
+```
+
+- `event` 是钩子名，必填。`key: true` 表示这个事件之前宿主交来了一个按键：开始新的一轮，fuel 配额和初始化预算给满。`local_mode` 是本地模式名（`none`、`url`、`temporary_english` 等），不写是 `none`。
+- 每种事件只接受输入法会给它的字段，多写或者缺了必填的字段都报错：
+
+  | 事件                                     | 字段（加粗的必填）                                                    |
+  | ---------------------------------------- | --------------------------------------------------------------------- |
+  | `focus_in`、`focus_out`                  | 无                                                                    |
+  | `input`                                  | **`input_class`**、`input_char`（一个字符）                           |
+  | `selection_retracted`                    | **`retraction`**                                                      |
+  | `candidate_selected`                     | **`how`**、**`outcome`**、**`seat`**、`selected`                      |
+  | `before_commit`                          | **`origin`**、**`body`**、`tail`、`rewritable`                        |
+  | `commit`                                 | **`origin`**、**`body`**、`tail`、`continues`、`generated`            |
+  | `composition_end`、`candidates_hidden`   | **`reason`**                                                          |
+  | `composition_start`、`composition_update` | `preedit`、`reading`（不写是空串）、`caret`（不写时插件读到 `ABSENT`） |
+  | `candidates_shown`、`candidates`         | `candidates`（每行 `text`，可选 `code`、`annotation`、`source`）、`page`（不写是 0）、`highlighted` |
+
+- 枚举字段写名字：`origin` 是 `selection`、`raw`、`held_flush`、`scheme_text`、`focus_loss`；`how`、`outcome`、`reason`、`input_class`、`retraction` 的名字同 SDK 里的常量名（小写），例如 `how` 的 `digit`、`reason` 的 `commit`。
+- 上屏文本是 `body` 接上 `tail`，`body` 是可改写的那一段。`before_commit` 不写 `rewritable` 时，来源是 `selection`、`raw` 或 `held_flush` 并且本地模式是 `none` 才算可改写；输入法还会看选法、输入框和宿主，夹具里需要时显式写。
+
+输出的每一行：
+
+```text
+{"seq":1,"event":"before_commit","status":"ok","fuel":6303,"init_fuel":2,"actions":[{"import":"rewrite_commit","result":"ok"}],"log":[{"level":"debug","text":"用 Rust 写插件"}]}
+```
+
+- `seq` 是第几个事件，`event` 是钩子名，`fuel` 是这次投递用掉的 fuel。
+- `init_fuel` 只在这个事件之前实例化或尝试实例化时出现，是初始化用掉的 fuel。在 `init:<原因>` 和 `deferred` 行上，它是失败或被截断的那次尝试用掉的 fuel，同样从本轮的初始化预算里扣除，不要把它算成一次完成的实例化。
+- `actions` 是这次调用修改类函数的记录和输入法给的结果（`ok`、`denied`、`absent`、`invalid`、`limit`）；失败或被本轮配额截断时这些动作在输入法里全部丢弃。
+- `log` 是插件经 `log` 写的每一行，`msime_init` 里写的跟在实例化的那个事件上。
+- `status`：`ok`；`not_subscribed`（清单没声明这个钩子）；本次钩子自己的 fuel 上限耗尽，或者被本轮配额截断时已经用掉本钩子上限的一半或更多，是失败原因 `out_of_fuel`，其他失败原因有 `stack_overflow`、`memory_limit`、`memory_out_of_bounds`、`unreachable`、`trap`、`negative_return`；本轮共享 fuel 配额先用完时是 `turn_exhausted`（调用之前就已用完，或者被截断时这一次用掉的不到本钩子上限的一半），它不算失败，若执行被截断导致实例不可用，下一次事件是 `suspended`；初始化失败 `init:<原因>`（如 `init:init_failed`、`init:abi_mismatch`），之后的事件是 `disabled`；实例因失败丢弃之后（见[失败](#失败)）、下一次 `focus_in` 之前是 `suspended`；初始化预算被本轮用完时是 `deferred`。
+
+实例的生命周期按输入法的规则：第一次需要投递时才实例化，`focus_in` 之前和 `focus_out` 之后丢弃实例，同一轮里重建的实例接着用这一轮剩下的配额。和输入法不同的地方：
+
+- 输入框永远按普通输入框处理，不模拟密码框和隐私字段。
+- 不做按次数和按耗时的停用，每次失败都报告，任何失败都让退出码为 1。
+- 不检查进程内存总账，单个插件总放得下。
+
 ## 校验
 
 用 `msime-pack` 检查插件。它调用的就是输入法导入时用的校验代码：它接受的包，设置页一定能导入；它拒绝的包，设置页也会拒绝。

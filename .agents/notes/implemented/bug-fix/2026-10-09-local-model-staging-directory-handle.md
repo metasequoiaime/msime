@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-Unix 平台让 `Staging` 通过已打开的父目录句柄调用 `mkdirat` 创建 staging 目录；所有安装入口统一使用这个方法。非 Unix 保留原有路径实现。
+Unix 平台让 `storage::StagingDirectory` 通过已打开的父目录句柄调用 `mkdirat` 创建 staging 目录；所有安装入口统一使用这个方法。非 Unix 保留原有路径实现。插件导入也使用同一类型，见[共用暂存目录生命周期](../simplification/2026-10-12-shared-staging-directory.md)。
 
 ## Alternatives considered
 

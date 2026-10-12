@@ -1,6 +1,6 @@
 //! pangu-spacing：上屏前在中文和英文字母、数字之间加一个空格，「用Rust写插件」上屏为「用 Rust 写插件」。
 //!
-//! 只声明 `before_commit` 一个钩子，申请 `read_commit`（读上屏文本）和 `rewrite_commit`（改写它）。`before_commit` 每次都在 `msime_init` 之后的快照上运行，所以这里不留任何跨事件的状态。宿主目前对 `rewrite_commit` 一律返回 `DENIED`，上屏保持原文；`msime-pack run` 会把这次改写请求和它的结果列在输出里。
+//! 只声明 `before_commit` 一个钩子，申请 `read_commit`（读上屏文本）和 `rewrite_commit`（改写它）。`before_commit` 每次都在 `msime_init` 之后的快照上运行，所以这里不留任何跨事件的状态。宿主拒绝改写（`DENIED` 等）时上屏保持原文；`msime-pack run` 会把这次改写请求和它的结果列在输出里。
 
 #![no_std]
 

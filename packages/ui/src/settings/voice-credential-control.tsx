@@ -1,31 +1,17 @@
 import type {
-  ProviderCredentialClient,
   ProviderCredentialStatus,
   VoiceCredentialKind,
   VoiceInputPreferences,
 } from "../index";
 import { VoiceCredentialSection, type VoiceCredentialSaveInput } from "./voice-credential-section";
-import type { useProviderCredentials } from "./use-provider-credentials";
+import type { VoiceCredentialBindings } from "./use-provider-credentials";
 
-export interface VoiceCredentialControlProps {
+export interface VoiceCredentialControlProps extends VoiceCredentialBindings {
   available: boolean;
   kind: VoiceCredentialKind;
   voiceInput: VoiceInputPreferences;
   doubaoAuthMode: "api_key" | "legacy";
   providerCredentials?: ProviderCredentialStatus;
-  voiceCredentialInput: ReturnType<typeof useProviderCredentials>["voiceCredentialInput"];
-  setVoiceCredentialInput: ReturnType<typeof useProviderCredentials>["setVoiceCredentialInput"];
-  providerCredentialBusy: ReturnType<typeof useProviderCredentials>["providerCredentialBusy"];
-  providerCredentialMessages: ReturnType<
-    typeof useProviderCredentials
-  >["providerCredentialMessages"];
-  runVoiceCredential: (
-    kind: VoiceCredentialKind,
-    operation: (
-      credentials: ProviderCredentialClient,
-    ) => ReturnType<ProviderCredentialClient["saveVoice"]>,
-    success: string,
-  ) => Promise<void>;
 }
 
 /** Connects the Linux voice credential state to the shared credential editor. */

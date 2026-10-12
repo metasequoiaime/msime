@@ -18,7 +18,11 @@ import {
   communityPluginMessage,
   communityPublishLoginAction,
 } from "./community-helpers";
-import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
+import {
+  createCommunityGalleryClient,
+  useCommunityGallery,
+  type CommunityGalleryClient,
+} from "./community-gallery";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailSummary } from "./community-detail-summary";
 import * as style from "./community-style";
@@ -38,8 +42,7 @@ import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityCard } from "./community-card";
 import { CommunityMetrics } from "./community-metrics";
-import { CommunityInstallButton } from "./community-install-button";
-import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
+import { CommunityInstallActions } from "./community-install-actions";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityDetailFrame } from "./community-detail-frame";
@@ -51,6 +54,7 @@ import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
 import { useCommunityInstallState } from "./community-install-state";
+import { communityInstallPreflight } from "./community-install-preflight";
 
 /** The kinds a pack can be shared as, which is every kind, effect packs included. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
 export type CommunityPluginKind = PluginKind;
@@ -178,23 +182,15 @@ export function CommunityPluginsPage({
   // The gallery hook pages by offset and search; the kind filter rides along through a ref so a page appended by 加载更多 keeps the filter the first page was read with.
   const kindFilter = useRef<CommunityPluginKind | null>(null);
   const galleryClient = useMemo<CommunityGalleryClient<CommunityPlugin>>(
-    () => ({
-      list: async (offset, search, mine) => {
-        const page = await client.list(offset, search, kindFilter.current, mine ?? false);
-        return { items: page.plugins, has_more: page.has_more, skipped: page.skipped };
-      },
-      detail: client.detail,
-      rate: async (id, stars) => {
-        await client.rate(id, stars);
-      },
-      unpublish: async (id) => {
-        await client.delete(id);
-      },
-      ...(client.report && {
-        report: (id: string, reason: CommunityReportReason, detail: string) =>
-          client.report!(id, reason, detail),
-      }),
-    }),
+    () =>
+      createCommunityGalleryClient(
+        client,
+        async (offset, search, mine) => {
+          const page = await client.list(offset, search, kindFilter.current, mine ?? false);
+          return { items: page.plugins, has_more: page.has_more, skipped: page.skipped };
+        },
+        (id) => client.delete(id),
+      ),
     [client],
   );
   const gallery = useCommunityGallery({
@@ -253,13 +249,16 @@ export function CommunityPluginsPage({
       async (currentClient) => {
         // An install replaces a pack of the same kind and id whole, so ask first. The scan is only a courtesy: when it fails the install goes ahead as the import from a local `.zip` would.
         if (!replace && localPlugins) {
-          const catalog = await localPlugins().catch(() => null);
-          if (!gallery.isCurrent(currentClient)) return;
-          if (
-            catalog?.packages.some(
-              (item) => item.kind === target.kind && item.id === target.plugin_id,
-            )
-          ) {
+          const preflight = await communityInstallPreflight(
+            localPlugins,
+            () => gallery.isCurrent(currentClient),
+            (catalog) =>
+              catalog.packages.some(
+                (item) => item.kind === target.kind && item.id === target.plugin_id,
+              ),
+          );
+          if (preflight === "stale") return;
+          if (preflight === "conflict") {
             setConfirmReplace(true);
             return;
           }
@@ -318,30 +317,26 @@ export function CommunityPluginsPage({
           actionNotice={actionNotice}
           loadingText="正在读取插件详情…"
         />
-        {installed ? (
-          <CommunityActionNotice>已安装到插件目录，可在「我的插件」中选用。</CommunityActionNotice>
-        ) : (
-          <CommunityInstallButton
-            actionBusy={actionBusy}
-            detailBusy={detailBusy}
-            confirmReplace={confirmReplace}
-            onInstall={() => void install(false)}
-          />
-        )}
-        {confirmReplace && (
-          <CommunityReplaceConfirmation
-            ariaLabel="确认替换插件"
-            message={
-              <>
-                已安装同 id 的{kindLabels[selected.kind]}“{selected.plugin_id}
-                ”，安装会整体替换它。
-              </>
-            }
-            actionBusy={actionBusy}
-            onConfirm={() => void install(true)}
-            onCancel={() => setConfirmReplace(false)}
-          />
-        )}
+        <CommunityInstallActions
+          installed={installed}
+          installedContent={
+            <CommunityActionNotice>
+              已安装到插件目录，可在「我的插件」中选用。
+            </CommunityActionNotice>
+          }
+          actionBusy={actionBusy}
+          detailBusy={detailBusy}
+          confirmReplace={confirmReplace}
+          replaceAriaLabel="确认替换插件"
+          replaceMessage={
+            <>
+              已安装同 id 的{kindLabels[selected.kind]}“{selected.plugin_id}
+              ”，安装会整体替换它。
+            </>
+          }
+          onInstall={(replace) => void install(replace)}
+          onCancelReplace={() => setConfirmReplace(false)}
+        />
         <CommunityModerationSection
           owned={selected.owned}
           actionBusy={actionBusy}

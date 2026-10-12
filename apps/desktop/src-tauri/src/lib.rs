@@ -839,9 +839,25 @@ async fn read_skin_stylesheet(
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SkinImageResponse {
+struct SkinResourceResponse {
     content_type: &'static str,
     bytes: Vec<u8>,
+}
+
+type SkinImageResponse = SkinResourceResponse;
+type SkinFontResponse = SkinResourceResponse;
+
+fn read_skin_resource_at(
+    root: PathBuf,
+    id: &str,
+    relative: &str,
+) -> Result<SkinResourceResponse, CommandError> {
+    let resource = msime_client_core::skin::catalog::read_resource(root, id, relative)
+        .map_err(|_| CommandError { code: "storage" })?;
+    Ok(SkinResourceResponse {
+        content_type: resource.content_type,
+        bytes: resource.bytes,
+    })
 }
 
 fn read_skin_image_at(
@@ -849,17 +865,13 @@ fn read_skin_image_at(
     id: &str,
     relative: &str,
 ) -> Result<SkinImageResponse, CommandError> {
-    let resource = msime_client_core::skin::catalog::read_resource(root, id, relative)
-        .map_err(|_| CommandError { code: "storage" })?;
+    let resource = read_skin_resource_at(root, id, relative)?;
     if !resource.content_type.starts_with("image/") {
         return Err(CommandError {
             code: "invalid_resource",
         });
     }
-    Ok(SkinImageResponse {
-        content_type: resource.content_type,
-        bytes: resource.bytes,
-    })
+    Ok(resource)
 }
 
 #[tauri::command]
@@ -874,29 +886,18 @@ async fn read_skin_image(
         .map_err(|_| CommandError { code: "storage" })?
 }
 
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SkinFontResponse {
-    content_type: &'static str,
-    bytes: Vec<u8>,
-}
-
 fn read_skin_font_at(
     root: PathBuf,
     id: &str,
     relative: &str,
 ) -> Result<SkinFontResponse, CommandError> {
-    let resource = msime_client_core::skin::catalog::read_resource(root, id, relative)
-        .map_err(|_| CommandError { code: "storage" })?;
+    let resource = read_skin_resource_at(root, id, relative)?;
     if !resource.content_type.starts_with("font/") {
         return Err(CommandError {
             code: "invalid_resource",
         });
     }
-    Ok(SkinFontResponse {
-        content_type: resource.content_type,
-        bytes: resource.bytes,
-    })
+    Ok(resource)
 }
 
 #[tauri::command]

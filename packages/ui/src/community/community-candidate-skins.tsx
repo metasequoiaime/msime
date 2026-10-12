@@ -10,7 +10,11 @@ import {
   communityNeedsSignIn,
   communityPublishLoginAction,
 } from "./community-helpers";
-import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
+import {
+  createCommunityGalleryClient,
+  useCommunityGallery,
+  type CommunityGalleryClient,
+} from "./community-gallery";
 import { CommunityDetailSummary } from "./community-detail-summary";
 import { CommunityDetailFrame } from "./community-detail-frame";
 import * as style from "./community-style";
@@ -26,8 +30,7 @@ import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityCard } from "./community-card";
 import { CommunityMetrics } from "./community-metrics";
-import { CommunityInstallButton } from "./community-install-button";
-import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
+import { CommunityInstallActions } from "./community-install-actions";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityActionNotice } from "./community-action-notice";
@@ -35,6 +38,7 @@ import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
 import { CommunityNotice } from "./community-notice";
 import { useCommunityInstallState } from "./community-install-state";
+import { communityInstallPreflight } from "./community-install-preflight";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 import { ActionButton } from "../core/action-button";
 import {
@@ -264,23 +268,15 @@ export function CommunityCandidateSkinsPage({
   const categoryFilter = useCommunitySkinCategoryFilter();
   const categoryRequest = categoryFilter.request;
   const galleryClient = useMemo<CommunityGalleryClient<CommunityCandidateSkin>>(
-    () => ({
-      list: async (offset, search, mine) => {
-        const page = await client.list(offset, search, mine ?? false, categoryRequest.current);
-        return { items: page.skins, has_more: page.has_more };
-      },
-      detail: client.detail,
-      rate: async (id, stars) => {
-        await client.rate(id, stars);
-      },
-      unpublish: async (id) => {
-        await client.unpublish(id);
-      },
-      ...(client.report && {
-        report: (id: string, reason: CommunityReportReason, detail: string) =>
-          client.report!(id, reason, detail),
-      }),
-    }),
+    () =>
+      createCommunityGalleryClient(
+        client,
+        async (offset, search, mine) => {
+          const page = await client.list(offset, search, mine ?? false, categoryRequest.current);
+          return { items: page.skins, has_more: page.has_more };
+        },
+        (id) => client.unpublish(id),
+      ),
     [client, categoryRequest],
   );
   const gallery = useCommunityGallery({
@@ -308,6 +304,7 @@ export function CommunityCandidateSkinsPage({
     open,
     closeDetail: closeGalleryDetail,
     rateSelected,
+    updateSelected,
     unpublishSelected,
     reportSelected,
     runAction,
@@ -351,9 +348,13 @@ export function CommunityCandidateSkinsPage({
       async (currentClient) => {
         // Asking before the download spares a ~3 MB transfer the user may be about to refuse. The scan is only a courtesy: when it fails the install's own `candidate_skin_exists` still stops an overwrite.
         if (!replace && localSkins) {
-          const catalog = await localSkins().catch(() => null);
-          if (!gallery.isCurrent(currentClient)) return;
-          if (catalog?.packages.some((item) => item.id === target.package_id)) {
+          const preflight = await communityInstallPreflight(
+            localSkins,
+            () => gallery.isCurrent(currentClient),
+            (catalog) => catalog.packages.some((item) => item.id === target.package_id),
+          );
+          if (preflight === "stale") return;
+          if (preflight === "conflict") {
             setConfirmReplace(true);
             return;
           }
@@ -377,34 +378,18 @@ export function CommunityCandidateSkinsPage({
   };
 
   const changeVisibility = async (visibility: CandidateSkinVisibility) => {
-    if (!selected) return;
-    const target = selected;
-    await runAction(
-      async (currentClient) => {
-        const updated = await client.setVisibility(target.id, visibility);
-        if (!gallery.isCurrent(currentClient)) return;
-        gallery.replaceSelected(updated);
-        setActionNotice(
-          visibility === "public"
-            ? "已公开，其他用户现在可以下载这款皮肤。"
-            : "已设为私有，只有你能看到这款皮肤。",
-        );
-      },
-      { clearNotice: true },
+    await updateSelected(
+      (id) => client.setVisibility(id, visibility),
+      visibility === "public"
+        ? "已公开，其他用户现在可以下载这款皮肤。"
+        : "已设为私有，只有你能看到这款皮肤。",
     );
   };
 
   const changeOwnCategory = async (next: CandidateSkinCategory) => {
-    if (!selected) return;
-    const target = selected;
-    await runAction(
-      async (currentClient) => {
-        const updated = await client.setCategory(target.id, next);
-        if (!gallery.isCurrent(currentClient)) return;
-        gallery.replaceSelected(updated);
-        setActionNotice(`已改为「${candidateSkinCategoryLabels[next]}」分类。`);
-      },
-      { clearNotice: true },
+    await updateSelected(
+      (id) => client.setCategory(id, next),
+      `已改为「${candidateSkinCategoryLabels[next]}」分类。`,
     );
   };
 
@@ -459,34 +444,28 @@ export function CommunityCandidateSkinsPage({
           actionNotice={actionNotice}
           loadingText="正在读取皮肤详情…"
         />
-        {installed ? (
-          <>
-            <CommunityActionNotice>已安装到外部皮肤。</CommunityActionNotice>
-            {onOpenSkinPage && (
-              <ActionButton
-                action={onOpenSkinPage}
-                className={`primary ${style.action}`}
-                label="去启用"
-              />
-            )}
-          </>
-        ) : (
-          <CommunityInstallButton
-            actionBusy={actionBusy}
-            detailBusy={detailBusy}
-            confirmReplace={confirmReplace}
-            onInstall={() => void install(false)}
-          />
-        )}
-        {confirmReplace && (
-          <CommunityReplaceConfirmation
-            ariaLabel="确认替换皮肤"
-            message={<>已存在同名皮肤“{selected.package_id}”，安装会整体替换它。</>}
-            actionBusy={actionBusy}
-            onConfirm={() => void install(true)}
-            onCancel={() => setConfirmReplace(false)}
-          />
-        )}
+        <CommunityInstallActions
+          installed={installed}
+          installedContent={
+            <>
+              <CommunityActionNotice>已安装到外部皮肤。</CommunityActionNotice>
+              {onOpenSkinPage && (
+                <ActionButton
+                  action={onOpenSkinPage}
+                  className={`primary ${style.action}`}
+                  label="去启用"
+                />
+              )}
+            </>
+          }
+          actionBusy={actionBusy}
+          detailBusy={detailBusy}
+          confirmReplace={confirmReplace}
+          replaceAriaLabel="确认替换皮肤"
+          replaceMessage={<>已存在同名皮肤“{selected.package_id}”，安装会整体替换它。</>}
+          onInstall={(replace) => void install(replace)}
+          onCancelReplace={() => setConfirmReplace(false)}
+        />
         {selected.owned && (
           <ActionButton
             action={() =>

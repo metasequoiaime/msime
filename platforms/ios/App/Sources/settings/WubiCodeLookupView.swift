@@ -7,9 +7,7 @@ struct WubiCodeLookupView: View {
   /// 当前所选的五笔码表（`wubi86` 或 `wubi98`）。
   let profile: String
   @State private var text = ""
-  @State private var busy = false
-  @State private var result: WubiCodeLookup?
-  @State private var failed = false
+  @State private var lookupState = WubiLookupRequestState()
 
   var body: some View {
     Form {
@@ -19,10 +17,12 @@ struct WubiCodeLookupView: View {
           .accessibilityLabel("要查五笔编码的文字")
           .accessibilityIdentifier("wubiCodeLookupText")
           .onChange(of: text) { _, next in
-            if next.count > WubiCodeLookup.maximumLength { text = String(next.prefix(WubiCodeLookup.maximumLength)) }
+            let limited = String(next.prefix(WubiCodeLookup.maximumLength))
+            if limited != next { text = limited }
+            lookupState.edit(limited)
           }
-        Button(busy ? "正在查码…" : "查码") { lookup() }
-          .disabled(busy || !WubiCodeLookup.searchable(text))
+        Button(lookupState.busy ? "正在查码…" : "查码") { lookup() }
+          .disabled(lookupState.busy || !WubiCodeLookup.searchable(text))
           .accessibilityIdentifier("wubiCodeLookupButton")
       } header: {
         SettingsGroupHeader(title: "查汉字的五笔编码")
@@ -30,10 +30,10 @@ struct WubiCodeLookupView: View {
         Text(WubiCodeLookup.description)
       }
       .designRow()
-      if failed {
+      if lookupState.failed {
         Section { Text(WubiCodeLookup.failed).foregroundStyle(.secondary) }
           .designRow()
-      } else if let result {
+      } else if let result = lookupState.result {
         Section {
           if result.rows.isEmpty {
             Text(WubiCodeLookup.nothing).foregroundStyle(.secondary)
@@ -68,18 +68,15 @@ struct WubiCodeLookupView: View {
     .accessibilityLabel(WubiCodeLookup.spoken(item, profile: profile))
   }
 
-  /// 查码进行中按钮不可点，同一时刻只有一个请求，显示的总是最后一次查的。
+  /// 同一段输入只发一个请求，编辑后旧回答不能覆盖当前结果。
   private func lookup() {
-    guard !busy, WubiCodeLookup.searchable(text) else { return }
-    busy = true
-    let query = text
+    guard let generation = lookupState.begin() else { return }
+    let query = lookupState.text
     Task {
       let answer = await Task.detached(priority: .userInitiated) {
         try? MetasequoiaInputSessionBridge.wubiCodes(query)
       }.value
-      busy = false
-      result = answer
-      failed = answer == nil
+      _ = lookupState.complete(generation, answer: answer)
     }
   }
 }

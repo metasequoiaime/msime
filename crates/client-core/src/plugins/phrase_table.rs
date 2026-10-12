@@ -98,13 +98,20 @@ pub fn enabled_phrases(root: &std::path::Path, enabled: &[String]) -> Vec<Phrase
         let super::PluginContent::PhraseTable(table) = package.content else {
             continue;
         };
-        for row in table.phrases {
-            if rows.len() == MAX_ENABLED_PHRASES {
-                return rows;
-            }
-            if rows.is_empty() {
-                rows.reserve_exact(MAX_ENABLED_PHRASES);
-            }
+        let count = table.phrases.len().min(MAX_ENABLED_PHRASES - rows.len());
+        if count == 0 {
+            return rows;
+        }
+        if rows.capacity() - rows.len() < count {
+            let required = rows.len() + count;
+            let target = rows
+                .capacity()
+                .saturating_mul(2)
+                .max(required)
+                .min(MAX_ENABLED_PHRASES);
+            rows.reserve_exact(target - rows.len());
+        }
+        for row in table.phrases.into_iter().take(count) {
             rows.push(row);
         }
     }

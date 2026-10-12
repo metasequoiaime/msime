@@ -30,6 +30,7 @@ import type { DictionaryClient } from "../index";
 import { pushMobileSettingsState } from "./mobile-navigation";
 import { useMobilePopState } from "./use-mobile-pop-state";
 import { useSettingsForm } from "./settings-form-context";
+import { useAsyncGeneration } from "./use-async-generation";
 import { SwitchRow } from "./switch-row";
 import * as settings from "./settings-style";
 
@@ -475,15 +476,19 @@ function DiscoverDictionaries({
   const [items, setItems] = useState<CommunityResource[] | null>(null);
   const [failure, setFailure] = useState("");
   const [adding, setAdding] = useState<string | null>(null);
+  const discoveryGeneration = useAsyncGeneration(community);
   useEffect(() => {
-    let current = true;
+    const current = discoveryGeneration.current;
     community
       .list("dictionary", "", "", 0)
-      .then((page) => current && setItems(page.items.slice(0, DISCOVER_LIMIT)))
-      .catch(() => current && setFailure("社区词库暂时读不到，请稍后再试。"));
-    return () => {
-      current = false;
-    };
+      .then(
+        (page) =>
+          discoveryGeneration.current === current && setItems(page.items.slice(0, DISCOVER_LIMIT)),
+      )
+      .catch(
+        () =>
+          discoveryGeneration.current === current && setFailure("社区词库暂时读不到，请稍后再试。"),
+      );
   }, [community]);
   const installed = (id: string) =>
     view?.collections.some(

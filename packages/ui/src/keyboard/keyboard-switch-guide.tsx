@@ -1,6 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ImeSetupClient } from "../core/host-contracts";
 import { useImeSetupState } from "./setup-status-card";
+import { useTimeout } from "../core/use-timeout";
 
 /**
  * 「设为默认输入法」在 HarmonyOS 手机上的引导：弹出键盘，告诉用户长按键盘左下角的 🌐、在菜单里选「水杉输入法」。
@@ -72,9 +73,8 @@ function KeyboardSwitchGuide({ setup }: { setup?: ImeSetupClient }) {
   useEffect(() => {
     if (!done) return;
     input.current?.blur();
-    const timer = window.setTimeout(closeKeyboardSwitchGuide, DONE_MS);
-    return () => window.clearTimeout(timer);
   }, [done]);
+  useTimeout(closeKeyboardSwitchGuide, done ? DONE_MS : null);
 
   return (
     <>

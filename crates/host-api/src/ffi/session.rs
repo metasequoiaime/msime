@@ -193,9 +193,9 @@ pub extern "C" fn msime_client_focus(handle: u64, focused: bool) -> *mut c_char 
             // 失焦先取消组字再刷新，刷新失败时组字已经没了：照样发 end、hidden 和 focus_out。
             let result = session.lifecycle_on_error(pending, result)?;
             let facts = session.runtime.facts();
-            let result = session.complete_transition(result);
+            let mut result = session.complete_transition(result);
             // 失焦上屏不可改写、也不出声；focus_in/focus_out 排在组字结束之后，所以 focus_in 也在上面的重读之后。focus 的回复不带 `feedback`。
-            session.lifecycle_after(pending, facts, &result);
+            session.lifecycle_after(pending, facts, &mut result);
             serde_json::to_value(result).map_err(|e| e.to_string())
         })
     })
