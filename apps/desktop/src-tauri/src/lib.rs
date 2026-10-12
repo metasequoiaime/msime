@@ -1064,6 +1064,22 @@ async fn resolve_theme(
         .map_err(|_| CommandError { code: "storage" })?
 }
 
+/// `SettingsClient.validateShuangpinCustomProfile`：编辑中的自定义双拼表有什么问题，能用时是 `null`。与 MCP 保存前的校验结论相同，但不在设置进程里留下任何东西，页面每改一个键都可以问。
+#[tauri::command]
+fn validate_shuangpin_custom_profile(
+    profile: msime_client_core::preferences::ShuangpinCustomProfile,
+) -> Option<msime_host_api::ShuangpinCustomProblem> {
+    msime_host_api::custom_shuangpin_profile_problem(&profile)
+}
+
+/// `SettingsClient.builtinShuangpinTable`：内置双拼方案的键位表，编辑自定义方案时从它开始；`custom` 没有内置的表，是 `null`。
+#[tauri::command]
+fn builtin_shuangpin_table(
+    name: msime_client_core::preferences::ShuangpinProfile,
+) -> Option<msime_client_core::preferences::ShuangpinCustomProfile> {
+    msime_host_api::builtin_shuangpin_custom_profile(name)
+}
+
 #[derive(Clone)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 struct RuntimeOptionsState {
@@ -5300,6 +5316,8 @@ pub fn run() {
             scan_skin_catalog,
             list_helpcode_schemas,
             resolve_theme,
+            validate_shuangpin_custom_profile,
+            builtin_shuangpin_table,
             read_skin_image,
             read_skin_font,
             read_skin_stylesheet,

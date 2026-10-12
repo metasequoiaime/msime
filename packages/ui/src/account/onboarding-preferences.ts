@@ -19,7 +19,9 @@ export function completeOnboardingPreferences(
   // 双拼卡片的意思是「用双拼」：已经在用某种双拼时沿用它，只有第一次选双拼才落在小鹤，与 Android 的 `OnboardingChoicePolicy.shuangpinCard` 一致。
   const shuangpinProfile =
     scheme === "xiaohe" && current.scheme === "shuangpin" ? current.shuangpin_profile : "xiaohe";
-  const selected: TouchKeyboardScheme = scheme === "xiaohe" ? shuangpinProfile : scheme;
+  // 自定义双拼没有自己的触屏键盘，键盘取小鹤，偏好里仍是自定义双拼；`custom` 不是触屏方案，写进 `touch_keyboard_schemes` 会让 Rust 端整份偏好读不进来。
+  const selected: TouchKeyboardScheme =
+    scheme === "xiaohe" ? (shuangpinProfile === "custom" ? "xiaohe" : shuangpinProfile) : scheme;
   // 五笔键盘对应五笔方案，双拼键盘对应双拼方案，全拼 26 键和 9 键都对应全拼。
   const inputScheme = scheme === "wubi" ? "wubi" : scheme === "xiaohe" ? "shuangpin" : "quanpin";
   const enabled = [...(current.touch_keyboard_schemes?.enabled ?? [])];

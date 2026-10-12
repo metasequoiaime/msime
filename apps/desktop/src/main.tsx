@@ -250,6 +250,10 @@ const client: SettingsClient = {
   scanSkinCatalog: () => invoke("scan_skin_catalog"),
   listHelpcodeSchemas: () => invoke<CustomHelpcodeSchema[]>("list_helpcode_schemas"),
   resolveTheme: (request) => invoke("resolve_theme", { request }),
+  // 两个都是无副作用的计算（host-api 不留存的校验和内置方案的表），桌面宿主都注册了，输入页据此提供自定义双拼的编辑、导入和导出。
+  validateShuangpinCustomProfile: (profile) =>
+    invoke("validate_shuangpin_custom_profile", { profile }),
+  builtinShuangpinTable: (name) => invoke("builtin_shuangpin_table", { name }),
   readSkinToolbarCss: (id, relative) =>
     relative
       ? invoke("read_skin_stylesheet", { id, relative })

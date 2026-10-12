@@ -1,4 +1,9 @@
 import type { DictionaryCollectionsClient } from "./dictionary/dictionary-collections";
+import type {
+  BuiltinShuangpinProfile,
+  ShuangpinCustomProblem,
+  ShuangpinCustomProfile,
+} from "./settings/shuangpin-custom-profile";
 import { useConfirm } from "./core/confirm";
 import { NavItem } from "./core/platform-controls";
 import { ToastProvider } from "./core/toast";
@@ -908,6 +913,19 @@ export {
   type ShuangpinProfile,
   type WubiProfile,
 } from "./settings/input-scheme-details-section";
+export {
+  ShuangpinCustomEditor,
+  type ShuangpinCustomEditorProps,
+} from "./settings/shuangpin-custom-editor";
+export {
+  parseShuangpinCustomProfile,
+  shuangpinCustomProblemMessage,
+  type BuiltinShuangpinProfile,
+  type ShuangpinCustomProblem,
+  type ShuangpinCustomProfile,
+  type ShuangpinCustomProfileClient,
+  type ShuangpinCustomTablePart,
+} from "./settings/shuangpin-custom-profile";
 export {
   TranslationProviderSettingsSection,
   type TranslationProviderSettingsSectionProps,
@@ -1835,7 +1853,10 @@ export type Preferences = {
   /** 应用例外：键是应用标识（macOS 的 bundle id、Windows 的进程基名），值是切到该应用时的起始模式。没有规则时文档里没有这个键。 */
   app_input_mode_rules?: Record<string, AppInputModeRule>;
   last_chinese_scheme?: ChineseScheme | null;
-  shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
+  /** `custom` 用下面的 `shuangpin_custom_profile`；表不能用时输入法按小鹤运行。 */
+  shuangpin_profile: BuiltinShuangpinProfile | "custom";
+  /** 自定义双拼的键位表。选别的方案时保留，切回 `custom` 还能用；空表不写进文档。 */
+  shuangpin_custom_profile?: ShuangpinCustomProfile;
   /** 五笔用 86 还是 98 码表，只在方案为五笔时起作用；缺省为 86。 */
   wubi_profile?: "wubi86" | "wubi98";
   /** macOS exposes the native shuangpin preedit presentation in the appearance page. */
@@ -2186,6 +2207,12 @@ export interface SettingsClient {
    * The colours a host draws for a theme, from the same `resolve` the input method runs (`msime_client_resolve_theme`), with the custom theme's package read from the host's own skin directory. Absent on hosts whose bridge has no theme call; the picker and built-in previews read `themeCatalog` and need no host.
    */
   resolveTheme?: (request: ResolveThemeRequest) => Promise<ResolvedTheme>;
+  /** 编辑中的自定义双拼表有什么问题，能用时是 `null`。与 MCP 保存前的校验结论相同，但宿主不为它留下任何东西，页面每改一个键都可以问。和 `builtinShuangpinTable` 都提供时，输入页才提供自定义双拼的编辑、导入和导出。 */
+  validateShuangpinCustomProfile?: (
+    profile: ShuangpinCustomProfile,
+  ) => Promise<ShuangpinCustomProblem | null>;
+  /** 内置双拼方案的键位表，编辑自定义方案时从它开始。 */
+  builtinShuangpinTable?: (name: BuiltinShuangpinProfile) => Promise<ShuangpinCustomProfile | null>;
   readSkinImage?: SkinImageReader;
   readSkinFont?: SkinFontReader;
   readSkinToolbarCss?: (id: string, relative?: string) => Promise<string | null>;

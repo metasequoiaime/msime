@@ -100,7 +100,10 @@ export function touchKeyboardSchemeTitle(preferences: Preferences): string {
     return preferences.scheme === "japanese" ? "日语 9 键" : "全拼 9 键";
   if (preferences.scheme === "japanese") return "日语 26 键";
   if (preferences.scheme === "wubi") return wubiProfileTitle(preferences.wubi_profile);
-  if (preferences.scheme === "shuangpin") return `${preferences.shuangpin_profile} 双拼`;
+  if (preferences.scheme === "shuangpin")
+    return preferences.shuangpin_profile === "custom"
+      ? "自定义双拼"
+      : `${preferences.shuangpin_profile} 双拼`;
   return "全拼 26 键";
 }
 
@@ -183,7 +186,8 @@ function touchSchemeOf(
 ): TouchKeyboardScheme {
   switch (scheme) {
     case "shuangpin":
-      return preferences.shuangpin_profile;
+      // 自定义双拼没有自己的触屏键盘，用小鹤的键面，与 Android 的 `KeyboardScheme.fromPreferences` 一致。
+      return preferences.shuangpin_profile === "custom" ? "xiaohe" : preferences.shuangpin_profile;
     case "quanpin":
     case "wubi":
     case "japanese":

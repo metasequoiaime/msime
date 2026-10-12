@@ -408,3 +408,25 @@ test("the Stroke keypad keeps its own title under either layout", () => {
     ).toBe("笔画");
   }
 });
+
+test("a custom shuangpin profile shows on the Xiaohe keyboard", () => {
+  const custom: Preferences = {
+    ...preferences,
+    scheme: "shuangpin",
+    shuangpin_profile: "custom",
+    touch_keyboard_schemes: { enabled: ["quanpin", "xiaohe"] },
+  };
+
+  expect(inferredTouchKeyboardScheme(custom)).toBe("xiaohe");
+  expect(touchKeyboardSchemeTitle({ ...custom, touch_keyboard_schemes: undefined })).toBe(
+    "自定义双拼",
+  );
+  // 先离开双拼再回来：记住的中文方案是双拼时，同样落在小鹤的键盘上。
+  expect(
+    inferredTouchKeyboardScheme({
+      ...custom,
+      scheme: "cantonese",
+      last_chinese_scheme: "shuangpin",
+    }),
+  ).toBe("xiaohe");
+});

@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import { NavigationSection, defaultNavigation } from "../navigation-section";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList } from "../../core/platform-controls";
@@ -20,6 +21,8 @@ import { SelectRow } from "../select-row";
 import { SwitchRow } from "../switch-row";
 import { CandidateTranslationOptionsSection } from "../candidate-translation-options-section";
 import { CandidateEnglishGlossSection } from "../candidate-english-gloss-section";
+import { ShuangpinCustomEditor } from "../shuangpin-custom-editor";
+import type { ShuangpinCustomProfileClient } from "../shuangpin-custom-profile";
 
 /** The 输入 page of the settings form. */
 export function InputSettingsPage() {
@@ -69,6 +72,20 @@ export function InputSettingsPage() {
     visibleTranslationLanguages,
     visibleSecondaryLanguages,
   } = useSettingsForm();
+  // 自定义双拼的编辑页是输入页里的一个视图（像插件页的详情），打开时代替整页内容；宿主能校验表、能给出内置方案的表时才有它。离开输入页时关上，下次进来从整页开始。
+  const validateShuangpinCustomProfile = client.validateShuangpinCustomProfile;
+  const builtinShuangpinTable = client.builtinShuangpinTable;
+  const shuangpinCustomClient = useMemo<ShuangpinCustomProfileClient | undefined>(
+    () =>
+      validateShuangpinCustomProfile && builtinShuangpinTable
+        ? { validate: validateShuangpinCustomProfile, builtin: builtinShuangpinTable }
+        : undefined,
+    [validateShuangpinCustomProfile, builtinShuangpinTable],
+  );
+  const [shuangpinEditorOpen, setShuangpinEditorOpen] = useState(false);
+  useEffect(() => {
+    if (page !== "input") setShuangpinEditorOpen(false);
+  }, [page]);
   const { onLocalModesChange } = createUtilitiesSettingsActions({ setDraft });
   const { onPreferencesChange, onVoiceChange } = createSettingsDraftActions({ setDraft });
   const { onChange: onHelpcodeChange } = createHelpcodeSettingsActions({ setDraft });
@@ -118,6 +135,22 @@ export function InputSettingsPage() {
       onChange={onHelpcodeChange}
     />
   );
+  if (shuangpinEditorOpen && shuangpinCustomClient)
+    return (
+      <SettingsPageFieldset disabled={busy} hidden={page !== "input"} ariaLabel="输入">
+        <ShuangpinCustomEditor
+          client={shuangpinCustomClient}
+          saved={draft.shuangpin_custom_profile}
+          active={draft.shuangpin_profile === "custom"}
+          saveExport={client.saveExport}
+          confirm={confirm}
+          onSave={(shuangpin_custom_profile) =>
+            onPreferencesChange({ shuangpin_profile: "custom", shuangpin_custom_profile })
+          }
+          onBack={() => setShuangpinEditorOpen(false)}
+        />
+      </SettingsPageFieldset>
+    );
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "input"} ariaLabel="输入">
       {/* 组的顺序按「基础 → 进阶」排：先选方案，再是每次打字都会碰到的中英文、选词与翻页，然后是候选从哪来（含中英混输）、以什么形式输出，最后是少数人才调的快捷模式、模糊音、辅助码和调频。这里不再沿用参考窗口的顺序，不要按参考窗口把它们挪回去。方案相关的行在当前方案用不到时隐藏而不删除，换方案时原样出现。 */}
@@ -149,6 +182,9 @@ export function InputSettingsPage() {
         languageCard={harmonyPhone}
         onEnableAndSelectTouchKeyboardScheme={selectHomeScheme}
         wubiCodeLookup={client.dictionary?.wubiCodes?.bind(client.dictionary)}
+        onEditCustomShuangpin={
+          shuangpinCustomClient ? () => setShuangpinEditorOpen(true) : undefined
+        }
       />
       {harmonyPhone && (
         <>
