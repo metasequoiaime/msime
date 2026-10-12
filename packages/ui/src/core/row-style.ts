@@ -1,2 +1,5 @@
 /** Shared text column layout for rows with a leading control or icon. */
 export const rowText = "flex min-w-0 flex-1 flex-col gap-0.5";
+
+/** Shared heading treatment for compact settings and account sections. */
+export const rowHeading = "m-0 [font-size:var(--p-row-fs)] font-semibold [color:var(--p-text)]";

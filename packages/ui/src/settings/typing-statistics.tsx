@@ -1,4 +1,5 @@
 import { ControlledCheckbox } from "../core/controlled-checkbox";
+import { rowHeading } from "../core/row-style";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useConfirm } from "../core/confirm";
 import {
@@ -58,7 +59,7 @@ export {
   type StatisticsOverviewMetric,
 } from "./typing-statistics-overview";
 
-const heading = "m-0 [font-size:var(--p-row-fs)] font-semibold [color:var(--p-text)]";
+const heading = rowHeading;
 // 摘要在标签行上方，切换标签时保持不动，所以压成紧凑的 3 × 2 网格，单位和数字放在同一行；会随标签变化的内容都放在标签下方。
 const metricGrid = "grid grid-cols-3 gap-x-6 gap-y-[18px] max-phone:grid-cols-2 max-phone:gap-x-3";
 const footerNote = "mt-3.5 mb-0 text-xs leading-relaxed [color:var(--p-sub)]";

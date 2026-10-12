@@ -8,11 +8,11 @@
  */
 
 import { fieldLabel } from "../core/form-style";
-import { rowText } from "../core/row-style";
+import { rowHeading, rowText } from "../core/row-style";
 
 export const page = "flex flex-col gap-3.5";
 export const section = "section m-0";
-export const heading = "m-0 [font-size:var(--p-row-fs)] font-semibold [color:var(--p-text)]";
+export const heading = rowHeading;
 export const note = "mt-[7px] mb-0 [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 export const muted = "text-xs [color:var(--p-sub)]";
 
