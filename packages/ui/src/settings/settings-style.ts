@@ -5,6 +5,7 @@
  */
 
 import { compactFieldLabel } from "../core/form-style";
+import { inlineItems } from "../core/row-style";
 
 /*
  * The window each platform draws around the pages. The `--p-*` tokens the root's `data-platform` selects (see `theme/platform-tokens.ts`) carry the colours and type the platforms share a name for; the `win:` / `mac:` / `linux:` / `hm2:` variants declared in styles.css reach the rest -- widths, paddings and the few surfaces the design colours for one platform only.
@@ -77,7 +78,7 @@ export const themeCarouselSlide = "w-full shrink-0 snap-start p-1";
 export const themeCarouselNav = "mt-2 flex items-center justify-center gap-3";
 export const themeCarouselArrow =
   "flex size-7 items-center justify-center rounded-full border border-edge bg-[var(--p-group-bg)] p-0 text-lg leading-none text-muted hover:text-body disabled:opacity-40 disabled:hover:text-muted";
-export const themeCarouselDots = "flex items-center gap-1.5";
+export const themeCarouselDots = inlineItems;
 export const themeCarouselDot = (active: boolean, edge = false) =>
   `${edge ? "size-1.5" : "size-2"} shrink-0 rounded-full border-0 p-0 ${active ? "bg-accent" : "bg-[var(--toggle-off-bg)] hover:bg-edge-strong"}`;
 export const themeCarouselCount =

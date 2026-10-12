@@ -6,6 +6,7 @@
  */
 
 import { looseStack } from "../core/page-style";
+import { inlineItems } from "../core/row-style";
 
 // ---- the scheme list on the input page ----
 
@@ -47,7 +48,7 @@ export const previewCard =
 /** 预览限宽：手机上整宽的键盘有两百多像素高，吸在顶部会挤掉一半屏幕，缩到 300 后下面还能放下五六行控件；桌面的键盘更宽更扁，放宽到 560。 */
 export const previewFrame = (phone: boolean) =>
   `mx-auto w-full overflow-hidden rounded-[10px] ${phone ? "max-w-[300px]" : "max-w-[560px]"}`;
-export const previewBar = "flex items-center gap-1.5";
+export const previewBar = inlineItems;
 /** 撤销、重做是图标按钮，名称在 `aria-label` 上。 */
 export const iconButton =
   "m-0 inline-flex size-9 shrink-0 items-center justify-center rounded-full border-0 bg-transparent p-0 [color:var(--p-text)] not-disabled:hover:bg-[var(--p-seg-bg)] disabled:opacity-35 focus-visible:outline-2 focus-visible:outline-accent";

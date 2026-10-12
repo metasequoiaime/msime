@@ -6,3 +6,6 @@ export const rowHeading = "m-0 [font-size:var(--p-row-fs)] font-semibold [color:
 
 /** Shared small secondary metadata text. */
 export const subtleMeta = "text-[12px] [color:var(--p-sub)]";
+
+/** Shared compact horizontal alignment for small controls and indicators. */
+export const inlineItems = "flex items-center gap-1.5";
