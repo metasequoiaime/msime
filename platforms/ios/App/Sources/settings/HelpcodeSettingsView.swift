@@ -36,8 +36,10 @@ struct HelpcodeSettingsView: View {
   /// 已导入的码表；读不出来时为空，方案列表照样列出内置方案。
   @State private var packs: [HelpcodeChoicePolicy.Pack] = []
   @State private var saveFailed = false
-  /// 正在为哪一份方案选文件：导入成功后选中到这一份。
-  @State private var importTarget: Scheme?
+  /// 文件选择器是否打开。只当选择器的开关用，发起导入的方案另存在 `importScheme`。
+  @State private var importing = false
+  /// 正在为哪一份方案选文件：导入成功后选中到这一份。不能和选择器的开关合成一个状态：系统在调用完成回调之前先把开关置为 false，开关的 setter 若顺手清空方案，回调里就读不到是哪一组发起的导入，双拼的导入会落到全拼上。
+  @State private var importScheme = Self.shuangpin
   @State private var busy = false
   @State private var notice: String?
 
@@ -62,7 +64,10 @@ struct HelpcodeSettingsView: View {
           }
           .disabled(!on || busy)
           .accessibilityIdentifier("\(scheme.key).schema")
-          Button("导入辅助码表…") { importTarget = scheme }
+          Button("导入辅助码表…") {
+            importScheme = scheme
+            importing = true
+          }
             .disabled(!on || busy)
             .accessibilityIdentifier("\(scheme.key).import")
           Toggle("在候选栏中显示\(scheme.label)辅助码", isOn: stored(scheme.key, "show_in_candidate_window", $shown, scheme.defaultShown))
@@ -93,12 +98,9 @@ struct HelpcodeSettingsView: View {
     .navigationTitle("辅助码").navigationBarTitleDisplayMode(.inline)
     .onAppear(perform: reload)
     .onChange(of: scenePhase) { if $0 == .active { reload() } }
-    .fileImporter(isPresented: Binding(get: { importTarget != nil }, set: { if !$0 { importTarget = nil } }),
-                  allowedContentTypes: [.plainText, .text, .data]) { result in
-      let scheme = importTarget ?? Self.quanpin
-      importTarget = nil
+    .fileImporter(isPresented: $importing, allowedContentTypes: [.plainText, .text, .data]) { result in
       guard case .success(let url) = result else { return }
-      importTable(from: url, into: scheme)
+      importTable(from: url, into: importScheme)
     }
     .alert("辅助码表", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
       Button("好", role: .cancel) {}
