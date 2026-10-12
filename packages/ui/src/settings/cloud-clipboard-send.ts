@@ -62,6 +62,8 @@ export function cloudClipboardErrorMessage(error: unknown, fallback: string): st
       return "自建中继的地址或令牌无效，请在设置的「剪贴板」页重新填写";
     case "relay_unavailable":
       return "连不上自建中继，请确认中继在运行、地址正确，稍后重试";
+    case "clipboard_full":
+      return "云剪贴板的 50 条都已置顶，取消置顶或删除几条后再发送";
     case "relay_storage":
       return "无法读写本机保存的中继密钥，请检查数据目录的权限";
   }

@@ -164,10 +164,12 @@ fn error_codes_name_the_relay_and_keep_the_driver_s_known_codes() {
         driver(409, "clipboard_key_conflict"),
         "clipboard_key_conflict"
     );
+    assert_eq!(driver(409, "clipboard_full"), "clipboard_full");
     assert_eq!(driver(400, "invalid_retention"), "invalid_cloud_clipboard");
     assert_eq!(driver(404, "http_404"), "not_found");
     assert_eq!(driver(500, "http_500"), "relay_unavailable");
     for code in [
+        "clipboard_full",
         "relay_unauthorized",
         "relay_not_configured",
         "relay_unavailable",

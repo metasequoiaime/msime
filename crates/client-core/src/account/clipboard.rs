@@ -35,7 +35,8 @@ const CLIPBOARD_ERROR_CODES: &[&str] = &[
     "account_conflict",
     "account_unavailable",
     "account_banned",
-    // 自建中继（`crate::clipboard_relay`）：令牌被拒、没有配置中继、连不上中继、本机密钥串存不了。
+    // 自建中继（`crate::clipboard_relay`）：五十条都已置顶、新的一条放不下，令牌被拒、没有配置中继、连不上中继、本机密钥串存不了。
+    "clipboard_full",
     "relay_unauthorized",
     "relay_not_configured",
     "relay_unavailable",

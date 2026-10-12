@@ -587,6 +587,16 @@ impl Space<'_> {
             "DELETE FROM items WHERE space=?1 AND key_id<>?2",
             params![self.id, body.key_id],
         )?;
+        // 五十条都已置顶时，新的一条会在下面裁剪时被立刻删掉：明确答 409，而不是挤掉置顶的条目或答 500。去重标签落在一条置顶条目上时只是更新它，照常接受。
+        let (pinned, pinned_duplicate): (i64, bool) = self.transaction.query_row(
+            "SELECT (SELECT COUNT(*) FROM items WHERE space=?1 AND pinned<>0),
+                    EXISTS(SELECT 1 FROM items WHERE space=?1 AND dedup=?2 AND pinned<>0)",
+            params![self.id, body.dedup],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        if pinned >= MAX_ITEMS as i64 && !pinned_duplicate {
+            return Err(reply(409, "clipboard_full"));
+        }
         let sequence: i64 = self.transaction.query_row(
             "UPDATE spaces SET sequence=sequence+1 WHERE space=?1 RETURNING sequence",
             params![self.id],
@@ -890,6 +900,74 @@ mod tests {
             .unwrap()
             .iter()
             .all(|item| item["id"] != first["id"]));
+    }
+
+    #[test]
+    fn a_space_whose_items_are_all_pinned_refuses_new_uploads() {
+        let store = RelayStore::in_memory().unwrap();
+        let (id, key) = device(1);
+        call(
+            &store,
+            "PUT",
+            &format!("{API}/devices/{id}"),
+            json!({ "public_key": key, "name": "" }),
+        );
+        let key_id = "b".repeat(32);
+        call(
+            &store,
+            "POST",
+            &format!("{API}/keys"),
+            json!({ "previous_key_id": null, "key_id": key_id, "wraps": [{ "device_id": id, "wrap": wrap() }] }),
+        );
+        let ciphertext = format!("v1.{}", B64.encode([1u8; 60]));
+        let upload = |dedup: &str| {
+            call(
+                &store,
+                "POST",
+                API,
+                json!({ "ciphertext": ciphertext, "key_id": key_id, "dedup": dedup }),
+            )
+        };
+        let mut ids = Vec::new();
+        for index in 0..MAX_ITEMS {
+            let item = upload(&format!("{index:064x}"));
+            assert_eq!(item.status, 200);
+            let item: Value = serde_json::from_str(item.body.as_deref().unwrap()).unwrap();
+            ids.push(item["id"].as_str().unwrap().to_owned());
+        }
+        for id in &ids {
+            let pinned = call(
+                &store,
+                "PUT",
+                &format!("{API}/{id}/pin"),
+                json!({ "pinned": true }),
+            );
+            assert_eq!(pinned.status, 204);
+        }
+        // 新的一条没有位置：答 409，置顶的条目一条不少。
+        let refused = upload(&"e".repeat(64));
+        assert_eq!(refused.status, 409);
+        assert_eq!(code(&refused), "clipboard_full");
+        let page = call(&store, "GET", API, Value::Null);
+        let page: Value = serde_json::from_str(page.body.as_deref().unwrap()).unwrap();
+        let items = page["items"].as_array().unwrap();
+        assert_eq!(items.len(), MAX_ITEMS);
+        assert!(items.iter().all(|item| item["pinned"] == true));
+        // 重复上传一条已置顶的内容只是更新它。
+        assert_eq!(upload(&format!("{:064x}", 0)).status, 200);
+        // 取消一条置顶后又有了位置，新的一条挤掉的是这条未置顶的。
+        call(
+            &store,
+            "PUT",
+            &format!("{API}/{}/pin", ids[1]),
+            json!({ "pinned": false }),
+        );
+        assert_eq!(upload(&"e".repeat(64)).status, 200);
+        let page = call(&store, "GET", API, Value::Null);
+        let page: Value = serde_json::from_str(page.body.as_deref().unwrap()).unwrap();
+        let items = page["items"].as_array().unwrap();
+        assert_eq!(items.len(), MAX_ITEMS);
+        assert!(items.iter().all(|item| item["id"] != ids[1].as_str()));
     }
 
     #[test]
