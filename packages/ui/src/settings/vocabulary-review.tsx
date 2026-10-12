@@ -5,6 +5,7 @@ import { useMountedRef } from "./use-mounted-ref";
 import { ActionButton } from "./action-button";
 import { SettingsEmptyMessage } from "./settings-empty-message";
 import { compactPage } from "../core/page-style";
+import { compactMutedNote } from "../core/text-style";
 
 // The largest word list the page reads. The shared layer takes at most 8 MiB of decoded text (`vocabulary::session::MAX_IMPORT_BYTES`), well under the dictionary import's bound, so this keeps the 1 MiB the page has always read rather than following that one.
 const WORDBOOK_FILE_BYTES = 1_048_576;
@@ -27,7 +28,7 @@ const cardWord = (mobile: boolean) =>
   `m-0 wrap-anywhere font-[650] leading-tight text-body ${mobile ? "text-[30px]" : "text-[38px]"}`;
 const cardPhonetic = "m-0 text-sm text-secondary";
 const cardMeaning = "m-0 max-w-[46ch] text-[15px] leading-relaxed text-body";
-const cardHint = "m-0 text-xs text-muted";
+const cardHint = compactMutedNote;
 const answerRow = "mt-3.5 grid grid-cols-2 gap-2.5";
 const answerButton =
   "min-h-[44px] rounded-[10px] border border-edge bg-card text-[15px] text-body not-disabled:hover:bg-[var(--button-secondary-hover)]";

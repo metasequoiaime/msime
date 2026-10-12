@@ -8,6 +8,7 @@
  */
 
 import { compactFieldLabel } from "../core/form-style";
+import { compactMutedNote } from "../core/text-style";
 
 // ---- cloud clipboard: its own dark chrome, like the emoji panel beside it ----
 
@@ -63,7 +64,7 @@ export const clipboardActions = "flex flex-wrap gap-2";
 export const dictionaryPanel = "min-h-screen bg-chrome text-body";
 export const dictionaryBody =
   "flex min-h-[calc(100vh-38px)] flex-col gap-3.5 overflow-y-auto px-6 py-[22px]";
-export const dictionaryNote = "m-0 text-xs text-muted";
+export const dictionaryNote = compactMutedNote;
 /** A labelled field: caption above, control below, as every toolbar and form row here is built. */
 export const dictionaryField = compactFieldLabel;
 export const dictionaryInput =
