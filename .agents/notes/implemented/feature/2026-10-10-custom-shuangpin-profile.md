@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-自定义 26 键双拼在 Engine 和共享层先落地，随后是共享 React 设置页的编辑器（macOS 和 Linux）；九键双拼另见 [九键双拼](../../proposed/feature/2026-10-10-nine-key-shuangpin.md)。
+自定义 26 键双拼在 Engine 和共享层先落地，随后是共享 React 设置页的编辑器（macOS 和 Linux）；九键双拼另见 [九键双拼](2026-10-10-nine-key-shuangpin.md)。
 
 - **表的形状与内置方案相同**：`ShuangpinCustomTable` 三部分，`initials` 只给 `zh` `ch` `sh`（单字母声母固定在自己的字母键上），`finals` 给齐 33 个韵母，`zero_initials` 给 12 个零声母音节各一个两键编码。键是字母或 `;`，大写当小写。`custom::FINALS`、`ZERO_INITIALS` 就是内置方案的单位集合，`builtin_profiles_use_the_same_units` 核对四张内置表与它们一致。
 - **合不合法只由 Engine 判定**（`shuangpin::custom`）：单位要认识、不重复、不缺；声母和韵母一个键，零声母两个键；`;` 只能做韵母或零声母编码的第二个键（方案只在奇数长度的片段后接受它）；多字母声母不能放在单字母声母的键上，也不能两个共用一个键；任何一个两键编码不能解出两个不同的音节，零声母编码不能占掉一个声母加韵母的音节（零声母表先查，占掉的那个音节就打不出来），零声母编码之间不能重复。错误是带位置的枚举 `CustomProfileError`，`Display` 是给日志和代理看的英文。四张内置表写成自定义表都能通过，而且 26×27 个编码逐个解出来与内置方案相同（`builtin_tables_pass_and_decode_as_the_builtin_profile`）。
