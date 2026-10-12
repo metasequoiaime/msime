@@ -55,6 +55,20 @@ public final class TranslationServiceSettingsPolicySmoke {
         check(lan != null && lan.contains("HTTPS"), "a LAN http endpoint is refused with the reason");
         check(TranslationServiceSettingsPolicy.endpointProblem("https://user:secret@translate.example/api") != null,
             "an endpoint with credentials is refused");
+        check(TranslationServiceSettingsPolicy.endpointProblem("https://my_host.example.com/translate") == null
+                && TranslationServiceSettingsPolicy.endpointProblem("https://例子.example/translate") == null
+                && TranslationServiceSettingsPolicy.endpointProblem("https://deeplx.example.com/translate?token=a|b") == null,
+            "https endpoints the shared WHATWG parser accepts are not refused locally");
+        check(TranslationServiceSettingsPolicy.endpointProblem("https://translate.example/api", true, "") == null,
+            "the shared layer's acceptance decides");
+        check("远程翻译服务必须使用 HTTPS；HTTP 仅支持本机回环地址。".equals(TranslationServiceSettingsPolicy.endpointProblem(
+                "http://192.168.1.20/translate", false, "远程翻译服务必须使用 HTTPS；HTTP 仅支持本机回环地址。")),
+            "a refusal shows the shared layer's hint");
+        check(TranslationServiceSettingsPolicy.endpointProblem("https:///v1", false, "") != null,
+            "a refusal without a shared hint still names the problem");
+        check(TranslationServiceSettingsPolicy.endpointProblem("https://my_host.example.com/translate", null, "") == null
+                && TranslationServiceSettingsPolicy.endpointProblem("http://192.168.1.20/translate", null, "") != null,
+            "without the shared library the local rule applies");
         System.out.println("Android translation service settings: selection and field rules passed");
     }
 

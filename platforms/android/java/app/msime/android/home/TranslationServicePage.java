@@ -141,7 +141,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
             endpoint.isEmpty() ? "未设置" : shorten(endpoint), () -> edit("接口地址",
                 "兼容 DeepLX 的 POST 接口，例如 http://127.0.0.1:1188/translate；或 DeepL 官方 API https://api-free.deepl.com/v2/translate",
                 endpoint, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI,
-                TranslationServiceSettingsPolicy::endpointProblem, "custom_translation", "endpoint"));
+                TranslationServicePage::endpointProblem, "custom_translation", "endpoint"));
         group.nav("API Key", "DeepL 官方 API 必填；DeepLX 没设密钥时留空", filled(text(custom, "api_key")),
             () -> edit("API Key", "DeepL 填 Auth Key（Free 密钥以 :fx 结尾），保存在本机；留空表示不需要", "",
                 secretInput(), TranslationServiceSettingsPolicy::secretProblem, "custom_translation", "api_key"));
@@ -267,6 +267,25 @@ public final class TranslationServicePage extends ReloadingDetailPage {
 
     private static String text(@Nullable JSONObject object, String key) {
         return object == null ? "" : JsonPolicy.strictStringOrEmpty(object.opt(key));
+    }
+
+    /** 接口地址能不能存，问共享层：它与保存偏好时的校验是同一条规则，带下划线的主机名、国际化域名这类 https 地址不会被页面误拒。 */
+    @Nullable private static String endpointProblem(String value) {
+        Boolean accepted = null;
+        String issue = "";
+        if (!value.isEmpty()) {
+            try {
+                JSONObject result = envelope(NativeClient.translationEndpointIssue(value));
+                Object raw = result == null ? null : result.opt("accepted");
+                if (raw instanceof Boolean) {
+                    accepted = (Boolean) raw;
+                    issue = JsonPolicy.strictStringOrEmpty(result.opt("issue"));
+                }
+            } catch (JSONException | RuntimeException | LinkageError error) {
+                // 共享库没加载上或回答读不懂：退回本地规则。
+            }
+        }
+        return TranslationServiceSettingsPolicy.endpointProblem(value, accepted, issue);
     }
 
     @Nullable private static JSONObject envelope(String response) throws JSONException {

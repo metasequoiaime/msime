@@ -4,8 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.net.URI;
-import java.net.URISyntaxException;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Iterator;
 import java.util.Locale;
@@ -40,23 +39,27 @@ public final class TranslationHttpTransport {
 
     private TranslationHttpTransport() {}
 
-    /** 描述器给的地址能不能发：https 不限主机，http 只能是本机回环；都不能带用户名、密码或片段。 */
+    /**
+     * 描述器给的地址能不能发：https 不限主机，http 只能是本机回环；都不能带用户名、密码或片段。
+     *
+     * <p>用 {@link URL} 而不是 {@link java.net.URI} 解析：共享层按 WHATWG 规则（reqwest）放行的 https 地址里，带下划线的主机名、中文等国际化域名、查询串里的 `|` 这类字符，{@code URI} 都会拒绝或取不到主机，结果是设置页说地址不对、键盘每次都不发，而共享层的校验和「测试连接」都说没问题。{@code URL} 只按结构切分，这些地址都能放行；地址的完整校验已经由共享层在保存偏好和构造描述器时做过，这里只守 scheme、回环主机、用户信息和片段这几条安全边界。
+     */
     public static boolean allowedURL(String url) {
         if (url == null || url.isEmpty() || TextPolicy.utf8Length(url) > MAX_URL_BYTES
                 || TextPolicy.hasControl(url) || !TextPolicy.validUnicode(url) || url.indexOf('#') >= 0) return false;
         // `https:///v1` 要求 `://` 后面紧跟主机，免得路径被当成主机。
         int separator = url.indexOf("://");
         if (separator < 0 || url.length() <= separator + 3 || url.charAt(separator + 3) == '/') return false;
-        URI uri;
+        URL parsed;
         try {
-            uri = new URI(url);
-        } catch (URISyntaxException error) {
+            parsed = new URL(url);
+        } catch (MalformedURLException error) {
             return false;
         }
-        String scheme = uri.getScheme();
-        String host = uri.getHost();
-        if (scheme == null || host == null || host.isEmpty() || uri.getRawUserInfo() != null
-                || uri.getRawFragment() != null || uri.getPort() < -1 || uri.getPort() > 65535) return false;
+        String scheme = parsed.getProtocol();
+        String host = parsed.getHost();
+        if (scheme == null || host == null || host.isEmpty() || parsed.getUserInfo() != null
+                || parsed.getRef() != null || parsed.getPort() < -1 || parsed.getPort() > 65535) return false;
         if ("https".equalsIgnoreCase(scheme)) return true;
         return "http".equalsIgnoreCase(scheme) && LOOPBACK_HOSTS.contains(host.toLowerCase(Locale.ROOT));
     }
@@ -87,7 +90,7 @@ public final class TranslationHttpTransport {
             if (payload == null || limit == 0) return null;
             int timeout = timeoutMillis(descriptor.opt("timeout_ms"));
             long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeout);
-            URL target = new URI(rawUrl).toURL();
+            URL target = new URL(rawUrl);
             connection = (HttpURLConnection) AiEndpointPolicy.open(target);
             HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod("POST");
@@ -111,7 +114,7 @@ public final class TranslationHttpTransport {
             try (InputStream input = connection.getInputStream()) {
                 return HttpBodyPolicy.readWithin(input, limit, deadline);
             }
-        } catch (IOException | URISyntaxException | RuntimeException error) {
+        } catch (IOException | RuntimeException error) {
             // 不记录描述器和回复：它们带着凭据和用户的候选词。
             return null;
         } finally {

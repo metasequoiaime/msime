@@ -10,6 +10,10 @@ public final class TranslationHttpTransportPolicySmoke {
             "http://localhost:1188/translate",
             "http://LOCALHOST/translate",
             "http://[::1]:1188/translate",
+            // 共享层按 WHATWG 规则放行的 https 地址：下划线主机名、国际化域名、查询串里的 `|`。
+            "https://my_host.example.com/translate",
+            "https://例子.example/translate",
+            "https://deeplx.example.com/translate?token=a|b",
         };
         for (String url : allowed) check(TranslationHttpTransport.allowedURL(url), "allowed: " + url);
         String[] rejected = {
@@ -27,6 +31,8 @@ public final class TranslationHttpTransportPolicySmoke {
             "https:///v1",
             "translate.example/api",
             "https://translate.example/a\nb",
+            "https://translate.example:70000/api",
+            "http://my_host.example.com/translate",
         };
         for (String url : rejected) check(!TranslationHttpTransport.allowedURL(url), "rejected: " + url);
 

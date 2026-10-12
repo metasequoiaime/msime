@@ -86,7 +86,18 @@ public final class TranslationServiceSettingsPolicy {
         return null;
     }
 
-    /** 自定义服务的接口地址：可以留空；填了就要是 https，或指向本机回环的 http，规则同 {@link TranslationHttpTransport#allowedURL}。 */
+    /**
+     * 自定义服务的接口地址，以共享层为准：{@code accepted} 是 `msime_client_translation_endpoint_issue` 回答里的 `accepted`，与保存偏好时的校验是同一条 `is_supported_endpoint`，{@code issue} 是它给的提示。共享库不可用时 {@code accepted} 为 null，退回 {@link #endpointProblem(String)} 的本地规则。共享层不接受但没给提示时（例如 `https:///v1`），用本地规则的说法。
+     */
+    public static String endpointProblem(String value, Boolean accepted, String issue) {
+        if (accepted == null) return endpointProblem(value);
+        if (accepted) return null;
+        if (issue != null && !issue.isEmpty()) return issue;
+        String local = endpointProblem(value);
+        return local != null ? local : "请填写以 https:// 开头的完整接口地址，不能带用户名、密码或 # 片段";
+    }
+
+    /** 共享库不可用时的本地规则：可以留空；填了就要是 https，或指向本机回环的 http，规则同 {@link TranslationHttpTransport#allowedURL}。 */
     public static String endpointProblem(String value) {
         if (value == null || value.isEmpty()) return null;
         if (TranslationHttpTransport.allowedURL(value)) return null;
