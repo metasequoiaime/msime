@@ -97,7 +97,7 @@ pnpm tauri dev
 
 Android 통합 패키지 빌드와 기기 테스트는 [Android 호스트](../../platforms/android/README.md#tauri--react-共享设置合包)를 참고하십시오. Tauri 설정과 네이티브 `:ime` 서비스는 같은 패키지의 다른 프로세스이며, 비공개 files/bootstrap/state를 공유합니다. 설정 창을 닫아도 입력기 프로세스는 종료되지 않습니다. iOS의 제품 호스트는 `platforms/ios`의 네이티브 App으로, 네이티브 키보드 확장을 내장하고 App Group을 통해 상태를 공유합니다. iOS에서 Tauri/React는 공유 기능과 화면을 위한 공용 컴포넌트로만 쓰이며, 독립 App으로 실행되지 않습니다. 서명과 기기 설치 절차는 [iOS 호스트](../../platforms/ios/README.md)를 참고하십시오.
 
-공유 설정은 shuangpin_profile로 xiaohe(小鹤), ziranma(自然码), shoudao(首道), microsoft(마이크로소프트)를 지원합니다. 기본값은 Xiaohe로 읽으며, 알 수 없는 값은 거부합니다. 설정 페이지는 쌍병이 아닌 방식에서 이 선택을 비활성화하지만 이미 선택된 값은 유지합니다. 방식 변경은 단어 조합이 끝난 뒤 Engine을 교체하는 규칙을 그대로 따릅니다.
+공유 설정은 shuangpin_profile로 xiaohe(小鹤), ziranma(自然码), shoudao(首道), microsoft(마이크로소프트), 그리고 custom(사용자 정의 쌍병, 키 표는 shuangpin_custom_profile에 저장)을 지원합니다. 기본값은 Xiaohe로 읽으며, 알 수 없는 값은 거부합니다. 설정 페이지는 쌍병이 아닌 방식에서 이 선택을 비활성화하지만 이미 선택된 값은 유지합니다. macOS와 Linux의 설정 페이지에서는 내장 방식을 출발점으로 사용자 정의 키 배치를 편집하고 JSON으로 가져오거나 내보낼 수 있으며, 키 표는 Engine의 검사를 통과해야만 저장되고 쓸 수 없는 표일 때 입력기는 Xiaohe로 동작합니다. 방식 변경은 단어 조합이 끝난 뒤 Engine을 교체하는 규칙을 그대로 따릅니다.
 
 Linux 로컬 빌드, 격리된 D-Bus / IBus 테스트, 설치 후 최초 설정은 [Linux 호스트](../../platforms/linux/README.md)를 참고하십시오. 호스트는 설정 파일 자동 재로드를 지원하며, 설치 후에는 함께 설치되는 `msime-linux-setup`이 사전을 갖추고 실행 설정을 준비합니다. `msime-linux-setup --download`는 `resources/desktop-dictionary.lock.json`에 따라 누락된 사전을 내려받으며, 그래픽 진입점은 `runtime-options.json`이 없을 때 같은 최초 설정 페이지를 엽니다.
 

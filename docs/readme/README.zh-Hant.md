@@ -97,7 +97,7 @@ pnpm tauri dev
 
 Android 合併打包的建置和裝置測試見 [Android 宿主](../../platforms/android/README.md#tauri--react-共享设置合包)。Tauri 設定與原生 `:ime` 服務同一套件、不同行程，共用私有 files/bootstrap/state；關閉設定視窗不會結束輸入法行程。iOS 的產品宿主是 `platforms/ios` 的原生 App，它內嵌原生鍵盤延伸功能並透過 App Group 共用狀態；Tauri/React 在 iOS 上只作為共用功能與介面的公用元件，不作為獨立 App 啟動。簽章與裝置安裝步驟見 [iOS 宿主](../../platforms/ios/README.md)。
 
-共用設定支援 shuangpin_profile：xiaohe（小鶴）、ziranma（自然碼）、shoudao（首道）、microsoft（微軟）。未設定時按小鶴讀取，未知值拒絕；設定頁在非雙拼方案下停用此選項，但保留已選的值。方案變更沿用組詞結束後再替換 Engine 的規則。
+共用設定支援 shuangpin_profile：xiaohe（小鶴）、ziranma（自然碼）、shoudao（首道）、microsoft（微軟），以及 custom（自訂雙拼，鍵位表存在 shuangpin_custom_profile）。未設定時按小鶴讀取，未知值拒絕；設定頁在非雙拼方案下停用此選項，但保留已選的值。macOS 和 Linux 的設定頁可以從內建方案起步編輯自訂鍵位、匯入匯出 JSON，鍵位表要通過 Engine 的檢查才能儲存；鍵位表不能用時輸入法按小鶴執行。方案變更沿用組詞結束後再替換 Engine 的規則。
 
 Linux 本機建置、隔離的 D-Bus / IBus 測試和安裝後的首次設定見 [Linux 宿主](../../platforms/linux/README.md)。宿主支援設定檔自動重新讀取，安裝後由隨附安裝的 `msime-linux-setup` 備齊詞庫並準備執行設定；`msime-linux-setup --download` 依 `resources/desktop-dictionary.lock.json` 取回缺少的詞庫，圖形入口在缺少 `runtime-options.json` 時會開啟同一套首次設定頁。
 
