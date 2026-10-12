@@ -60,6 +60,15 @@ struct DesignInitialTile: View {
 
 // MARK: - 卡片与分组
 
+/// Section header shared by settings lists and design cards.
+struct SettingsGroupHeader: View {
+  let title: String
+  var body: some View {
+    Text(title).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle).textCase(nil)
+      .accessibilityAddTraits(.isHeader)
+  }
+}
+
 /// 分组卡片：季节卡片色的连续圆角矩形，无阴影、无边框。卡片里的行之间没有间距，行与行之间放一个 `DesignDivider`。
 struct DesignCard<Content: View>: View {
   var radius: CGFloat

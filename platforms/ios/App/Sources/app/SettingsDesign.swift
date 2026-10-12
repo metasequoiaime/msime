@@ -289,12 +289,3 @@ private struct DimOnPressButtonStyle: ButtonStyle {
     configuration.label.opacity(configuration.isPressed ? 0.7 : 1)
   }
 }
-
-/// Section header in the grouped lists: 13pt regular in the design's group-title grey, not the uppercase footnote UIKit draws by default.
-struct SettingsGroupHeader: View {
-  let title: String
-  var body: some View {
-    Text(title).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle).textCase(nil)
-      .accessibilityAddTraits(.isHeader)
-  }
-}
