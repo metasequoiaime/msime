@@ -1197,6 +1197,111 @@ fn custom_shuangpin_profile_reaches_engine_options_or_falls_back_to_xiaohe() {
 }
 
 #[test]
+fn builtin_shuangpin_tables_are_valid_custom_profiles() {
+    for profile in [
+        ShuangpinProfile::Xiaohe,
+        ShuangpinProfile::Ziranma,
+        ShuangpinProfile::Shoudao,
+        ShuangpinProfile::Microsoft,
+    ] {
+        let table = builtin_shuangpin_custom_profile(profile).unwrap();
+        assert_eq!(
+            (
+                table.initials.len(),
+                table.finals.len(),
+                table.zero_initials.len()
+            ),
+            (3, 33, 12),
+            "{profile:?}"
+        );
+        assert_eq!(
+            custom_shuangpin_profile_problem(&table),
+            None,
+            "{profile:?}"
+        );
+        assert_eq!(
+            validate_custom_shuangpin_profile(&table),
+            Ok(()),
+            "{profile:?}"
+        );
+    }
+    assert_eq!(
+        builtin_shuangpin_custom_profile(ShuangpinProfile::Xiaohe)
+            .unwrap()
+            .finals["ing"],
+        "k"
+    );
+    assert_eq!(
+        builtin_shuangpin_custom_profile(ShuangpinProfile::Microsoft)
+            .unwrap()
+            .finals["ing"],
+        ";"
+    );
+    assert_eq!(
+        builtin_shuangpin_custom_profile(ShuangpinProfile::Custom),
+        None
+    );
+}
+
+/// 设置页拿到的问题逐项对应 Engine 的错误，JSON 里只有这种错误用得到的字段。
+#[test]
+fn custom_shuangpin_problems_name_the_unit_key_and_code() {
+    let edited = |edit: &dyn Fn(&mut msime_client_core::preferences::ShuangpinCustomProfile)| {
+        let mut table = custom_shuangpin_table();
+        edit(&mut table);
+        let problem = custom_shuangpin_profile_problem(&table);
+        // 不留存的检查与 MCP 保存前用的校验结论相同。
+        assert_eq!(
+            problem.is_none(),
+            validate_custom_shuangpin_profile(&table).is_ok()
+        );
+        problem.map(|problem| serde_json::to_value(problem).unwrap())
+    };
+    assert_eq!(edited(&|_| {}), None);
+    assert_eq!(
+        edited(&|table| {
+            table.initials.insert("b".into(), "b".into());
+        }),
+        Some(json!({ "kind": "unknown_unit", "part": "initials", "unit": "b" }))
+    );
+    assert_eq!(
+        edited(&|table| {
+            table.finals.remove("iong");
+        }),
+        Some(json!({ "kind": "missing_unit", "part": "finals", "unit": "iong" }))
+    );
+    assert_eq!(
+        edited(&|table| {
+            table.zero_initials.insert("a".into(), ";A".into());
+        }),
+        Some(json!({ "kind": "invalid_key", "part": "zero_initials", "unit": "a", "key": ";a" }))
+    );
+    assert_eq!(
+        edited(&|table| {
+            table.initials.insert("sh".into(), "s".into());
+        }),
+        Some(json!({ "kind": "initial_key_taken", "part": "initials", "unit": "sh", "key": "s" }))
+    );
+    assert_eq!(
+        edited(&|table| {
+            table.zero_initials.insert("a".into(), "ua".into());
+        }),
+        Some(json!({ "kind": "ambiguous_code", "code": "ua", "first": "sha", "second": "a" }))
+    );
+    // 偏好里的表是对象，同一个单位写不出两次；这一种只可能从 Engine 的表来，照样逐项对应。
+    assert_eq!(
+        serde_json::to_value(ShuangpinCustomProblem::from(
+            ShuangpinCustomProfileError::DuplicateUnit {
+                part: ShuangpinCustomTablePart::Finals,
+                unit: "iu".into(),
+            }
+        ))
+        .unwrap(),
+        json!({ "kind": "duplicate_unit", "part": "finals", "unit": "iu" })
+    );
+}
+
+#[test]
 fn japanese_mode_switch_defers_and_restores_chinese_profile() {
     use msime_client_core::preferences::ChineseScheme;
     let dir = tempfile::tempdir().unwrap();
