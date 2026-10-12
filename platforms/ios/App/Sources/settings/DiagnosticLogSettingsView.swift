@@ -18,10 +18,7 @@ struct DiagnosticLogSettingsView: View {
     Form {
       Section {
         Toggle(isOn: Binding(get: { enabled }, set: save)) {
-          VStack(alignment: .leading, spacing: 2) {
-            Text("记录键盘诊断日志")
-            Text("键盘出现、收起、设置应用和出错的时间").font(.footnote).foregroundStyle(.secondary)
-          }
+          SettingsOptionLabel(title: "记录键盘诊断日志", detail: "键盘出现、收起、设置应用和出错的时间")
         }.accessibilityIdentifier("diagnosticLogEnabled")
       } footer: {
         Text(saveFailed

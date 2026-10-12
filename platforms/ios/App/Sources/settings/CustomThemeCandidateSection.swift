@@ -27,10 +27,7 @@ struct CustomThemeCandidateSection: View {
   var body: some View {
     Section {
       Toggle(isOn: $followsDesktopPalette) {
-        VStack(alignment: .leading, spacing: 2) {
-          Text("候选栏使用主题配色")
-          Text("关闭时候选栏和按键一起使用键盘皮肤的颜色；打开后使用本页的主题和候选颜色。").font(.footnote).foregroundStyle(.secondary)
-        }
+        SettingsOptionLabel(title: "候选栏使用主题配色", detail: "关闭时候选栏和按键一起使用键盘皮肤的颜色；打开后使用本页的主题和候选颜色。")
       }.accessibilityIdentifier("candidatePaletteFollowsDesktop")
       if followsDesktopPalette {
         Picker("浅色模式皮肤", selection: packageBinding(dark: false)) {
