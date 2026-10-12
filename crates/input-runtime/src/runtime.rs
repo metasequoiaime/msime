@@ -1893,6 +1893,8 @@ impl<E: InputEngine> Runtime<E> {
                     conversion_focus_start: 0,
                     conversion_focus_end: 0,
                 };
+                // 失败占位快照已经没有候选，旧插件操作不能在下一次旁路刷新时复活。
+                self.transform_candidates();
                 // 占位快照替换了整个视图，两边都按变了算。
                 self.bump_composition_epoch();
                 self.bump_candidates_epoch();

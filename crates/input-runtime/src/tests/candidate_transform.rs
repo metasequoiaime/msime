@@ -27,6 +27,8 @@ struct TransformEngine {
     withheld: Vec<String>,
     /// 让编码数组比候选少一项，制造平行数组长度不一致。
     short_codes: bool,
+    /// 模拟读取候选快照失败。
+    snapshot_fails: bool,
     /// `select`、`select_edge`、`finish` 收到的引擎下标。
     picks: Vec<usize>,
 }
@@ -59,6 +61,9 @@ impl TransformEngine {
 
 impl InputEngine for TransformEngine {
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError> {
+        if self.snapshot_fails {
+            return Err(RuntimeError::Engine("synthetic snapshot failure".into()));
+        }
         let composing = !self.text.is_empty() || !self.conversion.is_empty();
         let count = if composing { self.words.len() } else { 0 };
         let codes = count - usize::from(self.short_codes && count > 0);
@@ -612,6 +617,44 @@ fn side_channel_calls_replay_by_identity_without_running_the_transform() {
     harness.key(b'a');
     assert_eq!(harness.calls(), 2);
     assert!(harness.shown().contains(&"丙".to_owned()));
+}
+
+#[test]
+fn failed_snapshot_discards_recorded_transform_before_side_channel_recovery() {
+    let mut harness = Harness::new(
+        TransformEngine::new(&["甲", "乙", "丙"]),
+        vec![ops(&[], &[1], &[(2, "注")])],
+    );
+    harness.key(b'a');
+    assert_eq!(harness.shown(), ["甲", "丙"]);
+    assert!(harness.runtime.has_candidate_ops());
+
+    harness.runtime.engine.snapshot_fails = true;
+    assert!(harness.runtime.refresh().is_err());
+    assert!(harness.runtime.view().candidates.is_empty());
+    assert!(!harness.runtime.has_candidate_ops());
+
+    harness.runtime.engine.snapshot_fails = false;
+    harness.runtime.engine.words = ["新", "乙", "后"].map(str::to_owned).to_vec();
+    harness.runtime.refresh_online_candidates().unwrap();
+    assert_eq!(harness.shown(), ["新", "乙", "后"]);
+    assert!(harness
+        .runtime
+        .view()
+        .candidates
+        .iter()
+        .all(|candidate| candidate.script_annotation.is_none()));
+    assert_eq!(harness.calls(), 1);
+
+    harness.key(b'b');
+    assert_eq!(harness.shown(), ["新", "后"]);
+    assert_eq!(
+        harness.runtime.view().candidates[1]
+            .script_annotation
+            .as_deref(),
+        Some("注")
+    );
+    assert_eq!(harness.calls(), 2);
 }
 
 /// 落定重排提上来的是一行隐藏行时，可见的行一行没动：不算挪动，高亮留在原处，旧的候选 ID 仍然有效。
