@@ -342,7 +342,7 @@ items = ["→", "←", "⇒"]
 
 ## 脚本插件（`kind = "script"`）
 
-脚本插件是唯一带可执行内容的类型：包里有一个 core wasm 模块，在桌面输入法进程里由沙箱解释器运行，按用户逐项授予的能力读组字、上屏文本和候选。它还是实验功能。想直接开始：复制 [script-plugin-template](script-plugin-template/)，那是一个用 Rust 写的完整例子（中英文之间加空格），附带 C 头文件和 Rust 绑定。
+脚本插件是唯一带可执行内容的类型：包里有一个 core wasm 模块，在桌面输入法进程里由沙箱解释器运行，按用户逐项授予的能力读组字、上屏文本和候选。它还是实验功能。想直接开始：复制 [script-plugin-template](script-plugin-template/)，那是一个用 Rust 写的完整例子（中英文之间加空格），附带 C 头文件和 Rust 绑定。拿来就能用的插件在仓库的 [plugins/script](../plugins/script/)：从源码构建成插件包后导入，构建、测试和每个插件的行为见那里的 README。
 
 ### 在哪里运行
 

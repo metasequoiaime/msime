@@ -1,0 +1,71 @@
+# Agent Note: 脚本插件合集放在本仓库的 plugins/script/，共用构建配置、数据生成器和按夹具核对的测试
+
+Status: implemented
+
+## Problem
+
+脚本插件（`kind = "script"`）的运行时、授权和作者工具都已合入 develop，但能装的只有 docs/script-plugin-template 里的一个例子。这个例子为了好读，逐字 `chars()` 并先对整段做 UTF-8 校验，body 超过约 100 个汉字就会耗尽 `before_commit` 的 fuel：在输入法里这算一次失败，50 次投递里失败 3 次插件就被停用。用户要的是能直接导入、长期开着也不会被熔断的实用插件（中英文之间加空格、生僻字靠后、隐藏生僻字、繁体字形注释、码位注释），而且要能放心地并行写好几个。
+
+要回答的是：插件放在哪里、每个插件怎么组织、多个插件共用的东西（构建设置、字表、测试）放在哪里、怎么证明每个插件的行为和 fuel 上限，以及 CI 怎么接。
+
+## Decision
+
+**位置：本仓库的 `plugins/script/`。** 每个插件一个目录 `plugins/script/<id>/`，是独立的 `no_std` crate（自带空的 `[workspace]`，不属于仓库的 Cargo 工作区，没有任何依赖），用 `#[path]` 引入 `docs/script-plugin-template/sdk/msime_script.rs`。目录名、包名和清单 `id` 相同，清单的 `module` 是 `<id>.wasm`。源码树里不放 `.wasm`，`plugins/script/.gitignore` 排除 `target/`、`Cargo.lock` 和 `*.wasm`。
+
+**共用的构建设置在 `plugins/script/.cargo/config.toml`。** cargo 从当前目录向上找配置文件，所以在插件目录里运行 cargo 时，目标 `wasm32-unknown-unknown`、`-zstack-size=65536`、release 配置（`opt-level = "s"`、LTO、`panic = "abort"`、strip）和产物目录 `target/script-plugins/cargo` 对所有插件一起生效，插件的 `Cargo.toml` 不写 profile。产物目录用配置写死在仓库根的 `target/` 下，不在插件目录里留 `target/`，也不新起别的产物目录（AGENTS.md 的产物目录规则）。工具链跟随 `rust-toolchain.toml`，脚本从它读出版本号再 `cargo +<版本>`。
+
+**构建和测试是两个脚本。**
+
+- `scripts/build-script-plugins.sh [<id>...]`：在插件目录里 `cargo build --release --offline`，再由 `plugins/script/tools/assemble.py` 组装成 `target/script-plugins/<id>/` 和 `target/script-plugins/<id>-<version>.zip`。组装时检查三个名字一致、`pack/` 里没有 `.wasm`、模块不超过 256 KiB、memory 段的最小页数不超过 `memory_pages`、`pack/` 里约定名字的第三方许可证（`Unicode-License-V3.txt`、`OpenCC-LICENSE.txt`）和仓库原件逐字节相同。压缩包条目排序、放在顶层、时间固定为 1980-01-01、不压缩，同样的源码得到逐字节相同的压缩包。
+- `scripts/test-script-plugins.sh [--update] [<id>...]`：编出 `target/debug/msime-pack`，对每个插件 `validate` 文件夹和压缩包；用插件目录里的 `fixture.jsonl` 跑 `run --grant all`，退出码为 0，输出去掉 `fuel`、`init_fuel` 后和 `expected.jsonl` 逐行相同，每行 fuel 不超过钩子单次上限的一半（`candidates` 62 500，`before_commit` 50 000，其余 12 500）；再不授权跑一遍，每个事件都不能有动作。核对在 `plugins/script/tools/check_run.py`。最后跑 `scripts/test-script-plugin-data.py`。没有 wasm 目标时打印 skip 退出 0，`MSIME_REQUIRE_SCRIPT_PLUGINS=1` 时失败。
+
+**行为靠插件自己的日志核对。** `msime-pack run` 的输出只有修改类 import 的名字和返回码，看不到改写成了什么、重排成什么顺序。所以每个插件每个事件写一行 `log::debug` 的决策摘要（改写后的文本、`order 0,2,1`、`hide 2,5`、`ann 0:發/髮`，或 `keep`、`skip: <原因>`），`expected.jsonl` 连同日志一起核对。`log` 在输入法里是空操作，但照样计 fuel，所以只写一行。fuel 的具体数值随编译器和优化选项变化，不进 `expected.jsonl`，只按上限断言。
+
+**共用数据：生成器加提交进仓库的紧凑产物。** 生僻字类插件共用 `plugins/script/data/common-chars.bin`（4 KiB）：《通用规范汉字表》8105 字（Unihan 17.0.0 的 `kTGH`）并上它们的繁体形（Unihan `kTraditionalVariant` 和 OpenCC `STCharacters.txt` 的值），共 11 049 字。生成器 `plugins/script/tools/gen_common_chars.py` 只用标准库，按 `resources/character-glosses.lock.json` 下载并校验 Unihan zip（缓存在 `target/script-plugins/cache/`），同时写出来源说明 `common-chars-NOTICE.txt`。读法在 `plugins/script/shared/common_chars.rs`（`is_rare`、`is_kana`、按字节扫描一行的 `classify`），文件头在编译时用常量断言检查。`scripts/test-script-plugin-data.py` 逐个运行 `plugins/script/tools/gen_*.py --check`，`run-checks.sh` 自动发现它；要下载数据的生成器在缓存里没有数据时打印 skip 并以 0 退出，所以 contracts 工作流不联网也能跑。
+
+**SDK 加了不校验 UTF-8 的读法。** `commit::bytes` 和 `candidates::bytes` 直接交回宿主复制的字节。宿主只复制 Rust 的 `&str`，内容一定是合法 UTF-8，而 `text()` 的校验在 wasmi 里每个汉字上百 fuel。没有新增常量，`pack-tool/tests/sdk.rs` 的一致性测试不受影响。
+
+**CI：`ci-platforms.yml` 新增「Script plugins」作业。** `changes` 作业多一个 `plugins` 输出：`plugins/`、`docs/script-plugin-template/`、`crates/script-runtime/`、`crates/pack-tool/` 和三个脚本改动时为真，共享路径（`shared`）为真时也为真。作业按引擎作业的写法：总是启动，没改动时走 unchanged 步骤；改动时 `rustup toolchain install`、`rustup target add wasm32-unknown-unknown`，带 `MSIME_REQUIRE_SCRIPT_PLUGINS=1` 运行 `scripts/test-script-plugins.sh`，用 sccache。`verify-local.sh` 的 `scope_classify` 把 `plugins/*` 归进不触发平台阶段的那一组，否则它落进 `*) echo all`，只改插件的 push 会让 `--quick` 编译全部平台。
+
+### fuel 的计法
+
+实测 rustc 1.97.1 编出的模块在 wasmi 2.0 上，fuel 比文档写的「大约一条 wasm 指令一个单位」更苛刻，写插件要按它来：
+
+- `local.get`、`local.set` 各算一条。
+- 计数指令只出现在函数入口、`loop` 和 `if`/`else` 处，`block` 继承外层的计数位置。所以进入一个函数时，函数体里循环以外的全部指令一次扣完，不管走哪个分支、是否提前返回；每轮循环同样按循环体词法上的全部指令扣。rustc 生成的是 `block` 加 `br_if` 链，很少有 `if`。
+- 对策：逐字节执行的循环单独放进一个很小的 `#[inline(never)]` 函数；只在少数情况下用到的代码各自拆成不内联的函数，常见路径就只付自己那一小段；每个插件有自限的工作量（读多少字节、看多少处、查多少次表），超出就放弃，并在夹具里放最坏情况的事件。
+
+pangu-spacing 是第一个按这些规则写的插件。第一版（一个循环里按字节分类、内联判断）扫 512 字节 ASCII 就要约 33 000，「中a」交替的 512 字节超过 56 000；把扫描换成只找「字节种类变化」的小函数后，扫描降到每字节约 17，再把中日韩判断改成查 1024 项的块表、把插空格拆出去，每处变化约 300。最终 body 上限 1024 字节、变化上限 64 处，最坏的成功情况约 37 000。
+
+### 第 0 行和执行顺序
+
+合集的约定：生僻字类插件不点名窗口第 0 行，既不移走也不隐藏。引擎按首位取词的路径（失焦上屏、原样上屏）取的是引擎下标 0，移走它会让屏幕上的首选和实际上屏的不一致；宿主也保证引擎下标 0 不被隐藏。几个插件的重排是排在后面的优先，所以列出全部非生僻行的重排插件应排在执行顺序最前。插件合集的 README 写合成规则，各插件的 README 写自己的取舍。
+
+## Alternatives considered
+
+- **放进 msime-plugins 仓库。** 最强的理由是那里本来就是社区扩展包合集，插件和输入法分开发版，用户也习惯去那里找包。不用：GitHub 上还没有这个仓库（只有本机的脚手架），它的 README 写明扩展包是纯数据、「不能带任何可执行内容，也不能申请权限」，它的 CI 只按 schema_version 1 校验；脚本包也不能发布到社区库。更要紧的是，这些插件依赖本仓库的 SDK、`msime-pack` 和运行时的 fuel 计法，三者一变插件就要跟着改、跟着重测，放在同一个仓库里，同一个 PR 的 CI 就能发现。
+- **把插件加进根工作区，或者每个插件自带 `.cargo/config.toml` 和 profile。** 加进工作区最强的理由是一条 `cargo build` 就能编全部。不用：工作区的成员都按宿主平台编译，`cargo test --workspace`、clippy 和各平台的构建会把 `no_std` 的 cdylib 编成宿主目标，`#[panic_handler]` 和 `core::arch::wasm32` 在宿主上编不过；`Cargo.lock` 也会被牵动。每个插件自带配置（模板的做法）最强的理由是复制出去就能单独编。不用：五份一样的配置迟早漂移；插件在仓库里，cargo 本来就会向上找到共用的那份。
+- **从仓库根用 `--manifest-path` 构建。** 最强的理由是脚本不用 `cd`。不用：cargo 按当前目录查找 `.cargo/config.toml`，从根调用时目标、栈大小和产物目录全部不生效，编出的是宿主目标，或者带 1 MiB 栈的 17 页模块。
+- **测试直接比较完整输出，包括 fuel。** 最强的理由是 fuel 回退也能当场看见。不用：fuel 随 rustc、LLVM 和 wasmi 的版本变化，升级工具链会让每个插件的期望全部失效，变成噪音；回退真正要拦的是「超过上限的一半」，这一条单独断言。
+- **改 `msime-pack run`，让它打印重排顺序、隐藏的行、注释和改写结果。** 最强的理由是插件不用为测试写日志，也不用为日志付 fuel。不用：这要改核心工具的输出格式，和已有的金样测试一起动，超出这次的范围；日志每个事件一行，代价是一百多 fuel。以后 `run` 打印了 `instance.actions()`，插件可以去掉日志。
+- **常用字集用 GB2312。** 最强的理由是 Python 自带 codec，生成不需要下载，也不需要另带许可证。不用：它缺不少常用字和人名用字（啰、堃、喆、镕、珺、赟、垚），又收了 125 个通用规范以外的部首和旧字形，通用规范一、二级里有 190 字不在其中。
+- **常用字集用词库字频。** 最强的理由是它反映真实的使用频率。不用：字频来自另一个仓库里 GPL-3.0 的 rime-ice 数据，没有固定摘要，不满足确定性，GPL 还会让插件包整体变成 GPL。
+- **生成数据不提交，构建时现场生成。** 最强的理由是仓库里没有二进制文件。不用：Unihan zip 有 8.5 MB，要联网下载；提交 4 KiB 的产物以后，CI 和贡献者都不需要网络，`--check` 只在有缓存时比对。
+
+## Consequences
+
+- 收益：插件和它依赖的 SDK、`msime-pack`、运行时在同一个 PR 里一起测；新插件只要建一个目录、写 `fixture.jsonl`，构建和测试脚本自动发现它，不用改共享文件（插件表和第三方说明除外）。每个插件的行为由日志逐行核对，最坏情况的 fuel 有断言卡住。
+- 代价：仓库里多了一类非平台代码，CI 多一个作业（改动时编一次 `msime-pack`，约几分钟）。本地 `verify-local.sh --quick` 不跑插件测试，只改插件时要手动跑 `scripts/test-script-plugins.sh`。
+- 代价：插件为测试写日志，每个事件多花一百多 fuel；`expected.jsonl` 不记录 fuel，fuel 的漂移只在越过上限一半时才被发现。
+- 插件代码用 MIT（沿用模板），和仓库本身的 GPL-3.0-only 不同；包里带 Unihan 数据的写 Unicode-3.0，带 OpenCC 数据的写 Apache-2.0，第三方说明在 docs/third-party.md 的「脚本插件合集」一节。插件的许可证选择需要仓库维护者确认。
+- 模板 README 加了一句：模板的写法在长 body 上会耗尽 fuel，实际使用装 `plugins/script/pangu-spacing`。模板本身没有改，`msime-pack` 的测试仍然解析它的夹具。
+- pangu-spacing 和内置的[中英文之间加空格](../feature/2026-10-12-chinese-english-spacing.md)开关做相近的事；内置开关在 `before_commit` 之前执行，两个都开不会多出空格。插件的 README 写了两者的区别。
+
+## Verification
+
+- `scripts/test-script-plugins.sh`：pangu-spacing 的 22 个事件和 `expected.jsonl` 一致，最大 fuel 37 171；不授权时每个事件只有 `skip: denied` 日志，没有动作；文件夹和压缩包都通过 `msime-pack validate`。连续两次构建的压缩包 sha1 相同。把 `expected.jsonl` 改错一行时脚本以 1 退出并打印两边的差异。
+- `python3 scripts/test-script-plugin-data.py`：有缓存时 `common-chars.bin` 与生成结果一致；挪走缓存时打印 skip、以 0 退出。
+- `shared/common_chars.rs` 在宿主上编成临时程序，对 U+0000..U+3FFFF 逐个调用 `is_common`，得到的集合和生成器在 Python 里算出的 11 049 字完全相同。
+- `actionlint` 对 `ci-platforms.yml` 无报错；`shellcheck` 对两个脚本无报错。
+
+相关：[沙箱运行时](2026-10-12-script-runtime-sandbox.md) 定义 fuel 配额；[脚本插件的作者工具](../feature/2026-10-12-script-plugin-author-tools.md) 定义 `msime-pack run`、SDK 和模板；[脚本插件修改上屏和候选](2026-10-12-script-plugins-modify-commit-and-candidates.md) 定义重排、隐藏、注释的合成规则。
