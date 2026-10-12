@@ -357,6 +357,7 @@ public final class KeyboardFragment extends HomeTabFragment {
         String layout = switch (InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key")) {
             case "nine_key" -> "九键";
             case "fourteen_key" -> "14 键";
+            case "nine_key_shuangpin" -> "九键双拼";
             default -> "全键盘";
         };
         return percent == KeyboardHeightPolicy.DEFAULT_HEIGHT_PERCENT

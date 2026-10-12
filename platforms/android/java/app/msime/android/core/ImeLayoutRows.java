@@ -327,6 +327,25 @@ final class ImeLayoutRows {
         return sidebar;
     }
 
+    /** 九宫格建出来时是否画着九键双拼、按的是哪些键面；没画九键双拼时为 null。拼音九键和九键双拼是同一个触屏布局，布局编号不变时要靠它判断键面过期（{@link #shuangpinStale}）。 */
+    private java.util.List<NineKeyShuangpinKeypad.Face> builtShuangpinFaces;
+    /** 当前键行是 {@link #rebuildNineKeyRows} 建的。 */
+    private boolean builtNineKeyGrid;
+
+    /** 键行换成别的布局时调用。 */
+    void forgetNineKeyGrid() {
+        builtNineKeyGrid = false;
+        builtShuangpinFaces = null;
+    }
+
+    /** 九宫格的键面过期了：拼音九键和九键双拼之间换了（布局编号相同，`apply` 不会重建），或者九键双拼换了表。 */
+    boolean shuangpinStale() {
+        if (!builtNineKeyGrid) return false;
+        boolean drawn = s.keyboardLayer == KeyboardLayout.Layer.LETTERS && s.nineKeyShuangpinDrawn();
+        if (drawn != (builtShuangpinFaces != null)) return true;
+        return drawn && !s.nineKeyShuangpinFaces().equals(builtShuangpinFaces);
+    }
+
     void rebuildNineKeyRows() {
         dismissNineKeyHoldOptions();
         LinearLayout container = LayoutPolicy.row(s);
@@ -342,7 +361,12 @@ final class ImeLayoutRows {
 
         LinearLayout grid = LayoutPolicy.column(s);
         boolean composing = s.hasEngineComposition();
-        for (java.util.List<NineKeyLayout.Key> keys : NineKeyLayout.rows()) {
+        // 九键双拼：字母键面换成表里的声母和韵母，见 addShuangpinGrid；数字键面与拼音九键相同。
+        boolean shuangpin = !digits && s.nineKeyShuangpinDrawn();
+        builtNineKeyGrid = true;
+        builtShuangpinFaces = shuangpin ? s.nineKeyShuangpinFaces() : null;
+        if (shuangpin) addShuangpinGrid(grid, composing);
+        for (java.util.List<NineKeyLayout.Key> keys : shuangpin ? java.util.List.<java.util.List<NineKeyLayout.Key>>of() : NineKeyLayout.rows()) {
             LinearLayout row = LayoutPolicy.row(s);
             for (NineKeyLayout.Key key : keys) {
                 String description = NineKeyLayout.description(key, digits, composing);
@@ -383,7 +407,9 @@ final class ImeLayoutRows {
         Button delete = s.keyId(s.backspaceKey(deleteAction), "Backspace");
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        addNineKey(actions, delete);
+        // 九键双拼的网格有四行，⌫ 占两格，右列仍与网格逐行对齐。
+        if (shuangpin) actions.addView(delete, LayoutPolicy.weightedCrossAxisFillParams(false, 2));
+        else addNineKey(actions, delete);
         if (digits) {
             // 数字键面的 3×3 只有 1–9，右列下面两格换成小数点和 0（与 iOS、HarmonyOS 的九键右列一致），否则这一面打不出 0。这一面的点按都直接上屏、不进组字，重输在这里没有作用；小数点按字面上屏，不随中文标点模式变成「。」。
             Button period = s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period");
@@ -408,6 +434,56 @@ final class ImeLayoutRows {
         if (exclamation instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, exclamation);
         container.addView(actions, LayoutPolicy.weightedMatchParentParams(0.8f));
+    }
+
+    /**
+     * 九键双拼（#6572）的字母网格：四行，前三行是 1–9，最后一行是分词键、0 和逗号，与拼音九键同一个三行高的外框。
+     *
+     * <p>每个数字键印着这个键上的声母和韵母（{@link NineKeyShuangpinKeypad#label}，来自当前的表，不另印数字），点按把数字交给引擎；表没用到的键印着数字本身，点按什么也不送。拼音九键的 1 键是「@#」或「分词」，九键双拼的 1 常常放着韵母（米旮旯、辜氏都用它），所以「@#」和「分词」挪到最后一行最左边，它仍是 {@link MSIMEInputService#nineKeySymbolKey}，随组字状态换键面。0 在 8 的正下方：表用到 0 时它是组码键（米旮旯 3 的 u ü ei），否则原样上屏 0。键上的长按和滑动只属于拼音九键（它们给的是键上的字母），这里不绑。
+     */
+    private void addShuangpinGrid(LinearLayout grid, boolean composing) {
+        java.util.List<NineKeyShuangpinKeypad.Face> faces = s.nineKeyShuangpinFaces();
+        for (java.util.List<NineKeyLayout.Key> keys : NineKeyLayout.rows()) {
+            LinearLayout row = LayoutPolicy.row(s);
+            for (NineKeyLayout.Key key : keys) addNineKey(row, shuangpinKey(faces, (char) ('0' + key.digit())));
+            grid.addView(row, LayoutPolicy.weightedWidthParams(1));
+        }
+        LinearLayout lastRow = LayoutPolicy.row(s);
+        NineKeyLayout.Key symbols = NineKeyLayout.rows().get(0).get(0);
+        NineKeyDigitButton separator = s.nineKeyGridKey(NineKeyLayout.face(symbols, false, composing),
+            NineKeyLayout.description(symbols, false, composing), () -> symbolKey(symbols));
+        s.nineKeySymbolKey = separator;
+        s.keyId(separator, "SoftSymbol");
+        addNineKey(lastRow, separator);
+        addNineKey(lastRow, shuangpinKey(faces, '0'));
+        boolean chinese = s.sendsChinesePunctuation();
+        String commaFace = ChineseSymbolFaces.face(",", chinese);
+        Button comma = s.keyId(s.keyboardKey(commaFace, "逗号", () -> {
+            if (s.dedicatedEnglish || !s.punctuation(',')) commitNineKeyLiteral(",");
+        }), KeyPressIds.forCharacter(','));
+        if ("，".equals(commaFace)) CenteredGlyphSpan.apply(comma, commaFace, 1.3f);
+        if (comma instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+        addNineKey(lastRow, comma);
+        grid.addView(lastRow, LayoutPolicy.weightedWidthParams(1));
+    }
+
+    /** 九键双拼的一个数字键：表用到它时印声母和韵母、点按送这个数字；没用到时印数字，0 原样上屏，其他键不送。 */
+    private NineKeyDigitButton shuangpinKey(java.util.List<NineKeyShuangpinKeypad.Face> faces, char digit) {
+        NineKeyShuangpinKeypad.Face face = NineKeyShuangpinKeypad.face(faces, digit);
+        String digitText = String.valueOf(digit);
+        NineKeyDigitButton key;
+        if (face != null) {
+            // 四行挤在三行高里，键面已经是两行（声母、韵母），不再在上沿印数字，否则数字压在声母上、韵母被截掉；数字仍在读屏描述的开头。
+            key = s.nineKeyGridKey(NineKeyShuangpinKeypad.label(face), NineKeyShuangpinKeypad.description(face),
+                () -> s.character(digit));
+            KeyboardTypographyPolicy.setKeyTextSize(key, 11);
+            key.setLineSpacing(0f, 0.9f);
+        } else {
+            key = s.nineKeyGridKey(digitText, "数字 " + digit,
+                digit == '0' ? () -> commitNineKeyLiteral("0") : () -> {});
+        }
+        s.keyId(key, digit == '0' ? "Nine0" : KeyPressIds.forNineKeyDigit(digit - '0'));
+        return key;
     }
 
     /**

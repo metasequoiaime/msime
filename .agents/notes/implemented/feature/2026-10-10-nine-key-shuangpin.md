@@ -6,7 +6,7 @@ Status: implemented
 
 #6572 的主要诉求是在九宫格上打双拼：每个音节固定两个数字，第一个数字表示声母所在的组，第二个表示韵母所在的组，方案点名了米旮旯 2、米旮旯 3、辜氏 2 和辜氏 2 低重码，并希望能自定义这种数字键位。原来的九宫格（`NineKeySession`）只会全拼 T9：每个字母按电话键盘换成数字（`KEYPAD`），一个音节有几个字母就占几个数字；26 键双拼（`ShuangpinEngine`）则假定一个两键编码只解出一个音节（`cvt_single_sp_to_pinyin` 的前提，自定义表的校验也守着这一点）。九键双拼两条都不满足：编码定长两位，但八到十个数字键装 23 个声母、33 个韵母，一个两位编码必然对应好几个音节。
 
-[自定义双拼方案](2026-10-10-custom-shuangpin-profile.md) 先把用户自定义 26 键表这一层做了；本篇记录九键双拼怎么接到九宫格上、内置哪几个方案，以及用户表的形状和校验。Android 宿主的接入在后续的 PR 里补进本篇；iOS 和鸿蒙的登记是之后的工作。
+[自定义双拼方案](2026-10-10-custom-shuangpin-profile.md) 先把用户自定义 26 键表这一层做了；本篇记录九键双拼怎么接到九宫格上、内置哪几个方案、用户表的形状和校验，以及 Android 宿主怎么画它；iOS 和鸿蒙的登记是之后的工作。
 
 ## Decision
 
@@ -46,6 +46,12 @@ Engine 判定合法性，错误是带位置的 `NineKeyShuangpinError`（`Unknow
 - **host-api**：偏好的布局是九键双拼、方案是全拼时，建会话和重建会话都按表开网格；`custom` 的表不能用时按米旮旯 3 运行，偏好变更的响应带诊断 `Nine-key shuangpin table unusable because <原因>; using migala3.`，与 26 键自定义双拼按小鹤运行相同。换了表也算换了布局，宿主设下的网格覆盖随之作废。`msime_client_set_key_grid` 的 3 是九键双拼（表按已应用的偏好）。`msime_client_nine_key_shuangpin_layout` 是给宿主的唯一入口：给方案名和（`custom` 时的）表，回答实际用的方案和它的表、用户表带位置的问题、按 1 到 9、0 排好的每个键的声母和韵母；键面和设置页的编辑器都从这里取，宿主不另存键位。Rust 侧对应 `nine_key_shuangpin_layout`、`validate_nine_key_shuangpin_custom_profile`、`nine_key_shuangpin_custom_profile_problem` 和 `builtin_nine_key_shuangpin_custom_profile`。
 - **MCP**：`get_preferences` 显示 `nine_key_shuangpin_profile` 和保存着的表，`update_preferences` 可以换方案、整张替换表；给了表或要选 `custom` 时先用 host-api 的同一个校验，不能用就拒绝并说明哪一项。它不切换键盘布局。
 
+### Android 宿主
+
+- **方案**：`KeyboardScheme.NINE_KEY_SHUANGPIN`（`nine_key_shuangpin`，引擎方案全拼，卡片字形「双」、角标「9」）追加在末尾，`optIn`；`fromPreferences` 有显式分支，通用循环同时排除它。打字统计记作「9 键」（`nineKey`）：统计按键盘的形态分，它没有自己的一档。
+- **键面**：九键双拼画在九键的键面上，`touchLayout` 看到 `View.key_grid` 为 `nine_key_shuangpin`（没有本地模式）就给 `QUANPIN_NINE_KEY_LAYOUT`，读音行、左列拼音、三栏面板、123 数字层、组字不写进编辑器都与拼音九键相同。字母键面是四行：1–9 印着这张表放在键上的声母（零声母编码从这个键开始时前面加「零」）和韵母，点按经 `character()` 送数字；最后一行是「@#」/「分词」键、0 和逗号，「@#」/「分词」从 1 键挪下来，因为三个内置方案都把韵母放在 1 上；表用到 0 时 0 是组码键，否则原样上屏；右列 ⌫ 占两格。键面经 `NativeClient.nineKeyShuangpinLayout` 取，宿主不存键位（`NineKeyShuangpinKeypad` 只管怎么印、怎么读）。拼音九键和九键双拼同一个布局编号，`apply` 不会因为换了方案或换了表重建键行，所以 `ImeLayoutRows.shuangpinStale` 记着建行时的键面，变了就重建。没有英文九键，键上没有长按字母和滑动数字（它们给的是电话键盘上的字母）。
+- **设置**：「输入 › 普通话」的「九键双拼」子菜单选表，选中即切换到这个键盘；「九键双拼」页（`NineKeyShuangpinPage`）选表、列出当前表每个键上的声母和韵母，编辑自定义表（从内置方案开始、逐格改数字），经系统文件选择器导入导出 `{initials, finals, zero_initials}` 的 JSON。编辑中的表每改一格就经同一个接口校验，问题带着出错的单位显示在那一格和保存行上，能用时才能「保存并使用」（写表并选 `custom`）。
+
 ### 评测与延迟
 
 评测工具 `convert_eval`、`rerank_latency` 加了 `--grid shuangpin-<方案>`：用例是不带分隔的全拼，九键双拼要先切成音节，切法不唯一（xian 和 xi'an）的用例不计入（`convert_eval/grid_keys.rs`）；`--unique-segmentation` 让全拼九宫格只量同一批用例。锁定资源 dict-v2.0.14 加 `sentence-model.safetensors`，同一台机器、同一次构建：
@@ -78,6 +84,8 @@ Engine 判定合法性，错误是带位置的 `NineKeyShuangpinError`（`Unknow
 - **辜氏 2 普通版照 #6572 的截图收录**：报告人提供了截图，键位完整。但那是一家商业输入法界面的截图，没有作者发布的规则，也没有第二个来源核对，见上文「不收录的」。
 - **键面提示走会话句柄（`msime_client_*(handle)` 回答当前会话的网格）**：最准确，键面永远与正在跑的表一致。但设置页预览编辑中的表时没有会话，桌面宿主也没有九宫格会话；无状态的 `msime_client_nine_key_shuangpin_layout` 用与建会话相同的回退规则，键面与会话一致，编辑器和键盘共用一个入口。
 - **另起一个 client-core 表类型**：类型名更准确。但 JSON 形状和大小限制与 `ShuangpinCustomProfile` 完全相同，另起一个类型就要在 TS 类型、对等检查和 MCP 里各多维护一份；共用类型，含义靠字段名和文档区分。
+- **Android 的 0 放在空格键上**：百度、搜狗的九键双拼都这么做（lernen.top 的文章说辜氏 2 低重码「包括 1 和空格」），从那边换过来的用户最顺手。但组字中空格就不再能确认首选，而空格键属于各方案共用的底栏，要按方案和组字状态改它的行为和键面；单独一格 0 放在 8 的正下方，空格的意思不变，与注音 9 键的最后一行同一个排法。
+- **Android 给九键双拼一个新的触屏布局编号**：判断更直白，不靠 `key_grid` 补一层。但宿主里按 `QUANPIN_NINE_KEY_LAYOUT` 判断的地方有十几处（读音行、左列、三栏面板、数字层、Shift、快捷标点……），14 键的笔记已经记着这种非穷举判断漏一处就静默变成 26 键的行为；九键双拼除了键面以外都该与拼音九键相同，共用编号让这些地方一处不改就对。
 
 ## Consequences
 
@@ -91,6 +99,7 @@ Engine 判定合法性，错误是带位置的 `NineKeyShuangpinError`（`Unknow
   - `View.nine_key` 在九键双拼下为假，宿主判断「数字是组码」要看 `View.key_grid`。
   - 降级：选了九键双拼后装回旧版，偏好严格解析整份读不出来（`touch_keyboard_layout` 和 `touch_keyboard_schemes` 有新值）。与 14 键相同，照现有的严格解析接受这个代价。
   - iOS、鸿蒙和桌面的共享设置页都还选不到九键双拼，React 的 `Preferences` 只认识这两个字段，没有编辑入口。
+  - Android 的四行网格挤在三行九键的高度里，键比拼音九键扁，键面字号只有 11sp；一个键上的韵母多时折成三行（辜氏 2 低重码的 9 键有五个韵母）。键面不印数字，看表的人要从声母、韵母认键。
 
 ## Verification
 
@@ -98,3 +107,4 @@ Engine 判定合法性，错误是带位置的 `NineKeyShuangpinError`（`Unknow
 - `cargo test -p msime-client-core`（1376 项，新增九键双拼偏好的往返与不写默认值、布局的账号同步）、`-p msime-input-runtime`（新增九键双拼只给全拼、数字不当选词键；去掉 runtime 那道门时这项失败）、`-p msime-host-api`（新增偏好开网格、换表、自定义表回退与诊断、宿主覆盖，以及 `msime_client_nine_key_shuangpin_layout` 的表、问题和键面）、`-p msime-mcp-server`（新增读写和拒绝不合法的表）全过；上述五个 crate `cargo clippy --all-targets -D warnings` 无警告，`cargo fmt --check` 干净。`cargo check -p msime-desktop --target aarch64-apple-ios --lib` 通过（iOS 的账号偏好映射认识新方案）。
 - `scripts/test-preferences-field-parity.py` 通过。
 - 评测和延迟见上文；全拼九宫格在本分支上的 `convert_eval --grid nine` 两份结果与 develop 逐字节相同。
+- Android（本机 macOS arm64，Android SDK 的 API 35 和 API 28 arm64 模拟器，均为本次起的专用 AVD）：`check-host.sh` 通过（224 个 JVM 冒烟，含新增的 `NineKeyShuangpinKeypadSmoke` 和扩充的 `KeyboardSchemeSmoke`，`client_jni.cpp` 的 NDK 编译）；`build-apk.sh` 打出 full 版 APK；`lintFullRelease` 通过。API 35 上 `build-core-test.sh` + `run-core-test.sh` 1338 项通过，`smoke.sh emulator-5580` 的默认套件全部通过，其中新增的 `NineKeyShuangpinDeviceSmoke`（米旮旯 3 键面、6 4 4 7 出你好、5 0 出路、分词键切出 8'4 的中国、换成米旮旯 2 后键面跟着换）通过；`CaretCandidatesDeviceSmoke` 第一次在整套里失败、单独重跑通过，与九键双拼无关的实体键盘用例。`--settings`、`--statistics` 两组要 Tauri 合包（`build-client-apk.sh`），这次没有跑。API 28 上 `run-core-test.sh` 1338 项通过，`smoke.sh emulator-5566 --core` 通过。手工用 `adb` 在两台模拟器上点设置页「输入 › 普通话 › 九键双拼」选表、在九宫格上打 6 4 4 7 出你好（API 35 米旮旯 3、API 28 辜氏 2 低重码），在「九键双拼」页改一格、导出 JSON、导入一份把 iong 写成 x 的表（显示「韵母「iong」的键「x」不对」且不能保存）、再导入合法的表保存，键盘立即换成自定义表的键面。

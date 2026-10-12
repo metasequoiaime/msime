@@ -2625,8 +2625,10 @@ public final class MSIMEInputService extends InputMethodService {
             drawn ? InputViewValuePolicy.textOr(next, "display_reading", reading) : reading);
         // 九键的 editing_text 是按下的数字键（64426），写进输入框对用户没有意义；和 iOS 默认一样不在输入框里标记组词，组词只显示在键盘自己的预编辑栏上（选过的音节显示为拼音，如 ni'426）。注音 9 键例外：上面已经按大千的规则标记 reading（转换结果加未完成的数字），照常留在输入框里。14 键同理，editing_text 是组码字母（bugao），也不写进输入框；英文和本地模式画的是 26 键，照常标记。
         boolean fourteenKeyGrid = !nextDedicatedEnglish && touchLayout(next) == FOURTEEN_KEY_LAYOUT;
+        // 九键双拼的 editing_text 也是数字（`nine_key` 在它下面为假），同样不写进输入框。
+        boolean shuangpinGrid = !nextDedicatedEnglish && nineKeyShuangpinGrid(next);
         if (ZhuyinInputPolicy.hidesNineKeyComposing(InputViewValuePolicy.booleanValue(
-                next, "nine_key", false) || fourteenKeyGrid,
+                next, "nine_key", false) || fourteenKeyGrid || shuangpinGrid,
                 ZhuyinInputPolicy.active(nextViewScheme, nextDedicatedEnglish))) composing = "";
         return composing;
     }
@@ -3926,6 +3928,7 @@ public final class MSIMEInputService extends InputMethodService {
             && layout != KeyboardLayout.STROKE_LAYOUT
             && layout != KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT
             && selectedScheme != KeyboardScheme.QUANPIN_NINE_KEY
+            && selectedScheme != KeyboardScheme.NINE_KEY_SHUANGPIN
             && selectedScheme != KeyboardScheme.JAPANESE_NINE_KEY
             && selectedScheme != KeyboardScheme.ZHUYIN_NINE_KEY;
     }
@@ -4118,9 +4121,12 @@ public final class MSIMEInputService extends InputMethodService {
         // 14 键看引擎的 `key_grid`，不看 `nine_key`（14 键下它是假）；本地模式要逐个确定的字母，这时回落 26 键。
         boolean fourteenKey = "fourteen_key".equals(InputViewValuePolicy.textOr(value, "key_grid", "none"))
             && "none".equals(InputViewValuePolicy.textOr(value, "local_mode", "none"));
+        // 九键双拼画在九键的键面上（键面换成声母和韵母，见 ImeLayoutRows），`nine_key` 在它下面为假，要看 `key_grid`。本地模式要逐个确定的字母，与 14 键一样回落 26 键。
+        boolean nineKeyShuangpin = nineKeyShuangpinGrid(value)
+            && "none".equals(InputViewValuePolicy.textOr(value, "local_mode", "none"));
         return KeyboardLayout.resolveTouchLayout(
             "handwriting".equals(InputViewValuePolicy.textOr(value, "touch_keyboard_layout", "")),
-            InputViewValuePolicy.booleanValue(value, "nine_key", false), fourteenKey,
+            InputViewValuePolicy.booleanValue(value, "nine_key", false) || nineKeyShuangpin, fourteenKey,
             InputViewValuePolicy.scheme(value, -1),
             InputViewValuePolicy.textOr(value, "touch_keyboard_layout", ""));
     }
@@ -4128,6 +4134,79 @@ public final class MSIMEInputService extends InputMethodService {
     /** 画着的是引擎组码网格的键面（拼音九键或 14 键）：读音行显示 `nine_key_reading`，组字不写进输入框。 */
     static boolean drawsKeyGrid(int layout) {
         return KeyboardLayout.drawsKeyGrid(layout);
+    }
+
+    /** 引擎开着九键双拼的网格（`View.key_grid` 为 `nine_key_shuangpin`）。 */
+    static boolean nineKeyShuangpinGrid(JSONObject value) {
+        return value != null
+            && "nine_key_shuangpin".equals(InputViewValuePolicy.textOr(value, "key_grid", "none"));
+    }
+
+    /** 九键的字母键面现在画的是九键双拼：引擎开着九键双拼的网格，并且画的是九键的键面（本地模式回落 26 键）。 */
+    boolean nineKeyShuangpinDrawn() {
+        return !dedicatedEnglish && nineKeyShuangpinGrid(view)
+            && displayedTouchLayout(view) == QUANPIN_NINE_KEY_LAYOUT;
+    }
+
+    // 九键双拼的键面按偏好里的方案和自定义表从 host-api 取（NativeClient.nineKeyShuangpinLayout），请求没变时沿用上一次的结果；取不到时为空，键面退回只印数字。
+    private String nineKeyShuangpinRequest = "";
+    private java.util.List<NineKeyShuangpinKeypad.Face> nineKeyShuangpinFaces = java.util.List.of();
+
+    /** 当前九键双拼表每个数字键的键面，按 1 到 9、0 的顺序，只含表用到的键。 */
+    java.util.List<NineKeyShuangpinKeypad.Face> nineKeyShuangpinFaces() {
+        JSONObject preferences = preferencesSnapshot == null
+            ? null : preferencesSnapshot.optJSONObject("preferences");
+        String request;
+        try {
+            request = nineKeyShuangpinRequest(preferences).toString();
+        } catch (JSONException error) {
+            return java.util.List.of();
+        }
+        if (request.equals(nineKeyShuangpinRequest)) return nineKeyShuangpinFaces;
+        nineKeyShuangpinRequest = request;
+        nineKeyShuangpinFaces = java.util.List.of();
+        try {
+            JSONObject response = new JSONObject(NativeClient.nineKeyShuangpinLayout(request));
+            JSONObject value = response.optBoolean("ok", false) ? response.optJSONObject("value") : null;
+            if (value != null) nineKeyShuangpinFaces = nineKeyShuangpinFaces(value.optJSONArray("keys"));
+        } catch (JSONException | RuntimeException | LinkageError ignored) {
+            // 取不到键面时只印数字，不猜另一张表的键位。
+        }
+        return nineKeyShuangpinFaces;
+    }
+
+    /** `msime_client_nine_key_shuangpin_layout` 的请求：偏好里的方案，选了自定义时带上那张表。设置页的编辑器用同一个形状。 */
+    static JSONObject nineKeyShuangpinRequest(JSONObject preferences) throws JSONException {
+        String profile = NineKeyShuangpinKeypad.normalizedProfile(
+            InputViewValuePolicy.textOr(preferences, "nine_key_shuangpin_profile", NineKeyShuangpinKeypad.DEFAULT_PROFILE));
+        JSONObject request = new JSONObject().put("profile", profile);
+        JSONObject table = preferences == null ? null : preferences.optJSONObject("nine_key_shuangpin_custom_profile");
+        if (NineKeyShuangpinKeypad.CUSTOM_PROFILE.equals(profile) && table != null) request.put("table", table);
+        return request;
+    }
+
+    /** `keys` 数组读成键面；格式不对的项跳过。 */
+    static java.util.List<NineKeyShuangpinKeypad.Face> nineKeyShuangpinFaces(JSONArray keys) {
+        if (keys == null) return java.util.List.of();
+        java.util.List<NineKeyShuangpinKeypad.Face> faces = new java.util.ArrayList<>(keys.length());
+        for (int index = 0; index < keys.length(); index++) {
+            JSONObject key = keys.optJSONObject(index);
+            String digit = key == null ? "" : key.optString("key", "");
+            if (digit.length() != 1) continue;
+            faces.add(new NineKeyShuangpinKeypad.Face(digit.charAt(0), strings(key.optJSONArray("initials")),
+                strings(key.optJSONArray("finals")), key.optBoolean("zero_initial", false)));
+        }
+        return java.util.List.copyOf(faces);
+    }
+
+    private static java.util.List<String> strings(JSONArray values) {
+        if (values == null) return java.util.List.of();
+        java.util.List<String> result = new java.util.ArrayList<>(values.length());
+        for (int index = 0; index < values.length(); index++) {
+            String value = values.optString(index, "");
+            if (!value.isEmpty()) result.add(value);
+        }
+        return result;
     }
 
     void enter() {
@@ -8480,8 +8559,10 @@ public final class MSIMEInputService extends InputMethodService {
         // 设置页改了九键左侧符号栏的符号：同样按新的符号表重建。
         // 中文标点开关在 123 / #+= 层上切换了（工具面板、设置页、Ctrl + .）：这一层的标点按新状态重画。
         // 设置页开关了「数字行」：按新状态重建。
+        // 拼音九键和九键双拼之间换了、或九键双拼换了表：同一个触屏布局，按新键面重建。
         if (imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()
-                || imeLetterRows.layerPunctuationStale() || imeLetterRows.numberRowStale())
+                || imeLetterRows.layerPunctuationStale() || imeLetterRows.numberRowStale()
+                || imeLayoutRows.shuangpinStale())
             imeLetterRows.rebuildKeyRows();
         updateSymbolKeyFaces();
         updateLetterCornerHints();

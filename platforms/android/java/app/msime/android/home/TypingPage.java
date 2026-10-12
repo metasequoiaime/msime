@@ -14,6 +14,7 @@ import app.msime.android.HttpBodyPolicy;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.NativeClient;
+import app.msime.android.NineKeyShuangpinKeypad;
 import app.msime.android.JsonPolicy;
 import app.msime.android.ResourcePackService;
 import app.msime.android.ResourcePacks;
@@ -61,7 +62,8 @@ public final class TypingPage extends ReloadingDetailPage {
     private enum Language {
         MANDARIN("汉", "普通话", KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_FOURTEEN_KEY,
             KeyboardScheme.QUANPIN_NINE_KEY, KeyboardScheme.XIAOHE,
-            KeyboardScheme.ZIRANMA, KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO, KeyboardScheme.WUBI,
+            KeyboardScheme.ZIRANMA, KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO,
+            KeyboardScheme.NINE_KEY_SHUANGPIN, KeyboardScheme.WUBI,
             KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY, KeyboardScheme.STROKE, KeyboardScheme.HANDWRITING),
         CANTONESE("粤", "粤语", KeyboardScheme.CANTONESE),
         JAPANESE("あ", "日语", KeyboardScheme.JAPANESE, KeyboardScheme.JAPANESE_NINE_KEY),
@@ -503,6 +505,25 @@ public final class TypingPage extends ReloadingDetailPage {
                     return next;
                 });
             }
+            if (offered.contains(KeyboardScheme.NINE_KEY_SHUANGPIN)) {
+                // 九键双拼是一种键盘加一张表：子菜单选表（选中即切到九键双拼键盘），自定义表在「九键双拼」页里编辑、导入和导出。
+                String table = NineKeyShuangpinKeypad.normalizedProfile(InputViewValuePolicy.textOr(preferences,
+                    "nine_key_shuangpin_profile", NineKeyShuangpinKeypad.DEFAULT_PROFILE));
+                boolean nineKeyShuangpin = applied == KeyboardScheme.NINE_KEY_SHUANGPIN;
+                boolean customSaved = preferences.optJSONObject("nine_key_shuangpin_custom_profile") != null;
+                sheet.submenu("九键双拼（" + NineKeyShuangpinKeypad.profileTitle(table) + "）", nineKeyShuangpin, () -> {
+                    OptionSheet next = new OptionSheet(context, "九键双拼", "选择九键双拼的表");
+                    for (String option : NineKeyShuangpinKeypad.BUILTIN_PROFILES)
+                        next.option(NineKeyShuangpinKeypad.profileTitle(option), nineKeyShuangpin && option.equals(table),
+                            () -> applyNineKeyShuangpin(option));
+                    if (customSaved)
+                        next.option("自定义", nineKeyShuangpin && NineKeyShuangpinKeypad.CUSTOM_PROFILE.equals(table),
+                            () -> applyNineKeyShuangpin(NineKeyShuangpinKeypad.CUSTOM_PROFILE));
+                    next.option("编辑自定义表…", false,
+                        () -> SettingsNavigator.open(context, PageId.NINE_KEY_SHUANGPIN, null));
+                    return next;
+                });
+            }
             if (offered.contains(KeyboardScheme.WUBI)) {
                 String profile = KeyboardScheme.normalizedWubiProfile(
                     InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
@@ -535,6 +556,24 @@ public final class TypingPage extends ReloadingDetailPage {
             sheet.destructive("移除" + language.title, () -> removeLanguage(language));
         }
         sheet.show();
+    }
+
+    /** 切到九键双拼键盘，并选用 `table` 这张表。 */
+    private void applyNineKeyShuangpin(String table) {
+        HostTask.run(this, context -> {
+            JSONObject pending = SchemePreferences.withScheme(HostStore.loadPreferences(context),
+                KeyboardScheme.NINE_KEY_SHUANGPIN, null);
+            if (pending == null) return null;
+            try {
+                pending.getJSONObject("preferences").put("nine_key_shuangpin_profile", table);
+            } catch (JSONException error) {
+                return null;
+            }
+            return HostStore.savePreferences(context, pending);
+        }, saved -> {
+            if (saved == null) MsToast.show(requireContext(), "切换失败，保留当前方案");
+            reload();
+        });
     }
 
     private static String shuangpinName(KeyboardScheme scheme) {

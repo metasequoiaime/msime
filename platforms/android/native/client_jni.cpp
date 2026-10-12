@@ -419,6 +419,11 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_shuangpinKeyHin
     return bounded_request(env, profile, kShuangpinProfileLimit,
         msime_client_shuangpin_key_hints);
 }
+// 九键双拼的表、问题和键面（msime_client_nine_key_shuangpin_layout）；请求是方案名加一张小表，与 host-api 的上限一致。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_nineKeyShuangpinLayoutRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kSmallJsonRequestLimit,
+        msime_client_nine_key_shuangpin_layout);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_savePreferencesRaw(JNIEnv *env, jclass, jbyteArray directory, jlong expected_revision, jbyteArray snapshot) {
     if (!directory || !snapshot || expected_revision < 0) {
         return response(env, msime_client_save_preferences(nullptr, 0, 0, nullptr, 0));

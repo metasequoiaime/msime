@@ -29,6 +29,8 @@ public final class NativeClient {
     private static final int ENGLISH_COMPLETION_RESOURCES_LIMIT = 4 * 1024;
     private static final int SHUANGPIN_PROFILE_LIMIT = 64;
     private static final int SHUANGPIN_HINT_RESPONSE_LIMIT = 65_536;
+    /** 与 `client_jni.cpp` 的 `kSmallJsonRequestLimit` 一致。 */
+    private static final int NINE_KEY_SHUANGPIN_REQUEST_LIMIT = 16 * 1024;
     private static final int SMART_PUNCTUATION_REQUEST_LIMIT = 4_096;
     private static final int GLIDE_REQUEST_LIMIT = 65_536;
     /** An imported word list is the one request here that carries a whole file. */
@@ -332,6 +334,19 @@ public final class NativeClient {
         byte[] result = shuangpinKeyHintsRaw(profileBytes);
         if (!HttpBodyPolicy.isWithinLimit(result, SHUANGPIN_HINT_RESPONSE_LIMIT))
             throw new IllegalStateException("Double-pinyin hint response is too large");
+        return TextPolicy.utf8(result);
+    }
+    /**
+     * 九键双拼方案的表、用户表的问题和每个数字键的键面（`msime_client_nine_key_shuangpin_layout`）。`request` 是 `{"profile": ..., "table"?: ...}`；不碰文件也不用会话句柄，键盘和设置页的编辑器都从这里取键位，不另存一份。
+     */
+    public static String nineKeyShuangpinLayout(String request) {
+        if (request == null) throw new IllegalArgumentException("Missing nine-key shuangpin request");
+        byte[] bytes = request.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length == 0 || bytes.length > NINE_KEY_SHUANGPIN_REQUEST_LIMIT)
+            throw new IllegalArgumentException("Nine-key shuangpin request is too large");
+        byte[] result = nineKeyShuangpinLayoutRaw(bytes);
+        if (result == null || result.length > SHUANGPIN_HINT_RESPONSE_LIMIT)
+            throw new IllegalStateException("Nine-key shuangpin response is too large");
         return TextPolicy.utf8(result);
     }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
@@ -810,6 +825,7 @@ public final class NativeClient {
     private static native byte[] doubaoAudioFrameRaw(int sequence, byte[] pcm, int length,
         boolean finalChunk);
     private static native byte[] shuangpinKeyHintsRaw(byte[] profile);
+    private static native byte[] nineKeyShuangpinLayoutRaw(byte[] request);
     private static native byte[] savePreferencesRaw(byte[] directory, long expectedRevision, byte[] snapshot);
     private static native byte[] personalDictionarySyncRaw(byte[] options);
     private static native byte[] focusRaw(long session, boolean focused);
