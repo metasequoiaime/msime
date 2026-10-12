@@ -54,30 +54,32 @@ public final class CloudClipboardRelayDeviceSmoke extends Instrumentation {
         File keysB = new File(getTargetContext().getNoBackupFilesDir(), "cloud-clipboard-relay-smoke-b");
         File keysC = new File(getTargetContext().getNoBackupFilesDir(), "cloud-clipboard-relay-smoke-c");
         File keysJ = new File(getTargetContext().getNoBackupFilesDir(), "cloud-clipboard-relay-smoke-j");
+        int code;
         try (Relay relay = new Relay()) {
             sealer = smokeSealer();
             run(relay, scratch, keysA, keysB, keysC, keysJ);
             result.putString("stream",
                 "MSIME_DEVICE_SMOKE_PASSED: cloud clipboard relay over JNI: source, prefix, bearer token, register, approve, encrypted add, list, pin, delete, unauthorized and unavailable; through CloudClipboardRelay, CloudClipboardApi and BackendAccount: AndroidKeyStore-sealed keystore, exchange, keyboard route, settings overview, approve, remove, pin, retention, delete, clear, relay_changed, unauthorized and unavailable\n");
-            finish(Activity.RESULT_OK, result);
+            code = Activity.RESULT_OK;
         } catch (Exception | AssertionError | LinkageError error) {
             result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: cloud clipboard relay ("
                 + error.getClass().getSimpleName() + ": " + error.getMessage() + ")\n");
-            finish(Activity.RESULT_CANCELED, result);
-        } finally {
+            code = Activity.RESULT_CANCELED;
+        }
+        // 先清理再 finish：finish 之后进程随时会被结束，放在 finally 里的清理常常来不及跑，临时密钥串目录和冒烟密钥就留在了设备上。
+        try {
             delete(scratch);
             delete(keysA);
             delete(keysB);
             delete(keysC);
             delete(keysJ);
-            try {
-                java.security.KeyStore store = java.security.KeyStore.getInstance("AndroidKeyStore");
-                store.load(null);
-                store.deleteEntry(SMOKE_KEY);
-            } catch (Exception ignored) {
-                // 删不掉的冒烟密钥只是 AndroidKeyStore 里一个不再用的条目。
-            }
+            java.security.KeyStore store = java.security.KeyStore.getInstance("AndroidKeyStore");
+            store.load(null);
+            store.deleteEntry(SMOKE_KEY);
+        } catch (Exception | LinkageError cleanup) {
+            result.putString("stream", result.getString("stream") + "cleanup failed: " + cleanup.getClass().getSimpleName() + "\n");
         }
+        finish(code, result);
     }
 
     private static void run(Relay relay, File scratch, File keysA, File keysB, File keysC, File keysJ)
