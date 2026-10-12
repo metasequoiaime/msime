@@ -123,8 +123,8 @@ public final class CloudClipboardDriverDeviceSmoke extends Instrumentation {
         @Override public void delete() { value = null; }
     }
 
-    /** 按协议文档写的假服务端，只做驱动用得到的几个接口。 */
-    private static final class Server implements CloudClipboardE2e.Transport {
+    /** 按协议文档写的假服务端，只做驱动用得到的几个接口。中继的设备冒烟（{@link CloudClipboardRelayDeviceSmoke}）把它放在回环 HTTP 后面再用一次。 */
+    static final class Server implements CloudClipboardE2e.Transport {
         final Map<String, JSONObject> devices = new LinkedHashMap<>();
         final Map<String, String> wraps = new LinkedHashMap<>();
         final List<JSONObject> items = new ArrayList<>();
