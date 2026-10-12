@@ -9,6 +9,7 @@ import { InputModeHudSection } from "./input-mode-hud-section";
 import { LearningSection } from "./learning-section";
 import { MixedInputSection, type MixedInputPreferences } from "./mixed-input-section";
 import { SingleCharacterOnlySection } from "./single-character-only-section";
+import { SwitchRow } from "./switch-row";
 import { TraditionalChineseOutputSection } from "./traditional-chinese-output-section";
 import {
   WordCharacterSection,
@@ -23,6 +24,8 @@ export interface InputSharedSettingsSectionProps {
   frequency: FrequencyPreferences;
   ios: boolean;
   showInputModeHUD: boolean;
+  /** macOS 菜单栏的输入模式状态项开关，跟在中英文切换提示之后。 */
+  showInputModeStatusItem?: boolean;
   showModeScope: boolean;
   /** 中英混输、emoji 和颜文字混输，放在「候选与联想」组的云候选之后。 */
   mixedInput?: MixedInputPreferences;
@@ -51,6 +54,7 @@ export function InputSharedSettingsSection({
   frequency,
   ios,
   showInputModeHUD,
+  showInputModeStatusItem = false,
   showModeScope,
   mixedInput,
   onMixedInputChange,
@@ -115,6 +119,14 @@ export function InputSharedSettingsSection({
           <InputModeHudSection
             value={preferences.input_mode_hud}
             onChange={(input_mode_hud) => onPreferencesChange({ input_mode_hud })}
+          />
+        )}
+        {showInputModeStatusItem && (
+          <SwitchRow
+            title="菜单栏显示中/英状态"
+            description="在菜单栏常驻显示当前模式：中文时是所用方案（中、双、五、日等），英文时是「英」。不需要把「英」加成系统输入源，关掉切换提示后也能随时看到。中英文按应用记忆时，切到没有输入框的应用后，这里显示的仍是上一个应用的状态。"
+            checked={preferences.input_mode_status_item ?? false}
+            onChange={(input_mode_status_item) => onPreferencesChange({ input_mode_status_item })}
           />
         )}
         {modeExtra}

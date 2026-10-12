@@ -1675,6 +1675,8 @@ export interface HostCapabilities {
   candidate_corner_radius: boolean;
   candidate_follow_cursor: boolean;
   input_mode_hud: boolean;
+  /** 宿主在系统菜单栏放一个常驻状态项显示当前输入模式。只有 macOS 提供：Windows 有托盘语言栏，Linux 有输入法面板，触屏键盘的键面已显示模式。 */
+  input_mode_status_item: boolean;
   candidate_english_font: boolean;
   english_suggestions: boolean;
   helpcode_shift_entry: boolean;
@@ -1859,6 +1861,8 @@ export type Preferences = {
   candidate_follow_cursor?: boolean;
   /** 切换中英文后在光标旁短暂显示的徽标（macOS、Windows、Linux 和鸿蒙 2in1）。 */
   input_mode_hud?: boolean;
+  /** macOS 菜单栏里常驻显示当前输入模式（中/双/五/日……，英文时为「英」）的状态项，默认关闭。 */
+  input_mode_status_item?: boolean;
   candidate_font_family?: string;
   candidate_english_font?: string | null;
   candidate_fallback_fonts?: string[];
@@ -2477,6 +2481,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
     showInputModeHUD,
+    showInputModeStatusItem,
     showVoiceCaptureDevices,
     showDesktopMaintenanceShortcuts,
     showFullwidthChord,
@@ -3018,6 +3023,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
     showInputModeHUD,
+    showInputModeStatusItem,
     showVoiceCaptureDevices,
     showFullwidthChord,
     fullwidthChord,
