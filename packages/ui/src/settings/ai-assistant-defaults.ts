@@ -1,4 +1,5 @@
 import type { AiAssistantPreferences } from "../index";
+import { deepseekChatEndpoint } from "../core/provider-resources";
 
 /** Instruction used by the AI polish test, separate from the candidate prompt. */
 export const aiPolishTestPrompt = "请润色以下文字，保持原意，只返回修改后的文字。";
@@ -8,7 +9,7 @@ export const defaultAiAssistant: AiAssistantPreferences = {
   enabled: false,
   provider: "deepseek",
   model: "deepseek-v4-flash",
-  endpoint: "https://api.deepseek.com/chat/completions",
+  endpoint: deepseekChatEndpoint,
   candidate_limit: 3,
   token: "",
   tokens: {},

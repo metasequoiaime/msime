@@ -14,7 +14,7 @@
  * a request actually sends is still whatever is stored in preferences.
  */
 import { fillProviderDefaults, known, swapTokenSlot, type TokenMap } from "./provider-helpers";
-import { everyApiModelsUrl } from "../core/provider-resources";
+import { deepseekChatEndpoint, everyApiModelsUrl } from "../core/provider-resources";
 
 export type ProviderDefaults = {
   endpoint: string;
@@ -111,7 +111,7 @@ export const POLISH_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
     documentation: "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
   },
   deepseek: {
-    endpoint: "https://api.deepseek.com/chat/completions",
+    endpoint: deepseekChatEndpoint,
     model: "deepseek-v4-flash",
     models: ["deepseek-v4-flash", "deepseek-v4-pro"],
     documentation: "https://api-docs.deepseek.com/",

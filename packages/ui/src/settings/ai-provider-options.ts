@@ -1,4 +1,4 @@
-import { everyApiModelsUrl } from "../core/provider-resources";
+import { deepseekChatEndpoint, everyApiModelsUrl } from "../core/provider-resources";
 
 /**
  * `models` are the models the provider is known to accept and `documentation`
@@ -48,7 +48,7 @@ export const AI_PROVIDER_OPTIONS: readonly {
   {
     id: "deepseek",
     title: "DeepSeek",
-    endpoint: "https://api.deepseek.com/chat/completions",
+    endpoint: deepseekChatEndpoint,
     model: "deepseek-v4-flash",
     models: ["deepseek-v4-flash", "deepseek-v4-pro"],
     documentation: "https://api-docs.deepseek.com/",
