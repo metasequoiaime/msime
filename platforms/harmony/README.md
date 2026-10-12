@@ -2,20 +2,22 @@
 
 ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用、账号、社区、AI、语音、手写、候选与词库都在本目录内。能力对照见 [docs/harmony-parity.md](../../docs/harmony-parity.md)：用什么方法比过 MSIME-Apple、哪些是按平台特性裁剪而不是欠账。
 
-## 输入法扩展的独立沙箱（已知问题，修复待定）
+## 输入法扩展的独立沙箱与共享沙箱镜像
 
 **从 API 12（OpenHarmony 5.0.0.38）起，输入法扩展进程使用独立沙箱，与设置应用（UIAbility）互相看不到对方的 `files/`。** 华为「输入法安全模式介绍」原文：「输入法扩展使用独立沙箱，与应用主入口不可互相访问对方的独立沙箱。」ExtensionAbility 类型表里，「是否有独立 Extension 沙箱」一栏对 `inputMethod` 是「是」。两个进程拿到的路径字符串相同（`/data/storage/el2/base/haps/entry/files`），背后是两个不同的目录。
 
 2026-10-09 在 HarmonyOS 6.0.2(22) 模拟器上实测：设置应用的 `files/state` 里有 `typing-statistics.json`、`account-session.json`、`key-feedback.json`、`CustomSkins`；键盘进程的 `files/state` 里一样都没有，另有它自己的 `preferences.json`、`CommonPhrases.json`、`PersonalDictionary`、`emoji_recents.json`。
 
-所以本文中凡是写「设置应用和键盘两个进程共用 `files/state` 里同一个文件」的地方，在 API 12 及以上都不成立。上面的实测是手机模拟器；2in1 没有单独实测，但华为的说明针对的是 `inputMethod` 扩展类型本身，不分设备形态，所以按同样不成立处理。可见的后果：
+所以本文中凡是写「设置应用和键盘两个进程共用 `files/state` 里同一个文件」的地方，在 API 12 及以上都不成立，两个进程各有一份。上面的实测是手机模拟器；2in1 没有单独实测，但华为的说明针对的是 `inputMethod` 扩展类型本身，不分设备形态，所以按同样不成立处理。没有共享沙箱时（签名不带 data-group-id、在模拟器上）可见的后果：
 
 - 设置页的改动（输入方案、按键反馈、自定义皮肤）不会传到键盘，键盘只读它自己那份 `preferences.json`。
 - 键盘看不到设置应用里的登录会话：键盘里的云剪贴板等账号功能按未登录处理。
 - 打字统计：设置页打开统计只改了设置应用那份文件，键盘那份仍是默认的关闭状态，每次上屏计 0 个字。
 - 插件（2in1）：插件页把包和 `mentions.json` 装进设置应用自己的 `files/state/plugins`，键盘读的是它自己沙箱里的 `plugins/`，所以从设置页导入的符号集、音效、音乐、指令表、短语表、辅助码和特效包在键盘里都看不到；选用哪个包写在共享偏好里，同样传不到键盘。背单词在设置进程里运行，读的就是设置应用那份目录，单词本插件不受影响。
 
-官方提供的共享方式是「共享沙箱」：两边在签名 profile 和键盘扩展的 `module.json5` `dataGroupIds` 里登记同一个 `data-group-id`，都用 `context.getGroupDir(id)` 读写；基础模式下键盘对共享沙箱只读，完整体验模式下可读写。这个 ID 要在 AppGallery Connect「开放能力管理」里申请「输入法应用内数据共享」，审核通过后重新生成签名 profile（自动签名不支持这项能力）。申请和改造的计划见 `.agents/notes/proposed/architecture/2026-10-09-harmony-ime-shared-sandbox.md`。在此之前，不签名的开发包没有办法让两个进程共享任何文件。
+官方提供的共享方式是「共享沙箱」：签名 Profile 和键盘扩展 `module.json5` 的 `dataGroupIds` 登记同一个 data-group-id，两个进程用 `context.getGroupDir(id)` 拿到同一个目录；基础访问模式下键盘对它只读，完整体验模式下可读写。本宿主的 ID 是 AppGallery Connect 签发的 `group.1516753898738609107`（代码里在 `keyboard/SharedStateMirror.ets` 的 `DATA_GROUP_ID`）。签名 Profile 必须在 AGC 网页端「证书、APP ID和Profile › Profile › 新增」手动新建，DevEco 自动签名不会写入这项授权；新建后用 `strings <profile>.p7b | grep data-group-ids` 确认带着这个 ID。模拟器不做这项授权校验，只能在真机上验证。
+
+两个进程并不直接共用共享目录，而是各自保留私有的 `files/state`，经共享目录镜像对方要看到的那部分：设置应用改完设置后把偏好、按键反馈、应用主题、统计开关、皮肤、插件、社区回复库（完整体验模式下还有账号会话）发布到 `<共享目录>/msime/settings/`，键盘在启动和每次获得焦点时导入；完整体验模式下键盘把它改的偏好、刷新过的会话和打字统计发布到 `<共享目录>/msime/keyboard/`，设置窗口回到前台时导入。不直接共用的原因、条目表和冲突规则见 `.agents/notes/implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md`。基础访问模式下是单向的：键盘工具栏里改的设置会被设置应用下次的改动覆盖，统计计数和登录会话不交换。
 
 OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享输入算法、组合状态、配置校验和资源准备继续由 Rust Host API 与 Rust Engine（`crates/engine`）提供；`platforms/harmony/native/client_napi.cpp` 只负责 NAPI 注册和 C ABI 转发，不复制候选分页或输入状态机。
 

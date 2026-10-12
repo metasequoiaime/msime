@@ -21,5 +21,5 @@ Status: implemented
 
 - **收益**：社区皮肤、获取过的设计和保存的设计都能在皮肤页直接换上。
 - **代价**：每次回到皮肤网格都会请求一次社区列表。
-- **代价**：键盘里的皮肤面板仍然列不出它们：API 12 起键盘进程看不到设置应用的 `files/`，要等共享沙箱（`.agents/notes/proposed/architecture/2026-10-09-harmony-ime-shared-sandbox.md`）。
+- **代价**：键盘里的皮肤面板仍然列不出它们：API 12 起键盘进程看不到设置应用的 `files/`，要等共享沙箱（`.agents/notes/implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md`）。
 - 「社区」标签页后来去掉了，完整的社区皮肤图库改由网格下方的「浏览更多皮肤」在皮肤页上打开，见 [触屏设置去掉「社区」标签页](2026-10-11-touch-community-merged-into-feature-pages.md)。
