@@ -21,3 +21,6 @@
 {"seq": 21, "event": "before_commit", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: too many changes"}]}
 {"seq": 22, "event": "before_commit", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: too long"}]}
 {"seq": 23, "event": "before_commit", "status": "ok", "actions": [{"import": "rewrite_commit", "result": "ok"}], "log": [{"level": "debug", "text": "中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a テ a"}]}
+{"seq": 24, "event": "before_commit", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: address"}]}
+{"seq": 25, "event": "before_commit", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: address"}]}
+{"seq": 26, "event": "before_commit", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "skip: address"}]}

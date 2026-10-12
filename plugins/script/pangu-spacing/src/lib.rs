@@ -18,13 +18,13 @@ use msime_script::{commit, event, hook, log, rewrite, Error};
 const MAX_BODY: usize = 1024;
 /// 空格只插在两个字符之间，插入点少于字符数，结果不超过原文的两倍。
 const MAX_OUT: usize = 2 * MAX_BODY;
-/// 字节种类变化的次数上限，超过就整段放弃。一段夹着英文单词的中文，每个单词两次；`:`、`.`、`@` 各两次。正常输入的一次上屏远到不了这个数，汉字和字母逐个交替的病态输入才会。它和 [`MAX_BODY`] 一起给出最坏情况的 fuel：扫满 1024 字节约 17 000，每次变化连同插空格约 300，旁边是假名、注音（所在的块要完整解码，见 [`cjk_exact`]）时约 420，最坏约 43 800。
+/// 字节种类变化的次数上限，超过就整段放弃。一段夹着英文单词的中文，每个单词两次；`:`、`.`、`@` 各两次（`/`、`\`、`?`、`=` 一出现就整段放弃，不计）。正常输入的一次上屏远到不了这个数，汉字和字母逐个交替的病态输入才会。它和 [`MAX_BODY`] 一起给出最坏情况的 fuel：扫满 1024 字节约 17 000，每次变化连同插空格约 300，旁边是假名、注音（所在的块要完整解码，见 [`cjk_exact`]）时约 420，最坏约 43 800。
 const MAX_CHANGES: u32 = 64;
 
 static mut BODY: [u8; MAX_BODY] = [0; MAX_BODY];
 static mut OUT: [u8; MAX_OUT] = [0; MAX_OUT];
 
-/// 字节的种类：普通 ASCII、可能属于网址或邮箱的 ASCII 标点（`:`、`.`、`@`）、多字节字符的字节。
+/// 字节的种类：普通 ASCII、可能属于网址、邮箱或路径的 ASCII 标点（`:`、`.`、`@`、`/`、`\`、`?`、`=`）、多字节字符的字节。
 const PLAIN: u8 = 0;
 const MARK: u8 = 1;
 const WIDE: u8 = 2;
@@ -34,7 +34,7 @@ static KIND: [u8; 256] = {
     let mut b = 0;
     while b < 128 {
         table[b] = match b as u8 {
-            b':' | b'.' | b'@' => MARK,
+            b':' | b'.' | b'@' | b'/' | b'\\' | b'?' | b'=' => MARK,
             _ => PLAIN,
         };
         b += 1;
@@ -186,14 +186,15 @@ impl Spacer {
     }
 }
 
-/// `body[i]` 是 `:`、`.` 或 `@`：它是不是网址或邮箱的一部分。`://`、`www.`（不分大小写）、两边都是 ASCII 字母数字的 `@` 都算。宁可错过加空格的机会，也不在网址里插空格。
+/// `body[i]` 是 [`MARK`] 类的 ASCII 标点：它是不是网址、邮箱或路径的一部分。`://`、`www.`（不分大小写）、两边都是 ASCII 字母数字的 `@` 都算；`/`、`\`、`?`、`=` 一出现就算，`example.com/a`、`C:\Users`、`?q=` 这类不带协议头的网址、路径和查询串没有可靠的边界，整段放弃。宁可错过加空格的机会，也不在网址或路径里插空格。
 #[inline(never)]
 fn is_address(body: &[u8], i: usize) -> bool {
     let at = |k: usize| body.get(k).copied().unwrap_or(0);
     match body[i] {
         b':' => at(i + 1) == b'/' && at(i + 2) == b'/',
         b'.' => i >= 3 && body[i - 3..i].eq_ignore_ascii_case(b"www"),
-        _ => i > 0 && at(i - 1).is_ascii_alphanumeric() && at(i + 1).is_ascii_alphanumeric(),
+        b'@' => i > 0 && at(i - 1).is_ascii_alphanumeric() && at(i + 1).is_ascii_alphanumeric(),
+        _ => true,
     }
 }
 

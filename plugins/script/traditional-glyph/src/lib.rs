@@ -284,7 +284,7 @@ fn single(chars: &Chars, out: &mut [u8; OUT_BUFFER]) -> usize {
     joined.len()
 }
 
-/// 写出的结果不超过 32 个 UTF-16 码元。只有写出了四字节字符才需要逐字数。
+/// 写出的结果不超过 32 个 UTF-16 码元。只有写出了四字节字符（表里的值或原样写出的字）才需要逐字数。
 fn fits(chars: &Chars) -> bool {
     chars.all & OUT_WIDE == 0 || count_units(chars) <= MAX_UNITS
 }
@@ -491,7 +491,12 @@ fn write_first(base: u64, bytes: u32, entry: u32, out: &mut [u8; OUT_BUFFER], at
             | (u64::from(table::changes(entry, 0)) * CHANGED);
         (value, flags)
     } else {
-        (bytes, ((base >> SIZE_SHIFT & 7) - 1) << OUT_SHIFT)
+        // 原样写出的四字节字符（emoji、不在表里的辅助平面字）在 UTF-16 里也占两个码元，同样要让 fits 逐字数。
+        let size = base >> SIZE_SHIFT & 7;
+        (
+            bytes,
+            ((size - 1) << OUT_SHIFT) | (u64::from(size == 4) * OUT_WIDE),
+        )
     };
     // SAFETY: 调用方保证 at 不超过 (MAX_UNITS - 1) * 4，缓冲多留了 4 个字节。多写的字节会被下一个字覆盖，或者落在有效长度之外。
     unsafe {

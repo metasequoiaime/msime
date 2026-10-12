@@ -36,3 +36,4 @@
 {"seq": 36, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "ann none (budget)"}]}
 {"seq": 37, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "ann none (budget)"}]}
 {"seq": 38, "event": "candidates", "status": "ok", "actions": [], "log": [{"level": "debug", "text": "ann none (budget)"}]}
+{"seq": 39, "event": "candidates", "status": "ok", "actions": [{"import": "candidates_annotate", "result": "ok"}], "log": [{"level": "debug", "text": "ann 1:發/髮"}]}
