@@ -22,6 +22,7 @@ Status: proposed
 3. 两个进程都用 `context.getGroupDir(id)` 得到共享目录，原先放在 `files/state` 里、需要两边都看到的东西改放到那里：偏好、登录会话、按键反馈、自定义皮肤库、打字统计、遥测队列、社区回复库，以及插件目录 `plugins/`（含 `@` 名单 `mentions.json`）：设置应用导入的音效包、指令表、短语表、辅助码表、特效包和符号集只有放在这里，键盘才读得到。只属于键盘自己的数据（常用语、个人词库、表情记录、剪贴板历史）留在键盘自己的沙箱。
 4. 基础访问模式下键盘对共享沙箱只读，完整体验模式下可读写。用 `inputMethodEngine` 的 `getSecurityMode()` 判断当前模式、监听 `securityModeChange`；只读时，键盘需要写的数据（统计计数、遥测）不写，统计页如实提示需要完整体验模式。
 5. `getGroupDir` 返回空（没有 ID 的开发包、签名不带 ID）时退回各自的 `files/state`，行为与现在相同。宿主在能力里报告 `harmony_shared_sandbox: false` 并写日志，但设置页不对用户提示：这是签名和开发上的状态，用户对它无能为力。曾经在每个设置页顶部放过一条「当前 HarmonyOS 构建未启用输入法共享沙箱……」的警告，用户看过之后要求去掉。
+6. 插件目录共享之后，在共享的 `HelpcodeSettingsGroup`（`packages/ui/src/settings/pages/helpcode-page.tsx`）加「导入辅助码表」行，经 `SettingsClient.plugins` 调 `msime_client_plugins` 的 `import_helpcode_table` action，鸿蒙手机和鸿蒙电脑由此得到导入单个 `.txt` 码表的入口（见 [移动端导入单个辅助码表](../../implemented/feature/2026-10-12-mobile-helpcode-table-import.md)）。
 
 ## Alternatives considered
 
