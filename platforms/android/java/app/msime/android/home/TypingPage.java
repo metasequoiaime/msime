@@ -290,21 +290,21 @@ public final class TypingPage extends ReloadingDetailPage {
         InputFeatureToggle spacing = InputFeatureToggle.CHINESE_ENGLISH_SPACING;
         chinese.toggle(spacing.title(), spacing.description(),
             preferences.optBoolean(spacing.key(), spacing.enabledByDefault()),
-            checked -> save(values -> values.put(spacing.key(), checked)));
+            checked -> savePreferences(values -> values.put(spacing.key(), checked)));
         JSONObject quanpin = preferences.optJSONObject("quanpin");
         boolean autocorrect = quanpin == null || (quanpin.optBoolean("autocorrect_transposition", true)
             && quanpin.optBoolean("autocorrect_neighbor", true));
         chinese.toggle("拼音纠错", "纠正相邻键误触和字母顺序颠倒", autocorrect, this::saveAutocorrect);
         JSONObject fuzzy = preferences.optJSONObject("fuzzy_pinyin");
         chinese.toggle("模糊音", "如 z/zh、an/ang 不分", fuzzy != null && fuzzy.optBoolean("enabled", false),
-            checked -> save(values -> KeyboardSheets.child(values, "fuzzy_pinyin").put("enabled", checked)));
+            checked -> savePreferences(values -> KeyboardSheets.child(values, "fuzzy_pinyin").put("enabled", checked)));
         InputFeatureToggle single = InputFeatureToggle.SINGLE_CHARACTER_ONLY;
         chinese.toggle(single.title(), single.description(),
             preferences.optBoolean(single.key(), single.enabledByDefault()),
-            checked -> save(values -> values.put(single.key(), checked)));
+            checked -> savePreferences(values -> values.put(single.key(), checked)));
         InputFeatureToggle cloud = InputFeatureToggle.CLOUD_CANDIDATES;
         chinese.toggle(cloud.title(), cloud.description(), preferences.optBoolean(cloud.key(), cloud.enabledByDefault()),
-            checked -> save(values -> values.put(cloud.key(), checked)));
+            checked -> savePreferences(values -> values.put(cloud.key(), checked)));
         // 临时日语读日文词典；词典没在本机时 host-api 会关掉它，键盘菜单里也置灰，这里给出下载入口。和桌面一样，不会因为它自己去下载。
         if (edition.temporaryJapanese() && !state.packs().contains(KeyboardScheme.JAPANESE_PACK)) {
             packRow(chinese, state, "临时日语", "用 R 键临时输入日语要用日文词典", ResourcePacks.JAPANESE);
@@ -335,14 +335,14 @@ public final class TypingPage extends ReloadingDetailPage {
         InputFeatureToggle translations = InputFeatureToggle.CANDIDATE_TRANSLATIONS;
         translation.toggle("候选词翻译", "为候选词附上译文；联网翻译用哪个服务在下面的「翻译服务」里选",
             preferences.optBoolean(translations.key(), translations.enabledByDefault()),
-            checked -> save(values -> values.put(translations.key(), checked)));
+            checked -> savePreferences(values -> values.put(translations.key(), checked)));
         translation.nav("翻译服务", "离线释义查不到的词用它补上译文", null,
             () -> SettingsNavigator.open(requireContext(), PageId.TRANSLATION_SERVICE, null));
         InputFeatureToggle gloss = InputFeatureToggle.CANDIDATE_ENGLISH_GLOSS;
         boolean glossOn = preferences.optBoolean(gloss.key(), gloss.enabledByDefault());
         String targetLanguage = InputViewValuePolicy.textOr(preferences, "translation_target_language", "en");
         translation.toggle("离线英文释义", "给候选词标注离线释义；英语释义随应用自带，其他目标语言要下载离线释义词典",
-            glossOn, checked -> save(values -> values.put(gloss.key(), checked),
+            glossOn, checked -> savePreferences(values -> values.put(gloss.key(), checked),
                 () -> { if (checked) ensureGlosses(targetLanguage, state); }));
         translation.nav("翻译目标语言", null, labelOf(List.of(TARGET_LANGUAGES), targetLanguage),
             () -> pickTargetLanguage(targetLanguage, glossOn, state));
@@ -579,7 +579,7 @@ public final class TypingPage extends ReloadingDetailPage {
         AppEdition edition = AppEdition.current();
         String pack = scheme.installed(state.languageDictionaries(), state.packs()) ? null : scheme.resourcePack();
         long size = pack == null ? 0 : packSize(state, pack);
-        save(preferences -> {
+        savePreferences(preferences -> {
             List<String> ids = effectiveIds(preferences, edition);
             if (!ids.contains(scheme.preferenceId())) ids.add(scheme.preferenceId());
             KeyboardSheets.child(preferences, "touch_keyboard_schemes").put("enabled", new JSONArray(ids));
@@ -636,13 +636,13 @@ public final class TypingPage extends ReloadingDetailPage {
     private void pickCharset(boolean traditional) {
         OptionSheet sheet = new OptionSheet(requireContext(), "中文字符集", null);
         String key = InputFeatureToggle.TRADITIONAL_OUTPUT.key();
-        sheet.option("简体", !traditional, () -> save(values -> values.put(key, false)));
-        sheet.option("繁体", traditional, () -> save(values -> values.put(key, true)));
+        sheet.option("简体", !traditional, () -> savePreferences(values -> values.put(key, false)));
+        sheet.option("繁体", traditional, () -> savePreferences(values -> values.put(key, true)));
         sheet.show();
     }
 
     private void saveAutocorrect(boolean checked) {
-        save(values -> {
+        savePreferences(values -> {
             JSONObject quanpin = KeyboardSheets.child(values, "quanpin");
             quanpin.put("autocorrect_transposition", checked);
             quanpin.put("autocorrect_neighbor", checked);
@@ -681,7 +681,7 @@ public final class TypingPage extends ReloadingDetailPage {
     /** 在方案列表里选了 `value`（内置方案 id 或 `pack:<id>`），规则见 {@link HelpcodeChoicePolicy#choose}；只改 `plugins` 里这一个键，按键音包等其他键保留。 */
     private void chooseHelpcode(String family, boolean shuangpin, String value, String selectedPack) {
         HelpcodeChoicePolicy.Change change = HelpcodeChoicePolicy.choose(value, selectedPack);
-        save(values -> {
+        savePreferences(values -> {
             if (change.schema() != null) helpcodeObject(values, family, shuangpin).put("schema", change.schema());
             if (change.pack() != null) {
                 KeyboardSheets.child(values, "plugins").put(HelpcodeChoicePolicy.packKey(shuangpin), change.pack());
@@ -775,14 +775,14 @@ public final class TypingPage extends ReloadingDetailPage {
     }
 
     private void saveHelpcode(String family, boolean shuangpin, String member, Object value) {
-        save(values -> helpcodeObject(values, family, shuangpin).put(member, value));
+        savePreferences(values -> helpcodeObject(values, family, shuangpin).put(member, value));
     }
 
     private void pickTargetLanguage(String selected, boolean glossOn, State state) {
         OptionSheet sheet = new OptionSheet(requireContext(), "翻译目标语言", null);
         for (String[] entry : TARGET_LANGUAGES) {
             String id = entry[0];
-            sheet.option(entry[1], id.equals(selected), () -> save(values -> values.put("translation_target_language", id),
+            sheet.option(entry[1], id.equals(selected), () -> savePreferences(values -> values.put("translation_target_language", id),
                 () -> { if (glossOn) ensureGlosses(id, state); }));
         }
         sheet.show();
@@ -794,15 +794,4 @@ public final class TypingPage extends ReloadingDetailPage {
         return labels.getOrDefault(id, id);
     }
 
-    private void save(KeyboardSheets.Edit edit) {
-        KeyboardSheets.save(this, edit, this::reload, this::reload);
-    }
-
-    /** 写成功后先做 `then`（例如开始下载），再重读页面。 */
-    private void save(KeyboardSheets.Edit edit, Runnable then) {
-        KeyboardSheets.save(this, edit, () -> {
-            then.run();
-            reload();
-        }, this::reload);
-    }
 }
