@@ -7089,6 +7089,8 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     const NSUInteger columns = MAX((NSUInteger)1, (NSUInteger)_appearance.pageSize);
     const NSUInteger rows = msime::mac::ExpandedGridRows(count, columns);
     if (!rows) return NO;
+    // 双拼键位图按普通候选窗一页的高度让开候选窗（updateKeymapPanel），网格比那高，会压在它上面；网格开着时先收起键位图，收起网格后的下一次重画再放回来。
+    [_keymapPanel orderOut:nil];
     _expandedCursor = MIN(_expandedCursor, count - 1);
     const NSUInteger cursorRow = _expandedCursor / columns;
     const NSUInteger visibleRows = MIN(rows, msime::mac::kExpandedGridVisibleRows);
