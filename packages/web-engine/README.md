@@ -195,7 +195,7 @@ Windows 外观高亮候选的文字和序号色按 Windows 版的样式表画：
 
 ### 自定义皮肤对象
 
-`skin` 也可以是一个对象，字段与桌面端皮肤包 `skin.toml` 解析后的 JSON（设置页的 `SkinSummary`）相同，只取候选框用得到的部分。尺寸单位 dip 在网页上就是 CSS px：
+`skin` 也可以是一个对象，字段与桌面端皮肤包 `skin.toml` 解析后的 JSON（设置页的 `SkinSummary`）相同，只取候选框用得到的部分。尺寸单位 dip 在网页上就是 CSS px。`schemaVersion: 2` 还可以带 `animation`：`enter`、`exit`、`selection` 使用 `none`、`fade`、`fade_scale`、`slide_up`、`spring` 或 `glow`，`durationMs` 为 40–600，`staggerMs` 为 0–80。动画由候选栏使用固定的安全关键帧绘制，系统的 reduced-motion 设置会关闭它；不支持这些字段的宿主仍按静态皮肤绘制：
 
 ```js
 attachInput(textarea, engine, {

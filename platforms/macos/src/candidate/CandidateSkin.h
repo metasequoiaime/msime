@@ -120,6 +120,25 @@ struct SkinToolbar
     SkinToolbarColors light;
 };
 
+enum class SkinAnimationPreset
+{
+    none,
+    fade,
+    fade_scale,
+    slide_up,
+    spring,
+    glow,
+};
+
+struct SkinAnimation
+{
+    SkinAnimationPreset enter = SkinAnimationPreset::none;
+    SkinAnimationPreset exit = SkinAnimationPreset::none;
+    SkinAnimationPreset selection = SkinAnimationPreset::none;
+    double durationMs = 0.0;
+    double staggerMs = 0.0;
+};
+
 // Licence metadata the manifest declares. Informational only: nothing is enforced or drawn from it.
 struct SkinLicense
 {
@@ -242,6 +261,7 @@ struct SkinPackage
     DecorationAlign decorationAlign = DecorationAlign::right;
     std::optional<SkinBackground> background;
     SkinToolbar toolbar;
+    SkinAnimation animation;
     std::optional<SkinLicense> license;
     SkinColors dark;
     SkinColors light;
@@ -315,6 +335,7 @@ struct ResolvedSkin
     BackgroundFit backgroundFit = BackgroundFit::cover;
     double backgroundOpacity = 1.0;
     double minWidthDip = 0.0;
+    SkinAnimation animation;
 };
 
 bool IsSafeSkinId(std::string_view id);

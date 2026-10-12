@@ -89,6 +89,31 @@ std::optional<double> OptionalNumberField(NSDictionary *object, NSString *key)
     return value.doubleValue;
 }
 
+SkinAnimationPreset AnimationPreset(NSString *value)
+{
+    const std::string name = value.UTF8String ?: "";
+    if (name == "fade") return SkinAnimationPreset::fade;
+    if (name == "fade_scale") return SkinAnimationPreset::fade_scale;
+    if (name == "slide_up") return SkinAnimationPreset::slide_up;
+    if (name == "spring") return SkinAnimationPreset::spring;
+    if (name == "glow") return SkinAnimationPreset::glow;
+    return SkinAnimationPreset::none;
+}
+
+SkinAnimation AnimationFromJSON(NSDictionary *object)
+{
+    SkinAnimation animation;
+    if (![object isKindOfClass:NSDictionary.class]) return animation;
+    animation.enter = AnimationPreset(object[@"enter"]);
+    animation.exit = AnimationPreset(object[@"exit"]);
+    animation.selection = AnimationPreset(object[@"selection"]);
+    const double duration = NumberField(object, @"durationMs");
+    const double stagger = NumberField(object, @"staggerMs");
+    if (duration >= 40.0 && duration <= 600.0) animation.durationMs = duration;
+    if (stagger >= 0.0 && stagger <= 80.0) animation.staggerMs = stagger;
+    return animation;
+}
+
 std::vector<std::string> StringArrayField(NSDictionary *object, NSString *key)
 {
     std::vector<std::string> values;
@@ -192,6 +217,7 @@ std::optional<SkinPackage> PackageFromJSON(id value)
         package.toolbar.dark = ToolbarColorsFromJSON(toolbar[@"dark"]);
         package.toolbar.light = ToolbarColorsFromJSON(toolbar[@"light"]);
     }
+    package.animation = AnimationFromJSON(object[@"animation"]);
     NSDictionary *license = object[@"license"];
     if ([license isKindOfClass:NSDictionary.class])
     {
@@ -620,6 +646,7 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
             if (const auto package = LoadSkinPackage(skinsRoot, resolved.candidateSkin))
             {
                 resolved.name = package->name;
+                resolved.animation = package->animation;
                 resolved.decorationTopDip = package->decorationTopDip;
                 resolved.decorationWidthDip = package->decorationWidthDip;
                 resolved.decorationAlign = package->decorationAlign;

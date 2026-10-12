@@ -209,6 +209,23 @@ export declare const DEFAULT_SKIN: "shuishan";
 export type MsimeSkinLayout = "horizontal" | "vertical";
 export type MsimeSkinMode = "light" | "dark";
 
+export type MsimeSkinAnimationPreset =
+  | "none"
+  | "fade"
+  | "fade_scale"
+  | "slide_up"
+  | "spring"
+  | "glow";
+
+/** schema_version 2 的安全动画预设；不会执行皮肤提供的 CSS 或脚本。 */
+export interface MsimeSkinAnimation {
+  enter?: MsimeSkinAnimationPreset;
+  exit?: MsimeSkinAnimationPreset;
+  selection?: MsimeSkinAnimationPreset;
+  durationMs?: number;
+  staggerMs?: number;
+}
+
 /** 皮肤包在一种明暗下的候选框配色，同桌面 `skin.toml` 的 `[candidate.light]` / `[candidate.dark]`。颜色写成 `#RGB`、`#RRGGBB`、`#RRGGBBAA`、`rgb()`、`rgba()` 或 `transparent`，读不懂的当没写。 */
 export interface MsimeSkinPalette {
   accent?: string;
@@ -231,6 +248,8 @@ export interface MsimeSkinPalette {
 /** 皮肤对象，形状同桌面设置页的 `SkinSummary` JSON（只取候选框用得到的字段）。尺寸单位 dip 在网页上就是 CSS px；图片写成 http(s)、blob、`data:image/*` 或相对地址（按页面地址解析），其他地址丢弃。 */
 export interface MsimeSkin {
   id?: string;
+  /** 外部清单的 schema_version；写 2 时未提供 animation 也采用漂亮的安全默认动画。 */
+  schemaVersion?: 1 | 2;
   /** 画在哪个主题之上：全局主题、`system` 或 msime-windows 的内置外观（`fluent`、`wechat` 等），默认 `system`。base 为全局主题时，皮肤固定画在那个主题的明暗下。 */
   base?: string;
   /** 皮肤支持的布局，不写时全都支持。不支持当前布局或明暗时只画 base（`ResolvedSkin.drawn` 为 false）。 */
@@ -255,6 +274,7 @@ export interface MsimeSkin {
   /** 候选框背景图；opacity 默认 1，夹到 0 到 1。 */
   background?: { image?: string; fit?: "cover" | "contain" | "stretch"; opacity?: number } | null;
   candidate?: { dark?: MsimeSkinPalette; light?: MsimeSkinPalette };
+  animation?: MsimeSkinAnimation | null;
 }
 
 /** resolveSkin 的结果，整个被冻结。颜色都是大写的 `#RRGGBB` 或 `#RRGGBBAA`。 */
@@ -299,6 +319,13 @@ export interface ResolvedSkin {
   }>;
   /** 候选栏用的 CSS 自定义属性（`--cand-bg`、`--cand-text`、`--cand-selected`、`--msime-skin-radius` 等），值都已校验，可以直接 `style.setProperty`。 */
   readonly variables: Readonly<Record<string, string>>;
+  readonly animation: Readonly<{
+    enter: MsimeSkinAnimationPreset;
+    exit: MsimeSkinAnimationPreset;
+    selection: MsimeSkinAnimationPreset;
+    durationMs: number;
+    staggerMs: number;
+  }>;
   /** 皮肤对象不支持当前布局或明暗、只画了 base 时为 false。 */
   readonly drawn: boolean;
 }

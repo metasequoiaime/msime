@@ -42,7 +42,7 @@ int main()
                                                    "app.msime.macos" / "skins" / "wide-card";
         std::filesystem::create_directories(fixtureRoot);
         std::ofstream manifest(fixtureRoot / "skin.toml");
-        manifest << R"toml(schema_version = 1
+        manifest << R"toml(schema_version = 2
 id = "wide-card"
 name = "Wide Card"
 version = "1"
@@ -55,6 +55,12 @@ min_width_dip = 240
 [candidate_window.decoration]
 top_inset_dip = 0
 width_dip = 0
+[animation]
+enter = "fade_scale"
+exit = "fade"
+selection = "spring"
+duration_ms = 180
+stagger_ms = 14
 )toml";
         Require(static_cast<bool>(manifest), "Failed to write candidate panel skin fixture.");
         manifest.close();
@@ -192,6 +198,15 @@ width_dip = 0
                 "Vertical candidate highlighting did not fill the final card width.");
         Require(NSMaxX(wideButton.frame) >= cardWidth - contentInset - 0.5,
                 "Vertical candidate row did not reach the card's content edge.");
+        [panel selectCandidateWithIdentifier:1];
+        NSButton *selectedWideButton = nil;
+        for (NSView *view in panel.window.contentView.subviews)
+            if ([view isKindOfClass:NSButton.class] && view.tag == 1)
+                selectedWideButton = (NSButton *)view;
+        Require(selectedWideButton != nil, "The second wide-card candidate was not rendered.");
+        if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion)
+            Require([selectedWideButton.layer animationForKey:@"msime-candidate-selection"] != nil,
+                    "The v2 selection animation did not reach the native candidate button.");
         Require(MetasequoiaResolveStoredTheme(NO, YES).candidateSkin == "wide-card" &&
                     MetasequoiaResolveStoredTheme(NO, NO).candidateSkin.empty(),
                 "A vertical-only package was not drawn in exactly the vertical layout.");

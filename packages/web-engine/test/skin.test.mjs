@@ -30,7 +30,7 @@ function assertSafeVariables(variables) {
       assert.doesNotMatch(inner[1], /["'\\()\s<>{}`]/, `${name}: ${value}`);
       assert.doesNotMatch(inner[1], /^javascript:/i);
     } else {
-      assert.match(value, /^(#[0-9A-F]{6}([0-9A-F]{2})?|-?\d+(\.\d+)?(e-?\d+)?(px)?|block|none|cover|contain|fill)$/, `${name}: ${value}`);
+      assert.match(value, /^(#[0-9A-F]{6}([0-9A-F]{2})?|-?\d+(\.\d+)?(e-?\d+)?(px|ms)?|block|none|cover|contain|fill)$/, `${name}: ${value}`);
       assert.doesNotMatch(value, BREAKOUT);
     }
   }
@@ -278,6 +278,24 @@ test("geometry follows dimension, decorationImage and the background rules", () 
   assert.deepEqual(legacy.geometry.background, { url: "blob:https://a.test/1", fit: "cover", opacity: 1 });
   // 装饰带两个尺寸缺一不画。
   assert.equal(resolveSkin({ decorationTopDip: 10, decorationImage: "a.png" }).geometry.decoration, null);
+});
+
+test("schema v2 resolves a bounded motion contract and safe CSS variables", () => {
+  const result = resolveSkin({
+    schemaVersion: 2,
+    base: "system",
+    animation: { enter: "spring", exit: "fade", selection: "glow", durationMs: 220, staggerMs: 16 },
+  });
+  assert.deepEqual(result.animation, { enter: "spring", exit: "fade", selection: "glow", durationMs: 220, staggerMs: 16 });
+  assert.equal(result.variables["--msime-skin-animation-duration"], "220ms");
+  assert.equal(result.variables["--msime-skin-animation-stagger"], "16ms");
+  assertSafeVariables(result.variables);
+  const defaults = resolveSkin({ schemaVersion: 2 });
+  assert.equal(defaults.animation.enter, "fade_scale");
+  assert.equal(defaults.animation.selection, "spring");
+  const legacy = resolveSkin({ schemaVersion: 1, animation: { enter: "spring" } });
+  assert.equal(legacy.animation.enter, "none");
+  assert.equal(resolveSkin({ schemaVersion: 2, animation: { durationMs: 9999 } }).animation.durationMs, 180);
 });
 
 test("hostile skin objects are neutralised", () => {

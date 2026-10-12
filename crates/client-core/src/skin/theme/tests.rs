@@ -1,3 +1,4 @@
+use super::super::catalog::SkinAnimation;
 use super::*;
 use crate::preferences::CustomCandidateColors;
 
@@ -815,6 +816,7 @@ fn package_colours_normalize_to_hex() {
 #[test]
 fn summary_packages_keep_only_declared_modes() {
     let summary = SkinSummary {
+        schema_version: 1,
         id: "sakura".into(),
         name: "樱花".into(),
         version: "1".into(),
@@ -834,6 +836,7 @@ fn summary_packages_keep_only_declared_modes() {
         toolbar_stylesheet: None,
         preview: None,
         candidate: Default::default(),
+        animation: SkinAnimation::disabled(),
         license: None,
     };
     let package = ThemePackage::from(&summary);

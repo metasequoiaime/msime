@@ -3,8 +3,24 @@
 #import "CandidateTypography.h"
 #import "CandidateWindowLevel.h"
 
+#import <QuartzCore/QuartzCore.h>
+
 #include "../core/DiagnosticLog.h"
 #include <cmath>
+
+namespace
+{
+BOOL CandidateMotionEnabled(const msime::mac::SkinAnimation &animation)
+{
+    return animation.durationMs > 0.0 && animation.enter != msime::mac::SkinAnimationPreset::none &&
+           !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+}
+
+NSTimeInterval CandidateMotionDuration(const msime::mac::SkinAnimation &animation)
+{
+    return MAX(0.04, MIN(0.6, animation.durationMs / 1000.0));
+}
+}
 
 @interface MetasequoiaCandidateWindow : NSPanel
 @property(nonatomic, weak) id<MetasequoiaCandidatePanelDelegate> candidateDelegate;
@@ -191,6 +207,7 @@
     metasequoia::mac::ResolvedSkin _skin;
     NSImage *_decorationImage;
     CGFloat _tallestVerticalHeight;
+    NSUInteger _motionGeneration;
 }
 
 - (void)setDelegate:(id<MetasequoiaCandidatePanelDelegate>)delegate
@@ -391,6 +408,7 @@
             [[MetasequoiaCandidateButton alloc] initWithFrame:NSMakeRect(vertical ? inset : x, y, itemWidth, rowHeight)];
         button.title = titles[index];
         button.font = _font;
+        button.wantsLayer = YES;
         button.numberFont = numberFont;
         button.bordered = NO;
         button.tag = (NSInteger)index;
@@ -474,7 +492,22 @@
         y = NSMaxY(caret) + 4;
     y = MIN(MAX(y, NSMinY(bounds)), MAX(NSMinY(bounds), NSMaxY(bounds) - size.height));
     [_window setFrameOrigin:NSMakePoint(x, y)];
+    const BOOL wasVisible = _window.isVisible;
+    ++_motionGeneration;
     [_window orderFrontRegardless];
+    if (!wasVisible && CandidateMotionEnabled(_skin.animation))
+    {
+        _window.alphaValue = 0.0;
+        [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
+            context.duration = CandidateMotionDuration(_skin.animation);
+            context.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+            [_window.animator setAlphaValue:1.0];
+        } completionHandler:nil];
+    }
+    else
+    {
+        _window.alphaValue = 1.0;
+    }
     msime_macos_diagnostic_writef("candidate-position hint=%ld rows=%lu vertical=%d size=(%.0f,%.0f) origin=(%.0f,%.0f) flipped=%d",
         (long)hint, (unsigned long)_data.count, vertical ? 1 : 0, size.width, size.height, x, y, y >= NSMaxY(caret) ? 1 : 0);
 }
@@ -482,7 +515,25 @@
 {
     if (msime_macos_diagnostic_enabled() && _window.isVisible) msime_macos_diagnostic_write("candidate hide reason=panel_hide");
     _tallestVerticalHeight = 0;
-    [_window orderOut:nil];
+    const NSUInteger motionGeneration = ++_motionGeneration;
+    if (_window.isVisible && _skin.animation.exit != msime::mac::SkinAnimationPreset::none &&
+        _skin.animation.durationMs > 0.0 && !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion)
+    {
+        [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
+            context.duration = CandidateMotionDuration(_skin.animation);
+            context.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseIn];
+            [_window.animator setAlphaValue:0.0];
+        } completionHandler:^{
+            if (motionGeneration != _motionGeneration) return;
+            [_window orderOut:nil];
+            _window.alphaValue = 1.0;
+        }];
+    }
+    else
+    {
+        [_window orderOut:nil];
+        _window.alphaValue = 1.0;
+    }
 }
 - (BOOL)isVisible
 {
@@ -508,6 +559,7 @@
 {
     if ([self candidateIdentifierAtLineNumber:identifier] == NSNotFound)
         return NO;
+    const BOOL changed = _selected != identifier;
     _selected = identifier;
     for (NSView *view in _chrome.subviews)
         if ([view isKindOfClass:MetasequoiaCandidateButton.class])
@@ -520,6 +572,46 @@
             button.numberColor = button.candidateHighlighted ? MetasequoiaColorFromRgba(_skin.tokens.selectedText)
                                                              : MetasequoiaColorFromRgba(_skin.tokens.number);
             view.needsDisplay = YES;
+            if (changed && button.candidateHighlighted && button.layer != nil &&
+                _skin.animation.selection != msime::mac::SkinAnimationPreset::none &&
+                _skin.animation.durationMs > 0.0 &&
+                !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion)
+            {
+                if (_skin.animation.selection == msime::mac::SkinAnimationPreset::spring)
+                {
+                    CAKeyframeAnimation *scale = [CAKeyframeAnimation animationWithKeyPath:@"transform"];
+                    scale.values = @[
+                        [NSValue valueWithCATransform3D:CATransform3DMakeScale(0.94, 0.94, 1.0)],
+                        [NSValue valueWithCATransform3D:CATransform3DMakeScale(1.025, 1.025, 1.0)],
+                        [NSValue valueWithCATransform3D:CATransform3DIdentity],
+                    ];
+                    scale.keyTimes = @[@0.0, @0.65, @1.0];
+                    scale.duration = CandidateMotionDuration(_skin.animation);
+                    scale.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+                    [button.layer addAnimation:scale forKey:@"msime-candidate-selection"];
+                }
+                else if (_skin.animation.selection == msime::mac::SkinAnimationPreset::glow)
+                {
+                    button.layer.shadowColor = MetasequoiaColorFromRgba(_skin.tokens.accent).CGColor;
+                    button.layer.shadowRadius = 8.0;
+                    button.layer.shadowOffset = CGSizeZero;
+                    CAKeyframeAnimation *glow = [CAKeyframeAnimation animationWithKeyPath:@"shadowOpacity"];
+                    glow.values = @[@0.0, @0.65, @0.0];
+                    glow.keyTimes = @[@0.0, @0.35, @1.0];
+                    glow.duration = CandidateMotionDuration(_skin.animation);
+                    glow.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+                    [button.layer addAnimation:glow forKey:@"msime-candidate-selection"];
+                }
+                else
+                {
+                    CABasicAnimation *fade = [CABasicAnimation animationWithKeyPath:@"opacity"];
+                    fade.fromValue = @0.45;
+                    fade.toValue = @1.0;
+                    fade.duration = CandidateMotionDuration(_skin.animation);
+                    fade.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+                    [button.layer addAnimation:fade forKey:@"msime-candidate-selection"];
+                }
+            }
         }
     return YES;
 }

@@ -30,6 +30,7 @@ Testing by hand:
   config                   Your preferences, one key = value per line
   config get <key>...      Only the values of these preferences, one per line
   config set <key>=<value> Change some, such as scheme=shuangpin
+  Skin schema_version 2 adds safe native enter/exit/selection motion.
   With more than one <keys>, each one's candidates follow a # <keys> line.
   With --json and more than one <keys>, each gets one line of JSON.
   Blank lines and lines starting with # in the keys from stdin are skipped.

@@ -27,6 +27,7 @@ pub struct SkinList {
 pub struct SkinView {
     /// The folder name and the manifest id.
     pub id: String,
+    pub schema_version: u8,
     pub name: String,
     pub version: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -35,8 +36,20 @@ pub struct SkinView {
     pub layouts: Vec<String>,
     /// The colour modes the skin supports: dark, light.
     pub themes: Vec<String>,
+    /// 有限的 schema v2 动效契约。版本 1 皮肤报告为 `none` 预设。
+    pub animation: SkinAnimationView,
     /// Whether the desktop app has synced this skin to the user's cloud library.
     pub synced: bool,
+}
+
+#[derive(Debug, Serialize, JsonSchema, PartialEq)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct SkinAnimationView {
+    pub enter: String,
+    pub exit: String,
+    pub selection: String,
+    pub duration_ms: u16,
+    pub stagger_ms: u16,
 }
 
 #[derive(Debug, Serialize, JsonSchema, PartialEq)]
@@ -84,11 +97,19 @@ pub fn list(state_dir: &Path) -> SkinList {
             .map(|package| SkinView {
                 synced: synced.contains_key(&package.id),
                 id: package.id,
+                schema_version: package.schema_version,
                 name: package.name,
                 version: package.version,
                 description: package.description,
                 layouts: package.layouts,
                 themes: package.themes,
+                animation: SkinAnimationView {
+                    enter: package.animation.enter.id().into(),
+                    exit: package.animation.exit.id().into(),
+                    selection: package.animation.selection.id().into(),
+                    duration_ms: package.animation.duration_ms,
+                    stagger_ms: package.animation.stagger_ms,
+                },
             })
             .collect(),
         issues: catalog
@@ -208,11 +229,19 @@ mod tests {
             listed.skins,
             [SkinView {
                 id: "sunset".into(),
+                schema_version: 1,
                 name: "Sunset".into(),
                 version: "1.0".into(),
                 description: None,
                 layouts: vec!["horizontal".into(), "vertical".into()],
                 themes: vec!["dark".into(), "light".into()],
+                animation: SkinAnimationView {
+                    enter: "none".into(),
+                    exit: "none".into(),
+                    selection: "none".into(),
+                    duration_ms: 0,
+                    stagger_ms: 0,
+                },
                 synced: false,
             }]
         );

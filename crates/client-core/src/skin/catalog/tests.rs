@@ -555,6 +555,7 @@ fn scans_valid_and_rejects_unsafe_manifests() {
     assert_eq!(
         catalog.packages,
         vec![SkinSummary {
+            schema_version: 1,
             id: "sample_skin".into(),
             name: "Sample".into(),
             version: "1.0".into(),
@@ -575,9 +576,61 @@ fn scans_valid_and_rejects_unsafe_manifests() {
             toolbar_stylesheet: None,
             preview: None,
             candidate: CandidateColors::default(),
+            animation: SkinAnimation::disabled(),
             license: None,
         }],
         "{catalog:?}"
+    );
+}
+
+#[test]
+fn schema_v2_uses_bounded_lively_animation_presets() {
+    let root = tempdir().unwrap();
+    let skin = root.path().join("motion");
+    fs::create_dir(&skin).unwrap();
+    fs::write(
+        skin.join("skin.toml"),
+        "schema_version = 2\nid = 'motion'\nname = 'Motion'\nversion = '2.0'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[animation]\nenter = 'spring'\nexit = 'fade'\nselection = 'glow'\nduration_ms = 240\nstagger_ms = 20\n",
+    )
+    .unwrap();
+    let package = load(root.path(), "motion").unwrap();
+    assert_eq!(package.schema_version, 2);
+    assert_eq!(package.animation.enter, SkinAnimationPreset::Spring);
+    assert_eq!(package.animation.selection, SkinAnimationPreset::Glow);
+    assert_eq!(package.animation.duration_ms, 240);
+}
+
+#[test]
+fn schema_v2_animation_table_keeps_lively_defaults_when_fields_are_omitted() {
+    let root = tempdir().unwrap();
+    let skin = root.path().join("motion_defaults");
+    fs::create_dir(&skin).unwrap();
+    fs::write(
+        skin.join("skin.toml"),
+        "schema_version = 2\nid = 'motion_defaults'\nname = 'Motion defaults'\nversion = '2.0'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[animation]\nduration_ms = 200\n",
+    )
+    .unwrap();
+    let package = load(root.path(), "motion_defaults").unwrap();
+    assert_eq!(package.animation.enter, SkinAnimationPreset::FadeScale);
+    assert_eq!(package.animation.exit, SkinAnimationPreset::Fade);
+    assert_eq!(package.animation.selection, SkinAnimationPreset::Spring);
+    assert_eq!(package.animation.duration_ms, 200);
+    assert_eq!(package.animation.stagger_ms, 14);
+}
+
+#[test]
+fn schema_v1_cannot_enable_animation() {
+    let root = tempdir().unwrap();
+    let skin = root.path().join("legacy");
+    fs::create_dir(&skin).unwrap();
+    fs::write(
+        skin.join("skin.toml"),
+        "schema_version = 1\nid = 'legacy'\nname = 'Legacy'\nversion = '1.0'\nbase = 'system'\n[supports]\nlayouts = ['horizontal']\nthemes = ['light']\n[candidate_window]\n[animation]\nenter = 'fade'\n",
+    )
+    .unwrap();
+    assert_eq!(
+        load(root.path(), "legacy"),
+        Err("animation requires schema_version 2".into())
     );
 }
 

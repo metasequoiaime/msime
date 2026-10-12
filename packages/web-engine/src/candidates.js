@@ -82,6 +82,8 @@ ${platformVariables(PLATFORM_PALETTE.light)}
   --msime-skin-selected-bar: block;
   --msime-skin-background-fit: cover;
   --msime-skin-background-opacity: 1;
+  --msime-skin-animation-duration: 0ms;
+  --msime-skin-animation-stagger: 0ms;
   --msime-max-width: calc(100vw - ${2 * MARGIN}px);
   position: fixed;
   z-index: 2147483647;
@@ -112,6 +114,57 @@ ${platformVariables(PLATFORM_PALETTE.light)}
 .candidate[data-theme="dark"] {
   --cand-shadow: 5px 5px 10px rgba(0, 0, 0, 0.5);
 ${platformVariables(PLATFORM_PALETTE.dark)}
+}
+.candidate[data-animation-enter="fade"] .container {
+  animation: msime-candidate-fade var(--msime-skin-animation-duration) ease-out both;
+}
+.candidate[data-animation-enter="fade_scale"] .container {
+  animation: msime-candidate-fade-scale var(--msime-skin-animation-duration) cubic-bezier(.16, 1, .3, 1) both;
+}
+.candidate[data-animation-enter="slide_up"] .container {
+  animation: msime-candidate-slide-up var(--msime-skin-animation-duration) cubic-bezier(.16, 1, .3, 1) both;
+}
+.candidate[data-animation-enter="spring"] .container {
+  animation: msime-candidate-spring var(--msime-skin-animation-duration) cubic-bezier(.22, 1.35, .36, 1) both;
+}
+.candidate[data-animation-enter="glow"] .container {
+  animation: msime-candidate-glow var(--msime-skin-animation-duration) ease-out both;
+}
+.candidate[data-animation-enter="fade_scale"] .row-wrapper,
+.candidate[data-animation-enter="slide_up"] .row-wrapper {
+  animation: msime-candidate-row-reveal var(--msime-skin-animation-duration) cubic-bezier(.16, 1, .3, 1) both;
+  animation-delay: calc(var(--msime-candidate-row-index, 0) * var(--msime-skin-animation-stagger));
+}
+.candidate[data-animation-selection="spring"] .cand.first {
+  animation: msime-candidate-spring var(--msime-skin-animation-duration) cubic-bezier(.22, 1.35, .36, 1) both;
+}
+.candidate[data-animation-selection="glow"] .cand.first {
+  animation: msime-candidate-glow var(--msime-skin-animation-duration) ease-out both;
+}
+.candidate[data-exiting="fade"] .container {
+  animation: msime-candidate-fade var(--msime-skin-animation-duration) ease-in reverse both;
+}
+.candidate[data-exiting="fade_scale"] .container,
+.candidate[data-exiting="spring"] .container {
+  animation: msime-candidate-fade-scale var(--msime-skin-animation-duration) ease-in reverse both;
+}
+.candidate[data-exiting="slide_up"] .container {
+  animation: msime-candidate-slide-up var(--msime-skin-animation-duration) ease-in reverse both;
+}
+.candidate[data-exiting="glow"] .container {
+  animation: msime-candidate-glow var(--msime-skin-animation-duration) ease-in reverse both;
+}
+@keyframes msime-candidate-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes msime-candidate-fade-scale { from { opacity: 0; transform: translateY(5px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes msime-candidate-slide-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes msime-candidate-spring { from { transform: scale(.94); } 65% { transform: scale(1.025); } to { transform: scale(1); } }
+@keyframes msime-candidate-glow { from { filter: brightness(1.22); } to { filter: brightness(1); } }
+@keyframes msime-candidate-row-reveal { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .candidate[data-animation-enter] .container,
+  .candidate[data-animation-enter] .row-wrapper,
+  .candidate[data-animation-selection] .cand.first,
+  .candidate[data-exiting] .container { animation: none !important; }
 }
 .candidate[hidden] {
   display: none !important;
@@ -401,6 +454,7 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
   const view = doc.defaultView ?? globalThis;
   const sheet = sheetFor(doc);
   const media = view.matchMedia?.("(prefers-color-scheme: dark)") ?? null;
+  const motionMedia = view.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
 
   let skinArg = skin;
   let layoutArg = checkLayout(layout);
@@ -411,6 +465,7 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
   let applied = [];
   // 这次组字里画过的最高高度，隐藏时清零。
   let tallest = 0;
+  let hideTimer = null;
 
   const isDark = (value) => (value === "auto" ? Boolean(media?.matches) : value);
   let resolved = resolveSkin(skinArg, { dark: isDark(darkArg), layout: layoutArg });
@@ -461,6 +516,8 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     applied = [];
     root.className = `candidate wnd-${resolved.layout === "vertical" ? "v" : "h"}`;
     root.dataset.theme = resolved.dark ? "dark" : "light";
+    root.dataset.animationEnter = resolved.animation.enter;
+    root.dataset.animationSelection = resolved.animation.selection;
     for (const [name, value] of Object.entries(resolved.variables)) {
       if (!PROPERTY.test(name) || (typeof value !== "string" && typeof value !== "number")) continue;
       root.style.setProperty(name, String(value));
@@ -513,6 +570,7 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     page.forEach((item, index) => {
       const highlighted = index === frame.highlight;
       const wrapper = element(doc, "div", index === 0 && !vertical ? "row-wrapper first-row-wrapper" : "row-wrapper");
+      wrapper.style.setProperty("--msime-candidate-row-index", String(index));
       const cand = element(doc, "div", highlighted ? "row cand first" : "row cand", highlighted ? `${PARTS.candidate} ${PARTS.highlight}` : PARTS.candidate);
       cand.dataset.index = String(index);
       cand.setAttribute("role", "option");
@@ -589,10 +647,15 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
   container.append(host);
 
   const hide = () => {
+    if (hideTimer !== null) {
+      view.clearTimeout?.(hideTimer);
+      hideTimer = null;
+    }
     tallest = 0;
     frame = null;
     anchor = null;
     root.hidden = true;
+    delete root.dataset.exiting;
     delete root.dataset.hover;
   };
 
@@ -601,10 +664,19 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     /** 画一帧；frame.composing 为 false 时隐藏。anchorRect 是光标或文本框的矩形（视口坐标），候选栏画在它下方（下方放不下时画在上方）。 */
     render(nextFrame, anchorRect) {
       if (destroyed) return;
+      if (hideTimer !== null) {
+        view.clearTimeout?.(hideTimer);
+        hideTimer = null;
+      }
       if (!nextFrame?.composing) {
-        hide();
+        if (resolved.animation.exit !== "none" && resolved.animation.durationMs > 0 && !motionMedia?.matches &&
+            typeof view.setTimeout === "function") {
+          root.dataset.exiting = resolved.animation.exit;
+          hideTimer = view.setTimeout(() => hide(), resolved.animation.durationMs);
+        } else hide();
         return;
       }
+      delete root.dataset.exiting;
       frame = nextFrame;
       anchor = anchorRect;
       draw();
@@ -622,6 +694,10 @@ export function createCandidateBar({ skin, layout = "horizontal", dark = "auto",
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      if (hideTimer !== null) {
+        view.clearTimeout?.(hideTimer);
+        hideTimer = null;
+      }
       frame = null;
       media?.removeEventListener?.("change", onScheme);
       root.removeEventListener("mousedown", onMouseDown);

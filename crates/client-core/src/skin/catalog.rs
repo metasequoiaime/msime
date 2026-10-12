@@ -121,6 +121,8 @@ fn check_colors(table: &toml::map::Map<String, Value>, keys: &[&str]) -> Result<
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkinSummary {
+    /// 此皮肤包使用的清单版本。版本 1 禁用动画，版本 2 增加下面的有限原生动画契约。
+    pub schema_version: u8,
     pub id: String,
     pub name: String,
     pub version: String,
@@ -146,8 +148,75 @@ pub struct SkinSummary {
     pub toolbar_stylesheet: Option<String>,
     pub preview: Option<String>,
     pub candidate: CandidateColors,
+    /// 声明式动画预设。不支持动画的宿主保持自己的动态策略，候选语义仍然一致。
+    pub animation: SkinAnimation,
     /// Licence metadata the manifest declares for its code and assets. Informational only: nothing is enforced from it.
     pub license: Option<SkinLicense>,
+}
+
+/// 使用固定动画名称，不接受任意 CSS。这样共享皮肤可以安全同步，各原生宿主也能把相同的动效意图映射到自己的合成器原语。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SkinAnimationPreset {
+    #[default]
+    None,
+    Fade,
+    FadeScale,
+    SlideUp,
+    Spring,
+    Glow,
+}
+
+impl SkinAnimationPreset {
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Fade => "fade",
+            Self::FadeScale => "fade_scale",
+            Self::SlideUp => "slide_up",
+            Self::Spring => "spring",
+            Self::Glow => "glow",
+        }
+    }
+}
+
+/// 版本 2 的候选窗动效契约。扫描时限制时长，避免皮肤包让候选窗无限动画。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkinAnimation {
+    pub enter: SkinAnimationPreset,
+    pub exit: SkinAnimationPreset,
+    pub selection: SkinAnimationPreset,
+    pub duration_ms: u16,
+    pub stagger_ms: u16,
+}
+
+impl SkinAnimation {
+    pub const fn disabled() -> Self {
+        Self {
+            enter: SkinAnimationPreset::None,
+            exit: SkinAnimationPreset::None,
+            selection: SkinAnimationPreset::None,
+            duration_ms: 0,
+            stagger_ms: 0,
+        }
+    }
+
+    pub const fn lively() -> Self {
+        Self {
+            enter: SkinAnimationPreset::FadeScale,
+            exit: SkinAnimationPreset::Fade,
+            selection: SkinAnimationPreset::Spring,
+            duration_ms: 180,
+            stagger_ms: 14,
+        }
+    }
+}
+
+impl Default for SkinAnimation {
+    fn default() -> Self {
+        Self::disabled()
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -374,9 +443,11 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         toml::from_str(std::str::from_utf8(&bytes).map_err(|_| "skin.toml is not UTF-8")?)
             .map_err(|_| "invalid TOML")?;
     let table = value.as_table().ok_or("manifest must be a table")?;
-    if table.get("schema_version").and_then(Value::as_integer) != Some(1) {
-        return Err("unsupported schema_version".into());
-    }
+    let schema_version = match table.get("schema_version").and_then(Value::as_integer) {
+        Some(1) => 1,
+        Some(2) => 2,
+        _ => return Err("unsupported schema_version".into()),
+    };
     let id = required_string(table, "id", 64)?;
     if id != folder || !safe_id(&id) {
         return Err("manifest id does not match folder".into());
@@ -490,6 +561,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         }
     }
     let mut candidate = read_colors(table)?;
+    let animation = read_animation(table, schema_version)?;
     if let Some(look) = &windows_look {
         windows_looks::fill_from_look(look, &mut candidate, &mut corner_radius, &mut toolbar);
     }
@@ -499,6 +571,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
             .filter(|preview| decorated && is_image(preview))
     });
     let summary = SkinSummary {
+        schema_version: schema_version as u8,
         id,
         name,
         version,
@@ -518,6 +591,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         toolbar_stylesheet,
         preview,
         candidate,
+        animation,
         license,
     };
     validate_image_dimensions(&dir, &summary)?;
@@ -709,6 +783,75 @@ fn read_toolbar(table: &toml::map::Map<String, Value>) -> Result<SkinToolbar, St
         corner_radius_dip,
         dark: palette("dark")?,
         light: palette("light")?,
+    })
+}
+
+fn animation_preset(
+    value: Option<&Value>,
+    key: &str,
+    default: SkinAnimationPreset,
+) -> Result<SkinAnimationPreset, String> {
+    match value {
+        None => Ok(default),
+        Some(Value::String(value)) => match value.as_str() {
+            "none" => Ok(SkinAnimationPreset::None),
+            "fade" => Ok(SkinAnimationPreset::Fade),
+            "fade_scale" => Ok(SkinAnimationPreset::FadeScale),
+            "slide_up" => Ok(SkinAnimationPreset::SlideUp),
+            "spring" => Ok(SkinAnimationPreset::Spring),
+            "glow" => Ok(SkinAnimationPreset::Glow),
+            _ => Err(format!("invalid animation {key}")),
+        },
+        Some(_) => Err(format!("invalid animation {key}")),
+    }
+}
+
+/// 解析有限的 v2 动画表。版本 1 保持逐字节兼容，不会因未知字段意外启用动画。
+fn read_animation(
+    table: &toml::map::Map<String, Value>,
+    schema_version: i64,
+) -> Result<SkinAnimation, String> {
+    let Some(value) = table.get("animation") else {
+        return Ok(if schema_version == 2 {
+            SkinAnimation::lively()
+        } else {
+            SkinAnimation::disabled()
+        });
+    };
+    if schema_version < 2 {
+        return Err("animation requires schema_version 2".into());
+    }
+    let animation = value.as_table().ok_or("invalid animation")?;
+    let duration_ms = match animation.get("duration_ms") {
+        None => 180,
+        Some(value) => value
+            .as_integer()
+            .filter(|value| (40..=600).contains(value))
+            .map(|value| value as u16)
+            .ok_or("invalid animation duration_ms")?,
+    };
+    let stagger_ms = match animation.get("stagger_ms") {
+        None => 14,
+        Some(value) => value
+            .as_integer()
+            .filter(|value| (0..=80).contains(value))
+            .map(|value| value as u16)
+            .ok_or("invalid animation stagger_ms")?,
+    };
+    Ok(SkinAnimation {
+        enter: animation_preset(
+            animation.get("enter"),
+            "enter",
+            SkinAnimationPreset::FadeScale,
+        )?,
+        exit: animation_preset(animation.get("exit"), "exit", SkinAnimationPreset::Fade)?,
+        selection: animation_preset(
+            animation.get("selection"),
+            "selection",
+            SkinAnimationPreset::Spring,
+        )?,
+        duration_ms,
+        stagger_ms,
     })
 }
 

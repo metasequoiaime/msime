@@ -11,6 +11,9 @@ const HOVER_ALPHA = "0F";
 const PICKED_NUMBER_ALPHA = "9D";
 const BACKGROUND_FITS = ["cover", "contain", "stretch"];
 const DECORATION_ALIGNS = ["left", "center", "right"];
+const ANIMATION_PRESETS = ["none", "fade", "fade_scale", "slide_up", "spring", "glow"];
+const DEFAULT_ANIMATION = Object.freeze({ enter: "none", exit: "none", selection: "none", durationMs: 0, staggerMs: 0 });
+const LIVELY_ANIMATION = Object.freeze({ enter: "fade_scale", exit: "fade", selection: "spring", durationMs: 180, staggerMs: 14 });
 
 /** 不传皮肤时画的皮肤。 */
 export const DEFAULT_SKIN = "shuishan";
@@ -160,6 +163,23 @@ function declared(value, allowed) {
   return Array.isArray(value) ? allowed.filter((entry) => value.includes(entry)) : [];
 }
 
+/** 读取 schema v2 动效契约。未知值会被忽略，让新预设在旧网页宿主中安全降级为静态皮肤。 */
+function packageAnimation(skin) {
+  const raw = skin?.animation;
+  const v2 = Number(skin?.schemaVersion) === 2 || Number(skin?.schema_version) === 2;
+  if (!v2) return DEFAULT_ANIMATION;
+  if (raw === null || typeof raw !== "object") return v2 ? LIVELY_ANIMATION : DEFAULT_ANIMATION;
+  const preset = (value, fallback) => ANIMATION_PRESETS.includes(value) ? value : fallback;
+  const bounded = (value, min, max, fallback) => typeof value === "number" && Number.isInteger(value) && value >= min && value <= max ? value : fallback;
+  return Object.freeze({
+    enter: preset(raw.enter, v2 ? "fade_scale" : "none"),
+    exit: preset(raw.exit, v2 ? "fade" : "none"),
+    selection: preset(raw.selection, v2 ? "spring" : "none"),
+    durationMs: bounded(raw.durationMs ?? raw.duration_ms, 40, 600, v2 ? 180 : 0),
+    staggerMs: bounded(raw.staggerMs ?? raw.stagger_ms, 0, 80, v2 ? 14 : 0),
+  });
+}
+
 const PACKAGE_SLOTS = ["surface", "border", "text", "number", "accent", "selected", "hover", "translation"];
 const LOOK_SLOTS = ["surface", "border", "text", "number", "accent", "selected", "hover"];
 
@@ -206,6 +226,7 @@ function readPackage(skin) {
     themes: declared(skin.themes ?? supports.themes, MODES),
     candidate: { dark: packagePalette(candidate.dark, look?.dark), light: packagePalette(candidate.light, look?.light) },
     selectedText: { dark: lookSelectedText(candidate.dark, look?.dark), light: lookSelectedText(candidate.light, look?.light) },
+    animation: packageAnimation(skin),
     cornerRadius,
     skin,
   };
@@ -321,6 +342,7 @@ export function resolveSkin(skin, { dark = false, layout = "horizontal" } = {}) 
   let drawn = true;
   let geometry = NO_GEOMETRY;
   let selectedText = null;
+  let animation = DEFAULT_ANIMATION;
   if (typeof target === "string") {
     if (!SKINS.includes(target)) throw new TypeError(`unknown skin: ${target}`);
     id = target;
@@ -338,6 +360,7 @@ export function resolveSkin(skin, { dark = false, layout = "horizontal" } = {}) 
       raw = customCandidatePalette(pkg.base, undefined, pkg.candidate[mode]);
       geometry = packageGeometry(pkg);
       selectedText = pkg.selectedText[mode];
+      animation = pkg.animation;
     }
   } else if (target !== null && typeof target === "object" && !Array.isArray(target)) {
     const pkg = readPackage(target);
@@ -348,6 +371,7 @@ export function resolveSkin(skin, { dark = false, layout = "horizontal" } = {}) 
     if (drawn) {
       geometry = packageGeometry(pkg);
       selectedText = pkg.selectedText[mode];
+      animation = pkg.animation;
     }
   } else {
     throw new TypeError("skin must be a built-in skin id or a skin object");
@@ -359,7 +383,12 @@ export function resolveSkin(skin, { dark = false, layout = "horizontal" } = {}) 
     layout,
     palette,
     geometry: { ...geometry },
-    variables: cssVariables(palette, geometry),
+    variables: {
+      ...cssVariables(palette, geometry),
+      "--msime-skin-animation-duration": `${animation.durationMs}ms`,
+      "--msime-skin-animation-stagger": `${animation.staggerMs}ms`,
+    },
+    animation,
     drawn,
   });
 }

@@ -45,6 +45,8 @@ export type ToolbarPalette = Partial<
 >;
 export type ExternalSkin = {
   id: string;
+  /** 清单版本；版本 2 增加有限的候选窗动效契约。 */
+  schemaVersion?: 1 | 2;
   name: string;
   version: string;
   /** The global theme under the package's own colours; `system` for none. The manifest parser never gives `custom`. */
@@ -66,6 +68,13 @@ export type ExternalSkin = {
   toolbarStylesheet: string | null;
   preview: string | null;
   candidate: { dark: Palette; light: Palette };
+  animation?: {
+    enter: "none" | "fade" | "fade_scale" | "slide_up" | "spring" | "glow";
+    exit: "none" | "fade" | "fade_scale" | "slide_up" | "spring" | "glow";
+    selection: "none" | "fade" | "fade_scale" | "slide_up" | "spring" | "glow";
+    durationMs: number;
+    staggerMs: number;
+  };
   license?: { code: string | null; assets: string | null; source: string | null } | null;
 };
 export type SkinCatalog = {

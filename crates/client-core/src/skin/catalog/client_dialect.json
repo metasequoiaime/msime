@@ -476,7 +476,7 @@
   },
   {
    "name": "schema_version = 2",
-   "reason": "unsupported schema_version",
+   "reason": null,
    "template": "sample",
    "replace": [
     [
