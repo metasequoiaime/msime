@@ -151,6 +151,7 @@ private:
   void begin_skin_animation(CandidateSkinAnimationPreset preset);
   void finish_skin_animation();
   void hide_now();
+  void hide_immediately();
   bool skin_motion_enabled() const;
   float skin_motion_progress() const;
   // Device pixels per DIP for a window DPI, including the user's scale. Layout, rendering, the logo and hit testing all read this one factor.

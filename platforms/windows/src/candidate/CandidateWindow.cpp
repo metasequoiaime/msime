@@ -369,6 +369,9 @@ float CandidateWindow::skin_motion_progress() const {
 }
 
 void CandidateWindow::begin_skin_animation(CandidateSkinAnimationPreset preset) {
+  // 新的显示或选中变化会打断旧的退出帧，退出快照不能覆盖新会话。
+  finishing_animation_ = false;
+  exit_value_.reset();
   if (preset == CandidateSkinAnimationPreset::none || animation_.duration_ms == 0) {
     finish_skin_animation();
     return;
@@ -505,11 +508,20 @@ void CandidateWindow::hide_now() {
   ShowWindow(window_, SW_HIDE);
 }
 
+void CandidateWindow::hide_immediately() {
+  finishing_animation_ = false;
+  hide_now();
+}
+
 void CandidateWindow::hide() {
   if (finishing_animation_)
     return;
-  if (IsWindowVisible(window_) && skin_motion_enabled() &&
-      animation_.exit != CandidateSkinAnimationPreset::none) {
+  BOOL animations = TRUE;
+  if (!SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0))
+    animations = TRUE;
+  if (IsWindowVisible(window_) && animations && animation_.duration_ms > 0 &&
+      animation_.exit != CandidateSkinAnimationPreset::none && shown_ &&
+      shown_->visible) {
     exit_value_ = shown_;
     finishing_animation_ = true;
     active_animation_ = animation_.exit;
@@ -624,7 +636,8 @@ void CandidateWindow::release_latch(const char *cause) {
   }
 }
 void CandidateWindow::policy_hide(const CandidatePresentation &value) {
-  hide();
+  // 会话、焦点和全屏策略变化涉及隐私与输入目标，必须立即清掉窗口，不能把旧文字留在退出帧里。
+  hide_immediately();
   if (rendered_ && value.render_serial != receipted_serial_) {
     receipted_serial_ = value.render_serial;
     rendered_(value);
@@ -653,11 +666,14 @@ void CandidateWindow::keep_on_top() {
 }
 void CandidateWindow::reposition() {
   auto value = reader_();
-  if ((!value || !value->visible) && finishing_animation_ && exit_value_)
-    value = exit_value_;
   if (!value || !value->visible) {
     hide();
     return;
+  }
+  if (finishing_animation_) {
+    finishing_animation_ = false;
+    exit_value_.reset();
+    finish_skin_animation();
   }
   const DWORD pid = client_pid(value->lease.transport);
   // 同一个客户端换了登记代次，说明它断开后又连上了，锁存随之解除。

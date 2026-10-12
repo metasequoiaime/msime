@@ -1,0 +1,29 @@
+# Agent Note: 候选窗皮肤 v2 的原生宿主生命周期
+
+Status: implemented
+
+## Problem
+
+第一版把 macOS 动画接在可测试的候选面板类上，而不是 IMK 的 `InputController`，Windows 也可能在失焦或会话切换后保留退出快照。Linux 的候选像素由桌面面板接管，因此必须明确记录静态降级，不能把它报告成正在播放动画。
+
+本笔记取代 [`2026-10-13-candidate-skin-v2-motion-contract.md`](2026-10-13-candidate-skin-v2-motion-contract.md) 中关于 Linux 兼容的表述。共享契约保持不变，但每个宿主都记录真实的绘制边界，不再声称外部面板正在播放动画。
+
+## Decision
+
+Windows 把动画状态保存在 `CandidateWindow`。退出帧只允许用于普通候选收起；失焦、会话替换、光标无效、抑制和显示器切换都立即隐藏。新候选出现时取消旧退出定时器。减弱动态效果独立于当前动画状态检查，因此进入定时器结束后仍能正确开始退出动画。格式错误的 schema 值会安全回落，显式的 `staggerMs=0` 会被保留。
+
+macOS 把解析后的动画应用到真正的 IMK `InputController` 面板。未被产品调用的候选面板 fixture 仍保留用于单测，但产品显示/隐藏调用使用代次栅栏，迟到的淡出完成回调不能收掉新的候选页。失焦和会话原因仍然立即隐藏；普通的空页收起可以淡出。
+
+鸿蒙桌面通过 catalog 携带同一份有界动画对象，并对候选单元使用 ArkUI 过渡。触屏布局继续使用原有按压反馈，不宣称拥有桌面候选窗动画。
+
+Linux 的 IBus 和 Fcitx5 仍把候选像素和指针处理交给当前桌面面板。输入法若不为每种活动 UI（包括 GNOME Shell 和 Wayland input-panel 角色）实现并拥有面板协议，就不能安全地在那里重放皮肤动画。因此运行时只暴露面板能力并保持候选身份和主题契约，不把外部面板的静态绘制报告成 v2 动画播放。若以后要支持 Linux 播放，必须另建原生面板项目，并补充合成器定位和选择路由测试。
+
+## Consequences
+
+桌面原生宿主在隐私敏感的隐藏路径上不再保留旧候选文字。同一皮肤包可被 Windows、macOS 和鸿蒙读取，Linux 行为则明确受面板所有权约束。未来的 Linux renderer 必须作为宿主拥有的 surface 加入，并以 IBus、Fcitx5 classic UI、GNOME Shell 和 Wayland 定位证据取代本笔记。
+
+## Alternatives considered
+
+- **只保留 `CandidatePanel` 中的 macOS 动画**：fixture 会更小，但 IMK 产品从不调用这个类，用户看不到动画。现在接入产品路径 `InputController`。
+- **用第二个浮层淡出每个 Linux 候选**：会重复绘制文字、破坏面板拥有的指针路由，而且没有合成器坐标时在 Wayland 上不安全。已确认的范围保留 Linux 静态降级。
+- **让旧 Windows 退出定时器覆盖新页面完成**：实现简单，但会收掉新候选并泄露旧文字。新页面现在取消退出代次。

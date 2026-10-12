@@ -197,6 +197,10 @@ int main() {
           defaults.duration_ms == 180 && defaults.stagger_ms == 14);
   animated["packages"][0]["animation"]["durationMs"] = 9999;
   require(candidate_skin_animation(animated, "mascot").duration_ms == 180);
+  animated["packages"][0]["animation"]["staggerMs"] = 0;
+  require(candidate_skin_animation(animated, "mascot").stagger_ms == 0);
+  animated["packages"][0]["schemaVersion"] = "2";
+  require(candidate_skin_animation(animated, "mascot").duration_ms == 0);
 
   // Background placement: stretch fills, cover crops the overflow, contain letterboxes.
   const CandidateSkinRect card{0, 0, 200, 100};

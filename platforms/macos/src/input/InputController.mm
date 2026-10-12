@@ -901,6 +901,15 @@ static unichar MSIMEASCIIForSmartChinesePunctuation(unichar character) {
 static BOOL MSIMEASCIIPunctuation(unichar character) {
     return character > 0x20 && character < 0x7F && !MSIMEASCIIAlphanumeric(character);
 }
+
+static BOOL MSIMECandidateMotionEnabled(const msime::mac::SkinAnimation &animation) {
+    return animation.durationMs > 0.0 && animation.enter != msime::mac::SkinAnimationPreset::none &&
+           !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+}
+
+static NSTimeInterval MSIMECandidateMotionDuration(const msime::mac::SkinAnimation &animation) {
+    return MAX(0.04, MIN(0.6, animation.durationMs / 1000.0));
+}
 static BOOL MSIMESmartPunctuationSpaceKey(unichar character) {
     switch (character) {
     case '.': case ',': case '!': case '?': case ';': case ':': case '/':
@@ -1053,6 +1062,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (NSDictionary *)serviceSnapshotQuery;
 - (NSDictionary *)serviceSnapshotView;
 - (void)invalidateServiceSnapshots;
+- (void)showCandidatePanelAnimated:(BOOL)wasVisible;
 @end
 
 // The full-colour brand mark the floating toolbar and the mode HUD lead with, loaded once. Nil when the bundle has no icon, and the top row then carries no mark.
@@ -1145,6 +1155,8 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _skinShowsSelectedBar;
     // 上一次排版时这种明暗画的皮肤包，空串表示没有画包；外观变化后画的包不同了就要重新排版。
     std::string _renderedCandidateSkin;
+    msime::mac::SkinAnimation _renderedCandidateAnimation;
+    NSUInteger _candidateAnimationGeneration;
     BOOL _rerenderingForCandidateSkin;
     CGFloat _tallestVerticalCandidateHeight;
     NSInteger _armedGlossColumn;
@@ -6939,7 +6951,52 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
 // Every hide of the candidate window goes through here so the diagnostic log can say why it went away, like the source's candidate hide lines. Only a window that was on screen is logged.
 - (void)hideCandidatePanel:(const char *)reason {
     if (msime_macos_diagnostic_enabled() && _panel.isVisible) msime_macos_diagnostic_writef("candidate hide reason=%s", reason);
+    const BOOL ordinaryDismissal = reason && (strcmp(reason, "empty") == 0 || strcmp(reason, "english_mode") == 0);
+    const BOOL canAnimate = ordinaryDismissal && _panel.isVisible &&
+        _renderedCandidateAnimation.exit != msime::mac::SkinAnimationPreset::none &&
+        _renderedCandidateAnimation.durationMs > 0.0 &&
+        !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+    if (canAnimate) {
+        const NSUInteger generation = ++_candidateAnimationGeneration;
+        [_panel.contentView.layer removeAllAnimations];
+        [_panel setAlphaValue:1.0];
+        [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
+            context.duration = MSIMECandidateMotionDuration(_renderedCandidateAnimation);
+            [_panel.animator setAlphaValue:0.0];
+        } completionHandler:^{
+            if (generation == _candidateAnimationGeneration) {
+                [_panel setAlphaValue:1.0];
+                [_panel orderOut:nil];
+            }
+        }];
+        return;
+    }
+    ++_candidateAnimationGeneration;
+    [_panel setAlphaValue:1.0];
     [_panel orderOut:nil];
+}
+
+- (void)showCandidatePanelAnimated:(BOOL)wasVisible {
+    ++_candidateAnimationGeneration;
+    [_panel setAlphaValue:1.0];
+    if (wasVisible || !MSIMECandidateMotionEnabled(_renderedCandidateAnimation)) return;
+    const BOOL scale = _renderedCandidateAnimation.enter == msime::mac::SkinAnimationPreset::fade_scale ||
+                       _renderedCandidateAnimation.enter == msime::mac::SkinAnimationPreset::spring;
+    [_panel setAlphaValue:_renderedCandidateAnimation.enter == msime::mac::SkinAnimationPreset::glow ? 0.82 : 0.0];
+    if (scale) {
+        _panel.contentView.wantsLayer = YES;
+        _panel.contentView.layer.transform = CATransform3DMakeScale(0.96, 0.96, 1.0);
+    }
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
+        context.duration = MSIMECandidateMotionDuration(_renderedCandidateAnimation);
+        context.timingFunction = _renderedCandidateAnimation.enter == msime::mac::SkinAnimationPreset::spring
+            ? [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut] : nil;
+        [_panel.animator setAlphaValue:1.0];
+        if (scale) _panel.contentView.layer.transform = CATransform3DIdentity;
+    } completionHandler:^{
+        [_panel setAlphaValue:1.0];
+        _panel.contentView.layer.transform = CATransform3DIdentity;
+    }];
 }
 
 // The candidate window, created on first use. Its wheel pages the Engine's candidates, or scrolls the expanded grid while that is open.
@@ -7074,6 +7131,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     NSString *currentTheme = [currentAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
     const BOOL skinDark = [currentTheme isEqual:NSAppearanceNameDarkAqua];
     const auto skin = [_appearance candidateWindowSkinForDark:skinDark];
+    _renderedCandidateAnimation = skin.animation;
     const auto tokens = skin.tokens;
     _skinShowsSelectedBar = tokens.showSelectedBar;
     _renderedCandidateSkin = skin.candidateSkin;
@@ -7213,8 +7271,10 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     _tallestVerticalCandidateHeight = MSIMETallestCandidateHeight(_tallestVerticalCandidateHeight, panelSize.height, false, _panel.isVisible);
     const NSPoint origin = MSIMECandidateOrigin(cursor, panelSize, visible, 0);
     [_panel setFrameOrigin:origin];
+    const BOOL wasVisible = _panel.isVisible;
     [self claimCandidatePanel];
     [_panel orderFrontRegardless];
+    [self showCandidatePanelAnimated:wasVisible];
     if (timed)
         msime_macos_diagnostic_writef("candidate-frame show expanded rows=%lu visible_rows=%lu candidates=%lu size=(%.0f,%.0f) origin=(%.0f,%.0f) flipped=%d build_ms=%.3f",
             (unsigned long)rows, (unsigned long)visibleRows, (unsigned long)count, panelSize.width, panelSize.height, origin.x, origin.y,
@@ -7266,6 +7326,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     // The styled skin carries the window's scale in its pad, radii, decoration and minimum width; the fonts and the fixed lengths below take it from `scale`.
     const BOOL skinDark = [currentTheme isEqual:NSAppearanceNameDarkAqua];
     const auto skin = [_appearance candidateWindowSkinForDark:skinDark];
+    _renderedCandidateAnimation = skin.animation;
     const auto geometry = skin.tokens;
     _skinShowsSelectedBar = geometry.showSelectedBar;
     _renderedCandidateSkin = skin.candidateSkin;
@@ -7374,8 +7435,10 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
             const NSSize panelSize = _panel.frame.size;
             _tallestVerticalCandidateHeight = MSIMETallestCandidateHeight(_tallestVerticalCandidateHeight, panelSize.height, vertical, _panel.isVisible);
             [_panel setFrameOrigin:MSIMECandidateOrigin(cursor, panelSize, visible, vertical ? _tallestVerticalCandidateHeight : 0)];
+            const BOOL wasVisible = _panel.isVisible;
             [self claimCandidatePanel];
             [_panel orderFrontRegardless];
+            [self showCandidatePanelAnimated:wasVisible];
             return;
         }
     }
@@ -7462,8 +7525,10 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     _tallestVerticalCandidateHeight = MSIMETallestCandidateHeight(_tallestVerticalCandidateHeight, panelSize.height, vertical, _panel.isVisible);
     const NSPoint origin = MSIMECandidateOrigin(cursor, panelSize, visible, vertical ? _tallestVerticalCandidateHeight : 0);
     [_panel setFrameOrigin:origin];
+    const BOOL wasVisible = _panel.isVisible;
     [self claimCandidatePanel];
     [_panel orderFrontRegardless];
+    [self showCandidatePanelAnimated:wasVisible];
     // Geometry and counts only, the macOS form of the source's candidate-frame/candidate-position audit: flipped=1 means the window went above the caret for lack of room below.
     if (timed)
         msime_macos_diagnostic_writef("candidate-frame show rows=%lu vertical=%d caret=(%.0f,%.0f,%.0f,%.0f) size=(%.0f,%.0f) origin=(%.0f,%.0f) visible=(%.0f,%.0f,%.0f,%.0f) flipped=%d build_ms=%.3f",

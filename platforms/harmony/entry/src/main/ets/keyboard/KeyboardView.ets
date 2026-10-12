@@ -3142,6 +3142,12 @@ struct KeyboardView {
       ? GlobalTheme.withOpacity(colour, this.settings.candidateWindowOpacity) : colour;
   }
 
+  /** 皮肤动效只使用清单允许的时长；禁用动效或系统尚未提供清单时不改变候选布局。 */
+  private candidateMotionDuration(): number {
+    const duration: number = this.settings.candidateAnimation.durationMs;
+    return Number.isFinite(duration) && duration > 0 ? duration : 0;
+  }
+
   private candidateTextColor(): string {
     return this.candidateColors().text;
   }
@@ -3692,6 +3698,10 @@ struct KeyboardView {
         this.touchCandidateMenu = false;
         this.managing = index;
       })
+      .transition(this.candidateMotionDuration() > 0
+        ? TransitionEffect.OPACITY.animation({ duration: this.candidateMotionDuration() })
+        : TransitionEffect.IDENTITY)
+      .animation({ duration: this.candidateMotionDuration() })
   }
 
   /**

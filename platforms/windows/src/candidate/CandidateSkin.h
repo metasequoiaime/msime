@@ -232,7 +232,9 @@ inline CandidateSkinAnimation candidate_skin_animation(const nlohmann::json &cat
                                                        const std::string &id) {
   CandidateSkinAnimation animation;
   const auto *package = detail::candidate_skin_package(catalog, id);
-  if (!package || package->value("schemaVersion", 1) != 2)
+  if (!package || !package->contains("schemaVersion") ||
+      !package->at("schemaVersion").is_number_integer() ||
+      package->at("schemaVersion").get<int64_t>() != 2)
     return animation;
   if (!package->contains("animation") || !package->at("animation").is_object()) {
     animation.enter = CandidateSkinAnimationPreset::fade_scale;
@@ -251,14 +253,14 @@ inline CandidateSkinAnimation candidate_skin_animation(const nlohmann::json &cat
       value, "selection", CandidateSkinAnimationPreset::spring);
   if (value.contains("durationMs") && value.at("durationMs").is_number_integer()) {
     const auto duration = value.at("durationMs").get<int64_t>();
-    if (duration >= 40 && duration <= 600) animation.duration_ms = static_cast<unsigned>(duration);
+    if (duration >= 40 && duration <= 600)
+      animation.duration_ms = static_cast<unsigned>(duration);
   }
   if (value.contains("staggerMs") && value.at("staggerMs").is_number_integer()) {
     const auto stagger = value.at("staggerMs").get<int64_t>();
     if (stagger >= 0 && stagger <= 80) animation.stagger_ms = static_cast<unsigned>(stagger);
   }
   if (animation.duration_ms == 0) animation.duration_ms = 180;
-  if (animation.stagger_ms == 0) animation.stagger_ms = 14;
   return animation;
 }
 // The toolbar palette with a package's own toolbar colours and radius drawn over what the theme derives: background is the bar surface, handle the drag strip (the accent there), divider the separator, icon the glyphs, hover the hovered button.

@@ -25,6 +25,7 @@ export interface CandidateSkinBackgroundEntry {
 /** The fields of a `msime_client_skin_catalog` entry this host still reads. The colours are read through the resolved theme instead. */
 export interface CandidateSkinPackage {
   readonly id: string;
+  readonly schemaVersion?: number;
   readonly base: string;
   readonly layouts: string[];
   readonly themes: string[];
@@ -39,6 +40,23 @@ export interface CandidateSkinPackage {
   readonly toolbar?: CandidateSkinToolbar;
   readonly toolbarStylesheet?: string | null;
   readonly preview: string | null;
+  readonly animation?: CandidateSkinAnimation | null;
+}
+
+export type CandidateSkinAnimationPreset =
+  | "none"
+  | "fade"
+  | "fade_scale"
+  | "slide_up"
+  | "spring"
+  | "glow";
+
+export interface CandidateSkinAnimation {
+  readonly enter: CandidateSkinAnimationPreset;
+  readonly exit: CandidateSkinAnimationPreset;
+  readonly selection: CandidateSkinAnimationPreset;
+  readonly durationMs: number;
+  readonly staggerMs: number;
 }
 
 export type CandidateSkinAlign = "left" | "center" | "right";
@@ -73,6 +91,52 @@ export class CandidateSkinCatalogPolicy {
       }
     }
     return null;
+  }
+
+  static animation(packages: CandidateSkinPackage[], id: string): CandidateSkinAnimation {
+    const defaults: CandidateSkinAnimation = {
+      enter: "fade_scale",
+      exit: "fade",
+      selection: "spring",
+      durationMs: 180,
+      staggerMs: 14,
+    };
+    const candidate: CandidateSkinPackage | null = CandidateSkinCatalogPolicy.package(packages, id);
+    if (
+      candidate === null ||
+      candidate.schemaVersion !== 2 ||
+      candidate.animation === null ||
+      candidate.animation === undefined
+    )
+      return defaults;
+    const value: CandidateSkinAnimation = candidate.animation;
+    const preset = (
+      input: CandidateSkinAnimationPreset | undefined,
+      fallback: CandidateSkinAnimationPreset,
+    ): CandidateSkinAnimationPreset =>
+      input === "none" ||
+      input === "fade" ||
+      input === "fade_scale" ||
+      input === "slide_up" ||
+      input === "spring" ||
+      input === "glow"
+        ? input
+        : fallback;
+    const duration: number =
+      Number.isInteger(value.durationMs) && value.durationMs >= 40 && value.durationMs <= 600
+        ? value.durationMs
+        : defaults.durationMs;
+    const stagger: number =
+      Number.isInteger(value.staggerMs) && value.staggerMs >= 0 && value.staggerMs <= 80
+        ? value.staggerMs
+        : defaults.staggerMs;
+    return {
+      enter: preset(value.enter, defaults.enter),
+      exit: preset(value.exit, defaults.exit),
+      selection: preset(value.selection, defaults.selection),
+      durationMs: duration,
+      staggerMs: stagger,
+    };
   }
 
   static minWidthVp(packages: CandidateSkinPackage[], id: string): number | null {

@@ -75,7 +75,7 @@ import {
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import {
   CandidateSkinCatalogPolicy, CandidateSkinPackage, CandidateSkinDecoration, CandidateSkinBackground,
-  CandidateSkinAlign, CandidateSkinFit
+  CandidateSkinAlign, CandidateSkinFit, CandidateSkinAnimation
 } from './candidate/CandidateSkinCatalogPolicy';
 import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
 import { CandidateFontSizePolicy } from './candidate/CandidateFontSizePolicy';
@@ -938,6 +938,8 @@ export interface KeyboardPreferences {
   readonly candidateBackgroundImage: string | null;
   readonly candidateBackgroundFit: CandidateSkinFit;
   readonly candidateBackgroundOpacity: number;
+  /** The bounded native motion presets from the selected candidate package. */
+  readonly candidateAnimation: CandidateSkinAnimation;
   /** The user's 0.5..1 factor on the card's fill, border and background image; text and the selection stay opaque. */
   readonly candidateWindowOpacity: number;
   readonly candidateDark: boolean;
@@ -1203,6 +1205,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     candidateBackgroundImage: null,
     candidateBackgroundFit: 'cover',
     candidateBackgroundOpacity: 1,
+    candidateAnimation: { enter: 'none', exit: 'none', selection: 'none', durationMs: 0, staggerMs: 0 },
     candidateWindowOpacity: 1,
     candidateDark: false,
     candidateSelectedBar: false,
@@ -1422,6 +1425,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       : NO_CANDIDATE_SKIN_IMAGE;
     const skinBackground: CandidateSkinBackground | null = packageId === null
       ? null : CandidateSkinCatalogPolicy.background(skinPackages, packageId);
+    const candidateAnimation: CandidateSkinAnimation = packageId === null
+      ? { enter: 'none', exit: 'none', selection: 'none', durationMs: 0, staggerMs: 0 }
+      : CandidateSkinCatalogPolicy.animation(skinPackages, packageId);
     // Like the decoration, the background is a desktop candidate window's; the touch strip keeps the keyboard's look.
     const backgroundImage: CandidateSkinImage = KeyboardFormFactor.isDesktop() && packageId !== null
       ? this.readCandidateSkinImage(this.stateDirectory, packageId,
@@ -1454,6 +1460,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       candidateBackgroundImage: backgroundImage.image,
       candidateBackgroundFit: skinBackground === null ? 'cover' : skinBackground.fit,
       candidateBackgroundOpacity: skinBackground === null ? 1 : skinBackground.opacity,
+      candidateAnimation: candidateAnimation,
       candidateWindowOpacity: windowOpacity,
       candidateDark: candidateDark,
       candidateSelectedBar: preferences.candidate_selected_bar ?? candidateColors.showSelectedBar,
