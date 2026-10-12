@@ -5,6 +5,8 @@
  * and the three call sites differ only in what they put in the preview column.
  */
 
+import { looseStack } from "../core/page-style";
+
 // ---- the scheme list on the input page ----
 
 export const schemeSelect = (chosen: boolean) =>
@@ -28,7 +30,7 @@ export const skinCardCheck = "text-center text-[17px] font-bold text-accent";
 
 // ---- the skin editor ----
 
-export const editor = "flex flex-col gap-4";
+export const editor = looseStack;
 /** 内嵌时的标题行：标题在左，「完成」在右。 */
 export const editorHeading = "flex items-start justify-between gap-4";
 /** 编辑器自己的主按钮和删除按钮是实心的，不是描边的。 */

@@ -6,3 +6,5 @@ export const standardPage = "flex flex-col gap-3.5";
 export const tightStack = "flex flex-col gap-2.5";
 /** Shared standard vertical stack for prose and form sections. */
 export const standardStack = "flex flex-col gap-3";
+/** Shared roomy vertical stack for multi-step controls and editors. */
+export const looseStack = "flex flex-col gap-4";

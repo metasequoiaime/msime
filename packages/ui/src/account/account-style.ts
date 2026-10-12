@@ -8,7 +8,7 @@
  */
 
 import { fieldLabel } from "../core/form-style";
-import { standardPage, standardStack, tightStack } from "../core/page-style";
+import { looseStack, standardPage, standardStack, tightStack } from "../core/page-style";
 import { mobileGroupSurface } from "../core/platform-controls-style";
 import { rowHeading, rowText } from "../core/row-style";
 
@@ -26,7 +26,7 @@ export const primary =
 /** A row of buttons that wraps rather than overflowing; every account surface uses the same one. */
 export const actionRow =
   "flex flex-wrap items-center gap-[9px] [&>.secondary]:m-0 [&>.danger-text]:m-0";
-export const stack = "flex flex-col gap-4";
+export const stack = looseStack;
 
 /** A status line from the page's own actions, set apart from the cards instead of floating as bare text above them. */
 export const status = "m-0 rounded-lg bg-subtle px-3.5 py-2.5 text-[13px] text-secondary";
