@@ -98,7 +98,8 @@ export const rowAction =
 export const rowActionDanger = `${rowAction} text-danger!`;
 export const warning = "m-0 px-4 py-2.5 text-[13px] text-danger";
 
-export const templateGrid = "grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2.5";
+const skinTileGrid = "grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2.5";
+export const templateGrid = skinTileGrid;
 export const templateCard =
   "m-0 flex min-w-0 flex-col gap-2 overflow-hidden rounded-[12px] border-0 p-2 text-left font-semibold [box-shadow:inset_0_0_0_1px_rgba(0,0,0,.08)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&>span]:overflow-hidden [&>span]:px-1 [&>span]:text-[13px] [&>span]:text-ellipsis [&>span]:whitespace-nowrap";
 /** 分组下方居中的文字按钮（重置、优化对比度）。 */
@@ -112,7 +113,7 @@ export const libraryDialog =
 export const libraryNotice =
   "m-0 rounded-[var(--p-group-r)] bg-accent-soft px-4 py-2.5 text-[13px] [color:var(--p-text)]";
 export const libraryEmpty = "m-0 leading-normal [color:var(--p-sub)]";
-export const libraryList = "grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2.5";
+export const libraryList = skinTileGrid;
 export const libraryCard =
   "flex min-w-0 flex-col gap-2 rounded-[12px] p-2 [box-shadow:inset_0_0_0_1px_var(--p-hair)]";
 export const libraryApply =
