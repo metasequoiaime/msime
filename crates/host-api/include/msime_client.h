@@ -997,13 +997,14 @@ char *msime_client_typing_effect_settings(uint64_t session);
 char *msime_client_key_sound_pack(const uint8_t *request, size_t length);
 /* The validated tracks of one music pack, for a host that streams music itself (HarmonyOS). Request (<=65536 bytes): {state_root: absolute|null, sound_packs: absolute|null, pack: id}, as for key_sound_pack. Built-in ids ("msime-music-lofi", "msime-music-ambient") resolve from sound_packs, which holds them beside the built-in sound packs; any other id needs state_root and is refused without one. Value: {id, name, license, tracks:[absolute path, in play order], max_track_seconds}; a host plays a track only when its duration is within max_track_seconds, then the next, starting over after the last. Reads the pack from disk: not for the key path. */
 char *msime_client_music_pack(const uint8_t *request, size_t length);
-/* The settings page's pack store and @ name list, for a settings host other than the desktop shell (HarmonyOS). Request (<=2 MiB): {state_root: absolute, sound_packs: absolute|null, action}; packs and mentions.json live in state_root/plugins, sound_packs is the bundle's built-in sound pack root. action.operation:
- * "catalog": value {packages:[...], issues:[{kind, folder, reason}]}, every installed pack and the built-in sound packs, as the desktop shell lists them.
- * "import" {source: absolute path of a pack folder or .zip file}: installs it, replacing an installed pack of the same id whole; value is the installed pack.
- * "remove" {kind: "sound"|"music"|"command_table"|"effect"|"phrase_table"|"helpcode"|"wordbook"|"symbol_set", id}: value null; a pack that is not installed is already removed.
- * "load_mentions": value [{text, key}], empty before a list was saved.
- * "save_mentions" {entries:[{text, key}]}: replaces the list; value null.
- * A failure is {ok:false, error: code, detail?}: the codes are the desktop shell's (invalid, storage, plugin_invalid, plugin_unsupported_source, plugin_archive, plugin_reserved, plugin_storage, mention_invalid, mention_format, mention_storage) and detail, when present, is the rule a refused pack or entry broke, in Chinese for the page. Reads and writes files, and an import copies up to a music pack's size: use a worker thread where the host has one. */
+/* 插件页的包仓库和 @ 名单，给桌面外壳以外的设置宿主：鸿蒙的插件页，以及 Android、iOS 设置里导入辅助码表。Request（<=2 MiB）为 {state_root: 绝对路径, sound_packs: 绝对路径|null, action}；包和 mentions.json 放在 state_root/plugins 下，sound_packs 是安装包自带的内置音效包目录。action.operation：
+ * "catalog"：value 为 {packages:[...], issues:[{kind, folder, reason}]}，即全部已安装的包和内置音效包，与桌面外壳列出的相同。
+ * "import" {source: 包文件夹或 .zip 文件的绝对路径}：安装它，整包替换已安装的同 id 包；value 是装好的包。
+ * "import_helpcode_table" {file_name, text}：把单个 .txt 辅助码表装成 kind 为 helpcode 的包。file_name 是用户选的文件名，只用于报错、显示名和 id；text 是码表正文，宿主必须先按 UTF-8 严格解码（解码失败就不要调用），原始字节不超过 1 MiB。码表按辅助码表包的严格规则校验（每行「字=码」，码是 1 到 2 个小写字母，同一个字只能出现一次，1 到 30000 条），不合格时是 plugin_invalid，detail 写明文件名、原因和行号。显示名取开头的 # name: 注释，没有时用去掉扩展名的文件名；id 是 custom-<小写文件名主干>，组不成合法 id 时是 custom-<12 位十六进制哈希>，同名文件再次导入时整包替换。value 是装好的包，其中 entries 是条数。宿主再把 id 写进 preferences.plugins.helpcode_pack_quanpin 或 helpcode_pack_shuangpin 来选用它。
+ * "remove" {kind: "sound"|"music"|"command_table"|"effect"|"phrase_table"|"helpcode"|"wordbook"|"symbol_set", id}：value 为 null；没装的包视为已删除。
+ * "load_mentions"：value 为 [{text, key}]，还没保存过名单时为空。
+ * "save_mentions" {entries:[{text, key}]}：替换名单；value 为 null。
+ * 失败时为 {ok:false, error: 失败码, detail?}：失败码与桌面外壳相同（invalid、storage、plugin_invalid、plugin_unsupported_source、plugin_archive、plugin_reserved、plugin_storage、mention_invalid、mention_format、mention_storage），detail 存在时是被拒的包或条目违反的规则，中文，给设置页显示。会读写文件，导入最多复制一个音乐包大小的数据：宿主有工作线程时在工作线程上调用。 */
 char *msime_client_plugins(const uint8_t *request, size_t length);
 /* 不带编码的常用语（<=4 MiB）：{directory: 偏好目录的绝对路径, action:{operation:"load"|"add"{text}|"remove"{id}|"replace"{id,text}|"move"{id,index}|"install_pack"{resource}|"remove_pack"{id}}}。Value 是整份文档 {phrases:[{id,text,pack}],packs:[{id,name,revision}],skipped?}；错误是固定的代码（common_phrases_io、_corrupt、_invalid、_duplicate、_limit、_too_large、_not_found）。设置进程和键盘进程都会调用，调用时锁住文件。在工作线程上调用。 */
 char *msime_client_common_phrases(const uint8_t *request, size_t length);

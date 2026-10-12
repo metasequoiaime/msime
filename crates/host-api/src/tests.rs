@@ -11846,6 +11846,65 @@ fn plugins_boundary_lists_imports_removes_and_keeps_the_name_list() {
     );
 }
 
+/// 移动端导入单个码表：`import_helpcode_table` 把正文装成辅助码表包，选中后会话里「你」的码换成表里的；坏表以 `plugin_invalid` 和带行号的中文原因被拒。
+#[test]
+fn plugins_boundary_imports_a_helpcode_table_the_session_then_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("state");
+    let call = |action: Value| {
+        let request = serde_json::to_vec(
+            &json!({"state_root": state, "sound_packs": null, "action": action}),
+        )
+        .unwrap();
+        read(unsafe { msime_client_plugins(request.as_ptr(), request.len()) })
+    };
+    let imported = call(json!({
+        "operation": "import_helpcode_table",
+        "file_name": "我的码.txt",
+        "text": "\u{FEFF}# name: 我的辅助码\r\n你=zz\r\n",
+    }));
+    assert_eq!(imported["ok"], true, "{imported}");
+    assert_eq!(imported["value"]["kind"], "helpcode");
+    assert_eq!(imported["value"]["name"], "我的辅助码");
+    assert_eq!(imported["value"]["entries"], 1);
+    let id = imported["value"]["id"].as_str().unwrap().to_owned();
+    assert!(id.starts_with("custom-"), "{id}");
+    let catalog = call(json!({"operation": "catalog"}));
+    assert!(
+        catalog["value"]["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|pack| pack["id"] == id.as_str() && pack["kind"] == "helpcode"),
+        "{catalog}"
+    );
+
+    let mut preferences = chinese_preferences();
+    preferences.scheme = msime_client_core::preferences::InputScheme::Shuangpin;
+    preferences.plugins.helpcode_pack_shuangpin = id.clone();
+    let handle = plugin_host(dir.path(), preferences);
+    assert_eq!(session_helpcode(handle).as_deref(), Some("zz"));
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+
+    let refused = call(json!({
+        "operation": "import_helpcode_table",
+        "file_name": "mine.txt",
+        "text": "你=ab\n你=cd\n",
+    }));
+    assert_eq!(
+        refused,
+        json!({
+            "ok": false,
+            "error": "plugin_invalid",
+            "detail": "mine.txt 里「你」出现了不止一次（第 1 行和第 2 行）",
+        })
+    );
+    assert_eq!(
+        call(json!({"operation": "import_helpcode_table", "file_name": "mine.txt"}))["error"],
+        "invalid"
+    );
+}
+
 /// A statistics record reports which achievement milestone it passed; without a session asking for achievement sounds it never looks.
 #[test]
 fn statistics_record_reports_the_milestone_field() {
