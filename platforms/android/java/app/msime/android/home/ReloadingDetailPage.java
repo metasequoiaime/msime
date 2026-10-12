@@ -26,5 +26,10 @@ public abstract class ReloadingDetailPage extends ColumnDetailPage {
     /** Allows a page to preserve active editing state when it becomes visible again. */
     protected boolean shouldReloadWhenVisible() { return true; }
 
+    /** Saves one Android-local setting and refreshes the page after success or failure. */
+    protected final void saveLocalSetting(String key, Object value) {
+        KeyboardSheets.saveLocal(this, key, value, null, this::reload);
+    }
+
     protected abstract void reload();
 }

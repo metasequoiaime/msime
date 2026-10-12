@@ -682,7 +682,7 @@ public final class VoicePage extends ReloadingDetailPage {
     private void onContributeChanged(boolean checked) {
         GroupCard.Row row = contributeRow;
         if (!checked) {
-            saveLocal(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO, false);
+            saveLocalSetting(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO, false);
             return;
         }
         if (row != null) row.setChecked(false);
@@ -691,7 +691,7 @@ public final class VoicePage extends ReloadingDetailPage {
             "开启", () -> {
                 GroupCard.Row current = contributeRow;
                 if (current != null) current.setChecked(true);
-                saveLocal(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO, true);
+                saveLocalSetting(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO, true);
             });
     }
 
@@ -729,10 +729,6 @@ public final class VoicePage extends ReloadingDetailPage {
         if (!isAdded()) return;
         long size = state.runtimePack() == null ? 0 : state.runtimePack().size();
         ResourcePackService.request(requireContext(), ResourcePacks.VOICE_RUNTIME, size);
-    }
-
-    private void saveLocal(String key, Object value) {
-        KeyboardSheets.saveLocal(this, key, value, null, this::reload);
     }
 
     /** 长按空格在本地设置，工具栏按钮在共享偏好；先写本地，再写共享。 */

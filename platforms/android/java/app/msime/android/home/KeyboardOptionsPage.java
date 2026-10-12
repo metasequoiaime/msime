@@ -91,7 +91,7 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
             layout.toggle("中英键轮换其他语言",
                 "中英键依次切换中文、英文和已添加的日语、韩语等键盘，再回到中文；没有添加其他语言时仍只切中英",
                 settings.bool(AndroidLocalSettings.LANGUAGE_KEY_CYCLE),
-                checked -> saveLocal(AndroidLocalSettings.LANGUAGE_KEY_CYCLE, checked));
+                checked -> saveLocalSetting(AndroidLocalSettings.LANGUAGE_KEY_CYCLE, checked));
         }
         // 左侧符号栏只属于拼音九键和笔画键盘；本版本两者都没有（例如五笔版）时不列这一行，数字键面那一行只看拼音九键。
         boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
@@ -121,7 +121,7 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
                 : NumberPolicy.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
         layout.slider("键盘高度", KeyboardHeightPolicy.MIN_HEIGHT_PERCENT, KeyboardHeightPolicy.MAX_HEIGHT_PERCENT, 1, height,
             KeyboardHeightPolicy::displayPercent,
-            percent -> saveLocal(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT,
+            percent -> saveLocalSetting(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT,
                 KeyboardHeightPolicy.heightPercentToAdjustment(percent)));
         layout.slider("按键间距", KeyboardSpacingPolicy.MIN_KEY_SPACING_TENTHS, KeyboardSpacingPolicy.MAX_KEY_SPACING_TENTHS, 1,
             KeyboardSpacingPolicy.keySpacing(NumberPolicy.strictInt(preferences, "touch_key_spacing_tenths", -1)),
@@ -131,29 +131,29 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
             KeyboardSpacingPolicy::display, value -> savePreference("touch_row_spacing_tenths", value));
         layout.toggle("数字行", "26 键和韩文键盘的字母上方多一行 1–0，键盘整体高出一行；手机横屏时放不下，不显示",
             settings.bool(AndroidLocalSettings.NUMBER_ROW),
-            checked -> saveLocal(AndroidLocalSettings.NUMBER_ROW, checked));
+            checked -> saveLocalSetting(AndroidLocalSettings.NUMBER_ROW, checked));
         layout.toggle("横屏分离式键盘", "仅在平板横屏时生效：26 键和韩文键盘分成左右两半，方便双手握持时用拇指输入；右半边也有 G 和 V",
             settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD),
-            checked -> saveLocal(AndroidLocalSettings.SPLIT_KEYBOARD, checked));
+            checked -> saveLocalSetting(AndroidLocalSettings.SPLIT_KEYBOARD, checked));
         layout.toggle("浮动键盘", "键盘缩小成一块面板悬在应用上面，按住顶部横条拖动位置；也可以在功能面板或工具栏按钮里切换",
             settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD),
-            checked -> saveLocal(AndroidLocalSettings.FLOATING_KEYBOARD, checked));
+            checked -> saveLocalSetting(AndroidLocalSettings.FLOATING_KEYBOARD, checked));
         layout.toggle("物理键盘时候选栏跟随光标", "接实体键盘打字时，候选栏显示在输入光标旁，靠近屏幕底部时显示在光标上方；不打字时不显示工具栏。应用不提供光标位置时仍停在屏幕底部",
             settings.bool(AndroidLocalSettings.HARDWARE_CARET_CANDIDATES),
-            checked -> saveLocal(AndroidLocalSettings.HARDWARE_CARET_CANDIDATES, checked));
+            checked -> saveLocalSetting(AndroidLocalSettings.HARDWARE_CARET_CANDIDATES, checked));
         layout.toggle("键盘底栏", "仅在全面屏手势导航下生效：键盘下方加一条栏，左边切换输入法、右边剪贴板，中间左右滑动移动光标，同时把按键抬离屏幕底边",
             settings.bool(AndroidLocalSettings.BOTTOM_BAR),
-            checked -> saveLocal(AndroidLocalSettings.BOTTOM_BAR, checked));
+            checked -> saveLocalSetting(AndroidLocalSettings.BOTTOM_BAR, checked));
         layout.toggle("底部留白", "键盘下方多留一段空白，把回车、空格等最下一行的键抬离屏幕底边，减少误触；键盘底栏出现时不再另加",
             settings.bool(AndroidLocalSettings.BOTTOM_PADDING),
-            checked -> saveLocal(AndroidLocalSettings.BOTTOM_PADDING, checked));
+            checked -> saveLocalSetting(AndroidLocalSettings.BOTTOM_PADDING, checked));
 
         GroupCard feedback = GroupCard.add(target, "按键反馈");
         KeyboardFeedbackStore.Settings local = state.feedback();
         feedback.toggle("按键音", null, local.soundEnabled(), checked -> saveFeedback(checked, null));
         feedback.toggle("按键振动", null, local.hapticsEnabled(), checked -> saveFeedback(null, checked));
         feedback.toggle("按键弹出预览", "按下时在键上方显示放大的字符",
-            settings.bool(AndroidLocalSettings.KEY_POPUP), checked -> saveLocal(AndroidLocalSettings.KEY_POPUP, checked));
+            settings.bool(AndroidLocalSettings.KEY_POPUP), checked -> saveLocalSetting(AndroidLocalSettings.KEY_POPUP, checked));
         String animation = settings.choice(AndroidLocalSettings.KEY_ANIMATION);
         GroupCard.Row[] animationRow = new GroupCard.Row[1];
         animationRow[0] = feedback.nav("按键动画", null, animationLabel(animation),
@@ -162,7 +162,7 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         GroupCard gestures = GroupCard.add(target, "手势");
         boolean swipeSymbols = settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS);
         gestures.toggle("滑动输入符号", "在字母键上滑动，输入角标符号；长按字母键始终可以输入", swipeSymbols,
-            checked -> saveLocal(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS, checked));
+            checked -> saveLocalSetting(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS, checked));
         String swipeDirection = settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
         GroupCard.Row directionRow = gestures.nav("滑动方向", null,
             swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection));
@@ -177,16 +177,16 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
             GroupCard.Row distanceRow = gestures.slider("九键滑动距离", NineKeySwipePolicy.MIN_THRESHOLD_DP,
                 NineKeySwipePolicy.MAX_THRESHOLD_DP, NineKeySwipePolicy.THRESHOLD_STEP_DP,
                 settings.integer(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE), value -> value + " dp",
-                value -> saveLocal(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE, value));
+                value -> saveLocalSetting(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE, value));
             distanceRow.setEnabled(!NineKeySwipePolicy.OFF.equals(nineKeySwipe));
         }
         gestures.toggle("滑行输入", "在 26 键上连续滑过拼音的字母，抬手出词；在键上稍作停留可确认经过的键",
             settings.bool(AndroidLocalSettings.GLIDE_TYPING),
-            checked -> saveLocal(AndroidLocalSettings.GLIDE_TYPING, checked));
+            checked -> saveLocalSetting(AndroidLocalSettings.GLIDE_TYPING, checked));
         gestures.toggle("空格键滑动移动光标", null, settings.bool(AndroidLocalSettings.SPACE_CURSOR),
-            checked -> saveLocal(AndroidLocalSettings.SPACE_CURSOR, checked));
+            checked -> saveLocalSetting(AndroidLocalSettings.SPACE_CURSOR, checked));
         gestures.toggle("长按空格语音输入", null, settings.bool(AndroidLocalSettings.SPACE_VOICE),
-            checked -> saveLocal(AndroidLocalSettings.SPACE_VOICE, checked));
+            checked -> saveLocalSetting(AndroidLocalSettings.SPACE_VOICE, checked));
 
         JSONObject toolbar = preferences.optJSONObject("touch_toolbar");
         if (toolbar == null) toolbar = new JSONObject();
@@ -207,7 +207,7 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         GroupCard.Row recentClipRow = clipboard.toggle("工具栏显示最近复制",
             "复制文字或图片后一分钟内，键盘顶部显示这条内容：文字点按即可粘贴，图片在支持收图片的输入框里点按即可发送；需先在「隐私」里打开剪贴板历史。隐私模式、密码框和系统标为敏感的内容不显示",
             settings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION),
-            checked -> saveLocal(AndroidLocalSettings.CLIPBOARD_SUGGESTION, checked));
+            checked -> saveLocalSetting(AndroidLocalSettings.CLIPBOARD_SUGGESTION, checked));
         recentClipRow.setEnabled(clipboardHistory);
         String columns = settings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS);
         clipboard.nav("排列", "剪贴板面板里一行显示几条记录", clipboardColumnsLabel(columns),
@@ -329,7 +329,7 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
             String label = ANIMATION_LABELS[index];
             sheet.option(label, value.equals(selected), () -> {
                 row.setValue(label);
-                saveLocal(AndroidLocalSettings.KEY_ANIMATION, value);
+                saveLocalSetting(AndroidLocalSettings.KEY_ANIMATION, value);
             });
         }
         sheet.show();
@@ -339,7 +339,7 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         OptionSheet sheet = new OptionSheet(requireContext(), "滑动方向", null);
         for (String value : new String[] {SwipeHintPolicy.DOWN, SwipeHintPolicy.UP}) {
             sheet.option(swipeDirectionLabel(value), value.equals(selected),
-                () -> saveLocal(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION, value));
+                () -> saveLocalSetting(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION, value));
         }
         sheet.show();
     }
@@ -348,7 +348,7 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         OptionSheet sheet = new OptionSheet(requireContext(), "剪贴板排列", null);
         for (String value : new String[] {ClipboardLayoutPolicy.ONE_COLUMN, ClipboardLayoutPolicy.TWO_COLUMNS}) {
             sheet.option(clipboardColumnsLabel(value), value.equals(selected),
-                () -> saveLocal(AndroidLocalSettings.CLIPBOARD_COLUMNS, value));
+                () -> saveLocalSetting(AndroidLocalSettings.CLIPBOARD_COLUMNS, value));
         }
         sheet.show();
     }
@@ -399,10 +399,6 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
 
     private void savePreference(String key, Object value) {
         KeyboardSheets.save(this, preferences -> preferences.put(key, value), null, this::reload);
-    }
-
-    private void saveLocal(String key, Object value) {
-        KeyboardSheets.saveLocal(this, key, value, null, this::reload);
     }
 
     /** 改一个工具栏开关（`touch_toolbar` 的成员或本地设置），写完重画预览（显示方式还会改变按钮行的可用状态）。 */
