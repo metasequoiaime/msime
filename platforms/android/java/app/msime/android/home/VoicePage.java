@@ -273,7 +273,7 @@ public final class VoicePage extends ReloadingDetailPage {
      * @param installedModel 已装好的第一个本地模型目录，没有时为 null
      */
     private void saveProvider(String provider, @Nullable String installedModel) {
-        save(preferences -> {
+        savePreferences(preferences -> {
             JSONObject voice = KeyboardSheets.child(preferences, "voice_input");
             String from = InputViewValuePolicy.textOr(voice, "asr_provider", "");
             if (provider.equals(from)) return;
@@ -487,7 +487,7 @@ public final class VoicePage extends ReloadingDetailPage {
             field.setError(valid ? null : "含有不能用的字符");
             return valid;
         });
-        dialog.setPrimary("保存", values -> save(preferences -> {
+        dialog.setPrimary("保存", values -> savePreferences(preferences -> {
             JSONObject voice = KeyboardSheets.child(preferences, "voice_input");
             if (!provider.equals(InputViewValuePolicy.textOr(voice, prefix + "_provider", "")))
                 throw new JSONException("provider changed");
@@ -563,7 +563,7 @@ public final class VoicePage extends ReloadingDetailPage {
         boolean hasToken = !box.isEmpty() || (slots != null && !slots.optString(provider, "").trim().isEmpty());
         String status = VoicePolishSettingsPolicy.status(enabled, state.polishConfigured(), hasToken);
         // 两个开关在共享设置页一起写，任一个开着键盘就会润色，所以关的时候两个都关。
-        polish.toggle("润色识别结果", status != null ? status : "识别后交给大模型整理文字再上屏", enabled, checked -> save(
+        polish.toggle("润色识别结果", status != null ? status : "识别后交给大模型整理文字再上屏", enabled, checked -> savePreferences(
             preferences -> {
                 JSONObject next = KeyboardSheets.child(preferences, "voice_input");
                 next.put("polish_text", checked);
@@ -603,7 +603,7 @@ public final class VoicePage extends ReloadingDetailPage {
 
     /** 换润色服务：与识别服务相同，凭据换槽，接口和模型清空交给共享层补该服务的默认值。 */
     private void savePolishProvider(String provider) {
-        save(preferences -> {
+        savePreferences(preferences -> {
             JSONObject voice = KeyboardSheets.child(preferences, "voice_input");
             String from = InputViewValuePolicy.textOr(voice, "polish_provider", "");
             if (provider.equals(from)) return;
@@ -696,7 +696,7 @@ public final class VoicePage extends ReloadingDetailPage {
     }
 
     private void saveVoice(String member, Object value) {
-        save(preferences -> {
+        savePreferences(preferences -> {
             JSONObject voice = preferences.optJSONObject("voice_input");
             if (voice == null) {
                 voice = new JSONObject();
@@ -739,11 +739,7 @@ public final class VoicePage extends ReloadingDetailPage {
             : null, this::afterSave);
     }
 
-    private void save(KeyboardSheets.Edit edit) {
-        HostTask.run(this, context -> KeyboardSheets.write(context, edit), this::afterSave);
-    }
-
-    /** 成功失败都重新渲染：选择行的点击回调捕获的是渲染时的值，不重建的话再次打开会勾着旧选项。 */
+    /** The combined local/shared write needs its own failure message before reloading. */
     private void afterSave(@Nullable JSONObject saved) {
         if (saved == null) MsToast.show(requireContext(), "保存失败，请重试");
         reload();
