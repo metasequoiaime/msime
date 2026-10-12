@@ -1,6 +1,7 @@
 package app.msime.android;
 
 import java.util.UUID;
+import org.json.JSONObject;
 
 /** Shared strict interpretations for values read from untyped JSON documents. */
 public final class JsonPolicy {
@@ -10,6 +11,11 @@ public final class JsonPolicy {
     /** Accept only the JSON boolean {@code true}; strings and numbers are not truthy. */
     public static boolean strictTrue(Object value) {
         return Boolean.TRUE.equals(value);
+    }
+
+    /** Return the object payload of a successful JSON envelope, or null otherwise. */
+    public static JSONObject objectValue(JSONObject root) {
+        return root != null && strictTrue(root.opt("ok")) ? root.optJSONObject("value") : null;
     }
 
     /** Accept only a JSON boolean, preserving {@code null} for every other value. */

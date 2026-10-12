@@ -371,8 +371,7 @@ public final class SkinJobsApi {
     private static JSONObject value(String response) throws CloudApi.Failure {
         try {
             JSONObject root = new JSONObject(response == null ? "" : response);
-            JSONObject value = JsonPolicy.strictTrue(root.opt("ok"))
-                ? root.optJSONObject("value") : null;
+            JSONObject value = JsonPolicy.objectValue(root);
             if (value == null) throw invalid("ai_skin_invalid");
             return value;
         } catch (JSONException error) {

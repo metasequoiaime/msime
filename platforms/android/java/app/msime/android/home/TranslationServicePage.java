@@ -279,7 +279,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
     @Nullable private static JSONObject envelope(String response) throws JSONException {
         if (response == null || response.isEmpty()) return null;
         JSONObject root = new JSONObject(response);
-        return JsonPolicy.strictTrue(root.opt("ok")) ? root.optJSONObject("value") : null;
+        return JsonPolicy.objectValue(root);
     }
 
     private static String filled(String value) {

@@ -11,8 +11,7 @@ public final class AppThemeResolver {
     public static JSONObject resolve(String theme, int month, boolean dark) {
         try {
             JSONObject root = new JSONObject(NativeClient.resolveAppTheme(theme, month, dark));
-            return JsonPolicy.strictTrue(root.opt("ok"))
-                ? root.optJSONObject("value") : null;
+            return JsonPolicy.objectValue(root);
         } catch (JSONException | RuntimeException | LinkageError error) {
             return null;
         }

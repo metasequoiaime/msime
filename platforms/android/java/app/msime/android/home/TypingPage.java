@@ -193,8 +193,7 @@ public final class TypingPage extends ReloadingDetailPage {
         List<String[]> schemas = new ArrayList<>(HELPCODE_DEFAULTS.length);
         try {
             JSONObject root = new JSONObject(NativeClient.hostCapabilities("android"));
-            JSONObject value = JsonPolicy.strictTrue(root.opt("ok"))
-                ? root.optJSONObject("value") : null;
+            JSONObject value = JsonPolicy.objectValue(root);
             JSONArray listed = value == null ? null : value.optJSONArray("helpcode_schemas");
             if (listed != null) schemas = new ArrayList<>(listed.length());
             if (listed != null) {

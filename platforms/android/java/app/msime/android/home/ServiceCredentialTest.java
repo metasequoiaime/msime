@@ -32,7 +32,7 @@ final class ServiceCredentialTest {
         try {
             JSONObject request = new JSONObject().put("service", service).put("config", config);
             JSONObject root = new JSONObject(NativeClient.testApiCredential(request.toString()));
-            JSONObject value = JsonPolicy.strictTrue(root.opt("ok")) ? root.optJSONObject("value") : null;
+            JSONObject value = JsonPolicy.objectValue(root);
             if (value == null) return failed();
             return new Result(JsonPolicy.strictBoolean(value.opt("ok"), false),
                 JsonPolicy.strictStringOrEmpty(value.opt("message")));

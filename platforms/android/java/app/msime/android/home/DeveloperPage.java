@@ -589,8 +589,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
         if (response == null) return null;
         try {
             JSONObject root = new JSONObject(response);
-            return JsonPolicy.strictTrue(root.opt("ok"))
-                ? root.optJSONObject("value") : null;
+            return JsonPolicy.objectValue(root);
         } catch (JSONException malformed) {
             return null;
         }
