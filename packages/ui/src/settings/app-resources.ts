@@ -1,4 +1,5 @@
 export const logo = new URL("../assets/msime.svg", import.meta.url).href;
+export const settingsIcon = new URL("../assets/settings.svg", import.meta.url).href;
 
 /** Navigation icons shared by the settings registry and its host-specific shells. */
 export const settingsIcons = {

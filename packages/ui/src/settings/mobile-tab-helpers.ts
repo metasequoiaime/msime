@@ -4,7 +4,9 @@ import type { FluentIconName } from "../core/fluent-icons";
  * The 设置 tab draws a gear, not the app. Its page icon is the settings glyph
  * used by the shared settings shell.
  */
-const settingsTabIcon = new URL("../assets/settings.svg", import.meta.url).href;
+import { settingsIcon } from "./app-resources";
+
+const settingsTabIcon = settingsIcon;
 
 /** 「对话」标签页画对话气泡。`chat` 页在页面注册表里的图标是问号（它原本只从「AI 辅助」里的一行进入，用不到图标），放在标签栏上会被看成「帮助」。 */
 const chatTabIcon = new URL("../assets/feedback.svg", import.meta.url).href;
