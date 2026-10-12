@@ -501,6 +501,7 @@ final class ImeLetterRows {
         s.microsoftFinalKey = null;
         s.nineKeySidebar = null;
         s.nineKeySymbolKey = null;
+        s.imeLayoutRows.forgetNineKeyGrid();
         s.strokeWildcardKey = null;
         s.japaneseSpaceKey = null;
         s.japaneseReturnKey = null;

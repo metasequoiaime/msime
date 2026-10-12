@@ -79,6 +79,7 @@ public final class SpaceKeyFace extends KeyboardPressButton {
             case ZIRANMA -> "双拼 · 自然码";
             case MICROSOFT -> "双拼 · 微软";
             case SHOUDAO -> "双拼 · 首道";
+            case NINE_KEY_SHUANGPIN -> "九键双拼";
             case WUBI -> KeyboardScheme.WUBI_98.equals(KeyboardScheme.normalizedWubiProfile(wubiProfile))
                 ? "五笔 98" : "五笔 86";
             case JAPANESE, JAPANESE_NINE_KEY -> "日语";

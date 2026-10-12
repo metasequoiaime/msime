@@ -23,7 +23,8 @@ public enum TypingSource {
         if (scheme == null) return UNKNOWN;
         return switch (scheme) {
             case QUANPIN -> QUANPIN;
-            case QUANPIN_NINE_KEY -> NINE_KEY;
+            // 九键双拼用的是九宫格键盘，记到「9 键」：统计按键盘的形态分，它没有自己的一档。
+            case QUANPIN_NINE_KEY, NINE_KEY_SHUANGPIN -> NINE_KEY;
             case QUANPIN_FOURTEEN_KEY -> FOURTEEN_KEY;
             case XIAOHE -> SHUANGPIN;
             case ZIRANMA -> ZIRANMA;
