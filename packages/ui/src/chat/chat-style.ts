@@ -1,4 +1,5 @@
 import { touchHairline } from "../core/touch-style";
+import { mutedText } from "../core/text-style";
 
 /**
  * The account chat playground.
@@ -26,7 +27,7 @@ export const bubble = (mine: boolean) =>
   `max-w-[82%] rounded-[14px] px-3.5 py-[11px] whitespace-pre-wrap wrap-anywhere ${
     mine ? "bg-accent-strong text-white" : "bg-raised text-body"
   }`;
-export const pending = "text-muted";
+export const pending = mutedText;
 export const error =
   "flex items-center justify-between gap-3 rounded-[10px] border border-danger/35 px-3 py-2.5 text-danger";
 

@@ -6,6 +6,7 @@
 
 import { compactFieldLabel } from "../core/form-style";
 import { inlineItems } from "../core/row-style";
+import { mutedText } from "../core/text-style";
 
 /*
  * The window each platform draws around the pages. The `--p-*` tokens the root's `data-platform` selects (see `theme/platform-tokens.ts`) carry the colours and type the platforms share a name for; the `win:` / `mac:` / `linux:` / `hm2:` variants declared in styles.css reach the rest -- widths, paddings and the few surfaces the design colours for one platform only.
@@ -195,7 +196,7 @@ export const phraseListItem = listRow;
 export const failures =
   "mt-3.5 rounded-lg border border-edge-strong bg-raised px-3 py-2.5 [&>p]:m-0 [&>p]:text-xs [&>p]:text-danger [&>ul]:mt-2 [&>ul]:mb-0 [&>ul]:flex [&>ul]:list-none [&>ul]:flex-col [&>ul]:gap-2 [&>ul]:p-0";
 export const failureItem = `${listRow} [&>span:first-child]:flex [&>span:first-child]:flex-col [&>span:first-child]:gap-0.5 [&_small]:text-muted [&>button]:mt-0 [&>button]:px-[9px] [&>button]:py-1`;
-export const empty = "text-muted";
+export const empty = mutedText;
 
 // ---- panel launchers ----
 
