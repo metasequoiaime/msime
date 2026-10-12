@@ -22,6 +22,7 @@ pub mod language_dictionary;
 mod lattice;
 mod local;
 mod nine_key;
+mod nine_key_shuangpin;
 pub mod ordering;
 mod paths;
 mod pinyin;
@@ -46,6 +47,7 @@ pub use error::{EngineError, Result};
 pub use handwriting::handwriting_recognize;
 pub use handwriting::order_handwriting_candidates;
 pub use nine_key::KeyGrid;
+pub use nine_key_shuangpin::NineKeyShuangpin;
 pub use paths::RuntimePaths;
 pub use pinyin::glide::{GlideKeyboard, GlidePoint};
 pub use session::{Clock, Session, SessionOptions, SessionSnapshot};
@@ -53,9 +55,10 @@ pub use types::{
     autocorrect_type, fuzzy_rule, request_autocorrect_mask, CandidateEdge, CandidateSource,
     Command, CommandTranslationQuery, EnglishInputOptions, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, KeyResult, LocalInputMode, LocalModeOptions,
-    MixedExpressiveOptions, OnlineQuery, PersonalDictionaryEntry, PersonalDictionaryKind,
-    SchemeSet, SchemeType, SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinProfileKind,
-    WordItem, WubiInputOptions, WubiProfileKind,
+    MixedExpressiveOptions, NineKeyShuangpinKind, NineKeyShuangpinTable, OnlineQuery,
+    PersonalDictionaryEntry, PersonalDictionaryKind, SchemeSet, SchemeType,
+    SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinProfileKind, WordItem,
+    WubiInputOptions, WubiProfileKind,
 };
 pub use user_dictionary::bundled::{
     dictionary_table_entries, edit_bundled_dictionary_entry, DictionaryTableEntry,

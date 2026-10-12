@@ -3161,6 +3161,48 @@ fn key_grid_checks_the_scheme_and_the_composition() {
     ));
 }
 
+/// 九键双拼只给全拼；它的数字和九键一样是组码，引擎没有收下的数字（米旮旯 2 不用的 1 以外的键也一样）也不当选词键，而不用网格时同一个数字会选词。
+#[test]
+fn nine_key_shuangpin_grid_is_quanpin_only_and_its_digits_never_pick() {
+    use msime_engine::host::{resolve_nine_key_shuangpin, NineKeyShuangpinKind};
+    let table = resolve_nine_key_shuangpin(NineKeyShuangpinKind::Migala2, None).unwrap();
+    let grid = Some(KeyGrid::NineKeyShuangpin(table));
+    let digit = || Action::Character {
+        value: b'1',
+        shift: false,
+    };
+
+    let mut plain = runtime();
+    plain.focus(true).unwrap();
+    type_key(&mut plain);
+    assert!(plain.dispatch(digit()).unwrap().commit.is_some());
+
+    let mut grid_runtime = runtime();
+    grid_runtime.focus(true).unwrap();
+    grid_runtime.set_key_grid(grid).unwrap();
+    assert_eq!(grid_runtime.view().key_grid, "nine_key_shuangpin");
+    assert!(!grid_runtime.view().nine_key);
+    type_key(&mut grid_runtime);
+    let result = grid_runtime.dispatch(digit()).unwrap();
+    assert!(result.commit.is_none(), "{:?}", result.commit);
+
+    grid_runtime
+        .dispatch(Action::Command(Command::Cancel))
+        .unwrap();
+    grid_runtime.set_key_grid(None).unwrap();
+    for scheme in [
+        msime_engine::SchemeType::Shuangpin,
+        msime_engine::SchemeType::Zhuyin,
+    ] {
+        grid_runtime.engine.scheme = scheme as u8;
+        grid_runtime.refresh().unwrap();
+        assert!(matches!(
+            grid_runtime.set_key_grid(grid),
+            Err(RuntimeError::InvalidNineKeyScheme)
+        ));
+    }
+}
+
 #[test]
 fn unavailable_numeric_slot_does_not_jump_back_to_first_page() {
     let mut runtime = runtime();

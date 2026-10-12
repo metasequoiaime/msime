@@ -91,7 +91,7 @@ pub struct View {
     pub script_conversion: bool,
     /// 引擎的触屏九键模式：开着时数字是输入，不当选词键。只表示九键（全拼九宫格或注音九键），14 键下为假。
     pub nine_key: bool,
-    /// 引擎当前的组码网格：`"none"`、`"nine_key"` 或 `"fourteen_key"`。宿主据此决定是否显示拼音条、读音行和三栏面板：两种网格共用 `nine_key_spellings`、`nine_key_reading`、`nine_key_single_character` 和 `nine_key_strokes`。
+    /// 引擎当前的组码网格：`"none"`、`"nine_key"`、`"fourteen_key"` 或 `"nine_key_shuangpin"`。宿主据此决定是否显示拼音条、读音行和三栏面板：几种网格共用 `nine_key_spellings`、`nine_key_reading`、`nine_key_single_character` 和 `nine_key_strokes`。九键双拼的数字和九键一样不当选词键，但 `nine_key` 为假（它没有英文九键，也不开注音九键）。
     pub key_grid: &'static str,
     pub nine_key_spellings: Vec<String>,
     /// 全拼九键组字时，首选候选覆盖的数字显示成它的拼音（`xi'an`），给键盘的读音行用；其他情况为空，包括注音九键。全拼下 `preedit` 仍是数字；注音下是转换结果加上未完成的数字。
