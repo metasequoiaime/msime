@@ -19,6 +19,8 @@ struct CloudClipboardView: View {
   @State private var confirmsClear = false
   @State private var addsText = false
   @State private var pending: Task<Void, Never>?
+  /// 让离开页面后仍在取消中的旧请求不能释放新页面的忙碌状态或覆盖新数据。
+  @State private var requestID = UUID()
   /// 列表带回的端到端加密状态；`pending` 时本机还在等待其他设备批准。
   @State private var e2eStatus: BackendAccountClient.ClipboardE2EStatus?
   /// 账号下登记的设备，云剪贴板开着时与列表一起刷新。
@@ -116,7 +118,13 @@ struct CloudClipboardView: View {
     }
     .sheet(isPresented: $addsText) { addSheet }
     .task { run { _ in nil } }
-    .onDisappear { pending?.cancel(); items = []; text = ""; devices = nil; e2eStatus = nil }
+    .onDisappear {
+      requestID = UUID()
+      pending?.cancel()
+      pending = nil
+      busy = false
+      items = []; text = ""; devices = nil; e2eStatus = nil
+    }
     .confirmationDialog("清空云剪贴板？", isPresented: $confirmsClear, titleVisibility: .visible) {
       Button("确认清空", role: .destructive) {
         run { token in try await client.deleteClipboard(token: token); return nil }
@@ -462,38 +470,52 @@ struct CloudClipboardView: View {
   @MainActor private func run(_ action: @escaping @MainActor @Sendable (String) async throws -> BackendAccountClient.ClipboardDevices?) {
     guard !busy else { return }
     busy = true; message = nil
-    pending = Task { await execute(action) }
+    let id = UUID()
+    requestID = id
+    pending = Task { await execute(action, requestID: id) }
   }
-  @MainActor private func execute(_ action: @MainActor @Sendable (String) async throws -> BackendAccountClient.ClipboardDevices?) async {
-    defer { busy = false }
+  @MainActor private func execute(_ action: @MainActor @Sendable (String) async throws -> BackendAccountClient.ClipboardDevices?, requestID id: UUID) async {
+    defer { if requestID == id { busy = false; pending = nil } }
     do {
       let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
+      guard requestID == id else { return }
       try Task.checkCancellation()
       accountID = identity.userID; sessionID = identity.sessionID
       var status = try await session.authenticated(matchingUserID: identity.userID,
                                                    matchingSessionID: identity.sessionID) { token in
         try await action(token)
       }.value
+      guard requestID == id else { return }
       let page = try await client.clipboard(search: search, e2e: e2e, session: session,
                                             matchingUserID: identity.userID,
                                             matchingSessionID: identity.sessionID)
+      guard requestID == id else { return }
       if page.enabled && status == nil {
         status = try await session.authenticated(matchingUserID: identity.userID,
                                                  matchingSessionID: identity.sessionID) { [client, e2e] token in
           try await client.clipboardDevices(token: token, e2e: e2e)
         }.value
       }
+      guard requestID == id else { return }
       try await session.requireSession(matchingUserID: identity.userID, matchingSessionID: identity.sessionID)
+      guard requestID == id else { return }
       try Task.checkCancellation()
       enabled = page.enabled; retention = page.retention_days; items = page.items; e2eStatus = page.e2e
       devices = page.enabled ? status : nil
       loaded = true
-    } catch is CancellationError { items = []; text = ""; loaded = false; devices = nil; e2eStatus = nil }
+    } catch is CancellationError {
+      guard requestID == id else { return }
+      items = []; text = ""; loaded = false; devices = nil; e2eStatus = nil
+    }
     catch let error as BackendAccountClient.Failure {
+      guard requestID == id else { return }
       // 本机等待批准时上传失败不清空页面，只提示去批准。
       if error.code != "clipboard_device_pending" { items = []; loaded = false }
       message = error.localizedDescription
     }
-    catch { items = []; loaded = false; message = "连接未完成，请检查网络后重试。" }
+    catch {
+      guard requestID == id else { return }
+      items = []; loaded = false; message = "连接未完成，请检查网络后重试。"
+    }
   }
 }
