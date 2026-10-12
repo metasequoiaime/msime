@@ -45,6 +45,7 @@ mod web;
 mod wubi86_helpcode;
 mod wubi86_supplement;
 mod wubi98_supplement;
+mod wubi_supplement;
 mod zhuyin;
 
 use std::collections::HashSet;
