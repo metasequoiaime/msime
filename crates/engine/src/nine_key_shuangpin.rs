@@ -668,7 +668,7 @@ impl NineKeyShuangpin {
         count == digits.len()
     }
 
-    /// 键面提示：按电话键盘的 1 到 9、0 列出每个用到的键上的声母和韵母（各按表的顺序），以及零声母编码是否从这个键开始。`ü` 开头的韵母写成 `ü`，与 26 键的提示相同。
+    /// 键面提示：按电话键盘的 1 到 9、0 列出每个用到的键上的声母和韵母，以及零声母编码是否从这个键开始。声母按电话键盘的习惯排：单字母声母按字母序在前，`ch` `sh` `zh` 在后（3 键是 d f ch）；韵母按韵母表的顺序。`ü` 开头的韵母写成 `ü`，与 26 键的提示相同。
     pub fn key_hints(&self) -> Vec<NineKeyShuangpinKeyHint> {
         let umlaut = |unit: &str| match unit.strip_prefix('v') {
             Some(rest) => format!("ü{rest}"),
@@ -679,13 +679,17 @@ impl NineKeyShuangpin {
             .filter(|digit| self.uses_key(**digit))
             .map(|&digit| NineKeyShuangpinKeyHint {
                 key: char::from(digit),
-                initials: self
-                    .canonical
-                    .initials
-                    .iter()
-                    .filter(|(_, key)| *key == digit)
-                    .map(|(unit, _)| (*unit).to_owned())
-                    .collect(),
+                initials: {
+                    let mut initials: Vec<&str> = self
+                        .canonical
+                        .initials
+                        .iter()
+                        .filter(|(_, key)| *key == digit)
+                        .map(|(unit, _)| *unit)
+                        .collect();
+                    initials.sort_by_key(|unit| (unit.len(), *unit));
+                    initials.into_iter().map(str::to_owned).collect()
+                },
                 finals: self
                     .canonical
                     .finals
@@ -1014,6 +1018,8 @@ mod tests {
         let zero = &hints[9];
         assert!(zero.initials.is_empty());
         assert_eq!(zero.finals, ["u", "ü", "ei"]);
+        assert_eq!(hints[2].initials, ["d", "f", "ch"]);
+        assert_eq!(hints[7].initials, ["t", "sh", "zh"]);
         assert!(!zero.zero_initial);
         let migala2 = resolve(NineKeyShuangpinKind::Migala2, None).unwrap();
         assert!(migala2.key_hints().iter().all(|hint| hint.key != '0'));
