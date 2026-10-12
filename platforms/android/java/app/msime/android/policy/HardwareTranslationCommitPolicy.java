@@ -53,6 +53,21 @@ public final class HardwareTranslationCommitPolicy {
     }
 
     /**
+     * 屏幕键盘上长按组字中的「确认」键（#6792 第三点）：没有实体键盘的人用它代替 Ctrl+Enter，去向相同，一个义项直接上屏，几个打开义项页（义项页可以点选）。
+     *
+     * <p>和 Ctrl+Enter 不同，没有译文时返回 {@link #NONE}，长按当作点按：屏幕上的「确认」只确认组字，不会把回车交给应用，没有 Ctrl+Enter 那种把拼音发出去的风险，什么也不做反而让人以为键坏了。长按只有一次，没有自动重复。
+     */
+    public static int returnHold(boolean eligible, int senseCount) {
+        if (!eligible || senseCount <= 0) return NONE;
+        return senseCount == 1 ? COMMIT : OPEN_PAGE;
+    }
+
+    /** 「确认」键右上角是否标「译」：长按真能上屏译文时才标，标了就和 {@link #returnHold} 的结果一致。 */
+    public static boolean marksReturnKey(boolean eligible, int senseCount) {
+        return returnHold(eligible, senseCount) != NONE;
+    }
+
+    /**
      * 义项页打开时一个按下的键的去向：大于等于 0 是要上屏的义项序号，其余是上面的负数常量。
      *
      * <p>带任何修饰键的组合都是 {@link #PASS}（所以 Ctrl+Enter 会关页后重新开页），单按的修饰键 {@link #IGNORE}，免得按下 Alt 准备下一个组合时页面先没了。会上屏或关页的键在自动重复时 {@link #IGNORE}；方向键可以按住连续移动。

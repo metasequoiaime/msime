@@ -4150,9 +4150,12 @@ public final class MSIMEInputService extends InputMethodService {
         // The shared design turns 换行 into an accent-filled 确认 while a composition is open,
         // because that is what the key does then: it commits the reading instead of a newline.
         String shownTitle = composing ? (japaneseSchemeActive() ? "確定" : "确认") : title;
+        // 长按「确认」能上屏译文时角上标「译」（#6792），没有实体键盘的人也看得到 Ctrl+Enter 的那条路。
+        boolean translationHold = composing && returnHoldCommitsTranslation();
         if (enterButton != null) {
             enterButton.setText(shownTitle);
-            enterButton.setContentDescription(shownTitle);
+            enterButton.setContentDescription(translationHold ? shownTitle + "；长按上屏译文" : shownTitle);
+            if (enterButton instanceof KeyboardIconKey icon) icon.setCornerHint(translationHold ? "译" : "");
             KeyboardKeyRole role = imeBottomRow.returnKeyRole();
             if (enterButton instanceof KeyboardPressButton press && press.keyboardRole() != role) {
                 press.setKeyboardRole(role);
@@ -6607,14 +6610,16 @@ public final class MSIMEInputService extends InputMethodService {
         if (session != 0) command(3);
     }
 
-    /**
-     * 实体键盘 Ctrl+Enter（#7079）：组字中、候选非空、当前方案允许插入译文时接住这个键。高亮候选的译文按 {@link CandidateTranslationPolicy#insertionGlosses} 拆成义项（与长按菜单相同，两种目标语言都拆进来），一个义项直接上屏，几个打开义项页，没有（或释义显示关着）就吃掉按键。返回 false 时交给原来的修饰键分支。
-     */
-    private boolean handleTranslationCommitKey(int keyCode, KeyEvent event) {
+    /** 高亮候选和它能插入的译文义项（#7079、#6792）。`eligible` 是组字中、候选非空、方案允许插入译文；释义显示关着时义项为空。 */
+    private record TranslationTarget(boolean eligible, int slot, JSONObject candidate,
+                                     java.util.List<String> senses) {}
+
+    /** 按当前 view 找高亮候选，用 {@link CandidateTranslationPolicy#insertionGlosses} 拆出义项（与长按菜单相同，两种目标语言都拆进来）。 */
+    private TranslationTarget translationTarget() {
         boolean eligible = session != 0 && connection != null && hasEngineComposition()
             && view.optJSONArray("candidates") != null && view.optJSONArray("candidates").length() > 0
             && candidateGlossInsertionEnabled();
-        int slot = highlightedCandidateSlot(view);
+        int slot = eligible ? highlightedCandidateSlot(view) : -1;
         JSONObject candidate = slot < 0 ? null : visibleCandidate(slot);
         java.util.List<String> senses = java.util.List.of();
         if (eligible && candidate != null && (candidateEnglishGloss || candidateTranslationsEnabled)) {
@@ -6622,24 +6627,69 @@ public final class MSIMEInputService extends InputMethodService {
                 ? "" : JsonPolicy.strictStringOrEmpty(candidate.opt("translation"));
             senses = CandidateTranslationPolicy.insertionGlosses(translation);
         }
-        int action = HardwareTranslationCommitPolicy.ctrlEnter(keyCode, event.isShiftPressed(),
-            event.isCtrlPressed(), event.isAltPressed(), event.isMetaPressed(), event.getRepeatCount(),
-            eligible, senses.size());
-        if (action == HardwareTranslationCommitPolicy.NONE) return false;
-        if (event.getRepeatCount() == 0) translationConsumedKeyCode = keyCode;
+        return new TranslationTarget(eligible, slot, candidate, senses);
+    }
+
+    /** 执行 {@link HardwareTranslationCommitPolicy#COMMIT}（直接上屏唯一的义项）或 {@link HardwareTranslationCommitPolicy#OPEN_PAGE}（打开义项页），其他结果什么也不做。 */
+    private void performTranslationCommit(int action, TranslationTarget target) {
         if (action == HardwareTranslationCommitPolicy.COMMIT) {
-            JSONObject id = candidate.optJSONObject("id");
-            String text = chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view);
+            JSONObject id = target.candidate().optJSONObject("id");
+            String text = chineseOutput(InputViewValuePolicy.textOr(target.candidate(), "text", ""), view);
             closeCandidatePanel();
-            insertCandidateGloss(slot, id, text, senses.get(0));
+            insertCandidateGloss(target.slot(), id, text, target.senses().get(0));
         } else if (action == HardwareTranslationCommitPolicy.OPEN_PAGE) {
             closeCandidatePanel();
-            imeTranslationSenses.open(senses, InputViewValuePolicy.textOr(candidate, "text", ""));
+            imeTranslationSenses.open(target.senses(),
+                InputViewValuePolicy.textOr(target.candidate(), "text", ""));
             render();
             if (horizontalCandidateScroll != null) horizontalCandidateScroll.scrollTo(0, 0);
             if (verticalCandidateScroll != null) verticalCandidateScroll.scrollTo(0, 0);
         }
+    }
+
+    /**
+     * 实体键盘 Ctrl+Enter（#7079）：组字中、候选非空、当前方案允许插入译文时接住这个键。一个义项直接上屏，几个打开义项页，没有（或释义显示关着）就吃掉按键。返回 false 时交给原来的修饰键分支。
+     */
+    private boolean handleTranslationCommitKey(int keyCode, KeyEvent event) {
+        TranslationTarget target = translationTarget();
+        int action = HardwareTranslationCommitPolicy.ctrlEnter(keyCode, event.isShiftPressed(),
+            event.isCtrlPressed(), event.isAltPressed(), event.isMetaPressed(), event.getRepeatCount(),
+            target.eligible(), target.senses().size());
+        if (action == HardwareTranslationCommitPolicy.NONE) return false;
+        if (event.getRepeatCount() == 0) translationConsumedKeyCode = keyCode;
+        performTranslationCommit(action, target);
         return true;
+    }
+
+    /** 长按组字中的「确认」能不能上屏译文（{@link HardwareTranslationCommitPolicy#marksReturnKey}）：键角标「译」、读屏的长按动作都看它。 */
+    private boolean returnHoldCommitsTranslation() {
+        TranslationTarget target = translationTarget();
+        return HardwareTranslationCommitPolicy.marksReturnKey(target.eligible(), target.senses().size());
+    }
+
+    /**
+     * 屏幕键盘长按组字中的「确认」（#6792 第三点）：没有实体键盘时代替 Ctrl+Enter，一个义项直接上屏，几个打开义项页。没有译文时不接，长按当作点按，照常确认组字。
+     */
+    void bindReturnTranslationHold(Button button) {
+        button.setOnLongClickListener(ignored -> {
+            TranslationTarget target = translationTarget();
+            int action = HardwareTranslationCommitPolicy.returnHold(target.eligible(), target.senses().size());
+            if (action == HardwareTranslationCommitPolicy.NONE) return false;
+            imeKeyFeedback.playFeedback(button);
+            countKey("Enter");
+            performTranslationCommit(action, target);
+            return true;
+        });
+        // 给读屏的长按动作一个名字；不能上屏译文时不加，长按就是点按。
+        button.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(
+                    View host, android.view.accessibility.AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                if (returnHoldCommitsTranslation())
+                    info.addAction(new android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction(
+                        android.view.accessibility.AccessibilityNodeInfo.ACTION_LONG_CLICK, "上屏译文"));
+            }
+        });
     }
 
     /** 义项页上屏一个义项：和长按菜单的 {@link #insertCandidateGloss} 一样，按本地输入上屏后用命令 3 结束组字。页面是否还属于当前组字由 {@link ImeTranslationSenses#commit} 先核对。 */

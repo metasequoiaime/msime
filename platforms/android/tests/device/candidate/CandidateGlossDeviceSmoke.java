@@ -12,7 +12,7 @@ import org.json.JSONObject;
 /** 离线英文释义的设备验收：候选条和展开列表上的释义、长按菜单、选中身份和关闭。英文释义的默认值由 client-core 决定（新装是关），这里先显式打开再测功能本身。 */
 public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "offline candidate gloss strip, expanded long press, selection and opt-out";
+        return "offline candidate gloss strip, expanded long press, selection, held return committing the gloss and opt-out";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -59,6 +59,15 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
             tap(glossCandidate());
             await(field("msime-test-plain").and(node -> equalsText("你好", node.getText())));
 
+            // 屏幕键盘长按组字中的「确认」（#6792）：「你好」只有 hello 一个义项，直接上屏译文，中文和拼音都不上屏。
+            stage = "held return commits the gloss";
+            typeGreeting();
+            await(glossCandidate());
+            AccessibilityNodeInfo confirm = await(returnKeyOfferingGloss());
+            if (!confirm.isLongClickable() || !confirm.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
+                throw new AssertionError("The composing return key did not expose its long press");
+            await(field("msime-test-plain").and(node -> equalsText("你好hello", node.getText())));
+
             stage = "disable offline gloss preference";
             publish(preferences, snapshot(revision + 2,
                 new JSONObject(base.toString()).put("candidate_english_gloss", false)));
@@ -70,6 +79,8 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
             SystemClock.sleep(1200);
             if (findVisible(glossCandidate()) != null)
                 throw new AssertionError("Disabled candidate gloss became visible");
+            if (findVisible(returnKeyOfferingGloss()) != null)
+                throw new AssertionError("The return key offered a held gloss with glosses off");
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
@@ -114,6 +125,12 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
             && !node.getText().toString().startsWith("1 ")
             && node.getContentDescription().toString().startsWith("候选 1：你好")
             && !node.getContentDescription().toString().contains("英文释义：");
+    }
+
+    /** 组字中、长按能上屏译文的回车键：读屏描述是「确认；长按上屏译文」。 */
+    private Predicate<AccessibilityNodeInfo> returnKeyOfferingGloss() {
+        return node -> preview(node) && node.getContentDescription() != null
+            && equalsText("确认；长按上屏译文", node.getContentDescription());
     }
 
     private Predicate<AccessibilityNodeInfo> candidatePanelClose() {

@@ -58,6 +58,7 @@ final class ImeBottomRow {
             ViewPolicy.setTypefaceStyle(key, android.graphics.Typeface.BOLD);
             key.setKeyboardRole(KeyboardKeyRole.RETURN);
             s.imeStyler.styleButton(key, KeyboardKeyRole.RETURN, s.skin);
+            s.bindReturnTranslationHold(key);
             s.enterButton = key;
         }
     }

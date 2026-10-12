@@ -22,13 +22,26 @@ public final class KeyboardIconKey extends KeyboardPressButton {
     private Kind kind;
     private boolean drawsText;
     private java.util.Set<String> textFaces = java.util.Set.of();
+    private final Paint cornerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private String cornerHint = "";
 
     public KeyboardIconKey(Context context, Kind kind) {
         super(context);
         KeyboardTypographyPolicy.normalizeKeyCap(this);
         this.kind = kind;
         ViewPolicy.setAllCapsFalse(this);
+        cornerPaint.setTextAlign(Paint.Align.RIGHT);
     }
+
+    /** 右上角的提示（组字中的「确认」长按能上屏译文时标「译」），字号和位置与字母键的角标相同（{@link KeyHintButton}），颜色取键面文字色；空串或 {@code null} 表示不画。只绘制、不进节点 text。 */
+    public void setCornerHint(String value) {
+        String next = TextPolicy.emptyIfNull(value);
+        if (cornerHint.equals(next)) return;
+        cornerHint = next;
+        invalidate();
+    }
+
+    public String cornerHint() { return cornerHint; }
 
     public Kind kind() { return kind; }
 
@@ -77,6 +90,7 @@ public final class KeyboardIconKey extends KeyboardPressButton {
     @Override protected void onDraw(Canvas canvas) {
         if (showsText()) {
             super.onDraw(canvas);
+            drawCornerHint(canvas);
             return;
         }
         int width = DimensionPolicy.contentWidth(this);
@@ -89,5 +103,18 @@ public final class KeyboardIconKey extends KeyboardPressButton {
         KeyboardIconPaths.draw(canvas, paint, iconFor(kind),
             getPaddingLeft() + (width - size) / 2f, getPaddingTop() + (height - size) / 2f,
             size, color);
+        drawCornerHint(canvas);
+    }
+
+    private void drawCornerHint(Canvas canvas) {
+        if (cornerHint.isEmpty() || getWidth() <= 0 || getHeight() <= 0) return;
+        ViewPolicy.setTextSize(cornerPaint, KeyboardTypographyPolicy.keySp(getContext(), KeyHintButton.CORNER_HINT_SP));
+        cornerPaint.setColor(getCurrentTextColor());
+        cornerPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 204, 96));
+        Paint.FontMetrics metrics = cornerPaint.getFontMetrics();
+        float baseline = DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_TOP_DP) - metrics.ascent;
+        canvas.drawText(cornerHint,
+            getWidth() - DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_RIGHT_DP), baseline,
+            cornerPaint);
     }
 }

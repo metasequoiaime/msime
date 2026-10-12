@@ -153,6 +153,23 @@ public final class HardwareTranslationCommitPolicySmoke {
             for (int other = index + 1; other < pageResults.length; other++)
                 check(pageResults[index] != pageResults[other], "page results are distinct");
         }
-        System.out.println("Android hardware Ctrl+Enter translation commit passed");
+        // 屏幕键盘长按「确认」（#6792）：去向和 Ctrl+Enter 相同，但没有译文时不接，长按当作点按照常确认组字。
+        check(HardwareTranslationCommitPolicy.returnHold(true, 1) == HardwareTranslationCommitPolicy.COMMIT,
+            "a held return commits the only sense");
+        check(HardwareTranslationCommitPolicy.returnHold(true, 3) == HardwareTranslationCommitPolicy.OPEN_PAGE,
+            "a held return opens the page for several senses");
+        check(HardwareTranslationCommitPolicy.returnHold(true, 0) == HardwareTranslationCommitPolicy.NONE,
+            "a held return without a gloss is a tap");
+        check(HardwareTranslationCommitPolicy.returnHold(false, 2) == HardwareTranslationCommitPolicy.NONE,
+            "a held return outside a gloss-inserting composition is a tap");
+        for (int senses = 0; senses <= 9; senses++) {
+            for (boolean eligible : new boolean[] {true, false}) {
+                check(HardwareTranslationCommitPolicy.marksReturnKey(eligible, senses)
+                        == (HardwareTranslationCommitPolicy.returnHold(eligible, senses)
+                            != HardwareTranslationCommitPolicy.NONE),
+                    "the return key is marked exactly when holding it commits a translation");
+            }
+        }
+        System.out.println("Android hardware Ctrl+Enter and held return translation commit passed");
     }
 }
