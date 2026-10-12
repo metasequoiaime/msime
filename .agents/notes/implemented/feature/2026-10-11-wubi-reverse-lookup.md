@@ -43,6 +43,8 @@ Status: implemented
 - Windows：设置窗口是原生 WinUI 的 `msime-client-settings.exe`（`platforms/windows/settings/main.cpp`），自己不画查码组，但同目录的共享应用 `MSIME.exe` 画「输入」页，它用的就是上面 macOS、Linux 那个 `dictionary` 客户端，`dictionary_request` 在 Windows 上同样到 `dictionary_request_json`。所以 WinUI「输入」页的五笔组末尾加一行「五笔查码」，和辅助码插件那一行一样用 `nav::shell_links::input` 打开共享应用的「输入」页。这一行不能省：五笔版只提供五笔，辅助码组不显示，原来本窗口没有任何一行通到共享应用的「输入」页。
 - iOS：分发的产品是原生 `MSIMEApp`（`platforms/ios/README.md`），没有 WebView，承载不了共享设置页。「输入设置」（`InputSettingsView`，`platforms/ios/App/Sources/app/OnboardingView.swift`）的「更多」组在启用了五笔时，三个五笔开关后面加一行「五笔查码」，打开原生的 `WubiCodeLookupView`，文字和排法照共享设置页（`WubiCodeLookup`）。查码在 App 进程里经 `MetasequoiaInputSessionBridge.wubiCodes`：先 `msime_client_prepare_host` 解析选项，再 `msime_client_dictionary` 发 `{operation:"wubi_codes",text}`；资源目录取 `PersonalDictionaryBridge.packagedResources`。App 包里只有词库清单，找到的是键盘扩展包里的 `EngineResources`，和键盘准备宿主用的是同一个目录：状态目录里的资源校验标记（`verified-resources.json`）记着目录路径，App 若用别的路径准备，键盘下次启动会把整套词库重新哈希一遍。共享前端的 iOS 工程（`apps/desktop/src-tauri/gen/apple`）仍经 `mobileDictionary` 带上 `wubiCodes`，但那个工程只是公共组件，不作为产品分发。`z` 反查在 iOS 键盘上照常可用，它在共享引擎里。
 
+Android 原生页的 `WubiLookupRequestState` 也按输入文字和请求代次保存忙碌状态及结果：编辑时清掉旧表格、允许新查询，旧回答不再覆盖新结果；视图销毁时解除未完成请求的忙碌状态，已经完成的结果继续留在 ViewModel 中。`HostTask` 只向发起请求时那棵视图交回结果，旋转后不会调用旧完成回调，因此只靠回调解除 `busy` 会把新视图的查码按钮永久锁住。
+
 字根拆分不做：仓库里没有授权清楚的 86/98 拆分数据（`resources/helpcodes` 里只有拼音辅助码用的字根数据），而且很多字根不是 Unicode 字符，要另配字体或图片。
 
 ## Golden 基准
@@ -71,6 +73,7 @@ Status: implemented
 - `cargo test -p msime-engine --lib -- wubi::lookup`：每个字全部编码短码在前、重复编码并成一个；非汉字跳过、重复的字只列一次、带标点的一段不当词查；码表没有的字列出但没有编码；缺 `wubi98` 表或整个文件时只有那一列为空；超过 64 个不同汉字截断。
 - `pnpm --filter @msime/desktop exec vitest run`（全量 524 个文件通过），其中 `tests/settings/wubi-code-lookup-section.test.tsx`：整段词在前、两列编码与当前码表标记；没有汉字和截断的提示；失败时报错并清掉旧结果；「输入」页在五笔方案且宿主有 `wubiCodes` 时画出这一组并用它查，全拼方案或宿主没给 `wubiCodes` 时不画。
 - 查码输入变化和过期响应由 `tests/settings/wubi-code-lookup-section.test.tsx` 覆盖：编辑立即隐藏旧表格、允许新请求，旧请求晚返回也不覆盖新结果。
+- Android 原生页的请求状态由 `WubiLookupRequestStateSmoke` 覆盖：编辑后新旧请求逆序完成、视图销毁后旧回调失效且新视图可重试、已完成结果跨视图重建保留。`check-host.sh` 的 216 个 JVM 冒烟与设备套件源码编译、原生 Gradle 工程的 `compileFullDebugJavaWithJavac` 通过；此改动尚未在模拟器上运行。
 - Windows 那一行（`platforms/windows/settings/main.cpp`）没有在本机构建：WinUI 设置窗口只能用 MSVC 编译，交给 CI 的 Windows 构建；它照搬同一文件里辅助码插件那一行的 `shell_row(..., nav::shell_links::input)`。
 - `platforms/harmony/tests/run.sh`：`DictionaryMaintenancePolicy` 把 `wubi_codes` 当读操作（组字时允许、不要维护、不进队列）。
 - `cargo test -p msime-host-api --lib -- dictionary::tests::wubi`：两个入口对同一请求给出相同回答，个人词库队列不建目录、用户数据目录不变；超长文字两个入口都拒绝。
