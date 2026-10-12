@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import {
   type EditionInfo,
   MacosInputModeEntriesSection,
@@ -29,6 +29,17 @@ const allSchemes = [
   "stroke",
 ] as const;
 
+/** 还没加入的入口，按语言分组：`[语言, [入口名…]]`。 */
+async function missingGroups() {
+  const list = await screen.findByRole("list", { name: "还没加入的入口" });
+  return within(list)
+    .getAllByRole("listitem")
+    .map((item) => {
+      const [language, ...names] = [...item.children].map((child) => child.textContent);
+      return [language, names] as const;
+    });
+}
+
 function client(enabled: string[] | null, openSettings = vi.fn(() => Promise.resolve())) {
   return {
     enabled: vi.fn(() => Promise.resolve(enabled)),
@@ -50,13 +61,14 @@ test("names the language each missing entry sits under in the add dialog", async
     />,
   );
 
-  const text = (await screen.findByText(/还没加入的/)).textContent;
-  expect(text).toContain("「水杉输入法 · 粤」在「粤语」下");
-  expect(text).toContain("「水杉输入法 · 注」在「繁体中文」下");
-  expect(text).toContain("「水杉输入法 · 藏」在「藏语」下");
-  expect(text).toContain("「水杉输入法 · 笔」在「简体中文」下");
-  expect(text).not.toContain("水杉输入法 · 双");
-  expect(text).not.toContain("菜单栏里还没有");
+  expect(await missingGroups()).toEqual([
+    ["粤语", ["水杉输入法 · 粤"]],
+    ["繁体中文", ["水杉输入法 · 注"]],
+    ["藏语", ["水杉输入法 · 藏"]],
+    ["简体中文", ["水杉输入法 · 笔"]],
+  ]);
+  expect(screen.getByText(/还有 4 个入口没加进输入法菜单/)).toBeTruthy();
+  expect(screen.queryByText(/菜单栏里还没有/)).toBeNull();
   expect(screen.getByRole("button", { name: "打开键盘设置" })).toBeTruthy();
 });
 
@@ -70,9 +82,14 @@ test("leads with the current scheme's entry when it is missing", async () => {
     />,
   );
 
-  const text = (await screen.findByText(/还没加入的/)).textContent ?? "";
+  const text = (await screen.findByText(/菜单栏里还没有/)).textContent ?? "";
   expect(text.startsWith("菜单栏里还没有「水杉输入法 · 粤」")).toBe(true);
   expect(text).not.toContain("重新登录");
+  // 简体中文下的几个入口排在同一行，不再各写一遍语言。
+  expect((await missingGroups())[0]).toEqual([
+    "简体中文",
+    ["水杉输入法 · 双", "水杉输入法 · 五", "水杉输入法 · 笔", "水杉输入法 · 英"],
+  ]);
 });
 
 test("leads with the Stroke entry when Stroke is the current scheme", async () => {
@@ -85,7 +102,7 @@ test("leads with the Stroke entry when Stroke is the current scheme", async () =
     />,
   );
 
-  const text = (await screen.findByText(/还没加入的/)).textContent ?? "";
+  const text = (await screen.findByText(/菜单栏里还没有/)).textContent ?? "";
   expect(text.startsWith("菜单栏里还没有「水杉输入法 · 笔」")).toBe(true);
 });
 
@@ -137,8 +154,8 @@ test("reads the list again while the user is in System Settings", async () => {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(3000);
   });
-  expect(await screen.findByText(/还没加入的：「水杉输入法 · 英」/)).toBeTruthy();
-  expect(screen.queryByText(/菜单栏里还没有/)).toBeNull();
+  await vi.waitFor(() => expect(screen.queryByText(/菜单栏里还没有/)).toBeNull());
+  expect(await missingGroups()).toEqual([["简体中文", ["水杉输入法 · 英"]]]);
 });
 
 test("reports a failure when opening keyboard settings fails", async () => {
@@ -246,7 +263,6 @@ test("an edition names its missing entry by the edition's name", async () => {
       onError={vi.fn()}
     />,
   );
-  const text = (await screen.findByText(/还没加入的/)).textContent;
-  expect(text).toContain("「水杉五笔 · 五」在「简体中文」下");
-  expect(text).not.toContain("水杉输入法");
+  expect(await missingGroups()).toEqual([["简体中文", ["水杉五笔 · 五"]]]);
+  expect(screen.queryByText(/水杉输入法/)).toBeNull();
 });
