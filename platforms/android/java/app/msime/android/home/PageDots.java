@@ -1,6 +1,7 @@
 package app.msime.android.home;
 
 import app.msime.android.DimensionPolicy;
+import app.msime.android.PagerDotsRenderer;
 
 import app.msime.android.ThemeColorPolicy;
 import android.animation.ValueAnimator;
