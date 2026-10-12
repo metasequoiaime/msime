@@ -34,6 +34,8 @@ Status: implemented
 
 收益：填 DeepL 官方地址和自己的 Auth Key 就能用，Free 密钥填错主机也能用；DeepLX 用户的请求一个字节都不变。请求格式只有一处权威实现，鸿蒙设置页少了一份手写的请求和解析。
 
+Android 键盘后来接上了自定义服务的运行时，同样走这个共享构造，见 [Android 候选翻译接入用户自己的翻译服务](2026-10-12-android-user-translation-services.md)。
+
 代价：DeepL 和 DeepLX 共用一个选项，用户要知道填什么地址，靠设置页文案说明；DeepL 地址必须填密钥：macOS 原生窗口在填好密钥前提示无法保存，iOS 显示「凭据不完整」，共享设置页在 API Key 下提示并禁用连接测试。共享设置页的 DeepL 主机判断是 TypeScript 的一份副本，靠共享用例锁住。仍是一词一请求，一页九个候选要九次往返。Linux 的连接测试分不出 403 和 456。
 
 ## Verification
