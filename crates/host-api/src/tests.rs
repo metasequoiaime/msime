@@ -637,6 +637,10 @@ fn host_capability_boundary_describes_each_platform() {
     assert_eq!(macos["value"]["restart_input_method"], true);
     assert_eq!(macos["value"]["candidate_follow_cursor"], true);
     assert_eq!(macos["value"]["input_mode_status_item"], true);
+    // 「展开候选」网格目前只有 macOS 实现。
+    assert_eq!(macos["value"]["expand_candidates"], true);
+    assert_eq!(windows["value"]["expand_candidates"], false);
+    assert_eq!(linux["value"]["expand_candidates"], false);
 
     let android = capabilities("android");
     assert_eq!(android["value"]["panel_windows"], false);

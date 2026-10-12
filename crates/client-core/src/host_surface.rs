@@ -295,6 +295,8 @@ pub struct HostCapabilities {
     pub input_mode_hud: bool,
     /// 宿主在系统菜单栏放一个常驻的状态项，显示当前输入模式。只有 macOS 需要：系统的输入法菜单图标只在用户把对应模式（例如「英」）加成输入源后才会跟着变，而 Windows 有托盘语言栏，Linux 有 Fcitx5/IBus 面板，触屏键盘的键面本身就显示模式。
     pub input_mode_status_item: bool,
+    /// 宿主按 `expand_candidates` 让横排候选窗按 ↓ 展开成多行候选网格。目前只有 macOS 实现；其他桌面宿主接上之前不提供这个开关，免得设置页存下一个宿主不理会的值。
+    pub expand_candidates: bool,
     /// The host can run a 背单词 review session — that is, it has wired the shared vocabulary
     /// entry point and can reach the review store.
     pub vocabulary_review: bool,
@@ -624,6 +626,8 @@ impl HostCapabilities {
             ),
             // macOS 的输入法进程自己建 NSStatusItem。Windows 的托盘语言栏（platforms/windows/tsf/LanguageBar）和 Linux 的 Fcitx5/IBus 面板已经常驻显示模式，iOS、Android 和 HarmonyOS 的键面也显示模式，都不提供这个开关。
             input_mode_status_item: matches!(platform, HostPlatform::Macos),
+            // 展开候选网格目前只有 macOS 的候选窗画（#7307）。Windows 和 Linux 的桌面候选窗以后可以接同一个偏好；触屏键盘本来就有自己的展开面板。
+            expand_candidates: matches!(platform, HostPlatform::Macos),
             // Windows chooses between TSF, SendInput and a paste; macOS between system events and its input session. The Linux hosts commit through the IBus or Fcitx5 input context, the desktop voice panel hands its text to the active host the way every panel does, and the voice provider only recognizes, so a stored mode would change nothing there. A keyboard extension commits through its input client and has nothing to choose between either.
             voice_commit_mode: matches!(platform, HostPlatform::Windows | HostPlatform::Macos),
             // The Linux hosts write the snapshot's `preedit` into the IBus and

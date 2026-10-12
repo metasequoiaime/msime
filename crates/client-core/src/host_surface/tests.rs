@@ -319,6 +319,17 @@ fn capabilities_describe_each_host() {
     ] {
         assert!(!HostCapabilities::for_platform(platform).input_mode_status_item);
     }
+    // 展开候选网格目前只有 macOS 的候选窗画（#7307），其他宿主不提供这个开关。
+    assert!(macos.expand_candidates);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(!HostCapabilities::for_platform(platform).expand_candidates);
+    }
     // Mobile hosts draw no toolbar at all.
     let android = HostCapabilities::for_platform(HostPlatform::Android);
     assert!(android.mobile_settings);
