@@ -216,6 +216,56 @@ test.each([
   expect(communityPluginMessage(error, true)).toBe(message);
 });
 
+test.each([
+  [
+    "community_unauthorized",
+    "请先登录后执行此操作。",
+    "登录已失效；仍可退出后匿名浏览。",
+    "请先登录后执行此操作。",
+  ],
+  [
+    "community_forbidden",
+    "没有权限执行此操作。",
+    "没有权限执行此操作；自己的作品不能评分或下架。",
+    "下载后才能评分，且不能给自己的作品评分。",
+  ],
+  ["community_not_found", "作品不存在或已下架。", "作品不存在或已下架。", "作品不存在或已下架。"],
+  [
+    "community_cancelled",
+    "账号状态已变化，请重新加载。",
+    "账号状态已变化，请重新加载。",
+    "账号状态已变化，请重新加载。",
+  ],
+  [
+    "community_storage",
+    "无法安全保存本地模板，请稍后重试。",
+    "无法安全读取登录状态，请检查设备安全设置。",
+    "无法安全读取登录状态，请检查设备安全设置。",
+  ],
+])("community status %s keeps page-specific wording", (code, resource, skin, gallery) => {
+  const error = { code };
+  expect(resourceMessage(error)).toBe(resource);
+  expect(communitySkinMessage(error)).toBe(skin);
+  expect(candidateSkinMessage(error)).toBe(gallery);
+  expect(communityPluginMessage(error)).toBe(gallery);
+});
+
+test("publish messages keep their specific wording", () => {
+  expect(communitySkinPublishMessage({ code: "community_unauthorized" })).toBe(
+    "请先登录后再发布皮肤。",
+  );
+  expect(candidateSkinMessage({ code: "community_invalid" }, true)).toContain(
+    "服务器未接受这款皮肤",
+  );
+  expect(communityPluginMessage({ code: "community_invalid" }, true)).toContain(
+    "服务器未接受这个插件",
+  );
+});
+
+test("unknown error codes keep the community fallback", () => {
+  expect(resourceMessage({ code: "toString" })).toBe("社区暂时不可用，请稍后重试。");
+});
+
 test("a refused upload is never worded as the service being down", () => {
   expect(communityPluginMessage({ code: "community_blocked_content" }, true)).not.toContain(
     "暂时不可用",

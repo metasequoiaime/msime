@@ -21,26 +21,46 @@ export function communityModerationMessage(error: unknown): string | undefined {
   return undefined;
 }
 
+type CommunityStatusCode =
+  | "community_forbidden"
+  | "community_unauthorized"
+  | "community_not_found"
+  | "community_cancelled"
+  | "community_storage";
+
+const communityStatusMessages: Record<CommunityStatusCode, string> = {
+  community_forbidden: "没有权限执行此操作。",
+  community_unauthorized: "请先登录后执行此操作。",
+  community_not_found: "作品不存在或已下架。",
+  community_cancelled: "账号状态已变化，请重新加载。",
+  community_storage: "无法安全读取登录状态，请检查设备安全设置。",
+};
+
+function communityStatusMessage(
+  error: unknown,
+  overrides: Partial<Record<CommunityStatusCode, string>> = {},
+): string | undefined {
+  const code = errorCode(error);
+  if (!code || !Object.prototype.hasOwnProperty.call(communityStatusMessages, code))
+    return undefined;
+  const statusCode = code as CommunityStatusCode;
+  return overrides[statusCode] ?? communityStatusMessages[statusCode];
+}
+
 export function resourceMessage(error: unknown): string {
   const moderation = communityModerationMessage(error);
+  const status = communityStatusMessage(error, {
+    community_storage: "无法安全保存本地模板，请稍后重试。",
+  });
   if (moderation) return moderation;
+  if (status) return status;
   switch (errorCode(error)) {
     case "community_invalid":
       return "内容无效，请修改后重试。";
-    case "community_unauthorized":
-      return "请先登录后执行此操作。";
-    case "community_forbidden":
-      return "没有权限执行此操作。";
     case "community_conflict":
       return "作品状态已变化或已达到发布上限，请刷新后重试。";
-    case "community_not_found":
-      return "作品不存在或已下架。";
     case "community_rate_limited":
       return "请求过于频繁，请稍后再试。";
-    case "community_cancelled":
-      return "账号状态已变化，请重新加载。";
-    case "community_storage":
-      return "无法安全保存本地模板，请稍后重试。";
     case "community_resource_library_format":
       return "本地模板库无法读取，请检查后重试。";
   }
@@ -57,24 +77,19 @@ export function resourceScopeTitle(scope: CommunityResourceScope): string {
 
 export function communitySkinMessage(error: unknown): string {
   const moderation = communityModerationMessage(error);
+  const status = communityStatusMessage(error, {
+    community_unauthorized: "登录已失效；仍可退出后匿名浏览。",
+    community_forbidden: "没有权限执行此操作；自己的作品不能评分或下架。",
+  });
   if (moderation) return moderation;
+  if (status) return status;
   switch (errorCode(error)) {
     case "community_invalid":
       return "搜索内容无效，请修改后重试。";
-    case "community_unauthorized":
-      return "登录已失效；仍可退出后匿名浏览。";
-    case "community_forbidden":
-      return "没有权限执行此操作；自己的作品不能评分或下架。";
     case "community_conflict":
       return "作品状态已变化或已达到发布上限，请刷新后重试。";
-    case "community_not_found":
-      return "作品不存在或已下架。";
     case "community_rate_limited":
       return "请求过于频繁，请稍后再试。";
-    case "community_cancelled":
-      return "账号状态已变化，请重新加载。";
-    case "community_storage":
-      return "无法安全读取登录状态，请检查设备安全设置。";
     case "community_skin_library_full":
       return "最多保存 12 套皮肤，请先删除不需要的设计。";
     case "community_skin_invalid_name":
@@ -114,7 +129,11 @@ export function communitySkinPublishMessage(error: unknown): string {
  */
 export function candidateSkinMessage(error: unknown, publishing = false): string {
   const moderation = communityModerationMessage(error);
+  const status = communityStatusMessage(error, {
+    community_forbidden: "下载后才能评分，且不能给自己的作品评分。",
+  });
   if (moderation) return moderation;
+  if (status) return status;
   switch (errorCode(error)) {
     case "candidate_skin_package":
       return "皮肤包未通过校验，无法分享或安装。";
@@ -142,16 +161,6 @@ export function candidateSkinMessage(error: unknown, publishing = false): string
       return "发布信息已变更，或皮肤库已达到数量上限。";
     case "community_rate_limited":
       return "发布太频繁，请稍后再试。";
-    case "community_forbidden":
-      return "下载后才能评分，且不能给自己的作品评分。";
-    case "community_unauthorized":
-      return "请先登录后执行此操作。";
-    case "community_not_found":
-      return "作品不存在或已下架。";
-    case "community_cancelled":
-      return "账号状态已变化，请重新加载。";
-    case "community_storage":
-      return "无法安全读取登录状态，请检查设备安全设置。";
   }
   return "社区暂时不可用，请稍后重试。";
 }
@@ -161,7 +170,11 @@ export function candidateSkinMessage(error: unknown, publishing = false): string
  */
 export function communityPluginMessage(error: unknown, publishing = false): string {
   const moderation = communityModerationMessage(error);
+  const status = communityStatusMessage(error, {
+    community_forbidden: "下载后才能评分，且不能给自己的作品评分。",
+  });
   if (moderation) return moderation;
+  if (status) return status;
   switch (errorCode(error)) {
     case "plugin_community_too_large":
       return "插件压缩后不能超过 8 MB。";
@@ -181,16 +194,6 @@ export function communityPluginMessage(error: unknown, publishing = false): stri
         : "作品状态已变化，请刷新后重试。";
     case "community_rate_limited":
       return publishing ? "每小时最多发布 10 次，请稍后再试。" : "请求过于频繁，请稍后再试。";
-    case "community_forbidden":
-      return "下载后才能评分，且不能给自己的作品评分。";
-    case "community_unauthorized":
-      return "请先登录后执行此操作。";
-    case "community_not_found":
-      return "作品不存在或已下架。";
-    case "community_cancelled":
-      return "账号状态已变化，请重新加载。";
-    case "community_storage":
-      return "无法安全读取登录状态，请检查设备安全设置。";
   }
   return pluginErrorMessage(error, "社区暂时不可用，请稍后重试。");
 }
