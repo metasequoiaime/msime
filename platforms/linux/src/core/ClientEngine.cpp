@@ -6138,11 +6138,9 @@ void toggle_input_mode(IBusEngine *engine) {
   publish_mode(engine);
   show_input_mode_hint(engine);
 }
-// Ctrl+Shift+J：当前跑的是中文方案就切到日语，是日语等外语就回到 last_chinese_scheme（InputSchemes.h 的 japanese_toggle_target）。和属性菜单的「输入方案」一样经 save_menu_preference 写进存储，由 host-api 在组字结束、运行时空闲后应用；菜单只在目标是中文方案时记 last_chinese_scheme，所以离开中文时这里把当时跑的中文方案一起写进去。没有偏好存储的预览实例不处理，组合键交给应用。
+// Ctrl+Shift+J：当前跑的是中文方案就切到日语，是日语等外语就回到 last_chinese_scheme（InputSchemes.h 的 japanese_toggle_target）。和属性菜单的「输入方案」一样经 save_menu_preference 写进存储，由 host-api 在组字结束、运行时空闲后应用；菜单只在目标是中文方案时记 last_chinese_scheme，所以离开中文时这里把当时跑的中文方案一起写进去。没有偏好存储的预览实例不处理，组合键交给应用。上一次保存还没落盘时紧接着再按（快速按两下想切回去），这一下吃掉但不切换，和 Windows 工作线程忙时一样，不让浏览器拿去开开发者工具；返回值表示按键归不归输入法。
 bool toggle_japanese_scheme(IBusEngine *engine) {
   auto &s = state(engine);
-  if (menu_save_pending)
-    return false;
   const auto directory = configured.value("preferences_directory", std::string{});
   if (directory.empty() || directory.front() != '/')
     return false;
@@ -6152,6 +6150,8 @@ bool toggle_japanese_scheme(IBusEngine *engine) {
       configured_dictionaries);
   if (next.empty())
     return false;
+  if (menu_save_pending)
+    return true;
   const bool leaving_chinese =
       msime::linux_host::scheme::IsChinese(msime::linux_host::scheme_number(running));
   save_menu_preference(engine, MenuPreference::JapaneseToggle,

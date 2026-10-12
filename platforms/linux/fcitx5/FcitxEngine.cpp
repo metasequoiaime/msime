@@ -7155,7 +7155,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (event.isRelease()) maintenance_reload_held_ = false;
     return true;
   }
-  // A toggle chord flips its setting once per press, as on Windows: auto-repeat while it is held is swallowed instead of flipping the setting back and forth, and the release ends the hold. F and f are one key, because letting go of Shift first changes the keysym of the release; J and j likewise.
+  // 切换类组合键一次按下只翻转一次，和 Windows 一样：按住时的自动重复被吃掉，不会来回翻转，松开结束这次按住。F 和 f 算同一个键，因为先松开 Shift 会改变松开事件的 keysym；J 和 j 同理。
   if (toggle_chord_held_ != FcitxKey_None &&
       (sym == FcitxKey_F ? FcitxKey_f : sym == FcitxKey_J ? FcitxKey_j : sym) == toggle_chord_held_) {
     if (event.isRelease()) toggle_chord_held_ = FcitxKey_None;

@@ -737,6 +737,15 @@ int main(int argc, char **argv) {
         std::ifstream(root / "preferences.json") >> snapshot;
         return snapshot.at("preferences");
       };
+      const auto stored_revision = [&] {
+        try {
+          nlohmann::json snapshot;
+          std::ifstream(root / "preferences.json") >> snapshot;
+          return snapshot.at("revision").get<uint64_t>();
+        } catch (...) {
+          return uint64_t{0};
+        }
+      };
       const auto stored_becomes = [&](const char *scheme, const char *last) {
         return wait_until([&] {
           try {
@@ -784,6 +793,35 @@ int main(int argc, char **argv) {
         require(key(IBUS_J, chord_mask), "a held Ctrl+Shift+J repeat escaped");
       require(key(IBUS_j, chord_mask | IBUS_RELEASE_MASK), "the Ctrl+Shift+J release escaped");
       require(stored_becomes("shuangpin", "shuangpin"), "Ctrl+Shift+J did not return from Japanese to shuangpin");
+      // 存储里的方案已经显示在菜单上，说明那次保存和随后的发布都走完了。
+      const auto settled = [&] {
+        try {
+          const auto scheme = stored().value("scheme", std::string("quanpin"));
+          return seen.scheme_entries[scheme == "japanese" ? "Scheme/Japanese" : "Scheme/Shuangpin"];
+        } catch (...) {
+          return false;
+        }
+      };
+      const auto stored_scheme = [&] {
+        try {
+          return stored().value("scheme", std::string("quanpin"));
+        } catch (...) {
+          return std::string{};
+        }
+      };
+      // 快速连按两下想切过去再切回来：第二下赶上第一次保存还没落盘时吃掉但不切换，落盘之后则照常切回；哪种情况都不能交给应用，否则浏览器会拿它开开发者工具。两种情况取决于保存线程的快慢，所以之后按存储实际的样子补按，回到双拼再往下测。
+      require(wait_until(settled), "the store did not settle before the double press");
+      const auto revision = stored_revision();
+      require(chord(), "the first of two quick Ctrl+Shift+J presses was not taken");
+      require(chord(), "the second of two quick Ctrl+Shift+J presses reached the application");
+      require(wait_until([&] { return stored_revision() > revision && settled(); }),
+              "the first of two quick Ctrl+Shift+J presses was not saved");
+      for (int attempt = 0; attempt < 5 && !(stored_scheme() == "shuangpin" && settled()); ++attempt) {
+        if (stored_scheme() == "japanese")
+          require(chord(), "Ctrl+Shift+J back to shuangpin after the double press was not taken");
+        wait_until([&] { return stored_scheme() == "shuangpin" && settled(); });
+      }
+      require(stored_becomes("shuangpin", "shuangpin"), "the double press did not end back on shuangpin");
       // 英文模式交给应用。
       invoke("PropertyActivate", g_variant_new("(su)", "InputMode", PROP_STATE_UNCHECKED));
       require(wait_until([&] { return !seen.input_enabled; }), "English mode fixture failed");
@@ -799,28 +837,18 @@ int main(int argc, char **argv) {
       require(key(IBUS_E, chord_mask) && wait_until([&] { return !seen.english_mode; }),
               "leaving dedicated English failed");
       key(IBUS_e, chord_mask | IBUS_RELEASE_MASK);
-      // 关掉后又交给应用。热重载之前按下的仍会切换，那次保存落盘、菜单跟上之后再按，直到不再被吃掉。
+      // 关掉后又交给应用。热重载之前按下的仍会切换，那次保存落盘、菜单跟上之后再按，直到不再被吃掉。赶上保存还没落盘的那一下被吃掉却不切换，等不到变化，所以每次只等一轮、按次数收尾。
       set_preferences(false, "shuangpin", "shuangpin");
-      const auto settled = [&] {
-        try {
-          const auto scheme = stored().value("scheme", std::string("quanpin"));
-          return seen.scheme_entries[scheme == "japanese" ? "Scheme/Japanese" : "Scheme/Shuangpin"];
-        } catch (...) {
-          return false;
-        }
-      };
       bool ignored = false;
-      require(wait_until([&] {
-                if (!ignored && settled()) {
-                  const auto before = stored().value("scheme", std::string("quanpin"));
-                  if (!chord())
-                    ignored = true;
-                  else
-                    wait_until([&] { return stored().value("scheme", std::string("quanpin")) != before && settled(); });
-                }
-                return ignored;
-              }),
-              "Disabling Ctrl+Shift+J did not hot-reload");
+      for (int attempt = 0; attempt < 10 && !ignored; ++attempt) {
+        wait_until(settled);
+        const auto before = stored_scheme();
+        if (!chord())
+          ignored = true;
+        else
+          wait_until([&] { return stored_scheme() != before && settled(); });
+      }
+      require(ignored, "Disabling Ctrl+Shift+J did not hot-reload");
       const auto last = stored();
       for (int repeat = 0; repeat < 3; ++repeat)
         require(!chord(), "a disabled Ctrl+Shift+J was taken");
