@@ -12,6 +12,8 @@ struct TranslationProviderSettingsView: View {
   @State private var customKey = ""
   @State private var status: String?
   @State private var testing = false
+  @State private var operation: Task<Void, Never>?
+  @State private var testGeneration = UUID()
   /// What the shared document holds, so reading it in does not write it back; nil until it has been read.
   @State private var savedProvider: TranslationProvider?
   @State private var savedFields: [String] = []
@@ -99,6 +101,12 @@ struct TranslationProviderSettingsView: View {
       guard savedProvider != nil, next != savedFields || autosave.hasPending else { return }
       autosave.schedule { try save() }
     }
+    .onDisappear {
+      testGeneration = UUID()
+      operation?.cancel()
+      operation = nil
+      testing = false
+    }
     .flushesAutosave(autosave)
   }
 
@@ -154,9 +162,13 @@ struct TranslationProviderSettingsView: View {
     guard route != .none, route != .account else { status = "凭据不完整。"; return }
     testing = true
     status = nil
-    Task {
+    let id = UUID()
+    testGeneration = id
+    operation = Task {
       let result = await TranslationProviderClient().translate(words: ["你好"], target: "EN", route: route)
+      guard testGeneration == id else { return }
       testing = false
+      operation = nil
       if let gloss = result.first ?? nil {
         status = "测试成功：你好 → \(gloss)"
       } else {
