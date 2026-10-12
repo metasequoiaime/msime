@@ -42,7 +42,7 @@ import org.json.JSONObject;
  *
  * <p>辅助码方案列表先是内置方案，来自 `NativeClient.hostCapabilities` 的 `helpcode_schemas`，没有这个字段时用不含郑码的内置列表（P14）；后面是用户导入的码表（#7176），即 `msime_client_plugins` 的 `catalog` 里 `kind = "helpcode"` 的包。开关和方案都写进当前方案所属的那一份（双拼用 `shuangpin_helpcode`，其余用 `quanpin_helpcode`），选导入的码表写 `plugins.helpcode_pack_*`，规则见 {@link HelpcodeChoicePolicy}；关掉时不再列出方案。「导入辅助码表…」经系统文件选择器（SAF）选一个 `.txt`，严格按 UTF-8 解码后交给 `import_helpcode_table`，成功后自动选中它；「管理已导入的码表」里可以删除，删的是正在用的码表时退回内置方案。共享的辅助码设置没有「部首 / 笔画 / 混合」模式，所以本页不提供模式选择。
  */
-public final class TypingPage extends DetailPage {
+public final class TypingPage extends ReloadingDetailPage {
     /** 深链参数：打开时展开「添加语言」（键盘的输入方式面板「+ 添加语言」用）。 */
     public static final String ARG_ADD_LANGUAGE = "add_language";
 
@@ -96,13 +96,12 @@ public final class TypingPage extends DetailPage {
     /** 进程被杀后恢复「导入辅助码表」是为哪一份方案发起的。 */
     private static final String SAVED_IMPORT_SHUANGPIN = "helpcode_import_shuangpin";
 
-    @Nullable private LinearLayout column;
     private boolean adding;
     /** 上一次渲染用的状态：下载进度只重画这一份，不必每个百分点都去读共享存储。 */
     @Nullable private State lastState;
     /** 下载进度变了就重画；某个资源包下载结束时重读一遍，换上新的安装状态。 */
     private final ResourcePackService.Listener packListener = (pack, finished) -> {
-        if (column == null) return;
+        if (contentColumn() == null) return;
         if (finished) reload();
         else if (lastState != null) render(lastState);
     };
@@ -121,25 +120,18 @@ public final class TypingPage extends DetailPage {
         out.putBoolean(SAVED_IMPORT_SHUANGPIN, importShuangpin);
     }
 
-    @Override protected void buildContent(LinearLayout column, Bundle args) {
-        this.column = column;
-        if (args.getBoolean(ARG_ADD_LANGUAGE, false)) adding = true;
+    @Override protected void onContentReady() {
+        Bundle args = getArguments();
+        if (args != null && args.getBoolean(ARG_ADD_LANGUAGE, false)) adding = true;
         ResourcePackService.addListener(packListener);
-        reload();
     }
 
-    @Override protected void onBecameVisible() {
-        if (column != null) reload();
-    }
-
-    @Override public void onDestroyView() {
+    @Override protected void onContentDestroyed() {
         ResourcePackService.removeListener(packListener);
-        column = null;
         lastState = null;
-        super.onDestroyView();
     }
 
-    private void reload() {
+    @Override protected void reload() {
         HostTask.run(this, TypingPage::read, this::render);
     }
 
@@ -231,7 +223,7 @@ public final class TypingPage extends DetailPage {
     }
 
     private void render(@Nullable State state) {
-        LinearLayout target = column;
+        LinearLayout target = contentColumn();
         if (target == null) return;
         lastState = state;
         target.removeAllViews();

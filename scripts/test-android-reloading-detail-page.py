@@ -18,6 +18,7 @@ CONSUMERS = (
     "LexiconPage.java",
     "PhrasesPage.java",
     "SkinsPage.java",
+    "TypingPage.java",
     "VoicePage.java",
 )
 
@@ -129,6 +130,19 @@ def main() -> int:
         or "if (contentColumn() == null" not in voice
     ):
         errors.append("VoicePage: 资源包监听器或视图绑定状态未迁移到生命周期钩子")
+
+    typing = (HOME / "TypingPage.java").read_text(encoding="utf-8")
+    if (
+        "@Override protected void onContentReady()" not in typing
+        or "getArguments()" not in typing
+        or "ARG_ADD_LANGUAGE" not in typing
+        or "ResourcePackService.addListener(packListener);" not in typing
+        or "@Override protected void onContentDestroyed()" not in typing
+        or "ResourcePackService.removeListener(packListener);" not in typing
+        or "lastState = null;" not in typing
+        or "if (contentColumn() == null) return;" not in typing
+    ):
+        errors.append("TypingPage: 添加语言深链或资源包监听器生命周期未保留")
 
     if errors:
         print("\n".join(errors), file=sys.stderr)
