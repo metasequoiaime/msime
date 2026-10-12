@@ -7,6 +7,8 @@ import { rowText as sharedRowText, subtleMeta } from "./row-style";
 // ---- groups and rows ----
 
 export const group = "flex min-w-0 flex-col gap-[var(--p-g-title-gap)]";
+/** Shared rounded surface used by mobile groups that do not contain standard setting rows. */
+export const mobileGroupSurface = "overflow-hidden rounded-[20px] bg-[var(--p-group-bg)]";
 export const groupFooter =
   "m-0 [padding:var(--p-g-title-pad)] text-[13px] leading-[18px] [color:var(--p-sub)]";
 export const groupTitle =
@@ -115,7 +117,7 @@ export const pickerValueText = "min-w-0 truncate";
 
 // ---- 导航列表（HarmonyOS 手机的设置首页和「我的」） ----
 
-export const navGroup = "overflow-hidden rounded-[20px] bg-[var(--p-group-bg)]";
+export const navGroup = mobileGroupSurface;
 /** 细线沿第一个可见行之后每个可见行的文字列顶边画出，所以它从标签开始的位置起、到末端内边距处止，最后一行下方没有细线。 */
 export const navGroupRows =
   "[&>:not([hidden])~:not([hidden])_[data-nav-rule]]:[background:linear-gradient(var(--p-hair),var(--p-hair))_left_top/100%_1px_no-repeat]";

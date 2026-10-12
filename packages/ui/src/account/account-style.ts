@@ -9,6 +9,7 @@
 
 import { fieldLabel } from "../core/form-style";
 import { standardPage } from "../core/page-style";
+import { mobileGroupSurface } from "../core/platform-controls-style";
 import { rowHeading, rowText } from "../core/row-style";
 
 export const page = standardPage;
@@ -217,7 +218,7 @@ export const downloadHeroTitle = "text-[15px] font-semibold";
 export const downloadHeroUrl = "truncate text-[13px] [color:var(--p-sub)]";
 export const downloadPill =
   "m-0 shrink-0 cursor-pointer whitespace-nowrap rounded-full border-0 px-3.5 py-1.5 text-[13px] font-semibold [font-family:inherit] [background:var(--accent-color)] [color:var(--p-on-accent)] active:opacity-80";
-export const downloadRows = "overflow-hidden rounded-[20px] bg-[var(--p-group-bg)]";
+export const downloadRows = mobileGroupSurface;
 export const downloadRow =
   "m-0 flex w-full min-w-0 items-center gap-3 border-x-0 border-t border-b-0 border-solid border-[var(--p-hair)] bg-transparent px-3.5 py-3 text-left [font-family:inherit] [color:var(--p-text)] first:border-t-0";
 export const downloadRowButton = "cursor-pointer active:bg-[var(--p-press)]";

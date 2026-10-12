@@ -1,4 +1,5 @@
 import { subtleMeta } from "../core/row-style";
+import { mobileGroupSurface } from "../core/platform-controls-style";
 
 /**
  * The prose pages -- about, the guides, feedback -- and the AI skin generator's cards.
@@ -73,7 +74,7 @@ export const systemInfoValue =
   "max-w-[min(35ch,45vw)] text-right [overflow-wrap:anywhere] select-text [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 
 /** 「描述」卡片：用分组的底色和圆角包住一个无边框的 textarea。 */
-export const feedbackTextCard = "overflow-hidden rounded-[20px] bg-[var(--p-group-bg)]";
+export const feedbackTextCard = mobileGroupSurface;
 export const feedbackTextarea =
   "block min-h-[150px] w-full resize-none border-0 bg-transparent px-4 py-3.5 text-[17px] leading-normal outline-none [color:var(--p-text)] [font-family:inherit] placeholder:[color:var(--p-sub)]";
 export const feedbackCounter = "px-4 text-[12px] [color:var(--p-sub)]";
