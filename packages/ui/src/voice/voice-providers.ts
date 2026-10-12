@@ -21,6 +21,7 @@ import {
   groqChatEndpoint,
   openAiChatEndpoint,
   siliconFlowChatEndpoint,
+  siliconFlowTextDocumentationUrl,
 } from "../core/provider-resources";
 
 export type ProviderDefaults = {
@@ -109,7 +110,7 @@ export const POLISH_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
     endpoint: siliconFlowChatEndpoint,
     model: "Qwen/Qwen3-8B",
     models: ["Qwen/Qwen3-8B", "Qwen/Qwen3.6-27B"],
-    documentation: "https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation",
+    documentation: siliconFlowTextDocumentationUrl,
   },
   openai: {
     endpoint: openAiChatEndpoint,

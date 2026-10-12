@@ -5,3 +5,5 @@ export const openAiChatEndpoint = "https://api.openai.com/v1/chat/completions";
 export const siliconFlowChatEndpoint = "https://api.siliconflow.cn/v1/chat/completions";
 export const groqChatEndpoint = "https://api.groq.com/openai/v1/chat/completions";
 export const deepseekDocumentationUrl = "https://api-docs.deepseek.com/";
+export const siliconFlowTextDocumentationUrl =
+  "https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation";

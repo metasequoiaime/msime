@@ -5,6 +5,7 @@ import {
   groqChatEndpoint,
   openAiChatEndpoint,
   siliconFlowChatEndpoint,
+  siliconFlowTextDocumentationUrl,
 } from "../core/provider-resources";
 
 /**
@@ -90,7 +91,7 @@ export const AI_PROVIDER_OPTIONS: readonly {
     endpoint: siliconFlowChatEndpoint,
     model: "Qwen/Qwen3.6-27B",
     models: ["Qwen/Qwen3.6-27B"],
-    documentation: "https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation",
+    documentation: siliconFlowTextDocumentationUrl,
   },
   {
     id: "groq",
