@@ -1,0 +1,13 @@
+traditional-glyph 的第三方数据说明
+
+插件模块里的简繁对照表（源码树 plugins/script/traditional-glyph/data/s2t.bin）由 plugins/script/tools/gen_s2t_table.py 从 OpenCC 的词典变换生成。
+
+来源：OpenCC（Open Chinese Convert，https://github.com/BYVoid/OpenCC）提交 26753884f1984add422f3b0249ccee8613deaff6，data/dictionary/ 下的 STCharacters.txt、STPhrases.txt 和 STPhrases_GeneratedFromRegionalPhrases.txt。
+许可证：Apache License 2.0（Apache-2.0），全文见同一个包里的 OpenCC-LICENSE.txt。
+
+修改说明（Apache-2.0 第 4 条第 2 款）：原始词典已被变换，没有原样包含。
+- STCharacters.txt：全部单字条目，按码位重新编码为二进制条目和值池。
+- STPhrases.txt 与 STPhrases_GeneratedFromRegionalPhrases.txt：只保留 2 到 4 字、且逐字转换会出错的词组 7559 条（2 字 4184、3 字 1935、4 字 1440），每条只存每个字取单字表的第几个值（或者保留原字）；含辅助平面字的 3 条没有收录，5 字以上的词组没有收录。
+- 另由单字表派生两个标记：繁体专用字 4031 个（单字表的值里、本身不是键、不在 GB2312 里的字，GB2312 取自 Python 的 gb2312 编解码器），简体专用字 3807 个。
+
+插件代码本身以 MIT 许可证发布，见 LICENSE.txt。
