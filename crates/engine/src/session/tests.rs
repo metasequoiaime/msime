@@ -7576,6 +7576,37 @@ fn symbols_stay_out_of_helpcode_caret_prefix_and_dedicated_english() {
     assert_eq!(symbol_index(&session, "±"), None, "{:?}", words(&session));
 }
 
+/// 符号跟在名称词后面，名称词被挪走时符号不能顶到首位：只出单字筛掉了多字的名称词，或者用户把名称词固定到了后面的位置。两种情况下空格都不能直接上屏符号。
+#[test]
+fn a_symbol_never_leads_once_its_name_moves_away() {
+    let fixture = Fixture::new(SYMBOL_FIXTURE);
+    let mut single = symbol_session(&fixture, |options| options.single_character_only = true);
+    type_text(&mut single, "zhengfu");
+    assert_eq!(words(&single)[0], "正");
+    assert!(
+        symbol_index(&single, "±").is_some_and(|index| index > 0),
+        "{:?}",
+        words(&single)
+    );
+    single.command(Command::Cancel);
+    type_text(&mut single, "dayu");
+    assert_eq!(words(&single)[0], "大");
+    single.command(Command::Cancel);
+
+    let mut session = symbol_session(&fixture, |_| {});
+    type_text(&mut session, "dayu");
+    assert_eq!(words(&session)[..3], ["大于", ">", "＞"]);
+    let result = session.fix_position(0, 3);
+    assert!(result.handled && result.diagnostic.is_none(), "{result:?}");
+    // 名称词留在固定的第 3 位，首位换成后面第一个没固定的词，符号依次补进空位。
+    let listed = words(&session);
+    assert_eq!(listed[..4], ["大", ">", "大于", "＞"], "{listed:?}");
+    assert_eq!(
+        session.snapshot().candidates[0].source,
+        CandidateSource::Database
+    );
+}
+
 /// 五笔不混排，符号开关开着时四码唯一候选照样自动上屏。
 #[test]
 fn the_wubi_unique_four_code_ignores_the_symbol_switch() {

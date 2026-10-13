@@ -448,7 +448,7 @@ fn same_without_variation_selector(left: &str, right: &str) -> bool {
 /// - 锚定词在候选里：紧跟在第一个锚定词后面；名称是单音节（派、度）时最早排在 `SYMBOL_SINGLE_SYLLABLE_SLOT`。
 /// - 锚定词不在候选里：全拼两个音节以上和拉丁名称排在 `SYMBOL_UNANCHORED_SLOT`，单音节和首字母匹配不出。
 ///
-/// 所有位置都 ≥ 1，列表空时不加，所以符号永远不占首位，空格键不会直接上屏符号。位置超过列表长度时接在末尾。
+/// 所有位置都 ≥ 1，列表空时不加，所以混排时符号不占首位。混排之后名称词还可能被挪走（只出单字、固定位置），那一步由 `keep_expressive_rows_off_the_lead` 兜住。位置超过列表长度时接在末尾。
 fn place_symbol_rows(list: &mut Vec<WordItem>, mut symbols: Vec<SymbolRow>) {
     if symbols.is_empty() || list.is_empty() {
         return;
@@ -477,6 +477,38 @@ fn place_symbol_rows(list: &mut Vec<WordItem>, mut symbols: Vec<SymbolRow>) {
     // 从后往前插：后面的插入不移动前面的位置；同一个位置倒着插，插完正好是查询的先后。
     for &(slot, index) in placed.iter().rev() {
         list.insert(slot, std::mem::take(&mut symbols[index].item));
+    }
+}
+
+/// 混排的 emoji、颜文字和符号行（来源 `Emoji`、`Kaomoji`）总跟在一个词后面，混排时不占首位；但混排之后列表还会变：只出单字筛掉了多字的名称词，固定位置把名称词挪到了后面，接在它后面的行就顶到了首位，空格会直接上屏它（W#842）。这一步在列表定型后补救：首位是这些行时，把后面第一个能挪的词提到首位，它前面的这些行各往后挪一位，填上它空出来的位置。
+///
+/// 能挪的词是没有固定位置、也不坐在线座位（云候选、AI）的行，前面夹着的固定词和在线行原地不动；没有这样的词时退而取第一个词。整个列表都是这些行时不动。
+pub(crate) fn keep_expressive_rows_off_the_lead(list: &mut [WordItem]) {
+    let expressive = |item: &WordItem| {
+        matches!(
+            item.source,
+            CandidateSource::Emoji | CandidateSource::Kaomoji
+        )
+    };
+    if !list.first().is_some_and(expressive) {
+        return;
+    }
+    let Some(word) = list
+        .iter()
+        .position(|item| {
+            !expressive(item) && item.fixed_position == 0 && !item.source.takes_online_seat()
+        })
+        .or_else(|| list.iter().position(|item| !expressive(item)))
+    else {
+        return;
+    };
+    // 从词的位置往前，逐个和前面的表情、符号行交换：词换到首位，这些行按原来的先后各占下一个这样的位置，中间的词不动。
+    let mut at = word;
+    for earlier in (0..word).rev() {
+        if expressive(&list[earlier]) {
+            list.swap(earlier, at);
+            at = earlier;
+        }
     }
 }
 
@@ -1731,6 +1763,48 @@ mod tests {
                 assert_ne!(first.source, CandidateSource::Emoji, "{:?}", words(&merged));
             }
         }
+    }
+
+    #[test]
+    fn leading_expressive_rows_move_behind_the_first_word() {
+        let mut list = vec![
+            row(">", CandidateSource::Emoji),
+            row("(>_<)", CandidateSource::Kaomoji),
+            row("大于", CandidateSource::Database),
+            row("大", CandidateSource::Database),
+        ];
+        keep_expressive_rows_off_the_lead(&mut list);
+        assert_eq!(words(&list), vec!["大于", ">", "(>_<)", "大"]);
+        // 首位已经是词时不动；整个列表都是这些行时也不动。
+        keep_expressive_rows_off_the_lead(&mut list);
+        assert_eq!(words(&list), vec!["大于", ">", "(>_<)", "大"]);
+        let mut only = vec![
+            row("😀", CandidateSource::Emoji),
+            row("(^_^)", CandidateSource::Kaomoji),
+        ];
+        keep_expressive_rows_off_the_lead(&mut only);
+        assert_eq!(words(&only), vec!["😀", "(^_^)"]);
+        keep_expressive_rows_off_the_lead(&mut []);
+
+        // 固定在第 3 位的词和第 2 位的云候选原地不动，提到首位的是后面第一个普通词。
+        let mut fixed = row("大于", CandidateSource::Database);
+        fixed.fixed_position = 3;
+        let mut list = vec![
+            row(">", CandidateSource::Emoji),
+            row("大鱼", CandidateSource::CloudSuggestion),
+            fixed,
+            row("＞", CandidateSource::Emoji),
+            row("大", CandidateSource::Database),
+            row("达", CandidateSource::Database),
+        ];
+        keep_expressive_rows_off_the_lead(&mut list);
+        assert_eq!(words(&list), vec!["大", "大鱼", "大于", ">", "＞", "达"]);
+        // 只剩固定词时退而取第一个词。
+        let mut fixed = row("大于", CandidateSource::Database);
+        fixed.fixed_position = 3;
+        let mut list = vec![row(">", CandidateSource::Emoji), fixed];
+        keep_expressive_rows_off_the_lead(&mut list);
+        assert_eq!(words(&list), vec!["大于", ">"]);
     }
 
     #[test]

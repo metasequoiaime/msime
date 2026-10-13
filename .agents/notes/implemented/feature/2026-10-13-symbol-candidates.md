@@ -16,8 +16,9 @@ Status: implemented
 - **位置**（`crates/engine/src/ime/queries.rs` 的 `place_symbol_rows`，26 键和九宫格的 `insert_expressive_rows` 共用）：
   - 锚定词是名称本身（中文名称那个词，拉丁名称是英文混输给出的同名英文行）。在候选里时紧跟第一个锚定词；单音节名称最早排在下标 `SYMBOL_SINGLE_SYLLABLE_SLOT`（3，第 4 位）。
   - 锚定词不在候选里时，全拼两个音节以上和拉丁名称排在下标 `SYMBOL_UNANCHORED_SLOT`（5，默认每页 6 个的第一页最后一位），列表短时接在末尾；首字母匹配和单音节不出。
-  - 所有位置 ≥ 1，列表空时不加：符号永远不占首位，空格不会直接上屏符号。
-  - 符号在 emoji 之后插，同一个词后面依次是符号、emoji、颜文字；固定位置照常在混排之后应用。每次最多 `MIXED_SYMBOL_LIMIT`（8）行，一个名称最多 6 个符号。
+  - 所有位置 ≥ 1，列表空时不加，所以混排时符号不占首位。
+  - 符号在 emoji 之后插，同一个词后面依次是符号、emoji、颜文字；固定位置照常在混排之后应用。
+  - 混排之后名称词还会被挪走：只出单字筛掉多字的名称词（`zhengfu` 剩下 ± 正 政），固定位置把名称词挪到后面（「大于」固定在第 3 位时 > ＞ 顶到前面）。所以列表定型后再过一道 `keep_expressive_rows_off_the_lead`（26 键在 `InputSession::mixed_from` 的单字筛选之后，九宫格在固定位置之后）：首位是 emoji、颜文字或符号行时，把后面第一个没有固定位置、也不坐在线座位的词提到首位，这些行各往后挪一位，夹在中间的固定词和云候选、AI 行原地不动。这一步对 emoji 和颜文字同样生效，它们以前也有同样的漏洞，只是 emoji 在多数平台默认关，暴露得少。没选整体改成「先固定位置、后混排」：英文行可以固定位置，要把 `CandidateQueries::mixed` 拆成两段，emoji 的锚定规则也跟着变，超出这次的范围。每次最多 `MIXED_SYMBOL_LIMIT`（8）行，一个名称最多 6 个符号。
   - 去重：符号行按文字与候选、英文去重，排在 emoji 之前进去重表，所以与它文字相同的 emoji 行被去掉；文字只差 U+FE0F 的 emoji 行（✔️ 对 ✔）也去掉，留下文本样式的符号。`MIXED_DEDUP_CAPACITY` 加上 `MIXED_SYMBOL_LIMIT`。
 - **门槛。** 只有全拼、双拼（`allows_english_emoji_mixing`）；本地模式、专用英文时 `CandidateQueries::mixed` 原样返回；会话层在光标前缀解码和辅助码激活时传 `symbols_allowed = false`（`InputSession::mixed_from`）；九宫格在单字、笔画筛选时不查。五笔不混排，四码唯一自动上屏（`wubi_unique_four_code`）不受影响。
 - **开关与默认值。** 新偏好 `mixed_input.symbols`（`MixedInputPreferences::symbols`），所有宿主默认开，`#[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]`：缺键的旧文档读作开，只有用户关掉时文档里才出现 `"symbols": false`。它与 emoji 开关独立（W#736 就是关了 emoji 想要符号的人）。host-api 在 `apply_pending` 和 `into_engine_options` 两处映射到 `EngineOptions::mixed_symbols`，引擎层默认关（`MixedExpressiveOptions::symbol_candidates`），所以 golden 基准、`convert_eval`、网页引擎（`MixedExpressiveOptions::default()`）都不变。

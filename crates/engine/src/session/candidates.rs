@@ -6,7 +6,9 @@ use super::input::InputSession;
 use crate::assets;
 use crate::diagnostics;
 use crate::ime::personal_rerank::personal_context_rerank_order;
-use crate::ime::queries::{MixedJapaneseRow, MODE_ENGLISH_LIMIT};
+use crate::ime::queries::{
+    keep_expressive_rows_off_the_lead, MixedJapaneseRow, MODE_ENGLISH_LIMIT,
+};
 use crate::ime::MixedJapaneseConversion;
 use crate::local::date_time::{inline_date_time_keyword, insert_inline_date_time, LocalDateTime};
 use crate::local::jianpin::jianpin_ranking_context;
@@ -562,6 +564,10 @@ impl InputSession {
         // 放在固定位置之后：单字母输入时固定位置会补回列表里没有的词。
         if self.single_character_only && scheme.filters_to_single_characters() {
             mixed.retain(|item| !is_han_phrase(&item.word));
+        }
+        // 本地模式不混排，列表里的 emoji、颜文字是模式自己查的，可以领头。
+        if self.local_mode == LocalInputMode::None {
+            keep_expressive_rows_off_the_lead(&mut mixed);
         }
         mixed
     }

@@ -11,7 +11,9 @@ use crate::assets;
 use crate::diagnostics;
 use crate::dictionary::english::EnglishDictionary;
 use crate::error::EngineError;
-use crate::ime::queries::{insert_expressive_rows, MIXED_EXPRESSIVE_MINIMUM_INPUT};
+use crate::ime::queries::{
+    insert_expressive_rows, keep_expressive_rows_off_the_lead, MIXED_EXPRESSIVE_MINIMUM_INPUT,
+};
 use crate::language_dictionary::{self, LanguageDictionary};
 use crate::lattice::decode::PHRASE_LENGTH_BONUS;
 use crate::lattice::neural::{
@@ -1410,6 +1412,7 @@ impl NineKeySession {
             None,
             false,
         );
+        keep_expressive_rows_off_the_lead(&mut candidates);
         // One digit is predictive; after that, keep a likely reading visible
         // only once its digits are complete. An unfinished longer syllable
         // must not hide readings already spelled in full.
@@ -5878,6 +5881,21 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         assert!(!session.pin(index).handled);
         assert!(!session.remove(index).handled);
         assert!(!session.set_position(index, 2).handled);
+    }
+
+    /// 名称词被固定到后面的位置时，接在它后面的符号不能顶到首位。
+    #[test]
+    fn a_symbol_row_never_leads_after_its_name_is_fixed_further_down() {
+        let fixture = fixture_with("CREATE TABLE tbl_1_d(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_d VALUES('da','d','大',300);CREATE TABLE tbl_1_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_y VALUES('yu','y','于',300);CREATE TABLE tbl_2_d(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_d VALUES('da''yu','dy','大于',900);");
+        let mut session = open_expressive(&fixture, EnglishInputOptions::default(), SYMBOLS_ONLY);
+        type_digits(&mut session, "3298");
+        assert_eq!(words(&session)[..3], ["大于", ">", "＞"]);
+        assert!(session.set_position(0, 3).handled);
+        // 名称词留在固定的第 3 位。
+        let listed = words(&session);
+        assert_ne!(sources(&session)[0], CandidateSource::Emoji, "{listed:?}");
+        assert_eq!(listed[2], "大于", "{listed:?}");
+        assert!(listed.contains(&">".to_owned()) && listed.contains(&"＞".to_owned()));
     }
 
     #[test]
