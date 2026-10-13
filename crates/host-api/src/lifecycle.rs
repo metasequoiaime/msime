@@ -169,6 +169,8 @@ pub enum LocalModeClass {
     Unicode = 10,
     DateTime = 11,
     QuickPhrase = 12,
+    /// 拆字反查（`C`）。
+    Chaizi = 13,
     /// 名字不认识（runtime 刷新失败时的 `"unknown"`）。
     Unknown = 255,
 }
@@ -189,6 +191,7 @@ impl LocalModeClass {
             Some(LocalInputMode::Unicode) => Self::Unicode,
             Some(LocalInputMode::DateTime) => Self::DateTime,
             Some(LocalInputMode::QuickPhrase) => Self::QuickPhrase,
+            Some(LocalInputMode::Chaizi) => Self::Chaizi,
             None => Self::Unknown,
         }
     }

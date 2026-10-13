@@ -1068,6 +1068,8 @@ pub enum LocalInputMode {
     Mention,
     /// 在全拼、双拼、五笔的组字中键入 `www.`、`http:` 等之后：原样输入的 ASCII 网址。
     Url,
+    /// `C`：拆字反查，按部件的拼音找字（`huohuohuo` 得 焱）。
+    Chaizi,
 }
 
 impl LocalInputMode {
@@ -1087,6 +1089,7 @@ impl LocalInputMode {
             Self::Command => "command",
             Self::Mention => "mention",
             Self::Url => "url",
+            Self::Chaizi => "chaizi",
         }
     }
 
@@ -1106,6 +1109,7 @@ impl LocalInputMode {
             Self::Command,
             Self::Mention,
             Self::Url,
+            Self::Chaizi,
         ]
         .into_iter()
         .find(|mode| mode.name() == name)
@@ -1124,6 +1128,14 @@ impl LocalInputMode {
     /// Whether the mode's rows are text the engine generated rather than words the user spelled. Their commits are never learned and never counted as typing.
     pub fn generates_text(self) -> bool {
         matches!(self, Self::Expression | Self::Command | Self::Mention)
+    }
+
+    /// 候选注释由 Engine 自己给出、不补辅助码的模式：V、`/`、`@` 的行不是按拼音拼出来的，辅助码说明不了它们；拆字的行注释的是字的读音，用户正是不会读这个字才来查，辅助码夹在读音里只会添乱。和 `generates_text` 分开，是因为拆字上屏的字是用户挑出来的，照常计入打字统计。
+    pub fn annotates_rows(self) -> bool {
+        matches!(
+            self,
+            Self::Expression | Self::Command | Self::Mention | Self::Chaizi
+        )
     }
 }
 
@@ -1180,7 +1192,7 @@ impl Default for FrequencyAdjustmentOptions {
     }
 }
 
-/// Which local modes may be entered. The Shift+letter modes of the reference are on by default; expression (`V`), command (`/`) and mention (`@`) are off, because entering them takes a key that used to reach the host as text.
+/// Which local modes may be entered. The Shift+letter modes of the reference are on by default; expression (`V`), command (`/`), mention (`@`) and 拆字 (`C`) are off, because entering them takes a key that used to reach the host as text. 拆字的默认值由宿主按形态决定：host-api 在触屏宿主上打开它，桌面宿主等用户在设置里打开。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LocalModeOptions {
     pub unicode: bool,
@@ -1194,7 +1206,9 @@ pub struct LocalModeOptions {
     pub expression: bool,
     pub command: bool,
     pub mention: bool,
-    /// 总开关：没有组字时 Shift+字母（U/T/K/E/M/J/Y/R/V）能否进入对应的快捷模式。关掉后这些键照常打出大写字母，各模式自己的开关不变；`/` 和 `@` 不经过它。
+    /// `C`：拆字反查。
+    pub chaizi: bool,
+    /// 总开关：没有组字时 Shift+字母（U/T/K/E/M/J/Y/R/V/C）能否进入对应的快捷模式。关掉后这些键照常打出大写字母，各模式自己的开关不变；`/` 和 `@` 不经过它。
     pub shift_letter_entry: bool,
 }
 
@@ -1212,6 +1226,7 @@ impl Default for LocalModeOptions {
             expression: false,
             command: false,
             mention: false,
+            chaizi: false,
             shift_letter_entry: true,
         }
     }
@@ -1593,7 +1608,8 @@ mod tests {
                 LocalInputMode::Expression => LocalInputMode::Command,
                 LocalInputMode::Command => LocalInputMode::Mention,
                 LocalInputMode::Mention => LocalInputMode::Url,
-                LocalInputMode::Url => return None,
+                LocalInputMode::Url => LocalInputMode::Chaizi,
+                LocalInputMode::Chaizi => return None,
             })
         }
         let mut names = Vec::new();
@@ -1607,8 +1623,9 @@ mod tests {
             names.push(current.name());
             mode = next(current);
         }
-        assert_eq!(names.len(), 13);
+        assert_eq!(names.len(), 14);
         assert!(names.contains(&"url"));
+        assert!(names.contains(&"chaizi"));
         assert_eq!(LocalInputMode::from_name("unknown"), None);
     }
 

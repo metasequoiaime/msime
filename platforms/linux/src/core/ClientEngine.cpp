@@ -3271,6 +3271,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       {"super_jianpin", "超级简拼（J 模式）"},
       {"temporary_english", "临时英文（Y 模式）"},
       {"temporary_japanese", "临时日文（R 模式）"},
+      {"chaizi", "拆字（C 模式）"},
       {"expression", "计算与数字（V 模式）"},
       {"command", "指令（/ 模式）"},
       {"mention", "名单（@ 模式）"}};
@@ -5204,7 +5205,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
                value == "quick_phrase" || value == "emoji" ||
                value == "kaomoji" || value == "super_jianpin" ||
                value == "temporary_english" || value == "temporary_japanese" ||
-               value == "expression" || value == "command" || value == "mention";
+               value == "chaizi" || value == "expression" || value == "command" ||
+               value == "mention";
       };
       if (!allowed(key))
         return;

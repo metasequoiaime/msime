@@ -16,7 +16,8 @@ inline const char *candidate_local_mode_label(std::string_view mode) {
       {"kaomoji", "颜文字"},      {"super_jianpin", "简拼"},
       {"temporary_english", "EN"}, {"temporary_japanese", "日文"},
       {"expression", "计算"},     {"command", "指令"},
-      {"mention", "@"},           {"url", "网址"}};
+      {"mention", "@"},           {"url", "网址"},
+      {"chaizi", "拆字"}};
   for (const auto &entry : entries)
     if (entry.name == mode)
       return entry.label;

@@ -294,7 +294,9 @@ final class ImeStyler {
     }
 
     private void applySkinTypeface(Button button, KeyboardSkin target) {
-        ViewPolicy.setTypeface(button, target.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
+        ViewPolicy.setTypeface(button, target.monospaced() ? Typeface.MONOSPACE
+            : button instanceof NineKeyDigitButton ? Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            : Typeface.DEFAULT);
     }
 
     /**

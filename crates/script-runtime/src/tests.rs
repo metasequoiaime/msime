@@ -1681,7 +1681,7 @@ fn the_text_mode_whitelist_matches_u6() {
     for mode in 0..=5 {
         assert!(abi::local_mode_allows_text(mode));
     }
-    for mode in [6, 7, 8, 9, 10, 11, 12, 255] {
+    for mode in [6, 7, 8, 9, 10, 11, 12, 13, 255] {
         assert!(!abi::local_mode_allows_text(mode));
     }
 }

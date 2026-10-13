@@ -38,6 +38,37 @@ final class LocalModeSettingsTests: XCTestCase {
     XCTAssertEqual(stored?["unicode"] as? Bool, true, "the merge kept the object's other fields")
   }
 
+  /// 拆字在触屏平台上缺键读作开，和设置页、键盘列表的 `?? true` 一致；从 C 进入，部件拼音列出要找的字，注释是带调读音。设置页关掉后，正在用的会话不再打开它。
+  func testChaiziShipsOnAndTurnsOffInTheLiveSession() async {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertTrue(opens(bridge, "C"), "拆字 ships on for a touch keyboard")
+
+    var snapshot = bridge.openLocalMode("C")
+    XCTAssertEqual(snapshot.localMode, "chaizi")
+    for letter in "huohuohuo" { snapshot = bridge.handleCharacter(String(letter)) }
+    XCTAssertEqual(snapshot.candidates.first, "焱", "\(snapshot.candidates)")
+    XCTAssertEqual(snapshot.candidateAnnotations.first, "yàn")
+    _ = bridge.cancel()
+    snapshot = bridge.openLocalMode("C")
+    for letter in "nv'zi" { snapshot = bridge.handleCharacter(String(letter)) }
+    XCTAssertEqual(snapshot.candidates.first, "好", "a separator between components is accepted: \(snapshot.candidates)")
+    XCTAssertEqual(bridge.selectCandidate(at: 0).commitText, "好")
+    XCTAssertFalse(bridge.isInLocalMode, "choosing the character leaves the mode")
+
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      var modes = $0["local_modes"] as? [String: Any] ?? [:]
+      modes["chaizi"] = false
+      $0["local_modes"] = modes
+    })
+    let reloaded = expectation(description: "reload")
+    var accepted = false
+    bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
+    await fulfillment(of: [reloaded], timeout: 15)
+    XCTAssertTrue(accepted, "the reload was refused")
+    XCTAssertFalse(opens(bridge, "C"))
+    XCTAssertTrue(opens(bridge, "U"), "turning 拆字 off leaves the others")
+  }
+
   /// Whether the mode opened by `trigger` is running afterwards; the attempt is then abandoned.
   private func opens(_ bridge: MetasequoiaInputSessionBridge, _ trigger: String) -> Bool {
     _ = bridge.cancel()

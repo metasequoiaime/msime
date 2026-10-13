@@ -83,4 +83,8 @@ cp resources/licenses/rime-stroke-LGPL-3.0.txt "$notices/rime-stroke.txt"
 # 越南文和藏文方案分别用 vi crate（MIT）和 ewts crate（MIT OR Apache-2.0，按 MIT 使用）编进 libmsime_host_api.so；ewts 没有自带许可证文件，仓库里这份全文是它的声明唯一能随二进制分发的途径。
 cp resources/licenses/vi-MIT.txt "$notices/vi.txt"
 cp resources/licenses/ewts-MIT.txt "$notices/ewts.txt"
+# 拆字反查的部件拼音表由 kfcd/chaizi《漢語拆字字典》（CC BY 3.0）改编后编进 libmsime_host_api.so，第 4(b) 条要求随改编作品署名并说明改动；许可证文件里写着署名、固定提交、改动说明和法律文本全文。
+cp resources/licenses/kfcd-chaizi-CC-BY-3.0.txt "$notices/kfcd-chaizi.txt"
+# 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
+cp resources/licenses/Unicode-License-V3.txt "$notices/unicode-unihan.txt"
 echo "Android native libraries built: $output (not yet device-verified)"

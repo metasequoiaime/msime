@@ -344,7 +344,9 @@ private struct LicenseNotice: Identifiable {
     LicenseNotice(file: "libchewing-data-LGPL-2.1", title: "libchewing-data", detail: "注音 · LGPL-2.1"),
     LicenseNotice(file: "rime-stroke-LGPL-3.0", title: "rime-stroke", detail: "笔画 · LGPL-3.0"),
     LicenseNotice(file: "vi-MIT", title: "vi", detail: "越南文 · MIT"),
-    LicenseNotice(file: "ewts-MIT", title: "ewts", detail: "藏文 · MIT")
+    LicenseNotice(file: "ewts-MIT", title: "ewts", detail: "藏文 · MIT"),
+    LicenseNotice(file: "kfcd-chaizi-CC-BY-3.0", title: "開放詞典 拆字表", detail: "拆字 · CC BY 3.0"),
+    LicenseNotice(file: "Unicode-License-V3", title: "Unicode 汉字数据库", detail: "拆字读音 · Unicode License V3")
   ]
 
   /// 本次构建的 bundle 里实际存在的声明文件。

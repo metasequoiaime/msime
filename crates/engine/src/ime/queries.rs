@@ -4,6 +4,7 @@ use std::borrow::Cow;
 
 use crate::assets;
 use crate::dictionary::english::EnglishDictionary;
+use crate::local::chaizi::query_chaizi;
 use crate::local::command::{
     command_title, query_command, translation_source, usable_command_table,
 };
@@ -55,6 +56,8 @@ pub struct CandidateQueries {
     mentions: Vec<MentionEntry>,
     /// Whether `@` mode offers the embedded places after the list.
     mention_places: bool,
+    /// 宿主开着繁体输出：拆字行按转换后的字形去重。
+    chaizi_traditional_output: bool,
 }
 
 impl CandidateQueries {
@@ -67,6 +70,7 @@ impl CandidateQueries {
             quick_phrase_table: Vec::new(),
             mentions: Vec::new(),
             mention_places: false,
+            chaizi_traditional_output: false,
         }
     }
 
@@ -88,6 +92,11 @@ impl CandidateQueries {
     /// Turns the embedded places of `@` mode on or off.
     pub fn set_mention_places(&mut self, enabled: bool) {
         self.mention_places = enabled;
+    }
+
+    /// 宿主是否把候选转成繁体输出；开着时拆字行按繁体字形去重，否则简繁两种字形都列出。
+    pub fn set_chaizi_traditional_output(&mut self, enabled: bool) {
+        self.chaizi_traditional_output = enabled;
     }
 
     /// The annotation of an `@` row: a place's parent division, empty for the user's own entries.
@@ -175,6 +184,12 @@ impl CandidateQueries {
             }
             // 网址模式不查任何候选，只留显示整段预编辑的兜底行。
             LocalInputMode::Url => LocalQueryResult::default(),
+            LocalInputMode::Chaizi => rows(query_chaizi(
+                code,
+                scheme,
+                shuangpin,
+                self.chaizi_traditional_output,
+            )),
         }
     }
 

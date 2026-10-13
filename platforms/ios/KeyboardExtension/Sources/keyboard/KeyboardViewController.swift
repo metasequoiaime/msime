@@ -379,6 +379,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// - the whole view serialised to JSON and parsed back - and the keystroke path asked more than
   /// thirty times per key before this.
   private var isInLocalMode: Bool { !currentLocalMode.isEmpty && currentLocalMode != "none" }
+  /// 拆字模式（Engine 的 `chaizi`）：候选下的注释是读音，不是还要输入的编码。
+  private var readsChaizi: Bool { currentLocalMode == "chaizi" }
   private var armedPunctuationRepeat: Any?
   private var armedSpaceConversion: Any?
   private var showsSymbols = false {
@@ -4457,6 +4459,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     (trigger: "E", title: "表情", key: "emoji"),
     (trigger: "M", title: "颜文字", key: "kaomoji"),
     (trigger: "R", title: "临时日语", key: "temporary_japanese"),
+    (trigger: "C", title: "拆字", key: "chaizi"),
   ]
 
   /// The modes the settings app leaves on. The Engine refuses to open a mode turned off there, so offering one would be a menu entry that does nothing.
@@ -5432,7 +5435,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func render(_ snapshot: MetasequoiaInputSnapshot, source originalSource: TypingSource? = nil) {
     candidateRevision &+= 1
     let source = originalSource ?? typingSource
-    if localModeTrigger != nil && !isInLocalMode {
+    // 看这次快照是否还在本地模式，不能看 `isInLocalMode`：它此刻还是上一个快照的值，刚从菜单打开模式时是 none，会把刚设好的触发字母清掉，候选栏标题就只剩字母、打字统计也不再记作本地模式。
+    if localModeTrigger != nil && !snapshot.isInLocalMode {
       localModeTrigger = nil
       showsSymbols = false
     }
@@ -5569,10 +5573,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       chip.isHidden = offset >= page.count
       guard offset < page.count else { continue }
       // A Korean Hanja's 훈음 goes on the first line under it rather than after it, so it is not read as part of the candidate.
-      let annotation = candidateAnnotation(at: offset).text
+      let annotation = candidateAnnotation(at: offset)
       updateCandidateButton(
-        chip, candidate: page[offset], hint: typesKorean ? "" : annotation,
-        reading: typesKorean ? annotation : nil,
+        chip, candidate: page[offset], hint: typesKorean ? "" : annotation.text,
+        hintSpoken: readsChaizi ? annotation.accessibilityDescription : nil,
+        reading: typesKorean ? annotation.text : nil,
         glosses: candidateGlosses(at: offset), markers: candidateMarkers(at: offset), number: offset + 1,
         converting: japaneseConversionIndex == offset,
         aiPlaceholder: visibleCandidateSources.indices.contains(offset)
@@ -5632,6 +5637,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !wubi.isEmpty { return (wubi, "还需输入 \(wubi)") }
     // A Hanja carries its 훈음 (meaning and reading) as the Engine's annotation; its code is only the key letters, which is not drawn (msime_client.h).
     if typesKorean { return engine.isEmpty ? ("", "") : (engine, "训音 \(engine)") }
+    // 拆字模式里 Engine 的注释是这个字的带调读音（焱 → yàn），找到不会读的字后正要看它，所以不论方案都画，九键进入本地模式后也一样；读音不带括号，原样显示。
+    if readsChaizi { return engine.isEmpty ? ("", "") : (engine, "读音 \(engine)") }
     // 全拼、双拼以及五笔候选都可能在这里携带展示注释：前两者是辅助码或纠错提示，五笔是词条反查编码。
     guard !engine.isEmpty, !isInLocalMode,
           inputScheme == .quanpin || usesShuangpin || inputScheme == .wubi else { return ("", "") }
@@ -5997,7 +6004,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateCandidateButton(
-    _ button: KeyboardKeyButton, candidate: String, hint: String, reading: String? = nil, glosses: [String],
+    _ button: KeyboardKeyButton, candidate: String, hint: String, hintSpoken: String? = nil, reading: String? = nil, glosses: [String],
     markers: [CandidateMarker] = [], number: Int, converting: Bool, aiPlaceholder: Bool = false
   ) {
     let display = chineseOutput(candidate)
@@ -6086,9 +6093,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     button.titleLineCount = 1 + lines.count
     pinCandidateWidth(of: button, firstLine: configuration.attributedTitle, glossLines: lines.count,
                       glossLine: glossWidth, leadLine: readingWidth)
+    // `hintSpoken` 是注释另有读法时的朗读文字，比如拆字的读音不是还要输入的键。
     button.accessibilityLabel = annotation.isEmpty
       ? "候选词 \(number)：\(display)"
-      : "候选词 \(number)：\(display)，还需输入 \(annotation)"
+      : "候选词 \(number)：\(display)，\(hintSpoken ?? "还需输入 \(annotation)")"
     // A Korean Hanja's 훈음 is its meaning and reading, not keys still to type.
     if let reading, !reading.isEmpty { button.accessibilityLabel? += "，训音 \(reading)" }
     for marker in markers { button.accessibilityLabel? += "，\(marker.spoken)" }

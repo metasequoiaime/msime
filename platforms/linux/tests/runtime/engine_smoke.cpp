@@ -358,6 +358,7 @@ int main(int argc, char **argv) {
                                   std::string(argv[2]) == "--empty-translation" ||
                                   std::string(argv[2]) == "--caps-lock" ||
                                   std::string(argv[2]) == "--japanese-toggle" ||
+                                  std::string(argv[2]) == "--chaizi" ||
                                   std::string(argv[2]) == "--stale-candidate-click")))
     return 2;
   try {
@@ -961,6 +962,57 @@ int main(int argc, char **argv) {
       invoke("Disable");
       finish();
       std::cout << "IBus Ctrl+Shift+J Japanese toggle, repeat, English modes and hot-reload passed\n";
+      return 0;
+    }
+    // 拆字反查在桌面默认关：偏好里没有这个键时 Shift+C 留给应用。从快捷模式菜单打开后 Shift+C 进入，跟在部件后面的 ' 由 Engine 列进 spelling_symbols，IBus 把它当字符交给 Engine 当部件分隔符；空格上屏首行。再关掉又交给应用。
+    if (argc == 3 && std::string(argv[2]) == "--chaizi") {
+      msime_ibus_configure(options.dump());
+      invoke("FocusIn");
+      require(wait_until([&] { return seen.input_enabled; }), "chaizi test does not start in Chinese");
+      const auto stored_chaizi = [&](bool expected) {
+        return wait_until([&] {
+          try {
+            nlohmann::json snapshot;
+            std::ifstream(root / "preferences.json") >> snapshot;
+            return snapshot.at("preferences").at("local_modes").value("chaizi", !expected) == expected;
+          } catch (...) {
+            return false;
+          }
+        });
+      };
+      require(!key('c', IBUS_SHIFT_MASK) && !seen.preedit_visible && seen.committed.empty(),
+              "Shift+C was taken while the chaizi switch was absent");
+      invoke("PropertyActivate", g_variant_new("(su)", "LocalModes/chaizi", PROP_STATE_CHECKED));
+      require(stored_chaizi(true), "Chaizi enable was not persisted");
+      // 菜单开关先保存，保存回调再应用新快照，所以等到 Shift+C 被接住为止。
+      bool entered = false;
+      require(wait_until([&] {
+                if (!entered) entered = key('c', IBUS_SHIFT_MASK) && seen.preedit_visible;
+                return entered;
+              }),
+              "Shift+C did not enter the chaizi mode once it was on");
+      for (const guint keyval : {guint('h'), guint('u'), guint('o'), guint(IBUS_apostrophe), guint('h'),
+                                 guint('u'), guint('o'), guint('h'), guint('u'), guint('o')})
+        require(key(keyval), "The chaizi mode did not take a component letter or the separator");
+      require(seen.lookup_visible && !seen.candidates.empty() &&
+                  seen.candidates.front().find("焱") != std::string::npos,
+              "The chaizi mode did not find 焱 from huo'huohuo");
+      require(key(IBUS_space) && seen.committed == "焱" && !seen.preedit_visible,
+              "Space did not commit the chaizi row");
+      invoke("PropertyActivate", g_variant_new("(su)", "LocalModes/chaizi", PROP_STATE_UNCHECKED));
+      require(stored_chaizi(false), "Chaizi disable was not persisted");
+      seen.committed.clear();
+      bool released = false;
+      require(wait_until([&] {
+                if (!released) released = !key('c', IBUS_SHIFT_MASK) && !seen.preedit_visible;
+                if (!released) invoke("Reset");
+                return released;
+              }),
+              "Turning chaizi off did not hand Shift+C back");
+      require(seen.committed.empty(), "a disabled Shift+C committed text");
+      invoke("Disable");
+      finish();
+      std::cout << "IBus chaizi switch, Shift+C entry, apostrophe separator and commit passed\n";
       return 0;
     }
     if (argc == 3) {

@@ -296,6 +296,18 @@ struct SessionAiCredential {
 /// 本地模式由偏好开关，但它们读的词典是不可变的运行时资源。可选资源不在时，触发键不能被吞掉：在资源齐全之前，Engine 看到的这个模式必须是关的。
 ///
 /// 版本不提供的功能同样当作资源不在：五笔版的资源锁不带日文词典和键盘神经模型，临时日文、日文混输和键盘神经联想无论偏好怎么写都是关的。资源目录按版本的锁校验，本来就放不进日文词典，这里再按版本表关一次，是为了状态目录里留有下载来的日文资源包时也不会打开它。
+/// 触屏键盘宿主（iOS、Android、HarmonyOS）：屏幕键盘从菜单打开本地模式。偏好里没有拆字开关时，这些宿主读作开，桌面宿主读作关（见 `LocalModePreferences::chaizi`）。这里只按编译目标判断，Android 和 HarmonyOS 接实体键盘时也读作开，Shift+C 会进入拆字。
+const TOUCH_KEYBOARD_HOST: bool = cfg!(any(
+    target_os = "android",
+    target_os = "ios",
+    target_env = "ohos"
+));
+
+/// 偏好里拆字开关的取值；用户没动过时按宿主形态决定。
+fn chaizi_enabled(preferences: &msime_client_core::preferences::LocalModePreferences) -> bool {
+    preferences.chaizi.unwrap_or(TOUCH_KEYBOARD_HOST)
+}
+
 fn apply_local_mode_resource_gates(options: &mut EngineOptions, edition: &Edition) {
     let resources = std::path::Path::new(&options.resources);
     let has_emoji_catalog = resources.join("msime-others.db").is_file();
@@ -616,7 +628,10 @@ impl HostSession {
         options.local_expression = preferences.local_modes.expression;
         options.local_command = preferences.local_modes.command;
         options.local_mention = preferences.local_modes.mention;
+        options.local_chaizi = chaizi_enabled(&preferences.local_modes);
         options.local_shift_letter_entry = preferences.local_modes.shift_letter_entry;
+        // 繁体输出开着时拆字行按繁体字形去重；改这个偏好同样会让 Engine 在空闲时重建。
+        options.chaizi_traditional_output = preferences.traditional_chinese_output;
         // 先定下辅助码设置：插件表的戳要看当前方案的辅助码是否打开、选了哪个辅助码表包。
         let helpcode = helpcode_for_scheme(&preferences, scheme);
         options.helpcode = helpcode.enabled;
@@ -1597,7 +1612,9 @@ impl HostOptions {
             local_expression: self.preferences.local_modes.expression,
             local_command: self.preferences.local_modes.command,
             local_mention: self.preferences.local_modes.mention,
+            local_chaizi: chaizi_enabled(&self.preferences.local_modes),
             local_shift_letter_entry: self.preferences.local_modes.shift_letter_entry,
+            chaizi_traditional_output: self.preferences.traditional_chinese_output,
             command_table: Vec::new(),
             mention_entries: Vec::new(),
             quick_phrase_table: Vec::new(),

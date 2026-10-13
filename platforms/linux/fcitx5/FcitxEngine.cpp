@@ -976,10 +976,10 @@ public:
   }
   bool toggleLocalMode(const char *key) {
     if (!session_ || !key || !*key || restricted() || privateInput()) return false;
-    static constexpr std::array<std::string_view, 11> allowed = {
+    static constexpr std::array<std::string_view, 12> allowed = {
         "unicode", "date_time", "quick_phrase", "emoji", "kaomoji",
         "super_jianpin", "temporary_english", "temporary_japanese",
-        "expression", "command", "mention"};
+        "chaizi", "expression", "command", "mention"};
     if (std::find(allowed.begin(), allowed.end(), key) == allowed.end()) return false;
     const bool enabled = !preferences_.value("local_modes", Json::object())
                               .value(key, msime::linux_host::local_mode_enabled_by_default(key));
@@ -6105,6 +6105,7 @@ public:
     local_super_jianpin_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-super-jianpin", &instance->userInterfaceManager());
     local_temporary_english_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-temporary-english", &instance->userInterfaceManager());
     local_temporary_japanese_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-temporary-japanese", &instance->userInterfaceManager());
+    local_chaizi_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-chaizi", &instance->userInterfaceManager());
     local_expression_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-expression", &instance->userInterfaceManager());
     local_command_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-command", &instance->userInterfaceManager());
     local_mention_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-mention", &instance->userInterfaceManager());
@@ -6258,7 +6259,7 @@ public:
              &mode_scope_action_, &clipboard_history_action_, &input_group_separator_, &local_unicode_action_,
              &local_date_time_action_, &local_quick_phrase_action_, &local_emoji_action_, &local_kaomoji_action_,
              &local_super_jianpin_action_, &local_temporary_english_action_, &local_temporary_japanese_action_,
-             &local_expression_action_, &local_command_action_, &local_mention_action_}) {
+             &local_chaizi_action_, &local_expression_action_, &local_command_action_, &local_mention_action_}) {
       // 不带临时日文的版本（五笔版）不列这个本地模式：宿主库在这些版本里总是把它关掉，列出来也打不开。
       if (!MSIME_EDITION_TEMPORARY_JAPANESE && action == &local_temporary_japanese_action_) continue;
       // 不带双拼的版本（五笔版）不列双拼键位方案。
@@ -6781,6 +6782,7 @@ public:
   FcitxLocalModeAction local_super_jianpin_action_{&factory_, "super_jianpin", "超级简拼（J 模式）"};
   FcitxLocalModeAction local_temporary_english_action_{&factory_, "temporary_english", "临时英文（Y 模式）"};
   FcitxLocalModeAction local_temporary_japanese_action_{&factory_, "temporary_japanese", "临时日文（R 模式）"};
+  FcitxLocalModeAction local_chaizi_action_{&factory_, "chaizi", "拆字（C 模式）"};
   FcitxLocalModeAction local_expression_action_{&factory_, "expression", "计算与数字（V 模式）"};
   FcitxLocalModeAction local_command_action_{&factory_, "command", "指令（/ 模式）"};
   FcitxLocalModeAction local_mention_action_{&factory_, "mention", "名单（@ 模式）"};

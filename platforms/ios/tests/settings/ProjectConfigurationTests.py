@@ -128,6 +128,30 @@ class ProjectConfigurationTests(unittest.TestCase):
             self.assertIn("buildPhase: resources", blocks[0])
             self.assertIn(holder, (IOS_ROOT / path).read_text())
 
+    def test_app_ships_the_licence_of_the_component_lookup_table(self):
+        # 链接进 App 和键盘扩展的 Engine 编入了拆字反查的部件拼音表，它改编自開放詞典的漢語拆字字典（CC BY 3.0），署名、固定提交和改动说明都在这份许可证文件里。
+        project = (IOS_ROOT / "project.yml").read_text()
+        app = dict(target_blocks(project))["MSIMEApp"]
+        path = "../../resources/licenses/kfcd-chaizi-CC-BY-3.0.txt"
+        blocks = source_path_blocks(app, path)
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("buildPhase: resources", blocks[0])
+        text = (IOS_ROOT / path).read_text()
+        self.assertIn("開放詞典", text)
+        self.assertIn("e177ab54ce4edf255315a60593ffecbd8167e96b", text)
+        generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
+        self.assertEqual(generated.count("kfcd-chaizi-CC-BY-3.0.txt in Resources"), 2)
+        about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
+        self.assertIn('LicenseNotice(file: "kfcd-chaizi-CC-BY-3.0"', about)
+        # 同一张表里每个字的读音、名次和繁体字形取自 Unihan，Unicode License V3 要求随数据附上它的版权与许可声明。
+        unicode = "../../resources/licenses/Unicode-License-V3.txt"
+        blocks = source_path_blocks(app, unicode)
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("buildPhase: resources", blocks[0])
+        self.assertIn("UNICODE LICENSE V3", (IOS_ROOT / unicode).read_text())
+        self.assertEqual(generated.count("Unicode-License-V3.txt in Resources"), 2)
+        self.assertIn('LicenseNotice(file: "Unicode-License-V3"', about)
+
     def test_app_and_keyboard_share_the_declared_app_group(self):
         expected = "group.app.msime.ios"
         app = (IOS_ROOT / "App/Resources/MSIMEApp.entitlements").read_text()

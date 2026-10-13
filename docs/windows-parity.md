@@ -2137,7 +2137,7 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 两项都是来源没有的设置，对 #6807 的回应，三个桌面宿主一起提供。来源固定提交里 `VK_CAPITAL` 只当状态用：语言栏的 Caps 图标（`window_hook.cpp` 的 `g_caps_lock`）、`KeyEventSink.cpp` 里大写锁定时新起的大写字母交给应用；Shift+字母的八种本地模式也只有各自的开关（`y_mode` 等），没有总开关。
 
 - **单按 Caps Lock 切换中英文**（`keybindings.switch_language_caps_lock`，缺省关）：在「快捷键 › 输入模式切换」里与切换键下拉框并列，互不排斥。按下前大写锁定是关的、没有和别的键一起按、按着期间没有打字、按下到松开不超过 300 毫秒才算轻点，规则在 `shared/input/CapsLockTap.h`，三个宿主共用；单按 Shift、Control 用的 500 毫秒窗口不变。轻点时宿主先把大写锁定撤回，撤回成功才切换，切换走单按 Shift 的同一条路（组字中先上屏原文）。Windows 的 TIP 在 `OnTestKeyDown` 布防、`OnTestKeyUp`/`OnKeyUp` 认定，用 `SendInput` 再按一次 Caps Lock（带 `CAPS_LOCK_SENDINPUT_EXTRA_INFO`，按键处理与裸 Shift 钩子都放行），切换排进延迟按键队列，和 Ctrl 轻点一样不吃掉松开事件。Server 的低级钩子只能每按下一次 Caps Lock 翻转一次记着的锁定状态，而它跳过一切注入按键，原本会漏掉撤回的那一下，从此报告的大写锁定和实际反着、直到 Server 重启；所以 Caps Lock 在跳过注入按键之前计入（`CapsLockTracker`），TIP 撤回成功后也自己把大写锁定记成关。语言栏的 Caps 图标和工具栏的「A」只在轻点时短暂亮一下。系统打开了「要关闭 Caps Lock：按 SHIFT 键」（`HKCU\Keyboard Layout` 的 `Attributes` 带 `KLF_SHIFTLOCK`）时，注入的 Caps Lock 关不掉大写锁定而 `SendInput` 照样报告成功，所以 TIP 不布防，轻点照常是大写锁定。macOS 用 IOKit 的 `IOHIDSetModifierLockState` 撤回（不需要输入监控或辅助功能权限），Linux 只在 X11 会话里用 `XkbLockModifiers` 撤回，Wayland 会话里不布防。Word 这类不把裸修饰键松开交给 `ITfKeyEventSink` 的宿主，Caps Lock 的松开可能同样到不了 TIP，那里轻点照常是大写锁定；裸 Shift 钩子没有扩展到 Caps Lock。
-- **Shift+字母进入快捷模式**（`local_modes.shift_letter_entry`，缺省开）：「输入 › 快捷模式」组顶上的总开关，关掉后没有组字时 Shift+U/T/K/E/M/J/Y/R/V 不进模式，大写字母交还应用；各模式自己的开关保留原值，`/`、`@` 入口和拼音里的日期时间关键词不受影响。判定在 Engine（`local_mode_for_entry`），所以 Windows 只多了原生设置窗口里的一行。快捷模式仍放在「输入」页，不回「快捷键」页（见上面 2026-10-02 一节）。
+- **Shift+字母进入快捷模式**（`local_modes.shift_letter_entry`，缺省开）：「输入 › 快捷模式」组顶上的总开关，关掉后没有组字时 Shift+U/T/K/E/M/J/Y/R/V（以及后来加的拆字 C）不进模式，大写字母交还应用；各模式自己的开关保留原值，`/`、`@` 入口和拼音里的日期时间关键词不受影响。判定在 Engine（`local_mode_for_entry`），所以 Windows 只多了原生设置窗口里的一行。快捷模式仍放在「输入」页，不回「快捷键」页（见上面 2026-10-02 一节）。
 - **验证层级**：`msime-tsf-caps-lock-tap` 钉住共享判定规则和 TSF 接线，本机 clang 运行通过，`KeyEventSink.cpp` 用 MinGW 做过语法检查；`settings/main.cpp` 依赖 WinUI 3，交给 Windows CI。没有在 Windows 上实机按键验证。
 
 ### Ctrl+Shift+J 在中文和日语之间切换（2026-10-12）
@@ -2149,3 +2149,12 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - **组字中按下**：和托盘换方案一样，Server 只写偏好，回 NoReply，不碰组字；host-api 等组字结束、运行时空闲后才应用新方案，正在组的字照常上屏后才换成日语，TIP 不需要回复路径。Linux 的 IBus 和这里一样只写偏好，等组字结束才换方案；Fcitx5 走状态区菜单的 `selectScheme`，组字中先上屏原文再切换，两个 Linux 宿主在这一点上不同。
 - **已知限制**：只有语言栏图标会变成「日」，系统输入指示器和上屏文字的 `GUID_PROP_LANGID` 仍是中文。托盘「输入方案」一行右侧已经写着当前方案，没有再写出这个快捷键。
 - **验证层级**：`windows-input-scheme-traits`（目标方案的计算）、`msime-tsf-japanese-toggle`（组合键、协商位和 TSF、Server 接线）和 `windows_ipc_contract` 本机 clang 运行通过；`KeyEventSink.cpp`、`Ipc.cpp`、`InputQueue.cpp`、`FocusedSession.cpp`、`ReplyComposer.cpp`、`server_main.cpp` 和 `session_pump.cpp`、`session_smoke.cpp`、`preference_monitor.cpp` 的新用例用 MinGW 做过语法检查，没有完整交叉链接、也没有在 Wine 下运行；`settings/main.cpp` 依赖 WinUI 3，交给 Windows CI。没有在 Windows 上实机按键验证。
+
+### 拆字反查（C 模式）（2026-10-13）
+
+来源没有的内置功能：没有组字时按 Shift+C，再输入字的各个部件的拼音找字（`huohuohuo` 得 焱）。判定、查表和候选都在 Engine（见 `.agents/notes/implemented/feature/2026-10-13-builtin-chaizi-mode.md`），Windows 只在原生设置窗口「输入 › 快捷模式」里多了「拆字反查(C 模式)」一行。
+
+- **默认关**（`local_modes.chaizi`，缺键时 host-api 在桌面构建里按关处理）：打开后句首和中英混打的大写 C（C 盘、C 语言）会进模式，理由与 V 相同。设置窗口的 `default_on` 是 `false`，开关写回明确的布尔。
+- **按键路由不改**：TIP 把 A–Z 一律交给 Server；`'` 在本地模式里走标点路由（`EditPolicy.h` 只在 `none` 里把它当字符），由 runtime 的 `takes_local_separator` 交给 Engine 当部件分隔符。
+- **声明**：`Collect-Notices.ps1` 收集 `resources/licenses/kfcd-chaizi-CC-BY-3.0.txt`（CC BY 3.0 的署名、改动说明与全文）和表中 Unihan 读音的 `resources/licenses/Unicode-License-V3.txt`，`tests/tools/collect_notices.ps1` 的合成清单同步。
+- **验证层级**：`windows-session-smoke` 的本地模式路由用例经 `ReplyComposer::configured_key` 覆盖缺键时 Shift+C 交还应用、打开后进入、`'` 走标点路由仍作分隔符、空格上屏焱并计入打字统计；新增的 `--local-modes` 参数只跑这一段，在 Studio 的 `build-cross-container.sh x64` 产物上用模拟的 Wine 跑通（整套冒烟在模拟的 Wine 下 500 秒内跑不完，仍在 `scripts/known-failures.txt`）。带锁定词库的 `local_mode_tests` 表也加了 C，但没有在 Wine 下跑到。`settings/main.cpp` 依赖 WinUI 3，交叉构建不编译它，交给 Windows CI。没有在 Windows 上实机按键验证。

@@ -273,7 +273,7 @@ final class ImeLayoutRows {
         parent.addView(key, LayoutPolicy.weightedCrossAxisFillParams(horizontal, 1));
     }
 
-    /** The rail behind the capless punctuation column; it is not a Button, so the skin pass misses it. */
+    /** 符号栏的底色；它本身不是 Button，皮肤遍历不会给它套键帽。 */
     void applySidebarRail() {
         if (s.nineKeySidebar == null) return;
         GradientDrawable rail = DrawablePolicy.rounded(
@@ -298,9 +298,9 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 九键、14 键与笔画键盘左侧的符号栏：一屏 {@link NineKeySidebarPolicy#VISIBLE_ROWS} 个符号，更多的上下滚动（#5574）。符号键共用一条底轨，不各自画键帽；点按原样上屏（全角模式下转全角）。
+     * 九键、14 键与笔画键盘左侧的符号栏：一屏 {@link NineKeySidebarPolicy#VISIBLE_ROWS} 个符号，更多的上下滚动（#5574）。九键使用独立键帽，14 键与笔画共用一条底轨；点按原样上屏（全角模式下转全角）。
      */
-    private FrameLayout symbolSidebar(boolean digits) {
+    private FrameLayout symbolSidebar(boolean digits, boolean capped) {
         java.util.List<String> symbols = sidebarSymbols(digits);
         NineKeySymbolRail rail = new NineKeySymbolRail(s);
         rail.setContentDescription("符号栏，可上下滑动");
@@ -309,11 +309,13 @@ final class ImeLayoutRows {
                 () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
             // 「……」这类两个字宽的符号在窄栏里不折行。
             ViewPolicy.setSingleLine(key);
+            if (capped)
+                KeyboardTypographyPolicy.setKeyTextSize(key, KeyboardTypographyPolicy.NINE_KEY_SIDE_TEXT_SP);
             // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
             if ("，".equals(symbol) || "。".equals(symbol)) CenteredGlyphSpan.apply(key, symbol, 1.3f);
-            // 符号键共用一条底轨，不各自画键帽。
+            // 九键每个符号都有独立键帽，笔画继续沿用无键帽的符号轨道。
             if (key instanceof KeyboardPressButton press)
-                press.setKeyboardRole(KeyboardKeyRole.PLAIN);
+                press.setKeyboardRole(capped ? KeyboardKeyRole.KEY : KeyboardKeyRole.PLAIN);
             rail.addSymbol(key);
         }
         FrameLayout sidebar = new FrameLayout(s);
@@ -355,9 +357,9 @@ final class ImeLayoutRows {
 
         boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         // 左列是可以上下滚动的符号栏，字母键面默认 ，。？、：；……～@，！ 仍放在右列最下面，和 3×3 网格逐行对齐；数字键面默认是 + - * / = 等算式符号，！ 挪到它们后面（#5590），右列是删除、小数点和 0。两张表都可在设置里自定义。
-        FrameLayout sidebar = symbolSidebar(digits);
+        FrameLayout sidebar = symbolSidebar(digits, true);
         attachSpellings(sidebar, SpellingPlacement.SIDEBAR);
-        container.addView(sidebar, LayoutPolicy.weightedMatchParentParams(0.7f));
+        container.addView(sidebar, LayoutPolicy.weightedMatchParentParams(0.9f));
 
         LinearLayout grid = LayoutPolicy.column(s);
         boolean composing = s.hasEngineComposition();
@@ -377,6 +379,8 @@ final class ImeLayoutRows {
                     digits ? () -> commitNineKeyLiteral(NineKeyLayout.digitInput(key))
                         : NineKeyLayout.opensSymbols(key, false) ? () -> symbolKey(key)
                         : () -> s.character(key.input()));
+                KeyboardTypographyPolicy.setFittedKeyTextSize(keyButton, 14,
+                    digits ? 22 : KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
                 if (NineKeyLayout.opensSymbols(key, digits)) s.nineKeySymbolKey = keyButton;
                 s.keyId(keyButton, KeyPressIds.forNineKeyDigit(key.digit()));
                 // 字母键面上印着它送进引擎的数字；数字键面本身就是那个数字，不必再印一次。
@@ -413,27 +417,31 @@ final class ImeLayoutRows {
         if (digits) {
             // 数字键面的 3×3 只有 1–9，右列下面两格换成小数点和 0（与 iOS、HarmonyOS 的九键右列一致），否则这一面打不出 0。这一面的点按都直接上屏、不进组字，重输在这里没有作用；小数点按字面上屏，不随中文标点模式变成「。」。
             Button period = s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period");
-            Button zero = s.keyId(s.keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")), "Nine0");
+            Button zero = s.keyId(s.nineKeyGridKey("0", "数字 0", () -> commitNineKeyLiteral("0")), "Nine0");
+            KeyboardTypographyPolicy.setKeyTextSize(period, 22);
+            KeyboardTypographyPolicy.setFittedKeyTextSize(zero, 14, 22);
             for (Button key : java.util.List.of(period, zero)) {
                 if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
                 addNineKey(actions, key);
             }
-            container.addView(actions, LayoutPolicy.weightedMatchParentParams(0.8f));
+            container.addView(actions, LayoutPolicy.weightedMatchParentParams(0.9f));
             return;
         }
         // 重输：组字时丢掉整串数字和选过的拼音，和搜狗、讯飞九键右列的「重输」在同一个位置。这一格曾经改成「拆分」、重输挪到长按 ⌫，用户照习惯按这里清空却得到一个音节分界，长按 ⌫ 也没人知道；拆分现在是组字时的 1 键「分词」（symbolKey）。长按 ⌫ 清空照旧保留。没在组字时什么也不发生。
         Button rewrite = s.keyboardKey("重输", "重新输入拼音", () -> {
             if (s.hasEngineComposition()) s.discardComposition();
         });
+        KeyboardTypographyPolicy.setKeyTextSize(rewrite, KeyboardTypographyPolicy.NINE_KEY_ACTION_TEXT_SP);
         if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, rewrite);
         java.util.List<String> punctuation = NineKeyLayout.punctuation();
         String last = punctuation.get(punctuation.size() - 1);
         Button exclamation = s.keyId(s.keyboardKey(last, "符号 " + last,
             () -> commitNineKeyLiteral(last)), "SoftPunctuation");
+        KeyboardTypographyPolicy.setKeyTextSize(exclamation, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
         if (exclamation instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, exclamation);
-        container.addView(actions, LayoutPolicy.weightedMatchParentParams(0.8f));
+        container.addView(actions, LayoutPolicy.weightedMatchParentParams(0.9f));
     }
 
     /**
@@ -500,7 +508,7 @@ final class ImeLayoutRows {
 
         // 外框和拼音九键一样三行对齐：左列是和拼音九键同一张可滚动的符号表，！ 在右列最下；中间两行笔画下面再一行 @#、0、句点。原来左列四个、中间两行、右列三个，三列互不对齐，看起来像少了一行。
         java.util.List<String> symbols = NineKeyLayout.punctuation();
-        FrameLayout sidebar = symbolSidebar(false);
+        FrameLayout sidebar = symbolSidebar(false, false);
         container.addView(sidebar, LayoutPolicy.weightedMatchParentParams(0.7f));
 
         LinearLayout grid = LayoutPolicy.column(s);
@@ -650,7 +658,7 @@ final class ImeLayoutRows {
 
     /** 14 键共用九键的左侧符号栏；组字时由纵向拼音列覆盖符号。 */
     FrameLayout fourteenSpellingSidebar() {
-        FrameLayout sidebar = symbolSidebar(false);
+        FrameLayout sidebar = symbolSidebar(false, false);
         attachSpellings(sidebar, SpellingPlacement.SIDEBAR);
         return sidebar;
     }

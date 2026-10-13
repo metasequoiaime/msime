@@ -4682,7 +4682,7 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
-    /** A nine-key grid cap: the same key as {@link #keyboardKey}, plus room for its digit. */
+    /** 九键网格键帽：沿用 {@link #keyboardKey} 的动作绑定，并在上沿留出数字提示的位置。 */
     NineKeyDigitButton nineKeyGridKey(String label, String description, Runnable action) {
         NineKeyDigitButton button = new NineKeyDigitButton(this);
         KeyboardTypographyPolicy.setKeyTextSize(button, KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);

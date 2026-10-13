@@ -125,7 +125,26 @@ pub fn adopt_legacy_account_session(legacy: &Path, directory: &Path) {
     {
         return;
     }
-    let _ = std::fs::rename(&source, &destination);
+    let _ = move_session_if_absent(&source, &destination);
+}
+
+fn move_session_if_absent(source: &Path, destination: &Path) -> std::io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    {
+        rustix::fs::renameat_with(
+            rustix::fs::CWD,
+            source,
+            rustix::fs::CWD,
+            destination,
+            rustix::fs::RenameFlags::NOREPLACE,
+        )
+        .map_err(Into::into)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
+    {
+        std::fs::hard_link(source, destination)?;
+        std::fs::remove_file(source)
+    }
 }
 
 fn decode(bytes: &[u8]) -> Result<SavedAccountSession, AccountError> {
@@ -454,6 +473,21 @@ mod tests {
             std::fs::read(legacy.join(ACCOUNT_SESSION_FILE)).unwrap(),
             b"synthetic-old"
         );
+    }
+
+    #[test]
+    fn a_session_published_after_the_absence_check_wins_the_move() {
+        let root = tempfile::tempdir().unwrap();
+        let legacy = root.path().join("legacy-session.json");
+        let shared = root.path().join("shared-session.json");
+        std::fs::write(&legacy, b"synthetic-old").unwrap();
+        assert!(!shared.exists());
+        // Another process publishes a newer login after the migration checked for absence.
+        std::fs::write(&shared, b"synthetic-new").unwrap();
+
+        assert!(move_session_if_absent(&legacy, &shared).is_err());
+        assert_eq!(std::fs::read(&shared).unwrap(), b"synthetic-new");
+        assert_eq!(std::fs::read(&legacy).unwrap(), b"synthetic-old");
     }
 
     #[test]

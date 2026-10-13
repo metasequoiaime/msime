@@ -2337,6 +2337,7 @@ pub fn lookup_candidates(
     options.local_expression = false;
     options.local_command = false;
     options.local_mention = false;
+    options.local_chaizi = false;
     // 日文混输照用户的设置留着：它不学习、不改用户数据，查询看到的就是用户打这串键时看到的那一行日文（`msime expand ohayou`）。
     let _access = DictionaryAccess::try_session(
         Path::new(&options.user_data),

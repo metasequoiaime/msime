@@ -1408,6 +1408,32 @@ int main(int argc, char **argv) {
                 "Escape must leave the local mode");
       }
       require(!press(FcitxKey_V, shiftState), "Disabled expression mode must pass through");
+      // 拆字反查在桌面默认关：偏好里没有这个键时 Shift+C 留给应用。从菜单打开后 Shift+C 进入，组字中的 ' 当字符送进 Engine 作部件分隔符。
+      require(!press(FcitxKey_C, shiftState), "Disabled chaizi mode must pass through");
+      require(state->toggleLocalMode("chaizi"), "The chaizi switch did not turn on");
+      // 菜单开关会在后台把选择写回偏好文档；等它落盘，免得后面的偏好刷新撞上还没完成的保存。
+      state->preferences_save_job_.wait();
+      state->waitForPreferenceSave();
+      press(FcitxKey_Shift_L, shiftState);
+      require(press(FcitxKey_C, shiftState) &&
+                  state->view_.value("local_mode", std::string("none")) == "chaizi",
+              "Shift+C must enter the chaizi mode once it is on");
+      press(FcitxKey_C, shiftState, true);
+      press(FcitxKey_Shift_L, fcitx::KeyStates(), true);
+      for (const auto sym : {FcitxKey_h, FcitxKey_u, FcitxKey_o, FcitxKey_apostrophe, FcitxKey_h, FcitxKey_u,
+                             FcitxKey_o, FcitxKey_h, FcitxKey_u, FcitxKey_o})
+        require(press(sym), "The chaizi mode must take component letters and the separator");
+      require(state->view_.value("editing_text", std::string()) == "Chuo'huohuo" &&
+                  !state->view_.value("candidates", Json::array()).empty() &&
+                  state->view_["candidates"][0].value("text", std::string()) == "焱",
+              "The chaizi mode must find 焱 from huo'huohuo");
+      require(press(FcitxKey_Escape) &&
+                  state->view_.value("local_mode", std::string("none")) == "none",
+              "Escape must leave the chaizi mode");
+      require(state->toggleLocalMode("chaizi") && !press(FcitxKey_C, shiftState),
+              "Turning the chaizi switch off must hand Shift+C back");
+      state->preferences_save_job_.wait();
+      state->waitForPreferenceSave();
       require(ic.committed == before, "Mode shortcuts must not commit uppercase letters");
       if (argc == 3 && std::string(argv[2]) == "--local-modes") {
         state->close();
@@ -2074,7 +2100,7 @@ int main(int argc, char **argv) {
           require(!action->name().empty(), "every option group entry is registered");
           if (!action->isSeparator()) ++grouped;
         }
-      require(grouped == 42, ("option groups hold the moved status actions: " + std::to_string(grouped)).c_str());
+      require(grouped == 43, ("option groups hold the moved status actions: " + std::to_string(grouped)).c_str());
       for (auto *menu : {&engine.scheme_menu_, &engine.desktop_tools_menu_, &engine.helpcode_schema_menu_})
         for (auto *action : menu->actions())
           require(!action->name().empty(), "scheme and desktop tools entries are registered");

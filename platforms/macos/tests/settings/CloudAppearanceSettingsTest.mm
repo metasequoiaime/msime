@@ -19,6 +19,10 @@ int main() {
     assert([initial[@"platform.macos.quanpin_helpcode_schema"] isEqual:@1]);
     assert([initial[@"platform.macos.shuangpin_helpcode_schema"] isEqual:@0]);
     assert([initial[@"platform.macos.local_input_modes"] isEqual:@YES]);
+    // 拆字反查在桌面默认关，不折进同步的总布尔：它关着时导出的仍是开。
+    [defaults setObject:@{@"chaizi": @NO} forKey:@"MSIMEClientLocalModes"];
+    assert([MSIMECloudAppearanceSnapshot(defaults)[@"platform.macos.local_input_modes"] isEqual:@YES]);
+    [defaults removeObjectForKey:@"MSIMEClientLocalModes"];
     assert([initial[@"platform.macos.shuangpin_preedit_uses_raw"] isEqual:@YES]);
     // 每套内置辅助码在全拼和双拼里都能导出，再导入回相同选择。
     for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
@@ -87,6 +91,8 @@ int main() {
     assert([helpcode[@"shuangpin"][@"schema"] isEqual:@"shouyouplus"]);
     NSDictionary *localModes = [defaults dictionaryForKey:@"MSIMEClientLocalModes"];
     for (NSString *key in MSIMECloudLocalModeKeys()) assert([localModes[key] isEqual:@NO]);
+    // 同步的总布尔不改拆字的开关，它仍由用户自己决定。
+    assert(localModes[@"chaizi"] == nil);
     assert(![defaults boolForKey:@"MSIMEClientCandidateLearning"]);
     assert([defaults boolForKey:@"MSIMEClientFullWidthInput"]);
     assert(![defaults boolForKey:@"MSIMEClientChinesePunctuation"]);

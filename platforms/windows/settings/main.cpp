@@ -10841,7 +10841,8 @@ private:
       bool default_on;
     };
     // V, / and @ are off until the user turns them on: each takes a key that used to type itself.
-    const std::array<LocalMode, 11> modes{{
+    // 拆字反查（C 模式）同理在桌面默认关：打开后句首和中英混打的大写 C（C 盘、C 语言）会进模式。共享文档在用户动过开关之前没有这个键，host-api 在桌面构建里把缺键读作关。
+    const std::array<LocalMode, 12> modes{{
         {L"quick_phrase", L"快捷短语(K 模式)", true},
         {L"date_time", L"日期与时间快捷输入(T 模式)", true},
         {L"unicode", L"Unicode 便捷录入(U 模式)", true},
@@ -10850,6 +10851,7 @@ private:
         {L"super_jianpin", L"超级简拼(J 模式)", true},
         {L"temporary_english", L"临时英文(Y 模式)", true},
         {L"temporary_japanese", L"临时日语(R 模式)", true},
+        {L"chaizi", L"拆字反查(C 模式)", false},
         {L"expression", L"计算与数字(V 模式)", false},
         {L"command", L"指令(/ 模式)", false},
         {L"mention", L"@ 名字与地点(@ 模式)", false},

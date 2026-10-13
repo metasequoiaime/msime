@@ -85,7 +85,8 @@ jobs:
               # web-engine-NOTICE.md 逐字复制这几份许可证与来源说明（见 scripts/web-engine-notice.sh 的 repo 段），改了它们却不重新生成，NOTICE 就过期了；#6696 只改 LICENSE，没有任何作业被触发，过期的 NOTICE 进了 develop。
               LICENSE|resources/licenses/*|resources/helpcodes/ENGINE-NOTICE.md|resources/helpcodes/NOTICE.md)
                 web=true ;;
-              shared/*|crates/*|packages/*|apps/*|scripts/*|.github/workflows/ci-platforms.yml)
+              # 拆字表编进每个平台的引擎，它的两份锁变了，提交的表就过期了。
+              shared/*|crates/*|packages/*|apps/*|scripts/*|.github/workflows/ci-platforms.yml|resources/chaizi.lock.json|resources/character-glosses.lock.json)
                 shared=true ;;
               # The workspace manifests, the toolchain pin and the JS workspace: a Dependabot bump touches only these.
               Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|.nvmrc)
@@ -242,6 +243,18 @@ jobs:
       - name: Install sccache
         if: ${{ needs.changes.outputs.engine == 'true' }}
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      # 拆字表（crates/engine/src/local/chaizi*.tsv）由生成器从锁定的 kfcd/chaizi 和 Unihan 生成并提交。MSIME_FETCH=1 让契约检查在缓存里没有输入时按锁下载并逐字节核对，而不是打印 skip；输入按两份锁的摘要缓存，锁不变就不重新下载。
+      - name: Restore the pinned chaizi sources
+        if: ${{ needs.changes.outputs.engine == 'true' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/chaizi-cache
+          key: chaizi-sources-${{ hashFiles('resources/chaizi.lock.json', 'resources/character-glosses.lock.json') }}
+      - name: Chaizi tables match the generator
+        if: ${{ needs.changes.outputs.engine == 'true' }}
+        env:
+          MSIME_FETCH: '1'
+        run: python3 scripts/test-chaizi-table.py
       - name: Unit and golden tests for msime-engine
         if: ${{ needs.changes.outputs.engine == 'true' }}
         run: |

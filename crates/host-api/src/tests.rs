@@ -195,7 +195,9 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         local_expression: false,
         local_command: false,
         local_mention: false,
+        local_chaizi: false,
         local_shift_letter_entry: true,
+        chaizi_traditional_output: false,
         command_table: Vec::new(),
         mention_entries: Vec::new(),
         quick_phrase_table: Vec::new(),
@@ -4770,6 +4772,78 @@ fn generated_mode_selections_stay_out_of_selection_statistics() {
     assert_eq!(selections.total(), 1);
     read(msime_client_destroy(handle));
 }
+/// 拆字反查的开关：偏好里没有这个键时按宿主形态决定（触屏开、桌面关），用户明确打开后 Shift+C 进入；繁体输出开着时，转成同一个繁体字形的行只留一行。
+#[test]
+fn chaizi_follows_the_host_form_until_the_user_flips_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let preferences = chinese_preferences();
+    assert_eq!(preferences.local_modes.chaizi, None);
+    let handle = test_host_with_pinyin_fixture(&dir.path().join("unset"), preferences);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let entered = read(msime_client_character(handle, b'C', true));
+    let expected = if TOUCH_KEYBOARD_HOST {
+        "chaizi"
+    } else {
+        "none"
+    };
+    assert_eq!(entered["value"]["view"]["local_mode"], expected);
+    read(msime_client_destroy(handle));
+
+    let mut preferences = chinese_preferences();
+    preferences.local_modes.chaizi = Some(true);
+    preferences.traditional_chinese_output = true;
+    let handle = test_host_with_pinyin_fixture(&dir.path().join("on"), preferences);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let entered = read(msime_client_character(handle, b'C', true));
+    assert_eq!(entered["value"]["view"]["local_mode"], "chaizi");
+    let mut view = Value::Null;
+    for byte in b"yanyi" {
+        view = read(msime_client_character(handle, *byte, false))["value"]["view"].clone();
+    }
+    let texts: Vec<&str> = view["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|candidate| candidate["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(texts.first(), Some(&"议"), "{texts:?}");
+    assert!(!texts.contains(&"議"), "{texts:?}");
+    read(msime_client_destroy(handle));
+
+    let mut preferences = chinese_preferences();
+    preferences.local_modes.chaizi = Some(false);
+    let handle = test_host_with_pinyin_fixture(&dir.path().join("off"), preferences);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let entered = read(msime_client_character(handle, b'C', true));
+    assert_eq!(entered["value"]["view"]["local_mode"], "none");
+    read(msime_client_destroy(handle));
+}
+
+/// 拆字表的繁体字形列是生成器按 OpenCC s2t 规则算的；宿主上屏时用的是 client-core 的同一套转换。两边对每个字都必须得出同一个字形，Engine 按这一列去重才和宿主看到的一致。
+#[test]
+fn chaizi_traditional_forms_match_the_shared_conversion() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../engine/src/local/chaizi-chars.tsv");
+    let table = std::fs::read_to_string(&path).unwrap();
+    let mut rows = 0;
+    for line in table.lines() {
+        let fields: Vec<&str> = line.split('\t').collect();
+        assert_eq!(fields.len(), 4, "{line}");
+        let expected = if fields[3].is_empty() {
+            fields[0]
+        } else {
+            fields[3]
+        };
+        assert_eq!(
+            msime_client_core::chinese_conversion::simplified_to_traditional(fields[0]),
+            expected,
+            "{line}"
+        );
+        rows += 1;
+    }
+    assert!(rows > 20_000, "{rows}");
+}
+
 #[test]
 fn selection_statistics_reach_the_store_when_the_session_is_destroyed() {
     let dir = tempfile::tempdir().unwrap();

@@ -191,7 +191,7 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 独立表情浏览器以远端默认分支固定来源 `MSIME-Apple@41c5db42184f505bb889f6efb88cf17d7e58901e` 为行为基线，在空闲候选栏和“更多”工具页提供入口。打开前先由 Engine 完成已有组合，面板提供返回、删除、固定 Unicode 顺序的笑脸／人物／动物／食物／旅行／活动／物品／符号／旗帜分类，以及每行八个的可滚动网格。Android 不复制 SQLite 读取器或内置 1,935 条表情，而是在后台通过共享 host API 以 64 行游标页读取已验证 `msime-others.db`；异常响应、超限字段、停滞或倒退游标会被拒绝。选择通过本地输入来源写入普通 InputConnection，成功后将去重、最近优先且最多 24 项的历史保存到输入法私有偏好；删除也走正常宿主编辑路径。API 35 arm64 专用 AVD 已验证组合完成顺序、分类切换、跨页加载、插入、删除、返回、最近使用和 IME 重绑后的持久化。
 
-“更多”工具页的“本地输入”分组接入共享 `local_modes` 偏好和 Engine 的 Shift 触发契约，按 Apple 顺序提供 Unicode、日期时间、超级简拼、快捷短语、英文补全、表情、颜文字和临时日语入口。禁用项或不支持本地工具的五笔/日语方案会置灰；宿主只发送触发字符，不实现本地模式算法。本地模式激活后，候选条显示独立的“退出本地模式”按钮，发送 Engine 的取消命令并保留共享输入状态边界。
+“更多”工具页的“本地输入”分组接入共享 `local_modes` 偏好和 Engine 的 Shift 触发契约，按 Apple 顺序提供 Unicode、日期时间、超级简拼、快捷短语、英文补全、表情、颜文字和临时日语入口，末尾是本仓库追加的拆字（Shift+C，输入字的各个部件的拼音找不会读的字，如 huohuohuo 得 焱；候选注释是 Engine 给的带调读音）。拆字的 `local_modes.chaizi` 缺键时在触屏宿主上读作开，和其余几项一样。禁用项或不支持本地工具的五笔/日语方案会置灰；宿主只发送触发字符，不实现本地模式算法。本地模式激活后，候选条显示独立的“退出本地模式”按钮，发送 Engine 的取消命令并保留共享输入状态边界。
 
 键盘工具栏与 Android 设置按 Apple 固定顺序共享全拼 26 键、全拼 9 键、小鹤/自然码/微软/首道双拼、86 五笔、日语 9 键、日语 26 键、手写、韩语 26 键、粤拼 26 键、大千注音、越南语 26 键、藏文 26 键和笔画，最后是本仓库追加的全拼 14 键；默认只有中文方案可见（全拼 26 键、全拼 9 键、四种双拼、五笔和手写）；日语 9 键、日语 26 键、韩语 26 键、后五种和全拼 14 键默认不可见，没有存储列表的偏好同样只显示中文方案，需要在设置的输入方案里打开，日语、粤拼、注音和笔画在 full 瘦包里打开时会先下载对应的资源包。`touch_keyboard_schemes.enabled` 控制快捷切换中可见的卡片并至少保留一种，`selected` 保存当前方案；隐藏当前方案时按固定顺序回退到第一种可见方案，设置与输入法进程重启后继续生效。键盘内切换先由 Engine 完成当前组合，再在后台通过共享 PreferencesStore 的 revision CAS 同步 `scheme`、`last_chinese_scheme`、`shuangpin_profile`、平台无关的 `touch_keyboard_layout` 及嵌套方案选择，保存成功后才更新当前会话；冲突或存储失败保留原方案。旧偏好默认全部可见和 26 键，并在第一次键盘内切换时迁移；`View.touch_keyboard_layout` 只报告已应用值，外部设置延迟时不会提前换布局。
 
@@ -326,7 +326,7 @@ ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-native.sh arm64-
 ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-native.sh x86_64
 ```
 
-可用 `MSIME_VCPKG_ROOT`、`MSIME_ANDROID_NDK` 指定绝对路径。脚本校验固定版本后安装锁定依赖，构建 release Rust 宿主和 C++ JNI，SQLite 静态链接进宿主库；产物为 `target/android/jniLibs/<abi>/{libmsime_host_api.so,libmsime_android.so,libc++_shared.so}`。验证脚本检查 ELF 架构、16 KB LOAD 对齐、动态依赖白名单与宿主/JNI 导出。NDK 和 vcpkg 声明，以及 Engine 内置韩语汉字表的 libhangul BSD-3-Clause 声明（`libhangul-hanja.txt`）复制到 `target/android/notices/<abi>`，两条打包路径都把它们放进 `assets/native-notices/`；正式分发还需汇总 Rust/Engine 与词库许可材料。
+可用 `MSIME_VCPKG_ROOT`、`MSIME_ANDROID_NDK` 指定绝对路径。脚本校验固定版本后安装锁定依赖，构建 release Rust 宿主和 C++ JNI，SQLite 静态链接进宿主库；产物为 `target/android/jniLibs/<abi>/{libmsime_host_api.so,libmsime_android.so,libc++_shared.so}`。验证脚本检查 ELF 架构、16 KB LOAD 对齐、动态依赖白名单与宿主/JNI 导出。NDK 和 vcpkg 声明，以及 Engine 内置韩语汉字表的 libhangul BSD-3-Clause 声明（`libhangul-hanja.txt`）、拆字表所据 kfcd/chaizi 的 CC BY 3.0 署名与改动说明（`kfcd-chaizi.txt`）和表中 Unihan 读音的 Unicode License V3（`unicode-unihan.txt`）复制到 `target/android/notices/<abi>`，两条打包路径都把它们放进 `assets/native-notices/`；正式分发还需汇总 Rust/Engine 与词库许可材料。
 
 提供 arm64-v8a 与 x86_64 两条构建路径；不提供 32 位 ABI，也没有 Windows 构建脚本。原生库本身不是 APK，需用下述脚本打包。`build-apk.sh` 默认只构建并打包 arm64-v8a（发布包也是如此，arm64 真机和 Apple 芯片上的 arm64 AVD 都用它）；要在 x86_64 模拟器上跑，设 `MSIME_ANDROID_ABIS="arm64-v8a x86_64"`（或只写 `x86_64`），脚本把同一份列表经 `-PmsimeAbis` 交给 Gradle 的 `abiFilters`，ML Kit 等依赖自带的 x86、armeabi-v7a 库也按它过滤，打完再核对 APK 的 `lib/` 恰好是这几个 ABI。Gradle 工程固定 `ndkVersion` 为同一个 NDK，AGP 用它的 llvm-strip 去掉打包的 `.so` 的调试符号。
 

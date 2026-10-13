@@ -29,6 +29,8 @@ const MODES: LocalInputModeDefinition[] = [
   mode("EMOJI", "E", "表情", "emoji"),
   mode("KAOMOJI", "M", "颜文字", "kaomoji"),
   mode("TEMPORARY_JAPANESE", "R", "临时日语", "temporary_japanese"),
+  // 拆字反查：输入字的各个部件的拼音找不会读的字（huohuohuo 得 焱），追加在 Apple 那八项之后。
+  mode("CHAIZI", "C", "拆字", "chaizi"),
 ];
 
 // Entered from a hardware keyboard only, with Shift+V on an empty composition or `/` and `@` with nothing composed, so they are named but not offered as tiles: the touch tools panel lists MODES, and these three spell with digits, operators and a list the touch keyboard has no face for. All three are off until the user turns them on.

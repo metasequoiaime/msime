@@ -72,6 +72,8 @@ pub struct SessionOptions {
     pub mention_entries: Vec<MentionEntry>,
     /// K 模式在数据库行之后追加的宿主短语；`Session::set_quick_phrase_table` 可以实时替换。
     pub quick_phrase_table: Vec<QuickPhraseEntry>,
+    /// 宿主会把候选转成繁体输出：拆字（`C`）行按转换后的字形去重，免得一屏出现两个相同的繁体字。
+    pub chaizi_traditional_output: bool,
 }
 
 impl SessionOptions {
@@ -114,6 +116,7 @@ impl SessionOptions {
             command_table: Vec::new(),
             mention_entries: Vec::new(),
             quick_phrase_table: Vec::new(),
+            chaizi_traditional_output: false,
         }
     }
 }
@@ -123,7 +126,7 @@ impl SessionOptions {
 pub struct SessionSnapshot {
     pub scheme: SchemeType,
     pub local_mode: LocalInputMode,
-    /// The non-letter characters `character` takes in this state: the active local mode's `spelling_symbols`, or while nothing is composed the keys that open the `/` and `@` modes. A host or runtime that would send one of these as punctuation sends it as a character instead.
+    /// The non-letter characters `character` takes in this state: the active local mode's `spelling_symbols` (拆字按光标处列出部件分隔符 `'` 和微软双拼的韵母 `;`), or while nothing is composed the keys that open the `/` and `@` modes. A host or runtime that would send one of these as punctuation sends it as a character instead.
     pub spelling_symbols: String,
     pub preedit: String,
     pub raw_segmentation: String,

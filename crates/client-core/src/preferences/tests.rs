@@ -1122,6 +1122,35 @@ fn shift_letter_entry_defaults_on_and_survives_a_save() {
 }
 
 #[test]
+fn chaizi_is_unset_until_the_user_flips_it() {
+    // 缺省是 `None`：由宿主形态决定开关，文档里也不写这个键，旧版本照常读得懂。
+    assert_eq!(LocalModePreferences::default().chaizi, None);
+    let written = serde_json::to_value(Preferences::default()).unwrap();
+    assert!(written["local_modes"].get("chaizi").is_none());
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let snapshot = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    fs::write(store.path(), serde_json::to_vec(&snapshot).unwrap()).unwrap();
+    assert_eq!(store.load().unwrap().preferences.local_modes.chaizi, None);
+
+    // 用户动过开关后，明确的布尔值保存后原样读回。
+    for (revision, flag) in [false, true].into_iter().enumerate() {
+        let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        value["local_modes"]["chaizi"] = flag.into();
+        let saved = store
+            .save(revision as u64, serde_json::from_value(value).unwrap())
+            .unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded, saved);
+        assert_eq!(loaded.preferences.local_modes.chaizi, Some(flag));
+        let on_disk: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+        assert_eq!(on_disk["preferences"]["local_modes"]["chaizi"], flag);
+    }
+}
+
+#[test]
 fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
     let defaults = PluginPreferences::default();
     assert!(!defaults.key_sound.enabled);

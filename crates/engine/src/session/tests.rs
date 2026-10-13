@@ -3734,9 +3734,10 @@ fn shift_letter_entry_switch_off_types_every_capital() {
         options.local_modes.shift_letter_entry = false;
         options.local_modes.expression = true;
         options.local_modes.command = true;
+        options.local_modes.chaizi = true;
     });
     // 总开关关掉：每个入口字母都交还宿主打出大写，不进模式，也不留组字。
-    for letter in *b"UTKEMJYRV" {
+    for letter in *b"UTKEMJYRVC" {
         let result = session.character(letter, true);
         assert!(!result.handled, "{}", letter as char);
         assert_eq!(session.input.local_mode, LocalInputMode::None);
@@ -3751,6 +3752,287 @@ fn shift_letter_entry_switch_off_types_every_capital() {
     let mut session = fixture.session();
     assert!(session.character(b'T', true).handled);
     assert_eq!(session.input.local_mode, LocalInputMode::DateTime);
+}
+
+fn chaizi_session(fixture: &Fixture, configure: impl FnOnce(&mut SessionOptions)) -> Session {
+    fixture.session_with(|options| {
+        options.local_modes.chaizi = true;
+        configure(options);
+    })
+}
+
+fn chaizi_rows(session: &Session) -> Vec<(String, CandidateSource)> {
+    session
+        .snapshot()
+        .candidates
+        .into_iter()
+        .map(|item| (item.word, item.source))
+        .collect()
+}
+
+#[test]
+fn chaizi_opens_on_shift_c_in_pinyin_and_wubi_only() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    // 默认关：Shift+C 交还宿主打出大写 C。
+    let mut session = fixture.session();
+    assert!(!session.character(b'C', true).handled);
+    assert_eq!(session.input.local_mode, LocalInputMode::None);
+    assert!(!crate::types::LocalModeOptions::default().chaizi);
+
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin, SchemeType::Wubi] {
+        let mut session = chaizi_session(&fixture, |options| options.scheme = scheme);
+        assert!(session.character(b'C', true).handled, "{scheme:?}");
+        assert_eq!(
+            session.input.local_mode,
+            LocalInputMode::Chaizi,
+            "{scheme:?}"
+        );
+        let snapshot = session.snapshot();
+        assert_eq!(snapshot.preedit, "C");
+        // 只有原样兜底行。
+        assert_eq!(
+            chaizi_rows(&session),
+            [("C".to_owned(), CandidateSource::Fallback)]
+        );
+        // 只剩 `C` 时退格退出模式。
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(session.input.local_mode, LocalInputMode::None);
+    }
+    for scheme in [SchemeType::JapaneseRomaji, SchemeType::Korean] {
+        let mut session = chaizi_session(&fixture, |options| options.scheme = scheme);
+        session.character(b'C', true);
+        assert_ne!(
+            session.input.local_mode,
+            LocalInputMode::Chaizi,
+            "{scheme:?}"
+        );
+    }
+    // 没有 Shift 的 `C`（大写锁定、宿主当字符送来）不进模式。
+    let mut session = chaizi_session(&fixture, |_| {});
+    session.character(b'C', false);
+    assert_ne!(session.input.local_mode, LocalInputMode::Chaizi);
+}
+
+#[test]
+fn chaizi_finds_a_character_by_its_components_and_annotates_its_reading() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = chaizi_session(&fixture, |options| {
+        options.frequency = FrequencyAdjustmentOptions {
+            mode: FrequencyAdjustmentMode::Promote,
+            trigger_count: 1,
+            linear_step: 1,
+        };
+    });
+    assert!(session.character(b'C', true).handled);
+    type_text(&mut session, "huohuohuo");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.preedit, "Chuohuohuo");
+    assert_eq!(snapshot.candidates[0].word, "焱");
+    assert_eq!(snapshot.candidates[0].source, CandidateSource::Generated);
+    assert_eq!(snapshot.candidate_annotations[0], "yàn");
+    // 选中后上屏这个字、退出模式，不写任何词库。
+    let result = session.select(0);
+    assert_eq!(result.commit.as_deref(), Some("焱"));
+    assert_eq!(session.input.local_mode, LocalInputMode::None);
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT COUNT(*) FROM user_dictionary_operations"
+        ),
+        0
+    );
+
+    // 回车上屏原文，入口字母一起。
+    session.character(b'C', true);
+    type_text(&mut session, "nvzi");
+    assert_eq!(words(&session)[0], "好");
+    assert_eq!(
+        session.command(Command::CommitRaw).commit.as_deref(),
+        Some("Cnvzi")
+    );
+}
+
+#[test]
+fn chaizi_takes_an_apostrophe_only_between_components() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = chaizi_session(&fixture, |_| {});
+    session.character(b'C', true);
+    // 紧跟 `C` 的 `'` 不收，也不当分隔符。
+    assert!(!session.input.takes_local_separator());
+    session.character(b'\'', false);
+    assert_eq!(session.snapshot().preedit, "C");
+    // 宿主当字符送来。
+    type_text(&mut session, "huo'");
+    // 连续的 `'` 不收。
+    session.character(b'\'', false);
+    assert_eq!(session.snapshot().preedit, "Chuo'");
+    type_text(&mut session, "huo");
+    // 宿主当标点送来：先问 `takes_local_separator`，同样当分隔符。
+    assert!(session.input.takes_local_separator());
+    assert!(session.punctuation(b'\'').handled);
+    type_text(&mut session, "huo");
+    assert_eq!(session.snapshot().preedit, "Chuo'huo'huo");
+    assert_eq!(words(&session)[0], "焱");
+    // `'` 切在部件中间时没有命中，只剩原样行。
+    session.command(Command::Cancel);
+    session.character(b'C', true);
+    type_text(&mut session, "hu'ohuohuo");
+    assert_eq!(
+        chaizi_rows(&session),
+        [("Chu'ohuohuo".to_owned(), CandidateSource::Fallback)]
+    );
+}
+
+#[test]
+fn chaizi_inserts_letters_and_separators_at_the_caret() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = chaizi_session(&fixture, |_| {});
+    session.character(b'C', true);
+    type_text(&mut session, "huohuo");
+    session.command(Command::MoveHome);
+    assert_eq!(session.snapshot().caret_position, 1);
+    // 入口字母之后不能插 `'`。
+    assert!(!session.character(b'\'', false).handled);
+    session.command(Command::MoveRight);
+    session.command(Command::MoveRight);
+    session.command(Command::MoveRight);
+    assert!(session.character(b'\'', false).handled);
+    assert_eq!(session.snapshot().editing_text, "Chuo'huo");
+    // 紧挨着已有的 `'` 再插一个被吞掉。
+    session.character(b'\'', false);
+    assert_eq!(session.snapshot().editing_text, "Chuo'huo");
+    session.command(Command::MoveEnd);
+    type_text(&mut session, "huo");
+    assert_eq!(session.snapshot().editing_text, "Chuo'huohuo");
+    assert_eq!(words(&session)[0], "焱");
+    // 插在中间的字母同样收下。
+    session.command(Command::MoveHome);
+    assert!(session.character(b'x', false).handled);
+    assert_eq!(session.snapshot().editing_text, "Cxhuo'huohuo");
+}
+
+#[test]
+fn chaizi_leaves_english_words_and_unmatched_input_as_typed() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = chaizi_session(&fixture, |_| {});
+    // `CPU`：有大写字母就不查表；`Chen`、`Cpan`：只打了一个部件，不补全。
+    for (rest, typed) in [
+        ("PU", "CPU"),
+        ("hen", "Chen"),
+        ("pan", "Cpan"),
+        ("xyz", "Cxyz"),
+    ] {
+        session.character(b'C', true);
+        type_text(&mut session, rest);
+        assert_eq!(
+            chaizi_rows(&session),
+            [(typed.to_owned(), CandidateSource::Fallback)],
+            "{typed}"
+        );
+        // 空格选中原样行，上屏的就是键入的原文。
+        assert_eq!(session.select(0).commit.as_deref(), Some(typed));
+        assert_eq!(session.input.local_mode, LocalInputMode::None);
+    }
+}
+
+#[test]
+fn chaizi_drops_rows_that_convert_to_the_same_traditional_form() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut plain = chaizi_session(&fixture, |_| {});
+    plain.character(b'C', true);
+    type_text(&mut plain, "yanyi");
+    assert!(words(&plain).contains(&"議".to_owned()));
+    let mut traditional =
+        chaizi_session(&fixture, |options| options.chaizi_traditional_output = true);
+    traditional.character(b'C', true);
+    type_text(&mut traditional, "yanyi");
+    let rows = words(&traditional);
+    assert!(
+        rows.contains(&"议".to_owned()) && !rows.contains(&"議".to_owned()),
+        "{rows:?}"
+    );
+}
+
+#[test]
+fn chaizi_queries_the_quanpin_reading_of_shuangpin_input() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = chaizi_session(&fixture, |options| options.scheme = SchemeType::Shuangpin);
+    session.character(b'C', true);
+    // 小鹤双拼的 huo 是 `ho`。
+    type_text(&mut session, "hohoho");
+    assert_eq!(words(&session)[0], "焱");
+}
+
+#[test]
+fn chaizi_takes_the_microsoft_shuangpin_ing_key() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let microsoft = |options: &mut SessionOptions| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Microsoft;
+    };
+    let mut session = chaizi_session(&fixture, microsoft);
+    session.character(b'C', true);
+    type_text(&mut session, "sj");
+    // 片段 `sj` 已是一个完整音节，`;` 补不了它：不列出、吞掉。
+    assert_eq!(session.snapshot().spelling_symbols, "'");
+    assert!(session.character(b';', false).handled);
+    assert_eq!(session.snapshot().editing_text, "Csj");
+    session.character(b'q', false);
+    // `q` 之后 `;` 是韵母 ing。组字原文 `Csjq` 是偶数长度，按原文数奇偶的宿主会把它当标点，所以要列进 `spelling_symbols`。
+    assert_eq!(session.snapshot().spelling_symbols, "';");
+    assert!(session.character(b';', false).handled);
+    assert_eq!(session.snapshot().editing_text, "Csjq;");
+    assert_eq!(words(&session)[0], "清");
+    assert_eq!(session.snapshot().spelling_symbols, "'");
+    // 宿主当标点送来也一样，不会先以首行结束组字。
+    session.command(Command::Cancel);
+    session.character(b'C', true);
+    type_text(&mut session, "sjq");
+    assert!(session.punctuation(b';').handled);
+    assert_eq!(session.snapshot().editing_text, "Csjq;");
+    assert_eq!(session.input.local_mode, LocalInputMode::Chaizi);
+    assert_eq!(words(&session)[0], "清");
+    // 分隔符之后重新数奇偶，光标处插入用同一条规则。
+    session.command(Command::Cancel);
+    session.character(b'C', true);
+    type_text(&mut session, "sj'q");
+    session.command(Command::MoveLeft);
+    assert!(!session.character(b';', false).handled);
+    session.command(Command::MoveEnd);
+    assert!(session.character(b';', false).handled);
+    assert_eq!(session.snapshot().editing_text, "Csj'q;");
+    assert_eq!(words(&session)[0], "清");
+
+    // 小鹤双拼和全拼用不到 `;`，拆字里它照旧是标点。
+    for scheme in [SchemeType::Shuangpin, SchemeType::Quanpin] {
+        let mut session = chaizi_session(&fixture, |options| options.scheme = scheme);
+        session.character(b'C', true);
+        type_text(&mut session, "sjq");
+        assert!(!session.snapshot().spelling_symbols.contains(';'));
+        assert!(!session.input.chaizi_takes_symbol(b';', 4));
+    }
+}
+
+#[test]
+fn chaizi_ignores_an_apostrophe_left_right_after_the_entry_letter() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = chaizi_session(&fixture, |_| {});
+    session.character(b'C', true);
+    type_text(&mut session, "huo'huohuo");
+    // 删掉 `'` 之前的部件，`'` 就紧挨着入口字母。
+    session.command(Command::MoveHome);
+    for _ in 0..3 {
+        session.command(Command::MoveRight);
+    }
+    for _ in 0..3 {
+        session.command(Command::Backspace);
+    }
+    assert_eq!(session.snapshot().editing_text, "C'huohuo");
+    assert!(
+        words(&session).contains(&"炎".to_owned()),
+        "{:?}",
+        words(&session)
+    );
 }
 
 #[test]

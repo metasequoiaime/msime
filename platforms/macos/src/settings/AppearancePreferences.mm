@@ -60,11 +60,14 @@ static NSString *const WubiProfileKey = @"MSIMEClientWubiProfile";
 static NSString *const LocalModesKey = @"MSIMEClientLocalModes";
 /// 「Shift+字母进入快捷模式」总开关和各模式开关存在同一张表里（共享文档的 `local_modes.shift_letter_entry`），缺省同样是开；设置窗口把它单独放在模式网格上方。
 static NSString *const ShiftLetterEntryMode = @"shift_letter_entry";
+/// 拆字反查（C 模式）在桌面宿主默认关：共享文档的 `local_modes.chaizi` 只在用户动过开关后才出现，host-api 在桌面构建里把缺键读作关，这里也要读作关，否则勾选和实际不一致。
+static NSString *const ChaiziMode = @"chaizi";
 static NSArray<NSArray<NSString *> *> *LocalModeControls() {
     return @[@[ShiftLetterEntryMode, @"Shift+字母进入快捷模式"], @[@"quick_phrase", @"快捷短语（K 模式）"], @[@"date_time", @"日期与时间（T 模式）"],
              @[@"unicode", @"Unicode 录入（U 模式）"], @[@"emoji", @"Emoji（E 模式）"],
              @[@"kaomoji", @"颜文字（M 模式）"], @[@"super_jianpin", @"超级简拼（J 模式）"],
-             @[@"temporary_english", @"临时英文（Y 模式）"], @[@"temporary_japanese", @"临时日语（R 模式）"]];
+             @[@"temporary_english", @"临时英文（Y 模式）"], @[@"temporary_japanese", @"临时日语（R 模式）"],
+             @[ChaiziMode, @"拆字反查（C 模式）"]];
 }
 static BOOL KnownLocalMode(NSString *mode) {
     for (NSArray *entry in LocalModeControls()) if ([entry[0] isEqual:mode]) return YES;
@@ -1489,7 +1492,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (BOOL)localModeEnabled:(NSString *)mode {
     if (!KnownLocalMode(mode)) return NO;
     NSNumber *value = _sharedLocalModes[mode] ?: [_defaults dictionaryForKey:LocalModesKey][mode];
-    return LocalModeBoolean(value) ? value.boolValue : YES;
+    return LocalModeBoolean(value) ? value.boolValue : ![mode isEqual:ChaiziMode];
 }
 - (void)setLocalMode:(NSString *)mode enabled:(BOOL)enabled {
     if (!KnownLocalMode(mode)) return;

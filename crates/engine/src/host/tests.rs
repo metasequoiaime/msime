@@ -57,7 +57,9 @@ fn options(root: &Path) -> EngineOptions {
         local_expression: false,
         local_command: false,
         local_mention: false,
+        local_chaizi: false,
         local_shift_letter_entry: true,
+        chaizi_traditional_output: false,
         command_table: Vec::new(),
         mention_entries: Vec::new(),
         quick_phrase_table: Vec::new(),
@@ -2952,15 +2954,54 @@ fn generated_rows_carry_no_helpcode() {
 }
 
 #[test]
+fn chaizi_rows_show_readings_and_never_a_helpcode() {
+    let root = tempfile::tempdir().unwrap();
+    // 𢰩（才 子）在 Unihan 里没有读音，𢱆 读 zī；辅助码表给了两者编码，拆字行也不能拿辅助码补上注释或替换读音。
+    let mut options = helpcode_fixture(root.path(), "", "𢰩=ab\n𢱆=ab\n焱=cd\n");
+    assert!(!options.local_chaizi);
+    options.local_chaizi = true;
+    let mut session = Session::new(&options).unwrap();
+    assert!(session.character(b'C', true).unwrap().handled);
+    type_text(&mut session, b"caizi");
+    let view = session.snapshot().unwrap();
+    assert_eq!(view.local_mode, "chaizi");
+    assert_eq!(view.candidates[..2], ["𢰩".to_owned(), "𢱆".to_owned()]);
+    assert_eq!(
+        view.candidate_annotations[..2],
+        ["".to_owned(), "zī".to_owned()]
+    );
+    session.command(Command::Cancel).unwrap();
+    session.character(b'C', true).unwrap();
+    type_text(&mut session, b"huohuohuo");
+    let view = session.snapshot().unwrap();
+    assert_eq!(view.candidates[0], "焱");
+    assert_eq!(view.candidate_annotations[0], "yàn");
+}
+
+#[test]
+fn chaizi_options_map_into_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    let off = super::options::session_options(&value).unwrap();
+    assert!(!off.local_modes.chaizi && !off.chaizi_traditional_output);
+    value.local_chaizi = true;
+    value.chaizi_traditional_output = true;
+    let on = super::options::session_options(&value).unwrap();
+    assert!(on.local_modes.chaizi && on.chaizi_traditional_output);
+}
+
+#[test]
 fn only_generated_modes_are_left_out_of_typing_statistics() {
     for mode in ["expression", "command", "mention"] {
         assert!(!local_mode_counts_as_typing(mode), "{mode}");
     }
+    // 拆字上屏的字是用户挑出来的，和 E、J 一样计入打字统计。
     for mode in [
         "none",
         "unicode",
         "date_time",
         "temporary_english",
+        "chaizi",
         "unknown",
         "",
     ] {

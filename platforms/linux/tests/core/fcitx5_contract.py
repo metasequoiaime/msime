@@ -174,7 +174,7 @@ for host_source in (source, ibus_source):
     ):
         assert retired not in host_source, retired
     assert "local_mode_enabled_by_default(" in host_source
-    for mode in ('"expression"', '"command"', '"mention"'):
+    for mode in ('"expression"', '"command"', '"mention"', '"chaizi"'):
         assert mode in host_source, mode
 assert "const bool unicodeMode" not in source
 assert "unicode_digit" not in ibus_source

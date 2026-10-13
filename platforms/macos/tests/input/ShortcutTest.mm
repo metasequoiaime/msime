@@ -1225,7 +1225,7 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
         [controller updateKeymapPanel];
         assert(panel.requestedVisible && [panel.contentView.accessibilityValue containsString:@"当前按键 ;"]);
     }
-    for (id mode in @[@"unicode", @"date_time", @"quick_phrase", @"emoji", @"kaomoji", @"super_jianpin", @"temporary_english", @"temporary_japanese", @"unknown", @"", NSNull.null, @1]) {
+    for (id mode in @[@"unicode", @"date_time", @"quick_phrase", @"emoji", @"kaomoji", @"super_jianpin", @"temporary_english", @"temporary_japanese", @"chaizi", @"unknown", @"", NSNull.null, @1]) {
         NSMutableDictionary *next = [view mutableCopy];
         next[@"local_mode"] = mode;
         [controller setValue:next forKey:@"view"];

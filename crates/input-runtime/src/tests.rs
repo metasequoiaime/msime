@@ -1326,7 +1326,7 @@ fn runtime() -> Runtime<Fixture> {
             positions: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
-            ..Fixture::default()
+            first_page_rows: 0,
         },
         5,
     )
@@ -1381,7 +1381,7 @@ fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
                 positions: Vec::new(),
                 reading: String::new(),
                 spelling_symbols: String::new(),
-                ..Fixture::default()
+                first_page_rows: 0,
             },
             9,
         )
@@ -1546,7 +1546,7 @@ fn promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai() {
                 positions: Vec::new(),
                 reading: String::new(),
                 spelling_symbols: String::new(),
-                ..Fixture::default()
+                first_page_rows: 0,
             },
             9,
         )
@@ -1762,7 +1762,7 @@ fn a_chosen_phrase_piece_waits_for_the_rest_of_the_phrase() {
                 positions: Vec::new(),
                 reading: String::new(),
                 spelling_symbols: String::new(),
-                ..Fixture::default()
+                first_page_rows: 0,
             },
             5,
         )
@@ -1865,7 +1865,7 @@ fn a_phrase_piece_survives_the_reading_being_deleted() {
             positions: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
-            ..Fixture::default()
+            first_page_rows: 0,
         },
         5,
     )
@@ -2285,7 +2285,7 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
             positions: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
-            ..Fixture::default()
+            first_page_rows: 0,
         },
         2,
     )
@@ -3896,7 +3896,9 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         local_expression: false,
         local_command: false,
         local_mention: false,
+        local_chaizi: false,
         local_shift_letter_entry: true,
+        chaizi_traditional_output: false,
         command_table: Vec::new(),
         mention_entries: Vec::new(),
         quick_phrase_table: Vec::new(),
@@ -5382,7 +5384,7 @@ fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtim
             positions: Vec::new(),
             reading: String::new(),
             spelling_symbols: String::new(),
-            ..Fixture::default()
+            first_page_rows: 0,
         },
         page_size,
     )

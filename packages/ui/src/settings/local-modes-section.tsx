@@ -11,6 +11,7 @@ export type LocalModeKey =
   | "super_jianpin"
   | "temporary_english"
   | "temporary_japanese"
+  | "chaizi"
   | "expression"
   | "command"
   | "mention"
@@ -33,6 +34,8 @@ export type LocalModePreferences = {
   mention_places?: boolean;
   /** 「Shift+字母进入快捷模式」总开关。和上面几项相反，缺省读作开：早于它的文档里没有这个键。 */
   shift_letter_entry?: boolean;
+  /** 拆字反查（C 模式）。缺键表示用户没动过开关，由宿主形态决定：触屏宿主读作开，桌面宿主读作关。只有用户动过开关时才写进文档。 */
+  chaizi?: boolean;
 };
 
 export const defaultLocalModes: LocalModePreferences = {
@@ -83,6 +86,11 @@ const localModeRows: readonly [LocalModeKey, string, string][] = [
     "临时日语(R 模式)",
     "中文模式下按 Shift+R，之后按日语罗马字处理。空格上屏首选；数字选词；上屏后回到中文",
   ],
+  [
+    "chaizi",
+    "拆字反查(C 模式)",
+    "中文模式下按 Shift+C，再输入字的各个部件的拼音，例如 huohuohuo 得 焱、nvzi 得 好。部件之间可以用 ' 分隔，ü 用 v。空格上屏；数字选词",
+  ],
 ];
 
 /** 从 Shift+字母进入的模式：总开关关掉时它们的开关保留原值，只是暂时不起作用。`/` 和 `@` 不在其中。 */
@@ -95,6 +103,7 @@ const shiftLetterModes: ReadonlySet<LocalModeKey> = new Set<LocalModeKey>([
   "super_jianpin",
   "temporary_english",
   "temporary_japanese",
+  "chaizi",
   "expression",
 ]);
 
@@ -137,6 +146,7 @@ const iosLocalModeDescriptions: Partial<Record<LocalModeKey, string>> = {
   super_jianpin: `${iosLocalModeEntry("超级简拼")}每个字母作为简拼；双拼按当前方案转换声母。空格或点候选上屏`,
   temporary_english: `${iosLocalModeEntry("英文补全")}之后按英文处理。空格上屏当前输入，也可以点候选；上屏后回到中文`,
   temporary_japanese: `${iosLocalModeEntry("临时日语")}之后按日语罗马字处理。空格上屏首选，也可以点候选；上屏后回到中文`,
+  chaizi: `${iosLocalModeEntry("拆字")}再输入字的各个部件的拼音，例如 huohuohuo 得 焱、nvzi 得 好。部件之间可以用 ' 分隔，ü 用 v。空格或点候选上屏`,
 };
 
 export interface LocalModesSectionProps {
@@ -150,7 +160,7 @@ export interface LocalModesSectionProps {
   translationService?: boolean;
   /** 本版本带临时日文（`HostCapabilities.edition.temporary_japanese`）；为 false 时不列出临时日语开关。缺省为 true。 */
   temporaryJapanese?: boolean;
-  /** 显示「Shift+字母进入快捷模式」总开关（`HostCapabilities.shift_letter_entry_switch`，三个桌面宿主）。触屏键盘从菜单打开这些模式，不显示它。 */
+  /** 显示「Shift+字母进入快捷模式」总开关（`HostCapabilities.shift_letter_entry_switch`，三个桌面宿主）。触屏键盘从菜单打开这些模式，不显示它。它同时区分桌面和触屏：拆字反查缺键时桌面读作关、触屏读作开，和 host-api 按宿主形态取的缺省一致。 */
   shiftLetterEntrySwitch?: boolean;
   onChange: (preferences: LocalModePreferences) => void;
 }
@@ -199,7 +209,7 @@ export function LocalModesSection({
                 ? (iosLocalModeDescriptions[key] ?? description)
                 : description
           }
-          checked={preferences[key] ?? false}
+          checked={preferences[key] ?? (key === "chaizi" && !shiftLetterEntrySwitch)}
           disabled={
             (key === "mention_places" && !preferences.mention) ||
             (!shiftLetterEntry && shiftLetterModes.has(key))
