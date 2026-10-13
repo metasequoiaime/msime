@@ -212,11 +212,7 @@ struct VocabularyReviewStore {
   }
 
   private func protectSharedState() {
-    guard FileManager.default.fileExists(atPath: root.path) else { return }
-    var directory = root
-    var values = URLResourceValues()
-    values.isExcludedFromBackup = true
-    try? directory.setResourceValues(values)
+    IOSSharedPaths.excludeFromBackup(root)
   }
 
   enum Failure: Error, LocalizedError, Equatable {

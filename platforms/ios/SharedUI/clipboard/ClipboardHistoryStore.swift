@@ -108,12 +108,7 @@ struct ClipboardHistoryStore {
 
   private func protectSharedState() {
     let directory = file.deletingLastPathComponent()
-    if FileManager.default.fileExists(atPath: directory.path) {
-      var protectedDirectory = directory
-      var values = URLResourceValues()
-      values.isExcludedFromBackup = true
-      try? protectedDirectory.setResourceValues(values)
-    }
+    IOSSharedPaths.excludeFromBackup(directory)
     if FileManager.default.fileExists(atPath: file.path) {
       try? FileManager.default.setAttributes(
         [.protectionKey: FileProtectionType.complete], ofItemAtPath: file.path)
