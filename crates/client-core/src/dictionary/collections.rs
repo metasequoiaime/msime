@@ -565,8 +565,12 @@ impl DictionaryCollectionsStore {
             if valid_new_word(&word, word.kind).is_err() {
                 continue;
             }
+            let identity = word.identity();
+            let was_absent = state.outbox.get(&identity).is_none();
             state.outbox.queue(OutboxKind::Add, UNOWNED_WORDS, word);
-            queued += 1;
+            if was_absent && state.outbox.get(&identity).is_some() {
+                queued += 1;
+            }
         }
         self.commit(&lock.directory, &mut state)?;
         let mut view = state.view();
