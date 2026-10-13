@@ -50,6 +50,12 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
       flock(descriptor, LOCK_UN)
       close(descriptor)
     }
+    fileprivate func withHeld<T>(owner expected: URL, _ action: () throws -> T) throws -> T {
+      mutex.lock()
+      defer { mutex.unlock() }
+      guard descriptor != nil, owner == expected else { throw Failure.invalid }
+      return try action()
+    }
     deinit { release() }
   }
   private let directory: URL?
@@ -201,11 +207,13 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
   // A killed worker resumes the same UUID. It first checks the Engine's durable
   // active identifier; already-applied requests are acknowledged without replay.
   func claim(using lease: WorkerLease) throws -> DictionarySnapshotRequest? {
-    guard lease.owner == (try root()).standardizedFileURL else { throw Failure.invalid }
-    return try update { state in
-      guard state.request?.status.active == true else { return nil }
-      state.request?.status = .preparing
-      return state.request
+    let owner = try root().standardizedFileURL
+    return try lease.withHeld(owner: owner) {
+      try update { state in
+        guard state.request?.status.active == true else { return nil }
+        state.request?.status = .preparing
+        return state.request
+      }
     }
   }
   // Call with the worker lease held and input quiesced. apply must publish
@@ -213,26 +221,29 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
   @discardableResult
   func complete(id: UUID, using lease: WorkerLease, currentVersion: String, alreadyApplied: Bool,
                 apply: () throws -> String) throws -> Bool {
-    guard lease.owner == (try root()).standardizedFileURL, Self.validVersion(currentVersion) else { throw Failure.invalid }
-    let applied = try update { state -> Bool in
-      guard var request = state.request, request.id == id, alreadyApplied || request.status.active else { throw Failure.conflict }
-      if alreadyApplied {
-        request.status = .applied
-        state.localVersion = currentVersion
-      } else if request.expectedLocalVersion != currentVersion {
-        request.status = .conflict
-        state.localVersion = currentVersion
-      } else {
-        let next = try apply()
-        guard Self.validVersion(next) else { throw Failure.invalid }
-        request.status = .applied
-        state.localVersion = next
+    guard Self.validVersion(currentVersion) else { throw Failure.invalid }
+    let owner = try root().standardizedFileURL
+    return try lease.withHeld(owner: owner) {
+      let applied = try update { state -> Bool in
+        guard var request = state.request, request.id == id, alreadyApplied || request.status.active else { throw Failure.conflict }
+        if alreadyApplied {
+          request.status = .applied
+          state.localVersion = currentVersion
+        } else if request.expectedLocalVersion != currentVersion {
+          request.status = .conflict
+          state.localVersion = currentVersion
+        } else {
+          let next = try apply()
+          guard Self.validVersion(next) else { throw Failure.invalid }
+          request.status = .applied
+          state.localVersion = next
+        }
+        state.request = request
+        return request.status == .applied
       }
-      state.request = request
-      return request.status == .applied
+      try? FileManager.default.removeItem(at: owner.appendingPathComponent(id.uuidString + ".ndjson"))
+      return applied
     }
-    try? FileManager.default.removeItem(at: root().appendingPathComponent(id.uuidString + ".ndjson"))
-    return applied
   }
   func cancel(accountID: String) throws {
     for attempt in 0..<40 {

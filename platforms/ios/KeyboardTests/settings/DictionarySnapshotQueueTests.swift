@@ -323,4 +323,47 @@ final class DictionarySnapshotQueueTests: XCTestCase {
       XCTAssertThrowsError(try queue.acquireWorkerLease())
     }
   }
+
+  func testReleasedWorkerLeaseCannotClaimWhileAnotherWorkerOwnsLock() throws {
+    try fixture { queue, file, hash, _ in
+      let id = try enqueue(queue, file, hash)
+      let released = try queue.acquireWorkerLease()
+      released.release()
+      let current = try queue.acquireWorkerLease()
+      defer { current.release() }
+
+      XCTAssertThrowsError(try queue.claim(using: released)) { error in
+        guard case DictionarySnapshotQueue.Failure.invalid = error else {
+          return XCTFail("unexpected error: \(error)")
+        }
+      }
+      XCTAssertEqual(try queue.read().request?.id, id)
+      XCTAssertEqual(try queue.read().request?.status, .queued)
+      XCTAssertEqual(try queue.claim(using: current)?.id, id)
+    }
+  }
+
+  func testReleasedWorkerLeaseCannotCompleteWhileAnotherWorkerOwnsLock() throws {
+    try fixture { queue, file, hash, _ in
+      let id = try enqueue(queue, file, hash)
+      let released = try queue.acquireWorkerLease()
+      _ = try queue.claim(using: released)
+      released.release()
+      let current = try queue.acquireWorkerLease()
+      defer { current.release() }
+      var applied = false
+
+      XCTAssertThrowsError(try queue.complete(id: id, using: released, currentVersion: first,
+        alreadyApplied: false) {
+          applied = true
+          return first
+        }) { error in
+          guard case DictionarySnapshotQueue.Failure.invalid = error else {
+            return XCTFail("unexpected error: \(error)")
+          }
+        }
+      XCTAssertFalse(applied)
+      XCTAssertEqual(try queue.read().request?.status, .preparing)
+    }
+  }
 }
