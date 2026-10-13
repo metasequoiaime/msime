@@ -27,7 +27,7 @@ struct DeveloperOptionsView: View {
       VStack(spacing: 28) {
         DesignGroup(title: "调试", footer: logSaveFailed ? SettingsSaveFailure.message : nil) {
           DesignToggleRow(title: "记录输入日志", subtitle: "仅保存在本机，不会上传",
-                          isOn: Binding(get: { logEnabled }, set: saveLog))
+                          isOn: logBinding)
             .accessibilityIdentifier("developerDiagnosticLogToggle")
           DesignDivider()
           NavigationLink(destination: DiagnosticLogSettingsView()) {
@@ -77,14 +77,11 @@ struct DeveloperOptionsView: View {
   }
 
   /// 与 `DiagnosticLogSettingsView` 写的是同一处：共享文档里的 `diagnostic_log.server`，键盘下次出现时读到。
-  private func saveLog(_ value: Bool) {
-    logEnabled = value
-    logSaveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
-      var diagnostic = $0["diagnostic_log"] as? [String: Any] ?? [:]
-      diagnostic["server"] = value
-      $0["diagnostic_log"] = diagnostic
+  private var logBinding: Binding<Bool> {
+    SharedPreferenceBinding.nested("diagnostic_log", key: "server", state: $logEnabled) { saved in
+      logSaveFailed = !saved
+      if !saved { reload() }
     }
-    if logSaveFailed { reload() }
   }
 
   private func reload() {
