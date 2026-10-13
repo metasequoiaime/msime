@@ -71,7 +71,7 @@ struct DesktopDownloadView: View {
         .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 2) {
         Text("在电脑上打开").font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
-        Text(Self.downloadLabel).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+        Text(Self.downloadLabel).designSubtext()
       }
       .accessibilityElement(children: .combine)
       Spacer(minLength: 8)
@@ -256,7 +256,7 @@ struct AboutView: View {
     VStack(spacing: 0) {
       AppMarkDisc(diameter: 116, markSize: 64)
       Text("水杉输入法").font(.system(size: 22, weight: .bold)).padding(.top, 16)
-      Text(version).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+      Text(version).designSubtext()
         .padding(.top, 6)
         .accessibilityIdentifier("aboutAppVersion")
       if !unlisted {
@@ -362,7 +362,7 @@ struct LicensesView: View {
           }
         }
         Text("水杉输入法本身以开源许可发布，源代码见关于页的 GitHub。")
-          .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+          .designSubtext()
           .fixedSize(horizontal: false, vertical: true)
           .padding(.horizontal, 16)
       }

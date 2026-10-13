@@ -152,7 +152,7 @@ struct CloudClipboardView: View {
             .accessibilityIdentifier("cloudClipboardOwnCode")
         }
         Text("在一台已经能使用云剪贴板的设备上打开云剪贴板，确认那里显示的核对码与上面相同，再点「允许」。批准后点「刷新」即可读取和上传。")
-          .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+          .designSubtext()
           .fixedSize(horizontal: false, vertical: true)
         HStack {
           Button("刷新") { run { _ in nil } }
@@ -339,7 +339,7 @@ struct CloudClipboardView: View {
     VStack(spacing: 6) {
       if search.isEmpty {
         Text("还没有同步内容").font(.system(size: 15)).foregroundStyle(.primary)
-        Text("在任一设备上复制文字，这里就会出现").font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+        Text("在任一设备上复制文字，这里就会出现").designSubtext()
       } else {
         Text("没有匹配「\(search)」的内容").font(.system(size: 15)).foregroundStyle(MetasequoiaTheme.sub)
       }

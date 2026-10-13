@@ -152,7 +152,7 @@ struct CandidateOptionsSettingsView: View {
   }
 
   private func detail(_ text: String) -> some View {
-    Text(text).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+    Text(text).designSubtext()
   }
 
   /// 带标题、说明行、当前值和步进器的一行，布局同 DesignKit 的行。

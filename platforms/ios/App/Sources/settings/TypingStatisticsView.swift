@@ -226,7 +226,7 @@ struct TypingStatisticsView: View {
     VStack(alignment: .leading, spacing: 22) {
       VStack(alignment: .leading, spacing: 18) {
         VStack(alignment: .leading, spacing: 4) {
-          Text("近 7 天共输入").font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+          Text("近 7 天共输入").designSubtext()
           HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(TypingSummaryText.grouped(overview.weekTotal))
               .font(.system(size: 40, weight: .bold)).monospacedDigit().tracking(-0.8)

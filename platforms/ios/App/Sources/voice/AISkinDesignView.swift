@@ -229,7 +229,7 @@ struct AISkinDesignView: View {
     let theme = previewTheme
     let colors = [theme.background, theme.keyBackground, theme.functionKeyBackground, theme.keyForeground, theme.actionBackground]
     return HStack(spacing: 8) {
-      Text("配色").font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+      Text("配色").designSubtext()
       HStack(spacing: 6) {
         ForEach(colors.indices, id: \.self) { index in
           Circle()

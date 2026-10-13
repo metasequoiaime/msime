@@ -128,7 +128,7 @@ struct WelcomeFlowView: View {
           HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
               Text(choice.title).font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
-              Text(choice.detail).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+              Text(choice.detail).designSubtext()
             }
             Spacer()
             radio(selected: scheme == choice.scheme)

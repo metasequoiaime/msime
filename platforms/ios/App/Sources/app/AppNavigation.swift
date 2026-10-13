@@ -147,7 +147,7 @@ struct AccountLoginOptions: View {
         ProgressView().frame(maxWidth: .infinity, minHeight: 50)
       } else if !offersAny {
         Text(model.message ?? "暂时没有可用的登录方式，请稍后重试。")
-          .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+          .designSubtext()
           .fixedSize(horizontal: false, vertical: true)
         Button { pending = Task { await model.prepare() } } label: { Text("刷新登录方式") }
           .buttonStyle(AccountLoginButtonStyle(fill: MetasequoiaTheme.accentSoft, foreground: MetasequoiaTheme.accent))
@@ -176,7 +176,7 @@ struct AccountLoginOptions: View {
           .accessibilityIdentifier("backendCodeLogin_\(CodeLoginChannel.phone.rawValue)")
         }
         if let message = model.message, phoneChannel == nil {
-          Text(message).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+          Text(message).designSubtext()
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .center)
             .multilineTextAlignment(.center)
@@ -267,7 +267,7 @@ struct AccountLoginOptions: View {
   @ViewBuilder private var emailForm: some View {
     if let challenge {
       Text("验证码已发到 \(sentTo)，\(max(1, challenge.expires_in / 60)) 分钟内有效")
-        .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+        .designSubtext()
         .fixedSize(horizontal: false, vertical: true)
       TextField("6 位验证码", text: $code)
         .keyboardType(.numberPad)

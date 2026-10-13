@@ -201,7 +201,7 @@ struct AccountSettingsView: View {
           .font(.system(size: 18, weight: .bold)).foregroundStyle(.primary)
           .lineLimit(1)
         Text(signedIn ? signedInSubtitle : "登录后同步词库、皮肤和设置")
-          .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+          .designSubtext()
           .lineLimit(1)
       }
       Spacer(minLength: 8)

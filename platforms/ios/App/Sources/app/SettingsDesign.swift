@@ -227,7 +227,7 @@ struct KeyboardStatusCard: View {
         AppMarkDisc(diameter: 52, markSize: 30)
         VStack(alignment: .leading, spacing: 2) {
           Text("水杉输入法").font(.system(size: 17, weight: .semibold))
-          Text(scheme.shortLabel).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+          Text(scheme.shortLabel).designSubtext()
             .accessibilityIdentifier("keyboardStatusScheme")
         }
       }

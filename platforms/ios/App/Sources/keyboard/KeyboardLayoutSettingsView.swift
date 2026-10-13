@@ -190,7 +190,7 @@ struct KeyboardLayoutSettingsView: View {
         VStack(alignment: .leading, spacing: 2) {
           Text("中文键盘").font(.system(size: 17)).foregroundStyle(.primary)
           Text(Self.layoutChoices(scheme) == nil ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘")
-            .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+            .designSubtext()
             .fixedSize(horizontal: false, vertical: true)
         }
         Spacer(minLength: 8)
@@ -455,7 +455,7 @@ private struct InlineSliderRow: View {
         .frame(width: widthClass == .regular ? 160 : 110)
         .accessibilityValue(format(value))
         .accessibilityIdentifier(identifier)
-        Text(format(value)).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+        Text(format(value)).designSubtext()
           .monospacedDigit().lineLimit(1).minimumScaleFactor(0.8)
           .frame(width: 46, alignment: .trailing)
           .accessibilityHidden(true)

@@ -91,7 +91,7 @@ struct AccountProfileEditor: View {
             ProfileDangerRow(title: "注销账号", identifier: "deleteAccount") { confirmDeleteAccount = true }
               .disabled(busy)
             Text("注销后，已发布的皮肤、评分和其他云端账号数据会立即删除，无法撤销")
-              .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+              .designSubtext()
               .fixedSize(horizontal: false, vertical: true)
               .padding(.horizontal, 16)
           }
