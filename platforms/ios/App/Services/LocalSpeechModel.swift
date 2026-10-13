@@ -289,10 +289,8 @@ enum LocalSpeechModelLocation {
     guard !rejectsSymlinkAncestors(root) else { throw CocoaError(.fileWriteNoPermission) }
     try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
     guard !rejectsSymlinkAncestors(root) else { throw CocoaError(.fileWriteNoPermission) }
-    // Hundreds of megabytes that can be downloaded again do not belong in a device backup.
-    var values = URLResourceValues()
-    values.isExcludedFromBackup = true
-    try? root.setResourceValues(values)
+    // 可重新下载的模型可能占用数百 MB，无需写入设备备份。
+    IOSSharedPaths.excludeFromBackup(root, fileManager: fileManager)
     return root
   }
 

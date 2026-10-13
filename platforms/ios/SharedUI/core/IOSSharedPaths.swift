@@ -11,9 +11,10 @@ enum IOSSharedPaths {
     .completeFileProtectionUntilFirstUserAuthentication,
   ]
 
-  /// Excludes an existing shared-storage path from device backups.
-  static func excludeFromBackup(_ path: URL) {
-    guard FileManager.default.fileExists(atPath: path.path) else { return }
+  /// 将已存在的 iOS 数据目录排除在设备备份之外。
+  static func excludeFromBackup(_ path: URL, fileManager: FileManager = .default) {
+    guard fileManager.fileExists(atPath: path.path) else { return }
+    var path = path
     var values = URLResourceValues()
     values.isExcludedFromBackup = true
     try? path.setResourceValues(values)
