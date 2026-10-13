@@ -19,7 +19,7 @@ public final class ms_w2_kb_ViewLogicSmoke {
     private static boolean near(float a, float b) { return Math.abs(a - b) < 1e-3f; }
 
     public static void main(String[] args) {
-        // 功能面板：4×2 分页，P25 的 20 格分三页。
+        // 皮肤等面板仍使用四列两行网格，20 格分三页。
         int perPage = PagedTileGrid.perPage(4, 2);
         check(perPage == 8, "4x2 grid holds eight tiles");
         check(PagedTileGrid.pageCount(20, perPage) == 3, "twenty tiles span three pages");

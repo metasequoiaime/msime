@@ -13,12 +13,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 功能面板（新设计的菜单，plan P25）：三页 4×2 的条目加页点，条目见 {@link FunctionPanelModel}。本地输入与「AI 回复与润色」各有一个子页。条目不可用时的外观由服务的 applyToolCardState 决定。
+ * 功能菜单：四列三行，常用操作在前、其他工具在后，过滤顶部已有的入口；条目见 {@link FunctionPanelModel}。本地输入与「AI 回复与润色」各有一个子页。
  *
- * <p>旧面板「开启态卡片渲染成深色块」的根因：开启的 TILE 卡片底色是 accentSoft（自定义皮肤里是 accent 加 0x24 透明度），经 `KeyboardSkinKeyDrawable` 绘制时选中卡片按 action 处理，`paint.setAlpha(opacity)` 把颜色自带的 0x24 透明度覆盖成 255，底色变成实心 accent，而文字 accentText 也是 accent，于是成了一块看不见字的深色块。新面板的条目不画底色（FunctionPanelView 挡掉样式通道给的键帽），开启态只用 accent 字形、加粗标签和 ✓ 角标表示。
+ * <p>旧面板「开启态卡片渲染成深色块」的根因：开启的 TILE 卡片底色是 accentSoft（自定义皮肤里是 accent 加 0x24 透明度），经 `KeyboardSkinKeyDrawable` 绘制时选中卡片按 action 处理，`paint.setAlpha(opacity)` 把颜色自带的 0x24 透明度覆盖成 255，底色变成实心 accent，而文字 accentText 也是 accent，于是成了一块看不见字的深色块。面板条目不画底色（FunctionPanelView 挡掉样式通道给的键帽），开启态用强调色和勾标表示。
  */
 final class ImeFunctionPanel {
     private final MSIMEInputService s;
+    /** 菜单仍打开且入口没有变化时复用磁贴，避免每次键盘刷新都闪一下。 */
+    private java.util.List<FunctionPanelModel.Id> renderedItemIds = java.util.List.of();
 
     ImeFunctionPanel(MSIMEInputService s) {
         this.s = s;
@@ -99,14 +101,29 @@ final class ImeFunctionPanel {
         if (s.functionPanel == null) s.functionPanel = new FunctionPanelView(s);
         FunctionPanelView panel = s.functionPanel;
         if (panel.getParent() instanceof LinearLayout parent) parent.removeView(panel);
-        int itemCapacity = FunctionPanelModel.items().size();
-        List<FunctionPanelView.Entry> entries = new ArrayList<>(itemCapacity);
-        List<FunctionPanelView.State> states = new ArrayList<>(itemCapacity);
-        List<Boolean> enabled = new ArrayList<>(itemCapacity);
-        for (FunctionPanelModel.Item item : FunctionPanelModel.items()) {
+        java.util.Set<FunctionPanelModel.Id> hiddenItems = java.util.EnumSet.noneOf(FunctionPanelModel.Id.class);
+        if (!s.toolbarHidden) {
+            if (s.toolbarEmoji) hiddenItems.add(FunctionPanelModel.Id.EMOJI);
+            if (s.toolbarClipboard) hiddenItems.add(FunctionPanelModel.Id.CLIPBOARD);
+            if (s.toolbarFloating) hiddenItems.add(FunctionPanelModel.Id.FLOATING);
+            if (s.toolbarTextEdit) hiddenItems.add(FunctionPanelModel.Id.TEXT_EDIT);
+        }
+        if (!s.hasPendingVoiceResult()) hiddenItems.add(FunctionPanelModel.Id.VOICE_RESULT);
+        List<FunctionPanelModel.Item> visibleItems = FunctionPanelModel.itemsExcept(hiddenItems);
+        java.util.ArrayList<FunctionPanelModel.Id> itemIds = new java.util.ArrayList<>(visibleItems.size());
+        for (FunctionPanelModel.Item item : visibleItems) itemIds.add(item.id());
+        boolean entriesChanged = !itemIds.equals(renderedItemIds);
+        List<FunctionPanelView.Entry> entries = new ArrayList<>(visibleItems.size());
+        List<FunctionPanelView.State> states = new ArrayList<>(visibleItems.size());
+        List<Boolean> enabled = new ArrayList<>(visibleItems.size());
+        for (FunctionPanelModel.Item item : visibleItems) {
             addEntry(item, entries, states, enabled);
         }
-        panel.setEntries(entries);
+        if (entriesChanged) {
+            panel.setEntries(entries);
+            renderedItemIds = List.copyOf(itemIds);
+        }
+        // setEntries 只在入口集合变化时调用；这样开关状态更新不会摘掉正在按压的磁贴。
         for (int index = 0; index < entries.size(); index++) {
             Button tile = panel.entryView(index);
             boolean on = enabled.get(index);
@@ -183,17 +200,17 @@ final class ImeFunctionPanel {
                     renderMoreTools();
                 }, null),
                 FunctionPanelView.State.NONE, s.supportsLocalTools());
-            case VOICE_RESULT -> add(entries, states, enabled,
-                icon(item, KeyboardIconPaths.Icon.VOICE_RESULT, () -> {
-                    s.closeMoreTools();
-                    s.showVoiceResult();
-                }, null),
-                FunctionPanelView.State.NONE, true);
             case VIBRATION_STRENGTH -> add(entries, states, enabled,
                 FunctionPanelView.Entry.icon(item.label() + " " + s.hapticStrengthTitle(),
                     item.description(), KeyboardIconPaths.Icon.VIBRATION_STRENGTH,
                     played(s::cycleHapticStrength), null),
                 FunctionPanelView.State.NONE, s.hapticsEnabled);
+            case VOICE_RESULT -> add(entries, states, enabled,
+                icon(item, KeyboardIconPaths.Icon.VOICE_RESULT, () -> {
+                    s.closeMoreTools();
+                    s.showVoiceResult();
+                }, null),
+                FunctionPanelView.State.NONE, s.voiceInsertionReady());
             case EMOJI -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.KEY_EMOJI, () -> {
                     s.closeMoreTools();

@@ -1718,6 +1718,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void stop(boolean finish) {
+        stop(finish, false);
+    }
+
+    /** 停止并重启输入会话时保留已打开的功能菜单，避免隐私开关切换时闪退式收起再弹出。 */
+    private void stop(boolean finish, boolean keepMoreTools) {
         pendingEngineStartup = -1;
         // Rebuilding the Engine (including an in-place privacy-mode restart) invalidates any
         // clipboard image copy still running on the worker. Its completion must not submit an
@@ -1768,7 +1773,21 @@ public final class MSIMEInputService extends InputMethodService {
         view = null;
         closeCandidatePanel();
         // 换编辑器时不让任何工具栏面板（含常用语）活下来，理由同 finishInputViewPresentation。
-        closeToolbarPanels();
+        if (keepMoreTools) {
+            closeEmojiPicker();
+            closeCommonPhrases();
+            closeClipboardHistory();
+            closeSkinPicker();
+            closeSchemePicker();
+            closeSymbolPanel();
+            closeAiPolish();
+            closeVoiceResult();
+            closeLayoutSettings();
+            closeReplyKeyboard();
+            imeTextEditPanel.close();
+        } else {
+            closeToolbarPanels();
+        }
     }
 
     /**
@@ -5746,6 +5765,13 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
+    /** 只有待插入的识别文字仍有效时才提供菜单入口，不把空结果页当常驻工具。 */
+    boolean hasPendingVoiceResult() {
+        if (voiceResultStore == null) return false;
+        try { return voiceResultStore.read(System.currentTimeMillis()) != null; }
+        catch (VoiceResultStore.Failure ignored) { return false; }
+    }
+
     void showVoiceResult() {
         if (!voiceInsertionReady()) {
             notice("请先完成当前输入，再插入语音结果");
@@ -8127,7 +8153,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void toggleIncognito() {
-        saveLocalPanelSetting("隐私模式", AndroidLocalSettings.INCOGNITO, !incognitoEnabled);
+        saveLocalPanelSetting("无痕输入", AndroidLocalSettings.INCOGNITO, !incognitoEnabled);
     }
 
     /** 功能面板「浮动键盘」与工具栏的浮动键盘按钮：切换浮动 / 停靠。 */
@@ -8513,9 +8539,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (connection != null && view != null && !InputViewValuePolicy.editingText(view).isEmpty())
             command(FINISH_COMPOSITION_COMMAND);
         boolean panelOpen = ViewPolicy.isVisible(moreToolsScroll);
-        stop(false);
-        // stop 会收起所有面板；用户是在功能面板上点的隐私，面板应该留在原处。
-        if (panelOpen) imePanels.showFeedbackMenu();
+        stop(false, panelOpen);
         try {
             JSONObject options = new JSONObject(runtimeOptionsBase);
             if (learningSuppressed()) options.getJSONObject("preferences").put("learning", false);

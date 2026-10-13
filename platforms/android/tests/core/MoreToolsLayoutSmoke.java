@@ -27,8 +27,8 @@ public final class MoreToolsLayoutSmoke {
         check("♪".equals(MoreToolsLayout.icon("按键音")), "sound icon");
         check("⚙".equals(MoreToolsLayout.icon("应用设置")), "client app entry icon");
         check("⌨".equals(MoreToolsLayout.icon("未知工具")), "fallback icon");
-        check(MoreToolsLayout.PAGE_COLUMNS == 4 && MoreToolsLayout.PAGE_ROWS == 2, "4×2 pages");
-        check(MoreToolsLayout.pageCount() == 3, "P25 has three pages");
+        check(MoreToolsLayout.PAGE_COLUMNS == 4 && MoreToolsLayout.PAGE_ROWS == 3, "4×3 pages");
+        check(MoreToolsLayout.pageCount() == 2, "function menu has two pages");
         check("✦".equals(MoreToolsLayout.icon("AI 回复与润色")), "merged AI tile icon");
         check("≈".equals(MoreToolsLayout.icon("模糊音")) && "繁".equals(MoreToolsLayout.icon("繁体")),
             "page one icons");

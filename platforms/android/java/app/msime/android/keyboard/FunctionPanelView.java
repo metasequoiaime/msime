@@ -22,9 +22,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 功能面板（设计的「菜单」）：横向分页、每页 4 列 × 2 行的条目，下方页点。
+ * 功能菜单：横向分页、每页四列三行的条目，下方页点。
  *
- * <p>条目没有底色：30 dp 的图标区加 12.5 sp 的标签，间距 7 dp，条目高 52 dp。字形条目（全、，、≈、繁）画 26×26、圆角 5、1.8 dp 描边的方框加 14 sp 粗体字。开启状态用 accent、标签加粗，图标右下角加 13 dp 的 accent ✓ 角标（2 dp 的 kbBg 圆环）。
+ * <p>条目没有底色：30 dp 图标区与常规字重标签，间距 7 dp，条目高 52 dp。字形条目画方框。开启状态用强调色和图标右下角的勾标表达。
  *
  * <p>这个视图**不设置 alpha**：不可用状态的视觉由调用方经 SVC 的 `applyToolCardState` 处理，这里只把状态写进 stateDescription（已开启 / 已关闭 / 不可用）和 `isSelected()`。颜色全部由调用方从皮肤传入。
  */
@@ -79,7 +79,7 @@ public final class FunctionPanelView extends LinearLayout {
         setContentDescription("更多工具");
         LayoutPolicy.setPaddingDp(this, context, 0, 10, 0, 4);
         grid = new PagedTileGrid(context);
-        grid.setGrid(4, 2);
+        grid.setGrid(FunctionPanelModel.COLUMNS, FunctionPanelModel.ROWS);
         grid.setSpacing(ITEM_HEIGHT_DP, 16f, 4f, 4f);
         dots = new KeyboardPagerDots(context);
         grid.setOnPageChangeListener((page, count) -> dots.setActive(page, true));
@@ -202,9 +202,9 @@ public final class FunctionPanelView extends LinearLayout {
             if (changed) invalidate();
         }
 
-        private void configureLabelPaint(boolean on) {
+        private void configureLabelPaint() {
             ViewPolicy.setTextSize(textPaint, KeyboardTypographyPolicy.keySp(getContext(), LABEL_SP));
-            ViewPolicy.setTypeface(textPaint, on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+            ViewPolicy.setTypeface(textPaint, Typeface.DEFAULT);
         }
 
         @Override protected void onDraw(Canvas canvas) {
@@ -212,7 +212,7 @@ public final class FunctionPanelView extends LinearLayout {
             int color = on ? panel.accent : panel.foreground;
             if (isPressed()) color = ColorPolicy.withAlpha(color,
                 Color.alpha(color) * PRESSED_ALPHA / 255);
-            configureLabelPaint(on);
+            configureLabelPaint();
             Paint.FontMetrics label = textPaint.getFontMetrics();
             float labelHeight = label.descent - label.ascent;
             float area = DimensionPolicy.floatPixels(getContext(), ICON_AREA_DP);
@@ -241,7 +241,7 @@ public final class FunctionPanelView extends LinearLayout {
                     iconCenterY - (metrics.ascent + metrics.descent) / 2f, glyph);
                 iconRight = centerX + box / 2f;
                 iconBottom = iconCenterY + box / 2f;
-                configureLabelPaint(on);
+                configureLabelPaint();
             } else {
                 float size = DimensionPolicy.floatPixels(getContext(), ICON_DP);
                 if (entry.icon != null) {

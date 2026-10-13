@@ -492,9 +492,9 @@ public class DeviceSmoke extends Instrumentation {
     }
 
     /**
-     * Page the function panel until the tile described `description` is on screen.
+     * 翻功能菜单，直到描述为 `description` 的条目出现在屏幕上。
      *
-     * <p>The panel is three pages of 4 × 2 tiles; the grid (the panel's only scrollable child) exposes the forward and backward scroll actions, so this walks forward to the last page and back again rather than assuming which page holds a tile.
+     * <p>功能菜单最多两页，每页四列三行；唯一可滚动的网格提供前后翻页动作，因此遍历到末页再返回，不假设条目的固定页码。
      */
     protected AccessibilityNodeInfo showTool(String description) throws java.util.concurrent.TimeoutException {
         for (int attempt = 0; attempt < 6; attempt++) {
