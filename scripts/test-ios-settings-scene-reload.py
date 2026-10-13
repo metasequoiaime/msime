@@ -44,6 +44,17 @@ class SettingsSceneReloadContract(unittest.TestCase):
             self.assertIn(".reloadOnAppearAndActive(reload, onAppear: { request.appear() })", source, path.name)
             self.assertNotIn("@Environment(\\.scenePhase)", source, path.name)
 
+    def test_appearance_and_layout_pages_use_shared_reload_modifier(self):
+        for name, reload in (
+            ("SkinAppearanceSettingsView.swift", "reloadThemes"),
+            ("KeyboardLayoutSettingsView.swift", "readPreferences"),
+        ):
+            folder = "keyboard" if name.startswith("Keyboard") else "settings"
+            path = ROOT / "platforms/ios/App/Sources" / folder / name
+            source = path.read_text()
+            self.assertIn(f".reloadOnAppearAndActive({reload})", source, name)
+            self.assertNotIn("@Environment(\\.scenePhase)", source, name)
+
 
 if __name__ == "__main__":
     unittest.main()
