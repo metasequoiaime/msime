@@ -58,7 +58,11 @@ final class VoiceTextHandoffTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: file), malformed)
     try Data(repeating: 32, count: 256 * 1024 + 1).write(to: file)
     XCTAssertThrowsError(try store.read())
-    XCTAssertThrowsError(try VoiceTextHandoffStore.readBounded(file))
+    XCTAssertThrowsError(try VoiceTextHandoffStore.readBounded(file)) { error in
+      guard case VoiceTextHandoffStore.Failure.invalid = error else {
+        return XCTFail("过大的语音结果应映射为 invalid")
+      }
+    }
     // A deliberate new transfer recovers the transport without retaining corrupt content.
     let replacement = try store.save("recovery fixture")
     XCTAssertEqual(try store.read(), replacement)

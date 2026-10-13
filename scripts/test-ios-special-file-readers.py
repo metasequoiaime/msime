@@ -24,7 +24,7 @@ CHECKS = (
         ROOT / "platforms/ios/SharedUI/voice/VoiceTextHandoffStore.swift",
         "static func readBounded(_ file: URL)",
         "  }\n\n  func read(now:",
-        ("O_NONBLOCK", "fstat", "S_IFREG"),
+        ("BoundedFileReader.read(from: file, maximumBytes: Self.maximumBytes)",),
     ),
     (
         ROOT / "platforms/ios/SharedUI/dictionary/DictionarySnapshotQueue.swift",
