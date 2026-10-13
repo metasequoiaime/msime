@@ -7551,3 +7551,35 @@ fn a_cloud_answer_does_not_move_the_ai_seat() {
         ["你", "云", "智一", "拟", "妮", "倪", "智二"]
     );
 }
+
+#[test]
+fn first_page_rows_reaches_the_dictionary_through_the_session_options() {
+    // 首页行数从会话选项一路走到词库：默认 6 下 6 条精确同音词就不再并入补全词，设成 8 后照旧并入。
+    // 词库级测试直接调 `set_first_page_rows`，这条钉住的是 `SessionOptions` → 请求 → 引擎这段接线。
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_q(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+         INSERT INTO tbl_2_q VALUES('qi''shi','qs','其实',500);\
+         INSERT INTO tbl_2_q VALUES('qi''shi','qs','歧视',400);\
+         INSERT INTO tbl_2_q VALUES('qi''shi','qs','岂是',300);\
+         INSERT INTO tbl_2_q VALUES('qi''shi','qs','气势',200);\
+         INSERT INTO tbl_2_q VALUES('qi''shi','qs','启示',100);\
+         INSERT INTO tbl_2_q VALUES('qi''shi','qs','骑士',90);\
+         CREATE TABLE tbl_5_q(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+         INSERT INTO tbl_5_q VALUES('qi''shi''ye''dan''wei','qsydw','企事业单位',600);",
+    );
+    let mut narrow = fixture.session();
+    type_text(&mut narrow, "qishi");
+    assert!(
+        !words(&narrow).iter().any(|word| word == "企事业单位"),
+        "每页 6 行时不该并入补全词: {:?}",
+        words(&narrow)
+    );
+
+    let mut wide = fixture.session_with(|options| options.first_page_rows = 8);
+    type_text(&mut wide, "qishi");
+    assert!(
+        words(&wide).iter().any(|word| word == "企事业单位"),
+        "每页 8 行时补全词应照旧并入: {:?}",
+        words(&wide)
+    );
+}

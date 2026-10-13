@@ -117,7 +117,7 @@ pub struct EngineOptions {
     pub rescoring_context: String,
     /// Ask for every whole-sentence reading; the runtime reorders and crops them.
     pub sentence_alternatives: bool,
-    /// 宿主的每页候选数（`SessionOptions::first_page_rows`）：全长组的精确同音词够这么多行就不再并入补全词。
+    /// 宿主的每页候选数（`SessionOptions::first_page_rows`）：全长组的精确同音词够这么多行就不再并入补全词。0 到请求里会归一成 1。
     pub first_page_rows: usize,
     /// 只出单字（`SessionOptions::single_character_only`）。
     pub single_character_only: bool,

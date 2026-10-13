@@ -39,6 +39,7 @@ Status: implemented
 ## Verification
 
 - `crates/engine/src/quanpin/dictionary/tests.rs` 新增三个合成夹具测试：`exact_rows_filling_a_page_drop_the_longer_phrases`（6 条精确同音词 + 一个更重的补全词，补全词不入，前六位是精确行）；`longer_phrases_are_capped_when_the_exact_table_is_short`（精确两条 + 五条补全词，补全词只留 3 条，前五位是 法办 发版 发版号 发版支持 发版要求）；`a_larger_first_page_rows_keeps_the_longer_phrases`（6 条精确词，`set_first_page_rows(8)` 后补全词照旧并入）。前两个在改动前失败。
+- `crates/engine/src/session/tests.rs` 新增 `first_page_rows_reaches_the_dictionary_through_the_session_options`：同一夹具在默认 6 下不出补全词、`first_page_rows = 8` 时出；删掉 `session/input.rs` 里那行接线它会变红，钉住 `SessionOptions` → 请求 → 引擎这段通路。
 - `cargo test -p msime-engine --lib quanpin::dictionary::tests`：54 passed；`cargo test -p msime-engine --test golden`：31 passed（脚本场景仍与参考实现逐位一致）。
 - `cargo check -p msime-engine --lib --tests`、`-p msime-host-api --lib --tests`、`-p msime-input-runtime --lib`、`-p msime-engine-wasm` 全部通过。
 - Windows 上 `cargo test -p msime-engine --lib` 有 17 个失败（`handwriting`/`japanese`/`paths`/`dictionary::hanzi` 计时/`session` 分配计数等），在改动前的 commit 上同样失败；`cargo test -p msime-input-runtime --lib --tests` 在 Windows 上编不过（`#[cfg(unix)]` 的辅助函数被非 unix 测试引用），同样是既有问题。两者都不是本改动引入的。

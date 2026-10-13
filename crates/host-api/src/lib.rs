@@ -549,6 +549,7 @@ impl HostSession {
     fn apply_pending(&mut self) -> Result<Option<String>, String> {
         if self.runtime.is_idle() {
             if let Some(size) = self.page_size_override {
+                // 这里只改分页。引擎的首屏门槛（`first_page_rows`）要等下面那次重建才跟随，override 自身的变化不触发重建（今天也没有宿主入口写它，见 `ffi/session.rs` 的初始化）。
                 self.runtime
                     .set_page_size(host_page_size(size))
                     .map_err(|e| e.to_string())?;
@@ -1562,6 +1563,7 @@ impl HostOptions {
             user_data: self.user_data,
             cache: self.cache,
             dictionaries: self.dictionaries,
+            // 词库维护类操作也走这里：`HostOptions` 没有 `page_size_override`，只能用偏好值。
             first_page_rows: usize::from(host_page_size(self.preferences.candidate_page_size)),
             scheme: scheme_code(scheme),
             enabled_schemes: engine_schemes(edition),
