@@ -75,3 +75,36 @@ test("turning the Shift+letter master switch off keeps every mode switch as it w
   const command = screen.getByRole("switch", { name: /\/ 模式/ });
   expect((command as HTMLInputElement).disabled).toBe(false);
 });
+
+test("拆字反查缺键时桌面读作关、触屏读作开，切换后写回明确的布尔", () => {
+  const onChange = vi.fn();
+  const { rerender } = render(
+    <LocalModesSection preferences={preferences} ios={false} shiftLetterEntrySwitch onChange={onChange} />,
+  );
+  // 桌面宿主（显示总开关的那三个）缺键读作关，和 host-api 在桌面构建里的缺省一致。
+  const desktop = screen.getByRole("switch", { name: /^拆字反查/ });
+  expect((desktop as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(desktop);
+  expect(onChange).toHaveBeenLastCalledWith({ ...preferences, chaizi: true });
+
+  // 总开关关掉时拆字和其他 Shift+字母模式一样置灰，值保留。
+  rerender(
+    <LocalModesSection
+      preferences={{ ...preferences, shift_letter_entry: false, chaizi: true }}
+      ios={false}
+      shiftLetterEntrySwitch
+      onChange={onChange}
+    />,
+  );
+  const disabled = screen.getByRole("switch", { name: /^拆字反查/ });
+  expect((disabled as HTMLInputElement).checked).toBe(true);
+  expect((disabled as HTMLInputElement).disabled).toBe(true);
+
+  // 触屏宿主不显示总开关，缺键读作开；关掉时写回明确的 false。
+  rerender(<LocalModesSection preferences={preferences} ios onChange={onChange} />);
+  const touch = screen.getByRole("switch", { name: /^拆字反查/ });
+  expect((touch as HTMLInputElement).checked).toBe(true);
+  expect(screen.getByText(/「更多 → 本地输入」里选「拆字」/)).toBeTruthy();
+  fireEvent.click(touch);
+  expect(onChange).toHaveBeenLastCalledWith({ ...preferences, chaizi: false });
+});

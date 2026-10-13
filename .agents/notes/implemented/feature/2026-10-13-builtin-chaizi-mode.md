@@ -23,6 +23,7 @@ Status: implemented
 - `spelling_symbols` 为空：数字照常选词，`'` 由 runtime 先问 `takes_local_separator`。
 - 偏好键 `local_modes.chaizi`：缺键读作「由宿主形态决定」。触屏宿主把缺键读作开，和它们对其他本地模式的读法一致；桌面宿主的原生设置界面要把缺键读作关，开关写回明确的布尔值；共享设置页的 `defaultLocalModes` 不放这个键。
 - 脚本插件 ABI：`LOCAL_MODE` 表加 `("chaizi", 13)`，SDK 的 `MSIME_LOCAL_MODE_CHAIZI` 与 `local_mode::CHAIZI` 同步。
+- 桌面宿主（macOS、Windows、Linux）的开关：macOS `AppearancePreferences.mm` 的 `localModeEnabled`、Windows 设置窗口的 `default_on = false`、Linux 的 `local_mode_enabled_by_default`、共享设置页的 `chaizi ?? !shiftLetterEntrySwitch` 都把缺键读作关。macOS 账号同步的总布尔 `platform.macos.local_input_modes` 不包含拆字（`MSIMECloudLocalModeKeys`）：默认关的键放进去，会让没动过开关的新用户导出假，导入时也会把拆字和其他模式一起开关。按键路由都不改，`'` 在 IBus 和 Windows 的本地模式里走标点路由，经 `takes_local_separator` 当分隔符，Fcitx5 在组字中直接当字符。三个桌面宿主的声明渠道都带上了许可证文件。
 
 ## Alternatives considered
 
@@ -55,4 +56,5 @@ Status: implemented
 - `python3 scripts/build_chaizi_table.py --check`：两张表与锁定输入的生成结果逐字节一致（缓存里没有输入时 skip，设 `MSIME_FETCH=1` 下载）。
 - `python3 scripts/test-chaizi-table.py`：表的不变量、样例（焱、好、李、拆）、锁与许可证一致、`NOTICE_CHANNELS` 里的渠道都列出许可证。
 - `cargo test -p msime-engine`：`local::chaizi::tests`（匹配、分隔符、ü 写 v、nue/lue、前缀补全、排序、上限、大写、繁体去重、双拼）、`session::tests::chaizi_*`（入口与方案门控、默认关、读音注释、不学习、回车原文、`'` 的两条路、光标处插入、`CPU`/`Chen`/`Cpan` 只有原样行）、`host::tests::chaizi_*`（快照不补辅助码、选项映射）。
+- 桌面宿主：macOS `local-mode-preferences`（缺键读作关、Shift+C 交还应用、打开后选出焱）、`cloud-appearance-settings`、`bundle-contents`；Windows `windows-session-smoke --local-modes`（`'` 走标点路由仍作分隔符）；Linux `linux-spelling-symbols`、`linux-candidate-local-mode-labels`、Fcitx5 选项组项数，以及要锁定词库的 `ibus-engine-smoke --chaizi`（`ctest -R ibus-chaizi`）与 Fcitx5 原生测试 `--local-modes` 里的拆字用例；共享设置页 `local-modes-section.test.tsx`。
 - `cargo test -p msime-host-api`：`chaizi_follows_the_host_form_until_the_user_flips_it`（桌面构建下缺键不进模式、`Some(true)` 进入、繁体输出去重、`Some(false)` 不进）、`chaizi_traditional_forms_match_the_shared_conversion`（表里每个字的繁体列等于 client-core 的 `simplified_to_traditional`）。

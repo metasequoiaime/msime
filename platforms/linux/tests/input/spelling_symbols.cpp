@@ -124,11 +124,11 @@ int main() {
   assert(!spelling_symbol(expression, U'·'));
   assert(!spelling_symbol(Json{{"spelling_symbols", std::string("0\x01", 2)}}, 1));
 
-  // The status menus read a missing switch as its client-core default: the plugin modes are off.
+  // The status menus read a missing switch as its client-core default: the plugin modes are off, and so is 拆字反查 on the desktop.
   using msime::linux_host::local_mode_enabled_by_default;
   for (const char *mode : {"unicode", "date_time", "quick_phrase", "emoji", "kaomoji",
                            "super_jianpin", "temporary_english", "temporary_japanese"})
     assert(local_mode_enabled_by_default(mode));
-  for (const char *mode : {"expression", "command", "mention"})
+  for (const char *mode : {"expression", "command", "mention", "chaizi"})
     assert(!local_mode_enabled_by_default(mode));
 }

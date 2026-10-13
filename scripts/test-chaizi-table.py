@@ -34,10 +34,22 @@ LICENCE_PHRASES = (
 )
 # 每个渠道都要在非注释行写出许可证文件名。
 NOTICE_CHANNELS = {
+    "platforms/windows/Collect-Notices.ps1": "Windows: the notice collection the installer ships",
+    "platforms/windows/tests/tools/collect_notices.ps1": "Windows: the collection test's synthetic notice list",
+    "platforms/macos/CMakeLists.txt": "macOS: the input method bundle's Resources/Licenses",
+    "platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt": "macOS: the notice overview",
+    "platforms/macos/tests/settings/bundle_contents.py": "macOS: the built bundle check",
+    "platforms/linux/CMakeLists.txt": "Linux: the installed notices",
+    "platforms/linux/data/THIRD_PARTY_NOTICES.txt": "Linux: the notice overview",
     "docs/third-party.md": "the repository's third-party index",
 }
 # 总览写明每份文本覆盖什么，所以还要写出固定提交。
-OVERVIEWS = ("docs/third-party.md",)
+OVERVIEWS = (
+    "platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt",
+    "platforms/linux/data/THIRD_PARTY_NOTICES.txt",
+    "platforms/windows/Collect-Notices.ps1",
+    "docs/third-party.md",
+)
 # 每个样例键的第一行（按名次）必须是这个字。
 SAMPLES = {
     "huo'huo'huo": "焱",
