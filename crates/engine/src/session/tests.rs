@@ -16,6 +16,7 @@ use crate::types::{
     LocalInputMode, SchemeKey, SchemeSet, SchemeType, ShuangpinProfileKind,
     DEFAULT_FIRST_PAGE_ROWS,
 };
+use crate::user_dictionary::ngram_store::flush_all;
 use crate::KeyGrid;
 
 /// test_input_session.cpp:390-430 (fixture M), the rows the portable-selection, caret and edge cases read.
@@ -7495,6 +7496,8 @@ fn committing_a_symbol_ends_the_composition_and_learns_nothing() {
     type_text(&mut session, "zhengfu");
     assert_eq!(session.select(0).commit.as_deref(), Some("政府"));
     assert_eq!(session.input.chain.previous.as_deref(), Some("政府"));
+    // 个人上下文由后台线程延迟写入，并行的测试随时可能 `flush_all` 把它提前写下；比较前先写完，前后差的才只是选符号这一步。
+    flush_all();
     let before = journal_rows(&fixture.journal());
 
     type_text(&mut session, "zhengfu");
@@ -7514,6 +7517,7 @@ fn committing_a_symbol_ends_the_composition_and_learns_nothing() {
     let snapshot = session.snapshot();
     assert!(snapshot.editing_text.is_empty() && snapshot.candidates.is_empty());
     assert_eq!(session.input.chain.previous, None);
+    flush_all();
     assert_eq!(journal_rows(&fixture.journal()), before);
 }
 
@@ -7524,6 +7528,7 @@ fn a_symbol_after_a_partial_pick_makes_no_word() {
     type_text(&mut session, "zhengfudayu");
     select_word(&mut session, "正负");
     assert!(!session.snapshot().editing_text.is_empty());
+    flush_all();
     let before = journal_rows(&fixture.journal());
     let index = symbol_index(&session, "＞").unwrap_or_else(|| panic!("{:?}", words(&session)));
     let result = session.select(index);
@@ -7535,6 +7540,7 @@ fn a_symbol_after_a_partial_pick_makes_no_word() {
         "{result:?}"
     );
     assert!(session.snapshot().editing_text.is_empty());
+    flush_all();
     assert_eq!(journal_rows(&fixture.journal()), before);
     type_text(&mut session, "zhengfudayu");
     assert!(!words(&session).iter().any(|word| word.contains('＞')));
