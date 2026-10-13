@@ -14,6 +14,16 @@ import SwiftUI
     }
   }
 
+  /// 自行管理忙碌状态的页面用这两个入口替换旧任务并只清理当前任务。
+  static func claim(request: Binding<ViewRequestGeneration>, pending: Binding<Task<Void, Never>?>) -> UUID {
+    pending.wrappedValue?.cancel()
+    return request.wrappedValue.begin()
+  }
+
+  static func clear(request: Binding<ViewRequestGeneration>, pending: Binding<Task<Void, Never>?>, id: UUID) {
+    if request.wrappedValue.isCurrent(id) { pending.wrappedValue = nil }
+  }
+
   static func run(request: Binding<ViewRequestGeneration>, busy: Binding<Bool>,
                   message: Binding<String?>, pending: Binding<Task<Void, Never>?>,
                   canceling: Binding<Task<Void, Never>?>? = nil,

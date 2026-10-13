@@ -79,9 +79,9 @@ struct CommonPhrasesSettingsView: View {
 
   private func reload() {
     guard request.isVisible, let reloadRequest = requestState.beginReload() else { return }
-    let id = claimTask()
+    let id = ViewRequestTask.claim(request: $request, pending: $pending)
     pending = Task { @MainActor in
-      defer { if request.isCurrent(id) { clearTask(id) } }
+      defer { ViewRequestTask.clear(request: $request, pending: $pending, id: id) }
       do {
         try request.checkCurrent(id)
         let loaded = await Task.detached(priority: .userInitiated) { Result { try CommonPhrasesBridge.load() } }.value
@@ -105,13 +105,13 @@ struct CommonPhrasesSettingsView: View {
   /// 在主线程之外执行一次写入，并显示它返回的已存储列表，或说明存储拒绝的原因。写入被拒绝时会重新加载，这样在别处被删除的短语（`common_phrases_not_found`）也会从列表中消失。
   private func run(success: String, _ operation: @escaping @Sendable () throws -> [CommonPhrasesBridge.Phrase]) {
     guard request.isVisible, requestState.beginMutation() else { return }
-    let id = claimTask()
+    let id = ViewRequestTask.claim(request: $request, pending: $pending)
     pending = Task { @MainActor in
       var mutationFinished = false
       defer {
         if request.isCurrent(id) {
           if !mutationFinished { requestState.finishMutation() }
-          clearTask(id)
+          ViewRequestTask.clear(request: $request, pending: $pending, id: id)
         }
       }
       do {
@@ -120,7 +120,7 @@ struct CommonPhrasesSettingsView: View {
         try request.checkCurrent(id)
         requestState.finishMutation()
         mutationFinished = true
-        clearTask(id)
+        ViewRequestTask.clear(request: $request, pending: $pending, id: id)
         switch result {
         case .success(let list):
           phrases = list
@@ -135,15 +135,6 @@ struct CommonPhrasesSettingsView: View {
         // 业务错误已由 Result 返回；完整捕获保证任务的失败类型为 Never。
       }
     }
-  }
-
-  private func claimTask() -> UUID {
-    pending?.cancel()
-    return request.begin()
-  }
-
-  private func clearTask(_ id: UUID) {
-    if request.isCurrent(id) { pending = nil }
   }
 }
 

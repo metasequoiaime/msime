@@ -303,6 +303,7 @@ targets:
       - path: App/Sources/settings/HelpcodeChoicePolicy.swift
       - path: App/Sources/settings/HelpcodeSettingsView.swift
       - path: App/Sources/app/ViewRequestGeneration.swift
+      - path: App/Sources/app/ViewRequestTask.swift
       - path: App/Sources/app/DesignKit.swift
       - path: App/Sources/settings/IOSCloudSettings.swift
       - path: App/Sources/keyboard/KeyboardChatHistoryPolicy.swift

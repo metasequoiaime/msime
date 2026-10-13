@@ -133,13 +133,13 @@ struct HelpcodeSettingsView: View {
   private func importTable(from url: URL, into scheme: Scheme) {
     guard request.isVisible, !busy else { return }
     busy = true
-    let id = claimTask()
+    let id = ViewRequestTask.claim(request: $request, pending: $pending)
     pending = Task<Void, Never> { @MainActor in
       var finished = false
       defer {
         if request.isCurrent(id) {
           if !finished { busy = false }
-          clearTask(id)
+          ViewRequestTask.clear(request: $request, pending: $pending, id: id)
         }
       }
       guard (try? request.checkCurrent(id)) != nil else { return }
@@ -147,7 +147,7 @@ struct HelpcodeSettingsView: View {
       guard (try? request.checkCurrent(id)) != nil else { return }
       busy = false
       finished = true
-      clearTask(id)
+      ViewRequestTask.clear(request: $request, pending: $pending, id: id)
       notice = result
       reload()
     }
@@ -156,13 +156,13 @@ struct HelpcodeSettingsView: View {
   private func remove(_ pack: HelpcodeChoicePolicy.Pack) {
     guard request.isVisible, !busy else { return }
     busy = true
-    let id = claimTask()
+    let id = ViewRequestTask.claim(request: $request, pending: $pending)
     pending = Task<Void, Never> { @MainActor in
       var finished = false
       defer {
         if request.isCurrent(id) {
           if !finished { busy = false }
-          clearTask(id)
+          ViewRequestTask.clear(request: $request, pending: $pending, id: id)
         }
       }
       guard (try? request.checkCurrent(id)) != nil else { return }
@@ -170,7 +170,7 @@ struct HelpcodeSettingsView: View {
       guard (try? request.checkCurrent(id)) != nil else { return }
       busy = false
       finished = true
-      clearTask(id)
+      ViewRequestTask.clear(request: $request, pending: $pending, id: id)
       notice = result
       reload()
     }
@@ -270,22 +270,13 @@ struct HelpcodeSettingsView: View {
       shown[scheme.key] = stored["show_in_candidate_window"] as? Bool ?? scheme.defaultShown
       selectedPack[scheme.key] = HelpcodeChoicePolicy.selectedPack(of: scheme, in: preferences)
     }
-    let id = claimTask()
+    let id = ViewRequestTask.claim(request: $request, pending: $pending)
     pending = Task<Void, Never> { @MainActor in
-      defer { if request.isCurrent(id) { clearTask(id) } }
+      defer { ViewRequestTask.clear(request: $request, pending: $pending, id: id) }
       guard (try? request.checkCurrent(id)) != nil else { return }
       let loaded = await Task.detached(priority: .userInitiated) { Self.installedPacks() }.value
       guard (try? request.checkCurrent(id)) != nil else { return }
       packs = loaded
     }
-  }
-
-  private func claimTask() -> UUID {
-    pending?.cancel()
-    return request.begin()
-  }
-
-  private func clearTask(_ id: UUID) {
-    if request.isCurrent(id) { pending = nil }
   }
 }
