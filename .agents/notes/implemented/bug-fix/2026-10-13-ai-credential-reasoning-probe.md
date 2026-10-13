@@ -28,7 +28,7 @@ Status: implemented
 
 最终参数适配通过原生 C ABI `msime_client_test_api_credential` 向真实 EveryAPI 服务测试，GLM-5.3-FLASH 与 GPT-6-Luna 均返回成功，分别约 1 秒和 7 秒。GUI 自动化遭遇窗口失去焦点、AX 路径改变，未完成按钮点击验收；这里的真实服务证据来自设置页共用的原生测试函数，当前模型与 Token 没有修改。最终设置组件构建、打包、安装与 deep strict 签名校验通过，quick 门禁通过。iOS 工程修复后的 quick 复核也通过，包含 Windows x64 原生链接、32 位编译与协议构建、Linux 83 项原生测试及 macOS 原生构建；HarmonyOS 完整 ArkTS 构建因缺少前置产物跳过。
 
-iOS CI 的键盘测试 target 漏列候选设置页依赖的 `SettingsSaveFailure.swift` 与 `SettingsScenePhaseReload.swift`，导致找不到保存失败类型与场景重载扩展。在 `project.yml` 与对应 Xcode 工程补齐源注册；工程 plist 校验、两份文件在测试 target 中各注册一次的检查，以及 iOS 模拟器 SDK 上的 Swift 类型检查通过。完整 iOS 模拟器套件仍由 CI 验证。
+iOS CI 的键盘测试 target 漏列候选设置页依赖的 `SettingsSaveFailure.swift` 与 `SettingsScenePhaseReload.swift`，导致找不到保存失败类型与场景重载扩展。服务测试 target 中的应用图标设置页同样依赖场景重载扩展，因此该 target 也需注册 `SettingsScenePhaseReload.swift`。在 `project.yml` 与对应 Xcode 工程补齐两个测试 target 的源注册；工程 plist 校验、两份文件在测试 target 中各注册一次的检查，以及 iOS 模拟器 SDK 上的 Swift 类型检查通过。完整 iOS 模拟器套件仍由 CI 验证。
 
 ## Consequences
 
