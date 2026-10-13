@@ -4143,10 +4143,16 @@ static void TestMusicIsClaimedOnceTheSessionOpens() {
 
 @interface AsyncPreferenceSession : ShortcutSession
 @property(nonatomic) NSUInteger updates;
+@property(nonatomic) NSUInteger failedUpdatesRemaining;
 @end
 @implementation AsyncPreferenceSession
 - (NSDictionary *)updatePreferencesSnapshot:(NSDictionary *)snapshot error:(NSError **)error {
-    (void)snapshot; (void)error; ++self.updates;
+    (void)snapshot; ++self.updates;
+    if (self.failedUpdatesRemaining) {
+        --self.failedUpdatesRemaining;
+        if (error) *error = [NSError errorWithDomain:@"synthetic-preferences" code:1 userInfo:nil];
+        return nil;
+    }
     return @{@"view":@{@"focused":@YES, @"editing_text":@"", @"candidates":@[]}};
 }
 @end
@@ -4572,6 +4578,41 @@ static void TestPreferenceRevisionSkipsUnchangedDocuments() {
     // A local edit invalidating what was applied - so a document rolled back to a revision this
     // session already saw is applied again - is the load state's own rule, pinned next to it in
     // preference-load-state rather than here: appearanceChanged: reaches half the controller.
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+static void TestPreferenceRevisionRetriesFailedUpdate() {
+    NSString *suite = [@"msime.preference-retry." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    AsyncPreferencesController *controller = [AsyncPreferencesController alloc];
+    AsyncPreferenceSession *session = [AsyncPreferenceSession new];
+    session.failedUpdatesRemaining = 1;
+    NSMutableArray *reads = [NSMutableArray array];
+    for (NSUInteger index = 0; index < 2; ++index) {
+        ControlledPreferenceRead *read = [ControlledPreferenceRead new];
+        read.snapshot = @{@"revision":@7, @"preferences":@{@"chinese_punctuation":@YES}};
+        [reads addObject:read];
+    }
+    controller.reads = reads;
+    controller.appliedPreferences = [NSMutableArray array];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:@"/synthetic-preferences" forKey:@"preferencesDirectory"];
+
+    [controller reloadPreferences];
+    assert(dispatch_semaphore_wait(controller.reads[0].started, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0);
+    dispatch_semaphore_signal(controller.reads[0].released);
+    WaitForPreferenceCompletions(controller, 1);
+    assert(session.updates == 1 && controller.appliedPreferences.count == 0);
+
+    // 第一次会话更新失败后，同一份修订号仍要在下一次轮询时交给会话。
+    [controller reloadPreferences];
+    assert(dispatch_semaphore_wait(controller.reads[1].started, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0);
+    dispatch_semaphore_signal(controller.reads[1].released);
+    WaitForPreferenceCompletions(controller, 2);
+    assert(session.updates == 2 && controller.appliedPreferences.count == 1);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -11236,6 +11277,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestModeSwitchReachesTheSessionBeforeTheNextKey(); }
         @autoreleasepool { TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne(); }
         @autoreleasepool { TestPreferenceRevisionSkipsUnchangedDocuments(); }
+        @autoreleasepool { TestPreferenceRevisionRetriesFailedUpdate(); }
         @autoreleasepool { TestUnreadablePreferencesAreRecoveredOnce(); }
         @autoreleasepool { TestProviderSettingsPersistTheSharedSnapshot(); }
         @autoreleasepool { TestInputModeSwitchDoesNotSaveSharedPreferences(); }

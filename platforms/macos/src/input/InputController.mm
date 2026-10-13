@@ -5212,7 +5212,6 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     uint64_t revision = 0;
     if (snapshot[@"revision"] && !MSIMEStrictUnsignedInteger(snapshot[@"revision"], &revision)) { msime_macos_diagnostic_write("preferences_load_failed"); return; }
     if (!_preferenceLoadState.needsApply(revision)) return;
-    _preferenceLoadState.applied(revision);
     NSDictionary *preferences = snapshot[@"preferences"];
     NSMutableDictionary *inputPreferences = [preferences isKindOfClass:NSDictionary.class] ? [preferences mutableCopy] : nil;
     id inlinePreedit = inputPreferences[@"tsf_preedit_style"];
@@ -5228,6 +5227,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     NSDictionary *result = [session updatePreferencesSnapshot:snapshot error:&updateError];
     // Failed loads/updates retain the existing window appearance and runtime.
     if (result && !updateError) {
+        _preferenceLoadState.applied(revision);
         if (inputPreferences) [_appearance applySharedInputPreferences:inputPreferences];
         [self applySharedToolbarPreferences:snapshot[@"preferences"]];
         // After the preferences, which the session's resolved effect refines with the selected pack.
