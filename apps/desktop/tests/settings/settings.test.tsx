@@ -4542,7 +4542,7 @@ test("screen keyboard header drag is bounded and separate from close and keys", 
   const close = vi.fn().mockResolvedValue(undefined);
   const sendKey = vi.fn().mockResolvedValue(undefined);
   const view = render(<KeyboardPanel client={{ close, beginWindowDrag, sendKey }} />);
-  const header = view.container.querySelector(".native-panel-header")!;
+  const header = view.container.querySelector("main[aria-label='屏幕键盘'] > header")!;
   titlebarPointer(header, "pointerdown", 100, 14);
   titlebarPointer(header, "pointermove", 101, 14);
   expect(beginWindowDrag).not.toHaveBeenCalled();
@@ -4582,7 +4582,7 @@ test.each([false, true])(
         }}
       />,
     );
-    const header = view.container.querySelector(".native-panel-header")!;
+    const header = view.container.querySelector("main[aria-label='屏幕键盘'] > header")!;
     titlebarPointer(header, "pointerdown", 100, 14);
     titlebarPointer(header, "pointermove", 110, 14);
     await waitFor(() =>
@@ -7886,7 +7886,7 @@ test("screen keyboard and handwriting pages expose the native panel actions", as
   await waitFor(() => expect(openHandwriting).toHaveBeenCalledTimes(1));
 });
 
-test("macOS routes input-session panels through the native input-method process", async () => {
+test("macOS opens handwriting for copying while input-session panels use the native process", async () => {
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(initial),
     save: vi.fn(),
@@ -7900,15 +7900,16 @@ test("macOS routes input-session panels through the native input-method process"
 
   fireEvent.click(screen.getByRole("button", { name: "手写输入" }));
   expect(await screen.findByText("macOS 手写识别板")).toBeDefined();
-  expect(screen.getByText(/从输入法悬浮工具栏或输入法菜单打开手写面板/)).toBeDefined();
-  expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
+  expect(screen.getByText(/从这里打开可识别并复制文字/)).toBeDefined();
+  expect(screen.getByText(/从输入法悬浮工具栏或菜单打开手写板/)).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "打开" }));
+  await waitFor(() => expect(client.openHandwriting).toHaveBeenCalledTimes(1));
 
   fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
   expect(await screen.findByText(/请从输入法菜单中的「云剪贴板…」打开/)).toBeDefined();
   expect(screen.queryByRole("button", { name: "打开云剪贴板" })).toBeNull();
   // The cloud dictionary only manages words, so it needs no input session and opens from 词库 like on every other desktop.
   expect(screen.queryByRole("button", { name: "打开云词库" })).toBeNull();
-  expect(client.openHandwriting).not.toHaveBeenCalled();
   expect(client.openCloudClipboard).not.toHaveBeenCalled();
 
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
