@@ -13,9 +13,8 @@ struct SkinCommunityView: View {
   @State private var category: CommunitySkinCategory?
   @State private var showPublish = false
   @State private var showAccount = false
-  @State private var requestID = UUID()
   @State private var pending: Task<Void, Never>?
-  @State private var visible = false
+  @State private var request = ViewRequestGeneration()
   @State private var accountTask: Task<Void, Never>?
   @State private var accountRequestID = UUID()
   /// 本地皮肤库（12 个槽位），每次画廊显示时重新读取，这样在详情页领取的皮肤在卡片上会显示 使用。
@@ -59,7 +58,7 @@ struct SkinCommunityView: View {
       }.communityPageContent(regular: regular)
     }
     .background(MetasequoiaTheme.canvas)
-    .onAppear { visible = true; library = CustomSkinLibrary.designs }
+    .onAppear { request.appear(); library = CustomSkinLibrary.designs }
   }
 
   private func state(of skin: CommunitySkin, active: CustomKeyboardSkin?) -> CommunitySkinCard.PillState {
@@ -95,7 +94,7 @@ struct SkinCommunityView: View {
         library = CustomSkinLibrary.designs
         ToastCenter.shared.show("已获取「\(skin.name)」，点「使用」换上")
       } catch is CancellationError { }
-      catch { if visible, takeGeneration == generation { message = error.localizedDescription } }
+      catch { if request.isVisible, takeGeneration == generation { message = error.localizedDescription } }
     }
     takeTasks[skin.id] = task
   }
@@ -141,9 +140,9 @@ struct SkinCommunityView: View {
       catch { }
     }
     .task {
-      visible = true
+      request.appear()
       let state = (try? await api.signedIn()) ?? false
-      guard visible, !Task.isCancelled else { return }
+      guard request.isVisible, !Task.isCancelled else { return }
       signedIn = state
       startLoad()
     }
@@ -156,14 +155,13 @@ struct SkinCommunityView: View {
       accountTask = Task { @MainActor in
         defer { if accountRequestID == id { accountTask = nil } }
         let state = (try? await api.signedIn()) ?? false
-        guard visible, !Task.isCancelled, accountRequestID == id else { return }
+        guard request.isVisible, !Task.isCancelled, accountRequestID == id else { return }
         signedIn = state
         if signedIn { showPublish = true }
       }
     }) { AccountLoginSheet() }
     .onDisappear {
-      visible = false
-      requestID = UUID()
+      request.disappear()
       pending?.cancel()
       pending = nil
       accountTask?.cancel()
@@ -186,48 +184,44 @@ struct SkinCommunityView: View {
     #endif
     return signedIn
   }
-  @MainActor private func load(append: Bool = false, id: UUID = UUID()) async throws {
-    guard visible else { throw CancellationError() }
-    requestID = id; busy = true
+  @MainActor private func load(append: Bool = false, id scheduledID: UUID? = nil) async throws {
+    guard request.isVisible else { throw CancellationError() }
+    let id = scheduledID ?? request.begin()
+    guard request.isCurrent(id) else { throw CancellationError() }
+    busy = true
     defer {
-      if requestID == id {
+      if request.isCurrent(id) {
         busy = false
         pending = nil
       }
     }
     do {
       let page = try await api.list(offset: append ? skins.count : 0, search: search, mine: onlyMine, category: category)
-      try ensureCurrent(id)
+      try request.checkCurrent(id)
       if append { let ids = Set(skins.map(\.id)); skins += page.skins.filter { !ids.contains($0.id) } }
       else { skins = page.skins }
       more = page.has_more
     } catch is CancellationError { throw CancellationError() }
     catch {
-      if visible, requestID == id { message = error.localizedDescription }
+      if request.isCurrent(id) { message = error.localizedDescription }
       throw error
     }
   }
 
   @MainActor private func startLoad(append: Bool = false, onFailure: (() -> Void)? = nil) {
-    guard visible, !busy else { return }
-    let id = UUID()
-    requestID = id
+    guard request.isVisible, !busy else { return }
+    let id = request.begin()
     pending?.cancel()
     pending = Task {
       do { try await load(append: append, id: id) }
       catch is CancellationError { }
-      catch { if visible { onFailure?() } }
+      catch { if request.isCurrent(id) { onFailure?() } }
     }
-  }
-
-  @MainActor private func ensureCurrent(_ id: UUID) throws {
-    try Task.checkCancellation()
-    guard visible, requestID == id else { throw CancellationError() }
   }
 
   @MainActor private func ensureTakeCurrent(_ generation: UUID) throws {
     try Task.checkCancellation()
-    guard visible, takeGeneration == generation else { throw CancellationError() }
+    guard request.isVisible, takeGeneration == generation else { throw CancellationError() }
   }
 }
 
@@ -353,8 +347,7 @@ struct CommunitySkinDetail: View {
   @State private var confirmsRemoval = false
   @State private var trial: KeyboardSkinTrial?
   @State private var pending: Task<Void, Never>?
-  @State private var requestID = UUID()
-  @State private var visible = false
+  @State private var request = ViewRequestGeneration()
   @Environment(\.dismiss) private var dismiss
   private var skin: CommunitySkin { updated ?? initial }
   var body: some View {
@@ -372,12 +365,12 @@ struct CommunitySkinDetail: View {
         Text(skin.description)
         Text("\(skin.downloads) 人下载 · \(skin.rating_average, specifier: "%.1f") 分 · \(skin.rating_count) 人评分")
           .font(.subheadline).foregroundStyle(.secondary)
-        Button { run {
+        Button { run { id in
           let design = try await CommunitySkinInstall.take(skin)
-          try ensureCurrent(id)
+          try request.checkCurrent(id)
           trial = try KeyboardSkinTrialStore().begin(name: skin.name, design: design)
           let latest = try? await SkinCommunityAPI.shared.detail(skin.id)
-          try ensureCurrent(id)
+          try request.checkCurrent(id)
           updated = latest
         } } label: { Label("下载并试用", systemImage: "arrow.down.circle.fill").frame(maxWidth: .infinity) }
           .buttonStyle(.borderedProminent).disabled(busy).accessibilityIdentifier("downloadCommunitySkin")
@@ -385,11 +378,11 @@ struct CommunitySkinDetail: View {
           Text("我的评分（下载后可评，可重新选择）").font(.subheadline)
           HStack {
             ForEach(1...5, id: \.self) { stars in
-              Button { run {
+              Button { run { id in
                 try await SkinCommunityAPI.shared.rate(skin.id, stars: stars)
-                try ensureCurrent(id)
+                try request.checkCurrent(id)
                 let latest = try await SkinCommunityAPI.shared.detail(skin.id)
-                try ensureCurrent(id)
+                try request.checkCurrent(id)
                 updated = latest
               } } label: { Image(systemName: stars <= skin.my_rating ? "star.fill" : "star").frame(width: 44, height: 44) }
                 .accessibilityLabel("评 \(stars) 星").disabled(busy)
@@ -399,9 +392,9 @@ struct CommunitySkinDetail: View {
         } else {
           Menu {
             ForEach(CommunitySkinCategory.allCases) { category in
-              Button { run {
+              Button { run { id in
                 var changed = try await SkinCommunityAPI.shared.setCategory(skin.id, category: category)
-                try ensureCurrent(id)
+                try request.checkCurrent(id)
                 changed.moderation = changed.moderation ?? skin.moderation
                 updated = changed
               } } label: {
@@ -418,10 +411,10 @@ struct CommunitySkinDetail: View {
       }.padding()
     }.navigationTitle("皮肤详情").navigationBarTitleDisplayMode(.inline)
       .task {
-        visible = true
+        request.appear()
         run { id in
           let latest = try await SkinCommunityAPI.shared.detail(initial.id)
-          try ensureCurrent(id)
+          try request.checkCurrent(id)
           updated = latest
         }
       }
@@ -431,40 +424,34 @@ struct CommunitySkinDetail: View {
       .confirmationDialog("下架后其他用户无法再下载，已下载的本地皮肤会保留。", isPresented: $confirmsRemoval, titleVisibility: .visible) {
         Button("下架", role: .destructive) { run { id in
           try await SkinCommunityAPI.shared.unpublish(skin.id)
-          try ensureCurrent(id)
+          try request.checkCurrent(id)
           dismiss()
         } }
       }
       .alert("皮肤社区", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("好", role: .cancel) {} } message: { Text(message ?? "") }
-      .onAppear { visible = true }
+      .onAppear { request.appear() }
       .onDisappear {
-        visible = false
-        requestID = UUID()
+        request.disappear()
         pending?.cancel()
         pending = nil
         busy = false
       }
   }
   private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
-    guard visible, !busy else { return }
-    let id = UUID()
-    requestID = id
+    guard request.isVisible, !busy else { return }
+    let id = request.begin()
     busy = true; message = nil
     pending = Task {
       defer {
-        if requestID == id {
+        if request.isCurrent(id) {
           busy = false
           pending = nil
         }
       }
       do { try await action(id) }
       catch is CancellationError { }
-      catch { if visible, requestID == id { message = error.localizedDescription } }
+      catch { if request.isCurrent(id) { message = error.localizedDescription } }
     }
-  }
-  @MainActor private func ensureCurrent(_ id: UUID) throws {
-    try Task.checkCancellation()
-    guard visible, requestID == id else { throw CancellationError() }
   }
 }
 
@@ -482,8 +469,7 @@ struct CommunityPublishView: View {
   @State private var busy = false
   @State private var message: String?
   @State private var pending: Task<Void, Never>?
-  @State private var requestID = UUID()
-  @State private var visible = false
+  @State private var request = ViewRequestGeneration()
   private var design: CustomKeyboardSkin? { library.first { $0.id == selected }?.design }
 
   /// The library is stored in an App Group JSON file, so returning from the editor needs an explicit refresh.
@@ -538,11 +524,10 @@ struct CommunityPublishView: View {
       }.disabled(busy)
         .navigationTitle("发布皮肤")
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
-        .onAppear { visible = true; refreshLibrary(preferring: selectedSkinID) }
+        .onAppear { request.appear(); refreshLibrary(preferring: selectedSkinID) }
         .alert("发布失败", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("好", role: .cancel) {} } message: { Text(message ?? "") }
         .onDisappear {
-          visible = false
-          requestID = UUID()
+          request.disappear()
           pending?.cancel()
           pending = nil
           busy = false
@@ -551,30 +536,25 @@ struct CommunityPublishView: View {
   }
 
   @MainActor private func startPublish() {
-    guard visible, !busy, let design else { return }
-    let id = UUID()
-    requestID = id
+    guard request.isVisible, !busy, let design else { return }
+    let id = request.begin()
     busy = true; message = nil
     pending = Task {
       defer {
-        if requestID == id {
+        if request.isCurrent(id) {
           busy = false
           pending = nil
         }
       }
       do {
         try await SkinCommunityAPI.shared.publish(id: publicationID, name: name, description: description, design: design, category: category)
-        try ensureCurrent(id)
+        try request.checkCurrent(id)
         onPublished(); dismiss()
       } catch is CancellationError { }
-      catch { if visible, requestID == id { message = error.localizedDescription } }
+      catch { if request.isCurrent(id) { message = error.localizedDescription } }
     }
   }
 
-  @MainActor private func ensureCurrent(_ id: UUID) throws {
-    try Task.checkCancellation()
-    guard visible, requestID == id else { throw CancellationError() }
-  }
 }
 
 // A value-based preview must not change the user's active custom skin while browsing.
