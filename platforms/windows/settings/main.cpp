@@ -37,6 +37,7 @@
 #include "CandidateWindowStyle.h"
 #include "CommunityPageModel.h"
 #include "GameProcessList.h"
+#include "LexiconImportModel.h"
 #include "PluginPageModel.h"
 #include "PreferencePath.h"
 #include "AccountPageModel.h"
@@ -408,6 +409,9 @@ std::wstring lexicon_key_hint(std::wstring_view kind) {
 // The shared page's sentence for a dictionary refusal code (dictionaryErrorMessage in packages/ui/src/dictionary/dictionary-errors.ts).
 std::wstring dictionary_error_text(std::wstring const &code, std::wstring_view kind,
                                    std::wstring const &fallback) {
+  // 细胞词库转换（msime_client_dictionary_scel_text）的出错说明。
+  if (auto scel = msime::settings::lexicon_import::scel_error_text(code); !scel.empty())
+    return scel;
   if (code == L"dictionary_busy")
     return L"词库正在被输入法占用，请关闭正在使用输入法的程序后重试。";
   if (code == L"dictionary_import_rejected")
@@ -2024,6 +2028,22 @@ SkinScan read_skin_catalog(std::filesystem::path const &root) {
   scan.directory = root.wstring();
   return scan;
 }
+
+// 共享页解不出 UTF-8 时按 GB18030 读（代码页 54936），与 decodeDictionaryBytes 的最后一步相同；读不出时为空。调用方已把文件限制在 32 MB 以内。
+std::optional<std::string> gb18030_to_utf8(std::string_view bytes) {
+  if (bytes.empty())
+    return std::string();
+  const int length = static_cast<int>(bytes.size());
+  const int units = MultiByteToWideChar(54936, 0, bytes.data(), length, nullptr, 0);
+  if (units <= 0)
+    return std::nullopt;
+  std::wstring wide(static_cast<size_t>(units), L'\0');
+  if (MultiByteToWideChar(54936, 0, bytes.data(), length, wide.data(), units) != units)
+    return std::nullopt;
+  return to_string(std::wstring_view(wide));
+}
+
+namespace li = msime::settings::lexicon_import;
 
 // ---- 社区 ----
 
@@ -11871,6 +11891,189 @@ private:
     });
   }
 
+  // 导入词库文件的文件对话框：先列所选格式的文件，再列所有文件（改过扩展名的细胞词库按文件头认）。取消时为空。
+  std::optional<std::filesystem::path> pick_lexicon_file(std::wstring const &format) {
+    const auto *chosen = li::find_format(format);
+    if (!chosen)
+      return std::nullopt;
+    com_ptr<IFileOpenDialog> dialog;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                IID_PPV_ARGS(dialog.put()))))
+      return std::nullopt;
+    const std::wstring name(chosen->filter_name);
+    const std::wstring spec(chosen->filter);
+    const COMDLG_FILTERSPEC filters[] = {{name.c_str(), spec.c_str()}, {L"所有文件", L"*.*"}};
+    dialog->SetFileTypes(2, filters);
+    dialog->SetTitle(L"导入词库文件");
+    FILEOPENDIALOGOPTIONS options = 0;
+    if (SUCCEEDED(dialog->GetOptions(&options)))
+      dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST);
+    std::optional<std::filesystem::path> picked;
+    com_ptr<IShellItem> item;
+    PWSTR raw = nullptr;
+    if (dialog->Show(GetActiveWindow()) == S_OK && SUCCEEDED(dialog->GetResult(item.put())) &&
+        SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &raw)) && raw)
+      picked = std::filesystem::path(raw);
+    CoTaskMemFree(raw);
+    return picked;
+  }
+
+  // 导入词库文件：选文件，在工作线程上读、解码并导入，结果写在页面顶上的通知里；导入成功且列表开着时重读当前页。
+  void import_lexicon_file() {
+    if (lexicon_busy_)
+      return;
+    const auto options = runtime_options_document();
+    if (!options) {
+      lexicon_message_ = L"输入法尚未完成初始化，完成设置向导后即可管理词库。";
+      lexicon_error_ = true;
+      redraw_lexicon();
+      return;
+    }
+    const auto kind = lexicon_kind_;
+    const auto chosen = std::wstring(li::usable_format(kind, lexicon_import_format_));
+    const auto picked = pick_lexicon_file(chosen);
+    if (!picked)
+      return;
+    const auto format = std::wstring(li::format_for_file(picked->filename().wstring(), chosen));
+    if (format != chosen && (format != L"scel" || kind == L"pinyin"))
+      lexicon_import_format_ = format;
+    lexicon_busy_ = true;
+    run_worker<LexiconImportOutcome>(
+        [options = *options, kind, format, path = *picked] {
+          return import_lexicon_on_worker(options, kind, format, path);
+        },
+        [this, kind](LexiconImportOutcome &outcome) {
+          lexicon_busy_ = false;
+          show_notice(outcome.message,
+                      outcome.ok ? InfoBarSeverity::Success : InfoBarSeverity::Error);
+          if (outcome.ok && lexicon_listed_ && kind == lexicon_kind_)
+            lexicon_list(lexicon_offset_);
+          else
+            redraw_lexicon();
+        });
+    redraw_lexicon();
+  }
+
+  struct LexiconImportOutcome {
+    bool ok = false;
+    std::wstring message;
+  };
+
+  // 在工作线程上：读文件，按格式转成 UTF-8 文本（细胞词库经 msime_client_dictionary_scel_text 转成标准文本），再以一次 import 请求交给 msime_client_settings_dictionary。返回给页面的一句话，措辞与共享页的 importPhrases 相同。
+  static LexiconImportOutcome import_lexicon_on_worker(std::string const &options,
+                                                       std::wstring const &kind,
+                                                       std::wstring format,
+                                                       std::filesystem::path const &path) {
+    LexiconImportOutcome outcome;
+    const auto label = lexicon_kind_label(kind);
+    std::error_code error;
+    const auto size = std::filesystem::file_size(path, error);
+    if (error) {
+      outcome.message = L"无法读取所选文件，请重新选择。";
+      return outcome;
+    }
+    if (format == L"scel" && size > li::max_scel_file_bytes) {
+      outcome.message = li::scel_too_large();
+      return outcome;
+    }
+    if (size > li::max_text_file_bytes) {
+      outcome.message = li::text_too_large();
+      return outcome;
+    }
+    std::string bytes(static_cast<size_t>(size), '\0');
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) {
+      outcome.message = L"无法读取所选文件，请重新选择。";
+      return outcome;
+    }
+    // 改过扩展名的细胞词库按文件头认出来。
+    if (li::is_scel_bytes(bytes))
+      format = L"scel";
+    std::string body;
+    std::wstring source;
+    if (format == L"scel") {
+      if (kind != L"pinyin") {
+        outcome.message = std::wstring(li::scel_needs_pinyin);
+        return outcome;
+      }
+      if (bytes.size() > li::max_scel_file_bytes) {
+        outcome.message = li::scel_too_large();
+        return outcome;
+      }
+      const auto *first = reinterpret_cast<uint8_t const *>(bytes.data());
+      const auto buffer = Windows::Security::Cryptography::CryptographicBuffer::CreateFromByteArray(
+          array_view<uint8_t const>(first, first + bytes.size()));
+      JsonObject request;
+      request.SetNamedValue(L"bytes_base64",
+                            JsonValue::CreateStringValue(
+                                Windows::Security::Cryptography::CryptographicBuffer::
+                                    EncodeToBase64String(buffer)));
+      const auto document = utf8(request.Stringify());
+      const auto converted = take_response(msime_client_dictionary_scel_text(
+          reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+      if (!converted.ok) {
+        const auto reason = dictionary_error_text(response_error(converted), kind, L"");
+        outcome.message = reason.empty() ? L"细胞词库读取失败，请重新选择文件。" : reason;
+        return outcome;
+      }
+      try {
+        const auto value = JsonObject::Parse(text(converted.text)).GetNamedObject(L"value");
+        body = utf8(value.GetNamedString(L"text"));
+        source = li::scel_source(named_string(value, L"name"), named_count(value, L"entries"));
+      } catch (...) {
+        outcome.message = L"细胞词库读取失败，请重新选择文件。";
+        return outcome;
+      }
+      format = L"standard";
+    } else {
+      auto decoded = li::decode_text(bytes, gb18030_to_utf8);
+      if (!decoded) {
+        outcome.message = label + L"导入失败：文件不是 UTF-8、UTF-16 或 GB18030 编码的文本。";
+        return outcome;
+      }
+      body = std::move(*decoded);
+    }
+    JsonObject action;
+    action.SetNamedValue(L"operation", JsonValue::CreateStringValue(L"import"));
+    action.SetNamedValue(L"kind", JsonValue::CreateStringValue(hstring(kind)));
+    action.SetNamedValue(L"format", JsonValue::CreateStringValue(hstring(format)));
+    action.SetNamedValue(L"text", JsonValue::CreateStringValue(text(body)));
+    action.SetNamedValue(L"request_id", JsonValue::CreateStringValue(hstring(request_id(L"ui-import-"))));
+    const auto response = settings_dictionary_call(options, utf8(action.Stringify()));
+    if (!response.ok) {
+      // importFailureMessage：认得的码给出原因，其余是通用的一句。
+      const auto reason = dictionary_error_text(response_error(response), kind, L"");
+      outcome.message = reason.empty() ? label + L"导入失败，请检查文本格式。"
+                                       : label + L"导入失败：" + reason;
+      return outcome;
+    }
+    try {
+      const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+      li::ImportReport report;
+      report.applied = named_count(value, L"applied");
+      report.failed = named_count(value, L"failed");
+      report.truncated = value.GetNamedBoolean(L"truncated", false);
+      report.swapped = value.GetNamedBoolean(L"swapped", false);
+      if (value.HasKey(L"first_failures") &&
+          value.GetNamedValue(L"first_failures").ValueType() == JsonValueType::Array) {
+        for (auto const &item : value.GetNamedArray(L"first_failures")) {
+          if (item.ValueType() != JsonValueType::Object)
+            continue;
+          const auto failure = item.GetObject();
+          report.first_failures.emplace_back(named_count(failure, L"line"),
+                                             named_string(failure, L"issue"));
+        }
+      }
+      outcome.message = li::describe_import(label, report, source);
+      outcome.ok = true;
+    } catch (...) {
+      // 已经导入了，只是读不懂报告。
+      outcome.message = label + L"导入完成。";
+      outcome.ok = true;
+    }
+    return outcome;
+  }
+
   // A yes-or-no question before something that cannot be undone.
   Windows::Foundation::IAsyncOperation<bool> confirm(std::wstring title, std::wstring message, std::wstring action) {
     ContentDialog dialog;
@@ -12127,6 +12330,25 @@ private:
       results.Children().Append(pager);
     }
     add_row(manage, 0xE721, L"编码前缀", lexicon_key_hint(lexicon_kind_), controls, results);
+
+    // 导入词库文件：共享页「导入与导出」的导入。格式只列这一类词库能用的，选文件时按扩展名再换一次；导入经 msime_client_settings_dictionary，它让 Server 放开会话并分批送进去。
+    const auto import_format = std::wstring(li::usable_format(lexicon_kind_, lexicon_import_format_));
+    std::vector<Option> import_formats;
+    for (auto const &format : li::formats_for(lexicon_kind_))
+      import_formats.push_back({std::wstring(format.id), std::wstring(format.label)});
+    StackPanel importer;
+    importer.Orientation(Orientation::Horizontal);
+    importer.Spacing(8);
+    importer.Children().Append(select_control(
+        L"导入文件格式", std::move(import_formats), import_format,
+        [this](std::wstring const &format) { lexicon_import_format_ = format; }, !lexicon_busy_));
+    importer.Children().Append(
+        button_control(L"选择文件…", [this] { import_lexicon_file(); }, !lexicon_busy_));
+    add_row(manage, 0xE8B5, L"导入词库文件",
+            lexicon_kind_ == L"pinyin"
+                ? L"导入到上面所选类型的词库；支持标准、Windows TSV、Rime、汉字自动注音和搜狗细胞词库（.scel）。"
+                : L"导入到上面所选类型的词库；支持标准、Windows TSV 和 Rime。",
+            importer);
 
     // 云词库 is a panel of its own on every desktop, as in the shared app.
     auto cloud = add_group(page, L"云词库");
@@ -18647,6 +18869,8 @@ private:
   bool lexicon_busy_ = false;
   bool lexicon_error_ = false;
   std::wstring lexicon_message_;
+  // 导入词库文件的格式，跨重画保留；换到不能用它的词库类型时按标准格式显示。
+  std::wstring lexicon_import_format_ = L"standard";
   // 背单词: the last status the host answered with; one request is in flight at a time.
   std::optional<VocabularyStatus> vocabulary_;
   bool vocabulary_busy_ = false;
