@@ -34,4 +34,14 @@ final class BoundedFileReaderTests: XCTestCase {
 
     XCTAssertEqual(try BoundedFileReader.read(from: file, maximumBytes: expected.count), expected)
   }
+
+  func testReadsSmallFileWithMaximumIntegerLimit() throws {
+    let file = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: file) }
+    let expected = Data("synthetic".utf8)
+    try expected.write(to: file)
+
+    XCTAssertEqual(try BoundedFileReader.read(from: file, maximumBytes: Int.max), expected)
+  }
 }

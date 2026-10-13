@@ -29,7 +29,8 @@ enum BoundedFileReader {
     result.reserveCapacity(min(maximumBytes, 64 * 1024))
     while true {
       let remaining = maximumBytes - result.count
-      let chunk = try handle.read(upToCount: min(64 * 1024, remaining + 1)) ?? Data()
+      let readSize = remaining < 64 * 1024 ? remaining + 1 : 64 * 1024
+      let chunk = try handle.read(upToCount: readSize) ?? Data()
       if chunk.isEmpty { return result }
       guard chunk.count <= remaining else { throw Failure.tooLarge }
       result.append(chunk)
