@@ -89,6 +89,26 @@ final class PersonalDictionaryScelImportTests: XCTestCase {
     XCTAssertEqual(PersonalDictionaryImport.leadingRows("词\tci\n" + long), "词\tci\n")
   }
 
+  /// 词长的词库（诗词、俗语）1001 行就超过解析器的 64 KiB：只送放得下的整行，并且仍报告「文件过长」，而不是整份被拒绝。
+  func testLongWordRowsStayWithinTheParsersTextLimit() throws {
+    let row = String(repeating: "长", count: 20) + "\t" + Array(repeating: "chang", count: 20).joined(separator: "'") + "\n"
+    let text = String(repeating: row, count: 1500)
+    let kept = PersonalDictionaryImport.leadingRows(text)
+    XCTAssertLessThanOrEqual(kept.utf8.count, 65_536)
+    XCTAssertEqual(kept.utf8.count % row.utf8.count, 0)
+    XCTAssertLessThan(kept.split(separator: "\n").count, 1001)
+
+    var sent = ""
+    let imported = try PersonalDictionaryImport.scel(
+      ScelText(name: "", category: "", entries: 1500, text: text)
+    ) { _, _, text in
+      sent = text
+      return ([PersonalWord(key: "chang", value: "长")], [:])
+    }
+    XCTAssertEqual(sent, kept)
+    XCTAssertTrue(imported.notice.contains("文件过长"), imported.notice)
+  }
+
   func testTheCellDictionaryFormatIsOffered() {
     XCTAssertEqual(PersonalDictionaryImport.fileFormats.last?.format, "scel")
   }

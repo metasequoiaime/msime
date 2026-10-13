@@ -75,21 +75,31 @@ struct PersonalDictionaryImport: Codable, Sendable {
       try PersonalDictionaryBridge.importEntries(kind: $0, format: $1, text: $2)
     }
   ) throws -> (file: Self, notice: String) {
-    let parsed = try file(leadingRows(converted.text), kind: .pinyin, format: "standard", parse: parse)
+    let leading = leadingRows(converted.text)
+    // 按字节截掉的部分不在解析器眼里，它不会自己报告「文件过长」，这里补上。
+    let cut = leading.utf8.count < converted.text.utf8.count
+    let parsed = try file(leading, kind: .pinyin, format: "standard") { kind, format, text in
+      var result = try parse(kind, format, text)
+      if cut { result.report["truncated"] = true }
+      return result
+    }
     let source = converted.name.isEmpty
       ? "已读取搜狗细胞词库的 \(converted.entries) 个词条。"
       : "已读取搜狗细胞词库「\(converted.name)」的 \(converted.entries) 个词条。"
     return (parsed.file, source + parsed.notice)
   }
 
-  /// 转出的文本可能比原文件长，而共享解析器一次只看 1000 行（client-core `import::MAX_ENTRIES`）、请求不超过 1,200,000 字节：只送开头 `limit` 行，并且不超过 `maximumBytes`。多送一行（1001），解析器才知道后面还有，报告「文件过长」。
+  /// 共享解析器一次收的文本上限（client-core `cloud::dictionary::MAX_IMPORT_BYTES`）。超过它的文本整份被拒绝，不是只读前一部分。
+  static let parsedTextBytes = 65_536
+
+  /// 转出的文本可能比原文件长，而共享解析器一次只看 1000 行（client-core `import::MAX_ENTRIES`）、只收 `parsedTextBytes` 字节的文本：只送开头 `limit` 行，并且不超过 `parsedTextBytes`。多送一行（1001），解析器才知道后面还有，报告「文件过长」；先到字节上限时由 `scel` 补上这个报告。
   static func leadingRows(_ text: String, limit: Int = 1001) -> String {
     var kept = ""
     var bytes = 0
     var rows = 0
     for line in text.split(separator: "\n") {
       let length = line.utf8.count + 1
-      guard rows < limit, bytes + length <= maximumBytes else { break }
+      guard rows < limit, bytes + length <= parsedTextBytes else { break }
       kept += line
       kept += "\n"
       bytes += length
