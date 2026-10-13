@@ -85,12 +85,17 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertEqual(
         (key.gestureRecognizers ?? []).compactMap { $0 as? UILongPressGestureRecognizer }.count, 1)
     }
-    // 1 键是设计稿里的 @#，点开符号面板：没有长按菜单，角上也没有数字。
+    // 1 键短按仍是符号入口，同时显示数字提示并提供长按数字。
     let symbols = try button("nineKey1", in: controller)
     XCTAssertEqual(symbols.configuration?.title, "@#")
-    XCTAssertEqual(symbols.accessibilityLabel, "符号")
-    XCTAssertTrue((symbols.gestureRecognizers ?? []).compactMap { $0 as? UILongPressGestureRecognizer }.isEmpty)
-    XCTAssertTrue(symbols.subviews.allSatisfy { $0.accessibilityIdentifier != "keyNumberHint" })
+    XCTAssertEqual(symbols.accessibilityLabel, "1 符号")
+    XCTAssertEqual(symbols.tag, 1)
+    XCTAssertEqual((symbols.gestureRecognizers ?? []).compactMap { $0 as? UILongPressGestureRecognizer }.count, 1)
+    let hint = try XCTUnwrap(symbols.subviews.first { $0.accessibilityIdentifier == "keyNumberHint" } as? UILabel)
+    XCTAssertEqual(hint.text, "1")
+    XCTAssertEqual(symbols.accessibilityHint, "长按输入 1")
+    XCTAssertEqual(KeyboardViewController.nineKeyHoldOptions(1), ["1"])
+    XCTAssertEqual(KeyboardViewController.nineKeyHoldOptions(2), ["2", "a", "b", "c"])
     // 分词键移到了右列，位于 ⌫ 和 ！ 之间，与 Android 一致。
     XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, "分词")
     XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).accessibilityLabel, "拼音分词")
@@ -162,7 +167,12 @@ final class NineKeyKeyboardTests: XCTestCase {
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     for digit in 1...9 {
-      XCTAssertEqual(try button("nineKey\(digit)", in: controller).configuration?.title, String(digit))
+      let key = try button("nineKey\(digit)", in: controller)
+      XCTAssertEqual(key.configuration?.title, String(digit))
+      XCTAssertNil(key.accessibilityHint)
+      XCTAssertTrue(try XCTUnwrap(key.subviews.first { $0.accessibilityIdentifier == "keyNumberHint" }).isHidden)
+      let hold = try XCTUnwrap(key.gestureRecognizers?.first { $0 is UILongPressGestureRecognizer })
+      XCTAssertFalse(controller.gestureRecognizerShouldBegin(hold))
     }
     XCTAssertTrue(descendants(controller.view).filter {
       $0.accessibilityLabel == "符号 1" && !($0.superview?.isHidden ?? true)
@@ -176,6 +186,13 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.view.layoutIfNeeded()
     XCTAssertEqual(try button("nineKey2", in: controller).configuration?.title, "ABC")
     XCTAssertEqual(try button("nineKey1", in: controller).configuration?.title, "@#")
+    XCTAssertFalse(try XCTUnwrap(try button("nineKey1", in: controller).subviews.first {
+      $0.accessibilityIdentifier == "keyNumberHint"
+    }).isHidden)
+    let hold = try XCTUnwrap(try button("nineKey1", in: controller).gestureRecognizers?.first {
+      $0 is UILongPressGestureRecognizer
+    })
+    XCTAssertTrue(controller.gestureRecognizerShouldBegin(hold))
     XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, "分词")
   }
 
@@ -1686,7 +1703,7 @@ final class NineKeyKeyboardTests: XCTestCase {
 
     // 拼音网格的 @# 键是面板入口；九键底行不再有 符 键。
     let key = try button("nineKey1", in: controller)
-    XCTAssertEqual(key.accessibilityLabel, "符号")
+    XCTAssertEqual(key.accessibilityLabel, "1 符号")
     XCTAssertTrue(try button("symbolPanelKey", in: controller).isHidden)
     XCTAssertNil(key.menu, "这颗键不再弹菜单")
     XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })

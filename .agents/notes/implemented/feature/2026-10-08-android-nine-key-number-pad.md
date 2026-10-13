@@ -65,3 +65,5 @@ Android 拼音九键左侧的符号栏原来是 ，。？ 三个键铺满三行�
 ## Verification
 
 `platforms/android/tests/keyboard/NineKeySidebarPolicySmoke.java` 锁住两张默认表、一屏五行的行高、解析与校验，以及本地设置按 `TEXT` 收值、不进同步；`NineKeySwipePolicySmoke` 锁住两个方向、阈值（旧的 14 dp、默认 24 dp 下 20 dp 仍是点按、两端取值）、默认关闭且只在本机、判定距离的默认值与范围、1 键的特例；`ArithmeticResultPolicySmoke` 锁住取算式、优先级、小数精度（含先除后乘）、全角输入、日期和电话号码等没有结果的情况和上屏文字；由 `bash platforms/android/check-host.sh` 运行。设置页的编译由 Gradle 的 `compileFullDebugJavaWithJavac` 覆盖，check-host 不编译 `home/`。
+
+数字 1 的提示与长按入口，以及九键底行 0 的字形规则见 [手机九键保留符号入口的数字 1](../bug-fix/2026-10-13-mobile-nine-key-one-hint.md)。这里的键位布局不变。

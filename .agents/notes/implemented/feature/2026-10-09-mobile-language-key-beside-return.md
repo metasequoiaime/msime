@@ -26,3 +26,5 @@ Status: implemented
 - **收益**：三个手机平台的中/英键都在回车左边，右手拇指不用跨过整行就能切中英文；三个平台的底行顺序继续保持一致。
 - **代价**：已有用户要重新适应中/英的位置，原来左手边第二个键现在是逗号（有地球键时是地球键）。空格两侧的宽度不再对称，Android 分离键盘在逗号隐藏时右半空格较窄。
 - **验证**：Android 跑了 `check-host.sh`（`KeyboardActionRowSmoke` 断言新顺序，并新增一条检查九键底行的中/英紧挨回车；`SplitKeyboardPolicySmoke` 断言逗号隐藏时空隙居中）。本机 API 35 专用 AVD 上装了 arm64 包跑 `smoke.sh`（跳过名单与 CI 相同），各套件全部通过：`KeyboardHeightDeviceSmoke` 第一次在「输入法重启后高度不变」一步没等到键盘出现，单独重跑两次都通过，与底行无关。截图确认 26 键底行实际画成 `123 | ， | 空格 | 。 | 中 | ↵`。iOS 在 Studio 上 `build-for-testing`，把产物拉回本机后在模拟器上跑完 `MSIMEKeyboardTests`，其中 `NineKeyKeyboardTests` 断言了手机底行和九键底行的可见键顺序，`HandwritingTests` 断言了手写底行的句号、中/英、回车三者相邻。鸿蒙跑了类型检查和键盘逻辑测试（底行写在 `.ets` 视图里，node 测试碰不到它），并在本机用 `hvigorw assembleHap` 做了 ArkTS 真编译；鸿蒙设备或模拟器上没有看过实际效果。
+
+数字 1 的提示与长按入口，以及九键底行 0 的字形规则见 [手机九键保留符号入口的数字 1](../bug-fix/2026-10-13-mobile-nine-key-one-hint.md)。这里的键位布局不变。

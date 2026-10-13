@@ -4339,7 +4339,8 @@ struct KeyboardView {
       this.fixedKey({
         face: '0',
         label: '数字 0',
-        size: TOUCH_LETTER_FONT_SIZE,
+        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+        fontWeight: FUNCTION_LABEL_WEIGHT,
         emphasized: false,
         width: 0,
         share: NINE_KEY_ZERO_SHARE,
@@ -4507,7 +4508,7 @@ struct KeyboardView {
     Stack({ alignContent: Alignment.TopEnd }) {
       this.keyFace(this.nineKeyKeyOptions(key))
       if (this.touchDesign()) {
-        // 该格拼写的数字，印在右上角，与设计稿和 Android 的 `NineKeyDigitButton` 的印法一致。
+        // 长按可输入的数字，包括符号入口的 1；数字层不重复印。
         Text(NineKeyLayout.digitHint(key))
           .fontSize(KEY_HINT_FONT_SIZE)
           .fontColor(this.skin.secondary)
@@ -4532,10 +4533,14 @@ struct KeyboardView {
     .responseRegion(this.keyHitRegion())
     .onClick(() => {
       KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(key.input));
-      KeyboardSession.shared.press(key.input.charCodeAt(0), false);
+      if (NineKeyLayout.opensSymbols(key)) {
+        this.openSymbolSurface();
+      } else {
+        KeyboardSession.shared.press(key.input.charCodeAt(0), false);
+      }
     })
     .gesture(LongPressGesture().onAction(() => {
-      // A hold is still one press of the cell, whichever of its options it ends in.
+      // 长按仍算这格的一次按键，选项通过字面输入路径上屏。
       KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(key.input));
       this.openKeyHold(NineKeyLayout.holdOptions(key));
     }))

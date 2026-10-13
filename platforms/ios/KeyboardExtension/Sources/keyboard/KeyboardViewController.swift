@@ -1280,7 +1280,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self?.handleStrokeKey(key)
     }
     nineKeyContainer.addArrangedSubview(strokeKeys)
-    // 2-9 键与下面的长按菜单共用键面文字。1 键是设计稿的 @#，打开符号面板而不交给 Engine（Engine 的九键编辑器不收 1），所以没有长按选项，也没有数字提示；它原来承担的音节分隔符改由右列的中间键承担，与 Android 一致。
+    // 九格都显示数字提示并提供长按数字；1 键短按打开符号面板，不把 1 送进拼音引擎。分词仍由右列中间键承担。
     for rowIndex in 0..<3 {
       let row = makeRow()
       for column in 0..<3 {
@@ -1288,7 +1288,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let letters = Self.nineKeyLetters[digit]
         let button = makeKey(
           title: letters ?? Self.nineKeySymbolsFace,
-          accessibilityLabel: letters.map { "\(digit) \($0)" } ?? "符号"
+          accessibilityLabel: letters.map { "\(digit) \($0)" } ?? "1 符号"
         ) { [weak self] in
           guard let self else { return }
           self.countKeyPress(TypingKeyID.nineKey(digit))
@@ -1311,30 +1311,28 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         button.titleLabel?.adjustsFontSizeToFitWidth = true
         button.titleLabel?.minimumScaleFactor = 0.7
-        var numberHint: UILabel?
-        if let letters {
-          let number = UILabel()
-          numberHint = number
-          number.text = String(digit)
-          number.font = .systemFont(ofSize: 10)
-          number.textColor = KeyboardTheme.current.accent
-          number.accessibilityIdentifier = "keyNumberHint"
-          number.translatesAutoresizingMaskIntoConstraints = false
-          number.isAccessibilityElement = false
-          button.addSubview(number)
-          NSLayoutConstraint.activate([
-            number.topAnchor.constraint(equalTo: button.topAnchor, constant: 3),
-            number.centerXAnchor.constraint(equalTo: button.centerXAnchor),
-          ])
-          button.tag = digit
-          let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleNineKeyHold(_:)))
-          // 0.5 秒与 UIKit 自己的默认值、HarmonyOS `LongPressGesture` 的默认 500ms 一致；Android 这里用系统长按时长 `ViewConfiguration.getLongPressTimeout()`，12 起默认 400ms、之前 500ms。原来的 0.3 秒比哪一端都短，主线程稍一卡顿，一次普通的点按就会被当成长按、弹出菜单而不出字。
-          hold.minimumPressDuration = Self.nineKeyHoldDuration
-          button.addGestureRecognizer(hold)
-          button.accessibilityHint = "长按输入 \(digit) 或 \(letters)"
-        }
+        let number = UILabel()
+        number.text = String(digit)
+        number.font = .systemFont(ofSize: 10)
+        number.textColor = KeyboardTheme.current.accent
+        number.accessibilityIdentifier = "keyNumberHint"
+        number.translatesAutoresizingMaskIntoConstraints = false
+        number.isAccessibilityElement = false
+        button.addSubview(number)
+        NSLayoutConstraint.activate([
+          number.topAnchor.constraint(equalTo: button.topAnchor, constant: 3),
+          number.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+        ])
+        button.tag = digit
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleNineKeyHold(_:)))
+        // 0.5 秒与 UIKit 自己的默认值、HarmonyOS `LongPressGesture` 的默认 500ms 一致；Android 这里用系统长按时长 `ViewConfiguration.getLongPressTimeout()`，12 起默认 400ms、之前 500ms。原来的 0.3 秒比哪一端都短，主线程稍一卡顿，一次普通的点按就会被当成长按、弹出菜单而不出字。
+        hold.minimumPressDuration = Self.nineKeyHoldDuration
+        hold.name = "nineKeyDigitHold"
+        hold.delegate = self
+        button.addGestureRecognizer(hold)
+        button.accessibilityHint = letters.map { "长按输入 \(digit) 或 \($0)" } ?? "长按输入 1"
         nineKeyGridKeys.append(
-          NineKeyGridKey(button: button, digit: digit, letters: letters, numberHint: numberHint))
+          NineKeyGridKey(button: button, digit: digit, letters: letters, numberHint: number))
         row.addArrangedSubview(button)
       }
       nineKeyGrid.addArrangedSubview(row)
@@ -1376,9 +1374,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       key.button.configuration?.title = digits ? String(key.digit) : (key.letters ?? Self.nineKeySymbolsFace)
       key.button.accessibilityLabel = digits
         ? "数字 \(key.digit)"
-        : (key.letters.map { "\(key.digit) \($0)" } ?? "符号")
+        : (key.letters.map { "\(key.digit) \($0)" } ?? "1 符号")
       key.numberHint?.isHidden = digits
-      key.button.accessibilityHint = digits ? nil : key.letters.map { "长按输入 \(key.digit) 或 \($0)" }
+      key.button.configuration?.contentInsets = NSDirectionalEdgeInsets(
+        top: digits ? 0 : 8, leading: 0, bottom: 0, trailing: 0)
+      key.button.accessibilityHint = digits ? nil
+        : (key.letters.map { "长按输入 \(key.digit) 或 \($0)" } ?? "长按输入 1")
     }
   }
 
@@ -1451,14 +1452,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   ]
 
   @objc private func handleNineKeyHold(_ gesture: UILongPressGestureRecognizer) {
-    guard gesture.state == .began, let key = gesture.view as? UIButton,
-      let letters = Self.nineKeyLetters[key.tag] else { return }
-    // The hold replaces the tap, so the press is counted here and the option picked from the menu is not a second one.
+    guard gesture.state == .began, !showsSymbols, let key = gesture.view as? UIButton,
+      (1...9).contains(key.tag) else { return }
+    // 长按替代点按，只统计一次；菜单选项经字面输入路径上屏，1 不进入拼音引擎。
     countKeyPress(TypingKeyID.nineKey(key.tag))
-    showKeyHoldOptions(from: key, options: [String(key.tag)] + letters.lowercased().map(String.init))
+    showKeyHoldOptions(from: key, options: Self.nineKeyHoldOptions(key.tag))
   }
 
-  /// 长按菜单：九键 2–9 弹出数字和字母，14 键弹出这一键的字母。选中的一项先结束组字再原样上屏（`commitNineKeyHoldOption`）。
+  static func nineKeyHoldOptions(_ digit: Int) -> [String] {
+    guard (1...9).contains(digit) else { return [] }
+    return [String(digit)] + (nineKeyLetters[digit] ?? "").lowercased().map(String.init)
+  }
+
+  /// 长按菜单：九键 1 弹出数字，2–9 弹出数字和字母，14 键弹出这一键的字母。选中的一项先结束组字再原样上屏（`commitNineKeyHoldOption`）。
   private func showKeyHoldOptions(from key: UIButton, options optionTexts: [String]) {
     dismissNineKeyHoldOptions()
     playInputClick()
@@ -2744,7 +2750,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       handleSymbol("0")
     }
     zero.configuration?.contentInsets = .zero
-    applyLetterFont(to: zero)
+    zero.configuration?.titleTextAttributesTransformer = Self.functionLabelTransformer
     zero.accessibilityIdentifier = "nineKeyZero"
     zero.isHidden = true
     nineKeyZeroButton = zero
@@ -5089,6 +5095,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
     if gestureRecognizer.name == "spaceVoiceHold" { return spaceVoiceArmed && !cursorMovement.isActive }
     if gestureRecognizer.name == "layoutToggleSymbolsHold" { return !showsSymbols }
+    if gestureRecognizer.name == "nineKeyDigitHold" { return !showsSymbols }
     guard gestureRecognizer.name == "spaceCursorPan", let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
     let velocity = pan.velocity(in: view)
     return abs(velocity.x) > abs(velocity.y)

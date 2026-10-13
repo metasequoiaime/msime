@@ -60,6 +60,23 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             stage = "nine-key English commit identity";
             await(field("msime-test-plain").and(node -> node.getText() != null
                 && node.getText().toString().equalsIgnoreCase("ok")));
+
+            // 第一格短按仍是符号入口，长按的 1 经真实 InputConnection 上屏。
+            stage = "nine-key long-press one";
+            AccessibilityNodeInfo one = await(key("@#"));
+            if (!one.isLongClickable() || !one.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
+                throw new AssertionError("Key 1 must offer its literal digit");
+            tap(described("输入 1"));
+            await(field("msime-test-plain").and(node -> node.getText() != null
+                && node.getText().toString().equalsIgnoreCase("ok1")));
+
+            stage = "nine-key numeric one and layer restoration";
+            tap(key("123"));
+            tap(key("1"));
+            await(field("msime-test-plain").and(node -> node.getText() != null
+                && node.getText().toString().equalsIgnoreCase("ok11")));
+            tap(key("九键"));
+            await(key("@#").and(AccessibilityNodeInfo::isLongClickable));
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
