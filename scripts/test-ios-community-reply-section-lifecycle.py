@@ -5,6 +5,7 @@ import unittest
 
 
 SOURCE = Path("platforms/ios/App/Sources/community/CommunityResourcesView.swift").read_text()
+TASK = Path("platforms/ios/App/Sources/app/ViewRequestTask.swift").read_text()
 
 
 class CommunityReplySectionLifecycleTests(unittest.TestCase):
@@ -29,7 +30,8 @@ class CommunityReplySectionLifecycleTests(unittest.TestCase):
         self.assertIn("guard request.isVisible, addGeneration.isCurrent(generation) else { throw CancellationError() }", self.section)
         self.assertIn("try ensureVisible(generation)", self.section)
         self.assertIn("catch is CancellationError", self.section)
-        self.assertIn("if request.isCurrent(id) { pending = nil }", self.section)
+        self.assertIn("ViewRequestTask.startLoad(request: $request, pending: $pending) { id in", self.section)
+        self.assertIn("if request.wrappedValue.isCurrent(id) { pending.wrappedValue = nil }", TASK)
 
     def test_reply_install_checks_cancellation_between_side_effects(self):
         helper = SOURCE.split("enum CommunityReplyInstall", 1)[1].split(

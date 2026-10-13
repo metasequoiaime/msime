@@ -196,13 +196,15 @@ struct CommunityResourcesView: View {
     }
   }
 
-  @MainActor private func load(append: Bool = false) async {
+  @MainActor private func load(append: Bool = false, id scheduledID: UUID? = nil) async {
     guard request.isVisible else { return }
-    let id = request.begin(); busy = true
+    let id = scheduledID ?? request.begin()
+    guard request.isCurrent(id) else { return }
+    busy = true
     defer {
       if request.isCurrent(id) {
         busy = false
-        pending = nil
+        if scheduledID == nil { pending = nil }
       }
     }
     do {
@@ -216,9 +218,10 @@ struct CommunityResourcesView: View {
   }
 
   @MainActor private func startLoad(append: Bool = false) {
-    guard request.isVisible, !busy else { return }
-    pending?.cancel()
-    pending = Task { await load(append: append) }
+    guard !busy else { return }
+    ViewRequestTask.startLoad(request: $request, pending: $pending) { id in
+      await load(append: append, id: id)
+    }
   }
 
   @MainActor private func ensureVisible() throws {
@@ -371,11 +374,7 @@ struct CommunityReplyTemplatesSection: View {
   }
 
   @MainActor private func startLoad() {
-    guard request.isVisible else { return }
-    pending?.cancel()
-    let id = request.begin()
-    pending = Task {
-      defer { if request.isCurrent(id) { pending = nil } }
+    ViewRequestTask.startLoad(request: $request, pending: $pending) { id in
       await refreshInstalled()
       await load(id)
     }

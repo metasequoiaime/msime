@@ -5,11 +5,15 @@ import unittest
 
 
 SOURCE = Path("platforms/ios/App/Sources/community/CommunityResourcesView.swift").read_text()
+TASK = Path("platforms/ios/App/Sources/app/ViewRequestTask.swift").read_text()
 
 
 class CommunityResourceListLifecycleTests(unittest.TestCase):
     def setUp(self):
         self.view = SOURCE.split("struct CommunityResourcesView", 1)[1].split(
+            "struct CommunityResourceDetail", 1
+        )[0]
+        self.reply = SOURCE.split("struct CommunityReplyTemplatesSection", 1)[1].split(
             "struct CommunityResourceDetail", 1
         )[0]
 
@@ -21,9 +25,11 @@ class CommunityResourceListLifecycleTests(unittest.TestCase):
         self.assertIn("request.disappear()", self.view)
 
     def test_late_list_results_are_fenced_after_disappearance(self):
-        self.assertIn("let id = request.begin(); busy = true", self.view)
+        self.assertIn("ViewRequestTask.startLoad(request: $request, pending: $pending) { id in", self.view)
+        self.assertIn("guard request.isCurrent(id) else { return }", self.view)
         self.assertIn("try request.checkCurrent(id)", self.view)
-        self.assertIn("pending = Task", self.view)
+        self.assertIn("ViewRequestTask.startLoad(request: $request, pending: $pending) { id in", self.reply)
+        self.assertIn("if request.wrappedValue.isCurrent(id) { pending.wrappedValue = nil }", TASK)
         self.assertIn("onPublished: { startLoad() }", self.view)
 
 

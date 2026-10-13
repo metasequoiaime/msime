@@ -32,6 +32,8 @@ class CommunitySkinLifecycleTests(unittest.TestCase):
         self.assertIn(".onDisappear", self.list_view)
         self.assertIn("request.disappear()", self.list_view)
         self.assertIn("pending?.cancel()", self.list_view)
+        self.assertIn("ViewRequestTask.startLoad(request: $request, pending: $pending) { id in", self.list_view)
+        self.assertIn("if scheduledID == nil { pending = nil }", self.list_view)
         self.assertIn("takeTasks.values.forEach { $0.cancel() }", self.list_view)
         self.assertIn("guard request.isCurrent(id) else { throw CancellationError() }", self.list_view)
         self.assertIn("try request.checkCurrent(id)", self.list_view)

@@ -191,7 +191,7 @@ struct SkinCommunityView: View {
     defer {
       if request.isCurrent(id) {
         busy = false
-        pending = nil
+        if scheduledID == nil { pending = nil }
       }
     }
     do {
@@ -208,10 +208,8 @@ struct SkinCommunityView: View {
   }
 
   @MainActor private func startLoad(append: Bool = false, onFailure: (() -> Void)? = nil) {
-    guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    pending?.cancel()
-    pending = Task {
+    guard !busy else { return }
+    ViewRequestTask.startLoad(request: $request, pending: $pending) { id in
       do { try await load(append: append, id: id) }
       catch is CancellationError { }
       catch { if request.isCurrent(id) { onFailure?() } }
