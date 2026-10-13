@@ -145,9 +145,7 @@ struct CloudDictionaryView: View {
       run { _ in try await load(offset: 0) }
     }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
       page = nil
     }

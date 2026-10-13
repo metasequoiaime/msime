@@ -27,8 +27,11 @@ class IOSCloudDictionaryKindLifecycleContract(unittest.TestCase):
         disappear = re.search(r"\.onDisappear \{(?P<body>.*?)\n    \}", source, re.S)
         self.assertIsNotNone(disappear, "leaving the dictionary page must invalidate its request")
         body = disappear.group("body")
-        self.assertIn("request.disappear()", body)
-        self.assertIn("pending?.cancel()", body)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", body)
+        task = TASK.read_text(encoding="utf-8")
+        self.assertIn("request.wrappedValue.disappear()", task)
+        self.assertIn("pending.wrappedValue?.cancel()", task)
+        self.assertIn("pending.wrappedValue = nil", task)
         self.assertIn("busy = false", body)
 
     def test_load_result_is_bound_to_requested_kind_and_generation(self):

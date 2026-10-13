@@ -13,7 +13,9 @@ class CloudDictionaryFilesLifecycleTests(unittest.TestCase):
     def test_page_owns_task_and_shared_generation(self):
         self.assertIn("@State private var request = ViewRequestGeneration()", SOURCE)
         self.assertIn(".onAppear { request.appear() }", SOURCE)
-        self.assertIn("request.disappear()\n      pending?.cancel()", SOURCE)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", SOURCE)
+        self.assertIn("request.wrappedValue.disappear()", TASK)
+        self.assertIn("pending.wrappedValue?.cancel()", TASK)
         self.assertIn("ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending", SOURCE)
         self.assertIn("isVisible = false\n    invalidate()", GENERATION)
 

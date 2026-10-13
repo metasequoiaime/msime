@@ -82,9 +82,7 @@ struct CloudDictionaryApplyView: View {
     }
     .onAppear { request.appear() }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
       preview = nil; expectedVersion = nil; probe = ""
     }

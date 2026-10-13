@@ -13,7 +13,9 @@ class CloudDictionaryApplyLifecycleTests(unittest.TestCase):
     def test_page_owns_task_and_shared_generation(self):
         self.assertIn("@State private var request = ViewRequestGeneration()", SOURCE)
         self.assertIn(".onAppear { request.appear() }", SOURCE)
-        self.assertIn("request.disappear()\n      pending?.cancel()", SOURCE)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", SOURCE)
+        self.assertIn("request.wrappedValue.disappear()", TASK)
+        self.assertIn("pending.wrappedValue?.cancel()", TASK)
         self.assertGreaterEqual(SOURCE.count("ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending"), 2)
         self.assertIn("currentID = UUID()", GENERATION)
         self.assertIn("isVisible = false\n    invalidate()", GENERATION)
@@ -24,7 +26,6 @@ class CloudDictionaryApplyLifecycleTests(unittest.TestCase):
         self.assertGreaterEqual(SOURCE.count("try request.checkCurrent(id)"), 4)
         self.assertIn("if request.wrappedValue.isCurrent(id)", TASK)
         self.assertIn("pending.wrappedValue = nil", TASK)
-        self.assertIn("pending = nil", SOURCE)
         self.assertIn("try Task.checkCancellation()", GENERATION)
         self.assertIn("guard isCurrent(id) else { throw CancellationError() }", GENERATION)
 
