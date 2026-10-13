@@ -2,6 +2,7 @@
 #import "MSIMEClientSession.h"
 #include "msime_client.h"
 #include <cassert>
+#include <string>
 #import "TestPreferenceSuite.h"
 #import "PreferenceViewLookup.h"
 
@@ -30,8 +31,11 @@ int main() {
         NSMutableDictionary<NSString *, NSButton *> *buttons = [NSMutableDictionary dictionary];
         for (NSControl *control in MSIMEFindPreferenceControls(prefsRoot, NSSelectorFromString(@"localModeChanged:")))
             buttons[control.identifier] = (id)control;
-        // 八种模式加上「Shift+字母进入快捷模式」总开关。
-        assert(buttons.count == 9 && buttons[@"shift_letter_entry"].state == NSControlStateValueOn);
+        // 九种模式加上「Shift+字母进入快捷模式」总开关。
+        assert(buttons.count == 10 && buttons[@"shift_letter_entry"].state == NSControlStateValueOn);
+        // 拆字反查在桌面默认关：缺键读作关，勾选框不勾，合并进共享文档时也不写这个键，让 host-api 按宿主形态决定。
+        assert(![prefs localModeEnabled:@"chaizi"] && buttons[@"chaizi"].state == NSControlStateValueOff);
+        assert([prefs sharedPreferencesByMerging:base][@"local_modes"][@"chaizi"] == nil);
         NSButton *fuzzy = (id)MSIMEFindPreferenceControl(prefsRoot, @selector(fuzzyPinyinChanged:));
         NSView *fuzzyCard = MSIMEFindPreferenceView(prefsRoot, ^BOOL(NSView *view) {
             return [view.accessibilityLabel isEqual:@"模糊音卡片（全拼与双拼）"];
@@ -65,9 +69,9 @@ int main() {
         NSDictionary *assistance = [prefs sharedPreferencesByMerging:base];
         assert([assistance[@"learning"] isEqual:@YES]);
         assert(([assistance[@"frequency"] isEqual:@{@"mode": @"halve", @"trigger_count": @3, @"linear_step": @4}]));
-        for (NSString *mode in @[@"unicode", @"date_time", @"quick_phrase", @"emoji", @"kaomoji", @"super_jianpin", @"temporary_english", @"temporary_japanese"]) {
+        for (NSString *mode in @[@"unicode", @"date_time", @"quick_phrase", @"emoji", @"kaomoji", @"super_jianpin", @"temporary_english", @"temporary_japanese", @"chaizi"]) {
             NSButton *button = buttons[mode];
-            assert(button && [prefs localModeEnabled:mode] == ![mode isEqual:@"unicode"]);
+            assert(button && [prefs localModeEnabled:mode] == !([mode isEqual:@"unicode"] || [mode isEqual:@"chaizi"]));
             NSUInteger before = changes;
             button.state = NSControlStateValueOff;
             [NSApp sendAction:button.action to:button.target from:button];
@@ -108,10 +112,15 @@ int main() {
         assert(session && !error && [session setFocused:YES error:&error]);
         NSDictionary *shared = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         assert(shared && !error);
+        // 偏好里没有拆字这个键时，桌面构建的 host-api 不开这个模式：Shift+C 不被吃掉，大写 C 交还应用。
+        NSDictionary *untouched = [session typeASCII:'C' shift:YES error:&error];
+        assert([untouched[@"handled"] isEqual:@NO] && [untouched[@"view"][@"local_mode"] isEqual:@"none"]);
         NSUInteger revision = 0;
         NSArray<NSArray<NSString *> *> *modes = @[@[@"unicode", @"U"], @[@"date_time", @"T"],
             @[@"quick_phrase", @"K"], @[@"emoji", @"E"], @[@"kaomoji", @"M"],
-            @[@"super_jianpin", @"J"], @[@"temporary_english", @"Y"], @[@"temporary_japanese", @"R"]];
+            @[@"super_jianpin", @"J"], @[@"temporary_english", @"Y"], @[@"temporary_japanese", @"R"], @[@"chaizi", @"C"]];
+        // 上面的循环最后把每个开关都打开了，拆字因此写成了明确的开，下面和其他模式一样逐个关掉再打开。
+        assert([[prefs sharedPreferencesByMerging:base][@"local_modes"][@"chaizi"] isEqual:@YES]);
         for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
             prefs.inputScheme = scheme;
             NSDictionary *(^snapshot)(NSUInteger) = ^(NSUInteger nextRevision) {
@@ -166,6 +175,14 @@ int main() {
         assert([[session updatePreferencesSnapshot:masterOn error:&error][@"deferred"] isEqual:@NO]);
         assert([[session typeASCII:'T' shift:YES error:&error][@"view"][@"local_mode"] isEqual:@"date_time"]);
         assert([session command:MSIME_CANCEL error:&error]);
+        // 拆字反查：Shift+C 后打部件拼音，首行是焱、注释是它的读音；`'` 当字符送也是分隔符。上屏后回到普通输入。
+        assert([[session typeASCII:'C' shift:YES error:&error][@"view"][@"local_mode"] isEqual:@"chaizi"]);
+        NSDictionary *chaizi = nil;
+        for (char key : std::string("huo'huohuo")) chaizi = [session typeASCII:(uint8_t)key shift:NO error:&error][@"view"];
+        assert([chaizi[@"editing_text"] isEqual:@"Chuo'huohuo"]);
+        assert([chaizi[@"candidates"][0][@"text"] isEqual:@"焱"] && [chaizi[@"candidates"][0][@"annotation"] isEqual:@"yàn"]);
+        NSDictionary *chosen = [session command:MSIME_COMMIT_CANDIDATE error:&error];
+        assert([chosen[@"commit"] isEqual:@"焱"] && [chosen[@"view"][@"local_mode"] isEqual:@"none"]);
         assert([session closeWithError:&error] && !error);
 
         // The other half of the same contract, which nothing here covered: with the resource gone the mode

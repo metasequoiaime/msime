@@ -34,6 +34,7 @@ static inline NSInteger MSIMECloudHelpcodeSchemaIndex(NSUserDefaults *defaults, 
     return index == NSNotFound ? (NSInteger)[MSIMECloudHelpcodeSchemas() indexOfObject:fallback] : (NSInteger)index;
 }
 
+// 账号同步把这些模式折成一个总布尔 `platform.macos.local_input_modes`，任一为关即为关。拆字反查（`chaizi`）不在其中：它在桌面默认关，放进来会让没动过任何开关的新用户导出假，导入时又会把它和其他模式一起打开或关掉。
 static inline NSArray<NSString *> *MSIMECloudLocalModeKeys() {
     return @[@"quick_phrase", @"date_time", @"unicode", @"emoji", @"kaomoji", @"super_jianpin", @"temporary_english", @"temporary_japanese"];
 }
