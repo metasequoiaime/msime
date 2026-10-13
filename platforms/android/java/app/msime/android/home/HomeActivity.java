@@ -478,7 +478,11 @@ public final class HomeActivity extends AppCompatActivity {
             };
             hideDetailLoading = hide;
             overlay.animate().cancel();
-            overlay.animate().alpha(0f).setDuration(120).withEndAction(hide).start();
+            // 统一给每个页面留出一小段可感知的反馈，避免快页面因为创建太快而像闪屏。
+            overlay.postDelayed(() -> {
+                if (hideDetailLoading != hide) return;
+                overlay.animate().alpha(0f).setDuration(120).withEndAction(hide).start();
+            }, 220);
         }
     }
 
@@ -487,6 +491,8 @@ public final class HomeActivity extends AppCompatActivity {
         selected = itemId;
         updateBack();
         FragmentManager manager = getSupportFragmentManager();
+        Fragment target = manager.findFragmentByTag(tag(itemId));
+        if (switching || target == null || rebuild == itemId) setDetailLoading(true);
         FragmentTransaction transaction = manager.beginTransaction();
         // Fade-through between tabs: the page arriving fades in from 94 % scale while the one leaving is hidden at once, as the M3 navigation bar pattern prescribes. The first show on create and a rebuild of the tab already on screen are not arrivals, so they appear without it.
         if (switching) transaction.setCustomAnimations(R.anim.fade_through_in, 0);
@@ -511,6 +517,10 @@ public final class HomeActivity extends AppCompatActivity {
         // 两个 tab——第二次查不到第一次还没执行的 add，于是同一个 tag 被加了两遍，两个页面一起画，
         // 看起来就是 UI 叠在一起。保存状态之后不能同步提交，那种时候退回排队，晚一点总比崩了好。
         if (manager.isStateSaved()) transaction.commit(); else transaction.commitNow();
+        // Existing kept tabs do not emit a new view-created callback, so finish their global
+        // transition loading here as well. New pages also use the lifecycle callback above; the
+        // delayed hide keeps the same visible animation for both paths.
+        if (target != null && rebuild != itemId) setDetailLoading(false);
     }
 
     private Fragment create(int itemId) {
