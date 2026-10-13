@@ -37,7 +37,7 @@ final class ImeLetterRows {
     private Button keyPreviewOwner;
     /** 符号层里正在显示 #+= 页（否则是 123 页）。 */
     private boolean moreSymbols;
-    /** 第二行（a–l）两侧各 5% 的缩进占位；微软双拼的第十个键出现时收起。 */
+    /** 分离式键盘第二行（a–l）的缩进占位；微软双拼的第十个键出现时收起。 */
     private View secondRowLeadingIndent;
     private View secondRowTrailingIndent;
     /** 当前键行是不是按分离式键盘建的；与 {@link MSIMEInputService#splitKeyboardDrawn} 不一致时要重建（{@link #splitStale}）。 */
@@ -213,7 +213,7 @@ final class ImeLetterRows {
         });
     }
 
-    /** 第二行的 5% 缩进只在 9 键行出现；微软双拼的第十个键可见时收起（每次渲染校正一次）。 */
+    /** 分离式键盘第二行的缩进只在 9 键行出现；微软双拼的第十个键可见时收起（每次渲染校正一次）。 */
     void updateSecondRowIndent() {
         if (secondRowLeadingIndent == null) return;
         int visibility = microsoftTenKeys() ? View.GONE : View.VISIBLE;
@@ -653,8 +653,8 @@ final class ImeLetterRows {
                     rows.size(), rowIndex, true));
                 s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
             }
-            // 第二行（a–l）两侧各缩进 5%：9 个键加两侧各 0.5 的占位正好是第一行 10 个键的宽度。
-            if (standardLetters && rowIndex == 1) {
+            // 普通键盘第二行铺满宽度；分离式键盘保留两侧半键占位，使两半的键宽一致。
+            if (builtSplit && standardLetters && rowIndex == 1) {
                 secondRowLeadingIndent = indent();
                 row.addView(secondRowLeadingIndent, LayoutPolicy.weightedMatchParentParams(.5f));
             }
@@ -673,7 +673,7 @@ final class ImeLetterRows {
                 KeyboardTypographyPolicy.setKeyTextSize(s.microsoftFinalKey, 22);
                 row.addView(s.microsoftFinalKey, LayoutPolicy.weightedMatchParentParams(1));
             }
-            if (standardLetters && rowIndex == 1) {
+            if (builtSplit && standardLetters && rowIndex == 1) {
                 secondRowTrailingIndent = indent();
                 row.addView(secondRowTrailingIndent, LayoutPolicy.weightedMatchParentParams(.5f));
                 updateSecondRowIndent();
