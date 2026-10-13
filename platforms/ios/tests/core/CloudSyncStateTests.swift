@@ -110,4 +110,14 @@ final class CloudSyncStateTests: XCTestCase {
     try Data("{not json".utf8).write(to: directory.appendingPathComponent("state.json"))
     XCTAssertEqual(try state.read(), CloudSyncRecord())
   }
+
+  func testAnOversizedFileReadsAsAFreshState() throws {
+    let directory = root.appendingPathComponent("CloudSync", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let oversized = Data(repeating: 0x20, count: 256 * 1024 + 1)
+    try oversized.write(to: directory.appendingPathComponent("state.json"))
+
+    XCTAssertEqual(try state.read(), CloudSyncRecord())
+    XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("state.json")), oversized)
+  }
 }

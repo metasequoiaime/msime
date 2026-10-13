@@ -33,6 +33,12 @@ CHECKS = (
         ("BoundedFileReader.read(from: file, maximumBytes: 65536)",),
     ),
     (
+        ROOT / "platforms/ios/SharedUI/core/CloudSyncState.swift",
+        "private func load(_ root: URL)",
+        "  }\n\n  private func save(",
+        ("BoundedFileReader.read(from: file, maximumBytes: Self.maximumBytes)",),
+    ),
+    (
         ROOT / "platforms/ios/SharedUI/dictionary/DictionarySnapshotQueue.swift",
         "private func openSnapshotSource(_ file: URL)",
         "  }\n\n  // A killed worker",

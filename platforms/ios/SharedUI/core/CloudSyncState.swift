@@ -163,13 +163,16 @@ final class CloudSyncState: @unchecked Sendable {
   private func load(_ root: URL) throws -> CloudSyncRecord {
     let file = root.appendingPathComponent("state.json")
     guard FileManager.default.fileExists(atPath: file.path) else { return CloudSyncRecord() }
-    let descriptor = open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
-    guard descriptor >= 0 else { throw Failure.unavailable }
-    let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-    defer { try? handle.close() }
-    let data = try handle.read(upToCount: Self.maximumBytes + 1) ?? Data()
+    let data: Data
+    do {
+      data = try BoundedFileReader.read(from: file, maximumBytes: Self.maximumBytes)
+    } catch BoundedFileReader.Failure.tooLarge {
+      return CloudSyncRecord()
+    } catch {
+      throw Failure.unavailable
+    }
     // 读不出的文件按全新状态处理：开关回到关闭、游标清空，下一次打开时整份比对，不会丢数据。
-    guard data.count <= Self.maximumBytes, let record = try? Self.decoder.decode(CloudSyncRecord.self, from: data),
+    guard let record = try? Self.decoder.decode(CloudSyncRecord.self, from: data),
           record.version == 1 else { return CloudSyncRecord() }
     return record
   }
