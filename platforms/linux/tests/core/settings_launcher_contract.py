@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Static contract checks for desktop settings panel aliases."""
 
+# The legacy .deb runs this on Debian buster's Python 3.7, where list[str] in an annotation is a TypeError unless annotations are postponed.
+from __future__ import annotations
+
 import os
 import subprocess
 import tempfile
