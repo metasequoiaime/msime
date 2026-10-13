@@ -110,9 +110,21 @@ public final class VoiceProviderPolicy {
      * @param resolved 共享解析给出的服务（`VoiceConfiguration#provider`），没有配置时为 null
      */
     public static String status(String provider, String resolved) {
+        return status(provider, resolved, true);
+    }
+
+    /**
+     * 「识别服务」行的说明，并把系统识别服务是否真的存在纳入回退提示。
+     *
+     * <p>设置页以前只看共享解析结果：没有云端密钥时写「暂用系统识别」，即使设备没有
+     * {@code RecognitionService} 也会这样写。这样的用户按语音键只能得到失败提示，却在
+     * 设置页看不出该改用本地模型或豆包。
+     */
+    public static String status(String provider, String resolved, boolean platformAvailable) {
         if (!network(provider)) return SYSTEM.equals(provider) || provider == null || provider.isEmpty()
-            ? "使用设备自带的语音识别服务" : null;
+            ? platformAvailable ? "使用设备自带的语音识别服务" : "没有可用的系统识别服务，可改用本地模型或豆包" : null;
         if (resolved != null) return null;
-        return DoubaoAsrPolicy.isStreaming(provider) ? "密钥未填写完整，暂用系统识别" : "未填写 API Key，暂用系统识别";
+        String fallback = platformAvailable ? "暂用系统识别" : "系统识别不可用";
+        return DoubaoAsrPolicy.isStreaming(provider) ? "密钥未填写完整，" + fallback : "未填写 API Key，" + fallback;
     }
 }

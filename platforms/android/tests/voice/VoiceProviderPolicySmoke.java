@@ -96,6 +96,15 @@ public final class VoiceProviderPolicySmoke {
         check(VoiceProviderPolicy.status("openai", "openai") == null, "a working configuration needs no remark");
         check("使用设备自带的语音识别服务".equals(VoiceProviderPolicy.status("system", null)),
             "the platform recogniser is explained");
+        check("没有可用的系统识别服务，可改用本地模型或豆包".equals(
+                VoiceProviderPolicy.status("system", null, false)),
+            "a device without a platform recogniser offers an alternative");
+        check("密钥未填写完整，系统识别不可用".equals(
+                VoiceProviderPolicy.status("doubao", null, false)),
+            "an unconfigured cloud provider does not claim an unavailable fallback");
+        check("未填写 API Key，暂用系统识别".equals(
+                VoiceProviderPolicy.status("openai", null, true)),
+            "an available platform recogniser keeps the existing fallback wording");
         check(VoiceProviderPolicy.status("local", "local") == null, "the local model reports through localStatus");
         check("还没有可用的模型，请在下面下载一个".equals(VoiceProviderPolicy.localStatus(false, true))
                 && "还没有可用的模型，请在下面下载一个".equals(VoiceProviderPolicy.localStatus(false, false)),

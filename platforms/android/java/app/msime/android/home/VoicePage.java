@@ -24,6 +24,7 @@ import app.msime.android.VoiceConfiguration;
 import app.msime.android.VoicePolishPolicy;
 import app.msime.android.VoicePolishSettingsPolicy;
 import app.msime.android.VoiceProviderPolicy;
+import app.msime.android.VoiceRecognitionActivity;
 import app.msime.android.core.InputViewValuePolicy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.util.ArrayList;
@@ -73,7 +74,8 @@ public final class VoicePage extends ReloadingDetailPage {
      */
     private record State(JSONObject preferences, AndroidLocalSettings.Snapshot local, boolean punctuationSupported,
             boolean runtimeReady, @Nullable ResourcePacks.Pack runtimePack, @Nullable String resolvedProvider,
-            List<LocalVoiceModels.Model> models, @Nullable String modelsError, boolean polishConfigured) {}
+            List<LocalVoiceModels.Model> models, @Nullable String modelsError, boolean polishConfigured,
+            boolean platformRecognizerAvailable) {}
 
     /** 一次「测试」的结果：{@code message} 是共享层给的中文结果，不含凭据。 */
 
@@ -147,7 +149,8 @@ public final class VoicePage extends ReloadingDetailPage {
             // 按用户选的服务判断，而不是按解析结果：选了豆包还没填密钥时开关照样能设，填好后生效，不该说「当前识别服务不支持」。
             DoubaoAsrPolicy.PROVIDER.equals(InputViewValuePolicy.textOr(preferences.optJSONObject("voice_input"),
                 "asr_provider", "")), runtimeReady, runtime, configuration.provider(),
-            models, modelsError, configuration.polish() != null);
+            models, modelsError, configuration.polish() != null,
+            VoiceRecognitionActivity.available(context));
     }
 
     /** 安装包自带语音运行库：按名字能载入。没带时载入失败，按需下载的资源包补上它。 */
@@ -217,7 +220,7 @@ public final class VoicePage extends ReloadingDetailPage {
         GroupCard service = GroupCard.add(sectionColumn(target, "服务"), "识别服务");
         String status = VoiceProviderPolicy.LOCAL.equals(provider)
             ? VoiceProviderPolicy.localStatus(selectedModel(voice, state) != null, state.runtimeReady())
-            : VoiceProviderPolicy.status(provider, state.resolvedProvider());
+            : VoiceProviderPolicy.status(provider, state.resolvedProvider(), state.platformRecognizerAvailable());
         service.nav("识别服务", status, VoiceProviderPolicy.label(provider), () -> pickProvider(provider, state));
         if (!VoiceProviderPolicy.network(provider)) return;
 

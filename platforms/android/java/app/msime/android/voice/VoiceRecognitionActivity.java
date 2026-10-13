@@ -76,7 +76,13 @@ public final class VoiceRecognitionActivity extends Activity {
     private boolean finished;
 
     public static boolean available(Context context) {
-        return SpeechRecognizer.isRecognitionAvailable(context);
+        if (context == null) return false;
+        try {
+            return SpeechRecognizer.isRecognitionAvailable(context);
+        } catch (RuntimeException | LinkageError unavailable) {
+            // 有些厂商系统在识别服务被停用或卸载过程中会抛异常；按不可用处理，让设置页给出其他路径。
+            return false;
+        }
     }
 
     /**
