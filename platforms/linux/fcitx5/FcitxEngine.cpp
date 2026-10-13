@@ -1098,6 +1098,7 @@ public:
   void refreshToolbar();
   void refreshThemeMenu();
   void syncCandidatePanelFont();
+  void retryCandidatePanelFont();
   // `chosen` 只标记用户刚在菜单或设置页主动选主题；重读相同偏好不能夺回第三方 classicui 主题。
   void syncCandidatePanelTheme(bool chosen);
   bool candidateThemeSelectionChanged(const Json &preferences);
@@ -1903,6 +1904,7 @@ public:
         if (preferences_save_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         waitForPreferenceSave();
       }
+      retryCandidatePanelFont();
       if (preferences_job_.valid()) {
         if (preferences_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto snapshot = preferences_job_.get();
@@ -5850,9 +5852,11 @@ public:
     fcitx::RawConfig config;
     config.setValueByPath("Font", *description);
     set_classicui_config(*classicui, config);
+    candidate_font_sync_.mark_applied(*description);
     // 写字体不经 applyCandidatePanelTheme，提示的字体缓存要在这里跟上。
     hint_inputs_.font = *description;
   }
+  bool candidatePanelFontPending() const { return candidate_font_sync_.pending(); }
   // 配色写入用户目录的 `msime` 主题：后台同步只替换自带或水杉主题，主动选择可接管第三方；无覆盖时恢复仍持有的项，写配置让 classicui 重载。
   void applyCandidatePanelTheme(const Json &preferences, bool system_dark, const Json &catalog, bool chosen) {
     applyCandidatePanelTheme(instance_->addonManager().addon("classicui", true), preferences, system_dark, catalog, chosen);
@@ -6931,6 +6935,11 @@ void FcitxState::syncCandidatePanelFont() {
   if (!engine_) return;
   engine_->applyCandidatePanelFont(preferences_);
   engine_->applyCandidateWheelPaging(preferences_);
+}
+
+void FcitxState::retryCandidatePanelFont() {
+  if (engine_ && session_ && ic_.hasFocus() && !restricted() && engine_->candidatePanelFontPending())
+    engine_->applyCandidatePanelFont(preferences_);
 }
 
 bool FcitxState::candidateThemeSelectionChanged(const Json &preferences) {

@@ -115,8 +115,7 @@ inline bool candidate_font_is_default(const CandidateFont &font) {
 
 // The panel font belongs to the whole desktop, not to this input method, so the host only writes
 // it in answer to the user choosing a font. Untouched defaults leave whatever the desktop already
-// has; after that, every change the user makes is written once, and an unchanged value is not
-// written again on every preference refresh.
+// has; after that, every change the user makes is written once after the host confirms the write.
 class CandidateFontSync {
 public:
   explicit CandidateFontSync(CandidateFontUnit unit = CandidateFontUnit::Pixels) : unit_(unit) {}
@@ -125,23 +124,38 @@ public:
   // 重写一次，否则升级前写过像素的用户要等再改一次字体，序号才与候选一样大。
   std::optional<std::string> next(const CandidateFont &font, const std::optional<std::string> &current = std::nullopt) {
     auto description = candidate_pango_font(font, unit_);
+    if (pending_ == description) return description;
     if (!last_ && candidate_font_is_default(font)) {
-      last_ = description;
       if (unit_ == CandidateFontUnit::Points && current &&
-          *current == candidate_pango_font(font, CandidateFontUnit::Pixels))
+          *current == candidate_pango_font(font, CandidateFontUnit::Pixels)) {
+        pending_ = description;
         return description;
+      }
+      last_ = description;
+      pending_.reset();
       return std::nullopt;
     }
-    if (last_ == description) return std::nullopt;
-    last_ = description;
+    if (last_ == description) {
+      pending_.reset();
+      return std::nullopt;
+    }
+    pending_ = description;
     return description;
   }
+  // 宿主成功写入面板后才确认；未确认的描述留给下一次同步重试。
+  void mark_applied(const std::string &description) {
+    if (pending_ != description) return;
+    last_ = description;
+    pending_.reset();
+  }
+  bool pending() const { return pending_.has_value(); }
   // 是否已经同步过一次；之后 next 不再看 current。
   bool primed() const { return last_.has_value(); }
 
 private:
   CandidateFontUnit unit_;
   std::optional<std::string> last_;
+  std::optional<std::string> pending_;
 };
 
 }  // namespace msime::linux_host

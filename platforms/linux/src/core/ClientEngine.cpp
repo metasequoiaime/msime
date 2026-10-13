@@ -156,11 +156,11 @@ void record_ibus_panel_takeover(GSettings *settings, const char *key, const Json
 }
 
 // The IBus panel draws the candidate list from one font description the whole desktop shares, the same pair of keys ibus-setup writes. A desktop without the schema has nothing to write and is left alone, and so is GNOME Shell: its popup follows the shell theme, and turning on use-custom-font there would only change ibus-setup's own panel for a panel that never shows.
+msime::linux_host::CandidateFontSync candidate_font_sync;
 void apply_candidate_panel_font(const Json &preferences) {
   publish_candidate_panel_status();
   if (candidate_panel_is_gnome_shell()) return;
-  static msime::linux_host::CandidateFontSync sync;
-  const auto description = sync.next(msime::linux_host::read_candidate_font(preferences));
+  const auto description = candidate_font_sync.next(msime::linux_host::read_candidate_font(preferences));
   if (!description) return;
   auto *source = g_settings_schema_source_get_default();
   auto *schema = source ? g_settings_schema_source_lookup(source, "org.freedesktop.ibus.panel", TRUE)
@@ -173,9 +173,10 @@ void apply_candidate_panel_font(const Json &preferences) {
   auto *settings = g_settings_new("org.freedesktop.ibus.panel");
   record_ibus_panel_takeover(settings, "custom-font", Json(*description));
   record_ibus_panel_takeover(settings, "use-custom-font", Json(true));
-  g_settings_set_string(settings, "custom-font", description->c_str());
-  g_settings_set_boolean(settings, "use-custom-font", TRUE);
+  const bool font_written = g_settings_set_string(settings, "custom-font", description->c_str());
+  const bool enabled = g_settings_set_boolean(settings, "use-custom-font", TRUE);
   g_object_unref(settings);
+  if (font_written && enabled) candidate_font_sync.mark_applied(*description);
 }
 
 bool system_dark = false;
@@ -7660,6 +7661,7 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
       s.applied_display_generation = configuration_generation;
       publish_mode(engine);
     }
+    if (candidate_font_sync.pending()) apply_candidate_panel_font(preferences);
     sync_global_input_mode(engine);
     // An English-mode recording has no session but still ends when voice input is turned off.
     if (s.voice_active && !s.voice_enabled)
@@ -7668,6 +7670,7 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
   }
   if (preferences == s.applied_preferences_snapshot) {
     sync_global_input_mode(engine);
+    if (candidate_font_sync.pending()) apply_candidate_panel_font(preferences);
     const bool display_changed = s.applied_display_generation != configuration_generation;
     if (display_changed)
       s.refresh_host_preferences(preferences);
