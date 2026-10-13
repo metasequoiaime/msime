@@ -193,21 +193,39 @@ test("overview metric descriptors keep labels, units and notes together", () => 
   });
 
   expect(metrics).toEqual([
-    { label: "今日输入", value: "12", unit: "字符", ariaLabel: "今日输入字符数" },
-    { label: "累计输入", value: "12", unit: "字符", ariaLabel: "当前范围输入字符数" },
+    {
+      label: "今日输入",
+      value: "12",
+      unit: "字符",
+      ariaLabel: "今日输入字符数",
+      note: "单日最多 12 字符 · 9月21日",
+    },
+    {
+      label: "累计输入",
+      value: "12",
+      unit: "字符",
+      ariaLabel: "当前范围输入字符数",
+      note: "日均 12 字符 · 1 天有记录",
+    },
     {
       label: "今日活跃",
       title: "连续打字的时间",
       value: "2分",
       ariaLabel: "今日活跃时长",
+      note: "累计 2分",
     },
-    { label: "今日速度", value: "6", unit: "字 / 分钟", ariaLabel: "今日输入速度" },
+    {
+      label: "今日速度",
+      value: "6",
+      unit: "字 / 分钟",
+      ariaLabel: "今日输入速度",
+      note: "单日最快 6 字 / 分钟 · 9月21日",
+    },
     {
       label: "平均速度",
       value: "6",
       unit: "字 / 分钟",
       ariaLabel: "平均输入速度",
-      note: "共 2分",
     },
     {
       label: "连续天数",
