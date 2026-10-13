@@ -3758,6 +3758,15 @@ void render(IBusEngine *engine, const Json &view) {
     state(engine).wave_overlay_surface->hide();
     state(engine).wave_overlay_visible = false;
   }
+  // 临时译文页只在它自己画出的那一页上有效（render_translation_candidates 给它的视图带上 translation_page）。别的视图画上来，例如菜单改每页候选数、异步到达的译文或云候选、偏好更新换掉了 s.view，译文页就已经不在面板上了：丢掉它的状态，也不恢复保存的视图，之后的点选、数字键和 Esc 才作用于面板上真正显示的候选，而不是按一页已经不在的译文去选，或者把一份过时的视图恢复回来。
+  if (state(engine).translation_candidates_active && !view.contains("translation_page")) {
+    auto &s = state(engine);
+    s.translation_candidates_active = false;
+    s.translation_saved_view = nullptr;
+    s.translation_options.clear();
+    s.translation_page = 0;
+    s.translation_cursor = 0;
+  }
   // 整句改字：不管预编辑样式，行内显示已选的词加改好的整句，光标在焦点字前；焦点那一段用双下划线，其余单下划线，IBus 按 Unicode 标量计位置。
   const auto conversion = msime::linux_host::conversion_preedit(view);
   if (conversion.active) {
@@ -3982,6 +3991,8 @@ void render_translation_candidates(IBusEngine *engine) {
                                   s.translation_options.size() - start - 1);
   auto overlay = s.translation_saved_view;
   overlay["page"] = s.translation_page;
+  // 宿主自己的标记：这份视图是哪一页译文。它随 render 进入 rendered_view，点选据此确认面板上正是这一页（见 candidate_clicked），render 据此认出别的视图换掉了译文页。
+  overlay["translation_page"] = s.translation_page;
   overlay["page_size"] = page_size;
   overlay["page_count"] = page_count;
   overlay["candidates"] = Json::array();
@@ -7523,8 +7534,18 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
       state(engine).blocked || !state(engine).input_enabled) return;
   guarded(engine, "candidate_clicked", [&] {
     auto &s = state(engine);
-    pointer_turn(engine);
+    // IBus 的点击只带面板上那一页里的槽位号，指的是面板正显示的那份快照：滚轮和点选都先确认快照还属于本会话、还是当前这一代（滚轮事件在 IBus 收起候选表之后还可能到达），再从快照里取被点那一行的身份，不在点击时按当前状态重新算。没通过的点击什么都不做，也不开新的一轮：MSIME_KEY_POINTER 只报给真正派发的点击，与 macOS 一致。落后的选择交给运行时会被拒绝，而拒绝在 guarded 里会关掉会话、丢掉组字。
+    if (!s.session || s.rendered_session != s.session ||
+        !s.rendered_candidates.is_array() || s.rendered_candidates.empty() ||
+        !s.rendered_view.is_object() || !s.view.is_object() ||
+        s.rendered_view.value("generation", uint64_t{0}) !=
+            s.view.value("generation", uint64_t{0}))
+      return;
     if (s.translation_candidates_active) {
+      // 面板上必须正是当前这一页译文：快照的 translation_page 由 render_translation_candidates 写入，别的视图没有它。
+      const auto rendered_page = s.rendered_view.find("translation_page");
+      if (rendered_page == s.rendered_view.end() || *rendered_page != s.translation_page)
+        return;
       const auto page_size = std::clamp(
           s.translation_saved_view.value("page_size", size_t{9}), size_t{1},
           size_t{9});
@@ -7535,36 +7556,40 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
         const auto wheel = s.navigation.wheel_command(button);
         if (!wheel)
           return;
+        pointer_turn(engine);
         if (*wheel == MSIME_PREVIOUS_PAGE && s.translation_page > 0)
           --s.translation_page;
         else if (*wheel == MSIME_NEXT_PAGE && s.translation_page + 1 < page_count)
           ++s.translation_page;
         s.translation_cursor = 0;
         render_translation_candidates(engine);
-      } else {
-        const auto global = s.translation_page * page_size + index;
-        if (button == 1 && global < s.translation_options.size())
-          (void)commit_translation_candidate(engine, global);
+        return;
       }
+      // 选哪一条译文取自渲染时写进这一行 id 的全局序号。
+      if (button != 1 || index >= s.rendered_candidates.size())
+        return;
+      const auto &row = s.rendered_candidates.at(index);
+      if (!row.is_object() || !row.contains("id"))
+        return;
+      const auto &row_id = row.at("id");
+      if (!row_id.is_object() || row_id.value("session", uint64_t{0}) != s.session)
+        return;
+      const auto option = row_id.value("index", s.translation_options.size());
+      if (option >= s.translation_options.size())
+        return;
+      pointer_turn(engine);
+      (void)commit_translation_candidate(engine, option);
       return;
     }
     if (button >= 4) {
-      // Mouse-wheel events can arrive after IBus has hidden the lookup table.
-      // Do not let a late page command mutate a live session without the
-      // candidate snapshot that was visible when the event was generated.
-      if (!s.session || s.rendered_session != s.session ||
-          !s.rendered_candidates.is_array() || s.rendered_candidates.empty() ||
-          !s.rendered_view.is_object() ||
-          s.rendered_view.value("generation", uint64_t{0}) !=
-              s.view.value("generation", uint64_t{0}))
-        return;
-      if (const auto wheel = s.navigation.wheel_command(button))
+      if (const auto wheel = s.navigation.wheel_command(button)) {
+        pointer_turn(engine);
         apply(engine, msime_client_command(s.session, *wheel));
+      }
       return;
     }
     const auto &candidates = s.rendered_candidates;
-    if (!s.session || s.rendered_session != s.session ||
-        !candidates.is_array() || index >= candidates.size()) return;
+    if (index >= candidates.size()) return;
     const auto &entry = candidates.at(index);
     if (!entry.is_object() || !entry.contains("id")) return;
     const auto &id = entry.at("id");
@@ -7581,8 +7606,10 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
       // re-renders while this generation is still the one on screen.
       if (msime::linux_host::candidate_dictionary_actions_available(scheme, source) && s.rendered_view.is_object())
         show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
-    } else
+    } else {
+      pointer_turn(engine);
       apply(engine, msime_client_select(s.session, generation, global_index));
+    }
   });
 }
 void page(IBusEngine *engine, uint32_t command) {

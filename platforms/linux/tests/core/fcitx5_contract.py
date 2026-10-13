@@ -279,6 +279,29 @@ assert "state->pointerTurn();" in body(source, "void move(uint32_t command)")
 assert "msime_client_key(s.session, MSIME_KEY_POINTER);" in ibus_source
 assert "pointer_turn(engine);" in body(ibus_source, "void candidate_clicked(IBusEngine *engine, guint index, guint button,")
 assert ibus_source.count("pointer_turn(e);") == 4
+# IBus 的点击只带槽位号：candidate_clicked 先核对面板快照的会话和代次（与滚轮、翻页同一道），左键、滚轮和译文页都在它之后；轮次只开给真正派发的点击，每次 pointer_turn 之后、下一个 return 之前必有一次派发。译文页的序号取自快照里那一行的 id，不按点击时的页码重算。
+ibus_clicked = body(ibus_source, "void candidate_clicked(IBusEngine *engine, guint index, guint button,")
+ibus_click_fence = ibus_clicked.index('s.rendered_view.value("generation", uint64_t{0}) !=')
+assert ibus_click_fence < ibus_clicked.index("if (s.translation_candidates_active) {") < ibus_clicked.index("pointer_turn(engine);")
+assert ibus_click_fence < ibus_clicked.index("msime_client_select(s.session, generation, global_index)")
+ibus_click_dispatches = (
+    "apply(engine, msime_client_select(",
+    "apply(engine, msime_client_command(",
+    "commit_translation_candidate(engine,",
+    "render_translation_candidates(engine);",
+)
+ibus_turn = ibus_clicked.find("pointer_turn(engine);")
+assert ibus_turn >= 0
+while ibus_turn >= 0:
+    ibus_turn_end = ibus_clicked.find("return", ibus_turn)
+    following = ibus_clicked[ibus_turn : ibus_turn_end if ibus_turn_end >= 0 else None]
+    assert any(dispatch in following for dispatch in ibus_click_dispatches), following
+    ibus_turn = ibus_clicked.find("pointer_turn(engine);", ibus_turn + 1)
+assert "s.translation_page * page_size + index" not in ibus_clicked
+assert 'row_id.value("index", s.translation_options.size())' in ibus_clicked
+# 别的视图画上来时译文页的状态随之丢掉，点选、数字键和 Esc 不再按一页已经不在面板上的译文去选或恢复。
+assert 'overlay["translation_page"] = s.translation_page;' in ibus_source
+assert 'if (state(engine).translation_candidates_active && !view.contains("translation_page")) {' in body(ibus_source, "void render(IBusEngine *engine, const Json &view) {")
 # 托盘菜单「候选翻页」的上一页、下一页走 property_activate 再调 page()，同样是指针翻页。
 menu_paging = ibus_source.index('if (candidate_name == "CandidatePreviousPage" ||')
 assert menu_paging < ibus_source.index("pointer_turn(engine);", menu_paging) < ibus_source.index("page(engine, candidate_name == \"CandidatePreviousPage\"", menu_paging)

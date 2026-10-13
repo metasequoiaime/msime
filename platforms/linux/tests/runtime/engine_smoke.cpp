@@ -356,7 +356,8 @@ int main(int argc, char **argv) {
                                   std::string(argv[2]) == "--ctrl-space" ||
                                   std::string(argv[2]) == "--empty-translation" ||
                                   std::string(argv[2]) == "--caps-lock" ||
-                                  std::string(argv[2]) == "--japanese-toggle")))
+                                  std::string(argv[2]) == "--japanese-toggle" ||
+                                  std::string(argv[2]) == "--stale-candidate-click")))
     return 2;
   try {
     // This fixture asserts RegisterProperties and must exercise the real menu path.
@@ -572,6 +573,95 @@ int main(int argc, char **argv) {
       require(has_gloss(), "IBus 异步空回包不能清掉当前候选释义");
       invoke("PropertyActivate", g_variant_new("(su)", "CandidateTranslations", PROP_STATE_UNCHECKED));
       require(!has_gloss(), "主动关闭翻译仍应清理当前候选释义");
+      finish();
+      return 0;
+    }
+    // 多义译文临时页上的点选。IBus 的点击只带槽位号，宿主要按面板上实际显示的那一页去解释它。默认模式的流程停在更前面一处与此无关的失败上，到不了这里，所以单独成一个模式。
+    if (argc == 3 && std::string(argv[2]) == "--stale-candidate-click") {
+      const auto socket = (root / "stale-candidate-click.sock").string();
+      TranslationProviderFixture provider(socket);
+      provider.multi_sense = true;
+      const auto open_senses = [&](size_t page_size) {
+        auto translated = options;
+        translated.erase("preferences_directory");
+        translated["translation_provider_socket"] = socket;
+        translated["preferences"]["candidate_translations"] = true;
+        translated["preferences"]["candidate_page_size"] = page_size;
+        // 与默认模式的多义用例同理：英文目标会被随包的离线词典以单义抢答，换成别的语言才走到合成服务。
+        translated["preferences"]["translation_target_language"] = "ja";
+        ibus_object_destroy(IBUS_OBJECT(engine));
+        g_object_unref(engine);
+        msime_ibus_configure(translated.dump());
+        engine = create_engine();
+        seen = Observation{};
+        invoke("FocusIn");
+        phrase();
+        require(wait_until([&] {
+                  return !seen.candidates.empty() &&
+                         seen.candidates.front().find("first sense") != std::string::npos;
+                }),
+                "多义译文没有显示在候选上");
+        seen.committed.clear();
+        auto opened = call(client, destination, "ProcessKeyEvent",
+                           g_variant_new("(uuu)", IBUS_Return, 0, IBUS_CONTROL_MASK));
+        g_variant_unref(opened);
+      };
+      // 第二页译文上的点选按渲染时记下的全局序号选，选中的是面板上被点的那一条。
+      open_senses(1);
+      require(seen.candidates == std::vector<std::string>{"first sense"},
+              "Ctrl+Enter 没有打开每页一条的译文页");
+      require(key(IBUS_Page_Down) && seen.candidates == std::vector<std::string>{"second sense"},
+              "Page Down 没有翻到第二页译文");
+      invoke("CandidateClicked", g_variant_new("(uuu)", 0, 1, 0));
+      require(seen.committed == "second sense",
+              ("第二页译文的点选没有上屏被点的那一条：committed=[" + seen.committed + "]").c_str());
+      // 译文页开着时别的视图换掉了它。这里是菜单改每页候选数：组字中页长要等组字结束才变，但宿主照样换上会话当前的视图并画出来；异步到达的译文、云候选和偏好更新同样会换掉 s.view。面板上显示的已经是普通候选，点选和数字键都要作用于它们，而不是按一页已经不在的译文去选。
+      for (const bool click : {true, false}) {
+        open_senses(2);
+        require(seen.candidates == std::vector<std::string>{"first sense", "second sense"},
+                "Ctrl+Enter 没有打开译文页");
+        invoke("PropertyActivate", g_variant_new("(su)", "CandidatePageSize/3", PROP_STATE_CHECKED));
+        require(!seen.candidates.empty() && seen.candidates.front() != "first sense",
+                "菜单改每页候选数没有换掉译文页");
+        const auto shown = seen.candidates.front();
+        if (click)
+          invoke("CandidateClicked", g_variant_new("(uuu)", 0, 1, 0));
+        else
+          require(key('1'), "数字键 1 没有被处理");
+        require(!seen.committed.empty() && seen.committed.find("sense") == std::string::npos &&
+                    shown.rfind(seen.committed, 0) == 0,
+                (std::string(click ? "点选" : "数字键") +
+                 "上屏的不是面板上显示的第一个候选：shown=[" + shown + "] committed=[" +
+                 seen.committed + "]")
+                    .c_str());
+      }
+      // 普通候选页走同一道快照栅栏：第二页的点选按快照里的全局序号选；Reset 清掉快照之后，点选和滚轮什么都不做。默认模式里有同样的用例，但它在这之前就停下了。
+      auto plain = options;
+      plain.erase("preferences_directory");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      msime_ibus_configure(plain.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      phrase();
+      const auto first_page = seen.candidates;
+      require(key(IBUS_Page_Down) && !seen.candidates.empty() && seen.candidates != first_page,
+              "Page Down 没有翻到第二页候选");
+      const auto second_page_first = seen.candidates.front();
+      invoke("CandidateClicked", g_variant_new("(uuu)", 0, 1, 0));
+      require(!seen.committed.empty() && second_page_first.rfind(seen.committed, 0) == 0,
+              ("第二页的点选没有按全局序号选：shown=[" + second_page_first + "] committed=[" +
+               seen.committed + "]")
+                  .c_str());
+      phrase();
+      invoke("Reset");
+      const auto committed_before_reset_click = seen.committed;
+      invoke("CandidateClicked", g_variant_new("(uuu)", 0, 1, 0));
+      invoke("CandidateClicked", g_variant_new("(uuu)", 0, 4, 0));
+      settle_lookup();
+      require(seen.committed == committed_before_reset_click && !seen.lookup_visible,
+              "Reset 之后的点选或滚轮动了已经清掉的快照");
       finish();
       return 0;
     }
