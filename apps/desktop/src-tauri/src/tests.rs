@@ -2842,11 +2842,12 @@ fn dictionary_scel_text_converts_a_cell_dictionary_and_keeps_the_codes() {
         encoded
     };
 
-    let converted = tauri::async_runtime::block_on(dictionary_scel_text(encode(&bytes))).unwrap();
+    let converted =
+        tauri::async_runtime::block_on(super::dictionary_scel_text(encode(&bytes))).unwrap();
     assert_eq!(converted["text"], "测试\tce'shi\n");
     assert_eq!(converted["entries"], 1);
     let refused = |bytes: &[u8]| {
-        tauri::async_runtime::block_on(dictionary_scel_text(encode(bytes)))
+        tauri::async_runtime::block_on(super::dictionary_scel_text(encode(bytes)))
             .unwrap_err()
             .code
     };
