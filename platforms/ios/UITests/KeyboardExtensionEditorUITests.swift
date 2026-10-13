@@ -73,7 +73,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     add.tap()
 
     let ours = settings.descendants(matching: .any)
-      .matching(NSPredicate(format: "label == %@", "水杉输入法")).firstMatch
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "水杉输入法")).firstMatch
     for _ in 0..<8 where !ours.exists { settings.swipeUp() }
     guard ours.waitForExistence(timeout: 8) else { return }
     ours.tap()
@@ -93,15 +93,26 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     }
   }
 
-  /// Bring the editor up and switch to our keyboard, or skip if it is not installed as one.
-  ///
-  /// The globe cycles through the enabled keyboards; which one a fresh editor opens on is a
-  /// system decision, so this taps around the ring instead of assuming. The ring is finite, and
-  /// one lap is enough to prove ours is not in it.
-  private func focusedTryoutKeyboard(_ app: XCUIApplication) throws -> XCUIElement {
-    addKeyboardInSettingsIfNeeded()
-    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+  /// 聚焦原生编辑器，再通过系统键盘列表或地球键切换到水杉。
+  /// 新编辑器的初始键盘由系统决定，列表选择失败时轮转一圈确认扩展是否可用。
+  private func focusedTryoutKeyboard(_ app: XCUIApplication, toolbarTest: Bool = false) throws -> XCUIElement {
+    #if targetEnvironment(simulator)
+    // 首次安装后先启动宿主，让系统完成键盘扩展注册。
     app.launch()
+    app.terminate()
+    addKeyboardInSettingsIfNeeded()
+    #endif
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    if toolbarTest { app.launchArguments.append("--keyboard-toolbar-ui-test") }
+    app.launch()
+    if toolbarTest {
+      // 深链接会把已运行的应用留在输入设置，重选设置标签回到根页面再打开编辑器。
+      let settingsTab = app.tabBars.buttons["设置"]
+      if settingsTab.waitForExistence(timeout: 5) {
+        settingsTab.tap()
+        settingsTab.tap()
+      }
+    }
 
     let tryout = app.buttons["keyboardTryoutLink"]
     XCTAssertTrue(tryout.waitForExistence(timeout: 20), "the tryout entry never appeared")
@@ -115,15 +126,29 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: field)
     if XCTWaiter.wait(for: [focused], timeout: 10) != .completed { field.tap() }
 
-    let ours = app.keys["字母 N"]
+    // 品牌按钮不随方案或自动大写改变，用它确认当前是水杉键盘。
+    let ours = app.buttons["moreShortcut"]
     if ours.waitForExistence(timeout: 6) { return field }
 
     // 沿键盘列表轮转一圈。地球键没有标识符，只有随系统语言变化的标签：英文是 `Next keyboard`，中文是「下一个键盘」。
     let globe = app.buttons.matching(NSPredicate(format: "label IN %@", ["Next keyboard", "下一个键盘"])).firstMatch
     if globe.waitForExistence(timeout: 6) {
+      // 从系统列表直接选中扩展，避免同名系统键盘影响轮转。
+      globe.press(forDuration: 1)
+      let entry = app.descendants(matching: .any)
+        .matching(NSPredicate(format: "label BEGINSWITH %@", "水杉输入法")).firstMatch
+      if entry.waitForExistence(timeout: 3) {
+        entry.tap()
+        if ours.waitForExistence(timeout: 6) { return field }
+      }
       // 全新的 iOS 27 模拟器默认启用十四个键盘，其中几个显示名相同，所以轮转次数要覆盖整圈，而不是只点寥寥几次。
       for _ in 0..<20 {
         globe.tap()
+        // 新模拟器第一次切换键盘会出现系统引导，先关闭它再检查扩展。
+        for host in [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")] {
+          let next = host.buttons.matching(NSPredicate(format: "label IN %@", ["Continue", "继续"])).firstMatch
+          if next.exists { next.tap() }
+        }
         if ours.waitForExistence(timeout: 3) { return field }
       }
     }
@@ -139,6 +164,51 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     throw XCTSkip(
       "\(keyboardIdentifier) never became the active keyboard. keyboards=\(keys) globe="
         + "\(globe.exists) keys=[\(buttons)]")
+  }
+
+  /// 从系统键盘真实点按工具栏，确认每次只打开或关闭一次面板。
+  func testToolbarTapsTogglePanelsInHostEditor() throws {
+    let app = XCUIApplication()
+    _ = try focusedTryoutKeyboard(app, toolbarTest: true)
+    let scheme = app.buttons["schemeButton"]
+    XCTAssertTrue(scheme.isHittable, "顶部方案按钮必须能被系统命中")
+    scheme.tap()
+    let nineKey = app.buttons["schemeCard-nineKey"]
+    XCTAssertTrue(nineKey.waitForExistence(timeout: 5), "九键方案必须可用")
+    nineKey.tap()
+    for (buttonID, panelID) in [
+      ("moreShortcut", "keyboardMorePicker"),
+      ("emojiShortcut", "keyboardEmojiPicker"),
+      ("skinShortcut", "keyboardSkinPicker"),
+      ("schemeButton", "keyboardSchemePicker"),
+    ] {
+      let button = app.buttons[buttonID]
+      let panel = app.descendants(matching: .any)[panelID].firstMatch
+      XCTAssertTrue(button.waitForExistence(timeout: 5), buttonID)
+      XCTAssertTrue(button.isHittable, "工具栏必须能被系统命中：\(buttonID)")
+      for x in [0.02, 0.5, 0.98] {
+        let point = button.coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.5))
+        point.tap()
+        XCTAssertTrue(panel.waitForExistence(timeout: 5), "点按应打开面板：\(buttonID)")
+        point.tap()
+        let closed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: panel)
+        XCTAssertEqual(XCTWaiter.wait(for: [closed], timeout: 5), .completed, "再次点按应关闭面板：\(buttonID)")
+      }
+    }
+  }
+
+  /// 添加语言必须进入宿主的输入设置，不能只把键盘面板关掉。
+  func testAddLanguageOpensInputSettingsFromKeyboard() throws {
+    let app = XCUIApplication()
+    _ = try focusedTryoutKeyboard(app, toolbarTest: true)
+    app.buttons["schemeButton"].tap()
+    let add = app.buttons["schemeAddLanguageCard"]
+    let grid = app.scrollViews["schemePickerScroll"]
+    for _ in 0..<5 where !add.isHittable { grid.swipeLeft() }
+    XCTAssertTrue(add.isHittable, "添加语言卡片必须可点击")
+    add.tap()
+    XCTAssertTrue(app.buttons["addInputLanguageButton"].waitForExistence(timeout: 8),
+                  "添加语言应打开应用的输入设置")
   }
 
   /// Pinyin typed on the real keyboard reaches a text field the extension does not own.

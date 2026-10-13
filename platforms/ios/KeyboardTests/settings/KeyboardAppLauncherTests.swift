@@ -1,10 +1,15 @@
 import XCTest
 import UIKit
 
-/// 只应答 `openURL:` 的一节响应链,用来站在真实链条里 `UIApplication` 的位置上。
+/// 应答现代 URL 打开方法的一节响应链，用来代替 UIApplication。
 private final class OpeningResponder: UIResponder {
   private(set) var opened: [URL] = []
-  @objc func openURL(_ url: URL) { opened.append(url) }
+  var succeeds = true
+  @objc(openURL:options:completionHandler:)
+  func openURL(_ url: URL, options: NSDictionary, completionHandler: ((Bool) -> Void)?) {
+    opened.append(url)
+    completionHandler?(succeeds)
+  }
 }
 
 /// 链条中间那一节:什么都不应答,只负责把 `next` 往上接。
@@ -29,6 +34,14 @@ final class KeyboardAppLauncherTests: XCTestCase {
     let chain = PlainResponder(next: PlainResponder(next: nil))
 
     XCTAssertFalse(KeyboardAppLauncher.open(KeyboardAppLauncher.settingsURL, from: chain))
+  }
+
+  func testReportsSystemRejectionThroughCompletion() {
+    let application = OpeningResponder()
+    application.succeeds = false
+    var outcome: Bool?
+    XCTAssertTrue(KeyboardAppLauncher.open(KeyboardAppLauncher.inputSettingsURL, from: application) { outcome = $0 })
+    XCTAssertEqual(outcome, false)
   }
 
   /// scheme 在 project.yml 的 CFBundleURLTypes 里注册。两边对不上时应用不会被拉起,而键盘这边看不出区别,
