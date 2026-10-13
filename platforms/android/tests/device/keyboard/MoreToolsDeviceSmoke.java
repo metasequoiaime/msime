@@ -79,7 +79,27 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         showTool("本地输入");
         tap(tool("本地输入"));
         await(tool("返回工具"));
-        await(tool("Unicode 码点"));
+        AccessibilityNodeInfo unicode = await(tool("Unicode 码点"));
+        AccessibilityNodeInfo date = await(tool("日期时间"));
+        AccessibilityNodeInfo initials = await(tool("超级简拼"));
+        assertSameRow(unicode, initials, "local input first row");
+        Rect unicodeBounds = new Rect();
+        Rect dateBounds = new Rect();
+        unicode.getBoundsInScreen(unicodeBounds);
+        date.getBoundsInScreen(dateBounds);
+        if (unicodeBounds.left >= dateBounds.left || unicodeBounds.right > dateBounds.left)
+            throw new AssertionError("Local input entries overlap");
+        Rect backBounds = new Rect();
+        await(tool("返回工具")).getBoundsInScreen(backBounds);
+        if (backBounds.width() >= unicodeBounds.width())
+            throw new AssertionError("Subpage back action still occupies a full row");
+        tap(tool("返回工具"));
+        stage = "AI chooser entries and compact back";
+        showTool("AI 回复与润色");
+        tap(tool("AI 回复与润色"));
+        AccessibilityNodeInfo reply = await(tool("生成高情商回复"));
+        AccessibilityNodeInfo polish = await(tool("打开 AI 润色"));
+        assertSameRow(reply, polish, "AI actions");
         tap(tool("返回工具"));
         showTool("全角");
         stage = "more tools return";

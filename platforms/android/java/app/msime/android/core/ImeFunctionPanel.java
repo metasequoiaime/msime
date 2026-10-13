@@ -3,8 +3,6 @@ package app.msime.android;
 import app.msime.android.LayoutPolicy;
 
 import android.graphics.Color;
-import android.os.Build;
-import android.util.TypedValue;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -22,6 +20,10 @@ final class ImeFunctionPanel {
     /** 菜单仍打开且入口没有变化时复用磁贴，避免每次键盘刷新都闪一下。 */
     private java.util.List<FunctionPanelModel.Id> renderedItemIds = java.util.List.of();
 
+    private FunctionPanelView chooserPanel;
+    private String chooserTitle = "";
+    private List<String> chooserLabels = List.of();
+
     ImeFunctionPanel(MSIMEInputService s) {
         this.s = s;
     }
@@ -37,64 +39,17 @@ final class ImeFunctionPanel {
         s.render();
     }
 
-    Button moreToolsCard(String title, MoreToolsLayout.Section section, boolean active,
-                                 boolean enabled, boolean playBeforeAction, Runnable action) {
-        Button card = toolButton();
-        String state = enabled ? MoreToolsLayout.state(section, active) : "不可用";
-        boolean navigates = section == MoreToolsLayout.Section.LOCAL_INPUT_BACK;
-        String label = MoreToolsLayout.icon(title) + "  " + title;
-        ViewPolicy.setTextSizeLabel(card, navigates ? label + "  ›" : label, 14);
-        KeyboardTypographyPolicy.setKeyTextSize(card, 14);
-        if (navigates) ViewPolicy.setStartCenteredVertically(card);
-        else ViewPolicy.setCentered(card);
-        LayoutPolicy.setPaddingDp(card, s, 12, 5, 12, 5);
-        card.setContentDescription(title);
-        ViewPolicy.setSelected(card, active);
-        ViewPolicy.setEnabled(card, enabled);
-        s.applyToolCardState(card, enabled);
-        if (Build.VERSION.SDK_INT >= 30) card.setStateDescription(state);
-        s.imeStyler.styleButton(card, KeyboardKeyRole.ACCENT, s.skin);
-        bindToolAction(card, action, playBeforeAction);
-        return card;
-    }
-
-    void appendMoreToolsSection(MoreToolsLayout.Section section, Button... cards) {
-        if (!section.title().isEmpty()) {
-            TextView label = ViewPolicy.centeredText(s, section.title(), 11);
-            s.moreToolsPanel.addView(label, LayoutPolicy.matchWidthHeightPx(s.pixels(20)));
-        }
-        int columns = section.columns();
-        for (int start = 0; start < cards.length; start += columns) {
-            LinearLayout row = LayoutPolicy.row(s);
-            row.setWeightSum(columns);
-            for (int column = 0; column < columns; column++) {
-                int index = start + column;
-                View child = index < cards.length ? cards[index] : new View(s);
-                LinearLayout.LayoutParams params = LayoutPolicy.weightedHeightPxParams(
-                    s.pixels(section.height()), 1);
-                if (column > 0) params.setMarginStart(s.pixels(MoreToolsLayout.CARD_SPACING_DP));
-                row.addView(child, params);
-            }
-        LinearLayout.LayoutParams rowParams = LayoutPolicy.matchWidthHeightPx(
-            s.pixels(section.height()));
-            rowParams.bottomMargin = s.pixels(MoreToolsLayout.ROW_SPACING_DP);
-            s.moreToolsPanel.addView(row, rowParams);
-        }
-    }
-
     void renderMoreTools() {
         if (s.moreToolsPanel == null) return;
         // 子页没有 FunctionPanelView，由容器自己承担「更多工具」的描述，免得同一面板出现两个同名节点。
         s.moreToolsPanel.setContentDescription(
             s.localInputToolsOpen || s.aiAssistChooserOpen ? "更多工具" : null);
         if (s.localInputToolsOpen) {
-            s.moreToolsPanel.removeAllViews();
             renderLocalInput();
             s.imeStyler.applySkin();
             return;
         }
         if (s.aiAssistChooserOpen) {
-            s.moreToolsPanel.removeAllViews();
             renderAiAssistChooser();
             s.imeStyler.applySkin();
             return;
@@ -284,83 +239,97 @@ final class ImeFunctionPanel {
             longPress);
     }
 
-    /** 本地输入子页：「返回工具」加各个本地模式。 */
+    /** 本地输入沿用主菜单图标网格，三列三行，不再给每项铺一块重底色。 */
     private void renderLocalInput() {
-        appendMoreToolsSection(MoreToolsLayout.Section.LOCAL_INPUT_BACK,
-            moreToolsCard("返回工具", MoreToolsLayout.Section.LOCAL_INPUT_BACK,
-                false, true, true, () -> {
-                    s.localInputToolsOpen = false;
-                    renderMoreTools();
-                }));
-        List<LocalInputMode> modes = s.localInputModes();
-        Button[] localCards = new Button[modes.size()];
-        for (int index = 0; index < modes.size(); index++) {
-            LocalInputMode mode = modes.get(index);
-            localCards[index] = moreToolsCard(mode.title(), MoreToolsLayout.Section.LOCAL_INPUT,
-                false, s.supportsLocalTools() && s.localModeEnabled(mode), false, () -> {
-                    s.closeMoreTools();
-                    s.openLocalInputMode(mode);
-                });
-        }
-        appendMoreToolsSection(MoreToolsLayout.Section.LOCAL_INPUT, localCards);
-    }
-
-    /** 「AI 回复与润色」子页：回复 | 润色两个分段，各自打开现有的回复键盘与 AI 润色面板。 */
-    private void renderAiAssistChooser() {
-        appendMoreToolsSection(MoreToolsLayout.Section.LOCAL_INPUT_BACK,
-            moreToolsCard("返回工具", MoreToolsLayout.Section.LOCAL_INPUT_BACK,
-                false, true, true, () -> {
-                    s.aiAssistChooserOpen = false;
-                    renderMoreTools();
-                }));
-        LinearLayout segments = LayoutPolicy.row(s);
-        segments.setContentDescription("AI 回复与润色");
-        Button reply = segment("回复", "生成高情商回复", true, () -> {
-            s.closeMoreTools();
-            s.imePanels.showReplyKeyboard();
-        });
-        Button polish = segment("润色", "打开 AI 润色", s.aiPolishConfiguration != null
-            && s.aiPolishReady(), () -> {
+        List<FunctionPanelView.Entry> entries = new ArrayList<>();
+        List<Boolean> enabled = new ArrayList<>();
+        for (LocalInputMode mode : s.localInputModes()) {
+            String glyph = switch (mode) {
+                case UNICODE -> "U+";
+                case DATE_TIME -> "时";
+                case SUPER_JIANPIN -> "简";
+                case QUICK_PHRASE -> "词";
+                case TEMPORARY_ENGLISH -> "英";
+                case EMOJI -> "☺";
+                case KAOMOJI -> "顔";
+                case TEMPORARY_JAPANESE -> "あ";
+                case CHAIZI -> "拆";
+            };
+            entries.add(FunctionPanelView.Entry.glyph(mode.title(), mode.title(), glyph, () -> {
                 s.closeMoreTools();
-                s.imePanels.showAiPolish();
-                s.render();
-            });
-        LinearLayout.LayoutParams first = LayoutPolicy.weightedHeightPxParams(
-            s.pixels(MoreToolsLayout.CARD_HEIGHT_DP), 1);
-        LinearLayout.LayoutParams second = LayoutPolicy.weightedHeightPxParams(
-            s.pixels(MoreToolsLayout.CARD_HEIGHT_DP), 1);
-        second.setMarginStart(s.pixels(MoreToolsLayout.CARD_SPACING_DP));
-        segments.addView(reply, first);
-        segments.addView(polish, second);
-        s.moreToolsPanel.addView(segments, LayoutPolicy.matchWidthWrapParams());
-        TextView hint = ViewPolicy.textLabel(s,
-            "回复：粘贴对方的话，生成几种语气的回复。润色：先选中要改的文字。", 12);
-        KeyboardTypographyPolicy.setKeyTextSize(hint, 12);
-        LayoutPolicy.setPaddingDp(hint, s, 4, 10, 4, 0);
-        s.moreToolsPanel.addView(hint);
+                s.openLocalInputMode(mode);
+            }, null));
+            enabled.add(s.supportsLocalTools() && s.localModeEnabled(mode));
+        }
+        renderChooser("本地输入", entries, enabled, 3, 3);
     }
 
-    private Button segment(String label, String description, boolean enabled, Runnable action) {
-        KeyboardPressButton button = toolButton();
-        button.setText(label);
-        KeyboardTypographyPolicy.setKeyTextSize(button, 15);
-        button.setContentDescription(description);
-        button.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        ViewPolicy.setEnabled(button, enabled);
-        s.applyToolCardState(button, enabled);
-        if (Build.VERSION.SDK_INT >= 30) button.setStateDescription(enabled ? null : "不可用");
-        bindToolAction(button, action, true);
-        return button;
+    /** AI 辅助只呈现回复与润色两个入口，图标和标签与主菜单一致。 */
+    private void renderAiAssistChooser() {
+        List<FunctionPanelView.Entry> entries = List.of(
+            FunctionPanelView.Entry.icon("回复", "生成高情商回复", KeyboardIconPaths.Icon.TOOLBAR_PHRASE,
+                played(() -> {
+                    s.closeMoreTools();
+                    s.imePanels.showReplyKeyboard();
+                }), null),
+            FunctionPanelView.Entry.icon("润色", "打开 AI 润色", KeyboardIconPaths.Icon.AI_ASSIST,
+                played(() -> {
+                    s.closeMoreTools();
+                    s.imePanels.showAiPolish();
+                    s.render();
+                }), null));
+        renderChooser("AI 辅助", entries, List.of(true,
+            s.aiPolishConfiguration != null && s.aiPolishReady()), 2, 1);
     }
 
-    private KeyboardPressButton toolButton() {
-        return ViewPolicy.newPressButton(s);
-    }
-
-    private void bindToolAction(Button button, Runnable action, boolean playFeedback) {
-        ViewPolicy.bindClick(button, () -> {
-            if (playFeedback) s.imeKeyFeedback.playFeedback(button);
-            action.run();
-        });
+    /** 子页用同一紧凑标题栏；刷新只更新状态，保留条目与点按区域。 */
+    private void renderChooser(String title, List<FunctionPanelView.Entry> entries,
+                               List<Boolean> enabled, int columns, int rows) {
+        List<String> labels = new ArrayList<>(entries.size());
+        for (FunctionPanelView.Entry entry : entries) labels.add(entry.label);
+        boolean changed = chooserPanel == null || !title.equals(chooserTitle)
+            || !labels.equals(chooserLabels);
+        if (changed) {
+            chooserPanel = new FunctionPanelView(s);
+            chooserPanel.setContentDescription(null);
+            chooserPanel.grid().setGrid(columns, rows);
+            chooserPanel.grid().setSpacing(52, 8, 8, 4);
+            chooserPanel.setEntries(entries);
+            chooserTitle = title;
+            chooserLabels = List.copyOf(labels);
+        } else {
+            chooserPanel.updateEntries(entries);
+        }
+        for (int index = 0; index < entries.size(); index++) {
+            Button tile = chooserPanel.entryView(index);
+            ViewPolicy.setEnabled(tile, enabled.get(index));
+            s.applyToolCardState(tile, enabled.get(index));
+            chooserPanel.setState(index, enabled.get(index)
+                ? FunctionPanelView.State.NONE : FunctionPanelView.State.UNAVAILABLE);
+        }
+        chooserPanel.setColors(Color.parseColor(s.skin.keyForeground()), Color.parseColor(s.skin.accent()),
+            Color.parseColor(s.skin.background()), Color.parseColor(s.skin.hairline()));
+        if (chooserPanel.getParent() == s.moreToolsPanel) return;
+        if (chooserPanel.getParent() instanceof android.view.ViewGroup parent) parent.removeView(chooserPanel);
+        s.moreToolsPanel.removeAllViews();
+        LinearLayout header = LayoutPolicy.row(s);
+        KeyboardIconKey back = new KeyboardIconKey(s, KeyboardIconKey.Kind.CURSOR_LEFT);
+        back.setKeyboardRole(KeyboardKeyRole.PLAIN);
+        back.setText("返回工具");
+        back.setContentDescription("返回工具");
+        ViewPolicy.bindClick(back, played(() -> {
+            s.localInputToolsOpen = false;
+            s.aiAssistChooserOpen = false;
+            renderMoreTools();
+        }));
+        header.addView(back, LayoutPolicy.linearParamsPx(s.pixels(44), s.pixels(44)));
+        TextView heading = ViewPolicy.centeredText(s, title, 15);
+        KeyboardTypographyPolicy.setKeyTextSize(heading, 15);
+        header.addView(heading, LayoutPolicy.weightedHeightPxParams(s.pixels(44), 1));
+        header.addView(new View(s), LayoutPolicy.linearParamsPx(s.pixels(44), s.pixels(44)));
+        s.moreToolsPanel.addView(header, LayoutPolicy.matchWidthHeightPx(s.pixels(44)));
+        s.moreToolsPanel.addView(chooserPanel, LayoutPolicy.matchWidthHeightPx(
+            s.pixels(rows * 52 + (rows - 1) * 8 + 14)));
+        s.moreToolsScroll.scrollTo(0, 0);
     }
 }
