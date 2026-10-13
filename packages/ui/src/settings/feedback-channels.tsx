@@ -2,8 +2,8 @@ import type { CSSProperties } from "react";
 import { ActionButton } from "./action-button";
 import { feedbackIcons } from "./app-resources";
 
-// Brand marks from yldm-tech/ai-logo (packages/static-svg, MIT), except QQ: ai-logo's QQ mark is a flat blue silhouette, so the penguin with its face and scarf comes from bytedance/IconPark (tencent-qq, Apache-2.0).
-/** Colour marks are drawn as-is; the GitHub mark follows the text colour while QQ keeps its original penguin mark. */
+// 品牌图标来自 yldm-tech/ai-logo（packages/static-svg，MIT）；QQ 使用 bytedance/IconPark 的 tencent-qq（Apache-2.0）路径，并为企鹅、围巾和嘴脚分别着色。
+/** 彩色图标直接显示；GitHub 的单色图标随主题文字颜色变化。 */
 const brandGlyph = "block size-6";
 const monoGlyph =
   "block size-6 [background:var(--p-text)] [mask-image:var(--channel-icon)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain] [-webkit-mask-image:var(--channel-icon)] [-webkit-mask-position:center] [-webkit-mask-repeat:no-repeat] [-webkit-mask-size:contain]";
