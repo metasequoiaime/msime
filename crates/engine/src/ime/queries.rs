@@ -19,6 +19,7 @@ use crate::local::mention::{mention_annotation, query_mentions, usable_mentions}
 use crate::local::quick_phrase::{
     merge_quick_phrases, query_quick_phrases, usable_quick_phrase_table,
 };
+use crate::local::symbol_candidates::{query_mixed_symbols, SymbolRow, MIXED_SYMBOL_LIMIT};
 use crate::local::unicode::query_unicode;
 use crate::local::LocalQueryResult;
 use crate::paths::RuntimePaths;
@@ -30,7 +31,12 @@ use crate::types::{
 
 pub const MIXED_ENGLISH_LIMIT: usize = 5;
 pub const MODE_ENGLISH_LIMIT: usize = 1_000;
-const MIXED_DEDUP_CAPACITY: usize = MIXED_ENGLISH_LIMIT + MIXED_FETCH_LIMIT * 2;
+const MIXED_DEDUP_CAPACITY: usize =
+    MIXED_ENGLISH_LIMIT + MIXED_SYMBOL_LIMIT + MIXED_FETCH_LIMIT * 2;
+/// 单音节名称（派、度）的符号最早排在第几位（下标）：它们在最常用的音节上，排到第 4 位，前三个词不被挤动。
+const SYMBOL_SINGLE_SYLLABLE_SLOT: usize = 3;
+/// 名称那个词不在候选里时，符号排在第几位（下标）：默认每页 6 个，下标 5 是第一页最后一位，看得见又不挤掉前面的词。
+const SYMBOL_UNANCHORED_SLOT: usize = 5;
 /// 混入 emoji 和颜文字所需的最短输入：它们按拼音查，一个字母能匹配的太多。九宫格按数字个数算，同样是 2。
 pub(crate) const MIXED_EXPRESSIVE_MINIMUM_INPUT: usize = 2;
 /// 短候选列表直接线性找锚点，避免为索引表分配堆内存。
@@ -211,7 +217,7 @@ impl CandidateQueries {
         candidates
     }
 
-    /// 英文、emoji、颜文字和日文混输行混入拼音列表，规则见 `insert_mixed_rows_with_japanese`。英文第一行默认进 candidate_queries.cpp:101-195 的优先位置（首选之后）；只有 `english_may_lead` 为真、输入拆不成完整音节（全拼 `is_complete_pinyin_input`，双拼 `is_complete_input`），且去重后剩下的第一行英文正好就是整段输入时，它才占首位。这条规则从不比较英文和拼音的权重，两边不在一个尺度上（#1040、#1063）。`japanese` 是调用方已经判定要混入的那一行日文（见 `InputSession::mixed_japanese_row`），这里只决定它的位置。不是全拼、双拼，在本地模式或专用英文里，或者什么都没开时原样返回。
+    /// 英文、emoji、颜文字、符号和日文混输行混入拼音列表，规则见 `insert_mixed_rows_with_japanese`。英文第一行默认进 candidate_queries.cpp:101-195 的优先位置（首选之后）；只有 `english_may_lead` 为真、输入拆不成完整音节（全拼 `is_complete_pinyin_input`，双拼 `is_complete_input`），且去重后剩下的第一行英文正好就是整段输入时，它才占首位。这条规则从不比较英文和拼音的权重，两边不在一个尺度上（#1040、#1063）。`japanese` 是调用方已经判定要混入的那一行日文（见 `InputSession::mixed_japanese_row`），这里只决定它的位置。符号行（打拼音出符号）另要 `symbols_allowed`：调用方在光标前缀解码和辅助码激活时传假，这两种情况下整段输入不是用户打的名称。不是全拼、双拼，在本地模式或专用英文里，或者什么都没开时原样返回。
     #[allow(clippy::too_many_arguments)]
     pub fn mixed(
         &mut self,
@@ -223,11 +229,13 @@ impl CandidateQueries {
         dedicated_english: bool,
         local_mode: LocalInputMode,
         english_may_lead: bool,
+        symbols_allowed: bool,
         japanese: Option<MixedJapaneseRow>,
     ) -> Vec<WordItem> {
         let anything_enabled = english.mixed_candidates
             || expressive.emoji_candidates
             || expressive.kaomoji_candidates
+            || (expressive.symbol_candidates && symbols_allowed)
             || japanese.is_some();
         if !anything_enabled
             || dedicated_english
@@ -260,6 +268,11 @@ impl CandidateQueries {
         } else {
             Vec::new()
         };
+        let symbol_rows = if expressive.symbol_candidates && symbols_allowed && long_enough {
+            query_mixed_symbols(prefix, scheme, shuangpin)
+        } else {
+            Vec::new()
+        };
         // 只有查到了英文才算音节完整性：双拼的判定每段要分配一次。
         let english_lead = (english_may_lead
             && !english_rows.is_empty()
@@ -270,6 +283,7 @@ impl CandidateQueries {
             english_rows,
             emoji_rows,
             kaomoji_rows,
+            symbol_rows,
             english_lead,
             japanese,
         )
@@ -298,6 +312,7 @@ pub struct MixedJapaneseRow {
 }
 
 /// 每组先按文字与列表、与前面各组去重。英文的第一行放进优先位置（首选之后，有云候选、AI 候选时再往后），其余接在末尾；`english_lead` 是调用方判定英文可以领先的那段输入（拼音拆不开的整段），去重后剩下的第一行英文正好拼出它时占首位，有云候选、AI 候选时也一样，其余英文照旧接在末尾。完全匹配的那行因为和候选重复被去掉时不领先，不拿补全词顶上。emoji、颜文字接在它描绘的那个候选词后面，接不上的排在末尾，见 `anchor_expressive_rows`。
+#[cfg(test)]
 fn insert_mixed_rows(
     candidates: Vec<WordItem>,
     english: Vec<WordItem>,
@@ -305,27 +320,47 @@ fn insert_mixed_rows(
     kaomoji: Vec<ExpressiveRow>,
     english_lead: Option<&str>,
 ) -> Vec<WordItem> {
-    insert_mixed_rows_with_japanese(candidates, english, emoji, kaomoji, english_lead, None)
+    insert_mixed_rows_with_japanese(
+        candidates,
+        english,
+        emoji,
+        kaomoji,
+        Vec::new(),
+        english_lead,
+        None,
+    )
 }
 
-/// `insert_mixed_rows` 再加上日文混输的那一行：在英文之后、emoji 和颜文字之前放进列表。文字和已有候选（含刚放进去的英文）重复时不加。领先时占首位，英文已经按 `english_lead` 占了首位时排在它后面（下标 1）；不领先时进和英文相同的优先位置（`priority_slot`），排在英文那一行前面。
+/// `insert_mixed_rows` 再加上日文混输的那一行和符号行。日文行在英文之后、emoji 和颜文字之前放进列表，文字和已有候选（含刚放进去的英文）重复时不加；领先时占首位，英文已经按 `english_lead` 占了首位时排在它后面（下标 1）；不领先时进和英文相同的优先位置（`priority_slot`），排在英文那一行前面。符号行在英文之后、emoji 之前去重，所以和它文字相同的 emoji 行被去掉；比较时 emoji 去掉 U+FE0F，留下不带变体选择符的符号。符号行最后放，见 `place_symbol_rows`。
 fn insert_mixed_rows_with_japanese(
     mut candidates: Vec<WordItem>,
     mut english: Vec<WordItem>,
     mut emoji: Vec<ExpressiveRow>,
     mut kaomoji: Vec<ExpressiveRow>,
+    mut symbols: Vec<SymbolRow>,
     english_lead: Option<&str>,
     japanese: Option<MixedJapaneseRow>,
 ) -> Vec<WordItem> {
-    if english.is_empty() && emoji.is_empty() && kaomoji.is_empty() && japanese.is_none() {
+    if english.is_empty()
+        && emoji.is_empty()
+        && kaomoji.is_empty()
+        && symbols.is_empty()
+        && japanese.is_none()
+    {
         return candidates;
     }
     // 借用现有候选词并原地筛掉重复项；释放这些借用后再把候选行移入结果。
-    let (english_unique, emoji_unique, kaomoji_unique) = {
+    let (english_unique, symbol_unique, emoji_unique, kaomoji_unique) = {
         let mut seen = [None; MIXED_DEDUP_CAPACITY];
         let mut seen_length = 0;
         let english_unique = unique_mask(
             english.iter().map(|item| item.word.as_str()),
+            &candidates,
+            &mut seen,
+            &mut seen_length,
+        );
+        let symbol_unique = unique_mask(
+            symbols.iter().map(|row| row.item.word.as_str()),
             &candidates,
             &mut seen,
             &mut seen_length,
@@ -342,13 +377,27 @@ fn insert_mixed_rows_with_japanese(
             &mut seen,
             &mut seen_length,
         );
-        (english_unique, emoji_unique, kaomoji_unique)
+        (english_unique, symbol_unique, emoji_unique, kaomoji_unique)
     };
     retain_masked_rows(&mut english, english_unique);
+    retain_masked_rows(&mut symbols, symbol_unique);
     retain_masked_rows(&mut emoji, emoji_unique);
     retain_masked_rows(&mut kaomoji, kaomoji_unique);
-    candidates
-        .reserve(english.len() + emoji.len() + kaomoji.len() + usize::from(japanese.is_some()));
+    if !symbols.is_empty() {
+        // ✔️ 和符号 ✔ 是同一个字形的两种样式，只留符号行。
+        emoji.retain(|row| {
+            !symbols
+                .iter()
+                .any(|symbol| same_without_variation_selector(&row.item.word, &symbol.item.word))
+        });
+    }
+    candidates.reserve(
+        english.len()
+            + emoji.len()
+            + kaomoji.len()
+            + symbols.len()
+            + usize::from(japanese.is_some()),
+    );
 
     let mut english = english.into_iter();
     let mut english_led = false;
@@ -373,16 +422,86 @@ fn insert_mixed_rows_with_japanese(
         candidates.insert(slot, japanese.item);
     }
     anchor_expressive_rows(&mut candidates, emoji, kaomoji);
+    place_symbol_rows(&mut candidates, symbols);
     candidates
 }
 
-/// 九宫格的混排：英文行已经按九宫格自己的规则插进了列表，emoji 和颜文字按与 26 键相同的规则去重、定位（`insert_mixed_rows`）。
+/// 九宫格的混排：英文行已经按九宫格自己的规则插进了列表，emoji、颜文字和符号按与 26 键相同的规则去重、定位（`insert_mixed_rows_with_japanese`）。
 pub(crate) fn insert_expressive_rows(
     candidates: Vec<WordItem>,
     emoji: Vec<ExpressiveRow>,
     kaomoji: Vec<ExpressiveRow>,
+    symbols: Vec<SymbolRow>,
 ) -> Vec<WordItem> {
-    insert_mixed_rows(candidates, Vec::new(), emoji, kaomoji, None)
+    insert_mixed_rows_with_japanese(candidates, Vec::new(), emoji, kaomoji, symbols, None, None)
+}
+
+/// 两段文字去掉 U+FE0F（emoji 样式的变体选择符）后相同。
+fn same_without_variation_selector(left: &str, right: &str) -> bool {
+    left.chars()
+        .filter(|&character| character != '\u{FE0F}')
+        .eq(right.chars().filter(|&character| character != '\u{FE0F}'))
+}
+
+/// 符号行接在它名称那个词（锚定词）后面，同一个词后面先符号、再 emoji、再颜文字（emoji 已经接好，插在锚定词下标 + 1 就把它们推到后面）：
+///
+/// - 锚定词在候选里：紧跟在第一个锚定词后面；名称是单音节（派、度）时最早排在 `SYMBOL_SINGLE_SYLLABLE_SLOT`。
+/// - 锚定词不在候选里：全拼两个音节以上和拉丁名称排在 `SYMBOL_UNANCHORED_SLOT`，单音节和首字母匹配不出。
+///
+/// 所有位置都 ≥ 1，列表空时不加，所以符号永远不占首位，空格键不会直接上屏符号。位置超过列表长度时接在末尾。
+fn place_symbol_rows(list: &mut Vec<WordItem>, mut symbols: Vec<SymbolRow>) {
+    if symbols.is_empty() || list.is_empty() {
+        return;
+    }
+    debug_assert!(symbols.len() <= MIXED_SYMBOL_LIMIT);
+    // （插在第几行，组内第几行），排好序就是插入的先后。
+    let mut placed = [(0_usize, 0_usize); MIXED_SYMBOL_LIMIT];
+    let mut placed_length = 0;
+    let length = list.len();
+    with_first_position(list, |first_position| {
+        for (index, row) in symbols.iter().enumerate() {
+            let slot = match first_position(row.anchor) {
+                Some(anchor) if row.single_syllable => {
+                    (anchor + 1).max(SYMBOL_SINGLE_SYLLABLE_SLOT)
+                }
+                Some(anchor) => anchor + 1,
+                None if row.unanchored => SYMBOL_UNANCHORED_SLOT,
+                None => continue,
+            };
+            placed[placed_length] = (slot.min(length), index);
+            placed_length += 1;
+        }
+    });
+    let placed = &mut placed[..placed_length];
+    placed.sort_unstable();
+    // 从后往前插：后面的插入不移动前面的位置；同一个位置倒着插，插完正好是查询的先后。
+    for &(slot, index) in placed.iter().rev() {
+        list.insert(slot, std::mem::take(&mut symbols[index].item));
+    }
+}
+
+/// 把「某个词在列表里第一次出现的位置」交给 `use_positions`。短列表直接线性找，不分配堆内存；26 键的列表常有几百行（`ji` 七百多行），每个词都从头扫一遍太慢，先把候选词连同位置排好序再二分查找，同一个词出现几次时取最前面的位置。
+fn with_first_position<R>(
+    list: &[WordItem],
+    use_positions: impl FnOnce(&dyn Fn(&str) -> Option<usize>) -> R,
+) -> R {
+    if list.len() <= EXPRESSIVE_ANCHOR_LINEAR_LIMIT {
+        use_positions(&|word: &str| list.iter().position(|candidate| candidate.word == word))
+    } else {
+        let mut words: Vec<(&str, usize)> = list
+            .iter()
+            .enumerate()
+            .map(|(at, candidate)| (candidate.word.as_str(), at))
+            .collect();
+        words.sort_unstable();
+        use_positions(&|word: &str| {
+            let at = words.partition_point(|(known, _)| *known < word);
+            words
+                .get(at)
+                .filter(|(known, _)| *known == word)
+                .map(|(_, position)| *position)
+        })
+    }
 }
 
 /// 英文第一行默认的位置：首选之后；有云候选时在它之后，有 AI 候选或 AI 占位行时再往后一位。占位行和 AI 候选同样算，回答到达前后英文行的位置才不变（#6888）。拼音拆不开、英文完全匹配时不用它，英文直接占首位（见 `insert_mixed_rows`）。
@@ -435,27 +554,7 @@ fn anchor_expressive_rows(
                 }
             }
         };
-        if list.len() <= EXPRESSIVE_ANCHOR_LINEAR_LIMIT {
-            let first_position =
-                |keyword: &str| list.iter().position(|candidate| candidate.word == keyword);
-            add_anchors(&first_position);
-        } else {
-            // 26 键的列表常有几百行（`ji` 七百多行），每行 emoji 的每个关键词都从头扫一遍列表太慢：先把候选词连同位置排好序，关键词二分查找；同一个词出现几次时取最前面的位置。
-            let mut words: Vec<(&str, usize)> = list
-                .iter()
-                .enumerate()
-                .map(|(at, candidate)| (candidate.word.as_str(), at))
-                .collect();
-            words.sort_unstable();
-            let first_position = |keyword: &str| {
-                let at = words.partition_point(|(word, _)| *word < keyword);
-                words
-                    .get(at)
-                    .filter(|(word, _)| *word == keyword)
-                    .map(|(_, position)| *position)
-            };
-            add_anchors(&first_position);
-        }
+        with_first_position(list, |first_position| add_anchors(first_position));
     }
     let anchored = &mut anchored[..anchored_length];
     anchored.sort_unstable();
@@ -827,17 +926,23 @@ mod tests {
             ]
         };
         assert_eq!(
-            insert_expressive_rows(list(), emoji(), kaomoji()),
+            insert_expressive_rows(list(), emoji(), kaomoji(), Vec::new()),
             insert_mixed_rows(list(), Vec::new(), emoji(), kaomoji(), None)
         );
         assert_eq!(
-            words(&insert_expressive_rows(list(), emoji(), kaomoji())),
+            words(&insert_expressive_rows(
+                list(),
+                emoji(),
+                kaomoji(),
+                Vec::new()
+            )),
             vec!["里", "鸡", "🐔", "😁", "(^_^)"]
         );
         // 与列表里已有的行重复的不再出现。
         let duplicate = insert_expressive_rows(
             chinese(),
             vec![depicting("倪", CandidateSource::Emoji, "你")],
+            Vec::new(),
             Vec::new(),
         );
         assert_eq!(words(&duplicate), vec!["你", "倪"]);
@@ -930,6 +1035,7 @@ mod tests {
         let expressive_on = MixedExpressiveOptions {
             emoji_candidates: true,
             kaomoji_candidates: true,
+            symbol_candidates: true,
         };
         let cases = [
             (
@@ -998,6 +1104,7 @@ mod tests {
                 expressive,
                 dedicated,
                 local,
+                true,
                 true,
                 None,
             );
@@ -1072,6 +1179,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
             None,
             japanese("開始", true),
         );
@@ -1081,6 +1189,7 @@ mod tests {
             kaishi_chinese(),
             vec![english("kaishi", "kaishi")],
             vec![depicting("🎬", CandidateSource::Emoji, "开始")],
+            Vec::new(),
             Vec::new(),
             None,
             japanese("開始", false),
@@ -1099,6 +1208,7 @@ mod tests {
             vec![english("kaishi", "kaishi")],
             Vec::new(),
             Vec::new(),
+            Vec::new(),
             None,
             japanese("開始", false),
         );
@@ -1113,6 +1223,7 @@ mod tests {
             vec![english("hello", "hello")],
             Vec::new(),
             Vec::new(),
+            Vec::new(),
             Some("hello"),
             japanese("へっぉ", true),
         );
@@ -1121,6 +1232,7 @@ mod tests {
         let list = insert_mixed_rows_with_japanese(
             hello_chinese(),
             vec![english("hellos", "hellos")],
+            Vec::new(),
             Vec::new(),
             Vec::new(),
             Some("hello"),
@@ -1150,6 +1262,7 @@ mod tests {
                 vec![english("kaishi", "kaishi")],
                 Vec::new(),
                 Vec::new(),
+                Vec::new(),
                 None,
                 japanese("開始", false),
             );
@@ -1157,6 +1270,7 @@ mod tests {
             assert_eq!(slotted[slot + 1].word, "kaishi", "{ai:?}");
             let led = insert_mixed_rows_with_japanese(
                 with_online(),
+                Vec::new(),
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
@@ -1183,6 +1297,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
             None,
             japanese("開始", true),
         );
@@ -1194,6 +1309,7 @@ mod tests {
         let merged = insert_mixed_rows_with_japanese(
             kaishi_chinese(),
             vec![english("kaishi", "OK")],
+            Vec::new(),
             Vec::new(),
             Vec::new(),
             None,
@@ -1218,6 +1334,7 @@ mod tests {
             MixedExpressiveOptions::default(),
             false,
             LocalInputMode::None,
+            true,
             true,
             japanese("開始", false),
         );
@@ -1365,6 +1482,7 @@ mod tests {
             false,
             LocalInputMode::None,
             english_may_lead,
+            true,
             None,
         )
     }

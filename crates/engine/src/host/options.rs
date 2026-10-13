@@ -89,6 +89,8 @@ pub struct EngineOptions {
     pub english_minimum_prefix: u8,
     pub mixed_emoji: bool,
     pub mixed_kaomoji: bool,
+    /// 打拼音出符号（`MixedExpressiveOptions::symbol_candidates`）。默认关，宿主按共享偏好 `mixed_input.symbols` 打开；引擎层关着，golden 基准、句子转换评测和网页引擎才不受影响。
+    pub mixed_symbols: bool,
     /// 日文混输（实验，`SessionOptions::japanese_mixing`）。宿主只在会话带日文、日文模型在场时打开它。
     pub mixed_japanese: bool,
     pub local_unicode: bool,
@@ -197,6 +199,7 @@ pub fn prepare_options_for(
         english_minimum_prefix: 5,
         mixed_emoji: false,
         mixed_kaomoji: false,
+        mixed_symbols: false,
         mixed_japanese: false,
         local_unicode: true,
         local_date_time: true,
@@ -293,6 +296,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.expressive = MixedExpressiveOptions {
         emoji_candidates: options.mixed_emoji,
         kaomoji_candidates: options.mixed_kaomoji,
+        symbol_candidates: options.mixed_symbols,
     };
     session.japanese_mixing = options.mixed_japanese;
     session.local_modes = LocalModeOptions {

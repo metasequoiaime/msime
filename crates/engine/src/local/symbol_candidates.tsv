@@ -1,0 +1,271 @@
+# 打拼音出符号：符号名称 → 符号。本项目自写，随引擎以 GPL-3.0-only 发布；名称与码位是事实，没有整段复制任何现成的表。
+# 格式：名称<TAB>拼音<TAB>符号[<空格>符号...]，`#` 开头的行是注释。
+# 拼音用引擎词库的写法：音节以 ' 分隔，ü 写 v；拉丁名称（希腊字母的英文拼写）的拼音列写 -。
+# 符号之间用一个空格分隔，所以符号本身不含空格，成对的括号算一个符号。专用码位在前，ASCII 组合在后（全角时 ASCII 会变宽）。
+# 写法规则由 symbol_candidates.rs 的单元测试检查：名称必须是符号的名字，不收常用虚词；单音节名称只收派、度；每个名称最多 6 个符号。
+# 同一个拼音有几个名称时，词库里有的那个写在前面：符号按文字去重，留下的那行跟着排在前面的名称找锚定词。
+
+# ---- 数学 ----
+正负	zheng'fu	±
+正负号	zheng'fu'hao	±
+负正	fu'zheng	∓
+乘号	cheng'hao	× ·
+乘以	cheng'yi	×
+点乘	dian'cheng	·
+叉乘	cha'cheng	×
+除号	chu'hao	÷
+除以	chu'yi	÷
+减号	jian'hao	−
+不等于	bu'deng'yu	≠
+不等号	bu'deng'hao	≠
+约等于	yue'deng'yu	≈
+约等号	yue'deng'hao	≈
+恒等于	heng'deng'yu	≡
+等价于	deng'jia'yu	⇔ ≡
+大于	da'yu	> ＞
+小于	xiao'yu	< ＜
+大于号	da'yu'hao	> ＞
+小于号	xiao'yu'hao	< ＜
+大于等于	da'yu'deng'yu	≥
+小于等于	xiao'yu'deng'yu	≤
+远大于	yuan'da'yu	≫
+远小于	yuan'xiao'yu	≪
+根号	gen'hao	√
+平方根	ping'fang'gen	√
+立方根	li'fang'gen	∛
+无穷	wu'qiong	∞
+无穷大	wu'qiong'da	∞
+无限大	wu'xian'da	∞
+积分	ji'fen	∫
+二重积分	er'chong'ji'fen	∬
+三重积分	san'chong'ji'fen	∭
+偏微分	pian'wei'fen	∂
+偏导数	pian'dao'shu	∂
+求和	qiu'he	∑
+连乘	lian'cheng	∏
+正比	zheng'bi	∝
+正比于	zheng'bi'yu	∝
+垂直	chui'zhi	⊥
+平行	ping'xing	∥
+角度	jiao'du	∠
+全等	quan'deng	≌
+相似	xiang'si	∽
+属于	shu'yu	∈
+不属于	bu'shu'yu	∉
+子集	zi'ji	⊆ ⊂
+真子集	zhen'zi'ji	⊊ ⊂
+交集	jiao'ji	∩
+并集	bing'ji	∪
+空集	kong'ji	∅
+因为号	yin'wei'hao	∵
+所以号	suo'yi'hao	∴
+全称量词	quan'cheng'liang'ci	∀
+存在量词	cun'zai'liang'ci	∃
+逻辑与	luo'ji'yu	∧
+逻辑或	luo'ji'huo	∨
+逻辑非	luo'ji'fei	¬
+合取	he'qu	∧
+析取	xi'qu	∨
+异或	yi'huo	⊕
+百分号	bai'fen'hao	％
+千分号	qian'fen'hao	‰
+万分号	wan'fen'hao	‱
+度	du	°
+平方	ping'fang	m² ²
+立方	li'fang	m³ ³
+二次方	er'ci'fang	²
+三次方	san'ci'fang	³
+二分之一	er'fen'zhi'yi	½
+三分之一	san'fen'zhi'yi	⅓
+三分之二	san'fen'zhi'er	⅔
+四分之一	si'fen'zhi'yi	¼
+四分之三	si'fen'zhi'san	¾
+派	pai	π
+圆周率	yuan'zhou'lv	π
+直径	zhi'jing	⌀ Φ
+卡方	ka'fang	χ²
+
+# ---- 单位 ----
+平方米	ping'fang'mi	㎡ m²
+平米	ping'mi	㎡ m²
+立方米	li'fang'mi	㎥ m³
+平方厘米	ping'fang'li'mi	㎠ cm²
+平方毫米	ping'fang'hao'mi	㎟ mm²
+平方公里	ping'fang'gong'li	㎢ km²
+平方千米	ping'fang'qian'mi	㎢ km²
+立方厘米	li'fang'li'mi	㎤ cm³
+立方毫米	li'fang'hao'mi	㎣ mm³
+毫米	hao'mi	㎜
+厘米	li'mi	㎝
+公里	gong'li	㎞
+千米	qian'mi	㎞
+纳米	na'mi	㎚
+微米	wei'mi	μm
+千克	qian'ke	㎏
+公斤	gong'jin	㎏
+毫克	hao'ke	㎎
+微克	wei'ke	μg
+毫升	hao'sheng	㎖
+微升	wei'sheng	㎕
+千升	qian'sheng	㎘
+摄氏度	she'shi'du	℃
+摄氏	she'shi	℃
+摄氏温度	she'shi'wen'du	℃
+华氏度	hua'shi'du	℉
+欧姆	ou'mu	Ω
+分贝	fen'bei	㏈
+赫兹	he'zi	㎐
+千赫	qian'he	㎑
+兆赫	zhao'he	㎒
+千瓦	qian'wa	㎾
+毫瓦	hao'wa	㎽
+兆瓦	zhao'wa	㎿
+千伏	qian'fu	㎸
+毫伏	hao'fu	㎷
+毫安	hao'an	㎃
+千帕	qian'pa	㎪
+兆帕	zhao'pa	㎫
+毫秒	hao'miao	㎳
+微秒	wei'miao	㎲
+纳秒	na'miao	㎱
+公顷	gong'qing	㏊
+摩尔	mo'er	㏖
+卡路里	ka'lu'li	㎈
+千卡	qian'ka	㎉
+埃米	ai'mi	Å
+
+# ---- 希腊字母：小写在前、大写在后 ----
+阿尔法	a'er'fa	α Α
+贝塔	bei'ta	β Β
+伽马	ga'ma	γ Γ
+德尔塔	de'er'ta	δ Δ
+艾普西隆	ai'pu'xi'long	ε Ε
+伊普西隆	yi'pu'xi'long	ε Ε
+泽塔	ze'ta	ζ Ζ
+伊塔	yi'ta	η Η
+西塔	xi'ta	θ Θ
+约塔	yao'ta	ι Ι
+卡帕	ka'pa	κ Κ
+拉姆达	la'mu'da	λ Λ
+克西	ke'xi	ξ Ξ
+奥密克戎	ao'mi'ke'rong	ο Ο
+西格马	xi'ge'ma	σ Σ
+西格玛	xi'ge'ma	σ Σ
+宇普西隆	yu'pu'xi'long	υ Υ
+普西	pu'xi	ψ Ψ
+欧米茄	ou'mi'jia	ω Ω
+欧米伽	ou'mi'jia	ω Ω
+alpha	-	α Α
+beta	-	β Β
+gamma	-	γ Γ
+delta	-	δ Δ
+epsilon	-	ε Ε
+zeta	-	ζ Ζ
+theta	-	θ Θ
+iota	-	ι Ι
+kappa	-	κ Κ
+lambda	-	λ Λ
+omicron	-	ο Ο
+sigma	-	σ Σ
+upsilon	-	υ Υ
+omega	-	ω Ω
+
+# ---- 形状与记号 ----
+五角星	wu'jiao'xing	★ ☆
+星星	xing'xing	☆ ★
+星号	xing'hao	＊
+米字号	mi'zi'hao	※
+圆圈	yuan'quan	○ ● ◎
+实心圆	shi'xin'yuan	●
+空心圆	kong'xin'yuan	○
+同心圆	tong'xin'yuan	◎
+方块	fang'kuai	■ □
+方框	fang'kuang	□
+正方形	zheng'fang'xing	□ ■
+菱形	ling'xing	◆ ◇
+三角形	san'jiao'xing	△ ▲
+倒三角	dao'san'jiao	▽ ▼
+圆点	yuan'dian	•
+项目符号	xiang'mu'fu'hao	• ◦ ▪
+间隔号	jian'ge'hao	·
+对号	dui'hao	√ ✓
+对钩	dui'gou	√ ✓
+对勾	dui'gou	√ ✓
+打钩	da'gou	√ ✓
+打勾	da'gou	√ ✓
+叉号	cha'hao	× ✗
+错号	cuo'hao	× ✗
+打叉	da'cha	× ✗
+复选框	fu'xuan'kuang	☐ ☑ ☒
+箭头	jian'tou	→ ← ↑ ↓ ↔
+右箭头	you'jian'tou	→
+左箭头	zuo'jian'tou	←
+上箭头	shang'jian'tou	↑
+下箭头	xia'jian'tou	↓
+左右箭头	zuo'you'jian'tou	↔
+双向箭头	shuang'xiang'jian'tou	↔
+上下箭头	shang'xia'jian'tou	↕
+黑桃	hei'tao	♠ ♤
+红桃	hong'tao	♥ ♡
+梅花	mei'hua	♣ ♧
+方片	fang'pian	♦ ◇
+爱心	ai'xin	♥ ♡
+心形	xin'xing	♥ ♡
+音符	yin'fu	♪ ♫ ♬
+升号	sheng'hao	♯
+降号	jiang'hao	♭
+还原号	huan'yuan'hao	♮
+回车	hui'che	↵
+回车键	hui'che'jian	↵
+退格键	tui'ge'jian	⌫
+竖线	shu'xian	｜
+男性符号	nan'xing'fu'hao	♂
+女性符号	nv'xing'fu'hao	♀
+雄性	xiong'xing	♂
+雌性	ci'xing	♀
+
+# ---- 标点与括号 ----
+括号	kuo'hao	（） ［］ ｛｝ 【】 〔〕 〖〗
+圆括号	yuan'kuo'hao	（）
+小括号	xiao'kuo'hao	（）
+方括号	fang'kuo'hao	［］ 【】
+中括号	zhong'kuo'hao	［］ 【】
+花括号	hua'kuo'hao	｛｝
+大括号	da'kuo'hao	｛｝
+尖括号	jian'kuo'hao	〈〉
+六角括号	liu'jiao'kuo'hao	〔〕
+方头括号	fang'tou'kuo'hao	【】
+空心方头括号	kong'xin'fang'tou'kuo'hao	〖〗
+书名号	shu'ming'hao	《》 〈〉
+单书名号	dan'shu'ming'hao	〈〉
+引号	yin'hao	“” ‘’
+双引号	shuang'yin'hao	“”
+单引号	dan'yin'hao	‘’
+直角引号	zhi'jiao'yin'hao	「」
+双直角引号	shuang'zhi'jiao'yin'hao	『』
+省略号	sheng'lve'hao	…… …
+破折号	po'zhe'hao	—— —
+连接号	lian'jie'hao	– —
+波浪线	bo'lang'xian	～
+波浪号	bo'lang'hao	～
+井号	jing'hao	＃
+段落符号	duan'luo'fu'hao	¶
+章节号	zhang'jie'hao	§
+
+# ---- 其他 ----
+商标	shang'biao	™
+注册商标	zhu'ce'shang'biao	®
+版权	ban'quan	©
+版权符号	ban'quan'fu'hao	©
+编号	bian'hao	№
+人民币	ren'min'bi	¥ ￥
+日元	ri'yuan	¥ ￥
+美元	mei'yuan	$
+美分	mei'fen	¢
+欧元	ou'yuan	€
+英镑	ying'bang	£
+韩元	han'yuan	₩
+卢布	lu'bu	₽
+印度卢比	yin'du'lu'bi	₹
+泰铢	tai'zhu	฿
+比特币	bi'te'bi	₿

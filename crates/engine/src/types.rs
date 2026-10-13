@@ -13,6 +13,7 @@ pub enum CandidateSource {
     AiSuggestion = 3,
     EnglishDictionary = 4,
     QuickPhrase = 5,
+    /// emoji 行，也用于混排的符号行（打拼音出符号，`local::symbol_candidates`）：两者选中时都整段上屏、结束组字，不学习、不调频，也不能置顶、固定或删除。
     Emoji = 6,
     Kaomoji = 7,
     Generated = 8,
@@ -1282,6 +1283,8 @@ impl Default for EnglishInputOptions {
 pub struct MixedExpressiveOptions {
     pub emoji_candidates: bool,
     pub kaomoji_candidates: bool,
+    /// 打拼音出符号：整段组字正好拼出某个符号的名称时混入符号行（`local::symbol_candidates`）。
+    pub symbol_candidates: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

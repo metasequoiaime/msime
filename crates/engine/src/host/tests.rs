@@ -45,6 +45,7 @@ fn options(root: &Path) -> EngineOptions {
         english_minimum_prefix: 5,
         mixed_emoji: false,
         mixed_kaomoji: false,
+        mixed_symbols: false,
         mixed_japanese: false,
         local_unicode: true,
         local_date_time: true,
@@ -1907,6 +1908,7 @@ fn session_options_map_every_host_field() {
     value.english_minimum_prefix = 7;
     value.mixed_emoji = true;
     value.mixed_kaomoji = true;
+    value.mixed_symbols = true;
     value.mixed_japanese = true;
     value.local_date_time = false;
     value.local_temporary_japanese = false;
@@ -1950,6 +1952,7 @@ fn session_options_map_every_host_field() {
     assert!(!mapped.english.mixed_candidates);
     assert_eq!(mapped.english.minimum_prefix, 7);
     assert!(mapped.expressive.emoji_candidates && mapped.expressive.kaomoji_candidates);
+    assert!(mapped.expressive.symbol_candidates);
     assert!(mapped.japanese_mixing);
     assert!(!mapped.local_modes.date_time && !mapped.local_modes.temporary_japanese);
     assert!(mapped.local_modes.unicode && mapped.local_modes.temporary_english);

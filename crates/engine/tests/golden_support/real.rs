@@ -177,6 +177,7 @@ pub fn product_options(options: &mut SessionOptions) {
     options.expressive = MixedExpressiveOptions {
         emoji_candidates: false,
         kaomoji_candidates: false,
+        symbol_candidates: false,
     };
     options.local_modes = LocalModeOptions {
         unicode: true,

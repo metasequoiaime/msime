@@ -11,6 +11,7 @@ pub mod jianpin;
 pub mod mention;
 pub mod places;
 pub mod quick_phrase;
+pub mod symbol_candidates;
 pub mod unicode;
 pub mod units;
 pub mod url;
