@@ -2168,7 +2168,7 @@ export interface DictionaryClient {
     text: string,
     request_id: string,
   ): Promise<DictionaryImportResult>;
-  /** The largest file, in bytes, the page reads for `import`. */
+  /** 页面为 `import` 读取的文件字节上限。只有把一次导入整份作为一个请求发给宿主、不分批的客户端才设它（`UNBATCHED_DICTIONARY_FILE_BYTES`）；页面据此只送细胞词库转出文本的开头（`leadingImportRows`）。 */
   maxImportFileBytes?: number;
   /** 把搜狗细胞词库（`.scel` 的 base64）转成标准 TSV 文本；页面再以 `standard` 交给 `import`。宿主提供它时，拼音词库的文件格式里多一项细胞词库。 */
   scelText?(bytesBase64: string): Promise<ScelText>;

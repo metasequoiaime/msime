@@ -9,9 +9,11 @@ import {
   type Snapshot,
 } from "@msime/ui";
 import {
+  UNBATCHED_IMPORT_TEXT_BYTES,
   bytesToBase64,
   isScelBytes,
   isScelFile,
+  leadingImportRows,
 } from "../../../../packages/ui/src/dictionary/dictionary-file";
 
 afterEach(() => {
@@ -309,6 +311,30 @@ describe("Sogou cell dictionaries", () => {
     expect(dictionary.scelText).not.toHaveBeenCalled();
   });
 
+  test("a host that imports in one request gets only the rows its parser reads", async () => {
+    const dictionary = { ...scelDictionary(), maxImportFileBytes: UNBATCHED_DICTIONARY_FILE_BYTES };
+    // 一个约 100 KB 的转出文本：超过不分批宿主一次收的 64 KiB，整份送过去会被整份拒绝。
+    const text = Array.from({ length: 5000 }, (_, index) => `词条${index}\tci'tiao\n`).join("");
+    dictionary.scelText.mockResolvedValue({ name: "化学", category: "", entries: 5000, text });
+    // 报告里没有 truncated 也要说文件过长：先到 64 KiB 时解析器看不到后面还有行。
+    dictionary.import.mockResolvedValue({ applied: 1000 });
+    await importFile(dictionary, new File([scelBytes], "化学.scel"), "pinyin");
+    await waitFor(() => expect(dictionary.import).toHaveBeenCalled());
+    const sent = dictionary.import.mock.calls[0][2] as string;
+    expect(sent.split("\n").filter(Boolean)).toHaveLength(1001);
+    expect(text.startsWith(sent)).toBe(true);
+    expect((await screen.findByRole("status")).textContent).toContain("文件过长");
+  });
+
+  test("the desktop bridge gets the whole converted text", async () => {
+    const dictionary = scelDictionary();
+    const text = Array.from({ length: 5000 }, (_, index) => `词条${index}\tci'tiao\n`).join("");
+    dictionary.scelText.mockResolvedValue({ name: "化学", category: "", entries: 5000, text });
+    await importFile(dictionary, new File([scelBytes], "化学.scel"), "pinyin");
+    await waitFor(() => expect(dictionary.import).toHaveBeenCalled());
+    expect(dictionary.import.mock.calls[0][2]).toBe(text);
+  });
+
   test("the format and the .scel filter appear only for pinyin on a host that converts", async () => {
     const dictionary = scelDictionary();
     await openDictionaryPage(dictionary);
@@ -350,6 +376,26 @@ test("bytes are encoded to base64 in chunks without overflowing the stack", () =
   for (let index = 0; index < bytes.length; index++) bytes[index] = (index * 31 + 7) & 0xff;
   expect(bytesToBase64(bytes)).toBe(Buffer.from(bytes).toString("base64"));
   expect(bytesToBase64(new Uint8Array())).toBe("");
+});
+
+test("leading rows stop at 1001 rows or the parser's 64 KiB, whichever comes first", () => {
+  const short = Array.from({ length: 1500 }, (_, index) => `词${index}\tci\n`).join("");
+  const rows = leadingImportRows(short);
+  expect(rows.text.split("\n").filter(Boolean)).toHaveLength(1001);
+  expect(rows.cut).toBe(true);
+  expect(short.startsWith(rows.text)).toBe(true);
+
+  // 词长的词库（诗词、俗语）不到 1001 行就到了 64 KiB：只送放得下的整行，并且标出有行没送。
+  const row = `${"长".repeat(20)}\t${Array(20).fill("chang").join("'")}\n`;
+  const long = leadingImportRows(row.repeat(1500));
+  expect(new TextEncoder().encode(long.text).length).toBeLessThanOrEqual(
+    UNBATCHED_IMPORT_TEXT_BYTES,
+  );
+  expect(long.text.length % row.length).toBe(0);
+  expect(long.cut).toBe(true);
+
+  const small = "测试\tce'shi\n实例\tshi'li";
+  expect(leadingImportRows(small)).toEqual({ text: small, cut: false });
 });
 
 test("a cell dictionary is recognised by its first four bytes", async () => {

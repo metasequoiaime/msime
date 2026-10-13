@@ -9,6 +9,7 @@ import {
   MAX_SCEL_FILE_BYTES,
   dictionaryPageStatus,
   isScelFile,
+  leadingImportRows,
   readDictionaryFile,
   readScelFile,
   type DictionaryEntry,
@@ -229,7 +230,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   /**
    * 导入一个文件。`format` 由选文件的那一刻决定（例如按扩展名切到 `rime` 或 `scel`）：同一个事件里刚 `setDictionaryFormat` 的值要到下一次渲染才进闭包，所以由调用方直接传进来，不读闭包里的旧格式。
    *
-   * 细胞词库（选了这个格式，或者文件开头就是细胞词库的魔数）先经宿主的 `scelText` 转成标准文本，再以 `standard` 交给 `import`，上限、分批和报告都与文本文件相同。
+   * 细胞词库（选了这个格式，或者文件开头就是细胞词库的魔数）先经宿主的 `scelText` 转成标准文本，再以 `standard` 交给 `import`，上限、分批和报告都与文本文件相同。不分批的宿主（设了 `maxImportFileBytes`）一次只收 64 KiB 文本、只看 1000 行，所以只送转出文本的开头，报告里说文件过长，而不是整份被拒绝。
    */
   async function importPhrases(file: File, format: DictionaryPageFormat = dictionaryFormat) {
     if (!client.dictionary || !mounted.current) return;
@@ -242,6 +243,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
         let text: string;
         let textFormat: LocalDictionaryFormat;
         let source = "";
+        let cut = false;
         if (scel) {
           if (!scelText) throw new Error("这里不能导入搜狗细胞词库。");
           if (dictionaryKind !== "pinyin")
@@ -256,6 +258,8 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
             ),
           );
           text = converted.text;
+          if (dictionary.maxImportFileBytes !== undefined)
+            ({ text, cut } = leadingImportRows(converted.text));
           textFormat = "standard";
           source = scelImportSource(converted.name, converted.entries);
         } else {
@@ -270,6 +274,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
             text,
             randomRequestId("ui-import"),
           );
+          if (cut) imported = { ...imported, truncated: true };
         } else {
           if (textFormat === "hans") throw new Error("hans format requires batch import");
           const lines = text.split(/\r?\n/).filter(Boolean);

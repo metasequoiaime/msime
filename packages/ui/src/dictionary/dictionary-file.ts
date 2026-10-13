@@ -81,6 +81,29 @@ export function bytesToBase64(bytes: Uint8Array): string {
   return parts.join("");
 }
 
+/** 不分批的宿主一次导入里共享解析器收的文本上限（client-core `cloud::dictionary::MAX_IMPORT_BYTES`）：超过它的文本整份被拒绝，不是只读前一部分。 */
+export const UNBATCHED_IMPORT_TEXT_BYTES = 64 * 1024;
+
+/** 共享解析器一次导入最多看的行数（client-core `import::MAX_ENTRIES`）。 */
+const IMPORT_EXAMINED_ROWS = 1000;
+
+/**
+ * 细胞词库转出的文本在不分批的宿主上只送开头的整行：最多 1001 行，并且不超过 `UNBATCHED_IMPORT_TEXT_BYTES`。真实词库转出的文本大多超过 64 KiB，整份送过去会被整份拒绝。多送一行，解析器才知道后面还有；`cut` 表示有行没有送，先到字节上限时解析器不会自己报告「文件过长」，由页面补上。
+ */
+export function leadingImportRows(text: string): { text: string; cut: boolean } {
+  let end = 0;
+  let bytes = 0;
+  for (let rows = 0; rows <= IMPORT_EXAMINED_ROWS && end < text.length; rows++) {
+    const newline = text.indexOf("\n", end);
+    const next = newline === -1 ? text.length : newline + 1;
+    const length = utf8ByteLength(text.slice(end, next));
+    if (bytes + length > UNBATCHED_IMPORT_TEXT_BYTES) break;
+    bytes += length;
+    end = next;
+  }
+  return { text: text.slice(0, end), cut: end < text.length };
+}
+
 /** 读一个细胞词库，返回 base64；超过 `maxBytes` 时先拒绝，不读内容。 */
 export async function readScelFile(
   file: Blob,
