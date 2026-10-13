@@ -179,6 +179,7 @@ fn capabilities_describe_each_host() {
     assert!(linux.number_row_selection);
     assert!(linux.voice_capture_devices);
     assert!(linux.candidate_font_controls);
+    assert!(linux.candidate_window_scale);
     assert!(!linux.candidate_preedit_font);
     assert!(linux.candidate_row_colors);
     assert!(!linux.candidate_selection_appearance);
@@ -785,7 +786,7 @@ fn candidate_window_style_is_offered_where_the_host_draws_the_card() {
     };
     assert_eq!(flags(HostPlatform::Windows), (true, true, true));
     assert_eq!(flags(HostPlatform::Macos), (true, true, true));
-    assert_eq!(flags(HostPlatform::Linux), (false, false, true));
+    assert_eq!(flags(HostPlatform::Linux), (true, false, true));
     assert_eq!(flags(HostPlatform::Harmony), (false, true, true));
     assert_eq!(flags(HostPlatform::Android), (false, false, false));
     assert_eq!(flags(HostPlatform::Ios), (false, false, false));

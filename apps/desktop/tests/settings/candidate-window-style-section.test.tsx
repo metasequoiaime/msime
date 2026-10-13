@@ -66,7 +66,11 @@ function renderSection(overrides: Partial<SectionOptions> = {}) {
           />
         )}
         {options.showScale && (
-          <CandidateScaleRow preferences={options.preferences} onChange={onChange} />
+          <CandidateScaleRow
+            preferences={options.preferences}
+            platform={options.platform}
+            onChange={onChange}
+          />
         )}
       </GroupList>
       <CandidateWindowStyleSection
@@ -128,6 +132,11 @@ test("the sliders write the window style, leaving the defaults out of the docume
     target: { value: "100" },
   });
   expect(edited.onChange).toHaveBeenLastCalledWith({ candidate_opacity_percent: undefined });
+});
+
+test("Linux explains that overall size scales the panel font", () => {
+  renderSection({ platform: "linux" });
+  expect(screen.getByText("100%，候选字号跟随缩放")).toBeTruthy();
 });
 
 test("the corner radius follows the skin until set, and returns to it", () => {
@@ -241,7 +250,7 @@ test("the rows a host cannot draw are hidden", () => {
 test.each([
   ["windows", { scale: true, opacity: true, radius: true, padding: false }],
   ["macos", { scale: true, opacity: true, radius: true, padding: true }],
-  ["linux", { scale: false, opacity: false, radius: true, padding: false }],
+  ["linux", { scale: true, opacity: false, radius: true, padding: false }],
   ["harmony", { scale: false, opacity: true, radius: true, padding: false }],
   ["ios", { scale: false, opacity: false, radius: false, padding: false }],
   ["android", { scale: false, opacity: false, radius: false, padding: false }],

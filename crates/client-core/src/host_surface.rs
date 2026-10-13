@@ -194,7 +194,7 @@ pub struct HostCapabilities {
     pub candidate_selection_appearance: bool,
     /// The host outlines the candidate panel in the border colour. Separate from `candidate_selection_appearance` because Linux draws the border (the Fcitx5 classic UI theme carries it) while neither Linux panel has a hover state.
     pub candidate_border_color: bool,
-    /// The host draws its own floating candidate window and multiplies its font and geometry by `candidate_scale_percent`. A host whose list lives in a desktop panel, or in a strip on the keyboard that already follows the font size, has nothing else to scale.
+    /// 宿主应用 `candidate_scale_percent` 调整候选显示。自绘浮动窗口缩放字体和几何尺寸；桌面面板可以缩放自己拥有的字体描述。
     pub candidate_window_scale: bool,
     /// The host can lower the alpha of its candidate card fill, border and skin background by `candidate_opacity_percent` while keeping text opaque. A panel the desktop draws, or a strip that is part of an opaque keyboard, cannot.
     pub candidate_window_opacity: bool,
@@ -591,8 +591,11 @@ impl HostCapabilities {
                     | HostPlatform::Ios
                     | HostPlatform::Linux
             ),
-            // The Windows and macOS candidate windows are drawn by the host, so every style control reaches them. The Fcitx5 classic UI theme carries a corner radius but no scale, and on X11 without a compositor a translucent fill shows as black, so Linux offers only the radius. The HarmonyOS 2in1 candidate card takes a radius and a fill alpha but its size follows the font size alone. The iOS and Android candidate strips sit on the keyboard rather than float, so none of the three applies there.
-            candidate_window_scale: matches!(platform, HostPlatform::Windows | HostPlatform::Macos),
+            // Windows 和 macOS 自绘候选浮窗并缩放全部几何尺寸。Linux 的桌面面板拥有卡片几何，但可以缩放唯一的 Pango 字体描述，这正是高 DPI 面板需要的部分。鸿蒙只随字号调整，iOS 和 Android 绘制键盘候选条，所以两者都不提供此控件。
+            candidate_window_scale: matches!(
+                platform,
+                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Linux
+            ),
             candidate_window_opacity: matches!(
                 platform,
                 HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Harmony

@@ -21,6 +21,7 @@ struct CandidateFont {
   int size_px = 0;
   // candidate_english_font. Windows draws candidate text in this face first and falls back for the glyphs it lacks, and macOS and Android name it ahead of the primary family; a Pango family list resolves per glyph the same way, so the Linux answer is to put it first. Empty when unset, which leaves the description exactly as it was before the setting existed.
   std::string english_family{};
+  int scale_percent = 100;
 };
 
 inline constexpr const char *kDefaultCandidateFontFamily = "Noto Sans SC";
@@ -48,6 +49,9 @@ inline CandidateFont read_candidate_font(const nlohmann::json &preferences) {
   if (const auto size = preferences.find("candidate_font_size");
       size != preferences.end() && size->is_number_integer())
     font.size_px = size->get<int>();
+  if (const auto scale = preferences.find("candidate_scale_percent");
+      scale != preferences.end() && scale->is_number_integer())
+    font.scale_percent = scale->get<int>();
   // Optional and absent by default; null is how the store writes "not chosen".
   if (const auto english = preferences.find("candidate_english_font");
       english != preferences.end() && english->is_string())
@@ -81,6 +85,13 @@ inline std::string candidate_font_size_text(int size_px, CandidateFontUnit unit)
   return std::to_string(size_px * 3 / 4) + quarters[size_px * 3 % 4];
 }
 
+// Linux 的候选列表由桌面面板排版，整体大小不能像自绘窗口那样缩放卡片几何；把缩放应用到面板唯一能控制的字体描述，仍让 4K 桌面上的字号按设置放大。
+inline int scaled_candidate_font_size(const CandidateFont &font) {
+  const int size = font.size_px >= 12 && font.size_px <= 32 ? font.size_px : kDefaultCandidateFontSize;
+  const int scale = font.scale_percent >= 50 && font.scale_percent <= 200 ? font.scale_percent : 100;
+  return std::max(1, (size * scale + 50) / 100);
+}
+
 // 描述先列选了的英文字体，再列主字体和回退字体，去掉重复；字体列表以逗号结尾，名字以 Pango 认得的样式词（"Bold"、"Light"）结尾时仍算名字的一部分。
 inline std::string candidate_pango_font(const CandidateFont &font,
                                         CandidateFontUnit unit = CandidateFontUnit::Pixels) {
@@ -100,7 +111,7 @@ inline std::string candidate_pango_font(const CandidateFont &font,
     description += family;
   }
   if (!description.empty()) description += ",";
-  const int size = font.size_px >= 12 && font.size_px <= 32 ? font.size_px : kDefaultCandidateFontSize;
+  const int size = scaled_candidate_font_size(font);
   if (!description.empty()) description += ' ';
   description += candidate_font_size_text(size, unit);
   return description;
@@ -110,7 +121,7 @@ inline std::string candidate_pango_font(const CandidateFont &font,
 inline bool candidate_font_is_default(const CandidateFont &font) {
   return candidate_pango_font(font) ==
          candidate_pango_font({kDefaultCandidateFontFamily, default_candidate_fallback_fonts(),
-                               kDefaultCandidateFontSize, std::string{}});
+                               kDefaultCandidateFontSize, std::string{}, 100});
 }
 
 // The panel font belongs to the whole desktop, not to this input method, so the host only writes

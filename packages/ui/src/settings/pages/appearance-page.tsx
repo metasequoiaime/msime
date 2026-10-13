@@ -251,6 +251,7 @@ export function AppearanceSettingsPage() {
           {showCandidateWindowScale && (
             <CandidateScaleRow
               preferences={draft}
+              platform={host?.platform}
               onChange={appearanceActions.onPreferencesChange}
             />
           )}
@@ -384,6 +385,7 @@ function HarmonyPhoneCandidateGroups() {
           {showCandidateWindowScale && (
             <CandidateScaleRow
               preferences={draft}
+              platform={host?.platform}
               onChange={appearanceActions.onPreferencesChange}
             />
           )}

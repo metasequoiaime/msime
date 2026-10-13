@@ -28,6 +28,17 @@ int main() {
              {"candidate_font_family", "LXGW WenKai"},
              {"candidate_fallback_fonts", nlohmann::json::array({"Noto Sans CJK SC", 3})},
              {"candidate_font_size", 24}})) == "LXGW WenKai, Noto Sans CJK SC, 24px");
+  // Linux 的「整体大小」缩放面板能控制的字体；125% 的 24px 四舍五入为 30px。
+  assert(candidate_pango_font(read_candidate_font(nlohmann::json{
+             {"candidate_font_size", 24}, {"candidate_scale_percent", 125}})) ==
+         "Noto Sans SC, Microsoft YaHei, 30px");
+  assert(candidate_pango_font(read_candidate_font(nlohmann::json{
+             {"candidate_font_size", 32}, {"candidate_scale_percent", 200}})) ==
+         "Noto Sans SC, Microsoft YaHei, 64px");
+  // 非法缩放回到默认 100%，不把错误文档传给面板。
+  assert(candidate_pango_font(read_candidate_font(nlohmann::json{
+             {"candidate_font_size", 24}, {"candidate_scale_percent", 201}})) ==
+         "Noto Sans SC, Microsoft YaHei, 24px");
   // An emptied fallback list stays empty rather than reverting to the defaults.
   assert(candidate_pango_font(read_candidate_font(nlohmann::json{
              {"candidate_fallback_fonts", nlohmann::json::array()}})) == "Noto Sans SC, 18px");
@@ -85,6 +96,7 @@ int main() {
   assert(candidate_pango_font({"Sans", {}, 13}, CandidateFontUnit::Points) == "Sans, 9.75");
   assert(candidate_pango_font({"Sans", {}, 15}, CandidateFontUnit::Points) == "Sans, 11.25");
   assert(candidate_pango_font({"Sans", {}, 32}, CandidateFontUnit::Points) == "Sans, 24");
+  assert(candidate_pango_font({"Sans", {}, 32, {}, 200}, CandidateFontUnit::Points) == "Sans, 48");
   assert(candidate_pango_font({"Sans", {}, 4}, CandidateFontUnit::Points) == "Sans, 13.5");
   assert(candidate_pango_font({"", {}, 14}, CandidateFontUnit::Points) == "10.5");
   // 单位不改变「是否仍是默认」的判断：没动过的偏好照样不写。

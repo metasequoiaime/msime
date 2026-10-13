@@ -75,16 +75,17 @@ export function CandidateFontPresetRow({
 
 export interface CandidateScaleRowProps {
   preferences: Pick<Preferences, "candidate_scale_percent">;
+  platform?: HostPlatform;
   onChange: (patch: Partial<Preferences>) => void;
 }
 
-/** 「整体大小」滑块，「候选窗口」页「字体与大小」组的最后一个尺寸行：它把上面的各个字号连同窗口一起缩放。 */
-export function CandidateScaleRow({ preferences, onChange }: CandidateScaleRowProps) {
+/** 「整体大小」滑块；自绘候选窗连同窗口缩放，Linux 面板只缩放它能控制的候选字号。 */
+export function CandidateScaleRow({ preferences, platform, onChange }: CandidateScaleRowProps) {
   const scale = candidateScalePercent(preferences.candidate_scale_percent);
   return (
     <SliderRow
       title="整体大小"
-      description={`${scale}%，字号与窗口尺寸一起缩放`}
+      description={`${scale}%，${platform === "linux" ? "候选字号跟随缩放" : "字号与窗口尺寸一起缩放"}`}
       {...candidateScaleSlider}
       value={scale}
       valueText={`${scale}%`}
