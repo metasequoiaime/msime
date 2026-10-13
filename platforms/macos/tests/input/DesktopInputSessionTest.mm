@@ -5,9 +5,22 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <atomic>
+#include <cerrno>
 #include <cassert>
 #include <thread>
 #include <vector>
+
+static bool SendAll(int fd, const void *bytes, size_t count) {
+    const auto *cursor = static_cast<const unsigned char *>(bytes);
+    while (count > 0) {
+        const ssize_t sent = send(fd, cursor, count, 0);
+        if (sent < 0 && errno == EINTR) continue;
+        if (sent <= 0) return false;
+        cursor += sent;
+        count -= static_cast<size_t>(sent);
+    }
+    return true;
+}
 
 static void Check(std::vector<unsigned char> body, uint32_t declared, bool authorized,
                   bool accept, bool expectedCall, int expectedResponse, bool clipboard = false, bool fragmented = false) {
@@ -44,10 +57,12 @@ static void Check(std::vector<unsigned char> body, uint32_t declared, bool autho
             strlcpy(address.sun_path, path.fileSystemRepresentation, sizeof(address.sun_path));
             assert(connect(fd, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0);
             uint32_t length = htonl(declared);
-            // An unauthorized peer may be closed before it can write.
-            (void)send(fd, &length, sizeof(length), 0);
+            // 未授权连接可能在发送期间被关闭；有效请求必须完整送出测试帧。
+            const bool headerSent = SendAll(fd, &length, sizeof(length));
+            if (expectedCall) assert(headerSent);
             if (fragmented) std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            if (!body.empty()) (void)send(fd, body.data(), body.size(), 0);
+            const bool bodySent = body.empty() || SendAll(fd, body.data(), body.size());
+            if (expectedCall) assert(bodySent);
             shutdown(fd, SHUT_WR);
             unsigned char response = 255;
             ssize_t count = recv(fd, &response, 1, 0);
