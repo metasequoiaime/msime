@@ -38,6 +38,12 @@ import SwiftUI
     task.wrappedValue = nil
   }
 
+  /// 取消不带代次的短任务，并清空句柄，避免页面重建后保留已完成任务。
+  static func cancel(task: Binding<Task<Void, Never>?>) {
+    task.wrappedValue?.cancel()
+    task.wrappedValue = nil
+  }
+
   static func run(request: Binding<ViewRequestGeneration>, busy: Binding<Bool>,
                   message: Binding<String?>, pending: Binding<Task<Void, Never>?>,
                   canceling: Binding<Task<Void, Never>?>? = nil,

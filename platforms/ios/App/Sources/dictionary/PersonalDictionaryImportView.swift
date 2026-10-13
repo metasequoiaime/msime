@@ -182,12 +182,12 @@ struct PersonalDictionaryImportView: View {
       .alert("导入个人词库", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
         Button("好", role: .cancel) { error = nil }
       } message: { Text(error ?? "") }
-      .onDisappear { readTask?.cancel(); readTask = nil }
+      .onDisappear { ViewRequestTask.cancel(task: $readTask) }
     }
   }
 
   private func clearPreview() {
-    readTask?.cancel()
+    ViewRequestTask.cancel(task: $readTask)
     preview = nil
     notice = ""
     loading = false

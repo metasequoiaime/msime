@@ -373,7 +373,7 @@ struct DesignInlineButtonRow: View {
         action()
         guard doneTitle != nil else { return }
         showsDone = true
-        resetTask?.cancel()
+        ViewRequestTask.cancel(task: $resetTask)
         resetTask = Task { @MainActor in
           try? await Task.sleep(nanoseconds: 1_600_000_000)
           guard !Task.isCancelled else { return }
@@ -389,7 +389,7 @@ struct DesignInlineButtonRow: View {
       .accessibilityLabel(showsDone ? doneTitle ?? buttonTitle : buttonTitle)
       .designIdentifier(identifier)
     }
-    .onDisappear { resetTask?.cancel() }
+    .onDisappear { ViewRequestTask.cancel(task: $resetTask) }
   }
 }
 
