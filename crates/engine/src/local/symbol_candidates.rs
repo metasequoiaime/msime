@@ -16,10 +16,13 @@ const TABLE: &str = include_str!("symbol_candidates.tsv");
 /// 一次最多给出几行符号，各名称合计。混排去重用一个 `u64` 记去留，不能超过 64。
 pub const MIXED_SYMBOL_LIMIT: usize = 8;
 /// 一个名称最多几个符号，由表检查保证。
+#[cfg(test)]
 pub const SYMBOLS_PER_NAME: usize = 6;
 /// 拉丁名称至少几个字母：`pi`、`mu`、`xi`、`nu` 都是常用拼音音节，这些希腊字母走中文名。
+#[cfg(test)]
 pub const LATIN_NAME_MINIMUM: usize = 4;
 /// 单音节名称只收有 issue 依据的这两个（W#40 的派 π、W#759 的度 °）：它们在最常用的音节上，锚定词不在候选里时不出，在时最早排第 4 位。
+#[cfg(test)]
 pub const SINGLE_SYLLABLE_NAMES: [&str; 2] = ["派", "度"];
 
 /// 混排的一行符号，带着决定它位置的信息，规则见 `queries::place_symbol_rows`。
@@ -121,7 +124,8 @@ fn parse_entries(text: &'static str) -> Vec<SymbolEntry> {
         .collect()
 }
 
-/// 表里的全部行，供数据检查和真词库探针用。
+/// 表里的全部行，供数据检查用；真词库探针直接读 TSV。
+#[cfg(test)]
 pub fn symbol_entries() -> &'static [SymbolEntry] {
     &table().entries
 }

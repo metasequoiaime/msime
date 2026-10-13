@@ -1577,4 +1577,265 @@ mod tests {
         );
         assert_eq!(words(&list), vec!["火么", "home"]);
     }
+
+    // ---- 打拼音出符号 ----
+
+    /// 一行符号，`anchor` 是它名称那个词。
+    fn symbol(
+        word: &str,
+        anchor: &'static str,
+        single_syllable: bool,
+        unanchored: bool,
+    ) -> SymbolRow {
+        SymbolRow {
+            item: WordItem::new("x", word, 0, CandidateSource::Emoji, ""),
+            anchor,
+            single_syllable,
+            unanchored,
+        }
+    }
+
+    fn database(words: &[&str]) -> Vec<WordItem> {
+        words
+            .iter()
+            .map(|word| row(word, CandidateSource::Database))
+            .collect()
+    }
+
+    fn with_symbols(list: Vec<WordItem>, symbols: Vec<SymbolRow>) -> Vec<WordItem> {
+        insert_mixed_rows_with_japanese(
+            list,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            symbols,
+            None,
+            None,
+        )
+    }
+
+    #[test]
+    fn symbols_follow_their_name_ahead_of_emoji_and_kaomoji() {
+        let merged = insert_mixed_rows_with_japanese(
+            database(&["正负", "政府", "正副"]),
+            Vec::new(),
+            vec![depicting("➕", CandidateSource::Emoji, "正负")],
+            vec![depicting("(+_-)", CandidateSource::Kaomoji, "正负")],
+            vec![symbol("±", "正负", false, true)],
+            None,
+            None,
+        );
+        assert_eq!(
+            words(&merged),
+            vec!["正负", "±", "➕", "(+_-)", "政府", "正副"]
+        );
+        // 名称不在首位时接在它后面。
+        let merged = with_symbols(
+            database(&["政府", "正负", "正副"]),
+            vec![symbol("±", "正负", false, true)],
+        );
+        assert_eq!(words(&merged), vec!["政府", "正负", "±", "正副"]);
+        // 同一个名称的几个符号按查询的先后排在一起。
+        let merged = with_symbols(
+            database(&["平方米", "平方", "平房"]),
+            vec![
+                symbol("㎡", "平方米", false, true),
+                symbol("m²", "平方米", false, true),
+            ],
+        );
+        assert_eq!(words(&merged), vec!["平方米", "㎡", "m²", "平方", "平房"]);
+    }
+
+    #[test]
+    fn single_syllable_symbols_wait_until_the_fourth_place() {
+        let merged = with_symbols(
+            database(&["派", "排", "牌", "拍", "怕"]),
+            vec![symbol("π", "派", true, false)],
+        );
+        assert_eq!(words(&merged), vec!["派", "排", "牌", "π", "拍", "怕"]);
+        // 名称本来就排在后面时照样紧跟它。
+        let merged = with_symbols(
+            database(&["排", "牌", "拍", "怕", "派"]),
+            vec![symbol("π", "派", true, false)],
+        );
+        assert_eq!(words(&merged), vec!["排", "牌", "拍", "怕", "派", "π"]);
+        // 列表只有两行时接在末尾。
+        let merged = with_symbols(
+            database(&["派", "排"]),
+            vec![symbol("π", "派", true, false)],
+        );
+        assert_eq!(words(&merged), vec!["派", "排", "π"]);
+        // 名称不在候选里时不出。
+        let merged = with_symbols(
+            database(&["排", "牌"]),
+            vec![symbol("π", "派", true, false)],
+        );
+        assert_eq!(words(&merged), vec!["排", "牌"]);
+    }
+
+    #[test]
+    fn unanchored_symbols_take_the_last_place_of_the_first_page_or_nothing() {
+        let seven = || database(&["一", "二", "三", "四", "五", "六", "七"]);
+        let merged = with_symbols(seven(), vec![symbol("◎", "同心圆", false, true)]);
+        assert_eq!(words(&merged)[5], "◎");
+        assert_eq!(merged.len(), 8);
+        // 列表短时接在末尾。
+        let merged = with_symbols(
+            database(&["一", "二"]),
+            vec![symbol("◎", "同心圆", false, true)],
+        );
+        assert_eq!(words(&merged), vec!["一", "二", "◎"]);
+        // 首字母匹配和单音节在名称不在时不出。
+        let merged = with_symbols(
+            seven(),
+            vec![
+                symbol("℃", "摄氏度", false, false),
+                symbol("π", "派", true, false),
+            ],
+        );
+        assert_eq!(merged, seven());
+        // 列表空时不加，空格键不会上屏符号。
+        assert!(with_symbols(Vec::new(), vec![symbol("±", "正负", false, true)]).is_empty());
+    }
+
+    #[test]
+    fn a_symbol_never_takes_the_first_place() {
+        // 线性同余伪随机：列表长短不一、名称有时在首位、有时在中间、有时不在。
+        let mut state = 0x2545_f491_u64;
+        let mut next = |bound: usize| {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            ((state >> 33) as usize) % bound
+        };
+        let names = ["正负", "派", "摄氏度", "同心圆"];
+        for _ in 0..500 {
+            let length = next(80);
+            let mut list: Vec<WordItem> = (0..length)
+                .map(|index| row(&format!("词{index}"), CandidateSource::Database))
+                .collect();
+            for name in names {
+                if length > 0 && next(2) == 0 {
+                    let at = next(length);
+                    list[at] = row(name, CandidateSource::Database);
+                }
+            }
+            let symbols = vec![
+                symbol("±", "正负", false, true),
+                symbol("π", "派", true, false),
+                symbol("℃", "摄氏度", false, false),
+                symbol("◎", "同心圆", false, true),
+            ];
+            let merged = with_symbols(list, symbols);
+            if let Some(first) = merged.first() {
+                assert_ne!(first.source, CandidateSource::Emoji, "{:?}", words(&merged));
+            }
+        }
+    }
+
+    #[test]
+    fn symbols_are_deduplicated_and_win_over_emoji_presentation() {
+        // 列表里已有同样文字时不再加。
+        let merged = with_symbols(
+            database(&["大于", ">"]),
+            vec![
+                symbol(">", "大于", false, true),
+                symbol("＞", "大于", false, true),
+            ],
+        );
+        assert_eq!(words(&merged), vec!["大于", "＞", ">"]);
+        // ✔️ 与符号 ✔ 只差 U+FE0F：留符号行，去掉 emoji 行；文字完全相同的 emoji 行同样去掉。
+        let merged = insert_mixed_rows_with_japanese(
+            database(&["对号", "对好"]),
+            Vec::new(),
+            vec![
+                depicting("✔\u{FE0F}", CandidateSource::Emoji, "对号"),
+                depicting("√", CandidateSource::Emoji, "对号"),
+                depicting("👍", CandidateSource::Emoji, "对号"),
+            ],
+            Vec::new(),
+            vec![
+                symbol("√", "对号", false, true),
+                symbol("✔", "对号", false, true),
+            ],
+            None,
+            None,
+        );
+        assert_eq!(words(&merged), vec!["对号", "√", "✔", "👍", "对好"]);
+    }
+
+    #[test]
+    fn latin_symbols_follow_the_english_row_of_their_name() {
+        let merged = insert_mixed_rows_with_japanese(
+            database(&["嘎嘛", "噶"]),
+            vec![english("gamma", "gamma")],
+            Vec::new(),
+            Vec::new(),
+            vec![
+                symbol("γ", "gamma", false, true),
+                symbol("Γ", "gamma", false, true),
+            ],
+            Some("gamma"),
+            None,
+        );
+        assert_eq!(words(&merged), vec!["gamma", "γ", "Γ", "嘎嘛", "噶"]);
+        // 英文不领先时进优先位置，符号照样跟着它。
+        let merged = insert_mixed_rows_with_japanese(
+            database(&["嘎嘛", "噶"]),
+            vec![english("gamma", "gamma")],
+            Vec::new(),
+            Vec::new(),
+            vec![symbol("γ", "gamma", false, true)],
+            None,
+            None,
+        );
+        assert_eq!(words(&merged), vec!["嘎嘛", "gamma", "γ", "噶"]);
+    }
+
+    #[test]
+    fn mixed_adds_symbols_only_when_switched_on_and_allowed() {
+        let mut queries = CandidateQueries::new(&RuntimePaths::default(), default_profile());
+        let list = || database(&["政府", "正负", "正副"]);
+        let symbols_on = MixedExpressiveOptions {
+            symbol_candidates: true,
+            ..MixedExpressiveOptions::default()
+        };
+        let mix = |queries: &mut CandidateQueries, expressive, allowed, scheme| {
+            queries.mixed(
+                list(),
+                "zhengfu",
+                scheme,
+                EnglishInputOptions::default(),
+                expressive,
+                false,
+                LocalInputMode::None,
+                true,
+                allowed,
+                None,
+            )
+        };
+        assert_eq!(
+            words(&mix(&mut queries, symbols_on, true, SchemeType::Quanpin)),
+            vec!["政府", "正负", "±", "正副"]
+        );
+        // 开关关着、调用方不允许（光标前缀解码、辅助码激活）、五笔：列表原样。
+        assert_eq!(
+            mix(
+                &mut queries,
+                MixedExpressiveOptions::default(),
+                true,
+                SchemeType::Quanpin
+            ),
+            list()
+        );
+        assert_eq!(
+            mix(&mut queries, symbols_on, false, SchemeType::Quanpin),
+            list()
+        );
+        assert_eq!(
+            mix(&mut queries, symbols_on, true, SchemeType::Wubi),
+            list()
+        );
+        assert!(queries.english.is_none());
+    }
 }

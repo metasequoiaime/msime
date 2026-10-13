@@ -197,7 +197,7 @@ omega	-	ω Ω
 错号	cuo'hao	× ✗
 打叉	da'cha	× ✗
 复选框	fu'xuan'kuang	☐ ☑ ☒
-箭头	jian'tou	→ ← ↑ ↓ ↔
+箭头	jian'tou	→ ← ↑ ↓
 右箭头	you'jian'tou	→
 左箭头	zuo'jian'tou	←
 上箭头	shang'jian'tou	↑
@@ -225,7 +225,7 @@ omega	-	ω Ω
 雌性	ci'xing	♀
 
 # ---- 标点与括号 ----
-括号	kuo'hao	（） ［］ ｛｝ 【】 〔〕 〖〗
+括号	kuo'hao	（） 【】 ［］ ｛｝
 圆括号	yuan'kuo'hao	（）
 小括号	xiao'kuo'hao	（）
 方括号	fang'kuo'hao	［］ 【】
