@@ -1320,3 +1320,121 @@ fn journal_list_kind_does_not_truncate_after_other_dictionaries() {
         })
     );
 }
+
+fn scel_text_reply(request: &[u8]) -> serde_json::Value {
+    let pointer = unsafe { msime_client_dictionary_scel_text(request.as_ptr(), request.len()) };
+    let value = unsafe { std::ffi::CStr::from_ptr(pointer) }
+        .to_str()
+        .unwrap()
+        .to_owned();
+    unsafe { crate::msime_client_string_free(pointer) };
+    serde_json::from_str(&value).unwrap()
+}
+
+fn scel_text_request(bytes: &[u8]) -> Vec<u8> {
+    serde_json::to_vec(&json!({ "bytes_base64": super::scel_fixture::base64(bytes) })).unwrap()
+}
+
+#[test]
+fn scel_text_converts_a_cell_dictionary_to_standard_rows() {
+    let bytes = super::scel_fixture::scel(&[
+        (&["ce", "shi"], &["测试"]),
+        (&["shi", "li"], &["实例", "事例"]),
+        (&["?", "jie"], &["越界"]),
+    ]);
+    let reply = scel_text_reply(&scel_text_request(&bytes));
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(
+        reply["value"],
+        json!({
+            "name": "合成词库",
+            "category": "",
+            "entries": 4,
+            "text": "测试\tce'shi\n实例\tshi'li\n事例\tshi'li\n越界\t\n",
+        })
+    );
+}
+
+#[test]
+fn scel_text_refusals_have_stable_codes() {
+    let error = |request: &[u8]| scel_text_reply(request)["error"].clone();
+    let sample = super::scel_fixture::scel(&[(&["ce", "shi"], &["测试"])]);
+    let null = unsafe { msime_client_dictionary_scel_text(std::ptr::null(), 0) };
+    let value = unsafe { std::ffi::CStr::from_ptr(null) }
+        .to_str()
+        .unwrap()
+        .to_owned();
+    unsafe { crate::msime_client_string_free(null) };
+    assert!(value.contains("dictionary_scel_invalid"), "{value}");
+    assert_eq!(
+        error(&vec![b' '; SCEL_TEXT_REQUEST_LIMIT + 1]),
+        "dictionary_too_large"
+    );
+    assert_eq!(error(b"not json"), "dictionary_scel_invalid");
+    assert_eq!(
+        error(br#"{"bytes_base64":"","text":""}"#),
+        "dictionary_scel_invalid"
+    );
+    assert_eq!(
+        error(br#"{"bytes_base64":"not base64!"}"#),
+        "dictionary_scel_invalid"
+    );
+    assert_eq!(
+        error(&scel_text_request("词\tci\n".as_bytes())),
+        "dictionary_scel_unsupported"
+    );
+    assert_eq!(
+        error(&scel_text_request(&sample[..sample.len() - 1])),
+        "dictionary_scel_malformed"
+    );
+    let mut empty = sample.clone();
+    empty[0x120..0x124].copy_from_slice(&0u32.to_le_bytes());
+    assert_eq!(error(&scel_text_request(&empty)), "dictionary_scel_empty");
+    assert_eq!(
+        scel_text_json(&"A".repeat(scel_base64_limit() + 4)).unwrap_err(),
+        "dictionary_too_large"
+    );
+}
+
+/// iOS 的路径：转出的文本以 `standard` 交给 `msime_client_dictionary_import_entries`，队列只收 128 个词，坏词条按词序报出行号。
+#[test]
+#[cfg(not(target_os = "android"))]
+fn scel_text_feeds_the_queued_import_with_word_order_lines() {
+    let words: Vec<String> = (0..140u32)
+        .map(|index| {
+            [0x4e00 + index, 0x5000 + index]
+                .into_iter()
+                .filter_map(char::from_u32)
+                .collect()
+        })
+        .collect();
+    let mut groups: Vec<(&[&str], Vec<&str>)> = Vec::new();
+    groups.push((&["?", "jie"], vec!["越界"]));
+    for word in &words {
+        groups.push((&["ce", "shi"], vec![word.as_str()]));
+    }
+    let borrowed: Vec<(&[&str], &[&str])> = groups
+        .iter()
+        .map(|(reading, words)| (*reading, words.as_slice()))
+        .collect();
+    let converted = scel_text_json(&super::scel_fixture::base64(&super::scel_fixture::scel(
+        &borrowed,
+    )))
+    .unwrap();
+    let request = serde_json::to_vec(&json!({
+        "kind": "pinyin",
+        "format": "standard",
+        "text": converted["text"],
+    }))
+    .unwrap();
+    let resources = tempfile::tempdir().unwrap();
+    let report = import_entries_json(&request, resources.path().to_str().unwrap()).unwrap();
+    assert_eq!(report["applied"], 128, "{report}");
+    assert_eq!(report["entries"].as_array().unwrap().len(), 128);
+    assert_eq!(report["truncated"], true);
+    assert_eq!(report["swapped"], false);
+    assert_eq!(report["failed"], 1);
+    assert_eq!(report["first_failures"][0]["line"], 1);
+    assert_eq!(report["entries"][0]["key"], "ce'shi");
+    assert_eq!(report["entries"][0]["weight"], 10_000);
+}

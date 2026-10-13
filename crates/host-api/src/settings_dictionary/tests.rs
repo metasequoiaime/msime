@@ -625,3 +625,47 @@ fn dictionary_mutations_quiesce_but_reads_do_not() {
         &serde_json::json!({"operation": "wubi_codes", "text": "你"})
     ));
 }
+
+/// 桌面的路径：细胞词库转出的文本像任何 `standard` 文件一样分批送给宿主，坏词条的行号就是它在词库里的词序，跨批也不错位。
+#[test]
+fn a_cell_dictionary_converted_to_text_reports_failures_by_word_order_across_batches() {
+    let words: Vec<String> = (0..1500u32)
+        .map(|index| {
+            [0x4e00 + index % 1000, 0x6000 + index / 1000]
+                .into_iter()
+                .filter_map(char::from_u32)
+                .collect()
+        })
+        .collect();
+    let mut groups: Vec<(&[&str], Vec<&str>)> = Vec::new();
+    for (index, word) in words.iter().enumerate() {
+        // 第 1200 个词的读音不在拼音表里。
+        let reading: &[&str] = if index == 1199 {
+            &["?", "shi"]
+        } else {
+            &["ce", "shi"]
+        };
+        groups.push((reading, vec![word.as_str()]));
+    }
+    let borrowed: Vec<(&[&str], &[&str])> = groups
+        .iter()
+        .map(|(reading, words)| (*reading, words.as_slice()))
+        .collect();
+    let bytes = crate::dictionary::scel_fixture::scel(&borrowed);
+    let converted =
+        crate::scel_text_json(&crate::dictionary::scel_fixture::base64(&bytes)).unwrap();
+    let mut host = FakeHost::new();
+    let report = host
+        .import(
+            "pinyin",
+            "standard",
+            converted["text"].as_str().unwrap(),
+            "ui-import-scel",
+        )
+        .unwrap();
+    assert!(host.actions.len() > 1, "the file went in one request");
+    assert_eq!(report["applied"], 1499, "{report}");
+    assert_eq!(report["failed"], 1);
+    assert_eq!(report["swapped"], false);
+    assert_eq!(failures(&report), [(1200, "empty_key".to_owned())]);
+}

@@ -14438,6 +14438,55 @@ fn common_phrases_and_collections_forward_to_client_core() {
     assert_eq!(locked["error"], "builtin_locked");
 }
 
+/// Android 和鸿蒙手机经命名词库送细胞词库的字节：一个 8 MiB 的文件经 base64 后连同宿主选项仍在 17 MiB 的请求上限之内，导入成一个集合，装满两万条后停下并说明。
+#[test]
+fn a_cell_dictionary_at_its_size_limit_fits_one_collections_request() {
+    use msime_client_core::dictionary::scel::MAX_SCEL_BYTES;
+    let mut bytes = crate::dictionary::scel_fixture::scel(&[(&["ce", "shi"], &["测试"])]);
+    let mut groups = 1u32;
+    let mut index = 0u32;
+    // 每组一个两字词，26 字节；词两两不同，所以不会被当成重复。
+    while bytes.len() + 26 <= MAX_SCEL_BYTES {
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&4u16.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&4u16.to_le_bytes());
+        bytes.extend_from_slice(&(0x4e00 + (index % 20_000) as u16).to_le_bytes());
+        bytes.extend_from_slice(&(0x4e01 + (index / 20_000) as u16).to_le_bytes());
+        bytes.extend_from_slice(&10u16.to_le_bytes());
+        bytes.extend_from_slice(&[0; 10]);
+        groups += 1;
+        index += 1;
+    }
+    bytes[0x120..0x124].copy_from_slice(&groups.to_le_bytes());
+    bytes[0x124..0x128].copy_from_slice(&groups.to_le_bytes());
+    let directory = tempfile::tempdir().unwrap();
+    let request = serde_json::to_vec(&json!({
+        "options": empty_host_options(directory.path()),
+        "action": {
+            "operation": "import",
+            "name": "合成词库",
+            "kind": "pinyin",
+            "format": "scel",
+            "bytes_base64": crate::dictionary::scel_fixture::base64(&bytes),
+        },
+    }))
+    .unwrap();
+    assert!(request.len() <= 17 * 1024 * 1024, "{}", request.len());
+    let imported =
+        read(unsafe { msime_client_dictionary_collections(request.as_ptr(), request.len()) });
+    assert_eq!(imported["ok"], true, "{}", imported["error"]);
+    let report = &imported["value"]["import"];
+    assert_eq!(report["imported"], 20_000);
+    assert_eq!(report["truncated"], true);
+    assert_eq!(report["failed"], 0);
+    assert_eq!(
+        imported["value"]["collections"][0]["source"],
+        json!({"type": "import", "format": "scel"})
+    );
+}
+
 #[test]
 fn diagnostic_bundle_drops_text_lines_and_redacts_credentials() {
     let directory = tempfile::tempdir().unwrap();

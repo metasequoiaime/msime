@@ -453,6 +453,69 @@ fn hans_entries_json(text: &str, resources: &str) -> Result<serde_json::Value, S
     Ok(json!({ "entries": entries }))
 }
 
+/// `msime_client_dictionary_scel_text` 请求（`{bytes_base64}`）的字节上限：细胞词库上限的 base64 长度，再加 4 KiB 给 JSON 外壳。
+const SCEL_TEXT_REQUEST_LIMIT: usize = scel_base64_limit() + 4096;
+
+/// 细胞词库上限（`MAX_SCEL_BYTES`）经 base64 编码后的长度。
+const fn scel_base64_limit() -> usize {
+    msime_client_core::dictionary::scel::MAX_SCEL_BYTES.div_ceil(3) * 4
+}
+
+/// 把一个搜狗细胞词库（`.scel`）转成标准 TSV 文本，不碰任何词库状态，也不需要宿主选项。
+///
+/// 请求是 `{bytes_base64}`，回答 `{name, category, entries, text}`：`text` 每个词一行，读不出读音或词的那一行必定被导入拒绝，所以导入报告里的行号就是词序。宿主随后把 `text` 当作 `standard` 格式交给自己现有的导入（共享设置页、iOS、鸿蒙 2in1、Windows 原生设置），上限、去重、分批和报告都不变。失败时 `error` 是 `dictionary_scel_unsupported`（不是细胞词库或版本不支持）、`dictionary_scel_malformed`（不完整或已损坏）、`dictionary_scel_empty`、`dictionary_too_large` 或 `dictionary_scel_invalid`（请求或 base64 坏了）。
+/// # Safety
+/// `request` must point to `length` readable bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_dictionary_scel_text(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() {
+            return Err("dictionary_scel_invalid".into());
+        }
+        if length > SCEL_TEXT_REQUEST_LIMIT {
+            return Err("dictionary_too_large".into());
+        }
+        // SAFETY: guaranteed by the caller contract above.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: ScelTextRequest =
+            serde_json::from_slice(bytes).map_err(|_| "dictionary_scel_invalid".to_owned())?;
+        scel_text_json(&request.bytes_base64).map_err(str::to_owned)
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScelTextRequest {
+    bytes_base64: String,
+}
+
+/// [`msime_client_dictionary_scel_text`] 的 Rust 入口，Tauri 外壳直接调用；错误是同一组稳定错误码。
+pub fn scel_text_json(bytes_base64: &str) -> Result<serde_json::Value, &'static str> {
+    use base64::Engine as _;
+    use msime_client_core::dictionary::scel::{self, ScelError};
+    if bytes_base64.len() > scel_base64_limit() {
+        return Err("dictionary_too_large");
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(bytes_base64)
+        .map_err(|_| "dictionary_scel_invalid")?;
+    let converted = scel::decode(&bytes).map_err(|error| match error {
+        ScelError::NotScel | ScelError::Unsupported => "dictionary_scel_unsupported",
+        ScelError::Malformed => "dictionary_scel_malformed",
+        ScelError::Empty => "dictionary_scel_empty",
+        ScelError::TooLarge => "dictionary_too_large",
+    })?;
+    Ok(json!({
+        "name": converted.name,
+        "category": converted.category,
+        "entries": converted.entries,
+        "text": converted.text,
+    }))
+}
+
 /// Parse a dictionary file into the words the personal dictionary queue accepts, with the report the settings page shows for it, without opening or changing any dictionary state.
 ///
 /// `request` is `{kind, format, text}` in the shape of the `import` dictionary action. For the iOS host, whose Tauri settings page queues the words itself in the App Group store the keyboard reads; the readings for `hans` come from the packaged main dictionary under `resources`, opened read-only.
@@ -2425,5 +2488,7 @@ pub fn lookup_candidates(
         .collect()
 }
 
+#[cfg(test)]
+pub(crate) mod scel_fixture;
 #[cfg(test)]
 mod tests;

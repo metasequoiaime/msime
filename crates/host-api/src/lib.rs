@@ -122,11 +122,11 @@ mod word_breakdown;
 pub use dictionary::{
     dictionary_request_json, dictionary_words, edit_dictionary_word, edit_user_quick_phrase,
     import_dictionary_words, lookup_candidates, msime_client_dictionary,
-    msime_client_dictionary_import_entries, msime_client_dictionary_validate,
-    msime_client_personal_dictionary_request, msime_client_personal_dictionary_sync,
-    personal_dictionary_request_json, user_quick_phrases, CandidateOrigin, DictionaryOptions,
-    LookupCandidate, LookupScheme, NewWord, QuickPhrase, QuickPhraseEdit, QuickPhrasePage, Word,
-    WordEdit, WordImport, WordKind, WordPage,
+    msime_client_dictionary_import_entries, msime_client_dictionary_scel_text,
+    msime_client_dictionary_validate, msime_client_personal_dictionary_request,
+    msime_client_personal_dictionary_sync, personal_dictionary_request_json, scel_text_json,
+    user_quick_phrases, CandidateOrigin, DictionaryOptions, LookupCandidate, LookupScheme, NewWord,
+    QuickPhrase, QuickPhraseEdit, QuickPhrasePage, Word, WordEdit, WordImport, WordKind, WordPage,
 };
 mod diagnostics;
 pub use diagnostics::{msime_client_set_diagnostic_sink, DiagnosticSink};
