@@ -43,9 +43,7 @@ struct HelpcodeSettingsView: View {
   @State private var busy = false
   @State private var notice: String?
   @State private var pending: Task<Void, Never>?
-  @State private var visible = false
-  @State private var lifecycle = UUID()
-  @State private var pendingID = UUID()
+  @State private var request = ViewRequestGeneration()
 
   var body: some View {
     Form {
@@ -100,12 +98,10 @@ struct HelpcodeSettingsView: View {
       }
     }
     .navigationTitle("辅助码").navigationBarTitleDisplayMode(.inline)
-    .onAppear { visible = true; reload() }
+    .onAppear { request.appear(); reload() }
     .onChange(of: scenePhase) { if $0 == .active { reload() } }
     .onDisappear {
-      visible = false
-      lifecycle = UUID()
-      pendingID = UUID()
+      request.disappear()
       pending?.cancel()
       pending = nil
       busy = false
@@ -135,50 +131,46 @@ struct HelpcodeSettingsView: View {
   }
 
   private func importTable(from url: URL, into scheme: Scheme) {
-    guard visible, !busy else { return }
+    guard request.isVisible, !busy else { return }
     busy = true
-    let id = lifecycle
-    let taskID = claimTask()
+    let id = claimTask()
     pending = Task<Void, Never> { @MainActor in
       var finished = false
       defer {
-        if lifecycle == id {
+        if request.isCurrent(id) {
           if !finished { busy = false }
-          clearTask(taskID)
+          clearTask(id)
         }
       }
-      guard !Task.isCancelled else { return }
+      guard (try? request.checkCurrent(id)) != nil else { return }
       let result = await Task.detached(priority: .userInitiated) { Self.importTable(url, into: scheme) }.value
-      guard !Task.isCancelled else { return }
-      guard visible, lifecycle == id, !Task.isCancelled else { return }
+      guard (try? request.checkCurrent(id)) != nil else { return }
       busy = false
       finished = true
-      clearTask(taskID)
+      clearTask(id)
       notice = result
       reload()
     }
   }
 
   private func remove(_ pack: HelpcodeChoicePolicy.Pack) {
-    guard visible, !busy else { return }
+    guard request.isVisible, !busy else { return }
     busy = true
-    let id = lifecycle
-    let taskID = claimTask()
+    let id = claimTask()
     pending = Task<Void, Never> { @MainActor in
       var finished = false
       defer {
-        if lifecycle == id {
+        if request.isCurrent(id) {
           if !finished { busy = false }
-          clearTask(taskID)
+          clearTask(id)
         }
       }
-      guard !Task.isCancelled else { return }
+      guard (try? request.checkCurrent(id)) != nil else { return }
       let result = await Task.detached(priority: .userInitiated) { Self.remove(pack) }.value ?? "删除失败，请重试"
-      guard !Task.isCancelled else { return }
-      guard visible, lifecycle == id, !Task.isCancelled else { return }
+      guard (try? request.checkCurrent(id)) != nil else { return }
       busy = false
       finished = true
-      clearTask(taskID)
+      clearTask(id)
       notice = result
       reload()
     }
@@ -269,7 +261,7 @@ struct HelpcodeSettingsView: View {
   }
 
   private func reload() {
-    guard visible, !busy else { return }
+    guard request.isVisible, !busy else { return }
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
     for scheme in Self.schemes {
       let stored = preferences[scheme.key] as? [String: Any] ?? [:]
@@ -278,26 +270,22 @@ struct HelpcodeSettingsView: View {
       shown[scheme.key] = stored["show_in_candidate_window"] as? Bool ?? scheme.defaultShown
       selectedPack[scheme.key] = HelpcodeChoicePolicy.selectedPack(of: scheme, in: preferences)
     }
-    let id = lifecycle
-    let taskID = claimTask()
+    let id = claimTask()
     pending = Task<Void, Never> { @MainActor in
-      defer { if lifecycle == id { clearTask(taskID) } }
-      guard !Task.isCancelled else { return }
+      defer { if request.isCurrent(id) { clearTask(id) } }
+      guard (try? request.checkCurrent(id)) != nil else { return }
       let loaded = await Task.detached(priority: .userInitiated) { Self.installedPacks() }.value
-      guard !Task.isCancelled else { return }
-      guard visible, lifecycle == id, !Task.isCancelled else { return }
+      guard (try? request.checkCurrent(id)) != nil else { return }
       packs = loaded
     }
   }
 
   private func claimTask() -> UUID {
     pending?.cancel()
-    let id = UUID()
-    pendingID = id
-    return id
+    return request.begin()
   }
 
   private func clearTask(_ id: UUID) {
-    if pendingID == id { pending = nil }
+    if request.isCurrent(id) { pending = nil }
   }
 }
