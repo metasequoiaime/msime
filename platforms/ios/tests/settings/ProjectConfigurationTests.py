@@ -143,6 +143,14 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertEqual(generated.count("kfcd-chaizi-CC-BY-3.0.txt in Resources"), 2)
         about = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
         self.assertIn('LicenseNotice(file: "kfcd-chaizi-CC-BY-3.0"', about)
+        # 同一张表里每个字的读音、名次和繁体字形取自 Unihan，Unicode License V3 要求随数据附上它的版权与许可声明。
+        unicode = "../../resources/licenses/Unicode-License-V3.txt"
+        blocks = source_path_blocks(app, unicode)
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("buildPhase: resources", blocks[0])
+        self.assertIn("UNICODE LICENSE V3", (IOS_ROOT / unicode).read_text())
+        self.assertEqual(generated.count("Unicode-License-V3.txt in Resources"), 2)
+        self.assertIn('LicenseNotice(file: "Unicode-License-V3"', about)
 
     def test_app_and_keyboard_share_the_declared_app_group(self):
         expected = "group.app.msime.ios"

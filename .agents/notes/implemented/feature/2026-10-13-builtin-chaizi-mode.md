@@ -15,7 +15,7 @@ Status: implemented
 - **学习与统计**：选词不进任何词库（本地模式下句子学习本来就被拦住）；回车上屏原文（含 `C`），和 U、T、K、E、M、J 一样经 `commit_raw_with_policy` 学成英文词；计入打字统计（字是用户挑出来的，和 E、J 同类）。脚本插件的 `LocalModeClass::Chaizi = 13`，不在可读文本的白名单里。
 - **简繁**：拆字行照常走宿主的繁体输出转换。繁体输出开着时（`EngineOptions::chaizi_traditional_output`，host-api 取自 `traditional_chinese_output`），Engine 按表里预先算好的 OpenCC s2t 单字字形去重，保留名次靠前的一行，免得一屏出现两个「議」；关着时简繁两种字形都列出。
 - **数据**：kfcd/chaizi 固定提交 `e177ab54ce4edf255315a60593ffecbd8167e96b` 的简繁两表取并集，读音取仓库已锁的 Unihan 17.0.0（`kMandarin` ∪ `kTGHZ2013`，外加生成器里 `ALIASES` 的部首俗称，如 氵 san、辶 zou、灬 huo），名次按《通用规范汉字表》一二三级、它们的繁体形、基本区、扩展 A、辅助平面分层。`scripts/build_chaizi_table.py`（只用标准库）按 `resources/chaizi.lock.json` 校验输入后生成 `crates/engine/src/local/chaizi.tsv`（键 → 字串）和 `chaizi-chars.tsv`（字 → 名次、读音、繁体字形），两表提交进仓库，`include_str!` 编进引擎，第一次查询时建行首偏移表后二分查找。网页引擎（wasm32-unknown-unknown）里是空表。上游的几处异常（「□」占位行、带尾随空格的键、一个私用区字、一个与表内字重复的兼容表意字）的数目写成断言，上游变了就让生成失败。
-- **许可**：CC BY 3.0 的署名、改动说明和许可证全文在 `resources/licenses/kfcd-chaizi-CC-BY-3.0.txt`，`docs/third-party.md` 的「编译进共享库的数据」一节有对应的一行。`scripts/test-chaizi-table.py` 的 `NOTICE_CHANNELS` 列出已经带上这份文件的声明渠道。
+- **许可**：CC BY 3.0 的署名、改动说明和许可证全文在 `resources/licenses/kfcd-chaizi-CC-BY-3.0.txt`，`docs/third-party.md` 的「编译进共享库的数据」一节有对应的一行。表里的读音、名次和繁体字形取自 Unihan，Unicode License V3 要求随数据附上它的版权与许可声明，所以同样的渠道也带上 `resources/licenses/Unicode-License-V3.txt`（仓库的先例：脚本插件包里编进 Unihan 派生数据时随附同一份文件）。`scripts/test-chaizi-table.py` 的 `NOTICE_CHANNELS` 列出已经带上这两份文件的声明渠道。
 
 ## 宿主契约
 

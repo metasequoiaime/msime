@@ -326,7 +326,7 @@ ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-native.sh arm64-
 ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-native.sh x86_64
 ```
 
-可用 `MSIME_VCPKG_ROOT`、`MSIME_ANDROID_NDK` 指定绝对路径。脚本校验固定版本后安装锁定依赖，构建 release Rust 宿主和 C++ JNI，SQLite 静态链接进宿主库；产物为 `target/android/jniLibs/<abi>/{libmsime_host_api.so,libmsime_android.so,libc++_shared.so}`。验证脚本检查 ELF 架构、16 KB LOAD 对齐、动态依赖白名单与宿主/JNI 导出。NDK 和 vcpkg 声明，以及 Engine 内置韩语汉字表的 libhangul BSD-3-Clause 声明（`libhangul-hanja.txt`）、拆字表所据 kfcd/chaizi 的 CC BY 3.0 署名与改动说明（`kfcd-chaizi.txt`）复制到 `target/android/notices/<abi>`，两条打包路径都把它们放进 `assets/native-notices/`；正式分发还需汇总 Rust/Engine 与词库许可材料。
+可用 `MSIME_VCPKG_ROOT`、`MSIME_ANDROID_NDK` 指定绝对路径。脚本校验固定版本后安装锁定依赖，构建 release Rust 宿主和 C++ JNI，SQLite 静态链接进宿主库；产物为 `target/android/jniLibs/<abi>/{libmsime_host_api.so,libmsime_android.so,libc++_shared.so}`。验证脚本检查 ELF 架构、16 KB LOAD 对齐、动态依赖白名单与宿主/JNI 导出。NDK 和 vcpkg 声明，以及 Engine 内置韩语汉字表的 libhangul BSD-3-Clause 声明（`libhangul-hanja.txt`）、拆字表所据 kfcd/chaizi 的 CC BY 3.0 署名与改动说明（`kfcd-chaizi.txt`）和表中 Unihan 读音的 Unicode License V3（`unicode-unihan.txt`）复制到 `target/android/notices/<abi>`，两条打包路径都把它们放进 `assets/native-notices/`；正式分发还需汇总 Rust/Engine 与词库许可材料。
 
 提供 arm64-v8a 与 x86_64 两条构建路径；不提供 32 位 ABI，也没有 Windows 构建脚本。原生库本身不是 APK，需用下述脚本打包。`build-apk.sh` 默认只构建并打包 arm64-v8a（发布包也是如此，arm64 真机和 Apple 芯片上的 arm64 AVD 都用它）；要在 x86_64 模拟器上跑，设 `MSIME_ANDROID_ABIS="arm64-v8a x86_64"`（或只写 `x86_64`），脚本把同一份列表经 `-PmsimeAbis` 交给 Gradle 的 `abiFilters`，ML Kit 等依赖自带的 x86、armeabi-v7a 库也按它过滤，打完再核对 APK 的 `lib/` 恰好是这几个 ABI。Gradle 工程固定 `ndkVersion` 为同一个 NDK，AGP 用它的 llvm-strip 去掉打包的 `.so` 的调试符号。
 

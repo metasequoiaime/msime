@@ -3,7 +3,7 @@
 
 crates/engine/src/local/chaizi.tsv 和 chaizi-chars.tsv 由 scripts/build_chaizi_table.py 从 kfcd/chaizi（CC BY 3.0）、Unihan 和 OpenCC 生成并提交，引擎用 include_str! 编进每个平台的二进制。手工改动、改了生成器却没重新生成，都会原样发布，所以这里离线检查表的不变量：格式与排序、键只含拼音字母和 `'`、字是单个非私用区非兼容区的标量、名次连续、读音只有拼音字母和声调符号、几个样例字查得到。
 
-CC BY 3.0 第 4(b) 条要求随改编作品署名并说明改动，所以许可证文件必须写明固定提交、署名和改动说明，锁里的提交必须与它一致；NOTICE_CHANNELS 里的每个声明渠道都要在非注释行写出许可证文件名，总览还要写出固定提交。各平台宿主把这份许可证接进自己的声明渠道时，同时把渠道加进 NOTICE_CHANNELS（渠道清单照 scripts/test-language-data-notices.py）。
+CC BY 3.0 第 4(b) 条要求随改编作品署名并说明改动，所以许可证文件必须写明固定提交、署名和改动说明，锁里的提交必须与它一致；NOTICE_CHANNELS 里的每个声明渠道都要在非注释行写出许可证文件名，总览还要写出固定提交。表里的读音、名次和繁体字形取自 Unihan，Unicode License V3 要求随数据附上它的版权与许可声明，所以每个渠道同样要写出 Unicode-License-V3.txt。各平台宿主把这份许可证接进自己的声明渠道时，同时把渠道加进 NOTICE_CHANNELS（渠道清单照 scripts/test-language-data-notices.py）。
 
 缓存里有锁定的输入或设了 MSIME_FETCH=1 时，再调用生成器的 --check 逐字节比较；都没有时只做离线检查，不联网也以 0 退出。
 """
@@ -21,6 +21,7 @@ KEYS_TABLE = ROOT / "crates/engine/src/local/chaizi.tsv"
 CHARS_TABLE = ROOT / "crates/engine/src/local/chaizi-chars.tsv"
 GENERATOR = ROOT / "scripts/build_chaizi_table.py"
 LICENCE = ROOT / "resources/licenses/kfcd-chaizi-CC-BY-3.0.txt"
+UNICODE_LICENCE = ROOT / "resources/licenses/Unicode-License-V3.txt"
 # 许可证文件必须保留的段落：署名、作品名、许可证与它的地址、改动说明、不背书声明、法律文本的首尾。
 LICENCE_PHRASES = (
     "© 2015 開放詞典 (http://www.kaifangcidian.com)",
@@ -32,7 +33,7 @@ LICENCE_PHRASES = (
     "Attribution 3.0 Unported",
     "Creative Commons may be contacted at",
 )
-# 每个渠道都要在非注释行写出许可证文件名。
+# 每个渠道都要在非注释行写出两份许可证的文件名。
 NOTICE_CHANNELS = {
     "platforms/windows/Collect-Notices.ps1": "Windows: the notice collection the installer ships",
     "platforms/windows/tests/tools/collect_notices.ps1": "Windows: the collection test's synthetic notice list",
@@ -151,9 +152,11 @@ def check_licence(lock: dict) -> None:
         check(phrase in text, f"{LICENCE.relative_to(ROOT)} 不再含有 {phrase!r}")
     for artifact in lock["artifacts"]:
         check(f"/{commit}/" in artifact["url"], f"锁里 {artifact['name']} 的地址不在固定提交 {commit} 上")
+    check(UNICODE_LICENCE.is_file() and "UNICODE LICENSE V3" in UNICODE_LICENCE.read_text(encoding="utf-8"), f"{UNICODE_LICENCE.relative_to(ROOT)} 不存在或不是 Unicode License V3")
     for channel, description in NOTICE_CHANNELS.items():
         live = [line for line in (ROOT / channel).read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("#")]
-        check(any(LICENCE.name in line for line in live), f"{channel}（{description}）没有列出 {LICENCE.name}")
+        for licence in (LICENCE, UNICODE_LICENCE):
+            check(any(licence.name in line for line in live), f"{channel}（{description}）没有列出 {licence.name}")
     for overview in OVERVIEWS:
         check(commit in (ROOT / overview).read_text(encoding="utf-8"), f"{overview} 没有写出 kfcd/chaizi 的固定提交 {commit}")
 

@@ -39,6 +39,8 @@ cp resources/licenses/rime-cantonese-CC-BY-4.0.txt resources/licenses/libchewing
 cp resources/licenses/vi-MIT.txt resources/licenses/ewts-MIT.txt "$licenses_staged/"
 # 拆字反查的部件拼音表由 kfcd/chaizi《漢語拆字字典》（CC BY 3.0）改编后编进原生库，第 4(b) 条要求随改编作品署名并说明改动，许可证文件里写着这些和法律文本全文。
 cp resources/licenses/kfcd-chaizi-CC-BY-3.0.txt "$licenses_staged/"
+# 同一张拆字表里每个字的读音、名次和繁体字形取自 Unicode 汉字数据库（Unihan 17.0.0），Unicode License V3 要求随数据附上它的版权与许可声明。
+cp resources/licenses/Unicode-License-V3.txt "$licenses_staged/"
 echo "Licences staged for the HAP: $licenses_staged"
 
 # The built-in sound packs, synthesized by scripts/generate_sound_packs.py. Beside the engine directory rather than in it, which the lock check above would reject; resfile extracts them to context.resourceDir/sound-packs, the built-in pack root the keyboard names to client-core.

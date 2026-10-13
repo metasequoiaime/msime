@@ -2156,5 +2156,5 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 
 - **默认关**（`local_modes.chaizi`，缺键时 host-api 在桌面构建里按关处理）：打开后句首和中英混打的大写 C（C 盘、C 语言）会进模式，理由与 V 相同。设置窗口的 `default_on` 是 `false`，开关写回明确的布尔。
 - **按键路由不改**：TIP 把 A–Z 一律交给 Server；`'` 在本地模式里走标点路由（`EditPolicy.h` 只在 `none` 里把它当字符），由 runtime 的 `takes_local_separator` 交给 Engine 当部件分隔符。
-- **声明**：`Collect-Notices.ps1` 收集 `resources/licenses/kfcd-chaizi-CC-BY-3.0.txt`（CC BY 3.0 的署名、改动说明与全文），`tests/tools/collect_notices.ps1` 的合成清单同步。
+- **声明**：`Collect-Notices.ps1` 收集 `resources/licenses/kfcd-chaizi-CC-BY-3.0.txt`（CC BY 3.0 的署名、改动说明与全文）和表中 Unihan 读音的 `resources/licenses/Unicode-License-V3.txt`，`tests/tools/collect_notices.ps1` 的合成清单同步。
 - **验证层级**：`windows-session-smoke` 的本地模式路由用例经 `ReplyComposer::configured_key` 覆盖缺键时 Shift+C 交还应用、打开后进入、`'` 走标点路由仍作分隔符、空格上屏焱并计入打字统计；新增的 `--local-modes` 参数只跑这一段，在 Studio 的 `build-cross-container.sh x64` 产物上用模拟的 Wine 跑通（整套冒烟在模拟的 Wine 下 500 秒内跑不完，仍在 `scripts/known-failures.txt`）。带锁定词库的 `local_mode_tests` 表也加了 C，但没有在 Wine 下跑到。`settings/main.cpp` 依赖 WinUI 3，交叉构建不编译它，交给 Windows CI。没有在 Windows 上实机按键验证。
