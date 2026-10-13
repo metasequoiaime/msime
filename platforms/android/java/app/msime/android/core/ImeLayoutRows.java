@@ -454,7 +454,7 @@ final class ImeLayoutRows {
     /**
      * 九键双拼（#6572）的数字网格：四行，前三行是 1–9，最后一行是分词键、0 和逗号，与拼音九键同一个三行高的外框。
      *
-     * <p>每个数字键印着这个键上的声母和韵母（{@link NineKeyShuangpinKeypad#label}，来自当前的表，数字是主标签、声韵母是小字提示），点按把数字交给引擎；表没用到的键印着数字本身，点按什么也不送。拼音九键的 1 键是「@#」或「分词」，九键双拼的 1 常常放着韵母（米旮旯、辜氏都用它），所以「@#」和「分词」挪到最后一行最左边，它仍是 {@link MSIMEInputService#nineKeySymbolKey}，随组字状态换键面。0 在 8 的正下方：表用到 0 时它是组码键（米旮旯 3 的 u ü ei），否则原样上屏 0。键上的长按和滑动只属于拼音九键（它们给的是键上的字母），这里不绑。
+     * <p>每个数字键以数字为主标签，附单行简短提示（{@link NineKeyShuangpinKeypad#compactHint}），点按把数字交给引擎；表没用到的键印着数字本身，点按什么也不送。拼音九键的 1 键是「@#」或「分词」，九键双拼的 1 常常放着韵母（米旮旯、辜氏都用它），所以「@#」和「分词」挪到最后一行最左边，它仍是 {@link MSIMEInputService#nineKeySymbolKey}，随组字状态换键面。0 在 8 的正下方：表用到 0 时它是组码键（米旮旯 3 的 u ü ei），否则原样上屏 0。键上的长按和滑动只属于拼音九键（它们给的是键上的字母），这里不绑。
      */
     private void addShuangpinGrid(LinearLayout grid, boolean composing) {
         java.util.List<NineKeyShuangpinKeypad.Face> faces = s.nineKeyShuangpinFaces();
@@ -482,22 +482,18 @@ final class ImeLayoutRows {
         grid.addView(lastRow, LayoutPolicy.weightedWidthParams(1));
     }
 
-    /** 九键双拼的一个数字键：数字作主标签，表用到它时附声母和韵母提示、点按送这个数字；没用到时只印数字，0 原样上屏，其他键不送。 */
+    /** 九键双拼的一个数字键：数字作主标签，表用到它时附简短提示、点按送这个数字；没用到时只印数字，0 原样上屏，其他键不送。 */
     private NineKeyDigitButton shuangpinKey(java.util.List<NineKeyShuangpinKeypad.Face> faces, char digit) {
         NineKeyShuangpinKeypad.Face face = NineKeyShuangpinKeypad.face(faces, digit);
         String digitText = String.valueOf(digit);
         NineKeyDigitButton key;
         if (face != null) {
-            // 数字是主标签，声母和韵母降为提示；沿用两行排版，避免四行网格里的键帽挤满同级字母。
-            key = s.nineKeyGridKey(NineKeyShuangpinKeypad.label(face), NineKeyShuangpinKeypad.description(face),
+            // 数字独占主行，只保留一行简短提示，不再把完整声韵母表铺满键帽。
+            key = s.nineKeyGridKey(digitText, NineKeyShuangpinKeypad.description(face),
                 () -> s.character(digit));
-            String hints = NineKeyShuangpinKeypad.label(face);
-            String label = digitText + (hints.contains("\n") ? "  " : "\n") + hints;
-            android.text.SpannableString styled = new android.text.SpannableString(label);
-            styled.setSpan(new android.text.style.RelativeSizeSpan(2f), 0, 1,
-                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            key.setText(styled);
-            KeyboardTypographyPolicy.setKeyTextSize(key, 10);
+            String hint = NineKeyShuangpinKeypad.compactHint(face);
+            twoLineFace(key, digitText + (hint.isEmpty() ? "" : "\n" + hint));
+            KeyboardTypographyPolicy.setKeyTextSize(key, 22);
             key.setLineSpacing(0f, 0.9f);
         } else {
             key = s.nineKeyGridKey(digitText, "数字 " + digit,

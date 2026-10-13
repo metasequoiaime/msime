@@ -59,6 +59,12 @@ public final class NineKeyShuangpinKeypad {
         return initials + "\n" + finals;
     }
 
+    /** 触摸键面的单行提示：完整声母项；只有韵母时用类别名，完整韵母映射留在设置和读屏文字中。 */
+    public static String compactHint(Face face) {
+        String initials = initialsLine(face);
+        return initials.isEmpty() ? (face.finals().isEmpty() ? "" : "韵母") : initials;
+    }
+
     private static String initialsLine(Face face) {
         List<String> parts = new ArrayList<>(face.initials().size() + 1);
         if (face.zeroInitial()) parts.add("零");
