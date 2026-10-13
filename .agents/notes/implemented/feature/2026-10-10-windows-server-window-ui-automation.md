@@ -39,7 +39,7 @@ macOS 上读屏（VoiceOver）能读出候选窗的每一行（`InputController.
 - **每个窗口各写一份提供者** — 各窗口可以按自己的数据结构直接回答，不需要中间的树。但三份 COM 样板、三份线程与断开逻辑，一处修了另两处容易漏；中间的树还让名字、坐标、可执行的规则能在宿主机上测试。
 - **只给工具栏按钮设 tooltip、不做 UIA（第一波的状态）** — 改动最小。但 tooltip 是悬停才出现的弹出窗口，读屏不会把它当成按钮名；讲述人对没有提供者的自绘窗口只读窗口标题。
 - **用 MSAA（`IAccessible`）代替 UI Automation** — 老读屏都支持。但 `IAccessible` 的子元素靠 VARIANT 子 id，没有片段树和 RuntimeId，名字、坐标、执行都要另一套写法；讲述人和新版 NVDA 优先走 UI Automation。只问 MSAA（`OBJID_CLIENT`）的老客户端仍只看到 DefWindowProc 给的窗口本身。
-- **候选高亮变化时发焦点事件** — 读屏会随选词读出当前候选。但候选已经通过 TSF 的 `ITfCandidateListUIElement` 读给讲述人，再发焦点事件会让同一个候选被读两遍，还可能把读屏的焦点从正在打字的编辑框拉走。
+- **候选高亮变化时发焦点事件** — 读屏会随选词读出当前候选。但候选已经通过 TSF 的 `ITfCandidateListUIElement` 读给讲述人，再发焦点事件会让同一个候选被读两遍，还可能把读屏的焦点从正在打字的编辑框拉走。高亮后来改为以 SelectionItem 报告、换行时发 ElementSelected 事件，不发焦点事件，见 [候选窗把高亮的候选报告为选中项](2026-10-13-windows-candidate-selection-ui-automation.md)。
 
 ## Consequences
 
