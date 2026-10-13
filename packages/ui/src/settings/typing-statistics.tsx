@@ -28,6 +28,7 @@ import {
 import { useMountedRef } from "./use-mounted-ref";
 import { useAsyncGeneration } from "./use-async-generation";
 import { MobileStatistics, statisticsCardClass, type StatisticsLook } from "./mobile-statistics";
+import { StatisticsNote } from "./statistics-note";
 import type { TypingSummary } from "./typing-summary";
 export type { TypingBreakdown } from "./typing-speed";
 export type { TypingSummary } from "./typing-summary";
@@ -711,9 +712,7 @@ function KeyboardHeatmap({
         </SettingsEmptyMessage>
       ) : (
         <>
-          <p className="mt-[7px] mb-0 text-xs text-muted">
-            共 {count(model.total)} 次按键，颜色越深按得越多
-          </p>
+          <StatisticsNote>共 {count(model.total)} 次按键，颜色越深按得越多</StatisticsNote>
           <div role="group" aria-label="按键热力图">
             <KeyboardHeatmapRows
               rows={model.rows}
@@ -862,10 +861,10 @@ function SpeedTrend({
     (days.length <= 45 || (speeds[index - 1] == null && speeds[index + 1] == null));
   return (
     <>
-      <p className="mt-[7px] mb-0 text-xs text-muted">
+      <StatisticsNote>
         最快 {count(Math.max(...known))} · 最慢 {count(Math.min(...known))} · 虚线为平均{" "}
         {count(averageSpeed)} 字 / 分钟 · {known.length} 天有测量
-      </p>
+      </StatisticsNote>
       <div
         className="relative mt-3 h-[120px] border-b border-edge text-accent"
         role="img"
@@ -1237,9 +1236,9 @@ function StatisticsHourlyBars({
   const count = (value: number) => formatZhNumber(Math.round(value));
   return (
     <>
-      <p className="mt-[7px] mb-0 text-xs text-muted">
+      <StatisticsNote>
         最高 {count(Math.max(0, ...hours))} 字符 / 小时 · 共 {count(total)} 字符
-      </p>
+      </StatisticsNote>
       {usual && (
         <div className="mt-2 flex items-center gap-4 text-[11px] text-secondary" aria-hidden="true">
           <span className="flex items-center gap-1.5">
@@ -1862,14 +1861,14 @@ export function TypingStatisticsPage({
           <h2 className={heading} id="statistics-trend-title">
             每日趋势 · {mobile && trendDays.length >= 360 ? "近一年" : `近 ${trendDays.length} 天`}
           </h2>
-          <p className="mt-[7px] mb-0 text-xs text-muted">
+          <StatisticsNote>
             最高{" "}
             {maximum === 1 && trendDays.every((day) => !statistics.days[day.key])
               ? 0
               : formatZhNumber(maximum)}{" "}
             字符 / 天
             {trendAverage > 0 && ` · 虚线为日均 ${formatZhNumber(Math.round(trendAverage))} 字符`}
-          </p>
+          </StatisticsNote>
           {mobile ? (
             <StatisticsTrendLine
               days={trendDays}
@@ -1964,7 +1963,7 @@ export function TypingStatisticsPage({
           <h2 className={heading} id="statistics-calendar-title">
             日历热力图
           </h2>
-          <p className="mt-[7px] mb-0 text-xs text-muted">近 12 个月，颜色越深输入越多</p>
+          <StatisticsNote>近 12 个月，颜色越深输入越多</StatisticsNote>
           <StatisticsHeatmap
             days={statistics.days}
             selectedDay={selectedDay}
