@@ -34,6 +34,8 @@ LICENCE_PHRASES = (
 )
 # 每个渠道都要在非注释行写出许可证文件名。
 NOTICE_CHANNELS = {
+    "platforms/android/build-native.sh": "Android: the native notices both APKs package as assets/native-notices",
+    "platforms/harmony/stage-resources.sh": "HarmonyOS: the licences staged into the HAP",
     "docs/third-party.md": "the repository's third-party index",
 }
 # 总览写明每份文本覆盖什么，所以还要写出固定提交。
