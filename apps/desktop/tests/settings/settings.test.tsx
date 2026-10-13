@@ -8760,9 +8760,9 @@ test("a saved page size below the reference's three stays in range and selected"
 
 test("macOS shows the native shuangpin keymap choice until the shared preference holds one, and saves the switch there", async () => {
   const loadMacosShuangpinKeymap = vi.fn().mockResolvedValue(true);
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+  const save = vi.fn().mockImplementation(async (revision, preferences) => ({
     ...initial,
-    revision: 8,
+    revision: revision + 1,
     preferences,
   }));
   const client: SettingsClient = {
@@ -8775,6 +8775,14 @@ test("macOS shows the native shuangpin keymap choice until the shared preference
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   fireEvent.click(await screen.findByRole("radio", { name: "双拼" }));
+  // 先保存方案切换，再验证键位提示沿用返回的文档代次。
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    scheme: "shuangpin",
+    last_chinese_scheme: "shuangpin",
+  });
   const keymap = (await screen.findByRole("switch", {
     name: "输入时显示双拼键位提示",
   })) as HTMLInputElement;
@@ -8784,7 +8792,7 @@ test("macOS shows the native shuangpin keymap choice until the shared preference
   fireEvent.click(keymap);
   saveSettingsNow();
   await screen.findByText("已保存");
-  expect(save).toHaveBeenCalledWith(7, {
+  expect(save).toHaveBeenLastCalledWith(8, {
     ...initial.preferences,
     scheme: "shuangpin",
     last_chinese_scheme: "shuangpin",
@@ -8794,9 +8802,9 @@ test("macOS shows the native shuangpin keymap choice until the shared preference
 
 test("Windows offers the shuangpin keymap switch from the shared preference", async () => {
   const loadMacosShuangpinKeymap = vi.fn().mockResolvedValue(true);
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+  const save = vi.fn().mockImplementation(async (revision, preferences) => ({
     ...initial,
-    revision: 8,
+    revision: revision + 1,
     preferences,
   }));
   const client: SettingsClient = {
@@ -8809,6 +8817,14 @@ test("Windows offers the shuangpin keymap switch from the shared preference", as
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   fireEvent.click(await screen.findByRole("radio", { name: "双拼" }));
+  // 先保存方案切换，再验证键位提示沿用返回的文档代次。
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    scheme: "shuangpin",
+    last_chinese_scheme: "shuangpin",
+  });
   const keymap = (await screen.findByRole("switch", {
     name: "输入时显示双拼键位提示",
   })) as HTMLInputElement;
@@ -8818,7 +8834,7 @@ test("Windows offers the shuangpin keymap switch from the shared preference", as
   fireEvent.click(keymap);
   saveSettingsNow();
   await screen.findByText("已保存");
-  expect(save).toHaveBeenCalledWith(7, {
+  expect(save).toHaveBeenLastCalledWith(8, {
     ...initial.preferences,
     scheme: "shuangpin",
     last_chinese_scheme: "shuangpin",
