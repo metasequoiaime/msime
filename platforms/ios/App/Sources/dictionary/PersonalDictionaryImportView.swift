@@ -66,16 +66,23 @@ struct PersonalDictionaryImportView: View {
               ForEach(PersonalWordKind.allCases) { Text($0.title).tag($0) }
             }
             .accessibilityIdentifier("personalDictionaryFileKind")
+            // 细胞词库只有拼音，选了它类型就锁在拼音上。
+            .disabled(fileFormat == "scel")
             .onChange(of: fileKind) { _ in clearPreview() }
             Picker("文件格式", selection: $fileFormat) {
               ForEach(PersonalDictionaryImport.fileFormats, id: \.format) { Text($0.title).tag($0.format) }
             }
             .accessibilityIdentifier("personalDictionaryFileFormat")
-            .onChange(of: fileFormat) { _ in clearPreview() }
+            .onChange(of: fileFormat) { format in
+              if format == "scel" { fileKind = .pinyin }
+              clearPreview()
+            }
             Button("选择词库文件") { choosingDictionary = true }.disabled(loading)
               .accessibilityIdentifier("choosePersonalDictionaryDictionaryFile")
           } footer: {
-            Text("与电脑版设置页导入的是同一种文件：每行一条，用 Tab 分隔词、编码和可选的权重。标准格式词在前，Windows 格式编码在前；两列放反时会按文件本身的顺序读取。Rime 格式读取 userdb 导出或 dict.yaml 的词条部分。无法导入的行会被跳过并在预览里说明，每次最多导入 128 条，文件不超过 1 MB，需要 UTF-8 编码。")
+            Text(fileFormat == "scel"
+                 ? "搜狗细胞词库只取词和拼音，权重统一为默认值，只能导入拼音词库。无法导入的词会被跳过并在预览里按词序说明，每次最多导入 128 条，文件不超过 1 MB。"
+                 : "与电脑版设置页导入的是同一种文件：每行一条，用 Tab 分隔词、编码和可选的权重。标准格式词在前，Windows 格式编码在前；两列放反时会按文件本身的顺序读取。Rime 格式读取 userdb 导出或 dict.yaml 的词条部分。无法导入的行会被跳过并在预览里说明，每次最多导入 128 条，文件不超过 1 MB，需要 UTF-8 编码。")
           }
           .designRow()
         } else {
@@ -169,7 +176,8 @@ struct PersonalDictionaryImportView: View {
           annotate(name: url.lastPathComponent) { try PersonalDictionaryImport.readText(from: url) }
         } catch { self.error = error.localizedDescription }
       })
-      .background(EmptyView().fileImporter(isPresented: $choosingDictionary, allowedContentTypes: [.text]) { result in
+      .background(EmptyView().fileImporter(isPresented: $choosingDictionary,
+                                           allowedContentTypes: dictionaryContentTypes) { result in
         do {
           let url = try result.get()
           readDictionary(url)
@@ -193,6 +201,11 @@ struct PersonalDictionaryImportView: View {
     loading = false
   }
 
+  /// 细胞词库是二进制文件，系统没有为 `.scel` 声明类型时退到任意数据文件。
+  private var dictionaryContentTypes: [UTType] {
+    fileFormat == "scel" ? [UTType(filenameExtension: "scel") ?? .data] : [.text]
+  }
+
   /// The Engine parses the file against the packaged dictionary, so like annotation it runs off the main thread.
   private func readDictionary(_ url: URL) {
     clearPreview()
@@ -201,7 +214,9 @@ struct PersonalDictionaryImportView: View {
     readTask = Task { @MainActor in
       do {
         let imported = try await Task.detached(priority: .userInitiated) {
-          try PersonalDictionaryImport.file(PersonalDictionaryImport.readText(from: url), kind: kind, format: format)
+          format == "scel"
+            ? try PersonalDictionaryImport.scelFile(from: url)
+            : try PersonalDictionaryImport.file(PersonalDictionaryImport.readText(from: url), kind: kind, format: format)
         }.value
         guard !Task.isCancelled else { return }
         preview = imported.file

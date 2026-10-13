@@ -12,6 +12,9 @@ private func msimeClientDictionaryHansEntries(_ text: UnsafePointer<PersonalDict
 private func msimeClientDictionaryImportEntries(_ request: UnsafePointer<PersonalDictionaryByte>?, _ requestLength: UInt,
                                                 _ resources: UnsafePointer<PersonalDictionaryByte>?,
                                                 _ resourcesLength: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_dictionary_scel_text")
+private func msimeClientDictionaryScelText(_ request: UnsafePointer<PersonalDictionaryByte>?,
+                                           _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_string_free")
 private func msimeClientPersonalDictionaryStringFree(_ value: UnsafeMutablePointer<CChar>?)
 
@@ -115,6 +118,66 @@ extension PersonalDictionaryBridge {
       .map { $0.appendingPathComponent("EngineResources", isDirectory: true) } ?? []
     return ([own].compactMap { $0 } + plugins).first {
       fm.isReadableFile(atPath: $0.appendingPathComponent("msime-pinyin.db").path)
+    }
+  }
+}
+
+extension PersonalDictionaryBridge {
+  /// 把一个搜狗细胞词库（`.scel`）转成标准 TSV 文本：每个词一行，读不出读音或词的那一行必定被导入拒绝，所以报告里的行号就是词序。不碰任何词库状态，也不需要词典资源。
+  static func scelText(_ data: Data) throws -> ScelText {
+    let request = try JSONSerialization.data(withJSONObject: ["bytes_base64": data.base64EncodedString()])
+    let pointer = request.withUnsafeBytes { bytes in
+      msimeClientDictionaryScelText(bytes.bindMemory(to: PersonalDictionaryByte.self).baseAddress, UInt(request.count))
+    }
+    guard let pointer else { throw ScelImportFailure.invalid }
+    let response = String(cString: pointer)
+    msimeClientPersonalDictionaryStringFree(pointer)
+    guard let data = response.data(using: .utf8),
+          let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      throw ScelImportFailure.invalid
+    }
+    guard envelope["ok"] as? Bool == true else {
+      throw ScelImportFailure(code: envelope["error"] as? String)
+    }
+    guard let value = envelope["value"] as? [String: Any],
+          let text = value["text"] as? String,
+          let entries = SharedNumber.nonnegativeInt(value["entries"]) else {
+      throw ScelImportFailure.invalid
+    }
+    return ScelText(name: value["name"] as? String ?? "", category: value["category"] as? String ?? "",
+                    entries: entries, text: text)
+  }
+}
+
+/// `msime_client_dictionary_scel_text` 的回答：词库名、类别、词数和转出的标准 TSV 文本。
+struct ScelText: Equatable, Sendable {
+  let name: String
+  let category: String
+  let entries: Int
+  let text: String
+}
+
+/// 细胞词库整份读不了的原因，按共享层的错误码分。
+enum ScelImportFailure: LocalizedError, Equatable {
+  case unsupported, malformed, empty, tooLarge, invalid
+
+  init(code: String?) {
+    switch code {
+    case "dictionary_scel_unsupported": self = .unsupported
+    case "dictionary_scel_malformed": self = .malformed
+    case "dictionary_scel_empty": self = .empty
+    case "dictionary_too_large": self = .tooLarge
+    default: self = .invalid
+    }
+  }
+
+  var errorDescription: String? {
+    switch self {
+    case .unsupported: "这个文件不是能识别的搜狗细胞词库（.scel）。"
+    case .malformed: "细胞词库文件不完整或已损坏，请重新下载后再导入。"
+    case .empty: "细胞词库里没有词条。"
+    case .tooLarge: "细胞词库不能超过 8 MB。"
+    case .invalid: "细胞词库读取失败，请重新选择文件。"
     }
   }
 }

@@ -49,12 +49,54 @@ struct PersonalDictionaryImport: Codable, Sendable {
     return Self(entries: entries)
   }
 
-  /// The file layouts the desktop settings page imports, by the name the shared Engine takes.
+  /// 电脑版设置页能导入的文件格式，`format` 是共享 Engine 认的格式名。`scel` 是搜狗细胞词库：先经共享层转成标准文本，只能导入拼音词库。
   static let fileFormats: [(format: String, title: String)] = [
     ("standard", "词在前（标准）"),
     ("windows", "编码在前（Windows）"),
     ("rime", "Rime userdb / dict.yaml"),
+    ("scel", "搜狗细胞词库（.scel）"),
   ]
+
+  /// 一个搜狗细胞词库：读字节（上限同其他文件，1 MB），经共享层转成标准文本，再像标准格式的拼音文件一样解析和预览。`notice` 前面加一句来源。
+  static func scelFile(
+    from url: URL,
+    convert: (Data) throws -> ScelText = { try PersonalDictionaryBridge.scelText($0) },
+    parse: (String, String, String) throws -> (entries: [PersonalWord], report: [String: Any]) = {
+      try PersonalDictionaryBridge.importEntries(kind: $0, format: $1, text: $2)
+    }
+  ) throws -> (file: Self, notice: String) {
+    try scel(convert(readData(from: url)), parse: parse)
+  }
+
+  /// 转好的细胞词库按标准格式的拼音文件解析。
+  static func scel(
+    _ converted: ScelText,
+    parse: (String, String, String) throws -> (entries: [PersonalWord], report: [String: Any]) = {
+      try PersonalDictionaryBridge.importEntries(kind: $0, format: $1, text: $2)
+    }
+  ) throws -> (file: Self, notice: String) {
+    let parsed = try file(leadingRows(converted.text), kind: .pinyin, format: "standard", parse: parse)
+    let source = converted.name.isEmpty
+      ? "已读取搜狗细胞词库的 \(converted.entries) 个词条。"
+      : "已读取搜狗细胞词库「\(converted.name)」的 \(converted.entries) 个词条。"
+    return (parsed.file, source + parsed.notice)
+  }
+
+  /// 转出的文本可能比原文件长，而共享解析器一次只看 1000 行（client-core `import::MAX_ENTRIES`）、请求不超过 1,200,000 字节：只送开头 `limit` 行，并且不超过 `maximumBytes`。多送一行（1001），解析器才知道后面还有，报告「文件过长」。
+  static func leadingRows(_ text: String, limit: Int = 1001) -> String {
+    var kept = ""
+    var bytes = 0
+    var rows = 0
+    for line in text.split(separator: "\n") {
+      let length = line.utf8.count + 1
+      guard rows < limit, bytes + length <= maximumBytes else { break }
+      kept += line
+      kept += "\n"
+      bytes += length
+      rows += 1
+    }
+    return kept
+  }
 
   /// A dictionary file in one of `fileFormats`, parsed by the shared Engine the way the desktop settings page parses it. Rows the Engine refuses are skipped and a file longer than the queue is queued in part, so a real file still imports; `notice` says what was left out, in the desktop's words.
   static func file(
