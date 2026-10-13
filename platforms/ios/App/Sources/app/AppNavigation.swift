@@ -194,7 +194,7 @@ struct AccountLoginOptions: View {
       // 手机号登录在它自己的面板里完成；那个面板关掉后由它的 `onDismiss` 上报。
       if let via, phoneChannel == nil { onFinish(via) }
     }
-    .onDisappear { pending?.cancel() }
+    .onDisappear { ViewRequestTask.cancel(task: $pending) }
   }
 
   @ViewBuilder private var appleButton: some View {
