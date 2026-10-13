@@ -31,6 +31,9 @@ export const startupClose =
 
 /** The stack of `GroupList`s a page is made of. */
 export const groups = "mt-6 flex flex-col gap-6";
+/** 候选窗口的四个设置标签：预览上方共用一条，选中状态随平台控件配色。 */
+export const candidateTabs =
+  "grid grid-cols-4 gap-0.5 rounded-[var(--p-seg-r)] bg-[var(--p-seg-bg)] p-0.5 [border:var(--p-seg-border)] [&>button]:min-h-9 [&>button]:rounded-[var(--p-seg-item-r)] [&>button]:border-0 [&>button]:bg-transparent [&>button]:px-2 [&>button]:text-sm [&>button]:[color:var(--p-text)] [&>button[aria-selected=true]]:bg-[var(--p-seg-on)] [&>button[aria-selected=true]]:[color:var(--p-seg-on-fg)] [&>button[aria-selected=true]]:[box-shadow:var(--p-seg-on-shadow)] [&>button:focus-visible]:outline-2 [&>button:focus-visible]:outline-offset-1 [&>button:focus-visible]:outline-accent";
 /** A host limitation said inside a group, where a row would offer a control that does nothing. */
 export const groupNote =
   "m-0 [padding:var(--p-row-pad)] [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
