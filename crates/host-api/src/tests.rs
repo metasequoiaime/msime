@@ -5463,9 +5463,19 @@ fn translation_queries_use_latest_preferences_without_resetting_composition() {
     preferences.tencent_tmt.secret_key = "synthetic".into();
     let changed = update(handle, 1, &preferences);
     assert_eq!(changed["value"]["deferred"], true);
-    assert_eq!(changed["value"]["view"]["generation"], view["generation"]);
+    assert_eq!(
+        changed["value"]["view"]["editing_text"],
+        view["editing_text"]
+    );
+    assert!(
+        changed["value"]["view"]["generation"].as_u64().unwrap()
+            > view["generation"].as_u64().unwrap()
+    );
     let query = read(msime_client_translation_query(handle));
-    assert_eq!(query["value"]["generation"], view["generation"]);
+    assert_eq!(
+        query["value"]["generation"],
+        changed["value"]["view"]["generation"]
+    );
     assert_eq!(query["value"]["target_language"], "fr");
     assert_eq!(query["value"]["target_languages"], json!(["fr", "ja"]));
     assert!(query["value"]["user_data"].is_null());
@@ -5478,7 +5488,10 @@ fn translation_queries_use_latest_preferences_without_resetting_composition() {
     preferences.custom_translation.enabled = false;
     update(handle, 2, &preferences);
     let tencent_query = read(msime_client_translation_query(handle));
-    assert_eq!(tencent_query["value"]["generation"], view["generation"]);
+    assert!(
+        tencent_query["value"]["generation"].as_u64().unwrap()
+            > query["value"]["generation"].as_u64().unwrap()
+    );
     assert_eq!(
         tencent_query["value"]["tencent_tmt"]["region"],
         "ap-guangzhou"
@@ -5509,7 +5522,10 @@ fn translation_queries_use_latest_preferences_without_resetting_composition() {
         msime_client_core::preferences::TranslationTargetLanguage::En;
     update(handle, 6, &preferences);
     let gloss = read(msime_client_translation_query(handle));
-    assert_eq!(gloss["value"]["generation"], view["generation"]);
+    assert!(
+        gloss["value"]["generation"].as_u64().unwrap()
+            > tencent_query["value"]["generation"].as_u64().unwrap()
+    );
     assert_eq!(gloss["value"]["english_gloss"], true);
     assert_eq!(gloss["value"]["target_language"], "en");
     // The dictionary paths ride along only because the lookup needs them.
@@ -6053,6 +6069,105 @@ fn translation_query_names_the_selected_service_through_the_provider_socket() {
     let query = read(msime_client_translation_query(handle))["value"].clone();
     assert_eq!(query["english_gloss"], true);
     assert_eq!(query["translation_account"], false);
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn translation_preference_changes_remove_gloss_and_reject_inflight_answers() {
+    let dir = tempfile::tempdir().unwrap();
+    let preferences = Preferences {
+        candidate_translations: true,
+        ..Preferences::default()
+    };
+    let handle = test_host_preferences(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    let mut view = Value::Null;
+    for byte in b"U4e2d" {
+        view = read(msime_client_character(
+            handle,
+            *byte,
+            byte.is_ascii_uppercase(),
+        ))["value"]["view"]
+            .clone();
+    }
+    let query = read(msime_client_translation_query(handle))["value"].clone();
+    let generation = query["generation"].as_u64().unwrap();
+    let candidate = view["candidates"][0]["text"].as_str().unwrap();
+    let payload = serde_json::to_vec(&json!([{
+        "text": candidate,
+        "translation": "合成释义"
+    }]))
+    .unwrap();
+    let apply = |generation| {
+        read(unsafe {
+            msime_client_apply_translations(handle, generation, payload.as_ptr(), payload.len())
+        })
+    };
+    assert_eq!(apply(generation)["value"]["applied"], true);
+
+    let disabled = Preferences {
+        candidate_translations: false,
+        ..preferences.clone()
+    };
+    let disabled_view = update(handle, 1, &disabled);
+    assert_eq!(disabled_view["ok"], true);
+    assert_ne!(
+        disabled_view["value"]["view"]["candidates"][0]["translation"],
+        "合成释义"
+    );
+    assert!(read(msime_client_translation_query(handle))["value"].is_null());
+    assert_eq!(apply(generation)["value"]["applied"], false);
+
+    assert_eq!(update(handle, 2, &preferences)["ok"], true);
+    assert_eq!(apply(generation)["value"]["applied"], false);
+    let current_generation = read(msime_client_translation_query(handle))["value"]["generation"]
+        .as_u64()
+        .unwrap();
+    assert!(current_generation > generation);
+    assert_eq!(apply(current_generation)["value"]["applied"], true);
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn translation_target_change_rejects_old_language_gloss() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        candidate_translations: true,
+        ..Preferences::default()
+    };
+    let handle = test_host_preferences(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    let mut view = Value::Null;
+    for byte in b"U4e2d" {
+        view = read(msime_client_character(
+            handle,
+            *byte,
+            byte.is_ascii_uppercase(),
+        ))["value"]["view"]
+            .clone();
+    }
+    let old_generation = read(msime_client_translation_query(handle))["value"]["generation"]
+        .as_u64()
+        .unwrap();
+    let candidate = view["candidates"][0]["text"].as_str().unwrap();
+    let payload = serde_json::to_vec(&json!([{
+        "text": candidate,
+        "translation": "合成旧语言释义"
+    }]))
+    .unwrap();
+
+    preferences.translation_target_language =
+        msime_client_core::preferences::TranslationTargetLanguage::Ja;
+    let updated = update(handle, 1, &preferences);
+    assert_eq!(updated["ok"], true);
+    assert_eq!(
+        updated["value"]["view"]["editing_text"],
+        view["editing_text"]
+    );
+    let late = read(unsafe {
+        msime_client_apply_translations(handle, old_generation, payload.as_ptr(), payload.len())
+    });
+    assert_eq!(late["value"]["applied"], false);
     read(msime_client_destroy(handle));
 }
 

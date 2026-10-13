@@ -41,3 +41,5 @@ macOS 宿主连同其卡片用例整体恢复上游，本 PR 不再改动、也�
 [macOS 空译文视图同步补丁撤销](../../rejected/bug-fix/2026-10-11-macos-empty-gloss-view-sync.md) 与[按显示代次记账的 macOS 提案](../../rejected/bug-fix/2026-10-11-macos-empty-gloss-display-generation.md) 记录两轮 macOS 补丁均被否决；用户最终完全退出 macOS 宿主改动并恢复上游，不改变本篇共享合并和空数组契约。
 
 [在线候选释义保留](../../implemented/bug-fix/2026-10-11-online-candidate-gloss-retention.md) 部分重叠：候选交集与代次规则保留，其 Fcitx5 种子方案由本决定取代。[重复在线查询](../../implemented/bug-fix/2026-10-11-fcitx-online-refresh-translation-flicker.md) 决定请求分发，本篇只决定释义应用。检索命中的[Windows 释义列与账号释义](../feature/2026-10-10-windows-gloss-columns-and-account-glosses.md)、[macOS 多语言分隔](2026-10-08-macos-gloss-line-separator.md) 处理宿主传输与上屏，不改变其格式和排序规则。
+
+[释义偏好变化撤销旧代次回包](2026-10-13-host-api-translation-preference-generation.md) 规定配置变化时清空旧释义并推进代次；本篇的同代次合并只用于配置未变化的回包。

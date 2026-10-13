@@ -916,6 +916,18 @@ impl HostSession {
                 .clear_online_candidates(0)
                 .map_err(|e| e.to_string())?;
         }
+        let previous_preferences = self
+            .requested
+            .as_ref()
+            .map_or(&self.applied, |previous| &previous.preferences);
+        let translation_changed =
+            translation_query_preferences_changed(previous_preferences, &snapshot.preferences);
+        if translation_changed && !self.runtime.is_idle() {
+            // 释义配置与服务凭据变化时清掉旧释义，使旧代次的回包不能进入新配置。
+            self.runtime
+                .invalidate_translations()
+                .map_err(|e| e.to_string())?;
+        }
         if ai_changed && !self.runtime.is_idle() {
             // AI 配置或令牌变化时先清理旧候选并使旧查询失效，再发布新偏好。
             self.runtime
@@ -2595,6 +2607,19 @@ const AI_CREDENTIALS_IN_PROVIDER: bool = cfg!(all(
     not(target_env = "ohos"),
     not(test)
 ));
+
+/// `translation_query` 使用的偏好字段；这些变化都要撤销旧代次的释义回包。
+fn translation_query_preferences_changed(previous: &Preferences, next: &Preferences) -> bool {
+    previous.candidate_translations != next.candidate_translations
+        || previous.candidate_english_gloss != next.candidate_english_gloss
+        || previous.candidate_pronunciation != next.candidate_pronunciation
+        || previous.translation_target_language != next.translation_target_language
+        || previous.translation_secondary_language != next.translation_secondary_language
+        || previous.translation_account != next.translation_account
+        || previous.custom_translation != next.custom_translation
+        || previous.tencent_tmt != next.tencent_tmt
+        || previous.niutrans != next.niutrans
+}
 
 /// 这个会话的 AI 座位开不开（#6888）：AI 开着，而且请求真的发得出去。macOS 和 Windows 默认开着 AI 却没有密钥，这时不发请求，也就不该在每次组字时留一个永远等不到回答的占位行。
 fn ai_seat_ready(
