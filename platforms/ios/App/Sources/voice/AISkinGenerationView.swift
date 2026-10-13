@@ -52,9 +52,7 @@ struct AISkinGenerationView: View {
     }
     .onAppear { request.appear() }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
       proposals = []
       completed = 0

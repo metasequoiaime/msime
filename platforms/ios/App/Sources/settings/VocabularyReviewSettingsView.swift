@@ -118,9 +118,7 @@ struct VocabularyReviewSettingsView: View {
       importWordbook(from: url)
     }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
     }
   }

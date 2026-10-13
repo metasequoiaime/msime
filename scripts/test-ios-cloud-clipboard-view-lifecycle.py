@@ -19,9 +19,12 @@ class IOSCloudClipboardViewLifecycleContract(unittest.TestCase):
         disappear = re.search(r"\.onDisappear \{(?P<body>.*?)\n    \}", source, re.S)
         self.assertIsNotNone(disappear, "cloud clipboard view must invalidate work when it disappears")
         body = disappear.group("body")
-        self.assertIn("request.disappear()", body)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", body)
         self.assertIn("busy = false", body)
-        self.assertIn("pending?.cancel()", body)
+        task = TASK.read_text(encoding="utf-8")
+        self.assertIn("request.wrappedValue.disappear()", task)
+        self.assertIn("pending.wrappedValue?.cancel()", task)
+        self.assertIn("pending.wrappedValue = nil", task)
 
     def test_results_are_bound_to_the_operation_generation(self):
         source = SOURCE.read_text(encoding="utf-8")

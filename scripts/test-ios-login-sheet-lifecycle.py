@@ -8,6 +8,7 @@ SOURCE = Path("platforms/ios/App/Sources/account/AccountCodeLoginView.swift").re
 GENERATION = Path("platforms/ios/App/Sources/app/ViewRequestGeneration.swift").read_text()
 SETTINGS = Path("platforms/ios/App/Sources/account/AccountSettingsView.swift").read_text()
 NAVIGATION = Path("platforms/ios/App/Sources/app/AppNavigation.swift").read_text()
+TASK = Path("platforms/ios/App/Sources/app/ViewRequestTask.swift").read_text()
 
 
 class LoginSheetLifecycleTests(unittest.TestCase):
@@ -39,8 +40,9 @@ class LoginSheetLifecycleTests(unittest.TestCase):
         self.assertIn("@State private var pending: Task<Void, Never>?", section)
         self.assertIn("@State private var request = ViewRequestGeneration()", section)
         self.assertIn("request.appear()", section)
-        self.assertIn("request.disappear()", section)
-        self.assertIn("pending?.cancel()", section)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", section)
+        self.assertIn("request.wrappedValue.disappear()", TASK)
+        self.assertIn("pending.wrappedValue?.cancel()", TASK)
         self.assertIn(".onDisappear", section)
         self.assertIn("try request.checkCurrent(id)", section)
 

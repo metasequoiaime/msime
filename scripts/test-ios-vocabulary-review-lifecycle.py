@@ -14,8 +14,10 @@ class VocabularyReviewLifecycleTests(unittest.TestCase):
         self.assertIn("@State private var request = ViewRequestGeneration()", SOURCE)
         self.assertIn("request.appear()", SOURCE)
         self.assertIn(".onDisappear", SOURCE)
-        self.assertIn("pending?.cancel()", SOURCE)
-        self.assertIn("request.disappear()", SOURCE)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", SOURCE)
+        self.assertIn("request.wrappedValue.disappear()", TASK)
+        self.assertIn("pending.wrappedValue?.cancel()", TASK)
+        self.assertIn("pending.wrappedValue = nil", TASK)
 
     def test_detached_results_require_current_page_generation(self):
         self.assertEqual(SOURCE.count("ViewRequestTask.run(request: $request, busy: $busy, pending: $pending,"), 2)

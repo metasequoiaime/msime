@@ -19,8 +19,11 @@ class IOSAISkinGenerationViewLifecycleContract(unittest.TestCase):
         disappear = re.search(r"\.onDisappear \{(?P<body>.*?)\n    \}", source, re.S)
         self.assertIsNotNone(disappear, "AI skin view must invalidate work when it disappears")
         body = disappear.group("body")
-        self.assertIn("request.disappear()", body)
-        self.assertIn("pending?.cancel()", body)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", body)
+        task = TASK.read_text(encoding="utf-8")
+        self.assertIn("request.wrappedValue.disappear()", task)
+        self.assertIn("pending.wrappedValue?.cancel()", task)
+        self.assertIn("pending.wrappedValue = nil", task)
         self.assertIn("busy = false", body)
 
     def test_generation_results_and_progress_are_bound_to_the_operation(self):

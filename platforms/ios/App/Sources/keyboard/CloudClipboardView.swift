@@ -113,9 +113,7 @@ struct CloudClipboardView: View {
     .sheet(isPresented: $addsText) { addSheet }
     .task { request.appear(); run { _ in nil } }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
       items = []; text = ""; devices = nil; e2eStatus = nil
     }
