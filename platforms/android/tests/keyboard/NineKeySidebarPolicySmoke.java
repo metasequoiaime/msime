@@ -3,7 +3,7 @@ package app.msime.android;
 import java.util.List;
 import java.util.Map;
 
-/** 九键左侧符号栏（#5574、#5590）：默认符号、一屏五个的行高、自定义符号表的解析与校验，以及本地设置按这张表收值。 */
+/** 九键左侧符号栏：默认符号、数字三行与其他键面五行的行高、自定义符号表，以及本地设置。 */
 public final class NineKeySidebarPolicySmoke {
     public static void main(String[] args) {
         defaults();
@@ -12,7 +12,7 @@ public final class NineKeySidebarPolicySmoke {
         rowHeight();
         parsing();
         localSetting();
-        System.out.println("Android nine-key sidebar: defaults, five visible rows, custom symbol parsing and the local setting passed");
+        System.out.println("Android nine-key sidebar: defaults, layer row heights, custom symbol parsing and the local setting passed");
     }
 
     /** 哪个键面用哪张表：数字键面换成算式符号那张，字母键面不变。 */
@@ -47,6 +47,10 @@ public final class NineKeySidebarPolicySmoke {
     }
 
     private static void rowHeight() {
+        int digitRows = NineKeySidebarPolicy.DIGIT_VISIBLE_ROWS;
+        check(NineKeySidebarPolicy.rowHeight(300, 14, 28, digitRows) == 100, "the digit rail aligns with the three grid rows");
+        check(NineKeySidebarPolicy.rowHeight(300, 2, 28, digitRows) == 150, "a short custom digit table fills the rail");
+        check(NineKeySidebarPolicy.rowHeight(60, 14, 28, digitRows) == 30, "a compact digit rail respects the minimum height");
         check(NineKeySidebarPolicy.rowHeight(500, 9, 28) == 100, "five rows share a full rail");
         check(NineKeySidebarPolicy.rowHeight(300, 3, 28) == 100, "three symbols fill the rail as before");
         check(NineKeySidebarPolicy.rowHeight(300, 1, 28) == 300, "a single symbol fills the rail");

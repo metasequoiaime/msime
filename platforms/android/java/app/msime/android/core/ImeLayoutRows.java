@@ -303,11 +303,12 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 九键、14 键与笔画键盘左侧的符号栏：一屏 {@link NineKeySidebarPolicy#VISIBLE_ROWS} 个符号，更多的上下滚动（#5574）。九键使用独立键帽，14 键与笔画共用一条底轨；点按原样上屏（全角模式下转全角）。
+     * 九键、14 键与笔画键盘左侧的符号栏：数字键面一屏三项，其他键面最多五项，更多的上下滚动。九键使用独立键帽，14 键与笔画共用一条底轨；点按原样上屏（全角模式下转全角）。
      */
     private FrameLayout symbolSidebar(boolean digits, boolean capped) {
         java.util.List<String> symbols = sidebarSymbols(digits);
-        NineKeySymbolRail rail = new NineKeySymbolRail(s);
+        NineKeySymbolRail rail = new NineKeySymbolRail(s,
+            digits ? NineKeySidebarPolicy.DIGIT_VISIBLE_ROWS : NineKeySidebarPolicy.VISIBLE_ROWS);
         rail.setContentDescription("符号栏，可上下滑动");
         for (String symbol : symbols) {
             Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,

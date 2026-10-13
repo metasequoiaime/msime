@@ -8,15 +8,17 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 
 /**
- * 九键左侧的符号栏：一列符号键放在可以上下滚动的容器里，一屏最多显示 {@link NineKeySidebarPolicy#VISIBLE_ROWS} 个。
+ * 九键左侧的符号栏：一列符号键放在可以上下滚动的容器里，可见行数由键面决定。
  *
  * <p>每个键的高度在测量时按栏高重新分配（{@link NineKeySidebarPolicy#rowHeight}），所以键盘高度偏好、行距变化后不必重建；键自己的上下外边距（行距）从分到的高度里扣掉，滚动一整屏正好是整数个键。
  */
 public final class NineKeySymbolRail extends ScrollView {
     private final LinearLayout column;
+    private final int visibleRows;
 
-    public NineKeySymbolRail(Context context) {
+    public NineKeySymbolRail(Context context, int visibleRows) {
         super(context);
+        this.visibleRows = visibleRows;
         column = new LinearLayout(context);
         column.setOrientation(LinearLayout.VERTICAL);
         setVerticalScrollBarEnabled(false);
@@ -34,7 +36,7 @@ public final class NineKeySymbolRail extends ScrollView {
 
     @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int row = NineKeySidebarPolicy.rowHeight(MeasureSpec.getSize(heightMeasureSpec), column.getChildCount(),
-            DimensionPolicy.pixels(getContext(), NineKeySidebarPolicy.MIN_ROW_HEIGHT_DP));
+            DimensionPolicy.pixels(getContext(), NineKeySidebarPolicy.MIN_ROW_HEIGHT_DP), visibleRows);
         for (int index = 0; index < column.getChildCount(); index++) {
             View child = column.getChildAt(index);
             if (!(child.getLayoutParams() instanceof LinearLayout.LayoutParams params)) continue;
