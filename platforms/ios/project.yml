@@ -354,6 +354,7 @@ targets:
       - path: SharedUI/core/AppThemePalette.swift
       - path: SharedUI/core/IOSSharedPaths.swift
       - path: SharedUI/core/MetasequoiaTheme.swift
+      - path: SharedUI/core/MSIMELogoShape.swift
       - path: SharedUI/core/SharedNumber.swift
       - path: ../../shared/backend
         excludes:
