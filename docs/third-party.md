@@ -290,7 +290,7 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 | 组件 | 许可证 | 位置与说明 |
 | --- | --- | --- |
 | Unicode Han Database（Unihan）17.0.0 的 `kTGH`（《通用规范汉字表》）与 `kTraditionalVariant` | Unicode-3.0（全文在 `resources/licenses/Unicode-License-V3.txt`） | `plugins/script/data/common-chars.bin`，生僻字类插件共用的常用字集（8105 字并上它们的繁体形，共 11 049 字，约 4 KiB）。`plugins/script/tools/gen_common_chars.py` 读 `resources/character-glosses.lock.json` 锁定的 `Unihan-17.0.0.zip`（校验 sha256）生成，来源说明在同目录的 `common-chars-NOTICE.txt`。插件包随附 `Unicode-License-V3.txt` |
-| [OpenCC](https://github.com/BYVoid/OpenCC) 词典，提交 `26753884f1984add422f3b0249ccee8613deaff6` | Apache-2.0（全文在 `crates/client-core/data/opencc/LICENSE`） | 读的是上面「编译进共享库的数据」里 vendored 的同一份文件。常用字集取 `STCharacters.txt` 里《通用规范汉字表》各字的繁体单字值（只由 OpenCC 补进集合的有 151 字）。traditional-glyph 的简繁对照表 `plugins/script/traditional-glyph/data/s2t.bin`（约 121 KiB）由 `plugins/script/tools/gen_s2t_table.py` 从 `STCharacters.txt`（全部单字）、`STPhrases.txt` 和 `STPhrases_GeneratedFromRegionalPhrases.txt`（只留逐字转换会转错的 2–4 字词组）生成，GB2312 判定用的是 Python 自带的编解码器，不另带数据。变换生成的表属于修改过的衍生数据，按 Apache-2.0 第 4 条在插件包的 `NOTICE.txt` 里写明；插件包随附 `OpenCC-LICENSE.txt`，组装时（`plugins/script/tools/assemble.py`）逐字节核对它和仓库里的原件相同 |
+| [OpenCC](https://github.com/BYVoid/OpenCC) 词典，提交 `26753884f1984add422f3b0249ccee8613deaff6` | Apache-2.0（全文在 `crates/client-core/data/opencc/LICENSE`） | 读的是上面「编译进共享库的数据」里 vendored 的同一份文件。常用字集取 `STCharacters.txt` 里《通用规范汉字表》各字的繁体单字值（只由 OpenCC 补进集合的有 151 字）。插件包随附 `OpenCC-LICENSE.txt`，组装时（`plugins/script/tools/assemble.py`）逐字节核对它和仓库里的原件相同 |
 
 ## 本地语音识别
 

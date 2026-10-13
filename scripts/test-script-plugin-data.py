@@ -3,7 +3,7 @@
 
 每个生成器的 --check 重新生成后和仓库里的文件逐字节比较。只读仓库内数据的生成器总能检查；要下载上游数据的（例如 gen_common_chars.py 要锁定的 Unihan zip）在缓存里没有那份数据时打印 skip 并以 0 退出，设了 MSIME_FETCH=1 才下载。
 
-两处调用它：scripts/run-checks.sh 按文件名自动发现它（contracts 工作流不联网，所以那里 common-chars.bin 的检查总是 skip，只核对 s2t.bin）；scripts/test-script-plugins.sh 也调用它，ci-platforms.yml 的 Script plugins 作业给它设 MSIME_FETCH=1 和缓存，common-chars.bin 在那里真正核对。设了 MSIME_REQUIRE_SCRIPT_PLUGINS=1（那个作业这样设）时，任何生成器打印 skip 都算失败，免得下载被悄悄关掉后检查又退回 skip。
+两处调用它：scripts/run-checks.sh 按文件名自动发现它（contracts 工作流不联网，所以那里 common-chars.bin 的检查总是 skip）；scripts/test-script-plugins.sh 也调用它，ci-platforms.yml 的 Script plugins 作业给它设 MSIME_FETCH=1 和缓存，common-chars.bin 在那里真正核对。设了 MSIME_REQUIRE_SCRIPT_PLUGINS=1（那个作业这样设）时，任何生成器打印 skip 都算失败，免得下载被悄悄关掉后检查又退回 skip。
 """
 import os
 import subprocess
