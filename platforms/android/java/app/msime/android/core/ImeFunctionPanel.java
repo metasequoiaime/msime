@@ -84,23 +84,26 @@ final class ImeFunctionPanel {
 
     void renderMoreTools() {
         if (s.moreToolsPanel == null) return;
-        s.moreToolsPanel.removeAllViews();
         // 子页没有 FunctionPanelView，由容器自己承担「更多工具」的描述，免得同一面板出现两个同名节点。
         s.moreToolsPanel.setContentDescription(
             s.localInputToolsOpen || s.aiAssistChooserOpen ? "更多工具" : null);
         if (s.localInputToolsOpen) {
+            s.moreToolsPanel.removeAllViews();
             renderLocalInput();
             s.imeStyler.applySkin();
             return;
         }
         if (s.aiAssistChooserOpen) {
+            s.moreToolsPanel.removeAllViews();
             renderAiAssistChooser();
             s.imeStyler.applySkin();
             return;
         }
-        if (s.functionPanel == null) s.functionPanel = new FunctionPanelView(s);
+        if (s.functionPanel == null) {
+            s.functionPanel = new FunctionPanelView(s);
+            renderedItemIds = List.of();
+        }
         FunctionPanelView panel = s.functionPanel;
-        if (panel.getParent() instanceof LinearLayout parent) parent.removeView(panel);
         java.util.Set<FunctionPanelModel.Id> hiddenItems = java.util.EnumSet.noneOf(FunctionPanelModel.Id.class);
         if (!s.toolbarHidden) {
             if (s.toolbarEmoji) hiddenItems.add(FunctionPanelModel.Id.EMOJI);
@@ -122,6 +125,8 @@ final class ImeFunctionPanel {
         if (entriesChanged) {
             panel.setEntries(entries);
             renderedItemIds = List.copyOf(itemIds);
+        } else {
+            panel.updateEntries(entries);
         }
         // setEntries 只在入口集合变化时调用；这样开关状态更新不会摘掉正在按压的磁贴。
         for (int index = 0; index < entries.size(); index++) {
@@ -135,7 +140,11 @@ final class ImeFunctionPanel {
         KeyboardSkin skin = s.skin;
         panel.setColors(Color.parseColor(skin.keyForeground()), Color.parseColor(skin.accent()),
             Color.parseColor(skin.background()), Color.parseColor(skin.hairline()));
-        s.moreToolsPanel.addView(panel, LayoutPolicy.matchParentParams());
+        if (panel.getParent() != s.moreToolsPanel) {
+            if (panel.getParent() instanceof android.view.ViewGroup parent) parent.removeView(panel);
+            s.moreToolsPanel.removeAllViews();
+            s.moreToolsPanel.addView(panel, LayoutPolicy.matchParentParams());
+        }
         s.imeStyler.applySkin();
     }
 

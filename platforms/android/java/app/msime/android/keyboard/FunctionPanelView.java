@@ -114,6 +114,12 @@ public final class FunctionPanelView extends LinearLayout {
         dots.setActive(grid.page(), false);
     }
 
+    /** 入口顺序未变化时就地更新标签和点击回调，保留磁贴、滚动位置与翻页动画。 */
+    public void updateEntries(List<Entry> entries) {
+        if (entries.size() != tiles.size()) throw new IllegalArgumentException("Entry count changed");
+        for (int index = 0; index < entries.size(); index++) tiles.get(index).updateEntry(entries.get(index));
+    }
+
     /** 第 {@code index} 个条目（与 {@link #setEntries} 的顺序一致）。 */
     public Button entryView(int index) { return tiles.get(index); }
 
@@ -151,7 +157,7 @@ public final class FunctionPanelView extends LinearLayout {
         private static final int PRESSED_ALPHA = 140;
 
         private final FunctionPanelView panel;
-        private final Entry entry;
+        private Entry entry;
         private final Paint iconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint boxPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -167,21 +173,28 @@ public final class FunctionPanelView extends LinearLayout {
         Tile(Context context, FunctionPanelView panel, Entry entry) {
             super(context);
             this.panel = panel;
-            this.entry = entry;
-            setText(entry.label);
             ViewPolicy.setAllCapsFalse(this);
             ViewPolicy.clearChrome(this);
-            setContentDescription(entry.description == null || entry.description.isEmpty()
-                ? entry.label : entry.description);
             textPaint.setTextAlign(Paint.Align.CENTER);
             boxPaint.setStyle(Paint.Style.STROKE);
-            if (entry.action != null) ViewPolicy.bindClick(this, entry.action);
+            updateEntry(entry);
+        }
+
+        void updateEntry(Entry value) {
+            entry = value;
+            if (!TextUtils.equals(getText(), entry.label)) setText(entry.label);
+            String description = entry.description == null || entry.description.isEmpty()
+                ? entry.label : entry.description;
+            if (!TextUtils.equals(getContentDescription(), description)) setContentDescription(description);
+            if (entry.action != null) ViewPolicy.bindClick(this, () -> this.entry.action.run());
+            else setOnClickListener(null);
             if (entry.longPress != null) {
                 setOnLongClickListener(view -> {
-                    entry.longPress.run();
+                    this.entry.longPress.run();
                     return true;
                 });
-            }
+            } else setOnLongClickListener(null);
+            invalidate();
         }
 
         void setState(State value) {

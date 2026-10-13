@@ -307,6 +307,8 @@ public final class MSIMEInputService extends InputMethodService {
     private int inlineHeightOriginal;
     /** 功能面板（新设计的菜单）与它的「AI 回复与润色」分段页。 */
     FunctionPanelView functionPanel;
+    /** 隐私会话重启时保留已打开的功能菜单。 */
+    private boolean preserveMoreToolsOnStop;
     boolean aiAssistChooserOpen;
     /** 常用语面板。 */
     ScrollView phraseScroll;
@@ -1718,7 +1720,9 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void stop(boolean finish) {
-        stop(finish, false);
+        boolean keepMoreTools = preserveMoreToolsOnStop;
+        preserveMoreToolsOnStop = false;
+        stop(finish, keepMoreTools);
     }
 
     /** 停止并重启输入会话时保留已打开的功能菜单，避免隐私开关切换时闪退式收起再弹出。 */
@@ -8539,7 +8543,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (connection != null && view != null && !InputViewValuePolicy.editingText(view).isEmpty())
             command(FINISH_COMPOSITION_COMMAND);
         boolean panelOpen = ViewPolicy.isVisible(moreToolsScroll);
-        stop(false, panelOpen);
+        preserveMoreToolsOnStop = panelOpen;
+        stop(false);
         try {
             JSONObject options = new JSONObject(runtimeOptionsBase);
             if (learningSuppressed()) options.getJSONObject("preferences").put("learning", false);
