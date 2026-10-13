@@ -259,16 +259,17 @@ void InputModeHudWindow::paint() {
   const D2D1_RECT_F glyph{left, card.top, left + static_cast<float>(metrics.glyph) * unit, card.bottom};
   target->DrawText(text, static_cast<UINT32>(wcslen(text)), format, glyph, brush(palette_.text));
   const HRESULT drawn = target->EndDraw();
-  if (SUCCEEDED(drawn) && FAILED(device_.Present()))
-    throw std::runtime_error("Input mode HUD presentation failed");
-  // 有符号的 HRESULT 和某些 SDK、MinGW 里无符号的宏比较，见 CandidateWindow.cpp 的同一处。
-  if (drawn == static_cast<HRESULT>(D2DERR_RECREATE_TARGET)) {
+  const HRESULT presented = SUCCEEDED(drawn) ? device_.Present() : drawn;
+  // 设备丢了按 DeviceResources::IsDeviceLost 判断，Present 报的 DXGI_ERROR_DEVICE_REMOVED/RESET 也算，见 CandidateWindow.cpp 的同一处。
+  if (msimeui::DeviceResources::IsDeviceLost(presented)) {
     device_.DiscardTarget();
     InvalidateRect(window_, nullptr, FALSE);
     return;
   }
   if (FAILED(drawn))
     throw std::runtime_error("Input mode HUD drawing failed");
+  if (FAILED(presented))
+    throw std::runtime_error("Input mode HUD presentation failed");
 }
 LRESULT CALLBACK InputModeHudWindow::procedure(HWND window, UINT message, WPARAM w, LPARAM l) noexcept {
   auto *self = reinterpret_cast<InputModeHudWindow *>(GetWindowLongPtrW(window, GWLP_USERDATA));

@@ -1361,12 +1361,9 @@ void CandidateWindow::paint() {
   target->SetTransform(D2D1::Matrix3x2F::Identity());
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.
-  if (SUCCEEDED(drawn) && FAILED(device_.Present()))
-    throw std::runtime_error("Candidate presentation failed");
-  // Cast rather than compare directly: HRESULT is signed and the macro is
-  // unsigned in some SDK and MinGW versions, which makes the comparison a
-  // warning on one toolchain and silent on another.
-  if (drawn == static_cast<HRESULT>(D2DERR_RECREATE_TARGET)) {
+  const HRESULT presented = SUCCEEDED(drawn) ? device_.Present() : drawn;
+  // 设备丢了（EndDraw 的 D2DERR_RECREATE_TARGET，或 Present 的 DXGI_ERROR_DEVICE_REMOVED/RESET，见 DeviceResources::IsDeviceLost）不算画不出来：下一次刷新时重建，而不是让整个 Server 退出。
+  if (msimeui::DeviceResources::IsDeviceLost(presented)) {
     // Losing the device is not a presentation failure; rebuild on the next
     // refresh rather than hiding a live composition. Clearing shown_ is what
     // makes that rebuild reachable: reposition() returns early while the cached
@@ -1380,6 +1377,8 @@ void CandidateWindow::paint() {
   }
   if (FAILED(drawn))
     throw std::runtime_error("Candidate drawing failed");
+  if (FAILED(presented))
+    throw std::runtime_error("Candidate presentation failed");
   painted_ = value;
   painted_rows_ = std::move(rows);
   painted_pager_ = pager;

@@ -17,6 +17,13 @@ UINT AlignSwapExtent(UINT value)
 }
 } // namespace
 
+bool DeviceResources::IsDeviceLost(HRESULT hr)
+{
+    // 先转成 HRESULT 再比较：这几个宏在某些 SDK 和 MinGW 里是无符号的，直接和有符号的 HRESULT 比较会在一种工具链上报警告、在另一种上悄悄比错。
+    return hr == static_cast<HRESULT>(D2DERR_RECREATE_TARGET) || hr == static_cast<HRESULT>(DXGI_ERROR_DEVICE_REMOVED) ||
+           hr == static_cast<HRESULT>(DXGI_ERROR_DEVICE_RESET);
+}
+
 bool DeviceResources::IsSameColor(const D2D1_COLOR_F &lhs, const D2D1_COLOR_F &rhs)
 {
     return lhs.r == rhs.r && lhs.g == rhs.g && lhs.b == rhs.b && lhs.a == rhs.a;

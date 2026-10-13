@@ -327,11 +327,9 @@ void CandidateFlyoutWindow::paint(Panel &panel) {
   }
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.
-  if (SUCCEEDED(drawn) && FAILED(panel.device.Present()))
-    throw std::runtime_error("Candidate menu presentation failed");
-  // Signed HRESULT against a macro that is unsigned in some SDK and MinGW
-  // versions; see CandidateWindow.cpp for the same comparison.
-  if (drawn == static_cast<HRESULT>(D2DERR_RECREATE_TARGET)) {
+  const HRESULT presented = SUCCEEDED(drawn) ? panel.device.Present() : drawn;
+  // 设备丢了按 DeviceResources::IsDeviceLost 判断，Present 报的 DXGI_ERROR_DEVICE_REMOVED/RESET 也算，见 CandidateWindow.cpp 的同一处。
+  if (msimeui::DeviceResources::IsDeviceLost(presented)) {
     // Losing the device is not a presentation failure; rebuild on the next
     // opening rather than hiding a live menu.
     panel.device.DiscardTarget();
@@ -339,6 +337,8 @@ void CandidateFlyoutWindow::paint(Panel &panel) {
   }
   if (FAILED(drawn))
     throw std::runtime_error("Candidate menu drawing failed");
+  if (FAILED(presented))
+    throw std::runtime_error("Candidate menu presentation failed");
 }
 
 LRESULT CALLBACK CandidateFlyoutWindow::procedure(HWND window, UINT message,
