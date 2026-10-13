@@ -11,9 +11,9 @@ struct AISkinGenerationView: View {
   @State private var busy = false
   @State private var completed = 0
   @State private var message: String?
-  @State private var request: Task<Void, Never>?
+  @State private var pending: Task<Void, Never>?
   /// 让离开页面后仍在取消中的旧请求不能释放新页面的忙碌状态或覆盖新数据。
-  @State private var requestID = UUID()
+  @State private var request = ViewRequestGeneration()
   var body: some View {
     NavigationView {
       ScrollView {
@@ -31,7 +31,7 @@ struct AISkinGenerationView: View {
             .accessibilityIdentifier("generateAISkins")
           Text("AI 随机搭配插画、键帽造型与材质。抽到的皮肤可以继续编辑、保存或分享。")
             .font(.caption).foregroundStyle(.secondary)
-          if busy { HStack { ProgressView(); Text("主题插画已完成 \(completed)/3，可能需要几分钟…"); Button("取消") { request?.cancel() } } }
+          if busy { HStack { ProgressView(); Text("主题插画已完成 \(completed)/3，可能需要几分钟…"); Button("取消") { pending?.cancel() } } }
           if let message { Text(message).font(.callout).foregroundStyle(.secondary) }
           ForEach(proposals) { proposal in
             VStack(alignment: .leading, spacing: 12) {
@@ -50,10 +50,11 @@ struct AISkinGenerationView: View {
       }.navigationTitle("AI 皮肤抽卡").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement:.cancellationAction) { Button("完成") { dismiss() } } }
     }
+    .onAppear { request.appear() }
     .onDisappear {
-      requestID = UUID()
-      request?.cancel()
-      request = nil
+      request.disappear()
+      pending?.cancel()
+      pending = nil
       busy = false
       proposals = []
       completed = 0
@@ -83,14 +84,14 @@ struct AISkinGenerationView: View {
     }.padding(.vertical, 12).accessibilityHidden(true)
   }
   private func generate() {
-    guard !busy else { return }; busy = true; message = nil; completed = 0
+    guard request.isVisible, !busy else { return }; busy = true; message = nil; completed = 0
     let description = AISkinService.drawPrompt()
-    let id = UUID()
-    requestID = id
-    request = Task { await performGeneration(requestID: id, description: description) }
+    let id = request.begin()
+    pending = Task { await performGeneration(requestID: id, description: description) }
   }
   private func performGeneration(requestID id: UUID, description: String) async {
-    defer { if requestID == id { busy = false; request = nil } }
+    guard request.isCurrent(id) else { return }
+    defer { if request.isCurrent(id) { busy = false; pending = nil } }
     do {
       let values: [AISkinProposal]
       #if DEBUG && targetEnvironment(simulator)
@@ -100,22 +101,21 @@ struct AISkinGenerationView: View {
           AISkinProposal(name: "AI 测试 \($0.offset + 1)", description: "仅用于界面自动化的合成设计", design: $0.element.1)
         }
       } else {
-        values = try await AISkinService.generate(description) { if requestID == id { completed = $0 } }
+        values = try await AISkinService.generate(description) { if request.isCurrent(id) { completed = $0 } }
       }
       #else
-      values = try await AISkinService.generate(description) { if requestID == id { completed = $0 } }
+      values = try await AISkinService.generate(description) { if request.isCurrent(id) { completed = $0 } }
       #endif
-      guard requestID == id else { return }
-      try Task.checkCancellation()
+      try request.checkCurrent(id)
       proposals = values
     } catch is CancellationError {
-      guard requestID == id else { return }
+      guard request.isCurrent(id) else { return }
     }
     catch let failure as BackendAccountClient.Failure where failure.status == 401 {
-      guard requestID == id else { return }
+      guard request.isCurrent(id) else { return }
       message = "请先登录，再来抽取皮肤。"; login = true
     } catch {
-      guard requestID == id, !Task.isCancelled else { return }
+      guard request.isCurrent(id), !Task.isCancelled else { return }
       message = error.localizedDescription
     }
   }
