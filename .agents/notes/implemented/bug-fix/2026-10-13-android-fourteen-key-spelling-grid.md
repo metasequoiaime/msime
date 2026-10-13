@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+本布局曾构建、通过设备验收并安装到手机，现由 [与九键共用左侧栏](2026-10-13-android-fourteen-key-left-spellings.md) 取代。保留以下当时的取舍，说明为什么不继续使用独立换行区。
+
 Android 在候选词下方提供独立拼音选择区，每项至少 64dp 宽、48dp 高，按可用宽度换行。最多显示两行，更多选项纵向滚动。读音恢复整行宽度，候选词不被覆盖，字母键的布局和高度不变。没有可选拼音或回落其他布局时选择区不占空间。
 
 复用 `WrapRowLayout` 和已有带 generation、索引的拼音选择回调，不修改引擎解码、锁定、退格和九键侧栏。仅调整 Android；iOS、HarmonyOS 暂沿用现有位置。

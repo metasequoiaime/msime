@@ -160,11 +160,9 @@ public final class MSIMEInputService extends InputMethodService {
     Button exitLocalModeButton;
     /** 漢 in the candidate header: converts the composing Korean syllable to Hanja, or closes its list. */
     Button hanjaButton;
-    android.view.ViewGroup nineKeySpellings;
-    /** 拼音选择的滚动容器：九键侧栏与 14 键换行区纵向滚动，注音 9 键候选行横向滚动。 */
+    LinearLayout nineKeySpellings;
+    /** 拼音九键与 14 键的侧栏纵向滚动，注音 9 键候选行横向滚动。 */
     FrameLayout nineKeySpellingScroll;
-    /** 候选行下方的 14 键拼音选择区；没有可选拼音或使用其他布局时不占空间。 */
-    FrameLayout fourteenSpellingSlot;
     final java.util.List<Button> nineKeySpellingButtons = new java.util.ArrayList<>();
     java.util.List<Integer> nineKeySpellingIndices = java.util.List.of();
     long nineKeySpellingGeneration = -1;
@@ -7599,9 +7597,6 @@ public final class MSIMEInputService extends InputMethodService {
         ViewPolicy.hide(candidateViewport);
         imeToolbar.addCandidateLine(candidateRegion, candidateViewport,
             pixels(ImeToolbar.CANDIDATE_LINE_DP));
-        fourteenSpellingSlot = new FrameLayout(this);
-        ViewPolicy.hide(fourteenSpellingSlot);
-        candidateRegion.addView(fourteenSpellingSlot, LayoutPolicy.matchWidthWrapParams());
         imeToolbar.addInlineHeightBar(candidateRegion);
         inlineHeightBar.setListener(new InlineHeightBar.Listener() {
             @Override public void onPercentChanged(int percent, boolean fromUser) {
