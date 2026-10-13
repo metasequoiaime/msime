@@ -159,6 +159,8 @@ pub fn test_chat(service: &str, config: &Value, transport: &impl ProbeTransport)
         body["max_completion_tokens"] = json!(512);
         body["reasoning_effort"] = json!(effort);
     } else if is_family("glm-5.3") {
+        body.as_object_mut().unwrap().remove("max_tokens");
+        body["max_completion_tokens"] = json!(512);
         body["reasoning_effort"] = json!("low");
     }
     match transport.post(endpoint, token, &body) {
@@ -323,7 +325,7 @@ mod tests {
             ("openai/gpt-6-sol-2026-10-01", Some("none"), true),
             ("gpt-6-astra", Some("low"), true),
             ("gpt-6.1-sol", Some("low"), true),
-            ("GLM-5.3-FLASH", Some("low"), false),
+            ("GLM-5.3-FLASH", Some("low"), true),
             ("gpt-4.1", None, false),
             ("synthetic-model", None, false),
         ] {
