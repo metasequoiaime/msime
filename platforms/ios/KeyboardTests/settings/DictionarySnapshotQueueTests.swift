@@ -114,6 +114,25 @@ final class DictionarySnapshotQueueTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: externalState), Data(#"{"version":1,"localVersion":null,"request":null}"#.utf8))
   }
 
+  func testOversizedStateIsInvalidAndCannotBeClaimed() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let queue = DictionarySnapshotQueue(directory: root)
+    let directory = root.appendingPathComponent("DictionarySnapshots", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let state = directory.appendingPathComponent("state.json")
+    let oversized = Data(repeating: 0x20, count: 65537)
+    try oversized.write(to: state)
+
+    XCTAssertThrowsError(try queue.read()) { error in
+      guard case DictionarySnapshotQueue.Failure.invalid = error else {
+        return XCTFail("超限状态应映射为 invalid")
+      }
+    }
+    try queue.cancelIfPresent(accountID: "synthetic-account")
+    XCTAssertEqual(try Data(contentsOf: state), oversized)
+  }
+
   private let first = "local-v1:legacy:" + String(repeating: "a", count: 64)
   private let second = "local-v1:legacy:" + String(repeating: "b", count: 64)
   private func fixture(_ action: (DictionarySnapshotQueue, URL, String, URL) throws -> Void) throws {

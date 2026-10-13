@@ -30,7 +30,7 @@ CHECKS = (
         ROOT / "platforms/ios/SharedUI/dictionary/DictionarySnapshotQueue.swift",
         "private func read(_ root: URL)",
         "  }\n  func read() throws",
-        ("O_NONBLOCK", "fstat", "S_IFREG"),
+        ("BoundedFileReader.read(from: file, maximumBytes: 65536)",),
     ),
     (
         ROOT / "platforms/ios/SharedUI/dictionary/DictionarySnapshotQueue.swift",
