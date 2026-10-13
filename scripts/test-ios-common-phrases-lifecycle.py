@@ -16,9 +16,11 @@ class CommonPhrasesLifecycleTests(unittest.TestCase):
         self.assertIn("@State private var pending: Task<Void, Never>?", VIEW)
         self.assertIn("@State private var request = ViewRequestGeneration()", VIEW)
         self.assertIn("request.appear()", VIEW)
-        self.assertIn("request.disappear()", VIEW)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", VIEW)
         self.assertIn(".onDisappear", VIEW)
-        self.assertIn("pending?.cancel()", VIEW)
+        self.assertIn("request.wrappedValue.disappear()", TASK)
+        self.assertIn("pending.wrappedValue?.cancel()", TASK)
+        self.assertIn("pending.wrappedValue = nil", TASK)
         self.assertIn("requestState.invalidate()", VIEW)
         self.assertIn("mutating func invalidate()", STATE)
 

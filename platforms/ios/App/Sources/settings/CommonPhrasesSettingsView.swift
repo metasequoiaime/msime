@@ -53,9 +53,7 @@ struct CommonPhrasesSettingsView: View {
     .onAppear { request.appear(); reload() }
     .onChange(of: scenePhase) { _, phase in if phase == .active { reload() } }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       requestState.invalidate()
     }
     .sheet(isPresented: $adding) {

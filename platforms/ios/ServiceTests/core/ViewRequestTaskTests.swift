@@ -15,6 +15,12 @@ import XCTest
       pending: Binding(get: { self.pending }, set: { self.pending = $0 }),
       action: action)
   }
+
+  func disappear() {
+    ViewRequestTask.disappear(
+      request: Binding(get: { self.request }, set: { self.request = $0 }),
+      pending: Binding(get: { self.pending }, set: { self.pending = $0 }))
+  }
 }
 
 private enum RequestTaskFailure: Error { case expected }
@@ -37,9 +43,11 @@ final class ViewRequestTaskTests: XCTestCase {
     state.request.appear()
     state.run { _ in throw RequestTaskFailure.expected }
     let task = try XCTUnwrap(state.pending)
-    state.request.disappear()
-    state.pending = nil
+    state.disappear()
     state.busy = false
+    XCTAssertFalse(state.request.isVisible)
+    XCTAssertNil(state.pending)
+    XCTAssertTrue(task.isCancelled)
     await task.value
     XCTAssertNil(state.message)
     XCTAssertFalse(state.busy)

@@ -101,9 +101,7 @@ struct HelpcodeSettingsView: View {
     .onAppear { request.appear(); reload() }
     .onChange(of: scenePhase) { if $0 == .active { reload() } }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
     }
     .fileImporter(isPresented: $importing, allowedContentTypes: [.plainText, .text, .data]) { result in

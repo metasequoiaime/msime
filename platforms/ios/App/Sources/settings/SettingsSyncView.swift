@@ -49,9 +49,7 @@ struct SettingsSyncView: View {
     .navigationTitle("设置同步")
     .task { request.appear(); startLoad() }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
       cloud = nil; schema = nil; loadedUserID = nil; loadedSessionID = nil
     }

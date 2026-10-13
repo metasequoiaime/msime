@@ -24,6 +24,13 @@ import SwiftUI
     if request.wrappedValue.isCurrent(id) { pending.wrappedValue = nil }
   }
 
+  /// 页面离开时先使旧结果失效，再取消并释放任务句柄。
+  static func disappear(request: Binding<ViewRequestGeneration>, pending: Binding<Task<Void, Never>?>) {
+    request.wrappedValue.disappear()
+    pending.wrappedValue?.cancel()
+    pending.wrappedValue = nil
+  }
+
   static func run(request: Binding<ViewRequestGeneration>, busy: Binding<Bool>,
                   message: Binding<String?>, pending: Binding<Task<Void, Never>?>,
                   canceling: Binding<Task<Void, Never>?>? = nil,

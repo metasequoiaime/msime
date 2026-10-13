@@ -15,9 +15,11 @@ class HelpcodeLifecycleTests(unittest.TestCase):
         self.assertIn("@State private var pending: Task<Void, Never>?", SOURCE)
         self.assertIn("@State private var request = ViewRequestGeneration()", SOURCE)
         self.assertIn("request.appear()", SOURCE)
-        self.assertIn("request.disappear()", SOURCE)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", SOURCE)
         self.assertIn(".onDisappear", SOURCE)
-        self.assertIn("pending?.cancel()", SOURCE)
+        self.assertIn("request.wrappedValue.disappear()", TASK)
+        self.assertIn("pending.wrappedValue?.cancel()", TASK)
+        self.assertIn("pending.wrappedValue = nil", TASK)
 
     def test_keyboard_test_target_includes_the_helpcode_request_dependency(self):
         project = (ROOT / "platforms/ios/project.yml").read_text()
