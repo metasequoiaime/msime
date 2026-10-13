@@ -1649,6 +1649,7 @@ public:
   }
   static bool translationPreferencesChanged(const Json &before, const Json &after) {
     for (const auto *key : {"candidate_translations", "candidate_english_gloss",
+                            "candidate_pronunciation",
                             "translation_target_language", "translation_secondary_language",
                             "translation_account", "custom_translation", "niutrans",
                             "tencent_tmt"}) {
