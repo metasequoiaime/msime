@@ -227,6 +227,8 @@ struct VocabularyReviewSettingsView: View {
             ?? VocabularyReviewStore.Failure.unavailable.errorDescription ?? ""
         }
       } catch is CancellationError {
+      } catch {
+        // 数据读写错误已封装在 Result 中；完整捕获保证任务的失败类型为 Never。
       }
     }
   }
@@ -255,6 +257,8 @@ struct VocabularyReviewSettingsView: View {
             ?? VocabularyReviewStore.Failure.unavailable.errorDescription ?? ""
         }
       } catch is CancellationError {
+      } catch {
+        // 数据读写错误已封装在 Result 中；完整捕获保证任务的失败类型为 Never。
       }
     }
   }

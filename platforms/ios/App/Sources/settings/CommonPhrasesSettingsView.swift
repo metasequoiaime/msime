@@ -102,6 +102,8 @@ struct CommonPhrasesSettingsView: View {
           if phrases == nil { loadFailed = true }
         }
       } catch is CancellationError {
+      } catch {
+        // 业务错误已由 Result 返回；完整捕获保证任务的失败类型为 Never。
       }
     }
   }
@@ -137,6 +139,8 @@ struct CommonPhrasesSettingsView: View {
           reload()
         }
       } catch is CancellationError {
+      } catch {
+        // 业务错误已由 Result 返回；完整捕获保证任务的失败类型为 Never。
       }
     }
   }
