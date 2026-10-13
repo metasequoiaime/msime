@@ -492,6 +492,9 @@ bool reloadFcitxService() {
   return posix_spawnp(&child, command, nullptr, nullptr, arguments, ::environ) == 0;
 }
 
+// `mixed_input` 里混输开关缺键时的值：符号混输默认开，共享文档开着时不写这个键；emoji、颜文字默认关。读值时回退必须按键给，否则缺键的符号混输会显示成关，第一次点击反而把它「打开」成关。
+bool mixedCandidateDefault(std::string_view key) { return key == "symbols"; }
+
 class FcitxState : public fcitx::InputContextProperty {
 public:
   // system_dark is the engine's last probed appearance, so a context opened between probes starts in it rather than in light until the next change.
@@ -959,7 +962,7 @@ public:
   }
   bool toggleMixedCandidate(const char *key) {
     if (!session_ || !key || !*key) return false;
-    const bool enabled = !preferences_.value("mixed_input", Json::object()).value(key, false);
+    const bool enabled = !preferences_.value("mixed_input", Json::object()).value(key, mixedCandidateDefault(key));
     auto snapshot = preferences_snapshot_;
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
@@ -4525,7 +4528,7 @@ public:
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
     return state->session_ && state->preferences_.value("mixed_input", Json::object())
-        .value(key_, false);
+        .value(key_, mixedCandidateDefault(key_));
   }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
@@ -6098,6 +6101,7 @@ public:
     mixed_english_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-mixed-english", &instance->userInterfaceManager());
     mixed_emoji_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-mixed-emoji", &instance->userInterfaceManager());
     mixed_kaomoji_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-mixed-kaomoji", &instance->userInterfaceManager());
+    mixed_symbol_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-mixed-symbols", &instance->userInterfaceManager());
     local_unicode_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-unicode", &instance->userInterfaceManager());
     local_date_time_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-date-time", &instance->userInterfaceManager());
     local_quick_phrase_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-quick-phrase", &instance->userInterfaceManager());
@@ -6255,7 +6259,7 @@ public:
     input_group_action_.setMenu(&input_group_menu_);
     for (auto *action : std::initializer_list<fcitx::Action *>{
              &shuangpin_profile_action_, &helpcode_action_, &helpcode_schema_action_, &traditional_action_,
-             &mixed_english_action_, &english_action_, &mixed_emoji_action_, &mixed_kaomoji_action_, &english_gloss_action_,
+             &mixed_english_action_, &english_action_, &mixed_symbol_action_, &mixed_emoji_action_, &mixed_kaomoji_action_, &english_gloss_action_,
              &cloud_candidates_action_, &ai_candidates_action_, &number_row_action_, &word_character_action_,
              &mode_scope_action_, &clipboard_history_action_, &input_group_separator_, &local_unicode_action_,
              &local_date_time_action_, &local_quick_phrase_action_, &local_emoji_action_, &local_kaomoji_action_,
@@ -6775,6 +6779,7 @@ public:
   FcitxMixedEnglishAction mixed_english_action_{&factory_};
   FcitxMixedCandidateAction mixed_emoji_action_{&factory_, "emoji", "混合 Emoji"};
   FcitxMixedCandidateAction mixed_kaomoji_action_{&factory_, "kaomoji", "混合颜文字"};
+  FcitxMixedCandidateAction mixed_symbol_action_{&factory_, "symbols", "混合符号"};
   FcitxLocalModeAction local_unicode_action_{&factory_, "unicode", "Unicode（U 模式）"};
   FcitxLocalModeAction local_date_time_action_{&factory_, "date_time", "日期时间（T 模式）"};
   FcitxLocalModeAction local_quick_phrase_action_{&factory_, "quick_phrase", "快捷短语（K 模式）"};

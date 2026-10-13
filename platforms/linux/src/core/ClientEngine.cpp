@@ -263,7 +263,7 @@ msime::linux_host::CandidateTheme candidate_theme(const Json &preferences) {
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, GlobalTheme, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, ShuangpinPreedit, WubiCodeHint, WubiAutoCommitUnique, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, JapaneseToggle, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, CharacterWidth, VoiceEnabled };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, GlobalTheme, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, ShuangpinPreedit, WubiCodeHint, WubiAutoCommitUnique, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, SymbolCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, JapaneseToggle, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, CharacterWidth, VoiceEnabled };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 struct FailedMenuSave {
   MenuPreference preference;
@@ -366,6 +366,7 @@ struct State {
   std::optional<bool> traditional_output_override;
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
+  std::optional<bool> symbol_override;
   std::optional<bool> punctuation_override, helpcode_override;
   // What the session was last told. The runtime keeps the host's punctuation
   // toggle as an override that outranks the preferences it is handed, so a
@@ -824,11 +825,12 @@ struct State {
     candidate_english_gloss = preferences.value("candidate_english_gloss", false);
     translation_target_language = translation_target_language_override.value_or(
         preferences.value("translation_target_language", "en"));
-    if (english_override || emoji_override || kaomoji_override) {
+    if (english_override || emoji_override || kaomoji_override || symbol_override) {
       Json mixed = Json::object();
       if (english_override) mixed["english"] = *english_override;
       if (emoji_override) mixed["emoji"] = *emoji_override;
       if (kaomoji_override) mixed["kaomoji"] = *kaomoji_override;
+      if (symbol_override) mixed["symbols"] = *symbol_override;
       patch_preference_object(options["preferences"], "mixed_input", mixed);
     }
     if (!local_mode_overrides.empty())
@@ -1166,6 +1168,8 @@ struct State {
       preferences["mixed_input"]["emoji"] = *emoji_override;
     if (kaomoji_override)
       preferences["mixed_input"]["kaomoji"] = *kaomoji_override;
+    if (symbol_override)
+      preferences["mixed_input"]["symbols"] = *symbol_override;
     auto &local_modes = preferences["local_modes"];
     for (const auto &[key, value] : local_mode_overrides.items())
       local_modes[key] = value;
@@ -2843,6 +2847,9 @@ void publish_mode(IBusEngine *engine, bool registration) {
       mixed_input_value("emoji", false));
   const bool kaomoji_candidates = s.kaomoji_override.value_or(
       mixed_input_value("kaomoji", false));
+  // 符号混输默认开，共享文档开着时不写这个键，所以缺键读作开。
+  const bool symbol_candidates = s.symbol_override.value_or(
+      mixed_input_value("symbols", true));
   const bool nine_key = active_scheme == "quanpin" && s.view.is_object() &&
                         s.view.value("nine_key", false);
   const bool helpcode = (active_scheme == "quanpin" || active_scheme == "shuangpin") &&
@@ -3056,6 +3063,12 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("在中文方案中补充颜文字候选"),
       s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
       kaomoji_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+  auto symbol_candidates_property = ibus_property_new(
+      "SymbolCandidates", PROP_TYPE_TOGGLE,
+      ibus_text_new_from_static_string("符号候选"), "",
+      ibus_text_new_from_static_string("在中文方案中补充符号候选"),
+      s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
+      symbol_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   const bool clipboard_available = s.clipboard_enabled && s.input_enabled &&
                                    !s.clipboard_history_path.empty();
   const bool clipboard_menu_available = s.focused && !s.blocked &&
@@ -3470,7 +3483,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(properties, clipboard);
     ibus_prop_list_append(properties, menu_group(
         "Group/Input", "输入选项", "方案细节、混合候选与按键选项",
-        {profile, helpcode_property, helpcode_schema, traditional, english, english_mode, emoji, kaomoji, cloud,
+        {profile, helpcode_property, helpcode_schema, traditional, english, english_mode, symbol_candidates_property, emoji, kaomoji, cloud,
          nine_key_property, number_row_property, word_character_property, local_modes_property}));
     ibus_prop_list_append(properties, menu_group(
         "Group/Punctuation", "标点与翻译", "标点细节与候选翻译",
@@ -3504,6 +3517,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     update_menu_property(engine, helpcode_schema);
     ibus_engine_update_property(engine, traditional);
     ibus_engine_update_property(engine, english);
+    ibus_engine_update_property(engine, symbol_candidates_property);
     ibus_engine_update_property(engine, emoji);
     ibus_engine_update_property(engine, kaomoji);
     ibus_engine_update_property(engine, cloud);
@@ -3670,12 +3684,15 @@ void sync_global_input_mode(IBusEngine *engine) {
            std::tuple<const char *, const char *, const char *, bool>{
                "EnglishCandidates", "英文候选", "english", true},
            {"EmojiCandidates", "Emoji候选", "emoji", true},
-           {"KaomojiCandidates", "颜文字候选", "kaomoji", false}}) {
+           {"KaomojiCandidates", "颜文字候选", "kaomoji", false},
+           {"SymbolCandidates", "符号候选", "symbols", true}}) {
     const auto &override_value = std::string(key) == "english"
                                      ? s.english_override
                                      : std::string(key) == "emoji"
                                            ? s.emoji_override
-                                           : s.kaomoji_override;
+                                           : std::string(key) == "kaomoji"
+                                                 ? s.kaomoji_override
+                                                 : s.symbol_override;
     auto property = ibus_property_new(
         name, PROP_TYPE_TOGGLE, ibus_text_new_from_string(label), "",
         ibus_text_new_from_static_string("在中文方案中补充表达候选"), !menu_save_pending, TRUE,
@@ -5043,6 +5060,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        property_name.rfind("HelpcodeSchema/", 0) != 0 &&
        std::string(name) != "EmojiCandidates" &&
        std::string(name) != "KaomojiCandidates" &&
+       std::string(name) != "SymbolCandidates" &&
        std::string(name) != "CandidateLayout/Vertical" &&
        std::string(name) != "CandidateLayout/Horizontal" &&
        property_name.rfind("GlobalTheme/", 0) != 0 &&
@@ -5736,17 +5754,25 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (std::string(name) == "EmojiCandidates" ||
-        std::string(name) == "KaomojiCandidates") {
+        std::string(name) == "KaomojiCandidates" ||
+        std::string(name) == "SymbolCandidates") {
       const bool enabled = value == PROP_STATE_CHECKED;
-      auto &setting_override = std::string(name) == "EmojiCandidates"
-                           ? s.emoji_override : s.kaomoji_override;
-      const auto key = std::string(name) == "EmojiCandidates" ? "emoji" : "kaomoji";
-      if (setting_override.value_or(mixed_input_value(key, false)) == enabled)
+      const bool emoji = std::string(name) == "EmojiCandidates";
+      const bool symbols = std::string(name) == "SymbolCandidates";
+      auto &setting_override = emoji ? s.emoji_override
+                               : symbols ? s.symbol_override
+                                         : s.kaomoji_override;
+      const auto key = emoji ? "emoji" : symbols ? "symbols" : "kaomoji";
+      // 符号混输默认开，缺键读作开；emoji、颜文字缺键读作关。
+      if (setting_override.value_or(mixed_input_value(key, symbols)) == enabled)
         return;
       if (menu_save_pending) return;
       const auto directory = configured.value("preferences_directory", std::string{});
       if (!directory.empty() && directory.front() == '/') {
-        save_menu_preference(engine, std::string(name) == "EmojiCandidates" ? MenuPreference::EmojiCandidates : MenuPreference::KaomojiCandidates, enabled);
+        save_menu_preference(engine, emoji ? MenuPreference::EmojiCandidates
+                                     : symbols ? MenuPreference::SymbolCandidates
+                                               : MenuPreference::KaomojiCandidates,
+                             enabled);
         return;
       }
       if (s.session)
@@ -7842,6 +7868,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->emoji_override.reset();
           if (request.preference == MenuPreference::KaomojiCandidates)
             self->state->kaomoji_override.reset();
+          if (request.preference == MenuPreference::SymbolCandidates)
+            self->state->symbol_override.reset();
           if (request.preference == MenuPreference::QuanpinHelpcode &&
               self->state->scheme_override.value_or(configured.at("preferences").value("scheme", "quanpin")) == "quanpin")
             self->state->helpcode_override.reset();
@@ -7964,6 +7992,9 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::KaomojiCandidates:
             snapshot["preferences"]["mixed_input"]["kaomoji"] = request.value;
+            break;
+          case MenuPreference::SymbolCandidates:
+            snapshot["preferences"]["mixed_input"]["symbols"] = request.value;
             break;
           case MenuPreference::QuanpinHelpcode:
             snapshot["preferences"]["quanpin_helpcode"]["enabled"] = request.value;
