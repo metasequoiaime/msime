@@ -37,7 +37,24 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(field.waitForExistence(timeout: 10))
     field.tap()
     let toolbar = app.buttons["moreShortcut"]
-    XCTAssertTrue(toolbar.waitForExistence(timeout: 10), "请预先启用水杉系统键盘")
+    if !toolbar.waitForExistence(timeout: 6) {
+      // 新编辑器由系统选择初始键盘，先通过键盘列表切换到已启用的水杉。
+      let globe = app.buttons.matching(NSPredicate(format: "label IN %@", ["Next keyboard", "下一个键盘"])).firstMatch
+      if globe.waitForExistence(timeout: 5) {
+        globe.press(forDuration: 1)
+        let entry = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "水杉输入法")).firstMatch
+        if entry.waitForExistence(timeout: 3) { entry.tap() }
+        if !toolbar.waitForExistence(timeout: 3) {
+          for _ in 0..<20 {
+            globe.tap()
+            if toolbar.waitForExistence(timeout: 3) { break }
+          }
+        }
+      }
+    }
+    XCTAssertTrue(toolbar.waitForExistence(timeout: 5), "系统键盘必须能切换到水杉")
+    let back = app.buttons["dismissShortcut"]
+    if back.exists && back.label == "返回键盘" { back.tap() }
     app.buttons["schemeButton"].tap()
     let card = app.buttons["schemeCard-cantonese"]
     let grid = app.descendants(matching: .any)["schemePickerScroll"].firstMatch
