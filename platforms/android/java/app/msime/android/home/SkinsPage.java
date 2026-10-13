@@ -30,7 +30,6 @@ import java.util.List;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
-import com.google.android.material.tabs.TabLayout;
 
 /**
  * 皮肤页：标题下固定的「内置 / 我的 / 社区」分类，分类内容使用两列预览卡，AI 设计入口放在「我的」。社区 Tab 直接承载完整列表，提供搜索、分类筛选、详情和举报。
@@ -49,7 +48,7 @@ public final class SkinsPage extends ReloadingDetailPage {
     private boolean catalogueChecked;
     private int section;
     @Nullable private Model model;
-    @Nullable private TabLayout tabs;
+    @Nullable private FrameLayout navigation;
     @Nullable private FrameLayout communityContent;
 
     @Override public void onCreate(@Nullable Bundle state) {
@@ -64,25 +63,23 @@ public final class SkinsPage extends ReloadingDetailPage {
 
     @Override protected View fixedNavigation() {
         Context context = requireContext();
-        tabs = new TabLayout(context);
-        tabs.setTabMode(TabLayout.MODE_FIXED);
-        tabs.setTabTextColors(ThemeColorPolicy.subText(context), ThemeColorPolicy.accent(context));
-        tabs.setSelectedTabIndicatorColor(ThemeColorPolicy.accent(context));
-        ViewPolicy.setBackgroundColor(tabs, ThemeColorPolicy.page(context));
-        for (String title : new String[] {"内置", "我的", "社区"}) tabs.addTab(tabs.newTab().setText(title));
-        tabs.selectTab(tabs.getTabAt(section));
-        tabs.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
-            @Override public void onTabSelected(TabLayout.Tab tab) {
-                section = tab.getPosition();
-                renderSection();
-                scrollView().scrollTo(0, 0);
-            }
-            @Override public void onTabUnselected(TabLayout.Tab tab) {}
-            @Override public void onTabReselected(TabLayout.Tab tab) {}
+        navigation = new FrameLayout(context);
+        ViewPolicy.setSymmetricPaddingDp(context, navigation, Ui.PAGE_PADDING, 4);
+        ViewPolicy.setBackgroundColor(navigation, ThemeColorPolicy.page(context));
+        SegmentedControl tabs = new SegmentedControl(context);
+        tabs.setFillWidth(true);
+        tabs.setMinimumHeight(DimensionPolicy.pixels(context, 40));
+        ViewPolicy.setBackground(tabs, DrawablePolicy.pill(ThemeColorPolicy.card(context)));
+        tabs.setOptions(List.of("内置", "我的", "社区"), section);
+        tabs.setOnSelect(index -> {
+            section = index;
+            renderSection();
+            scrollView().scrollTo(0, 0);
         });
-        tabs.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
+        navigation.addView(tabs, LayoutPolicy.frameMatchWidthWrapParams());
+        navigation.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
             positionCommunityContent());
-        return tabs;
+        return navigation;
     }
 
     @Override protected void onContentReady() {
@@ -95,10 +92,10 @@ public final class SkinsPage extends ReloadingDetailPage {
     }
 
     private void positionCommunityContent() {
-        if (communityContent == null || tabs == null) return;
+        if (communityContent == null || navigation == null) return;
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) communityContent.getLayoutParams();
         params.topMargin = DimensionPolicy.pixels(requireContext(), Ui.TOP_BAR_HEIGHT)
-            + (tabs.getHeight() > 0 ? tabs.getHeight() : DimensionPolicy.pixels(requireContext(), 48));
+            + (navigation.getHeight() > 0 ? navigation.getHeight() : DimensionPolicy.pixels(requireContext(), 48));
         communityContent.setLayoutParams(params);
     }
 
@@ -119,7 +116,7 @@ public final class SkinsPage extends ReloadingDetailPage {
 
     @Override protected void onContentDestroyed() {
         model = null;
-        tabs = null;
+        navigation = null;
         communityContent = null;
     }
 
