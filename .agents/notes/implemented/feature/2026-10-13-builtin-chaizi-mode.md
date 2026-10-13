@@ -9,7 +9,7 @@ Status: implemented
 ## Decision
 
 - **入口**：第 10 个 Shift+字母本地模式 `LocalInputMode::Chaizi`，名字 `chaizi`，入口键 Shift+C（C 是「拆」的声母，记法同 J 简拼、Y 英语、R 罗马字）。判定在 Engine 的 `local_mode_for_entry`：受总开关 `shift_letter_entry` 约束，方案用 `opens_table_modes`（全拼、双拼、五笔），和 K 一样在五笔下也能进，因为它查的是编进引擎的表，不经过方案的拼写。移动宿主经同一个 Engine 入口打开（菜单发带 Shift 的 `C`），宿主按键路径不改。
-- **默认值按宿主形态区分**：Engine 的 `LocalModeOptions::chaizi`、`EngineOptions::local_chaizi` 默认 `false`。共享偏好是 `local_modes.chaizi: Option<bool>`，`#[serde(default, skip_serializing_if = "Option::is_none")]`，缺省 `None`。host-api 在建会话和偏好重建两处取 `chaizi.unwrap_or(TOUCH_KEYBOARD_HOST)`，`TOUCH_KEYBOARD_HOST = cfg!(any(target_os = "android", target_os = "ios", target_env = "ohos"))`：触屏宿主默认开（从菜单进入，没有按键冲突），桌面宿主默认关（打开后句首和中英混打的大写 C 会进模式，见下）。只有用户动过开关时文档里才有这个键。
+- **默认值按宿主形态区分**：Engine 的 `LocalModeOptions::chaizi`、`EngineOptions::local_chaizi` 默认 `false`。共享偏好是 `local_modes.chaizi: Option<bool>`，`#[serde(default, skip_serializing_if = "Option::is_none")]`，缺省 `None`。host-api 在建会话和偏好重建两处取 `chaizi.unwrap_or(TOUCH_KEYBOARD_HOST)`，`TOUCH_KEYBOARD_HOST = cfg!(any(target_os = "android", target_os = "ios", target_env = "ohos"))`：触屏宿主默认开（屏幕键盘从菜单进入），桌面宿主默认关（打开后句首和中英混打的大写 C 会进模式，见下）。判断只看编译目标，不看运行时的设备形态：Android 的实体键盘（`MSIMEInputService.onKeyDown` 经 `character(unicode, isShiftPressed())` 送字母）和 HarmonyOS 的实体键盘、鸿蒙电脑（`HardwareKeyRouter.normalizeLetterCase` 还原大小写后送 Engine）上 Shift+C 同样进入拆字，「C盘」会上屏 `Cpan`。iOS 键盘扩展收不到硬件键，没有这个问题。只有用户动过开关时文档里才有这个键。
 - **输入与匹配**：`C` 之后收字母，长度上限 `GENERATED_MODE_INPUT_LIMIT`；`'` 只收在部件之后、不能紧跟 `C`、不能连续，宿主当标点送来时经 `takes_local_separator` 同样当分隔符，光标处插入走同一组规则。双拼方案用得到 `;` 键时（微软双拼的 ing），`;` 和普通组字一样只补完奇数长度的片段，片段从上一个 `'` 或入口字母之后算起（`InputSession::chaizi_takes_symbol`），`sjq;` 查到「清」。输入里有大写字母就不查表（`CPU`、`CEO` 照原样）。比较时去掉 `'`；写了 `'` 时每个 `'` 必须落在键的部件边界上，打头的 `'`（删掉 `C'huo` 之间的部件后留下的）不算分隔符。先列整串精确命中的字，再列前缀补全，补全要求输入已经打完键的前两个部件（以 `hen` 开头的键有几十个，`Chen`、`Chang` 因此只出原样行）。双拼另把输入按当前双拼方案转成全拼再查一次，和 E、M 模式相同。同一级按名次排，最多 36 行。没有命中时只有原样兜底行。
 - **候选与注释**：行来源 `Generated`，`pinyin` 记命中的键。注释是这个字的带调读音（Unihan `kMandarin` 首值，焱 → `yàn`）。新加 `LocalInputMode::annotates_rows()`（V、`/`、`@`、拆字为真），替换注释与快照补辅助码两处原来的 `generates_text()` 判断，所以拆字行不补辅助码，133 个没有读音的字注释留空。`generates_text()` 不变，它还管学习和统计。
 - **学习与统计**：选词不进任何词库（本地模式下句子学习本来就被拦住）；回车上屏原文（含 `C`），和 U、T、K、E、M、J 一样经 `commit_raw_with_policy` 学成英文词；计入打字统计（字是用户挑出来的，和 E、J 同类）。脚本插件的 `LocalModeClass::Chaizi = 13`，不在可读文本的白名单里。
@@ -29,7 +29,7 @@ Status: implemented
 ## Alternatives considered
 
 - **六个平台都默认开**：功能最容易被发现，和 fcitx5 拼音默认开 `ChaiziEnabled` 一致；按 macOS 自带词表实测，19,907 个 c 开头的英文词里只有 6 个整串命中（cheer、crier 等），前缀命中为 0。但中英混打「C+拼音」全部变样：`C盘` 上屏 `Cpan`、`C位` 上屏 `Cwei`，`C语言` 整串命中 6 个字、空格上屏「琰」。仓库对占用原本会作为文字交给应用的键的新模式一律默认关（V，`LocalModeOptions` 上方的注释），[Shift+字母进入快捷模式的总开关](2026-10-11-shift-letter-entry-switch.md) 也拒绝悄悄改变现有用户的习惯，所以桌面默认关。
-- **六个平台都默认关**：最保守。但移动宿主把缺键读作开（iOS `?? true`、Android `optBoolean(key, true)`，HarmonyOS 不过滤），要它们改读法才不会出现点了没反应的菜单项，而触屏上从菜单进入根本没有按键冲突，代价是移动用户要先去设置里打开一个他们不知道存在的功能。
+- **六个平台都默认关**：最保守。但移动宿主把缺键读作开（iOS `?? true`、Android `optBoolean(key, true)`，HarmonyOS 不过滤），要它们改读法才不会出现点了没反应的菜单项，而屏幕键盘从菜单进入没有按键冲突，代价是移动用户要先去设置里打开一个他们不知道存在的功能。
 - **`/cz` 指令**：不占字母。但 `/` 模式默认关、要求中文标点，Android 没有 `/` 模式，触屏不提供 `/`。
 - **小写 `u` 前缀**（搜狗、Rime `radical_pinyin` 的习惯）：其他输入法的用户熟悉。但 `u` 在双拼里是声母键、在五笔里是编码键，九键和 14 键打不出来，全拼里会抢走 `user`、`update`，还要改普通组字路径。
 - **普通组字里整串命中时插入拆字行**（fcitx5 `ChaiziEnabled` 的做法）：不用进模式。但要改 `update_mixed_candidates` 和学习列表，会错调词频，回归面是六个平台的全部普通打字。
@@ -42,12 +42,13 @@ Status: implemented
 
 - **收益**：六个平台共用一份 Engine 实现和一份数据，宿主只需在设置和菜单里加一项；生成器和锁让数据可复现，`--check` 和 CI 的 Rust engine 作业（`MSIME_FETCH=1`）挡住手改和过期的表。
 - **代价**：
-  - 每个原生平台的引擎多约 0.6 MB 只读数据（两表 298 KB + 324 KB，因为加了部首俗称，键从 14,448 个增至 17,942 个），首次查询分配约 150 KB 偏移表。iOS 键盘扩展的内存峰值没有测过。
-  - 数据质量：11 个部件没有读音，108 条拆法、76 个字查不到；部首变体的叫法靠手写别名补，多音部件按 `kMandarin` ∪ `kTGHZ2013` 展开，仍可能漏掉习惯读法；186 个辅助平面字的字体覆盖没有保证。
+  - 每个原生平台的引擎多约 0.6 MB 只读数据（两表 298 KB + 324 KB，因为加了部首俗称，键从 14,453 个增至 17,942 个），首次查询分配约 150 KB 偏移表。iOS 键盘扩展的内存峰值没有测过。
+  - 数据质量：8 个部件没有读音（生成器的 `unread_components`，不算「□」占位和私用区部件，它们所在的拆法另行去掉），因此去掉 83 条拆法，连同含「□」或私用区部件的 25 条共 108 条拆法、76 个字查不到；部首变体的叫法靠手写别名补，多音部件按 `kMandarin` ∪ `kTGHZ2013` 展开，仍可能漏掉习惯读法；185 个辅助平面字的字体覆盖没有保证。
   - `deny_unknown_fields`：用户动过拆字开关后，早于它的设置应用或 `msime-mcp` 会拒读文档，和 `shift_letter_entry` 的取舍相同。
   - 繁体去重依赖 host-api 看到的 `traditional_chinese_output`；IBus 没有可写偏好目录时的会话级切换下，繁体输出可能出现重复字形，不会上屏错字。
   - 许可有三处残余不确定，未经法务审阅：CC BY 3.0 与 GPL-3.0 没有权威的兼容声明（结论来自条款本身：第 3(b) 条允许改编、没有相同方式共享的要求，第 4(b) 条的署名要求落在 GPLv3 第 7(b) 条允许的附加条款里）；如果这张表被看作原作的重排而不是改编，第 4(a) 条的技术措施条款就适用于 App Store、AppGallery 的分发，这和仓库已分发的 CC BY 4.0、CC BY-SA 4.0 数据以及加加辅助码表是同一类风险；上游没有说明数据自身的来源。加加辅助码表的部件拆分已经通过 rime-radical-pinyin 带着同一份 kfcd 数据随 iOS 和 HarmonyOS 分发（`resources/helpcodes/NOTICE.md`）。
-- **重访信号**：维护者判断许可不可接受时改走资源包；桌面用户普遍打开后抱怨 C 盘之类的回归时，考虑「C 后接已知英文词或单音节就交还」之类的保护规则，而不是改默认值。
+- Android、HarmonyOS 接实体键盘时默认开带来的「C盘 → `Cpan`」问题没有缓解：两者的设置都不提供「Shift+字母」总开关（宿主能力的 `shift_letter_entry_switch` 只给桌面，两个宿主的原生设置里也没有），用户只能整项关掉拆字。是按运行时形态（例如 HarmonyOS 的 `KeyboardFormFactor.isDesktop()`、Android 接了实体键盘）把缺键读作关，还是给这两个宿主也提供总开关，留给维护者决定。
+- **重访信号**：维护者判断许可不可接受时改走资源包；桌面用户普遍打开后抱怨 C 盘之类的回归时，考虑「C 后接已知英文词或单音节就交还」之类的保护规则，而不是改默认值；Android、HarmonyOS 实体键盘用户出现同样的抱怨时按上一条处理。
 - **落地范围**：本篇随 Engine、数据、共享偏好、host-api 和契约检查一起落地。六个平台宿主的设置开关、移动端菜单项和声明渠道（照 `scripts/test-language-data-notices.py` 的渠道清单）随后接上，都已列进 `test-chaizi-table.py` 的 `NOTICE_CHANNELS`；以后新增的渠道同样要加进去。
 
 相关笔记：[五笔开放本地表模式入口](../../implemented/bug-fix/2026-10-10-wubi-table-local-modes.md)（`opens_table_modes`）、[插件门控与宿主侧五笔表模式](../../implemented/bug-fix/2026-10-09-plugin-gates-and-wubi-table-modes.md)（移动端不为五笔开本地输入）、[五笔反查](2026-10-11-wubi-reverse-lookup.md)（已知读音时的查码路径，与拆字互补）。
