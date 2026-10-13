@@ -383,17 +383,17 @@ final class ImeLayoutRows {
                     digits ? 22 : KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
                 if (NineKeyLayout.opensSymbols(key, digits)) s.nineKeySymbolKey = keyButton;
                 s.keyId(keyButton, KeyPressIds.forNineKeyDigit(key.digit()));
-                // 字母键面上印着它送进引擎的数字；数字键面本身就是那个数字，不必再印一次。
-                // 1 键在拼音键面上是「@#」，打开符号面板而不是送 1，所以它没有可印的数字。
-                keyButton.setDigitText(digits || !TextPolicy.isDigit(key.input())
-                    ? "" : NineKeyLayout.digitInput(key));
-                if (!digits && TextPolicy.isDigit(key.input()) && key.label().length() > 1) {
-                    keyButton.setContentDescription("按键 " + description + "；长按输入数字或字母");
+                // 拼音键面保留每格的数字标记，包括点按打开符号或分词的 1；数字键面不重复标记。
+                keyButton.setDigitText(digits ? "" : NineKeyLayout.digitInput(key));
+                if (!digits) {
+                    boolean hasLetters = TextPolicy.isDigit(key.input()) && key.label().length() > 1;
+                    keyButton.setContentDescription("按键 " + description
+                        + (hasLetters ? "；长按输入数字或字母" : "；长按输入数字 1"));
                     keyButton.setOnLongClickListener(ignored -> {
-                        // The hold is this cell's press; picking from the popup is not another key.
+                        // 长按计为这格的一次按压，选择弹窗选项不再计一次；1 键只提供数字，不把功能键面当字母。
                         s.countKey(keyButton);
                         showNineKeyHoldOptions(keyButton, NineKeyLayout.digitInput(key),
-                            key.label().toLowerCase(java.util.Locale.ROOT));
+                            hasLetters ? key.label().toLowerCase(java.util.Locale.ROOT) : "");
                         return true;
                     });
                 }
@@ -744,7 +744,8 @@ final class ImeLayoutRows {
         String face = NineKeyLayout.face(key, digits, composing);
         if (face.contentEquals(s.nineKeySymbolKey.getText())) return;
         s.nineKeySymbolKey.setText(face);
-        s.nineKeySymbolKey.setContentDescription("按键 " + NineKeyLayout.description(key, digits, composing));
+        s.nineKeySymbolKey.setContentDescription("按键 " + NineKeyLayout.description(key, digits, composing)
+            + (!digits && !s.nineKeyShuangpinDrawn() ? "；长按输入数字 1" : ""));
     }
 
     void updateStrokeWildcardKey() {
@@ -765,7 +766,7 @@ final class ImeLayoutRows {
         final boolean hasLetters = TextPolicy.isDigit(key.input()) && key.label().length() > 1;
         Runnable restoreFace = () -> {
             keyButton.setText(face[0]);
-        keyButton.setDigitText(TextPolicy.isDigit(key.input()) ? digit : "");
+            keyButton.setDigitText(digit);
         };
         keyButton.setOnTouchListener((view, event) -> {
             switch (event.getActionMasked()) {
