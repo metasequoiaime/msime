@@ -21,7 +21,7 @@ struct DeveloperOptionsView: View {
   @State private var confirmsReset = false
   @State private var resetting = false
   @State private var pending: Task<Void, Never>?
-  @State private var lifecycle = UUID()
+  @State private var lifecycle = OperationGeneration()
 
   var body: some View {
     ScrollView {
@@ -74,7 +74,7 @@ struct DeveloperOptionsView: View {
       if phase == .active { reload() }
     }
     .onDisappear {
-      lifecycle = UUID()
+      lifecycle.invalidate()
       pending?.cancel()
       pending = nil
       exporting = false
@@ -100,11 +100,11 @@ struct DeveloperOptionsView: View {
   private func export() {
     guard !exporting else { return }
     exporting = true
-    let id = lifecycle
+    let id = lifecycle.current()
     pending = Task { @MainActor in
-      defer { if lifecycle == id { pending = nil } }
+      defer { if lifecycle.isCurrent(id) { pending = nil } }
       let url = await Task.detached(priority: .userInitiated) { DeveloperDiagnostics.exportBundle() }.value
-      guard lifecycle == id, !Task.isCancelled else {
+      guard lifecycle.isCurrent(id), !Task.isCancelled else {
         if let url { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         return
       }
@@ -120,9 +120,9 @@ struct DeveloperOptionsView: View {
   private func reset() {
     guard !resetting else { return }
     resetting = true
-    let id = lifecycle
+    let id = lifecycle.current()
     pending = Task { @MainActor in
-      defer { if lifecycle == id { pending = nil } }
+      defer { if lifecycle.isCurrent(id) { pending = nil } }
       let restored = await Task.detached(priority: .userInitiated) { DeveloperDiagnostics.restoreDefaults() }.value
       if restored {
         DeveloperDiagnostics.resetLocalPreferences()
@@ -131,7 +131,7 @@ struct DeveloperOptionsView: View {
         // 恢复出厂设置会把共享文档里的 `theme` 和 `settings_theme` 一并改回默认值，与「明暗与候选颜色」写这两个键时一样通知窗口重新应用界面样式，不必等 App 回到前台。
         NotificationCenter.default.post(name: AppAppearancePreference.didChange, object: nil)
       }
-      guard lifecycle == id, !Task.isCancelled else { return }
+      guard lifecycle.isCurrent(id), !Task.isCancelled else { return }
       resetting = false
       reload()
       ToastCenter.shared.show(restored ? "已重置" : "重置失败，请重试")

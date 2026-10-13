@@ -11,7 +11,7 @@ final class SkinGenerationModel: ObservableObject {
   @Published var message: String?
   @Published var result: SavedKeyboardSkin?
   private var request: Task<Void, Never>?
-  private var generation = UUID()
+  private var generation = OperationGeneration()
   private let api = BackendAccountClient()
   private var accountID: String?
   private var accountSessionID: UUID?
@@ -61,11 +61,11 @@ final class SkinGenerationModel: ObservableObject {
     guard let userID = accountID, !generating, !description.isEmpty, description.count <= 600,
           models.contains(where: { $0.id == selectedModel }) else { return }
     generating = true; message = nil
-    let id = UUID(); generation = id
+    let id = generation.begin()
     let model = selectedModel
     let sessionID = accountSessionID
     request = Task {
-      defer { if generation == id { generating = false; request = nil } }
+      defer { if generation.isCurrent(id) { generating = false; request = nil } }
       do {
         let reply: String
         if fixture {
@@ -79,13 +79,13 @@ final class SkinGenerationModel: ObservableObject {
         }
         try Task.checkCancellation()
         let parsed = try GeneratedKeyboardSkin.parse(reply)
-        guard generation == id else { return }
+        guard generation.isCurrent(id) else { return }
         result = parsed
       } catch is CancellationError { }
-      catch { if generation == id && !Task.isCancelled { show(error) } }
+      catch { if generation.isCurrent(id) && !Task.isCancelled { show(error) } }
     }
   }
-  func cancel() { generation = UUID(); request?.cancel(); request = nil; generating = false }
+  func cancel() { generation.invalidate(); request?.cancel(); request = nil; generating = false }
   private func show(_ error: Error) {
     if let failure = error as? BackendAccountClient.Failure {
       loginNeeded = failure.status == 401

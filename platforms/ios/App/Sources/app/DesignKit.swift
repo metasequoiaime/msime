@@ -28,6 +28,27 @@ extension View {
 
 // MARK: - 标志圆盘
 
+/// 统一绘制圆盘、标志框和白色描边；调用方决定圆盘的配色与尺寸。
+struct LogoDisc: View {
+  let diameter: CGFloat
+  let markSize: CGFloat
+  let discFill: Color
+  let frameFill: Color
+
+  var body: some View {
+    let scale = MSIMELogo.scale(for: CGRect(x: 0, y: 0, width: markSize, height: markSize))
+    ZStack {
+      Circle().fill(discFill)
+      ZStack {
+        MSIMELogoFrame().fill(frameFill)
+        MSIMELogoStroke().stroke(.white, style: StrokeStyle(lineWidth: MSIMELogo.strokeWidth * scale, lineCap: .round, lineJoin: .round))
+      }
+      .frame(width: markSize, height: markSize)
+    }
+    .frame(width: diameter, height: diameter)
+  }
+}
+
 /// 着色圆盘上的应用标志（「设置」「关于」和首次引导的页头）：圆盘用 `aM(14)` / `aM(22)`，边框用 `mix(accent 82%, #000)`，白色描边叠在最上面。
 struct AppMarkDisc: View {
   var diameter: CGFloat = 52
@@ -38,16 +59,8 @@ struct AppMarkDisc: View {
   })
 
   var body: some View {
-    let scale = MSIMELogo.scale(for: CGRect(x: 0, y: 0, width: markSize, height: markSize))
-    ZStack {
-      Circle().fill(MetasequoiaTheme.accentMix(14, 22))
-      ZStack {
-        MSIMELogoFrame().fill(Self.frameFill)
-        MSIMELogoStroke().stroke(.white, style: StrokeStyle(lineWidth: MSIMELogo.strokeWidth * scale, lineCap: .round, lineJoin: .round))
-      }
-      .frame(width: markSize, height: markSize)
-    }
-    .frame(width: diameter, height: diameter)
+    LogoDisc(diameter: diameter, markSize: markSize,
+             discFill: MetasequoiaTheme.accentMix(14, 22), frameFill: Self.frameFill)
     .accessibilityHidden(true)
   }
 }

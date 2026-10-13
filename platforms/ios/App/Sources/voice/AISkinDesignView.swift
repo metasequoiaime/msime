@@ -19,7 +19,7 @@ final class AISkinDesignModel: ObservableObject {
   @Published var loginNeeded = false
 
   private var request: Task<Void, Never>?
-  private var generation = UUID()
+  private var generation = OperationGeneration()
   /// 方案 id 到它在我的皮肤里保存时所用 id 的映射，这样重试「使用此皮肤」不会再存一份。
   private var saved: [UUID: UUID] = [:]
 
@@ -41,9 +41,9 @@ final class AISkinDesignModel: ObservableObject {
     let text = trimmedPrompt
     guard !busy, (1...Self.maximumPromptLength).contains(text.count) else { return }
     busy = true; completed = 0; message = nil
-    let id = UUID(); generation = id
+    let id = generation.begin()
     request = Task {
-      defer { if generation == id { busy = false; request = nil } }
+      defer { if generation.isCurrent(id) { busy = false; request = nil } }
       do {
         let values: [AISkinProposal]
         if fixture {
@@ -53,29 +53,29 @@ final class AISkinDesignModel: ObservableObject {
           }
         } else {
           guard try await BackendAccountSession.shared.user() != nil else {
-            if generation == id { loginNeeded = true }
+            if generation.isCurrent(id) { loginNeeded = true }
             return
           }
           values = try await AISkinService.generate(text) { count in
-            if self.generation == id { self.completed = count }
+            if self.generation.isCurrent(id) { self.completed = count }
           }
         }
         try Task.checkCancellation()
-        guard generation == id else { return }
+        guard generation.isCurrent(id) else { return }
         proposals = values; chosen = 0; saved.removeAll()
       } catch is CancellationError {
       } catch let failure as BackendAccountClient.Failure where failure.status == 401 {
-        guard generation == id else { return }
+        guard generation.isCurrent(id) else { return }
         message = "请先登录，再来设计皮肤。"; loginNeeded = true
       } catch {
         // 429 和 503 直接用后端客户端自带的文案（操作过于频繁… / 此服务暂不可用…）。
-        if generation == id && !Task.isCancelled { message = error.localizedDescription }
+        if generation.isCurrent(id) && !Task.isCancelled { message = error.localizedDescription }
       }
     }
   }
 
   func cancel() {
-    generation = UUID()
+    generation.invalidate()
     request?.cancel(); request = nil
     busy = false; completed = 0
   }

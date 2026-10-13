@@ -340,7 +340,7 @@ struct ServiceSettingsView: View {
   @State private var status = ""
   @State private var busy = false
   @State private var operation: Task<Void, Never>?
-  @State private var requestID = UUID()
+  @State private var request = ViewRequestGeneration()
   @State private var voiceGeneration: UInt64 = 0
   @State private var voiceSettings = VoicePolishSettings(MetasequoiaInputSessionBridge.loadSharedPreferences())
   @State private var voiceSettingsSaveFailed = false
@@ -422,19 +422,25 @@ struct ServiceSettingsView: View {
               }
               let live = streamsLive || onDevice
               if live { guard save() else { return } }
+              guard request.isVisible else { return }
+              let recordingID = request.begin()
               operation = Task {
                 // The recording session silences system sounds, so the start cue has to finish before it opens.
                 if voiceSettings.soundEnabled && voiceSettings.startSound { await VoiceCue.playStart() }
                 do {
+                  try request.checkCurrent(recordingID)
                   if live {
                     if let pcm = try await recorder.startStreaming(quietensOthers: voiceSettings.muteOthers) {
+                      try request.checkCurrent(recordingID)
                       if onDevice { recognizeOnDevice(pcm) } else { recognizeLive(pcm) }
                     }
                   } else {
                     try await recorder.start(quietensOthers: voiceSettings.muteOthers)
                   }
                 }
-                catch is CancellationError {} catch { status = error.localizedDescription }
+                catch is CancellationError {} catch {
+                  if request.isCurrent(recordingID) && !Task.isCancelled { status = error.localizedDescription }
+                }
               }
             }
           }
@@ -547,7 +553,8 @@ struct ServiceSettingsView: View {
         do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { break }
       }
     }
-    .onDisappear { cancelAndClear() }
+    .onAppear { request.appear() }
+    .onDisappear { request.disappear(); cancelAndClear() }
     .onChange(of: scenePhase) { phase in
       if phase == .background { cancelAndClear() }
       if phase == .active && kind == .voice { refreshVoiceTransfer() }
@@ -849,7 +856,8 @@ struct ServiceSettingsView: View {
     output = ""
   }
 
-  private func fetchModels() {
+  @MainActor private func fetchModels() {
+    guard request.isVisible, !busy else { return }
     if kind == .voice && configuration.voiceProvider == .doubao {
       modelStatus = "豆包语音模型由当前接口固定提供。"
       return
@@ -864,27 +872,27 @@ struct ServiceSettingsView: View {
       busy = true
       fetchingModels = true
       modelStatus = ""
-      requestID = UUID()
-      let id = requestID
+      let id = request.begin()
       operation = Task {
+        defer { if request.isCurrent(id) { busy = false; fetchingModels = false } }
         do {
           let models = try await ModelCatalogClient.fetch(configuration: config, kind: kind, token: key)
-          try Task.checkCancellation()
-          guard requestID == id else { return }
+          try request.checkCurrent(id)
           fetchedModels = models
           if !models.contains(configuration.model) { configuration.model = models[0] }
           editsCustomModel = false
           modelStatus = "已获取 \(models.count) 个模型。请选择支持当前功能的模型。"
+        } catch is CancellationError {
         } catch {
-          if requestID == id && !Task.isCancelled { modelStatus = error.localizedDescription }
+          if request.isCurrent(id) && !Task.isCancelled { modelStatus = error.localizedDescription }
         }
-        if requestID == id { busy = false; fetchingModels = false }
       }
     } catch { modelStatus = error.localizedDescription }
   }
 
   /// Check the endpoint, model and key as typed, before saving, the way the desktop settings page does. A key left blank uses the saved one.
-  private func testConnection() {
+  @MainActor private func testConnection() {
+    guard request.isVisible, !busy else { return }
     let config = configuration
     let doubao = kind == .voice && config.voiceProvider == .doubao
     do {
@@ -900,18 +908,17 @@ struct ServiceSettingsView: View {
       busy = true
       testingConnection = true
       modelStatus = ""
-      requestID = UUID()
-      let id = requestID
+      let id = request.begin()
       operation = Task {
+        defer { if request.isCurrent(id) { busy = false; testingConnection = false } }
         do {
           try await CustomServiceClient.test(kind: kind, configuration: config, token: key, doubaoClient: client)
-          try Task.checkCancellation()
-          if requestID == id { modelStatus = "连接成功，API Key 和模型配置有效。" }
+          try request.checkCurrent(id)
+          modelStatus = "连接成功，API Key 和模型配置有效。"
         } catch is CancellationError {
         } catch {
-          if requestID == id && !Task.isCancelled { modelStatus = "测试失败：\(error.localizedDescription)" }
+          if request.isCurrent(id) && !Task.isCancelled { modelStatus = "测试失败：\(error.localizedDescription)" }
         }
-        if requestID == id { busy = false; testingConnection = false }
       }
     } catch { modelStatus = error.localizedDescription }
   }
@@ -942,7 +949,8 @@ struct ServiceSettingsView: View {
       return true
     } catch { status = error.localizedDescription; return false }
   }
-  private func send() {
+  @MainActor private func send() {
+    guard request.isVisible, !busy else { return }
     if recognizesOnDevice {
       // A recording whose on-device pass failed is recognized again from the saved audio.
       guard let pcm = recorder.pcmAudio, save() else { return }
@@ -978,9 +986,9 @@ struct ServiceSettingsView: View {
       generation = 0
       doubaoClient = nil
     }
-    requestID = UUID()
-    let id = requestID
+    let id = request.begin()
     operation = Task {
+      defer { if request.isCurrent(id) { busy = false } }
       do {
         let tokenURL = try config.validatedURL(
           allowWebSocket: kind == .voice && config.voiceProvider == .doubao, allowsLocalHTTP: kind == .ai)
@@ -988,31 +996,31 @@ struct ServiceSettingsView: View {
         let result = try await CustomServiceClient.request(kind: kind, configuration: config,
           text: text, wav: audio, pcm: pcm, token: savedToken, language: language,
           generation: generation, doubaoClient: doubaoClient)
-        try Task.checkCancellation()
-        guard requestID == id else { return }
+        try request.checkCurrent(id)
         if kind == .voice { recordVoiceDuration(result) }
         try await deliver(result, polish: polish, id: id)
       } catch is CancellationError {
-        if requestID == id { status = "已取消" }
+        if request.isCurrent(id) { status = "已取消" }
       } catch {
-        if requestID == id && !Task.isCancelled { status = error.localizedDescription }
+        if request.isCurrent(id) && !Task.isCancelled { status = error.localizedDescription }
       }
-      if requestID == id { busy = false }
     }
   }
   /// Shows a recognized result, polished first when the voice page asks for it.
-  private func deliver(_ result: String, polish: VoicePolishSettings?, id: UUID) async throws {
+  @MainActor private func deliver(_ result: String, polish: VoicePolishSettings?, id: UUID) async throws {
     if let polish, !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       transcript = result
       output = result
       status = "识别完成，正在润色…"
       do {
-        output = try await Self.polish(result, settings: polish)
+        let polished = try await Self.polish(result, settings: polish)
+        try request.checkCurrent(id)
+        output = polished
         status = "已完成"
       } catch is CancellationError {
         throw CancellationError()
       } catch {
-        guard requestID == id else { return }
+        guard request.isCurrent(id), !Task.isCancelled else { return }
         status = "润色失败，已保留识别原文：\(error.localizedDescription)"
       }
     } else {
@@ -1022,7 +1030,7 @@ struct ServiceSettingsView: View {
   }
 
   /// 动口不动手：一段录音转成文字后，把它的时长计入统计，每段录音只计一次，与 Android 记录已插入语音输入时长的做法相同。隐私模式下这里同样不记。
-  private func recordVoiceDuration(_ result: String) {
+  @MainActor private func recordVoiceDuration(_ result: String) {
     // 实时识别器可能在用户点停止录音之前就给出结果；调用方随后反正会丢弃这段录音，所以录音在这里结束，时长也就确定了。
     if recorder.isRecording { recorder.stop() }
     guard !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -1038,7 +1046,8 @@ struct ServiceSettingsView: View {
   }
 
   /// Recognizes while the user is still speaking. A failed request leaves the recording in place once it stops, so it can still be sent the ordinary way.
-  private func recognizeLive(_ pcm: AsyncStream<Data>) {
+  @MainActor private func recognizeLive(_ pcm: AsyncStream<Data>) {
+    guard request.isVisible else { return }
     let config = configuration
     let polish = voiceSettings.polishEnabled ? voiceSettings : nil
     voiceGeneration &+= 1
@@ -1046,24 +1055,29 @@ struct ServiceSettingsView: View {
     let client = DoubaoVoiceClient(transport: DoubaoWebSocketTransport(), codec: DoubaoHostFrameCodec.make(
       enableITN: config.doubaoEnableITN, punctuation: config.doubaoEnablePunctuation,
       DDC: config.doubaoEnableDDC, boostingTable: config.doubaoBoostingTableID))
-    requestID = UUID()
-    let id = requestID
+    let id = request.begin()
     output = ""
     transcript = ""
     status = ""
     liveText = ""
     recognizesLive = true
     operation = Task {
+      defer {
+        if request.isCurrent(id) {
+          recognizesLive = false
+          liveText = ""
+          busy = false
+        }
+      }
       do {
         let url = try config.validatedURL(requiresModel: false, allowWebSocket: true)
         let token = try ServiceTokenStore.read(.voice, url: url)
         let result = try await CustomServiceClient.streamDoubao(
           configuration: config, token: token, generation: generation, client: client, pcm: pcm
         ) { text in
-          Task { @MainActor in if requestID == id && recognizesLive { liveText = text } }
+          Task { @MainActor in if request.isCurrent(id) && recognizesLive { liveText = text } }
         }
-        try Task.checkCancellation()
-        guard requestID == id else { return }
+        try request.checkCurrent(id)
         recognizesLive = false
         liveText = ""
         recordVoiceDuration(result)
@@ -1072,14 +1086,9 @@ struct ServiceSettingsView: View {
         busy = true
         try await deliver(result, polish: polish, id: id)
       } catch is CancellationError {
-        if requestID == id { status = "已取消" }
+        if request.isCurrent(id) { status = "已取消" }
       } catch {
-        if requestID == id && !Task.isCancelled { status = "实时识别失败，可停止录音后改为发送录音：\(error.localizedDescription)" }
-      }
-      if requestID == id {
-        recognizesLive = false
-        liveText = ""
-        busy = false
+        if request.isCurrent(id) && !Task.isCancelled { status = "实时识别失败，可停止录音后改为发送录音：\(error.localizedDescription)" }
       }
     }
   }
@@ -1090,21 +1099,28 @@ struct ServiceSettingsView: View {
   }
 
   /// Recognizes on the phone while the user is still speaking, showing the running transcript. A failure leaves the recording in place once it stops, so it can be recognized again.
-  private func recognizeOnDevice(_ pcm: AsyncStream<Data>) {
+  @MainActor private func recognizeOnDevice(_ pcm: AsyncStream<Data>) {
+    guard request.isVisible else { return }
     let provider = configuration.voiceProvider
     let language = voiceSettings.language
     let polish = voiceSettings.polishEnabled ? voiceSettings : nil
     let model = localModels.selectedDirectory
-    requestID = UUID()
-    let id = requestID
+    let id = request.begin()
     output = ""
     transcript = ""
     status = ""
     liveText = ""
     recognizesLive = true
     operation = Task {
+      defer {
+        if request.isCurrent(id) {
+          recognizesLive = false
+          liveText = ""
+          busy = false
+        }
+      }
       let partial: (String) -> Void = { text in
-        Task { @MainActor in if requestID == id && recognizesLive { liveText = text } }
+        Task { @MainActor in if request.isCurrent(id) && recognizesLive { liveText = text } }
       }
       do {
         let result: String
@@ -1121,8 +1137,7 @@ struct ServiceSettingsView: View {
         } else {
           result = try await SystemSpeechRecognizer.transcribe(pcm: pcm, language: language, partial: partial)
         }
-        try Task.checkCancellation()
-        guard requestID == id else { return }
+        try request.checkCurrent(id)
         recognizesLive = false
         liveText = ""
         recordVoiceDuration(result)
@@ -1131,17 +1146,12 @@ struct ServiceSettingsView: View {
         busy = true
         try await deliver(result, polish: polish, id: id)
       } catch is CancellationError {
-        if requestID == id { status = "已取消" }
+        if request.isCurrent(id) { status = "已取消" }
       } catch {
-        if requestID == id && !Task.isCancelled {
+        if request.isCurrent(id) && !Task.isCancelled {
           if recorder.isRecording { recorder.stop() }
           status = "识别失败：\(error.localizedDescription)"
         }
-      }
-      if requestID == id {
-        recognizesLive = false
-        liveText = ""
-        busy = false
       }
     }
   }
@@ -1157,8 +1167,8 @@ struct ServiceSettingsView: View {
     return trimmed
   }
 
-  private func cancelRequest() {
-    requestID = UUID()
+  @MainActor private func cancelRequest() {
+    request.invalidate()
     operation?.cancel()
     // Live recognition owns the microphone until the recorder finishes its stream. Cancelling the
     // task alone does not finish an AsyncStream producer, so the send side can remain suspended
@@ -1171,7 +1181,7 @@ struct ServiceSettingsView: View {
     recognizesLive = false
     liveText = ""
   }
-  private func cancelAndClear() {
+  @MainActor private func cancelAndClear() {
     cancelRequest()
     recorder.discard()
     // A resident model holds hundreds of megabytes; nothing on this page needs it once the page is gone.

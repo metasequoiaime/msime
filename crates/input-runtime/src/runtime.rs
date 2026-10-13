@@ -1155,12 +1155,15 @@ impl<E: InputEngine> Runtime<E> {
         } else {
             let candidates: HashSet<&str> =
                 self.cached.candidates.iter().map(String::as_str).collect();
-            self.translations.extend(
-                translations
-                    .into_iter()
-                    .filter(|(text, _)| candidates.contains(text.as_str()))
-                    .inspect(|_| changed = true),
-            );
+            for (text, translation) in translations
+                .into_iter()
+                .filter(|(text, _)| candidates.contains(text.as_str()))
+            {
+                if self.translations.get(&text) != Some(&translation) {
+                    self.translations.insert(text, translation);
+                    changed = true;
+                }
+            }
         }
         if changed {
             self.bump_candidates_epoch();

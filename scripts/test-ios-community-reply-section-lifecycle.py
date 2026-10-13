@@ -24,7 +24,9 @@ class CommunityReplySectionLifecycleTests(unittest.TestCase):
         self.assertIn("adding.removeAll()", self.section)
 
     def test_late_section_results_are_fenced(self):
-        self.assertIn("guard request.isVisible, addGeneration == generation else { throw CancellationError() }", self.section)
+        self.assertIn("@State private var addGeneration = OperationGeneration()", self.section)
+        self.assertIn("addGeneration.invalidate()", self.section)
+        self.assertIn("guard request.isVisible, addGeneration.isCurrent(generation) else { throw CancellationError() }", self.section)
         self.assertIn("try ensureVisible(generation)", self.section)
         self.assertIn("catch is CancellationError", self.section)
         self.assertIn("if request.isCurrent(id) { pending = nil }", self.section)

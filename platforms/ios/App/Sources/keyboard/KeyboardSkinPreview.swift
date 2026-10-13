@@ -139,17 +139,8 @@ struct KeyboardSkinPreview: View {
     let accent = resolved(skin.accent)
     let disc = AppThemePalette.mix(accent, colorScheme == .dark ? 22 : 14, resolved(skin.keyBackground).withAlphaComponent(1))
     let frame = AppThemePalette.mix(accent, 82, .black)
-    let markSize: CGFloat = 13
-    let scale = MSIMELogo.scale(for: CGRect(x: 0, y: 0, width: markSize, height: markSize))
-    return ZStack {
-      Circle().fill(Color(uiColor: disc))
-      ZStack {
-        MSIMELogoFrame().fill(Color(uiColor: frame))
-        MSIMELogoStroke().stroke(.white, style: StrokeStyle(lineWidth: MSIMELogo.strokeWidth * scale, lineCap: .round, lineJoin: .round))
-      }
-      .frame(width: markSize, height: markSize)
-    }
-    .frame(width: 22, height: 22)
+    return LogoDisc(diameter: 22, markSize: 13,
+                    discFill: Color(uiColor: disc), frameFill: Color(uiColor: frame))
   }
 
   /// 按键下方系统画主屏指示条的区域，指示条用按键色。

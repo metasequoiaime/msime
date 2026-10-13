@@ -48,10 +48,8 @@ struct AccountProfileEditor: View {
   @State private var confirmRelogin = false
   @State private var confirmDeleteAccount = false
   @State private var operation: Task<Void, Never>?
-  @State private var actionGeneration = UUID()
   @State private var loadTask: Task<Void, Never>?
-  @State private var loadGeneration = UUID()
-  @State private var visible = false
+  @State private var request = ViewRequestGeneration()
 
   private var displayName: String {
     profile?.user.preferredDisplayName ?? initialUser?.preferredDisplayName ?? "水杉用户"
@@ -127,15 +125,13 @@ struct AccountProfileEditor: View {
     } message: { Text(actionMessage ?? "") }
     .tint(MetasequoiaTheme.accent)
     .task {
-      visible = true
+      request.appear()
       startLoad()
     }
     .onDisappear {
-      visible = false
-      actionGeneration = UUID()
+      request.disappear()
       operation?.cancel()
       operation = nil
-      loadGeneration = UUID()
       loadTask?.cancel()
       loadTask = nil
       busy = false
@@ -254,19 +250,19 @@ struct AccountProfileEditor: View {
 
   /// 四个动作都以「这台设备不再登录」收尾,所以走同一条路:调用、回调父视图、退回上一页。失败时留在原地把原因说出来。
   private func perform(_ action: @escaping () async throws -> Void) {
-    let id = UUID()
-    actionGeneration = id
+    guard request.isVisible, !busy else { return }
+    let id = request.begin()
     busy = true
     actionMessage = nil
     operation = Task {
-      defer { if actionGeneration == id { busy = false; operation = nil } }
+      defer { if request.isCurrent(id) { busy = false; operation = nil } }
       do {
         try await action()
-        guard actionGeneration == id else { return }
+        try request.checkCurrent(id)
         onSignedOut()
         dismiss()
       } catch {
-      guard actionGeneration == id, !AccountRequestPolicy.isCancellation(error) else { return }
+        guard request.isCurrent(id), !AccountRequestPolicy.isCancellation(error) else { return }
         actionMessage = error.localizedDescription
       }
     }
@@ -274,34 +270,29 @@ struct AccountProfileEditor: View {
 
   /// 每次页面出现都重新读取资料，所以从「昵称」返回后会刷新；只有还没有内容可显示时才显示加载指示。
   @MainActor private func startLoad() {
-    guard visible else { return }
-    let id = UUID()
-    loadGeneration = id
+    guard request.isVisible else { return }
+    let id = request.begin()
     loadTask?.cancel()
     loadTask = Task { await load(id: id) }
   }
 
   @MainActor private func load(id: UUID) async {
+    guard request.isCurrent(id) else { return }
     loading = profile == nil
     loadMessage = nil
-    defer { if loadGeneration == id { loading = false; loadTask = nil } }
+    defer { if request.isCurrent(id) { loading = false; loadTask = nil } }
     do {
       let result = try await SkinCommunityAPI.shared.profile()
-      try ensureCurrentLoad(id)
+      try request.checkCurrent(id)
       profile = result
       needsRecovery = false
       onSaved(result.user)
     } catch is CancellationError {
       return
     } catch {
-      guard visible, loadGeneration == id, !AccountRequestPolicy.isCancellation(error) else { return }
+      guard request.isCurrent(id), !AccountRequestPolicy.isCancellation(error) else { return }
       needsRecovery = true; loadMessage = error.localizedDescription
     }
-  }
-
-  @MainActor private func ensureCurrentLoad(_ id: UUID) throws {
-    try Task.checkCancellation()
-    guard visible, loadGeneration == id else { throw CancellationError() }
   }
 }
 
@@ -316,8 +307,7 @@ private struct AccountNicknameEditor: View {
   @State private var message: String?
   @State private var confirmDiscard = false
   @State private var operation: Task<Void, Never>?
-  @State private var saveGeneration = UUID()
-  @State private var visible = false
+  @State private var request = ViewRequestGeneration()
 
   init(profile: CommunityProfile, onSaved: @escaping (CommunityProfile) -> Void) {
     self.profile = profile
@@ -409,10 +399,9 @@ private struct AccountNicknameEditor: View {
       Button("继续编辑", role: .cancel) {}
     }
     .tint(MetasequoiaTheme.accent)
-    .onAppear { visible = true; editing = true }
+    .onAppear { request.appear(); editing = true }
     .onDisappear {
-      visible = false
-      saveGeneration = UUID()
+      request.disappear()
       operation?.cancel()
       operation = nil
       saving = false
@@ -420,26 +409,25 @@ private struct AccountNicknameEditor: View {
   }
 
   private func save() {
-    guard visible, !saving else { return }
+    guard request.isVisible, !saving else { return }
     guard hasChanges else { dismiss(); return }
     guard validName else { return }
     editing = false
     saving = true
     message = nil
     let submittedName = normalizedName
-    let id = UUID()
-    saveGeneration = id
+    let id = request.begin()
     operation = Task {
-      defer { if saveGeneration == id { saving = false; operation = nil } }
+      defer { if request.isCurrent(id) { saving = false; operation = nil } }
       do {
         let updated = try await SkinCommunityAPI.shared.updateProfile(name: submittedName)
-        guard visible, saveGeneration == id, !Task.isCancelled else { return }
+        try request.checkCurrent(id)
         onSaved(updated)
         ToastCenter.shared.show("昵称已更新")
         dismiss()
       } catch is CancellationError { }
       catch {
-        guard visible, saveGeneration == id, !AccountRequestPolicy.isCancellation(error) else { return }
+        guard request.isCurrent(id), !AccountRequestPolicy.isCancellation(error) else { return }
         message = error.localizedDescription
       }
     }

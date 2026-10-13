@@ -27,8 +27,10 @@ class IOSLocalSpeechModelLifecycleContract(unittest.TestCase):
 
     def test_install_and_remove_ignore_cancelled_generations(self):
         source = SOURCE.read_text(encoding="utf-8")
-        self.assertRegex(source, r"let generation = operationGeneration")
-        self.assertGreaterEqual(len(re.findall(r"operationGeneration == generation", source)), 2)
+        self.assertIn("private var operationGeneration = OperationGeneration()", source)
+        self.assertRegex(source, r"let generation = operationGeneration.current\(\)")
+        self.assertGreaterEqual(len(re.findall(r"operationGeneration.isCurrent\(generation\)", source)), 2)
+        self.assertIn("operationGeneration.invalidate()", source)
         self.assertIn("try Task.checkCancellation()", source)
 
 
