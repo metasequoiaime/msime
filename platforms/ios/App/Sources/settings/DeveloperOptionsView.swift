@@ -74,9 +74,7 @@ struct DeveloperOptionsView: View {
       if phase == .active { reload() }
     }
     .onDisappear {
-      lifecycle.invalidate()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.cancel(generation: $lifecycle, task: $pending)
       exporting = false
       resetting = false
     }

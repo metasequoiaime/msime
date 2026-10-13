@@ -136,11 +136,7 @@ struct AccountSettingsView: View {
     }
     .onDisappear {
       ViewRequestTask.disappear(request: $request, pending: $pending)
-      operation?.cancel()
-      operation = nil
-      syncGeneration.invalidate()
-      syncTask?.cancel()
-      syncTask = nil
+      ViewRequestTask.cancel(generation: $syncGeneration, task: $syncTask)
       busy = false
     }
   }

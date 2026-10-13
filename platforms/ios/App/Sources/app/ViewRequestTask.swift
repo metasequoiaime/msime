@@ -31,6 +31,13 @@ import SwiftUI
     pending.wrappedValue = nil
   }
 
+  /// 取消不占用页面请求状态的独立操作，并使它的旧回调失效。
+  static func cancel(generation: Binding<OperationGeneration>, task: Binding<Task<Void, Never>?>) {
+    generation.wrappedValue.invalidate()
+    task.wrappedValue?.cancel()
+    task.wrappedValue = nil
+  }
+
   static func run(request: Binding<ViewRequestGeneration>, busy: Binding<Bool>,
                   message: Binding<String?>, pending: Binding<Task<Void, Never>?>,
                   canceling: Binding<Task<Void, Never>?>? = nil,

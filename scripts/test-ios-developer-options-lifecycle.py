@@ -15,11 +15,11 @@ class IOSDeveloperOptionsLifecycleContract(unittest.TestCase):
         self.assertRegex(source, r"@State private var pending: Task<Void, Never>\?")
         self.assertRegex(source, r"@State private var lifecycle = OperationGeneration\(\)")
         disappear_bodies = re.findall(r"\.onDisappear \{(?P<body>.*?)\n    \}", source, re.S)
-        body = next((body for body in disappear_bodies if "lifecycle.invalidate()" in body), None)
+        body = next((body for body in disappear_bodies if "ViewRequestTask.cancel(generation: $lifecycle, task: $pending)" in body), None)
         self.assertIsNotNone(body, "developer options must invalidate work when it disappears")
-        self.assertIn("lifecycle.invalidate()", body)
-        self.assertIn("pending?.cancel()", body)
-        self.assertIn("pending = nil", body)
+        self.assertIn("ViewRequestTask.cancel(generation: $lifecycle, task: $pending)", body)
+        self.assertIn("generation.wrappedValue.invalidate()", (ROOT / "platforms/ios/App/Sources/app/ViewRequestTask.swift").read_text())
+        self.assertIn("task.wrappedValue?.cancel()", (ROOT / "platforms/ios/App/Sources/app/ViewRequestTask.swift").read_text())
 
     def test_export_and_reset_results_are_bound_to_current_lifecycle(self):
         source = SOURCE.read_text(encoding="utf-8")

@@ -102,9 +102,7 @@ struct TranslationProviderSettingsView: View {
       autosave.schedule { try save() }
     }
     .onDisappear {
-      testGeneration.invalidate()
-      operation?.cancel()
-      operation = nil
+      ViewRequestTask.cancel(generation: $testGeneration, task: $operation)
       testing = false
     }
     .flushesAutosave(autosave)

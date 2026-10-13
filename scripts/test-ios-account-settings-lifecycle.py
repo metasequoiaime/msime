@@ -26,7 +26,7 @@ class AccountSettingsLifecycleTests(unittest.TestCase):
         self.assertIn("request.wrappedValue.disappear()", TASK)
         self.assertIn("pending.wrappedValue?.cancel()", TASK)
         self.assertIn("pending.wrappedValue = nil", TASK)
-        self.assertIn("operation?.cancel()", self.view)
+        self.assertIn("ViewRequestTask.cancel(generation: $syncGeneration, task: $syncTask)", self.view)
         self.assertIn("try request.checkCurrent(id)", self.view)
         self.assertIn("guard request.isCurrent(id)", self.view)
         self.assertIn("catch is CancellationError", self.view)
@@ -39,9 +39,10 @@ class AccountSettingsLifecycleTests(unittest.TestCase):
         self.assertNotIn("let id = request.begin()", self.view)
         self.assertIn("syncTask", self.view)
         self.assertIn("@State private var syncGeneration = OperationGeneration()", self.view)
-        self.assertIn("syncGeneration.invalidate()", self.view)
+        self.assertIn("ViewRequestTask.cancel(generation: $syncGeneration, task: $syncTask)", self.view)
         self.assertEqual(self.view.count("let id = syncGeneration.begin()"), 2)
-        self.assertIn("syncTask?.cancel()", self.view)
+        self.assertIn("generation.wrappedValue.invalidate()", TASK)
+        self.assertIn("task.wrappedValue?.cancel()", TASK)
 
     def test_login_section_uses_shared_page_generation(self):
         self.assertIn("@State private var request = ViewRequestGeneration()", self.login)

@@ -17,8 +17,7 @@ class IOSTranslationProviderViewLifecycleContract(unittest.TestCase):
         disappear = re.search(r"\.onDisappear \{(?P<body>.*?)\n    \}", source, re.S)
         self.assertIsNotNone(disappear, "translation settings must invalidate work when it disappears")
         body = disappear.group("body")
-        self.assertIn("testGeneration.invalidate()", body)
-        self.assertIn("operation?.cancel()", body)
+        self.assertIn("ViewRequestTask.cancel(generation: $testGeneration, task: $operation)", body)
 
     def test_test_result_is_bound_to_current_generation(self):
         source = SOURCE.read_text(encoding="utf-8")
