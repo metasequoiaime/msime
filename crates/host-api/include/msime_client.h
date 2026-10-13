@@ -428,6 +428,7 @@ char *msime_client_save_preferences(const uint8_t *directory, size_t directory_l
                                     uint64_t expected_revision,
                                     const uint8_t *snapshot, size_t snapshot_length);
 /* Call on the session thread with a PreferencesSnapshot JSON buffer (<=1048576): {format_version:1, revision, preferences:{...}}. Revision order is per session; identical retries are allowed, older/conflicting snapshots are rejected. Returns {revision, deferred, view, diagnostic?}; diagnostic is present only when the preferred input scheme could not run and a fallback scheme was applied. Active composition defers application until a successful dispatch/focus leaves it idle. Newer snapshots replace pending ones. Build failure retains the old session and pending snapshot for retry; dispatch reports retry failure in diagnostic without losing completed input. Does not read/write preferences files; the host supplies an already loaded snapshot. */
+/* 组字中途改变 AI 配置（包括令牌）会立刻移除旧 AI 候选并使旧在线查询失效；其他偏好继续按延期应用规则处理。 */
 char *msime_client_update_preferences(uint64_t session, const uint8_t *snapshot, size_t length);
 char *msime_client_focus(uint64_t session, bool focused);
 /* Clear the current session's Engine candidate cache and refresh its view. */
@@ -713,11 +714,9 @@ char *msime_client_online_query(uint64_t session);
 char *msime_client_ai_request_for_query(uint64_t session,
                                         const uint8_t *query,
                                         size_t query_length);
-/* Hand the session an AI provider credential kept outside the preferences
- * (for example in the iOS Keychain). It overrides the current endpoint's
- * stored token for this session only and is never persisted or reported.
- * It remains bound to that endpoint until replaced or cleared; a preference
- * change to another endpoint cannot forward it. A zero length clears it. */
+/* 把偏好之外（例如 iOS 钥匙串）的 AI 凭据交给会话；仅覆盖当前端点的令牌，
+ * 不持久化或回传，也不会随偏好切到别的端点。长度为零表示撤销。
+ * 凭据确实变化时，当前组字的旧 AI 候选和旧在线查询失效；重复设置同一凭据不变。 */
 char *msime_client_set_ai_credential(uint64_t session, const uint8_t *token,
                                      size_t token_length);
 /* Return null or {generation,target_language,candidates:[{text}], provider:"none"|"account"|"tencent"|"niutrans"|"custom", translation_account:bool, custom_translation:{enabled,endpoint,api_key}|null, tencent_tmt:{enabled,secret_id,secret_key,region}|null, niutrans:{enabled,app_id,apikey}|null} for visible candidates.

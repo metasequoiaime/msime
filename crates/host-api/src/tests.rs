@@ -7392,6 +7392,117 @@ fn an_ai_credential_handed_over_in_memory_signs_requests_without_being_stored() 
 }
 
 #[test]
+fn rotating_ai_credential_clears_old_candidates_and_rejects_old_query() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        scheme: InputScheme::Quanpin,
+        ..chinese_preferences()
+    };
+    preferences.ai_assistant.enabled = true;
+    preferences.ai_assistant.provider = "deepseek".into();
+    preferences.ai_assistant.model = "synthetic-model".into();
+    preferences.ai_assistant.endpoint = "https://api.deepseek.com/chat/completions".into();
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    let set_credential = |token: &str| {
+        read(unsafe { msime_client_set_ai_credential(handle, token.as_ptr(), token.len()) })
+    };
+    assert_eq!(set_credential("synthetic-first")["ok"], true);
+    for byte in b"nihao" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    let apply = |query: &Value, text: &str| {
+        let query = query.to_string();
+        let candidates = serde_json::to_vec(&json!([text])).unwrap();
+        read(unsafe {
+            msime_client_apply_online_candidates(
+                handle,
+                query.as_ptr(),
+                query.len(),
+                candidates.as_ptr(),
+                candidates.len(),
+                1,
+            )
+        })
+    };
+    let first_query = read(msime_client_online_query(handle))["value"].clone();
+    assert_eq!(apply(&first_query, "合成旧候选")["value"]["applied"], true);
+    let old_query = read(msime_client_online_query(handle))["value"].clone();
+    let old_view = read(msime_client_view(handle))["value"].clone();
+    assert!(old_view["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["text"] == "合成旧候选"));
+
+    assert_eq!(set_credential("synthetic-second")["ok"], true);
+    let new_view = read(msime_client_view(handle))["value"].clone();
+    assert!(new_view["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|row| row["text"] != "合成旧候选"));
+    let new_query = read(msime_client_online_query(handle))["value"].clone();
+    assert_ne!(new_query["generation"], old_query["generation"]);
+    assert_eq!(apply(&old_query, "迟到旧候选")["value"]["applied"], false);
+    assert_eq!(apply(&new_query, "合成新候选")["value"]["applied"], true);
+    let stable_view = read(msime_client_view(handle))["value"].clone();
+    assert_eq!(set_credential("synthetic-second")["ok"], true);
+    assert_eq!(read(msime_client_view(handle))["value"], stable_view);
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn updating_ai_preferences_clears_old_candidates_when_only_token_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        scheme: InputScheme::Quanpin,
+        ..chinese_preferences()
+    };
+    preferences.ai_assistant.enabled = true;
+    preferences.ai_assistant.provider = "deepseek".into();
+    preferences.ai_assistant.model = "synthetic-model".into();
+    preferences.ai_assistant.endpoint = "https://api.deepseek.com/chat/completions".into();
+    preferences.ai_assistant.token = "synthetic-first".into();
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    for byte in b"nihao" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    let apply = |query: &Value, text: &str| {
+        let query = query.to_string();
+        let candidates = serde_json::to_vec(&json!([text])).unwrap();
+        read(unsafe {
+            msime_client_apply_online_candidates(
+                handle,
+                query.as_ptr(),
+                query.len(),
+                candidates.as_ptr(),
+                candidates.len(),
+                1,
+            )
+        })
+    };
+    let first_query = read(msime_client_online_query(handle))["value"].clone();
+    assert_eq!(apply(&first_query, "合成旧候选")["value"]["applied"], true);
+    let old_query = read(msime_client_online_query(handle))["value"].clone();
+
+    preferences.ai_assistant.token = "synthetic-second".into();
+    assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
+    let new_view = read(msime_client_view(handle))["value"].clone();
+    assert!(new_view["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|row| row["text"] != "合成旧候选"));
+    let new_query = read(msime_client_online_query(handle))["value"].clone();
+    assert_ne!(new_query["generation"], old_query["generation"]);
+    assert_eq!(apply(&old_query, "迟到旧候选")["value"]["applied"], false);
+    assert_eq!(apply(&new_query, "合成新候选")["value"]["applied"], true);
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn an_in_memory_ai_credential_overrides_a_stored_origin_token() {
     let dir = tempfile::tempdir().unwrap();
     let mut preferences = Preferences {
@@ -7551,7 +7662,7 @@ fn ai_queries_and_delivery_follow_pending_preferences() {
             true
         );
         let current = read(msime_client_online_query(handle))["value"].clone();
-        assert_eq!(current["generation"], original["generation"]);
+        assert!(current["generation"].as_u64().unwrap() > old["generation"].as_u64().unwrap());
         assert_eq!(current["query_text"], original["query_text"]);
         assert_eq!(
             current["ai_assistant"].is_null(),
