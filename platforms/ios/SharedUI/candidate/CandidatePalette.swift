@@ -15,7 +15,7 @@ struct CandidatePalette: Equatable {
   var border: UIColor
 
   static let followsDesktopKey = "candidate_palette_follows_desktop"
-  static var defaults: UserDefaults { UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard }
+  static var defaults: UserDefaults { InputSchemePreference.appGroupDefaults }
   static var followsDesktop: Bool { defaults.bool(forKey: followsDesktopKey) }
 
   static let themes: [(id: String, title: String)] = [("follow", "跟随系统"), ("light", "浅色"), ("dark", "深色")]

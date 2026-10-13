@@ -28,7 +28,7 @@ enum KeyboardFeedbackPreference {
   static let hapticsKey = "keyboardHapticsEnabled"
   static let strengthKey = "keyboardHapticStrength"
   static var defaults: UserDefaults {
-    UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard
+    InputSchemePreference.appGroupDefaults
   }
 
   static var soundEnabled: Bool {

@@ -33,7 +33,7 @@ enum InlinePreeditPreference {
   static let key = "keyboard.inline_preedit"
 
   static var defaults: UserDefaults {
-    UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard
+    InputSchemePreference.appGroupDefaults
   }
 
   static var style: Style {

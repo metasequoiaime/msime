@@ -5,7 +5,7 @@ enum EnglishSuggestionsPreference {
   static let enabledKey = "english.suggestions"
 
   static var defaults: UserDefaults {
-    UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard
+    InputSchemePreference.appGroupDefaults
   }
 
   static var isEnabled: Bool {

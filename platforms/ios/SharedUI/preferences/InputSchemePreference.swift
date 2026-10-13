@@ -165,7 +165,7 @@ enum WubiProfilePreference {
   static let profiles = ["wubi86", "wubi98"]
   static let documentKey = "wubi_profile"
   static let profileKey = "wubi.profile"
-  private static var defaults: UserDefaults { UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard }
+  private static var defaults: UserDefaults { InputSchemePreference.appGroupDefaults }
 
   static var profile: String {
     get { known(defaults.string(forKey: profileKey)) }
@@ -381,4 +381,9 @@ enum InputSchemePreference {
   }
 
   static let appGroupIdentifier = MSIMEAppEdition.appGroupIdentifier
+
+  /// The shared App Group defaults used by preferences mirrored between the app and keyboard.
+  static var appGroupDefaults: UserDefaults {
+    UserDefaults(suiteName: appGroupIdentifier) ?? .standard
+  }
 }

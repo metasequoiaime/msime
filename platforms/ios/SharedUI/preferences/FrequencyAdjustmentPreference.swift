@@ -56,6 +56,6 @@ enum FrequencyAdjustmentPreference {
   }
 
   private static var defaults: UserDefaults {
-    UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard
+    InputSchemePreference.appGroupDefaults
   }
 }

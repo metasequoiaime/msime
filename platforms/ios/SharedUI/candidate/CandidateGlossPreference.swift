@@ -8,7 +8,7 @@ enum CandidateGlossPreference {
   static let key = "candidate.englishGloss"
 
   static var defaults: UserDefaults {
-    UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard
+    InputSchemePreference.appGroupDefaults
   }
 
   static var enabled: Bool {

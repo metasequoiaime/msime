@@ -7,7 +7,7 @@ enum KeyboardPrivacyPreference {
   static let incognitoKey = "keyboard.privacy.incognito"
 
   static var defaults: UserDefaults {
-    UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard
+    InputSchemePreference.appGroupDefaults
   }
 
   static var incognito: Bool {

@@ -8,7 +8,7 @@ enum ImeModeMemoryPreference {
   static let lastChineseKey = "keyboard.input.lastImeModeChinese"
 
   static var defaults: UserDefaults {
-    UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard
+    InputSchemePreference.appGroupDefaults
   }
 
   /// Turning it on or off forgets the recorded mode, so a switch made in an earlier stretch of remembering does not come back later.

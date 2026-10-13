@@ -9,7 +9,7 @@ enum CandidatePageSizePreference {
   static let range = 1...9
 
   static var defaults: UserDefaults {
-    UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard
+    InputSchemePreference.appGroupDefaults
   }
 
   static var size: Int {

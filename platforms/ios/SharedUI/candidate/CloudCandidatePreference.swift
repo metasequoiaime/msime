@@ -7,7 +7,7 @@ enum CloudCandidatePreference {
   static let key = "candidate.cloudCandidates"
 
   static var defaults: UserDefaults {
-    UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard
+    InputSchemePreference.appGroupDefaults
   }
 
   static var enabled: Bool {

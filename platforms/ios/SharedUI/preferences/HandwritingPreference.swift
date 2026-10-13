@@ -33,7 +33,7 @@ enum HandwritingPreference {
   }
 
   static var defaults: UserDefaults {
-    UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard
+    InputSchemePreference.appGroupDefaults
   }
 
   /// 最后一笔之后面板等多久开始识别，单位毫秒：200…1500 之间 100 的整数倍。

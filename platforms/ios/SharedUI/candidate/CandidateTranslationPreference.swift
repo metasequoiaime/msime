@@ -10,7 +10,7 @@ enum CandidateTranslationPreference {
   static let secondaryKey = "candidate.translationSecondaryLanguage"
   static let onlineKey = "candidate.translationOnline"
   static var defaults: UserDefaults {
-    UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard
+    InputSchemePreference.appGroupDefaults
   }
   static let languages = [
     CandidateTranslationLanguage(title: "英语", code: "EN"),

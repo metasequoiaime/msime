@@ -2,7 +2,7 @@ import Foundation
 import CoreFoundation
 
 enum KeyboardLayoutPreference {
-  static var defaults: UserDefaults { UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard }
+  static var defaults: UserDefaults { InputSchemePreference.appGroupDefaults }
   static let keySpacingKey = "keyboard.spacing.keys"
   static let rowSpacingKey = "keyboard.spacing.rows"
   static let voiceShortcutKey = "keyboard.shortcut.voice"
