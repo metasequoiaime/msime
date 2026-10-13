@@ -17,7 +17,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 表达页：标点（使用英文标点、自动补全成对标点、智能标点）、智能（整句联想三档、英文联想、中英混输、触发字母数、候选带 emoji、候选带颜文字）和发现短语（社区里的前几个短语包，末尾「浏览更多短语」进社区短语的完整列表）。
+ * 表达页：标点（使用英文标点、自动补全成对标点、智能标点）、智能（整句联想三档、英文联想、中英混输、触发字母数、候选带符号、候选带 emoji、候选带颜文字）和发现短语（社区里的前几个短语包，末尾「浏览更多短语」进社区短语的完整列表）。
  *
  * <p>「使用英文标点」是 `chinese_punctuation` 取反显示、写入时取反；整句联想三档写 `sentence_association`：关闭是 `word_lattice=false`，标准是 `word_lattice`，增强是 `word_lattice` 加 `neural_keyboard`。发现短语列社区里 `phrase` 类的资源，「添加」经 {@link CommonPhrasesStore#installPack} 装进本机无编码常用语（它会标记云同步的「常用语」），已经装过的包显示「已添加」。
  */
@@ -117,6 +117,10 @@ public final class ExpressionPage extends ReloadingDetailPage {
             mixed == null ? MIXED_PREFIX_DEFAULT : NumberPolicy.strictInt(mixed, "minimum_prefix", MIXED_PREFIX_DEFAULT),
             Integer::toString, value -> savePreferences(edit -> mixedInput(edit).put("minimum_prefix", value)));
         prefixRow.setEnabled(mixedEnglish);
+        // 候选带符号（打拼音出符号）：整段打出符号的名称时，Engine 在候选里接着那个词给出符号（共享偏好 mixed_input.symbols）。后加的可选字段，默认开，开着时文档里没有这个键，所以缺键读作开。
+        intelligence.toggle("候选带符号", "全拼（26 键或 9 键）、双拼输入时，打出符号的名称就在候选里加入对应的符号，紧跟在那个词后面，例如「正负」后面是 ±",
+            mixed == null || mixed.optBoolean("symbols", true),
+            checked -> savePreferences(edit -> mixedInput(edit).put("symbols", checked)));
         // 候选里带 emoji / 颜文字（#5667）：Engine 早就会按拼音从随包的 msime-others.db 找匹配的 emoji 和颜文字插进候选（共享偏好 mixed_input.emoji / kaomoji），Android 只是没有开关，默认又是关的。
         intelligence.toggle("候选带 emoji", "全拼（26 键或 9 键）、双拼输入时在候选里加入匹配的 emoji，紧跟在它描绘的词后面，例如「美国」后面是 🇺🇸",
             mixed != null && mixed.optBoolean("emoji", false),
@@ -180,7 +184,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
     }
 
     /**
-     * 要改的 `mixed_input`。共享偏好里这个对象的四个字段都必填（`MixedInputPreferences` 拒绝缺字段），快照里缺这个对象或缺字段时按共享默认值补齐再改，否则写回去会被整份拒绝。
+     * 要改的 `mixed_input`。共享偏好里这个对象有四个必填字段（`MixedInputPreferences` 拒绝缺字段），快照里缺这个对象或缺字段时按共享默认值补齐再改，否则写回去会被整份拒绝。`symbols`、`japanese` 是后加的可选字段，缺省时 client-core 分别按开、关处理，这里不补。
      */
     private static JSONObject mixedInput(JSONObject preferences) throws org.json.JSONException {
         JSONObject mixed = KeyboardSheets.child(preferences, "mixed_input");

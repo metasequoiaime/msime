@@ -43,7 +43,7 @@ public enum PageId {
         "从内置方案开始", "导入", "导出", "保存并使用", "声母", "韵母", "零声母"),
     EXPRESSION("ExpressionPage", "表达", HostDeepLink.TAB_SETTINGS,
         "标点", "使用英文标点", "自动补全成对标点", "智能标点", "智能", "整句联想", "英文自动纠正", "英文联想",
-        "中英混输", "触发字母数", "候选带 emoji", "候选带颜文字", "发现短语", "社区短语", "浏览更多短语"),
+        "中英混输", "触发字母数", "候选带符号", "候选带 emoji", "候选带颜文字", "发现短语", "社区短语", "浏览更多短语"),
     LEXICON("LexiconPage", "词库", HostDeepLink.TAB_SETTINGS,
         "已安装", "拼音词库", "新建词库", "导入词库", "导出", "发现词库", "社区词库", "浏览更多词库", "记忆新词", "学习", "背单词", "云词库"),
     LEXICON_DETAIL("LexiconDetailPage", "词库详情", HostDeepLink.TAB_SETTINGS),
