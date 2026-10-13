@@ -5,6 +5,7 @@ import unittest
 
 
 SOURCE = Path("platforms/ios/App/Sources/community/CommunityResourcesView.swift").read_text()
+TASK = Path("platforms/ios/App/Sources/app/ViewRequestTask.swift")
 
 
 class CommunityResourceDetailLifecycleTests(unittest.TestCase):
@@ -22,9 +23,11 @@ class CommunityResourceDetailLifecycleTests(unittest.TestCase):
 
     def test_detail_actions_fence_late_results(self):
         self.assertIn("run(_ action: @escaping @MainActor (UUID) async throws -> Void)", self.detail)
-        self.assertIn("let id = request.begin()", self.detail)
+        self.assertIn("ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending", self.detail)
         self.assertGreaterEqual(self.detail.count("try request.checkCurrent(id)"), 5)
-        self.assertIn("catch is CancellationError", self.detail)
+        helper = TASK.read_text()
+        self.assertIn("let id = request.wrappedValue.begin()", helper)
+        self.assertIn("catch is CancellationError", helper)
 
 
 if __name__ == "__main__":

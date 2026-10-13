@@ -226,23 +226,10 @@ struct CloudDictionaryView: View {
     page = result; userID = identity
   }
   @MainActor private func run(_ work: @escaping @MainActor (UUID) async throws -> Void) {
-    guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    busy = true; message = nil
-    pending = Task {
-      defer {
-        if request.isCurrent(id) {
-          busy = false
-          pending = nil
-        }
-      }
-      do {
-        try request.checkCurrent(id)
-        try await work(id)
-        try request.checkCurrent(id)
-      }
-      catch is CancellationError { }
-      catch { if request.isCurrent(id) { message = error.localizedDescription } }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending) { id in
+      try request.checkCurrent(id)
+      try await work(id)
+      try request.checkCurrent(id)
     }
   }
 }

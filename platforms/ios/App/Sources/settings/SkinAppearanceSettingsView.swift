@@ -56,14 +56,14 @@ struct SkinAppearanceSettingsView: View {
   }
 
   private func theme(_ key: String, fallback: String = "follow") -> Binding<String> {
-    Binding(get: { themes[key] ?? fallback }, set: { value in
-      themes[key] = value
-      themeSaveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = value }
-      if themeSaveFailed { reloadThemes() }
+    let state = Binding(get: { themes[key] ?? fallback }, set: { themes[key] = $0 })
+    return SharedPreferenceBinding.topLevel(key, state: state) { saved in
+      themeSaveFailed = !saved
+      if !saved { reloadThemes() }
       if key == AppAppearancePreference.globalKey || key == AppAppearancePreference.settingsKey {
         NotificationCenter.default.post(name: AppAppearancePreference.didChange, object: nil)
       }
-    })
+    }
   }
 
   private func reloadThemes() {

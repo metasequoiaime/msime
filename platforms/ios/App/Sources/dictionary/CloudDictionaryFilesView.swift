@@ -206,24 +206,11 @@ struct CloudDictionaryFilesView: View {
   }
 
   @MainActor private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
-    guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    busy = true; message = nil
-    pending = Task {
-      defer {
-        if request.isCurrent(id) {
-          busy = false
-          pending = nil
-        }
-      }
-      do {
-        let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
-        try request.checkCurrent(id)
-        sessionID = identity.sessionID
-        try await action(id)
-      }
-      catch is CancellationError { }
-      catch { if request.isCurrent(id) { message = error.localizedDescription } }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending) { id in
+      let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
+      try request.checkCurrent(id)
+      sessionID = identity.sessionID
+      try await action(id)
     }
   }
 }

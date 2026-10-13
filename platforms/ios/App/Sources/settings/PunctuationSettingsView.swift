@@ -89,11 +89,10 @@ struct PunctuationSettingsView: View {
 
   /// A binding that writes the shared document as it changes; a refused write puts the stored value back so the page never shows a setting the keyboard does not have.
   private func stored<Value>(_ key: String, _ state: Binding<Value>) -> Binding<Value> {
-    Binding(get: { state.wrappedValue }, set: { value in
-      state.wrappedValue = value
-      saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = value }
-      if saveFailed { reload() }
-    })
+    SharedPreferenceBinding.topLevel(key, state: state) { saved in
+      saveFailed = !saved
+      if !saved { reload() }
+    }
   }
 
   private func reload() {
