@@ -336,6 +336,7 @@ targets:
     platform: iOS
     sources:
       - path: ServiceTests
+      - path: App/Sources/app/ViewRequestGeneration.swift
       - path: App/Sources/settings/AppIconSettingsView.swift
       - path: App/Sources/app/DesignKit.swift
       - path: App/Sources/settings/SettingsAutosave.swift
