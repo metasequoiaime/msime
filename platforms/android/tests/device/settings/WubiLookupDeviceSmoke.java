@@ -43,6 +43,7 @@ public final class WubiLookupDeviceSmoke extends DeviceSmoke {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity --es msime_open_page TYPING");
 
             stage = "input page lists the lookup";
+            tap(settingsText("中文").and(AccessibilityNodeInfo::isClickable));
             tap(settingsText("五笔查码"));
             stage = "lookup page";
             AccessibilityNodeInfo field = await(settingsDescribed("要查五笔编码的文字"));

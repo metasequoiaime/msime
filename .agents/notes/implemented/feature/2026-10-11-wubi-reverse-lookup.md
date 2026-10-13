@@ -81,3 +81,5 @@ iOS 原生页同样用 `WubiLookupRequestState` 管理输入、请求身份和�
 - `platforms/harmony/tests/run.sh`：`DictionaryMaintenancePolicy` 把 `wubi_codes` 当读操作（组字时允许、不要维护、不进队列）。
 - `cargo test -p msime-host-api --lib -- dictionary::tests::wubi`：两个入口对同一请求给出相同回答，个人词库队列不建目录、用户数据目录不变；超长文字两个入口都拒绝。
 - 后续（Android、iOS 原生查码页）：Android 在专用 AVD 的 API 35 和 API 28 上跑了新增的 `WubiLookupDeviceSmoke`：启用五笔、选 98 码表后「输入」页出现「五笔查码」，查「段舞」两个字的 86、98 编码与随包词库一致（段 `wdm wdmc` / `th thdc`，舞 `rlg rlgh` / `tgl tglg`，98 列标「（当前）」），「输入法」整段有一行，没有汉字时提示；API 35 上 `smoke.sh` 全套另外跑过（`CaretCandidatesDeviceSmoke` 在机器负载高时丢了第一个键，重跑通过，与本改动无关），API 28 上 `smoke.sh --core`。`WubiCodeLookupPolicySmoke` 在 `check-host.sh` 里钉住排法和文字。iOS 在 iOS 27 模拟器上跑了 `WubiCodeLookupTests`（App 进程的同一条调用读测试宿主里的随包词库，段、舞、输入法与 Android 相同）和 `OnboardingUITests.testWubiCodeLookupListsBothTables`（真 App：选 98 五笔、打开「五笔查码」、查「段舞」，读屏标签与上面一致）；`MSIMEClientUITests` 不在 CI 里跑，只在本机跑过这一条。
+
+2026-10-14：Android 设置页改为顶部分类后，设备测试先在默认「语言」分类查找入口而失败；测试现在先切换到「中文」分类。API 35 重新构建原生包并运行 `WubiLookupDeviceSmoke` 通过。
