@@ -96,6 +96,34 @@ int main()
         assert(!MSIMEValidCaret(NSMakeRect(INFINITY, 600, 2, 18)));
         // A zero-width caret is ordinary - an insertion point has no width.
         assert(MSIMEValidCaret(NSMakeRect(400, 600, 0, 18)));
+
+        // 选屏幕：主屏、左边坐标为负的副屏，再加一块接在主屏右边、比主屏高的屏幕，顺序同 NSScreen.screens（主屏在前）。
+        const NSRect rightScreen = NSMakeRect(1600, 0, 1920, 1080);
+        NSArray<NSValue *> *frames = @[[NSValue valueWithRect:screen], [NSValue valueWithRect:left], [NSValue valueWithRect:rightScreen]];
+        assert(MSIMECandidateScreenIndex(NSMakePoint(400, 600), frames) == 0);
+        assert(MSIMECandidateScreenIndex(NSMakePoint(-700, 800), frames) == 1);
+        assert(MSIMECandidateScreenIndex(NSMakePoint(2000, 1050), frames) == 2);
+        // 两块屏幕共用的边照旧归右边、上边那块：x = 1600 是主屏的右边，也是右屏的左边。
+        assert(MSIMECandidateScreenIndex(NSMakePoint(1600, 500), frames) == 2);
+        assert(MSIMECandidateScreenIndex(NSMakePoint(-1440, 200), frames) == 1);
+        // 贴着最右那块屏幕的右边、或者某块屏幕的上边，NSPointInRect 哪块都不含；这时要留在这块屏幕上，不能退回主屏。
+        assert(MSIMECandidateScreenIndex(NSMakePoint(3520, 500), frames) == 2);
+        assert(MSIMECandidateScreenIndex(NSMakePoint(2000, 1080), frames) == 2);
+        assert(MSIMECandidateScreenIndex(NSMakePoint(3520, 1080), frames) == 2);
+        // 坐标为负的副屏的上边：x 在副屏里，主屏离它还有一段，取副屏。
+        assert(MSIMECandidateScreenIndex(NSMakePoint(-1, 1100), frames) == 1);
+        assert(MSIMECandidateScreenIndex(NSMakePoint(-1440, 1100), frames) == 1);
+        // 副屏的右上角同时在主屏的左边上，两块离它都是 0：取排在前面的主屏，结果不随别的东西变。
+        assert(MSIMECandidateScreenIndex(NSMakePoint(0, 1000), frames) == 0);
+        // 落在屏幕之间的空当里（副屏下方、主屏左边）取最近的那块。
+        assert(MSIMECandidateScreenIndex(NSMakePoint(-700, 100), frames) == 1);
+        assert(MSIMECandidateScreenIndex(NSMakePoint(-20, 100), frames) == 0);
+        assert(MSIMECandidateScreenIndex(NSMakePoint(4000, 500), frames) == 2);
+        // 含住锚点的屏幕不看顺序；没有屏幕时交给调用方。
+        NSArray<NSValue *> *reversed = frames.reverseObjectEnumerator.allObjects;
+        assert(MSIMECandidateScreenIndex(NSMakePoint(-700, 800), reversed) == 1);
+        assert(MSIMECandidateScreenIndex(NSMakePoint(3520, 500), reversed) == 0);
+        assert(MSIMECandidateScreenIndex(NSMakePoint(400, 600), @[]) == NSNotFound);
     }
     return 0;
 }

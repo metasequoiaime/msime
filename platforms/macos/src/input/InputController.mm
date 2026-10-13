@@ -6908,10 +6908,7 @@ static BOOL MSIMESentenceCandidateText(NSString *text) {
     NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
     if ([candidates isKindOfClass:NSArray.class] && candidates.count) {
         // The same rows the candidate panel lays out, so a card that wraps a long candidate onto several lines is kept clear of in full.
-        NSScreen *screen = nil;
-        for (NSScreen *candidateScreen in NSScreen.screens)
-            if (NSPointInRect(NSMakePoint(NSMinX(cursor), NSMidY(cursor)), candidateScreen.frame)) { screen = candidateScreen; break; }
-        screen = screen ?: NSScreen.mainScreen;
+        NSScreen *screen = MSIMECandidateScreen(cursor);
         NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize * scale englishFirst:YES];
         NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
         const MSIMECandidatePageGeometry geometry =
@@ -7069,11 +7066,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&reportedCursor];
     NSRect cursor = [self candidateCaretForRendering:reportedCursor];
     if (!MSIMEValidCaret(cursor)) return NO;
-    NSScreen *screen = nil;
-    for (NSScreen *candidate in NSScreen.screens) {
-        if (NSPointInRect(NSMakePoint(NSMinX(cursor), NSMidY(cursor)), candidate.frame)) { screen = candidate; break; }
-    }
-    screen = screen ?: NSScreen.mainScreen;
+    NSScreen *screen = MSIMECandidateScreen(cursor);
     if (!screen) return NO;
     const NSRect visible = screen.visibleFrame;
     [self ensureAppearance];
@@ -7262,11 +7255,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&reportedCursor];
     NSRect cursor = [self candidateCaretForRendering:reportedCursor];
     if (!MSIMEValidCaret(cursor)) { _renderedCandidateView = nil; [self hideCandidatePanel:"invalid_caret"]; return; }
-    NSScreen *screen = nil;
-    for (NSScreen *candidate in NSScreen.screens) {
-        if (NSPointInRect(NSMakePoint(NSMinX(cursor), NSMidY(cursor)), candidate.frame)) { screen = candidate; break; }
-    }
-    screen = screen ?: NSScreen.mainScreen;
+    NSScreen *screen = MSIMECandidateScreen(cursor);
     if (!screen) { _renderedCandidateView = nil; [self hideCandidatePanel:"no_screen"]; return; }
     NSRect visible = screen.visibleFrame;
     [self ensureAppearance];
