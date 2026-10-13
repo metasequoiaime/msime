@@ -36,6 +36,7 @@ Status: implemented
 - **代价**：开关打开时每次刷新最多多查 8 种读法 × 2 张表。下面是最初「每组第一行进优先位置、取够三行即停」时的数字，改成紧跟描绘的词之后的数字见 [2026-10-08-expressive-rows-follow-their-word.md](2026-10-08-expressive-rows-follow-their-word.md)。在出货词库上用 release 构建交替测量（同一进程里开、关两个会话各打 40 遍，Mac Studio，它同时是 CI runner，数字有噪声）：634486 每串 2.20 → 2.62 ms、5464426 14.5 → 15.2 ms、94264 14.4 → 14.8 ms、9426494264 74.4 → 74.3 ms、94264542648 85.9 → 91.6 ms；全部按键的单键中位数 3.15 → 3.25 ms，p95 12.9 → 14.5 ms。
 - **已知上限**：编码不记音节边界，锁定或切分落在一个编码的另一种合法切法上时（锁定 xi 后的 `xiangjiao` 可以读成 xi'ang'jiao），这个 emoji 照样出现。超过 8 种读法时排在后面、又没有候选支持的读法不查。混入的行在九宫格里与 26 键一样，没有可以学习或管理的读音。真机上没有验证过，只有 Engine 回归测试和 Android 的 Java 编译。
 - 已检索的相关笔记：[2026-10-08-android-symbol-catalog-and-emoji-candidates.md](2026-10-08-android-symbol-catalog-and-emoji-candidates.md) 的「九键不混入 emoji」缺口由本篇补上，那里的事实已就地更新并链到这里；[2026-10-07-mixed-candidate-dedup-state.md](../testing/2026-10-07-mixed-candidate-dedup-state.md) 的栈上去重表仍在 `insert_mixed_rows` 里，容量随取回的行数改了，见 [2026-10-08-expressive-rows-follow-their-word.md](2026-10-08-expressive-rows-follow-their-word.md)；[2026-10-08-nine-key-initials.md](2026-10-08-nine-key-initials.md) 与 [2026-10-08-emoji-query-prefixes.md](../testing/2026-10-08-emoji-query-prefixes.md) 讲的是同一个刷新函数和同一个查询模块的其他部分，无冲突。
+- 九宫格的读法与边界检查也给符号行用：[2026-10-13-symbol-candidates.md](2026-10-13-symbol-candidates.md) 的 `query_symbol_readings` 要读法与名称全拼完全相等，并且同样要过 `splits_into_syllables_at`。
 
 ## Verification
 

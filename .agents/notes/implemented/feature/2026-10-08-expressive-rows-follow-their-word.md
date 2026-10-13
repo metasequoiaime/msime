@@ -65,3 +65,4 @@ Status: implemented
 - `cargo test -p msime-engine --lib nine_key`：`digits_put_emoji_and_kaomoji_after_the_words_they_depict`（九键 634486、5464426、54）、`expressive_rows_follow_a_leading_english_word`。
 - `cargo test -p msime-engine --lib session::tests::nine_key_mixes_emoji_and_kaomoji_like_the_full_keyboard`：同一份词库下 26 键 `meiguo`、`jinggao`、`ji`、`li` 和九键 634486、5464426、54 的 emoji 都紧跟它画的词，🇺🇲 排在末尾。
 - `cargo test -p msime-engine`（含重排后的 `mixed_expressive_*` golden）、`cargo clippy -p msime-engine --all-targets -- -D warnings`。
+- 后来的 [2026-10-13-symbol-candidates.md](2026-10-13-symbol-candidates.md) 让整段拼出符号名称时混入符号行，沿用本篇的锚定做法（找词的两种方式抽成 `with_first_position` 共用），同一个词后面符号排在 emoji 之前。
