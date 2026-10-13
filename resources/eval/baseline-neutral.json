@@ -2,35 +2,35 @@
   "by_syllables": {
     "10": {
       "cases": 94,
-      "found": 0.926,
-      "mrr": 0.744,
-      "top1": 0.66,
-      "top1_char_prefix": 0.789,
-      "top5": 0.851,
-      "top9": 0.851
+      "found": 0.915,
+      "mrr": 0.731,
+      "top1": 0.649,
+      "top1_char_prefix": 0.784,
+      "top5": 0.84,
+      "top9": 0.84
     },
     "11": {
       "cases": 96,
-      "found": 0.875,
-      "mrr": 0.749,
-      "top1": 0.677,
-      "top1_char_prefix": 0.833,
-      "top5": 0.833,
-      "top9": 0.833
+      "found": 0.865,
+      "mrr": 0.764,
+      "top1": 0.688,
+      "top1_char_prefix": 0.843,
+      "top5": 0.854,
+      "top9": 0.854
     },
     "12": {
       "cases": 53,
       "found": 0.868,
-      "mrr": 0.706,
-      "top1": 0.623,
-      "top1_char_prefix": 0.783,
+      "mrr": 0.715,
+      "top1": 0.642,
+      "top1_char_prefix": 0.808,
       "top5": 0.792,
       "top9": 0.792
     },
     "13": {
       "cases": 46,
-      "found": 0.891,
-      "mrr": 0.776,
+      "found": 0.87,
+      "mrr": 0.775,
       "top1": 0.696,
       "top1_char_prefix": 0.838,
       "top5": 0.87,
@@ -39,18 +39,18 @@
     "14": {
       "cases": 34,
       "found": 0.765,
-      "mrr": 0.682,
+      "mrr": 0.696,
       "top1": 0.647,
       "top1_char_prefix": 0.786,
-      "top5": 0.735,
-      "top9": 0.735
+      "top5": 0.765,
+      "top9": 0.765
     },
     "15": {
       "cases": 28,
-      "found": 0.75,
+      "found": 0.786,
       "mrr": 0.573,
       "top1": 0.5,
-      "top1_char_prefix": 0.657,
+      "top1_char_prefix": 0.66,
       "top5": 0.643,
       "top9": 0.643
     },
@@ -65,73 +65,80 @@
     },
     "6": {
       "cases": 217,
-      "found": 0.931,
-      "mrr": 0.746,
-      "top1": 0.631,
-      "top1_char_prefix": 0.794,
-      "top5": 0.871,
-      "top9": 0.871
+      "found": 0.954,
+      "mrr": 0.763,
+      "top1": 0.645,
+      "top1_char_prefix": 0.811,
+      "top5": 0.889,
+      "top9": 0.889
     },
     "7": {
       "cases": 178,
-      "found": 0.921,
-      "mrr": 0.732,
-      "top1": 0.607,
-      "top1_char_prefix": 0.799,
-      "top5": 0.871,
-      "top9": 0.871
+      "found": 0.933,
+      "mrr": 0.743,
+      "top1": 0.612,
+      "top1_char_prefix": 0.8,
+      "top5": 0.888,
+      "top9": 0.888
     },
     "8": {
       "cases": 184,
-      "found": 0.929,
-      "mrr": 0.696,
-      "top1": 0.543,
-      "top1_char_prefix": 0.73,
-      "top5": 0.87,
-      "top9": 0.87
+      "found": 0.94,
+      "mrr": 0.705,
+      "top1": 0.549,
+      "top1_char_prefix": 0.739,
+      "top5": 0.88,
+      "top9": 0.88
     },
     "9": {
       "cases": 153,
-      "found": 0.882,
-      "mrr": 0.696,
-      "top1": 0.601,
-      "top1_char_prefix": 0.792,
-      "top5": 0.804,
-      "top9": 0.804
+      "found": 0.876,
+      "mrr": 0.684,
+      "top1": 0.588,
+      "top1_char_prefix": 0.789,
+      "top5": 0.791,
+      "top9": 0.791
     }
   },
   "by_tag": {
     "harvested": {
       "cases": 1105,
-      "found": 0.899,
-      "mrr": 0.719,
-      "top1": 0.614,
-      "top1_char_prefix": 0.784,
-      "top5": 0.839,
-      "top9": 0.839
+      "found": 0.904,
+      "mrr": 0.726,
+      "top1": 0.617,
+      "top1_char_prefix": 0.79,
+      "top5": 0.847,
+      "top9": 0.847
     }
   },
   "cases": 1105,
   "gold_source": {
     "database": 1,
-    "generated": 992
+    "generated": 998
   },
   "overall": {
     "cases": 1105,
-    "found": 0.899,
-    "mrr": 0.719,
-    "top1": 0.614,
-    "top1_char_prefix": 0.784,
-    "top5": 0.839,
-    "top9": 0.839
+    "found": 0.904,
+    "mrr": 0.726,
+    "top1": 0.617,
+    "top1_char_prefix": 0.79,
+    "top5": 0.847,
+    "top9": 0.847
   },
   "sample_failures": [
     {
       "gold": "一天两次出动",
       "id": "h-0001",
       "input": "yitianliangcichudong",
-      "rank": 894,
+      "rank": 2,
       "top1": "一天两次触动"
+    },
+    {
+      "gold": "两人携手登舟",
+      "id": "h-0014",
+      "input": "liangrenxieshoudengzhou",
+      "rank": 2,
+      "top1": "两人携手邓州"
     },
     {
       "gold": "中间包了韭菜",
@@ -208,7 +215,7 @@
       "id": "h-0042",
       "input": "guanzhulaooufazhan",
       "rank": null,
-      "top1": "关注老欧发展"
+      "top1": "关注老藕发展"
     },
     {
       "gold": "再次深表谢意",
@@ -235,7 +242,7 @@
       "gold": "出具探伤报告",
       "id": "h-0047",
       "input": "chujutanshangbaogao",
-      "rank": null,
+      "rank": 210,
       "top1": "出局摊上报告"
     },
     {
@@ -258,6 +265,13 @@
       "input": "fanyinggewaidanding",
       "rank": 2,
       "top1": "反映格外淡定"
+    },
+    {
+      "gold": "只要你不告我",
+      "id": "h-0062",
+      "input": "zhiyaonibugaowo",
+      "rank": 2,
+      "top1": "只要你不搞我"
     },
     {
       "gold": "后面哨马探知",
@@ -337,13 +351,6 @@
       "top1": "实则存不不让"
     },
     {
-      "gold": "实力铸就口碑",
-      "id": "h-0091",
-      "input": "shilizhujiukoubei",
-      "rank": null,
-      "top1": "十里铸就口碑"
-    },
-    {
       "gold": "就回总后去了",
       "id": "h-0095",
       "input": "jiuhuizonghouqule",
@@ -368,7 +375,7 @@
       "gold": "帮你代取快递",
       "id": "h-0099",
       "input": "bangnidaiqukuaidi",
-      "rank": 3,
+      "rank": 2,
       "top1": "帮你带去快递"
     },
     {
@@ -391,13 +398,6 @@
       "input": "zhangliaoyimadangxian",
       "rank": 2,
       "top1": "张辽姨妈当先"
-    },
-    {
-      "gold": "总是心急求快",
-      "id": "h-0111",
-      "input": "zongshixinjiqiukuai",
-      "rank": null,
-      "top1": "总是新击球快"
     },
     {
       "gold": "情侣进展神速",

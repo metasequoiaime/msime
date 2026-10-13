@@ -23,7 +23,7 @@
       "found": 0.964,
       "mrr": 0.882,
       "top1": 0.856,
-      "top1_char_prefix": 0.903,
+      "top1_char_prefix": 0.904,
       "top5": 0.962,
       "top9": 0.964
     },
@@ -121,7 +121,7 @@
       "id": "w-00676",
       "input": "beishuichexi",
       "rank": 4,
-      "top1": "被水车系"
+      "top1": "被水车洗"
     },
     {
       "gold": "本市",

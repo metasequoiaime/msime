@@ -3,20 +3,20 @@
     "10": {
       "cases": 9,
       "found": 0.556,
-      "mrr": 0.39,
-      "top1": 0.333,
-      "top1_char_prefix": 0.478,
+      "mrr": 0.334,
+      "top1": 0.222,
+      "top1_char_prefix": 0.367,
       "top5": 0.444,
       "top9": 0.444
     },
     "11": {
       "cases": 13,
       "found": 0.846,
-      "mrr": 0.565,
+      "mrr": 0.544,
       "top1": 0.385,
       "top1_char_prefix": 0.636,
-      "top5": 0.769,
-      "top9": 0.769
+      "top5": 0.692,
+      "top9": 0.692
     },
     "12": {
       "cases": 6,
@@ -65,68 +65,68 @@
     },
     "4": {
       "cases": 92,
-      "found": 0.946,
-      "mrr": 0.468,
+      "found": 0.967,
+      "mrr": 0.477,
       "top1": 0.217,
-      "top1_char_prefix": 0.492,
-      "top5": 0.761,
-      "top9": 0.761
+      "top1_char_prefix": 0.476,
+      "top5": 0.772,
+      "top9": 0.772
     },
     "5": {
       "cases": 35,
-      "found": 0.886,
-      "mrr": 0.572,
+      "found": 0.914,
+      "mrr": 0.573,
       "top1": 0.371,
-      "top1_char_prefix": 0.623,
+      "top1_char_prefix": 0.634,
       "top5": 0.771,
       "top9": 0.771
     },
     "6": {
       "cases": 50,
-      "found": 0.96,
+      "found": 0.98,
       "mrr": 0.574,
-      "top1": 0.32,
-      "top1_char_prefix": 0.563,
-      "top5": 0.86,
-      "top9": 0.86
+      "top1": 0.34,
+      "top1_char_prefix": 0.55,
+      "top5": 0.84,
+      "top9": 0.84
     },
     "7": {
       "cases": 41,
       "found": 0.902,
-      "mrr": 0.578,
-      "top1": 0.341,
-      "top1_char_prefix": 0.679,
-      "top5": 0.829,
-      "top9": 0.829
+      "mrr": 0.554,
+      "top1": 0.317,
+      "top1_char_prefix": 0.666,
+      "top5": 0.805,
+      "top9": 0.805
     },
     "8": {
       "cases": 27,
       "found": 1.0,
       "mrr": 0.637,
       "top1": 0.37,
-      "top1_char_prefix": 0.625,
+      "top1_char_prefix": 0.634,
       "top5": 0.963,
       "top9": 0.963
     },
     "9": {
       "cases": 21,
       "found": 0.762,
-      "mrr": 0.524,
+      "mrr": 0.509,
       "top1": 0.381,
       "top1_char_prefix": 0.667,
-      "top5": 0.714,
-      "top9": 0.714
+      "top5": 0.667,
+      "top9": 0.667
     }
   },
   "by_tag": {
     "harvested": {
       "cases": 310,
-      "found": 0.903,
-      "mrr": 0.527,
-      "top1": 0.306,
-      "top1_char_prefix": 0.585,
-      "top5": 0.777,
-      "top9": 0.777
+      "found": 0.916,
+      "mrr": 0.522,
+      "top1": 0.303,
+      "top1_char_prefix": 0.575,
+      "top5": 0.768,
+      "top9": 0.768
     },
     "reported": {
       "cases": 2,
@@ -141,25 +141,18 @@
   "cases": 312,
   "gold_source": {
     "database": 3,
-    "generated": 278
+    "generated": 282
   },
   "overall": {
     "cases": 312,
-    "found": 0.901,
-    "mrr": 0.526,
-    "top1": 0.308,
-    "top1_char_prefix": 0.585,
-    "top5": 0.776,
-    "top9": 0.776
+    "found": 0.913,
+    "mrr": 0.522,
+    "top1": 0.304,
+    "top1_char_prefix": 0.575,
+    "top5": 0.766,
+    "top9": 0.766
   },
   "sample_failures": [
-    {
-      "gold": "故意伤害",
-      "id": "p-0003",
-      "input": "guyishanghai",
-      "rank": 5,
-      "top1": "故意伤害罪"
-    },
     {
       "gold": "建筑类资质值得托付",
       "id": "p-0004",
@@ -227,28 +220,28 @@
       "gold": "夺得马匹逃回",
       "id": "p-0017",
       "input": "duodemapitaohui",
-      "rank": 2,
-      "top1": "夺得马屁逃回"
+      "rank": 187,
+      "top1": "多的马屁逃回"
     },
     {
       "gold": "命战车满道路",
       "id": "p-0018",
       "input": "mingzhanchemandaolu",
-      "rank": 64,
+      "rank": 63,
       "top1": "明战车慢道路"
     },
     {
       "gold": "将士疲劳",
       "id": "p-0019",
       "input": "jiangshipilao",
-      "rank": 132,
+      "rank": 131,
       "top1": "将是疲劳"
     },
     {
       "gold": "会议亲自部署",
       "id": "p-0020",
       "input": "huiyiqinzibushu",
-      "rank": 3,
+      "rank": 2,
       "top1": "会议亲子部署"
     },
     {
@@ -432,6 +425,13 @@
       "input": "bufenyiwujunshucilei",
       "rank": 3,
       "top1": "部分义务均属此类"
+    },
+    {
+      "gold": "分歧基因",
+      "id": "p-0058",
+      "input": "fenqijiyin",
+      "rank": 2,
+      "top1": "分期基因"
     }
   ],
   "top1_source": {

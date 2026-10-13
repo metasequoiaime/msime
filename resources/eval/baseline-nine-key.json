@@ -20,12 +20,12 @@
     },
     "4": {
       "cases": 556,
-      "found": 0.883,
-      "mrr": 0.88,
-      "top1": 0.878,
-      "top1_char_prefix": 0.899,
-      "top5": 0.881,
-      "top9": 0.881
+      "found": 0.881,
+      "mrr": 0.878,
+      "top1": 0.876,
+      "top1_char_prefix": 0.898,
+      "top5": 0.879,
+      "top9": 0.879
     },
     "5": {
       "cases": 10,
@@ -40,14 +40,14 @@
   "by_tag": {},
   "cases": 2791,
   "gold_source": {
-    "database": 2700,
+    "database": 2699,
     "generated": 3
   },
   "overall": {
     "cases": 2791,
     "found": 0.968,
-    "mrr": 0.693,
-    "top1": 0.575,
+    "mrr": 0.692,
+    "top1": 0.574,
     "top1_char_prefix": 0.606,
     "top5": 0.851,
     "top9": 0.906
@@ -335,7 +335,7 @@
     }
   ],
   "top1_source": {
-    "database": 2735,
-    "generated": 56
+    "database": 2734,
+    "generated": 57
   }
 }

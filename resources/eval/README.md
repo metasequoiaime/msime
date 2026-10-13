@@ -64,7 +64,7 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 | 集合 | 九键 top-1 | 九键 top-5 | 14 键 top-1 | 14 键 top-5 |
 |---|---|---|---|---|
 | `quanpin-words-v1` 3000 条（实取 2791） | 0.575 | 0.851 | 0.660 | 0.906 |
-| `sentences-nine-key-v1` 81 条 | 0.506 | 0.519 | 0.568 | 0.568 |
+| `sentences-nine-key-v1` 81 条 | 0.519 | 0.519 | 0.580 | 0.580 |
 
 `rerank_latency` 在 `sentences-nine-key-v1` 上同一个二进制交替各跑两轮，挂着重排模型的 p95 九键 22.34 / 22.29 ms、14 键 20.80 / 20.78 ms，只有引擎时九键 8.73 / 8.72 ms、14 键 7.20 / 7.10 ms。两者都超出 16 ms 的帧预算，这是九键长串原有的问题，14 键没有让它更糟。
 
