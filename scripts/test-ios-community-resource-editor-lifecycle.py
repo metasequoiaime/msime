@@ -22,6 +22,7 @@ class CommunityResourceEditorLifecycleTests(unittest.TestCase):
         self.assertIn("ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending", editor)
         self.assertGreaterEqual(editor.count("try request.checkCurrent(id)"), 2)
         self.assertGreaterEqual(editor.count("run { id in"), 2)
+        self.assertIn("CommunityUnseenItems.filter(existing: words, incoming: imported.entries)", editor)
         self.assertIn("let id = request.wrappedValue.begin()", TASK.read_text())
 
 

@@ -195,7 +195,7 @@ struct SkinCommunityView: View {
     do {
       let page = try await api.list(offset: append ? skins.count : 0, search: search, mine: onlyMine, category: category)
       try request.checkCurrent(id)
-      if append { let ids = Set(skins.map(\.id)); skins += page.skins.filter { !ids.contains($0.id) } }
+      if append { skins += CommunityUnseenItems.filter(existing: skins, incoming: page.skins) }
       else { skins = page.skins }
       more = page.has_more
     } catch is CancellationError { throw CancellationError() }

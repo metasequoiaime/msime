@@ -345,6 +345,7 @@ targets:
     platform: iOS
     sources:
       - path: ServiceTests
+      - path: App/Sources/community/CommunityUnseenItems.swift
       - path: App/Sources/app/ViewRequestGeneration.swift
       - path: App/Sources/app/ViewRequestTask.swift
       - path: App/Sources/settings/AppIconSettingsView.swift

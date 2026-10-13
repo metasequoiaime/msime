@@ -29,6 +29,7 @@ class CommunityResourceListLifecycleTests(unittest.TestCase):
 
     def test_late_list_results_are_fenced_after_disappearance(self):
         self.assertIn("ViewRequestTask.startLoad(request: $request, pending: $pending) { id in", self.view)
+        self.assertIn("CommunityUnseenItems.filter(existing: items, incoming: page.items)", self.view)
         self.assertIn("guard request.isCurrent(id) else { return }", self.view)
         self.assertIn("try request.checkCurrent(id)", self.view)
         self.assertIn("ViewRequestTask.startLoad(request: $request, pending: $pending) { id in", self.reply)
