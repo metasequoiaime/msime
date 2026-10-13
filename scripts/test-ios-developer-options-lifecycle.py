@@ -18,8 +18,11 @@ class IOSDeveloperOptionsLifecycleContract(unittest.TestCase):
         body = next((body for body in disappear_bodies if "ViewRequestTask.cancel(generation: $lifecycle, task: $pending)" in body), None)
         self.assertIsNotNone(body, "developer options must invalidate work when it disappears")
         self.assertIn("ViewRequestTask.cancel(generation: $lifecycle, task: $pending)", body)
-        self.assertIn("generation.wrappedValue.invalidate()", (ROOT / "platforms/ios/App/Sources/app/ViewRequestTask.swift").read_text())
-        self.assertIn("task.wrappedValue?.cancel()", (ROOT / "platforms/ios/App/Sources/app/ViewRequestTask.swift").read_text())
+        task = (ROOT / "platforms/ios/App/Sources/app/ViewRequestTask.swift").read_text()
+        generation = (ROOT / "platforms/ios/App/Sources/app/ViewRequestGeneration.swift").read_text()
+        self.assertIn("generation.wrappedValue.cancel(task: &task.wrappedValue)", task)
+        self.assertIn("task?.cancel()", generation)
+        self.assertIn("task = nil", generation)
 
     def test_export_and_reset_results_are_bound_to_current_lifecycle(self):
         source = SOURCE.read_text(encoding="utf-8")

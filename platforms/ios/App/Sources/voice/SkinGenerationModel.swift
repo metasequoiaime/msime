@@ -85,7 +85,7 @@ final class SkinGenerationModel: ObservableObject {
       catch { if generation.isCurrent(id) && !Task.isCancelled { show(error) } }
     }
   }
-  func cancel() { generation.invalidate(); request?.cancel(); request = nil; generating = false }
+  func cancel() { generation.cancel(task: &request); generating = false }
   private func show(_ error: Error) {
     if let failure = error as? BackendAccountClient.Failure {
       loginNeeded = failure.status == 401

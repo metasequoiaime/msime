@@ -33,9 +33,7 @@ import SwiftUI
 
   /// 取消不占用页面请求状态的独立操作，并使它的旧回调失效。
   static func cancel(generation: Binding<OperationGeneration>, task: Binding<Task<Void, Never>?>) {
-    generation.wrappedValue.invalidate()
-    task.wrappedValue?.cancel()
-    task.wrappedValue = nil
+    generation.wrappedValue.cancel(task: &task.wrappedValue)
   }
 
   /// 取消不带代次的短任务，并清空句柄，避免页面重建后保留已完成任务。

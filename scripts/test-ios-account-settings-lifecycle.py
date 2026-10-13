@@ -41,8 +41,10 @@ class AccountSettingsLifecycleTests(unittest.TestCase):
         self.assertIn("@State private var syncGeneration = OperationGeneration()", self.view)
         self.assertIn("ViewRequestTask.cancel(generation: $syncGeneration, task: $syncTask)", self.view)
         self.assertEqual(self.view.count("let id = syncGeneration.begin()"), 2)
-        self.assertIn("generation.wrappedValue.invalidate()", TASK)
-        self.assertIn("task.wrappedValue?.cancel()", TASK)
+        self.assertIn("generation.wrappedValue.cancel(task: &task.wrappedValue)", TASK)
+        self.assertIn("invalidate()", GENERATION)
+        self.assertIn("task?.cancel()", GENERATION)
+        self.assertIn("task = nil", GENERATION)
 
     def test_login_section_uses_shared_page_generation(self):
         self.assertIn("@State private var request = ViewRequestGeneration()", self.login)

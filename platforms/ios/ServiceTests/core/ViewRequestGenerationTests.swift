@@ -1,6 +1,20 @@
 import XCTest
 
 final class OperationGenerationTests: XCTestCase {
+  @MainActor func testCancelInvalidatesOperationAndReleasesTask() async throws {
+    var generation = OperationGeneration()
+    let id = generation.begin()
+    let task = Task<Void, Never> { try? await Task.sleep(nanoseconds: 3_600_000_000_000) }
+    var pending: Task<Void, Never>? = task
+
+    generation.cancel(task: &pending)
+
+    XCTAssertFalse(generation.isCurrent(id))
+    XCTAssertNil(pending)
+    XCTAssertTrue(task.isCancelled)
+    await task.value
+  }
+
   @MainActor func testReplacementAndInvalidationRejectOldOperations() throws {
     var generation = OperationGeneration()
     let initial = generation.current()

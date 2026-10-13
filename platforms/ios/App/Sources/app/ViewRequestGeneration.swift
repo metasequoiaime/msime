@@ -11,6 +11,13 @@ import Foundation
 
   mutating func invalidate() { currentID = UUID() }
 
+  /// 让旧结果失效，再取消并释放对应任务。
+  mutating func cancel(task: inout Task<Void, Never>?) {
+    invalidate()
+    task?.cancel()
+    task = nil
+  }
+
   func current() -> UUID { currentID }
 
   func isCurrent(_ id: UUID) -> Bool { currentID == id }

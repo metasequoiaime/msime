@@ -75,8 +75,7 @@ final class AISkinDesignModel: ObservableObject {
   }
 
   func cancel() {
-    generation.invalidate()
-    request?.cancel(); request = nil
+    generation.cancel(task: &request)
     busy = false; completed = 0
   }
 
