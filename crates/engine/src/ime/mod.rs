@@ -27,8 +27,9 @@ use crate::shuangpin::query::{
 use crate::shuangpin::ShuangpinProfile;
 use crate::shuangpin::ShuangpinScheme;
 use crate::types::{
-    autocorrect_type, CandidateSource, FuzzyPinyinOptions, QueryRequest, SchemeKey, SchemeSet,
-    SchemeType, SentenceAssociationOptions, WordItem, WubiInputOptions,
+    autocorrect_type, CandidateSource, FirstPageRows, FuzzyPinyinOptions, QueryRequest, SchemeKey,
+    SchemeSet, SchemeType, SentenceAssociationOptions, WordItem, WubiInputOptions,
+    DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 use crate::vietnamese::{
@@ -98,6 +99,8 @@ pub struct ImeSession {
     shuangpin_helpcode: bool,
     fuzzy: FuzzyPinyinOptions,
     sentence_alternatives: bool,
+    /// `SessionOptions::first_page_rows`：随每个请求交给各方案引擎，决定全长组要不要并入补全词。
+    first_page_rows: usize,
     sentence_association: SentenceAssociationOptions,
     rescoring_context: String,
     typo_profile: Arc<PersonalTypoProfile>,
@@ -169,6 +172,7 @@ impl ImeSession {
             shuangpin_helpcode: false,
             fuzzy: FuzzyPinyinOptions::default(),
             sentence_alternatives: false,
+            first_page_rows: DEFAULT_FIRST_PAGE_ROWS,
             sentence_association: SentenceAssociationOptions::default(),
             rescoring_context: String::new(),
             typo_profile: PersonalTypoProfile::shared(&paths.user(assets::USER_JOURNAL)),
@@ -695,6 +699,11 @@ impl ImeSession {
         self.sentence_association = options;
     }
 
+    /// 首页行数随每个请求交给各方案引擎；只影响全长组要不要并入补全词。
+    pub fn set_first_page_rows(&mut self, rows: usize) {
+        self.first_page_rows = rows;
+    }
+
     pub fn set_rescoring_context(&mut self, context: &str) {
         context.clone_into(&mut self.rescoring_context);
     }
@@ -855,6 +864,7 @@ impl ImeSession {
             self.autocorrect_types & autocorrect_type::NEIGHBOR != 0;
         request.fuzzy_pinyin = self.fuzzy;
         request.sentence_association = self.sentence_association;
+        request.first_page_rows = FirstPageRows::new(self.first_page_rows);
         request
             .rescoring_context
             .clone_from(&self.rescoring_context);

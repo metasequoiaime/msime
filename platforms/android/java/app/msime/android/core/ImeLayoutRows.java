@@ -291,14 +291,14 @@ final class ImeLayoutRows {
             s.localSettings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
     }
 
-    /** 屏幕上有九键或笔画的符号栏，而它的符号和设置里的已经不同：设置页改了符号表之后，下一次渲染重建键行。 */
+    /** 九键、14 键或笔画的符号栏与设置不一致时，下一次渲染重建键行。 */
     boolean sidebarStale() {
         return s.nineKeySidebar != null && builtSidebarSymbols != null
             && !builtSidebarSymbols.equals(sidebarSymbols(builtSidebarDigits));
     }
 
     /**
-     * 九键与笔画键盘左侧的符号栏：一屏 {@link NineKeySidebarPolicy#VISIBLE_ROWS} 个符号，更多的上下滚动（#5574）。符号键共用一条底轨，不各自画键帽；点按原样上屏（全角模式下转全角）。
+     * 九键、14 键与笔画键盘左侧的符号栏：一屏 {@link NineKeySidebarPolicy#VISIBLE_ROWS} 个符号，更多的上下滚动（#5574）。符号键共用一条底轨，不各自画键帽；点按原样上屏（全角模式下转全角）。
      */
     private FrameLayout symbolSidebar(boolean digits) {
         java.util.List<String> symbols = sidebarSymbols(digits);
@@ -645,19 +645,17 @@ final class ImeLayoutRows {
         if (s.candidateViewport != null) attachSpellings(s.candidateViewport, SpellingPlacement.CANDIDATE_ROW);
     }
 
-    /** 拼音选择条挂在哪里：拼音九键的侧栏、注音 9 键的候选行，或 14 键读音行的右侧。 */
-    enum SpellingPlacement { SIDEBAR, CANDIDATE_ROW, READING_ROW }
+    /** 拼音选择只使用九键侧栏或注音九键候选行。 */
+    enum SpellingPlacement { SIDEBAR, CANDIDATE_ROW }
 
-    /** 14 键：把拼音选择条挂到读音行右侧（{@link MSIMEInputService#readingSpellingSlot}），横向滚动，不盖住候选行。 */
-    void attachReadingRowSpellings() {
-        if (s.readingSpellingSlot != null) attachSpellings(s.readingSpellingSlot, SpellingPlacement.READING_ROW);
+    /** 14 键共用九键的左侧符号栏；组字时由纵向拼音列覆盖符号。 */
+    FrameLayout fourteenSpellingSidebar() {
+        FrameLayout sidebar = symbolSidebar(false);
+        attachSpellings(sidebar, SpellingPlacement.SIDEBAR);
+        return sidebar;
     }
 
-    /**
-     * 把拼音选择条挂到 `parent`。叠在候选行上（注音 9 键）时是一排横向滚动的读音，铺满整行高并垂直居中；挂在拼音九键侧栏里时是一列纵向滚动的拼音，铺满侧栏、盖住下面的标点列，与 iOS、HarmonyOS 的侧栏一致；14 键挂在读音行右侧，是一排横向滚动的拼音，读音和候选都不被盖住，三端位置相同。
-     *
-     * <p>滚动方向不同，所以每次换位置都换一个滚动容器；按钮也清空，由 renderNineKeySpellings 按当前位置重建：几处的按钮样式不同，叠在候选行上时样式通道按候选按钮给了最小宽高和内边距，挂回侧栏后只重设颜色和字体，拼音按钮就一直是候选的尺寸。选择条的按钮行只在创建键盘视图时建一次，每次重建九键都会换一个新的侧栏；偏好变化触发第二次重建时它还挂在上一个容器上，不先摘下来，addView 会抛 IllegalStateException 让键盘进程崩溃。
-     */
+    /** 换挂载位置时先摘下旧容器、清空按钮，避免父视图和按钮尺寸沿用另一种布局。 */
     private void attachSpellings(android.view.ViewGroup parent, SpellingPlacement placement) {
         if (s.nineKeySpellings == null || s.nineKeySpellingScroll == null) return;
         if (s.nineKeySpellingScroll.getParent() instanceof android.view.ViewGroup previous)
@@ -666,8 +664,6 @@ final class ImeLayoutRows {
             holder.removeView(s.nineKeySpellings);
         s.nineKeySpellings.removeAllViews();
         s.nineKeySpellingButtons.clear();
-        // 离开读音行时把读音行还原成只有读音的样子；挂到读音行时由 renderNineKeySpellings 按有没有可选项再打开。
-        showReadingRowStrip(false);
         boolean candidateRow = placement != SpellingPlacement.SIDEBAR;
         FrameLayout scroll;
         if (candidateRow) {
@@ -690,50 +686,6 @@ final class ImeLayoutRows {
         s.nineKeySpellingScroll = scroll;
         s.nineKeySpellingGeneration = -1;
         parent.addView(scroll, LayoutPolicy.frameMatchParentParams());
-    }
-
-    /** 选择条此刻挂在读音行右侧（14 键）。 */
-    private boolean spellingsInReadingRow() {
-        return s.readingSpellingSlot != null && s.nineKeySpellingScroll != null
-            && s.nineKeySpellingScroll.getParent() == s.readingSpellingSlot;
-    }
-
-    /**
-     * 读音行右侧的选择条显示与否。显示时读音收成自身宽度（最多读音行的一半，放不下的在末尾省略），选择条占其余宽度；不显示时读音照旧占满整行，右侧的位置收起。
-     */
-    private void showReadingRowStrip(boolean shown) {
-        android.view.View slot = s.readingSpellingSlot;
-        if (slot == null || s.preedit == null) return;
-        if (shown) ViewPolicy.show(slot);
-        else ViewPolicy.hide(slot);
-        if (!(s.preedit.getParent() instanceof LinearLayout frame)
-                || !(frame.getLayoutParams() instanceof LinearLayout.LayoutParams params)) return;
-        float weight = shown ? 0f : 1f;
-        int width = shown ? LinearLayout.LayoutParams.WRAP_CONTENT : 0;
-        if (params.weight != weight || params.width != width) {
-            params.weight = weight;
-            params.width = width;
-            frame.setLayoutParams(params);
-        }
-        int rowWidth = s.candidateHeader == null ? 0 : s.candidateHeader.getWidth();
-        if (rowWidth <= 0 && s.keyboardSurface != null) rowWidth = s.keyboardSurface.getWidth();
-        int maxWidth = shown && rowWidth > 0 ? rowWidth / 2 : Integer.MAX_VALUE;
-        // setMaxWidth 每次都重新布局，每次按键都要 render，值没变就不设。
-        if (s.preedit.getMaxWidth() != maxWidth) s.preedit.setMaxWidth(maxWidth);
-    }
-
-    /** 读音行右侧选择条里的一项：和读音一样是读音行底上不带键帽的字，宽度随拼音，高度铺满读音行。 */
-    private Button readingRowSpellingButton(LinearLayout row, Runnable action) {
-        Button key = s.button(row, "", action);
-        if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.PLAIN);
-        KeyboardTypographyPolicy.setKeyTextSize(key, 13);
-        ViewPolicy.setSingleLine(key);
-        ViewPolicy.clearMinimumHeight(key);
-        ViewPolicy.setMinimumWidth(key, 0);
-        ViewPolicy.setHorizontalPadding(key, s.pixels(7));
-        key.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
-        return key;
     }
 
     /**
@@ -1371,8 +1323,6 @@ final class ImeLayoutRows {
             && !spellings.values().isEmpty();
         if (visible) ViewPolicy.show(s.nineKeySpellingScroll);
         else ViewPolicy.hide(s.nineKeySpellingScroll);
-        boolean readingRow = spellingsInReadingRow();
-        if (readingRow) showReadingRowStrip(visible && fourteenKey);
         // 拼音列盖住整条侧栏：标点列让出来（仍占位，侧栏宽度不变），没有拼音可选时再露出来。
         if (nineKeyPunctuation != null && nineKeyPunctuation.getParent() == s.nineKeySpellingScroll.getParent()) {
             if (visible) ViewPolicy.setInvisible(nineKeyPunctuation);
@@ -1388,7 +1338,7 @@ final class ImeLayoutRows {
         }
         boolean column = s.nineKeySpellings.getOrientation() == LinearLayout.VERTICAL;
         // 换了一组拼音（新的一代）时回到第一项：第一项是引擎的首选。
-        if ((column || readingRow) && spellings.generation() != s.nineKeySpellingGeneration)
+        if (column && spellings.generation() != s.nineKeySpellingGeneration)
             s.nineKeySpellingScroll.scrollTo(0, 0);
         s.nineKeySpellingGeneration = spellings.generation();
         java.util.List<String> values = spellings.values();
@@ -1404,8 +1354,7 @@ final class ImeLayoutRows {
             Button key;
             if (column) {
                 key = spellingColumnButton(s.nineKeySpellings, choose);
-            } else if (readingRow) {
-                key = readingRowSpellingButton(s.nineKeySpellings, choose);
+
             } else {
                 key = s.button(s.nineKeySpellings, "", choose);
                 LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) key.getLayoutParams();

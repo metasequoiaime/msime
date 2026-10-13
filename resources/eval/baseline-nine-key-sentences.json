@@ -48,9 +48,9 @@
     "6": {
       "cases": 9,
       "found": 0.889,
-      "mrr": 0.706,
-      "top1": 0.667,
-      "top1_char_prefix": 0.741,
+      "mrr": 0.784,
+      "top1": 0.778,
+      "top1_char_prefix": 0.852,
       "top5": 0.778,
       "top9": 0.778
     },
@@ -86,11 +86,11 @@
     "question": {
       "cases": 11,
       "found": 0.636,
-      "mrr": 0.576,
+      "mrr": 0.551,
       "top1": 0.545,
       "top1_char_prefix": 0.65,
-      "top5": 0.636,
-      "top9": 0.636
+      "top5": 0.545,
+      "top9": 0.545
     },
     "request": {
       "cases": 18,
@@ -104,11 +104,11 @@
     "statement": {
       "cases": 52,
       "found": 0.654,
-      "mrr": 0.545,
-      "top1": 0.538,
-      "top1_char_prefix": 0.718,
-      "top5": 0.538,
-      "top9": 0.558
+      "mrr": 0.564,
+      "top1": 0.558,
+      "top1_char_prefix": 0.737,
+      "top5": 0.558,
+      "top9": 0.577
     }
   },
   "cases": 81,
@@ -119,9 +119,9 @@
   "overall": {
     "cases": 81,
     "found": 0.617,
-    "mrr": 0.517,
-    "top1": 0.506,
-    "top1_char_prefix": 0.704,
+    "mrr": 0.526,
+    "top1": 0.519,
+    "top1_char_prefix": 0.716,
     "top5": 0.519,
     "top9": 0.543
   },
@@ -151,7 +151,7 @@
       "gold": "晚饭想吃什么",
       "id": "nk-020",
       "input": "wanfanxiangchishenme",
-      "rank": 3,
+      "rank": 18,
       "top1": "早饭想吃什么"
     },
     {
@@ -160,13 +160,6 @@
       "input": "diannaoturansiji",
       "rank": null,
       "top1": "电脑突然奇迹"
-    },
-    {
-      "gold": "会议改到明天",
-      "id": "nk-024",
-      "input": "huiyigaidaomingtian",
-      "rank": 41,
-      "top1": "回忆还到明天"
     },
     {
       "gold": "这件衣服很好看",

@@ -23,7 +23,7 @@
       "found": 0.333,
       "mrr": 0.333,
       "top1": 0.333,
-      "top1_char_prefix": 0.583,
+      "top1_char_prefix": 0.556,
       "top5": 0.333,
       "top9": 0.333
     },
@@ -86,7 +86,7 @@
       "found": 0.778,
       "mrr": 0.778,
       "top1": 0.778,
-      "top1_char_prefix": 0.861,
+      "top1_char_prefix": 0.875,
       "top5": 0.778,
       "top9": 0.778
     },
@@ -124,7 +124,7 @@
       "found": 0.625,
       "mrr": 0.625,
       "top1": 0.625,
-      "top1_char_prefix": 0.73,
+      "top1_char_prefix": 0.72,
       "top5": 0.625,
       "top9": 0.625
     },
@@ -142,7 +142,7 @@
       "found": 0.667,
       "mrr": 0.667,
       "top1": 0.667,
-      "top1_char_prefix": 0.806,
+      "top1_char_prefix": 0.826,
       "top5": 0.667,
       "top9": 0.667
     },
@@ -184,7 +184,7 @@
     "found": 0.75,
     "mrr": 0.75,
     "top1": 0.75,
-    "top1_char_prefix": 0.851,
+    "top1_char_prefix": 0.852,
     "top5": 0.75,
     "top9": 0.75
   },
@@ -250,7 +250,7 @@
       "id": "s-040",
       "input": "womenkaileliangxiaoshihui",
       "rank": null,
-      "top1": "我们开了良宵是会"
+      "top1": "我们开了两校实惠"
     },
     {
       "gold": "李明在北京工作",
@@ -278,7 +278,7 @@
       "id": "s-051",
       "input": "jintianxiawudehuiyituichidaomingtian",
       "rank": null,
-      "top1": "今天下午的回忆推迟到明天"
+      "top1": "今天下午德惠一腿迟到明天"
     },
     {
       "gold": "没问题交给我",

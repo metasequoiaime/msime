@@ -15,6 +15,7 @@ use crate::types::{
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, LocalModeOptions, MentionEntry,
     MixedExpressiveOptions, QuickPhraseEntry, SchemeSet, SchemeType, SentenceAssociationOptions,
     ShuangpinCustomTable, ShuangpinProfileKind, WubiInputOptions, WubiProfileKind,
+    DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::user_dictionary::generation::prepare_runtime_paths_for;
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
@@ -120,6 +121,8 @@ pub struct EngineOptions {
     pub rescoring_context: String,
     /// Ask for every whole-sentence reading; the runtime reorders and crops them.
     pub sentence_alternatives: bool,
+    /// 宿主的每页候选数（`SessionOptions::first_page_rows`）：全长组的精确同音词够这么多行就不再并入补全词。0 到请求里会归一成 1。
+    pub first_page_rows: usize,
     /// 只出单字（`SessionOptions::single_character_only`）。
     pub single_character_only: bool,
     /// 0 Telex, 1 VNI (`vietnamese::InputMethod`).
@@ -215,6 +218,7 @@ pub fn prepare_options_for(
         sentence_association: SentenceAssociationOptions::default(),
         rescoring_context: String::new(),
         sentence_alternatives: false,
+        first_page_rows: DEFAULT_FIRST_PAGE_ROWS,
         vietnamese_input_method: VietnameseInputMethod::Telex as u8,
         vietnamese_tone_style: VietnameseToneStyle::Modern as u8,
         cantonese_dictionary: String::new(),
@@ -312,6 +316,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.quick_phrase_table = options.quick_phrase_table.clone();
     session.sentence_alternatives = options.sentence_alternatives;
     session.sentence_association = options.sentence_association;
+    session.first_page_rows = options.first_page_rows;
     session.rescoring_context = options.rescoring_context.clone();
     // `personal_context` keeps its default: the bridge never exposed it (api-contract §1a).
     Ok(session)

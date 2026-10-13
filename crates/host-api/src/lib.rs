@@ -561,6 +561,7 @@ impl HostSession {
     fn apply_pending(&mut self) -> Result<Option<String>, String> {
         if self.runtime.is_idle() {
             if let Some(size) = self.page_size_override {
+                // 这里只改分页。引擎的首屏门槛（`first_page_rows`）要等下面那次重建才跟随，override 自身的变化不触发重建（今天也没有宿主入口写它，见 `ffi/session.rs` 的初始化）。
                 self.runtime
                     .set_page_size(host_page_size(size))
                     .map_err(|e| e.to_string())?;
@@ -641,6 +642,12 @@ impl HostSession {
         plugin_tables.fill(&self.plugin_tables, plugin_root, &mut options);
         options.sentence_association =
             engine_sentence_association(&preferences.sentence_association);
+        // 引擎按宿主的每页候选数决定全长组要不要并入补全词；和下面交给 runtime 的值同源。
+        let page_size = host_page_size(
+            self.page_size_override
+                .unwrap_or(preferences.candidate_page_size),
+        );
+        options.first_page_rows = usize::from(page_size);
         // Unconditional, because `Runtime::crop_alternative_readings` runs whether or not a model is
         // attached: the host always shows one whole-sentence reading. Asking for the rest only ever
         // gives it more to choose from, and even with no model the engine's own pick among them is
@@ -713,14 +720,7 @@ impl HostSession {
         // AI 座位跟着最新请求的偏好（与 `ai_provider_cache` 同一份），每个新 Engine 都要重新告诉它。
         engine.set_ai_seat(self.ai_seat_ready());
         self.runtime
-            .replace_engine_with_touch_layout(
-                engine,
-                host_page_size(
-                    self.page_size_override
-                        .unwrap_or(preferences.candidate_page_size),
-                ),
-                preferences.touch_keyboard_layout,
-            )
+            .replace_engine_with_touch_layout(engine, page_size, preferences.touch_keyboard_layout)
             .map_err(|e| e.to_string())?;
         self.runtime
             .set_settled_rerank_enabled(preferences.sentence_association.neural_desktop);
@@ -1578,6 +1578,8 @@ impl HostOptions {
             user_data: self.user_data,
             cache: self.cache,
             dictionaries: self.dictionaries,
+            // 词库维护类操作也走这里：`HostOptions` 没有 `page_size_override`，只能用偏好值。
+            first_page_rows: usize::from(host_page_size(self.preferences.candidate_page_size)),
             scheme: scheme_code(scheme),
             enabled_schemes: engine_schemes(edition),
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),

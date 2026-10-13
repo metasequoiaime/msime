@@ -2,7 +2,7 @@
 //!
 //! A phrase graph and a Viterbi beam search over dictionary spans, after libpinyin's PinyinLookup2 (the unigram path score is a product of P(word), with a beam per syllable step) and sunpinyin's lattice columns. The unigram normaliser supplies the usual "fewer tokens win" bias.
 //!
-//! With a bigram table, each transition also earns `bigram_weight * ln(P(next|previous) / P(next))`. Without it every path spelling the same syllables is judged on its words' frequencies alone, which is why 配置于权限 used to beat 配置与权限: 于 is the commoner character and nothing else had an opinion. The term is a bonus rather than a replacement, so an absent pair leaves the path where the unigram score put it.
+//! With a bigram table, each transition also earns `bigram_weight * max(0, ln(P(next|previous) / P(next)))`. Without it every path spelling the same syllables is judged on its words' frequencies alone, which is why 配置于权限 used to beat 配置与权限: 于 is the commoner character and nothing else had an opinion. The term is a bonus rather than a replacement: an absent pair leaves the path where the unigram score put it, and so does a pair the table scores below zero, since the table keeps only pairs seen often enough and an absent one is no evidence of being likelier than an observed, unlikely one. On sentences-neutral-v1 dropping the negative side raised top-1 0.608 -> 0.617 and top-5 0.833 -> 0.847 with the reranker, 0.480 -> 0.490 and 0.789 -> 0.803 without it (#7583).
 //!
 //! A trigram cannot be searched the same way without carrying two words of history in every beam entry, so it is applied after the search: the n best paths are rescored with what the third word adds over the second, then reordered. That is the reason to decode more paths than are shown.
 
@@ -464,7 +464,8 @@ pub(super) fn decode_graph(
                 let mut score = hyp.score + edge.log_prob;
                 let static_bonus = bonuses.map_or(0.0, |bonuses| f64::from(bonuses[at]));
                 if bigram.is_some() {
-                    score += options.bigram_weight * static_bonus;
+                    // Only a pair the table favours moves the path. A pair it calls less likely than chance counts the same as one it never kept: the table drops rare pairs, so an absent pair is usually rarer still, and penalising the observed one made a common word lose to a rarer one with no pair at all. 句首→一大 is -1.0 and 句首→益达 is absent, which put 益达拖 ahead of 一大拖 for yidatuo (#7583).
+                    score += options.bigram_weight * static_bonus.max(0.0);
                 }
                 if let (Some(personal), Some(context)) = (personal, context.as_ref()) {
                     if context.confidence > 0.0 {
@@ -1016,6 +1017,33 @@ pub(super) mod tests {
         // The weight has to be able to turn the term off again.
         options.bigram_weight = 0.0;
         assert_eq!(best(text, &rows, &options), "配置于权限");
+    }
+
+    #[test]
+    fn an_unlikely_pair_does_not_lose_to_an_unseen_one() {
+        let directory = tempfile::tempdir().unwrap();
+        let rows = table(&[
+            ("yi'da", &[("一大", 301240), ("益达", 200000)]),
+            ("tuo", &[("拖", 463823)]),
+        ]);
+        let text = "yi'da'tuo";
+        assert_eq!(best(text, &rows, &LatticeOptions::default()), "一大拖");
+
+        // The shipped table has 句首 -> 一大 at -1.0 and no 句首 -> 益达 at all (#7583).
+        let bigram = Arc::new(pair_table(
+            directory.path(),
+            "start.bin",
+            &[(SENTENCE_START, "一大", -1.0)],
+        ));
+        let options = LatticeOptions {
+            bigram: Some(bigram),
+            ..LatticeOptions::default()
+        };
+        assert_eq!(
+            best(text, &rows, &options),
+            "一大拖",
+            "a pair scored below chance weighs the same as a pair the table never kept"
+        );
     }
 
     #[test]

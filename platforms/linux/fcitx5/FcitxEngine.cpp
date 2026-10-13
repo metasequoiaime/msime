@@ -1098,7 +1098,7 @@ public:
   void refreshToolbar();
   void refreshThemeMenu();
   void syncCandidatePanelFont();
-  void retryCandidatePanelFont();
+  void retryCandidatePanelSettings();
   // `chosen` 只标记用户刚在菜单或设置页主动选主题；重读相同偏好不能夺回第三方 classicui 主题。
   void syncCandidatePanelTheme(bool chosen);
   bool candidateThemeSelectionChanged(const Json &preferences);
@@ -1318,7 +1318,7 @@ public:
   }
   bool toggleCandidateTranslations() {
     if (!session_) return false;
-    const bool enabled = !preferences_.value("candidate_translations", false);
+    const bool enabled = !preferences_.value("candidate_translations", true);
     auto snapshot = preferences_snapshot_;
     if (!snapshot.is_object() || !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["candidate_translations"] = enabled;
@@ -1904,7 +1904,7 @@ public:
         if (preferences_save_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         waitForPreferenceSave();
       }
-      retryCandidatePanelFont();
+      retryCandidatePanelSettings();
       if (preferences_job_.valid()) {
         if (preferences_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto snapshot = preferences_job_.get();
@@ -2217,7 +2217,7 @@ public:
     if (dictionary) glossRequest["target_language"] = query.at("target_language");
     const auto gloss = glossRequest.dump();
     const auto socket = (manual_sentence || commandTranslation(query) ||
-                         preferences_.value("candidate_translations", false))
+                         preferences_.value("candidate_translations", true))
                             ? translation_socket_ : std::string{};
     translation_job_ = detachedJob(
         [query, encoded, gloss, offline, local, socket, dictionary, resources = resources_] () mutable {
@@ -4981,7 +4981,7 @@ public:
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
-    return state->session_ && state->preferences_.value("candidate_translations", false);
+    return state->session_ && state->preferences_.value("candidate_translations", true);
   }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
@@ -6064,7 +6064,9 @@ public:
     fcitx::RawConfig config;
     config.setValueByPath("WheelForPaging", *enabled ? "True" : "False");
     set_classicui_config(*classicui, config);
+    candidate_wheel_paging_sync_.mark_applied(*enabled);
   }
+  bool candidateWheelPagingPending() const { return candidate_wheel_paging_sync_.pending(); }
   explicit FcitxEngine(fcitx::Instance *instance) : instance_(instance) {
     // 脚本插件在 fcitx5 守护进程里运行（本 addon 是它加载的共享库），在第一个会话之前打开；release 构建里这一行什么都不做（msime_client.h）。
     msime_client_scripts_enable(true);
@@ -6939,9 +6941,10 @@ void FcitxState::syncCandidatePanelFont() {
   engine_->applyCandidateWheelPaging(preferences_);
 }
 
-void FcitxState::retryCandidatePanelFont() {
-  if (engine_ && session_ && ic_.hasFocus() && !restricted() && engine_->candidatePanelFontPending())
-    engine_->applyCandidatePanelFont(preferences_);
+void FcitxState::retryCandidatePanelSettings() {
+  if (!engine_ || !session_ || !ic_.hasFocus() || restricted()) return;
+  if (engine_->candidatePanelFontPending()) engine_->applyCandidatePanelFont(preferences_);
+  if (engine_->candidateWheelPagingPending()) engine_->applyCandidateWheelPaging(preferences_);
 }
 
 bool FcitxState::candidateThemeSelectionChanged(const Json &preferences) {
@@ -7590,7 +7593,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   // multiple senses; without a valid gloss the chord remains an application shortcut.
   if (ctrl && !alt && !shift &&
       (sym == FcitxKey_Return || sym == FcitxKey_KP_Enter) && composing &&
-      preferences_.value("candidate_translations", false)) {
+      preferences_.value("candidate_translations", true)) {
     const auto candidates = view_.value("candidates", Json::array());
     if (candidates.is_array()) {
       for (const auto &candidate : candidates) {

@@ -714,17 +714,25 @@ final class ImeLetterRows {
     /**
      * 全拼 14 键的字母层：{@link FourteenKeyLayout} 的三行，和 26 键字母行同样三行等高、按同样的方式分摊键盘高度调整，底行仍是 26 键的功能行，所以键盘总高与 26 键相同。
      *
-     * <p>点按经 {@link MSIMEInputService#gridKey} 送这一组的首字母，不走 {@link MSIMEInputService#type}（辅助码、微软双拼 `;`、英文直出都按单个确定的字母处理）。第 2 行不缩进、没有微软双拼的 `;`；第 3 行左端是分词键（组字时送 `'`，空闲时打开符号面板，照搬九键 1 键），右端是 ⌫，两端宽度沿用 26 键 ⇧ ⌫ 的份额。中文 14 键没有 Shift、角标和滑动输入符号。长按两字母键弹出这两个字母，选中后先结束组字再上屏，与九键长按相同。拼音选择条挂到读音行右侧（{@link ImeLayoutRows#attachReadingRowSpellings}），不盖住候选行。
+     * <p>点按经 {@link MSIMEInputService#gridKey} 送这一组的首字母，不走 {@link MSIMEInputService#type}（辅助码、微软双拼 `;`、英文直出都按单个确定的字母处理）。第 2 行不缩进、没有微软双拼的 `;`；第 3 行左端是分词键（组字时送 `'`，空闲时打开符号面板，照搬九键 1 键），右端是 ⌫，两端宽度沿用 26 键 ⇧ ⌫ 的份额。中文 14 键没有 Shift、角标和滑动输入符号。长按两字母键弹出这两个字母，选中后先结束组字再上屏，与九键长按相同。拼音选择与九键共用左侧栏，空闲时显示符号，组字时纵向选择拼音，不挤占读音或候选行。
      */
     private void rebuildFourteenKeyRows() {
         s.imeLayoutRows.dismissNineKeyHoldOptions();
         boolean composing = s.hasEngineComposition();
         java.util.List<java.util.List<FourteenKeyLayout.Key>> rows = FourteenKeyLayout.rows();
+        LinearLayout container = LayoutPolicy.row(s);
+        s.imeStyler.adjustThreeRowBlockHeight(container);
+        s.keyRows.addView(container, LayoutPolicy.matchWidthHeightPx(
+            s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
+        container.addView(s.imeLayoutRows.fourteenSpellingSidebar(),
+            LayoutPolicy.weightedMatchParentParams(0.7f));
+        LinearLayout letterColumn = LayoutPolicy.column(s);
+        container.addView(letterColumn, LayoutPolicy.weightedMatchParentParams(3.8f));
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             LinearLayout row = LayoutPolicy.row(s);
             row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                 rows.size(), rowIndex, true));
-            s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
+            letterColumn.addView(row, LayoutPolicy.matchWidthWrapParams());
             boolean last = rowIndex == rows.size() - 1;
             if (last) {
                 Button separator = s.keyId(s.keyboardKey(FourteenKeyLayout.separatorFace(composing),
@@ -757,7 +765,6 @@ final class ImeLetterRows {
             if (last) addLetterRowEdgeKey(row, s.deleteButton, row.getChildCount(),
                 KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT);
         }
-        s.imeLayoutRows.attachReadingRowSpellings();
     }
 
     /** 分词键：组字时送 `'`，在已打的组码末尾定一个音节分界；空闲时打开符号面板。 */

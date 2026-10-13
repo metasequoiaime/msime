@@ -81,23 +81,8 @@ struct BackendLocalStore: BackendSessionStorage {
   }
 
   private static func readBounded(_ url: URL, maximumBytes: Int) throws -> Data {
-    #if canImport(Darwin)
-    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
-    guard descriptor >= 0 else { throw BackendAccountClient.Failure(status: 0) }
-    let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-    #else
-    let handle = try FileHandle(forReadingFrom: url)
-    #endif
-    defer { try? handle.close() }
-    var data = Data()
-    data.reserveCapacity(min(maximumBytes, 64 * 1024))
-    while true {
-      let remaining = maximumBytes - data.count
-      let chunk = try handle.read(upToCount: min(64 * 1024, remaining + 1)) ?? Data()
-      if chunk.isEmpty { return data }
-      guard chunk.count <= remaining else { throw BackendAccountClient.Failure(status: 0) }
-      data.append(chunk)
-    }
+    do { return try BackendBoundedFileReader.read(from: url, maximumBytes: maximumBytes) }
+    catch { throw BackendAccountClient.Failure(status: 0) }
   }
   @discardableResult static func write(_ data: Data, to fileName: String) -> Bool {
     guard let directory else { return false }

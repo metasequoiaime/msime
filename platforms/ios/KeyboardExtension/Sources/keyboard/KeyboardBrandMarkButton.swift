@@ -80,8 +80,7 @@ final class KeyboardBrandMarkButton: UIButton {
   override func didMoveToWindow() {
     super.didMoveToWindow()
     if window == nil {
-      layer.removeAllAnimations()
-      transform = .identity
+      resetKeyboardPressAnimationAfterWindowRemoval()
     }
   }
 

@@ -57,11 +57,11 @@
     "7": {
       "cases": 9,
       "found": 0.778,
-      "mrr": 0.572,
-      "top1": 0.556,
-      "top1_char_prefix": 0.619,
-      "top5": 0.556,
-      "top9": 0.556
+      "mrr": 0.678,
+      "top1": 0.667,
+      "top1_char_prefix": 0.73,
+      "top5": 0.667,
+      "top9": 0.667
     },
     "8": {
       "cases": 9,
@@ -104,11 +104,11 @@
     "statement": {
       "cases": 52,
       "found": 0.769,
-      "mrr": 0.627,
-      "top1": 0.615,
-      "top1_char_prefix": 0.785,
-      "top5": 0.615,
-      "top9": 0.654
+      "mrr": 0.646,
+      "top1": 0.635,
+      "top1_char_prefix": 0.804,
+      "top5": 0.635,
+      "top9": 0.673
     }
   },
   "cases": 81,
@@ -119,11 +119,11 @@
   "overall": {
     "cases": 81,
     "found": 0.704,
-    "mrr": 0.577,
-    "top1": 0.568,
-    "top1_char_prefix": 0.731,
-    "top5": 0.568,
-    "top9": 0.593
+    "mrr": 0.589,
+    "top1": 0.58,
+    "top1_char_prefix": 0.743,
+    "top5": 0.58,
+    "top9": 0.605
   },
   "sample_failures": [
     {
@@ -169,18 +169,11 @@
       "top1": "地铁站立着很近"
     },
     {
-      "gold": "孩子已经睡着了",
-      "id": "nk-035",
-      "input": "haiziyijingshuizhaole",
-      "rank": 22,
-      "top1": "该系已经睡着了"
-    },
-    {
       "gold": "你周末有时间吗",
       "id": "nk-036",
       "input": "nizhoumoyoushijianma",
       "rank": null,
-      "top1": "步骤摸头时间码"
+      "top1": "步骤摸头时间吗"
     },
     {
       "gold": "明天早上八点集合",

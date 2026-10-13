@@ -100,6 +100,7 @@ for entry in \
     "PairedPunctuationDeviceSmoke|Paired punctuation acceptance failed" \
     "LetterHintPunctuationDeviceSmoke|Letter hint punctuation acceptance failed" \
     "PreferencesDeviceSmoke|Preferences acceptance failed" \
+    "ThemeModeDeviceSmoke|Theme mode acceptance failed" \
     "KeyboardHeightDeviceSmoke|Keyboard height acceptance failed" \
     "FuzzyPinyinDeviceSmoke|Fuzzy pinyin acceptance failed" \
     "CandidateGlossDeviceSmoke|Candidate gloss acceptance failed" \

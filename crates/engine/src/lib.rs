@@ -58,7 +58,7 @@ pub use types::{
     MixedExpressiveOptions, NineKeyShuangpinKind, NineKeyShuangpinTable, OnlineQuery,
     PersonalDictionaryEntry, PersonalDictionaryKind, SchemeSet, SchemeType,
     SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinProfileKind, WordItem,
-    WubiInputOptions, WubiProfileKind,
+    WubiInputOptions, WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
 };
 pub use user_dictionary::bundled::{
     dictionary_table_entries, edit_bundled_dictionary_entry, DictionaryTableEntry,

@@ -525,6 +525,83 @@ fn longer_phrases_join_the_full_key_group_by_weight() {
 }
 
 #[test]
+fn exact_rows_filling_a_page_drop_the_longer_phrases() {
+    // 精确同音词自己够填一页时整组补全词都不并入：补全词只为「同长度表只剩冷僻同音词」的输入存在。
+    let fixture = Fixture::new();
+    fixture
+        .insert("qi'shi", "其实", 500)
+        .insert("qi'shi", "歧视", 400)
+        .insert("qi'shi", "岂是", 300)
+        .insert("qi'shi", "气势", 200)
+        .insert("qi'shi", "启示", 100)
+        .insert("qi'shi", "骑士", 90)
+        .insert("qi'shi'ye'dan'wei", "企事业单位", 600);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let listed = query(&mut dictionary, "qishi", "qi'shi", NONE);
+    assert!(
+        !contains(&listed, "企事业单位"),
+        "精确同音词够一页时不该并入补全词: {:?}",
+        words(&listed)
+    );
+    assert_eq!(
+        words(&listed[..DEFAULT_FIRST_PAGE_ROWS]),
+        ["其实", "歧视", "岂是", "气势", "启示", "骑士"]
+    );
+}
+
+#[test]
+fn a_larger_first_page_rows_keeps_the_longer_phrases() {
+    // 首页行数来自宿主的每页候选数：设成 8 时 6 条精确同音词不够一页，补全词照旧并入。
+    let fixture = Fixture::new();
+    fixture
+        .insert("qi'shi", "其实", 500)
+        .insert("qi'shi", "歧视", 400)
+        .insert("qi'shi", "岂是", 300)
+        .insert("qi'shi", "气势", 200)
+        .insert("qi'shi", "启示", 100)
+        .insert("qi'shi", "骑士", 90)
+        .insert("qi'shi'ye'dan'wei", "企事业单位", 600);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    dictionary.set_first_page_rows(8);
+    let listed = query(&mut dictionary, "qishi", "qi'shi", NONE);
+    assert!(
+        contains(&listed, "企事业单位"),
+        "首页行数大于精确同音词数时补全词应照旧并入: {:?}",
+        words(&listed)
+    );
+}
+
+#[test]
+fn longer_phrases_are_capped_when_the_exact_table_is_short() {
+    // 精确同音词不足一页时补全词进场，但最多 LONGER_PHRASE_LIMIT 条。
+    let fixture = Fixture::new();
+    fixture
+        .insert("fa'ban", "法办", 4000)
+        .insert("fa'ban", "发版", 3000)
+        .insert("fa'ban'hao", "发版号", 300)
+        .insert("fa'ban'zhi'chi", "发版支持", 250)
+        .insert("fa'ban'yao'qiu", "发版要求", 200)
+        .insert("fa'ban'xia", "法半夏", 100)
+        .insert("fa'ban'xia'pi'pa", "法半夏枇杷", 50);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let listed = query(&mut dictionary, "faban", "fa'ban", NONE);
+    let continuations = listed
+        .iter()
+        .filter(|item| item.canonical_pinyin.starts_with("fa'ban'"))
+        .count();
+    assert_eq!(
+        continuations,
+        LONGER_PHRASE_LIMIT,
+        "补全词条数应被 LONGER_PHRASE_LIMIT 截住: {:?}",
+        words(&listed)
+    );
+    assert_eq!(
+        words(&listed[..5]),
+        ["法办", "发版", "发版号", "发版支持", "发版要求"]
+    );
+}
+
+#[test]
 fn longer_phrase_cache_hit_does_not_rebuild_the_full_key() {
     let fixture = phrase_fixture();
     let mut dictionary = QuanpinDictionary::new(&fixture.paths);

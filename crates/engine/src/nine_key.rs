@@ -33,7 +33,7 @@ use crate::types::{
     CandidateSource, Command, EnglishInputOptions, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, KeyResult, LocalInputMode,
     MixedExpressiveOptions, PersonalDictionaryKind, SchemeType, SentenceAssociationOptions,
-    WordItem,
+    WordItem, DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::user_dictionary::positions;
 use crate::user_dictionary::ranking::{self, RankingRequest};
@@ -257,6 +257,8 @@ pub struct NineKeySession {
     sentence_association: SentenceAssociationOptions,
     /// `SessionOptions::sentence_alternatives`：每条切分交回全部整句读法，而不是只交回最好的一条。
     sentence_alternatives: bool,
+    /// `SessionOptions::first_page_rows`：全长组的精确同音词够这么多行就不再并入补全词。
+    first_page_rows: usize,
     /// 键盘模型读的上屏上下文，只留最后 `CONTEXT_CHARACTERS` 个字；`Session::set_rescoring_context` 随时更新。
     rescoring_context: String,
     /// 键盘模型，`neural_keyboard` 打开后第一次重排时加载；内层 `None` 是模型读不到。九键不让词库在每条切分里各重排一次，见 `rerank_sentences`。
@@ -368,6 +370,7 @@ impl NineKeySession {
             inline_date_time: None,
             sentence_association: SentenceAssociationOptions::default(),
             sentence_alternatives: false,
+            first_page_rows: DEFAULT_FIRST_PAGE_ROWS,
             rescoring_context: String::new(),
             keyboard: None,
             rerank_cache: Vec::new(),
@@ -439,6 +442,20 @@ impl NineKeySession {
         if let Some(dictionary) = self.dictionary.as_mut() {
             dictionary.set_sentence_association(dictionary_association);
             dictionary.set_sentence_alternatives(alternatives);
+        }
+        if self.active() {
+            self.refresh();
+        }
+    }
+
+    /// 首页行数只影响词库要不要并入补全词；词库已经打开时同步给它。
+    pub fn set_first_page_rows(&mut self, rows: usize) {
+        if self.first_page_rows == rows {
+            return;
+        }
+        self.first_page_rows = rows;
+        if let Some(dictionary) = self.dictionary.as_mut() {
+            dictionary.set_first_page_rows(rows);
         }
         if self.active() {
             self.refresh();
@@ -767,7 +784,12 @@ impl NineKeySession {
         match self
             .dictionary
             .get_or_insert_with(|| {
-                open_dictionary(&self.paths, association, self.sentence_alternatives)
+                open_dictionary(
+                    &self.paths,
+                    association,
+                    self.sentence_alternatives,
+                    self.first_page_rows,
+                )
             })
             .create_word_from_canonical_pinyin(&pinyin, &word)
         {
@@ -1110,7 +1132,12 @@ impl NineKeySession {
             vec![Vec::new()]
         } else {
             let dictionary = self.dictionary.get_or_insert_with(|| {
-                open_dictionary(&self.paths, association, self.sentence_alternatives)
+                open_dictionary(
+                    &self.paths,
+                    association,
+                    self.sentence_alternatives,
+                    self.first_page_rows,
+                )
             });
             let prior = self
                 .prior
@@ -1149,7 +1176,12 @@ impl NineKeySession {
         let mut dictionary = self
             .dictionary
             .get_or_insert_with(|| {
-                open_dictionary(&self.paths, association, self.sentence_alternatives)
+                open_dictionary(
+                    &self.paths,
+                    association,
+                    self.sentence_alternatives,
+                    self.first_page_rows,
+                )
             })
             .row_cache_batch();
         let mut queried = (alternatives.len() > SMALL_QUERY_KEY_BATCH)
@@ -1902,10 +1934,12 @@ fn open_dictionary(
     paths: &RuntimePaths,
     association: SentenceAssociationOptions,
     alternatives: bool,
+    first_page_rows: usize,
 ) -> QuanpinDictionary {
     let mut dictionary = QuanpinDictionary::new(paths);
     dictionary.set_sentence_association(association);
     dictionary.set_sentence_alternatives(alternatives);
+    dictionary.set_first_page_rows(first_page_rows);
     dictionary
 }
 

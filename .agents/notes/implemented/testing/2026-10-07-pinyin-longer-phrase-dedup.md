@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-`query_longer_phrases` 的生产参数固定为 3 个额外音节、每层 12 行，因此一次最多收集 36 行。原有通用去重路径仍为这批短列表建立 `HashSet`，并产生临时索引集合。
+`query_longer_phrases` 的生产参数固定为 3 个额外音节、每层 3 行（见 [补全词让位于一页精确同音词](../bug-fix/2026-10-13-longer-phrases-yield-to-a-full-page.md)，每层原为 12 行），因此一次最多收集 9 行。原有通用去重路径仍为这批短列表建立 `HashSet`，并产生临时索引集合。
 
 ## Decision
 

@@ -14,6 +14,8 @@ Status: implemented
 
 Android、iOS、HarmonyOS 提供触屏方案「全拼 14 键」。解码复用九宫格会话，只换一张码表（`KeyGrid::FourteenKey`）；组码经新的 `grid_key` 入口进来，不走 `character`；宿主按 `View.key_grid` 决定 14 键的读音行、拼音选择条和三栏面板。三端按下表的同一份规格实现，键表由 `scripts/test-fourteen-key-table.py` 核对。
 
+Android 的拼音选择位置与触摸尺寸由 [Android 14 键与九键共用左侧栏](../../implemented/bug-fix/2026-10-13-android-fourteen-key-left-spellings.md) 取代；下表的读音行横向选择仍适用于 iOS、HarmonyOS，组码和消歧语义继续共用。
+
 ### 三端行为规格
 
 | 项 | 规格 |
@@ -85,7 +87,7 @@ View 的 `key_grid` 是 `"none" | "nine_key" | "fourteen_key"`，`nine_key: bool
 
 - `KeyboardScheme.QUANPIN_FOURTEEN_KEY` 追加在末尾，`optIn`；`fromPreferences` 有显式分支，通用循环同时排除 nine_key 和 fourteen_key。`KeyboardLayout.FOURTEEN_KEY_LAYOUT = 8`，`resolveTouchLayout` 先判 14 键再判九键；`View.key_grid` 是 `fourteen_key` 且没有本地模式时画 14 键，本地模式要逐个确定的字母，回落 26 键。
 - 键表、组码、键面、无障碍标签、长按字母和键位 id 在无 Android 依赖的 `keyboard/FourteenKeyLayout.java`；`ImeLetterRows` 用 26 键的行高和边键权重画三行字母，底行就是 26 键的设计底行。点按调 `gridKey`，不走 `type()`，以免误入辅助码、微软双拼 `;` 和英文直出。
-- 拼音选择条是 `SpellingPlacement.READING_ROW`：挂在读音行右侧的槽里，出现时读音收成自身宽度、最多半行。`showNineKeyHoldOptions(anchor, digit, letters)` 泛化成九键和 14 键共用。
+- Android 拼音选择与九键共用字母区左侧的 `SpellingPlacement.SIDEBAR`，空闲显示符号，组字时纵向选择拼音，不额外增加键盘高度。`showNineKeyHoldOptions(anchor, digit, letters)` 泛化成九键和 14 键共用。
 - 数字行、分体、滑行、Shift、双拼提示和角标的门本来就只放 26 键和韩文，14 键不进；读音行、三栏面板、`drawsDesignLayer`、`twentySixKeyDigits` 和 `layerTitle`（「14键」）纳入 14 键。`englishNineKeyActive`、九键自己的数字层和引导、皮肤预览、热力图仍只认九键。
 - 设置「26 键数字键盘」的说明改为同时适用于 26 键和 14 键。
 

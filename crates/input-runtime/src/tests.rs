@@ -3847,6 +3847,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         user_data: path("user"),
         cache: path("cache"),
         dictionaries: path("dictionaries"),
+        first_page_rows: 6,
         scheme: 0,
         enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,

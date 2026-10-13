@@ -12,14 +12,14 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 全拼 14 键的设备验收，跑的是三端同一份手工脚本：BN UI GH AS OP 打出「你好」；AS GH UI 时读音行右侧的拼音条里有 shi 和 shu，选了锁定、退格撤销，拼音条不盖住候选行；展开候选是九键的三栏面板；分词键得到「西安」；长按 QW 选 w；英文画 26 键、切回仍是 14 键；123 是 26 键的设计层；密码框画 26 键。
+ * 全拼 14 键的设备验收：组码打出「你好」；键区左侧纵向选择 shi / shu，锁定后退格撤销；窄屏侧栏；展开候选、分词、长按字母、英文、123 和密码回落维持原有行为。
  */
 public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     private static final String STRIP = "14 键拼音选择";
     private static final String PANEL = "九键候选面板";
 
     @Override protected String successDescription() {
-        return "fourteen-key group keys, reading-row pinyin strip locks, three-column panel, separator, long-press letters, English and 123 layers";
+        return "fourteen-key group keys, left-side pinyin column, three-column panel, separator, long-press letters, English and 123 layers";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -56,6 +56,15 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             await(described("字母 L"));
             await(described("字母 M"));
             await(described("按键 符号"));
+            await(described("符号栏，可上下滑动"));
+            Rect idleLetter = new Rect();
+            awaitStableBounds(described("按键 Q W")).getBoundsInScreen(idleLetter);
+            Rect idleSpace = new Rect();
+            awaitStableBounds(key("空格")).getBoundsInScreen(idleSpace);
+            int heightTolerance = Math.round(getTargetContext().getResources()
+                .getDisplayMetrics().density) + 2;
+            if (Math.abs(idleLetter.height() - idleSpace.height()) > heightTolerance)
+                throw new AssertionError("Fourteen-key bottom row height differs from its letter rows");
             // 中文 14 键没有 Shift，也没有 26 键的单字母键。
             awaitGone(key("q"));
 
@@ -70,24 +79,35 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             tap(candidate("你好"));
             await(field("msime-test-plain").and(node -> equalsText("你好", node.getText())));
 
-            // AS GH UI：拼音条在读音行右侧，列出 shi 和 shu；选 shu 锁定（读音变成 shu），退格先撤销锁定。
-            stage = "reading-row pinyin strip";
+            // AS GH UI：左侧栏列出 shi 和 shu，读音与候选行保持独立；选 shu 锁定，退格先撤销锁定。
+            stage = "left-side pinyin column";
             for (String pair : new String[] {"A S", "G H", "U I"}) tap(described("按键 " + pair));
             await(described(STRIP));
+            awaitGone(described("符号栏，可上下滑动"));
             AccessibilityNodeInfo shi = await(described("选择拼音 shi"));
             await(described("选择拼音 shu"));
             Rect strip = new Rect();
             shi.getBoundsInScreen(strip);
+            Rect sidebar = new Rect();
+            await(described(STRIP)).getBoundsInScreen(sidebar);
+            Rect letter = new Rect();
+            await(described("按键 Q W")).getBoundsInScreen(letter);
+            if (letter.left != idleLetter.left || letter.width() != idleLetter.width())
+                throw new AssertionError("Starting composition moved the fourteen-key letter grid");
+            Rect composingSpace = new Rect();
+            awaitStableBounds(key("空格")).getBoundsInScreen(composingSpace);
+            if (Math.abs((composingSpace.bottom - letter.top)
+                    - (idleSpace.bottom - idleLetter.top)) > heightTolerance)
+                throw new AssertionError("Pinyin sidebar changed the fourteen-key area height");
             Rect candidate = new Rect();
             await(describedPrefix("候选 1：")).getBoundsInScreen(candidate);
-            if (strip.bottom > candidate.top + 1)
-                throw new AssertionError("Pinyin strip overlaps the candidate row: strip " + strip
-                    + ", candidate " + candidate);
-            Rect reading = new Rect();
-            await(described("shi")).getBoundsInScreen(reading);
-            if (strip.left < reading.right || Math.abs(strip.centerY() - reading.centerY()) > reading.height())
-                throw new AssertionError("Pinyin strip is not beside the reading: strip " + strip
-                    + ", reading " + reading);
+            if (sidebar.right > letter.left || sidebar.top < candidate.bottom - 1)
+                throw new AssertionError("Pinyin column is not beside the letter keys: sidebar " + sidebar
+                    + ", letter " + letter + ", candidate " + candidate);
+            float density = getTargetContext().getResources().getDisplayMetrics().density;
+            int minimumHeight = Math.round(36 * density);
+            if (strip.height() < minimumHeight)
+                throw new AssertionError("Pinyin row is smaller than the nine-key row: " + strip);
             stage = "lock shu";
             tap(described("选择拼音 shu"));
             await(described("shu"));
@@ -112,6 +132,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             tap(key("⌫"));
             awaitGone(described(STRIP));
             await(described("按键 符号"));
+            await(described("符号栏，可上下滑动"));
 
             // 分词键：ZX UI 分词 AS BN 是 z u ' a b，得到「西安」而不是「先」。
             stage = "separator";
@@ -142,6 +163,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             tap(key("中"));
             await(key("q").and(AccessibilityNodeInfo::isClickable));
             awaitGone(described("按键 Q W"));
+            awaitGone(described(STRIP));
             stage = "Chinese returns to 14 keys";
             tap(key("英"));
             await(described("按键 Q W"));
@@ -168,6 +190,37 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             stage = "plain field returns to 14 keys";
             tap(field("msime-test-plain"));
             await(described("按键 Q W"));
+            // 专用 AVD 临时缩窄为约 183dp，验证拼音仍在左侧纵向排列，不改用户设备的偏好。
+            stage = "pinyin column on a narrow display";
+            shellDiscard("wm size 480x1600");
+            try {
+                awaitStableBounds(described("按键 A S"));
+                tap(described("按键 A S"));
+                tap(described("按键 U I"));
+                Rect narrowLetter = new Rect();
+                await(described("按键 Q W")).getBoundsInScreen(narrowLetter);
+                int columnLeft = -1;
+                int firstTop = Integer.MAX_VALUE;
+                int lastTop = Integer.MIN_VALUE;
+                for (String spelling : new String[] {"ai", "si", "su"}) {
+                    Rect bounds = new Rect();
+                    awaitStableBounds(described("选择拼音 " + spelling)).getBoundsInScreen(bounds);
+                    if (bounds.height() < minimumHeight || bounds.width() <= 0
+                            || bounds.right > narrowLetter.left)
+                        throw new AssertionError("Narrow pinyin column changed: " + bounds);
+                    if (columnLeft >= 0 && columnLeft != bounds.left)
+                        throw new AssertionError("Pinyin options are not in one column");
+                    columnLeft = bounds.left;
+                    firstTop = Math.min(firstTop, bounds.top);
+                    lastTop = Math.max(lastTop, bounds.top);
+                }
+                if (lastTop <= firstTop)
+                    throw new AssertionError("Pinyin options are not stacked vertically");
+                tap(described("选择拼音 su"));
+                await(described("su"));
+            } finally {
+                shellDiscard("wm size reset");
+            }
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());

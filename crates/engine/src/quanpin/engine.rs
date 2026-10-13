@@ -44,6 +44,8 @@ impl QuanpinEngine {
         self.dictionary
             .set_sentence_association(request.sentence_association);
         self.dictionary
+            .set_first_page_rows(request.first_page_rows.get());
+        self.dictionary
             .set_rescoring_context(&request.rescoring_context);
 
         let types = request_autocorrect_mask(
