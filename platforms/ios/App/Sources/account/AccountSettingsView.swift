@@ -459,20 +459,9 @@ struct AccountSettingsView: View {
   }
 
   @MainActor private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
-    guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    pending?.cancel()
-    pending = nil
-    busy = true
-    operation = Task {
-      defer { if request.isCurrent(id) { busy = false; operation = nil } }
-      do {
-        try await action(id)
-        try request.checkCurrent(id)
-      }
-      catch is CancellationError { }
-      catch { if request.isCurrent(id) { report(error) } }
-    }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $operation,
+                        canceling: $pending, clearMessage: false,
+                        isCancellation: AccountRequestPolicy.isCancellation, action: action)
   }
 
   /// 这些全屏层出现和消失时不带上滑动画：启动页和 iPad 卡片各自绘制入场动画，滑动的遮罩看起来像浮层，而不像重播。
@@ -558,23 +547,9 @@ struct AppleAccountSection: View {
   }
 
   @MainActor private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
-    guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    pending?.cancel()
-    pending = nil
-    busy = true
-    pending = Task { @MainActor in
-      defer { if request.isCurrent(id) { busy = false; pending = nil } }
-      do {
-        try await action(id)
-        try request.checkCurrent(id)
-      } catch is CancellationError {
-      } catch {
-        if request.isCurrent(id), !AccountRequestPolicy.isCancellation(error) {
-          message = error.localizedDescription
-        }
-      }
-    }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending,
+                        canceling: $pending, clearMessage: false,
+                        isCancellation: AccountRequestPolicy.isCancellation, action: action)
   }
 }
 
