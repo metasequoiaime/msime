@@ -54,6 +54,8 @@ public final class SettingsNavigator {
         }
         fragment.setArguments(args == null ? new Bundle() : new Bundle(args));
 
+        home.setDetailLoading(true);
+
         if (home.selectedTabIndex() != page.tab()) home.selectTabIndex(page.tab());
 
         // 连点两下只压一页：栈顶已经是这一页时不再压。

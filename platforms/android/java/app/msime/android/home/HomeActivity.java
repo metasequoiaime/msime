@@ -77,6 +77,7 @@ public final class HomeActivity extends AppCompatActivity {
     /** Whether dismissing the splash on screen should start onboarding: only a first-launch splash does, never a replay. */
     private boolean onboardingAfterIntro;
     @Nullable private ValueAnimator progress;
+    @Nullable private Runnable hideDetailLoading;
     /** 这个 activity 画出来时叠的季节（`AppMode.restore` 用的那份缓存）；没有缓存时是基础主题的秋杉。 */
     private String drawnSeason = "autumn";
     /** 回到前台时读共享偏好、解析应用主题用的工作线程。 */
@@ -92,6 +93,14 @@ public final class HomeActivity extends AppCompatActivity {
         AccountIdentity.register(this);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         setContentView(R.layout.activity_home);
+
+        getSupportFragmentManager().registerFragmentLifecycleCallbacks(
+            new FragmentManager.FragmentLifecycleCallbacks() {
+                @Override public void onFragmentViewCreated(@NonNull FragmentManager manager,
+                        @NonNull Fragment fragment, @NonNull View view, @Nullable Bundle state) {
+                    if (fragment instanceof DetailPage) setDetailLoading(false);
+                }
+            }, true);
 
         tabs = findViewById(R.id.home_tabs);
         // Edge-to-edge is enforced from Android 15, so the bars' insets are applied rather than
@@ -447,6 +456,30 @@ public final class HomeActivity extends AppCompatActivity {
     /** 打开某一类社区作品的完整列表。社区 tab 撤掉以后，它是压在设置 tab 上的一页（见 {@link CommunityFragment#browse}）。 */
     public void openCommunity(CommunityRequest.Kind kind) {
         CommunityFragment.browse(this, kind);
+    }
+
+    /** 详情页创建时给导航一个统一的即时反馈；内容读盘仍由各页面自己管理。 */
+    void setDetailLoading(boolean loading) {
+        View overlay = findViewById(R.id.home_detail_loading);
+        if (overlay == null) return;
+        if (hideDetailLoading != null) {
+            overlay.removeCallbacks(hideDetailLoading);
+            hideDetailLoading = null;
+        }
+        if (loading) {
+            overlay.setAlpha(0f);
+            ViewPolicy.show(overlay);
+            overlay.animate().alpha(1f).setStartDelay(120).setDuration(160).start();
+        } else {
+            Runnable hide = () -> {
+                ViewPolicy.hide(overlay);
+                overlay.setAlpha(1f);
+                hideDetailLoading = null;
+            };
+            hideDetailLoading = hide;
+            overlay.animate().cancel();
+            overlay.animate().alpha(0f).setDuration(120).withEndAction(hide).start();
+        }
     }
 
     private void show(int itemId) {

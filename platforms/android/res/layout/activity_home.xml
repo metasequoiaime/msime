@@ -21,6 +21,26 @@
         app:labelVisibilityMode="labeled"
         app:menu="@menu/bottom_tabs" />
 
+    <!-- 详情页创建期间的统一反馈；页面自己的数据加载仍在页面内显示具体说明。 -->
+    <FrameLayout
+        android:id="@+id/home_detail_loading"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent"
+        android:clickable="true"
+        android:elevation="16dp"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <ProgressBar
+            style="?android:attr/progressBarStyleLarge"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="center"
+            android:contentDescription="正在加载"
+            android:indeterminate="true" />
+    </FrameLayout>
+
     <!-- 开场动画盖在内容之上，自己画而不靠系统的启动画面：values-v31 的启动画面属性试过，这台设备上不生效。设计的 Android 开屏：本季的深色底（?attr/msSplashBg）、光晕、180dp 浅色圆盘里写出那枚标、名字与 METASEQUOIA IME，底部 3dp 进度条 2.4 秒走满，2.8 秒交接。整屏铺到系统栏下面，HomeActivity 只给它垫底部，让进度条避开手势区。轻点任意处跳过，但不再写「轻点跳过」。放在最后一个子视图并抬高，盖住自带 elevation 的底部导航；HomeActivity 决定本次启动要放时才显示。 -->
     <FrameLayout
         android:id="@+id/home_intro"
