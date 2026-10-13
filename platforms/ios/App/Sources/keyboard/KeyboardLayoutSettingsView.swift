@@ -33,7 +33,6 @@ struct KeyboardLayoutSettingsView: View {
   /// 一次保存只写用户刚动的那一项，见 `save(_:)`。
   private enum Field { case height, keySpacing, rowSpacing }
   private static let spacingDragScale: Double = 18
-  private static let saveFailedNote = "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
 
   var body: some View {
     VStack(spacing: 0) {
@@ -155,7 +154,7 @@ struct KeyboardLayoutSettingsView: View {
   // MARK: - 分组
 
   private var layoutGroup: some View {
-    DesignGroup(title: "布局", footer: saveFailed ? Self.saveFailedNote : nil) {
+    DesignGroup(title: "布局", footer: saveFailed ? SettingsSaveFailure.message : nil) {
       chineseKeyboardRow
       DesignDivider()
       // 只有双拼方案的 26 键画键位提示；本版本没有双拼时不列这一行。

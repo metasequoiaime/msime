@@ -16,13 +16,12 @@ struct ExpressionSettingsView: View {
 
   private enum PageGroup { case punctuation, intelligence }
 
-  private static let saveFailure = "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
   private static let sentenceSubtitle = "更准确，但更耗电"
 
   var body: some View {
     ScrollView {
       VStack(spacing: 28) {
-        DesignGroup(title: "标点", footer: failedGroup == .punctuation ? Self.saveFailure : nil) {
+        DesignGroup(title: "标点", footer: failedGroup == .punctuation ? SettingsSaveFailure.message : nil) {
           DesignToggleRow(title: "使用英文标点", subtitle: lockSubtitle, isOn: englishPunctuation)
             .disabled(lock != "follow")
             .accessibilityIdentifier("englishPunctuationToggle")
@@ -42,7 +41,7 @@ struct ExpressionSettingsView: View {
           .accessibilityIdentifier("punctuationSettingsLink")
         }
 
-        DesignGroup(title: "智能", footer: failedGroup == .intelligence ? Self.saveFailure : nil) {
+        DesignGroup(title: "智能", footer: failedGroup == .intelligence ? SettingsSaveFailure.message : nil) {
           DesignSelectRow(title: "整句联想", subtitle: Self.sentenceSubtitle,
                           options: SentenceAssociationPreference.Level.allCases.map { DesignOption(title: $0.title, value: $0) },
                           selection: Binding(get: { sentenceLevel }, set: saveSentenceLevel),

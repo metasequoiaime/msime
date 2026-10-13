@@ -94,7 +94,7 @@ struct CandidateOptionsSettingsView: View {
             .accessibilityIdentifier("shuangpinPreeditUsesRaw")
         }
 
-        DesignGroup(title: "候选内容", footer: saveFailed ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。" : nil) {
+        DesignGroup(title: "候选内容", footer: saveFailed ? SettingsSaveFailure.message : nil) {
           // 副标题就是隐私说明：只有打开这个开关，输入的编码才会离开设备。
           DesignToggleRow(title: "云候选", subtitle: "开启后正在输入的编码会发送到 Google 输入法服务获取候选，需允许完全访问",
                           isOn: $cloudCandidates)

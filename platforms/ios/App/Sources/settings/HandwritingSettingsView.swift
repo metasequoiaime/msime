@@ -39,7 +39,7 @@ struct HandwritingSettingsView: View {
         }
 
         DesignGroup(title: "方案", footer: saveFailed
-          ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
+          ? SettingsSaveFailure.message
           : "开启后，手写出现在键盘的方案切换里。至少保留一种方案。") {
           DesignToggleRow(title: "在键盘中显示手写", isOn: Binding(get: { enabled }, set: setEnabled))
             .disabled(enabled && enabledSchemes.count == 1)

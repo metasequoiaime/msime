@@ -26,7 +26,7 @@ struct DeveloperOptionsView: View {
   var body: some View {
     ScrollView {
       VStack(spacing: 28) {
-        DesignGroup(title: "调试", footer: logSaveFailed ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。" : nil) {
+        DesignGroup(title: "调试", footer: logSaveFailed ? SettingsSaveFailure.message : nil) {
           DesignToggleRow(title: "记录输入日志", subtitle: "仅保存在本机，不会上传",
                           isOn: Binding(get: { logEnabled }, set: saveLog))
             .accessibilityIdentifier("developerDiagnosticLogToggle")

@@ -22,7 +22,7 @@ struct DiagnosticLogSettingsView: View {
         }.accessibilityIdentifier("diagnosticLogEnabled")
       } footer: {
         Text(saveFailed
-          ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
+          ? SettingsSaveFailure.message
           : "只记录事件名称和键盘占用的内存，不记录按键、输入的文字、候选、账号或服务响应。日志保存在本机，超过 1 MB 时保留一份旧日志。键盘需要开启“完全访问”才能写入；下次弹出键盘时生效。")
       }
       .designRow()

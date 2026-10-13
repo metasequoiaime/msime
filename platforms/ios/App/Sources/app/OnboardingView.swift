@@ -72,7 +72,6 @@ struct InputSettingsView: View {
     case remove
   }
 
-  private static let saveFailure = "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
 
   /// 页面可以提供的方案：本版本的全部条目，键盘扩展没带粤拼、注音、笔画的词库时去掉这几项，因为键盘那边也会把它们藏起来。
   private static let availableSchemes = ChineseInputScheme.allCases.filter(\.isOfferedByEdition)
@@ -114,7 +113,7 @@ struct InputSettingsView: View {
   }
 
   private func footer(_ group: PageGroup) -> String? {
-    failedGroup == group ? Self.saveFailure : nil
+    failedGroup == group ? SettingsSaveFailure.message : nil
   }
 
   // MARK: - 语言与方案

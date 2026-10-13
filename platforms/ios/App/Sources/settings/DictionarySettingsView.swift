@@ -205,7 +205,7 @@ struct DictionarySettingsView: View {
       .opacity(stepEnabled ? 1 : 0.45)
     if saveFailed {
       DesignDivider(leading: 20)
-      Text("设置没有保存，键盘可能正在写入同一份设置，请再试一次。")
+      Text(SettingsSaveFailure.message)
         .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.danger)
         .fixedSize(horizontal: false, vertical: true)
         .padding(.vertical, 12)

@@ -79,7 +79,7 @@ struct HelpcodeSettingsView: View {
           Text(scheme.label)
         } footer: {
           if saveFailed && scheme.key == Self.schemes.last?.key {
-            Text("设置没有保存，键盘可能正在写入同一份设置，请再试一次。")
+            Text(SettingsSaveFailure.message)
           }
         }
       }

@@ -54,7 +54,7 @@ struct KeyboardToolbarSettingsView: View {
                           }),
                           sheetTitle: "显示方式", identifier: "appToolbarDisplayMode")
         }
-        DesignGroup(title: "按钮", footer: saveFailed ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。" : nil) {
+        DesignGroup(title: "按钮", footer: saveFailed ? SettingsSaveFailure.message : nil) {
           ForEach(Array(Self.rows.enumerated()), id: \.element.name) { index, row in
             if index > 0 { DesignDivider() }
             DesignToggleRow(title: row.title, isOn: binding(row.source))

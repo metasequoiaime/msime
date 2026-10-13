@@ -75,7 +75,7 @@ struct PunctuationSettingsView: View {
         }
         .accessibilityIdentifier("punctuationLock")
       } footer: {
-        Text(saveFailed ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。" : "切换中英文时的标点形态。")
+        Text(saveFailed ? SettingsSaveFailure.message : "切换中英文时的标点形态。")
       }
       .designRow()
     }

@@ -14,12 +14,11 @@ struct VoiceSettingsView: View {
 
   /// 豆包的标点开关，与 `CustomServiceConfiguration` 读写的是同一个键。
   private static let punctuationKey = "service.voice.enable_punc"
-  private static let saveFailure = "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
 
   var body: some View {
     ScrollView {
       VStack(spacing: 28) {
-        DesignGroup(title: "识别", footer: saveFailed ? Self.saveFailure : nil) {
+        DesignGroup(title: "识别", footer: saveFailed ? SettingsSaveFailure.message : nil) {
           DesignSelectRow(title: "识别语言",
                           options: VoicePolishSettings.languages.map {
                             DesignOption(title: $0.title, value: $0.id, identifier: "voiceLanguage_\($0.id)")
