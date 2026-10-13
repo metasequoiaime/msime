@@ -157,3 +157,5 @@ View 的 `key_grid` 是 `"none" | "nine_key" | "fourteen_key"`，`nine_key: bool
 - Android：`check-host.sh`（198 个 JVM smoke）、162 个 `scripts/test-android-*.py`；API 35 模拟器上 `smoke.sh` 全部 16 组通过，含 `FourteenKeyDeviceSmoke`（你好、shi/shu 锁定与撤销、分词得西安、长按 QW 选 w、英文与密码框画 26 键、123 是设计层）和 `KeyboardHeightDeviceSmoke` 的 14 键一轮；API 28 上 `smoke.sh --core` 通过，14 键用 `adb input tap` 实打。UiAutomation 的无障碍点击在 API 30 以下送不到输入法，所以 `FourteenKeyDeviceSmoke` 只在 API 35 跑。
 - iOS：iOS 27.0 模拟器上 `MSIMEClientTests` 836 项、7 跳过、0 失败（链接的是含原样上屏修复的原生库），`FourteenKeyKeyboardTests` 10 项覆盖键表、你好、西安、shi/shu、长按、英文与 123、过期点按和 iPad；`OnboardingUITests.testChineseKeyboardOffersTwentySixFourteenAndNineKeys` 通过；`MSIMEApp` 编译通过。`KeyboardExtensionEditorUITests` 的 14 键用例在模拟器上因键盘没有加进系统键盘列表而跳过。
 - HarmonyOS：`platforms/harmony/tests/run.sh` 0 失败，`scripts/test-harmony-*.py` 全部通过，`hvigorw assembleHap` 成功；手机模拟器上用临时 bundle 实打你好、西安、长按 QW 选 w、英文切换和三栏面板。2in1、密码框回落和设置页三档没有在设备上验证，只有逻辑测试。
+
+相关：[iOS 读音并入候选行](2026-10-13-ios-inline-reading-top-row.md)——iOS 的其他布局把读音并进了候选行，14 键因为拼音选择条仍单独一行，键盘比 26 键高这一行。

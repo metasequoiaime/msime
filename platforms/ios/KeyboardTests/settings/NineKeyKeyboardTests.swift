@@ -1740,9 +1740,10 @@ final class NineKeyKeyboardTests: XCTestCase {
         InputSchemePreference.scheme = scheme
         // 笔画和注音只在测试宿主带了 msime-stroke.db、msime-zhuyin.db 时才能选上（CI 不带）；没带时上面的赋值落到别的方案，那个方案已经单独测过。
         if [.stroke, .zhuyin].contains(scheme) && InputSchemePreference.scheme != scheme { continue }
-        // 韩语方案在候选栏里常留一行训音（2758a0ebc，#2615），键盘为这一行长高而不是从按键里扣，所以视图要按方案自己要的高度给，按键才保持九键高度。
+        // 韩语方案在候选栏里常留一行训音（2758a0ebc，#2615），全拼 14 键的读音单独一行，键盘为这些行长高而不是从按键里扣，所以视图要按方案自己要的高度给，按键才保持九键高度。
         let keyboardHeight = KeyboardViewController.keyboardHeight(
-          glossLines: KeyboardViewController.stripGlossLines(scheme: scheme, fullAccess: false, onlineRoute: false))
+          glossLines: KeyboardViewController.stripGlossLines(scheme: scheme, fullAccess: false, onlineRoute: false),
+          separateReadingRow: scheme == .fourteenKey)
         controller.view.frame.size.height = keyboardHeight
         controller.viewWillAppear(false)
         for symbols in [false, true] {
@@ -1962,7 +1963,7 @@ final class NineKeyKeyboardTests: XCTestCase {
   // The presentation cycle is what the device actually does: show, type, put away, show again.
   // Releasing the dictionary access on dismissal must not leave the next presentation unable to
   // convert, and a dropped keystroke would still have played its click.
-  /// 工具栏和候选共用一个顶行（dc.html：一行 50pt）：空闲时只有工具栏，图标在整行里居中；组字时由 12pt 拼写行和候选行在原位替换它，顶行下方的内容不移动。
+  /// 工具栏和候选共用一个顶行：空闲时只有工具栏，图标在整行里居中；组字时由候选行在原位替换它，12pt 的拼写排在候选行最左边（#7405），顶行下方的内容不移动。拼写很长时最多占三成宽。
   func testComposingSwapsTheToolbarForTheCandidatesInTheSameRow() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -1998,17 +1999,45 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(toolbar.isHidden)
     XCTAssertFalse(reading.isHidden)
     XCTAssertEqual(reading.frame.minY, 0, accuracy: 0.5)
-    XCTAssertEqual(reading.frame.height, KeyboardViewController.readingRowHeight, accuracy: 0.5)
+    XCTAssertEqual(reading.frame.height, idleStrip.height, accuracy: 0.5, "the spelling shares the candidate line")
     let preedit = try button("preeditButton", in: controller)
+    XCTAssertFalse(preedit.isHidden)
     XCTAssertEqual(preedit.configuration?.title, "nihao")
     let transformer = try XCTUnwrap(preedit.configuration?.titleTextAttributesTransformer)
     let attributes = transformer.callAsFunction(AttributeContainer())
     XCTAssertEqual(attributes.uiKit.font?.pointSize, KeyboardViewController.preeditFontSize)
     XCTAssertEqual(try XCTUnwrap(attributes.uiKit.kern), KeyboardViewController.preeditFontSize * 0.02, accuracy: 0.001)
     let candidate = try button("candidate-1", in: controller)
-    XCTAssertGreaterThanOrEqual(candidate.convert(candidate.bounds, to: strip).minY, reading.frame.maxY - 0.5)
+    let candidateFrame = candidate.convert(candidate.bounds, to: strip)
+    XCTAssertGreaterThanOrEqual(candidateFrame.minX, reading.frame.maxX - 0.5, "the candidates follow the spelling")
+    XCTAssertGreaterThanOrEqual(candidateFrame.minY, -0.5)
+    XCTAssertLessThanOrEqual(candidateFrame.maxY, idleStrip.height + 0.5)
     XCTAssertEqual(strip.frame, idleStrip, "the row keeps its height while composing")
     XCTAssertEqual(space.convert(space.bounds, to: controller.view), idleSpace, "the keys do not move")
+    attachTopRowScreenshot(of: controller, named: "Spelling inside the candidate line")
+
+    for letter in "zhonghuarenmingongheguo" {
+      let key = try XCTUnwrap(descendants(controller.view).first {
+        $0.accessibilityLabel == "字母 \(String(letter).uppercased())"
+      } as? UIButton)
+      key.sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+    XCTAssertLessThanOrEqual(
+      reading.frame.width, strip.bounds.width * KeyboardViewController.inlineReadingMaximumShare + 0.5,
+      "a long spelling is cut short rather than pushing the candidates off the row")
+    XCTAssertEqual(strip.frame, idleStrip)
+    attachTopRowScreenshot(of: controller, named: "Long spelling cut at three tenths")
+  }
+
+  private func attachTopRowScreenshot(of controller: KeyboardViewController, named name: String) {
+    let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
+      controller.view.layer.render(in: context.cgContext)
+    }
+    let attachment = XCTAttachment(image: image)
+    attachment.name = name
+    attachment.lifetime = .keepAlways
+    add(attachment)
   }
 
   /// 显示方式 隐藏 以及 常用语 / 输入方式 两个开关，对应 Android 的 `toolbar_hidden`、`toolbar_phrase` 和 `toolbar_scheme`：隐藏时空闲顶行及其下方的间隙消失，按键上移；组字时读音行和候选行以顶行的常规高度回来，但不带工具栏，上屏后顶行再次消失。两个开关会把各自的按钮从工具栏上去掉。

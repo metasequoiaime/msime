@@ -251,7 +251,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     preferences?["default_ime_mode"] as? String != "english"
   }
   private var inputContext = KeyboardInputContext()
-  private var inputScheme: ChineseInputScheme = .editionFallback
+  private var inputScheme: ChineseInputScheme = .editionFallback {
+    didSet {
+      if (oldValue == .fourteenKey) != (inputScheme == .fourteenKey) { applyReadingRowPlacement() }
+    }
+  }
   private var usesShuangpin: Bool { inputScheme.shuangpinProfile != nil }
   // In an active Quanpin or Shuangpin composition, Shift marks the next letter as Engine helpcode.
   // Idle Chinese input keeps the existing shortcut that switches to English capitalization.
@@ -394,11 +398,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidatePageSize: Int {
     CandidatePageSizePreference.clamped(session.sharedPreferences?["candidate_page_size"] as? Int)
   }
-  // 顶栏（dc.html：一行 50pt）空闲时是工具栏；组字时由读音行和候选行占据同一位置，与 Android 一致（`ImeToolbar`）。不管显示什么，它的高度都取组字布局的高度，所以组字开始或结束时按键不会移动。
+  // 顶栏空闲时是工具栏；组字时由读音和候选占据同一位置。不管显示什么，它的高度都取组字布局的高度，所以组字开始或结束时按键不会移动。
+  // 读音默认画在候选行最左边，顶栏只有候选行那么高（#7405：用户反馈候选区和工具栏占地方，设计稿和 Android 的读音行另占 14pt，打字时顶栏是 56pt）。全拼 14 键例外，仍是读音行在上、候选行在下：它的拼音选择条排在读音右边，挤进候选行就没有位置了。
   // 不是 private：高度断言从这些值推出，而不是把总和再写一遍。
-  /// 设计稿的顶栏高度，顶栏不会低于它。
-  static let topRowMinimumHeight: CGFloat = 50
-  /// 候选上方的读音行：按设计稿以 12pt 单独一行显示拼写。
+  /// 顶栏不会低于它：工具栏按钮激活时的底板是 40pt（`KeyboardToolbarButton.padSide`），上下各留 1pt。
+  static let topRowMinimumHeight: CGFloat = 42
+  /// 全拼 14 键在候选上方单独一行的读音行，以 12pt 显示拼写。
   static let readingRowHeight: CGFloat = 14
   /// 读音行上的拼写（dc.html：12px、kb.sub、letter-spacing .02em）。
   static let preeditFontSize: CGFloat = 12
@@ -416,23 +421,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let base = glossed ? glossedCandidateRowHeight : candidateRowHeight
     return max(base, ceil(base * candidateScale))
   }
-  /// 顶栏：读音行在上，候选行在下，第一行释义在候选行里，其余释义行在它下面，高度不低于设计稿的 50pt。
+  /// 顶栏：候选行，第一行释义在候选行里，其余释义行在它下面；`separateReadingRow`（全拼 14 键）时上面再加一行读音。高度不低于 `topRowMinimumHeight`。
   static func topRowHeight(
-    glossLines: Int, candidateScale: CGFloat = 1, preeditScale: CGFloat = 1
+    glossLines: Int, candidateScale: CGFloat = 1, preeditScale: CGFloat = 1, separateReadingRow: Bool = false
   ) -> CGFloat {
-    max(topRowMinimumHeight, readingRowHeight(preeditScale: preeditScale)
+    max(topRowMinimumHeight, (separateReadingRow ? readingRowHeight(preeditScale: preeditScale) : 0)
       + candidateRowHeight(candidateScale: candidateScale, glossed: glossLines > 0)
       + glossHeight(lines: glossLines - 1))
   }
-  /// 用户调整之前的键盘高度：按默认候选字号和存储的行距计算，每个候选下带 `glossLines` 行释义（默认取配置的行数）。
+  /// 用户调整之前的键盘高度：按默认候选字号和存储的行距计算，每个候选下带 `glossLines` 行释义（默认取配置的行数）；`separateReadingRow` 同 `topRowHeight`。
   /// Tests and host layout consumers use this contract so the default gloss row stays accounted for.
   static func keyboardHeight(
     _ formFactor: KeyboardFormFactor = .phone, landscape: Bool = false, handwriting: Bool = false,
-    numberRow: Bool = false, glossLines: Int? = nil
+    numberRow: Bool = false, glossLines: Int? = nil, separateReadingRow: Bool = false
   ) -> CGFloat {
     let lines = glossLines ?? configuredGlossLines(fullAccess: false, onlineRoute: false)
     return formFactor.keyboardHeight(
-      topRow: topRowHeight(glossLines: lines), rowSpacing: CGFloat(KeyboardLayoutPreference.rowSpacing),
+      topRow: topRowHeight(glossLines: lines, separateReadingRow: separateReadingRow),
+      rowSpacing: CGFloat(KeyboardLayoutPreference.rowSpacing),
       landscape: landscape, handwriting: handwriting, numberRow: numberRow)
   }
   /// 手机竖屏键盘：`keyboardHeight()`。
@@ -469,8 +475,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidateFontFamilies: [String] = []
   private var topRowHeightConstraint: NSLayoutConstraint?
   private var readingRowHeightConstraint: NSLayoutConstraint?
-  /// 顶栏的读音行；只在候选行显示时才显示。
+  /// 顶栏的读音；只在候选行显示时才显示。默认是候选行最左边的一段，全拼 14 键是候选行上面单独的一行（`separateReadingRow`）。
   private let readingRow = UIView()
+  /// 读音单独一行时才生效的约束，和读音并入候选行时的约束，由 `applyReadingRowPlacement` 二选一。
+  private var separateReadingConstraints: [NSLayoutConstraint] = []
+  private var inlineReadingConstraints: [NSLayoutConstraint] = []
+  /// 读音并入候选行而此刻没有读音时，把那一段收成零宽，候选从行首开始。
+  private var inlineReadingCollapse: NSLayoutConstraint?
+  /// 读音是否在候选行上面单独一行：全拼 14 键是，它的拼音选择条排在读音右边。按方案而不是按中英文状态判断，切到英文时顶栏高度不变，按键不跳。
+  private var separateReadingRow: Bool { inputScheme == .fourteenKey }
   /// 根视图的内边距（`KeyboardFormFactor.padding`）：上、前、后、下。
   private var keyboardPaddingConstraints: [NSLayoutConstraint] = []
 
@@ -1519,8 +1532,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     container.accessibilityIdentifier = "candidateStrip"
     container.backgroundColor = Self.stripBackground(KeyboardTheme.current, palette: nil)
 
-    // The composition gets its own line. Sharing the candidate row cost it up to 28% of the width
-    // and left the candidates that much narrower, on the one row where width is worth most.
+    // 读音默认并入候选行，占它最左边的一段（最多三成宽，长了截掉尾部），换来顶栏少一行 14pt；代价是候选少了这一段宽度。全拼 14 键仍单独一行，见 `separateReadingRow`。
     let compositionRow = readingRow
     compositionRow.accessibilityIdentifier = "compositionRow"
     compositionRow.translatesAutoresizingMaskIntoConstraints = false
@@ -1537,6 +1549,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     preeditConfiguration.titleTextAttributesTransformer = Self.preeditTransformer(scale: preeditFontScale)
     preeditButton.configuration = preeditConfiguration
     preeditButton.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+    // 读音并入候选行时它和候选滚动区排在同一行，只占读音自己的宽度，余下的都给候选。
+    preeditButton.setContentHuggingPriority(.defaultHigh, for: .horizontal)
     preeditButton.showsMenuAsPrimaryAction = true
     preeditButton.accessibilityIdentifier = "preeditButton"
 
@@ -1567,7 +1581,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
     preeditButton.translatesAutoresizingMaskIntoConstraints = false
     compositionRow.addSubview(preeditButton)
-    installReadingSpellingStrip(in: compositionRow)
+    let spellingStripEdges = installReadingSpellingStrip(in: compositionRow)
 
     let content = UIStackView(arrangedSubviews: [
       candidateScrollView, diagnosticLabel,
@@ -1617,19 +1631,32 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 略低于 required：收起的顶栏（显示方式「隐藏」）比读音行还矮，这时由隐藏的候选行让步，而不是破坏这一行的高度。
     let contentBottom = content.bottomAnchor.constraint(equalTo: container.bottomAnchor)
     contentBottom.priority = .init(999)
+    // 读音并入候选行时与候选行同高，收起的顶栏里同样由它让步。
+    let inlineReadingBottom = compositionRow.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+    inlineReadingBottom.priority = .init(999)
+    separateReadingConstraints = [
+      compositionRow.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -2),
+      compositionHeight,
+      preeditButton.trailingAnchor.constraint(lessThanOrEqualTo: compositionRow.trailingAnchor),
+      content.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 2),
+      content.topAnchor.constraint(equalTo: compositionRow.bottomAnchor),
+    ] + spellingStripEdges
+    inlineReadingConstraints = [
+      inlineReadingBottom,
+      preeditButton.trailingAnchor.constraint(equalTo: compositionRow.trailingAnchor),
+      compositionRow.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, multiplier: Self.inlineReadingMaximumShare),
+      content.leadingAnchor.constraint(equalTo: compositionRow.trailingAnchor),
+      content.topAnchor.constraint(equalTo: container.topAnchor),
+    ]
+    inlineReadingCollapse = compositionRow.widthAnchor.constraint(equalToConstant: 0)
     // 设计稿里这一行两端各有 2pt 内边距（dc.html `padding: 0 2px`），工具栏和候选列都一样。
     NSLayoutConstraint.activate([
       stripHeight,
       compositionRow.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 2),
-      compositionRow.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -2),
       compositionRow.topAnchor.constraint(equalTo: container.topAnchor),
-      compositionHeight,
       preeditButton.leadingAnchor.constraint(equalTo: compositionRow.leadingAnchor),
-      preeditButton.trailingAnchor.constraint(lessThanOrEqualTo: compositionRow.trailingAnchor),
       preeditButton.centerYAnchor.constraint(equalTo: compositionRow.centerYAnchor),
-      content.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 2),
       content.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -2),
-      content.topAnchor.constraint(equalTo: compositionRow.bottomAnchor),
       contentBottom,
       candidateStack.leadingAnchor.constraint(
         equalTo: candidateScrollView.contentLayoutGuide.leadingAnchor),
@@ -1642,11 +1669,29 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       candidateStack.heightAnchor.constraint(
         equalTo: candidateScrollView.frameLayoutGuide.heightAnchor),
     ])
+    NSLayoutConstraint.activate(separateReadingRow ? separateReadingConstraints : inlineReadingConstraints)
     return container
   }
 
+  /// 读音并入候选行时最多占这一行的这一份宽度，更长的读音截掉尾部。
+  static let inlineReadingMaximumShare: CGFloat = 0.3
+
+  /// 按当前方案把读音放到单独一行或候选行最左边，顶栏和键盘高度跟着变；顶栏还没建好时（`viewDidLoad` 里先读方案）什么都不做，建顶栏时直接按当前方案装约束。
+  private func applyReadingRowPlacement() {
+    guard let collapse = inlineReadingCollapse else { return }
+    let separate = separateReadingRow
+    collapse.isActive = false
+    NSLayoutConstraint.deactivate(separate ? inlineReadingConstraints : separateReadingConstraints)
+    NSLayoutConstraint.activate(separate ? separateReadingConstraints : inlineReadingConstraints)
+    topRowHeightConstraint?.constant = shownTopRowHeight
+    applyKeyboardMetrics()
+    updatePreferredKeyboardHeight()
+    updatePreeditButton()
+  }
+
   /// 14 键的拼音选择条：读音右边、横向滚动的一行按钮，内容与九键左列相同（完整音节，再是下一键上能作声母的大写字母）。它只占读音行，不盖住下面的候选行，三端放在同一个位置。
-  private func installReadingSpellingStrip(in row: UIView) {
+  /// 返回把选择条左右两端接到读音行上的两条约束，由调用方随读音单独成行时才启用。
+  private func installReadingSpellingStrip(in row: UIView) -> [NSLayoutConstraint] {
     readingSpellingScrollView.accessibilityIdentifier = "readingSpellingStrip"
     readingSpellingScrollView.showsHorizontalScrollIndicator = false
     readingSpellingScrollView.disableEdgeEffects()
@@ -1660,8 +1705,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     readingSpellingMinimumWidth = readingSpellingScrollView.widthAnchor.constraint(
       greaterThanOrEqualTo: row.widthAnchor, multiplier: Self.readingSpellingMinimumShare)
     NSLayoutConstraint.activate([
-      readingSpellingScrollView.leadingAnchor.constraint(equalTo: preeditButton.trailingAnchor, constant: 4),
-      readingSpellingScrollView.trailingAnchor.constraint(equalTo: row.trailingAnchor),
       readingSpellingScrollView.topAnchor.constraint(equalTo: row.topAnchor),
       readingSpellingScrollView.bottomAnchor.constraint(equalTo: row.bottomAnchor),
       readingSpellingStack.leadingAnchor.constraint(equalTo: readingSpellingScrollView.contentLayoutGuide.leadingAnchor),
@@ -1670,6 +1713,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       readingSpellingStack.bottomAnchor.constraint(equalTo: readingSpellingScrollView.contentLayoutGuide.bottomAnchor),
       readingSpellingStack.heightAnchor.constraint(equalTo: readingSpellingScrollView.frameLayoutGuide.heightAnchor),
     ])
+    return [
+      readingSpellingScrollView.leadingAnchor.constraint(equalTo: preeditButton.trailingAnchor, constant: 4),
+      readingSpellingScrollView.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+    ]
   }
 
   /// 拼音选择条显示时至少占读音行的这一份宽度；读音更长时由读音截断让出来。
@@ -3656,7 +3703,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private var currentTopRowHeight: CGFloat {
     Self.topRowHeight(
-      glossLines: glossLineCount, candidateScale: candidateFontScale, preeditScale: preeditFontScale)
+      glossLines: glossLineCount, candidateScale: candidateFontScale, preeditScale: preeditFontScale,
+      separateReadingRow: separateReadingRow)
   }
 
   /// 实际画出的顶栏高度：收起时为零。
@@ -4435,6 +4483,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       configuration.title = drawnTitle
       preeditButton.configuration = configuration
     }
+    // 读音并入候选行时，没有在组的内容、或「候选栏预编辑」选了不显示而标题为空时，这一段不占位置：单独一行时那里显示的「水杉输入法」和它的本地输入菜单，在候选行里只会挤掉联想候选，本地输入仍可从「更多」里打开。
+    let collapsed = (idle || drawnTitle.isEmpty) && !separateReadingRow
+    inlineReadingCollapse?.isActive = collapsed
+    if preeditButton.isHidden != collapsed { preeditButton.isHidden = collapsed }
 
     let modes = enabledLocalInputModes
     let offersModes = idle && supportsLocalTools && !modes.isEmpty
