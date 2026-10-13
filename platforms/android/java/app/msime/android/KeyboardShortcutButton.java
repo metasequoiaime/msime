@@ -8,9 +8,9 @@ import android.graphics.Path;
 import android.graphics.RectF;
 
 /**
- * Draws a shortcut glyph while retaining the button's text for accessibility.
+ * 绘制快捷图标，同时保留按钮文字供无障碍读取。
  *
- * <p>表情、常用语、剪贴板、皮肤、输入方式、浮动键盘按设计画 24 dp 的 Material 实心图标，收起画 21 dp 的描边 chevron（{@link KeyboardIconPaths}）；其余几个沿用原来的描边画法。图标颜色就是按钮的文字颜色，由调用方按皮肤设置（平时 kbSub，打开面板时 accent）。
+ * <p>表情、常用语、剪贴板、皮肤、输入方式、浮动键盘画 28 dp 的 Material 实心图标，收起画 24 dp 的描边 chevron（{@link KeyboardIconPaths}）；其余几个沿用原来的描边画法。图标颜色就是按钮的文字颜色，由调用方按皮肤设置（平时 kbSub，打开面板时 accent）。
  */
 public final class KeyboardShortcutButton extends KeyboardPressButton {
     private final KeyboardShortcutIconPolicy.Icon icon;
@@ -48,11 +48,11 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
     /** 选中时垫在图标后面的底块占触控区短边的比例。 */
     private static final float ACTIVE_SCALE = 0.86f;
 
-    /** 设计的工具栏按钮：40 dp 见方、圆角 12 dp 的底块，Material 图标 24 dp，收起 chevron 21 dp。 */
+    /** 工具栏按钮：40 dp 见方、圆角 12 dp 的底块，Material 图标 28 dp，收起 chevron 24 dp。 */
     private static final float ACTIVE_SIDE_DP = 40f;
     private static final float ACTIVE_RADIUS_DP = 12f;
-    private static final float MATERIAL_ICON_DP = 24f;
-    private static final float DISMISS_ICON_DP = 21f;
+    private static final float MATERIAL_ICON_DP = 28f;
+    private static final float DISMISS_ICON_DP = 24f;
     private static final float[] SETTINGS_LINES = {25f, 50f, 75f};
 
     /** 选中状态的底色：工具栏按钮打开了它的面板时，图标后面垫这块柔和的强调色，而不是把整个按钮铺成实心色块。 */

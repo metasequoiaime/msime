@@ -9,9 +9,9 @@ import android.graphics.RectF;
 import java.util.function.IntSupplier;
 
 /**
- * Draws the tintable MSIME brand mark without baking a white square into the shortcut bar.
+ * 绘制随主题配色的水杉品牌标记。
  *
- * <p>新设计里品牌键是 30 dp 的 logoCirc 圆盘托着 18 dp 的 logoBg 标记，功能面板或任何面板打开时整个 40 dp 按钮垫一块圆角 12 dp 的 accentSoft。调用 {@link #setLogoColors} 之后按新设计画；没调用时保持原来只画一枚 accent 标记的样子，旧调用点不受影响。节点 text（如「更多」）照常保留给无障碍，不绘制。
+ * <p>新设计里品牌键是 34 dp 的 logoCirc 圆盘托着 28 dp 的 logoBg 标记，功能面板或任何面板打开时整个 40 dp 按钮垫一块圆角 12 dp 的 accentSoft。调用 {@link #setLogoColors} 之后按新设计画；没调用时保持原来只画一枚 accent 标记的样子，旧调用点不受影响。节点 text（如「更多」）照常保留给无障碍，不绘制。
  */
 public final class KeyboardBrandButton extends KeyboardPressButton {
     /**
@@ -21,9 +21,9 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
      * its own 110-unit box; the two read at the same weight in the flat toolbar.
      */
     private static final float MARK_SCALE = 0.72f;
-    private static final float DISC_DP = 30f;
-    /** 设计是 18 dp；圆盘与浅色键盘底色接近时 18 dp 的 logo 比旁边 24 dp 的工具栏图标小一圈，按用户要求放大到同为 24 dp。 */
-    private static final float DISC_MARK_DP = 24f;
+    private static final float DISC_DP = 34f;
+    /** 品牌标记与旁边的工具栏图标同为 28 dp，使放大后的九键界面比例协调。 */
+    private static final float DISC_MARK_DP = 28f;
     private static final float ACTIVE_SIDE_DP = 40f;
     private static final float ACTIVE_RADIUS_DP = 12f;
 
