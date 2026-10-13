@@ -91,9 +91,7 @@ struct CommunityResourcesView: View {
     // 每次回到列表都重读：详情页里导入词库、添加或移除回复模板后，返回时胶囊按钮跟着变。
     .onAppear { request.appear(); Task { await refreshInstalled() } }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
     }
     .confirmationDialog("导入这版词库到本机？", isPresented: Binding(get: { confirmingImport != nil }, set: { if !$0 { confirmingImport = nil } }),
@@ -289,9 +287,7 @@ struct CommunityReplyTemplatesSection: View {
         }
         .onAppear { request.appear() }
         .onDisappear {
-          request.disappear()
-          pending?.cancel()
-          pending = nil
+          ViewRequestTask.disappear(request: $request, pending: $pending)
           addGeneration.invalidate()
           addTasks.values.forEach { $0.cancel() }
           addTasks.removeAll()
@@ -520,9 +516,7 @@ struct CommunityResourceDetail: View {
       } message: { Text(message ?? "") }
       .onAppear { request.appear() }
       .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
       }
   }
@@ -641,9 +635,7 @@ struct CommunityResourceEditor: View {
     .navigationViewStyle(.stack)
     .onAppear { request.appear() }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
     }
   }

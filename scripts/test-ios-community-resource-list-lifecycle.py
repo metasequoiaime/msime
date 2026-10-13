@@ -21,8 +21,11 @@ class CommunityResourceListLifecycleTests(unittest.TestCase):
         self.assertIn("@State private var pending: Task<Void, Never>?", self.view)
         self.assertIn("@State private var request = ViewRequestGeneration()", self.view)
         self.assertIn(".onAppear { request.appear(); Task", self.view)
-        self.assertIn("pending?.cancel()", self.view)
-        self.assertIn("request.disappear()", self.view)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.view)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.reply)
+        self.assertIn("request.wrappedValue.disappear()", TASK)
+        self.assertIn("pending.wrappedValue?.cancel()", TASK)
+        self.assertIn("pending.wrappedValue = nil", TASK)
 
     def test_late_list_results_are_fenced_after_disappearance(self):
         self.assertIn("ViewRequestTask.startLoad(request: $request, pending: $pending) { id in", self.view)

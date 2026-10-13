@@ -30,8 +30,7 @@ class CommunitySkinLifecycleTests(unittest.TestCase):
         self.assertIn("accountGeneration.invalidate()", self.list_view)
         self.assertIn(".onAppear { request.appear()", self.list_view)
         self.assertIn(".onDisappear", self.list_view)
-        self.assertIn("request.disappear()", self.list_view)
-        self.assertIn("pending?.cancel()", self.list_view)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.list_view)
         self.assertIn("ViewRequestTask.startLoad(request: $request, pending: $pending) { id in", self.list_view)
         self.assertIn("if scheduledID == nil { pending = nil }", self.list_view)
         self.assertIn("takeTasks.values.forEach { $0.cancel() }", self.list_view)
@@ -43,8 +42,7 @@ class CommunitySkinLifecycleTests(unittest.TestCase):
         self.assertIn("@State private var pending: Task<Void, Never>?", self.detail)
         self.assertIn("@State private var request = ViewRequestGeneration()", self.detail)
         self.assertIn(".onDisappear", self.detail)
-        self.assertIn("request.disappear()", self.detail)
-        self.assertIn("pending?.cancel()", self.detail)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.detail)
         self.assertIn("run(_ action: @escaping @MainActor (UUID) async throws -> Void)", self.detail)
         self.assertIn("ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending", self.detail)
         self.assertGreaterEqual(self.detail.count("Button { run { id in"), 3)
@@ -52,14 +50,16 @@ class CommunitySkinLifecycleTests(unittest.TestCase):
         helper = TASK.read_text()
         self.assertIn("let id = request.wrappedValue.begin()", helper)
         self.assertIn("catch is CancellationError", helper)
+        self.assertIn("request.wrappedValue.disappear()", helper)
+        self.assertIn("pending.wrappedValue?.cancel()", helper)
+        self.assertIn("pending.wrappedValue = nil", helper)
 
     def test_publish_cancels_after_leaving(self):
         self.assertIn("@State private var pending: Task<Void, Never>?", self.publish)
         self.assertIn("@State private var request = ViewRequestGeneration()", self.publish)
         self.assertIn(".onDisappear", self.publish)
-        self.assertIn("pending?.cancel()", self.publish)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.publish)
         self.assertIn("ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending", self.publish)
-        self.assertIn("request.disappear()", self.publish)
         self.assertIn("catch is CancellationError", TASK.read_text())
 
 

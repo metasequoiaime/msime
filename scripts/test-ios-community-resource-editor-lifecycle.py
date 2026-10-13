@@ -14,7 +14,7 @@ class CommunityResourceEditorLifecycleTests(unittest.TestCase):
         self.assertIn("@State private var request = ViewRequestGeneration()", editor)
         self.assertIn("@State private var pending: Task<Void, Never>?", editor)
         self.assertIn(".onAppear { request.appear() }", editor)
-        self.assertIn("request.disappear()", editor)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", editor)
 
     def test_import_and_publish_share_cancellation_fence(self):
         editor = SOURCE.split("struct CommunityResourceEditor", 1)[1]

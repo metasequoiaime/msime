@@ -19,7 +19,7 @@ class CommunityResourceDetailLifecycleTests(unittest.TestCase):
         self.assertIn("@State private var request = ViewRequestGeneration()", self.detail)
         self.assertIn(".onAppear { request.appear()", self.detail)
         self.assertIn(".onDisappear", self.detail)
-        self.assertIn("pending?.cancel()", self.detail)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.detail)
 
     def test_detail_actions_fence_late_results(self):
         self.assertIn("run(_ action: @escaping @MainActor (UUID) async throws -> Void)", self.detail)

@@ -160,9 +160,7 @@ struct SkinCommunityView: View {
       }
     }) { AccountLoginSheet() }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       accountTask?.cancel()
       accountTask = nil
       accountGeneration.invalidate()
@@ -428,9 +426,7 @@ struct CommunitySkinDetail: View {
       .alert("皮肤社区", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("好", role: .cancel) {} } message: { Text(message ?? "") }
       .onAppear { request.appear() }
       .onDisappear {
-        request.disappear()
-        pending?.cancel()
-        pending = nil
+        ViewRequestTask.disappear(request: $request, pending: $pending)
         busy = false
       }
   }
@@ -511,9 +507,7 @@ struct CommunityPublishView: View {
         .onAppear { request.appear(); refreshLibrary(preferring: selectedSkinID) }
         .alert("发布失败", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("好", role: .cancel) {} } message: { Text(message ?? "") }
         .onDisappear {
-          request.disappear()
-          pending?.cancel()
-          pending = nil
+          ViewRequestTask.disappear(request: $request, pending: $pending)
           busy = false
         }
     }.interactiveDismissDisabled(busy)

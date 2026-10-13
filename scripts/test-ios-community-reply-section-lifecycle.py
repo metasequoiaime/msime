@@ -20,7 +20,7 @@ class CommunityReplySectionLifecycleTests(unittest.TestCase):
         self.assertIn("@State private var request = ViewRequestGeneration()", self.section)
         self.assertIn(".onAppear { request.appear()", self.section)
         self.assertIn(".onDisappear", self.section)
-        self.assertIn("pending?.cancel()", self.section)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", self.section)
         self.assertIn("addTasks.values.forEach { $0.cancel() }", self.section)
         self.assertIn("adding.removeAll()", self.section)
 
