@@ -138,7 +138,7 @@ enum Match {
     Initials,
 }
 
-/// 26 键混排：整段组字（去掉 `'`、转成小写）正好是某个名称时给出它的符号。全拼认名称的全拼、两个音节以上名称的首字母（`ssd` 摄氏度）和拉丁名称（`gamma`）；双拼把输入归一成全拼后比全拼，另按原样比拉丁名称，不认首字母。其他方案、输入不到两个字母或含字母以外的字符时没有行。同一个符号只出一次，合计最多 `MIXED_SYMBOL_LIMIT` 行；行的 `pinyin` 是整段输入，选中即吃掉全部组字。
+/// 26 键混排：整段组字（去掉 `'`、转成小写）正好是某个名称时给出它的符号。全拼认名称的全拼、两个音节以上名称的首字母（`ssd` 摄氏度）和拉丁名称（`gamma`）；双拼把输入归一成全拼后比全拼，另按原样比拉丁名称，不认首字母。微软双拼的 `;` 是 `ing` 韵母键，作为双拼编码保留；其他方案、输入不到两键或含无效字符时没有行。同一个符号只出一次，合计最多 `MIXED_SYMBOL_LIMIT` 行；行的 `pinyin` 是整段输入，选中即吃掉全部组字。
 pub fn query_mixed_symbols(
     code: &str,
     scheme: SchemeType,
@@ -147,15 +147,18 @@ pub fn query_mixed_symbols(
     if !matches!(scheme, SchemeType::Quanpin | SchemeType::Shuangpin) {
         return Vec::new();
     }
-    let mut letters = String::with_capacity(code.len());
+    let mut keys = String::with_capacity(code.len());
     for byte in code.bytes() {
         match byte {
             b'\'' => {}
-            byte if byte.is_ascii_alphabetic() => letters.push(byte.to_ascii_lowercase() as char),
+            byte if byte.is_ascii_alphabetic() => keys.push(byte.to_ascii_lowercase() as char),
+            b';' if scheme == SchemeType::Shuangpin && profile.uses_semicolon_key() => {
+                keys.push(';');
+            }
             _ => return Vec::new(),
         }
     }
-    if letters.len() < 2 {
+    if keys.len() < 2 {
         return Vec::new();
     }
     let table = table();
@@ -165,17 +168,15 @@ pub fn query_mixed_symbols(
     };
     if scheme == SchemeType::Shuangpin {
         add(
-            table
-                .quanpin
-                .get(normalize_input(&letters, profile).as_str()),
+            table.quanpin.get(normalize_input(&keys, profile).as_str()),
             Match::Quanpin,
         );
     } else {
-        add(table.quanpin.get(letters.as_str()), Match::Quanpin);
+        add(table.quanpin.get(keys.as_str()), Match::Quanpin);
     }
-    add(table.latin.get(letters.as_str()), Match::Latin);
+    add(table.latin.get(keys.as_str()), Match::Latin);
     if scheme == SchemeType::Quanpin {
-        add(table.initials.get(letters.as_str()), Match::Initials);
+        add(table.initials.get(keys.as_str()), Match::Initials);
     }
     rows_for(table, &hits, code)
 }
@@ -410,6 +411,17 @@ mod tests {
             texts(&query_mixed_symbols("gamma", SchemeType::Shuangpin, xiaohe)),
             vec!["γ", "Γ"]
         );
+    }
+
+    #[test]
+    fn microsoft_semicolon_final_matches_a_symbol_name() {
+        let microsoft = profile(ShuangpinProfileKind::Microsoft).unwrap();
+        let rows = query_mixed_symbols("p;mi", SchemeType::Shuangpin, microsoft);
+        assert_eq!(texts(&rows), vec!["㎡", "m²"]);
+        assert_eq!(rows[0].item.pinyin, "p;mi");
+        assert!(quanpin("p;mi").is_empty());
+        let xiaohe = profile(ShuangpinProfileKind::Xiaohe).unwrap();
+        assert!(query_mixed_symbols("p;mi", SchemeType::Shuangpin, xiaohe).is_empty());
     }
 
     #[test]

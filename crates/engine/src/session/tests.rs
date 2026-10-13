@@ -7673,6 +7673,11 @@ CREATE TABLE tbl_1_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
 INSERT INTO tbl_1_y VALUES('yu','y','于',300);\
 CREATE TABLE tbl_1_p(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
 INSERT INTO tbl_1_p VALUES('pai','p','派',300),('pa','p','怕',300);\
+INSERT INTO tbl_1_p VALUES('ping','p','平',300);\
+CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_m VALUES('mi','m','米',300);\
+CREATE TABLE tbl_2_p(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_p VALUES('ping''mi','pm','平米',500);\
 CREATE TABLE tbl_2_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
 INSERT INTO tbl_2_z VALUES('zheng''fu','zf','政府',1000),('zheng''fu','zf','正负',500);\
 CREATE TABLE tbl_2_d(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
@@ -7724,6 +7729,21 @@ fn a_whole_symbol_name_offers_its_symbol_after_the_name() {
     let mut off = fixture.session();
     type_text(&mut off, "zhengfu");
     assert_eq!(symbol_index(&off, "±"), None);
+}
+
+#[test]
+fn microsoft_semicolon_spelling_offers_the_symbol_after_its_name() {
+    let fixture = Fixture::new(SYMBOL_FIXTURE);
+    let mut session = symbol_session(&fixture, |options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Microsoft;
+    });
+    type_text(&mut session, "p;mi");
+    let name = words(&session)
+        .iter()
+        .position(|word| *word == "平米")
+        .unwrap();
+    assert_eq!(symbol_index(&session, "㎡"), Some(name + 1));
 }
 
 #[test]
