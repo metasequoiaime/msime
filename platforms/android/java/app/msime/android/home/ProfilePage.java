@@ -49,6 +49,7 @@ import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.net.ssl.HttpsURLConnection;
@@ -65,6 +66,7 @@ public final class ProfilePage extends ReloadingDetailPage {
 
     private static final String[][] PROVIDERS = {{"apple", "Apple"}, {"google", "Google"}, {"email", "邮箱"}};
     private static final String EXPORTS = "exports";
+    private static final long EXPORT_RETENTION_MILLIS = 24L * 60 * 60 * 1000;
     /** 头像解码后的长边上限（像素）：最大的头像画 88dp，xxxhdpi 下约 352 像素，留一点余量。 */
     private static final int AVATAR_DECODE_EDGE = 384;
     /** 允许上传的头像长边上限（像素）：1 MiB 的平涂 PNG 可以有上万像素宽，解码会吃掉上 GB 内存。 */
@@ -417,13 +419,19 @@ public final class ProfilePage extends ReloadingDetailPage {
         if (state == null || state.profile() == null || state.sessionId().isEmpty()) return;
         String expectedSessionId = state.sessionId();
         long request = generation;
-        String name = DeviceDataApi.exportFileName(LocalDate.now(ZoneId.systemDefault()));
+        String name = DeviceDataApi.exportCacheFileName(LocalDate.now(ZoneId.systemDefault()), UUID.randomUUID());
         execute(context -> {
             File directory = new File(context.getCacheDir(), EXPORTS);
             if (!directory.isDirectory() && !directory.mkdirs()) return "没有导出，存储空间不可用";
-            // 导出包里是个人数据，只留最新这一份给分享用：先删掉以前导出的，不让它们一直堆在缓存目录里。
+            // 已分享的 URI 必须保持指向原来的归档；只清理超过一天的旧导出。
             File[] previous = directory.listFiles();
-            if (previous != null) for (File stale : previous) FilePolicy.deleteQuietly(stale);
+            long cutoff = System.currentTimeMillis() - EXPORT_RETENTION_MILLIS;
+            if (previous != null) for (File stale : previous) {
+                if (stale.getName().startsWith("msime-data-")
+                        && stale.getName().endsWith(".zip")
+                        && Files.isRegularFile(stale.toPath(), LinkOption.NOFOLLOW_LINKS)
+                        && stale.lastModified() < cutoff) FilePolicy.deleteQuietly(stale);
+            }
             File file = new File(directory, name);
             java.nio.file.Path temporary = null;
             try {

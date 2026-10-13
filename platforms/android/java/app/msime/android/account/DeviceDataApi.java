@@ -10,6 +10,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
@@ -361,6 +362,11 @@ public final class DeviceDataApi {
     /** 导出文件名，与服务端 `Content-Disposition` 的写法一致。 */
     public static String exportFileName(LocalDate date) {
         return "msime-data-" + date + ".zip";
+    }
+
+    /** 缓存里的每次导出使用独立路径，避免已分享的 URI 在下次导出后指向别的账号数据。 */
+    public static String exportCacheFileName(LocalDate date, UUID id) {
+        return "msime-data-" + date + "-" + id + ".zip";
     }
 
     /** RFC 3339 时间转 Unix 毫秒；读不出时为 0。 */

@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -52,6 +53,14 @@ public final class DeviceDataApiSmoke {
         check("2 天前".equals(DeviceDataApi.relativeTime(now, now - 50 * 3_600_000L)), "days");
         check("msime-data-2026-10-05.zip".equals(DeviceDataApi.exportFileName(LocalDate.of(2026, 10, 5))),
             "export file name");
+        LocalDate exportDay = LocalDate.of(2026, 10, 5);
+        String firstArchive = DeviceDataApi.exportCacheFileName(exportDay,
+            UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        String nextArchive = DeviceDataApi.exportCacheFileName(exportDay,
+            UUID.fromString("00000000-0000-0000-0000-000000000002"));
+        check(!firstArchive.equals(nextArchive), "separate exports cannot reuse a shared URI path");
+        check(firstArchive.startsWith("msime-data-2026-10-05-") && firstArchive.endsWith(".zip"),
+            "the private export path remains a dated zip archive");
         String token = "t".repeat(64);
 
         // 外部数组必须在展开前受限，避免恶意账号响应让移动端按数组长度分配内存。
