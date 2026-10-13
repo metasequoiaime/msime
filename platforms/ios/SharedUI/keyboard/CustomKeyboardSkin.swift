@@ -143,8 +143,8 @@ struct SavedKeyboardSkin: Codable, Identifiable, Equatable {
 enum CustomSkinLibrary {
   // Keep the multi-photo library out of preferences, which the keyboard reads on each key.
   private static func file(in directory: URL? = nil) -> URL {
-    let root = directory ?? FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier)
-      ?? IOSSharedPaths.applicationSupport
+    let root = directory ?? IOSSharedPaths.sharedContainerOrApplicationSupport(
+      for: InputSchemePreference.appGroupIdentifier)
     return root.appendingPathComponent("CustomSkins", isDirectory: true).appendingPathComponent("library.json")
   }
   private static func rejectsSymlinkAncestors(_ path: URL) -> Bool {

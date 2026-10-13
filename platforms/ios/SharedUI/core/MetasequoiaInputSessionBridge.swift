@@ -1461,9 +1461,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
 
   private static func bootstrapOptions(resources resourceOverride: URL?, stateRoot stateOverride: URL?) -> [String: Any] {
-    let fm = FileManager.default
-    let group = fm.containerURL(forSecurityApplicationGroupIdentifier: MSIMEAppEdition.appGroupIdentifier)
-      ?? fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    let group = IOSSharedPaths.sharedContainerOrApplicationSupport(for: MSIMEAppEdition.appGroupIdentifier)
     let root = stateOverride ?? group.appendingPathComponent("MSIME", isDirectory: true)
     let resources = resourceOverride
       ?? Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true)
