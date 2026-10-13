@@ -351,6 +351,39 @@ int main(void)
         assert(NSHeight(wideScripted.frame) >= wideScripted.itemLayout.height - 0.5);
         bitmap = [wideScripted bitmapImageRepForCachingDisplayInRect:wideScripted.bounds];
         [wideScripted cacheDisplayInRect:wideScripted.bounds toBitmapImageRep:bitmap];
+
+        // 读屏：高亮的那一行报告自己被选中，别的行和翻页按钮都不报告；每画一页就请求朗读高亮的那一行。AI 座位上的占位行读成它的意思，不读省略号或破折号。
+        appearance.vertical = NO;
+        NSDictionary *accessibleBase = @{@"focused": @YES, @"editing_text": @"ceshi", @"page": @0, @"page_count": @2};
+        NSArray<NSDictionary *> *(^accessibleRows)(NSUInteger, NSString *) = ^NSArray<NSDictionary *> *(NSUInteger highlighted, NSString *placeholder) {
+            NSArray<NSDictionary *> *rows = @[@{@"text": @"测试"}, @{@"text": @"侧室"}, @{@"text": placeholder, @"source": @12}];
+            NSMutableArray<NSDictionary *> *marked = [NSMutableArray array];
+            for (NSUInteger index = 0; index < rows.count; ++index) {
+                NSMutableDictionary *row = [rows[index] mutableCopy];
+                row[@"highlighted"] = @(index == highlighted);
+                [marked addObject:row];
+            }
+            return marked;
+        };
+        void (^renderAccessible)(NSUInteger, NSString *) = ^(NSUInteger highlighted, NSString *placeholder) {
+            NSMutableDictionary *view = [accessibleBase mutableCopy];
+            view[@"candidates"] = accessibleRows(highlighted, placeholder);
+            [controller setValue:[view copy] forKey:@"view"];
+            [controller renderCandidates];
+            for (NSInteger tag = 0; tag < 3; ++tag)
+                assert(CandidateButton(panel.contentView, tag).isAccessibilitySelected == (tag == (NSInteger)highlighted));
+            for (NSInteger tag : {-1, -2})
+                if (MSIMECandidateButton *arrow = CandidateButton(panel.contentView, tag)) assert(!arrow.isAccessibilitySelected);
+        };
+        renderAccessible(0, @"…");
+        assert([[controller valueForKey:@"announcedCandidate"] isEqual:@"1  测试"]);
+        assert([CandidateButton(panel.contentView, 2).accessibilityLabel isEqual:@"3  AI 候选等待中"]);
+        renderAccessible(1, @"…");
+        assert([[controller valueForKey:@"announcedCandidate"] isEqual:@"2  侧室"]);
+        renderAccessible(2, @"…");
+        assert([[controller valueForKey:@"announcedCandidate"] isEqual:@"3  AI 候选等待中"]);
+        renderAccessible(2, @"—");
+        assert([[controller valueForKey:@"announcedCandidate"] isEqual:@"3  AI 候选没有结果"]);
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
     return 0;

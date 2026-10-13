@@ -27,4 +27,10 @@ struct CommonPhrasesRequestState {
     generation += 1
     busy = false
   }
+
+  /// 页面消失时令所有在途操作失效，并清掉阻止下一次出现时读取的忙碌状态。
+  mutating func invalidate() {
+    generation += 1
+    busy = false
+  }
 }

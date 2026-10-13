@@ -1,4 +1,5 @@
 #import "InputModeHUDPanel.h"
+#import "../candidate/CandidatePlacement.h"
 #import "../candidate/CandidateWindowLevel.h"
 
 #import <algorithm>
@@ -182,10 +183,7 @@ NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSize, NSRect visible
     _label.stringValue = MSIMEInputModeHUDText(englishInputMode);
     NSAccessibilityPostNotificationWithUserInfo(self, NSAccessibilityAnnouncementRequestedNotification,
                                                  @{NSAccessibilityAnnouncementKey : englishInputMode ? @"英文输入" : @"中文输入"});
-    NSScreen *screen = NSScreen.mainScreen;
-    for (NSScreen *candidate in NSScreen.screens) {
-        if (NSPointInRect(NSMakePoint(NSMidX(caretRect), NSMidY(caretRect)), candidate.frame)) { screen = candidate; break; }
-    }
+    NSScreen *screen = MSIMEScreenForPoint(NSMakePoint(NSMidX(caretRect), NSMidY(caretRect)));
     NSRect visible = screen ? screen.visibleFrame : NSMakeRect(0, 0, 1440, 900);
     [self setFrame:MSIMEInputModeHUDFrame(caretRect, self.panelSize, visible) display:YES];
     [self applyThemeColors];

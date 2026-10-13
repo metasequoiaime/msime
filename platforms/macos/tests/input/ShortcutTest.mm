@@ -3013,6 +3013,9 @@ static void TestExpandedCandidateGridGeneration() {
     assert(ExpandedGridSubview(panel, 13) && ExpandedGridHighlightedTag(panel) == 5);
     // 网格里的移动不再读完整候选。
     assert(press(124) && cursor() == 6 && session.allCandidateCalls == reads + 1);
+    // 读屏跟着网格的光标走：光标那一格报告被选中，刚离开的那一格不再报告，并请求朗读新的那一格。
+    assert(ExpandedGridSubview(panel, 6).isAccessibilitySelected && !ExpandedGridSubview(panel, 5).isAccessibilitySelected);
+    assert([[controller valueForKey:@"announcedCandidate"] isEqual:ExpandedGridSubview(panel, 6).accessibilityLabel]);
     // 选择带着新的一代。
     assert(press(49));
     assert(session.selectAnyCalls == 1 && session.selectAnyGeneration == 4 && session.selectAnyIndex == 6 && !expanded());
@@ -10407,6 +10410,60 @@ int main(int argc, char **argv) {
         assert(session.selectCalls == selectedCalls + 1); // Detached button from an earlier render.
         [controller candidateMenuAction:retainedOperation];
         assert(session.maintenanceCalls == maintenanceCalls);
+        {
+            // 列表 A 画在窗上，同一会话里新一代的列表 B 接着画出来，同一位置上换成了别的词。A 留下的第 2 行按钮点下去什么也不选，更不能把 B 的第 2 个候选上屏：两份列表的第 2 行 index 都是 1，只有代次不同。
+            NSDictionary *listA = @{@"session": @1, @"generation": @2, @"focused": @YES, @"page": @0, @"page_count": @1, @"editing_text": @"ceshi",
+                                    @"candidates": @[@{@"text": @"测试", @"highlighted": @YES, @"id": @{@"session": @1, @"generation": @2, @"index": @0}},
+                                                     @{@"text": @"布局", @"highlighted": @NO, @"id": @{@"session": @1, @"generation": @2, @"index": @1}}]};
+            NSMutableDictionary *listB = [listA mutableCopy];
+            listB[@"generation"] = @3;
+            listB[@"candidates"] = @[@{@"text": @"侧视", @"highlighted": @YES, @"id": @{@"session": @1, @"generation": @3, @"index": @0}},
+                                     @{@"text": @"策士", @"highlighted": @NO, @"id": @{@"session": @1, @"generation": @3, @"index": @1}}];
+            [controller setValue:listA forKey:@"view"];
+            [controller renderCandidates];
+            MSIMECandidateButton *listAButton = PageButton(layoutPanel.contentView, 1);
+            assert(listAButton && [listAButton.title containsString:@"布局"]);
+            const NSUInteger listSelectCalls = session.selectCalls;
+            const NSUInteger listKeys = session.keys.count;
+            // B 已经是控制器的视图、窗上还是 A（AppKit 先递来点击、后重画）：按钮还挂在窗上，靠的是它记着的旧一代身份。
+            [controller setValue:[listB copy] forKey:@"view"];
+            assert(listAButton.superview == layoutPanel.contentView);
+            [controller selectCandidate:listAButton];
+            assert(session.selectCalls == listSelectCalls && session.keys.count == listKeys);
+            // B 画出来之后：A 的按钮整个被换掉，点它同样什么也不选。
+            [controller renderCandidates];
+            MSIMECandidateButton *listBButton = PageButton(layoutPanel.contentView, 1);
+            assert(listBButton && listBButton != listAButton && [listBButton.title containsString:@"策士"]);
+            [controller selectCandidate:listAButton];
+            assert(session.selectCalls == listSelectCalls && session.keys.count == listKeys);
+            // 原地重画：只有释义变了的同一代视图沿用窗上的按钮，A 的按钮还在窗上，点它选的是它自己那个候选。
+            [controller setValue:listA forKey:@"view"];
+            [controller renderCandidates];
+            listAButton = PageButton(layoutPanel.contentView, 1);
+            NSMutableDictionary *glossA = [listA mutableCopy];
+            glossA[@"candidates"] = @[listA[@"candidates"][0], @{@"text": @"布局", @"highlighted": @NO, @"translation": @"x", @"id": @{@"session": @1, @"generation": @2, @"index": @1}}];
+            [controller setValue:[glossA copy] forKey:@"view"];
+            [controller renderCandidates];
+            assert(PageButton(layoutPanel.contentView, 1) == listAButton && [listAButton.translation isEqual:@"x"]);
+            [controller selectCandidate:listAButton];
+            assert(session.selectCalls == listSelectCalls + 1 && session.selectedGeneration == 2 && session.selectedIndex == 1);
+            const NSUInteger reusedKeys = session.keys.count;
+            // 文字和 A 一样、只换了一代再带上释义的 B，看上去也能原地重画，但代次不同就整页重建：A 的按钮不会留在窗上冒充 B 的候选。
+            NSMutableDictionary *glossB = [glossA mutableCopy];
+            glossB[@"generation"] = @3;
+            glossB[@"candidates"] = @[@{@"text": @"测试", @"highlighted": @YES, @"id": @{@"session": @1, @"generation": @3, @"index": @0}},
+                                      @{@"text": @"布局", @"highlighted": @NO, @"translation": @"y", @"id": @{@"session": @1, @"generation": @3, @"index": @1}}];
+            [controller setValue:[glossB copy] forKey:@"view"];
+            [controller renderCandidates];
+            assert(PageButton(layoutPanel.contentView, 1) != listAButton && listAButton.superview != layoutPanel.contentView);
+            [controller selectCandidate:listAButton];
+            assert(session.selectCalls == listSelectCalls + 1 && session.keys.count == reusedKeys);
+            // 对照：B 自己的按钮照常选中 B 的那一代。
+            [controller selectCandidate:PageButton(layoutPanel.contentView, 1)];
+            assert(session.selectCalls == listSelectCalls + 2 && session.selectedGeneration == 3 && session.selectedIndex == 1);
+            [controller setValue:pageView forKey:@"view"];
+            [controller renderCandidates];
+        }
         appearance.vertical = NO;
         session.lastCommand = UINT32_MAX;
         [controller appearanceChanged:nil];

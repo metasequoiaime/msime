@@ -1168,6 +1168,8 @@ static NSImage *MSIMECandidateLogoImage() {
     double _desktopEmojiDeadline;
     NSDictionary *_view;
     NSDictionary *_renderedCandidateView;
+    // 上一次请求读屏朗读的高亮候选（它的 accessibilityLabel），同一段话不重复读；候选窗收起后再出现时清掉。
+    NSString *_announcedCandidate;
     // Bumped by every apply:. Writing marked text is a synchronous call into the client, and IMK services the next key inside it, so an apply: can finish after a newer one that ran nested in it.
     uint64_t _applySequence;
     // Bumped when a gloss arrival replaces the view, which can also happen inside an apply:'s marked-text write.
@@ -4181,10 +4183,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     NSRect caret = NSZeroRect;
     [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&caret];
     if (!MSIMEValidCaret(caret)) return nil;
-    const NSPoint point = NSMakePoint(NSMidX(caret), NSMidY(caret));
-    for (NSScreen *screen in NSScreen.screens)
-        if (NSPointInRect(point, screen.frame)) return screen;
-    return nil;
+    return MSIMEScreenForPoint(NSMakePoint(NSMidX(caret), NSMidY(caret)));
 }
 - (void)refreshVoiceOverlayScreen {
     if (_voiceOverlay) _voiceOverlay.preferredScreen = [self voiceInputScreen];
@@ -6962,10 +6961,7 @@ static BOOL MSIMESentenceCandidateText(NSString *text) {
     NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
     if ([candidates isKindOfClass:NSArray.class] && candidates.count) {
         // The same rows the candidate panel lays out, so a card that wraps a long candidate onto several lines is kept clear of in full.
-        NSScreen *screen = nil;
-        for (NSScreen *candidateScreen in NSScreen.screens)
-            if (NSPointInRect(NSMakePoint(NSMinX(cursor), NSMidY(cursor)), candidateScreen.frame)) { screen = candidateScreen; break; }
-        screen = screen ?: NSScreen.mainScreen;
+        NSScreen *screen = MSIMECandidateScreen(cursor);
         NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize * scale englishFirst:YES];
         NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
         const MSIMECandidatePageGeometry geometry =
@@ -7126,6 +7122,11 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     NSString *scriptAnnotation = geometry.scriptAnnotations[slot];
     if (scriptAnnotation.length)
         button.accessibilityLabel = [NSString stringWithFormat:@"%@，插件注释：%@", button.accessibilityLabel, scriptAnnotation];
+    // AI 座位上的占位行画的是「…」（等回答）或「—」（没有回答），读屏读它的意思，不读标点；说法和 iOS、Android 的一样。
+    if (MSIMECandidateIsAIPlaceholder(candidate)) {
+        NSString *state = [candidate[@"text"] isEqual:@"…"] ? @"AI 候选等待中" : @"AI 候选没有结果";
+        button.accessibilityLabel = number.length ? [NSString stringWithFormat:@"%@  %@", number, state] : state;
+    }
     button.font = font;
     button.numberFont = numberFont;
     button.chromeScale = scale;
@@ -7180,11 +7181,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&reportedCursor];
     NSRect cursor = [self candidateCaretForRendering:reportedCursor];
     if (!MSIMEValidCaret(cursor)) return NO;
-    NSScreen *screen = nil;
-    for (NSScreen *candidate in NSScreen.screens) {
-        if (NSPointInRect(NSMakePoint(NSMinX(cursor), NSMidY(cursor)), candidate.frame)) { screen = candidate; break; }
-    }
-    screen = screen ?: NSScreen.mainScreen;
+    NSScreen *screen = MSIMECandidateScreen(cursor);
     if (!screen) return NO;
     const NSRect visible = screen.visibleFrame;
     [self ensureAppearance];
@@ -7340,6 +7337,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     [self claimCandidatePanel];
     [_panel orderFrontRegardless];
     [self showCandidatePanelAnimated:wasVisible];
+    [self announceHighlightedCandidate:wasVisible];
     if (timed)
         msime_macos_diagnostic_writef("candidate-frame show expanded rows=%lu visible_rows=%lu candidates=%lu size=(%.0f,%.0f) origin=(%.0f,%.0f) flipped=%d build_ms=%.3f",
             (unsigned long)rows, (unsigned long)visibleRows, (unsigned long)count, panelSize.width, panelSize.height, origin.x, origin.y,
@@ -7375,11 +7373,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&reportedCursor];
     NSRect cursor = [self candidateCaretForRendering:reportedCursor];
     if (!MSIMEValidCaret(cursor)) { _renderedCandidateView = nil; [self hideCandidatePanel:"invalid_caret"]; return; }
-    NSScreen *screen = nil;
-    for (NSScreen *candidate in NSScreen.screens) {
-        if (NSPointInRect(NSMakePoint(NSMinX(cursor), NSMidY(cursor)), candidate.frame)) { screen = candidate; break; }
-    }
-    screen = screen ?: NSScreen.mainScreen;
+    NSScreen *screen = MSIMECandidateScreen(cursor);
     if (!screen) { _renderedCandidateView = nil; [self hideCandidatePanel:"no_screen"]; return; }
     NSRect visible = screen.visibleFrame;
     [self ensureAppearance];
@@ -7595,12 +7589,28 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     [self claimCandidatePanel];
     [_panel orderFrontRegardless];
     [self showCandidatePanelAnimated:wasVisible];
+    [self announceHighlightedCandidate:wasVisible];
     // Geometry and counts only, the macOS form of the source's candidate-frame/candidate-position audit: flipped=1 means the window went above the caret for lack of room below.
     if (timed)
         msime_macos_diagnostic_writef("candidate-frame show rows=%lu vertical=%d caret=(%.0f,%.0f,%.0f,%.0f) size=(%.0f,%.0f) origin=(%.0f,%.0f) visible=(%.0f,%.0f,%.0f,%.0f) flipped=%d build_ms=%.3f",
             (unsigned long)candidates.count, vertical ? 1 : 0, NSMinX(cursor), NSMinY(cursor), NSWidth(cursor), NSHeight(cursor),
             panelSize.width, panelSize.height, origin.x, origin.y, NSMinX(visible), NSMinY(visible), NSWidth(visible), NSHeight(visible),
             origin.y >= NSMaxY(cursor) ? 1 : 0, static_cast<double>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - buildStarted) / 1e6);
+}
+
+// 读屏：请求朗读高亮的候选。候选窗是从不成为 key window 的非激活面板，焦点一直留在客户程序里，VoiceOver 不会自己去读它，所以每画一页就请求朗读高亮的那一行；朗读请求不移动焦点。和上一次读的是同一段话时不再读（比如多打一个字母首选没变），候选窗刚出现时（panelWasVisible 为 NO）照读。
+- (void)announceHighlightedCandidate:(BOOL)panelWasVisible {
+    if (!panelWasVisible) _announcedCandidate = nil;
+    NSString *announcement = nil;
+    for (NSView *subview in _panel.contentView.subviews)
+        if ([subview isKindOfClass:MSIMECandidateButton.class] && subview.isAccessibilitySelected) {
+            announcement = subview.accessibilityLabel;
+            break;
+        }
+    if (!announcement.length || [announcement isEqual:_announcedCandidate]) return;
+    _announcedCandidate = [announcement copy];
+    NSAccessibilityPostNotificationWithUserInfo(_panel, NSAccessibilityAnnouncementRequestedNotification,
+                                                @{NSAccessibilityAnnouncementKey: announcement});
 }
 
 - (void)refreshCandidateSkin {

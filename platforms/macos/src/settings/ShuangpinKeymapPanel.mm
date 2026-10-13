@@ -1,6 +1,7 @@
 #import "ShuangpinKeymapPanel.h"
 // Migrated from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
 
+#import "../candidate/CandidatePlacement.h"
 #import "../candidate/CandidateWindowLevel.h"
 #include "ShuangpinProfileNames.h"
 #include "msime_client.h"
@@ -423,20 +424,7 @@ NSRect MSIMEShuangpinKeymapPanelFrame(NSRect caretRect, NSSize panelSize, CGFloa
 
 - (void)showNearCaretRect:(NSRect)caretRect candidateClearance:(CGFloat)candidateClearance
 {
-    NSScreen *targetScreen = nil;
-    NSPoint caretPoint = NSMakePoint(NSMidX(caretRect), NSMidY(caretRect));
-    for (NSScreen *screen in NSScreen.screens)
-    {
-        if (NSPointInRect(caretPoint, screen.frame))
-        {
-            targetScreen = screen;
-            break;
-        }
-    }
-    if (targetScreen == nil)
-    {
-        targetScreen = NSScreen.mainScreen;
-    }
+    NSScreen *targetScreen = MSIMEScreenForPoint(NSMakePoint(NSMidX(caretRect), NSMidY(caretRect)));
     if (targetScreen == nil)
     {
         [self orderOut:nil];

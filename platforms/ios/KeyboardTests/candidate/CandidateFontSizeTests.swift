@@ -24,20 +24,28 @@ final class CandidateFontSizeTests: XCTestCase {
       CandidateFontPreference.font(.body, scale: 1).pointSize,
       UIFont.preferredFont(forTextStyle: .body).pointSize)
     XCTAssertEqual(
-      KeyboardViewController.topRowHeight(glossLines: 1),
+      KeyboardViewController.topRowHeight(glossLines: 1), KeyboardViewController.glossedCandidateRowHeight,
+      "the first gloss line sits inside the 42pt candidate line, and the reading shares that line")
+    XCTAssertEqual(
+      KeyboardViewController.topRowHeight(glossLines: 1, separateReadingRow: true),
       KeyboardViewController.readingRowHeight + KeyboardViewController.glossedCandidateRowHeight,
-      "the first gloss line sits inside the 42pt candidate line under the reading line, as on Android")
+      "the 14-key reading line sits over the candidate line, as on Android")
     XCTAssertEqual(KeyboardViewController.preeditFont(scale: 1).pointSize, 12, "the design's 12pt spelling")
   }
 
-  /// 顶栏是工具栏和候选共用的一行：不低于设计稿的 50pt，并且不论显示什么，都和输入中布局需要的一样高。
-  func testTheTopRowIsNeverShorterThanTheDesignRow() {
-    XCTAssertEqual(KeyboardViewController.topRowMinimumHeight, 50)
-    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 0), 52)
-    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 1), 56, "one gloss line costs 4pt, not a 14pt line of its own")
-    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 2), 56 + KeyboardViewController.glossLineHeight)
-    XCTAssertGreaterThanOrEqual(
-      KeyboardViewController.topRowHeight(glossLines: 0, candidateScale: 12.0 / 18.0, preeditScale: 12.0 / 15.0), 50)
+  /// 顶栏是工具栏和候选共用的一行：读音并入候选行，整行只有候选行那么高（#7405），但不低于工具栏按钮 40pt 的底板加上下各 1pt；不论显示什么，都和输入中布局需要的一样高。全拼 14 键的读音单独一行，多出 14pt。
+  func testTheTopRowIsOnlyAsTallAsTheCandidateLine() {
+    XCTAssertEqual(KeyboardViewController.topRowMinimumHeight, KeyboardToolbarButton.padSide + 2)
+    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 0), 42, "a bare 38pt candidate line still fits the toolbar pad")
+    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 1), 42, "one gloss line costs 4pt, not a 14pt line of its own")
+    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 2), 42 + KeyboardViewController.glossLineHeight)
+    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 0, separateReadingRow: true), 52)
+    XCTAssertEqual(KeyboardViewController.topRowHeight(glossLines: 1, separateReadingRow: true), 56)
+    XCTAssertEqual(
+      KeyboardViewController.topRowHeight(glossLines: 0, candidateScale: 12.0 / 18.0, preeditScale: 12.0 / 15.0), 42)
+    XCTAssertEqual(
+      KeyboardViewController.topRowHeight(glossLines: 1, preeditScale: 2), 42,
+      "a larger spelling only takes width when it shares the candidate line")
   }
 
   /// 候选条的词块使用设计稿的 18pt 候选字号，像桌面候选窗一样按同步的「候选字号」缩放，并使用所选的字体链。

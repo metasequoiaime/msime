@@ -78,14 +78,17 @@ final class FourteenKeyKeyboardTests: XCTestCase {
 
   // MARK: - 键面
 
-  /// 14 键在手机窄屏和宽屏上都不越界，四排等高，键盘总高度与 26 键相同；字母行、数字行和 Shift 都不显示，底行是手机 26 键底行。
+  /// 14 键在手机窄屏和宽屏上都不越界，四排等高，按键与 26 键一样高；键盘总高度比 26 键多出单独一行的读音（26 键的读音并入候选行，14 键的拼音选择条要排在读音右边）。字母行、数字行和 Shift 都不显示，底行是手机 26 键底行。
   func testTheKeysStayInBoundsAtTheHeightOfTheTwentySixKeys() throws {
     for width in [320.0, 414.0] {
       let controller = makeController(width: width)
       let reference = try button("returnKey", in: controller).bounds.height
       XCTAssertGreaterThanOrEqual(reference, KeyboardHeightPercent.portraitKeyHeight(tablet: false) - 0.5)
       XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant,
-                     KeyboardViewController.defaultKeyboardHeight, "the same height as the 26-key keyboard")
+                     KeyboardViewController.keyboardHeight(separateReadingRow: true),
+                     "the 26-key keyboard plus the reading line, with keys as tall as the 26 keys")
+      XCTAssertEqual(KeyboardViewController.keyboardHeight(separateReadingRow: true) - KeyboardViewController.defaultKeyboardHeight,
+                     readingRowCost)
       for key in FourteenKeyLayout.rows.joined() {
         let button = try button("fourteenKey\(key.face)", in: controller)
         XCTAssertTrue(shown(button), key.face)
@@ -206,6 +209,27 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(shown(try button("readingSpelling_shu", in: controller)))
   }
 
+  /// 键盘还在时从 26 键换成 14 键：读音从候选行最左边移回候选行上面单独一行，键盘长高这一行；换回 26 键时又收回去。组字时两者的位置由上面的拼音选择条测试和 NineKeyKeyboardTests 覆盖。
+  func testSwitchingSchemesMovesTheReadingAndResizesTheKeyboard() throws {
+    InputSchemePreference.scheme = .quanpin
+    let controller = makeController(width: 390)
+    let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
+    let twentySix = height.constant
+    XCTAssertEqual(twentySix, KeyboardViewController.defaultKeyboardHeight)
+
+    InputSchemePreference.scheme = .fourteenKey
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(height.constant - twentySix, readingRowCost)
+    let reading = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "compositionRow" })
+    XCTAssertEqual(reading.bounds.height, KeyboardViewController.readingRowHeight, accuracy: 0.5)
+
+    InputSchemePreference.scheme = .quanpin
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(height.constant, twentySix)
+  }
+
   /// 英文模式画 26 键，切回中文仍是 14 键；123 打开与 26 键相同的设计层，返回后仍是 14 键。
   func testEnglishAndTheSymbolLayerReturnToTheFourteenKeys() throws {
     let controller = makeController(width: 390)
@@ -292,10 +316,18 @@ final class FourteenKeyKeyboardTests: XCTestCase {
 
   // MARK: - 辅助
 
+  /// 读音单独一行让顶栏多出的高度：开着释义时是整行 14pt；不开时 26 键的 38pt 候选行被 42pt 的最低高度垫高了 4pt，只多 10pt。
+  private var readingRowCost: CGFloat {
+    let lines = KeyboardViewController.configuredGlossLines(fullAccess: false, onlineRoute: false)
+    return KeyboardViewController.topRowHeight(glossLines: lines, separateReadingRow: true)
+      - KeyboardViewController.topRowHeight(glossLines: lines)
+  }
+
   private func makeController(width: CGFloat) -> KeyboardViewController {
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: width, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.view.frame = CGRect(
+      x: 0, y: 0, width: width, height: KeyboardViewController.keyboardHeight(separateReadingRow: true))
     controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
     return controller

@@ -196,6 +196,11 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     (void)event;
     return YES;
 }
+// 读屏：候选行（标签不小于 0）高亮时报告自己被选中（AXSelected），别的行和首行的翻页、展开按钮不报告。按钮的无障碍元素是它的 cell，AppKit 读 AXSelected 时会转到这里。
+- (BOOL)isAccessibilitySelected
+{
+    return self.tag >= 0 && self.candidateHighlighted;
+}
 - (void)resetCursorRects
 {
     // Candidate rows are actionable surfaces. Keep the native macOS pointer

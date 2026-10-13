@@ -8,6 +8,10 @@ struct CommonPhrasesSettingsView: View {
   @State private var adding = false
   @State private var deleting: CommonPhrasesBridge.Phrase?
   @State private var requestState = CommonPhrasesRequestState()
+  @State private var pending: Task<Void, Never>?
+  @State private var visible = false
+  @State private var lifecycle = UUID()
+  @State private var pendingID = UUID()
 
   var body: some View {
     List {
@@ -48,8 +52,16 @@ struct CommonPhrasesSettingsView: View {
     .designPage()
     .navigationTitle("常用语")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reload)
+    .onAppear { visible = true; reload() }
     .onChange(of: scenePhase) { _, phase in if phase == .active { reload() } }
+    .onDisappear {
+      visible = false
+      lifecycle = UUID()
+      pendingID = UUID()
+      pending?.cancel()
+      pending = nil
+      requestState.invalidate()
+    }
     .sheet(isPresented: $adding) {
       CommonPhraseEditor { text in run(success: "已添加") { try CommonPhrasesBridge.add(text) } }
     }
@@ -70,37 +82,74 @@ struct CommonPhrasesSettingsView: View {
   }
 
   private func reload() {
-    guard let request = requestState.beginReload() else { return }
-    Task {
-      let loaded = await Task.detached(priority: .userInitiated) { Result { try CommonPhrasesBridge.load() } }.value
-      guard requestState.acceptReload(request) else { return }
-      switch loaded {
-      case .success(let list):
-        phrases = list
-        loadFailed = false
-      case .failure:
-        // 已经加载的列表保留不动；刷新失败只替换加载提示。
-        if phrases == nil { loadFailed = true }
+    guard visible, let request = requestState.beginReload() else { return }
+    let id = lifecycle
+    let taskID = claimTask()
+    pending = Task { @MainActor in
+      defer { if lifecycle == id { clearTask(taskID) } }
+      do {
+        try Task.checkCancellation()
+        let loaded = await Task.detached(priority: .userInitiated) { Result { try CommonPhrasesBridge.load() } }.value
+        try Task.checkCancellation()
+        guard visible, lifecycle == id, !Task.isCancelled else { return }
+        guard requestState.acceptReload(request) else { return }
+        switch loaded {
+        case .success(let list):
+          phrases = list
+          loadFailed = false
+        case .failure:
+          // 已经加载的列表保留不动；刷新失败只替换加载提示。
+          if phrases == nil { loadFailed = true }
+        }
+      } catch is CancellationError {
       }
     }
   }
 
   /// 在主线程之外执行一次写入，并显示它返回的已存储列表，或说明存储拒绝的原因。写入被拒绝时会重新加载，这样在别处被删除的短语（`common_phrases_not_found`）也会从列表中消失。
   private func run(success: String, _ operation: @escaping @Sendable () throws -> [CommonPhrasesBridge.Phrase]) {
-    guard requestState.beginMutation() else { return }
-    Task {
-      let result = await Task.detached(priority: .userInitiated) { Result { try operation() } }.value
-      requestState.finishMutation()
-      switch result {
-      case .success(let list):
-        phrases = list
-        loadFailed = false
-        ToastCenter.shared.show(success)
-      case .failure(let error):
-        ToastCenter.shared.show(CommonPhrasesBridge.message(for: error))
-        reload()
+    guard visible, requestState.beginMutation() else { return }
+    let id = lifecycle
+    let taskID = claimTask()
+    pending = Task { @MainActor in
+      var mutationFinished = false
+      defer {
+        if lifecycle == id {
+          if !mutationFinished { requestState.finishMutation() }
+          clearTask(taskID)
+        }
+      }
+      do {
+        try Task.checkCancellation()
+        let result = await Task.detached(priority: .userInitiated) { Result { try operation() } }.value
+        try Task.checkCancellation()
+        guard visible, lifecycle == id, !Task.isCancelled else { return }
+        requestState.finishMutation()
+        mutationFinished = true
+        clearTask(taskID)
+        switch result {
+        case .success(let list):
+          phrases = list
+          loadFailed = false
+          ToastCenter.shared.show(success)
+        case .failure(let error):
+          ToastCenter.shared.show(CommonPhrasesBridge.message(for: error))
+          reload()
+        }
+      } catch is CancellationError {
       }
     }
+  }
+
+  private func claimTask() -> UUID {
+    pending?.cancel()
+    let id = UUID()
+    pendingID = id
+    return id
+  }
+
+  private func clearTask(_ id: UUID) {
+    if pendingID == id { pending = nil }
   }
 }
 

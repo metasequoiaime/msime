@@ -16,9 +16,14 @@ RESOURCES = ROOT / "packages/ui/src/settings/app-resources.ts"
 def main() -> int:
     source = REGISTRY.read_text(encoding="utf-8")
     resources = RESOURCES.read_text(encoding="utf-8")
+    shared = re.search(r"export const settingsIcons = \{(.*?)\} as const", resources, re.S)
     icons = sorted(
         set(re.findall(r'new URL\("\.\./assets/([^"]+\.svg)"', source))
-        | set(re.findall(r'new URL\("\.\./assets/([^"]+\.svg)"', resources))
+        | (
+            set(re.findall(r'new URL\("\.\./assets/([^"]+\.svg)"', shared.group(1)))
+            if shared
+            else set()
+        )
     )
     if not icons:
         print(f"{REGISTRY}: 没有找到任何页面图标", file=sys.stderr)
