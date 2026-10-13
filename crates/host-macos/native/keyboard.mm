@@ -50,10 +50,10 @@ struct SystemKeyboardHost {
 };
 }
 
-extern "C" bool msime_macos_send_keyboard_key(unsigned short code, uint64_t flags) {
+extern "C" int msime_macos_send_keyboard_key_result(unsigned short code, uint64_t flags) {
     @autoreleasepool {
         SystemKeyboardHost host;
-        return msime::SendKeyboardKey(host, code, flags);
+        return static_cast<int>(msime::SendKeyboardKey(host, code, flags));
     }
 }
 

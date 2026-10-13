@@ -199,11 +199,21 @@ test("cloud dictionary apply ignores status from a replaced client", async () =>
 
 test("desktop dictionary subpages reuse the session client and return without closing its window", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
-  const request = vi.fn().mockResolvedValue({ entries: [], has_more: false, offset: 0 });
+  // 请求已发出时按钮仍禁用，用延迟响应覆盖这个窗口。
+  const request = vi
+    .fn()
+    .mockResolvedValue({ entries: [], has_more: false, offset: 0 })
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve({ entries: [], has_more: false, offset: 0 }), 100);
+        }),
+    );
   render(<DesktopCloudDictionary client={{ close, request }} />);
-  await waitFor(() =>
-    expect(request).toHaveBeenCalledWith(expect.objectContaining({ operation: "list" })),
-  );
+  await waitFor(() => {
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({ operation: "list" }));
+    expect(screen.getByRole("button", { name: "完整目录" }).hasAttribute("disabled")).toBe(false);
+  });
   fireEvent.click(screen.getByRole("button", { name: "完整目录" }));
   expect(screen.getByText("完整云词库目录")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "返回云词库" }));
@@ -245,14 +255,15 @@ test("desktop dictionary apply page previews, confirms and cancels through the s
     return {};
   });
   render(<DesktopCloudDictionary client={{ close, request, snapshot: true }} />);
-  await waitFor(() =>
+  await waitFor(() => {
     expect(request).toHaveBeenCalledWith({
       operation: "list",
       kind: "pinyin",
       offset: 0,
       search: "",
-    }),
-  );
+    });
+    expect(screen.getByRole("button", { name: "应用到本机" }).hasAttribute("disabled")).toBe(false);
+  });
   fireEvent.click(screen.getByRole("button", { name: "应用到本机" }));
   await waitFor(() => expect(screen.getByText("已获取本机词库版本")).toBeTruthy());
   fireEvent.click(screen.getByRole("button", { name: "下载云词库并预览" }));

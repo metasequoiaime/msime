@@ -532,18 +532,23 @@ pub fn keyboard_stroke(request: &KeyboardInputRequest) -> Option<KeyStroke> {
     Some(KeyStroke { code, flags })
 }
 
-/// Must be called on the AppKit main thread. No permission prompt or focus change.
+/// 必须在 AppKit 主线程调用；返回受控错误码，不请求权限或改变焦点。
 #[cfg(target_os = "macos")]
-pub fn send_keyboard_key(request: &KeyboardInputRequest) -> bool {
+pub fn send_keyboard_key(request: &KeyboardInputRequest) -> Result<(), &'static str> {
     let Some(stroke) = keyboard_stroke(request) else {
-        return false;
+        return Err("invalid_key");
     };
     unsafe extern "C" {
-        fn msime_macos_send_keyboard_key(code: u16, flags: u64) -> bool;
+        fn msime_macos_send_keyboard_key_result(code: u16, flags: u64) -> i32;
     }
-    // SAFETY: scalar-only ABI. Native code checks main thread, permissions,
-    // external foreground ownership and event allocation before posting.
-    unsafe { msime_macos_send_keyboard_key(stroke.code, stroke.flags) }
+    // SAFETY: ABI 只传标量；原生层在投递前检查主线程、权限、前台目标和事件分配。
+    match unsafe { msime_macos_send_keyboard_key_result(stroke.code, stroke.flags) } {
+        0 => Ok(()),
+        1 => Err("permission_denied"),
+        2 => Err("no_input_target"),
+        3 => Err("input_target_changed"),
+        _ => Err("unavailable"),
+    }
 }
 
 /// Ask the user for a file and return its path, or `None` if they cancelled.

@@ -1098,7 +1098,7 @@ public:
   void refreshToolbar();
   void refreshThemeMenu();
   void syncCandidatePanelFont();
-  void retryCandidatePanelFont();
+  void retryCandidatePanelSettings();
   // `chosen` 只标记用户刚在菜单或设置页主动选主题；重读相同偏好不能夺回第三方 classicui 主题。
   void syncCandidatePanelTheme(bool chosen);
   bool candidateThemeSelectionChanged(const Json &preferences);
@@ -1904,7 +1904,7 @@ public:
         if (preferences_save_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         waitForPreferenceSave();
       }
-      retryCandidatePanelFont();
+      retryCandidatePanelSettings();
       if (preferences_job_.valid()) {
         if (preferences_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto snapshot = preferences_job_.get();
@@ -6064,7 +6064,9 @@ public:
     fcitx::RawConfig config;
     config.setValueByPath("WheelForPaging", *enabled ? "True" : "False");
     set_classicui_config(*classicui, config);
+    candidate_wheel_paging_sync_.mark_applied(*enabled);
   }
+  bool candidateWheelPagingPending() const { return candidate_wheel_paging_sync_.pending(); }
   explicit FcitxEngine(fcitx::Instance *instance) : instance_(instance) {
     // 脚本插件在 fcitx5 守护进程里运行（本 addon 是它加载的共享库），在第一个会话之前打开；release 构建里这一行什么都不做（msime_client.h）。
     msime_client_scripts_enable(true);
@@ -6937,9 +6939,10 @@ void FcitxState::syncCandidatePanelFont() {
   engine_->applyCandidateWheelPaging(preferences_);
 }
 
-void FcitxState::retryCandidatePanelFont() {
-  if (engine_ && session_ && ic_.hasFocus() && !restricted() && engine_->candidatePanelFontPending())
-    engine_->applyCandidatePanelFont(preferences_);
+void FcitxState::retryCandidatePanelSettings() {
+  if (!engine_ || !session_ || !ic_.hasFocus() || restricted()) return;
+  if (engine_->candidatePanelFontPending()) engine_->applyCandidatePanelFont(preferences_);
+  if (engine_->candidateWheelPagingPending()) engine_->applyCandidateWheelPaging(preferences_);
 }
 
 bool FcitxState::candidateThemeSelectionChanged(const Json &preferences) {
