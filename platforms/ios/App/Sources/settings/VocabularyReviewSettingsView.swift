@@ -195,40 +195,31 @@ struct VocabularyReviewSettingsView: View {
 
   private func importWordbook(from url: URL) {
     guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    busy = true
-    message = ""
     let name = String(url.deletingPathExtension().lastPathComponent.prefix(64))
     let store = store
-    pending = Task { @MainActor in
-      defer { if request.isCurrent(id) { busy = false; pending = nil } }
-      do {
-        try request.checkCurrent(id)
-        let outcome = await Task.detached(priority: .userInitiated) {
-          let scoped = url.startAccessingSecurityScopedResource()
-          defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-          return Result<VocabularyReviewStatus, Error> {
-            guard let data = try? VocabularyReviewStore.readWordbookData(from: url) else {
-              throw VocabularyReviewStore.Failure.unreadableWordbook
-            }
-            // Real word lists arrive from Windows tools as UTF-16 with a BOM and as GB18030, so a bare
-            // UTF-8 decode would reject files that are perfectly good.
-            let text = String(data: data, encoding: .utf8)
-              ?? String(data: data, encoding: .utf16)
-            ?? String(decoding: data, as: UTF8.self)
-            return try store.importWordbook(name: name.isEmpty ? "导入的词表" : name, text: text)
+    ViewRequestTask.run(request: $request, busy: $busy, pending: $pending,
+                        prepare: { message = "" }) { id in
+      try request.checkCurrent(id)
+      let outcome = await Task.detached(priority: .userInitiated) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        return Result<VocabularyReviewStatus, Error> {
+          guard let data = try? VocabularyReviewStore.readWordbookData(from: url) else {
+            throw VocabularyReviewStore.Failure.unreadableWordbook
           }
-        }.value
-        try request.checkCurrent(id)
-        switch outcome {
-        case .success(let next): status = next
-        case .failure(let error):
-          message = (error as? VocabularyReviewStore.Failure)?.errorDescription
-            ?? VocabularyReviewStore.Failure.unavailable.errorDescription ?? ""
+          // Windows 词表也可能使用带 BOM 的 UTF-16 或 GB18030；不能只尝试 UTF-8。
+          let text = String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .utf16)
+            ?? String(decoding: data, as: UTF8.self)
+          return try store.importWordbook(name: name.isEmpty ? "导入的词表" : name, text: text)
         }
-      } catch is CancellationError {
-      } catch {
-        // 数据读写错误已封装在 Result 中；完整捕获保证任务的失败类型为 Never。
+      }.value
+      try request.checkCurrent(id)
+      switch outcome {
+      case .success(let next): status = next
+      case .failure(let error):
+        message = (error as? VocabularyReviewStore.Failure)?.errorDescription
+          ?? VocabularyReviewStore.Failure.unavailable.errorDescription ?? ""
       }
     }
   }
@@ -238,27 +229,17 @@ struct VocabularyReviewSettingsView: View {
   /// Two taps on 认识 in quick succession would otherwise both read the same card and the second
   /// would schedule from a state the first had already replaced.
   private func act(_ operation: @escaping () throws -> VocabularyReviewStatus) {
-    guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    busy = true
-    message = ""
-    pending = Task { @MainActor in
-      defer { if request.isCurrent(id) { busy = false; pending = nil } }
-      do {
-        try request.checkCurrent(id)
-        // The shared entry point takes a file lock and may read a multi-megabyte book, so it never
-        // runs on the main actor.
-        let outcome = await Task.detached { Result { try operation() } }.value
-        try request.checkCurrent(id)
-        switch outcome {
-        case .success(let next): status = next
-        case .failure(let error):
-          message = (error as? VocabularyReviewStore.Failure)?.errorDescription
-            ?? VocabularyReviewStore.Failure.unavailable.errorDescription ?? ""
-        }
-      } catch is CancellationError {
-      } catch {
-        // 数据读写错误已封装在 Result 中；完整捕获保证任务的失败类型为 Never。
+    ViewRequestTask.run(request: $request, busy: $busy, pending: $pending,
+                        prepare: { message = "" }) { id in
+      try request.checkCurrent(id)
+      // 共享入口会加文件锁并可能读取很大的词书，不能在主线程执行。
+      let outcome = await Task.detached { Result { try operation() } }.value
+      try request.checkCurrent(id)
+      switch outcome {
+      case .success(let next): status = next
+      case .failure(let error):
+        message = (error as? VocabularyReviewStore.Failure)?.errorDescription
+          ?? VocabularyReviewStore.Failure.unavailable.errorDescription ?? ""
       }
     }
   }
