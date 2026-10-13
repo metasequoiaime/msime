@@ -37,6 +37,9 @@ struct FloatingToolbar {
       this.toolbarScale = scale;
       this.toolbarSkin = toolbarSkin;
     };
+    // `setUiContent()` 可能在 ArkUI 调用 `aboutToAppear()` 前就已完成，宿主的首次刷新会早于
+    // `onToolbar` 注册。注册回调后主动取一次当前状态，让页面首次显示时就拿到会话的按钮与主题。
+    KeyboardSession.shared.refreshToolbar();
   }
 
   aboutToDisappear(): void {
