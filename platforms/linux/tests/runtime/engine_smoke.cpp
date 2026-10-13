@@ -3468,6 +3468,45 @@ int main(int argc, char **argv) {
                   .at("temporary_japanese").get<bool>();
             }),
             "Temporary Japanese restore was not persisted");
+
+    // 拆字反查在桌面默认关：偏好里没有这个键时 Shift+C 留给应用。从菜单打开后
+    // Shift+C 进入，IBus 在本地模式里把 ' 走标点路由，由 runtime 的
+    // takes_local_separator 交给 Engine 当部件分隔符；空格上屏首行。
+    invoke("Reset");
+    seen.committed.clear();
+    require(!key('c', IBUS_SHIFT_MASK) && !seen.preedit_visible && seen.committed.empty(),
+            "Shift+C was taken while the chaizi switch was absent");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "LocalModes/chaizi", PROP_STATE_CHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return preferences.at("local_modes").value("chaizi", false);
+            }),
+            "Chaizi enable was not persisted");
+    bool chaizi_entered = false;
+    for (int attempt = 0; attempt < 200 && !chaizi_entered; ++attempt) {
+      chaizi_entered = key('c', IBUS_SHIFT_MASK) && seen.preedit_visible;
+      if (!chaizi_entered) {
+        invoke("Reset");
+        seen.committed.clear();
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(10000);
+      }
+    }
+    require(chaizi_entered, "Shift+C did not enter the chaizi mode once it was on");
+    for (const guint keyval : {guint('h'), guint('u'), guint('o'), guint(IBUS_apostrophe), guint('h'),
+                               guint('u'), guint('o'), guint('h'), guint('u'), guint('o')})
+      require(key(keyval), "The chaizi mode did not take a component letter or the separator");
+    require(seen.lookup_visible && !seen.candidates.empty() &&
+                seen.candidates.front().find("焱") != std::string::npos,
+            "The chaizi mode did not find 焱 from huo'huohuo");
+    require(key(IBUS_space) && seen.committed == "焱" && !seen.preedit_visible,
+            "Space did not commit the chaizi row");
+    invoke("PropertyActivate",
+           g_variant_new("(su)", "LocalModes/chaizi", PROP_STATE_UNCHECKED));
+    require(wait_saved_preferences([](const nlohmann::json &preferences) {
+              return !preferences.at("local_modes").value("chaizi", true);
+            }),
+            "Chaizi disable was not persisted");
     invoke("Reset");
     invoke("PropertyActivate",
            g_variant_new("(su)", "Scheme/Japanese", PROP_STATE_CHECKED));
