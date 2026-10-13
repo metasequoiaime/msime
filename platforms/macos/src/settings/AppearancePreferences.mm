@@ -1155,6 +1155,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSString *_resolvedThemeKey;
     std::vector<msime::mac::SkinListEntry> _skins;
     MSIMECandidatePreviewView *_preview;
+    NSSegmentedControl *_candidateSettingsTabs;
+    NSArray<NSArray<NSView *> *> *_candidateSettingsTabContents;
     NSTextField *_previewSampleField;
     MSIMEToolbarPreviewView *_toolbarPreview;
     NSButton *_themeButton;
@@ -4015,28 +4017,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSBox *candidateWindowCard = MSIMECardWithViews(@[
         [self settingRow:@"候选排列" control:_layoutButton aka:@[@"横排", @"竖排"]],
         [self settingRow:@"每页候选" control:_pageSizeButton aka:@[@"候选个数"]],
-        [self settingRow:@"候选字号" control:_fontButton aka:@[@"字体大小"]],
-        [self settingRow:@"整体大小"
-                  detail:@"候选文字与窗口的边距、行高和圆角一同缩放。"
-                 control:scaleControls
-                     aka:@[@"缩放", @"候选窗大小"]],
-        [self settingRow:@"不透明度"
-                  detail:@"只淡化候选框底色、边框与皮肤背景图，文字和焦点高亮保持不透明。"
-                 control:opacityControls
-                     aka:@[@"透明度"]],
-        [self settingRow:@"圆角大小"
-                  detail:@"跟随皮肤时显示皮肤自带的圆角；拖动后以此值覆盖皮肤的圆角。"
-                 control:cornerRadiusControls
-                     aka:@[@"圆角"]],
-        [self settingRow:@"内边距"
-                  detail:@"候选与窗口边缘之间的距离。跟随皮肤时显示皮肤自带的值；调小后窗口更紧凑。"
-                 control:paddingControls
-                     aka:@[@"边距", @"间距", @"紧凑"]],
-        [self settingRow:@"候选窗拼音字号" control:_preeditFontButton],
-        [self settingRow:@"候选窗预编辑" control:_candidatePreeditButton],
         [self settingRow:@"候选窗口跟随光标" control:_candidateFollowCursorToggle],
-        // The badge is this host's own feature and every other platform already offers a switch for
-        // it; macOS drew it, read the preference on every mode change, and had nowhere to turn it off.
+        // 模式提示由本机宿主绘制，可独立关闭。
         [self settingRow:@"切换中英文时显示提示"
                   detail:@"切换后在光标下方短暂显示「中」或「英」。"
                  control:_inputModeHUDToggle
@@ -4061,10 +4043,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
                      aka:@[@"多行候选", @"候选网格", @"候选词卷轴"]],
     ], 0.0);
     candidateWindowCard.accessibilityLabel = @"候选窗口卡片";
-    // The three clusters — a field beside a colour well, a field beside a button, a popup beside
-    // three buttons — are wider than one popup, and the row now lets them be: the control column is
-    // placed against the trailing edge rather than pinned to a width, so the card keeps one control
-    // edge without the second fixed width these rows used to ask for.
+    // 字体选择和字号、整体缩放归入同一个标签。
     NSBox *fontCard = MSIMECardWithViews(@[
         [self settingRow:@"字体预设"
                   detail:@"写入候选字体；本机未安装时使用同类字体，最后使用系统字体。"
@@ -4076,11 +4055,15 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         [self settingRow:@"候选窗英文字体"
                   detail:@"优先用于拉丁字符；未安装时使用候选字体，留空表示不设置独立英文字体。"
                  control:_englishFontFamilyControl],
+        [self settingRow:@"候选字号" control:_fontButton aka:@[@"字体大小"]],
+        [self settingRow:@"整体大小"
+                  detail:@"候选文字与窗口的边距、行高和圆角一同缩放。"
+                 control:scaleControls
+                     aka:@[@"缩放", @"候选窗大小"]],
+        [self settingRow:@"候选窗拼音字号" control:_preeditFontButton],
     ], 0.0);
     fontCard.accessibilityLabel = @"候选字体卡片";
-    // 候选文字颜色 leaves the font card for this one, which is the only row that moves: it is a colour,
-    // the other six are colours, and a card holding one of the seven while a card under it holds the
-    // rest is a worse place to look for any of them than either card alone.
+    // 颜色与窗口几何设置共用窗口样式标签，各自保留恢复入口。
     NSMutableArray<NSView *> *colorRows = [NSMutableArray arrayWithObjects:
         [self settingRow:@"颜色模式"
                   detail:@"候选窗口、悬浮工具栏、屏幕键盘与输入法菜单的默认明暗；设置窗口始终跟随系统。"
@@ -4091,25 +4074,46 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     [colorRows addObjectsFromArray:candidateColorRows];
     NSBox *colorCard = MSIMECardWithViews(colorRows, 0.0);
     colorCard.accessibilityLabel = @"候选配色卡片";
-    NSScrollView *candidateWindowPage = [self page:MSIMESettingsPageCandidateWindow
-                                             title:@"候选窗口"
-                                           summary:@"候选窗口的排列、字体与配色。"
-                                           content:@[
-        // The preview writes nothing: 预览深色, the showcase checkbox and the sample text are ways of looking at the settings below, not settings, so this section has nothing to restore and nothing here outlives the window.
-        [self sectionHeader:@"效果预览" keys:@[]], _preview, previewControls,
-        [self sectionHeader:@"候选窗口"
-                       keys:@[LayoutKey, PageSizeKey, FontKey, CandidateScaleKey, CandidateOpacityKey,
-                              CandidateCornerRadiusKey, CandidatePaddingKey, PreeditFontKey, CandidatePreeditKey,
-                              CandidateFollowCursorKey, InputModeHUDKey, InputModeStatusItemKey, AppLogoKey,
-                              CandidatePageNumberKey, ExpandCandidatesKey]],
-        candidateWindowCard,
-        [self sectionHeader:@"候选字体" keys:@[FontFamilyKey, CandidateEnglishFontKey, FallbackFontsKey]],
-        fontCard,
-        [self sectionHeader:@"配色"
-                       keys:@[ThemeKey, CandidateThemeKey, TextColorKey, NumberColorKey, AccentColorKey,
-                              SelectedColorKey, HoverColorKey, SurfaceColorKey, BorderColorKey]],
-        colorCard,
-    ]];
+    NSBox *windowStyleCard = MSIMECardWithViews(@[
+        [self settingRow:@"不透明度"
+                  detail:@"只淡化候选框底色、边框与皮肤背景图，文字和焦点高亮保持不透明。"
+                 control:opacityControls
+                     aka:@[@"透明度"]],
+        [self settingRow:@"圆角大小"
+                  detail:@"跟随皮肤时显示皮肤自带的圆角；拖动后以此值覆盖皮肤的圆角。"
+                 control:cornerRadiusControls
+                     aka:@[@"圆角"]],
+        [self settingRow:@"内边距"
+                  detail:@"候选与窗口边缘之间的距离。跟随皮肤时显示皮肤自带的值；调小后窗口更紧凑。"
+                 control:paddingControls
+                     aka:@[@"边距", @"间距", @"紧凑"]],
+    ], 0.0);
+    windowStyleCard.accessibilityLabel = @"候选窗口样式卡片";
+    NSBox *preeditCard = MSIMECardWithViews(@[
+        [self settingRow:@"候选窗预编辑" control:_candidatePreeditButton],
+    ], 0.0);
+    preeditCard.accessibilityLabel = @"候选预编辑卡片";
+    _candidateSettingsTabs = [NSSegmentedControl segmentedControlWithLabels:@[@"布局", @"字体大小", @"窗口样式", @"预编辑"]
+        trackingMode:NSSegmentSwitchTrackingSelectOne target:self action:@selector(candidateSettingsTabChanged:)];
+    _candidateSettingsTabs.accessibilityLabel = @"候选窗口设置标签";
+    _candidateSettingsTabs.selectedSegment = 0;
+    _candidateSettingsTabContents = @[
+        @[[self sectionHeader:@"布局" keys:@[LayoutKey, PageSizeKey, CandidateFollowCursorKey,
+            InputModeHUDKey, InputModeStatusItemKey, AppLogoKey, CandidatePageNumberKey, ExpandCandidatesKey]], candidateWindowCard],
+        @[[self sectionHeader:@"字体大小" keys:@[FontFamilyKey, CandidateEnglishFontKey, FallbackFontsKey,
+            FontKey, PreeditFontKey, CandidateScaleKey]], fontCard],
+        @[[self sectionHeader:@"窗口样式" keys:@[CandidateOpacityKey, CandidateCornerRadiusKey, CandidatePaddingKey]], windowStyleCard,
+          [self sectionHeader:@"配色" keys:@[ThemeKey, CandidateThemeKey, TextColorKey, NumberColorKey,
+            AccentColorKey, SelectedColorKey, HoverColorKey, SurfaceColorKey, BorderColorKey]], colorCard],
+        @[[self sectionHeader:@"预编辑" keys:@[CandidatePreeditKey]], preeditCard],
+    ];
+    // 预览控件共用同一份实例，切换标签不改偏好或丢失示例文字、明暗与展示状态。
+    NSMutableArray<NSView *> *candidateContent = [NSMutableArray arrayWithObjects:_candidateSettingsTabs,
+        [self sectionHeader:@"效果预览" keys:@[]], _preview, previewControls, nil];
+    for (NSArray<NSView *> *content in _candidateSettingsTabContents) [candidateContent addObjectsFromArray:content];
+    NSScrollView *candidateWindowPage = [self page:MSIMESettingsPageCandidateWindow title:@"候选窗口"
+        summary:@"候选窗口的排列、字体、窗口样式与预编辑。" content:candidateContent];
+    [self candidateSettingsTabChanged:_candidateSettingsTabs];
 
     // ---- 皮肤 -------------------------------------------------------------------------------
     // The page is the skin browser itself. It already existed — cards with a live candidate preview
@@ -4805,14 +4809,29 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         if (view == container) return YES;
     return NO;
 }
-/// Whether the user can currently get to the row an entry points at. 输入方案 shows the 全拼, 双拼 and 五笔 option cards one at a time, so under 五笔 the three 辅助码 rows are on the page but not reachable, and offering them would scroll to nothing. Asked at the moment the query runs rather than recorded when the index was built, which is what stops the index going stale: there is nothing to rebuild when the selected scheme changes.
+// 标签内的设置始终可由搜索到达；方案自身隐藏的选项仍不进入结果。
 - (BOOL)searchEntryReachable:(MSIMESettingsSearchEntry *)entry {
     if (entry.pageIndex < 0 || (NSUInteger)entry.pageIndex >= _preferencePages.count) return NO;
     NSView *page = _preferencePages[(NSUInteger)entry.pageIndex];
-    // The pages themselves are all hidden but the one in front, so the walk stops at the page.
-    for (NSView *view = entry.row; view != nil && view != page; view = view.superview)
-        if (view.hidden) return NO;
+    for (NSView *view = entry.row; view != nil && view != page; view = view.superview) {
+        BOOL tabRoot = NO;
+        for (NSArray<NSView *> *content in _candidateSettingsTabContents)
+            if ([content containsObject:view]) { tabRoot = YES; break; }
+        if (view.hidden && !tabRoot) return NO;
+    }
     return YES;
+}
+- (NSInteger)candidateSettingsTabForRow:(NSView *)row {
+    for (NSUInteger index = 0; index < _candidateSettingsTabContents.count; ++index)
+        for (NSView *root in _candidateSettingsTabContents[index])
+            if ([self view:root containsRow:row]) return (NSInteger)index;
+    return NSNotFound;
+}
+- (void)candidateSettingsTabChanged:(NSSegmentedControl *)sender {
+    for (NSUInteger index = 0; index < _candidateSettingsTabContents.count; ++index)
+        for (NSView *view in _candidateSettingsTabContents[index]) view.hidden = (NSInteger)index != sender.selectedSegment;
+    [_preview.enclosingScrollView.documentView layoutSubtreeIfNeeded];
+    [_preview.enclosingScrollView.documentView scrollPoint:NSZeroPoint];
 }
 /// A query replaces the navigation with its matches rather than dropping a menu over the sidebar:
 /// a menu takes key focus, so the next keystroke would go to the menu instead of the field.
@@ -4910,6 +4929,11 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (sender.tag < 0 || (NSUInteger)sender.tag >= _searchResults.count) return;
     MSIMESettingsSearchEntry *entry = _searchResults[(NSUInteger)sender.tag];
     [self showPreferencesPageAtIndex:entry.pageIndex navigationIndex:entry.pageIndex];
+    NSInteger tab = [self candidateSettingsTabForRow:entry.row];
+    if (tab != NSNotFound) {
+        _candidateSettingsTabs.selectedSegment = tab;
+        [self candidateSettingsTabChanged:_candidateSettingsTabs];
+    }
     // The search is over once it has been answered. Leaving the query in the field left the sidebar showing results for a search the user had already finished, with the page they had just landed on nowhere on screen and its row in the navigation hidden behind them.
     [self clearSettingsSearch:nil];
     NSView *row = entry.row;

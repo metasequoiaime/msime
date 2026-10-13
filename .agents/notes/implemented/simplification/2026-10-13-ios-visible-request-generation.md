@@ -45,4 +45,4 @@ AI 皮肤抽卡页的生成任务也复用该工具。进度回调、结果和�
 
 常用语和辅助码设置页也把重复的可见性、生命周期 UUID 与待处理任务 UUID 交给共享代次工具。两页仍自行取消任务；常用语专有的读取与写入互斥继续由 `CommonPhrasesRequestState` 处理。
 
-辅助码设置页同时参与 `MSIMEKeyboardTests` 的编译，因此该测试目标也显式包含 `ViewRequestGeneration.swift`。只在主 App 或 `MSIMEServiceTests` 中加入依赖无法满足独立键盘测试目标；工程配置测试守住这条依赖，模拟器验证使用 CI 的生成工程与单元测试入口。
+`MSIMEKeyboardTests` 显式列出辅助码页及其 `ViewRequestGeneration` 依赖；App 的目录自动收集不能替代测试目标的源码列表。辅助码生命周期契约检查同时核对两项来源，防止共享守卫重构后测试目标漏编依赖。XcodeGen 从 `project.yml` 重新生成测试工程进行编译与模拟器验收。

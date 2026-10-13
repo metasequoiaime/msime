@@ -109,62 +109,41 @@ struct CloudDictionaryApplyView: View {
   }
   @MainActor private func download() {
     guard request.isVisible, !busy, let version = state.localVersion else { return }
-    let id = request.begin()
-    busy = true; message = nil; preview = nil
-    pending = Task {
-      defer {
-        if request.isCurrent(id) {
-          busy = false
-          pending = nil
-        }
-      }
-      do {
-        guard try PersonalDictionaryStore().read().pendingCount == 0 else { throw DictionarySnapshotQueue.Failure.busy }
-        let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
-        try request.checkCurrent(id)
-        sessionID = identity.sessionID
-        let file = try await client.dictionarySnapshot(session: session, matchingUserID: accountID,
-                                                       matchingSessionID: identity.sessionID)
-        defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
-        let prepared = try await BackendPreparedSnapshot.prepareDocument(file.url)
-        try request.checkCurrent(id)
-        preview = prepared; expectedVersion = version
-      } catch is CancellationError { }
-      catch { if request.isCurrent(id) { message = error.localizedDescription } }
+    preview = nil
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending) { id in
+      guard try PersonalDictionaryStore().read().pendingCount == 0 else { throw DictionarySnapshotQueue.Failure.busy }
+      let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
+      try request.checkCurrent(id)
+      sessionID = identity.sessionID
+      let file = try await client.dictionarySnapshot(session: session, matchingUserID: accountID,
+                                                     matchingSessionID: identity.sessionID)
+      defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
+      let prepared = try await BackendPreparedSnapshot.prepareDocument(file.url)
+      try request.checkCurrent(id)
+      preview = prepared; expectedVersion = version
     }
   }
   @MainActor private func enqueue() {
     guard request.isVisible, !busy, let preview, let version = expectedVersion else { return }
-    let id = request.begin()
-    busy = true; message = nil
-    pending = Task {
-      defer {
-        if request.isCurrent(id) {
-          busy = false
-          pending = nil
-        }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending) { id in
+      let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
+      try request.checkCurrent(id)
+      sessionID = identity.sessionID
+      let changes = try await client.dictionaryChanges(after: preview.envelope.revision, limit: 1,
+        session: session, matchingUserID: accountID, matchingSessionID: identity.sessionID)
+      try request.checkCurrent(id)
+      guard changes.changes.isEmpty else {
+        self.preview = nil; expectedVersion = nil
+        message = "预览后云词库已变化，请重新下载并确认。"
+        return
       }
-      do {
-        let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
-        try request.checkCurrent(id)
-        sessionID = identity.sessionID
-        let changes = try await client.dictionaryChanges(after: preview.envelope.revision, limit: 1,
-          session: session, matchingUserID: accountID, matchingSessionID: identity.sessionID)
-        try request.checkCurrent(id)
-        guard changes.changes.isEmpty else {
-          self.preview = nil; expectedVersion = nil
-          message = "预览后云词库已变化，请重新下载并确认。"
-          return
-        }
-        let copy = Task.detached(priority: .utility) {
-          try queue.enqueue(file: preview.url, accountID: accountID, cloudRevision: preview.envelope.revision,
-            expectedLocalVersion: version, fileSHA256: preview.fileSHA256)
-        }
-        _ = try await withTaskCancellationHandler(operation: { try await copy.value }, onCancel: { copy.cancel() })
-        try request.checkCurrent(id)
-        self.preview = nil; expectedVersion = nil; refresh()
-      } catch is CancellationError { }
-      catch { if request.isCurrent(id) { message = error.localizedDescription } }
+      let copy = Task.detached(priority: .utility) {
+        try queue.enqueue(file: preview.url, accountID: accountID, cloudRevision: preview.envelope.revision,
+          expectedLocalVersion: version, fileSHA256: preview.fileSHA256)
+      }
+      _ = try await withTaskCancellationHandler(operation: { try await copy.value }, onCancel: { copy.cancel() })
+      try request.checkCurrent(id)
+      self.preview = nil; expectedVersion = nil; refresh()
     }
   }
 }

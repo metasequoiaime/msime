@@ -180,15 +180,10 @@ struct CandidateOptionsSettingsView: View {
 
   /// A binding that merges one field into a nested object of the shared document; a refused write puts the stored value back.
   private func stored<Value>(_ object: String, _ key: String, _ state: Binding<Value>) -> Binding<Value> {
-    Binding(get: { state.wrappedValue }, set: { value in
-      state.wrappedValue = value
-      saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
-        var nested = $0[object] as? [String: Any] ?? [:]
-        nested[key] = value
-        $0[object] = nested
-      }
-      if saveFailed { reload() }
-    })
+    SharedPreferenceBinding.nested(object, key: key, state: state) { saved in
+      saveFailed = !saved
+      if !saved { reload() }
+    }
   }
 
   /// A family name, marked when this device does not have it and the keyboard therefore skips it.
@@ -203,11 +198,10 @@ struct CandidateOptionsSettingsView: View {
 
   /// A binding that writes one top-level field of the shared document; a refused write puts the stored value back.
   private func storedTop<Value>(_ key: String, _ state: Binding<Value>) -> Binding<Value> {
-    Binding(get: { state.wrappedValue }, set: { value in
-      state.wrappedValue = value
-      saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = value }
-      if saveFailed { reload() }
-    })
+    SharedPreferenceBinding.topLevel(key, state: state) { saved in
+      saveFailed = !saved
+      if !saved { reload() }
+    }
   }
 
   private func reload() {

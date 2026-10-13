@@ -18,6 +18,12 @@ class HelpcodeLifecycleTests(unittest.TestCase):
         self.assertIn(".onDisappear", SOURCE)
         self.assertIn("pending?.cancel()", SOURCE)
 
+    def test_keyboard_test_target_includes_the_helpcode_request_dependency(self):
+        project = (ROOT / "platforms/ios/project.yml").read_text()
+        target = project.rsplit("  MSIMEKeyboardTests:", 1)[1].split("  MSIMEServiceTests:", 1)[0]
+        self.assertIn("- path: App/Sources/settings/HelpcodeSettingsView.swift", target)
+        self.assertIn("- path: App/Sources/app/ViewRequestGeneration.swift", target)
+
     def test_all_async_results_require_current_page_lifecycle(self):
         self.assertGreaterEqual(SOURCE.count("guard (try? request.checkCurrent(id)) != nil else { return }"), 6)
         self.assertIn("return request.begin()", SOURCE)

@@ -84,14 +84,16 @@ struct AISkinGenerationView: View {
     }.padding(.vertical, 12).accessibilityHidden(true)
   }
   private func generate() {
-    guard request.isVisible, !busy else { return }; busy = true; message = nil; completed = 0
+    guard request.isVisible, !busy else { return }
+    completed = 0
     let description = AISkinService.drawPrompt()
-    let id = request.begin()
-    pending = Task { await performGeneration(requestID: id, description: description) }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message,
+                        pending: $pending) { id in
+      await performGeneration(requestID: id, description: description)
+    }
   }
   private func performGeneration(requestID id: UUID, description: String) async {
     guard request.isCurrent(id) else { return }
-    defer { if request.isCurrent(id) { busy = false; pending = nil } }
     do {
       let values: [AISkinProposal]
       #if DEBUG && targetEnvironment(simulator)

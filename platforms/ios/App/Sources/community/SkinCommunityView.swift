@@ -437,20 +437,7 @@ struct CommunitySkinDetail: View {
       }
   }
   private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
-    guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    busy = true; message = nil
-    pending = Task {
-      defer {
-        if request.isCurrent(id) {
-          busy = false
-          pending = nil
-        }
-      }
-      do { try await action(id) }
-      catch is CancellationError { }
-      catch { if request.isCurrent(id) { message = error.localizedDescription } }
-    }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending, action: action)
   }
 }
 
@@ -536,21 +523,10 @@ struct CommunityPublishView: View {
 
   @MainActor private func startPublish() {
     guard request.isVisible, !busy, let design else { return }
-    let id = request.begin()
-    busy = true; message = nil
-    pending = Task {
-      defer {
-        if request.isCurrent(id) {
-          busy = false
-          pending = nil
-        }
-      }
-      do {
-        try await SkinCommunityAPI.shared.publish(id: publicationID, name: name, description: description, design: design, category: category)
-        try request.checkCurrent(id)
-        onPublished(); dismiss()
-      } catch is CancellationError { }
-      catch { if request.isCurrent(id) { message = error.localizedDescription } }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending) { id in
+      try await SkinCommunityAPI.shared.publish(id: publicationID, name: name, description: description, design: design, category: category)
+      try request.checkCurrent(id)
+      onPublished(); dismiss()
     }
   }
 

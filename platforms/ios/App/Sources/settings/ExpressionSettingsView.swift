@@ -97,10 +97,7 @@ struct ExpressionSettingsView: View {
 
   /// 随改动写入共享文档某个顶层字段的绑定；写入被拒绝时恢复已存的值，让页面永远不会显示键盘实际没有的设置。
   private func stored(_ key: String, _ state: Binding<Bool>, group: PageGroup) -> Binding<Bool> {
-    Binding(get: { state.wrappedValue }, set: { value in
-      state.wrappedValue = value
-      record(MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = value }, group: group)
-    })
+    SharedPreferenceBinding.topLevel(key, state: state) { saved in record(saved, group: group) }
   }
 
   private func saveSentenceLevel(_ level: SentenceAssociationPreference.Level) {

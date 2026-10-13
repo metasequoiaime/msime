@@ -67,14 +67,11 @@ struct SettingsSyncView: View {
     } message: { Text("将替换本机对应设置，包括词库学习开关；不会下载词库或开启数据上传。") }
   }
   @MainActor private func startLoad() {
-    guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    busy = true; message = nil
-    pending = Task { await load(requestID: id) }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message,
+                        pending: $pending) { id in await load(requestID: id) }
   }
   @MainActor private func load(requestID id: UUID) async {
     guard request.isCurrent(id) else { return }
-    defer { if request.isCurrent(id) { busy = false; pending = nil } }
     do {
       let identity = try await session.credentials()
       try request.checkCurrent(id)
@@ -102,16 +99,16 @@ struct SettingsSyncView: View {
   }
   @MainActor private func startApply() {
     guard request.isVisible, !busy, let cloud, let loadedUserID, let loadedSessionID else { return }
-    let id = request.begin()
-    busy = true; message = nil
-    pending = Task { await apply(cloud: cloud, userID: loadedUserID, sessionID: loadedSessionID, requestID: id) }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message,
+                        pending: $pending) { id in
+      await apply(cloud: cloud, userID: loadedUserID, sessionID: loadedSessionID, requestID: id)
+    }
   }
   @MainActor private func apply(cloud: BackendAccountClient.Preferences,
                                 userID: String,
                                 sessionID: UUID,
                                 requestID id: UUID) async {
     guard request.isCurrent(id) else { return }
-    defer { if request.isCurrent(id) { busy = false; pending = nil } }
     do {
       try await session.requireSession(matchingUserID: userID, matchingSessionID: sessionID)
       try request.checkCurrent(id)
@@ -129,9 +126,8 @@ struct SettingsSyncView: View {
   }
   @MainActor private func startUpload() {
     guard request.isVisible, !busy, let cloud, let schema, let loadedUserID, let loadedSessionID else { return }
-    let id = request.begin()
-    busy = true; message = nil
-    pending = Task {
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message,
+                        pending: $pending) { id in
       await upload(cloud: cloud, schema: schema, userID: loadedUserID, sessionID: loadedSessionID, requestID: id)
     }
   }
@@ -141,7 +137,6 @@ struct SettingsSyncView: View {
                                  sessionID: UUID,
                                  requestID id: UUID) async {
     guard request.isCurrent(id) else { return }
-    defer { if request.isCurrent(id) { busy = false; pending = nil } }
     do {
       let values = try BackendAccountClient.mergedPreferences(cloud, replacing: IOSCloudSettings.snapshot(), schema: schema)
       let identity = try await session.credentials(matchingUserID: userID,

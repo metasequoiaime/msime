@@ -5,6 +5,7 @@ import unittest
 
 
 SOURCE = Path("platforms/ios/App/Sources/community/CommunityResourcesView.swift").read_text()
+TASK = Path("platforms/ios/App/Sources/app/ViewRequestTask.swift")
 
 
 class CommunityResourceEditorLifecycleTests(unittest.TestCase):
@@ -18,9 +19,10 @@ class CommunityResourceEditorLifecycleTests(unittest.TestCase):
     def test_import_and_publish_share_cancellation_fence(self):
         editor = SOURCE.split("struct CommunityResourceEditor", 1)[1]
         self.assertIn("run(_ action: @escaping @MainActor (UUID) async throws -> Void)", editor)
-        self.assertIn("let id = request.begin()", editor)
+        self.assertIn("ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending", editor)
         self.assertGreaterEqual(editor.count("try request.checkCurrent(id)"), 2)
         self.assertGreaterEqual(editor.count("run { id in"), 2)
+        self.assertIn("let id = request.wrappedValue.begin()", TASK.read_text())
 
 
 if __name__ == "__main__":
