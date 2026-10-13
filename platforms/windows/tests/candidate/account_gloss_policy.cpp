@@ -20,6 +20,9 @@ using Answered = std::vector<std::pair<std::string, std::string>>;
 
 int main() {
   try {
+    REQUIRE(account_gloss_cache_scope("user-a") != account_gloss_cache_scope("user-b"));
+    REQUIRE(account_gloss_cache_scope("") == account_gloss_cache_scope("anonymous"));
+
     const auto none = [](const std::string &) { return false; };
     // 只有共享层标了 online_gloss 的候选才发：拼音缓冲、数字、英文、颜文字都不花账号额度。
     const std::vector<AccountGlossCandidate> page{

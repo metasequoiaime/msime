@@ -11,6 +11,13 @@
 #include <vector>
 
 namespace msime::windows {
+
+// 账号释义缓存按认证账号隔离；同一个候选词对不同账号可能有不同回答。
+inline std::string account_gloss_cache_scope(std::string_view user_id) {
+  return std::string("account:") +
+         (user_id.empty() ? std::string("anonymous") : std::string(user_id));
+}
+
 // 水杉账号的候选释义接口，和 macOS 的 BackendChatClient.translate、Linux provider 的 anonymous_translation 是同一个：一次最多 32 个中文词、一种目标语言，源语言固定是中文。
 inline constexpr std::string_view account_gloss_url = "https://api.msime.app/v1/translate";
 inline constexpr size_t account_gloss_maximum_words = 32;

@@ -300,16 +300,21 @@ std::string account_directory() {
   return account_directory_storage();
 }
 
+struct AccountAccessToken {
+  std::string token;
+  std::string user_id;
+};
+
 // 取账号令牌：设置应用登录的账号优先，没有登录时用本机匿名账号（msime_client_account_access_token）。两种会话都没有时（安装后首次注册失败、文件被删）补注册匿名账号再取一次，和 macOS BackendCandidateGloss.translationSession 一样；补注册失败后 account_registration_retry 之内不再试。令牌只在内存里交给请求头，不写日志。
-std::optional<std::string> account_access_token(const std::string &directory,
-                                                const std::string &rejected) {
+std::optional<AccountAccessToken> account_access_token(const std::string &directory,
+                                                       const std::string &rejected) {
   static std::mutex registration_mutex;
   static std::optional<std::chrono::steady_clock::time_point> last_registration;
   auto request = nlohmann::json{{"directory", directory}};
   if (!rejected.empty())
     request["rejected_token"] = rejected;
   std::string error;
-  const auto ask = [&]() -> std::optional<std::string> {
+  const auto ask = [&]() -> std::optional<AccountAccessToken> {
     error.clear();
     const auto bytes = request.dump();
     auto raw = msime::host_api::own_string(msime_client_account_access_token(
@@ -328,7 +333,9 @@ std::optional<std::string> account_access_token(const std::string &directory,
           !value.at("access_token").is_string() ||
           value.at("access_token").get<std::string>().empty())
         return std::nullopt;
-      return value.at("access_token").get<std::string>();
+      return AccountAccessToken{
+          value.at("access_token").get<std::string>(),
+          value.value("user_id", std::string{})};
     } catch (...) {
       return std::nullopt;
     }
@@ -351,14 +358,14 @@ std::optional<std::string> account_access_token(const std::string &directory,
 }
 
 // 在一条分离的线程上取账号令牌（account_access_token），翻译线程每 50 毫秒看一次 stopping：补注册匿名账号会阻塞约一分钟，刷新令牌也要联网，都不能让 TranslationWorker::stop() 的 join 跟着等，Server 退出时不等它，由那条线程自己跑完后退出，和 server_main 启动时注册匿名账号的线程一样。线程起不来时这一页不问账号。
-std::optional<std::string> account_access_token_detached(const std::string &directory,
-                                                         const std::string &rejected,
-                                                         const std::function<bool()> &stopping) {
+std::optional<AccountAccessToken> account_access_token_detached(
+    const std::string &directory, const std::string &rejected,
+    const std::function<bool()> &stopping) {
   struct Pending {
     std::mutex mutex;
     std::condition_variable done;
     bool finished = false;
-    std::optional<std::string> token;
+    std::optional<AccountAccessToken> token;
   };
   auto pending = std::make_shared<Pending>();
   try {
@@ -405,8 +412,15 @@ std::optional<std::string> account_glosses(
   for (const auto &candidate : query.at("candidates"))
     candidates.push_back({candidate.at("text").get<std::string>(),
                           candidate.value("online_gloss", false)});
+  // 先确定本次请求使用的账号，再读取缓存；否则登录切换后会沿用上一账号的释义。
+  auto account = account_access_token_detached(directory, {}, stopping);
+  if (!account)
+    return output.dump();
+  const auto scope = account_gloss_cache_scope(account->user_id);
   const auto cache_id = [&](const std::string &word) {
-    return nlohmann::json{{"provider", "account"}, {"target_language", language}, {"key", word}}
+    return nlohmann::json{{"provider", scope},
+                          {"target_language", language},
+                          {"key", word}}
         .dump();
   };
   // 缓存里已有的释义先放进去，不等网络。
@@ -430,22 +444,20 @@ std::optional<std::string> account_glosses(
   });
   if (words.empty() || cancelled())
     return cancelled() ? std::nullopt : std::optional<std::string>(output.dump());
-  auto token = account_access_token_detached(directory, {}, stopping);
-  if (!token)
-    return output.dump();
+  auto token = std::move(account);
   const nlohmann::json body{{"texts", words}, {"source_lang", "ZH"}, {"target_lang", *target}};
   long status = 0;
   std::optional<std::string> response;
   for (int attempt = 0; attempt < 2 && token; ++attempt) {
     const nlohmann::json descriptor{
         {"url", std::string(account_gloss_url)},
-        {"headers", {{"Authorization", "Bearer " + *token}, {"Content-Type", "application/json"}}},
+        {"headers", {{"Authorization", "Bearer " + token->token}, {"Content-Type", "application/json"}}},
         {"body", body}};
     response = http_request(descriptor, stopping, false, kAccountTranslationTimeoutMs, &status);
     // 服务端以 401 拒绝了这个令牌（过期、被吊销）：带上它再取一次，共享层会强制刷新，刷新不了时退回匿名账号。
     if (response || status != 401 || stopping())
       break;
-    token = account_access_token_detached(directory, *token, stopping);
+    token = account_access_token_detached(directory, token->token, stopping);
   }
   if (!response || stopping())
     return cancelled() ? std::nullopt : std::optional<std::string>(output.dump());
