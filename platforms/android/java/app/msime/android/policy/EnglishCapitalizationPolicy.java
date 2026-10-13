@@ -1,10 +1,14 @@
 package app.msime.android;
 
-/** Apple-parity capitalization rules without Android or editor dependencies. */
+/** 不依赖 Android 编辑器的英文自动大写规则；本机开关关闭时所有编辑器模式都保持小写。 */
 public final class EnglishCapitalizationPolicy {
     public enum Mode { NONE, WORDS, SENTENCES, ALL_CHARACTERS }
 
     private EnglishCapitalizationPolicy() {}
+
+    public static boolean shouldShift(boolean enabled, Mode mode, CharSequence contextBeforeInput) {
+        return enabled && shouldShift(mode, contextBeforeInput);
+    }
 
     public static boolean shouldShift(Mode mode, CharSequence contextBeforeInput) {
         return switch (mode) {

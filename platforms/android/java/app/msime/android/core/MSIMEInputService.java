@@ -2347,6 +2347,8 @@ public final class MSIMEInputService extends InputMethodService {
             preferencesNotice = " · 设置读取或应用失败，保留当前设置";
         }
         offerRecentClipOnHistoryEnabled(previousClipboard);
+        if (previousLocalSettings.bool(AndroidLocalSettings.AUTO_CAPITALIZATION)
+                != localSettings.bool(AndroidLocalSettings.AUTO_CAPITALIZATION)) updateAutomaticCapitalization();
         if (previousPreferencesReady != (preferencesSnapshot != null)
                 || !previousNotice.equals(preferencesNotice)
                 || !previousSkin.equals(skin.displayKey(imeStyler.appThemeSeed()))
@@ -4046,15 +4048,16 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         CharSequence context = null;
-        if (connection != null) {
+        boolean automaticEnabled = localSettings.bool(AndroidLocalSettings.AUTO_CAPITALIZATION);
+        if (automaticEnabled && connection != null) {
             try {
                 context = connection.getTextBeforeCursor(CAPITALIZATION_CONTEXT_LIMIT, 0);
             } catch (RuntimeException ignored) {
-                // Editor context is optional and must never be logged or persisted.
+                // 光标前文可缺省，不记录也不持久化。
             }
         }
         boolean next = EnglishCapitalizationPolicy.shouldShift(
-            EditorPolicy.capitalizationMode(editorInputType), context);
+            automaticEnabled, EditorPolicy.capitalizationMode(editorInputType), context);
         // 手动按下的单次大写留到下一个字母用掉为止，与 HarmonyOS 一致；否则按下 Shift 后编辑器回报一次光标位置就会把它冲掉。
         if (!letterCase.isPressedShift() && letterCase.applyAutomatic(next)) imeLetterRows.refreshLetterCase();
         render();

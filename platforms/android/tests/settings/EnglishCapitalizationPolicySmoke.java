@@ -8,6 +8,18 @@ public final class EnglishCapitalizationPolicySmoke {
     }
 
     public static void main(String[] args) {
+        // 关闭时不受编辑器模式或句首上下文影响；开启后沿用已有规则。
+        for (EnglishCapitalizationPolicy.Mode mode : EnglishCapitalizationPolicy.Mode.values()) {
+            for (String context : new String[] {null, "", "\n", "Hello. ", "hello "}) {
+                if (EnglishCapitalizationPolicy.shouldShift(false, mode, context)) {
+                    throw new AssertionError("disabled capitalization must stay lowercase");
+                }
+                if (EnglishCapitalizationPolicy.shouldShift(true, mode, context)
+                        != EnglishCapitalizationPolicy.shouldShift(mode, context)) {
+                    throw new AssertionError("enabled capitalization must preserve editor rules");
+                }
+            }
+        }
         expect(false, EnglishCapitalizationPolicy.Mode.NONE, "");
         expect(false, EnglishCapitalizationPolicy.Mode.SENTENCES, null);
         expect(true, EnglishCapitalizationPolicy.Mode.ALL_CHARACTERS, null);

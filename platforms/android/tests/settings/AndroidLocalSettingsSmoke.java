@@ -41,12 +41,14 @@ public final class AndroidLocalSettingsSmoke {
         unreadableFilesReadAsDefaults();
         atomicWrite();
         splitKeyboardRoundTrip();
+        capitalizationSetting();
         syncedKeysMatchClientCore();
         System.out.println("AndroidLocalSettingsSmoke ok");
     }
 
     private static void defaults() {
         AndroidLocalSettings.Snapshot settings = AndroidLocalSettings.defaults();
+        check(!settings.bool(AndroidLocalSettings.AUTO_CAPITALIZATION), "English defaults to lowercase");
         check("siji".equals(settings.choice(AndroidLocalSettings.APP_THEME)), "app theme default");
         check("off".equals(settings.choice(AndroidLocalSettings.ONE_HANDED)), "one-handed default");
         check(!settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD), "split keyboard is off by default");
@@ -91,6 +93,16 @@ public final class AndroidLocalSettingsSmoke {
         threw = false;
         try { settings.bool("touch_incognito"); } catch (IllegalArgumentException expected) { threw = true; }
         check(threw, "the retired shared key is not a local setting");
+    }
+
+    private static void capitalizationSetting() {
+        AndroidLocalSettings.Spec spec = AndroidLocalSettings.spec(AndroidLocalSettings.AUTO_CAPITALIZATION);
+        check(!spec.synced, "capitalization stays on this device");
+        check(spec.accept("true") == null, "capitalization rejects non-booleans");
+        AndroidLocalSettings.Snapshot enabled = new AndroidLocalSettings.Snapshot(
+            AndroidLocalSettings.accepted(Map.of(AndroidLocalSettings.AUTO_CAPITALIZATION, true)));
+        check(enabled.bool(AndroidLocalSettings.AUTO_CAPITALIZATION), "explicit opt-in is respected");
+        check(!enabled.synced().containsKey(AndroidLocalSettings.AUTO_CAPITALIZATION), "opt-in is not synced");
     }
 
     private static void validation() {
