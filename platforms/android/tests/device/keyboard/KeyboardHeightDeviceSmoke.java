@@ -4,6 +4,7 @@ import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -192,8 +193,41 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         restartIme();
         openEditor();
         Rect bounds = new Rect();
-        awaitStableBounds(key("n")).getBoundsInScreen(bounds);
+        awaitSettledKeyboardKey().getBoundsInScreen(bounds);
         return bounds;
+    }
+
+    /**
+     * 输入法重启后，旧窗口可能在无障碍树里短暂保留；只等键位本身两次相同会把旧窗口的稳定坐标当成新窗口。这里同时比较输入法窗口的边界，并连续等四次，覆盖 API 35 上的窗口切换动画。
+     */
+    private AccessibilityNodeInfo awaitSettledKeyboardKey() {
+        Rect previousKey = null;
+        Rect previousWindow = null;
+        int stable = 0;
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            for (AccessibilityWindowInfo window : automation.getWindows()) {
+                if (window.getType() != AccessibilityWindowInfo.TYPE_INPUT_METHOD)
+                    continue;
+                AccessibilityNodeInfo node = find(window.getRoot(), key("n"));
+                if (node == null) continue;
+                Rect keyBounds = new Rect();
+                Rect windowBounds = new Rect();
+                node.getBoundsInScreen(keyBounds);
+                window.getBoundsInScreen(windowBounds);
+                if (keyBounds.equals(previousKey) && windowBounds.equals(previousWindow)) {
+                    stable++;
+                } else {
+                    previousKey = keyBounds;
+                    previousWindow = windowBounds;
+                    stable = 1;
+                }
+                if (stable >= 4) return node;
+                break;
+            }
+            SystemClock.sleep(250);
+        }
+        throw new AssertionError("Keyboard window bounds never settled; IME showed " + imeTexts());
     }
 
     /** 键盘已停稳时量一个键在屏幕上的位置。 */
