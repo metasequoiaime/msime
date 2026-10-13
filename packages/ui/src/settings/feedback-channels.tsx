@@ -1,11 +1,8 @@
 import type { CSSProperties } from "react";
 import { ActionButton } from "./action-button";
+import { feedbackIcons } from "./app-resources";
 
 // Brand marks from yldm-tech/ai-logo (packages/static-svg, MIT), except QQ: ai-logo's QQ mark is a flat blue silhouette, so the penguin with its face and scarf comes from bytedance/IconPark (tencent-qq, Apache-2.0).
-const githubIcon = new URL("../assets/github.svg", import.meta.url).href;
-const qqIcon = new URL("../assets/qq.svg", import.meta.url).href;
-const telegramIcon = new URL("../assets/telegram-color.svg", import.meta.url).href;
-
 /** Colour marks are drawn as-is; the monochrome GitHub and QQ marks are masked out of the text colour so they follow light and dark themes. */
 const brandGlyph = "block size-6";
 const monoGlyph =
@@ -49,7 +46,7 @@ export function FeedbackChannels({
   }[] = [
     {
       id: "github",
-      icon: githubIcon,
+      icon: feedbackIcons.github,
       mono: true,
       title: "GitHub Issues",
       description: "适合提交可复现的问题、功能建议和开发讨论。",
@@ -59,7 +56,7 @@ export function FeedbackChannels({
     },
     {
       id: "qq",
-      icon: qqIcon,
+      icon: feedbackIcons.qq,
       mono: true,
       title: "QQ 交流群",
       description: "适合中文用户进行日常交流、测试反馈和使用讨论。",
@@ -69,7 +66,7 @@ export function FeedbackChannels({
     },
     {
       id: "telegram",
-      icon: telegramIcon,
+      icon: feedbackIcons.telegram,
       title: "Telegram 群组",
       description: "面向国际用户和开发者的即时讨论频道。",
       code: "t.me/msimegroup",
