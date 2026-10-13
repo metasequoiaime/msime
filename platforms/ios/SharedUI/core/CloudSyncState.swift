@@ -178,7 +178,7 @@ final class CloudSyncState: @unchecked Sendable {
     let data = try Self.encoder.encode(record)
     guard data.count <= Self.maximumBytes else { throw Failure.invalid }
     try data.write(to: root.appendingPathComponent("state.json"),
-                   options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                   options: IOSSharedPaths.protectedAtomicWriteOptions)
   }
 
   private static let encoder: JSONEncoder = {

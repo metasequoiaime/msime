@@ -253,7 +253,7 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     try action(&state)
     let data = try Self.encoder().encode(state)
     guard data.count <= maximumBytes else { throw StoreError.invalidState }
-    try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    try data.write(to: file, options: IOSSharedPaths.protectedAtomicWriteOptions)
   }
 
   private func withSharedLock<T>(_ body: (URL) throws -> T) throws -> T {
@@ -400,7 +400,7 @@ final class PersonalDictionaryStore: @unchecked Sendable {
           let exported = try export(request)
           let data = Data(exported.text.utf8)
           guard data.count <= Self.maximumExportBytes else { throw StoreError.exportTooLarge }
-          try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+          try data.write(to: file, options: IOSSharedPaths.protectedAtomicWriteOptions)
           result.rows = exported.text.split(separator: "\n", omittingEmptySubsequences: true).count
           result.truncated = !exported.complete
         } catch {

@@ -103,7 +103,7 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
     guard persist(result) else { return result }
     let data = try JSONEncoder().encode(state)
     guard data.count <= 65536 else { throw Failure.invalid }
-    try data.write(to: root.appendingPathComponent("state.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    try data.write(to: root.appendingPathComponent("state.json"), options: IOSSharedPaths.protectedAtomicWriteOptions)
     return result
   }
   func publishLocalVersion(_ version: String) throws {

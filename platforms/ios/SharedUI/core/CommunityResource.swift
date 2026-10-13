@@ -132,7 +132,7 @@ enum CommunityLibrary {
     guard data.count <= maximumBytes else { throw PersonalDictionaryStore.StoreError.tooManyRequests }
     try rejectSymlinkAncestors(file)
     try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-    try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    try data.write(to: file, options: IOSSharedPaths.protectedAtomicWriteOptions)
   }
   static func replies(in directory: URL? = nil) -> [CommunityResource] {
     ((try? read(in: directory)) ?? []).filter { $0.kind == .reply }
