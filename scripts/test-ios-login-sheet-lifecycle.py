@@ -35,10 +35,12 @@ class LoginSheetLifecycleTests(unittest.TestCase):
             "struct AccountProfileEditor", 1
         )[0]
         self.assertIn("@State private var pending: Task<Void, Never>?", section)
-        self.assertIn("@State private var visible = false", section)
+        self.assertIn("@State private var request = ViewRequestGeneration()", section)
+        self.assertIn("request.appear()", section)
+        self.assertIn("request.disappear()", section)
         self.assertIn("pending?.cancel()", section)
         self.assertIn(".onDisappear", section)
-        self.assertIn("guard visible, requestID == id else { throw CancellationError() }", section)
+        self.assertIn("try request.checkCurrent(id)", section)
 
 
 if __name__ == "__main__":
