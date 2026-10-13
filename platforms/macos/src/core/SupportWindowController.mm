@@ -116,7 +116,7 @@ void OpenPreferences(void) {
     switch (page) {
         case MSIMESupportPageAbout: {
             title = [@"关于" stringByAppendingString:MSIMEEditionDisplayName()];
-            NSString *version = NSBundle.mainBundle.infoDictionary[@"CFBundleShortVersionString"] ?: @"0.52.0";
+            NSString *version = NSBundle.mainBundle.infoDictionary[@"CFBundleShortVersionString"] ?: @"0.53.0";
             views = @[
                 Heading(@"水杉 IME"),
                 Body(@"为现代 macOS 桌面体验打造的开放中文输入法。"),
