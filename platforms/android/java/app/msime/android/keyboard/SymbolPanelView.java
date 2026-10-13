@@ -8,7 +8,6 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.GridLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -78,6 +77,8 @@ public final class SymbolPanelView extends LinearLayout {
         this.listener = listener;
         categories = LayoutPolicy.column(context);
         setOrientation(VERTICAL);
+        int panelPadding = DimensionPolicy.pixels(context, 4);
+        setPadding(panelPadding, panelPadding, panelPadding, panelPadding);
         setContentDescription("符号面板");
         setFocusable(true);
 
@@ -85,13 +86,14 @@ public final class SymbolPanelView extends LinearLayout {
         ViewPolicy.setCenteredVertically(title);
         // 这个键只是关掉面板，回到打开它的那一层（字母、#+= 或手写），不一定是字母键盘。
         Button back = buttons.create("‹", "关闭符号面板", listener::close, true);
-        back.setLayoutParams(LayoutPolicy.linearParams(getContext(), 56, 42));
+        styleHeaderButton(back);
+        back.setLayoutParams(LayoutPolicy.linearParams(getContext(), 44, 32));
         title.addView(back);
-        TextView heading = ViewPolicy.centeredText(context, "符号", 17);
-        KeyboardTypographyPolicy.setKeyTextSize(heading, 17);
-        title.addView(heading, LayoutPolicy.weightedHeightParams(getContext(), 42, 1));
+        View spacer = new View(context);
+        title.addView(spacer, LayoutPolicy.weightedHeightParams(getContext(), 32, 1));
         Button delete = buttons.create("⌫", "删除", listener::delete, true);
-        delete.setLayoutParams(LayoutPolicy.linearParams(getContext(), 56, 42));
+        styleHeaderButton(delete);
+        delete.setLayoutParams(LayoutPolicy.linearParams(getContext(), 44, 32));
         title.addView(delete);
         addView(title, LayoutPolicy.matchWidthWrapParams());
 
@@ -103,7 +105,7 @@ public final class SymbolPanelView extends LinearLayout {
         categoryScroll.setVerticalScrollBarEnabled(false);
         categoryScroll.addView(categories, LayoutPolicy.scrollMatchWidthWrapParams());
         body.addView(categoryScroll, LayoutPolicy.linearParamsPx(
-            DimensionPolicy.pixels(getContext(), 76), LayoutParams.MATCH_PARENT));
+            DimensionPolicy.pixels(getContext(), 64), LayoutParams.MATCH_PARENT));
         grid.setColumnCount(SymbolPanelModel.COLUMNS);
         grid.setUseDefaultMargins(false);
         grid.setAlignmentMode(GridLayout.ALIGN_BOUNDS);
@@ -118,11 +120,14 @@ public final class SymbolPanelView extends LinearLayout {
 
         LinearLayout bottom = LayoutPolicy.row(context);
         Button bottomBack = buttons.create("返回", "返回键盘", listener::close, true);
-        bottom.addView(bottomBack, LayoutPolicy.weightedHeightParams(getContext(), 48, 1));
+        styleFooterButton(bottomBack, 14);
+        bottom.addView(bottomBack, footerKeyParams());
         lockButton = buttons.create("锁定", "连续输入符号", this::toggleLock, true);
-        bottom.addView(lockButton, LayoutPolicy.weightedHeightParams(getContext(), 48, 1));
+        styleFooterButton(lockButton, 14);
+        bottom.addView(lockButton, footerKeyParams());
         Button bottomDelete = buttons.create("⌫", "删除", listener::delete, true);
-        bottom.addView(bottomDelete, LayoutPolicy.weightedHeightParams(getContext(), 48, 1));
+        styleFooterButton(bottomDelete, 20);
+        bottom.addView(bottomDelete, footerKeyParams());
         addView(bottom, LayoutPolicy.matchWidthHeightPx(DimensionPolicy.pixels(getContext(), 48)));
 
         List<SymbolPanelModel.Category> values = SymbolPanelModel.categories(recents);
@@ -130,15 +135,42 @@ public final class SymbolPanelView extends LinearLayout {
             final int category = index;
             Button button = buttons.create(values.get(index).title(),
                 "符号分类 " + values.get(index).title(), () -> select(category), true);
-            ViewPolicy.setCenteredTextSizeSp(button, 13);
-            ViewPolicy.clearMinimumHeight(button);
+            ViewPolicy.setCenteredKeyTextSizeSp(button, 13);
+            KeyboardTypographyPolicy.normalizeKeyCap(button);
             ViewPolicy.clearPadding(button);
-            KeyboardTypographyPolicy.setKeyTextSize(button, 13);
+            if (button instanceof KeyboardPressButton key) key.setKeyboardRole(KeyboardKeyRole.PLAIN);
+            listener.restyle(button);
             categoryButtons.add(button);
-            categories.addView(button, LayoutPolicy.matchWidthHeightPx(
-                DimensionPolicy.pixels(getContext(), 40)));
+            LinearLayout.LayoutParams params = LayoutPolicy.matchWidthHeightPx(
+                DimensionPolicy.pixels(getContext(), 40));
+            int margin = DimensionPolicy.pixels(getContext(), 2);
+            params.setMargins(margin, margin, margin, margin);
+            categories.addView(button, params);
         }
         select(SymbolPanelModel.initialCategory(recents));
+    }
+
+    /** 标题栏用无键帽的小图标，避免与底栏的返回、删除同时铺成两排功能键。 */
+    private void styleHeaderButton(Button button) {
+        KeyboardTypographyPolicy.normalizeKeyCap(button);
+        ViewPolicy.clearPadding(button);
+        ViewPolicy.setCenteredKeyTextSizeSp(button, 20);
+        if (button instanceof KeyboardPressButton key) key.setKeyboardRole(KeyboardKeyRole.GLYPH);
+        listener.restyle(button);
+    }
+
+    private void styleFooterButton(Button button, float textSize) {
+        KeyboardTypographyPolicy.normalizeKeyCap(button);
+        ViewPolicy.clearPadding(button);
+        ViewPolicy.setCenteredKeyTextSizeSp(button, textSize);
+    }
+
+    /** 底栏与符号网格共用 6 dp 的键间距，圆角键帽不再连成一整块。 */
+    private LinearLayout.LayoutParams footerKeyParams() {
+        LinearLayout.LayoutParams params = LayoutPolicy.weightedHeightParams(getContext(), 42, 1);
+        int margin = DimensionPolicy.pixels(getContext(), 3);
+        params.setMargins(margin, margin, margin, margin);
+        return params;
     }
 
     private void select(int category) {
@@ -204,12 +236,17 @@ public final class SymbolPanelView extends LinearLayout {
                 ViewPolicy.setCenteredKeyTextSizeSp(button, SymbolPanelModel.cellTextSizeSp(category, symbol));
                 // 邮箱后缀这类长条目缩小字号后仍可能放不下，单行省略，不折成两行（#6147）。
                 if (SymbolPanelModel.singleLineCell(category, symbol)) ViewPolicy.setSingleLineEllipsized(button);
+                KeyboardTypographyPolicy.normalizeKeyCap(button);
                 ViewPolicy.clearPadding(button);
+                // 单个符号按实际墨迹居中，逗号和引号不再分别贴着格子的下沿、上沿。
+                if (TextPolicy.codePointLength(symbol) == 1) CenteredGlyphSpan.apply(button, symbol, 1f);
                 GridLayout.Spec row = GridLayout.spec(start / columns);
                 GridLayout.Spec column = GridLayout.spec(index - start, 1f);
                 GridLayout.LayoutParams params = new GridLayout.LayoutParams(row, column);
                 params.width = 0;
-                params.height = DimensionPolicy.pixels(getContext(), 46);
+                params.height = DimensionPolicy.pixels(getContext(), 40);
+                int margin = DimensionPolicy.pixels(getContext(), 3);
+                params.setMargins(margin, margin, margin, margin);
                 grid.addView(button, params);
             }
             for (int index = end - start; index < columns; index++) {
@@ -218,7 +255,9 @@ public final class SymbolPanelView extends LinearLayout {
                 GridLayout.Spec column = GridLayout.spec(index, 1f);
                 GridLayout.LayoutParams params = new GridLayout.LayoutParams(row, column);
                 params.width = 0;
-                params.height = DimensionPolicy.pixels(getContext(), 46);
+                params.height = DimensionPolicy.pixels(getContext(), 40);
+                int margin = DimensionPolicy.pixels(getContext(), 3);
+                params.setMargins(margin, margin, margin, margin);
                 grid.addView(spacer, params);
             }
         }
