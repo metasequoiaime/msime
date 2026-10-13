@@ -5,6 +5,10 @@ import Darwin
 /// force an unbounded allocation. The extra byte distinguishes an exact-limit
 /// file from one that is too large.
 enum BoundedFileReader {
+  struct OpenFailure: Error {
+    let code: POSIXErrorCode
+  }
+
   enum Failure: Error, Equatable {
     case invalidLimit
     case tooLarge
@@ -14,7 +18,7 @@ enum BoundedFileReader {
     guard maximumBytes > 0 else { throw Failure.invalidLimit }
     let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
     guard descriptor >= 0 else {
-      throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+      throw OpenFailure(code: POSIXErrorCode(rawValue: errno) ?? .EIO)
     }
     var metadata = stat()
     guard fstat(descriptor, &metadata) == 0, (metadata.st_mode & S_IFMT) == S_IFREG else {

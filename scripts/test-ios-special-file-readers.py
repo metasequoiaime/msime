@@ -76,9 +76,9 @@ CHECKS = (
     ),
     (
         ROOT / "platforms/ios/App/Services/LocalSpeechModel.swift",
-        "    let descriptor = open(url.path",
-        "    let handle = FileHandle",
-        ("O_NONBLOCK",),
+        "    let data: Data",
+        "    guard let object",
+        ("BoundedFileReader.read(from: url, maximumBytes: Self.maximumManifestBytes)",),
     ),
     (
         ROOT / "shared/backend/account/BackendAccountSession.swift",
