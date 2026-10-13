@@ -14,7 +14,7 @@ Status: implemented
 - **只认整段完全相等，不按前缀。** 26 键（`query_mixed_symbols`）：全拼认名称的全拼、两个音节以上名称的首字母（`ssd` 摄氏度，只限全拼）和至少 4 个字母的拉丁名称（`gamma`）；双拼用 `normalize_input` 归一成全拼后比全拼，另按原样比拉丁名称。九宫格（`query_symbol_readings`）只认读法与名称全拼完全相等，并且要过 `splits_into_syllables_at` 的边界检查。输入不到 `MIXED_EXPRESSIVE_MINIMUM_INPUT`（2）个字母不查。单音节名称只收派、度（W#40、W#759 点名的），由表检查钉死。
 - **来源复用 `CandidateSource::Emoji`（6）。** 于是不学习、不调频、不进个人上下文（`learn_candidate`、`record_personal_context`）、选中即整段上屏结束组字（`commit_selection`，所以部分选词后选符号不会造出「大于≥」），不能置顶、固定或删除（`is_editable_source`），重排器不碰它（`CATALOG_SOURCES`），有云候选、AI 候选时按 emoji 的座位坐（`normalize_online_slots`），不请求释义，Windows 选中即结束组字。`CandidateSource::Emoji` 的文档注释写明它也用于符号行。
 - **位置**（`crates/engine/src/ime/queries.rs` 的 `place_symbol_rows`，26 键和九宫格的 `insert_expressive_rows` 共用）：
-  - 锚定词是名称本身（中文名称那个词，拉丁名称是英文混输给出的同名英文行）。在候选里时紧跟第一个锚定词；单音节名称最早排在下标 `SYMBOL_SINGLE_SYLLABLE_SLOT`（3，第 4 位）。
+  - 锚定词是名称本身（中文名称那个词，拉丁名称是英文混输给出的同名英文行）。在候选里时紧跟第一个锚定词；输入含糊时最早排在下标 `SYMBOL_AMBIGUOUS_SLOT`（3，第 4 位），含糊指单音节名称（派、度）和两个字母的首字母（`ax` 爱心、`jf` 积分、`oy` 欧元、`bq` 版权）。两个字母的简拼和单音节一样能指的词太多：真词库上它们原本都把符号排在下标 1，挤掉第二个常用词。三个字母以上的首字母（`ssd`、`wjx`、`lfm`，issue 里举的例子都是这种）照旧紧跟锚定词。没选「只认三个字母以上的首字母」：W#759 点名要 `pm` 出 ㎡，那样要给它单独开口子。
   - 锚定词不在候选里时，全拼两个音节以上和拉丁名称排在下标 `SYMBOL_UNANCHORED_SLOT`（5，默认每页 6 个的第一页最后一位），列表短时接在末尾；首字母匹配和单音节不出。
   - 所有位置 ≥ 1，列表空时不加，所以混排时符号不占首位。
   - 符号在 emoji 之后插，同一个词后面依次是符号、emoji、颜文字；固定位置照常在混排之后应用。

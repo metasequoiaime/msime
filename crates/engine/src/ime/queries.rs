@@ -33,8 +33,8 @@ pub const MIXED_ENGLISH_LIMIT: usize = 5;
 pub const MODE_ENGLISH_LIMIT: usize = 1_000;
 const MIXED_DEDUP_CAPACITY: usize =
     MIXED_ENGLISH_LIMIT + MIXED_SYMBOL_LIMIT + MIXED_FETCH_LIMIT * 2;
-/// 单音节名称（派、度）的符号最早排在第几位（下标）：它们在最常用的音节上，排到第 4 位，前三个词不被挤动。
-const SYMBOL_SINGLE_SYLLABLE_SLOT: usize = 3;
+/// 输入含糊（单音节名称派、度，两个字母的首字母 `ax`、`jf`）时符号最早排在第几位（下标）：这样的输入能指的词太多，排到第 4 位，前三个词不被挤动。
+const SYMBOL_AMBIGUOUS_SLOT: usize = 3;
 /// 名称那个词不在候选里时，符号排在第几位（下标）：默认每页 6 个，下标 5 是第一页最后一位，看得见又不挤掉前面的词。
 const SYMBOL_UNANCHORED_SLOT: usize = 5;
 /// 混入 emoji 和颜文字所需的最短输入：它们按拼音查，一个字母能匹配的太多。九宫格按数字个数算，同样是 2。
@@ -445,7 +445,7 @@ fn same_without_variation_selector(left: &str, right: &str) -> bool {
 
 /// 符号行接在它名称那个词（锚定词）后面，同一个词后面先符号、再 emoji、再颜文字（emoji 已经接好，插在锚定词下标 + 1 就把它们推到后面）：
 ///
-/// - 锚定词在候选里：紧跟在第一个锚定词后面；名称是单音节（派、度）时最早排在 `SYMBOL_SINGLE_SYLLABLE_SLOT`。
+/// - 锚定词在候选里：紧跟在第一个锚定词后面；输入含糊（单音节名称、两个字母的首字母）时最早排在 `SYMBOL_AMBIGUOUS_SLOT`。
 /// - 锚定词不在候选里：全拼两个音节以上和拉丁名称排在 `SYMBOL_UNANCHORED_SLOT`，单音节和首字母匹配不出。
 ///
 /// 所有位置都 ≥ 1，列表空时不加，所以混排时符号不占首位。混排之后名称词还可能被挪走（只出单字、固定位置），那一步由 `keep_expressive_rows_off_the_lead` 兜住。位置超过列表长度时接在末尾。
@@ -461,9 +461,7 @@ fn place_symbol_rows(list: &mut Vec<WordItem>, mut symbols: Vec<SymbolRow>) {
     with_first_position(list, |first_position| {
         for (index, row) in symbols.iter().enumerate() {
             let slot = match first_position(row.anchor) {
-                Some(anchor) if row.single_syllable => {
-                    (anchor + 1).max(SYMBOL_SINGLE_SYLLABLE_SLOT)
-                }
+                Some(anchor) if row.ambiguous => (anchor + 1).max(SYMBOL_AMBIGUOUS_SLOT),
                 Some(anchor) => anchor + 1,
                 None if row.unanchored => SYMBOL_UNANCHORED_SLOT,
                 None => continue,
@@ -1613,16 +1611,11 @@ mod tests {
     // ---- 打拼音出符号 ----
 
     /// 一行符号，`anchor` 是它名称那个词。
-    fn symbol(
-        word: &str,
-        anchor: &'static str,
-        single_syllable: bool,
-        unanchored: bool,
-    ) -> SymbolRow {
+    fn symbol(word: &str, anchor: &'static str, ambiguous: bool, unanchored: bool) -> SymbolRow {
         SymbolRow {
             item: WordItem::new("x", word, 0, CandidateSource::Emoji, ""),
             anchor,
-            single_syllable,
+            ambiguous,
             unanchored,
         }
     }

@@ -21,7 +21,7 @@ pub const SYMBOLS_PER_NAME: usize = 6;
 /// 拉丁名称至少几个字母：`pi`、`mu`、`xi`、`nu` 都是常用拼音音节，这些希腊字母走中文名。
 #[cfg(test)]
 pub const LATIN_NAME_MINIMUM: usize = 4;
-/// 单音节名称只收有 issue 依据的这两个（W#40 的派 π、W#759 的度 °）：它们在最常用的音节上，锚定词不在候选里时不出，在时最早排第 4 位。
+/// 单音节名称只收有 issue 依据的这两个（W#40 的派 π、W#759 的度 °）：它们在最常用的音节上，锚定词不在候选里时不出，在时最早排第 4 位（`SymbolRow::ambiguous`）。
 #[cfg(test)]
 pub const SINGLE_SYLLABLE_NAMES: [&str; 2] = ["派", "度"];
 
@@ -31,8 +31,8 @@ pub struct SymbolRow {
     pub item: WordItem,
     /// 锚定词：中文名称就是那个词，拉丁名称是英文混输给出的同名英文行（`gamma`）。
     pub anchor: &'static str,
-    /// 名称是单音节（派、度）：跟在锚定词后面时最早排第 4 位。
-    pub single_syllable: bool,
+    /// 输入含糊：只有一个音节（派、度），或者是两个字母的首字母（`ax` 爱心、`jf` 积分）。这样的输入能指的词太多，符号跟在锚定词后面时最早排第 4 位，不挤动前三个词。
+    pub ambiguous: bool,
     /// 锚定词不在候选里时也出现（排在第一页最后一位）。全拼两个音节以上和拉丁名称是，单音节和首字母匹配不是。
     pub unanchored: bool,
 }
@@ -215,6 +215,8 @@ fn rows_for(table: &SymbolTable, hits: &[(usize, Match)], code: &str) -> Vec<Sym
     for &(index, kind) in hits {
         let entry = &table.entries[index];
         let single_syllable = kind == Match::Quanpin && entry.syllables() == 1;
+        let ambiguous = single_syllable || (kind == Match::Initials && entry.syllables() == 2);
+        let unanchored = kind != Match::Initials && !single_syllable;
         for symbol in entry.symbols() {
             if rows.len() == MIXED_SYMBOL_LIMIT {
                 return rows;
@@ -225,8 +227,8 @@ fn rows_for(table: &SymbolTable, hits: &[(usize, Match)], code: &str) -> Vec<Sym
             rows.push(SymbolRow {
                 item: WordItem::new(code, symbol, 0, CandidateSource::Emoji, ""),
                 anchor: entry.name,
-                single_syllable,
-                unanchored: kind != Match::Initials && !single_syllable,
+                ambiguous,
+                unanchored,
             });
         }
     }
@@ -357,11 +359,15 @@ mod tests {
         let rows = quanpin("ssd");
         assert_eq!(texts(&rows), vec!["℃"]);
         assert_eq!(rows[0].anchor, "摄氏度");
-        assert!(!rows[0].unanchored && !rows[0].single_syllable);
+        assert!(!rows[0].unanchored && !rows[0].ambiguous);
+        // 两个字母的首字母和单音节一样含糊（`ax` 爱心）。
+        let ax = quanpin("ax");
+        assert_eq!(texts(&ax), vec!["♥", "♡"]);
+        assert!(ax[0].ambiguous && !ax[0].unanchored);
         // 度是单音节，首字母 d 本来就不到两个字母；pai 的首字母 p 也一样。
         let du = quanpin("du");
         assert_eq!(texts(&du), vec!["°"]);
-        assert!(du[0].single_syllable && !du[0].unanchored);
+        assert!(du[0].ambiguous && !du[0].unanchored);
         // 双拼不认首字母。
         let xiaohe = profile(ShuangpinProfileKind::Xiaohe).unwrap();
         assert!(query_mixed_symbols("ssd", SchemeType::Shuangpin, xiaohe).is_empty());
@@ -377,7 +383,7 @@ mod tests {
         assert!(quanpin("pi").is_empty());
         let pai = quanpin("pai");
         assert_eq!(texts(&pai), vec!["π"]);
-        assert!(pai[0].single_syllable);
+        assert!(pai[0].ambiguous);
     }
 
     #[test]
