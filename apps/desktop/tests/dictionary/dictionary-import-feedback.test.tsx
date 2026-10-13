@@ -257,7 +257,7 @@ describe("Sogou cell dictionaries", () => {
     const dictionary = scelDictionary();
     await importFile(dictionary, new File([scelBytes], "化学.scel"), "pinyin");
     await waitFor(() => expect(dictionary.import).toHaveBeenCalled());
-    expect(dictionary.scelText).toHaveBeenCalledWith(Buffer.from(scelBytes).toString("base64"));
+    expect(dictionary.scelText).toHaveBeenCalledWith("QBUAAERDUwEBAAAABw==");
     expect(dictionary.import.mock.calls[0].slice(0, 3)).toEqual([
       "pinyin",
       "standard",
@@ -374,7 +374,10 @@ describe("Sogou cell dictionaries", () => {
 test("bytes are encoded to base64 in chunks without overflowing the stack", () => {
   const bytes = new Uint8Array(3 * 1024 * 1024 + 2);
   for (let index = 0; index < bytes.length; index++) bytes[index] = (index * 31 + 7) & 0xff;
-  expect(bytesToBase64(bytes)).toBe(Buffer.from(bytes).toString("base64"));
+  // 对照：整段字节一次拼成二进制串再交给 `btoa`，不分块。
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  expect(bytesToBase64(bytes)).toBe(btoa(binary));
   expect(bytesToBase64(new Uint8Array())).toBe("");
 });
 

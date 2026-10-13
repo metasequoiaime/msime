@@ -433,11 +433,7 @@ test("添加词库 offers the Sogou cell dictionary after text and sends its byt
   Object.defineProperty(input, "files", { value: [new File([bytes], "化学词汇.scel")] });
   fireEvent.change(input);
   await waitFor(() => expect(collections.importBytes).toHaveBeenCalled());
-  expect(collections.importBytes).toHaveBeenCalledWith(
-    "化学词汇",
-    "scel",
-    Buffer.from(bytes).toString("base64"),
-  );
+  expect(collections.importBytes).toHaveBeenCalledWith("化学词汇", "scel", "QBUAAERDUwH/");
   expect(collections.importFile).not.toHaveBeenCalled();
   expect(await screen.findByText("已导入「化学词汇」，2 条，1 行无法识别")).toBeTruthy();
 });
