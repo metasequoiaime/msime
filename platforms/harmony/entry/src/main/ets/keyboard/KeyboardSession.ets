@@ -4055,6 +4055,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     this.generation = view.generation;
     this.currentCandidates = view.candidates.slice();
+    // Special sources are filtered before the existing candidate.translation ?? null, this.candidateGlossEnabled presentation path consumes them.
     this.lastView = view;
     this.syncPreview();
     if (this.japaneseConversionIndex >= 0
@@ -4088,17 +4089,18 @@ export class KeyboardSession implements HardwareKeyTarget {
         badge: CandidatePresentationPolicy.badge(candidate.source),
         fixedPosition: candidate.fixed_position,
         source: candidate.source,
-        translation: candidate.translation ?? null,
+        translation: TranslationPolicy.sourceGetsNoGloss(candidate.source)
+          ? null : candidate.translation ?? null,
         // Only the part of the code still untyped, and only where that means something. The policy
         // decides; this just supplies what it reasons about.
         hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
           view.local_mode, view.answered_by_pinyin_fallback),
         annotation: CandidateGlossPolicy.annotation(
           CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
-          candidate.translation ?? null, this.candidateGlossEnabled),
+          TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
         annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(
           CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
-          candidate.translation ?? null, this.candidateGlossEnabled),
+          TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
         hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
       });
     }
@@ -4148,15 +4150,16 @@ export class KeyboardSession implements HardwareKeyTarget {
       text: this.asTraditional(candidate.text), highlighted: candidate.highlighted,
       badge: CandidatePresentationPolicy.badge(candidate.source),
       fixedPosition: candidate.fixed_position, source: candidate.source,
-      translation: candidate.translation ?? null,
+      translation: TranslationPolicy.sourceGetsNoGloss(candidate.source)
+        ? null : candidate.translation ?? null,
       hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
         view.local_mode, view.answered_by_pinyin_fallback),
       annotation: CandidateGlossPolicy.annotation(
         CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
-        candidate.translation ?? null, this.candidateGlossEnabled),
+        TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
       annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(
         CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
-        candidate.translation ?? null, this.candidateGlossEnabled),
+        TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
       hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
     }));
     const reading: string = KeyboardSession.drawnReading(view);
@@ -4611,7 +4614,7 @@ export class KeyboardSession implements HardwareKeyTarget {
           generation: query.generation,
           user_data: '',
           candidates: query.candidates.map((candidate: TranslationCandidate): GlossRequestCandidate => ({
-            text: candidate.text, source: 0
+            text: candidate.text, source: candidate.source
           })),
           target_language: language
         };
@@ -4652,7 +4655,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         generation: query.generation,
         user_data: query.user_data ?? '',
         candidates: query.candidates.map((candidate: TranslationCandidate): GlossRequestCandidate => ({
-          text: candidate.text, source: 0
+          text: candidate.text, source: candidate.source
         }))
       };
       const glossResponse: string = client.candidateGlosses(
@@ -6421,10 +6424,10 @@ export class KeyboardSession implements HardwareKeyTarget {
           text: this.asTraditional(candidate.text),
           annotation: CandidateGlossPolicy.annotation(
             CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
-            candidate.translation ?? null, this.candidateGlossEnabled),
+            TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
           annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(
             CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
-            candidate.translation ?? null, this.candidateGlossEnabled),
+            TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
           hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
         });
       }

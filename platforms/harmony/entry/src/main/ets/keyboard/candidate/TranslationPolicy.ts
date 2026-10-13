@@ -3,6 +3,7 @@ import { TextPolicy } from "../TextPolicy";
 
 export interface TranslationCandidate {
   text: string;
+  source: number;
 }
 
 export interface TranslationProviderConfig {
@@ -64,6 +65,11 @@ export class TranslationPolicy {
   static readonly MAX_CACHE_ENTRIES: number = 4096;
   static readonly NEGATIVE_CACHE_MS: number = 8 * 60 * 1000;
 
+  /** Engine rows whose text must never receive a candidate gloss. */
+  static sourceGetsNoGloss(source: number): boolean {
+    return source === 6 || source === 7 || source === 13 || source === 14;
+  }
+
   static targets(query: TranslationQuery): string[] {
     const result: string[] = [];
     const values: string[] = [query.target_language];
@@ -120,7 +126,9 @@ export class TranslationPolicy {
       generation: query.generation,
       target_languages: TranslationPolicy.targets(query),
       offline_gloss_languages: TranslationPolicy.offlineTargets(query),
-      candidates: query.candidates.map((candidate: TranslationCandidate): string => candidate.text),
+      candidates: query.candidates.map((candidate: TranslationCandidate): object => ({
+        text: candidate.text, source: candidate.source,
+      })),
       english_gloss: query.english_gloss,
       provider: TranslationPolicy.provider(query),
       translation_account: query.translation_account === true,
@@ -205,8 +213,7 @@ export class TranslationPolicy {
     return JSON.stringify({
       target_language: target,
       candidates: candidates.map((candidate: TranslationCandidate): Object => ({
-        text: candidate.text,
-        source: 0,
+        text: candidate.text, source: candidate.source,
       })),
     });
   }

@@ -1099,7 +1099,7 @@ group("keeps translation provider policy bounded and credential-free in signatur
     generation: 12,
     target_language: "en",
     target_languages: ["en", "ja"],
-    candidates: [{ text: "你好" }, { text: "你好" }],
+    candidates: [{ text: "你好", source: 0 }, { text: "你好", source: 14 }],
     custom_translation: null,
     tencent_tmt: null,
     niutrans: { enabled: true, app_id: "account", apikey: "secret" },
@@ -1108,6 +1108,12 @@ group("keeps translation provider policy bounded and credential-free in signatur
     user_data: "/data/state",
   };
   check(TranslationPolicy.provider(query) === "niutrans", "NiuTrans has provider precedence");
+  check(
+    TranslationPolicy.sourceGetsNoGloss(6) && TranslationPolicy.sourceGetsNoGloss(7)
+      && TranslationPolicy.sourceGetsNoGloss(13) && TranslationPolicy.sourceGetsNoGloss(14)
+      && !TranslationPolicy.sourceGetsNoGloss(0),
+    "special candidate sources never receive glosses",
+  );
   check(TranslationPolicy.targets(query).join(",") === "en,ja", "targets are deduplicated");
   check(
     !TranslationPolicy.signature(query).includes("secret"),
@@ -1189,7 +1195,7 @@ group("asks a /fy sentence query as its own item into its own target", () => {
     generation: 5,
     target_language: "zh",
     target_languages: ["zh"],
-    candidates: [{ text: "hello world" }],
+    candidates: [{ text: "hello world", source: 0 }],
     custom_translation: { enabled: true, endpoint: "https://translate.example", api_key: "key" },
     english_gloss: false,
     sentence: true,
@@ -1209,12 +1215,12 @@ group("asks a /fy sentence query as its own item into its own target", () => {
     "a candidate gloss query is not a command request",
   );
   check(
-    TranslationPolicy.commandItem({ ...query, candidates: [{ text: "a" }, { text: "b" }] }) ===
+    TranslationPolicy.commandItem({ ...query, candidates: [{ text: "a", source: 0 }, { text: "b", source: 0 }] }) ===
       null,
     "a sentence query holds exactly one text",
   );
   check(
-    TranslationPolicy.commandItem({ ...query, candidates: [{ text: "" }] }) === null,
+    TranslationPolicy.commandItem({ ...query, candidates: [{ text: "", source: 0 }] }) === null,
     "an empty sentence is not asked",
   );
 });
@@ -1238,7 +1244,7 @@ group("offline dictionaries fill only what the user's own translator left", () =
     generation: 3,
     target_language: "en",
     target_languages: ["ja", "fr"],
-    candidates: [{ text: "你好" }, { text: "世界" }],
+    candidates: [{ text: "你好", source: 0 }, { text: "世界", source: 0 }],
     english_gloss: true,
     offline_gloss_languages: ["en", "fr", "de"],
   };

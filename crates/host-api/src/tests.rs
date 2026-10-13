@@ -6098,6 +6098,12 @@ fn offline_glosses_are_found_in_the_downloaded_pack() {
         )["value"],
         json!({"generation":1,"translations":[{"text":"你好","translation":"bonjour, salut"}]})
     );
+    assert_eq!(
+        call(
+            json!({"generation":4,"target_language":"fr","state_root":query["value"]["state_root"],"candidates":[{"text":"你好","source":14}]})
+        )["value"],
+        json!({"generation":4,"translations":[]})
+    );
     // 不带 state_root 的宿主照旧只看资源目录旁边。
     assert_eq!(
         call(json!({"generation":2,"target_language":"fr","candidates":candidates}))["value"],
