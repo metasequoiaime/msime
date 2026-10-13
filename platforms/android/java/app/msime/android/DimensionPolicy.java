@@ -21,8 +21,12 @@ public final class DimensionPolicy {
 
     /** Return whether the supplied context currently uses the system night configuration. */
     public static boolean isNight(Context context) {
-        return (context.getResources().getConfiguration().uiMode
-            & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        return isNight(context.getResources().getConfiguration().uiMode);
+    }
+
+    /** 从指定的 uiMode 取深浅位；配置回调传最新值，普通渲染传 Context 当前值。 */
+    public static boolean isNight(int uiMode) {
+        return (uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
     }
 
     /** Read the display density used by Android layout calculations. */

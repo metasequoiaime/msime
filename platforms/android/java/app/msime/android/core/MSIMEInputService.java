@@ -1549,9 +1549,13 @@ public final class MSIMEInputService extends InputMethodService {
             connection.requestCursorUpdates(InputConnection.CURSOR_UPDATE_MONITOR | InputConnection.CURSOR_UPDATE_IMMEDIATE);
         JSONObject preferences = preferencesSnapshot == null ? null
             : preferencesSnapshot.optJSONObject("preferences");
-        KeyboardSkin next = keyboardSkin(preferences);
-        boolean skinChanged = !skin.key().equals(next.key());
-        skin = next;
+        // 输入法服务可能在深浅模式切换时保留同一个窗口，所有表面都按回调收到的配置重算。
+        // 只更新键盘会让候选栏、表情和手写面板停在旧模式。
+        boolean systemDark = DimensionPolicy.isNight(configuration.uiMode);
+        skin = keyboardSkin(preferences, systemDark);
+        emojiSkin = surfaceSkin(preferences, "emoji_theme", systemDark);
+        handwritingSkin = surfaceSkin(preferences, "handwriting_theme", systemDark);
+        candidateAppearance = candidateAppearanceFor(preferences, systemDark);
         // The input service can survive rotation and window/inset changes. Reapply the
         // geometry even when the palette is unchanged; otherwise the existing key tree keeps
         // margins and height adjustments calculated with the previous configuration. A held
@@ -1560,10 +1564,10 @@ public final class MSIMEInputService extends InputMethodService {
         imeLayoutRows.hideJapaneseFlickPreview();
         if (keyboardRoot == null) return;
         imeStyler.applyKeyboardSurfaceGeometry();
-        if (skinChanged) imeStyler.applySkin();
         imeStyler.applyKeyboardGeometry();
         renderLayoutSettingsState();
         render();
+        if (ViewPolicy.isVisible(skinScroll)) imePanels.renderSkinPicker();
     }
 
     @Override public void onTrimMemory(int level) {
@@ -2316,6 +2320,8 @@ public final class MSIMEInputService extends InputMethodService {
         String previousNotice = preferencesNotice;
         // 比的是实际画出来的皮肤（经应用主题着色后），不是 `skin.key()`：渲染时 `skin` 被换成当季配色，重读时又按偏好重建回 classic 基础色，两者永远不等（见 KeyboardSkin#displayKey）。
         String previousSkin = skin.displayKey(imeStyler.appThemeSeed());
+        String previousEmojiSkin = emojiSkin.displayKey(imeStyler.appThemeSeed());
+        String previousHandwritingSkin = handwritingSkin.displayKey(imeStyler.appThemeSeed());
         AndroidLocalSettings.Snapshot previousLocalSettings = localSettings;
         String previousAppearance = candidateAppearanceKey();
         String previousGeometry = touchGeometryKey();
@@ -2344,6 +2350,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (previousPreferencesReady != (preferencesSnapshot != null)
                 || !previousNotice.equals(preferencesNotice)
                 || !previousSkin.equals(skin.displayKey(imeStyler.appThemeSeed()))
+                || !previousEmojiSkin.equals(emojiSkin.displayKey(imeStyler.appThemeSeed()))
+                || !previousHandwritingSkin.equals(handwritingSkin.displayKey(imeStyler.appThemeSeed()))
                 || !previousLocalSettings.equals(localSettings)
                 || !previousAppearance.equals(candidateAppearanceKey())
                 || !previousGeometry.equals(touchGeometryKey())
@@ -2459,6 +2467,9 @@ public final class MSIMEInputService extends InputMethodService {
             || touchRowSpacingTenths != nextRowSpacing
             || touchKeyboardHeightAdjustment != nextHeightAdjustment;
         skin = nextSkin;
+        // 实时修改颜色模式和面板明暗时，表情与手写也必须同步；只更新键盘会保留旧配色。
+        emojiSkin = surfaceSkin(preferences, "emoji_theme");
+        handwritingSkin = surfaceSkin(preferences, "handwriting_theme");
         rememberSkinHint(preferences);
         candidateAppearance = nextCandidateAppearance;
         localModes = nextLocalModes;
@@ -4754,7 +4765,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private KeyboardSkin keyboardSkin(JSONObject preferences) {
-        return surfaceSkin(preferences, "screen_keyboard_theme");
+        return keyboardSkin(preferences, systemDark());
+    }
+
+    private KeyboardSkin keyboardSkin(JSONObject preferences, boolean systemDark) {
+        return surfaceSkin(preferences, "screen_keyboard_theme", systemDark);
     }
 
     /** 决定键盘、表情、手写面板皮肤与候选条外观的偏好字段，{@link #applyTouchGeometry} 读的键盘几何字段，加上工具栏按钮开关 `touch_toolbar`；{@link #rememberSkinHint} 只记这几项。 */
@@ -4832,7 +4847,11 @@ public final class MSIMEInputService extends InputMethodService {
      * 候选条的配色。皮肤和键盘、表情、手写一样要经 {@link ImeStyler#themed} 按应用主题着色：「跟随系统」不着色时取的是经典绿种子，暖色主题下候选条铺一层淡绿底、页码也是绿的。键盘里换皮肤时也要跟着重算，否则候选条停在旧皮肤上。
      */
     CandidateAppearance.Palette candidateAppearanceFor(JSONObject preferences) {
-        KeyboardSkin strip = surfaceSkin(preferences, "candidate_theme");
+        return candidateAppearanceFor(preferences, systemDark());
+    }
+
+    private CandidateAppearance.Palette candidateAppearanceFor(JSONObject preferences, boolean systemDark) {
+        KeyboardSkin strip = surfaceSkin(preferences, "candidate_theme", systemDark);
         return CandidateAppearance.from(preferences, imeStyler == null ? strip : imeStyler.themed(strip));
     }
 
@@ -4842,10 +4861,14 @@ public final class MSIMEInputService extends InputMethodService {
      * <p>面板自己的 `dark` 或 `light` 优先；`follow` 跟随应用的明暗（`theme`），应用为 `system` 时跟随 Android 的夜间模式。缺失或不认识的值按 `follow` 处理，旧快照因此保持键盘原来的明暗，不会跳回浅色。所选主题属于另一种明暗时按 `system` 画（{@link KeyboardSkin#effectiveTheme}），键盘因此始终和这块面板的明暗一致。
      */
     private KeyboardSkin surfaceSkin(JSONObject preferences, String key) {
+        return surfaceSkin(preferences, key, systemDark());
+    }
+
+    private KeyboardSkin surfaceSkin(JSONObject preferences, String key, boolean systemDark) {
         String surfaceMode = preferences == null ? "follow" : preferences.optString(key, "follow");
         String appMode = preferences == null ? "system"
             : InputViewValuePolicy.textOr(preferences, "theme", "system");
-        boolean dark = KeyboardSkin.resolveDark(surfaceMode, appMode, systemDark());
+        boolean dark = KeyboardSkin.resolveDark(surfaceMode, appMode, systemDark);
         String globalTheme = preferences == null ? "system"
             : InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         JSONObject customTheme = preferences == null ? null
