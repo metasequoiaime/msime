@@ -1594,24 +1594,28 @@ static void TestMixedInputPreferences() {
     // Emoji mixed-input starts on like the source's `emoji_mixed_input = true`; kaomoji starts off.
     assert(preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 5 &&
            preferences.mixedEmojiInput && !preferences.mixedKaomojiInput);
+    // Symbol mixed input starts on; like client-core, the merged object only carries `symbols` once it is off.
+    assert(preferences.mixedSymbolInput);
     NSDictionary *initial = [preferences sharedPreferencesByMerging:@{}][@"mixed_input"];
     assert([initial[@"english"] isEqual:@YES] && [initial[@"minimum_prefix"] isEqual:@5] &&
-           [initial[@"emoji"] isEqual:@YES] && [initial[@"kaomoji"] isEqual:@NO]);
+           [initial[@"emoji"] isEqual:@YES] && [initial[@"kaomoji"] isEqual:@NO] && initial[@"symbols"] == nil);
     [preferences applySharedInputPreferences:@{ @"mixed_input": @{
-        @"english": @NO, @"minimum_prefix": @7, @"emoji": @YES, @"kaomoji": @YES } }];
+        @"english": @NO, @"minimum_prefix": @7, @"emoji": @YES, @"kaomoji": @YES, @"symbols": @NO } }];
     assert(!preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 7 &&
-           preferences.mixedEmojiInput && preferences.mixedKaomojiInput);
+           preferences.mixedEmojiInput && preferences.mixedKaomojiInput && !preferences.mixedSymbolInput);
     assert([defaults objectForKey:@"MSIMEClientMixedInput"] == nil);
     [preferences applySharedInputPreferences:@{ @"mixed_input": @{
-        @"english": @1, @"minimum_prefix": @9, @"emoji": @"true", @"kaomoji": NSNull.null } }];
+        @"english": @1, @"minimum_prefix": @9, @"emoji": @"true", @"kaomoji": NSNull.null, @"symbols": @"true" } }];
     assert(!preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 7 &&
-           preferences.mixedEmojiInput && preferences.mixedKaomojiInput);
+           preferences.mixedEmojiInput && preferences.mixedKaomojiInput && !preferences.mixedSymbolInput);
     NSButton *english = (id)PreferenceControl(preferences, @selector(mixedEnglishChanged:));
     NSPopUpButton *prefix = (id)PreferenceControl(preferences, @selector(mixedEnglishPrefixChanged:));
     NSButton *emoji = (id)PreferenceControl(preferences, @selector(mixedEmojiChanged:));
     NSButton *kaomoji = (id)PreferenceControl(preferences, @selector(mixedKaomojiChanged:));
+    NSButton *symbols = (id)PreferenceControl(preferences, @selector(mixedSymbolChanged:));
     assert(english.state == NSControlStateValueOff && prefix.indexOfSelectedItem == 6 && !prefix.enabled &&
-           emoji.state == NSControlStateValueOn && kaomoji.state == NSControlStateValueOn);
+           emoji.state == NSControlStateValueOn && kaomoji.state == NSControlStateValueOn &&
+           symbols.state == NSControlStateValueOff);
     english.state = NSControlStateValueOn;
     [NSApp sendAction:english.action to:english.target from:english];
     [prefix selectItemAtIndex:4];
@@ -1622,14 +1626,29 @@ static void TestMixedInputPreferences() {
     [NSApp sendAction:kaomoji.action to:kaomoji.target from:kaomoji];
     assert(preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 5 &&
            !preferences.mixedEmojiInput && !preferences.mixedKaomojiInput && prefix.enabled);
+    // Turned off in the shared page, symbol mixed input stays off after the other switches change here: the object is rewritten whole.
+    assert(!preferences.mixedSymbolInput);
     NSDictionary *edited = [preferences sharedPreferencesByMerging:@{}][@"mixed_input"];
-    assert(([edited isEqual:@{ @"english": @YES, @"minimum_prefix": @5, @"emoji": @NO, @"kaomoji": @NO }]));
+    assert(([edited isEqual:@{ @"english": @YES, @"minimum_prefix": @5, @"emoji": @NO, @"kaomoji": @NO, @"symbols": @NO }]));
     assert([defaults dictionaryForKey:@"MSIMEClientMixedInput"] != nil);
     // An explicitly stored NO for emoji survives reopening instead of falling back to the on default.
     MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     assert(reopened.mixedEnglishInput && reopened.mixedEnglishMinimumPrefix == 5 &&
-           !reopened.mixedEmojiInput && !reopened.mixedKaomojiInput);
+           !reopened.mixedEmojiInput && !reopened.mixedKaomojiInput && !reopened.mixedSymbolInput);
     assert([[reopened sharedPreferencesByMerging:@{}][@"mixed_input"][@"emoji"] isEqual:@NO]);
+    // Turning symbols back on here drops the key again; a shared object without the key reads as on.
+    symbols.state = NSControlStateValueOn;
+    [NSApp sendAction:symbols.action to:symbols.target from:symbols];
+    assert(preferences.mixedSymbolInput && [preferences sharedPreferencesByMerging:@{}][@"mixed_input"][@"symbols"] == nil);
+    [preferences applySharedInputPreferences:@{ @"mixed_input": @{
+        @"english": @YES, @"minimum_prefix": @5, @"emoji": @NO, @"kaomoji": @NO, @"symbols": @NO } }];
+    assert(!preferences.mixedSymbolInput);
+    [preferences applySharedInputPreferences:@{ @"mixed_input": @{
+        @"english": @YES, @"minimum_prefix": @5, @"emoji": @NO, @"kaomoji": @NO, @"symbols": NSNull.null } }];
+    assert(!preferences.mixedSymbolInput);
+    [preferences applySharedInputPreferences:@{ @"mixed_input": @{
+        @"english": @YES, @"minimum_prefix": @5, @"emoji": @NO, @"kaomoji": @NO } }];
+    assert(preferences.mixedSymbolInput);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 

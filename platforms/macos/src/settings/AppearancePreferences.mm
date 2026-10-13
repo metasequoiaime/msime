@@ -509,7 +509,7 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             FullWidthKey : ^id(MSIMEAppearancePreferences *p) { return @(p.fullWidthInput); },
             TraditionalKey : ^id(MSIMEAppearancePreferences *p) { return @(p.traditionalOutput); },
             MixedInputKey : ^id(MSIMEAppearancePreferences *p) {
-                return @[@(p.mixedEnglishInput), @(p.mixedEnglishMinimumPrefix), @(p.mixedEmojiInput), @(p.mixedKaomojiInput)];
+                return @[@(p.mixedEnglishInput), @(p.mixedEnglishMinimumPrefix), @(p.mixedEmojiInput), @(p.mixedKaomojiInput), @(p.mixedSymbolInput)];
             },
             TranspositionKey : ^id(MSIMEAppearancePreferences *p) { return @(p.autocorrectTransposition); },
             NeighborKey : ^id(MSIMEAppearancePreferences *p) { return @(p.autocorrectNeighbor); },
@@ -1041,6 +1041,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSPopUpButton *_mixedEnglishPrefixButton;
     NSSwitch *_mixedEmojiToggle;
     NSSwitch *_mixedKaomojiToggle;
+    NSSwitch *_mixedSymbolToggle;
     NSNumber *_sharedTraditionalOutput;
     NSNumber *_sharedFullWidthInput;
     NSNumber *_sharedCloudCandidates;
@@ -1431,12 +1432,15 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     merged[@"smart_punctuation_space_convert"] = @(self.smartPunctuationSpaceConvert);
     merged[@"paired_punctuation"] = @(self.pairedPunctuation);
     merged[@"punctuation_lock"] = self.punctuationLock;
-    merged[@"mixed_input"] = @{
+    NSMutableDictionary *mixedInput = [@{
         @"english": @(self.mixedEnglishInput),
         @"minimum_prefix": @(self.mixedEnglishMinimumPrefix),
         @"emoji": @(self.mixedEmojiInput),
         @"kaomoji": @(self.mixedKaomojiInput)
-    };
+    } mutableCopy];
+    // 整个对象重写，所以符号混输必须带上，否则在共享页关掉后，这里改一次别的混输开关就会把它冲回默认的开。与 client-core 相同，只在关掉时写这个键。
+    if (!self.mixedSymbolInput) mixedInput[@"symbols"] = @NO;
+    merged[@"mixed_input"] = mixedInput;
     if ([_defaults objectForKey:CandidateLearningKey] != nil || _sharedCandidateLearning != nil)
         merged[@"learning"] = @(self.candidateLearningEnabled);
     if ([_defaults objectForKey:FrequencyModeKey] != nil || [_defaults objectForKey:FrequencyTriggerCountKey] != nil ||
@@ -2031,6 +2035,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         if (ValidMixedPrefix(mixedInput[@"minimum_prefix"])) values[@"minimum_prefix"] = mixedInput[@"minimum_prefix"];
         if (LocalModeBoolean(mixedInput[@"emoji"])) values[@"emoji"] = mixedInput[@"emoji"];
         if (LocalModeBoolean(mixedInput[@"kaomoji"])) values[@"kaomoji"] = mixedInput[@"kaomoji"];
+        // 共享文档开着时不写 `symbols`，缺键就是开；字符串、null 这类非法值忽略。
+        id symbols = mixedInput[@"symbols"];
+        if (LocalModeBoolean(symbols)) values[@"symbols"] = symbols;
+        else if (symbols == nil) [values removeObjectForKey:@"symbols"];
         _sharedMixedInput = values;
     }
     id traditional = preferences[@"traditional_chinese_output"];
@@ -2364,26 +2372,24 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     return [values isKindOfClass:NSDictionary.class] ? values : @{};
 }
 - (BOOL)mixedEnglishInput { id value = [self mixedInputValues][@"english"]; return LocalModeBoolean(value) ? [value boolValue] : YES; }
-- (void)setMixedEnglishInput:(BOOL)value {
-    NSMutableDictionary *values = [[_defaults dictionaryForKey:MixedInputKey] mutableCopy] ?: [NSMutableDictionary dictionary];
-    values[@"english"] = @(value); _sharedMixedInput = nil; [_defaults setObject:values forKey:MixedInputKey]; [self preferencesChanged];
-}
+- (void)setMixedEnglishInput:(BOOL)value { [self setMixedInputValue:@(value) forKey:@"english"]; }
 - (NSInteger)mixedEnglishMinimumPrefix { id value = [self mixedInputValues][@"minimum_prefix"]; return ValidMixedPrefix(value) ? [value integerValue] : 5; }
 - (void)setMixedEnglishMinimumPrefix:(NSInteger)value {
     if (value < 1 || value > 8) value = 5;
-    NSMutableDictionary *values = [[_defaults dictionaryForKey:MixedInputKey] mutableCopy] ?: [NSMutableDictionary dictionary];
-    values[@"minimum_prefix"] = @(value); _sharedMixedInput = nil; [_defaults setObject:values forKey:MixedInputKey]; [self preferencesChanged];
+    [self setMixedInputValue:@(value) forKey:@"minimum_prefix"];
 }
 // Falls back to on, matching `source_mixed_emoji_default` in client-core and the source's `emoji_mixed_input = true`.
 - (BOOL)mixedEmojiInput { id value = [self mixedInputValues][@"emoji"]; return LocalModeBoolean(value) ? [value boolValue] : YES; }
-- (void)setMixedEmojiInput:(BOOL)value {
-    NSMutableDictionary *values = [[_defaults dictionaryForKey:MixedInputKey] mutableCopy] ?: [NSMutableDictionary dictionary];
-    values[@"emoji"] = @(value); _sharedMixedInput = nil; [_defaults setObject:values forKey:MixedInputKey]; [self preferencesChanged];
-}
+- (void)setMixedEmojiInput:(BOOL)value { [self setMixedInputValue:@(value) forKey:@"emoji"]; }
 - (BOOL)mixedKaomojiInput { id value = [self mixedInputValues][@"kaomoji"]; return LocalModeBoolean(value) ? [value boolValue] : NO; }
-- (void)setMixedKaomojiInput:(BOOL)value {
-    NSMutableDictionary *values = [[_defaults dictionaryForKey:MixedInputKey] mutableCopy] ?: [NSMutableDictionary dictionary];
-    values[@"kaomoji"] = @(value); _sharedMixedInput = nil; [_defaults setObject:values forKey:MixedInputKey]; [self preferencesChanged];
+- (void)setMixedKaomojiInput:(BOOL)value { [self setMixedInputValue:@(value) forKey:@"kaomoji"]; }
+// 后加的可选成员，缺键按开处理，与 client-core 的 `MixedInputPreferences::symbols` 一致。
+- (BOOL)mixedSymbolInput { id value = [self mixedInputValues][@"symbols"]; return LocalModeBoolean(value) ? [value boolValue] : YES; }
+- (void)setMixedSymbolInput:(BOOL)value { [self setMixedInputValue:@(value) forKey:@"symbols"]; }
+// 改一项时从当前生效的值（有共享快照时是快照）出发，而不是只从本地存的那份出发：否则共享页改过、本地没存的项（例如在共享页关掉的符号混输）会在这里改一次别的开关后退回默认值。
+- (void)setMixedInputValue:(id)value forKey:(NSString *)key {
+    NSMutableDictionary *values = [[self mixedInputValues] mutableCopy];
+    values[key] = value; _sharedMixedInput = nil; [_defaults setObject:values forKey:MixedInputKey]; [self preferencesChanged];
 }
 - (void)setTraditionalOutput:(BOOL)value {
     _sharedTraditionalOutput = nil;
@@ -3151,6 +3157,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     [_mixedEnglishPrefixButton selectItemAtIndex:self.mixedEnglishMinimumPrefix - 1];
     _mixedEmojiToggle.state = self.mixedEmojiInput ? NSControlStateValueOn : NSControlStateValueOff;
     _mixedKaomojiToggle.state = self.mixedKaomojiInput ? NSControlStateValueOn : NSControlStateValueOff;
+    _mixedSymbolToggle.state = self.mixedSymbolInput ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarToggle.state = self.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarEnglishModeButton.state = self.floatingToolbarEnglishMode ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarPunctuationButton.state = self.floatingToolbarPunctuation ? NSControlStateValueOn : NSControlStateValueOff;
@@ -3701,6 +3708,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _mixedEnglishPrefixButton.action = @selector(mixedEnglishPrefixChanged:);
     _mixedEmojiToggle = MSIMESettingSwitch(self, @selector(mixedEmojiChanged:), @"Emoji 混输");
     _mixedKaomojiToggle = MSIMESettingSwitch(self, @selector(mixedKaomojiChanged:), @"颜文字混输");
+    _mixedSymbolToggle = MSIMESettingSwitch(self, @selector(mixedSymbolChanged:), @"符号混输");
     _toolbarToggle = MSIMESettingSwitch(self, @selector(toolbarChanged:), @"显示浮动工具栏");
     // 十个复选框，对应 MSIMEFloatingToolbarPanel 画的十个按钮。中/英、手写和语音三个曾经没有开关，按钮在工具栏上却无法去掉；切换方案按钮是后加的，默认开启。
     _toolbarEnglishModeButton = [NSButton checkboxWithTitle:@"中英文按钮" target:self action:@selector(toolbarEnglishModeChanged:)];
@@ -3924,6 +3932,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSBox *mixedCard = MSIMECardWithViews(@[
         [self settingRow:@"中英混输" detail:@"在中文组词中允许英文候选。" control:_mixedEnglishToggle],
         [self settingRow:@"中英混输触发长度" control:_mixedEnglishPrefixButton],
+        [self settingRow:@"符号混输" detail:@"打出符号名称时在候选中提供对应符号，如 zhengfu → ±。" control:_mixedSymbolToggle aka:@[@"特殊符号"]],
         [self settingRow:@"Emoji 混输" detail:@"在中文组词中提供 Emoji 候选。" control:_mixedEmojiToggle aka:@[@"表情"]],
         [self settingRow:@"颜文字混输" detail:@"在中文组词中提供颜文字候选。" control:_mixedKaomojiToggle],
     ], 0.0);
@@ -5013,6 +5022,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)mixedEnglishPrefixChanged:(NSPopUpButton *)sender { self.mixedEnglishMinimumPrefix = sender.indexOfSelectedItem + 1; }
 - (void)mixedEmojiChanged:(NSSwitch *)sender { self.mixedEmojiInput = sender.state == NSControlStateValueOn; }
 - (void)mixedKaomojiChanged:(NSSwitch *)sender { self.mixedKaomojiInput = sender.state == NSControlStateValueOn; }
+- (void)mixedSymbolChanged:(NSSwitch *)sender { self.mixedSymbolInput = sender.state == NSControlStateValueOn; }
 - (void)toolbarChanged:(NSSwitch *)sender { self.floatingToolbarEnabled = sender.state == NSControlStateValueOn; }
 - (void)toolbarEnglishModeChanged:(NSButton *)sender { self.floatingToolbarEnglishMode = sender.state == NSControlStateValueOn; }
 - (void)toolbarInputSchemeChanged:(NSButton *)sender { self.floatingToolbarInputScheme = sender.state == NSControlStateValueOn; }

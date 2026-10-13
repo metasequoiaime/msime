@@ -147,6 +147,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic) NSInteger mixedEnglishMinimumPrefix;
 @property(nonatomic) BOOL mixedEmojiInput;
 @property(nonatomic) BOOL mixedKaomojiInput;
+/// 符号混输（共享偏好 `mixed_input.symbols`），默认开；共享文档只在关掉时才有这个键。
+@property(nonatomic) BOOL mixedSymbolInput;
 @property(nonatomic) BOOL candidateLearningEnabled;
 @property(nonatomic, copy) NSString *frequencyAdjustmentMode;
 @property(nonatomic) NSInteger frequencyTriggerCount;
