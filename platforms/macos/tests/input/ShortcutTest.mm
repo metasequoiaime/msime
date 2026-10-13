@@ -549,11 +549,15 @@ static void TestKeyLatencyIsLoggedWithoutTheKey() {
 }
 @end
 
+// 控制器隐藏和显示候选窗时会设透明度（皮肤的进出场动效），所以假窗口也接住 alphaValue、animator 和 contentView；没有内容视图，动效也就无处可画。
 @interface TestCandidatePanel : NSObject
 @property(nonatomic, getter=isVisible) BOOL visible;
+@property(nonatomic) CGFloat alphaValue;
+@property(nonatomic, readonly) NSView *contentView;
 @end
 @implementation TestCandidatePanel
 - (void)orderOut:(id)sender { (void)sender; self.visible = NO; }
+- (instancetype)animator { return self; }
 @end
 
 @interface HiddenCandidatePanel : MSIMECandidatePanel
