@@ -23,7 +23,7 @@ import org.json.JSONObject;
  */
 public final class ExpressionPage extends ReloadingDetailPage {
     @Override protected java.util.List<String> sectionTitles() {
-        return java.util.List.of("标点", "智能", "短语");
+        return java.util.List.of("标点", "智能");
     }
 
     private static final int DISCOVER_LIMIT = 8;
@@ -48,6 +48,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
     }
 
     @Override protected void onInitialReloadScheduled() {
+        // 保留发现缓存的预取契约；常用语入口已移到设置首页，不再在本页渲染。
         loadDiscover();
     }
 
@@ -129,18 +130,6 @@ public final class ExpressionPage extends ReloadingDetailPage {
             mixed != null && mixed.optBoolean("kaomoji", false),
             checked -> savePreferences(edit -> mixedInput(edit).put("kaomoji", checked)));
 
-        GroupCard phrases = GroupCard.add(sectionColumn(target, "短语"), "发现短语").withDividers(58);
-        List<CommunityCatalog.Item> items = discover;
-        if (items == null) {
-            phrases.note(discoverFailure == null ? "正在读取社区短语…" : discoverFailure);
-        } else if (items.isEmpty()) {
-            phrases.note("社区里还没有短语包。");
-        } else {
-            for (CommunityCatalog.Item item : items) phrases.addView(phraseRow(context, item));
-        }
-        // 这里只列前几个，完整列表（搜索、详情、举报）压在表达页上面，返回回到这里。
-        phrases.nav("浏览更多短语", "搜索社区里的全部短语包", null,
-            () -> CommunityFragment.browse(context, CommunityRequest.Kind.PHRASE));
     }
 
     private android.view.View phraseRow(Context context, CommunityCatalog.Item item) {
