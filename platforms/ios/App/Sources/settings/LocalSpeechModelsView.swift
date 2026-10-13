@@ -23,7 +23,7 @@ final class LocalSpeechModelManager: ObservableObject {
   @Published var status = ""
   private var refreshTask: Task<Void, Never>?
   private var operationTasks: [String: Task<Void, Never>] = [:]
-  private var operationGeneration = UUID()
+  private var operationGeneration = OperationGeneration()
   /// Saves the mirror address as it is typed.
   let mirrorAutosave = SettingsAutosave()
   /// Created the first time the model list is shown, so the AI page, which shares the view type, never makes the directory.
@@ -49,18 +49,18 @@ final class LocalSpeechModelManager: ObservableObject {
   func refresh() {
     guard let root else { return }
     refreshTask?.cancel()
-    let generation = operationGeneration
+    let generation = operationGeneration.current()
     refreshTask = Task { [weak self] in
       do {
         let catalog = try await Task.detached(priority: .userInitiated) { try LocalSpeechModelStore.catalog(root: root) }.value
         try Task.checkCancellation()
-        guard let self, self.operationGeneration == generation else { return }
+        guard let self, self.operationGeneration.isCurrent(generation) else { return }
         // FunASR-nano needs more memory than an iOS app is given.
         self.models = catalog.models.filter { !$0.desktopOnly }
         // A stored path from before an app update points into the old container; keep it pointing at the same model.
         if let directory = self.selectedDirectory, directory.path != self.selectedPath { self.writeSelection(directory.path) }
       } catch is CancellationError { }
-      catch { if self?.operationGeneration == generation { self?.status = error.localizedDescription } }
+      catch { if self?.operationGeneration.isCurrent(generation) == true { self?.status = error.localizedDescription } }
     }
   }
 
@@ -72,7 +72,7 @@ final class LocalSpeechModelManager: ObservableObject {
     installing.insert(model.id)
     progress[model.id] = nil
     status = ""
-    let generation = operationGeneration
+    let generation = operationGeneration.current()
     let task = Task { [weak self] in
       do {
         let id = model.id
@@ -84,7 +84,7 @@ final class LocalSpeechModelManager: ObservableObject {
           }
         }.value
         try Task.checkCancellation()
-        guard let self, self.operationGeneration == generation else { return }
+        guard let self, self.operationGeneration.isCurrent(generation) else { return }
         self.installing.remove(model.id)
         self.progress[model.id] = nil
         // The first model downloaded is the one to use; a later one waits for 使用.
@@ -92,13 +92,13 @@ final class LocalSpeechModelManager: ObservableObject {
         self.status = "已下载“\(model.title)”。"
       } catch is CancellationError { }
       catch {
-        if self?.operationGeneration == generation {
+        if self?.operationGeneration.isCurrent(generation) == true {
           self?.installing.remove(model.id)
           self?.progress[model.id] = nil
           self?.status = error.localizedDescription
         }
       }
-      if self?.operationGeneration == generation { self?.refresh() }
+      if self?.operationGeneration.isCurrent(generation) == true { self?.refresh() }
     }
     operationTasks[model.id] = task
   }
@@ -110,7 +110,7 @@ final class LocalSpeechModelManager: ObservableObject {
     importing.insert(model.id)
     progress[model.id] = nil
     status = ""
-    let generation = operationGeneration
+    let generation = operationGeneration.current()
     let task = Task { [weak self] in
       do {
         let id = model.id
@@ -124,17 +124,17 @@ final class LocalSpeechModelManager: ObservableObject {
           }
         }.value
         try Task.checkCancellation()
-        guard let self, self.operationGeneration == generation else { return }
+        guard let self, self.operationGeneration.isCurrent(generation) else { return }
         self.finishImport(model.id)
         if self.selectedDirectory == nil { self.writeSelection(path.path) }
         self.status = "已导入“\(model.title)”。"
       } catch let failure as LocalSpeechModelStore.HostFailure {
-        if self?.operationGeneration == generation { self?.finishImport(model.id); self?.status = Self.importMessage(for: failure) }
+        if self?.operationGeneration.isCurrent(generation) == true { self?.finishImport(model.id); self?.status = Self.importMessage(for: failure) }
       } catch is CancellationError { }
       catch {
-        if self?.operationGeneration == generation { self?.finishImport(model.id); self?.status = error.localizedDescription }
+        if self?.operationGeneration.isCurrent(generation) == true { self?.finishImport(model.id); self?.status = error.localizedDescription }
       }
-      if self?.operationGeneration == generation { self?.refresh() }
+      if self?.operationGeneration.isCurrent(generation) == true { self?.refresh() }
     }
     operationTasks[model.id] = task
   }
@@ -161,7 +161,7 @@ final class LocalSpeechModelManager: ObservableObject {
   }
 
   func cancelPending() {
-    operationGeneration = UUID()
+    operationGeneration.invalidate()
     refreshTask?.cancel()
     refreshTask = nil
     operationTasks.values.forEach { $0.cancel() }
@@ -187,17 +187,17 @@ final class LocalSpeechModelManager: ObservableObject {
     // disabling voice input.
     LocalSpeechEngine.shared.release()
     let id = model.id
-    let generation = operationGeneration
+    let generation = operationGeneration.current()
     let task = Task { [weak self] in
       do {
         try await Task.detached { try LocalSpeechModelStore.remove(root: root, id: id) }.value
         try Task.checkCancellation()
-        guard let self, self.operationGeneration == generation else { return }
+        guard let self, self.operationGeneration.isCurrent(generation) else { return }
         if wasSelected { _ = self.writeSelection("") }
         self.status = "已删除“\(model.title)”。"
       } catch is CancellationError { }
-      catch { if self?.operationGeneration == generation { self?.status = error.localizedDescription } }
-      if self?.operationGeneration == generation { self?.refresh() }
+      catch { if self?.operationGeneration.isCurrent(generation) == true { self?.status = error.localizedDescription } }
+      if self?.operationGeneration.isCurrent(generation) == true { self?.refresh() }
     }
     operationTasks["remove:\(id)"] = task
   }
