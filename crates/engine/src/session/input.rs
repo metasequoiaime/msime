@@ -236,6 +236,7 @@ impl InputSession {
         session
             .engine
             .set_sentence_association(options.sentence_association);
+        session.engine.set_first_page_rows(options.first_page_rows);
         session
             .engine
             .set_rescoring_context(&options.rescoring_context);

@@ -544,8 +544,30 @@ fn exact_rows_filling_a_page_drop_the_longer_phrases() {
         words(&listed)
     );
     assert_eq!(
-        words(&listed[..EXACT_ROWS_THAT_FILL_A_PAGE]),
+        words(&listed[..DEFAULT_FIRST_PAGE_ROWS]),
         ["其实", "歧视", "岂是", "气势", "启示", "骑士"]
+    );
+}
+
+#[test]
+fn a_larger_first_page_rows_keeps_the_longer_phrases() {
+    // 首页行数来自宿主的每页候选数：设成 8 时 6 条精确同音词不够一页，补全词照旧并入。
+    let fixture = Fixture::new();
+    fixture
+        .insert("qi'shi", "其实", 500)
+        .insert("qi'shi", "歧视", 400)
+        .insert("qi'shi", "岂是", 300)
+        .insert("qi'shi", "气势", 200)
+        .insert("qi'shi", "启示", 100)
+        .insert("qi'shi", "骑士", 90)
+        .insert("qi'shi'ye'dan'wei", "企事业单位", 600);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    dictionary.set_first_page_rows(8);
+    let listed = query(&mut dictionary, "qishi", "qi'shi", NONE);
+    assert!(
+        contains(&listed, "企事业单位"),
+        "首页行数大于精确同音词数时补全词应照旧并入: {:?}",
+        words(&listed)
     );
 }
 

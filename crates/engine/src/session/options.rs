@@ -8,7 +8,7 @@ use crate::types::{
     CandidateSource, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
     FuzzyPinyinOptions, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions,
     QuickPhraseEntry, SchemeSet, SchemeType, SentenceAssociationOptions, ShuangpinCustomTable,
-    ShuangpinProfileKind, WordItem, WubiInputOptions,
+    ShuangpinProfileKind, WordItem, WubiInputOptions, DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
 
@@ -49,6 +49,8 @@ pub struct SessionOptions {
     pub learning: bool,
     /// Hand back every whole-sentence reading instead of only the best. A host that sets this must reorder and crop them itself.
     pub sentence_alternatives: bool,
+    /// 宿主的每页候选数（`candidate_page_size`）：全长组的精确同音词够这么多行就不再并入更长的补全词。
+    pub first_page_rows: usize,
     /// 只出单字：中文方案的候选去掉含汉字的词和整句、只留单个汉字（见 [`SchemeType::filters_to_single_characters`]），选一个字后剩下的拼写接着组字。
     pub single_character_only: bool,
     pub fuzzy_pinyin: FuzzyPinyinOptions,
@@ -97,6 +99,7 @@ impl SessionOptions {
             punctuation_lock: 0,
             learning: true,
             sentence_alternatives: false,
+            first_page_rows: DEFAULT_FIRST_PAGE_ROWS,
             single_character_only: false,
             fuzzy_pinyin: FuzzyPinyinOptions::default(),
             frequency: FrequencyAdjustmentOptions::default(),

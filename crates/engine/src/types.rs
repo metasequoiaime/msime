@@ -863,6 +863,29 @@ impl Default for SentenceAssociationOptions {
     }
 }
 
+/// 默认的首页候选行数：宿主每页候选数（`client-core` 的 `candidate_page_size`）的缺省值。引擎只把它当「第一页能放几行」用。
+pub const DEFAULT_FIRST_PAGE_ROWS: usize = 6;
+
+/// 一次请求带的首页行数。`QueryRequest` 派生 `Default`，裸 `usize` 会默认成 0 从而把补全词整组关掉，所以用带默认值的新类型；`new` 把 0 归一成 1。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FirstPageRows(usize);
+
+impl FirstPageRows {
+    pub const fn new(rows: usize) -> Self {
+        Self(if rows == 0 { 1 } else { rows })
+    }
+
+    pub const fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl Default for FirstPageRows {
+    fn default() -> Self {
+        Self(DEFAULT_FIRST_PAGE_ROWS)
+    }
+}
+
 /// What a scheme turns its composition into for the providers. Built fresh on every refresh; providers never mutate it.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct QueryRequest {
@@ -884,6 +907,8 @@ pub struct QueryRequest {
     /// Hand back every whole-sentence reading rather than only the best.
     pub sentence_alternatives: bool,
     pub sentence_association: SentenceAssociationOptions,
+    /// 首页能放下的行数：全长度组的精确同音词够这么多就不再并入更长的补全词。
+    pub first_page_rows: FirstPageRows,
     /// Committed text the neural sentence models condition on.
     pub rescoring_context: String,
     /// Korean only: the Hanja list of the composing syllable is open, so the request is answered with its Hanja.

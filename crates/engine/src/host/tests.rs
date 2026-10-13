@@ -19,6 +19,7 @@ fn options(root: &Path) -> EngineOptions {
         user_data: path("user"),
         cache: path("cache"),
         dictionaries: path("dictionaries"),
+        first_page_rows: crate::types::DEFAULT_FIRST_PAGE_ROWS,
         scheme: 0,
         enabled_schemes: crate::types::SchemeSet::ALL,
         shuangpin_profile: 0,

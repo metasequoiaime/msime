@@ -354,7 +354,9 @@ impl WebHost {
                 "page size must be between 1 and {MAX_PAGE_SIZE}, got {page_size}"
             ));
         }
-        let options = session_options(scheme, paths);
+        let mut options = session_options(scheme, paths);
+        // 网页引擎按自己的每页候选数决定全长组要不要并入补全词。
+        options.first_page_rows = page_size;
         let session = open_session(&options)?;
         // 五笔、日语和韩文不重排，所以不加载模型；模型读不出来也不致命，只是没有重排。
         let reranker = model

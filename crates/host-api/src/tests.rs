@@ -157,6 +157,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         user_data: root.path().to_string_lossy().into_owned(),
         cache: root.path().to_string_lossy().into_owned(),
         dictionaries: root.path().to_string_lossy().into_owned(),
+        first_page_rows: 6,
         scheme: 0,
         enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,

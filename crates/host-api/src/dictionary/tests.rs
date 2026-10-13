@@ -10,6 +10,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         user_data: String::new(),
         cache: String::new(),
         dictionaries: String::new(),
+        first_page_rows: 6,
         scheme: 0,
         enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
