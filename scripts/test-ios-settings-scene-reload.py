@@ -14,6 +14,10 @@ TARGETS = [
     )
 ] + [ROOT / "platforms/ios/App/Sources/keyboard/KeyboardToolbarSettingsView.swift"]
 APP_ICON = ROOT / "platforms/ios/App/Sources/settings/AppIconSettingsView.swift"
+REQUEST_AWARE = [
+    ROOT / "platforms/ios/App/Sources/settings" / name
+    for name in ("CommonPhrasesSettingsView.swift", "HelpcodeSettingsView.swift")
+]
 
 
 class SettingsSceneReloadContract(unittest.TestCase):
@@ -33,6 +37,12 @@ class SettingsSceneReloadContract(unittest.TestCase):
         source = APP_ICON.read_text()
         self.assertIn(".reloadOnAppearAndActive(model.refresh)", source)
         self.assertNotIn("@Environment(\\.scenePhase)", source)
+
+    def test_request_aware_pages_use_shared_reload_modifier(self):
+        for path in REQUEST_AWARE:
+            source = path.read_text()
+            self.assertIn(".reloadOnAppearAndActive(reload, onAppear: { request.appear() })", source, path.name)
+            self.assertNotIn("@Environment(\\.scenePhase)", source, path.name)
 
 
 if __name__ == "__main__":
