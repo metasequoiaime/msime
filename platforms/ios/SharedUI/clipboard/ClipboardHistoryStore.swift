@@ -31,7 +31,7 @@ struct ClipboardHistoryStore {
   init(directory: URL? = nil) {
     root = directory ?? FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier)
-      ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      ?? IOSSharedPaths.applicationSupport
     file = root.appendingPathComponent("MSIME/clipboard_history.json")
   }
 
