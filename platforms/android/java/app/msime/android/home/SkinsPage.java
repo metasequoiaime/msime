@@ -7,10 +7,8 @@ import app.msime.android.DimensionPolicy;
 
 import android.content.Context;
 import android.os.Bundle;
-import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
 import android.view.View;
-import android.view.ViewGroup;
+import android.view.LayoutInflater;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -19,7 +17,6 @@ import androidx.core.view.ViewCompat;
 import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.DrawablePolicy;
-import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.ViewPolicy;
 import app.msime.android.R;
@@ -42,7 +39,7 @@ public final class SkinsPage extends ReloadingDetailPage {
     /** 本地皮肤卡：`design` 为 null 是全局主题，否则是皮肤库里的设计。 */
     private record Card(String id, String title, KeyboardSkin skin, @Nullable JSONObject design, boolean selected) {}
 
-    private record Model(List<Card> themes, List<Card> designs) {}
+    private record Model(List<Card> themes, List<Card> designs, boolean nineKey) {}
 
     private static final String COMMUNITY_TAG = "skin-community";
     private boolean catalogueChecked;
@@ -180,7 +177,8 @@ public final class SkinsPage extends ReloadingDetailPage {
                 android.util.Log.w("MSIMESettings", "Custom skin library unreadable", error);
             }
         }
-        return new Model(themes, designs);
+        return new Model(themes, designs, "nine_key".equals(
+            InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key")));
     }
 
     private void render(@Nullable Model model) {
@@ -202,23 +200,20 @@ public final class SkinsPage extends ReloadingDetailPage {
         if (section == 0) {
             List<View> cards = new ArrayList<>(model.themes().size());
             for (Card card : model.themes()) cards.add(card(context, card));
-            grid(target, null, cards);
+            grid(target, cards);
         } else if (section == 1) {
             List<View> cards = new ArrayList<>(model.designs().size() + 1);
             if (!AiSkinPage.hidden(context)) cards.add(aiCard(context));
             for (Card card : model.designs()) cards.add(card(context, card));
             if (cards.isEmpty()) GroupCard.add(target, null).note("还没有保存的皮肤。可到社区获取喜欢的皮肤。");
-            else grid(target, null, cards);
+            else grid(target, cards);
         }
     }
 
-    /** 一组两列卡片；组标题与其他详情页的组标题一样，卡片直接放在页面底色上。 */
-    private static void grid(LinearLayout target, @Nullable String title, List<View> cards) {
-        GroupCard group = GroupCard.add(target, title);
-        LinearLayout holder = group.card();
-        ViewPolicy.clearBackground(holder);
-        holder.setClipToOutline(false);
+    /** 两列卡片的边距与社区网格一致：页面缩进 10dp，每张卡片四周留 6dp。 */
+    private static void grid(LinearLayout target, List<View> cards) {
         Context context = target.getContext();
+        ViewPolicy.setPaddingDp(context, target, 10, 10, 10, 0);
         for (int start = 0; start < cards.size(); start += 2) {
             LinearLayout row = LayoutPolicy.row(context);
             row.setBaselineAligned(false);
@@ -226,73 +221,58 @@ public final class SkinsPage extends ReloadingDetailPage {
                 int index = start + slot;
                 View cell = index < cards.size() ? cards.get(index) : new View(context);
                 LinearLayout.LayoutParams params = LayoutPolicy.weightedWrapParams(1f);
-                if (slot == 1) params.setMarginStart(DimensionPolicy.pixels(context, 12));
+                int margin = DimensionPolicy.pixels(context, 6);
+                params.setMargins(margin, margin, margin, margin);
                 row.addView(cell, params);
             }
-            LinearLayout.LayoutParams rowParams = LayoutPolicy.matchWidthWrapParams();
-            if (start > 0) rowParams.topMargin = DimensionPolicy.pixels(context, 14);
-            holder.addView(row, rowParams);
+            target.addView(row, LayoutPolicy.matchWidthWrapParams());
         }
     }
 
+    /** 本地皮肤复用社区卡片布局，只展示自己的名称和选择状态。 */
+    private View localCard(Context context) {
+        View cell = LayoutInflater.from(context).inflate(R.layout.item_community_skin, null, false);
+        for (int id : new int[] {R.id.community_item_badge, R.id.community_item_category,
+                R.id.community_item_author, R.id.community_item_rating, R.id.community_item_action}) {
+            ViewPolicy.hide(cell.findViewById(id));
+        }
+        return cell;
+    }
+
     private View card(Context context, Card card) {
-        LinearLayout cell = LayoutPolicy.column(context);
-        ViewPolicy.setCenteredHorizontally(cell);
+        View cell = localCard(context);
+        KeyboardPreview preview = cell.findViewById(R.id.community_item_preview);
+        preview.setCornerRadiusDp(5f);
+        preview.setKeyboard(card.skin(), model != null && model.nineKey());
+        ViewPolicy.show(preview);
 
-        FrameLayout tile = new FrameLayout(context);
-        int ring = DimensionPolicy.pixels(context, 2);
-        GradientDrawable frame = DrawablePolicy.outlined(Color.TRANSPARENT, DimensionPolicy.pixels(context, 14),
-            card.selected() ? ring : DimensionPolicy.atLeastOnePixel(context, 1),
-            card.selected() ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.outline(context));
-        ViewPolicy.setBackground(tile, frame);
-        int inset = ring + DimensionPolicy.pixels(context, 1);
-        ViewPolicy.setPadding(tile, inset, inset, inset, inset);
-        SkinSwatchView swatch = new SkinSwatchView(context);
-        swatch.setSkin(card.skin());
-        ViewPolicy.hideFromAccessibility(swatch);
-        tile.addView(swatch,
-            LayoutPolicy.frameMatchWidthHeightPx(DimensionPolicy.pixels(context, 76)));
-        cell.addView(tile, LayoutPolicy.matchWidthWrapParams());
-
-        TextView name = ViewPolicy.centeredLabel(context, card.selected() ? "✓ " + card.title() : card.title(),
-            Ui.TEXT_ROW_SUBTITLE + 1, card.selected() ? 600 : 400,
-            card.selected() ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.text(context));
-        ViewPolicy.setSingleLineEllipsized(name);
-        LinearLayout.LayoutParams nameParams = LayoutPolicy.matchWidthWrapParams();
-        nameParams.topMargin = DimensionPolicy.pixels(context, 8);
-        cell.addView(name, nameParams);
-
+        TextView name = cell.findViewById(R.id.community_item_name);
+        name.setText(card.selected() ? "✓ " + card.title() : card.title());
+        ViewPolicy.setTextColor(name, card.selected() ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.text(context));
         cell.setContentDescription("皮肤 " + card.title());
         ViewCompat.setStateDescription(cell, card.selected() ? "已选中" : "未选中");
-        ViewPolicy.makeClickable(cell, context, () -> {
+        ViewPolicy.bindClick(cell, () -> {
             if (!card.selected()) select(card);
         });
         return cell;
     }
 
-    /** 虚线卡：「✦ 描述一句话生成」，名字是「AI 设计皮肤」，点了进 AI 设计页。 */
+    /** AI 入口与皮肤卡同尺寸，尚未生成设计时用说明替代键盘预览。 */
     private View aiCard(Context context) {
-        LinearLayout cell = LayoutPolicy.column(context);
-        ViewPolicy.setCenteredHorizontally(cell);
+        View cell = localCard(context);
+        KeyboardPreview preview = cell.findViewById(R.id.community_item_preview);
+        ViewPolicy.setInvisible(preview);
+        FrameLayout frame = (FrameLayout) preview.getParent();
         LinearLayout tile = LayoutPolicy.column(context);
         ViewPolicy.setCentered(tile);
-        GradientDrawable dashed = DrawablePolicy.outlinedDashed(ThemeColorPolicy.accentSoft(context), DimensionPolicy.pixels(context, 14),
-            DimensionPolicy.atLeastOnePixel(context, 1.5f), ThemeColorPolicy.accent(context), DimensionPolicy.pixels(context, 6),
-            DimensionPolicy.pixels(context, 4));
-        ViewPolicy.setBackground(tile, dashed);
-        TextView spark = ViewPolicy.centeredLabel(context, "✦", 22, 400, ThemeColorPolicy.accent(context));
-        tile.addView(spark);
-        TextView hint = ViewPolicy.centeredLabel(context, "描述一句话生成", 12, 400, ThemeColorPolicy.accent(context));
-        tile.addView(hint);
-        cell.addView(tile, LayoutPolicy.matchWidthHeightPx(DimensionPolicy.pixels(context, 76) + DimensionPolicy.pixels(context, 6)));
-        TextView name = ViewPolicy.centeredLabel(context, "AI 设计皮肤", Ui.TEXT_ROW_SUBTITLE + 1, 500,
-            ThemeColorPolicy.accent(context));
-        LinearLayout.LayoutParams nameParams = LayoutPolicy.matchWidthWrapParams();
-        nameParams.topMargin = DimensionPolicy.pixels(context, 8);
-        cell.addView(name, nameParams);
+        ViewPolicy.setBackground(tile, DrawablePolicy.rounded(ThemeColorPolicy.accentSoft(context),
+            DimensionPolicy.pixels(context, 5)));
+        tile.addView(ViewPolicy.centeredLabel(context, "✦", 28, 400, ThemeColorPolicy.accent(context)));
+        tile.addView(ViewPolicy.centeredLabel(context, "描述一句话生成", 12, 400, ThemeColorPolicy.accent(context)));
+        frame.addView(tile, LayoutPolicy.frameMatchParentParams());
+        ((TextView) cell.findViewById(R.id.community_item_name)).setText("AI 设计皮肤");
         cell.setAccessibilityDelegate(HomeButtonPolicy.buttonDelegate("AI 设计皮肤，描述一句话生成"));
-        ViewPolicy.makeClickable(cell, context,
-            () -> SettingsNavigator.open(requireContext(), PageId.AI_SKIN, null));
+        ViewPolicy.bindClick(cell, () -> SettingsNavigator.open(requireContext(), PageId.AI_SKIN, null));
         return cell;
     }
 
