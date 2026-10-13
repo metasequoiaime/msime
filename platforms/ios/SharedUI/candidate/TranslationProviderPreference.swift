@@ -24,6 +24,13 @@ enum TranslationRoute: Equatable, Sendable {
   /// Nothing was chosen, or the chosen provider is not usable: no online glosses.
   case none
 
+  /// A session UUID is minted for every sign-in and remains stable across token refreshes.
+  /// Binding account glosses to it prevents a keyboard process that outlives the account UI
+  /// from showing the previous account's cached translations after a switch or sign-out.
+  static func accountCacheScope(sessionID: UUID) -> String {
+    "account|session=\(sessionID.uuidString)"
+  }
+
   var provider: TranslationProvider? {
     switch self {
     case .account: .account

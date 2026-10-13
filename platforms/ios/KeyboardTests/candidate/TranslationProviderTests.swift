@@ -187,6 +187,39 @@ final class TranslationProviderTests: XCTestCase {
     XCTAssertFalse(a.contains("one"), "the scope never carries a secret in clear")
   }
 
+  func testAccountCacheScopeChangesWhenTheLoginChanges() {
+    let firstLogin = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    let secondLogin = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+
+    let firstScope = TranslationRoute.accountCacheScope(sessionID: firstLogin)
+    let secondScope = TranslationRoute.accountCacheScope(sessionID: secondLogin)
+
+    XCTAssertNotEqual(firstScope, secondScope)
+    XCTAssertEqual(firstScope, TranslationRoute.accountCacheScope(sessionID: firstLogin))
+  }
+
+  @MainActor
+  func testAccountGlossesAreDroppedForANewLogin() async throws {
+    struct Fixed: CandidateTranslationService {
+      let gloss: String
+      func translate(words: [String], target: String) async throws -> [String] {
+        words.map { _ in gloss }
+      }
+    }
+    let firstScope = TranslationRoute.accountCacheScope(
+      sessionID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!)
+    let secondScope = TranslationRoute.accountCacheScope(
+      sessionID: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!)
+    let store = CandidateTranslationStore(service: Fixed(gloss: "old"), scope: firstScope)
+    let arrived = expectation(description: "old gloss")
+    store.onArrival = { arrived.fulfill() }
+    store.refresh(words: ["你好"], codes: ["EN"])
+    await fulfillment(of: [arrived], timeout: 3)
+
+    store.use(Fixed(gloss: "new"), scope: secondScope)
+    XCTAssertNil(store.gloss(word: "你好", code: "EN"))
+  }
+
   func testAccountTranslationUsesSignedInAccountBeforeAnonymousSession() async throws {
     CandidateAccountTranslationProtocol.reset()
     let configuration = URLSessionConfiguration.ephemeral

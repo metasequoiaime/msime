@@ -51,6 +51,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let translations = CandidateTranslationStore()
   /// The translation service the shared document picks; `.none` means nothing was chosen or the chosen provider is incomplete, and no words leave the device.
   private var translationRoute: TranslationRoute = .none
+  /// Account glosses are tied to the login generation, not just to the provider name. The
+  /// keyboard can outlive the account screen, so this identity is refreshed asynchronously.
+  private var translationAccountScope: String?
+  private var translationAccountIdentityTask: Task<Void, Never>?
+  private var translationRouteGeneration = 0
   private lazy var onlineCandidates: OnlineCandidateProvider = {
     let provider = OnlineCandidateProvider(session: session)
     provider.onApplied = { [weak self] in self?.render($0) }
@@ -5723,19 +5728,56 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func synchronizeTranslationRoute() -> Bool {
     let route = TranslationProviderPreference.route(in: session.sharedPreferences)
-    guard route != translationRoute || route.cacheScope != translations.scope else { return false }
+    translationRouteGeneration &+= 1
+    let generation = translationRouteGeneration
+    if route == .account {
+      // Forget the previous login before the asynchronous keychain read. The keyboard may
+      // render between this call and its completion, so no old account gloss may survive here.
+      translationAccountScope = nil
+      let changed = applyTranslationRoute(route, scope: "account|pending=\(generation)")
+      synchronizeAccountTranslationIdentity(generation: generation)
+      return changed
+    }
+
+    translationAccountIdentityTask?.cancel()
+    translationAccountIdentityTask = nil
+    translationAccountScope = nil
+    return applyTranslationRoute(route, scope: route.cacheScope)
+  }
+
+  private func applyTranslationRoute(_ route: TranslationRoute, scope: String) -> Bool {
+    guard route != translationRoute || scope != translations.scope else { return false }
     translationRoute = route
     translations.use(route == .account ? BackendCandidateTranslationService() : ProviderCandidateTranslationService(route: route),
-                     scope: route.cacheScope)
+                     scope: scope)
     DiagnosticLog.shared.write("translation_route provider=\(route.provider?.rawValue ?? "none")")
     // Rows reserved for network-only languages follow whether any service is chosen.
     applyCandidateGlossLayout()
     return true
   }
 
+  private func synchronizeAccountTranslationIdentity(generation: Int) {
+    translationAccountIdentityTask?.cancel()
+    translationAccountIdentityTask = Task { [weak self] in
+      let identity = try? await BackendAccountSession.shared.login()
+      guard !Task.isCancelled, let self,
+            self.translationRouteGeneration == generation,
+            self.translationRoute == .account else { return }
+      let scope = identity.map { TranslationRoute.accountCacheScope(sessionID: $0.sessionID) }
+        ?? "account|anonymous"
+      self.translationAccountScope = scope
+      guard self.applyTranslationRoute(.account, scope: scope) else { return }
+      // A scope change clears the old cache. Refresh the visible strip immediately so an old
+      // account gloss cannot remain painted while the new request is in flight.
+      self.renderCandidateStrip()
+      self.requestCandidateTranslations()
+    }
+  }
+
   private func requestCandidateTranslations() {
     guard CandidateGlossPreference.enabled, CandidateTranslationPreference.onlineEnabled,
           translationRoute != .none, hasFullAccess, glossesCandidates, !isInLocalMode,
+          translationRoute != .account || translationAccountScope != nil,
           !visibleCandidates.isEmpty else { translations.cancel(); return }
     var codes = [CandidateTranslationPreference.primary.code]
     if let secondary = CandidateTranslationPreference.secondary { codes.append(secondary.code) }
