@@ -44,7 +44,7 @@ import org.json.JSONObject;
  */
 public final class KeyboardOptionsPage extends ReloadingDetailPage {
     @Override protected java.util.List<String> sectionTitles() {
-        return java.util.List.of("布局", "反馈", "手势", "工具栏", "剪贴板", "AI");
+        return java.util.List.of("布局", "反馈", "手势", "工具栏", "剪贴板");
     }
 
     private static final String[] ANIMATIONS = {"bounce", "ripple", "glow", "lift", "none"};
@@ -220,9 +220,6 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         clipboard.nav("排列", "剪贴板面板里一行显示几条记录", clipboardColumnsLabel(columns),
             () -> pickClipboardColumns(columns));
 
-        GroupCard more = GroupCard.add(sectionColumn(target, "AI"), "更多");
-        more.nav("AI 润色与回复", "端点、模型、凭据和提示词", null,
-            () -> SettingsNavigator.open(requireContext(), PageId.AI_SETTINGS, null));
     }
 
     /** 一个工具栏按钮开着没有：本地设置的看本地设置，其余看 `touch_toolbar`（缺键为开）。 */

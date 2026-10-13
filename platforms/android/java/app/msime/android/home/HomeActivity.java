@@ -98,7 +98,9 @@ public final class HomeActivity extends AppCompatActivity {
             new FragmentManager.FragmentLifecycleCallbacks() {
                 @Override public void onFragmentViewCreated(@NonNull FragmentManager manager,
                         @NonNull Fragment fragment, @NonNull View view, @Nullable Bundle state) {
-                    if (fragment instanceof DetailPage) setDetailLoading(false);
+                    // 根 Tab 和详情页都在 home_content 中；不能只判断 DetailPage，否则首次打开
+                    // 键盘/对话/统计/我的时全局 loading 会没有对应的关闭回调。
+                    if (fragment.getId() == R.id.home_content) setDetailLoading(false);
                 }
             }, true);
 
