@@ -2064,6 +2064,16 @@ async fn dictionary_request(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
+/// 把搜狗细胞词库（`.scel`，前端按 base64 送来）转成标准 TSV 文本，页面再以 `standard` 格式交给 `dictionary_request` 的 `import`，上限、分批和报告都与文本文件相同。纯函数，不碰词库状态，所以各平台都一样，不分 cfg。
+#[tauri::command]
+async fn dictionary_scel_text(bytes_base64: String) -> Result<serde_json::Value, CommandError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        msime_host_api::scel_text_json(&bytes_base64).map_err(|code| CommandError { code })
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+}
+
 /// 桌面端一个云剪贴板请求由谁来答，按优先级依次是：宿主选项或环境变量里指定的 provider socket、共享偏好里配置的自建中继（`docs/cloud-clipboard-relay.md`）、打开这个面板的 macOS 输入法的原生会话、在用户运行时目录里发现的 provider socket，都没有时是这个外壳登录的水杉账号。
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[derive(Debug, PartialEq)]
@@ -5550,6 +5560,7 @@ pub fn run() {
             panel_window::open_cloud_dictionary_panel,
             panel_window::close_panel,
             dictionary_request,
+            dictionary_scel_text,
             cloud_clipboard_request,
             cloud_clipboard_can_send_text,
             cloud_dictionary_request,
