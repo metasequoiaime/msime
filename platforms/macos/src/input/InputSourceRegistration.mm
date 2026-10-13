@@ -90,16 +90,18 @@ NSArray<NSString *> *MSIMEEnabledInputModeIDs(NSString *bundleIdentifier, MSIMEI
                                               MSIMEInputSourcePropertyGetter propertyGetter) {
     if (!bundleIdentifier.length || !lister || !propertyGetter) return nil;
     NSDictionary *filter = @{(__bridge NSString *)kTISPropertyBundleID: bundleIdentifier};
-    // Without includeAllInstalled the list holds only enabled sources.
-    CFArrayRef sources = lister((__bridge CFDictionaryRef)filter, false);
+    // Every installed source, then each one's own enabled flag, the way scripts/check_input_source.swift reads it: the list without includeAllInstalled came back without any of this bundle's modes from a command-line run on macOS 27.0.1, while the flag reported the six that are in the input menu.
+    CFArrayRef sources = lister((__bridge CFDictionaryRef)filter, true);
     if (!sources) return nil;
     NSString *modePrefix = [bundleIdentifier stringByAppendingString:@"."];
     NSMutableArray<NSString *> *modes = [NSMutableArray array];
     for (CFIndex i = 0; i < CFArrayGetCount(sources); ++i) {
         TISInputSourceRef source = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, i);
         void *property = propertyGetter(source, kTISPropertyInputSourceID);
+        void *enabled = propertyGetter(source, kTISPropertyInputSourceIsEnabled);
         if (property && CFGetTypeID(property) == CFStringGetTypeID() &&
-            [(__bridge NSString *)property hasPrefix:modePrefix])
+            [(__bridge NSString *)property hasPrefix:modePrefix] &&
+            enabled && CFGetTypeID(enabled) == CFBooleanGetTypeID() && CFBooleanGetValue((CFBooleanRef)enabled))
             [modes addObject:[(__bridge NSString *)property copy]];
     }
     CFRelease(sources);
