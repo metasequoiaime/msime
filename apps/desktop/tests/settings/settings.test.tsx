@@ -4369,6 +4369,8 @@ test("macOS exposes the shuangpin preedit presentation and persists the expanded
     host: testHost({ platform: "macos" }),
   };
   render(<SettingsPage initialPage="appearance" client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("tab", { name: "预编辑" }));
   const preedit = (await screen.findByRole("combobox", {
     name: "双拼预编辑",
   })) as HTMLSelectElement;
@@ -5540,6 +5542,7 @@ test("complete candidate and preedit font sizes load, preview independently and 
     .fn()
     .mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
   render(<SettingsPage initialPage="appearance" client={{ load: async () => saved, save }} />);
+  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
   const size = (await screen.findByLabelText("字号")) as HTMLSelectElement;
   const preedit = screen.getByLabelText("预编辑字号") as HTMLSelectElement;
   expect(size.value).toBe("19");
@@ -5579,29 +5582,31 @@ test("appearance preview follows drafts and skin selection before they are saved
   const save = vi.fn();
   render(<SettingsPage initialPage="appearance" client={{ load: async () => initial, save }} />);
   const preview = await screen.findByRole("region", { name: "候选窗口预览" });
-  // 只数实际样例；预留高度的那份不可见样例不带 `data-preview-layout`，固定按纵向、滑块最大值排。
+  // 桌面只按当前样例占高，不为竖排九项增加不可见占位。
   expect(preview.querySelectorAll("[data-preview-layout] .cand")).toHaveLength(5);
   expect(preview.querySelector('[data-preview-layout="vertical"]')).not.toBeNull();
-  expect(preview.querySelectorAll("[data-preview-reserve] .wnd-v .cand")).toHaveLength(9);
+  expect(preview.querySelector("[data-preview-reserve]")).toBeNull();
   expect(preview.querySelector('[data-font-size="18"]')).not.toBeNull();
   fireEvent.click(
     within(screen.getByRole("radiogroup", { name: "候选项排列方式" })).getByRole("radio", {
       name: "横向",
     }),
   );
-  fireEvent.change(screen.getByLabelText("字号"), { target: { value: "20" } });
   fireEvent.change(screen.getByLabelText("每页候选项数量"), { target: { value: "9" } });
-  // The brand mark leads the top row, ahead of the reading.
+  fireEvent.click(screen.getByRole("tab", { name: "字体与大小" }));
+  fireEvent.change(screen.getByLabelText("字号"), { target: { value: "20" } });
+  // 水杉 logo 在首行拼音之前。
   expect(preview.querySelector(".pinyin > .candidate-brand + .text")).not.toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "预编辑" }));
   fireEvent.change(screen.getByLabelText("候选窗口预编辑"), { target: { value: "empty" } });
-  // With the reading hidden the row stays for the mark alone.
+  // 隐藏拼音后，首行仍为 logo 保留。
   expect(
     preview.querySelector(".container.preedit-hidden > .candidate-brand-row > .candidate-brand"),
   ).not.toBeNull();
   expect(preview.querySelectorAll("[data-preview-layout] .cand")).toHaveLength(9);
   expect(preview.querySelector('[data-preview-layout="horizontal"]')).not.toBeNull();
-  // 切到横向后预留的仍是纵向九项，预览框高度不变。
-  expect(preview.querySelectorAll("[data-preview-reserve] .wnd-v .cand")).toHaveLength(9);
+  // 横排只有当前候选行，没有竖排占位。
+  expect(preview.querySelector("[data-preview-reserve]")).toBeNull();
   expect(preview.querySelector('[data-font-size="20"]')).not.toBeNull();
   expect(preview.querySelector<HTMLElement>(".pinyin")?.hidden).toBe(true);
   expect(
@@ -7232,6 +7237,14 @@ test.each(
     );
     await settingsReady();
     fireEvent.click(screen.getByRole("button", { name: button }));
+    if (button === "候选窗口") {
+      const tab = ["字号", "预编辑字号"].includes(control)
+        ? "字体与大小"
+        : ["行内预编辑", "候选窗口预编辑"].includes(control)
+          ? "预编辑"
+          : "布局";
+      fireEvent.click(screen.getByRole("tab", { name: tab }));
+    }
     if (expand) fireEvent.click(await screen.findByRole("switch", { name: expand }));
     if (role === "radiogroup") {
       const group = await screen.findByRole("radiogroup", { name: control });
@@ -7342,6 +7355,7 @@ test.each(optionHosts)(
     // 每项偏好只有一个入口：主题和颜色选择器不在这里重复。
     expect(within(appearance).queryByRole("combobox", { name: "主题" })).toBeNull();
     expect(appearance.querySelector('input[type="color"]')).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "窗口样式" }));
     const link = within(appearance).getByRole("button", { name: "皮肤、颜色与明暗" });
     fireEvent.click(link);
     expect(screen.getByRole("group", { name: "主题" }).hidden).toBe(false);

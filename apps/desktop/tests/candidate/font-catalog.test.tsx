@@ -30,6 +30,7 @@ test("search loads once and selects with keyboard without saving", async () => {
       client={{ load: async () => initial, save, listFontFamilies }}
     />,
   );
+  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
   const primary = await screen.findByLabelText("主字体");
   expect(listFontFamilies).not.toHaveBeenCalled();
   fireEvent.focus(primary);
@@ -59,6 +60,7 @@ test("late results from a replaced reader cannot reappear", async () => {
   const view = render(
     <SettingsPage initialPage="appearance" client={{ ...client, listFontFamilies: old }} />,
   );
+  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
   fireEvent.focus(await screen.findByLabelText("主字体"));
   expect(screen.getByText("正在读取字体列表。")).toBeDefined();
   const next = vi.fn().mockResolvedValue(["New font"]);
@@ -80,6 +82,7 @@ test("failed catalog retries while allowing manual font entry", async () => {
       client={{ load: async () => initial, save: vi.fn(), listFontFamilies }}
     />,
   );
+  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
   const input = await screen.findByLabelText("主字体");
   fireEvent.focus(input);
   await screen.findByText(/读取字体列表失败/);
@@ -99,6 +102,7 @@ test("disables the font catalog refresh while loading", async () => {
       client={{ load: async () => initial, save: vi.fn(), listFontFamilies }}
     />,
   );
+  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
   const input = await screen.findByLabelText("主字体");
   fireEvent.focus(input);
   await screen.findByText("正在读取字体列表。");
@@ -119,6 +123,7 @@ test("large catalogs bound visible options without losing searchable entries", a
       }}
     />,
   );
+  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
   const input = await screen.findByLabelText("主字体");
   fireEvent.focus(input);
   await screen.findByText("显示前 100 项，请输入名称缩小范围。");

@@ -119,6 +119,7 @@ export function AppearanceCandidatePreview({
           active={active}
           revision={revision}
           helpcode={helpcode}
+          brand={brand}
           reserve={reserve}
         />
       )}

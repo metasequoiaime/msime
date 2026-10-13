@@ -363,3 +363,7 @@ export const mobileTabPill = (selected: boolean) =>
 /** The glyph, masked out of the text colour; `--tab-icon` carries the image. HarmonyOS draws it at 24, the others at 22. */
 export const mobileTabIcon =
   "block size-[22px] bg-current [mask-image:var(--tab-icon)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain] [-webkit-mask-image:var(--tab-icon)] [-webkit-mask-position:center] [-webkit-mask-repeat:no-repeat] [-webkit-mask-size:contain] harmony:size-6";
+
+/** 桌面候选窗口页的四个顶部标签，沿用当前平台的分段控件配色。 */
+export const candidateTabs =
+  "grid grid-cols-4 gap-0.5 rounded-[var(--p-seg-r)] bg-[var(--p-seg-bg)] p-0.5 [border:var(--p-seg-border)] [&>button]:min-h-9 [&>button]:rounded-[var(--p-seg-item-r)] [&>button]:border-0 [&>button]:bg-transparent [&>button]:px-2 [&>button]:text-sm [&>button]:[color:var(--p-text)] [&>button[aria-selected=true]]:bg-[var(--p-seg-on)] [&>button[aria-selected=true]]:[color:var(--p-seg-on-fg)] [&>button[aria-selected=true]]:[box-shadow:var(--p-seg-on-shadow)] [&>button:focus-visible]:outline-2 [&>button:focus-visible]:outline-offset-1 [&>button:focus-visible]:outline-accent";

@@ -14,6 +14,10 @@ Status: implemented
 
 每个分区恢复入口只恢复所属设置。搜索保留未选中标签的条目，打开结果先选择其标签，再滚动并高亮对应行；方案本身不支持的隐藏选项继续过滤。
 
+## 正常入口的后续修复
+
+[正常候选设置入口显示顶部四标签](../bug-fix/2026-10-13-macos-primary-settings-tabs.md) 取代本篇对共享页面的入口判断：`showAppearance:` 正常打开共享设置页，AppKit 是启动失败时的备用窗口。本篇的原生标签、搜索与生命周期决定仍适用于备用窗口；实际正常页面的四标签由后续修复实现。
+
 ## 历史审计
 
 [展开候选](../../implemented/feature/2026-10-12-macos-expanded-candidate-grid.md) 与布局开关部分重叠，只改变它的展示位置，不改行为。[宿主预览 token](../../implemented/bug-fix/2026-10-11-macos-candidate-preview-native-tokens.md) 讨论共享预览绘制，与原生标签无关。此前本分支的共享 React 标签改动完全撤回，由本篇记录原生实现的边界。

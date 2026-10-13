@@ -31,25 +31,32 @@ import { SkinPreviewStage } from "./skin-preview-stage";
 import { SkinPreviewSurface } from "./skin-preview-surface";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 
-/** The host's own `resolve()` answer for `request`, when the host has a theme call; `undefined` until it arrives, when it fails, and for a request it was not asked for. */
+/** 使用宿主的主题解析；同一皮肤支持横竖两种排布时，等待新排布的结果期间保留已有配色。 */
 function useResolvedTheme(
   resolve: ((request: ResolveThemeRequest) => Promise<ResolvedTheme>) | undefined,
   request: ResolveThemeRequest,
 ): ResolvedTheme | undefined {
   const key = JSON.stringify(request);
-  const [result, setResult] = useState<{ key: string; theme: ResolvedTheme }>();
+  const paletteKey = JSON.stringify({ ...request, layout: undefined });
+  const [result, setResult] = useState<{
+    paletteKey: string;
+    resolve: typeof resolve;
+    theme: ResolvedTheme;
+  }>();
   const generation = useAsyncGeneration(resolve, key);
   useEffect(() => {
     if (!resolve) return;
     const current = generation.current;
     resolve(JSON.parse(key) as ResolveThemeRequest).then(
       (theme) => {
-        if (generation.current === current) setResult({ key, theme });
+        if (generation.current === current) setResult({ paletteKey, resolve, theme });
       },
       () => {},
     );
-  }, [resolve, key, generation]);
-  return resolve && result?.key === key ? result.theme : undefined;
+  }, [resolve, key, paletteKey, generation]);
+  return resolve && result?.resolve === resolve && result.paletteKey === paletteKey
+    ? result.theme
+    : undefined;
 }
 
 function LoadedPreview({
@@ -58,6 +65,7 @@ function LoadedPreview({
   readImage,
   resolve,
   helpcode,
+  brand,
   theme,
   reserve,
 }: {
@@ -66,6 +74,7 @@ function LoadedPreview({
   readImage?: SkinImageReader;
   resolve?: (request: ResolveThemeRequest) => Promise<ResolvedTheme>;
   helpcode: boolean;
+  brand?: boolean;
   /** 宿主当前的明暗模式，也就是 `resolve()` 的 `dark`。 */
   theme: "dark" | "light";
   reserve?: PreviewReserve;
@@ -133,6 +142,7 @@ function LoadedPreview({
             count={preferences.candidate_page_size}
             preedit={preferences.candidate_preedit_style !== "empty"}
             helpcode={helpcode}
+            brand={brand}
             decorated={decorated}
             image={decodeFailed ? undefined : image?.url}
             onImageError={onImageError}
@@ -168,6 +178,7 @@ export function ExternalAppearancePreview({
   helpcode,
   theme,
   plain,
+  brand,
   reserve,
 }: {
   preferences: Preferences;
@@ -178,6 +189,7 @@ export function ExternalAppearancePreview({
   active: boolean;
   revision: number;
   helpcode: boolean;
+  brand?: boolean;
   /** 宿主当前的明暗模式：决定取哪个槽位的皮肤，也就是 `resolve()` 的 `dark`。 */
   theme: "dark" | "light";
   /** 不带皮肤包的预览（底加取色器）。所选皮肤不在这种明暗下画时画它，与 `resolve()` 一致。 */
@@ -188,8 +200,10 @@ export function ExternalAppearancePreview({
   const [refresh, setRefresh] = useState(0);
   const dark = theme === "dark";
   const id = candidateSkinFor(preferences.custom_theme, dark);
-  const key = useMemo(() => ({}), [scan, id, active, revision, refresh]);
-  const [result, setResult] = useState<{ key: object; skin?: ExternalSkin; failed?: boolean }>();
+  // 保存只触发后台重扫，不移除仍属于同一宿主和皮肤的预览；手动刷新继续重新读取图片。
+  const source = useMemo(() => ({}), [scan, id, active, refresh]);
+  const key = useMemo(() => ({}), [source, revision]);
+  const [result, setResult] = useState<{ source: object; skin?: ExternalSkin; failed?: boolean }>();
   const generation = useAsyncGeneration(scan, key, active, id);
   useEffect(() => {
     const current = generation.current;
@@ -198,18 +212,18 @@ export function ExternalAppearancePreview({
         try {
           const catalog = await scan();
           if (generation.current === current)
-            setResult({ key, skin: catalog.packages.find((skin) => skin.id === id) });
+            setResult({ source, skin: catalog.packages.find((skin) => skin.id === id) });
         } catch {
-          if (generation.current === current) setResult({ key, failed: true });
+          if (generation.current === current) setResult({ source, failed: true });
         }
       })();
-  }, [key, active, scan, id, generation]);
+  }, [key, source, active, scan, id, generation]);
   if (!active) return null;
   if (!scan)
     return (
       <StatusMessage role="status">当前宿主不支持扫描外部皮肤，无法预览所选皮肤。</StatusMessage>
     );
-  const current = result?.key === key ? result : undefined;
+  const current = result?.source === source ? result : undefined;
   const skin = current?.skin;
   // 固定明暗底的包只在那种明暗下画，`resolve()` 在别的模式下画底和取色器，预览照样画不带包的那个；`system` 底的包按当前模式取配色，仍要声明这个模式。
   const fixed = skin ? themeEntry(skin.base).appearance : null;
@@ -250,6 +264,7 @@ export function ExternalAppearancePreview({
           readImage={readImage}
           resolve={resolve}
           helpcode={helpcode}
+          brand={brand}
           theme={theme}
           reserve={reserve}
         />

@@ -379,3 +379,120 @@ test("image failures retain palette and report the limitation", async () => {
   expect(view.container.querySelectorAll(".cand")).toHaveLength(4);
   expect(drawn(view.container, "--cand-bg")).toBe("#123456");
 });
+
+test("切换横竖排和保存后的后台重扫保留皮肤、配色及图片节点", async () => {
+  let finishScan!: (value: SkinCatalog) => void;
+  let finishTheme!: (value: typeof theme) => void;
+  const theme = {
+    id: "custom" as const,
+    source: "custom" as const,
+    appearance: null,
+    candidate: { surface: "#010203" },
+    keyboard: null,
+    candidate_skin: "sample",
+  };
+  const scan = vi
+    .fn()
+    .mockResolvedValueOnce(catalog)
+    .mockImplementation(
+      () =>
+        new Promise<SkinCatalog>((done) => {
+          finishScan = done;
+        }),
+    );
+  const resolveTheme = vi
+    .fn()
+    .mockResolvedValueOnce(theme)
+    .mockImplementation(
+      () =>
+        new Promise<typeof theme>((done) => {
+          finishTheme = done;
+        }),
+    );
+  const readImage = vi.fn().mockResolvedValue(image);
+  const view = render(
+    <AppearanceCandidatePreview
+      preferences={preferences}
+      scan={scan}
+      readImage={readImage}
+      resolveTheme={resolveTheme}
+      revision={3}
+    />,
+  );
+  await waitFor(() => expect(drawn(view.container, "--cand-bg")).toBe("#010203"));
+  await waitFor(() =>
+    expect(view.container.querySelector(".skin-decoration-image")).not.toBeNull(),
+  );
+  const surface = view.container.querySelector(".appearance-candidate-preview");
+  const decoration = view.container.querySelector(".skin-decoration-image");
+  const horizontal = { ...preferences, candidate_layout: "horizontal" as const };
+  view.rerender(
+    <AppearanceCandidatePreview
+      preferences={horizontal}
+      scan={scan}
+      readImage={readImage}
+      resolveTheme={resolveTheme}
+      revision={3}
+    />,
+  );
+  expect(view.container.querySelector(".appearance-candidate-preview")).toBe(surface);
+  expect(drawn(view.container, "--cand-bg")).toBe("#010203");
+  await act(async () => finishTheme(theme));
+  view.rerender(
+    <AppearanceCandidatePreview
+      preferences={horizontal}
+      scan={scan}
+      readImage={readImage}
+      resolveTheme={resolveTheme}
+      revision={4}
+    />,
+  );
+  expect(scan).toHaveBeenCalledTimes(2);
+  expect(screen.queryByText("正在读取所选皮肤。")).toBeNull();
+  expect(view.container.querySelector(".appearance-candidate-preview")).toBe(surface);
+  expect(view.container.querySelector(".skin-decoration-image")).toBe(decoration);
+  await act(async () => finishScan(catalog));
+  expect(view.container.querySelector(".appearance-candidate-preview")).toBe(surface);
+  expect(view.container.querySelector(".skin-decoration-image")).toBe(decoration);
+  expect(readImage).toHaveBeenCalledTimes(1);
+});
+
+test("外部皮肤预览的 logo 开关与主预览一致，不重新加载图片", async () => {
+  const scan = vi.fn().mockResolvedValue(catalog);
+  const readImage = vi.fn().mockResolvedValue(image);
+  const view = render(
+    <AppearanceCandidatePreview
+      preferences={preferences}
+      scan={scan}
+      readImage={readImage}
+      brand={false}
+    />,
+  );
+  await waitFor(() =>
+    expect(view.container.querySelector(".skin-decoration-image")).not.toBeNull(),
+  );
+  const decoration = view.container.querySelector(".skin-decoration-image");
+  expect(view.container.querySelector(".candidate-brand")).toBeNull();
+  view.rerender(
+    <AppearanceCandidatePreview
+      preferences={preferences}
+      scan={scan}
+      readImage={readImage}
+      brand
+    />,
+  );
+  expect(view.container.querySelector(".candidate-brand")).not.toBeNull();
+  view.rerender(
+    <AppearanceCandidatePreview
+      preferences={{ ...preferences, candidate_preedit_style: "empty" }}
+      scan={scan}
+      readImage={readImage}
+      brand={false}
+    />,
+  );
+  expect(view.container.querySelector(".candidate-brand-row")).toBeNull();
+  expect(view.container.querySelector(".candidate-brand")).toBeNull();
+  expect(view.container.querySelector(".skin-decoration-image")).toBe(decoration);
+  expect(scan).toHaveBeenCalledTimes(1);
+  expect(readImage).toHaveBeenCalledTimes(1);
+});
