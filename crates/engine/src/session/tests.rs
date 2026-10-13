@@ -721,6 +721,33 @@ fn shifted_uppercase_starts_pinyin_and_mixes_the_cased_english_word() {
     assert_eq!(session.snapshot().preedit, "Observable");
 }
 
+#[test]
+fn punctuation_after_unspellable_shifted_word_commits_typed_text() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.english.mixed_candidates = true;
+        options.english.minimum_prefix = 1;
+    });
+
+    assert!(session.character(b'N', true).handled);
+    type_text(&mut session, "ih");
+
+    let result = session.punctuation(b'<');
+    assert_eq!(result.commit.as_deref(), Some("Nih《"), "{result:?}");
+}
+
+#[test]
+fn punctuation_after_complete_shifted_pinyin_keeps_candidate_commit() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+
+    assert!(session.character(b'N', true).handled);
+    type_text(&mut session, "i");
+
+    let result = session.punctuation(b'<');
+    assert_eq!(result.commit.as_deref(), Some("你《"), "{result:?}");
+}
+
 /// 辅助码激活时大写的辅助码被转成小写拼进查英文的输入（`niC` 查的是 `nic`），光标前缀解码时选英文会扔掉光标后的输入：两种情况英文都不领先。
 #[test]
 fn helpcode_and_caret_prefix_keep_an_exact_english_word_behind_the_first_seat() {

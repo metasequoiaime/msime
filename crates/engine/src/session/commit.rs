@@ -101,6 +101,14 @@ impl InputSession {
         self.close_korean_hanja();
         let mut result = KeyResult::unhandled();
         // 高亮停在 AI 占位行上时，按没有高亮处理：上屏首选，不上屏占位文字。
+        // A shifted capital starts mixed English, but an incomplete pinyin spelling can still
+        // have Chinese correction rows. Preserve the typed word when no candidate was explicitly
+        // highlighted; explicit candidate choices keep their normal semantics.
+        let first_index = if first_index == 0 && self.shifted_incomplete_pinyin_is_literal() {
+            usize::MAX
+        } else {
+            first_index
+        };
         let mut index = if self
             .candidates()
             .get(first_index)

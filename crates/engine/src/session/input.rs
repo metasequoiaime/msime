@@ -1076,6 +1076,23 @@ impl InputSession {
         result
     }
 
+    /// Shifted capitals can start mixed English input. When that input cannot be a complete
+    /// pinyin spelling, finishing it must preserve the typed word instead of choosing a Chinese
+    /// correction as punctuation or blur does.
+    pub(super) fn shifted_incomplete_pinyin_is_literal(&self) -> bool {
+        if self.dedicated_english
+            || self.local_mode != LocalInputMode::None
+            || !matches!(self.scheme(), SchemeType::Quanpin | SchemeType::Shuangpin)
+        {
+            return false;
+        }
+        self.raw_with_cases()
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_uppercase)
+            && !self.is_all_complete_pure_pinyin()
+    }
+
     /// One apostrophe, right after a unit letter, splits `3jin'g` into the unit and its target.
     fn expression_takes_unit_separator(&self) -> bool {
         let preedit = self.local_preedit.as_bytes();

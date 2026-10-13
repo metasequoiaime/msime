@@ -19,6 +19,8 @@ Status: implemented
 
 Shift+大写字母现在可以成为拼音组字的首键，后续英文字符会在同一组字里参与英文混输，原始大小写可在预编辑和原样提交中保留。仅 Caps Lock 或宿主未标记 Shift 的空闲大写字符仍保持透传语义；快捷模式入口及其他方案不变。
 
+当这段原文无法完整切成拼音时，结束组字也保留用户输入的英文原文。这样 `Observable<` 不会因为纠错候选存在而把中文首候选误上屏；完整拼音（例如 `Ni`）仍按首候选结束组字。
+
 ## Verification
 
-`cargo test -p msime-engine shifted_uppercase_starts_pinyin_and_mixes_the_cased_english_word` 覆盖 `Observable` 的首个大写、完整预编辑和英文候选；`cargo fmt --all` 已运行。
+`cargo test -p msime-engine shifted_uppercase_starts_pinyin_and_mixes_the_cased_english_word` 覆盖 `Observable` 的首个大写、完整预编辑和英文候选；`cargo test -p msime-engine punctuation_after_` 覆盖不完整大写原文保留与完整拼音选词；`cargo fmt --all` 已运行。

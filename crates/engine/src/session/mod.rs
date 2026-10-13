@@ -316,7 +316,7 @@ impl Session {
         self.input.set_candidate_position(index, 0)
     }
 
-    /// Finish the whole composition starting with the host-highlighted candidate (0 when none is highlighted); remaining segments use their leading candidate, and an invalid index commits the raw input.
+    /// Finish the whole composition starting with the host-highlighted candidate (0 when none is highlighted); remaining segments use their leading candidate, and an invalid index commits the raw input. A shifted capital that starts an incomplete pinyin spelling also uses the raw input so mixed English is not replaced by a Chinese correction.
     pub fn finish(&mut self, first_index: usize) -> KeyResult {
         if self.nine_key.active() {
             let result = self.nine_key.finish(first_index);
