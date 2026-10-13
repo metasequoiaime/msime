@@ -964,7 +964,7 @@ int main(int argc, char **argv) {
       std::cout << "IBus Ctrl+Shift+J Japanese toggle, repeat, English modes and hot-reload passed\n";
       return 0;
     }
-    // 拆字反查在桌面默认关：偏好里没有这个键时 Shift+C 留给应用。从快捷模式菜单打开后 Shift+C 进入，IBus 在本地模式里把 ' 走标点路由，由 runtime 的 takes_local_separator 交给 Engine 当部件分隔符；空格上屏首行。再关掉又交给应用。
+    // 拆字反查在桌面默认关：偏好里没有这个键时 Shift+C 留给应用。从快捷模式菜单打开后 Shift+C 进入，跟在部件后面的 ' 由 Engine 列进 spelling_symbols，IBus 把它当字符交给 Engine 当部件分隔符；空格上屏首行。再关掉又交给应用。
     if (argc == 3 && std::string(argv[2]) == "--chaizi") {
       msime_ibus_configure(options.dump());
       invoke("FocusIn");

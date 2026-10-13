@@ -205,7 +205,7 @@ void local_mode_trigger_tests(const std::string &options) {
               !transition_counts_as_typing(command.source.transition),
           "Space did not commit the command row");
 
-  // 拆字反查：Shift+C 进入，部件拼音是字母，' 在本地模式里走 TIP 的标点路由（EditPolicy 只在 none 里把它当字符），由 runtime 的 takes_local_separator 交给 Engine 当分隔符。空格上屏首行，计入打字统计。
+  // 拆字反查：Shift+C 进入，部件拼音是字母。跟在部件后面的 ' 由 Engine 列进 spelling_symbols，EditPolicy 因此把它当字符交给 Engine 当分隔符；只有入口字母 C 时不列。空格上屏首行，计入打字统计。
   press('C', 'C', 1);
   require(session.view().at("local_mode") == "chaizi" &&
               session.view().at("editing_text") == "C" &&

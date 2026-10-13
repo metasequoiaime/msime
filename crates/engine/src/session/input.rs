@@ -418,10 +418,10 @@ impl InputSession {
                 }
                 self.local_preedit.len() < url::INPUT_LIMIT
             }
-            // 拆字收字母（大小写照原样写进预编辑，有大写时不查表），`'` 只收在字母之后，用来分隔部件。
+            // 拆字收字母（大小写照原样写进预编辑，有大写时不查表），`'` 只收在部件之后，用来分隔部件；微软双拼的 `;` 是韵母 ing。
             LocalInputMode::Chaizi => {
                 self.local_preedit.len() < GENERATED_MODE_INPUT_LIMIT
-                    && (letter || (value == b'\'' && self.chaizi_takes_separator()))
+                    && (letter || self.chaizi_takes_symbol(value, self.local_preedit.len()))
             }
             LocalInputMode::None => return KeyResult::unhandled(),
         };
@@ -975,6 +975,13 @@ impl InputSession {
         if value == b'\'' && self.takes_local_separator() {
             return self.handle_character(value, false);
         }
+        // 拆字里微软双拼的韵母 `;` 同样是输入，宿主按组字原文数奇偶时会把它当标点送来。
+        if value == b';'
+            && self.local_mode == LocalInputMode::Chaizi
+            && self.chaizi_takes_symbol(value, self.caret_position())
+        {
+            return self.handle_character(value, false);
+        }
         // A spelling symbol of the active mode is part of the input, not a mark that ends it.
         if self
             .local_mode
@@ -1064,19 +1071,33 @@ impl InputSession {
         match self.local_mode {
             LocalInputMode::Expression => self.expression_takes_unit_separator(),
             LocalInputMode::Command => self.command_takes_word_separator(),
-            LocalInputMode::Chaizi => self.chaizi_takes_separator(),
+            LocalInputMode::Chaizi => self.chaizi_takes_symbol(b'\'', self.caret_position()),
             _ => false,
         }
     }
 
-    /// 拆字的部件分隔符：只跟在 `C` 之后的字母后面，不能连续，也不能紧跟入口字母 `C`。
-    fn chaizi_takes_separator(&self) -> bool {
-        self.local_preedit.len() > 1
-            && self
-                .local_preedit
-                .as_bytes()
-                .last()
-                .is_some_and(u8::is_ascii_alphabetic)
+    /// 拆字在预编辑的 `caret` 处收不收这个非字母键。`'` 分隔部件：只跟在部件的字母（或韵母 `;`）后面，不能紧跟入口字母 `C`，也不能和另一个 `'` 相邻。`;` 只在双拼方案用得到这个键时（微软双拼的 ing）收，和普通组字一样只补完一个奇数长度的片段；片段从上一个 `'` 或入口字母之后算起，所以宿主按整段组字原文数奇偶会差一位，要靠 `spelling_symbols` 告诉宿主。
+    pub(super) fn chaizi_takes_symbol(&self, value: u8, caret: usize) -> bool {
+        let text = self.local_preedit.as_bytes();
+        let caret = caret.min(text.len());
+        match value {
+            b'\'' => {
+                caret > 1
+                    && (text[caret - 1].is_ascii_alphabetic() || text[caret - 1] == b';')
+                    && text.get(caret) != Some(&b'\'')
+            }
+            b';' => {
+                if self.scheme() != SchemeType::Shuangpin || !self.profile.uses_semicolon_key() {
+                    return false;
+                }
+                let start = text[..caret]
+                    .iter()
+                    .rposition(|&byte| byte == b'\'')
+                    .map_or(1, |at| at + 1);
+                caret > start && (caret - start) % 2 == 1
+            }
+            _ => false,
+        }
     }
 
     /// One apostrophe after each word of `/fy` separates it from the next.
@@ -1121,6 +1142,15 @@ impl InputSession {
     pub fn spelling_symbols(&self) -> String {
         if self.dedicated_english {
             return String::new();
+        }
+        // 拆字的 `'` 和微软双拼的 `;` 都只在光标处收得下时才列出：宿主照这里把它们当字符送进来，不再当标点结束组字，也不让「二三候选」把它们当选词键。
+        if self.local_mode == LocalInputMode::Chaizi {
+            let caret = self.caret_position();
+            return (*b"';")
+                .into_iter()
+                .filter(|&key| self.chaizi_takes_symbol(key, caret))
+                .map(char::from)
+                .collect();
         }
         if self.local_mode != LocalInputMode::None {
             return self.local_mode.spelling_symbols().to_owned();

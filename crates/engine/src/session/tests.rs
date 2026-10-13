@@ -3963,6 +3963,56 @@ fn chaizi_queries_the_quanpin_reading_of_shuangpin_input() {
 }
 
 #[test]
+fn chaizi_takes_the_microsoft_shuangpin_ing_key() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let microsoft = |options: &mut SessionOptions| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Microsoft;
+    };
+    let mut session = chaizi_session(&fixture, microsoft);
+    session.character(b'C', true);
+    type_text(&mut session, "sj");
+    // 片段 `sj` 已是一个完整音节，`;` 补不了它：不列出、吞掉。
+    assert_eq!(session.snapshot().spelling_symbols, "'");
+    assert!(session.character(b';', false).handled);
+    assert_eq!(session.snapshot().editing_text, "Csj");
+    session.character(b'q', false);
+    // `q` 之后 `;` 是韵母 ing。组字原文 `Csjq` 是偶数长度，按原文数奇偶的宿主会把它当标点，所以要列进 `spelling_symbols`。
+    assert_eq!(session.snapshot().spelling_symbols, "';");
+    assert!(session.character(b';', false).handled);
+    assert_eq!(session.snapshot().editing_text, "Csjq;");
+    assert_eq!(words(&session)[0], "清");
+    assert_eq!(session.snapshot().spelling_symbols, "'");
+    // 宿主当标点送来也一样，不会先以首行结束组字。
+    session.command(Command::Cancel);
+    session.character(b'C', true);
+    type_text(&mut session, "sjq");
+    assert!(session.punctuation(b';').handled);
+    assert_eq!(session.snapshot().editing_text, "Csjq;");
+    assert_eq!(session.input.local_mode, LocalInputMode::Chaizi);
+    assert_eq!(words(&session)[0], "清");
+    // 分隔符之后重新数奇偶，光标处插入用同一条规则。
+    session.command(Command::Cancel);
+    session.character(b'C', true);
+    type_text(&mut session, "sj'q");
+    session.command(Command::MoveLeft);
+    assert!(!session.character(b';', false).handled);
+    session.command(Command::MoveEnd);
+    assert!(session.character(b';', false).handled);
+    assert_eq!(session.snapshot().editing_text, "Csj'q;");
+    assert_eq!(words(&session)[0], "清");
+
+    // 小鹤双拼和全拼用不到 `;`，拆字里它照旧是标点。
+    for scheme in [SchemeType::Shuangpin, SchemeType::Quanpin] {
+        let mut session = chaizi_session(&fixture, |options| options.scheme = scheme);
+        session.character(b'C', true);
+        type_text(&mut session, "sjq");
+        assert!(!session.snapshot().spelling_symbols.contains(';'));
+        assert!(!session.input.chaizi_takes_symbol(b';', 4));
+    }
+}
+
+#[test]
 fn chaizi_ignores_an_apostrophe_left_right_after_the_entry_letter() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = chaizi_session(&fixture, |_| {});

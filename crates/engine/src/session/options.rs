@@ -123,7 +123,7 @@ impl SessionOptions {
 pub struct SessionSnapshot {
     pub scheme: SchemeType,
     pub local_mode: LocalInputMode,
-    /// The non-letter characters `character` takes in this state: the active local mode's `spelling_symbols`, or while nothing is composed the keys that open the `/` and `@` modes. A host or runtime that would send one of these as punctuation sends it as a character instead.
+    /// The non-letter characters `character` takes in this state: the active local mode's `spelling_symbols` (拆字按光标处列出部件分隔符 `'` 和微软双拼的韵母 `;`), or while nothing is composed the keys that open the `/` and `@` modes. A host or runtime that would send one of these as punctuation sends it as a character instead.
     pub spelling_symbols: String,
     pub preedit: String,
     pub raw_segmentation: String,

@@ -276,24 +276,25 @@ fn partition_point(len: usize, predicate: impl Fn(usize) -> bool) -> usize {
     low
 }
 
-/// `C` 之后的输入 `code` 拆出的字：先列整串精确命中的字，再列前缀补全（要求已打完前两个部件），同一级按名次。双拼方案另把输入转成全拼再查一次，结果合并。`code` 里有大写字母时不查表（`CPU`、`CEO` 照原样上屏）。`traditional_output` 为真时宿主会把行转成繁体，这里按转换后的字形去重，保留先出现的一行，免得一屏出现两个「議」。
+/// `C` 之后的输入 `code` 拆出的字：先列整串精确命中的字，再列前缀补全（要求已打完前两个部件），同一级按名次。双拼方案另把输入转成全拼再查一次，结果合并；微软双拼的 `;`（ing）只在这次转换里有意义。`code` 里有大写字母时不查表（`CPU`、`CEO` 照原样上屏）。`traditional_output` 为真时宿主会把行转成繁体，这里按转换后的字形去重，保留先出现的一行，免得一屏出现两个「議」。
 pub fn query_chaizi(
     code: &str,
     scheme: SchemeType,
     profile: &ShuangpinProfile,
     traditional_output: bool,
 ) -> Vec<WordItem> {
+    let shuangpin = scheme == SchemeType::Shuangpin;
     if code.is_empty()
         || !code
             .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte == b'\'')
+            .all(|byte| byte.is_ascii_lowercase() || byte == b'\'' || (shuangpin && byte == b';'))
     {
         return Vec::new();
     }
     let mut hits = Vec::new();
     let query = Query::new(code);
     collect(&query, &mut hits);
-    if scheme == SchemeType::Shuangpin {
+    if shuangpin {
         let quanpin = normalize_input(code, profile);
         if !quanpin.is_empty() && quanpin.as_bytes() != query.letters.as_slice() {
             collect(&Query::new(&quanpin), &mut hits);
@@ -474,6 +475,13 @@ mod tests {
         assert_eq!(rows.first().map(|item| item.word.as_str()), Some("焱"));
         // 全拼方案不做这次转换。
         assert!(query_chaizi("hohoho", SchemeType::Quanpin, xiaohe(), false).is_empty());
+        // 微软双拼的 `;` 是 ing：清 = 氵 san（`sj`）+ 青 qing（`q;`）。全拼方案不收 `;`。
+        let microsoft =
+            crate::shuangpin::profile::profile(crate::types::ShuangpinProfileKind::Microsoft)
+                .expect("微软双拼是内置方案");
+        let rows = query_chaizi("sjq;", SchemeType::Shuangpin, microsoft, false);
+        assert_eq!(rows.first().map(|item| item.word.as_str()), Some("清"));
+        assert!(query_chaizi("sjq;", SchemeType::Quanpin, microsoft, false).is_empty());
     }
 
     #[test]
