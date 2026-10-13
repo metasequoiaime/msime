@@ -56,9 +56,9 @@ class CommunitySkinLifecycleTests(unittest.TestCase):
         self.assertIn("@State private var request = ViewRequestGeneration()", self.publish)
         self.assertIn(".onDisappear", self.publish)
         self.assertIn("pending?.cancel()", self.publish)
-        self.assertIn("let id = request.begin()", self.publish)
+        self.assertIn("ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending", self.publish)
         self.assertIn("request.disappear()", self.publish)
-        self.assertIn("catch is CancellationError", self.publish)
+        self.assertIn("catch is CancellationError", TASK.read_text())
 
 
 if __name__ == "__main__":
