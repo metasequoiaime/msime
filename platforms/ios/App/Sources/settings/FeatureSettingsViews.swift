@@ -869,23 +869,18 @@ struct ServiceSettingsView: View {
       let key = try enteredKey.isEmpty ? ServiceTokenStore.read(kind, url: url) : enteredKey
       guard !key.isEmpty else { modelStatus = "请先填写 API Key，或使用已保存的密钥。"; return }
       UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-      busy = true
-      fetchingModels = true
-      modelStatus = ""
-      let id = request.begin()
-      operation = Task {
-        defer { if request.isCurrent(id) { busy = false; fetchingModels = false } }
-        do {
-          let models = try await ModelCatalogClient.fetch(configuration: config, kind: kind, token: key)
-          try request.checkCurrent(id)
-          fetchedModels = models
-          if !models.contains(configuration.model) { configuration.model = models[0] }
-          editsCustomModel = false
-          modelStatus = "已获取 \(models.count) 个模型。请选择支持当前功能的模型。"
-        } catch is CancellationError {
-        } catch {
-          if request.isCurrent(id) && !Task.isCancelled { modelStatus = error.localizedDescription }
-        }
+      ViewRequestTask.run(request: $request, busy: $busy, pending: $operation,
+                          prepare: { fetchingModels = true; modelStatus = "" },
+                          onError: { error in
+                            if !Task.isCancelled { modelStatus = error.localizedDescription }
+                          }) { id in
+        defer { if request.isCurrent(id) { fetchingModels = false } }
+        let models = try await ModelCatalogClient.fetch(configuration: config, kind: kind, token: key)
+        try request.checkCurrent(id)
+        fetchedModels = models
+        if !models.contains(configuration.model) { configuration.model = models[0] }
+        editsCustomModel = false
+        modelStatus = "已获取 \(models.count) 个模型。请选择支持当前功能的模型。"
       }
     } catch { modelStatus = error.localizedDescription }
   }
@@ -905,20 +900,15 @@ struct ServiceSettingsView: View {
         transport: DoubaoWebSocketTransport(),
         codec: DoubaoHostFrameCodec.make(enableITN: config.doubaoEnableITN, punctuation: config.doubaoEnablePunctuation,
                                          DDC: config.doubaoEnableDDC, boostingTable: config.doubaoBoostingTableID)) : nil
-      busy = true
-      testingConnection = true
-      modelStatus = ""
-      let id = request.begin()
-      operation = Task {
-        defer { if request.isCurrent(id) { busy = false; testingConnection = false } }
-        do {
-          try await CustomServiceClient.test(kind: kind, configuration: config, token: key, doubaoClient: client)
-          try request.checkCurrent(id)
-          modelStatus = "连接成功，API Key 和模型配置有效。"
-        } catch is CancellationError {
-        } catch {
-          if request.isCurrent(id) && !Task.isCancelled { modelStatus = "测试失败：\(error.localizedDescription)" }
-        }
+      ViewRequestTask.run(request: $request, busy: $busy, pending: $operation,
+                          prepare: { testingConnection = true; modelStatus = "" },
+                          onError: { error in
+                            if !Task.isCancelled { modelStatus = "测试失败：\(error.localizedDescription)" }
+                          }) { id in
+        defer { if request.isCurrent(id) { testingConnection = false } }
+        try await CustomServiceClient.test(kind: kind, configuration: config, token: key, doubaoClient: client)
+        try request.checkCurrent(id)
+        modelStatus = "连接成功，API Key 和模型配置有效。"
       }
     } catch { modelStatus = error.localizedDescription }
   }
