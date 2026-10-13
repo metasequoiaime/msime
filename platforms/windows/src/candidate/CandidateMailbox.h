@@ -45,6 +45,11 @@ public:
                               same_ticket(latest_->lease.transport, lease.transport);
       if (same_lease && latest_->game_host)
         value.game_host = true;
+      // 只有带 GameHost 位的按键包 TIP 才写坐标（Ipc.cpp 给游戏会话补上锚点），其余按键包的 point 是线上结构的默认值 (100,100)。同一租约里沿用 Show/Move 报过的位置：否则在随后的 Show/Move 到达之前候选窗刷新一次，卡片就跳到屏幕左上的 (100,100)；宿主报的是 INVALID_Y（还没有文字范围、卡片应当藏着）时，也会被这个默认值顶掉而露出来。
+      if (same_lease && (packet.modifiers_down & PipeMetadata::GameHost) == 0) {
+        value.x = latest_->x;
+        value.y = latest_->y;
+      }
       // 按键包不带坐标，沿用同一租约里 Show/Move 报过的锚点。
       if (same_lease && latest_->caret_anchor_known) {
         value.caret_anchor_known = true;

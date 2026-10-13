@@ -173,7 +173,7 @@ struct CandidatePresentation {
   std::optional<ShuangpinKeymapHint> shuangpin_keymap;
   // Tab 预选的释义列（1 或 2），候选窗给高亮候选的那一行释义画下划线；0 表示没有预选。见 GlossColumnPolicy.h。
   int armed_gloss_column = 0;
-  // Show/Move 包报来的组字锚点（物理像素，文字底边的左端），没有报过时 caret_anchor_known 为 false。上面的 x/y 不能当光标用：按键包不带坐标，x/y 每个按键都被写成线上结构的默认值 (100,100)，要等随后的 Move 才改回来，组字结束后就不再有 Move。输入模式提示在没有系统光标时靠它摆位置，同一租约里跨按键沿用。
+  // Show/Move 包报来的组字锚点（物理像素，文字底边的左端），没有报过时 caret_anchor_known 为 false。上面的 x/y 不能当光标用：按键包不带坐标，租约里还没有 Show/Move 时 x/y 是线上结构的默认值 (100,100)（之后 CandidateMailbox::delivered 沿用报过的位置），宿主还没有文字范围时又是 INVALID_Y。输入模式提示在没有系统光标时靠它摆位置，同一租约里跨按键沿用。
   bool caret_anchor_known = false;
   int caret_anchor_x = 0;
   int caret_anchor_y = 0;
