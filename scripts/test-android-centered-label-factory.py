@@ -34,7 +34,7 @@ def main() -> int:
         "SegmentedControl.java": 1,
         "SheetHeaderView.java": 1,
         "SheetOptionView.java": 1,
-        "SkinsPage.java": 4,
+        "SkinsPage.java": 2,
     }
     duplicated = re.compile(
         r"ViewPolicy\.(?:styledLabel|label)\([^;]{0,300};\s*ViewPolicy\.setCentered\(", re.DOTALL

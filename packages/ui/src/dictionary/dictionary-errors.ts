@@ -27,6 +27,14 @@ export function dictionaryErrorMessage(
       return "无法打开用户词库，请检查输入法是否正在运行。";
     case "dictionary_invalid_entry":
       return invalidDictionaryEntryMessage(kind);
+    case "dictionary_scel_unsupported":
+      return "这个文件不是能识别的搜狗细胞词库（.scel）。";
+    case "dictionary_scel_malformed":
+      return "细胞词库文件不完整或已损坏，请重新下载后再导入。";
+    case "dictionary_scel_empty":
+      return "细胞词库里没有词条。";
+    case "dictionary_scel_invalid":
+      return "细胞词库读取失败，请重新选择文件。";
     case "dictionary_invalid_word":
       return "词条内容为空、过长或含控制字符，或权重超出 1 到 100000000 的范围。";
     default:

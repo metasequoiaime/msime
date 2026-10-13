@@ -22,9 +22,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 功能面板（设计的「菜单」）：横向分页、每页 4 列 × 2 行的条目，下方页点。
+ * 功能菜单：横向分页、每页四列三行的条目，下方页点。
  *
- * <p>条目没有底色：30 dp 的图标区加 12.5 sp 的标签，间距 7 dp，条目高 52 dp。字形条目（全、，、≈、繁）画 26×26、圆角 5、1.8 dp 描边的方框加 14 sp 粗体字。开启状态用 accent、标签加粗，图标右下角加 13 dp 的 accent ✓ 角标（2 dp 的 kbBg 圆环）。
+ * <p>条目没有底色：30 dp 图标区与常规字重标签，间距 7 dp，条目高 52 dp。字形条目画方框。开启状态用强调色和图标右下角的勾标表达。
  *
  * <p>这个视图**不设置 alpha**：不可用状态的视觉由调用方经 SVC 的 `applyToolCardState` 处理，这里只把状态写进 stateDescription（已开启 / 已关闭 / 不可用）和 `isSelected()`。颜色全部由调用方从皮肤传入。
  */
@@ -79,7 +79,7 @@ public final class FunctionPanelView extends LinearLayout {
         setContentDescription("更多工具");
         LayoutPolicy.setPaddingDp(this, context, 0, 10, 0, 4);
         grid = new PagedTileGrid(context);
-        grid.setGrid(4, 2);
+        grid.setGrid(FunctionPanelModel.COLUMNS, FunctionPanelModel.ROWS);
         grid.setSpacing(ITEM_HEIGHT_DP, 16f, 4f, 4f);
         dots = new KeyboardPagerDots(context);
         grid.setOnPageChangeListener((page, count) -> dots.setActive(page, true));
@@ -112,6 +112,12 @@ public final class FunctionPanelView extends LinearLayout {
         }
         dots.setCount(grid.pageCount());
         dots.setActive(grid.page(), false);
+    }
+
+    /** 入口顺序未变化时就地更新标签和点击回调，保留磁贴、滚动位置与翻页动画。 */
+    public void updateEntries(List<Entry> entries) {
+        if (entries.size() != tiles.size()) throw new IllegalArgumentException("Entry count changed");
+        for (int index = 0; index < entries.size(); index++) tiles.get(index).updateEntry(entries.get(index));
     }
 
     /** 第 {@code index} 个条目（与 {@link #setEntries} 的顺序一致）。 */
@@ -151,7 +157,7 @@ public final class FunctionPanelView extends LinearLayout {
         private static final int PRESSED_ALPHA = 140;
 
         private final FunctionPanelView panel;
-        private final Entry entry;
+        private Entry entry;
         private final Paint iconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint boxPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -167,21 +173,28 @@ public final class FunctionPanelView extends LinearLayout {
         Tile(Context context, FunctionPanelView panel, Entry entry) {
             super(context);
             this.panel = panel;
-            this.entry = entry;
-            setText(entry.label);
             ViewPolicy.setAllCapsFalse(this);
             ViewPolicy.clearChrome(this);
-            setContentDescription(entry.description == null || entry.description.isEmpty()
-                ? entry.label : entry.description);
             textPaint.setTextAlign(Paint.Align.CENTER);
             boxPaint.setStyle(Paint.Style.STROKE);
-            if (entry.action != null) ViewPolicy.bindClick(this, entry.action);
+            updateEntry(entry);
+        }
+
+        void updateEntry(Entry value) {
+            entry = value;
+            if (!TextUtils.equals(getText(), entry.label)) setText(entry.label);
+            String description = entry.description == null || entry.description.isEmpty()
+                ? entry.label : entry.description;
+            if (!TextUtils.equals(getContentDescription(), description)) setContentDescription(description);
+            if (entry.action != null) ViewPolicy.bindClick(this, () -> this.entry.action.run());
+            else setOnClickListener(null);
             if (entry.longPress != null) {
                 setOnLongClickListener(view -> {
-                    entry.longPress.run();
+                    this.entry.longPress.run();
                     return true;
                 });
-            }
+            } else setOnLongClickListener(null);
+            invalidate();
         }
 
         void setState(State value) {
@@ -202,9 +215,9 @@ public final class FunctionPanelView extends LinearLayout {
             if (changed) invalidate();
         }
 
-        private void configureLabelPaint(boolean on) {
+        private void configureLabelPaint() {
             ViewPolicy.setTextSize(textPaint, KeyboardTypographyPolicy.keySp(getContext(), LABEL_SP));
-            ViewPolicy.setTypeface(textPaint, on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+            ViewPolicy.setTypeface(textPaint, Typeface.DEFAULT);
         }
 
         @Override protected void onDraw(Canvas canvas) {
@@ -212,7 +225,7 @@ public final class FunctionPanelView extends LinearLayout {
             int color = on ? panel.accent : panel.foreground;
             if (isPressed()) color = ColorPolicy.withAlpha(color,
                 Color.alpha(color) * PRESSED_ALPHA / 255);
-            configureLabelPaint(on);
+            configureLabelPaint();
             Paint.FontMetrics label = textPaint.getFontMetrics();
             float labelHeight = label.descent - label.ascent;
             float area = DimensionPolicy.floatPixels(getContext(), ICON_AREA_DP);
@@ -241,7 +254,7 @@ public final class FunctionPanelView extends LinearLayout {
                     iconCenterY - (metrics.ascent + metrics.descent) / 2f, glyph);
                 iconRight = centerX + box / 2f;
                 iconBottom = iconCenterY + box / 2f;
-                configureLabelPaint(on);
+                configureLabelPaint();
             } else {
                 float size = DimensionPolicy.floatPixels(getContext(), ICON_DP);
                 if (entry.icon != null) {

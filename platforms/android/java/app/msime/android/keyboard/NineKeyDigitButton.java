@@ -6,34 +6,24 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 
-/**
- * 九键键帽：字母下面是它送进引擎的数字，所以数字印在上沿。
- *
- * <p>The grid sends `2` for the key drawn `ABC`, and a hold offers that digit directly. Printing it
- * above the letters is what makes both readable without a second tap, and it is the same legend the
- * shared design draws on the other platforms.
- */
+/** 九键键帽：数字缩成右上角标记，主键面保持居中。 */
 public final class NineKeyDigitButton extends KeyboardPressButton {
     private final Paint digitPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final int basePaddingTop;
     private String digitText = "";
     private int digitColor = Color.GRAY;
 
     public NineKeyDigitButton(Context context) {
         super(context);
         KeyboardTypographyPolicy.normalizeKeyCap(this);
-        basePaddingTop = getPaddingTop();
-        digitPaint.setTextAlign(Paint.Align.CENTER);
+        digitPaint.setTextAlign(Paint.Align.RIGHT);
         ViewPolicy.setAllCapsFalse(this);
     }
 
-    /** The digit printed above the letters; empty on the digit layer, where the face is the digit. */
+    /** 右上角的数字标记；数字键面本身显示数字时为空。 */
     public void setDigitText(String value) {
         String next = TextPolicy.emptyIfNull(value);
         if (digitText.equals(next)) return;
         digitText = next;
-        setPadding(getPaddingLeft(), basePaddingTop + (digitText.isEmpty() ? 0 : DimensionPolicy.pixels(getContext(), 10)),
-            getPaddingRight(), getPaddingBottom());
         invalidate();
     }
 
@@ -51,7 +41,7 @@ public final class NineKeyDigitButton extends KeyboardPressButton {
         digitPaint.setColor(digitColor);
         digitPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 204, 96));
         Paint.FontMetrics metrics = digitPaint.getFontMetrics();
-        canvas.drawText(digitText, getWidth() / 2f,
+        canvas.drawText(digitText, getWidth() - DimensionPolicy.pixels(getContext(), 6),
             DimensionPolicy.pixels(getContext(), 3) - metrics.top, digitPaint);
     }
 }

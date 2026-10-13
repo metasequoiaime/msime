@@ -45,6 +45,10 @@ import org.json.JSONObject;
  * <p>调试开关、日志级别、「记录输入日志」和 MCP 上传的内容与保留时长只在本机，存在 {@link AndroidLocalSettings}（`platform.android.developer.*`），不进共享偏好、不同步；「重置所有设置」同时把共享偏好和这份本地设置恢复为默认值。
  */
 public final class DeveloperPage extends ReloadingDetailPage {
+    @Override protected java.util.List<String> sectionTitles() {
+        return java.util.List.of("日志共享", "调试", "数据");
+    }
+
     private static final String PLATFORM = "android";
     private static final String DIAGNOSTICS_CACHE = "diagnostics";
     private static final String UPLOAD_BUNDLE = "mcp-upload.zip";
@@ -148,7 +152,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
             settings.choice(AndroidLocalSettings.MCP_RETENTION));
         DiagnosticsApi.Snapshot uploaded = cloud.snapshot();
 
-        GroupCard mcp = GroupCard.add(target, "MCP 开发者访问");
+        GroupCard mcp = GroupCard.add(sectionColumn(target, "日志共享"), "MCP 开发者访问");
         CharSequence mcpSubtitle;
         if (confirming) {
             mcpSubtitle = "请在下方确认后上传";
@@ -177,7 +181,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
 
         if (confirming) {
             DiagnosticsApi.Include include = include(settings);
-            GroupCard confirm = GroupCard.add(target, "确认上传");
+            GroupCard confirm = GroupCard.add(sectionColumn(target, "日志共享"), "确认上传");
             String summary = include.any()
                 ? categories(include) + " · " + retention.label() + "后自动删除，可随时删除"
                 : "请至少在下方选择一类日志";
@@ -189,7 +193,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
             });
         }
 
-        GroupCard logs = GroupCard.add(target, "可访问的日志");
+        GroupCard logs = GroupCard.add(sectionColumn(target, "日志共享"), "可访问的日志");
         uploadToggle(logs, "崩溃日志", "崩溃堆栈与引擎错误", settings, AndroidLocalSettings.MCP_CRASH_LOGS);
         uploadToggle(logs, "性能日志", "候选耗时与内存占用", settings, AndroidLocalSettings.MCP_PERFORMANCE_LOGS);
         uploadToggle(logs, "输入事件", "只含按键时序与事件种类，不含文字内容", settings, AndroidLocalSettings.MCP_INPUT_EVENTS);
@@ -198,14 +202,14 @@ public final class DeveloperPage extends ReloadingDetailPage {
         if (uploaded != null) {
             renderUploaded(target, uploaded);
             renderAccesses(target);
-            GroupCard remove = GroupCard.add(target, null);
+            GroupCard remove = GroupCard.add(sectionColumn(target, "日志共享"), null);
             remove.button("删除云端日志", "云端快照和令牌立即删除，开发者无法再读取", "删除", this::confirmDelete)
                 .setEnabled(!busy);
         } else if (!cloudLoaded && snapshot != null) {
             mcp.note("暂时读不到云端快照的状态，联网后返回本页会再读一次");
         }
 
-        GroupCard debug = GroupCard.add(target, "调试");
+        GroupCard debug = GroupCard.add(sectionColumn(target, "调试"), "调试");
         debug.toggle("显示调试信息", "在候选栏显示引擎耗时与词频",
             settings.bool(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY),
             on -> edit(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY, on));
@@ -215,7 +219,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
         debug.nav("日志级别", "只影响系统日志（logcat），导出的诊断包不受它影响", levelLabel(level),
             snapshot == null ? null : () -> showLevelSheet(level));
 
-        GroupCard data = GroupCard.add(target, "数据");
+        GroupCard data = GroupCard.add(sectionColumn(target, "数据"), "数据");
         data.button("导出诊断包", null, "导出", this::exportBundle).setEnabled(!busy && snapshot != null);
         data.button("重置所有设置", "恢复为出厂设置，词库不受影响", "重置", this::confirmReset)
             .setEnabled(!busy && snapshot != null);
@@ -227,7 +231,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
     }
 
     private void renderUploaded(LinearLayout target, DiagnosticsApi.Snapshot uploaded) {
-        GroupCard group = GroupCard.add(target, "日志快照 · 存于水杉云");
+        GroupCard group = GroupCard.add(sectionColumn(target, "日志共享"), "日志快照 · 存于水杉云");
         group.button("上传时间", when(uploaded.createdAt()) + " · 共 " + size(uploaded.bytes()) + " · 之后产生的日志需重新上传",
             "重新上传", () -> {
                 confirming = true;
@@ -243,7 +247,7 @@ public final class DeveloperPage extends ReloadingDetailPage {
     }
 
     private void renderAccesses(LinearLayout target) {
-        GroupCard group = GroupCard.add(target, "最近访问");
+        GroupCard group = GroupCard.add(sectionColumn(target, "日志共享"), "最近访问");
         List<DiagnosticsApi.Access> accesses = cloud.accesses();
         if (accesses.isEmpty()) {
             group.note("开发者还没有读取过这份快照");

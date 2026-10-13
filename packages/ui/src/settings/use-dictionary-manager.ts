@@ -5,13 +5,19 @@ import { randomRequestId } from "../core/random-id";
 import { utf8ByteLength } from "../core/text";
 import {
   DICTIONARY_PAGE_SIZE,
+  MAX_DICTIONARY_FILE_BYTES,
+  MAX_SCEL_FILE_BYTES,
   dictionaryPageStatus,
+  isScelFile,
+  leadingImportRows,
   readDictionaryFile,
+  readScelFile,
   type DictionaryEntry,
+  type DictionaryPageFormat,
   type LocalDictionaryFormat,
   type LocalDictionaryKind,
 } from "../dictionary/dictionary-file";
-import { describeImportResult } from "../dictionary/dictionary-messages";
+import { describeImportResult, scelImportSource } from "../dictionary/dictionary-messages";
 import {
   MAX_DICTIONARY_EXPORT_BYTES,
   dictionaryExportName,
@@ -61,7 +67,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   const [phraseSearch, setPhraseSearch] = useState("");
   const [phraseForm, setPhraseForm] = useState<DictionaryPhraseForm | null>(null);
   const [dictionaryKind, setDictionaryKind] = useState<LocalDictionaryKind>("quick_phrase");
-  const [dictionaryFormat, setDictionaryFormat] = useState<LocalDictionaryFormat>("standard");
+  const [dictionaryFormat, setDictionaryFormat] = useState<DictionaryPageFormat>("standard");
   const phraseRequestGeneration = useAsyncGeneration(client.dictionary);
   const phraseActionBusy = useRef(false);
   const phraseActionOwner = useAsyncGeneration();
@@ -221,28 +227,61 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     );
   }
 
-  async function importPhrases(file: File) {
+  /**
+   * 导入一个文件。`format` 由选文件的那一刻决定（例如按扩展名切到 `rime` 或 `scel`）：同一个事件里刚 `setDictionaryFormat` 的值要到下一次渲染才进闭包，所以由调用方直接传进来，不读闭包里的旧格式。
+   *
+   * 细胞词库（选了这个格式，或者文件开头就是细胞词库的魔数）先经宿主的 `scelText` 转成标准文本，再以 `standard` 交给 `import`，上限、分批和报告都与文本文件相同。不分批的宿主（设了 `maxImportFileBytes`）一次只收 64 KiB 文本、只看 1000 行，所以只送转出文本的开头，报告里说文件过长，而不是整份被拒绝。
+   */
+  async function importPhrases(file: File, format: DictionaryPageFormat = dictionaryFormat) {
     if (!client.dictionary || !mounted.current) return;
     const generation = clientGeneration.current;
     const dictionary = client.dictionary;
     await runPhraseAction(
       async (isCurrent) => {
-        const text = await readDictionaryFile(file, dictionary.maxImportFileBytes);
+        const scelText = dictionary.scelText;
+        const scel = format === "scel" || (scelText !== undefined && (await isScelFile(file)));
+        let text: string;
+        let textFormat: LocalDictionaryFormat;
+        let source = "";
+        let cut = false;
+        if (scel) {
+          if (!scelText) throw new Error("这里不能导入搜狗细胞词库。");
+          if (dictionaryKind !== "pinyin")
+            throw new Error("搜狗细胞词库只能导入拼音词库，请先把「词库」切换到拼音。");
+          const converted = await scelText(
+            await readScelFile(
+              file,
+              Math.min(
+                MAX_SCEL_FILE_BYTES,
+                dictionary.maxImportFileBytes ?? MAX_DICTIONARY_FILE_BYTES,
+              ),
+            ),
+          );
+          text = converted.text;
+          if (dictionary.maxImportFileBytes !== undefined)
+            ({ text, cut } = leadingImportRows(converted.text));
+          textFormat = "standard";
+          source = scelImportSource(converted.name, converted.entries);
+        } else {
+          text = await readDictionaryFile(file, dictionary.maxImportFileBytes);
+          textFormat = format;
+        }
         let imported: DictionaryImportResult | null = null;
         if (dictionary.import) {
           imported = await dictionary.import(
             dictionaryKind,
-            dictionaryFormat,
+            textFormat,
             text,
             randomRequestId("ui-import"),
           );
+          if (cut) imported = { ...imported, truncated: true };
         } else {
-          if (dictionaryFormat === "hans") throw new Error("hans format requires batch import");
+          if (textFormat === "hans") throw new Error("hans format requires batch import");
           const lines = text.split(/\r?\n/).filter(Boolean);
           for (const line of lines) {
             const [first, second, weight = "10000"] = line.split("\t");
             if (!first || !second) continue;
-            const [value, key] = dictionaryFormat === "windows" ? [second, first] : [first, second];
+            const [value, key] = textFormat === "windows" ? [second, first] : [first, second];
             const parsedWeight = Number(weight);
             const normalizedWeight =
               weight.trim() !== "" && Number.isSafeInteger(parsedWeight) && parsedWeight >= 0
@@ -259,7 +298,9 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
         await loadPhrases(dictionaryKind);
         if (!isCurrent()) return;
         if (imported)
-          setPhraseNotice(describeImportResult(dictionaryKindLabel(dictionaryKind), imported));
+          setPhraseNotice(
+            describeImportResult(dictionaryKindLabel(dictionaryKind), imported, source),
+          );
       },
       (error) => importFailureMessage(dictionaryKindLabel(dictionaryKind), error),
       generation,
@@ -341,6 +382,10 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     const generation = clientGeneration.current;
     if (dictionaryFormat === "hans") {
       setPhraseError("汉字自动注音格式仅支持导入。");
+      return;
+    }
+    if (dictionaryFormat === "scel") {
+      setPhraseError("搜狗细胞词库格式仅支持导入。");
       return;
     }
     await runPhraseAction(

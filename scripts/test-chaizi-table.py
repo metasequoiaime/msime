@@ -147,7 +147,7 @@ def check_licence(lock: dict) -> None:
     text = LICENCE.read_text(encoding="utf-8")
     commit = lock["source_commit"]
     check(text.splitlines()[0] == f"漢語拆字字典 ({lock['source']}), commit {commit}", f"{LICENCE.relative_to(ROOT)} 第一行没有写出锁里的 {lock['source']} 提交 {commit}")
-    check(lock["license_file"] == str(LICENCE.relative_to(ROOT)), "锁的 license_file 不是许可证文件的路径")
+    check(lock["license_file"] == LICENCE.relative_to(ROOT).as_posix(), "锁的 license_file 不是许可证文件的路径")
     for phrase in LICENCE_PHRASES:
         check(phrase in text, f"{LICENCE.relative_to(ROOT)} 不再含有 {phrase!r}")
     for artifact in lock["artifacts"]:

@@ -2,15 +2,16 @@ package app.msime.android;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
- * 功能面板（点工具栏品牌键打开）的条目与分页，按计划 P25：每页 4 列 × 2 行，AI 回复和 AI 润色合成一格「AI 回复与润色」，腾出一格给本地输入。
+ * 点工具栏品牌键打开的功能菜单：每页四列三行，常用输入和布局操作在前，其余工具在后；顶部已有的入口按配置过滤。
  *
  * <p>只描述「有什么、叫什么、是不是开关」；开关当前值和点击后的动作由 IME 根据 {@link Item#id()} 决定。
  */
 public final class FunctionPanelModel {
     public static final int COLUMNS = 4;
-    public static final int ROWS = 2;
+    public static final int ROWS = 3;
     public static final int PAGE_SIZE = COLUMNS * ROWS;
 
     /** 条目标识，IME 按它接线。 */
@@ -37,23 +38,23 @@ public final class FunctionPanelModel {
         toggle(Id.FUZZY_PINYIN, "模糊音", "模糊音"),
         toggle(Id.TRADITIONAL, "繁体", "繁体输出"),
         action(Id.HANDWRITING, "手写"),
-        action(Id.DICTIONARY, "词库"),
-        action(Id.KEYBOARD_HEIGHT, "键盘高度"),
+        action(Id.LOCAL_INPUT, "本地输入"),
+        new Item(Id.AI_ASSIST, "AI 辅助", "AI 回复与润色", false),
         action(Id.SETTINGS, "设置"),
+        toggle(Id.ONE_HAND, "单手模式", "单手模式"),
+        toggle(Id.FLOATING, "浮动键盘", "浮动键盘"),
+        toggle(Id.PRIVACY, "无痕输入", "无痕输入"),
+        action(Id.KEYBOARD_HEIGHT, "键盘高度"),
         toggle(Id.KEY_SOUND, "按键音", "按键音"),
         toggle(Id.VIBRATION, "振动", "按键振动"),
-        toggle(Id.ONE_HAND, "单手模式", "单手模式"),
-        toggle(Id.PRIVACY, "隐私模式", "隐私模式"),
+        action(Id.VIBRATION_STRENGTH, "振动强度"),
+        action(Id.VOICE_RESULT, "插入语音文字"),
+        action(Id.DICTIONARY, "词库"),
+        action(Id.TEXT_EDIT, "文本编辑"),
         action(Id.FEEDBACK, "反馈"),
         action(Id.ABOUT, "关于"),
-        action(Id.AI_ASSIST, "AI 回复与润色"),
-        action(Id.LOCAL_INPUT, "本地输入"),
-        action(Id.VOICE_RESULT, "语音结果"),
-        action(Id.VIBRATION_STRENGTH, "振动强度"),
         action(Id.EMOJI, "表情"),
-        action(Id.CLIPBOARD, "剪贴板历史"),
-        toggle(Id.FLOATING, "浮动键盘", "浮动键盘"),
-        action(Id.TEXT_EDIT, "文本编辑"));
+        action(Id.CLIPBOARD, "剪贴板历史"));
 
     private FunctionPanelModel() { }
 
@@ -67,6 +68,13 @@ public final class FunctionPanelModel {
 
     /** 全部条目，按页序排列。 */
     public static List<Item> items() { return ITEMS; }
+
+    /** 顶部工具栏已有的入口不重复显示，关闭工具栏后仍可通过菜单进入。 */
+    public static List<Item> itemsExcept(Set<Id> toolbarItems) {
+        List<Item> result = new ArrayList<>(ITEMS.size());
+        for (Item item : ITEMS) if (!toolbarItems.contains(item.id())) result.add(item);
+        return List.copyOf(result);
+    }
 
     public static int pageCount() {
         return (ITEMS.size() + PAGE_SIZE - 1) / PAGE_SIZE;

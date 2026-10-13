@@ -1141,6 +1141,12 @@ class SettingsBridge {
         KeyboardLog.error(`dictionary collections request failed: ${describeError(error)}`);
         deliver(JSON.stringify({ ok: false, error: 'collections_io' }));
       });
+    } else if (kind === 'dictionary_scel_text') {
+      // 细胞词库转成标准文本：纯函数，不碰词库状态，也不需要宿主选项；文本随后照常经 dictionary 的 import 导入。
+      client.dictionaryScelTextAsync(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`dictionary scel request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'dictionary_scel_invalid' }));
+      });
     } else if (kind === 'typing_statistics') {
       this.typingStatisticsOnWorker(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary_snapshot') {

@@ -306,10 +306,10 @@ int main() {
       require(near(row.bounds.top, long_rows[0].bounds.top));
     // The single-line cap still binds: past it the page breaks as before.
     long_lines.max_single_line_width = 400.0;
-    const auto capped = candidate_card_size(long_lines);
-    require(near(capped.width, 400.0));
+    const auto capped_card = candidate_card_size(long_lines);
+    require(near(capped_card.width, 400.0));
     const auto capped_rows =
-        candidate_page_layout(long_lines.items, capped.width, metrics, true);
+        candidate_page_layout(long_lines.items, capped_card.width, metrics, true);
     require(capped_rows[2].bounds.top > capped_rows[0].bounds.top);
   }
 
@@ -529,11 +529,11 @@ int main() {
       require(near(two_lines.width, 120.0 + 24.0 + 12.0 + 14.0));
       require(near(candidate_item_natural_width(hanja.items[0], metrics, false),
                    120.0 + metrics.number_and_bar));
-      const auto stacked =
+      const auto stacked_item =
           candidate_page_layout(hanja.items, two_lines.width, metrics, false)[0].item;
-      require(stacked.translation.below && near(stacked.translation.x, 0.0) &&
-              near(stacked.translation.y, row) &&
-              near(stacked.translation.height, 2.0 * translation_line));
+      require(stacked_item.translation.below && near(stacked_item.translation.x, 0.0) &&
+              near(stacked_item.translation.y, row) &&
+              near(stacked_item.translation.height, 2.0 * translation_line));
       // The measure is asked even though no line is wider than the column, and its height wins.
       size_t asked = 0;
       hanja.wrapped = [&](size_t, CandidateRun run, double) {
@@ -888,8 +888,8 @@ int main() {
     require(near(unmarked.height, marked.height));
     // 拼音隐藏、没有翻页、也不画 logo：卡片高度只剩候选行和上下边距。
     plain.preedit_visible = false;
-    const auto collapsed = candidate_card_size(plain);
-    require(near(collapsed.height, 6.0 + 6.0 + row16));
+    const auto collapsed_card = candidate_card_size(plain);
+    require(near(collapsed_card.height, 6.0 + 6.0 + row16));
     // 有翻页时首行回来，放翻页。
     plain.page_width = 30.0;
     require(near(candidate_card_size(plain).height, 6.0 + 6.0 + 22.0 + row16));

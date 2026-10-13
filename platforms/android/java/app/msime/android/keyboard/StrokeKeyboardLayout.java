@@ -28,10 +28,10 @@ public final class StrokeKeyboardLayout {
         return ROWS;
     }
 
-    /** What a grid key prints: the stroke glyph over its name, e.g. 「一\n横」. */
+    /** 键面只显示笔画符号，笔画名称留在无障碍描述里。 */
     public static String face(Key key) {
         if (key == null) throw new IllegalArgumentException("Missing stroke key");
-        return key.glyph() + "\n" + key.name();
+        return key.glyph();
     }
 
     /** Spoken label, e.g. 「笔画 横」 or 「笔画 通配」. */

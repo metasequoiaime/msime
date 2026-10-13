@@ -23,6 +23,10 @@ import org.json.JSONObject;
  * <p>与原来键盘页的底部面板写法相同：启用时端点必须是 https 地址，或指向本机、局域网的 http 地址（规则见 `AiEndpointPolicy`，键盘会拒绝别的地址，这里也不写进去）；凭据按端点的来源（origin）分别存放在 `ai_assistant.tokens` 里，换端点不会把凭据带到另一个主机，留空凭据只删掉这个来源的那一条；提示词写进 `prompt_id` 选中的那个槽位，也就是键盘读的那个。每一项点开是一个输入框，确认后立即保存。
  */
 public final class AiSettingsPage extends ReloadingDetailPage {
+    @Override protected java.util.List<String> sectionTitles() {
+        return java.util.List.of("服务", "润色", "社区");
+    }
+
     /** 「社区回复模板」一组最多列几个，多的在完整列表里。 */
     private static final int REPLY_LIMIT = 5;
 
@@ -67,7 +71,7 @@ public final class AiSettingsPage extends ReloadingDetailPage {
             InputViewValuePolicy.textOr(ai, "prompt_id", ""));
         String prompt = ai.optString(promptKey, "");
 
-        GroupCard service = GroupCard.add(target, "服务");
+        GroupCard service = GroupCard.add(sectionColumn(target, "服务"), "服务");
         GroupCard.Row[] enabledRow = new GroupCard.Row[1];
         enabledRow[0] = service.toggle("启用 AI 入口", "在键盘上显示 AI 回复与润色", enabled, checked -> {
             if (checked && !AiEndpointPolicy.allowed(endpoint)) {
@@ -88,7 +92,7 @@ public final class AiSettingsPage extends ReloadingDetailPage {
                 : problem != null ? "公网端点必须用 https，凭据不会明文发出" : "先填写端点", hasToken ? "已设置" : "未设置",
             origin.isEmpty() ? null : () -> editToken(origin));
 
-        GroupCard polish = GroupCard.add(target, "润色");
+        GroupCard polish = GroupCard.add(sectionColumn(target, "润色"), "润色");
         polish.nav("润色提示词", null, prompt.isEmpty() ? "默认" : HomeTextPolicy.shortLabel(prompt), () -> editText("润色提示词",
             "留空使用默认提示词", prompt, InputType.TYPE_CLASS_TEXT,
             value -> saveAi(next -> next.put(promptKey, value))));
@@ -100,7 +104,7 @@ public final class AiSettingsPage extends ReloadingDetailPage {
     /** 社区里的 AI 回复模板：前几个，点开看详情和举报，末尾进完整列表。 */
     private void renderReplies(LinearLayout target) {
         Context context = requireContext();
-        GroupCard group = GroupCard.add(target, "社区回复模板").withDividers(58);
+        GroupCard group = GroupCard.add(sectionColumn(target, "社区"), "社区回复模板").withDividers(58);
         List<CommunityCatalog.Item> items = replies;
         if (items == null) {
             group.note(repliesFailure == null ? "正在读取社区回复模板…" : repliesFailure);

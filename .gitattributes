@@ -7,3 +7,6 @@ crates/client-core/tests/fixtures/plugin-packs/** -text -whitespace
 
 # 拆字表由 scripts/build_chaizi_table.py 生成、按 split_once('\t') 解析，Windows 的 autocrlf 检出成 CRLF 后行尾的 \r 会进最后一个字段，--check 也会逐字节失败。
 crates/engine/src/local/chaizi*.tsv text eol=lf
+
+# Unicode 许可证按锁文件校验原始字节，跨平台检出必须保持 LF。
+resources/licenses/Unicode-License-V3.txt text eol=lf

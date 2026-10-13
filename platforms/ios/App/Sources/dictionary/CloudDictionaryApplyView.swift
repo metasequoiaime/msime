@@ -75,10 +75,7 @@ struct CloudDictionaryApplyView: View {
     .settingsStatus(busy: busy, busyTitle: "正在准备…", message: message)
     .navigationTitle("应用云词库")
     .task {
-      while !Task.isCancelled {
-        refresh()
-        do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
-      }
+      await ViewRequestTask.poll(every: .seconds(2)) { refresh() }
     }
     .onAppear { request.appear() }
     .onDisappear {

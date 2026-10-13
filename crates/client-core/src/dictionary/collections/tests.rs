@@ -160,11 +160,14 @@ fn collections_load_lists_import_formats_and_starts_empty() {
     let fixture = Fixture::new();
     let view = fixture.store.load().unwrap();
     assert!(view.collections.is_empty());
-    assert_eq!(view.formats, ["txt", "standard", "windows", "hans", "rime"]);
+    assert_eq!(
+        view.formats,
+        ["txt", "standard", "windows", "hans", "rime", "scel"]
+    );
     let value = serde_json::to_value(&view).unwrap();
     assert_eq!(
         value,
-        serde_json::json!({"collections": [], "formats": ["txt", "standard", "windows", "hans", "rime"]})
+        serde_json::json!({"collections": [], "formats": ["txt", "standard", "windows", "hans", "rime", "scel"]})
     );
 }
 
@@ -543,7 +546,7 @@ fn import(
 }
 
 #[test]
-fn collections_import_reads_text_formats_and_refuses_scel() {
+fn collections_import_reads_text_formats_and_refuses_scel_text() {
     let fixture = Fixture::new();
     let view = import(
         &fixture,
@@ -602,16 +605,9 @@ fn collections_import_reads_text_formats_and_refuses_scel() {
         Err(DictionaryCollectionsError::UnsupportedFormat)
     ));
 
-    let error = import(&fixture, PersonalWordKind::Pinyin, "scel", "").unwrap_err();
+    // 细胞词库是二进制文件，只经 `bytes_base64` 送来（见 `collections_import_reads_scel_bytes`）；按文本送来的 `scel` 不认识。
+    let error = import(&fixture, PersonalWordKind::Pinyin, "scel", "测试\tce'shi\n").unwrap_err();
     assert_eq!(error.code(), "unsupported_format");
-    let action: DictionaryCollectionsAction = serde_json::from_value(serde_json::json!({
-        "operation": "import", "name": "搜狗", "kind": "pinyin", "format": "scel", "bytes_base64": "AAAA"
-    }))
-    .unwrap();
-    assert_eq!(
-        fixture.store.perform(action, None).unwrap_err().code(),
-        "unsupported_format"
-    );
 
     assert!(matches!(
         import(
@@ -857,4 +853,164 @@ fn collections_a_word_the_user_deleted_by_hand_is_the_collection_s_again() {
     fixture.store.set_enabled(&id, false).unwrap();
     fixture.drain();
     assert!(!fixture.has(&own));
+}
+
+fn scel_import(
+    fixture: &Fixture,
+    format: &str,
+    text: Option<&str>,
+    bytes_base64: Option<String>,
+) -> Result<DictionaryCollectionsView> {
+    let mut action = serde_json::json!({
+        "operation": "import", "name": "搜狗", "kind": "pinyin", "format": format
+    });
+    if let Some(text) = text {
+        action["text"] = text.into();
+    }
+    if let Some(encoded) = bytes_base64 {
+        action["bytes_base64"] = encoded.into();
+    }
+    fixture
+        .store
+        .perform(serde_json::from_value(action).unwrap(), None)
+}
+
+fn base64(bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+#[test]
+fn collections_import_reads_scel_bytes() {
+    use crate::dictionary::scel::tests::{group, ScelBuilder};
+    let mut fixture = Fixture::new();
+    let bytes = ScelBuilder::new(vec![
+        group(&[0, 1], &["测试"]),
+        group(&[1, 3], &["实例", "事例"]),
+        // 音节序号不在拼音表里，第 4 个词读不出读音。
+        group(&[0, 99], &["越界"]),
+        group(&[0, 1], &["测试"]),
+    ])
+    .build();
+    let view = scel_import(&fixture, "scel", None, Some(base64(&bytes))).unwrap();
+    let report = view.import.clone().unwrap();
+    assert_eq!(
+        (report.imported, report.duplicates, report.failed),
+        (3, 1, 1)
+    );
+    assert!(!report.swapped && !report.truncated);
+    // 行号就是词序。
+    assert_eq!(report.first_failures.len(), 1);
+    assert_eq!(report.first_failures[0].line, 4);
+    assert_eq!(
+        report.first_failures[0].issue,
+        import::ImportIssue::EmptyKey
+    );
+    assert_eq!(view.collections[0].name, "搜狗");
+    assert_eq!(
+        view.collections[0].source,
+        CollectionSource::Import {
+            format: "scel".into()
+        }
+    );
+    assert!(view.collections[0].enabled);
+    assert_eq!(view.collections[0].entry_count, 3);
+    // 词按默认权重进个人词库队列，键盘应用后就在用户词库里。
+    fixture.drain();
+    assert_eq!(fixture.dictionary.len(), 3);
+    assert!(fixture.dictionary.values().all(|weight| *weight == 10_000));
+
+    // 含 `scel` 来源的索引能读回来。
+    let reloaded = DictionaryCollectionsStore::new(
+        fixture.store.directory.parent().unwrap(),
+        fixture.personal(),
+    )
+    .load()
+    .unwrap();
+    assert_eq!(reloaded.collections, view.collections);
+    assert_eq!(reloaded.formats.len(), 6);
+
+    // 只能导入拼音词库。
+    let mut english = serde_json::json!({
+        "operation": "import", "name": "搜狗", "kind": "english", "format": "scel"
+    });
+    english["bytes_base64"] = base64(&bytes).into();
+    assert_eq!(
+        fixture
+            .store
+            .perform(serde_json::from_value(english).unwrap(), None)
+            .unwrap_err()
+            .code(),
+        "collections_invalid"
+    );
+}
+
+#[test]
+fn collections_import_maps_scel_refusals_to_stable_codes() {
+    use crate::dictionary::scel::{tests::ScelBuilder, MAX_SCEL_BYTES};
+    let fixture = Fixture::new();
+    let sample = ScelBuilder::sample().build();
+    let code = |format: &str, text: Option<&str>, bytes: Option<String>| {
+        scel_import(&fixture, format, text, bytes)
+            .unwrap_err()
+            .code()
+    };
+    // 字节和文本不能同时来，细胞词库也不能没有字节。
+    assert_eq!(
+        code("scel", Some("测试\tce'shi"), Some(base64(&sample))),
+        "collections_invalid"
+    );
+    assert_eq!(
+        code("scel", Some("测试\tce'shi"), None),
+        "collections_invalid"
+    );
+    assert_eq!(code("scel", None, None), "collections_invalid");
+    // 文本格式带着字节来，不认识。
+    assert_eq!(
+        code("standard", None, Some(base64(&sample))),
+        "unsupported_format"
+    );
+    assert_eq!(
+        code("scel", None, Some("不是 base64".into())),
+        "collections_invalid"
+    );
+    assert_eq!(
+        code(
+            "scel",
+            None,
+            Some("A".repeat(MAX_SCEL_BYTES.div_ceil(3) * 4 + 4))
+        ),
+        "collections_too_large"
+    );
+    assert_eq!(
+        code("scel", None, Some(base64(b"plain text"))),
+        "unsupported_format"
+    );
+    let mut version = ScelBuilder::sample();
+    version.magic[4] = b'E';
+    assert_eq!(
+        code("scel", None, Some(base64(&version.build()))),
+        "unsupported_format"
+    );
+    assert_eq!(
+        code("scel", None, Some(base64(&sample[..sample.len() - 1]))),
+        "import_malformed"
+    );
+    let mut empty = ScelBuilder::sample();
+    empty.declared_groups = Some(0);
+    assert_eq!(
+        code("scel", None, Some(base64(&empty.build()))),
+        "import_empty"
+    );
+    // 一个词也读不出时不建空词库。
+    let unreadable = ScelBuilder::new(vec![crate::dictionary::scel::tests::group(
+        &[0, 99],
+        &["越界"],
+    )])
+    .build();
+    assert_eq!(
+        code("scel", None, Some(base64(&unreadable))),
+        "import_no_usable_rows"
+    );
+    assert!(fixture.store.load().unwrap().collections.is_empty());
 }

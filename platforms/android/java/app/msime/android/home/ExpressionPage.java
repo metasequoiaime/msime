@@ -22,6 +22,10 @@ import org.json.JSONObject;
  * <p>「使用英文标点」是 `chinese_punctuation` 取反显示、写入时取反；整句联想三档写 `sentence_association`：关闭是 `word_lattice=false`，标准是 `word_lattice`，增强是 `word_lattice` 加 `neural_keyboard`。发现短语列社区里 `phrase` 类的资源，「添加」经 {@link CommonPhrasesStore#installPack} 装进本机无编码常用语（它会标记云同步的「常用语」），已经装过的包显示「已添加」。
  */
 public final class ExpressionPage extends ReloadingDetailPage {
+    @Override protected java.util.List<String> sectionTitles() {
+        return java.util.List.of("标点", "智能");
+    }
+
     private static final int DISCOVER_LIMIT = 8;
     private static final String[] SENTENCE_LABELS = {"关闭", "标准", "增强"};
     /** 中英混输的触发长度：共享偏好 `mixed_input.minimum_prefix` 的默认值和保存时校验的范围（client-core `MixedInputPreferences`）。 */
@@ -44,6 +48,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
     }
 
     @Override protected void onInitialReloadScheduled() {
+        // 保留发现缓存的预取契约；常用语入口已移到设置首页，不再在本页渲染。
         loadDiscover();
     }
 
@@ -88,7 +93,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
         }
         Context context = requireContext();
 
-        GroupCard punctuation = GroupCard.add(target, "标点");
+        GroupCard punctuation = GroupCard.add(sectionColumn(target, "标点"), "标点");
         InputFeatureToggle chinese = InputFeatureToggle.CHINESE_PUNCTUATION;
         punctuation.toggle("使用英文标点", "中文模式下也上屏半角标点",
             !values.optBoolean(chinese.key(), chinese.enabledByDefault()),
@@ -101,7 +106,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
         punctuation.toggle(smart.title(), smart.description(), values.optBoolean(smart.key(), smart.enabledByDefault()),
             checked -> savePreferences(edit -> edit.put(smart.key(), checked)));
 
-        GroupCard intelligence = GroupCard.add(target, "智能");
+        GroupCard intelligence = GroupCard.add(sectionColumn(target, "智能"), "智能");
         int sentence = sentenceLevel(values.optJSONObject("sentence_association"));
         intelligence.nav("整句联想", "更准确，但更耗电", SENTENCE_LABELS[sentence], () -> pickSentence(sentence));
         InputFeatureToggle english = InputFeatureToggle.ENGLISH_SUGGESTIONS;
@@ -129,18 +134,6 @@ public final class ExpressionPage extends ReloadingDetailPage {
             mixed != null && mixed.optBoolean("kaomoji", false),
             checked -> savePreferences(edit -> mixedInput(edit).put("kaomoji", checked)));
 
-        GroupCard phrases = GroupCard.add(target, "发现短语").withDividers(58);
-        List<CommunityCatalog.Item> items = discover;
-        if (items == null) {
-            phrases.note(discoverFailure == null ? "正在读取社区短语…" : discoverFailure);
-        } else if (items.isEmpty()) {
-            phrases.note("社区里还没有短语包。");
-        } else {
-            for (CommunityCatalog.Item item : items) phrases.addView(phraseRow(context, item));
-        }
-        // 这里只列前几个，完整列表（搜索、详情、举报）压在表达页上面，返回回到这里。
-        phrases.nav("浏览更多短语", "搜索社区里的全部短语包", null,
-            () -> CommunityFragment.browse(context, CommunityRequest.Kind.PHRASE));
     }
 
     private android.view.View phraseRow(Context context, CommunityCatalog.Item item) {

@@ -14,7 +14,9 @@ Android 拼音九键左侧的符号栏原来是 ，。？ 三个键铺满三行�
 
 ### 左侧符号栏
 
-- 拼音九键和笔画键盘的左栏是 `NineKeySymbolRail`（`platforms/android/java/app/msime/android/keyboard/NineKeySymbolRail.java`）：一个不显示滚动条、带上下渐隐边的 `ScrollView`，一屏显示 `NineKeySidebarPolicy.VISIBLE_ROWS`（5）个符号，多出来的上下滑动。每个符号键的高度在 `onMeasure` 里按栏高均分（`NineKeySidebarPolicy.rowHeight`），并扣掉键自己的上下外边距，所以键盘高度和行距偏好变了不用重建；符号不足五个时按实际个数均分整栏，不留空白；键盘高度调到最矮、五个会让每个低于 `MIN_ROW_HEIGHT_DP`（28 dp）时一屏少放几个。
+字母键面的九项默认表与数字左栏的五行密度已由[三项默认符号栏](2026-10-13-android-nine-key-default-symbols.md)取代；本篇保留原来的扩充理由，自定义、滚动、数字键面和手势决定继续成立。
+
+- 拼音九键和笔画键盘的左栏是 `NineKeySymbolRail`（`platforms/android/java/app/msime/android/keyboard/NineKeySymbolRail.java`）：一个不显示滚动条、带上下渐隐边的 `ScrollView`，数字键面和笔画一屏最多显示三项，其他键面最多显示 `NineKeySidebarPolicy.VISIBLE_ROWS`（5）项，多出来的上下滑动。每个符号键的高度在 `onMeasure` 里按栏高均分（`NineKeySidebarPolicy.rowHeight`），并扣掉键自己的上下外边距，所以键盘高度和行距偏好变了不用重建；符号不足当前键面的可见行数时按实际个数均分整栏，不留空白；键盘高度调到最矮、五个会让每个低于 `MIN_ROW_HEIGHT_DP`（28 dp）时一屏少放几个。
 - 符号表来自本地设置 `platform.android.nine_key_symbols`（`AndroidLocalSettings` 新增的 `TEXT` 类设置）：用空格分开的符号，存储前经 `NineKeySidebarPolicy.normalize` 规范成单空格连接、去重；空串、单个符号超过 4 个码位、含控制字符、超过 30 个符号或文本超过 200 个 UTF-16 单元一律不合规，写入时拒收，读到时整张表回到默认值。默认表是 `， 。 ？ 、 ： ； …… ～ @`：前三个和原来一样，！ 仍在右列最下面，不在左栏重复。
 - 设置页「键盘 › 布局 › 九键左侧符号」用 `InputDialog` 编辑这张表，留空恢复默认（删掉这一项）。键盘每次出现时重读本地设置，`ImeLayoutRows.sidebarStale` 发现屏上的符号表和设置不同时，`render` 重建键行。
 - 这个设置只在本机，不随账号同步：同步表在 `crates/client-core/src/account/settings_sync.rs` 的 `ANDROID_LOCAL_SETTINGS`，那里只有布尔、选项和整数三种类型。
@@ -31,6 +33,10 @@ Android 拼音九键左侧的符号栏原来是 ，。？ 三个键铺满三行�
 - `ImeCalculator`（`core/`）在选区变化（`onUpdateSelection`）和切换键面时，只要键盘在数字 / 符号层（`Layer.SYMBOLS`，九键和 26 键都算）、不是密码框、没有组字，就向编辑器要光标前 64 个字符重算；结果是工具栏品牌键右边的一个 `PILL` 胶囊「= 144」，没有结果时隐藏，不占宽度；胶囊最宽 96 dp，长结果截断显示（点按仍上屏完整结果），否则七个各至少 40 dp 的工具栏键加上它会超出 393 dp 宽的屏幕，把最右边的「收起」挤到滚动区外。点按经 `commitNineKeyLiteral` 上屏 `=144`，算式后面已经打了 `=` 时只上屏 `144`。离开数字层时 `render` 里的 `syncVisibility` 不做 IPC 就收起它，离开输入框时清掉。
 - 读到的上文只在内存里算一次，不记日志、不保存。
 
+### 九键的 1 键
+
+拼音键面每格都保留数字标记，左上角的「@#」/「分词」也显示 `1`。原先按 `input` 是否为数字决定角标、是否绑定长按，1 的功能输入是 `@`，导致它既不显示数字也没有默认可用的长按数字入口。角标和长按现在按网格的 `digit` 取值；1 长按只弹出数字 `1`，不把「@#」当字母选项。滑动结束还原同一个角标，避免上滑输入一次 1 后标记再次消失。点按仍是符号/分词，九键双拼独立的分词格不加数字角标或长按。
+
 ### 九键滑动出数字
 
 - 拼音九键字母键面的九个网格键都挂 `ImeLayoutRows.bindNineKeySwipe`，判定在 `NineKeySwipePolicy`。开关和方向是单独的本地设置「键盘 › 手势 › 九键滑动输入数字」（`platform.android.nine_key_swipe`，取值 `off` / `up` / `down`，默认 `off`，不随账号同步），只在拼音九键可用的版本里列出。选了方向后沿它滑过判定距离，键面换成数字，松手上屏键上印的数字（1 键是 1）；往反方向滑过同一距离，弹出和长按相同的数字与字母选项（1 键没有字母，不弹）。
@@ -40,6 +46,8 @@ Android 拼音九键左侧的符号栏原来是 ，。？ 三个键铺满三行�
 - 最初的实现让九键共用 26 键的「滑动输入符号」开关和方向。那个开关默认开、方向默认下滑，于是升级后所有九键用户开箱就有了滑动：手指落下后稍往下拖就打出数字（还会先提交正在组的拼音），稍往上拖就弹出选项、丢掉这次点按；而报告人要的上滑出数字、下滑出字母恰好相反。改成单独一项、默认关闭，老用户的点按不变，报告人选「上滑」就是他要的手势。
 
 ## Alternatives considered
+
+- **让左上角点按直接输入数字 1** — 数字键的含义最直接；但会丢掉拼音九键的符号/分词入口。显示数字并提供与 2–9 一致的长按入口即可补齐，不改点按。
 
 - **只把三个键改小、固定显示五个，不滚动** — 改动最小；但用户要求能上下滑动和自定义，固定五个装不下自定义表，最后还是要滚动。
 - **符号表放进共享偏好（`crates/client-core` 的 `Preferences`），走 Tauri 设置页** — 能随设置同步，其他平台日后也能读；但只有 Android 的九键有这条可滚动的符号栏，共享偏好要改 Rust 结构、默认值、同步和 Tauri 页面，其他平台却没有任何消费者。先按 `platform.android.glide_typing` 的先例只存本机，等别的平台也做同样的符号栏时再挪进共享偏好。
@@ -66,4 +74,8 @@ Android 拼音九键左侧的符号栏原来是 ，。？ 三个键铺满三行�
 
 `platforms/android/tests/keyboard/NineKeySidebarPolicySmoke.java` 锁住两张默认表、一屏五行的行高、解析与校验，以及本地设置按 `TEXT` 收值、不进同步；`NineKeySwipePolicySmoke` 锁住两个方向、阈值（旧的 14 dp、默认 24 dp 下 20 dp 仍是点按、两端取值）、默认关闭且只在本机、判定距离的默认值与范围、1 键的特例；`ArithmeticResultPolicySmoke` 锁住取算式、优先级、小数精度（含先除后乘）、全角输入、日期和电话号码等没有结果的情况和上屏文字；由 `bash platforms/android/check-host.sh` 运行。设置页的编译由 Gradle 的 `compileFullDebugJavaWithJavac` 覆盖，check-host 不编译 `home/`。
 
+1 键修复通过 `bash scripts/verify-local.sh --quick`（包括 Android 宿主 JVM 冒烟、契约和笔记检查）。在当前工作区用 `platforms/android/build-apk.sh` 重建原生 APK 并覆盖安装到 Pixel 3 XL（Android 12），真实九键键面显示 1，长按只弹出 1，选择后试用输入框实际得到合成数字 `1`；测试输入随后删除。此项未运行模拟器套件。
+
 数字 1 的提示与长按入口，以及九键底行 0 的字形规则见 [手机九键保留符号入口的数字 1](../bug-fix/2026-10-13-mobile-nine-key-one-hint.md)。这里的键位布局不变。
+
+笔画的三行独立键帽和单行符号排版见[笔画符号键面](../bug-fix/2026-10-13-android-stroke-key-face-fit.md)。

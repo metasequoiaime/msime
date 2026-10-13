@@ -14,6 +14,7 @@ use crate::dictionary::personal::{
     PersonalDictionaryError, PersonalDictionaryStore, PersonalWord, PersonalWordKind,
     PersonalWordRequestStatus,
 };
+use crate::dictionary::scel::{self, ScelError};
 use crate::file_lock;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -34,8 +35,10 @@ pub const MAX_COLLECTION_ENTRIES: usize = 20_000;
 pub const MAX_COLLECTIONS: usize = 32;
 /// 集合名最多的字符数。
 pub const MAX_NAME_CHARS: usize = 32;
-/// 导入接受的格式，`load` 原样返回给界面。`txt` 是 `standard` 的别名（列的顺序读不出词条时自动换一种），`hans` 是每行一个汉字词、读音由宿主经 Engine 给出。
-pub const IMPORT_FORMATS: [&str; 5] = ["txt", "standard", "windows", "hans", "rime"];
+/// 导入接受的格式，`load` 原样返回给界面。`txt` 是 `standard` 的别名（列的顺序读不出词条时自动换一种），`hans` 是每行一个汉字词、读音由宿主经 Engine 给出，`scel` 是搜狗细胞词库：它是二进制文件，只能经 `import` 动作的 `bytes_base64`（[`DictionaryCollectionsStore::import_scel`]）送来，按文本送来的 `scel` 一律不支持。
+pub const IMPORT_FORMATS: [&str; 6] = ["txt", "standard", "windows", "hans", "rime", SCEL_FORMAT];
+/// 搜狗细胞词库在格式清单和集合来源里的名字。
+const SCEL_FORMAT: &str = "scel";
 /// 内置主词库在请求里的 id 前缀（例如 `builtin:pinyin`）。它不是集合，任何修改都会被拒绝。
 pub const BUILTIN_ID_PREFIX: &str = "builtin";
 /// 一次导入的文本上限。
@@ -149,7 +152,7 @@ pub struct CollectionImportReport {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct DictionaryCollectionsView {
     pub collections: Vec<CollectionSummary>,
-    pub formats: [&'static str; 5],
+    pub formats: [&'static str; 6],
     #[serde(skip_serializing_if = "Option::is_none")]
     pub import: Option<CollectionImportReport>,
     /// 只在 `flush` 时给出：这次送进个人词库队列的条数。
@@ -236,6 +239,9 @@ pub enum DictionaryCollectionsError {
     UnsupportedFormat,
     #[error("dictionary import failed: {0}")]
     Import(ImportError),
+    /// 二进制词库文件不完整或已损坏（越界、前后不一致），整份没有导入。
+    #[error("dictionary import file is truncated or malformed")]
+    Malformed,
     #[error("dictionary collections would exceed their size limit")]
     TooLarge,
     #[error("personal dictionary queue failed: {0}")]
@@ -260,6 +266,7 @@ impl DictionaryCollectionsError {
             Self::Import(ImportError::TooLarge) | Self::TooLarge => "collections_too_large",
             Self::Import(ImportError::ControlCharacters) => "import_control_characters",
             Self::Import(ImportError::NoUsableRows) => "import_no_usable_rows",
+            Self::Malformed => "import_malformed",
             Self::Personal(PersonalDictionaryError::Busy) => "personal_dictionary_busy",
             Self::Personal(_) => "personal_dictionary_failed",
         }
@@ -312,21 +319,25 @@ impl DictionaryCollectionsStore {
                 format,
                 text,
                 bytes_base64,
-            } => {
-                // 搜狗 `.scel` 这类二进制格式还没有解析器；文本以外的内容一律按不支持处理。
-                if bytes_base64.is_some() {
-                    return Err(DictionaryCollectionsError::UnsupportedFormat);
+            } => match (format.as_str(), text, bytes_base64) {
+                // 细胞词库只经字节送来；同时带着文本说明请求本身错了。
+                (SCEL_FORMAT, text, Some(encoded)) if text.as_deref().is_none_or(str::is_empty) => {
+                    let bytes = decode_scel_base64(&encoded)?;
+                    self.import_scel(id.as_deref(), name.as_deref(), kind, &bytes)
                 }
-                let text = text.ok_or(DictionaryCollectionsError::Invalid)?;
-                self.import(ImportRequest {
+                (SCEL_FORMAT, _, _) => Err(DictionaryCollectionsError::Invalid),
+                // 其余格式都是文本，带字节来的不认识。
+                (_, _, Some(_)) => Err(DictionaryCollectionsError::UnsupportedFormat),
+                (_, Some(text), None) => self.import(ImportRequest {
                     id: id.as_deref(),
                     name: name.as_deref(),
                     kind,
                     format: &format,
                     text: &text,
                     readings,
-                })
-            }
+                }),
+                (_, None, None) => Err(DictionaryCollectionsError::Invalid),
+            },
             DictionaryCollectionsAction::InstallCommunity { resource } => {
                 self.install_community(&resource)
             }
@@ -423,8 +434,37 @@ impl DictionaryCollectionsStore {
         })
     }
 
-    /// 从一个文件导入：有 `id` 时加进那个集合，否则新建一个以 `name` 命名、来源为 `import{format}` 的集合（默认启用）。
+    /// 从一个文本文件导入：有 `id` 时加进那个集合，否则新建一个以 `name` 命名、来源为 `import{format}` 的集合（默认启用）。`scel` 不是文本，走 [`Self::import_scel`]。
     pub fn import(&self, request: ImportRequest<'_>) -> Result<DictionaryCollectionsView> {
+        if request.format == SCEL_FORMAT {
+            return Err(DictionaryCollectionsError::UnsupportedFormat);
+        }
+        self.import_text(request)
+    }
+
+    /// 从一个搜狗细胞词库导入：先转成标准 TSV 文本（坏词条成为必定失败的一行，行号就是词序），再像文本一样导入，集合来源记 `import{format:"scel"}`。只有拼音词库能导入它。
+    pub fn import_scel(
+        &self,
+        id: Option<&str>,
+        name: Option<&str>,
+        kind: PersonalWordKind,
+        bytes: &[u8],
+    ) -> Result<DictionaryCollectionsView> {
+        if kind != PersonalWordKind::Pinyin {
+            return Err(DictionaryCollectionsError::Invalid);
+        }
+        let converted = scel::decode(bytes).map_err(scel_error)?;
+        self.import_text(ImportRequest {
+            id,
+            name,
+            kind,
+            format: SCEL_FORMAT,
+            text: &converted.text,
+            readings: None,
+        })
+    }
+
+    fn import_text(&self, request: ImportRequest<'_>) -> Result<DictionaryCollectionsView> {
         if !IMPORT_FORMATS.contains(&request.format) {
             return Err(DictionaryCollectionsError::UnsupportedFormat);
         }
@@ -1398,7 +1438,8 @@ fn parse_import(
         return Ok(parse_hans(text, readings, existing, room));
     }
     let requested = match format {
-        "txt" | "standard" => ImportFormat::Standard,
+        // 细胞词库转出的就是标准 TSV。
+        "txt" | "standard" | SCEL_FORMAT => ImportFormat::Standard,
         "windows" => ImportFormat::Windows,
         "rime" => ImportFormat::Rime,
         _ => return Err(DictionaryCollectionsError::UnsupportedFormat),
@@ -1411,8 +1452,9 @@ fn parse_import(
     if usable(&parsed) {
         return Ok(parsed);
     }
-    // 按要求的列顺序一条也读不出时换另一种顺序再读一次，见 `import::ImportReport::swapped`。
+    // 按要求的列顺序一条也读不出时换另一种顺序再读一次，见 `import::ImportReport::swapped`。细胞词库转出的文本列序是确定的，不换。
     let flipped = match requested {
+        _ if format == SCEL_FORMAT => None,
         ImportFormat::Standard => Some(ImportFormat::Windows),
         ImportFormat::Windows => Some(ImportFormat::Standard),
         ImportFormat::Rime => None,
@@ -1430,6 +1472,28 @@ fn parse_import(
         ));
     }
     Ok(parsed)
+}
+
+/// `bytes_base64` 的细胞词库：先按编码长度拒绝放不下的，再解码。
+fn decode_scel_base64(encoded: &str) -> Result<Vec<u8>> {
+    use base64::Engine as _;
+    if encoded.len() > scel::MAX_SCEL_BYTES.div_ceil(3) * 4 {
+        return Err(DictionaryCollectionsError::TooLarge);
+    }
+    base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|_| DictionaryCollectionsError::Invalid)
+}
+
+fn scel_error(error: ScelError) -> DictionaryCollectionsError {
+    match error {
+        ScelError::NotScel | ScelError::Unsupported => {
+            DictionaryCollectionsError::UnsupportedFormat
+        }
+        ScelError::TooLarge => DictionaryCollectionsError::TooLarge,
+        ScelError::Empty => DictionaryCollectionsError::Import(ImportError::Empty),
+        ScelError::Malformed => DictionaryCollectionsError::Malformed,
+    }
 }
 
 fn record_failure(report: &mut CollectionImportReport, failure: ImportFailure) {

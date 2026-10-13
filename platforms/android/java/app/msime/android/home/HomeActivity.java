@@ -77,6 +77,7 @@ public final class HomeActivity extends AppCompatActivity {
     /** Whether dismissing the splash on screen should start onboarding: only a first-launch splash does, never a replay. */
     private boolean onboardingAfterIntro;
     @Nullable private ValueAnimator progress;
+    @Nullable private Runnable hideDetailLoading;
     /** 这个 activity 画出来时叠的季节（`AppMode.restore` 用的那份缓存）；没有缓存时是基础主题的秋杉。 */
     private String drawnSeason = "autumn";
     /** 回到前台时读共享偏好、解析应用主题用的工作线程。 */
@@ -92,6 +93,16 @@ public final class HomeActivity extends AppCompatActivity {
         AccountIdentity.register(this);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         setContentView(R.layout.activity_home);
+
+        getSupportFragmentManager().registerFragmentLifecycleCallbacks(
+            new FragmentManager.FragmentLifecycleCallbacks() {
+                @Override public void onFragmentViewCreated(@NonNull FragmentManager manager,
+                        @NonNull Fragment fragment, @NonNull View view, @Nullable Bundle state) {
+                    // 根 Tab 和详情页都在 home_content 中；不能只判断 DetailPage，否则首次打开
+                    // 键盘/对话/统计/我的时全局 loading 会没有对应的关闭回调。
+                    if (fragment.getId() == R.id.home_content) setDetailLoading(false);
+                }
+            }, true);
 
         tabs = findViewById(R.id.home_tabs);
         // Edge-to-edge is enforced from Android 15, so the bars' insets are applied rather than
@@ -444,17 +455,37 @@ public final class HomeActivity extends AppCompatActivity {
         if (getSupportFragmentManager().findFragmentByTag(tag(R.id.tab_chat)) instanceof ChatFragment chat) chat.focusInput();
     }
 
-    /** 输入法覆盖对话页时收起底部导航，避免它盖住输入栏；键盘收起后恢复导航。 */
-    void setChatKeyboardVisible(boolean visible) {
-        if (tabs == null) return;
-        boolean chatKeyboard = visible && selected == R.id.tab_chat
-            && getSupportFragmentManager().getBackStackEntryCount() == 0;
-        ViewPolicy.setVisibleIfChanged(tabs, !chatKeyboard);
-    }
-
     /** 打开某一类社区作品的完整列表。社区 tab 撤掉以后，它是压在设置 tab 上的一页（见 {@link CommunityFragment#browse}）。 */
     public void openCommunity(CommunityRequest.Kind kind) {
         CommunityFragment.browse(this, kind);
+    }
+
+    /** 详情页创建时给导航一个统一的即时反馈；内容读盘仍由各页面自己管理。 */
+    void setDetailLoading(boolean loading) {
+        View overlay = findViewById(R.id.home_detail_loading);
+        if (overlay == null) return;
+        if (hideDetailLoading != null) {
+            overlay.removeCallbacks(hideDetailLoading);
+            hideDetailLoading = null;
+        }
+        if (loading) {
+            overlay.setAlpha(0f);
+            ViewPolicy.show(overlay);
+            overlay.animate().alpha(1f).setStartDelay(120).setDuration(160).start();
+        } else {
+            Runnable hide = () -> {
+                ViewPolicy.hide(overlay);
+                overlay.setAlpha(1f);
+                hideDetailLoading = null;
+            };
+            hideDetailLoading = hide;
+            overlay.animate().cancel();
+            // 统一给每个页面留出一小段可感知的反馈，避免快页面因为创建太快而像闪屏。
+            overlay.postDelayed(() -> {
+                if (hideDetailLoading != hide) return;
+                overlay.animate().alpha(0f).setDuration(120).withEndAction(hide).start();
+            }, 220);
+        }
     }
 
     private void show(int itemId) {
@@ -462,6 +493,8 @@ public final class HomeActivity extends AppCompatActivity {
         selected = itemId;
         updateBack();
         FragmentManager manager = getSupportFragmentManager();
+        Fragment target = manager.findFragmentByTag(tag(itemId));
+        if (switching || target == null || rebuild == itemId) setDetailLoading(true);
         FragmentTransaction transaction = manager.beginTransaction();
         // Fade-through between tabs: the page arriving fades in from 94 % scale while the one leaving is hidden at once, as the M3 navigation bar pattern prescribes. The first show on create and a rebuild of the tab already on screen are not arrivals, so they appear without it.
         if (switching) transaction.setCustomAnimations(R.anim.fade_through_in, 0);
@@ -486,6 +519,10 @@ public final class HomeActivity extends AppCompatActivity {
         // 两个 tab——第二次查不到第一次还没执行的 add，于是同一个 tag 被加了两遍，两个页面一起画，
         // 看起来就是 UI 叠在一起。保存状态之后不能同步提交，那种时候退回排队，晚一点总比崩了好。
         if (manager.isStateSaved()) transaction.commit(); else transaction.commitNow();
+        // Existing kept tabs do not emit a new view-created callback, so finish their global
+        // transition loading here as well. New pages also use the lifecycle callback above; the
+        // delayed hide keeps the same visible animation for both paths.
+        if (target != null && rebuild != itemId) setDetailLoading(false);
     }
 
     private Fragment create(int itemId) {

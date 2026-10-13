@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+菜单中的文本编辑入口按 [功能菜单排列与去重](../bug-fix/2026-10-13-android-function-menu-order.md) 作为后备：顶部按钮启用时只在顶部显示，关闭时仍可从菜单进入。
+
 - 工具栏加一个可选按钮「文本编辑」，由本地设置 `platform.android.toolbar_text_edit` 控制，布尔，默认关（不改变现有工具栏），只在本机。与「浮动键盘」按钮（`platform.android.toolbar_floating`）同样处理：服务端的同步字段表和 `crates/client-core` 的 `ANDROID_LOCAL_SETTINGS` 都没有这个键，所以先不随账号同步。
 - 开关在设置「键盘」页「键盘工具栏」里，和表情、常用语、剪贴板、皮肤、输入方式、浮动键盘排在一起（`KeyboardOptionsPage.TOOLBAR_BUTTONS`），工具栏预览跟着显示，设置搜索能搜到。
 - 按钮用 `ImeToolbar.panelToggle` 开关同一个 `ImeTextEditPanel`：面板关着时打开（先关掉别的工具栏面板，完成组字），开着时再点关上，回到键盘；面板开着时按钮画成选中，和表情、剪贴板按钮一致。没有输入连接时面板打不开，按钮灰掉。

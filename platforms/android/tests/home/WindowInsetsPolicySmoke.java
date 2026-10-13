@@ -9,6 +9,8 @@ public final class WindowInsetsPolicySmoke {
         check(WindowInsetsPolicy.bottomContentInset(12, 80, 0, 24) == 116);
         check(WindowInsetsPolicy.bottomContentInset(12, 80, 300, 24) == 324);
         check(WindowInsetsPolicy.bottomContentInset(12, 0, 0, 0) == 12);
+        check(WindowInsetsPolicy.bottomContentInsetAboveIme(12, 80, 0, 24) == 116);
+        check(WindowInsetsPolicy.bottomContentInsetAboveIme(12, 80, 300, 24) == 404);
         System.out.println("Android 窗口底部内容避让策略通过");
     }
 }

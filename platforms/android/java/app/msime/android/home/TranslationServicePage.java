@@ -24,6 +24,10 @@ import org.json.JSONObject;
  * <p>每个字段点开是一个输入框，按共享偏好的校验规则（{@link TranslationServiceSettingsPolicy}）当场说明哪里不行，不合规的值不会写入。键盘怎么选路见 {@link CandidateTranslationPolicy#route}：所选服务凭据不全时不联网，也不改用别的服务。
  */
 public final class TranslationServicePage extends ReloadingDetailPage {
+    @Override protected java.util.List<String> sectionTitles() {
+        return java.util.List.of("服务", "配置");
+    }
+
     /** 读一次页面要的东西：偏好、接口地址下的提示，以及自定义服务的共享描述器能不能构造（DeepL 地址没填密钥时不能）。 */
     private record State(JSONObject preferences, String endpointIssue, boolean customBuildable) {}
 
@@ -91,7 +95,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
         Choice selected = chosen == Choice.TENCENT && stored == Choice.NONE && tencentEnabled ? Choice.TENCENT : stored;
         boolean translations = JsonPolicy.strictBoolean(preferences.opt("candidate_translations"), true);
 
-        GroupCard service = GroupCard.add(target, null);
+        GroupCard service = GroupCard.add(sectionColumn(target, "服务"), null);
         service.nav("翻译服务", "离线释义查不到的词，用这里选的服务补上译文", selected.title(), () -> pick(selected));
         if (!translations) service.note("「候选词翻译」已关闭，键盘不会联网翻译。打开它在「输入 → 翻译」里。");
 
@@ -116,7 +120,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
     }
 
     private void renderNiuTrans(LinearLayout target, JSONObject niutrans) {
-        GroupCard group = GroupCard.add(target, "小牛翻译");
+        GroupCard group = GroupCard.add(sectionColumn(target, "配置"), "小牛翻译");
         String appId = InputViewValuePolicy.text(niutrans, "app_id");
         group.nav("App ID", null, appId.isEmpty() ? "未填写" : HomeTextPolicy.shortLabel(appId), () -> edit("App ID", null, appId,
             InputType.TYPE_CLASS_TEXT, TranslationServiceSettingsPolicy::niutransProblem, "niutrans", "app_id"));
@@ -126,7 +130,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
     }
 
     private void renderTencent(LinearLayout target, JSONObject tencent) {
-        GroupCard group = GroupCard.add(target, "腾讯云机器翻译");
+        GroupCard group = GroupCard.add(sectionColumn(target, "配置"), "腾讯云机器翻译");
         String region = InputViewValuePolicy.text(tencent, "region");
         group.nav("SecretId", null, filled(InputViewValuePolicy.text(tencent, "secret_id")), () -> edit("SecretId", "腾讯云访问密钥的 SecretId，保存在本机", "",
             InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
@@ -141,7 +145,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
     }
 
     private void renderCustom(LinearLayout target, JSONObject custom, String endpointIssue) {
-        GroupCard group = GroupCard.add(target, "自定义接口");
+        GroupCard group = GroupCard.add(sectionColumn(target, "配置"), "自定义接口");
         String endpoint = InputViewValuePolicy.text(custom, "endpoint");
         group.nav("接口地址", endpointIssue.isEmpty() ? "https 地址，或本机回环的 http 地址" : endpointIssue,
             endpoint.isEmpty() ? "未设置" : HomeTextPolicy.shortLabel(endpoint), () -> edit("接口地址",
@@ -157,7 +161,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
     /** 凭据是否齐全的提示和「测试连接」：测试用的是已经保存的值，与键盘实际用的一致。 */
     private void renderTest(LinearLayout target, Choice selected, JSONObject niutrans, JSONObject custom,
             JSONObject tencent, boolean customBuildable) {
-        GroupCard group = GroupCard.add(target, null);
+        GroupCard group = GroupCard.add(sectionColumn(target, "配置"), null);
         CandidateTranslationRoute route = CandidateTranslationPolicy.route(true, false,
             selected == Choice.NIUTRANS, InputViewValuePolicy.text(niutrans, "app_id"), InputViewValuePolicy.text(niutrans, "apikey"),
             selected == Choice.CUSTOM, InputViewValuePolicy.text(custom, "endpoint"), InputViewValuePolicy.text(custom, "api_key"),

@@ -2,6 +2,14 @@ import SwiftUI
 
 /// 页面持有代次和任务句柄；此处统一单次操作的忙碌状态与过期结果处理。
 @MainActor enum ViewRequestTask {
+  /// 页面可见时立即刷新，并在取消前按固定间隔继续刷新。
+  static func poll(every interval: Duration, refresh: @MainActor () -> Void) async {
+    while !Task.isCancelled {
+      refresh()
+      do { try await Task.sleep(for: interval) } catch { return }
+    }
+  }
+
   /// 不占用页面忙碌状态的刷新任务；页面继续负责读取结果和错误提示。
   static func startLoad(request: Binding<ViewRequestGeneration>, pending: Binding<Task<Void, Never>?>,
                         action: @escaping @MainActor (UUID) async -> Void) {
@@ -33,9 +41,7 @@ import SwiftUI
 
   /// 取消不占用页面请求状态的独立操作，并使它的旧回调失效。
   static func cancel(generation: Binding<OperationGeneration>, task: Binding<Task<Void, Never>?>) {
-    generation.wrappedValue.invalidate()
-    task.wrappedValue?.cancel()
-    task.wrappedValue = nil
+    generation.wrappedValue.cancel(task: &task.wrappedValue)
   }
 
   /// 取消不带代次的短任务，并清空句柄，避免页面重建后保留已完成任务。

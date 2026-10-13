@@ -1,11 +1,12 @@
 #include "input/CandidateCompletionPolicy.h"
 #include <cassert>
+#include <cstdint>
 #include <initializer_list>
 
 int main() {
   using msime::windows::candidate_finishes_composition;
-  for (const auto source : {2u, 4u, 5u, 6u, 7u, 8u, 13u})
+  for (const auto source : std::initializer_list<std::uint8_t>{2, 4, 5, 6, 7, 8, 13})
     assert(candidate_finishes_composition(source));
-  for (const auto source : {0u, 1u, 3u, 9u, 255u})
+  for (const auto source : std::initializer_list<std::uint8_t>{0, 1, 3, 9, 255})
     assert(!candidate_finishes_composition(source));
 }

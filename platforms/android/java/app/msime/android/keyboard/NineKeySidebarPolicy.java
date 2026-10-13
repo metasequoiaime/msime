@@ -8,11 +8,13 @@ import java.util.Set;
 /**
  * 拼音九键与笔画键盘左侧符号栏的内容：字母键面与数字键面各自的默认符号，以及用户在设置里自定义的符号表（`platform.android.nine_key_symbols` / `platform.android.nine_key_digit_symbols`）的解析与校验。
  *
- * <p>符号栏一屏显示 {@link #VISIBLE_ROWS} 个，多出来的上下滚动；原来三个符号铺满三行键高，间距大到还能再放两个（#5574）。拼音九键的数字键面是用来打数字和算式的，左栏换成四则运算符号，叹号挪到运算符号后面，滚动才看得到（#5590）。存储格式是用空格分开的符号，读不出或不合规时整张表回到默认值。
+ * <p>数字键面的符号栏一屏显示三项，与数字网格逐行对齐；其他键面最多显示 {@link #VISIBLE_ROWS} 项，多出来的上下滚动。数字键面用四则运算符号，叹号挪到运算符号后面，滚动才看得到（#5590）。存储格式是用空格分开的符号，读不出或不合规时整张表回到默认值。
  */
 public final class NineKeySidebarPolicy {
     /** 符号栏一屏最多显示几个符号；符号不足这么多时按实际个数均分整栏高度。 */
     public static final int VISIBLE_ROWS = 5;
+    /** 数字键面一屏三项，避免左列键帽比三行数字网格更密。 */
+    public static final int DIGIT_VISIBLE_ROWS = 3;
     /** 每个符号键至少多高（dp）：键盘高度调到最矮时一屏少放几个，不把键压得比字还矮。 */
     public static final int MIN_ROW_HEIGHT_DP = 28;
     /** 一张符号表最多几个符号。 */
@@ -22,9 +24,9 @@ public final class NineKeySidebarPolicy {
     /** 存储文本的最大长度（UTF-16 单元）。 */
     public static final int MAX_TEXT_LENGTH = 200;
 
-    /** 字母键面的默认符号：前三个仍是原来的 ，。？，！ 仍在右列最下面，所以这里不重复。 */
+    /** 字母键面默认只留三个常用符号，与九键三行对齐；！ 已在右列，不在这里重复。 */
     public static final List<String> DEFAULT_LETTER_SYMBOLS =
-        List.of("，", "。", "？", "、", "：", "；", "……", "～", "@");
+        List.of("，", "。", "？");
     /** 数字键面的默认符号：先是四则运算和算式里常用的半角符号，中文标点（含原来在右列的 ！）排在后面。 */
     public static final List<String> DEFAULT_DIGIT_SYMBOLS =
         List.of("+", "-", "*", "/", "=", "%", "(", ")", ":", "@", "，", "。", "？", "！");
@@ -105,8 +107,13 @@ public final class NineKeySidebarPolicy {
      * @param minRowHeight 每个符号的最小高度（像素，{@link #MIN_ROW_HEIGHT_DP} 换算后）
      */
     public static int rowHeight(int railHeight, int count, int minRowHeight) {
+        return rowHeight(railHeight, count, minRowHeight, VISIBLE_ROWS);
+    }
+
+    /** 按当前键面的可见行数分配符号高度，少量符号和最小高度仍按原规则处理。 */
+    public static int rowHeight(int railHeight, int count, int minRowHeight, int visibleRows) {
         if (railHeight <= 0) return 0;
-        int rows = BoundsPolicy.atMost(count, VISIBLE_ROWS);
+        int rows = BoundsPolicy.atMost(count, BoundsPolicy.atLeast(visibleRows, 1));
         if (minRowHeight > 0) rows = BoundsPolicy.atMost(rows, railHeight / minRowHeight);
         return railHeight / BoundsPolicy.atLeast(rows, 1);
     }

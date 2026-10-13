@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+本篇隐藏导航的决定已由[键盘弹出时保留 Tab](2026-10-13-android-chat-keyboard-keep-tabs.md)取代；以下保留原方案的理由和验证记录。
+
 当前可见的对话页收到输入法可见的 `WindowInsets` 时，通知 `HomeActivity` 隐藏底部导航，并把对话页的底部避让从标签栏高度切换为输入法 inset；输入法收起后恢复底部导航和标签栏避让。切换离开对话 tab 时也立即恢复导航，隐藏的对话页不更新导航状态；只有当前选中对话且没有详情页时才隐藏导航，避免键盘收起动画期间把其他页面的导航一起隐藏。
 
 ## Alternatives considered

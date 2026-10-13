@@ -49,6 +49,11 @@ public final class ZhuyinKeyboardLayout {
         return SYMBOLS.getOrDefault(key, key);
     }
 
+    /** 声调键的墨迹位于字身上方，键面需要按墨迹居中。 */
+    public static boolean toneKey(String key) {
+        return key != null && TONES.containsKey(key);
+    }
+
     /** Spoken label: the tone a tone key types, otherwise the bopomofo symbol. */
     public static String accessibilityLabel(String key) {
         String tone = key == null ? null : TONES.get(key);

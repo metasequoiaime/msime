@@ -49,7 +49,7 @@ Engine 判定合法性，错误是带位置的 `NineKeyShuangpinError`（`Unknow
 ### Android 宿主
 
 - **方案**：`KeyboardScheme.NINE_KEY_SHUANGPIN`（`nine_key_shuangpin`，引擎方案全拼，卡片字形「双」、角标「9」）追加在末尾，`optIn`；`fromPreferences` 有显式分支，通用循环同时排除它。打字统计记作「9 键」（`nineKey`）：统计按键盘的形态分，它没有自己的一档。
-- **键面**：九键双拼画在九键的键面上，`touchLayout` 看到 `View.key_grid` 为 `nine_key_shuangpin`（没有本地模式）就给 `QUANPIN_NINE_KEY_LAYOUT`，读音行、左列拼音、三栏面板、123 数字层、组字不写进编辑器都与拼音九键相同。字母键面是四行：1–9 印着这张表放在键上的声母（零声母编码从这个键开始时前面加「零」）和韵母，点按经 `character()` 送数字；最后一行是「@#」/「分词」键、0 和逗号，「@#」/「分词」从 1 键挪下来，因为三个内置方案都把韵母放在 1 上；表用到 0 时 0 是组码键，否则原样上屏；右列 ⌫ 占两格。键面经 `NativeClient.nineKeyShuangpinLayout` 取，宿主不存键位（`NineKeyShuangpinKeypad` 只管怎么印、怎么读）。拼音九键和九键双拼同一个布局编号，`apply` 不会因为换了方案或换了表重建键行，所以 `ImeLayoutRows.shuangpinStale` 记着建行时的键面，变了就重建。没有英文九键，键上没有长按字母和滑动数字（它们给的是电话键盘上的字母）。
+- **键面**：九键双拼画在九键的键面上，`touchLayout` 看到 `View.key_grid` 为 `nine_key_shuangpin`（没有本地模式）就给 `QUANPIN_NINE_KEY_LAYOUT`，读音行、左列拼音、三栏面板、123 数字层、组字不写进编辑器都与拼音九键相同。数字键面是四行：1–9 以数字作主标签，下一行完整提示声母项，只有韵母时显示「韵母」；触摸键面的完整映射展示由[收简键面提示](2026-10-13-android-shuangpin-compact-keyfaces.md)取代，完整映射仍在读屏和设置表中提供，点按经 `character()` 送数字；最后一行是「@#」/「分词」键、0 和逗号，「@#」/「分词」从 1 键挪下来，因为三个内置方案都把韵母放在 1 上；表用到 0 时 0 是组码键，否则原样上屏；右列 ⌫ 占两格。键面经 `NativeClient.nineKeyShuangpinLayout` 取，宿主不存键位（`NineKeyShuangpinKeypad` 只管怎么印、怎么读）。拼音九键和九键双拼同一个布局编号，`apply` 不会因为换了方案或换了表重建键行，所以 `ImeLayoutRows.shuangpinStale` 记着建行时的键面，变了就重建。没有英文九键，键上没有长按字母和滑动数字（它们给的是电话键盘上的字母）。
 - **设置**：「输入 › 普通话」的「九键双拼」子菜单选表，选中即切换到这个键盘；「九键双拼」页（`NineKeyShuangpinPage`）选表、列出当前表每个键上的声母和韵母，编辑自定义表（从内置方案开始、逐格改数字），经系统文件选择器导入导出 `{initials, finals, zero_initials}` 的 JSON。编辑中的表每改一格就经同一个接口校验，问题带着出错的单位显示在那一格和保存行上，能用时才能「保存并使用」（写表并选 `custom`）。
 
 ### 评测与延迟
@@ -99,7 +99,7 @@ Engine 判定合法性，错误是带位置的 `NineKeyShuangpinError`（`Unknow
   - `View.nine_key` 在九键双拼下为假，宿主判断「数字是组码」要看 `View.key_grid`。
   - 降级：选了九键双拼后装回旧版，偏好严格解析整份读不出来（`touch_keyboard_layout` 和 `touch_keyboard_schemes` 有新值）。与 14 键相同，照现有的严格解析接受这个代价。
   - iOS、鸿蒙和桌面的共享设置页都还选不到九键双拼，React 的 `Preferences` 只认识这两个字段，没有编辑入口。
-  - Android 的四行网格挤在三行九键的高度里，键比拼音九键扁，键面字号只有 11sp；一个键上的韵母多时折成三行（辜氏 2 低重码的 9 键有五个韵母）。键面不印数字，看表的人要从声母、韵母认键。
+  - Android 的四行网格挤在三行九键的高度里，键比拼音九键扁，数字主标签为 22sp，单行简短提示为 11sp；触摸键面不再铺完整韵母表，初学者需要查看设置中的映射。
 
 ## Verification
 

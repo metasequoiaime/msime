@@ -805,6 +805,7 @@
 		DF5C81FFC5C042FCCB89F89B /* CandidatePreviewCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A02ADDF1E00B63C050547787 /* CandidatePreviewCard.swift */; };
 		DFB1586310BDCBF9A126BEF2 /* CommonPhrasesRequestState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C8F5B7B2EBE47BEE4955A24 /* CommonPhrasesRequestState.swift */; };
 		DFB8A3F46A0F0235BED2ADFE /* KeyGapRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97E22A6161FBAC5C568F868A /* KeyGapRouting.swift */; };
+		DFBA2C5EBA96534561100536 /* PersonalDictionaryScelImportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 216D8833B005F351FF4DEA8D /* PersonalDictionaryScelImportTests.swift */; };
 		DFBC313D2F6702876B78C613 /* KeyboardSkinTrial.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7C0956C2183B09335BD442 /* KeyboardSkinTrial.swift */; };
 		DFF827C8BB5690133C49921B /* DictionarySnapshotBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5819BA25B6709171AD0CD6BB /* DictionarySnapshotBridgeTests.swift */; };
 		E01870696D6C21BCEC3188F0 /* CloudSyncState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81B63FCD53218F052853D1DD /* CloudSyncState.swift */; };
@@ -1036,6 +1037,7 @@
 		1EED3E1167B76EB91F1811E3 /* SpaceVoicePanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceVoicePanelTests.swift; sourceTree = "<group>"; };
 		1EFA1091F801BE229EF1EC2D /* GlideTypingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlideTypingTests.swift; sourceTree = "<group>"; };
 		1FECD77FD58C6D535217A3B2 /* SharedPreferenceBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedPreferenceBinding.swift; sourceTree = "<group>"; };
+		216D8833B005F351FF4DEA8D /* PersonalDictionaryScelImportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalDictionaryScelImportTests.swift; sourceTree = "<group>"; };
 		22B00BF172EF20CF2DA5EC53 /* DiagnosticLogSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLogSettingsView.swift; sourceTree = "<group>"; };
 		22B07522F2ED6088AD7E8B8E /* WubiCodeHintPreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WubiCodeHintPreferenceTests.swift; sourceTree = "<group>"; };
 		233B73127608B29C985A362E /* VoiceRuntime-NOTICES.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "VoiceRuntime-NOTICES.txt"; sourceTree = "<group>"; };
@@ -1712,6 +1714,7 @@
 				1B319A3B9AD9C40C9B02A70B /* NineKeyKeyboardTests.swift */,
 				48AB1E7A5D30BF8A8B9B3AD6 /* OneHandModeTests.swift */,
 				9193DB05DC287621A66825EB /* PersonalDictionaryHansImportTests.swift */,
+				216D8833B005F351FF4DEA8D /* PersonalDictionaryScelImportTests.swift */,
 				07F7B9BEBBE72ADDE0A2C4FA /* PersonalDictionaryStoreTests.swift */,
 				D69E16DAABB900BAECC61A68 /* PunctuationSettingsTests.swift */,
 				927C918D7BFAD1A07BA6622E /* SchemeDocumentSettingsTests.swift */,
@@ -2966,6 +2969,7 @@
 				5AACF8DA8AF76C0D40C819F6 /* PersonalDictionaryBridge.swift in Sources */,
 				FAEA73FB47FFE8ED7D5AA801 /* PersonalDictionaryHansImportTests.swift in Sources */,
 				F6D208B84BC0CB049FE90F9E /* PersonalDictionaryImport.swift in Sources */,
+				DFBA2C5EBA96534561100536 /* PersonalDictionaryScelImportTests.swift in Sources */,
 				205411022BE471A14B5D492B /* PersonalDictionaryStore.swift in Sources */,
 				F68E8C5C0C8511B717605E72 /* PersonalDictionaryStoreTests.swift in Sources */,
 				EA0FD183320D7EEBBE1BDE67 /* PersonalWordBridge.swift in Sources */,

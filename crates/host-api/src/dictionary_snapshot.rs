@@ -1317,12 +1317,12 @@ fn activation_entry_leads_to_nested_root(
 }
 
 fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
-    activate_with_hook(handle, expected, || {})
+    activate_with_hook(handle, expected, |_| {})
 }
 
-fn activate_with_hook<F>(handle: u64, expected: &str, before_swap: F) -> Result<Value, &'static str>
+fn activate_with_hook<F>(handle: u64, expected: &str, mut on_swap: F) -> Result<Value, &'static str>
 where
-    F: FnOnce(),
+    F: FnMut(Option<usize>),
 {
     let mut entries = registry()
         .lock()
@@ -1414,7 +1414,7 @@ where
             parent,
         });
     }
-    before_swap();
+    on_swap(None);
     // Swap each root's contents rather than the root itself.
     //
     // Renaming the roots cannot work on Windows: the maintenance guard holds
@@ -1520,6 +1520,7 @@ where
                 name: entry,
             });
         }
+        on_swap(Some(index));
     }
     if let Some(receipt) = deferred_receipt {
         let destination = OsStr::new(ACTIVATION_RECEIPT_NAME);

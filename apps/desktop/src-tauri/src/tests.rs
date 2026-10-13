@@ -2795,3 +2795,65 @@ fn a_picked_windows_program_becomes_its_file_name() {
     );
     assert_eq!(super::picked_windows_application(Path::new("/")), None);
 }
+
+#[test]
+fn dictionary_scel_text_converts_a_cell_dictionary_and_keeps_the_codes() {
+    // 最小的细胞词库：拼音表 ce、shi，一组一个词「测试」。布局见 client-core 的 `dictionary::scel`。
+    let mut bytes = vec![0u8; 0x2628];
+    bytes[..12].copy_from_slice(b"\x40\x15\x00\x00DCS\x01\x01\x00\x00\x00");
+    bytes[0x120..0x124].copy_from_slice(&1u32.to_le_bytes());
+    bytes[0x124..0x128].copy_from_slice(&1u32.to_le_bytes());
+    bytes[0x1540..0x1544].copy_from_slice(&2u32.to_le_bytes());
+    let table: Vec<u8> = [(0u16, "ce"), (1, "shi")]
+        .into_iter()
+        .flat_map(|(index, syllable)| {
+            let mut row = index.to_le_bytes().to_vec();
+            row.extend_from_slice(&((syllable.len() * 2) as u16).to_le_bytes());
+            row.extend(syllable.encode_utf16().flat_map(u16::to_le_bytes));
+            row
+        })
+        .collect();
+    bytes[0x1544..0x1544 + table.len()].copy_from_slice(&table);
+    for value in [1u16, 4, 0, 1, 4] {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes.extend("测试".encode_utf16().flat_map(u16::to_le_bytes));
+    bytes.extend_from_slice(&10u16.to_le_bytes());
+    bytes.extend_from_slice(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    // 本 crate 不依赖 base64，测试里就地编码。
+    let encode = |bytes: &[u8]| {
+        const ALPHABET: &[u8; 64] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut encoded = String::new();
+        for chunk in bytes.chunks(3) {
+            let value = chunk.iter().enumerate().fold(0u32, |value, (index, byte)| {
+                value | u32::from(*byte) << (16 - 8 * index)
+            });
+            for position in 0..4 {
+                if position <= chunk.len() {
+                    encoded.push(char::from(
+                        ALPHABET[(value >> (18 - 6 * position) & 63) as usize],
+                    ));
+                } else {
+                    encoded.push('=');
+                }
+            }
+        }
+        encoded
+    };
+
+    let converted =
+        tauri::async_runtime::block_on(super::dictionary_scel_text(encode(&bytes))).unwrap();
+    assert_eq!(converted["text"], "测试\tce'shi\n");
+    assert_eq!(converted["entries"], 1);
+    let refused = |bytes: &[u8]| {
+        tauri::async_runtime::block_on(super::dictionary_scel_text(encode(bytes)))
+            .unwrap_err()
+            .code
+    };
+    assert_eq!(refused(b"plain text"), "dictionary_scel_unsupported");
+    assert_eq!(
+        refused(&bytes[..bytes.len() - 1]),
+        "dictionary_scel_malformed"
+    );
+}

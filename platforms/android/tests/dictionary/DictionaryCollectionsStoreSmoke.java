@@ -67,6 +67,12 @@ public final class DictionaryCollectionsStoreSmoke {
         check(view.find("c2").name().equals("工作") && view.find("c3") == null);
 
         check(DictionaryCollectionsStore.failureMessage("builtin_locked").contains("内置"));
+        check(DictionaryCollectionsStore.failureMessage("import_malformed").equals("文件不完整或已损坏，请重新下载。"));
+        // 细胞词库按 base64 传，上限比文本小，超过时在读进请求之前就拒绝，不碰 Context。
+        check(DictionaryCollectionsStore.MAX_SCEL_IMPORT_BYTES == 8 * 1024 * 1024);
+        check(DictionaryCollectionsStore.importFile(null, "scel", "搜狗",
+            new byte[DictionaryCollectionsStore.MAX_SCEL_IMPORT_BYTES + 1]).failure()
+            .equals(DictionaryCollectionsStore.failureMessage("collections_too_large")));
         check(DictionaryCollectionsStore.failureMessage(null).equals(DictionaryCollectionsStore.failureMessage("x")));
         check(DictionaryCollectionsStore.BUILTIN_PINYIN.equals("builtin:pinyin"));
         check(DictionaryCollectionsStore.exportBytesAfterPage(

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 社区子 Fragment 在旋转和视图恢复时使用同一个容器。 -->
+    <item name="skin_community_content" type="id" />
+</resources>

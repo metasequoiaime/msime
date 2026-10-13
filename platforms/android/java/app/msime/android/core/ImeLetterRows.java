@@ -37,7 +37,7 @@ final class ImeLetterRows {
     private Button keyPreviewOwner;
     /** 符号层里正在显示 #+= 页（否则是 123 页）。 */
     private boolean moreSymbols;
-    /** 第二行（a–l）两侧各 5% 的缩进占位；微软双拼的第十个键出现时收起。 */
+    /** 分离式键盘第二行（a–l）的缩进占位；微软双拼的第十个键出现时收起。 */
     private View secondRowLeadingIndent;
     private View secondRowTrailingIndent;
     /** 当前键行是不是按分离式键盘建的；与 {@link MSIMEInputService#splitKeyboardDrawn} 不一致时要重建（{@link #splitStale}）。 */
@@ -213,7 +213,7 @@ final class ImeLetterRows {
         });
     }
 
-    /** 第二行的 5% 缩进只在 9 键行出现；微软双拼的第十个键可见时收起（每次渲染校正一次）。 */
+    /** 分离式键盘第二行的缩进只在 9 键行出现；微软双拼的第十个键可见时收起（每次渲染校正一次）。 */
     void updateSecondRowIndent() {
         if (secondRowLeadingIndent == null) return;
         int visibility = microsoftTenKeys() ? View.GONE : View.VISIBLE;
@@ -570,13 +570,14 @@ final class ImeLetterRows {
         // The face is the policy's job; the key itself always sends its canonical lowercase form.
         java.util.List<java.util.List<String>> rows = KeyboardLayout.rows(s.keyboardLayer,
             s.displayedTouchLayout(s.view));
-        // 键盘在各布局间切换时总高度不变：字母行多于三行（大千注音四行）时，整组挤进三行的高度里，而不是每行照标准键高再多出一行。
+        // 大千注音四行各占完整键高，避免压成三行后按键过矮；其他多行布局沿用三行高的整块。
         LinearLayout block = null;
         if (rows.size() > 3) {
+            int blockRows = zhuyinKeycaps ? rows.size() : 3;
             block = LayoutPolicy.column(s);
-            s.imeStyler.adjustThreeRowBlockHeight(block);
+            s.imeStyler.adjustRowBlockHeight(block, blockRows);
             s.keyRows.addView(block, LayoutPolicy.matchWidthHeightPx(
-                s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
+                s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * blockRows)));
         }
         boolean tibetanSymbols = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
             && s.tibetanSchemeActive();
@@ -592,9 +593,11 @@ final class ImeLetterRows {
                 : LetterKeyFacePolicy.face(key, chineseMode, localMode, shifted);
             Button keyButton;
             if (zhuyinKeycaps) {
-                // Bopomofo keycaps over the Dachen keys: type() sends the ASCII key, and the Engine spells and converts.
+                // 键面只显示注音符号；type() 仍发送大千 ASCII 键，由引擎组音与转换。
                 keyButton = s.keyboardKey(face, face, () -> s.type(input.charAt(0)));
                 keyButton.setContentDescription(ZhuyinKeyboardLayout.accessibilityLabel(key));
+                KeyboardTypographyPolicy.setFittedKeyTextSize(keyButton, 18, 22);
+                if (ZhuyinKeyboardLayout.toneKey(key)) CenteredGlyphSpan.apply(keyButton, face, 1.8f);
                 if (keyButton instanceof KeyboardPressButton press)
                     press.setKeyboardRole(KeyboardKeyRole.KEY);
             } else if (zhuyinLayout && ZhuyinKeyboardLayout.claimsSymbol(key)) {
@@ -653,8 +656,8 @@ final class ImeLetterRows {
                     rows.size(), rowIndex, true));
                 s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
             }
-            // 第二行（a–l）两侧各缩进 5%：9 个键加两侧各 0.5 的占位正好是第一行 10 个键的宽度。
-            if (standardLetters && rowIndex == 1) {
+            // 普通键盘第二行铺满宽度；分离式键盘保留两侧半键占位，使两半的键宽一致。
+            if (builtSplit && standardLetters && rowIndex == 1) {
                 secondRowLeadingIndent = indent();
                 row.addView(secondRowLeadingIndent, LayoutPolicy.weightedMatchParentParams(.5f));
             }
@@ -673,7 +676,7 @@ final class ImeLetterRows {
                 KeyboardTypographyPolicy.setKeyTextSize(s.microsoftFinalKey, 22);
                 row.addView(s.microsoftFinalKey, LayoutPolicy.weightedMatchParentParams(1));
             }
-            if (standardLetters && rowIndex == 1) {
+            if (builtSplit && standardLetters && rowIndex == 1) {
                 secondRowTrailingIndent = indent();
                 row.addView(secondRowTrailingIndent, LayoutPolicy.weightedMatchParentParams(.5f));
                 updateSecondRowIndent();

@@ -307,6 +307,10 @@ public final class MSIMEInputService extends InputMethodService {
     private int inlineHeightOriginal;
     /** 功能面板（新设计的菜单）与它的「AI 回复与润色」分段页。 */
     FunctionPanelView functionPanel;
+    /** 隐私会话重启时保留已打开的功能菜单。 */
+    private boolean preserveMoreToolsOnStop;
+    /** 无痕输入切换后等键盘窗口收起再重建引擎，避免当前键盘整窗闪烁。 */
+    private boolean privacySessionRestartPending;
     boolean aiAssistChooserOpen;
     /** 常用语面板。 */
     ScrollView phraseScroll;
@@ -1534,6 +1538,10 @@ public final class MSIMEInputService extends InputMethodService {
                 && !InputViewValuePolicy.editingText(view).isEmpty()) {
             command(FINISH_COMPOSITION_COMMAND);
         }
+        if (privacySessionRestartPending && session != 0) {
+            privacySessionRestartPending = false;
+            restartSessionForPrivacy();
+        }
     }
 
     @Override public void onConfigurationChanged(Configuration configuration) {
@@ -1718,6 +1726,13 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void stop(boolean finish) {
+        boolean keepMoreTools = preserveMoreToolsOnStop;
+        preserveMoreToolsOnStop = false;
+        stop(finish, keepMoreTools);
+    }
+
+    /** 停止并重启输入会话时保留已打开的功能菜单，避免隐私开关切换时闪退式收起再弹出。 */
+    private void stop(boolean finish, boolean keepMoreTools) {
         pendingEngineStartup = -1;
         // Rebuilding the Engine (including an in-place privacy-mode restart) invalidates any
         // clipboard image copy still running on the worker. Its completion must not submit an
@@ -1768,7 +1783,21 @@ public final class MSIMEInputService extends InputMethodService {
         view = null;
         closeCandidatePanel();
         // 换编辑器时不让任何工具栏面板（含常用语）活下来，理由同 finishInputViewPresentation。
-        closeToolbarPanels();
+        if (keepMoreTools) {
+            closeEmojiPicker();
+            closeCommonPhrases();
+            closeClipboardHistory();
+            closeSkinPicker();
+            closeSchemePicker();
+            closeSymbolPanel();
+            closeAiPolish();
+            closeVoiceResult();
+            closeLayoutSettings();
+            closeReplyKeyboard();
+            imeTextEditPanel.close();
+        } else {
+            closeToolbarPanels();
+        }
     }
 
     /**
@@ -2347,6 +2376,8 @@ public final class MSIMEInputService extends InputMethodService {
             preferencesNotice = " · 设置读取或应用失败，保留当前设置";
         }
         offerRecentClipOnHistoryEnabled(previousClipboard);
+        if (previousLocalSettings.bool(AndroidLocalSettings.AUTO_CAPITALIZATION)
+                != localSettings.bool(AndroidLocalSettings.AUTO_CAPITALIZATION)) updateAutomaticCapitalization();
         if (previousPreferencesReady != (preferencesSnapshot != null)
                 || !previousNotice.equals(preferencesNotice)
                 || !previousSkin.equals(skin.displayKey(imeStyler.appThemeSeed()))
@@ -4046,15 +4077,16 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         CharSequence context = null;
-        if (connection != null) {
+        boolean automaticEnabled = localSettings.bool(AndroidLocalSettings.AUTO_CAPITALIZATION);
+        if (automaticEnabled && connection != null) {
             try {
                 context = connection.getTextBeforeCursor(CAPITALIZATION_CONTEXT_LIMIT, 0);
             } catch (RuntimeException ignored) {
-                // Editor context is optional and must never be logged or persisted.
+                // 光标前文可缺省，不记录也不持久化。
             }
         }
         boolean next = EnglishCapitalizationPolicy.shouldShift(
-            EditorPolicy.capitalizationMode(editorInputType), context);
+            automaticEnabled, EditorPolicy.capitalizationMode(editorInputType), context);
         // 手动按下的单次大写留到下一个字母用掉为止，与 HarmonyOS 一致；否则按下 Shift 后编辑器回报一次光标位置就会把它冲掉。
         if (!letterCase.isPressedShift() && letterCase.applyAutomatic(next)) imeLetterRows.refreshLetterCase();
         render();
@@ -5741,6 +5773,13 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (RuntimeException error) {
             notice("无法打开水杉输入法，请从主屏幕进入");
         }
+    }
+
+    /** 只有待插入的识别文字仍有效时才提供菜单入口，不把空结果页当常驻工具。 */
+    boolean hasPendingVoiceResult() {
+        if (voiceResultStore == null) return false;
+        try { return voiceResultStore.read(System.currentTimeMillis()) != null; }
+        catch (VoiceResultStore.Failure ignored) { return false; }
     }
 
     void showVoiceResult() {
@@ -8124,7 +8163,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void toggleIncognito() {
-        saveLocalPanelSetting("隐私模式", AndroidLocalSettings.INCOGNITO, !incognitoEnabled);
+        saveLocalPanelSetting("无痕输入", AndroidLocalSettings.INCOGNITO, !incognitoEnabled);
     }
 
     /** 功能面板「浮动键盘」与工具栏的浮动键盘按钮：切换浮动 / 停靠。 */
@@ -8497,7 +8536,11 @@ public final class MSIMEInputService extends InputMethodService {
         localSettings = saved;
         applyLocalSettings();
         preferencesNotice = "";
-        if (wasIncognito != incognitoEnabled && session != 0) restartSessionForPrivacy();
+        if (wasIncognito != incognitoEnabled && session != 0) {
+            // 统计与剪贴板等 Java 隐私门禁立即生效；引擎的 learning 只能在会话边界更新，延到键盘收起时重建，避免整窗闪烁。
+            markPrivateSession();
+            privacySessionRestartPending = true;
+        }
         render();
     }
 
@@ -8510,9 +8553,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (connection != null && view != null && !InputViewValuePolicy.editingText(view).isEmpty())
             command(FINISH_COMPOSITION_COMMAND);
         boolean panelOpen = ViewPolicy.isVisible(moreToolsScroll);
+        preserveMoreToolsOnStop = panelOpen;
         stop(false);
-        // stop 会收起所有面板；用户是在功能面板上点的隐私，面板应该留在原处。
-        if (panelOpen) imePanels.showFeedbackMenu();
         try {
             JSONObject options = new JSONObject(runtimeOptionsBase);
             if (learningSuppressed()) options.getJSONObject("preferences").put("learning", false);

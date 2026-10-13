@@ -144,6 +144,7 @@ class BuildCache(unittest.TestCase):
 
 
 class PackageEntry(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix", "Linux 容器入口检查需要 POSIX 脚本和路径")
     def test_deb_and_rpm_commands_reuse_images_and_mount_cargo_home(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

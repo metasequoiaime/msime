@@ -39,8 +39,11 @@ const slang: DictionaryCollection = {
 };
 const formats = ["txt", "standard", "windows", "hans", "rime"];
 
-function viewOf(collections: DictionaryCollection[]): DictionaryCollectionsView {
-  return { collections, formats };
+function viewOf(
+  collections: DictionaryCollection[],
+  accepted: string[] = formats,
+): DictionaryCollectionsView {
+  return { collections, formats: accepted };
 }
 
 function resource(id: string, name: string): CommunityResource {
@@ -55,10 +58,11 @@ function resource(id: string, name: string): CommunityResource {
   } as unknown as CommunityResource;
 }
 
-function setup({ harmonyPhone = true } = {}) {
-  let current = viewOf([work, slang]);
+function setup({ harmonyPhone = true, scel = false, importBytes = false } = {}) {
+  const accepted = scel ? [...formats, "scel"] : formats;
+  let current = viewOf([work, slang], accepted);
   const respond = (next: DictionaryCollection[]) => {
-    current = viewOf(next);
+    current = viewOf(next, accepted);
     return Promise.resolve(current);
   };
   const collections: DictionaryCollectionsClient = {
@@ -73,6 +77,26 @@ function setup({ harmonyPhone = true } = {}) {
     ),
     addWords: vi.fn(() => Promise.resolve(current)),
     importFile: vi.fn(() => Promise.resolve(current)),
+    ...(importBytes
+      ? {
+          importBytes: vi.fn((name: string) =>
+            respond([
+              ...current.collections,
+              {
+                ...work,
+                id: "scel",
+                name,
+                source: { type: "import", format: "scel" },
+                entry_count: 2,
+                pending: 0,
+              },
+            ]).then((view) => ({
+              ...view,
+              import: { imported: 2, duplicates: 0, failed: 1, truncated: false, swapped: false },
+            })),
+          ),
+        }
+      : {}),
     installCommunity: vi.fn((item: CommunityResource) =>
       respond([
         ...current.collections,
@@ -390,4 +414,33 @@ test("other hosts keep the desktop dictionary form", () => {
   setup({ harmonyPhone: false });
   expect(screen.getByText("编码前缀")).toBeTruthy();
   expect(screen.queryByText("添加词库")).toBeNull();
+});
+
+test("添加词库 offers the Sogou cell dictionary after text and sends its bytes as base64", async () => {
+  const { collections } = setup({ scel: true, importBytes: true });
+  fireEvent.click(await screen.findByText("添加词库"));
+  const sheet = await screen.findByRole("dialog", { name: "添加词库" });
+  expect(
+    within(sheet)
+      .getAllByRole("button")
+      .map((button) => button.textContent)
+      .filter((text) => text !== "取消"),
+  ).toEqual(["新建空词库", "导入文本文件", "导入搜狗细胞词库", "导入 Rime 词典", "导入纯汉字词表"]);
+  fireEvent.click(within(sheet).getByRole("button", { name: "导入搜狗细胞词库" }));
+  const input = screen.getByLabelText("选择词库文件") as HTMLInputElement;
+  expect(input.accept).toBe(".scel,application/octet-stream");
+  const bytes = new Uint8Array([0x40, 0x15, 0x00, 0x00, 0x44, 0x43, 0x53, 0x01, 0xff]);
+  Object.defineProperty(input, "files", { value: [new File([bytes], "化学词汇.scel")] });
+  fireEvent.change(input);
+  await waitFor(() => expect(collections.importBytes).toHaveBeenCalled());
+  expect(collections.importBytes).toHaveBeenCalledWith("化学词汇", "scel", "QBUAAERDUwH/");
+  expect(collections.importFile).not.toHaveBeenCalled();
+  expect(await screen.findByText("已导入「化学词汇」，2 条，1 行无法识别")).toBeTruthy();
+});
+
+test("a host that cannot send bytes does not offer the Sogou cell dictionary", async () => {
+  setup({ scel: true, importBytes: false });
+  fireEvent.click(await screen.findByText("添加词库"));
+  const sheet = await screen.findByRole("dialog", { name: "添加词库" });
+  expect(within(sheet).queryByRole("button", { name: "导入搜狗细胞词库" })).toBeNull();
 });

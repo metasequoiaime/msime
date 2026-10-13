@@ -53,6 +53,10 @@ import java.util.concurrent.Future;
  * <p>开源许可列出 APK 里随包带的许可通知（`assets/native-notices/`、词库与离线释义的许可等），以及已下载的资源包（日文词典、语言词库、离线释义）里随数据一起下载的许可文本，都没有时（例如开发构建）链接到仓库。
  */
 public final class AboutPage extends DetailPage {
+    @Override protected java.util.List<String> sectionTitles() {
+        return java.util.List.of("应用", "设备", "链接");
+    }
+
     private static final String SITE = "https://msime.app/";
     private static final String PRIVACY = "https://msime.app/privacy/";
     private static final String REPOSITORY = "https://github.com/metasequoiaime/msime";
@@ -87,16 +91,16 @@ public final class AboutPage extends DetailPage {
     @Override protected void buildContent(LinearLayout column, Bundle args) {
         Context context = requireContext();
         boolean play = UpdateJobService.installedFromPlay(context);
-        column.addView(header(context, play));
+        sectionColumn(column, "应用").addView(header(context, play));
 
         if (!play) {
-            GroupCard updates = GroupCard.add(column, "更新");
+            GroupCard updates = GroupCard.add(sectionColumn(column, "应用"), "更新");
             updates.toggle("自动更新", "每天在联网时检查一次，下载好后通知你安装", UpdateJobService.autoUpdate(context),
                 this::setAutoUpdate);
             channelRow = updates.nav("更新通道", null, UpdateJobService.channel(context).title(), this::chooseChannel);
         }
 
-        GroupCard device = GroupCard.add(column, "设备信息").withDividers(Ui.ROW_PADDING_H);
+        GroupCard device = GroupCard.add(sectionColumn(column, "设备"), "设备信息").withDividers(Ui.ROW_PADDING_H);
         TextView reading = device.note("正在读取…");
         DeviceInfo.load(this, entries -> {
             ViewPolicy.hide(reading);
@@ -107,7 +111,7 @@ public final class AboutPage extends DetailPage {
                 () -> ClipboardActions.copyText(context, "设备信息", DeviceInfo.text(context, entries), "已复制设备信息"));
         });
 
-        GroupCard links = GroupCard.add(column, null).withDividers(Ui.ROW_PADDING_H);
+        GroupCard links = GroupCard.add(sectionColumn(column, "链接"), null).withDividers(Ui.ROW_PADDING_H);
         links.nav("官网", null, "msime.app", () -> openLink(context, SITE));
         links.nav("隐私政策", null, null, () -> openLink(context, PRIVACY));
         GroupCard.Row licences = links.nav("开源许可", null, null, this::showLicences);
@@ -124,7 +128,7 @@ public final class AboutPage extends DetailPage {
         ViewPolicy.setCentered(footer);
         LinearLayout.LayoutParams footerParams = LayoutPolicy.matchWidthWrapParams();
         footerParams.topMargin = DimensionPolicy.pixels(context, 24);
-        column.addView(footer, footerParams);
+        sectionColumn(column, "链接").addView(footer, footerParams);
 
         if (notices == null) {
             AssetManager assets = context.getAssets();

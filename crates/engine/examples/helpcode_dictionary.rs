@@ -14,8 +14,7 @@ use msime_engine::host::{prepare_options, Session};
 
 const SCHEMA: &str = "ziranma";
 
-/// A resource directory with `helpcodes/` present, built by linking rather than copying: the
-/// dictionaries in there run to a hundred megabytes.
+/// 构造带有 `helpcodes/` 的资源视图，百兆级词库通过链接复用。
 fn resource_view(
     resources: &std::path::Path,
     helpcodes: &std::path::Path,
@@ -23,7 +22,14 @@ fn resource_view(
     let view = tempfile::tempdir()?;
     for entry in std::fs::read_dir(resources)? {
         let entry = entry?;
+        #[cfg(unix)]
         std::os::unix::fs::symlink(entry.path(), view.path().join(entry.file_name()))?;
+        #[cfg(windows)]
+        if entry.path().is_dir() {
+            std::os::windows::fs::symlink_dir(entry.path(), view.path().join(entry.file_name()))?;
+        } else {
+            std::os::windows::fs::symlink_file(entry.path(), view.path().join(entry.file_name()))?;
+        }
     }
     if !resources.join("helpcodes").is_dir() {
         // Copied rather than linked: the Engine stages its resources into the user directory and

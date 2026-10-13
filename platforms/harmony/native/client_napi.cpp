@@ -564,6 +564,11 @@ static napi_value DictionaryCollectionsAsync(napi_env env, napi_callback_info in
         "MSIME dictionary collections");
 }
 
+// 搜狗细胞词库转成标准文本（`msime_client_dictionary_scel_text`）：纯函数，但请求是整个文件的 base64，解码和转换放在工作线程上，设置页等 promise。
+static napi_value DictionaryScelTextAsync(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_dictionary_scel_text, "MSIME dictionary scel text");
+}
+
 // The settings page's 修复配置文件: copies the unreadable document aside and rewrites it under the preferences writer lock, so it runs on a worker like every other call that may wait on that lock.
 static napi_value RepairPreferences(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_repair_preferences, "MSIME repair preferences");
@@ -1537,6 +1542,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("personalDictionaryRequest", PersonalDictionaryRequest),
         ENTRY("dictionaryCollections", DictionaryCollections),
         ENTRY("dictionaryCollectionsAsync", DictionaryCollectionsAsync),
+        ENTRY("dictionaryScelTextAsync", DictionaryScelTextAsync),
         ENTRY("prepareHost", PrepareHost),
         ENTRY("snapshotVersion", SnapshotVersion),
         ENTRY("snapshotInspect", SnapshotInspect),

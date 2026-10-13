@@ -300,6 +300,8 @@ targets:
       - path: App/Sources/settings/SettingsSaveFailure.swift
       - path: App/Sources/settings/SettingsScenePhaseReload.swift
       - path: App/Sources/settings/SharedPreferenceBinding.swift
+      # CandidateOptionsSettingsView 的保存失败提示。
+      - path: App/Sources/settings/SettingsSaveFailure.swift
       - path: App/Sources/settings/CandidatePreviewCard.swift
       # 辅助码页导入码表的选择规则和导入、删除流程（#7176），HelpcodeChoicePolicyTests 与 HelpcodeSettingsTests 直接测它们。
       - path: App/Sources/settings/HelpcodeChoicePolicy.swift

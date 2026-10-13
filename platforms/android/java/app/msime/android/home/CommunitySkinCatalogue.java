@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /**
- * 刷新 {@link CommunitySkinCache}：拉全社区皮肤目录写进本机缓存，键盘的皮肤面板据此列出全部社区皮肤（键盘进程不为浏览目录联网），设置里的皮肤页也从这份缓存列出社区皮肤。
+ * 刷新 {@link CommunitySkinCache}：拉全社区皮肤目录写进本机缓存，键盘的皮肤面板据此列出全部社区皮肤（键盘进程不为浏览目录联网），设置里的社区 Tab 通过完整列表按搜索和分类分页加载。
  *
  * <p>以前只有底部的「社区」tab 在打开时刷新它；那个 tab 撤掉以后，皮肤页在缓存过期时刷新（{@link CommunitySkinCache#stale(Path, long)}），完整的社区皮肤列表每次打开都刷新。最多翻十页，任何一页失败都保留旧缓存。同一时刻只跑一次，两个页面同时触发时后来的那次直接跳过。
  */

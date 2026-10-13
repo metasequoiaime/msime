@@ -43,6 +43,10 @@ import org.json.JSONObject;
  * <p>键盘与本页读同一批存储：按键间距、行间距、双拼键位提示和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_shuangpin_key_hints`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–160 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
  */
 public final class KeyboardOptionsPage extends ReloadingDetailPage {
+    @Override protected java.util.List<String> sectionTitles() {
+        return java.util.List.of("布局", "反馈", "手势", "工具栏", "剪贴板");
+    }
+
     private static final String[] ANIMATIONS = {"bounce", "ripple", "glow", "lift", "none"};
     private static final String[] ANIMATION_LABELS = {"弹起", "涟漪", "发光", "浮起", "无"};
     /** 可开关的六个工具栏按钮：存储键与行名。共享偏好的写 `touch_toolbar` 的成员名，本地设置的写完整键名。 */
@@ -78,7 +82,10 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         AppEdition edition = AppEdition.current();
         KeyboardScheme current = SchemePreferences.storedScheme(preferences, edition);
 
-        GroupCard layout = GroupCard.add(target, "布局");
+        GroupCard layout = GroupCard.add(sectionColumn(target, "布局"), "布局");
+        layout.toggle("英文自动大写", "按输入框要求自动大写句首、单词首字母或全部字母；默认关闭，需要大写时按 Shift",
+            settings.bool(AndroidLocalSettings.AUTO_CAPITALIZATION),
+            checked -> saveLocalSetting(AndroidLocalSettings.AUTO_CAPITALIZATION, checked));
         KeyboardScheme[] pair = layoutPair(current);
         boolean pairOffered = pair != null;
         if (pair != null) for (KeyboardScheme choice : pair) pairOffered &= choice.offeredBy(edition);
@@ -148,7 +155,7 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
             settings.bool(AndroidLocalSettings.BOTTOM_PADDING),
             checked -> saveLocalSetting(AndroidLocalSettings.BOTTOM_PADDING, checked));
 
-        GroupCard feedback = GroupCard.add(target, "按键反馈");
+        GroupCard feedback = GroupCard.add(sectionColumn(target, "反馈"), "按键反馈");
         KeyboardFeedbackStore.Settings local = state.feedback();
         feedback.toggle("按键音", null, local.soundEnabled(), checked -> saveFeedback(checked, null));
         feedback.toggle("按键振动", null, local.hapticsEnabled(), checked -> saveFeedback(null, checked));
@@ -159,7 +166,7 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         animationRow[0] = feedback.nav("按键动画", null, animationLabel(animation),
             () -> pickAnimation(animation, animationRow[0]));
 
-        GroupCard gestures = GroupCard.add(target, "手势");
+        GroupCard gestures = GroupCard.add(sectionColumn(target, "手势"), "手势");
         boolean swipeSymbols = settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS);
         gestures.toggle("滑动输入符号", "在字母键上滑动，输入角标符号；长按字母键始终可以输入", swipeSymbols,
             checked -> saveLocalSetting(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS, checked));
@@ -191,7 +198,7 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         JSONObject toolbar = preferences.optJSONObject("touch_toolbar");
         if (toolbar == null) toolbar = new JSONObject();
         boolean hidden = settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
-        GroupCard bar = GroupCard.add(target, "键盘工具栏");
+        GroupCard bar = GroupCard.add(sectionColumn(target, "工具栏"), "键盘工具栏");
         bar.addView(toolbarPreview(requireContext(), toolbar, settings, state.skin()));
         bar.nav("显示方式", null, hidden ? "隐藏" : "输入时显示", () -> pickToolbarMode(hidden));
         for (String[] button : TOOLBAR_BUTTONS) {
@@ -201,7 +208,7 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
             row.setEnabled(!hidden);
         }
 
-        GroupCard clipboard = GroupCard.add(target, "剪贴板");
+        GroupCard clipboard = GroupCard.add(sectionColumn(target, "剪贴板"), "剪贴板");
         // 剪贴板历史关着时键盘不显示最近复制，也不为它读剪贴板（RecentClipboardSuggestion.enabled），这一项跟着置灰。
         boolean clipboardHistory = preferences.optBoolean("clipboard_history", false);
         GroupCard.Row recentClipRow = clipboard.toggle("工具栏显示最近复制",
@@ -213,9 +220,6 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         clipboard.nav("排列", "剪贴板面板里一行显示几条记录", clipboardColumnsLabel(columns),
             () -> pickClipboardColumns(columns));
 
-        GroupCard more = GroupCard.add(target, "更多");
-        more.nav("AI 润色与回复", "端点、模型、凭据和提示词", null,
-            () -> SettingsNavigator.open(requireContext(), PageId.AI_SETTINGS, null));
     }
 
     /** 一个工具栏按钮开着没有：本地设置的看本地设置，其余看 `touch_toolbar`（缺键为开）。 */

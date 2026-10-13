@@ -41,6 +41,10 @@ import org.json.JSONObject;
  * <p>最上面一张卡是「云剪贴板同步方式」：水杉账号，或者用户自建的中继（`docs/cloud-clipboard-relay.md`）。选了中继就只走中继（{@link CloudClipboardRelay}），不需要登录，下面的开关、列表和设备都是中继上的；中继出错也不退回水杉账号。地址和令牌在对话框里填好、校验通过后点「保存」才写进共享偏好（`cloud_clipboard_relay`），规则与共享设置页相同（{@link CloudClipboardRelayPolicy}）；令牌框打开时是空的，不回显已存的令牌。
  */
 public final class CloudClipboardPage extends ReloadingDetailPage {
+    @Override protected java.util.List<String> sectionTitles() {
+        return java.util.List.of("设置", "记录", "设备");
+    }
+
     private static final String DESCRIPTION = "在你登录的设备之间同步，端到端加密，水杉云只保存密文，关闭即删除";
     private static final String KEY_CHANGE = "云端现有的记录会全部删除，其他设备都要在这台设备上重新允许后才能继续同步。";
     private static final String RELAY_DESCRIPTION = "在你的设备之间经自建中继同步，端到端加密，中继只保存密文，关闭即删除";
@@ -176,7 +180,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
 
         CloudClipboardApi.Overview current = overview;
         CloudClipboardApi.Page page = current == null ? null : current.page();
-        GroupCard settings = GroupCard.add(target, null).withDividers(Ui.ROW_PADDING_H);
+        GroupCard settings = GroupCard.add(sectionColumn(target, "设置"), null).withDividers(Ui.ROW_PADDING_H);
         GroupCard.Row toggle = settings.toggle("云剪贴板", viaRelay() ? RELAY_DESCRIPTION : DESCRIPTION,
             page != null && page.enabled(), this::setEnabled);
         toggle.setEnabled(page != null);
@@ -216,7 +220,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     private void renderSyncMode(LinearLayout target) {
         Relay current = relay;
         if (current == null) return;
-        GroupCard card = GroupCard.add(target, "云剪贴板同步方式").withDividers(Ui.ROW_PADDING_H);
+        GroupCard card = GroupCard.add(sectionColumn(target, "设置"), "云剪贴板同步方式").withDividers(Ui.ROW_PADDING_H);
         card.nav("同步方式", "自建中继不需要登录水杉账号：内容仍在本机加密，中继只保存密文，新设备照样要在已有设备上核对后允许",
             current.configured() ? "自建中继" : "水杉账号", () -> pickSyncMode(current));
         if (!current.configured()) return;
@@ -315,7 +319,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
 
     /** 本机还没被允许：本机的核对码、去哪里允许，以及没有其他设备可用时的「重置」。 */
     private void renderWaiting(LinearLayout target, Context context, CloudClipboardApi.Devices devices) {
-        GroupCard card = GroupCard.add(target, "这台设备等待允许").withDividers(Ui.ROW_PADDING_H);
+        GroupCard card = GroupCard.add(sectionColumn(target, "设备"), "这台设备等待允许").withDividers(Ui.ROW_PADDING_H);
         card.note("在另一台已经在用云剪贴板的设备上打开「我的 → 云剪贴板」，那里会列出这台设备。核对那里显示的核对码和下面这串一致后，点「允许」。");
         LinearLayout code = LayoutPolicy.column(context);
         ViewPolicy.setSymmetricPaddingDp(context, code, Ui.ROW_PADDING_H, 14);
@@ -333,7 +337,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
     /** 等本机允许的其他设备：名称、登记时间、核对码，行尾「拒绝」「允许」。 */
     private void renderPendingDevices(LinearLayout target, Context context, List<CloudClipboardApi.Device> pending) {
         if (pending.isEmpty()) return;
-        GroupCard card = GroupCard.add(target, "等待允许").withDividers(Ui.ROW_PADDING_H);
+        GroupCard card = GroupCard.add(sectionColumn(target, "设备"), "等待允许").withDividers(Ui.ROW_PADDING_H);
         for (CloudClipboardApi.Device device : pending) {
             LinearLayout row = LayoutPolicy.row(context);
             ViewPolicy.setCenteredVertically(row);
@@ -376,9 +380,9 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
         }
         LinearLayout.LayoutParams headerParams = LayoutPolicy.matchWidthWrapParams();
         headerParams.topMargin = DimensionPolicy.pixels(context, Ui.GROUP_GAP);
-        target.addView(header, headerParams);
+        sectionColumn(target, "记录").addView(header, headerParams);
 
-        GroupCard list = GroupCard.add(target, null).withDividers(Ui.ROW_PADDING_H);
+        GroupCard list = GroupCard.add(sectionColumn(target, "记录"), null).withDividers(Ui.ROW_PADDING_H);
         ((LinearLayout.LayoutParams) list.view().getLayoutParams()).topMargin = DimensionPolicy.pixels(context, 2);
         int undecryptable = page.e2e().undecryptable();
         if (undecryptable > 0) {
@@ -403,7 +407,7 @@ public final class CloudClipboardPage extends ReloadingDetailPage {
 
     /** 已允许的设备：本机标出「本机」，其他设备行尾「移除」；最后一行是「重置」。 */
     private void renderDevices(LinearLayout target, CloudClipboardApi.Devices devices) {
-        GroupCard card = GroupCard.add(target, "设备").withDividers(Ui.ROW_PADDING_H);
+        GroupCard card = GroupCard.add(sectionColumn(target, "设备"), "设备").withDividers(Ui.ROW_PADDING_H);
         for (CloudClipboardApi.Device device : devices.approved()) {
             String when = CloudClipboardTimePolicy.relative(device.createdAt());
             String subtitle = "核对码 " + device.code() + (when.isEmpty() ? "" : " · " + when + "加入");

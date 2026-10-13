@@ -16,6 +16,10 @@ import org.json.JSONObject;
  * <p>三个开关就是 {@link InputFeatureToggle} 里的那三项，标题和说明也取那里，本页是它们在宿主里唯一的位置（实施计划 §2.9）。隐私模式的语义在 Rust 与键盘里（P17）：这里只说明它做什么、不做什么。
  */
 public final class PrivacyPage extends ReloadingDetailPage {
+    @Override protected java.util.List<String> sectionTitles() {
+        return java.util.List.of("联网", "本机", "无痕");
+    }
+
     private static final String POLICY = "https://msime.app/privacy/";
     private static final InputFeatureToggle[] NETWORK = {
         InputFeatureToggle.CANDIDATE_TRANSLATION_ACCOUNT, InputFeatureToggle.USAGE_REPORTING,
@@ -30,23 +34,23 @@ public final class PrivacyPage extends ReloadingDetailPage {
         if (target == null) return;
         rows.clear();
         String app = getString(R.string.app_name);
-        GroupCard intro = GroupCard.add(target, null);
+        GroupCard intro = GroupCard.add(sectionColumn(target, "联网"), null);
         intro.note(app + "本地优先：拼音、词库、自造词和输入统计都在这台设备上处理和保存。只有你打开的联网功能才会连接 api.msime.app，下面逐项列出。");
 
-        GroupCard network = GroupCard.add(target, "联网功能").withDividers(16);
+        GroupCard network = GroupCard.add(sectionColumn(target, "联网"), "联网功能").withDividers(16);
         for (InputFeatureToggle toggle : NETWORK) addToggle(network, toggle);
         network.nav("翻译服务", "改用小牛、腾讯或自定义（DeepLX、DeepL）服务", null,
             () -> SettingsNavigator.open(requireContext(), PageId.TRANSLATION_SERVICE, null));
         network.note("在「翻译服务」里选了小牛、腾讯或自定义服务时，键盘会把当前一页的中文候选词直接发给你配置的第三方服务翻译，不经过水杉服务器，按该服务自己的数据政策处理；凭据只保存在本机。");
 
-        GroupCard local = GroupCard.add(target, "本机数据").withDividers(16);
+        GroupCard local = GroupCard.add(sectionColumn(target, "本机"), "本机数据").withDividers(16);
         for (InputFeatureToggle toggle : LOCAL) addToggle(local, toggle);
 
-        GroupCard incognito = GroupCard.add(target, "隐私模式");
+        GroupCard incognito = GroupCard.add(sectionColumn(target, "无痕"), "隐私模式");
         incognito.note("在键盘功能面板里打开隐私模式后，" + app
             + "不学习新词、不调整候选顺序，不记录字数、按键和输入统计，不保存剪贴板历史和云剪贴板，也不做任何数据贡献。云候选、翻译、AI 润色这类你单独打开的联网功能按各自的开关照常工作，不受隐私模式影响。");
 
-        GroupCard links = GroupCard.add(target, null);
+        GroupCard links = GroupCard.add(sectionColumn(target, "无痕"), null);
         links.nav("隐私政策", "msime.app", null, this::openPolicy);
         render();
     }

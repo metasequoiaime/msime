@@ -16,12 +16,10 @@ EXPECTED_CALLERS = (
     "InputDialog.java",
     "LoginSheet.java",
     "OnboardingActivity.java",
-    "SkinsPage.java",
 )
 HEIGHT_PX_CALLERS = (
     "FeedbackPage.java",
     "OnboardingActivity.java",
-    "SkinsPage.java",
 )
 BOTTOM_INSET_CALLERS = (
     "ChatFragment.java",
@@ -153,7 +151,7 @@ def main() -> int:
         if path.read_text(encoding="utf-8").count("LayoutPolicy.linearParamsPx(") != 1:
             errors.append(f"{path}: 未直接复用 LayoutPolicy.linearParamsPx")
 
-    for name in ("AiSkinPage.java", "SkinsPage.java"):
+    for name in ("AiSkinPage.java",):
         path = HOME / name
         if path.read_text(encoding="utf-8").count(
             "LayoutPolicy.frameMatchWidthHeightPx("

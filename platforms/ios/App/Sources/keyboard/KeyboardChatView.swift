@@ -16,7 +16,7 @@ final class KeyboardChatModel: ObservableObject {
   @Published private(set) var accountID: String?
   private var request: Task<Void, Never>?
   private let api = BackendAccountClient()
-  private var generation = 0
+  private var generation = OperationGeneration()
   private var accountSessionID: UUID?
 
   private func switchAccount(to userID: String?, sessionID: UUID? = nil) {
@@ -62,19 +62,18 @@ final class KeyboardChatModel: ObservableObject {
     guard let userID = accountID else { loginNeeded = true; return }
     let sessionID = accountSessionID
     error = nil; sending = true
-    generation += 1
-    let version = generation
+    let version = generation.begin()
     // The system prompt first, then the newest complete messages that still fit the service contract.
     let context = KeyboardChatHistoryPolicy.request(messages.map { (role: $0.role, text: $0.text) })
       .map { BackendAccountClient.ChatMessage(role: $0.role, content: $0.text) }
     let history = context
     request = Task { [weak self] in
       guard let self else { return }
-      defer { if generation == version { sending = false; request = nil } }
+      defer { if generation.isCurrent(version) { sending = false; request = nil } }
       do {
         if isFixture {
           try await Task.sleep(nanoseconds: 150_000_000)
-          guard generation == version else { return }
+          guard generation.isCurrent(version) else { return }
           messages.append(Message(role: "assistant", text: "已收到：" + (history.last?.content ?? "")))
           return
         }
@@ -82,13 +81,13 @@ final class KeyboardChatModel: ObservableObject {
                                        session: .shared, matchingUserID: userID,
                                        matchingSessionID: sessionID)
         try Task.checkCancellation()
-        guard generation == version else { return }
+        guard generation.isCurrent(version) else { return }
         messages.append(Message(role: "assistant", text: reply))
       } catch is CancellationError { }
-      catch { if !Task.isCancelled && generation == version { show(error) } }
+      catch { if !Task.isCancelled && generation.isCurrent(version) { show(error) } }
     }
   }
-  func cancel() { generation += 1; request?.cancel(); request = nil; sending = false }
+  func cancel() { generation.cancel(task: &request); sending = false }
   func clear() { cancel(); messages = []; error = nil }
   private func show(_ failure: Error) {
     if let failure = failure as? BackendAccountClient.Failure {

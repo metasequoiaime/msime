@@ -54,11 +54,13 @@ public final class SettingsNavigator {
         }
         fragment.setArguments(args == null ? new Bundle() : new Bundle(args));
 
-        if (home.selectedTabIndex() != page.tab()) home.selectTabIndex(page.tab());
-
         // 连点两下只压一页：栈顶已经是这一页时不再压。
         int depth = manager.getBackStackEntryCount();
         if (depth > 0 && page.name().equals(manager.getBackStackEntryAt(depth - 1).getName())) return;
+
+        // 页面内入口保留当前底部 Tab（例如「我的 → 皮肤」返回仍回到「我的」）。
+        // 外部深链已在 HomeActivity.openDeepLink 中先定位所属 Tab，这里不再覆盖来源。
+        home.setDetailLoading(true);
 
         Fragment below = visibleIn(manager);
         androidx.fragment.app.FragmentTransaction transaction = manager.beginTransaction()

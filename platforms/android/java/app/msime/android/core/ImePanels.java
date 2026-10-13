@@ -1039,12 +1039,12 @@ final class ImePanels {
         if (s.schemePanel == null) return;
         s.schemePanel.removeAllViews();
         LayoutPolicy.setPaddingDp(s.schemePanel, s, 8, 14, 8, 6);
-        // 4×2 分页网格：已启用的方案按共享目录的顺序，英文 26 键排在第三格（方案不够时排最后），末尾是「+ 添加语言」。
+        // 4×3 分页网格：已启用的方案按共享目录的顺序，英文 26 键排在第三格（方案不够时排最后），末尾是「+ 添加语言」。
         java.util.List<KeyboardScheme> schemes = s.visibleSchemes;
         final int englishIndex = BoundsPolicy.bounded(2, 0, schemes.size());
         int cardCount = schemes.size() + 2;
         PagedTileGrid grid = new PagedTileGrid(s);
-        grid.setGrid(4, 2);
+        grid.setGrid(4, 3);
         grid.setSpacing(56, 16, 4, 4);
         grid.setContentDescription("输入方案卡片区域");
         java.util.List<KeyboardSchemeCard> schemeCards = new java.util.ArrayList<>(cardCount);
@@ -1087,7 +1087,7 @@ final class ImePanels {
             cardSelection.add(selected);
             grid.addView(card);
         }
-        addPagedGrid(s.schemePanel, grid, PagedTileGrid.pageOf(selectedIndex, PagedTileGrid.perPage(4, 2)));
+        addPagedGrid(s.schemePanel, grid, PagedTileGrid.pageOf(selectedIndex, PagedTileGrid.perPage(4, 3)));
         s.imeStyler.applySkin();
         // 必须在换肤遍历之后：那一趟会把每个 TextView 重新刷成 keyForeground。
         int accent = Color.parseColor(s.skin.accent());

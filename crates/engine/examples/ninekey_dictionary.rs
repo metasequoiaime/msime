@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // The same directory minus the tables, to prove they are what orders the whole-sentence paths.
+    // 保留同一份资源但去掉 ngram 表，确认整句路径的排序确实由这些表决定。
     let unweighted = tempfile::tempdir()?;
     for entry in std::fs::read_dir(&resources)? {
         let entry = entry?;
@@ -51,7 +51,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if NGRAM_TABLES.iter().any(|table| name == *table) {
             continue;
         }
+        #[cfg(unix)]
         std::os::unix::fs::symlink(entry.path(), unweighted.path().join(name))?;
+        #[cfg(windows)]
+        if entry.path().is_dir() {
+            std::os::windows::fs::symlink_dir(entry.path(), unweighted.path().join(name))?;
+        } else {
+            std::os::windows::fs::symlink_file(entry.path(), unweighted.path().join(name))?;
+        }
     }
 
     let weighted_order = candidates(&resources, "64426")?;

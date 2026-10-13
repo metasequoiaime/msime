@@ -25,6 +25,8 @@ public final class DictionaryCollectionsStore {
     public static final int MAX_NAME_CHARS = 32;
     /** 导入文件读进内存的上限，与 client-core 的导入文本上限一致。 */
     public static final int MAX_IMPORT_BYTES = 16 * 1024 * 1024;
+    /** 二进制词库（搜狗细胞词库）的上限，与 client-core 的 `scel::MAX_SCEL_BYTES` 一致：按 base64 传，8 MiB 编码后约 10.7 MiB，加上宿主选项仍在 17 MiB 的请求上限之内。 */
+    public static final int MAX_SCEL_IMPORT_BYTES = 8 * 1024 * 1024;
     /** 单次导出上限，与 iOS 个人词库导出一致，避免分页结果在 Java 堆中无限累积。 */
     public static final int MAX_EXPORT_BYTES = 8 * 1024 * 1024;
     /** 新词的默认权重，与导入时省略权重的默认值一致。 */
@@ -174,7 +176,9 @@ public final class DictionaryCollectionsStore {
      */
     public static Result<View> importFile(Context context, String format, String name, byte[] bytes) {
         if (bytes == null || bytes.length == 0) return Result.failed(failureMessage("import_empty"));
-        if (bytes.length > MAX_IMPORT_BYTES) return Result.failed(failureMessage("collections_too_large"));
+        if (bytes.length > (binaryFormat(format) ? MAX_SCEL_IMPORT_BYTES : MAX_IMPORT_BYTES)) {
+            return Result.failed(failureMessage("collections_too_large"));
+        }
         try {
             JSONObject request = action("import").put("name", name).put("kind", "pinyin").put("format", format);
             if (binaryFormat(format)) {
@@ -420,6 +424,7 @@ public final class DictionaryCollectionsStore {
             case "collections_too_large": return "文件太大，词库存不下。";
             case "import_control_characters": return "文件里有无法识别的字符，请确认是文本格式。";
             case "import_no_usable_rows": return "没有读到可用的词条，请检查文件格式。";
+            case "import_malformed": return "文件不完整或已损坏，请重新下载。";
             case "collections_corrupt": return "词库文件已损坏，为避免丢失没有改动它。";
             case "personal_dictionary_busy": return "键盘正在整理词库，请稍后再试。";
             case "unavailable": return "词库还没准备好，请先完成首次设置。";

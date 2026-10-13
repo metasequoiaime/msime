@@ -61,6 +61,10 @@ import org.json.JSONObject;
  * <p>「使用此皮肤」把设计（背景图压成 JPEG 放进 `photo`，并带上所选的按键音效与动画，P23）存进自定义皮肤库、选中它、在统计里记一次 `record_skin`，提示「已使用「名」」后回到皮肤页。
  */
 public final class AiSkinPage extends ColumnDetailPage {
+    @Override protected java.util.List<String> sectionTitles() {
+        return java.util.List.of("设计", "音效", "动画");
+    }
+
     private static final String STORE = "msime_ai_skin";
     private static final String UNAVAILABLE_UNTIL = "unavailable_until";
     private static final long HIDE_MILLIS = 24L * 60 * 60 * 1000;
@@ -284,7 +288,7 @@ public final class AiSkinPage extends ColumnDetailPage {
         Context context = requireContext();
         State s = state();
 
-        GroupCard previewGroup = GroupCard.add(target, null);
+        GroupCard previewGroup = GroupCard.add(sectionColumn(target, "设计"), null);
         LinearLayout card = previewGroup.card();
         ViewPolicy.setPaddingDp(context, card, 14, 14, 14, 12);
         LinearLayout header = LayoutPolicy.row(context);
@@ -336,7 +340,7 @@ public final class AiSkinPage extends ColumnDetailPage {
         card.addView(colours, coloursParams);
 
         if (s.results.size() > 1) {
-            GroupCard choices = GroupCard.add(target, "方案");
+            GroupCard choices = GroupCard.add(sectionColumn(target, "设计"), "方案");
             ViewPolicy.clearBackground(choices.card());
             SegmentedControl picker = new SegmentedControl(context);
             picker.setFillWidth(true);
@@ -350,7 +354,7 @@ public final class AiSkinPage extends ColumnDetailPage {
             choices.card().addView(picker, LayoutPolicy.matchWidthWrapParams());
         }
 
-        GroupCard describe = GroupCard.add(target, "描述");
+        GroupCard describe = GroupCard.add(sectionColumn(target, "设计"), "描述");
         EditText input = ViewPolicy.styledInput(context, Ui.TEXT_ROW_TITLE, 400, ThemeColorPolicy.text(context));
         input.setText(s.prompt);
         input.setHint("写下你想要的样子，例如「雨后竹林」");
@@ -387,7 +391,7 @@ public final class AiSkinPage extends ColumnDetailPage {
         describe.card().addView(chipScroll, LayoutPolicy.matchWidthWrapParams());
         styleChips(context, chipViews);
 
-        GroupCard soundGroup = GroupCard.add(target, "按键音效");
+        GroupCard soundGroup = GroupCard.add(sectionColumn(target, "音效"), "按键音效");
         ViewPolicy.clearBackground(soundGroup.card());
         SegmentedControl sounds = new SegmentedControl(context);
         sounds.setFillWidth(true);
@@ -398,7 +402,7 @@ public final class AiSkinPage extends ColumnDetailPage {
         });
         soundGroup.card().addView(sounds, LayoutPolicy.matchWidthWrapParams());
 
-        GroupCard animationGroup = GroupCard.add(target, "按键动画");
+        GroupCard animationGroup = GroupCard.add(sectionColumn(target, "动画"), "按键动画");
         ViewPolicy.clearBackground(animationGroup.card());
         SegmentedControl animations = new SegmentedControl(context);
         animations.setFillWidth(true);
@@ -414,7 +418,7 @@ public final class AiSkinPage extends ColumnDetailPage {
         } else if (s.results.isEmpty()) {
             TextView generate = KeyboardSheets.bigButton(context, "✦ 生成皮肤", true, () -> generate(input));
             actions.addView(generate, LayoutPolicy.weightedWrapParams(1f));
-            target.addView(actions, actionsParams);
+            sectionColumn(target, "设计").addView(actions, actionsParams);
             bindEnabled(input, generate);
         } else {
             TextView again = KeyboardSheets.bigButton(context, "✦ 重新生成", false, () -> generate(input));
@@ -423,7 +427,7 @@ public final class AiSkinPage extends ColumnDetailPage {
             LinearLayout.LayoutParams useParams = LayoutPolicy.weightedWrapParams(1f);
             useParams.setMarginStart(DimensionPolicy.pixels(context, 12));
             actions.addView(use, useParams);
-            target.addView(actions, actionsParams);
+            sectionColumn(target, "设计").addView(actions, actionsParams);
             bindEnabled(input, again);
             ViewPolicy.setEnabledWithAlpha(use, !s.busy && !saving, 0.38f);
         }

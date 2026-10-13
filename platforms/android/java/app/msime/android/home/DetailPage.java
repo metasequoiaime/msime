@@ -10,7 +10,12 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
+import android.widget.FrameLayout;
 import android.widget.TextView;
+import java.util.LinkedHashMap;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.widget.NestedScrollView;
@@ -39,9 +44,96 @@ public abstract class DetailPage extends HomeTabFragment {
     @Nullable private View bar;
     @Nullable private ValueAnimator barFade;
     private boolean collapsed;
+    private boolean fixedNavigation;
+    private String section = "";
+    private final Map<String, LinearLayout> sections = new LinkedHashMap<>();
+    @Nullable private SegmentedControl sectionTabs;
+    private List<String> visibleSections = List.of();
+    private String shownSection = "";
+
+    /** 页面显式声明分类顺序；空列表表示没有分类导航。 */
+    protected List<String> sectionTitles() { return List.of(); }
+
+    /** 分类内容列独立控制可见性，组内原有的禁用、隐藏与异步状态不受切换影响。 */
+    protected final LinearLayout sectionColumn(LinearLayout parent, String title) {
+        if (!sectionTitles().contains(title)) throw new IllegalArgumentException("Unknown detail section: " + title);
+        LinearLayout column = sections.get(title);
+        if (column == null || column.getParent() != parent) {
+            column = app.msime.android.LayoutPolicy.column(parent.getContext());
+            sections.put(title, column);
+            ViewPolicy.setVisible(column, title.equals(section));
+            parent.addView(column, app.msime.android.LayoutPolicy.matchWidthWrapParams());
+        }
+        return column;
+    }
+
+    @Override public void onCreate(@Nullable Bundle state) {
+        super.onCreate(state);
+        if (state != null) section = state.getString("detail-section", "");
+        if (!sectionTitles().contains(section) && !sectionTitles().isEmpty()) section = sectionTitles().get(0);
+    }
+
+    @Override public void onSaveInstanceState(@NonNull Bundle state) {
+        super.onSaveInstanceState(state);
+        state.putString("detail-section", section);
+    }
+
+    /** 重绘后只列实际存在的分类，版本裁剪、登录状态和服务选择不会留下空 Tab。 */
+    private void updateSections(LinearLayout parent) {
+        if (sectionTabs == null) return;
+        List<String> labels = new ArrayList<>();
+        for (String title : sectionTitles()) {
+            LinearLayout column = sections.get(title);
+            if (column != null && column.getParent() == parent && column.getChildCount() > 0) labels.add(title);
+        }
+        if (!labels.isEmpty() && !labels.contains(section)) section = labels.get(0);
+        if (labels.equals(visibleSections) && section.equals(shownSection)) {
+            for (Map.Entry<String, LinearLayout> entry : sections.entrySet())
+                ViewPolicy.setVisible(entry.getValue(), entry.getKey().equals(section));
+            return;
+        }
+        shownSection = section;
+        if (!labels.equals(visibleSections)) {
+            visibleSections = List.copyOf(labels);
+            sectionTabs.setFillWidth(true);
+            sectionTabs.setOptions(labels, labels.indexOf(section));
+        } else sectionTabs.setSelection(labels.indexOf(section));
+        for (Map.Entry<String, LinearLayout> entry : sections.entrySet()) {
+            ViewPolicy.setVisible(entry.getValue(), entry.getKey().equals(section));
+        }
+    }
 
     /** 往内容列里加这一页的设置。视图每次重建都会再调一次，所以这里不要保留跨视图的状态。 */
     protected abstract void buildContent(LinearLayout column, Bundle args);
+
+    /** 需要常驻分类导航的详情页在标题下提供一个控件，其余页面沿用滚动标题。 */
+    @Nullable protected View fixedNavigation() {
+        if (sectionTitles().isEmpty()) return null;
+        FrameLayout navigation = new FrameLayout(requireContext());
+        navigation.setMinimumHeight(DimensionPolicy.pixels(requireContext(), 48));
+        ViewPolicy.setSymmetricPaddingDp(requireContext(), navigation, Ui.PAGE_PADDING, 4);
+        ViewPolicy.setBackgroundColor(navigation, ThemeColorPolicy.page(requireContext()));
+        sectionTabs = new SegmentedControl(requireContext());
+        sectionTabs.setMinimumHeight(DimensionPolicy.pixels(requireContext(), 40));
+        ViewPolicy.setBackground(sectionTabs, app.msime.android.DrawablePolicy.pill(ThemeColorPolicy.card(requireContext())));
+        sectionTabs.setOptions(sectionTitles(), sectionTitles().indexOf(section));
+        sectionTabs.setOnSelect(index -> {
+            if (index >= visibleSections.size()) return;
+            section = visibleSections.get(index);
+            View focus = requireView().findFocus();
+            if (focus != null) {
+                focus.clearFocus();
+                androidx.core.view.WindowInsetsControllerCompat controller =
+                    androidx.core.view.ViewCompat.getWindowInsetsController(focus);
+                if (controller != null) controller.hide(androidx.core.view.WindowInsetsCompat.Type.ime());
+            }
+            updateSections(requireView().findViewById(R.id.ms_detail_column));
+            scrollView().scrollTo(0, 0);
+        });
+        navigation.addView(sectionTabs, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, DimensionPolicy.pixels(requireContext(), 40)));
+        return navigation;
+    }
 
     /** 页面标题；默认取 {@link PageId} 里登记的标题，需要按参数决定标题的页面（例如词库详情）覆盖它。 */
     protected CharSequence title() {
@@ -73,6 +165,22 @@ public abstract class DetailPage extends HomeTabFragment {
             () -> requireActivity().getOnBackPressedDispatcher().onBackPressed());
 
         NestedScrollView scroll = view.findViewById(R.id.ms_detail_scroll);
+        View navigation = fixedNavigation();
+        fixedNavigation = navigation != null;
+        if (navigation != null) {
+            ViewPolicy.hide(view.findViewById(R.id.ms_detail_header));
+            FrameLayout.LayoutParams navParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            navParams.topMargin = DimensionPolicy.pixels(requireContext(), Ui.TOP_BAR_HEIGHT);
+            ((FrameLayout) view).addView(navigation, navParams);
+            navigation.addOnLayoutChangeListener((target, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+                int margin = navParams.topMargin + target.getHeight();
+                FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) scroll.getLayoutParams();
+                if (params.topMargin == margin) return;
+                params.topMargin = margin;
+                scroll.setLayoutParams(params);
+            });
+        }
         int threshold = DimensionPolicy.pixels(requireContext(), Ui.COLLAPSE_THRESHOLD);
         scroll.setOnScrollChangeListener((NestedScrollView.OnScrollChangeListener)
             (ignored, x, y, oldX, oldY) -> setCollapsed(y > threshold, true));
@@ -81,12 +189,19 @@ public abstract class DetailPage extends HomeTabFragment {
         PageInsetsPolicy.bind(scroll);
 
         Bundle args = getArguments();
-        buildContent(view.findViewById(R.id.ms_detail_column), args == null ? new Bundle() : args);
+        LinearLayout column = view.findViewById(R.id.ms_detail_column);
+        buildContent(column, args == null ? new Bundle() : args);
+        updateSections(column);
+        if (sectionTabs != null) column.getViewTreeObserver().addOnGlobalLayoutListener(() -> updateSections(column));
         // 重建后 NestedScrollView 自己恢复滚动位置，顶栏随之直接落在对应的状态，不再播放过渡。
         scroll.post(() -> setCollapsed(scroll.getScrollY() > threshold, false));
     }
 
     @Override public void onDestroyView() {
+        sections.clear();
+        sectionTabs = null;
+        visibleSections = List.of();
+        shownSection = "";
         if (barFade != null) barFade.cancel();
         barFade = null;
         largeTitle = null;
@@ -113,6 +228,7 @@ public abstract class DetailPage extends HomeTabFragment {
 
     private void setCollapsed(boolean value, boolean animate) {
         if (bar == null || barTitle == null || largeTitle == null) return;
+        if (fixedNavigation) { value = true; animate = false; }
         if (value == collapsed && animate) return;
         collapsed = value;
         float target = value ? 1f : 0f;

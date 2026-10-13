@@ -5,10 +5,10 @@ import android.graphics.Rect;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.util.function.Predicate;
 
-/** Device-only acceptance for the full-surface Apple-style tools panel. */
+/** 真机验收功能菜单的排列、状态、子页和返回键盘。 */
 public final class MoreToolsDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "toolbar row, three-page four-column function panel, local-input subpanel and keyboard return";
+        return "toolbar row, two-page four-column function panel, local-input subpanel and keyboard return";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -30,7 +30,8 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         AccessibilityNodeInfo panel = await(toolPanel());
         await(described("返回键盘"));
         stage = "function panel first page";
-        String[] firstPage = {"全角", "中文标点", "模糊音", "繁体输出", "手写", "词库", "键盘高度", "设置"};
+        String[] firstPage = {"全角", "中文标点", "模糊音", "繁体输出", "手写", "本地输入", "AI 回复与润色", "设置",
+            "单手模式", "浮动键盘", "无痕输入", "键盘高度"};
         // 面板打开时磁贴有一段展开动画（同一磁贴先后量到过 73、109 像素宽），等它停下再量。
         awaitStableBounds(tool(firstPage[0]));
         panel = await(toolPanel());
@@ -53,6 +54,7 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         }
         assertSameRow(tiles[0], tiles[3], "first row");
         assertSameRow(tiles[4], tiles[7], "second row");
+        assertSameRow(tiles[8], tiles[11], "third row");
         for (String toggle : new String[] {"全角", "中文标点", "模糊音", "繁体输出"})
             if (!validSettingState(await(tool(toggle))))
                 throw new AssertionError("Toggle state was not exposed: " + toggle);
@@ -61,7 +63,7 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         AccessibilityNodeInfo haptics = await(tool("按键振动"));
         if (!validFeedbackState(sound) || !validFeedbackState(haptics))
             throw new AssertionError("Feedback state was not exposed");
-        for (String title : new String[] {"单手模式", "隐私模式", "反馈", "关于", "AI 回复与润色", "本地输入"})
+        for (String title : new String[] {"反馈", "关于", "词库", "文本编辑"})
             await(tool(title));
         String originalSound = switchState(sound).toString();
         String changedSound = "已开启".equals(originalSound) ? "已关闭" : "已开启";
@@ -70,15 +72,34 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         await(toolWithState("按键音", changedSound));
         tap(tool("按键音"));
         await(toolWithState("按键音", originalSound));
-        stage = "function panel third page";
+        stage = "function panel strength";
         AccessibilityNodeInfo strength = showTool("振动强度");
         if (!validStrengthCard(strength)) throw new AssertionError("Strength tile lost its level");
-        for (String title : new String[] {"语音结果", "表情", "剪贴板历史"})
-            awaitAny(tool(title));
         stage = "more tools local input subpanel";
+        showTool("本地输入");
         tap(tool("本地输入"));
         await(tool("返回工具"));
-        await(tool("Unicode 码点"));
+        AccessibilityNodeInfo unicode = await(tool("Unicode 码点"));
+        AccessibilityNodeInfo date = await(tool("日期时间"));
+        AccessibilityNodeInfo initials = await(tool("超级简拼"));
+        assertSameRow(unicode, initials, "local input first row");
+        Rect unicodeBounds = new Rect();
+        Rect dateBounds = new Rect();
+        unicode.getBoundsInScreen(unicodeBounds);
+        date.getBoundsInScreen(dateBounds);
+        if (unicodeBounds.left >= dateBounds.left || unicodeBounds.right > dateBounds.left)
+            throw new AssertionError("Local input entries overlap");
+        Rect backBounds = new Rect();
+        await(tool("返回工具")).getBoundsInScreen(backBounds);
+        if (backBounds.width() >= unicodeBounds.width())
+            throw new AssertionError("Subpage back action still occupies a full row");
+        tap(tool("返回工具"));
+        stage = "AI chooser entries and compact back";
+        showTool("AI 回复与润色");
+        tap(tool("AI 回复与润色"));
+        AccessibilityNodeInfo reply = await(tool("生成高情商回复"));
+        AccessibilityNodeInfo polish = await(tool("打开 AI 润色"));
+        assertSameRow(reply, polish, "AI actions");
         tap(tool("返回工具"));
         showTool("全角");
         stage = "more tools return";

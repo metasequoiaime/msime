@@ -25,6 +25,18 @@ checks = {
     and '"action":{"operation":"flush"}' in SESSION,
     "the page uses the asynchronous request channel": 'bridgeRequest(native, "dictionary_collections"' in PAGE,
     "the page client is attached": "    dictionaryCollections,\n" in PAGE,
+    # 细胞词库的字节由页面放进 `import` 动作的 `bytes_base64`；会话只检查操作名，把整个动作原样交给原生层，所以不能在这里改成逐字段拷贝。
+    "the page sends cell dictionary bytes": 'importBytes: (name, format, bytes_base64) =>' in PAGE
+    and 'format, bytes_base64 })' in PAGE,
+    "the session forwards the whole action": "const request: DictionaryRequest = { options: prepared.value, action: action };" in SESSION
+    and "action = decoded;" in SESSION,
+    # 2in1 的桌面表单先把细胞词库转成文本：页面经 startRequest 的 dictionary_scel_text 请求，设置页交给工作线程上的 NAPI。
+    "the conversion runs on a worker": "queueRequest(env, info, msime_client_dictionary_scel_text" in NATIVE
+    and 'ENTRY("dictionaryScelTextAsync", DictionaryScelTextAsync)' in NATIVE,
+    "the conversion is typed as a Promise": "dictionaryScelTextAsync: (request: string) => Promise<string>;" in TYPES,
+    "settings delivers conversion replies": "kind === 'dictionary_scel_text'" in SETTINGS
+    and "client.dictionaryScelTextAsync(payload).then(deliver)" in SETTINGS,
+    "the page asks for the conversion": 'bridgeRequest(\n          native,\n          "dictionary_scel_text",' in PAGE,
 }
 problems = [name for name, ok in checks.items() if not ok]
 if problems:

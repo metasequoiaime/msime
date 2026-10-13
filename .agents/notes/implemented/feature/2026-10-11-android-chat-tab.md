@@ -16,7 +16,7 @@ Android 原生宿主已经有 AI 对话，就是设置首页状态卡上「试�
 
 - 没有「‹ 设置」返回键，标题是「对话」；返回键照 `HomeActivity` 的规则回到设置 tab，键盘升起时系统先收键盘。
 - 点底部那一格进来不弹键盘；切到别的 tab 时把键盘收起来，不让它盖在另一个 tab 上。
-- 底部让开 tab 栏加系统导航栏，键盘升起时改让键盘（`WindowInsetsPolicy.bottomContentInset`，与 `PageInsetsPolicy` 同一个公式）；顶部和左右由 `HomeActivity` 给内容区垫好。
+- 底部让开 tab 栏加系统导航栏；键盘升起时仍保留导航可见并同时避让导航和键盘，见[键盘弹出时保留 Tab](../bug-fix/2026-10-13-android-chat-keyboard-keep-tabs.md)；顶部和左右由 `HomeActivity` 给内容区垫好。
 - 账号变了不能 `finish()`：每次回到眼前（`onBecameVisible`）和每个回调到达时核对会话，变了就停掉请求、清空对话、改绑现在的会话。聊天请求带着发起时的会话，旧账号那一次迟到的回复不会落到新账号的对话里。对话页不加载模型目录，模型由服务端决定，见 [Android 对话页不选模型](2026-10-11-android-chat-server-picks-model.md)。
 
 **「试用键盘」按钮切到对话 tab 并弹出键盘。** 试用键盘本来就是在这个输入框里打字，对话 tab 接手以后不再另开一页，设置首页状态卡上的「试用键盘」改为 `HomeActivity.openChat()`：切到对话 tab，再经 `ChatFragment.focusInput()` 把焦点交给输入框、弹出键盘。按钮本身留着，它是状态卡上「启用 → 设为默认 → 打字试试」的最后一步；iOS 的同一处也是这样改的。Android 的「AI 润色与回复」页没有「AI 对话」行，设置搜索的索引（`PageId` 关键词）里也没有指向对话页的条目，这两处没有要改的入口。

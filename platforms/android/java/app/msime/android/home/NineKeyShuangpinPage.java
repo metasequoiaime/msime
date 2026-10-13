@@ -30,6 +30,10 @@ import org.json.JSONObject;
  * <p>表的内容、校验和键面都来自 host-api 的 `msime_client_nine_key_shuangpin_layout`（{@link NativeClient#nineKeyShuangpinLayout}），本页不另存键位也不自己判断表合不合法：编辑中的表每改一格就问一次，问题带着出错的单位显示在表下面，能用时才能保存。自定义表存在共享偏好 `nine_key_shuangpin_custom_profile`，形状与 26 键的 `shuangpin_custom_profile` 相同，键是数字；导入导出的文件就是这个 JSON。
  */
 public final class NineKeyShuangpinPage extends ReloadingDetailPage {
+    @Override protected java.util.List<String> sectionTitles() {
+        return java.util.List.of("方案", "键位", "自定义");
+    }
+
     /** 导入文件的上限：一张表只有六十多个单位，几 KB；与 JNI 请求的上限一致。 */
     private static final int MAX_IMPORT_BYTES = 16 * 1024;
     private static final List<String> PARTS = List.of("initials", "finals", "zero_initials");
@@ -90,7 +94,7 @@ public final class NineKeyShuangpinPage extends ReloadingDetailPage {
 
         AppEdition edition = AppEdition.current();
         boolean applied = SchemePreferences.storedScheme(preferences, edition) == KeyboardScheme.NINE_KEY_SHUANGPIN;
-        GroupCard choice = GroupCard.add(target, "方案");
+        GroupCard choice = GroupCard.add(sectionColumn(target, "方案"), "方案");
         if (!applied && KeyboardScheme.NINE_KEY_SHUANGPIN.offeredBy(edition)) {
             choice.button("使用九键双拼键盘", "键盘切换到九键双拼，按下面选的表打字", "切换", this::useKeyboard);
         }
@@ -103,14 +107,14 @@ public final class NineKeyShuangpinPage extends ReloadingDetailPage {
             savedUsable ? () -> chooseProfile(NineKeyShuangpinKeypad.CUSTOM_PROFILE) : null);
 
         JSONObject current = layout(profile, savedTable);
-        GroupCard keys = GroupCard.add(target, "键位（" + NineKeyShuangpinKeypad.profileTitle(
+        GroupCard keys = GroupCard.add(sectionColumn(target, "键位"), "键位（" + NineKeyShuangpinKeypad.profileTitle(
             current == null ? profile : current.optString("effective", profile)) + "）");
         renderKeys(keys, current);
         if (current != null && !current.isNull("problem")) {
             keys.footer("保存着的自定义表不能用，键盘按米旮旯 3 打字：" + problemText(current.optJSONObject("problem")));
         }
 
-        GroupCard editor = GroupCard.add(target, "自定义表");
+        GroupCard editor = GroupCard.add(sectionColumn(target, "自定义"), "自定义表");
         editor.note("每个音节两位数字：先按声母所在的键，再按韵母所在的键；零声母音节直接给两位数字。一个编码可以对应好几个音节，数字 0 到 9 都可以用。");
         editor.button("从内置方案开始", "用一张内置的表替换正在编辑的表", "选择", this::startFromBuiltin);
         editor.button("导入", "从 JSON 文件读入一张表", "导入", () -> openDocument.launch(
@@ -124,7 +128,7 @@ public final class NineKeyShuangpinPage extends ReloadingDetailPage {
         GroupCard.Row save = editor.button("保存并使用", saveSubtitle, "保存", this::saveDraft);
         save.setEnabled(problem == null);
         for (String part : PARTS) {
-            GroupCard units = GroupCard.add(target, NineKeyShuangpinKeypad.partTitle(part));
+            GroupCard units = GroupCard.add(sectionColumn(target, "自定义"), NineKeyShuangpinKeypad.partTitle(part));
             JSONObject entries = draft.optJSONObject(part);
             if (entries == null) continue;
             for (Iterator<String> names = sortedKeys(entries); names.hasNext(); ) {

@@ -3,8 +3,13 @@
 
 import importlib.machinery
 import importlib.util
+import os
 import pathlib
 import tempfile
+
+if os.name != "posix":
+    print("skipped: Linux 安装器检查需要 POSIX 的 fcntl 模块")
+    raise SystemExit(0)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "platforms/linux/scripts/msime-linux-setup"

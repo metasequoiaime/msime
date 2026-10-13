@@ -17,7 +17,7 @@ struct PrivacySettingsView: View {
         DesignGroup(title: "联网功能", radius: MetasequoiaTheme.tabCardRadius) {
           DesignToggleRow(
             title: "发送匿名使用统计",
-            subtitle: "开启时，键盘每次显示结束后记一次使用，每天记一次活跃，崩溃后附上崩溃位置（程序模块名与偏移，不含文件路径），连同版本号、平台和一个本机随机生成的安装编号发送给水杉。安装编号与设备、账号无关，不发送输入内容、联系人或任何个人信息。关闭后不再记录或发送，未发送的记录立即删除。",
+            subtitle: "仅发送匿名使用记录和崩溃摘要，不含输入内容、联系人或账号；关闭后立即清空待发记录。",
             isOn: Binding(get: { usageReporting }, set: { enabled in
               if UsageReporting.setEnabled(enabled) { usageReporting = enabled } else { usageReportingFailed = true }
             }))

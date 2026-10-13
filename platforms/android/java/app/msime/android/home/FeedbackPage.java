@@ -56,6 +56,10 @@ import org.json.JSONObject;
  * <p>没有登录也能提交：请求用设备的匿名账号。另外保留 QQ 群、Telegram 群组和 GitHub Issues 三个渠道，QQ 群号与 Telegram 链接和其他平台一字不差（`scripts/test-support-channels.py` 守着）。
  */
 public final class FeedbackPage extends DetailPage {
+    @Override protected java.util.List<String> sectionTitles() {
+        return java.util.List.of("反馈", "选项", "其他渠道");
+    }
+
     private static final String QQ_GROUP = "829919142";
     private static final String TELEGRAM_URL = "https://t.me/msimegroup";
     private static final String ISSUES = "https://github.com/metasequoiaime/msime/issues/new";
@@ -81,13 +85,13 @@ public final class FeedbackPage extends DetailPage {
     @Override protected void buildContent(LinearLayout column, Bundle args) {
         Context context = requireContext();
 
-        GroupCard kind = GroupCard.add(column, "类型");
+        GroupCard kind = GroupCard.add(sectionColumn(column, "选项"), "类型");
         GroupCard.Row[] typeRow = new GroupCard.Row[1];
         typeRow[0] = kind.nav("反馈类型", null, type.title(), () -> chooseType(typeRow[0]));
         kind.toggle("附带诊断信息", "包含机型、系统版本、当前方案与键盘设置，不含输入内容", diagnostics,
             checked -> diagnostics = checked);
 
-        GroupCard description = GroupCard.add(column, "描述");
+        GroupCard description = GroupCard.add(sectionColumn(column, "反馈"), "描述");
         LinearLayout card = description.card();
         EditText input = ViewPolicy.styledInput(context, Ui.TEXT_ROW_TITLE, 400, ThemeColorPolicy.text(context));
         input.setHint("遇到了什么问题？可以写复现步骤、出错的词或期望的结果");
@@ -142,7 +146,7 @@ public final class FeedbackPage extends DetailPage {
         ViewPolicy.setPoliteLiveRegion(button);
         LinearLayout.LayoutParams buttonParams = LayoutPolicy.matchWidthWrapParams();
         buttonParams.topMargin = DimensionPolicy.pixels(requireContext(), Ui.GROUP_GAP);
-        column.addView(button, buttonParams);
+        sectionColumn(column, "反馈").addView(button, buttonParams);
         submit = button;
 
         ViewPolicy.afterTextChanged(input, text -> {
@@ -151,7 +155,7 @@ public final class FeedbackPage extends DetailPage {
             refresh();
         });
 
-        GroupCard channels = GroupCard.add(column, "其他渠道").withDividers(Ui.ROW_PADDING_H);
+        GroupCard channels = GroupCard.add(sectionColumn(column, "其他渠道"), "其他渠道").withDividers(Ui.ROW_PADDING_H);
         channels.button("QQ 群", QQ_GROUP, "复制群号", () -> copy("QQ 群号", QQ_GROUP, "已复制群号"));
         channels.button("Telegram 群组", "t.me/msimegroup", "打开", this::openTelegram);
         channels.button("GitHub Issues", "公开的问题单，适合附上复现步骤", "打开",

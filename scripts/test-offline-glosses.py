@@ -9,6 +9,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from contextlib import closing
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,7 +34,7 @@ def build(out: Path, *extra: str, source: Path = FIXTURE) -> subprocess.Complete
 
 
 def glosses(path: Path) -> dict[str, str]:
-    with sqlite3.connect(path) as database:
+    with closing(sqlite3.connect(path)) as database, database:
         return dict(database.execute("SELECT chinese, gloss FROM zh_glosses"))
 
 
@@ -46,13 +47,13 @@ def main() -> int:
         scratch = Path(scratch)
         # The vocabulary stands in for msime-pinyin.db (tbl_* tables with a value column) and holds 辞林 so that its absence proves the Hokkien row was skipped rather than filtered by vocabulary.
         vocabulary = scratch / "msime-pinyin.db"
-        with sqlite3.connect(vocabulary) as database:
+        with closing(sqlite3.connect(vocabulary)) as database, database:
             database.execute("CREATE TABLE tbl_2_a(key TEXT, jp TEXT, value TEXT, weight INTEGER)")
             database.execute("CREATE TABLE tbl_others_a(key TEXT, jp TEXT, value TEXT, weight INTEGER)")
             words = ["天", "天空", "猫", "猫儿", "词典", "辞典", "辞林", "字典", "自由", "自由的", "预订", "产品", "制品", "积", "橙", "橙子", "空闲", "余暇", "日", "呕吐", "回", "脑回"]
             database.executemany("INSERT INTO tbl_2_a VALUES ('', '', ?, 1)", [(word,) for word in words])
         frequency = scratch / "msime-english.db"
-        with sqlite3.connect(frequency) as database:
+        with closing(sqlite3.connect(frequency)) as database, database:
             database.execute("CREATE TABLE english_words(word TEXT, display TEXT, weight INTEGER)")
             database.executemany("INSERT INTO english_words VALUES (?, ?, ?)", [("day", "day", 446236148), ("sky", "sky", 27281333), ("Day", "Day", 5), ("cat", "cat", 60133542), ("vomit", "vomit", 1296870), ("orange", "orange", 37316112)])
 
@@ -65,7 +66,7 @@ def main() -> int:
         for language in LANGUAGES:
             path = out / f"zh-{language}.db"
             check(path.is_file(), f"zh-{language}.db was not written")
-            with sqlite3.connect(path) as database:
+            with closing(sqlite3.connect(path)) as database, database:
                 check(database.execute("PRAGMA user_version").fetchone()[0] == 1, f"{language}: user_version is not 1")
                 check(database.execute("PRAGMA page_size").fetchone()[0] == 4096, f"{language}: page size is not fixed")
                 meta = dict(database.execute("SELECT key, value FROM meta"))
@@ -95,7 +96,7 @@ def main() -> int:
         check("余暇" not in fr, "a literary form was kept")
         check(fr.get("自由的") == "libre" and fr.get("自由") == "libre", "的 must also key the bare word when the vocabulary has it")
         check("辞典" in fr and "字典" not in fr, "only the first two Mandarin forms of a table are keys")
-        with sqlite3.connect(out / "zh-fr.db") as database:
+        with closing(sqlite3.connect(out / "zh-fr.db")) as database, database:
             check(all("chat" not in source.split("; ") for (source,) in database.execute("SELECT source FROM zh_glosses")), "a non-English entry of the raw dump was read")
             check(database.execute("SELECT source FROM zh_glosses WHERE chinese = '天'").fetchone()[0] == "day; sky", "sources must follow the senses")
 

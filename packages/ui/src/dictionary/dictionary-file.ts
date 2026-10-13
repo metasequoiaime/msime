@@ -34,7 +34,7 @@ export function decodeDictionaryBytes(bytes: Uint8Array): string {
   }
 }
 
-/** The largest dictionary file the settings page reads for the desktop bridge, which sends a larger import to the host as several requests, so this, not the host's 64 KiB per request, is the bound a user meets. The bridge's own bound on the decoded text, `MAX_IMPORT_TEXT_BYTES` in `apps/desktop/src-tauri/src/dictionary_import.rs`, is 1.5 times this, so a file accepted here is never refused there for its size. The Windows settings page reads a file whole without a bound; this one keeps a bound because the whole file is held in the page and then in the bridge. */
+/** The largest dictionary file the settings page reads for the desktop bridge, which sends a larger import to the host as several requests, so this, not the host's 64 KiB per request, is the bound a user meets. The bridge's own bound on the decoded text, `MAX_IMPORT_TEXT_BYTES` in `crates/host-api/src/settings_dictionary.rs`, is 1.5 times this, so a file accepted here is never refused there for its size. The Windows settings page reads a file whole without a bound; this one keeps a bound because the whole file is held in the page and then in the bridge. */
 export const MAX_DICTIONARY_FILE_BYTES = 32 * 1024 * 1024;
 
 /** The bound for a host whose dictionary client sends a file to the input method in one request instead of batching it the way the desktop bridge does: the mobile hosts and HarmonyOS. It is the bound the page has always applied to them; their own request bound refuses what it cannot take. */
@@ -48,6 +48,70 @@ export async function readDictionaryFile(
   if (file.size > maxBytes)
     throw new Error(`文件不能超过 ${dictionaryFileSizeLabel(maxBytes)}，请拆分后分别导入。`);
   return decodeDictionaryBytes(new Uint8Array(await file.arrayBuffer()));
+}
+
+/** 搜狗细胞词库（`.scel`）文件的上限，与 client-core `dictionary::scel::MAX_SCEL_BYTES` 相同。 */
+export const MAX_SCEL_FILE_BYTES = 8 * 1024 * 1024;
+
+/** 细胞词库的前 4 字节。只看这 4 字节而不是整个 12 字节的魔数：版本不对的细胞词库也该交给宿主，由它说「版本不支持」，而不是被当成文本读出一堆乱码。 */
+const SCEL_MAGIC = [0x40, 0x15, 0x00, 0x00];
+
+/** 文件开头是不是细胞词库的魔数。文本文件不会以 NUL 开头，所以改了扩展名的细胞词库也认得出来。 */
+export function isScelBytes(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= SCEL_MAGIC.length && SCEL_MAGIC.every((byte, index) => bytes[index] === byte)
+  );
+}
+
+/** 只读文件开头几个字节判断它是不是细胞词库。 */
+export async function isScelFile(file: Blob): Promise<boolean> {
+  return isScelBytes(new Uint8Array(await file.slice(0, SCEL_MAGIC.length).arrayBuffer()));
+}
+
+/** 字节转 base64。按 3 的倍数分块编码再拼接，不把几 MB 的数组一次展开成 `String.fromCharCode` 的参数（那会爆栈）。 */
+export function bytesToBase64(bytes: Uint8Array): string {
+  const chunk = 3 * 8192;
+  const parts: string[] = [];
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    const slice = bytes.subarray(offset, offset + chunk);
+    let binary = "";
+    for (let index = 0; index < slice.length; index++) binary += String.fromCharCode(slice[index]);
+    parts.push(btoa(binary));
+  }
+  return parts.join("");
+}
+
+/** 不分批的宿主一次导入里共享解析器收的文本上限（client-core `cloud::dictionary::MAX_IMPORT_BYTES`）：超过它的文本整份被拒绝，不是只读前一部分。 */
+export const UNBATCHED_IMPORT_TEXT_BYTES = 64 * 1024;
+
+/** 共享解析器一次导入最多看的行数（client-core `import::MAX_ENTRIES`）。 */
+const IMPORT_EXAMINED_ROWS = 1000;
+
+/**
+ * 细胞词库转出的文本在不分批的宿主上只送开头的整行：最多 1001 行，并且不超过 `UNBATCHED_IMPORT_TEXT_BYTES`。真实词库转出的文本大多超过 64 KiB，整份送过去会被整份拒绝。多送一行，解析器才知道后面还有；`cut` 表示有行没有送，先到字节上限时解析器不会自己报告「文件过长」，由页面补上。
+ */
+export function leadingImportRows(text: string): { text: string; cut: boolean } {
+  let end = 0;
+  let bytes = 0;
+  for (let rows = 0; rows <= IMPORT_EXAMINED_ROWS && end < text.length; rows++) {
+    const newline = text.indexOf("\n", end);
+    const next = newline === -1 ? text.length : newline + 1;
+    const length = utf8ByteLength(text.slice(end, next));
+    if (bytes + length > UNBATCHED_IMPORT_TEXT_BYTES) break;
+    bytes += length;
+    end = next;
+  }
+  return { text: text.slice(0, end), cut: end < text.length };
+}
+
+/** 读一个细胞词库，返回 base64；超过 `maxBytes` 时先拒绝，不读内容。 */
+export async function readScelFile(
+  file: Blob,
+  maxBytes: number = MAX_SCEL_FILE_BYTES,
+): Promise<string> {
+  if (file.size > maxBytes)
+    throw new Error(`细胞词库不能超过 ${dictionaryFileSizeLabel(maxBytes)}。`);
+  return bytesToBase64(new Uint8Array(await file.arrayBuffer()));
 }
 
 export type PersonalDictionaryImportEntry = {
@@ -167,6 +231,11 @@ export const DICTIONARY_PAGE_SIZE = 100;
 
 export type LocalDictionaryKind = "pinyin" | "wubi" | "wubi98" | "quick_phrase" | "english";
 export type LocalDictionaryFormat = "standard" | "windows" | "rime" | "hans";
+/** 设置页上可选的文件格式：宿主 `import` 接受的那几种，加上只在页面上存在的 `scel`。细胞词库先经 `scelText` 转成标准文本，再以 `standard` 交给宿主，所以 `scel` 永远不会到 `import` 那里。 */
+export type DictionaryPageFormat = LocalDictionaryFormat | "scel";
+
+/** `scelText` 的回答：词库名、类别、词数和转出的标准 TSV 文本。 */
+export type ScelText = { name: string; category: string; entries: number; text: string };
 export type DictionaryEntry = {
   kind: LocalDictionaryKind;
   key: string;

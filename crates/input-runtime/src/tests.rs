@@ -4,6 +4,7 @@
 
 use super::runtime::empty_result;
 use super::*;
+use serde_json::json;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -878,6 +879,7 @@ fn dangling_segment_delimiter_cleanup_matches_windows_policy() {
     assert!(!needs_dangling_segment_delimiter_backspace("ni'", 9));
 }
 
+#[cfg(unix)]
 #[test]
 fn voice_control_rejects_zero_generation_without_connecting() {
     let directory = private_tempdir();

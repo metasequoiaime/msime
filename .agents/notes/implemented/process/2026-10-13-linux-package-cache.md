@@ -18,6 +18,8 @@ Deb、RPM 与 legacy 打包按 Dockerfile、目标平台、构建参数和仓库
 
 ## Verification
 
+Windows 上仍运行 8 项不依赖 POSIX 命令入口的缓存检查，只跳过 1 项实际调用 Deb/RPM 脚本的检查；平台范围见[Windows 本地门禁保留可运行的检查](../testing/2026-10-14-windows-local-gate-portability.md)，Linux 上的 9 项检查保持不变。
+
 `python3 scripts/test-linux-package-cache.py` 的 9 项检查通过，覆盖重复调用与源码变化命中、配方/平台/工具链/父镜像失效、镜像删除和构建失败、空上下文约束、BuildKit 父标签输出，以及环境变化后仅删除编译结果。其中实际运行 Deb/RPM 入口两轮，第二轮没有调用 `docker build`，验证 Cargo home 与原有 target 挂载接线。
 
 真实 Docker 实验使用已有原生门禁镜像派生合成配方。首次构建后再次命中同一镜像；第二个 `--network none` 的临时容器成功离线构建固定 `itoa 1.0.15` 依赖，Rust 二进制与 C++ 对象时间戳不变，Ninja 报告无需编译。删除 CMakeCache.txt 后把合成包版本从 0.0.1 改为 0.0.2，并移除上一轮设置窗口路径，生成结果只含新配置。

@@ -16,6 +16,8 @@ Android、iOS 和 HarmonyOS 的 `EnglishCapitalizationPolicy` 是同一套规则
 
 ## Decision
 
+Android 默认启用自动大写的前提由 [Android 英文默认小写](2026-10-13-android-english-default-lowercase.md) 部分取代：本篇规则在用户开启「英文自动大写」时仍生效，iOS 和 HarmonyOS 不变。
+
 - 句子模式下，句末标点只有在它（连同其后的右引号、右括号）和光标之间至少隔着一个空白字符时，才算开始新句。换行、空输入框、整段只有空白仍然直接大写。
 - 半角和全角句末标点用同一条规则：`你好。 ` 大写，`你好。` 不大写。
 - 三端一起改，规则逐字一致：Android `platforms/android/java/app/msime/android/policy/EnglishCapitalizationPolicy.java`、iOS `platforms/ios/KeyboardExtension/Sources/input/EnglishCapitalizationPolicy.swift`、HarmonyOS `platforms/harmony/entry/src/main/ets/keyboard/input/EnglishCapitalizationPolicy.ts`。iOS 的 Swift `Character` 会把 `\r\n` 合成一个字符，之前被当成普通空白跳过；现在和另外两端一样算换行。

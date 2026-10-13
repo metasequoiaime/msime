@@ -32,7 +32,7 @@ public final class StrokeKeyboardLayoutSmoke {
 
         StrokeKeyboardLayout.Key horizontal = rows.get(0).get(0);
         StrokeKeyboardLayout.Key wildcard = rows.get(1).get(2);
-        check("一\n横".equals(StrokeKeyboardLayout.face(horizontal)), "a key prints its glyph over its name");
+        check("一".equals(StrokeKeyboardLayout.face(horizontal)), "键面只显示笔画符号");
         check("笔画 横".equals(StrokeKeyboardLayout.accessibilityLabel(horizontal))
             && "笔画 通配".equals(StrokeKeyboardLayout.accessibilityLabel(wildcard)), "spoken labels name the stroke");
 

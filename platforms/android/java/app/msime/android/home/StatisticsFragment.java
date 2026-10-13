@@ -210,7 +210,11 @@ public final class StatisticsFragment extends HomeTabFragment {
         content.removeAllViews();
         if (statistics == null && summary == null) {
             ViewPolicy.show(notice);
-            notice.setText("还没有记录。开始用键盘输入后，这里会出现字数、习惯和成就；统计只保存聚合计数，不保存输入内容。");
+            notice.setText("统计记录还没有开启。开启后才会从下一次输入开始累计；只保存聚合计数，不保存输入内容。");
+            GroupCard setup = GroupCard.add(content, "统计记录");
+            setup.note("统计默认关闭，所以空页面不是故障。你可以随时关闭，已有数据会保留在本机。");
+            setup.button("记录打字统计", "从下一次输入开始累计", "开启", () ->
+                HostTask.run(this, ctx -> HostStore.setStatisticsEnabled(ctx, true), this::adoptModel));
             return;
         }
         boolean off = statistics != null && !statistics.enabled();

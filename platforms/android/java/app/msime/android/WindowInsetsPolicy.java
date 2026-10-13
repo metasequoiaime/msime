@@ -8,4 +8,10 @@ public final class WindowInsetsPolicy {
     public static int bottomContentInset(int systemBottom, int tabs, int imeBottom, int base) {
         return BoundsPolicy.atLeast(systemBottom + tabs, imeBottom) + base;
     }
+
+    /** 计算输入法显示时仍需避开的底部导航和系统栏高度。 */
+    public static int bottomContentInsetAboveIme(int systemBottom, int tabs, int imeBottom,
+                                                 int base) {
+        return BoundsPolicy.atLeast(systemBottom, imeBottom) + tabs + base;
+    }
 }

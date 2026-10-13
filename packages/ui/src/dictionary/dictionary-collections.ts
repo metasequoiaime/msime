@@ -58,6 +58,12 @@ export interface DictionaryCollectionsClient {
   addWords(id: string, entries: DictionaryCollectionWord[]): Promise<DictionaryCollectionsView>;
   /** 导入成一个新词库。 */
   importFile(name: string, format: string, text: string): Promise<DictionaryCollectionsView>;
+  /** 把二进制词库文件（目前只有搜狗细胞词库 `scel`）按 base64 导入成一个新词库。宿主没有它时，「添加词库」里不列细胞词库。 */
+  importBytes?(
+    name: string,
+    format: string,
+    bytesBase64: string,
+  ): Promise<DictionaryCollectionsView>;
   /** 把社区词库装成一个词库；再装同一个词库会更新它，而不是再建一个。 */
   installCommunity(resource: CommunityResource): Promise<DictionaryCollectionsView>;
 }
@@ -106,10 +112,16 @@ export function collectionNameFromFile(fileName: string): string {
   return validCollectionName(kept) ? kept : "导入的词库";
 }
 
-/** 按文件名推断格式：`.yaml`、`.yml` 是 Rime 词典，其余用来源列表里选的格式。 */
+/** 按文件名推断格式：`.scel` 是搜狗细胞词库，`.yaml`、`.yml` 是 Rime 词典，其余用来源列表里选的格式。与 Android 的 `formatForFile` 相同。 */
 export function collectionFormatForFile(fileName: string, chosen: string): string {
   const lower = fileName.toLowerCase();
+  if (lower.endsWith(".scel")) return "scel";
   return lower.endsWith(".yaml") || lower.endsWith(".yml") ? "rime" : chosen;
+}
+
+/** 按 base64 传给宿主的二进制格式。 */
+export function binaryCollectionFormat(format: string): boolean {
+  return format === "scel";
 }
 
 export interface CollectionImportSource {
@@ -118,11 +130,18 @@ export interface CollectionImportSource {
   accept: string;
 }
 
-/** 「导入词库」的来源：只列 client-core 接受的格式。`standard` 和 `windows` 是文本文件的两种列顺序，client-core 在 `txt` 里自动识别，不单独列出。与 Android 的 `importSources` 相同。 */
+/** 「导入词库」的来源：只列 client-core 接受的格式，按「文本、搜狗、Rime、纯汉字」排。`standard` 和 `windows` 是文本文件的两种列顺序，client-core 在 `txt` 里自动识别，不单独列出。与 Android 的 `importSources` 相同。 */
 export function collectionImportSources(formats: readonly string[]): CollectionImportSource[] {
   const sources: CollectionImportSource[] = [];
   if (formats.includes("txt")) {
     sources.push({ format: "txt", title: "导入文本文件", accept: ".txt,text/plain" });
+  }
+  if (formats.includes("scel")) {
+    sources.push({
+      format: "scel",
+      title: "导入搜狗细胞词库",
+      accept: ".scel,application/octet-stream",
+    });
   }
   if (formats.includes("rime")) {
     sources.push({
@@ -175,6 +194,8 @@ export function collectionFailureMessage(error: unknown): string {
       return "文件里有无法识别的字符，请确认是文本格式。";
     case "import_no_usable_rows":
       return "没有读到可用的词条，请检查文件格式。";
+    case "import_malformed":
+      return "文件不完整或已损坏，请重新下载。";
     case "collections_corrupt":
       return "词库文件已损坏，为避免丢失没有改动它。";
     case "personal_dictionary_busy":
