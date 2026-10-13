@@ -6425,7 +6425,11 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (MSIMEStrictBoolean(transition[@"handled"])) return YES;
     // Match Apple: Engine gets first refusal, then finish any composition before fallback.
     if ([_view[@"editing_text"] length]) {
-        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        // 拼音未结束时按标点要保留原始字母（例如 `Observable<`），不能在应用收到标点前提交首候选。
+        const BOOL rawPunctuation = event.characters.length == 1 &&
+            MSIMEASCIIPunctuation([event.characters characterAtIndex:0]) &&
+            MSIMESchemeTrait(_view, msime::mac::scheme::EditsSentence);
+        NSDictionary *finished = [_session command:rawPunctuation ? MSIME_COMMIT_RAW : MSIME_FINISH_COMPOSITION error:nil];
         if (!finished) return NO;
         [self apply:finished];
     }

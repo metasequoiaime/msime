@@ -1811,6 +1811,32 @@ static void TestDedicatedEnglish(MSIMEAppearancePreferences *appearance) {
     assert(session.dedicatedEnglish == dedicated);
 }
 
+static void TestPunctuationAfterCompositionKeepsRawInput(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    NSDictionary *composing = @{
+        @"focused": @YES, @"scheme": @0, @"editing_text": @"Observable",
+        @"candidates": @[@{@"text": @"白色", @"highlighted": @YES}],
+    };
+    NSDictionary *idle = @{@"focused": @YES, @"scheme": @0, @"editing_text": @"", @"candidates": @[]};
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:composing forKey:@"view"];
+    appearance.englishMode = NO;
+    session.nextTransition = @{@"handled": @NO, @"view": composing};
+    session.rawTransition = @{@"handled": @YES, @"commit": @"Observable", @"view": idle};
+    NSEvent *less = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
+        modifierFlags:NSEventModifierFlagShift timestamp:0 windowNumber:0 context:nil
+        characters:@"<" charactersIgnoringModifiers:@"<" isARepeat:NO keyCode:33];
+
+    // 标点由应用接收，组字则用原文提交，不能选择高亮的「白色」。
+    assert(![controller handleEvent:less client:client]);
+    assert(session.rawCommitCalls == 1 && session.lastCommand == MSIME_COMMIT_RAW);
+    assert([client.committed isEqual:@"Observable"]);
+}
+
 static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
     assert(!appearance.fullWidthInput);
     NSButton *control = (id)PreferenceControl(appearance, @selector(fullWidthChanged:));
@@ -11282,6 +11308,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestInputModeStatusItem(); }
         @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
         @autoreleasepool { TestCapsLockTap(); }
+        @autoreleasepool { TestPunctuationAfterCompositionKeepsRawInput(appearance); }
         @autoreleasepool { TestStaleClientDeactivation(); }
         @autoreleasepool { TestStaleDeactivationLeavesTheCurrentPairOpen(); }
         @autoreleasepool { TestSoundsFollowKeysCommitsAndActivation(); }
