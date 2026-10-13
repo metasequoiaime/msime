@@ -13,6 +13,7 @@ TARGETS = [
         "PunctuationSettingsView.swift", "CustomThemeCandidateSection.swift", "TypingStatisticsView.swift",
     )
 ] + [ROOT / "platforms/ios/App/Sources/keyboard/KeyboardToolbarSettingsView.swift"]
+APP_ICON = ROOT / "platforms/ios/App/Sources/settings/AppIconSettingsView.swift"
 
 
 class SettingsSceneReloadContract(unittest.TestCase):
@@ -27,6 +28,11 @@ class SettingsSceneReloadContract(unittest.TestCase):
         self.assertIn(".onAppear(perform: reload)", source)
         self.assertIn(".onChange(of: scenePhase)", source)
         self.assertIn("phase == .active", source)
+
+    def test_app_icon_uses_shared_reload_modifier(self):
+        source = APP_ICON.read_text()
+        self.assertIn(".reloadOnAppearAndActive(model.refresh)", source)
+        self.assertNotIn("@Environment(\\.scenePhase)", source)
 
 
 if __name__ == "__main__":
