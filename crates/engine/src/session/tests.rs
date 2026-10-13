@@ -14,6 +14,7 @@ use crate::paths::RuntimePaths;
 use crate::types::{
     CandidateEdge, CandidateSource, Command, FrequencyAdjustmentMode, FrequencyAdjustmentOptions,
     LocalInputMode, SchemeKey, SchemeSet, SchemeType, ShuangpinProfileKind,
+    DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::KeyGrid;
 
@@ -7554,7 +7555,7 @@ fn a_cloud_answer_does_not_move_the_ai_seat() {
 
 #[test]
 fn first_page_rows_reaches_the_dictionary_through_the_session_options() {
-    // 首页行数从会话选项一路走到词库：默认 6 下 6 条精确同音词就不再并入补全词，设成 8 后照旧并入。
+    // 首页行数从会话选项一路走到词库：默认 6 下 6 条精确同音词把补全词挤到首页之后，设成 8 后补全词按权重并进来。
     // 词库级测试直接调 `set_first_page_rows`，这条钉住的是 `SessionOptions` → 请求 → 引擎这段接线。
     let fixture = Fixture::new(
         "CREATE TABLE tbl_2_q(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
@@ -7569,17 +7570,43 @@ fn first_page_rows_reaches_the_dictionary_through_the_session_options() {
     );
     let mut narrow = fixture.session();
     type_text(&mut narrow, "qishi");
-    assert!(
-        !words(&narrow).iter().any(|word| word == "企事业单位"),
-        "每页 6 行时不该并入补全词: {:?}",
+    let first_page = &words(&narrow)[..DEFAULT_FIRST_PAGE_ROWS];
+    assert_eq!(
+        first_page,
+        ["其实", "歧视", "岂是", "气势", "启示", "骑士"],
+        "每页 6 行时补全词占进了首页: {:?}",
         words(&narrow)
     );
 
     let mut wide = fixture.session_with(|options| options.first_page_rows = 8);
     type_text(&mut wide, "qishi");
-    assert!(
-        words(&wide).iter().any(|word| word == "企事业单位"),
-        "每页 8 行时补全词应照旧并入: {:?}",
+    assert_eq!(
+        index_of(&wide, "企事业单位"),
+        1,
+        "每页 8 行时补全词应按权重并入: {:?}",
         words(&wide)
+    );
+}
+
+#[test]
+fn a_zero_first_page_rows_reads_as_one_row() {
+    // `QueryRequest` 派生 `Default`，裸 `usize` 会默认成 0，而 0 会让 `exact_rows < 首页行数` 永远不成立，
+    // 与全键盘「0 当 1」的做法相反。归一只在 `FirstPageRows::new` 做一次，两个键盘都从这里过。
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_q(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+         INSERT INTO tbl_2_q VALUES('qi''shi''yuan','qsy','歧视源',100);\
+         CREATE TABLE tbl_5_q(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+         INSERT INTO tbl_5_q VALUES('qi''shi''ye''dan''wei','qsydw','企事业单位',600);",
+    );
+    let mut zero = fixture.session_with(|options| options.first_page_rows = 0);
+    type_text(&mut zero, "qishi");
+    let mut one = fixture.session_with(|options| options.first_page_rows = 1);
+    type_text(&mut one, "qishi");
+    assert_eq!(words(&zero), words(&one), "首页行数 0 没有按 1 处理");
+    assert_eq!(
+        index_of(&one, "企事业单位"),
+        0,
+        "精确同音词一行都没有时补全词应按权重排在最前: {:?}",
+        words(&one)
     );
 }

@@ -41,6 +41,8 @@ struct Fixture {
     reading: String,
     /// What the Engine reports it takes as characters rather than punctuation.
     spelling_symbols: String,
+    /// 引擎的首屏门槛，宿主每改一次分页就该跟着换一次。
+    first_page_rows: usize,
 }
 
 #[cfg(unix)]
@@ -892,6 +894,9 @@ fn voice_control_rejects_zero_generation_without_connecting() {
 impl InputEngine for Fixture {
     fn reset_context(&mut self) {
         self.context_resets += 1;
+    }
+    fn set_first_page_rows(&mut self, rows: usize) {
+        self.first_page_rows = rows;
     }
     fn reset_cache(&mut self) -> Result<(), RuntimeError> {
         self.cache_resets += 1;
@@ -4508,6 +4513,19 @@ fn page_size_accepts_one_to_ten() {
         runtime.set_page_size(11),
         Err(RuntimeError::InvalidPageSize)
     ));
+}
+
+/// 引擎的首屏门槛问的是「首页放得下几行」，和分页同源。宿主在 fcitx5 的「9 个候选」这类菜单里改了每页候选数
+/// 时不会重建引擎，不在这里下发，门槛就一直是重建时那一份：每页从 6 改成 9，有 6 到 8 个精确同音词的输入
+/// 整组补全词都被丢掉，而窗口其实有 9 个座位。
+#[test]
+fn resizing_the_page_tells_the_engine_its_first_page_gate() {
+    let mut runtime = Runtime::new(Fixture::default(), 6).unwrap();
+    assert_eq!(runtime.engine.first_page_rows, 0, "the gate starts unset");
+    runtime.set_page_size(9).unwrap();
+    assert_eq!(runtime.engine.first_page_rows, 9);
+    runtime.set_page_size(3).unwrap();
+    assert_eq!(runtime.engine.first_page_rows, 3);
 }
 
 /// A digit the Engine already answered with a commit is not also a page selection: selecting would replace the commit, and the text it carried - a Korean syllable - would be lost.

@@ -915,7 +915,9 @@ fn deduplicate_by_value(rows: &mut Vec<DictRow>) {
     if rows.len() < 2 {
         return;
     }
-    // 长词续接每次最多收集 3 * 12 行；这个规模用已保留行线性扫描比建立哈希表更省分配。
+    // 行数少时用已保留行线性扫描比建立哈希表更省分配，超过这个规模才值得开 `HashSet`。长词续接现在每次最多
+    // 收集 `LONGER_PHRASE_EXTRA_SYLLABLES * LONGER_PHRASE_LIMIT` 行；阈值不由那一个调用点决定，`query_segments_keyed_flat`
+    // 和多表合并给的行数由各自的 limit 决定，所以这里写一个跨调用点都成立的规模，而不是某一条通路的行数。
     if rows.len() <= 36 {
         let mut write = 0;
         for read in 0..rows.len() {

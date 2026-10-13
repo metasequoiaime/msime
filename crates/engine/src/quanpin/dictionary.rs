@@ -42,8 +42,8 @@ use crate::pinyin::syllables::{
 use crate::text::{count_han_chars, last_characters};
 use crate::time::Instant;
 use crate::types::{
-    autocorrect_type, CandidateSource, FuzzyPinyinOptions, PersonalDictionaryKind,
-    SentenceAssociationOptions, WordItem, DEFAULT_FIRST_PAGE_ROWS,
+    autocorrect_type, CandidateSource, FirstPageRows, FuzzyPinyinOptions, PersonalDictionaryKind,
+    SentenceAssociationOptions, WordItem,
 };
 use crate::user_dictionary::journal::record_user_insert;
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
@@ -180,8 +180,8 @@ pub struct QuanpinDictionary {
     rerankers: Vec<NeuralReranker>,
     sentence_alternatives: bool,
     sentence_association: SentenceAssociationOptions,
-    /// 全长度组的精确同音词够这么多行就不再并入更长的补全词；来自宿主的每页候选数（`QueryRequest::first_page_rows`）。
-    first_page_rows: usize,
+    /// 首页放得下几行，决定全长组的补全词是按权重并进来还是接在整组末尾；来自宿主的每页候选数（`QueryRequest::first_page_rows`）。存成 `FirstPageRows` 是为了让 0 在这里没有入口，全拼和九键的「0 当 1」只在 `FirstPageRows::new` 做一次。
+    first_page_rows: FirstPageRows,
     rescoring_context: String,
     /// The reading and mask of the query being answered; marking and the typo edges read them within that query.
     pinyin_segmentation: String,
@@ -228,7 +228,7 @@ impl QuanpinDictionary {
             rerankers: Vec::new(),
             sentence_alternatives: false,
             sentence_association: SentenceAssociationOptions::default(),
-            first_page_rows: DEFAULT_FIRST_PAGE_ROWS,
+            first_page_rows: FirstPageRows::default(),
             rescoring_context: String::new(),
             pinyin_segmentation: String::new(),
             alternative_segmentations: Vec::new(),
@@ -543,13 +543,12 @@ impl QuanpinDictionary {
         self.series_cache.clear();
     }
 
-    /// 首页行数只决定全长组要不要并入补全词；改了就清掉按旧答案组装的候选列表（照 `set_sentence_alternatives`）。
-    pub fn set_first_page_rows(&mut self, rows: usize) {
+    /// 首页行数只决定补全词是按权重并进来还是接在整组末尾；改了就清掉按旧门槛组装的整条答案（照 `set_sentence_alternatives`）。`cache` 存的是按切分查出来的词库行，补全词是查完它才并进来的，所以这里动不了它，清掉只会白白丢掉 128 行、再查一次 SQLite。
+    pub fn set_first_page_rows(&mut self, rows: FirstPageRows) {
         if self.first_page_rows == rows {
             return;
         }
         self.first_page_rows = rows;
-        self.cache.clear();
         self.series_cache.clear();
     }
 
@@ -782,14 +781,14 @@ impl QuanpinDictionary {
             if count == segments.len() {
                 // 同长度表里常常只剩冷僻同音词：ping'guo 只有 苹果 1143881、评过 1180、平果 169、平锅 1，而 苹果电脑 21495、苹果公司 19725 在 tbl_4_p，同长度查询看不到，第二位就落到冷僻同音词上。所以更长的补全词按权重并入这一组，权重出自同一语料，跨表可比。`pinyin` 仍是键入的切分（上屏只消耗已键入的音节），`canonical_pinyin` 保留完整读音供持久化。
                 // 但首位只留给读音和键入完全一致的同长度行里最重的那一行：补全词上屏会多出用户没打的字，权重再高也不能抢首选（#7345：dacuozi 的首选曾是 打错字了，doumeiren 的首选曾是 都没人管理）。补全词只和其余同长度行竞争第二位起的位置，苹果电脑 仍排在 平锅 前面。同长度查询没有精确键时会退到前缀区间（zhi'liang'jian 只查到 zhi'liang'jiang 的 质量奖），那一行的读音并不是键入的读音，不钉首位，和补全词一起按权重排；同长度查询一行都没有时同样按权重排，整句块随后由 `whole_sentence_insert_position` 插到首位。
-                // 精确同音词自己够填一页时整组补全词都不并入：补全词存在的理由是「同长度表只剩冷僻同音词」（ping'guo 的第二位只剩 平锅），本地表能填满首页就说明用户要的词就在里面，再并进来只会把同音词挤到后面（qi'shi 的首屏曾是 其实 骑士 其实是 企事业单位）。一页几行取宿主的每页候选数（`first_page_rows`）。
+                // 精确同音词自己够填首页时，补全词不再按权重挤进来，改成接在整组末尾：首页的座位仍归同音词（qi'shi 的首屏曾是 其实 骑士 其实是 企事业单位），但往后翻还翻得到它们（zhongguo、shide 的精确表本来就够一页，直接丢掉等于让「中国人民」「是的话」从候选里消失，词库以后给 ping'guo 多加几个冷僻同音词，「苹果电脑」也会整个不见）。整组本身至少就有 `first_page_rows` 行，所以接在末尾的补全词一定落在首页之后。一页几行取宿主的每页候选数（`first_page_rows`）；首页上还有整句块、AI 位、云候选位和后插入的用户词，这个门槛看不见它们，但补全词只是被推后，不再消失。
                 let exact_rows = rows
                     .iter()
                     .filter(|item| item.canonical_pinyin == partial_segmentation)
                     .count();
-                if exact_rows < self.first_page_rows {
-                    let longer = self.longer_phrase_candidates(&partial_segmentation, partial);
-                    if !longer.is_empty() {
+                let longer = self.longer_phrase_candidates(&partial_segmentation, partial);
+                if !longer.is_empty() {
+                    if exact_rows < self.first_page_rows.get() {
                         rows.sort_by_key(|item| std::cmp::Reverse(item.weight));
                         let lead = usize::from(
                             rows.first()
@@ -797,6 +796,8 @@ impl QuanpinDictionary {
                         );
                         rows.extend(longer);
                         rows[lead..].sort_by_key(|item| std::cmp::Reverse(item.weight));
+                    } else {
+                        rows.extend(longer);
                     }
                 }
             }

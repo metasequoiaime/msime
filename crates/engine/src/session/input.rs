@@ -29,9 +29,10 @@ use crate::stroke;
 use crate::tibetan::{SHAD, TSHEG};
 use crate::time::Instant;
 use crate::types::{
-    CandidateSource, Command, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
-    KeyResult, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions, OnlineQuery,
-    QuickPhraseEntry, SchemeKey, SchemeType, WordItem, WubiInputOptions,
+    CandidateSource, Command, CommandTableEntry, EnglishInputOptions, FirstPageRows,
+    FrequencyAdjustmentOptions, KeyResult, LocalInputMode, LocalModeOptions, MentionEntry,
+    MixedExpressiveOptions, OnlineQuery, QuickPhraseEntry, SchemeKey, SchemeType, WordItem,
+    WubiInputOptions,
 };
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::removal::learn_entered_english_word;
@@ -236,7 +237,9 @@ impl InputSession {
         session
             .engine
             .set_sentence_association(options.sentence_association);
-        session.engine.set_first_page_rows(options.first_page_rows);
+        session
+            .engine
+            .set_first_page_rows(FirstPageRows::new(options.first_page_rows));
         session
             .engine
             .set_rescoring_context(&options.rescoring_context);
@@ -1288,6 +1291,11 @@ impl InputSession {
 
     pub fn set_rescoring_context(&mut self, context: &str) {
         self.engine.set_rescoring_context(context);
+    }
+
+    /// 首页行数只决定词库要不要并入补全词；宿主改每页候选数时不必重建会话，跟着改一下即可。
+    pub fn set_first_page_rows(&mut self, rows: FirstPageRows) {
+        self.engine.set_first_page_rows(rows);
     }
 
     /// Clears caret, phrase progress, pending sequence, local mode, dedicated preedit and caches; returns from temporary Japanese.

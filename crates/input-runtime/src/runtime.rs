@@ -1181,6 +1181,9 @@ impl<E: InputEngine> Runtime<E> {
         }
         self.advance()?;
         self.page_size = page_size.into();
+        // 引擎的首屏门槛问的是「首页放得下几行」，和分页同源。不在这里下发，它会一直停在重建引擎时那一份：
+        // 每页从 6 改成 9 时，有 6 到 8 个精确同音词的输入整组补全词都被丢掉，而窗口其实有 9 个座位。
+        self.engine.set_first_page_rows(page_size.into());
         Ok(())
     }
 

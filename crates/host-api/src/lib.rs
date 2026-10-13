@@ -549,7 +549,8 @@ impl HostSession {
     fn apply_pending(&mut self) -> Result<Option<String>, String> {
         if self.runtime.is_idle() {
             if let Some(size) = self.page_size_override {
-                // 这里只改分页。引擎的首屏门槛（`first_page_rows`）要等下面那次重建才跟随，override 自身的变化不触发重建（今天也没有宿主入口写它，见 `ffi/session.rs` 的初始化）。
+                // 这里只改分页本身，引擎的首屏门槛由 `Runtime::set_page_size` 一并下发（它读的是同一份 `page_size`），
+                // 所以 override 的变化不必触发重建。fcitx5 的「9 个候选」和 IBus 的每页候选数菜单都会写它，见 `ffi/input.rs`。
                 self.runtime
                     .set_page_size(host_page_size(size))
                     .map_err(|e| e.to_string())?;

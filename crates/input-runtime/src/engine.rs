@@ -27,6 +27,8 @@ pub trait InputEngine {
     fn reset_context(&mut self) {}
     /// The committed text the Engine's neural sentence models condition on, pushed by the runtime whenever the text it keeps changes. Engines without such models ignore it.
     fn set_rescoring_context(&mut self, _context: &str) {}
+    /// 首页放得下几行，宿主改每页候选数时跟着分页一起下发；没有按切分查词库的引擎忽略它。
+    fn set_first_page_rows(&mut self, _rows: usize) {}
     /// Moves the caret prefix decoding answers for; `None` returns to the end of the composition. Engines without
     /// prefix decoding ignore it and report nothing pending below.
     fn set_caret(&mut self, _caret: Option<usize>) {}
@@ -243,6 +245,9 @@ impl InputEngine for Session {
     }
     fn set_rescoring_context(&mut self, context: &str) {
         Session::set_rescoring_context(self, context);
+    }
+    fn set_first_page_rows(&mut self, rows: usize) {
+        Session::set_first_page_rows(self, rows);
     }
     fn set_caret(&mut self, caret: Option<usize>) {
         Session::set_caret(self, caret);
