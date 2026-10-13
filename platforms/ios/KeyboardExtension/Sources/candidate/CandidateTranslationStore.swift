@@ -76,10 +76,24 @@ final class CandidateTranslationStore {
         || (0xF900...0xFAFF).contains(scalar.value) || (0x20000...0x3FFFF).contains(scalar.value)
     }
   }
+  static func sourceGetsNoGloss(_ source: Int) -> Bool {
+    [6, 7, 13, 14].contains(source)
+  }
+  static func allowsGloss(sources: [Int], at index: Int) -> Bool {
+    sources.indices.contains(index) && !sourceGetsNoGloss(sources[index])
+  }
   func gloss(word: String, code: String) -> String? { cache["\(code)|\(word)"] }
   func refresh(words: [String], codes: [String]) {
+    refresh(words: words, sources: Array(repeating: 0, count: words.count), codes: codes)
+  }
+  func refresh(words: [String], sources: [Int], codes: [String]) {
     debounce?.invalidate(); debounce = nil
-    let wanted = words.filter(Self.translatable)
+    let wanted: [String] = words.indices.compactMap { index -> String? in
+      let word = words[index]
+      guard Self.allowsGloss(sources: sources, at: index),
+            Self.translatable(word) else { return nil }
+      return word
+    }
     guard !wanted.isEmpty, !codes.isEmpty else { return }
     let timer = Timer(timeInterval: Self.quietInterval, repeats: false) { [weak self] _ in
       MainActor.assumeIsolated { self?.send(words: wanted, codes: codes) }

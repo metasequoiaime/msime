@@ -4317,7 +4317,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           let entry = snapshot.entries[index]
           return candidateMenuElements(
             generation: snapshot.generation, globalIndex: entry.index, candidate: entry.text,
-            offlineGloss: entry.translation, fixedPosition: entry.fixedPosition)
+            offlineGloss: entry.translation, source: entry.source, fixedPosition: entry.fixedPosition)
         },
         onSelect: { [weak self] index in
           guard let self, let snapshot = candidatePanelSnapshot, snapshot.entries.indices.contains(index) else { return }
@@ -4357,7 +4357,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func candidatePanelAnnotations(_ snapshot: CandidatePanelSnapshot) -> [KeyboardCandidateAnnotation] {
     snapshot.entries.map {
       candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text, engine: $0.annotation,
-                               typed: snapshot.preedit)
+                               source: $0.source, typed: snapshot.preedit)
     }
   }
 
@@ -5668,7 +5668,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// The gloss and translation lines under a strip candidate. A Korean Hanja's 훈음 is not one of them: it is drawn above them by the strip and never offered for insertion.
   private func candidateGlosses(at index: Int) -> [String] {
-    guard CandidateGlossPreference.enabled, visibleCandidates.indices.contains(index) else { return [] }
+    guard CandidateGlossPreference.enabled, visibleCandidates.indices.contains(index),
+          CandidateTranslationStore.allowsGloss(sources: visibleCandidateSources, at: index) else { return [] }
     let word = visibleCandidates[index]
     var languages = [CandidateTranslationPreference.primary]
     if let secondary = CandidateTranslationPreference.secondary { languages.append(secondary) }
@@ -5686,7 +5687,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   static let pendingGlossPlaceholder = " "
 
-  private func glosses(word: String, offline: String) -> [String] {
+  private func glosses(word: String, offline: String, source: Int) -> [String] {
+    guard !CandidateTranslationStore.sourceGetsNoGloss(source) else { return [] }
     var lines: [String] = []
     if let value = gloss(word: word, language: CandidateTranslationPreference.primary, offline: offline) { lines.append(value) }
     if let secondary = CandidateTranslationPreference.secondary,
@@ -5695,8 +5697,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func gloss(word: String, language: CandidateTranslationLanguage, at index: Int) -> String? {
-    gloss(word: word, language: language,
-          offline: visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : "")
+    guard CandidateTranslationStore.allowsGloss(sources: visibleCandidateSources, at: index) else { return nil }
+    return gloss(word: word, language: language,
+                 offline: visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : "")
   }
 
   private func gloss(word: String, language: CandidateTranslationLanguage, offline: String) -> String? {
@@ -5716,9 +5719,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func candidatePanelAnnotation(code: String, gloss: String, word: String, engine: String,
-                                        typed: String) -> KeyboardCandidateAnnotation {
+                                        source: Int, typed: String) -> KeyboardCandidateAnnotation {
     let (hint, hintDescription) = codeHint(code: code, engine: engine, typed: typed)
-    let lines = glosses(word: word, offline: gloss)
+    let lines = glosses(word: word, offline: gloss, source: source)
     let text = ([hint] + lines).filter { !$0.isEmpty }.joined(separator: "\n")
     guard !text.isEmpty else { return .none }
     let description = ([hintDescription, lines.isEmpty ? "" : "英文释义：\(lines.joined(separator: "，"))"])
@@ -5781,7 +5784,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           !visibleCandidates.isEmpty else { translations.cancel(); return }
     var codes = [CandidateTranslationPreference.primary.code]
     if let secondary = CandidateTranslationPreference.secondary { codes.append(secondary.code) }
-    translations.refresh(words: Array(visibleCandidates.prefix(candidatePageSize)), codes: codes)
+    let words = Array(visibleCandidates.prefix(candidatePageSize))
+    translations.refresh(words: words, sources: visibleCandidateSources, codes: codes)
   }
 
   private func wubiCodeHint(code: String, typed: String) -> String {
@@ -6249,10 +6253,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func candidateMenuElements(
-    generation: UInt64, globalIndex: UInt64, candidate: String, offlineGloss: String, fixedPosition: Int
+    generation: UInt64, globalIndex: UInt64, candidate: String, offlineGloss: String, source: Int, fixedPosition: Int
   ) -> [UIMenuElement] {
     guard isChineseMode, inputScheme.writesChinese, !isInLocalMode else { return [] }
-    let glosses = glossMenuElements(glosses(word: candidate, offline: offlineGloss)) { [weak self] in
+    let glosses = glossMenuElements(glosses(word: candidate, offline: offlineGloss, source: source)) { [weak self] in
       guard let self else { return false }
       guard let snapshot = try? session.allCandidates(),
             let current = try? CandidatePanelSnapshot.decode(snapshot),

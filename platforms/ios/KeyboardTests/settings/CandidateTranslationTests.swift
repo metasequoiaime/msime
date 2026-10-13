@@ -86,6 +86,24 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertFalse(CandidateTranslationStore.translatable("😀"))
   }
 
+  func testCandidatesWithNoGlossSourcesStayOutOfTheNetwork() async throws {
+    let service = StubTranslationService(answers: ["EN": ["你好": "hello"]])
+    let store = CandidateTranslationStore(service: service)
+    let arrived = expectation(description: "ordinary candidate gloss arrived")
+    store.onArrival = { arrived.fulfill() }
+
+    let sources = [0, 14, 7, 13, 6]
+    store.refresh(words: ["你好", "你好", "颜文字笑", "私", "表情", "缺来源"],
+                  sources: sources, codes: ["EN"])
+    await fulfillment(of: [arrived], timeout: 5)
+
+    XCTAssertEqual(service.calls.map(\.words), [["你好"]])
+    XCTAssertEqual(store.gloss(word: "你好", code: "EN"), "hello")
+    XCTAssertTrue(CandidateTranslationStore.allowsGloss(sources: sources, at: 0))
+    XCTAssertFalse(CandidateTranslationStore.allowsGloss(sources: sources, at: 1))
+    XCTAssertFalse(CandidateTranslationStore.allowsGloss(sources: sources, at: 5))
+  }
+
   func testEachLanguageIsAskedOnceAndTheAnswerIsKept() async throws {
     let service = StubTranslationService(
       answers: ["EN": ["你好": "hello"], "JA": ["你好": "こんにちは"]])

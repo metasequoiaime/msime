@@ -61,8 +61,9 @@ public final class CandidateTranslationPolicySmoke {
             "an empty secondary row does not waste a menu slot");
         check(!CandidateTranslationPolicy.userTranslationSourceAllowed(6)
                 && !CandidateTranslationPolicy.userTranslationSourceAllowed(7)
-                && !CandidateTranslationPolicy.userTranslationSourceAllowed(13),
-            "emoji, kaomoji, and mixed Japanese candidates are not sent to user services");
+                && !CandidateTranslationPolicy.userTranslationSourceAllowed(13)
+                && !CandidateTranslationPolicy.userTranslationSourceAllowed(14),
+            "emoji, kaomoji, mixed Japanese, and plugin candidates are not sent to user services");
         check(CandidateTranslationPolicy.userTranslationSourceAllowed(0)
                 && CandidateTranslationPolicy.userTranslationSourceAllowed(12),
             "ordinary candidate sources remain eligible for user services");
