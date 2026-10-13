@@ -81,16 +81,22 @@ CHECKS = (
         ("BoundedFileReader.read(from: url, maximumBytes: Self.maximumManifestBytes)",),
     ),
     (
+        ROOT / "shared/backend/storage/BackendBoundedFileReader.swift",
+        "  static func read(from url: URL",
+        "    #else",
+        ("O_NOFOLLOW", "O_NONBLOCK"),
+    ),
+    (
         ROOT / "shared/backend/account/BackendAccountSession.swift",
         "  static func readBounded(_ url: URL",
         "  func save(_ session: BackendSavedSession)",
-        ("O_NONBLOCK",),
+        ("BackendBoundedFileReader.read(from: url, maximumBytes: maximumBytes)",),
     ),
     (
         ROOT / "shared/backend/storage/BackendLocalStore.swift",
         "  private static func readBounded(_ url: URL",
         "  @discardableResult static func write(",
-        ("O_NONBLOCK",),
+        ("BackendBoundedFileReader.read(from: url, maximumBytes: maximumBytes)",),
     ),
     (
         ROOT / "shared/backend/clients/BackendSnapshotClient.swift",

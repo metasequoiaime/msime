@@ -201,6 +201,7 @@ targets:
       - path: ../../shared/backend/account/BackendAccountSession.swift
       - path: ../../shared/backend/account/BackendAnonymousAccount.swift
       - path: ../../shared/backend/storage/BackendLocalStore.swift
+      - path: ../../shared/backend/storage/BackendBoundedFileReader.swift
       - path: ../../shared/backend/clients/BackendSnapshotClient.swift
       # The keyboard's 云端 clipboard tab.
       - path: ../../shared/backend/clients/BackendClipboardClient.swift

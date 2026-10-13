@@ -27,6 +27,7 @@ let package = Package(
         "storage/IOSPreferencePlan.swift",
         "storage/BackendSyncPolicy.swift",
         "storage/BackendLocalStore.swift",
+        "storage/BackendBoundedFileReader.swift",
       ]
     ),
     .testTarget(
