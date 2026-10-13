@@ -5592,7 +5592,16 @@ group("traditional output never loses text when conversion fails", () => {
 });
 
 group("local modes are addressable by trigger and by preference key", () => {
-  check(LocalInputMode.MODES.length === 8, "eight local modes");
+  check(LocalInputMode.MODES.length === 9, "nine local modes");
+  const chaizi = LocalInputMode.fromTrigger("C");
+  check(
+    chaizi !== null && chaizi.preferenceKey === "chaizi" && chaizi.title === "拆字",
+    "C enters 拆字, named as the Engine names it",
+  );
+  check(
+    LocalInputMode.MODES[LocalInputMode.MODES.length - 1] === chaizi,
+    "拆字 is the last touch tile, after the eight from the reference",
+  );
   const unicode = LocalInputMode.fromTrigger("U");
   check(unicode !== null && unicode.preferenceKey === "unicode", "U enters Unicode code points");
   const emoji = LocalInputMode.fromPreferenceKey("emoji");
@@ -5615,7 +5624,7 @@ group("local modes are addressable by trigger and by preference key", () => {
   check(LocalInputMode.fromTrigger("@")?.preferenceKey === "mention", "@ enters the mention mode");
   check(
     LocalInputMode.MODES.every((entry) => LocalInputMode.HARDWARE_MODES.indexOf(entry) < 0),
-    "the touch tiles stay the eight they were",
+    "no hardware-only mode is offered as a touch tile",
   );
   const all = LocalInputMode.MODES.concat(LocalInputMode.HARDWARE_MODES);
   check(

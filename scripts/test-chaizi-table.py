@@ -43,6 +43,8 @@ NOTICE_CHANNELS = {
     "platforms/linux/data/THIRD_PARTY_NOTICES.txt": "Linux: the notice overview",
     "platforms/ios/project.yml": "iOS: the app's bundled resources",
     "platforms/ios/tests/settings/ProjectConfigurationTests.py": "iOS: the project configuration test",
+    "platforms/android/build-native.sh": "Android: the native notices both APKs package as assets/native-notices",
+    "platforms/harmony/stage-resources.sh": "HarmonyOS: the licences staged into the HAP",
     "docs/third-party.md": "the repository's third-party index",
 }
 # 总览写明每份文本覆盖什么，所以还要写出固定提交。

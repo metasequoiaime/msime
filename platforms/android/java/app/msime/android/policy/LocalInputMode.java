@@ -9,7 +9,9 @@ public enum LocalInputMode {
     TEMPORARY_ENGLISH("Y", "英文补全", "temporary_english"),
     EMOJI("E", "表情", "emoji"),
     KAOMOJI("M", "颜文字", "kaomoji"),
-    TEMPORARY_JAPANESE("R", "临时日语", "temporary_japanese");
+    TEMPORARY_JAPANESE("R", "临时日语", "temporary_japanese"),
+    // 拆字反查：输入字的各个部件的拼音找不会读的字（huohuohuo 得 焱）。不在 Apple 的参考里，追加在末尾。
+    CHAIZI("C", "拆字", "chaizi");
 
     private final String trigger;
     private final String title;
