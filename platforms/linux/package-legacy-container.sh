@@ -50,11 +50,9 @@ mkdir -p "$build_root"
 # sherpa-onnx 运行库是上游的预编译文件，在这里按锁下载，第 1 步核对它在 glibc 2.28 上能加载。在宿主上取而不是在容器里：取运行库的脚本用到 Python 3.8 起才有的语法，buster 的 Python 是 3.7。
 python3 scripts/fetch_voice_runtime.py --platform "$voice_platform" --out "$build_root/voice-runtime"
 
-# 镜像标签按检出和架构区分，理由与 build-container.sh 相同：几个 worktree 同时构建时不能用上别人的镜像。基础镜像按清单摘要固定，--platform 决定取哪个架构；同一个摘要在本机已有另一种架构的镜像时，不写 --platform 会静默用上那一个。
-checkout_hash="$(printf %s "$repo_root" | shasum | cut -c1-12)"
-image="msime-linux-legacy:$arch-$checkout_hash"
-docker build -q --platform "$platform" -t "$image" \
-  -f platforms/linux/tests/tools/Dockerfile.legacy platforms/linux/tests >/dev/null
+# 镜像按配方和架构复用，显式平台避免 Docker 静默采用另一架构的本地镜像。
+image=$(python3 platforms/linux/scripts/package-image.py msime-linux-legacy \
+  platforms/linux/tests/tools/Dockerfile.legacy --platform "$platform")
 echo "legacy image: $image ($platform)" >&2
 
 docker run --rm --init --platform "$platform" \
@@ -62,10 +60,13 @@ docker run --rm --init --platform "$platform" \
   -v "$build_root":/build \
   -w /source \
   -e CARGO_TARGET_DIR=/build/cargo \
+  -e CARGO_HOME=/build/cargo-home \
+  -e MSIME_PACKAGE_IMAGE="$image" \
   -e MSIME_VERSION="$version" \
   ${CARGO_BUILD_JOBS:+-e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS"} \
   ${CMAKE_BUILD_PARALLEL_LEVEL:+-e CMAKE_BUILD_PARALLEL_LEVEL="$CMAKE_BUILD_PARALLEL_LEVEL"} \
   "$image" bash -euo pipefail -c '
+    bash platforms/linux/scripts/prepare-package-cache.sh
     # 与 package-container.sh 一样在这里去掉 Rust 二进制的符号表。
     export CARGO_PROFILE_RELEASE_STRIP=symbols
     cargo build --release --locked -p msime-host-api
@@ -80,7 +81,9 @@ docker run --rm --init --platform "$platform" \
     if [ -d target/language-dictionaries ]; then
       extra_args+=(-DMSIME_LANGUAGE_DICTIONARIES=/source/target/language-dictionaries)
     fi
-    rm -rf /build/cmake /build/dist
+    # 删除配置缓存防止旧打包参数残留，保留可增量编译的对象文件。
+    rm -f /build/cmake/CMakeCache.txt
+    rm -rf /build/dist
     cmake -S platforms/linux -B /build/cmake -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX=/usr \

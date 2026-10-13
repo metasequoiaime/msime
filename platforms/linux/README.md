@@ -616,6 +616,12 @@ Emoji 本地 CLI 的 `msime-linux-emoji --local` 会按显式资源目录、其�
 
 原生门禁和桌面检查分别把 `CARGO_HOME` 放在已有挂载内的 `/build/cargo-home`、`/ctarget/cargo-home`，对应宿主的 `target/linux-build-gate/cargo-home`、`target/linux-desktop-check/cargo-home`。registry 和 git 下载缓存随构建目录保留，后续临时容器复用；首次运行或依赖变化仍可联网准备，日常命令继续使用 `--locked`。两个缓存按 checkout 与门禁隔离，不借用主机 Cargo home，删除 worktree 时一并清理。
 
+**重复构建安装包。** 更新源码后重新执行 `bash platforms/linux/package-container.sh` 即可（命令从仓库根目录运行；legacy 用 `package-legacy-container.sh`）。Deb、RPM 和 legacy 镜像按 Dockerfile、平台、构建参数及 `rust-toolchain.toml` 的内容打标签；Deb 子镜像还纳入父镜像 ID。镜像已存在时直接复用，跳过 `docker build`；源码通过挂载读取，不进入镜像，源码或包版本更新不触发镜像重建。运行容器仍在退出时删除，构建所需状态保存在镜像和原有 target 挂载里。
+
+打包的 Cargo 下载缓存放在 `target/linux-package/cargo-home`、`target/linux-package-rpm/cargo-home` 或 `target/linux-package-legacy-<arch>/cargo-home`，Rust 产物仍在各目录的 `cargo/`，各版本 CMake 对象文件留在原有 `cmake`、`cmake-<edition>` 目录。每轮重新生成 `CMakeCache.txt` 并清空 `dist/`，所以切换包版本、桌面开关或可选资源不会继承上一轮配置，也不会混入旧发行附件。`.package-image` 记录实际打包镜像 ID；首次使用新布局或镜像变化时清掉 Rust/CMake 编译产物，保留下载缓存，防止工具链和系统库变化后复用旧二进制。首次运行仍需联网准备依赖；缓存齐全后才可离线复用，不把 `--offline` 设为默认。
+
+打包缓存随 worktree 移除；要单独重编译可删除对应目录下的 `.package-image`。内容标签镜像可跨 worktree 共用，不随目录删除自动回收；用 `docker image ls 'msime-linux-*'` 查找并按明确标签删除不再需要的打包镜像，下次打包会重建。Deb 父镜像另有 `msime-linux-build-gate:id-<镜像摘要>` 标签供 BuildKit 的 `FROM` 使用；它与配方标签指向同一镜像，不复制镜像层。日常原生门禁仍使用下面按 checkout 隔离的旧标签规则。
+
 这两个门禁镜像、隔离验收基镜像（`tests/tools/Dockerfile`）和 RPM 打包镜像（`tests/tools/Dockerfile.package-rpm`）同时预装 `rust-toolchain.toml` 要求的 `rustfmt` 和 `clippy`，临时容器启动时不再逐次补装。Fcitx5 和现代 IBus 验收镜像继承验收基镜像，Deb 打包镜像继承原生门禁镜像。组件层放在已有构建层之后，修改组件准备步骤时可复用系统依赖、Wayland 驱动或 RPM 编译器安装缓存。构建或升级相应镜像后，在仓库根目录验证工具链就绪：
 
 ```sh

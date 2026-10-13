@@ -59,19 +59,15 @@ if [ "$desktop" = 1 ]; then
   python3 platforms/linux/collect-notices.py npm "$build_root/notices/frontend-npm-NOTICES.txt" apps/desktop
 fi
 
-# Per-checkout tags for the same reason as the gate: parallel worktrees must not run each other's images.
-checkout_hash="$(printf %s "$repo_root" | shasum | cut -c1-12)"
+# 镜像只含工具链；相同配方跨 worktree 复用，使用镜像 ID 避免并发标签覆盖。
 if [ "$format" = rpm ]; then
-  package_image="msime-linux-package-rpm:$checkout_hash"
-  docker build -q -t "$package_image" \
-    -f platforms/linux/tests/tools/Dockerfile.package-rpm platforms/linux/tests >/dev/null
+  package_image=$(python3 platforms/linux/scripts/package-image.py msime-linux-package-rpm \
+    platforms/linux/tests/tools/Dockerfile.package-rpm)
 else
-  gate_image="msime-linux-build-gate:$checkout_hash"
-  package_image="msime-linux-package:$checkout_hash"
-  docker build -q -t "$gate_image" \
-    -f platforms/linux/tests/tools/Dockerfile.build-gate platforms/linux/tests >/dev/null
-  docker build -q -t "$package_image" --build-arg MSIME_BUILD_GATE_IMAGE="$gate_image" \
-    -f platforms/linux/tests/tools/Dockerfile.package platforms/linux/tests >/dev/null
+  gate_image=$(python3 platforms/linux/scripts/package-image.py msime-linux-build-gate \
+    platforms/linux/tests/tools/Dockerfile.build-gate --tag)
+  package_image=$(python3 platforms/linux/scripts/package-image.py msime-linux-package \
+    platforms/linux/tests/tools/Dockerfile.package --build-arg MSIME_BUILD_GATE_IMAGE="$gate_image")
 fi
 echo "package image: $package_image" >&2
 
@@ -80,6 +76,8 @@ docker run --rm --init \
   -v "$build_root":/build \
   -w /source \
   -e CARGO_TARGET_DIR=/build/cargo \
+  -e CARGO_HOME=/build/cargo-home \
+  -e MSIME_PACKAGE_IMAGE="$package_image" \
   -e MSIME_VERSION="$version" \
   -e MSIME_PACKAGE_DESKTOP="$desktop" \
   -e MSIME_PACKAGE_FORMAT="$format" \
@@ -88,6 +86,7 @@ docker run --rm --init \
   ${CARGO_BUILD_JOBS:+-e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS"} \
   ${CMAKE_BUILD_PARALLEL_LEVEL:+-e CMAKE_BUILD_PARALLEL_LEVEL="$CMAKE_BUILD_PARALLEL_LEVEL"} \
   "$package_image" bash -euo pipefail -c '
+    bash platforms/linux/scripts/prepare-package-cache.sh
     # 在这里去掉 Rust 二进制的符号表，而不是写进 workspace 的 [profile.release]：CMake 用 install(FILES/PROGRAMS) 安装它们，CPACK_STRIP_FILES 管不到；而 debian/rules 和 rpm/msime.spec 构建同样的 crate 时带 line-tables-only 调试信息，由 dh_strip 和 find-debuginfo 拆分成 dbgsym 和 debuginfo 包。
     export CARGO_PROFILE_RELEASE_STRIP=symbols
     cargo build --release --locked -p msime-host-api
@@ -120,8 +119,8 @@ docker run --rm --init \
     if [ -d target/language-dictionaries ]; then
       languages_args+=(-DMSIME_LANGUAGE_DICTIONARIES=/source/target/language-dictionaries)
     fi
-    # Configure from scratch every time: a cached MSIME_DESKTOP_BINARY or version from an earlier run must not leak into this package.
-    rm -rf /build/cmake /build/cmake-* /build/dist
+    # 每轮清空发行附件，保留对象文件；配置缓存单独重建，旧版本号和可选资源不能进入本次包。
+    rm -rf /build/dist
     IFS=, read -r -a editions <<<"$MSIME_PACKAGE_EDITIONS"
     for edition in "${editions[@]}"; do
       # 每个版本一个构建目录：full 仍是 /build/cmake，装在 /usr；其他版本装在版本表给的前缀下。粤语、注音和笔画词库只有用到它们的版本要（cmake/Edition.cmake 对其他版本忽略），所以「必须带齐」也只对 full 生效。单测只跑 full 的。
@@ -134,6 +133,7 @@ docker run --rm --init \
         edition_languages_args=(-DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=OFF)
       fi
       prefix=$(python3 platforms/linux/scripts/edition_linux.py field --edition "$edition" install_prefix)
+      rm -f "$build/CMakeCache.txt"
       cmake -S platforms/linux -B "$build" -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$prefix" \

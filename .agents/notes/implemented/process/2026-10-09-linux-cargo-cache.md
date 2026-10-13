@@ -10,6 +10,8 @@ Status: implemented
 
 沿用隔离验收脚本的做法，原生容器的 `CARGO_HOME` 指向已有挂载内的 `/build/cargo-home`，桌面检查指向 `/ctarget/cargo-home`；Windows 交叉构建指向仓库挂载内的 `/repo/target/windows-cross/cargo-home`。源码、编译产物和镜像工具链路径保持原有布局，不新增构建根目录。三个入口各自在自己的既有 target 目录缓存，Windows 的 x86/x64 共用同一下载目录，不借用主机的 Cargo home，也不引入跨 checkout 的共享可变缓存。
 
+Linux 的 Deb、RPM 与 legacy 打包同样把 `CARGO_HOME` 放在既有 `/build/cargo-home` 挂载中，对应 `target/linux-package`、`target/linux-package-rpm`、`target/linux-package-legacy-<arch>`。打包镜像复用与编译结果失效条件由 [Linux 打包缓存](2026-10-13-linux-package-cache.md) 约束，下载目录在镜像变化时仍保留。
+
 ## Alternatives considered
 
 - 将依赖写入镜像：临时容器可直接复用，但依赖缓存随 Cargo.lock 变化会触发镜像重建，还需把 workspace 依赖输入纳入镜像构建上下文。
