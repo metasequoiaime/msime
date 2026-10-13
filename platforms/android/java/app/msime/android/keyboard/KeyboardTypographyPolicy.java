@@ -31,10 +31,10 @@ public final class KeyboardTypographyPolicy {
     /** 键盘里没有另定字号的按键和文字用的字号（sp），与 Material 按钮的默认字号相同。不设时取的是系统主题里的按钮字号：各厂商不同，而且不受 {@link #keyboardFontScale} 封顶，九键的 ABC 在大字体下会折行。 */
     public static final float DEFAULT_KEY_TEXT_SP = 14f;
 
-    /** 九键字母键的主标签字号：数字提示另由 {@link NineKeyDigitButton} 画在上沿。 */
+    /** 九键字母键的主标签字号：数字提示另由 {@link NineKeyDigitButton} 画在右上角。 */
     public static final float NINE_KEY_LABEL_TEXT_SP = 18f;
     /** 九键数字提示字号，保持比字母标签低一级的视觉层级。 */
-    public static final float NINE_KEY_DIGIT_TEXT_SP = 12f;
+    public static final float NINE_KEY_DIGIT_TEXT_SP = 8f;
     /** 九键左侧符号和右侧文字功能键字号。 */
     public static final float NINE_KEY_SIDE_TEXT_SP = 18f;
     public static final float NINE_KEY_ACTION_TEXT_SP = 16f;
