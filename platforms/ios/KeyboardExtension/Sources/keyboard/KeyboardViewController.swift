@@ -652,6 +652,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
+    InputSchemePreference.refreshResourceAvailability()
     // 进程可能跨过换季或应用主题的改动；在下面任何地方解析皮肤之前先刷新。
     KeyboardTheme.refreshSeason()
     incognito = KeyboardPrivacyPreference.incognito
