@@ -16,6 +16,8 @@ Status: implemented
 - 它不是必需检查：加进 develop 和 main 的保护规则要改仓库设置，还得在 `ci-docs.yml` 补同名检查，这次不动。失败照样让 PR 变红。
 - 测试里要被拒绝的符号链接一律用 `msime_path_trust::untrusted_symlink` 建，这条约定 #3773 已经立下，上面三个桌面端用例是漏网的，这次改过来；它们在容器里以 root 运行后全部通过。
 
+Windows 上的本机门禁和诊断示例编译兼容见[Windows 本地门禁保留可运行的检查](2026-10-14-windows-local-gate-portability.md)，不改变本篇的 CI 覆盖与拒绝符号链接约定。
+
 ## Alternatives considered
 
 - **让 `--quick` 也跑引擎测试**：最强的理由是在推送前就拦住，不用等 CI，引擎测试本身只要十几秒。没有采用，因为 `--quick` 的约定是「只编译」，钩子耗时一长就会被绕开（ARCHITECTURE.md 写过这个教训），`--no-verify` 也随时可以跳过它。CI 是唯一每个 PR 都绕不过去的地方。

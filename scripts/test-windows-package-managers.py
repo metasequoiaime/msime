@@ -170,7 +170,7 @@ def check_render(render, output: pathlib.Path) -> list[pathlib.Path]:
             pass
 
     written = render.render(values, output)
-    names = sorted(str(path.relative_to(output)) for path in written)
+    names = sorted(path.relative_to(output).as_posix() for path in written)
     expected = sorted(
         [f"winget/manifests/m/Metasequoia/MetasequoiaIME/1.2.3/{render.WINGET_ID}{suffix}.yaml" for suffix in ("", ".installer", ".locale.en-US", ".locale.zh-CN")]
         + ["scoop/msime.json", "chocolatey/msime/msime.nuspec", "chocolatey/msime/tools/chocolateyinstall.ps1", "chocolatey/msime/tools/chocolateyuninstall.ps1"]

@@ -49,6 +49,8 @@ rare-chars-last、hide-rare-chars、traditional-glyph 和 unicode-codepoint 都�
 - **工作量上限。** rare-chars-last 一次最多读 768 字节、扫 80 段、每行 256 字节；hide-rare-chars 最多读 640 字节、细看 100 个 U+3000 以上的字（辅助平面字按 3 个算）、每行 256 字节。超出的行不判定、按不生僻处理，日志写明。traditional-glyph 把每一步按实测成本记到 34 000 的预算上，用完后剩下的行不注释，日志末尾加 `(budget)`。每个字的单价按字节数分档，同一档里取最贵的路径（“”…— 这类通用标点要多查一张格式字符表，比全角标点贵约 130），超过 128 字节、读不进来的行也扣一行的开销；起初按常见路径定价，20 行通用标点就要约 48 000、混进超长行约 52 000，同一个按键里第三次投递会被本轮配额截断。unicode-codepoint 只注单个字符和 2–4 个码位的 emoji 序列，最长的注释正好 32 个 UTF-16 码元。
 - **traditional-glyph 的数据只取 2–4 字词组里逐字转换会转错的那些。** 完整的 OpenCC 词组表约 1 MB，放不进 256 KiB 的模块。`tools/gen_s2t_table.py` 只读仓库里 vendored 的 OpenCC，产物 `traditional-glyph/data/s2t.bin` 124 385 字节（单字 4 012 条、词组 7 559 条），模块 127 KiB、3 页内存，是合集里最大的。和 OpenCC 完整算法相比，2–4 字词组 46 535 条里有 3 条不同（都含辅助平面字），5 字以上的 3 257 条里有 175 条不同，插件的 README 写明这些限制。
 
+`resources/licenses/Unicode-License-V3.txt` 由 `.gitattributes` 固定为 LF，保证 Windows 检出后仍满足既有原始字节校验；相关门禁范围见[Windows 本地门禁保留可运行的检查](../testing/2026-10-14-windows-local-gate-portability.md)。
+
 ## Alternatives considered
 
 - **放进 msime-plugins 仓库。** 最强的理由是那里本来就是社区扩展包合集，插件和输入法分开发版，用户也习惯去那里找包。不用：GitHub 上还没有这个仓库（只有本机的脚手架），它的 README 写明扩展包是纯数据、「不能带任何可执行内容，也不能申请权限」，它的 CI 只按 schema_version 1 校验；脚本包也不能发布到社区库。更要紧的是，这些插件依赖本仓库的 SDK、`msime-pack` 和运行时的 fuel 计法，三者一变插件就要跟着改、跟着重测，放在同一个仓库里，同一个 PR 的 CI 就能发现。
