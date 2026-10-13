@@ -181,6 +181,21 @@ public final class KeyboardActionRowSmoke {
         check("切换到数字和符号".equals(KeyboardActionRow.layerDescription(false))
             && "切换到字母键盘".equals(KeyboardActionRow.layerDescription(true)),
             "layer key descriptions");
+
+        List<KeyboardLayout.LayerKey> chineseNumberBottom =
+            KeyboardLayout.numberLayer(true, true).get(3);
+        List<KeyboardLayout.LayerKey> englishNumberBottom =
+            KeyboardLayout.numberLayer(true, false).get(3);
+        check(chineseNumberBottom.size() == 5 && englishNumberBottom.size() == 5
+                && "中标".equals(chineseNumberBottom.get(2).text())
+                && "英标".equals(englishNumberBottom.get(2).text())
+                && chineseNumberBottom.get(2).kind() == KeyboardLayout.LayerKeyKind.PUNCTUATION_TOGGLE
+                && "切换到英文标点".equals(chineseNumberBottom.get(2).description())
+                && "切换到中文标点".equals(englishNumberBottom.get(2).description()),
+            "number layers expose a Chinese/English punctuation toggle beside emoji");
+        check(KeyboardLayout.moreSymbolLayer(true, true).get(3).get(2).kind()
+                == KeyboardLayout.LayerKeyKind.PUNCTUATION_TOGGLE,
+            "the extended symbol layer keeps the punctuation toggle");
         System.out.println("Android action row: composition, weights and layer faces passed");
     }
 

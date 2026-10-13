@@ -886,6 +886,10 @@ final class ImeLetterRows {
                 s.bindCountedAction(icon, s.imePanels::showEmojiPicker);
                 key = icon;
             }
+            case PUNCTUATION_TOGGLE -> {
+                key = s.keyboardKey(text, layerKey.description(), s::toggleChinesePunctuation);
+                s.keyId(key, "SoftPunctuation");
+            }
             case SYMBOL_PANEL -> {
                 key = s.keyboardKey(text, layerKey.description(), s.imePanels::showSymbolPanel);
                 s.keyId(key, "SoftSymbol");

@@ -48,10 +48,12 @@ public final class KeyboardLayoutSmoke {
         check(number.get(2).get(0).description().equals("更多符号"));
         check(number.get(2).get(6).description().equals("删除"));
         List<KeyboardLayout.LayerKey> bottom = number.get(3);
-        check(texts(bottom).equals(List.of("拼音", "😀", "空格", "换行")));
+        check(texts(bottom).equals(List.of("拼音", "😀", "中标", "空格", "换行")));
         check(bottom.get(0).description().equals("切换到字母键盘")
             && bottom.get(0).kind() == KeyboardLayout.LayerKeyKind.LETTERS);
         check(bottom.get(1).kind() == KeyboardLayout.LayerKeyKind.EMOJI);
+        check(bottom.get(2).description().equals("切换到英文标点")
+            && bottom.get(2).kind() == KeyboardLayout.LayerKeyKind.PUNCTUATION_TOGGLE);
         float total = 0;
         for (KeyboardLayout.LayerKey key : bottom) total += key.weight();
         check(Math.abs(total - 10.2f) < 1e-4);
@@ -61,6 +63,8 @@ public final class KeyboardLayoutSmoke {
         check(texts(english.get(2)).equals(List.of("#+=", ".", ",", "?", "!", "…", "⌫")));
         check(english.get(3).get(0).text().equals("ABC")
             && english.get(3).get(0).description().equals("切换到字母键盘"));
+        check(english.get(3).get(2).text().equals("英标")
+            && english.get(3).get(2).description().equals("切换到中文标点"));
         // 中文模式关掉中文标点：标点和符号是半角英文，返回键仍是「拼音」。0.2.0 起这一层只看中英文模式，关掉中文标点照样上屏「，」。
         List<List<KeyboardLayout.LayerKey>> halfWidth = KeyboardLayout.numberLayer(true, false);
         check(texts(halfWidth.get(1)).equals(texts(english.get(1))));
@@ -78,6 +82,8 @@ public final class KeyboardLayoutSmoke {
         check(more.get(3).get(1).text().equals("符号")
             && more.get(3).get(1).description().equals("切换符号键盘")
             && more.get(3).get(1).kind() == KeyboardLayout.LayerKeyKind.SYMBOL_PANEL);
+        check(more.get(3).get(2).text().equals("中标")
+            && more.get(3).get(2).kind() == KeyboardLayout.LayerKeyKind.PUNCTUATION_TOGGLE);
         check(KeyboardLayout.moreSymbolLayer(false).get(3).get(0).text().equals("ABC"));
 
         List<List<String>> symbols = KeyboardLayout.rows(KeyboardLayout.Layer.SYMBOLS);

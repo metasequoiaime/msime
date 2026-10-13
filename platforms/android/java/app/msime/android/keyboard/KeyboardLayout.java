@@ -126,6 +126,8 @@ public final class KeyboardLayout {
         LETTERS,
         /** 123 层底行的表情键。 */
         EMOJI,
+        /** 123 / #+= 层底行的中英文标点切换。 */
+        PUNCTUATION_TOGGLE,
         /** #+= 层底行原表情位的「符号」键，打开符号面板。 */
         SYMBOL_PANEL,
         SPACE,
@@ -160,14 +162,14 @@ public final class KeyboardLayout {
 
     /** 第三行两端（`#+=` / `123` 与 ⌫）的宽度份额，与字母层的 ⇧ ⌫ 相同。 */
     public static final float LAYER_EDGE_WEIGHT = 1.4f;
-    /** 层底行的宽度份额：返回字母 1.25、表情 / 符号 1.05、空格 6、回车 1.9，合计与字母层底行一样宽（10.2）。 */
+    /** 层底行的宽度份额：返回字母 1.25、表情 / 符号 1.05、中英文标点 1.05、空格 4.95、回车 1.9，合计与原来的底行一样宽（10.2）。 */
     public static final float LAYER_BACK_WEIGHT = 1.25f;
     public static final float LAYER_EMOJI_WEIGHT = 1.05f;
-    public static final float LAYER_SPACE_WEIGHT = 6f;
+    public static final float LAYER_SPACE_WEIGHT = 4.95f;
     public static final float LAYER_RETURN_WEIGHT = 1.9f;
 
     /**
-     * 新设计的 123 层：1–0 / 十个符号 / `#+=` + 五个标点 + ⌫ / 拼音（或 ABC）| 😀 | 空格 | ↵。
+     * 新设计的 123 层：1–0 / 十个符号 / `#+=` + 五个标点 + ⌫ / 拼音（或 ABC）| 😀 | 中标或英标 | 空格 | ↵。
      *
      * @param chinese 中文模式用全角符号与中文标点，英文模式用 ASCII 版，底行返回键为「ABC」
      */
@@ -181,7 +183,8 @@ public final class KeyboardLayout {
             chinesePunctuation ? CHINESE_NUMBER_SYMBOLS : ENGLISH_NUMBER_SYMBOLS,
             new LayerKey("#+=", "更多符号", LayerKeyKind.LAYER_TOGGLE, LAYER_EDGE_WEIGHT),
             chinese, chinesePunctuation,
-            new LayerKey("😀", "表情", LayerKeyKind.EMOJI, LAYER_EMOJI_WEIGHT));
+            new LayerKey("😀", "表情", LayerKeyKind.EMOJI, LAYER_EMOJI_WEIGHT),
+            punctuationToggle(chinesePunctuation));
     }
 
     /**
@@ -197,7 +200,13 @@ public final class KeyboardLayout {
             chinesePunctuation ? CHINESE_MORE_SYMBOLS_SECOND : ENGLISH_MORE_SYMBOLS_SECOND,
             new LayerKey("123", "切换到数字和符号", LayerKeyKind.LAYER_TOGGLE, LAYER_EDGE_WEIGHT),
             chinese, chinesePunctuation, new LayerKey("符号", "切换符号键盘", LayerKeyKind.SYMBOL_PANEL,
-                LAYER_EMOJI_WEIGHT));
+                LAYER_EMOJI_WEIGHT), punctuationToggle(chinesePunctuation));
+    }
+
+    private static LayerKey punctuationToggle(boolean chinesePunctuation) {
+        return new LayerKey(chinesePunctuation ? "中标" : "英标",
+            chinesePunctuation ? "切换到英文标点" : "切换到中文标点",
+            LayerKeyKind.PUNCTUATION_TOGGLE, LAYER_EMOJI_WEIGHT);
     }
 
     /** 层底行左下返回字母键盘的键面：中文「拼音」、英文「ABC」；描述都是「切换到字母键盘」。 */
@@ -206,7 +215,8 @@ public final class KeyboardLayout {
     }
 
     private static List<List<LayerKey>> layer(List<String> first, List<String> second,
-            LayerKey toggle, boolean chinese, boolean chinesePunctuation, LayerKey panelKey) {
+            LayerKey toggle, boolean chinese, boolean chinesePunctuation, LayerKey panelKey,
+            LayerKey punctuationToggle) {
         List<String> punctuation = chinesePunctuation ? CHINESE_PUNCTUATION : ENGLISH_PUNCTUATION;
         List<LayerKey> third = new java.util.ArrayList<>(punctuation.size() + 2);
         third.add(toggle);
@@ -217,6 +227,7 @@ public final class KeyboardLayout {
             new LayerKey(lettersKeyTitle(chinese), "切换到字母键盘", LayerKeyKind.LETTERS,
                 LAYER_BACK_WEIGHT),
             panelKey,
+            punctuationToggle,
             new LayerKey("空格", "空格", LayerKeyKind.SPACE, LAYER_SPACE_WEIGHT),
             new LayerKey("换行", "换行", LayerKeyKind.RETURN, LAYER_RETURN_WEIGHT));
         return List.of(characters(first), characters(second), List.copyOf(third), bottom);

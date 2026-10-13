@@ -178,6 +178,14 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             tap(key("123"));
             await(key("1").and(AccessibilityNodeInfo::isClickable));
             await(described("更多符号"));
+            stage = "number layer punctuation toggle";
+            await(key("中标"));
+            tap(key("中标"));
+            await(key("英标"));
+            await(key("."));
+            tap(key("英标"));
+            await(key("中标"));
+            await(key("。"));
             tap(described("切换到字母键盘"));
             await(described("按键 Q W"));
 
