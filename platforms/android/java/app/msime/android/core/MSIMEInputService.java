@@ -1468,6 +1468,8 @@ public final class MSIMEInputService extends InputMethodService {
         flushKeyPresses();
         imeLetterRows.cancelBackspaceRepeat();
         cancelInputViewRefresh();
+        // 新输入会话会按当前隐私设置创建，不把上一个输入框的待重建请求带过去。
+        privacySessionRestartPending = false;
         engineStartGeneration++;
         cloudClipboardGeneration++;
         clipboardImageGeneration++;
