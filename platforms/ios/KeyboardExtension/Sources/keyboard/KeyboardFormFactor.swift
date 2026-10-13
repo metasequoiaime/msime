@@ -34,7 +34,7 @@ enum KeyboardFormFactor: Equatable {
 
   /// 默认键盘高度下一排按键的高度。
   ///
-  /// 竖屏用设计稿的按键高度（`KeyboardHeightPercent.portraitKeyHeight`）：手机 42pt，iPad 54pt。设计稿没有画横屏键盘，所以横屏沿用以前按系统尺寸做的横屏键盘的按键高度：手机 34pt，其中手写为 40pt，让书写区仍然够用；iPad 为更高的 73pt，和系统键盘一样随更宽的屏幕变大。
+  /// 竖屏用设计稿的按键高度（`KeyboardHeightPercent.portraitKeyHeight`）：手机 52pt，iPad 54pt。设计稿没有画横屏键盘，所以横屏沿用以前按系统尺寸做的横屏键盘的按键高度：手机 34pt，其中手写为 40pt，让书写区仍然够用；iPad 为更高的 73pt，和系统键盘一样随更宽的屏幕变大。
   func keyHeight(landscape: Bool, handwriting: Bool) -> CGFloat {
     guard landscape else { return KeyboardHeightPercent.portraitKeyHeight(tablet: self == .tablet) }
     switch self {

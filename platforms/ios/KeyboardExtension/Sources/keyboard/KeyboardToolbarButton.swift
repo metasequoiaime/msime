@@ -1,11 +1,11 @@
 import UIKit
 
-/// 键盘工具栏上的一个图标，按设计稿移动端工具栏的画法（dc.html L2200-2205）：22pt 的 `KeyboardIcon` 线框（「收起」箭头为 21pt），在所在单元格里居中。平时图标用 kbSub（皮肤的 `secondary`），与 Android 的 `toolbarIcon` 一致；「收起」箭头与 Android 的收起键一样用按键前景色。
+/// 键盘工具栏上的一个图标，按设计稿移动端工具栏的画法（dc.html L2200-2205）：26pt 的 `KeyboardIcon` 线框（「收起」箭头为 25pt），在所在单元格里居中。平时图标用 kbSub（皮肤的 `secondary`），与 Android 的 `toolbarIcon` 一致；「收起」箭头与 Android 的收起键一样用按键前景色。
 ///
 /// 对应面板打开时（`isActive`），图标后面出现一块 40pt、圆角 12 的 `toolbarActiveBackground` 底板，图标变成强调色，两者都在 .15s 内过渡；按下时按钮缩放到 .92。它没有 configuration，所以键盘的皮肤处理（会把 configuration 带填充的每个 UIButton 画成键帽）不会动它。
 final class KeyboardToolbarButton: UIButton {
-  static let iconSide: CGFloat = 22
-  static let collapseIconSide: CGFloat = 21
+  static let iconSide: CGFloat = 26
+  static let collapseIconSide: CGFloat = 25
   static let padSide: CGFloat = 40
   static let padRadius: CGFloat = 12
   static let pressScale: CGFloat = 0.92
