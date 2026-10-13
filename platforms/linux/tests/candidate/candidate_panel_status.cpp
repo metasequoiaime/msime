@@ -17,6 +17,8 @@ int main() {
          "{\"host\":\"fcitx5\",\"limit\":\"fcitx_theme\"}\n");
   assert(candidate_panel_status_document("fcitx5", CandidatePanelLimit::Kimpanel) ==
          "{\"host\":\"fcitx5\",\"limit\":\"kimpanel\"}\n");
+  assert(candidate_panel_status_document("ibus", CandidatePanelLimit::IbusPanel) ==
+         "{\"host\":\"ibus\",\"limit\":\"ibus_panel\"}\n");
   assert(candidate_panel_status_document("ibus", CandidatePanelLimit::None) ==
          "{\"host\":\"ibus\",\"limit\":null}\n");
 
@@ -29,6 +31,9 @@ int main() {
   assert(!candidate_desktop_is_gnome_shell("X-Cinnamon"));
   assert(!candidate_desktop_is_gnome_shell(""));
   assert(!candidate_desktop_is_gnome_shell(nullptr));
+
+  assert(ibus_candidate_panel_limit(true) == CandidatePanelLimit::GnomeShell);
+  assert(ibus_candidate_panel_limit(false) == CandidatePanelLimit::IbusPanel);
 
   assert(fcitx_candidate_panel_limit("kimpanel", true) == CandidatePanelLimit::Kimpanel);
   assert(fcitx_candidate_panel_limit("classicui", false) == CandidatePanelLimit::FcitxTheme);

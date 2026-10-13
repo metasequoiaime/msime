@@ -131,14 +131,13 @@ bool candidate_panel_is_gnome_shell() {
   return gnome_shell;
 }
 
-// Tell the settings page whether the desktop panel honours the candidate font, colours and skin (see candidates/CandidatePanelStatus.h). The write is skipped when the file already says the same.
+// 告诉设置页桌面面板会忽略哪些候选外观设置（见 candidates/CandidatePanelStatus.h）：GNOME Shell 全部忽略，别的 IBus 面板忽略圆角、边框和皮肤装饰图。内容没变时不重写文件。
 void publish_candidate_panel_status() {
   const auto file = msime::linux_host::candidate_panel_status_file(g_get_user_runtime_dir());
   if (!file) return;
   msime::linux_host::write_candidate_panel_status(
       *file, msime::linux_host::candidate_panel_status_document(
-                 "ibus", candidate_panel_is_gnome_shell() ? msime::linux_host::CandidatePanelLimit::GnomeShell
-                                                          : msime::linux_host::CandidatePanelLimit::None));
+                 "ibus", msime::linux_host::ibus_candidate_panel_limit(candidate_panel_is_gnome_shell())));
 }
 
 // The panel keys are the desktop's, so before one changes, what it held is recorded for msime-linux-setup --unregister (see PanelRestoreRecord.h): the user's own value, or null for a key left at the schema default, which uninstall resets. A failed record does not hold the change back.

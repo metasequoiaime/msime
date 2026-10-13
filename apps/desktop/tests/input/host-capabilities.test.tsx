@@ -412,6 +412,10 @@ test.each([
     "kimpanel",
     "Fcitx5 的候选窗口由桌面的 Kimpanel 绘制，使用桌面自己的字体和主题，这里的候选字体、颜色和皮肤不会生效。",
   ],
+  [
+    "ibus_panel",
+    "IBus 的候选窗口由桌面的输入法面板绘制，只接收候选字体和颜色：这里的圆角、边框颜色和皮肤的装饰图在 IBus 下不会生效。",
+  ],
 ] as const)(
   "a Linux panel that ignores the appearance settings (%s) is named on the appearance and skin pages",
   async (limit, note) => {
@@ -445,6 +449,7 @@ test("a panel that honours the appearance settings gets no limit note", async ()
   expect(screen.queryByText(/GNOME Shell 自己绘制/)).toBeNull();
   expect(screen.queryByText(/Fcitx5 正在使用你在 Fcitx5 配置中选择的/)).toBeNull();
   expect(screen.queryByText(/Kimpanel 绘制/)).toBeNull();
+  expect(screen.queryByText(/IBus 的候选窗口由桌面的输入法面板绘制/)).toBeNull();
 });
 
 test("Linux panel font takes the family and size but not a preedit size", async () => {

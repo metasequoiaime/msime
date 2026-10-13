@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <nlohmann/json.hpp>
@@ -362,6 +363,8 @@ int main(int argc, char **argv) {
   try {
     // This fixture asserts RegisterProperties and must exercise the real menu path.
     g_unsetenv("MSIME_DISABLE_IBUS_PROPERTIES");
+    // 宿主按桌面名判断是不是 GNOME Shell（候选面板状态见下），在 GNOME 桌面里跑这个测试也不能改变它的结论。
+    g_unsetenv("XDG_CURRENT_DESKTOP");
     // Synthetic fixture only; the production host does not invoke this
     // bootstrap.
     gchar *temporary = g_dir_make_tmp("msime-ibus-test-XXXXXX", nullptr);
@@ -530,6 +533,18 @@ int main(int argc, char **argv) {
     invoke("FocusIn");
     require(!wait_until([&] { return seen.auxiliary_visible; }) || seen.auxiliary != "中",
             "A repeated focus showed the input mode again");
+    // GNOME Shell 以外，IBus 宿主告诉设置页它的面板只接收字体和颜色（candidate-panel.json 的 ibus_panel），设置页据此说明圆角、边框颜色和皮肤的装饰图不生效。目录名随安装版本，所以按文件名找。
+    const auto panel_status = [&] {
+      std::error_code error;
+      for (const auto &entry : std::filesystem::recursive_directory_iterator(runtime, error))
+        if (entry.path().filename() == "candidate-panel.json") {
+          std::ifstream in(entry.path(), std::ios::binary);
+          return std::string(std::istreambuf_iterator<char>(in), {});
+        }
+      return std::string{};
+    };
+    require(wait_until([&] { return panel_status() == "{\"host\":\"ibus\",\"limit\":\"ibus_panel\"}\n"; }),
+            ("IBus 宿主没有在候选面板状态里报告 ibus_panel：[" + panel_status() + "]").c_str());
     const auto finish = [&] {
       g_dbus_connection_signal_unsubscribe(client, subscription);
       ibus_object_destroy(IBUS_OBJECT(engine));

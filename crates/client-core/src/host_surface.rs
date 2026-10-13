@@ -95,6 +95,8 @@ pub enum CandidatePanelLimit {
     FcitxTheme,
     /// Fcitx5 hands the list to the desktop's Kimpanel, which draws it with the desktop's own font and theme.
     Kimpanel,
+    /// IBus 交给桌面面板（ibus-ui-gtk3 一类）的只有候选文字和 RGB 前景、背景属性：字体和颜色生效，候选窗的圆角、边框颜色和外部皮肤的装饰图都画不出来。`candidate_corner_radius` 与 `candidate_border_color` 是按平台给的，Linux 上它们说的是 Fcitx5 的 classicui 主题，所以由运行中的 IBus 宿主用这一项说明自己的面板。
+    IbusPanel,
 }
 
 impl CandidatePanelLimit {
@@ -579,6 +581,7 @@ impl HostCapabilities {
                     | HostPlatform::Android
                     | HostPlatform::Ios
             ),
+            // Linux 上只有 Fcitx5 的 classicui 主题画边框和圆角（下面的 `candidate_corner_radius` 同理）；IBus 面板画不了，运行中的 IBus 宿主经 `candidate_panel_limit`（`CandidatePanelLimit::IbusPanel`）让设置页说明这一点，能力位本身仍按平台给。
             candidate_border_color: matches!(
                 platform,
                 HostPlatform::Windows

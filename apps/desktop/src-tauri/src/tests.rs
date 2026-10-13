@@ -359,6 +359,26 @@ fn candidate_panel_status_reader_rejects_oversized_documents() {
     assert!(super::read_candidate_panel_status(&path).is_none());
 }
 
+/// IBus 宿主在 GNOME Shell 以外的会话里写 `ibus_panel`：设置页读到它，才会说明圆角、边框颜色和皮肤装饰图在 IBus 面板上不生效，「关于」页照样认出输入法框架。
+#[test]
+fn candidate_panel_status_reader_reports_the_ibus_panel_limit() {
+    use msime_client_core::host_surface::{environment, CandidatePanelLimit};
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("candidate-panel.json");
+    // 与 platforms/linux 的 candidate_panel_status_document("ibus", IbusPanel) 逐字节相同。
+    std::fs::write(&path, b"{\"host\":\"ibus\",\"limit\":\"ibus_panel\"}\n").unwrap();
+    let document = super::read_candidate_panel_status(&path).unwrap();
+    assert_eq!(
+        CandidatePanelLimit::from_host_status(&document),
+        Some(CandidatePanelLimit::IbusPanel)
+    );
+    assert_eq!(
+        environment::input_method_framework_from_host_status(&document).as_deref(),
+        Some("IBus")
+    );
+}
+
 #[test]
 fn clipboard_text_validation_enforces_nonempty_nul_free_byte_limit() {
     assert!(!crate::clipboard_history::clipboard_text_is_valid(""));

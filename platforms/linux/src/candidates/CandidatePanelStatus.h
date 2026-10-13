@@ -27,6 +27,8 @@ enum class CandidatePanelLimit {
   FcitxTheme,
   // Fcitx5 hands the list to the desktop's Kimpanel, which uses the desktop's own font and theme.
   Kimpanel,
+  // IBus 交给桌面面板（ibus-ui-gtk3 一类）的只有候选文字和 RGB 前景、背景属性，面板字体由宿主写进它的设置：字体和颜色生效，候选窗的圆角、边框和外部皮肤的装饰图都无从表达。只有 Fcitx5 的 classicui 主题画这些，所以 Linux 的能力位照样声明它们，由 IBus 宿主在这里说明自己的面板画不了。
+  IbusPanel,
 };
 
 inline const char *candidate_panel_limit_name(CandidatePanelLimit limit) {
@@ -37,6 +39,8 @@ inline const char *candidate_panel_limit_name(CandidatePanelLimit limit) {
     return "fcitx_theme";
   case CandidatePanelLimit::Kimpanel:
     return "kimpanel";
+  case CandidatePanelLimit::IbusPanel:
+    return "ibus_panel";
   case CandidatePanelLimit::None:
     break;
   }
@@ -72,6 +76,11 @@ inline bool candidate_desktop_is_gnome_shell(const char *current_desktop) {
     rest.remove_prefix(colon + 1);
   }
   return gnome;
+}
+
+// IBus 宿主的结论：GNOME Shell 自己画候选弹窗，字体、颜色和皮肤都不读；别的桌面上 IBus 面板读字体和颜色，画不了圆角、边框和装饰图。IBus 没有全部生效的情形，所以从不报告 None。
+inline CandidatePanelLimit ibus_candidate_panel_limit(bool gnome_shell) {
+  return gnome_shell ? CandidatePanelLimit::GnomeShell : CandidatePanelLimit::IbusPanel;
 }
 
 // Fcitx5 names its active user interface addon: the classic UI honours the MSIME theme unless the user picked another one; Kimpanel draws nothing of it.

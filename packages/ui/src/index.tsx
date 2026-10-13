@@ -1704,7 +1704,7 @@ export interface HostCapabilities {
   expand_candidates?: boolean;
   candidate_row_colors: boolean;
   candidate_selection_appearance: boolean;
-  /** The host outlines the candidate panel in the border colour. Linux does (Fcitx5's classic UI theme) without any hover state. */
+  /** 宿主用边框颜色给候选窗描边。Linux 由 Fcitx5 的 classicui 主题描边，没有 hover 状态；IBus 面板描不了，运行中的 IBus 宿主以 `candidate_panel_limit: "ibus_panel"` 说明。 */
   candidate_border_color: boolean;
   /** The host draws its own floating candidate window and scales its font and geometry by `candidate_scale_percent`. */
   candidate_window_scale: boolean;
@@ -1757,8 +1757,8 @@ export interface HostCapabilities {
   input_method_framework?: string;
   /** 设备型号（Linux 的 DMI 厂商与产品名）。 */
   device_model?: string;
-  /** Why the Linux desktop panel drawing the candidate list ignores the candidate font, colours and skin, as the running host reported it. Absent when the panel honours them. */
-  candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel";
+  /** 运行中的 Linux 宿主报告的、画候选列表的桌面面板为什么不理会候选字体、颜色和皮肤；面板全都照办时缺省。`ibus_panel` 是部分不生效：IBus 面板接收字体和颜色，不接收圆角、边框颜色和皮肤的装饰图。 */
+  candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel" | "ibus_panel";
   /** The host plays the sound packs in `plugins`: key sounds, the melody, the commit sound and the achievement jingle. */
   key_sound: boolean;
   /** The host routes the V, / and @ modes: it hands / and @ to the runtime, keeps digits as input while a mode spells with them, and loads the command tables and the @ name list. */

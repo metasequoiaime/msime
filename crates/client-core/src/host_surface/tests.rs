@@ -632,6 +632,11 @@ fn candidate_panel_limit_reads_only_what_the_host_reported() {
         CandidatePanelLimit::from_host_status(r#"{"host":"fcitx5","limit":"kimpanel"}"#),
         Some(CandidatePanelLimit::Kimpanel)
     );
+    // platforms/linux 的 candidate_panel_status_document("ibus", IbusPanel) 逐字节写出的就是这一行。
+    assert_eq!(
+        CandidatePanelLimit::from_host_status("{\"host\":\"ibus\",\"limit\":\"ibus_panel\"}\n"),
+        Some(CandidatePanelLimit::IbusPanel)
+    );
     for document in [
         r#"{"host":"fcitx5","limit":null}"#,
         r#"{"host":"ibus"}"#,
@@ -660,6 +665,13 @@ fn candidate_panel_limit_reads_only_what_the_host_reported() {
     linux.candidate_panel_limit = Some(CandidatePanelLimit::GnomeShell);
     let encoded = serde_json::to_value(&linux).unwrap();
     assert_eq!(encoded["candidate_panel_limit"], "gnome_shell");
+    assert_eq!(
+        serde_json::from_value::<HostCapabilities>(encoded).unwrap(),
+        linux
+    );
+    linux.candidate_panel_limit = Some(CandidatePanelLimit::IbusPanel);
+    let encoded = serde_json::to_value(&linux).unwrap();
+    assert_eq!(encoded["candidate_panel_limit"], "ibus_panel");
     assert_eq!(
         serde_json::from_value::<HostCapabilities>(encoded).unwrap(),
         linux

@@ -24,6 +24,8 @@ export const candidatePanelLimitNotes: Record<
     "Fcitx5 正在使用你在 Fcitx5 配置中选择的经典界面主题，这里的候选颜色和皮肤不会覆盖它；字体仍然生效。把它改回 Fcitx5 默认主题，或在这里换一个全局主题，即可让候选颜色与皮肤生效。",
   kimpanel:
     "Fcitx5 的候选窗口由桌面的 Kimpanel 绘制，使用桌面自己的字体和主题，这里的候选字体、颜色和皮肤不会生效。",
+  ibus_panel:
+    "IBus 的候选窗口由桌面的输入法面板绘制，只接收候选字体和颜色：这里的圆角、边框颜色和皮肤的装饰图在 IBus 下不会生效。",
 };
 
 // The last column is the description on a host whose skin reaches only the candidate window (Linux presents the toolbar as an input method menu).

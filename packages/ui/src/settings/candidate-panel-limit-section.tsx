@@ -1,7 +1,7 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { candidatePanelLimitNotes } from "./settings-options";
 
-export type CandidatePanelLimit = "gnome_shell" | "fcitx_theme" | "kimpanel";
+export type CandidatePanelLimit = "gnome_shell" | "fcitx_theme" | "kimpanel" | "ibus_panel";
 
 export interface CandidatePanelLimitSectionProps {
   limit: CandidatePanelLimit;
