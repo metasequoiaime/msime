@@ -1091,7 +1091,8 @@ struct State {
     const auto voice = provider_socket_fallback(
         configured, "voice_provider_socket", "MSIME_VOICE_PROVIDER_SOCKET", "voice.sock");
     const bool voice_changed = voice != voice_provider_socket;
-    const bool online_changed = online != online_provider_socket ||
+    const bool online_socket_changed = online != online_provider_socket;
+    const bool online_changed = online_socket_changed ||
                                 translation != translation_provider_socket;
     if (translation != translation_provider_socket)
       translation_reset_pending = true;
@@ -1101,6 +1102,10 @@ struct State {
       voice_cancel(engine);
     if (online_changed)
       invalidate_providers();
+    if (online_socket_changed && session) {
+      view = response(msime_client_clear_online_candidates(session, 0)).at("view");
+      view = response(msime_client_clear_online_candidates(session, 1)).at("view");
+    }
     online_provider_socket = online;
     translation_provider_socket = translation;
     voice_provider_socket = voice;
@@ -8108,6 +8113,8 @@ gboolean reload_preferences(gpointer data) {
     if (s.refresh_provider_sockets(engine) && s.focused && !s.blocked) {
       if (s.translation_reset_pending)
         clear_candidate_translations(engine);
+      if (s.session && s.view.is_object())
+        render(engine, s.view);
       publish_mode(engine);
       online_schedule(engine);
       translation_schedule(engine);

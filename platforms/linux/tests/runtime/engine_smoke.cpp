@@ -359,6 +359,7 @@ int main(int argc, char **argv) {
                                   std::string(argv[2]) == "--caps-lock" ||
                                   std::string(argv[2]) == "--japanese-toggle" ||
                                   std::string(argv[2]) == "--chaizi" ||
+                                  std::string(argv[2]) == "--online-socket-switch" ||
                                   std::string(argv[2]) == "--stale-candidate-click")))
     return 2;
   try {
@@ -557,6 +558,36 @@ int main(int argc, char **argv) {
       g_test_dbus_down(bus);
       g_object_unref(bus);
     };
+    if (argc == 3 && std::string(argv[2]) == "--online-socket-switch") {
+      const auto socket = (root / "online.sock").string();
+      TranslationProviderFixture provider(socket);
+      provider.return_online_candidate = true;
+      auto online = options;
+      online.erase("preferences_directory");
+      online["online_provider_socket"] = socket;
+      online["preferences"]["cloud_candidates"] = true;
+      online["preferences"]["candidate_translations"] = false;
+      online["preferences"]["ai_assistant"]["enabled"] = false;
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      msime_ibus_configure(online.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      phrase();
+      const auto has_old_candidate = [&] {
+        return std::find(seen.candidates.begin(), seen.candidates.end(), "云端测试  云") !=
+               seen.candidates.end();
+      };
+      require(wait_until(has_old_candidate), "Synthetic online candidate did not appear");
+      online["online_provider_socket"] = (root / "missing-online.sock").string();
+      msime_ibus_configure(online.dump());
+      require(wait_until([&] { return !has_old_candidate(); }),
+              "Changing the online socket left the previous provider's cloud candidate visible");
+      require(seen.preedit == "nihao", "Changing the online socket ended the active composition");
+      finish();
+      return 0;
+    }
     if (argc == 3 && std::string(argv[2]) == "--empty-translation") {
       const auto socket = (root / "empty-translation.sock").string();
       TranslationProviderFixture provider(socket);
@@ -1600,9 +1631,17 @@ int main(int argc, char **argv) {
       require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
                           [](const std::string &text) { return text == "云端测试  云"; }),
               "Cloud reply lost Engine identity when AI was disabled");
+      online["online_provider_socket"] = (root / "missing-online.sock").string();
+      msime_ibus_configure(online.dump());
+      require(wait_until([&] {
+                return std::find(seen.candidates.begin(), seen.candidates.end(), "云端测试  云") ==
+                       seen.candidates.end();
+              }), "Changing the online socket left the previous provider's cloud candidate visible");
+      require(seen.preedit == "nihao", "Changing the online socket ended the active composition");
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
       provider.return_online_candidate = false;
+      online["online_provider_socket"] = socket;
       online["preferences"]["cloud_candidates"] = false;
       online["preferences"]["ai_assistant"]["enabled"] = true;
       // Candidate translations share the fixture socket through the online fallback, so the private-field block below can prove translation requests stop there too.
