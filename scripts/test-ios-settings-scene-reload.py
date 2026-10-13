@@ -62,6 +62,11 @@ class SettingsSceneReloadContract(unittest.TestCase):
         self.assertIn("scheme = InputSchemePreference.scheme", source)
         self.assertNotIn("@Environment(\\.scenePhase)", source)
 
+    def test_skin_settings_uses_shared_reload_modifier(self):
+        path = ROOT / "platforms/ios/App/Sources/settings/FeatureSettingsViews.swift"
+        source = path.read_text()
+        self.assertIn(".reloadOnAppearAndActive({ reloadLibrary(); reloadThemes() })", source)
+
 
 if __name__ == "__main__":
     unittest.main()
