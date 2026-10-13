@@ -16,8 +16,7 @@ struct VocabularyReviewSettingsView: View {
   @State private var confirmsReset = false
   @State private var picking = false
   @State private var pending: Task<Void, Never>?
-  @State private var visible = false
-  @State private var generation = UUID()
+  @State private var request = ViewRequestGeneration()
 
   private let store = VocabularyReviewStore()
 
@@ -103,7 +102,7 @@ struct VocabularyReviewSettingsView: View {
     .designPage()
     .navigationTitle("背单词")
     .navigationBarTitleDisplayMode(.inline)
-    .task { visible = true; if !loaded { reload() } }
+    .task { request.appear(); if !loaded { reload() } }
     .alert("清空全部复习进度？", isPresented: $confirmsReset) {
       Button("取消", role: .cancel) {}
       Button("清空", role: .destructive) { act { try store.reset() } }
@@ -119,8 +118,7 @@ struct VocabularyReviewSettingsView: View {
       importWordbook(from: url)
     }
     .onDisappear {
-      visible = false
-      generation = UUID()
+      request.disappear()
       pending?.cancel()
       pending = nil
       busy = false
@@ -196,16 +194,16 @@ struct VocabularyReviewSettingsView: View {
   }
 
   private func importWordbook(from url: URL) {
-    guard visible, !busy else { return }
-    let id = generation
+    guard request.isVisible, !busy else { return }
+    let id = request.begin()
     busy = true
     message = ""
     let name = String(url.deletingPathExtension().lastPathComponent.prefix(64))
     let store = store
     pending = Task { @MainActor in
-      defer { if visible, generation == id { busy = false; pending = nil } }
+      defer { if request.isCurrent(id) { busy = false; pending = nil } }
       do {
-        try Task.checkCancellation()
+        try request.checkCurrent(id)
         let outcome = await Task.detached(priority: .userInitiated) {
           let scoped = url.startAccessingSecurityScopedResource()
           defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -221,7 +219,7 @@ struct VocabularyReviewSettingsView: View {
             return try store.importWordbook(name: name.isEmpty ? "导入的词表" : name, text: text)
           }
         }.value
-        guard visible, generation == id, !Task.isCancelled else { return }
+        try request.checkCurrent(id)
         switch outcome {
         case .success(let next): status = next
         case .failure(let error):
@@ -238,18 +236,18 @@ struct VocabularyReviewSettingsView: View {
   /// Two taps on 认识 in quick succession would otherwise both read the same card and the second
   /// would schedule from a state the first had already replaced.
   private func act(_ operation: @escaping () throws -> VocabularyReviewStatus) {
-    guard visible, !busy else { return }
-    let id = generation
+    guard request.isVisible, !busy else { return }
+    let id = request.begin()
     busy = true
     message = ""
     pending = Task { @MainActor in
-      defer { if visible, generation == id { busy = false; pending = nil } }
+      defer { if request.isCurrent(id) { busy = false; pending = nil } }
       do {
-        try Task.checkCancellation()
+        try request.checkCurrent(id)
         // The shared entry point takes a file lock and may read a multi-megabyte book, so it never
         // runs on the main actor.
         let outcome = await Task.detached { Result { try operation() } }.value
-        guard visible, generation == id, !Task.isCancelled else { return }
+        try request.checkCurrent(id)
         switch outcome {
         case .success(let next): status = next
         case .failure(let error):
