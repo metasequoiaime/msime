@@ -264,7 +264,7 @@ struct CommunityReplyTemplatesSection: View {
   @State private var message: String?
   @State private var pending: Task<Void, Never>?
   @State private var addTasks: [String: Task<Void, Never>] = [:]
-  @State private var addGeneration = UUID()
+  @State private var addGeneration = OperationGeneration()
   @State private var request = ViewRequestGeneration()
 
   var body: some View {
@@ -289,7 +289,7 @@ struct CommunityReplyTemplatesSection: View {
           request.disappear()
           pending?.cancel()
           pending = nil
-          addGeneration = UUID()
+          addGeneration.invalidate()
           addTasks.values.forEach { $0.cancel() }
           addTasks.removeAll()
           adding.removeAll()
@@ -328,11 +328,11 @@ struct CommunityReplyTemplatesSection: View {
 
   private func add(_ item: CommunityResource) {
     guard request.isVisible, !adding.contains(item.id) else { return }
-    let generation = addGeneration
+    let generation = addGeneration.current()
     adding.insert(item.id)
     addTasks[item.id] = Task { @MainActor in
       defer {
-        if addGeneration == generation {
+        if addGeneration.isCurrent(generation) {
           adding.remove(item.id)
           addTasks[item.id] = nil
         }
@@ -344,7 +344,7 @@ struct CommunityReplyTemplatesSection: View {
         if let index = items?.firstIndex(where: { $0.id == latest.id }) { items?[index] = latest }
         ToastCenter.shared.show("已添加「\(latest.name)」")
       } catch is CancellationError { }
-      catch { if request.isVisible, addGeneration == generation { message = error.localizedDescription } }
+      catch { if request.isVisible, addGeneration.isCurrent(generation) { message = error.localizedDescription } }
     }
   }
 
@@ -383,7 +383,7 @@ struct CommunityReplyTemplatesSection: View {
 
   @MainActor private func ensureVisible(_ generation: UUID) throws {
     try Task.checkCancellation()
-    guard request.isVisible, addGeneration == generation else { throw CancellationError() }
+    guard request.isVisible, addGeneration.isCurrent(generation) else { throw CancellationError() }
   }
 
 }

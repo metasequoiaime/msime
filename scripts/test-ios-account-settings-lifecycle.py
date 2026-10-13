@@ -32,7 +32,9 @@ class AccountSettingsLifecycleTests(unittest.TestCase):
         self.assertIn("operation = Task", self.view)
         self.assertGreaterEqual(self.view.count("let id = request.begin()"), 2)
         self.assertIn("syncTask", self.view)
-        self.assertIn("syncGeneration", self.view)
+        self.assertIn("@State private var syncGeneration = OperationGeneration()", self.view)
+        self.assertIn("syncGeneration.invalidate()", self.view)
+        self.assertEqual(self.view.count("let id = syncGeneration.begin()"), 2)
         self.assertIn("syncTask?.cancel()", self.view)
 
     def test_login_section_uses_shared_page_generation(self):

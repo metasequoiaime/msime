@@ -13,28 +13,28 @@ class IOSDeveloperOptionsLifecycleContract(unittest.TestCase):
     def test_view_owns_and_invalidates_diagnostic_tasks(self):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertRegex(source, r"@State private var pending: Task<Void, Never>\?")
-        self.assertRegex(source, r"@State private var lifecycle = UUID\(\)")
+        self.assertRegex(source, r"@State private var lifecycle = OperationGeneration\(\)")
         disappear_bodies = re.findall(r"\.onDisappear \{(?P<body>.*?)\n    \}", source, re.S)
-        body = next((body for body in disappear_bodies if "lifecycle = UUID()" in body), None)
+        body = next((body for body in disappear_bodies if "lifecycle.invalidate()" in body), None)
         self.assertIsNotNone(body, "developer options must invalidate work when it disappears")
-        self.assertIn("lifecycle = UUID()", body)
+        self.assertIn("lifecycle.invalidate()", body)
         self.assertIn("pending?.cancel()", body)
         self.assertIn("pending = nil", body)
 
     def test_export_and_reset_results_are_bound_to_current_lifecycle(self):
         source = SOURCE.read_text(encoding="utf-8")
-        self.assertRegex(source, re.compile(r"let id = lifecycle.*?pending = Task", re.S))
+        self.assertRegex(source, re.compile(r"let id = lifecycle.current\(\).*?pending = Task", re.S))
         export = re.search(r"private func export\(\).*?(?=\n  private func reset\(\))", source, re.S)
         reset = re.search(r"private func reset\(\).*?(?=\n}\n\n/// 已写好|\Z)", source, re.S)
         self.assertIsNotNone(export, "could not locate DeveloperOptionsView.export")
         self.assertIsNotNone(reset, "could not locate DeveloperOptionsView.reset")
-        self.assertIn("lifecycle == id", export.group(0))
-        self.assertIn("lifecycle == id", reset.group(0))
+        self.assertIn("lifecycle.isCurrent(id)", export.group(0))
+        self.assertIn("lifecycle.isCurrent(id)", reset.group(0))
         self.assertIn("pending = Task", export.group(0))
         self.assertIn("pending = Task", reset.group(0))
         self.assertLess(
             reset.group(0).index("DeveloperDiagnostics.resetLocalPreferences()"),
-            reset.group(0).index("guard lifecycle == id"),
+            reset.group(0).index("guard lifecycle.isCurrent(id)"),
             "reset must finish its persistent side effects even after the page disappears",
         )
 

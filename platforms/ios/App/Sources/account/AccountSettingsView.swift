@@ -23,7 +23,7 @@ struct AccountSettingsView: View {
   @State private var operation: Task<Void, Never>?
   @State private var request = ViewRequestGeneration()
   @State private var syncTask: Task<Void, Never>?
-  @State private var syncGeneration = UUID()
+  @State private var syncGeneration = OperationGeneration()
   @ObservedObject private var cloudSync = CloudSync.shared
   private let api = SkinCommunityAPI.shared
 
@@ -140,7 +140,7 @@ struct AccountSettingsView: View {
       pending = nil
       operation?.cancel()
       operation = nil
-      syncGeneration = UUID()
+      syncGeneration.invalidate()
       syncTask?.cancel()
       syncTask = nil
       busy = false
@@ -296,18 +296,17 @@ struct AccountSettingsView: View {
   /// 打开或关闭云同步，与 Android 的 `setSync` 相同：结果用一条提示说明，打开后马上比对一次（首次的「合并 / 使用云端」选择也当场弹出）。
   @MainActor private func setCloudSync(_ enabled: Bool) {
     guard request.isVisible else { return }
-    let id = UUID()
-    syncGeneration = id
+    let id = syncGeneration.begin()
     syncTask?.cancel()
     syncTask = Task { @MainActor in
-      defer { if syncGeneration == id { syncTask = nil } }
+      defer { if syncGeneration.isCurrent(id) { syncTask = nil } }
       do {
         try await cloudSync.setEnabled(enabled)
-        guard request.isVisible, syncGeneration == id, !Task.isCancelled else { return }
+        guard request.isVisible, syncGeneration.isCurrent(id), !Task.isCancelled else { return }
         ToastCenter.shared.show(enabled ? "云同步已开启" : "云同步已关闭")
       } catch is CancellationError { }
       catch {
-        guard request.isVisible, syncGeneration == id, !Task.isCancelled else { return }
+        guard request.isVisible, syncGeneration.isCurrent(id), !Task.isCancelled else { return }
         ToastCenter.shared.show(error is CloudSyncState.Failure ? "登录后才能打开云同步" : "云同步设置没有保存，请重试")
       }
     }
@@ -444,13 +443,12 @@ struct AccountSettingsView: View {
 
   @MainActor private func startCloudRefresh() {
     guard request.isVisible else { return }
-    let id = UUID()
-    syncGeneration = id
+    let id = syncGeneration.begin()
     syncTask?.cancel()
     syncTask = Task { @MainActor in
-      defer { if syncGeneration == id { syncTask = nil } }
+      defer { if syncGeneration.isCurrent(id) { syncTask = nil } }
       await cloudSync.refresh()
-      guard request.isVisible, syncGeneration == id, !Task.isCancelled else { return }
+      guard request.isVisible, syncGeneration.isCurrent(id), !Task.isCancelled else { return }
     }
   }
 
