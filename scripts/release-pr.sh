@@ -28,6 +28,7 @@ done
 
 cd "$(git rev-parse --show-toplevel)"
 command -v gh >/dev/null || { echo "需要 gh CLI" >&2; exit 1; }
+command -v python3 >/dev/null || { echo "需要 python3 生成有界 PR 正文" >&2; exit 1; }
 
 git fetch --quiet "$remote" develop main
 develop=$(git rev-parse "$remote/develop")
@@ -127,14 +128,12 @@ trap 'rm -f "$body_file"' EXIT
   echo
   echo "$merge_note"
   echo
-  echo "## 新增提交"
-  echo
-  echo "<details><summary>${commit_count} 个提交</summary>"
-  echo
-  git log --first-parent --format='- %s' "$since..$develop"
-  echo
-  echo "</details>"
 } >"$body_file"
+
+# 正文先按保守字节预算生成并校验，避免推送成功后才被 GitHub 的字符上限拒绝。
+repo_url=$(gh repo view --json url --jq .url)
+python3 scripts/release-pr-body.py --prefix-file "$body_file" --output "$body_file" \
+  --since "$since" --develop "$develop" --commit-count "$commit_count" --repo-url "$repo_url"
 
 echo "分支：$branch -> ${head:0:9}"
 echo "标题：$title"
