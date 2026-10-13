@@ -230,11 +230,11 @@ int main() {
     require(off.r == tray.text.r && off.g == tray.text.g &&
             off.b == tray.text.b && std::fabs(off.a - 0.6f) < 0.002f);
     // Hints and captions are the row text at 60% of its own opacity, so they stay subordinate to the label and never outshine it.
-    const auto secondary = tray_menu_secondary_color(tray);
-    require(secondary.r == tray.text.r && secondary.g == tray.text.g &&
-            secondary.b == tray.text.b &&
-            std::fabs(secondary.a - tray.text.a * 0.6f) < 0.002f &&
-            secondary.a > 0.0f && secondary.a < tray.text.a);
+    const auto tray_secondary = tray_menu_secondary_color(tray);
+    require(tray_secondary.r == tray.text.r && tray_secondary.g == tray.text.g &&
+            tray_secondary.b == tray.text.b &&
+            std::fabs(tray_secondary.a - tray.text.a * 0.6f) < 0.002f &&
+            tray_secondary.a > 0.0f && tray_secondary.a < tray.text.a);
   }
   // Light and dark are genuinely different menus.
   require(tray_menu_palette(defaults).surface !=
