@@ -228,14 +228,15 @@ struct HelpcodeSettingsView: View {
 
   /// A binding that merges one field into a helpcode object of the shared document; a refused write puts the stored values back.
   private func stored<Value>(_ object: String, _ field: String, _ state: Binding<[String: Value]>, _ fallback: Value) -> Binding<Value> {
-    Binding(get: { state.wrappedValue[object] ?? fallback }, set: { value in
-      state.wrappedValue[object] = value
-      let scheme = Self.schemes.first { $0.key == object } ?? Self.quanpin
-      saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
-        Self.merge(field, value, into: scheme, document: &$0)
-      }
-      if saveFailed { reload() }
-    })
+    let valueState = Binding(get: { state.wrappedValue[object] ?? fallback },
+                             set: { state.wrappedValue[object] = $0 })
+    let scheme = Self.schemes.first { $0.key == object } ?? Self.quanpin
+    return SharedPreferenceBinding.custom(state: valueState, onSave: { saved in
+      saveFailed = !saved
+      if !saved { reload() }
+    }) { document, value in
+      Self.merge(field, value, into: scheme, document: &document)
+    }
   }
 
   /// 触摸方案使用的辅助码对象：双拼 profile 用 `shuangpin_helpcode`，其余都用 `quanpin_helpcode`，与 Android 一致。
