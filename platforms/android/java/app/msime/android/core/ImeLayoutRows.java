@@ -898,19 +898,7 @@ final class ImeLayoutRows {
     }
 
     static String japaneseKeyLabel(JapaneseNineKeyLayout.Key key) {
-        java.util.List<String> kana = key.kana();
-        StringBuilder result = new StringBuilder();
-        result.append(kana.get(0)).append('\n');
-        boolean first = true;
-        int end = BoundsPolicy.atMost(5, kana.size());
-        for (int index = 1; index < end; index++) {
-            String label = kana.get(index);
-            if (label.isEmpty()) continue;
-            if (!first) result.append(' ');
-            result.append(label);
-            first = false;
-        }
-        return result.toString();
+        return key.kana().get(0);
     }
 
     void inputJapaneseStroke(String input) {
@@ -1125,7 +1113,7 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 两行键面（日语的 か / きくけこ、笔画的 一 / 横）：第二行是说明，和第一行同字号时两行装不进一行键高，下半截被裁掉。第二行缩到一半，并去掉上下内边距和字体留白。
+     * 两行键面（笔画的 一 / 横等）：第二行是说明，和第一行同字号时两行装不进一行键高，下半截被裁掉。第二行缩到一半，并去掉上下内边距和字体留白。
      */
     static void twoLineFace(Button button, String label) {
         int lineBreak = label.indexOf('\n');
@@ -1146,7 +1134,13 @@ final class ImeLayoutRows {
         String label = japaneseKeyLabel(key);
         Button button = s.keyboardKey(label, description,
             () -> tapJapaneseKey(key));
-        twoLineFace(button, label);
+        ViewPolicy.setSingleLine(button);
+        KeyboardTypographyPolicy.setKeyTextSize(button, 22);
+        // 粗体跟着键面文字保留，换肤重新设置基础字体时不会被抹掉。
+        android.text.SpannableString face = new android.text.SpannableString(label);
+        face.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+            0, label.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        button.setText(face);
         button.setContentDescription("轻点输入" + key.kana().get(0)
             + "，连续轻点依次切换；左、上、右、下滑动选择其他假名");
         bindJapaneseFlick(button, key);
