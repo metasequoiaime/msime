@@ -692,7 +692,8 @@ public final class MSIMEInputService extends InputMethodService {
         captureClipboard(ClipboardCapturePolicy.Trigger.COPIED, false);
         offerRecentClip(true);
     };
-    private long engineStartGeneration;
+    /** 只让当前输入框的启动任务占用工作线程；旧任务可能还在收尾，但不能再排队读偏好或同步词库。 */
+    private volatile long engineStartGeneration;
     private Runnable inputViewRefreshTask;
     final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService typingStatisticsWorker = new ThreadPoolExecutor(
@@ -1828,7 +1829,12 @@ public final class MSIMEInputService extends InputMethodService {
         boolean suppressLearning = learningSuppressed();
         try {
             preferencesWorker.execute(() -> {
+                // onStartInput/finishInputViewPresentation 会使上一代任务失效。工作线程是
+                // 单线程的，若让这些任务继续做实时偏好读取和个人词库同步，频繁
+                // restartInput 会把新的会话堵在「共享运行时准备中」。
+                if (generation != engineStartGeneration) return;
                 EngineStartOptions startOptions = withLivePreferences(options, suppressLearning);
+                if (generation != engineStartGeneration) return;
                 String notice = "";
                 try {
                     JSONObject sync = value(NativeClient.personalDictionarySync(options));
@@ -1840,6 +1846,7 @@ public final class MSIMEInputService extends InputMethodService {
                 } catch (Exception | LinkageError ignored) {
                     // Personal dictionary maintenance is optional; session startup continues.
                 }
+                if (generation != engineStartGeneration) return;
                 String finalNotice = notice;
                 main.post(() -> {
                     if (generation != engineStartGeneration || connection == null || session != 0) return;

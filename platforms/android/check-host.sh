@@ -828,6 +828,13 @@ if ! sed -n '/private void startEngineSession(String optionsText, String livePre
   echo "Android toolbar must not start each editor from the factory-default preference copy" >&2
   exit 1
 fi
+# 输入框切换会让旧的启动任务失效；旧任务不能继续占住单线程偏好工作队列，否则新的会话会一直显示「共享运行时准备中」（#7728）。
+startup_body=$(sed -n '/private void scheduleEngineStartup(String options, long generation)/,/^    }$/p' "$account_service")
+if ! rg -q 'private volatile long engineStartGeneration;' "$account_service" \
+  || [[ "$(printf '%s\n' "$startup_body" | rg -c 'if \(generation != engineStartGeneration\) return;')" -lt 3 ]]; then
+  echo "Android engine startup must abandon stale generations before and after background work (#7728)" >&2
+  exit 1
+fi
 # 候选条的配色和字号同理（#5933）：副本是出厂的薄荷设计，按它重算会让每个新输入框的候选条先铺一层薄荷底、字号回到出厂的 18/15，实时偏好到了才换回来。只有实时偏好重算候选条外观，冷启动的第一帧按皮肤片段算，片段里要记着候选条用到的字段；按片段着色之前要先读本地设置，否则应用主题种子按默认值缓存。
 if ! sed -n '/private void applyEditorPreferences(JSONObject preferences,$/,/^    }$/p' "$account_service" \
     | rg_q_stdin '^\s*if \(live\) applyCandidateAppearance\(preferences\);' \
