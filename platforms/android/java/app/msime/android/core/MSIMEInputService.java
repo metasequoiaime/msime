@@ -1435,6 +1435,14 @@ public final class MSIMEInputService extends InputMethodService {
         super.onStartInputView(info, restarting);
         Telemetry.inputViewShown(this);
         cancelInputViewRefresh();
+        // 同一编辑器的键盘视图可以单独收起、再显示。收起时启动代次作废，但这不会触发新的
+        // onStartInput；把那次尚未建成的会话重新排上，避免一直停在「准备中」的直接输入状态。
+        if (InputViewRefreshPolicy.shouldResumeCancelledStartup(
+                pendingEngineStartup, engineStartGeneration, session,
+                connection, getCurrentInputConnection(),
+                info != null && EditorPolicy.useEngine(info.inputType))) {
+            scheduleEngineStartup(runtimeOptionsForSnapshot, engineStartGeneration);
+        }
         final long expectedGeneration = engineStartGeneration;
         final InputConnection expectedConnection = connection;
         inputViewRefreshTask = () -> {

@@ -1,6 +1,6 @@
 package app.msime.android;
 
-/** Guards a delayed input-view refresh against a stale editor or active composition. */
+/** 保护输入视图延迟刷新，并判断收起视图取消的引擎启动能否在同一编辑器重新显示时恢复。 */
 public final class InputViewRefreshPolicy {
     private InputViewRefreshPolicy() {}
 
@@ -17,5 +17,20 @@ public final class InputViewRefreshPolicy {
             && expectedConnection == currentConnection
             && viewValid
             && !hasComposition;
+    }
+
+    public static boolean shouldResumeCancelledStartup(
+            long pendingGeneration,
+            long currentGeneration,
+            long session,
+            Object expectedConnection,
+            Object currentConnection,
+            boolean engineEditor) {
+        return pendingGeneration >= 0
+            && pendingGeneration != currentGeneration
+            && session == 0
+            && expectedConnection != null
+            && expectedConnection == currentConnection
+            && engineEditor;
     }
 }
