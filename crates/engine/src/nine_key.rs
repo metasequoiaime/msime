@@ -250,7 +250,7 @@ pub struct NineKeySession {
     frequency: FrequencyAdjustmentOptions,
     fuzzy: FuzzyPinyinOptions,
     english_options: EnglishInputOptions,
-    /// 候选里混入 emoji、颜文字（共享偏好 `mixed_input.emoji` / `mixed_input.kaomoji`），默认都关。
+    /// 候选里混入 emoji、颜文字和符号（共享偏好 `mixed_input.emoji` / `mixed_input.kaomoji` / `mixed_input.symbols`）。引擎层默认都关，宿主按偏好打开。
     expressive: MixedExpressiveOptions,
     /// 组字里的日期时间行（#5952）读的墙钟；`None` 时不出这些行。跟日期时间模式同一个开关。
     inline_date_time: Option<LocalClock>,

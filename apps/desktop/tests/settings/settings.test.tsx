@@ -1116,6 +1116,31 @@ test("mixed candidate defaults, independent switches and threshold persist", asy
   });
 });
 
+test("symbol mixed input starts on and saves false alongside the other mixed switches", async () => {
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const symbols = (await screen.findByRole("switch", {
+    name: /^符号混输/,
+  })) as HTMLInputElement;
+  expect(symbols.checked).toBe(true);
+  fireEvent.click(symbols);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    mixed_input: { english: true, minimum_prefix: 5, emoji: false, kaomoji: false, symbols: false },
+  });
+});
+
 test("Japanese mixed input starts off and saves alongside the other mixed switches", async () => {
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(initial),

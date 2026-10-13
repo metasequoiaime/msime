@@ -28,7 +28,7 @@ export interface InputSharedSettingsSectionProps {
   /** macOS 菜单栏的输入模式状态项开关，跟在中英文切换提示之后。 */
   showInputModeStatusItem?: boolean;
   showModeScope: boolean;
-  /** 中英混输、emoji 和颜文字混输，放在「候选与联想」组的云候选之后。 */
+  /** 中英混输、符号混输、emoji 和颜文字混输，放在「候选与联想」组的云候选之后。 */
   mixedInput?: MixedInputPreferences;
   onMixedInputChange?: (mixedInput: MixedInputPreferences) => void;
   /** 本版本带临时日文，决定是否列出日文混输开关；见 `MixedInputSectionProps.temporaryJapanese`。缺省为 true。 */
@@ -105,7 +105,7 @@ export function InputSharedSettingsSection({
     />
   );
 
-  // 输入页按「基础 → 进阶」排列：先是每个人都会碰到的中英文和选词翻页，再是候选来源（云候选、中英混输与 emoji、颜文字混输、只出单字、整句联想和学习）和输出形式，进阶的快捷模式、模糊音、辅助码由页面经 beforeFrequency 放在调频之前。
+  // 输入页按「基础 → 进阶」排列：先是每个人都会碰到的中英文和选词翻页，再是候选来源（云候选、中英混输与符号、emoji、颜文字混输、只出单字、整句联想和学习）和输出形式，进阶的快捷模式、模糊音、辅助码由页面经 beforeFrequency 放在调频之前。
   const groups = (
     <>
       <GroupList title="中英文">

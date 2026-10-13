@@ -9,6 +9,8 @@ export type MixedInputPreferences = {
   kaomoji: boolean;
   /** 日文混输（实验）。后加的可选成员：Rust 端关着时不写这个键，旧文档和只写前四项的宿主都没有它，缺省按关处理；也因此不放进 `defaultMixedInput`。 */
   japanese?: boolean;
+  /** 符号混输（打拼音出符号）。后加的可选成员：Rust 端开着时不写这个键，旧文档和只写前四项的宿主都没有它，缺省按开处理；也因此不放进 `defaultMixedInput`。 */
+  symbols?: boolean;
 };
 
 export const defaultMixedInput: MixedInputPreferences = {
@@ -69,6 +71,12 @@ export function MixedInputSection({
           ))}
         </SelectRow>
       </SettingsRowStack>
+      <SwitchRow
+        title="符号混输"
+        description="打出符号的名称时，在候选项中加入对应的符号，紧跟在那个词后面（如「正负」后面是 ±、「平方米」后面是 ㎡）；要打完整的名称才出现"
+        checked={preferences.symbols ?? true}
+        onChange={(symbols) => onChange({ ...preferences, symbols })}
+      />
       {supplementalOptions.map(([key, label, description]) => (
         <SwitchRow
           key={key}

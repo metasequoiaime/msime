@@ -63,6 +63,24 @@ test("Japanese mixed input is off when the document predates it and toggles on i
   expect(onChange).toHaveBeenLastCalledWith({ ...preferences, japanese: false });
 });
 
+test("symbol mixed input is on when the document predates it and writes false only when turned off", () => {
+  const onChange = vi.fn();
+  const view = render(<MixedInputSection preferences={preferences} onChange={onChange} />);
+
+  const symbols = screen.getByRole("switch", { name: /^符号混输/ }) as HTMLInputElement;
+  expect(symbols.checked).toBe(true);
+  fireEvent.click(symbols);
+  expect(onChange).toHaveBeenLastCalledWith({ ...preferences, symbols: false });
+
+  view.rerender(
+    <MixedInputSection preferences={{ ...preferences, symbols: false }} onChange={onChange} />,
+  );
+  const off = screen.getByRole("switch", { name: /^符号混输/ }) as HTMLInputElement;
+  expect(off.checked).toBe(false);
+  fireEvent.click(off);
+  expect(onChange).toHaveBeenLastCalledWith({ ...preferences, symbols: true });
+});
+
 test("an edition without temporary Japanese does not list Japanese mixed input", () => {
   render(
     <MixedInputSection
