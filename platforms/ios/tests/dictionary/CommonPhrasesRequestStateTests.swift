@@ -22,4 +22,17 @@ final class CommonPhrasesRequestStateTests: XCTestCase {
     XCTAssertFalse(state.acceptReload(first))
     XCTAssertTrue(state.acceptReload(second))
   }
+
+  func testInvalidationClearsBusyAndRejectsInFlightRequests() {
+    var state = CommonPhrasesRequestState()
+    guard let oldRead = state.beginReload() else { return XCTFail("读取未启动") }
+    XCTAssertTrue(state.beginMutation())
+
+    state.invalidate()
+
+    XCTAssertFalse(state.busy)
+    XCTAssertFalse(state.acceptReload(oldRead))
+    guard let currentRead = state.beginReload() else { return XCTFail("失效后读取未启动") }
+    XCTAssertTrue(state.acceptReload(currentRead))
+  }
 }
