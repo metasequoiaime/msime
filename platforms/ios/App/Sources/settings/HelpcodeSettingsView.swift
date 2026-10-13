@@ -27,7 +27,6 @@ struct HelpcodeSettingsView: View {
     ("shouyouplus", "首右plus"), ("xiaohe", "小鹤"), ("jiajia", "加加"), ("wubi86", "五笔 86"),
   ]
 
-  @Environment(\.scenePhase) private var scenePhase
   @State private var enabled: [String: Bool] = [:]
   @State private var schema: [String: String] = [:]
   @State private var shown: [String: Bool] = [:]
@@ -79,7 +78,7 @@ struct HelpcodeSettingsView: View {
           Text(scheme.label)
         } footer: {
           if saveFailed && scheme.key == Self.schemes.last?.key {
-            Text("设置没有保存，键盘可能正在写入同一份设置，请再试一次。")
+            Text(SettingsSaveFailure.message)
           }
         }
       }
@@ -98,12 +97,9 @@ struct HelpcodeSettingsView: View {
       }
     }
     .navigationTitle("辅助码").navigationBarTitleDisplayMode(.inline)
-    .onAppear { request.appear(); reload() }
-    .onChange(of: scenePhase) { if $0 == .active { reload() } }
+    .reloadOnAppearAndActive(reload, onAppear: { request.appear() })
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
     }
     .fileImporter(isPresented: $importing, allowedContentTypes: [.plainText, .text, .data]) { result in
@@ -133,13 +129,13 @@ struct HelpcodeSettingsView: View {
   private func importTable(from url: URL, into scheme: Scheme) {
     guard request.isVisible, !busy else { return }
     busy = true
-    let id = claimTask()
+    let id = ViewRequestTask.claim(request: $request, pending: $pending)
     pending = Task<Void, Never> { @MainActor in
       var finished = false
       defer {
         if request.isCurrent(id) {
           if !finished { busy = false }
-          clearTask(id)
+          ViewRequestTask.clear(request: $request, pending: $pending, id: id)
         }
       }
       guard (try? request.checkCurrent(id)) != nil else { return }
@@ -147,7 +143,7 @@ struct HelpcodeSettingsView: View {
       guard (try? request.checkCurrent(id)) != nil else { return }
       busy = false
       finished = true
-      clearTask(id)
+      ViewRequestTask.clear(request: $request, pending: $pending, id: id)
       notice = result
       reload()
     }
@@ -156,13 +152,13 @@ struct HelpcodeSettingsView: View {
   private func remove(_ pack: HelpcodeChoicePolicy.Pack) {
     guard request.isVisible, !busy else { return }
     busy = true
-    let id = claimTask()
+    let id = ViewRequestTask.claim(request: $request, pending: $pending)
     pending = Task<Void, Never> { @MainActor in
       var finished = false
       defer {
         if request.isCurrent(id) {
           if !finished { busy = false }
-          clearTask(id)
+          ViewRequestTask.clear(request: $request, pending: $pending, id: id)
         }
       }
       guard (try? request.checkCurrent(id)) != nil else { return }
@@ -170,7 +166,7 @@ struct HelpcodeSettingsView: View {
       guard (try? request.checkCurrent(id)) != nil else { return }
       busy = false
       finished = true
-      clearTask(id)
+      ViewRequestTask.clear(request: $request, pending: $pending, id: id)
       notice = result
       reload()
     }
@@ -232,14 +228,15 @@ struct HelpcodeSettingsView: View {
 
   /// A binding that merges one field into a helpcode object of the shared document; a refused write puts the stored values back.
   private func stored<Value>(_ object: String, _ field: String, _ state: Binding<[String: Value]>, _ fallback: Value) -> Binding<Value> {
-    Binding(get: { state.wrappedValue[object] ?? fallback }, set: { value in
-      state.wrappedValue[object] = value
-      let scheme = Self.schemes.first { $0.key == object } ?? Self.quanpin
-      saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
-        Self.merge(field, value, into: scheme, document: &$0)
-      }
-      if saveFailed { reload() }
-    })
+    let valueState = Binding(get: { state.wrappedValue[object] ?? fallback },
+                             set: { state.wrappedValue[object] = $0 })
+    let scheme = Self.schemes.first { $0.key == object } ?? Self.quanpin
+    return SharedPreferenceBinding.custom(state: valueState, onSave: { saved in
+      saveFailed = !saved
+      if !saved { reload() }
+    }) { document, value in
+      Self.merge(field, value, into: scheme, document: &document)
+    }
   }
 
   /// 触摸方案使用的辅助码对象：双拼 profile 用 `shuangpin_helpcode`，其余都用 `quanpin_helpcode`，与 Android 一致。
@@ -270,22 +267,13 @@ struct HelpcodeSettingsView: View {
       shown[scheme.key] = stored["show_in_candidate_window"] as? Bool ?? scheme.defaultShown
       selectedPack[scheme.key] = HelpcodeChoicePolicy.selectedPack(of: scheme, in: preferences)
     }
-    let id = claimTask()
+    let id = ViewRequestTask.claim(request: $request, pending: $pending)
     pending = Task<Void, Never> { @MainActor in
-      defer { if request.isCurrent(id) { clearTask(id) } }
+      defer { ViewRequestTask.clear(request: $request, pending: $pending, id: id) }
       guard (try? request.checkCurrent(id)) != nil else { return }
       let loaded = await Task.detached(priority: .userInitiated) { Self.installedPacks() }.value
       guard (try? request.checkCurrent(id)) != nil else { return }
       packs = loaded
     }
-  }
-
-  private func claimTask() -> UUID {
-    pending?.cancel()
-    return request.begin()
-  }
-
-  private func clearTask(_ id: UUID) {
-    if request.isCurrent(id) { pending = nil }
   }
 }

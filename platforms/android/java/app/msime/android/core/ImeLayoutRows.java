@@ -390,17 +390,17 @@ final class ImeLayoutRows {
                     digits ? 22 : KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
                 if (NineKeyLayout.opensSymbols(key, digits)) s.nineKeySymbolKey = keyButton;
                 s.keyId(keyButton, KeyPressIds.forNineKeyDigit(key.digit()));
-                // 拼音键面保留每格的数字标记，包括点按打开符号或分词的 1；数字键面不重复标记。
+                // 九格都印长按可输入的数字；1 短按仍打开符号或分词，不把 1 送进拼音引擎。
                 keyButton.setDigitText(digits ? "" : NineKeyLayout.digitInput(key));
                 if (!digits) {
-                    boolean hasLetters = TextPolicy.isDigit(key.input()) && key.label().length() > 1;
-                    keyButton.setContentDescription("按键 " + description
-                        + (hasLetters ? "；长按输入数字或字母" : "；长按输入数字 1"));
+                    keyButton.setContentDescription("按键 " + description + "；长按输入 " + key.digit()
+                        + (NineKeyLayout.opensSymbols(key, false) ? "" : " 或字母"));
                     keyButton.setOnLongClickListener(ignored -> {
-                        // 长按计为这格的一次按压，选择弹窗选项不再计一次；1 键只提供数字，不把功能键面当字母。
+                        // 长按只算这格的一次按键，随后选择菜单不重复统计。
                         s.countKey(keyButton);
                         showNineKeyHoldOptions(keyButton, NineKeyLayout.digitInput(key),
-                            hasLetters ? key.label().toLowerCase(java.util.Locale.ROOT) : "");
+                            NineKeyLayout.opensSymbols(key, false) ? ""
+                                : key.label().toLowerCase(java.util.Locale.ROOT));
                         return true;
                     });
                 }
@@ -754,7 +754,7 @@ final class ImeLayoutRows {
         if (face.contentEquals(s.nineKeySymbolKey.getText())) return;
         s.nineKeySymbolKey.setText(face);
         s.nineKeySymbolKey.setContentDescription("按键 " + NineKeyLayout.description(key, digits, composing)
-            + (!digits && !s.nineKeyShuangpinDrawn() ? "；长按输入数字 1" : ""));
+            + (digits || s.nineKeyShuangpinDrawn() ? "" : "；长按输入 1"));
     }
 
     void updateStrokeWildcardKey() {

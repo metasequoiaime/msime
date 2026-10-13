@@ -1,6 +1,60 @@
 import XCTest
 
 final class OnboardingUITests: XCTestCase {
+  /// 瘦包在主应用下载语言词库，系统键盘在下次取得焦点后使用它。
+  @MainActor
+  func testDownloadedLanguageDictionaryWorksInSystemKeyboard() throws {
+    guard ProcessInfo.processInfo.environment["MSIME_TEST_RESOURCE_DOWNLOAD"] == "1" else {
+      throw XCTSkip("联网下载验收需显式设置 MSIME_TEST_RESOURCE_DOWNLOAD=1")
+    }
+    continueAfterFailure = false
+    let app = XCUIApplication(bundleIdentifier: "app.msime.ios")
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "--resource-pack-ui-test", "--keyboard-toolbar-ui-test"]
+    // 复用实机已安装产物时激活当前宿主，避免 launch 再次安装并重置系统键盘选择。
+    if ProcessInfo.processInfo.environment["MSIME_TEST_USE_RUNNING_APP"] == "1" { app.activate() }
+    else { app.launch() }
+    let settings = app.tabBars.buttons["设置"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 10))
+    settings.tap()
+    settings.tap()
+    reachSettingsLink("inputSettingsLink", in: app)
+    settingsEntry("inputSettingsLink", in: app).tap()
+    let cantonese = app.buttons["inputLanguage_cantonese"]
+    if !cantonese.waitForExistence(timeout: 3) {
+      let add = app.buttons["addInputLanguageButton"]
+      for _ in 0..<5 where !add.isHittable { app.swipeUp() }
+      add.tap()
+      app.buttons["addInputLanguage_cantonese"].tap()
+    }
+    let download = app.buttons.matching(identifier: "downloadResourcePack_language-dictionaries").firstMatch
+    if download.waitForExistence(timeout: 5) {
+      for _ in 0..<5 where !download.isHittable { app.swipeUp() }
+      if !download.staticTexts["取消"].exists { download.tap() }
+      XCTAssertFalse(app.alerts["下载词库"].exists, "请在非计费网络运行自动下载验收")
+      let installed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: download)
+      XCTAssertEqual(XCTWaiter.wait(for: [installed], timeout: 240), .completed, "语言词库下载应完成")
+    }
+    app.tabBars.buttons["对话"].tap()
+    let field = app.textFields["keyboardTryoutField"]
+    XCTAssertTrue(field.waitForExistence(timeout: 10))
+    field.tap()
+    let toolbar = app.buttons["moreShortcut"]
+    XCTAssertTrue(toolbar.waitForExistence(timeout: 10), "请预先启用水杉系统键盘")
+    app.buttons["schemeButton"].tap()
+    let card = app.buttons["schemeCard-cantonese"]
+    let grid = app.descendants(matching: .any)["schemePickerScroll"].firstMatch
+    for _ in 0..<5 where !card.isHittable { grid.swipeLeft() }
+    XCTAssertTrue(card.isHittable, "下载完成后键盘必须提供粤拼方案")
+    card.tap()
+    XCTAssertTrue((app.buttons["schemeButton"].value as? String)?.contains("粤") == true)
+    for letter in ["N", "E", "I"] {
+      let key = app.keys.matching(NSPredicate(format: "label IN %@", ["字母 \(letter)", "字母 \(letter.lowercased())"])).firstMatch
+      XCTAssertTrue(key.waitForExistence(timeout: 5))
+      key.tap()
+    }
+    XCTAssertTrue(app.buttons["candidate-1"].waitForExistence(timeout: 10), "下载词库必须产生候选")
+  }
+
   @MainActor
   func testAppIconsAreAvailableFromMyTabAndPersist() {
     let app = XCUIApplication()

@@ -4,7 +4,6 @@ import SwiftUI
 ///
 /// 标点开关和整句联想只存在于共享偏好文档中，键盘会话读的也是它，所以本页直接读写这份文档；键盘下次出现时会把改动交给它正在运行的会话。英文联想是键盘每次按键都会读的 App Group 开关（`EnglishSuggestionsPreference`）。设计稿里的英文自动纠正没有共享键，所以这一行和 Android 一样是英文联想；设计稿里的发现短语没有放进来，因为 iOS 还不能安装社区短语包。
 struct ExpressionSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @AppStorage(EnglishSuggestionsPreference.enabledKey, store: EnglishSuggestionsPreference.defaults)
   private var englishSuggestions = true
   @State private var chinesePunctuation = true
@@ -16,13 +15,12 @@ struct ExpressionSettingsView: View {
 
   private enum PageGroup { case punctuation, intelligence }
 
-  private static let saveFailure = "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
   private static let sentenceSubtitle = "更准确，但更耗电"
 
   var body: some View {
     ScrollView {
       VStack(spacing: 28) {
-        DesignGroup(title: "标点", footer: failedGroup == .punctuation ? Self.saveFailure : nil) {
+        DesignGroup(title: "标点", footer: failedGroup == .punctuation ? SettingsSaveFailure.message : nil) {
           DesignToggleRow(title: "使用英文标点", subtitle: lockSubtitle, isOn: englishPunctuation)
             .disabled(lock != "follow")
             .accessibilityIdentifier("englishPunctuationToggle")
@@ -42,7 +40,7 @@ struct ExpressionSettingsView: View {
           .accessibilityIdentifier("punctuationSettingsLink")
         }
 
-        DesignGroup(title: "智能", footer: failedGroup == .intelligence ? Self.saveFailure : nil) {
+        DesignGroup(title: "智能", footer: failedGroup == .intelligence ? SettingsSaveFailure.message : nil) {
           DesignSelectRow(title: "整句联想", subtitle: Self.sentenceSubtitle,
                           options: SentenceAssociationPreference.Level.allCases.map { DesignOption(title: $0.title, value: $0) },
                           selection: Binding(get: { sentenceLevel }, set: saveSentenceLevel),
@@ -68,10 +66,7 @@ struct ExpressionSettingsView: View {
     .designCanvasBackground()
     .navigationTitle("表达")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active { reload() }
-    }
+    .reloadOnAppearAndActive(reload)
   }
 
   /// 使用英文标点是 `chinese_punctuation` 取反。`punctuation_lock` 不是跟随时，键盘里以它为准，此时开关显示锁定后的形式，不能在这里改。
@@ -97,10 +92,7 @@ struct ExpressionSettingsView: View {
 
   /// 随改动写入共享文档某个顶层字段的绑定；写入被拒绝时恢复已存的值，让页面永远不会显示键盘实际没有的设置。
   private func stored(_ key: String, _ state: Binding<Bool>, group: PageGroup) -> Binding<Bool> {
-    Binding(get: { state.wrappedValue }, set: { value in
-      state.wrappedValue = value
-      record(MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = value }, group: group)
-    })
+    SharedPreferenceBinding.topLevel(key, state: state) { saved in record(saved, group: group) }
   }
 
   private func saveSentenceLevel(_ level: SentenceAssociationPreference.Level) {

@@ -4,7 +4,6 @@ import SwiftUI
 ///
 /// 不提供设计稿中的书写模式和识别后显示拼音：识别器没有多字或叠写模式，也不输出拼音。书写和笔迹的值是 App Group 中的 defaults（`HandwritingPreference`），键盘在打开手写面板时读取。
 struct HandwritingSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @State private var enabledSchemes = InputSchemePreference.enabledSchemes
   @State private var current = InputSchemePreference.scheme
   @State private var saveFailed = false
@@ -39,7 +38,7 @@ struct HandwritingSettingsView: View {
         }
 
         DesignGroup(title: "方案", footer: saveFailed
-          ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
+          ? SettingsSaveFailure.message
           : "开启后，手写出现在键盘的方案切换里。至少保留一种方案。") {
           DesignToggleRow(title: "在键盘中显示手写", isOn: Binding(get: { enabled }, set: setEnabled))
             .disabled(enabled && enabledSchemes.count == 1)
@@ -90,10 +89,7 @@ struct HandwritingSettingsView: View {
     }
     .designCanvasBackground()
     .navigationTitle("手写输入").navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active { reload() }
-    }
+    .reloadOnAppearAndActive(reload)
   }
 
   private func saveDelay(_ value: Double) {

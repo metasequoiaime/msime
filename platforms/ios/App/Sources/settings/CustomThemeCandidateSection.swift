@@ -7,7 +7,6 @@ import UniformTypeIdentifiers
 /// The candidate package, mode and colours are part of the shared global theme (`custom_theme`) and sync with the desktop; the switch that lets them replace the keyboard palette on the strip is iOS-only (see CandidatePalette). Picking a package or a colour selects the custom theme, so `onThemeChange` lets the page refresh its theme cards and preview.
 struct CustomThemeCandidateSection: View {
   var onThemeChange: () -> Void = {}
-  @Environment(\.scenePhase) private var scenePhase
   @Environment(\.colorScheme) private var colorScheme
   @AppStorage(CandidatePalette.followsDesktopKey, store: CandidatePalette.defaults)
   private var followsDesktopPalette = false
@@ -52,12 +51,7 @@ struct CustomThemeCandidateSection: View {
           Text(skinStatus).font(.footnote).foregroundStyle(.secondary)
             .accessibilityIdentifier("candidateSkinStatus")
         }
-        Picker("明暗", selection: Binding(get: { candidateTheme }, set: { value in
-          candidateTheme = value
-          saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { $0["candidate_theme"] = value }
-          if saveFailed { reload() }
-          onThemeChange()
-        })) {
+        Picker("明暗", selection: candidateThemeBinding) {
           ForEach(CandidatePalette.themes, id: \.id) { Text($0.title).tag($0.id) }
         }.accessibilityIdentifier("candidateTheme")
         ForEach(CandidatePalette.editableColors, id: \.slot) { item in
@@ -74,27 +68,21 @@ struct CustomThemeCandidateSection: View {
       Text("外部皮肤与候选颜色")
     } footer: {
       Text(saveFailed
-        ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
+        ? SettingsSaveFailure.message
         : followsDesktopPalette
         ? "候选栏使用全局主题的候选配色，与电脑版的候选窗同步；首选候选使用主题的高亮色。选外部皮肤或改颜色会切换到「自定义」主题，并以当前主题为底。“明暗”选跟随系统时，先看共享的主题设置。\n\n浅色和深色模式各选一款皮肤。皮肤只在它所基于的主题的明暗下使用：基于浅色主题的列在“浅色模式皮肤”，基于深色主题的列在“深色模式皮肤”，基于“跟随系统”的两边都列出，选它会同时用在两种模式，取消也一起取消。\n\n“导入皮肤”从“文件”里选一个含 skin.toml 的皮肤文件夹，复制进键盘能读到的共享目录，同名皮肤整个替换，并放进它所属的模式。候选栏是横排的，只列出支持横排的皮肤。"
         : "默认关闭，候选栏和按键一起使用键盘主题的颜色。打开后可以导入电脑版的外部候选皮肤、调整候选颜色。")
     }
     .fileImporter(isPresented: $importingSkin, allowedContentTypes: [.folder]) { importSkin($0) }
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { _, phase in if phase == .active { reload() } }
-    .onChange(of: selectedTheme) { reload() }
-    .onChange(of: followsDesktopPalette) { onThemeChange() }
+    .reloadOnAppearAndActive(reload)
   }
 
-  /// 自定义主题在浅色或深色模式下画的皮肤包。选一款就切到自定义主题、以包的底为底，并按包的底放进它所属的槽位（`system` 底的两个模式一起）；选“不使用外部皮肤”取消这一模式正在用的那款，同一款也放在另一个槽位时一起取消。
-  private func packageBinding(dark: Bool) -> Binding<String> {
-    Binding(get: { shownSkin(dark: dark) ?? "" }, set: { id in
-      if id.isEmpty {
-        if let shown = shownSkin(dark: dark) { themeWrite(GlobalThemePreference.removingPackage(shown)) }
-      } else if let package = installedSkins.first(where: { $0.id == id }) {
-        apply(package)
-      }
-    })
+  private var candidateThemeBinding: Binding<String> {
+    SharedPreferenceBinding.topLevel("candidate_theme", state: $candidateTheme) { saved in
+      saveFailed = !saved
+      if !saved { reload() }
+      onThemeChange()
+    }
   }
 
   /// 这一模式的选择器里能选的皮肤：支持横排、底属于这一模式或跟随系统的。

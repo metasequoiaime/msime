@@ -4,7 +4,7 @@ import { useState } from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SettingsPage, type Preferences, type Snapshot } from "@msime/ui";
 import { testHost } from "../support/host";
-import { saveSettingsNow, settingsFormReady } from "../support/settings-form";
+import { selectSettingsTab, saveSettingsNow, settingsFormReady } from "../support/settings-form";
 import { LanguageCard } from "../../../../packages/ui/src/settings/language-card";
 import {
   defaultTouchKeyboardSchemes,
@@ -332,5 +332,6 @@ test("the desktop 输入 page keeps its own groups", async () => {
   expect(groupTitles(page)).toContain("选词与翻页");
   expect(groupTitles(page)).not.toContain("语言与方案");
   expect(groupTitles(page)).not.toContain("更多");
+  selectSettingsTab("输出");
   expect(within(page).getByRole("switch", { name: "繁体输出" })).toBeTruthy();
 });

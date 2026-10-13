@@ -129,11 +129,8 @@ struct AccountProfileEditor: View {
       startLoad()
     }
     .onDisappear {
-      request.disappear()
-      operation?.cancel()
-      operation = nil
-      loadTask?.cancel()
-      loadTask = nil
+      ViewRequestTask.disappear(request: $request, pending: $operation)
+      ViewRequestTask.cancel(task: $loadTask)
       busy = false
     }
   }
@@ -250,37 +247,25 @@ struct AccountProfileEditor: View {
 
   /// 四个动作都以「这台设备不再登录」收尾,所以走同一条路:调用、回调父视图、退回上一页。失败时留在原地把原因说出来。
   private func perform(_ action: @escaping () async throws -> Void) {
-    guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    busy = true
-    actionMessage = nil
-    operation = Task {
-      defer { if request.isCurrent(id) { busy = false; operation = nil } }
-      do {
-        try await action()
-        try request.checkCurrent(id)
-        onSignedOut()
-        dismiss()
-      } catch {
-        guard request.isCurrent(id), !AccountRequestPolicy.isCancellation(error) else { return }
-        actionMessage = error.localizedDescription
-      }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $actionMessage,
+                        pending: $operation, isCancellation: AccountRequestPolicy.isCancellation) { id in
+      try await action()
+      try request.checkCurrent(id)
+      onSignedOut()
+      dismiss()
     }
   }
 
   /// 每次页面出现都重新读取资料，所以从「昵称」返回后会刷新；只有还没有内容可显示时才显示加载指示。
   @MainActor private func startLoad() {
-    guard request.isVisible else { return }
-    let id = request.begin()
-    loadTask?.cancel()
-    loadTask = Task { await load(id: id) }
+    ViewRequestTask.startLoad(request: $request, pending: $loadTask) { id in await load(id: id) }
   }
 
   @MainActor private func load(id: UUID) async {
     guard request.isCurrent(id) else { return }
     loading = profile == nil
     loadMessage = nil
-    defer { if request.isCurrent(id) { loading = false; loadTask = nil } }
+    defer { if request.isCurrent(id) { loading = false } }
     do {
       let result = try await SkinCommunityAPI.shared.profile()
       try request.checkCurrent(id)
@@ -401,9 +386,7 @@ private struct AccountNicknameEditor: View {
     .tint(MetasequoiaTheme.accent)
     .onAppear { request.appear(); editing = true }
     .onDisappear {
-      request.disappear()
-      operation?.cancel()
-      operation = nil
+      ViewRequestTask.disappear(request: $request, pending: $operation)
       saving = false
     }
   }
@@ -413,23 +396,14 @@ private struct AccountNicknameEditor: View {
     guard hasChanges else { dismiss(); return }
     guard validName else { return }
     editing = false
-    saving = true
-    message = nil
     let submittedName = normalizedName
-    let id = request.begin()
-    operation = Task {
-      defer { if request.isCurrent(id) { saving = false; operation = nil } }
-      do {
-        let updated = try await SkinCommunityAPI.shared.updateProfile(name: submittedName)
-        try request.checkCurrent(id)
-        onSaved(updated)
-        ToastCenter.shared.show("昵称已更新")
-        dismiss()
-      } catch is CancellationError { }
-      catch {
-        guard request.isCurrent(id), !AccountRequestPolicy.isCancellation(error) else { return }
-        message = error.localizedDescription
-      }
+    ViewRequestTask.run(request: $request, busy: $saving, message: $message,
+                        pending: $operation, isCancellation: AccountRequestPolicy.isCancellation) { id in
+      let updated = try await SkinCommunityAPI.shared.updateProfile(name: submittedName)
+      try request.checkCurrent(id)
+      onSaved(updated)
+      ToastCenter.shared.show("昵称已更新")
+      dismiss()
     }
   }
 }

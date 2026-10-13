@@ -60,12 +60,22 @@ for bundle in "$app" "$keyboard"; do
   test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$bundle/Info.plist")" = "$MSIME_IOS_BUILD_NUMBER"
   test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$bundle/Info.plist")" = "$MSIME_IOS_VERSION"
 done
-# 键盘扩展读粤语、注音和笔画词库；发布包必须带着它们（与 build-app.sh 对 simulator/device 产物的检查相同）。
+# 完整包核对暂存的语言词库；瘦包还需拒绝旧归档残留。
 for pair in msime-cantonese.db:msime-rime_cantonese_LICENSE.txt msime-zhuyin.db:msime-libchewing_data_LICENSE.txt msime-stroke.db:msime-rime_stroke_LICENSE.txt; do
   [[ -f "$repo_root/target/ios/language-dictionaries/${pair%%:*}" ]] || continue
   [[ -s "$keyboard/language-dictionaries/${pair%%:*}" && -f "$keyboard/language-dictionaries/${pair#*:}" ]] \
     || { echo "The archived keyboard extension lacks ${pair%%:*} or ${pair#*:}" >&2; exit 1; }
 done
+
+
+if [ "${MSIME_IOS_OMIT_ON_DEMAND:-0}" = 1 ]; then
+  for name in msime-japanese.dat msime-mozc_LICENSE.txt msime-mozc_dictionary_oss_README.txt; do
+    [ ! -e "$keyboard/EngineResources/$name" ] || { echo "slim iOS archive still contains $name" >&2; exit 1; }
+  done
+  for name in msime-cantonese.db msime-zhuyin.db msime-stroke.db; do
+    [ ! -e "$keyboard/language-dictionaries/$name" ] || { echo "slim iOS archive still contains $name" >&2; exit 1; }
+  done
+fi
 
 cat > "$build_root/ExportOptions.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

@@ -179,7 +179,7 @@ struct WelcomeFlowView: View {
           .accessibilityIdentifier("welcomeGlossToggle")
       }
       if glossSaveFailed {
-        Text("设置没有保存，键盘可能正在写入同一份设置，请再试一次。").font(.footnote).foregroundStyle(.red)
+        Text(SettingsSaveFailure.message).font(.footnote).foregroundStyle(.red)
       }
       NavigationLink(destination: KeyboardTryoutView()) {
         Text("先试试键盘").font(.system(size: 15))

@@ -289,11 +289,11 @@ struct CodeLoginView: View {
       }
       .disabled(model.busy)
       .navigationTitle(channel.title)
-      .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { pending?.cancel(); dismiss() } } }
+      .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { ViewRequestTask.cancel(task: $pending); dismiss() } } }
     }
     .onChange(of: model.user?.id) { userID in if userID != nil { dismiss() } }
     .onDisappear {
-      pending?.cancel()
+      ViewRequestTask.cancel(task: $pending)
       model.invalidate()
     }
   }

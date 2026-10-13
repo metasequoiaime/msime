@@ -2,7 +2,6 @@ import SwiftUI
 
 /// 常用语，对应 Android 的 `PhrasesPage`：列出键盘 常用语 面板中那些不带编码的短语，每条都可删除，并提供 添加常用语 操作。它通过 `CommonPhrasesBridge` 读写 App Group 里同一份 `CommonPhrases.json`，所以键盘下次打开面板时就会显示改动。每次调用存储都要拿文件锁并读写磁盘，所以放在主线程之外执行。
 struct CommonPhrasesSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @State private var phrases: [CommonPhrasesBridge.Phrase]?
   @State private var loadFailed = false
   @State private var adding = false
@@ -50,12 +49,9 @@ struct CommonPhrasesSettingsView: View {
     .designPage()
     .navigationTitle("常用语")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear { request.appear(); reload() }
-    .onChange(of: scenePhase) { _, phase in if phase == .active { reload() } }
+    .reloadOnAppearAndActive(reload, onAppear: { request.appear() })
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       requestState.invalidate()
     }
     .sheet(isPresented: $adding) {
@@ -79,9 +75,9 @@ struct CommonPhrasesSettingsView: View {
 
   private func reload() {
     guard request.isVisible, let reloadRequest = requestState.beginReload() else { return }
-    let id = claimTask()
+    let id = ViewRequestTask.claim(request: $request, pending: $pending)
     pending = Task { @MainActor in
-      defer { if request.isCurrent(id) { clearTask(id) } }
+      defer { ViewRequestTask.clear(request: $request, pending: $pending, id: id) }
       do {
         try request.checkCurrent(id)
         let loaded = await Task.detached(priority: .userInitiated) { Result { try CommonPhrasesBridge.load() } }.value
@@ -96,6 +92,8 @@ struct CommonPhrasesSettingsView: View {
           if phrases == nil { loadFailed = true }
         }
       } catch is CancellationError {
+      } catch {
+        // 业务错误已由 Result 返回；完整捕获保证任务的失败类型为 Never。
       }
     }
   }
@@ -103,13 +101,13 @@ struct CommonPhrasesSettingsView: View {
   /// 在主线程之外执行一次写入，并显示它返回的已存储列表，或说明存储拒绝的原因。写入被拒绝时会重新加载，这样在别处被删除的短语（`common_phrases_not_found`）也会从列表中消失。
   private func run(success: String, _ operation: @escaping @Sendable () throws -> [CommonPhrasesBridge.Phrase]) {
     guard request.isVisible, requestState.beginMutation() else { return }
-    let id = claimTask()
+    let id = ViewRequestTask.claim(request: $request, pending: $pending)
     pending = Task { @MainActor in
       var mutationFinished = false
       defer {
         if request.isCurrent(id) {
           if !mutationFinished { requestState.finishMutation() }
-          clearTask(id)
+          ViewRequestTask.clear(request: $request, pending: $pending, id: id)
         }
       }
       do {
@@ -118,7 +116,7 @@ struct CommonPhrasesSettingsView: View {
         try request.checkCurrent(id)
         requestState.finishMutation()
         mutationFinished = true
-        clearTask(id)
+        ViewRequestTask.clear(request: $request, pending: $pending, id: id)
         switch result {
         case .success(let list):
           phrases = list
@@ -129,17 +127,10 @@ struct CommonPhrasesSettingsView: View {
           reload()
         }
       } catch is CancellationError {
+      } catch {
+        // 业务错误已由 Result 返回；完整捕获保证任务的失败类型为 Never。
       }
     }
-  }
-
-  private func claimTask() -> UUID {
-    pending?.cancel()
-    return request.begin()
-  }
-
-  private func clearTask(_ id: UUID) {
-    if request.isCurrent(id) { pending = nil }
   }
 }
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -46,6 +46,7 @@ test("Windows saves endpoint identity across duplicate labels and enumeration re
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  selectSettingsTab("录音设备");
   const backend = await screen.findByLabelText("录音后端");
   expect(within(backend).queryByRole("option", { name: "PulseAudio" })).toBeNull();
   expect(within(backend).queryByRole("option", { name: "CoreAudio" })).toBeNull();
@@ -88,6 +89,7 @@ test("missing or legacy Windows devices are retained until the user chooses a de
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  selectSettingsTab("录音设备");
   fireEvent.click(await screen.findByRole("button", { name: "刷新设备" }));
   await screen.findByText(/未发现设备/);
   expect((screen.getByLabelText("麦克风设备") as HTMLInputElement).value).toBe("0");

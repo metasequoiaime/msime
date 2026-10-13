@@ -2,7 +2,6 @@ import SwiftUI
 
 /// 明暗与候选颜色：原先放在皮肤网格下面的外观选择器和自定义主题的候选颜色。每个控件都和在原处时一样，写入会同步的共享文档。
 struct SkinAppearanceSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @Environment(\.horizontalSizeClass) private var sizeClass
   @State private var themes: [String: String] = [:]
   @State private var themeSaveFailed = false
@@ -15,10 +14,7 @@ struct SkinAppearanceSettingsView: View {
     .designPage()
     .navigationTitle("明暗与候选颜色")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reloadThemes)
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active { reloadThemes() }
-    }
+    .reloadOnAppearAndActive(reloadThemes)
   }
 
   /// 共享文档里的「键盘明暗」（见 `KeyboardAppearancePreference`）。iPad 把键盘之外的各个面板也列出来；手机上把它们收起，因为大多数人只会设置键盘这一项。
@@ -42,7 +38,7 @@ struct SkinAppearanceSettingsView: View {
       SettingsGroupHeader(title: "明暗")
     } footer: {
       Text(themeSaveFailed
-        ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
+        ? SettingsSaveFailure.message
         : "与电脑版的颜色模式、设置界面、屏幕键盘、手写、表情和语音主题同步。颜色模式是各处选“跟随”时的默认值；设置界面就是这个 App，立即生效。键盘选“跟随系统”时先看颜色模式，再跟随当前 App 的外观；面板选“跟随键盘”时和键盘一致。键盘和面板下次打开水杉键盘时应用。")
     }
   }
@@ -56,14 +52,14 @@ struct SkinAppearanceSettingsView: View {
   }
 
   private func theme(_ key: String, fallback: String = "follow") -> Binding<String> {
-    Binding(get: { themes[key] ?? fallback }, set: { value in
-      themes[key] = value
-      themeSaveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = value }
-      if themeSaveFailed { reloadThemes() }
+    let state = Binding(get: { themes[key] ?? fallback }, set: { themes[key] = $0 })
+    return SharedPreferenceBinding.topLevel(key, state: state) { saved in
+      themeSaveFailed = !saved
+      if !saved { reloadThemes() }
       if key == AppAppearancePreference.globalKey || key == AppAppearancePreference.settingsKey {
         NotificationCenter.default.post(name: AppAppearancePreference.didChange, object: nil)
       }
-    })
+    }
   }
 
   private func reloadThemes() {

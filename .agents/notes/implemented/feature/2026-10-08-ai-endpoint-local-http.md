@@ -14,6 +14,7 @@ Status: implemented
 - 检查时不做 DNS 解析：除 `localhost` 和 `.local` 以外的域名都按公网处理，`http://lmstudio:1234`、`http://nas.home.arpa` 这类局域网域名也会被拒绝，要写成 IP 或 `.local`。
 - 用户名、密码、`#` 片段（包括空片段）、控制字符、缺主机、`scheme:///path`、超出 65535 的端口和 http(s) 以外的协议仍然无效，与原来一致。
 - 保存 Token 的来源键是 `scheme://host:port`：主机小写，端口总是写出来（https 默认 443，http 默认 80），IPv6 带方括号。原有 https 地址的来源键不变，已存的 Token 不受影响。
+- 共享设置页的 Token 说明展示服务地址，省略默认端口，保留 `/v1` 等接口前缀；请求动作与查询参数不展示。显示地址不作为来源键，Token 的存储和读取规则保持上述契约。
 - 权威实现是 `crates/client-core/src/ai/endpoint.rs`（`validate`、`credential_origin`、`is_local_network_host`）。`chat_completion_http_request`、Tauri 侧的桌面模型列表与测试（`apps/desktop/src-tauri/src/ai.rs`）、iOS 的移动端请求（`shared/mobile_ai.rs`，只在 https 地址上要求 `https_only`）、iOS 键盘偏好的 Token 来源键（`lib.rs` 的 `ios_keyboard_ai_preferences`）和 Linux 的 `ai-provider.json` 写入都调用它。
 - 设置页（`packages/ui/src/settings/ai-endpoint-policy.ts`）、Android、iOS、macOS、Windows、Linux provider 脚本和 HarmonyOS 键盘要在本地判断（填 Token 前、发请求前），各有一份同规则的实现。它们都逐条跑 `shared/contracts/ai-endpoint/cases.json`；改规则时先改 Rust 和这份用例。
 - 所有发往 AI 接口的请求仍然不跟随重定向，http 的局域网请求不会被转到别的主机；http 请求一律直连、不经过系统或环境变量里的代理（client-core 的 `blocking_client_builder`、Windows 的 `CURLOPT_NOPROXY`、Linux provider 的 `request_opener`、Android 的 `Proxy.NO_PROXY`、iOS 与 macOS 会话的空 `connectionProxyDictionary`），否则代理会收到明文 Token，而代理本身可能在公网上。https 请求照旧走代理。
@@ -35,6 +36,8 @@ Status: implemented
 - **放开所有 http 地址** — 最简单，任何自建服务（包括挂在公网 IP、没配证书的 one-api / 反代）都能直接填。但这时 API Token 和用户输入的上下文会明文经过互联网，任何一段链路上的人都能读到并盗用 Token；输入法发出去的是用户正在打的字，这个代价不能由一个设置项悄悄承担。真需要接公网服务的用户可以给它配上 https（反代或隧道），成本远低于泄露。
 - **维持只收 https** — 安全边界最清楚，不需要在每个宿主各维护一份网段判断。但本地模型服务几乎都只开 http，用户只能自己给局域网服务签证书再让手机信任，等于这个功能对本地模型不可用；而局域网内明文的风险与用户自己的网络是同一个信任域，不值得为它挡掉整类用法。
 - **按 DNS 解析结果判断域名是否在局域网** — 能让 `http://nas.home.arpa` 这类名字也可用。但解析结果随所在网络变化，同一个公网域名在某个 Wi-Fi 下解析到私有地址时就会放行，Token 下一次可能明文发往公网；检查和连接之间还会有解析结果不一致的窗口。只认字面量和 `.local` 让判断与网络环境无关。
+
+配置测试的输出预算与固定错误说明见[AI 配置测试的思考预算与错误分类](../bug-fix/2026-10-13-ai-credential-reasoning-probe.md)；请求传输和凭据来源规则沿用本篇。
 
 ## Consequences
 

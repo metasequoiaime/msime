@@ -30,31 +30,42 @@ export function statisticsOverviewMetrics({
       value: formatZhNumber(statistics.days[todayKey] ?? 0),
       unit: "字符",
       ariaLabel: "今日输入字符数",
+      ...(activity.bestDay
+        ? {
+            note: `单日最多 ${formatZhNumber(activity.bestDayCharacters)} 字符 · ${dayLabel(activity.bestDay)}`,
+          }
+        : {}),
     },
     {
       label: scopeTitle,
       value: formatZhNumber(scopeTotal),
       unit: "字符",
       ariaLabel: "当前范围输入字符数",
+      note: statisticsOverviewDetails(activity).summary,
     },
     {
       label: "今日活跃",
       title: "连续打字的时间",
       value: formatActiveTime(activity.todayActiveMs),
       ariaLabel: "今日活跃时长",
+      ...(activity.hasActivity ? { note: `累计 ${formatActiveTime(activity.totalActiveMs)}` } : {}),
     },
     {
       label: "今日速度",
       value: formatZhNumber(Math.round(activity.todaySpeed)),
       unit: "字 / 分钟",
       ariaLabel: "今日输入速度",
+      ...(activity.fastestDay
+        ? {
+            note: `单日最快 ${formatZhNumber(Math.round(activity.fastestSpeed))} 字 / 分钟 · ${dayLabel(activity.fastestDay)}`,
+          }
+        : {}),
     },
     {
       label: "平均速度",
       value: formatZhNumber(Math.round(activity.averageSpeed)),
       unit: "字 / 分钟",
       ariaLabel: "平均输入速度",
-      ...(activity.hasActivity ? { note: `共 ${formatActiveTime(activity.totalActiveMs)}` } : {}),
     },
     {
       label: "连续天数",
@@ -79,7 +90,11 @@ export function StatisticsMetric({ metric }: { metric: StatisticsOverviewMetric 
         </strong>
         {metric.unit && <small>{metric.unit}</small>}
       </div>
-      {metric.note && <small className="text-xs [color:var(--p-sub)]">{metric.note}</small>}
+      {metric.note && (
+        <small className="mt-1 text-[11px] leading-relaxed [color:var(--p-sub)]">
+          {metric.note}
+        </small>
+      )}
     </div>
   );
 }

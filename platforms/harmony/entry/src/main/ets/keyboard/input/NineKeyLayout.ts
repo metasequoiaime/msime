@@ -88,8 +88,9 @@ export class NineKeyLayout {
     return CLOSING_MARK;
   }
 
-  /** 印在字母格角落的数字，也就是点击它所拼出的数字；不发送数字的格子（分隔符、@#）为空。 */
+  /** 字母层印出长按可输入的数字；符号入口也保留 1，分词和数字层不重复印。 */
   static digitHint(key: NineKey): string {
+    if (NineKeyLayout.opensSymbols(key)) return "1";
     return NineKeyLayout.holdOptions(key).length > 0 ? key.input : "";
   }
 
@@ -97,8 +98,9 @@ export class NineKeyLayout {
     return DIGIT_SIDEBAR;
   }
 
-  /** Literal choices behind a letter key: its printed digit, then each printed letter. */
+  /** 长按选项：符号入口提供 1，字母键提供数字和各个小写字母。 */
   static holdOptions(key: NineKey): string[] {
+    if (NineKeyLayout.opensSymbols(key)) return ["1"];
     if (key.input < "2" || key.input > "9" || !/^[A-Z]{3,4}$/.test(key.label)) {
       return [];
     }

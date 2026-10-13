@@ -2961,14 +2961,12 @@ group(
   },
 );
 
-group("only a cell that spells a digit prints it in its corner", () => {
+group("九键字母层显示长按数字，包括符号入口的 1", () => {
   const rows: NineKey[][] = NineKeyLayout.touchRows();
   check(NineKeyLayout.digitHint(rows[0][1]) === "2", "ABC prints 2");
   check(NineKeyLayout.digitHint(rows[2][2]) === "9", "WXYZ prints 9");
-  check(
-    NineKeyLayout.digitHint(rows[0][0]) === "",
-    "@# sends no digit, so prints none (Android leaves it bare)",
-  );
+  check(NineKeyLayout.digitHint(rows[0][0]) === "1", "符号入口显示 1，短按仍打开符号面板");
+  check(NineKeyLayout.holdOptions(rows[0][0]).join("") === "1", "符号入口长按只提供数字 1");
   check(NineKeyLayout.digitHint(NineKeyLayout.separator()) === "", "the separator prints none");
   check(
     NineKeyLayout.digitHint(NineKeyLayout.digits()[0][1]) === "",

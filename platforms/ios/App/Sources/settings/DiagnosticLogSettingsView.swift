@@ -4,7 +4,6 @@ import SwiftUI
 ///
 /// The switch is `diagnostic_log.server` in the shared document, so it syncs with the desktop hosts; the Windows-only `diagnostic_log.tsf` is left as stored. The keyboard picks the change up the next time it appears. iPad has the room to show the end of the log beside the switch; the phone opens it on a page of its own.
 struct DiagnosticLogSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @Environment(\.horizontalSizeClass) private var sizeClass
   @State private var enabled = false
   @State private var text = ""
@@ -17,12 +16,12 @@ struct DiagnosticLogSettingsView: View {
   var body: some View {
     Form {
       Section {
-        Toggle(isOn: Binding(get: { enabled }, set: save)) {
+        Toggle(isOn: logBinding) {
           SettingsOptionLabel(title: "记录键盘诊断日志", detail: "键盘出现、收起、设置应用和出错的时间")
         }.accessibilityIdentifier("diagnosticLogEnabled")
       } footer: {
         Text(saveFailed
-          ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
+          ? SettingsSaveFailure.message
           : "只记录事件名称和键盘占用的内存，不记录按键、输入的文字、候选、账号或服务响应。日志保存在本机，超过 1 MB 时保留一份旧日志。键盘需要开启“完全访问”才能写入；下次弹出键盘时生效。")
       }
       .designRow()
@@ -61,25 +60,14 @@ struct DiagnosticLogSettingsView: View {
     .confirmationDialog("清空诊断日志？", isPresented: $confirmsClear, titleVisibility: .visible) {
       Button("清空", role: .destructive, action: clear)
     }
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { if $0 == .active { reload() } }
+    .reloadOnAppearAndActive(reload).defaultScrollAnchor(.bottom)
   }
 
-  private var logText: some View {
-    ScrollView {
-      Text(text).font(.caption.monospaced()).textSelection(.enabled)
-        .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
-    }.defaultScrollAnchor(.bottom)
-  }
-
-  private func save(_ value: Bool) {
-    enabled = value
-    saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
-      var diagnostic = $0["diagnostic_log"] as? [String: Any] ?? [:]
-      diagnostic["server"] = value
-      $0["diagnostic_log"] = diagnostic
+  private var logBinding: Binding<Bool> {
+    SharedPreferenceBinding.nested("diagnostic_log", key: "server", state: $enabled) { saved in
+      saveFailed = !saved
+      if !saved { reload() }
     }
-    if saveFailed { reload() }
   }
 
   private func clear() {

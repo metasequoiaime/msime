@@ -85,12 +85,17 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertEqual(
         (key.gestureRecognizers ?? []).compactMap { $0 as? UILongPressGestureRecognizer }.count, 1)
     }
-    // 1 键是设计稿里的 @#，点开符号面板：没有长按菜单，角上也没有数字。
+    // 1 键短按仍是符号入口，同时显示数字提示并提供长按数字。
     let symbols = try button("nineKey1", in: controller)
     XCTAssertEqual(symbols.configuration?.title, "@#")
-    XCTAssertEqual(symbols.accessibilityLabel, "符号")
-    XCTAssertTrue((symbols.gestureRecognizers ?? []).compactMap { $0 as? UILongPressGestureRecognizer }.isEmpty)
-    XCTAssertTrue(symbols.subviews.allSatisfy { $0.accessibilityIdentifier != "keyNumberHint" })
+    XCTAssertEqual(symbols.accessibilityLabel, "1 符号")
+    XCTAssertEqual(symbols.tag, 1)
+    XCTAssertEqual((symbols.gestureRecognizers ?? []).compactMap { $0 as? UILongPressGestureRecognizer }.count, 1)
+    let hint = try XCTUnwrap(symbols.subviews.first { $0.accessibilityIdentifier == "keyNumberHint" } as? UILabel)
+    XCTAssertEqual(hint.text, "1")
+    XCTAssertEqual(symbols.accessibilityHint, "长按输入 1")
+    XCTAssertEqual(KeyboardViewController.nineKeyHoldOptions(1), ["1"])
+    XCTAssertEqual(KeyboardViewController.nineKeyHoldOptions(2), ["2", "a", "b", "c"])
     // 分词键移到了右列，位于 ⌫ 和 ！ 之间，与 Android 一致。
     XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, "分词")
     XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).accessibilityLabel, "拼音分词")
@@ -162,7 +167,12 @@ final class NineKeyKeyboardTests: XCTestCase {
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     for digit in 1...9 {
-      XCTAssertEqual(try button("nineKey\(digit)", in: controller).configuration?.title, String(digit))
+      let key = try button("nineKey\(digit)", in: controller)
+      XCTAssertEqual(key.configuration?.title, String(digit))
+      XCTAssertNil(key.accessibilityHint)
+      XCTAssertTrue(try XCTUnwrap(key.subviews.first { $0.accessibilityIdentifier == "keyNumberHint" }).isHidden)
+      let hold = try XCTUnwrap(key.gestureRecognizers?.first { $0 is UILongPressGestureRecognizer })
+      XCTAssertFalse(controller.gestureRecognizerShouldBegin(hold))
     }
     XCTAssertTrue(descendants(controller.view).filter {
       $0.accessibilityLabel == "符号 1" && !($0.superview?.isHidden ?? true)
@@ -176,6 +186,13 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.view.layoutIfNeeded()
     XCTAssertEqual(try button("nineKey2", in: controller).configuration?.title, "ABC")
     XCTAssertEqual(try button("nineKey1", in: controller).configuration?.title, "@#")
+    XCTAssertFalse(try XCTUnwrap(try button("nineKey1", in: controller).subviews.first {
+      $0.accessibilityIdentifier == "keyNumberHint"
+    }).isHidden)
+    let hold = try XCTUnwrap(try button("nineKey1", in: controller).gestureRecognizers?.first {
+      $0 is UILongPressGestureRecognizer
+    })
+    XCTAssertTrue(controller.gestureRecognizerShouldBegin(hold))
     XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, "分词")
   }
 
@@ -897,6 +914,63 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertNil(reset["touch_voice_shortcut"])
   }
 
+  func testToolbarCentersRemainHittableThroughPanelSwitches() throws {
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: KeyboardViewController.defaultKeyboardHeight))
+    let keyboard = KeyboardViewController()
+    window.rootViewController = keyboard
+    window.isHidden = false
+    defer { window.isHidden = true }
+    keyboard.view.frame = window.bounds
+    keyboard.view.layoutIfNeeded()
+    for id in ["moreShortcut", "emojiShortcut", "skinShortcut", "schemeButton"] {
+      let item = try button(id, in: keyboard)
+      XCTAssertTrue(item.isEnabled, id)
+      for _ in 0..<2 {
+        let center = item.convert(CGPoint(x: item.bounds.midX, y: item.bounds.midY), to: keyboard.view)
+        let hit = keyboard.view.hitTest(center, with: nil)
+        XCTAssertTrue(hit === item || hit?.isDescendant(of: item) == true,
+                      "工具栏中心应命中按钮：\(id)，实际为 \(String(describing: hit))")
+        item.sendActions(for: .primaryActionTriggered)
+        keyboard.view.layoutIfNeeded()
+      }
+    }
+  }
+
+  func testToolbarPressKeepsEdgeTouchesAndRapidToggleResponsive() {
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 414, height: 260))
+    let host = UIViewController()
+    window.rootViewController = host
+    window.isHidden = false
+    defer { window.isHidden = true }
+    let buttons: [UIButton] = [
+      KeyboardToolbarButton(icon: .toolbarEmoji, accessibilityLabel: "表情"),
+      KeyboardBrandMarkButton(frame: .zero),
+    ]
+    for button in buttons {
+      button.frame = CGRect(x: 30, y: 30, width: 64, height: 42)
+      host.view.addSubview(button)
+      button.layoutIfNeeded()
+      let edge = CGPoint(x: button.frame.minX + 0.5, y: button.frame.midY)
+      for _ in 0..<3 {
+        button.isHighlighted = true
+        XCTAssertEqual(button.currentImage?.size, button.bounds.size, "高亮原生图像必须覆盖整格点击区域")
+        XCTAssertEqual(button.imageView?.transform, CGAffineTransform.identity, "按压不能缩小系统用来命中的图像边界")
+        let nativeRect = button.imageRect(forContentRect: button.contentRect(forBounds: button.bounds))
+        XCTAssertEqual(nativeRect, button.bounds, "系统原生内容区域必须包含按钮边缘")
+        let hit = host.view.hitTest(edge, with: nil)
+        XCTAssertTrue(hit === button || hit?.isDescendant(of: button) == true,
+                      "按压反馈不能缩小原来的点击区域")
+        if let toolbar = button as? KeyboardToolbarButton { toolbar.isActive.toggle() }
+        if let brand = button as? KeyboardBrandMarkButton { brand.isActive.toggle() }
+        button.isHighlighted = false
+        let afterToggle = host.view.hitTest(edge, with: nil)
+        XCTAssertTrue(afterToggle === button || afterToggle?.isDescendant(of: button) == true,
+                      "面板切换动画期间仍能再次点按")
+      }
+      button.removeFromSuperview()
+    }
+  }
+
   func testToolbarIsTheDesignsEqualGridOfTools() throws {
     for width in [320.0, 414.0] {
       let controller = KeyboardViewController()
@@ -1559,11 +1633,11 @@ final class NineKeyKeyboardTests: XCTestCase {
       controller.view.layoutIfNeeded()
       let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" })
       XCTAssertFalse(toolbar.isHidden)
-      // 品牌标志是放在 30pt 圆底上的官方标志，在自己的槽位里居中，排在这一行最前面。
+      // 品牌原生图像覆盖整格按钮，36pt 圆底与 24pt 官方标志在其中居中。
       let brand = try XCTUnwrap(descendants(toolbar).first { $0.accessibilityIdentifier == "keyboardBrandIcon" })
-      XCTAssertEqual(brand.bounds.width, KeyboardBrandMarkButton.discSide, accuracy: 0.1)
-      XCTAssertEqual(brand.bounds.height, KeyboardBrandMarkButton.discSide, accuracy: 0.1)
       let brandSlot = try XCTUnwrap(brand.superview)
+      XCTAssertEqual(brand.bounds.width, brandSlot.bounds.width, accuracy: 0.1)
+      XCTAssertEqual(brand.bounds.height, brandSlot.bounds.height, accuracy: 0.1)
       XCTAssertEqual(brand.center.x, brandSlot.bounds.midX, accuracy: 0.5)
       XCTAssertLessThan(brand.convert(brand.bounds, to: toolbar).maxX,
                         try button("schemeButton", in: controller).convert(try button("schemeButton", in: controller).bounds, to: toolbar).minX)
@@ -1686,7 +1760,7 @@ final class NineKeyKeyboardTests: XCTestCase {
 
     // 拼音网格的 @# 键是面板入口；九键底行不再有 符 键。
     let key = try button("nineKey1", in: controller)
-    XCTAssertEqual(key.accessibilityLabel, "符号")
+    XCTAssertEqual(key.accessibilityLabel, "1 符号")
     XCTAssertTrue(try button("symbolPanelKey", in: controller).isHidden)
     XCTAssertNil(key.menu, "这颗键不再弹菜单")
     XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })

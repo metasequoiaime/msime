@@ -43,11 +43,7 @@ import {
   statisticsHeatmapWeeks,
   sumStatisticValues,
 } from "./typing-statistics-helpers";
-import {
-  StatisticsMetric,
-  statisticsOverviewDetails,
-  statisticsOverviewMetrics,
-} from "./typing-statistics-overview";
+import { StatisticsMetric, statisticsOverviewMetrics } from "./typing-statistics-overview";
 export {
   addDays,
   currentStreak,
@@ -1548,7 +1544,6 @@ export function TypingStatisticsPage({
   const keyScopeLabel = selectedLabel ?? "累计";
   const maximum = Math.max(1, ...trendDays.map((day) => statistics.days[day.key] ?? 0));
   const activity = activityMetrics(statistics, today.key);
-  const overviewDetails = statisticsOverviewDetails(activity);
   // The reference line is the average of the window's recorded days, the same "日均" the rhythm card uses, so empty days do not drag it down.
   const trendRecorded = trendDays
     .map((day) => statistics.days[day.key] ?? 0)
@@ -1820,13 +1815,9 @@ export function TypingStatisticsPage({
             <StatisticsMetric key={metric.ariaLabel} metric={metric} />
           ))}
         </div>
-        <div className={`${axis} flex-wrap gap-x-4`}>
-          <span>{overviewDetails.summary}</span>
-          <span>{overviewDetails.best}</span>
-        </div>
-        <p className={footerNote}>
+        <p className="mt-4 mb-0 border-t border-edge pt-3 text-[11px] leading-relaxed [color:var(--p-sub)]">
           {activity.hasActivity
-            ? "速度按连续打字的时间计算，两次上屏间隔超过 10 秒算休息、不计入；只统计汉字与字母，数字和标点不参与。"
+            ? "速度统计汉字与字母；两次上屏间隔超过 10 秒视为休息，不计入活跃时长。"
             : "还没有测量到活跃时长。这项从本次更新后开始记录，之前的输入只有字数。"}
         </p>
       </section>

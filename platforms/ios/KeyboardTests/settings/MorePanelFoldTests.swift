@@ -257,15 +257,15 @@ final class MorePanelFoldTests: XCTestCase {
   }
 
   func testHeightPercentRoundTripsThroughPoints() {
-    let keyBlock = KeyboardViewController.keyBlockHeight(keyHeight: 46, rows: 4, rowSpacing: 7)
-    XCTAssertEqual(keyBlock, 205, "four 46pt phone keys and three 7pt row gaps")
+    let keyBlock = KeyboardViewController.keyBlockHeight(keyHeight: 52, rows: 4, rowSpacing: 7)
+    XCTAssertEqual(keyBlock, 229, "四排 52pt 手机按键与三个 7pt 行间距")
     XCTAssertEqual(KeyboardHeightPercent.portraitKeyBlockHeight(tablet: false, numberRow: true, rowSpacing: 7), keyBlock,
                    "a phone has no digit row")
     XCTAssertEqual(KeyboardHeightPercent.portraitKeyBlockHeight(tablet: true, numberRow: true, rowSpacing: 7), 5 * 54 + 4 * 7)
     XCTAssertEqual(KeyboardViewController.heightPercent(adjustment: 0, keyBlock: keyBlock), 100)
     XCTAssertEqual(KeyboardViewController.heightAdjustment(percent: 100, keyBlock: keyBlock), 0)
-    XCTAssertEqual(KeyboardViewController.heightPercent(adjustment: -12, keyBlock: keyBlock), 94)
-    XCTAssertEqual(KeyboardViewController.heightPercent(adjustment: 48, keyBlock: keyBlock), 123)
+    XCTAssertEqual(KeyboardViewController.heightPercent(adjustment: -12, keyBlock: keyBlock), 95)
+    XCTAssertEqual(KeyboardViewController.heightPercent(adjustment: 48, keyBlock: keyBlock), 121)
     // 无论调节条要求多少，点数都限制在共享字段的范围内。
     XCTAssertEqual(KeyboardViewController.heightAdjustment(percent: 200, keyBlock: keyBlock), 48)
     XCTAssertEqual(KeyboardViewController.heightAdjustment(percent: 50, keyBlock: keyBlock), -12)

@@ -1012,6 +1012,16 @@ fn epochs_move_with_what_the_user_sees() {
     assert!(runtime.apply_translations(generation, [("无关候选".to_owned(), "unused".to_owned())]));
     assert_eq!(epochs(&runtime), before);
 
+    // 释义配置换代会撤销旧回包；只在确实移除释义时发送候选视图事件。
+    let before = epochs(&runtime);
+    runtime.invalidate_translations().unwrap();
+    assert_eq!(runtime.composition_epoch(), before.0);
+    assert!(runtime.candidates_epoch() > before.1);
+    assert!(!runtime.apply_translations(generation, [("候选4".to_owned(), "late".to_owned())]));
+    let before = epochs(&runtime);
+    runtime.invalidate_translations().unwrap();
+    assert_eq!(epochs(&runtime), before);
+
     // 上屏结束组字，两个都变。
     let before = epochs(&runtime);
     runtime.dispatch(Action::SelectHighlighted).unwrap();

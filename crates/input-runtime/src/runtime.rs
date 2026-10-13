@@ -1129,6 +1129,16 @@ impl<E: InputEngine> Runtime<E> {
         Ok(true)
     }
 
+    /// 释义请求的配置变化时，清掉旧释义并推进候选代次，使旧异步回包不能落在新配置下。
+    pub fn invalidate_translations(&mut self) -> Result<(), RuntimeError> {
+        self.advance()?;
+        if !self.translations.is_empty() {
+            self.translations.clear();
+            self.bump_candidates_epoch();
+        }
+        Ok(())
+    }
+
     /// 同代次非空释义合并，空数组显式清理；旧代次回包不能更新展示。
     pub fn apply_translations(
         &mut self,

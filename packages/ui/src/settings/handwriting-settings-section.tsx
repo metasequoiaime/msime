@@ -223,8 +223,29 @@ export function HandwritingSettingsSection({
     )
   ) : macos ? (
     <GroupList title="macOS 手写识别板">
+      {openHandwriting && (
+        <OpenPanelRow
+          title="打开手写识别板"
+          description="使用鼠标或触控书写，识别后点击候选字复制"
+          action={onOpenHandwriting}
+          className={`secondary ${settings.openButton}`}
+        />
+      )}
+      <SettingsPreviewBlock aria-label="手写识别板预览">
+        <div className={surface.mock}>
+          <div className={surface.mockCanvas}>
+            <span className={surface.mockStroke}>水</span>
+          </div>
+          <div className={surface.mockCandidates}>
+            <span>水</span>
+            <span>永</span>
+            <span>木</span>
+            <span>未</span>
+          </div>
+        </div>
+      </SettingsPreviewBlock>
       <SettingsGroupNote>
-        请在要输入的应用里，从输入法悬浮工具栏或输入法菜单打开手写面板；识别出的字直接输入到该应用。
+        从这里打开可识别并复制文字。要直接输入到应用，请在目标应用中从输入法悬浮工具栏或菜单打开手写板。
       </SettingsGroupNote>
     </GroupList>
   ) : (

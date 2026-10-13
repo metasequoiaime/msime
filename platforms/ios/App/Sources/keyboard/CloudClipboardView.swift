@@ -113,9 +113,7 @@ struct CloudClipboardView: View {
     .sheet(isPresented: $addsText) { addSheet }
     .task { request.appear(); run { _ in nil } }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
       items = []; text = ""; devices = nil; e2eStatus = nil
     }
@@ -457,14 +455,11 @@ struct CloudClipboardView: View {
 
   /// 执行一个操作，然后重新读列表；云剪贴板开着时再读一次设备状态（操作本身已经带回设备状态时不再读）。
   @MainActor private func run(_ action: @escaping @MainActor @Sendable (String) async throws -> BackendAccountClient.ClipboardDevices?) {
-    guard request.isVisible, !busy else { return }
-    busy = true; message = nil
-    let id = request.begin()
-    pending = Task { await execute(action, requestID: id) }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message,
+                        pending: $pending) { id in await execute(action, requestID: id) }
   }
   @MainActor private func execute(_ action: @MainActor @Sendable (String) async throws -> BackendAccountClient.ClipboardDevices?, requestID id: UUID) async {
     guard request.isCurrent(id) else { return }
-    defer { if request.isCurrent(id) { busy = false; pending = nil } }
     do {
       let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
       try request.checkCurrent(id)

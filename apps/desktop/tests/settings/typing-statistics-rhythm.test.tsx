@@ -46,8 +46,8 @@ test("the rhythm cards read the measured activity", async () => {
   // 360 characters over two active minutes.
   expect((await screen.findByLabelText("今日输入速度")).textContent).toContain("180");
   expect(screen.getByLabelText("平均输入速度").textContent).toContain("180");
-  // 平均输入速度下方写着累计活跃时长。
-  expect(screen.getByText("共 2分")).toBeTruthy();
+  // 今日活跃时长下方写着累计活跃时长。
+  expect(screen.getByText("累计 2分")).toBeTruthy();
   expect(screen.getByLabelText("今日活跃时长").textContent).toContain("2分");
   expect(screen.getByLabelText("连续输入天数").textContent).toContain("1");
   await openTrend();

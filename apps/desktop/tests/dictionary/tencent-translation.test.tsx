@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
@@ -55,6 +55,7 @@ test("the credentials can be entered and are saved", async () => {
   render(<SettingsPage client={{ load: async () => snapshot, save }} />);
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("翻译服务");
 
   // Before this change there was no way to enter these at all.
   const id = await screen.findByLabelText("腾讯云 SecretId");
@@ -77,6 +78,7 @@ test("empty credentials are called out instead of silently returning nothing", a
   render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn() }} />);
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("翻译服务");
 
   // This is the user-visible defect: translation on, no keys, no explanation.
   await screen.findByText(/未填写腾讯云凭据/);
@@ -95,6 +97,7 @@ test("the copy no longer claims a Linux provider on every platform", async () =>
   render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn() }} />);
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("翻译服务");
   await screen.findByLabelText("腾讯云 SecretId");
   // Windows 在 `TranslationWorker` 里原生发出请求，所以对所有用户都说请求经过 Linux provider socket 本来就是错的。这里只改翻译相关的组：语音部分也有同样的错误说法，但那是另一处缺口，这里不动。
   const online = screen.getByRole("group", { name: "腾讯云机器翻译" });
@@ -119,6 +122,7 @@ test("Linux delegates Tencent credentials to the user-managed provider", async (
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("翻译服务");
   const online = screen.getByRole("group", { name: "在线翻译服务" });
   expect(online.textContent).toContain("tencent-provider.json");
   expect(screen.queryByLabelText("腾讯云 SecretId")).toBeNull();
@@ -157,6 +161,7 @@ test("Linux saves Tencent credentials to the provider file", async () => {
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("翻译服务");
   const online = screen.getByRole("group", { name: "在线翻译服务" });
   await waitFor(() => expect(credentials.status).toHaveBeenCalled());
   expect(online.textContent).toContain("tencent-provider.json");
@@ -207,6 +212,8 @@ test("macOS exposes the native Tencent credential probe with current settings", 
     />,
   );
 
+  await settingsFormReady();
+  selectSettingsTab("翻译服务");
   const button = await screen.findByRole("button", { name: "测试腾讯云翻译配置" });
   fireEvent.click(button);
   await screen.findByText("macOS fixture success");

@@ -5,7 +5,6 @@ struct DictionarySettingsView: View {
   /// 设计稿最多列出这么多社区词库；完整列表（搜索、详情、收藏、评分、举报和发布）在「浏览更多词库」推入的词库社区里。
   private static let discoverLimit = 8
 
-  @Environment(\.scenePhase) private var scenePhase
   @State private var habits = InputHabitPreference.mirrored
   @State private var saveFailed = false
   @State private var dictionary: PersonalDictionaryState?
@@ -59,16 +58,7 @@ struct DictionarySettingsView: View {
     .designCanvasBackground()
     .navigationTitle("词库")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { _, phase in if phase == .active { reload() } }
-    .task { await loadDiscover() }
-    .refreshable { await loadDiscover() }
-    .sheet(isPresented: $importing, onDismiss: reload) {
-      PersonalDictionaryImportView { words in
-        try store.enqueueImport(words)
-        ToastCenter.shared.show("已加入导入队列")
-      }
-    }
+    .reloadOnAppearAndActive(reload)
     .alert("导入这版词库到本机？", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
            presenting: confirming) { item in
       Button("取消", role: .cancel) {}
@@ -205,7 +195,7 @@ struct DictionarySettingsView: View {
       .opacity(stepEnabled ? 1 : 0.45)
     if saveFailed {
       DesignDivider(leading: 20)
-      Text("设置没有保存，键盘可能正在写入同一份设置，请再试一次。")
+      Text(SettingsSaveFailure.message)
         .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.danger)
         .fixedSize(horizontal: false, vertical: true)
         .padding(.vertical, 12)

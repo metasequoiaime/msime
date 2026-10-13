@@ -19,6 +19,14 @@ export function aiEndpointOrigin(endpoint: string): string | null {
   return `${scheme}://${url.hostname.toLowerCase()}:${url.port || (scheme === "https" ? "443" : "80")}`;
 }
 
+/** 给用户看的服务地址：省略默认端口和请求动作，保留 /v1 等接口前缀；不展示查询参数。 */
+export function aiEndpointServiceAddress(endpoint: string): string | null {
+  const { url } = checkAiEndpoint(endpoint);
+  if (!url) return null;
+  const path = url.pathname.replace(/\/(?:chat\/completions|responses|messages)\/?$/, "");
+  return `${url.origin}${path.replace(/\/$/, "")}`;
+}
+
 /** 接口地址不能用时给用户看的说明；地址可用时为空字符串。 */
 export function aiEndpointHint(endpoint: string): string {
   switch (aiEndpointProblem(endpoint)) {

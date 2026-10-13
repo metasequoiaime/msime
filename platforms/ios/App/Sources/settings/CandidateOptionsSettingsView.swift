@@ -8,7 +8,6 @@ import CoreFoundation
 ///
 /// 设计稿里的候选栏高度和翻页两行没有做：键盘没有候选栏高度设置和翻页按钮，扩展也拿不到可用来翻页的硬件按键。
 struct CandidateOptionsSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @State private var english = true
   @State private var minimumPrefix = 5
   @State private var emoji = false
@@ -94,7 +93,7 @@ struct CandidateOptionsSettingsView: View {
             .accessibilityIdentifier("shuangpinPreeditUsesRaw")
         }
 
-        DesignGroup(title: "候选内容", footer: saveFailed ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。" : nil) {
+        DesignGroup(title: "候选内容", footer: saveFailed ? SettingsSaveFailure.message : nil) {
           // 副标题就是隐私说明：只有打开这个开关，输入的编码才会离开设备。
           DesignToggleRow(title: "云候选", subtitle: "开启后正在输入的编码会发送到 Google 输入法服务获取候选，需允许完全访问",
                           isOn: $cloudCandidates)
@@ -131,10 +130,7 @@ struct CandidateOptionsSettingsView: View {
     }
     .designCanvasBackground()
     .navigationTitle("候选栏").navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active { reload() }
-    }
+    .reloadOnAppearAndActive(reload)
   }
 
   private var sliderRange: ClosedRange<Double> {
@@ -180,15 +176,10 @@ struct CandidateOptionsSettingsView: View {
 
   /// A binding that merges one field into a nested object of the shared document; a refused write puts the stored value back.
   private func stored<Value>(_ object: String, _ key: String, _ state: Binding<Value>) -> Binding<Value> {
-    Binding(get: { state.wrappedValue }, set: { value in
-      state.wrappedValue = value
-      saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
-        var nested = $0[object] as? [String: Any] ?? [:]
-        nested[key] = value
-        $0[object] = nested
-      }
-      if saveFailed { reload() }
-    })
+    SharedPreferenceBinding.nested(object, key: key, state: state) { saved in
+      saveFailed = !saved
+      if !saved { reload() }
+    }
   }
 
   /// A family name, marked when this device does not have it and the keyboard therefore skips it.
@@ -203,11 +194,10 @@ struct CandidateOptionsSettingsView: View {
 
   /// A binding that writes one top-level field of the shared document; a refused write puts the stored value back.
   private func storedTop<Value>(_ key: String, _ state: Binding<Value>) -> Binding<Value> {
-    Binding(get: { state.wrappedValue }, set: { value in
-      state.wrappedValue = value
-      saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = value }
-      if saveFailed { reload() }
-    })
+    SharedPreferenceBinding.topLevel(key, state: state) { saved in
+      saveFailed = !saved
+      if !saved { reload() }
+    }
   }
 
   private func reload() {

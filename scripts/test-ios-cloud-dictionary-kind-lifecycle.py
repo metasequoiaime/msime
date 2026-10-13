@@ -8,6 +8,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "platforms/ios/App/Sources/dictionary/CloudDictionaryView.swift"
 GENERATION = ROOT / "platforms/ios/App/Sources/app/ViewRequestGeneration.swift"
+TASK = ROOT / "platforms/ios/App/Sources/app/ViewRequestTask.swift"
 
 
 class IOSCloudDictionaryKindLifecycleContract(unittest.TestCase):
@@ -26,8 +27,11 @@ class IOSCloudDictionaryKindLifecycleContract(unittest.TestCase):
         disappear = re.search(r"\.onDisappear \{(?P<body>.*?)\n    \}", source, re.S)
         self.assertIsNotNone(disappear, "leaving the dictionary page must invalidate its request")
         body = disappear.group("body")
-        self.assertIn("request.disappear()", body)
-        self.assertIn("pending?.cancel()", body)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $pending)", body)
+        task = TASK.read_text(encoding="utf-8")
+        self.assertIn("request.wrappedValue.disappear()", task)
+        self.assertIn("pending.wrappedValue?.cancel()", task)
+        self.assertIn("pending.wrappedValue = nil", task)
         self.assertIn("busy = false", body)
 
     def test_load_result_is_bound_to_requested_kind_and_generation(self):
@@ -48,8 +52,10 @@ class IOSCloudDictionaryKindLifecycleContract(unittest.TestCase):
         run = re.search(r"private func run\(.*?\n  \}", source, re.S)
         self.assertIsNotNone(run, "could not locate CloudDictionaryView.run")
         body = run.group(0)
-        self.assertIn("let id = request.begin()", body)
-        self.assertIn("if request.isCurrent(id)", body)
+        self.assertIn("ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending", body)
+        self.assertEqual(body.count("try request.checkCurrent(id)"), 2)
+        self.assertIn("let id = request.wrappedValue.begin()", TASK.read_text(encoding="utf-8"))
+        self.assertIn("if request.wrappedValue.isCurrent(id)", TASK.read_text(encoding="utf-8"))
 
     def test_file_import_can_finish_while_parent_page_is_hidden(self):
         source = SOURCE.read_text(encoding="utf-8")

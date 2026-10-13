@@ -446,6 +446,51 @@ static void TestCustomThemeClearsSurviveSave() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+static void TestCandidateSettingsTabs(MSIMEAppearancePreferences *preferences, NSUserDefaults *defaults, NSString *suite) {
+    NSView *root = preferences.window.contentView;
+    NSSegmentedControl *tabs = (id)FindControl(root, @"候选窗口设置标签");
+    assert([tabs isKindOfClass:NSSegmentedControl.class] && tabs.segmentCount == 4 && tabs.selectedSegment == 0);
+    NSArray<NSString *> *labels = @[@"布局", @"字体大小", @"窗口样式", @"预编辑"];
+    NSArray<NSView *> *cards = @[FindControl(root, @"候选窗口卡片"), FindControl(root, @"候选字体卡片"),
+        FindControl(root, @"候选窗口样式卡片"), FindControl(root, @"候选预编辑卡片")];
+    MSIMECandidatePreviewView *preview = (id)MSIMEFindPreferenceViewOfClass(root, MSIMECandidatePreviewView.class);
+    NSTextField *sample = (id)FindControl(root, @"预览示例文字");
+    NSDictionary *before = [defaults persistentDomainForName:suite] ?: @{};
+    NSDictionary *sharedBefore = [preferences sharedPreferencesByMerging:@{}];
+    BOOL wasDark = preview.previewUsesDark;
+    sample.stringValue = @"合成 示例";
+    [NSApp sendAction:sample.action to:sample.target from:sample];
+    __block NSUInteger notifications = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:preferences queue:nil usingBlock:^(NSNotification *note) { (void)note; ++notifications; }];
+    for (NSInteger index = 0; index < 4; ++index) {
+        assert([[tabs labelForSegment:index] isEqual:labels[index]]);
+        tabs.selectedSegment = index;
+        [NSApp sendAction:tabs.action to:tabs.target from:tabs];
+        [root layoutSubtreeIfNeeded];
+        for (NSInteger other = 0; other < 4; ++other) assert(cards[other].hidden == (other != index));
+        assert(preview == MSIMEFindPreferenceViewOfClass(root, MSIMECandidatePreviewView.class));
+        assert([sample.stringValue isEqual:@"合成 示例"] && preview.previewUsesDark == wasDark);
+    }
+    assert([before isEqual:([defaults persistentDomainForName:suite] ?: @{})]);
+    // 在预编辑标签搜索另一标签的设置，结果要能打开它，而非滚到隐藏的控件。
+    NSSearchField *search = nil;
+    for (NSToolbarItem *item in preferences.window.toolbar.items)
+        if ([item isKindOfClass:NSSearchToolbarItem.class]) search = ((NSSearchToolbarItem *)item).searchField;
+    assert(search);
+    search.stringValue = @"候选字号";
+    [NSApp sendAction:search.action to:search.target from:search];
+    NSButton *result = (id)MSIMEFindPreferenceControl(root, NSSelectorFromString(@"openSearchResult:"));
+    assert(result && [result.accessibilityLabel containsString:@"候选字号"]);
+    [NSApp sendAction:result.action to:result.target from:result];
+    assert(tabs.selectedSegment == 1 && !cards[1].hidden && search.stringValue.length == 0);
+    assert(notifications == 0 && [sharedBefore isEqual:[preferences sharedPreferencesByMerging:@{}]]);
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    tabs.selectedSegment = 0;
+    [NSApp sendAction:tabs.action to:tabs.target from:tabs];
+    sample.stringValue = @"";
+    [NSApp sendAction:sample.action to:sample.target from:sample];
+}
+
 int main(int argc, const char **argv) {
     @autoreleasepool {
         [NSApplication sharedApplication];
@@ -476,6 +521,7 @@ int main(int argc, const char **argv) {
         assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot] shuangpinPreeditUsesRaw]);
         preferences.shuangpinPreeditUsesRaw = YES;
         NSWindow *window = preferences.window;
+        TestCandidateSettingsTabs(preferences, defaults, suite);
         MSIMECandidatePreviewView *preview =
             (id)MSIMEFindPreferenceViewOfClass(window.contentView, MSIMECandidatePreviewView.class);
         NSButton *theme = (id)MSIMEFindPreferenceControl(window.contentView, NSSelectorFromString(@"togglePreviewTheme:"));

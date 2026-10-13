@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-原生设置窗口的「主题」页还有一行「社区皮肤」，用 `MSIME.exe --route=settings:skin` 拉起共享 Tauri 应用，在那里浏览、安装和发布候选窗口皮肤；「插件」页则根本没有「社区插件」。共享外壳（`packages/ui/src/index.tsx`）在 Windows 上给这两页顶上各放一对标签：「我的皮肤 / 社区皮肤」挂 `CommunityCandidateSkinsPage`（`community/community-candidate-skins.tsx`，连同 `candidate-skin-publish-dialog.tsx` 和挂载时的 `useCandidateSkinSync`），「我的插件 / 社区插件」挂 `CommunityPluginsPage`（`community/community-plugins.tsx`）；`ExternalSkinCard` 上还有「发布到社区」。整项工作要求主题和插件页的任何一行都不再拉起共享应用。上一步已经备好 `msime_client_community`（见 [原生设置窗口社区页的 C 接口](../architecture/2026-10-11-windows-settings-community-host-api.md)）。
+原生设置窗口的「主题」页还有一行「社区皮肤」，用 `MSIME.exe --route=settings:skin` 拉起共享 Tauri 应用，在那里浏览、安装和发布候选窗口皮肤；「插件」页则根本没有「社区插件」。共享外壳（`packages/ui/src/index.tsx`）在 Windows 上给这两页顶上各放一对标签：「我的皮肤 / 社区皮肤」挂 `CommunityCandidateSkinsPage`（`community/community-candidate-skins.tsx`，连同 `candidate-skin-publish-dialog.tsx` 和 `useCandidateSkinSync`），「我的插件 / 社区插件」挂 `CommunityPluginsPage`（`community/community-plugins.tsx`）；`ExternalSkinCard` 上还有「发布到社区」。整项工作要求主题和插件页的任何一行都不再拉起共享应用。上一步已经备好 `msime_client_community`（见 [原生设置窗口社区页的 C 接口](../architecture/2026-10-11-windows-settings-community-host-api.md)）。
 
 ## Decision
 
@@ -25,6 +25,8 @@ Status: implemented
 - **预览图读失败就从缓存删掉（照共享页）** — 原生页面每次操作都整页重画，删掉后会马上再读，失败的图会被反复请求。
 
 ## Consequences
+
+- [共享图库的手动整库同步](../bug-fix/2026-10-13-candidate-skin-explicit-library-sync.md)取消共享页面及设置组件启动的自动同步；本篇记录的 Windows 原生 WinUI 触发时机独立于共享图库，不随该修复改变。
 
 - 主题页和插件页不再有任何一行拉起共享应用；仍会打开共享应用的只有输入工具面板（屏幕键盘、语音、手写、云词库、云剪贴板）和账号页「我的内容」打开的社区词包与回复模板。
 - 有意与共享页不同的几处：下架后连同「已安装」状态一起清掉（共享页漏清，下一个打开的作品会显示「已安装」）；卡片固定大小，长名称和说明截断；确认和举报都是页面里的内联块，与共享页一样，不是对话框。

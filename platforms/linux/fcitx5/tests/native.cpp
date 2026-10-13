@@ -406,6 +406,10 @@ void translationPreferenceChangesIncludeAccount() {
   after["translation_account"] = true;
   require(FcitxState::translationPreferencesChanged(before, after),
           "translation account changes invalidate translation requests");
+  after = before;
+  after["candidate_pronunciation"] = true;
+  require(FcitxState::translationPreferencesChanged(before, after),
+          "pronunciation changes invalidate translation requests");
 }
 
 void emojiGroupResultFencing() {
@@ -1029,6 +1033,7 @@ int main(int argc, char **argv) {
       autocorrectMarker();
       koreanHanjaGlossRow();
       scriptAnnotationRow();
+      translationPreferenceChangesIncludeAccount();
       const auto sentence = FcitxState::sentenceTranslationQuery(
           Json{{"generation", 17}, {"candidates", Json::array()}}, "合成候选", "fr");
       require(sentence.at("sentence") == true && sentence.at("target_language") == "fr",
@@ -2839,6 +2844,16 @@ int main(int argc, char **argv) {
       require(state->translation_epoch_ > translationEpochBeforeSettings &&
                   state->translation_query_.empty() && state->translation_pending_.empty(),
               "translation preference changes invalidate translation completions");
+      auto pronunciationPreferences = state->preferences_snapshot_;
+      pronunciationPreferences["preferences"]["candidate_pronunciation"] = true;
+      state->translation_query_ = "synthetic-pronunciation-query";
+      state->translation_pending_ = "synthetic-pronunciation-pending";
+      const auto translationEpochBeforePronunciation = state->translation_epoch_;
+      require(state->applyPreferenceSnapshot(std::move(pronunciationPreferences)),
+              "pronunciation preference update succeeds");
+      require(state->translation_epoch_ > translationEpochBeforePronunciation &&
+                  state->translation_query_.empty() && state->translation_pending_.empty(),
+              "pronunciation preference changes restart the translation request");
     };
     provider.join();
     auto page = ic.inputPanel().candidateList();

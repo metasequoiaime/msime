@@ -7,6 +7,7 @@ import unittest
 
 SOURCE = Path("platforms/ios/App/Sources/account/AccountProfileView.swift").read_text()
 GENERATION = Path("platforms/ios/App/Sources/app/ViewRequestGeneration.swift").read_text()
+TASK = Path("platforms/ios/App/Sources/app/ViewRequestTask.swift").read_text()
 
 
 class AccountProfileLoadLifecycleTests(unittest.TestCase):
@@ -20,20 +21,26 @@ class AccountProfileLoadLifecycleTests(unittest.TestCase):
         self.assertIn("@State private var loadTask: Task<Void, Never>?", self.profile)
         self.assertIn("@State private var request = ViewRequestGeneration()", self.profile)
         self.assertRegex(self.profile, r"\.task \{\s*request\.appear\(\)\s*startLoad\(\)")
-        self.assertIn("loadTask?.cancel()", self.profile)
+        self.assertIn("ViewRequestTask.cancel(task: $loadTask)", self.profile)
+        self.assertIn("ViewRequestTask.startLoad(request: $request, pending: $loadTask) { id in", self.profile)
         self.assertIn("try request.checkCurrent(id)", self.profile)
-        self.assertIn("request.disappear()", self.profile)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $operation)", self.profile)
         self.assertIn("catch is CancellationError", self.profile)
+        self.assertIn("if request.wrappedValue.isCurrent(id) { pending.wrappedValue = nil }", TASK)
 
     def test_nickname_save_is_cancelled_when_editor_leaves(self):
         self.assertIn("@State private var operation: Task<Void, Never>?", self.nickname)
         self.assertIn("@State private var request = ViewRequestGeneration()", self.nickname)
         self.assertIn("request.appear()", self.nickname)
-        self.assertIn("request.disappear()", self.nickname)
-        self.assertIn("operation?.cancel()", self.nickname)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $operation)", self.nickname)
+        self.assertIn("ViewRequestTask.run(request: $request, busy: $saving, message: $message,", self.nickname)
+        self.assertIn("pending: $operation", self.nickname)
+        self.assertIn("isCancellation: AccountRequestPolicy.isCancellation", self.nickname)
         self.assertIn("try request.checkCurrent(id)", self.nickname)
-        self.assertIn("catch is CancellationError", self.nickname)
         self.assertIn("try Task.checkCancellation()", GENERATION)
+        self.assertIn("request.wrappedValue.disappear()", TASK)
+        self.assertIn("pending.wrappedValue?.cancel()", TASK)
+        self.assertIn("task.wrappedValue?.cancel()", TASK)
 
 
 if __name__ == "__main__":

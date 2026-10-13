@@ -17,7 +17,7 @@ use msime_client_core::skin::candidate_sync::{
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{Manager, State};
+use tauri::State;
 
 pub(crate) type CandidateSkinCommunityService =
     BackendCandidateSkinCommunityService<BackendAccountClient, Storage>;
@@ -304,16 +304,6 @@ pub async fn candidate_skin_community_sync(
     .map_err(|_| CommandError {
         code: "community_unavailable",
     })?
-}
-
-/// One sync as the app starts, so skins made or changed while it was closed (by hand, or by the MCP server) reach the library without the community page being opened. Signed out it ends at the local session check, before any request.
-pub(crate) fn start_sync(app: &tauri::AppHandle) {
-    let service = Arc::clone(&app.state::<CandidateSkinCommunityState>().service);
-    let root = app.state::<SkinDirectoryState>().0.clone();
-    let runtime = app.state::<RuntimeOptionsState>().inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let _ = sync_and_rescan(&service, root, &runtime);
-    });
 }
 
 #[cfg(test)]

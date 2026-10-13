@@ -13,7 +13,6 @@ private func msimeDeveloperStringFree(_ value: UnsafeMutablePointer<CChar>?)
 
 /// 开发者选项，对应 Android 的 `DeveloperPage`，但不含其中的 MCP 上传、「显示调试信息」和「日志级别」：iOS 没有支撑这几项的后端或键盘能力。「调试」一组放键盘诊断日志的开关及其页面；「数据」一组导出诊断包、恢复出厂设置。
 struct DeveloperOptionsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @State private var logEnabled = false
   @State private var logSaveFailed = false
   @State private var exporting = false
@@ -21,14 +20,14 @@ struct DeveloperOptionsView: View {
   @State private var confirmsReset = false
   @State private var resetting = false
   @State private var pending: Task<Void, Never>?
-  @State private var lifecycle = UUID()
+  @State private var lifecycle = OperationGeneration()
 
   var body: some View {
     ScrollView {
       VStack(spacing: 28) {
-        DesignGroup(title: "调试", footer: logSaveFailed ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。" : nil) {
+        DesignGroup(title: "调试", footer: logSaveFailed ? SettingsSaveFailure.message : nil) {
           DesignToggleRow(title: "记录输入日志", subtitle: "仅保存在本机，不会上传",
-                          isOn: Binding(get: { logEnabled }, set: saveLog))
+                          isOn: logBinding)
             .accessibilityIdentifier("developerDiagnosticLogToggle")
           DesignDivider()
           NavigationLink(destination: DiagnosticLogSettingsView()) {
@@ -69,28 +68,20 @@ struct DeveloperOptionsView: View {
       }
       .onDisappear { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
     }
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active { reload() }
-    }
+    .reloadOnAppearAndActive(reload)
     .onDisappear {
-      lifecycle = UUID()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.cancel(generation: $lifecycle, task: $pending)
       exporting = false
       resetting = false
     }
   }
 
   /// 与 `DiagnosticLogSettingsView` 写的是同一处：共享文档里的 `diagnostic_log.server`，键盘下次出现时读到。
-  private func saveLog(_ value: Bool) {
-    logEnabled = value
-    logSaveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
-      var diagnostic = $0["diagnostic_log"] as? [String: Any] ?? [:]
-      diagnostic["server"] = value
-      $0["diagnostic_log"] = diagnostic
+  private var logBinding: Binding<Bool> {
+    SharedPreferenceBinding.nested("diagnostic_log", key: "server", state: $logEnabled) { saved in
+      logSaveFailed = !saved
+      if !saved { reload() }
     }
-    if logSaveFailed { reload() }
   }
 
   private func reload() {
@@ -100,11 +91,11 @@ struct DeveloperOptionsView: View {
   private func export() {
     guard !exporting else { return }
     exporting = true
-    let id = lifecycle
+    let id = lifecycle.current()
     pending = Task { @MainActor in
-      defer { if lifecycle == id { pending = nil } }
+      defer { if lifecycle.isCurrent(id) { pending = nil } }
       let url = await Task.detached(priority: .userInitiated) { DeveloperDiagnostics.exportBundle() }.value
-      guard lifecycle == id, !Task.isCancelled else {
+      guard lifecycle.isCurrent(id), !Task.isCancelled else {
         if let url { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         return
       }
@@ -120,9 +111,9 @@ struct DeveloperOptionsView: View {
   private func reset() {
     guard !resetting else { return }
     resetting = true
-    let id = lifecycle
+    let id = lifecycle.current()
     pending = Task { @MainActor in
-      defer { if lifecycle == id { pending = nil } }
+      defer { if lifecycle.isCurrent(id) { pending = nil } }
       let restored = await Task.detached(priority: .userInitiated) { DeveloperDiagnostics.restoreDefaults() }.value
       if restored {
         DeveloperDiagnostics.resetLocalPreferences()
@@ -131,7 +122,7 @@ struct DeveloperOptionsView: View {
         // 恢复出厂设置会把共享文档里的 `theme` 和 `settings_theme` 一并改回默认值，与「明暗与候选颜色」写这两个键时一样通知窗口重新应用界面样式，不必等 App 回到前台。
         NotificationCenter.default.post(name: AppAppearancePreference.didChange, object: nil)
       }
-      guard lifecycle == id, !Task.isCancelled else { return }
+      guard lifecycle.isCurrent(id), !Task.isCancelled else { return }
       resetting = false
       reload()
       ToastCenter.shared.show(restored ? "已重置" : "重置失败，请重试")

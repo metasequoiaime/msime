@@ -9,12 +9,12 @@ export type CandidateSkinSyncState = {
   busy: boolean;
   report: CandidateSkinSyncReport | null;
   error: unknown;
-  /** Starts a run, or queues one behind the run in progress so a change made meanwhile is not missed. */
+  /** 手动开始同步；运行中忽略重复请求。 */
   run: () => void;
 };
 
 /**
- * Keeps the local skin directory and the signed-in user's library in step: once as the page opens, and again whenever `run` is called. `onChanged` follows a run that downloaded or removed a local package, so a listing of the directory can scan again.
+ * 只有调用 `run` 才同步本机目录和账号皮肤库；页面挂载或客户端变化不触发同步。下载或删除本机包后用 `onChanged` 通知目录重扫。
  */
 export function useCandidateSkinSync(
   client: CandidateSkinCommunityClient | undefined,
@@ -22,7 +22,6 @@ export function useCandidateSkinSync(
 ): CandidateSkinSyncState {
   const [report, setReport] = useState<CandidateSkinSyncReport | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const queued = useRef(false);
   const changed = useRef(onChanged);
   changed.current = onChanged;
   const {
@@ -33,11 +32,12 @@ export function useCandidateSkinSync(
     run: runAsyncAction,
   } = useAsyncActionRunner(() => {}, undefined, client);
 
-  const start = async () => {
-    if (!client) return;
-    queued.current = false;
+  const run = () => {
+    if (!client || running.current) return;
+    setReport(null);
+    setError(null);
     const current = clientGeneration.current;
-    const action = runAsyncAction(
+    void runAsyncAction(
       async (isCurrent) => {
         try {
           const result = await client.sync();
@@ -51,22 +51,12 @@ export function useCandidateSkinSync(
       },
       { formatError: () => "" },
     );
-    if (!action) return;
-    await action;
-    if (mounted.current && current === clientGeneration.current && queued.current) void start();
   };
 
   useEffect(() => {
-    queued.current = false;
     setReport(null);
     setError(null);
-    void start();
   }, [client, clientGeneration]);
-
-  const run = () => {
-    if (running.current) queued.current = true;
-    else void start();
-  };
 
   return { busy, report, error, run };
 }

@@ -9,3 +9,9 @@ export async function settingsFormReady(): Promise<HTMLElement> {
 export function saveSettingsNow(): void {
   fireEvent.blur(window);
 }
+
+/** 桌面测试先进入对应功能分区，手机没有子标签时保持原位置。 */
+export function selectSettingsTab(title: string): void {
+  const tab = screen.queryByRole("tab", { name: title });
+  if (tab) fireEvent.click(tab);
+}

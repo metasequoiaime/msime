@@ -27,7 +27,7 @@ import { SettingsPageFieldset } from "../settings-page-fieldset";
 
 const candidateTabs = [
   { id: "layout", title: "布局" },
-  { id: "font", title: "字体大小" },
+  { id: "font", title: "字体与大小" },
   { id: "style", title: "窗口样式" },
   { id: "preedit", title: "预编辑" },
 ] as const;
@@ -84,11 +84,11 @@ export function AppearanceSettingsPage() {
       </SettingsPageFieldset>
     );
   }
-  // 预览按下面「布局」组能选到的最高排布预留高度：排列方式能改时按纵向，每页数量能改时按滑块的最大值，两者都固定（iOS）时不预留。
+  // 桌面预览随当前样例伸缩，让下方标签紧邻候选窗；手机保留原有的最高排布占位。
   const layoutFixed = host?.fixed_candidate_layout !== undefined;
   const pageSizeFixed = host?.fixed_candidate_page_size !== undefined;
   const previewReserve =
-    layoutFixed && pageSizeFixed
+    !mobilePlatform || (layoutFixed && pageSizeFixed)
       ? undefined
       : {
           orientation: layoutFixed ? (draft.candidate_layout ?? "vertical") : ("vertical" as const),
@@ -117,6 +117,24 @@ export function AppearanceSettingsPage() {
     );
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "appearance"} ariaLabel="候选窗口">
+      {/* 预览在四组设置间共用，切换标签时保持挂载；Linux 上由桌面环境接管候选面板时，限制说明紧跟在预览下面。 */}
+      <GroupList>
+        <AppearanceCandidatePreview
+          preferences={appearanceSettingsPreferences(draft, host?.platform === "windows")}
+          scan={client.scanSkinCatalog}
+          readImage={client.readSkinImage}
+          resolveTheme={client.resolveTheme}
+          resolveFonts={client.resolveFontFamilies}
+          active={page === "appearance"}
+          revision={snapshot?.revision ?? 0}
+          mobile={mobilePlatform}
+          reserve={previewReserve}
+          brand={!showAppLogo || draft.show_app_logo === true}
+        />
+        {host?.candidate_panel_limit && (
+          <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
+        )}
+      </GroupList>
       {!mobilePlatform && (
         <div className={settingsStyle.candidateTabs} role="tablist" aria-label="候选窗口设置分类">
           {candidateTabs.map((tab, index) => (
@@ -147,25 +165,6 @@ export function AppearanceSettingsPage() {
           ))}
         </div>
       )}
-
-      {/* 预览在四组设置间共用，切换标签时保持挂载；Linux 上由桌面环境接管候选面板时，限制说明紧跟在预览下面。 */}
-      <GroupList>
-        <AppearanceCandidatePreview
-          preferences={appearanceSettingsPreferences(draft, host?.platform === "windows")}
-          scan={client.scanSkinCatalog}
-          readImage={client.readSkinImage}
-          resolveTheme={client.resolveTheme}
-          resolveFonts={client.resolveFontFamilies}
-          active={page === "appearance"}
-          revision={snapshot?.revision ?? 0}
-          mobile={mobilePlatform}
-          reserve={previewReserve}
-          brand={!showAppLogo || draft.show_app_logo === true}
-        />
-        {host?.candidate_panel_limit && (
-          <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
-        )}
-      </GroupList>
       {panel(
         "layout",
         showLayoutGroup && (

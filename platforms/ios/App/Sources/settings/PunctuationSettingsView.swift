@@ -4,7 +4,6 @@ import SwiftUI
 ///
 /// These switches have no App Group compatibility key: they live only in the shared preference document, which is what the keyboard's session reads, so this page reads and writes that document directly. The keyboard hands a change to its live session the next time it appears.
 struct PunctuationSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @State private var smart = true
   @State private var repeatToChinese = true
   @State private var spaceConvert = false
@@ -75,25 +74,21 @@ struct PunctuationSettingsView: View {
         }
         .accessibilityIdentifier("punctuationLock")
       } footer: {
-        Text(saveFailed ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。" : "切换中英文时的标点形态。")
+        Text(saveFailed ? SettingsSaveFailure.message : "切换中英文时的标点形态。")
       }
       .designRow()
     }
     .designPage()
     .navigationTitle("标点").navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { phase in
-      if phase == .active { reload() }
-    }
+    .reloadOnAppearAndActive(reload)
   }
 
   /// A binding that writes the shared document as it changes; a refused write puts the stored value back so the page never shows a setting the keyboard does not have.
   private func stored<Value>(_ key: String, _ state: Binding<Value>) -> Binding<Value> {
-    Binding(get: { state.wrappedValue }, set: { value in
-      state.wrappedValue = value
-      saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = value }
-      if saveFailed { reload() }
-    })
+    SharedPreferenceBinding.topLevel(key, state: state) { saved in
+      saveFailed = !saved
+      if !saved { reload() }
+    }
   }
 
   private func reload() {

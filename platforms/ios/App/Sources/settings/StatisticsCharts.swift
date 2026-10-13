@@ -74,9 +74,9 @@ struct StatisticsSection<Trailing: View, Content: View>: View {
   }
 }
 
-extension StatisticsSection where Trailing == Text {
+extension StatisticsSection where Trailing == AnyView {
   init(_ title: String, note: String?, @ViewBuilder content: () -> Content) {
-    self.init(title, trailing: { Text(note ?? "").designSubtext() }, content: content)
+    self.init(title, trailing: { AnyView(Text(note ?? "").designSubtext()) }, content: content)
   }
 }
 

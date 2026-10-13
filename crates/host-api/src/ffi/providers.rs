@@ -90,9 +90,9 @@ pub unsafe extern "C" fn msime_client_ai_request_for_query(
     })
 }
 
-/// Hand the session an AI provider credential kept outside the preferences. It overrides tokens only for the current endpoint, lives only as long as the session, and is never persisted or reported back. An empty token clears it.
+/// 把偏好之外的 AI 凭据交给会话，只覆盖当前端点，不持久化也不回传。凭据变化时清理旧 AI 候选并拒绝旧查询；空凭据表示撤销。
 /// # Safety
-/// `token` references `token_length` readable UTF-8 bytes; null is accepted only with a zero length. No buffers are retained.
+/// `token` 指向 `token_length` 个可读的 UTF-8 字节；仅长度为零时允许空指针，调用后不保留缓冲区。
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_set_ai_credential(
     handle: u64,
@@ -115,7 +115,7 @@ pub unsafe extern "C" fn msime_client_set_ai_credential(
             Some(text.to_owned())
         };
         with_session(handle, |session| {
-            session.ai_credential = token.map(|token| {
+            let next_credential = token.map(|token| {
                 let preferences = session
                     .requested
                     .as_ref()
@@ -126,8 +126,17 @@ pub unsafe extern "C" fn msime_client_set_ai_credential(
                     token,
                 }
             });
-            // 只有会话密钥的宿主（iOS）到这时才知道 AI 请求发不发得出去。AI 座位可能在组字中途出现或消失，按旁路调用推导。
             let pending = session.lifecycle_begin(lifecycle::Call::SideChannel);
+            if next_credential != session.ai_credential && !session.runtime.is_idle() {
+                // 凭据改变时，旧 AI 行与旧在线查询一起失效；同一凭据的重复同步不碰当前组字。
+                let cleared = session
+                    .runtime
+                    .clear_online_candidates(1)
+                    .map_err(|e| e.to_string());
+                session.lifecycle_on_error(pending, cleared)?;
+            }
+            session.ai_credential = next_credential;
+            // 只有会话密钥的宿主（iOS）到这时才知道 AI 请求发不发得出去。AI 座位可能在组字中途出现或消失，按旁路调用推导。
             let refreshed = session.refresh_ai_seat();
             session.lifecycle_on_error(pending, refreshed)?;
             session.lifecycle_settle(pending);

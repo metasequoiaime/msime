@@ -4,7 +4,6 @@ import SwiftUI
 ///
 /// 与 Android 一样，显示方式以及常用语 / 输入方式两个开关属于本设备自己（`TouchToolbarLocalPreference`）；其他开关是共享的 `touch_toolbar`。
 struct KeyboardToolbarSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @State private var toolbar = TouchToolbarPreference()
   @State private var phrases = TouchToolbarLocalPreference.phrases
   @State private var scheme = TouchToolbarLocalPreference.scheme
@@ -54,7 +53,7 @@ struct KeyboardToolbarSettingsView: View {
                           }),
                           sheetTitle: "显示方式", identifier: "appToolbarDisplayMode")
         }
-        DesignGroup(title: "按钮", footer: saveFailed ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。" : nil) {
+        DesignGroup(title: "按钮", footer: saveFailed ? SettingsSaveFailure.message : nil) {
           ForEach(Array(Self.rows.enumerated()), id: \.element.name) { index, row in
             if index > 0 { DesignDivider() }
             DesignToggleRow(title: row.title, isOn: binding(row.source))
@@ -71,10 +70,7 @@ struct KeyboardToolbarSettingsView: View {
     }
     .designCanvasBackground()
     .navigationTitle("键盘工具栏").navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active { reload() }
-    }
+    .reloadOnAppearAndActive(reload)
   }
 
   /// 当前皮肤下的键盘，带着这些开关组成的工具栏，工具栏隐藏时只有按键；裁成设计稿的 14pt 圆角，外加一圈细线。

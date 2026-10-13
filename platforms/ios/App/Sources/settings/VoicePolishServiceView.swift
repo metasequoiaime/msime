@@ -81,7 +81,7 @@ struct VoicePolishServiceView: View {
       commit(now: old.separate != new.separate || old.provider != new.provider)
     }
     .onChange(of: token) { _, _ in commit(now: false) }
-    .onDisappear { operation?.cancel() }
+    .onDisappear { ViewRequestTask.cancel(task: $operation) }
     .flushesAutosave(autosave)
   }
 

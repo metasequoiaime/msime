@@ -21,9 +21,9 @@ const initial: Snapshot = {
 };
 
 async function renderAppearance() {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+  const save = vi.fn().mockImplementation(async (revision, preferences) => ({
     ...initial,
-    revision: 8,
+    revision: revision + 1,
     preferences,
   }));
   render(
@@ -40,20 +40,29 @@ async function renderAppearance() {
   return save;
 }
 
-test("顶部四个标签只显示当前设置组，切换保留修改和共用预览", async () => {
+test("预览下方四个标签只显示当前设置组，切换保留修改和共用预览", async () => {
   const save = await renderAppearance();
   const tabs = screen.getByRole("tablist", { name: "候选窗口设置分类" });
   expect(
     within(tabs)
       .getAllByRole("tab")
       .map((tab) => tab.textContent),
-  ).toEqual(["布局", "字体大小", "窗口样式", "预编辑"]);
+  ).toEqual(["布局", "字体与大小", "窗口样式", "预编辑"]);
   expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
   expect(screen.getByRole("tabpanel", { name: "布局" })).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "字号" })).toBeNull();
   const preview = screen.getByRole("region", { name: "候选窗口预览" });
-  expect(tabs.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  fireEvent.click(screen.getByRole("tab", { name: "字体大小" }));
+  expect(preview.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(preview.querySelector(".candidate-brand")).toBeNull();
+  fireEvent.click(screen.getByRole("switch", { name: "显示水杉 logo" }));
+  expect(preview.querySelector(".candidate-brand")).not.toBeNull();
+  fireEvent.click(screen.getByRole("switch", { name: "显示水杉 logo" }));
+  expect(preview.querySelector(".candidate-brand")).toBeNull();
+  expect(preview.querySelector("[data-preview-reserve]")).toBeNull();
+  fireEvent.click(screen.getByRole("radio", { name: "横向" }));
+  expect(preview.querySelector('[data-preview-layout="horizontal"]')).not.toBeNull();
+  expect(preview.querySelector("[data-preview-reserve]")).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "字体与大小" }));
   fireEvent.change(screen.getByRole("combobox", { name: "字号" }), { target: { value: "24" } });
   expect(preview.querySelector('[data-font-size="24"]')).not.toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "窗口样式" }));
@@ -63,15 +72,17 @@ test("顶部四个标签只显示当前设置组，切换保留修改和共用�
     target: { value: "empty" },
   });
   expect(screen.getByRole("region", { name: "候选窗口预览" })).toBe(preview);
-  fireEvent.click(screen.getByRole("tab", { name: "字体大小" }));
+  fireEvent.click(screen.getByRole("tab", { name: "字体与大小" }));
   expect(screen.getByRole("combobox", { name: "字号" })).toHaveProperty("value", "24");
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
-  expect(screen.getByRole("tab", { name: "字体大小" }).getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("tab", { name: "字体与大小" }).getAttribute("aria-selected")).toBe(
+    "true",
+  );
   saveSettingsNow();
   await screen.findByText("已保存");
-  expect(save).toHaveBeenCalledWith(
-    7,
+  expect(save).toHaveBeenLastCalledWith(
+    initial.revision + save.mock.calls.length - 1,
     expect.objectContaining({
       candidate_font_size: 24,
       candidate_preedit_style: "empty",
@@ -95,8 +106,8 @@ test("标签支持方向键循环和 Home、End，焦点与面板关联同步", 
   expect(document.activeElement).toBe(preedit);
   fireEvent.keyDown(preedit, { key: "Home" });
   fireEvent.keyDown(layout, { key: "ArrowRight" });
-  expect(document.activeElement).toBe(screen.getByRole("tab", { name: "字体大小" }));
-  expect(screen.getByRole("tabpanel", { name: "字体大小" })).toBeTruthy();
+  expect(document.activeElement).toBe(screen.getByRole("tab", { name: "字体与大小" }));
+  expect(screen.getByRole("tabpanel", { name: "字体与大小" })).toBeTruthy();
 });
 
 test("手机候选栏保持现有设置布局", async () => {

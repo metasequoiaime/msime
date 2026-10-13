@@ -16,7 +16,6 @@ struct LocalModeSettingsView: View {
     ("chaizi", "拆字", "输入部件拼音找不会读的字，如 huohuohuo 得 焱"),
   ]
 
-  @Environment(\.scenePhase) private var scenePhase
   @State private var enabled: [String: Bool] = [:]
   @State private var saveFailed = false
 
@@ -30,7 +29,7 @@ struct LocalModeSettingsView: View {
         }
       } footer: {
         if saveFailed {
-          Text("设置没有保存，键盘可能正在写入同一份设置，请再试一次。")
+          Text(SettingsSaveFailure.message)
         } else {
           Text("中文键盘在没有输入内容时，点候选栏上的名称或工具面板里的“本地输入”打开这些模式。关掉的模式不再出现在列表里。五笔、日语、韩语、粤拼、注音、越南语、藏文和笔画方案不提供本地输入。")
         }
@@ -39,21 +38,7 @@ struct LocalModeSettingsView: View {
     }
     .designPage()
     .navigationTitle("快捷模式").navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { if $0 == .active { reload() } }
-  }
-
-  /// A binding that merges one mode into `local_modes`; a refused write puts the stored values back.
-  private func stored(_ key: String) -> Binding<Bool> {
-    Binding(get: { enabled[key] ?? true }, set: { value in
-      enabled[key] = value
-      saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
-        var modes = $0["local_modes"] as? [String: Any] ?? [:]
-        modes[key] = value
-        $0["local_modes"] = modes
-      }
-      if saveFailed { reload() }
-    })
+    .reloadOnAppearAndActive(reload)
   }
 
   private func reload() {

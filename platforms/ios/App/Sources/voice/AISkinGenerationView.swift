@@ -31,7 +31,7 @@ struct AISkinGenerationView: View {
             .accessibilityIdentifier("generateAISkins")
           Text("AI 随机搭配插画、键帽造型与材质。抽到的皮肤可以继续编辑、保存或分享。")
             .font(.caption).foregroundStyle(.secondary)
-          if busy { HStack { ProgressView(); Text("主题插画已完成 \(completed)/3，可能需要几分钟…"); Button("取消") { pending?.cancel() } } }
+          if busy { HStack { ProgressView(); Text("主题插画已完成 \(completed)/3，可能需要几分钟…"); Button("取消") { ViewRequestTask.cancel(task: $pending) } } }
           if let message { Text(message).font(.callout).foregroundStyle(.secondary) }
           ForEach(proposals) { proposal in
             VStack(alignment: .leading, spacing: 12) {
@@ -52,9 +52,7 @@ struct AISkinGenerationView: View {
     }
     .onAppear { request.appear() }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
       proposals = []
       completed = 0
@@ -84,14 +82,16 @@ struct AISkinGenerationView: View {
     }.padding(.vertical, 12).accessibilityHidden(true)
   }
   private func generate() {
-    guard request.isVisible, !busy else { return }; busy = true; message = nil; completed = 0
+    guard request.isVisible, !busy else { return }
+    completed = 0
     let description = AISkinService.drawPrompt()
-    let id = request.begin()
-    pending = Task { await performGeneration(requestID: id, description: description) }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message,
+                        pending: $pending) { id in
+      await performGeneration(requestID: id, description: description)
+    }
   }
   private func performGeneration(requestID id: UUID, description: String) async {
     guard request.isCurrent(id) else { return }
-    defer { if request.isCurrent(id) { busy = false; pending = nil } }
     do {
       let values: [AISkinProposal]
       #if DEBUG && targetEnvironment(simulator)

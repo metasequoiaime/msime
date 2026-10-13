@@ -20,6 +20,8 @@ Status: implemented
 
 ## Consequences
 
+- [macOS 手写设置入口](../bug-fix/2026-10-13-macos-handwriting-settings-entry.md)让共享 macOS 页也能打开识别复制面板，并按原生会话能力显示输入操作；本篇的 Windows 原生设置入口不变。
+
 - 「手写输入」页不再有拉起共享应用的入口；打开手写识别板仍是面板，照旧由 `MSIME.exe` 提供。
 - 托盘或其他启动方用 `handwriting` 路由打开设置时仍落在原生的「手写输入」页（路由别名未变）。
 

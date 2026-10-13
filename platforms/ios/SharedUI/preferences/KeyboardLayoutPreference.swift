@@ -225,12 +225,12 @@ enum KeyboardHeightPercent {
   /// `touch_keyboard_height_adjustment` 经过校验的取值范围，单位为点。
   static let adjustmentRange: ClosedRange<CGFloat> = -12...48
 
-  /// 竖屏的按键高度：手机按键 46pt，与 Android 新设计的 `KeyboardGeometry.DESIGN_KEY_HEIGHT_DP` 相同；iPad 按键 54pt（`dc.html` 的 `keyH`）。键盘高度由它累加而来（`KeyboardFormFactor.keyboardHeight`），所以 100% 画出的正好是这样的按键。
+  /// 竖屏的按键高度：手机按键 52pt，九键的宽键帽保留足够的纵向空间；iPad 按键 54pt（`dc.html` 的 `keyH`）。键盘高度由它累加而来（`KeyboardFormFactor.keyboardHeight`），所以 100% 画出的正好是这样的按键。
   ///
   /// 手机原是设计稿的 42pt：九键每个键约 105pt 宽，42pt 高看上去是扁的，上面的顶栏又按读音行加候选行留着 56pt，整块键盘头重脚轻。
-  static func portraitKeyHeight(tablet: Bool) -> CGFloat { tablet ? 54 : 46 }
+  static func portraitKeyHeight(tablet: Bool) -> CGFloat { tablet ? 54 : 52 }
 
-  /// 默认高度下的按键区：`rows` 行高为 `keyHeight` 的按键，加上行与行之间的间距。手机竖屏、默认行距 7pt 时为 205pt。
+  /// 默认高度下的按键区：`rows` 行高为 `keyHeight` 的按键，加上行与行之间的间距。手机竖屏、默认行距 7pt 时为 229pt。
   static func keyBlockHeight(keyHeight: CGFloat, rows: Int, rowSpacing: CGFloat) -> CGFloat {
     max(1, CGFloat(rows) * keyHeight + CGFloat(max(rows - 1, 0)) * rowSpacing)
   }

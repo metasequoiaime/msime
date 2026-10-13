@@ -91,9 +91,7 @@ struct CommunityResourcesView: View {
     // 每次回到列表都重读：详情页里导入词库、添加或移除回复模板后，返回时胶囊按钮跟着变。
     .onAppear { request.appear(); Task { await refreshInstalled() } }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
     }
     .confirmationDialog("导入这版词库到本机？", isPresented: Binding(get: { confirmingImport != nil }, set: { if !$0 { confirmingImport = nil } }),
@@ -196,19 +194,21 @@ struct CommunityResourcesView: View {
     }
   }
 
-  @MainActor private func load(append: Bool = false) async {
+  @MainActor private func load(append: Bool = false, id scheduledID: UUID? = nil) async {
     guard request.isVisible else { return }
-    let id = request.begin(); busy = true
+    let id = scheduledID ?? request.begin()
+    guard request.isCurrent(id) else { return }
+    busy = true
     defer {
       if request.isCurrent(id) {
         busy = false
-        pending = nil
+        if scheduledID == nil { pending = nil }
       }
     }
     do {
       let page = try await SkinCommunityAPI.shared.resources(kind, scope: scope, search: search, offset: append ? items.count : 0)
       try request.checkCurrent(id)
-      if append { let ids = Set(items.map(\.id)); items += page.items.filter { !ids.contains($0.id) } }
+      if append { items += CommunityUnseenItems.filter(existing: items, incoming: page.items) }
       else { items = page.items }
       more = page.has_more
     } catch is CancellationError { }
@@ -216,9 +216,10 @@ struct CommunityResourcesView: View {
   }
 
   @MainActor private func startLoad(append: Bool = false) {
-    guard request.isVisible, !busy else { return }
-    pending?.cancel()
-    pending = Task { await load(append: append) }
+    guard !busy else { return }
+    ViewRequestTask.startLoad(request: $request, pending: $pending) { id in
+      await load(append: append, id: id)
+    }
   }
 
   @MainActor private func ensureVisible() throws {
@@ -264,7 +265,7 @@ struct CommunityReplyTemplatesSection: View {
   @State private var message: String?
   @State private var pending: Task<Void, Never>?
   @State private var addTasks: [String: Task<Void, Never>] = [:]
-  @State private var addGeneration = UUID()
+  @State private var addGeneration = OperationGeneration()
   @State private var request = ViewRequestGeneration()
 
   var body: some View {
@@ -286,10 +287,8 @@ struct CommunityReplyTemplatesSection: View {
         }
         .onAppear { request.appear() }
         .onDisappear {
-          request.disappear()
-          pending?.cancel()
-          pending = nil
-          addGeneration = UUID()
+          ViewRequestTask.disappear(request: $request, pending: $pending)
+          addGeneration.invalidate()
           addTasks.values.forEach { $0.cancel() }
           addTasks.removeAll()
           adding.removeAll()
@@ -328,11 +327,11 @@ struct CommunityReplyTemplatesSection: View {
 
   private func add(_ item: CommunityResource) {
     guard request.isVisible, !adding.contains(item.id) else { return }
-    let generation = addGeneration
+    let generation = addGeneration.current()
     adding.insert(item.id)
     addTasks[item.id] = Task { @MainActor in
       defer {
-        if addGeneration == generation {
+        if addGeneration.isCurrent(generation) {
           adding.remove(item.id)
           addTasks[item.id] = nil
         }
@@ -344,7 +343,7 @@ struct CommunityReplyTemplatesSection: View {
         if let index = items?.firstIndex(where: { $0.id == latest.id }) { items?[index] = latest }
         ToastCenter.shared.show("已添加「\(latest.name)」")
       } catch is CancellationError { }
-      catch { if request.isVisible, addGeneration == generation { message = error.localizedDescription } }
+      catch { if request.isVisible, addGeneration.isCurrent(generation) { message = error.localizedDescription } }
     }
   }
 
@@ -371,11 +370,7 @@ struct CommunityReplyTemplatesSection: View {
   }
 
   @MainActor private func startLoad() {
-    guard request.isVisible else { return }
-    pending?.cancel()
-    let id = request.begin()
-    pending = Task {
-      defer { if request.isCurrent(id) { pending = nil } }
+    ViewRequestTask.startLoad(request: $request, pending: $pending) { id in
       await refreshInstalled()
       await load(id)
     }
@@ -383,7 +378,7 @@ struct CommunityReplyTemplatesSection: View {
 
   @MainActor private func ensureVisible(_ generation: UUID) throws {
     try Task.checkCancellation()
-    guard request.isVisible, addGeneration == generation else { throw CancellationError() }
+    guard request.isVisible, addGeneration.isCurrent(generation) else { throw CancellationError() }
   }
 
 }
@@ -521,27 +516,12 @@ struct CommunityResourceDetail: View {
       } message: { Text(message ?? "") }
       .onAppear { request.appear() }
       .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
       }
   }
   private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
-    guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    busy = true; message = nil
-    pending = Task {
-      defer {
-        if request.isCurrent(id) {
-          busy = false
-          pending = nil
-        }
-      }
-      do { try await action(id) }
-      catch is CancellationError { }
-      catch { if request.isCurrent(id) { message = error.localizedDescription } }
-    }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending, action: action)
   }
 }
 
@@ -630,7 +610,7 @@ struct CommunityResourceEditor: View {
               let imported = try await Task.detached { try PersonalDictionaryImport.read(from: url) }.value
               try request.checkCurrent(id)
               guard imported.entries.allSatisfy({ PersonalWordKind.communityCases.contains($0.kind) }) else { throw CommunityFailure(message: "社区词库暂不支持 98 五笔词条，请从文件中去掉后再选择。") }
-              let ids = Set(words.map(\.id)); let additions = imported.entries.filter { !ids.contains($0.id) }
+              let additions = CommunityUnseenItems.filter(existing: words, incoming: imported.entries)
               guard words.count + additions.count <= 128 else { throw CommunityFailure(message: "每份社区词库最多 128 条，请先精简文件。") }
               words += additions
             }
@@ -655,28 +635,13 @@ struct CommunityResourceEditor: View {
     .navigationViewStyle(.stack)
     .onAppear { request.appear() }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false
     }
   }
 
 
   @MainActor private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
-    guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    busy = true; message = nil
-    pending = Task {
-      defer {
-        if request.isCurrent(id) {
-          busy = false
-          pending = nil
-        }
-      }
-      do { try await action(id) }
-      catch is CancellationError { }
-      catch { if request.isCurrent(id) { message = error.localizedDescription } }
-    }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending, action: action)
   }
 }

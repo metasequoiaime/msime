@@ -23,7 +23,7 @@ struct AccountSettingsView: View {
   @State private var operation: Task<Void, Never>?
   @State private var request = ViewRequestGeneration()
   @State private var syncTask: Task<Void, Never>?
-  @State private var syncGeneration = UUID()
+  @State private var syncGeneration = OperationGeneration()
   @ObservedObject private var cloudSync = CloudSync.shared
   private let api = SkinCommunityAPI.shared
 
@@ -135,14 +135,8 @@ struct AccountSettingsView: View {
       }
     }
     .onDisappear {
-      request.disappear()
-      pending?.cancel()
-      pending = nil
-      operation?.cancel()
-      operation = nil
-      syncGeneration = UUID()
-      syncTask?.cancel()
-      syncTask = nil
+      ViewRequestTask.disappear(request: $request, pending: $pending)
+      ViewRequestTask.cancel(generation: $syncGeneration, task: $syncTask)
       busy = false
     }
   }
@@ -296,18 +290,17 @@ struct AccountSettingsView: View {
   /// 打开或关闭云同步，与 Android 的 `setSync` 相同：结果用一条提示说明，打开后马上比对一次（首次的「合并 / 使用云端」选择也当场弹出）。
   @MainActor private func setCloudSync(_ enabled: Bool) {
     guard request.isVisible else { return }
-    let id = UUID()
-    syncGeneration = id
+    let id = syncGeneration.begin()
     syncTask?.cancel()
     syncTask = Task { @MainActor in
-      defer { if syncGeneration == id { syncTask = nil } }
+      defer { if syncGeneration.isCurrent(id) { syncTask = nil } }
       do {
         try await cloudSync.setEnabled(enabled)
-        guard request.isVisible, syncGeneration == id, !Task.isCancelled else { return }
+        guard request.isVisible, syncGeneration.isCurrent(id), !Task.isCancelled else { return }
         ToastCenter.shared.show(enabled ? "云同步已开启" : "云同步已关闭")
       } catch is CancellationError { }
       catch {
-        guard request.isVisible, syncGeneration == id, !Task.isCancelled else { return }
+        guard request.isVisible, syncGeneration.isCurrent(id), !Task.isCancelled else { return }
         ToastCenter.shared.show(error is CloudSyncState.Failure ? "登录后才能打开云同步" : "云同步设置没有保存，请重试")
       }
     }
@@ -377,15 +370,12 @@ struct AccountSettingsView: View {
 
   /// 先读本地会话，已登录时再取资料和云剪贴板条数。会话读不出来时弹出提示，并提供「清除失效登录状态」。
   @MainActor private func startReload() {
-    guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    pending?.cancel()
-    pending = Task { await reload(id: id) }
+    guard !busy else { return }
+    ViewRequestTask.startLoad(request: $request, pending: $pending) { id in await reload(id: id) }
   }
 
   @MainActor private func reload(id: UUID) async {
     guard request.isCurrent(id) else { return }
-    defer { if request.isCurrent(id) { pending = nil } }
     do {
       let currentUser = try await api.currentUser()
       try request.checkCurrent(id)
@@ -444,13 +434,12 @@ struct AccountSettingsView: View {
 
   @MainActor private func startCloudRefresh() {
     guard request.isVisible else { return }
-    let id = UUID()
-    syncGeneration = id
+    let id = syncGeneration.begin()
     syncTask?.cancel()
     syncTask = Task { @MainActor in
-      defer { if syncGeneration == id { syncTask = nil } }
+      defer { if syncGeneration.isCurrent(id) { syncTask = nil } }
       await cloudSync.refresh()
-      guard request.isVisible, syncGeneration == id, !Task.isCancelled else { return }
+      guard request.isVisible, syncGeneration.isCurrent(id), !Task.isCancelled else { return }
     }
   }
 
@@ -461,20 +450,9 @@ struct AccountSettingsView: View {
   }
 
   @MainActor private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
-    guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    pending?.cancel()
-    pending = nil
-    busy = true
-    operation = Task {
-      defer { if request.isCurrent(id) { busy = false; operation = nil } }
-      do {
-        try await action(id)
-        try request.checkCurrent(id)
-      }
-      catch is CancellationError { }
-      catch { if request.isCurrent(id) { report(error) } }
-    }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $operation,
+                        canceling: $pending, clearMessage: false,
+                        isCancellation: AccountRequestPolicy.isCancellation, action: action)
   }
 
   /// 这些全屏层出现和消失时不带上滑动画：启动页和 iPad 卡片各自绘制入场动画，滑动的遮罩看起来像浮层，而不像重播。
@@ -510,9 +488,7 @@ struct AppleAccountSection: View {
         // task 挂在这一行上，不挂在 Section 上：Form 会把 Section 上的修饰符分给每一行，出现「清除失效登录状态」那一行时会再读一次登录状态。
         .task { request.appear(); startCheckSession() }
         .onDisappear {
-          request.disappear()
-          pending?.cancel()
-          pending = nil
+          ViewRequestTask.disappear(request: $request, pending: $pending)
           busy = false
           model.invalidate()
         }
@@ -528,15 +504,11 @@ struct AppleAccountSection: View {
 
   /// 读一次本机的登录状态：读不出来（不是取消）就提供清除。
   @MainActor private func startCheckSession() {
-    guard request.isVisible else { return }
-    let id = request.begin()
-    pending?.cancel()
-    pending = Task { await checkSession(id: id) }
+    ViewRequestTask.startLoad(request: $request, pending: $pending) { id in await checkSession(id: id) }
   }
 
   @MainActor private func checkSession(id: UUID) async {
     guard request.isCurrent(id) else { return }
-    defer { if request.isCurrent(id) { pending = nil } }
     do {
       _ = try await SkinCommunityAPI.shared.currentUser()
       try request.checkCurrent(id)
@@ -560,23 +532,9 @@ struct AppleAccountSection: View {
   }
 
   @MainActor private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
-    guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    pending?.cancel()
-    pending = nil
-    busy = true
-    pending = Task { @MainActor in
-      defer { if request.isCurrent(id) { busy = false; pending = nil } }
-      do {
-        try await action(id)
-        try request.checkCurrent(id)
-      } catch is CancellationError {
-      } catch {
-        if request.isCurrent(id), !AccountRequestPolicy.isCancellation(error) {
-          message = error.localizedDescription
-        }
-      }
-    }
+    ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending,
+                        canceling: $pending, clearMessage: false,
+                        isCancellation: AccountRequestPolicy.isCancellation, action: action)
   }
 }
 

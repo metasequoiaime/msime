@@ -68,6 +68,9 @@ def main() -> int:
             "top-level TISInputSourceID creates a second menu entry; the visible ComponentInputModeDict mode must be the only selectable source"
         )
     for mode, body in sorted(modes.items()):
+        # 只默认加入主模式，其他模式由用户选择，避免重装补回删除的条目。
+        if body.get("tsInputModeDefaultStateKey") is not (mode == f"{bundle}.Hans"):
+            failures.append(f"输入模式 {mode} 的默认启用状态错误；只有主模式 Hans 应默认启用")
         if body.get("TISInputSourceID") != mode:
             failures.append(f"input mode {mode} carries TISInputSourceID {body.get('TISInputSourceID')}; the menu and the registration would name different sources")
         if bundle and not mode.startswith(bundle + "."):

@@ -220,6 +220,7 @@ test.each([
         }}
       />,
     );
+    fireEvent.click(await screen.findByRole("tab", { name: "窗口样式" }));
     const slider = (await screen.findByRole("slider", { name: "圆角大小" })) as HTMLInputElement;
     expect(slider.value).toBe(value);
   },

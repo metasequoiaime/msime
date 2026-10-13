@@ -5,7 +5,6 @@ import SwiftUI
 /// A keyboard extension cannot type into a search field of its own, so the search Windows puts above its clipboard list lives in the App instead. Both read and write the same App Group file through the shared clipboard ABI, so pins, deletions and saves made here show up the next time the keyboard's clipboard page opens, and the other way round. The App saves the system clipboard through `PasteButton`, which reads it without the paste permission prompt.
 struct ClipboardHistorySettingsView: View {
   var store = ClipboardHistoryStore()
-  @Environment(\.scenePhase) private var scenePhase
   @Environment(\.horizontalSizeClass) private var sizeClass
   @State private var items: [ClipboardHistoryItem] = []
   @State private var query = ""
@@ -69,21 +68,7 @@ struct ClipboardHistorySettingsView: View {
     .confirmationDialog("清空全部剪贴板历史？", isPresented: $confirmsClear, titleVisibility: .visible) {
       Button("清空，包括固定项", role: .destructive) { perform { try store.clear() } }
     }
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { if $0 == .active { reload() } }
-  }
-
-  /// iPad has the width for a longer excerpt and the full time; the phone keeps rows short so more of the history fits on screen.
-  private func row(_ item: ClipboardHistoryItem) -> some View {
-    HStack(alignment: .top, spacing: 12) {
-      VStack(alignment: .leading, spacing: 4) {
-        Text(item.text).lineLimit(sizeClass == .regular ? 6 : 3).foregroundStyle(.primary)
-        Text(item.date.formatted(date: sizeClass == .regular ? .long : .abbreviated, time: .shortened))
-          .font(.caption).foregroundStyle(.secondary)
-      }
-      Spacer(minLength: 8)
-      if item.pinned { Image(systemName: "pin.fill").font(.caption).foregroundStyle(.orange).accessibilityLabel("已固定") }
-    }
+    .reloadOnAppearAndActive(reload)
     .contentShape(Rectangle())
   }
 

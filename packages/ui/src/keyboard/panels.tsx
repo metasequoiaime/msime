@@ -725,7 +725,7 @@ export function KeyboardPanel({
       aria-label="屏幕键盘"
     >
       <NativePanelHeader
-        className={`native-panel-header ${surface.keyboardHeader}`}
+        className={surface.keyboardHeader}
         drag={drag}
         closeDisabled={openingVoice}
         onClose={closeKeyboard}
@@ -1349,14 +1349,16 @@ export function HandwritingPanel({
             >
               复制
             </button>
-            <button
-              type="button"
-              aria-pressed={effectiveMode === "input"}
-              disabled={closing || submitting || !client.submitHandwritingCandidate}
-              onClick={() => selectActivation("input")}
-            >
-              输入
-            </button>
+            {client.submitHandwritingCandidate && (
+              <button
+                type="button"
+                aria-pressed={effectiveMode === "input"}
+                disabled={closing || submitting}
+                onClick={() => selectActivation("input")}
+              >
+                输入
+              </button>
+            )}
           </div>
           <div
             className={surface.candidateGrid}
