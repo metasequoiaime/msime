@@ -1445,6 +1445,7 @@ where
             );
         }
     };
+    let mut deferred_receipt = None;
     // An entry that leads to another root nested below this one is left alone:
     // that root does its own swap, and it holds its own lock file.
     for index in 0..active_roots.len() {
@@ -1493,6 +1494,10 @@ where
                 }
             };
         for entry in listing {
+            if should_defer_activation_receipt(index, &entry) {
+                deferred_receipt = Some(entry);
+                continue;
+            }
             if entry == OsStr::new(DICTIONARY_ACCESS_LOCK_NAME)
                 || activation_entry_leads_to_nested_root(replacement, &entry, &staged_roots)
             {
@@ -1516,6 +1521,25 @@ where
             });
         }
     }
+    if let Some(receipt) = deferred_receipt {
+        let destination = OsStr::new(ACTIVATION_RECEIPT_NAME);
+        if msime_client_core::file_lock::rename_private_entry(
+            &staged_roots[0].directory,
+            &receipt,
+            &active_roots[0].directory,
+            destination,
+        )
+        .is_err()
+        {
+            rollback(&moved);
+            return Err("snapshot activation failed");
+        }
+        moved.push(MovedActivationEntry {
+            from: ActivationRootSlot::Staged(0),
+            to: ActivationRootSlot::Active(0),
+            name: receipt,
+        });
+    }
     // A reader that opened a file while the swap ran holds the old one; the next access opens the restored files.
     msime_engine::close_cached_databases();
     for backup in &backups {
@@ -1524,6 +1548,10 @@ where
     }
     entries.remove(&handle);
     Ok(json!({"activated": true}))
+}
+
+fn should_defer_activation_receipt(root_index: usize, file_name: &OsStr) -> bool {
+    root_index == 0 && file_name == OsStr::new(ACTIVATION_RECEIPT_NAME)
 }
 
 /// Remove a backup directory only once rollback has emptied it.
