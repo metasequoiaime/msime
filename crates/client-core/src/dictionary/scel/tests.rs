@@ -390,6 +390,20 @@ fn scel_refuses_out_of_range_structure() {
     );
 }
 
+/// 文件不大、输出却很大的形状：一组 6 万个单字词共用一条 64 个音节的读音，每个词在文件里只占 6 字节，在文本里却要 300 多字节。
+#[test]
+fn scel_refuses_output_that_outgrows_the_text_limit() {
+    let reading = vec![2u16; 64];
+    let word: Vec<u16> = "样".encode_utf16().collect();
+    let amplified = ScelBuilder::new(vec![Group {
+        reading,
+        words: vec![(word, Vec::new()); 60_000],
+    }])
+    .build();
+    assert!(amplified.len() < MAX_SCEL_BYTES / 16);
+    assert_eq!(decode(&amplified).unwrap_err(), ScelError::TooLarge);
+}
+
 #[test]
 fn scel_ignores_bytes_after_the_declared_groups() {
     let mut builder = ScelBuilder::sample();

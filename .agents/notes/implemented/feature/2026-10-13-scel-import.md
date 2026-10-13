@@ -24,7 +24,7 @@ Status: implemented
 - 拼音表必须按文件读。同一批官方词库里有两种表，第 230–232 号音节的顺序不同，内置一张表会把一部分文件的读音全读错。
 - 每个词的扩展字段前 4 字节在每个样本里恰好是 1..n 的一个排列，是序号不是词频，所以不当权重用，一律用默认权重。
 
-文件是不可信输入：只用 `get` 和 checked 运算读（模块开着 `clippy::indexing_slicing`），文件上限 8 MiB（`MAX_SCEL_BYTES`，由命名词库 17 MiB 的请求上限反推：base64 后约 10.7 MiB 加宿主选项），声明的组数不能超过剩余字节能装下的组数，声明的词数只用来预留容量且不超过剩余字节估出的值。前 4 字节不对是「不是细胞词库」，后 8 字节不是已核实的版本是「版本不支持」（社区资料提到的第 5 字节为 `E` 的变体没有样本，不去猜）；拼音表任何一条不合规、任何一次读取越过文件尾、任何字段超出范围都是「损坏」，整份拒绝，不做部分导入：下载不完整的词库只导入前一半，用户会以为导全了。声明的组数读完后剩下的字节不读。错误只有枚举值，不带词条内容。
+文件是不可信输入：只用 `get` 和 checked 运算读（模块开着 `clippy::indexing_slicing`），文件上限 8 MiB（`MAX_SCEL_BYTES`，由命名词库 17 MiB 的请求上限反推：base64 后约 10.7 MiB 加宿主选项），声明的组数不能超过剩余字节能装下的组数，声明的词数只用来预留容量且不超过剩余字节估出的值。文件上限管不住输出：同一组的每个词都把整条读音再写一遍，64 个音节的读音配上只占 6 字节的单字词，输出约是文件的 75 倍，一个不到 8 MiB 的文件实测转出 137 万词、进程常驻内存到 637 MB。所以转出的文本另有上限 `MAX_SCEL_TEXT_BYTES`（16 MiB，与命名词库一次导入的文本上限相同），边读边计数，一过就整份按「太大」拒绝。13 个官方样本的转出文本是文件大小的 0.74 到 1.04 倍，8 MiB 的上限文件也离它有一倍余量。前 4 字节不对是「不是细胞词库」，后 8 字节不是已核实的版本是「版本不支持」（社区资料提到的第 5 字节为 `E` 的变体没有样本，不去猜）；拼音表任何一条不合规、任何一次读取越过文件尾、任何字段超出范围都是「损坏」，整份拒绝，不做部分导入：下载不完整的词库只导入前一半，用户会以为导全了。声明的组数读完后剩下的字节不读。错误只有枚举值，不带词条内容。
 
 ### 各平台的入口
 
@@ -61,7 +61,7 @@ Status: implemented
 
 ## Verification
 
-- client-core：`cargo test -p msime-client-core --locked --lib dictionary::` 覆盖往返、拼音表顺序、坏词条变成失败行且行号不错位、在每个字节位置截断都返回错误、固定种子的随机改写不 panic、各字段越界、命名词库的 `bytes_base64` 导入与错误码。`scel_reads_local_samples` 是 `#[ignore]` 的对照用例，读环境变量 `MSIME_SCEL_SAMPLES` 指向的真实词库目录，样本不进仓库。
+- client-core：`cargo test -p msime-client-core --locked --lib dictionary::` 覆盖往返、拼音表顺序、坏词条变成失败行且行号不错位、在每个字节位置截断都返回错误、固定种子的随机改写不 panic、各字段越界、小文件转出超过文本上限时按「太大」拒绝、命名词库的 `bytes_base64` 导入与错误码。`scel_reads_local_samples` 是 `#[ignore]` 的对照用例，读环境变量 `MSIME_SCEL_SAMPLES` 指向的真实词库目录，样本不进仓库。
 - host-api：`cargo test -p msime-host-api --locked --lib scel` 与 `cell_dictionary` 覆盖 C ABI 的往返和错误码、桌面分批路径的跨批行号、iOS 队列路径的 128 条截断，以及 8 MiB 文件经命名词库请求不超过 17 MiB。
 - 界面：`apps/desktop/tests/dictionary/` 与 `apps/desktop/tests/settings/harmony-phone-dictionary.test.tsx`；iOS：`PersonalDictionaryScelImportTests`；Windows：`tests/ui/lexicon_import_model.cpp`；鸿蒙接线：`scripts/test-harmony-dictionary-collections.py`。
 - 测试夹具全部由测试代码现场拼出，内容是自造的词，仓库里没有任何搜狗词库内容。

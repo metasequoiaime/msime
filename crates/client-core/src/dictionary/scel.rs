@@ -11,6 +11,10 @@ use thiserror::Error;
 
 /// 一个细胞词库文件的字节上限。由命名词库请求的 17 MiB 上限反推：8 MiB 经 base64 是约 10.7 MiB，加上宿主选项仍在上限之内。界面和各宿主的同名常量都指向这里。
 pub const MAX_SCEL_BYTES: usize = 8 * 1024 * 1024;
+/// 转出文本的字节上限，与命名词库一次导入的文本上限相同：超过它的文本没有任何下游会收，不必先把它攒出来。
+///
+/// 文件大小管不住输出：同一组的每个词都把整条读音再写一遍，一个最多 64 个音节（约 450 字节）的读音配上只占 6 字节的单字词，输出能到文件的 75 倍，不到 8 MiB 的文件就能转出约 620 MB。所以边读边计数，一过上限就整份拒绝。真实的官方词库转出约为文件大小的 0.74 到 1.04 倍，8 MiB 的上限文件也离这里有一倍的余量。
+pub const MAX_SCEL_TEXT_BYTES: usize = super::collections::MAX_IMPORT_TEXT_BYTES;
 
 /// 前 4 字节：不是它就不是细胞词库。
 const MAGIC: [u8; 4] = [0x40, 0x15, 0x00, 0x00];
@@ -59,6 +63,7 @@ pub enum ScelError {
     /// 是细胞词库，但不是已核实的版本。
     #[error("Sogou cell dictionary version is not supported")]
     Unsupported,
+    /// 文件超过 [`MAX_SCEL_BYTES`]，或转出的文本超过 [`MAX_SCEL_TEXT_BYTES`]。
     #[error("Sogou cell dictionary is too large")]
     TooLarge,
     /// 结构越界或前后不一致，包括下载不完整的文件。
@@ -95,10 +100,10 @@ pub fn decode(bytes: &[u8]) -> Result<ScelText, ScelError> {
     if groups > remaining / MIN_GROUP_BYTES {
         return Err(ScelError::Malformed);
     }
-    // 声明的词数只用来预留容量，而且不超过剩余字节能装下的词数：一个伪造的大数不会换来一次巨大的分配。
+    // 声明的词数只用来预留容量，而且不超过剩余字节能装下的词数，预留的总量也不超过文本上限：一个伪造的大数不会换来一次巨大的分配。
     let declared = u32_at(bytes, ENTRY_COUNT_OFFSET)? as usize;
     let rows = declared.min(remaining / 8);
-    let mut text = String::with_capacity(rows.saturating_mul(24));
+    let mut text = String::with_capacity(rows.saturating_mul(24).min(MAX_SCEL_TEXT_BYTES));
     let mut entries = 0usize;
     let mut reading = String::with_capacity(MAX_READING_BYTES * 4);
 
@@ -126,6 +131,9 @@ pub fn decode(bytes: &[u8]) -> Result<ScelText, ScelError> {
             }
             reader.take(extension)?;
             push_row(&mut text, word, readable.then_some(reading.as_str()));
+            if text.len() > MAX_SCEL_TEXT_BYTES {
+                return Err(ScelError::TooLarge);
+            }
             entries += 1;
         }
     }
