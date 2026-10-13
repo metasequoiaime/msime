@@ -149,7 +149,7 @@ struct AISkinDesignView: View {
       .padding(.bottom, 16)
     }
     .scrollDismissesKeyboard(.interactively)
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("AI 设计皮肤")
     .navigationBarTitleDisplayMode(.inline)
     .safeAreaInset(edge: .bottom, spacing: 0) { actionBar }

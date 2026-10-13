@@ -134,7 +134,7 @@ struct FeedbackView: View {
       .frame(maxWidth: .infinity)
     }
     .scrollDismissesKeyboard(.interactively)
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("帮助与反馈")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {

@@ -94,7 +94,7 @@ struct CloudClipboardView: View {
       .frame(maxWidth: 760)
       .frame(maxWidth: .infinity)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .searchable(text: $search, prompt: "搜索云端内容")
     .onSubmit(of: .search) { run { _ in nil } }
     .settingsStatus(busy: busy, message: message)

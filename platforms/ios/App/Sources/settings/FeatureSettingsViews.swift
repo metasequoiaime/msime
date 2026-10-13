@@ -80,7 +80,7 @@ struct SkinSettingsView: View {
       .padding(.top, 16)
       .padding(.bottom, 32)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("皮肤")
     .navigationBarTitleDisplayMode(.inline)
     .onAppear { reloadLibrary(); reloadThemes() }

@@ -98,7 +98,7 @@ struct AccountSettingsView: View {
       .frame(maxWidth: isRegular ? 760 : .infinity)
       .frame(maxWidth: .infinity)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("我的")
     .navigationBarTitleDisplayMode(.large)
     .tint(MetasequoiaTheme.accent)
@@ -694,7 +694,7 @@ private struct AccountCloudSyncView: View {
       .padding(.top, 16)
       .padding(.bottom, 24)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("手动同步").navigationBarTitleDisplayMode(.inline)
   }
 }
@@ -738,7 +738,7 @@ private struct AccountPublishedContentView: View {
       .padding(.top, 16)
       .padding(.bottom, 24)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("我的发布与收藏").navigationBarTitleDisplayMode(.inline)
   }
 }

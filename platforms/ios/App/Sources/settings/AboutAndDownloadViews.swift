@@ -57,7 +57,7 @@ struct DesktopDownloadView: View {
       .frame(maxWidth: 760)
       .frame(maxWidth: .infinity)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("其他平台下载").navigationBarTitleDisplayMode(.inline)
   }
 
@@ -236,7 +236,7 @@ struct AboutView: View {
       .frame(maxWidth: 760)
       .frame(maxWidth: .infinity)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("关于").navigationBarTitleDisplayMode(.inline)
     .task {
       // 「给我们评分」要用的商店 id，以及到底有没有条目；lookup 失败时只是不显示这一行，并保留「检查更新」以便重试。
@@ -370,7 +370,7 @@ struct LicensesView: View {
       .frame(maxWidth: 760)
       .frame(maxWidth: .infinity)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("开源许可").navigationBarTitleDisplayMode(.inline)
   }
 }
@@ -388,7 +388,7 @@ private struct LicenseTextView: View {
         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle(notice.title).navigationBarTitleDisplayMode(.inline)
     .task {
       guard text == nil, let url = notice.url else { return }

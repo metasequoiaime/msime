@@ -14,6 +14,13 @@ private extension View {
   }
 }
 
+extension View {
+  /// Applies the app canvas colour through the safe-area edges.
+  func designCanvasBackground() -> some View {
+    background(MetasequoiaTheme.canvas.ignoresSafeArea())
+  }
+}
+
 // MARK: - 标志圆盘
 
 /// 着色圆盘上的应用标志（「设置」「关于」和首次引导的页头）：圆盘用 `aM(14)` / `aM(22)`，边框用 `mix(accent 82%, #000)`，白色描边叠在最上面。

@@ -60,7 +60,7 @@ struct VoiceSettingsView: View {
       .padding(.top, 16)
       .padding(.bottom, 32)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("语音输入")
     .navigationBarTitleDisplayMode(.inline)
     .onAppear(perform: reload)

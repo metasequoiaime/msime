@@ -33,7 +33,7 @@ struct DiagnosticLogSettingsView: View {
             .accessibilityIdentifier("diagnosticLogShare")
           if sizeClass != .regular {
             NavigationLink("查看日志") {
-              logText.background(MetasequoiaTheme.canvas.ignoresSafeArea())
+              logText.designCanvasBackground()
                 .navigationTitle("诊断日志").navigationBarTitleDisplayMode(.inline)
             }
               .accessibilityIdentifier("diagnosticLogView")

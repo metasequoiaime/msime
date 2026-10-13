@@ -106,7 +106,7 @@ struct AccountProfileEditor: View {
       .frame(maxWidth: 760)
       .frame(maxWidth: .infinity)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("个人资料")
     .navigationBarTitleDisplayMode(.inline)
     .overlay { if busy { ProgressView().controlSize(.large) } }
@@ -378,7 +378,7 @@ private struct AccountNicknameEditor: View {
       .frame(maxWidth: 760)
       .frame(maxWidth: .infinity)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("昵称")
     .navigationBarTitleDisplayMode(.inline)
     // 系统自带的返回按钮会直接返回而不询问，输入了一半的昵称会随之丢失。

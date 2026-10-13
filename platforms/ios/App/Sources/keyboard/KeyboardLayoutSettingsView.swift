@@ -52,7 +52,7 @@ struct KeyboardLayoutSettingsView: View {
         .padding(.bottom, 32)
       }
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .tint(MetasequoiaTheme.accent)
     .navigationTitle("键盘").navigationBarTitleDisplayMode(.inline)
     .onAppear { readPreferences() }

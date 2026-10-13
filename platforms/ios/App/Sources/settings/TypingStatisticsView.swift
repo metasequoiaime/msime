@@ -82,7 +82,7 @@ struct TypingStatisticsView: View {
       .frame(maxWidth: horizontalSizeClass == .regular ? 760 : .infinity)
       .frame(maxWidth: .infinity)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("统计").navigationBarTitleDisplayMode(.large)
     .toolbar {
       ToolbarItem(placement: .navigationBarTrailing) { menu }
@@ -203,7 +203,7 @@ struct TypingStatisticsView: View {
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
       }
-      .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+      .designCanvasBackground()
       .navigationTitle("关于统计").navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .confirmationAction) { Button("完成") { showsAbout = false } }

@@ -35,7 +35,7 @@ struct TabletSettingsView: View {
         detail(selection ?? .page(.input))
           .frame(maxWidth: 720)
           .frame(maxWidth: .infinity)
-          .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+          .designCanvasBackground()
           // 设计稿给详情页一个靠前对齐的大标题，而不是居中的内联标题栏。
           .toolbarTitleDisplayMode(.large)
       }.id(selection)
@@ -81,7 +81,7 @@ struct TabletSettingsView: View {
     }
     .listStyle(.insetGrouped)
     .scrollContentBackground(.hidden)
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .listSectionSpacing(20)
     .environment(\.defaultMinListRowHeight, 44)
     .scrollDismissesKeyboard(.interactively)

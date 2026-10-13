@@ -88,7 +88,7 @@ struct HandwritingSettingsView: View {
       .padding(.top, 16)
       .padding(.bottom, 32)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("手写输入").navigationBarTitleDisplayMode(.inline)
     .onAppear(perform: reload)
     .onChange(of: scenePhase) { _, phase in

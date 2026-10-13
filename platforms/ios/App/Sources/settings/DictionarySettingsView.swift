@@ -56,7 +56,7 @@ struct DictionarySettingsView: View {
       .padding(.top, 12)
       .padding(.bottom, 32)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("词库")
     .navigationBarTitleDisplayMode(.inline)
     .onAppear(perform: reload)
@@ -355,7 +355,7 @@ private struct DictionaryInfoView: View {
       .padding(.top, 12)
       .padding(.bottom, 32)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("词库信息")
     .navigationBarTitleDisplayMode(.inline)
   }

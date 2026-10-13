@@ -91,7 +91,7 @@ struct InputSettingsView: View {
       .padding(.top, 16)
       .padding(.bottom, 32)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("输入")
     .navigationBarTitleDisplayMode(.inline)
     .onAppear {

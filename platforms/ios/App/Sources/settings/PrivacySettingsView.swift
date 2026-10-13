@@ -59,7 +59,7 @@ struct PrivacySettingsView: View {
       .padding(.top, 16)
       .padding(.bottom, 32)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("隐私").navigationBarTitleDisplayMode(.inline)
     // 本页被盖住时键盘可能改了同一个偏好，所以每次返回都重新读取。
     .onAppear { usageReporting = UsageReporting.isEnabled }
