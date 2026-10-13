@@ -9,6 +9,7 @@ pub mod collections;
 pub mod import;
 pub mod personal;
 pub mod quiesce;
+pub mod scel;
 
 /// Whether `character` belongs to a CJK unified ideograph block accepted by the `hans` import
 /// format.
