@@ -570,13 +570,14 @@ final class ImeLetterRows {
         // The face is the policy's job; the key itself always sends its canonical lowercase form.
         java.util.List<java.util.List<String>> rows = KeyboardLayout.rows(s.keyboardLayer,
             s.displayedTouchLayout(s.view));
-        // 键盘在各布局间切换时总高度不变：字母行多于三行（大千注音四行）时，整组挤进三行的高度里，而不是每行照标准键高再多出一行。
+        // 大千注音四行各占完整键高，避免压成三行后按键过矮；其他多行布局沿用三行高的整块。
         LinearLayout block = null;
         if (rows.size() > 3) {
+            int blockRows = zhuyinKeycaps ? rows.size() : 3;
             block = LayoutPolicy.column(s);
-            s.imeStyler.adjustThreeRowBlockHeight(block);
+            s.imeStyler.adjustRowBlockHeight(block, blockRows);
             s.keyRows.addView(block, LayoutPolicy.matchWidthHeightPx(
-                s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
+                s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * blockRows)));
         }
         boolean tibetanSymbols = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
             && s.tibetanSchemeActive();
@@ -592,9 +593,11 @@ final class ImeLetterRows {
                 : LetterKeyFacePolicy.face(key, chineseMode, localMode, shifted);
             Button keyButton;
             if (zhuyinKeycaps) {
-                // Bopomofo keycaps over the Dachen keys: type() sends the ASCII key, and the Engine spells and converts.
+                // 键面只显示注音符号；type() 仍发送大千 ASCII 键，由引擎组音与转换。
                 keyButton = s.keyboardKey(face, face, () -> s.type(input.charAt(0)));
                 keyButton.setContentDescription(ZhuyinKeyboardLayout.accessibilityLabel(key));
+                KeyboardTypographyPolicy.setFittedKeyTextSize(keyButton, 18, 22);
+                if (ZhuyinKeyboardLayout.toneKey(key)) CenteredGlyphSpan.apply(keyButton, face, 1.8f);
                 if (keyButton instanceof KeyboardPressButton press)
                     press.setKeyboardRole(KeyboardKeyRole.KEY);
             } else if (zhuyinLayout && ZhuyinKeyboardLayout.claimsSymbol(key)) {

@@ -14,7 +14,9 @@ Android 键盘的底行（123、中/英、空格、换行那一行，以及 123 
 
 ## Decision
 
-- 键区四行一样高：`KEY_ROW_HEIGHT_DP` 从 56 改为 52，字母行、数字层前三行、九键 / 笔画 / 手写 / 大千四行这类三行高的键块的每一行，以及底行，都是 52 dp 加一份行距。`STANDARD_ROW_HEIGHT_DP` 和 `bottomRowHeightDp` / `bottomRowSpacings` 删去，底行的高度角色 `KeyboardHeightRole.bottomRow()` 是 52 dp、一份行距。
+大千注音的四行压三行由[大千键高修正](../bug-fix/2026-10-13-android-dachen-key-size.md)取代，其字母层多占一行；本篇其余高度和底行决定继续成立。
+
+- 键区四行一样高：`KEY_ROW_HEIGHT_DP` 从 56 改为 52，字母行、数字层前三行、九键 / 笔画 / 手写这类三行高的键块的每一行，以及底行，都是 52 dp 加一份行距。`STANDARD_ROW_HEIGHT_DP` 和 `bottomRowHeightDp` / `bottomRowSpacings` 删去，底行的高度角色 `KeyboardHeightRole.bottomRow()` 是 52 dp、一份行距。
 - 默认行距（7 dp）下键区 4 × 59 = 236 dp，原来是 3 × 63 + 46 = 235 dp。字母键帽 56 → 52 dp，底行键帽 39 → 52 dp。
 - 键盘高度调整由四行均分（`KEYBOARD_ROW_COUNT = 4`）：底行分到 `KeyboardGeometry.bottomRowAdjustment` = `floorDiv(调整量, 4)`，即把底行当作四行里的最后一行时 `adjustedRowHeight` 给它的那一份；底行以上的键行和三行高的键块分其余部分 `keyRowsAdjustment` = 调整量 − 底行那份，在三行之间照旧把余数给前面的行。两份相加恰好是整份调整量，所以总高、`HEIGHT_PERCENT_BASE_DP`（184，1% = 1.84 dp）、−46…110 的存储范围和 `windowHeightAdjustment` 的窗口封顶都不变，存着的设置值意义不变。
 - 日语九键、注音九键没有单独的底行，四行都在一块里（`KeyboardHeightRole.threeRowsWithBottomRow()`）：块是 4 × 52 dp、四份行距，拿整份调整，和三行加底行的布局总高相同。
