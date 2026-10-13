@@ -10,6 +10,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
+import android.widget.FrameLayout;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -39,9 +40,13 @@ public abstract class DetailPage extends HomeTabFragment {
     @Nullable private View bar;
     @Nullable private ValueAnimator barFade;
     private boolean collapsed;
+    private boolean fixedNavigation;
 
     /** 往内容列里加这一页的设置。视图每次重建都会再调一次，所以这里不要保留跨视图的状态。 */
     protected abstract void buildContent(LinearLayout column, Bundle args);
+
+    /** 需要常驻分类导航的详情页在标题下提供一个控件，其余页面沿用滚动标题。 */
+    @Nullable protected View fixedNavigation() { return null; }
 
     /** 页面标题；默认取 {@link PageId} 里登记的标题，需要按参数决定标题的页面（例如词库详情）覆盖它。 */
     protected CharSequence title() {
@@ -73,6 +78,22 @@ public abstract class DetailPage extends HomeTabFragment {
             () -> requireActivity().getOnBackPressedDispatcher().onBackPressed());
 
         NestedScrollView scroll = view.findViewById(R.id.ms_detail_scroll);
+        View navigation = fixedNavigation();
+        fixedNavigation = navigation != null;
+        if (navigation != null) {
+            ViewPolicy.hide(view.findViewById(R.id.ms_detail_header));
+            FrameLayout.LayoutParams navParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            navParams.topMargin = DimensionPolicy.pixels(requireContext(), Ui.TOP_BAR_HEIGHT);
+            ((FrameLayout) view).addView(navigation, navParams);
+            navigation.addOnLayoutChangeListener((target, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+                int margin = navParams.topMargin + target.getHeight();
+                FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) scroll.getLayoutParams();
+                if (params.topMargin == margin) return;
+                params.topMargin = margin;
+                scroll.setLayoutParams(params);
+            });
+        }
         int threshold = DimensionPolicy.pixels(requireContext(), Ui.COLLAPSE_THRESHOLD);
         scroll.setOnScrollChangeListener((NestedScrollView.OnScrollChangeListener)
             (ignored, x, y, oldX, oldY) -> setCollapsed(y > threshold, true));
@@ -113,6 +134,7 @@ public abstract class DetailPage extends HomeTabFragment {
 
     private void setCollapsed(boolean value, boolean animate) {
         if (bar == null || barTitle == null || largeTitle == null) return;
+        if (fixedNavigation) { value = true; animate = false; }
         if (value == collapsed && animate) return;
         collapsed = value;
         float target = value ? 1f : 0f;

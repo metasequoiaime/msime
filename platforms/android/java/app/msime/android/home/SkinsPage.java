@@ -6,6 +6,7 @@ import app.msime.android.LayoutPolicy;
 import app.msime.android.DimensionPolicy;
 
 import android.content.Context;
+import android.os.Bundle;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.view.View;
@@ -33,9 +34,10 @@ import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import com.google.android.material.tabs.TabLayout;
 
 /**
- * 皮肤页：两列皮肤卡（预览加名字，选中的卡 2dp 强调色描边、名字前打 ✓），依次是共享目录里的全局主题、「我的设计」（自定义皮肤库，含社区下载和 AI 设计的皮肤），最后一张虚线卡进 AI 设计皮肤；再往下是「社区皮肤」，列出社区目录里还没存进皮肤库的前几款，末尾「浏览更多皮肤」进社区皮肤的完整列表（{@link CommunityFragment}），搜索、分类筛选、详情和举报都在那里。
+ * 皮肤页：标题下固定的「内置 / 我的 / 社区」分类，分类内容使用两列预览卡，AI 设计入口放在「我的」。社区完整列表提供搜索、分类筛选、详情和举报。
  *
  * <p>社区皮肤读的是 {@link CommunitySkinCache}，和键盘的皮肤面板同一份；页面打开时缓存过期就经 {@link CommunitySkinCatalogue} 重拉一次，拉完再刷新这一组。点一张社区皮肤和在键盘皮肤面板里点一样：先存进皮肤库，再换上，之后它出现在「我的设计」里；同时在服务端记一次下载。
  *
@@ -55,6 +57,41 @@ public final class SkinsPage extends ReloadingDetailPage {
     private enum Catalogue { UNCHECKED, LOADING, READY, FAILED }
 
     private Catalogue catalogue = Catalogue.UNCHECKED;
+    private int section;
+    @Nullable private Model model;
+
+    @Override public void onCreate(@Nullable Bundle state) {
+        super.onCreate(state);
+        if (state != null) section = Math.max(0, Math.min(2, state.getInt("skin-section", 0)));
+    }
+
+    @Override public void onSaveInstanceState(Bundle state) {
+        super.onSaveInstanceState(state);
+        state.putInt("skin-section", section);
+    }
+
+    @Override protected View fixedNavigation() {
+        Context context = requireContext();
+        TabLayout tabs = new TabLayout(context);
+        tabs.setTabMode(TabLayout.MODE_FIXED);
+        tabs.setTabTextColors(ThemeColorPolicy.subText(context), ThemeColorPolicy.accent(context));
+        tabs.setSelectedTabIndicatorColor(ThemeColorPolicy.accent(context));
+        ViewPolicy.setBackgroundColor(tabs, ThemeColorPolicy.page(context));
+        for (String title : new String[] {"内置", "我的", "社区"}) tabs.addTab(tabs.newTab().setText(title));
+        tabs.selectTab(tabs.getTabAt(section));
+        tabs.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override public void onTabSelected(TabLayout.Tab tab) {
+                section = tab.getPosition();
+                renderSection();
+                scrollView().scrollTo(0, 0);
+            }
+            @Override public void onTabUnselected(TabLayout.Tab tab) {}
+            @Override public void onTabReselected(TabLayout.Tab tab) {}
+        });
+        return tabs;
+    }
+
+    @Override protected void onContentDestroyed() { model = null; }
 
     @Override protected void reload() {
         boolean dark = AppMode.dark(requireContext());
@@ -145,6 +182,11 @@ public final class SkinsPage extends ReloadingDetailPage {
     }
 
     private void render(@Nullable Model model) {
+        this.model = model;
+        renderSection();
+    }
+
+    private void renderSection() {
         LinearLayout target = contentColumn();
         if (target == null) return;
         target.removeAllViews();
@@ -153,16 +195,17 @@ public final class SkinsPage extends ReloadingDetailPage {
             return;
         }
         Context context = requireContext();
-        List<View> themeCards = new ArrayList<>(model.themes().size() + 1);
-        for (Card card : model.themes()) themeCards.add(card(context, card));
-        if (!AiSkinPage.hidden(context)) themeCards.add(aiCard(context));
-        grid(target, "皮肤", themeCards);
-        if (!model.designs().isEmpty()) {
-            List<View> designCards = new ArrayList<>(model.designs().size());
-            for (Card card : model.designs()) designCards.add(card(context, card));
-            grid(target, "我的设计", designCards);
-        }
-        renderCommunity(target, context, model.community());
+        if (section == 0) {
+            List<View> cards = new ArrayList<>(model.themes().size());
+            for (Card card : model.themes()) cards.add(card(context, card));
+            grid(target, null, cards);
+        } else if (section == 1) {
+            List<View> cards = new ArrayList<>(model.designs().size() + 1);
+            if (!AiSkinPage.hidden(context)) cards.add(aiCard(context));
+            for (Card card : model.designs()) cards.add(card(context, card));
+            if (cards.isEmpty()) GroupCard.add(target, null).note("还没有保存的皮肤。可到社区获取喜欢的皮肤。");
+            else grid(target, null, cards);
+        } else renderCommunity(target, context, model.community());
     }
 
     /** 「社区皮肤」：缓存里的前几款，末尾一行进完整列表。缓存是空的时候说明为什么空。 */
@@ -170,9 +213,9 @@ public final class SkinsPage extends ReloadingDetailPage {
         if (!cards.isEmpty()) {
             List<View> communityCards = new ArrayList<>(cards.size());
             for (Card card : cards) communityCards.add(card(context, card));
-            grid(target, "社区皮肤", communityCards);
+            grid(target, null, communityCards);
         }
-        GroupCard more = GroupCard.add(target, cards.isEmpty() ? "社区皮肤" : null);
+        GroupCard more = GroupCard.add(target, null);
         if (cards.isEmpty()) {
             more.note(switch (catalogue) {
                 case UNCHECKED, LOADING -> "正在读取社区皮肤…";
@@ -185,7 +228,7 @@ public final class SkinsPage extends ReloadingDetailPage {
     }
 
     /** 一组两列卡片；组标题与其他详情页的组标题一样，卡片直接放在页面底色上。 */
-    private static void grid(LinearLayout target, String title, List<View> cards) {
+    private static void grid(LinearLayout target, @Nullable String title, List<View> cards) {
         GroupCard group = GroupCard.add(target, title);
         LinearLayout holder = group.card();
         ViewPolicy.clearBackground(holder);
