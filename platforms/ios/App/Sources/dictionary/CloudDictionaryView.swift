@@ -137,9 +137,8 @@ struct CloudDictionaryView: View {
     }
     .task { request.appear(); run { _ in try await load(offset: 0) } }
     .onChange(of: kind) { _ in
-      pending?.cancel()
+      ViewRequestTask.cancel(task: $pending)
       request.invalidate()
-      pending = nil
       busy = false
       page = nil
       run { _ in try await load(offset: 0) }

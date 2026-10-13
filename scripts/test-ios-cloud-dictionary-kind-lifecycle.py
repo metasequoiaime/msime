@@ -19,8 +19,13 @@ class IOSCloudDictionaryKindLifecycleContract(unittest.TestCase):
         change = re.search(r"\.onChange\(of: kind\) \{(?P<body>.*?)\n    \}", source, re.S)
         self.assertIsNotNone(change, "kind changes must invalidate the previous dictionary request")
         body = change.group("body")
-        self.assertIn("pending?.cancel()", body)
-        self.assertIn("request.invalidate()", body)
+        self.assertIn("ViewRequestTask.cancel(task: $pending)", body)
+        self.assertLess(body.index("ViewRequestTask.cancel(task: $pending)"), body.index("request.invalidate()"))
+        task = TASK.read_text(encoding="utf-8")
+        cancel = re.search(r"static func cancel\(task: Binding<Task<Void, Never>\?>\) \{(?P<body>.*?)\n  \}", task, re.S)
+        self.assertIsNotNone(cancel)
+        self.assertIn("task.wrappedValue?.cancel()", cancel.group("body"))
+        self.assertIn("task.wrappedValue = nil", cancel.group("body"))
 
     def test_disappearance_invalidates_pending_request(self):
         source = SOURCE.read_text(encoding="utf-8")

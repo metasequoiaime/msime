@@ -53,9 +53,8 @@ struct CustomSkinEditorView: View {
   }
 
   private func flushDocumentWrite() {
-    guard let pending = documentWrite else { return }
-    pending.cancel()
-    documentWrite = nil
+    guard documentWrite != nil else { return }
+    ViewRequestTask.cancel(task: $documentWrite)
     writeDocument()
   }
 
@@ -67,8 +66,7 @@ struct CustomSkinEditorView: View {
   }
 
   private func useCustomSkin() {
-    documentWrite?.cancel()
-    documentWrite = nil
+    ViewRequestTask.cancel(task: $documentWrite)
     guard GlobalThemePreference.apply(design) else {
       message = "没能切换到我的皮肤，请稍后重试。"
       return
