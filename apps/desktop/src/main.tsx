@@ -310,6 +310,8 @@ const client: SettingsClient = {
     move: () => invoke("move_data_directory"),
   },
   pickVoiceModelPath: () => invoke("pick_voice_model_path"),
+  pickApplication: () => invoke("pick_application"),
+  applicationNames: (ids) => invoke("application_names", { ids }),
   localVoiceModels,
   windowControl: async (action) => {
     const window = getCurrentWindow();

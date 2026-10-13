@@ -30,4 +30,6 @@ fn main() {
     println!("cargo:rustc-link-lib=framework=CoreAudio");
     println!("cargo:rustc-link-lib=framework=AudioToolbox");
     println!("cargo:rustc-link-lib=framework=Security");
+    // file_picker.mm 的应用选择面板只接受应用程序包（UTTypeApplicationBundle）。
+    println!("cargo:rustc-link-lib=framework=UniformTypeIdentifiers");
 }

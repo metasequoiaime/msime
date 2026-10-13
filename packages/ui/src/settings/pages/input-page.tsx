@@ -267,6 +267,9 @@ export function InputSettingsPage() {
             <AppInputModeRulesSection
               value={draft.app_input_mode_rules}
               windows={host?.platform === "windows"}
+              pickApplication={client.pickApplication}
+              // Windows 的规则就是程序文件名，名称没有更多信息，宿主也不提供查询。
+              applicationNames={host?.platform === "windows" ? undefined : client.applicationNames}
               onChange={(app_input_mode_rules) => onPreferencesChange({ app_input_mode_rules })}
             />
           )

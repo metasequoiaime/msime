@@ -2753,3 +2753,25 @@ fn candidate_panel_status_reader_rejects_a_symlinked_file() {
 
     assert!(super::read_candidate_panel_status(&linked).is_none());
 }
+
+/// Windows 的应用例外按进程基名记：选中的 .exe 交回文件名作为标识、去掉扩展名作为名称；不是 .exe 的文件不成规则。
+#[test]
+fn a_picked_windows_program_becomes_its_file_name() {
+    use std::path::Path;
+    assert_eq!(
+        super::picked_windows_application(Path::new("/Program Files/Microsoft VS Code/Code.exe")),
+        Some(super::PickedApplication {
+            id: "Code.exe".into(),
+            name: "Code".into(),
+        })
+    );
+    assert_eq!(
+        super::picked_windows_application(Path::new("/opt/apps/WeChat.EXE")).map(|app| app.id),
+        Some("WeChat.EXE".into())
+    );
+    assert_eq!(
+        super::picked_windows_application(Path::new("/opt/apps/readme.txt")),
+        None
+    );
+    assert_eq!(super::picked_windows_application(Path::new("/")), None);
+}

@@ -2367,6 +2367,10 @@ export interface SettingsClient {
    * Ask the host for an installed local speech model directory (one holding msime-model.json), resolving to null when the user cancels. The model is loaded by path and a file input hands back contents instead, so only the host can answer this.
    */
   pickVoiceModelPath?: () => Promise<string | null>;
+  /** 应用例外的「添加应用…」：宿主弹出系统的选应用对话框，交回规则用的标识（macOS 的 Bundle ID，Windows 的程序文件名）和应用名称，用户取消时为 null；所选不是应用程序时以 `not_application` 拒绝。没有它的宿主只能手填应用标识。 */
+  pickApplication?: () => Promise<{ id: string; name: string } | null>;
+  /** 应用例外列表的显示名称：按规则标识查本机装着的应用，查不到的不返回（macOS）。 */
+  applicationNames?: (ids: string[]) => Promise<Record<string, string>>;
   /** The host's on-device speech model store; hosts that provide it offer the `local` provider with a model manager. */
   localVoiceModels?: LocalVoiceModelClient;
   /** 按需下载的资源包（日文词库、「粤语、注音与笔画词库」、手写模型）。只有 macOS 提供：发布包不再内置它们，选用对应方案时由设置页下载。 */

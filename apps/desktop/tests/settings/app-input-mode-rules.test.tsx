@@ -138,3 +138,103 @@ test("hosts that do not apply rules show no rule table", async () => {
   await settingsFormReady();
   expect(screen.queryByRole("group", { name: "应用例外" })).toBeNull();
 });
+
+test("a host with an application picker adds rules by picking an application and lists them by name", async () => {
+  const save = vi.fn(async (_revision: number, preferences: Snapshot["preferences"]) => ({
+    ...initial,
+    revision: 4,
+    preferences,
+  }));
+  const pickApplication = vi
+    .fn<NonNullable<SettingsClient["pickApplication"]>>()
+    .mockResolvedValueOnce(null)
+    .mockRejectedValueOnce({ code: "not_application" })
+    .mockResolvedValueOnce({ id: "com.microsoft.VSCode", name: "Visual Studio Code" });
+  const applicationNames = vi.fn(async (ids: string[]): Promise<Record<string, string>> =>
+    ids.includes("com.apple.Terminal") ? { "com.apple.Terminal": "终端" } : {},
+  );
+  render(
+    <SettingsPage
+      client={{
+        load: async () => ({
+          ...initial,
+          preferences: {
+            ...initial.preferences,
+            app_input_mode_rules: {
+              "com.apple.Terminal": "english",
+              "org.example.gone": "chinese",
+            },
+          },
+        }),
+        save,
+        host: testHost({ platform: "macos", app_input_mode_rules: true }),
+        pickApplication,
+        applicationNames,
+      }}
+    />,
+  );
+  await settingsFormReady();
+  const table = await screen.findByRole("group", { name: "应用例外" });
+  // 已有规则按名称列出，Bundle ID 退到说明里；查不到名称（没装、别的机器同步来）的照旧显示 Bundle ID。
+  expect(((await screen.findByLabelText("终端 的输入模式")) as HTMLSelectElement).value).toBe(
+    "english",
+  );
+  expect(table.textContent).toContain("com.apple.Terminal");
+  expect(screen.getByLabelText("org.example.gone 的输入模式")).toBeTruthy();
+  // 有选择对话框时不再让人手填 Bundle ID。
+  expect(screen.queryByLabelText("应用 Bundle ID")).toBeNull();
+
+  const add = screen.getByRole("button", { name: "添加应用…" });
+  fireEvent.click(add);
+  await vi.waitFor(() => expect(pickApplication).toHaveBeenCalledTimes(1));
+  expect(screen.queryByRole("alert")).toBeNull();
+
+  fireEvent.click(add);
+  expect((await screen.findByRole("alert")).textContent).toContain("不是应用程序");
+
+  fireEvent.click(add);
+  const mode = (await screen.findByLabelText("Visual Studio Code 的输入模式")) as HTMLSelectElement;
+  expect(mode.value).toBe("chinese");
+  expect(screen.queryByRole("alert")).toBeNull();
+  saveSettingsNow();
+  await vi.waitFor(() =>
+    expect(save).toHaveBeenLastCalledWith(3, {
+      ...initial.preferences,
+      app_input_mode_rules: {
+        "com.apple.Terminal": "english",
+        "org.example.gone": "chinese",
+        "com.microsoft.VSCode": "chinese",
+      },
+    }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "移除 Visual Studio Code 的应用例外" }));
+  expect(screen.queryByLabelText("Visual Studio Code 的输入模式")).toBeNull();
+});
+
+test("a Windows program picked from the dialog becomes its lower-cased file name", async () => {
+  const save = vi.fn(async (_revision: number, preferences: Snapshot["preferences"]) => ({
+    ...initial,
+    revision: 4,
+    preferences,
+  }));
+  const applicationNames = vi.fn(async (): Promise<Record<string, string>> => ({}));
+  mount({
+    host: testHost({ platform: "windows", app_input_mode_rules: true }),
+    save,
+    pickApplication: async () => ({ id: "Code.exe", name: "Code" }),
+    applicationNames,
+  });
+  await settingsFormReady();
+  fireEvent.click(await screen.findByRole("button", { name: "添加应用…" }));
+  expect(await screen.findByLabelText("Code 的输入模式")).toBeTruthy();
+  expect(screen.getByRole("group", { name: "应用例外" }).textContent).toContain("code.exe");
+  saveSettingsNow();
+  await vi.waitFor(() =>
+    expect(save).toHaveBeenLastCalledWith(3, {
+      ...initial.preferences,
+      app_input_mode_rules: { "code.exe": "chinese" },
+    }),
+  );
+  // Windows 的规则就是程序文件名，不向宿主查名称。
+  expect(applicationNames).not.toHaveBeenCalled();
+});

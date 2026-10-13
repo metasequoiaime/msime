@@ -3187,6 +3187,103 @@ async fn pick_voice_model_path(
         .transpose()
 }
 
+/// 应用例外里选中的应用：`id` 是规则用的标识（macOS 的 Bundle ID，Windows 的程序文件名），`name` 是给人看的名称。
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+struct PickedApplication {
+    id: String,
+    name: String,
+}
+
+// 应用例外不能让用户手填 Bundle ID：没人知道它，也不该去查。和原生设置窗口的「添加应用…」一样，由宿主弹出只能选应用程序的面板，从所选应用读出 Bundle ID 和名称；AppKit 只在主线程上弹面板。
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn pick_application(
+    app: tauri::AppHandle,
+) -> Result<Option<PickedApplication>, HostActionError> {
+    let (send, received) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let _ = send.send(msime_host_macos::pick_application());
+    })
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    let Some(path) = received.recv().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
+    else {
+        return Ok(None);
+    };
+    // 面板只给应用程序包，没有 Bundle ID 的只可能是损坏的包，规则无从写起。
+    let id = msime_host_macos::bundle_identifier_at(&path).ok_or(HostActionError {
+        code: "not_application",
+    })?;
+    let name = msime_host_macos::display_name_at(&path).unwrap_or_else(|| id.clone());
+    Ok(Some(PickedApplication { id, name }))
+}
+
+// Windows 的规则按进程基名记，所以选一个 .exe，取它的文件名。
+#[cfg(target_os = "windows")]
+#[tauri::command]
+async fn pick_application(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<Option<PickedApplication>, HostActionError> {
+    use tauri_plugin_dialog::DialogExt;
+    // 对话框在主线程上运行，这个工作线程只等结果。
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_parent(&window)
+            .set_title("选择应用程序")
+            .add_filter("应用程序", &["exe"])
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    let Some(picked) = picked else {
+        return Ok(None);
+    };
+    let path = picked.into_path().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    picked_windows_application(&path)
+        .map(Some)
+        .ok_or(HostActionError {
+            code: "not_application",
+        })
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn picked_windows_application(path: &std::path::Path) -> Option<PickedApplication> {
+    let id = path.file_name()?.to_str()?.to_owned();
+    if !id.to_ascii_lowercase().ends_with(".exe") {
+        return None;
+    }
+    let name = path.file_stem()?.to_str()?.to_owned();
+    Some(PickedApplication { id, name })
+}
+
+/// 应用例外列表里每条规则的显示名称：本机装着的应用按 Bundle ID 查到名称，没装的不返回，列表就照旧显示 Bundle ID。
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn application_names(ids: Vec<String>) -> Result<HashMap<String, String>, HostActionError> {
+    // 偏好库最多收 32 条规则；多给的只可能来自坏掉的页面，不替它查。
+    const MAX_NAMES: usize = 64;
+    tauri::async_runtime::spawn_blocking(move || {
+        ids.into_iter()
+            .take(MAX_NAMES)
+            .filter_map(|id| msime_host_macos::application_name(&id).map(|name| (id, name)))
+            .collect()
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })
+}
+
 #[cfg(target_os = "macos")]
 #[tauri::command]
 async fn pick_data_directory(
@@ -5484,6 +5581,10 @@ pub fn run() {
             uninstall_input_source,
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             pick_voice_model_path,
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            pick_application,
+            #[cfg(target_os = "macos")]
+            application_names,
             #[cfg(target_os = "android")]
             android_account::account_status,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]

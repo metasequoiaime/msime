@@ -33,7 +33,7 @@ Server 换客户端时用 `process_image_base_name`（`src/system/ProcessImageNa
 
 **Alt+Shift+H 在 Windows 上同样切换全半角。** `_MatchChordInputHotkey` 在中文模式下、`toggle_fullwidth_option_shift_h` 开着、不带 Ctrl（AltGr 也报成 Ctrl+Alt）和 Win 时，把 Alt+Shift+H 当作全半角热键（`tsf/Global/FullwidthChordPolicy.h`），英文模式下原样交给应用，和 macOS 一样。Ctrl+Shift+Space 不受这个开关影响，macOS 也是这样。能力位 `fullwidth_chord` 加上 Windows，共享快捷键页按平台显示「Alt+Shift+H 切换全半角」。WinUI 快捷键页加同一个开关，「恢复默认快捷键」本来就整体恢复 `keybindings`，也会把它恢复。
 
-**设置界面。** 新能力位 `app_input_mode_rules`（macOS、Windows）控制共享设置页「中英文」组里的规则表（`app-input-mode-rules-section.tsx`）：每条规则一行，可以改模式、可以移除；末尾一行填标识后添加，新规则从中文开始。Windows 上填的是程序文件名，粘贴完整路径时只取文件名。WinUI 设置的同一组有同样的规则表，写入前的校验在 `settings/AppInputModeRuleList.h`。两处校验和偏好库一致，另外要求 Windows 上以 `.exe` 结尾。
+**设置界面。** 新能力位 `app_input_mode_rules`（macOS、Windows）控制共享设置页「中英文」组里的规则表（`app-input-mode-rules-section.tsx`）：每条规则一行，显示应用名称、标识退到说明里，可以改模式、可以移除；末尾的「添加应用…」由宿主弹出系统的选应用对话框（`SettingsClient.pickApplication`，Tauri 命令 `pick_application`），新规则从中文开始。用户不知道也不该去查 Bundle ID 或进程名，所以标识从所选应用读出：macOS 的面板只接受应用程序包、默认打开 /Applications，Bundle ID 和名称由 `crates/host-macos/native/file_picker.mm` 读；Windows 选一个 `.exe`，取文件名。已有规则的名称在 macOS 上按 Bundle ID 向 LaunchServices 查（`applicationNames`，命令 `application_names`），没装的应用照旧显示标识。宿主不提供对话框时才退回手填标识，Windows 上粘贴完整路径时只取文件名。WinUI 设置的同一组有同样的规则表，写入前的校验在 `settings/AppInputModeRuleList.h`。两处校验和偏好库一致，另外要求 Windows 上以 `.exe` 结尾。
 
 **MCP 也能读写这两项。** `crates/mcp-server/src/preferences.rs` 的 `get_preferences` 显示 `app_input_mode_rules`（模式沿用 `default_ime_mode` 的 `chinese`/`english`）和 `shuangpin_keymap_hint`（从没设置过时为 null，macOS 这时仍读本机旧设置）；`update_preferences` 可以整张替换规则表（`{}` 清空）、开关键位提示。规则表的合法性由存储层的同一条校验判定，不合法时整次更新被拒、原表不变，不在 MCP 里另写一份规则。
 

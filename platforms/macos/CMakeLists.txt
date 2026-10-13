@@ -71,7 +71,7 @@ target_link_libraries(shared-uninstaller-test PRIVATE "-framework Foundation" "-
 add_test(NAME shared-uninstaller COMMAND shared-uninstaller-test)
 add_executable(shared-file-picker-test ../../crates/host-macos/native/file_picker_test.mm ../../crates/host-macos/native/file_picker.mm)
 target_compile_options(shared-file-picker-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
-target_link_libraries(shared-file-picker-test PRIVATE "-framework AppKit")
+target_link_libraries(shared-file-picker-test PRIVATE "-framework AppKit" "-framework UniformTypeIdentifiers")
 add_test(NAME shared-file-picker COMMAND shared-file-picker-test)
 set(MSIME_HOST_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../target/debug/libmsime_host_api.a" CACHE FILEPATH "Rust host static library for this architecture")
 if(NOT EXISTS "${MSIME_HOST_LIBRARY}")
