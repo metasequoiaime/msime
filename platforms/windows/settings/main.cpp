@@ -10808,6 +10808,10 @@ private:
              L"mixed_input.english", true, true);
     slider_row(candidates, 0xE8CB, L"触发字符数", L"预编辑字母达到该长度后才出现英文候选项",
                L"mixed_input.minimum_prefix", 1, 8, 5);
+    // 符号混输是后加的可选键，默认开，文档里平时没有它，回退值必须是 true。
+    bool_row(candidates, 0xE8EF, L"符号混输",
+             L"打出符号的名称时在候选项中加入对应的符号，紧跟在那个词后面（如「正负」后面是 ±、「平方米」后面是 ㎡）；要打完整的名称才出现",
+             L"mixed_input.symbols", true);
     bool_row(candidates, 0xE76E, L"emoji 混输",
              L"中文输入时在候选项中加入匹配的 emoji，紧跟在它描绘的那个词后面（如「美国」后面是 🇺🇸），对不上候选词的排在末尾",
              L"mixed_input.emoji", false);
