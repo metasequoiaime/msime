@@ -29,8 +29,8 @@ pub const SINGLE_SYLLABLE_NAMES: [&str; 2] = ["派", "度"];
 #[derive(Debug, Clone, PartialEq)]
 pub struct SymbolRow {
     pub item: WordItem,
-    /// 锚定词：中文名称就是那个词，拉丁名称是英文混输给出的同名英文行（`gamma`）。
-    pub anchor: &'static str,
+    /// 锚定词：中文名称就是那个词，拉丁名称是英文混输给出的同名英文行（`gamma`）。同一次查询里几个名称给出同一个符号时（`dg` 的对钩、打钩都给 √）每个名称都在，按表的先后；符号跟在其中排得最靠前的那个后面。
+    pub anchors: Vec<&'static str>,
     /// 输入含糊：只有一个音节（派、度），或者是两个字母的首字母（`ax` 爱心、`jf` 积分）。这样的输入能指的词太多，符号跟在锚定词后面时最早排第 4 位，不挤动前三个词。
     pub ambiguous: bool,
     /// 锚定词不在候选里时也出现（排在第一页最后一位）。全拼两个音节以上和拉丁名称是，单音节和首字母匹配不是。
@@ -196,18 +196,31 @@ pub fn query_symbol_readings(readings: &[String], accept: &dyn Fn(&str) -> bool)
             .map(|&index| (index, Match::Quanpin))
             .collect();
         for row in rows_for(table, &hits, reading) {
-            if rows.len() == MIXED_SYMBOL_LIMIT {
-                return rows;
-            }
-            if !rows
-                .iter()
-                .any(|known: &SymbolRow| known.item.word == row.item.word)
+            if let Some(known) = rows
+                .iter_mut()
+                .find(|known: &&mut SymbolRow| known.item.word == row.item.word)
             {
-                rows.push(row);
+                merge_anchors(known, &row.anchors, row.ambiguous, row.unanchored);
+                continue;
             }
+            if rows.len() == MIXED_SYMBOL_LIMIT {
+                continue;
+            }
+            rows.push(row);
         }
     }
     rows
+}
+
+/// 同一个符号又由另一个名称给出：记下新的锚定词，位置规则取两者中宽的那个（任一个不含糊就不含糊，任一个能脱离锚定词出现就能）。
+fn merge_anchors(row: &mut SymbolRow, anchors: &[&'static str], ambiguous: bool, unanchored: bool) {
+    for &anchor in anchors {
+        if !row.anchors.contains(&anchor) {
+            row.anchors.push(anchor);
+        }
+    }
+    row.ambiguous &= ambiguous;
+    row.unanchored |= unanchored;
 }
 
 fn rows_for(table: &SymbolTable, hits: &[(usize, Match)], code: &str) -> Vec<SymbolRow> {
@@ -218,15 +231,16 @@ fn rows_for(table: &SymbolTable, hits: &[(usize, Match)], code: &str) -> Vec<Sym
         let ambiguous = single_syllable || (kind == Match::Initials && entry.syllables() == 2);
         let unanchored = kind != Match::Initials && !single_syllable;
         for symbol in entry.symbols() {
-            if rows.len() == MIXED_SYMBOL_LIMIT {
-                return rows;
+            if let Some(known) = rows.iter_mut().find(|row| row.item.word == symbol) {
+                merge_anchors(known, &[entry.name], ambiguous, unanchored);
+                continue;
             }
-            if rows.iter().any(|row| row.item.word == symbol) {
+            if rows.len() == MIXED_SYMBOL_LIMIT {
                 continue;
             }
             rows.push(SymbolRow {
                 item: WordItem::new(code, symbol, 0, CandidateSource::Emoji, ""),
-                anchor: entry.name,
+                anchors: vec![entry.name],
                 ambiguous,
                 unanchored,
             });
@@ -342,7 +356,7 @@ mod tests {
     #[test]
     fn whole_names_match_and_partial_spellings_do_not() {
         assert_eq!(texts(&quanpin("zhengfu")), vec!["±"]);
-        assert_eq!(quanpin("zhengfu")[0].anchor, "正负");
+        assert_eq!(quanpin("zhengfu")[0].anchors, ["正负"]);
         assert!(quanpin("zhengf").is_empty());
         assert!(quanpin("zheng").is_empty());
         assert_eq!(texts(&quanpin("ZhengFu")), vec!["±"]);
@@ -358,7 +372,7 @@ mod tests {
     fn initials_count_only_for_names_of_two_syllables_or_more() {
         let rows = quanpin("ssd");
         assert_eq!(texts(&rows), vec!["℃"]);
-        assert_eq!(rows[0].anchor, "摄氏度");
+        assert_eq!(rows[0].anchors, ["摄氏度"]);
         assert!(!rows[0].unanchored && !rows[0].ambiguous);
         // 两个字母的首字母和单音节一样含糊（`ax` 爱心）。
         let ax = quanpin("ax");
@@ -377,7 +391,7 @@ mod tests {
     fn latin_names_need_four_letters() {
         let rows = quanpin("gamma");
         assert_eq!(texts(&rows), vec!["γ", "Γ"]);
-        assert_eq!(rows[0].anchor, "gamma");
+        assert_eq!(rows[0].anchors, ["gamma"]);
         assert!(rows[0].unanchored);
         // pi 是常用音节，不作为拉丁名称；π 走中文名「派」。
         assert!(quanpin("pi").is_empty());
@@ -420,10 +434,15 @@ mod tests {
 
     #[test]
     fn names_sharing_a_spelling_give_each_symbol_once() {
-        // 西格马、西格玛同音，σ Σ 各出一次，锚定词取表里排在前面的那个。
+        // 西格马、西格玛同音，σ Σ 各出一次，两个名称都是锚定词，按表的先后。
         let rows = quanpin("xigema");
         assert_eq!(texts(&rows), vec!["σ", "Σ"]);
-        assert_eq!(rows[0].anchor, "西格马");
+        assert_eq!(rows[0].anchors, ["西格马", "西格玛"]);
+        // 首字母 dg 命中对钩、对勾、打钩、打勾，√ ✓ 各出一次，四个名称都记下。
+        let rows = quanpin("dg");
+        assert_eq!(texts(&rows), vec!["√", "✓"]);
+        assert_eq!(rows[0].anchors, ["对钩", "对勾", "打钩", "打勾"]);
+        assert!(rows[0].ambiguous && !rows[0].unanchored);
         // 合计不超过上限。
         let many = rows_for(
             table(),
@@ -444,6 +463,10 @@ mod tests {
         // 首字母和拉丁名称都不认。
         assert!(query_symbol_readings(&["ssd".to_owned()], &|_| true).is_empty());
         assert!(query_symbol_readings(&["gamma".to_owned()], &|_| true).is_empty());
+        // 几个读法给出同一个符号时只出一行，锚定词合在一起。
+        let rows = query_symbol_readings(&["duigou".to_owned(), "dagou".to_owned()], &|_| true);
+        assert_eq!(texts(&rows), vec!["√", "✓"]);
+        assert_eq!(rows[0].anchors, ["对钩", "对勾", "打钩", "打勾"]);
         // `accept` 拒绝的读法不算。
         assert!(
             query_symbol_readings(&readings, &|reading| reading != "zhengfu")

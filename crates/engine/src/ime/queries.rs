@@ -445,7 +445,7 @@ fn same_without_variation_selector(left: &str, right: &str) -> bool {
 
 /// 符号行接在它名称那个词（锚定词）后面，同一个词后面先符号、再 emoji、再颜文字（emoji 已经接好，插在锚定词下标 + 1 就把它们推到后面）：
 ///
-/// - 锚定词在候选里：紧跟在第一个锚定词后面；输入含糊（单音节名称、两个字母的首字母）时最早排在 `SYMBOL_AMBIGUOUS_SLOT`。
+/// - 锚定词在候选里：紧跟在第一个锚定词后面，几个名称给出同一个符号时取其中排得最靠前的；输入含糊（单音节名称、两个字母的首字母）时最早排在 `SYMBOL_AMBIGUOUS_SLOT`。
 /// - 锚定词不在候选里：全拼两个音节以上和拉丁名称排在 `SYMBOL_UNANCHORED_SLOT`，单音节和首字母匹配不出。
 ///
 /// 所有位置都 ≥ 1，列表空时不加，所以混排时符号不占首位。混排之后名称词还可能被挪走（只出单字、固定位置），那一步由 `keep_expressive_rows_off_the_lead` 兜住。位置超过列表长度时接在末尾。
@@ -460,7 +460,12 @@ fn place_symbol_rows(list: &mut Vec<WordItem>, mut symbols: Vec<SymbolRow>) {
     let length = list.len();
     with_first_position(list, |first_position| {
         for (index, row) in symbols.iter().enumerate() {
-            let slot = match first_position(row.anchor) {
+            let anchor = row
+                .anchors
+                .iter()
+                .filter_map(|anchor| first_position(anchor))
+                .min();
+            let slot = match anchor {
                 Some(anchor) if row.ambiguous => (anchor + 1).max(SYMBOL_AMBIGUOUS_SLOT),
                 Some(anchor) => anchor + 1,
                 None if row.unanchored => SYMBOL_UNANCHORED_SLOT,
@@ -1614,7 +1619,7 @@ mod tests {
     fn symbol(word: &str, anchor: &'static str, ambiguous: bool, unanchored: bool) -> SymbolRow {
         SymbolRow {
             item: WordItem::new("x", word, 0, CandidateSource::Emoji, ""),
-            anchor,
+            anchors: vec![anchor],
             ambiguous,
             unanchored,
         }
@@ -1696,6 +1701,21 @@ mod tests {
             vec![symbol("π", "派", true, false)],
         );
         assert_eq!(words(&merged), vec!["排", "牌"]);
+    }
+
+    #[test]
+    fn a_symbol_shared_by_several_names_follows_the_earliest_of_them() {
+        let shared = || SymbolRow {
+            item: WordItem::new("dg", "√", 0, CandidateSource::Emoji, ""),
+            anchors: vec!["对钩", "打钩"],
+            ambiguous: false,
+            unanchored: false,
+        };
+        let merged = with_symbols(database(&["打钩", "大哥", "对钩"]), vec![shared()]);
+        assert_eq!(words(&merged), vec!["打钩", "√", "大哥", "对钩"]);
+        // 表里靠前的名称不在候选里时跟着在的那个，不因此消失。
+        let merged = with_symbols(database(&["大哥", "打钩"]), vec![shared()]);
+        assert_eq!(words(&merged), vec!["大哥", "打钩", "√"]);
     }
 
     #[test]

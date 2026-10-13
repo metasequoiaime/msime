@@ -15,6 +15,7 @@ Status: implemented
 - **来源复用 `CandidateSource::Emoji`（6）。** 于是不学习、不调频、不进个人上下文（`learn_candidate`、`record_personal_context`）、选中即整段上屏结束组字（`commit_selection`，所以部分选词后选符号不会造出「大于≥」），不能置顶、固定或删除（`is_editable_source`），重排器不碰它（`CATALOG_SOURCES`），有云候选、AI 候选时按 emoji 的座位坐（`normalize_online_slots`），不请求释义，Windows 选中即结束组字。`CandidateSource::Emoji` 的文档注释写明它也用于符号行。
 - **位置**（`crates/engine/src/ime/queries.rs` 的 `place_symbol_rows`，26 键和九宫格的 `insert_expressive_rows` 共用）：
   - 锚定词是名称本身（中文名称那个词，拉丁名称是英文混输给出的同名英文行）。在候选里时紧跟第一个锚定词；输入含糊时最早排在下标 `SYMBOL_AMBIGUOUS_SLOT`（3，第 4 位），含糊指单音节名称（派、度）和两个字母的首字母（`ax` 爱心、`jf` 积分、`oy` 欧元、`bq` 版权）。两个字母的简拼和单音节一样能指的词太多：真词库上它们原本都把符号排在下标 1，挤掉第二个常用词。三个字母以上的首字母（`ssd`、`wjx`、`lfm`，issue 里举的例子都是这种）照旧紧跟锚定词。没选「只认三个字母以上的首字母」：W#759 点名要 `pm` 出 ㎡，那样要给它单独开口子。
+  - 几个名称给出同一个符号时（`dg` 命中对钩、对勾、打钩、打勾，都给 √ ✓；`xigema` 的西格马、西格玛），符号只出一行，但每个名称都记作锚定词（`SymbolRow::anchors`），符号跟在其中在列表里排得最靠前的那个后面。此前只记表里第一个名称：`dg` 的 √ 跟着排在第 288 位的对钩，而不是第 87 位的打钩；表里靠前的名称不在候选里时，首字母匹配的符号整个消失。
   - 锚定词不在候选里时，全拼两个音节以上和拉丁名称排在下标 `SYMBOL_UNANCHORED_SLOT`（5，默认每页 6 个的第一页最后一位），列表短时接在末尾；首字母匹配和单音节不出。
   - 所有位置 ≥ 1，列表空时不加，所以混排时符号不占首位。
   - 符号在 emoji 之后插，同一个词后面依次是符号、emoji、颜文字；固定位置照常在混排之后应用。
