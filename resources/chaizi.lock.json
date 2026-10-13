@@ -1,0 +1,30 @@
+{
+  "source": "https://github.com/kfcd/chaizi",
+  "source_commit": "e177ab54ce4edf255315a60593ffecbd8167e96b",
+  "license": "CC-BY-3.0",
+  "attribution": "© 2015 開放詞典 kaifangcidian.com",
+  "artifacts": [
+    {
+      "name": "chaizi-jt.txt",
+      "url": "https://raw.githubusercontent.com/kfcd/chaizi/e177ab54ce4edf255315a60593ffecbd8167e96b/chaizi-jt.txt",
+      "sha256": "c341a99fc6a4a4f3169279c451ca55057a22603a5d7a520094378f65e817ad26",
+      "size": 310925
+    },
+    {
+      "name": "chaizi-ft.txt",
+      "url": "https://raw.githubusercontent.com/kfcd/chaizi/e177ab54ce4edf255315a60593ffecbd8167e96b/chaizi-ft.txt",
+      "sha256": "474659d99bd43573f24c62cc5c4b19b67169f4e1647ebf0249b0762a59f4d2b7",
+      "size": 320407
+    },
+    {
+      "name": "LICENSE",
+      "url": "https://raw.githubusercontent.com/kfcd/chaizi/e177ab54ce4edf255315a60593ffecbd8167e96b/LICENSE",
+      "sha256": "243ce65e3a5a24669b08b5b6d25e82e961dfc747f841f04f199126a218968100",
+      "size": 836
+    }
+  ],
+  "unihan_lock": "resources/character-glosses.lock.json",
+  "opencc": "crates/client-core/data/opencc/",
+  "license_file": "resources/licenses/kfcd-chaizi-CC-BY-3.0.txt",
+  "outputs": ["crates/engine/src/local/chaizi.tsv", "crates/engine/src/local/chaizi-chars.tsv"]
+}
