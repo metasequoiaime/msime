@@ -379,7 +379,7 @@ final class ImeLayoutRows {
                     digits ? () -> commitNineKeyLiteral(NineKeyLayout.digitInput(key))
                         : NineKeyLayout.opensSymbols(key, false) ? () -> symbolKey(key)
                         : () -> s.character(key.input()));
-                KeyboardTypographyPolicy.setKeyTextSize(keyButton,
+                KeyboardTypographyPolicy.setFittedKeyTextSize(keyButton, 14,
                     digits ? 22 : KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
                 if (NineKeyLayout.opensSymbols(key, digits)) s.nineKeySymbolKey = keyButton;
                 s.keyId(keyButton, KeyPressIds.forNineKeyDigit(key.digit()));
@@ -417,9 +417,9 @@ final class ImeLayoutRows {
         if (digits) {
             // 数字键面的 3×3 只有 1–9，右列下面两格换成小数点和 0（与 iOS、HarmonyOS 的九键右列一致），否则这一面打不出 0。这一面的点按都直接上屏、不进组字，重输在这里没有作用；小数点按字面上屏，不随中文标点模式变成「。」。
             Button period = s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period");
-            Button zero = s.keyId(s.keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")), "Nine0");
-            KeyboardTypographyPolicy.setKeyTextSize(period, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
-            KeyboardTypographyPolicy.setKeyTextSize(zero, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
+            Button zero = s.keyId(s.nineKeyGridKey("0", "数字 0", () -> commitNineKeyLiteral("0")), "Nine0");
+            KeyboardTypographyPolicy.setKeyTextSize(period, 22);
+            KeyboardTypographyPolicy.setFittedKeyTextSize(zero, 14, 22);
             for (Button key : java.util.List.of(period, zero)) {
                 if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
                 addNineKey(actions, key);
