@@ -303,12 +303,16 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 九键、14 键与笔画键盘左侧的符号栏：数字键面一屏三项，其他键面最多五项，更多的上下滚动。九键使用独立键帽，14 键与笔画共用一条底轨；点按原样上屏（全角模式下转全角）。
+     * 九键、14 键与笔画键盘左侧的符号栏：数字键面和笔画一屏三项，其他键面最多五项，更多的上下滚动。九键与笔画使用独立键帽，14 键共用一条底轨；点按原样上屏（全角模式下转全角）。
      */
     private FrameLayout symbolSidebar(boolean digits, boolean capped) {
-        java.util.List<String> symbols = sidebarSymbols(digits);
-        NineKeySymbolRail rail = new NineKeySymbolRail(s,
+        return symbolSidebar(digits, capped,
             digits ? NineKeySidebarPolicy.DIGIT_VISIBLE_ROWS : NineKeySidebarPolicy.VISIBLE_ROWS);
+    }
+
+    private FrameLayout symbolSidebar(boolean digits, boolean capped, int visibleRows) {
+        java.util.List<String> symbols = sidebarSymbols(digits);
+        NineKeySymbolRail rail = new NineKeySymbolRail(s, visibleRows);
         rail.setContentDescription("符号栏，可上下滑动");
         for (String symbol : symbols) {
             Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
@@ -319,7 +323,7 @@ final class ImeLayoutRows {
                 KeyboardTypographyPolicy.setKeyTextSize(key, KeyboardTypographyPolicy.NINE_KEY_SIDE_TEXT_SP);
             // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
             if ("，".equals(symbol) || "。".equals(symbol)) CenteredGlyphSpan.apply(key, symbol, 1.3f);
-            // 九键每个符号都有独立键帽，笔画继续沿用无键帽的符号轨道。
+            // 独立键帽与无键帽底轨按布局区分，避免按钮和整列背景叠加。
             if (key instanceof KeyboardPressButton press)
                 press.setKeyboardRole(capped ? KeyboardKeyRole.KEY : KeyboardKeyRole.PLAIN);
             rail.addSymbol(key);
@@ -517,8 +521,8 @@ final class ImeLayoutRows {
 
         // 外框和拼音九键一样三行对齐：左列是和拼音九键同一张可滚动的符号表，！ 在右列最下；中间两行笔画下面再一行 @#、0、句点。原来左列四个、中间两行、右列三个，三列互不对齐，看起来像少了一行。
         java.util.List<String> symbols = NineKeyLayout.punctuation();
-        FrameLayout sidebar = symbolSidebar(false, false);
-        container.addView(sidebar, LayoutPolicy.weightedMatchParentParams(0.7f));
+        FrameLayout sidebar = symbolSidebar(false, true, 3);
+        container.addView(sidebar, LayoutPolicy.weightedMatchParentParams(0.9f));
 
         LinearLayout grid = LayoutPolicy.column(s);
         for (java.util.List<StrokeKeyboardLayout.Key> keys : StrokeKeyboardLayout.rows()) {
@@ -527,9 +531,8 @@ final class ImeLayoutRows {
                 Button keyButton = s.keyboardKey(StrokeKeyboardLayout.face(key),
                     StrokeKeyboardLayout.accessibilityLabel(key), () -> strokeKey(key));
                 keyButton.setContentDescription(StrokeKeyboardLayout.accessibilityLabel(key));
-                // 笔画本身的墨迹很细（一、丨、丶），按普通键面字号排只剩一道短线，字形放大，下面的名称仍是一半大小。
-                KeyboardTypographyPolicy.setKeyTextSize(keyButton, 26);
-                twoLineFace(keyButton, StrokeKeyboardLayout.face(key));
+                // 键面只画笔画符号；矮键或系统大字体时按键帽空间缩小，名称保留在无障碍描述里。
+                KeyboardTypographyPolicy.setFittedKeyTextSize(keyButton, 14, 22);
                 if (keyButton instanceof KeyboardPressButton press)
                     press.setKeyboardRole(KeyboardKeyRole.KEY);
                 s.keyId(keyButton, KeyPressIds.forCharacter(key.input()));
@@ -541,7 +544,9 @@ final class ImeLayoutRows {
         LinearLayout lastRow = LayoutPolicy.row(s);
         Button symbolsKey = s.keyId(s.keyboardKey("@#", "符号", s.imePanels::showSymbolPanel), KeyPressIds.forNineKeyDigit(1));
         Button zero = s.keyId(s.keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")), "Nine0");
-        Button period = s.keyId(s.keyboardKey(".", "句点", this::commitNineKeyPeriod), "Period");
+        String periodFace = ChineseSymbolFaces.face(".", s.sendsChinesePunctuation());
+        Button period = s.keyId(s.keyboardKey(periodFace, "句点", this::commitNineKeyPeriod), "Period");
+        if ("。".equals(periodFace)) CenteredGlyphSpan.apply(period, periodFace, 1.3f);
         for (Button key : java.util.List.of(symbolsKey, zero, period)) {
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
             addNineKey(lastRow, key);
@@ -561,6 +566,7 @@ final class ImeLayoutRows {
         Button rewrite = s.keyboardKey("重输", "重新输入笔画", () -> {
             if (s.hasEngineComposition()) s.discardComposition();
         });
+        KeyboardTypographyPolicy.setKeyTextSize(rewrite, KeyboardTypographyPolicy.NINE_KEY_ACTION_TEXT_SP);
         if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, rewrite);
         String last = symbols.get(symbols.size() - 1);
@@ -568,7 +574,7 @@ final class ImeLayoutRows {
             () -> commitNineKeyLiteral(last)), "SoftPunctuation");
         if (exclamation instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, exclamation);
-        container.addView(actions, LayoutPolicy.weightedMatchParentParams(0.8f));
+        container.addView(actions, LayoutPolicy.weightedMatchParentParams(0.9f));
         updateStrokeWildcardKey();
     }
 
@@ -1116,7 +1122,7 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 两行键面（笔画的 一 / 横等）：第二行是说明，和第一行同字号时两行装不进一行键高，下半截被裁掉。第二行缩到一半，并去掉上下内边距和字体留白。
+     * 两行键面：第二行是说明，和第一行同字号时两行装不进一行键高，下半截被裁掉。第二行缩到一半，并去掉上下内边距和字体留白。
      */
     static void twoLineFace(Button button, String label) {
         int lineBreak = label.indexOf('\n');
