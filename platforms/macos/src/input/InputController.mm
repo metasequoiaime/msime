@@ -5918,6 +5918,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         NSEventModifierFlagCommand;
     const BOOL plainUppercaseKey = event.characters.length == 1 &&
         [[NSCharacterSet uppercaseLetterCharacterSet] characterIsMember:[event.characters characterAtIndex:0]] &&
+        (event.modifierFlags & NSEventModifierFlagShift) &&
         !(event.modifierFlags & competingForUppercase);
     if (!plainUppercaseKey) _uppercasePassthroughPending = NO;
     [_appearance lockActiveInputMode];

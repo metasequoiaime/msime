@@ -21,4 +21,4 @@ macOS 宿主在会话返回未处理、且没有组字或候选时记录“最�
 
 ## Verification
 
-macOS `ShortcutTest` 新增 `TestConsecutiveUppercaseDoesNotOpenShortcut`，覆盖首个 `M` 交给应用后连续 `R` 不调用 Engine、不进入快捷模式而直接插入应用。`cargo test -p msime-engine` 全量通过；`cargo fmt --all`、`npm run verify-notes` 和 `git diff --check` 已运行。macOS CMake 配置因本机缺少 Sparkle 2.9.6 未能继续到编译。
+macOS `ShortcutTest` 新增 `TestConsecutiveUppercaseDoesNotOpenShortcut`，覆盖首个 `M` 交给应用后连续 `R` 不调用 Engine、不进入快捷模式而直接插入应用。连续大写状态只接受带 `Shift` 的真实事件，避免把测试中的无修饰合成字符误判为实体键盘输入；`ShortcutTest` 在本机 CMake 构建后通过。`cargo test -p msime-engine` 全量通过；`cargo fmt --all`、`npm run verify-notes` 和 `git diff --check` 已运行。
