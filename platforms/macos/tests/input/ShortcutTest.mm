@@ -2567,6 +2567,26 @@ static void TestJapaneseConversionKeys(MSIMEAppearancePreferences *appearance) {
     assert(session.lastCommand != MSIME_COMMIT_READING);
 }
 
+static void TestConsecutiveUppercaseDoesNotOpenShortcut(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    ShortcutSession *session = [ShortcutSession new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:@{ @"scheme": @0, @"local_mode": @"none", @"editing_text": @"", @"candidates": @[] }
+                   forKey:@"view"];
+    session.nextTransition = @{ @"handled": @NO,
+                                @"view": @{ @"scheme": @0, @"local_mode": @"none",
+                                             @"editing_text": @"", @"candidates": @[] } };
+
+    assert(![controller handleEvent:LayoutKey(46, @"M", NSEventModifierFlagShift) client:client]);
+    NSUInteger asciiCalls = session.asciiCalls;
+    assert([controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert(session.asciiCalls == asciiCalls);
+    assert([client.insertions.lastObject isEqualToString:@"R"]);
+}
+
 static void TestGlossSensePage(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutSession *session = [ShortcutSession new];
@@ -11315,6 +11335,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestMixedInputPreferences(); }
         @autoreleasepool { TestCharacterSetShortcut(); }
         @autoreleasepool { TestDedicatedEnglish(appearance); }
+        @autoreleasepool { TestConsecutiveUppercaseDoesNotOpenShortcut(appearance); }
         @autoreleasepool { TestSystemInputModeReport(appearance); }
         @autoreleasepool { TestOptInSchemeModes(); }
         @autoreleasepool { TestKeymap(defaults, appearance); }
