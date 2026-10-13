@@ -154,8 +154,14 @@ public:
   bool has_pending() const { return pending_.has_value(); }
   // Stale/busy clicks are rejected without advancing Engine. UI receipts use
   // the resulting view generation, not the id-zero wire request identifier.
+  // translation_page 是点击所在那一帧的释义页编号（Engine 自己的候选为 0），必须等于眼下的 translation_page()：释义页沿用 Engine 列表的 session 和 generation、序号也从 0 起，只靠这两个字段分不清点的是哪一张表。
   std::optional<PendingReply> select_candidate(ServerSession &session,
-      uint64_t expected_session, uint64_t generation, size_t index);
+      uint64_t expected_session, uint64_t generation, size_t index,
+      uint64_t translation_page);
+  // Ctrl+Enter 打开的释义页的编号，没有打开时为 0。每打开一页取一个新编号，写进这一页 view 的 translation_page，候选窗画出来、点击原样带回。
+  uint64_t translation_page() const {
+    return translation_page_active_ ? translation_page_serial_ : 0;
+  }
   void confirm_ui_delivery(uint64_t client, uint64_t epoch, uint64_t generation);
   // Call only after a complete frame write or successful local-only handling.
   // A failed/uncertain write leaves pending unchanged; never rerun Engine
@@ -173,6 +179,8 @@ private:
   std::optional<PendingReply> pending_;
   bool traditional_output_ = false;
   bool translation_page_active_ = false;
+  // 最近一次打开的释义页的编号，只增不减，所以关掉的页、上一张页的编号都不会再等于 translation_page()。
+  uint64_t translation_page_serial_ = 0;
   int armed_gloss_column_ = 0;
   std::vector<std::string> translation_page_items_;
   nlohmann::json translation_page_view_;

@@ -72,7 +72,7 @@ struct VocabularyReviewStore {
     root = directory ?? FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier)?
       .appendingPathComponent("MSIME", isDirectory: true)
-      ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      ?? IOSSharedPaths.applicationSupport
     self.resources = resources ?? root
   }
 

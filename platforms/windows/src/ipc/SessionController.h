@@ -85,11 +85,15 @@ public:
   bool focus_current(const FocusLease &lease);
   // External I/O thread only, never a window/input callback. Busy is a dropped
   // request, not queued/replayed. Sent means delivery confirmed, not TSF applied.
+  // translation_page 是点击所在那一帧的 CandidatePresentation::translation_page，和 session、generation 一起认定点的是哪一张表。
   SelectionRequestResult request_selection(const FocusLease &lease,
-      uint64_t session, uint64_t generation, size_t index);
+      uint64_t session, uint64_t generation, size_t index,
+      uint64_t translation_page);
+  // 释义页上的行（translation_page 不为 0）没有候选动作，一律拒绝。
   CandidateActionRequestResult request_candidate_action(
       const FocusLease &lease, uint64_t session, uint64_t generation,
-      size_t index, CandidateAction action, uint8_t position = 0);
+      size_t index, uint64_t translation_page, CandidateAction action,
+      uint8_t position = 0);
   CandidatePageRequestResult request_page(const CandidatePage &page);
   // Send a bounded voice snapshot through the authenticated worker endpoint.
   // The caller owns recording/ASR; this method only validates the focus lease

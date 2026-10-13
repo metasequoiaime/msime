@@ -101,7 +101,7 @@ struct FeedbackView: View {
         VStack(alignment: .leading, spacing: 7) {
           DesignGroup(title: "描述") { editor }
           Text("\(detail.count) / \(Self.maximumDetail)")
-            .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+            .designSubtext()
             .monospacedDigit()
             .padding(.horizontal, 20)
             .accessibilityLabel("已输入 \(detail.count) 个字，最多 \(Self.maximumDetail) 个")
@@ -134,7 +134,7 @@ struct FeedbackView: View {
       .frame(maxWidth: .infinity)
     }
     .scrollDismissesKeyboard(.interactively)
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("帮助与反馈")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
@@ -194,7 +194,7 @@ struct FeedbackView: View {
       .buttonStyle(.plain)
       .accessibilityIdentifier("feedbackCopyButton")
       Text("提交会打开 GitHub 并预填这份报告。")
-        .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+        .designSubtext()
         .frame(maxWidth: .infinity)
         .multilineTextAlignment(.center)
     }

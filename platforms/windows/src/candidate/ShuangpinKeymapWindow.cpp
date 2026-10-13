@@ -255,16 +255,17 @@ void ShuangpinKeymapWindow::paint() {
                    format(L"Segoe UI", 10.0f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER), footer,
                    brush(palette_.number));
   const HRESULT drawn = target->EndDraw();
-  if (SUCCEEDED(drawn) && FAILED(device_.Present()))
-    throw std::runtime_error("Shuangpin keymap presentation failed");
-  // 有符号的 HRESULT 和某些 SDK、MinGW 里无符号的宏比较，见 CandidateWindow.cpp 的同一处。
-  if (drawn == static_cast<HRESULT>(D2DERR_RECREATE_TARGET)) {
+  const HRESULT presented = SUCCEEDED(drawn) ? device_.Present() : drawn;
+  // 设备丢了按 DeviceResources::IsDeviceLost 判断，Present 报的 DXGI_ERROR_DEVICE_REMOVED/RESET 也算，见 CandidateWindow.cpp 的同一处。
+  if (msimeui::DeviceResources::IsDeviceLost(presented)) {
     device_.DiscardTarget();
     InvalidateRect(window_, nullptr, FALSE);
     return;
   }
   if (FAILED(drawn))
     throw std::runtime_error("Shuangpin keymap drawing failed");
+  if (FAILED(presented))
+    throw std::runtime_error("Shuangpin keymap presentation failed");
 }
 LRESULT CALLBACK ShuangpinKeymapWindow::procedure(HWND window, UINT message, WPARAM w, LPARAM l) noexcept {
   auto *self = reinterpret_cast<ShuangpinKeymapWindow *>(GetWindowLongPtrW(window, GWLP_USERDATA));

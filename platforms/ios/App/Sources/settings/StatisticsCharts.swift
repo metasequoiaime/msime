@@ -62,7 +62,7 @@ struct StatisticsSection<Trailing: View, Content: View>: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(alignment: .center, spacing: 8) {
-        Text(title).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+        Text(title).designSubtext()
           .accessibilityAddTraits(.isHeader)
         Spacer(minLength: 8)
         trailing
@@ -76,7 +76,7 @@ struct StatisticsSection<Trailing: View, Content: View>: View {
 
 extension StatisticsSection where Trailing == Text {
   init(_ title: String, note: String?, @ViewBuilder content: () -> Content) {
-    self.init(title, trailing: { Text(note ?? "").font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub) }, content: content)
+    self.init(title, trailing: { Text(note ?? "").designSubtext() }, content: content)
   }
 }
 
@@ -91,12 +91,12 @@ struct StatisticsTile: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
-      Text(label).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)
+      Text(label).designSubtext().lineLimit(1)
       HStack(alignment: .firstTextBaseline, spacing: 3) {
         Text(value).font(.system(size: 24, weight: .bold)).monospacedDigit().foregroundStyle(.primary)
           .lineLimit(1).minimumScaleFactor(0.6)
         if value != "—" {
-          Text(unit).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)
+          Text(unit).designSubtext().lineLimit(1)
         }
       }
       Text(note).font(.system(size: 12)).foregroundStyle(noteAccent ? MetasequoiaTheme.accent : MetasequoiaTheme.sub)

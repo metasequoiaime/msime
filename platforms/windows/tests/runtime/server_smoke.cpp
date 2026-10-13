@@ -565,7 +565,8 @@ int main() {
         SelectionRequestResult::Rejected};
     CandidateClickWorker clicks([&](const CandidateClick &click) {
       selected = server.request_selection(click.lease, click.session,
-                                          click.generation, click.index);
+                                          click.generation, click.index,
+                                          click.translation_page);
     });
     struct ClickShutdown {
       WindowsServer &server;

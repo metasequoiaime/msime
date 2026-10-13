@@ -124,7 +124,7 @@ struct AppIconSettingsView: View {
       .frame(maxWidth: 680)
       .frame(maxWidth: .infinity)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("App 图标")
     .navigationBarTitleDisplayMode(.inline)
     .onAppear { model.refresh() }

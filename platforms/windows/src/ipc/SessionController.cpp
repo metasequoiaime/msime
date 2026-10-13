@@ -195,7 +195,8 @@ SessionController::SessionController(
 SessionController::~SessionController() { stop(); }
 SelectionRequestResult
 SessionController::request_selection(const FocusLease &lease, uint64_t session,
-                                     uint64_t generation, size_t index) {
+                                     uint64_t generation, size_t index,
+                                     uint64_t translation_page) {
   if (input_.on_worker_thread() || active_controller == this)
     throw std::logic_error("Selection cannot reenter controller callbacks");
   std::unique_lock transaction(*transactions_, std::try_to_lock);
@@ -211,7 +212,9 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
   try {
     const auto shown = candidate_view();
     if (!shown || !shown->visible || shown->session != session ||
-        shown->generation != generation || shown->lease.epoch != lease.epoch ||
+        shown->generation != generation ||
+        shown->translation_page != translation_page ||
+        shown->lease.epoch != lease.epoch ||
         shown->lease.token != lease.token ||
         !same_ticket(shown->lease.transport, lease.transport))
       return SelectionRequestResult::Rejected;
@@ -224,6 +227,7 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
     const auto painted = candidate_view();
     if (!painted || painted->session != session ||
         painted->generation != generation ||
+        painted->translation_page != translation_page ||
         painted->render_serial < shown->render_serial)
       return SelectionRequestResult::Rejected;
     bool found = false;
@@ -236,7 +240,8 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
     std::optional<PendingReply> pending;
     auto prepared = input_.submit([&](InputState &state) {
       if (!stopping_ && transport_.current(lease.transport))
-        pending = state.select_candidate(lease, session, generation, index);
+        pending = state.select_candidate(lease, session, generation, index,
+                                         translation_page);
     });
     if (!prepared || prepared->get() != InputTaskStatus::Completed)
       return fail();
@@ -284,11 +289,12 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
 }
 CandidateActionRequestResult SessionController::request_candidate_action(
     const FocusLease &lease, uint64_t session, uint64_t generation,
-    size_t index, CandidateAction action, uint8_t position) {
+    size_t index, uint64_t translation_page, CandidateAction action,
+    uint8_t position) {
   if (input_.on_worker_thread() || active_controller == this)
     throw std::logic_error(
         "Candidate action cannot reenter controller callbacks");
-  if (action == CandidateAction::Select ||
+  if (action == CandidateAction::Select || translation_page != 0 ||
       (action == CandidateAction::FixPosition &&
        (position < 1 || position > 5)) ||
       (action != CandidateAction::FixPosition && position != 0))
@@ -306,7 +312,9 @@ CandidateActionRequestResult SessionController::request_candidate_action(
   try {
     const auto shown = candidate_view();
     if (!shown || !shown->visible || shown->session != session ||
-        shown->generation != generation || shown->lease.epoch != lease.epoch ||
+        shown->generation != generation ||
+        shown->translation_page != translation_page ||
+        shown->lease.epoch != lease.epoch ||
         shown->lease.token != lease.token ||
         !same_ticket(shown->lease.transport, lease.transport))
       return CandidateActionRequestResult::Rejected;
@@ -321,6 +329,7 @@ CandidateActionRequestResult SessionController::request_candidate_action(
     const auto painted = candidate_view();
     if (!painted || !painted->visible || painted->session != session ||
         painted->generation != generation ||
+        painted->translation_page != translation_page ||
         painted->lease.epoch != lease.epoch ||
         painted->lease.token != lease.token ||
         !same_ticket(painted->lease.transport, lease.transport))
@@ -354,8 +363,9 @@ CandidatePageRequestResult
 SessionController::request_page(const CandidatePage &page) {
   if (input_.on_worker_thread() || active_controller == this)
     throw std::logic_error("Candidate paging cannot reenter controller callbacks");
+  // 释义页上翻页不起作用（FocusedSession::page_candidate），从释义页那一帧发起的翻页直接拒绝。
   if (!page.lease.epoch || !page.session || !page.generation ||
-      page.steps == 0 || page.steps > 9 || stopping_)
+      page.steps == 0 || page.steps > 9 || page.translation_page != 0 || stopping_)
     return CandidatePageRequestResult::Rejected;
   std::unique_lock transaction(*transactions_, std::try_to_lock);
   if (!transaction.owns_lock())
@@ -371,6 +381,7 @@ SessionController::request_page(const CandidatePage &page) {
     const auto shown = candidate_view();
     if (!shown || !shown->visible || shown->session != page.session ||
         shown->generation != page.generation ||
+        shown->translation_page != page.translation_page ||
         shown->lease.epoch != page.lease.epoch ||
         shown->lease.token != page.lease.token ||
         !same_ticket(shown->lease.transport, page.lease.transport))
@@ -386,6 +397,7 @@ SessionController::request_page(const CandidatePage &page) {
     const auto painted = candidate_view();
     if (!painted || !painted->visible || painted->session != page.session ||
         painted->generation != page.generation ||
+        painted->translation_page != page.translation_page ||
         painted->lease.epoch != page.lease.epoch ||
         painted->lease.token != page.lease.token ||
         !same_ticket(painted->lease.transport, page.lease.transport))

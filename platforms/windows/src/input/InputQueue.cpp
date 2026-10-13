@@ -5,11 +5,12 @@
 namespace msime::windows {
 std::optional<PendingReply>
 InputState::select_candidate(const FocusLease &lease, uint64_t expected_session,
-                             uint64_t generation, size_t index) {
+                             uint64_t generation, size_t index,
+                             uint64_t translation_page) {
   check_thread();
   auto *owner = session(lease.transport);
   return owner ? owner->select_candidate(lease, expected_session, generation,
-                                         index)
+                                         index, translation_page)
                : std::nullopt;
 }
 std::optional<PendingReply> InputState::toggle_character_set(

@@ -42,6 +42,10 @@ struct HelpcodeSettingsView: View {
   @State private var importScheme = Self.shuangpin
   @State private var busy = false
   @State private var notice: String?
+  @State private var pending: Task<Void, Never>?
+  @State private var visible = false
+  @State private var lifecycle = UUID()
+  @State private var pendingID = UUID()
 
   var body: some View {
     Form {
@@ -96,8 +100,16 @@ struct HelpcodeSettingsView: View {
       }
     }
     .navigationTitle("辅助码").navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reload)
+    .onAppear { visible = true; reload() }
     .onChange(of: scenePhase) { if $0 == .active { reload() } }
+    .onDisappear {
+      visible = false
+      lifecycle = UUID()
+      pendingID = UUID()
+      pending?.cancel()
+      pending = nil
+      busy = false
+    }
     .fileImporter(isPresented: $importing, allowedContentTypes: [.plainText, .text, .data]) { result in
       guard case .success(let url) = result else { return }
       importTable(from: url, into: importScheme)
@@ -123,19 +135,51 @@ struct HelpcodeSettingsView: View {
   }
 
   private func importTable(from url: URL, into scheme: Scheme) {
+    guard visible, !busy else { return }
     busy = true
-    Task { @MainActor in
-      notice = await Task.detached(priority: .userInitiated) { Self.importTable(url, into: scheme) }.value
+    let id = lifecycle
+    let taskID = claimTask()
+    pending = Task<Void, Never> { @MainActor in
+      var finished = false
+      defer {
+        if lifecycle == id {
+          if !finished { busy = false }
+          clearTask(taskID)
+        }
+      }
+      guard !Task.isCancelled else { return }
+      let result = await Task.detached(priority: .userInitiated) { Self.importTable(url, into: scheme) }.value
+      guard !Task.isCancelled else { return }
+      guard visible, lifecycle == id, !Task.isCancelled else { return }
       busy = false
+      finished = true
+      clearTask(taskID)
+      notice = result
       reload()
     }
   }
 
   private func remove(_ pack: HelpcodeChoicePolicy.Pack) {
+    guard visible, !busy else { return }
     busy = true
-    Task { @MainActor in
-      notice = await Task.detached(priority: .userInitiated) { Self.remove(pack) }.value ?? "删除失败，请重试"
+    let id = lifecycle
+    let taskID = claimTask()
+    pending = Task<Void, Never> { @MainActor in
+      var finished = false
+      defer {
+        if lifecycle == id {
+          if !finished { busy = false }
+          clearTask(taskID)
+        }
+      }
+      guard !Task.isCancelled else { return }
+      let result = await Task.detached(priority: .userInitiated) { Self.remove(pack) }.value ?? "删除失败，请重试"
+      guard !Task.isCancelled else { return }
+      guard visible, lifecycle == id, !Task.isCancelled else { return }
       busy = false
+      finished = true
+      clearTask(taskID)
+      notice = result
       reload()
     }
   }
@@ -225,6 +269,7 @@ struct HelpcodeSettingsView: View {
   }
 
   private func reload() {
+    guard visible, !busy else { return }
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
     for scheme in Self.schemes {
       let stored = preferences[scheme.key] as? [String: Any] ?? [:]
@@ -233,8 +278,26 @@ struct HelpcodeSettingsView: View {
       shown[scheme.key] = stored["show_in_candidate_window"] as? Bool ?? scheme.defaultShown
       selectedPack[scheme.key] = HelpcodeChoicePolicy.selectedPack(of: scheme, in: preferences)
     }
-    Task { @MainActor in
-      packs = await Task.detached(priority: .userInitiated) { Self.installedPacks() }.value
+    let id = lifecycle
+    let taskID = claimTask()
+    pending = Task<Void, Never> { @MainActor in
+      defer { if lifecycle == id { clearTask(taskID) } }
+      guard !Task.isCancelled else { return }
+      let loaded = await Task.detached(priority: .userInitiated) { Self.installedPacks() }.value
+      guard !Task.isCancelled else { return }
+      guard visible, lifecycle == id, !Task.isCancelled else { return }
+      packs = loaded
     }
+  }
+
+  private func claimTask() -> UUID {
+    pending?.cancel()
+    let id = UUID()
+    pendingID = id
+    return id
+  }
+
+  private func clearTask(_ id: UUID) {
+    if pendingID == id { pending = nil }
   }
 }

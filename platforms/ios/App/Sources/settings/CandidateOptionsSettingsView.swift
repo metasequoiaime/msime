@@ -129,7 +129,7 @@ struct CandidateOptionsSettingsView: View {
       .padding(.top, 16)
       .padding(.bottom, 32)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("候选栏").navigationBarTitleDisplayMode(.inline)
     .onAppear(perform: reload)
     .onChange(of: scenePhase) { _, phase in
@@ -152,7 +152,7 @@ struct CandidateOptionsSettingsView: View {
   }
 
   private func detail(_ text: String) -> some View {
-    Text(text).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+    Text(text).designSubtext()
   }
 
   /// 带标题、说明行、当前值和步进器的一行，布局同 DesignKit 的行。

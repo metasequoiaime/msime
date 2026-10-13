@@ -105,6 +105,8 @@ inline AccessibleTree candidate_accessible_tree(const CandidatePresentation &val
     // 补充说明与悬停提示同一段文字：候选全文，有释义时下一行是释义。
     row.help = candidate_tooltip_text(candidate);
     row.invokable = clickable && value.pointer_input;
+    // 高亮的那一行报告为选中，读屏才知道空格、回车会上屏哪一个；高亮移动时 AccessibleWindow::publish 报告选中项变了。
+    row.selected = candidate.highlighted;
     row.bounds = client(rows[slot].bounds);
     tree.elements.push_back(std::move(row));
   }

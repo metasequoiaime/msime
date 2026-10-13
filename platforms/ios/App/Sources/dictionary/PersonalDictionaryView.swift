@@ -197,11 +197,11 @@ struct PersonalDictionaryView: View {
             Text(Self.requestStatus(latest)).lineLimit(1)
               .foregroundStyle(latest.status == .failed ? MetasequoiaTheme.danger : MetasequoiaTheme.sub)
           }
-          .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+          .designSubtext()
         } else {
           Text(state.snapshotDate.map { "最近同步 \($0.formatted(date: .abbreviated, time: .standard))" }
                ?? "尚未收到键盘确认，保存的操作暂不会标记为已生效")
-            .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+            .designSubtext()
             .fixedSize(horizontal: false, vertical: true)
         }
       }
@@ -229,7 +229,7 @@ struct PersonalDictionaryView: View {
                 .overlay(Capsule().stroke(MetasequoiaTheme.sub.opacity(0.5)))
             }
           }
-          Text(code).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+          Text(code).designSubtext()
             .lineLimit(1).truncationMode(.tail)
         }
         Spacer(minLength: 8)

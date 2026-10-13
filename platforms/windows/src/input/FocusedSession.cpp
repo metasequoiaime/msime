@@ -288,7 +288,8 @@ bool FocusedSession::confirm(const FocusLease &lease, uint64_t request) {
 }
 std::optional<PendingReply>
 FocusedSession::select_candidate(const FocusLease &lease, uint64_t session,
-                                 uint64_t generation, size_t index) {
+                                 uint64_t generation, size_t index,
+                                 uint64_t translation_page) {
   check_thread();
   if (!prepared(lease))
     return std::nullopt;
@@ -296,7 +297,8 @@ FocusedSession::select_candidate(const FocusLease &lease, uint64_t session,
   gate_.with_active(lease, [&] {
     // 指针点选开启新的一轮：先报 MSIME_KEY_POINTER，不出声、不画。
     (void)session_.key(MSIME_KEY_POINTER);
-    result = composer_->select_candidate(session_, session, generation, index);
+    result = composer_->select_candidate(session_, session, generation, index,
+                                         translation_page);
     publish_commit_feedback(result);
     attach_online_query(lease, result);
   });
@@ -311,7 +313,8 @@ FocusedSession::candidate_action(const FocusLease &lease, uint64_t session,
     return std::nullopt;
   std::optional<nlohmann::json> result;
   gate_.with_active(lease, [&] {
-    if (composer_->has_pending())
+    // 释义页打开时 Engine 的列表还在底下、同 session 同 generation：这时的动作不管点的是哪一行，都会落到 Engine 同一序号的候选上，而用户看到的是释义。
+    if (composer_->has_pending() || composer_->translation_page() != 0)
       return;
     const auto current = session_.view();
     if (current.at("session").get<uint64_t>() != session ||
@@ -343,7 +346,8 @@ FocusedSession::page_candidate(const FocusLease &lease, uint64_t session,
     return std::nullopt;
   std::optional<nlohmann::json> result;
   gate_.with_active(lease, [&] {
-    if (composer_->has_pending())
+    // 释义页打开时翻页不起作用，和方向键、翻页键在释义页上一样（ReplyComposer::translation_page_key）：翻的会是底下的 Engine 列表，候选窗换成它的下一页，释义页却还开着，数字键上屏的仍是看不见的义项。
+    if (composer_->has_pending() || composer_->translation_page() != 0)
       return;
     const auto current = session_.view();
     if (!current.at("focused").get<bool>() ||

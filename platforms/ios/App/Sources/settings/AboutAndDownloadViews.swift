@@ -57,7 +57,7 @@ struct DesktopDownloadView: View {
       .frame(maxWidth: 760)
       .frame(maxWidth: .infinity)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("其他平台下载").navigationBarTitleDisplayMode(.inline)
   }
 
@@ -71,7 +71,7 @@ struct DesktopDownloadView: View {
         .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 2) {
         Text("在电脑上打开").font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
-        Text(Self.downloadLabel).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+        Text(Self.downloadLabel).designSubtext()
       }
       .accessibilityElement(children: .combine)
       Spacer(minLength: 8)
@@ -236,7 +236,7 @@ struct AboutView: View {
       .frame(maxWidth: 760)
       .frame(maxWidth: .infinity)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("关于").navigationBarTitleDisplayMode(.inline)
     .task {
       // 「给我们评分」要用的商店 id，以及到底有没有条目；lookup 失败时只是不显示这一行，并保留「检查更新」以便重试。
@@ -256,7 +256,7 @@ struct AboutView: View {
     VStack(spacing: 0) {
       AppMarkDisc(diameter: 116, markSize: 64)
       Text("水杉输入法").font(.system(size: 22, weight: .bold)).padding(.top, 16)
-      Text(version).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+      Text(version).designSubtext()
         .padding(.top, 6)
         .accessibilityIdentifier("aboutAppVersion")
       if !unlisted {
@@ -362,7 +362,7 @@ struct LicensesView: View {
           }
         }
         Text("水杉输入法本身以开源许可发布，源代码见关于页的 GitHub。")
-          .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+          .designSubtext()
           .fixedSize(horizontal: false, vertical: true)
           .padding(.horizontal, 16)
       }
@@ -370,7 +370,7 @@ struct LicensesView: View {
       .frame(maxWidth: 760)
       .frame(maxWidth: .infinity)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("开源许可").navigationBarTitleDisplayMode(.inline)
   }
 }
@@ -388,7 +388,7 @@ private struct LicenseTextView: View {
         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle(notice.title).navigationBarTitleDisplayMode(.inline)
     .task {
       guard text == nil, let url = notice.url else { return }

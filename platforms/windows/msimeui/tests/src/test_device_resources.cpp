@@ -72,6 +72,19 @@ void CheckReusedTargetDpi(bool composition)
 }
 } // namespace
 
+// 显卡驱动更新或 TDR 之后，交换链的 Present 报 DXGI_ERROR_DEVICE_REMOVED/RESET。它们和 EndDraw 的 D2DERR_RECREATE_TARGET 一样只是要重建设备；曾经只认后者，Present 一失败候选窗就永久失效，Server 随之退出、要等看门狗重启。其余失败照旧算真的画不出来。
+TEST_CASE(device_loss_covers_present_and_end_draw)
+{
+    REQUIRE(msimeui::DeviceResources::IsDeviceLost(static_cast<HRESULT>(D2DERR_RECREATE_TARGET)));
+    REQUIRE(msimeui::DeviceResources::IsDeviceLost(static_cast<HRESULT>(DXGI_ERROR_DEVICE_REMOVED)));
+    REQUIRE(msimeui::DeviceResources::IsDeviceLost(static_cast<HRESULT>(DXGI_ERROR_DEVICE_RESET)));
+    REQUIRE(!msimeui::DeviceResources::IsDeviceLost(S_OK));
+    REQUIRE(!msimeui::DeviceResources::IsDeviceLost(E_FAIL));
+    REQUIRE(!msimeui::DeviceResources::IsDeviceLost(E_OUTOFMEMORY));
+    REQUIRE(!msimeui::DeviceResources::IsDeviceLost(static_cast<HRESULT>(DXGI_ERROR_INVALID_CALL)));
+    REQUIRE(!msimeui::DeviceResources::IsDeviceLost(static_cast<HRESULT>(DXGI_STATUS_OCCLUDED)));
+}
+
 TEST_CASE(hwnd_target_refreshes_dpi_when_reused)
 {
     CheckReusedTargetDpi(false);

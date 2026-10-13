@@ -45,7 +45,7 @@ final class CloudSyncState: @unchecked Sendable {
 
   /// 共享状态的根目录。没有 App Group 容器时（未签名的模拟器构建不带 entitlements）退回应用自己的 Application Support，与 `MetasequoiaInputSessionBridge` 存共享设置文档的退路相同，改动标记和它标记的文档始终在同一处。签名的构建总有容器，不会走到退路。
   static let defaultRoot: URL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: MSIMEAppEdition.appGroupIdentifier)
-    ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    ?? IOSSharedPaths.applicationSupport
   static let shared = CloudSyncState(directory: defaultRoot)
   private static let maximumBytes = 256 * 1024
   private static let suppressionKey = "app.msime.cloudSync.suppressMarks"

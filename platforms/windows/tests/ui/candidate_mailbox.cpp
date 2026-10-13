@@ -384,10 +384,54 @@ void candidate_mailbox_tests() {
   }
   require(publish(relaunched, 215));
   {
+    // 按键包的 (100,100) 也不能拿来摆卡片：随后的 Show/Move 到达之前候选窗刷新一次，卡片就会跳到屏幕左上。同一租约里沿用 Move 报过的位置。
     const auto typed = mailbox.snapshot(gate);
-    require(typed->x == 100 && typed->y == 100 && typed->caret_anchor_known &&
+    require(typed->x == -200 && typed->y == 300 && typed->caret_anchor_known &&
             typed->caret_anchor_x == -200 && typed->caret_anchor_y == 300);
   }
+  // 宿主报的是 INVALID_Y（还没有文字范围）时，下一个按键同样不能用默认值把藏着的卡片顶出来。
+  {
+    FanyImeNamedpipeData move{};
+    move.client_id = relaunched.transport.client;
+    move.event_type = FanyImePipeEventType::MoveCandidateWnd;
+    move.point[0] = 0;
+    move.point[1] = invalid_candidate_anchor_y;
+    require(gate.with_active(relaunched, [&] { mailbox.event(relaunched, move); }));
+  }
+  require(publish(relaunched, 215));
+  {
+    const auto unanchored = mailbox.snapshot(gate);
+    require(unanchored->visible && unanchored->y == invalid_candidate_anchor_y &&
+            unanchored->caret_anchor_known && unanchored->caret_anchor_x == -200 &&
+            unanchored->caret_anchor_y == 300);
+  }
+  // 游戏会话的按键包带着 TIP 补上的锚点，照用包里的坐标。
+  {
+    FanyImeNamedpipeData packet{};
+    packet.client_id = relaunched.transport.client;
+    packet.request_id = 215;
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    packet.modifiers_down = PipeMetadata::GameHost;
+    packet.point[0] = 640;
+    packet.point[1] = 480;
+    PendingReply reply{};
+    reply.source.client_id = packet.client_id;
+    reply.source.activation_epoch = relaunched.epoch;
+    reply.source.request_id = packet.request_id;
+    reply.source.transition = {{"view",
+                                {{"session", 1},
+                                 {"generation", 215},
+                                 {"focused", true},
+                                 {"editing_text", "U4"},
+                                 {"preedit", "U4"},
+                                 {"candidates", nlohmann::json::array()}}}};
+    require(gate.with_active(relaunched,
+                             [&] { mailbox.delivered(relaunched, reply, packet); }));
+    const auto game = mailbox.snapshot(gate);
+    require(game->x == 640 && game->y == 480);
+  }
+  // 回到 -200,300，下面的释义刷新照旧从这里继续。
+  require(visual_event(relaunched, FanyImePipeEventType::MoveCandidateWnd));
   // 释义或云候选到达时整个展示按 Engine 视图重建，锚点也要跟着留下：真机上打开英文释义后，提示每次都退到了屏幕下方居中。
   mailbox.translations(relaunched, {{"session", 1},
                                     {"generation", 215},
@@ -399,6 +443,56 @@ void candidate_mailbox_tests() {
     const auto glossed = mailbox.snapshot(gate);
     require(glossed->caret_anchor_known && glossed->caret_anchor_x == -200 &&
             glossed->caret_anchor_y == 300);
+  }
+  // 画着的是 Ctrl+Enter 的释义页时，同一代次的释义刷新和换了代次的云候选、AI 候选都不能拿 Engine 的列表把它盖掉：释义页在 Server 里还开着，数字键、空格上屏的是它的义项。按键把释义页关掉时，那个按键的投递照常换回 Engine 的列表。
+  {
+    const auto sense = [](size_t index, const char *text) {
+      return nlohmann::json{{"id", {{"session", 1}, {"generation", 300}, {"index", index}}},
+                            {"text", text},
+                            {"highlighted", index == 0}};
+    };
+    FanyImeNamedpipeData packet{};
+    packet.client_id = relaunched.transport.client;
+    packet.request_id = 300;
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    PendingReply reply{};
+    reply.source.client_id = packet.client_id;
+    reply.source.activation_epoch = relaunched.epoch;
+    reply.source.request_id = packet.request_id;
+    reply.source.transition = {{"view",
+                                {{"session", 1},
+                                 {"generation", 300},
+                                 {"focused", true},
+                                 {"editing_text", "U4"},
+                                 {"preedit", "U4"},
+                                 {"translation_page", 7},
+                                 {"candidates", nlohmann::json::array(
+                                                    {sense(0, "centre"), sense(1, "middle")})}}}};
+    require(gate.with_active(relaunched,
+                             [&] { mailbox.delivered(relaunched, reply, packet); }));
+    const auto engine_view = [](uint64_t generation) {
+      return nlohmann::json{{"session", 1},
+                            {"generation", generation},
+                            {"focused", true},
+                            {"editing_text", "U4"},
+                            {"preedit", "U4"},
+                            {"candidates", nlohmann::json::array()}};
+    };
+    const auto shown_page = [&] {
+      const auto value = mailbox.snapshot(gate);
+      return value && value->translation_page == 7 && value->candidates.size() == 2 &&
+             value->candidates[1].text == "middle";
+    };
+    require(shown_page());
+    mailbox.translations(relaunched, engine_view(300));
+    require(shown_page());
+    mailbox.online(relaunched, engine_view(301));
+    require(shown_page());
+    mailbox.action(relaunched, engine_view(302));
+    require(shown_page());
+    // 关掉释义页的按键带回 Engine 的列表。
+    require(publish(relaunched, 303));
+    require(mailbox.snapshot(gate)->translation_page == 0);
   }
   const auto anchored_again = activate(replacement, 6);
   require(publish(anchored_again, 216));

@@ -58,7 +58,7 @@ struct WubiCodeLookupView: View {
       ForEach([("wubi86", item.wubi86), ("wubi98", item.wubi98)], id: \.0) { column, codes in
         HStack(alignment: .firstTextBaseline, spacing: 8) {
           Text(WubiCodeLookup.columnTitle(column, profile: profile))
-            .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+            .designSubtext()
           Text(WubiCodeLookup.codes(codes)).font(.system(size: 15, design: .monospaced))
         }
       }

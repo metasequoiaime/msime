@@ -96,6 +96,25 @@ int main() {
     require(first.invokable && first.automation_id == "candidate-1");
     require(first.bounds.top == (20.0 + 40.0) * 1.5 && first.bounds.right == (8.0 + 234.0) * 1.5);
     require(element(tree, 2).name == "2  拟好* rv");
+    // 高亮的那一行报告为选中（SelectionItem 的 IsSelected），其他行是未选中，不是候选行的元素没有这个模式。读屏靠它知道空格、回车会上屏哪一个。
+    require(first.selected == std::optional<bool>(true));
+    require(element(tree, 2).selected == std::optional<bool>(false));
+    for (const int id : {candidate_accessible_logo, candidate_accessible_preedit,
+                         candidate_accessible_page, candidate_accessible_previous,
+                         candidate_accessible_next})
+      require(!element(tree, id).selected);
+    require(accessible_selectable(tree) && accessible_selection(tree)->id == 1);
+    // 高亮移到第二行：选中项跟着换，换树时要报告选中了第二行。
+    value.candidates[0].highlighted = false;
+    value.candidates[1].highlighted = true;
+    const auto moved = candidate_accessible_tree(value, rows, pager, metrics, true, frame, true,
+                                                 true, "水杉输入法");
+    require(element(moved, 1).selected == std::optional<bool>(false));
+    require(element(moved, 2).selected == std::optional<bool>(true));
+    require(moved != tree);
+    require(accessible_selection_change(tree, moved) == std::optional<int>(2));
+    value.candidates[0].highlighted = true;
+    value.candidates[1].highlighted = false;
     // 脚本插件的注释跟在引擎注释后面读，和卡片上画的次序一样；只有插件注释时直接跟在候选后面。
     value.candidates[1].script_annotation = "常用";
     value.candidates[0].script_annotation = "问候";

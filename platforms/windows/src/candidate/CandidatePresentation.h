@@ -146,6 +146,8 @@ struct CandidatePresentation {
   // Monotonic identity for the complete rendered snapshot, including async
   // provider updates that keep the same Engine generation.
   uint64_t render_serial = 0;
+  // Ctrl+Enter 释义页的编号（view 的 translation_page，ReplyComposer::translation_page），Engine 自己的候选为 0。释义页沿用 Engine 列表的 session 和 generation，点击要带上它，Server 才分得清点的是哪一张表。
+  uint64_t translation_page = 0;
   bool visible = false;
   int x = 0;
   int y = 0;
@@ -171,7 +173,7 @@ struct CandidatePresentation {
   std::optional<ShuangpinKeymapHint> shuangpin_keymap;
   // Tab 预选的释义列（1 或 2），候选窗给高亮候选的那一行释义画下划线；0 表示没有预选。见 GlossColumnPolicy.h。
   int armed_gloss_column = 0;
-  // Show/Move 包报来的组字锚点（物理像素，文字底边的左端），没有报过时 caret_anchor_known 为 false。上面的 x/y 不能当光标用：按键包不带坐标，x/y 每个按键都被写成线上结构的默认值 (100,100)，要等随后的 Move 才改回来，组字结束后就不再有 Move。输入模式提示在没有系统光标时靠它摆位置，同一租约里跨按键沿用。
+  // Show/Move 包报来的组字锚点（物理像素，文字底边的左端），没有报过时 caret_anchor_known 为 false。上面的 x/y 不能当光标用：按键包不带坐标，租约里还没有 Show/Move 时 x/y 是线上结构的默认值 (100,100)（之后 CandidateMailbox::delivered 沿用报过的位置），宿主还没有文字范围时又是 INVALID_Y。输入模式提示在没有系统光标时靠它摆位置，同一租约里跨按键沿用。
   bool caret_anchor_known = false;
   int caret_anchor_x = 0;
   int caret_anchor_y = 0;
@@ -229,6 +231,7 @@ candidate_presentation_from_view(const FocusLease &lease,
   output.lease = lease;
   output.session = view.at("session").get<uint64_t>();
   output.generation = view.at("generation").get<uint64_t>();
+  output.translation_page = view.value("translation_page", uint64_t{0});
   output.visible = false;
   output.x = x;
   output.y = y;
@@ -268,6 +271,9 @@ candidate_presentation_from_view(const FocusLease &lease,
         candidate.value("translation", std::string{}),
         candidate_actions_available(view.value("scheme", 0u), candidate_source)};
     item.pending = candidate_source == candidate_source_ai_pending;
+    // 释义页上的义项不是 Engine 的候选，置顶、删除、固定排位都无从谈起，菜单里不给。
+    if (output.translation_page)
+      item.actions_available = false;
     item.script_annotation = candidate.value("script_annotation", std::string{});
     if (hanja)
       move_korean_hanja_gloss(item);
@@ -310,6 +316,7 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
   output.lease = lease;
   output.session = view.at("session").get<uint64_t>();
   output.generation = view.at("generation").get<uint64_t>();
+  output.translation_page = view.value("translation_page", uint64_t{0});
   output.x = packet.point[0];
   output.y = packet.point[1];
   output.game_host = (packet.modifiers_down & PipeMetadata::GameHost) != 0;
@@ -342,6 +349,9 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
         candidate.value("translation", std::string{}),
         candidate_actions_available(view.value("scheme", 0u), candidate_source)};
     item.pending = candidate_source == candidate_source_ai_pending;
+    // 释义页上的义项不是 Engine 的候选，置顶、删除、固定排位都无从谈起，菜单里不给。
+    if (output.translation_page)
+      item.actions_available = false;
     item.script_annotation = candidate.value("script_annotation", std::string{});
     if (hanja)
       move_korean_hanja_gloss(item);

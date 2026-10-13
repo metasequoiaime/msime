@@ -56,7 +56,7 @@ struct DictionarySettingsView: View {
       .padding(.top, 12)
       .padding(.bottom, 32)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("词库")
     .navigationBarTitleDisplayMode(.inline)
     .onAppear(perform: reload)
@@ -255,7 +255,7 @@ private struct DictionaryPackRowLabel: View {
       VStack(alignment: .leading, spacing: 1) {
         Text(title).font(.system(size: 17)).foregroundStyle(.primary)
         if let meta {
-          Text(meta).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+          Text(meta).designSubtext()
         }
       }
       Spacer(minLength: 8)
@@ -355,7 +355,7 @@ private struct DictionaryInfoView: View {
       .padding(.top, 12)
       .padding(.bottom, 32)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("词库信息")
     .navigationBarTitleDisplayMode(.inline)
   }
@@ -374,7 +374,7 @@ private struct DictionaryInfoText: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
       if let title { Text(title).font(.system(size: 17)).foregroundStyle(.primary) }
-      Text(detail).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+      Text(detail).designSubtext()
         .fixedSize(horizontal: false, vertical: true)
     }
     .padding(.vertical, 12)

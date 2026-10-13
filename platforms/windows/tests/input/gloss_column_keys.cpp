@@ -192,7 +192,7 @@ int main() {
     const auto &first = view.at("candidates").at(0).at("id");
     const auto clicked = composer.select_candidate(session, first.at("session").get<uint64_t>(),
                                                    first.at("generation").get<uint64_t>(),
-                                                   first.at("index").get<size_t>());
+                                                   first.at("index").get<size_t>(), 0);
     require(clicked.has_value(), "the click was not taken");
     require(composer.armed_gloss_column() == 0, "a click left the column armed");
     composer.confirm_ui_delivery(42, epoch,
@@ -227,5 +227,33 @@ int main() {
   require(!composer.translation_page_key(session, plain_letter, epoch), "the sense page took a letter");
   require(!composer.translation_page_key(session, key(0x20, 0, u' '), epoch),
           "a key without CandidateActive left the sense page open");
+
+  // 释义页开着时 AI 候选到达，Engine 换了代次；候选窗仍画着释义页（CandidateMailbox::refresh_view 不拿 Engine 的列表盖掉它），按画出来的那一页拼的点击照常上屏它点的义项。
+  composer.cancel();
+  session.cancel_composition(epoch);
+  compose("hello; hi");
+  translation = key(0x0D, 2u);
+  reply = composer.configured_key(session, translation, epoch, TsfPreeditStyle::Pinyin, {});
+  require(reply.has_value() && reply->source.transition.at("view").value("translation_page", 0u) != 0u,
+          "Ctrl+Enter did not open a numbered sense page");
+  const auto page_view = reply->source.transition.at("view");
+  require(!page_view.contains("page_count"), "the sense page carried the Engine list's pager");
+  composer.confirm_delivery(42, epoch, translation.request_id);
+  {
+    const auto query = session.online_query(epoch);
+    require(query.has_value() &&
+                session.apply_ai_candidates(epoch, *query, R"(["你好", "拟好"])").has_value(),
+            "the late AI answer was not applied");
+  }
+  require(session.view().at("generation") != page_view.at("generation"),
+          "the late AI answer did not advance the Engine generation");
+  {
+    const auto &id = page_view.at("candidates").at(1).at("id");
+    const auto clicked = composer.select_candidate(
+        session, id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
+        id.at("index").get<size_t>(), page_view.at("translation_page").get<uint64_t>());
+    require(clicked.has_value() && clicked->committed_text == std::optional<std::string>("hi"),
+            "a click on the painted sense page was refused after the Engine moved on");
+  }
   return EXIT_SUCCESS;
 }

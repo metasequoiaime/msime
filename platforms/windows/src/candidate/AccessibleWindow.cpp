@@ -126,7 +126,8 @@ ElementProvider *element_locked(const std::shared_ptr<AccessibleShared> &shared,
 // 窗口本身：片段根。它的位置、RuntimeId 都由窗口的宿主提供者（UiaHostProviderFromHwnd）给出，这里只报告控件类型和名字，以及子元素。
 class RootProvider final : public IRawElementProviderSimple,
                            public IRawElementProviderFragment,
-                           public IRawElementProviderFragmentRoot {
+                           public IRawElementProviderFragmentRoot,
+                           public ISelectionProvider {
 public:
   explicit RootProvider(std::shared_ptr<AccessibleShared> shared) : shared_(std::move(shared)) {}
   RootProvider(const RootProvider &) = delete;
@@ -141,6 +142,8 @@ public:
       *out = static_cast<IRawElementProviderFragment *>(this);
     else if (iid == __uuidof(IRawElementProviderFragmentRoot))
       *out = static_cast<IRawElementProviderFragmentRoot *>(this);
+    else if (iid == __uuidof(ISelectionProvider))
+      *out = static_cast<ISelectionProvider *>(this);
     else {
       *out = nullptr;
       return E_NOINTERFACE;
@@ -163,10 +166,18 @@ public:
     *out = ProviderOptions_ServerSideProvider;
     return S_OK;
   }
-  HRESULT STDMETHODCALLTYPE GetPatternProvider(PATTERNID, IUnknown **out) override {
+  HRESULT STDMETHODCALLTYPE GetPatternProvider(PATTERNID pattern, IUnknown **out) override {
     if (!out)
       return E_POINTER;
     *out = nullptr;
+    // 树里有可选中的元素（候选行）时，窗口这个列表提供单选的 Selection 模式，SelectionItem 的 SelectionContainer 指的就是它。
+    std::lock_guard<std::mutex> lock(shared_->mutex);
+    if (!shared_->connected)
+      return UIA_E_ELEMENTNOTAVAILABLE;
+    if (pattern == UIA_SelectionPatternId && accessible_selectable(shared_->tree)) {
+      *out = static_cast<ISelectionProvider *>(this);
+      AddRef();
+    }
     return S_OK;
   }
   HRESULT STDMETHODCALLTYPE GetPropertyValue(PROPERTYID property, VARIANT *out) override {
@@ -308,6 +319,21 @@ public:
     return S_OK;
   }
 
+  // ISelectionProvider：候选窗是单选列表，选中的就是高亮的那一行；高亮总有一行，所以要求有选中项。
+  HRESULT STDMETHODCALLTYPE GetSelection(SAFEARRAY **out) override;
+  HRESULT STDMETHODCALLTYPE get_CanSelectMultiple(BOOL *out) override {
+    if (!out)
+      return E_POINTER;
+    *out = FALSE;
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE get_IsSelectionRequired(BOOL *out) override {
+    if (!out)
+      return E_POINTER;
+    *out = TRUE;
+    return S_OK;
+  }
+
 private:
   ~RootProvider() = default;
   static IRawElementProviderFragment *fragment(ElementProvider *element);
@@ -320,7 +346,8 @@ class ElementProvider final : public IRawElementProviderSimple,
                               public IRawElementProviderFragment,
                               public IInvokeProvider,
                               public IToggleProvider,
-                              public IValueProvider {
+                              public IValueProvider,
+                              public ISelectionItemProvider {
 public:
   ElementProvider(std::shared_ptr<AccessibleShared> shared, int id)
       : shared_(std::move(shared)), id_(id) {}
@@ -340,6 +367,8 @@ public:
       *out = static_cast<IToggleProvider *>(this);
     else if (iid == __uuidof(IValueProvider))
       *out = static_cast<IValueProvider *>(this);
+    else if (iid == __uuidof(ISelectionItemProvider))
+      *out = static_cast<ISelectionItemProvider *>(this);
     else {
       *out = nullptr;
       return E_NOINTERFACE;
@@ -379,6 +408,8 @@ public:
       *out = static_cast<IToggleProvider *>(this);
     else if (pattern == UIA_ValuePatternId && element.value)
       *out = static_cast<IValueProvider *>(this);
+    else if (pattern == UIA_SelectionItemPatternId && element.selected)
+      *out = static_cast<ISelectionItemProvider *>(this);
     if (*out)
       AddRef();
     return S_OK;
@@ -556,8 +587,44 @@ public:
     return S_OK;
   }
 
+  // ISelectionItemProvider：选中项跟着用户在正在打字的应用里按的键走，读屏只能读，不能把高亮挪到别的行（点选是 Invoke，会直接上屏）。选已经选中的那一行算成功，其余改动选中的请求回答 UIA_E_INVALIDOPERATION。
+  HRESULT STDMETHODCALLTYPE Select() override { return keep_selection(true); }
+  HRESULT STDMETHODCALLTYPE AddToSelection() override { return keep_selection(true); }
+  HRESULT STDMETHODCALLTYPE RemoveFromSelection() override { return keep_selection(false); }
+  HRESULT STDMETHODCALLTYPE get_IsSelected(BOOL *out) override {
+    if (!out)
+      return E_POINTER;
+    AccessibleElement element;
+    if (!read(element))
+      return UIA_E_ELEMENTNOTAVAILABLE;
+    *out = element.selected.value_or(false) ? TRUE : FALSE;
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE get_SelectionContainer(IRawElementProviderSimple **out) override {
+    if (!out)
+      return E_POINTER;
+    *out = nullptr;
+    std::lock_guard<std::mutex> lock(shared_->mutex);
+    if (!shared_->connected || !accessible_element(shared_->tree, id_))
+      return UIA_E_ELEMENTNOTAVAILABLE;
+    auto *root = root_locked(shared_);
+    if (!root)
+      return E_OUTOFMEMORY;
+    *out = root_simple(root);
+    return S_OK;
+  }
+
 private:
   ~ElementProvider() = default;
+  // 请求之后这一行应当是 `selected`：已经是这样就成功，否则这个请求要改动选中项，不接。
+  HRESULT keep_selection(bool selected) {
+    AccessibleElement element;
+    if (!read(element))
+      return UIA_E_ELEMENTNOTAVAILABLE;
+    return element.selected.value_or(false) == selected
+               ? S_OK
+               : static_cast<HRESULT>(UIA_E_INVALIDOPERATION);
+  }
   bool read(AccessibleElement &element, HWND *window = nullptr, uint64_t *serial = nullptr) {
     std::lock_guard<std::mutex> lock(shared_->mutex);
     if (!shared_->connected)
@@ -592,6 +659,9 @@ private:
   static IRawElementProviderFragmentRoot *root_fragment_root(RootProvider *root) {
     return static_cast<IRawElementProviderFragmentRoot *>(root);
   }
+  static IRawElementProviderSimple *root_simple(RootProvider *root) {
+    return static_cast<IRawElementProviderSimple *>(root);
+  }
   std::shared_ptr<AccessibleShared> shared_;
   int id_;
   std::atomic<ULONG> references_{1};
@@ -599,6 +669,41 @@ private:
 
 IRawElementProviderFragment *RootProvider::fragment(ElementProvider *element) {
   return static_cast<IRawElementProviderFragment *>(element);
+}
+HRESULT RootProvider::GetSelection(SAFEARRAY **out) {
+  if (!out)
+    return E_POINTER;
+  *out = nullptr;
+  ElementProvider *selected = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(shared_->mutex);
+    if (!shared_->connected)
+      return UIA_E_ELEMENTNOTAVAILABLE;
+    if (const auto *found = accessible_selection(shared_->tree)) {
+      selected = element_locked(shared_, found->id);
+      if (!selected)
+        return E_OUTOFMEMORY;
+    }
+  }
+  SAFEARRAY *array = SafeArrayCreateVector(VT_UNKNOWN, 0, selected ? 1 : 0);
+  if (!array) {
+    if (selected)
+      selected->Release();
+    return E_OUTOFMEMORY;
+  }
+  if (selected) {
+    // SafeArrayPutElement 对 VT_UNKNOWN 自己 AddRef，这里交出的引用随后释放。
+    LONG position = 0;
+    const HRESULT put = SafeArrayPutElement(
+        array, &position, static_cast<IUnknown *>(static_cast<IRawElementProviderSimple *>(selected)));
+    selected->Release();
+    if (FAILED(put)) {
+      SafeArrayDestroy(array);
+      return put;
+    }
+  }
+  *out = array;
+  return S_OK;
 }
 
 namespace {
@@ -664,21 +769,31 @@ std::optional<LRESULT> AccessibleWindow::answer(WPARAM wparam, LPARAM lparam) no
 
 void AccessibleWindow::publish(AccessibleTree tree) noexcept {
   RootProvider *root = nullptr;
+  ElementProvider *selected = nullptr;
   {
     std::lock_guard<std::mutex> lock(shared_->mutex);
     if (!shared_->connected || tree == shared_->tree)
       return;
+    const auto selection = accessible_selection_change(shared_->tree, tree);
     shared_->tree = std::move(tree);
     ++shared_->serial;
     // 还没有读屏要过这个窗口时没有根，也就没有谁需要知道树变了。
     if (shared_->root && UiaClientsAreListening()) {
       root = shared_->root;
       root->AddRef();
+      // 内存不够拿不到元素时只是少报这一次选中，树本身照样换了。
+      if (selection)
+        selected = element_locked(shared_, *selection);
     }
   }
   if (!root)
     return;
   UiaRaiseStructureChangedEvent(simple(root), StructureChangeType_ChildrenInvalidated, nullptr, 0);
+  // 高亮移到另一行，或高亮下面换了一个候选：读屏念出现在选中的那一行。
+  if (selected) {
+    UiaRaiseAutomationEvent(simple(selected), UIA_SelectionItem_ElementSelectedEventId);
+    selected->Release();
+  }
   root->Release();
 }
 

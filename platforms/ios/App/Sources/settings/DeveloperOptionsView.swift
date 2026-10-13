@@ -52,7 +52,7 @@ struct DeveloperOptionsView: View {
       .padding(.top, 16)
       .padding(.bottom, 32)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("开发者选项").navigationBarTitleDisplayMode(.inline)
     .alert("重置所有设置？", isPresented: $confirmsReset) {
       Button("取消", role: .cancel) {}

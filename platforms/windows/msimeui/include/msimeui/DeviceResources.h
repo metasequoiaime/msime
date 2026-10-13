@@ -24,6 +24,8 @@ class DeviceResources
     void Resize(UINT width, UINT height);
     void DiscardTarget();
     HRESULT Present();
+    // EndDraw 或 Present 的失败是不是设备丢了：EndDraw 报 D2DERR_RECREATE_TARGET，交换链的 Present 报 DXGI_ERROR_DEVICE_REMOVED 或 DXGI_ERROR_DEVICE_RESET（显卡驱动更新、TDR 重置显卡、远程会话换了适配器）。这几种只要 DiscardTarget，下一次绘制按新设备重建；其余失败（包括分层窗口的 UpdateLayeredWindow 失败）仍是真的画不出来。
+    static bool IsDeviceLost(HRESULT hr);
 
     /// Rendering DPI override for windows whose system DPI diverges from the
     /// content's true scale (e.g. an RDP session syncs the client's display

@@ -14,6 +14,18 @@ private extension View {
   }
 }
 
+extension View {
+  /// Applies the app canvas colour through the safe-area edges.
+  func designCanvasBackground() -> some View {
+    background(MetasequoiaTheme.canvas.ignoresSafeArea())
+  }
+
+  /// Applies the standard compact secondary text treatment used by design-kit surfaces.
+  func designSubtext() -> some View {
+    font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+  }
+}
+
 // MARK: - 标志圆盘
 
 /// 着色圆盘上的应用标志（「设置」「关于」和首次引导的页头）：圆盘用 `aM(14)` / `aM(22)`，边框用 `mix(accent 82%, #000)`，白色描边叠在最上面。
@@ -122,7 +134,7 @@ struct DesignGroup<Content: View>: View {
       }
       DesignCard(radius: radius) { content }
       if let footer {
-        Text(footer).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+        Text(footer).designSubtext()
           .fixedSize(horizontal: false, vertical: true)
           .padding(.horizontal, 20)
       }
@@ -301,7 +313,7 @@ private struct DesignRowLabel: View {
     VStack(alignment: .leading, spacing: 2) {
       Text(title).font(.system(size: 17)).foregroundStyle(.primary)
       if let subtitle {
-        Text(subtitle).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+        Text(subtitle).designSubtext()
           .fixedSize(horizontal: false, vertical: true)
       }
     }
@@ -396,7 +408,7 @@ struct DesignSliderRow: View {
           .frame(width: widthClass == .regular ? 160 : 110)
           .accessibilityValue(format(value))
           .designIdentifier(identifier)
-        Text(format(value)).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+        Text(format(value)).designSubtext()
           .monospacedDigit().lineLimit(1).minimumScaleFactor(0.8)
           .frame(width: 46, alignment: .trailing)
           .accessibilityHidden(true)
@@ -617,7 +629,7 @@ private struct DesignOptionSheetView<Value: Hashable>: View {
         VStack(spacing: 4) {
           Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(MetasequoiaTheme.sub)
           if let message = level.message {
-            Text(message).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+            Text(message).designSubtext()
           }
         }
         .multilineTextAlignment(.center)

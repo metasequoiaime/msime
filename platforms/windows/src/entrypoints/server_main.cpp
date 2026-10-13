@@ -1366,14 +1366,15 @@ int wmain(int argc, wchar_t **argv) {
     CandidateClickWorker clicks([&](const CandidateClick &click) {
       if (click.action == CandidateAction::Select) {
         if (server.request_selection(click.lease, click.session,
-                                     click.generation, click.index) ==
+                                     click.generation, click.index,
+                                     click.translation_page) ==
             SelectionRequestResult::Failed)
           throw std::runtime_error("Candidate selection failed");
         return;
       }
       if (server.request_candidate_action(
               click.lease, click.session, click.generation, click.index,
-              click.action, click.position) ==
+              click.translation_page, click.action, click.position) ==
           CandidateActionRequestResult::Failed)
           throw std::runtime_error("Candidate action failed");
     });
@@ -2043,7 +2044,8 @@ int wmain(int argc, wchar_t **argv) {
         const auto &candidate = view->candidates[hotkey.slot];
         return server.request_candidate_action(
                    view->lease, candidate.session, candidate.generation,
-                   candidate.index, CandidateAction::Remove) ==
+                   candidate.index, view->translation_page,
+                   CandidateAction::Remove) ==
                CandidateActionRequestResult::Sent;
       }
       }

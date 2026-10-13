@@ -565,17 +565,17 @@ void FloatingToolbarWindow::paint() {
   }
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.
-  if (SUCCEEDED(drawn) && FAILED(device_.Present()))
-    throw std::runtime_error("Toolbar presentation failed");
-  // Signed HRESULT against a macro that is unsigned in some SDK and MinGW
-  // versions; see CandidateWindow.cpp for the same comparison.
-  if (drawn == static_cast<HRESULT>(D2DERR_RECREATE_TARGET)) {
+  const HRESULT presented = SUCCEEDED(drawn) ? device_.Present() : drawn;
+  // 设备丢了按 DeviceResources::IsDeviceLost 判断，Present 报的 DXGI_ERROR_DEVICE_REMOVED/RESET 也算，见 CandidateWindow.cpp 的同一处。
+  if (msimeui::DeviceResources::IsDeviceLost(presented)) {
     device_.DiscardTarget();
     InvalidateRect(window_, nullptr, FALSE);
     return;
   }
   if (FAILED(drawn))
     throw std::runtime_error("Toolbar drawing failed");
+  if (FAILED(presented))
+    throw std::runtime_error("Toolbar presentation failed");
   // 名字按刚画出来的状态取。这次没读到模式（输入队列正忙）或租约不是画面上那个时按钮没有重画，读屏的树也留着上一棵，免得名字在带状态和不带状态之间来回跳、作废读屏刚发出的执行请求。
   if (value && shown_ && same(value->lease, shown_->lease))
     sync_accessibility(value);

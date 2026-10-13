@@ -65,7 +65,7 @@ struct ExpressionSettingsView: View {
       .padding(.top, 16)
       .padding(.bottom, 32)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("表达")
     .navigationBarTitleDisplayMode(.inline)
     .onAppear(perform: reload)

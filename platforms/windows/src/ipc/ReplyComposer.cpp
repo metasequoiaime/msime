@@ -593,13 +593,17 @@ void ReplyComposer::confirm_delivery(uint64_t client, uint64_t epoch,
   pending_.reset();
 }
 std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &session,
-    uint64_t expected_session, uint64_t generation, size_t index) {
+    uint64_t expected_session, uint64_t generation, size_t index,
+    uint64_t translation_page) {
   if (pending_ || !session.input_enabled()) return std::nullopt;
   traditional_output_ = traditional_projection(session);
   const auto view = session.view();
+  // 释义页和它底下的 Engine 列表同 session、同 generation，序号也一样从 0 起；点的是哪一张表只能看释义页编号，对不上就是点在了已经换掉的那张表上。释义页打开时按画出来的那一页核对代次：它停在打开时的 generation，Engine 的列表可能已经因为云候选、AI 候选到达换了代次，而候选窗不拿它们盖掉释义页（CandidateMailbox::refresh_view）。
+  const auto &shown = translation_page_active_ ? translation_page_view_.at("view") : view;
   if (!expected_session || view.at("session") != expected_session ||
       (session_ && session_ != expected_session) ||
-      view.at("generation") != generation || !view.at("focused").get<bool>())
+      shown.at("generation") != generation || !view.at("focused").get<bool>() ||
+      translation_page != this->translation_page())
     return std::nullopt;
   // A pick made here would leave the TIP's own host session behind (scheme::KeyboardOnlyCandidateList).
   if (scheme::KeyboardOnlyCandidateList(view_scheme(view)))
@@ -715,6 +719,11 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
   if (senses.size() > 1) {
     nlohmann::json page = {{"commit", nullptr}, {"view", view}};
     page["view"]["candidates"] = nlohmann::json::array();
+    // 这一页的编号随 view 进候选窗（CandidatePresentation::translation_page），点击原样带回，select_candidate 据此把它和底下的 Engine 列表分开。
+    page["view"]["translation_page"] = ++translation_page_serial_;
+    // 释义页只有这一页，翻页在它上面不起作用（方向键、翻页键见 translation_page_key，鼠标和滚轮见 FocusedSession::page_candidate），所以不带 Engine 列表的页码，候选窗也就不画页码和翻页箭头。
+    page["view"].erase("page");
+    page["view"].erase("page_count");
     const auto count = std::min<size_t>(senses.size(), 9);
     for (size_t item = 0; item < count; ++item) {
       page["view"]["candidates"].push_back({

@@ -13,6 +13,8 @@ struct CandidateClick {
   size_t index;
   CandidateAction action = CandidateAction::Select;
   uint8_t position = 0;
+  // 点到的那一帧的释义页编号（CandidatePresentation::translation_page），Engine 自己的候选为 0。
+  uint64_t translation_page = 0;
 };
 struct CandidatePage {
   FocusLease lease;
@@ -22,6 +24,8 @@ struct CandidatePage {
   unsigned steps;
   // 滚轮发起的翻页为 true，首行箭头为 false；Server 只对滚轮套「鼠标滚轮翻页」开关，见 candidate_page_allowed。
   bool from_wheel = false;
+  // 发起翻页的那一帧的释义页编号（CandidatePresentation::translation_page）。释义页上翻页不起作用，不为 0 时 Server 一律拒绝。
+  uint64_t translation_page = 0;
 };
 // One worker and one outstanding click. No backlog/retries. Dependencies must
 // outlive stop(); cancel handler I/O before joining when necessary.

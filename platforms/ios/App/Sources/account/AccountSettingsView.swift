@@ -98,7 +98,7 @@ struct AccountSettingsView: View {
       .frame(maxWidth: isRegular ? 760 : .infinity)
       .frame(maxWidth: .infinity)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("我的")
     .navigationBarTitleDisplayMode(.large)
     .tint(MetasequoiaTheme.accent)
@@ -201,7 +201,7 @@ struct AccountSettingsView: View {
           .font(.system(size: 18, weight: .bold)).foregroundStyle(.primary)
           .lineLimit(1)
         Text(signedIn ? signedInSubtitle : "登录后同步词库、皮肤和设置")
-          .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+          .designSubtext()
           .lineLimit(1)
       }
       Spacer(minLength: 8)
@@ -694,7 +694,7 @@ private struct AccountCloudSyncView: View {
       .padding(.top, 16)
       .padding(.bottom, 24)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("手动同步").navigationBarTitleDisplayMode(.inline)
   }
 }
@@ -738,7 +738,7 @@ private struct AccountPublishedContentView: View {
       .padding(.top, 16)
       .padding(.bottom, 24)
     }
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .navigationTitle("我的发布与收藏").navigationBarTitleDisplayMode(.inline)
   }
 }

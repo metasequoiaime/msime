@@ -424,7 +424,7 @@ int main() {
       fake_source = 8;
       fake_partial_left = "x";
       (void)effects.take();
-      const auto whole = focused.select_candidate(lease, fake_session, fake_generation, 0);
+      const auto whole = focused.select_candidate(lease, fake_session, fake_generation, 0, 0);
       REQUIRE(whole.has_value() && whole->committed_text == std::optional<std::string>("啊"));
       EXPECT_TRACE({"key:" + std::to_string(MSIME_KEY_POINTER), "set_lifecycle:" + std::to_string(lifecycle_flags(false, false)),
                     "select:0", "set_lifecycle:" + std::to_string(lifecycle_flags()),
@@ -439,7 +439,7 @@ int main() {
       REQUIRE(focused.configured_key(lease, key('D', u'd', request), TsfPreeditStyle::Pinyin, {}).has_value());
       REQUIRE(focused.confirm(lease, request++));
       calls.clear();
-      REQUIRE(focused.select_candidate(lease, fake_session, fake_generation, 0).has_value());
+      REQUIRE(focused.select_candidate(lease, fake_session, fake_generation, 0, 0).has_value());
       EXPECT_TRACE({"key:" + std::to_string(MSIME_KEY_POINTER), "select:0"});
 
       // 失去焦点：先交还音乐所有权，再让会话失焦。

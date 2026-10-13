@@ -42,14 +42,16 @@ struct AccessibleElement {
   bool invokable = false;
   // 有值时提供 Toggle 模式：勾选的菜单行、开着的工具格。
   std::optional<bool> checked;
+  // 有值时提供 SelectionItem 模式，true 是选中：候选窗里高亮的那一行（空格、回车上屏的就是它）。树里有这种元素时整棵树（列表）同时提供单选的 Selection 模式。
+  std::optional<bool> selected;
   // 键盘导航正停在它上面，报告为键盘焦点。
   bool focused = false;
 };
 inline bool operator==(const AccessibleElement &a, const AccessibleElement &b) {
   return std::tie(a.id, a.role, a.automation_id, a.name, a.help, a.accelerator, a.value,
-                  a.bounds, a.enabled, a.invokable, a.checked, a.focused) ==
+                  a.bounds, a.enabled, a.invokable, a.checked, a.selected, a.focused) ==
          std::tie(b.id, b.role, b.automation_id, b.name, b.help, b.accelerator, b.value,
-                  b.bounds, b.enabled, b.invokable, b.checked, b.focused);
+                  b.bounds, b.enabled, b.invokable, b.checked, b.selected, b.focused);
 }
 
 struct AccessibleTree {
@@ -108,5 +110,30 @@ inline const AccessibleElement *accessible_focus(const AccessibleTree &tree) {
     if (element.focused)
       return &element;
   return nullptr;
+}
+// 树里有没有带 SelectionItem 模式的元素：有才给整棵树提供 Selection 模式。
+inline bool accessible_selectable(const AccessibleTree &tree) {
+  for (const auto &element : tree.elements)
+    if (element.selected)
+      return true;
+  return false;
+}
+// 一棵树里选中的元素（候选窗高亮的那一行），没有时为空。
+inline const AccessibleElement *accessible_selection(const AccessibleTree &tree) {
+  for (const auto &element : tree.elements)
+    if (element.selected.value_or(false))
+      return &element;
+  return nullptr;
+}
+// 从 before 换到 after 时要不要报告选中项变了（UIA_SelectionItem_ElementSelectedEventId），要报告时是 after 里选中元素的 id。高亮移到另一行要报；同一行换了内容（继续打字、翻页之后高亮下面是另一个候选）也要报，读屏才会念出现在空格要上屏的是什么。after 里没有选中项时不报。
+inline std::optional<int> accessible_selection_change(const AccessibleTree &before,
+                                                      const AccessibleTree &after) {
+  const auto *now = accessible_selection(after);
+  if (!now)
+    return std::nullopt;
+  const auto *was = accessible_selection(before);
+  if (was && was->id == now->id && was->name == now->name)
+    return std::nullopt;
+  return now->id;
 }
 } // namespace msime::windows

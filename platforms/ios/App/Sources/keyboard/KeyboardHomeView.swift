@@ -44,7 +44,7 @@ struct SettingsView: View {
       .padding(.bottom, 20)
     }
     .scrollDismissesKeyboard(.interactively)
-    .background(MetasequoiaTheme.canvas.ignoresSafeArea())
+    .designCanvasBackground()
     .overlay {
       if groups.isEmpty { ContentUnavailableView.search(text: query) }
     }

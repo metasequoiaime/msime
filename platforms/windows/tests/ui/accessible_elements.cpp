@@ -61,6 +61,51 @@ void frame_and_hit() {
   require(copy != tree);
 }
 
+void selection() {
+  // 候选窗那样的单选列表：带 selected 的行提供 SelectionItem，选中的是高亮的那一行。
+  AccessibleTree before{AccessibleContainer::List, "候选窗", {}};
+  AccessibleElement preedit;
+  preedit.id = 101;
+  preedit.role = AccessibleRole::Text;
+  preedit.value = std::string("ni");
+  AccessibleElement first;
+  first.id = 1;
+  first.role = AccessibleRole::ListItem;
+  first.name = "1  你";
+  first.selected = true;
+  AccessibleElement second;
+  second.id = 2;
+  second.role = AccessibleRole::ListItem;
+  second.name = "2  尼";
+  second.selected = false;
+  before.elements = {preedit, first, second};
+  require(accessible_selectable(before));
+  require(accessible_selection(before) == &before.elements[1]);
+  // 没有可选中元素的树（工具栏、托盘卡片）不提供 Selection 模式。
+  AccessibleTree toolbar{AccessibleContainer::ToolBar, "悬浮状态栏", {preedit}};
+  require(!accessible_selectable(toolbar) && !accessible_selection(toolbar));
+  // 什么都没变：不报告。
+  require(!accessible_selection_change(before, before));
+  // 高亮移到第二行：报告第二行。
+  AccessibleTree moved = before;
+  moved.elements[1].selected = false;
+  moved.elements[2].selected = true;
+  require(moved != before);
+  require(accessible_selection_change(before, moved) == std::optional<int>(2));
+  // 高亮还在第一行，但继续打字后那一行换成了另一个候选：同样要报告，读屏才会念出新的候选。
+  AccessibleTree typed = before;
+  typed.elements[0].value = std::string("nih");
+  typed.elements[1].name = "1  你好";
+  require(accessible_selection_change(before, typed) == std::optional<int>(1));
+  // 只是拼音变了、选中的那一行没变：树要重新发布，选中项不重报。
+  AccessibleTree spelled = before;
+  spelled.elements[0].value = std::string("ni'");
+  require(spelled != before && !accessible_selection_change(before, spelled));
+  // 第一次出现候选（之前没有选中项）要报告；候选窗收起（之后没有选中项）不报告。
+  require(accessible_selection_change(toolbar, before) == std::optional<int>(1));
+  require(!accessible_selection_change(before, toolbar));
+}
+
 void toolbar() {
   const auto metrics = toolbar_metrics(24.0, true, true);
   ToolbarLanguageState language;
@@ -178,6 +223,7 @@ void screen_reader_keys() {
 int main() {
   try {
     frame_and_hit();
+    selection();
     toolbar();
     tray();
     screen_reader_keys();

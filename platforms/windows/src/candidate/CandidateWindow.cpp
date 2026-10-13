@@ -1536,12 +1536,9 @@ void CandidateWindow::paint() {
   target->SetTransform(D2D1::Matrix3x2F::Identity());
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.
-  if (SUCCEEDED(drawn) && FAILED(device_.Present()))
-    throw std::runtime_error("Candidate presentation failed");
-  // Cast rather than compare directly: HRESULT is signed and the macro is
-  // unsigned in some SDK and MinGW versions, which makes the comparison a
-  // warning on one toolchain and silent on another.
-  if (drawn == static_cast<HRESULT>(D2DERR_RECREATE_TARGET)) {
+  const HRESULT presented = SUCCEEDED(drawn) ? device_.Present() : drawn;
+  // 设备丢了（EndDraw 的 D2DERR_RECREATE_TARGET，或 Present 的 DXGI_ERROR_DEVICE_REMOVED/RESET，见 DeviceResources::IsDeviceLost）不算画不出来：下一次刷新时重建，而不是让整个 Server 退出。
+  if (msimeui::DeviceResources::IsDeviceLost(presented)) {
     // Losing the device is not a presentation failure; rebuild on the next
     // refresh rather than hiding a live composition. Clearing shown_ is what
     // makes that rebuild reachable: reposition() returns early while the cached
@@ -1555,6 +1552,8 @@ void CandidateWindow::paint() {
   }
   if (FAILED(drawn))
     throw std::runtime_error("Candidate drawing failed");
+  if (FAILED(presented))
+    throw std::runtime_error("Candidate presentation failed");
   painted_ = value;
   painted_rows_ = std::move(rows);
   painted_pager_ = pager;
@@ -1621,14 +1620,19 @@ void CandidateWindow::invoke_accessible(int id, LPARAM token) {
   // 翻页与点箭头一样一次一页，带上画出来的那一页的身份，页已经换了时 Server 会拒绝。
   if (id == candidate_accessible_previous || id == candidate_accessible_next) {
     const bool previous = id == candidate_accessible_previous;
-    if (page_ && painted_pager_ && (!previous || value.page > 0))
-      page_(CandidatePage{value.lease, value.session, value.generation, previous, 1u});
+    if (page_ && painted_pager_ && (!previous || value.page > 0)) {
+      CandidatePage page{value.lease, value.session, value.generation, previous, 1u};
+      page.translation_page = value.translation_page;
+      page_(page);
+    }
     return;
   }
   if (!click_ || id < 1 || static_cast<size_t>(id) > value.candidates.size())
     return;
   const auto &candidate = value.candidates[static_cast<size_t>(id - 1)];
-  click_(CandidateClick{value.lease, candidate.session, candidate.generation, candidate.index});
+  CandidateClick click{value.lease, candidate.session, candidate.generation, candidate.index};
+  click.translation_page = value.translation_page;
+  click_(click);
 }
 std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
   if (!click_ || !painted_ || !painted_->pointer_input || !IsWindowVisible(window_))
@@ -1653,8 +1657,10 @@ std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
   if (!row || *row >= painted_->candidates.size())
     return std::nullopt;
   const auto &candidate = painted_->candidates[*row];
-  return CandidateClick{painted_->lease, candidate.session,
-                        candidate.generation, candidate.index};
+  CandidateClick click{painted_->lease, candidate.session,
+                       candidate.generation, candidate.index};
+  click.translation_page = painted_->translation_page;
+  return click;
 }
 std::optional<bool> CandidateWindow::pager_hit(int x, int y) {
   if (!page_ || !painted_ || !painted_->pointer_input || !painted_pager_ ||
@@ -1743,12 +1749,16 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
             self->wheel_accumulator_, GET_WHEEL_DELTA_WPARAM(wparam),
             WHEEL_DELTA);
         const auto &value = *self->painted_;
+        const auto wheel = [&](bool previous, int count) {
+          CandidatePage page{value.lease, value.session, value.generation,
+                             previous, static_cast<unsigned>(count), true};
+          page.translation_page = value.translation_page;
+          self->page_(page);
+        };
         if (steps.page_up > 0)
-          self->page_(CandidatePage{value.lease, value.session, value.generation,
-                                    true, static_cast<unsigned>(steps.page_up), true});
+          wheel(true, steps.page_up);
         if (steps.page_down > 0)
-          self->page_(CandidatePage{value.lease, value.session, value.generation,
-                                    false, static_cast<unsigned>(steps.page_down), true});
+          wheel(false, steps.page_down);
         return 0;
       }
       case WM_LBUTTONDOWN:
@@ -1800,8 +1810,10 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
                               static_cast<short>(HIWORD(lparam))) ==
               pressed_page) {
             const auto &value = *self->painted_;
-            self->page_(CandidatePage{value.lease, value.session,
-                                      value.generation, *pressed_page, 1u});
+            CandidatePage page{value.lease, value.session, value.generation,
+                               *pressed_page, 1u};
+            page.translation_page = value.translation_page;
+            self->page_(page);
           }
           return 0;
         }
