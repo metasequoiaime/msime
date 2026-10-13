@@ -29,8 +29,9 @@ class SettingsSceneReloadContract(unittest.TestCase):
 
     def test_modifier_owns_both_lifecycle_hooks(self):
         source = (ROOT / "platforms/ios/App/Sources/settings/SettingsScenePhaseReload.swift").read_text()
-        self.assertIn(".onAppear(perform: reload)", source)
-        self.assertIn(".onChange(of: scenePhase)", source)
+        self.assertEqual(source.count("@Environment(\\.scenePhase)"), 1)
+        self.assertEqual(source.count(".onChange(of: scenePhase)"), 1)
+        self.assertIn("prepare?()\n        reload()", source)
         self.assertIn("phase == .active", source)
 
     def test_app_icon_uses_shared_reload_modifier(self):

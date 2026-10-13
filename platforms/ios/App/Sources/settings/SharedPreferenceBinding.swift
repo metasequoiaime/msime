@@ -4,20 +4,21 @@ import SwiftUI
 enum SharedPreferenceBinding {
   static func topLevel<Value>(_ key: String, state: Binding<Value>,
                               onSave: @escaping (Bool) -> Void) -> Binding<Value> {
-    make(state: state, onSave: onSave) { document, value in document[key] = value }
+    custom(state: state, onSave: onSave) { document, value in document[key] = value }
   }
 
   static func nested<Value>(_ object: String, key: String, state: Binding<Value>,
                             onSave: @escaping (Bool) -> Void) -> Binding<Value> {
-    make(state: state, onSave: onSave) { document, value in
+    custom(state: state, onSave: onSave) { document, value in
       var fields = document[object] as? [String: Any] ?? [:]
       fields[key] = value
       document[object] = fields
     }
   }
 
-  private static func make<Value>(state: Binding<Value>, onSave: @escaping (Bool) -> Void,
-                                  mutate: @escaping (inout [String: Any], Value) -> Void) -> Binding<Value> {
+  /// Writes a value with a document mutation supplied by the page when plain key assignment is insufficient.
+  static func custom<Value>(state: Binding<Value>, onSave: @escaping (Bool) -> Void,
+                            mutate: @escaping (inout [String: Any], Value) -> Void) -> Binding<Value> {
     Binding(get: { state.wrappedValue }, set: { value in
       state.wrappedValue = value
       onSave(MetasequoiaInputSessionBridge.updateSharedPreferences { mutate(&$0, value) })

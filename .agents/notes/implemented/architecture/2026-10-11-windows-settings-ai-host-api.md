@@ -22,6 +22,8 @@ Status: implemented
 - **在 host-api 里另写一份，Tauri 不动** — 改动小；但两个入口会慢慢分叉，这正是前几步把 `settings_dictionary`、`credential::test_service` 收进共享 crate 时要避免的。
 - **地址说明留在 C++ 里** — C++ 只需要来源键；但 `translation_endpoint_issue` 已经把翻译页的说明放在 Rust 里，文案和规则放在一起才不会对不上。
 
+配置测试的输出预算与固定错误说明见[AI 配置测试的思考预算与错误分类](../bug-fix/2026-10-13-ai-credential-reasoning-probe.md)；请求传输和凭据来源规则沿用本篇。
+
 ## Consequences
 
 - 原生 AI 页能按共享页的规则显示地址说明、按同一个来源键存 Token，并用和 Tauri 完全相同的请求获取模型、做润色测试。

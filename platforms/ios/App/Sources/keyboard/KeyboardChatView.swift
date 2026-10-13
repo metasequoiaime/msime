@@ -194,11 +194,20 @@ struct KeyboardTryoutView: View {
         }
       }
       .task {
+        // 真机连续点按验收期间保持本编辑器亮屏，不更改手机的自动锁屏设置。
+        if ProcessInfo.processInfo.arguments.contains("--keyboard-toolbar-ui-test") {
+          UIApplication.shared.isIdleTimerDisabled = true
+        }
         if focusOnAppear || focusRequest != handledFocusRequest { focused = true }
         handledFocusRequest = focusRequest
         await chat.loadAccount()
       }
-      .onDisappear { chat.cancel(); focused = false }
+      .onDisappear {
+        chat.cancel(); focused = false
+        if ProcessInfo.processInfo.arguments.contains("--keyboard-toolbar-ui-test") {
+          UIApplication.shared.isIdleTimerDisabled = false
+        }
+      }
       .sheet(isPresented: $showAccount, onDismiss: { Task { await chat.loadAccount() } }) {
         AccountLoginSheet()
       }
