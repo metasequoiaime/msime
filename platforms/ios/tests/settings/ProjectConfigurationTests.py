@@ -48,6 +48,12 @@ def source_path_blocks(body, wanted):
 
 
 class ProjectConfigurationTests(unittest.TestCase):
+    def test_keyboard_settings_sources_include_request_generation_dependency(self):
+        project = (IOS_ROOT / "project.yml").read_text()
+        keyboard = dict(target_blocks(project))["MSIMEKeyboardTests"]
+        self.assertIn("- path: App/Sources/settings/HelpcodeSettingsView.swift", keyboard)
+        self.assertIn("- path: App/Sources/app/ViewRequestGeneration.swift", keyboard)
+
     def test_app_explains_microphone_access_for_voice_input(self):
         explanation = "仅在你开始语音输入时录音：本地模型在本机识别，系统语音识别交由 iOS 处理，其他识别服务会把录音发送到你配置的服务。"
         project = (IOS_ROOT / "project.yml").read_text()

@@ -88,6 +88,7 @@
 		16DE983343D3162F3ADA9130 /* AIEndpointPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF5B764174FACAA7A76B146B /* AIEndpointPolicyTests.swift */; };
 		1715F83209DFA32EEB02A591 /* ClipboardHistorySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 033DAEFB7D7248DC329FC47C /* ClipboardHistorySettingsView.swift */; };
 		17338D7B21A2ACED3A0512DB /* KeyboardPreviewCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3659AD92E2586FD7A82083C7 /* KeyboardPreviewCanvas.swift */; };
+		17393B2CDA20BC96D6FCF506 /* ViewRequestGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB77A60E8E3F4DB399AD5E20 /* ViewRequestGeneration.swift */; };
 		178420E5A85E6FBC7FC7A6C4 /* GlideTypingGesture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74FD8491AFE005FCD91FC249 /* GlideTypingGesture.swift */; };
 		185906A96FF0FD282E53CD54 /* SkinAppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2B1EE2B74FA847FA78E98B1 /* SkinAppearanceSettingsView.swift */; };
 		18B2D7869FB280373F9051C0 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD631D4EDB5CF38EF5EAC720 /* OnboardingView.swift */; };
@@ -3311,6 +3312,7 @@
 				03D5B01F17D6084F0EBFDB85 /* SettingsAutosave.swift in Sources */,
 				55A9E7A801CFC2D921418EA1 /* SettingsAutosaveTests.swift in Sources */,
 				EBA2AA410C89CEA26FDC3A5F /* SharedNumber.swift in Sources */,
+				17393B2CDA20BC96D6FCF506 /* ViewRequestGeneration.swift in Sources */,
 				21E4CE15D4A01DFBBB1745A1 /* VoiceLevel.swift in Sources */,
 				B7B62CB145E2989062034455 /* VoiceLevelTests.swift in Sources */,
 				2A9B4CCCA9EB505FE39E23EA /* VoicePolish.swift in Sources */,
