@@ -1,8 +1,4 @@
 import Foundation
-import CoreFoundation
-#if canImport(Darwin)
-import Darwin
-#endif
 
 private typealias MSIMEVocabularyByte = UInt8
 
@@ -105,32 +101,11 @@ struct VocabularyReviewStore {
 
   /// Read a picked wordbook without allocating more than the shared import limit.
   static func readWordbookData(from url: URL) throws -> Data {
-    let handle = try openReadableWordbook(url)
-    defer { try? handle.close() }
-    var data = Data()
-    data.reserveCapacity(min(maximumImportBytes, 64 * 1024))
-    while data.count <= maximumImportBytes {
-      let chunk = try handle.read(
-        upToCount: min(64 * 1024, maximumImportBytes + 1 - data.count)) ?? Data()
-      if chunk.isEmpty { return data }
-      data.append(chunk)
-    }
-    throw Failure.unreadableWordbook
-  }
-
-  private static func openReadableWordbook(_ url: URL) throws -> FileHandle {
-    #if canImport(Darwin)
-    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
-    guard descriptor >= 0 else { throw Failure.unreadableWordbook }
-    var metadata = stat()
-    guard fstat(descriptor, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG else {
-      close(descriptor)
+    do {
+      return try BoundedFileReader.read(from: url, maximumBytes: maximumImportBytes)
+    } catch {
       throw Failure.unreadableWordbook
     }
-    return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-    #else
-    return try FileHandle(forReadingFrom: url)
-    #endif
   }
 
   /// The device's local day, as the shared layer spells one.

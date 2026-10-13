@@ -2,6 +2,13 @@ import Foundation
 import XCTest
 
 final class BoundedFileReaderTests: XCTestCase {
+  func testReportsOpenFailureForMissingFile() {
+    let missing = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    XCTAssertThrowsError(try BoundedFileReader.read(from: missing, maximumBytes: 1_024)) { error in
+      XCTAssertEqual((error as? BoundedFileReader.OpenFailure)?.code, .ENOENT)
+    }
+  }
+
   func testRejectsLeafSymlink() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let outside = root.appendingPathComponent("outside")
@@ -33,5 +40,15 @@ final class BoundedFileReaderTests: XCTestCase {
     try expected.write(to: file)
 
     XCTAssertEqual(try BoundedFileReader.read(from: file, maximumBytes: expected.count), expected)
+  }
+
+  func testReadsSmallFileWithMaximumIntegerLimit() throws {
+    let file = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: file) }
+    let expected = Data("synthetic".utf8)
+    try expected.write(to: file)
+
+    XCTAssertEqual(try BoundedFileReader.read(from: file, maximumBytes: Int.max), expected)
   }
 }

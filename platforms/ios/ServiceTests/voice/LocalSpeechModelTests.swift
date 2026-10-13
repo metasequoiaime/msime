@@ -71,7 +71,9 @@ final class LocalSpeechModelTests: XCTestCase {
 
     let unknown = try makeModel(id: "whisper", manifest: ["kind": "offline_whisper", "files": [:]], files: [])
     XCTAssertThrowsError(try LocalSpeechModelManifest(directory: unknown))
-    XCTAssertThrowsError(try LocalSpeechModelManifest(directory: scratch.appendingPathComponent("missing")))
+    XCTAssertThrowsError(try LocalSpeechModelManifest(directory: scratch.appendingPathComponent("missing"))) { error in
+      XCTAssertEqual((error as? ServiceFailure)?.message, "所选目录不是已安装的本地语音模型。")
+    }
   }
 
   func testManifestRejectsOversizedFiles() throws {
@@ -80,7 +82,9 @@ final class LocalSpeechModelTests: XCTestCase {
       "files": [:],
       "padding": String(repeating: "x", count: 256 * 1024),
     ], files: [])
-    XCTAssertThrowsError(try LocalSpeechModelManifest(directory: model))
+    XCTAssertThrowsError(try LocalSpeechModelManifest(directory: model)) { error in
+      XCTAssertEqual((error as? ServiceFailure)?.message, "本地语音模型的描述文件已损坏，请删除后重新下载。")
+    }
   }
 
   func testTokenVocabularyReadIsBounded() throws {

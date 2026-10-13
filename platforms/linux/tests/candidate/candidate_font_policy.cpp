@@ -56,18 +56,25 @@ int main() {
   assert(!untouched.next({"Noto Sans SC", {"Noto Sans SC", "Microsoft YaHei"}, 18}));
   assert(untouched.next({"Noto Sans SC", {"Noto Sans SC", "Microsoft YaHei"}, 22}) ==
          "Noto Sans SC, Microsoft YaHei, 22px");
+  untouched.mark_applied("Noto Sans SC, Microsoft YaHei, 22px");
   // Going back to the defaults after a change is itself a change the panel must see.
   assert(untouched.next({"Noto Sans SC", {"Noto Sans SC", "Microsoft YaHei"}, 18}) ==
          "Noto Sans SC, Microsoft YaHei, 18px");
 
   CandidateFontSync chosen;
   assert(chosen.next({"LXGW WenKai", {}, 20}) == "LXGW WenKai, 20px");
+  // 未写入面板时，同一选择仍需重试。
+  assert(chosen.next({"LXGW WenKai", {}, 20}) == "LXGW WenKai, 20px");
+  assert(chosen.pending());
+  chosen.mark_applied("LXGW WenKai, 20px");
+  assert(!chosen.pending());
   assert(!chosen.next({"LXGW WenKai", {}, 20}));
 
   // Choosing only an English family is a font choice the panel must see, even on the first refresh.
   CandidateFontSync english;
   assert(english.next(read_candidate_font(nlohmann::json{{"candidate_english_font", "Inter"}})) ==
          "Inter, Noto Sans SC, Microsoft YaHei, 18px");
+  english.mark_applied("Inter, Noto Sans SC, Microsoft YaHei, 18px");
   assert(!english.next(read_candidate_font(nlohmann::json{{"candidate_english_font", "Inter"}})));
 
   // Fcitx5 的经典界面要磅：像素乘 3/4，总是 0.25 的整数倍，照原样写出；超出范围同样退回默认的 18 像素。
@@ -85,12 +92,18 @@ int main() {
   assert(!points.next({"Noto Sans SC", {"Noto Sans SC", "Microsoft YaHei"}, 18}));
   assert(points.next({"MiSans", {"Noto Sans SC", "Microsoft YaHei"}, 14}) ==
          "MiSans, Noto Sans SC, Microsoft YaHei, 10.5");
+  points.mark_applied("MiSans, Noto Sans SC, Microsoft YaHei, 10.5");
   assert(!points.next({"MiSans", {"Noto Sans SC", "Microsoft YaHei"}, 14}));
   // 升级前按像素写过同一个字体时，偏好虽是默认值也按磅重写一次，之后照旧不重复写；面板里是别的描述，或者仍写像素时，不动它。
   const CandidateFont defaultFont{"Noto Sans SC", {"Noto Sans SC", "Microsoft YaHei"}, 18};
   CandidateFontSync upgraded(CandidateFontUnit::Points);
   assert(upgraded.next(defaultFont, std::string("Noto Sans SC, Microsoft YaHei, 18px")) ==
          "Noto Sans SC, Microsoft YaHei, 13.5");
+  assert(!upgraded.primed());
+  // 后续一次读取不到现值时也不能吞掉升级迁移。
+  assert(upgraded.next(defaultFont) ==
+         "Noto Sans SC, Microsoft YaHei, 13.5");
+  upgraded.mark_applied("Noto Sans SC, Microsoft YaHei, 13.5");
   assert(!upgraded.next(defaultFont, std::string("Noto Sans SC, Microsoft YaHei, 13.5")));
   CandidateFontSync foreign(CandidateFontUnit::Points);
   assert(!foreign.next(defaultFont, std::string("Sans 10")));

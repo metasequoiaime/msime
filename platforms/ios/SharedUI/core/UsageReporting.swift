@@ -2,20 +2,16 @@ import Foundation
 import CoreFoundation
 import Darwin
 
-private typealias UsageByte = UInt8
-
 @_silgen_name("msime_client_telemetry_begin")
-private func msimeClientTelemetryBegin(_ request: UnsafePointer<UsageByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientTelemetryBegin(_ request: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_telemetry_end")
-private func msimeClientTelemetryEnd(_ request: UnsafePointer<UsageByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientTelemetryEnd(_ request: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_telemetry_record_crash")
-private func msimeClientTelemetryRecordCrash(_ request: UnsafePointer<UsageByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientTelemetryRecordCrash(_ request: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_telemetry_flush")
-private func msimeClientTelemetryFlush(_ request: UnsafePointer<UsageByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+private func msimeClientTelemetryFlush(_ request: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_telemetry_clear")
-private func msimeClientTelemetryClear(_ request: UnsafePointer<UsageByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
-@_silgen_name("msime_client_string_free")
-private func msimeClientUsageStringFree(_ value: UnsafeMutablePointer<CChar>?)
+private func msimeClientTelemetryClear(_ request: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 
 /// Anonymous usage reporting through client-core's telemetry queue (msime_client_telemetry_* in msime_client.h), shared by the app and the keyboard through the App Group.
 ///
@@ -39,7 +35,7 @@ enum UsageReporting {
   @discardableResult
   static func setEnabled(_ enabled: Bool) -> Bool {
     guard MetasequoiaInputSessionBridge.updateSharedPreferences({ $0[preferenceKey] = enabled }) else { return false }
-    if !enabled, let directory { call(msimeClientTelemetryClear, ["directory": directory.path]) }
+    if !enabled, let directory { ClientRequestEnvelope.call(msimeClientTelemetryClear, ["directory": directory.path]) }
     return true
   }
 
@@ -57,7 +53,7 @@ enum UsageReporting {
   /// Starts a keyboard session: closes the previous one, queues crash records and today's active. Returns the crash record path for the signal handler, or nil when reporting is off. No network I/O.
   static func begin() -> String? {
     guard let directory else { return nil }
-    guard let value = call(msimeClientTelemetryBegin, request(directory)) as? [String: Any],
+    guard let value = ClientRequestEnvelope.call(msimeClientTelemetryBegin, request(directory)) as? [String: Any],
           value["enabled"] as? Bool == true else { return nil }
     return value["crash_record_path"] as? String
   }
@@ -65,19 +61,19 @@ enum UsageReporting {
   /// The keyboard was dismissed normally: queues the session event. No network I/O.
   static func end() {
     guard let directory else { return }
-    call(msimeClientTelemetryEnd, ["directory": directory.path])
+    ClientRequestEnvelope.call(msimeClientTelemetryEnd, ["directory": directory.path])
   }
 
   /// Queues today's active and sends the queue. Blocks on the network: never on the main thread.
   static func flush() {
     guard let directory else { return }
-    call(msimeClientTelemetryFlush, request(directory))
+    ClientRequestEnvelope.call(msimeClientTelemetryFlush, request(directory))
   }
 
   /// From an uncaught-exception handler in the keyboard: writes the running session's crash record, sent on a later start.
   static func recordCrash(message: String, stack: String) {
     guard let directory else { return }
-    call(msimeClientTelemetryRecordCrash, ["directory": directory.path, "message": message, "stack": stack])
+    ClientRequestEnvelope.call(msimeClientTelemetryRecordCrash, ["directory": directory.path, "message": message, "stack": stack])
   }
 
   private static func rejectsSymlinkAncestors(_ path: URL) -> Bool {
@@ -119,16 +115,4 @@ enum UsageReporting {
     SharedNumber.strictUInt64(value) ?? 0
   }
 
-  /// The value of the {ok,value} envelope, or nil on any failure; reporting never affects the host.
-  @discardableResult
-  private static func call(_ function: (UnsafePointer<UsageByte>?, UInt) -> UnsafeMutablePointer<CChar>?,
-                           _ request: [String: Any]) -> Any? {
-    guard let body = try? JSONSerialization.data(withJSONObject: request) else { return nil }
-    let raw = body.withUnsafeBytes { function($0.bindMemory(to: UsageByte.self).baseAddress, UInt(body.count)) }
-    guard let raw else { return nil }
-    defer { msimeClientUsageStringFree(raw) }
-    guard let envelope = try? JSONSerialization.jsonObject(with: Data(bytes: raw, count: strlen(raw))) as? [String: Any],
-          envelope["ok"] as? Bool == true else { return nil }
-    return envelope["value"]
-  }
 }

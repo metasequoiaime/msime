@@ -1,9 +1,9 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import type { ReactNode } from "react";
 import { clamp } from "../core/number";
-import { GroupList, MoreOptions, Row } from "../core/platform-controls";
+import { GroupList, MoreOptions } from "../core/platform-controls";
 import { customPromptSlotOptions } from "./custom-prompt-slot-options";
-import { ModelSelect } from "./model-select";
+import { ModelPickerRows } from "./model-picker-rows";
 import { SettingsTextareaField } from "./settings-textarea-field";
 import { SwitchRow } from "./switch-row";
 import { SelectRow } from "./select-row";
@@ -27,7 +27,10 @@ export interface AiSettingsPageSectionProps {
   provider: string;
   providerOptions: readonly AiProviderOption[];
   model: string;
+  /** 服务商预置的模型，和获取到的模型一起列在「模型」下拉里。 */
+  presetModels: readonly string[];
   endpoint: string;
+  /** 服务商的接入说明按钮。 */
   providerPreset: ReactNode;
   onEnabledChange: (enabled: boolean) => void;
   onProviderChange: (provider: string) => void;
@@ -42,7 +45,6 @@ export interface AiSettingsPageSectionProps {
     models: string[] | undefined;
     status: string;
     onFetch: () => void;
-    onSelect: (model: string) => void;
   } | null;
   candidateLimit: number;
   onCandidateLimitChange: (candidateLimit: number) => void;
@@ -70,6 +72,7 @@ export function AiSettingsPageSection({
   provider,
   providerOptions,
   model,
+  presetModels,
   endpoint,
   providerPreset,
   onEnabledChange,
@@ -124,27 +127,22 @@ export function AiSettingsPageSection({
         </SelectRow>
         {credentialSection}
         {providerPreset}
-        <TextInputRow title="模型" label="AI 模型" value={model} onChange={onModelChange} />
+        <ModelPickerRows
+          title="模型"
+          label="AI 模型"
+          models={[...presetModels, ...(modelCatalog?.models ?? [])]}
+          model={model}
+          onChange={onModelChange}
+        />
         {modelCatalog && (
           <>
             <ActionRow
               title="服务模型"
-              description="从当前服务的模型目录读取；服务不支持时可继续手动填写模型。"
+              description="从当前服务的模型目录读取，加进上面的模型列表；服务不支持时选「自定义…」自己填写。"
               action={modelCatalog.onFetch}
               disabled={modelCatalog.busy || !modelCatalog.origin}
               label={modelCatalog.busy ? "获取中…" : "获取模型列表"}
             />
-            {modelCatalog.models && modelCatalog.models.length > 0 && (
-              <Row title="已获取模型">
-                <ModelSelect
-                  models={modelCatalog.models}
-                  model={model}
-                  ariaLabel="已获取的 AI 模型"
-                  emptyLabel="选择模型…"
-                  onSelect={modelCatalog.onSelect}
-                />
-              </Row>
-            )}
             {modelCatalog.status && (
               <SettingsGroupNote role="status">{modelCatalog.status}</SettingsGroupNote>
             )}

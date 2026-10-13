@@ -1159,7 +1159,6 @@ export {
   type SettingsTextareaFieldProps,
 } from "./settings/settings-textarea-field";
 export { SettingsInputField, type SettingsInputFieldProps } from "./settings/settings-input-field";
-export { ModelSelect, type ModelSelectProps } from "./settings/model-select";
 export {
   AiCredentialSection,
   type AiCredentialSectionProps,
@@ -1193,7 +1192,7 @@ export {
 } from "./settings/password-setting-field";
 export { TextSettingField, type TextSettingFieldProps } from "./settings/text-setting-field";
 export { SelectSettingField, type SelectSettingFieldProps } from "./settings/select-setting-field";
-export { ModelSettingField, type ModelSettingFieldProps } from "./settings/model-setting-field";
+export { ModelPickerRows, type ModelPickerRowsProps } from "./settings/model-picker-rows";
 export {
   EndpointSettingField,
   type EndpointSettingFieldProps,

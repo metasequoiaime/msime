@@ -3,13 +3,16 @@ import type { ReactNode } from "react";
 import { GroupList } from "../core/platform-controls";
 import { POLISH_PROVIDER_OPTIONS } from "../voice/voice-provider-options";
 import { VoiceProviderRow } from "./voice-provider-row";
-import { TextInputRow } from "./text-input-row";
+import { ModelPickerRows } from "./model-picker-rows";
 import { SwitchRow } from "./switch-row";
 
 export interface VoicePolishSectionProps {
   enabled: boolean;
   provider: string;
   model: string;
+  /** 润色服务预置的模型，列在「模型」下拉里。 */
+  presetModels?: readonly string[];
+  /** 服务商的接入说明按钮。 */
   providerPreset?: ReactNode;
   children?: ReactNode;
   onEnabledChange: (enabled: boolean) => void;
@@ -22,6 +25,7 @@ export function VoicePolishSection({
   enabled,
   provider,
   model,
+  presetModels = [],
   providerPreset,
   children,
   onEnabledChange,
@@ -47,7 +51,13 @@ export function VoicePolishSection({
             onChange={onProviderChange}
           />
           {providerPreset}
-          <TextInputRow title="模型" label="文本润色模型" value={model} onChange={onModelChange} />
+          <ModelPickerRows
+            title="模型"
+            label="文本润色模型"
+            models={presetModels}
+            model={model}
+            onChange={onModelChange}
+          />
           {children}
         </>
       )}

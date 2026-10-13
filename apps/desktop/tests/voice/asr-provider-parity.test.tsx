@@ -84,8 +84,8 @@ test("iOS voice settings list the new services and their preset models", async (
   expect(values).toContain("bailian");
   expect(select.value).toBe("mistral");
   expect(
-    [...(screen.getByLabelText("识别服务预置模型") as HTMLSelectElement).options].map(
+    [...(screen.getByLabelText("识别模型") as HTMLSelectElement).options].map(
       (option) => option.value,
     ),
-  ).toEqual(["", "voxtral-mini-latest"]);
+  ).toEqual(["voxtral-mini-latest", ""]);
 });

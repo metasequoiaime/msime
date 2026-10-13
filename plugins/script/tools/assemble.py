@@ -32,17 +32,12 @@ LICENSE_COPIES = {
 }
 # 插件代码自己的许可证，每个包都要带。
 CODE_LICENSE = ("LICENSE.txt", "MIT")
-# 编进模块的第三方数据（相对仓库根）→（包里要带的许可证原文、license 要含的 SPDX 标识、NOTICE.txt 要原文包含的来源说明）。traditional-glyph 的 NOTICE.txt 由 gen_s2t_table.py 整份写出、--check 核对，这里不再要求包含哪一份。
+# 编进模块的第三方数据（相对仓库根）→（包里要带的许可证原文、license 要含的 SPDX 标识、NOTICE.txt 要原文包含的来源说明）。
 EMBEDDED_DATA = {
     "plugins/script/data/common-chars.bin": (
         ("Unicode-License-V3.txt", "OpenCC-LICENSE.txt"),
         ("Unicode-3.0", "Apache-2.0"),
         ROOT / "plugins/script/data/common-chars-NOTICE.txt",
-    ),
-    "plugins/script/traditional-glyph/data/s2t.bin": (
-        ("OpenCC-LICENSE.txt",),
-        ("Apache-2.0",),
-        None,
     ),
 }
 PATH_ATTRIBUTE = re.compile(r'#\[path\s*=\s*"([^"]+)"\]')

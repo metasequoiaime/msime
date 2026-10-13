@@ -30,7 +30,13 @@ CHECKS = (
         ROOT / "platforms/ios/SharedUI/dictionary/DictionarySnapshotQueue.swift",
         "private func read(_ root: URL)",
         "  }\n  func read() throws",
-        ("O_NONBLOCK", "fstat", "S_IFREG"),
+        ("BoundedFileReader.read(from: file, maximumBytes: 65536)",),
+    ),
+    (
+        ROOT / "platforms/ios/SharedUI/core/CloudSyncState.swift",
+        "private func load(_ root: URL)",
+        "  }\n\n  private func save(",
+        ("BoundedFileReader.read(from: file, maximumBytes: Self.maximumBytes)",),
     ),
     (
         ROOT / "platforms/ios/SharedUI/dictionary/DictionarySnapshotQueue.swift",
@@ -52,15 +58,15 @@ CHECKS = (
     ),
     (
         ROOT / "platforms/ios/SharedUI/vocabulary/VocabularyReviewStore.swift",
-        "private static func openReadableWordbook(_ url: URL)",
-        "    #else",
-        ("O_NONBLOCK",),
+        "static func readWordbookData(from url: URL)",
+        "  }\n\n  /// The device",
+        ("BoundedFileReader.read(from: url, maximumBytes: maximumImportBytes)",),
     ),
     (
         ROOT / "platforms/ios/SharedUI/dictionary/PersonalDictionaryImport.swift",
-        "private static func openReadableFile(_ url: URL)",
-        "    #else",
-        ("O_NONBLOCK",),
+        "  private static func readData(from url: URL)",
+        "\n  static let example",
+        ("BoundedFileReader.read(from: readableURL, maximumBytes: maximumBytes)",),
     ),
     (
         ROOT / "platforms/ios/SharedUI/core/DiagnosticLog.swift",
@@ -70,9 +76,9 @@ CHECKS = (
     ),
     (
         ROOT / "platforms/ios/App/Services/LocalSpeechModel.swift",
-        "    let descriptor = open(url.path",
-        "    let handle = FileHandle",
-        ("O_NONBLOCK",),
+        "    let data: Data",
+        "    guard let object",
+        ("BoundedFileReader.read(from: url, maximumBytes: Self.maximumManifestBytes)",),
     ),
     (
         ROOT / "shared/backend/account/BackendAccountSession.swift",

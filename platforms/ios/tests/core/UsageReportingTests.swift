@@ -2,6 +2,20 @@ import Foundation
 import XCTest
 
 final class UsageReportingTests: XCTestCase {
+  func testSharedClientRequestEnvelope() {
+    var request: [String: Any]?
+    let reply = ClientRequestEnvelope.call({ bytes, count in
+      if let bytes {
+        request = try? JSONSerialization.jsonObject(with: Data(bytes: bytes, count: Int(count))) as? [String: Any]
+      }
+      return strdup("{\"ok\":true,\"value\":{\"ready\":true}}")
+    }, ["kind": "synthetic"]) as? [String: Any]
+    XCTAssertEqual(request?["kind"] as? String, "synthetic")
+    XCTAssertEqual(reply?["ready"] as? Bool, true)
+    XCTAssertNil(ClientRequestEnvelope.call({ _, _ in strdup("{\"ok\":false,\"value\":1}") }, [:]))
+    XCTAssertNil(ClientRequestEnvelope.call({ _, _ in strdup("invalid") }, [:]))
+  }
+
   func testCallStackTreeBecomesBinaryAndOffsetLinesCrashedThreadFirst() throws {
     let tree: [String: Any] = [
       "callStackPerThread": true,

@@ -13,13 +13,10 @@
 | id | 名称 | 钩子 | 能力 | 许可证 | 模块 | 内存 |
 | --- | --- | --- | --- | --- | --- | --- |
 | [hide-rare-chars](hide-rare-chars/) | 隐藏生僻字 | `candidates` | `read_candidates`、`filter_candidates` | MIT AND Unicode-3.0 AND Apache-2.0 | 6.9 KiB | 2 页 |
-| [pangu-spacing](pangu-spacing/) | 中英文之间加空格 | `before_commit` | `read_commit`、`rewrite_commit` | MIT | 3.7 KiB | 2 页 |
 | [rare-chars-last](rare-chars-last/) | 生僻字靠后 | `candidates` | `read_candidates`、`rerank_candidates` | MIT AND Unicode-3.0 AND Apache-2.0 | 12.4 KiB | 2 页 |
-| [traditional-glyph](traditional-glyph/) | 繁体字形注释 | `candidates` | `read_candidates`、`annotate_candidates` | MIT AND Apache-2.0 | 127.1 KiB | 3 页 |
-| [unicode-codepoint](unicode-codepoint/) | Unicode 码位注释 | `candidates` | `read_candidates`、`annotate_candidates` | MIT | 3.1 KiB | 2 页 |
 <!-- 插件表：每个插件一行，插在这条注释之上，按 id 字母序排列。模块大小和内存页数取 scripts/build-script-plugins.sh 打印的值。 -->
 
-几个插件一起启用时，执行顺序在「脚本插件（实验）」里调整，合成规则见 docs/plugins.md：重排是排在后面的插件优先，隐藏取并集，同一行的注释后面的覆盖前面的。落到这几个插件上：rare-chars-last 和 hide-rare-chars 二选一，两个都开时被隐藏的行不再显示，靠后白做；traditional-glyph 和 unicode-codepoint 在单字候选上争同一格注释，两个都开时只看得到执行顺序里排在后面的那个。
+几个插件一起启用时，执行顺序在「脚本插件（实验）」里调整，合成规则见 docs/plugins.md：重排是排在后面的插件优先，隐藏取并集，同一行的注释后面的覆盖前面的。落到这两个插件上：rare-chars-last 和 hide-rare-chars 二选一，两个都开时被隐藏的行不再显示，靠后白做。
 
 ## 构建和测试
 
@@ -73,7 +70,6 @@ plugins/script/
 ## 共用的数据
 
 - `data/common-chars.bin`：常用字集，给生僻字类插件用。《通用规范汉字表》8105 字（Unihan 17.0.0 的 `kTGH`）并上它们的繁体形（Unihan `kTraditionalVariant` 和 OpenCC `STCharacters.txt`），共 11 049 字，4 KiB。由 `tools/gen_common_chars.py` 生成，来源说明在同目录的 `common-chars-NOTICE.txt`。读法在 `shared/common_chars.rs`：`is_rare`、`is_kana` 和按字节扫描一行的 `classify`。`classify` 是判定规则的参照实现，按 fuel 的计法太贵（每个常用汉字约 200–290、每个 ASCII 字节约 35），扫满一个 20 行的窗口会耗尽 `candidates` 的 fuel：hide-rare-chars 只调用 `is_han`、`is_common`、`is_kana`，自己在 `src/scan.rs` 里按字节跳过；rare-chars-last 在 `src/rare.rs` 里把数据文件在编译时展开成查表，判定和 `classify` 逐字相同。
-- `traditional-glyph/data/s2t.bin`：简繁对照表，只有 traditional-glyph 用。OpenCC `STCharacters.txt` 的全部单字，加上 `STPhrases.txt` 和 `STPhrases_GeneratedFromRegionalPhrases.txt` 里逐字转换会转错的 2–4 字词组，约 121 KiB。由 `tools/gen_s2t_table.py` 生成，只读仓库里 vendored 的 OpenCC 文件，不需要下载；改动说明在该插件的 `pack/NOTICE.txt`。
 - 重新生成：`python3 plugins/script/tools/gen_common_chars.py`（第一次会把锁定的 Unihan zip 下载到 `target/script-plugins/cache/` 并校验 sha256）。`--check` 只比较不写入；缓存里没有 zip 时打印 skip。
 
 ## 写插件时的 fuel

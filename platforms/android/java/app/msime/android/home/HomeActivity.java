@@ -444,6 +444,14 @@ public final class HomeActivity extends AppCompatActivity {
         if (getSupportFragmentManager().findFragmentByTag(tag(R.id.tab_chat)) instanceof ChatFragment chat) chat.focusInput();
     }
 
+    /** 输入法覆盖对话页时收起底部导航，避免它盖住输入栏；键盘收起后恢复导航。 */
+    void setChatKeyboardVisible(boolean visible) {
+        if (tabs == null) return;
+        boolean chatKeyboard = visible && selected == R.id.tab_chat
+            && getSupportFragmentManager().getBackStackEntryCount() == 0;
+        ViewPolicy.setVisibleIfChanged(tabs, !chatKeyboard);
+    }
+
     /** 打开某一类社区作品的完整列表。社区 tab 撤掉以后，它是压在设置 tab 上的一页（见 {@link CommunityFragment#browse}）。 */
     public void openCommunity(CommunityRequest.Kind kind) {
         CommunityFragment.browse(this, kind);

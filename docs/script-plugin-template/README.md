@@ -64,7 +64,7 @@ target/debug/msime-pack run docs/script-plugin-template/pack \
 - 第 4 行：网址模式下上屏不可改写（`rewritable` 为 0），插件直接返回。
 - 不写 `--grant` 时什么都不授予，`commit_text` 返回 `DENIED`，插件按原文上屏。
 - fuel 的数值随编译器版本、目标和优化选项变化，只作参考；`before_commit` 每次最多 100 000。
-- 这个例子为了好读，逐字处理并先对整段做 UTF-8 校验：body 超过约 100 个汉字就会耗尽 `before_commit` 的 fuel，在输入法里算一次失败。要实际使用，装 [plugins/script/pangu-spacing](../../plugins/script/pangu-spacing/)：它按字节扫描、给工作量设了上限，写法上的讲究见 [plugins/script 的 README](../../plugins/script/README.md#写插件时的-fuel)。
+- 这个例子为了好读，逐字处理并先对整段做 UTF-8 校验：body 超过约 100 个汉字就会耗尽 `before_commit` 的 fuel，在输入法里算一次失败。中英文之间加空格输入法已经内置（「中英文之间加空格」开关），这个模板只作写法示例；按字节扫描、给工作量设上限的写法见 [plugins/script 的 README](../../plugins/script/README.md#写插件时的-fuel)。
 
 夹具的格式见 [docs/plugins.md](../plugins.md#用-msime-pack-run-试运行)。
 

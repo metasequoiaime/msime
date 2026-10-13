@@ -181,6 +181,8 @@ struct AboutView: View {
   @Environment(\.openURL) private var openURL
   @State private var update = UpdateState.idle
   @State private var listing: AppStoreListing?
+  @State private var requestState = AboutUpdateRequestState()
+  @State private var updateTask: Task<Void, Never>?
   /// lookup 返回商店在本地区没有这个应用的条目，TestFlight 构建就是这样，它的更新走 TestFlight。此时「检查更新」没有可比较的对象，所以和「给我们评分」一样隐藏。
   @State private var unlisted = false
   private let noticeCount = LicenseNotice.bundled.count
@@ -241,14 +243,22 @@ struct AboutView: View {
     .task {
       // 「给我们评分」要用的商店 id，以及到底有没有条目；lookup 失败时只是不显示这一行，并保留「检查更新」以便重试。
       guard listing == nil else { return }
+      let id = requestState.currentID
       do {
         let found = try await AppStoreListing.fetch()
+        guard !Task.isCancelled, requestState.isCurrent(id) else { return }
         listing = found
         unlisted = found == nil
       } catch {
         // lookup 本身失败（离线、服务器出错）：对条目还一无所知。
         return
       }
+    }
+    .onDisappear {
+      requestState.invalidate()
+      updateTask?.cancel()
+      updateTask = nil
+      if update == .checking { update = .idle }
     }
   }
 
@@ -287,11 +297,14 @@ struct AboutView: View {
       openURL(page)
       return
     }
-    guard update == .idle else { return }
+    guard update == .idle, let id = requestState.begin() else { return }
     update = .checking
-    Task {
+    updateTask = Task { @MainActor in
+      defer { if requestState.isCurrent(id) { updateTask = nil } }
       do {
-        guard let found = try await AppStoreListing.fetch() else {
+        let found = try await AppStoreListing.fetch()
+        guard !Task.isCancelled, requestState.finish(id) else { return }
+        guard let found else {
           // 这不是失败：商店里没有可比较的条目，所以胶囊按钮直接消失，而不是每次点按都失败。
           update = .idle
           unlisted = true
@@ -301,6 +314,7 @@ struct AboutView: View {
         let installed = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
         update = found.version.compare(installed, options: .numeric) == .orderedDescending ? .available(found.page) : .latest
       } catch {
+        guard !Task.isCancelled, requestState.finish(id) else { return }
         update = .idle
         ToastCenter.shared.show("暂时无法检查更新")
       }

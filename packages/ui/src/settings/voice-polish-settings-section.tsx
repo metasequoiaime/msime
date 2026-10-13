@@ -32,11 +32,12 @@ export function VoicePolishSettingsSection({
       enabled={isVoicePolishEnabled(voiceInput)}
       provider={voiceInput.polish_provider ?? "siliconflow"}
       model={voiceInput.polish_model ?? ""}
+      presetModels={
+        POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"]?.models ?? []
+      }
       providerPreset={providerPresetControls(
         "文本润色",
         POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"],
-        voiceInput.polish_model ?? "",
-        (polish_model) => updateVoice({ polish_model }),
         settings.managerBlock,
       )}
       onEnabledChange={(enabled) => updateVoice({ polish_text: enabled, polish_enabled: enabled })}

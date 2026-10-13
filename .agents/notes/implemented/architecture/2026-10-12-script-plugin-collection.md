@@ -84,3 +84,5 @@ rare-chars-last、hide-rare-chars、traditional-glyph 和 unicode-codepoint 都�
 - 合入后的第二轮评审（#7456 之后）：pangu-spacing 见到 ASCII 的 `/`、`\`、`?`、`=` 整段不改，夹具加了不带协议头的网址、Windows 路径和查询串三条，都是 `skip: address`；traditional-glyph 原样写出的四字节字符也计两个 UTF-16 码元，20 个 emoji 加「发」的行不再交给宿主后被拒。`scripts/test-script-plugins.sh` 全部通过：pangu-spacing 26 个事件、traditional-glyph 39 个，其余三个和峰值 fuel 不变。
 
 相关：[沙箱运行时](2026-10-12-script-runtime-sandbox.md) 定义 fuel 配额；[脚本插件的作者工具](../feature/2026-10-12-script-plugin-author-tools.md) 定义 `msime-pack run`、SDK 和模板；[脚本插件修改上屏和候选](2026-10-12-script-plugins-modify-commit-and-candidates.md) 定义重排、隐藏、注释的合成规则。
+
+后续：pangu-spacing、traditional-glyph 和 unicode-codepoint 与内置功能重复，已从合集删除，见[删除与内置重复的脚本插件](../simplification/2026-10-13-remove-duplicate-script-plugins.md)。

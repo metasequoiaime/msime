@@ -8,33 +8,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("selects a known model and leaves a custom model untouched", () => {
-  const onSelectModel = vi.fn();
-  render(
-    <ProviderPresetSection
-      label="识别服务"
-      preset={{ models: ["model-a", "model-b"] }}
-      model="custom-model"
-      onSelectModel={onSelectModel}
-    />,
-  );
-
-  const select = screen.getByRole("combobox", { name: "识别服务预置模型" }) as HTMLSelectElement;
-  expect(select.value).toBe("");
-  fireEvent.change(select, { target: { value: "model-b" } });
-  expect(onSelectModel).toHaveBeenCalledWith("model-b");
-  fireEvent.change(select, { target: { value: "" } });
-  expect(onSelectModel).toHaveBeenCalledTimes(1);
-});
-
 test("opens provider documentation when available", () => {
   const openExternalUrl = vi.fn(async () => {});
   render(
     <ProviderPresetSection
       label="AI "
       preset={{ documentation: "https://docs.example.test/api" }}
-      model="model-a"
-      onSelectModel={vi.fn()}
       openExternalUrl={openExternalUrl}
     />,
   );
@@ -43,9 +22,12 @@ test("opens provider documentation when available", () => {
   expect(openExternalUrl).toHaveBeenCalledWith("https://docs.example.test/api");
 });
 
-test("renders nothing without models or an external link", () => {
+test("leaves the models to the model picker and renders nothing without a link", () => {
   render(
-    <ProviderPresetSection label="自定义" preset={{}} model="model-a" onSelectModel={vi.fn()} />,
+    <ProviderPresetSection
+      label="识别服务"
+      preset={{ models: ["model-a"], documentation: "https://docs.example.test/api" }}
+    />,
   );
 
   expect(screen.queryByRole("combobox")).toBeNull();

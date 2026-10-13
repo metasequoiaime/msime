@@ -5437,7 +5437,6 @@ public final class MSIMEInputService extends InputMethodService {
                 // The worker just wrote the key animation; reload it so the snapshot is applied with the new value, not the stale in-memory one.
                 refreshLocalSettings();
                 applyPreferencesSnapshot(saved);
-                showKeyboardSkinStatus("皮肤已切换");
             } else {
                 // A preferences reload won the race while this save was in flight. Its newer
                 // snapshot is already applied; the stale save response must not roll it back.

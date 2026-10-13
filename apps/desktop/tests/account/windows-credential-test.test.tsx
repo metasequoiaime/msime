@@ -54,7 +54,10 @@ test.each(["windows", "macos"])(
     expect(probe).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
     fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
-    fireEvent.change(screen.getByLabelText("AI 模型"), { target: { value: "edited-model" } });
+    fireEvent.change(screen.getByLabelText("AI 模型"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("AI 模型（自定义）"), {
+      target: { value: "edited-model" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "测试 AI 辅助配置" }));
     await screen.findByText("fixture complete");
     expect(probe).toHaveBeenLastCalledWith("ai.assistant", {

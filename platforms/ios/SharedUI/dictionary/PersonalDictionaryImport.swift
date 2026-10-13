@@ -1,8 +1,4 @@
 import Foundation
-import CoreFoundation
-#if canImport(Darwin)
-import Darwin
-#endif
 
 // A versioned envelope for user-entered records. Linguistic validation and normalization
 // remain in the public Engine API; this is only the file transport used by the host UI.
@@ -118,36 +114,18 @@ struct PersonalDictionaryImport: Codable, Sendable {
     // Create and use this coordinator on the worker thread, never on the UI thread.
     NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readableURL in
       result = Result {
-        let handle = try openReadableFile(readableURL)
-        defer { try? handle.close() }
-        var data = Data()
-        while data.count <= maximumBytes {
-          let chunk = try handle.read(upToCount: min(65_536, maximumBytes + 1 - data.count)) ?? Data()
-          if chunk.isEmpty { break }
-          data.append(chunk)
+        do {
+          return try BoundedFileReader.read(from: readableURL, maximumBytes: maximumBytes)
+        } catch BoundedFileReader.Failure.tooLarge {
+          throw ImportError(message: "文件不能超过 1 MB。")
+        } catch {
+          throw ImportError(message: "无法读取所选文件，请重新选择。")
         }
-        guard data.count <= maximumBytes else { throw ImportError(message: "文件不能超过 1 MB。") }
-        return data
       }
     }
     if let coordinationError { throw coordinationError }
     guard let result else { throw ImportError(message: "无法读取所选文件，请重新选择。") }
     return try result.get()
-  }
-
-  private static func openReadableFile(_ url: URL) throws -> FileHandle {
-    #if canImport(Darwin)
-    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
-    guard descriptor >= 0 else { throw ImportError(message: "无法读取所选文件，请重新选择。") }
-    var metadata = stat()
-    guard fstat(descriptor, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG else {
-      close(descriptor)
-      throw ImportError(message: "无法读取所选文件，请重新选择。")
-    }
-    return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-    #else
-    return try FileHandle(forReadingFrom: url)
-    #endif
   }
 
   static let example = Self(entries: [

@@ -40,12 +40,11 @@ export function VoiceAsrProviderSettingsSection({
         providerPresetControls(
           "识别服务",
           ASR_PROVIDER_DEFAULTS[String(voiceInput.asr_provider)],
-          voiceInput.asr_model ?? "",
-          (asr_model) => updateVoice({ asr_model }),
           providerPresetClassName,
         )}
       {serviceVoice && (
         <VoiceModelSection
+          models={ASR_PROVIDER_DEFAULTS[String(voiceInput.asr_provider)]?.models ?? []}
           value={voiceInput.asr_model ?? ""}
           onChange={(asr_model) => updateVoice({ asr_model })}
         />

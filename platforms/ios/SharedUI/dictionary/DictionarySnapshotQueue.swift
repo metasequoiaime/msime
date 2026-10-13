@@ -68,16 +68,14 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
     let file = root.appendingPathComponent("state.json")
     guard !SafePath.hasRefusedSymbolicLink(file) else { throw Failure.unavailable }
     guard FileManager.default.fileExists(atPath: file.path) else { return .init() }
-    let descriptor = open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
-    guard descriptor >= 0 else { throw Failure.unavailable }
-    var metadata = stat()
-    guard fstat(descriptor, &metadata) == 0, (metadata.st_mode & S_IFMT) == S_IFREG else {
-      close(descriptor)
+    let data: Data
+    do {
+      data = try BoundedFileReader.read(from: file, maximumBytes: 65536)
+    } catch BoundedFileReader.Failure.tooLarge {
+      throw Failure.invalid
+    } catch {
       throw Failure.unavailable
     }
-    let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-    defer { try? handle.close() }
-    let data = try handle.read(upToCount: 65537) ?? Data()
     guard data.count <= 65536, let state = try? JSONDecoder().decode(DictionarySnapshotQueueState.self, from: data),
           state.version == 1, state.localVersion.map(Self.validVersion) ?? true else { throw Failure.invalid }
     if let request = state.request {

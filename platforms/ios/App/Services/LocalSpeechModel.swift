@@ -25,18 +25,14 @@ struct LocalSpeechModelManifest: Equatable {
   init(directory: URL) throws {
     let url = directory.appendingPathComponent(Self.fileName)
     let invalidManifest = ServiceFailure(message: "本地语音模型的描述文件已损坏，请删除后重新下载。")
-    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
-    guard descriptor >= 0 else {
+    let data: Data
+    do {
+      data = try BoundedFileReader.read(from: url, maximumBytes: Self.maximumManifestBytes)
+    } catch is BoundedFileReader.OpenFailure {
       throw ServiceFailure(message: "所选目录不是已安装的本地语音模型。")
+    } catch {
+      throw invalidManifest
     }
-    let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-    defer { try? handle.close() }
-    var manifestStatus = stat()
-    guard fstat(descriptor, &manifestStatus) == 0,
-          (manifestStatus.st_mode & S_IFMT) == S_IFREG else { throw invalidManifest }
-    guard manifestStatus.st_size <= Int64(Self.maximumManifestBytes) else { throw invalidManifest }
-    guard let data = try? handle.read(upToCount: Self.maximumManifestBytes + 1),
-          data.count <= Self.maximumManifestBytes else { throw invalidManifest }
     guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let kindName = object["kind"] as? String, let files = object["files"] as? [String: Any]
     else { throw invalidManifest }
