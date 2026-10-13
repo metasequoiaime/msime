@@ -1396,6 +1396,9 @@ int main(int argc, char **argv) {
       // 拆字反查在桌面默认关：偏好里没有这个键时 Shift+C 留给应用。从菜单打开后 Shift+C 进入，组字中的 ' 当字符送进 Engine 作部件分隔符。
       require(!press(FcitxKey_C, shiftState), "Disabled chaizi mode must pass through");
       require(state->toggleLocalMode("chaizi"), "The chaizi switch did not turn on");
+      // 菜单开关会在后台把选择写回偏好文档；等它落盘，免得后面的偏好刷新撞上还没完成的保存。
+      state->preferences_save_job_.wait();
+      state->waitForPreferenceSave();
       press(FcitxKey_Shift_L, shiftState);
       require(press(FcitxKey_C, shiftState) &&
                   state->view_.value("local_mode", std::string("none")) == "chaizi",
@@ -1414,6 +1417,8 @@ int main(int argc, char **argv) {
               "Escape must leave the chaizi mode");
       require(state->toggleLocalMode("chaizi") && !press(FcitxKey_C, shiftState),
               "Turning the chaizi switch off must hand Shift+C back");
+      state->preferences_save_job_.wait();
+      state->waitForPreferenceSave();
       require(ic.committed == before, "Mode shortcuts must not commit uppercase letters");
       if (argc == 3 && std::string(argv[2]) == "--local-modes") {
         state->close();
