@@ -44,3 +44,4 @@ Status: implemented
 - `cargo check -p msime-engine --lib --tests`、`-p msime-host-api --lib --tests`、`-p msime-input-runtime --lib`、`-p msime-engine-wasm` 全部通过。
 - Windows 上 `cargo test -p msime-engine --lib` 有 17 个失败（`handwriting`/`japanese`/`paths`/`dictionary::hanzi` 计时/`session` 分配计数等），在改动前的 commit 上同样失败；`cargo test -p msime-input-runtime --lib --tests` 在 Windows 上编不过（`#[cfg(unix)]` 的辅助函数被非 unix 测试引用），同样是既有问题。两者都不是本改动引入的。
 - 用锁定词库（dict-v2.0.14）经 `msime-input-runtime` 打 `qishi faban youdian shenme zhege shide pingguo dacuozi doumeiren`：结果同上述收益，`pingguo` 仍出 苹果电脑 苹果公司 苹果机，`dacuozi`、`doumeiren` 首位仍是 打错字、都没人。
+- Android 真机装机验收：包来自由本改动触发的 `release-android.yml`（`publish=false`，只产 workflow artifact），候选优先级按预期变化、功能正常。其余平台的真机复核没做。
