@@ -37,15 +37,16 @@ import java.util.Map;
 import org.json.JSONObject;
 
 /**
- * 一类社区作品的完整列表：皮肤、词库、短语或 AI 回复模板，各自从对应的功能页（皮肤、词库、表达、AI 润色与回复）末尾的「浏览更多…」打开，压在那一页上面，返回回到那一页。底部导航原先有一个「社区」tab 把四类放在一页里分段显示，这个 tab 已经撤掉，社区内容并进了各功能页。
+ * 一类社区作品的完整列表：皮肤直接嵌入皮肤页的社区 Tab；词库、短语或 AI 回复模板从对应功能页末尾的「浏览更多…」打开，压在那一页上面，返回回到那一页。底部导航原先有一个「社区」tab 把四类放在一页里分段显示，这个 tab 已经撤掉，社区内容并进了各功能页。
  *
- * <p>页面经 {@link PageId#COMMUNITY} 和 {@link SettingsNavigator} 打开，类型放在参数 {@link #ARG_KIND} 里（{@link CommunityRequest.Kind#id()}），缺省或不认识时是皮肤。列表里有搜索、皮肤的分类筛选、详情面板、举报，作者还能在详情里改自己皮肤的分类。
+ * <p>独立页面经 {@link PageId#COMMUNITY} 和 {@link SettingsNavigator} 打开，皮肤 Tab 经子 Fragment 承载；类型放在参数 {@link #ARG_KIND} 里（{@link CommunityRequest.Kind#id()}），缺省或不认识时是皮肤。列表里有搜索、皮肤的分类筛选、详情面板、举报，作者还能在详情里改自己皮肤的分类。
  *
  * <p>发布和评分要登录的账号，这个宿主只带键盘的匿名身份，一个永远回答「请先登录」的发布按钮不如诚实地没有。拿走作品是打开这一页的目的，每张卡片都能做到：皮肤的「获取」存进自定义皮肤库（并记一次下载），之后同一个按钮变成「使用」并把它换到键盘上；词库的「添加」装成命名词库，短语包的「添加」装进常用语；回复模板手机上还不能添加，只能看详情。
  */
 public final class CommunityFragment extends Fragment {
     /** 参数：要列出的作品类型，取 {@link CommunityRequest.Kind#id()}。 */
     public static final String ARG_KIND = "kind";
+    private static final String ARG_SKIN_TAB = "skin_tab";
     private record LoadedPage(CommunityCatalog.Page page, String sessionId, boolean stable) {}
 
     /** 这一页列出的作品类型。 */
@@ -88,6 +89,13 @@ public final class CommunityFragment extends Fragment {
         return fragment;
     }
 
+    /** 皮肤社区分类直接承载完整列表，由父页提供标题、返回按钮和分类 Tab。 */
+    static CommunityFragment skinTab() {
+        CommunityFragment fragment = forKind(CommunityRequest.Kind.SKIN);
+        fragment.requireArguments().putBoolean(ARG_SKIN_TAB, true);
+        return fragment;
+    }
+
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
                                        @Nullable Bundle state) {
         return inflater.inflate(R.layout.page_community, parent, false);
@@ -100,12 +108,22 @@ public final class CommunityFragment extends Fragment {
                 if (value.id().equals(arguments.getString(ARG_KIND))) kind = value;
             }
         }
+        if (state != null) {
+            search = state.getString("community-search", search);
+            String selected = state.getString("community-category", "");
+            for (CommunityRequest.Category choice : CommunityRequest.categories()) {
+                if (choice.id().equals(selected)) category = choice;
+            }
+        }
 
         // 和详情页一样：左上角返回，标题是这一类作品。返回走 Activity 的返回分发，弹回打开这一页的功能页。
         ((TextView) view.findViewById(R.id.community_title)).setText(title(kind));
         View back = view.findViewById(R.id.community_back);
         back.setContentDescription("返回");
         ViewPolicy.bindClick(back, () -> requireActivity().getOnBackPressedDispatcher().onBackPressed());
+        if (arguments != null && arguments.getBoolean(ARG_SKIN_TAB)) {
+            ViewPolicy.hide((View) back.getParent());
+        }
 
         // 分类筛选条：「全部」在最前，后面是固定的八个分类。换分类和换搜索词一样从第一页重新载入。
         ChipGroup categories = view.findViewById(R.id.community_categories);
@@ -149,6 +167,7 @@ public final class CommunityFragment extends Fragment {
         });
         items.setLayoutManager(grid);
         items.setAdapter(adapter);
+        if (arguments != null && arguments.getBoolean(ARG_SKIN_TAB)) PageInsetsPolicy.bind(items);
         items.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView list, int dx, int dy) {
                 if (dy <= 0 || loading || !hasMore) return;
@@ -161,6 +180,7 @@ public final class CommunityFragment extends Fragment {
         });
 
         TextInputEditText field = view.findViewById(R.id.community_search);
+        field.setText(search);
         field.setOnEditorActionListener((text, action, event) -> {
             if (action != EditorInfo.IME_ACTION_SEARCH) return false;
             search = text.getText() == null ? "" : text.getText().toString();
@@ -180,6 +200,27 @@ public final class CommunityFragment extends Fragment {
         updateSearchHint();
         // 打开完整的皮肤列表时顺手把键盘皮肤面板用的目录缓存也刷新一遍，不看缓存新旧。
         if (kind == CommunityRequest.Kind.SKIN) CommunitySkinCatalogue.refresh(this, true, ignored -> { });
+    }
+
+    @Override public void onSaveInstanceState(@NonNull Bundle state) {
+        super.onSaveInstanceState(state);
+        state.putString("community-search", search);
+        state.putString("community-category", category == null ? "" : category.id());
+    }
+
+    /** 切回社区分类时更新已获取标记，不清空搜索条件和列表。 */
+    void refreshSkinLibrary() { refreshTaken(); }
+
+    /** 离开社区分类时收起搜索键盘，避免它遮挡其他分类。 */
+    void closeSearchKeyboard() {
+        View view = getView();
+        if (view == null) return;
+        View field = view.findViewById(R.id.community_search);
+        if (!field.hasFocus()) return;
+        android.view.inputmethod.InputMethodManager manager =
+            requireContext().getSystemService(android.view.inputmethod.InputMethodManager.class);
+        if (manager != null) manager.hideSoftInputFromWindow(field.getWindowToken(), 0);
+        field.clearFocus();
     }
 
     private void updateSearchHint() {

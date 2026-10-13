@@ -19,7 +19,7 @@ import java.util.List;
 public enum PageId {
     SKINS("SkinsPage", "皮肤", HostDeepLink.TAB_SETTINGS,
         "跟随系统", "水杉四季", "水杉", "浅色", "纸白", "夜青", "墨", "春芽", "夏荫", "秋杉", "冬雪", "AI 设计皮肤",
-        "社区皮肤", "浏览更多皮肤"),
+        "社区皮肤", "搜索皮肤", "皮肤分类"),
     AI_SKIN("AiSkinPage", "AI 设计皮肤", HostDeepLink.TAB_SETTINGS,
         "描述一句话生成", "配色", "按键音效", "按键动画", "生成皮肤"),
     KEYBOARD_OPTIONS("KeyboardOptionsPage", "键盘", HostDeepLink.TAB_SETTINGS,

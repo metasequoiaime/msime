@@ -16,49 +16,41 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.core.view.ViewCompat;
-import app.msime.android.CommunityCatalog;
-import app.msime.android.CommunityRequest;
-import app.msime.android.CommunitySkinCache;
 import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.ViewPolicy;
+import app.msime.android.R;
 import app.msime.android.core.InputViewValuePolicy;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import com.google.android.material.tabs.TabLayout;
 
 /**
- * 皮肤页：标题下固定的「内置 / 我的 / 社区」分类，分类内容使用两列预览卡，AI 设计入口放在「我的」。社区完整列表提供搜索、分类筛选、详情和举报。
+ * 皮肤页：标题下固定的「内置 / 我的 / 社区」分类，分类内容使用两列预览卡，AI 设计入口放在「我的」。社区 Tab 直接承载完整列表，提供搜索、分类筛选、详情和举报。
  *
- * <p>社区皮肤读的是 {@link CommunitySkinCache}，和键盘的皮肤面板同一份；页面打开时缓存过期就经 {@link CommunitySkinCatalogue} 重拉一次，拉完再刷新这一组。点一张社区皮肤和在键盘皮肤面板里点一样：先存进皮肤库，再换上，之后它出现在「我的设计」里；同时在服务端记一次下载。
+ * <p>社区分类复用嵌入模式的 {@link CommunityFragment}，不再展示缓存预览和更多入口；皮肤页仍经 {@link CommunitySkinCatalogue} 刷新键盘皮肤面板用的缓存。
  *
  * <p>点一张卡立刻生效：全局主题写 `global_theme`；我的设计按键盘自己的皮肤面板那样写进 `custom_theme.keyboard` 并选中 `custom`，同时按 P23 写设计带的按键动画和音效。每次换皮肤都在统计里记一次 `record_skin`，并标记云同步的「皮肤」分类。水杉四季那张卡跟着应用主题当前的季节写成「水杉四季 · 秋杉」。卡片预览用与键盘相同的解析器（{@link HostStore#keyboardSkin(JSONObject, boolean, app.msime.android.AppThemePalette.Seed)}），跟随系统那张按应用主题的种子色画。
  */
 public final class SkinsPage extends ReloadingDetailPage {
-    /** 「社区皮肤」一组最多列几款，多的在完整列表里。 */
-    private static final int COMMUNITY_LIMIT = 6;
+    /** 本地皮肤卡：`design` 为 null 是全局主题，否则是皮肤库里的设计。 */
+    private record Card(String id, String title, KeyboardSkin skin, @Nullable JSONObject design, boolean selected) {}
 
-    /** 一张卡：`design` 为 null 是全局主题，否则是皮肤库里的设计；`community` 为真时是社区目录里还没存进皮肤库的皮肤，`id` 是它的社区 id，`author` 是作者。 */
-    private record Card(String id, String title, KeyboardSkin skin, @Nullable JSONObject design, boolean selected,
-            boolean community, String author) {}
+    private record Model(List<Card> themes, List<Card> designs) {}
 
-    private record Model(List<Card> themes, List<Card> designs, List<Card> community) {}
-
-    /** 这一页对社区目录缓存做过什么：还没看过、正在重拉、看过了（新鲜或已重拉）、重拉失败。 */
-    private enum Catalogue { UNCHECKED, LOADING, READY, FAILED }
-
-    private Catalogue catalogue = Catalogue.UNCHECKED;
+    private static final String COMMUNITY_TAG = "skin-community";
+    private boolean catalogueChecked;
     private int section;
     @Nullable private Model model;
+    @Nullable private TabLayout tabs;
+    @Nullable private FrameLayout communityContent;
 
     @Override public void onCreate(@Nullable Bundle state) {
         super.onCreate(state);
@@ -72,7 +64,7 @@ public final class SkinsPage extends ReloadingDetailPage {
 
     @Override protected View fixedNavigation() {
         Context context = requireContext();
-        TabLayout tabs = new TabLayout(context);
+        tabs = new TabLayout(context);
         tabs.setTabMode(TabLayout.MODE_FIXED);
         tabs.setTabTextColors(ThemeColorPolicy.subText(context), ThemeColorPolicy.accent(context));
         tabs.setSelectedTabIndicatorColor(ThemeColorPolicy.accent(context));
@@ -88,22 +80,57 @@ public final class SkinsPage extends ReloadingDetailPage {
             @Override public void onTabUnselected(TabLayout.Tab tab) {}
             @Override public void onTabReselected(TabLayout.Tab tab) {}
         });
+        tabs.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
+            positionCommunityContent());
         return tabs;
     }
 
-    @Override protected void onContentDestroyed() { model = null; }
+    @Override protected void onContentReady() {
+        communityContent = new FrameLayout(requireContext());
+        communityContent.setId(R.id.skin_community_content);
+        ((FrameLayout) requireView()).addView(communityContent, LayoutPolicy.frameMatchParentParams());
+        positionCommunityContent();
+        ViewPolicy.setVisible(communityContent, section == 2);
+        if (section == 2) renderSection();
+    }
+
+    private void positionCommunityContent() {
+        if (communityContent == null || tabs == null) return;
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) communityContent.getLayoutParams();
+        params.topMargin = DimensionPolicy.pixels(requireContext(), Ui.TOP_BAR_HEIGHT)
+            + (tabs.getHeight() > 0 ? tabs.getHeight() : DimensionPolicy.pixels(requireContext(), 48));
+        communityContent.setLayoutParams(params);
+    }
+
+    /** 社区列表独占分类下方空间，保留子 Fragment 的列表与搜索状态。 */
+    private void showCommunity(boolean visible) {
+        if (communityContent == null) return;
+        ViewPolicy.setVisible(communityContent, visible);
+        ViewPolicy.setVisible(scrollView(), !visible);
+        CommunityFragment community = (CommunityFragment) getChildFragmentManager().findFragmentByTag(COMMUNITY_TAG);
+        if (visible) {
+            if (community == null && !getChildFragmentManager().isStateSaved()) {
+                getChildFragmentManager().beginTransaction()
+                    .add(R.id.skin_community_content, CommunityFragment.skinTab(), COMMUNITY_TAG)
+                    .commitNow();
+            } else if (community != null) community.refreshSkinLibrary();
+        } else if (community != null) community.closeSearchKeyboard();
+    }
+
+    @Override protected void onContentDestroyed() {
+        model = null;
+        tabs = null;
+        communityContent = null;
+    }
 
     @Override protected void reload() {
         boolean dark = AppMode.dark(requireContext());
         String season = KeyboardSheets.seasonTitle(AppThemeController.cachedSeason(requireContext()));
         HostTask.run(this, context -> read(context, dark, season), this::render);
-        // 每次打开这一页最多看一次缓存新旧，过期就重拉；重拉完再读一遍，新的社区皮肤就出现在下面那一组里。
-        if (catalogue == Catalogue.UNCHECKED) {
-            catalogue = Catalogue.LOADING;
-            CommunitySkinCatalogue.refresh(this, false, refreshed -> {
-                catalogue = refreshed == null ? Catalogue.FAILED : Catalogue.READY;
-                reload();
-            });
+        // 缓存只服务键盘皮肤面板；社区 Tab 的搜索和分页由完整列表处理。
+        if (!catalogueChecked) {
+            catalogueChecked = true;
+            CommunitySkinCatalogue.refresh(this, false, ignored -> { });
         }
     }
 
@@ -130,7 +157,7 @@ public final class SkinsPage extends ReloadingDetailPage {
                 if (entry.optBoolean("seasonal", false)) title = title + " · " + season;
                 JSONObject probe = new JSONObject(preferences.toString()).put("global_theme", id);
                 KeyboardSkin skin = HostStore.keyboardSkin(probe, systemDark, HostStore.seed(context));
-                themes.add(new Card(id, title, skin, null, id.equals(current), false, ""));
+                themes.add(new Card(id, title, skin, null, id.equals(current)));
             }
         } catch (JSONException error) {
             return null;
@@ -149,36 +176,14 @@ public final class SkinsPage extends ReloadingDetailPage {
                     boolean selected = !storedKey.isEmpty()
                         && storedKey.equals(CustomKeyboardSkin.from(item.design()).key());
                     designs.add(new Card(item.id(), item.name(), KeyboardSkin.custom(item.design(), systemDark),
-                        item.design(), selected, false, ""));
+                        item.design(), selected));
                 }
             } catch (java.io.IOException error) {
                 // 皮肤库读不出来时只少了我的设计这一组，内置主题照常显示。
                 android.util.Log.w("MSIMESettings", "Custom skin library unreadable", error);
             }
         }
-        return new Model(themes, designs, community(directory, designs, storedKey, systemDark));
-    }
-
-    /** 社区目录缓存里还没存进皮肤库的前几款；与皮肤库里某个设计画出来一样的也不列，和键盘皮肤面板的去重相同。 */
-    private static List<Card> community(String directory, List<Card> designs, String storedKey, boolean systemDark) {
-        if (directory.isEmpty()) return List.of();
-        Set<String> ids = new HashSet<>(designs.size());
-        Set<String> keys = new HashSet<>(designs.size());
-        for (Card design : designs) {
-            ids.add(design.id());
-            if (design.design() != null) keys.add(CustomKeyboardSkin.from(design.design()).key());
-        }
-        List<Card> cards = new ArrayList<>(COMMUNITY_LIMIT);
-        for (CommunitySkinCache.Entry entry : CommunitySkinCache.read(Paths.get(directory))) {
-            if (cards.size() >= COMMUNITY_LIMIT) break;
-            if (ids.contains(entry.id())) continue;
-            String key = CustomKeyboardSkin.from(entry.design()).key();
-            if (!keys.add(key)) continue;
-            boolean selected = !storedKey.isEmpty() && storedKey.equals(key);
-            cards.add(new Card(entry.id(), entry.name(), KeyboardSkin.custom(entry.design(), systemDark),
-                entry.design(), selected, true, entry.author()));
-        }
-        return cards;
+        return new Model(themes, designs);
     }
 
     private void render(@Nullable Model model) {
@@ -190,6 +195,8 @@ public final class SkinsPage extends ReloadingDetailPage {
         LinearLayout target = contentColumn();
         if (target == null) return;
         target.removeAllViews();
+        showCommunity(section == 2);
+        if (section == 2) return;
         if (model == null) {
             GroupCard.add(target, null).note("读取设置失败。请先完成首次设置，或稍后返回重试。");
             return;
@@ -205,26 +212,7 @@ public final class SkinsPage extends ReloadingDetailPage {
             for (Card card : model.designs()) cards.add(card(context, card));
             if (cards.isEmpty()) GroupCard.add(target, null).note("还没有保存的皮肤。可到社区获取喜欢的皮肤。");
             else grid(target, null, cards);
-        } else renderCommunity(target, context, model.community());
-    }
-
-    /** 「社区皮肤」：缓存里的前几款，末尾一行进完整列表。缓存是空的时候说明为什么空。 */
-    private void renderCommunity(LinearLayout target, Context context, List<Card> cards) {
-        if (!cards.isEmpty()) {
-            List<View> communityCards = new ArrayList<>(cards.size());
-            for (Card card : cards) communityCards.add(card(context, card));
-            grid(target, null, communityCards);
         }
-        GroupCard more = GroupCard.add(target, null);
-        if (cards.isEmpty()) {
-            more.note(switch (catalogue) {
-                case UNCHECKED, LOADING -> "正在读取社区皮肤…";
-                case FAILED -> "暂时连不上社区，稍后再试。";
-                case READY -> "社区里暂时没有你还没获取的皮肤。";
-            });
-        }
-        more.nav("浏览更多皮肤", "搜索、按分类筛选、看详情", null,
-            () -> CommunityFragment.browse(requireContext(), CommunityRequest.Kind.SKIN));
     }
 
     /** 一组两列卡片；组标题与其他详情页的组标题一样，卡片直接放在页面底色上。 */
@@ -277,7 +265,7 @@ public final class SkinsPage extends ReloadingDetailPage {
         nameParams.topMargin = DimensionPolicy.pixels(context, 8);
         cell.addView(name, nameParams);
 
-        cell.setContentDescription((card.community() ? "社区皮肤 " : "皮肤 ") + card.title());
+        cell.setContentDescription("皮肤 " + card.title());
         ViewCompat.setStateDescription(cell, card.selected() ? "已选中" : "未选中");
         ViewPolicy.makeClickable(cell, context, () -> {
             if (!card.selected()) select(card);
@@ -315,35 +303,13 @@ public final class SkinsPage extends ReloadingDetailPage {
         HostTask.run(this, context -> apply(context, card), saved -> {
             if (saved == null) {
                 MsToast.show(requireContext(), "切换失败，保留当前皮肤");
-            } else if (card.community()) {
-                MsToast.show(requireContext(), "已换上「" + card.title() + "」");
-                recordDownload(card);
             }
             reload();
         });
     }
 
-    /** 和社区列表里的「获取」一样在服务端记一次下载；尽力而为，记不上只是计数少一次。 */
-    private void recordDownload(Card card) {
-        CommunityCatalog.Item item = new CommunityCatalog.Item(card.id(), CommunityRequest.Kind.SKIN, card.title(),
-            "", card.author(), 0, 0, 0.0, card.design(), CommunityRequest.Category.OTHER, false, 0, null);
-        HostTask.runNetwork(this, context -> new CommunityCatalog(context).recordDownload(item), ignored -> { });
-    }
-
     @Nullable private static JSONObject apply(Context context, Card card) {
         JSONObject design = card.design();
-        // 社区皮肤先存进皮肤库（键盘皮肤面板读的同一份），再换上；皮肤库满了照样换上，只是不进「我的设计」，与键盘皮肤面板相同。
-        if (card.community() && design != null) {
-            String directory = HostStore.directory(context);
-            try {
-                if (!directory.isEmpty()
-                        && !CustomSkinLibrary.add(Paths.get(directory), card.id(), card.title(), design)) {
-                    android.util.Log.i("MSIMESettings", "Skin library is full; the community skin is applied without being saved");
-                }
-            } catch (java.io.IOException | RuntimeException error) {
-                android.util.Log.w("MSIMESettings", "Community skin was not saved to the library", error);
-            }
-        }
         JSONObject saved = KeyboardSheets.write(context, preferences -> {
             if (design == null) preferences.put("global_theme", card.id());
             else KeyboardSheets.applyDesign(preferences, design);

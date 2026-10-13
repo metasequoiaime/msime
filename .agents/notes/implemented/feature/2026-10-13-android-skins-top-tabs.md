@@ -14,6 +14,9 @@ Status: implemented
 
 检索审计：[Android 社区内容并进功能页](2026-10-11-android-community-into-feature-pages.md)的皮肤列表排布与本篇部分重叠，社区加载和使用的决定继续成立；皮肤明暗过滤和 AI 视图生命周期笔记与本次分类位置无关，不修改。
 
+
+皮肤社区预览和「浏览更多皮肤」入口已由[社区 Tab 直接承载完整列表](2026-10-13-android-skin-community-tab-list.md)取代，固定分类导航和其他功能页的社区入口继续成立。
+
 ## Alternatives considered
 
 - **只在滚动列顶部添加 Tab**：实现简单，但滚动后分类再次消失，用户仍要回到顶部寻找类别。
