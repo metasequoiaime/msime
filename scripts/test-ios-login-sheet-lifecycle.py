@@ -24,7 +24,7 @@ class LoginSheetLifecycleTests(unittest.TestCase):
     def test_code_login_view_invalidates_model_and_pending_task(self):
         view = SOURCE.split("struct CodeLoginView", 1)[1]
         self.assertIn("model.invalidate()", view)
-        self.assertIn("pending?.cancel()", view)
+        self.assertIn("ViewRequestTask.cancel(task: $pending)", view)
         self.assertIn(".onDisappear", view)
 
     def test_login_sheet_invalidates_model_when_dismissed(self):

@@ -16,6 +16,7 @@ class IOSAISkinGenerationViewLifecycleContract(unittest.TestCase):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertIn("@State private var request = ViewRequestGeneration()", source)
         self.assertIn(".onAppear { request.appear() }", source)
+        self.assertIn("ViewRequestTask.cancel(task: $pending)", source)
         disappear = re.search(r"\.onDisappear \{(?P<body>.*?)\n    \}", source, re.S)
         self.assertIsNotNone(disappear, "AI skin view must invalidate work when it disappears")
         body = disappear.group("body")

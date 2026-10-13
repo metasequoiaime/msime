@@ -31,7 +31,7 @@ struct AISkinGenerationView: View {
             .accessibilityIdentifier("generateAISkins")
           Text("AI 随机搭配插画、键帽造型与材质。抽到的皮肤可以继续编辑、保存或分享。")
             .font(.caption).foregroundStyle(.secondary)
-          if busy { HStack { ProgressView(); Text("主题插画已完成 \(completed)/3，可能需要几分钟…"); Button("取消") { pending?.cancel() } } }
+          if busy { HStack { ProgressView(); Text("主题插画已完成 \(completed)/3，可能需要几分钟…"); Button("取消") { ViewRequestTask.cancel(task: $pending) } } }
           if let message { Text(message).font(.callout).foregroundStyle(.secondary) }
           ForEach(proposals) { proposal in
             VStack(alignment: .leading, spacing: 12) {
