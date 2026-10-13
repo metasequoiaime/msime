@@ -31,8 +31,10 @@ class AccountProfileLoadLifecycleTests(unittest.TestCase):
         self.assertIn("request.appear()", self.nickname)
         self.assertIn("request.disappear()", self.nickname)
         self.assertIn("operation?.cancel()", self.nickname)
+        self.assertIn("ViewRequestTask.run(request: $request, busy: $saving, message: $message,", self.nickname)
+        self.assertIn("pending: $operation", self.nickname)
+        self.assertIn("isCancellation: AccountRequestPolicy.isCancellation", self.nickname)
         self.assertIn("try request.checkCurrent(id)", self.nickname)
-        self.assertIn("catch is CancellationError", self.nickname)
         self.assertIn("try Task.checkCancellation()", GENERATION)
 
 
