@@ -7,7 +7,6 @@ import UniformTypeIdentifiers
 /// The candidate package, mode and colours are part of the shared global theme (`custom_theme`) and sync with the desktop; the switch that lets them replace the keyboard palette on the strip is iOS-only (see CandidatePalette). Picking a package or a colour selects the custom theme, so `onThemeChange` lets the page refresh its theme cards and preview.
 struct CustomThemeCandidateSection: View {
   var onThemeChange: () -> Void = {}
-  @Environment(\.scenePhase) private var scenePhase
   @Environment(\.colorScheme) private var colorScheme
   @AppStorage(CandidatePalette.followsDesktopKey, store: CandidatePalette.defaults)
   private var followsDesktopPalette = false
@@ -80,21 +79,7 @@ struct CustomThemeCandidateSection: View {
         : "默认关闭，候选栏和按键一起使用键盘主题的颜色。打开后可以导入电脑版的外部候选皮肤、调整候选颜色。")
     }
     .fileImporter(isPresented: $importingSkin, allowedContentTypes: [.folder]) { importSkin($0) }
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { _, phase in if phase == .active { reload() } }
-    .onChange(of: selectedTheme) { reload() }
-    .onChange(of: followsDesktopPalette) { onThemeChange() }
-  }
-
-  /// 自定义主题在浅色或深色模式下画的皮肤包。选一款就切到自定义主题、以包的底为底，并按包的底放进它所属的槽位（`system` 底的两个模式一起）；选“不使用外部皮肤”取消这一模式正在用的那款，同一款也放在另一个槽位时一起取消。
-  private func packageBinding(dark: Bool) -> Binding<String> {
-    Binding(get: { shownSkin(dark: dark) ?? "" }, set: { id in
-      if id.isEmpty {
-        if let shown = shownSkin(dark: dark) { themeWrite(GlobalThemePreference.removingPackage(shown)) }
-      } else if let package = installedSkins.first(where: { $0.id == id }) {
-        apply(package)
-      }
-    })
+    .reloadOnAppearAndActive(reload)
   }
 
   /// 这一模式的选择器里能选的皮肤：支持横排、底属于这一模式或跟随系统的。

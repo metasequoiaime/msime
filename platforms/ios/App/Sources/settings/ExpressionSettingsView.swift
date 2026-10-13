@@ -4,7 +4,6 @@ import SwiftUI
 ///
 /// 标点开关和整句联想只存在于共享偏好文档中，键盘会话读的也是它，所以本页直接读写这份文档；键盘下次出现时会把改动交给它正在运行的会话。英文联想是键盘每次按键都会读的 App Group 开关（`EnglishSuggestionsPreference`）。设计稿里的英文自动纠正没有共享键，所以这一行和 Android 一样是英文联想；设计稿里的发现短语没有放进来，因为 iOS 还不能安装社区短语包。
 struct ExpressionSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @AppStorage(EnglishSuggestionsPreference.enabledKey, store: EnglishSuggestionsPreference.defaults)
   private var englishSuggestions = true
   @State private var chinesePunctuation = true
@@ -67,10 +66,7 @@ struct ExpressionSettingsView: View {
     .designCanvasBackground()
     .navigationTitle("表达")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active { reload() }
-    }
+    .reloadOnAppearAndActive(reload)
   }
 
   /// 使用英文标点是 `chinese_punctuation` 取反。`punctuation_lock` 不是跟随时，键盘里以它为准，此时开关显示锁定后的形式，不能在这里改。

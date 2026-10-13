@@ -8,7 +8,6 @@ import CoreFoundation
 ///
 /// 设计稿里的候选栏高度和翻页两行没有做：键盘没有候选栏高度设置和翻页按钮，扩展也拿不到可用来翻页的硬件按键。
 struct CandidateOptionsSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @State private var english = true
   @State private var minimumPrefix = 5
   @State private var emoji = false
@@ -131,10 +130,7 @@ struct CandidateOptionsSettingsView: View {
     }
     .designCanvasBackground()
     .navigationTitle("候选栏").navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active { reload() }
-    }
+    .reloadOnAppearAndActive(reload)
   }
 
   private var sliderRange: ClosedRange<Double> {
