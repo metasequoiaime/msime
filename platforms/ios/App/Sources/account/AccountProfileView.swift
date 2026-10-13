@@ -261,17 +261,14 @@ struct AccountProfileEditor: View {
 
   /// 每次页面出现都重新读取资料，所以从「昵称」返回后会刷新；只有还没有内容可显示时才显示加载指示。
   @MainActor private func startLoad() {
-    guard request.isVisible else { return }
-    let id = request.begin()
-    loadTask?.cancel()
-    loadTask = Task { await load(id: id) }
+    ViewRequestTask.startLoad(request: $request, pending: $loadTask) { id in await load(id: id) }
   }
 
   @MainActor private func load(id: UUID) async {
     guard request.isCurrent(id) else { return }
     loading = profile == nil
     loadMessage = nil
-    defer { if request.isCurrent(id) { loading = false; loadTask = nil } }
+    defer { if request.isCurrent(id) { loading = false } }
     do {
       let result = try await SkinCommunityAPI.shared.profile()
       try request.checkCurrent(id)

@@ -2,6 +2,18 @@ import SwiftUI
 
 /// 页面持有代次和任务句柄；此处统一单次操作的忙碌状态与过期结果处理。
 @MainActor enum ViewRequestTask {
+  /// 不占用页面忙碌状态的刷新任务；页面继续负责读取结果和错误提示。
+  static func startLoad(request: Binding<ViewRequestGeneration>, pending: Binding<Task<Void, Never>?>,
+                        action: @escaping @MainActor (UUID) async -> Void) {
+    guard request.wrappedValue.isVisible else { return }
+    let id = request.wrappedValue.begin()
+    pending.wrappedValue?.cancel()
+    pending.wrappedValue = Task {
+      defer { if request.wrappedValue.isCurrent(id) { pending.wrappedValue = nil } }
+      await action(id)
+    }
+  }
+
   static func run(request: Binding<ViewRequestGeneration>, busy: Binding<Bool>,
                   message: Binding<String?>, pending: Binding<Task<Void, Never>?>,
                   canceling: Binding<Task<Void, Never>?>? = nil,

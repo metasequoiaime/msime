@@ -33,7 +33,8 @@ class AccountSettingsLifecycleTests(unittest.TestCase):
         self.assertIn("ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $operation,", self.view)
         self.assertIn("canceling: $pending, clearMessage: false,", self.view)
         self.assertIn("isCancellation: AccountRequestPolicy.isCancellation", self.view)
-        self.assertEqual(self.view.count("let id = request.begin()"), 1)
+        self.assertIn("ViewRequestTask.startLoad(request: $request, pending: $pending) { id in", self.view)
+        self.assertNotIn("let id = request.begin()", self.view)
         self.assertIn("syncTask", self.view)
         self.assertIn("@State private var syncGeneration = OperationGeneration()", self.view)
         self.assertIn("syncGeneration.invalidate()", self.view)
@@ -47,11 +48,13 @@ class AccountSettingsLifecycleTests(unittest.TestCase):
         self.assertIn("ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending,", self.login)
         self.assertIn("canceling: $pending, clearMessage: false,", self.login)
         self.assertIn("isCancellation: AccountRequestPolicy.isCancellation", self.login)
-        self.assertEqual(self.login.count("let id = request.begin()"), 1)
+        self.assertIn("ViewRequestTask.startLoad(request: $request, pending: $pending) { id in", self.login)
+        self.assertNotIn("let id = request.begin()", self.login)
         self.assertIn("try request.checkCurrent(id)", self.login)
         self.assertIn("model.invalidate()", self.login)
         self.assertIn("try Task.checkCancellation()", GENERATION)
         self.assertIn("try request.wrappedValue.checkCurrent(id)", TASK)
+        self.assertIn("static func startLoad(request: Binding<ViewRequestGeneration>", TASK)
 
 
 if __name__ == "__main__":
