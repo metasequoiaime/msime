@@ -204,9 +204,8 @@ if [ "$checked" -eq 0 ]; then
   exit 0
 fi
 if [ "$checked" -eq 2 ]; then
-  echo "installed, and selectable from the input menu; add the source listed above as not enabled in"
-  echo "System Settings > Keyboard > Text Input > Input Sources - a keyboard input mode cannot be enabled"
-  echo "from a process on this macOS version, so no amount of re-registering or re-login will add it."
+  echo "installed and selectable; other modes remain disabled according to your input-source choices."
+  echo "add an optional mode in System Settings > Keyboard > Text Input > Input Sources only when needed."
   exit 0
 fi
 # The registry is scoped to the login session, which is measured rather than assumed: copy the input method

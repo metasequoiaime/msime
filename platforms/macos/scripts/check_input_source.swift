@@ -145,10 +145,8 @@ if !disabled.isEmpty {
     FileHandle.standardError.write("""
         registered but not enabled: \(disabled.joined(separator: ", "))
         \(identifier) is installed and selectable as \(selectable.joined(separator: ", ")), so this is not a \
-        signing or registration failure, and logging out will not change it. On \
-        \(ProcessInfo.processInfo.operatingSystemVersionString) an input source of type keyboard input mode \
-        cannot be enabled from a process: TISEnableInputSource returns noErr and the mode stays disabled, \
-        for Apple's own modes as much as for this one. Add the missing entry by hand in \
+        signing or registration failure. Other modes are optional and stay disabled according to your \
+        input-source choices. Add an optional entry only when needed in \
         System Settings > Keyboard > Text Input > Input Sources.
 
         """.data(using: .utf8)!)

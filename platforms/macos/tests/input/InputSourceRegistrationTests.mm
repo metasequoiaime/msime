@@ -113,6 +113,23 @@ OSStatus EnableInputSource(TISInputSourceRef inputSource)
 }
 } // namespace
 
+// 默认模拟首次安装；重装测试显式传入登记前已有的列表。
+static CFArrayRef registrationBefore = nullptr;
+static bool readingRegistrationBefore = false;
+static CFArrayRef CopyRegistrationSources(CFDictionaryRef filter, Boolean includeAll) {
+    if (readingRegistrationBefore) {
+        readingRegistrationBefore = false;
+        return registrationBefore ? (CFArrayRef)CFRetain(registrationBefore) : nullptr;
+    }
+    return CopyInputSources(filter, includeAll);
+}
+static OSStatus RegisterSources(NSURL *url, NSString *identifier, MSIMEInputSourceRegistrar registrar,
+    MSIMEInputSourceLister lister, MSIMEInputSourcePropertyGetter getter, MSIMEInputSourceEnabler enabler) {
+    readingRegistrationBefore = true;
+    return MSIMERegisterAndEnableInputSources(url, identifier, registrar,
+        lister ? CopyRegistrationSources : nullptr, getter, enabler);
+}
+
 int main()
 {
     @autoreleasepool
@@ -178,7 +195,7 @@ int main()
         const void *sources[] = {parentSource, modeSource};
         sourceList = CFArrayCreate(nullptr, sources, 2, nullptr);
         NSString *bundleIdentifier = @"com.houko.inputmethod.MetasequoiaIME";
-        require(MSIMERegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
+        require(RegisterSources(bundleURL, bundleIdentifier, CaptureRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
                                                          EnableInputSource) == noErr,
                 "A registered input method was not enabled.");
@@ -189,7 +206,7 @@ int main()
 
         enabledSources.clear();
         rejectedSource = modeSource;
-        require(MSIMERegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
+        require(RegisterSources(bundleURL, bundleIdentifier, CaptureRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
                                                          EnableInputSource) == -50,
                 "An input source enable failure was not preserved.");
@@ -197,7 +214,7 @@ int main()
 
         CFRelease(sourceList);
         sourceList = CFArrayCreate(nullptr, nullptr, 0, nullptr);
-        require(MSIMERegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
+        require(RegisterSources(bundleURL, bundleIdentifier, CaptureRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
                                                          EnableInputSource) == fnfErr,
                 "A registration with no discoverable input sources was accepted.");
@@ -264,7 +281,7 @@ int main()
         const void *modeOnlySources[] = {modeSource};
         sourceList = CFArrayCreate(nullptr, modeOnlySources, 1, nullptr);
         enabledSources.clear();
-        require(MSIMERegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
+        require(RegisterSources(bundleURL, bundleIdentifier, CaptureRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
                                                          EnableInputSource) == noErr,
                 "An input mode without a top-level source was rejected.");
@@ -273,30 +290,29 @@ int main()
         CFRelease(sourceList);
         sourceList = nullptr;
 
-        // The bundle declares a Chinese and an English mode; the menu bar can only show the 英 icon if registration enables both.
+        // 首次安装只启用主模式，英文模式保留为用户手动添加的入口。
         const void *twoModeSources[] = {modeSource, englishModeSource};
         sourceList = CFArrayCreate(nullptr, twoModeSources, 2, nullptr);
         enabledSources.clear();
-        require(MSIMERegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration,
+        require(RegisterSources(bundleURL, bundleIdentifier, CaptureRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
                                                          EnableInputSource) == noErr,
                 "A bundle with a Chinese and an English mode was rejected.");
-        require(enabledSources.size() == 2 && enabledSources[0] == modeSource && enabledSources[1] == englishModeSource,
-                "Registration did not enable both the Chinese and the English input mode.");
+        require(enabledSources.size() == 1 && enabledSources[0] == modeSource,
+                "Registration enabled an optional English mode.");
         CFRelease(sourceList);
         sourceList = nullptr;
 
-        // 登记会启用除按需模式以外的全部模式，双拼和五笔也在内，装好即可使用，不必让用户去系统设置的「添加」对话框里逐个找。
+        // 列表顺序不影响主模式选择，双拼、五笔不随首次安装自动加入。
         const void *chineseSchemeSources[] = {shuangpinModeSource, wubiModeSource, hansModeSource};
         sourceList = CFArrayCreate(nullptr, chineseSchemeSources, 3, nullptr);
         enabledSources.clear();
-        require(MSIMERegisterAndEnableInputSources(bundleURL, @"app.msime.inputmethod.MetasequoiaIME", CaptureRegistration,
+        require(RegisterSources(bundleURL, @"app.msime.inputmethod.MetasequoiaIME", CaptureRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
                                                          EnableInputSource) == noErr,
                 "A bundle with Shuangpin and Wubi modes was rejected.");
-        require(enabledSources.size() == 3 && enabledSources[0] == shuangpinModeSource && enabledSources[1] == wubiModeSource &&
-                    enabledSources[2] == hansModeSource,
-                "Registration did not enable the Shuangpin and Wubi modes with the others.");
+        require(enabledSources.size() == 1 && enabledSources[0] == hansModeSource,
+                "Registration enabled optional Shuangpin or Wubi modes.");
         CFRelease(sourceList);
         sourceList = nullptr;
 
@@ -304,30 +320,32 @@ int main()
         const void *optInSources[] = {cantoneseModeSource, hansModeSource, zhuyinModeSource, wubiModeSource, vietnameseModeSource, tibetanModeSource, strokeModeSource};
         sourceList = CFArrayCreate(nullptr, optInSources, 7, nullptr);
         enabledSources.clear();
-        require(MSIMERegisterAndEnableInputSources(bundleURL, @"app.msime.inputmethod.MetasequoiaIME", CaptureRegistration,
+        require(RegisterSources(bundleURL, @"app.msime.inputmethod.MetasequoiaIME", CaptureRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
                                                          EnableInputSource) == noErr,
                 "A bundle with opt-in modes was rejected.");
-        require(enabledSources.size() == 2 && enabledSources[0] == hansModeSource && enabledSources[1] == wubiModeSource,
-                "Registration enabled an opt-in mode, or skipped one that is not opt-in.");
+        require(enabledSources.size() == 1 && enabledSources[0] == hansModeSource,
+                "Registration enabled an optional input mode.");
         CFRelease(sourceList);
         sourceList = nullptr;
 
-        // An update that only replaced the bundle left the modes it added off. The first launch that keeps a record counts the modes every earlier install enabled as offered and turns on the rest, once each; the bundle-level source is not a mode.
+        // 重装只登记，用户移除的双拼、五笔、日语、韩语都不能回来；全部移除也保持原样。
         NSString *appBundle = @"app.msime.inputmethod.MetasequoiaIME";
         const void *installedSources[] = {appParentSource, hansModeSource, japaneseModeSource, koreanModeSource, shuangpinModeSource, wubiModeSource};
         sourceList = CFArrayCreate(nullptr, installedSources, 6, nullptr);
+        registrationBefore = sourceList;
+        for (const auto &kept : {std::vector<TISInputSourceRef>{hansModeSource}, std::vector<TISInputSourceRef>{wubiModeSource}, std::vector<TISInputSourceRef>{}}) {
+            alreadyEnabledSources = kept;
+            enabledSources.clear();
+            require(RegisterSources(bundleURL, appBundle, CaptureRegistration, CopyInputSources, GetInputSourceProperty, EnableInputSource) == noErr && enabledSources.empty(),
+                "Re-registration restored a mode the user removed.");
+        }
+        registrationBefore = nullptr;
         alreadyEnabledSources = {appParentSource, hansModeSource, japaneseModeSource};
         enabledSources.clear();
         NSArray<NSString *> *offered = MSIMEEnableNewInputModes(appBundle, nil, CopyInputSources, GetInputSourceProperty, EnableInputSource);
-        require([listedBundleIdentifier isEqualToString:appBundle] && enableCapableOnly && includedAllInstalled,
-                "New-mode discovery did not list every installed source of the bundle.");
-        // Korean is in the seed, since every install since it was added registered and enabled it.
-        require(enabledSources.size() == 2 && enabledSources[0] == shuangpinModeSource && enabledSources[1] == wubiModeSource,
-                "The first recorded launch did not enable exactly the modes added since the earlier installs.");
-        require([offered isEqualToArray:@[MSIMEChineseInputModeID, MSIMEEnglishInputModeID, MSIMEJapaneseInputModeID,
-                                          MSIMEKoreanInputModeID, MSIMEShuangpinInputModeID, MSIMEWubiInputModeID]],
-                "The record does not name the earlier modes and the newly enabled ones.");
+        require(enabledSources.empty() && [offered containsObject:MSIMEShuangpinInputModeID] && [offered containsObject:MSIMEWubiInputModeID],
+                "Startup enabled a newly discovered input mode.");
 
         // A mode the user removed afterwards stays removed.
         alreadyEnabledSources = {appParentSource, hansModeSource, japaneseModeSource, shuangpinModeSource, wubiModeSource};
@@ -345,20 +363,13 @@ int main()
                     [offered containsObject:MSIMEKoreanInputModeID],
                 "A previously offered Japanese or Korean mode removed before the first record was enabled again.");
 
-        // A new mode that is already on is only recorded, and one the system refuses stays unrecorded so the next launch retries it.
-        alreadyEnabledSources = {appParentSource, hansModeSource, japaneseModeSource, koreanModeSource};
+        // 即使系统允许启用模式，启动也不能借新模式或旧记录的缺失补回它们。
         rejectedSource = wubiModeSource;
         enabledSources.clear();
-        offered = MSIMEEnableNewInputModes(appBundle, nil, CopyInputSources, GetInputSourceProperty, EnableInputSource);
-        require(enabledSources.size() == 2 && enabledSources[0] == shuangpinModeSource && enabledSources[1] == wubiModeSource &&
-                    [offered containsObject:MSIMEKoreanInputModeID] && [offered containsObject:MSIMEShuangpinInputModeID] &&
-                    ![offered containsObject:MSIMEWubiInputModeID],
-                "An enabled new mode was enabled again, or a refused one was recorded.");
+        offered = MSIMEEnableNewInputModes(appBundle, @[], CopyInputSources, GetInputSourceProperty, EnableInputSource);
+        require(enabledSources.empty() && [offered containsObject:MSIMEWubiInputModeID],
+                "Startup attempted to enable an unrecorded input mode.");
         rejectedSource = nullptr;
-        enabledSources.clear();
-        offered = MSIMEEnableNewInputModes(appBundle, offered, CopyInputSources, GetInputSourceProperty, EnableInputSource);
-        require(enabledSources.size() == 1 && enabledSources[0] == wubiModeSource && [offered containsObject:MSIMEWubiInputModeID],
-                "A mode the system refused was not retried on the next launch.");
         alreadyEnabledSources.clear();
         CFRelease(sourceList);
         sourceList = nullptr;
@@ -413,14 +424,14 @@ int main()
                     MSIMEEnableInputMode(MSIMEZhuyinInputModeID, nullptr, EnableInputSource) == paramErr,
                 "Enabling a mode without an identifier or a lister was accepted.");
 
-        require(MSIMERegisterAndEnableInputSources(bundleURL, bundleIdentifier, RejectRegistration,
+        require(RegisterSources(bundleURL, bundleIdentifier, RejectRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
                                                          EnableInputSource) == -50,
                 "A registration failure was not returned before discovery.");
-        require(MSIMERegisterAndEnableInputSources(bundleURL, nil, CaptureRegistration, CopyInputSources,
+        require(RegisterSources(bundleURL, nil, CaptureRegistration, CopyInputSources,
                                                          GetInputSourceProperty, EnableInputSource) == paramErr,
                 "A missing bundle identifier was accepted.");
-        require(MSIMERegisterAndEnableInputSources(bundleURL, bundleIdentifier, CaptureRegistration, nullptr,
+        require(RegisterSources(bundleURL, bundleIdentifier, CaptureRegistration, nullptr,
                                                          GetInputSourceProperty, EnableInputSource) == paramErr,
                 "A missing input source lister was accepted.");
     }

@@ -124,7 +124,7 @@ int main(int argc, const char *argv[]) {
         if (![connectionName isKindOfClass:NSString.class] || connectionName.length == 0) return 1;
         __attribute__((objc_precise_lifetime)) IMKServer *server = [[IMKServer alloc] initWithName:connectionName bundleIdentifier:NSBundle.mainBundle.bundleIdentifier];
         if (!server) return 1;
-        // 把本版本新增、而带来它的那次安装没有登记的输入模式各启用一次。按需模式只记录，已启用的也不关掉。
+        // 记录本版本的模式，不自动启用或关闭输入源，保留用户在系统设置中的选择。
         NSString *const offeredModesKey = @"MSIMEOfferedInputModes";
         NSArray *offeredModes = [NSUserDefaults.standardUserDefaults arrayForKey:offeredModesKey];
         NSArray<NSString *> *offered = MSIMEEnableNewInputModes(NSBundle.mainBundle.bundleIdentifier, offeredModes,
