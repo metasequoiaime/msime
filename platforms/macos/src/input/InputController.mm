@@ -2427,6 +2427,21 @@ static NSImage *MSIMECandidateLogoImage() {
         if (ownSnapshot) [self invalidateServiceSnapshots];
         return NO;
     }
+    // An asynchronous provider can leave the cached service snapshot one generation ahead of
+    // the page currently on screen. If that provider has no glosses to apply, sending an empty
+    // payload with the newer generation would advance the Engine behind the user's back and
+    // make the next synchronization repeat the same empty pass. Record the displayed generation
+    // as attempted, refresh the service snapshots, and let the normal fallback chain continue.
+    uint64_t displayedGeneration = 0;
+    uint64_t serviceGeneration = 0;
+    if (!results.count && MSIMEStrictUnsignedInteger(_view[@"generation"], &displayedGeneration) &&
+        MSIMEStrictUnsignedInteger(view[@"generation"], &serviceGeneration) &&
+        displayedGeneration != serviceGeneration) {
+        _translationAppliedGeneration = @(displayedGeneration);
+        [self invalidateServiceSnapshots];
+        [self synchronizeCandidateServices];
+        return YES;
+    }
     // Applying translations advances the Engine snapshot. Any enclosing service pass must
     // fetch the new query/view before it asks another provider to synchronize.
     [self invalidateServiceSnapshots];

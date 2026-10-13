@@ -7428,6 +7428,26 @@ static void TestCloudCandidateConsent() {
 }
 @end
 
+@interface StaleGlossSnapshotSession : ServiceSnapshotSession
+@end
+@implementation StaleGlossSnapshotSession
+- (NSDictionary *)translationQueryWithError:(NSError **)error {
+    (void)error;
+    return @{ @"generation": @3, @"target_language": @"en", @"target_languages": @[ @"en" ],
+        @"translation_account": @NO };
+}
+- (NSDictionary *)viewWithError:(NSError **)error {
+    (void)error;
+    return @{ @"generation": @3, @"scheme": @0, @"local_mode": @"none",
+        @"candidates": @[ @{ @"text": @"hello", @"source": @4 } ] };
+}
+- (NSDictionary *)applyTranslations:(NSArray *)translations generation:(uint64_t)generation error:(NSError **)error {
+    (void)translations; (void)generation; (void)error;
+    ++self.applications;
+    return @{ @"applied": @YES, @"view": [self viewWithError:nil] };
+}
+@end
+
 @interface PreferenceSnapshotController : ModeController
 @property(nonatomic, copy) NSDictionary *snapshot;
 @property(nonatomic) NSUInteger completions;
@@ -7504,6 +7524,27 @@ static void TestApplyCandidateTranslationSnapshotsAreReused() {
     session.viewCalls = 0;
     [controller applyCandidateTranslationResults];
     assert(session.translationQueryCalls == 1 && session.viewCalls == 1);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+static void TestEmptyGlossDoesNotApplyAStaleServiceGeneration() {
+    NSString *suite = [@"msime.empty-gloss-generation." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.candidateTranslations = YES;
+    appearance.candidateEnglishGloss = YES;
+    StaleGlossSnapshotSession *session = [StaleGlossSnapshotSession new];
+    MSIMEInputController *controller = [MSIMEInputController alloc];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:@NO forKey:@"glossEnabled"];
+    [controller setValue:@{ @"generation": @2, @"scheme": @0, @"local_mode": @"none",
+        @"candidates": @[ @{ @"text": @"hello", @"source": @4 } ] } forKey:@"view"];
+    [controller applyCandidateTranslationResults];
+    assert(session.applications == 0);
+    NSDictionary *view = [controller valueForKey:@"view"];
+    assert([view[@"generation"] integerValue] == 2);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -9669,6 +9710,7 @@ int main(int argc, char **argv) {
             @autoreleasepool { TestPreferenceLoadReusesCandidateServiceSnapshots(); }
             @autoreleasepool { TestCandidateServiceSnapshotsAreReused(); }
             @autoreleasepool { TestApplyCandidateTranslationSnapshotsAreReused(); }
+            @autoreleasepool { TestEmptyGlossDoesNotApplyAStaleServiceGeneration(); }
             @autoreleasepool { TestGlossScheduling(); }
             @autoreleasepool { TestGlossSurvivesHighlightMove(); }
             @autoreleasepool { TestAccountGlossSkipsNonChineseCandidates(); }
