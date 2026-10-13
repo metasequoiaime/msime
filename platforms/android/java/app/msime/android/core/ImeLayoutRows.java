@@ -1136,11 +1136,6 @@ final class ImeLayoutRows {
             () -> tapJapaneseKey(key));
         ViewPolicy.setSingleLine(button);
         KeyboardTypographyPolicy.setKeyTextSize(button, 22);
-        // 粗体跟着键面文字保留，换肤重新设置基础字体时不会被抹掉。
-        android.text.SpannableString face = new android.text.SpannableString(label);
-        face.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
-            0, label.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        button.setText(face);
         button.setContentDescription("轻点输入" + key.kana().get(0)
             + "，连续轻点依次切换；左、上、右、下滑动选择其他假名");
         bindJapaneseFlick(button, key);
