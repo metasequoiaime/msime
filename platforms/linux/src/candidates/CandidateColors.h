@@ -93,26 +93,31 @@ inline std::optional<std::uint32_t> contrasting_color(std::optional<std::uint32_
 // 运行时的 preferences 可能是 null、数组或数字（runtime-options.json 被手工改过、或写入被截断）：按一份空偏好文档处理，即跟随系统明暗，而不是让 nlohmann 的 value() 抛出 type_error。两个宿主都从这里取模式，所以这个入口是唯一需要设防的地方。
 inline bool candidate_dark_theme(const nlohmann::json &preferences, bool system_dark) {
   if (!preferences.is_object()) return system_dark;
-  const auto theme = preferences.value("candidate_theme", "follow");
-  if (theme != "follow") return theme == "dark";
-  const auto global = preferences.value("theme", "system");
-  return global == "system" ? system_dark : global != "light";
+  const auto theme = preferences.find("candidate_theme");
+  if (theme != preferences.end() && theme->is_string() && *theme != "follow") return *theme == "dark";
+  const auto global = preferences.find("theme");
+  return global == preferences.end() || !global->is_string() || *global == "system"
+             ? system_dark : *global != "light";
 }
 
 // Whether a floating surface with a mode preference of its own (toolbar_theme, voice_theme) draws dark, by the rule macOS gives its floating toolbar and mode badge: that preference when it names a mode, otherwise the global mode, whose "system" (also the shared default when the key is absent) follows the desktop. A resolved theme with a fixed appearance still overrides this, as it does for the candidate window.
 inline bool surface_dark_theme(const nlohmann::json &preferences, const char *surface_key, bool system_dark) {
   // 与 candidate_dark_theme 同一份文档、同一条边界：非对象按空文档处理。
   if (!preferences.is_object()) return system_dark;
-  const auto theme = preferences.value(surface_key, "follow");
-  if (theme == "dark" || theme == "light") return theme == "dark";
-  const auto global = preferences.value("theme", "system");
-  return global == "system" ? system_dark : global != "light";
+  const auto theme = preferences.find(surface_key);
+  if (theme != preferences.end() && theme->is_string() && (*theme == "dark" || *theme == "light"))
+    return *theme == "dark";
+  const auto global = preferences.find("theme");
+  return global == preferences.end() || !global->is_string() || *global == "system"
+             ? system_dark : *global != "light";
 }
 
 // 传给 `msime_client_resolve_theme` 的候选布局；皮肤可能只支持一种布局，非对象文档取默认纵向，不抛异常。
 inline std::string candidate_layout_id(const nlohmann::json &preferences) {
   if (!preferences.is_object()) return "vertical";
-  return preferences.value("candidate_layout", std::string{}) == "horizontal" ? "horizontal" : "vertical";
+  const auto layout = preferences.find("candidate_layout");
+  return layout != preferences.end() && layout->is_string() && *layout == "horizontal"
+             ? "horizontal" : "vertical";
 }
 
 // 菜单和设置页写入的 `global_theme`、整个 `custom_theme` 构成选择指纹，覆盖皮肤与取色器变化；重读不算新选择，缺失主题键与 `system` 等价。

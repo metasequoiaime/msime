@@ -46,7 +46,8 @@ public final class NineKeyDigitButton extends KeyboardPressButton {
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         if (digitText.isEmpty() || getWidth() <= 0 || getHeight() <= 0) return;
-        ViewPolicy.setTextSize(digitPaint, KeyboardTypographyPolicy.keySp(getContext(), 10));
+        ViewPolicy.setTextSize(digitPaint,
+            KeyboardTypographyPolicy.keySp(getContext(), KeyboardTypographyPolicy.NINE_KEY_DIGIT_TEXT_SP));
         digitPaint.setColor(digitColor);
         digitPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 204, 96));
         Paint.FontMetrics metrics = digitPaint.getFontMetrics();

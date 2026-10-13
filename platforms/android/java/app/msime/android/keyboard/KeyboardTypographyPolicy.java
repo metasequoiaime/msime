@@ -1,6 +1,7 @@
 package app.msime.android;
 
 import android.content.Context;
+import android.util.TypedValue;
 import android.widget.TextView;
 
 /** Shared typography and keycap sizing contract for Android keyboard controls. */
@@ -30,9 +31,27 @@ public final class KeyboardTypographyPolicy {
     /** 键盘里没有另定字号的按键和文字用的字号（sp），与 Material 按钮的默认字号相同。不设时取的是系统主题里的按钮字号：各厂商不同，而且不受 {@link #keyboardFontScale} 封顶，九键的 ABC 在大字体下会折行。 */
     public static final float DEFAULT_KEY_TEXT_SP = 14f;
 
+    /** 九键字母键的主标签字号：数字提示另由 {@link NineKeyDigitButton} 画在上沿。 */
+    public static final float NINE_KEY_LABEL_TEXT_SP = 18f;
+    /** 九键数字提示字号，保持比字母标签低一级的视觉层级。 */
+    public static final float NINE_KEY_DIGIT_TEXT_SP = 12f;
+    /** 九键左侧符号和右侧文字功能键字号。 */
+    public static final float NINE_KEY_SIDE_TEXT_SP = 18f;
+    public static final float NINE_KEY_ACTION_TEXT_SP = 16f;
+
     /** 以 {@link #keySp} 设置键盘里控件的字号。 */
     public static void setKeyTextSize(android.widget.TextView view, float sp) {
         ViewPolicy.setTextSize(view, keySp(view.getContext(), sp));
+    }
+
+    /** 九键标签只占一行，窄屏时在给定字号范围内缩小；像素边界沿用键盘字体缩放上限。 */
+    public static void setFittedKeyTextSize(TextView view, float minSp, float maxSp) {
+        ViewPolicy.setMaxLines(view, 1);
+        view.setHorizontallyScrolling(false);
+        int minPixels = Math.max(1, Math.round(keySp(view.getContext(), minSp)));
+        int maxPixels = Math.max(minPixels + 1, Math.round(keySp(view.getContext(), maxSp)));
+        view.setAutoSizeTextTypeUniformWithConfiguration(minPixels, maxPixels, 1,
+            TypedValue.COMPLEX_UNIT_PX);
     }
 
     /** 键帽左右各留的内边距（dp）：只防字形贴住圆角，键宽几乎全部留给文字。 */

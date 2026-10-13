@@ -44,6 +44,13 @@ int main() {
     assert(host::candidate_theme_request(document, false, Json::object()) ==
            Json::parse(R"({"dark":false,"global_theme":"system","layout":"vertical"})"));
   }
+  // A document can still be an object while individual mode/layout fields have the wrong type.
+  // Treat those fields as absent so a damaged runtime option cannot interrupt candidate rendering.
+  assert(candidate_dark_theme(Json{{"candidate_theme", 7}, {"theme", "dark"}}, false));
+  assert(candidate_dark_theme(Json{{"theme", Json::array()}}, true));
+  assert(!surface_dark_theme(Json{{"toolbar_theme", 7}, {"theme", "light"}}, "toolbar_theme", true));
+  assert(surface_dark_theme(Json{{"theme", nullptr}}, "toolbar_theme", true));
+  assert(host::candidate_layout_id(Json{{"candidate_layout", 7}}) == "vertical");
   assert(host::candidate_layout_id(Json{{"candidate_layout", "horizontal"}}) == "horizontal");
 
   // Its palette is the resolved card: surface, text and accent, and the outline only when the theme draws one.
