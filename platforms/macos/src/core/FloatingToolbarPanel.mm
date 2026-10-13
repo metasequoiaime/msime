@@ -1,4 +1,5 @@
 #import "FloatingToolbarPanel.h"
+#import "../candidate/CandidatePlacement.h"
 #import "../candidate/CandidateSkinAppearance.h"
 #import "SupportWindowController.h"
 #import "DesktopSettingsLauncher.h"
@@ -293,15 +294,7 @@ NSScreen *ScreenContainingFrame(NSRect frame)
 
 NSScreen *ScreenContainingMouse()
 {
-    NSPoint mouseLocation = NSEvent.mouseLocation;
-    for (NSScreen *screen in NSScreen.screens)
-    {
-        if (NSPointInRect(mouseLocation, screen.frame))
-        {
-            return screen;
-        }
-    }
-    return NSScreen.mainScreen;
+    return MSIMEScreenForPoint(NSEvent.mouseLocation);
 }
 } // namespace
 

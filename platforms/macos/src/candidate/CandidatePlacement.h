@@ -45,11 +45,16 @@ inline NSUInteger MSIMECandidateScreenIndex(NSPoint anchor, NSArray<NSValue *> *
     return nearest;
 }
 
-// 候选窗所在的屏幕。锚点是光标的左边和竖直中线，规则见 MSIMECandidateScreenIndex；没有任何屏幕时才退回 NSScreen.mainScreen。
-inline NSScreen *MSIMECandidateScreen(NSRect caret) {
+// 锚点所在的屏幕，规则见 MSIMECandidateScreenIndex；没有任何屏幕时才退回 NSScreen.mainScreen。候选窗、模式提示、双拼键位图、打字特效、悬浮工具栏和语音浮层都按它选屏，光标或鼠标贴着屏幕右边、上边时不会跳到另一块屏幕。
+inline NSScreen *MSIMEScreenForPoint(NSPoint anchor) {
     NSArray<NSScreen *> *screens = NSScreen.screens;
     NSMutableArray<NSValue *> *frames = [NSMutableArray arrayWithCapacity:screens.count];
     for (NSScreen *screen in screens) [frames addObject:[NSValue valueWithRect:screen.frame]];
-    const NSUInteger index = MSIMECandidateScreenIndex(NSMakePoint(NSMinX(caret), NSMidY(caret)), frames);
+    const NSUInteger index = MSIMECandidateScreenIndex(anchor, frames);
     return index == NSNotFound ? NSScreen.mainScreen : screens[index];
+}
+
+// 候选窗所在的屏幕，锚点是光标的左边和竖直中线。
+inline NSScreen *MSIMECandidateScreen(NSRect caret) {
+    return MSIMEScreenForPoint(NSMakePoint(NSMinX(caret), NSMidY(caret)));
 }

@@ -4127,10 +4127,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     NSRect caret = NSZeroRect;
     [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&caret];
     if (!MSIMEValidCaret(caret)) return nil;
-    const NSPoint point = NSMakePoint(NSMidX(caret), NSMidY(caret));
-    for (NSScreen *screen in NSScreen.screens)
-        if (NSPointInRect(point, screen.frame)) return screen;
-    return nil;
+    return MSIMEScreenForPoint(NSMakePoint(NSMidX(caret), NSMidY(caret)));
 }
 - (void)refreshVoiceOverlayScreen {
     if (_voiceOverlay) _voiceOverlay.preferredScreen = [self voiceInputScreen];

@@ -1,4 +1,5 @@
 #import "TypingEffectPanel.h"
+#import "../candidate/CandidatePlacement.h"
 #import "../candidate/CandidateWindowLevel.h"
 
 #import <QuartzCore/QuartzCore.h>
@@ -62,9 +63,7 @@ CGImageRef SparkImage(void) {
 }
 
 NSScreen *ScreenContaining(NSPoint point) {
-    for (NSScreen *screen in NSScreen.screens)
-        if (NSPointInRect(point, screen.frame)) return screen;
-    return NSScreen.mainScreen;
+    return MSIMEScreenForPoint(point);
 }
 }
 
