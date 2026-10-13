@@ -126,12 +126,11 @@ export function AiSettingsContent({
       provider={ai.provider}
       providerOptions={AI_PROVIDER_OPTIONS}
       model={ai.model}
+      presetModels={aiProviderOption(ai.provider)?.models ?? []}
       endpoint={ai.endpoint}
       providerPreset={providerPresetControls(
         "AI ",
         aiProviderOption(ai.provider),
-        ai.model,
-        (model) => updateAi({ model }),
         settings.managerBlock,
       )}
       onEnabledChange={(enabled) => updateAi({ enabled })}
@@ -186,7 +185,6 @@ export function AiSettingsContent({
               models: aiModels ?? undefined,
               status: aiModelsStatus,
               onFetch: () => void fetchAiModels(),
-              onSelect: (model) => updateAi({ model }),
             }
           : null
       }

@@ -1,6 +1,4 @@
-import { ModelSettingField } from "./model-setting-field";
 import { ActionButton } from "./action-button";
-import { useOptionalSettingsForm } from "./settings-form-context";
 
 export interface ProviderPreset {
   models?: readonly string[];
@@ -10,55 +8,25 @@ export interface ProviderPreset {
 export interface ProviderPresetSectionProps {
   label: string;
   preset?: ProviderPreset;
-  model: string;
-  onSelectModel: (model: string) => void;
   openExternalUrl?: (url: string) => void | Promise<void>;
   className?: string;
 }
 
-/** Known provider models and the provider's API key documentation link. */
+/** The provider's API key documentation link. Its known models are offered by the model picker of the same group (`ModelPickerRows`), not here. */
 export function ProviderPresetSection({
   label,
   preset,
-  model,
-  onSelectModel,
   openExternalUrl,
   className = "section provider-preset-section",
 }: ProviderPresetSectionProps) {
-  const harmony = useOptionalSettingsForm()?.settingsPlatform === "harmony";
-  const models = preset?.models ?? [];
   const documentation = preset?.documentation;
-  const linkable = Boolean(documentation && openExternalUrl);
-  if (models.length === 0 && !linkable) return null;
-  const modelField = models.length > 0 && (
-    <ModelSettingField
-      label="预置模型"
-      inputLabel={`${label}预置模型`}
-      description="服务商已知支持的模型；也可以在模型框中自行填写"
-      models={models}
-      model={model}
-      emptyLabel="自定义模型…"
-      onSelect={onSelectModel}
-    />
-  );
-  const documentationButton = linkable && (
-    <ActionButton
-      action={() => openExternalUrl?.(documentation!)}
-      label={`${label}接入说明与 API Key`}
-    />
-  );
-  // 在 HarmonyOS 手机上预置模型是分组里的一行（见 `ModelSettingField`），自带行内边距，所以放在容器外面，只有按钮留在容器里。
-  if (harmony)
-    return (
-      <>
-        {modelField}
-        {documentationButton && <div className={className}>{documentationButton}</div>}
-      </>
-    );
+  if (!documentation || !openExternalUrl) return null;
   return (
     <div className={className}>
-      {modelField}
-      {documentationButton}
+      <ActionButton
+        action={() => openExternalUrl(documentation)}
+        label={`${label}接入说明与 API Key`}
+      />
     </div>
   );
 }

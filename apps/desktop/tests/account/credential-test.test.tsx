@@ -118,6 +118,7 @@ test("provider transport failures remain actionable and stale results disappear 
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   fireEvent.click(screen.getByRole("button", { name: "测试 AI 辅助配置" }));
   await screen.findByText("无法连接 provider，请确认服务已启动。");
-  fireEvent.change(screen.getByLabelText("AI 模型"), { target: { value: "new-model" } });
+  fireEvent.change(screen.getByLabelText("AI 模型"), { target: { value: "" } });
+  fireEvent.change(screen.getByLabelText("AI 模型（自定义）"), { target: { value: "new-model" } });
   expect(screen.queryByText("无法连接 provider，请确认服务已启动。")).toBeNull();
 });

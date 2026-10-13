@@ -16243,7 +16243,7 @@ private:
     std::wstring backend, id, label;
   };
 
-  // 共享语音页（`voice-settings-content.tsx` 的桌面分支）在 Windows 上的内容，顺序也相同：按识别服务说明怎么用的一组，「识别」（开关、服务、语言），「识别服务配置」（预置模型、模型、豆包的鉴权和流式接口、地址、凭据、豆包选项、本地模型，末尾是测试），语音快捷键，录音行为，识别结果，文本润色，录音设备。服务表、换服务的规则和本地模型的文字在 VoiceSettings.h。输入框边输入边写进设置、停下后保存，不重建页面，跟着输入内容变的下拉框选中项和测试按钮由 voice_sync_ 就地更新；下拉框和开关的改动保存后重画整页。
+  // 共享语音页（`voice-settings-content.tsx` 的桌面分支）在 Windows 上的内容，顺序也相同：按识别服务说明怎么用的一组，「识别」（开关、服务、语言），「识别服务配置」（接入说明、识别模型、豆包的鉴权和流式接口、地址、凭据、豆包选项、本地模型，末尾是测试），语音快捷键，录音行为，识别结果，文本润色，录音设备。服务表、换服务的规则和本地模型的文字在 VoiceSettings.h。输入框边输入边写进设置、停下后保存，不重建页面，跟着输入内容变的下拉框选中项和测试按钮由 voice_sync_ 就地更新；下拉框和开关的改动保存后重画整页。
   void build_voice_page(StackPanel const &page) {
     if (!indexing_) {
       credential_test_views_.clear();
@@ -16494,90 +16494,94 @@ private:
     return input;
   }
 
-  void add_voice_preset(StackPanel const &group, std::wstring const &label,
-                        vs::ProviderDefaults const *preset, std::wstring model_key) {
-    if (!preset)
+  // 服务商的接入说明（ProviderPresetSection）：一个用默认浏览器打开说明页的按钮，没有说明页时不画。服务商已知的模型由同组的模型下拉列出，见 add_model_picker。语音页和 AI 页共用。
+  void add_provider_link(StackPanel const &group, std::wstring const &label,
+                         std::wstring_view documentation) {
+    if (documentation.empty())
       return;
-    add_provider_preset(group, label, preset->models, preset->documentation, model_key, voice_sync_,
-                        [this] { resync_voice(); },
-                        [this, model_key](std::wstring const &value) {
-                          change([&](PreferencesDocument &doc) {
-                            doc.SetString(model_key, value);
-                          }, true);
-                        });
+    const std::wstring url(documentation);
+    StackPanel content;
+    content.Padding(Thickness{25, 12, 25, 12});
+    content.Children().Append(
+        button_control(label + L"接入说明与 API Key", [this, url] { open_url(url.c_str()); }));
+    auto card = make_card();
+    card.Child(content);
+    group.Children().Append(card);
   }
 
-  // 预置模型和接入说明（ProviderPresetSection）：服务商已知支持的模型可以直接选（「自定义模型…」表示模型框里是自己填的），文档按钮用默认浏览器打开。两样都没有时不画。选了一个模型时交给 select 写进设置；下拉框的选中项随模型框变化，由 sync 里的一项就地更新，resync 在事件处理完后做这件事。语音页和 AI 页共用。
-  void add_provider_preset(StackPanel const &group, std::wstring const &label,
-                           std::vector<std::wstring_view> const &preset_models,
-                           std::wstring_view documentation, std::wstring model_key,
-                           std::vector<std::function<void()>> &sync, std::function<void()> resync,
-                           std::function<void(std::wstring const &)> select) {
-    if (preset_models.empty() && documentation.empty())
-      return;
-    FrameworkElement link{nullptr};
-    if (!documentation.empty()) {
-      const std::wstring url(documentation);
-      link = button_control(label + L"接入说明与 API Key", [this, url] { open_url(url.c_str()); });
-    }
-    if (preset_models.empty()) {
-      StackPanel content;
-      content.Padding(Thickness{25, 12, 25, 12});
-      content.Children().Append(link);
-      auto card = make_card();
-      card.Child(content);
-      group.Children().Append(card);
+  // 模型（共享页的 ModelPickerRows）：一个下拉列出已知的模型（服务商预置的和获取到的，重复的只列一次），末项「自定义…」；选了它，或当前模型不在列表里，下面多一行「自定义模型」输入框。没有已知模型时只有输入框。选「自定义…」不改模型，只重画出输入框；这件事按模型的键记在 custom_model_lists_ 里，连同当时的列表，列表换了（换服务商、获取到新列表）就不再算数。输入框显示着时就算选了「自定义…」，在里面打出列表里有的名字也不收起，与共享页一样。`field` 按给定的无障碍名称造出输入框。
+  void add_model_picker(StackPanel const &group, std::wstring const &title,
+                        std::wstring const &subtitle, std::wstring const &label,
+                        std::wstring const &model_key, std::vector<std::wstring> const &candidates,
+                        std::function<void(std::wstring const &)> choose,
+                        std::function<FrameworkElement(std::wstring const &)> const &field) {
+    std::vector<std::wstring> models;
+    for (auto const &entry : candidates)
+      if (!entry.empty() && std::find(models.begin(), models.end(), entry) == models.end())
+        models.push_back(entry);
+    if (models.empty()) {
+      add_row(group, 0xE950, title, subtitle, field(label));
       return;
     }
-    std::vector<Option> options{{L"", L"自定义模型…"}};
-    for (auto const &model : preset_models)
-      options.push_back({std::wstring(model), std::wstring(model)});
+    std::wstring list_key;
+    for (auto const &entry : models)
+      list_key += entry + L"\n";
     const auto model = document_.String(model_key, L"");
-    const bool known = std::find(preset_models.begin(), preset_models.end(), model) !=
-                       preset_models.end();
-    auto combo = select_control(label + L"预置模型", std::move(options), known ? model : L"",
-                                [this, model_key, resync, select](std::wstring const &value) {
+    const auto requested = custom_model_lists_.find(model_key);
+    const bool custom =
+        (requested != custom_model_lists_.end() && requested->second == list_key) ||
+        std::find(models.begin(), models.end(), model) == models.end();
+    std::vector<Option> options;
+    for (auto const &entry : models)
+      options.push_back({entry, entry});
+    options.push_back({L"", L"自定义…"});
+    auto combo = select_control(label, std::move(options), custom ? L"" : model,
+                                [this, model_key, list_key, choose](std::wstring const &value) {
+                                  if (value.empty())
+                                    custom_model_lists_[model_key] = list_key;
+                                  else
+                                    custom_model_lists_.erase(model_key);
                                   if (value.empty() || value == document_.String(model_key, L"")) {
-                                    // 共享页的下拉框受控：选「自定义模型…」不改模型，选中项回到模型框里的值。
-                                    resync();
+                                    queue_refresh();
                                     return;
                                   }
-                                  select(value);
+                                  choose(value);
                                 });
     combo.Width(240);
-    FrameworkElement below{nullptr};
-    if (link) {
-      StackPanel holder;
-      holder.Margin(Thickness{61, 0, 25, 14});
-      holder.Children().Append(link);
-      below = holder;
-    }
-    add_row(group, 0xE8F1, L"预置模型", L"服务商已知支持的模型；也可以在模型框中自行填写", combo,
-            below);
-    if (indexing_)
+    add_row(group, 0xE950, title, subtitle, combo);
+    if (!custom)
       return;
-    sync.push_back([this, weak = make_weak(combo.as<ComboBox>()), models = preset_models,
-                    model_key] {
-      auto shown = weak.get();
-      if (!shown)
-        return;
-      const auto current = document_.String(model_key, L"");
-      int32_t index = 0;
-      for (size_t i = 0; i < models.size(); ++i)
-        if (models[i] == current)
-          index = static_cast<int32_t>(i + 1);
-      if (shown.SelectedIndex() != index)
-        shown.SelectedIndex(index);
-    });
+    if (!indexing_)
+      custom_model_lists_[model_key] = list_key;
+    add_row(group, 0xE70F, L"自定义模型", L"", field(label + L"（自定义）"));
+  }
+
+  // 语音页的模型：服务预置的模型加上输入框，选中一个模型保存后重画整页，输入框边输入边写进设置。
+  void add_voice_model_picker(StackPanel const &group, std::wstring const &title,
+                              std::wstring const &subtitle, std::wstring const &label,
+                              std::wstring const &model_key, vs::ProviderDefaults const *preset) {
+    std::vector<std::wstring> models;
+    if (preset)
+      for (auto const &entry : preset->models)
+        models.emplace_back(entry);
+    add_model_picker(
+        group, title, subtitle, label, model_key, models,
+        [this, model_key](std::wstring const &value) {
+          change([&](PreferencesDocument &doc) { doc.SetString(model_key, value); }, true);
+        },
+        [this, model_key](std::wstring const &name) {
+          return voice_text_input(name, model_key, false, L"", 0, nullptr);
+        });
   }
 
   // 云服务的几行（VoiceAsrProviderSettingsSection 的 Windows 分支和 DoubaoOptionsRows）：豆包多出鉴权方式、流式接口、资源 ID 和识别选项，旧版鉴权多出 App Key。
   void build_asr_service_rows(StackPanel const &group, std::wstring const &provider, bool doubao,
                               std::wstring const &auth_mode) {
-    add_voice_preset(group, L"识别服务", vs::find_defaults(vs::asr_provider_defaults(), provider),
-                     L"voice_input.asr_model");
-    voice_text_row(group, 0xE950, L"识别模型", L"由语音服务选择对应模型", L"识别模型",
-                   L"voice_input.asr_model");
+    const auto *asr_preset = vs::find_defaults(vs::asr_provider_defaults(), provider);
+    if (asr_preset)
+      add_provider_link(group, L"识别服务", asr_preset->documentation);
+    add_voice_model_picker(group, L"识别模型", L"由语音服务选择对应模型", L"识别模型",
+                           L"voice_input.asr_model", asr_preset);
     if (doubao || indexing_) {
       add_row(group, 0xE8D7, L"豆包鉴权方式", L"新版控制台使用单 API Key；旧版使用 App ID + Access Token",
               select_control(L"豆包鉴权方式",
@@ -16734,7 +16738,7 @@ private:
       reset_local_models();
   }
 
-  // 「文本润色」（VoicePolishSettingsSection 的 Windows 分支）：关着时只有开关；打开后是服务、预置模型、模型、地址、令牌、润色方案和提示词，最后是测试。
+  // 「文本润色」（VoicePolishSettingsSection 的 Windows 分支）：关着时只有开关；打开后是服务、接入说明、模型、地址、令牌、润色方案和提示词，最后是测试。
   void build_polish_group(StackPanel const &page) {
     auto group = add_group(page, L"文本润色");
     group.Children().Append(group_note(L"识别结果可交给用户管理的服务润色"));
@@ -16764,9 +16768,11 @@ private:
                                apply_provider_update(doc, L"polish", update);
                              }, true);
                            }));
-    add_voice_preset(group, L"文本润色", vs::find_defaults(vs::polish_provider_defaults(), provider),
-                     L"voice_input.polish_model");
-    voice_text_row(group, 0xE950, L"模型", L"", L"文本润色模型", L"voice_input.polish_model");
+    const auto *polish_preset = vs::find_defaults(vs::polish_provider_defaults(), provider);
+    if (polish_preset)
+      add_provider_link(group, L"文本润色", polish_preset->documentation);
+    add_voice_model_picker(group, L"模型", L"", L"文本润色模型", L"voice_input.polish_model",
+                           polish_preset);
     voice_text_row(group, 0xE71B, L"润色接口地址", L"留空使用当前服务的默认地址", L"润色接口地址",
                    L"voice_input.polish_endpoint");
     voice_text_row(group, 0xE72E, L"润色 API Token", L"仅保存在本机设置中", L"润色 API Token",
@@ -17584,20 +17590,13 @@ private:
     change(edit, true);
   }
 
-  // 输入框的改动不重画整页，跟着变的控件就地更新：Token 行、地址说明、预置模型和已获取模型的选中项、「获取模型列表」、「测试 AI 辅助配置」和测试工具。
+  // 输入框的改动不重画整页，跟着变的控件就地更新：Token 行、地址说明、「获取模型列表」、「测试 AI 辅助配置」和测试工具。
   void sync_ai() {
     for (auto const &update : ai_sync_)
       update();
     refresh_credential_test(L"ai.assistant");
     refresh_ai_test();
     refresh_ai_models();
-  }
-
-  void resync_ai() {
-    DispatcherQueue().TryEnqueue([weak = get_weak()] {
-      if (auto self = weak.get(); self && !self->closed_)
-        self->sync_ai();
-    });
   }
 
   // add_row 画出的卡片标题下的那行说明；没有说明时补一个收起的，供就地更新。
@@ -17624,7 +17623,7 @@ private:
     line.Visibility(value.empty() ? Visibility::Collapsed : Visibility::Visible);
   }
 
-  // 共享 AI 页（`ai-settings-content.tsx`、`ai-settings-page-section.tsx`）在 Windows 上的内容，顺序也相同：「服务」（开关、服务提供商、API Token、预置模型和接入说明、模型、获取模型列表和已获取模型、「更多选项」里的接口地址，末尾是「测试 AI 辅助配置」），「联想」（候选数量），「提示词」（方案和所选槽位的提示词），「测试工具」（AI 润色测试）。Windows 的设置应用没有 AI 对话（宿主不提供 chat），所以最后没有「AI 对话」一组。Token 存在偏好文件里，按接口地址的来源键分开存（ai_assistant.tokens）。服务商表和规则在 AiSettings.h。
+  // 共享 AI 页（`ai-settings-content.tsx`、`ai-settings-page-section.tsx`）在 Windows 上的内容，顺序也相同：「服务」（开关、服务提供商、API Token、接入说明、模型（预置的和获取到的模型在一个下拉里，末项「自定义…」）、获取模型列表、「更多选项」里的接口地址，末尾是「测试 AI 辅助配置」），「联想」（候选数量），「提示词」（方案和所选槽位的提示词），「测试工具」（AI 润色测试）。Windows 的设置应用没有 AI 对话（宿主不提供 chat），所以最后没有「AI 对话」一组。Token 存在偏好文件里，按接口地址的来源键分开存（ai_assistant.tokens）。服务商表和规则在 AiSettings.h。
   void build_ai_page(StackPanel const &page) {
     if (!indexing_) {
       credential_test_views_.clear();
@@ -17669,22 +17668,30 @@ private:
     build_ai_token_row(service, endpoint);
 
     const auto *preset = ais::find_provider(provider);
-    if (preset)
-      add_provider_preset(service, L"AI ", preset->models, preset->documentation,
-                          L"ai_assistant.model", ai_sync_, [this] { resync_ai(); },
-                          [this](std::wstring const &value) {
-                            ai_change([&](PreferencesDocument &doc) {
-                              doc.SetString(L"ai_assistant.model", value);
-                            }, false);
-                          });
-    add_row(service, 0xE950, L"模型", L"",
-            credential_input(L"AI 模型", document_.String(L"ai_assistant.model", L""), false, L"",
-                             true, [this](std::wstring const &value) {
-                               write_credential(L"ai_assistant.model", value);
-                               ai_edited(false);
-                               sync_ai();
-                               return true;
-                             }));
+    std::vector<std::wstring> known_models;
+    if (preset) {
+      add_provider_link(service, L"AI ", preset->documentation);
+      for (auto const &entry : preset->models)
+        known_models.emplace_back(entry);
+    }
+    if (ai_models_)
+      known_models.insert(known_models.end(), ai_models_->begin(), ai_models_->end());
+    add_model_picker(
+        service, L"模型", L"", L"AI 模型", L"ai_assistant.model", known_models,
+        [this](std::wstring const &value) {
+          ai_change([&](PreferencesDocument &doc) {
+            doc.SetString(L"ai_assistant.model", value);
+          }, false);
+        },
+        [this](std::wstring const &name) {
+          return credential_input(name, document_.String(L"ai_assistant.model", L""), false, L"",
+                                  true, [this](std::wstring const &value) {
+                                    write_credential(L"ai_assistant.model", value);
+                                    ai_edited(false);
+                                    sync_ai();
+                                    return true;
+                                  });
+        });
     StackPanel models;
     models.Spacing(4);
     service.Children().Append(models);
@@ -17868,38 +17875,15 @@ private:
     });
   }
 
-  // 「服务模型」一行（获取模型列表）、拿到模型后的「已获取模型」下拉框和获取的结果。按钮在接口地址能用时可按，获取中显示「获取中…」。整块随状态重画，见 refresh_ai_models。
+  // 「服务模型」一行（获取模型列表）和获取的结果。按钮在接口地址能用时可按，获取中显示「获取中…」。整块随状态重画，见 refresh_ai_models；获取到的模型列在上面的模型下拉里，所以拿到列表后整页重画。
   void fill_ai_models(StackPanel const &host) {
     host.Children().Clear();
     const auto endpoint = ai_endpoint();
-    add_row(host, 0xE895, L"服务模型", L"从当前服务的模型目录读取；服务不支持时可继续手动填写模型。",
+    add_row(host, 0xE895, L"服务模型",
+            L"从当前服务的模型目录读取，加进上面的模型列表；服务不支持时选「自定义…」自己填写。",
             button_control(ai_models_busy_ ? L"获取中…" : L"获取模型列表",
                            [this] { fetch_ai_models(); },
                            loaded_ && !ai_models_busy_ && endpoint.origin.has_value()));
-    if ((ai_models_ && !ai_models_->empty()) || indexing_) {
-      const auto model = document_.String(L"ai_assistant.model", L"");
-      std::vector<Option> options{{L"", L"选择模型…"}};
-      bool known = false;
-      if (ai_models_)
-        for (auto const &entry : *ai_models_) {
-          options.push_back({entry, entry});
-          known = known || entry == model;
-        }
-      auto combo = select_control(L"已获取的 AI 模型", std::move(options), known ? model : L"",
-                                  [this](std::wstring const &value) {
-                                    if (value.empty() ||
-                                        value == document_.String(L"ai_assistant.model", L"")) {
-                                      // ModelSelect 受控：选「选择模型…」不改模型，选中项回到当前模型。
-                                      resync_ai();
-                                      return;
-                                    }
-                                    ai_change([&](PreferencesDocument &doc) {
-                                      doc.SetString(L"ai_assistant.model", value);
-                                    }, false);
-                                  });
-      combo.Width(240);
-      add_row(host, 0xE8FD, L"已获取模型", L"", combo);
-    }
     if (!ai_models_status_.empty()) {
       auto status = group_note(ai_models_status_);
       A11y::SetLiveSetting(status, Automation::Peers::AutomationLiveSetting::Polite);
@@ -17969,7 +17953,8 @@ private:
           const auto next = ais::fetched_model(*models, document_.String(L"ai_assistant.model", L""));
           ai_models_ = std::move(models);
           if (next.empty()) {
-            refresh_ai_models();
+            // 列表进了模型下拉，整页重画。
+            queue_refresh();
             return;
           }
           // 当前模型不在列表里时换成第一个（共享页的 updateAi({model})），整页重画。
@@ -18714,6 +18699,8 @@ private:
   // 「AI 辅助」页（共享页 useAiAssistant 的状态，跨页面重建保留）：已获取的模型和获取的提示，待润色文字、测试结果和状态，两个请求是否在进行。ai_generation_ 在每次改 AI 设置时递增，作废进行中的请求；两个请求各自的序号作废同一种的更早请求。「更多选项」是否展开在第一次画这一页时按接口地址能不能用决定。随输入就地更新的控件每次绘制时重建。
   std::optional<std::vector<std::wstring>> ai_models_;
   std::wstring ai_models_status_;
+  // 选了「自定义…」的模型下拉（add_model_picker）：模型的键对应选的时候列出的模型，跨页面重建保留，列表换了就不算数。
+  std::map<std::wstring, std::wstring> custom_model_lists_;
   bool ai_models_busy_ = false;
   std::wstring ai_test_input_;
   std::wstring ai_test_output_;

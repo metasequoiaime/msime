@@ -1400,7 +1400,7 @@ test("Android AI settings fetch models and run a native-hosted polish test", asy
   fireEvent.change(screen.getByLabelText("AI API Token"), { target: { value: "fixture-token" } });
   fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
   await screen.findByText("已获取 2 个可用模型。");
-  fireEvent.change(screen.getByRole("combobox", { name: "已获取的 AI 模型" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "AI 模型" }), {
     target: { value: "fixture-fast" },
   });
   fireEvent.change(screen.getByLabelText("AI 测试输入"), { target: { value: "fixture input" } });
