@@ -5,6 +5,7 @@ import unittest
 
 
 SOURCE = Path("platforms/ios/App/Sources/community/SkinCommunityView.swift").read_text()
+TASK = Path("platforms/ios/App/Sources/app/ViewRequestTask.swift")
 
 
 class CommunitySkinLifecycleTests(unittest.TestCase):
@@ -43,10 +44,12 @@ class CommunitySkinLifecycleTests(unittest.TestCase):
         self.assertIn("request.disappear()", self.detail)
         self.assertIn("pending?.cancel()", self.detail)
         self.assertIn("run(_ action: @escaping @MainActor (UUID) async throws -> Void)", self.detail)
-        self.assertIn("let id = request.begin()", self.detail)
+        self.assertIn("ViewRequestTask.run(request: $request, busy: $busy, message: $message, pending: $pending", self.detail)
         self.assertGreaterEqual(self.detail.count("Button { run { id in"), 3)
         self.assertGreaterEqual(self.detail.count("try request.checkCurrent(id)"), 4)
-        self.assertIn("catch is CancellationError", self.detail)
+        helper = TASK.read_text()
+        self.assertIn("let id = request.wrappedValue.begin()", helper)
+        self.assertIn("catch is CancellationError", helper)
 
     def test_publish_cancels_after_leaving(self):
         self.assertIn("@State private var pending: Task<Void, Never>?", self.publish)
