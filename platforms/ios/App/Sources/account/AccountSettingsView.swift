@@ -291,7 +291,7 @@ struct AccountSettingsView: View {
   @MainActor private func setCloudSync(_ enabled: Bool) {
     guard request.isVisible else { return }
     let id = syncGeneration.begin()
-    syncTask?.cancel()
+    ViewRequestTask.cancel(task: $syncTask)
     syncTask = Task { @MainActor in
       defer { if syncGeneration.isCurrent(id) { syncTask = nil } }
       do {
@@ -435,7 +435,7 @@ struct AccountSettingsView: View {
   @MainActor private func startCloudRefresh() {
     guard request.isVisible else { return }
     let id = syncGeneration.begin()
-    syncTask?.cancel()
+    ViewRequestTask.cancel(task: $syncTask)
     syncTask = Task { @MainActor in
       defer { if syncGeneration.isCurrent(id) { syncTask = nil } }
       await cloudSync.refresh()
