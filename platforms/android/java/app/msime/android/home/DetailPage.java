@@ -11,7 +11,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.FrameLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.TextView;
 import java.util.LinkedHashMap;
 import java.util.ArrayList;
@@ -96,7 +95,7 @@ public abstract class DetailPage extends HomeTabFragment {
         shownSection = section;
         if (!labels.equals(visibleSections)) {
             visibleSections = List.copyOf(labels);
-            sectionTabs.setFillWidth(false);
+            sectionTabs.setFillWidth(true);
             sectionTabs.setOptions(labels, labels.indexOf(section));
         } else sectionTabs.setSelection(labels.indexOf(section));
         for (Map.Entry<String, LinearLayout> entry : sections.entrySet()) {
@@ -110,9 +109,7 @@ public abstract class DetailPage extends HomeTabFragment {
     /** 需要常驻分类导航的详情页在标题下提供一个控件，其余页面沿用滚动标题。 */
     @Nullable protected View fixedNavigation() {
         if (sectionTitles().isEmpty()) return null;
-        HorizontalScrollView navigation = new HorizontalScrollView(requireContext());
-        navigation.setHorizontalScrollBarEnabled(false);
-        navigation.setFillViewport(true);
+        FrameLayout navigation = new FrameLayout(requireContext());
         navigation.setMinimumHeight(DimensionPolicy.pixels(requireContext(), 48));
         ViewPolicy.setSymmetricPaddingDp(requireContext(), navigation, Ui.PAGE_PADDING, 4);
         ViewPolicy.setBackgroundColor(navigation, ThemeColorPolicy.page(requireContext()));
@@ -133,8 +130,8 @@ public abstract class DetailPage extends HomeTabFragment {
             updateSections(requireView().findViewById(R.id.ms_detail_column));
             scrollView().scrollTo(0, 0);
         });
-        navigation.addView(sectionTabs, new ViewGroup.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, DimensionPolicy.pixels(requireContext(), 40)));
+        navigation.addView(sectionTabs, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, DimensionPolicy.pixels(requireContext(), 40)));
         return navigation;
     }
 
