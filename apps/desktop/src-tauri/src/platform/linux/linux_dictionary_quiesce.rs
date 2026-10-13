@@ -73,6 +73,9 @@ mod tests {
             .and_then(|text| text.lines().next()?.parse().ok())
     }
 
+    /// How long the test waits for something that normally happens within milliseconds before calling it stuck. It only guards against a hang: on a loaded machine (a CI runner, or several builds at once) writing the lease has taken longer than two seconds, which failed the test without anything being wrong.
+    const PATIENCE: Duration = Duration::from_secs(30);
+
     #[test]
     fn a_hold_waits_for_the_session_to_close_and_keeps_the_lease_until_dropped() {
         let directory = tempfile::tempdir().unwrap();
@@ -84,7 +87,7 @@ mod tests {
         let host = {
             let user = user.clone();
             std::thread::spawn(move || {
-                let deadline = Instant::now() + Duration::from_secs(2);
+                let deadline = Instant::now() + PATIENCE;
                 while !user.join(LEASE_NAME).exists() {
                     assert!(Instant::now() < deadline, "the lease never appeared");
                     std::thread::sleep(Duration::from_millis(5));
@@ -92,7 +95,7 @@ mod tests {
                 drop(session);
             })
         };
-        let held = hold_with(&user, Duration::from_secs(2), || {
+        let held = hold_with(&user, PATIENCE, || {
             DictionaryAccess::try_maintenance(&user, &user)
         })
         .unwrap()
@@ -105,7 +108,7 @@ mod tests {
             .is_none());
         drop(held);
         assert!(!user.join(LEASE_NAME).exists());
-        let deadline = Instant::now() + Duration::from_secs(2);
+        let deadline = Instant::now() + PATIENCE;
         while DictionaryAccess::try_session(&user, &user)
             .unwrap()
             .is_none()

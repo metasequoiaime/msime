@@ -330,6 +330,13 @@ mod tests {
         path
     }
 
+    /// Runs `body` through `/bin/sh -c` with `arguments` as `$1`, `$2`, ... instead of writing it to an executable file first. A test that writes an executable and execs it races every other test in the binary that forks a child at that moment: the child inherits the still-open write descriptor until it execs, and Linux refuses to exec a file open for writing (`ETXTBSY`), which `run_setup` reports as `setup_unavailable`.
+    fn shell(body: &str, arguments: &[OsString]) -> (PathBuf, Vec<OsString>) {
+        let mut shell_arguments = vec![OsString::from("-c"), body.into(), "sh".into()];
+        shell_arguments.extend(arguments.iter().cloned());
+        (PathBuf::from("/bin/sh"), shell_arguments)
+    }
+
     #[test]
     fn the_copy_beside_the_binary_wins_over_path() {
         let root = scratch("find");
@@ -478,12 +485,11 @@ mod tests {
 
     #[test]
     fn output_is_streamed_with_its_channel_and_failure_is_reported() {
-        let root = scratch("run");
-        let program = script(&root, "echo \"state $2\"; echo problem >&2");
+        let arguments = setup_arguments(Path::new("/state"), false, true);
+        let (program, streaming) = shell("echo \"state $2\"; echo problem >&2", &arguments);
         let lines = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&lines);
-        let arguments = setup_arguments(Path::new("/state"), false, true);
-        run_setup(&program, &arguments, Duration::from_secs(10), move |line| {
+        run_setup(&program, &streaming, Duration::from_secs(10), move |line| {
             sink.lock().unwrap().push((line.text, line.error));
         })
         .unwrap();
@@ -496,30 +502,37 @@ mod tests {
                 ("state /state".to_string(), false)
             ]
         );
-        let failing = script(&root, "exit 1");
+        let (failing, failing_arguments) = shell("exit 1", &arguments);
         assert_eq!(
-            run_setup(&failing, &arguments, Duration::from_secs(10), |_| {}),
+            run_setup(
+                &failing,
+                &failing_arguments,
+                Duration::from_secs(10),
+                |_| {}
+            ),
             Err(LinuxSetupError::new("setup_failed"))
         );
-        let hanging = script(&root, "exec sleep 30");
+        let (hanging, hanging_arguments) = shell("exec sleep 30", &arguments);
         assert_eq!(
-            run_setup(&hanging, &arguments, Duration::from_millis(200), |_| {}),
+            run_setup(
+                &hanging,
+                &hanging_arguments,
+                Duration::from_millis(200),
+                |_| {}
+            ),
             Err(LinuxSetupError::new("setup_timeout"))
         );
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn a_background_child_cannot_hold_the_setup_output_open() {
-        let root = scratch("background");
-        let program = script(&root, "sleep 3 &");
+        let (program, arguments) = shell("sleep 3 &", &[]);
         let started = Instant::now();
 
         assert_eq!(
-            run_setup(&program, &[], Duration::from_secs(1), |_| {}),
+            run_setup(&program, &arguments, Duration::from_secs(1), |_| {}),
             Ok(())
         );
         assert!(started.elapsed() < Duration::from_secs(2));
-        std::fs::remove_dir_all(root).unwrap();
     }
 }
