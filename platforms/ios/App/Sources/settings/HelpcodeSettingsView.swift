@@ -27,7 +27,6 @@ struct HelpcodeSettingsView: View {
     ("shouyouplus", "首右plus"), ("xiaohe", "小鹤"), ("jiajia", "加加"), ("wubi86", "五笔 86"),
   ]
 
-  @Environment(\.scenePhase) private var scenePhase
   @State private var enabled: [String: Bool] = [:]
   @State private var schema: [String: String] = [:]
   @State private var shown: [String: Bool] = [:]
@@ -98,8 +97,7 @@ struct HelpcodeSettingsView: View {
       }
     }
     .navigationTitle("辅助码").navigationBarTitleDisplayMode(.inline)
-    .onAppear { request.appear(); reload() }
-    .onChange(of: scenePhase) { if $0 == .active { reload() } }
+    .reloadOnAppearAndActive(reload, onAppear: { request.appear() })
     .onDisappear {
       ViewRequestTask.disappear(request: $request, pending: $pending)
       busy = false

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { saveSettingsNow, settingsFormReady } from "../support/settings-form";
+import { selectSettingsTab, saveSettingsNow, settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
@@ -124,6 +124,7 @@ function renderSettings(
 }
 
 function schemeGroup() {
+  selectSettingsTab("方案");
   return screen.getByRole("region", { name: "方案" });
 }
 
@@ -131,6 +132,7 @@ test("picking 日文 saves the scheme at once and downloads the Japanese diction
   const packs = fakePacks();
   const save = renderSettings("macos", packs.client);
   await settingsFormReady();
+  selectSettingsTab("进阶");
   await waitFor(() => expect(packs.client.list).toHaveBeenCalled());
   // 列表读到之后才会下载；先等列表里的状态进入页面。
   await screen.findByRole("switch", { name: /^临时日语/ });
@@ -154,6 +156,7 @@ test("picking 粤拼 downloads the language dictionaries and shows the progress"
   const packs = fakePacks();
   renderSettings("macos", packs.client);
   await settingsFormReady();
+  selectSettingsTab("进阶");
   await waitFor(() => expect(packs.client.list).toHaveBeenCalled());
   await screen.findByRole("button", { name: "下载日文词库" });
 
@@ -252,6 +255,7 @@ test("a host that bundles the dictionaries never downloads them", async () => {
 test("a host without a resource pack service never asks for one", async () => {
   renderSettings("windows");
   await settingsFormReady();
+  selectSettingsTab("候选与联想");
   fireEvent.click(await screen.findByRole("switch", { name: "桌面神经联想" }));
   expect(screen.queryByRole("button", { name: "下载桌面神经联想模型" })).toBeNull();
 });
@@ -260,6 +264,7 @@ test("turning on 桌面神经联想 downloads its model and shows the progress",
   const packs = fakePacks({}, ["handwriting", "settled-model"]);
   const save = renderSettings("windows", packs.client);
   await settingsFormReady();
+  selectSettingsTab("候选与联想");
   const neural = await screen.findByRole("switch", { name: "桌面神经联想" });
   await waitFor(() => expect(screen.getByText(/需下载约 25 MB 模型/)).toBeTruthy());
   // 开关关着时不下载，也不列出下载行。
@@ -302,6 +307,7 @@ test("turning on 桌面神经联想 before the pack list arrives still downloads
   });
   renderSettings("windows", packs.client);
   await settingsFormReady();
+  selectSettingsTab("候选与联想");
   await waitFor(() => expect(packs.client.list).toHaveBeenCalled());
   fireEvent.click(await screen.findByRole("switch", { name: "桌面神经联想" }));
   expect(packs.client.install).not.toHaveBeenCalled();
@@ -325,6 +331,7 @@ test("an early 桌面神经联想 request downloads nothing once the list shows 
   });
   renderSettings("windows", packs.client);
   await settingsFormReady();
+  selectSettingsTab("候选与联想");
   fireEvent.click(await screen.findByRole("switch", { name: "桌面神经联想" }));
   await act(async () => releaseList());
   await act(async () => {
@@ -338,6 +345,7 @@ test("a bundled 桌面神经联想 model needs no download", async () => {
   const packs = fakePacks({}, ["handwriting"]);
   renderSettings("linux", packs.client);
   await settingsFormReady();
+  selectSettingsTab("候选与联想");
   await waitFor(() => expect(packs.client.list).toHaveBeenCalled());
   fireEvent.click(await screen.findByRole("switch", { name: "桌面神经联想" }));
   await act(async () => {
@@ -354,6 +362,7 @@ test("a failed download offers the download mirror in place", async () => {
     preferences: { ...initial.preferences, sentence_association: { neural_desktop: true } },
   });
   await settingsFormReady();
+  selectSettingsTab("候选与联想");
   fireEvent.click(await screen.findByRole("button", { name: "下载桌面神经联想模型" }));
   await packs.fail("settled-model", "local_model_network");
   expect(await screen.findByText(/请检查网络，或设置下载镜像后再试/)).toBeTruthy();
@@ -383,6 +392,7 @@ test("retrying right after typing a mirror saves the mirror before downloading",
     preferences: { ...initial.preferences, sentence_association: { neural_desktop: true } },
   });
   await settingsFormReady();
+  selectSettingsTab("候选与联想");
   fireEvent.click(await screen.findByRole("button", { name: "下载桌面神经联想模型" }));
   await packs.fail("settled-model", "local_model_network");
   fireEvent.click(await screen.findByRole("button", { name: "设置下载镜像" }));
@@ -421,6 +431,7 @@ test("retrying while a save is in flight waits for it and saves the mirror befor
   });
   renderSettings("windows", packs.client, snapshot, save);
   await settingsFormReady();
+  selectSettingsTab("候选与联想");
   fireEvent.click(await screen.findByRole("button", { name: "下载桌面神经联想模型" }));
   await packs.fail("settled-model", "local_model_network");
   fireEvent.click(await screen.findByRole("button", { name: "设置下载镜像" }));
@@ -452,6 +463,7 @@ test("临时日语 offers the Japanese dictionary but never downloads it on its 
   const packs = fakePacks();
   renderSettings("macos", packs.client);
   await settingsFormReady();
+  selectSettingsTab("进阶");
   const download = await screen.findByRole("button", { name: "下载日文词库" });
   expect(screen.getByText(/临时日语需要它/)).toBeTruthy();
   await act(async () => {

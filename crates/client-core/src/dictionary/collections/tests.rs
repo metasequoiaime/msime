@@ -339,6 +339,17 @@ fn collections_unowned_words_are_queued_past_the_personal_queue_limit() {
 }
 
 #[test]
+fn collections_queue_words_counts_distinct_additions() {
+    let fixture = Fixture::new();
+    let word = english("alpha");
+
+    let view = fixture.store.queue_words(vec![word.clone(), word]).unwrap();
+
+    assert_eq!(view.queued, Some(1));
+    assert_eq!(fixture.requests().len(), 1);
+}
+
+#[test]
 fn collections_hold_at_most_twenty_thousand_entries() {
     let fixture = Fixture::new();
     let view = fixture

@@ -44,7 +44,7 @@ struct KeyboardSettingsView: View {
 ///
 /// 各项都以共享偏好文档为准，页面每次写完都重新读回，免得显示一个键盘其实没有的设置。只有「沿用上次的中英文」是例外，它由键盘从 App Group 的 `ImeModeMemoryPreference` 读取。
 struct InputSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
+  @ObservedObject private var resourcePacks = IOSResourcePackStore.shared
   /// 最近一次读到的共享文档；拼音纠错和辅助码两行直接读它。
   @State private var document: [String: Any]?
   @State private var inputScheme = InputSchemePreference.scheme
@@ -73,9 +73,9 @@ struct InputSettingsView: View {
   }
 
 
-  /// 页面可以提供的方案：本版本的全部条目，键盘扩展没带粤拼、注音、笔画的词库时去掉这几项，因为键盘那边也会把它们藏起来。
+  /// 设置始终提供本版本的方案；缺失词库在用户添加时下载，键盘只显示已可用的方案。
   private static let availableSchemes = ChineseInputScheme.allCases.filter(\.isOfferedByEdition)
-    .filter { !$0.needsLanguageDictionary || InputLanguage.installedDictionarySchemes.contains($0) }
+
 
   var body: some View {
     ScrollView {
@@ -93,16 +93,25 @@ struct InputSettingsView: View {
     .designCanvasBackground()
     .navigationTitle("输入")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear {
+    .reloadOnAppearAndActive({
+      resourcePacks.reload()
       reloadPreferences()
       reloadHelpcodePacks()
+    }, onAppear: {
+      // 真机下载验收期间仅保持当前设置页面亮屏。
+      if ProcessInfo.processInfo.arguments.contains("--resource-pack-ui-test") { UIApplication.shared.isIdleTimerDisabled = true }
+    })
+    .onDisappear {
+      if ProcessInfo.processInfo.arguments.contains("--resource-pack-ui-test") { UIApplication.shared.isIdleTimerDisabled = false }
     }
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active {
-        reloadPreferences()
-        reloadHelpcodePacks()
+    .alert("下载词库", isPresented: Binding(
+      get: { resourcePacks.meteredRequest != nil },
+      set: { if !$0 { resourcePacks.meteredRequest = nil } }), presenting: resourcePacks.meteredRequest) { id in
+        Button("下载") { resourcePacks.start(id) }
+        Button("取消", role: .cancel) { resourcePacks.meteredRequest = nil }
+      } message: { id in
+        Text("当前网络按流量计费或开启了低数据模式，词库大小约 \(resourcePacks.size(id))。是否继续？")
       }
-    }
   }
 
   /// 已导入的辅助码表只在页面出现时重读：目录会校验每个包的码表，不跟着每次写设置重读。从「更多辅助码设置」导入或删除后回到本页时会再出现一次。
@@ -151,13 +160,21 @@ struct InputSettingsView: View {
     ForEach(Array(languages.enumerated()), id: \.element) { index, language in
       if index > 0 { DesignDivider(leading: 58) }
       let shown = shownScheme(language)
-      InputLanguageRow(language: language, value: shown?.shortLabel, options: options(for: language),
+      let pack = shown.flatMap(IOSResourcePacks.requiredPack)
+      InputLanguageRow(language: language, value: pack.map { resourcePacks.available($0) ? (shown?.shortLabel ?? "") : resourcePacks.describe($0) } ?? shown?.shortLabel, options: options(for: language),
                        selected: selectedChoice(in: language)) { choose($0, in: language) }
+      if language == .mandarin && available(language).contains(where: \.needsLanguageDictionary) && !resourcePacks.available("language-dictionaries") {
+        packDownloadRow("language-dictionaries", title: "粤拼、注音和笔画词库")
+      } else if let pack, !resourcePacks.available(pack) {
+        packDownloadRow(pack, title: "\(language.name)词库")
+      }
     }
     if addingLanguage {
       ForEach(addable) { language in
         DesignDivider(leading: 0)
-        AddableLanguageRow(language: language) { add(language) }
+        AddableLanguageRow(language: language, detail: available(language).first.flatMap(IOSResourcePacks.requiredPack).map {
+          resourcePacks.available($0) ? "添加" : "添加并下载 \(resourcePacks.size($0))"
+        } ?? "添加") { add(language) }
       }
     }
     if !addable.isEmpty {
@@ -245,7 +262,13 @@ struct InputSettingsView: View {
     switch choice {
     case .scheme(let scheme):
       // 方案尚未启用时，`select` 在同一次写入里顺带启用它。
-      record(InputSchemePreference.select(scheme), .languages)
+      if let pack = IOSResourcePacks.requiredPack(for: scheme), !resourcePacks.available(pack) {
+        let saved = InputSchemePreference.setEnabled(scheme, true)
+        record(saved, .languages)
+        if saved { resourcePacks.request(pack) }
+      } else {
+        record(InputSchemePreference.select(scheme), .languages)
+      }
     case .wubi(let profile):
       record(WubiProfilePreference.save(profile) && InputSchemePreference.select(.wubi), .languages)
     case .remove:
@@ -259,7 +282,9 @@ struct InputSettingsView: View {
     var refused = false
     let written = InputSchemePreference.update { selection in
       let remaining = selection.enabled.filter { !language.schemes.contains($0) }
-      let runnable = remaining.filter(Self.availableSchemes.contains)
+      let runnable = remaining.filter { scheme in
+        Self.availableSchemes.contains(scheme) && (IOSResourcePacks.requiredPack(for: scheme).map(resourcePacks.available) ?? true)
+      }
       guard let fallback = runnable.contains(.quanpin) ? ChineseInputScheme.quanpin : runnable.first else {
         refused = true
         return
@@ -279,8 +304,31 @@ struct InputSettingsView: View {
     guard let first = available(language).first else { return }
     let saved = InputSchemePreference.setEnabled(first, true)
     record(saved, .languages)
-    if saved { ToastCenter.shared.show("已添加\(language.name)") }
+    if saved {
+      if let pack = IOSResourcePacks.requiredPack(for: first), !resourcePacks.available(pack) { resourcePacks.request(pack) }
+      else { ToastCenter.shared.show("已添加\(language.name)") }
+    }
     reloadPreferences()
+  }
+
+  private func packDownloadRow(_ id: String, title: String) -> some View {
+    Button {
+      if resourcePacks.statuses[id]?.running == true { resourcePacks.cancel(id) }
+      else { resourcePacks.request(id) }
+    } label: {
+      HStack {
+        VStack(alignment: .leading, spacing: 4) {
+          Text(title).foregroundStyle(.primary)
+          Text(resourcePacks.describe(id)).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+        }
+        Spacer()
+        Text(resourcePacks.statuses[id]?.running == true ? "取消" : "下载").foregroundStyle(MetasequoiaTheme.accent)
+      }
+      .padding(.horizontal, 16).frame(maxWidth: .infinity, minHeight: 52)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(PressFillButtonStyle())
+    .accessibilityIdentifier("downloadResourcePack_\(id)")
   }
 
   // MARK: - 中文
@@ -551,6 +599,7 @@ private struct InputLanguageRow<Choice: Hashable>: View {
 /// 添加语言里可添加的一个语言：描边图块、次要色的语言名和强调色的「添加」。点整行即可添加。
 private struct AddableLanguageRow: View {
   let language: InputLanguage
+  var detail: String = "添加"
   let add: () -> Void
 
   var body: some View {
@@ -565,7 +614,7 @@ private struct AddableLanguageRow: View {
           .accessibilityHidden(true)
         Text(language.name).font(.system(size: 17)).foregroundStyle(MetasequoiaTheme.sub)
         Spacer(minLength: 8)
-        Text("添加").font(.system(size: 15)).foregroundStyle(MetasequoiaTheme.accent)
+        Text(detail).font(.system(size: 15)).foregroundStyle(MetasequoiaTheme.accent)
       }
       .padding(.horizontal, 16)
       .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)

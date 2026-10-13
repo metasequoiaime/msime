@@ -7,7 +7,7 @@ import {
   normalizeAppInputModeRuleId,
   sortedAppInputModeRules,
 } from "../../../../packages/ui/src/settings/app-input-mode-rules";
-import { saveSettingsNow, settingsFormReady } from "../support/settings-form";
+import { selectSettingsTab, saveSettingsNow, settingsFormReady } from "../support/settings-form";
 import { testHost } from "../support/host";
 
 afterEach(cleanup);
@@ -70,6 +70,7 @@ test("a Windows host edits the rule table in the 中英文 group and saves it to
   }));
   mount({ host: testHost({ platform: "windows", app_input_mode_rules: true }), save });
   await settingsFormReady();
+  selectSettingsTab("中英文");
   const table = await screen.findByRole("group", { name: "应用例外" });
   expect(table.textContent).toContain("还没有应用例外");
 
@@ -107,6 +108,7 @@ test("the Enter that commits an IME composition does not add a rule", async () =
   const save = vi.fn();
   mount({ host: testHost({ platform: "windows", app_input_mode_rules: true }), save });
   await settingsFormReady();
+  selectSettingsTab("中英文");
   const input = screen.getByLabelText("程序文件名");
   fireEvent.change(input, { target: { value: "code.exe" } });
   fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
@@ -128,6 +130,7 @@ test("a Windows host offers the input mode badge and the Alt+Shift+H switch", as
     }),
   });
   await settingsFormReady();
+  selectSettingsTab("中英文");
   expect(screen.getByLabelText("中英文切换提示")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(await screen.findByRole("switch", { name: "Alt+Shift+H 切换全半角" })).toBeTruthy();
@@ -136,6 +139,7 @@ test("a Windows host offers the input mode badge and the Alt+Shift+H switch", as
 test("hosts that do not apply rules show no rule table", async () => {
   mount({ host: testHost({ platform: "linux", ime_mode_scope: true }) });
   await settingsFormReady();
+  selectSettingsTab("中英文");
   expect(screen.queryByRole("group", { name: "应用例外" })).toBeNull();
 });
 
@@ -174,6 +178,7 @@ test("a host with an application picker adds rules by picking an application and
     />,
   );
   await settingsFormReady();
+  selectSettingsTab("中英文");
   const table = await screen.findByRole("group", { name: "应用例外" });
   // 已有规则按名称列出，Bundle ID 退到说明里；查不到名称（没装、别的机器同步来）的照旧显示 Bundle ID。
   expect(((await screen.findByLabelText("终端 的输入模式")) as HTMLSelectElement).value).toBe(
@@ -225,6 +230,7 @@ test("a Windows program picked from the dialog becomes its lower-cased file name
     applicationNames,
   });
   await settingsFormReady();
+  selectSettingsTab("中英文");
   fireEvent.click(await screen.findByRole("button", { name: "添加应用…" }));
   expect(await screen.findByLabelText("Code 的输入模式")).toBeTruthy();
   expect(screen.getByRole("group", { name: "应用例外" }).textContent).toContain("code.exe");

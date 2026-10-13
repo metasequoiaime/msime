@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { SettingsPage, type HostCapabilities, type Snapshot } from "@msime/ui";
@@ -98,7 +98,9 @@ async function openVoice(platform: string) {
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   // The token fields are hidden on Linux, where credentials belong to the
   // provider service, so wait on a control both platforms render.
-  return await screen.findByLabelText(platform === "android" ? "识别语言" : "识别服务");
+  return await screen.findByRole("combobox", {
+    name: platform === "android" ? "识别语言" : "识别服务",
+  });
 }
 
 test("a pasted recognition token can be revealed to check it", async () => {
@@ -118,8 +120,9 @@ test("a pasted recognition token can be revealed to check it", async () => {
 test("the Doubao app key and polish token get the same toggle", async () => {
   await openVoice("windows");
   // 润色关闭时语音页把令牌连同整组收起，先打开润色。
-  fireEvent.click(screen.getByRole("switch", { name: "启用文本润色" }));
   expect(screen.getByRole("button", { name: "显示Doubao App Key" })).toBeTruthy();
+  selectSettingsTab("润色");
+  fireEvent.click(screen.getByRole("switch", { name: "启用文本润色" }));
   expect(screen.getByRole("button", { name: "显示润色 API Token" })).toBeTruthy();
 });
 
@@ -306,6 +309,7 @@ test("文本润色 shows only its switch until polishing is turned on", async ()
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  selectSettingsTab("润色");
   const polish = screen.getByRole("region", { name: "文本润色" });
   expect(within(polish).getByRole("switch", { name: "启用文本润色" })).toBeTruthy();
   expect(within(polish).queryByLabelText("文本润色服务提供商")).toBeNull();

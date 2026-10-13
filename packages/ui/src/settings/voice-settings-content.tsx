@@ -42,6 +42,7 @@ import type { ProviderPresetControlFactory } from "./provider-preset-control";
 import type { useProviderCredentials, VoiceCredentialBindings } from "./use-provider-credentials";
 import { GroupList, LinkRow, MoreOptions } from "../core/platform-controls";
 import * as platform from "../core/platform-controls-style";
+import { useSettingsTabs } from "./use-settings-tabs";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
 
 /** HarmonyOS 手机上豆包「服务配置」行的状态，与键盘的 `DoubaoCredentialPolicy` 同一套判断：密钥取当前框，空时取 `asr_tokens.doubao`；一项都没填时键盘用系统识别，填了一部分时键盘报缺项。 */
@@ -96,7 +97,7 @@ export interface VoiceSettingsContentProps extends VoiceCredentialBindings {
   captureBackendOptions: readonly VoiceCaptureBackendOption[];
 }
 
-/** Complete shared voice settings page; host state and effects stay with SettingsPage. */
+/** 共用语音设置页，宿主状态与副作用由设置表单持有。 */
 export function VoiceSettingsContent({
   disabled,
   hidden,
@@ -139,6 +140,17 @@ export function VoiceSettingsContent({
   showVoiceCaptureDevices,
   captureBackendOptions,
 }: VoiceSettingsContentProps) {
+  const { tabList, panel } = useSettingsTabs(
+    [
+      { id: "service", title: "识别服务" },
+      { id: "recording", title: "录音与结果" },
+      ...(showVoiceProviderSettings ? [{ id: "polish", title: "润色" }] : []),
+      ...(showVoiceHotkeys ? [{ id: "hotkeys", title: "快捷键" }] : []),
+      ...(showVoiceCaptureDevices ? [{ id: "devices", title: "录音设备" }] : []),
+    ],
+    "语音输入设置分类",
+    !mobilePlatform,
+  );
   // HarmonyOS 手机上「服务配置」子视图开着没有。和「浏览更多」图库一样压一条历史记录，系统返回手势先关它；离开语音页时它随之关上。
   const [phoneServiceOpen, setPhoneServiceOpen] = useState(false);
   useMobilePopState(mobilePlatform, (event) => {
@@ -461,22 +473,33 @@ export function VoiceSettingsContent({
   // 设置窗口的语音页：先选服务并把它配好（识别服务配置的末尾是检查按钮），再是快捷键、录音时的行为和识别结果怎么用，润色是可选的另一项服务，录音设备很少要改，放在最后。
   const content = (
     <>
-      {basics}
-      {providerConfigVisible && (
-        <GroupList title="识别服务配置">
-          {asrProviderSettings}
-          {asrCredentialVisible && credentialControl("asr")}
-          {doubaoOptionsVisible && <DoubaoOptionsRows {...doubaoOptionsProps} />}
-          {localModelSettings}
-          {asrCredentialTest && <SettingsGroupBlock>{asrCredentialTest}</SettingsGroupBlock>}
-          {asrServiceTest}
-        </GroupList>
+      {tabList}
+      {panel(
+        "service",
+        <>
+          {basics}
+          {providerConfigVisible && (
+            <GroupList title="识别服务配置">
+              {asrProviderSettings}
+              {asrCredentialVisible && credentialControl("asr")}
+              {doubaoOptionsVisible && <DoubaoOptionsRows {...doubaoOptionsProps} />}
+              {localModelSettings}
+              {asrCredentialTest && <SettingsGroupBlock>{asrCredentialTest}</SettingsGroupBlock>}
+              {asrServiceTest}
+            </GroupList>
+          )}
+        </>,
       )}
-      {hotkeys}
-      {recordingBehavior}
-      {recognitionResult}
-      {polish}
-      {captureDevices}
+      {showVoiceHotkeys && panel("hotkeys", hotkeys)}
+      {panel(
+        "recording",
+        <>
+          {recordingBehavior}
+          {recognitionResult}
+        </>,
+      )}
+      {showVoiceProviderSettings && panel("polish", polish)}
+      {showVoiceCaptureDevices && panel("devices", captureDevices)}
     </>
   );
   return (

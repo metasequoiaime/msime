@@ -179,7 +179,7 @@ platforms/ios/stage-resources.sh "$resource_dir"
 
 第二个可选参数是非英语离线释义目录（默认 `target/offline-glosses`，由 `scripts/build_offline_glosses.py` 生成，见 [docs/third-party.md](../../docs/third-party.md#非英语离线释义resourcesoffline-glosseslockjson)）。其中的 `zh-<语言>.db` 与 NOTICE 暂存到 `target/ios/offline-glosses`，键盘扩展把它作为 EngineResources 的同级目录打包；候选释义语言选了已安装的语言时，该行不需要完全访问或网络即可显示。目录总会创建，没有词典时为空，只有英语走离线释义。
 
-第三个可选参数是粤语、注音与笔画的语言词库目录（默认 `target/language-dictionaries`，由 `scripts/fetch_language_dictionaries.py` 按 `resources/language-dictionaries.lock.json` 下载，或由 `msime-dict-build languages` 生成）。其中的 `msime-cantonese.db`、`msime-zhuyin.db`、`msime-stroke.db` 连同各自的许可证文本暂存到 `target/ios/language-dictionaries`，键盘扩展和测试宿主把它作为 EngineResources 的同级目录打包；数据库缺少许可证文本时脚本报错退出。目录总会创建，没有词库时为空，这时键盘不提供这三个方案。发版构建设 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1`，`resources/language-dictionaries.lock.json` 固定的数据库（`fetch_language_dictionaries.py --list-databases`）没有都暂存就失败；锁固定 `msime-stroke.db` 之前笔画词库不在必需之列。`build-app.sh` 在暂存前先运行下载脚本；锁里还没有固定发布时它只打印一行跳过信息。
+第三个可选参数是粤语、注音与笔画的语言词库目录（默认 `target/language-dictionaries`）。开发构建默认完整暂存数据库和许可证；设置 `MSIME_IOS_OMIT_ON_DEMAND=1` 的 full/拼音构建省略日语和这三份附加词库，发布工作流使用此模式。日文独立版本继续随包提供主词库。瘦包的「输入 → 添加语言」仍列出可添加语言，用户添加或点下载后由主应用安装，显示大小、进度、取消与重试；计费或受限网络需要确认。下载复用 Android 的共享资源锁、校验和原子发布，保存到 App Group 的 `MSIME/resource-packs`，不进入备份；键盘下次取得焦点时刷新方案，只使用已发布资源。语音动态运行库继续内嵌。真机 Release `.app` 解压体积由约 340 MB 降至 254 MB，非 IPA 下载大小。
 
 只构建 Rust 宿主库时运行：
 
@@ -214,7 +214,7 @@ xcrun devicectl device install app --device <udid> \
   target/ios/derived-device/Build/Products/Release-iphoneos/MSIMEApp.app
 ```
 
-`fetch_voice_runtime.py` 按 `resources/voice-runtime.lock.json` 下载并校验 sherpa-onnx 运行库到 `target/voice-runtime/ios`，`MSIMEApp` 内嵌它做本地语音识别；缺了它 `xcodebuild` 会报 `There is no XCFramework found at '…/SherpaOnnxC.xcframework'`。`-allowProvisioningUpdates` 是必须的：键盘扩展的描述文件要由 Xcode 联网刷新，新设备也在这一步注册进去。App 与 `MSIMEKeyboardExtension` 都以 team `LXCL4Z68GU` 的 Apple Development 证书签名，扩展侧带全部已校验词库，App bundle 约 241 MB。
+`fetch_voice_runtime.py` 按 `resources/voice-runtime.lock.json` 下载并校验 sherpa-onnx 运行库到 `target/voice-runtime/ios`，`MSIMEApp` 内嵌它做本地语音识别；缺了它 `xcodebuild` 会报 `There is no XCFramework found at '…/SherpaOnnxC.xcframework'`。`-allowProvisioningUpdates` 是必须的：键盘扩展的描述文件要由 Xcode 联网刷新，新设备也在这一步注册进去。App 与 `MSIMEKeyboardExtension` 都以 team `LXCL4Z68GU` 的 Apple Development 证书签名，扩展侧携带按构建模式暂存的已校验词库。
 
 下面这条是 Tauri/React 公共组件的签名构建，不是 iOS 的产品宿主装机路径：
 

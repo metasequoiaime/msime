@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { selectSettingsTab, settingsFormReady } from "../support/settings-form";
 import { testHost } from "../support/host";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -67,6 +68,8 @@ test.each([
         }}
       />,
     );
+    await settingsFormReady();
+    selectSettingsTab("翻译服务");
     const button = await screen.findByRole("button", { name: label });
     expect(probe).not.toHaveBeenCalled();
     fireEvent.click(button);

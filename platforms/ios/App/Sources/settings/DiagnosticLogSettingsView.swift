@@ -16,7 +16,7 @@ struct DiagnosticLogSettingsView: View {
   var body: some View {
     Form {
       Section {
-        Toggle(isOn: Binding(get: { enabled }, set: save)) {
+        Toggle(isOn: logBinding) {
           SettingsOptionLabel(title: "记录键盘诊断日志", detail: "键盘出现、收起、设置应用和出错的时间")
         }.accessibilityIdentifier("diagnosticLogEnabled")
       } footer: {
@@ -63,14 +63,11 @@ struct DiagnosticLogSettingsView: View {
     .reloadOnAppearAndActive(reload).defaultScrollAnchor(.bottom)
   }
 
-  private func save(_ value: Bool) {
-    enabled = value
-    saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
-      var diagnostic = $0["diagnostic_log"] as? [String: Any] ?? [:]
-      diagnostic["server"] = value
-      $0["diagnostic_log"] = diagnostic
+  private var logBinding: Binding<Bool> {
+    SharedPreferenceBinding.nested("diagnostic_log", key: "server", state: $enabled) { saved in
+      saveFailed = !saved
+      if !saved { reload() }
     }
-    if saveFailed { reload() }
   }
 
   private func clear() {

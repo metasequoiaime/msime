@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { settingsFormReady } from "../support/settings-form";
+import { selectSettingsTab, settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
@@ -150,6 +150,7 @@ test("Linux polishing credential names the provider and model selected above", a
   });
   await openVoice(credentials);
   // 语音页在润色关闭时只留开关，凭据随润色一起展开。
+  selectSettingsTab("润色");
   fireEvent.click(await screen.findByRole("switch", { name: "启用文本润色" }));
   const group = await screen.findByRole("group", { name: "语音润色凭据" });
   await waitFor(() => expect(group.textContent).toContain("不一致"));

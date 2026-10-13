@@ -13,8 +13,10 @@ case "$variant" in
   *) echo "Unsupported iOS variant: $variant" >&2; exit 2 ;;
 esac
 
-# The Cantonese, Zhuyin and Stroke dictionaries pinned by resources/language-dictionaries.lock.json, into target/language-dictionaries where stage-resources.sh looks for them. Until a release is pinned the script prints a skipped line and fetches nothing.
-python3 "$repo_root/scripts/fetch_language_dictionaries.py" >/dev/null
+# 完整开发包预取附加词库，瘦包由主应用按用户操作下载安装。
+if [ "${MSIME_IOS_OMIT_ON_DEMAND:-0}" != 1 ]; then
+  python3 "$repo_root/scripts/fetch_language_dictionaries.py" >/dev/null
+fi
 bash "$repo_root/platforms/ios/stage-resources.sh" "$resource_dir"
 bash "$repo_root/platforms/ios/build-native.sh" "$native_variant"
 
@@ -47,7 +49,7 @@ xcodebuild "${build_container[@]}" \
   -derivedDataPath "$repo_root/target/ios/derived-$variant" \
   CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build
 
-# The keyboard extension is what loads the Cantonese, Zhuyin and Stroke dictionaries, so the built app is only worth shipping if the extension it embeds carries each one stage-resources.sh staged, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than the lock pins).
+# 完整包核对扩展内每份已暂存的语言词库及许可证。
 staged_languages="$repo_root/target/ios/language-dictionaries"
 keyboard_languages="$repo_root/target/ios/derived-$variant/Build/Products/Release-$sdk/MSIMEApp.app/PlugIns/MSIMEKeyboardExtension.appex/language-dictionaries"
 for pair in msime-cantonese.db:msime-rime_cantonese_LICENSE.txt msime-zhuyin.db:msime-libchewing_data_LICENSE.txt msime-stroke.db:msime-rime_stroke_LICENSE.txt; do
@@ -57,3 +59,14 @@ for pair in msime-cantonese.db:msime-rime_cantonese_LICENSE.txt msime-zhuyin.db:
     exit 1
   fi
 done
+
+# 验收最终内嵌扩展，防止旧构建资源残留让瘦包继续带附加词库。
+if [ "${MSIME_IOS_OMIT_ON_DEMAND:-0}" = 1 ]; then
+  keyboard_resources="${keyboard_languages%/language-dictionaries}/EngineResources"
+  for name in msime-japanese.dat msime-mozc_LICENSE.txt msime-mozc_dictionary_oss_README.txt; do
+    [ ! -e "$keyboard_resources/$name" ] || { echo "slim iOS bundle still contains $name" >&2; exit 1; }
+  done
+  for name in msime-cantonese.db msime-zhuyin.db msime-stroke.db; do
+    [ ! -e "$keyboard_languages/$name" ] || { echo "slim iOS bundle still contains $name" >&2; exit 1; }
+  done
+fi

@@ -48,16 +48,20 @@ enum InputLanguage: String, CaseIterable, Identifiable {
     allCases.first { $0.schemes.contains(scheme) } ?? .mandarin
   }
 
-  /// 内嵌键盘扩展携带的语言词库（粤语、注音、笔画）。键盘会把缺少词库的已启用方案排除在选择器之外，所以「输入」页也从不提供这样的方案。App bundle 不运行 Engine，也没有自己的词库，所以去扩展里找，也就是键盘的 `InputSchemePreference.installedLanguageSchemes` 找到这些词库的地方。没有扩展的 App 不提供这些方案。
-  static let installedDictionarySchemes: Set<ChineseInputScheme> = {
+  /// 设置合并随包词库与 App Group 已发布的资源包，下载后无需重启主应用。
+  static var installedDictionarySchemes: Set<ChineseInputScheme> {
     guard let plugIns = Bundle.main.builtInPlugInsURL,
           let contents = try? FileManager.default.contentsOfDirectory(at: plugIns, includingPropertiesForKeys: nil)
     else { return [] }
-    return contents.filter { $0.pathExtension == "appex" }
+    var installed = contents.filter { $0.pathExtension == "appex" }
       .compactMap(Bundle.init(url:))
       .reduce(into: Set<ChineseInputScheme>()) { installed, extensionBundle in
         let directory = InputSchemePreference.languageDictionaryDirectory(in: extensionBundle)
         installed.formUnion(InputSchemePreference.installedLanguageSchemes(in: directory) ?? [])
       }
-  }()
+    if (try? IOSResourcePacks.list())?.contains(where: { $0.id == "language-dictionaries" && $0.installed }) == true {
+      installed.formUnion([.cantonese, .zhuyin, .stroke])
+    }
+    return installed
+  }
 }

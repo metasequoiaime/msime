@@ -5,7 +5,6 @@ import UIKit
 ///
 /// 设计稿里的按键弹出预览没有做：键盘本身不支持。手势里的滑动输入符号和长按空格语音输入与 Android 一样是本机开关（`KeyboardLayoutPreference.swipeSymbols`、`spaceVoice`），默认开。工具栏语音按钮的开关挪到了语音输入页，由那一页单独写 `touch_voice_shortcut`；这里每次只保存用户刚动的那一项几何尺寸，见 `save(_:)`。
 struct KeyboardLayoutSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @State private var keySpacing = KeyboardLayoutPreference.keySpacing
   @State private var rowSpacing = KeyboardLayoutPreference.rowSpacing
   @State private var height = KeyboardLayoutPreference.heightAdjustment
@@ -54,11 +53,8 @@ struct KeyboardLayoutSettingsView: View {
     .designCanvasBackground()
     .tint(MetasequoiaTheme.accent)
     .navigationTitle("键盘").navigationBarTitleDisplayMode(.inline)
-    .onAppear { readPreferences() }
     // 这一页停在后台时，用户可能在键盘里改了高度或间距；回到前台重新读一遍文档，页面上才不会留着旧值。
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active { readPreferences() }
-    }
+    .reloadOnAppearAndActive(readPreferences)
   }
 
   // MARK: - 预览

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -35,6 +35,8 @@ test("macOS translation settings open on the 标点与翻译 page and save NiuTr
       }}
     />,
   );
+  await settingsFormReady();
+  selectSettingsTab("翻译服务");
   const appId = await screen.findByLabelText("NiuTrans App ID");
   expect(screen.getByRole("heading", { name: "标点与翻译" })).toBeDefined();
   expect(probe).not.toHaveBeenCalled();

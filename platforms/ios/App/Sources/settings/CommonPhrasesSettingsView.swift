@@ -2,7 +2,6 @@ import SwiftUI
 
 /// 常用语，对应 Android 的 `PhrasesPage`：列出键盘 常用语 面板中那些不带编码的短语，每条都可删除，并提供 添加常用语 操作。它通过 `CommonPhrasesBridge` 读写 App Group 里同一份 `CommonPhrases.json`，所以键盘下次打开面板时就会显示改动。每次调用存储都要拿文件锁并读写磁盘，所以放在主线程之外执行。
 struct CommonPhrasesSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @State private var phrases: [CommonPhrasesBridge.Phrase]?
   @State private var loadFailed = false
   @State private var adding = false
@@ -50,8 +49,7 @@ struct CommonPhrasesSettingsView: View {
     .designPage()
     .navigationTitle("常用语")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear { request.appear(); reload() }
-    .onChange(of: scenePhase) { _, phase in if phase == .active { reload() } }
+    .reloadOnAppearAndActive(reload, onAppear: { request.appear() })
     .onDisappear {
       ViewRequestTask.disappear(request: $request, pending: $pending)
       requestState.invalidate()

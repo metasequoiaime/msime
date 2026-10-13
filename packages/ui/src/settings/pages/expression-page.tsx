@@ -6,11 +6,19 @@ import { EnglishSuggestionsSection } from "../english-suggestions-section";
 import { PhonePunctuationSection, PunctuationSection } from "../punctuation-section";
 import { SentenceAssociationLevelRow } from "../sentence-association-section";
 import { TranslationSettingsContent } from "../translation-settings-content";
+import { useSettingsTabs } from "../use-settings-tabs";
 import { TranslationProviderSettingsSection } from "../translation-provider-settings-section";
 import { TranslationServiceSelectorSection } from "../translation-service-selector-section";
 import { createTranslationSettingsBindings } from "../translation-settings-bindings";
 import { MobileInputAiNotice } from "../mobile-input-ai-notice";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
+
+const expressionTabs = [
+  { id: "punctuation", title: "标点" },
+  { id: "language", title: "候选与释义" },
+  { id: "translation", title: "候选翻译" },
+  { id: "providers", title: "翻译服务" },
+] as const;
 
 /**
  * 标点与翻译页：打出来的内容以什么形式出现——标点、其他语言的候选与释义、翻译服务。混入的英文与表情颜文字是候选来源，模糊音改的是拼音怎么解析，两者都在输入页；AI 功能在「工具」组的「AI 辅助」页。
@@ -90,6 +98,11 @@ export function ExpressionSettingsPage() {
     openSettings: client.onDeviceTranslation?.openSettings,
     onError: setError,
   });
+  const { tabList, panel } = useSettingsTabs(
+    expressionTabs.filter((tab) => tab.id !== "providers" || Boolean(translation.providers)),
+    "标点与翻译设置分类",
+    !mobilePlatform,
+  );
   const harmonyPhone = harmonyPlatform && mobilePlatform;
   const ariaLabel = mobilePlatform ? "表达" : "标点与翻译";
   if (harmonyPhone) {
@@ -134,37 +147,46 @@ export function ExpressionSettingsPage() {
   }
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "expression"} ariaLabel={ariaLabel}>
-      <GroupList title="标点">
-        <PunctuationSection
-          preferences={draft}
-          showCharacterWidth={false}
-          showCapsLockPunctuation={host?.caps_lock_punctuation ?? false}
-          onChange={onPreferencesChange}
-        />
-      </GroupList>
-      <InputLanguageOptionsSection
-        grouped
-        includeCandidateControls
-        showCandidateEnglishGloss={client.candidateEnglishGloss}
-        candidateEnglishGloss={candidateEnglishGloss}
-        onCandidateEnglishGlossChange={(candidate_english_gloss) =>
-          onPreferencesChange({ candidate_english_gloss })
-        }
-        showCandidatePronunciation={client.candidatePronunciation}
-        candidatePronunciation={draft.candidate_pronunciation ?? false}
-        candidatePronunciationDisabled={!candidateGlossLanguagesEnabled}
-        onCandidatePronunciationChange={(candidate_pronunciation) =>
-          onPreferencesChange({ candidate_pronunciation })
-        }
-        showEnglishSuggestions={showEnglishSuggestions}
-        englishSuggestions={englishSuggestions}
-        onEnglishSuggestionsChange={(english_suggestions) =>
-          onPreferencesChange({ english_suggestions })
-        }
-      />
+      {tabList}
+      {panel(
+        "punctuation",
+        <GroupList title="标点">
+          <PunctuationSection
+            preferences={draft}
+            showCharacterWidth={false}
+            showCapsLockPunctuation={host?.caps_lock_punctuation ?? false}
+            onChange={onPreferencesChange}
+          />
+        </GroupList>,
+      )}
+      {panel(
+        "language",
+        <InputLanguageOptionsSection
+          grouped
+          includeCandidateControls
+          showCandidateEnglishGloss={client.candidateEnglishGloss}
+          candidateEnglishGloss={candidateEnglishGloss}
+          onCandidateEnglishGlossChange={(candidate_english_gloss) =>
+            onPreferencesChange({ candidate_english_gloss })
+          }
+          showCandidatePronunciation={client.candidatePronunciation}
+          candidatePronunciation={draft.candidate_pronunciation ?? false}
+          candidatePronunciationDisabled={!candidateGlossLanguagesEnabled}
+          onCandidatePronunciationChange={(candidate_pronunciation) =>
+            onPreferencesChange({ candidate_pronunciation })
+          }
+          showEnglishSuggestions={showEnglishSuggestions}
+          englishSuggestions={englishSuggestions}
+          onEnglishSuggestionsChange={(english_suggestions) =>
+            onPreferencesChange({ english_suggestions })
+          }
+        />,
+      )}
       <TranslationSettingsContent
         candidate={translation.candidate}
         providers={translation.providers}
+        serviceInOwnGroup={!mobilePlatform}
+        renderGroup={panel}
       />
       {mobilePlatform && <MobileInputAiNotice onOpenAi={() => selectPage("ai")} />}
     </SettingsPageFieldset>

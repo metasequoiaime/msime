@@ -7,7 +7,6 @@ struct SkinSettingsView: View {
   /// 皮肤页直接列出的社区皮肤数，两列排两行；其余在「浏览更多皮肤」里。
   private static let communityLimit = 4
 
-  @Environment(\.scenePhase) private var scenePhase
   @Environment(\.colorScheme) private var colorScheme
   @AppStorage(CustomKeyboardSkinStore.key, store: KeyboardFeedbackPreference.defaults)
   private var customSkinData = Data()
@@ -83,10 +82,7 @@ struct SkinSettingsView: View {
     .designCanvasBackground()
     .navigationTitle("皮肤")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear { reloadLibrary(); reloadThemes() }
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active { reloadLibrary(); reloadThemes() }
-    }
+    .reloadOnAppearAndActive({ reloadLibrary(); reloadThemes() })
     .task { await loadCommunitySkins() }
     .refreshable { await loadCommunitySkins() }
     .alert("皮肤社区", isPresented: Binding(get: { communityMessage != nil }, set: { if !$0 { communityMessage = nil } })) {
