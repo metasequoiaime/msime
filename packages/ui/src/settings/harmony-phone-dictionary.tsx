@@ -10,6 +10,7 @@ import * as dialog from "../community/community-style";
 import type { CommunityResource, CommunityResourceClient } from "../community/community-resources";
 import { communityResourceSubtitle } from "../community/community-resources";
 import {
+  binaryCollectionFormat,
   collectionFailureMessage,
   collectionFormatForFile,
   collectionImportMessage,
@@ -25,7 +26,12 @@ import {
   type DictionaryCollectionsView,
 } from "../dictionary/dictionary-collections";
 import { dictionaryExportName, dictionaryExportPayload } from "../dictionary/dictionary-export";
-import { readDictionaryFile, type DictionaryEntry } from "../dictionary/dictionary-file";
+import {
+  MAX_SCEL_FILE_BYTES,
+  readDictionaryFile,
+  readScelFile,
+  type DictionaryEntry,
+} from "../dictionary/dictionary-file";
 import type { DictionaryClient } from "../index";
 import { pushMobileSettingsState } from "./mobile-navigation";
 import { useMobilePopState } from "./use-mobile-pop-state";
@@ -179,7 +185,12 @@ export function HarmonyPhoneDictionary() {
     );
   }
 
-  const importSources = collectionImportSources(view?.formats ?? []);
+  // 细胞词库按字节导入，宿主不能传字节时不列它。
+  const importSources = collectionImportSources(
+    (view?.formats ?? []).filter(
+      (format) => !binaryCollectionFormat(format) || Boolean(collections?.importBytes),
+    ),
+  );
   const learning = draft?.learning ?? true;
   const vocabulary = pageEntry("vocabulary");
   return (
@@ -298,6 +309,25 @@ export function HarmonyPhoneDictionary() {
           }}
           onFile={async (source, file) => {
             setAddingDictionary(false);
+            const name = collectionNameFromFile(file.name);
+            const format = collectionFormatForFile(file.name, source.format);
+            const importBytes = collections.importBytes;
+            if (binaryCollectionFormat(format)) {
+              if (!importBytes) {
+                toast(collectionFailureMessage({ code: "unsupported_format" }));
+                return;
+              }
+              let encoded: string;
+              try {
+                encoded = await readScelFile(file, MAX_SCEL_FILE_BYTES);
+              } catch (error) {
+                toast(error instanceof Error ? error.message : "读取文件失败，请重新选择。");
+                return;
+              }
+              const next = await run(() => importBytes(name, format, encoded));
+              if (next) toast(collectionImportMessage(name, next.import));
+              return;
+            }
             let text: string;
             try {
               text = await readDictionaryFile(file, MAX_COLLECTION_IMPORT_BYTES);
@@ -305,8 +335,6 @@ export function HarmonyPhoneDictionary() {
               toast(error instanceof Error ? error.message : "读取文件失败，请重新选择。");
               return;
             }
-            const name = collectionNameFromFile(file.name);
-            const format = collectionFormatForFile(file.name, source.format);
             const next = await run(() => collections.importFile(name, format, text));
             if (next) toast(collectionImportMessage(name, next.import));
           }}

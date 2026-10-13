@@ -42,3 +42,22 @@ test("can include the local Rime format before auto-annotation", () => {
     Array.from(screen.getByRole("combobox").querySelectorAll("option"), (option) => option.value),
   ).toEqual(["standard", "windows", "rime", "hans"]);
 });
+
+test("offers the Sogou cell dictionary only when asked to", () => {
+  render(
+    <select aria-label="文件格式">
+      <DictionaryFormatOptions pinyin rime scel />
+    </select>,
+  );
+  expect(
+    Array.from(screen.getByRole("combobox").querySelectorAll("option"), (option) => option.value),
+  ).toEqual(["standard", "windows", "rime", "hans", "scel"]);
+  expect(screen.getByRole("option", { name: "搜狗细胞词库 .scel（仅导入）" })).toBeTruthy();
+  cleanup();
+  render(
+    <select aria-label="文件格式">
+      <DictionaryFormatOptions pinyin rime />
+    </select>,
+  );
+  expect(screen.queryByRole("option", { name: "搜狗细胞词库 .scel（仅导入）" })).toBeNull();
+});

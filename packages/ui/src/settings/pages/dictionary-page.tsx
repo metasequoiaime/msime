@@ -1,7 +1,7 @@
 import { SettingsGroupNote } from "../settings-group-note";
 import * as settings from "../settings-style";
 import { SettingsManagerBlock } from "../settings-manager-block";
-import type { LocalDictionaryKind, LocalDictionaryFormat } from "../../index";
+import type { LocalDictionaryKind, DictionaryPageFormat } from "../../index";
 import { localDictionaryKinds } from "../../dictionary/dictionary-kinds";
 import { DICTIONARY_PAGE_SIZE } from "../../dictionary/dictionary-file";
 import { useSettingsForm } from "../settings-form-context";
@@ -26,6 +26,14 @@ import { SettingsEmptyMessage } from "../settings-empty-message";
 import { HarmonyPhoneDictionary } from "../harmony-phone-dictionary";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
+
+/** 按扩展名推断这次导入的格式：`.yaml`、`.yml` 是 Rime，`.scel` 是搜狗细胞词库，其余用页面上选的格式。改了扩展名的细胞词库由导入时检查文件头兜住。 */
+function fileFormat(fileName: string, chosen: DictionaryPageFormat): DictionaryPageFormat {
+  const name = fileName.toLowerCase();
+  if (name.endsWith(".yaml") || name.endsWith(".yml")) return "rime";
+  if (name.endsWith(".scel")) return "scel";
+  return chosen;
+}
 
 /** The 词库 page of the settings form. */
 export function DictionarySettingsPage() {
@@ -90,7 +98,8 @@ export function DictionarySettingsPage() {
             onChange={(event) => {
               const kind = event.target.value as LocalDictionaryKind;
               setDictionaryKind(kind);
-              if (kind !== "pinyin" && dictionaryFormat === "hans") setDictionaryFormat("standard");
+              if (kind !== "pinyin" && (dictionaryFormat === "hans" || dictionaryFormat === "scel"))
+                setDictionaryFormat("standard");
               setPhrases([]);
               void loadPhrases(kind);
             }}
@@ -183,16 +192,22 @@ export function DictionarySettingsPage() {
       {client.dictionary && (
         <GroupList title="导入与导出">
           <SettingsGroupNote>
-            导入和导出的是上面所选类型的词库；导入支持标准、Windows TSV、Rime 和纯汉字自动注音。
+            {client.dictionary.scelText
+              ? "导入和导出的是上面所选类型的词库；导入支持标准、Windows TSV、Rime、纯汉字自动注音，拼音词库还能导入搜狗细胞词库（.scel）。"
+              : "导入和导出的是上面所选类型的词库；导入支持标准、Windows TSV、Rime 和纯汉字自动注音。"}
           </SettingsGroupNote>
           <SelectRow
             title="文件格式"
             aria-label="本地词库文件格式"
             value={dictionaryFormat}
             disabled={phraseBusy}
-            onChange={(event) => setDictionaryFormat(event.target.value as LocalDictionaryFormat)}
+            onChange={(event) => setDictionaryFormat(event.target.value as DictionaryPageFormat)}
           >
-            {dictionaryFormatOptions({ pinyin: dictionaryKind === "pinyin", rime: true })}
+            {dictionaryFormatOptions({
+              pinyin: dictionaryKind === "pinyin",
+              rime: true,
+              scel: dictionaryKind === "pinyin" && Boolean(client.dictionary.scelText),
+            })}
           </SelectRow>
           <SettingsManagerBlock>
             <SettingsManagerActions>
@@ -201,15 +216,23 @@ export function DictionarySettingsPage() {
                 <input
                   hidden
                   type="file"
-                  accept=".txt,.tsv,.yaml,.yml,text/plain"
+                  accept={
+                    client.dictionary.scelText
+                      ? ".txt,.tsv,.yaml,.yml,.scel,text/plain"
+                      : ".txt,.tsv,.yaml,.yml,text/plain"
+                  }
                   disabled={phraseBusy}
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     if (file) {
-                      const name = file.name.toLowerCase();
-                      if (name.endsWith(".yaml") || name.endsWith(".yml"))
-                        setDictionaryFormat("rime");
-                      void importPhrases(file);
+                      // 按扩展名换的格式直接交给这次导入：刚设的状态要到下一次渲染才生效。
+                      const format = fileFormat(file.name, dictionaryFormat);
+                      if (
+                        format !== dictionaryFormat &&
+                        (format !== "scel" || dictionaryKind === "pinyin")
+                      )
+                        setDictionaryFormat(format);
+                      void importPhrases(file, format);
                     }
                     event.currentTarget.value = "";
                   }}
@@ -217,7 +240,7 @@ export function DictionarySettingsPage() {
               </label>
               <ActionButton
                 action={() => void exportPhrases()}
-                disabled={phraseBusy || dictionaryFormat === "hans"}
+                disabled={phraseBusy || dictionaryFormat === "hans" || dictionaryFormat === "scel"}
                 label="导出当前类型"
               />
               <ActionButton

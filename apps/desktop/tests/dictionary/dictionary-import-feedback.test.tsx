@@ -8,6 +8,11 @@ import {
   describeImportResult,
   type Snapshot,
 } from "@msime/ui";
+import {
+  bytesToBase64,
+  isScelBytes,
+  isScelFile,
+} from "../../../../packages/ui/src/dictionary/dictionary-file";
 
 afterEach(() => {
   cleanup();
@@ -68,10 +73,7 @@ describe("describeImportResult", () => {
   });
 });
 
-async function importFile(
-  dictionary: Record<string, unknown>,
-  file = new File(["你好\tni'hao\n"], "dict.txt", { type: "text/plain" }),
-) {
+async function openDictionaryPage(dictionary: Record<string, unknown>, kind?: string) {
   render(
     <SettingsPage
       client={{ load: async () => snapshot, save: vi.fn(), dictionary: dictionary as never }}
@@ -79,9 +81,50 @@ async function importFile(
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  if (!kind) return;
+  const select = screen.getByLabelText("本地词库类型") as HTMLSelectElement;
+  fireEvent.change(select, { target: { value: kind } });
+  // 换类型会重新读词条；读完之前页面不接新的操作。
+  await waitFor(() => expect(select.disabled).toBe(false));
+}
+
+function chooseFile(file: File) {
   const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-  Object.defineProperty(input, "files", { value: [file] });
+  Object.defineProperty(input, "files", { value: [file], configurable: true });
   fireEvent.change(input);
+}
+
+async function importFile(
+  dictionary: Record<string, unknown>,
+  file = new File(["你好\tni'hao\n"], "dict.txt", { type: "text/plain" }),
+  kind?: string,
+) {
+  await openDictionaryPage(dictionary, kind);
+  chooseFile(file);
+}
+
+/** 细胞词库的文件头加几个字节：页面只看前 4 字节认出它，内容由（模拟的）宿主转换。 */
+const scelBytes = new Uint8Array([
+  0x40, 0x15, 0x00, 0x00, 0x44, 0x43, 0x53, 0x01, 0x01, 0, 0, 0, 7,
+]);
+
+function scelDictionary(scelText = vi.fn()) {
+  return {
+    list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+    edit: vi.fn(),
+    export: vi.fn().mockResolvedValue({ text: "", has_more: false }),
+    import: vi.fn().mockResolvedValue({
+      applied: 2,
+      failed: 1,
+      first_failures: [{ line: 3, issue: "empty_key" }],
+    }),
+    scelText: scelText.mockResolvedValue({
+      name: "化学",
+      category: "自然科学",
+      entries: 3,
+      text: "测试\tce'shi\n实例\tshi'li\n越界\t\n",
+    }),
+  };
 }
 
 test("an import that skipped rows reports them instead of looking clean", async () => {
@@ -205,4 +248,113 @@ test("an engine rejection is explained differently from a malformed line", () =>
     first_failures: [{ line: 2, issue: "column_count" }],
   });
   expect(malformed).not.toContain("音节");
+});
+
+describe("Sogou cell dictionaries", () => {
+  test("a .scel file is converted by the host and imported as standard pinyin rows", async () => {
+    const dictionary = scelDictionary();
+    await importFile(dictionary, new File([scelBytes], "化学.scel"), "pinyin");
+    await waitFor(() => expect(dictionary.import).toHaveBeenCalled());
+    expect(dictionary.scelText).toHaveBeenCalledWith(Buffer.from(scelBytes).toString("base64"));
+    expect(dictionary.import.mock.calls[0].slice(0, 3)).toEqual([
+      "pinyin",
+      "standard",
+      "测试\tce'shi\n实例\tshi'li\n越界\t\n",
+    ]);
+    const notice = await screen.findByRole("status");
+    expect(notice.textContent).toBe(
+      "已读取搜狗细胞词库「化学」的 3 个词条。全拼导入完成，共 2 条。跳过 1 行，首先出现在第 3 行。",
+    );
+    // 选中的格式跟着文件换成细胞词库，它只能导入，所以导出按钮不可用。
+    expect((screen.getByLabelText("本地词库文件格式") as HTMLSelectElement).value).toBe("scel");
+    expect(
+      (screen.getByRole("button", { name: "导出当前类型" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  test("a cell dictionary renamed to .txt is recognised by its header", async () => {
+    const dictionary = scelDictionary();
+    await importFile(dictionary, new File([scelBytes], "化学.txt"), "pinyin");
+    await waitFor(() => expect(dictionary.import).toHaveBeenCalled());
+    expect(dictionary.scelText).toHaveBeenCalled();
+    expect(dictionary.import.mock.calls[0][1]).toBe("standard");
+  });
+
+  test("only a pinyin dictionary takes a cell dictionary", async () => {
+    const dictionary = scelDictionary();
+    await importFile(dictionary, new File([scelBytes], "化学.scel"));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("搜狗细胞词库只能导入拼音词库，请先把「词库」切换到拼音。");
+    expect(dictionary.scelText).not.toHaveBeenCalled();
+    expect(dictionary.import).not.toHaveBeenCalled();
+  });
+
+  test("the host's refusal reads as a sentence", async () => {
+    const dictionary = scelDictionary();
+    dictionary.scelText.mockReset();
+    dictionary.scelText.mockRejectedValue({ code: "dictionary_scel_malformed" });
+    await importFile(dictionary, new File([scelBytes], "化学.scel"), "pinyin");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("细胞词库文件不完整或已损坏，请重新下载后再导入。");
+    expect(dictionary.import).not.toHaveBeenCalled();
+  });
+
+  test("a cell dictionary over the host's bound is refused before it is read", async () => {
+    const dictionary = { ...scelDictionary(), maxImportFileBytes: UNBATCHED_DICTIONARY_FILE_BYTES };
+    const large = new Uint8Array(2 * 1024 * 1024);
+    large.set(scelBytes);
+    await importFile(dictionary, new File([large], "化学.scel"), "pinyin");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("细胞词库不能超过 1 MB。");
+    expect(dictionary.scelText).not.toHaveBeenCalled();
+  });
+
+  test("the format and the .scel filter appear only for pinyin on a host that converts", async () => {
+    const dictionary = scelDictionary();
+    await openDictionaryPage(dictionary);
+    const optionValues = () =>
+      Array.from(
+        (screen.getByLabelText("本地词库文件格式") as HTMLSelectElement).options,
+        (option) => option.value,
+      );
+    expect(optionValues()).not.toContain("scel");
+    fireEvent.change(screen.getByLabelText("本地词库类型"), { target: { value: "pinyin" } });
+    expect(optionValues()).toContain("scel");
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.accept).toContain(".scel");
+    cleanup();
+
+    const { scelText: _scelText, ...withoutScel } = scelDictionary();
+    await openDictionaryPage(withoutScel, "pinyin");
+    expect(optionValues()).not.toContain("scel");
+    expect((document.querySelector('input[type="file"]') as HTMLInputElement).accept).not.toContain(
+      ".scel",
+    );
+  });
+
+  test("a .yaml file is read as Rime on the first pick", async () => {
+    const dictionary = scelDictionary();
+    await importFile(
+      dictionary,
+      new File(["你好\tni hao\t1\n"], "luna.dict.yaml", { type: "text/plain" }),
+      "pinyin",
+    );
+    await waitFor(() => expect(dictionary.import).toHaveBeenCalled());
+    expect(dictionary.import.mock.calls[0][1]).toBe("rime");
+    expect(dictionary.scelText).not.toHaveBeenCalled();
+  });
+});
+
+test("bytes are encoded to base64 in chunks without overflowing the stack", () => {
+  const bytes = new Uint8Array(3 * 1024 * 1024 + 2);
+  for (let index = 0; index < bytes.length; index++) bytes[index] = (index * 31 + 7) & 0xff;
+  expect(bytesToBase64(bytes)).toBe(Buffer.from(bytes).toString("base64"));
+  expect(bytesToBase64(new Uint8Array())).toBe("");
+});
+
+test("a cell dictionary is recognised by its first four bytes", async () => {
+  expect(isScelBytes(scelBytes)).toBe(true);
+  expect(isScelBytes(new Uint8Array([0x40, 0x15, 0x00]))).toBe(false);
+  expect(isScelBytes(new TextEncoder().encode("你好\tni'hao"))).toBe(false);
+  expect(await isScelFile(new File([scelBytes], "a.bin"))).toBe(true);
 });

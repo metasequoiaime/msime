@@ -59,6 +59,7 @@ import {
   type VocabularyReviewClient,
   type VocabularyReviewStatus,
   type TypingStatisticsStatus,
+  type ScelText,
   type WubiCodeLookup,
   type LocalVoiceModelClient,
   type LocalVoiceModelList,
@@ -1137,6 +1138,15 @@ function makeClient(
     // 只读码表，`DictionaryMaintenancePolicy` 把它当读操作：组字时也能查，不会停掉键盘会话。
     wubiCodes: async (text: string) =>
       dictionaryReply<WubiCodeLookup>({ operation: "wubi_codes", text }),
+    // 细胞词库转成标准文本（`msime_client_dictionary_scel_text`），不碰词库状态；文件可达 1 MiB，所以和其他大请求一样走 startRequest。
+    scelText: async (bytesBase64: string) =>
+      unwrap<ScelText>(
+        await bridgeRequest(
+          native,
+          "dictionary_scel_text",
+          JSON.stringify({ bytes_base64: bytesBase64 }),
+        ),
+      ),
   };
   // 命名词库。导入要解析最多 16 MiB 的文本，所以走 startRequest 在原生工作线程上执行，并给足两分钟；其余操作只改几个小文件。
   const collectionsReply = async (action: Record<string, unknown>) =>
@@ -1152,6 +1162,8 @@ function makeClient(
     addWords: (id, entries) => collectionsReply({ operation: "add_words", id, entries }),
     importFile: (name, format, text) =>
       collectionsReply({ operation: "import", name, kind: "pinyin", format, text }),
+    importBytes: (name, format, bytes_base64) =>
+      collectionsReply({ operation: "import", name, kind: "pinyin", format, bytes_base64 }),
     installCommunity: (resource) => collectionsReply({ operation: "install_community", resource }),
   };
   const userWordCount = (): number | undefined => {

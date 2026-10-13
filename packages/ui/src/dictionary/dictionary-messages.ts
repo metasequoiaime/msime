@@ -6,8 +6,9 @@ export type ImportSummary = {
   first_failures?: { line: number; issue: string }[];
 };
 
-export function describeImportResult(kind: string, result: ImportSummary): string {
-  const parts = [`${kind}导入完成，共 ${result.applied} 条。`];
+/** 导入完成的提示。`source` 是放在最前面的一句来源说明，例如细胞词库的「已读取搜狗细胞词库「…」的 n 个词条。」。 */
+export function describeImportResult(kind: string, result: ImportSummary, source = ""): string {
+  const parts = [`${source}${kind}导入完成，共 ${result.applied} 条。`];
   if (result.failed) {
     const failures = result.first_failures ?? [];
     const lines = failures.map((failure) => failure.line).join("、");
@@ -21,6 +22,13 @@ export function describeImportResult(kind: string, result: ImportSummary): strin
   if (result.truncated) parts.push("文件过长，仅导入了前一部分。");
   if (result.swapped) parts.push("该文件的两列与所选格式相反，已按文件本身的顺序读取。");
   return parts.join("");
+}
+
+/** 细胞词库导入提示的来源句。 */
+export function scelImportSource(name: string, entries: number): string {
+  return name
+    ? `已读取搜狗细胞词库「${name}」的 ${entries} 个词条。`
+    : `已读取搜狗细胞词库的 ${entries} 个词条。`;
 }
 
 export function dictionaryKindKeyHint(kind: string): string {

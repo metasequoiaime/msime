@@ -84,6 +84,7 @@ import {
   type PluginClient,
   type PluginPackage,
   type ScriptGrantsResult,
+  type ScelText,
   type WubiCodeLookup,
   UNBATCHED_DICTIONARY_FILE_BYTES,
   StatusMessage,
@@ -144,6 +145,8 @@ const dictionary: DictionaryClient = {
   // 只读码表。Android 的 `dictionary_request` 把它交给个人词库入口，那里直接回答、不进队列；手机端经 `mobileDictionary` 一并带上。
   wubiCodes: (text: string) =>
     invoke<WubiCodeLookup>("dictionary_request", { action: { operation: "wubi_codes", text } }),
+  // 细胞词库转成标准文本是纯函数，各平台的外壳都有这条命令；页面再把文本当 `standard` 交给 `import`。
+  scelText: (bytesBase64: string) => invoke<ScelText>("dictionary_scel_text", { bytesBase64 }),
 };
 const mobileDictionary: DictionaryClient = {
   ...dictionary,

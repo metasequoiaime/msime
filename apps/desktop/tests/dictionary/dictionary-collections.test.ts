@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+  binaryCollectionFormat,
   collectionFailureMessage,
   collectionFormatForFile,
   collectionImportMessage,
@@ -43,6 +44,11 @@ test("an imported file names its collection and picks its format", () => {
   expect(Array.from(collectionNameFromFile(`${"长".repeat(40)}.txt`))).toHaveLength(32);
   expect(collectionFormatForFile("a.dict.yaml", "txt")).toBe("rime");
   expect(collectionFormatForFile("a.txt", "hans")).toBe("hans");
+  // 细胞词库按扩展名认出来，即使是从「文本文件」来源选的；它按 base64 传给宿主。
+  expect(collectionFormatForFile("化学词汇.SCEL", "txt")).toBe("scel");
+  expect(collectionNameFromFile("化学词汇.scel")).toBe("化学词汇");
+  expect(binaryCollectionFormat("scel")).toBe(true);
+  expect(binaryCollectionFormat("txt")).toBe(false);
 });
 
 test("the import sources list only what client-core accepts, text first", () => {
@@ -50,6 +56,14 @@ test("the import sources list only what client-core accepts, text first", () => 
     collectionImportSources(["txt", "standard", "windows", "hans", "rime"]).map((s) => s.format),
   ).toEqual(["txt", "rime", "hans"]);
   expect(collectionImportSources(["txt"]).map((s) => s.title)).toEqual(["导入文本文件"]);
+  // client-core 接受细胞词库时排在文本之后，与 Android 的来源对话框相同。
+  const withScel = collectionImportSources(["txt", "standard", "windows", "hans", "rime", "scel"]);
+  expect(withScel.map((s) => s.format)).toEqual(["txt", "scel", "rime", "hans"]);
+  expect(withScel[1]).toEqual({
+    format: "scel",
+    title: "导入搜狗细胞词库",
+    accept: ".scel,application/octet-stream",
+  });
 });
 
 test("the import toast says what happened to the rows", () => {
@@ -73,6 +87,9 @@ test("client-core failure codes read as sentences, unknown ones as a generic fai
     "内置词库始终启用，不能停用或改名。",
   );
   expect(collectionFailureMessage(new Error("boom"))).toBe("词库操作失败，请稍后重试。");
+  expect(collectionFailureMessage({ code: "import_malformed" })).toBe(
+    "文件不完整或已损坏，请重新下载。",
+  );
 });
 
 test("a collection's subtitle carries its count, community origin and pending changes", () => {
