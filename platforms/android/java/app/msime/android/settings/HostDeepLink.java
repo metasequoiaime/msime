@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
  * <p>HomeActivity 是 exported 的，任何应用都能发来这样的 Intent，所以读取时一律当作不可信输入：tab 只认 0–3；页面名只认形如 `LEXICON` 的大写标识符（HomeActivity 再用 `PageId.valueOf` 映射，不认识就忽略，绝不接受 Intent 给出的类名）；参数只保留键名合法、值为 String / boolean / int 的条目，且数量和长度有上限。参数只影响导航和初始滚动位置，页面不得据此触发联网、删除、注销、登录、上传这类动作，读进来的参数都带 {@link #ARG_EXTERNAL} 标记，页面可以据此区分。
  */
 public final class HostDeepLink {
-    /** 宿主主界面的全限定类名；`smoke.sh` 与各设备测试用的是同一个名字。 */
+    /** 经典图标的宿主主界面类名；其他图标启用别名时，直接启动此组件会被系统拒绝。 */
     public static final String HOME_ACTIVITY = "app.msime.android.home.HomeActivity";
 
     /** int：要打开的 tab，取值见下面四个常量。 */
@@ -73,7 +73,10 @@ public final class HostDeepLink {
 
     private static Intent base(Context context) {
         Intent intent = new Intent();
-        intent.setClassName(context, HOME_ACTIVITY);
+        // 非经典图标会禁用 HomeActivity 的直接入口，必须经过当前启用的 launcher 别名；只取组件，深链参数和任务栈标记仍由这里控制。
+        Intent launcher = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
+        if (launcher != null && launcher.getComponent() != null) intent.setComponent(launcher.getComponent());
+        else intent.setClassName(context, HOME_ACTIVITY);
         intent.addFlags(FLAGS);
         return intent;
     }
