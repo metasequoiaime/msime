@@ -55,6 +55,13 @@ class SettingsSceneReloadContract(unittest.TestCase):
             self.assertIn(f".reloadOnAppearAndActive({reload})", source, name)
             self.assertNotIn("@Environment(\\.scenePhase)", source, name)
 
+    def test_tablet_settings_uses_shared_reload_modifier(self):
+        path = ROOT / "platforms/ios/App/Sources/keyboard/TabletSettingsView.swift"
+        source = path.read_text()
+        self.assertIn(".reloadOnAppearAndActive", source)
+        self.assertIn("scheme = InputSchemePreference.scheme", source)
+        self.assertNotIn("@Environment(\\.scenePhase)", source)
+
 
 if __name__ == "__main__":
     unittest.main()
