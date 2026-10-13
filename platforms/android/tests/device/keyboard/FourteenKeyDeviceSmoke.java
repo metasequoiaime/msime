@@ -12,14 +12,14 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 全拼 14 键的设备验收，跑的是三端同一份手工脚本：BN UI GH AS OP 打出「你好」；AS GH UI 时读音行右侧的拼音条里有 shi 和 shu，选了锁定、退格撤销，拼音条不盖住候选行；展开候选是九键的三栏面板；分词键得到「西安」；长按 QW 选 w；英文画 26 键、切回仍是 14 键；123 是 26 键的设计层；密码框画 26 键。
+ * 全拼 14 键的设备验收：组码打出「你好」；候选下方的大按钮选择 shi / shu，锁定后退格撤销；窄屏换行；展开候选、分词、长按字母、英文、123 和密码回落维持原有行为。
  */
 public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     private static final String STRIP = "14 键拼音选择";
     private static final String PANEL = "九键候选面板";
 
     @Override protected String successDescription() {
-        return "fourteen-key group keys, reading-row pinyin strip locks, three-column panel, separator, long-press letters, English and 123 layers";
+        return "fourteen-key group keys, independent pinyin grid and touch targets, three-column panel, separator, long-press letters, English and 123 layers";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -70,8 +70,8 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             tap(candidate("你好"));
             await(field("msime-test-plain").and(node -> equalsText("你好", node.getText())));
 
-            // AS GH UI：拼音条在读音行右侧，列出 shi 和 shu；选 shu 锁定（读音变成 shu），退格先撤销锁定。
-            stage = "reading-row pinyin strip";
+            // AS GH UI：独立拼音区在候选行下方，列出 shi 和 shu；选 shu 锁定，退格先撤销锁定。
+            stage = "independent pinyin grid";
             for (String pair : new String[] {"A S", "G H", "U I"}) tap(described("按键 " + pair));
             await(described(STRIP));
             AccessibilityNodeInfo shi = await(described("选择拼音 shi"));
@@ -80,14 +80,19 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             shi.getBoundsInScreen(strip);
             Rect candidate = new Rect();
             await(describedPrefix("候选 1：")).getBoundsInScreen(candidate);
-            if (strip.bottom > candidate.top + 1)
-                throw new AssertionError("Pinyin strip overlaps the candidate row: strip " + strip
+            if (strip.top < candidate.bottom - 1)
+                throw new AssertionError("Pinyin grid overlaps the candidate row: grid " + strip
                     + ", candidate " + candidate);
             Rect reading = new Rect();
             await(described("shi")).getBoundsInScreen(reading);
-            if (strip.left < reading.right || Math.abs(strip.centerY() - reading.centerY()) > reading.height())
-                throw new AssertionError("Pinyin strip is not beside the reading: strip " + strip
+            if (strip.top < reading.bottom)
+                throw new AssertionError("Pinyin grid overlaps the reading: grid " + strip
                     + ", reading " + reading);
+            float density = getTargetContext().getResources().getDisplayMetrics().density;
+            int minimumHeight = Math.round(48 * density);
+            int minimumWidth = Math.round(64 * density);
+            if (strip.height() < minimumHeight || strip.width() < minimumWidth)
+                throw new AssertionError("Pinyin touch target is smaller than 64x48dp: " + strip);
             stage = "lock shu";
             tap(described("选择拼音 shu"));
             await(described("shu"));
@@ -142,6 +147,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             tap(key("中"));
             await(key("q").and(AccessibilityNodeInfo::isClickable));
             awaitGone(described("按键 Q W"));
+            awaitGone(described(STRIP));
             stage = "Chinese returns to 14 keys";
             tap(key("英"));
             await(described("按键 Q W"));
@@ -168,6 +174,30 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             stage = "plain field returns to 14 keys";
             tap(field("msime-test-plain"));
             await(described("按键 Q W"));
+            // 专用 AVD 临时缩窄为约 183dp，验证真实测量后的换行，不改用户设备的偏好。
+            stage = "pinyin grid wraps on a narrow display";
+            shellDiscard("wm size 480x1600");
+            try {
+                awaitStableBounds(described("按键 A S"));
+                tap(described("按键 A S"));
+                tap(described("按键 U I"));
+                int firstTop = Integer.MAX_VALUE;
+                int lastTop = Integer.MIN_VALUE;
+                for (String spelling : new String[] {"ai", "si", "su"}) {
+                    Rect bounds = new Rect();
+                    awaitStableBounds(described("选择拼音 " + spelling)).getBoundsInScreen(bounds);
+                    if (bounds.height() < minimumHeight || bounds.width() < minimumWidth)
+                        throw new AssertionError("Narrow pinyin target shrank: " + bounds);
+                    firstTop = Math.min(firstTop, bounds.top);
+                    lastTop = Math.max(lastTop, bounds.top);
+                }
+                if (lastTop <= firstTop)
+                    throw new AssertionError("Pinyin options did not wrap on the narrow display");
+                tap(described("选择拼音 su"));
+                await(described("su"));
+            } finally {
+                shellDiscard("wm size reset");
+            }
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());

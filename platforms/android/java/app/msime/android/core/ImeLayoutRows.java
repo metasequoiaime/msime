@@ -645,94 +645,79 @@ final class ImeLayoutRows {
         if (s.candidateViewport != null) attachSpellings(s.candidateViewport, SpellingPlacement.CANDIDATE_ROW);
     }
 
-    /** 拼音选择条挂在哪里：拼音九键的侧栏、注音 9 键的候选行，或 14 键读音行的右侧。 */
-    enum SpellingPlacement { SIDEBAR, CANDIDATE_ROW, READING_ROW }
+    /** 拼音选择挂在哪里：拼音九键侧栏、注音 9 键候选行或独立的 14 键换行区。 */
+    enum SpellingPlacement { SIDEBAR, CANDIDATE_ROW, FOURTEEN_GRID }
 
-    /** 14 键：把拼音选择条挂到读音行右侧（{@link MSIMEInputService#readingSpellingSlot}），横向滚动，不盖住候选行。 */
-    void attachReadingRowSpellings() {
-        if (s.readingSpellingSlot != null) attachSpellings(s.readingSpellingSlot, SpellingPlacement.READING_ROW);
+    /** 14 键拼音单独换行排列，候选词和完整读音保持可见。 */
+    void attachFourteenKeySpellings() {
+        if (s.fourteenSpellingSlot != null) attachSpellings(s.fourteenSpellingSlot, SpellingPlacement.FOURTEEN_GRID);
     }
 
     /**
-     * 把拼音选择条挂到 `parent`。叠在候选行上（注音 9 键）时是一排横向滚动的读音，铺满整行高并垂直居中；挂在拼音九键侧栏里时是一列纵向滚动的拼音，铺满侧栏、盖住下面的标点列，与 iOS、HarmonyOS 的侧栏一致；14 键挂在读音行右侧，是一排横向滚动的拼音，读音和候选都不被盖住，三端位置相同。
+     * 注音九键按候选行横向滚动，拼音九键按侧栏纵向滚动；14 键使用最多两行高的独立换行区，更多选项纵向滚动。
      *
-     * <p>滚动方向不同，所以每次换位置都换一个滚动容器；按钮也清空，由 renderNineKeySpellings 按当前位置重建：几处的按钮样式不同，叠在候选行上时样式通道按候选按钮给了最小宽高和内边距，挂回侧栏后只重设颜色和字体，拼音按钮就一直是候选的尺寸。选择条的按钮行只在创建键盘视图时建一次，每次重建九键都会换一个新的侧栏；偏好变化触发第二次重建时它还挂在上一个容器上，不先摘下来，addView 会抛 IllegalStateException 让键盘进程崩溃。
+     * <p>换位置时先摘下旧容器，再重新创建容器和按钮，避免旧布局参数、触摸尺寸和父视图泄漏到另一种布局。
      */
     private void attachSpellings(android.view.ViewGroup parent, SpellingPlacement placement) {
         if (s.nineKeySpellings == null || s.nineKeySpellingScroll == null) return;
         if (s.nineKeySpellingScroll.getParent() instanceof android.view.ViewGroup previous)
             previous.removeView(s.nineKeySpellingScroll);
-        if (s.nineKeySpellings.getParent() instanceof android.view.ViewGroup holder)
-            holder.removeView(s.nineKeySpellings);
-        s.nineKeySpellings.removeAllViews();
         s.nineKeySpellingButtons.clear();
-        // 离开读音行时把读音行还原成只有读音的样子；挂到读音行时由 renderNineKeySpellings 按有没有可选项再打开。
-        showReadingRowStrip(false);
-        boolean candidateRow = placement != SpellingPlacement.SIDEBAR;
+        if (s.fourteenSpellingSlot != null) ViewPolicy.hide(s.fourteenSpellingSlot);
+        boolean candidateRow = placement == SpellingPlacement.CANDIDATE_ROW;
+        boolean grid = placement == SpellingPlacement.FOURTEEN_GRID;
         FrameLayout scroll;
         if (candidateRow) {
             android.widget.HorizontalScrollView row = new android.widget.HorizontalScrollView(s);
             row.setHorizontalScrollBarEnabled(false);
             row.setFillViewport(true);
             scroll = row;
+        } else if (grid) {
+            android.widget.ScrollView wrapped = new android.widget.ScrollView(s) {
+                @Override protected void onMeasure(int widthSpec, int heightSpec) {
+                    int limit = s.pixels(108);
+                    if (MeasureSpec.getMode(heightSpec) != MeasureSpec.UNSPECIFIED)
+                        limit = Math.min(limit, MeasureSpec.getSize(heightSpec));
+                    super.onMeasure(widthSpec, MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST));
+                }
+            };
+            wrapped.setVerticalScrollBarEnabled(true);
+            scroll = wrapped;
         } else {
             android.widget.ScrollView column = new android.widget.ScrollView(s);
             column.setVerticalScrollBarEnabled(false);
             scroll = column;
         }
-        s.nineKeySpellings.setOrientation(candidateRow ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
-        ViewPolicy.setGravity(s.nineKeySpellings,
-            candidateRow ? Gravity.CENTER_VERTICAL : Gravity.NO_GRAVITY);
+        if (grid) {
+            s.nineKeySpellings = new WrapRowLayout(s, s.pixels(4), s.pixels(4));
+            LayoutPolicy.setPaddingDp(s.nineKeySpellings, s, 4, 4, 4, 4);
+        } else {
+            LinearLayout choices = candidateRow ? LayoutPolicy.row(s) : LayoutPolicy.column(s);
+            ViewPolicy.setGravity(choices, candidateRow ? Gravity.CENTER_VERTICAL : Gravity.NO_GRAVITY);
+            s.nineKeySpellings = choices;
+        }
         scroll.addView(s.nineKeySpellings, new FrameLayout.LayoutParams(
             candidateRow ? FrameLayout.LayoutParams.WRAP_CONTENT : FrameLayout.LayoutParams.MATCH_PARENT,
             candidateRow ? FrameLayout.LayoutParams.MATCH_PARENT : FrameLayout.LayoutParams.WRAP_CONTENT));
         ViewPolicy.hide(scroll);
         s.nineKeySpellingScroll = scroll;
         s.nineKeySpellingGeneration = -1;
-        parent.addView(scroll, LayoutPolicy.frameMatchParentParams());
+        parent.addView(scroll, grid ? new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT)
+            : LayoutPolicy.frameMatchParentParams());
     }
 
-    /** 选择条此刻挂在读音行右侧（14 键）。 */
-    private boolean spellingsInReadingRow() {
-        return s.readingSpellingSlot != null && s.nineKeySpellingScroll != null
-            && s.nineKeySpellingScroll.getParent() == s.readingSpellingSlot;
-    }
-
-    /**
-     * 读音行右侧的选择条显示与否。显示时读音收成自身宽度（最多读音行的一半，放不下的在末尾省略），选择条占其余宽度；不显示时读音照旧占满整行，右侧的位置收起。
-     */
-    private void showReadingRowStrip(boolean shown) {
-        android.view.View slot = s.readingSpellingSlot;
-        if (slot == null || s.preedit == null) return;
-        if (shown) ViewPolicy.show(slot);
-        else ViewPolicy.hide(slot);
-        if (!(s.preedit.getParent() instanceof LinearLayout frame)
-                || !(frame.getLayoutParams() instanceof LinearLayout.LayoutParams params)) return;
-        float weight = shown ? 0f : 1f;
-        int width = shown ? LinearLayout.LayoutParams.WRAP_CONTENT : 0;
-        if (params.weight != weight || params.width != width) {
-            params.weight = weight;
-            params.width = width;
-            frame.setLayoutParams(params);
-        }
-        int rowWidth = s.candidateHeader == null ? 0 : s.candidateHeader.getWidth();
-        if (rowWidth <= 0 && s.keyboardSurface != null) rowWidth = s.keyboardSurface.getWidth();
-        int maxWidth = shown && rowWidth > 0 ? rowWidth / 2 : Integer.MAX_VALUE;
-        // setMaxWidth 每次都重新布局，每次按键都要 render，值没变就不设。
-        if (s.preedit.getMaxWidth() != maxWidth) s.preedit.setMaxWidth(maxWidth);
-    }
-
-    /** 读音行右侧选择条里的一项：和读音一样是读音行底上不带键帽的字，宽度随拼音，高度铺满读音行。 */
-    private Button readingRowSpellingButton(LinearLayout row, Runnable action) {
-        Button key = s.button(row, "", action);
-        if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.PLAIN);
-        KeyboardTypographyPolicy.setKeyTextSize(key, 13);
+    /** 独立拼音区的一项：48dp 高的完整触摸目标，窄屏也不缩成读音行里的小字。 */
+    private Button fourteenSpellingButton(Runnable action) {
+        Button key = s.keyboardKey("", "", action);
+        if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.TILE);
+        KeyboardTypographyPolicy.setKeyTextSize(key, 16);
         ViewPolicy.setSingleLine(key);
-        ViewPolicy.clearMinimumHeight(key);
-        ViewPolicy.setMinimumWidth(key, 0);
-        ViewPolicy.setHorizontalPadding(key, s.pixels(7));
-        key.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        ViewPolicy.setMinimumHeight(key, s.pixels(48));
+        ViewPolicy.setMinimumWidth(key, s.pixels(64));
+        ViewPolicy.setHorizontalPadding(key, s.pixels(12));
+        s.nineKeySpellings.addView(key, new android.view.ViewGroup.LayoutParams(
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT, s.pixels(48)));
         return key;
     }
 
@@ -1371,8 +1356,11 @@ final class ImeLayoutRows {
             && !spellings.values().isEmpty();
         if (visible) ViewPolicy.show(s.nineKeySpellingScroll);
         else ViewPolicy.hide(s.nineKeySpellingScroll);
-        boolean readingRow = spellingsInReadingRow();
-        if (readingRow) showReadingRowStrip(visible && fourteenKey);
+        boolean grid = s.nineKeySpellings instanceof WrapRowLayout;
+        if (s.fourteenSpellingSlot != null) {
+            if (visible && fourteenKey && grid) ViewPolicy.show(s.fourteenSpellingSlot);
+            else ViewPolicy.hide(s.fourteenSpellingSlot);
+        }
         // 拼音列盖住整条侧栏：标点列让出来（仍占位，侧栏宽度不变），没有拼音可选时再露出来。
         if (nineKeyPunctuation != null && nineKeyPunctuation.getParent() == s.nineKeySpellingScroll.getParent()) {
             if (visible) ViewPolicy.setInvisible(nineKeyPunctuation);
@@ -1386,9 +1374,9 @@ final class ImeLayoutRows {
             for (Button key : s.nineKeySpellingButtons) ViewPolicy.hide(key);
             return;
         }
-        boolean column = s.nineKeySpellings.getOrientation() == LinearLayout.VERTICAL;
+        boolean column = !grid && ((LinearLayout) s.nineKeySpellings).getOrientation() == LinearLayout.VERTICAL;
         // 换了一组拼音（新的一代）时回到第一项：第一项是引擎的首选。
-        if ((column || readingRow) && spellings.generation() != s.nineKeySpellingGeneration)
+        if ((column || grid) && spellings.generation() != s.nineKeySpellingGeneration)
             s.nineKeySpellingScroll.scrollTo(0, 0);
         s.nineKeySpellingGeneration = spellings.generation();
         java.util.List<String> values = spellings.values();
@@ -1403,11 +1391,11 @@ final class ImeLayoutRows {
             };
             Button key;
             if (column) {
-                key = spellingColumnButton(s.nineKeySpellings, choose);
-            } else if (readingRow) {
-                key = readingRowSpellingButton(s.nineKeySpellings, choose);
+                key = spellingColumnButton((LinearLayout) s.nineKeySpellings, choose);
+            } else if (grid) {
+                key = fourteenSpellingButton(choose);
             } else {
-                key = s.button(s.nineKeySpellings, "", choose);
+                key = s.button((LinearLayout) s.nineKeySpellings, "", choose);
                 LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) key.getLayoutParams();
                 params.width = LinearLayout.LayoutParams.WRAP_CONTENT;
                 params.weight = 0;
