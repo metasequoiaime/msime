@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSettingsTabs } from "../use-settings-tabs";
 import { NavigationSection, defaultNavigation } from "../navigation-section";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList } from "../../core/platform-controls";
@@ -24,7 +25,16 @@ import { CandidateEnglishGlossSection } from "../candidate-english-gloss-section
 import { ShuangpinCustomEditor } from "../shuangpin-custom-editor";
 import type { ShuangpinCustomProfileClient } from "../shuangpin-custom-profile";
 
-/** The 输入 page of the settings form. */
+const inputTabs = [
+  { id: "scheme", title: "方案" },
+  { id: "mode", title: "中英文" },
+  { id: "selection", title: "选词与翻页" },
+  { id: "candidates", title: "候选与联想" },
+  { id: "output", title: "输出" },
+  { id: "advanced", title: "进阶" },
+] as const;
+
+/** 输入设置页。 */
 export function InputSettingsPage() {
   const {
     client,
@@ -83,6 +93,7 @@ export function InputSettingsPage() {
         : undefined,
     [validateShuangpinCustomProfile, builtinShuangpinTable],
   );
+  const { tabList, panel } = useSettingsTabs(inputTabs, "输入设置分类", !mobilePlatform);
   const [shuangpinEditorOpen, setShuangpinEditorOpen] = useState(false);
   const { onLocalModesChange } = createUtilitiesSettingsActions({ setDraft });
   const { onPreferencesChange, onVoiceChange } = createSettingsDraftActions({ setDraft });
@@ -151,39 +162,43 @@ export function InputSettingsPage() {
     );
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "input"} ariaLabel="输入">
+      {tabList}
       {/* 组的顺序按「基础 → 进阶」排：先选方案，再是每次打字都会碰到的中英文、选词与翻页，然后是候选从哪来（含中英混输）、以什么形式输出，最后是少数人才调的快捷模式、模糊音、辅助码和调频。这里不再沿用参考窗口的顺序，不要按参考窗口把它们挪回去。方案相关的行在当前方案用不到时隐藏而不删除，换方案时原样出现。 */}
 
-      <InputSchemeSettingsContent
-        preferences={draft}
-        hasTouchKeyboardSchemes={Boolean(client.touchKeyboardSchemes)}
-        touchKeyboardSchemes={touchKeyboardSchemes}
-        selectedTouchKeyboardScheme={selectedTouchKeyboardScheme}
-        macos={macosPlatform}
-        inputSchemes={supportedInputSchemes(host)}
-        edition={host?.edition}
-        // 共享偏好里还没有这一项时，macOS 显示本机 defaults 里的旧选择，与输入法实际的行为一致；其他宿主按关显示。
-        shuangpinKeymapHint={
-          showShuangpinKeymapHint
-            ? (draft.shuangpin_keymap_hint ??
-              (macosPlatform ? macosShuangpinKeymap : undefined) ??
-              false)
-            : undefined
-        }
-        macosInputModes={client.macosInputModes}
-        onError={setError}
-        onPreferencesChange={onPreferencesChange}
-        onSelectTouchKeyboardScheme={(scheme) => selectTouchKeyboardScheme(scheme)}
-        onToggleTouchKeyboardScheme={(scheme, enabled) =>
-          setTouchKeyboardSchemeEnabled(scheme, enabled)
-        }
-        resourcePacks={resourcePacks}
-        languageCard={harmonyPhone}
-        onEnableAndSelectTouchKeyboardScheme={selectHomeScheme}
-        wubiCodeLookup={client.dictionary?.wubiCodes?.bind(client.dictionary)}
-        onEditCustomShuangpin={
-          shuangpinCustomClient ? () => setShuangpinEditorOpen(true) : undefined
-        }
-      />
+      {panel(
+        "scheme",
+        <InputSchemeSettingsContent
+          preferences={draft}
+          hasTouchKeyboardSchemes={Boolean(client.touchKeyboardSchemes)}
+          touchKeyboardSchemes={touchKeyboardSchemes}
+          selectedTouchKeyboardScheme={selectedTouchKeyboardScheme}
+          macos={macosPlatform}
+          inputSchemes={supportedInputSchemes(host)}
+          edition={host?.edition}
+          // 共享偏好里还没有这一项时，macOS 显示本机 defaults 里的旧选择，与输入法实际的行为一致；其他宿主按关显示。
+          shuangpinKeymapHint={
+            showShuangpinKeymapHint
+              ? (draft.shuangpin_keymap_hint ??
+                (macosPlatform ? macosShuangpinKeymap : undefined) ??
+                false)
+              : undefined
+          }
+          macosInputModes={client.macosInputModes}
+          onError={setError}
+          onPreferencesChange={onPreferencesChange}
+          onSelectTouchKeyboardScheme={(scheme) => selectTouchKeyboardScheme(scheme)}
+          onToggleTouchKeyboardScheme={(scheme, enabled) =>
+            setTouchKeyboardSchemeEnabled(scheme, enabled)
+          }
+          resourcePacks={resourcePacks}
+          languageCard={harmonyPhone}
+          onEnableAndSelectTouchKeyboardScheme={selectHomeScheme}
+          wubiCodeLookup={client.dictionary?.wubiCodes?.bind(client.dictionary)}
+          onEditCustomShuangpin={
+            shuangpinCustomClient ? () => setShuangpinEditorOpen(true) : undefined
+          }
+        />,
+      )}
       {harmonyPhone && (
         <>
           <GroupList title="中文">
@@ -252,6 +267,7 @@ export function InputSettingsPage() {
         </>
       )}
       <InputSharedSettingsSection
+        renderGroup={panel}
         foldIntoMore={harmonyPhone}
         preferences={draft}
         wordCharacter={wordCharacter}

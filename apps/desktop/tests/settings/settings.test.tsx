@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -52,9 +52,10 @@ async function settingsReady() {
   await settingsFormReady();
 }
 
-async function openInputSettings() {
+async function openInputSettings(tab?: string) {
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  if (tab) selectSettingsTab(tab);
 }
 
 function deferred<T>() {
@@ -76,6 +77,8 @@ test("macOS voice shortcuts use native key names and space-lock semantics", asyn
       }}
     />,
   );
+  await settingsReady();
+  selectSettingsTab("快捷键");
   await screen.findByRole("switch", { name: "按住右 Option 录音" });
   expect(screen.getByRole("switch", { name: "按住右 Control+右 Option 录音" })).toBeTruthy();
   expect(screen.getByRole("switch", { name: "按住 Control+Command 录音" })).toBeTruthy();
@@ -96,6 +99,8 @@ test("Windows voice shortcuts describe hold-to-record, the right Ctrl chord and 
       }}
     />,
   );
+  await settingsReady();
+  selectSettingsTab("快捷键");
   await screen.findByRole("switch", { name: "长按右 Alt 录音" });
   expect(screen.getByRole("switch", { name: "长按右 Ctrl+右 Alt 录音" })).toBeTruthy();
   expect(screen.getByRole("switch", { name: "长按 Ctrl+Win 录音" })).toBeTruthy();
@@ -118,6 +123,8 @@ test("Linux voice shortcuts describe hold-to-record like Windows and keep Ctrl+F
       }}
     />,
   );
+  await settingsReady();
+  selectSettingsTab("快捷键");
   await screen.findByRole("switch", { name: "长按右 Alt 录音" });
   expect(screen.getByRole("switch", { name: "长按右 Ctrl+右 Alt 录音" })).toBeTruthy();
   expect(screen.getByRole("switch", { name: "长按 Ctrl+Win 录音" })).toBeTruthy();
@@ -151,7 +158,7 @@ test("macOS exposes the non-activating input-mode HUD preference", async () => {
       }}
     />,
   );
-  await openInputSettings();
+  await openInputSettings("中英文");
   const toggle = screen.getByRole("switch", {
     name: "中英文切换提示",
   }) as HTMLInputElement;
@@ -177,7 +184,7 @@ test("macOS offers the menu bar input mode status item, off by default", async (
       }}
     />,
   );
-  await openInputSettings();
+  await openInputSettings("中英文");
   // 状态项和切换提示同在「中英文」组；缺字段的文档读成关闭，和 Rust 的默认值一致。
   const toggle = screen.getByRole("switch", { name: "菜单栏显示中/英状态" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
@@ -253,6 +260,7 @@ test("Android fuzzy-pinyin settings preserve rules while disabled and reset expl
   render(<SettingsPage client={{ load: async () => initial, save, fuzzyPinyin: true }} />);
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("进阶");
   const enabled = screen.getByRole("switch", { name: "启用模糊音" }) as HTMLInputElement;
   // 总开关关着时规则列表收起，只留总开关。
   expect(enabled.checked).toBe(false);
@@ -284,7 +292,7 @@ test("Android fuzzy-pinyin first enable seeds every rule once", async () => {
     preferences,
   }));
   render(<SettingsPage client={{ load: async () => initial, save, fuzzyPinyin: true }} />);
-  await openInputSettings();
+  await openInputSettings("进阶");
   const enabled = screen.getByRole("switch", { name: "启用模糊音" }) as HTMLInputElement;
   fireEvent.click(enabled);
   for (const id of [
@@ -463,6 +471,7 @@ test("offline candidate gloss is host-enabled, defaults off and persists", async
     <SettingsPage client={{ load: async () => initial, save, candidateEnglishGloss: true }} />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("候选与释义");
   const toggle = screen.getByRole("switch", { name: "显示英文释义" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
   expect(screen.getByText(/释义来自随键盘打包的离线词库，不联网/)).toBeDefined();
@@ -476,6 +485,7 @@ test("offline candidate gloss is host-enabled, defaults off and persists", async
   enabled.unmount();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("候选与释义");
   expect(screen.queryByRole("switch", { name: "显示英文释义" })).toBeNull();
 });
 
@@ -496,6 +506,7 @@ test("candidate pronunciation is host-enabled, defaults off, persists and needs 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("候选与释义");
   const toggle = screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
   expect(screen.getByText(/英文释义给音标，日文释义给罗马音/)).toBeDefined();
@@ -528,6 +539,7 @@ test("candidate pronunciation is host-enabled, defaults off, persists and needs 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("候选与释义");
   expect((screen.getByRole("switch", { name: "显示读音" }) as HTMLInputElement).disabled).toBe(
     true,
   );
@@ -539,6 +551,7 @@ test("candidate pronunciation is host-enabled, defaults off, persists and needs 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("候选与释义");
   expect(screen.queryByRole("switch", { name: "显示读音" })).toBeNull();
 });
 
@@ -555,6 +568,7 @@ test("Windows describes candidate pronunciation for English and Japanese glosses
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("候选与释义");
   expect(screen.getByRole("switch", { name: "显示读音" })).toBeDefined();
   expect(screen.getByText(/英文释义给音标，日文释义给罗马音/)).toBeDefined();
 });
@@ -596,6 +610,7 @@ test("Linux can expose the shared offline candidate gloss setting", async () => 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("候选与释义");
   expect(screen.getByRole("switch", { name: "显示英文释义" })).toBeTruthy();
 });
 
@@ -1093,6 +1108,7 @@ test("mixed candidate defaults, independent switches and threshold persist", asy
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("候选与联想");
   const english = (await screen.findByRole("switch", { name: /^中英混输/ })) as HTMLInputElement;
   const emoji = screen.getByRole("switch", { name: /^emoji 混输/ }) as HTMLInputElement;
   const kaomoji = screen.getByRole("switch", { name: /^颜文字混输/ }) as HTMLInputElement;
@@ -1128,6 +1144,7 @@ test("Japanese mixed input starts off and saves alongside the other mixed switch
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("候选与联想");
   const japanese = (await screen.findByRole("switch", {
     name: /^日文混输（实验）/,
   })) as HTMLInputElement;
@@ -1153,6 +1170,7 @@ test("traditional Chinese output toggle persists", async () => {
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("输出");
   const toggle = (await screen.findByRole("switch", {
     name: "繁体输出",
   })) as HTMLInputElement;
@@ -1178,6 +1196,7 @@ test("Chinese-English spacing toggle persists", async () => {
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("输出");
   const toggle = (await screen.findByRole("switch", {
     name: "中英文之间加空格",
   })) as HTMLInputElement;
@@ -1273,6 +1292,8 @@ test("voice capture backend choices follow the host platform", async () => {
         }}
       />,
     );
+    await settingsReady();
+    selectSettingsTab("录音设备");
     const select = (await screen.findByRole("combobox", { name: "录音后端" })) as HTMLSelectElement;
     const values = Array.from(select.options).map((option) => option.value);
     mounted.unmount();
@@ -1494,12 +1515,15 @@ test("input parity controls persist cloud, translation and punctuation settings"
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   expect(((await screen.findByLabelText("默认中英文")) as HTMLSelectElement).value).toBe("chinese");
+  selectSettingsTab("候选与联想");
   // Anchored: the emoji and kaomoji toggles mention 云候选 in their own descriptions.
   fireEvent.click(await screen.findByRole("switch", { name: /^云候选/ }));
   // 翻译和标点都在「标点与翻译」页；两个页面编辑的是同一份草稿。
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("候选翻译");
   fireEvent.click(screen.getByRole("switch", { name: /候选词翻译/ }));
   fireEvent.change(screen.getByLabelText("候选词翻译目标语言"), { target: { value: "ja" } });
+  selectSettingsTab("标点");
   // Anchored too: 重复标点转中文 names 智能标点 in its description, because the reference's wording
   // for it states the precondition rather than leaving the pair's relationship to be guessed.
   fireEvent.click(screen.getByRole("switch", { name: /^智能标点/ }));
@@ -1563,6 +1587,7 @@ test("macOS candidate translations expose the shared second language", async () 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("候选翻译");
   const secondary = screen.getByRole("combobox", {
     name: "候选词翻译第二种语言",
   }) as HTMLSelectElement;
@@ -1675,6 +1700,7 @@ test("frequency values above the upstream dropdown range remain visible", async 
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("进阶");
   const trigger = await screen.findByRole("combobox", { name: "触发频次(第几次上屏触发)" });
   expect(trigger.textContent).toContain("10");
   expect(screen.getByRole("combobox", { name: "线性调频步长" }).textContent).toContain("7");
@@ -1702,6 +1728,7 @@ test("frequency modes, threshold and step persist independently", async () => {
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("进阶");
   const mode = await screen.findByRole("combobox", { name: "调频方式" });
   expect(mode.textContent).toContain("一次置前");
   fireEvent.change(mode, { target: { value: "linear" } });
@@ -1724,14 +1751,19 @@ test("frequency settings remain editable independently of learning and mode", as
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("进阶");
+  selectSettingsTab("候选与联想");
   const learning = (await screen.findByRole("switch", {
     name: /学习选词习惯/,
   })) as HTMLInputElement;
+  selectSettingsTab("进阶");
   const mode = screen.getByRole("combobox", { name: "调频方式" });
   const trigger = screen.getByRole("combobox", { name: "触发频次(第几次上屏触发)" });
   const step = screen.getByRole("combobox", { name: "线性调频步长" });
   fireEvent.change(mode, { target: { value: "linear" } });
+  selectSettingsTab("候选与联想");
   fireEvent.click(learning);
+  selectSettingsTab("进阶");
   expect(mode).toBeDefined();
   expect(trigger).toBeDefined();
   expect(step).toBeDefined();
@@ -1751,6 +1783,7 @@ test("word-to-character and paging disable each other while preserving the chose
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("选词与翻页");
   const word = (await screen.findByRole("switch", { name: /以词定字/ })) as HTMLInputElement;
   const minus = screen.getByRole("radio", { name: "- / =" }) as HTMLInputElement;
   expect(word.checked).toBe(true);
@@ -1792,6 +1825,7 @@ test("paging defaults match Windows and individual edits persist", async () => {
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("选词与翻页");
   const brackets = (await screen.findByRole("checkbox", { name: "[ / ]" })) as HTMLInputElement;
   expect(brackets.checked).toBe(false);
   for (const name of [
@@ -1833,6 +1867,7 @@ test("candidate-panel mouse-wheel paging is opt-in and persists", async () => {
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("选词与翻页");
   const wheel = (await screen.findByRole("checkbox", {
     name: "鼠标滚轮（候选窗口支持时翻页）",
   })) as HTMLInputElement;
@@ -1865,6 +1900,7 @@ test("Linux explains what the mouse-wheel paging switch does on IBus and Fcitx5"
     );
     await settingsReady();
     fireEvent.click(screen.getByRole("button", { name: "输入" }));
+    selectSettingsTab("选词与翻页");
     await screen.findByRole("checkbox", { name: "鼠标滚轮（候选窗口支持时翻页）" });
     const note = screen.queryByText(/在 IBus 候选窗口上滚动即翻页/);
     if (shown) {
@@ -1888,6 +1924,7 @@ test("helpcode schemes save independently and retain disabled selections", async
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("进阶");
   const quanpin = (await screen.findByRole("combobox", {
     name: "全拼辅助码方案",
   })) as HTMLSelectElement;
@@ -1936,6 +1973,7 @@ test("the 输入 page offers installed helpcode packs as helpcode schemes", asyn
   );
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("进阶");
   const quanpin = (await screen.findByRole("combobox", {
     name: "全拼辅助码方案",
   })) as HTMLSelectElement;
@@ -1965,6 +2003,8 @@ test("clears helpcode packs when the active host has no plugin catalog", async (
     save: vi.fn(),
   };
   const view = render(<SettingsPage initialPage="input" client={withPlugins} />);
+  await settingsReady();
+  selectSettingsTab("进阶");
   const quanpin = (await view.findByRole("combobox", {
     name: "全拼辅助码方案",
   })) as HTMLSelectElement;
@@ -2555,6 +2595,7 @@ test("utility mode switches preserve defaults and drafts across pages", async ()
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("进阶");
   const unicode = (await screen.findByRole("switch", {
     name: /^Unicode 便捷录入/,
   })) as HTMLInputElement;
@@ -2562,6 +2603,7 @@ test("utility mode switches preserve defaults and drafts across pages", async ()
   fireEvent.click(unicode);
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("进阶");
   expect(unicode.checked).toBe(false);
   saveSettingsNow();
   await screen.findByText("已保存");
@@ -2595,7 +2637,9 @@ test("macOS offers every local mode switch, downloaded catalogs included", async
       }}
     />,
   );
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("进阶");
   expect(await screen.findByRole("switch", { name: /^快捷短语/ })).toBeDefined();
   expect(screen.getByRole("switch", { name: /^日期与时间/ })).toBeDefined();
   expect(screen.getByRole("switch", { name: /^Unicode/ })).toBeDefined();
@@ -6445,6 +6489,7 @@ test("macOS shortcut page owns the full-width chord and the input page the mode 
   );
   // 它和其他平台一样在输入页「中英文」组。
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("中英文");
   const hud = within(screen.getByRole("region", { name: "中英文" })).getByRole("switch", {
     name: "中英文切换提示",
   });
@@ -6860,6 +6905,7 @@ test.each(referenceSections)(
     await settingsReady();
     if (via) fireEvent.click(screen.getByRole("button", { name: via }));
     fireEvent.click(screen.getByRole("button", { name: button }));
+    if (button === "输入" && group === "辅助码") selectSettingsTab("进阶");
     const page = group
       ? await screen.findByRole("region", { name: group })
       : await screen.findByRole("group", { name: button });
@@ -6954,6 +7000,7 @@ test.each(referenceSections)(
     await settingsReady();
     if (via) fireEvent.click(screen.getByRole("button", { name: via }));
     fireEvent.click(screen.getByRole("button", { name: button }));
+    if (button === "输入" && group === "辅助码") selectSettingsTab("进阶");
     const page = group
       ? await screen.findByRole("region", { name: group })
       : await screen.findByRole("group", { name: button });
@@ -7245,6 +7292,18 @@ test.each(
           : "布局";
       fireEvent.click(screen.getByRole("tab", { name: tab }));
     }
+    if (button === "输入") {
+      selectSettingsTab(
+        ["默认中英文", "中英文状态"].includes(control)
+          ? "中英文"
+          : control === "触发字符数"
+            ? "候选与联想"
+            : control === "双拼方案"
+              ? "方案"
+              : "进阶",
+      );
+    }
+    if (button === "语音输入" && control === "润色方案") selectSettingsTab("润色");
     if (expand) fireEvent.click(await screen.findByRole("switch", { name: expand }));
     if (role === "radiogroup") {
       const group = await screen.findByRole("radiogroup", { name: control });
@@ -7538,8 +7597,10 @@ test("中英混输 sits on the input page's 候选与联想 group, not on 标点
     />,
   );
   await settingsReady();
+  selectSettingsTab("中英文");
   const mode = screen.getByRole("region", { name: "中英文" });
   expect(within(mode).queryByRole("button", { name: "中英混输" })).toBeNull();
+  selectSettingsTab("候选与联想");
   const candidates = screen.getByRole("region", { name: "候选与联想" });
   expect(within(candidates).getByRole("switch", { name: /^中英混输/ })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
@@ -9123,6 +9184,8 @@ test("category navigation preserves one draft and saves edits across pages", asy
   // 设置窗口落在导航第一页「输入」。
   const input = screen.getByRole("button", { name: "输入" });
   expect(input.getAttribute("aria-current")).toBe("page");
+  await settingsReady();
+  selectSettingsTab("进阶");
   fireEvent.click(await screen.findByRole("switch", { name: "全拼辅助码" }));
   fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("候选窗口");

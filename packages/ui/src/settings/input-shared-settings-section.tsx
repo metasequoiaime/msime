@@ -18,7 +18,11 @@ import {
   type WordCharacterPreferences,
 } from "./word-character-section";
 
+export type InputSharedSettingsTab = "mode" | "selection" | "candidates" | "output" | "advanced";
+
 export interface InputSharedSettingsSectionProps {
+  /** 桌面页按功能包装分区，手机缺省保持全部直列。 */
+  renderGroup?: (tab: InputSharedSettingsTab, children: ReactNode) => ReactNode;
   preferences: Preferences;
   wordCharacter: WordCharacterPreferences;
   navigation: NavigationPreferences;
@@ -49,8 +53,9 @@ export interface InputSharedSettingsSectionProps {
   onPreferencesChange: (patch: Partial<Preferences>) => void;
 }
 
-/** Shared input controls of the settings page's 输入 page. */
+/** 输入页共用控件，按功能分区组合。 */
 export function InputSharedSettingsSection({
+  renderGroup = (_tab, children) => children,
   preferences,
   wordCharacter,
   navigation,
@@ -108,69 +113,86 @@ export function InputSharedSettingsSection({
   // 输入页按「基础 → 进阶」排列：先是每个人都会碰到的中英文和选词翻页，再是候选来源（云候选、中英混输与 emoji、颜文字混输、只出单字、整句联想和学习）和输出形式，进阶的快捷模式、模糊音、辅助码由页面经 beforeFrequency 放在调频之前。
   const groups = (
     <>
-      <GroupList title="中英文">
-        <DefaultImeModeSection
-          value={preferences.default_ime_mode}
-          onChange={(default_ime_mode) => onPreferencesChange({ default_ime_mode })}
-        />
-        {showModeScope && (
-          <ImeModeScopeSection
-            value={preferences.ime_mode_scope}
-            onChange={(ime_mode_scope) => onPreferencesChange({ ime_mode_scope })}
+      {renderGroup(
+        "mode",
+        <GroupList title="中英文">
+          <DefaultImeModeSection
+            value={preferences.default_ime_mode}
+            onChange={(default_ime_mode) => onPreferencesChange({ default_ime_mode })}
           />
-        )}
-        {showInputModeHUD && (
-          <InputModeHudSection
-            value={preferences.input_mode_hud}
-            onChange={(input_mode_hud) => onPreferencesChange({ input_mode_hud })}
-          />
-        )}
-        {showInputModeStatusItem && (
-          <SwitchRow
-            title="菜单栏显示中/英状态"
-            description="在菜单栏常驻显示当前模式：中文时是所用方案（中、双、五、日等），英文时是「英」。不需要把「英」加成系统输入源，关掉切换提示后也能随时看到。改动在回到输入框后生效。中英文按应用记忆时，切到没有输入框的应用后，这里显示的仍是上一个应用的状态。"
-            checked={preferences.input_mode_status_item ?? false}
-            onChange={(input_mode_status_item) => onPreferencesChange({ input_mode_status_item })}
-          />
-        )}
-        {modeExtra}
-      </GroupList>
+          {showModeScope && (
+            <ImeModeScopeSection
+              value={preferences.ime_mode_scope}
+              onChange={(ime_mode_scope) => onPreferencesChange({ ime_mode_scope })}
+            />
+          )}
+          {showInputModeHUD && (
+            <InputModeHudSection
+              value={preferences.input_mode_hud}
+              onChange={(input_mode_hud) => onPreferencesChange({ input_mode_hud })}
+            />
+          )}
+          {showInputModeStatusItem && (
+            <SwitchRow
+              title="菜单栏显示中/英状态"
+              description="在菜单栏常驻显示当前模式：中文时是所用方案（中、双、五、日等），英文时是「英」。不需要把「英」加成系统输入源，关掉切换提示后也能随时看到。改动在回到输入框后生效。中英文按应用记忆时，切到没有输入框的应用后，这里显示的仍是上一个应用的状态。"
+              checked={preferences.input_mode_status_item ?? false}
+              onChange={(input_mode_status_item) => onPreferencesChange({ input_mode_status_item })}
+            />
+          )}
+          {modeExtra}
+        </GroupList>,
+      )}
       {/* 没有翻页键时（HarmonyOS 手机的翻页键在「外接键盘快捷键」页），这个分组只管选择。 */}
-      <GroupList title={foldIntoMore && !paging ? "选词" : "选词与翻页"}>
-        {wordCharacterRows}
-        {paging}
-      </GroupList>
-      <GroupList title="候选与联想">
-        {cloudCandidatesRow}
-        {mixedInput && onMixedInputChange && (
-          <MixedInputSection
-            preferences={mixedInput}
-            temporaryJapanese={temporaryJapanese}
-            onChange={onMixedInputChange}
+      {renderGroup(
+        "selection",
+        <GroupList title={foldIntoMore && !paging ? "选词" : "选词与翻页"}>
+          {wordCharacterRows}
+          {paging}
+        </GroupList>,
+      )}
+      {renderGroup(
+        "candidates",
+        <GroupList title="候选与联想">
+          {cloudCandidatesRow}
+          {mixedInput && onMixedInputChange && (
+            <MixedInputSection
+              preferences={mixedInput}
+              temporaryJapanese={temporaryJapanese}
+              onChange={onMixedInputChange}
+            />
+          )}
+          <SingleCharacterOnlySection
+            value={preferences.single_character_only}
+            onChange={(single_character_only) => onPreferencesChange({ single_character_only })}
           />
-        )}
-        <SingleCharacterOnlySection
-          value={preferences.single_character_only}
-          onChange={(single_character_only) => onPreferencesChange({ single_character_only })}
-        />
-        {beforeLearning}
-        {learningRow}
-        {afterLearning}
-      </GroupList>
-      <GroupList title="输出">
-        {outputExtra}
-        {!foldIntoMore && traditionalOutputRow}
-        <ChineseEnglishSpacingSection
-          value={preferences.chinese_english_spacing}
-          onChange={(chinese_english_spacing) => onPreferencesChange({ chinese_english_spacing })}
-        />
-      </GroupList>
-      {beforeFrequency}
-      <FrequencySection
-        preferences={frequency}
-        onChange={(nextFrequency) => onPreferencesChange({ frequency: nextFrequency })}
-      />
-      {afterFrequency}
+          {beforeLearning}
+          {learningRow}
+          {afterLearning}
+        </GroupList>,
+      )}
+      {renderGroup(
+        "output",
+        <GroupList title="输出">
+          {outputExtra}
+          {!foldIntoMore && traditionalOutputRow}
+          <ChineseEnglishSpacingSection
+            value={preferences.chinese_english_spacing}
+            onChange={(chinese_english_spacing) => onPreferencesChange({ chinese_english_spacing })}
+          />
+        </GroupList>,
+      )}
+      {renderGroup(
+        "advanced",
+        <>
+          {beforeFrequency}
+          <FrequencySection
+            preferences={frequency}
+            onChange={(nextFrequency) => onPreferencesChange({ frequency: nextFrequency })}
+          />
+          {afterFrequency}
+        </>,
+      )}
     </>
   );
   if (foldIntoMore)

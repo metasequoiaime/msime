@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -122,6 +122,7 @@ test("the desktop input page keeps the helper-code settings and their window wor
 
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("进阶");
   expect(screen.getByRole("region", { name: "辅助码" })).toBeTruthy();
   expect(screen.getByLabelText("在候选窗口中显示双拼辅助码")).toBeTruthy();
   expect(screen.getByLabelText("在候选窗口中显示全拼辅助码")).toBeTruthy();
@@ -187,6 +188,7 @@ test("a host that appends helper codes is not told to hold Shift", async () => {
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("进阶");
   expect(screen.getByRole("region", { name: "辅助码" })).toBeTruthy();
   expect(screen.queryByText(/按 Shift\s*再输入的字母作为辅助码/)).toBeNull();
 });

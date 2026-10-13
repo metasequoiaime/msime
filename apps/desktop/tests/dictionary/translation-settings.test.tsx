@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
@@ -41,6 +41,7 @@ async function mount(preferences: Record<string, unknown> = {}) {
   // The translation controls live on the 输入 page; other pages are hidden, and
   // hidden subtrees are absent from the accessibility tree.
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("翻译服务");
   return mounted;
 }
 
@@ -196,6 +197,7 @@ describe("the MSIME account translation is an explicit choice", () => {
       />,
     );
     await settingsFormReady();
+    selectSettingsTab("翻译服务");
     return save;
   }
   const serviceSelect = () =>
@@ -365,6 +367,7 @@ describe("macOS points at undownloaded Apple translation languages", () => {
       />,
     );
     await settingsFormReady();
+    selectSettingsTab("候选翻译");
     // Let the host's answer land, so a hidden hint means hidden and not merely not yet shown.
     await waitFor(() => expect(downloadableLanguages).toHaveBeenCalled());
     await act(async () => {});

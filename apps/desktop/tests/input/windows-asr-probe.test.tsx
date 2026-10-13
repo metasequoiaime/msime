@@ -56,7 +56,9 @@ test.each(
   });
   // Switching to a streaming provider must not send its credentials through
   // the multipart batch probe; Linux has its separate provider-based control.
-  fireEvent.change(screen.getByLabelText("识别服务"), { target: { value: "doubao" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "识别服务" }), {
+    target: { value: "doubao" },
+  });
   expect(screen.queryByRole("button", { name: "测试语音识别配置" })).toBeNull();
 });
 
@@ -85,7 +87,7 @@ test("macOS system recognition does not expose an API credential probe", async (
       }}
     />,
   );
-  await screen.findByLabelText("识别服务");
+  await screen.findByRole("combobox", { name: "识别服务" });
   expect(screen.queryByRole("button", { name: "测试语音识别配置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "测试豆包识别配置" })).toBeNull();
   expect(screen.queryByText(/一秒合成静音/)).toBeNull();

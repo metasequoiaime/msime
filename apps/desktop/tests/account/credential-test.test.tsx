@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { settingsFormReady } from "../support/settings-form";
+import { selectSettingsTab, settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
@@ -71,6 +71,7 @@ test("Linux settings tests translation configuration through its provider", asyn
   mount(testApiCredential);
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
+  selectSettingsTab("翻译服务");
   fireEvent.click(screen.getByRole("button", { name: "测试 NiuTrans 配置" }));
   await screen.findByText("连接成功，当前配置有效。");
   expect(testApiCredential).toHaveBeenCalledWith("translation.niutrans", {
@@ -86,6 +87,7 @@ test("Linux voice and AI tests never send private tokens from preferences", asyn
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   fireEvent.click(screen.getByRole("button", { name: "测试语音识别配置" }));
   await screen.findByText("fixture ok");
+  selectSettingsTab("润色");
   fireEvent.click(screen.getByRole("button", { name: "测试语音润色配置" }));
   await vi.waitFor(() => expect(testApiCredential).toHaveBeenCalledTimes(2));
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
