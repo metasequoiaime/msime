@@ -5,7 +5,7 @@ use std::borrow::Cow;
 
 use super::*;
 use crate::quanpin::fixture::Fixture;
-use crate::types::fuzzy_rule;
+use crate::types::{fuzzy_rule, FirstPageRows, DEFAULT_FIRST_PAGE_ROWS};
 
 const NONE: u32 = 0;
 const TRANSPOSITION: u32 = autocorrect_type::TRANSPOSITION;
@@ -525,8 +525,9 @@ fn longer_phrases_join_the_full_key_group_by_weight() {
 }
 
 #[test]
-fn exact_rows_filling_a_page_drop_the_longer_phrases() {
-    // 精确同音词自己够填一页时整组补全词都不并入：补全词只为「同长度表只剩冷僻同音词」的输入存在。
+fn exact_rows_filling_a_page_push_the_longer_phrases_behind_it() {
+    // 精确同音词自己够填首页时，补全词不占首页座位，但也不从候选里消失：往后翻还翻得到它们。
+    // zhongguo、shide 的精确表本来就够一页，直接丢掉等于让「中国人民」「是的话」再也翻不到。
     let fixture = Fixture::new();
     fixture
         .insert("qi'shi", "其实", 500)
@@ -538,14 +539,16 @@ fn exact_rows_filling_a_page_drop_the_longer_phrases() {
         .insert("qi'shi'ye'dan'wei", "企事业单位", 600);
     let mut dictionary = QuanpinDictionary::new(&fixture.paths);
     let listed = query(&mut dictionary, "qishi", "qi'shi", NONE);
-    assert!(
-        !contains(&listed, "企事业单位"),
-        "精确同音词够一页时不该并入补全词: {:?}",
-        words(&listed)
-    );
     assert_eq!(
         words(&listed[..DEFAULT_FIRST_PAGE_ROWS]),
-        ["其实", "歧视", "岂是", "气势", "启示", "骑士"]
+        ["其实", "歧视", "岂是", "气势", "启示", "骑士"],
+        "精确同音词够填首页时补全词挤进了首页: {:?}",
+        words(&listed)
+    );
+    assert!(
+        position(&listed, "企事业单位") >= DEFAULT_FIRST_PAGE_ROWS,
+        "补全词没有接在整组末尾: {:?}",
+        words(&listed)
     );
 }
 
@@ -562,7 +565,7 @@ fn a_larger_first_page_rows_keeps_the_longer_phrases() {
         .insert("qi'shi", "骑士", 90)
         .insert("qi'shi'ye'dan'wei", "企事业单位", 600);
     let mut dictionary = QuanpinDictionary::new(&fixture.paths);
-    dictionary.set_first_page_rows(8);
+    dictionary.set_first_page_rows(FirstPageRows::new(8));
     let listed = query(&mut dictionary, "qishi", "qi'shi", NONE);
     assert!(
         contains(&listed, "企事业单位"),

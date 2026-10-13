@@ -28,6 +28,7 @@ use crate::types::{
     LocalInputMode, MentionEntry, OnlineQuery, QuickPhraseEntry, SchemeType,
 };
 
+use crate::types::FirstPageRows;
 pub use clock::{Clock, LocalClock};
 use input::InputSession;
 pub use options::{SessionOptions, SessionSnapshot};
@@ -64,7 +65,7 @@ impl Session {
         );
         // 九键的整句与 26 键遵守同一组句子联想设置（#6059）。
         nine_key.set_sentence_options(options.sentence_association, options.sentence_alternatives);
-        nine_key.set_first_page_rows(options.first_page_rows);
+        nine_key.set_first_page_rows(FirstPageRows::new(options.first_page_rows));
         nine_key.set_rescoring_context(&options.rescoring_context);
         // 九键选中的词记进同一个个人上下文模型，开关与 26 键相同（#6185）。
         nine_key.set_personal_context_enabled(options.personal_context);
@@ -402,6 +403,13 @@ impl Session {
     pub fn set_rescoring_context(&mut self, context: &str) {
         self.input.set_rescoring_context(context);
         self.nine_key.set_rescoring_context(context);
+    }
+
+    /// 首页行数只决定词库要不要并入补全词。`Runtime::set_page_size` 在宿主改每页候选数时调它，
+    /// 因此引擎的首屏门槛和分页始终同源，不必等下一次因别的偏好变化重建引擎。
+    pub fn set_first_page_rows(&mut self, rows: FirstPageRows) {
+        self.input.set_first_page_rows(rows);
+        self.nine_key.set_first_page_rows(rows);
     }
 
     /// Hand over the candidates withheld from a single-letter query; whether the list grew.

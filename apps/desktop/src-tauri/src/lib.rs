@@ -3721,7 +3721,7 @@ fn remember_input_target(
         {
             let _ = window;
             let target = msime_host_macos::capture_launch_target().ok_or(HostActionError {
-                code: "unavailable",
+                code: "no_input_target",
             })?;
             *state.0.lock().map_err(|_| HostActionError {
                 code: "unavailable",
@@ -3793,11 +3793,8 @@ async fn send_key(
         tauri::async_runtime::spawn_blocking(move || {
             received
                 .recv()
-                .unwrap_or(false)
-                .then_some(())
-                .ok_or(HostActionError {
-                    code: "unavailable",
-                })
+                .unwrap_or(Err("unavailable"))
+                .map_err(|code| HostActionError { code })
         })
         .await
         .map_err(|_| HostActionError {

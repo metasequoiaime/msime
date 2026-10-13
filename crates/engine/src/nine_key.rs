@@ -30,10 +30,10 @@ use crate::session::{LocalClock, SessionSnapshot};
 use crate::stroke;
 use crate::text::{count_utf8_chars, is_all_han, is_han_phrase, last_characters};
 use crate::types::{
-    CandidateSource, Command, EnglishInputOptions, FrequencyAdjustmentMode,
+    CandidateSource, Command, EnglishInputOptions, FirstPageRows, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, KeyResult, LocalInputMode,
     MixedExpressiveOptions, PersonalDictionaryKind, SchemeType, SentenceAssociationOptions,
-    WordItem, DEFAULT_FIRST_PAGE_ROWS,
+    WordItem,
 };
 use crate::user_dictionary::positions;
 use crate::user_dictionary::ranking::{self, RankingRequest};
@@ -257,8 +257,8 @@ pub struct NineKeySession {
     sentence_association: SentenceAssociationOptions,
     /// `SessionOptions::sentence_alternatives`：每条切分交回全部整句读法，而不是只交回最好的一条。
     sentence_alternatives: bool,
-    /// `SessionOptions::first_page_rows`：全长组的精确同音词够这么多行就不再并入补全词。
-    first_page_rows: usize,
+    /// `SessionOptions::first_page_rows`：首页放得下几行，决定全长组的补全词是按权重并进来还是接在整组末尾。
+    first_page_rows: FirstPageRows,
     /// 键盘模型读的上屏上下文，只留最后 `CONTEXT_CHARACTERS` 个字；`Session::set_rescoring_context` 随时更新。
     rescoring_context: String,
     /// 键盘模型，`neural_keyboard` 打开后第一次重排时加载；内层 `None` 是模型读不到。九键不让词库在每条切分里各重排一次，见 `rerank_sentences`。
@@ -370,7 +370,7 @@ impl NineKeySession {
             inline_date_time: None,
             sentence_association: SentenceAssociationOptions::default(),
             sentence_alternatives: false,
-            first_page_rows: DEFAULT_FIRST_PAGE_ROWS,
+            first_page_rows: FirstPageRows::default(),
             rescoring_context: String::new(),
             keyboard: None,
             rerank_cache: Vec::new(),
@@ -448,8 +448,8 @@ impl NineKeySession {
         }
     }
 
-    /// 首页行数只影响词库要不要并入补全词；词库已经打开时同步给它。
-    pub fn set_first_page_rows(&mut self, rows: usize) {
+    /// 首页行数只影响词库要不要并入补全词；词库已经打开时同步给它。`rows` 用 `FirstPageRows`，0 在这里没有入口，全拼和九键的归一只有 [`FirstPageRows::new`] 一处。
+    pub fn set_first_page_rows(&mut self, rows: FirstPageRows) {
         if self.first_page_rows == rows {
             return;
         }
@@ -483,6 +483,16 @@ impl NineKeySession {
             word_lattice: association.word_lattice || association.neural_keyboard,
             neural_keyboard: false,
             show_next_on_duplicate: association.show_next_on_duplicate,
+        }
+    }
+
+    /// 打开词库要用的选项。在这里先算出来，是因为 `dictionary_association` 要读整个 `self`，
+    /// 不能在 `get_or_insert_with` 的闭包里调用；三个取用点共用这一处。
+    fn dictionary_options(&self) -> DictionaryOptions {
+        DictionaryOptions {
+            association: self.dictionary_association(),
+            alternatives: self.sentence_alternatives,
+            first_page_rows: self.first_page_rows,
         }
     }
 
@@ -780,17 +790,10 @@ impl NineKeySession {
             return (None, None);
         };
         // 写入前由 `create_word_from_canonical_pinyin` 核对一字一个完整音节（与全拼键盘存词前的检查相同）；读不出的词（夹着英文或符号）被它拒绝，这不是写入失败，不报诊断。
-        let association = self.dictionary_association();
+        let options = self.dictionary_options();
         match self
             .dictionary
-            .get_or_insert_with(|| {
-                open_dictionary(
-                    &self.paths,
-                    association,
-                    self.sentence_alternatives,
-                    self.first_page_rows,
-                )
-            })
+            .get_or_insert_with(|| open_dictionary(&self.paths, options))
             .create_word_from_canonical_pinyin(&pinyin, &word)
         {
             Ok(()) => (None, Some(word)),
@@ -1127,18 +1130,13 @@ impl NineKeySession {
         let starts_right =
             |piece: &str| initial.is_none_or(|letter| piece.as_bytes().first() == Some(&letter));
         let mut syllables = Vec::new();
-        let association = self.dictionary_association();
+        let dictionary_options = self.dictionary_options();
         let alternatives = if remaining.is_empty() {
             vec![Vec::new()]
         } else {
-            let dictionary = self.dictionary.get_or_insert_with(|| {
-                open_dictionary(
-                    &self.paths,
-                    association,
-                    self.sentence_alternatives,
-                    self.first_page_rows,
-                )
-            });
+            let dictionary = self
+                .dictionary
+                .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options));
             let prior = self
                 .prior
                 .get_or_insert_with(|| SyllablePrior::from_dictionary(dictionary, table));
@@ -1175,14 +1173,7 @@ impl NineKeySession {
         append_path_key(&mut locked_key, "", &self.locked);
         let mut dictionary = self
             .dictionary
-            .get_or_insert_with(|| {
-                open_dictionary(
-                    &self.paths,
-                    association,
-                    self.sentence_alternatives,
-                    self.first_page_rows,
-                )
-            })
+            .get_or_insert_with(|| open_dictionary(&self.paths, dictionary_options))
             .row_cache_batch();
         let mut queried = (alternatives.len() > SMALL_QUERY_KEY_BATCH)
             .then(|| HashSet::with_capacity(alternatives.len()));
@@ -1929,17 +1920,22 @@ struct RerankEntry {
     ranked: Vec<String>,
 }
 
-/// 打开九键用的词库，带上 `NineKeySession::dictionary_association` 给的句子联想设置。
-fn open_dictionary(
-    paths: &RuntimePaths,
+/// 打开词库时要交给它的选项。取用词库的地方有三处，选项只在这一处攒齐（`dictionary_options`），
+/// 所以以后加选项不会再漏掉某一条路径，让它悄悄用上默认值。
+#[derive(Clone, Copy)]
+struct DictionaryOptions {
+    /// `NineKeySession::dictionary_association` 给的句子联想设置。
     association: SentenceAssociationOptions,
     alternatives: bool,
-    first_page_rows: usize,
-) -> QuanpinDictionary {
+    first_page_rows: FirstPageRows,
+}
+
+/// 打开九键用的词库，带上 `NineKeySession::dictionary_association` 给的句子联想设置。
+fn open_dictionary(paths: &RuntimePaths, options: DictionaryOptions) -> QuanpinDictionary {
     let mut dictionary = QuanpinDictionary::new(paths);
-    dictionary.set_sentence_association(association);
-    dictionary.set_sentence_alternatives(alternatives);
-    dictionary.set_first_page_rows(first_page_rows);
+    dictionary.set_sentence_association(options.association);
+    dictionary.set_sentence_alternatives(options.alternatives);
+    dictionary.set_first_page_rows(options.first_page_rows);
     dictionary
 }
 

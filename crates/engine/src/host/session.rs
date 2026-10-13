@@ -16,8 +16,8 @@ use crate::nine_key::KeyGrid;
 use crate::pinyin::glide::{GlideKeyboard, GlidePoint};
 use crate::pinyin::segment::is_complete_pinyin_input;
 use crate::types::{
-    CandidateEdge, CandidateSource, CommandTableEntry, CommandTranslationQuery, KeyResult,
-    LocalInputMode, MentionEntry, OnlineQuery, QuickPhraseEntry, SchemeType,
+    CandidateEdge, CandidateSource, CommandTableEntry, CommandTranslationQuery, FirstPageRows,
+    KeyResult, LocalInputMode, MentionEntry, OnlineQuery, QuickPhraseEntry, SchemeType,
 };
 use crate::user_dictionary::ngram_store::flush_journal;
 use crate::user_dictionary::removal::learn_entered_english_word;
@@ -433,6 +433,11 @@ impl Session {
     /// Live update of the neural rescoring context without a rebuild.
     pub fn set_rescoring_context(&mut self, context: &str) {
         self.inner.set_rescoring_context(context);
+    }
+
+    /// Live update of the first page size without a rebuild; it only moves the longer-phrase gate.
+    pub fn set_first_page_rows(&mut self, rows: usize) {
+        self.inner.set_first_page_rows(FirstPageRows::new(rows));
     }
 
     /// Whether an apostrophe now is input (`3jin'g`, `/fyhello'world`) rather than punctuation that ends the composition.

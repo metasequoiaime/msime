@@ -28,7 +28,7 @@ int main() {
     @autoreleasepool {
         const uint64_t flags = kCGEventFlagMaskCommand | kCGEventFlagMaskAlternate;
         TestHost host;
-        assert(msime::SendKeyboardKey(host, 0, flags));
+        assert(msime::SendKeyboardKey(host, 0, flags) == msime::KeyboardSendResult::Sent);
         assert((host.events == std::vector<CGEventType>{kCGEventKeyDown, kCGEventKeyUp}));
         for (int scenario = 0; scenario < 8; ++scenario) {
             TestHost denied;
@@ -40,7 +40,11 @@ int main() {
             if (scenario == 5) denied.failDown = true;
             if (scenario == 6) denied.failUp = true;
             if (scenario == 7) denied.losePermission = true;
-            assert(!msime::SendKeyboardKey(denied, 0, flags));
+            const auto expected = scenario == 1 || scenario == 7 ? msime::KeyboardSendResult::PermissionDenied
+                : scenario == 2 || scenario == 3 ? msime::KeyboardSendResult::NoTarget
+                : scenario == 4 ? msime::KeyboardSendResult::TargetChanged
+                : msime::KeyboardSendResult::Unavailable;
+            assert(msime::SendKeyboardKey(denied, 0, flags) == expected);
             assert(denied.events.empty());
             if (scenario < 4) assert(denied.allocations == 0);
         }

@@ -12,8 +12,7 @@ struct CloudDictionaryApplyView: View {
   @State private var probe = ""
   @State private var pending: Task<Void, Never>?
   @State private var sessionID: UUID?
-  @State private var requestID = UUID()
-  @State private var visible = false
+  @State private var request = ViewRequestGeneration()
   private let queue = DictionarySnapshotQueue()
   private let client = BackendAccountClient()
 
@@ -81,10 +80,9 @@ struct CloudDictionaryApplyView: View {
         do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
       }
     }
-    .onAppear { visible = true }
+    .onAppear { request.appear() }
     .onDisappear {
-      visible = false
-      requestID = UUID()
+      request.disappear()
       pending?.cancel()
       pending = nil
       busy = false
@@ -110,13 +108,12 @@ struct CloudDictionaryApplyView: View {
     catch { message = error.localizedDescription }
   }
   @MainActor private func download() {
-    guard visible, !busy, let version = state.localVersion else { return }
-    let id = UUID()
-    requestID = id
+    guard request.isVisible, !busy, let version = state.localVersion else { return }
+    let id = request.begin()
     busy = true; message = nil; preview = nil
     pending = Task {
       defer {
-        if requestID == id {
+        if request.isCurrent(id) {
           busy = false
           pending = nil
         }
@@ -124,37 +121,36 @@ struct CloudDictionaryApplyView: View {
       do {
         guard try PersonalDictionaryStore().read().pendingCount == 0 else { throw DictionarySnapshotQueue.Failure.busy }
         let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
-        try ensureCurrent(id)
+        try request.checkCurrent(id)
         sessionID = identity.sessionID
         let file = try await client.dictionarySnapshot(session: session, matchingUserID: accountID,
                                                        matchingSessionID: identity.sessionID)
         defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
         let prepared = try await BackendPreparedSnapshot.prepareDocument(file.url)
-        try ensureCurrent(id)
+        try request.checkCurrent(id)
         preview = prepared; expectedVersion = version
       } catch is CancellationError { }
-      catch { if visible, requestID == id { message = error.localizedDescription } }
+      catch { if request.isCurrent(id) { message = error.localizedDescription } }
     }
   }
   @MainActor private func enqueue() {
-    guard visible, !busy, let preview, let version = expectedVersion else { return }
-    let id = UUID()
-    requestID = id
+    guard request.isVisible, !busy, let preview, let version = expectedVersion else { return }
+    let id = request.begin()
     busy = true; message = nil
     pending = Task {
       defer {
-        if requestID == id {
+        if request.isCurrent(id) {
           busy = false
           pending = nil
         }
       }
       do {
         let identity = try await session.credentials(matchingUserID: accountID, matchingSessionID: sessionID)
-        try ensureCurrent(id)
+        try request.checkCurrent(id)
         sessionID = identity.sessionID
         let changes = try await client.dictionaryChanges(after: preview.envelope.revision, limit: 1,
           session: session, matchingUserID: accountID, matchingSessionID: identity.sessionID)
-        try ensureCurrent(id)
+        try request.checkCurrent(id)
         guard changes.changes.isEmpty else {
           self.preview = nil; expectedVersion = nil
           message = "预览后云词库已变化，请重新下载并确认。"
@@ -165,15 +161,10 @@ struct CloudDictionaryApplyView: View {
             expectedLocalVersion: version, fileSHA256: preview.fileSHA256)
         }
         _ = try await withTaskCancellationHandler(operation: { try await copy.value }, onCancel: { copy.cancel() })
-        try ensureCurrent(id)
+        try request.checkCurrent(id)
         self.preview = nil; expectedVersion = nil; refresh()
       } catch is CancellationError { }
-      catch { if visible, requestID == id { message = error.localizedDescription } }
+      catch { if request.isCurrent(id) { message = error.localizedDescription } }
     }
-  }
-
-  @MainActor private func ensureCurrent(_ id: UUID) throws {
-    try Task.checkCancellation()
-    guard visible, requestID == id else { throw CancellationError() }
   }
 }

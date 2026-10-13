@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Contract checks for page-owned community resource list operations."""
+"""校验社区资源列表的请求代次和离页清理契约。"""
 from pathlib import Path
 import unittest
 
@@ -15,14 +15,14 @@ class CommunityResourceListLifecycleTests(unittest.TestCase):
 
     def test_list_owns_visibility_and_pending_work(self):
         self.assertIn("@State private var pending: Task<Void, Never>?", self.view)
-        self.assertIn("@State private var visible = false", self.view)
-        self.assertIn(".onAppear { visible = true; Task", self.view)
+        self.assertIn("@State private var request = ViewRequestGeneration()", self.view)
+        self.assertIn(".onAppear { request.appear(); Task", self.view)
         self.assertIn("pending?.cancel()", self.view)
-        self.assertIn("requestID = UUID()", self.view)
+        self.assertIn("request.disappear()", self.view)
 
     def test_late_list_results_are_fenced_after_disappearance(self):
-        self.assertIn("guard visible, requestID == id else { throw CancellationError() }", self.view)
-        self.assertIn("try ensureCurrent(id)", self.view)
+        self.assertIn("let id = request.begin(); busy = true", self.view)
+        self.assertIn("try request.checkCurrent(id)", self.view)
         self.assertIn("pending = Task", self.view)
         self.assertIn("onPublished: { startLoad() }", self.view)
 

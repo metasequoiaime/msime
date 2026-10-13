@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Contract checks for page-owned community resource detail operations."""
+"""校验社区资源详情页的请求代次和离页清理契约。"""
 from pathlib import Path
 import unittest
 
@@ -15,16 +15,15 @@ class CommunityResourceDetailLifecycleTests(unittest.TestCase):
 
     def test_detail_owns_visibility_and_pending_work(self):
         self.assertIn("@State private var pending: Task<Void, Never>?", self.detail)
-        self.assertIn("@State private var requestID = UUID()", self.detail)
-        self.assertIn("@State private var visible = false", self.detail)
-        self.assertIn(".onAppear { visible = true", self.detail)
+        self.assertIn("@State private var request = ViewRequestGeneration()", self.detail)
+        self.assertIn(".onAppear { request.appear()", self.detail)
         self.assertIn(".onDisappear", self.detail)
         self.assertIn("pending?.cancel()", self.detail)
 
     def test_detail_actions_fence_late_results(self):
         self.assertIn("run(_ action: @escaping @MainActor (UUID) async throws -> Void)", self.detail)
-        self.assertIn("guard visible, requestID == id else { throw CancellationError() }", self.detail)
-        self.assertGreaterEqual(self.detail.count("try ensureCurrent(id)"), 5)
+        self.assertIn("let id = request.begin()", self.detail)
+        self.assertGreaterEqual(self.detail.count("try request.checkCurrent(id)"), 5)
         self.assertIn("catch is CancellationError", self.detail)
 
 

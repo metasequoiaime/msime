@@ -178,3 +178,45 @@ test("Windows sends a key on release over the same key, like the shipped panel's
   });
   expect(sendKey).toHaveBeenCalledTimes(1);
 });
+
+test.each([
+  ["permission_denied", "辅助功能"],
+  ["no_input_target", "先点击其他应用的输入框"],
+  ["input_target_changed", "本次按键未发送"],
+])("macOS explains %s and resumes only after a fresh press", async (code, message) => {
+  vi.useFakeTimers();
+  const sendKey = vi.fn().mockRejectedValueOnce({ code }).mockResolvedValue(undefined);
+  render(<KeyboardPanel client={{ close: async () => {}, sendKey }} platform="macos" />);
+  expect(screen.getByRole("status").textContent).toContain("先点击目标应用的输入框");
+  const key = screen.getByRole("button", { name: "a" });
+  await act(async () => {
+    fireEvent.pointerDown(key, { button: 0, isPrimary: true, pointerId: 21 });
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("status").textContent).toContain(message);
+  await act(async () => {
+    vi.advanceTimersByTime(1000);
+    await Promise.resolve();
+  });
+  expect(sendKey).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    fireEvent.click(key, { detail: 0 });
+    await Promise.resolve();
+  });
+  expect(sendKey).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("status").textContent).toContain("已发送");
+});
+
+test("macOS explains an initial target capture failure without exposing raw errors", async () => {
+  const rememberInputTarget = vi.fn().mockRejectedValue({
+    code: "no_input_target",
+    detail: "synthetic-private-detail",
+  });
+  await act(async () => {
+    render(
+      <KeyboardPanel client={{ close: async () => {}, rememberInputTarget }} platform="macos" />,
+    );
+  });
+  expect(screen.getByRole("status").textContent).toContain("先点击其他应用的输入框");
+  expect(screen.getByRole("status").textContent).not.toContain("synthetic-private-detail");
+});

@@ -10,9 +10,8 @@ struct CommunityResourcesView: View {
   @State private var more = false
   @State private var busy = false
   @State private var message: String?
-  @State private var requestID = UUID()
   @State private var pending: Task<Void, Never>?
-  @State private var visible = false
+  @State private var request = ViewRequestGeneration()
   @State private var publishing = false
   @State private var signedIn = false
   @State private var showAccount = false
@@ -76,24 +75,23 @@ struct CommunityResourcesView: View {
     .sheet(isPresented: $showAccount, onDismiss: {
       Task {
         let state = (try? await SkinCommunityAPI.shared.signedIn()) ?? false
-        guard visible, !Task.isCancelled else { return }
+        guard request.isVisible, !Task.isCancelled else { return }
         signedIn = state
         if signedIn { publishing = true }
       }
     }) { AccountLoginSheet() }
     .task {
-      visible = true
+      request.appear()
       let state = (try? await SkinCommunityAPI.shared.signedIn()) ?? false
-      guard visible, !Task.isCancelled else { return }
+      guard request.isVisible, !Task.isCancelled else { return }
       signedIn = state
       await load()
     }
     .refreshable { await refreshInstalled(); await load() }
     // 每次回到列表都重读：详情页里导入词库、添加或移除回复模板后，返回时胶囊按钮跟着变。
-    .onAppear { visible = true; Task { await refreshInstalled() } }
+    .onAppear { request.appear(); Task { await refreshInstalled() } }
     .onDisappear {
-      visible = false
-      requestID = UUID()
+      request.disappear()
       pending?.cancel()
       pending = nil
       busy = false
@@ -157,10 +155,10 @@ struct CommunityResourcesView: View {
 
   /// 列表上的添加。词库先把确认时统计的那个版本排队导入个人词库，再只在已登录时收藏它（与词库页的添加一致），所以未登录也能添加，导入失败也不会留下收藏；回复模板先收藏，再把最新版本复制进回复键盘的模板库。
   private func add(_ item: CommunityResource) {
-    guard visible, !adding.contains(item.id) else { return }
+    guard request.isVisible, !adding.contains(item.id) else { return }
     adding.insert(item.id)
     Task { @MainActor in
-      defer { if visible { adding.remove(item.id) } }
+      defer { if request.isVisible { adding.remove(item.id) } }
       do {
         var latest = item
         if item.kind == .dictionary {
@@ -183,55 +181,51 @@ struct CommunityResourcesView: View {
         if let index = items.firstIndex(where: { $0.id == latest.id }) { items[index] = latest }
         ToastCenter.shared.show("已添加「\(latest.name)」")
       } catch is CancellationError { }
-      catch { if visible { message = error.localizedDescription } }
+      catch { if request.isVisible { message = error.localizedDescription } }
     }
   }
 
   /// 重读本机已经装上的作品。回复模板库正被别处写入而读不到时保留上一次的结果。
   @MainActor private func refreshInstalled() async {
     if kind == .dictionary {
-      guard visible else { return }
+      guard request.isVisible else { return }
       installed = CommunityDictionaryImports.ids()
     } else if let ids = await CommunityReplyInstall.installedIDs() {
-      guard visible, !Task.isCancelled else { return }
+      guard request.isVisible, !Task.isCancelled else { return }
       installed = ids
     }
   }
 
   @MainActor private func load(append: Bool = false) async {
-    guard visible else { return }
-    let id = UUID(); requestID = id; busy = true
+    guard request.isVisible else { return }
+    let id = request.begin(); busy = true
     defer {
-      if requestID == id {
+      if request.isCurrent(id) {
         busy = false
         pending = nil
       }
     }
     do {
       let page = try await SkinCommunityAPI.shared.resources(kind, scope: scope, search: search, offset: append ? items.count : 0)
-      try ensureCurrent(id)
+      try request.checkCurrent(id)
       if append { let ids = Set(items.map(\.id)); items += page.items.filter { !ids.contains($0.id) } }
       else { items = page.items }
       more = page.has_more
     } catch is CancellationError { }
-    catch { if visible, requestID == id { if !append { items = []; more = false }; message = error.localizedDescription } }
+    catch { if request.isCurrent(id) { if !append { items = []; more = false }; message = error.localizedDescription } }
   }
 
   @MainActor private func startLoad(append: Bool = false) {
-    guard visible, !busy else { return }
+    guard request.isVisible, !busy else { return }
     pending?.cancel()
     pending = Task { await load(append: append) }
   }
 
   @MainActor private func ensureVisible() throws {
     try Task.checkCancellation()
-    guard visible else { throw CancellationError() }
+    guard request.isVisible else { throw CancellationError() }
   }
 
-  @MainActor private func ensureCurrent(_ id: UUID) throws {
-    try Task.checkCancellation()
-    guard visible, requestID == id else { throw CancellationError() }
-  }
 }
 
 /// 把社区回复模板装进本机高情商回复键盘的模板库，由完整列表和「AI 润色与回复」页的社区回复模板共用。
@@ -271,8 +265,7 @@ struct CommunityReplyTemplatesSection: View {
   @State private var pending: Task<Void, Never>?
   @State private var addTasks: [String: Task<Void, Never>] = [:]
   @State private var addGeneration = UUID()
-  @State private var requestID = UUID()
-  @State private var visible = false
+  @State private var request = ViewRequestGeneration()
 
   var body: some View {
     Section {
@@ -288,13 +281,12 @@ struct CommunityReplyTemplatesSection: View {
       NavigationLink { CommunityResourcesView(kind: .reply) } label: { Text("浏览更多回复模板") }
         .accessibilityIdentifier("replyCommunityLink")
         .task {
-          visible = true
+          request.appear()
           startLoad()
         }
-        .onAppear { visible = true }
+        .onAppear { request.appear() }
         .onDisappear {
-          visible = false
-          requestID = UUID()
+          request.disappear()
           pending?.cancel()
           pending = nil
           addGeneration = UUID()
@@ -335,7 +327,7 @@ struct CommunityReplyTemplatesSection: View {
   }
 
   private func add(_ item: CommunityResource) {
-    guard visible, !adding.contains(item.id) else { return }
+    guard request.isVisible, !adding.contains(item.id) else { return }
     let generation = addGeneration
     adding.insert(item.id)
     addTasks[item.id] = Task { @MainActor in
@@ -352,39 +344,38 @@ struct CommunityReplyTemplatesSection: View {
         if let index = items?.firstIndex(where: { $0.id == latest.id }) { items?[index] = latest }
         ToastCenter.shared.show("已添加「\(latest.name)」")
       } catch is CancellationError { }
-      catch { if visible, addGeneration == generation { message = error.localizedDescription } }
+      catch { if request.isVisible, addGeneration == generation { message = error.localizedDescription } }
     }
   }
 
   @MainActor private func refreshInstalled() async {
     if let ids = await CommunityReplyInstall.installedIDs() {
-      guard visible, !Task.isCancelled else { return }
+      guard request.isVisible, !Task.isCancelled else { return }
       installed = ids
     }
   }
 
   @MainActor private func load(_ id: UUID) async {
-    guard visible, requestID == id else { return }
+    guard request.isCurrent(id) else { return }
     do {
       let page = try await SkinCommunityAPI.shared.resources(.reply)
-      try ensureCurrent(id)
+      try request.checkCurrent(id)
       items = Array(page.items.prefix(Self.limit))
       failed = false
     } catch is CancellationError {
       return
     } catch {
       // 已经加载过的列表保留下来；刷新失败只替换加载提示。
-      if visible, requestID == id, items == nil { failed = true }
+      if request.isCurrent(id), items == nil { failed = true }
     }
   }
 
   @MainActor private func startLoad() {
-    guard visible else { return }
+    guard request.isVisible else { return }
     pending?.cancel()
-    let id = UUID()
-    requestID = id
+    let id = request.begin()
     pending = Task {
-      defer { if requestID == id { pending = nil } }
+      defer { if request.isCurrent(id) { pending = nil } }
       await refreshInstalled()
       await load(id)
     }
@@ -392,13 +383,9 @@ struct CommunityReplyTemplatesSection: View {
 
   @MainActor private func ensureVisible(_ generation: UUID) throws {
     try Task.checkCancellation()
-    guard visible, addGeneration == generation else { throw CancellationError() }
+    guard request.isVisible, addGeneration == generation else { throw CancellationError() }
   }
 
-  @MainActor private func ensureCurrent(_ id: UUID) throws {
-    try Task.checkCancellation()
-    guard visible, requestID == id else { throw CancellationError() }
-  }
 }
 
 struct CommunityResourceDetail: View {
@@ -410,8 +397,7 @@ struct CommunityResourceDetail: View {
   @State private var confirmDelete = false
   @State private var editing = false
   @State private var pending: Task<Void, Never>?
-  @State private var requestID = UUID()
-  @State private var visible = false
+  @State private var request = ViewRequestGeneration()
   @Environment(\.dismiss) private var dismiss
   private var item: CommunityResource { updated ?? initial }
   var body: some View {
@@ -450,22 +436,22 @@ struct CommunityResourceDetail: View {
             .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
           Button("添加到高情商回复键盘") { run { id in
             try await SkinCommunityAPI.shared.saveResource(item.id, saved: true)
-            try ensureCurrent(id)
+            try request.checkCurrent(id)
             let latest = try await SkinCommunityAPI.shared.resource(item.id)
-            try ensureCurrent(id)
+            try request.checkCurrent(id)
             try await Task.detached(priority: .userInitiated) {
               try CommunityLibrary.save(latest)
             }.value
-            try ensureCurrent(id)
+            try request.checkCurrent(id)
             updated = latest
             message = "已添加。在高情商回复键盘点击「模板」即可选择；只有点击生成时才会发送文字。"
           }}.buttonStyle(.borderedProminent).disabled(busy)
         }
         Button(item.saved ? "取消收藏" : "收藏，关注后续更新") { run { id in
           try await SkinCommunityAPI.shared.saveResource(item.id, saved: !item.saved)
-          try ensureCurrent(id)
+          try request.checkCurrent(id)
           let latest = try await SkinCommunityAPI.shared.resource(item.id)
-          try ensureCurrent(id)
+          try request.checkCurrent(id)
           updated = latest
         }}.disabled(busy)
         if item.kind == .reply {
@@ -474,7 +460,7 @@ struct CommunityResourceDetail: View {
             try await Task.detached(priority: .userInitiated) {
               try CommunityLibrary.remove(resourceID)
             }.value
-            try ensureCurrent(id)
+            try request.checkCurrent(id)
             message = "已从本机移除，社区收藏保留。"
           }}.disabled(busy)
         }
@@ -484,9 +470,9 @@ struct CommunityResourceDetail: View {
             ForEach(1...5, id: \.self) { stars in
               Button { run { id in
                 try await SkinCommunityAPI.shared.rateResource(item.id, stars: stars)
-                try ensureCurrent(id)
+                try request.checkCurrent(id)
                 let latest = try await SkinCommunityAPI.shared.resource(item.id)
-                try ensureCurrent(id)
+                try request.checkCurrent(id)
                 updated = latest
               }} label: { Image(systemName: stars <= item.my_rating ? "star.fill" : "star") }
                 .accessibilityLabel("\(stars) 星").disabled(busy || !item.saved)
@@ -501,16 +487,16 @@ struct CommunityResourceDetail: View {
       }.padding(20)
     }.background(Color(uiColor: .systemGroupedBackground)).navigationTitle(item.kind == .dictionary ? "词库详情" : "回复模板")
       .task {
-        visible = true
+        request.appear()
         run { id in
         let latest = try await SkinCommunityAPI.shared.resource(initial.id)
-        try ensureCurrent(id)
+        try request.checkCurrent(id)
         updated = latest
         }
       }
       .sheet(isPresented: $editing, onDismiss: { run { id in
         let latest = try await SkinCommunityAPI.shared.resource(initial.id)
-        try ensureCurrent(id)
+        try request.checkCurrent(id)
         updated = latest
       } }) {
         CommunityResourceEditor(kind: item.kind, existing: item)
@@ -518,7 +504,7 @@ struct CommunityResourceDetail: View {
       .confirmationDialog("确认导入预览中的 \(item.content.entries?.count ?? 0) 条词条？", isPresented: $confirmImport, titleVisibility: .visible) {
         Button("确认导入") { let selected = item; run { id in
           try PersonalDictionaryStore().enqueueImport((selected.content.entries ?? []).map { try $0.localWord() })
-          try ensureCurrent(id)
+          try request.checkCurrent(id)
           CommunityDictionaryImports.record(selected.id)
           message = "已加入本机导入队列，打开水杉键盘后处理。可在「查看导入状态」检查每条结果。"
         }}
@@ -526,42 +512,36 @@ struct CommunityResourceDetail: View {
       .confirmationDialog("下架后其他用户将无法获取此作品，已有本地副本保留。", isPresented: $confirmDelete, titleVisibility: .visible) {
         Button("下架", role: .destructive) { run { id in
           try await SkinCommunityAPI.shared.unpublishResource(item.id)
-          try ensureCurrent(id)
+          try request.checkCurrent(id)
           dismiss()
         } }
       }
       .alert("社区", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
         Button("好", role: .cancel) {}
       } message: { Text(message ?? "") }
-      .onAppear { visible = true }
+      .onAppear { request.appear() }
       .onDisappear {
-      visible = false
-      requestID = UUID()
+      request.disappear()
       pending?.cancel()
       pending = nil
       busy = false
       }
   }
   private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
-    guard visible, !busy else { return }
-    let id = UUID()
-    requestID = id
+    guard request.isVisible, !busy else { return }
+    let id = request.begin()
     busy = true; message = nil
     pending = Task {
       defer {
-        if requestID == id {
+        if request.isCurrent(id) {
           busy = false
           pending = nil
         }
       }
       do { try await action(id) }
       catch is CancellationError { }
-      catch { if visible, requestID == id { message = error.localizedDescription } }
+      catch { if request.isCurrent(id) { message = error.localizedDescription } }
     }
-  }
-  @MainActor private func ensureCurrent(_ id: UUID) throws {
-    try Task.checkCancellation()
-    guard visible, requestID == id else { throw CancellationError() }
   }
 }
 
@@ -587,8 +567,7 @@ struct CommunityResourceEditor: View {
   @State private var message: String?
   @State private var confirming = false
   @State private var pending: Task<Void, Never>?
-  @State private var requestID = UUID()
-  @State private var visible = false
+  @State private var request = ViewRequestGeneration()
   @Environment(\.dismiss) private var dismiss
   var body: some View {
     NavigationView {
@@ -644,12 +623,12 @@ struct CommunityResourceEditor: View {
           do { words = try (existing.content.entries ?? []).map { try $0.localWord() } } catch { message = error.localizedDescription }
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
-          guard visible else { return }
+          guard request.isVisible else { return }
           do {
             let url = try result.get()
             run { id in
               let imported = try await Task.detached { try PersonalDictionaryImport.read(from: url) }.value
-              try ensureCurrent(id)
+              try request.checkCurrent(id)
               guard imported.entries.allSatisfy({ PersonalWordKind.communityCases.contains($0.kind) }) else { throw CommunityFailure(message: "社区词库暂不支持 98 五笔词条，请从文件中去掉后再选择。") }
               let ids = Set(words.map(\.id)); let additions = imported.entries.filter { !ids.contains($0.id) }
               guard words.count + additions.count <= 128 else { throw CommunityFailure(message: "每份社区词库最多 128 条，请先精简文件。") }
@@ -664,7 +643,7 @@ struct CommunityResourceEditor: View {
                 prompt: kind == .reply ? prompt : nil)
               try await SkinCommunityAPI.shared.publishResource(id: publicationID, kind: kind, name: name,
                 description: description, content: content, revision: existing?.revision ?? 0)
-              try ensureCurrent(id)
+              try request.checkCurrent(id)
               onPublished(); dismiss()
             }
           }
@@ -674,36 +653,30 @@ struct CommunityResourceEditor: View {
         } message: { Text(message ?? "") }
     }
     .navigationViewStyle(.stack)
-    .onAppear { visible = true }
+    .onAppear { request.appear() }
     .onDisappear {
-      visible = false
-      requestID = UUID()
+      request.disappear()
       pending?.cancel()
       pending = nil
       busy = false
     }
   }
 
-  @MainActor private func ensureCurrent(_ id: UUID) throws {
-    try Task.checkCancellation()
-    guard visible, requestID == id else { throw CancellationError() }
-  }
 
   @MainActor private func run(_ action: @escaping @MainActor (UUID) async throws -> Void) {
-    guard visible, !busy else { return }
-    let id = UUID()
-    requestID = id
+    guard request.isVisible, !busy else { return }
+    let id = request.begin()
     busy = true; message = nil
     pending = Task {
       defer {
-        if requestID == id {
+        if request.isCurrent(id) {
           busy = false
           pending = nil
         }
       }
       do { try await action(id) }
       catch is CancellationError { }
-      catch { if visible, requestID == id { message = error.localizedDescription } }
+      catch { if request.isCurrent(id) { message = error.localizedDescription } }
     }
   }
 }
