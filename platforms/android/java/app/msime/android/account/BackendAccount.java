@@ -781,6 +781,8 @@ public final class BackendAccount {
             connection.setRequestMethod("POST");
             HttpConnectionPolicy.setTimeouts(connection, 30_000, 30_000);
             connection.setRequestProperty("Accept", "text/event-stream");
+            // SSE 必须逐事件到达；不请求 gzip，避免 Android 或中间代理等到压缩缓冲区满了才把增量交给读取端。
+            connection.setRequestProperty("Accept-Encoding", "identity");
             connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
             connection.setRequestProperty("Authorization", "Bearer " + token);
             connection.setDoOutput(true);
