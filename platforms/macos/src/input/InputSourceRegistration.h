@@ -29,6 +29,11 @@ bool MSIMEShouldReportInputSourceRegistration(int argc, const char *argv[]);
 MSIMEInputSourceRegistryState MSIMEInputSourceRegistryStateFor(NSString *bundleIdentifier, MSIMEInputSourceLister lister);
 /// `--input-source-registered` 的退出码：Listed 为 0，Missing 为 3，Unknown 为 1。apps/desktop/src-tauri 的 macos_input_source.rs 按同样的值解读，两边要一起改。
 int MSIMEInputSourceRegistryExitCode(MSIMEInputSourceRegistryState state);
+/// `--enabled-input-modes`：只读地列出本 bundle 已启用的输入模式标识符，每行一个，退出码 0；无从判断时退出码 1。设置应用的「菜单栏入口」据此说还差哪几个模式：系统设置的偏好列表只记用户亲手加的模式，随输入法一起默认启用的模式（中、双、五、日、韩、英）不在里面，单看它会把这些也报成没加。
+bool MSIMEShouldReportEnabledInputModes(int argc, const char *argv[]);
+/// 已启用（不带 includeAllInstalled 的 TIS 列表里有）的本 bundle 输入模式，即标识符以 bundle 标识加「.」开头的输入源；没有 bundle 标识、查询函数或列表时为 nil。
+NSArray<NSString *> *MSIMEEnabledInputModeIDs(NSString *bundleIdentifier, MSIMEInputSourceLister lister,
+                                              MSIMEInputSourcePropertyGetter propertyGetter);
 OSStatus MSIMERegisterInputSource(NSURL *bundleURL, MSIMEInputSourceRegistrar registrar);
 OSStatus MSIMERegisterAndEnableInputSources(NSURL *bundleURL, NSString *bundleIdentifier,
                                             MSIMEInputSourceRegistrar registrar,

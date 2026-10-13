@@ -229,6 +229,36 @@ int main()
                     MSIMEInputSourceRegistryExitCode(MSIMEInputSourceRegistryStateUnknown) == 1,
                 "A registry probe without an identifier or a lister was not reported as unknown.");
 
+        // `--enabled-input-modes` 只读：列出不带 includeAllInstalled 的列表里本 bundle 的模式，不列 bundle 自己那一项，也不启用任何东西。
+        const char *enabledModesArguments[] = {"MetasequoiaIME", "--enabled-input-modes"};
+        require(MSIMEShouldReportEnabledInputModes(2, enabledModesArguments) &&
+                    !MSIMEShouldReportEnabledInputModes(2, probeArguments) &&
+                    !MSIMEShouldReportEnabledInputModes(2, registrationArguments) &&
+                    !MSIMEShouldReportEnabledInputModes(1, ordinaryArguments) &&
+                    !MSIMEShouldReportEnabledInputModes(1, nullptr),
+                "The enabled input modes command was not told apart from the others.");
+        require(!MSIMEShouldRegisterInputSource(2, enabledModesArguments) &&
+                    !MSIMEShouldReportInputSourceRegistration(2, enabledModesArguments),
+                "The enabled input modes command was treated as another command.");
+        const void *enabledModeSources[] = {parentSource, modeSource, englishModeSource};
+        sourceList = CFArrayCreate(nullptr, enabledModeSources, 3, nullptr);
+        includedAllInstalled = true;
+        enableCapableOnly = YES;
+        NSArray<NSString *> *enabledModes = MSIMEEnabledInputModeIDs(bundleIdentifier, CopyInputSources, GetInputSourceProperty);
+        require([enabledModes isEqualToArray:@[@"com.houko.inputmethod.MetasequoiaIME.Hans",
+                                               @"com.houko.inputmethod.MetasequoiaIME.Roman"]],
+                "The enabled input modes were not the bundle's mode entries.");
+        require([listedBundleIdentifier isEqualToString:bundleIdentifier] && !includedAllInstalled && !enableCapableOnly,
+                "The enabled input modes were not read from the list of enabled sources.");
+        require(enabledSources.empty(), "Listing the enabled input modes enabled an input source.");
+        CFRelease(sourceList);
+        sourceList = nullptr;
+        require(MSIMEEnabledInputModeIDs(bundleIdentifier, CopyInputSources, GetInputSourceProperty) == nil &&
+                    MSIMEEnabledInputModeIDs(nil, CopyInputSources, GetInputSourceProperty) == nil &&
+                    MSIMEEnabledInputModeIDs(bundleIdentifier, nullptr, GetInputSourceProperty) == nil &&
+                    MSIMEEnabledInputModeIDs(bundleIdentifier, CopyInputSources, nullptr) == nil,
+                "Enabled input modes were reported without a list to read them from.");
+
         const void *modeOnlySources[] = {modeSource};
         sourceList = CFArrayCreate(nullptr, modeOnlySources, 1, nullptr);
         enabledSources.clear();

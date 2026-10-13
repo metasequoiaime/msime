@@ -82,6 +82,30 @@ int MSIMEInputSourceRegistryExitCode(MSIMEInputSourceRegistryState state) {
     return 1;
 }
 
+bool MSIMEShouldReportEnabledInputModes(int argc, const char *argv[]) {
+    return argc == 2 && argv && argv[1] && std::strcmp(argv[1], "--enabled-input-modes") == 0;
+}
+
+NSArray<NSString *> *MSIMEEnabledInputModeIDs(NSString *bundleIdentifier, MSIMEInputSourceLister lister,
+                                              MSIMEInputSourcePropertyGetter propertyGetter) {
+    if (!bundleIdentifier.length || !lister || !propertyGetter) return nil;
+    NSDictionary *filter = @{(__bridge NSString *)kTISPropertyBundleID: bundleIdentifier};
+    // Without includeAllInstalled the list holds only enabled sources.
+    CFArrayRef sources = lister((__bridge CFDictionaryRef)filter, false);
+    if (!sources) return nil;
+    NSString *modePrefix = [bundleIdentifier stringByAppendingString:@"."];
+    NSMutableArray<NSString *> *modes = [NSMutableArray array];
+    for (CFIndex i = 0; i < CFArrayGetCount(sources); ++i) {
+        TISInputSourceRef source = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, i);
+        void *property = propertyGetter(source, kTISPropertyInputSourceID);
+        if (property && CFGetTypeID(property) == CFStringGetTypeID() &&
+            [(__bridge NSString *)property hasPrefix:modePrefix])
+            [modes addObject:[(__bridge NSString *)property copy]];
+    }
+    CFRelease(sources);
+    return modes;
+}
+
 OSStatus MSIMERegisterInputSource(NSURL *bundleURL, MSIMEInputSourceRegistrar registrar) {
     if (!bundleURL || !registrar) return paramErr;
     return registrar((__bridge CFURLRef)bundleURL);

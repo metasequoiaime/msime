@@ -13,6 +13,7 @@
 #import "../voice/VoiceAudioMuter.h"
 #include "../core/DiagnosticLog.h"
 #include "msime_client.h"
+#include <cstdio>
 #include <cstring>
 #include <dlfcn.h>
 
@@ -53,6 +54,16 @@ int main(int argc, const char *argv[]) {
         if (MSIMEShouldReportInputSourceRegistration(argc, argv)) {
             return MSIMEInputSourceRegistryExitCode(
                 MSIMEInputSourceRegistryStateFor(NSBundle.mainBundle.bundleIdentifier, TISCreateInputSourceList));
+        }
+        if (MSIMEShouldReportEnabledInputModes(argc, argv)) {
+            NSArray<NSString *> *modes = MSIMEEnabledInputModeIDs(NSBundle.mainBundle.bundleIdentifier,
+                TISCreateInputSourceList,
+                [](TISInputSourceRef source, CFStringRef key) -> void * {
+                    return (void *)TISGetInputSourceProperty(source, key);
+                });
+            if (!modes) return 1;
+            for (NSString *mode in modes) std::printf("%s\n", mode.UTF8String);
+            return 0;
         }
         [NSApplication sharedApplication];
         // Host API reports failures it recovers from by itself (a sound, music or helpcode pack that does not load, an audio device that does not open) as one line on stderr, which launchd points at /dev/null for an input method; this sends them to diagnostic.log instead. Before the first session, whose creation reports the helpcode fallback; lines that arrive before the log is configured or while it is off are dropped, not kept for later (DiagnosticLog.h).

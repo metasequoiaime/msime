@@ -1015,11 +1015,85 @@ fn enabled_modes_in_input_source_list(json: &[u8]) -> Option<Vec<String>> {
     )
 }
 
-/// 用户在系统设置里加入输入法列表的本输入法模式，按标识符排序去重；两份列表都读不到时为 `None`。
+/// 本输入法已启用的模式，按标识符排序去重；都读不到时为 `None`。
 ///
 /// macOS 27 不允许进程启用键盘输入模式（`TISEnableInputSource` 返回 noErr 而状态不变），粤、注、越这几个按需模式只能由用户自己在系统设置里添加，设置页靠它告诉用户哪几个还没加。
+///
+/// 先问已装的输入法（`--enabled-input-modes`，它查 TIS）：偏好列表只记用户在系统设置里亲手加的模式，随输入法一起默认启用的中、双、五、日、韩、英只有一条不带 `Input Mode` 的 bundle 记录（macOS 27.0 上实测），单看偏好列表会把它们全报成没加。问不到（还没装、旧版输入法不认识这个参数、超时）才退回偏好列表。
 pub(crate) fn enabled_input_modes() -> Option<Vec<String>> {
-    let mut modes = ENABLED_INPUT_SOURCE_LISTS
+    let mut modes =
+        enabled_modes_from_installed_bundle().or_else(enabled_modes_in_preference_lists)?;
+    modes.sort();
+    modes.dedup();
+    Some(modes)
+}
+
+/// `--enabled-input-modes` 的输出上限：十来个标识符，每个不到一百字节。
+const ENABLED_MODES_PROBE_MAX_BYTES: usize = 16 * 1024;
+
+/// 跑已装 bundle 的 `--enabled-input-modes`，它只读。没装、bundle 不对、跑不起来、超时或退出码不是 0 都是 `None`。
+fn enabled_modes_from_installed_bundle() -> Option<Vec<String>> {
+    let bundle = installed_bundle_path().ok()?;
+    validate_bundle(&bundle).ok()?;
+    let executable = bundle
+        .join("Contents/MacOS")
+        .join(input_source_executable());
+    let output = probe_output(
+        &executable,
+        "--enabled-input-modes",
+        REGISTRY_PROBE_TIMEOUT,
+        ENABLED_MODES_PROBE_MAX_BYTES,
+    )?;
+    enabled_modes_from_probe_output(&output)
+}
+
+/// 每行一个标识符；只留本输入法的模式，即以 bundle 标识加「.」开头的那些。
+fn enabled_modes_from_probe_output(output: &[u8]) -> Option<Vec<String>> {
+    let prefix = format!("{}.", input_source_bundle_id());
+    Some(
+        std::str::from_utf8(output)
+            .ok()?
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with(&prefix))
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+/// 跑 `executable argument`，在 `timeout` 内退出且退出码为 0 时返回它的标准输出。输出不超过管道缓冲，子进程不会因为写满而卡住，所以等它退出之后再读。
+fn probe_output(
+    executable: &Path,
+    argument: &str,
+    timeout: std::time::Duration,
+    maximum: usize,
+) -> Option<Vec<u8>> {
+    let mut child = Command::new(executable)
+        .arg(argument)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return bounded_child_output(&mut child, maximum),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Ok(None) | Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+}
+
+/// 用户在系统设置里加入输入法列表的本输入法模式；两份列表都读不到时为 `None`。
+fn enabled_modes_in_preference_lists() -> Option<Vec<String>> {
+    ENABLED_INPUT_SOURCE_LISTS
         .iter()
         .filter_map(|(domain, key)| {
             enabled_modes_in_input_source_list(&preference_list_json(domain, key)?)
@@ -1027,10 +1101,7 @@ pub(crate) fn enabled_input_modes() -> Option<Vec<String>> {
         .reduce(|mut all, modes| {
             all.extend(modes);
             all
-        })?;
-    modes.sort();
-    modes.dedup();
-    Some(modes)
+        })
 }
 
 /// 偏好域里一个列表的 JSON 形式；读不到或没有这个键时为 `None`。
@@ -1722,6 +1793,59 @@ mod tests {
         assert!(!after_install_refreshes(&Err(InstallError::Registration)));
         assert!(!after_install_refreshes(&Err(InstallError::Io)));
         assert!(!after_install_refreshes(&Err(InstallError::InvalidBundle)));
+    }
+
+    #[test]
+    fn enabled_modes_probe_keeps_this_bundles_modes_only() {
+        let bundle = input_source_bundle_id();
+        let output =
+            format!("{bundle}.Hans\n{bundle}.Roman\n\n{bundle}\ncom.example.other.Hans\n{bundle}.Japanese\n");
+        assert_eq!(
+            enabled_modes_from_probe_output(output.as_bytes()),
+            Some(vec![
+                format!("{bundle}.Hans"),
+                format!("{bundle}.Roman"),
+                format!("{bundle}.Japanese"),
+            ])
+        );
+        assert_eq!(enabled_modes_from_probe_output(b""), Some(Vec::new()));
+        assert_eq!(enabled_modes_from_probe_output(&[0xff, 0xfe]), None);
+    }
+
+    #[test]
+    fn probe_output_needs_a_successful_exit_within_the_timeout() {
+        let timeout = std::time::Duration::from_secs(5);
+        let script = |body: &str| {
+            let directory = tempdir().unwrap();
+            let path = directory.path().join("probe");
+            fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+            (directory, path)
+        };
+        let (_directory, listing) =
+            script(r#"[ "$1" = --enabled-input-modes ] && printf 'a\nb\n'"#);
+        assert_eq!(
+            probe_output(&listing, "--enabled-input-modes", timeout, 1024),
+            Some(b"a\nb\n".to_vec())
+        );
+        let (_directory, failing) = script("printf a; exit 1");
+        assert_eq!(
+            probe_output(&failing, "--enabled-input-modes", timeout, 1024),
+            None
+        );
+        // An input method too old to know the argument starts as a normal InputMethodKit server and never exits.
+        let (_directory, hanging) = script("exec sleep 30");
+        let started = std::time::Instant::now();
+        assert_eq!(
+            probe_output(
+                &hanging,
+                "--enabled-input-modes",
+                std::time::Duration::from_millis(200),
+                1024
+            ),
+            None
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
     }
 
     #[test]
