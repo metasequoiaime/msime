@@ -140,7 +140,7 @@ pub mod scalar_values {
         ("host_commit", 5),
         ("other", 6),
     ];
-    /// `LOCAL_MODE`：host-api 的 `LocalModeClass`，名字同 `commit_context.local_mode`。0 到 5 在 U6 白名单里（[`super::local_mode_allows_text`]），其余模式下文本一律按屏蔽处理。
+    /// `LOCAL_MODE`：host-api 的 `LocalModeClass`，名字同 `commit_context.local_mode`。0 到 5 在 U6 白名单里（[`super::local_mode_allows_text`]），其余模式（含拆字 13）下文本一律按屏蔽处理。
     pub const LOCAL_MODE: &[(&str, u8)] = &[
         ("none", 0),
         ("temporary_english", 1),
@@ -155,6 +155,7 @@ pub mod scalar_values {
         ("unicode", 10),
         ("date_time", 11),
         ("quick_phrase", 12),
+        ("chaizi", 13),
         ("unknown", 255),
     ];
     /// `INPUT_CLASS`：host-api 的 `InputClass`。
@@ -490,7 +491,7 @@ impl FromIterator<Hook> for HookSet {
     }
 }
 
-/// 文本类 import 和可修改的钩子只在这些本地模式里可用（U6）。编号同 host-api 的 `LocalModeClass`：none、临时英文、临时日文、超级简拼、emoji、颜文字；提及、网址、命令、表达式、Unicode、日期时间、快捷短语和不认识的模式一律屏蔽。
+/// 文本类 import 和可修改的钩子只在这些本地模式里可用（U6）。编号同 host-api 的 `LocalModeClass`：none、临时英文、临时日文、超级简拼、emoji、颜文字；提及、网址、命令、表达式、Unicode、日期时间、快捷短语、拆字和不认识的模式一律屏蔽。
 pub fn local_mode_allows_text(local_mode: u8) -> bool {
     local_mode <= 5
 }

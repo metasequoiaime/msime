@@ -185,9 +185,9 @@ impl Session {
         let value = self.inner.snapshot();
         let helpcode_scheme = value.scheme.helpcode();
         let uppercase_all = value.scheme == SchemeType::Quanpin;
-        // Rows the engine generated in the expression, command and mention modes are not spelled by pinyin; their annotations are the engine's own.
+        // Rows the engine generated in the expression, command and mention modes are not spelled by pinyin; their annotations are the engine's own. 拆字行的注释是字的读音，没有读音的字也不补辅助码。
         let keymap = self.helpcode_keymap.as_deref().filter(|_| {
-            self.helpcode_enabled && helpcode_scheme && !value.local_mode.generates_text()
+            self.helpcode_enabled && helpcode_scheme && !value.local_mode.annotates_rows()
         });
         let count = value.candidates.len();
         let display_reading = if !value.scheme.draws_reading() {

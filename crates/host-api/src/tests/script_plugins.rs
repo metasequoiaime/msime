@@ -2076,6 +2076,7 @@ fn the_abi_scalar_tables_are_the_lifecycle_discriminants() {
         LocalModeClass::Unicode => "unicode",
         LocalModeClass::DateTime => "date_time",
         LocalModeClass::QuickPhrase => "quick_phrase",
+        LocalModeClass::Chaizi => "chaizi",
         LocalModeClass::Unknown => "unknown",
     };
     let allows_text = |value: LocalModeClass| match value {
@@ -2092,6 +2093,7 @@ fn the_abi_scalar_tables_are_the_lifecycle_discriminants() {
         | LocalModeClass::Unicode
         | LocalModeClass::DateTime
         | LocalModeClass::QuickPhrase
+        | LocalModeClass::Chaizi
         | LocalModeClass::Unknown => false,
     };
     let modes = [
@@ -2108,6 +2110,7 @@ fn the_abi_scalar_tables_are_the_lifecycle_discriminants() {
         LocalModeClass::Unicode,
         LocalModeClass::DateTime,
         LocalModeClass::QuickPhrase,
+        LocalModeClass::Chaizi,
         LocalModeClass::Unknown,
     ];
     check(

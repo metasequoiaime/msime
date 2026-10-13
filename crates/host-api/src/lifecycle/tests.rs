@@ -604,6 +604,8 @@ fn input_classes_and_local_modes_map_from_the_runtime() {
     assert_eq!(LocalModeClass::of("none"), LocalModeClass::None);
     assert_eq!(LocalModeClass::of("url"), LocalModeClass::Url);
     assert_eq!(LocalModeClass::of("date_time"), LocalModeClass::DateTime);
+    assert_eq!(LocalModeClass::of("chaizi"), LocalModeClass::Chaizi);
+    assert_eq!(LocalModeClass::Chaizi as u8, 13);
     assert_eq!(LocalModeClass::of("unknown"), LocalModeClass::Unknown);
 }
 

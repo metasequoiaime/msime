@@ -70,6 +70,8 @@ pub struct SessionOptions {
     pub mention_entries: Vec<MentionEntry>,
     /// K 模式在数据库行之后追加的宿主短语；`Session::set_quick_phrase_table` 可以实时替换。
     pub quick_phrase_table: Vec<QuickPhraseEntry>,
+    /// 宿主会把候选转成繁体输出：拆字（`C`）行按转换后的字形去重，免得一屏出现两个相同的繁体字。
+    pub chaizi_traditional_output: bool,
 }
 
 impl SessionOptions {
@@ -111,6 +113,7 @@ impl SessionOptions {
             command_table: Vec::new(),
             mention_entries: Vec::new(),
             quick_phrase_table: Vec::new(),
+            chaizi_traditional_output: false,
         }
     }
 }

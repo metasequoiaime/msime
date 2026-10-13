@@ -33,6 +33,8 @@ export type LocalModePreferences = {
   mention_places?: boolean;
   /** 「Shift+字母进入快捷模式」总开关。和上面几项相反，缺省读作开：早于它的文档里没有这个键。 */
   shift_letter_entry?: boolean;
+  /** 拆字反查（C 模式）。缺键表示用户没动过开关，由宿主形态决定：触屏宿主读作开，桌面宿主读作关。只有用户动过开关时才写进文档。 */
+  chaizi?: boolean;
 };
 
 export const defaultLocalModes: LocalModePreferences = {

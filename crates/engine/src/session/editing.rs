@@ -179,6 +179,11 @@ impl InputSession {
                 LocalInputMode::Command | LocalInputMode::Mention => {
                     accepted = text.len() < GENERATED_MODE_INPUT_LIMIT && lower;
                 }
+                // 与 `handle_local_character` 同一组规则：收字母，`'` 不能插在入口字母 `C` 之后；连续的 `'` 由下面的通用检查拦下。
+                LocalInputMode::Chaizi => {
+                    accepted = text.len() < GENERATED_MODE_INPUT_LIMIT
+                        && (accepted || (value == b'\'' && caret > 1));
+                }
                 // 与 `handle_local_character` 同一组规则。
                 LocalInputMode::Url => {
                     if !url::accepts(value) {

@@ -639,8 +639,8 @@ impl InputSession {
 
     /// input_session.cpp:775-793.
     pub(super) fn candidate_annotations(&self) -> Vec<String> {
-        // Rows the engine generated are not spelled by pinyin, so a helpcode would say nothing about them; a command row shows its command's title instead, and a place offered in `@` mode the division it belongs to.
-        if self.local_mode.generates_text() {
+        // Rows the engine generated are not spelled by pinyin, so a helpcode would say nothing about them; a command row shows its command's title instead, and a place offered in `@` mode the division it belongs to. 拆字行注释这个字的读音：用户就是不会读才来查的。
+        if self.local_mode.annotates_rows() {
             return self
                 .candidates()
                 .iter()
@@ -654,6 +654,7 @@ impl InputSession {
                         .queries
                         .mention_annotation(&item.word, &item.pinyin)
                         .to_owned(),
+                    LocalInputMode::Chaizi => crate::local::chaizi::reading(&item.word).to_owned(),
                     _ => String::new(),
                 })
                 .collect();

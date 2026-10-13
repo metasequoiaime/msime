@@ -215,6 +215,9 @@ impl InputSession {
         session
             .queries
             .set_quick_phrase_table(&options.quick_phrase_table);
+        session
+            .queries
+            .set_chaizi_traditional_output(options.chaizi_traditional_output);
         session.expressive_options = options.expressive;
         session.japanese_mixing = options.japanese_mixing;
         if options.japanese_mixing {
@@ -414,6 +417,11 @@ impl InputSession {
                     return KeyResult::unhandled();
                 }
                 self.local_preedit.len() < url::INPUT_LIMIT
+            }
+            // 拆字收字母（大小写照原样写进预编辑，有大写时不查表），`'` 只收在字母之后，用来分隔部件。
+            LocalInputMode::Chaizi => {
+                self.local_preedit.len() < GENERATED_MODE_INPUT_LIMIT
+                    && (letter || (value == b'\'' && self.chaizi_takes_separator()))
             }
             LocalInputMode::None => return KeyResult::unhandled(),
         };
@@ -1056,8 +1064,19 @@ impl InputSession {
         match self.local_mode {
             LocalInputMode::Expression => self.expression_takes_unit_separator(),
             LocalInputMode::Command => self.command_takes_word_separator(),
+            LocalInputMode::Chaizi => self.chaizi_takes_separator(),
             _ => false,
         }
+    }
+
+    /// 拆字的部件分隔符：只跟在 `C` 之后的字母后面，不能连续，也不能紧跟入口字母 `C`。
+    fn chaizi_takes_separator(&self) -> bool {
+        self.local_preedit.len() > 1
+            && self
+                .local_preedit
+                .as_bytes()
+                .last()
+                .is_some_and(u8::is_ascii_alphabetic)
     }
 
     /// One apostrophe after each word of `/fy` separates it from the next.
@@ -1579,9 +1598,11 @@ impl InputSession {
                         .contains(SchemeType::JapaneseRomaji),
             ),
             b'V' => (LocalInputMode::Expression, options.expression),
+            b'C' => (LocalInputMode::Chaizi, options.chaizi),
             _ => return None,
         };
-        let scheme_opens = if mode == LocalInputMode::QuickPhrase {
+        // 拆字和快捷短语一样在五笔下也能进入：它查的是编进引擎的部件拼音表，不经过当前方案的拼写，五笔用户同样会遇到不会读的字。
+        let scheme_opens = if matches!(mode, LocalInputMode::QuickPhrase | LocalInputMode::Chaizi) {
             self.scheme().opens_table_modes()
         } else {
             self.scheme().opens_local_modes()
@@ -1817,6 +1838,7 @@ fn local_mode_enabled(options: LocalModeOptions, mode: LocalInputMode) -> bool {
         LocalInputMode::Expression => options.expression,
         LocalInputMode::Command => options.command,
         LocalInputMode::Mention => options.mention,
+        LocalInputMode::Chaizi => options.chaizi,
         // 网址模式默认开启，没有开关。
         LocalInputMode::Url => true,
     }
