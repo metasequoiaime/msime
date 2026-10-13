@@ -110,17 +110,14 @@ public final class ChatFragment extends HomeTabFragment {
         MaterialButton sendAi = this.sendAi;
         MaterialButton dismiss = view.findViewById(R.id.tryout_dismiss);
 
-        // 键盘是这一页的重点，所以按实际 inset 让位而不是假设一个值：键盘升起和收起时输入框都要留在它上面。单独承载时自己让开系统栏；作为 tab 时 HomeActivity 已经给内容区垫了顶部和左右，底部要让开的是 tab 栏加系统导航栏，键盘升起时改让键盘。
+        // 键盘是这一页的重点，所以按实际 inset 让位而不是假设一个值：键盘升起和收起时输入框都要留在它上面。单独承载时自己让开系统栏；作为 tab 时 HomeActivity 已经给内容区垫了顶部和左右，底部要让开 tab 栏和系统导航栏，键盘升起时还要把 tab 栏算在输入法上方的空间里。
         int tabs = standalone ? 0 : DimensionPolicy.pixels(context, Ui.TAB_BAR_HEIGHT);
         ViewCompat.setOnApplyWindowInsetsListener(view, (target, windowInsets) -> {
             Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
             Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
-            boolean imeVisible = windowInsets.isVisible(WindowInsetsCompat.Type.ime());
-            if (!standalone && !isHidden() && requireActivity() instanceof HomeActivity home) {
-                home.setChatKeyboardVisible(imeVisible);
-            }
-            int tabInset = imeVisible ? 0 : tabs;
-            int bottom = WindowInsetsPolicy.bottomContentInset(bars.bottom, tabInset, ime.bottom, 0);
+            int bottom = standalone
+                ? WindowInsetsPolicy.bottomContentInset(bars.bottom, 0, ime.bottom, 0)
+                : WindowInsetsPolicy.bottomContentInsetAboveIme(bars.bottom, tabs, ime.bottom, 0);
             if (standalone) ViewPolicy.setPadding(target, bars.left, bars.top, bars.right, bottom);
             else ViewPolicy.setPadding(target, 0, 0, 0, bottom);
             return windowInsets;
@@ -214,9 +211,6 @@ public final class ChatFragment extends HomeTabFragment {
         // 切到别的 tab 时把键盘收起来，不然它会盖在另一个 tab 上。
         if (hidden) {
             hideKeyboard();
-            if (!standalone && requireActivity() instanceof HomeActivity home) {
-                home.setChatKeyboardVisible(false);
-            }
         }
     }
 
