@@ -664,17 +664,8 @@ struct CommunityDesignPreview: View {
     let accent = CustomKeyboardSkin.color(design.accent)
     let disc = AppThemePalette.mix(accent, 14, CustomKeyboardSkin.color(design.keyBackground))
     let frame = AppThemePalette.mix(accent, 82, .black)
-    let markSize: CGFloat = 16
-    let scale = MSIMELogo.scale(for: CGRect(x: 0, y: 0, width: markSize, height: markSize))
-    return ZStack {
-      Circle().fill(Color(uiColor: disc))
-      ZStack {
-        MSIMELogoFrame().fill(Color(uiColor: frame))
-        MSIMELogoStroke().stroke(.white, style: StrokeStyle(lineWidth: MSIMELogo.strokeWidth * scale, lineCap: .round, lineJoin: .round))
-      }
-      .frame(width: markSize, height: markSize)
-    }
-    .frame(width: 26, height: 26)
+    return LogoDisc(diameter: 26, markSize: 16,
+                    discFill: Color(uiColor: disc), frameFill: Color(uiColor: frame))
   }
 
   /// 一行按键，宽度按各自权重分配，与 MiniKb 的弹性行一致。
