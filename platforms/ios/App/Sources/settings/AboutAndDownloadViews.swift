@@ -256,8 +256,7 @@ struct AboutView: View {
     }
     .onDisappear {
       requestState.invalidate()
-      updateTask?.cancel()
-      updateTask = nil
+      ViewRequestTask.cancel(task: $updateTask)
       if update == .checking { update = .idle }
     }
   }

@@ -2982,7 +2982,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * 用户自己的翻译服务（小牛、自定义、腾讯）给当前一页候选取译文。门槛与账号路径相同：没有本地模式、不是日文方案、方案显示释义；另外按共享层的规则跳过表情和颜文字候选（source 6、7，见 providers.rs 的 `is_emoji_or_kaomoji_source`），只取前 {@link #USER_TRANSLATION_PAGE} 个。不经过账号绑定校验：这条路不碰水杉账号。
+     * 用户自己的翻译服务（小牛、自定义、腾讯）给当前一页候选取译文。门槛与账号路径相同：没有本地模式、不是日文方案、方案显示释义；另外按共享层的规则跳过表情、颜文字和日文混输候选（source 6、7、13），只取前 {@link #USER_TRANSLATION_PAGE} 个。不经过账号绑定校验：这条路不碰水杉账号。
      */
     private void scheduleUserCandidateTranslations() {
         if (!candidateTranslationRoute.userService() || userTranslationStore == null || session == 0
@@ -2998,7 +2998,7 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject candidate = entries.optJSONObject(index);
             if (candidate == null) continue;
             int source = InputViewValuePolicy.integer(candidate, "source", -1);
-            if (source == 6 || source == 7) continue;
+            if (!CandidateTranslationPolicy.userTranslationSourceAllowed(source)) continue;
             words.add(InputViewValuePolicy.textOr(candidate, "text", ""));
         }
         userTranslationStore.refresh(words, candidateTranslationTargets, generation);

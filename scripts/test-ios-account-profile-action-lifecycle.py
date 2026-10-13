@@ -18,8 +18,10 @@ class IOSAccountProfileActionLifecycleContract(unittest.TestCase):
         disappear = re.search(r"\.onDisappear \{(?P<body>.*?)\n    \}", source, re.S)
         self.assertIsNotNone(disappear, "profile page must invalidate account actions when it disappears")
         body = disappear.group("body")
-        self.assertIn("request.disappear()", body)
-        self.assertIn("operation?.cancel()", body)
+        self.assertIn("ViewRequestTask.disappear(request: $request, pending: $operation)", body)
+        task = TASK.read_text(encoding="utf-8")
+        self.assertIn("request.wrappedValue.disappear()", task)
+        self.assertIn("pending.wrappedValue?.cancel()", task)
 
     def test_action_completion_is_bound_to_current_generation(self):
         source = SOURCE.read_text(encoding="utf-8")

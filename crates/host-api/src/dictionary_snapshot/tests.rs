@@ -396,6 +396,24 @@ fn activation_swaps_all_state_roots_and_consumes_handle() {
 }
 
 #[test]
+fn activation_receipt_is_deferred_until_the_last_root_swap() {
+    use std::ffi::OsStr;
+
+    assert!(super::should_defer_activation_receipt(
+        0,
+        OsStr::new(super::ACTIVATION_RECEIPT_NAME),
+    ));
+    assert!(!super::should_defer_activation_receipt(
+        1,
+        OsStr::new(super::ACTIVATION_RECEIPT_NAME),
+    ));
+    assert!(!super::should_defer_activation_receipt(
+        0,
+        OsStr::new("other")
+    ));
+}
+
+#[test]
 fn activation_rejects_live_session_before_swapping() {
     // The registry is process-global; use a distinct fixture handle so this
     // test can run in parallel with the successful activation cases.
