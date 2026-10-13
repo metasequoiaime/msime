@@ -59,6 +59,13 @@ public final class CandidateTranslationPolicySmoke {
         check(CandidateTranslationPolicy.insertionGlosses("1;2;3;4;5;6;7;8;9;10\n")
                 .equals(List.of("1", "2", "3", "4", "5", "6", "7", "8", "9")),
             "an empty secondary row does not waste a menu slot");
+        check(!CandidateTranslationPolicy.userTranslationSourceAllowed(6)
+                && !CandidateTranslationPolicy.userTranslationSourceAllowed(7)
+                && !CandidateTranslationPolicy.userTranslationSourceAllowed(13),
+            "emoji, kaomoji, and mixed Japanese candidates are not sent to user services");
+        check(CandidateTranslationPolicy.userTranslationSourceAllowed(0)
+                && CandidateTranslationPolicy.userTranslationSourceAllowed(12),
+            "ordinary candidate sources remain eligible for user services");
         check(CandidateTranslationPolicy.glossLines(List.of("en"), true, false, Set.of()) == 1,
             "offline English keeps its row when online translation is off");
         check(CandidateTranslationPolicy.glossLines(List.of("ja"), true, false, Set.of()) == 0,

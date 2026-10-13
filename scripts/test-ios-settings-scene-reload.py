@@ -29,8 +29,9 @@ class SettingsSceneReloadContract(unittest.TestCase):
 
     def test_modifier_owns_both_lifecycle_hooks(self):
         source = (ROOT / "platforms/ios/App/Sources/settings/SettingsScenePhaseReload.swift").read_text()
-        self.assertIn(".onAppear(perform: reload)", source)
-        self.assertIn(".onChange(of: scenePhase)", source)
+        self.assertEqual(source.count("@Environment(\\.scenePhase)"), 1)
+        self.assertEqual(source.count(".onChange(of: scenePhase)"), 1)
+        self.assertIn("prepare?()\n        reload()", source)
         self.assertIn("phase == .active", source)
 
     def test_app_icon_uses_shared_reload_modifier(self):
@@ -55,17 +56,24 @@ class SettingsSceneReloadContract(unittest.TestCase):
             self.assertIn(f".reloadOnAppearAndActive({reload})", source, name)
             self.assertNotIn("@Environment(\\.scenePhase)", source, name)
 
-    def test_tablet_settings_uses_shared_reload_modifier(self):
+    def test_tablet_settings_reads_scheme_once_before_routing_on_appear(self):
         path = ROOT / "platforms/ios/App/Sources/keyboard/TabletSettingsView.swift"
         source = path.read_text()
-        self.assertIn(".reloadOnAppearAndActive", source)
-        self.assertIn("scheme = InputSchemePreference.scheme", source)
-        self.assertNotIn("@Environment(\\.scenePhase)", source)
+        self.assertNotIn(".reloadOnAppearAndActive", source)
+        self.assertIn("@Environment(\\.scenePhase)", source)
+        self.assertIn(".onAppear {\n      scheme = InputSchemePreference.scheme\n      show(router.settingsPage)\n    }", source)
+        self.assertIn(".onChange(of: scenePhase)", source)
 
     def test_skin_settings_uses_shared_reload_modifier(self):
         path = ROOT / "platforms/ios/App/Sources/settings/FeatureSettingsViews.swift"
         source = path.read_text()
         self.assertIn(".reloadOnAppearAndActive({ reloadLibrary(); reloadThemes() })", source)
+
+    def test_input_settings_uses_shared_reload_modifier(self):
+        path = ROOT / "platforms/ios/App/Sources/app/OnboardingView.swift"
+        source = path.read_text()
+        self.assertIn(".reloadOnAppearAndActive({", source)
+        self.assertIn("resourcePacks.reload()", source)
 
 
 if __name__ == "__main__":

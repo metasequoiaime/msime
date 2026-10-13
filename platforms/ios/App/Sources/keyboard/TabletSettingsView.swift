@@ -15,6 +15,7 @@ struct TabletSettingsView: View {
     }
   }
 
+  @Environment(\.scenePhase) private var scenePhase
   @EnvironmentObject private var router: SettingsRouter
   @EnvironmentObject private var navigation: AppNavigation
   @State private var columns = NavigationSplitViewVisibility.all
@@ -41,13 +42,11 @@ struct TabletSettingsView: View {
     }
     .navigationSplitViewStyle(.balanced)
     .tint(MetasequoiaTheme.accent)
-    .reloadOnAppearAndActive(
-      { scheme = InputSchemePreference.scheme },
-      onAppear: {
-        scheme = InputSchemePreference.scheme
-        show(router.settingsPage)
-      }
-    )
+    .onAppear {
+      scheme = InputSchemePreference.scheme
+      show(router.settingsPage)
+    }
+    .onChange(of: scenePhase) { if $0 == .active { scheme = InputSchemePreference.scheme } }
     .onChange(of: router.settingsPage) { _, page in show(page) }
   }
 

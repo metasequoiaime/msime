@@ -129,11 +129,8 @@ struct AccountProfileEditor: View {
       startLoad()
     }
     .onDisappear {
-      request.disappear()
-      operation?.cancel()
-      operation = nil
-      loadTask?.cancel()
-      loadTask = nil
+      ViewRequestTask.disappear(request: $request, pending: $operation)
+      ViewRequestTask.cancel(task: $loadTask)
       busy = false
     }
   }
@@ -389,9 +386,7 @@ private struct AccountNicknameEditor: View {
     .tint(MetasequoiaTheme.accent)
     .onAppear { request.appear(); editing = true }
     .onDisappear {
-      request.disappear()
-      operation?.cancel()
-      operation = nil
+      ViewRequestTask.disappear(request: $request, pending: $operation)
       saving = false
     }
   }

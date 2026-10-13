@@ -1,4 +1,4 @@
-//! Explicit user-requested credential probes; never run while loading settings.
+//! 仅在用户明确要求时测试凭据，加载设置时不发探测请求。
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -15,45 +15,90 @@ fn result(ok: bool, message: &str) -> ProbeResult {
     }
 }
 
-/// Injected transport returns only a status, never private response/error text.
+/// 探测仅保留固定错误类别，不向设置页返回服务端文字或凭据。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProbeFailure {
+    Connection,
+    Timeout,
+    InvalidResponse,
+    OutputLimit,
+}
+
+/// 注入的传输只返回状态或错误类别，不返回私有响应内容。
 pub trait ProbeTransport {
-    fn post(&self, endpoint: &str, token: &str, body: &Value) -> Option<u16>;
+    fn post(&self, endpoint: &str, token: &str, body: &Value) -> Result<u16, ProbeFailure>;
 }
 
 /// 客户端按 `ai::endpoint` 的公共设置建立：不跟随重定向，https 地址只走 https，局域网的 http 地址直连、不走代理。
 pub struct ChatProbeTransport;
 impl ProbeTransport for ChatProbeTransport {
-    fn post(&self, endpoint: &str, token: &str, body: &Value) -> Option<u16> {
-        let url = crate::ai::endpoint::validate(endpoint).ok()?;
+    fn post(&self, endpoint: &str, token: &str, body: &Value) -> Result<u16, ProbeFailure> {
+        let url = crate::ai::endpoint::validate(endpoint).map_err(|_| ProbeFailure::Connection)?;
         let client = crate::ai::endpoint::blocking_client_builder(&url)
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(15))
             .build()
-            .ok()?;
+            .map_err(|_| ProbeFailure::Connection)?;
         let response = client
             .post(endpoint)
             .bearer_auth(token)
             .json(body)
             .send()
-            .ok()?;
+            .map_err(|error| {
+                if error.is_timeout() {
+                    ProbeFailure::Timeout
+                } else {
+                    ProbeFailure::Connection
+                }
+            })?;
         let status = response.status().as_u16();
-        // The actual chat path needs a usable completion, not just HTTP 2xx.
-        // Parse locally; provider text never enters the public result.
-        let bytes = crate::bounded_io::read_bounded(response, 256 * 1024).ok()?;
-        if (200..300).contains(&status) {
-            let document: Value = serde_json::from_slice(&bytes).ok()?;
-            let valid = document
-                .pointer("/choices/0/message/content")
-                .and_then(Value::as_str)
-                .is_some_and(|content| {
-                    let content = content.trim();
-                    !content.is_empty() && content.len() <= 16 * 1024
-                });
-            if !valid {
-                return None;
-            }
+        if !(200..300).contains(&status) {
+            return Ok(status);
         }
-        Some(status)
+        // 实际对话需要可用正文，不能只看 HTTP 成功或把纯思考当作答案。
+        let bytes = crate::bounded_io::read_bounded(response, 256 * 1024).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::InvalidData {
+                ProbeFailure::InvalidResponse
+            } else if error.kind() == std::io::ErrorKind::TimedOut
+                || error
+                    .get_ref()
+                    .and_then(|error| error.downcast_ref::<reqwest::Error>())
+                    .is_some_and(reqwest::Error::is_timeout)
+            {
+                ProbeFailure::Timeout
+            } else {
+                ProbeFailure::Connection
+            }
+        })?;
+        let document: Value =
+            serde_json::from_slice(&bytes).map_err(|_| ProbeFailure::InvalidResponse)?;
+        validate_completion(&document)?;
+        Ok(status)
+    }
+}
+
+fn validate_completion(document: &Value) -> Result<(), ProbeFailure> {
+    if document.get("error").is_some_and(|error| !error.is_null()) {
+        return Err(ProbeFailure::InvalidResponse);
+    }
+    if document
+        .pointer("/choices/0/finish_reason")
+        .and_then(Value::as_str)
+        == Some("length")
+    {
+        return Err(ProbeFailure::OutputLimit);
+    }
+    let valid = document
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .is_some_and(|content| {
+            let content = content.trim();
+            !content.is_empty() && content.len() <= 16 * 1024
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err(ProbeFailure::InvalidResponse)
     }
 }
 
@@ -82,20 +127,59 @@ pub fn test_chat(service: &str, config: &Value, transport: &impl ProbeTransport)
     } else if !crate::credential::valid_https_endpoint_and_model(endpoint, model) {
         return result(false, "请填写有效的 HTTPS 接口地址和模型名。");
     }
-    // Same minimal chat request as the pinned Windows reference implementation.
-    let mut body = json!({"model": model, "stream": false, "max_tokens": 1,
+    // 给强制思考模型留出生成正文的预算；这是上限，不要求生成 512 个 token。
+    let mut body = json!({"model": model, "stream": false, "max_tokens": 512,
         "messages": [{"role": "user", "content": "Reply OK"}]});
     match value("provider") {
         "deepseek" => body["thinking"] = json!({"type": "disabled"}),
         "siliconflow" => body["enable_thinking"] = json!(false),
         _ => {}
     }
+    // 聚合服务不能按 provider 判断模型能力，只对文档明确支持的模型降低探测思考量。
+    let canonical = model
+        .rsplit('/')
+        .next()
+        .unwrap_or(model)
+        .to_ascii_lowercase();
+    let is_family = |name: &str| {
+        canonical == name
+            || canonical
+                .strip_prefix(name)
+                .is_some_and(|suffix| suffix.starts_with('-'))
+    };
+    let effort = if is_family("gpt-6-luna") || is_family("gpt-6-sol") {
+        Some("none")
+    } else if is_family("gpt-6-astra") || is_family("gpt-6.1-sol") {
+        Some("low")
+    } else {
+        None
+    };
+    if let Some(effort) = effort {
+        body.as_object_mut().unwrap().remove("max_tokens");
+        body["max_completion_tokens"] = json!(512);
+        body["reasoning_effort"] = json!(effort);
+    } else if is_family("glm-5.3") {
+        body.as_object_mut().unwrap().remove("max_tokens");
+        body["max_completion_tokens"] = json!(512);
+        body["reasoning_effort"] = json!("low");
+    }
     match transport.post(endpoint, token, &body) {
-        Some(200..=299) => result(true, "连接成功，API Key 和模型配置有效。"),
-        Some(401 | 403) => result(false, "认证失败，请检查 API Key 和访问权限。"),
-        Some(429) => result(false, "服务限流或额度不足，请稍后重试。"),
-        Some(_) => result(false, "服务拒绝请求，请检查接口地址和模型配置。"),
-        None => result(false, "连接失败或响应无效，请检查接口地址和网络后重试。"),
+        Ok(200..=299) => result(true, "连接成功，API Key 和模型配置有效。"),
+        Ok(401 | 403) => result(false, "认证失败，请检查 API Key 和访问权限。"),
+        Ok(429) => result(false, "服务限流或额度不足，请稍后重试。"),
+        Ok(_) => result(false, "服务拒绝请求，请检查接口地址和模型配置。"),
+        Err(ProbeFailure::OutputLimit) => result(
+            false,
+            "服务已响应，但模型耗尽测试输出预算，未完成回复。可换用思考较少的模型后重试。",
+        ),
+        Err(ProbeFailure::InvalidResponse) => result(
+            false,
+            "服务已响应，但没有返回有效的对话正文，请检查模型与接口格式。",
+        ),
+        Err(ProbeFailure::Timeout) => {
+            result(false, "模型响应超时，请稍后重试或换用响应更快的模型。")
+        }
+        Err(ProbeFailure::Connection) => result(false, "连接失败，请检查接口地址和网络后重试。"),
     }
 }
 
@@ -108,11 +192,11 @@ mod tests {
         bodies: RefCell<Vec<Value>>,
     }
     impl ProbeTransport for Fake {
-        fn post(&self, endpoint: &str, token: &str, body: &Value) -> Option<u16> {
+        fn post(&self, endpoint: &str, token: &str, body: &Value) -> Result<u16, ProbeFailure> {
             assert_eq!(endpoint, "https://fixture.invalid/chat");
             assert_eq!(token, "synthetic-key");
             self.bodies.borrow_mut().push(body.clone());
-            self.status
+            self.status.ok_or(ProbeFailure::Connection)
         }
     }
     fn config(provider: &str) -> Value {
@@ -135,7 +219,7 @@ mod tests {
         assert_eq!(bodies[2]["enable_thinking"], false);
         assert!(bodies[4].get("thinking").is_none());
         for body in bodies.iter() {
-            assert_eq!(body["max_tokens"], 1);
+            assert_eq!(body["max_tokens"], 512);
             assert_eq!(body["stream"], false);
             assert_eq!(body["messages"][0]["content"], "Reply OK");
             assert!(body.get("token").is_none());
@@ -168,9 +252,9 @@ mod tests {
     fn credential_chat_accepts_local_network_http_only_for_ai_assistant() {
         struct Recording(RefCell<Vec<String>>);
         impl ProbeTransport for Recording {
-            fn post(&self, endpoint: &str, _: &str, _: &Value) -> Option<u16> {
+            fn post(&self, endpoint: &str, _: &str, _: &Value) -> Result<u16, ProbeFailure> {
                 self.0.borrow_mut().push(endpoint.into());
-                Some(200)
+                Ok(200)
             }
         }
         let transport = Recording(RefCell::default());
@@ -197,6 +281,168 @@ mod tests {
             assert!(result.message.len() < 256);
             assert!(!result.message.contains("synthetic-key"));
         }
+    }
+
+    #[test]
+    fn credential_chat_distinguishes_completion_from_truncated_thinking() {
+        let completion = |content: Value, reasoning: &str, finish: &str| {
+            json!({"choices": [{"message": {"content": content,
+                "reasoning_content": reasoning}, "finish_reason": finish}]})
+        };
+        assert_eq!(
+            validate_completion(&completion(json!("OK"), "synthetic reasoning", "stop")),
+            Ok(())
+        );
+        for content in [Value::Null, json!(""), json!("partial")] {
+            assert_eq!(
+                validate_completion(&completion(content, "synthetic reasoning", "length")),
+                Err(ProbeFailure::OutputLimit)
+            );
+        }
+        for content in [
+            Value::Null,
+            json!(""),
+            json!("   "),
+            json!("x".repeat(16385)),
+        ] {
+            assert_eq!(
+                validate_completion(&completion(content, "synthetic reasoning", "stop")),
+                Err(ProbeFailure::InvalidResponse)
+            );
+        }
+        let mut error = completion(json!("OK"), "", "stop");
+        error["error"] = json!({"message": "synthetic private error"});
+        assert_eq!(
+            validate_completion(&error),
+            Err(ProbeFailure::InvalidResponse)
+        );
+    }
+
+    #[test]
+    fn credential_probe_uses_only_documented_model_parameters() {
+        for (model, effort, completion_limit) in [
+            ("gpt-6-luna", Some("none"), true),
+            ("openai/gpt-6-sol-2026-10-01", Some("none"), true),
+            ("gpt-6-astra", Some("low"), true),
+            ("gpt-6.1-sol", Some("low"), true),
+            ("GLM-5.3-FLASH", Some("low"), true),
+            ("gpt-4.1", None, false),
+            ("synthetic-model", None, false),
+        ] {
+            let fake = Fake {
+                status: Some(200),
+                bodies: RefCell::default(),
+            };
+            let mut request = config("everyapi");
+            request["model"] = json!(model);
+            assert!(test_chat("ai.assistant", &request, &fake).ok);
+            let bodies = fake.bodies.borrow();
+            let body = &bodies[0];
+            assert_eq!(body["model"], model);
+            assert_eq!(body.get("reasoning_effort").and_then(Value::as_str), effort);
+            let limit = if completion_limit {
+                "max_completion_tokens"
+            } else {
+                "max_tokens"
+            };
+            let absent = if completion_limit {
+                "max_tokens"
+            } else {
+                "max_completion_tokens"
+            };
+            assert_eq!(body[limit], 512);
+            assert!(body.get(absent).is_none());
+            assert!(body.get("thinking").is_none());
+        }
+    }
+
+    #[test]
+    fn credential_chat_reports_fixed_failure_categories() {
+        struct Failing(ProbeFailure);
+        impl ProbeTransport for Failing {
+            fn post(&self, _: &str, _: &str, _: &Value) -> Result<u16, ProbeFailure> {
+                Err(self.0)
+            }
+        }
+        let failures = [
+            (ProbeFailure::Connection, "连接失败"),
+            (ProbeFailure::Timeout, "模型响应超时"),
+            (ProbeFailure::InvalidResponse, "没有返回有效的对话正文"),
+            (ProbeFailure::OutputLimit, "耗尽测试输出预算"),
+        ];
+        for (failure, explanation) in failures {
+            let result = test_chat("ai.assistant", &config("everyapi"), &Failing(failure));
+            assert!(!result.ok);
+            assert!(result.message.contains(explanation));
+            assert!(!result.message.contains("synthetic"));
+            assert!(result.message.len() < 256);
+        }
+    }
+
+    #[test]
+    fn credential_chat_budget_allows_the_reasoning_server_to_finish() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!(
+            "http://{}/v1/chat/completions",
+            listener.local_addr().unwrap()
+        );
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            let body_start;
+            let body_len;
+            loop {
+                let mut buffer = [0; 1024];
+                let count = stream.read(&mut buffer).unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&buffer[..count]);
+                assert!(request.len() <= 16384);
+                if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+                    body_start = end + 4;
+                    body_len = std::str::from_utf8(&request[..end])
+                        .unwrap()
+                        .lines()
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap();
+                    break;
+                }
+            }
+            while request.len() < body_start + body_len {
+                let mut buffer = [0; 1024];
+                let count = stream.read(&mut buffer).unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&buffer[..count]);
+                assert!(request.len() <= 16384);
+            }
+            let body: Value =
+                serde_json::from_slice(&request[body_start..body_start + body_len]).unwrap();
+            // 合成服务先消耗思考预算，只有剩余预算足够时才返回正文。
+            let enough = body["max_tokens"].as_u64().unwrap() > 32;
+            let reply = json!({"choices":[{"message":{"reasoning_content":"synthetic reasoning",
+                "content":if enough {"OK"} else {""}},
+                "finish_reason":if enough {"stop"} else {"length"}}]})
+            .to_string();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                reply.len(),
+                reply
+            )
+            .unwrap();
+        });
+        let mut request = config("everyapi");
+        request["model"] = json!("synthetic-reasoning-model");
+        request["endpoint"] = json!(endpoint);
+        assert!(test_chat("ai.assistant", &request, &ChatProbeTransport).ok);
+        server.join().unwrap();
     }
 
     #[test]

@@ -51,12 +51,7 @@ struct CustomThemeCandidateSection: View {
           Text(skinStatus).font(.footnote).foregroundStyle(.secondary)
             .accessibilityIdentifier("candidateSkinStatus")
         }
-        Picker("明暗", selection: Binding(get: { candidateTheme }, set: { value in
-          candidateTheme = value
-          saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { $0["candidate_theme"] = value }
-          if saveFailed { reload() }
-          onThemeChange()
-        })) {
+        Picker("明暗", selection: candidateThemeBinding) {
           ForEach(CandidatePalette.themes, id: \.id) { Text($0.title).tag($0.id) }
         }.accessibilityIdentifier("candidateTheme")
         ForEach(CandidatePalette.editableColors, id: \.slot) { item in
@@ -80,6 +75,14 @@ struct CustomThemeCandidateSection: View {
     }
     .fileImporter(isPresented: $importingSkin, allowedContentTypes: [.folder]) { importSkin($0) }
     .reloadOnAppearAndActive(reload)
+  }
+
+  private var candidateThemeBinding: Binding<String> {
+    SharedPreferenceBinding.topLevel("candidate_theme", state: $candidateTheme) { saved in
+      saveFailed = !saved
+      if !saved { reload() }
+      onThemeChange()
+    }
   }
 
   /// 这一模式的选择器里能选的皮肤：支持横排、底属于这一模式或跟随系统的。

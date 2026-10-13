@@ -44,7 +44,6 @@ struct KeyboardSettingsView: View {
 ///
 /// 各项都以共享偏好文档为准，页面每次写完都重新读回，免得显示一个键盘其实没有的设置。只有「沿用上次的中英文」是例外，它由键盘从 App Group 的 `ImeModeMemoryPreference` 读取。
 struct InputSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @ObservedObject private var resourcePacks = IOSResourcePackStore.shared
   /// 最近一次读到的共享文档；拼音纠错和辅助码两行直接读它。
   @State private var document: [String: Any]?
@@ -94,13 +93,14 @@ struct InputSettingsView: View {
     .designCanvasBackground()
     .navigationTitle("输入")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear {
-      // 真机下载验收期间仅保持当前设置页面亮屏。
-      if ProcessInfo.processInfo.arguments.contains("--resource-pack-ui-test") { UIApplication.shared.isIdleTimerDisabled = true }
+    .reloadOnAppearAndActive({
       resourcePacks.reload()
       reloadPreferences()
       reloadHelpcodePacks()
-    }
+    }, onAppear: {
+      // 真机下载验收期间仅保持当前设置页面亮屏。
+      if ProcessInfo.processInfo.arguments.contains("--resource-pack-ui-test") { UIApplication.shared.isIdleTimerDisabled = true }
+    })
     .onDisappear {
       if ProcessInfo.processInfo.arguments.contains("--resource-pack-ui-test") { UIApplication.shared.isIdleTimerDisabled = false }
     }
@@ -112,13 +112,6 @@ struct InputSettingsView: View {
       } message: { id in
         Text("当前网络按流量计费或开启了低数据模式，词库大小约 \(resourcePacks.size(id))。是否继续？")
       }
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active {
-        resourcePacks.reload()
-        reloadPreferences()
-        reloadHelpcodePacks()
-      }
-    }
   }
 
   /// 已导入的辅助码表只在页面出现时重读：目录会校验每个包的码表，不跟着每次写设置重读。从「更多辅助码设置」导入或删除后回到本页时会再出现一次。
