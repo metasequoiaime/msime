@@ -273,9 +273,13 @@ final class ImeLayoutRows {
         parent.addView(key, LayoutPolicy.weightedCrossAxisFillParams(horizontal, 1));
     }
 
-    /** 符号栏的底色；它本身不是 Button，皮肤遍历不会给它套键帽。 */
+    /** 无键帽符号栏保留底轨；独立键帽下不再叠加整列背景。 */
     void applySidebarRail() {
         if (s.nineKeySidebar == null) return;
+        if (builtSidebarCapped) {
+            ViewPolicy.clearBackground(s.nineKeySidebar);
+            return;
+        }
         GradientDrawable rail = DrawablePolicy.rounded(
             Color.parseColor(s.skin.sidebarBackground()), s.pixels(s.skin.cornerRadius()));
         ViewPolicy.setBackground(s.nineKeySidebar, rail);
@@ -284,6 +288,7 @@ final class ImeLayoutRows {
     /** 当前键行建出来时用的左侧符号和它属于哪个键面；设置改了以后 {@link #sidebarStale} 据此判断要不要重建。 */
     private java.util.List<String> builtSidebarSymbols;
     private boolean builtSidebarDigits;
+    private boolean builtSidebarCapped;
 
     /** 本地设置里的左侧符号（不合规时是默认的那张表）：字母键面一张，拼音九键的数字键面另一张。 */
     java.util.List<String> sidebarSymbols(boolean digits) {
@@ -322,6 +327,7 @@ final class ImeLayoutRows {
         s.nineKeySidebar = sidebar;
         builtSidebarSymbols = symbols;
         builtSidebarDigits = digits;
+        builtSidebarCapped = capped;
         applySidebarRail();
         sidebar.addView(rail, LayoutPolicy.frameMatchParentParams());
         // 拼音九键的拼音列挂进同一个侧栏时盖住整条符号栏，renderNineKeySpellings 据此让出符号栏；笔画键盘不挂拼音列，父容器对不上，不受影响。
@@ -356,7 +362,7 @@ final class ImeLayoutRows {
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
 
         boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
-        // 左列是可以上下滚动的符号栏，字母键面默认 ，。？、：；……～@，！ 仍放在右列最下面，和 3×3 网格逐行对齐；数字键面默认是 + - * / = 等算式符号，！ 挪到它们后面（#5590），右列是删除、小数点和 0。两张表都可在设置里自定义。
+        // 左列是可以上下滚动的符号栏，字母键面默认 ，。？，！ 仍放在右列最下面，和 3×3 网格逐行对齐；数字键面默认是 + - * / = 等算式符号，！ 挪到它们后面（#5590），右列是删除、小数点和 0。两张表都可在设置里自定义。
         FrameLayout sidebar = symbolSidebar(digits, true);
         attachSpellings(sidebar, SpellingPlacement.SIDEBAR);
         container.addView(sidebar, LayoutPolicy.weightedMatchParentParams(0.9f));

@@ -24,9 +24,9 @@ public final class NineKeySidebarPolicySmoke {
 
     private static void defaults() {
         List<String> letters = NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS;
-        check(letters.subList(0, 3).equals(List.of("，", "。", "？")), "the first three stay where they were");
+        check(letters.equals(List.of("，", "。", "？")), "the default rail has only three common symbols");
         check(!letters.contains("！"), "！ stays in the right column and is not repeated in the rail");
-        check(letters.size() > NineKeySidebarPolicy.VISIBLE_ROWS, "the default rail has more than one screen, so it scrolls");
+        check(letters.size() <= NineKeySidebarPolicy.VISIBLE_ROWS, "the default rail fits without scrolling");
         check(NineKeySidebarPolicy.VISIBLE_ROWS == 5, "five symbols per screen instead of three");
         check(NineKeySidebarPolicy.letterSymbols(null).equals(letters), "nothing stored reads as the defaults");
         check(NineKeySidebarPolicy.letterSymbols("   ").equals(letters), "blank text reads as the defaults");

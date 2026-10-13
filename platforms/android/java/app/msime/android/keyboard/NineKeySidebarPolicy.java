@@ -22,9 +22,9 @@ public final class NineKeySidebarPolicy {
     /** 存储文本的最大长度（UTF-16 单元）。 */
     public static final int MAX_TEXT_LENGTH = 200;
 
-    /** 字母键面的默认符号：前三个仍是原来的 ，。？，！ 仍在右列最下面，所以这里不重复。 */
+    /** 字母键面默认只留三个常用符号，与九键三行对齐；！ 已在右列，不在这里重复。 */
     public static final List<String> DEFAULT_LETTER_SYMBOLS =
-        List.of("，", "。", "？", "、", "：", "；", "……", "～", "@");
+        List.of("，", "。", "？");
     /** 数字键面的默认符号：先是四则运算和算式里常用的半角符号，中文标点（含原来在右列的 ！）排在后面。 */
     public static final List<String> DEFAULT_DIGIT_SYMBOLS =
         List.of("+", "-", "*", "/", "=", "%", "(", ")", ":", "@", "，", "。", "？", "！");
