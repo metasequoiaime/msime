@@ -22,7 +22,10 @@ pub const ALTERNATIVE_SEGMENTATION_PROMOTION_RATIO: i64 = 100;
 pub const MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS: usize = 4;
 /// Continuations are only taken up to three syllables longer: past that the rows' weights have dropped to a few dozen and the seats are better left to prefix characters (QD:23-25).
 pub const LONGER_PHRASE_EXTRA_SYLLABLES: usize = 3;
-pub const LONGER_PHRASE_LIMIT: usize = 12;
+/// 补全词最多并入这么多条。精确同音词够填一页时整组补全词都不并入（见 `query_series`），这个上限再压住同长度表不足一页时补全词能占的座位。
+pub const LONGER_PHRASE_LIMIT: usize = 3;
+/// 精确同音词（读音与键入切分完全一致的行）达到这么多条就够填满默认一页，整组补全词不再并入。理由与 `ALTERNATIVE_SEGMENTATION_FIRST_PAGE_SIZE` 相同：6 是默认页大小，故意不随页大小设置变（QD:29-34）。
+pub const EXACT_ROWS_THAT_FILL_A_PAGE: usize = 6;
 const SMALL_UNIQUE_ROWS: usize = 64;
 
 /// How one raw input is read (QD:110-215).

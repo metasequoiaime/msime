@@ -3,11 +3,11 @@
     "2": {
       "cases": 1860,
       "found": 0.997,
-      "mrr": 0.815,
+      "mrr": 0.825,
       "top1": 0.727,
       "top1_char_prefix": 0.754,
-      "top5": 0.928,
-      "top9": 0.969
+      "top5": 0.956,
+      "top9": 0.991
     },
     "3": {
       "cases": 365,
@@ -16,7 +16,7 @@
       "top1": 0.956,
       "top1_char_prefix": 0.969,
       "top5": 0.984,
-      "top9": 0.989
+      "top9": 0.992
     },
     "4": {
       "cases": 556,
@@ -46,11 +46,11 @@
   "overall": {
     "cases": 2791,
     "found": 0.989,
-    "mrr": 0.847,
+    "mrr": 0.853,
     "top1": 0.781,
     "top1_char_prefix": 0.811,
-    "top5": 0.942,
-    "top9": 0.97
+    "top5": 0.96,
+    "top9": 0.985
   },
   "sample_failures": [
     {
@@ -64,14 +64,14 @@
       "gold": "按理",
       "id": "w-00100",
       "input": "anli",
-      "rank": 8,
+      "rank": 4,
       "top1": "案例"
     },
     {
       "gold": "摆渡",
       "id": "w-00217",
       "input": "baidu",
-      "rank": 4,
+      "rank": 3,
       "top1": "百度"
     },
     {
@@ -92,14 +92,14 @@
       "gold": "胞弟",
       "id": "w-00424",
       "input": "baodi",
-      "rank": 4,
+      "rank": 3,
       "top1": "宝地"
     },
     {
       "gold": "保质",
       "id": "w-00568",
       "input": "baozhi",
-      "rank": 5,
+      "rank": 3,
       "top1": "报纸"
     },
     {
@@ -113,7 +113,7 @@
       "gold": "备查",
       "id": "w-00613",
       "input": "beicha",
-      "rank": 12,
+      "rank": 8,
       "top1": "被查"
     },
     {
@@ -127,7 +127,7 @@
       "gold": "本市",
       "id": "w-00739",
       "input": "benshi",
-      "rank": 7,
+      "rank": 3,
       "top1": "本事"
     },
     {
@@ -141,7 +141,7 @@
       "gold": "贬义",
       "id": "w-00847",
       "input": "bianyi",
-      "rank": 12,
+      "rank": 5,
       "top1": "编译"
     },
     {
@@ -169,7 +169,7 @@
       "gold": "病员",
       "id": "w-01090",
       "input": "bingyuan",
-      "rank": 5,
+      "rank": 2,
       "top1": "病原"
     },
     {
@@ -204,7 +204,7 @@
       "gold": "补缺",
       "id": "w-01477",
       "input": "buque",
-      "rank": 7,
+      "rank": 6,
       "top1": "不缺"
     },
     {
@@ -232,28 +232,28 @@
       "gold": "补写",
       "id": "w-01567",
       "input": "buxie",
-      "rank": 14,
+      "rank": 7,
       "top1": "不屑"
     },
     {
       "gold": "不已",
       "id": "w-01594",
       "input": "buyi",
-      "rank": 5,
+      "rank": 3,
       "top1": "不宜"
     },
     {
       "gold": "不只",
       "id": "w-01639",
       "input": "buzhi",
-      "rank": 9,
+      "rank": 4,
       "top1": "不知"
     },
     {
       "gold": "部族",
       "id": "w-01666",
       "input": "buzu",
-      "rank": 16,
+      "rank": 7,
       "top1": "不足"
     },
     {
@@ -274,7 +274,7 @@
       "gold": "才智",
       "id": "w-01765",
       "input": "caizhi",
-      "rank": 4,
+      "rank": 3,
       "top1": "材质"
     },
     {
