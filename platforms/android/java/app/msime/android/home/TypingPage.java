@@ -44,6 +44,10 @@ import org.json.JSONObject;
  * <p>辅助码方案列表先是内置方案，来自 `NativeClient.hostCapabilities` 的 `helpcode_schemas`，没有这个字段时用不含郑码的内置列表（P14）；后面是用户导入的码表（#7176），即 `msime_client_plugins` 的 `catalog` 里 `kind = "helpcode"` 的包。开关和方案都写进当前方案所属的那一份（双拼用 `shuangpin_helpcode`，其余用 `quanpin_helpcode`），选导入的码表写 `plugins.helpcode_pack_*`，规则见 {@link HelpcodeChoicePolicy}；关掉时不再列出方案。「导入辅助码表…」经系统文件选择器（SAF）选一个 `.txt`，严格按 UTF-8 解码后交给 `import_helpcode_table`，成功后自动选中它；「管理已导入的码表」里可以删除，删的是正在用的码表时退回内置方案。共享的辅助码设置没有「部首 / 笔画 / 混合」模式，所以本页不提供模式选择。
  */
 public final class TypingPage extends ReloadingDetailPage {
+    @Override protected java.util.List<String> sectionTitles() {
+        return java.util.List.of("语言", "中文", "辅助码", "翻译");
+    }
+
     /** 深链参数：打开时展开「添加语言」（键盘的输入方式面板「+ 添加语言」用）。 */
     public static final String ARG_ADD_LANGUAGE = "add_language";
 
@@ -238,7 +242,7 @@ public final class TypingPage extends ReloadingDetailPage {
         KeyboardScheme applied = applied(preferences, edition, state.languageDictionaries(), state.packs());
         List<KeyboardScheme> enabled = enabled(preferences, edition);
 
-        GroupCard languages = GroupCard.add(target, "语言与方案").withDividers(58);
+        GroupCard languages = GroupCard.add(sectionColumn(target, "语言"), "语言与方案").withDividers(58);
         List<Language> addable = new ArrayList<>(Language.values().length);
         for (Language language : Language.values()) {
             List<KeyboardScheme> provided = provided(language, edition);
@@ -279,12 +283,12 @@ public final class TypingPage extends ReloadingDetailPage {
 
         // 五笔查码（#6789）：本版本的方案列表里启用了五笔才列出，与共享设置页「五笔查码」一组出现的条件一致。
         if (enabled.contains(KeyboardScheme.WUBI)) {
-            GroupCard wubi = GroupCard.add(target, "五笔");
+            GroupCard wubi = GroupCard.add(sectionColumn(target, "中文"), "五笔");
             wubi.nav(PageId.WUBI_LOOKUP.title(), "查汉字的 86、98 五笔编码", null,
                 () -> SettingsNavigator.open(context, PageId.WUBI_LOOKUP, null));
         }
 
-        GroupCard chinese = GroupCard.add(target, "中文");
+        GroupCard chinese = GroupCard.add(sectionColumn(target, "中文"), "中文");
         InputFeatureToggle traditional = InputFeatureToggle.TRADITIONAL_OUTPUT;
         boolean traditionalOn = preferences.optBoolean(traditional.key(), traditional.enabledByDefault());
         chinese.nav("中文字符集", null, traditionalOn ? "繁体" : "简体", () -> pickCharset(traditionalOn));
@@ -316,7 +320,7 @@ public final class TypingPage extends ReloadingDetailPage {
         JSONObject helpcode = preferences.optJSONObject(family);
         String schema = helpcode == null ? (shuangpin ? "lantian" : "ziranma") : helpcode.optString("schema", "ziranma");
         boolean helpcodeOn = helpcode == null || helpcode.optBoolean("enabled", true);
-        GroupCard aux = GroupCard.add(target, "辅助码");
+        GroupCard aux = GroupCard.add(sectionColumn(target, "辅助码"), "辅助码");
         aux.toggle("启用辅助码", (shuangpin ? "双拼" : "全拼") + "组字时，先按 Shift 再输入的字母用来缩小候选",
             helpcodeOn, checked -> saveHelpcode(family, shuangpin, "enabled", checked));
         if (helpcodeOn) {
@@ -332,7 +336,7 @@ public final class TypingPage extends ReloadingDetailPage {
                 checked -> saveHelpcode(family, shuangpin, "show_in_candidate_window", checked));
         }
 
-        GroupCard translation = GroupCard.add(target, "翻译");
+        GroupCard translation = GroupCard.add(sectionColumn(target, "翻译"), "翻译");
         InputFeatureToggle translations = InputFeatureToggle.CANDIDATE_TRANSLATIONS;
         translation.toggle("候选词翻译", "为候选词附上译文；联网翻译用哪个服务在下面的「翻译服务」里选",
             preferences.optBoolean(translations.key(), translations.enabledByDefault()),

@@ -43,6 +43,10 @@ import org.json.JSONObject;
  * <p>命名词库的元数据和词条都经 {@link DictionaryCollectionsStore}；导入和导出走系统文件选择器（SAF），不申请存储权限。导入来源对话框只列 client-core 实际接受的格式。
  */
 public final class LexiconPage extends ReloadingDetailPage {
+    @Override protected java.util.List<String> sectionTitles() {
+        return java.util.List.of("已安装", "社区", "学习");
+    }
+
     private static final String BUILTIN_KIND = "pinyin";
     private static final int DISCOVER_LIMIT = 8;
 
@@ -124,7 +128,7 @@ public final class LexiconPage extends ReloadingDetailPage {
         Context context = requireContext();
         target.removeAllViews();
 
-        GroupCard installed = GroupCard.add(target, "已安装").withDividers(58);
+        GroupCard installed = GroupCard.add(sectionColumn(target, "已安装"), "已安装").withDividers(58);
         String builtinCount = current.builtinCount() < 0 ? null
             : NumberPolicy.groupedCount(current.builtinCount());
         installed.addView(KeyboardSheets.badgeNavRow(context, "汉", "拼音词库", builtinCount, "已启用",
@@ -140,7 +144,7 @@ public final class LexiconPage extends ReloadingDetailPage {
         installed.footer("点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。");
         if (!current.failure().isEmpty()) installed.note(current.failure());
 
-        GroupCard manage = GroupCard.add(target, null).withDividers(58);
+        GroupCard manage = GroupCard.add(sectionColumn(target, "已安装"), null).withDividers(58);
         manage.addView(KeyboardSheets.actionRow(context, "+", "新建词库", this::showCreateDialog,
             28, 0, Ui.ROW_GAP));
         manage.addView(KeyboardSheets.actionRow(context, "⇪", "导入词库", this::showImportSources,
@@ -150,7 +154,7 @@ public final class LexiconPage extends ReloadingDetailPage {
         manage.addView(KeyboardSheets.actionRow(context, "↻", "刷新词库", () -> reload(true),
             28, 0, Ui.ROW_GAP));
 
-        GroupCard community = GroupCard.add(target, "发现词库").withDividers(58);
+        GroupCard community = GroupCard.add(sectionColumn(target, "社区"), "发现词库").withDividers(58);
         List<CommunityCatalog.Item> items = discover;
         if (items == null) {
             community.note(discoverFailure == null ? "正在读取社区词库…" : discoverFailure);
@@ -163,12 +167,12 @@ public final class LexiconPage extends ReloadingDetailPage {
         community.nav("浏览更多词库", "搜索社区里的全部词库", null,
             () -> CommunityFragment.browse(context, CommunityRequest.Kind.DICTIONARY));
 
-        GroupCard learning = GroupCard.add(target, "学习");
+        GroupCard learning = GroupCard.add(sectionColumn(target, "学习"), "学习");
         InputFeatureToggle toggle = InputFeatureToggle.LEARNING;
         learning.toggle(toggle.title(), toggle.description(), current.learning(), this::saveLearning);
 
         if (ManagementUi.available()) {
-            GroupCard more = GroupCard.add(target, "更多");
+            GroupCard more = GroupCard.add(sectionColumn(target, "已安装"), "更多");
             more.nav("背单词", "在管理界面里复习收藏的单词", null, this::openVocabularyReview);
             more.nav("云词库", "在管理界面里管理云端词库", null, this::openCloudDictionary);
         }

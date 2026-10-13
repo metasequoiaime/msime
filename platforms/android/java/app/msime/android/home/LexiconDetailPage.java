@@ -29,6 +29,10 @@ import java.util.Locale;
  * <p>集合接口没有列出单个集合词条的操作，所以命名词库只显示条数，搜索和导出只对内置词库提供。
  */
 public final class LexiconDetailPage extends ReloadingDetailPage {
+    @Override protected java.util.List<String> sectionTitles() {
+        return java.util.List.of("词条", "管理");
+    }
+
     public static final String ARG_ID = "collection_id";
     public static final String ARG_NAME = "name";
     private static final String BUILTIN_KIND = "pinyin";
@@ -120,7 +124,7 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
         }
         if (collection != null) setTitle(collection.name());
 
-        GroupCard header = GroupCard.add(target, null);
+        GroupCard header = GroupCard.add(sectionColumn(target, "管理"), null);
         String count = current.count() < 0 ? null : NumberPolicy.groupedCount(current.count());
         GroupCard.Row toggle = header.toggle("启用此词库", builtin ? (count == null ? "内置词库始终启用" : count + " · 内置词库始终启用") : count,
             builtin || collection.enabled(), this::setEnabled);
@@ -133,17 +137,17 @@ public final class LexiconDetailPage extends ReloadingDetailPage {
             search.setOnQueryChange(this::onQuery);
             LinearLayout.LayoutParams params = LayoutPolicy.matchWidthWrapParams();
             params.topMargin = DimensionPolicy.pixels(requireContext(), Ui.GROUP_GAP);
-            target.addView(search, params);
+            sectionColumn(target, "管理").addView(search, params);
         }
 
-        entries = GroupCard.add(target, null).withDividers(0);
+        entries = GroupCard.add(sectionColumn(target, "词条"), null).withDividers(0);
         renderEntries();
 
         if (builtin) {
-            GroupCard export = GroupCard.add(target, null);
+            GroupCard export = GroupCard.add(sectionColumn(target, "管理"), null);
             export.addView(accentRow(null, "导出词库", () -> createDocument.launch("拼音词库.txt")));
         } else {
-            GroupCard manage = GroupCard.add(target, null);
+            GroupCard manage = GroupCard.add(sectionColumn(target, "管理"), null);
             manage.addView(accentRow(null, "删除此词库", this::confirmDelete));
         }
     }

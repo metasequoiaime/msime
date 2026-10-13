@@ -34,6 +34,9 @@ import java.util.Set;
  * <p>副标题只写各平台确定的事实（分发方式、所用的输入法框架），不写会过期的版本号。
  */
 public final class DownloadPage extends DetailPage {
+    @Override protected java.util.List<String> sectionTitles() {
+        return java.util.List.of("电脑", "手机和平板");
+    }
     private static final String DOWNLOAD = "https://msime.app/download/";
     private static final String DOWNLOAD_LABEL = "msime.app/download";
 
@@ -53,13 +56,13 @@ public final class DownloadPage extends DetailPage {
         Context context = requireContext();
         column.addView(hero(context));
 
-        GroupCard desktop = GroupCard.add(column, "电脑").withDividers(58);
+        GroupCard desktop = GroupCard.add(sectionColumn(column, "电脑"), "电脑").withDividers(58);
         sendRow(desktop, R.drawable.ic_ms_laptop, "HarmonyOS 2in1", "电脑与平板二合一 · 从源码构建", "harmony-pc");
         sendRow(desktop, R.drawable.ic_ms_desktop_windows, "Windows", "TSF 输入法 · GitHub 发布页下载", "windows");
         sendRow(desktop, R.drawable.ic_ms_laptop, "macOS", "InputMethodKit · 自带自动更新", "macos");
         sendRow(desktop, R.drawable.ic_ms_laptop, "Linux", "IBus 与 Fcitx5 · DEB、RPM 与 TGZ", "linux");
 
-        GroupCard mobile = GroupCard.add(column, "手机和平板").withDividers(58);
+        GroupCard mobile = GroupCard.add(sectionColumn(column, "手机和平板"), "手机和平板").withDividers(58);
         getRow(mobile, R.drawable.ic_ms_smartphone, "iOS", "TestFlight 测试版", "ios");
         getRow(mobile, R.drawable.ic_ms_tablet, "iPadOS", "与 iPhone 共用同一个 TestFlight", "ios");
         GroupCard.Row android = row(mobile, R.drawable.ic_ms_smartphone, "Android", "各版本的 APK 在 GitHub 发布页");
