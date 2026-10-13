@@ -54,7 +54,9 @@ inline std::wstring_view usable_format(std::wstring_view kind, std::wstring_view
   return format && (!format->pinyin_only || kind == L"pinyin") ? format->id : formats[0].id;
 }
 
-inline wchar_t ascii_lower(wchar_t c) { return c >= L'A' && c <= L'Z' ? c + (L'a' - L'A') : c; }
+inline wchar_t ascii_lower(wchar_t c) {
+  return c >= L'A' && c <= L'Z' ? static_cast<wchar_t>(c - L'A' + L'a') : c;
+}
 
 inline bool ends_with_ignoring_case(std::wstring_view value, std::wstring_view suffix) {
   if (value.size() < suffix.size())
