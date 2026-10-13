@@ -79,10 +79,13 @@ test("offers restore defaults only on the pages that edit preferences", () => {
     "tools",
     "plugins",
     "screen-keyboard",
-    "handwriting",
     "voice",
     "ai",
   ]);
   for (const page of ["home", "developer", "help", "about", "feedback"] as const)
     expect(canRestoreDefaultsOnPage(page)).toBe(false);
+});
+
+test("手写页不提供全局偏好重置", () => {
+  expect(canRestoreDefaultsOnPage("handwriting")).toBe(false);
 });

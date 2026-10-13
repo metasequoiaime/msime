@@ -21,7 +21,6 @@ import {
   CloudDictionaryFilesPanel,
   CloudDictionaryPanel,
   EmojiPanel,
-  HandwritingPanel,
   VoicePanel,
   completeOnboardingPreferences,
   usePreferencesSnapshot,
@@ -93,6 +92,7 @@ import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./input/window-state";
 import { discoverFontReader } from "./candidate/system-font-client";
 import { DesktopKeyboard, useHostPlatform } from "./input/desktop-keyboard";
+import { DesktopHandwriting } from "./input/desktop-handwriting";
 import { DesktopCloudDictionary } from "./dictionary/desktop-cloud-dictionary";
 import { testDesktopApiCredential } from "./account/credential-test-client";
 import { cloudDictionaryCapabilities, isMobileHost } from "./input/mobile-host-capabilities";
@@ -460,10 +460,10 @@ const desktopHandwritingClient: PanelClient = {
   resourcePacks,
   modelMirror: savedModelMirror(client),
 };
-function DesktopHandwriting({ theme }: { theme: "dark" | "light" }) {
+function DesktopHandwritingSurface({ theme }: { theme: "dark" | "light" }) {
   const platform = useHostPlatform(client.host);
   return (
-    <HandwritingPanel
+    <DesktopHandwriting
       client={
         platform === "macos" || platform === "windows" || platform === "linux"
           ? desktopHandwritingClient
@@ -1201,7 +1201,7 @@ const content =
     <DesktopKeyboard client={panelClients.keyboard} preferences={client} />
   ) : panel === "handwriting" ? (
     <DesktopPanelTheme preferences={client} surface="handwriting">
-      {(theme) => <DesktopHandwriting theme={theme} />}
+      {(theme) => <DesktopHandwritingSurface theme={theme} />}
     </DesktopPanelTheme>
   ) : panel === "voice" ? (
     <DesktopPanelTheme preferences={client} surface="voice">

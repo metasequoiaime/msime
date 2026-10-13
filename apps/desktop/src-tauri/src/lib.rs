@@ -4117,6 +4117,20 @@ fn discover_packaged_file(relative: &str, beside_executable: &str) -> Option<Pat
         .find(|path| path.is_absolute() && path.is_file())
 }
 
+/// 手写面板能否直接输入；设置中打开且没有原生会话时只提供识别和复制。
+#[tauri::command]
+fn handwriting_can_input(app: tauri::AppHandle, window: tauri::WebviewWindow) -> bool {
+    #[cfg(target_os = "macos")]
+    return app
+        .state::<macos_panel_session::PanelState>()
+        .can_submit_handwriting(requested_surface_route(), window.label());
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, window);
+        true
+    }
+}
+
 #[tauri::command]
 async fn submit_handwriting_candidate(
     app: tauri::AppHandle,
@@ -5522,6 +5536,7 @@ pub fn run() {
             desktop_resource_packs::resource_pack_install,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_resource_packs::resource_pack_cancel,
+            handwriting_can_input,
             submit_handwriting_candidate,
             open_external_url,
             #[cfg(any(target_os = "macos", target_os = "windows"))]

@@ -84,9 +84,9 @@ export const mockCandidates =
 export const keyboardPanel =
   "flex h-screen min-h-0 flex-col rounded-lg bg-[var(--kb-background)] font-[var(--kb-font-family)] text-[var(--kb-text)]";
 export const keyboardHeader =
-  "h-auto min-h-7 shrink-0 border-b-0 bg-[var(--kb-background)] pt-0 pr-1.5 pb-0 pl-2.5 text-xs text-[var(--kb-heading)] [&>button]:h-6 [&>button]:flex-[0_0_28px] [&>button]:rounded [&>button]:text-[var(--kb-text)] [&>button:hover]:bg-[var(--kb-hover)] [&>button:hover]:text-[var(--kb-text)]";
+  "flex min-h-9 shrink-0 items-center gap-2 bg-[var(--kb-background)] px-2.5 py-1.5 text-xs text-[var(--kb-heading)] select-none [&>button]:h-7 [&>button]:shrink-0 [&>button]:rounded [&>button]:border-0 [&>button]:bg-transparent [&>button]:px-2 [&>button]:text-xs [&>button]:leading-none [&>button]:whitespace-nowrap [&>button]:text-[var(--kb-text)] [&>button:hover]:bg-[var(--kb-hover)] [&>button:last-child]:w-7 [&>button:last-child]:p-0 [&>button:last-child]:text-xl";
 export const keyboardNotice =
-  "min-w-0 text-xs break-words whitespace-normal text-[var(--kb-heading)]";
+  "min-w-0 flex-1 text-xs leading-5 break-words whitespace-normal text-[var(--kb-heading)]";
 export const keyboardBody = "min-h-0 flex-1 px-[7px] pt-0 pb-[7px]";
 export const keyboardLayout = "flex h-full flex-col gap-[var(--keyboard-row-gap,4px)]";
 export const keyboardRow = "flex min-h-0 flex-1 gap-[var(--keyboard-key-gap,4px)]";

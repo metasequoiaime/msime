@@ -31,7 +31,6 @@ const restoreDefaultsPages: readonly SettingsPageId[] = [
   "dictionary",
   "screen-keyboard",
   "voice",
-  "handwriting",
   "tools",
   "plugins",
 ];
@@ -46,7 +45,7 @@ export function canReloadSettingsPage(page: SettingsPageId) {
   return !reloadExcludedPages.includes(page);
 }
 
-/** 页面的页脚是否显示「恢复默认设置」。 */
+/** 页面的页脚是否显示全局偏好的「恢复默认设置」；手写笔迹使用宿主自己的设置文件，不由此按钮恢复。 */
 export function canRestoreDefaultsOnPage(page: SettingsPageId) {
   return restoreDefaultsPages.includes(page);
 }

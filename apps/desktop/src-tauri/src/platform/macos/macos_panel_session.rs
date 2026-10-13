@@ -29,6 +29,17 @@ impl PanelState {
         })
     }
 
+    /// 只有当前手写窗口拥有尚未使用的原生候选会话时，界面才提供直接输入。
+    pub(crate) fn can_submit_handwriting(&self, route: Option<SurfaceRoute>, label: &str) -> bool {
+        route == Some(SurfaceRoute::Handwriting)
+            && owns_input_panel(route, label)
+            && self.lifecycle.load(Ordering::Acquire) == 0
+            && self
+                .session
+                .as_ref()
+                .is_some_and(|session| !session.accepts_clipboard() && !session.is_used())
+    }
+
     pub(crate) fn can_open_voice_panel(&self) -> bool {
         self.session
             .as_ref()
@@ -254,6 +265,35 @@ pub(crate) fn can_submit_clipboard(app: &tauri::AppHandle, label: &str) -> bool 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn handwriting_input_requires_its_own_idle_candidate_session() {
+        let state = |clipboard| {
+            PanelState {
+            session: Some(Arc::new(PanelSession::parse(&serde_json::json!({"version":1,"path":"/tmp/synthetic.sock","host_pid":1,"target_pid":2,"target_started":42,"clipboard":clipboard}).to_string()).unwrap())),
+            lifecycle: Arc::new(AtomicU8::new(0)),
+        }
+        };
+        let candidate = state(false);
+        let handwriting = Some(SurfaceRoute::Handwriting);
+        assert!(candidate.can_submit_handwriting(handwriting, "handwriting-panel"));
+        for route in [
+            None,
+            Some(SurfaceRoute::Settings(None)),
+            Some(SurfaceRoute::Emoji),
+        ] {
+            assert!(!candidate.can_submit_handwriting(route, "handwriting-panel"));
+        }
+        assert!(!candidate.can_submit_handwriting(handwriting, "main"));
+        assert!(!state(true).can_submit_handwriting(handwriting, "handwriting-panel"));
+        candidate.lifecycle.store(1, Ordering::Release);
+        assert!(!candidate.can_submit_handwriting(handwriting, "handwriting-panel"));
+        let standalone = PanelState {
+            session: None,
+            lifecycle: Arc::new(AtomicU8::new(0)),
+        };
+        assert!(!standalone.can_submit_handwriting(handwriting, "handwriting-panel"));
+    }
+
     #[test]
     fn clipboard_route_and_session_type_are_both_required_for_multiline_submission() {
         let make = |clipboard| {

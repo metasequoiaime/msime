@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { SettingsPage, type HostCapabilities, type Snapshot } from "@msime/ui";
 import { testHost } from "../support/host";
 
@@ -338,4 +338,26 @@ test("the Doubao resource ID is only offered for Doubao", async () => {
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   await screen.findByRole("region", { name: "识别服务配置" });
   expect(screen.queryByLabelText("Doubao 资源 ID")).toBeNull();
+});
+
+test("macOS 手写页能打开识别复制面板，且不重置无关偏好", async () => {
+  const openHandwriting = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      initialPage="handwriting"
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: host("macos"),
+        openHandwriting,
+        loadDefaultPreferences: vi.fn().mockResolvedValue(snapshot.preferences),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  expect(screen.getByText("打开手写识别板")).toBeTruthy();
+  expect(screen.getByLabelText("手写识别板预览")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "打开" }));
+  await waitFor(() => expect(openHandwriting).toHaveBeenCalledOnce());
 });
