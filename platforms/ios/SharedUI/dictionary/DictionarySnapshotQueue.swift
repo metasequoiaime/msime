@@ -37,10 +37,20 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
     }
   }
   final class WorkerLease: @unchecked Sendable {
-    private let descriptor: Int32
+    private let mutex = NSLock()
+    private var descriptor: Int32?
     fileprivate let owner: URL
     fileprivate init(_ descriptor: Int32, owner: URL) { self.descriptor = descriptor; self.owner = owner }
-    deinit { flock(descriptor, LOCK_UN); close(descriptor) }
+    /// 取消后台准备时立即归还 App Group 的锁，不等待异步任务析构。
+    func release() {
+      mutex.lock()
+      defer { mutex.unlock() }
+      guard let descriptor else { return }
+      self.descriptor = nil
+      flock(descriptor, LOCK_UN)
+      close(descriptor)
+    }
+    deinit { release() }
   }
   private let directory: URL?
   private static let processLock = NSLock()

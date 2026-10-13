@@ -312,4 +312,15 @@ final class DictionarySnapshotQueueTests: XCTestCase {
       XCTAssertNil(try queue.read().request)
     }
   }
+
+  func testReleasedWorkerLeaseAllowsAnotherWorkerBeforeOwnerDeinit() throws {
+    try fixture { queue, _, _, _ in
+      let lease = try queue.acquireWorkerLease()
+      lease.release()
+
+      let other = try queue.acquireWorkerLease()
+      defer { other.release() }
+      XCTAssertThrowsError(try queue.acquireWorkerLease())
+    }
+  }
 }

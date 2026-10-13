@@ -33,7 +33,12 @@ final class DictionarySnapshotWorker {
        currentAccountID: @escaping () throws -> String? = { try BackendKeychain().load()?.tokens.user.id }) {
     self.session = session; self.queue = queue; self.currentAccountID = currentAccountID
   }
-  func stop() { task?.cancel(); prepared = nil; lease = nil }
+  func stop() {
+    task?.cancel()
+    lease?.release()
+    prepared = nil
+    lease = nil
+  }
   func tick(idle: Bool, fullAccess: Bool, force: Bool = false) {
     guard fullAccess else { stop(); prepared = nil; lease = nil; return }
     guard idle, task == nil else { return }
