@@ -194,6 +194,8 @@ export const personalDictionaryRequest: (request: string) => string;
 export const dictionaryCollections: (request: string) => string;
 /** The same request on a worker thread, for the settings page: an import parses up to 16 MiB and every operation rewrites files under a lock. */
 export const dictionaryCollectionsAsync: (request: string) => Promise<string>;
+/** `{bytes_base64}` of a Sogou cell dictionary (`.scel`) answered as `{ok,value:{name,category,entries,text}}`, where `text` is the standard TSV the desktop form then imports, or `{ok:false,error}` with a `dictionary_scel_*` code. Pure, on a worker thread. */
+export const dictionaryScelTextAsync: (request: string) => Promise<string>;
 export const prepareHost: (options: string) => string;
 
 export const snapshotVersion: (options: string) => string;
