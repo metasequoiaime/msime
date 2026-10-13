@@ -104,7 +104,7 @@ pub fn query_kaomoji(
     query(&KAOMOJI, code, scheme, others_db, limit, profile)
 }
 
-/// 26 键混排：按输入码查 emoji（双拼另查归一成全拼的码），见 `query_readings`。输入码不全是字母和 `'` 时没有行。
+/// 26 键混排：按输入码查 emoji（双拼另查归一成全拼的码），见 `query_readings`。输入码只收字母和 `'`，双拼方案使用分号键时还收作为 `ing` 韵母的 `;`。
 pub fn query_mixed_emoji(
     code: &str,
     scheme: SchemeType,
@@ -132,9 +132,11 @@ fn query_mixed(
     profile: &ShuangpinProfile,
 ) -> Vec<ExpressiveRow> {
     if code.is_empty()
-        || !code
-            .bytes()
-            .all(|byte| byte.is_ascii_alphabetic() || byte == b'\'')
+        || !code.bytes().all(|byte| {
+            byte.is_ascii_alphabetic()
+                || byte == b'\''
+                || (byte == b';' && scheme == SchemeType::Shuangpin && profile.uses_semicolon_key())
+        })
     {
         return Vec::new();
     }
@@ -565,12 +567,12 @@ mod tests {
             .execute_batch(
                 "CREATE TABLE emoji_pinyin(key TEXT,emoji TEXT,sort_order INTEGER);
                  CREATE TABLE emoji(emoji TEXT PRIMARY KEY,keywords TEXT);
-                 INSERT INTO emoji_pinyin VALUES('meiguobentuwaixiaodaoyu','🇺🇲',1891),('meiguo','🇺🇸',1893),('ji','🐔',626),('jiba','🐔',626),('jitou','🐔',626);
-                 INSERT INTO emoji VALUES('🇺🇲','美国本土外小岛屿 flag: u.s. outlying islands'),('🇺🇸','美国 美利坚 星条旗'),('🐔','鸡 鸡头 chicken');
+                 INSERT INTO emoji_pinyin VALUES('meiguobentuwaixiaodaoyu','🇺🇲',1891),('meiguo','🇺🇸',1893),('ji','🐔',626),('jiba','🐔',626),('jitou','🐔',626),('jinggao','⚠️',1433);
+                 INSERT INTO emoji VALUES('🇺🇲','美国本土外小岛屿 flag: u.s. outlying islands'),('🇺🇸','美国 美利坚 星条旗'),('🐔','鸡 鸡头 chicken'),('⚠️','警告 注意 危险');
                  CREATE TABLE kaomoji(pinyin TEXT,jianpin TEXT,kaomoji TEXT,sort_order INTEGER);
                  CREATE TABLE kaomoji_catalog(kaomoji TEXT PRIMARY KEY,keywords TEXT);
-                 INSERT INTO kaomoji VALUES('haixiu','hx','(*/ω＼*)',10),('kaixin','kx','(^_^)',20);
-                 INSERT INTO kaomoji_catalog VALUES('(*/ω＼*)','hai xiu 害羞');",
+                 INSERT INTO kaomoji VALUES('haixiu','hx','(*/ω＼*)',10),('kaixin','kx','(^_^)',20),('jinggao','jg','(ﾟДﾟ≡ﾟдﾟ)!?',30);
+                 INSERT INTO kaomoji_catalog VALUES('(*/ω＼*)','hai xiu 害羞'),('(ﾟДﾟ≡ﾟдﾟ)!?','jing gao 警告');",
             )
             .unwrap();
         for index in 0..20 {
@@ -629,6 +631,36 @@ mod tests {
         let kaixin = query_mixed_kaomoji("kaixin", quanpin, &path, &QUANPIN_ONLY);
         assert_eq!(mixed_words(&kaixin), ["(^_^)"]);
         assert_eq!(kaixin[0].keywords, "");
+    }
+
+    #[test]
+    fn microsoft_semicolon_final_reaches_mixed_emoji_and_kaomoji() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = mixed_fixture(dir.path());
+        let microsoft =
+            crate::shuangpin::profile::profile(ShuangpinProfileKind::Microsoft).unwrap();
+        assert_eq!(normalize_input("j;gk", microsoft), "jinggao");
+        assert_eq!(
+            mixed_words(&query_mixed_emoji(
+                "j;gk",
+                SchemeType::Shuangpin,
+                &path,
+                microsoft
+            )),
+            ["⚠️"]
+        );
+        assert_eq!(
+            mixed_words(&query_mixed_kaomoji(
+                "j;gk",
+                SchemeType::Shuangpin,
+                &path,
+                microsoft
+            )),
+            ["(ﾟДﾟ≡ﾟдﾟ)!?"]
+        );
+        let xiaohe = crate::shuangpin::profile::profile(ShuangpinProfileKind::Xiaohe).unwrap();
+        assert!(query_mixed_emoji("j;gk", SchemeType::Shuangpin, &path, xiaohe).is_empty());
+        assert!(query_mixed_kaomoji("j;gk", SchemeType::Quanpin, &path, microsoft).is_empty());
     }
 
     #[test]
