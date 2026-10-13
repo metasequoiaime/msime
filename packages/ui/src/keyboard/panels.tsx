@@ -48,6 +48,7 @@ import {
   type Modifier,
 } from "./keyboard-input";
 import { keyboardSkinStyles } from "./keyboard-skin-styles";
+import { keyboardDeliveryNotice, MACOS_KEYBOARD_GUIDANCE } from "./keyboard-delivery-notice";
 import { keyboardRows, nineKeyRows } from "./panel-keyboard-layouts";
 import { CloudDictionaryEntryForm } from "./cloud-dictionary-entry-form";
 import { CloudDictionaryEntryCard } from "./cloud-dictionary-entry-card";
@@ -465,7 +466,14 @@ export function KeyboardPanel({
       : sourceRows;
   const [, setActiveModifiers] = useState<Set<Modifier>>(new Set());
   const modifiersRef = useRef<Set<Modifier>>(new Set());
-  const [notice, setNotice] = useState("Touch keyboard");
+  const [notice, setNotice] = useState(
+    platform === "macos" ? MACOS_KEYBOARD_GUIDANCE : "Touch keyboard",
+  );
+  const platformRef = useLatestRef(platform);
+  useEffect(() => {
+    if (platform === "macos")
+      setNotice((shown) => (shown === "Touch keyboard" ? MACOS_KEYBOARD_GUIDANCE : shown));
+  }, [platform]);
   const [openingVoice, setOpeningVoice] = useState(false);
   type QueuedKey = { request: KeyboardInputRequest; description: string };
   const inputQueue = useRef<{
@@ -491,8 +499,8 @@ export function KeyboardPanel({
     modifiersRef.current = new Set();
     setActiveModifiers(new Set());
     if (client.rememberInputTarget)
-      void client.rememberInputTarget().catch(() => {
-        if (queue.active) setNotice("未能记录前台输入窗口");
+      void client.rememberInputTarget().catch((error: unknown) => {
+        if (queue.active) setNotice(keyboardDeliveryNotice(error, platformRef.current));
       });
     const stopForBlur = () => stopKeyRepeat();
     window.addEventListener("blur", stopForBlur);
@@ -547,11 +555,11 @@ export function KeyboardPanel({
           // earlier key is delivered.
           if (client.rememberInputTarget) await client.rememberInputTarget();
           await client.sendKey(next.request);
-        } catch {
-          // Delivery may have partially succeeded; never replay a failed key.
+        } catch (error: unknown) {
+          // 发送可能已部分成功；不重放失败按键，清空队列并停止长按连发。
           queue.pending = [];
           stopKeyRepeat();
-          if (queue.active) setNotice("按键发送失败，后续排队按键已取消，请确认输入位置后继续");
+          if (queue.active) setNotice(keyboardDeliveryNotice(error, platform));
           return;
         }
         if (queue.active) setNotice(`已发送：${next.description}`);
