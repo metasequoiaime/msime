@@ -180,7 +180,7 @@ int main(int argc, char **argv) {
     const auto view = zhuyin.session.view();
     const auto session = view.at("session").get<uint64_t>();
     const auto generation = view.at("generation").get<uint64_t>();
-    assert(!zhuyin.composer.select_candidate(zhuyin.session, session, generation, 0));
+    assert(!zhuyin.composer.select_candidate(zhuyin.session, session, generation, 0, 0));
     assert(zhuyin.editing() == "su3" && !zhuyin.candidates().empty());
   }
 

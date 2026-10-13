@@ -182,7 +182,7 @@ void session_worker_tests(const std::string &options) {
             !controller.candidate_view()->visible);
     const auto hidden_candidate = second->candidates.at(0);
     require(controller.request_selection(second->lease, hidden_candidate.session,
-        hidden_candidate.generation, hidden_candidate.index) == SelectionRequestResult::Rejected);
+        hidden_candidate.generation, hidden_candidate.index, second->translation_page) == SelectionRequestResult::Rejected);
     packet.event_type = FanyImePipeEventType::MoveCandidateWnd;
     packet.point[0] = -250;
     packet.point[1] = 380;
@@ -233,7 +233,7 @@ void session_worker_tests(const std::string &options) {
     }
     if (write_failure) {
       transport.write_failure = write_failure;
-      require(controller.request_selection(shown->lease, candidate.session, candidate.generation, candidate.index) == SelectionRequestResult::Failed);
+      require(controller.request_selection(shown->lease, candidate.session, candidate.generation, candidate.index, shown->translation_page) == SelectionRequestResult::Failed);
       require(observed == 7 && !transport.current(ticket) && !controller.candidate_view());
       controller.stop();
       require(controller.failure() != ControllerFailure::None);
@@ -241,16 +241,18 @@ void session_worker_tests(const std::string &options) {
     }
     require(controller.request_selection(
                 shown->lease, candidate.session, candidate.generation + 1,
-                candidate.index) == SelectionRequestResult::Rejected);
+                candidate.index, shown->translation_page) == SelectionRequestResult::Rejected);
     auto selection = std::async(std::launch::async, [&] {
       return controller.request_selection(shown->lease, candidate.session,
                                           candidate.generation,
-                                          candidate.index);
+                                          candidate.index,
+                                          shown->translation_page);
     });
     require(entered.wait_for(std::chrono::seconds(10)) ==
             std::future_status::ready);
     const auto busy = controller.request_selection(
-        shown->lease, candidate.session, candidate.generation, candidate.index);
+        shown->lease, candidate.session, candidate.generation, candidate.index,
+        shown->translation_page);
     auto reading = std::async(std::launch::async,
                               [&] { return controller.candidate_view(); });
     const bool read_ready = reading.wait_for(std::chrono::seconds(1)) ==
@@ -329,7 +331,8 @@ void session_worker_tests(const std::string &options) {
     require(host_drawn && !host_drawn->visible && host_drawn->preedit.empty() &&
             host_drawn->candidates.empty() && host_drawn->x == 240);
     require(controller.request_selection(before->lease, candidate.session,
-                candidate.generation, candidate.index) ==
+                candidate.generation, candidate.index,
+                before->translation_page) ==
             SelectionRequestResult::Rejected);
     packet.modifiers_down = 0;
     transport.push(packet);
@@ -366,7 +369,8 @@ void session_worker_tests(const std::string &options) {
       require(!disabled->visible && disabled->preedit.empty() &&
               disabled->candidates.empty());
       require(controller.request_selection(before->lease, candidate.session,
-                  candidate.generation, candidate.index) ==
+                  candidate.generation, candidate.index,
+                  before->translation_page) ==
               SelectionRequestResult::Rejected);
     } else {
       require(!disabled_mode->chinese.has_value());
@@ -479,6 +483,98 @@ void session_worker_tests(const std::string &options) {
     transport.push(packet);
     transport.wait_started(10);
     require(controller.candidate_view()->visible);
+    controller.stop();
+  }
+  {
+    // Ctrl+Enter 的释义页沿用 Engine 列表的 session 和 generation，义项序号也从 0 起。从列表那一帧点下去、在释义页打开之后才到的点击，不能上屏释义页同一位置的义项，候选动作也不能落到列表上；释义页自己的点击照常上屏它点的义项。
+    IdleTransport transport;
+    RegistrationInbox inbox(2);
+    PipeTicket ticket{42, {1, 2, 3}};
+    std::atomic<uint64_t> translate{0};
+    std::atomic<bool> translated{false};
+    SessionController controller(
+        transport, inbox, 1, 8, options,
+        [&](InputState &state, const FocusLease &lease,
+            const FanyImeNamedpipeData &packet) {
+          // 夹具没有释义服务：Ctrl+Enter 之前在输入线程上给这一代的「中」挂上三条义项，走的是 TranslationWorker 送达时的同一个入口。
+          if (packet.keycode == 0x0D && translate)
+            translated = state
+                             .apply_translations(
+                                 lease, translate,
+                                 R"([{"text":"中","translation":"centre; middle; China"}])")
+                             .has_value();
+          return state.configured_key(lease, packet, TsfPreeditStyle::Local, {});
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; },
+        [] { return true; }, [&] { transport.close(ticket); });
+    transport.add(ticket);
+    require(inbox.push(ticket));
+    FanyImeNamedpipeData packet{};
+    packet.client_id = ticket.client;
+    packet.event_type = FanyImePipeEventType::ClientActivated;
+    packet.request_id = 77;
+    transport.push(packet);
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    packet.request_id = 1;
+    for (char c : std::string("U4e2d")) {
+      ++packet.request_id;
+      packet.keycode = c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c;
+      packet.wch = c;
+      packet.modifiers_down = c == 'U' ? 1 : 0;
+      transport.push(packet);
+    }
+    transport.wait_started(7);
+    const auto listed = controller.candidate_view();
+    require(listed && listed->visible && listed->translation_page == 0 &&
+            !listed->candidates.empty() && listed->candidates.at(0).text == "中");
+    // 用户瞄准的是列表的第一行「中」，点击按这一帧拼好。
+    const auto aimed = listed->candidates.at(0);
+    translate = listed->generation;
+    ++packet.request_id;
+    packet.keycode = 0x0D;
+    packet.wch = 0;
+    packet.modifiers_down = PipeMetadata::CandidateActive | 2u;
+    transport.push(packet);
+    transport.wait_started(8);
+    require(translated);
+    const auto page = controller.candidate_view();
+    require(page && page->visible && page->translation_page != 0 &&
+            page->session == listed->session &&
+            page->generation == listed->generation &&
+            page->candidates.size() == 3 &&
+            page->candidates.at(0).text == "centre" &&
+            page->candidates.at(0).index == aimed.index &&
+            !page->candidates.at(0).actions_available);
+    // 激活时 Server 已经往 worker 管道写过焦点栅栏，所以只看这之后有没有新写出的帧。
+    const auto written = transport.writes().size();
+    require(controller.request_selection(listed->lease, aimed.session,
+                                         aimed.generation, aimed.index,
+                                         listed->translation_page) ==
+            SelectionRequestResult::Rejected);
+    require(controller.request_candidate_action(
+                listed->lease, aimed.session, aimed.generation, aimed.index,
+                listed->translation_page, CandidateAction::Remove) ==
+            CandidateActionRequestResult::Rejected);
+    require(controller.request_candidate_action(
+                page->lease, aimed.session, aimed.generation, aimed.index,
+                page->translation_page, CandidateAction::Remove) ==
+            CandidateActionRequestResult::Rejected);
+    require(transport.writes().size() == written && transport.current(ticket) &&
+            controller.failure() == ControllerFailure::None);
+    // 释义页还开着，它自己的点击上屏点到的那条义项。
+    const auto sense = page->candidates.at(1);
+    require(controller.request_selection(page->lease, sense.session,
+                                         sense.generation, sense.index,
+                                         page->translation_page) ==
+            SelectionRequestResult::Sent);
+    size_t commits = 0;
+    const auto writes = transport.writes();
+    for (size_t at = written; at < writes.size(); ++at) {
+      require(writes[at].second != ui_complete_selection("centre")->worker);
+      commits += writes[at].first == FanyImePipeRole::ToTsfWorkerThread &&
+                 writes[at].second == ui_complete_selection("middle")->worker;
+    }
+    require(commits == 1 && controller.failure() == ControllerFailure::None);
     controller.stop();
   }
   FocusGate gate;

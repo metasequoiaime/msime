@@ -1453,7 +1453,9 @@ void CandidateWindow::invoke_accessible(int id, LPARAM token) {
   if (!click_ || id < 1 || static_cast<size_t>(id) > value.candidates.size())
     return;
   const auto &candidate = value.candidates[static_cast<size_t>(id - 1)];
-  click_(CandidateClick{value.lease, candidate.session, candidate.generation, candidate.index});
+  CandidateClick click{value.lease, candidate.session, candidate.generation, candidate.index};
+  click.translation_page = value.translation_page;
+  click_(click);
 }
 std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
   if (!click_ || !painted_ || !painted_->pointer_input || !IsWindowVisible(window_))
@@ -1478,8 +1480,10 @@ std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
   if (!row || *row >= painted_->candidates.size())
     return std::nullopt;
   const auto &candidate = painted_->candidates[*row];
-  return CandidateClick{painted_->lease, candidate.session,
-                        candidate.generation, candidate.index};
+  CandidateClick click{painted_->lease, candidate.session,
+                       candidate.generation, candidate.index};
+  click.translation_page = painted_->translation_page;
+  return click;
 }
 std::optional<bool> CandidateWindow::pager_hit(int x, int y) {
   if (!page_ || !painted_ || !painted_->pointer_input || !painted_pager_ ||

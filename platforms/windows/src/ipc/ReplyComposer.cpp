@@ -593,13 +593,16 @@ void ReplyComposer::confirm_delivery(uint64_t client, uint64_t epoch,
   pending_.reset();
 }
 std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &session,
-    uint64_t expected_session, uint64_t generation, size_t index) {
+    uint64_t expected_session, uint64_t generation, size_t index,
+    uint64_t translation_page) {
   if (pending_ || !session.input_enabled()) return std::nullopt;
   traditional_output_ = traditional_projection(session);
   const auto view = session.view();
+  // 释义页和它底下的 Engine 列表同 session、同 generation，序号也一样从 0 起；点的是哪一张表只能看释义页编号，对不上就是点在了已经换掉的那张表上。
   if (!expected_session || view.at("session") != expected_session ||
       (session_ && session_ != expected_session) ||
-      view.at("generation") != generation || !view.at("focused").get<bool>())
+      view.at("generation") != generation || !view.at("focused").get<bool>() ||
+      translation_page != this->translation_page())
     return std::nullopt;
   // A pick made here would leave the TIP's own host session behind (scheme::KeyboardOnlyCandidateList).
   if (scheme::KeyboardOnlyCandidateList(view_scheme(view)))
@@ -715,6 +718,8 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
   if (senses.size() > 1) {
     nlohmann::json page = {{"commit", nullptr}, {"view", view}};
     page["view"]["candidates"] = nlohmann::json::array();
+    // 这一页的编号随 view 进候选窗（CandidatePresentation::translation_page），点击原样带回，select_candidate 据此把它和底下的 Engine 列表分开。
+    page["view"]["translation_page"] = ++translation_page_serial_;
     const auto count = std::min<size_t>(senses.size(), 9);
     for (size_t item = 0; item < count; ++item) {
       page["view"]["candidates"].push_back({

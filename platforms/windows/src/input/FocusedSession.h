@@ -51,7 +51,8 @@ public:
   // A false return means the receipt is obsolete; never replay the key.
   bool confirm(const FocusLease &lease, uint64_t request);
   std::optional<PendingReply> select_candidate(const FocusLease &lease,
-      uint64_t session, uint64_t generation, size_t index);
+      uint64_t session, uint64_t generation, size_t index,
+      uint64_t translation_page);
   std::optional<nlohmann::json>
   candidate_action(const FocusLease &lease, uint64_t session,
                    uint64_t generation, size_t index, CandidateAction action,

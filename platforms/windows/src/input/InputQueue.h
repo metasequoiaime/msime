@@ -86,7 +86,8 @@ public:
   std::optional<PendingReply> select_candidate(const FocusLease &lease,
                                                uint64_t session,
                                                uint64_t generation,
-                                               size_t index);
+                                               size_t index,
+                                               uint64_t translation_page);
   std::optional<nlohmann::json>
   candidate_action(const FocusLease &lease, uint64_t session,
                    uint64_t generation, size_t index, CandidateAction action,

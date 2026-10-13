@@ -40,7 +40,7 @@ void ui_selection_tests(const std::string &options, bool dictionary) {
     if (!view.at("candidates").empty()) {
       const auto id = view.at("candidates").at(0).at("id");
       require(!focused.select_candidate(lease, id.at("session"),
-                                        id.at("generation"), id.at("index")));
+                                        id.at("generation"), id.at("index"), 0));
       require(focused.view() == view);
     }
     require(focused.confirm(lease, packet.request_id));
@@ -56,13 +56,15 @@ void ui_selection_tests(const std::string &options, bool dictionary) {
     const auto index = id.at("index").get<size_t>();
     auto stale_lease = lease;
     ++stale_lease.epoch;
-    require(!focused.select_candidate(stale_lease, session, generation, index));
-    require(!focused.select_candidate(lease, session + 1, generation, index));
-    require(!focused.select_candidate(lease, session, generation + 1, index));
+    require(!focused.select_candidate(stale_lease, session, generation, index, 0));
+    require(!focused.select_candidate(lease, session + 1, generation, index, 0));
+    require(!focused.select_candidate(lease, session, generation + 1, index, 0));
     require(!focused.select_candidate(lease, session, generation,
-                                      std::numeric_limits<size_t>::max()));
+                                      std::numeric_limits<size_t>::max(), 0));
+    // 没有打开释义页时，带着释义页编号的点击来自一张已经不在的页。
+    require(!focused.select_candidate(lease, session, generation, index, 1));
     require(focused.view() == view);
-    auto pending = focused.select_candidate(lease, session, generation, index);
+    auto pending = focused.select_candidate(lease, session, generation, index, 0);
     require(pending && pending->ui_selection && !pending->encoded);
     require(pending->source.request_id == 0 &&
             pending->source.transition.at("commit") == "中");
@@ -70,7 +72,7 @@ void ui_selection_tests(const std::string &options, bool dictionary) {
             ui_complete_selection("中")->worker);
     const auto selected = focused.view();
     rejected([&] { send('A', 'a'); });
-    require(!focused.select_candidate(lease, session, generation, index));
+    require(!focused.select_candidate(lease, session, generation, index, 0));
     rejected([&] { focused.confirm(lease, 0); });
     rejected([&] { focused.confirm_ui(lease, previous_receipt); });
     require(focused.view() == selected &&
@@ -97,7 +99,7 @@ void ui_selection_tests(const std::string &options, bool dictionary) {
     }
     require(id.has_value());
     const auto partial = focused.select_candidate(
-        lease, id->at("session"), id->at("generation"), id->at("index"));
+        lease, id->at("session"), id->at("generation"), id->at("index"), 0);
     require(partial && partial->ui_selection->before_trigger &&
             partial->next_prefix == "你");
     rejected([&] { focused.cancel_composition(lease); });
@@ -113,12 +115,12 @@ void ui_selection_tests(const std::string &options, bool dictionary) {
               focused.view().at("editing_text") == "" &&
               focused.view().at("candidates").empty());
       require(!focused.select_candidate(lease, id->at("session"),
-                                        id->at("generation"), id->at("index")));
+                                        id->at("generation"), id->at("index"), 0));
       for (char c : std::string("U4e2d"))
         send(c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c, c);
       const auto fresh = focused.view().at("candidates").at(0).at("id");
       const auto selected = focused.select_candidate(
-          lease, fresh.at("session"), fresh.at("generation"), fresh.at("index"));
+          lease, fresh.at("session"), fresh.at("generation"), fresh.at("index"), 0);
       require(selected && selected->ui_selection->worker ==
                               ui_complete_selection("中")->worker);
       require(focused.confirm_ui(
@@ -127,7 +129,7 @@ void ui_selection_tests(const std::string &options, bool dictionary) {
     }
     const auto next = focused.view().at("candidates").at(0).at("id");
     const auto final = focused.select_candidate(
-        lease, next.at("session"), next.at("generation"), next.at("index"));
+        lease, next.at("session"), next.at("generation"), next.at("index"), 0);
     require(final && !final->ui_selection->before_trigger &&
             final->next_prefix.empty());
     require(final->ui_selection->worker ==

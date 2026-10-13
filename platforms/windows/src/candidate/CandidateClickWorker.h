@@ -13,6 +13,8 @@ struct CandidateClick {
   size_t index;
   CandidateAction action = CandidateAction::Select;
   uint8_t position = 0;
+  // 点到的那一帧的释义页编号（CandidatePresentation::translation_page），Engine 自己的候选为 0。
+  uint64_t translation_page = 0;
 };
 struct CandidatePage {
   FocusLease lease;

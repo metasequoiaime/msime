@@ -192,7 +192,7 @@ int main() {
     const auto &first = view.at("candidates").at(0).at("id");
     const auto clicked = composer.select_candidate(session, first.at("session").get<uint64_t>(),
                                                    first.at("generation").get<uint64_t>(),
-                                                   first.at("index").get<size_t>());
+                                                   first.at("index").get<size_t>(), 0);
     require(clicked.has_value(), "the click was not taken");
     require(composer.armed_gloss_column() == 0, "a click left the column armed");
     composer.confirm_ui_delivery(42, epoch,

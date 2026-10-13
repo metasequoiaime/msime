@@ -44,14 +44,18 @@ public:
     return controller_->focus_current(lease);
   }
   SelectionRequestResult request_selection(const FocusLease &lease,
-      uint64_t session, uint64_t generation, size_t index) {
-    return controller_->request_selection(lease, session, generation, index);
+      uint64_t session, uint64_t generation, size_t index,
+      uint64_t translation_page) {
+    return controller_->request_selection(lease, session, generation, index,
+                                          translation_page);
   }
   CandidateActionRequestResult request_candidate_action(
       const FocusLease &lease, uint64_t session, uint64_t generation,
-      size_t index, CandidateAction action, uint8_t position = 0) {
+      size_t index, uint64_t translation_page, CandidateAction action,
+      uint8_t position = 0) {
     return controller_->request_candidate_action(lease, session, generation,
-                                                 index, action, position);
+                                                 index, translation_page,
+                                                 action, position);
   }
   CandidatePageRequestResult request_page(const CandidatePage &page) {
     return controller_->request_page(page);

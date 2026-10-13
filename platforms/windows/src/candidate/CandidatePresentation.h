@@ -146,6 +146,8 @@ struct CandidatePresentation {
   // Monotonic identity for the complete rendered snapshot, including async
   // provider updates that keep the same Engine generation.
   uint64_t render_serial = 0;
+  // Ctrl+Enter 释义页的编号（view 的 translation_page，ReplyComposer::translation_page），Engine 自己的候选为 0。释义页沿用 Engine 列表的 session 和 generation，点击要带上它，Server 才分得清点的是哪一张表。
+  uint64_t translation_page = 0;
   bool visible = false;
   int x = 0;
   int y = 0;
@@ -229,6 +231,7 @@ candidate_presentation_from_view(const FocusLease &lease,
   output.lease = lease;
   output.session = view.at("session").get<uint64_t>();
   output.generation = view.at("generation").get<uint64_t>();
+  output.translation_page = view.value("translation_page", uint64_t{0});
   output.visible = false;
   output.x = x;
   output.y = y;
@@ -268,6 +271,9 @@ candidate_presentation_from_view(const FocusLease &lease,
         candidate.value("translation", std::string{}),
         candidate_actions_available(view.value("scheme", 0u), candidate_source)};
     item.pending = candidate_source == candidate_source_ai_pending;
+    // 释义页上的义项不是 Engine 的候选，置顶、删除、固定排位都无从谈起，菜单里不给。
+    if (output.translation_page)
+      item.actions_available = false;
     item.script_annotation = candidate.value("script_annotation", std::string{});
     if (hanja)
       move_korean_hanja_gloss(item);
@@ -310,6 +316,7 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
   output.lease = lease;
   output.session = view.at("session").get<uint64_t>();
   output.generation = view.at("generation").get<uint64_t>();
+  output.translation_page = view.value("translation_page", uint64_t{0});
   output.x = packet.point[0];
   output.y = packet.point[1];
   output.game_host = (packet.modifiers_down & PipeMetadata::GameHost) != 0;
@@ -342,6 +349,9 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
         candidate.value("translation", std::string{}),
         candidate_actions_available(view.value("scheme", 0u), candidate_source)};
     item.pending = candidate_source == candidate_source_ai_pending;
+    // 释义页上的义项不是 Engine 的候选，置顶、删除、固定排位都无从谈起，菜单里不给。
+    if (output.translation_page)
+      item.actions_available = false;
     item.script_annotation = candidate.value("script_annotation", std::string{});
     if (hanja)
       move_korean_hanja_gloss(item);
