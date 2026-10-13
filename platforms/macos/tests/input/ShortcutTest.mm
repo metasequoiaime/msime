@@ -3009,6 +3009,9 @@ static void TestExpandedCandidateGridGeneration() {
     assert(ExpandedGridSubview(panel, 13) && ExpandedGridHighlightedTag(panel) == 5);
     // 网格里的移动不再读完整候选。
     assert(press(124) && cursor() == 6 && session.allCandidateCalls == reads + 1);
+    // 读屏跟着网格的光标走：光标那一格报告被选中，刚离开的那一格不再报告，并请求朗读新的那一格。
+    assert(ExpandedGridSubview(panel, 6).isAccessibilitySelected && !ExpandedGridSubview(panel, 5).isAccessibilitySelected);
+    assert([[controller valueForKey:@"announcedCandidate"] isEqual:ExpandedGridSubview(panel, 6).accessibilityLabel]);
     // 选择带着新的一代。
     assert(press(49));
     assert(session.selectAnyCalls == 1 && session.selectAnyGeneration == 4 && session.selectAnyIndex == 6 && !expanded());
