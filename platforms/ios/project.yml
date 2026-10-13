@@ -336,6 +336,7 @@ targets:
     sources:
       - path: ServiceTests
       - path: App/Sources/settings/AppIconSettingsView.swift
+      - path: App/Sources/app/DesignKit.swift
       - path: App/Sources/settings/SettingsAutosave.swift
       - path: App/Services/CustomService.swift
       - path: App/Services/LocalSpeechModel.swift
