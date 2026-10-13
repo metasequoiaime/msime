@@ -26,6 +26,38 @@ import XCTest
 private enum RequestTaskFailure: Error { case expected }
 
 final class ViewRequestTaskTests: XCTestCase {
+  @MainActor func testPollRefreshesImmediatelyAndStopsWhenCancelled() async {
+    let refreshed = expectation(description: "initial refresh")
+    var count = 0
+    let polling = Task {
+      await ViewRequestTask.poll(every: .seconds(60)) {
+        count += 1
+        refreshed.fulfill()
+      }
+    }
+
+    await fulfillment(of: [refreshed], timeout: 2)
+    polling.cancel()
+    await polling.value
+    XCTAssertEqual(count, 1)
+  }
+
+  @MainActor func testPollRepeatsAfterTheInterval() async {
+    let refreshedTwice = expectation(description: "second refresh")
+    var count = 0
+    let polling = Task {
+      await ViewRequestTask.poll(every: .milliseconds(10)) {
+        count += 1
+        if count == 2 { refreshedTwice.fulfill() }
+      }
+    }
+
+    await fulfillment(of: [refreshedTwice], timeout: 2)
+    polling.cancel()
+    await polling.value
+    XCTAssertGreaterThanOrEqual(count, 2)
+  }
+
   @MainActor func testCurrentFailureReportsAndClearsBusyState() async throws {
     let state = RequestTaskState()
     state.request.appear()

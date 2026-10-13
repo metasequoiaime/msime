@@ -169,10 +169,7 @@ struct PersonalDictionaryView: View {
       Button("好", role: .cancel) { error = nil }
     } message: { Text(error ?? "") }
     .task {
-      while !Task.isCancelled {
-        refresh()
-        do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { break }
-      }
+      await ViewRequestTask.poll(every: .seconds(1)) { refresh() }
     }
   }
 
@@ -404,10 +401,7 @@ private struct PersonalDictionarySyncView: View {
       Button("好", role: .cancel) { error = nil }
     } message: { Text(error ?? "") }
     .task {
-      while !Task.isCancelled {
-        refresh()
-        do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { break }
-      }
+      await ViewRequestTask.poll(every: .seconds(1)) { refresh() }
     }
   }
 

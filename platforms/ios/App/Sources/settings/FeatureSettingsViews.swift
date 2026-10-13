@@ -544,10 +544,7 @@ struct ServiceSettingsView: View {
     }
     .task {
       guard kind == .voice else { return }
-      while !Task.isCancelled {
-        refreshVoiceTransfer()
-        do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { break }
-      }
+      await ViewRequestTask.poll(every: .seconds(2)) { refreshVoiceTransfer() }
     }
     .onAppear { request.appear() }
     .onDisappear { request.disappear(); cancelAndClear() }
