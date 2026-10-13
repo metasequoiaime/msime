@@ -3,7 +3,7 @@ import { ActionButton } from "./action-button";
 import { feedbackIcons } from "./app-resources";
 
 // Brand marks from yldm-tech/ai-logo (packages/static-svg, MIT), except QQ: ai-logo's QQ mark is a flat blue silhouette, so the penguin with its face and scarf comes from bytedance/IconPark (tencent-qq, Apache-2.0).
-/** Colour marks are drawn as-is; the monochrome GitHub and QQ marks are masked out of the text colour so they follow light and dark themes. */
+/** Colour marks are drawn as-is; the GitHub mark follows the text colour while QQ keeps its original penguin mark. */
 const brandGlyph = "block size-6";
 const monoGlyph =
   "block size-6 [background:var(--p-text)] [mask-image:var(--channel-icon)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain] [-webkit-mask-image:var(--channel-icon)] [-webkit-mask-position:center] [-webkit-mask-repeat:no-repeat] [-webkit-mask-size:contain]";
@@ -57,7 +57,6 @@ export function FeedbackChannels({
     {
       id: "qq",
       icon: feedbackIcons.qq,
-      mono: true,
       title: "QQ 交流群",
       description: "适合中文用户进行日常交流、测试反馈和使用讨论。",
       code: "群号：829919142",
