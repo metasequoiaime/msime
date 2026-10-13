@@ -182,7 +182,10 @@ impl Query {
         let mut separators = Vec::new();
         for byte in code.bytes() {
             if byte == b'\'' {
-                separators.push(letters.len());
+                // 打头的 `'` 前面没有部件，不算分隔符：输入时它收不进来，但删掉 `C'huo` 中间的字母会留下它。
+                if !letters.is_empty() {
+                    separators.push(letters.len());
+                }
             } else {
                 letters.push(byte);
             }
@@ -376,6 +379,14 @@ mod tests {
             quanpin("huohuohuo'").first().map(String::as_str),
             Some("焱")
         );
+    }
+
+    #[test]
+    fn a_leading_separator_is_ignored() {
+        // 删掉 `C'huo` 之间的字母会留下打头的 `'`，它前面没有部件，不该让整串查不到。
+        assert_eq!(quanpin("'huohuohuo"), quanpin("huohuohuo"));
+        assert_eq!(quanpin("'huo'huo'huo"), quanpin("huohuohuo"));
+        assert!(quanpin("'").is_empty());
     }
 
     #[test]

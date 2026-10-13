@@ -3963,6 +3963,28 @@ fn chaizi_queries_the_quanpin_reading_of_shuangpin_input() {
 }
 
 #[test]
+fn chaizi_ignores_an_apostrophe_left_right_after_the_entry_letter() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = chaizi_session(&fixture, |_| {});
+    session.character(b'C', true);
+    type_text(&mut session, "huo'huohuo");
+    // 删掉 `'` 之前的部件，`'` 就紧挨着入口字母。
+    session.command(Command::MoveHome);
+    for _ in 0..3 {
+        session.command(Command::MoveRight);
+    }
+    for _ in 0..3 {
+        session.command(Command::Backspace);
+    }
+    assert_eq!(session.snapshot().editing_text, "C'huohuo");
+    assert!(
+        words(&session).contains(&"炎".to_owned()),
+        "{:?}",
+        words(&session)
+    );
+}
+
+#[test]
 fn dedicated_english_offers_the_typed_word_when_unknown() {
     let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
     let mut session = fixture.session();
