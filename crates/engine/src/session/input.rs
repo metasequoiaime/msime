@@ -314,8 +314,14 @@ impl InputSession {
         let microsoft_final =
             value == b';' && scheme == SchemeType::Shuangpin && self.profile.uses_semicolon_key();
         let japanese_long_vowel = value == b'-' && scheme == SchemeType::JapaneseRomaji;
+        let starts_pinyin_with_shift = shift_only
+            && self.local_mode_options.shift_letter_entry
+            && !matches!(
+                value,
+                b'U' | b'T' | b'K' | b'E' | b'M' | b'J' | b'Y' | b'R' | b'V' | b'C'
+            );
         let composing_pinyin_uppercase = value.is_ascii_uppercase()
-            && self.has_composition()
+            && (self.has_composition() || starts_pinyin_with_shift)
             && matches!(scheme, SchemeType::Quanpin | SchemeType::Shuangpin);
         if !lowercase_letter
             && !composing_pinyin_uppercase

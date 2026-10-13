@@ -705,6 +705,22 @@ INSERT INTO english_words VALUES('he','he',500);",
     assert_eq!(words(&session)[1], "he", "{:?}", words(&session));
 }
 
+#[test]
+fn shifted_uppercase_starts_pinyin_and_mixes_the_cased_english_word() {
+    let fixture = Fixture::new(HELLO_FIXTURE)
+        .with_english("INSERT INTO english_words VALUES('observable','Observable',100);");
+    let mut session = fixture.session_with(|options| {
+        options.english.mixed_candidates = true;
+        options.english.minimum_prefix = 1;
+    });
+
+    assert!(session.character(b'O', true).handled);
+    assert_eq!(session.snapshot().preedit, "O");
+    type_text(&mut session, "bservable");
+    assert!(words(&session).contains(&"Observable".to_owned()));
+    assert_eq!(session.snapshot().preedit, "Observable");
+}
+
 /// 辅助码激活时大写的辅助码被转成小写拼进查英文的输入（`niC` 查的是 `nic`），光标前缀解码时选英文会扔掉光标后的输入：两种情况英文都不领先。
 #[test]
 fn helpcode_and_caret_prefix_keep_an_exact_english_word_behind_the_first_seat() {
