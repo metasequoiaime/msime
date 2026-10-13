@@ -106,20 +106,19 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     if toolbarTest { app.launchArguments.append("--keyboard-toolbar-ui-test") }
     app.launch()
     if toolbarTest {
-      // 深链接会把已运行的应用留在输入设置，重选设置标签回到根页面再打开编辑器。
-      let settingsTab = app.tabBars.buttons["设置"]
-      if settingsTab.waitForExistence(timeout: 5) {
-        settingsTab.tap()
-        settingsTab.tap()
-      }
+      // 工具栏验收直接进入对话标签，避免上一轮深链接留下的设置导航栈。
+      let chatTab = app.tabBars.buttons["对话"]
+      XCTAssertTrue(chatTab.waitForExistence(timeout: 10), "对话标签必须可用")
+      chatTab.tap()
+    } else {
+      let tryout = app.buttons["keyboardTryoutLink"]
+      XCTAssertTrue(tryout.waitForExistence(timeout: 20), "试用入口必须可用")
+      tryout.tap()
     }
 
-    let tryout = app.buttons["keyboardTryoutLink"]
-    XCTAssertTrue(tryout.waitForExistence(timeout: 20), "the tryout entry never appeared")
-    tryout.tap()
-
     let field = app.textFields["keyboardTryoutField"]
-    XCTAssertTrue(field.waitForExistence(timeout: 15), "the tryout editor never appeared")
+    XCTAssertTrue(field.waitForExistence(timeout: 15), "试用编辑器必须可用")
+    if toolbarTest { field.tap() }
     // This screen focuses the field on appearance; tapping an already focused field while the
     // keyboard animates can land on a key instead.
     let focused = XCTNSPredicateExpectation(
@@ -127,8 +126,15 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     if XCTWaiter.wait(for: [focused], timeout: 10) != .completed { field.tap() }
 
     // 品牌按钮不随方案或自动大写改变，用它确认当前是水杉键盘。
+    func readyKeyboard() -> XCUIElement {
+      if toolbarTest {
+        let back = app.buttons["dismissShortcut"]
+        if back.exists && back.label == "返回键盘" { back.tap() }
+      }
+      return field
+    }
     let ours = app.buttons["moreShortcut"]
-    if ours.waitForExistence(timeout: 6) { return field }
+    if ours.waitForExistence(timeout: 6) { return readyKeyboard() }
 
     // 沿键盘列表轮转一圈。地球键没有标识符，只有随系统语言变化的标签：英文是 `Next keyboard`，中文是「下一个键盘」。
     let globe = app.buttons.matching(NSPredicate(format: "label IN %@", ["Next keyboard", "下一个键盘"])).firstMatch
@@ -139,7 +145,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
         .matching(NSPredicate(format: "label BEGINSWITH %@", "水杉输入法")).firstMatch
       if entry.waitForExistence(timeout: 3) {
         entry.tap()
-        if ours.waitForExistence(timeout: 6) { return field }
+        if ours.waitForExistence(timeout: 6) { return readyKeyboard() }
       }
       // 全新的 iOS 27 模拟器默认启用十四个键盘，其中几个显示名相同，所以轮转次数要覆盖整圈，而不是只点寥寥几次。
       for _ in 0..<20 {
@@ -149,7 +155,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
           let next = host.buttons.matching(NSPredicate(format: "label IN %@", ["Continue", "继续"])).firstMatch
           if next.exists { next.tap() }
         }
-        if ours.waitForExistence(timeout: 3) { return field }
+        if ours.waitForExistence(timeout: 3) { return readyKeyboard() }
       }
     }
     // A skip that only says "not enabled" is indistinguishable from a keyboard that loaded and
@@ -202,12 +208,13 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     let app = XCUIApplication()
     _ = try focusedTryoutKeyboard(app, toolbarTest: true)
     app.buttons["schemeButton"].tap()
+    XCTAssertTrue(app.descendants(matching: .any)["keyboardSchemePicker"].firstMatch.waitForExistence(timeout: 5))
     let add = app.buttons["schemeAddLanguageCard"]
-    let grid = app.scrollViews["schemePickerScroll"]
+    let grid = app.descendants(matching: .any)["schemePickerScroll"].firstMatch
     for _ in 0..<5 where !add.isHittable { grid.swipeLeft() }
     XCTAssertTrue(add.isHittable, "添加语言卡片必须可点击")
     add.tap()
-    XCTAssertTrue(app.buttons["addInputLanguageButton"].waitForExistence(timeout: 8),
+    XCTAssertTrue(app.navigationBars["输入"].waitForExistence(timeout: 8),
                   "添加语言应打开应用的输入设置")
   }
 
