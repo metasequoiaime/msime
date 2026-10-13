@@ -1877,6 +1877,9 @@ final class NineKeyKeyboardTests: XCTestCase {
         controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
         controller.openLocalInputMode(trigger)
         controller.view.layoutIfNeeded()
+        let modeTitles = ["U": "Unicode 码点", "T": "日期时间", "J": "超级简拼", "C": "拆字"]
+        XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, modeTitles[trigger],
+                       "the strip names the mode it opened")
         let returnKey = try button("returnKey", in: controller)
         for label in ["Q", "A", "Z", "P", "L", "M"] {
           let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 \(label)" } as? UIButton)

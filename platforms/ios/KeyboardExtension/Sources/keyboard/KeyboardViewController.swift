@@ -5435,7 +5435,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func render(_ snapshot: MetasequoiaInputSnapshot, source originalSource: TypingSource? = nil) {
     candidateRevision &+= 1
     let source = originalSource ?? typingSource
-    if localModeTrigger != nil && !isInLocalMode {
+    // 看这次快照是否还在本地模式，不能看 `isInLocalMode`：它此刻还是上一个快照的值，刚从菜单打开模式时是 none，会把刚设好的触发字母清掉，候选栏标题就只剩字母、打字统计也不再记作本地模式。
+    if localModeTrigger != nil && !snapshot.isInLocalMode {
       localModeTrigger = nil
       showsSymbols = false
     }
