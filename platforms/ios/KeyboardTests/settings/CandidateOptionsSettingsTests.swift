@@ -39,6 +39,33 @@ final class CandidateOptionsSettingsTests: XCTestCase {
     XCTAssertEqual((after["minimum_prefix"] as? NSNumber)?.intValue, (before["minimum_prefix"] as? NSNumber)?.intValue)
   }
 
+  /// 符号混输缺键读作开；页面写入 `mixed_input.symbols` 后，键盘的会话在下次出现时按它出或不出符号。
+  func testSymbolMixedInputDefaultsOnAndReachesTheLiveSession() async throws {
+    XCTAssertTrue(CandidateOptionsSettingsView.symbolsEnabled([:]))
+    XCTAssertFalse(CandidateOptionsSettingsView.symbolsEnabled(["symbols": false]))
+    XCTAssertTrue(CandidateOptionsSettingsView.symbolsEnabled(["symbols": "false"]))
+
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let initial = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)?["mixed_input"] as? [String: Any])
+    XCTAssertNil(initial["symbols"], "the default stays out of the document")
+    XCTAssertTrue(firstCandidates(bridge, "pingfangmi").contains("㎡"), "symbol candidates ship on")
+
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      var mixed = $0["mixed_input"] as? [String: Any] ?? [:]
+      mixed["symbols"] = false
+      $0["mixed_input"] = mixed
+    })
+    let stored = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state)?["mixed_input"] as? [String: Any])
+    XCTAssertEqual(stored["symbols"] as? Bool, false)
+    XCTAssertFalse(CandidateOptionsSettingsView.symbolsEnabled(stored))
+    let reloaded = expectation(description: "reload")
+    var accepted = false
+    bridge.reloadSharedPreferences { accepted = $0; reloaded.fulfill() }
+    await fulfillment(of: [reloaded], timeout: 15)
+    XCTAssertTrue(accepted, "the reload was refused")
+    XCTAssertFalse(firstCandidates(bridge, "pingfangmi").contains("㎡"))
+  }
+
   /// Typo correction is enabled by default and an explicit false still reaches the live session.
   func testReloadHandsTypoCorrectionToTheLiveSession() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)

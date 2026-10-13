@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 import CoreFoundation
 
-/// 候选栏：候选字号、字体、每页候选数、拼写时候选栏显示什么，以及中文候选里混入哪些内容（云候选、英文、emoji、颜文字、以词定字）。
+/// 候选栏：候选字号、字体、每页候选数、拼写时候选栏显示什么，以及中文候选里混入哪些内容（云候选、英文、符号、emoji、颜文字、以词定字）。
 ///
 /// Like the punctuation page, these live only in the shared preference document, nested under `quanpin`, `word_character` and `mixed_input`, so each write merges one field into its object and leaves the rest of the object as stored. Cloud candidates are the exception: an iOS-only switch in the App Group (see CloudCandidatePreference). The keyboard hands a change to its live session the next time it appears. The candidate package, mode and colours are part of the custom theme and live on the 主题 page (CustomThemeCandidateSection).
 ///
@@ -12,6 +12,7 @@ struct CandidateOptionsSettingsView: View {
   @State private var minimumPrefix = 5
   @State private var emoji = false
   @State private var kaomoji = false
+  @State private var symbols = true
   @State private var wordCharacter = true
   @AppStorage(CloudCandidatePreference.key, store: CloudCandidatePreference.defaults)
   private var cloudCandidates = false
@@ -113,6 +114,9 @@ struct CandidateOptionsSettingsView: View {
           .disabled(!english)
           .opacity(english ? 1 : 0.45)
           DesignDivider()
+          DesignToggleRow(title: "符号混输", subtitle: "打出符号的名称时在候选中加入对应符号，如「正负」后面是 ±", isOn: stored("mixed_input", "symbols", $symbols))
+            .accessibilityIdentifier("mixedSymbols")
+          DesignDivider()
           DesignToggleRow(title: "emoji 混输", subtitle: "在候选中加入匹配的 emoji，紧跟在它描绘的那个词后面", isOn: stored("mixed_input", "emoji", $emoji))
             .accessibilityIdentifier("mixedEmoji")
           DesignDivider()
@@ -207,6 +211,7 @@ struct CandidateOptionsSettingsView: View {
     minimumPrefix = Self.minimumPrefix(mixed["minimum_prefix"]) ?? minimumPrefix
     emoji = mixed["emoji"] as? Bool ?? emoji
     kaomoji = mixed["kaomoji"] as? Bool ?? kaomoji
+    symbols = Self.symbolsEnabled(mixed)
     candidateSize = CandidateFontPreference.candidateSize(in: preferences, tablet: tablet)
     preeditSize = CandidateFontPreference.preeditSize(in: preferences, tablet: tablet)
     fontFamily = preferences[CandidateFontPreference.familyKey] as? String ?? CandidateFontPreference.defaultFamily
@@ -215,6 +220,11 @@ struct CandidateOptionsSettingsView: View {
     preeditStyle = CandidatePreeditStyle(in: preferences).rawValue
     shuangpinRaw = preferences["shuangpin_preedit_uses_raw"] as? Bool ?? true
     wordCharacter = (preferences["word_character"] as? [String: Any])?["enabled"] as? Bool ?? wordCharacter
+  }
+
+  /// 符号混输（`mixed_input.symbols`）默认开，共享文档只在关掉时才写这个键，所以缺键读作开，不沿用页面上的旧值。
+  static func symbolsEnabled(_ mixed: [String: Any]) -> Bool {
+    mixed["symbols"] as? Bool ?? true
   }
 
   static func minimumPrefix(_ value: Any?) -> Int? {
