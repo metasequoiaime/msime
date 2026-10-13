@@ -1144,6 +1144,7 @@ test("symbol mixed input starts on and saves false alongside the other mixed swi
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("候选与联想");
   const symbols = (await screen.findByRole("switch", {
     name: /^符号混输/,
   })) as HTMLInputElement;
