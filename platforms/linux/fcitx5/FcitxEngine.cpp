@@ -1318,7 +1318,7 @@ public:
   }
   bool toggleCandidateTranslations() {
     if (!session_) return false;
-    const bool enabled = !preferences_.value("candidate_translations", false);
+    const bool enabled = !preferences_.value("candidate_translations", true);
     auto snapshot = preferences_snapshot_;
     if (!snapshot.is_object() || !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["candidate_translations"] = enabled;
@@ -2217,7 +2217,7 @@ public:
     if (dictionary) glossRequest["target_language"] = query.at("target_language");
     const auto gloss = glossRequest.dump();
     const auto socket = (manual_sentence || commandTranslation(query) ||
-                         preferences_.value("candidate_translations", false))
+                         preferences_.value("candidate_translations", true))
                             ? translation_socket_ : std::string{};
     translation_job_ = detachedJob(
         [query, encoded, gloss, offline, local, socket, dictionary, resources = resources_] () mutable {
@@ -4981,7 +4981,7 @@ public:
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
-    return state->session_ && state->preferences_.value("candidate_translations", false);
+    return state->session_ && state->preferences_.value("candidate_translations", true);
   }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
@@ -7588,7 +7588,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   // multiple senses; without a valid gloss the chord remains an application shortcut.
   if (ctrl && !alt && !shift &&
       (sym == FcitxKey_Return || sym == FcitxKey_KP_Enter) && composing &&
-      preferences_.value("candidate_translations", false)) {
+      preferences_.value("candidate_translations", true)) {
     const auto candidates = view_.value("candidates", Json::array());
     if (candidates.is_array()) {
       for (const auto &candidate : candidates) {

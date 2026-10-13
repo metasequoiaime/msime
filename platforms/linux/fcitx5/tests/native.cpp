@@ -1362,6 +1362,21 @@ int main(int argc, char **argv) {
     require(!state->voice_hotkey_hold_space_lock_,
             "initial voice context reads the hold-to-lock preference");
     require(state->view_.contains("candidates"), "focus must unpack transition view");
+    // A pre-preference-store runtime options document may omit newly added keys.
+    // The shared preference contract treats candidate translations as enabled when absent;
+    // the Fcitx host must preserve that default when the status action toggles it.
+    state->preferences_.erase("candidate_translations");
+    state->preferences_snapshot_["preferences"].erase("candidate_translations");
+    require(engine.candidate_translation_action_.isChecked(&ic),
+            "missing candidate translation preference defaults to enabled");
+    require(state->toggleCandidateTranslations(),
+            "candidate translation toggle accepts a missing preference");
+    require(!state->preferences_.value("candidate_translations", true),
+            "missing candidate translation preference toggles off");
+    require(state->toggleCandidateTranslations(),
+            "candidate translation toggle restores a missing preference");
+    require(state->preferences_.value("candidate_translations", false),
+            "candidate translation toggle restores enabled mode");
     // 真实 KeyEvent 会把 Shift+字母规范化成大写并移除 Shift 位；快捷模式必须仍能进入，
     // 不能把普通大写或 CapsLock 当快捷键，也不能在组合键末尾松开 Shift 时切到英文。
     {
