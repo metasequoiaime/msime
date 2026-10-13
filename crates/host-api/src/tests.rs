@@ -7155,6 +7155,7 @@ fn direct_cloud_callbacks_follow_a_pending_disable() {
             ..preferences
         };
         assert_eq!(update(handle, 1, &disabled)["value"]["deferred"], true);
+        let after_disable = read(msime_client_view(handle))["value"].clone();
 
         let query = old_query.to_string();
         let result = if batch {
@@ -7183,9 +7184,66 @@ fn direct_cloud_callbacks_follow_a_pending_disable() {
             })
         };
         assert_eq!(result["value"]["applied"], false, "batch={batch}: {result}");
-        assert_eq!(result["value"]["view"], before, "batch={batch}: {result}");
+        assert_eq!(
+            result["value"]["view"], after_disable,
+            "batch={batch}: {result}"
+        );
         read(msime_client_destroy(handle));
     }
+}
+
+#[test]
+fn cloud_disable_removes_visible_row_and_invalidates_old_query_after_reenable() {
+    let dir = tempfile::tempdir().unwrap();
+    let preferences = Preferences {
+        scheme: InputScheme::Quanpin,
+        cloud_candidates: true,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    for byte in b"nihao" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    let old_query = read(msime_client_online_query(handle))["value"].to_string();
+    let candidates = serde_json::to_vec(&json!(["云候选"])).unwrap();
+    let apply = |query: &str| {
+        read(unsafe {
+            msime_client_apply_online_candidates(
+                handle,
+                query.as_ptr(),
+                query.len(),
+                candidates.as_ptr(),
+                candidates.len(),
+                0,
+            )
+        })
+    };
+    assert_eq!(apply(&old_query)["value"]["applied"], true);
+    let visible = read(msime_client_view(handle))["value"].clone();
+    assert!(visible["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|candidate| candidate["text"] == "云候选"));
+
+    let disabled = Preferences {
+        cloud_candidates: false,
+        ..preferences.clone()
+    };
+    assert_eq!(update(handle, 1, &disabled)["value"]["deferred"], true);
+    let after_disable = read(msime_client_view(handle))["value"].clone();
+    assert!(!after_disable["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|candidate| candidate["text"] == "云候选"));
+
+    assert_eq!(update(handle, 2, &preferences)["ok"], true);
+    assert_eq!(apply(&old_query)["value"]["applied"], false);
+    let current_query = read(msime_client_online_query(handle))["value"].to_string();
+    assert_eq!(apply(&current_query)["value"]["applied"], true);
+    read(msime_client_destroy(handle));
 }
 
 #[test]

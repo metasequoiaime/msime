@@ -427,8 +427,7 @@ char *msime_client_repair_preferences(const uint8_t *directory, size_t length);
 char *msime_client_save_preferences(const uint8_t *directory, size_t directory_length,
                                     uint64_t expected_revision,
                                     const uint8_t *snapshot, size_t snapshot_length);
-/* Call on the session thread with a PreferencesSnapshot JSON buffer (<=1048576): {format_version:1, revision, preferences:{...}}. Revision order is per session; identical retries are allowed, older/conflicting snapshots are rejected. Returns {revision, deferred, view, diagnostic?}; diagnostic is present only when the preferred input scheme could not run and a fallback scheme was applied. Active composition defers application until a successful dispatch/focus leaves it idle. Newer snapshots replace pending ones. Build failure retains the old session and pending snapshot for retry; dispatch reports retry failure in diagnostic without losing completed input. Does not read/write preferences files; the host supplies an already loaded snapshot. */
-/* 组字中途改变 AI 配置（包括令牌）会立刻移除旧 AI 候选并使旧在线查询失效；其他偏好继续按延期应用规则处理。 */
+/* 在会话线程传入 PreferencesSnapshot JSON（最多 1048576 字节）：{format_version:1, revision, preferences:{...}}。修订号按会话递增；相同快照可重试，旧版或冲突快照会被拒绝。返回 {revision, deferred, view, diagnostic?}；仅首选方案无法运行并回退时带 diagnostic。组字期间的 Engine 偏好应用延后到派发或焦点调用使会话空闲，但关闭云候选会立即清除现有云行和旧查询，AI 配置或令牌变化也会立即清除旧 AI 行和查询；宿主应使用返回的新 view。较新快照替换待应用快照。构建失败时保留旧会话和待应用快照供重试，派发通过 diagnostic 报告重试错误，不丢失已完成输入。本接口不读写偏好文件，宿主提供已加载的快照。 */
 char *msime_client_update_preferences(uint64_t session, const uint8_t *snapshot, size_t length);
 char *msime_client_focus(uint64_t session, bool focused);
 /* Clear the current session's Engine candidate cache and refresh its view. */

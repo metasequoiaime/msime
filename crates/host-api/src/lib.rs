@@ -903,6 +903,19 @@ impl HostSession {
                 &previous.preferences.ai_assistant
             })
             != &snapshot.preferences.ai_assistant;
+        let cloud_disabled = self
+            .requested
+            .as_ref()
+            .map_or(self.applied.cloud_candidates, |previous| {
+                previous.preferences.cloud_candidates
+            })
+            && !snapshot.preferences.cloud_candidates;
+        if cloud_disabled && !self.runtime.is_idle() {
+            // 关闭云候选时移除已显示的云行，并使重新打开前发出的查询失效。
+            self.runtime
+                .clear_online_candidates(0)
+                .map_err(|e| e.to_string())?;
+        }
         if ai_changed && !self.runtime.is_idle() {
             // AI 配置或令牌变化时先清理旧候选并使旧查询失效，再发布新偏好。
             self.runtime
