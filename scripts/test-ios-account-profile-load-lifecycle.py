@@ -7,6 +7,7 @@ import unittest
 
 SOURCE = Path("platforms/ios/App/Sources/account/AccountProfileView.swift").read_text()
 GENERATION = Path("platforms/ios/App/Sources/app/ViewRequestGeneration.swift").read_text()
+TASK = Path("platforms/ios/App/Sources/app/ViewRequestTask.swift").read_text()
 
 
 class AccountProfileLoadLifecycleTests(unittest.TestCase):
@@ -21,9 +22,11 @@ class AccountProfileLoadLifecycleTests(unittest.TestCase):
         self.assertIn("@State private var request = ViewRequestGeneration()", self.profile)
         self.assertRegex(self.profile, r"\.task \{\s*request\.appear\(\)\s*startLoad\(\)")
         self.assertIn("loadTask?.cancel()", self.profile)
+        self.assertIn("ViewRequestTask.startLoad(request: $request, pending: $loadTask) { id in", self.profile)
         self.assertIn("try request.checkCurrent(id)", self.profile)
         self.assertIn("request.disappear()", self.profile)
         self.assertIn("catch is CancellationError", self.profile)
+        self.assertIn("if request.wrappedValue.isCurrent(id) { pending.wrappedValue = nil }", TASK)
 
     def test_nickname_save_is_cancelled_when_editor_leaves(self):
         self.assertIn("@State private var operation: Task<Void, Never>?", self.nickname)

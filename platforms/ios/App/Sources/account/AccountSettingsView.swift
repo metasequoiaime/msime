@@ -376,15 +376,12 @@ struct AccountSettingsView: View {
 
   /// 先读本地会话，已登录时再取资料和云剪贴板条数。会话读不出来时弹出提示，并提供「清除失效登录状态」。
   @MainActor private func startReload() {
-    guard request.isVisible, !busy else { return }
-    let id = request.begin()
-    pending?.cancel()
-    pending = Task { await reload(id: id) }
+    guard !busy else { return }
+    ViewRequestTask.startLoad(request: $request, pending: $pending) { id in await reload(id: id) }
   }
 
   @MainActor private func reload(id: UUID) async {
     guard request.isCurrent(id) else { return }
-    defer { if request.isCurrent(id) { pending = nil } }
     do {
       let currentUser = try await api.currentUser()
       try request.checkCurrent(id)
@@ -515,15 +512,11 @@ struct AppleAccountSection: View {
 
   /// 读一次本机的登录状态：读不出来（不是取消）就提供清除。
   @MainActor private func startCheckSession() {
-    guard request.isVisible else { return }
-    let id = request.begin()
-    pending?.cancel()
-    pending = Task { await checkSession(id: id) }
+    ViewRequestTask.startLoad(request: $request, pending: $pending) { id in await checkSession(id: id) }
   }
 
   @MainActor private func checkSession(id: UUID) async {
     guard request.isCurrent(id) else { return }
-    defer { if request.isCurrent(id) { pending = nil } }
     do {
       _ = try await SkinCommunityAPI.shared.currentUser()
       try request.checkCurrent(id)
