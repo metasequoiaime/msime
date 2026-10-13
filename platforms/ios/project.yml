@@ -297,6 +297,8 @@ targets:
       - path: App/Services/SkinCommunityAPI.swift
       - path: App/Sources/dictionary/TauriPersonalDictionaryBridge.swift
       - path: App/Sources/settings/CandidateOptionsSettingsView.swift
+      - path: App/Sources/settings/SettingsSaveFailure.swift
+      - path: App/Sources/settings/SettingsScenePhaseReload.swift
       - path: App/Sources/settings/SharedPreferenceBinding.swift
       - path: App/Sources/settings/CandidatePreviewCard.swift
       # 辅助码页导入码表的选择规则和导入、删除流程（#7176），HelpcodeChoicePolicyTests 与 HelpcodeSettingsTests 直接测它们。
@@ -349,6 +351,7 @@ targets:
       - path: App/Sources/app/ViewRequestGeneration.swift
       - path: App/Sources/app/ViewRequestTask.swift
       - path: App/Sources/settings/AppIconSettingsView.swift
+      - path: App/Sources/settings/SettingsScenePhaseReload.swift
       - path: App/Sources/app/DesignKit.swift
       - path: App/Sources/settings/SettingsAutosave.swift
       - path: App/Services/AboutUpdateRequestState.swift

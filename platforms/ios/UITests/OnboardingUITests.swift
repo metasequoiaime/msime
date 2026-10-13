@@ -8,9 +8,11 @@ final class OnboardingUITests: XCTestCase {
       throw XCTSkip("联网下载验收需显式设置 MSIME_TEST_RESOURCE_DOWNLOAD=1")
     }
     continueAfterFailure = false
-    let app = XCUIApplication()
+    let app = XCUIApplication(bundleIdentifier: "app.msime.ios")
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "--resource-pack-ui-test", "--keyboard-toolbar-ui-test"]
-    app.launch()
+    // 复用实机已安装产物时激活当前宿主，避免 launch 再次安装并重置系统键盘选择。
+    if ProcessInfo.processInfo.environment["MSIME_TEST_USE_RUNNING_APP"] == "1" { app.activate() }
+    else { app.launch() }
     let settings = app.tabBars.buttons["设置"]
     XCTAssertTrue(settings.waitForExistence(timeout: 10))
     settings.tap()
