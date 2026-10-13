@@ -52,15 +52,15 @@ CHECKS = (
     ),
     (
         ROOT / "platforms/ios/SharedUI/vocabulary/VocabularyReviewStore.swift",
-        "private static func openReadableWordbook(_ url: URL)",
-        "    #else",
-        ("O_NONBLOCK",),
+        "static func readWordbookData(from url: URL)",
+        "  }\n\n  /// The device",
+        ("BoundedFileReader.read(from: url, maximumBytes: maximumImportBytes)",),
     ),
     (
         ROOT / "platforms/ios/SharedUI/dictionary/PersonalDictionaryImport.swift",
-        "private static func openReadableFile(_ url: URL)",
-        "    #else",
-        ("O_NONBLOCK",),
+        "  private static func readData(from url: URL)",
+        "\n  static let example",
+        ("BoundedFileReader.read(from: readableURL, maximumBytes: maximumBytes)",),
     ),
     (
         ROOT / "platforms/ios/SharedUI/core/DiagnosticLog.swift",
