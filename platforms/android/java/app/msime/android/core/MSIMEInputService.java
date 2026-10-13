@@ -309,6 +309,8 @@ public final class MSIMEInputService extends InputMethodService {
     FunctionPanelView functionPanel;
     /** 隐私会话重启时保留已打开的功能菜单。 */
     private boolean preserveMoreToolsOnStop;
+    /** 无痕输入切换后等键盘窗口收起再重建引擎，避免当前键盘整窗闪烁。 */
+    private boolean privacySessionRestartPending;
     boolean aiAssistChooserOpen;
     /** 常用语面板。 */
     ScrollView phraseScroll;
@@ -1535,6 +1537,10 @@ public final class MSIMEInputService extends InputMethodService {
         if (session != 0 && connection != null && view != null
                 && !InputViewValuePolicy.editingText(view).isEmpty()) {
             command(FINISH_COMPOSITION_COMMAND);
+        }
+        if (privacySessionRestartPending && session != 0) {
+            privacySessionRestartPending = false;
+            restartSessionForPrivacy();
         }
     }
 
@@ -8530,7 +8536,11 @@ public final class MSIMEInputService extends InputMethodService {
         localSettings = saved;
         applyLocalSettings();
         preferencesNotice = "";
-        if (wasIncognito != incognitoEnabled && session != 0) restartSessionForPrivacy();
+        if (wasIncognito != incognitoEnabled && session != 0) {
+            // 统计与剪贴板等 Java 隐私门禁立即生效；引擎的 learning 只能在会话边界更新，延到键盘收起时重建，避免整窗闪烁。
+            markPrivateSession();
+            privacySessionRestartPending = true;
+        }
         render();
     }
 
