@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { settingsFormReady } from "../support/settings-form";
+import { selectSettingsTab, settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -140,7 +140,9 @@ test("a provider without preset models still links to its integration page", asy
   const openExternalUrl = vi.fn(async () => {});
   await openPage("语音输入", openExternalUrl, "windows");
 
-  fireEvent.change(screen.getByLabelText("识别服务"), { target: { value: "doubao" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "识别服务" }), {
+    target: { value: "doubao" },
+  });
   expect(screen.getByLabelText("识别模型").tagName).toBe("INPUT");
   expect(screen.getByRole("button", { name: "识别服务接入说明与 API Key" })).toBeTruthy();
 });
@@ -151,6 +153,7 @@ test("voice polish carries the same presets and link", async () => {
   const openExternalUrl = vi.fn(async () => {});
   await openPage("语音输入", openExternalUrl, "windows");
 
+  selectSettingsTab("润色");
   const models = screen.getByLabelText("文本润色模型") as HTMLSelectElement;
   expect(optionValues(models)).toEqual(["deepseek-v4-flash", "deepseek-v4-pro", ""]);
 

@@ -229,13 +229,14 @@ enum InputSchemePreference {
 
   /// The enabled schemes this process can run: an enabled Cantonese, Zhuyin or Stroke whose dictionary is not installed is left out, because the Engine would answer it with another scheme. The enabled list itself keeps it, so the choice holds once the dictionary arrives. A process that carries no Engine (the App) cannot tell and leaves every enabled scheme in, so its settings never rewrite a selection the keyboard can run.
   static var offeredSchemes: [ChineseInputScheme] {
-    offeredSchemes(enabled: enabledSchemes, installed: installedLanguageSchemes)
+    offeredSchemes(enabled: enabledSchemes, installed: installedLanguageSchemes,
+                   japaneseAvailable: !hasBundledEngine || bundledJapanese || downloadedPackIDs.contains("japanese"))
   }
 
-  /// `enabled` without the Cantonese, Zhuyin and Stroke schemes missing from `installed`; nil `installed` means unknown and filters nothing.
-  static func offeredSchemes(enabled: [ChineseInputScheme], installed: Set<ChineseInputScheme>?) -> [ChineseInputScheme] {
+  /// 缺失词库的已启用方案暂不显示，启用列表保留；主应用没有 Engine 时 installed 为 nil。
+  static func offeredSchemes(enabled: [ChineseInputScheme], installed: Set<ChineseInputScheme>?, japaneseAvailable: Bool = true) -> [ChineseInputScheme] {
     guard let installed else { return enabled }
-    let offered = enabled.filter { !$0.needsLanguageDictionary || installed.contains($0) }
+    let offered = enabled.filter { (!$0.needsLanguageDictionary || installed.contains($0)) && (!$0.isJapanese || japaneseAvailable) }
     return offered.isEmpty ? [.editionFallback] : offered
   }
 
@@ -265,8 +266,21 @@ enum InputSchemePreference {
     return Set(files.filter { FileManager.default.fileExists(atPath: directory.appendingPathComponent($0.1).path) }.map(\.0))
   }
 
-  /// Read once: the bundle does not change while the process runs, and `scheme` is read on every keystroke.
-  static let installedLanguageSchemes = installedLanguageSchemes(in: languageDictionaryDirectory(in: .main))
+  private static let hasBundledEngine = languageDictionaryDirectory(in: .main) != nil
+  private static let bundledJapanese = IOSResourcePacks.bundled("japanese")
+  private static let bundledLanguageSchemes = installedLanguageSchemes(in: languageDictionaryDirectory(in: .main))
+  private static var downloadedPackIDs = Set((try? IOSResourcePacks.list())?.filter(\.installed).map(\.id) ?? [])
+
+  /// 取得键盘焦点或宿主下载完成后刷新，按键处理只读缓存。
+  static func refreshResourceAvailability() {
+    downloadedPackIDs = Set((try? IOSResourcePacks.list())?.filter(\.installed).map(\.id) ?? [])
+  }
+
+  static var installedLanguageSchemes: Set<ChineseInputScheme>? {
+    guard var installed = bundledLanguageSchemes else { return nil }
+    if downloadedPackIDs.contains("language-dictionaries") { installed.formUnion([.cantonese, .zhuyin, .stroke]) }
+    return installed
+  }
 
   private static let schemeKey = "chineseInputScheme"
   static var scheme: ChineseInputScheme {

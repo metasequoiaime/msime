@@ -4,7 +4,6 @@ import SwiftUI
 ///
 /// The switch is `diagnostic_log.server` in the shared document, so it syncs with the desktop hosts; the Windows-only `diagnostic_log.tsf` is left as stored. The keyboard picks the change up the next time it appears. iPad has the room to show the end of the log beside the switch; the phone opens it on a page of its own.
 struct DiagnosticLogSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @Environment(\.horizontalSizeClass) private var sizeClass
   @State private var enabled = false
   @State private var text = ""
@@ -61,15 +60,7 @@ struct DiagnosticLogSettingsView: View {
     .confirmationDialog("清空诊断日志？", isPresented: $confirmsClear, titleVisibility: .visible) {
       Button("清空", role: .destructive, action: clear)
     }
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { if $0 == .active { reload() } }
-  }
-
-  private var logText: some View {
-    ScrollView {
-      Text(text).font(.caption.monospaced()).textSelection(.enabled)
-        .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
-    }.defaultScrollAnchor(.bottom)
+    .reloadOnAppearAndActive(reload).defaultScrollAnchor(.bottom)
   }
 
   private func save(_ value: Bool) {

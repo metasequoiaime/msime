@@ -93,7 +93,6 @@ final class AppIconSettingsModel: ObservableObject {
 }
 
 struct AppIconSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @StateObject private var model = AppIconSettingsModel()
 
   var body: some View {
@@ -127,8 +126,7 @@ struct AppIconSettingsView: View {
     .designCanvasBackground()
     .navigationTitle("App 图标")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear { model.refresh() }
-    .onChange(of: scenePhase) { if $0 == .active { model.refresh() } }
+    .reloadOnAppearAndActive(model.refresh)
     .alert("暂时无法更换图标", isPresented: Binding(
       get: { model.errorMessage != nil },
       set: { if !$0 { model.errorMessage = nil } }

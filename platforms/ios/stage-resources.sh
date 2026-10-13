@@ -7,14 +7,26 @@ cd "$repo_root"
 source_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory] [language-dictionaries-directory]}
 source_dir=$(cd "$source_dir" && pwd)
 destination="$repo_root/target/ios/EngineResources"
-artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$source_dir")
+# 发布用瘦包只省略附加语言资源，日文独立版本的主词库不能省。
+omit_on_demand=${MSIME_IOS_OMIT_ON_DEMAND:-0}
+verify_flags=()
+case "$omit_on_demand" in
+  0) ;;
+  1)
+    case "${MSIME_EDITION:-full}" in
+      full|pinyin) verify_flags=(--omit-on-demand) ;;
+      *) echo "MSIME_IOS_OMIT_ON_DEMAND only supports full and pinyin" >&2; exit 2 ;;
+    esac ;;
+  *) echo "MSIME_IOS_OMIT_ON_DEMAND must be 0 or 1" >&2; exit 2 ;;
+esac
+artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- ${verify_flags[@]+"${verify_flags[@]}"} "$source_dir")
 # Rebuilt as one unit, as on macOS: a directory staged for an earlier lock keeps files the current lock no longer names, and the verifier below refuses them.
 rm -rf "$destination"
 mkdir -p "$destination"
 while IFS= read -r artifact; do
   cp "$source_dir/$artifact" "$destination/$artifact"
 done <<< "$artifacts"
-cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$destination" >/dev/null
+cargo run --quiet -p msime-client-core --example verify_resources --locked -- ${verify_flags[@]+"${verify_flags[@]}"} "$destination" >/dev/null
 # 辅助码表不在词库发布里，由仓库自带在 resources/helpcodes，Engine 从资源目录下的 helpcodes/ 读它们（crates/engine/src/assets.rs 列出七个文件）。没有它们 Engine 就没有可匹配的码：Shift 字母被当作辅助码，却什么也筛不掉。
 helpcodes="$repo_root/resources/helpcodes"
 rm -rf "$destination/helpcodes"
@@ -45,6 +57,7 @@ staged_languages=()
 for pair in msime-cantonese.db:msime-rime_cantonese_LICENSE.txt msime-zhuyin.db:msime-libchewing_data_LICENSE.txt msime-stroke.db:msime-rime_stroke_LICENSE.txt; do
   database=${pair%%:*}
   license=${pair#*:}
+  [ "$omit_on_demand" != 1 ] || continue
   [ -f "$languages_source/$database" ] || continue
   if [ ! -f "$languages_source/$license" ]; then
     echo "$languages_source/$database has no $license beside it; refusing to ship the data without its licence" >&2
@@ -58,8 +71,8 @@ if [ "${#staged_languages[@]}" -gt 0 ]; then
 else
   echo "no language dictionaries at $languages_source; Cantonese, Zhuyin and Stroke stay unavailable"
 fi
-# A release requires every dictionary resources/language-dictionaries.lock.json pins, not a fixed list: a dictionary that has not been released yet is staged when present but cannot fail a release, and the lock bump that publishes it makes it required.
-if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ]; then
+# 完整发布包按语言锁要求带齐数据库；瘦包通过下载提供它们，不要求随包。
+if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ] && [ "$omit_on_demand" != 1 ]; then
   required_languages=$(python3 "$repo_root/scripts/fetch_language_dictionaries.py" --list-databases)
   if [ -z "$required_languages" ]; then
     echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but resources/language-dictionaries.lock.json pins no dictionary" >&2

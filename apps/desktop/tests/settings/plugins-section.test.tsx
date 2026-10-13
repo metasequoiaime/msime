@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { saveSettingsNow, settingsFormReady } from "../support/settings-form";
+import { selectSettingsTab, saveSettingsNow, settingsFormReady } from "../support/settings-form";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -1687,6 +1687,7 @@ test("the @ switch is offered only where the host can edit the name list", async
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  selectSettingsTab("进阶");
   const form = screen.getByRole("group", { name: "输入" });
   expect(within(form).getByRole("switch", { name: /\/ 模式/ })).toBeTruthy();
   expect(within(form).queryByRole("switch", { name: /@ 模式/ })).toBeNull();

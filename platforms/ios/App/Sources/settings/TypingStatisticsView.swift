@@ -4,7 +4,6 @@ import SwiftUI
 ///
 /// 统计只保留聚合计数，所以设计稿里的常用词和最常打错两张卡片没有做：它们需要用户打过的词本身。
 struct TypingStatisticsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var statistics = TypingStatistics()
   /// 统计文档是否至少读到过一次，这样关闭提示说的是存储里的开关，而不是空的默认值。
@@ -89,8 +88,7 @@ struct TypingStatisticsView: View {
     }
     .navigationDestination(isPresented: $showsDailyDetail) { TypingDailyDetailView(statistics: statistics) }
     .sheet(isPresented: $showsAbout) { about }
-    .onAppear { reload() }
-    .onChange(of: scenePhase) { _, phase in if phase == .active { reload() } }
+    .reloadOnAppearAndActive(reload)
     .alert("清空所有打字统计？", isPresented: $confirmsReset) {
       Button("取消", role: .cancel) {}
       Button("清空", role: .destructive) { update { try $0.reset() } }

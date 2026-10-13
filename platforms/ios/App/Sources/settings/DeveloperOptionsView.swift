@@ -13,7 +13,6 @@ private func msimeDeveloperStringFree(_ value: UnsafeMutablePointer<CChar>?)
 
 /// 开发者选项，对应 Android 的 `DeveloperPage`，但不含其中的 MCP 上传、「显示调试信息」和「日志级别」：iOS 没有支撑这几项的后端或键盘能力。「调试」一组放键盘诊断日志的开关及其页面；「数据」一组导出诊断包、恢复出厂设置。
 struct DeveloperOptionsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @State private var logEnabled = false
   @State private var logSaveFailed = false
   @State private var exporting = false
@@ -69,10 +68,7 @@ struct DeveloperOptionsView: View {
       }
       .onDisappear { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
     }
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active { reload() }
-    }
+    .reloadOnAppearAndActive(reload)
     .onDisappear {
       ViewRequestTask.cancel(generation: $lifecycle, task: $pending)
       exporting = false

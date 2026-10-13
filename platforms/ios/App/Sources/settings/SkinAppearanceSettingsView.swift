@@ -2,7 +2,6 @@ import SwiftUI
 
 /// 明暗与候选颜色：原先放在皮肤网格下面的外观选择器和自定义主题的候选颜色。每个控件都和在原处时一样，写入会同步的共享文档。
 struct SkinAppearanceSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @Environment(\.horizontalSizeClass) private var sizeClass
   @State private var themes: [String: String] = [:]
   @State private var themeSaveFailed = false
@@ -15,10 +14,7 @@ struct SkinAppearanceSettingsView: View {
     .designPage()
     .navigationTitle("明暗与候选颜色")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reloadThemes)
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active { reloadThemes() }
-    }
+    .reloadOnAppearAndActive(reloadThemes)
   }
 
   /// 共享文档里的「键盘明暗」（见 `KeyboardAppearancePreference`）。iPad 把键盘之外的各个面板也列出来；手机上把它们收起，因为大多数人只会设置键盘这一项。

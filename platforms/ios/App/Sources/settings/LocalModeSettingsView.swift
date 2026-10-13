@@ -16,7 +16,6 @@ struct LocalModeSettingsView: View {
     ("chaizi", "拆字", "输入部件拼音找不会读的字，如 huohuohuo 得 焱"),
   ]
 
-  @Environment(\.scenePhase) private var scenePhase
   @State private var enabled: [String: Bool] = [:]
   @State private var saveFailed = false
 
@@ -39,21 +38,7 @@ struct LocalModeSettingsView: View {
     }
     .designPage()
     .navigationTitle("快捷模式").navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { if $0 == .active { reload() } }
-  }
-
-  /// A binding that merges one mode into `local_modes`; a refused write puts the stored values back.
-  private func stored(_ key: String) -> Binding<Bool> {
-    Binding(get: { enabled[key] ?? true }, set: { value in
-      enabled[key] = value
-      saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
-        var modes = $0["local_modes"] as? [String: Any] ?? [:]
-        modes[key] = value
-        $0["local_modes"] = modes
-      }
-      if saveFailed { reload() }
-    })
+    .reloadOnAppearAndActive(reload)
   }
 
   private func reload() {

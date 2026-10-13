@@ -159,7 +159,6 @@ async function openInputPage(
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  await screen.findByRole("switch", { name: "启用模糊音" });
 }
 
 test("the input page shows 五笔查码 with the Wubi settings and asks the host's dictionary", async () => {

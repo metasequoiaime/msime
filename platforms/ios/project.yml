@@ -297,6 +297,8 @@ targets:
       - path: App/Services/SkinCommunityAPI.swift
       - path: App/Sources/dictionary/TauriPersonalDictionaryBridge.swift
       - path: App/Sources/settings/CandidateOptionsSettingsView.swift
+      - path: App/Sources/settings/SettingsSaveFailure.swift
+      - path: App/Sources/settings/SettingsScenePhaseReload.swift
       - path: App/Sources/settings/SharedPreferenceBinding.swift
       # CandidateOptionsSettingsView 的保存失败提示。
       - path: App/Sources/settings/SettingsSaveFailure.swift
@@ -351,6 +353,7 @@ targets:
       - path: App/Sources/app/ViewRequestGeneration.swift
       - path: App/Sources/app/ViewRequestTask.swift
       - path: App/Sources/settings/AppIconSettingsView.swift
+      - path: App/Sources/settings/SettingsScenePhaseReload.swift
       - path: App/Sources/app/DesignKit.swift
       - path: App/Sources/settings/SettingsAutosave.swift
       - path: App/Services/AboutUpdateRequestState.swift

@@ -4,7 +4,6 @@ import SwiftUI
 ///
 /// 识别语言存在共享文档的 `voice_input.language` 里，经 `VoicePolishSettings` 写入，`voice_input` 的其他字段保持不变。自动添加标点是服务页已经存在本 App defaults 里的豆包请求开关；只有豆包支持，其他识别服务下开关置灰。启动方式与 Android 的 `VoicePage` 一样没有自己的字段，由本机 App Group 的长按空格（`KeyboardLayoutPreference.spaceVoice`）和共享文档的工具栏语音按钮（`touch_voice_shortcut`）联合派生：长按空格优先，其次是工具栏按钮，都关时为「无」；选择时两个一起写。
 struct VoiceSettingsView: View {
-  @Environment(\.scenePhase) private var scenePhase
   @State private var settings = VoicePolishSettings(MetasequoiaInputSessionBridge.loadSharedPreferences())
   @State private var provider = CustomServiceConfiguration.load(.voice).voiceProvider
   @State private var punctuation = CustomServiceConfiguration.load(.voice).doubaoEnablePunctuation
@@ -62,10 +61,7 @@ struct VoiceSettingsView: View {
     .designCanvasBackground()
     .navigationTitle("语音输入")
     .navigationBarTitleDisplayMode(.inline)
-    .onAppear(perform: reload)
-    .onChange(of: scenePhase) { _, phase in
-      if phase == .active { reload() }
-    }
+    .reloadOnAppearAndActive(reload)
   }
 
   private func reload() {
