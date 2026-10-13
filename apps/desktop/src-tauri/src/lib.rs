@@ -5342,8 +5342,6 @@ pub fn run() {
             // 偏好、安装登记和 HostOptions 都已就位（提供哪些资源包要看随包的模型），在后台补齐已保存偏好需要的资源包。
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_resource_packs::ensure_saved_packs(app.handle().clone());
-            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
-            desktop_candidate_skin_community::start_sync(app.handle());
             #[cfg(target_os = "macos")]
             app.manage(DataDirectorySelectionState::default());
             #[cfg(target_os = "linux")]

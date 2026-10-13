@@ -26,7 +26,7 @@ Status: implemented
 ## Consequences
 
 - 原生社区页可以完成共享页在 Windows 上能做的全部社区操作，用的是共享应用读的同一份会话、同一个皮肤根目录和插件根目录、同一份同步状态文件。
-- 共享应用启动时会跑一次候选窗皮肤同步（`desktop_candidate_skin_community::start_sync`）；原生窗口不启动共享应用后要自己在合适的时候调 `candidate_skin_sync`，这留给原生页那一步。
+- 候选皮肤同步仍由显式的 `candidate_skin_sync` 操作提供。共享设置组件的启动同步由[手动整库同步](../bug-fix/2026-10-13-candidate-skin-explicit-library-sync.md)收窄；Windows 原生页的触发时机另见[原生社区页](../feature/2026-10-11-windows-settings-community-tabs.md)。
 - 以后改这些判断只改 client-core 一处。
 
 ## Verification

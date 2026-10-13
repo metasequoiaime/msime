@@ -4,6 +4,7 @@ import type { SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
 import { notifySkinCatalogChanged } from "../skin/skin-catalog-changes";
 import { CandidateSkinPublishDialog } from "./candidate-skin-publish-dialog";
+import { useCandidateSkinSync } from "./candidate-skin-sync";
 import {
   candidateSkinMessage,
   communityLicenseLine,
@@ -251,7 +252,6 @@ export function CommunityCandidateSkinsPage({
   openSkinDirectory,
   readSkinImage,
   onOpenSkinPage,
-  onInstalled,
   onLogin,
 }: {
   client: CandidateSkinCommunityClient;
@@ -261,10 +261,9 @@ export function CommunityCandidateSkinsPage({
   readSkinImage?: SkinImageReader;
   /** Returns to 我的皮肤 on 主题, where an installed package is enabled; the community page sits outside the settings form and never writes preferences itself. */
   onOpenSkinPage?: () => void;
-  /** 皮肤装进外部皮肤目录之后调用，社区页用它把目录和云端皮肤库同步一次。列出目录的界面不靠它重扫，装入时已经发出 `notifySkinCatalogChanged`。 */
-  onInstalled?: () => void;
   onLogin?: () => void;
 }) {
+  const sync = useCandidateSkinSync(client, notifySkinCatalogChanged);
   const categoryFilter = useCommunitySkinCategoryFilter();
   const categoryRequest = categoryFilter.request;
   const galleryClient = useMemo<CommunityGalleryClient<CommunityCandidateSkin>>(
@@ -365,7 +364,6 @@ export function CommunityCandidateSkinsPage({
         if (!gallery.isCurrent(currentClient)) return;
         setConfirmReplace(false);
         setInstalled(true);
-        onInstalled?.();
       },
       {
         clearNotice: true,
@@ -527,7 +525,31 @@ export function CommunityCandidateSkinsPage({
             label="发布我的皮肤"
           />
         )}
+        <ActionButton
+          action={sync.run}
+          label={sync.busy ? "正在同步皮肤库…" : "同步我的皮肤库"}
+          disabled={sync.busy}
+          ariaBusy={sync.busy}
+        />
       </CommunityGalleryHeader>
+      <p className="text-xs [color:var(--p-sub)]">
+        手动同步会下载云端个人皮肤、上传本机皮肤，并同步已记录的删除。
+      </p>
+      <CommunityGalleryFeedback
+        error={sync.error ? candidateSkinMessage(sync.error) : undefined}
+        signInRequired={communityNeedsSignIn(sync.error)}
+        onLogin={onLogin}
+        notice={
+          sync.report && (
+            <CommunityActionNotice>
+              {sync.report.stopped ? "同步已暂停" : "同步已完成"}：下载{" "}
+              {sync.report.downloaded.length} 款，上传 {sync.report.uploaded.length} 款，本机删除{" "}
+              {sync.report.deleted_local.length} 款，云端删除 {sync.report.deleted_cloud.length}{" "}
+              款，跳过 {sync.report.skipped.length} 款。
+            </CommunityActionNotice>
+          )
+        }
+      />
       <CommunitySkinCategoryFilter
         ariaLabel="候选窗口皮肤分类"
         value={categoryFilter.category}

@@ -12,6 +12,8 @@ import {
   type SkinCatalog,
 } from "@msime/ui";
 
+import { subscribeSkinCatalogChanges } from "../../../../packages/ui/src/skin/skin-catalog-changes";
+
 const renderSkinPreview = vi.hoisted(() => vi.fn());
 vi.mock("../../../../packages/ui/src/skin/skin-preview-render", () => ({
   renderSkinPreview,
@@ -305,7 +307,8 @@ test("一键安装 installs, reports it, and 去启用 opens the theme page", as
   await openDetail();
   fireEvent.click(screen.getByRole("button", { name: "一键安装" }));
   expect(await screen.findByText("已安装到外部皮肤。")).not.toBeNull();
-  expect(communityClient.install).toHaveBeenCalledWith(first.id, false);
+  expect(communityClient.install).toHaveBeenCalledExactlyOnceWith(first.id, false);
+  expect(communityClient.sync).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "去启用" }));
   expect(onOpenSkinPage).toHaveBeenCalledOnce();
 });
@@ -914,36 +917,127 @@ function communityPage(communityClient: CandidateSkinCommunityClient, localSkins
   return localSkins;
 }
 
-test("the community page syncs as it opens without listing the skin directory", async () => {
-  const sync = vi
-    .fn()
-    .mockResolvedValue(report({ uploaded: ["ink-wash"], downloaded: ["paper-cut"] }));
-  communityPage(client({ sync }));
-  await waitFor(() => expect(sync).toHaveBeenCalledOnce());
+test("打开社区和浏览筛选不自动同步皮肤库", async () => {
+  const communityClient = client();
+  const localSkins = communityPage(communityClient);
+  await screen.findByRole("button", { name: "查看候选窗口皮肤 水墨" });
+  fireEvent.click(screen.getByRole("button", { name: "我的作品" }));
   await settle();
-  // The directory row and the sync outcome live on 主题 and nowhere, respectively.
-  expect(screen.queryByText("本地皮肤")).toBeNull();
-  expect(screen.queryByText("外部皮肤")).toBeNull();
-  expect(screen.queryByText(/已同步/)).toBeNull();
+  expect(communityClient.sync).not.toHaveBeenCalled();
+  expect(communityClient.install).not.toHaveBeenCalled();
+  expect(localSkins).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "同步我的皮肤库" })).not.toBeNull();
   expect(screen.queryByRole("button", { name: "打开目录" })).toBeNull();
 });
 
-test("an install from the gallery syncs again, queued behind a run in progress", async () => {
-  const running = deferred<CandidateSkinSyncReport>();
-  const sync = vi
-    .fn()
-    .mockReturnValueOnce(running.promise)
-    .mockResolvedValue(report({ uploaded: ["ink-wash"] }));
-  communityPage(client({ sync }));
+test("只安装选中的一款，替换安装也不触发整库同步", async () => {
+  const communityClient = client({
+    list: vi.fn().mockResolvedValue({ skins: [first, second], has_more: false }),
+  });
+  communityPage(communityClient);
   await openDetail();
-  // The pre-install scan finds ink-wash, so the install asks first.
   fireEvent.click(screen.getByRole("button", { name: "一键安装" }));
   fireEvent.click(await screen.findByRole("button", { name: "替换安装" }));
   expect(await screen.findByText("已安装到外部皮肤。")).not.toBeNull();
-  expect(sync).toHaveBeenCalledOnce();
-  await act(async () => running.resolve(report()));
-  await waitFor(() => expect(sync).toHaveBeenCalledTimes(2));
+  await settle();
+  expect(communityClient.install).toHaveBeenCalledExactlyOnceWith(first.id, true);
+  expect(communityClient.sync).not.toHaveBeenCalled();
 });
+
+test("明确点击才同步整库，进行中不重复提交并显示结果", async () => {
+  const running = deferred<CandidateSkinSyncReport>();
+  const sync = vi.fn().mockReturnValue(running.promise);
+  communityPage(client({ sync }));
+  await screen.findByRole("button", { name: "同步我的皮肤库" });
+  expect(
+    screen.getByText("手动同步会下载云端个人皮肤、上传本机皮肤，并同步已记录的删除。"),
+  ).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "同步我的皮肤库" }));
+  const busy = screen.getByRole("button", { name: "正在同步皮肤库…" });
+  expect((busy as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(busy);
+  expect(sync).toHaveBeenCalledOnce();
+  await act(async () =>
+    running.resolve(report({ uploaded: ["ink-wash"], downloaded: ["paper-cut"] })),
+  );
+  expect(
+    await screen.findByText(
+      "同步已完成：下载 1 款，上传 1 款，本机删除 0 款，云端删除 0 款，跳过 0 款。",
+    ),
+  ).not.toBeNull();
+  expect(screen.getByRole("button", { name: "同步我的皮肤库" })).not.toBeNull();
+  expect(sync).toHaveBeenCalledOnce();
+});
+
+test.each([
+  { downloaded: ["paper-cut"] },
+  { deleted_local: ["ink-wash"] },
+  { uploaded: ["ink-wash"] },
+])("手动同步按本机目录变化通知重扫：%j", async (changes) => {
+  const onChanged = vi.fn();
+  const unsubscribe = subscribeSkinCatalogChanges(onChanged);
+  try {
+    communityPage(client({ sync: vi.fn().mockResolvedValue(report(changes)) }));
+    fireEvent.click(screen.getByRole("button", { name: "同步我的皮肤库" }));
+    await screen.findByText(/同步已完成/);
+    expect(onChanged).toHaveBeenCalledTimes("uploaded" in changes ? 0 : 1);
+  } finally {
+    unsubscribe();
+  }
+});
+
+test("同步中途暂停不会显示为全部完成", async () => {
+  communityPage(
+    client({
+      sync: vi
+        .fn()
+        .mockResolvedValue(report({ uploaded: ["ink-wash"], stopped: "account_rate_limited" })),
+    }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "同步我的皮肤库" }));
+  expect(await screen.findByText(/同步已暂停：下载 0 款，上传 1 款/)).not.toBeNull();
+  expect(screen.queryByText(/同步已完成/)).toBeNull();
+});
+
+test("手动同步失败可重试，成功提示不覆盖下一次失败", async () => {
+  const sync = vi
+    .fn()
+    .mockResolvedValueOnce(report())
+    .mockRejectedValueOnce({ code: "community_unauthorized" })
+    .mockResolvedValue(report());
+  communityPage(client({ sync }));
+  fireEvent.click(screen.getByRole("button", { name: "同步我的皮肤库" }));
+  await screen.findByText(/同步已完成/);
+  fireEvent.click(screen.getByRole("button", { name: "同步我的皮肤库" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("请先登录后执行此操作。");
+  expect(screen.queryByText(/同步已完成/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "同步我的皮肤库" }));
+  await screen.findByText(/同步已完成/);
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(sync).toHaveBeenCalledTimes(3);
+});
+
+test.each(["resolve", "reject"] as const)(
+  "更换账号不自动同步，旧账号的 %s 不污染新账号",
+  async (outcome) => {
+    const pending = deferred<CandidateSkinSyncReport>();
+    const previous = client({ sync: vi.fn().mockReturnValue(pending.promise) });
+    const next = client();
+    const view = render(<CommunityPage theme="light" candidateSkins={previous} />);
+    fireEvent.click(screen.getByRole("button", { name: "同步我的皮肤库" }));
+    view.rerender(<CommunityPage theme="light" candidateSkins={next} />);
+    await act(async () => {
+      if (outcome === "resolve") pending.resolve(report({ downloaded: ["paper-cut"] }));
+      else pending.reject({ code: "community_unauthorized" });
+    });
+    expect(next.sync).not.toHaveBeenCalled();
+    expect(screen.queryByText(/同步已完成/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "同步我的皮肤库" }));
+    await screen.findByText(/同步已完成/);
+    expect(next.sync).toHaveBeenCalledOnce();
+  },
+);
 
 test("category chips filter the list from its first page and load more keeps the category", async () => {
   const list = vi
