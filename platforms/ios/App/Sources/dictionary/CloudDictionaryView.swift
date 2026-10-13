@@ -12,7 +12,7 @@ struct CloudDictionaryView: View {
   @State private var editing: Edit?
   @State private var deleting: BackendAccountClient.DictionaryEntry?
   @State private var downloading: BackendAccountClient.DictionaryEntry?
-  @State private var requestID = UUID()
+  @State private var request = ViewRequestGeneration()
   @State private var pending: Task<Void, Never>?
   private let client = BackendAccountClient()
   private let session = BackendAccountSession.shared
@@ -68,12 +68,12 @@ struct CloudDictionaryView: View {
 
       if let page, page.offset > 0 || page.has_more {
         Section {
-          Button { run { try await load(offset: max(0, page.offset - 100)) } } label: {
+          Button { run { _ in try await load(offset: max(0, page.offset - 100)) } } label: {
             Label("上一页", systemImage: "chevron.left")
               .frame(maxWidth: .infinity, alignment: .leading)
           }
           .disabled(page.offset == 0)
-          Button { run { try await load(offset: page.offset + 100) } } label: {
+          Button { run { _ in try await load(offset: page.offset + 100) } } label: {
             Label("下一页", systemImage: "chevron.right")
               .frame(maxWidth: .infinity, alignment: .leading)
           }
@@ -103,7 +103,7 @@ struct CloudDictionaryView: View {
               symbol: "iphone.and.arrow.forward")
           }
           NavigationLink(destination: CloudDictionaryFilesView(accountID: userID,
-            kind: kind, session: session, imported: { try await load(offset: 0) })) {
+            kind: kind, session: session, imported: { try await refreshAfterImport() })) {
             CloudDictionaryRowLabel(
               title: "导入与导出", detail: "用文件搬运词条",
               symbol: "doc.badge.arrow.up.fill")
@@ -128,49 +128,44 @@ struct CloudDictionaryView: View {
     }
     .designPage()
     .searchable(text: $search, prompt: "搜索云端词条或编码")
-    .onSubmit(of: .search) { run { try await load(offset: 0) } }
+    .onSubmit(of: .search) { run { _ in try await load(offset: 0) } }
     .navigationTitle("云词库")
     .disabled(busy)
     .toolbar {
       Button("添加") { if let userID { editing = Edit(entry: nil, kind: kind, userID: userID) } }
         .disabled(busy || userID == nil)
     }
-    .task { run { try await load(offset: 0) } }
+    .task { request.appear(); run { _ in try await load(offset: 0) } }
     .onChange(of: kind) { _ in
       pending?.cancel()
-      requestID = UUID()
+      request.invalidate()
+      pending = nil
       busy = false
       page = nil
-      run { try await load(offset: 0) }
+      run { _ in try await load(offset: 0) }
     }
     .onDisappear {
-      requestID = UUID()
+      request.disappear()
       pending?.cancel()
+      pending = nil
       busy = false
       page = nil
     }
     .sheet(item: $editing) { edit in
       CloudDictionaryEditor(kind: edit.kind, value: edit.entry.map { .init(code: $0.code, word: $0.word, weight: $0.weight) }) { value in
-        let credentials = try await session.credentials(matchingUserID: edit.userID, matchingSessionID: sessionID)
-        if let entry = edit.entry {
-          _ = try await client.updateDictionary(entry, value: value, session: session,
-            matchingUserID: credentials.userID, matchingSessionID: credentials.sessionID)
-        } else {
-          _ = try await client.addDictionary(edit.kind, value: value, session: session,
-            matchingUserID: credentials.userID, matchingSessionID: credentials.sessionID)
-        }
-        sessionID = credentials.sessionID
-        try await load(offset: 0)
+        try await save(value, for: edit)
       }
     }
     .alert("删除云端词条？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
       Button("取消", role: .cancel) { deleting = nil }
       Button("删除", role: .destructive) {
         guard let entry = deleting, let userID else { return }
-        run {
+        run { id in
           let credentials = try await session.credentials(matchingUserID: userID, matchingSessionID: sessionID)
+          try request.checkCurrent(id)
           _ = try await client.deleteDictionary(entry, session: session,
             matchingUserID: credentials.userID, matchingSessionID: credentials.sessionID)
+          try request.checkCurrent(id)
           sessionID = credentials.sessionID
           try await load(offset: 0)
         }
@@ -181,8 +176,9 @@ struct CloudDictionaryView: View {
       Button("取消", role: .cancel) { downloading = nil }
       Button("下载") {
         guard let entry = downloading, let userID else { return }
-        run {
+        run { id in
           _ = try await session.credentials(matchingUserID: userID, matchingSessionID: sessionID)
+          try request.checkCurrent(id)
           let word = try entry.localWord()
           try PersonalDictionaryStore().enqueue(previous: nil, replacement: word)
           message = "已加入本机队列。请打开允许完全访问的水杉键盘，确认同步后再试打。"
@@ -198,33 +194,55 @@ struct CloudDictionaryView: View {
     sessionID = identity.sessionID
     return identity.token
   }
+  @MainActor private func save(_ value: BackendAccountClient.DictionaryValue, for edit: Edit) async throws {
+    guard let id = request.current() else { throw CancellationError() }
+    let credentials = try await session.credentials(matchingUserID: edit.userID, matchingSessionID: sessionID)
+    try request.checkCurrent(id)
+    if let entry = edit.entry {
+      _ = try await client.updateDictionary(entry, value: value, session: session,
+        matchingUserID: credentials.userID, matchingSessionID: credentials.sessionID)
+    } else {
+      _ = try await client.addDictionary(edit.kind, value: value, session: session,
+        matchingUserID: credentials.userID, matchingSessionID: credentials.sessionID)
+    }
+    try request.checkCurrent(id)
+    sessionID = credentials.sessionID
+    try await load(offset: 0)
+  }
+  @MainActor private func refreshAfterImport() async throws {
+    guard request.isVisible else { return }
+    try await load(offset: 0)
+  }
   @MainActor private func load(offset: Int) async throws {
-    let id = requestID
+    guard let id = request.current() else { throw CancellationError() }
     let requestedKind = kind
     guard let identity = try await session.user()?.id else { throw BackendAccountClient.Failure(status: 401) }
     let credentials = try await session.credentials(matchingUserID: identity, matchingSessionID: sessionID)
     let result = try await client.dictionary(requestedKind, search: search, offset: offset,
       session: session, matchingUserID: credentials.userID, matchingSessionID: credentials.sessionID)
-    try Task.checkCancellation()
-    guard requestID == id, kind == requestedKind else { return }
+    try request.checkCurrent(id)
+    guard kind == requestedKind else { return }
     sessionID = credentials.sessionID
     page = result; userID = identity
   }
-  @MainActor private func run(_ work: @escaping @MainActor () async throws -> Void) {
-    guard !busy else { return }
-    let id = UUID()
-    requestID = id
+  @MainActor private func run(_ work: @escaping @MainActor (UUID) async throws -> Void) {
+    guard request.isVisible, !busy else { return }
+    let id = request.begin()
     busy = true; message = nil
     pending = Task {
       defer {
-        if requestID == id {
+        if request.isCurrent(id) {
           busy = false
           pending = nil
         }
       }
-      do { try await work() }
+      do {
+        try request.checkCurrent(id)
+        try await work(id)
+        try request.checkCurrent(id)
+      }
       catch is CancellationError { }
-      catch { if requestID == id { message = error.localizedDescription } }
+      catch { if request.isCurrent(id) { message = error.localizedDescription } }
     }
   }
 }

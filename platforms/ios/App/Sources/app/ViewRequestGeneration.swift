@@ -8,14 +8,20 @@ import Foundation
   mutating func appear() { isVisible = true }
 
   @discardableResult mutating func begin() -> UUID {
-    currentID = UUID()
+    invalidate()
     return currentID
   }
 
+  /// 页面仍可见时让旧工作失效，供筛选条件变化后重新请求。
+  mutating func invalidate() { currentID = UUID() }
+
   mutating func disappear() {
     isVisible = false
-    currentID = UUID()
+    invalidate()
   }
+
+  /// 直接刷新沿用当前代次，不打断由页面操作入口启动的请求。
+  func current() -> UUID? { isVisible ? currentID : nil }
 
   func isCurrent(_ id: UUID) -> Bool { isVisible && currentID == id }
 

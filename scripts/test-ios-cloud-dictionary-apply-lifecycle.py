@@ -15,7 +15,7 @@ class CloudDictionaryApplyLifecycleTests(unittest.TestCase):
         self.assertIn("request.disappear()\n      pending?.cancel()", SOURCE)
         self.assertGreaterEqual(SOURCE.count("let id = request.begin()"), 2)
         self.assertIn("currentID = UUID()", GENERATION)
-        self.assertIn("isVisible = false\n    currentID = UUID()", GENERATION)
+        self.assertIn("isVisible = false\n    invalidate()", GENERATION)
 
     def test_download_and_enqueue_fence_late_completions(self):
         self.assertIn("guard request.isVisible, !busy, let version = state.localVersion else { return }", SOURCE)

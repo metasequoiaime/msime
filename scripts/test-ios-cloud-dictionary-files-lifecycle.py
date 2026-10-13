@@ -14,7 +14,7 @@ class CloudDictionaryFilesLifecycleTests(unittest.TestCase):
         self.assertIn(".onAppear { request.appear() }", SOURCE)
         self.assertIn("request.disappear()\n      pending?.cancel()", SOURCE)
         self.assertIn("let id = request.begin()", SOURCE)
-        self.assertIn("isVisible = false\n    currentID = UUID()", GENERATION)
+        self.assertIn("isVisible = false\n    invalidate()", GENERATION)
 
     def test_run_fences_late_work_and_cleanup(self):
         self.assertIn("run(_ action: @escaping @MainActor (UUID) async throws -> Void)", SOURCE)
