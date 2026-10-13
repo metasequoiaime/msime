@@ -363,8 +363,9 @@ CandidatePageRequestResult
 SessionController::request_page(const CandidatePage &page) {
   if (input_.on_worker_thread() || active_controller == this)
     throw std::logic_error("Candidate paging cannot reenter controller callbacks");
+  // 释义页上翻页不起作用（FocusedSession::page_candidate），从释义页那一帧发起的翻页直接拒绝。
   if (!page.lease.epoch || !page.session || !page.generation ||
-      page.steps == 0 || page.steps > 9 || stopping_)
+      page.steps == 0 || page.steps > 9 || page.translation_page != 0 || stopping_)
     return CandidatePageRequestResult::Rejected;
   std::unique_lock transaction(*transactions_, std::try_to_lock);
   if (!transaction.owns_lock())
@@ -380,6 +381,7 @@ SessionController::request_page(const CandidatePage &page) {
     const auto shown = candidate_view();
     if (!shown || !shown->visible || shown->session != page.session ||
         shown->generation != page.generation ||
+        shown->translation_page != page.translation_page ||
         shown->lease.epoch != page.lease.epoch ||
         shown->lease.token != page.lease.token ||
         !same_ticket(shown->lease.transport, page.lease.transport))
@@ -395,6 +397,7 @@ SessionController::request_page(const CandidatePage &page) {
     const auto painted = candidate_view();
     if (!painted || !painted->visible || painted->session != page.session ||
         painted->generation != page.generation ||
+        painted->translation_page != page.translation_page ||
         painted->lease.epoch != page.lease.epoch ||
         painted->lease.token != page.lease.token ||
         !same_ticket(painted->lease.transport, page.lease.transport))

@@ -134,6 +134,9 @@ private:
           latest_->lease.token != lease.token ||
           !same_ticket(latest_->lease.transport, lease.transport))
         return;
+      // 画着的是 Ctrl+Enter 的释义页：它在 Server 里一直开着，直到下一个按键把它关掉（ReplyComposer::translation_page_key），那个按键的投递会带回 Engine 的列表。这里按 Engine 的 view 重建会把释义页换成底下的列表，而数字键、空格上屏的仍是看不见的义项。打开释义页的那个按键自己就会带出一次释义查询，结果回来时正好落在这里，所以不能借这个机会关掉释义页，只能不盖掉它。
+      if (latest_->translation_page != 0)
+        return;
       if (view.at("session").get<uint64_t>() != latest_->session ||
           (require_new_generation &&
            view.at("generation").get<uint64_t>() <= latest_->generation))

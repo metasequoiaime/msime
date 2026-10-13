@@ -444,6 +444,56 @@ void candidate_mailbox_tests() {
     require(glossed->caret_anchor_known && glossed->caret_anchor_x == -200 &&
             glossed->caret_anchor_y == 300);
   }
+  // 画着的是 Ctrl+Enter 的释义页时，同一代次的释义刷新和换了代次的云候选、AI 候选都不能拿 Engine 的列表把它盖掉：释义页在 Server 里还开着，数字键、空格上屏的是它的义项。按键把释义页关掉时，那个按键的投递照常换回 Engine 的列表。
+  {
+    const auto sense = [](size_t index, const char *text) {
+      return nlohmann::json{{"id", {{"session", 1}, {"generation", 300}, {"index", index}}},
+                            {"text", text},
+                            {"highlighted", index == 0}};
+    };
+    FanyImeNamedpipeData packet{};
+    packet.client_id = relaunched.transport.client;
+    packet.request_id = 300;
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    PendingReply reply{};
+    reply.source.client_id = packet.client_id;
+    reply.source.activation_epoch = relaunched.epoch;
+    reply.source.request_id = packet.request_id;
+    reply.source.transition = {{"view",
+                                {{"session", 1},
+                                 {"generation", 300},
+                                 {"focused", true},
+                                 {"editing_text", "U4"},
+                                 {"preedit", "U4"},
+                                 {"translation_page", 7},
+                                 {"candidates", nlohmann::json::array(
+                                                    {sense(0, "centre"), sense(1, "middle")})}}}};
+    require(gate.with_active(relaunched,
+                             [&] { mailbox.delivered(relaunched, reply, packet); }));
+    const auto engine_view = [](uint64_t generation) {
+      return nlohmann::json{{"session", 1},
+                            {"generation", generation},
+                            {"focused", true},
+                            {"editing_text", "U4"},
+                            {"preedit", "U4"},
+                            {"candidates", nlohmann::json::array()}};
+    };
+    const auto shown_page = [&] {
+      const auto value = mailbox.snapshot(gate);
+      return value && value->translation_page == 7 && value->candidates.size() == 2 &&
+             value->candidates[1].text == "middle";
+    };
+    require(shown_page());
+    mailbox.translations(relaunched, engine_view(300));
+    require(shown_page());
+    mailbox.online(relaunched, engine_view(301));
+    require(shown_page());
+    mailbox.action(relaunched, engine_view(302));
+    require(shown_page());
+    // 关掉释义页的按键带回 Engine 的列表。
+    require(publish(relaunched, 303));
+    require(mailbox.snapshot(gate)->translation_page == 0);
+  }
   const auto anchored_again = activate(replacement, 6);
   require(publish(anchored_again, 216));
   require(!mailbox.snapshot(gate)->caret_anchor_known);

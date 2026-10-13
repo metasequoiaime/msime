@@ -346,7 +346,8 @@ FocusedSession::page_candidate(const FocusLease &lease, uint64_t session,
     return std::nullopt;
   std::optional<nlohmann::json> result;
   gate_.with_active(lease, [&] {
-    if (composer_->has_pending())
+    // 释义页打开时翻页不起作用，和方向键、翻页键在释义页上一样（ReplyComposer::translation_page_key）：翻的会是底下的 Engine 列表，候选窗换成它的下一页，释义页却还开着，数字键上屏的仍是看不见的义项。
+    if (composer_->has_pending() || composer_->translation_page() != 0)
       return;
     const auto current = session_.view();
     if (!current.at("focused").get<bool>() ||

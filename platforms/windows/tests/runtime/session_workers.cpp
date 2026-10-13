@@ -577,6 +577,96 @@ void session_worker_tests(const std::string &options) {
     require(commits == 1 && controller.failure() == ControllerFailure::None);
     controller.stop();
   }
+  {
+    // 释义页上翻页不起作用，和方向键、翻页键在释义页上一样。曾经鼠标箭头和滚轮会翻底下的 Engine 列表：候选窗换成列表的下一页，释义页却还开着，接下来的数字键上屏的是看不见的义项。
+    IdleTransport transport;
+    RegistrationInbox inbox(2);
+    PipeTicket ticket{42, {1, 2, 3}};
+    std::atomic<uint64_t> translate{0};
+    std::atomic<bool> translated{false};
+    std::string translate_text;
+    SessionController controller(
+        transport, inbox, 1, 8, options,
+        [&](InputState &state, const FocusLease &lease,
+            const FanyImeNamedpipeData &packet) {
+          // 夹具没有释义服务：Ctrl+Enter 之前在输入线程上给高亮的候选挂上三条义项，和上一段一样。
+          if (packet.keycode == 0x0D && translate)
+            translated = state
+                             .apply_translations(
+                                 lease, translate,
+                                 nlohmann::json::array(
+                                     {{{"text", translate_text},
+                                       {"translation", "centre; middle; China"}}})
+                                     .dump())
+                             .has_value();
+          return state.configured_key(lease, packet, TsfPreeditStyle::Local, {});
+        },
+        [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; },
+        [] { return true; }, [&] { transport.close(ticket); });
+    transport.add(ticket);
+    require(inbox.push(ticket));
+    FanyImeNamedpipeData packet{};
+    packet.client_id = ticket.client;
+    packet.event_type = FanyImePipeEventType::ClientActivated;
+    packet.request_id = 77;
+    transport.push(packet);
+    // Shift+T 进日期时间模式，rq 列出几种日期写法；每页两个候选，所以有好几页，不需要词库。
+    packet.event_type = FanyImePipeEventType::KeyEvent;
+    packet.request_id = 1;
+    for (char c : std::string("Trq")) {
+      ++packet.request_id;
+      packet.keycode = c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c;
+      packet.wch = c;
+      packet.modifiers_down = c == 'T' ? 1 : 0;
+      transport.push(packet);
+    }
+    transport.wait_started(5);
+    const auto listed = controller.candidate_view();
+    require(listed && listed->visible && listed->translation_page == 0 &&
+            listed->page_count > 1 && !listed->candidates.empty());
+    for (const auto &candidate : listed->candidates)
+      if (candidate.highlighted)
+        translate_text = candidate.text;
+    require(!translate_text.empty());
+    translate = listed->generation;
+    ++packet.request_id;
+    packet.keycode = 0x0D;
+    packet.wch = 0;
+    packet.modifiers_down = PipeMetadata::CandidateActive | 2u;
+    transport.push(packet);
+    transport.wait_started(6);
+    require(translated);
+    const auto page = controller.candidate_view();
+    // 释义页只有一页，不画 Engine 列表的页码和翻页箭头。
+    require(page && page->visible && page->translation_page != 0 &&
+            page->generation == listed->generation && page->candidates.size() == 3 &&
+            page->candidates.at(1).text == "middle" && page->page_count == 0);
+    // 按列表那一帧发起、在释义页打开之后才到的翻页（箭头或滚轮），和从释义页那一帧发起的翻页，都不起作用。
+    CandidatePage from_list{listed->lease, listed->session, listed->generation, false, 1u};
+    require(controller.request_page(from_list) == CandidatePageRequestResult::Rejected);
+    CandidatePage from_page{page->lease, page->session, page->generation, false, 1u, true};
+    from_page.translation_page = page->translation_page;
+    require(controller.request_page(from_page) == CandidatePageRequestResult::Rejected);
+    const auto still = controller.candidate_view();
+    require(still && still->visible && still->translation_page == page->translation_page &&
+            still->generation == page->generation && still->candidates.at(1).text == "middle");
+    // 数字键上屏的是画着的那一页上的义项。
+    const auto written = transport.writes().size();
+    ++packet.request_id;
+    packet.keycode = '2';
+    packet.wch = '2';
+    packet.modifiers_down = PipeMetadata::CandidateActive;
+    transport.push(packet);
+    transport.wait_started(7);
+    const auto expected = *wire_bytes(exact_commit(packet.request_id, "middle"));
+    size_t commits = 0;
+    const auto writes = transport.writes();
+    for (size_t at = written; at < writes.size(); ++at)
+      commits += writes[at].first == FanyImePipeRole::ToTsf &&
+                 writes[at].second == std::vector<uint8_t>(expected.begin(), expected.end());
+    require(commits == 1 && controller.failure() == ControllerFailure::None);
+    controller.stop();
+  }
   FocusGate gate;
   InputQueue queue(gate, 2, 16, options);
   IdleTransport transport;

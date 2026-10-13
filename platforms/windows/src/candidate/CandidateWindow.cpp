@@ -1445,8 +1445,11 @@ void CandidateWindow::invoke_accessible(int id, LPARAM token) {
   // 翻页与点箭头一样一次一页，带上画出来的那一页的身份，页已经换了时 Server 会拒绝。
   if (id == candidate_accessible_previous || id == candidate_accessible_next) {
     const bool previous = id == candidate_accessible_previous;
-    if (page_ && painted_pager_ && (!previous || value.page > 0))
-      page_(CandidatePage{value.lease, value.session, value.generation, previous, 1u});
+    if (page_ && painted_pager_ && (!previous || value.page > 0)) {
+      CandidatePage page{value.lease, value.session, value.generation, previous, 1u};
+      page.translation_page = value.translation_page;
+      page_(page);
+    }
     return;
   }
   if (!click_ || id < 1 || static_cast<size_t>(id) > value.candidates.size())
@@ -1571,12 +1574,16 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
             self->wheel_accumulator_, GET_WHEEL_DELTA_WPARAM(wparam),
             WHEEL_DELTA);
         const auto &value = *self->painted_;
+        const auto wheel = [&](bool previous, int count) {
+          CandidatePage page{value.lease, value.session, value.generation,
+                             previous, static_cast<unsigned>(count), true};
+          page.translation_page = value.translation_page;
+          self->page_(page);
+        };
         if (steps.page_up > 0)
-          self->page_(CandidatePage{value.lease, value.session, value.generation,
-                                    true, static_cast<unsigned>(steps.page_up), true});
+          wheel(true, steps.page_up);
         if (steps.page_down > 0)
-          self->page_(CandidatePage{value.lease, value.session, value.generation,
-                                    false, static_cast<unsigned>(steps.page_down), true});
+          wheel(false, steps.page_down);
         return 0;
       }
       case WM_LBUTTONDOWN:
@@ -1628,8 +1635,10 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
                               static_cast<short>(HIWORD(lparam))) ==
               pressed_page) {
             const auto &value = *self->painted_;
-            self->page_(CandidatePage{value.lease, value.session,
-                                      value.generation, *pressed_page, 1u});
+            CandidatePage page{value.lease, value.session, value.generation,
+                               *pressed_page, 1u};
+            page.translation_page = value.translation_page;
+            self->page_(page);
           }
           return 0;
         }
