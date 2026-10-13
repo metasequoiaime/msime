@@ -1187,7 +1187,7 @@ endforeach()
 set(MSIME_OPTIONAL_BACKEND_SYMBOLS
   _MSIMEAccountPaneView _MSIMEAccountPaneAttach _MSIMEAccountPaneClose
   _MSIMEEnsureAnonymousAccount _MSIMEFetchAccountCandidateGlosses _MSIMECancelAccountCandidateGlosses
-  _MSIMEFetchOnDeviceCandidateGlosses
+  _MSIMEFetchOnDeviceCandidateGlosses _MSIMEBackendAccountTranslationMarker
   _msime_macos_uninstall_input_source)
 # The input method links MSIMEBackend.dylib itself, but a toolchain older than Swift 6.2 builds that without the on-device translation entry point (BackendOnDeviceGloss.swift), which the controller then finds null.
 target_link_options(MSIMEClientInputMethod PRIVATE "LINKER:-U,_MSIMEFetchOnDeviceCandidateGlosses")

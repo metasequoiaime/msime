@@ -93,6 +93,7 @@ extern "C" void MSIMEFetchAccountCandidateGlosses(const char *wordsJSON, const c
     __attribute__((weak_import));
 extern "C" void MSIMECancelAccountCandidateGlosses(void) __attribute__((weak_import));
 extern "C" void MSIMEEnsureAnonymousAccount(void) __attribute__((weak_import));
+extern "C" unsigned long long MSIMEBackendAccountTranslationMarker(void) __attribute__((weak_import));
 // Apple's on-device translation, also in the Swift backend. Null when the backend was built by a toolchain older than the macOS 26 SDK.
 extern "C" void MSIMEFetchOnDeviceCandidateGlosses(const char *wordsJSON, const char *targetsJSON) __attribute__((weak_import));
 
@@ -547,11 +548,16 @@ static NSArray<NSString *> *MSIMETranslationTargets(NSDictionary *query) {
 // are no longer composing and every new text field starts from nothing, which is what "it shows up the
 // second time but not the first" actually is: the second time happened to land on the same instance.
 //
-// The key is language and word, so sharing is safe: a gloss any instance fetched is correct for all of
-// them. Three elements and a leading scope of its own, so it cannot collide with the five-element
-// identities the user's own translator uses.
+// The key is login marker, language and word, so sharing is safe while the
+// account remains the same and a settings-app login switch cannot reuse old
+// glosses. Four elements and a leading scope of its own, so it cannot collide
+// with the five-element identities the user's own translator uses.
+static unsigned long long MSIMECurrentAccountTranslationMarker(void) {
+    return MSIMEBackendAccountTranslationMarker == nullptr ? 0 : MSIMEBackendAccountTranslationMarker();
+}
+
 static NSArray<NSString *> *MSIMEAccountGlossIdentity(NSString *target, NSString *text) {
-    return @[@"account", target ?: @"", text ?: @""];
+    return @[@"account", @(MSIMECurrentAccountTranslationMarker()).stringValue, target ?: @"", text ?: @""];
 }
 
 static NSString *MSIMEAccountGlossCached(NSString *target, NSString *text) {
@@ -1330,6 +1336,7 @@ static NSImage *MSIMECandidateLogoImage() {
     NSString *_accountGlossSignature;
     NSDictionary *_accountGlossRequest;
     NSArray<NSDictionary *> *_accountGlossResults;
+    uint64_t _accountGlossMarker;
     uint64_t _accountGlossEpoch;
     // The account is asked only once typing has been idle for 500 ms, as Windows' cloud worker waits kIdleDelay after the latest job (cloud_translation.cpp): each keystroke replaces the pending request instead of sending one.
     NSTimer *_accountGlossTimer;
@@ -2483,6 +2490,7 @@ static NSImage *MSIMECandidateLogoImage() {
     _accountGlossRequest = nil;
     _accountGlossResults = nil;
     _accountGlossSignature = nil;
+    _accountGlossMarker = 0;
 }
 
 - (NSDictionary *)currentAccountGlossRequest {
@@ -2516,7 +2524,8 @@ static NSImage *MSIMECandidateLogoImage() {
 
 - (void)synchronizeAccountGloss:(NSDictionary *)request {
     if (!request) { [self stopAccountGloss]; return; }
-    if ([_accountGlossRequest isEqual:request]) return;
+    const uint64_t marker = MSIMECurrentAccountTranslationMarker();
+    if ([_accountGlossRequest isEqual:request] && _accountGlossMarker == marker) return;
     // The local dictionaries answer first and the account is asked only for what they left empty, as Windows hands only the misses to RequestMisses (event_listener.cpp ApplyCandidateTranslations). Each dictionary's completion calls back here, so waiting costs one local read rather than a request.
     NSDictionary *gloss = [self currentGlossRequest];
     if (gloss && (![_glossRequest isEqual:gloss] || !_glossResults)) return;
@@ -2529,6 +2538,7 @@ static NSImage *MSIMECandidateLogoImage() {
     NSDictionary *targetAnswered = targetGloss ? _targetGlossResults : nil;
     [self cancelAccountGloss];
     _accountGlossRequest = [request copy];
+    _accountGlossMarker = marker;
     NSArray *targets = request[@"target_languages"];
     NSMutableArray *pending = [NSMutableArray array];
     // Words whose English row the local dictionaries left empty. Only their English replies are saved to the learned glossary: a word that went out for another target's missing row already has a packaged English gloss, and a learned entry overrides the packaged one, so saving the account's reply would replace the curated gloss for good.
@@ -2557,6 +2567,7 @@ static NSImage *MSIMECandidateLogoImage() {
     NSString *secondary = targets.count > 1 ? targets[1] : @"";
     // Cached answers were applied above without waiting; only the network request waits for the idle delay. A newer page cancels this timer through cancelAccountGloss, so the fire-time checks only guard a timer that was already running its block.
     uint64_t epoch = _accountGlossEpoch;
+    uint64_t requestMarker = marker;
     MSIMEClientSession *session = _session;
     id client = _activeClient;
     NSDictionary *pendingRequest = _accountGlossRequest;
@@ -2566,10 +2577,12 @@ static NSImage *MSIMECandidateLogoImage() {
         if (!owner || owner->_accountGlossEpoch != epoch || owner->_accountGlossTimer != timer) return;
         [timer invalidate]; owner->_accountGlossTimer = nil;
         if (owner->_session != session || owner->_activeClient != client ||
+            MSIMECurrentAccountTranslationMarker() != requestMarker ||
             ![[owner currentAccountGlossRequest] isEqual:pendingRequest]) {
             // Nothing went out, so the same page synced again later must ask rather than match this request and return early.
             owner->_accountGlossRequest = nil;
             owner->_accountGlossSignature = nil;
+            owner->_accountGlossMarker = 0;
             return;
         }
         // Recorded when the words actually go out, so a request the user typed past never marks its words as this controller's to save.
@@ -2602,7 +2615,10 @@ static NSImage *MSIMECandidateLogoImage() {
     if (![info isKindOfClass:NSDictionary.class]) return;
     NSString *target = info[@"target"];
     NSDictionary *values = info[@"translations"];
-    if (![target isKindOfClass:NSString.class] || ![values isKindOfClass:NSDictionary.class]) return;
+    uint64_t marker = 0;
+    if (![target isKindOfClass:NSString.class] || ![values isKindOfClass:NSDictionary.class] ||
+        !MSIMEStrictUnsignedInteger(info[@"marker"], &marker) ||
+        marker != MSIMECurrentAccountTranslationMarker()) return;
     // Persisted before any check on the current page, as Windows persists every fetch that completes: a reply for a page the user typed past, or a candidate already committed, would otherwise never reach the glossary.
     if ([target isEqualToString:@"en"]) [self persistAccountGlosses:values];
     // Cached before any check on the current page, as Windows caches every completed fetch before its staleness check (cloud_translation.cpp): the key is language and word, not generation, so an answer for a page the user typed past is still right when they back up or type the word again. Every controller hears the reply, and writing the same answer twice is harmless.

@@ -22,11 +22,18 @@ enum BackendCandidateGloss {
   // The network round trip for one page. A variable so BackendAccountTests can count what is sent without a server or an account.
   static var perform: @MainActor (Request) async -> Void = { await translate($0) }
 
-  private nonisolated static func translationSession() async throws -> BackendAccountSession {
-    if (try? await account.accessToken()) != nil { return account }
-    if (try? await anonymous.accessToken()) != nil { return anonymous }
+  private nonisolated static func translationSession() async throws -> (session: BackendAccountSession, marker: UInt64) {
+    if (try? await account.accessToken()) != nil {
+      // Capture the login identity with the session selected for this request.
+      // A settings app can replace the shared session file while the network
+      // request is in flight; the reply must remain tagged with the old login.
+      let login = try await account.login()
+      let marker = login.map { backendAccountTranslationMarker(userID: $0.userID, sessionID: $0.sessionID) } ?? 0
+      return (account, marker)
+    }
+    if (try? await anonymous.accessToken()) != nil { return (anonymous, 0) }
     _ = try await BackendAnonymousAccount.ensureSignedIn(session: anonymous, client: client)
-    return anonymous
+    return (anonymous, 0)
   }
 
   static func fetch(words: [String], primary: String, secondary: String, generation: UInt64) {
@@ -52,7 +59,9 @@ enum BackendCandidateGloss {
 
   private nonisolated static func translate(_ request: Request) async {
     let words = request.words, generation = request.generation
-    guard let session = try? await translationSession() else { return }
+    guard let selected = try? await translationSession() else { return }
+    let session = selected.session
+    let marker = selected.marker
     await withTaskGroup(of: Void.self) { group in
       for code in [request.primary, request.secondary] where !code.isEmpty {
         group.addTask {
@@ -60,7 +69,7 @@ enum BackendCandidateGloss {
           guard let values = try? await client.translate(texts: words, target: code, session: session) else { return }
           await MainActor.run {
             NotificationCenter.default.post(name: notification, object: nil,
-                                            userInfo: payload(words: words, values: values, code: code, generation: generation))
+                                            userInfo: payload(words: words, values: values, code: code, generation: generation, marker: marker))
           }
         }
       }
@@ -68,13 +77,15 @@ enum BackendCandidateGloss {
   }
 
   // The notification's userInfo for one language's reply, apart from the network so BackendAccountTests can check what the input method receives.
-  nonisolated static func payload(words: [String], values: [String], code: String, generation: UInt64) -> [String: Any] {
+  nonisolated static func payload(words: [String], values: [String], code: String, generation: UInt64,
+                                  marker: UInt64 = 0) -> [String: Any] {
     // Every word asked about gets an answer, so the input method can remember the ones the account had nothing for and stop asking about them for a while, as Windows does. An empty or unchanged value is sent as "", and a duplicate candidate keeps whichever of its answers is not empty.
     let table = Dictionary(zip(words, values).map { ($0.0, $0.1 == $0.0 ? "" : $0.1) },
                            uniquingKeysWith: { first, second in first.isEmpty ? second : first })
     return [
       // Each reply names its own language, so the input method files it under that target without depending on the order in which the two requests finish, and saves only the English one to the learned glossary.
       "generation": generation,
+      "marker": marker,
       "target": code,
       "translations": table,
     ]
