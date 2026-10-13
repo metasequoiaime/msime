@@ -109,6 +109,9 @@ targets:
         buildPhase: resources
       - path: ../../resources/licenses/ewts-MIT.txt
         buildPhase: resources
+      # 同一个 Engine 编入了拆字反查的部件拼音表，它改编自開放詞典的漢語拆字字典（CC BY 3.0），署名与改动说明随每个 Engine 构建分发。
+      - path: ../../resources/licenses/kfcd-chaizi-CC-BY-3.0.txt
+        buildPhase: resources
       - path: SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
     settings:

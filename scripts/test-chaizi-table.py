@@ -41,6 +41,8 @@ NOTICE_CHANNELS = {
     "platforms/macos/tests/settings/bundle_contents.py": "macOS: the built bundle check",
     "platforms/linux/CMakeLists.txt": "Linux: the installed notices",
     "platforms/linux/data/THIRD_PARTY_NOTICES.txt": "Linux: the notice overview",
+    "platforms/ios/project.yml": "iOS: the app's bundled resources",
+    "platforms/ios/tests/settings/ProjectConfigurationTests.py": "iOS: the project configuration test",
     "docs/third-party.md": "the repository's third-party index",
 }
 # 总览写明每份文本覆盖什么，所以还要写出固定提交。

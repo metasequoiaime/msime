@@ -1840,17 +1840,46 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  /// 拆字的读音在九键下也画：九键进入本地模式后换成 26 键，打部件拼音，候选后面跟着 Engine 给的带调读音，VoiceOver 把它读作读音，不是还要输入的键。
+  func testChaiziReadingsShowOnTheNineKeyStrip() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.openLocalInputMode("C")
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, "拆字")
+    for letter in "huohuohuo" {
+      try XCTUnwrap(descendants(controller.view).first {
+        $0.accessibilityLabel == "字母 \(String(letter).uppercased())"
+      } as? UIButton, "no key for \(letter)").sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+    let first = try button("candidate-1", in: controller)
+    // 打开候选释义时释义另起一行，读音在候选那一行。
+    let title = String(try XCTUnwrap(first.configuration?.attributedTitle).characters)
+    XCTAssertEqual(title.components(separatedBy: "\n").first, "焱 yàn", title)
+    XCTAssertTrue(first.accessibilityLabel?.hasPrefix("候选词 1：焱，读音 yàn") == true, first.accessibilityLabel ?? "")
+    XCTAssertFalse(first.accessibilityLabel?.contains("还需输入") == true, "a reading is not keys still to type")
+    try button("exitLocalModeButton", in: controller).sendActions(for: .primaryActionTriggered)
+  }
+
   func testLocalModeLayouts() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
     for scheme in [ChineseInputScheme.nineKey, .shuangpin] {
       InputSchemePreference.scheme = scheme
-      for trigger in ["U", "T", "J"] {
+      for trigger in ["U", "T", "J", "C"] {
         let controller = KeyboardViewController()
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
         controller.openLocalInputMode(trigger)
         controller.view.layoutIfNeeded()
+        let modeTitles = ["U": "Unicode 码点", "T": "日期时间", "J": "超级简拼", "C": "拆字"]
+        XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, modeTitles[trigger],
+                       "the strip names the mode it opened")
         let returnKey = try button("returnKey", in: controller)
         for label in ["Q", "A", "Z", "P", "L", "M"] {
           let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 \(label)" } as? UIButton)
