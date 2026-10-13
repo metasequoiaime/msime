@@ -24,6 +24,7 @@ Status: implemented
 - 偏好键 `local_modes.chaizi`：缺键读作「由宿主形态决定」。触屏宿主把缺键读作开，和它们对其他本地模式的读法一致；桌面宿主的原生设置界面要把缺键读作关，开关写回明确的布尔值；共享设置页的 `defaultLocalModes` 不放这个键。
 - 脚本插件 ABI：`LOCAL_MODE` 表加 `("chaizi", 13)`，SDK 的 `MSIME_LOCAL_MODE_CHAIZI` 与 `local_mode::CHAIZI` 同步。
 - 桌面宿主（macOS、Windows、Linux）的开关：macOS `AppearancePreferences.mm` 的 `localModeEnabled`、Windows 设置窗口的 `default_on = false`、Linux 的 `local_mode_enabled_by_default`、共享设置页的 `chaizi ?? !shiftLetterEntrySwitch` 都把缺键读作关。macOS 账号同步的总布尔 `platform.macos.local_input_modes` 不包含拆字（`MSIMECloudLocalModeKeys`）：默认关的键放进去，会让没动过开关的新用户导出假，导入时也会把拆字和其他模式一起开关。按键路由都不改，`'` 在 IBus 和 Windows 的本地模式里走标点路由，经 `takes_local_separator` 当分隔符，Fcitx5 在组字中直接当字符。三个桌面宿主的声明渠道都带上了许可证文件。
+- 移动宿主（iOS、Android、HarmonyOS）的菜单和开关都从各自的模式表生成，表末尾各加一项拆字（入口 `C`、标题「拆字」、偏好键 `chaizi`）：iOS `KeyboardViewController` 的模式表与 `LocalModeSettingsView`，Android `LocalInputMode.CHAIZI`，HarmonyOS `LocalInputMode.ts` 的 `MODES`。三处都把缺键读作开。iOS 按 Engine 实际所在的模式（`currentLocalMode == "chaizi"`）而不是触发字母决定画不画读音注释：拆字模式下任何方案、包括九键都画 Engine 给的读音，VoiceOver 读作「读音 yàn」而不是「还需输入」。接入时修了 iOS 一个所有本地模式都有的问题：`render` 判断是否离开本地模式时读的是上一次快照的值，从菜单打开模式后刚设好的 `localModeTrigger` 立刻被清掉，候选栏标题只剩字母、打字统计不记本地模式、临时日语上屏被转繁体；改为读本次快照的 `snapshot.isInLocalMode`。HarmonyOS 工具面板照旧不按 `local_modes` 过滤磁贴，实体键盘的 `APOSTROPHE_LOCAL_MODES` 也不加拆字，`'` 走标点路径，由 `takes_local_separator` 处理。iOS 设置 App 的关于页、Android 的 `assets/native-notices`、HarmonyOS 的 `resfile/licenses` 带上了许可证文件。
 
 ## Alternatives considered
 
@@ -47,7 +48,7 @@ Status: implemented
   - 繁体去重依赖 host-api 看到的 `traditional_chinese_output`；IBus 没有可写偏好目录时的会话级切换下，繁体输出可能出现重复字形，不会上屏错字。
   - 许可有三处残余不确定，未经法务审阅：CC BY 3.0 与 GPL-3.0 没有权威的兼容声明（结论来自条款本身：第 3(b) 条允许改编、没有相同方式共享的要求，第 4(b) 条的署名要求落在 GPLv3 第 7(b) 条允许的附加条款里）；如果这张表被看作原作的重排而不是改编，第 4(a) 条的技术措施条款就适用于 App Store、AppGallery 的分发，这和仓库已分发的 CC BY 4.0、CC BY-SA 4.0 数据以及加加辅助码表是同一类风险；上游没有说明数据自身的来源。加加辅助码表的部件拆分已经通过 rime-radical-pinyin 带着同一份 kfcd 数据随 iOS 和 HarmonyOS 分发（`resources/helpcodes/NOTICE.md`）。
 - **重访信号**：维护者判断许可不可接受时改走资源包；桌面用户普遍打开后抱怨 C 盘之类的回归时，考虑「C 后接已知英文词或单音节就交还」之类的保护规则，而不是改默认值。
-- **落地范围**：本篇随 Engine、数据、共享偏好、host-api 和契约检查一起落地。宿主的设置开关、移动端菜单项、各平台声明渠道（照 `scripts/test-language-data-notices.py` 的渠道清单）由各宿主接上，接上一个渠道就把它加进 `test-chaizi-table.py` 的 `NOTICE_CHANNELS`。
+- **落地范围**：本篇随 Engine、数据、共享偏好、host-api 和契约检查一起落地。六个平台宿主的设置开关、移动端菜单项和声明渠道（照 `scripts/test-language-data-notices.py` 的渠道清单）随后接上，都已列进 `test-chaizi-table.py` 的 `NOTICE_CHANNELS`；以后新增的渠道同样要加进去。
 
 相关笔记：[五笔开放本地表模式入口](../../implemented/bug-fix/2026-10-10-wubi-table-local-modes.md)（`opens_table_modes`）、[插件门控与宿主侧五笔表模式](../../implemented/bug-fix/2026-10-09-plugin-gates-and-wubi-table-modes.md)（移动端不为五笔开本地输入）、[五笔反查](2026-10-11-wubi-reverse-lookup.md)（已知读音时的查码路径，与拆字互补）。
 
@@ -57,4 +58,5 @@ Status: implemented
 - `python3 scripts/test-chaizi-table.py`：表的不变量、样例（焱、好、李、拆）、锁与许可证一致、`NOTICE_CHANNELS` 里的渠道都列出许可证。
 - `cargo test -p msime-engine`：`local::chaizi::tests`（匹配、分隔符、ü 写 v、nue/lue、前缀补全、排序、上限、大写、繁体去重、双拼）、`session::tests::chaizi_*`（入口与方案门控、默认关、读音注释、不学习、回车原文、`'` 的两条路、光标处插入、`CPU`/`Chen`/`Cpan` 只有原样行）、`host::tests::chaizi_*`（快照不补辅助码、选项映射）。
 - 桌面宿主：macOS `local-mode-preferences`（缺键读作关、Shift+C 交还应用、打开后选出焱）、`cloud-appearance-settings`、`bundle-contents`；Windows `windows-session-smoke --local-modes`（`'` 走标点路由仍作分隔符）；Linux `linux-spelling-symbols`、`linux-candidate-local-mode-labels`、Fcitx5 选项组项数，以及要锁定词库的 `ibus-engine-smoke --chaizi`（`ctest -R ibus-chaizi`）与 Fcitx5 原生测试 `--local-modes` 里的拆字用例；共享设置页 `local-modes-section.test.tsx`。
+- 移动宿主：iOS 模拟器上的 `LocalModeSettingsTests.testChaiziShipsOnAndTurnsOffInTheLiveSession`（默认开、`huohuohuo` 首个候选焱读音 yàn、`nv'zi` 得好、关掉后不再打开）、`NineKeyKeyboardTests.testChaiziReadingsShowOnTheNineKeyStrip` 与 `testLocalModeLayouts`（打开每个模式后标题是模式名，不带 `snapshot.isInLocalMode` 的修正时拆字标题是 `C`）、`ProjectConfigurationTests.py`；Android `LocalInputModeSmoke`；HarmonyOS `keyboard-logic.test.ts`。三个移动平台都没有在真机或真实编辑器里打过拆字。
 - `cargo test -p msime-host-api`：`chaizi_follows_the_host_form_until_the_user_flips_it`（桌面构建下缺键不进模式、`Some(true)` 进入、繁体输出去重、`Some(false)` 不进）、`chaizi_traditional_forms_match_the_shared_conversion`（表里每个字的繁体列等于 client-core 的 `simplified_to_traditional`）。
