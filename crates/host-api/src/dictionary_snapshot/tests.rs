@@ -1320,6 +1320,33 @@ fn queued_learning_merges_when_idle_keeping_local_rows_and_the_larger_count() {
     );
 }
 
+/// 无效数据不能先覆盖已有队列，再在校验失败时删掉它。
+#[test]
+fn invalid_learning_queue_cannot_remove_an_existing_pending_file() {
+    use sha2::Digest;
+
+    let root = tempfile::tempdir().unwrap();
+    let pending = root.path().join(super::PENDING_LEARNING_NAME);
+    let mut newer = serde_json::json!({
+        "type": "header", "format": "msime-dictionary-snapshot", "version": 1, "revision": 1
+    })
+    .to_string()
+    .into_bytes();
+    newer.push(b'\n');
+    let checksum = hex::encode(super::Sha256::digest(&newer));
+    newer.extend_from_slice(
+        serde_json::json!({"type": "footer", "records": 1, "sha256": checksum})
+            .to_string()
+            .as_bytes(),
+    );
+    newer.push(b'\n');
+    assert!(super::inspect_snapshot_bytes(&newer).is_ok());
+    std::fs::write(&pending, &newer).unwrap();
+
+    assert!(super::publish_learning_queue(&pending, b"invalid snapshot").is_err());
+    assert_eq!(std::fs::read(&pending).unwrap(), newer);
+}
+
 /// 合并期间设置页又排了一份：只删认领的那份，新排的留到下一次。
 #[test]
 fn a_queue_made_while_a_claimed_merge_runs_survives_it() {

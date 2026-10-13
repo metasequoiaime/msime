@@ -299,7 +299,18 @@ pub(crate) fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static
         return Err("invalid snapshot file");
     }
     let file = open_snapshot_file(path).map_err(|_| "snapshot file unavailable")?;
-    let mut reader = BufReader::with_capacity(MAX_SNAPSHOT_LINE_BYTES, file);
+    inspect_snapshot_reader(file)
+}
+
+fn inspect_snapshot_bytes(bytes: &[u8]) -> Result<SnapshotMetadata, &'static str> {
+    if bytes.is_empty() || bytes.len() as u64 > MAX_SNAPSHOT_BYTES {
+        return Err("invalid snapshot file");
+    }
+    inspect_snapshot_reader(bytes)
+}
+
+fn inspect_snapshot_reader(reader: impl io::Read) -> Result<SnapshotMetadata, &'static str> {
+    let mut reader = BufReader::with_capacity(MAX_SNAPSHOT_LINE_BYTES, reader);
     let mut line = Vec::new();
     let mut body_digest = Sha256::new();
     let mut file_digest = Sha256::new();
@@ -861,13 +872,14 @@ pub(crate) fn queue_learning_merge(
     );
     body.push(b'\n');
     let pending = preferences.join(PENDING_LEARNING_NAME);
-    msime_client_core::file_lock::replace_private_file(&pending, &body)
-        .map_err(|_| "snapshot file unavailable")?;
-    if let Err(error) = inspect_snapshot(&pending) {
-        let _ = std::fs::remove_file(&pending);
-        return Err(error);
-    }
+    publish_learning_queue(&pending, &body)?;
     Ok(json!({"queued": true, "learning": learning}))
+}
+
+fn publish_learning_queue(pending: &Path, body: &[u8]) -> Result<(), &'static str> {
+    inspect_snapshot_bytes(body)?;
+    msime_client_core::file_lock::replace_private_file(pending, body)
+        .map_err(|_| "snapshot file unavailable")
 }
 
 /// 有待合并的输入记录（[`queue_learning_merge`]）时把它合并进本机的日志和词库：本机已有的保留本机，选词计数取大（`msime_engine::host::merge_dictionary_state`）；接着用同样的认领方式合并待合并的输入习惯（[`habits::queue_habits_merge`]）。都没有待合并的文件时返回 `{merged:false}`，合并了输入记录返回 `{merged:true, entries, positions, selections, kept, skipped}`；处理过输入习惯时再多一个 `habits` 字段，是 `{merged:true, written, kept, trimmed}`，或失败时的 `{merged:false, error}`。输入记录合并失败时报它的错，输入习惯照样尝试。Android 键盘收起、会话销毁后在空闲时调用（与整份快照激活同一时机，排在它之后），不在建会话前的个人词库同步里做，免得一份大备份拖慢恢复后第一次弹出键盘。

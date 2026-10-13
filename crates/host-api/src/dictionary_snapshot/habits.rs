@@ -11,6 +11,7 @@ use super::{
     BufReader, Digest, EngineOptions, Path, PendingFiles, Sha256, SnapshotReadError, Value,
 };
 use msime_engine::host::{habit_is_storable, LearningHabit};
+use std::io::Read;
 
 pub(crate) const HABITS_FORMAT: &str = "msime-learning-habits";
 const HABITS_VERSION: i64 = 1;
@@ -187,12 +188,11 @@ pub(crate) fn export_learning_habits(
         &mut body,
         &json!({"type": "footer", "records": habits, "sha256": checksum}),
     );
-    msime_client_core::file_lock::replace_private_file(destination, &body)
-        .map_err(|_| "habits file unavailable")?;
-    if inspect_learning_habits(destination)? != habits {
-        let _ = std::fs::remove_file(destination);
+    if inspect_learning_habits_bytes(&body)? != habits {
         return Err("invalid habits document");
     }
+    msime_client_core::file_lock::replace_private_file(destination, &body)
+        .map_err(|_| "habits file unavailable")?;
     Ok(json!({
         "path": destination.to_string_lossy(),
         "habits": habits,
@@ -201,8 +201,8 @@ pub(crate) fn export_learning_habits(
 }
 
 /// 逐行读一份输入习惯文件。迭代给出每一条输入习惯；文件读完时核对 footer 的条数和校验和，对不上就在最后给出一个错误，所以消费者（合并的事务）会整体回滚。
-struct HabitsReader {
-    reader: BufReader<std::fs::File>,
+struct HabitsReader<R: std::io::Read> {
+    reader: BufReader<R>,
     line: Vec<u8>,
     digest: Sha256,
     records: usize,
@@ -217,7 +217,7 @@ enum ReaderState {
     Failed,
 }
 
-impl HabitsReader {
+impl HabitsReader<std::fs::File> {
     fn open(path: &Path) -> Result<Self, &'static str> {
         reject_symlinked_snapshot_path(path)?;
         let file = open_snapshot_file(path).map_err(|_| "habits file unavailable")?;
@@ -228,13 +228,19 @@ impl HabitsReader {
         if length > MAX_HABITS_BYTES {
             return Err("invalid habits file");
         }
-        Ok(Self {
-            reader: BufReader::new(file),
+        Ok(Self::new(file))
+    }
+}
+
+impl<R: std::io::Read> HabitsReader<R> {
+    fn new(reader: R) -> Self {
+        Self {
+            reader: BufReader::new(reader),
             line: Vec::new(),
             digest: Sha256::new(),
             records: 0,
             state: ReaderState::Header,
-        })
+        }
     }
 
     /// 下一行（不含 `\n`）。读到文件尾返回 `Ok(false)`；最后一行没有 `\n`、行过长、空行或以 `\r` 结尾都算坏文件。
@@ -302,7 +308,7 @@ impl HabitsReader {
     }
 }
 
-impl Iterator for HabitsReader {
+impl<R: std::io::Read> Iterator for HabitsReader<R> {
     type Item = Result<LearningHabit, SnapshotReadError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -330,24 +336,38 @@ pub(crate) fn inspect_learning_habits(path: &Path) -> Result<usize, &'static str
     Ok(reader.records)
 }
 
+fn inspect_learning_habits_bytes(bytes: &[u8]) -> Result<usize, &'static str> {
+    if bytes.len() as u64 > MAX_HABITS_BYTES {
+        return Err("invalid habits file");
+    }
+    let mut reader = HabitsReader::new(bytes);
+    while reader.next_habit()?.is_some() {}
+    Ok(reader.records)
+}
+
 /// 把 `source`（本地备份里的输入习惯文件）校验后原样复制成待合并的文件，键盘收起后空闲时由 [`super::merge_pending_learning`] 合并。还没被认领的一份会被替换。返回 `{queued, habits}`：文件里一条也没有时 `queued` 为假，什么也不写。
 pub(crate) fn queue_habits_merge(preferences: &Path, source: &Path) -> Result<Value, &'static str> {
     if !preferences.is_absolute() || !source.is_absolute() {
         return Err("invalid habits path");
     }
-    let habits = inspect_learning_habits(source)?;
-    if habits == 0 {
-        return Ok(json!({"queued": false, "habits": 0}));
-    }
-    let bytes = std::fs::read(source).map_err(|_| "habits file unavailable")?;
-    let pending = preferences.join(HABITS_FILES.pending);
-    msime_client_core::file_lock::replace_private_file(&pending, &bytes)
+    reject_symlinked_snapshot_path(source)?;
+    let file = open_snapshot_file(source).map_err(|_| "habits file unavailable")?;
+    let mut bytes = Vec::new();
+    std::io::Read::take(file, MAX_HABITS_BYTES + 1)
+        .read_to_end(&mut bytes)
         .map_err(|_| "habits file unavailable")?;
-    if inspect_learning_habits(&pending) != Ok(habits) {
-        let _ = std::fs::remove_file(&pending);
-        return Err("invalid habits document");
+    let pending = preferences.join(HABITS_FILES.pending);
+    let habits = publish_habits_queue(&pending, &bytes)?;
+    Ok(json!({"queued": habits > 0, "habits": habits}))
+}
+
+fn publish_habits_queue(pending: &Path, bytes: &[u8]) -> Result<usize, &'static str> {
+    let habits = inspect_learning_habits_bytes(bytes)?;
+    if habits > 0 {
+        msime_client_core::file_lock::replace_private_file(pending, bytes)
+            .map_err(|_| "habits file unavailable")?;
     }
-    Ok(json!({"queued": true, "habits": habits}))
+    Ok(habits)
 }
 
 /// 合并认领下来的输入习惯文件：先完整校验一遍（坏文件报 `invalid habits document`，由调用方直接删掉），再在一个事务里合并。
@@ -370,6 +390,28 @@ pub(crate) fn merge_claimed_habits(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_habits_queue_cannot_remove_an_existing_pending_file() {
+        let root = tempfile::tempdir().unwrap();
+        let pending = root.path().join("pending-habits-merge.ndjson");
+        write(
+            &pending,
+            &[
+                header(),
+                habit_json(&LearningHabit::Bigram {
+                    previous: "synthetic-a".into(),
+                    word: "synthetic-b".into(),
+                    count: 1,
+                }),
+            ],
+        );
+        let newer = std::fs::read(&pending).unwrap();
+        assert_eq!(inspect_learning_habits(&pending), Ok(1));
+
+        assert!(publish_habits_queue(&pending, b"invalid habits").is_err());
+        assert_eq!(std::fs::read(&pending).unwrap(), newer);
+    }
 
     fn write(path: &Path, lines: &[Value]) {
         let mut body = Vec::new();
