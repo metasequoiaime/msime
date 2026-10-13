@@ -36,6 +36,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         english_minimum_prefix: 2,
         mixed_emoji: false,
         mixed_kaomoji: false,
+        mixed_symbols: false,
         mixed_japanese: false,
         local_unicode: true,
         local_date_time: true,

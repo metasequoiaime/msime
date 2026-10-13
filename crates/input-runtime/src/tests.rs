@@ -1633,6 +1633,40 @@ fn mixed_japanese_rows_keep_their_seat_like_english() {
     );
 }
 
+/// 打拼音出符号的符号行和 emoji 行同一个来源（`CandidateSource::Emoji`），有云候选时按 emoji 的座位坐：第一行符号坐 emoji 座位（云候选之后），其余接在本地候选之后。这里锁定现状，免得以后有人只给 emoji 写特例。
+#[test]
+fn symbol_rows_take_the_emoji_seat_when_online_candidates_arrive() {
+    let seated = |words: &[&str], sources: Vec<u8>| {
+        let mut runtime = Runtime::new(
+            Fixture {
+                scheme: 0,
+                local_mode: "none".into(),
+                words: words.iter().map(|word| (*word).into()).collect(),
+                codes: (0..words.len()).map(|n| format!("code-{n}")).collect(),
+                sources,
+                ..Fixture::default()
+            },
+            9,
+        )
+        .unwrap();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime)
+            .view
+            .candidates
+            .into_iter()
+            .map(|candidate| candidate.text)
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        seated(
+            &["平方米", "㎡", "m²", "平方", "云候选"],
+            vec![0, 6, 6, 0, 2]
+        ),
+        vec!["平方米", "云候选", "㎡", "平方", "m²"]
+    );
+}
+
 /// 上屏日文混输行时不做简繁转换；前面暂存着中文词段时，暂存段和日文一起上屏，照旧转换。
 #[test]
 fn committing_a_mixed_japanese_row_skips_script_conversion() {
@@ -3884,6 +3918,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         english_minimum_prefix: 2,
         mixed_emoji: false,
         mixed_kaomoji: false,
+        mixed_symbols: false,
         mixed_japanese: false,
         local_unicode: true,
         local_date_time: true,

@@ -617,6 +617,7 @@ impl HostSession {
         options.english_minimum_prefix = preferences.mixed_input.minimum_prefix;
         options.mixed_emoji = preferences.mixed_input.emoji;
         options.mixed_kaomoji = preferences.mixed_input.kaomoji;
+        options.mixed_symbols = preferences.mixed_input.symbols;
         options.mixed_japanese = preferences.mixed_input.japanese;
         options.local_unicode = preferences.local_modes.unicode;
         options.local_date_time = preferences.local_modes.date_time;
@@ -1639,6 +1640,7 @@ impl HostOptions {
             english_minimum_prefix: self.preferences.mixed_input.minimum_prefix,
             mixed_emoji: self.preferences.mixed_input.emoji,
             mixed_kaomoji: self.preferences.mixed_input.kaomoji,
+            mixed_symbols: self.preferences.mixed_input.symbols,
             mixed_japanese: self.preferences.mixed_input.japanese,
             local_unicode: self.preferences.local_modes.unicode,
             local_date_time: self.preferences.local_modes.date_time,

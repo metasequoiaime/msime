@@ -1983,7 +1983,7 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
         cfg!(any(windows, target_os = "macos"))
     );
     assert_eq!(fs::read(store.path()).unwrap(), bytes);
-    // 只写前四项的旧对象（`japanese` 之前的文档、各宿主自己拼的对象）照样能读，日文混输按关处理。
+    // 只写前四项的旧对象（`japanese` 之前的文档、各宿主自己拼的对象）照样能读，日文混输按关、符号混输按开处理。
     let mut four_fields = legacy.clone();
     four_fields["preferences"]["mixed_input"] = serde_json::json!({
         "english": false,
@@ -2000,16 +2000,18 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
             emoji: true,
             kaomoji: true,
             japanese: false,
+            symbols: true,
         }
     );
     fs::write(store.path(), &bytes).unwrap();
-    for mask in 0..16 {
+    for mask in 0..32 {
         let preferences = Preferences {
             mixed_input: MixedInputPreferences {
                 english: mask & 1 != 0,
                 emoji: mask & 2 != 0,
                 kaomoji: mask & 4 != 0,
                 japanese: mask & 8 != 0,
+                symbols: mask & 16 == 0,
                 minimum_prefix: mask % 8 + 1,
             },
             ..Preferences::default()
@@ -2023,6 +2025,11 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
             written["preferences"]["mixed_input"].get("japanese"),
             (mask & 8 != 0).then_some(&serde_json::Value::Bool(true))
         );
+        // 符号混输反过来：开着（默认）时不写，关掉才写 `false`。
+        assert_eq!(
+            written["preferences"]["mixed_input"].get("symbols"),
+            (mask & 16 != 0).then_some(&serde_json::Value::Bool(false))
+        );
     }
     let saved = store.load().unwrap();
     for value in [0, 9, 255] {
@@ -2034,6 +2041,57 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
         ));
         assert_eq!(store.load().unwrap(), saved);
     }
+}
+
+/// 符号混输是后加的可选成员，默认开：缺键读作开且不写回，关掉才写出 `false`，写成 `true` 的文档再保存时去掉这个键；四个必填成员缺一个照旧整份读不进来。
+#[test]
+fn mixed_input_symbols_default_on_and_are_written_only_when_off() {
+    assert!(MixedInputPreferences::default().symbols);
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    assert_eq!(document["preferences"]["mixed_input"].get("symbols"), None);
+    let mixed = |document: &serde_json::Value| document["preferences"]["mixed_input"].clone();
+
+    document["preferences"]["mixed_input"] = serde_json::json!({
+        "english": true,
+        "minimum_prefix": 5,
+        "emoji": false,
+        "kaomoji": false,
+    });
+    fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+    let loaded = store.load().unwrap();
+    assert!(loaded.preferences.mixed_input.symbols);
+    let saved = store.save(loaded.revision, loaded.preferences).unwrap();
+    let written: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(mixed(&written).get("symbols"), None);
+
+    let mut off = saved.preferences.clone();
+    off.mixed_input.symbols = false;
+    let saved = store.save(saved.revision, off).unwrap();
+    let written: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(mixed(&written)["symbols"], serde_json::Value::Bool(false));
+    assert!(!store.load().unwrap().preferences.mixed_input.symbols);
+    assert_eq!(store.load().unwrap(), saved);
+
+    document["preferences"]["mixed_input"]["symbols"] = serde_json::Value::Bool(true);
+    fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+    let loaded = store.load().unwrap();
+    assert!(loaded.preferences.mixed_input.symbols);
+    store.save(loaded.revision, loaded.preferences).unwrap();
+    let written: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(mixed(&written).get("symbols"), None);
+
+    let mut missing = document.clone();
+    missing["preferences"]["mixed_input"]
+        .as_object_mut()
+        .unwrap()
+        .remove("kaomoji");
+    fs::write(store.path(), serde_json::to_vec(&missing).unwrap()).unwrap();
+    assert!(store.load().is_err());
 }
 
 #[test]

@@ -183,6 +183,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         english_minimum_prefix: 2,
         mixed_emoji: false,
         mixed_kaomoji: false,
+        mixed_symbols: false,
         mixed_japanese: true,
         local_unicode: true,
         local_date_time: true,
@@ -1074,6 +1075,7 @@ fn mixed_input_changes_defer_until_composition_ends() {
             emoji: true,
             kaomoji: true,
             japanese: true,
+            symbols: false,
         },
         ..Preferences::default()
     };
@@ -1086,6 +1088,8 @@ fn mixed_input_changes_defer_until_composition_ends() {
         assert!(!options.mixed_emoji);
         assert!(!options.mixed_kaomoji);
         assert!(!options.mixed_japanese);
+        // 符号混输默认开。
+        assert!(options.mixed_symbols);
     });
     read(msime_client_command(handle, 3));
     SESSIONS.with(|sessions| {
@@ -1095,6 +1099,7 @@ fn mixed_input_changes_defer_until_composition_ends() {
         assert_eq!(options.english_minimum_prefix, 8);
         assert!(options.mixed_emoji && options.mixed_kaomoji);
         assert!(options.mixed_japanese);
+        assert!(!options.mixed_symbols);
     });
     preferences.mixed_input.minimum_prefix = 9;
     assert_eq!(update(handle, 2, &preferences)["ok"], false);
@@ -2239,6 +2244,39 @@ fn glide_request(word: &str) -> String {
     json!({"keys": keys, "key_width": 80.0, "key_height": 120.0, "points": points}).to_string()
 }
 
+/// 共享偏好 `mixed_input.symbols` 决定 Engine 的 `mixed_symbols`：默认开，打 `zhengfu` 时 ± 接在 正负 后面；关掉后（不在组字时立即生效）不再出现。
+#[test]
+fn symbol_candidates_follow_the_mixed_input_preference() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = chinese_preferences();
+    assert!(preferences.mixed_input.symbols);
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    let typed = |handle: u64| {
+        let mut view = Value::Null;
+        for byte in b"zhengfu" {
+            view = read(msime_client_character(handle, *byte, false))["value"]["view"].clone();
+        }
+        view["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|candidate| candidate["text"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+    let texts = typed(handle);
+    assert_eq!(texts[..3], ["政府", "正负", "±"], "{texts:?}");
+    SESSIONS.with(|sessions| assert!(sessions.borrow()[&handle].options.mixed_symbols));
+    read(msime_client_command(handle, 3));
+
+    preferences.mixed_input.symbols = false;
+    assert_eq!(update(handle, 1, &preferences)["ok"], true);
+    let texts = typed(handle);
+    assert!(!texts.contains(&"±".to_owned()), "{texts:?}");
+    SESSIONS.with(|sessions| assert!(!sessions.borrow()[&handle].options.mixed_symbols));
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn a_glide_stroke_composes_through_the_host_boundary() {
     let dir = tempfile::tempdir().unwrap();
@@ -2933,6 +2971,7 @@ fn nine_key_digits_offer_ranked_english_across_the_host_boundary() {
                 emoji: false,
                 kaomoji: false,
                 japanese: false,
+                symbols: false,
             },
             ..chinese_preferences()
         },
@@ -5277,6 +5316,8 @@ fn test_host_with_pinyin_fixture(root: &std::path::Path, preferences: Preference
     let dictionaries = path("dictionaries");
     let fixture = "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
                    INSERT INTO tbl_2_n VALUES('ni''hao','nh','本地',100),('ni''hao','nh','拟好',80);
+                   CREATE TABLE tbl_2_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                   INSERT INTO tbl_2_z VALUES('zheng''fu','zf','政府',100),('zheng''fu','zf','正负',80);
                    CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
                    CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
                    CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);";

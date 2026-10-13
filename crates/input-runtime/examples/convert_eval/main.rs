@@ -204,6 +204,7 @@ fn run(
     options.mixed_english = false;
     options.mixed_emoji = false;
     options.mixed_kaomoji = false;
+    options.mixed_symbols = false;
     options.local_unicode = false;
     options.local_date_time = false;
     options.local_quick_phrase = false;

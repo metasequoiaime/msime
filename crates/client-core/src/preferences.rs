@@ -1773,6 +1773,9 @@ pub struct MixedInputPreferences {
     /// 实验选项：全拼、双拼里给整段罗马字补一个日文转换候选（ohayou → おはよう）。后加的成员，缺省为关；关着时不写进文档，旧版本和只写前四项的宿主都还能读。
     #[serde(default, skip_serializing_if = "is_false")]
     pub japanese: bool,
+    /// 打拼音出符号：全拼、双拼整段打出符号的名称时（`zhengfu`、`pingfangmi`），在候选里接着那个词给出符号（± ㎡）。后加的成员，所有宿主默认开；缺这个键的旧文档读作开，只有用户关掉时才写进文档（`"symbols": false`），开着时文档逐字节不变，旧版本和只写前四项的宿主都还能读。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub symbols: bool,
 }
 
 impl Default for MixedInputPreferences {
@@ -1783,6 +1786,7 @@ impl Default for MixedInputPreferences {
             emoji: source_mixed_emoji_default(),
             kaomoji: false,
             japanese: false,
+            symbols: true,
         }
     }
 }
@@ -2229,6 +2233,10 @@ impl FuzzyPinyinRule {
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
