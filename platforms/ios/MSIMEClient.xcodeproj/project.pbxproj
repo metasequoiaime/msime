@@ -437,6 +437,7 @@
 		7CAD93D5038DBB1FC054219E /* KeyboardSchemePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D4D354FEFD88EABBB73877 /* KeyboardSchemePickerView.swift */; };
 		7CDE8094A882DC9C4352C50A /* EngineResources in Resources */ = {isa = PBXBuildFile; fileRef = 2FED55ACBEABB84672AFC0A6 /* EngineResources */; };
 		7D2FA99D09E90750ABE2A42A /* EnglishSuggestionsPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10FD906BDEA9610C563DF699 /* EnglishSuggestionsPreference.swift */; };
+		7DDFFD711FA55B45823A5C33 /* kfcd-chaizi-CC-BY-3.0.txt in Resources */ = {isa = PBXBuildFile; fileRef = A2E1B5D96DB1F63D223B29ED /* kfcd-chaizi-CC-BY-3.0.txt */; };
 		7E48EECC8AF8CF39819FC1B8 /* JapaneseNineKeyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40DAE364A681391B6815203 /* JapaneseNineKeyView.swift */; };
 		7E58EA69C295A1F01AA3ACF1 /* VoicePolishTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBA6A371C3BE0039DEF90103 /* VoicePolishTests.swift */; };
 		7EB33C5330748EE93BA3A1DB /* MLKit-Dependencies.txt in Resources */ = {isa = PBXBuildFile; fileRef = 0CEF8AF829C71A478389FF85 /* MLKit-Dependencies.txt */; };
@@ -1200,6 +1201,7 @@
 		A1C6E60D1255310204986D04 /* BackendInputModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendInputModifiers.swift; sourceTree = "<group>"; };
 		A1ECCDBA81989927BE56DE03 /* KeyboardChatHistoryPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardChatHistoryPolicyTests.swift; sourceTree = "<group>"; };
 		A2553CFA247A85DED74EC90F /* CloudSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSync.swift; sourceTree = "<group>"; };
+		A2E1B5D96DB1F63D223B29ED /* kfcd-chaizi-CC-BY-3.0.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "kfcd-chaizi-CC-BY-3.0.txt"; sourceTree = "<group>"; };
 		A2FCBDD503ED38EAEC810296 /* CloudSyncStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncStateTests.swift; sourceTree = "<group>"; };
 		A40DAE364A681391B6815203 /* JapaneseNineKeyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JapaneseNineKeyView.swift; sourceTree = "<group>"; };
 		A4EBCD4CEC6E752B1A464B4F /* HandwritingInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandwritingInputView.swift; sourceTree = "<group>"; };
@@ -1669,6 +1671,7 @@
 			isa = PBXGroup;
 			children = (
 				38746D5530F03A00DD492FC6 /* ewts-MIT.txt */,
+				A2E1B5D96DB1F63D223B29ED /* kfcd-chaizi-CC-BY-3.0.txt */,
 				EE141265C7F4C263DED2938C /* libchewing-data-LGPL-2.1.txt */,
 				8C92EC1BE74542186076DE51 /* libhangul-hanja-BSD-3-Clause.txt */,
 				389CD65F926C70D6B3121DC9 /* rime-cantonese-CC-BY-4.0.txt */,
@@ -2637,6 +2640,7 @@
 				48F6B510E00DE89F55C998B4 /* PrivacyInfo.xcprivacy in Resources */,
 				D8AD3CD0BCBBD5862EE79B3A /* VoiceRuntime-NOTICES.txt in Resources */,
 				63E5399F38340FB5BC1D80E3 /* ewts-MIT.txt in Resources */,
+				7DDFFD711FA55B45823A5C33 /* kfcd-chaizi-CC-BY-3.0.txt in Resources */,
 				A59935F2ECE3BD02A941814B /* libchewing-data-LGPL-2.1.txt in Resources */,
 				13A026D923B4DD8B686F9FB8 /* libhangul-hanja-BSD-3-Clause.txt in Resources */,
 				84FD87453189A438FAF20604 /* msime-dictionary-manifest.json in Resources */,

@@ -13,6 +13,7 @@ struct LocalModeSettingsView: View {
     ("super_jianpin", "超级简拼", "按每个字的首字母查词"),
     ("temporary_english", "英文补全", "临时输入英文单词，不离开中文键盘"),
     ("temporary_japanese", "临时日语", "临时用罗马音输入日语"),
+    ("chaizi", "拆字", "输入部件拼音找不会读的字，如 huohuohuo 得 焱"),
   ]
 
   @Environment(\.scenePhase) private var scenePhase

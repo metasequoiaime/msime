@@ -34,6 +34,8 @@ LICENCE_PHRASES = (
 )
 # 每个渠道都要在非注释行写出许可证文件名。
 NOTICE_CHANNELS = {
+    "platforms/ios/project.yml": "iOS: the app's bundled resources",
+    "platforms/ios/tests/settings/ProjectConfigurationTests.py": "iOS: the project configuration test",
     "docs/third-party.md": "the repository's third-party index",
 }
 # 总览写明每份文本覆盖什么，所以还要写出固定提交。
