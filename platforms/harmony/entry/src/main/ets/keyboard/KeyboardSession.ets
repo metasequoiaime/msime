@@ -4104,9 +4104,11 @@ export class KeyboardSession implements HardwareKeyTarget {
         annotation: CandidateGlossPolicy.annotation(
           CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
           TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
+          this.candidateGlossEnabled),
         annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(
           CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
           TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
+          this.candidateGlossEnabled),
         hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
       });
     }
@@ -4165,9 +4167,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       annotation: CandidateGlossPolicy.annotation(
         CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
         TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
+        this.candidateGlossEnabled),
       annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(
         CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
         TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
+        this.candidateGlossEnabled),
       hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
     }));
     const reading: string = KeyboardSession.drawnReading(view);
@@ -6437,9 +6441,11 @@ export class KeyboardSession implements HardwareKeyTarget {
           annotation: CandidateGlossPolicy.annotation(
             CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
             TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
+            this.candidateGlossEnabled),
           annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(
             CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
             TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
+            this.candidateGlossEnabled),
           hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
         });
       }
