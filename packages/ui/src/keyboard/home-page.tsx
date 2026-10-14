@@ -182,6 +182,7 @@ function TouchHomePage({
     void openKeyboard().catch(tryInPage);
   };
   const searchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key !== "Escape" || !query) return;
     event.preventDefault();
     event.stopPropagation();
