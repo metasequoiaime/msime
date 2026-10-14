@@ -190,7 +190,13 @@ export function TryKeyboardPage({
 
   const fieldKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // 聊天页的回车是发送；组字中的回车属于输入法，Shift+回车照常换行。
-    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    if (
+      event.key !== "Enter" ||
+      event.shiftKey ||
+      event.nativeEvent.isComposing ||
+      event.keyCode === 229
+    )
+      return;
     if (!chat) return;
     event.preventDefault();
     void send();

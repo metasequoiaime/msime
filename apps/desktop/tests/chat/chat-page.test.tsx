@@ -6,6 +6,34 @@ import { answerConfirm } from "../support/confirm";
 
 afterEach(cleanup);
 
+test.each(
+  [{ ctrlKey: true }, { metaKey: true }].flatMap((modifier) => [
+    { modifier, name: "组词期间", event: { isComposing: true } },
+    { modifier, name: "组词结束的兼容事件", event: { isComposing: false, keyCode: 229 } },
+  ]),
+)("聊天发送快捷键不截获$name 的回车：$modifier", async ({ modifier, event }) => {
+  const complete = vi.fn<ChatClient["complete"]>(async () => "合成回复");
+  render(<ChatPage client={client({ complete })} />);
+  const field = screen.getByRole("textbox", { name: "聊天消息" }) as HTMLTextAreaElement;
+  fireEvent.change(field, { target: { value: "合成消息" } });
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "发送" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
+
+  expect(fireEvent.keyDown(field, { key: "Enter", ...modifier, ...event })).toBe(true);
+  expect(field.value).toBe("合成消息");
+  expect(complete).not.toHaveBeenCalled();
+  expect(fireEvent.keyDown(field, { key: "Enter", keyCode: 13 })).toBe(true);
+  expect(complete).not.toHaveBeenCalled();
+
+  expect(fireEvent.keyDown(field, { key: "Enter", keyCode: 13, ...modifier })).toBe(false);
+  await screen.findByText("合成回复");
+  expect(complete).toHaveBeenCalledOnce();
+  expect(complete.mock.calls[0]?.[0].at(-1)).toEqual({ role: "user", content: "合成消息" });
+});
+
 function client(overrides: Partial<ChatClient> = {}): ChatClient {
   return {
     models: async () => ({

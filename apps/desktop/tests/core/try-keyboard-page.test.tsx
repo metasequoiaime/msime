@@ -103,6 +103,27 @@ test("composition Enter and Shift+Enter do not send", async () => {
   expect(chat.complete).not.toHaveBeenCalled();
 });
 
+test.each([
+  { name: "组词期间", event: { isComposing: true } },
+  { name: "组词结束的兼容事件", event: { isComposing: false, keyCode: 229 } },
+])("试用键盘不截获$name 的回车", async ({ event }) => {
+  const chat = chatClient({ complete: vi.fn().mockResolvedValue("合成回复") });
+  const { page, field } = renderPage({ chat });
+  type(field, "合成消息");
+
+  expect(fireEvent.keyDown(field, { key: "Enter", ...event })).toBe(true);
+  expect((field as HTMLTextAreaElement).value).toBe("合成消息");
+  expect(chat.complete).not.toHaveBeenCalled();
+
+  expect(fireEvent.keyDown(field, { key: "Enter", keyCode: 13 })).toBe(false);
+  await within(page).findByText("合成回复");
+  expect(chat.complete).toHaveBeenCalledOnce();
+  expect(vi.mocked(chat.complete).mock.calls[0]?.[0].at(-1)).toEqual({
+    role: "user",
+    content: "合成消息",
+  });
+});
+
 test("the conversation sent to the model leaves out the greeting and keeps the earlier turns", async () => {
   const chat = chatClient({
     complete: vi.fn().mockResolvedValueOnce("第一句").mockResolvedValueOnce("第二句"),

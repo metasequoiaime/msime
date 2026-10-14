@@ -14,7 +14,7 @@ Status: implemented
 - 「试用键盘」是共享设置外壳里的一个子页面：`settings-page-registry.ts` 注册 `try-keyboard`，`subPageParents` 把它挂在 `home` 下。它只在触屏宿主上、有首页并且没有 AI 对话时出现（`settingsPageProjections`），不进任何导航分组，不挂共享表单，也没有重新读取。首页的 `TouchHomePage` 在宿主没有 `openKeyboard`、或者 `openKeyboard` 失败时，有对话就切到「对话」标签，没有才调用 `onOpenPage("try-keyboard")`，见 [触屏首页的「试用键盘」切到「对话」标签](2026-10-11-touch-try-keyboard-is-the-chat-tab.md)。HarmonyOS 手机外壳因此自动给它加上返回按钮和推入动画；其他触屏外壳照常显示「‹ 设置」。
 - 页面本身（`packages/ui/src/keyboard/try-keyboard-page.tsx`）照 Android 的试用页做：
   - 第一条是水杉的问候；进页面就在后台加载模型目录，并把焦点交给输入框，系统随即弹出键盘。
-  - 输入框限 2000 字，最多长到 4 行。宿主提供 AI 对话时，回车键显示「发送」，按下就发送；组字中的回车和 Shift+回车不发送。
+  - 输入框限 2000 字，最多长到 4 行。宿主提供 AI 对话时，回车键显示「发送」，按下就发送；组字中的回车和 Shift+回车不发送。组合保护同时判断 `isComposing` 与 `keyCode=229`，覆盖组合结束早于最后一个键盘事件的情况。
   - 发出的消息走宿主已有的 `ChatClient`，开头带一条系统约定，后面是最近 13 条对话。回复按 Markdown 显示：关闭原始 HTML、不渲染图片，链接只有 http、https 和 mailto 交给外部浏览器。
   - 等待回复时发送键变成「停止」，停止后迟到的回复被丢弃。
   - 模型目录没拿到时不在页面上提示；发送时再试一次，仍然失败才在对话里说明原因，未登录时附带「登录后使用 AI」按钮。
@@ -33,6 +33,14 @@ Status: implemented
 
 改成内阴影之后，按同样的步骤（草稿变化、发送、收起键盘）按钮一直是白的。原生 Harmony 分组卡片的分隔线本来就用内阴影画（`account-style.ts`），这里沿用同一个做法。
 
+## 组合输入期间的发送键
+
+`TryKeyboardPage` 的普通回车发送与共享桌面 `ChatPage` 的 `Ctrl/⌘+Enter` 发送，都先判断组合标记。组词确认不调用发送、不清空草稿、不取消输入法的默认行为；只有结束组词后的独立发送动作才提交消息。原来的 `ChatPage` 没有组合判断，`TryKeyboardPage` 只判断 `isComposing`，两种入口都可能提前发送尚未确认的草稿。组合结束边界兼容判断依据 [MDN 的键盘事件说明](https://developer.mozilla.org/en-US/docs/Web/API/Element/keydown_event)。
+
+把判断写到发送函数能集中校验业务状态，但点击发送与键盘组词事件没有相同的触发语义，发送函数也没有事件参数。在两个键盘入口保护组合事件，保留发送按钮的既有明确提交行为。不新增组合开始和结束状态机，避免状态与浏览器原生事件的顺序漂移。
+
+`apps/desktop/tests/chat/chat-page.test.tsx` 覆盖两种快捷键与两种组合标记；试用页覆盖正常组词和兼容事件。旧实现五个用例失败，修复后验证草稿与默认行为保留、客户端不收到组合发送，普通发送仍能得到合成回复。桌面普通回车仍换行，试用页 `Shift+Enter` 仍不发送。
+
 ## Alternatives considered
 
 - **直接用共享的 AI 对话页 `ChatPage`。** 最强的理由是它已经存在：有消息列表和清空，占位文字就是「输入消息，试试键盘」，iOS 的桌面式首页在没有键盘窗口时也是落到它。不用它，是因为它是给桌面窗口设计的表单：有模型下拉、「刷新模型」，「新对话」要弹确认，靠 Ctrl/⌘+回车发送，回车本身不发送，也没有问候和切换输入法、收起键盘这些试用键盘才需要的东西。要把它改成 Android 的样子，就得同时改变桌面 AI 对话页的行为。所以只复用了它的 `ChatClient` 契约和 `chat-history` / `chat-errors` 的上下文上限与错误文案。
@@ -49,3 +57,5 @@ Status: implemented
 - `apps/desktop/tests/core/try-keyboard-page.test.tsx` 覆盖：问候与自动聚焦、没有 AI 对话时的样子、回车发送与 Markdown 回复、组字中的回车、带上下文的第二轮、未登录的说明与登录按钮、停止、清空、2000 字上限、切换按钮的三种文案与动作、收起键盘、回复里的链接。
 - `apps/desktop/tests/core/home-page.test.tsx` 覆盖：首页按钮的路由与 `openKeyboard` 失败时的回退；HarmonyOS 手机外壳推入这一页、隐藏标签栏、返回后标签栏回来。
 - HarmonyOS 6.0.2(22) phone 模拟器上验证过：进页面键盘自动弹出，回车键显示「发送」，用水杉键盘打字后按键盘上的「发送」能发出；未登录时的说明和登录按钮、收起键盘、清空、返回都正常；按钮在上述操作后保持白色。没有登录账号，所以 AI 回复只在单元测试里验证过，没有在设备上验证。
+
+组合发送保护的两份组件测试共 30 项通过，前端类型检查与构建、改动文件 lint 和格式检查、笔记检查、本地 quick 门禁通过。quick 编译 Rust 工作区、Android 目标和 Apple 桥接；Linux 容器、Windows 交叉编译与 HarmonyOS 原生打包因工具链未配置跳过。本次组合事件补丁没有重新做原生设备验收。
