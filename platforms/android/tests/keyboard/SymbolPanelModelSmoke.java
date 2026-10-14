@@ -80,6 +80,21 @@ public final class SymbolPanelModelSmoke {
             "a short suffix shrinks and stays on one line");
         check(SymbolPanelModel.cellTextSizeSp(network, "@protonmail.com") == 11
             && SymbolPanelModel.singleLineCell(network, "@protonmail.com"), "a long suffix shrinks further");
+        check(SymbolPanelModel.cellColumnSpan(network, "@qq.com", 42, 60, 12) == 2,
+            "a suffix gets a wider key even when two columns suffice");
+        check(SymbolPanelModel.cellColumnSpan(network, "@protonmail.com", 112, 40, 12) == 4,
+            "small screens widen long domains according to measured text");
+        check(SymbolPanelModel.cellColumnSpan(network, "@protonmail.com", 112, 0, 12) == 2,
+            "initial layout has a deterministic wide fallback");
+        check(SymbolPanelModel.cellColumnSpan(network, "@protonmail.com", 112, 10, 12) == 5,
+            "span never exceeds the grid");
+        check(SymbolPanelModel.cellColumnSpan(network, "@", 8, 60, 12) == 1,
+            "single symbols keep their compact cells");
+        check(SymbolPanelModel.cellColumnSpan(SymbolPanelModel.categories(List.of()).get(0), "@gmail.com", 80, 60, 12) == 2,
+            "recents use the same wider suffix rule");
+        check(SymbolPanelModel.cellColumnSpan(SymbolPanelModel.categories(List.of()).get(5), "(long face)", 112, 60, 12) == 1,
+            "catalog pagination and kaomoji keep the existing layout");
+
     }
 
     /** #5667：颜文字和 Engine 符号目录接在写死的分类后面。 */

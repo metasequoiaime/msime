@@ -113,6 +113,7 @@ for entry in \
     "ChineseHelpcodeDeviceSmoke|Chinese helpcode acceptance failed" \
     "ChineseHelpcodeOffDeviceSmoke|Chinese helpcode-off Shift letter acceptance failed" \
     "MicrosoftShuangpinDeviceSmoke|Microsoft double-pinyin acceptance failed" \
+    "LongSymbolCellDeviceSmoke|Long symbol cell acceptance failed" \
     "EmailSuffixDeviceSmoke|Email suffix acceptance failed" \
     "NumberRowDeviceSmoke|Number row acceptance failed" \
     "ClipboardImageDeviceSmoke|Clipboard image acceptance failed" \

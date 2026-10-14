@@ -12,7 +12,7 @@ public final class SymbolPanelModel {
     public static final int RECENTS_LIMIT = 30;
     /** 最长的内置条目是「@protonmail.com」这类邮箱后缀（15 个码位）；存储里超长的条目当作损坏丢掉。 */
     public static final int MAX_SYMBOL_CODE_POINTS = 32;
-    /** 不超过这么多码位的条目在五列格里用正常字号；更长的（`http://`、邮箱后缀）缩小字号并单行省略，见 {@link #cellTextSizeSp}。 */
+    /** 不超过这么多码位的条目在五列格里用正常字号；更长的（`http://`、邮箱后缀）缩小字号，并在固定分类里按文字宽度跨列，见 {@link #cellColumnSpan}。 */
     public static final int SHORT_SYMBOL_CODE_POINTS = 4;
     public static final String RECENTS_TITLE = "常用";
     public static final String RECENTS_EMPTY_HINT = "点过的符号会出现在这里";
@@ -113,7 +113,7 @@ public final class SymbolPanelModel {
     }
 
     /**
-     * 符号格里一个条目的字号（sp）：颜文字 14；不超过 {@link #SHORT_SYMBOL_CODE_POINTS} 个码位的 18；更长的在五列格里放不下，9 个码位以内 13，再长 11，并由面板设成单行、放不下时末尾省略，不折行（#6147）。
+     * 符号格里一个条目的字号（sp）：颜文字 14；不超过 {@link #SHORT_SYMBOL_CODE_POINTS} 个码位的 18；更长的条目在 9 个码位以内用 13，再长用 11；固定分类的长条目按实际字宽跨列，保持单行。
      */
     public static float cellTextSizeSp(Category category, String symbol) {
         if (category.kaomoji()) return 14;
@@ -126,6 +126,14 @@ public final class SymbolPanelModel {
     public static boolean singleLineCell(Category category, String symbol) {
         return !category.kaomoji() && symbol != null
             && TextPolicy.codePointLength(symbol) > SHORT_SYMBOL_CODE_POINTS;
+    }
+
+    /** 固定分类里的长条目至少跨两列，再按实际字宽增加跨度；目录分页保持等宽格。 */
+    public static int cellColumnSpan(Category category, String symbol, float textWidth,
+            float columnWidth, float cellInset) {
+        if (category.fromCatalog() || !singleLineCell(category, symbol)) return 1;
+        int measured = columnWidth > 0 ? (int) Math.ceil((textWidth + cellInset) / columnWidth) : 2;
+        return Math.min(category.columns(), Math.max(2, measured));
     }
 
     /** 左列的全部分类：第一个是「常用」，内容就是 `recents`（最近点的在前），然后是写死的分类，最后是 Engine 目录里的分类。 */

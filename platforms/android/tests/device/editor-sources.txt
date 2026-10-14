@@ -15,6 +15,7 @@ platforms/android/tests/device/keyboard/ChineseHelpcodeDeviceSmoke.java
 platforms/android/tests/device/keyboard/ChineseHelpcodeOffDeviceSmoke.java
 platforms/android/tests/device/keyboard/MicrosoftShuangpinDeviceSmoke.java
 platforms/android/tests/device/keyboard/EmailSuffixDeviceSmoke.java
+platforms/android/tests/device/keyboard/LongSymbolCellDeviceSmoke.java
 platforms/android/tests/device/keyboard/NumberRowDeviceSmoke.java
 platforms/android/tests/device/keyboard/CaretCandidatesDeviceSmoke.java
 platforms/android/tests/device/keyboard/HardwareTranslationDeviceSmoke.java

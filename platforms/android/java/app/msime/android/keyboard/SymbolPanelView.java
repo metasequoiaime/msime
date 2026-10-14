@@ -109,6 +109,15 @@ public final class SymbolPanelView extends LinearLayout {
         grid.setColumnCount(SymbolPanelModel.COLUMNS);
         grid.setUseDefaultMargins(false);
         grid.setAlignmentMode(GridLayout.ALIGN_BOUNDS);
+        grid.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (right - left <= 0 || right - left == oldRight - oldLeft) return;
+            SymbolPanelModel.Category category = SymbolPanelModel.categories(this.recents).get(selected);
+            // 长条目按可用宽度重新跨列；目录分页仍沿用原来的行起始索引。
+            if (!category.fromCatalog() && !category.symbols().isEmpty()) {
+                grid.removeAllViews();
+                appendRows(category, category.symbols(), 0);
+            }
+        });
         gridScroll.setVerticalScrollBarEnabled(true);
         gridScroll.setContentDescription("符号网格；每行五个");
         gridScroll.setOnScrollChangeListener((view, scrollX, scrollY, oldX, oldY) -> {
@@ -192,7 +201,7 @@ public final class SymbolPanelView extends LinearLayout {
         SymbolPanelModel.Category current = values.get(category);
         grid.removeAllViews();
         grid.setColumnCount(current.columns());
-        gridScroll.setContentDescription(current.kaomoji() ? "颜文字网格；每行两个" : "符号网格；每行五个");
+        gridScroll.setContentDescription(current.kaomoji() ? "颜文字网格；每行两个" : "符号网格；长条目加宽");
         if (current.fromCatalog()) {
             showHint("正在加载…", current.columns());
             loadNextCatalogPage();
@@ -220,47 +229,58 @@ public final class SymbolPanelView extends LinearLayout {
     /** 把 `symbols` 里从 `from` 起的条目接在网格后面；`from` 必须是整行的开头。 */
     private void appendRows(SymbolPanelModel.Category category, List<String> symbols, int from) {
         int columns = category.columns();
-        for (int start = from; start < symbols.size(); start += columns) {
-            int end = BoundsPolicy.atMost(start + columns, symbols.size());
-            for (int index = start; index < end; index++) {
-                String symbol = symbols.get(index);
-                boolean pairable = PairedPunctuationPolicy.symbolClosing(symbol) != null;
-                boolean remember = category.remembers();
-                Button button = buttons.create(symbol, "符号 " + symbol + (pairable ? "，长按只输入这半个" : ""),
-                    () -> insert(symbol, true, remember), false);
-                // 长按成对符号的前半个只上屏这半个（#5608）；处理了长按，系统会自己给一次长按震动。
-                if (pairable) button.setOnLongClickListener(ignored -> {
-                    insert(symbol, false, remember);
-                    return true;
-                });
-                ViewPolicy.setCenteredKeyTextSizeSp(button, SymbolPanelModel.cellTextSizeSp(category, symbol));
-                // 邮箱后缀这类长条目缩小字号后仍可能放不下，单行省略，不折成两行（#6147）。
-                if (SymbolPanelModel.singleLineCell(category, symbol)) ViewPolicy.setSingleLineEllipsized(button);
-                KeyboardTypographyPolicy.normalizeKeyCap(button);
-                ViewPolicy.clearPadding(button);
-                // 单个符号按实际墨迹居中，逗号和引号不再分别贴着格子的下沿、上沿。
-                if (TextPolicy.codePointLength(symbol) == 1) CenteredGlyphSpan.apply(button, symbol, 1f);
-                GridLayout.Spec row = GridLayout.spec(start / columns);
-                GridLayout.Spec column = GridLayout.spec(index - start, 1f);
-                GridLayout.LayoutParams params = new GridLayout.LayoutParams(row, column);
-                params.width = 0;
-                params.height = DimensionPolicy.pixels(getContext(), 40);
-                int margin = DimensionPolicy.pixels(getContext(), 3);
-                params.setMargins(margin, margin, margin, margin);
-                grid.addView(button, params);
+        int rowIndex = from / columns, columnIndex = 0;
+        float columnWidth = grid.getWidth() / (float) columns;
+        for (int index = from; index < symbols.size(); index++) {
+            String symbol = symbols.get(index);
+            boolean pairable = PairedPunctuationPolicy.symbolClosing(symbol) != null;
+            boolean remember = category.remembers();
+            Button button = buttons.create(symbol, "符号 " + symbol + (pairable ? "，长按只输入这半个" : ""),
+                () -> insert(symbol, true, remember), false);
+            // 长按成对符号的前半个只上屏这半个（#5608）；处理了长按，系统会自己给一次长按震动。
+            if (pairable) button.setOnLongClickListener(ignored -> {
+                insert(symbol, false, remember);
+                return true;
+            });
+            ViewPolicy.setCenteredKeyTextSizeSp(button, SymbolPanelModel.cellTextSizeSp(category, symbol));
+            // 长条目保持单行，跨列提供完整显示所需的宽度。
+            if (SymbolPanelModel.singleLineCell(category, symbol)) ViewPolicy.setSingleLineEllipsized(button);
+            KeyboardTypographyPolicy.normalizeKeyCap(button);
+            ViewPolicy.clearPadding(button);
+            // 单个符号按实际墨迹居中，逗号和引号不再分别贴着格子的下沿、上沿。
+            if (TextPolicy.codePointLength(symbol) == 1) CenteredGlyphSpan.apply(button, symbol, 1f);
+            int span = SymbolPanelModel.cellColumnSpan(category, symbol, button.getPaint().measureText(symbol),
+                columnWidth, DimensionPolicy.pixels(getContext(), 12));
+            if (columnIndex + span > columns) {
+                addGridSpacer(rowIndex, columnIndex, columns - columnIndex);
+                rowIndex++;
+                columnIndex = 0;
             }
-            for (int index = end - start; index < columns; index++) {
-                View spacer = new View(getContext());
-                GridLayout.Spec row = GridLayout.spec(start / columns);
-                GridLayout.Spec column = GridLayout.spec(index, 1f);
-                GridLayout.LayoutParams params = new GridLayout.LayoutParams(row, column);
-                params.width = 0;
-                params.height = DimensionPolicy.pixels(getContext(), 40);
-                int margin = DimensionPolicy.pixels(getContext(), 3);
-                params.setMargins(margin, margin, margin, margin);
-                grid.addView(spacer, params);
+            GridLayout.LayoutParams params = gridCellParams(rowIndex, columnIndex, span);
+            grid.addView(button, params);
+            columnIndex += span;
+            if (columnIndex == columns) {
+                rowIndex++;
+                columnIndex = 0;
             }
         }
+        if (columnIndex > 0) addGridSpacer(rowIndex, columnIndex, columns - columnIndex);
+    }
+
+    private GridLayout.LayoutParams gridCellParams(int row, int column, int span) {
+        GridLayout.LayoutParams params = new GridLayout.LayoutParams(GridLayout.spec(row),
+            GridLayout.spec(column, span, GridLayout.FILL, (float) span));
+        params.width = 0;
+        params.height = DimensionPolicy.pixels(getContext(), 40);
+        int margin = DimensionPolicy.pixels(getContext(), 3);
+        params.setMargins(margin, margin, margin, margin);
+        return params;
+    }
+
+    private void addGridSpacer(int row, int column, int span) {
+        // 目录每格对应一个子视图，分页移除尾行时仍按既有的五格行索引处理。
+        for (int offset = 0; offset < span; offset++)
+            grid.addView(new View(getContext()), gridCellParams(row, column + offset, 1));
     }
 
     /** 当前是目录分类、还没读完、也没有正在读时，读下一页。 */
