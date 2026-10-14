@@ -449,6 +449,7 @@ function AppIconSettingsCard({
 
   useEffect(() => {
     setInfo(null);
+    setPending(null);
     setError("");
     void perform(
       async () => {
