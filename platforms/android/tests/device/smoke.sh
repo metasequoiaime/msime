@@ -9,6 +9,7 @@ settings=false
 handwriting=false
 statistics=false
 core=false
+feedback=false
 for option in "${@:2}"; do
   case "$option" in
     # --core 只做安装、首次启动准备词库和 DeviceSmoke 的打字主路径，给 API 28 这类其余套件驱动不了的旧系统用（见 DeviceSmoke 里的说明）。
@@ -16,7 +17,8 @@ for option in "${@:2}"; do
     --settings) settings=true ;;
     --handwriting) handwriting=true ;;
     --statistics) statistics=true ;;
-    *) echo "usage: smoke.sh [emulator-5580] [--core] [--settings] [--handwriting] [--statistics]" >&2; exit 1 ;;
+    --feedback) feedback=true ;;
+    *) echo "usage: smoke.sh [emulator-5580] [--core] [--settings] [--handwriting] [--statistics] [--feedback]" >&2; exit 1 ;;
   esac
 done
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
@@ -91,6 +93,12 @@ run_instrumentation() {
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "System input acceptance failed" >&2; exit 1; }
+if [[ "$feedback" == true ]]; then
+  # 使用真实反馈页连续输入合成文字，不点击提交；API 28 的 --core 也能单独带上此回归。
+  result=$(run_instrumentation app.msime.android.test/app.msime.android.test.FeedbackInputStabilityDeviceSmoke)
+  printf '%s\n' "$result"
+  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Feedback input stability acceptance failed" >&2; exit 1; }
+fi
 if [[ "$core" == true ]]; then echo "Dedicated Android AVD: install, resource setup and core typing acceptance passed"; exit 0; fi
 # MSIME_DEVICE_SMOKE_SKIP：空格分隔的套件名。这些套件已知失败、正在修（原因写在调用方，见 .github/workflows/android-device.yml），跳过时明确打印出来，不算通过。
 skipped_suites=()

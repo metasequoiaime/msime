@@ -269,6 +269,8 @@ JVM 冒烟只覆盖无 Android 依赖的策略层；焦点、选区、编辑器�
 
 剪贴板编辑从外部应用进入宿主的回归用 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/clipboard-edit.sh emulator-5566`（API 35 换 `emulator-5580`），默认验收已安装的拼音版，完整版在末尾加 `app.msime.android`。它在经典、林绿图标下长按真实历史卡片，检查长记录完整预填、页面保持十五秒、保存后返回外部编辑器、重新插入和取消；最后核对条目时间戳与固定状态，并恢复测试前的历史、偏好、图标、引导状态、系统剪贴板和默认输入法。准备阶段与页面操作分属宿主及独立编辑器 UID，避免宿主 instrumentation 绕过启动条件。
 
+`FeedbackInputStabilityDeviceSmoke` 在真实原生反馈页连续输入 50 次合成拼音短语，每组核对上屏文字、退格和字数计数，再收起并重开键盘；不点击提交，结束后恢复偏好、输入模式与默认输入法。通过 `smoke.sh emulator-5566 --core --feedback`（API 28）或 `smoke.sh emulator-5580 --feedback`（API 35）运行，也可安装原生宿主和 `editor-test.apk` 后单独执行 `adb -s <serial> shell am instrument -w app.msime.android.test/app.msime.android.test.FeedbackInputStabilityDeviceSmoke`。测试失败只输出固定阶段；本地成功不代表已经解释 #7837 的原设备崩溃或连接失败。
+
 ## 两个 APK 入口，不要选错
 
 `platforms/android` 有两个构建脚本，同一个版本的产物**同名同路径**（full 是 `target/android/msime-android.apk`，其他版本是 `target/android/msime-android-<id>.apk`，见上节），装到设备上也是同一个包名，但内容完全不同：

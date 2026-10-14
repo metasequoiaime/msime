@@ -22,4 +22,6 @@ Status: implemented
 
 ## Verification
 
+[反馈页连续输入设备回归](../testing/2026-10-14-android-feedback-input-stability.md)覆盖正常会话的收起重开；原报告版本与故障类别未知，不能用该回归证明 #7837 属于过期启动任务。
+
 `bash platforms/android/check-host.sh`、Android JVM host smoke tests、`git diff --check` 和 `npm run verify-notes` 通过。未在用户的 Redmi Android 16 设备上复现；设备验证需要该 issue 报告者的应用场景或本机 Android 16 模拟器。
