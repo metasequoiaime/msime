@@ -131,6 +131,13 @@ final class ImeCandidates {
         if (glosses.isEmpty() && !management) return false;
         if (management) {
             for (CandidateManagementAction action : CandidateManagementAction.values()) {
+                if (action.confirmationRequired()) {
+                    // 删除收进子菜单，和 iOS 的嵌套 UIMenu 一样：点开「删除词条…」当场展开「确认删除此词条」，
+                    // 一次长按就能删完，不用退出菜单再长按一次，也不弹对话框（#5605、#5653）。
+                    popup.getMenu().addSubMenu(Menu.NONE, Menu.NONE, action.ordinal(), action.title())
+                        .add(Menu.NONE, action.menuItemId(), Menu.NONE, action.confirmationTitle());
+                    continue;
+                }
                 popup.getMenu().add(Menu.NONE, action.menuItemId(), action.ordinal(), action.title());
             }
         }
@@ -147,10 +154,6 @@ final class ImeCandidates {
                 action = CandidateManagementAction.fromMenuItemId(item.getItemId());
             } catch (IllegalArgumentException error) {
                 return false;
-            }
-            if (action.confirmationRequired()) {
-                s.requestCandidateRemoval(id);
-                return true;
             }
             s.editCandidate(id, action);
             return true;

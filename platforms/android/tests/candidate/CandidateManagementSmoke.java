@@ -24,6 +24,9 @@ public final class CandidateManagementSmoke {
         check(CandidateManagementAction.validatePosition(5) == 5);
         check(CandidateManagementAction.REMOVE.confirmationRequired());
         check(!CandidateManagementAction.PROMOTE.confirmationRequired());
+        // 删除的确认收在子菜单里，与 iOS 的「确认删除此词条」同款文字；别的操作没有这一项。
+        check("确认删除此词条".equals(CandidateManagementAction.REMOVE.confirmationTitle()));
+        rejects(CandidateManagementAction.PROMOTE::confirmationTitle);
         rejects(() -> CandidateManagementAction.validatePosition(0));
         rejects(() -> CandidateManagementAction.validatePosition(6));
         rejects(() -> CandidateManagementAction.fromMenuItemId(-1));

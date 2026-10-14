@@ -23,6 +23,15 @@ public enum CandidateManagementAction {
     public boolean confirmationRequired() { return confirmationRequired; }
     public int menuItemId() { return MENU_ITEM_BASE + ordinal(); }
 
+    /**
+     * 确认那一项的文字（收在同一个长按菜单的子菜单里，与 iOS 的嵌套 `UIMenu` 同款）。只有
+     * {@link #REMOVE} 需要确认，别的操作调它是写错了。
+     */
+    public String confirmationTitle() {
+        if (this != REMOVE) throw new IllegalStateException("Action does not require confirmation");
+        return "确认删除此词条";
+    }
+
     public int fixedPosition() {
         if (this != FIX_FIRST) throw new IllegalStateException("Action does not fix a position");
         return 1;

@@ -639,19 +639,19 @@ if rg -A 30 'void (clearClipboardHistory|renderClipboardHistory|renderClipboardI
   echo "Android clipboard panel must not raise dialogs or popup menus from the input method" >&2
   exit 1
 fi
-# 删除候选词的确认走键盘里的两步菜单（CandidateRemovalConfirmation），不弹 AlertDialog：输入法服务没有 Activity 的窗口令牌，对话框要么加不上窗口、让输入法进程崩掉，要么抢走编辑器的窗口焦点，两种情况键盘都会被收起（#5605、#5653）。输入法服务里的确认一律画在键盘里。
+# 删除候选词的确认收在长按菜单的子菜单里（ImeCandidates），与 iOS 的嵌套 UIMenu 一致：点开「删除词条…」当场展开「确认删除此词条」，一次长按删完；不弹 AlertDialog（#5605、#5653：输入法服务没有 Activity 的窗口令牌，对话框要么加不上窗口、让输入法进程崩掉，要么抢走编辑器的窗口焦点，两种情况键盘都会被收起），也不要退出去再长按一次的两步确认。
 if rg -q 'new AlertDialog' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android input method service must not raise AlertDialog; confirm inside the keyboard (#5605, #5653)" >&2
   exit 1
 fi
-# 两步确认的状态机在 CandidateRemovalConfirmation 里，服务只是在 apply/stop 之外原样问它：确认前不能绕过它直接调用 editCandidate(..., REMOVE)。
-if ! rg -A 14 'void requestCandidateRemoval\(' \
-    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
-    | rg_q_stdin 'candidateRemovalConfirmation\.confirms\(' \
-  || ! rg -q 'candidateRemovalConfirmation\.clear\(\);' \
-    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
-  echo "Android candidate removal must confirm through CandidateRemovalConfirmation" >&2
+if ! rg -q 'addSubMenu\(Menu\.NONE, Menu\.NONE, action\.ordinal\(\), action\.title\(\)\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java" \
+  || ! rg -q 'action\.confirmationTitle\(\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java" \
+  || ! rg -q 'String confirmationTitle\(\)' \
+    "$repo_root/platforms/android/java/app/msime/android/candidate/CandidateManagementAction.java"; then
+  echo "Android candidate removal must confirm through the long-press submenu (#7793)" >&2
   exit 1
 fi
 # 「添加到常用语」经常用语存储写入（校验、去重、上限和同步标记都在那里），它要等文件锁，必须放在工作线程上，不能在主线程卡住键盘（#5909）。
