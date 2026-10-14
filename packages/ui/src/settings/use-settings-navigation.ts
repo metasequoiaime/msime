@@ -50,6 +50,7 @@ export function useSettingsNavigation({
   const selectPage = (next: SettingsPageId, replace = false) => {
     if (mobilePlatform && mobileHiddenPageIds.includes(next)) return;
     if (next === page) return;
+    if (page === "account" && next !== "account") setAccountLoginReturnPage(null);
     if (mobilePlatform) mobileLastPageByTab.current[mobileTabForPage(next)] = next;
     setPage(next);
     if (mobilePlatform && typeof window !== "undefined") {
@@ -92,6 +93,7 @@ export function useSettingsNavigation({
     const state = event.state;
     if (state?.msimeSettings !== true || typeof state.page !== "string") return;
     const restored = requestedPage(state.page, availablePages, "input");
+    if (restored !== "account") setAccountLoginReturnPage(null);
     mobileLastPageByTab.current[mobileTabForPage(restored)] = restored;
     setPage(restored);
   });
