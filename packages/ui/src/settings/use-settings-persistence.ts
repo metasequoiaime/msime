@@ -188,7 +188,7 @@ export function useSettingsPersistence({
   useEffect(() => {
     const current = generation.current;
     const loadToken = ++loadTokenRef.current;
-    client
+    const operation = client
       .load()
       .then((value) => {
         if (generation.current !== current || loadTokenRef.current !== loadToken) return;
@@ -202,8 +202,11 @@ export function useSettingsPersistence({
         setLoadFailed(true);
       })
       .finally(() => {
+        if (reloadInFlightRef.current === operation) reloadInFlightRef.current = undefined;
         if (generation.current === current && loadTokenRef.current === loadToken) setBusy(false);
       });
+    // 首次加载也占有重载槽位，回前台或手动刷新时等待这次请求，避免同一宿主重复读取。
+    reloadInFlightRef.current = operation;
   }, [client, generation]);
 
   async function reload() {
