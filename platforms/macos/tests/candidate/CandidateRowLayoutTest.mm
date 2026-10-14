@@ -448,6 +448,31 @@ int main(void)
             assert(hovered.cornerRadius == selected.cornerRadius);
             assert(NSMinX(selected.frame) >= 2.0 * scale.doubleValue / 100.0);
         }
+        // 前一组覆盖到 200% 缩放，首行布局断言使用 100% 的坐标。
+        appearance.candidateScalePercent = 100;
+        // 直接驱动实际展开渲染路径，避免其它快捷键测试的失败遮住布局回归。
+        NSMutableArray *expanded = [NSMutableArray array];
+        for (NSUInteger slot = 0; slot < 9; ++slot)
+            [expanded addObject:@{@"text": @"合成", @"highlighted": @(slot == 0)}];
+        [controller setValue:expanded forKey:@"expandedCandidates"];
+        [controller setValue:@0 forKey:@"expandedCursor"];
+        appearance.vertical = NO;
+        appearance.showsCandidatePageNumber = NO;
+        appearance.showsAppLogo = NO;
+        appearance.showsCandidatePreedit = NO;
+        assert([controller renderExpandedCandidates]);
+        for (NSView *row in panel.contentView.subviews) {
+            assert(![row.identifier isEqual:@"candidate-page-indicator"]);
+            assert(![row.identifier isEqual:@"candidate-collapse"]);
+        }
+        const CGFloat inset = MAX(2.0, [appearance candidateWindowSkinForDark:NO].tokens.pad);
+        assert(std::abs(NSMaxY(CandidateButton(panel.contentView, 0).frame) - (NSHeight(panel.contentView.bounds) - inset)) < .01);
+        appearance.showsCandidatePreedit = YES;
+        assert([controller renderExpandedCandidates]);
+        assert(NSMaxY(CandidateButton(panel.contentView, 0).frame) < NSHeight(panel.contentView.bounds) - inset);
+        appearance.showsCandidatePageNumber = YES;
+        assert([controller renderExpandedCandidates]);
+        assert([CandidateButton(panel.contentView, -3).identifier isEqual:@"candidate-collapse"]);
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
     return 0;
