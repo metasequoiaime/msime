@@ -59,6 +59,11 @@ public final class CandidateTranslationPolicySmoke {
         check(CandidateTranslationPolicy.insertionGlosses("1;2;3;4;5;6;7;8;9;10\n")
                 .equals(List.of("1", "2", "3", "4", "5", "6", "7", "8", "9")),
             "an empty secondary row does not waste a menu slot");
+        check(CandidateTranslationPolicy.sourceGetsNoGloss(6)
+                && CandidateTranslationPolicy.sourceGetsNoGloss(7)
+                && CandidateTranslationPolicy.sourceGetsNoGloss(13)
+                && CandidateTranslationPolicy.sourceGetsNoGloss(14),
+            "all gloss-blocked sources are recognized by the display gate");
         check(!CandidateTranslationPolicy.userTranslationSourceAllowed(6)
                 && !CandidateTranslationPolicy.userTranslationSourceAllowed(7)
                 && !CandidateTranslationPolicy.userTranslationSourceAllowed(13)

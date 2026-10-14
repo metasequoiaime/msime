@@ -120,6 +120,8 @@ final class ImeCandidates {
         if (!s.candidateGlossInsertionEnabled() && !s.candidateManagementEnabled()) return false;
         PopupMenu popup = new PopupMenu(s, button);
         String translation = candidate == null || candidate.isNull("translation")
+            || !CandidateTranslationPolicy.userTranslationSourceAllowed(
+                InputViewValuePolicy.integer(candidate, "source", -1))
             ? "" : JsonPolicy.strictStringOrEmpty(candidate.opt("translation"));
         java.util.List<String> glosses = s.candidateGlossInsertionEnabled()
             ? CandidateTranslationPolicy.insertionGlosses(translation) : java.util.List.of();

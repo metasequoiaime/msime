@@ -2975,7 +2975,9 @@ public final class MSIMEInputService extends InputMethodService {
         java.util.ArrayList<String> words = new java.util.ArrayList<>(candidateCount);
         for (int index = 0; index < candidateCount; index++) {
             JSONObject candidate = entries.optJSONObject(index);
-            if (candidate != null) words.add(InputViewValuePolicy.textOr(candidate, "text", ""));
+            if (candidate == null || !CandidateTranslationPolicy.userTranslationSourceAllowed(
+                    InputViewValuePolicy.integer(candidate, "source", -1))) continue;
+            words.add(InputViewValuePolicy.textOr(candidate, "text", ""));
         }
         verifyCandidateTranslationBinding(generation, same -> {
             if (same != null) {
@@ -3080,7 +3082,9 @@ public final class MSIMEInputService extends InputMethodService {
         java.util.LinkedHashSet<String> texts = new java.util.LinkedHashSet<>(textCapacity);
         for (int index = 0; entries != null && index < BoundsPolicy.atMost(entries.length(), 32); index++) {
             JSONObject candidate = entries.optJSONObject(index);
-            if (candidate != null) texts.add(InputViewValuePolicy.textOr(candidate, "text", ""));
+            if (candidate != null && CandidateTranslationPolicy.userTranslationSourceAllowed(
+                    InputViewValuePolicy.integer(candidate, "source", -1)))
+                texts.add(InputViewValuePolicy.textOr(candidate, "text", ""));
         }
         for (java.util.Map<String, String> glosses : offline.values()) texts.addAll(glosses.keySet());
         boolean account = includeAccount && candidateTranslationAccount && candidateTranslationStore != null
@@ -6798,7 +6802,9 @@ public final class MSIMEInputService extends InputMethodService {
         int slot = eligible ? highlightedCandidateSlot(view) : -1;
         JSONObject candidate = slot < 0 ? null : visibleCandidate(slot);
         java.util.List<String> senses = java.util.List.of();
-        if (eligible && candidate != null && (candidateEnglishGloss || candidateTranslationsEnabled)) {
+        if (eligible && candidate != null && CandidateTranslationPolicy.userTranslationSourceAllowed(
+                InputViewValuePolicy.integer(candidate, "source", -1))
+                && (candidateEnglishGloss || candidateTranslationsEnabled)) {
             String translation = candidate.isNull("translation")
                 ? "" : JsonPolicy.strictStringOrEmpty(candidate.opt("translation"));
             senses = CandidateTranslationPolicy.insertionGlosses(translation);
@@ -6932,13 +6938,21 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     String candidateAnnotation(JSONObject candidate) {
+        String translation = candidateTranslation(candidate);
         if (koreanHanjaRows())
             return CandidateGlossPolicy.hanjaAnnotation(InputViewValuePolicy.textOr(candidate, "annotation", ""),
-                InputViewValuePolicy.textOr(candidate, "translation", ""),
+                translation,
                 candidateEnglishGloss || candidateTranslationsEnabled);
         return CandidateGlossPolicy.annotation(InputViewValuePolicy.textOr(candidate, "annotation", ""),
-            InputViewValuePolicy.textOr(candidate, "translation", ""),
+            translation,
             candidateEnglishGloss || candidateTranslationsEnabled);
+    }
+
+    /** 候选释义禁止来源即使因同词候选合并拿到译文，也不能在 Android 的候选条、读屏或菜单里出现。 */
+    private static String candidateTranslation(JSONObject candidate) {
+        if (candidate == null || !CandidateTranslationPolicy.userTranslationSourceAllowed(
+                InputViewValuePolicy.integer(candidate, "source", -1))) return "";
+        return InputViewValuePolicy.textOr(candidate, "translation", "");
     }
 
     private String wubiCodeHint(JSONObject candidate, JSONObject context, String typed) {
@@ -6952,17 +6966,17 @@ public final class MSIMEInputService extends InputMethodService {
         String hint = wubiCodeHint(candidate, view, typed);
         if (hint.isEmpty()) return candidateAnnotation(candidate);
         // 五笔剩余编码和双拼辅助码一样占提示位，释义跟在同一行后面，不再被它挤掉（#6997）。
-        return CandidateGlossPolicy.annotation(hint, InputViewValuePolicy.textOr(candidate, "translation", ""),
+        return CandidateGlossPolicy.annotation(hint, candidateTranslation(candidate),
             candidateEnglishGloss || candidateTranslationsEnabled);
     }
 
     String candidateAccessibilitySuffix(JSONObject candidate) {
         if (koreanHanjaRows())
             return CandidateGlossPolicy.hanjaAccessibilitySuffix(InputViewValuePolicy.textOr(candidate, "annotation", ""),
-                InputViewValuePolicy.textOr(candidate, "translation", ""),
+                candidateTranslation(candidate),
                 candidateEnglishGloss || candidateTranslationsEnabled);
         return CandidateGlossPolicy.accessibilitySuffix(InputViewValuePolicy.textOr(candidate, "annotation", ""),
-            InputViewValuePolicy.textOr(candidate, "translation", ""),
+            candidateTranslation(candidate),
             candidateEnglishGloss || candidateTranslationsEnabled);
     }
 
@@ -6970,7 +6984,7 @@ public final class MSIMEInputService extends InputMethodService {
         String hint = wubiCodeHint(candidate, view, typed);
         return hint.isEmpty() ? candidateAccessibilitySuffix(candidate)
             : "，还需输入 " + hint + CandidateGlossPolicy.glossAccessibilitySuffix(
-                InputViewValuePolicy.textOr(candidate, "translation", ""),
+                candidateTranslation(candidate),
                 candidateEnglishGloss || candidateTranslationsEnabled);
     }
 

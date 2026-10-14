@@ -112,9 +112,14 @@ public final class CandidateTranslationPolicy {
         return CandidateTranslationRoute.NONE;
     }
 
+    /** 与共享层的 source_gets_no_gloss 保持一致：这些来源既不请求也不显示候选释义。 */
+    public static boolean sourceGetsNoGloss(int source) {
+        return source == 6 || source == 7 || source == 13 || source == 14;
+    }
+
     /** 与共享层的 source_gets_no_gloss 保持一致：表情、颜文字、日文混输和插件候选不送用户翻译服务。 */
     public static boolean userTranslationSourceAllowed(int source) {
-        return source != 6 && source != 7 && source != 13 && source != 14;
+        return !sourceGetsNoGloss(source);
     }
 
     /** 与共享层 `translation::usable_credential` 相同：去掉首尾空白后不为空，不是 `<...>` 这样的占位符，也不以 `FAKESECRET_` 开头。 */
