@@ -161,10 +161,8 @@ pub fn load(state_dir: &Path, request: &LogRequest) -> Result<LogView, String> {
     }
     let matching = select(&text, request);
     let has_more = matching.len() > limit;
-    let lines = matching[matching.len().saturating_sub(limit)..]
-        .iter()
-        .map(|line| redact(line))
-        .collect();
+    let keep_from = matching.len().saturating_sub(limit);
+    let lines = matching.into_iter().skip(keep_from).collect();
     let tsf_enabled = cfg!(windows) && switches.tsf;
     let hint = if !switches.server && !tsf_enabled {
         Some("The diagnostic log is off. Turn it on with set_diagnostic_log, ask the user to do again what went wrong, then read the log again.".to_owned())
@@ -216,8 +214,8 @@ fn read_tail(path: &Path) -> Result<Option<String>, String> {
     Ok(Some(String::from_utf8_lossy(slice).into_owned()))
 }
 
-/// The non-empty lines of `text` that match `request`, oldest first.
-fn select<'a>(text: &'a str, request: &LogRequest) -> Vec<&'a str> {
+/// 按时间和脱敏后的内容筛选非空日志行，按时间从旧到新返回。
+fn select(text: &str, request: &LogRequest) -> Vec<String> {
     let needle = request.contains.as_deref().map(str::to_ascii_lowercase);
     let mut in_window = request.since.is_none();
     text.lines()
@@ -229,6 +227,7 @@ fn select<'a>(text: &'a str, request: &LogRequest) -> Vec<&'a str> {
             }
             in_window
         })
+        .map(redact)
         .filter(|line| {
             needle
                 .as_deref()
@@ -329,6 +328,19 @@ mod tests {
         assert!(!valid_since("2026-09"));
         assert!(!valid_since("yesterday"));
         assert!(!valid_since("2026-09-25 10:00:00.000"));
+    }
+
+    #[test]
+    fn log_filter_cannot_match_redacted_key_values() {
+        let text = "2026-09-25 10:00:00 [p1] vk=0x41 wch=U+0061 key=a key_class=letter\n";
+
+        for private_field in ["vk=0x41", "wch=U+0061", "key=a"] {
+            assert!(select(text, &request(None, Some(private_field), None)).is_empty());
+        }
+        assert_eq!(
+            select(text, &request(None, Some("key=-"), None)),
+            ["2026-09-25 10:00:00 [p1] vk=- wch=- key=- key_class=letter"]
+        );
     }
 
     #[test]

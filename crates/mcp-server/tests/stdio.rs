@@ -539,6 +539,23 @@ async fn an_agent_turns_on_and_reads_the_diagnostic_log() {
     )
     .await;
     assert_eq!(view["lines"].as_array().unwrap().len(), 1);
+    for private_field in ["vk=0x41", "wch=U+0061", "key=a"] {
+        let view = ok(
+            &client,
+            "read_diagnostic_log",
+            json!({ "contains": private_field, "lines": 1 }),
+        )
+        .await;
+        assert_eq!(view["lines"], json!([]), "{private_field}");
+        assert_eq!(view["has_more"], false, "{private_field}");
+    }
+    let view = ok(
+        &client,
+        "read_diagnostic_log",
+        json!({ "contains": "key=-" }),
+    )
+    .await;
+    assert_eq!(view["lines"].as_array().unwrap().len(), 1);
     assert!(!refused(
         &client,
         "read_diagnostic_log",
