@@ -10,7 +10,8 @@ use std::time::Duration;
 
 use msime_engine::host::{HelpcodeKeymap, SharedKeymap};
 use msime_engine::ordering::{
-    rerank_pick, rotate_to_front, runner_up_order, OrderRow, Reranker, SentenceModel,
+    rerank_pick, rotate_to_front, runner_up_order, OrderRow, Reranker, ScoredOrderRows,
+    SentenceModel,
 };
 use msime_engine::time::Instant;
 use msime_engine::{
@@ -965,12 +966,17 @@ impl WebHost {
         if use_model {
             if let Some(reranker) = self.reranker.as_mut() {
                 ran_model = true;
+                let evidence: Vec<_> = snapshot
+                    .candidates
+                    .iter()
+                    .map(|item| item.static_evidence())
+                    .collect();
                 if let Some(promote) = rerank_pick(
                     reranker,
                     &self.context,
                     scheme,
                     snapshot.answered_by_pinyin_fallback,
-                    &rows,
+                    &ScoredOrderRows::new(&rows, &evidence),
                 ) {
                     rotate_to_front(&mut order, promote);
                 }

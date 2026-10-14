@@ -776,6 +776,27 @@ pub struct WordItem {
 }
 
 impl WordItem {
+    /// 只把真实词网格整句的分交给独立模型；字典权重和其它来源没有同一计分单位。
+    pub fn static_evidence(&self) -> Option<crate::ordering::StaticEvidence> {
+        if !self.sentence_association
+            || !matches!(
+                self.source,
+                CandidateSource::Generated | CandidateSource::NeuralKeyboard
+            )
+            || self.canonical_pinyin.is_empty()
+            || self.word.is_empty()
+        {
+            return None;
+        }
+        let syllables = self.canonical_pinyin.split('\'').count();
+        let bonus =
+            (crate::lattice::decode::PHRASE_LENGTH_BONUS * 1000.0 * syllables as f64) as i64;
+        Some(crate::ordering::StaticEvidence {
+            log_prob_milli_nats: self.weight.saturating_sub(bonus),
+            characters: self.word.chars().count(),
+        })
+    }
+
     pub fn new(
         pinyin: impl Into<String>,
         word: impl Into<String>,
@@ -1430,7 +1451,7 @@ impl Default for PersonalDictionaryEntry {
 
 #[cfg(test)]
 mod tests {
-    use super::{CandidateSource, SchemeSet, SchemeType};
+    use super::{CandidateSource, SchemeSet, SchemeType, WordItem};
 
     /// 线上的来源编号按值往返；10 空着（原 `NeuralDesktop`，未发布就删了）。日文混输行（13）不属于任何谓词：上屏走整段结束组字的路，不学习，不坐在线座位。
     #[test]
@@ -2052,5 +2073,27 @@ mod tests {
             SchemeType::Tibetan,
         ])
         .reads_main_dictionary());
+    }
+
+    #[test]
+    fn lattice_static_evidence_removes_syllable_bonus_and_counts_unicode_characters() {
+        let mut item = WordItem::new("xian", "西安", 36000, CandidateSource::Generated, "xi'an");
+        assert_eq!(item.static_evidence(), None);
+        item.sentence_association = true;
+        let expected = Some(crate::ordering::StaticEvidence {
+            log_prob_milli_nats: -4000,
+            characters: 2,
+        });
+        assert_eq!(item.static_evidence(), expected);
+        item.source = CandidateSource::NeuralKeyboard;
+        assert_eq!(item.static_evidence(), expected);
+        item.source = CandidateSource::Database;
+        assert_eq!(item.static_evidence(), None);
+        item.source = CandidateSource::Generated;
+        item.canonical_pinyin.clear();
+        assert_eq!(item.static_evidence(), None);
+        item.canonical_pinyin = "xi'an".into();
+        item.word.clear();
+        assert_eq!(item.static_evidence(), None);
     }
 }

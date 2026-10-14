@@ -8024,6 +8024,8 @@ mod online_slot_allocations;
 
 mod parallel_order_allocations;
 
+mod static_evidence;
+
 mod online_slot_order_equivalence;
 
 mod translation_reply_allocations;

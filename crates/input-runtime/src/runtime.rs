@@ -219,6 +219,7 @@ fn order_rows(snapshot: &EngineSnapshot) -> ParallelOrderRows<'_> {
         &snapshot.candidate_answers_key,
         &snapshot.candidate_corrected,
     )
+    .with_static_evidence(&snapshot.candidate_static_evidence)
 }
 
 impl Runtime<Session> {
@@ -590,6 +591,9 @@ impl<E: InputEngine> Runtime<E> {
             snapshot.candidate_positions.swap(left, right);
             snapshot.candidate_corrected.swap(left, right);
             snapshot.candidate_answers_key.swap(left, right);
+            if snapshot.candidate_static_evidence.len() == order.len() {
+                snapshot.candidate_static_evidence.swap(left, right);
+            }
             engine_order.swap(left, right);
         });
     }
@@ -1899,7 +1903,7 @@ impl<E: InputEngine> Runtime<E> {
         {
             return false;
         }
-        // 方案、五笔表码和上文窗口的判断都在 `rerank_pick` 里，这里只负责把八个并行数组同步旋转。
+        // 方案、五笔表码和上文窗口的判断都在 `rerank_pick` 里，这里同步旋转候选元数据和引擎座位映射。
         let rows = order_rows(snapshot);
         let Some(promote) = rerank_pick(
             reranker,
@@ -1919,13 +1923,16 @@ impl<E: InputEngine> Runtime<E> {
         rotate_to_front(&mut snapshot.candidate_positions, promote);
         rotate_to_front(&mut snapshot.candidate_corrected, promote);
         rotate_to_front(&mut snapshot.candidate_answers_key, promote);
+        if snapshot.candidate_static_evidence.len() == count {
+            rotate_to_front(&mut snapshot.candidate_static_evidence, promote);
+        }
         rotate_to_front(&mut self.engine_order, promote);
         true
     }
 
-    /// Keep the leading sentence readings together near the top and move the rest of them behind the list.
+    /// 将领先的整句读法保持在顶部附近，其余读法移到列表末尾。
     ///
-    /// 规则本身（保留几条整句读法、哪些算整句、为什么挪而不删）见 `msime_engine::ordering::runner_up_order`；这里只把它给出的排列同步应用到八个并行数组上。
+    /// 规则本身（保留几条整句读法、哪些算整句、为什么挪而不删）见 `msime_engine::ordering::runner_up_order`；这里只把排列同步应用到候选元数据和引擎座位映射上。
     pub(crate) fn demote_runner_up_readings(&mut self) -> bool {
         if !self.cached.conversion.is_empty() {
             return false;
@@ -1987,6 +1994,7 @@ impl<E: InputEngine> Runtime<E> {
                     candidate_positions: Vec::new(),
                     candidate_corrected: Vec::new(),
                     candidate_answers_key: Vec::new(),
+                    candidate_static_evidence: Vec::new(),
                     candidate_list_open: false,
                     microsoft_shuangpin: false,
                     shuangpin_profile: String::new(),
@@ -2031,6 +2039,7 @@ impl<E: InputEngine> Runtime<E> {
             && self.cached.candidate_positions == previous.candidate_positions
             && self.cached.candidate_corrected == previous.candidate_corrected
             && self.cached.candidate_answers_key == previous.candidate_answers_key
+            && self.cached.candidate_static_evidence == previous.candidate_static_evidence
             && self.cached.conversion == previous.conversion
             && self.cached.conversion_focus_start == previous.conversion_focus_start
         {

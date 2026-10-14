@@ -58,7 +58,7 @@ pub enum Command {
     ConversionRight = 14,
 }
 
-/// Every `candidate_*` vector has `candidates.len()` elements; the runtime's reorderings require it.
+/// 除可选的静态评分证据外，所有 `candidate_*` 向量必须与 `candidates` 等长，运行时才能同步重排。
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EngineSnapshot {
     pub local_mode: String,
@@ -99,6 +99,8 @@ pub struct EngineSnapshot {
     pub candidate_positions: Vec<u8>,
     pub candidate_corrected: Vec<bool>,
     pub candidate_answers_key: Vec<bool>,
+    /// 与候选同步排列的词网格逐字评分证据；非词网格行为空，证据缺失或长度不符时沿用原模型决策。
+    pub candidate_static_evidence: Vec<Option<crate::ordering::StaticEvidence>>,
     /// The scheme's openable candidate list is showing (the Korean Hanja list, the Zhuyin conversion list); candidates are its rows while it is.
     pub candidate_list_open: bool,
     /// 整句改字时改好的整句，否则为空（`SessionSnapshot::conversion`）。
@@ -241,6 +243,7 @@ impl Session {
             candidate_positions: Vec::with_capacity(count),
             candidate_corrected: Vec::with_capacity(count),
             candidate_answers_key: Vec::with_capacity(count),
+            candidate_static_evidence: Vec::with_capacity(count),
             candidate_list_open: value.candidate_list_open,
             conversion: value.conversion,
             conversion_focus_start: value.conversion_focus.0,
@@ -298,6 +301,9 @@ impl Session {
                     .copied()
                     .unwrap_or(false),
             );
+            output
+                .candidate_static_evidence
+                .push(candidate.static_evidence());
             output.candidate_codes.push(candidate.pinyin);
             output.candidates.push(candidate.word);
         }

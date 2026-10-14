@@ -1,6 +1,6 @@
 //! 候选排序的唯一实现：句子模型重排、整句次选读法的后移，以及交给重排器的上文窗口。
 //!
-//! 这里只做决策，不碰候选数组：`rerank_pick` 返回应移到首位的下标，`runner_up_order` 返回一个排列（新座位 -> 旧座位）。`msime-input-runtime` 把结果同步应用到它的八个并行数组上，网页引擎（`msime-engine-wasm`）也调用同一组函数，两处的排序因此不会各自漂移。
+//! 这里只做决策，不碰候选数组：`rerank_pick` 返回应移到首位的下标，`runner_up_order` 返回一个排列（新座位 -> 旧座位）。`msime-input-runtime` 把结果同步应用到候选元数据和引擎座位映射上，网页引擎（`msime-engine-wasm`）也调用同一组函数，两处的排序因此不会各自漂移。
 
 use crate::SchemeType;
 
@@ -126,10 +126,29 @@ pub struct OrderRow<'a> {
     pub corrected: bool,
 }
 
+/// 词网格的自然对数总分，去掉共同的音节奖励；保留整数毫 nat 与字数避免快照丢失精度。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StaticEvidence {
+    pub log_prob_milli_nats: i64,
+    pub characters: usize,
+}
+
+impl StaticEvidence {
+    fn mean(self) -> Option<f64> {
+        (self.characters > 0)
+            .then(|| self.log_prob_milli_nats as f64 / 1000.0 / self.characters as f64)
+    }
+}
+
 /// 排序决策读取的候选行来源。连续的 `OrderRow` 数组和快照里的并行数组都可以实现它。
 pub trait OrderRowSource<'a> {
     fn len(&self) -> usize;
     fn get(&self, index: usize) -> OrderRow<'a>;
+
+    /// 没有静态证据的调用方继续使用原模型决策，不从来源或行位置猜一个分数。
+    fn static_evidence(&self, _index: usize) -> Option<StaticEvidence> {
+        None
+    }
 
     fn is_empty(&self) -> bool {
         self.len() == 0
@@ -166,12 +185,40 @@ impl<'a, const N: usize> OrderRowSource<'a> for [OrderRow<'a>; N] {
     }
 }
 
+/// 为已有候选行附上可选的静态证据；长度不一致时整份证据失效。
+pub struct ScoredOrderRows<'s, R: ?Sized> {
+    rows: &'s R,
+    evidence: &'s [Option<StaticEvidence>],
+}
+
+impl<'s, R: ?Sized> ScoredOrderRows<'s, R> {
+    pub fn new(rows: &'s R, evidence: &'s [Option<StaticEvidence>]) -> Self {
+        Self { rows, evidence }
+    }
+}
+
+impl<'a, R: OrderRowSource<'a> + ?Sized> OrderRowSource<'a> for ScoredOrderRows<'_, R> {
+    fn len(&self) -> usize {
+        self.rows.len()
+    }
+    fn get(&self, index: usize) -> OrderRow<'a> {
+        self.rows.get(index)
+    }
+    fn static_evidence(&self, index: usize) -> Option<StaticEvidence> {
+        if self.evidence.len() != self.rows.len() {
+            return None;
+        }
+        self.evidence.get(index).copied().flatten()
+    }
+}
+
 /// 借用快照里的并行候选数组，避免排序前复制一份行数组。
 pub struct ParallelOrderRows<'a> {
     texts: &'a [String],
     sources: &'a [u8],
     answers_key: &'a [bool],
     corrected: &'a [bool],
+    static_evidence: Option<&'a [Option<StaticEvidence>]>,
 }
 
 impl<'a> ParallelOrderRows<'a> {
@@ -186,13 +233,23 @@ impl<'a> ParallelOrderRows<'a> {
             sources,
             answers_key,
             corrected,
+            static_evidence: None,
         }
+    }
+
+    pub fn with_static_evidence(mut self, evidence: &'a [Option<StaticEvidence>]) -> Self {
+        self.static_evidence = (evidence.len() == self.texts.len()).then_some(evidence);
+        self
     }
 }
 
 impl<'a> OrderRowSource<'a> for ParallelOrderRows<'a> {
     fn len(&self) -> usize {
         self.texts.len()
+    }
+
+    fn static_evidence(&self, index: usize) -> Option<StaticEvidence> {
+        self.static_evidence?.get(index).copied().flatten()
     }
 
     fn get(&self, index: usize) -> OrderRow<'a> {
@@ -258,6 +315,33 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
         .unwrap_or(0);
     let context = rerank_context(context, reranker.model().context_length(), longest);
     with_row_texts(rows, |texts| {
+        let leader = rows.get(0);
+        let trusted_leader = DICTIONARY_SOURCES.contains(&leader.source) && !corrected_key;
+        if !trusted_leader && answers_key(leader) && rows.static_evidence(0).is_some() {
+            let considered: Vec<usize> = (0..rows.len())
+                .filter(|&index| answers_key(rows.get(index)))
+                .take(9)
+                .collect();
+            let statik: Option<Vec<f64>> = considered
+                .iter()
+                .map(|&index| rows.static_evidence(index)?.mean())
+                .collect();
+            if let Some(statik) = statik.filter(|_| considered.len() >= 2) {
+                let subset: Vec<&str> = considered.iter().map(|&index| texts[index]).collect();
+                let neural = reranker.log_probabilities(context, &subset);
+                if neural.len() == statik.len() {
+                    // 模型逐字分与词网格逐字分等权混合，两侧均为自然对数。
+                    let combined = |index: usize| (statik[index] + f64::from(neural[index])) * 0.5;
+                    let mut best = 0;
+                    for index in 1..considered.len() {
+                        if combined(index) > combined(best) {
+                            best = index;
+                        }
+                    }
+                    return (best != 0).then(|| considered[best]);
+                }
+            }
+        }
         reranker.best_where(context, texts, |index| CandidateFacts {
             answers_key: answers_key(rows.get(index)),
             trusted_dictionary_hit: DICTIONARY_SOURCES.contains(&rows.get(index).source)

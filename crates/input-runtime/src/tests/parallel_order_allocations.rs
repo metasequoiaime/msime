@@ -51,7 +51,7 @@ fn parallel_candidate_order_uses_one_cycle_buffer() {
             .all(|(_, _, count, bytes, allocation_budget, budget)| {
                 count <= allocation_budget && bytes <= budget
             }),
-        "八个并行数组只应共用一份循环访问缓冲: {measurements:?}"
+        "候选元数据和引擎座位映射只应共用一份循环访问缓冲: {measurements:?}"
     );
 }
 
@@ -62,6 +62,14 @@ fn parallel_candidate_order_keeps_all_metadata_and_composes_engine_seats() {
         runtime.focus(true).unwrap();
         type_key(&mut runtime);
         // 使用不同的合成字段值，避免不变的布尔或来源掩盖漏交换。
+        runtime.cached.candidate_static_evidence = (0..rows)
+            .map(|row| {
+                (row % 2 == 0).then_some(msime_engine::ordering::StaticEvidence {
+                    log_prob_milli_nats: -(row as i64),
+                    characters: row + 1,
+                })
+            })
+            .collect();
         for row in 0..rows {
             runtime.cached.candidate_sources[row] = (row % 14) as u8;
             runtime.cached.candidate_positions[row] = (row % 256) as u8;
@@ -105,6 +113,10 @@ fn parallel_candidate_order_keeps_all_metadata_and_composes_engine_seats() {
             assert_eq!(
                 runtime.cached.candidate_answers_key[seat],
                 original.candidate_answers_key[row]
+            );
+            assert_eq!(
+                runtime.cached.candidate_static_evidence[seat],
+                original.candidate_static_evidence[row]
             );
         }
         let identity: Vec<usize> = (0..rows).collect();
