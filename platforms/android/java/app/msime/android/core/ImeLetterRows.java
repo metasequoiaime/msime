@@ -478,9 +478,16 @@ final class ImeLetterRows {
         return drawnTouchLayout < 0 ? s.displayedTouchLayout(s.view) : drawnTouchLayout;
     }
 
+    private boolean builtLanguageNumberSwap;
+
+    boolean languageNumberSwapStale() {
+        return builtLanguageNumberSwap != s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
+    }
+
     void rebuildKeyRows() {
         if (s.keyRows == null) return;
         drawnTouchLayout = s.displayedTouchLayout(s.view);
+        builtLanguageNumberSwap = s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
         builtLayerPunctuation = null;
         builtLetterLayout = -1;
         koreanKeyButtons.clear();

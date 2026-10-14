@@ -74,6 +74,8 @@ public final class AndroidLocalSettingsSmoke {
         check(!settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT), "height is not explicit by default");
         check(!settings.bool(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY), "overlay default");
         check("warn".equals(settings.choice(AndroidLocalSettings.DEVELOPER_LOG_LEVEL)), "log level default");
+        check(!settings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS), "language/number swap defaults off");
+        check(!AndroidLocalSettings.spec(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS).synced, "key swap stays local");
         check(!settings.bool(AndroidLocalSettings.NUMBER_ROW), "number row is off by default");
         check(!AndroidLocalSettings.spec(AndroidLocalSettings.NUMBER_ROW).synced, "number row stays on this device");
         check(!settings.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG), "input log default");

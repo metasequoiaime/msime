@@ -144,6 +144,20 @@ public final class KeyboardActionRow {
         return List.copyOf(entries);
     }
 
+    /** 可选交换语言键与数字键，键的宽度跟随动作，其它键顺序不变。 */
+    public static List<DesignEntry> designEntries(int touchLayout, boolean globe, boolean swapLanguageNumber) {
+        List<DesignEntry> entries = designEntries(touchLayout, globe);
+        if (!swapLanguageNumber || entries.isEmpty()) return entries;
+        List<DesignEntry> swapped = new ArrayList<>(entries);
+        int layer = -1, language = -1;
+        for (int index = 0; index < swapped.size(); index++) {
+            if (swapped.get(index).slot() == DesignSlot.LAYER) layer = index;
+            if (swapped.get(index).slot() == DesignSlot.LANGUAGE) language = index;
+        }
+        if (layer >= 0 && language >= 0) java.util.Collections.swap(swapped, layer, language);
+        return List.copyOf(swapped);
+    }
+
     /**
      * 紧挨在中/英右边的回车让给中/英的那几 dp。两键之间拿不准的按下算成中/英：误按中/英，再按一下就回来了；误按回车，消息就发出去了。回车约是中/英的两倍宽，让出这一点不影响正常按它。鸿蒙的 `KeyboardGeometry.RETURN_YIELD_VP` 与 iOS 的 `KeyGapRouting.returnYield` 是同一个值。
      */

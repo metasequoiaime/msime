@@ -8675,7 +8675,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 拼音九键和九键双拼之间换了、或九键双拼换了表：同一个触屏布局，按新键面重建。
         if (imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()
                 || imeLetterRows.layerPunctuationStale() || imeLetterRows.numberRowStale()
-                || imeLayoutRows.shuangpinStale())
+                || imeLayoutRows.shuangpinStale() || imeLetterRows.languageNumberSwapStale())
             imeLetterRows.rebuildKeyRows();
         updateSymbolKeyFaces();
         updateLetterCornerHints();

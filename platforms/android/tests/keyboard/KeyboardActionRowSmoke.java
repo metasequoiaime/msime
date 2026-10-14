@@ -27,6 +27,27 @@ public final class KeyboardActionRowSmoke {
         check(nineKey.get(nineKey.size() - 2).slot() == KeyboardActionRow.DesignSlot.LANGUAGE
                 && nineKey.get(nineKey.size() - 1).slot() == KeyboardActionRow.DesignSlot.RETURN,
             "中/英 sits right before return on the nine-key row too");
+        // 各普通底行交换动作与宽度，地球和其它按键顺序保持，回车不向数字入口让位。
+        for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT,
+                KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.KOREAN_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT,
+                KeyboardLayout.STROKE_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT}) {
+            for (boolean globe : new boolean[] {false, true}) {
+                List<KeyboardActionRow.DesignEntry> original = KeyboardActionRow.designEntries(layout, globe);
+                List<KeyboardActionRow.DesignEntry> swapped = KeyboardActionRow.designEntries(layout, globe, true);
+                check(swapped.size() == original.size(), "swap preserves key count");
+                check(swapped.get(0).equals(new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LANGUAGE,
+                    KeyboardActionRow.DESIGN_LANGUAGE_WEIGHT)), "language starts swapped row with its width");
+                check(swapped.get(swapped.size() - 2).equals(new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LAYER,
+                    KeyboardActionRow.DESIGN_LAYER_WEIGHT)), "number entry takes language position with its width");
+                for (int index = 1; index < original.size(); index++) {
+                    if (original.get(index).slot() != KeyboardActionRow.DesignSlot.LANGUAGE)
+                        check(swapped.get(index).equals(original.get(index)), "other keys keep position and width");
+                }
+                check(!KeyboardActionRow.languageBesideReturn(swapped), "return does not yield to numeric entry");
+                check(KeyboardActionRow.designEntries(layout, globe, false).equals(original), "off restores default");
+            }
+        }
+
         // 中/英紧挨回车的两种底行，回车都把键帽左边让给中/英；没有底行时不让。
         check(KeyboardActionRow.languageBesideReturn(design)
                 && KeyboardActionRow.languageBesideReturn(withGlobe)

@@ -86,6 +86,9 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         layout.toggle("英文自动大写", "按输入框要求自动大写句首、单词首字母或全部字母；默认关闭，需要大写时按 Shift",
             settings.bool(AndroidLocalSettings.AUTO_CAPITALIZATION),
             checked -> saveLocalSetting(AndroidLocalSettings.AUTO_CAPITALIZATION, checked));
+        layout.toggle("交换语言键与数字键", "语言键放到左侧，数字键移到原语言键位置；英文和外语键盘一起调整",
+            settings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS),
+            checked -> saveLocalSetting(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS, checked));
         KeyboardScheme[] pair = layoutPair(current);
         boolean pairOffered = pair != null;
         if (pair != null) for (KeyboardScheme choice : pair) pairOffered &= choice.offeredBy(edition);

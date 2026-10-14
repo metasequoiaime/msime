@@ -102,6 +102,7 @@ for entry in \
     "LetterHintPunctuationDeviceSmoke|Letter hint punctuation acceptance failed" \
     "PreferencesDeviceSmoke|Preferences acceptance failed" \
     "ThemeModeDeviceSmoke|Theme mode acceptance failed" \
+    "LanguageNumberKeySwapDeviceSmoke|Language/number key swap acceptance failed" \
     "KeyboardHeightDeviceSmoke|Keyboard height acceptance failed" \
     "FuzzyPinyinDeviceSmoke|Fuzzy pinyin acceptance failed" \
     "CandidateGlossDeviceSmoke|Candidate gloss acceptance failed" \

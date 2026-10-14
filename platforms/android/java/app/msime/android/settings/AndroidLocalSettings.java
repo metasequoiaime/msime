@@ -63,6 +63,8 @@ public final class AndroidLocalSettings {
     public static final String GLIDE_TYPING = "platform.android.glide_typing";
     /** 中英键按「中 → 英 → 已启用的其他语言键盘 → 中」轮换（{@link LanguageKeyCyclePolicy}，#6648），默认关，关着时只切中英。服务端的同步字段表还没有这个键，所以先只在本机。 */
     public static final String LANGUAGE_KEY_CYCLE = "platform.android.language_key_cycle";
+    /** 交换语言键与数字层入口，英语和外语键盘一并使用，默认关闭，只在本机保存。 */
+    public static final String SWAP_LANGUAGE_NUMBER_KEYS = "platform.android.swap_language_number_keys";
     /** 英文是否按编辑器标记自动大写，默认关闭，只在本机保存；手动 Shift 不受影响。 */
     public static final String AUTO_CAPITALIZATION = "platform.android.auto_capitalization";
     /** 剪贴板面板一行排几条（{@link ClipboardLayoutPolicy}）：`one` 单列、`two` 双列，默认单列。同步字段表里没有这个键，只在本机。 */
@@ -188,6 +190,7 @@ public final class AndroidLocalSettings {
         bool(VOICE_CONTRIBUTE_AUDIO, false, false);
         bool(GLIDE_TYPING, false, false);
         bool(LANGUAGE_KEY_CYCLE, false, false);
+        bool(SWAP_LANGUAGE_NUMBER_KEYS, false, false);
         bool(AUTO_CAPITALIZATION, false, false);
         choice(CLIPBOARD_COLUMNS, ClipboardLayoutPolicy.ONE_COLUMN, false,
             ClipboardLayoutPolicy.ONE_COLUMN, ClipboardLayoutPolicy.TWO_COLUMNS);

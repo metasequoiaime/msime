@@ -339,10 +339,11 @@ final class ImeBottomRow {
         // relayout the user can see. The row only changes when the surface does.
         // 分离时空格拆成两半、空隙按可见键居中，所以常用标点键显示与否也会改变排布。
         boolean split = !ownBottom && s.splitKeyboardDrawn();
-        String signature = layout + ":" + globe + ":" + ownBottom + ":" + split
+        boolean swapLanguageNumber = s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
+        String signature = layout + ":" + globe + ":" + ownBottom + ":" + split + ":" + swapLanguageNumber
             + (split && s.quickPunctuationButton != null ? ":" + s.quickPunctuationButton.getVisibility() : "");
         java.util.List<KeyboardActionRow.DesignEntry> entries = ownBottom ? java.util.List.of()
-            : KeyboardActionRow.designEntries(layout, globe);
+            : KeyboardActionRow.designEntries(layout, globe, swapLanguageNumber);
         // Visibility is re-asserted every time: the reply surface hides this row and restores it
         // without the surface itself having changed.
         ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());
