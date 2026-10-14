@@ -11,6 +11,7 @@ import {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  window.history.replaceState({}, "");
 });
 
 function makeActions(overrides: Partial<OnboardingActions> = {}): OnboardingActions {
