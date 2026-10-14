@@ -6,6 +6,8 @@ Status: implemented
 
 #6675：Linux 0.11.0 的 IBus 宿主在 Ubuntu 上两天崩溃 65 次，全部是 `std::terminate: nlohmann::json_abi_v3_11_2::detail::type_error 306`（`cannot use value() with null`）。
 
+#7694 再次报告 Linux 0.11.0 的同类异常，最新样本使用 nlohmann 3.11.3。`306` 能确定是对非对象调用 `value()`，GLib 主循环中的栈也符合未捕获的回调异常；但报告没有可匹配的 ELF Build ID，检查过的官方 0.11.0 `.deb`、`.rpm` 与报告偏移不匹配，不能只凭异常码断言它一定来自输入模式提示。已有辅助函数单测和静态检查缺少真实宿主回调验证，也没有覆盖对象销毁后的超时。
+
 `show_input_mode_hint()` 在焦点进入和中英切换时显示「中」/「英」，并注册 1.2 秒后收起提示的 `g_timeout_add_full` 回调。回调要判断用户是否已经开始组字，直接对 `State::view` 调了 `value("editing_text", ...)` 和 `value("candidates", ...)`。`State::view` 在会话打开之前是 JSON null，`State::close()` 也会把它置回 null，而 `close()` 之后的 `open()` 在被拦截的输入框（密码、PIN、数字）、英文模式或词库维护期间会直接返回、不建会话。于是「焦点进入普通输入框，1.2 秒内同一上下文的 `content_type` 改成密码框」这样的顺序就会让回调读到 null 视图。nlohmann 的 `value(key, default)` 只在对象缺键时回退默认值，对 null 直接抛异常；按键、焦点这些入口包在 `guarded()` 里，异常会被吞掉并重置会话，而 glib 定时器回调外面没有任何东西，异常一路冒到 `entrypoints/ibus_main.cpp` 的 `std::set_terminate`，进程 abort。
 
 `scripts/test-linux-rendered-view-guard.py` 已经为同样生命周期的 `rendered_view` 建了静态检查，但它只看 `rendered_view`，`view` 没有任何检查。
@@ -15,6 +17,7 @@ Status: implemented
 - 组字判断收进 `platforms/linux/src/core/ViewComposition.h` 的 `view_is_composing()`：不是对象、键缺失或类型不对一律回答「没有组字」，用 `find()` 读取，不会抛异常。输入模式提示的回调改用它。null 视图意味着会话已经不在，没有候选页码需要保护，收起提示是对的行为。
 - 候选右键提示（1.5 秒）的回调同样没有 `guarded()`，在读 `s.view.value("generation", ...)` 之前补上 `s.view.is_object()`。按现有不变量（`session` 非零时 `view` 一定是对象，回调已先检查同一会话）它目前到不了 null，但这个保证来自条件求值顺序和别处的不变量，补一个判断比依赖它们稳。
 - 新增 `scripts/test-linux-glib-callback-view-guard.py`：对每个以 lambda 注册的 `g_timeout_add*` / `g_idle_add*` 回调体，要求其中对 `s.view` / `state(...).view` 的 `value(` / `at(` 读取之前出现过 `s.view.is_object()`，或者位于回调体内的 `guarded(...)` 调用之中。它在修复前的源码上报出三处（输入模式提示两处、候选右键提示一处），修复后通过。
+- `platforms/linux/tests/runtime/mode_hint_lifecycle.cpp` 在私有 D-Bus 上实例化真实 IBus 宿主，走原生焦点与输入框属性入口，并实际运行 GLib 主循环。英文模式不创建 Engine 会话，因此不依赖词库；三个独立 ctest 用例分别覆盖 null 视图提示收起、提示等待中切到密码框执行 `close()`、提示等待中销毁上下文。提示收起后再获得焦点，确认宿主继续响应；销毁后不得再向辅助区域发信号。这些用例无条件进入 `BUILD_TESTING`，普通 Linux 容器门禁就会执行。
 
 ### 同类回调的排查结果
 
@@ -34,15 +37,19 @@ Fcitx5 插件的 `view_` 默认是 `Json::object()`、重置时也回到空对�
 - **把整个回调体包进 `guarded()`**：issue 提出的方案之一，最强的理由是一次兜住回调里所有可能的异常。但 `guarded()` 的兜底是 `close()` + `clear()` + `publish_mode()`：为了一次「收起提示」的判断失败去关掉会话、清掉组字，比跳过这次判断代价大得多；而且它把「视图可能是 null」这个可预见的状态当成异常处理。
 - **让 `view` 永远是对象（像 Fcitx5 那样默认 `Json::object()`，`close()` 置空对象）**：从根上消掉这类异常。但 IBus 宿主里已有代码用 `view.is_object()` 区分「有没有 Engine 视图」，例如 `voice_commit_context()` 在英文模式下靠它改取宿主自己的方案；改不变量要逐处重审几十处读取的语义，风险远大于这次修复本身。
 - **只在回调里写 `s.view.is_object() && (...)`**：与 issue 的建议一致，也能修好。没有直接这么写，是因为同样的判断需要一个不依赖 IBus 的单测来钉住，抽成头文件里的小函数才能在 `platforms/linux/tests` 下直接测。
+- **把时序用例加进需要词库的 `engine_smoke.cpp`**：能复用现有候选和 D-Bus 观察器，也能覆盖中文组字；但 `MSIME_ENGINE_RESOURCES` 未配置时普通编译门禁不注册它。英文模式本身就能稳定产生 null 视图，所以独立的无词库原生用例可以让每次门禁都覆盖超时路径，候选组字判断仍由原有辅助函数单测覆盖。
 
 ## Consequences
 
 收益：输入模式提示和候选右键提示的定时器不会再因为会话在等待期间被关掉而让宿主 abort；新增的静态检查会拦住以后在 glib lambda 回调里新增的未经判断的视图读取。
 
-代价与缺口：静态检查只看以 lambda 注册的回调体本身，不跟进它调用的函数，也不覆盖以命名函数注册的回调；这两类仍靠评审和上面的排查结论。时序本身（焦点进入后 1.2 秒内会话被关掉）需要真实的 IBus 会话才能端到端复现，本地门禁没有这一层，单测只覆盖判断函数在 null 视图上的行为。
+代价与缺口：静态检查只看以 lambda 注册的回调体本身，不跟进它调用的函数，也不覆盖以命名函数注册的回调；这两类仍靠评审和上面的排查结论。原生用例运行真实 IBus 对象、私有 D-Bus 和定时器，每项增加约 1.5 秒；它覆盖无会话与销毁时序，不依赖桌面 daemon、真实编辑器或中文词库。#7694 的具体栈归属仍需匹配崩溃设备的 Build ID 与符号，不能把这组回归测试等同于线上栈已符号化。
 
 ## Verification
 
 - `platforms/linux/tests/core/view_composition.cpp`（ctest `linux-view-composition`）：先断言 null 视图上的 `value("editing_text", ...)` 抛 `type_error` 306（即崩溃前提），再断言 `view_is_composing()` 在 null、非对象、空视图、字段类型不对时都返回 false 且不抛，在编辑串或候选非空时返回 true。
 - `scripts/test-linux-glib-callback-view-guard.py` 在修复前的 `ClientEngine.cpp` 上报出三处并以非零退出，修复后通过。
 - `bash platforms/linux/build-container.sh` 在容器里编译 IBus engine、Fcitx5 插件与全部单测并跑 ctest。
+- 原生 ctest `ibus-mode-hint-english`、`ibus-mode-hint-blocked`、`ibus-mode-hint-destroyed` 通过私有 D-Bus 观察提示显示与隐藏，并等待比提示晚到的 GLib 哨兵确认超时获得执行机会。
+- 反向验证只把输入模式提示回调的组字判断临时恢复为旧的两次 `s.view.value()` 读取：英文与密码框两项都在真实 GLib 超时执行时返回非零，输出 `[json.exception.type_error.306] cannot use value() with null`。恢复现有判断并重新构建后，三项全部通过。测试入口捕获异常以报告失败，生产入口没有这层捕获，因而同样的异常会进入 `std::terminate`。
+- `bash platforms/linux/build-container.sh` 在本次改动上退出 0，86 项测试全部通过，包含三项无词库回调用例；同时完成五笔版构建与安装路径隔离检查。
