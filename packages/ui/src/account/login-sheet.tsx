@@ -42,7 +42,9 @@ export function BottomSheet({
     return () => {
       if (
         opener?.isConnected &&
-        (!document.activeElement || document.activeElement === document.body)
+        (!document.activeElement ||
+          document.activeElement === document.body ||
+          dialog.current?.contains(document.activeElement))
       )
         opener.focus();
     };
