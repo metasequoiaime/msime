@@ -16,6 +16,8 @@ Status: implemented
 
 [反馈页连续输入](../../implemented/testing/2026-10-14-android-feedback-input-stability.md)部分重叠，保留真实反馈页验证及禁止盲目重放的决定。[原生诊断包上传](../../implemented/bug-fix/2026-10-14-android-diagnostics-native-bundle-upload.md)处理日志运输，本篇处理宿主失败原因被丢弃，双方互链。[恢复已取消的启动](../../implemented/bug-fix/2026-10-14-android-resume-cancelled-engine-startup.md)不变，分类不会改变恢复条件。
 
+后续实现见[本地诊断包失败类别](2026-10-14-android-input-failure-local-export.md)，将固定类别保留在本地 ZIP，同时按服务端白名单过滤上传。
+
 ## Alternatives considered
 
 - 直接把 Throwable 与堆栈交给现有 `ImeLog.e`：不用定义类别，定位最详细；但 JSON 异常可能包含组字原文，不能作为输入路径默认日志。
