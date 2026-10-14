@@ -1,5 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.msime.android.test" android:versionCode="1" android:versionName="1">
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
+    <instrumentation android:name="app.msime.android.test.HostIconPreparation" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.PinyinHostIconPreparation" android:targetPackage="app.msime.android.pinyin" />
+    <instrumentation android:name="app.msime.android.test.HostLaunchDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.DeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.CandidatePanelDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.MoreToolsDeviceSmoke" android:targetPackage="app.msime.android.test" />

@@ -263,6 +263,8 @@ Android 账号设置中的云词库现通过同一认证会话访问 HTTPS API�
 
 JVM 冒烟只覆盖无 Android 依赖的策略层；焦点、选区、编辑器动作和进程生命周期由下面「专用模拟器验收」一节的 instrumentation 覆盖。React 设置页的 Android 合包与验证见下文。
 
+图标与键盘页面入口另用 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/host-launch.sh emulator-5566`（API 35 换 `emulator-5580`）验收已安装的原生宿主；拼音版在末尾加 `app.msime.android.pinyin`。它逐一切换五种图标，检查真实宿主保持启用且只有一个 launcher，从独立编辑器 UID 实际点击设置、词库、反馈、关于，并保持设置页可见十五秒以覆盖组件变更的延迟广播。准备阶段和外部页面验收分开运行，结束后恢复原图标、首次引导标志、默认输入法及临时禁用的系统键盘。该回归可在 API 28 上单独执行，不受 `smoke.sh --core` 跳过其他面板套件的影响。
+
 ## 两个 APK 入口，不要选错
 
 `platforms/android` 有两个构建脚本，同一个版本的产物**同名同路径**（full 是 `target/android/msime-android.apk`，其他版本是 `target/android/msime-android-<id>.apk`，见上节），装到设备上也是同一个包名，但内容完全不同：

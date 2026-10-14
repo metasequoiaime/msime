@@ -85,6 +85,7 @@ public final class HomeActivity extends AppCompatActivity {
         ThreadPolicy.namedDaemonFactory("msime-home-theme"));
 
     @Override protected void onCreate(Bundle state) {
+        app.msime.android.LauncherIcons.normalize(this);
         AppMode.restore(this);
         String cached = AppThemeController.cachedSeason(this);
         if (cached != null) drawnSeason = cached;

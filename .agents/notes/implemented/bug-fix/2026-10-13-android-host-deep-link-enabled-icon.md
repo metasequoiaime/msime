@@ -26,3 +26,5 @@ Status: implemented
 ## Verification
 
 修复前真机的林绿别名启用、HomeActivity 禁用，直接启动 HomeActivity 返回组件不存在，键盘设置提示 ActivityNotFoundException。修复后 `scripts/verify-local.sh --quick`（含 Android 宿主 JVM 冒烟）通过；签名 APK 覆盖安装到 Android 12 真机。在保持林绿图标的情况下，从键盘功能面板点击「设置」实际打开宿主设置 tab，不再出现异常。其他图标和所有定向页面没有逐项真机验证。
+
+后续[图标只切别名、宿主始终启用](2026-10-14-android-launcher-alias-target-enabled.md)部分取代组件状态前提：经当前 launcher 深链启动的决定保留，经典入口改为独立别名，并协调旧版禁用的真实宿主，补上延迟广播按真实 Activity 关闭页面的问题。

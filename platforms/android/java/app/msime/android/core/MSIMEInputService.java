@@ -1412,6 +1412,7 @@ public final class MSIMEInputService extends InputMethodService {
             theme = getResources().getIdentifier("Theme.MSIME.InputMethod", "style", "app.msime.android");
         if (theme != 0) setTheme(theme);
         super.onCreate();
+        LauncherIcons.normalize(this);
         hardwareKeyboardAttached = hardwareKeyboardAttached(getResources().getConfiguration());
         productName = getApplicationInfo().loadLabel(getPackageManager()).toString();
         // 偏好要等引擎准备好才读到；先按上次换上的皮肤画，免得每次弹出键盘都先闪一两秒内置的淡绿配色。

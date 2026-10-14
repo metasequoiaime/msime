@@ -94,6 +94,9 @@ platforms/android/java/app/msime/android/statistics/TypingStatisticsDocument.jav
 platforms/android/java/app/msime/android/statistics/TypingStatisticsModel.java
 platforms/android/java/app/msime/android/voice/BackendTranslationClient.java
 platforms/android/tests/device/settings/OptionSheetDeviceSmoke.java
-
 platforms/android/tests/device/keyboard/InitialKeyboardRowDeviceSmoke.java
 platforms/android/tests/device/keyboard/LanguageNumberKeySwapDeviceSmoke.java
+
+platforms/android/tests/device/settings/HostIconPreparation.java
+platforms/android/tests/device/settings/PinyinHostIconPreparation.java
+platforms/android/tests/device/settings/HostLaunchDeviceSmoke.java

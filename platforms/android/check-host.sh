@@ -1085,7 +1085,7 @@ echo "Compiled ${#device_sources[@]} Android device-suite sources"
 # those needs the library's own resources, which is Gradle's job. Compiling still catches a malformed
 # drawable, layout or values file, which is what this step was for.
 "$android_sdk/build-tools/35.0.0/aapt2" compile --dir "$repo_root/platforms/android/res" -o "$output_dir/resources.zip"
-for alias in MainActivityForest MainActivitySky MainActivityDusk MainActivityVermilion; do
+for alias in MainActivityClassic MainActivityForest MainActivitySky MainActivityDusk MainActivityVermilion; do
   if ! rg -q "android:name=\"\\.${alias}\"" "$repo_root/platforms/android/AndroidManifest.xml"; then
     echo "Android app icon alias missing: $alias" >&2
     exit 1
