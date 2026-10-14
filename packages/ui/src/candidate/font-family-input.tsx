@@ -73,6 +73,7 @@ export function FontFamilyInput({
           show();
         }}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Escape") {
             event.preventDefault();
             setOpen(false);
