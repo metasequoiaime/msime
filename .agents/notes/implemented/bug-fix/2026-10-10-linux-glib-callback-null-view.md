@@ -53,3 +53,4 @@ Fcitx5 插件的 `view_` 默认是 `Json::object()`、重置时也回到空对�
 - 原生 ctest `ibus-mode-hint-english`、`ibus-mode-hint-blocked`、`ibus-mode-hint-destroyed` 通过私有 D-Bus 观察提示显示与隐藏，并等待比提示晚到的 GLib 哨兵确认超时获得执行机会。
 - 反向验证只把输入模式提示回调的组字判断临时恢复为旧的两次 `s.view.value()` 读取：英文与密码框两项都在真实 GLib 超时执行时返回非零，输出 `[json.exception.type_error.306] cannot use value() with null`。恢复现有判断并重新构建后，三项全部通过。测试入口捕获异常以报告失败，生产入口没有这层捕获，因而同样的异常会进入 `std::terminate`。
 - `bash platforms/linux/build-container.sh` 在本次改动上退出 0，86 项测试全部通过，包含三项无词库回调用例；同时完成五笔版构建与安装路径隔离检查。
+- 继续核对官方 0.11.0 完整版 x86_64 便携包：归档 SHA-256 为 `18fffff4f75ddfadd0ac523cb0f2c5ae327b540c549674dda43ae034973b1365`，其中 IBus ELF SHA-256 为 `78da578f6727ee1570ed6dd6c2a3511bb91bf9b8fc2173389da77027a00524e8`，GNU Build ID 为 `d7cd00c86d8880de32523fb324a9f4036a39a7bc`。按完整 `.text` 指令边界反汇编，报告偏移 `0x12c0e`、`0x9ff9e`、`0x2ce13` 均落在指令内部，不能作为该 ELF 的正常回溯返回地址。因此便携包也不匹配，不用它的地址映射冒充线上符号化。
