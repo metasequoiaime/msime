@@ -1,7 +1,7 @@
-import { useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { AccountClient, AccountUser } from "./account-page";
 
-/** Shared browser-login waiting state and stale-result guard for account surfaces. */
+/** 账号页面共用的浏览器登录等待状态和迟到结果守卫。 */
 export function useAccountGoogleLogin({
   client,
   mounted,
@@ -17,10 +17,13 @@ export function useAccountGoogleLogin({
   const [waiting, setWaiting] = useState(false);
   const waitingRef = useRef(false);
 
-  const resetWaiting = () => {
+  const resetWaiting = useCallback(() => {
     waitingRef.current = false;
     setWaiting(false);
-  };
+  }, []);
+
+  // 旧客户端的取消仍由消费者清理调用；新客户端提交后才清除等待标记。
+  useEffect(resetWaiting, [client, resetWaiting]);
 
   const cancel = () => {
     if (!waitingRef.current || !client.googleCancel) return;
@@ -45,5 +48,5 @@ export function useAccountGoogleLogin({
     return { user: result.user, generation };
   };
 
-  return { waiting, resetWaiting, cancel, signIn };
+  return { waiting, cancel, signIn };
 }
