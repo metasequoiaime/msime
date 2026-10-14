@@ -11,6 +11,8 @@ use crate::types::autocorrect_type;
 pub const TRANSPOSITION_WEIGHT: i32 = 10;
 pub const DELETION_WEIGHT: i32 = 11;
 pub const INSERTION_WEIGHT: i32 = 12;
+/// A repeated adjacent key is a common physical-keyboard slip and should win over a generic extra-letter correction.
+pub const REPEATED_INSERTION_WEIGHT: i32 = 10;
 pub const NEIGHBOR_WEIGHT: i32 = 13;
 pub const MAX_AUTOCORRECT_EDGES: usize = 3;
 pub const MAX_AUTOCORRECT_INPUT_LENGTH: usize = 64;
@@ -223,6 +225,29 @@ fn min_enabled_correction_weight(enabled_bits: u32) -> i32 {
     .unwrap_or(i32::MAX)
 }
 
+/// Returns whether `wrong` is `correct` with one adjacent letter repeated.
+fn is_repeated_insertion(wrong: &str, correct: &str) -> bool {
+    let wrong = wrong.as_bytes();
+    let correct = correct.as_bytes();
+    if wrong.len() != correct.len() + 1 {
+        return false;
+    }
+    (0..=correct.len()).any(|position| {
+        wrong[..position] == correct[..position]
+            && wrong[position + 1..] == correct[position..]
+            && ((position > 0 && wrong[position] == correct[position - 1])
+                || (position < correct.len() && wrong[position] == correct[position]))
+    })
+}
+
+fn correction_weight(wrong: &str, correct: &str, enabled_bits: u32) -> i32 {
+    if enabled_bits & autocorrect_type::INSERTION != 0 && is_repeated_insertion(wrong, correct) {
+        REPEATED_INSERTION_WEIGHT
+    } else {
+        min_enabled_correction_weight(enabled_bits)
+    }
+}
+
 /// Wrong key to its targets (QU:599-637). The tables are merged in weight order (transposition, deletion, insertion, neighbour), so each target list is weight-sorted with row order breaking ties; a pair two tables share ORs its bits.
 fn correction_index() -> &'static HashMap<&'static str, Vec<CorrectionTarget>> {
     static INDEX: OnceLock<HashMap<&'static str, Vec<CorrectionTarget>>> = OnceLock::new();
@@ -419,10 +444,10 @@ pub fn autocorrect_cut_kbest(
                 search.extend(length, start, raw_length, syllable, false, 0);
                 continue;
             }
-            let Some(targets) = std::str::from_utf8(piece)
-                .ok()
-                .and_then(|piece| index.get(piece))
-            else {
+            let Some(piece_text) = std::str::from_utf8(piece).ok() else {
+                continue;
+            };
+            let Some(targets) = index.get(piece_text) else {
                 continue;
             };
             for target in targets {
@@ -436,7 +461,7 @@ pub fn autocorrect_cut_kbest(
                     raw_length,
                     target.syllable,
                     true,
-                    min_enabled_correction_weight(enabled_bits),
+                    correction_weight(piece_text, target.syllable, enabled_bits),
                 );
             }
         }
@@ -743,6 +768,21 @@ mod tests {
         assert_eq!(syllables[..2], ["shan", "zhan"]);
     }
 
+    #[test]
+    fn repeated_adjacent_keys_get_the_dedicated_insertion_weight() {
+        assert!(is_repeated_insertion("shanng", "shang"));
+        assert!(is_repeated_insertion("shangg", "shang"));
+        assert!(!is_repeated_insertion("shabg", "shang"));
+        assert_eq!(
+            correction_weight("shanng", "shang", INSERTION | DELETION),
+            REPEATED_INSERTION_WEIGHT
+        );
+        assert_eq!(
+            correction_weight("shabg", "shang", INSERTION | DELETION),
+            DELETION_WEIGHT
+        );
+    }
+
     // test_pinyin.cpp:751-771.
     #[test]
     fn each_switch_enables_only_its_own_family() {
@@ -795,6 +835,11 @@ mod tests {
         assert_eq!(cut("sjhang", INSERTION), "shang");
         assert_eq!(cut("sjhang", NEIGHBOR), "");
         assert_eq!(cut("shanggzhi", ALL_FOUR), "shang'zhi");
+    }
+
+    #[test]
+    fn repeated_key_at_a_syllable_boundary_prefers_the_dropped_letter() {
+        assert_eq!(cut("shannghai", ALL_FOUR), "shang'hai");
     }
 
     // test_pinyin.cpp:871-930.
@@ -936,12 +981,12 @@ mod tests {
             segments_of("shangg", ALL_FOUR),
             [segment("shang", "shangg", 0, true)]
         );
-        // Within one edge the cheaper deletion reading (11) beats the insertion reading (12).
+        // A repeated key at the boundary gets the dedicated insertion weight and beats a generic deletion.
         assert_eq!(
             segments_of("shangghao", ALL_FOUR),
             [
-                segment("shang", "shang", 0, false),
-                segment("gao", "ghao", 5, true)
+                segment("shang", "shangg", 0, true),
+                segment("hao", "hao", 6, false)
             ]
         );
         assert_eq!(
