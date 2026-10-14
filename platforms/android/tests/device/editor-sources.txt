@@ -106,3 +106,5 @@ platforms/android/tests/device/keyboard/EmptyEditorBackspaceDeviceSmoke.java
 platforms/android/tests/device/clipboard/ClipboardEditPreparation.java
 platforms/android/tests/device/clipboard/PinyinClipboardEditPreparation.java
 platforms/android/tests/device/clipboard/ClipboardEditDeviceSmoke.java
+platforms/android/tests/device/clipboard/ClipboardEditLifecycleDeviceSmoke.java
+platforms/android/tests/device/clipboard/PinyinClipboardEditLifecycleDeviceSmoke.java

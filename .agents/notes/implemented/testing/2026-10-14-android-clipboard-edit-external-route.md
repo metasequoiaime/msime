@@ -10,7 +10,7 @@ Status: implemented
 
 准备阶段只在宿主 UID 中暂存合成历史和偏好，然后结束 instrumentation。从独立编辑器 UID 长按真实键盘卡片、点编辑，检查长于深链参数上限的置顶记录原文完整显示、页面跨过组件延迟处理窗口仍存在、保存后回到原编辑器，再打开面板能插入改后的文字。短记录取消后保持不变。最后在宿主 UID 核对时间戳、置顶状态及历史条数，并恢复历史、偏好、图标、引导状态、系统剪贴板和默认输入法。
 
-历史存储与编辑设计仍归[原有功能笔记](../../implemented/feature/2026-10-09-android-clipboard-edit.md)；视图销毁后的保存状态归[生命周期修复](../../implemented/bug-fix/2026-10-11-android-clipboard-edit-view-lifecycle.md)。这些决定不变，本篇只补设备覆盖缺口。
+历史存储与编辑设计仍归[原有功能笔记](../../implemented/feature/2026-10-09-android-clipboard-edit.md)；视图销毁后的保存状态归[生命周期修复](../../implemented/bug-fix/2026-10-14-android-clipboard-save-result.md)。本篇覆盖外部进入与返回，跨视图保存的队列阻塞回归见该生命周期笔记。
 
 ## Alternatives considered
 

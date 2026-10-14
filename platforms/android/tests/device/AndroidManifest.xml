@@ -6,6 +6,8 @@
     <instrumentation android:name="app.msime.android.test.ClipboardEditPreparation" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.PinyinClipboardEditPreparation" android:targetPackage="app.msime.android.pinyin" />
     <instrumentation android:name="app.msime.android.test.ClipboardEditDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.ClipboardEditLifecycleDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.PinyinClipboardEditLifecycleDeviceSmoke" android:targetPackage="app.msime.android.pinyin" />
     <instrumentation android:name="app.msime.android.test.DeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.CandidatePanelDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.MoreToolsDeviceSmoke" android:targetPackage="app.msime.android.test" />

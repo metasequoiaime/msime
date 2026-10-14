@@ -14,6 +14,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentActivity;
+import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
 import androidx.lifecycle.ViewModelProvider;
 import app.msime.android.ClipboardHistory;
@@ -33,22 +34,31 @@ import app.msime.android.ViewPolicy;
 public final class ClipboardEditPage extends ColumnDetailPage {
     private enum State { LOADING, READY, MISSING, FAILED }
 
-    private State state = State.LOADING;
-    /** 要编辑的那一条的原文；找到之前为 null。 */
-    @Nullable private String original;
     /** 输入框里的草稿，见 {@link Draft}；{@link #onCreate} 里取到。 */
     private Draft draft;
-    private boolean saving;
     @Nullable private TextView save;
 
     /**
-     * 输入框里的文字。放在 ViewModel 里而不是 Fragment 的字段上：旋转、换深浅模式、分屏改尺寸会重建 Activity，Fragment 换成新实例，字段回到初始值，用户改到一半的文字会被原文盖掉。ViewModel 跨这类重建保留，重建后 {@link #load} 读到原文时不覆盖它。
+     * 输入框里的文字。放在 ViewModel 里而不是 Fragment 的字段上：旋转、换深浅模式、分屏改尺寸会重建 Activity，Fragment 换成新实例，字段回到初始值，用户改到一半的文字会被原文盖掉。ViewModel 跨这类重建保留，原文和保存状态也一起保留，避免重读已经被保存替换掉的旧条目键。
      *
      * <p>不放进 `onSaveInstanceState` 的 Bundle：输入框不限长，一大段文字可能超出 Binder 事务的上限。代价是进程被系统杀掉后草稿不保留，回来时显示原文。
      */
     public static final class Draft extends ViewModel {
         /** 还没读到原文时为 null。 */
         @Nullable String text;
+        @Nullable String original;
+        State state = State.LOADING;
+        boolean saving;
+        final MutableLiveData<SaveCompletion> completed = new MutableLiveData<>();
+    }
+
+    /** 非空对象表示有待交付结果；其 result 为 null 时表示保存失败。 */
+    private static final class SaveCompletion {
+        @Nullable final ClipboardHistoryPolicy.EditResult result;
+
+        SaveCompletion(@Nullable ClipboardHistoryPolicy.EditResult result) {
+            this.result = result;
+        }
     }
 
     @Override public void onCreate(@Nullable Bundle saved) {
@@ -57,30 +67,29 @@ public final class ClipboardEditPage extends ColumnDetailPage {
     }
 
     @Override protected void onColumnReady(Bundle args) {
-        if (state == State.LOADING) load(args.getString(ClipboardHistoryPolicy.EDIT_ENTRY_ARG));
+        if (draft.state == State.LOADING) load(args.getString(ClipboardHistoryPolicy.EDIT_ENTRY_ARG));
         render();
+        draft.completed.observe(getViewLifecycleOwner(), this::saved);
     }
 
     @Override protected void onContentDestroyed() {
         save = null;
-        // HostTask drops a save result bound to the old view; allow the rebuilt editor to retry.
-        saving = false;
     }
 
     private void load(@Nullable String key) {
         if (key == null || key.isEmpty()) {
-            state = State.MISSING;
+            draft.state = State.MISSING;
             return;
         }
         HostTask.run(this, context -> find(context, key), found -> {
             if (found == null) {
-                state = State.FAILED;
+                draft.state = State.FAILED;
             } else if (found.isEmpty()) {
-                state = State.MISSING;
+                draft.state = State.MISSING;
             } else {
-                original = found;
+                draft.original = found;
                 if (draft.text == null) draft.text = found;
-                state = State.READY;
+                draft.state = State.READY;
             }
             render();
         });
@@ -101,7 +110,7 @@ public final class ClipboardEditPage extends ColumnDetailPage {
         target.removeAllViews();
         save = null;
         GroupCard card = GroupCard.add(target, "剪贴板记录");
-        switch (state) {
+        switch (draft.state) {
             case LOADING -> card.note("正在读取…");
             case MISSING -> card.note(ClipboardHistoryPolicy.editMessage(ClipboardHistoryPolicy.EditResult.NOT_FOUND));
             case FAILED -> card.note("剪贴板历史读取失败，请稍后重试");
@@ -131,7 +140,7 @@ public final class ClipboardEditPage extends ColumnDetailPage {
         LinearLayout.LayoutParams buttonsParams = LayoutPolicy.matchWidthWrapParams();
         buttonsParams.topMargin = DimensionPolicy.pixels(context, Ui.GROUP_GAP);
         target.addView(buttons, buttonsParams);
-        boolean editing = state == State.READY;
+        boolean editing = draft.state == State.READY;
         TextView cancel = ViewPolicy.textButton(context, editing ? "取消" : "返回", 16, 600, ThemeColorPolicy.accent(context),
             ViewPolicy.ripple(context, ThemeColorPolicy.rowBackground(context), DimensionPolicy.pixels(context, Ui.GROUP_RADIUS)),
             Ui.ACTION_BUTTON_MIN_HEIGHT, this::leave);
@@ -152,9 +161,9 @@ public final class ClipboardEditPage extends ColumnDetailPage {
         TextView button = save;
         Context context = getContext();
         if (button == null || context == null) return;
-        boolean ready = !saving && original != null && ClipboardHistoryPolicy.hasText(draft.text)
-            && !original.equals(draft.text);
-        button.setText(saving ? "正在保存…" : "保存");
+        boolean ready = !draft.saving && draft.original != null && ClipboardHistoryPolicy.hasText(draft.text)
+            && !draft.original.equals(draft.text);
+        button.setText(draft.saving ? "正在保存…" : "保存");
         ViewPolicy.setEnabled(button, ready);
         ViewPolicy.setTextColor(button, ready ? ThemeColorPolicy.onAccent(context) : ThemeColorPolicy.subText(context));
         int fill = ready ? ThemeColorPolicy.accent(context)
@@ -163,28 +172,44 @@ public final class ClipboardEditPage extends ColumnDetailPage {
     }
 
     private void submit() {
-        String from = original;
+        String from = draft.original;
         String to = draft.text;
-        if (saving || from == null || to == null || !ClipboardHistoryPolicy.hasText(to) || from.equals(to)) return;
-        saving = true;
+        if (draft.saving || from == null || to == null || !ClipboardHistoryPolicy.hasText(to) || from.equals(to)) return;
+        draft.saving = true;
         refresh();
-        HostTask.run(this, context -> new ClipboardHistoryStore(context.getFilesDir()).replace(from, to), result -> {
-            saving = false;
-            if (result == null) {
-                MsToast.show(requireContext(), "保存失败，请稍后重试");
-                refresh();
-                return;
+        Draft pending = draft;
+        // 后台写入不能随视图销毁撤销；只发布数据，由当前视图消费结果。
+        HostTask.run(this, context -> {
+            ClipboardHistoryPolicy.EditResult result;
+            try {
+                result = new ClipboardHistoryStore(context.getFilesDir()).replace(from, to);
+            } catch (RuntimeException | LinkageError error) {
+                result = null;
             }
-            MsToast.show(requireContext(), ClipboardHistoryPolicy.editMessage(result));
-            switch (result) {
-                case SAVED, MERGED -> leave();
-                case NOT_FOUND -> {
-                    state = State.MISSING;
-                    render();
-                }
-                case INVALID -> refresh();
+            pending.completed.postValue(new SaveCompletion(result));
+            return Boolean.TRUE;
+        }, ignored -> { });
+    }
+
+    private void saved(@Nullable SaveCompletion completion) {
+        if (completion == null) return;
+        draft.completed.setValue(null);
+        draft.saving = false;
+        ClipboardHistoryPolicy.EditResult result = completion.result;
+        if (result == null) {
+            MsToast.show(requireContext(), "保存失败，请稍后重试");
+            refresh();
+            return;
+        }
+        MsToast.show(requireContext(), ClipboardHistoryPolicy.editMessage(result));
+        switch (result) {
+            case SAVED, MERGED -> leave();
+            case NOT_FOUND -> {
+                draft.state = State.MISSING;
+                render();
             }
-        });
+            case INVALID -> refresh();
+        }
     }
 
     /**

@@ -11,7 +11,7 @@ statistics=false
 core=false
 for option in "${@:2}"; do
   case "$option" in
-    # --core 只做安装、首次启动准备词库和 DeviceSmoke 的打字主路径，给 API 28 这类其余套件驱动不了的旧系统用（见 DeviceSmoke 里的说明）。
+    # --core 跑安装、词库准备、打字主路径及剪贴板保存生命周期；其余键盘套件在 API 28 上仍不支持。
     --core) core=true ;;
     --settings) settings=true ;;
     --handwriting) handwriting=true ;;
@@ -91,7 +91,11 @@ run_instrumentation() {
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "System input acceptance failed" >&2; exit 1; }
-if [[ "$core" == true ]]; then echo "Dedicated Android AVD: install, resource setup and core typing acceptance passed"; exit 0; fi
+if [[ "$core" == true ]]; then
+  bash platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
+  echo "Dedicated Android AVD: install, resource setup, core typing and clipboard save lifecycle acceptance passed"
+  exit 0
+fi
 # MSIME_DEVICE_SMOKE_SKIP：空格分隔的套件名。这些套件已知失败、正在修（原因写在调用方，见 .github/workflows/android-device.yml），跳过时明确打印出来，不算通过。
 skipped_suites=()
 for entry in \
@@ -235,5 +239,7 @@ if [[ "$handwriting" == true ]]; then
   trap - EXIT INT TERM
   [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Handwriting acceptance failed" >&2; exit 1; }
 fi
+# 生命周期回归会重启宿主进程，放在键盘套件之后，避免打断系统已经绑定的输入法服务。
+bash platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
 [[ ${#skipped_suites[@]} -eq 0 ]] || echo "Skipped known failures: ${skipped_suites[*]}" >&2
 echo "Dedicated Android AVD: install, resource setup, system input and live preferences acceptance passed"
