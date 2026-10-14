@@ -21,7 +21,7 @@ export interface CloudDictionaryQueryToolbarProps {
   children?: ReactNode;
 }
 
-/** Shared kind, query, and submit controls for cloud dictionary panel toolbars. */
+/** 云词库面板共用的类型选择、查询输入和提交控件。 */
 export function CloudDictionaryQueryToolbar({
   kind,
   busy,
@@ -52,7 +52,15 @@ export function CloudDictionaryQueryToolbar({
           value={queryValue}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") void onQuery();
+            if (
+              event.key !== "Enter" ||
+              busy ||
+              queryDisabled ||
+              event.nativeEvent.isComposing ||
+              event.keyCode === 229
+            )
+              return;
+            void onQuery();
           }}
           placeholder={placeholder}
         />
