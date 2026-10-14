@@ -65,7 +65,7 @@ public final class LanguageNumberKeySwapDeviceSmoke extends DeviceSmoke {
                         // 英文切换和数字层按键动作仍工作，位置保持交换状态。
                         stage = "quanpin English switch";
                         tap(languageKey());
-                        await(describedPrefix("切换到所选输入方案"));
+                        await(key("英"));
                         checkPositions(key("123"), swapped);
                         tap(key("123"));
                         // 26 键数字层自带底行且没有语言键，验证返回动作后恢复交换位置。
@@ -75,7 +75,7 @@ public final class LanguageNumberKeySwapDeviceSmoke extends DeviceSmoke {
                         checkPositions(key("123"), swapped);
                         stage = "quanpin restore Chinese";
                         tap(languageKey());
-                        await(describedPrefix("切换到英文"));
+                        await(key("中"));
                     }
                 }
             }
@@ -85,6 +85,17 @@ public final class LanguageNumberKeySwapDeviceSmoke extends DeviceSmoke {
             if (originalLocal == null) Files.deleteIfExists(local.toPath()); else publish(local, originalLocal);
             restartIme();
         }
+    }
+
+    // API 28 没有 clearCache；布局重建后刷新每个节点，避免沿用已拆掉的键面和子树。
+    @Override protected AccessibilityNodeInfo find(AccessibilityNodeInfo node, Predicate<AccessibilityNodeInfo> match) {
+        if (node != null && android.os.Build.VERSION.SDK_INT < 34 && !node.refresh()) return null;
+        return super.find(node, match);
+    }
+
+    @Override protected AccessibilityNodeInfo findAny(AccessibilityNodeInfo node, Predicate<AccessibilityNodeInfo> match) {
+        if (node != null && android.os.Build.VERSION.SDK_INT < 34 && !node.refresh()) return null;
+        return super.findAny(node, match);
     }
 
     private boolean hasKey(Predicate<AccessibilityNodeInfo> predicate) {
