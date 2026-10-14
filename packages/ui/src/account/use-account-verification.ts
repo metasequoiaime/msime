@@ -22,12 +22,14 @@ export function useAccountVerification({
   const [expiresAt, setExpiresAt] = useState(0);
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
+  // 清除挑战后仍要走完发送间隔，否则按钮会停在最后一次计时的秒数。
+  const ticking = Boolean(challenge) || resendAt > now;
 
   useEffect(() => {
-    if (!challenge) return;
+    if (!ticking) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [challenge]);
+  }, [ticking]);
 
   const selectChannel = (value: AccountChannel) => {
     setChannel(value);
