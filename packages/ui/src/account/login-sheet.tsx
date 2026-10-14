@@ -64,6 +64,7 @@ export function BottomSheet({
         className={account.sheet}
         onKeyDown={(event) => {
           if (event.key !== "Escape") return;
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           event.stopPropagation();
           close();
         }}
