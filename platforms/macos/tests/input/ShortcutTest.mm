@@ -3068,6 +3068,29 @@ static void TestExpandedCandidateGrid() {
     assert(ExpandedGridSubview(panel, 22) && !ExpandedGridSubview(panel, 23));
     MSIMECandidateButton *collapse = ExpandedGridSubview(panel, -3);
     assert(collapse && [collapse.identifier isEqual:@"candidate-collapse"]);
+    // 隐藏首行元素时，展开视图遵循普通候选窗的页码开关，不留空白首行。
+    const BOOL savedPageNumber = prefs.showsCandidatePageNumber;
+    const BOOL savedLogo = prefs.showsAppLogo;
+    const BOOL savedPreedit = prefs.showsCandidatePreedit;
+    prefs.showsCandidatePageNumber = NO;
+    prefs.showsAppLogo = NO;
+    prefs.showsCandidatePreedit = NO;
+    assert([controller renderExpandedCandidates]);
+    assert(!ExpandedGridSubview(panel, -3));
+    for (NSView *row in panel.contentView.subviews)
+        assert(![row.identifier isEqual:@"candidate-page-indicator"]);
+    const CGFloat inset = MAX(2.0, [prefs candidateWindowSkinForDark:NO].tokens.pad);
+    assert(std::abs(NSMaxY(ExpandedGridSubview(panel, 0).frame) - (NSHeight(panel.contentView.bounds) - inset)) < .01);
+    prefs.showsCandidatePreedit = YES;
+    assert([controller renderExpandedCandidates]);
+    assert(!ExpandedGridSubview(panel, -3));
+    assert(NSMaxY(ExpandedGridSubview(panel, 0).frame) < NSHeight(panel.contentView.bounds) - inset);
+    prefs.showsCandidatePageNumber = savedPageNumber;
+    prefs.showsAppLogo = savedLogo;
+    prefs.showsCandidatePreedit = savedPreedit;
+    assert([controller renderExpandedCandidates]);
+    assert(ExpandedGridSubview(panel, -3));
+
     // 只有高亮那一行标序号，数字键选的就是那一行。
     assert([ExpandedGridSubview(panel, 1).title hasPrefix:@"2  "] && [ExpandedGridSubview(panel, 6).title hasPrefix:@"  "]);
 

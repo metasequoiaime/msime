@@ -7222,14 +7222,15 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     const NSUInteger visibleRows = MIN(windowRows, rows - _expandedFirstRow);
     _expandedVisibleRows = visibleRows;
 
-    // 首行：logo、拼音，右端是高亮所在的行「2 / 7」和收起按钮。
+    // 与普通候选窗相同：页码开关同时控制行号和收起按钮，无首行内容时不占高度。
+    const BOOL pageControls = _appearance.showsCandidatePageNumber;
     NSFont *indicatorFont = [NSFont monospacedDigitSystemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:NSFontWeightRegular];
     NSString *rowIndicator = [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(cursorRow + 1), (unsigned long)rows];
-    const CGFloat indicatorWidth = ceil([rowIndicator sizeWithAttributes:@{NSFontAttributeName: indicatorFont}].width);
-    const CGFloat controlsWidth = indicatorWidth + indicatorGap + arrowWidth;
-    const CGFloat headerHeight = MAX(preeditHeight, headerRow);
+    const CGFloat indicatorWidth = pageControls ? ceil([rowIndicator sizeWithAttributes:@{NSFontAttributeName: indicatorFont}].width) : 0;
+    const CGFloat controlsWidth = pageControls ? indicatorWidth + indicatorGap + arrowWidth : 0;
+    const CGFloat headerHeight = (preedit.length || logo || pageControls) ? MAX(preeditHeight, headerRow) : 0;
     const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap : 0;
-    const CGFloat headerWidth = 2 * inset + logoWidth + preeditWidth + (preedit.length ? indicatorGap : 0) + controlsWidth;
+    const CGFloat headerWidth = 2 * inset + logoWidth + preeditWidth + (preedit.length && pageControls ? indicatorGap : 0) + controlsWidth;
 
     std::vector<MSIMECandidatePageGeometry> layouts;
     NSMutableArray<NSArray<NSDictionary *> *> *rowCandidates = [NSMutableArray arrayWithCapacity:visibleRows];
@@ -7281,20 +7282,22 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     }
     const CGFloat controlsBottom = headerBottom + floor((headerHeight - headerRow) / 2);
     const CGFloat collapseLeft = width - inset - arrowWidth;
-    NSTextField *indicator = [NSTextField labelWithString:rowIndicator];
-    indicator.identifier = @"candidate-page-indicator";
-    indicator.accessibilityLabel = [NSString stringWithFormat:@"第 %lu 行，共 %lu 行", (unsigned long)(cursorRow + 1), (unsigned long)rows];
-    indicator.font = indicatorFont;
-    indicator.alignment = NSTextAlignmentRight;
-    const CGFloat indicatorHeight = ceil([rowIndicator sizeWithAttributes:@{NSFontAttributeName: indicatorFont}].height);
-    indicator.frame = NSMakeRect(collapseLeft - indicatorGap - indicatorWidth,
-                                 controlsBottom + floor((headerRow - indicatorHeight) / 2), indicatorWidth, indicatorHeight);
-    [content addSubview:indicator];
-    [content addSubview:[self expandedCandidatesToggleButton:YES frame:NSMakeRect(collapseLeft, controlsBottom, arrowWidth, headerRow) scale:scale]];
+    if (pageControls) {
+        NSTextField *indicator = [NSTextField labelWithString:rowIndicator];
+        indicator.identifier = @"candidate-page-indicator";
+        indicator.accessibilityLabel = [NSString stringWithFormat:@"第 %lu 行，共 %lu 行", (unsigned long)(cursorRow + 1), (unsigned long)rows];
+        indicator.font = indicatorFont;
+        indicator.alignment = NSTextAlignmentRight;
+        const CGFloat indicatorHeight = ceil([rowIndicator sizeWithAttributes:@{NSFontAttributeName: indicatorFont}].height);
+        indicator.frame = NSMakeRect(collapseLeft - indicatorGap - indicatorWidth,
+                                     controlsBottom + floor((headerRow - indicatorHeight) / 2), indicatorWidth, indicatorHeight);
+        [content addSubview:indicator];
+        [content addSubview:[self expandedCandidatesToggleButton:YES frame:NSMakeRect(collapseLeft, controlsBottom, arrowWidth, headerRow) scale:scale]];
+    }
     if (preedit.length) {
         MSIMECandidatePreeditField *label = [self candidatePreeditLabel:preedit font:preeditFont];
         label.frame = NSMakeRect(inset + logoWidth, headerBottom + floor((headerHeight - preeditHeight) / 2),
-                                 width - 2 * inset - logoWidth - controlsWidth - indicatorGap, preeditHeight);
+                                 width - 2 * inset - logoWidth - controlsWidth - (pageControls ? indicatorGap : 0), preeditHeight);
         [content addSubview:label];
     }
     if (logo) {
