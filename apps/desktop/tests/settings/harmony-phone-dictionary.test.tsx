@@ -327,6 +327,47 @@ test("新建词库 checks the name, creates the dictionary and opens it", async 
   expect(await screen.findByRole("heading", { name: "游戏" })).toBeTruthy();
 });
 
+test.each(
+  ["新建词库", "添加词条"].flatMap((title) =>
+    ["Enter", "Escape"].flatMap((key) =>
+      [
+        { name: "组词期间", event: { isComposing: true } },
+        { name: "组词结束兼容事件", event: { isComposing: false, keyCode: 229 } },
+      ].map((event) => ({ title, key, ...event })),
+    ),
+  ),
+)("$title 保留$name 的 $key", async ({ title, key, event }) => {
+  const { collections } = setup();
+  if (title === "新建词库") {
+    await openCreateDialog();
+  } else {
+    fireEvent.click(await screen.findByText("工作"));
+    fireEvent.click(await screen.findByText("添加词条"));
+  }
+  const dialog = screen.getByRole("dialog", { name: title });
+  const field = within(dialog).getByRole("textbox", {
+    name: title === "新建词库" ? "词库名称" : "词语",
+  }) as HTMLInputElement;
+  fireEvent.change(field, { target: { value: "游戏" } });
+  if (title === "添加词条") {
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "拼音" }), {
+      target: { value: "you xi" },
+    });
+  }
+  const save = title === "新建词库" ? collections.create : collections.addWords;
+
+  const defaultAllowed = fireEvent.keyDown(field, { key, ...event });
+  expect(save).not.toHaveBeenCalled();
+  expect(screen.getByRole("dialog", { name: title })).toBe(dialog);
+  expect(field.value).toBe("游戏");
+  expect(defaultAllowed).toBe(true);
+
+  fireEvent.keyDown(field, { key, keyCode: key === "Enter" ? 13 : 27 });
+  if (key === "Enter") await waitFor(() => expect(save).toHaveBeenCalledOnce());
+  else expect(save).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: title })).toBeNull());
+});
+
 // 整个设置页在一个 <form aria-label="设置"> 里；对话框若自己再是一个表单，WebView 会把提交当成外层表单的，整页重新加载回首页（jsdom 不会这样，只能直接看结构）。回车由输入框确认。
 test("the dialogs are not nested forms, and Enter in a field confirms", async () => {
   const { collections } = setup();

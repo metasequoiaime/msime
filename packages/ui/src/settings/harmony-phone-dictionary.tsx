@@ -841,6 +841,7 @@ function FormDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Escape" && !submitting) onClose();
           if (event.key === "Enter" && event.target instanceof HTMLInputElement) {
             event.preventDefault();
