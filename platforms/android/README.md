@@ -265,6 +265,8 @@ JVM 冒烟只覆盖无 Android 依赖的策略层；焦点、选区、编辑器�
 
 图标与键盘页面入口另用 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/host-launch.sh emulator-5566`（API 35 换 `emulator-5580`）验收已安装的原生宿主；拼音版在末尾加 `app.msime.android.pinyin`。它逐一切换五种图标，检查真实宿主保持启用且只有一个 launcher，从独立编辑器 UID 实际点击设置、词库、反馈、关于，并保持设置页可见十五秒以覆盖组件变更的延迟广播。准备阶段和外部页面验收分开运行，结束后恢复原图标、首次引导标志、默认输入法及临时禁用的系统键盘。该回归可在 API 28 上单独执行，不受 `smoke.sh --core` 跳过其他面板套件的影响。
 
+`EmptyEditorBackspaceDeviceSmoke` 使用独立合成引用编辑器检查删除键：空框交给应用移除艾特/引用，有文字按码位删除，组字与选区先处理，读取失败不当作空框。API 35 的 `smoke.sh` 默认注册它；API 28 可在安装原生宿主与 `editor-test.apk`、启用被测输入法后单独执行 `adb -s emulator-5566 shell am instrument -w app.msime.android.test/app.msime.android.test.EmptyEditorBackspaceDeviceSmoke`。它验证系统 InputConnection 契约，QQ 等第三方应用仍需各自验收。
+
 ## 两个 APK 入口，不要选错
 
 `platforms/android` 有两个构建脚本，同一个版本的产物**同名同路径**（full 是 `target/android/msime-android.apk`，其他版本是 `target/android/msime-android-<id>.apk`，见上节），装到设备上也是同一个包名，但内容完全不同：

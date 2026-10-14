@@ -117,6 +117,7 @@ for entry in \
     "LongSymbolCellDeviceSmoke|Long symbol cell acceptance failed" \
     "EmailSuffixDeviceSmoke|Email suffix acceptance failed" \
     "NumberRowDeviceSmoke|Number row acceptance failed" \
+    "EmptyEditorBackspaceDeviceSmoke|Empty editor backspace acceptance failed" \
     "ClipboardImageDeviceSmoke|Clipboard image acceptance failed" \
     "CaretCandidatesDeviceSmoke|Caret candidates acceptance failed" \
     "HardwareTranslationDeviceSmoke|Hardware Ctrl+Enter translation acceptance failed" \

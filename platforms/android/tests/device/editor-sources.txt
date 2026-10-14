@@ -100,3 +100,6 @@ platforms/android/tests/device/keyboard/LanguageNumberKeySwapDeviceSmoke.java
 platforms/android/tests/device/settings/HostIconPreparation.java
 platforms/android/tests/device/settings/PinyinHostIconPreparation.java
 platforms/android/tests/device/settings/HostLaunchDeviceSmoke.java
+
+platforms/android/tests/device/core/QuoteEditorActivity.java
+platforms/android/tests/device/keyboard/EmptyEditorBackspaceDeviceSmoke.java

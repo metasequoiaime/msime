@@ -29,3 +29,5 @@ Status: implemented
 - `bash platforms/android/check-host.sh`：通过，171 个 Android JVM 冒烟。新守卫在修复后通过；把笔画布局改回直接调用 InputConnection、或去掉入口里的删选区调用，守卫都会失败。
 - CI 同款 Gradle 命令编译六个版本的 Java 并跑 `lintFullRelease`：BUILD SUCCESSFUL。
 - 未在真机或模拟器上验证。
+
+后续[空输入框退格](2026-10-14-android-empty-editor-backspace.md)保留选区优先与普通文字码位删除，只在明确没有前文可删时转交事件处理外部引用；API 28/35 合成编辑器回归同时验证中间选区删除后前后文字保留。

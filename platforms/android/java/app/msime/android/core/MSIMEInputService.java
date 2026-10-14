@@ -1179,10 +1179,17 @@ public final class MSIMEInputService extends InputMethodService {
         return deleted;
     }
 
-    /** 删除键：编辑器里有选区时删掉选区，否则按码位删光标前一个字符并记下预期；删掉的是一个还是两个 UTF-16 单元由追踪器按回声确定。 */
+    /** 删除键先删选区；没有前文可删时交给编辑器处理引用等控件，其余按码位删字并追踪回声。 */
     void deleteCodePointBeforeCursor() {
         pairedPunctuationStack.clear();
         if (deleteSelection()) return;
+        CharSequence before = connection.getTextBeforeCursor(1, 0);
+        if (before != null && before.length() == 0) {
+            // 空框外的艾特与引用不属于周边文字，应用只有收到退格事件才能处理；读取失败不当作空框。
+            selectionEcho.invalidate();
+            sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL);
+            return;
+        }
         if (connection.deleteSurroundingTextInCodePoints(1, 0)) {
             selectionEcho.deleteCodePointBefore();
             selectionEcho.expect();
