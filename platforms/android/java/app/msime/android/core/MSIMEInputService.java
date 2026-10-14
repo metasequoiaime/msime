@@ -6775,10 +6775,15 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
+    boolean candidateVersionIsCurrent(JSONObject id) {
+        return session != 0 && id != null
+            && CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) == session
+            && sameCandidateVersion(id, view);
+    }
+
     void editCandidate(JSONObject id, CandidateManagementAction action) {
-        if (session == 0 || id == null
-                || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session)
-            return;
+        // 菜单开着时新按键或在线结果会更新候选，旧菜单操作不能停止仍有效的输入会话。
+        if (!candidateVersionIsCurrent(id)) return;
         try {
             long generation = strictCandidateLong(id, "generation");
             long index = strictCandidateLong(id, "index");

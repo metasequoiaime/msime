@@ -11,7 +11,7 @@ Status: implemented
 ## Decision
 
 - 删除候选词的确认与 iOS 一致，收进长按菜单的子菜单：`ImeCandidates.showCandidateMenu` 把「删除词条…」建成 `SubMenu`（`popup.getMenu().addSubMenu`），子菜单里只有一项「确认删除此词条」，文字来自 `CandidateManagementAction.confirmationTitle()`，与 iOS 的 `UIMenu` 嵌套子菜单逐字相同。点开子菜单、再点确认，全程一次长按，键盘之外的窗口一个都不开。
-- 候选身份不用额外保存：子菜单的确认项和同一份菜单里的其它操作一样，用的是长按那一刻从 `visibleCandidate` 读到的 `id`（Engine 的 session/generation/index）。没有待确认状态，也就没有要作废它的时机；generation 或候选身份过期时由 Engine 拒绝，与「优先显示/固定」相同。
+- 候选身份不用额外保存：子菜单的确认项和同一份菜单里的其它操作一样，用的是长按那一刻从 `visibleCandidate` 读到的 `id`（Engine 的 session/generation/index）。没有待确认状态，也就没有要作废它的时机；执行前宿主复核 session/generation，过期菜单操作直接返回，Engine 继续作最终校验，与「优先显示/固定」相同。拒绝旧身份不能停止有效会话，见[过期候选回调](2026-10-14-android-stale-candidate-callbacks.md)。
 - 单字候选不提供删除（引擎侧保护），与 iOS 的 `candidate.unicodeScalars.count != 1` 一致。
 - `check-host.sh` 守住两条：`MSIMEInputService.java` 里不出现 `new AlertDialog`；`ImeCandidates.java` 用 `addSubMenu(Menu.NONE, Menu.NONE, action.ordinal(), action.title())` 建删除确认，文字来自 `CandidateManagementAction.confirmationTitle()`。
 

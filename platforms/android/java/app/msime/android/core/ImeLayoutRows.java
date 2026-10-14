@@ -1283,8 +1283,11 @@ final class ImeLayoutRows {
         if (s.dedicatedEnglish || !s.punctuation('.')) commitNineKeyLiteral(".");
     }
 
-    void chooseNineKeySpelling(long generation, int index) {
-        if (s.session == 0) return;
+    void chooseNineKeySpelling(long session, long generation, int index) {
+        if (session == 0 || session != s.session || s.view == null
+                || CandidateGlossPolicy.strictOr(s.view.opt("session"), Long.MIN_VALUE) != session
+                || CandidateGlossPolicy.strictOr(s.view.opt("generation"), Long.MIN_VALUE) != generation)
+            return;
         try { s.apply(NativeClient.chooseNineKeySpelling(s.session, generation, index)); }
         catch (JSONException | LinkageError error) { s.fail(error); }
     }
@@ -1361,7 +1364,7 @@ final class ImeLayoutRows {
             int slot = s.nineKeySpellingButtons.size();
             Runnable choose = () -> {
                 if (slot < s.nineKeySpellingIndices.size()) {
-                    chooseNineKeySpelling(s.nineKeySpellingGeneration,
+                    chooseNineKeySpelling(s.session, s.nineKeySpellingGeneration,
                         s.nineKeySpellingIndices.get(slot));
                 }
             };

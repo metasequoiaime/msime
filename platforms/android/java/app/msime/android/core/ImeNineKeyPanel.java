@@ -190,9 +190,10 @@ final class ImeNineKeyPanel {
         for (int slot = 0; slot < spellings.values().size(); slot++) {
             String spelling = spellings.values().get(slot);
             int index = spellings.indices().get(slot);
+            long session = s.session;
             long generation = spellings.generation();
             Button key = s.imeLayoutRows.spellingColumnButton(spellingColumn,
-                () -> s.imeLayoutRows.chooseNineKeySpelling(generation, index));
+                () -> s.imeLayoutRows.chooseNineKeySpelling(session, generation, index));
             key.setText(spelling);
             key.setContentDescription(NineKeyPanelPolicy.spellingDescription(spelling, false));
         }

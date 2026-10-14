@@ -217,9 +217,7 @@ final class ImeCandidates {
             ViewPolicy.bindClick(button, () -> {
                 s.imeKeyFeedback.playFeedback(button);
                 // 点占位行什么也不发生：Engine 本来就不上屏，这里连面板也不收起，用户还在看完整列表（#6888）。
-                if (placeholder || s.session == 0
-                        || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE)
-                            != s.session) return;
+                if (placeholder || !s.candidateVersionIsCurrent(id)) return;
                 s.candidatePanelOpen = false;
                 s.candidatePanelSnapshot = null;
                 try {
