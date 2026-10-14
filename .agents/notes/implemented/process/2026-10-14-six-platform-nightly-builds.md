@@ -24,6 +24,10 @@ nightly 与正式发布共享每个平台的构建脚本和验证步骤，六个
 
 每次 nightly 会消耗六个平台的 runner，默认每天一次；手动触发用于临时验证。iOS 外部测试构建还受 Apple 审核和 App Store Connect 处理时间影响。滚动 release 替换时会先等六个平台全部成功，随后删除旧的 `nightly` release 并创建新的版本；替换窗口内下载链接可能短暂失效。
 
+首次完整运行暴露了 PR 编译门禁未覆盖的路径：iOS 设置页的辅助方法被刷新重构误删，HarmonyOS 候选组装的释义调用缺少参数及闭合括号，Android API 35 完整验收没有准备注音词库。这些修复保留现有产品行为与设备门禁，不靠跳过平台或套件发布部分产物。macOS 藏文包阶段以退出码 1 结束，日志没有指出失败命令，因此打包脚本的 ERR 诊断传入函数和子 shell，仅记录行号、版本 id、退出码；不启用可能展开公证凭据的全局 shell 跟踪。
+
 ## Verification
 
-`actionlint` 检查新增和修改的 workflow 通过，`git diff --check` 通过，`pnpm run verify-notes` 通过；`scripts/run-checks.sh` 的全部契约检查通过或按环境跳过。本地 `scripts/verify-local.sh --quick` 通过（workflow 范围，包含 Rust workspace 和共享 Apple bridge 编译）；六个平台产物匹配规则用合成名称验证。尚未运行远端六平台打包或提交 TestFlight 审核。
+`actionlint` 检查新增和修改的 workflow 通过，`git diff --check` 通过，`pnpm run verify-notes` 通过；`scripts/run-checks.sh` 的全部契约检查通过或按环境跳过。本地 `scripts/verify-local.sh --quick` 通过；六个平台产物匹配规则用合成名称验证。首次远端运行是 `38520744229`：Windows 全部打包和安装验收、Linux 两架构的 DEB/RPM、Android 六版 APK 和 API 28 设备验收通过；iOS、HarmonyOS、Android API 35 和 macOS 失败，滚动发布被跳过，没有发布 nightly 或上传 TestFlight。
+
+补充修复在本地通过 iOS 原生模拟器构建、HarmonyOS 原生库及 HAP 构建、Android 带锁定词库的 APK 构建与含注音九键的语言键交换套件。十四键窄屏测试补回编辑器焦点并清掉旧节点后独立复测通过，键盘高度与其他后续套件也逐项通过；完整 API 35 验收重跑曾在不同阶段失败，尚未整套全绿，不能把逐项通过说成整套通过。macOS 失败根因尚未确定，行号诊断需要下次完整打包验证；用合成失败命令检查了函数和子 shell 的退出码传递，确认不打印合成凭据。

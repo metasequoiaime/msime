@@ -25,7 +25,10 @@
 #                                 when all three are set (and an identity is), the DMG is notarized and stapled
 #
 # 产物是 universal 的：Apple 芯片和 Intel Mac 用同一个包。Rust 产物按两个 target 各编一次再用 lipo 合并，CMake 的目标和 Swift 后端经 CMAKE_OSX_ARCHITECTURES 编出双架构，打包后 check_app 逐个核对包里的 Mach-O 都含两种架构。需要 rustup target add aarch64-apple-darwin x86_64-apple-darwin。
-set -euo pipefail
+set -Eeuo pipefail
+
+# ERR 传入函数和子 shell，只记录行号、版本 id 和退出码，不打印可能带公证凭据的命令。
+trap 'package_status=$?; printf "macOS 打包失败：行号=%s，版本=%s，退出码=%s\n" "$LINENO" "${edition:-shared}" "$package_status" >&2; exit "$package_status"' ERR
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
