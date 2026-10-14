@@ -38,3 +38,5 @@ IMK 不保证上一个客户端的 `deactivateServer:` 先于下一个客户端�
 ## Verification
 
 - `platforms/macos/tests/input/ShortcutTest.mm` 新增 `TestStaleDeactivationLeavesTheCurrentPairOpen`：当前客户端打开 `{}` 后，迟到的 `deactivateServer:`（旧客户端和 nil 各一次）不写任何客户端、待补的 `}` 还在；之后上屏把 `}` 带走，再经过迟到回调，`}` 前敲 `}` 仍被跨过；最后正常的 `deactivateServer:` 照旧在当前客户端补上 `}`。用 `origin/develop` 的 `InputController.mm` 构建时，该用例在第一次迟到回调后的断言处失败；只把补闭合符挪到判断之后、仍在判断之前清空跳过记录时，它在 `}` 被跨过的断言处失败；完整修复后整个 `shortcut-test`（含 `--translations`）通过。
+
+按键直接恢复客户端焦点时的监视生命周期见[按键恢复偏好监视](2026-10-14-macos-key-focus-preference-monitoring.md)。

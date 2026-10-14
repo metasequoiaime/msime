@@ -5884,6 +5884,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             [self apply:[_session setFocused:YES error:nil]];
             [self refreshTypingEffectSettings];
         }
+        // 按键也能接管失焦后保留的会话，此时没有 activateServer: 帮它恢复偏好轮询。
+        [self startPreferencesMonitoring];
     }
     NSUserDefaults *voiceDefaults = NSUserDefaults.standardUserDefaults;
     if (event.type == NSEventTypeKeyDown && event.keyCode == 53) [_voiceOverlay dismissFailure];

@@ -4327,10 +4327,11 @@ static void TestMusicIsClaimedOnceTheSessionOpens() {
 @interface AsyncPreferenceSession : ShortcutSession
 @property(nonatomic) NSUInteger updates;
 @property(nonatomic) NSUInteger failedUpdatesRemaining;
+@property(nonatomic, copy) NSDictionary *lastPreferences;
 @end
 @implementation AsyncPreferenceSession
 - (NSDictionary *)updatePreferencesSnapshot:(NSDictionary *)snapshot error:(NSError **)error {
-    (void)snapshot; ++self.updates;
+    self.lastPreferences = snapshot; ++self.updates;
     if (self.failedUpdatesRemaining) {
         --self.failedUpdatesRemaining;
         if (error) *error = [NSError errorWithDomain:@"synthetic-preferences" code:1 userInfo:nil];
@@ -4347,6 +4348,8 @@ static void TestMusicIsClaimedOnceTheSessionOpens() {
 @property(nonatomic, strong) NSMutableArray<NSDictionary *> *appliedPreferences;
 @end
 @implementation AsyncPreferencesController
+// 这些读取代次测试手动放行每次后台读取，监视生命周期由独立的按键恢复回归覆盖。
+- (void)startPreferencesMonitoring {}
 - (NSDictionary *)readPreferencesSnapshotInDirectory:(NSString *)directory error:(NSError **)error {
     (void)directory; (void)error;
     assert(!NSThread.isMainThread);
@@ -4840,6 +4843,52 @@ static void WaitForRecoveringCompletions(RecoveringPreferencesController *contro
     while (controller.completions < count && deadline.timeIntervalSinceNow > 0)
         [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
     assert(controller.completions == count);
+}
+
+// 失焦保留会话后，应用可以只发按键而不再发 activateServer:。
+static void TestKeyFocusRestoresPreferenceMonitoring() {
+    Method base = class_getInstanceMethod(IMKInputController.class, @selector(deactivateServer:));
+    IMP original = method_setImplementation(base, (IMP)RecordBaseDeactivation);
+    for (NSNumber *english in @[@NO, @YES]) {
+        NSString *suite = [@"msime.preference-key-focus." stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+        MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        [prefs applySharedInputPreferences:@{@"chinese_punctuation":@NO}];
+        prefs.englishMode = english.boolValue;
+        RecoveringPreferencesController *controller = [RecoveringPreferencesController alloc];
+        AsyncPreferenceSession *session = [AsyncPreferenceSession new];
+        ShortcutClient *client = [ShortcutClient new];
+        controller.appliedPreferences = [NSMutableArray array];
+        controller.readSnapshot = @{@"revision":@1, @"preferences":@{@"chinese_punctuation":@NO}};
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:@"/synthetic-key-focus-preferences" forKey:@"preferencesDirectory"];
+        [controller startPreferencesMonitoring];
+        WaitForRecoveringCompletions(controller, 1);
+        NSTimer *oldTimer = [controller valueForKey:@"preferencesTimer"];
+        [controller deactivateServer:client];
+        assert(!oldTimer.valid && ![controller valueForKey:@"preferencesTimer"]);
+        assert([controller valueForKey:@"session"] == session && ![controller valueForKey:@"activeClient"]);
+
+        controller.readSnapshot = @{@"revision":@2, @"preferences":@{@"chinese_punctuation":@YES}};
+        // 修饰键释放不会准备会话；监视必须由接管客户端的路径恢复。
+        assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, 1) client:client]);
+        assert([[controller valueForKey:@"preferencesTimer"] isValid]);
+        WaitForRecoveringCompletions(controller, 2);
+        assert(session.updates == 2 && prefs.chinesePunctuation);
+        assert([session.lastPreferences isEqual:controller.readSnapshot]);
+        assert(controller.preparationCalls == 0 && [controller valueForKey:@"session"] == session);
+
+        // 不显式 reload 或触发 timer，验证下一次保存能由真实轮询应用。
+        controller.readSnapshot = @{@"revision":@3, @"preferences":@{@"chinese_punctuation":@NO}};
+        WaitForRecoveringCompletions(controller, 3);
+        assert(session.updates == 3 && !prefs.chinesePunctuation);
+        assert([session.lastPreferences isEqual:controller.readSnapshot]);
+        [controller deactivateServer:client];
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
+    }
+    method_setImplementation(base, original);
 }
 
 static void TestUnreadablePreferencesAreRecoveredOnce() {
@@ -9871,6 +9920,10 @@ int main(int argc, char **argv) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         // Each case drains its own pool. No run loop turns between cases, so under one outer pool every autoreleased preferences window lived to the end of main: about a hundred piled up, every later window paid for all of their notification observers and weak references, and the run grew quadratically until the sanitizer leg crossed its 240 s ceiling.
+        if (argc == 2 && std::string(argv[1]) == "--key-focus-preferences") {
+            TestKeyFocusRestoresPreferenceMonitoring();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--translations") {
             @autoreleasepool { TestPreferenceLoadReusesCandidateServiceSnapshots(); }
             @autoreleasepool { TestCandidateServiceSnapshotsAreReused(); }
@@ -11565,6 +11618,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne(); }
         @autoreleasepool { TestPreferenceRevisionSkipsUnchangedDocuments(); }
         @autoreleasepool { TestPreferenceRevisionRetriesFailedUpdate(); }
+        @autoreleasepool { TestKeyFocusRestoresPreferenceMonitoring(); }
         @autoreleasepool { TestUnreadablePreferencesAreRecoveredOnce(); }
         @autoreleasepool { TestProviderSettingsPersistTheSharedSnapshot(); }
         @autoreleasepool { TestInputModeSwitchDoesNotSaveSharedPreferences(); }
