@@ -85,7 +85,14 @@ public final class KeyboardPreview extends View {
      */
     public void setKeyboard(@Nullable KeyboardSkin skin, boolean nineKey, String caption) {
         this.skin = skin;
-        this.rows = nineKey ? NINE_KEY_ROWS : FULL_ROWS;
+        String[][] source = nineKey ? NINE_KEY_ROWS : FULL_ROWS;
+        this.rows = java.util.Arrays.stream(source).map(String[]::clone).toArray(String[][]::new);
+        if (app.msime.android.AndroidLocalSettings.load(getContext()).bool(
+                app.msime.android.AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS)) {
+            String[] bottom = this.rows[this.rows.length - 1];
+            bottom[0] = "中";
+            bottom[bottom.length - 2] = "123";
+        }
         this.caption = caption == null ? "" : caption;
         colorsValid = false;
         applyBackground();

@@ -34,6 +34,7 @@ public final class LanguageNumberKeySwapDeviceSmoke extends DeviceSmoke {
                 stage = "prepare " + layout[0];
                 JSONObject values = new JSONObject(options.getJSONObject("preferences").toString())
                     .put("scheme", layout[1]).put("touch_keyboard_layout", layout[2])
+                    .put("ime_mode_scope", "global").put("default_ime_mode", "chinese")
                     .put("touch_keyboard_schemes", new JSONObject().put("enabled", new JSONArray().put(layout[0])).put("selected", layout[0]));
                 publish(preferences, new JSONObject().put("format_version", 1).put("revision", ++revision)
                     .put("preferences", values).toString().getBytes(StandardCharsets.UTF_8));
@@ -43,13 +44,38 @@ public final class LanguageNumberKeySwapDeviceSmoke extends DeviceSmoke {
                         .toString().getBytes(StandardCharsets.UTF_8));
                     restartIme();
                     openEditor();
+                    stage = layout[0] + " ready language key";
+                    AccessibilityNodeInfo mode = await(languageKey());
+                    if (hasKey(key("q")) && equalsText("英", mode.getText())) {
+                        stage = layout[0] + " restore selected scheme";
+                        tap(languageKey());
+                    }
+                    stage = layout[0] + " selected layout";
+                    await(layout[0].equals("nine_key") ? key("ABC")
+                        : layout[0].equals("japanese_nine_key") ? key("あ")
+                        : layout[0].equals("zhuyin_nine_key") ? described("注音 1 ㄅㄆㄇㄈ") : languageKey());
+                    if (layout[0].equals("quanpin") && !hasKey(key("123"))) {
+                        tap(described("切换到字母键盘"));
+                        await(key("123"));
+                    }
+                    await(languageKey());
+                    stage = layout[0] + (swapped ? " swapped positions" : " default positions");
                     checkPositions(key("123"), swapped);
                     if (layout[0].equals("quanpin")) {
                         // 英文切换和数字层按键动作仍工作，位置保持交换状态。
+                        stage = "quanpin English switch";
                         tap(languageKey());
+                        await(describedPrefix("切换到所选输入方案"));
                         checkPositions(key("123"), swapped);
                         tap(key("123"));
-                        checkPositions(described("切换到字母键盘"), swapped);
+                        // 26 键数字层自带底行且没有语言键，验证返回动作后恢复交换位置。
+                        await(described("切换到字母键盘"));
+                        tap(described("切换到字母键盘"));
+                        await(key("123"));
+                        checkPositions(key("123"), swapped);
+                        stage = "quanpin restore Chinese";
+                        tap(languageKey());
+                        await(describedPrefix("切换到英文"));
                     }
                 }
             }
@@ -61,11 +87,19 @@ public final class LanguageNumberKeySwapDeviceSmoke extends DeviceSmoke {
         }
     }
 
+    private boolean hasKey(Predicate<AccessibilityNodeInfo> predicate) {
+        for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows())
+            if (find(window.getRoot(), predicate) != null) return true;
+        return false;
+    }
+
     private Predicate<AccessibilityNodeInfo> languageKey() {
+        // 会话准备期间的语言键可以长按，却不执行点击；等待真实切换目标再测动作。
         return node -> equalsText("app.msime.android", node.getPackageName()) && node.isClickable()
-            && node.getContentDescription() != null && (node.getContentDescription().toString().startsWith("切换到英文")
-                || node.getContentDescription().toString().startsWith("切换到中文")
-                || node.getContentDescription().toString().startsWith("中英切换暂不可用"));
+            && (equalsText("英", node.getText()) || equalsText("中", node.getText()))
+            && node.getContentDescription() != null
+            && (node.getContentDescription().toString().startsWith("切换到")
+                || node.getContentDescription().toString().startsWith("按键 切换到"));
     }
 
     private void checkPositions(Predicate<AccessibilityNodeInfo> layerKey, boolean swapped) throws Exception {
