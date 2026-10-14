@@ -188,12 +188,14 @@ export function useSettingsPersistence({
   useEffect(() => {
     const current = generation.current;
     const loadToken = ++loadTokenRef.current;
-    const operation = client
+    client
       .load()
       .then((value) => {
         if (generation.current !== current || loadTokenRef.current !== loadToken) return;
         loadingClientRef.current = undefined;
-        adoptSnapshot(value);
+        // 加载期间可能已收到更新的宿主通知，迟到的读取不能把版本退回去。
+        if (!snapshotRef.current || value.revision >= snapshotRef.current.revision)
+          adoptSnapshot(value);
         setLoadFailed(false);
       })
       .catch((reason) => {
@@ -202,11 +204,8 @@ export function useSettingsPersistence({
         setLoadFailed(true);
       })
       .finally(() => {
-        if (reloadInFlightRef.current === operation) reloadInFlightRef.current = undefined;
         if (generation.current === current && loadTokenRef.current === loadToken) setBusy(false);
       });
-    // 首次加载也占有重载槽位，回前台或手动刷新时等待这次请求，避免同一宿主重复读取。
-    reloadInFlightRef.current = operation;
   }, [client, generation]);
 
   async function reload() {
@@ -230,7 +229,9 @@ export function useSettingsPersistence({
         )
           return;
         loadingClientRef.current = undefined;
-        adoptSnapshot(value);
+        // 重载也遵守通知的版本顺序，保留请求期间已经采纳的新快照。
+        if (!snapshotRef.current || value.revision >= snapshotRef.current.revision)
+          adoptSnapshot(value);
         setLoadFailed(false);
         setSaveState("idle");
         setSaveError("");

@@ -99,29 +99,6 @@ test.each(["success", "failure"] as const)(
   },
 );
 
-test("首次加载进行中时重载复用同一个请求", async () => {
-  const pending = deferred<Snapshot>();
-  const client: SettingsClient = {
-    load: vi.fn(() => pending.promise),
-    save: vi.fn(),
-  };
-  const { result } = renderPersistence(client);
-  await act(async () => {});
-
-  let reload!: Promise<void>;
-  act(() => {
-    reload = result.current.reload();
-  });
-  expect(client.load).toHaveBeenCalledTimes(1);
-
-  await act(async () => {
-    pending.resolve(replacement);
-    await reload;
-  });
-  expect(result.current.snapshotRef.current).toEqual(replacement);
-  expect(result.current.busy).toBe(false);
-});
-
 test("旧宿主重载晚于新宿主加载完成时不覆盖新偏好", async () => {
   const pending = deferred<Snapshot>();
   const oldClient: SettingsClient = {
@@ -190,4 +167,34 @@ test("旧宿主挂起的重载不阻止新宿主重载，旧收尾也不解除�
   });
   expect(result.current.snapshotRef.current).toEqual(latest);
   expect(result.current.busy).toBe(false);
+});
+
+test("首次加载未完成时的重载结果不被首次加载迟到结果覆盖", async () => {
+  const initialLoad = deferred<Snapshot>();
+  const reloadLoad = deferred<Snapshot>();
+  const client: SettingsClient = {
+    load: vi.fn().mockReturnValueOnce(initialLoad.promise).mockReturnValueOnce(reloadLoad.promise),
+    save: vi.fn(),
+  };
+  const { result } = renderPersistence(client);
+  await act(async () => {});
+
+  let reload!: Promise<void>;
+  act(() => {
+    reload = result.current.reload();
+  });
+  expect(client.load).toHaveBeenCalledTimes(2);
+
+  await act(async () => {
+    reloadLoad.resolve(replacement);
+    await reload;
+  });
+  expect(result.current.snapshotRef.current).toEqual(replacement);
+
+  await act(async () => {
+    initialLoad.resolve(initial);
+    await Promise.resolve();
+  });
+  expect(result.current.snapshotRef.current).toEqual(replacement);
+  expect(result.current.draftRef.current).toEqual(replacement.preferences);
 });

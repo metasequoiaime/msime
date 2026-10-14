@@ -76,6 +76,35 @@ function harness(client: SettingsClient, strict = false) {
   return { ...hook, setError, setNotice };
 }
 
+test.each(["首次加载", "重载"])("%s 的迟到旧快照不覆盖较新的偏好通知", async (phase) => {
+  const { client, registrations } = host();
+  const pending = deferred<Snapshot>();
+  client.load =
+    phase === "首次加载"
+      ? vi.fn(() => pending.promise)
+      : vi.fn().mockResolvedValueOnce(initial).mockReturnValueOnce(pending.promise);
+  const hook = harness(client);
+  await act(async () => {});
+  let reload: Promise<void> | undefined;
+  if (phase === "重载")
+    act(() => {
+      reload = hook.result.current.reload();
+    });
+  const latest: Snapshot = {
+    ...initial,
+    revision: 2,
+    preferences: { ...initial.preferences, scheme: "wubi" },
+  };
+  act(() => registrations[0].listener(latest));
+  expect(hook.result.current.snapshotRef.current).toEqual(latest);
+  await act(async () => {
+    pending.resolve(initial);
+    await reload;
+  });
+  expect(hook.result.current.snapshotRef.current).toEqual(latest);
+  expect(hook.result.current.draftRef.current).toEqual(latest.preferences);
+});
+
 test("当前监听立即注册、接收更新，并在卸载时只释放一次", async () => {
   const { client, registrations } = host();
   const hook = harness(client);
