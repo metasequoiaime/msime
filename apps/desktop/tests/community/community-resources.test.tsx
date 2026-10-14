@@ -90,6 +90,7 @@ test("a failed fresh search hides pagination for the previous result set", async
     .mockRejectedValueOnce(new Error("offline"));
   render(<CommunityResourcesPage client={client({ list })} kind="dictionary" />);
   await waitFor(() => expect(list).toHaveBeenCalledWith("dictionary", "", "", 0));
+  await screen.findByRole("button", { name: "加载更多" });
 
   fireEvent.change(screen.getByRole("textbox", { name: "搜索词库" }), {
     target: { value: "新查询" },
@@ -97,7 +98,7 @@ test("a failed fresh search hides pagination for the previous result set", async
   fireEvent.click(screen.getByRole("button", { name: "搜索" }));
   await waitFor(() => expect(list).toHaveBeenLastCalledWith("dictionary", "", "新查询", 0));
 
-  expect(screen.queryByRole("button", { name: "加载更多" })).toBeNull();
+  await waitFor(() => expect(screen.queryByRole("button", { name: "加载更多" })).toBeNull());
 });
 
 test("loading more keeps the last submitted search until a new search is run", async () => {

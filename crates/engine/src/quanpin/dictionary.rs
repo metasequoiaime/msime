@@ -337,15 +337,11 @@ impl QuanpinDictionary {
         }
         *candidates = merged;
         self.cache.insert(code.to_string(), expanded);
-        // Keyed without the `C:` prefix, as the reference writes it (QD:554): a one-letter input is never corrected, so the key is the one its query used. The reference read the last query's fields here; the key is recomputed from the caller's query instead, because a caret-prefix decode is a second query on this dictionary and would otherwise receive the whole input's expanded list in its own slot.
-        let segments = self.resolve_segments(raw, segmentation);
-        let cache_key = self.project_resolution(
-            raw,
-            segmentation,
-            &segments,
-            autocorrect_types,
-            |resolution| series_cache_key(raw, &resolution.segmentation, autocorrect_types),
-        );
+        // 按参考规则写入不带 `C:` 的槽（QD:554）：单字母不纠错。根据调用方查询重算键，避免第二次光标前缀查询把整段输入的展开列表写入自己的槽。
+        let cache_key =
+            self.project_resolution(raw, segmentation, autocorrect_types, |resolution| {
+                series_cache_key(raw, &resolution.segmentation, autocorrect_types)
+            });
         let key = self.series_slot(&cache_key);
         self.series_cache.insert(key, candidates.clone());
         true
@@ -417,18 +413,14 @@ impl QuanpinDictionary {
         if raw.is_empty() || words.is_empty() {
             return false;
         }
-        // The key is recomputed exactly as the query computed it, so the rows land in the slot the next refresh reads.
-        let segments = self.resolve_segments(raw, segmentation);
-        let cache_key = self.project_resolution(
-            raw,
-            segmentation,
-            &segments,
-            autocorrect_types,
-            |resolution| match resolution {
-                Cow::Borrowed(resolution) => resolution.cache_key.clone(),
-                Cow::Owned(resolution) => resolution.cache_key,
-            },
-        );
+        // 按查询原规则重算键，使候选写入下次刷新读取的槽。
+        let cache_key =
+            self.project_resolution(raw, segmentation, autocorrect_types, |resolution| {
+                match resolution {
+                    Cow::Borrowed(resolution) => resolution.cache_key.clone(),
+                    Cow::Owned(resolution) => resolution.cache_key,
+                }
+            });
         let key = self.series_slot(&cache_key);
         let mut list = self.series_cache.get(&key).unwrap_or_default();
         if !replace_online_candidate_batch(&mut list, raw, words, source) {
@@ -621,34 +613,74 @@ impl QuanpinDictionary {
                 self.personal_scored_keys.clear();
             }
         }
-        let segments = self.resolve_segments(raw, segmentation);
-        let resolution = self.resolution(raw, segmentation, &segments, types);
-        self.pinyin_segmentation = resolution.segmentation.clone();
-        // Published even on a cache hit: marking runs after every query. Costlier readings are corrections too, so they are marked although they rank below the primary tier.
-        self.alternative_segmentations = resolution
-            .alternative_corrected_cuts
-            .iter()
-            .chain(&resolution.costlier_corrected_cuts)
-            .map(|cut| join_segments(cut))
-            .collect();
-
+        let mut segments = None;
+        let segmentation_cache = &mut self.segmentation_cache;
+        let association = self.sentence_association;
+        let has_rerankers = !self.rerankers.is_empty();
+        let context = &self.rescoring_context;
+        let (resolution_hash, (resolution, pinyin_segmentation, marking_alternatives, slot)) =
+            project_cached_resolution_with(
+                &mut self.resolution_cache,
+                raw,
+                segmentation,
+                types,
+                || {
+                    let segments = segments.get_or_insert_with(|| {
+                        resolve_cached_segments(segmentation_cache, raw, segmentation)
+                    });
+                    resolve_series_query(raw, segments, types)
+                },
+                |resolution| {
+                    // 热命中也发布本次标记；高成本读法仍算纠错。
+                    let pinyin_segmentation = resolution.segmentation.clone();
+                    let alternatives = resolution
+                        .alternative_corrected_cuts
+                        .iter()
+                        .chain(&resolution.costlier_corrected_cuts)
+                        .map(|cut| join_segments(cut))
+                        .collect();
+                    let slot =
+                        series_slot_key(&resolution.cache_key, association, has_rerankers, context);
+                    let owned = match resolution {
+                        Cow::Borrowed(_) => None,
+                        Cow::Owned(resolution) => Some(resolution),
+                    };
+                    (owned, pinyin_segmentation, alternatives, slot)
+                },
+            );
+        self.pinyin_segmentation = pinyin_segmentation;
+        self.alternative_segmentations = marking_alternatives;
         self.drop_personal_scored_results();
-        let slot = self.series_slot(&resolution.cache_key);
         if self.series_cache.contains(&slot) {
-            self.reset_cache_if_database_changed();
+            if self.database.database_changed() {
+                // 清空切分备忘前取得重建需要的音节，保留原先的缓存复用与分配成本。
+                segments.get_or_insert_with(|| self.resolve_segments(raw, segmentation));
+                self.reset_cache();
+            }
             if let Some(cached) = self.series_cache.get(&slot) {
                 return cached;
             }
         }
 
+        let segments = segments.unwrap_or_else(|| self.resolve_segments(raw, segmentation));
+
+        // 候选槽失效不会改解析备忘；复用已核对的索引，避免重复哈希和完整键校验。
+        let resolution = resolution.unwrap_or_else(|| {
+            self.resolution_cache
+                .get_ref(&resolution_hash)
+                .expect("候选失效检查必须保留解析备忘")
+                .resolution
+                .clone()
+        });
+
         // 下面每一次读词典都可能走行缓存，先确认它们还和库里一致。
         self.validate_row_caches();
         let alternatives = alternative_segmentations(raw, &segments, &resolution, types);
-        let primary_segmentation = resolution.segmentation.clone();
+        let primary_segmentation = resolution.segmentation.as_str();
         let mut result;
         if resolution.corrected_input {
             // The corrected reading is the primary key, so selection and weight updates land on the right rows; the literal reading stays behind it as a fallback tail.
-            result = self.query_series(raw, &primary_segmentation, &resolution.corrected);
+            result = self.query_series(raw, primary_segmentation, &resolution.corrected);
             let literal = if segmentation.is_empty() {
                 let literal_segmentation = join_segments(&segments);
                 self.query_series(raw, &literal_segmentation, &segments)
@@ -660,7 +692,7 @@ impl QuanpinDictionary {
             if !alternatives.is_empty() {
                 result = self.merge_alternatives(
                     raw,
-                    &primary_segmentation,
+                    primary_segmentation,
                     &resolution.corrected,
                     &alternatives,
                     result,
@@ -672,21 +704,23 @@ impl QuanpinDictionary {
                 append_unique_words(&mut result, rows);
             }
         } else {
-            result = self.query_series(raw, &primary_segmentation, &segments);
+            result = self.query_series(raw, primary_segmentation, &segments);
             if !alternatives.is_empty() {
                 result = self.merge_alternatives(
                     raw,
-                    &primary_segmentation,
+                    primary_segmentation,
                     &segments,
                     &alternatives,
                     result,
                 );
             }
         }
-        self.series_cache.insert(slot.clone(), result.clone());
-        // Only keys long enough for the sentence lattice carry personal scores.
+        // 至少两音节的结果登记个人计分键；其余槽键只供缓存消费，直接转移。
         if segments.len() >= 2 || resolution.corrected.len() >= 2 {
+            self.series_cache.insert(slot.clone(), result.clone());
             self.remember_personal_scored_key(slot);
+        } else {
+            self.series_cache.insert(slot, result.clone());
         }
         result
     }
@@ -943,29 +977,13 @@ impl QuanpinDictionary {
         matched_items(rows, key)
     }
 
-    /// The single normalisation choke point (QD:767-775): an explicit segmentation and the automatic cut both pass here, so the segments entering the pipeline are alias-normalised exactly once.
+    /// 显式和自动切分共用一次别名规范化，进入查询管线的音节保持标准拼写（QD:767-775）。
     fn resolve_segments(&mut self, raw: &str, segmentation: &str) -> Vec<String> {
-        let mut segments = if segmentation.is_empty() {
-            self.computed_segments(raw)
-        } else {
-            split_segments(segmentation)
-        };
-        normalize_umlaut_aliases(&mut segments);
-        segments
+        resolve_cached_segments(&mut self.segmentation_cache, raw, segmentation)
     }
 
-    /// The first correction-mode cut of the raw input, cached (QD:777-788).
-    fn computed_segments(&mut self, raw: &str) -> Vec<String> {
-        if let Some(cached) = lookup_cached_segments(&self.segmentation_cache, raw) {
-            return cached;
-        }
-        let segments = first_correction_cut(raw).unwrap_or_default();
-        let key = raw.to_owned();
-        self.segmentation_cache.insert(key, segments.clone());
-        segments
-    }
-
-    /// 完整解析按输入元组缓存（QD:354-364），常规查询继续取得独立拥有的结果。
+    /// 拥有型解析入口只保留作旧查询的测试对照；产品按已核对的索引延迟取得副本。
+    #[cfg(test)]
     fn resolution(
         &mut self,
         raw: &str,
@@ -973,36 +991,38 @@ impl QuanpinDictionary {
         segments: &[String],
         types: u32,
     ) -> SeriesResolution {
-        self.project_resolution(raw, segmentation, segments, types, |resolution| {
-            resolution.into_owned()
-        })
+        project_cached_resolution(
+            &mut self.resolution_cache,
+            raw,
+            segmentation,
+            segments,
+            types,
+            |resolution| resolution.into_owned(),
+        )
+        .1
     }
 
-    /// 热命中只借用到投影结束；冷未命中保留原缓存副本，并把计算结果的所有权交给调用方。
+    /// 热投影不构造音节；冷未命中保留原音节备忘和解析副本，并交出计算结果。
     fn project_resolution<T>(
         &mut self,
         raw: &str,
         segmentation: &str,
-        segments: &[String],
         types: u32,
         project: impl FnOnce(Cow<'_, SeriesResolution>) -> T,
     ) -> T {
-        let hash = resolution_cache_hash(types, raw, segmentation);
-        if let Some(cached) = self.resolution_cache.get_ref(&hash) {
-            if resolution_cache_key_matches(&cached.key, types, raw, segmentation) {
-                return project(Cow::Borrowed(&cached.resolution));
-            }
-        }
-        let resolution = resolve_series_query(raw, segments, types);
-        let key = format!("{types}\u{1f}{raw}\u{1f}{segmentation}");
-        self.resolution_cache.insert(
-            hash,
-            CachedResolution {
-                key,
-                resolution: resolution.clone(),
+        let segmentation_cache = &mut self.segmentation_cache;
+        project_cached_resolution_with(
+            &mut self.resolution_cache,
+            raw,
+            segmentation,
+            types,
+            || {
+                let segments = resolve_cached_segments(segmentation_cache, raw, segmentation);
+                resolve_series_query(raw, &segments, types)
             },
-        );
-        project(Cow::Owned(resolution))
+            project,
+        )
+        .1
     }
 
     /// Insert a row that is not there yet and journal it as the user's own (QD:1200-1212, QD:1234-1266). A row already present is success without a journal write.
@@ -1058,6 +1078,53 @@ impl QuanpinDictionary {
                 .retain(|key| series_cache.contains(key));
         }
     }
+}
+
+/// 按缓存字段拆分借用，使调用方能同时读取系列槽配置；完整键核对和冷副本规则集中保留。
+#[cfg(test)]
+fn project_cached_resolution<T>(
+    cache: &mut FifoCache<u64, CachedResolution>,
+    raw: &str,
+    segmentation: &str,
+    segments: &[String],
+    types: u32,
+    project: impl FnOnce(Cow<'_, SeriesResolution>) -> T,
+) -> (u64, T) {
+    project_cached_resolution_with(
+        cache,
+        raw,
+        segmentation,
+        types,
+        || resolve_series_query(raw, segments, types),
+        project,
+    )
+}
+
+/// 解析热命中不调用构造闭包；常规查询因此可把音节拥有值延迟到真正未命中时。
+fn project_cached_resolution_with<T>(
+    cache: &mut FifoCache<u64, CachedResolution>,
+    raw: &str,
+    segmentation: &str,
+    types: u32,
+    resolve: impl FnOnce() -> SeriesResolution,
+    project: impl FnOnce(Cow<'_, SeriesResolution>) -> T,
+) -> (u64, T) {
+    let hash = resolution_cache_hash(types, raw, segmentation);
+    if let Some(cached) = cache.get_ref(&hash) {
+        if resolution_cache_key_matches(&cached.key, types, raw, segmentation) {
+            return (hash, project(Cow::Borrowed(&cached.resolution)));
+        }
+    }
+    let resolution = resolve();
+    let key = format!("{types}\u{1f}{raw}\u{1f}{segmentation}");
+    cache.insert(
+        hash,
+        CachedResolution {
+            key,
+            resolution: resolution.clone(),
+        },
+    );
+    (hash, project(Cow::Owned(resolution)))
 }
 
 /// 直接构造拥有型候选；缓存行可用惰性克隆迭代，避免完整的中间行页。
@@ -1291,6 +1358,27 @@ fn path_cache_key<'a>(raw: &'a str, segmentation: &'a str) -> &'a str {
     }
 }
 
+/// 自动切分的冷副本先写入备忘，别名规范化只修改返回值，保留原有缓存容量与内容。
+fn resolve_cached_segments(
+    cache: &mut FifoCache<String, Vec<String>>,
+    raw: &str,
+    segmentation: &str,
+) -> Vec<String> {
+    let mut segments = if segmentation.is_empty() {
+        if let Some(cached) = lookup_cached_segments(cache, raw) {
+            cached
+        } else {
+            let segments = first_correction_cut(raw).unwrap_or_default();
+            cache.insert(raw.to_owned(), segments.clone());
+            segments
+        }
+    } else {
+        split_segments(segmentation)
+    };
+    normalize_umlaut_aliases(&mut segments);
+    segments
+}
+
 fn lookup_cached_segments(
     cache: &FifoCache<String, Vec<String>>,
     key: &str,
@@ -1446,3 +1534,19 @@ mod fuzzy_row_projection_tests;
 #[cfg(test)]
 #[path = "dictionary/resolution_projection_tests.rs"]
 mod resolution_projection_tests;
+
+#[cfg(test)]
+#[path = "dictionary/primary_segmentation_tests.rs"]
+mod primary_segmentation_tests;
+
+#[cfg(test)]
+#[path = "dictionary/series_hit_resolution_tests.rs"]
+mod series_hit_resolution_tests;
+
+#[cfg(test)]
+#[path = "dictionary/lazy_segments_tests.rs"]
+mod lazy_segments_tests;
+
+#[cfg(test)]
+#[path = "dictionary/slot_key_ownership_tests.rs"]
+mod slot_key_ownership_tests;

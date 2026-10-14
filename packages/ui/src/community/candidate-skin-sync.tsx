@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { useLatestRef } from "../core/use-latest-ref";
 import { useAsyncActionRunner } from "../core/use-async-action";
 import type {
   CandidateSkinCommunityClient,
@@ -22,8 +23,7 @@ export function useCandidateSkinSync(
 ): CandidateSkinSyncState {
   const [report, setReport] = useState<CandidateSkinSyncReport | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const changed = useRef(onChanged);
-  changed.current = onChanged;
+  const changed = useLatestRef(onChanged);
   const {
     busy,
     mounted,

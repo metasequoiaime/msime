@@ -111,7 +111,7 @@ test("the entry is shown and copied as the host reports it", async () => {
   expect(group.textContent).toContain("--allow-write");
   // Without an install callback there is nothing to write into, so there is no tab for it either.
   expect(within(group).queryByRole("radio", { name: "Cursor" })).toBeNull();
-  fireEvent.click(within(group).getByRole("radio", { name: "其他" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "其他" }));
   expect(within(group).getByLabelText("MCP 配置").textContent).toBe(config);
   fireEvent.click(within(group).getByRole("button", { name: "复制配置" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledWith(config));
@@ -161,12 +161,12 @@ test("the install commands are built from the host's paths and follow the permis
   // The switches add their flags in a fixed order, whatever order they are turned on in.
   fireEvent.click(within(group).getByRole("switch", { name: "允许读取词库" }));
   fireEvent.click(within(group).getByRole("switch", { name: "允许修改设置" }));
-  fireEvent.click(within(group).getByRole("radio", { name: "Codex" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "Codex" }));
   expect(within(group).getByLabelText("Codex 安装命令").textContent).toBe(
     "codex mcp add msime -- /opt/msime/msime-mcp --options /state/runtime-options.json --allow-write --allow-dictionary-read",
   );
 
-  fireEvent.click(within(group).getByRole("radio", { name: "其他" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "其他" }));
   expect(JSON.parse(within(group).getByLabelText("MCP 配置").textContent!)).toEqual({
     mcpServers: {
       msime: {
@@ -196,7 +196,7 @@ test("each assistant tab offers the command that removes an earlier registration
   // Only the button that was pressed reads as copied.
   expect(within(group).getByRole("button", { name: "复制命令" })).toBeTruthy();
 
-  fireEvent.click(within(group).getByRole("radio", { name: "Codex" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "Codex" }));
   expect(within(group).getByLabelText("Codex 移除命令").textContent).toBe("codex mcp remove msime");
 });
 
@@ -235,13 +235,13 @@ test("writing adds the entry and a different one is replaced only after confirmi
   await openDeveloper({ mcpServerStatus: async () => current, installMcpClient });
   const group = await screen.findByRole("group", { name: "连接 AI 助手" });
 
-  fireEvent.click(within(group).getByRole("radio", { name: "Cursor" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "Cursor" }));
   // 不带权限的条目不需要先确认。
   fireEvent.click(within(group).getByRole("button", { name: "写入 Cursor" }));
   await within(group).findByText("已写入 Cursor 的配置。重新启动 Cursor 后生效。");
   expect(installMcpClient).toHaveBeenCalledWith("cursor", false, []);
 
-  fireEvent.click(within(group).getByRole("radio", { name: "Claude Desktop" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "Claude Desktop" }));
 
   // Declining leaves the other entry alone.
   fireEvent.click(within(group).getByRole("button", { name: "写入 Claude Desktop" }));
@@ -265,7 +265,7 @@ test("writing an entry with permissions asks first, and cancelling writes nothin
   const installMcpClient = vi.fn(async () => "added" as const);
   await openDeveloper({ mcpServerStatus: async () => status(), installMcpClient });
   const group = await screen.findByRole("group", { name: "连接 AI 助手" });
-  fireEvent.click(within(group).getByRole("radio", { name: "Cursor" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "Cursor" }));
 
   fireEvent.click(within(group).getByRole("button", { name: "写入 Cursor" }));
   const dialog = await screen.findByRole("alertdialog");
@@ -308,7 +308,7 @@ test("a configured client's switches show its entry, and a change offers to upda
   // 其它页按记住的选择（默认两项都开）。
   expect(checked("允许读取词库")).toBe(true);
 
-  fireEvent.click(within(group).getByRole("radio", { name: "Claude Desktop" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "Claude Desktop" }));
   expect(checked("允许修改设置")).toBe(true);
   expect(checked("允许读取词库")).toBe(false);
   expect(group.textContent).toContain("（已连接）");
@@ -352,7 +352,7 @@ test("an entry an earlier Nix version wrote is offered as an update that keeps i
   const checked = (name: string) =>
     (within(group).getByRole("switch", { name }) as HTMLInputElement).checked;
 
-  fireEvent.click(within(group).getByRole("radio", { name: "Claude Desktop" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "Claude Desktop" }));
   expect(group.textContent).toContain("（已连接）");
   expect(group.textContent).toContain("指向 Nix store");
   // 开关是条目原来的权限，不是记住的默认值。
@@ -380,7 +380,7 @@ test("ignores a same-tick duplicate MCP install", async () => {
   const install = vi.fn().mockReturnValue(pending.promise);
   render(<McpConnectSection status={() => Promise.resolve(status())} install={install} />);
   const group = await screen.findByRole("group", { name: "连接 AI 助手" });
-  fireEvent.click(within(group).getByRole("radio", { name: "Cursor" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "Cursor" }));
   const write = within(group).getByRole("button", { name: "写入 Cursor" });
   act(() => {
     fireEvent.click(write);
@@ -400,7 +400,7 @@ test("a write response from a replaced host cannot update the new MCP section", 
     <McpConnectSection status={() => Promise.resolve(status())} install={oldInstall} />,
   );
   const group = await screen.findByRole("group", { name: "连接 AI 助手" });
-  fireEvent.click(within(group).getByRole("radio", { name: "Cursor" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "Cursor" }));
   fireEvent.click(within(group).getByRole("button", { name: "写入 Cursor" }));
   view.rerender(
     <McpConnectSection status={() => Promise.resolve(status())} install={nextInstall} />,
@@ -417,6 +417,35 @@ test("a write response from a replaced host cannot update the new MCP section", 
   ).toBe(false);
 });
 
+test("旧宿主迟到的条目冲突不能在新 MCP 面板打开替换确认", async () => {
+  readOnly();
+  const pending = deferred<McpInstallOutcome>();
+  const oldInstall = vi.fn(() => pending.promise);
+  const nextInstall = vi.fn().mockResolvedValue("added" as const);
+  const view = render(
+    <McpConnectSection status={() => Promise.resolve(status())} install={oldInstall} />,
+  );
+  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  fireEvent.click(await within(group).findByRole("radio", { name: "Cursor" }));
+  fireEvent.click(within(group).getByRole("button", { name: "写入 Cursor" }));
+  expect(oldInstall).toHaveBeenCalledWith("cursor", false, []);
+
+  view.rerender(
+    <McpConnectSection status={() => Promise.resolve(status())} install={nextInstall} />,
+  );
+  await act(async () => {
+    pending.reject({ code: "mcp_entry_exists" });
+    await Promise.resolve();
+  });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(oldInstall).toHaveBeenCalledOnce();
+
+  fireEvent.click(screen.getByRole("button", { name: "写入 Cursor" }));
+  await screen.findByText("已写入 Cursor 的配置。重新启动 Cursor 后生效。");
+  expect(nextInstall).toHaveBeenCalledOnce();
+  expect(nextInstall).toHaveBeenCalledWith("cursor", false, []);
+});
+
 test("a copy response from a replaced host cannot mark the new MCP section copied", async () => {
   readOnly();
   const pending = deferred<void>();
@@ -426,7 +455,7 @@ test("a copy response from a replaced host cannot mark the new MCP section copie
     <McpConnectSection status={() => Promise.resolve(status())} copyText={oldCopy} />,
   );
   const group = await screen.findByRole("group", { name: "连接 AI 助手" });
-  fireEvent.click(within(group).getByRole("radio", { name: "其他" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "其他" }));
   fireEvent.click(within(group).getByRole("button", { name: "复制配置" }));
   expect(oldCopy).toHaveBeenCalledWith(config);
   view.rerender(<McpConnectSection status={() => Promise.resolve(status())} copyText={nextCopy} />);
@@ -444,7 +473,7 @@ test("a configuration file that is not JSON is reported and left alone", async (
   });
   await openDeveloper({ mcpServerStatus: async () => status(), installMcpClient });
   const group = await screen.findByRole("group", { name: "连接 AI 助手" });
-  fireEvent.click(within(group).getByRole("radio", { name: "Cursor" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "Cursor" }));
   fireEvent.click(within(group).getByRole("button", { name: "写入 Cursor" }));
   await within(group).findByText("Cursor 的配置文件不是有效的 JSON，已保持原样。请先修正该文件。");
 });
@@ -470,12 +499,51 @@ test("a late status response cannot update an unmounted section or replace a new
   await Promise.resolve();
 });
 
+test.each([
+  ["install", "成功"],
+  ["install", "失败"],
+  ["copyText", "成功"],
+  ["copyText", "失败"],
+] as const)("仅更换 %s 回调后重新加载状态，并忽略旧请求%s", async (owner, outcome) => {
+  const first = deferred<McpServerStatus>();
+  const second = deferred<McpServerStatus>();
+  const readStatus = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  const install = vi.fn().mockResolvedValue("added" as const);
+  const copyText = vi.fn().mockResolvedValue(undefined);
+  const view = render(
+    <McpConnectSection status={readStatus} install={install} copyText={copyText} />,
+  );
+  view.rerender(
+    <McpConnectSection
+      status={readStatus}
+      install={owner === "install" ? vi.fn().mockResolvedValue("added" as const) : install}
+      copyText={owner === "copyText" ? vi.fn().mockResolvedValue(undefined) : copyText}
+    />,
+  );
+
+  await act(async () => {
+    if (outcome === "成功") first.resolve(status());
+    else first.reject(new Error("synthetic-old-status-detail"));
+  });
+  expect(screen.queryByLabelText("Claude Code 安装命令")).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+
+  await act(async () => {
+    second.resolve({ ...status(), command: "/synthetic/new/msime-mcp" });
+  });
+  expect(await screen.findByLabelText("Claude Code 安装命令")).toHaveProperty(
+    "textContent",
+    expect.stringContaining("/synthetic/new/msime-mcp"),
+  );
+  expect(readStatus).toHaveBeenCalledTimes(2);
+});
+
 test("the terminal tab tells an assistant how to run the tools directly, with the chosen flags", async () => {
   readOnly();
   const copyText = vi.fn(async () => {});
   await openDeveloper({ mcpServerStatus: async () => status(), copyText });
   const group = await screen.findByRole("group", { name: "连接 AI 助手" });
-  fireEvent.click(within(group).getByRole("radio", { name: "命令行" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "命令行" }));
   const program = "/opt/msime/msime-mcp --options /state/runtime-options.json";
   expect(within(group).getByLabelText("命令行用法").textContent).toBe(
     [
@@ -503,7 +571,7 @@ test("on Windows the terminal instructions pass the arguments through a file", a
     copyText: vi.fn(async () => {}),
   });
   const group = await screen.findByRole("group", { name: "连接 AI 助手" });
-  fireEvent.click(within(group).getByRole("radio", { name: "命令行" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "命令行" }));
   const usage = within(group).getByLabelText("命令行用法").textContent!;
   expect(usage).toContain(
     '"C:\\Program Files\\MSIME\\msime-mcp.exe" --options "C:\\ProgramData\\MSIME\\runtime-options.json" call <工具名> @<文件路径>',
@@ -529,7 +597,7 @@ test("commands are coloured by program, flag, quoted argument and placeholder", 
     "'/Library/Application Support/o.json'",
   ]);
 
-  fireEvent.click(within(group).getByRole("radio", { name: "命令行" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "命令行" }));
   const usage = within(group).getByLabelText("命令行用法");
   expect(coloured(usage, "text-syntax-placeholder")).toEqual(["<工具名>", "@<文件路径>"]);
   expect(coloured(usage, "text-syntax-string")).toContain("'<JSON 参数>'");
@@ -543,7 +611,7 @@ test("the configuration is coloured when it is laid out as the host's pretty pri
   const copyText = vi.fn(async () => {});
   await openDeveloper({ mcpServerStatus: async () => ({ ...status(), config: pretty }), copyText });
   const group = await screen.findByRole("group", { name: "连接 AI 助手" });
-  fireEvent.click(within(group).getByRole("radio", { name: "其他" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "其他" }));
   const block = within(group).getByLabelText("MCP 配置");
   expect(block.textContent).toBe(pretty);
   expect(coloured(block, "text-syntax-key")).toEqual([
@@ -565,7 +633,7 @@ test("a configuration laid out differently is shown as written, uncoloured", asy
   readOnly();
   await openDeveloper({ mcpServerStatus: async () => status() });
   const group = await screen.findByRole("group", { name: "连接 AI 助手" });
-  fireEvent.click(within(group).getByRole("radio", { name: "其他" }));
+  fireEvent.click(await within(group).findByRole("radio", { name: "其他" }));
   const block = within(group).getByLabelText("MCP 配置");
   expect(block.textContent).toBe(config);
   expect(block.querySelector("span")).toBeNull();

@@ -2,128 +2,128 @@
   "by_syllables": {
     "10": {
       "cases": 94,
-      "found": 0.915,
-      "mrr": 0.731,
-      "top1": 0.649,
-      "top1_char_prefix": 0.784,
-      "top5": 0.84,
-      "top9": 0.84
+      "found": 0.957,
+      "mrr": 0.791,
+      "top1": 0.702,
+      "top1_char_prefix": 0.813,
+      "top5": 0.904,
+      "top9": 0.904
     },
     "11": {
       "cases": 96,
-      "found": 0.865,
-      "mrr": 0.764,
-      "top1": 0.688,
-      "top1_char_prefix": 0.843,
-      "top5": 0.854,
-      "top9": 0.854
+      "found": 0.875,
+      "mrr": 0.785,
+      "top1": 0.708,
+      "top1_char_prefix": 0.848,
+      "top5": 0.865,
+      "top9": 0.865
     },
     "12": {
       "cases": 53,
-      "found": 0.868,
-      "mrr": 0.715,
+      "found": 0.887,
+      "mrr": 0.725,
       "top1": 0.642,
-      "top1_char_prefix": 0.808,
-      "top5": 0.792,
-      "top9": 0.792
+      "top1_char_prefix": 0.777,
+      "top5": 0.811,
+      "top9": 0.811
     },
     "13": {
       "cases": 46,
-      "found": 0.87,
-      "mrr": 0.775,
+      "found": 0.913,
+      "mrr": 0.786,
       "top1": 0.696,
-      "top1_char_prefix": 0.838,
-      "top5": 0.87,
-      "top9": 0.87
+      "top1_char_prefix": 0.824,
+      "top5": 0.891,
+      "top9": 0.891
     },
     "14": {
       "cases": 34,
-      "found": 0.765,
-      "mrr": 0.696,
-      "top1": 0.647,
-      "top1_char_prefix": 0.786,
-      "top5": 0.765,
-      "top9": 0.765
+      "found": 0.853,
+      "mrr": 0.784,
+      "top1": 0.735,
+      "top1_char_prefix": 0.828,
+      "top5": 0.853,
+      "top9": 0.853
     },
     "15": {
       "cases": 28,
-      "found": 0.786,
-      "mrr": 0.573,
-      "top1": 0.5,
-      "top1_char_prefix": 0.66,
-      "top5": 0.643,
-      "top9": 0.643
+      "found": 0.821,
+      "mrr": 0.638,
+      "top1": 0.536,
+      "top1_char_prefix": 0.688,
+      "top5": 0.75,
+      "top9": 0.75
     },
     "16": {
       "cases": 22,
-      "found": 0.727,
-      "mrr": 0.637,
-      "top1": 0.591,
-      "top1_char_prefix": 0.776,
-      "top5": 0.682,
-      "top9": 0.682
+      "found": 0.955,
+      "mrr": 0.842,
+      "top1": 0.773,
+      "top1_char_prefix": 0.852,
+      "top5": 0.909,
+      "top9": 0.909
     },
     "6": {
       "cases": 217,
       "found": 0.954,
-      "mrr": 0.763,
-      "top1": 0.645,
-      "top1_char_prefix": 0.811,
-      "top5": 0.889,
-      "top9": 0.889
+      "mrr": 0.767,
+      "top1": 0.641,
+      "top1_char_prefix": 0.806,
+      "top5": 0.903,
+      "top9": 0.903
     },
     "7": {
       "cases": 178,
-      "found": 0.933,
-      "mrr": 0.743,
-      "top1": 0.612,
-      "top1_char_prefix": 0.8,
-      "top5": 0.888,
-      "top9": 0.888
+      "found": 0.938,
+      "mrr": 0.763,
+      "top1": 0.629,
+      "top1_char_prefix": 0.811,
+      "top5": 0.904,
+      "top9": 0.904
     },
     "8": {
       "cases": 184,
-      "found": 0.94,
-      "mrr": 0.705,
-      "top1": 0.549,
-      "top1_char_prefix": 0.739,
-      "top5": 0.88,
-      "top9": 0.88
+      "found": 0.957,
+      "mrr": 0.74,
+      "top1": 0.571,
+      "top1_char_prefix": 0.751,
+      "top5": 0.924,
+      "top9": 0.924
     },
     "9": {
       "cases": 153,
-      "found": 0.876,
-      "mrr": 0.684,
-      "top1": 0.588,
-      "top1_char_prefix": 0.789,
-      "top5": 0.791,
-      "top9": 0.791
+      "found": 0.908,
+      "mrr": 0.723,
+      "top1": 0.621,
+      "top1_char_prefix": 0.804,
+      "top5": 0.837,
+      "top9": 0.837
     }
   },
   "by_tag": {
     "harvested": {
       "cases": 1105,
-      "found": 0.904,
-      "mrr": 0.726,
-      "top1": 0.617,
-      "top1_char_prefix": 0.79,
-      "top5": 0.847,
-      "top9": 0.847
+      "found": 0.928,
+      "mrr": 0.757,
+      "top1": 0.641,
+      "top1_char_prefix": 0.799,
+      "top5": 0.884,
+      "top9": 0.884
     }
   },
   "cases": 1105,
   "gold_source": {
     "database": 1,
-    "generated": 998
+    "generated": 1024
   },
   "overall": {
     "cases": 1105,
-    "found": 0.904,
-    "mrr": 0.726,
-    "top1": 0.617,
-    "top1_char_prefix": 0.79,
-    "top5": 0.847,
-    "top9": 0.847
+    "found": 0.928,
+    "mrr": 0.757,
+    "top1": 0.641,
+    "top1_char_prefix": 0.799,
+    "top5": 0.884,
+    "top9": 0.884
   },
   "sample_failures": [
     {
@@ -221,7 +221,7 @@
       "gold": "再次深表谢意",
       "id": "h-0043",
       "input": "zaicishenbiaoxieyi",
-      "rank": 60,
+      "rank": 3,
       "top1": "在此深表协议"
     },
     {
@@ -348,7 +348,7 @@
       "id": "h-0090",
       "input": "shizecunbuburang",
       "rank": 2,
-      "top1": "实则存不不让"
+      "top1": "时则寸步不让"
     },
     {
       "gold": "就回总后去了",

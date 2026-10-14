@@ -2241,13 +2241,8 @@ fn comparable_weight(item: &WordItem) -> i64 {
         return item.weight;
     }
     let syllables = item.canonical_pinyin.split('\'').count();
-    // 每个多字词再扣一份奖励（#6059）：只按音节扣时，一个词组的分只剩它的词频，比单字的分高得多，把读法切成更多词组反而得分，`ni'ming'tian'you'long'ma`（匿名天佑龙马）就压过了 `ni'ming'tian'you'kong'ma`（你明天有空吗）。每个词扣一份，等于给每个词一份插入代价，切得越碎越吃亏；单字本来就按 `unigram_z` 扣过，不再加扣。
-    let phrases = item
-        .sentence_words
-        .iter()
-        .filter(|word| word.chars().nth(1).is_some())
-        .count();
-    item.weight - (PHRASE_LENGTH_BONUS * 1000.0 * (syllables + phrases) as f64) as i64
+    // 每词插入代价已在共享词网格解码中扣除；这里只消去跨切分比较的音节奖励。
+    item.weight - (PHRASE_LENGTH_BONUS * 1000.0 * syllables as f64) as i64
 }
 
 /// 九键记进个人上下文模型的词：两个字以上的纯汉字词，单字和夹着英文、符号的不记（#6185）。
@@ -3125,9 +3120,9 @@ mod tests {
         assert_eq!(comparable_weight(&word), 500);
     }
 
-    /// #6059：每个多字词再扣一份奖励，切成更多词组的读法不再因此得分。
+    /// 每词插入代价由词网格计入，跨切分比较不能再扣一次。
     #[test]
-    fn each_phrase_costs_one_more_bonus_across_paths() {
+    fn phrase_insertion_cost_is_not_deducted_again_across_paths() {
         let bonus = (PHRASE_LENGTH_BONUS * 1000.0) as i64;
         let sentence = |word: &str, pinyin: &str, words: &[&str], weight: i64| {
             let mut row = item(
@@ -3140,18 +3135,18 @@ mod tests {
             row.sentence_words = words.iter().map(|word| (*word).to_owned()).collect();
             row
         };
-        // 两句都是六个音节；三个词组的那句原始分高出半份奖励，两个词组加两个单字的那句扣掉多出来的一份词组奖励后反超。
+        // 两句都是六个音节；输入分已含三份和两份词组插入代价，九键只扣相同的六份音节奖励。
         let phrases = sentence(
             "匿名天佑龙马",
             "ni'ming'tian'you'long'ma",
             &["匿名", "天佑", "龙马"],
-            40_000,
+            40_000 - 3 * bonus,
         );
         let plain = sentence(
             "你明天有空吗",
             "ni'ming'tian'you'kong'ma",
             &["你", "明天", "有空", "吗"],
-            30_000,
+            30_000 - 2 * bonus,
         );
         assert_eq!(comparable_weight(&phrases), 40_000 - 9 * bonus);
         assert_eq!(comparable_weight(&plain), 30_000 - 8 * bonus);

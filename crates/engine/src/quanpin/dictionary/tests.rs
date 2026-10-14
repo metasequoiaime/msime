@@ -111,6 +111,18 @@ fn series_slot_key_encodes_switches_and_context() {
         series_slot_key("T0:A:ni", options, true, "你好"),
         "T0:A:ni\u{1f}S101\u{1f}你好"
     );
+    for key in ["", "T0:A:ni", "C:T3:A:gua", "T0:M:ni'hao"] {
+        for context in ["", "合成上文😀", "合成较长上文甲乙丙丁"] {
+            for has_rerankers in [false, true] {
+                let slot = series_slot_key(key, options, has_rerankers, context);
+                assert_eq!(
+                    slot.capacity(),
+                    slot.clone().capacity(),
+                    "原键转移须保持缓存键容量"
+                );
+            }
+        }
+    }
 }
 
 #[test]

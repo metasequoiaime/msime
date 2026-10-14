@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useLatestRef } from "../core/use-latest-ref";
 import * as settings from "./settings-style";
 import { ActionButton } from "../core/action-button";
 import { clamp } from "../core/number";
@@ -45,8 +46,7 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
   const current = useRef(index);
   // 当前显示的卡片和最新的卡片列表；`show` 读它们，因此不必随卡片数量变化而重建。
   const shownKey = useRef<string | undefined>(keys[index]);
-  const latestKeys = useRef(keys);
-  latestKeys.current = keys;
+  const latestKeys = useLatestRef(keys);
   const windowStart = carouselDotWindowStart(index, labels.length);
 
   const show = useCallback((next: number, smooth: boolean) => {

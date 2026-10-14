@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
+import { trackAsyncSubscription } from "../core/async-subscription";
 import type { SettingsClient, Snapshot } from "../index";
 import { useAsyncGeneration } from "./use-async-generation";
 
 export type PreferencesSnapshotClient = Pick<SettingsClient, "load" | "onPreferencesChanged">;
 
-/** Loads preferences after subscribing, then ignores change events older than the loaded snapshot. */
+/** 订阅完成后加载偏好，忽略不比已采纳快照更新的事件。 */
 export function usePreferencesSnapshot(
   preferences: PreferencesSnapshotClient,
   resetOnClientChange = false,
@@ -14,8 +15,8 @@ export function usePreferencesSnapshot(
 
   useEffect(() => {
     const requestGeneration = generation.current;
+    const isCurrent = () => generation.current === requestGeneration;
     let latestRevision = -1;
-    let unsubscribe: (() => void) | undefined;
     if (resetOnClientChange) setSnapshot(null);
 
     const apply = (value: Snapshot) => {
@@ -24,29 +25,25 @@ export function usePreferencesSnapshot(
       setSnapshot(value);
     };
 
-    const start = async () => {
+    const load = async () => {
+      if (!isCurrent()) return;
       try {
-        const stop = await preferences.onPreferencesChanged?.(apply);
-        if (generation.current !== requestGeneration) {
-          stop?.();
-          return;
-        }
-        unsubscribe = stop;
+        apply(await preferences.load());
       } catch {
-        /* Initial loading still works when event subscription is unavailable. */
-      }
-      if (generation.current === requestGeneration) {
-        try {
-          apply(await preferences.load());
-        } catch {
-          /* Keep the last available snapshot when the initial load fails. */
-        }
+        // 首次加载失败时保留已采纳的快照。
       }
     };
-    void start();
-    return () => {
-      unsubscribe?.();
-    };
+    let pending: Promise<(() => void) | void>;
+    try {
+      pending = Promise.resolve(preferences.onPreferencesChanged?.(apply));
+    } catch {
+      // 同步注册失败时沿用立即开始加载的时机。
+      void load();
+      return;
+    }
+    const dispose = trackAsyncSubscription(pending, isCurrent);
+    void pending.then(load, load);
+    return dispose;
   }, [preferences, resetOnClientChange, generation]);
 
   return snapshot;

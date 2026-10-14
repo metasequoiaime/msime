@@ -898,8 +898,7 @@ export function HandwritingPanel({
   const handwritingPack = resourcePackStatus(packs, "handwriting");
   // 只有确定缺少模型时才暂停识别；读不到列表时照常识别。已过期（文件字节与锁文件不一致）的资源包会由 ensure 重新下载，期间识别照常尝试，宿主可能还有别的模型可用。
   const modelMissing = handwritingPack?.state === "missing";
-  const modelMissingRef = useRef(modelMissing);
-  modelMissingRef.current = modelMissing;
+  const modelMissingRef = useLatestRef(modelMissing);
   const waitingForModel = useRef(false);
   const ensuredModel = useRef(false);
   useEffect(() => {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLatestRef } from "../core/use-latest-ref";
 import { errorCode } from "../core/error-code";
 import { trackAsyncSubscription } from "../core/async-subscription";
 import { useAsyncGeneration } from "./use-async-generation";
@@ -121,10 +122,8 @@ export function useResourcePacks(
   const [errors, setErrors] = useState<ResourcePacks["errors"]>({});
   const mounted = useMountedRef();
   const clientGeneration = useAsyncGeneration(client);
-  const activeClient = useRef(client);
-  activeClient.current = client;
-  const statusesRef = useRef(statuses);
-  statusesRef.current = statuses;
+  const activeClient = useLatestRef(client);
+  const statusesRef = useLatestRef(statuses);
   const refreshRequest = useRef(0);
   // 本页发起、尚未结束的下载；进度事件可能晚到，所以不能只看 progress 判断。
   const running = useRef(new Set<string>());

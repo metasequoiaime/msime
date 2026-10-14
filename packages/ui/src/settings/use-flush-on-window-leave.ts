@@ -1,11 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
+import { useLatestRef } from "../core/use-latest-ref";
 
 export type FlushOnWindowLeave = () => void | Promise<void>;
 
 /** Flushes pending edits when the settings surface is blurred, hidden, or backgrounded. */
 export function useFlushOnWindowLeave(flush: FlushOnWindowLeave): void {
-  const flushRef = useRef(flush);
-  flushRef.current = flush;
+  const flushRef = useLatestRef(flush);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return;

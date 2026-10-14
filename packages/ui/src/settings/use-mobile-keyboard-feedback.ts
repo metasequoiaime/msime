@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useLatestRef } from "../core/use-latest-ref";
 import type {
   MobileKeyboardFeedback,
   MobileKeyboardFeedbackClient,
@@ -18,8 +19,7 @@ export function useMobileKeyboardFeedback({
   onError,
 }: UseMobileKeyboardFeedbackOptions) {
   const [value, setValue] = useState<MobileKeyboardFeedback>();
-  const onErrorRef = useRef(onError);
-  onErrorRef.current = onError;
+  const onErrorRef = useLatestRef(onError);
   const ignoreError = useCallback(() => {}, []);
   const {
     busy,

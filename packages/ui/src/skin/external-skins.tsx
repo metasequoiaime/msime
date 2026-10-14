@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useLatestRef } from "../core/use-latest-ref";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { useSkinImage, type SkinImageReader } from "./skin-image";
@@ -508,8 +509,7 @@ export function useSkinCatalog(
     return run(true);
   }
   // 自动重扫走最新一次渲染的 `run`，订阅本身不必随每次渲染重建。
-  const rescan = useRef(run);
-  rescan.current = run;
+  const rescan = useLatestRef(run);
   useEffect(
     () =>
       subscribeSkinCatalogChanges(() => {

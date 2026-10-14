@@ -48,7 +48,7 @@
       "canonical_pinyin": "xi'te'le'hao",
       "source": 8,
       "scheme": "quanpin",
-      "weight": 26184,
+      "weight": 6184,
       "sentence_association": true,
       "sentence_words": [
        "西",
@@ -115,7 +115,7 @@
       "canonical_pinyin": "te'le'hao",
       "source": 8,
       "scheme": "quanpin",
-      "weight": 35394,
+      "weight": 15394,
       "sentence_association": true,
       "sentence_words": [
        "特乐",

@@ -561,7 +561,7 @@ fn caret_prefix_expands_its_own_initial_list() {
     let (grew, allocations) =
         crate::ime::personal_rerank::allocations::count(|| session.expand_initial_candidates());
     assert!(grew);
-    assert_eq!(allocations, 321, "光标前缀展开申请次数：{allocations}");
+    assert_eq!(allocations, 319, "光标前缀展开申请次数：{allocations}");
     let widened = words(&session);
     assert_eq!(widened.len(), 30);
     assert!(widened.contains(&"丝".to_owned()), "{widened:?}");
@@ -1558,7 +1558,7 @@ fn ignored_scheme_key_does_not_clone_preedit_for_change_detection() {
     });
 
     assert!(!result.handled);
-    assert_eq!(allocations, 32);
+    assert_eq!(allocations, 28);
 }
 
 #[test]
@@ -1572,7 +1572,7 @@ fn typing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection() {
     });
 
     assert!(result.handled);
-    assert_eq!(allocations, 132);
+    assert_eq!(allocations, 131);
 }
 
 #[test]
@@ -1585,7 +1585,7 @@ fn backspacing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection()
         crate::ime::personal_rerank::allocations::count(|| session.command(Command::Backspace));
 
     assert!(result.handled);
-    assert_eq!(allocations, 23);
+    assert_eq!(allocations, 19);
 }
 
 #[test]
@@ -1645,7 +1645,7 @@ fn setting_the_caret_does_not_build_editing_text_to_clamp_it() {
     });
 
     assert_eq!(session.snapshot().caret_position, 2);
-    assert_eq!(allocations, 29);
+    assert_eq!(allocations, 25);
 }
 
 #[test]
@@ -1659,8 +1659,8 @@ fn moving_the_caret_does_not_build_the_preedit_twice() {
 
     assert!(result.handled);
     assert_eq!(
-        allocations, 29,
-        "caret movement should reuse the editing text length: {allocations} allocations"
+        allocations, 25,
+        "光标移动复用编辑文本长度后的分配次数：{allocations}"
     );
 }
 
@@ -1675,10 +1675,7 @@ fn typing_at_a_caret_reuses_the_editing_text_length() {
         crate::ime::personal_rerank::allocations::count(|| session.character(b'x', false));
 
     assert!(result.handled);
-    assert_eq!(
-        allocations, 206,
-        "caret insertion allocations: {allocations}"
-    );
+    assert_eq!(allocations, 204, "光标处输入的分配次数：{allocations}");
 }
 
 #[test]

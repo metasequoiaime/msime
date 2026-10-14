@@ -135,9 +135,11 @@ fn clone_cost(
     raw: &str,
     segmentation: &str,
     types: u32,
-) -> (SeriesResolution, usize) {
-    let segments = dictionary.resolve_segments(raw, segmentation);
-    count(|| dictionary.legacy_slot_resolution(raw, segmentation, &segments, types))
+) -> (SeriesResolution, usize, usize) {
+    let (segments, segment_copies) = count(|| dictionary.resolve_segments(raw, segmentation));
+    let (resolution, copies) =
+        count(|| dictionary.legacy_slot_resolution(raw, segmentation, &segments, types));
+    (resolution, copies, segment_copies)
 }
 
 fn assert_layout(actual: &SeriesResolution, expected: &SeriesResolution) {
@@ -202,8 +204,10 @@ fn online_updates_copy_only_the_hot_resolution_key() {
     let words = vec!["合成云甲".to_owned()];
     for (raw, segmentation, types) in [
         ("nihao", "ni'hao", 0),
+        ("nihao", "", 0),
         ("ni'hao", "ni'hao", 0),
         ("nue", "nue", 0),
+        ("nue", "", 0),
         ("gau", "", transposition | neighbor),
         ("sahng", "", transposition),
         ("uanli", "", deletion),
@@ -212,38 +216,51 @@ fn online_updates_copy_only_the_hot_resolution_key() {
             CandidateSource::CloudSuggestion,
             CandidateSource::AiSuggestion,
         ] {
-            let mut before = QuanpinDictionary::new(&fixture.paths);
-            let mut after = QuanpinDictionary::new(&fixture.paths);
-            assert_eq!(
-                query(&mut after, raw, segmentation, types),
-                query(&mut before, raw, segmentation, types)
-            );
-            let (resolution, copies) = clone_cost(&mut before, raw, segmentation, types);
-            assert!(copies > 1);
-            let (expected, old_count) = count(|| {
-                before.legacy_slot_insert_online_words(raw, segmentation, types, &words, source)
-            });
-            let (actual, new_count) =
-                count(|| after.insert_online_words(raw, segmentation, types, &words, source));
-            assert_eq!(actual, expected);
-            assert!(actual);
-            assert_slot(&before, &after, raw, segmentation, types);
-            println!("在线回写 {raw}/{types}/{source:?}：申请 {old_count}→{new_count}，完整解析复制 {copies}");
-            assert_eq!(
-                new_count + copies - 1,
-                old_count,
-                "只需复制一个拥有型缓存键"
-            );
-            assert_eq!(
-                query(&mut after, raw, segmentation, types),
-                query(&mut before, raw, segmentation, types)
-            );
-            assert!(after
-                .series_cache
-                .get_ref(&after.series_slot(&resolution.cache_key))
-                .unwrap()
-                .iter()
-                .any(|item| item.word == "合成云甲"));
+            for empty_segments_cache in [false, true] {
+                let mut before = QuanpinDictionary::new(&fixture.paths);
+                let mut after = QuanpinDictionary::new(&fixture.paths);
+                assert_eq!(
+                    query(&mut after, raw, segmentation, types),
+                    query(&mut before, raw, segmentation, types)
+                );
+                if empty_segments_cache {
+                    before.segmentation_cache.clear();
+                    after.segmentation_cache.clear();
+                }
+                let (resolution, copies, segment_copies) =
+                    clone_cost(&mut before, raw, segmentation, types);
+                if empty_segments_cache {
+                    before.segmentation_cache.clear();
+                }
+                assert!(copies > 1);
+                let (expected, old_count) = count(|| {
+                    before.legacy_slot_insert_online_words(raw, segmentation, types, &words, source)
+                });
+                let (actual, new_count) =
+                    count(|| after.insert_online_words(raw, segmentation, types, &words, source));
+                assert_eq!(actual, expected);
+                assert!(actual);
+                assert_slot(&before, &after, raw, segmentation, types);
+                println!("在线回写 {raw}/{types}/{source:?}：申请 {old_count}→{new_count}，完整解析复制 {copies}，音节构造 {segment_copies}，空切分缓存={empty_segments_cache}");
+                assert_eq!(
+                    new_count + copies - 1 + segment_copies,
+                    old_count,
+                    "只需复制一个拥有型缓存键，不构造未消费的音节"
+                );
+                if empty_segments_cache && segmentation.is_empty() {
+                    assert!(after.segmentation_cache.get_ref_by(raw).is_none());
+                }
+                assert_eq!(
+                    query(&mut after, raw, segmentation, types),
+                    query(&mut before, raw, segmentation, types)
+                );
+                assert!(after
+                    .series_cache
+                    .get_ref(&after.series_slot(&resolution.cache_key))
+                    .unwrap()
+                    .iter()
+                    .any(|item| item.word == "合成云甲"));
+            }
         }
     }
 }
@@ -254,6 +271,8 @@ fn cold_online_updates_keep_the_original_allocation_and_capacity_policy() {
     let words = vec!["合成冷回写".to_owned()];
     for (raw, segmentation, types) in [
         ("nihao", "ni'hao", 0),
+        ("nihao", "", 0),
+        ("nue", "", 0),
         (
             "gau",
             "",
@@ -310,48 +329,65 @@ fn initial_expansion_projects_the_unmarked_slot_and_keeps_cold_cost() {
         ),
     ] {
         for hot in [false, true] {
-            let mut before = QuanpinDictionary::new(&fixture.paths);
-            let mut after = QuanpinDictionary::new(&fixture.paths);
-            let mut expected = query(&mut before, "n", "n", 0);
-            let mut actual = query(&mut after, "n", "n", 0);
-            let _ = before.database.query_initial("n", UNLIMITED_ROWS);
-            let _ = after.database.query_initial("n", UNLIMITED_ROWS);
-            let segments = before.resolve_segments(raw, segmentation);
-            let _ = after.resolve_segments(raw, segmentation);
-            let resolution = before.legacy_slot_resolution(raw, segmentation, &segments, types);
-            if raw == "gau" {
-                assert!(resolution.corrected_input);
-                assert!(resolution.cache_key.starts_with("C:"));
+            for empty_segments_cache in [false, true] {
+                let mut before = QuanpinDictionary::new(&fixture.paths);
+                let mut after = QuanpinDictionary::new(&fixture.paths);
+                let mut expected = query(&mut before, "n", "n", 0);
+                let mut actual = query(&mut after, "n", "n", 0);
+                let _ = before.database.query_initial("n", UNLIMITED_ROWS);
+                let _ = after.database.query_initial("n", UNLIMITED_ROWS);
+                let segments = before.resolve_segments(raw, segmentation);
+                let _ = after.resolve_segments(raw, segmentation);
+                let resolution = before.legacy_slot_resolution(raw, segmentation, &segments, types);
+                if raw == "gau" {
+                    assert!(resolution.corrected_input);
+                    assert!(resolution.cache_key.starts_with("C:"));
+                }
+                let segments = after.resolve_segments(raw, segmentation);
+                let _ = after.legacy_slot_resolution(raw, segmentation, &segments, types);
+                if empty_segments_cache {
+                    before.segmentation_cache.clear();
+                    after.segmentation_cache.clear();
+                }
+                let (_, copies, segment_copies) = clone_cost(&mut before, raw, segmentation, types);
+                if empty_segments_cache {
+                    before.segmentation_cache.clear();
+                }
+                if !hot {
+                    before.resolution_cache.clear();
+                    after.resolution_cache.clear();
+                }
+                let (old_result, old_count) = count(|| {
+                    before.legacy_slot_expand_initial_candidates(
+                        raw,
+                        segmentation,
+                        types,
+                        "n",
+                        &mut expected,
+                    )
+                });
+                let (new_result, new_count) = count(|| {
+                    after.expand_initial_candidates(raw, segmentation, types, "n", &mut actual)
+                });
+                assert_eq!(new_result, old_result);
+                assert!(new_result);
+                assert_eq!(actual, expected);
+                assert_eq!(actual.capacity(), expected.capacity());
+                assert_slot(&before, &after, raw, segmentation, types);
+                let key =
+                    after.series_slot(&series_cache_key(raw, &resolution.segmentation, types));
+                assert!(!key.starts_with("C:"));
+                assert_eq!(after.series_cache.get_ref(&key), Some(&actual));
+                assert_eq!(before.series_cache.get_ref(&key), Some(&expected));
+                println!("首字母回写 {raw}/{hot}：申请 {old_count}→{new_count}，音节构造 {segment_copies}，空切分缓存={empty_segments_cache}");
+                assert_eq!(
+                    new_count + if hot { copies + segment_copies } else { 0 },
+                    old_count
+                );
+                if hot && empty_segments_cache && segmentation.is_empty() {
+                    assert!(after.segmentation_cache.get_ref_by(raw).is_none());
+                }
             }
-            let segments = after.resolve_segments(raw, segmentation);
-            let _ = after.legacy_slot_resolution(raw, segmentation, &segments, types);
-            let (_, copies) = clone_cost(&mut before, raw, segmentation, types);
-            if !hot {
-                before.resolution_cache.clear();
-                after.resolution_cache.clear();
-            }
-            let (old_result, old_count) = count(|| {
-                before.legacy_slot_expand_initial_candidates(
-                    raw,
-                    segmentation,
-                    types,
-                    "n",
-                    &mut expected,
-                )
-            });
-            let (new_result, new_count) = count(|| {
-                after.expand_initial_candidates(raw, segmentation, types, "n", &mut actual)
-            });
-            assert_eq!(new_result, old_result);
-            assert!(new_result);
-            assert_eq!(actual, expected);
-            assert_eq!(actual.capacity(), expected.capacity());
-            let key = after.series_slot(&series_cache_key(raw, &resolution.segmentation, types));
-            assert!(!key.starts_with("C:"));
-            assert_eq!(after.series_cache.get_ref(&key), Some(&actual));
-            assert_eq!(before.series_cache.get_ref(&key), Some(&expected));
-            println!("首字母回写 {raw}/{hot}：申请 {old_count}→{new_count}");
-            assert_eq!(new_count + if hot { copies } else { 0 }, old_count);
         }
     }
 }
@@ -440,4 +476,37 @@ fn projection_keeps_collisions_fifo_rejected_batches_and_independent_outputs() {
     after.reset_cache();
     drop(after);
     assert!(owned[0].word.ends_with("修改副本"));
+}
+
+#[test]
+fn hot_rejected_batches_skip_segments_without_changing_cached_answers() {
+    let fixture = fixture();
+    for (words, source) in [
+        (vec!["坏\u{7}".to_owned()], CandidateSource::AiSuggestion),
+        (vec!["合成错误来源".to_owned()], CandidateSource::Database),
+    ] {
+        let mut before = QuanpinDictionary::new(&fixture.paths);
+        let mut after = QuanpinDictionary::new(&fixture.paths);
+        assert_eq!(
+            query(&mut after, "nihao", "", 0),
+            query(&mut before, "nihao", "", 0)
+        );
+        before.segmentation_cache.clear();
+        after.segmentation_cache.clear();
+        let (_, copies, segment_copies) = clone_cost(&mut before, "nihao", "", 0);
+        before.segmentation_cache.clear();
+        let (expected, old_count) =
+            count(|| before.legacy_slot_insert_online_words("nihao", "", 0, &words, source));
+        let (actual, new_count) =
+            count(|| after.insert_online_words("nihao", "", 0, &words, source));
+        assert_eq!(actual, expected);
+        assert!(!actual);
+        assert_eq!(new_count + copies - 1 + segment_copies, old_count);
+        assert!(after.segmentation_cache.get_ref_by("nihao").is_none());
+        assert_slot(&before, &after, "nihao", "", 0);
+        assert_eq!(
+            query(&mut after, "nihao", "", 0),
+            query(&mut before, "nihao", "", 0)
+        );
+    }
 }

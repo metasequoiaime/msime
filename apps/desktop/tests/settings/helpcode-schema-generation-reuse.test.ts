@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 test("custom helpcode schema loading reuses the shared owner generation lifecycle", () => {
   const source = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/index.tsx", {
+    import.meta.glob<string>("../../../../packages/ui/src/settings/use-helpcode-catalog.ts", {
       eager: true,
       query: "?raw",
       import: "default",

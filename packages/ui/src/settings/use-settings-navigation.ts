@@ -5,6 +5,7 @@ import {
   type MutableRefObject,
   type SetStateAction,
 } from "react";
+import { useLatestRef } from "../core/use-latest-ref";
 import type { AccountCommunityDestination } from "../account/account-page";
 import {
   mobilePrimaryPageIds,
@@ -45,8 +46,7 @@ export function useSettingsNavigation({
   const mobileActiveTab = mobileTabForPage(page);
   const handledRoute = useRef(route?.nonce);
   // The history listener outlives a render, so it reads the pages through a ref rather than the list it was created with.
-  const availablePagesRef = useRef(availablePages);
-  availablePagesRef.current = availablePages;
+  const availablePagesRef = useLatestRef(availablePages);
 
   /** 打开 `next`。在移动端它是一条新的 WebView 历史记录，因此系统返回手势可以返回；`replace` 则用它替换当前记录，用于从背后没有设置记录的页面向上返回。 */
   const selectPage = (next: SettingsPageId, replace = false) => {

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { useLatestRef } from "../core/use-latest-ref";
 import { SettingsManagerBlock } from "../settings/settings-manager-block";
 import { SettingsManagerNote } from "../settings/settings-manager-note";
 import { rowTitle } from "../core/platform-controls-style";
@@ -115,14 +116,11 @@ export function LocalModelManager({
   const [importing, setImporting] = useState<Record<string, boolean>>({});
   const mounted = useMountedRef();
   const clientGeneration = useAsyncGeneration(client);
-  const activeClient = useRef(client);
-  activeClient.current = client;
+  const activeClient = useLatestRef(client);
   // A download takes minutes; what it finishes into is the page as it is then, not as it was on
   // the click that started it.
-  const modelPathRef = useRef(modelPath);
-  modelPathRef.current = modelPath;
-  const onUseRef = useRef(onUse);
-  onUseRef.current = onUse;
+  const modelPathRef = useLatestRef(modelPath);
+  const onUseRef = useLatestRef(onUse);
 
   const refresh = async () => {
     try {

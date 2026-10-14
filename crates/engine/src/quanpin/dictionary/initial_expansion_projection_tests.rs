@@ -107,11 +107,11 @@ fn successful_expansion_saves_one_discarded_key_per_row() {
         assert_eq!(actual, expected);
         assert_eq!(actual.capacity(), expected.capacity());
         println!("首字母展开 {rows} 行：申请 {old_count}→{new_count}");
-        // 行投影每行省一个完整键；解析投影另省规范读法与缓存键的两次复制。
+        // 行投影每行省一个完整键；解析投影省两次复制，延迟音节另省列表与字符串两次申请。
         assert_eq!(
-            new_count + rows + 2,
+            new_count + rows + 4,
             old_count,
-            "每行应省一个完整键，解析投影另省两次复制"
+            "每行省一个完整键，解析投影与延迟音节再各省两次申请"
         );
     }
 }

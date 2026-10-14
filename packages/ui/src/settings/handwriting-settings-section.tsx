@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { useLatestRef } from "../core/use-latest-ref";
 import { SettingsGroupNote } from "./settings-group-note";
 import * as surface from "../keyboard/panel-surface-style";
 import { GroupList } from "../core/platform-controls";
@@ -37,8 +38,7 @@ const strokeColorOptions: readonly [HandwritingStrokeColor, string][] = [
  */
 function useSettledSlider(value: number, save: (value: number) => void) {
   const [moving, setMoving] = useState<number | null>(null);
-  const saveRef = useRef(save);
-  saveRef.current = save;
+  const saveRef = useLatestRef(save);
   useEffect(() => {
     if (moving === null) return;
     const timer = setTimeout(() => {

@@ -2,66 +2,66 @@
   "by_syllables": {
     "10": {
       "cases": 9,
-      "found": 0.556,
-      "mrr": 0.334,
-      "top1": 0.222,
-      "top1_char_prefix": 0.367,
-      "top5": 0.444,
-      "top9": 0.444
+      "found": 0.778,
+      "mrr": 0.537,
+      "top1": 0.333,
+      "top1_char_prefix": 0.411,
+      "top5": 0.778,
+      "top9": 0.778
     },
     "11": {
       "cases": 13,
-      "found": 0.846,
-      "mrr": 0.544,
-      "top1": 0.385,
-      "top1_char_prefix": 0.636,
-      "top5": 0.692,
-      "top9": 0.692
+      "found": 0.923,
+      "mrr": 0.621,
+      "top1": 0.462,
+      "top1_char_prefix": 0.671,
+      "top5": 0.769,
+      "top9": 0.769
     },
     "12": {
       "cases": 6,
-      "found": 0.667,
-      "mrr": 0.417,
+      "found": 0.833,
+      "mrr": 0.556,
       "top1": 0.333,
       "top1_char_prefix": 0.597,
-      "top5": 0.5,
-      "top9": 0.5
+      "top5": 0.833,
+      "top9": 0.833
     },
     "13": {
       "cases": 11,
-      "found": 0.909,
-      "mrr": 0.471,
-      "top1": 0.364,
-      "top1_char_prefix": 0.734,
-      "top5": 0.636,
-      "top9": 0.636
+      "found": 0.818,
+      "mrr": 0.591,
+      "top1": 0.455,
+      "top1_char_prefix": 0.762,
+      "top5": 0.727,
+      "top9": 0.727
     },
     "14": {
       "cases": 1,
       "found": 1.0,
-      "mrr": 0.01,
+      "mrr": 0.5,
       "top1": 0.0,
       "top1_char_prefix": 0.857,
-      "top5": 0.0,
-      "top9": 0.0
+      "top5": 1.0,
+      "top9": 1.0
     },
     "15": {
       "cases": 4,
       "found": 0.75,
-      "mrr": 0.251,
-      "top1": 0.0,
-      "top1_char_prefix": 0.567,
-      "top5": 0.5,
-      "top9": 0.5
+      "mrr": 0.5,
+      "top1": 0.25,
+      "top1_char_prefix": 0.733,
+      "top5": 0.75,
+      "top9": 0.75
     },
     "16": {
       "cases": 2,
-      "found": 0.5,
-      "mrr": 0.5,
+      "found": 1.0,
+      "mrr": 0.75,
       "top1": 0.5,
-      "top1_char_prefix": 0.656,
-      "top5": 0.5,
-      "top9": 0.5
+      "top1_char_prefix": 0.625,
+      "top5": 1.0,
+      "top9": 1.0
     },
     "4": {
       "cases": 92,
@@ -74,36 +74,36 @@
     },
     "5": {
       "cases": 35,
-      "found": 0.914,
-      "mrr": 0.573,
-      "top1": 0.371,
-      "top1_char_prefix": 0.634,
-      "top5": 0.771,
-      "top9": 0.771
+      "found": 0.971,
+      "mrr": 0.616,
+      "top1": 0.4,
+      "top1_char_prefix": 0.657,
+      "top5": 0.829,
+      "top9": 0.829
     },
     "6": {
       "cases": 50,
-      "found": 0.98,
+      "found": 1.0,
       "mrr": 0.574,
-      "top1": 0.34,
-      "top1_char_prefix": 0.55,
-      "top5": 0.84,
-      "top9": 0.84
+      "top1": 0.3,
+      "top1_char_prefix": 0.53,
+      "top5": 0.88,
+      "top9": 0.88
     },
     "7": {
       "cases": 41,
-      "found": 0.902,
-      "mrr": 0.554,
-      "top1": 0.317,
-      "top1_char_prefix": 0.666,
-      "top5": 0.805,
-      "top9": 0.805
+      "found": 0.927,
+      "mrr": 0.578,
+      "top1": 0.341,
+      "top1_char_prefix": 0.693,
+      "top5": 0.829,
+      "top9": 0.829
     },
     "8": {
       "cases": 27,
       "found": 1.0,
-      "mrr": 0.637,
-      "top1": 0.37,
+      "mrr": 0.656,
+      "top1": 0.407,
       "top1_char_prefix": 0.634,
       "top5": 0.963,
       "top9": 0.963
@@ -111,46 +111,46 @@
     "9": {
       "cases": 21,
       "found": 0.762,
-      "mrr": 0.509,
-      "top1": 0.381,
-      "top1_char_prefix": 0.667,
-      "top5": 0.667,
-      "top9": 0.667
+      "mrr": 0.556,
+      "top1": 0.429,
+      "top1_char_prefix": 0.683,
+      "top5": 0.714,
+      "top9": 0.714
     }
   },
   "by_tag": {
     "harvested": {
       "cases": 310,
-      "found": 0.916,
-      "mrr": 0.522,
-      "top1": 0.303,
-      "top1_char_prefix": 0.575,
-      "top5": 0.768,
-      "top9": 0.768
+      "found": 0.939,
+      "mrr": 0.555,
+      "top1": 0.319,
+      "top1_char_prefix": 0.582,
+      "top5": 0.816,
+      "top9": 0.816
     },
     "reported": {
       "cases": 2,
-      "found": 0.5,
-      "mrr": 0.5,
-      "top1": 0.5,
-      "top1_char_prefix": 0.656,
-      "top5": 0.5,
-      "top9": 0.5
+      "found": 1.0,
+      "mrr": 1.0,
+      "top1": 1.0,
+      "top1_char_prefix": 1.0,
+      "top5": 1.0,
+      "top9": 1.0
     }
   },
   "cases": 312,
   "gold_source": {
     "database": 3,
-    "generated": 282
+    "generated": 290
   },
   "overall": {
     "cases": 312,
-    "found": 0.913,
-    "mrr": 0.522,
-    "top1": 0.304,
-    "top1_char_prefix": 0.575,
-    "top5": 0.766,
-    "top9": 0.766
+    "found": 0.939,
+    "mrr": 0.557,
+    "top1": 0.324,
+    "top1_char_prefix": 0.585,
+    "top5": 0.817,
+    "top9": 0.817
   },
   "sample_failures": [
     {
@@ -165,7 +165,7 @@
       "id": "p-0005",
       "input": "zhuanyejianzhuzongchengbaozizhishenqingzhidetuofu",
       "rank": 2,
-      "top1": "专业建筑总承包资质申请指的托福"
+      "top1": "专业建筑总承包资质申请指的托付"
     },
     {
       "gold": "矩阵相机模组",
@@ -192,8 +192,8 @@
       "gold": "到处郁郁葱葱",
       "id": "p-0010",
       "input": "daochuyuyucongcong",
-      "rank": null,
-      "top1": "到处遇雨匆匆"
+      "rank": 2,
+      "top1": "到处郁郁匆匆"
     },
     {
       "gold": "踏春行人如织",
@@ -208,6 +208,13 @@
       "input": "jianchizizhukaifang",
       "rank": 2,
       "top1": "坚持自助开放"
+    },
+    {
+      "gold": "国际社会解除对伊朗实施的制裁措施",
+      "id": "p-0015",
+      "input": "guojishehuijiechuduiyilangshishidezhicaicuoshi",
+      "rank": 2,
+      "top1": "国际社会接触对伊朗实施的制裁措施"
     },
     {
       "gold": "并力来攻",
@@ -350,25 +357,11 @@
       "top1": "确保几十十九"
     },
     {
-      "gold": "将军为何不能网开一面",
-      "id": "p-0043",
-      "input": "jiangjunweihebunengwangkaiyimian",
-      "rank": null,
-      "top1": "将军为何不能王开一面"
-    },
-    {
       "gold": "我们纪念五四运动",
       "id": "p-0045",
       "input": "womenjinianwusiyundong",
       "rank": 3,
       "top1": "我们几年无私运动"
-    },
-    {
-      "gold": "就是典型例子",
-      "id": "p-0046",
-      "input": "jiushidianxinglizi",
-      "rank": 2,
-      "top1": "就是典型离子"
     },
     {
       "gold": "开罗航线不安全",
@@ -403,7 +396,7 @@
       "id": "p-0054",
       "input": "guomeidianqidagudonghuangguangyuyinkeguanyuanyin",
       "rank": null,
-      "top1": "国美电气大股东黄光语音客观原因"
+      "top1": "国美电器大股东黄光预印客观原因"
     },
     {
       "gold": "跟着姜维屡次北伐",
@@ -432,6 +425,13 @@
       "input": "fenqijiyin",
       "rank": 2,
       "top1": "分期基因"
+    },
+    {
+      "gold": "惨烈的烧钱大战肯定会带来更",
+      "id": "p-0059",
+      "input": "canliedeshaoqiandazhankendinghuidailaigeng",
+      "rank": 2,
+      "top1": "惨烈的少钱大战肯定会带来更"
     }
   ],
   "top1_source": {

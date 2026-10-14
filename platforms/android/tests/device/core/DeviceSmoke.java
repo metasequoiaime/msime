@@ -17,6 +17,7 @@ import android.view.MotionEvent;
 import android.view.InputDevice;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -36,12 +37,38 @@ public class DeviceSmoke extends Instrumentation {
         }
     }
 
-    /** 重新注册并启用被测输入法，等待系统完成切换。 */
+    /** 重新注册并启用被测输入法，确认系统的异步回退没有覆盖选择。 */
     protected final void restartIme() throws Exception {
         shellDiscard("ime disable app.msime.android/.MSIMEInputService");
         shellDiscard("ime enable app.msime.android/.MSIMEInputService");
         shellDiscard("ime set app.msime.android/.MSIMEInputService");
-        SystemClock.sleep(1000);
+        // 禁用当前输入法会异步切回系统键盘；命令返回不代表回退已经结束。
+        // 连续确认选中水杉再启动编辑器，避免把系统键盘当作产品的空窗口。
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        int settled = 0;
+        do {
+            if (msimeSelected()) {
+                if (++settled >= 4) return;
+            } else {
+                settled = 0;
+                shellDiscard("ime set app.msime.android/.MSIMEInputService");
+            }
+            SystemClock.sleep(250);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("Test input method selection did not settle after restart");
+    }
+
+    /** 只读取默认输入法标识，不读取编辑器内容或用户设置日志。 */
+    private boolean msimeSelected() throws Exception {
+        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(
+                automation.executeShellCommand("settings get secure default_input_method"))) {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            byte[] buffer = new byte[256];
+            int length;
+            while ((length = input.read(buffer)) != -1) output.write(buffer, 0, length);
+            return "app.msime.android/.MSIMEInputService".equals(
+                new String(output.toByteArray(), StandardCharsets.UTF_8).trim());
+        }
     }
 
     /** 用原子写入发布测试偏好；失败时保留原文件。 */

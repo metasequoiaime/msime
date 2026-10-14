@@ -229,6 +229,7 @@ export function McpConnectSection({
   const [busyClient, setBusyClient] = useState<McpClientId>();
   const [result, setResult] = useState<string>();
   const [copied, setCopied] = useState<string>();
+  const [copyFailed, setCopyFailed] = useState(false);
   const [copyFeedbackVisible, showCopyFeedback] = useTemporaryFlag(1600);
   const [tab, setTab] = useState<McpTab>("claude_code");
   // 用户想要的权限，复制的命令和配置、未连接的助手都按它来。
@@ -236,6 +237,7 @@ export function McpConnectSection({
   // 已连接的助手页上，开关先显示它现有条目的权限；用户改过之后记在这里，直到写入。
   const [drafts, setDrafts] = useState<Partial<Record<McpClientId, McpFlag[]>>>({});
   const refreshGeneration = useAsyncGeneration(status, install, copyText);
+  const copyGeneration = useAsyncGeneration(status, install, copyText);
   const {
     busy,
     mounted,
@@ -245,6 +247,8 @@ export function McpConnectSection({
 
   useEffect(() => {
     setBusyClient(undefined);
+    setCopied(undefined);
+    setCopyFailed(false);
   }, [status, install, copyText]);
 
   const refresh = useCallback(() => {
@@ -264,7 +268,7 @@ export function McpConnectSection({
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, install, copyText]);
 
   function write(id: McpClientId, flags: readonly McpFlag[]) {
     if (!install || busy) return;
@@ -285,6 +289,7 @@ export function McpConnectSection({
         try {
           outcome = await install(id, false, flags);
         } catch (error) {
+          if (!isCurrent()) return;
           if (errorCode(error) !== "mcp_entry_exists") throw error;
           const replace = await confirm({
             title: `替换 ${name} 中的 msime？`,
@@ -321,14 +326,20 @@ export function McpConnectSection({
     });
   }
 
-  function copy(key: string, text: string) {
+  async function copy(key: string, text: string) {
     if (!copyText) return;
-    const generation = clientGeneration.current;
-    void copyText(text).then(() => {
-      if (!mounted.current || generation !== clientGeneration.current) return;
+    const generation = ++copyGeneration.current;
+    setCopied(undefined);
+    setCopyFailed(false);
+    try {
+      await copyText(text);
+      if (!mounted.current || generation !== copyGeneration.current) return;
       setCopied(key);
       showCopyFeedback();
-    });
+    } catch {
+      if (!mounted.current || generation !== copyGeneration.current) return;
+      setCopyFailed(true);
+    }
   }
 
   const writableClients = install && server?.installed ? server.clients : [];
@@ -377,6 +388,7 @@ export function McpConnectSection({
           在本机运行，不联网。助手还能做什么由下面两个开关决定，默认都开；复制的命令、配置和一键写入都带上开着的权限。两个都关时只读，除了开关诊断日志不改动任何设置。
         </SettingsManagerNote>
         {loadFailed && <ErrorAlert>无法读取 MCP 服务器的状态。</ErrorAlert>}
+        {copyFailed && <ErrorAlert>复制失败，请重试。</ErrorAlert>}
         {server &&
           (server.config ? (
             <>

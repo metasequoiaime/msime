@@ -34,6 +34,10 @@ nightly 与正式发布共享每个平台的构建脚本和验证步骤，六个
 
 `actionlint` 检查新增和修改的 workflow 通过，`git diff --check` 通过，`pnpm run verify-notes` 通过；`scripts/run-checks.sh` 的全部契约检查通过或按环境跳过。本地 `scripts/verify-local.sh --quick` 通过；六个平台产物匹配规则用合成名称验证。首次远端运行是 `38520744229`：Windows 全部打包和安装验收、Linux 两架构的 DEB/RPM、Android 六版 APK 和 API 28 设备验收通过；iOS、HarmonyOS、Android API 35 和 macOS 失败，滚动发布被跳过，没有发布 nightly 或上传 TestFlight。
 
-补充修复在本地通过 iOS 原生模拟器 Release 构建、HarmonyOS 原生库及 HAP 构建、Android 带锁定词库的 APK 构建。独立 API 35 AVD 一次跑完全部 29 个默认 smoke 套件，包含注音九键、模糊拼音与禁用规则、十四键窄屏；测试后停止并移除该 AVD。共享 AVD 上同时有其它任务的 instrumentation，因此只采用独立设备结果。macOS 原生宿主的 bundle 内容和后端动态库加载 ctest 通过，藏文 universal 安装包完整构建并通过 SHA-256 校验；原始静默失败未复现，完整 nightly 与 TestFlight 仍未验证。原生构建与完整设备验收在原修复工作树完成，最终 quick 在包含 #7838 的新分支完成。
+补充修复在本地通过 iOS 原生模拟器 Release 构建、HarmonyOS 原生库及 HAP 构建、Android 带锁定词库的 APK 构建。独立 API 35 AVD 一次跑完全部 29 个默认 smoke 套件，包含注音九键、模糊拼音与禁用规则、十四键窄屏；测试后停止并移除该 AVD。共享 AVD 上同时有其它任务的 instrumentation，因此只采用独立设备结果。macOS 原生宿主的 bundle 内容和后端动态库加载 ctest 通过，藏文 universal 安装包完整构建并通过 SHA-256 校验；原始静默失败未复现，后续远端结果见下文。原生构建与完整设备验收在原修复工作树完成，最终 quick 在包含 #7838 的新分支完成。
 
 DMG helper 的合成测试覆盖成功、一次失败后恢复、持续失败与半成品清理，HarmonyOS 门禁的缺参数变异在保留匹配注释时仍被拒绝。ERR 诊断的合成测试检查函数和子 shell 的退出码传递，确认不打印合成凭据。macOS 原始失败命令仍未确定，不能把增加重试或本地构建成功说成已定位根因。
+
+修复 PR #7838 合并后，源提交 `401677684cf9f578a495b60ded2936bf0173a20a` 的第二轮运行 `38529860877` 中，macOS、Windows、Linux、HarmonyOS、iOS 均成功；iOS `0.52.0 (214127513)` 上传成功，加入现有外部测试组并提交 beta review。Android 六版 APK 和 API 28 通过，API 35 在高度重启用例失败，滚动发布仍被跳过。macOS 本轮完整打包通过，但不能据此断言首轮失败原因已经确定。运行结束后的记录被删除，结果以本地保存的最终监控日志和删除前取得的作业日志为依据。
+
+后续修复 PR #7850 确认重启后的系统输入法选择稳定，随后在独立 API 35 AVD 上一次通过完整验收；公共模糊拼音排序和设备首选断言保持原样。共享 AVD 曾被并行会话替换测试 APK，因此那台设备上此前的失败与单项通过不充作当前提交证据，方法见[设备门禁笔记](../testing/2026-10-08-android-device-gates.md)。这份修复的远端完整 nightly 尚未验证，不能把本地通过说成六平台滚动 Release 已发布。

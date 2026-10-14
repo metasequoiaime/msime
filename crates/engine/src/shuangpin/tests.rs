@@ -445,14 +445,21 @@ fn word_lattice_switch_controls_the_sentence_row() {
     assert!(words(&without).contains(&"你"));
 }
 
-/// test_shuangpin.cpp:144-159: an exact dictionary entry for the whole code keeps row 0; the lattice sentence is inserted after it.
+/// 完整词条保持首位；显示整句备选时，其他词网格读法仍排在它后面。
 #[test]
 fn exact_entry_leads_the_lattice_sentence() {
     let fixture = Fixture::new(
         "BEGIN;CREATE TABLE tbl_4_a(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_4_a VALUES('an''quan''bao''wei', 'aqbw', '安全保卫', 6000);CREATE TABLE tbl_2_a(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_2_a VALUES('an''quan', 'aq', '安全', 9000);CREATE TABLE tbl_2_b(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_2_b VALUES('bao''wei', 'bw', '包围', 9000);COMMIT;",
     );
     let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
-    let candidates = engine.query(&request("anqrbcww", false), None);
+    let mut typed = request("anqrbcww", false);
+    let best_only = engine.query(&typed, None);
+    assert_eq!(words(&best_only).first(), Some(&"安全保卫"));
+    assert!(best_only
+        .iter()
+        .all(|item| item.source != CandidateSource::Generated));
+    typed.sentence_alternatives = true;
+    let candidates = engine.query(&typed, None);
     assert_eq!(
         words(&candidates).first(),
         Some(&"安全保卫"),

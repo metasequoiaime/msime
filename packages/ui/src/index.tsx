@@ -145,7 +145,7 @@ import { useWindowState } from "./settings/use-window-state";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
-import { useAsyncGeneration } from "./settings/use-async-generation";
+import { useCustomHelpcodeSchemas, useHelpcodePacks } from "./settings/use-helpcode-catalog";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -351,6 +351,7 @@ export {
   type UseSettingsWindowInteractionsOptions,
 } from "./settings/use-settings-window-interactions";
 export { useAppVersion, type UseAppVersionOptions } from "./settings/use-app-version";
+export { useCustomHelpcodeSchemas, useHelpcodePacks } from "./settings/use-helpcode-catalog";
 export {
   supportDiagnostics,
   type SupportDiagnosticsHost,
@@ -470,11 +471,7 @@ import type { PluginPreferences } from "./settings/plugin-preferences";
 import { AboutSettingsPage } from "./settings/pages/about-page";
 import { UsageReportingSettingsPage } from "./settings/pages/usage-reporting-page";
 import { PrivacySettingsPage } from "./settings/pages/privacy-page";
-import type {
-  CustomHelpcodeSchema,
-  HelpcodePackOption,
-  HelpcodePreferences,
-} from "./settings/pages/helpcode-page";
+import type { CustomHelpcodeSchema, HelpcodePreferences } from "./settings/pages/helpcode-page";
 import type { ClipboardHistoryClient } from "./settings/clipboard-history-section";
 import type { CloudClipboardRequest } from "./settings/cloud-clipboard-send";
 import { type FuzzyPinyinPreferences } from "./settings/fuzzy-pinyin-section";
@@ -2471,58 +2468,6 @@ type SettingsPageProps = {
   route?: { page: string; nonce: number };
   onReplayOnboarding?: () => void;
 };
-
-/** 宿主资源目录里找到的自定义辅助码表；宿主不支持扫描或读取失败时为空。 */
-function useCustomHelpcodeSchemas(
-  reader: SettingsClient["listHelpcodeSchemas"],
-): CustomHelpcodeSchema[] {
-  const [schemas, setSchemas] = useState<CustomHelpcodeSchema[]>([]);
-  const generation = useAsyncGeneration(reader);
-  useEffect(() => {
-    const current = generation.current;
-    if (!reader) {
-      setSchemas([]);
-      return;
-    }
-    void reader()
-      .then((next) => {
-        if (generation.current === current) setSchemas(next);
-      })
-      .catch(() => {
-        if (generation.current === current) setSchemas([]);
-      });
-  }, [reader, generation]);
-  return schemas;
-}
-
-/** 已安装的辅助码表插件，每次进入「输入」页时重读，在别处导入或删除的包下次进来就能看到。 */
-function useHelpcodePacks(
-  catalog: PluginClient["catalog"] | undefined,
-  inputPageOpen: boolean,
-): HelpcodePackOption[] {
-  const [packs, setPacks] = useState<HelpcodePackOption[]>([]);
-  const generation = useAsyncGeneration(catalog, inputPageOpen);
-  useEffect(() => {
-    if (!catalog || !inputPageOpen) {
-      setPacks([]);
-      return;
-    }
-    const current = generation.current;
-    void catalog()
-      .then((next) => {
-        if (generation.current !== current) return;
-        setPacks(
-          next.packages
-            .filter((pack) => pack.kind === "helpcode")
-            .map((pack) => ({ id: pack.id, name: pack.name })),
-        );
-      })
-      .catch(() => {
-        if (generation.current === current) setPacks([]);
-      });
-  }, [catalog, inputPageOpen, generation]);
-  return packs;
-}
 
 // The state, effects and handlers behind the settings window. The shell below and every page component read the same values - the pages through `SettingsFormContext` - so splitting the page into files changed where the markup lives, not what it closes over.
 function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps) {

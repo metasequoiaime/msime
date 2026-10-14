@@ -20,12 +20,12 @@
     },
     "12": {
       "cases": 3,
-      "found": 0.333,
+      "found": 0.667,
       "mrr": 0.333,
-      "top1": 0.333,
+      "top1": 0.0,
       "top1_char_prefix": 0.556,
-      "top5": 0.333,
-      "top9": 0.333
+      "top5": 0.667,
+      "top9": 0.667
     },
     "15": {
       "cases": 2,
@@ -65,30 +65,30 @@
     },
     "6": {
       "cases": 14,
-      "found": 0.643,
-      "mrr": 0.643,
-      "top1": 0.643,
-      "top1_char_prefix": 0.774,
-      "top5": 0.643,
-      "top9": 0.643
+      "found": 0.857,
+      "mrr": 0.857,
+      "top1": 0.857,
+      "top1_char_prefix": 0.917,
+      "top5": 0.857,
+      "top9": 0.857
     },
     "7": {
       "cases": 18,
-      "found": 0.833,
-      "mrr": 0.833,
+      "found": 0.889,
+      "mrr": 0.861,
       "top1": 0.833,
       "top1_char_prefix": 0.881,
-      "top5": 0.833,
-      "top9": 0.833
+      "top5": 0.889,
+      "top9": 0.889
     },
     "8": {
       "cases": 9,
-      "found": 0.778,
-      "mrr": 0.778,
-      "top1": 0.778,
-      "top1_char_prefix": 0.875,
-      "top5": 0.778,
-      "top9": 0.778
+      "found": 0.889,
+      "mrr": 0.889,
+      "top1": 0.889,
+      "top1_char_prefix": 0.958,
+      "top5": 0.889,
+      "top9": 0.889
     },
     "9": {
       "cases": 2,
@@ -103,37 +103,37 @@
   "by_tag": {
     "function-word": {
       "cases": 10,
-      "found": 0.8,
-      "mrr": 0.8,
-      "top1": 0.8,
-      "top1_char_prefix": 0.864,
-      "top5": 0.8,
-      "top9": 0.8
+      "found": 1.0,
+      "mrr": 1.0,
+      "top1": 1.0,
+      "top1_char_prefix": 1.0,
+      "top5": 1.0,
+      "top9": 1.0
     },
     "homophone": {
       "cases": 12,
-      "found": 0.833,
-      "mrr": 0.833,
-      "top1": 0.833,
-      "top1_char_prefix": 0.912,
-      "top5": 0.833,
-      "top9": 0.833
+      "found": 0.917,
+      "mrr": 0.917,
+      "top1": 0.917,
+      "top1_char_prefix": 0.981,
+      "top5": 0.917,
+      "top9": 0.917
     },
     "long-sentence": {
       "cases": 8,
-      "found": 0.625,
+      "found": 0.75,
       "mrr": 0.625,
-      "top1": 0.625,
+      "top1": 0.5,
       "top1_char_prefix": 0.72,
-      "top5": 0.625,
-      "top9": 0.625
+      "top5": 0.75,
+      "top9": 0.75
     },
     "name-place": {
       "cases": 6,
       "found": 0.833,
-      "mrr": 0.833,
-      "top1": 0.833,
-      "top1_char_prefix": 0.857,
+      "mrr": 0.75,
+      "top1": 0.667,
+      "top1_char_prefix": 0.714,
       "top5": 0.833,
       "top9": 0.833
     },
@@ -148,21 +148,21 @@
     },
     "pronoun-ambiguous": {
       "cases": 12,
-      "found": 0.917,
-      "mrr": 0.917,
-      "top1": 0.917,
-      "top1_char_prefix": 0.931,
-      "top5": 0.917,
-      "top9": 0.917
+      "found": 1.0,
+      "mrr": 1.0,
+      "top1": 1.0,
+      "top1_char_prefix": 1.0,
+      "top5": 1.0,
+      "top9": 1.0
     },
     "seg-ambiguity": {
       "cases": 12,
-      "found": 0.75,
-      "mrr": 0.75,
-      "top1": 0.75,
-      "top1_char_prefix": 0.846,
-      "top5": 0.75,
-      "top9": 0.75
+      "found": 0.917,
+      "mrr": 0.917,
+      "top1": 0.917,
+      "top1_char_prefix": 0.964,
+      "top5": 0.917,
+      "top9": 0.917
     },
     "short-phrase": {
       "cases": 6,
@@ -177,46 +177,18 @@
   "cases": 60,
   "gold_source": {
     "database": 2,
-    "generated": 43
+    "generated": 49
   },
   "overall": {
     "cases": 60,
-    "found": 0.75,
-    "mrr": 0.75,
-    "top1": 0.75,
-    "top1_char_prefix": 0.852,
-    "top5": 0.75,
-    "top9": 0.75
+    "found": 0.85,
+    "mrr": 0.825,
+    "top1": 0.8,
+    "top1_char_prefix": 0.898,
+    "top5": 0.85,
+    "top9": 0.85
   },
   "sample_failures": [
-    {
-      "gold": "我今天去上班",
-      "id": "s-001",
-      "input": "wojintianqushangban",
-      "rank": null,
-      "top1": "我今天趣上班"
-    },
-    {
-      "gold": "你昨天去哪里了",
-      "id": "s-010",
-      "input": "nizuotianqunalile",
-      "rank": null,
-      "top1": "你做舔去哪里了"
-    },
-    {
-      "gold": "请问洗手间在哪里",
-      "id": "s-016",
-      "input": "qingwenxishoujianzainali",
-      "rank": null,
-      "top1": "请问吸收健在哪里"
-    },
-    {
-      "gold": "我买了一本书",
-      "id": "s-019",
-      "input": "womaileyibenshu",
-      "rank": null,
-      "top1": "我买乐意本书"
-    },
     {
       "gold": "请帮我打印这个",
       "id": "s-022",
@@ -230,13 +202,6 @@
       "input": "womenyaoyanjiuzhegefangan",
       "rank": null,
       "top1": "我们要研究这个反感"
-    },
-    {
-      "gold": "他已经到家了",
-      "id": "s-026",
-      "input": "tayijingdaojiale",
-      "rank": null,
-      "top1": "他一惊道加了"
     },
     {
       "gold": "这里有三个人",
@@ -260,25 +225,39 @@
       "top1": "李敏在北京工作"
     },
     {
+      "gold": "王芳是我的同事",
+      "id": "s-043",
+      "input": "wangfangshiwodetongshi",
+      "rank": 2,
+      "top1": "王方是我的同事"
+    },
+    {
       "gold": "我们需要再认真地考虑一下",
       "id": "s-047",
       "input": "womenxuyaozairenzhendekaolvyixia",
       "rank": null,
-      "top1": "我们需要在人真的考虑一下"
+      "top1": "我们需要在认真的考虑一下"
     },
     {
       "gold": "这个项目的进度非常顺利",
       "id": "s-048",
       "input": "zheigexiangmudejindufeichangshunli",
       "rank": null,
-      "top1": "这各乡母的进度非常顺利"
+      "top1": "这各项目的进度非常顺利"
+    },
+    {
+      "gold": "我们应该把这个问题解决掉",
+      "id": "s-050",
+      "input": "womenyinggaibazhegewentijiejuediao",
+      "rank": 2,
+      "top1": "我们应该把这个问题解决调"
     },
     {
       "gold": "今天下午的会议推迟到明天",
       "id": "s-051",
       "input": "jintianxiawudehuiyituichidaomingtian",
-      "rank": null,
-      "top1": "今天下午德惠一腿迟到明天"
+      "rank": 2,
+      "top1": "今天下午的回忆推迟到明天"
     },
     {
       "gold": "没问题交给我",
