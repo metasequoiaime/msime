@@ -1345,6 +1345,7 @@ export function TypingStatisticsPage({
 }) {
   const { confirm, confirmation } = useConfirm();
   const [status, setStatus] = useState<TypingStatisticsStatus>();
+  const [today, setToday] = useState(() => recentDays(1)[0]);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   // 打开页面时先看按键热力图，它排在标签行的第一位；标签只存在组件状态里，不跨次打开记忆。
   const [contentTab, setContentTab] = useState<
@@ -1369,10 +1370,16 @@ export function TypingStatisticsPage({
   const clientGeneration = useAsyncGeneration(client);
   const mobileTrendDays = useMemo(
     () => recentDays(mobileTrendLength(status?.statistics.days ?? {})),
-    [status?.statistics.days],
+    [status?.statistics.days, today.key],
   );
-  const desktopTrendDays = useMemo(() => recentDays(DESKTOP_TREND_DAYS), []);
+  const desktopTrendDays = useMemo(() => recentDays(DESKTOP_TREND_DAYS), [today.key]);
   const trendDays = mobile ? mobileTrendDays : desktopTrendDays;
+
+  function refreshDay() {
+    const next = recentDays(1)[0];
+    // 数据没有变化时也要推进日历；同一天保留原对象，避免轮询重画整页。
+    setToday((current) => (current.key === next.key ? current : next));
+  }
 
   useEffect(
     () => () => {
@@ -1437,6 +1444,7 @@ export function TypingStatisticsPage({
 
   async function update(operation: () => Promise<TypingStatisticsStatus>, overview = false) {
     if (!mounted.current || requestRef.current) return;
+    refreshDay();
     const generation = clientGeneration.current;
     setBusy(true);
     setError("");
@@ -1474,9 +1482,10 @@ export function TypingStatisticsPage({
     const generation = clientGeneration.current;
     const refreshWhenVisible = () => {
       if (!mounted.current || clientGeneration.current !== generation) return;
+      if (document.visibilityState === "hidden") return;
+      refreshDay();
       const now = Date.now();
       if (
-        document.visibilityState === "hidden" ||
         (requestRef.current && now - requestStartedAtRef.current <= overviewStaleMs) ||
         now - lastRequestAtRef.current < overviewMinIntervalMs
       )
@@ -1536,7 +1545,6 @@ export function TypingStatisticsPage({
     scopeKeys === null
       ? statistics.total
       : scopeKeys.reduce((total, key) => total + (statistics.days[key] ?? 0), 0);
-  const today = recentDays(1)[0];
   const selectedLabel = selectedDay
     ? (trendDays.find((day) => day.key === selectedDay)?.label ?? dayLabel(selectedDay))
     : null;
