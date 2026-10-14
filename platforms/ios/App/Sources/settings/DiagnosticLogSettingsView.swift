@@ -60,7 +60,14 @@ struct DiagnosticLogSettingsView: View {
     .confirmationDialog("清空诊断日志？", isPresented: $confirmsClear, titleVisibility: .visible) {
       Button("清空", role: .destructive, action: clear)
     }
-    .reloadOnAppearAndActive(reload).defaultScrollAnchor(.bottom)
+    .reloadOnAppearAndActive(reload)
+  }
+
+  private var logText: some View {
+    ScrollView {
+      Text(text).font(.caption.monospaced()).textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
+    }.defaultScrollAnchor(.bottom)
   }
 
   private var logBinding: Binding<Bool> {

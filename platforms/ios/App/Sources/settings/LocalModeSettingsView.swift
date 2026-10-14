@@ -46,4 +46,17 @@ struct LocalModeSettingsView: View {
     let stored = preferences["local_modes"] as? [String: Any] ?? [:]
     for (key, _, _) in Self.modes { enabled[key] = stored[key] as? Bool ?? true }
   }
+
+  /// 每次只合并一个快捷模式；写入失败时读回已保存的值。
+  private func stored(_ key: String) -> Binding<Bool> {
+    Binding(get: { enabled[key] ?? true }, set: { value in
+      enabled[key] = value
+      saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
+        var modes = $0["local_modes"] as? [String: Any] ?? [:]
+        modes[key] = value
+        $0["local_modes"] = modes
+      }
+      if saveFailed { reload() }
+    })
+  }
 }

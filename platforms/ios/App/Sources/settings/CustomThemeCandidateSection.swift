@@ -75,6 +75,19 @@ struct CustomThemeCandidateSection: View {
     }
     .fileImporter(isPresented: $importingSkin, allowedContentTypes: [.folder]) { importSkin($0) }
     .reloadOnAppearAndActive(reload)
+    .onChange(of: selectedTheme) { reload() }
+    .onChange(of: followsDesktopPalette) { onThemeChange() }
+  }
+
+  /// 浅色和深色分别选择皮肤；取消时清除这一模式当前使用的包。
+  private func packageBinding(dark: Bool) -> Binding<String> {
+    Binding(get: { shownSkin(dark: dark) ?? "" }, set: { id in
+      if id.isEmpty {
+        if let shown = shownSkin(dark: dark) { themeWrite(GlobalThemePreference.removingPackage(shown)) }
+      } else if let package = installedSkins.first(where: { $0.id == id }) {
+        apply(package)
+      }
+    })
   }
 
   private var candidateThemeBinding: Binding<String> {

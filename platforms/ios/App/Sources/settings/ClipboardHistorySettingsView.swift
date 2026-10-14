@@ -69,6 +69,19 @@ struct ClipboardHistorySettingsView: View {
       Button("清空，包括固定项", role: .destructive) { perform { try store.clear() } }
     }
     .reloadOnAppearAndActive(reload)
+  }
+
+  /// iPad 展示较长的摘要和完整日期，手机缩短每条记录以容纳更多历史。
+  private func row(_ item: ClipboardHistoryItem) -> some View {
+    HStack(alignment: .top, spacing: 12) {
+      VStack(alignment: .leading, spacing: 4) {
+        Text(item.text).lineLimit(sizeClass == .regular ? 6 : 3).foregroundStyle(.primary)
+        Text(item.date.formatted(date: sizeClass == .regular ? .long : .abbreviated, time: .shortened))
+          .font(.caption).foregroundStyle(.secondary)
+      }
+      Spacer(minLength: 8)
+      if item.pinned { Image(systemName: "pin.fill").font(.caption).foregroundStyle(.orange).accessibilityLabel("已固定") }
+    }
     .contentShape(Rectangle())
   }
 
