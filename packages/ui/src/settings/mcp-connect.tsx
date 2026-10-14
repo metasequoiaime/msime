@@ -268,7 +268,7 @@ export function McpConnectSection({
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, install, copyText]);
 
   function write(id: McpClientId, flags: readonly McpFlag[]) {
     if (!install || busy) return;

@@ -499,6 +499,45 @@ test("a late status response cannot update an unmounted section or replace a new
   await Promise.resolve();
 });
 
+test.each([
+  ["install", "成功"],
+  ["install", "失败"],
+  ["copyText", "成功"],
+  ["copyText", "失败"],
+] as const)("仅更换 %s 回调后重新加载状态，并忽略旧请求%s", async (owner, outcome) => {
+  const first = deferred<McpServerStatus>();
+  const second = deferred<McpServerStatus>();
+  const readStatus = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  const install = vi.fn().mockResolvedValue("added" as const);
+  const copyText = vi.fn().mockResolvedValue(undefined);
+  const view = render(
+    <McpConnectSection status={readStatus} install={install} copyText={copyText} />,
+  );
+  view.rerender(
+    <McpConnectSection
+      status={readStatus}
+      install={owner === "install" ? vi.fn().mockResolvedValue("added" as const) : install}
+      copyText={owner === "copyText" ? vi.fn().mockResolvedValue(undefined) : copyText}
+    />,
+  );
+
+  await act(async () => {
+    if (outcome === "成功") first.resolve(status());
+    else first.reject(new Error("synthetic-old-status-detail"));
+  });
+  expect(screen.queryByLabelText("Claude Code 安装命令")).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+
+  await act(async () => {
+    second.resolve({ ...status(), command: "/synthetic/new/msime-mcp" });
+  });
+  expect(await screen.findByLabelText("Claude Code 安装命令")).toHaveProperty(
+    "textContent",
+    expect.stringContaining("/synthetic/new/msime-mcp"),
+  );
+  expect(readStatus).toHaveBeenCalledTimes(2);
+});
+
 test("the terminal tab tells an assistant how to run the tools directly, with the chosen flags", async () => {
   readOnly();
   const copyText = vi.fn(async () => {});
