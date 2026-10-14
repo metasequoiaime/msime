@@ -26,3 +26,5 @@ API 28 与 API 35 专用 arm64 AVD 均通过该回归；本地通过只能说明
 ## Consequences
 
 反馈页的连续输入、删除、计数和收起重开现在有 API 28/35 设备回归入口：`smoke.sh emulator-5566 --core --feedback` 与 `smoke.sh emulator-5580 --feedback`。测试会修改并恢复测试偏好，因此失败时仍需检查设备是否回到原输入法。原报告环境未知，后续拿到平台、版本和脱敏堆栈后仍需按失败类别补充验证；在此之前不得宣称原报告全部解决。
+
+[输入失败类别](../bug-fix/2026-10-14-android-input-failure-categories.md)补上宿主丢弃失败来源的诊断缺口，只输出固定 logcat 类别，不改变原停止回退或 P19 上传格式；原报告根因仍未确认。

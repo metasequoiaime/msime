@@ -910,8 +910,10 @@ public final class MSIMEInputService extends InputMethodService {
 
     private JSONObject value(String response) throws JSONException {
         JSONObject envelope = new JSONObject(response);
-        if (!JsonPolicy.strictTrue(envelope.opt("ok")))
-            throw new JSONException("Shared runtime rejected operation");
+        Object ok = envelope.opt("ok");
+        if (!(ok instanceof Boolean)) throw new JSONException("Invalid runtime envelope");
+        if (!((Boolean) ok))
+            throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.RUNTIME_REJECTED);
         return envelope.getJSONObject("value");
     }
 
@@ -2668,7 +2670,7 @@ public final class MSIMEInputService extends InputMethodService {
         String composing = composingText(next, next.getString("editing_text"), true);
         if (connection != null
                 && !bridge.apply(sink(typingSource()), commit, composing)) {
-            throw new JSONException("Editor rejected update");
+            throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
         }
         view = next;
         imeDebugOverlay.showDiagnostic(result.isNull("diagnostic") ? null
@@ -3483,7 +3485,13 @@ public final class MSIMEInputService extends InputMethodService {
             preedit.getPaddingTop() + preedit.getPaddingBottom() + headerPadding);
     }
 
-    void fail() { stop(false); message = "输入连接失败：仅直接输入"; render(); }
+    void fail(Throwable error) {
+        // 不把异常交给 Log：解析异常可能包含输入原文，固定类别足以区分下一步排查方向。
+        ImeLog.e(InputFailurePolicy.logMessage(error), null);
+        stop(false);
+        message = "输入连接失败：仅直接输入";
+        render();
+    }
 
     boolean character(int ascii) {
         return character(ascii, letterCase.usesUppercase());
@@ -3492,14 +3500,14 @@ public final class MSIMEInputService extends InputMethodService {
     boolean character(int ascii, boolean shifted) {
         if (session == 0) return false;
         try { return apply(NativeClient.character(session, ascii, shifted)); }
-        catch (JSONException | LinkageError error) { fail(); return true; }
+        catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
     /** 14 键的一键：送这一组的首字母（{@link FourteenKeyLayout.Key#input}），由引擎按 14 键网格组字。不走 {@link #type}：那里的辅助码、微软双拼 `;` 和英文直出分支都按单个确定的字母处理。引擎不收（26 键正在组字、本地模式等）时什么也不输入，同九键的数字键。 */
     boolean gridKey(char letter) {
         if (session == 0) return false;
         try { return apply(NativeClient.gridKey(session, letter)); }
-        catch (JSONException | LinkageError error) { fail(); return true; }
+        catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
     private boolean helpcodeCompositionEligible() {
@@ -3520,20 +3528,20 @@ public final class MSIMEInputService extends InputMethodService {
     void glide(String request) {
         if (session == 0) return;
         try { apply(NativeClient.glide(session, request)); }
-        catch (JSONException | LinkageError error) { fail(); }
+        catch (JSONException | LinkageError error) { fail(error); }
     }
 
     boolean command(int code) {
         if (session == 0) return false;
         try { return apply(NativeClient.command(session, code)); }
-        catch (JSONException | LinkageError error) { fail(); return true; }
+        catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
     /** 全拼九键组字时的候选筛选（只留单字、首字笔顺前缀），响应照常经 apply 重画。 */
     void setNineKeyFilter(boolean singleCharacter, String strokes) {
         if (session == 0) return;
         try { apply(NativeClient.setNineKeyFilter(session, singleCharacter, strokes)); }
-        catch (JSONException | LinkageError error) { fail(); }
+        catch (JSONException | LinkageError error) { fail(error); }
     }
 
     /**
@@ -3550,7 +3558,7 @@ public final class MSIMEInputService extends InputMethodService {
             String response = null;
             for (int step = 0; step < moves[1]; step++) response = NativeClient.command(session, moves[0]);
             apply(response);
-        } catch (JSONException | LinkageError error) { fail(); }
+        } catch (JSONException | LinkageError error) { fail(error); }
     }
 
     void type(char key) {
@@ -3659,7 +3667,7 @@ public final class MSIMEInputService extends InputMethodService {
             armSmartPunctuation(ascii, response, completion != null);
             return handled;
         }
-        catch (JSONException | LinkageError error) { fail(); return true; }
+        catch (JSONException | LinkageError error) { fail(error); return true; }
     }
 
     /** 按下 `ascii` 是否该跨过光标右边那个补好的后半个；是的话返回它，并从记录里弹出。 */
@@ -4209,7 +4217,7 @@ public final class MSIMEInputService extends InputMethodService {
                 if (shouldRender) render();
             }
         } catch (JSONException | LinkageError error) {
-            fail();
+            fail(error);
         } finally {
             renderingSuppressed = previousSuppressed;
         }
@@ -4659,7 +4667,7 @@ public final class MSIMEInputService extends InputMethodService {
                 JSONObject left = cancelled == null ? null : cancelled.optJSONObject("view");
                 if (keepsComposition && left != null && !InputViewValuePolicy.editingText(left).isEmpty())
                     value(NativeClient.command(session, 3));
-            } catch (JSONException | LinkageError error) { fail(); }
+            } catch (JSONException | LinkageError error) { fail(error); }
             // Stroke marks its stroke glyphs, which are not text the user wrote (`commits_on_blur` is false): finishing the region would leave 一丨 in the document, so the region is removed and the tapped selection put back.
             if (connection != null && strokeCompositionMarked()) {
                 bridge.discard(sink(typingSource()), composingStart, composingEnd, newStart, newEnd);
@@ -6715,7 +6723,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
             return true;
         } catch (JSONException | LinkageError error) {
-            fail();
+            fail(error);
             return true;
         }
     }
@@ -6787,7 +6795,7 @@ public final class MSIMEInputService extends InputMethodService {
             } else if (keyboardRoot != null) {
                 keyboardRoot.announceForAccessibility(action.announcement());
             }
-        } catch (JSONException | LinkageError error) { fail(); }
+        } catch (JSONException | LinkageError error) { fail(error); }
     }
 
     private boolean candidateIsCurrent(int slot, JSONObject id, String text) {
@@ -7085,7 +7093,7 @@ public final class MSIMEInputService extends InputMethodService {
             render();
             return true;
         } catch (JSONException | LinkageError error) {
-            fail();
+            fail(error);
             return true;
         }
     }
@@ -7108,7 +7116,7 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             apply(NativeClient.select(session, strictCandidateLong(id, "generation"),
                                       strictCandidateLong(id, "index")));
-        } catch (JSONException | LinkageError error) { fail(); }
+        } catch (JSONException | LinkageError error) { fail(error); }
     }
 
     private boolean selectHardwareCandidate(int slot) {
@@ -7123,7 +7131,7 @@ public final class MSIMEInputService extends InputMethodService {
                                       strictCandidateLong(id, "index")));
             return true;
         } catch (JSONException | LinkageError error) {
-            fail();
+            fail(error);
             return true;
         }
     }
@@ -7194,7 +7202,7 @@ public final class MSIMEInputService extends InputMethodService {
             candidatePanelOpen = true;
             imeCandidates.renderExpandedCandidates();
             imeStyler.applySkin();
-        } catch (JSONException | LinkageError error) { fail(); }
+        } catch (JSONException | LinkageError error) { fail(error); }
     }
 
     boolean handwritingActive() {

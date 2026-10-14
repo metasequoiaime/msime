@@ -226,7 +226,7 @@ final class ImeCandidates {
                     s.apply(NativeClient.selectAnyCandidate(
                         s.session, MSIMEInputService.strictCandidateLong(id, "generation"),
                         MSIMEInputService.strictCandidateLong(id, "index")));
-                } catch (JSONException | LinkageError error) { s.fail(); }
+                } catch (JSONException | LinkageError error) { s.fail(error); }
             });
             // 占位行不挂长按：没有可管理的词，读屏也不该提示长按（#6888）。
             if (AiPendingCandidatePolicy.offersMenu(source)) button.setOnLongClickListener(ignored -> {

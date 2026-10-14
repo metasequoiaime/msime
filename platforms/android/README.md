@@ -275,6 +275,8 @@ JVM 冒烟只覆盖无 Android 依赖的策略层；焦点、选区、编辑器�
 
 剪贴板保存期间的重建回归用 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/clipboard-edit-lifecycle.sh emulator-5580 app.msime.android`（API 28 换 `emulator-5566`，拼音版换 `app.msime.android.pinyin`）。它阻塞真实共享存储队列，分别重建 Fragment 视图和 Activity，检查草稿、忙碌状态、成功返回及保存失败后的重试；最后核对条目数、时间戳和固定状态并恢复历史、偏好、图标和引导状态。`smoke.sh` 的普通及 `--core` 路径都会运行这条回归。
 
+`InputFailureCategoryDeviceSmoke` 从已安装产品调用真实响应解析与编辑器写入，用合成响应和拒绝组字的连接区分原生拒绝、响应损坏、编辑器拒写和 JNI 链接错误，检查异常原文不会进入诊断类别。`smoke.sh` 的普通与 `--core` 路径都运行。输入失败的 logcat 记录只包含 `input_failure reason=<固定类别>`，不包含异常说明、堆栈或输入内容；诊断 ZIP 的 P19 输入事件格式不变。
+
 ## 两个 APK 入口，不要选错
 
 `platforms/android` 有两个构建脚本，同一个版本的产物**同名同路径**（full 是 `target/android/msime-android.apk`，其他版本是 `target/android/msime-android-<id>.apk`，见上节），装到设备上也是同一个包名，但内容完全不同：

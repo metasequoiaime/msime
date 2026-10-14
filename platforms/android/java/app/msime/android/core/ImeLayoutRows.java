@@ -1286,7 +1286,7 @@ final class ImeLayoutRows {
     void chooseNineKeySpelling(long generation, int index) {
         if (s.session == 0) return;
         try { s.apply(NativeClient.chooseNineKeySpelling(s.session, generation, index)); }
-        catch (JSONException | LinkageError error) { s.fail(); }
+        catch (JSONException | LinkageError error) { s.fail(error); }
     }
 
     /** 拼音栏里一项的高度：侧栏三行键高里放得下五六项，多的纵向滚动。 */
