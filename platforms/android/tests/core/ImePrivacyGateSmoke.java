@@ -56,8 +56,9 @@ public final class ImePrivacyGateSmoke {
         check(ImeDebugOverlay.EventLog.line(DiagnosticEventKind.CANDIDATE_SHOWN, 5, 7)
             .equals("{\"t_ms\":5,\"kind\":\"candidate_shown\",\"duration_ms\":7}\n"), "a perf row carries only time, kind and duration");
         String[] kinds = {"key_down", "key_up", "candidate_shown", "candidate_selected", "commit", "backspace",
-            "panel_open", "panel_close", "ime_start", "ime_finish"};
-        check(DiagnosticEventKind.values().length == kinds.length, "the P19 event kinds, no more");
+            "panel_open", "panel_close", "ime_start", "ime_finish", "input_failure_runtime_rejected",
+            "input_failure_invalid_response", "input_failure_editor_rejected", "input_failure_jni_link"};
+        check(DiagnosticEventKind.values().length == kinds.length, "fixed local diagnostic event kinds");
         for (int index = 0; index < kinds.length; index++) {
             check(DiagnosticEventKind.values()[index].wire().equals(kinds[index]), "event kind " + kinds[index]);
             check(DiagnosticEventKind.fromWire(kinds[index]) == DiagnosticEventKind.values()[index],

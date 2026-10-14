@@ -116,6 +116,10 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
         catch (ClassNotFoundException missing) { throw new AssertionError("Failure category unavailable"); }
         String message = (String) method(policy, "logMessage", Throwable.class).invoke(null, error);
         check(message.equals("input_failure reason=" + expected), "failure category");
+        Object event = method(policy, "eventKind", Throwable.class).invoke(null, error);
+        String wire = (String) event.getClass().getMethod("wire").invoke(event);
+        check(wire.equals("input_failure_" + expected), "local export retains failure category");
+        check(!(boolean) event.getClass().getMethod("uploadable").invoke(event), "local failure is not uploaded");
         check(!message.contains("synthetic-private-marker"), "private exception exclusion");
     }
 

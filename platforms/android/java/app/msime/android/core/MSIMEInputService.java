@@ -3488,6 +3488,8 @@ public final class MSIMEInputService extends InputMethodService {
     void fail(Throwable error) {
         // 不把异常交给 Log：解析异常可能包含输入原文，固定类别足以区分下一步排查方向。
         ImeLog.e(InputFailurePolicy.logMessage(error), null);
+        // 停止之前记录，沿用日志开关与当前输入框的隐私判断。
+        imeDebugOverlay.recordEvent(InputFailurePolicy.eventKind(error));
         stop(false);
         message = "输入连接失败：仅直接输入";
         render();

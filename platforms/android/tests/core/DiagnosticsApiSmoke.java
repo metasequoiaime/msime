@@ -12,7 +12,19 @@ import java.util.zip.ZipOutputStream;
 public final class DiagnosticsApiSmoke {
     public static void main(String[] arguments) throws Exception {
         // 事件只能按 P19 枚举构造：不在枚举里的种类、负时间都被丢弃。
-        check(DiagnosticEventKind.values().length == 10, "P19 lists ten event kinds");
+        check(java.util.Arrays.stream(DiagnosticEventKind.values()).filter(DiagnosticEventKind::uploadable).count() == 10,
+            "cloud contract still lists ten event kinds");
+        for (DiagnosticEventKind kind : DiagnosticEventKind.values()) {
+            if (!kind.uploadable()) {
+                check(DiagnosticsApi.Event.of(1, kind.wire(), -1) == null, "local failure cannot enter upload factory");
+                String encoded = DiagnosticsApi.requestBody("android", "synthetic",
+                    new DiagnosticsApi.Sections(null, null, null, List.of(
+                        new DiagnosticsApi.Event(1, kind, -1),
+                        DiagnosticsApi.Event.of(2, "key_down", -1))), DiagnosticsApi.Retention.ONE_DAY);
+                check(!encoded.contains(kind.wire()) && encoded.contains("key_down"),
+                    "direct events cannot bypass upload whitelist or corrupt commas");
+            }
+        }
         check(DiagnosticsApi.Event.of(1, "key_down", 3) != null, "key_down is accepted");
         check(DiagnosticsApi.Event.of(1, "text", 3) == null, "an unknown kind is dropped");
         check(DiagnosticsApi.Event.of(1, "KEY_DOWN", 3) == null, "kinds are matched exactly");

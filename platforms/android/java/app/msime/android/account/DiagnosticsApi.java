@@ -21,7 +21,7 @@ import org.json.JSONObject;
 /**
  * 「MCP 开发者访问」的云端接口：上传一份日志快照、读回快照与最近访问、重新生成访问令牌、删除快照（`/v1/users/me/diagnostics`）。
  *
- * <p>上传的内容只来自 Rust 写出的诊断包（`NativeClient.diagnosticBundle`）：配置快照是诊断包里已经脱敏的 `config_snapshot`，这里不自己脱敏；输入事件和性能数据从诊断包里按 P19 白名单校验过的 jsonl 读出，再在这里按 {@link DiagnosticEventKind} 枚举逐条重建，只留 `t_ms`、`kind`、`duration_ms`，不认识的种类整行丢弃。请求体里不会出现任何文本、拼音、候选或按键字面值。
+ * <p>上传的内容只来自 Rust 写出的诊断包（`NativeClient.diagnosticBundle`）：配置快照是诊断包里已经脱敏的 `config_snapshot`，这里不自己脱敏；输入事件和性能数据从诊断包里按本地白名单校验过的 jsonl 读出，再在这里按 {@link DiagnosticEventKind} 枚举逐条重建，只留 `t_ms`、`kind`、`duration_ms`，不认识的种类和仅供本地导出的失败类别整行丢弃。请求体里不会出现任何文本、拼音、候选或按键字面值。
  *
  * <p>匿名账号也可以上传（`ACCOUNT_OR_ANONYMOUS`）。每个请求都阻塞在网络上，不要在主线程调用。
  */
@@ -67,10 +67,10 @@ public final class DiagnosticsApi {
 
     /** 一条输入事件或性能记录；`durationMs` 小于 0 表示没有耗时。 */
     public record Event(long tMs, DiagnosticEventKind kind, long durationMs) {
-        /** 按枚举重建一条记录；种类不认识、时间为负时返回 null。 */
+        /** 按云端枚举重建一条记录；本地类别、不认识的种类、负时间都返回 null。 */
         public static Event of(long tMs, String kind, long durationMs) {
             DiagnosticEventKind known = DiagnosticEventKind.fromWire(kind);
-            if (known == null || tMs < 0) return null;
+            if (known == null || !known.uploadable() || tMs < 0) return null;
             return new Event(tMs, known, durationMs < 0 ? -1 : durationMs);
         }
     }
@@ -217,9 +217,12 @@ public final class DiagnosticsApi {
 
     private static void events(StringBuilder out, List<Event> events, boolean durationRequired) {
         out.append('[');
-        for (int i = 0; i < events.size(); i++) {
-            Event event = events.get(i);
-            if (i > 0) out.append(',');
+        boolean first = true;
+        for (Event event : events) {
+            // 即使调用方直接构造 Event，也不向旧云端上传本地失败类别。
+            if (event.kind() == null || !event.kind().uploadable()) continue;
+            if (!first) out.append(',');
+            first = false;
             out.append("{\"t_ms\":").append(event.tMs()).append(",\"kind\":\"").append(event.kind().wire()).append('"');
             if (event.durationMs() >= 0 || durationRequired) {
                 out.append(",\"duration_ms\":").append(BoundsPolicy.nonNegative(event.durationMs()));

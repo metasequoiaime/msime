@@ -71,6 +71,47 @@ fn input_events_drop_every_line_that_carries_text_or_unknown_kinds() {
 }
 
 #[test]
+fn local_input_failure_categories_survive_export_without_private_fields() {
+    let directory = tempfile::tempdir().unwrap();
+    let events = directory.path().join("input-events.ndjson");
+    let kinds = [
+        "input_failure_runtime_rejected",
+        "input_failure_invalid_response",
+        "input_failure_editor_rejected",
+        "input_failure_jni_link",
+    ];
+    let mut rows = String::new();
+    for kind in kinds {
+        rows.push_str(&format!("{{\"t_ms\":1,\"kind\":\"{kind}\"}}\n"));
+        rows.push_str(&format!(
+            "{{\"t_ms\":2,\"kind\":\"{kind}\",\"message\":\"synthetic-private-marker\"}}\n"
+        ));
+    }
+    rows.push_str("{\"t_ms\":3,\"kind\":\"input_failure_unknown\"}\n");
+    std::fs::write(&events, rows).unwrap();
+    let mut request = request(
+        directory.path(),
+        DiagnosticInclude {
+            input_events: true,
+            ..DiagnosticInclude::default()
+        },
+    );
+    request.sources.input_events = Some(events.to_string_lossy().into_owned());
+    let bundle = build_bundle(&request).unwrap();
+    let counts = bundle.counts.input_events.unwrap();
+    assert_eq!(counts.kept, 4);
+    assert_eq!(counts.dropped, 5);
+    let sections = bundle.sections.unwrap();
+    let kept = sections["input_events"].as_array().unwrap();
+    for (row, kind) in kept.iter().zip(kinds) {
+        assert_eq!(row, &serde_json::json!({"t_ms": 1, "kind": kind}));
+    }
+    assert!(!serde_json::to_string(&sections)
+        .unwrap()
+        .contains("synthetic-private-marker"));
+}
+
+#[test]
 fn performance_records_need_exactly_the_three_whitelisted_keys() {
     assert!(performance_record(br#"{"t_ms":1,"kind":"commit","duration_ms":4}"#).is_some());
     assert!(performance_record(br#"{"t_ms":1,"kind":"commit"}"#).is_none());

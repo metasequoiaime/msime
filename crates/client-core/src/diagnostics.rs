@@ -1,6 +1,6 @@
 //! 诊断包：开发者选项里「导出诊断包」写出的 zip，以及「上传 MCP 日志快照」上传的 `sections`。
 //!
-//! 输入事件和性能记录按 P19 的白名单逐行校验：一行只能是 `{"t_ms","kind","duration_ms"}` 这几个键，`kind` 只能是固定的事件种类，值只能是数字。任何多出来的键（例如误写进去的 `text`）、超出枚举的种类或不是 JSON 对象的行都整行丢弃并计数，绝不把输入内容带出本机。配置快照用 [`crate::preferences::Preferences::redacted_for_diagnostics`]，凭据一律换成 `"<redacted>"`。
+//! 输入事件和性能记录按固定白名单逐行校验：一行只能是 `{"t_ms","kind","duration_ms"}` 这几个键，`kind` 只能是固定的事件种类，值只能是数字。任何多出来的键（例如误写进去的 `text`）、超出枚举的种类或不是 JSON 对象的行都整行丢弃并计数，绝不把输入内容带出本机。配置快照用 [`crate::preferences::Preferences::redacted_for_diagnostics`]，凭据一律换成 `"<redacted>"`。
 //!
 //! 来源文件由宿主给出绝对路径；文件不存在时这一类为空，不算失败。日志文件可能很大，只读最后 [`MAX_SOURCE_BYTES`] 字节，每类最多保留最近的若干行。
 
@@ -30,8 +30,8 @@ pub const MAX_CRASH_STACK_BYTES: usize = 16 * 1024;
 /// 单行的字节上限；更长的行直接丢弃。
 const MAX_LINE_BYTES: usize = 32 * 1024;
 
-/// P19 规定的事件种类，输入事件和性能记录共用。
-pub const EVENT_KINDS: [&str; 10] = [
+/// 诊断包固定事件种类；输入失败类别仅供本地导出，云端上传器另按服务契约过滤。
+pub const EVENT_KINDS: [&str; 14] = [
     "key_down",
     "key_up",
     "candidate_shown",
@@ -42,6 +42,10 @@ pub const EVENT_KINDS: [&str; 10] = [
     "panel_close",
     "ime_start",
     "ime_finish",
+    "input_failure_runtime_rejected",
+    "input_failure_invalid_response",
+    "input_failure_editor_rejected",
+    "input_failure_jni_link",
 ];
 
 /// 要包含哪几类内容。缺省全部不包含。

@@ -37,19 +37,63 @@ public final class DiagnosticsBundleDeviceSmoke extends Instrumentation {
                 .put("include", include).put("destination", archive.toString())
                 .put("sources", new JSONObject().put("input_events", input.toString())
                     .put("performance_logs", perf.toString()).put("crash_logs", crash.toString()));
-            // 从产品加载类，避免测试 APK 的副本掩盖安装包中的格式不匹配。
+            // 从产品加载类，实际追加本地事件，再由 JNI 生成 ZIP。
             ClassLoader loader = getTargetContext().getClassLoader();
+            Class<?> eventKind = loader.loadClass("app.msime.android.DiagnosticEventKind");
+            Class<?> eventLog = loader.loadClass("app.msime.android.ImeDebugOverlay$EventLog");
+            var constructor = eventLog.getDeclaredConstructor(java.io.File.class);
+            constructor.setAccessible(true);
+            Object log = constructor.newInstance(root.toFile());
+            // 事件写入器使用固定文件名，不读产品自己的日志目录。
+            Path recorded = root.resolve("input-events.jsonl");
+            Files.move(input, recorded);
+            var event = eventLog.getDeclaredMethod("event", eventKind);
+            event.setAccessible(true);
+            String[] localKinds = {"input_failure_runtime_rejected", "input_failure_invalid_response",
+                "input_failure_editor_rejected", "input_failure_jni_link"};
+            try {
+                for (String kind : localKinds) {
+                    Object value = eventKind.getMethod("fromWire", String.class).invoke(null, kind);
+                    check(value != null, "installed local failure kind");
+                    event.invoke(log, value);
+                }
+            } finally {
+                var shutdown = eventLog.getDeclaredMethod("shutdown");
+                shutdown.setAccessible(true);
+                shutdown.invoke(log);
+                var worker = eventLog.getDeclaredField("worker");
+                worker.setAccessible(true);
+                check(((java.util.concurrent.ExecutorService) worker.get(log))
+                    .awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS), "local writer completed");
+            }
+            request.getJSONObject("sources").put("input_events", recorded.toString());
             Class<?> nativeClient = loader.loadClass("app.msime.android.NativeClient");
             String nativeResponse = (String) nativeClient.getMethod("diagnosticBundle", String.class)
                 .invoke(null, request.toString());
             JSONObject envelope = new JSONObject(nativeResponse);
             check(envelope.getBoolean("ok"), "native bundle generation");
             JSONObject counts = envelope.getJSONObject("value").getJSONObject("counts");
-            check(counts.getJSONObject("input_events").getInt("kept") == 1
+            check(counts.getJSONObject("input_events").getInt("kept") == 5
                 && counts.getJSONObject("input_events").getInt("dropped") == 1, "native privacy filter");
+            stage = "local failure ZIP retention";
+            try (var zip = new java.util.zip.ZipFile(archive.toFile())) {
+                String rows;
+                try (var source = zip.getInputStream(zip.getEntry("input_events.ndjson"))) {
+                    java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                    byte[] buffer = new byte[4096];
+                    int count;
+                    while ((count = source.read(buffer)) != -1) bytes.write(buffer, 0, count);
+                    rows = new String(bytes.toByteArray(), StandardCharsets.UTF_8);
+                }
+                for (String kind : localKinds) check(rows.contains(kind), "local failure survives native export");
+                check(!rows.contains("synthetic-private-marker"), "local export rejects private fields");
+                check(rows.split("\n").length == 5, "native export has five fixed events");
+            }
             stage = "native bundle upload sections";
             JSONObject body = readBody(loader, archive, true, true, true, false);
             checkSections(body);
+            for (String kind : localKinds) check(!body.toString().contains(kind),
+                "local failure does not break old cloud contract");
             check(body.getJSONArray("crash_logs").getJSONObject(0).getString("at")
                 .equals("2026-10-14T00:00:00Z"), "native crash timestamp retention");
             check(!body.toString().contains("synthetic-private-marker"), "private field exclusion");
