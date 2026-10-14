@@ -27,15 +27,11 @@ export function statisticDayKeys(days: Record<string, number>): string[] {
 export function mobileTrendLength(days: Record<string, number>): number {
   const earliest = statisticDayKeys(days)[0];
   if (!earliest) return 30;
-  const start = new Date(`${earliest}T00:00:00`);
-  if (Number.isNaN(start.getTime())) return 30;
-  const today = new Date();
-  const span =
-    Math.floor(
-      (new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() -
-        start.getTime()) /
-        86_400_000,
-    ) + 1;
+  // 只比较本地日历字段；本地午夜之间可能隔着 23 或 25 小时。
+  const start = Date.parse(`${earliest}T00:00:00Z`);
+  if (Number.isNaN(start)) return 30;
+  const today = Date.parse(`${dayKey(new Date())}T00:00:00Z`);
+  const span = Math.floor((today - start) / 86_400_000) + 1;
   return clamp(span, 30, 366);
 }
 
