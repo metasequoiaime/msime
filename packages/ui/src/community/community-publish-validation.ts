@@ -23,12 +23,13 @@ export function communityPublishFields(name: string, description: string): Commu
   };
 }
 
-/** Submits a community publish dialog from a text input without hijacking checkbox Enter keys. */
+/** 文本框可用独立回车发布；组词事件交给输入法，复选框不触发发布。 */
 export function handleCommunityPublishKeyDown(
   event: KeyboardEvent<HTMLElement>,
   submit: () => void,
 ) {
   if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement)) return;
+  if (event.nativeEvent.isComposing || event.keyCode === 229) return;
   event.preventDefault();
   if (event.target.type !== "checkbox") submit();
 }

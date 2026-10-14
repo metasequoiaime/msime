@@ -409,6 +409,33 @@ test.each(["success", "failure"])(
   },
 );
 
+test.each([
+  { name: "组词期间", event: { isComposing: true } },
+  { name: "组词结束兼容事件", event: { isComposing: false, keyCode: 229 } },
+])("插件发布保留$name 的回车", async ({ event }) => {
+  const publish = vi.fn().mockResolvedValue(first);
+  render(
+    <CommunityPluginPublishDialog
+      client={client({ publish })}
+      localPlugins={catalog([pack("sound", "rain")])}
+      onClose={vi.fn()}
+      onPublished={vi.fn()}
+    />,
+  );
+  const field = await screen.findByRole("textbox", { name: "发布插件名称" });
+  fireEvent.click(screen.getByRole("checkbox", { name: "确认拥有发布内容权利" }));
+  expect((screen.getByRole("button", { name: "公开发布" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+
+  const defaultAllowed = fireEvent.keyDown(field, { key: "Enter", ...event });
+  expect(publish).not.toHaveBeenCalled();
+  expect(defaultAllowed).toBe(true);
+
+  expect(fireEvent.keyDown(field, { key: "Enter", keyCode: 13 })).toBe(false);
+  await waitFor(() => expect(publish).toHaveBeenCalledOnce());
+});
+
 test("a successful publish releases the dialog busy state after the callback", async () => {
   const onPublished = vi.fn().mockResolvedValue(undefined);
   render(

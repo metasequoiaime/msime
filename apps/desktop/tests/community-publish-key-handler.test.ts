@@ -7,6 +7,8 @@ function eventFor(target: HTMLInputElement, key = "Enter") {
   return {
     key,
     target,
+    nativeEvent: { isComposing: false },
+    keyCode: key === "Enter" ? 13 : 27,
     preventDefault: vi.fn(),
   } as unknown as KeyboardEvent<HTMLElement>;
 }
