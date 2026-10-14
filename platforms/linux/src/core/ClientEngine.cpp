@@ -6553,7 +6553,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   // 英文模式在上面已经交给应用；Engine 自己的英文模式（Ctrl+Shift+E）里同样交给应用，和 Windows 一致。
   if (s.japanese_toggle_enabled && (key == IBUS_j || key == IBUS_J) &&
       modifiers == (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK) &&
-      !s.view.value("dedicated_english", false)) {
+      s.view.is_object() && !s.view.value("dedicated_english", false)) {
     if (!toggle_japanese_scheme(engine))
       return FALSE;
     s.japanese_chord_held = true;
@@ -6584,6 +6584,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     const auto index = maintenance_candidate_slot;
     if (!index || s.rendered_session != s.session || !candidates.is_array() ||
         *index >= candidates.size() || !s.rendered_view.is_object() ||
+        !s.view.is_object() ||
         s.rendered_view.value("generation", uint64_t{0}) !=
             s.view.value("generation", uint64_t{0}))
       return FALSE;

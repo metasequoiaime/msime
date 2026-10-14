@@ -50,6 +50,23 @@ def blank_literals(source: str) -> str:
 code = blank_literals(text)
 assert len(code) == len(text)
 
+# `process_key_and_count` 是 IBus 直接调用的回调，本身没有 `guarded()` 外壳。
+# 它在进入主处理 lambda 之前会检查两个快捷键；此时 State::view 仍可能是
+# null（会话关闭、词库维护或焦点切换），所以这两个读取也必须先守住
+# 视图形状。把这条契约放在同一个脚本里，避免只保护 glib 定时器而漏掉按键入口。
+process_key_declaration = code.index("gboolean process_key(IBusEngine *engine")
+process_key_start = code.index("gboolean process_key(IBusEngine *engine", process_key_declaration + 1)
+process_key_end = code.index("gboolean process_key_and_count", process_key_start)
+process_key_source = code[process_key_start:process_key_end]
+assert re.search(
+    r"s\.japanese_toggle_enabled[\s\S]*?s\.view\.is_object\(\)\s*&&\s*!s\.view\.value\(",
+    process_key_source,
+), "Ctrl+Shift+J guard must reject a null Engine view before reading it"
+assert re.search(
+    r"const bool maintenance_candidate_key[\s\S]*?\*index >= candidates\.size\(\)\s*\|\|\s*!s\.rendered_view\.is_object\(\)\s*\|\|\s*!s\.view\.is_object\(\)\s*\|\|[\s\S]*?s\.view\.value\(",
+    process_key_source,
+), "candidate maintenance shortcut must reject a null Engine view before reading it"
+
 
 def matching(open_index: int, opener: str, closer: str) -> int:
     depth = 0

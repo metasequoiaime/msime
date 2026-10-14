@@ -8,14 +8,17 @@ Status: implemented
 
 #7694 再次报告 Linux 0.11.0 的同类异常，最新样本使用 nlohmann 3.11.3。`306` 能确定是对非对象调用 `value()`，GLib 主循环中的栈也符合未捕获的回调异常；但报告没有可匹配的 ELF Build ID，检查过的官方 0.11.0 `.deb`、`.rpm` 与报告偏移不匹配，不能只凭异常码断言它一定来自输入模式提示。已有辅助函数单测和静态检查缺少真实宿主回调验证，也没有覆盖对象销毁后的超时。
 
-`show_input_mode_hint()` 在焦点进入和中英切换时显示「中」/「英」，并注册 1.2 秒后收起提示的 `g_timeout_add_full` 回调。回调要判断用户是否已经开始组字，直接对 `State::view` 调了 `value("editing_text", ...)` 和 `value("candidates", ...)`。`State::view` 在会话打开之前是 JSON null，`State::close()` 也会把它置回 null，而 `close()` 之后的 `open()` 在被拦截的输入框（密码、PIN、数字）、英文模式或词库维护期间会直接返回、不建会话。于是「焦点进入普通输入框，1.2 秒内同一上下文的 `content_type` 改成密码框」这样的顺序就会让回调读到 null 视图。nlohmann 的 `value(key, default)` 只在对象缺键时回退默认值，对 null 直接抛异常；按键、焦点这些入口包在 `guarded()` 里，异常会被吞掉并重置会话，而 glib 定时器回调外面没有任何东西，异常一路冒到 `entrypoints/ibus_main.cpp` 的 `std::set_terminate`，进程 abort。
+`show_input_mode_hint()` 在焦点进入和中英切换时显示「中」/「英」，并注册 1.2 秒后收起提示的 `g_timeout_add_full` 回调。回调要判断用户是否已经开始组字，直接对 `State::view` 调了 `value("editing_text", ...)` 和 `value("candidates", ...)`。`State::view` 在会话打开之前是 JSON null，`State::close()` 也会把它置回 null，而 `close()` 之后的 `open()` 在被拦截的输入框（密码、PIN、数字）、英文模式或词库维护期间会直接返回、不建会话；因此焦点与输入框属性交错时可能留下 null 视图。nlohmann 的 `value(key, default)` 只在对象缺键时回退默认值，对 null 直接抛异常；glib 定时器回调外面没有异常捕获，异常会一路冒到 `entrypoints/ibus_main.cpp` 的 `std::set_terminate`，进程 abort。线上报告仍缺少可匹配的 Build ID，下面的时序用例证明的是这个崩溃前提和修复行为，不把它当作线上栈的符号化结果。
 
 `scripts/test-linux-rendered-view-guard.py` 已经为同样生命周期的 `rendered_view` 建了静态检查，但它只看 `rendered_view`，`view` 没有任何检查。
+
+对 #7694 的后续审计发现，崩溃面不只在 glib 定时器：IBus 的 `process_key_and_count` 直接调用 `process_key`，而 `process_key` 在进入内部 `guarded()` 处理段之前还有两个快捷键判断。会话关闭或词库维护期间，`State::view` 可能仍为 JSON null；Ctrl+Shift+J 判断和候选维护快捷键的代次比较会在这个状态直接调用 `value()`，同样抛出 `type_error.306`，而按键入口没有外层异常捕获。代码审计确认了未捕获读取点和防守位置，但没有把密码框或普通英文模式描述成这两个按键的直接触发条件。
 
 ## Decision
 
 - 组字判断收进 `platforms/linux/src/core/ViewComposition.h` 的 `view_is_composing()`：不是对象、键缺失或类型不对一律回答「没有组字」，用 `find()` 读取，不会抛异常。输入模式提示的回调改用它。null 视图意味着会话已经不在，没有候选页码需要保护，收起提示是对的行为。
 - 候选右键提示（1.5 秒）的回调同样没有 `guarded()`，在读 `s.view.value("generation", ...)` 之前补上 `s.view.is_object()`。按现有不变量（`session` 非零时 `view` 一定是对象，回调已先检查同一会话）它目前到不了 null，但这个保证来自条件求值顺序和别处的不变量，补一个判断比依赖它们稳。
+- `process_key` 的 Ctrl+Shift+J 判断和候选维护快捷键代次比较也先检查 `s.view.is_object()`。null 视图时把快捷键交还给应用，或直接拒绝候选维护动作，不进入后续读取；这样即使按键与会话关闭交错，也不会让未捕获的 `value()` 异常终止宿主。
 - 新增 `scripts/test-linux-glib-callback-view-guard.py`：对每个以 lambda 注册的 `g_timeout_add*` / `g_idle_add*` 回调体，要求其中对 `s.view` / `state(...).view` 的 `value(` / `at(` 读取之前出现过 `s.view.is_object()`，或者位于回调体内的 `guarded(...)` 调用之中。它在修复前的源码上报出三处（输入模式提示两处、候选右键提示一处），修复后通过。
 - `platforms/linux/tests/runtime/mode_hint_lifecycle.cpp` 在私有 D-Bus 上实例化真实 IBus 宿主，走原生焦点与输入框属性入口，并实际运行 GLib 主循环。英文模式不创建 Engine 会话，因此不依赖词库；三个独立 ctest 用例分别覆盖 null 视图提示收起、提示等待中切到密码框执行 `close()`、提示等待中销毁上下文。提示收起后再获得焦点，确认宿主继续响应；销毁后不得再向辅助区域发信号。这些用例无条件进入 `BUILD_TESTING`，普通 Linux 容器门禁就会执行。
 
@@ -29,6 +32,7 @@ Status: implemented
 - 云候选、AI、翻译延时（500/650/500 ms）和稳定重排定时器：由 `invalidate_providers()` 在 `close()` 里取消，而 `view` 置 null 只发生在 `close()`；重排回调读取前先查 `session` 且包在 `try` 里。
 - 升级重启 idle 回调：已经用 `is_object()` + `find()`。
 - `reload_preferences`：涉及视图的部分都在 `guarded()` 里。
+- `process_key` 的其余视图读取位于内部 `guarded()` 处理段；这次补的是进入该段之前的两个读取。
 
 Fcitx5 插件的 `view_` 默认是 `Json::object()`、重置时也回到空对象，定时器是随状态销毁的 `EventSourceTime` 成员，没有这个问题。
 
@@ -41,7 +45,7 @@ Fcitx5 插件的 `view_` 默认是 `Json::object()`、重置时也回到空对�
 
 ## Consequences
 
-收益：输入模式提示和候选右键提示的定时器不会再因为会话在等待期间被关掉而让宿主 abort；新增的静态检查会拦住以后在 glib lambda 回调里新增的未经判断的视图读取。
+收益：输入模式提示和候选右键提示的定时器，以及两个按键快捷键入口，都不会再因为会话在等待期间被关掉而让宿主 abort；静态检查还会拦住以后在 glib lambda 回调或这两个入口中新增的未经判断的视图读取。
 
 代价与缺口：静态检查只看以 lambda 注册的回调体本身，不跟进它调用的函数，也不覆盖以命名函数注册的回调；这两类仍靠评审和上面的排查结论。原生用例运行真实 IBus 对象、私有 D-Bus 和定时器，每项增加约 1.5 秒；它覆盖无会话与销毁时序，不依赖桌面 daemon、真实编辑器或中文词库。#7694 的具体栈归属仍需匹配崩溃设备的 Build ID 与符号，不能把这组回归测试等同于线上栈已符号化。
 
@@ -49,6 +53,7 @@ Fcitx5 插件的 `view_` 默认是 `Json::object()`、重置时也回到空对�
 
 - `platforms/linux/tests/core/view_composition.cpp`（ctest `linux-view-composition`）：先断言 null 视图上的 `value("editing_text", ...)` 抛 `type_error` 306（即崩溃前提），再断言 `view_is_composing()` 在 null、非对象、空视图、字段类型不对时都返回 false 且不抛，在编辑串或候选非空时返回 true。
 - `scripts/test-linux-glib-callback-view-guard.py` 在修复前的 `ClientEngine.cpp` 上报出三处并以非零退出，修复后通过。
+- `scripts/test-linux-glib-callback-view-guard.py` 在加入按键入口契约后，先在未修复源码上因两个缺少 `is_object()` 的判断失败；补上两个守卫后通过。
 - `bash platforms/linux/build-container.sh` 在容器里编译 IBus engine、Fcitx5 插件与全部单测并跑 ctest。
 - 原生 ctest `ibus-mode-hint-english`、`ibus-mode-hint-blocked`、`ibus-mode-hint-destroyed` 通过私有 D-Bus 观察提示显示与隐藏，并等待比提示晚到的 GLib 哨兵确认超时获得执行机会。
 - 反向验证只把输入模式提示回调的组字判断临时恢复为旧的两次 `s.view.value()` 读取：英文与密码框两项都在真实 GLib 超时执行时返回非零，输出 `[json.exception.type_error.306] cannot use value() with null`。恢复现有判断并重新构建后，三项全部通过。测试入口捕获异常以报告失败，生产入口没有这层捕获，因而同样的异常会进入 `std::terminate`。
