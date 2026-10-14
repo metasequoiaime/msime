@@ -17,6 +17,7 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 - `.github/workflows/android-device.yml` 是可复用 workflow，在 GitHub 托管的 ubuntu-24.04（有 KVM）上按 API 28（minSdk）和 35（targetSdk）各起一台 x86_64 模拟器，依次：
   - `build-core-test.sh` 交叉编译 client-core 单测，`run-core-test.sh` 在设备上整套运行；
   - 用开发密钥打 x86_64 APK，`smoke.sh` 装包，走首次启动、词库准备和输入验收。API 28 用 `--core`，只到 DeviceSmoke 的打字主路径。
+  - API 35 的完整套件包含注音九键，打包前用 `fetch_language_dictionaries.py` 取回锁定词库，并设置 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1`；缺失就拒绝打包。API 28 的核心验收不需要这些词库。nightly 首次运行中，未准备词库的 API 35 APK 正常回退到拼音，导致 `LanguageNumberKeySwapDeviceSmoke` 等不到注音键面；这是测试输入缺失，不应靠跳过套件解决。
 - `ci-platforms.yml` 在 `android == 'true'`（动到 Android 或共享代码）的 PR 上调用它。这一条已被 [PR 上只编译和测试，打包挪到合进 develop 之后](../process/2026-10-09-no-packaging-on-pull-requests.md) 取代：现在只在推到 develop、main 时调用，PR 上不跑。
 - `release-android.yml` 的 `publish` 依赖新的 `device` job，用同一个提交跑同一套，失败就不发。这个 job 不接触发版密钥。
 - 设备脚本：`start-emulator.sh` 接受 API 级别，按主机架构选 arm64-v8a 或 x86_64 镜像，每个级别一台独立 AVD、固定端口（`5580 - 2 × (35 - API)`）；`run-core-test.sh` 用 `MSIME_ANDROID_TEST_SERIAL` 选设备；新增 `build-core-test.sh`。
@@ -26,6 +27,7 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 - 无障碍点击（`DeviceSmoke.tap` 和 `HandwritingDeviceSmoke.accessibleClick`）在 `performAction(ACTION_CLICK)` 返回 false 时重新查节点再点，最多三次。查到节点和点下去之间面板可能已经重新绑定（开关刷新状态、翻页动画收尾），过期节点上的点击返回 false、并没有发生，所以重试不会把开关点两次；真不接受点击的控件三次后照样失败。2026-10-08 起 API 35 上这一处间歇失败，一天里落在四个互不相关的 PR 上（三次是「更多」面板的按键音开关），重跑即过。同理，`smoke.sh` 启动轮询里跳过引导页时直接用这一拍的 dump 去点，不另取一份：另取的那份可能赶上引导页开关中途，返回空树（`null root node`），找不到按钮就会让冒烟在第一条用例前退出（#6074 的 API 28 上出现过）；点不到就当作还没就绪，下一拍再看。
 - `smoke.sh` 的套件改成一个循环；`MSIME_DEVICE_SMOKE_SKIP` 列出的套件跳过并打印出来，不算通过。CI 的跳过名单写在 `android-device.yml`，每一项带原因，修好一个删一个，不往里加新的来让门禁变绿。
 - `smoke.sh` 不授予通知权限，按没授过权的普通用户来测：输入法的提示显示在键盘的诊断行（`MSIMEInputService.notice`），不依赖 Toast。
+- `FourteenKeyDeviceSmoke` 改窄显示尺寸后重新打开编辑器并等待输入框获得焦点，再检查窄屏拼音栏。显示配置变化会重建编辑器、收起输入法，原先只等键面恢复会因没有编辑器焦点而超时，不能把输入法窗口为空当成布局错误。
 
 ## 第一次真正跑起来时查到的
 

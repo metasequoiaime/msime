@@ -74,8 +74,14 @@ jobs:
           tests=$(bash platforms/android/tests/device/build-core-test.sh x86_64 | tail -1)
           MSIME_ANDROID_TEST_SERIAL="$SERIAL" bash platforms/android/tests/device/run-core-test.sh "$tests"
       - name: Build the APK
+        # API 35 的完整验收会切换到注音九键，测试包必须具备锁定的语言词库；缺失时产品会正常回退到拼音。
+        env:
+          MSIME_REQUIRE_LANGUAGE_DICTIONARIES: ${{ matrix.api == 35 && '1' || '0' }}
         run: |
           set -euo pipefail
+          if [[ "$MSIME_REQUIRE_LANGUAGE_DICTIONARIES" == 1 ]]; then
+            python3 scripts/fetch_language_dictionaries.py
+          fi
           bash platforms/windows/bootstrap-vcpkg.sh
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources --locked -- target/resources)"
