@@ -131,6 +131,7 @@ for entry in \
     "PreferencesDeviceSmoke|Preferences acceptance failed" \
     "ThemeModeDeviceSmoke|Theme mode acceptance failed" \
     "LanguageNumberKeySwapDeviceSmoke|Language/number key swap acceptance failed" \
+    "ChineseLanguageReturnDeviceSmoke|Chinese language return acceptance failed" \
     "KeyboardHeightDeviceSmoke|Keyboard height acceptance failed" \
     "FuzzyPinyinDeviceSmoke|Fuzzy pinyin acceptance failed" \
     "CandidateGlossDeviceSmoke|Candidate gloss acceptance failed" \

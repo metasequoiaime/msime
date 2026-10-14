@@ -814,7 +814,8 @@ public final class MSIMEInputService extends InputMethodService {
         enabledSchemes = schemeConfiguration.enabled();
         visibleSchemes = schemeConfiguration.visible();
         selectedScheme = schemeConfiguration.selected();
-        rememberChineseScheme();
+        // 出厂副本只用于启动，不代表最近使用的中文入口；否则日语中换输入框会把九键记忆覆盖成 26 键。
+        if (live) rememberChineseScheme();
         // 只用真正读到的偏好重算皮肤：runtime-options.json 的副本（来源不是 LIVE）和缺主题字段的偏好都保留当前皮肤，也就是 onCreate 按上次换上的皮肤画好的那一份。
         if (live && preferences != null && preferences.has("global_theme")) {
             skin = keyboardSkin(preferences);
