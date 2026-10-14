@@ -10,11 +10,13 @@ Status: implemented
 
 先在真实原生反馈页通过键盘连续组字、确认、退格及收起重开复现，使用合成文字，检查完整文字和计数更新。`FeedbackInputStabilityDeviceSmoke` 运行 50 次 `nihao` 加空格上屏，分五组退格一次并重新显示键盘；测试不提交反馈，结束后恢复偏好、输入模式和默认输入法。测试失败只输出固定阶段，不记录编辑器原文、原生响应或异常原文。
 
-API 28 与 API 35 专用 arm64 AVD 均通过该回归；本地通过只能说明当前构建在这两种环境的反馈页输入路径未复现，不能替代未知原设备的证据。因此本次只增加设备回归和运行入口，不增加自动重试，也不把 #7837 标为已由生产代码修复。
+API 28 与 API 35 专用 arm64 AVD 均通过该回归；本地通过只能说明当前构建在这两种环境的反馈页输入路径未复现，不能替代未知原设备的证据。因此反馈输入路径只增加设备回归和运行入口，不增加自动重试，也不把 #7837 标为已由生产代码修复。
 
 ## Related notes audit
 
 [恢复已取消的引擎启动](../../implemented/bug-fix/2026-10-14-android-resume-cancelled-engine-startup.md)部分重叠，保留失败启动不在每次显示时盲目重试的决定。输入连接被拒和原生协议失败不能复用同一自动重试条件。[丢弃过期启动任务](../../implemented/bug-fix/2026-10-14-android-stale-engine-startup.md)继续保护不同输入框的代次。
+
+[诊断上传读取共享层包格式](../bug-fix/2026-10-14-android-diagnostics-native-bundle-upload.md)补充排查时发现的日志传递缺陷，不把上传漏读与原输入失败归为同一根因。
 
 ## Alternatives considered
 

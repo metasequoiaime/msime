@@ -230,7 +230,7 @@ public final class DiagnosticsApi {
     }
 
     /**
-     * 从诊断包 zip 里取出要上传的各节。按条目文件名认：`config_snapshot.json`、`input_events.jsonl`（或 `input-events.jsonl`）、`perf.jsonl`（或 `perf_trace.jsonl`、`performance_logs.jsonl`）和 `*.crash`；没选的类别不读。
+     * 从共享层诊断包 ZIP 读取 `config_snapshot.json` 和三类 `.ndjson`；兼容旧 `.jsonl`、`*.crash`，没选的类别不读。
      */
     public static Sections readBundle(File zip, Include include) throws IOException {
         Path path = zip == null ? null : zip.toPath();
@@ -252,11 +252,15 @@ public final class DiagnosticsApi {
                 String name = baseName(entry.getName());
                 if (include.configSnapshot() && name.equals("config_snapshot.json")) {
                     config = configSnapshot(entryText(stream));
-                } else if (input != null && (name.equals("input_events.jsonl") || name.equals("input-events.jsonl"))) {
+                } else if (input != null && (name.equals("input_events.ndjson")
+                        || name.equals("input_events.jsonl") || name.equals("input-events.jsonl"))) {
                     appendEvents(input, eventLines(entryText(stream), false));
-                } else if (perf != null && (name.equals("perf.jsonl") || name.equals("perf_trace.jsonl")
+                } else if (perf != null && (name.equals("performance_logs.ndjson")
+                        || name.equals("perf.jsonl") || name.equals("perf_trace.jsonl")
                         || name.equals("performance_logs.jsonl"))) {
-                        appendEvents(perf, eventLines(entryText(stream), true));
+                    appendEvents(perf, eventLines(entryText(stream), true));
+                } else if (crashes != null && name.equals("crash_logs.ndjson") && crashes.size() < MAX_CRASH_LOGS) {
+                    appendCrashRecords(crashes, entryText(stream));
                 } else if (crashes != null && name.endsWith(".crash") && crashes.size() < MAX_CRASH_LOGS) {
                     crashes.add(crashRecord(entryText(stream), entry.getTime()));
                 }
@@ -264,6 +268,26 @@ public final class DiagnosticsApi {
         }
         return new Sections(crashes, latest(perf), include.configSnapshot() ? (config == null ? "{}" : config) : null,
             latest(input));
+    }
+
+    /** 共享层已脱敏的崩溃 NDJSON；拒绝不符合三字符串字段契约的记录。 */
+    private static void appendCrashRecords(List<CrashLog> target, String text) {
+        for (String line : text.split("\n")) {
+            if (target.size() == MAX_CRASH_LOGS) break;
+            try {
+                JSONObject row = new JSONObject(line);
+                if (row.length() != 3) continue;
+                String at = JsonPolicy.strictString(row.opt("at"));
+                String message = JsonPolicy.strictString(row.opt("message"));
+                String stack = JsonPolicy.strictString(row.opt("stack"));
+                if (at == null || at.isEmpty() || TextPolicy.utf8Length(at) > 64
+                        || message == null || TextPolicy.utf8Length(message) > MAX_MESSAGE_BYTES
+                        || stack == null || TextPolicy.utf8Length(stack) > MAX_STACK_BYTES) continue;
+                target.add(CrashLog.of(at, message, stack));
+            } catch (JSONException malformed) {
+                // 空行和不合规记录不进入上传请求，也不输出异常原文。
+            }
+        }
     }
 
     /** 每条 jsonl 都按枚举重建，只取三个数值/枚举字段；坏行和不认识的种类丢弃。 */

@@ -107,3 +107,4 @@ platforms/android/tests/device/clipboard/ClipboardEditPreparation.java
 platforms/android/tests/device/clipboard/PinyinClipboardEditPreparation.java
 platforms/android/tests/device/clipboard/ClipboardEditDeviceSmoke.java
 platforms/android/tests/device/keyboard/FeedbackInputStabilityDeviceSmoke.java
+platforms/android/tests/device/settings/DiagnosticsBundleDeviceSmoke.java
