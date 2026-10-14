@@ -149,7 +149,7 @@ final class ImeCandidates {
                 return false;
             }
             if (action.confirmationRequired()) {
-                s.confirmCandidateRemoval(id, text);
+                s.requestCandidateRemoval(id);
                 return true;
             }
             s.editCandidate(id, action);

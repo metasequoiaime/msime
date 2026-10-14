@@ -6,7 +6,6 @@ import app.msime.android.LayoutPolicy;
 import android.inputmethodservice.InputMethodService;
 import app.msime.android.core.Telemetry;
 import app.msime.android.core.InputViewValuePolicy;
-import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.Context;
@@ -133,6 +132,9 @@ public final class MSIMEInputService extends InputMethodService {
     ImeEmailSuffixes imeEmailSuffixes;
     ImeTranslationSenses imeTranslationSenses;
     ImeStylusHandwriting imeStylusHandwriting;
+    /** 删除词条的两步确认：第一次选中「删除词条…」记下候选，再选一次同一个才删除（{@link CandidateRemovalConfirmation}）。 */
+    private final CandidateRemovalConfirmation candidateRemovalConfirmation =
+        new CandidateRemovalConfirmation();
     long session;
     InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
@@ -1746,6 +1748,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 停止并重启输入会话时保留已打开的功能菜单，避免隐私开关切换时闪退式收起再弹出。 */
     private void stop(boolean finish, boolean keepMoreTools) {
         pendingEngineStartup = -1;
+        candidateRemovalConfirmation.clear();
         // Rebuilding the Engine (including an in-place privacy-mode restart) invalidates any
         // clipboard image copy still running on the worker. Its completion must not submit an
         // image after the user has enabled the privacy gate.
@@ -2645,6 +2648,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     boolean apply(String response) throws JSONException {
+        // 引擎换了一次候选：上一步记下的待确认候选可能已经不在这份列表里，作废它，用户重新走两步。
+        candidateRemovalConfirmation.clear();
         JSONObject result = value(response);
         JSONObject next = result.getJSONObject("view");
         // 偏好改了样式时，引擎在空闲重建后的那次转换里才换样式，键面在这里跟上。
@@ -6783,16 +6788,25 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (JSONException | LinkageError error) { fail(); }
     }
 
-    void confirmCandidateRemoval(JSONObject id, String text) {
-        new AlertDialog.Builder(this)
-            .setTitle("删除词条")
-            .setMessage("确认删除“" + text + "”？")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("删除", (dialog, which) -> {
-                imeKeyFeedback.playFeedback(moreButton);
+    /**
+     * 长按菜单里选中「删除词条…」。删除在键盘里不可撤销，所以第一次只记下这一个候选并提示再选一次，第二次选到同一个候选才交给
+     * {@link #editCandidate} 真正删除（{@link CandidateRemovalConfirmation}）。
+     *
+     * <p>确认不弹 `AlertDialog`：输入法服务没有 Activity 的窗口令牌，对话框要么加不上窗口、让输入法进程崩掉，要么抢走编辑器的窗口焦点，两种情况键盘都会被收起（#5605、#5653）。两步都走同一个长按菜单，删除完成后照旧由 `apply` 刷新候选列表，键盘保持打开。
+     */
+    void requestCandidateRemoval(JSONObject id) {
+        if (session == 0 || id == null
+                || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session)
+            return;
+        try {
+            if (candidateRemovalConfirmation.confirms(session,
+                    strictCandidateLong(id, "generation"), strictCandidateLong(id, "index"))) {
                 editCandidate(id, CandidateManagementAction.REMOVE);
-            })
-            .show();
+            } else {
+                // 诊断行是 polite 无障碍实时区域，读屏用户也跟着听到这一步。
+                notice("再次选择「删除词条…」以确认");
+            }
+        } catch (JSONException error) { fail(); }
     }
 
     private boolean candidateIsCurrent(int slot, JSONObject id, String text) {
