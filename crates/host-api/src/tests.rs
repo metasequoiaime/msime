@@ -7504,6 +7504,36 @@ fn cloud_candidate_requires_an_existing_local_candidate_page() {
 }
 
 #[test]
+fn single_online_candidate_rejects_unknown_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let preferences = Preferences {
+        scheme: InputScheme::Quanpin,
+        cloud_candidates: true,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    for byte in b"nihao" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    let query = read(msime_client_online_query(handle))["value"].to_string();
+    let candidate = "合成候选";
+    let result = read(unsafe {
+        msime_client_apply_online_candidate(
+            handle,
+            query.as_ptr(),
+            query.len(),
+            candidate.as_ptr(),
+            candidate.len(),
+            2,
+        )
+    });
+    assert_eq!(result["ok"], false, "{result}");
+    assert_eq!(result["error"], "invalid online candidate source");
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn direct_cloud_callbacks_follow_a_pending_disable() {
     for batch in [false, true] {
         let dir = tempfile::tempdir().unwrap();

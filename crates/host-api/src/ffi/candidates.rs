@@ -22,9 +22,18 @@ pub unsafe extern "C" fn msime_client_apply_online_candidate(
     source: u8,
 ) -> *mut c_char {
     response(|| {
-        if query.is_null() || candidate.is_null() || query_length > 16384 || candidate_length > 4096
+        if query.is_null()
+            || candidate.is_null()
+            || query_length > 16384
+            || candidate_length > 4096
+            || source > 1
         {
-            return Err("invalid online candidate buffer".into());
+            return Err(if source > 1 {
+                "invalid online candidate source"
+            } else {
+                "invalid online candidate buffer"
+            }
+            .into());
         }
         let query = serde_json::from_slice::<OnlineQuery>(unsafe {
             std::slice::from_raw_parts(query, query_length)
