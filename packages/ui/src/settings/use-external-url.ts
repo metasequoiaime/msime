@@ -41,8 +41,8 @@ export function useExternalUrl({
       if (hostOpenExternalUrl) {
         await hostOpenExternalUrl(url);
       } else {
-        const opened = window.open(url, "_blank", "noopener,noreferrer");
-        if (!opened) throw new Error("popup blocked");
+        // noopener 成功打开时也返回 null，不能用窗口引用判断是否被拦截。
+        window.open(url, "_blank", "noopener,noreferrer");
       }
     } catch {
       setError("无法打开外部链接，请稍后重试。");

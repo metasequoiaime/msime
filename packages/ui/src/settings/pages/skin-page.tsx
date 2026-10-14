@@ -29,10 +29,8 @@ import {
 import { CandidateSkinPublishDialog } from "../../community/candidate-skin-publish-dialog";
 import type { CandidateSkinVisibility } from "../../community/community-candidate-skins";
 import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
-import {
-  AiSkinGeneration,
-  TouchKeyboardSkinEditor,
-} from "../../keyboard/touch-keyboard-skin-editor";
+import { AiSkinGeneration } from "../../keyboard/ai-skin-generation";
+import { TouchKeyboardSkinEditor } from "../../keyboard/touch-keyboard-skin-editor";
 import type { SavedTouchKeyboardSkin } from "../../keyboard/touch-keyboard-skin-design";
 import { communitySkinMessage } from "../../community/community-helpers";
 import { GroupList, NavRow } from "../../core/platform-controls";

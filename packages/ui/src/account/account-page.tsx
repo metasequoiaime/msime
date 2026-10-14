@@ -1,7 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import type { Preferences } from "../index";
 import { ActionButton } from "../core/action-button";
-import { ActionSheet } from "../core/action-sheet";
 import { errorCode } from "../core/error-code";
 import { FluentIcon, type FluentIconName } from "../core/fluent-icons";
 import type { AppThemeClient } from "../core/host-contracts";
@@ -450,6 +449,7 @@ function AppIconSettingsCard({
 
   useEffect(() => {
     setInfo(null);
+    setPending(null);
     setError("");
     void perform(
       async () => {
@@ -932,14 +932,9 @@ function AccountDetailsPage({
   } = verification;
   const {
     waiting: googleWaiting,
-    resetWaiting: resetGoogleWaiting,
     cancel: cancelGoogle,
     signIn: runGoogleLogin,
   } = useAccountGoogleLogin({ client, mounted, clientGeneration });
-
-  useEffect(() => {
-    resetGoogleWaiting();
-  }, [client]);
 
   // Leaving the page must not leave the loopback listener waiting for a browser the user abandoned.
   useEffect(() => () => cancelGoogle(), [client]);

@@ -183,7 +183,9 @@ fn cold_and_warm_database_projection_preserves_fields_capacity_and_limits() {
                 assert_eq!(actual.len(), INITIAL_CANDIDATE_LIMIT);
             }
             let saved = if initial {
-                actual.len() + usize::from(round == 1 && !actual.is_empty())
+                actual.len()
+                    + usize::from(round == 1 && !actual.is_empty())
+                    + usize::from(round == 1)
             } else {
                 usize::from(round == 1 && !actual.is_empty())
             };

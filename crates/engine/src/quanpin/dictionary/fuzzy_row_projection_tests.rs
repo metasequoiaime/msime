@@ -163,9 +163,9 @@ fn hot_fuzzy_rows_project_without_temporary_pages() {
         assert_eq!(actual.capacity(), expected.capacity());
         println!("模糊热行每表 {rows} 行：申请 {old_count}→{new_count}");
         assert_eq!(
-            new_count + 2,
+            new_count + 2 + 2,
             old_count,
-            "两个非空前缀页各省去一次临时向量申请"
+            "两个非空前缀页各省一次临时向量，输入音节另省两个副本"
         );
     }
 }
@@ -179,16 +179,16 @@ fn distinct_inputs_share_hot_prefix_without_changing_cold_or_outer_hits() {
     let (actual, new_count) = count(|| after.fuzzy_candidates("zan'hao", options()));
     assert_fields_and_capacity(&actual, &expected);
     assert_eq!(actual.capacity(), expected.capacity());
-    assert_eq!(new_count, old_count, "全冷查询的申请次数保持原样");
+    assert_eq!(new_count + 2, old_count, "全冷查询省去两个输入音节副本");
     let (expected, old_count) = count(|| before.legacy_fuzzy_candidates("zan'ma", options()));
     let (actual, new_count) = count(|| after.fuzzy_candidates("zan'ma", options()));
     assert_fields_and_capacity(&actual, &expected);
     assert_eq!(actual.capacity(), expected.capacity());
     println!("不同输入共享模糊前缀：申请 {old_count}→{new_count}");
     assert_eq!(
-        new_count + 1,
+        new_count + 1 + 2,
         old_count,
-        "共享的非空前缀页省去一次临时向量申请"
+        "共享前缀页省一次临时向量，输入音节另省两个副本"
     );
     let (expected, old_count) = count(|| before.legacy_fuzzy_candidates("zan'ma", options()));
     let (actual, new_count) = count(|| after.fuzzy_candidates("zan'ma", options()));

@@ -32,6 +32,8 @@ Status: implemented
 
 ## Existing decisions
 
+内层 `query_series` 的前缀中间键由[系列前缀借用](2026-10-14-quanpin-series-prefix-borrow.md)处理，本篇保留外层主切分拥有值、解析投影和版本失效顺序。
+
 检索活跃笔记中的 `resolution_cache`、`SeriesResolution`、解析缓存、纠错缓存和切分借用键，没有同一解析结果投影决定。插件行迭代、词库缓冲、macOS 预览 token、系统主题、语音服务与 AI endpoint 的解析结果记录均无关。[热行缓存投影](../../implemented/testing/2026-10-14-quanpin-row-cache-projection.md)只处理词库行的临时页，部分重叠于首字母展开调用，保留其字段和行缓存决定，不吸收或归档。
 
 ## Alternatives considered

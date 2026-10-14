@@ -40,8 +40,8 @@ test("native host refuses unsafe URLs before receiving them", async () => {
   expect(setError).toHaveBeenCalledWith("无法打开外部链接，请稍后重试。");
 });
 
-test("browser fallback still opens HTTPS URLs", async () => {
-  const open = vi.spyOn(window, "open").mockReturnValue({} as Window);
+test("浏览器成功隔离新标签页并返回 null 时不显示失败", async () => {
+  const open = vi.spyOn(window, "open").mockReturnValue(null);
   const setError = vi.fn();
   const openExternalUrl = useExternalUrl({ setError });
 
@@ -53,4 +53,27 @@ test("browser fallback still opens HTTPS URLs", async () => {
     "noopener,noreferrer",
   );
   expect(setError).not.toHaveBeenCalled();
+});
+
+test("浏览器打开链接抛出异常时仍显示失败", async () => {
+  vi.spyOn(window, "open").mockImplementation(() => {
+    throw new Error("synthetic browser failure");
+  });
+  const setError = vi.fn();
+  const openExternalUrl = useExternalUrl({ setError });
+
+  await openExternalUrl("https://example.invalid/docs");
+
+  expect(setError).toHaveBeenCalledWith("无法打开外部链接，请稍后重试。");
+});
+
+test("原生宿主打开链接失败时仍显示失败", async () => {
+  const hostOpenExternalUrl = vi.fn().mockRejectedValue(new Error("synthetic host failure"));
+  const setError = vi.fn();
+  const openExternalUrl = useExternalUrl({ openExternalUrl: hostOpenExternalUrl, setError });
+
+  await openExternalUrl("https://example.invalid/docs");
+
+  expect(hostOpenExternalUrl).toHaveBeenCalledWith("https://example.invalid/docs");
+  expect(setError).toHaveBeenCalledWith("无法打开外部链接，请稍后重试。");
 });

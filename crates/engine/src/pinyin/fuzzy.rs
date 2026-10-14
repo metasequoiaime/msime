@@ -47,11 +47,29 @@ fn with_partners<'a, const N: usize>(
     (variants, count)
 }
 
-/// `[syllable]` then every intact initial/final variant the enabled rules allow, deduplicated (FZ:10-68). A non-intact syllable or no rules gives just `[syllable]`.
-pub fn fuzzy_syllables(syllable: &str, options: FuzzyPinyinOptions) -> Vec<String> {
-    // Only complete syllables expand, so an unfinished prefix keeps its normal completion.
+// 原音节加全部伙伴组合，上界直接来自规则表，不限制调用方输入。
+const FUZZY_VARIANT_CAPACITY: usize = (INITIAL_PAIRS.len() + 1) * (FINAL_PAIRS.len() + 1);
+
+struct FuzzySyllables<'a> {
+    values: [&'a str; FUZZY_VARIANT_CAPACITY],
+    count: usize,
+}
+
+impl<'a> FuzzySyllables<'a> {
+    fn as_slice(&self) -> &[&'a str] {
+        &self.values[..self.count]
+    }
+}
+
+/// 原音节在首位，随后按规则保留合法且不同的变体；输入与静态音节均只借用（FZ:10-68）。
+fn fuzzy_syllables(syllable: &str, options: FuzzyPinyinOptions) -> FuzzySyllables<'_> {
+    let mut result = FuzzySyllables {
+        values: [syllable; FUZZY_VARIANT_CAPACITY],
+        count: 1,
+    };
+    // 只扩展完整音节，未完成的前缀保留普通补全。
     if options.rules == 0 || !is_intact(syllable) {
-        return vec![syllable.to_owned()];
+        return result;
     }
     let initial_length = if ["zh", "ch", "sh"]
         .iter()
@@ -70,8 +88,6 @@ pub fn fuzzy_syllables(syllable: &str, options: FuzzyPinyinOptions) -> Vec<Strin
         with_partners::<{ FINAL_PAIRS.len() + 1 }>(final_part, &FINAL_PAIRS, options);
     let starts = &starts[..start_count];
     let ends = &ends[..end_count];
-    let mut result = Vec::with_capacity(starts.len().saturating_mul(ends.len()));
-    result.push(syllable.to_owned());
     let mut buffer = [0; MAX_SYLLABLE_LENGTH];
     for (index, start) in starts.iter().enumerate() {
         // 原音节已经在首行，跳过两个伙伴列表首项组成的重复组合。
@@ -83,8 +99,9 @@ pub fn fuzzy_syllables(syllable: &str, options: FuzzyPinyinOptions) -> Vec<Strin
             bytes[..start.len()].copy_from_slice(start.as_bytes());
             bytes[start.len()..].copy_from_slice(end.as_bytes());
             if let Some(candidate) = intact_piece(bytes) {
-                if !result.iter().any(|variant| variant == candidate) {
-                    result.push(candidate.to_owned());
+                if !result.as_slice().contains(&candidate) {
+                    result.values[result.count] = candidate;
+                    result.count += 1;
                 }
             }
         }
@@ -92,27 +109,35 @@ pub fn fuzzy_syllables(syllable: &str, options: FuzzyPinyinOptions) -> Vec<Strin
     result
 }
 
-/// Beam cartesian product capped at `limit` per step, minus the exact original (FZ:71-94).
-pub fn fuzzy_segmentations(
-    segments: &[String],
+/// 每轮受 `limit` 限制的 beam 笛卡尔积，排除原切分（FZ:71-94）。
+pub fn fuzzy_segmentations<S: AsRef<str>>(
+    segments: &[S],
     options: FuzzyPinyinOptions,
     limit: usize,
 ) -> Vec<Vec<String>> {
-    if options.rules == 0 || segments.is_empty() || limit == 0 {
+    if options.rules == 0 || segments.is_empty() || limit <= 1 {
         return Vec::new();
     }
-    let mut paths: Vec<Vec<String>> = vec![Vec::new()];
-    for syllable in segments {
-        let mut alternatives = fuzzy_syllables(syllable, options);
+    // 原组合始终在首位；真正分叉前只借用，避免为最终删掉的唯一原路径拥有字符串。
+    let mut paths: Vec<Vec<String>> = Vec::new();
+    for (index, syllable) in segments.iter().enumerate() {
+        let variants = fuzzy_syllables(syllable.as_ref(), options);
+        let alternatives = variants.as_slice();
+        if paths.is_empty() {
+            if alternatives.len() == 1 {
+                continue;
+            }
+            // 按原追加顺序恢复前缀，实际分叉保持原路径容量与分配策略。
+            let mut prefix = Vec::new();
+            for segment in &segments[..index] {
+                prefix.push(segment.as_ref().to_owned());
+            }
+            paths = vec![prefix];
+        }
         // 单变体不会增加路径数，已有路径满足上限，直接复用当前层容器。
-        if let [alternative] = alternatives.as_mut_slice() {
-            let last_index = paths.len() - 1;
-            for (index, path) in paths.iter_mut().enumerate() {
-                path.push(if index == last_index {
-                    std::mem::take(alternative)
-                } else {
-                    alternative.clone()
-                });
+        if let [alternative] = alternatives {
+            for path in &mut paths {
+                path.push((*alternative).to_owned());
             }
             continue;
         }
@@ -121,25 +146,16 @@ pub fn fuzzy_segmentations(
         // 达到上限即停止整轮展开，与参考实现只退出内层循环的截断结果一致。
         'beam: for mut path in paths {
             let take = (limit - next.len()).min(alternatives.len());
-            // 本轮最后一个父路径之后不再读取变体，直接转移其字符串。
-            let last_parent = next.len() + take == capacity;
-            let take_alternative = |alternative: &mut String| {
-                if last_parent {
-                    std::mem::take(alternative)
-                } else {
-                    alternative.clone()
-                }
-            };
-            for alternative in alternatives.iter_mut().take(take.saturating_sub(1)) {
+            for alternative in alternatives.iter().take(take.saturating_sub(1)) {
                 let mut extended = Vec::with_capacity(path.len() + 1);
                 extended.extend_from_slice(&path);
-                extended.push(take_alternative(alternative));
+                extended.push((*alternative).to_owned());
                 next.push(extended);
             }
             if take == 0 {
                 break 'beam;
             }
-            path.push(take_alternative(&mut alternatives[take - 1]));
+            path.push(alternatives[take - 1].to_owned());
             next.push(path);
             if next.len() == limit {
                 break 'beam;
@@ -147,7 +163,12 @@ pub fn fuzzy_segmentations(
         }
         paths = next;
     }
-    paths.retain(|path| path.as_slice() != segments);
+    paths.retain(|path| {
+        !path
+            .iter()
+            .map(String::as_str)
+            .eq(segments.iter().map(AsRef::as_ref))
+    });
     paths
 }
 
@@ -177,17 +198,11 @@ mod tests {
         ];
         for (bit, (a, b)) in pairs.iter().enumerate() {
             let own = rules(1 << bit);
-            assert!(
-                fuzzy_syllables(a, own).contains(&(*b).to_owned()),
-                "{a} -> {b}"
-            );
-            assert!(
-                fuzzy_syllables(b, own).contains(&(*a).to_owned()),
-                "{b} -> {a}"
-            );
+            assert!(fuzzy_syllables(a, own).as_slice().contains(b), "{a} -> {b}");
+            assert!(fuzzy_syllables(b, own).as_slice().contains(a), "{b} -> {a}");
             let other = rules(1 << ((bit + 1) % pairs.len()));
             assert!(
-                !fuzzy_syllables(a, other).contains(&(*b).to_owned()),
+                !fuzzy_syllables(a, other).as_slice().contains(b),
                 "{a} under another rule"
             );
         }
@@ -196,28 +211,34 @@ mod tests {
     #[test]
     fn expansions_keep_the_original_first_and_stay_intact() {
         let variants = fuzzy_syllables("zhan", rules(fuzzy_rule::ALL));
-        assert_eq!(variants, ["zhan", "zhang", "zan", "zang"]);
-        assert!(variants
-            .iter()
-            .all(|variant| variant.capacity() == variant.len()));
-        // `l` is the partner of both `n` and `r`.
+        assert_eq!(variants.as_slice(), ["zhan", "zhang", "zan", "zang"]);
+        assert!(variants.as_slice().iter().all(|variant| is_intact(variant)));
+        // `l` 同时有 `n` 和 `r` 两个伙伴。
         assert_eq!(
-            fuzzy_syllables("lan", rules(fuzzy_rule::N_L | fuzzy_rule::R_L)),
+            fuzzy_syllables("lan", rules(fuzzy_rule::N_L | fuzzy_rule::R_L)).as_slice(),
             ["lan", "nan", "ran"]
         );
-        assert_eq!(fuzzy_syllables("an", rules(fuzzy_rule::ALL)), ["an", "ang"]);
+        assert_eq!(
+            fuzzy_syllables("an", rules(fuzzy_rule::ALL)).as_slice(),
+            ["an", "ang"]
+        );
         let lan = fuzzy_syllables("lan", rules(fuzzy_rule::ALL));
-        assert_eq!(lan.capacity(), 6);
-        assert_eq!(lan.len(), 6);
+        assert_eq!(lan.as_slice().len(), 6);
         let (initial_partners, initial_count) = with_partners::<{ INITIAL_PAIRS.len() + 1 }>(
             "l",
             &INITIAL_PAIRS,
             rules(fuzzy_rule::ALL),
         );
         assert_eq!(&initial_partners[..initial_count], ["l", "n", "r"]);
-        assert_eq!(fuzzy_syllables("zh", rules(fuzzy_rule::ALL)), ["zh"]);
-        assert_eq!(fuzzy_syllables("bian", rules(fuzzy_rule::AN_ANG)), ["bian"]);
-        assert_eq!(fuzzy_syllables("zan", rules(0)), ["zan"]);
+        assert_eq!(
+            fuzzy_syllables("zh", rules(fuzzy_rule::ALL)).as_slice(),
+            ["zh"]
+        );
+        assert_eq!(
+            fuzzy_syllables("bian", rules(fuzzy_rule::AN_ANG)).as_slice(),
+            ["bian"]
+        );
+        assert_eq!(fuzzy_syllables("zan", rules(0)).as_slice(), ["zan"]);
     }
 
     #[test]
@@ -241,16 +262,16 @@ mod tests {
                 "zhan",
                 rules(fuzzy_rule::ALL),
                 vec!["zhan", "zhang", "zan", "zang"],
-                5,
+                0,
             ),
-            ("an", rules(fuzzy_rule::ALL), vec!["an", "ang"], 3),
-            ("bian", rules(fuzzy_rule::Z_ZH), vec!["bian"], 2),
+            ("an", rules(fuzzy_rule::ALL), vec!["an", "ang"], 0),
+            ("bian", rules(fuzzy_rule::Z_ZH), vec!["bian"], 0),
         ] {
             let _ = fuzzy_syllables(syllable, options);
             let (actual, allocations) = crate::ime::personal_rerank::allocations::count(|| {
                 fuzzy_syllables(syllable, options)
             });
-            assert_eq!(actual, expected);
+            assert_eq!(actual.as_slice(), expected);
             assert_eq!(
                 allocations, budget,
                 "原音节 {syllable} 被重复构造: {allocations}"
@@ -259,11 +280,11 @@ mod tests {
     }
 
     #[test]
-    fn fuzzy_expansion_allocates_only_valid_variant_strings() {
+    fn fuzzy_expansion_borrows_only_valid_variant_strings() {
         for (syllable, expected, budget) in [
-            ("lian", vec!["lian", "liang", "nian", "niang"], 5),
-            ("fo", vec!["fo"], 2),
-            ("chuang", vec!["chuang", "chuan", "cuan"], 4),
+            ("lian", vec!["lian", "liang", "nian", "niang"], 0),
+            ("fo", vec!["fo"], 0),
+            ("chuang", vec!["chuang", "chuan", "cuan"], 0),
         ] {
             let options = rules(fuzzy_rule::ALL);
             let _ = fuzzy_syllables(syllable, options);
@@ -271,7 +292,7 @@ mod tests {
                 fuzzy_syllables(syllable, options)
             });
 
-            assert_eq!(actual, expected);
+            assert_eq!(actual.as_slice(), expected);
             assert_eq!(
                 allocations, budget,
                 "无效模糊变体仍分配字符串: {syllable}: {allocations}"
@@ -280,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn every_syllable_expansion_allocates_only_its_owned_results() {
+    fn every_syllable_expansion_borrows_without_heap_storage() {
         let _ = fuzzy_syllables("lian", rules(fuzzy_rule::ALL));
         for &syllable in super::super::syllables::intact_pinyin_list() {
             for mask in std::iter::once(0)
@@ -291,16 +312,13 @@ mod tests {
                     crate::ime::personal_rerank::allocations::count(|| {
                         fuzzy_syllables(syllable, rules(mask))
                     });
-                assert_eq!(variants.first().map(String::as_str), Some(syllable));
+                let variants = variants.as_slice();
+                assert_eq!(variants.first().copied(), Some(syllable));
                 assert!(variants.iter().all(|variant| is_intact(variant)));
                 for (index, variant) in variants.iter().enumerate() {
                     assert!(!variants[..index].contains(variant));
                 }
-                assert_eq!(
-                    allocations,
-                    variants.len() + 1,
-                    "{syllable}: {mask}: 分配了输出之外的缓冲"
-                );
+                assert_eq!(allocations, 0, "{syllable}: {mask}: 规划仍分配临时缓冲");
             }
         }
     }
@@ -321,9 +339,12 @@ mod tests {
                 <= 63
         );
         assert!(fuzzy_segmentations(&typed, rules(0), FUZZY_SEGMENTATION_LIMIT).is_empty());
-        assert!(
-            fuzzy_segmentations(&[], rules(fuzzy_rule::ALL), FUZZY_SEGMENTATION_LIMIT).is_empty()
-        );
+        assert!(fuzzy_segmentations(
+            &[] as &[String],
+            rules(fuzzy_rule::ALL),
+            FUZZY_SEGMENTATION_LIMIT
+        )
+        .is_empty());
         assert!(fuzzy_segmentations(&typed, rules(fuzzy_rule::ALL), 0).is_empty());
     }
 
@@ -336,15 +357,15 @@ mod tests {
         });
 
         assert_eq!(paths.len(), 7);
-        assert_eq!(allocations, 32);
+        assert_eq!(allocations, 30);
     }
 
     #[test]
-    fn the_last_beam_parent_takes_the_owned_variant_strings() {
+    fn truncated_beam_copies_only_the_variants_consumed_by_paths() {
         let options = rules(fuzzy_rule::ALL);
         let single = vec!["zan".to_owned()];
         let _ = fuzzy_segmentations(&single, options, FUZZY_SEGMENTATION_LIMIT);
-        for (limit, budget) in [(1, 8), (2, 9), (3, 10), (4, 11), (64, 11)] {
+        for (limit, budget) in [(1, 0), (2, 6), (3, 8), (4, 10), (64, 10)] {
             let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
                 fuzzy_segmentations(&single, options, limit)
             });
@@ -353,7 +374,7 @@ mod tests {
             for (path, expected) in paths.iter().zip(expected) {
                 assert_eq!(path, &[expected]);
             }
-            assert_eq!(allocations, budget, "单父路径仍复制末次使用的变体: {limit}");
+            assert_eq!(allocations, budget, "单父路径仍分配未采用的变体: {limit}");
         }
 
         let pair = vec!["zan".to_owned(), "fa".to_owned()];
@@ -369,24 +390,24 @@ mod tests {
                 vec!["zhan", "fa"],
             ]
         );
-        assert_eq!(allocations, 26, "截断父路径仍复制末次使用的变体");
+        assert_eq!(allocations, 23, "截断父路径仍分配未采用的变体");
     }
 
     #[test]
-    fn single_variant_steps_reuse_the_current_beam_storage() {
+    fn single_variant_steps_elide_original_only_and_reuse_branch_storage() {
         let options = rules(fuzzy_rule::ALL);
         let _ = fuzzy_syllables("guo", options);
-        for (count, budget) in [(0, 0), (32, 69), (1, 4), (4, 10), (8, 19)] {
+        for (count, budget) in [(0, 0), (32, 0), (1, 0), (4, 0), (8, 0)] {
             let typed = vec!["guo".to_owned(); count];
             let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
                 fuzzy_segmentations(&typed, options, FUZZY_SEGMENTATION_LIMIT)
             });
             assert!(paths.is_empty());
-            assert_eq!(allocations, budget, "单变体仍创建下一层路径容器: {count}");
+            assert_eq!(allocations, budget, "仅原切分仍拥有路径: {count}");
         }
 
         let typed = vec!["zan".to_owned(), "guo".to_owned()];
-        for (limit, budget) in [(1, 10), (2, 13), (3, 16), (4, 19), (64, 19)] {
+        for (limit, budget) in [(1, 0), (2, 9), (3, 13), (4, 17), (64, 17)] {
             let (paths, allocations) = crate::ime::personal_rerank::allocations::count(|| {
                 fuzzy_segmentations(&typed, options, limit)
             });
@@ -411,12 +432,13 @@ mod tests {
             }
             let mut paths = vec![Vec::new()];
             for syllable in segments {
-                let alternatives = fuzzy_syllables(syllable, options);
+                let variants = fuzzy_syllables(syllable, options);
+                let alternatives = variants.as_slice();
                 let mut next = Vec::new();
                 'beam: for path in paths {
-                    for alternative in &alternatives {
+                    for alternative in alternatives {
                         let mut extended = path.clone();
-                        extended.push(alternative.clone());
+                        extended.push((*alternative).to_owned());
                         next.push(extended);
                         if next.len() == limit {
                             break 'beam;
@@ -454,3 +476,11 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "fuzzy/variant_view_tests.rs"]
+pub(crate) mod variant_view_tests;
+
+#[cfg(test)]
+#[path = "fuzzy/lazy_start_tests.rs"]
+mod lazy_start_tests;

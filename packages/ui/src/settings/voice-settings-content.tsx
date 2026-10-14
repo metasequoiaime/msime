@@ -1,5 +1,5 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import { fullScreenColumn, fullScreenSurface } from "../keyboard/touch-keyboard-skin-editor";
+import { fullScreenColumn, fullScreenSurface } from "../core/full-screen-style";
 import { pushMobileSettingsState } from "./mobile-navigation";
 import { useMobilePopState } from "./use-mobile-pop-state";
 import * as settings from "./settings-style";

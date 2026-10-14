@@ -4198,7 +4198,6 @@ export function EmojiPanel({
     }
     const generation = clipboardLifecycle.current;
     const isCurrent = () => generation === clipboardLifecycle.current;
-    let unsubscribe: (() => void) | undefined;
     let poll: ReturnType<typeof setInterval> | undefined;
     let inFlight = 0;
     let refreshPending = false;
@@ -4252,24 +4251,21 @@ export function EmojiPanel({
         refresh();
     };
     const start = async () => {
+      let stop: (() => void) | undefined;
       try {
-        const stop = await client.clipboard?.onChanged?.(refresh);
-        if (!isCurrent()) {
-          stop?.();
-          return;
-        }
-        unsubscribe = stop;
+        stop = await client.clipboard?.onChanged?.(refresh);
       } catch {
-        /* Keep polling if host notification registration fails. */
+        /* 宿主通知注册失败时继续轮询。 */
       }
-      if (!isCurrent()) return;
+      if (!isCurrent()) return stop;
       // Close the gap between the initial snapshot and subscription setup.
       refresh();
-      if (unsubscribe && poll !== undefined) {
+      if (stop && poll !== undefined) {
         clearInterval(poll);
         poll = undefined;
         document.removeEventListener("visibilitychange", pollVisible);
       }
+      return stop;
     };
     // Listing must not wait for a slow or stalled notification registration.
     // Use Windows' 400 ms interval until the host subscription is ready.
@@ -4278,13 +4274,13 @@ export function EmojiPanel({
       poll = setInterval(pollVisible, 400);
       document.addEventListener("visibilitychange", pollVisible);
     }
-    void start();
+    const disposeSubscription = trackAsyncSubscription(start(), isCurrent);
     return () => {
       refreshPending = false;
       ++clipboardGeneration.current;
       if (poll !== undefined) clearInterval(poll);
       document.removeEventListener("visibilitychange", pollVisible);
-      unsubscribe?.();
+      disposeSubscription();
     };
   }, [client, page, clipboardLifecycle, clipboardRefresh]);
 

@@ -35,10 +35,8 @@ def main() -> int:
     for snippet in (
         "public final class ClipboardEditPage extends ColumnDetailPage",
         "@Override protected void onColumnReady(Bundle args)",
-        "if (state == State.LOADING) load(args.getString(ClipboardHistoryPolicy.EDIT_ENTRY_ARG));",
         "@Override protected void onContentDestroyed()",
         "save = null;",
-        "saving = false;",
         "LinearLayout target = contentColumn();",
     ):
         if snippet not in editor:

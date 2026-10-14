@@ -6,7 +6,7 @@ import {
 } from "../community/community-resources";
 import { CommunitySkinsPage, type CommunitySkinClient } from "../community/community-skins";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
-import { fullScreenColumn, fullScreenSurface } from "../keyboard/touch-keyboard-skin-editor";
+import { fullScreenColumn, fullScreenSurface } from "../core/full-screen-style";
 import type { Preferences } from "../index";
 import { SettingsPageHeader } from "./settings-page-header";
 import { communityGalleryPage, type CommunityGalleryView } from "./use-community-gallery-subview";

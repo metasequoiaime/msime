@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { AiSkinGeneration } from "../../../../packages/ui/src/keyboard/touch-keyboard-skin-editor";
+import { AiSkinGeneration } from "../../../../packages/ui/src/keyboard/ai-skin-generation";
 
 afterEach(cleanup);
 

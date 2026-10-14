@@ -1441,7 +1441,7 @@ fn fuzzy_candidate_rows_reuse_the_first_typed_reading_string() {
         let _ = dictionary.fuzzy_candidates("zong'guo", options);
     });
     assert_eq!(
-        allocations, 34,
+        allocations, 28,
         "模糊候选重复复制了首个读音或查询键: {allocations}"
     );
 }

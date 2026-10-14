@@ -1227,6 +1227,11 @@ test("closing the file dialog changes nothing, and a file the host refuses says 
   const dialog = screen.getByRole("dialog", { name: "编辑个人资料" });
   fireEvent.click(within(dialog).getByRole("button", { name: "更换头像" }));
   await waitFor(() => expect(chooseAvatar).toHaveBeenCalledOnce());
+  await waitFor(() =>
+    expect(
+      (within(dialog).getByRole("button", { name: "更换头像" }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
   expect(screen.queryByText("头像已更新。")).toBeNull();
   expect(screen.queryByRole("alert")).toBeNull();
   fireEvent.click(within(dialog).getByRole("button", { name: "更换头像" }));
