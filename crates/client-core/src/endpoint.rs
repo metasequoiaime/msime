@@ -2,7 +2,7 @@
 
 /// Require an explicit host, the selected secure scheme, and no URL credentials or fragment.
 /// Callers retain their own length and field-specific validation.
-pub(crate) fn valid_endpoint_shape(endpoint: &str, url: &url::Url, expected_scheme: &str) -> bool {
+pub fn valid_endpoint_shape(endpoint: &str, url: &url::Url, expected_scheme: &str) -> bool {
     url.scheme() == expected_scheme
         && endpoint.split_once("://").is_some_and(|(_, authority)| {
             authority

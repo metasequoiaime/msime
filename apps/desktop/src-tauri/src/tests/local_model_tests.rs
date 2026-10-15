@@ -1,6 +1,6 @@
 //! The on-device model commands and the hotword plumbing a `local` voice session starts with.
 use crate::voice::local_models::{self, LocalModelInstalls};
-use msime_client_core::voice::local_models::LocalModelError;
+use msime_client_providers::voice::local_models::LocalModelError;
 use serde_json::json;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use serde_json::Value;
@@ -222,7 +222,7 @@ fn desktop_local_sessions_forward_the_model_path_and_hotwords_that_fit() {
     );
 
     let hotwords: Vec<_> = (0..2_000)
-        .map(|index| msime_client_core::voice::hotwords::Hotword {
+        .map(|index| msime_client_providers::voice::hotwords::Hotword {
             text: format!("词{index}"),
             pinyin: "ci".into(),
         })
@@ -258,15 +258,15 @@ fn desktop_local_sessions_forward_the_model_path_and_hotwords_that_fit() {
     local_models::add_hotwords_within(
         &mut skipped,
         &[
-            msime_client_core::voice::hotwords::Hotword {
+            msime_client_providers::voice::hotwords::Hotword {
                 text: "水\n杉".into(),
                 pinyin: "shui shan".into(),
             },
-            msime_client_core::voice::hotwords::Hotword {
+            msime_client_providers::voice::hotwords::Hotword {
                 text: "水杉".into(),
                 pinyin: "shui\tshan".into(),
             },
-            msime_client_core::voice::hotwords::Hotword {
+            msime_client_providers::voice::hotwords::Hotword {
                 text: "输入法".into(),
                 pinyin: "shu ru fa".into(),
             },

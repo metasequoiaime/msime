@@ -317,29 +317,30 @@ pub unsafe extern "C" fn msime_client_mobile_voice_configuration(
         }
         let store = msime_client_core::preferences::PreferencesStore::new(directory);
         let snapshot = store.load().map_err(|_| "preferences unavailable")?;
-        let provider = msime_client_core::voice::provider::mobile_voice_provider_configuration(
-            &snapshot.preferences,
-        )
-        .map(|value| {
-            json!({
-                "provider": value.provider,
-                "requestFormat": value.request_format,
-                "endpoint": value.endpoint,
-                "model": value.model,
-                "token": value.token,
-                "headers": value
-                    .headers
-                    .iter()
-                    .map(|header| json!({"name": header.name, "value": header.value}))
-                    .collect::<Vec<_>>(),
-                "enableItn": value.enable_itn,
-                "enablePunctuation": value.enable_punctuation,
-                "enableDdc": value.enable_ddc,
-                "boostingTableId": value.boosting_table_id,
-                "modelPath": value.model_path,
-            })
-        });
-        let polish = msime_client_core::voice::provider::mobile_voice_polish_configuration(
+        let provider =
+            msime_client_providers::voice::provider::mobile_voice_provider_configuration(
+                &snapshot.preferences,
+            )
+            .map(|value| {
+                json!({
+                    "provider": value.provider,
+                    "requestFormat": value.request_format,
+                    "endpoint": value.endpoint,
+                    "model": value.model,
+                    "token": value.token,
+                    "headers": value
+                        .headers
+                        .iter()
+                        .map(|header| json!({"name": header.name, "value": header.value}))
+                        .collect::<Vec<_>>(),
+                    "enableItn": value.enable_itn,
+                    "enablePunctuation": value.enable_punctuation,
+                    "enableDdc": value.enable_ddc,
+                    "boostingTableId": value.boosting_table_id,
+                    "modelPath": value.model_path,
+                })
+            });
+        let polish = msime_client_providers::voice::provider::mobile_voice_polish_configuration(
             &snapshot.preferences,
         )
         .map(|value| {

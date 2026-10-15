@@ -1,5 +1,5 @@
 //! 开发和打包用：把按需下载的资源包装到指定的 state_root 下（`<state_root>/resource-packs/<id>/`），与 App 运行时下载的位置和格式一致。资源包 id 是 `japanese`、`language-dictionaries`、`handwriting`、`settled-model`、`offline-glosses` 和 `voice-runtime`；不带 id 时安装全部，打包前据此确认每个资源包的固定地址都还能下载。
-use msime_client_core::resource_packs::{self, ResourcePack};
+use msime_client_providers::resource_packs::{self, ResourcePack};
 use std::sync::atomic::AtomicBool;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

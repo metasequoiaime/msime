@@ -46,8 +46,8 @@ ANSWERED_BY: dict[str, str] = {
     # Cloud and translation. The request logic is shared because no part of it is Windows-specific;
     # only the worker that runs it on the input queue stayed native.
     "cloud_ime": "platforms/windows/src/candidate/CloudCandidateWorker.cpp",
-    "tencent_tmt": "crates/client-core/src/credential/translation.rs",
-    "cloud_translation": "crates/client-core/src/credential/translation.rs",
+    "tencent_tmt": "crates/client-providers/src/credential/translation.rs",
+    "cloud_translation": "crates/client-providers/src/credential/translation.rs",
     "custom_translation": "crates/client-core/src/translation.rs",
     "translation_gloss": "crates/client-core/src/translation.rs",
     "ai_assistant": "apps/desktop/src-tauri/src/ai.rs",

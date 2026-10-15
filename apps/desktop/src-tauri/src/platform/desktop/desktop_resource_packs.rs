@@ -1,12 +1,12 @@
 //! 桌面按需下载的资源包。macOS 发布包不再内置日文词典和粤拼/注音/笔画词库，由设置页在用户选用对应方案时下载；手写模型在第一次打开手写面板时下载（Windows 只在 Ink 没有中文识别器、Linux 只在安装前缀里没有随包模型时才需要）；桌面落定重排模型在打开「桌面神经联想」时下载，三个桌面平台都是这样。
 //!
-//! 资源包装在 `<state_root>/resource-packs/<id>/`，state_root 就是偏好目录（`PreferencesStore::directory`：macOS 上是 `macos_launch` 解析出的 preferences_directory，Windows 上是 Server 的 DataDir，Linux 上是运行时选项里的状态目录），也是 host-api 查找已下载资源包的同一个目录。下载、校验和整体发布由 `msime_client_core::resource_packs` 完成；这里只负责决定本机提供哪些资源包、在命令线程之外运行安装、把进度作为 `resource-pack-progress` 事件发给页面，并与语音模型共用 `LocalModelInstalls` 的取消和互斥登记。
+//! 资源包装在 `<state_root>/resource-packs/<id>/`，state_root 就是偏好目录（`PreferencesStore::directory`：macOS 上是 `macos_launch` 解析出的 preferences_directory，Windows 上是 Server 的 DataDir，Linux 上是运行时选项里的状态目录），也是 host-api 查找已下载资源包的同一个目录。下载、校验和整体发布由 `msime_client_providers::resource_packs` 完成；这里只负责决定本机提供哪些资源包、在命令线程之外运行安装、把进度作为 `resource-pack-progress` 事件发给页面，并与语音模型共用 `LocalModelInstalls` 的取消和互斥登记。
 
 use crate::voice::local_models::{run_install, saved_model_mirror, LocalModelInstalls};
 use crate::{DictionaryHostOptions, HostActionError, PreferencesStore};
 use msime_client_core::edition::Edition;
 use msime_client_core::preferences::{ChineseScheme, InputScheme, Preferences};
-use msime_client_core::resource_packs::{self, PackState, ResourcePack, ResourcePackStatus};
+use msime_client_providers::resource_packs::{self, PackState, ResourcePack, ResourcePackStatus};
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -617,7 +617,7 @@ mod tests {
         std::fs::write(&model, b"placeholder").unwrap();
         assert_eq!(crate::downloaded_handwriting_model(Some(&document)), None);
         std::fs::write(
-            pack.join(msime_client_core::voice::local_models::MANIFEST_FILE),
+            pack.join(msime_client_providers::voice::local_models::MANIFEST_FILE),
             serde_json::to_vec(&ResourcePack::Handwriting.manifest()).unwrap(),
         )
         .unwrap();
@@ -639,7 +639,7 @@ mod tests {
         let pack = resource_packs::root(state.path()).join(ResourcePack::Handwriting.id());
         std::fs::create_dir_all(&pack).unwrap();
         std::fs::write(
-            pack.join(msime_client_core::voice::local_models::MANIFEST_FILE),
+            pack.join(msime_client_providers::voice::local_models::MANIFEST_FILE),
             serde_json::to_vec(&ResourcePack::Handwriting.manifest()).unwrap(),
         )
         .unwrap();

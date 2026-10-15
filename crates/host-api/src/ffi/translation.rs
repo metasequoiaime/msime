@@ -111,7 +111,7 @@ pub unsafe extern "C" fn msime_client_ai_http_request(
         #[serde(deny_unknown_fields)]
         struct Request {
             config: msime_client_core::preferences::AiAssistantPreferences,
-            input: msime_client_core::ai::AiSuggestionRequest,
+            input: msime_client_providers::ai::AiSuggestionRequest,
         }
         let request: Request = unsafe {
             with_bounded_bytes(
@@ -124,7 +124,7 @@ pub unsafe extern "C" fn msime_client_ai_http_request(
                 },
             )?
         };
-        msime_client_core::ai::chat_completion_http_request(&request.config, &request.input)
+        msime_client_providers::ai::chat_completion_http_request(&request.config, &request.input)
             .map(|value| value.unwrap_or(Value::Null))
             .map_err(|e| e.to_string())
     })
@@ -142,7 +142,7 @@ pub unsafe extern "C" fn msime_client_parse_ai_response(
         if body.is_null() || length > 1048576 || !(1..=10).contains(&limit) {
             return Err("invalid AI response buffer".into());
         }
-        Ok(msime_client_core::ai::parse_chat_completion_response(
+        Ok(msime_client_providers::ai::parse_chat_completion_response(
             unsafe { std::slice::from_raw_parts(body, length) },
             limit,
         )

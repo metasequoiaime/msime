@@ -28,7 +28,7 @@ pub unsafe extern "C" fn msime_client_doubao_auth_headers(
         let request: Request =
             serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
                 .map_err(|_| "invalid Doubao authentication request")?;
-        let headers = msime_client_core::credential::doubao_auth::headers(
+        let headers = msime_client_providers::credential::doubao_auth::headers(
             &request.auth_mode,
             &request.app_id,
             &request.token,

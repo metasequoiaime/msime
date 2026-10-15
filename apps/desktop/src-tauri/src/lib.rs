@@ -312,7 +312,7 @@ fn drop_uninstalled_language_schemes(
 /// macOS 按需下载语言词库包：包里没有某方案的词库（锁文件还没固定它）时，选了它 host-api 也只会退回别的方案，所以设置页不列出它。
 fn drop_unpinned_language_schemes(capabilities: &mut HostCapabilities) {
     use msime_client_core::preferences::InputScheme;
-    use msime_client_core::resource_packs::ResourcePack;
+    use msime_client_providers::resource_packs::ResourcePack;
     let pinned = ResourcePack::LanguageDictionaries.schemes();
     capabilities.input_schemes.retain(|scheme| {
         let name = match scheme {
@@ -1492,7 +1492,7 @@ fn ios_keyboard_ai_preferences(
     }
     .to_owned();
     // 来源键与设置页一致：https 不限主机，http 只认本机或局域网（`ai::endpoint`）。
-    let token = msime_client_core::ai::credential_for_endpoint(preferences)
+    let token = msime_client_providers::ai::credential_for_endpoint(preferences)
         .map(str::to_owned)
         .unwrap_or_default();
     let enabled = preferences.enabled
@@ -1672,7 +1672,7 @@ async fn test_api_credential(
         let _ = runtime;
         // The same checks the native Windows settings window runs through `msime_client_test_api_credential`.
         let result = tauri::async_runtime::spawn_blocking(move || {
-            msime_client_core::credential::test_service(&service, &config)
+            msime_client_providers::credential::test_service(&service, &config)
         })
         .await
         .map_err(|_| CommandError {
@@ -1687,10 +1687,10 @@ async fn test_api_credential(
     {
         let _ = runtime;
         let result = tauri::async_runtime::spawn_blocking(move || {
-            let result = msime_client_core::credential::probe::test_chat(
+            let result = msime_client_providers::credential::probe::test_chat(
                 &service,
                 &config,
-                &msime_client_core::credential::probe::ChatProbeTransport,
+                &msime_client_providers::credential::probe::ChatProbeTransport,
             );
             msime_input_runtime::CredentialTestResult {
                 ok: result.ok,
@@ -4041,7 +4041,7 @@ pub(crate) fn handwriting_model_without_pack(document: Option<&Value>) -> bool {
 
 /// HostOptions 文档里绝对 `preferences_directory` 下已完整安装的手写资源包里的模型；相对路径、缺少 `msime-model.json` 的目录和符号链接一律忽略。
 fn downloaded_handwriting_model(document: Option<&Value>) -> Option<PathBuf> {
-    use msime_client_core::resource_packs::{self, ResourcePack};
+    use msime_client_providers::resource_packs::{self, ResourcePack};
     let state_root = document?
         .get("preferences_directory")
         .and_then(Value::as_str)

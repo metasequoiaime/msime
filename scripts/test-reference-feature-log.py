@@ -209,7 +209,7 @@ REVIEWED_COMMITS: dict[str, str] = {
     "feat(settings): API Key 配置项增加连通性测试按钮": (
         "The settings page calls the test_api_credential command (apps/desktop/src-tauri/src/lib.rs, "
         "apps/desktop/src/account/credential-test-client.ts); probes live in "
-        "crates/client-core/src/credential/."
+        "crates/client-providers/src/credential/."
     ),
     "feat(translation): 候选词翻译支持小牛翻译（NiuTrans）": (
         "crates/host-api/src/niutrans_translation.rs builds the request; "
@@ -217,7 +217,7 @@ REVIEWED_COMMITS: dict[str, str] = {
         "platforms/windows/installer/config.default.toml."
     ),
     "feat(voice): 豆包语音识别支持新版控制台单 API Key 鉴权": (
-        "crates/client-core/src/credential/doubao_auth.rs picks the headers per auth mode; "
+        "crates/client-providers/src/credential/doubao_auth.rs picks the headers per auth mode; "
         "platforms/windows/src/voice/DoubaoAsrClient.cpp passes auth_mode through."
     ),
     "feat(tsf): 成对标点补全加修饰键闸门与配对栈": (
