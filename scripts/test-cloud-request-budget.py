@@ -61,7 +61,7 @@ MOBILE_CONSTANTS = [
 # worker fetches over WinHTTP and gives resolve, connect, send and receive 2000 ms each.
 REFERENCE = {"CONNECT": 2000, "REQUEST": 2000}
 
-# The AI candidate has its own budget. client-providers' AI descriptor carries the reference's 2500 ms connect and 8000 ms total, and Windows AiAssistant waits 650 ms of idle input before asking (the cloud candidate waits 500 ms). The Linux hosts do not read the descriptor: the online provider fetches with its own Python constants and both engines hold their own idle timers, so those literals are pinned here against the descriptor.
+# AI 候选有自己的时间预算。client-providers 的 AI 描述符沿用参考实现的 2500 ms 连接和 8000 ms 总时长，Windows 的 `AiAssistant` 在输入空闲 650 ms 后才发请求（云候选等 500 ms）。Linux 宿主不读这个描述符：在线提供方用它自己的 Python 常量发请求，两个引擎也各自持有空闲计时器，所以这里把那些字面量对照描述符固定下来。
 AI_DESCRIPTOR = ROOT / "crates/client-providers/src/ai.rs"
 LINUX_PROVIDER = ROOT / "platforms/linux/scripts/msime-linux-online-provider"
 LINUX_TRANSPORT = ROOT / "crates/input-runtime/src/providers.rs"

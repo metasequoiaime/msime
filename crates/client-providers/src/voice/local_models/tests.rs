@@ -2744,8 +2744,7 @@ fn adoption_refuses_a_symlinked_source_file() {
     assert_eq!(installed_manifest(&root, "pack"), None);
 }
 
-/// Downloads the real default model once. Not run in CI; run by hand with
-/// `MSIME_LOCAL_MODEL_ROOT=/tmp/msime-models-rs cargo test -p msime-client-providers --lib real_install -- --ignored --nocapture`.
+/// 真实下载一次默认模型。不在 CI 里运行，需要时手动运行：`MSIME_LOCAL_MODEL_ROOT=/tmp/msime-models-rs cargo test -p msime-client-providers --lib real_install -- --ignored --nocapture`。
 #[test]
 #[ignore = "downloads the default model from GitHub"]
 fn real_install_of_the_default_model() {

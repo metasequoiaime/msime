@@ -1,6 +1,6 @@
-//! 插件 page commands for the macOS, Windows and Linux shells: the plugin packs installed under the state directory, the built-in sound packs the bundle ships, and the @ mode's name list.
+//! macOS、Windows 和 Linux 外壳上「插件」页的命令：装在状态目录下的插件包、应用包随带的内置音效包，以及 @ 模式的名单。
 //!
-//! Every rule lives in `msime_client_services::plugins`; these are shims that resolve the roots host-side and hand them over. The page never names a path: it asks for the catalog, asks the host to show its own picker for an import, and names a pack to remove by kind and id. The input processes read the same `<state>/plugins` directory (`preferences_directory/plugins` in host-api), so an import or a name-list save reaches them without any notification of its own: sound and music settings travel through the preferences document, and the command tables and the name list are reread when a field gains focus after their files changed.
+//! 所有规则都在 `msime_client_services::plugins` 里；这些只是垫片，在宿主这边解析出各个根目录再交给它。页面从不指明路径：它要目录清单，导入时请宿主弹出自己的选择框，删除时按类别和 id 指明是哪个包。输入进程读的是同一个 `<state>/plugins` 目录（host-api 里的 `preferences_directory/plugins`），所以导入或保存名单不用另发通知就能到达它们：音效和音乐设置经偏好文档传递，命令表和名单在文件变动后、某个输入框获得焦点时重新读取。
 
 use crate::DictionaryHostOptions;
 use msime_client_core::preferences::PreferencesStore;
@@ -180,7 +180,7 @@ fn import_pack_at(source: &Path, root: &Path) -> Result<PluginSummary, PluginFai
     Ok(plugins::import_from_settings(source, root)?)
 }
 
-/// Remove an installed pack. A built-in sound pack cannot be removed; an official pack's id removes only an imported copy left in the plugins directory (client-services' `remove`).
+/// 删除一个已安装的包。内置音效包不能删除；官方包的 id 只删掉留在插件目录里的导入副本（client-services 的 `remove`）。
 #[tauri::command]
 pub async fn remove_plugin_pack(
     state: State<'_, PluginsState>,

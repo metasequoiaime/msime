@@ -942,7 +942,7 @@ if(MSIME_MCP_BINARY)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/mcp/msime" DESTINATION "${CMAKE_INSTALL_BINDIR}")
   endif()
 endif()
-# The built-in sound packs, synthesized by scripts/generate_sound_packs.py and dedicated to the public domain, beside the resource directory rather than in it: that directory has to hold exactly what the dictionary lock pins. The hosts and the settings window name this directory to client-services as the built-in pack root.
+# 内置音效包，由 `scripts/generate_sound_packs.py` 合成并贡献到公有领域，装在资源目录旁边而不是里面：资源目录必须恰好只放词库锁固定的内容。各宿主和设置窗口把这个目录作为内置包根目录告诉 client-services。
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/sound-packs/"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/sound-packs")
 # 随桌面安装包分发的官方插件包（plugins/official-packs.json 登记的脚本插件和短语表），由 scripts/build-official-plugins.sh 构建到 target/plugin-packs，装在内置音效包旁边：IBus 和 Fcitx5 只传 sound_packs，host-api 和设置窗口从那里推出 plugin-packs。选项给了才装：发布页的 deb、rpm 由 package-container.sh 传它；从源码构建的发行版定义（Arch、Gentoo、nix、OBS）不跑 wasm 构建，不带官方包。

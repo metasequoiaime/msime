@@ -1436,7 +1436,7 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
     }))
 }
 
-/// The request id prefix `msime_client_services::dictionary::collections` gives what it queues.
+/// `msime_client_services::dictionary::collections` 给它排队的请求所加的 id 前缀。
 const COLLECTION_REQUEST_PREFIX: &str = "collections-";
 
 /// Identities of the user's own rows (`user_inserted`), the ones a dictionary collection must neither overwrite nor later remove. A store the Engine cannot read answers empty, so the addition is written as it was before this check existed.

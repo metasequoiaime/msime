@@ -2157,7 +2157,7 @@ export type Snapshot = {
   candidate_skin_catalog?: ExternalSkinCatalog;
 };
 export type DictionaryFailure = { request_id: string; label: string; error: string };
-/** Mirrors the import response from `client-services::dictionary::import`. */
+/** 对应 `client-services::dictionary::import` 的导入响应。 */
 export interface DictionaryImportResult {
   applied: number;
   /** Rows examined and skipped. */

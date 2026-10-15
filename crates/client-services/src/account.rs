@@ -476,9 +476,7 @@ impl AccountError {
     }
 }
 
-// The shared data types and limits stay here; the behaviour is split by what it
-// does. Each part is re-exported, so `msime_client_services::account::X` still resolves to
-// everything it did when this was one file.
+// 共用的数据类型和上限留在这里，行为按用途拆到各子模块。每个部分都重新导出，所以 `msime_client_services::account::X` 仍能解析到这里还是单个文件时的全部内容。
 mod anonymous;
 mod api;
 mod avatar;

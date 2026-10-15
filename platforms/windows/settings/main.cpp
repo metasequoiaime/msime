@@ -2447,7 +2447,7 @@ std::optional<std::vector<uint8_t>> encode_preview(IWICImagingFactory *factory, 
   return bytes;
 }
 
-// The community's preview limit (`MAX_PREVIEW_BYTES` in client-services).
+// 社区的预览图上限（client-services 里的 `MAX_PREVIEW_BYTES`）。
 constexpr size_t skin_preview_limit = 256 * 1024;
 
 // renderSkinPreview（skin-preview-render.ts）：给没有预览图的已装皮肤画一张。皮肤支持浅色时画浅色（多数卡片在浅色页面上），配色是 resolve() 给这款包的；有装饰图时先画装饰带，再画按包的圆角和最小宽度的候选窗口，铺上背景图，写上拼音和设置预览里的头五个候选，第一个选中；每 dip 两个像素。PNG 超过 256 KiB 时改用质量 0.85 的 JPEG，仍超过时失败。在工作线程上调用。

@@ -1,6 +1,6 @@
-//! Typing statistics as an agent may see them: counts per day and per category, never text.
+//! 代理可以看到的打字统计：只有按天和按类别的计数，从不包含文字。
 //!
-//! The document already holds nothing typed (`msime_client_services::typing_statistics` classifies commits in memory and keeps counts only). Active time, typing speed and the hourly distribution are shown as the settings page shows them, but the hours only summed over the covered days, never day by day, and the last commit instant not at all: it would tell an agent whether the user is at the keyboard right now.
+//! 统计文档本身就不含任何输入内容（`msime_client_services::typing_statistics` 在内存里给上屏分类，只保存计数）。活跃时长、打字速度和按小时分布按设置页的方式呈现，但小时分布只给覆盖天数的合计，不逐日给出，最后一次上屏的时刻则完全不给：它会让代理知道用户此刻是否正坐在键盘前。
 
 use msime_client_services::typing_statistics::{TypingStatistics, TypingStatisticsStore};
 use rmcp::schemars::JsonSchema;

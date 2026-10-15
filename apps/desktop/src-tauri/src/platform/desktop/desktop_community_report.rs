@@ -16,7 +16,7 @@ pub(crate) struct CommunityReportState {
     pub(crate) service: Arc<BackendCommunityReportService<BackendAccountClient, Storage>>,
 }
 
-/// Files one report. `reason` is the label of one of [`msime_client_services::community::report::CommunityReportReason::ALL`]; anything else, a malformed id or a detail past the limit is `community_invalid` ([`CommunityReport::from_labels`]).
+/// 提交一条举报。`reason` 必须是 [`msime_client_services::community::report::CommunityReportReason::ALL`] 中某一项的标签；其他值、格式不对的 id 或超出长度上限的详情都返回 `community_invalid`（见 [`CommunityReport::from_labels`]）。
 #[tauri::command]
 pub async fn community_report(
     state: State<'_, CommunityReportState>,

@@ -56,7 +56,7 @@ export function pluginErrorCode(error: unknown): string {
     : "";
 }
 
-/** The sentence for a failed host call. The desktop shell's commands and the HarmonyOS bridge both reject with `{code, detail}`, the codes being client-services' `PluginFailure`; `detail`, when present, is the rule client-services reports. */
+/** 宿主调用失败时显示的句子。桌面外壳的命令和 HarmonyOS 桥都以 `{code, detail}` 拒绝，其中 code 是 client-services 的 `PluginFailure`；`detail` 存在时是 client-services 报告的规则。 */
 export function pluginErrorMessage(error: unknown, fallback: string): string {
   const code = pluginErrorCode(error);
   const detail =

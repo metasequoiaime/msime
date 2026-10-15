@@ -182,8 +182,7 @@ const MAX_PLUGINS_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 ///
 /// 脚本插件只给有授权页的宿主：请求带 `script_page: true` 时目录列出脚本包、导入接受脚本包（`import_from_settings`），桌面上还能读写授权（`script_grants`、`set_script_grant`、`reorder_scripts`，回答和桌面外壳的同名命令一样是 `ScriptGrantsView`，其中插件 `/` 指令的状态按 `state_root` 里偏好启用的指令表算）。不带它时（Android、HarmonyOS 和各处的辅助码表导入）照旧：目录经 `without_scripts`，导入走 `import_without_script_page`。
 /// # Safety
-/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
-/// The returned response must be released with `msime_client_string_free`.
+/// `request` 指向 `length` 个可读的 UTF-8 JSON 字节，空指针会被拒绝。返回的响应必须用 `msime_client_string_free` 释放。
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_plugins(request: *const u8, length: usize) -> *mut c_char {
     #[derive(Deserialize)]
@@ -374,7 +373,7 @@ pub unsafe extern "C" fn msime_client_plugins(request: *const u8, length: usize)
     })
 }
 
-/// `response` with the page's failure record: `error` is the code, and `detail`, when client-services gave one, the rule that was broken.
+/// 带上页面失败记录的 `response`：`error` 是失败码，`detail` 在 client-services 给出时是被违反的那条规则。
 pub(super) fn plugin_response(
     operation: impl FnOnce() -> Result<Value, PluginFailure>,
 ) -> *mut c_char {

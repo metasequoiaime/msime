@@ -1146,7 +1146,7 @@ pub struct Preferences {
     /// 候选翻译服务选的是水杉账号时为真，候选词会发到 `https://api.msime.app/v1/translate`。新装和缺字段时都是关闭，必须由用户显式选择。
     #[serde(default)]
     pub translation_account: bool,
-    /// Send anonymous usage reports (daily activity, session ends, crash summaries; see `telemetry` and PRIVACY.md) to `https://api.msime.app/v1/telemetry/events`. On by default; turning it off stops all reporting and clears the local queue. A reader treats an absent key as on.
+    /// 向 `https://api.msime.app/v1/telemetry/events` 发送匿名使用报告（每日活跃、会话结束、崩溃摘要；见 `telemetry` 和 PRIVACY.md）。默认开启；关闭后停止全部上报并清空本地队列。读取方把缺失的键当作开启。
     #[serde(default = "enabled_by_default")]
     pub usage_reporting: bool,
 }
@@ -1665,22 +1665,22 @@ impl Default for LocalModePreferences {
     }
 }
 
-/// The typing effect a host draws on keys and commits. Closed: every style is built into the hosts, and an effect pack (`PluginKind::Effect`) only selects one of them and tunes it within `effect_pack`'s bounds, so no pack can supply a style of its own.
+/// 宿主在按键和上屏时绘制的打字特效。这是封闭集合：每种样式都内置在宿主里，特效包（`PluginKind::Effect`）只能从中选一种并在 `effect_pack` 的范围内调整参数，任何包都不能自带新样式。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EffectStyle {
     #[default]
     Off,
-    /// A brief flash on the host's own candidate surface.
+    /// 在宿主自己的候选区上短暂闪一下。
     Flash,
-    /// Sparks where the host can draw them, a flash where it cannot.
+    /// 宿主能画火花的地方画火花，画不了的地方改为闪一下。
     Sparks,
-    /// Sparks, a shake and a combo that grows the effect as it climbs.
+    /// 火花、震动，外加随连击数上升而增强特效的连击。
     PowerMode,
 }
 
 impl EffectStyle {
-    /// The style's number in `msime_client_typing_effect`'s answer.
+    /// 该样式在 `msime_client_typing_effect` 应答中的编号。
     pub fn code(self) -> u32 {
         match self {
             Self::Off => 0,
@@ -1788,9 +1788,9 @@ pub enum KeySoundMode {
     Melody,
 }
 
-/// The sound pack a fresh profile selects.
+/// 全新配置默认选中的音效包。
 pub const DEFAULT_SOUND_PACK: &str = "default";
-/// The melody pack a fresh profile selects.
+/// 全新配置默认选中的旋律包。
 pub const DEFAULT_MELODY_PACK: &str = "twinkle";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

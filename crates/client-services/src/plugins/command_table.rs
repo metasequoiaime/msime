@@ -1,4 +1,4 @@
-//! `kind = "command_table"`: `/` commands, each a trigger, a title and a template.
+//! `kind = "command_table"`：`/` 指令，每条由触发词、标题和模板组成。
 //!
 //! ```toml
 //! [[commands]]
@@ -7,7 +7,7 @@
 //! template = "{date:%Y-%m-%d} 张三"
 //! ```
 //!
-//! A template is literal text and three placeholders: `{date}` or `{date:FORMAT}`, `{time}` or `{time:FORMAT}`, and `{weekday}`, with FORMAT a strftime description. Nothing else - no clipboard, no environment, no nesting - so a table can only ever produce text. The Engine expands templates (`crates/engine/src/local/command.rs`) and silently drops a row it cannot use; the rules are repeated here, where client-services cannot reach the Engine, so a pack is refused with the reason instead of losing rows nobody is told about.
+//! 模板由字面文本和三种占位符组成：`{date}` 或 `{date:FORMAT}`、`{time}` 或 `{time:FORMAT}`，以及 `{weekday}`，其中 FORMAT 是 strftime 格式描述。除此之外别无其他（没有剪贴板、没有环境变量、没有嵌套），所以一张表只能产出文本。模板由 Engine 展开（`crates/engine/src/local/command.rs`），它用不了的行会被静默丢弃；client-services 够不到 Engine，所以这里重复一遍这些规则，让包连同原因被拒绝，而不是丢掉没人知道的行。
 
 use serde::Serialize;
 use std::collections::HashSet;

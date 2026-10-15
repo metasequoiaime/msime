@@ -1,8 +1,6 @@
-//! Android's account-backed AI keyboard-skin generator.
+//! Android 上依托账号的 AI 键盘皮肤生成器。
 //!
-//! The host owns cancellation and progress presentation. This module owns the
-//! backend contract, response validation, account refreshes, and artwork-job
-//! cleanup so that no UI or platform type enters client-services.
+//! 取消和进度展示归宿主负责。本模块负责后端契约、响应校验、账号刷新以及插画任务的清理，这样任何 UI 或平台类型都不会进入 client-services。
 
 use crate::account::{
     AccountApi, AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,

@@ -1,4 +1,4 @@
-//! Plugin and name-list failures as the 插件 settings page names them, shared by every host that serves the page: the desktop shell answers its commands with these, and host-api's `msime_client_plugins` puts the same code and detail in its reply, so the page decodes one vocabulary whichever host it runs in.
+//! 插件与名单相关的失败，按「插件」设置页的叫法命名，由所有提供该页面的宿主共用：桌面外壳用它们应答命令，host-api 的 `msime_client_plugins` 在应答里放入同样的 `code` 和 `detail`，因此无论页面运行在哪个宿主里，解析的都是同一套词汇。
 
 use serde::Serialize;
 use std::path::Path;
@@ -6,7 +6,7 @@ use std::path::Path;
 use super::mentions::MentionError;
 use super::{PluginError, PluginKind};
 
-/// A failure the page can name: `code` picks the sentence, `detail` is the rule client-services reports for a refused pack or name, so the user learns which file or entry to fix.
+/// 页面能够说明的一种失败：`code` 决定显示哪句话，`detail` 是 client-services 对被拒绝的包或名字报告的规则，让用户知道该修哪个文件或哪一条。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PluginFailure {
     pub code: &'static str,
@@ -14,7 +14,7 @@ pub struct PluginFailure {
 }
 
 impl PluginFailure {
-    /// A failure with nothing to add to its code: `invalid` for a request the page could not have meant, `storage` for a disk that failed underneath.
+    /// 除 `code` 外无需补充的失败：`invalid` 表示页面不可能有意发出的请求，`storage` 表示底层磁盘出错。
     pub fn code(code: &'static str) -> Self {
         Self { code, detail: None }
     }
@@ -74,7 +74,7 @@ impl From<super::script_grants::ScriptGrantError> for PluginFailure {
     }
 }
 
-/// Remove an installed pack named the way the page names it: the kind as `PluginKind::as_str` spells it, and the id. An unknown kind is `invalid`; the rest is `remove`'s.
+/// 按页面的称呼方式删除一个已安装的包：种类按 `PluginKind::as_str` 的拼法，再加上 id。未知种类返回 `invalid`，其余错误由 `remove` 决定。
 pub fn remove_named(root: &Path, kind: &str, id: &str) -> Result<(), PluginFailure> {
     let kind = PluginKind::parse(kind).ok_or(PluginFailure::code("invalid"))?;
     Ok(super::remove(root, kind, id)?)

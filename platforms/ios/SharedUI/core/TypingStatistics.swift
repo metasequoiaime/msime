@@ -71,7 +71,7 @@ struct TypingBreakdown: Decodable, Equatable {
   }
 }
 
-/// The statistics document as the shared Rust store (`crates/client-services/src/typing_statistics.rs`) writes it; this side only reads it.
+/// 共享 Rust 存储（`crates/client-services/src/typing_statistics.rs`）写出的统计文档；这一侧只读取它。
 struct TypingStatistics: Decodable {
   /// Off until the user turns it on, as the shared store ships it; a document that says otherwise keeps what it says.
   var enabled = false
@@ -315,7 +315,7 @@ extension TypingStatistics {
   }
 }
 
-/// The key ids the shared store accepts, W3C `KeyboardEvent.code` names plus the on-screen keys a touch keyboard has and a hardware one does not. A copy of `KEY_IDS` in `crates/client-services/src/typing_statistics.rs`: the store rejects a whole batch that carries any other id, so a key that maps to nothing here is left uncounted rather than given a made-up name.
+/// 共享存储接受的键 id：W3C `KeyboardEvent.code` 名，加上触屏键盘有而硬件键盘没有的屏幕键。它是 `crates/client-services/src/typing_statistics.rs` 里 `KEY_IDS` 的副本：只要一批里有任何别的 id，存储层就整批拒绝，所以这里映射不到任何 id 的键不计数，而不是给它编一个名字。
 enum TypingKeyID {
   // Built from typed parts: as one chain of `+` over closures and literals, the Xcode 26.2 compiler gives up with
   // "unable to type-check this expression in reasonable time" and the keyboard extension does not build.

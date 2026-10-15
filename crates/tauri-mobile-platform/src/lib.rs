@@ -271,7 +271,7 @@ pub struct MobileVoiceTranscriptionRequest {
     pub hotwords: Vec<MobileVoiceHotword>,
 }
 
-/// One user-dictionary word for on-device recognition, shaped like `msime_client_providers::voice::hotwords::Hotword`.
+/// 一个用于设备端识别的用户词库词，形状同 `msime_client_providers::voice::hotwords::Hotword`。
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct MobileVoiceHotword {

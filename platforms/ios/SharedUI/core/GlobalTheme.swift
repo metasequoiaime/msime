@@ -18,7 +18,7 @@ private func themeReply(_ raw: UnsafeMutablePointer<CChar>?) -> Any? {
   return reply["value"]
 }
 
-/// A colour client-services publishes: `#RRGGBB` or `#RRGGBBAA`, alpha last. Anything else reads as unset, which means the native token.
+/// client-services 发布的颜色：`#RRGGBB` 或 `#RRGGBBAA`，alpha 在最后。其他任何写法都当作未设置，也就是改用原生的颜色令牌。
 enum ThemeColor {
   static func parse(_ value: Any?) -> UIColor? {
     guard let value = value as? String, value.first == "#", value.count == 7 || value.count == 9,
@@ -250,7 +250,7 @@ private func themeAppearance(_ value: Any?) -> UIUserInterfaceStyle? {
   }
 }
 
-/// One theme of `msime_client_theme_catalog`, in picker order. The ids, titles and colours come from client-services; the host keeps no copy.
+/// `msime_client_theme_catalog` 里的一个主题，按选择器顺序排列。id、标题和颜色来自 client-services；宿主不保留副本。
 struct GlobalThemeEntry: Equatable {
   struct Preview: Equatable { let background, panel, accent, text: UIColor }
   let id: String

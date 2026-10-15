@@ -43,7 +43,7 @@ export type PluginSymbolGroup = {
 /** 短语表的一行：`client-services::plugins::phrase_table::PhraseRow`。 */
 export type PluginPhrase = { key: string; text: string };
 
-/** One pack as `client-services::plugins::scan` lists it: the manifest's fields, with the content of its kind flattened in. */
+/** `client-services::plugins::scan` 列出的一个包：清单的各字段，并把该种类的内容平铺进来。 */
 export type PluginPackage = {
   id: string;
   name: string;
@@ -72,7 +72,7 @@ export type PluginPackage = {
   first_words?: string[];
   /** 符号集的各组。 */
   groups?: PluginSymbolGroup[];
-  /** Effect packs: `client-services::plugins::effect_pack::EffectPack`, never `off`. */
+  /** 特效包：`client-services::plugins::effect_pack::EffectPack`，从不为 `off`。 */
   style?: EffectStyle;
   intensity?: number;
   colors?: string[];
@@ -129,7 +129,7 @@ export type PluginIssue = { kind: PluginKind; folder: string; reason: string };
 
 export type PluginCatalogResult = { packages: PluginPackage[]; issues: PluginIssue[] };
 
-/** One entry of the @ mode's name list, `client-services::plugins::mentions::MentionEntry`. */
+/** @ 模式名单中的一条：`client-services::plugins::mentions::MentionEntry`。 */
 export type MentionEntry = { text: string; key: string };
 
 /**

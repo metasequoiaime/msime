@@ -119,11 +119,9 @@ const MAX_CLIPBOARD_E2E_STEPS = 24;
 const MAX_QUICK_PHRASE_UTF16 = 199;
 
 /**
- * The chat bounds, which are the shared ones rather than a HarmonyOS reading of them.
+ * 对话的各项上限，用的是共享的那一套，而不是 HarmonyOS 自己对它们的解读。
  *
- * They match `BackendChatClient` on Apple and `client-services`'s account client byte for byte, because
- * the server enforces the same numbers and a client that is stricter turns a working conversation
- * into an unexplained refusal on one platform only.
+ * 它们与 Apple 上的 `BackendChatClient` 和 `client-services` 的账号客户端逐字节一致，因为服务端执行的是同样的数值，客户端如果更严格，就会把一段能正常进行的对话变成只在某一个平台上出现、又无从解释的拒绝。
  */
 const MAX_CHAT_MODELS = 33;
 const MAX_CHAT_MODEL_ID_BYTES = 200;
@@ -135,7 +133,7 @@ const MAX_CHAT_RESPONSE_BYTES = 16 * 1024;
 const CHAT_TIMEOUT_MS = 125 * 1000;
 const CHAT_ROLES = ["user", "assistant", "system"];
 
-/** The gallery's own bounds, matching `client-services`'s community skin service. */
+/** 皮肤广场自己的上限，与 `client-services` 的社区皮肤服务一致。 */
 const MAX_COMMUNITY_SEARCH = 128;
 
 // 应用内反馈（`POST /v1/feedback`），长度上限和字段名沿用 Android 的 `FeedbackApi`，服务端与之共用。
@@ -219,7 +217,7 @@ function validCommunityScope(value: unknown): value is string {
 }
 
 /**
- * The reasons a report offers, in dialog order, each the exact label sent to the server. The same fixed list as client-services' `CommunityReportReason`.
+ * 举报可选的理由，按对话框里的顺序，每一项都是发给服务端的确切标签。与 client-services 的 `CommunityReportReason` 是同一份固定列表。
  */
 export const COMMUNITY_REPORT_REASONS: readonly string[] = [
   "侵权/抄袭",

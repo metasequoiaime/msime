@@ -1,4 +1,4 @@
-//! `msime-pack validate` against real pack folders: the report lines, the exit status, and that the rules are client-services'.
+//! 用真实的包目录测试 `msime-pack validate`：报告行、退出状态，以及所用的规则就是 client-services 的规则。
 
 use std::ffi::OsString;
 use std::fs;

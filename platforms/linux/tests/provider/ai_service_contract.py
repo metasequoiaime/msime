@@ -60,7 +60,7 @@ class AiServiceContract(unittest.TestCase):
         online.fetch = fetch
 
     def test_model_catalogue_sits_beside_the_configured_endpoint(self):
-        # The endpoint's own API prefix is reused rather than assumed, which is what client-providers' ai::endpoint::models_url does for the hosts that hold the token themselves.
+        # 复用端点自己的 API 前缀而不是假定一个，这与 client-providers 的 ai::endpoint::models_url 为自己持有 token 的宿主所做的一致。
         self.assertEqual(
             online.ai_models_url(PRIVATE["endpoint"]),
             "https://service.example.invalid/openai/v1/models",
@@ -282,7 +282,7 @@ class AiServiceContract(unittest.TestCase):
         sent.clear()
         online.ai({**query, "ai_assistant": {**options, "prompt_custom_1": "synthetic prompt"}}, PRIVATE)
         self.assertEqual(sent[0]["messages"][0]["content"], "synthetic prompt")
-        # An empty slot two or three gets the built-in text too, not slot one's, as client-providers does; "custom" names no slot and sends nothing.
+        # 第二、第三个槽位为空时同样得到内置文本，而不是第一个槽位的文本，与 client-providers 的做法一致；"custom" 不指向任何槽位，什么都不发送。
         for slot in ("custom_2", "custom_3"):
             sent.clear()
             online.ai({**query, "ai_assistant": {**options, "prompt_id": slot, "prompt_custom_1": "synthetic prompt"}}, PRIVATE)

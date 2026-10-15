@@ -892,11 +892,11 @@ function aiSkinClient(native: NativeBridge): AiSkinClient {
 }
 
 /**
- * The on-device model store: the catalog models the `local` provider can run, downloaded into the app's own files directory.
+ * 本机模型库：目录中 `local` 提供方能运行的模型，下载到应用自己的文件目录里。
  *
- * Every operation is an asynchronous bridge request, because an install blocks for the whole download on a native worker and a bridge method returning a Promise never settles here. Progress arrives on its own global as the `{id,stage,downloaded,total}` document client-providers reports. The host drops the catalog's desktop-only models, and it has already turned the core's error text into the codes the page has sentences for.
+ * 每个操作都是异步桥接请求，因为安装会在原生工作线程上阻塞整个下载过程，而返回 Promise 的桥接方法在这里永远不会兑现。进度经它自己的全局函数送达，内容是 client-providers 报告的 `{id,stage,downloaded,total}` 文档。宿主会去掉目录中仅限桌面端的模型，并且已经把核心的错误文本换成了页面有对应句子的错误码。
  *
- * An install is given hours rather than the ordinary 30 seconds: it is a download of up to a few hundred megabytes on whatever network the phone has, and client-providers reports a stalled connection itself. A deadline that fired first would report a failure for a download that then finishes.
+ * 安装给的时限是几个小时而不是普通的 30 秒：它要在手机当时所处的任意网络上下载最多几百 MB，而连接停滞由 client-providers 自己报告。先到的截止时间会给一个随后完成的下载报失败。
  */
 const voiceModelProgressListeners = new Set<(progress: LocalVoiceModelProgress) => void>();
 
@@ -911,7 +911,7 @@ globalThis.msimeHarmonyVoiceModelProgress = (document: string) => {
 };
 
 /**
- * Rejects the way the desktop shell's plugin commands reject: `{code, detail}`, where detail is the rule client-services reports for a refused pack or name, so `pluginErrorMessage` can say which file or entry to fix.
+ * 按桌面外壳插件命令的方式拒绝：`{code, detail}`，其中 detail 是 client-services 对被拒绝的包或名字报告的规则，好让 `pluginErrorMessage` 说出该改哪个文件或哪一项。
  */
 function unwrapPlugin<T>(raw: string): T {
   const reply = JSON.parse(raw) as Reply<T> & { detail?: string };
