@@ -8972,8 +8972,7 @@ public final class MSIMEInputService extends InputMethodService {
         long nowMs = System.currentTimeMillis();
         // 候选条模式里不换上「最近复制」：它会盖住工具栏上展开软键盘的那个键。
         // 文本编辑面板保留顶部的复制预览，点「复制」后不必先返回键盘（#8104）。
-        boolean recentPanelAllowed = RecentClipboardSuggestion.allowedWithToolbarPanel(
-            ViewPolicy.isVisible(textEditPanel), anyToolbarPanelOpen());
+        boolean recentPanelAllowed = ViewPolicy.isVisible(textEditPanel) || !anyToolbarPanelOpen();
         boolean recentAllowed = toolbarRow && !keysCollapsed && recentPanelAllowed && recentClipEnabled()
             && connection != null && imePrivacyGate.allows(ImePrivacyGate.Record.CLIPBOARD_HISTORY);
         String recent = recentAllowed ? recentClip.text(nowMs) : null;

@@ -27,12 +27,6 @@ public final class RecentClipboardSuggestion {
         return clipboardHistoryEnabled && suggestionSetting;
     }
 
-    /** 文本编辑面板里点「复制」后仍保留顶部预览；其他工具栏面板继续让出这一行。 */
-    public static boolean allowedWithToolbarPanel(boolean textEditPanelOpen,
-            boolean anyToolbarPanelOpen) {
-        return textEditPanelOpen || !anyToolbarPanelOpen;
-    }
-
     /** 复制时刻是否还在显示窗口里；读不到复制时刻（小于等于 0）时为假，只有亲眼看到的复制才算刚复制。 */
     public static boolean fresh(long copiedAtMs, long nowMs) {
         return copiedAtMs > 0 && nowMs - copiedAtMs <= WINDOW_MS;

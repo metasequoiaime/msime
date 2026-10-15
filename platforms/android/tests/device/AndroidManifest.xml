@@ -53,6 +53,7 @@
     <instrumentation android:name="app.msime.android.test.CloudClipboardRelayDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.BackendAccountRefreshDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.ClipboardImageDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.TextEditRecentClipboardDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.OptionSheetDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.LongSymbolCellDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.InitialKeyboardRowDeviceSmoke" android:targetPackage="app.msime.android" />

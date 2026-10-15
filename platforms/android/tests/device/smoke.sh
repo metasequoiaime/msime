@@ -166,6 +166,7 @@ for entry in \
     "NumberRowDeviceSmoke|Number row acceptance failed" \
     "EmptyEditorBackspaceDeviceSmoke|Empty editor backspace acceptance failed" \
     "ClipboardImageDeviceSmoke|Clipboard image acceptance failed" \
+    "TextEditRecentClipboardDeviceSmoke|Text edit recent clipboard acceptance failed" \
     "CaretCandidatesDeviceSmoke|Caret candidates acceptance failed" \
     "HardwareTranslationDeviceSmoke|Hardware Ctrl+Enter translation acceptance failed" \
     "AiPlaceholderDeviceSmoke|AI placeholder acceptance failed" \
