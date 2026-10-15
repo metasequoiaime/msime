@@ -108,6 +108,8 @@ platforms/android/tests/device/clipboard/PinyinClipboardEditPreparation.java
 platforms/android/tests/device/clipboard/ClipboardEditDeviceSmoke.java
 platforms/android/tests/device/keyboard/FeedbackInputStabilityDeviceSmoke.java
 platforms/android/tests/device/settings/DiagnosticsBundleDeviceSmoke.java
+platforms/android/tests/device/settings/DiagnosticsExportDirectoryDeviceSmoke.java
+platforms/android/tests/device/settings/DiagnosticDocumentsProvider.java
 platforms/android/tests/device/clipboard/ClipboardEditLifecycleDeviceSmoke.java
 platforms/android/tests/device/clipboard/PinyinClipboardEditLifecycleDeviceSmoke.java
 platforms/android/tests/device/keyboard/InputFailureCategoryDeviceSmoke.java
