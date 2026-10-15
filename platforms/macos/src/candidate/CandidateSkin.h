@@ -32,12 +32,12 @@ struct SkinTokens
     Rgba selectedNumber;
     Rgba hover;
     Rgba accent;
-    // The macOS candidate geometry of design-tokens-desktop §1.2: a 10pt card, 6pt rows, a 1pt hairline and no selection bar. Themes only recolour; a package or a toolbar stylesheet may still change these.
+    // macOS 候选窗的几何，来自 design-tokens-desktop §1.2：10pt 卡片圆角、6pt 行圆角、1pt 细边框、不画选中竖条。内边距原为 6pt，#7974 收紧到 4pt：10 − 4 = 6，选中高亮与卡片同心，窗口也更紧凑。主题只改颜色；皮肤包或工具栏样式表仍可以改这些值。
     float radius = 10.0f;
     float candidateRadius = 6.0f;
     float selectedRadius = 6.0f;
     float borderWidth = 1.0f;
-    float pad = 6.0f;
+    float pad = 4.0f;
     bool showSelectedBar = false;
     // The translation line when a package gives one (the resolved `secondary` differs from `number`); none draws it like the numbers.
     std::optional<Rgba> translation;

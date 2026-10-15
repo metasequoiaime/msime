@@ -903,7 +903,7 @@
     --msime-host-card-radius: 10px;
     --msime-host-row-radius: 6px;
     --msime-host-border-width: 1px;
-    --msime-host-pad: 6px;
+    --msime-host-pad: 4px;
     --msime-host-row-pad-y: 6px;
   }
   :is([data-platform="mac"]) &[data-preview-theme] :is(.wnd-h, .wnd-v) {

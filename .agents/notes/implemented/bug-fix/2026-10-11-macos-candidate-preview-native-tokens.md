@@ -6,7 +6,7 @@ Status: implemented
 
 macOS 的「主题」页打开的是共享 React 设置页，卡片里的候选预览是 `SkinCandidatePreview` 画的一段 HTML，样式来自 `packages/ui/src/styles.css` 的 `@utility skin-card-preview`。这套样式是从 MSIME-Windows 04a8df56 搬来的旧 Windows 候选窗样式，对所有平台一样。`system` 主题没有调色板（`theme-catalog.json` 里 `candidate: null`），主题和皮肤包没定的槽位也都落到它写死的默认值上：浅色选中底 `#e8e8e8`、选中行黑字、无条件画一根强调色竖条、卡片圆角 6px、行圆角 4px、边框 1.5px、内边距 1–2px。
 
-macOS 原生候选窗画的是 `NativeCandidateTokens`（`platforms/macos/src/candidate/CandidateSkin.cpp`）：强调色实心选中、白字、82% 白序号、不画竖条，卡片 10pt、行 6pt、1pt 细边框、内边距 6pt（`CandidateSkin.h` 的 `SkinTokens` 默认值），行上下各留 6pt（`CandidateChrome.h` 的 `MSIMECandidateRowPadding`）。于是 #7099 里「跟随系统」的预览是灰底、绿竖条、黑字、小圆角，实际窗口却是绿色实心、白字、大圆角。
+macOS 原生候选窗画的是 `NativeCandidateTokens`（`platforms/macos/src/candidate/CandidateSkin.cpp`）：强调色实心选中、白字、82% 白序号、不画竖条，卡片 10pt、行 6pt、1pt 细边框、内边距 4pt（`CandidateSkin.h` 的 `SkinTokens` 默认值），行上下各留 6pt（`CandidateChrome.h` 的 `MSIMECandidateRowPadding`）。于是 #7099 里「跟随系统」的预览是灰底、绿竖条、黑字、小圆角，实际窗口却是绿色实心、白字、大圆角。
 
 另外三处让预览不反映实际：`candidatePaletteStyle` 只输出 bg/border/text/num/accent/selected/hover，主题的 `selected_text`、`selected_number`、`show_selected_bar` 到不了预览；「主题」页的卡片不套用用户在「候选窗口 → 窗口样式」设的圆角和不透明度，而 macOS 原生回退页 `CandidateSkinPreviewView` 是套用的；圆角滑块在「跟随皮肤」时写死显示 6，macOS 实际跟随的是 10。
 
@@ -35,7 +35,7 @@ macOS 原生候选窗画的是 `NativeCandidateTokens`（`platforms/macos/src/ca
 
 ## Consequences
 
-- **收益**：macOS 上「跟随系统」和主题、皮肤包没定的槽位，预览画的是原生候选窗的选中色、白字、无竖条、10/6 圆角和 6 的内边距；内置主题的选中行文字色在所有平台的预览里都按主题画；「主题」页卡片随用户的圆角和不透明度变化。
+- **收益**：macOS 上「跟随系统」和主题、皮肤包没定的槽位，预览画的是原生候选窗的选中色、白字、无竖条、10/6 圆角和 4 的内边距；内置主题的选中行文字色在所有平台的预览里都按主题画；「主题」页卡片随用户的圆角和不透明度变化。
 - **用户可见的跨平台变化**：内置主题（shuishan、light、paper、night、ink）的预览选中行文字从普通文字色变成主题的 `selected_text`（强调色），Windows、Linux 也一样。这是对的：两边原生都画 `selected_text`（`platforms/windows/src/candidate/CandidatePalette.h`、`platforms/linux/src/candidates/CandidateColors.h`）。
 - **已知差异**：行高、26pt 的首行、翻页指示器「1 / N ‹ ›」、横排为释义预留的高度（cc8105f5d8）、嵌入式预编辑时首行不显示拼音，这些预览都不画；首尾高亮与悬停的圆角差异由[内圆角决定](2026-10-14-macos-candidate-inset-radius.md)消除，用户圆角和最小内边距按同一公式绘制。竖条颜色仍读 `--accent-strong`，macOS 块不改它，免得连带改掉悬浮工具栏预览和光标的颜色。
 - **代价与重访信号**：macOS token 有三份，靠对照测试维持一致；`CandidateSkin.cpp` 的写法（`Rgb(0x…, a)`、`Rgba{…}`、`if (dark) { … } else { … }`）变了，测试的解析要跟着改。Windows、Linux 补宿主块时沿用同一组 `--msime-host-*` 变量和对照测试的做法；补完后 `followedCornerRadius` 也要按平台改。

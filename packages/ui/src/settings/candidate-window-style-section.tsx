@@ -115,9 +115,9 @@ function followedCornerRadius(platform: HostPlatform | undefined): number {
   return platform === "macos" ? 10 : 6;
 }
 
-/** 卡片跟随皮肤和宿主时滑块显示的内边距：macOS 原生候选窗的 6pt（`skin-card-preview` 里 macOS 默认值块的 `--msime-host-pad`）。只有 macOS 声明这一行，其他平台的值只是为了滑块有个落点。 */
+/** 卡片跟随皮肤和宿主时滑块显示的内边距：macOS 原生候选窗的 4pt（`skin-card-preview` 里 macOS 默认值块的 `--msime-host-pad`）。只有 macOS 声明这一行，其他平台的值只是为了滑块有个落点。 */
 function followedCardPadding(platform: HostPlatform | undefined): number {
-  return platform === "macos" ? 6 : 2;
+  return platform === "macos" ? 4 : 2;
 }
 
 /** 「候选窗口」页的「窗口样式」组：窗口的不透明度、圆角和内边距。颜色和明暗只在「主题」页编辑，本页在这一组末尾链接过去。 */

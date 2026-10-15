@@ -159,7 +159,7 @@ test("the corner radius follows the skin until set, and returns to it", () => {
 /** 原生 macOS 候选窗的卡片内边距（`SkinTokens::pad`），也是样式表 macOS 默认值块的 `--msime-host-pad`。 */
 const macosNativePad = String(Number(/float pad = ([\d.]+)f;/.exec(candidateSkinHeader)![1]));
 
-// #7316：内边距跟在圆角后面，跟随皮肤时滑块停在 macOS 原生的 6pt；滑块覆盖核心的整个 0–16（#7974），macOS 卡片边缘至少留出边框宽度由宿主保证。
+// #7316：内边距跟在圆角后面，跟随皮肤时滑块停在 macOS 原生的 4pt；滑块覆盖核心的整个 0–16（#7974），macOS 卡片边缘至少留出边框宽度由宿主保证。
 test("the card padding follows the skin until set, writes the chosen points and returns to the skin", () => {
   const following = renderSection({ showPadding: true });
   const group = screen.getByRole("region", { name: "窗口样式" });
