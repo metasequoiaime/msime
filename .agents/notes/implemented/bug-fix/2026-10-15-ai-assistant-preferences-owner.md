@@ -27,6 +27,8 @@ Status: implemented
 
 ## Consequences
 
+凭据初始读取与成功操作回执的发布顺序由[凭据状态代次](2026-10-15-provider-credential-initial-status.md)单独管理，不使用 AI 请求代次替代。
+
 底层 AI 请求仍会完成，代次仅丢弃失效的 UI 写回。配置按 JSON 结构语义比较，不依赖属性顺序；无关设置保存和同值 AI 回执不受影响。凭据代次仅在本页可见的成功操作和客户端生命周期变化时推进，不表示对外部进程直接修改凭据文件的持续监控。新增的是共享 hook 内部参数，不修改宿主或网络协议。
 
 ## Existing notes audit
