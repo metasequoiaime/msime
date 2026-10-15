@@ -14353,7 +14353,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
     assert!(dictionaries.join("msime-pinyin.db").is_file());
 }
 
-/// 各目标的按需清单：macOS 和 Android 接受不含日文词典的发布包，Linux 和 Windows 仍要求完整的锁文件；本平台用的 `ON_DEMAND_ARTIFACTS` 就是本平台那一份。
+/// 各目标的按需清单：macOS、Android 和 iOS 接受不含日文词典的发布包，Linux 和 Windows 仍要求完整的锁文件；本平台用的 `ON_DEMAND_ARTIFACTS` 就是本平台那一份。
 #[test]
 fn the_platform_shipping_rule_decides_whether_a_slim_bundle_prepares() {
     use msime_client_core::resources::{on_demand_artifacts, ON_DEMAND_JAPANESE_ARTIFACTS};
@@ -14364,6 +14364,7 @@ fn the_platform_shipping_rule_decides_whether_a_slim_bundle_prepares() {
     for (target, slim_prepares) in [
         ("macos", true),
         ("android", true),
+        ("ios", true),
         ("linux", false),
         ("windows", false),
     ] {

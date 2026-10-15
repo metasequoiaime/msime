@@ -31,18 +31,21 @@ pub struct ResourceSet {
     pub artifacts: Vec<Artifact>,
 }
 
-/// 发布包可以不内置、改为按需下载的桌面词库文件（macOS 和 Android 的发布包都这样做，见 [`on_demand_artifacts`]）。三者作为一个整体出现或缺席：日文词典与它的两份许可文本（Mozc 词典说明里的 IPAdic/ICOT 条款、Mozc 的 BSD 许可）必须同时在场，只缺一部分时按原规则校验失败。
+/// 发布包可以不内置、改为按需下载的桌面词库文件（macOS、Android 和 iOS 的发布包都这样做，见 [`on_demand_artifacts`]）。三者作为一个整体出现或缺席：日文词典与它的两份许可文本（Mozc 词典说明里的 IPAdic/ICOT 条款、Mozc 的 BSD 许可）必须同时在场，只缺一部分时按原规则校验失败。
 pub const ON_DEMAND_JAPANESE_ARTIFACTS: [&str; 3] = [
     "msime-japanese.dat",
     "msime-mozc_dictionary_oss_README.txt",
     "msime-mozc_LICENSE.txt",
 ];
 
-/// 目标系统 `target_os`（取值同 `std::env::consts::OS`）的发布包可以不内置的资源文件：macOS 和 Android 是日文词典那一组，其余平台照旧全部内置，返回空列表。
+/// 目标系统 `target_os`（取值同 `std::env::consts::OS`）的发布包可以不内置的资源文件：macOS、Android 和 iOS 是日文词典那一组，其余平台照旧全部内置，返回空列表。iOS 的发布构建以 `MSIME_IOS_OMIT_ON_DEMAND=1` 暂存资源（#7687），键盘扩展的 `EngineResources` 不带这一组；这里不列 iOS 时，运行时按完整清单校验，发布包里的键盘一启动就以 `ExistingGeneration`（缺这三个文件）报「输入运行时准备失败」。
 ///
 /// 按参数判断而不是只写 `cfg!`，测试在任何一台主机上都能检查每个目标的规则；宿主按 `std::env::consts::OS` 取本平台的那一份。
 pub const fn on_demand_artifacts(target_os: &str) -> &'static [&'static str] {
-    if same_text(target_os, "macos") || same_text(target_os, "android") {
+    if same_text(target_os, "macos")
+        || same_text(target_os, "android")
+        || same_text(target_os, "ios")
+    {
         &ON_DEMAND_JAPANESE_ARTIFACTS
     } else {
         &[]
@@ -970,12 +973,13 @@ mod tests {
             .is_err());
     }
 
-    /// macOS 和 Android 的发布包可以不带日文词典组，Linux、Windows 以及其他目标照旧要求带齐。
+    /// macOS、Android 和 iOS 的发布包可以不带日文词典组，Linux、Windows 以及其他目标照旧要求带齐。
     #[test]
-    fn only_macos_and_android_ship_without_the_japanese_group() {
+    fn only_macos_android_and_ios_ship_without_the_japanese_group() {
         assert_eq!(on_demand_artifacts("macos"), ON_DEMAND_JAPANESE_ARTIFACTS);
         assert_eq!(on_demand_artifacts("android"), ON_DEMAND_JAPANESE_ARTIFACTS);
-        for target in ["linux", "windows", "ios", "", "androi", "android "] {
+        assert_eq!(on_demand_artifacts("ios"), ON_DEMAND_JAPANESE_ARTIFACTS);
+        for target in ["linux", "windows", "", "androi", "android ", "ios "] {
             assert!(on_demand_artifacts(target).is_empty(), "{target:?}");
         }
         // Android 上不带日文词典组的资源目录按子集校验通过。
