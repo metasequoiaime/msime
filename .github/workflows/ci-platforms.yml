@@ -428,8 +428,8 @@ jobs:
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = @(& $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\amd64\MSBuild.exe')
           if ($msbuild.Count -lt 1) { throw 'MSBuild not found' }
-          # 编译真实 main.cpp 与 ShellLauncher.cpp；这里只省去依赖 Rust 导入库的链接阶段。
-          & $msbuild[0] platforms/windows/settings/MSIME.Settings.vcxproj /restore /t:ClCompile /p:Configuration=RelWithDebInfo /p:Platform=x64 /p:IntDir="$env:GITHUB_WORKSPACE/target/windows-full/x64/settings-obj/" /verbosity:minimal
+          # 先生成 WinRT 投影头文件，再编译真实源码；直接调用 ClCompile 不会执行 BeforeClCompileTargets。
+          & $msbuild[0] platforms/windows/settings/MSIME.Settings.vcxproj /restore '/t:CppWinRTMakeProjections;ClCompile' /p:Configuration=RelWithDebInfo /p:Platform=x64 /p:IntDir="$env:GITHUB_WORKSPACE/target/windows-full/x64/settings-obj/" /verbosity:minimal
           if ($LASTEXITCODE -ne 0) { throw 'WinUI settings compilation failed' }
           if (-not (Test-Path target/windows-full/x64/settings-obj/main.obj)) { throw 'main.cpp was not compiled' }
       - name: Build the settings host
