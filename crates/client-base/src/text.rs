@@ -2,7 +2,7 @@
 
 /// Whether `value` contains a control character other than the line-oriented controls accepted
 /// by multi-line text fields.
-pub(crate) fn has_disallowed_control(value: &str) -> bool {
+pub fn has_disallowed_control(value: &str) -> bool {
     has_disallowed_control_with_options(value, true)
 }
 
@@ -149,12 +149,12 @@ pub fn is_bounded_chars_without_nul(value: &str, maximum_characters: usize) -> b
 }
 
 /// Whether an ASCII byte is an RFC 3986 URI unreserved character.
-pub(crate) fn is_ascii_uri_unreserved(byte: u8) -> bool {
+pub fn is_ascii_uri_unreserved(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~')
 }
 
 /// 皮肤、插件包等文件夹名的形状：1 到 64 字节，首字符是 ASCII 字母或数字，其余是小写 ASCII 标识符字符或点。
-pub(crate) fn safe_id(id: &str) -> bool {
+pub fn safe_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
         && id.as_bytes()[0].is_ascii_alphanumeric()

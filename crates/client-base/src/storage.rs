@@ -15,8 +15,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static PRIVATE_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// 暂存目录的创建和清理都绑定到同一个父目录句柄。
-pub(crate) struct StagingDirectory {
-    pub(crate) path: PathBuf,
+pub struct StagingDirectory {
+    pub path: PathBuf,
     created: Cell<bool>,
     #[cfg(unix)]
     parent: File,
@@ -25,7 +25,7 @@ pub(crate) struct StagingDirectory {
 }
 
 impl StagingDirectory {
-    pub(crate) fn new(path: PathBuf) -> io::Result<Self> {
+    pub fn new(path: PathBuf) -> io::Result<Self> {
         #[cfg(unix)]
         {
             let parent_path = path.parent().ok_or_else(|| {
@@ -52,7 +52,7 @@ impl StagingDirectory {
         }
     }
 
-    pub(crate) fn create(&self) -> io::Result<()> {
+    pub fn create(&self) -> io::Result<()> {
         #[cfg(unix)]
         let result = rustix::fs::mkdirat(
             &self.parent,
@@ -69,11 +69,11 @@ impl StagingDirectory {
     }
 
     #[cfg(unix)]
-    pub(crate) fn open_directory(&self) -> io::Result<File> {
+    pub fn open_directory(&self) -> io::Result<File> {
         open_private_directory_at(&self.parent, &self.name)
     }
 
-    pub(crate) fn create_child(&self, name: &OsStr) -> io::Result<()> {
+    pub fn create_child(&self, name: &OsStr) -> io::Result<()> {
         #[cfg(unix)]
         {
             let directory = self.open_directory()?;
@@ -87,7 +87,7 @@ impl StagingDirectory {
     }
 
     #[cfg(unix)]
-    pub(crate) fn open_child(&self, name: &OsStr) -> io::Result<File> {
+    pub fn open_child(&self, name: &OsStr) -> io::Result<File> {
         open_private_directory_at(&self.open_directory()?, name)
     }
 }
@@ -106,7 +106,7 @@ impl Drop for StagingDirectory {
 
 /// Apple 平台不逐级打开：iOS 沙盒不允许应用以读方式打开容器的祖先目录（`/private/var/mobile/Containers/Shared/AppGroup` 这些），逐级 `RDONLY` 在走到 App Group 容器之前就 EPERM，统计、账号、剪贴板等私有文件读写全部失败，而 Darwin 没有 `O_PATH`。`O_NOFOLLOW_ANY` 让内核在一次解析里拒绝路径上任何一级符号链接，与逐级 `NOFOLLOW` 一样不留检查与打开之间的窗口，解析只需要祖先的搜索权限。路径经过 `msime-path-trust` 列出的系统别名（`/var`、`/tmp`）时先换成它唯一受信任的目标再打开。
 #[cfg(target_vendor = "apple")]
-pub(crate) fn open_private_directory(parent: &Path) -> io::Result<File> {
+pub fn open_private_directory(parent: &Path) -> io::Result<File> {
     let flags = rustix::fs::OFlags::RDONLY
         | rustix::fs::OFlags::DIRECTORY
         | rustix::fs::OFlags::NOFOLLOW_ANY
@@ -139,7 +139,7 @@ pub(crate) fn open_private_directory(parent: &Path) -> io::Result<File> {
 }
 
 #[cfg(all(unix, not(target_vendor = "apple")))]
-pub(crate) fn open_private_directory(parent: &Path) -> io::Result<File> {
+pub fn open_private_directory(parent: &Path) -> io::Result<File> {
     let flags = rustix::fs::OFlags::RDONLY
         | rustix::fs::OFlags::DIRECTORY
         | rustix::fs::OFlags::NOFOLLOW
@@ -208,7 +208,7 @@ pub(crate) fn open_private_directory(parent: &Path) -> io::Result<File> {
 }
 
 #[cfg(unix)]
-pub(crate) fn open_private_file_at(directory: &File, name: &OsStr) -> io::Result<File> {
+pub fn open_private_file_at(directory: &File, name: &OsStr) -> io::Result<File> {
     let descriptor = rustix::fs::openat(
         directory,
         name,
@@ -237,7 +237,7 @@ pub(crate) fn open_private_file_at(directory: &File, name: &OsStr) -> io::Result
 /// descriptor remains bound to that directory if its parent entry is later
 /// replaced.
 #[cfg(unix)]
-pub(crate) fn open_private_directory_at(directory: &File, name: &OsStr) -> io::Result<File> {
+pub fn open_private_directory_at(directory: &File, name: &OsStr) -> io::Result<File> {
     let descriptor = rustix::fs::openat(
         directory,
         name,
@@ -252,17 +252,17 @@ pub(crate) fn open_private_directory_at(directory: &File, name: &OsStr) -> io::R
 }
 
 #[cfg(unix)]
-pub(crate) fn clone_private_directory(directory: &File) -> io::Result<File> {
+pub fn clone_private_directory(directory: &File) -> io::Result<File> {
     directory.try_clone()
 }
 
 #[cfg(unix)]
-pub(crate) fn private_directory_metadata(directory: &File) -> io::Result<fs::Metadata> {
+pub fn private_directory_metadata(directory: &File) -> io::Result<fs::Metadata> {
     directory.metadata()
 }
 
 #[cfg(unix)]
-pub(crate) fn open_private_lock_file_at(directory: &File, name: &OsStr) -> io::Result<File> {
+pub fn open_private_lock_file_at(directory: &File, name: &OsStr) -> io::Result<File> {
     let open = || {
         rustix::fs::openat(
             directory,
@@ -290,7 +290,7 @@ pub(crate) fn open_private_lock_file_at(directory: &File, name: &OsStr) -> io::R
 }
 
 #[cfg(unix)]
-pub(crate) fn read_private_directory(directory: &File) -> io::Result<Vec<OsString>> {
+pub fn read_private_directory(directory: &File) -> io::Result<Vec<OsString>> {
     let entries = rustix::fs::Dir::read_from(directory)?;
     entries
         .map(|entry| {
@@ -306,17 +306,17 @@ pub(crate) fn read_private_directory(directory: &File) -> io::Result<Vec<OsStrin
 }
 
 #[cfg(unix)]
-pub(crate) fn create_private_directory_at(parent: &File, name: &OsStr) -> io::Result<()> {
+pub fn create_private_directory_at(parent: &File, name: &OsStr) -> io::Result<()> {
     rustix::fs::mkdirat(parent, name, rustix::fs::Mode::from_raw_mode(0o700)).map_err(Into::into)
 }
 
 #[cfg(unix)]
-pub(crate) fn remove_private_directory_at(parent: &File, name: &OsStr) -> io::Result<()> {
+pub fn remove_private_directory_at(parent: &File, name: &OsStr) -> io::Result<()> {
     rustix::fs::unlinkat(parent, name, rustix::fs::AtFlags::REMOVEDIR).map_err(Into::into)
 }
 
 #[cfg(unix)]
-pub(crate) fn rename_private_entry(
+pub fn rename_private_entry(
     from: &File,
     from_name: &OsStr,
     to: &File,
@@ -327,10 +327,10 @@ pub(crate) fn rename_private_entry(
 
 /// 非 Unix 平台上的「目录句柄」：没有 openat 这组调用，只记下已确认是真实目录（不是符号链接）的路径，`open_private_file_at` 再在它下面按名字打开。和 Unix 版的接口一致，调用方不必分平台。
 #[cfg(not(unix))]
-pub(crate) struct PrivateDirectory(PathBuf);
+pub struct PrivateDirectory(PathBuf);
 
 #[cfg(not(unix))]
-pub(crate) fn open_private_directory(parent: &Path) -> io::Result<PrivateDirectory> {
+pub fn open_private_directory(parent: &Path) -> io::Result<PrivateDirectory> {
     if !fs::symlink_metadata(parent)?.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -341,14 +341,12 @@ pub(crate) fn open_private_directory(parent: &Path) -> io::Result<PrivateDirecto
 }
 
 #[cfg(not(unix))]
-pub(crate) fn clone_private_directory(
-    directory: &PrivateDirectory,
-) -> io::Result<PrivateDirectory> {
+pub fn clone_private_directory(directory: &PrivateDirectory) -> io::Result<PrivateDirectory> {
     Ok(PrivateDirectory(directory.0.clone()))
 }
 
 #[cfg(not(unix))]
-pub(crate) fn open_private_directory_at(
+pub fn open_private_directory_at(
     directory: &PrivateDirectory,
     name: &OsStr,
 ) -> io::Result<PrivateDirectory> {
@@ -363,43 +361,34 @@ pub(crate) fn open_private_directory_at(
 }
 
 #[cfg(not(unix))]
-pub(crate) fn open_private_lock_file_at(
-    directory: &PrivateDirectory,
-    name: &OsStr,
-) -> io::Result<File> {
+pub fn open_private_lock_file_at(directory: &PrivateDirectory, name: &OsStr) -> io::Result<File> {
     crate::file_lock::open_private_lock_file(directory.0.join(name))
 }
 
 #[cfg(not(unix))]
-pub(crate) fn private_directory_metadata(directory: &PrivateDirectory) -> io::Result<fs::Metadata> {
+pub fn private_directory_metadata(directory: &PrivateDirectory) -> io::Result<fs::Metadata> {
     fs::metadata(&directory.0)
 }
 
 #[cfg(not(unix))]
-pub(crate) fn read_private_directory(directory: &PrivateDirectory) -> io::Result<Vec<OsString>> {
+pub fn read_private_directory(directory: &PrivateDirectory) -> io::Result<Vec<OsString>> {
     fs::read_dir(&directory.0)?
         .map(|entry| entry.map(|entry| entry.file_name()))
         .collect()
 }
 
 #[cfg(not(unix))]
-pub(crate) fn create_private_directory_at(
-    parent: &PrivateDirectory,
-    name: &OsStr,
-) -> io::Result<()> {
+pub fn create_private_directory_at(parent: &PrivateDirectory, name: &OsStr) -> io::Result<()> {
     fs::create_dir(parent.0.join(name))
 }
 
 #[cfg(not(unix))]
-pub(crate) fn remove_private_directory_at(
-    parent: &PrivateDirectory,
-    name: &OsStr,
-) -> io::Result<()> {
+pub fn remove_private_directory_at(parent: &PrivateDirectory, name: &OsStr) -> io::Result<()> {
     fs::remove_dir(parent.0.join(name))
 }
 
 #[cfg(not(unix))]
-pub(crate) fn rename_private_entry(
+pub fn rename_private_entry(
     from: &PrivateDirectory,
     from_name: &OsStr,
     to: &PrivateDirectory,
@@ -409,7 +398,7 @@ pub(crate) fn rename_private_entry(
 }
 
 #[cfg(not(unix))]
-pub(crate) fn open_private_file_at(directory: &PrivateDirectory, name: &OsStr) -> io::Result<File> {
+pub fn open_private_file_at(directory: &PrivateDirectory, name: &OsStr) -> io::Result<File> {
     let path = directory.0.join(name);
     if !fs::symlink_metadata(&path)?.is_file() {
         return Err(io::Error::new(
@@ -421,7 +410,7 @@ pub(crate) fn open_private_file_at(directory: &PrivateDirectory, name: &OsStr) -
 }
 
 #[cfg(not(unix))]
-pub(crate) fn replace_private_file_at(
+pub fn replace_private_file_at(
     directory: &PrivateDirectory,
     name: &OsStr,
     contents: &[u8],
@@ -431,7 +420,7 @@ pub(crate) fn replace_private_file_at(
 }
 
 #[cfg(not(unix))]
-pub(crate) fn write_private_file_at(
+pub fn write_private_file_at(
     directory: &PrivateDirectory,
     name: &OsStr,
     contents: &[u8],
@@ -440,16 +429,12 @@ pub(crate) fn write_private_file_at(
 }
 
 #[cfg(unix)]
-pub(crate) fn write_private_file_at(
-    directory: &File,
-    name: &OsStr,
-    contents: &[u8],
-) -> io::Result<()> {
+pub fn write_private_file_at(directory: &File, name: &OsStr, contents: &[u8]) -> io::Result<()> {
     write_private_file_at_with_permissions(directory, name, contents, None)
 }
 
 #[cfg(unix)]
-pub(crate) fn write_private_file_at_with_permissions(
+pub fn write_private_file_at_with_permissions(
     directory: &File,
     name: &OsStr,
     contents: &[u8],
@@ -485,7 +470,7 @@ pub(crate) fn write_private_file_at_with_permissions(
 }
 
 #[cfg(unix)]
-pub(crate) fn replace_private_file_at(
+pub fn replace_private_file_at(
     directory: &File,
     name: &OsStr,
     contents: &[u8],
@@ -514,7 +499,7 @@ fn private_temporary_name() -> OsString {
 /// with `AlreadyExists` when another process published first; removing the
 /// temporary name then leaves the linked file at the destination.
 #[cfg(unix)]
-pub(crate) fn write_private_file_at_noclobber(
+pub fn write_private_file_at_noclobber(
     directory: &File,
     name: &OsStr,
     contents: &[u8],
@@ -582,7 +567,7 @@ pub(crate) fn write_private_file_at_noclobber(
 /// with an atomic rename. The callback returns the finished file so callers
 /// can use writers, such as a zip encoder, that consume their output handle.
 #[cfg(unix)]
-pub(crate) fn write_private_file_at_with<T, E, F>(
+pub fn write_private_file_at_with<T, E, F>(
     directory: &File,
     name: &OsStr,
     writer: F,
@@ -598,7 +583,7 @@ where
 /// with an atomic no-replace operation. The callback returns the finished file
 /// so callers can use writers that consume their output handle.
 #[cfg(unix)]
-pub(crate) fn write_private_file_at_noclobber_with<T, E, F>(
+pub fn write_private_file_at_noclobber_with<T, E, F>(
     directory: &File,
     name: &OsStr,
     writer: F,
@@ -705,7 +690,7 @@ where
 /// the same opened directory. This lets large files be streamed before a
 /// caller takes its state lock.
 #[cfg(unix)]
-pub(crate) struct PrivateStagedFile {
+pub struct PrivateStagedFile {
     directory: File,
     name: OsString,
     file: Option<File>,
@@ -713,7 +698,7 @@ pub(crate) struct PrivateStagedFile {
 
 #[cfg(unix)]
 impl PrivateStagedFile {
-    pub(crate) fn new(directory: &File) -> io::Result<Self> {
+    pub fn new(directory: &File) -> io::Result<Self> {
         let directory = directory.try_clone()?;
         let name = private_temporary_name();
         let descriptor = rustix::fs::openat(
@@ -732,15 +717,15 @@ impl PrivateStagedFile {
         })
     }
 
-    pub(crate) fn file_mut(&mut self) -> &mut File {
+    pub fn file_mut(&mut self) -> &mut File {
         self.file.as_mut().expect("staged file was published")
     }
 
-    pub(crate) fn directory(&self) -> &File {
+    pub fn directory(&self) -> &File {
         &self.directory
     }
 
-    pub(crate) fn persist(mut self, name: &OsStr) -> io::Result<()> {
+    pub fn persist(mut self, name: &OsStr) -> io::Result<()> {
         self.file
             .take()
             .expect("staged file was published")
@@ -758,17 +743,17 @@ impl Drop for PrivateStagedFile {
 }
 
 /// 在存储操作跟随已有的符号链接之前先拒绝它。每个应用的存储都会经过的系统链接，以 `msime-path-trust` 列出的为准。
-pub(crate) fn reject_symlink(path: &Path) -> io::Result<()> {
+pub fn reject_symlink(path: &Path) -> io::Result<()> {
     msime_path_trust::reject_symlinked_components(path)
 }
 
 /// 打开私有文档时复用文件锁模块的无跟随实现。
-pub(crate) fn open_private_file(path: &Path) -> io::Result<File> {
+pub fn open_private_file(path: &Path) -> io::Result<File> {
     crate::file_lock::open_private_file(path)
 }
 
 /// 打开私有目录中的普通文件；Unix 绑定父目录句柄，其他平台沿用私有文件打开策略。
-pub(crate) fn open_private_file_in(path: &Path) -> io::Result<File> {
+pub fn open_private_file_in(path: &Path) -> io::Result<File> {
     #[cfg(unix)]
     {
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
@@ -785,11 +770,11 @@ pub(crate) fn open_private_file_in(path: &Path) -> io::Result<File> {
 }
 
 /// 替换私有文件，并让 Unix 的读取和发布都绑定到已打开的父目录句柄。
-pub(crate) fn replace_private_file(path: &Path, contents: &[u8]) -> io::Result<()> {
+pub fn replace_private_file(path: &Path, contents: &[u8]) -> io::Result<()> {
     replace_private_file_with_permissions(path, contents, None)
 }
 
-pub(crate) fn replace_private_file_with_permissions(
+pub fn replace_private_file_with_permissions(
     path: &Path,
     contents: &[u8],
     permissions: Option<&fs::Permissions>,
@@ -823,7 +808,7 @@ pub(crate) fn replace_private_file_with_permissions(
 /// Remove a private file relative to an opened parent directory, so a
 /// concurrent replacement of the directory cannot redirect cleanup through a
 /// symlink.
-pub(crate) fn remove_private_file(path: &Path) -> io::Result<()> {
+pub fn remove_private_file(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
@@ -840,12 +825,12 @@ pub(crate) fn remove_private_file(path: &Path) -> io::Result<()> {
 }
 
 #[cfg(unix)]
-pub(crate) fn remove_private_file_at(directory: &File, name: &OsStr) -> io::Result<()> {
+pub fn remove_private_file_at(directory: &File, name: &OsStr) -> io::Result<()> {
     rustix::fs::unlinkat(directory, name, rustix::fs::AtFlags::empty()).map_err(Into::into)
 }
 
 #[cfg(not(unix))]
-pub(crate) fn remove_private_file_at(directory: &PrivateDirectory, name: &OsStr) -> io::Result<()> {
+pub fn remove_private_file_at(directory: &PrivateDirectory, name: &OsStr) -> io::Result<()> {
     fs::remove_file(directory.0.join(name))
 }
 
@@ -853,7 +838,7 @@ pub(crate) fn remove_private_file_at(directory: &PrivateDirectory, name: &OsStr)
 /// Directory traversal never reconstructs a path, and leaf symlinks are
 /// unlinked rather than followed.
 #[cfg(unix)]
-pub(crate) fn remove_private_tree_at(directory: &File, name: &OsStr) -> io::Result<()> {
+pub fn remove_private_tree_at(directory: &File, name: &OsStr) -> io::Result<()> {
     let child = match rustix::fs::openat(
         directory,
         name,
@@ -892,7 +877,7 @@ pub(crate) fn remove_private_tree_at(directory: &File, name: &OsStr) -> io::Resu
 /// Open a private resumable file for reading and writing without following a
 /// leaf symlink. The caller is responsible for bounding the path and contents.
 #[cfg(any(not(unix), test))]
-pub(crate) fn open_private_read_write_file(path: &Path) -> io::Result<File> {
+pub fn open_private_read_write_file(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]
@@ -921,7 +906,7 @@ pub(crate) fn open_private_read_write_file(path: &Path) -> io::Result<File> {
 /// `create_dir_all` follows an existing symlink, while storage roots must stay
 /// inside the path supplied by the host. `symlink_metadata` lets callers reject
 /// that case without changing the I/O errors from either operation.
-pub(crate) fn create_directory_and_check(path: &Path) -> io::Result<bool> {
+pub fn create_directory_and_check(path: &Path) -> io::Result<bool> {
     reject_symlink(path)?;
     // If the directory is new, inspect the nearest existing ancestor before
     // `create_dir_all` fills in missing components. Otherwise a symlink in that

@@ -3,7 +3,7 @@
 use std::fs::File;
 use std::io::{self, Read};
 
-pub(crate) fn read_bounded(mut reader: impl Read, maximum: u64) -> io::Result<Vec<u8>> {
+pub fn read_bounded(mut reader: impl Read, maximum: u64) -> io::Result<Vec<u8>> {
     read_bounded_with_capacity(&mut reader, maximum, 0)
 }
 
@@ -28,7 +28,7 @@ fn read_bounded_with_capacity(
 
 /// Read at most `maximum` bytes, reporting an oversized document through the caller's domain
 /// error while preserving ordinary I/O failures.
-pub(crate) fn read_bounded_file<E>(
+pub fn read_bounded_file<E>(
     file: File,
     maximum: u64,
     too_large: impl FnOnce() -> E,
@@ -39,7 +39,7 @@ where
     read_bounded_file_with(file, maximum, too_large, E::from)
 }
 
-pub(crate) fn read_bounded_file_with<E>(
+pub fn read_bounded_file_with<E>(
     file: File,
     maximum: u64,
     too_large: impl FnOnce() -> E,

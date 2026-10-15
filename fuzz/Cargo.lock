@@ -1360,6 +1360,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "msime-client-base"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "msime-path-trust",
+ "rustix",
+ "serde",
+ "tempfile",
+ "winapi-util",
+]
+
+[[package]]
 name = "msime-client-core"
 version = "0.1.0"
 dependencies = [
@@ -1375,6 +1387,7 @@ dependencies = [
  "image",
  "libc",
  "md-5",
+ "msime-client-base",
  "msime-path-trust",
  "msime-script-runtime",
  "pinyin",
@@ -1395,7 +1408,6 @@ dependencies = [
  "unicode-segmentation",
  "url",
  "uuid",
- "winapi-util",
  "x25519-dalek",
  "zip",
  "zune-jpeg",

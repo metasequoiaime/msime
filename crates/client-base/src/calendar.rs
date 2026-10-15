@@ -47,7 +47,7 @@ fn is_leap_year(year: u32) -> bool {
 ///
 /// Days-since-epoch arithmetic on the calendar fields, so it stays correct across months, years
 /// and leap days without pulling a timezone into a pure function.
-pub(crate) fn shift_day(day: &str, days: i64) -> Option<String> {
+pub fn shift_day(day: &str, days: i64) -> Option<String> {
     if !is_valid_day(day) {
         return None;
     }
