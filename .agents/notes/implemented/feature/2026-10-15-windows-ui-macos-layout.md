@@ -45,4 +45,6 @@ macOS 本机没有 Windows App SDK 运行环境，Windows runner 的结果和截
 
 `577dedebf5` 完成 18 页浅深色及两种宽度的 72 张页面截图、三种方案切换与持久化及 6 张交互截图；四张全页联系图均已查看。此后的页面结构以更新的运行证据为准。
 
-`b7e2ad20c0` 的真实 WinUI 宿主编译和链接通过，已运行全部 18 页的浅色 800／1000 宽截图、四个候选标签、三种输入方案切换与保存、字体搜索定位，共 48 张截图。已审看两张完整联系图及账号、剪贴板、统计、输入方案原图：新布局正常呈现，屏幕键盘切页异常和导航裁字均已消除，复选框、单选项和滑块呈绿色。自定义示例循环和切换标签后的文字保留也已执行通过；脚本随后错误调用不存在的 `SelectionPattern.GetCurrentSelection()`，尚未走完明暗保留检查。按 [.NET UI Automation 的接口](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.selectionpattern.selectionpatterninformation.getselection)改用 `Current.GetSelection()` 并保留数组结果。此修复只改验收脚本，不改变运行窗口源码。深色、工具栏组件联动、剪贴板菜单及预览状态完整验收仍待后续运行证据，不能用浅色截图推断。
+`84e8472391` 的真实 WinUI 宿主编译和链接通过，已运行全部 18 页浅深色、800／1000 宽的 72 张页面截图、四个候选标签的 16 张截图、两种明暗的三种方案切换与持久化和字体搜索定位；浅色下的自定义示例／独立明暗／切标签保留／空白恢复及不改偏好、工具栏按钮联动／预览尺寸／保存、剪贴板菜单／固定保存均已通过。共 101 张截图，已审看深色两种宽度的完整联系图，以及浅色独立深色预览、工具栏新增语音按钮、剪贴板菜单和固定后的原图；浅色基础布局已在源码相同的 `b7e2ad20c0` 上审看。屏幕键盘切页异常和导航裁字均已消除。
+
+脚本使用 [.NET UI Automation 的 `Current.GetSelection()`](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.selectionpattern.selectionpatterninformation.getselection)读取预览明暗选择，不调用不存在的 `SelectionPattern.GetCurrentSelection()`。本轮在深色自定义预览切换后立即取标签时未找到目标；此前同一窗口的四标签遍历与字体搜索已通过，不能据此宣称产品标签永久缺失，也不能跳过失败。组合框在展开前先获得焦点，关闭仍聚焦在搜索框上的建议列表；候选标签查找使用 10 秒有界等待，随后仍须实际调用并检查选中状态和内容；外层异常处理保存独立合成窗口的 `failure.png`，失败状态照常抛出。深色剩余交互须在这一版脚本运行后确认，未用已有截图或本机 quick 代替。

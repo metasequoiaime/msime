@@ -94,8 +94,14 @@ function Open-Page($window, [string]$page) {
     if (Find-ById $content 'settings-load-error') { throw 'Synthetic preferences were rejected by the real host' }
 }
 function Select-CandidateTab($window, [string]$tab) {
-    $button = Find-ById $window "candidate-tab-$tab"
-    if (-not $button) { throw "Missing candidate tab: $tab" }
+    # 页面重绘和弹出层关闭后，UIA 树可能稍晚恢复；等待目标而非固定延时。
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $button = Find-ById $window "candidate-tab-$tab"
+        if ($button -and $button.Current.IsEnabled) { break }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $button -or -not $button.Current.IsEnabled) { throw "Missing or disabled candidate tab: $tab" }
     $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
@@ -109,6 +115,7 @@ function Select-CandidateTab($window, [string]$tab) {
 function Select-ComboChoice($window, [string]$id, [string]$label) {
     $combo = Find-ById $window $id
     if (-not $combo) { throw "Missing combo: $id" }
+    $combo.SetFocus()
     $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
@@ -332,6 +339,14 @@ try {
         if ($process.ExitCode -ne 0) { throw "Settings exited with $($process.ExitCode)" }
         $process = $null
     }
+} catch {
+    # 失败时保留合成窗口，便于区分产品布局问题与 UIA 时序问题。
+    if ($process -and -not $process.HasExited) {
+        try {
+            Save-Window ([System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)) 'failure.png'
+        } catch { Write-Warning 'Could not capture the failing synthetic window' }
+    }
+    throw
 } finally {
     if ($process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force }
     [SettingsWindowProbe]::SetDllDirectory($null) | Out-Null
