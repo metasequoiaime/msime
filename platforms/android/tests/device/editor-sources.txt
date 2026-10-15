@@ -8,6 +8,7 @@ platforms/android/tests/device/clipboard/ClipboardImageDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidatePanelDeviceSmoke.java
 platforms/android/tests/device/candidate/AiPlaceholderDeviceSmoke.java
 platforms/android/tests/device/keyboard/MoreToolsDeviceSmoke.java
+platforms/android/tests/device/keyboard/CopyDeviceInfoDeviceSmoke.java
 platforms/android/tests/device/keyboard/EmojiPickerDeviceSmoke.java
 platforms/android/tests/device/keyboard/PairedPunctuationDeviceSmoke.java
 platforms/android/tests/device/keyboard/LetterHintPunctuationDeviceSmoke.java

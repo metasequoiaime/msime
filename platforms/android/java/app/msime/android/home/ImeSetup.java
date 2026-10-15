@@ -1,10 +1,8 @@
 package app.msime.android.home;
 
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.provider.Settings;
-import android.view.inputmethod.InputMethodInfo;
 import android.view.inputmethod.InputMethodManager;
 
 /**
@@ -13,29 +11,16 @@ import android.view.inputmethod.InputMethodManager;
  * <p>Shared by the 设置 tab's status card and onboarding's first step, so both read the system the same way. Enabled and default are separate facts: a keyboard can be enabled and never used because another one stays the default.
  */
 final class ImeSetup {
-    private static final String SERVICE = "app.msime.android.MSIMEInputService";
-
     private ImeSetup() {}
 
-    /** Whether this host is in the system's enabled list, rather than merely installed. */
+    /** 是否在系统已启用输入法列表中。 */
     static boolean enabled(Context context) {
-        InputMethodManager manager = context.getSystemService(InputMethodManager.class);
-        if (manager == null) return false;
-        for (InputMethodInfo info : manager.getEnabledInputMethodList()) {
-            if (context.getPackageName().equals(info.getPackageName())
-                && SERVICE.equals(info.getServiceName())) return true;
-        }
-        return false;
+        return app.msime.android.DeviceInfoCollector.keyboardEnabled(context);
     }
 
-    /** Whether this host is the system's current default input method, not just an enabled one. */
+    /** 是否为系统当前默认输入法。 */
     static boolean isDefault(Context context) {
-        String id = Settings.Secure.getString(context.getContentResolver(),
-            Settings.Secure.DEFAULT_INPUT_METHOD);
-        ComponentName component = id == null ? null : ComponentName.unflattenFromString(id);
-        return component != null
-            && context.getPackageName().equals(component.getPackageName())
-            && SERVICE.equals(component.getClassName());
+        return app.msime.android.DeviceInfoCollector.keyboardDefault(context);
     }
 
     /** The system's on-screen keyboard list, where the user turns this keyboard on. */

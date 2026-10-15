@@ -12,7 +12,7 @@ public final class FunctionPanelModelSmoke {
             "单手模式", "浮动键盘", "无痕输入", "键盘高度")),
             "page one");
         check(labels(1).equals(List.of("按键音", "振动", "振动强度", "插入语音文字", "词库", "文本编辑",
-            "反馈", "关于", "表情", "剪贴板历史")), "page two");
+            "反馈", "关于", "复制设备信息", "表情", "剪贴板历史")), "page two");
         check(!FunctionPanelModel.item(Id.TEXT_EDIT).toggle() && FunctionPanelModel.pageOf(Id.TEXT_EDIT) == 1,
             "文本编辑 opens a panel from page two");
         check(FunctionPanelModel.page(2).isEmpty() && FunctionPanelModel.page(-1).isEmpty(),
@@ -49,7 +49,7 @@ public final class FunctionPanelModelSmoke {
             HashSet<Id> ids = new HashSet<>();
             for (Item item : visible) check(ids.add(item.id()), "no repeated menu entry");
             for (Id id : shortcuts) check(ids.contains(id) != toolbar.contains(id), "shortcut has exactly one entrance");
-            check(ids.contains(Id.SETTINGS) && ids.contains(Id.LOCAL_INPUT), "common actions remain accessible");
+            check(ids.contains(Id.SETTINGS) && ids.contains(Id.LOCAL_INPUT) && ids.contains(Id.COPY_DEVICE_INFO), "common actions remain accessible");
             check(visible.size() <= 2 * FunctionPanelModel.PAGE_SIZE, "menu stays within two pages");
         }
         List<Item> idle = FunctionPanelModel.itemsExcept(java.util.Set.of(Id.VOICE_RESULT));

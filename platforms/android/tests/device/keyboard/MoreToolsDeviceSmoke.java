@@ -19,7 +19,7 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         tap(field("msime-test-plain"));
         stage = "keyboard shortcut bar";
         await(shortcutBar());
-        // The scheme entry shows the scheme in use in its description, so only the prefix identifies it; the skin and hide entries keep fixed faces, and the brand key is 更多.
+        // 方案入口的描述带当前方案名，只按前缀识别；其余入口使用固定标签。
         await(describedPrefix("输入方案"));
         for (String label : new String[] {"更多", "皮肤", "收起"})
             await(key(label));
@@ -30,6 +30,8 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         AccessibilityNodeInfo panel = await(toolPanel());
         await(described("返回键盘"));
         stage = "function panel first page";
+        // 前一个套件可能在第二页复制设备信息，复用磁贴后页码会保留。
+        showTool("全角");
         String[] firstPage = {"全角", "中文标点", "模糊音", "繁体输出", "手写", "本地输入", "AI 回复与润色", "设置",
             "单手模式", "浮动键盘", "无痕输入", "键盘高度"};
         // 面板打开时磁贴有一段展开动画（同一磁贴先后量到过 73、109 像素宽），等它停下再量。
@@ -63,7 +65,7 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         AccessibilityNodeInfo haptics = await(tool("按键振动"));
         if (!validFeedbackState(sound) || !validFeedbackState(haptics))
             throw new AssertionError("Feedback state was not exposed");
-        for (String title : new String[] {"反馈", "关于", "词库", "文本编辑"})
+        for (String title : new String[] {"反馈", "关于", "词库", "文本编辑", "复制设备信息"})
             await(tool(title));
         String originalSound = switchState(sound).toString();
         String changedSound = "已开启".equals(originalSound) ? "已关闭" : "已开启";

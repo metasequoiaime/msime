@@ -559,6 +559,36 @@ public final class MSIMEInputService extends InputMethodService {
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
     }
 
+    private long deviceInfoCopyGeneration;
+
+    /** 只在用户点击时读取白名单信息；后台收集不阻塞按键，也不触碰组字会话。 */
+    void copyDeviceInfo() {
+        long generation = ++deviceInfoCopyGeneration;
+        DeviceInfoCollector.Screen screen = DeviceInfoCollector.screen(moreButton);
+        try {
+            preferencesWorker.execute(() -> {
+                var entries = DeviceInfoCollector.collect(getApplicationContext(), screen);
+                main.post(() -> {
+                    if (generation != deviceInfoCopyGeneration || preferencesWorker.isShutdown()) return;
+                    try {
+                        ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+                        if (clipboard == null) {
+                            notice("无法复制设备信息");
+                            return;
+                        }
+                        clipboard.setPrimaryClip(ClipData.newPlainText("设备信息",
+                            DeviceInfoCollector.text(this, entries)));
+                        notice("已复制设备信息");
+                    } catch (RuntimeException unavailable) {
+                        notice("无法复制设备信息");
+                    }
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException unavailable) {
+            notice("无法复制设备信息");
+        }
+    }
+
     String preferencesDirectory = "";
     private long appearanceLoadGeneration;
     private String runtimeOptionsForSnapshot = "";
@@ -1668,6 +1698,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        deviceInfoCopyGeneration++;
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
         if (clipboard != null) clipboard.removePrimaryClipChangedListener(clipboardWatcher);
         main.removeCallbacks(recentClipExpiry);
