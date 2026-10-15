@@ -873,6 +873,7 @@ export {
 } from "./settings/candidate-window-style-section";
 export { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
 export { CandidateLayoutSection, type CandidateLayout } from "./settings/candidate-layout-section";
+export { candidateLayoutOptions } from "./settings/candidate-layout-options";
 export {
   CandidateFollowCursorSection,
   type CandidateFollowCursorSectionProps,
@@ -1141,6 +1142,11 @@ export {
   type VoiceHotkeyPlatform,
 } from "./settings/voice-hotkeys-section";
 export { FloatingToolbarPlatformNotice } from "./settings/floating-toolbar-platform-notice";
+export {
+  floatingToolbarButtonOptions,
+  floatingToolbarFontSizes,
+  floatingToolbarScales,
+} from "./settings/floating-toolbar-options";
 export {
   DoubaoAuthModeSection,
   type DoubaoAuthMode,

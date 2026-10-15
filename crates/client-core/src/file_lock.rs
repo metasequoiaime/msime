@@ -1,5 +1,5 @@
 //! Android 的 `std::fs::File::lock` 不可用，此处在该目标上使用 rustix 的安全 `flock`。
-//! 本 crate 的作用域互斥使用 `ScopedFileLock`，Unix 在结束时显式解锁，避免描述符副本继续占锁。
+//! 工作区的作用域互斥使用 `ScopedFileLock`，Unix 在结束时显式解锁，避免描述符副本继续占锁。
 //!
 //! This module is public so that no caller anywhere in the workspace has to re-derive which
 //! locking API works on which target. `host-api` had its own `File::lock` call, and on Android it
@@ -12,14 +12,27 @@ use std::path::Path;
 
 /// 成功取得的作用域文件锁；Unix 在作用域结束时解除锁，描述符副本不能延长互斥。
 #[must_use]
-pub(crate) struct ScopedFileLock {
+#[derive(Debug)]
+pub struct ScopedFileLock {
     _file: File,
 }
 
 impl ScopedFileLock {
-    pub(crate) fn exclusive(file: File) -> io::Result<Self> {
+    /// 接管已经成功取得独占锁的同一个文件；本方法不执行取锁。
+    pub(crate) fn from_locked(file: File) -> Self {
+        Self { _file: file }
+    }
+
+    /// 取得独占锁，并在守卫结束时释放。
+    pub fn exclusive(file: File) -> io::Result<Self> {
         exclusive(&file)?;
         Ok(Self { _file: file })
+    }
+
+    /// 借用持锁的同一文件，以便读写锁文件自身的数据；调用方不得手动解锁。
+    /// Unix 上复制的文件句柄不能延长持锁作用域；Windows 继续依赖文件关闭释放锁。
+    pub fn file(&self) -> &File {
+        &self._file
     }
 
     pub(crate) fn try_exclusive(file: File) -> io::Result<Option<Self>> {

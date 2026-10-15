@@ -76,7 +76,10 @@ fn borrowed_outgoing_preserves_paths_memos_and_return_storage() {
                         assert_eq!(after.remaining_bytes, before.remaining_bytes);
                         assert_eq!(after.minimum_bytes, before.minimum_bytes);
                         assert!(after.allocations <= before.allocations);
-                        assert!(after.peak_bytes <= before.peak_bytes);
+                        let column_metadata = (columns + 1)
+                            * (std::mem::size_of::<super::BeamColumn<'_>>()
+                                - std::mem::size_of::<Vec<Hyp<'_>>>());
+                        assert!(after.peak_bytes <= before.peak_bytes + column_metadata);
                         assert_eq!(new_memo.borrow().table, old_memo.borrow().table);
                         assert_eq!(new_memo.borrow().scores, old_memo.borrow().scores);
                     }

@@ -2,7 +2,7 @@ import * as settings from "../settings-style";
 import { themeEntry, customCandidateStyle, themeCandidateStyle } from "../../theme/global-theme";
 import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
 import { SkinPreviewSurface } from "../../skin/skin-preview-surface";
-import type { FloatingToolbarPreferences, HostCapabilities } from "../../index";
+import type { FloatingToolbarPreferences } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
 import { Checks, GroupList, LinkRow } from "../../core/platform-controls";
 import { FloatingToolbarPlatformNotice } from "../floating-toolbar-platform-notice";
@@ -12,50 +12,11 @@ import { SwitchRow } from "../switch-row";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { SettingsGroupBlock } from "../settings-group-block";
 import { SettingsPreviewBlock } from "../settings-preview-block";
-
-type FloatingToolbarOptionKey = keyof Pick<
-  FloatingToolbarPreferences,
-  | "english_mode"
-  | "input_scheme"
-  | "fullwidth"
-  | "punctuation"
-  | "character_set"
-  | "emoji"
-  | "handwriting"
-  | "screen_keyboard"
-  | "voice"
-  | "settings"
->;
-/// In the order the buttons sit on the toolbar. The third entry names the capability a host must
-/// report for the switch to be offered at all: the handwriting and voice buttons are this client's
-/// own additions and only one host draws them, so a switch for them elsewhere would turn off
-/// something that is not there.
-const floatingToolbarOptions: [
-  FloatingToolbarOptionKey,
-  string,
-  (
-    | keyof Pick<
-        HostCapabilities,
-        "floating_toolbar_handwriting" | "floating_toolbar_voice" | "floating_toolbar_input_scheme"
-      >
-    | null
-  ),
-][] = [
-  ["english_mode", "英文输入模式", null],
-  ["input_scheme", "切换输入方案", "floating_toolbar_input_scheme"],
-  ["fullwidth", "全角 / 半角", null],
-  ["punctuation", "中英文标点", null],
-  ["character_set", "简繁切换", null],
-  ["emoji", "表情与符号", null],
-  ["handwriting", "手写识别板", "floating_toolbar_handwriting"],
-  ["screen_keyboard", "屏幕键盘", null],
-  ["voice", "语音输入", "floating_toolbar_voice"],
-  ["settings", "设置", null],
-];
-const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75, 100, 125, 150];
-const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [
-  16, 18, 20, 22, 24, 26, 28,
-];
+import {
+  floatingToolbarButtonOptions,
+  floatingToolbarFontSizes,
+  floatingToolbarScales,
+} from "../floating-toolbar-options";
 
 /** The 悬浮工具栏 page of the settings form. */
 export function FloatingToolbarSettingsPage() {
@@ -142,27 +103,20 @@ export function FloatingToolbarSettingsPage() {
                     ? "勾选要显示在「工具栏」子菜单里的按钮"
                     : "勾选要显示在悬浮工具栏上的按钮"
               }
-              items={[
-                // The mode switch is the toolbar's reason to exist, so its box is drawn checked and cannot be cleared.
-                {
-                  value: "mode_switch" as const,
-                  label: (
-                    <>
-                      中英文切换
-                      <span className={settings.toolbarRequiredLabel}>始终显示</span>
-                    </>
-                  ),
-                  checked: true,
-                  disabled: true,
-                },
-                ...floatingToolbarOptions
-                  .filter(([, , capability]) => !capability || !host || host[capability])
-                  .map(([key, label]) => ({
-                    value: key,
-                    label,
-                    checked: floatingToolbar[key],
-                  })),
-              ]}
+              items={floatingToolbarButtonOptions(floatingToolbar, host).map((item) =>
+                item.value === "mode_switch"
+                  ? {
+                      ...item,
+                      // The mode switch is the toolbar's reason to exist, so its box is drawn checked and cannot be cleared.
+                      label: (
+                        <>
+                          中英文切换
+                          <span className={settings.toolbarRequiredLabel}>始终显示</span>
+                        </>
+                      ),
+                    }
+                  : item,
+              )}
               onChange={(key, checked) => {
                 if (key !== "mode_switch") onToolbarChange({ [key]: checked });
               }}

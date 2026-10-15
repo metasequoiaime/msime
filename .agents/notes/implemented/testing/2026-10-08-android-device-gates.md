@@ -23,6 +23,7 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 - 设备脚本：`start-emulator.sh` 接受 API 级别，按主机架构选 arm64-v8a 或 x86_64 镜像，每个级别一台独立 AVD、固定端口（`5580 - 2 × (35 - API)`）；`run-core-test.sh` 用 `MSIME_ANDROID_TEST_SERIAL` 选设备；新增 `build-core-test.sh`。
 - 设备测试统一用 `ime list` 给出的短写 id `app.msime.android/.MSIMEInputService`。
 - `DeviceSmoke.restartIme` 不把三条 `ime` 命令返回加固定睡眠当成切换完成：禁用当前输入法后，系统的异步回退可能覆盖随后的选择。它读取默认输入法标识，连续四次确认水杉被选中；回退覆盖时重新选择，十五秒内不能稳定就报告测试准备失败，不再把系统键盘误报为产品空窗口。第二次 nightly 的高度重启用例等待水杉节点超时，设备没有崩溃，日志中的编辑器实际绑定了 `LatinIME`，因此需要确认选择状态，而非放宽高度断言或跳过套件。
+- `PreferencesDeviceSmoke` 也复用 `restartIme`，不再自行执行三条命令并固定等待一秒。本批 API 35 的偏好套件在第一枚字母键前失败，失败后默认输入法为 `LatinIME` 且没有产品崩溃；这是同一异步回退竞态遗漏的调用方。偏好文件准备、编辑器焦点与所有业务断言保持原样。
 - 本机并行会话不能共用同一台 AVD 做安装验收。复用 `emulator-5580` 时，其他会话替换了测试 APK，设备包的 SHA-256 与本次构建不一致，随后观察到的候选排序、资源校验和 instrumentation 退出都不能作为本次提交的证据。独立验收使用本任务创建的 AVD 名称和端口，并确认设备包哈希；AVD 数据仍放在规定的 `target/android/avd-home`，完成后关闭并删除本任务创建的 AVD，不动原来运行的设备。
 - 设备测试读控件状态走 `DeviceSmoke.state()`/`switchState()`：API 30 起读状态描述，更早的系统按应用实际暴露的 `isSelected`/`isEnabled` 折算。
 - `DeviceSmoke.await` 超时时附上输入法窗口里看得见的文字（最多 30 条，只读输入法自己的节点），失败信息直接说明界面停在哪里。
@@ -63,6 +64,7 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 
 ## Verification
 
+- `PreferencesDeviceSmoke` 的旧准备流程在 API 35 失败：第一枚字母键前输入法树为空，截图为系统键盘，默认输入法标识为 `LatinIME`。改用现有状态等待后，设备单项通过，覆盖延迟应用、候选页大小、标点及坏文件恢复；独立审查确认所有业务断言保持原样。
 - 重启选择检查在本任务独立的 API 35 arm64 AVD `msime-client-test-api35-nightly-7767`（`emulator-5582`）上通过不带跳过名单的完整 `smoke.sh`，包含高度、模糊拼音首选、十四键、剪贴板图片、实体键翻译、AI 占位和五笔查码。设备安装的测试 APK 与本地构建的 SHA-256 一致。quick 门禁、`pnpm run verify-notes` 和 `git diff --check` 通过。共享 AVD 上此前的单项与失败记录不作为本次完整验收依据。
 - 本机 Apple 芯片上，API 28、31、35 三台 arm64 AVD：`build-core-test.sh` + `run-core-test.sh` 各为 1077 通过、0 失败、10 忽略。
 - API 28 上 `smoke.sh emulator-5566 --core` 通过（`phrase commit and deletion (API 28)`）；API 35 上带跳过名单的完整 `smoke.sh` 通过（DeviceSmoke、CandidatePanel、EmojiPicker、Preferences、KeyboardHeight），均为全新安装。Preferences 和 Emoji 另在 API 31 上通过。
