@@ -1480,6 +1480,8 @@ final class ImePanels {
     /**
      * 长按一条历史后，紧贴在它下方的一行操作。
      *
+     * <p>固定记录额外画在卡片右上角的角标，不把「已置顶」挤进文字元信息；长文本和双列布局仍保持原来的可用宽度。
+     *
      * <p>原来是 `PopupMenu`：弹出菜单是可获得焦点的窗口，打开时编辑器的窗口失去焦点，在 Via 这类用系统 WebView 的浏览器里键盘随即被收起（#5653）。画在面板里的按钮不会碰窗口焦点。
      */
     private void renderClipboardItemActions(ClipboardHistory.Item item, boolean cloudAllowed) {
@@ -1834,6 +1836,12 @@ final class ImePanels {
             FrameLayout.LayoutParams.MATCH_PARENT, Gravity.END);
         cell.addView(trash, trashParams);
         cell.addView(card, LayoutPolicy.frameMatchParentParams());
+        ClipboardPinMarkView pinMark = new ClipboardPinMarkView(s);
+        pinMark.setPinned(item.pinned(), Color.parseColor(s.skin.accent()));
+        FrameLayout.LayoutParams pinParams = new FrameLayout.LayoutParams(s.pixels(20), s.pixels(20), Gravity.TOP | Gravity.END);
+        pinParams.topMargin = s.pixels(2);
+        pinParams.setMarginEnd(s.pixels(2));
+        cell.addView(pinMark, pinParams);
         ClipboardSwipeCell swipe = new ClipboardSwipeCell(card, trash, item.text(), reveal);
         card.setTranslationX(open ? -reveal : 0f);
         swipe.showTrash(open);
