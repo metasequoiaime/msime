@@ -27,7 +27,7 @@ use crate::pinyin::glide::{GlideKeyboard, GlidePoint};
 use crate::types::{
     CandidateEdge, CandidateSource, Command, CommandTableEntry, CommandTranslationQuery, KeyResult,
     LocalInputMode, MentionEntry, OnlineQuery, PluginCommand, PluginCommandQuery, QuickPhraseEntry,
-    SchemeType,
+    SchemeType, WordItem,
 };
 
 use crate::types::FirstPageRows;
@@ -535,13 +535,24 @@ impl Session {
     }
 
     /// 显示候选与原始候选同座且词面一致时复用已缓存的反查码；候选身份错位时返回 `None`，由宿主回退到按词入口。
-    pub(crate) fn candidate_wubi_code_at_if_word(&self, index: usize, word: &str) -> Option<&str> {
+    pub(crate) fn candidate_wubi_code_at_if_item(
+        &self,
+        index: usize,
+        item: &WordItem,
+    ) -> Option<&str> {
         if self.nine_key.active() {
             return None;
         }
         self.input
             .engine
-            .candidate_wubi_code_at_if_word(index, word)
+            .candidate_wubi_code_at_if_item(index, item)
+    }
+
+    pub(crate) fn candidate_wubi_code_if_item(&self, item: &WordItem) -> Option<&str> {
+        if self.nine_key.active() {
+            return None;
+        }
+        self.input.engine.candidate_wubi_code_if_item(item)
     }
 
     /// Byte offsets into `editing_text` for pinyin-unit editing; empty when idle, in local modes, for non-pinyin schemes and during nine-key input. Read-only.

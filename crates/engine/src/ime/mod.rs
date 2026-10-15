@@ -197,14 +197,28 @@ impl ImeSession {
             .and_then(|(_, code)| (!code.is_empty()).then_some(code.as_str()))
     }
 
-    /// 仅在候选身份仍占据同一座位且已有编码时按位置读取反查码；词面不一致或该座位没有编码时交给调用方回退旧入口。
-    pub(crate) fn candidate_wubi_code_at_if_word(&self, index: usize, word: &str) -> Option<&str> {
+    /// 仅在候选身份仍占据同一座位且已有编码时按位置读取反查码；身份不一致或该座位没有编码时交给调用方回退扫描。
+    pub(crate) fn candidate_wubi_code_at_if_item(
+        &self,
+        index: usize,
+        item: &WordItem,
+    ) -> Option<&str> {
         let candidate = self.state.candidates.get(index)?;
-        if candidate.word != word {
+        if !same_candidate_identity(candidate, item) {
             return None;
         }
         let code = self.state.wubi_codes.get(index)?.as_str();
         (!code.is_empty()).then_some(code)
+    }
+
+    /// 按候选身份回退到已有的反查码；只读缓存，不重新查询五笔词库。
+    pub(crate) fn candidate_wubi_code_if_item(&self, item: &WordItem) -> Option<&str> {
+        self.state
+            .candidates
+            .iter()
+            .zip(&self.state.wubi_codes)
+            .find(|(candidate, _)| same_candidate_identity(candidate, item))
+            .and_then(|(_, code)| (!code.is_empty()).then_some(code.as_str()))
     }
 
     pub fn request(&self) -> &QueryRequest {
@@ -994,6 +1008,13 @@ impl ImeSession {
             wubi.set_pinyin_lookup_allowed(!mixed_pinyin);
         }
     }
+}
+
+fn same_candidate_identity(left: &WordItem, right: &WordItem) -> bool {
+    left.word == right.word
+        && left.source == right.source
+        && left.pinyin == right.pinyin
+        && left.canonical_pinyin == right.canonical_pinyin
 }
 
 /// 从已构造的请求复用方案显示文本，避免刷新时再次调用 `Scheme::preedit()` 分配同一份字符串。
