@@ -1,11 +1,10 @@
 import type { Preferences } from "../index";
-import { defaultFrequency } from "./frequency-section";
-import { defaultFuzzyPinyin } from "./fuzzy-pinyin-section";
+import { defaultFrequency } from "./frequency-preferences";
+import { defaultFuzzyPinyin } from "./fuzzy-pinyin-preferences";
 import { defaultKeybindings } from "./keybinding-defaults";
-import { defaultLocalModes } from "./local-modes-section";
-import { defaultMixedInput } from "./mixed-input-section";
-import { defaultNavigation } from "./navigation-section";
-import { defaultWordCharacter } from "./word-character-section";
+import { defaultLocalModes } from "./local-mode-preferences";
+import { defaultMixedInput } from "./mixed-input-preferences";
+import { defaultNavigation, defaultWordCharacter } from "./candidate-paging-preferences";
 
 export type SettingsInputPreferencesSource = Pick<
   Preferences,

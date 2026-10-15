@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { bytesToBase64 } from "../core/base64";
 import { validSkinAssetBytes } from "./skin-asset";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 
@@ -15,16 +16,11 @@ const imageTypes = new Set([
   "image/avif",
 ]);
 
-// Use an image-only data URL, already permitted by the desktop img-src CSP.
-// SVG remains an image, never HTML markup or an executable document.
+// 仅生成桌面 img-src CSP 已允许的图片数据 URL；SVG 也只作为图片，不作为 HTML 或可执行文档。
 export function skinImageUrl(image: SkinImage): string {
   if (!imageTypes.has(image.contentType) || !validSkinAssetBytes(image.bytes))
     throw new Error("invalid image");
-  let binary = "";
-  for (let offset = 0; offset < image.bytes.length; offset += 32768) {
-    binary += String.fromCharCode(...image.bytes.slice(offset, offset + 32768));
-  }
-  return `data:${image.contentType};base64,${btoa(binary)}`;
+  return `data:${image.contentType};base64,${bytesToBase64(image.bytes)}`;
 }
 
 export function useSkinImage(

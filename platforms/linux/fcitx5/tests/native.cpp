@@ -2116,7 +2116,7 @@ int main(int argc, char **argv) {
           require(!action->name().empty(), "every option group entry is registered");
           if (!action->isSeparator()) ++grouped;
         }
-      require(grouped == 43, ("option groups hold the moved status actions: " + std::to_string(grouped)).c_str());
+      require(grouped == 44, ("option groups hold the moved status actions: " + std::to_string(grouped)).c_str());
       for (auto *menu : {&engine.scheme_menu_, &engine.desktop_tools_menu_, &engine.helpcode_schema_menu_})
         for (auto *action : menu->actions())
           require(!action->name().empty(), "scheme and desktop tools entries are registered");

@@ -36,6 +36,18 @@ pub struct NgramTable {
     index: Vec<u32>,
 }
 
+/// 同一二元评分行的前词及分隔符散列，只在模块内部继续混入后词。
+#[cfg(test)]
+#[derive(Clone, Copy)]
+pub(super) struct BigramPrefix(u64);
+
+#[cfg(test)]
+impl BigramPrefix {
+    pub(super) fn key(self, next: &str) -> Option<u64> {
+        (!next.is_empty()).then(|| fnv1a_mix(self.0, next))
+    }
+}
+
 static SHARED: OnceLock<Mutex<LruCache<PathBuf, Option<Arc<NgramTable>>>>> = OnceLock::new();
 
 impl NgramTable {
@@ -136,6 +148,12 @@ impl NgramTable {
         Some(fnv1a_words(&[previous, next]))
     }
 
+    /// 前词在一整行出边中不变，提前混入原来的零字节分隔符。
+    #[cfg(test)]
+    pub(super) fn bigram_prefix(&self, previous: &str) -> Option<BigramPrefix> {
+        (self.count != 0).then(|| BigramPrefix(fnv1a_separate(fnv1a_mix(FNV_OFFSET, previous))))
+    }
+
     /// 按 `bigram_key` 给出的键查表，与 `bigram` 的结果相同。
     pub fn score(&self, key: u64) -> f32 {
         self.lookup(key)
@@ -159,20 +177,18 @@ impl NgramTable {
         f32::from_le_bytes(self.bytes[at..at + 4].try_into().expect("four value bytes"))
     }
 
-    /// `std::lower_bound` over the key array, then an equality check (NG:149-155). 二分只在键所在的桶里做，见 `index`。
+    /// 在本桶的定长键切片中求下界，重复键取首项；桶尾未命中不读取下一桶。
     fn lookup(&self, key: u64) -> f32 {
         let bucket = (key >> INDEX_SHIFT) as usize;
-        let (mut low, mut high) = (self.index[bucket] as usize, self.index[bucket + 1] as usize);
-        while low < high {
-            let middle = low + (high - low) / 2;
-            if self.key_at(middle) < key {
-                low = middle + 1;
-            } else {
-                high = middle;
-            }
-        }
-        if low < self.count && self.key_at(low) == key {
-            self.value_at(low)
+        let (start, end) = (self.index[bucket] as usize, self.index[bucket + 1] as usize);
+        let (keys, _) =
+            self.bytes[HEADER_BYTES + start * 8..HEADER_BYTES + end * 8].as_chunks::<8>();
+        let position = keys.partition_point(|bytes| u64::from_le_bytes(*bytes) < key);
+        if keys
+            .get(position)
+            .is_some_and(|bytes| u64::from_le_bytes(*bytes) == key)
+        {
+            self.value_at(start + position)
         } else {
             0.0
         }
@@ -193,8 +209,10 @@ fn read_u32(bytes: &[u8], at: usize) -> u32 {
     u32::from_le_bytes(bytes[at..at + 4].try_into().expect("four header bytes"))
 }
 
-/// Mixes `text`'s bytes into an FNV-1a state.
+/// 把 `text` 的字节混入已有 FNV-1a 状态。
 pub(crate) fn fnv1a_mix(mut state: u64, text: &str) -> u64 {
+    #[cfg(all(test, debug_assertions))]
+    hash_work::record(text.len());
     for byte in text.bytes() {
         state ^= u64::from(byte);
         state = state.wrapping_mul(FNV_PRIME);
@@ -583,5 +601,39 @@ pub(super) mod tests {
             // data-formats.md §7 measured every value in [-3, 3].
             assert!((0..table.len()).all(|index| table.value_at(index).abs() <= 3.0));
         }
+    }
+}
+
+#[cfg(test)]
+#[path = "ngram_lookup_tests.rs"]
+mod lookup_tests;
+
+// 字节计数仅进入 debug 单测；release 配对计时与产品不含计数分支。
+#[cfg(all(test, debug_assertions))]
+pub(super) mod hash_work {
+    use std::cell::Cell;
+    thread_local! {
+        static BYTES: Cell<Option<usize>> = const { Cell::new(None) };
+    }
+    pub(super) fn record(bytes: usize) {
+        BYTES.with(|count| {
+            if let Some(current) = count.get() {
+                count.set(Some(current + bytes));
+            }
+        });
+    }
+    pub(crate) fn measure<T>(run: impl FnOnce() -> T) -> (T, usize) {
+        struct Reset;
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                BYTES.with(|count| count.set(None));
+            }
+        }
+        BYTES.with(|count| assert!(count.replace(Some(0)).is_none()));
+        let reset = Reset;
+        let value = run();
+        let bytes = BYTES.with(|count| count.get().unwrap());
+        drop(reset);
+        (value, bytes)
     }
 }

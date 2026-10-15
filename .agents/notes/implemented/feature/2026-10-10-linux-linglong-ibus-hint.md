@@ -8,6 +8,10 @@ Status: implemented
 
 读 linyaps 的源码得到的结论：玲珑应用跑在自己的运行时容器里，GTK/Qt 的输入法模块取自容器内的运行时，而运行时只带 Fcitx5 的 GTK2/3 和 Qt6 模块，没有任何 IBus 模块；会话 D-Bus 和 `~/.config` 都挂进了容器。于是框架是 Fcitx5 时玲珑应用能连上宿主的 Fcitx5，框架是 IBus 时应用里 `GTK_IM_MODULE=ibus` 找不到模块，退回 GTK 自带的简单输入。根因在玲珑运行时，水杉改不了容器里装了哪些模块。
 
+## Current scope
+
+#8009 的新证据表明，Fcitx5 正在运行时应用也可使用 IBus 模块，且框架中存在有焦点的 IBus 上下文；程序名为空，尚不能据此确认它属于哪个应用。下面记录的运行时模块缺失不足以确定该案例的根因；提示现只作为确认缺少模块后的有条件建议，不保证切换框架即可解决。修正依据与真实前端验收见 [Fcitx5 IBus 兼容前端验收](../../implemented/testing/2026-10-15-fcitx5-ibus-frontend-acceptance.md)。原有提示触发范围、legacy 包保护仍保留。
+
 ## Decision
 
 `msime-linux-setup` 在首次配置和 `--register` 结束时，若输入法注册进的是 IBus、本安装带 Fcitx5 插件，且系统是 deepin/UOS（`os-release` 的 `ID` 或 `ID_LIKE`）或装了玲珑（`ll-cli` 在 PATH 里，或有 `/var/lib/linglong`），打印一句提示：玲珑应用里只能打出字母的原因，以及改用 Fcitx5 的命令（`im-config -n fcitx5`、重新登录、`msime-linux-setup --register`），并指向 README 新增的「deepin 玲珑应用里只能输入字母」一节。判定写成纯函数 `linglong_ibus_note(host, release, linglong, fcitx5_addon)`，与 GNOME Wayland 的 `gnome_wayland_gtk_note` 同一个形状，紧随其后打印。只提示，不替用户切换框架、不改任何文件。

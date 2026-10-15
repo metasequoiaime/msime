@@ -2,8 +2,11 @@ import type { Preferences } from "../index";
 import {
   InputSourceStartupNotice,
   type InputSourceStartupNoticeProps,
-  type InputSourceStartupStatus,
 } from "./input-source-startup-notice";
+import {
+  inputSourceNoticeVisible,
+  type InputSourceStartupStatus,
+} from "./input-source-startup-model";
 import {
   SettingsStatusMessages,
   type SettingsStatusMessagesProps,
@@ -33,17 +36,14 @@ export function SettingsPageStatus({
   return (
     <>
       <SettingsStatusMessages busy={busy} onError={onError} {...statusProps} />
-      {inputSourceStartup &&
-        (inputSourceStartup.action !== "up_to_date" ||
-          inputSourceStartup.enabled === false ||
-          Boolean(inputSourceStartup.system_bundles?.length)) && (
-          <InputSourceStartupNotice
-            status={inputSourceStartup}
-            onOpenSettings={onOpenSettings}
-            onDismiss={onDismiss}
-            onError={onError}
-          />
-        )}
+      {inputSourceStartup && inputSourceNoticeVisible(inputSourceStartup) && (
+        <InputSourceStartupNotice
+          status={inputSourceStartup}
+          onOpenSettings={onOpenSettings}
+          onDismiss={onDismiss}
+          onError={onError}
+        />
+      )}
       {busy && !draft && <StatusMessage role="status">正在读取设置…</StatusMessage>}
     </>
   );

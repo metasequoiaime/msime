@@ -299,20 +299,20 @@ test("every platform token the controls read is one the platform layer defines",
 test("the controls change shape per platform through the structural tokens", () => {
   const variables = (platform: keyof typeof platformTokens) =>
     platformCssVariables(platformTokens[platform].light);
-  expect(variables("win")["--p-sw-label"]).toBe("inline");
+  expect(variables("win")["--p-sw-label"]).toBe("none");
   expect(variables("mac")["--p-sw-label"]).toBe("none");
-  expect(variables("win")["--p-slider-appearance"]).toBe("auto");
+  expect(variables("win")["--p-slider-appearance"]).toBe("none");
   expect(variables("android")["--p-slider-appearance"]).toBe("none");
-  expect(variables("win")["--p-nav-pill"]).toBe("3px");
+  expect(variables("win")["--p-nav-pill"]).toBe("0");
   expect(variables("hm2")["--p-nav-pill"]).toBe("0");
-  expect(variables("win")["--p-row-icon"]).toBe("flex");
+  expect(variables("win")["--p-row-icon"]).toBe("none");
   expect(variables("ios")["--p-row-icon"]).toBe("none");
-  expect(variables("win")["--p-seg-indicator"]).toBe("16px");
+  expect(variables("win")["--p-seg-indicator"]).toBe("0");
   expect(variables("linux")["--p-seg-indicator"]).toBe("0");
-  expect(platformTokens.win.light.group.style).toBe("card");
+  expect(platformTokens.win.light.group.style).toBe("inset");
   expect(platformTokens.mac.light.group.style).toBe("inset");
   expect(platformTokens.android.light.group.style).toBe("separated");
-  expect(variables("win")["--p-row-divider"]).toBe("transparent");
+  expect(variables("win")["--p-row-divider"]).toBe(platformTokens.win.light.hair);
   expect(variables("android")["--p-row-divider"]).toBe("transparent");
   expect(variables("mac")["--p-row-divider"]).toBe(platformTokens.mac.light.hair);
 });

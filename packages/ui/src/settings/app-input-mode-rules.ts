@@ -1,5 +1,5 @@
 import type { AppInputModeRule } from "../index";
-import { utf8ByteLength } from "../core/text";
+import { asciiLowercase, utf8ByteLength } from "../core/text";
 
 /** 与 `client-core::preferences` 的 `MAX_APP_INPUT_MODE_RULES`、`MAX_APP_INPUT_MODE_RULE_ID_BYTES` 一致。 */
 export const maxAppInputModeRules = 32;
@@ -54,8 +54,4 @@ export function sortedAppInputModeRules(
   return Object.entries(rules ?? {}).sort(([left], [right]) =>
     left < right ? -1 : left > right ? 1 : 0,
   );
-}
-
-function asciiLowercase(value: string): string {
-  return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }

@@ -1,4 +1,4 @@
-import type { SurfaceTheme, ThemeMode } from "./theme-settings-section";
+import type { SurfaceTheme, ThemeMode } from "./theme-preferences";
 
 export function resolveSettingsTheme(theme: ThemeMode, surface: SurfaceTheme): "dark" | "light" {
   if (surface !== "follow") return surface;

@@ -30,10 +30,7 @@ public final class HostLaunchDeviceSmoke extends DeviceSmoke {
         String ime = product.equals("app.msime.android")
             ? "app.msime.android/.MSIMEInputService"
             : "app.msime.android.pinyin/app.msime.android.MSIMEInputService";
-        shellDiscard("ime disable " + ime);
-        shellDiscard("ime enable " + ime);
-        shellDiscard("ime set " + ime);
-        SystemClock.sleep(1000);
+        restartIme(ime);
         openEditor();
         for (String route : new String[]{"设置", "词库", "反馈"}) {
             stage = style + " " + route + " route";

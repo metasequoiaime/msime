@@ -199,15 +199,20 @@ int main() {
         [invalid start]; assert(invalidDone && !invalid.requests.count);
         // A request that cannot be built will not improve by asking again, so it counts as answered.
         assert(([unsendable isEqual:@[@"HELLO", @"世界"]]));
-        // NiuTrans reports a rate limit or a bad key as errorCode/errorMsg in a well-formed body. That is not an answer, so the item stays free to be asked again instead of being negative-cached for eight minutes; an answer with no text is still an answer.
-        NiuTransFakeBatch *failing = [[NiuTransFakeBatch alloc] initWithNiuTransItems:items config:@{@"enabled":@YES, @"app_id":@"synthetic-app", @"apikey":@"synthetic-key"}
-            configuration:configuration completion:^(NSArray *results) { assert(!results.count); }];
-        NSMutableArray *failingAnswered = [NSMutableArray array];
-        failing.onReply = ^(NSArray *results, NSArray *texts) { assert(!results.count); [failingAnswered addObject:texts]; };
-        failing.wall = 1704067200; failing.now = 10; [failing start];
-        failing.requests[0].reply([@"{\"errorCode\":\"13001\",\"errorMsg\":\"rate limited\"}" dataUsingEncoding:NSUTF8StringEncoding]);
-        failing.requests[1].reply([@"{\"tgtText\":\"\"}" dataUsingEncoding:NSUTF8StringEncoding]);
-        assert(([failingAnswered isEqual:@[@[], @[@"世界"]]]));
+        // 服务报错、缺少译文字段或字段类型错误都不能记成空回答；合法空译文仍然计入已回答。
+        for (NSString *body in @[@"{\"errorCode\":\"13001\",\"errorMsg\":\"rate limited\"}",
+            @"{}", @"{\"message\":\"temporarily unavailable\"}", @"{\"tgtText\":null}",
+            @"{\"tgtText\":42}", @"{\"tgtText\":false}", @"{\"tgtText\":[]}",
+            @"{\"tgtText\":{\"text\":\"synthetic\"}}"]) {
+            NiuTransFakeBatch *failing = [[NiuTransFakeBatch alloc] initWithNiuTransItems:items config:@{@"enabled":@YES, @"app_id":@"synthetic-app", @"apikey":@"synthetic-key"}
+                configuration:configuration completion:^(NSArray *results) { assert(!results.count); }];
+            NSMutableArray *failingAnswered = [NSMutableArray array];
+            failing.onReply = ^(NSArray *results, NSArray *texts) { assert(!results.count); [failingAnswered addObject:texts]; };
+            failing.wall = 1704067200; failing.now = 10; [failing start];
+            failing.requests[0].reply([body dataUsingEncoding:NSUTF8StringEncoding]);
+            failing.requests[1].reply([@"{\"tgtText\":\"\"}" dataUsingEncoding:NSUTF8StringEncoding]);
+            assert(([failingAnswered isEqual:@[@[], @[@"世界"]]]));
+        }
         TestBatchReusesOneSession(config, configuration);
     }
 }

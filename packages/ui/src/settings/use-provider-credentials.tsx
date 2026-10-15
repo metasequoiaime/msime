@@ -50,6 +50,13 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
   >({});
   const credentialTestGeneration = useRef<Partial<Record<ApiCredentialTestService, number>>>({});
   const [providerCredentials, setProviderCredentials] = useState<ProviderCredentialStatus>();
+  const credentialStatusGeneration = useRef(0);
+  const [aiCredentialGeneration, setAiCredentialGeneration] = useState(0);
+  const aiCredentialGenerationRef = useRef(0);
+  const advanceAiCredentialGeneration = () => {
+    aiCredentialGenerationRef.current += 1;
+    setAiCredentialGeneration(aiCredentialGenerationRef.current);
+  };
   const [aiCredentialInput, setAiCredentialInput] = useState("");
   const [tencentCredentialInput, setTencentCredentialInput] = useState<TencentCredentialInput>({
     secretId: "",
@@ -73,11 +80,13 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
 
   useEffect(() => {
     const generation = clientGeneration.current;
+    const statusGeneration = credentialStatusGeneration.current;
     credentialTestGeneration.current = {};
     credentialTestRunning.current = {};
     credentialTestOwner.current++;
     credentialSaveRunning.current = false;
     setProviderCredentials(undefined);
+    advanceAiCredentialGeneration();
     setCredentialTests((current) => (Object.keys(current).length ? {} : current));
     setProviderCredentialBusy(undefined);
     setProviderCredentialMessages((current) => (Object.keys(current).length ? {} : current));
@@ -86,7 +95,11 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
     void credentials
       .status()
       .then((status) => {
-        if (clientGeneration.current === generation) setProviderCredentials(status);
+        if (
+          clientGeneration.current === generation &&
+          credentialStatusGeneration.current === statusGeneration
+        )
+          setProviderCredentials(status);
       })
       .catch(() => undefined);
   }, [client.providerCredentials, client.testApiCredential]);
@@ -164,7 +177,10 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
         },
         async (isCurrent) => {
           const result = await operation(credentials);
-          if (isCurrent()) onSuccess(result);
+          if (isCurrent()) {
+            credentialStatusGeneration.current += 1;
+            onSuccess(result);
+          }
         },
         { formatError: providerCredentialErrorMessage },
       );
@@ -180,8 +196,10 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
   ) => {
     await runCredentialSave(kind, operation, (result) => {
       setProviderCredentials(result);
-      if (kind === "ai") setAiCredentialInput("");
-      else setTencentCredentialInput({ secretId: "", secretKey: "", region: undefined });
+      if (kind === "ai") {
+        setAiCredentialInput("");
+        advanceAiCredentialGeneration();
+      } else setTencentCredentialInput({ secretId: "", secretKey: "", region: undefined });
       setProviderCredentialMessages((current) => ({
         ...current,
         [kind]: { ok: true, text: success },
@@ -228,6 +246,8 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
   return {
     credentialTests,
     providerCredentials,
+    aiCredentialGeneration,
+    aiCredentialGenerationRef,
     aiCredentialInput,
     setAiCredentialInput,
     tencentCredentialInput,

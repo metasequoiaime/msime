@@ -5,11 +5,9 @@ import {
 } from "../candidate/candidate-font-size";
 import { SelectRow } from "./select-row";
 import { SliderRow } from "./slider-row";
+import type { CandidateSizingPreferences as CandidateSizingValues } from "../candidate/candidate-preferences";
 
-export interface CandidateSizingPreferences {
-  candidate_font_size?: number;
-  candidate_preedit_font_size?: number;
-}
+export interface CandidateSizingPreferences extends CandidateSizingValues {}
 
 export interface CandidateSizingSectionProps {
   preferences: CandidateSizingPreferences;

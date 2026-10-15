@@ -1,9 +1,17 @@
 package app.msime.android.home;
 
+import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Bundle;
+import android.provider.DocumentsContract;
 import android.widget.LinearLayout;
+import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.FileProvider;
 import app.msime.android.AndroidLocalSettings;
@@ -22,6 +30,7 @@ import app.msime.android.SyncSwitch;
 import app.msime.android.TimestampDisplayPolicy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.io.File;
+import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -33,6 +42,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -61,6 +71,8 @@ public final class DeveloperPage extends ReloadingDetailPage {
     private boolean cloudLoaded;
     private boolean confirming;
     private boolean busy;
+    private boolean exportAfterPicking;
+    private String exportDirectoryName = "未选择";
     private long generation;
     private String cloudAccountId = "";
     private String cloudSessionId = "";
@@ -69,6 +81,19 @@ public final class DeveloperPage extends ReloadingDetailPage {
     private final Set<Integer> expanded = new HashSet<>();
 
     private record LoadedCloud(DiagnosticsApi.State state, String accountId, String sessionId) {}
+
+    private final ActivityResultLauncher<Intent> chooseExportDirectory = registerForActivityResult(
+        new ActivityResultContracts.StartActivityForResult(), this::onExportDirectoryPicked);
+
+    @Override public void onCreate(@Nullable Bundle state) {
+        super.onCreate(state);
+        exportAfterPicking = state != null && state.getBoolean("exportAfterPicking");
+    }
+
+    @Override public void onSaveInstanceState(@NonNull Bundle state) {
+        state.putBoolean("exportAfterPicking", exportAfterPicking);
+        super.onSaveInstanceState(state);
+    }
 
     @Override protected void onContentReady() {
         render();
@@ -95,10 +120,11 @@ public final class DeveloperPage extends ReloadingDetailPage {
         cloudSessionId = "";
         render();
         HostTask.run(this, context -> new Object[] {HostStore.loadPreferences(context),
-            AndroidLocalSettings.load(context)}, loaded -> {
+            AndroidLocalSettings.load(context), exportDirectoryName(context)}, loaded -> {
             if (request != generation || getView() == null) return;
             snapshot = loaded[0] instanceof JSONObject value ? value : null;
             if (loaded[1] instanceof AndroidLocalSettings.Snapshot settings) local = settings;
+            if (loaded[2] instanceof String name) exportDirectoryName = name;
             render();
         });
         // 读云端状态是一次 HTTP 请求，走网络线程；放在共享存储的串行线程上时，网络慢的那几十秒里开关的保存都排在它后面。
@@ -220,7 +246,12 @@ public final class DeveloperPage extends ReloadingDetailPage {
             snapshot == null ? null : () -> showLevelSheet(level));
 
         GroupCard data = GroupCard.add(sectionColumn(target, "数据"), "数据");
-        data.button("导出诊断包", null, "导出", this::exportBundle).setEnabled(!busy && snapshot != null);
+        data.nav("默认导出文件夹", exportDirectoryName, null, () -> pickExportDirectory(false))
+            .setEnabled(!busy && snapshot != null);
+        data.button("导出诊断包", "保存到默认文件夹，每次生成新文件", "导出", this::exportBundle)
+            .setEnabled(!busy && snapshot != null);
+        data.button("分享诊断包", "通过其他应用发送一份诊断包", "分享", this::shareBundle)
+            .setEnabled(!busy && snapshot != null);
         data.button("重置所有设置", "恢复为出厂设置，词库不受影响", "重置", this::confirmReset)
             .setEnabled(!busy && snapshot != null);
     }
@@ -426,22 +457,101 @@ public final class DeveloperPage extends ReloadingDetailPage {
     }
 
     private void exportBundle() {
+        if (busy) return;
+        if (local.text(AndroidLocalSettings.DIAGNOSTICS_EXPORT_TREE).isEmpty()) {
+            pickExportDirectory(true);
+            return;
+        }
+        busy = true;
+        render();
+        HostTask.run(this, DeveloperPage::exportToDirectory, message -> {
+            busy = false;
+            render();
+            MsToast.show(requireContext(), message == null ? "诊断包导出失败，请重试" : message);
+        });
+    }
+
+    private void pickExportDirectory(boolean thenExport) {
+        if (busy) return;
+        exportAfterPicking = thenExport;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        String previous = local.text(AndroidLocalSettings.DIAGNOSTICS_EXPORT_TREE);
+        if (!previous.isEmpty()) intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, Uri.parse(previous));
+        try {
+            chooseExportDirectory.launch(intent);
+        } catch (ActivityNotFoundException unavailable) {
+            exportAfterPicking = false;
+            MsToast.show(requireContext(), "系统文件夹选择器不可用");
+        }
+    }
+
+    private void onExportDirectoryPicked(ActivityResult result) {
+        boolean thenExport = exportAfterPicking;
+        exportAfterPicking = false;
+        Intent data = result.getData();
+        if (result.getResultCode() != Activity.RESULT_OK || data == null || data.getData() == null
+                || getView() == null || busy) return;
+        Uri selected = data.getData();
+        int flags = data.getFlags();
+        busy = true;
+        render();
+        HostTask.run(this, context -> {
+            try {
+                DiagnosticsExportDirectory.remember(context, selected, flags);
+                return thenExport ? exportToDirectory(context) : "已设置默认导出文件夹";
+            } catch (IOException | RuntimeException failed) {
+                return "无法保存该文件夹，请选择可读写的文件夹并允许长期访问";
+            }
+        }, message -> {
+            busy = false;
+            reload();
+            MsToast.show(requireContext(), message == null ? "默认导出文件夹设置失败" : message);
+        });
+    }
+
+    private static String exportDirectoryName(Context context) {
+        String selected = DiagnosticsExportDirectory.saved(context);
+        if (selected.isEmpty()) return "未选择";
+        try {
+            return DiagnosticsExportDirectory.inspect(context, selected).name();
+        } catch (IOException | RuntimeException unavailable) {
+            return "目录不可用，请重新选择";
+        }
+    }
+
+    private static String exportToDirectory(Context context) {
+        String selected = DiagnosticsExportDirectory.saved(context);
+        try {
+            DiagnosticsExportDirectory.inspect(context, selected);
+        } catch (IOException | RuntimeException unavailable) {
+            return "导出文件夹不可用，请重新选择默认导出文件夹";
+        }
+        File archive = null;
+        try {
+            AndroidLocalSettings.Snapshot settings = AndroidLocalSettings.load(context);
+            DiagnosticsApi.Include include = new DiagnosticsApi.Include(true, true,
+                settings.bool(AndroidLocalSettings.MCP_INPUT_EVENTS), true);
+            String path = createExportBundle(context, include);
+            if (path == null) return "诊断包生成失败，请重试";
+            archive = new File(path);
+            String directory = DiagnosticsExportDirectory.write(context, selected, archive);
+            return "已导出到「" + directory + "」：" + archive.getName();
+        } catch (IOException | RuntimeException failed) {
+            return "诊断包未导出成功，请检查文件夹权限和剩余空间；若有未完成文件，请手动删除";
+        } finally {
+            if (archive != null) FilePolicy.deleteQuietly(archive);
+        }
+    }
+
+    private void shareBundle() {
+        if (busy) return;
         DiagnosticsApi.Include include = new DiagnosticsApi.Include(true, true,
             local.bool(AndroidLocalSettings.MCP_INPUT_EVENTS), true);
         busy = true;
         render();
-        HostTask.run(this, context -> {
-            File directory = diagnosticsCache(context);
-            String name = "msime-diagnostics-" + DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss", Locale.ROOT)
-                .format(ZonedDateTime.now()) + ".zip";
-            File[] old = directory.listFiles((dir, file) -> file.startsWith("msime-diagnostics-"));
-            if (old != null) {
-                for (File stale : old) {
-                    FilePolicy.deleteQuietly(stale);
-                }
-            }
-            return writeBundle(context, include, new File(directory, name));
-        }, path -> {
+        HostTask.run(this, context -> createExportBundle(context, include), path -> {
             busy = false;
             render();
             if (path == null) {
@@ -452,8 +562,25 @@ public final class DeveloperPage extends ReloadingDetailPage {
             Uri uri = FileProvider.getUriForFile(context, context.getPackageName() + ".files", new File(path));
             Intent send = new Intent(Intent.ACTION_SEND).setType("application/zip")
                 .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(Intent.createChooser(send, "导出诊断包"));
+            startActivity(Intent.createChooser(send, "分享诊断包"));
         });
+    }
+
+    @Nullable private static String createExportBundle(Context context, DiagnosticsApi.Include include) {
+        File directory = diagnosticsCache(context);
+        String name = "msime-diagnostics-" + DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss", Locale.ROOT)
+            .format(ZonedDateTime.now()) + "-" + UUID.randomUUID() + ".zip";
+        long expired = System.currentTimeMillis() - 24L * 60 * 60 * 1000;
+        File[] old = directory.listFiles((dir, file) -> file.startsWith("msime-diagnostics-") && file.endsWith(".zip"));
+        if (old != null) {
+            for (File stale : old) {
+                if (stale.isFile() && stale.lastModified() < expired) FilePolicy.deleteQuietly(stale);
+            }
+        }
+        File destination = new File(directory, name);
+        String path = writeBundle(context, include, destination);
+        if (path == null) FilePolicy.deleteQuietly(destination);
+        return path;
     }
 
     private void confirmReset() {

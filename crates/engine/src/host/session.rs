@@ -149,11 +149,25 @@ pub struct Session {
 }
 
 impl Session {
-    /// 显示候选仍与引擎原始候选同座时直接取反查码；身份不一致时保持旧的按词查找语义。
-    pub(crate) fn candidate_wubi_code_for_display(&self, index: usize, word: &str) -> Option<&str> {
+    /// 显示候选仍与引擎原始候选同座时直接取反查码；身份变化时扫描已有候选缓存。
+    pub(crate) fn candidate_wubi_code_for_display_item(
+        &self,
+        index: usize,
+        item: &crate::types::WordItem,
+    ) -> Option<&str> {
         self.inner
-            .candidate_wubi_code_at_if_word(index, word)
-            .or_else(|| self.inner.candidate_wubi_code(word))
+            .candidate_wubi_code_at_if_item(index, item)
+            .or_else(|| self.inner.candidate_wubi_code_if_item(item))
+    }
+
+    /// 供已有宿主测试和按词入口使用的查码；不使用可能与显示列表错位的座位。
+    #[cfg(test)]
+    pub(crate) fn candidate_wubi_code_for_display(
+        &self,
+        _index: usize,
+        word: &str,
+    ) -> Option<&str> {
+        self.inner.candidate_wubi_code(word)
     }
 }
 
@@ -283,7 +297,7 @@ impl Session {
                     SchemeType::Quanpin | SchemeType::Shuangpin | SchemeType::Wubi
                 )
             {
-                let code = self.candidate_wubi_code_for_display(index, &candidate.word);
+                let code = self.candidate_wubi_code_for_display_item(index, &candidate);
                 if let Some(code) = code {
                     if !annotation.contains(code) {
                         if !annotation.is_empty() {

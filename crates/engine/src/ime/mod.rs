@@ -21,7 +21,7 @@ use crate::paths::RuntimePaths;
 use crate::pinyin::autocorrect::autocorrect_suppression_key;
 use crate::quanpin::QuanpinScheme;
 use crate::shuangpin::query::{
-    apply_segmentation_cases, detect_active_double_helpcode_length, remove_manual_delimiters,
+    apply_segmentation_cases_into, detect_active_double_helpcode_length, remove_manual_delimiters,
     segment_input, to_quanpin_segmentation, trim_trailing_letters_preserve_delimiters,
 };
 use crate::shuangpin::ShuangpinProfile;
@@ -197,14 +197,28 @@ impl ImeSession {
             .and_then(|(_, code)| (!code.is_empty()).then_some(code.as_str()))
     }
 
-    /// 仅在候选身份仍占据同一座位且已有编码时按位置读取反查码；词面不一致或该座位没有编码时交给调用方回退旧入口。
-    pub(crate) fn candidate_wubi_code_at_if_word(&self, index: usize, word: &str) -> Option<&str> {
+    /// 仅在候选身份仍占据同一座位且已有编码时按位置读取反查码；身份不一致或该座位没有编码时交给调用方回退扫描。
+    pub(crate) fn candidate_wubi_code_at_if_item(
+        &self,
+        index: usize,
+        item: &WordItem,
+    ) -> Option<&str> {
         let candidate = self.state.candidates.get(index)?;
-        if candidate.word != word {
+        if !same_candidate_identity(candidate, item) {
             return None;
         }
         let code = self.state.wubi_codes.get(index)?.as_str();
         (!code.is_empty()).then_some(code)
+    }
+
+    /// 按候选身份回退到已有的反查码；只读缓存，不重新查询五笔词库。
+    pub(crate) fn candidate_wubi_code_if_item(&self, item: &WordItem) -> Option<&str> {
+        self.state
+            .candidates
+            .iter()
+            .zip(&self.state.wubi_codes)
+            .find(|(candidate, _)| same_candidate_identity(candidate, item))
+            .and_then(|(_, code)| (!code.is_empty()).then_some(code.as_str()))
     }
 
     pub fn request(&self) -> &QueryRequest {
@@ -996,6 +1010,13 @@ impl ImeSession {
     }
 }
 
+fn same_candidate_identity(left: &WordItem, right: &WordItem) -> bool {
+    left.word == right.word
+        && left.source == right.source
+        && left.pinyin == right.pinyin
+        && left.canonical_pinyin == right.canonical_pinyin
+}
+
 /// 从已构造的请求复用方案显示文本，避免刷新时再次调用 `Scheme::preedit()` 分配同一份字符串。
 fn reuse_request_preedit(request: &QueryRequest, destination: &mut String) {
     let source = match request.scheme {
@@ -1155,12 +1176,11 @@ fn apply_shuangpin_helpcode_segmentation(request: &mut QueryRequest, profile: &S
     let effective_with_cases = remove_manual_delimiters(&request.raw_input_with_cases);
     let help_codes = &effective_with_cases[effective_with_cases.len() - HELPCODE_LENGTH..];
 
-    request
-        .raw_segmentation
-        .clone_from(&apply_segmentation_cases(
-            &base_segmentation,
-            &base_raw_with_cases,
-        ));
+    apply_segmentation_cases_into(
+        &base_segmentation,
+        &base_raw_with_cases,
+        &mut request.raw_segmentation,
+    );
     append_help_codes(&mut request.raw_segmentation, help_codes);
     request
         .normalized_segmentation
@@ -1197,6 +1217,29 @@ mod tests {
 
     fn words(list: &[WordItem]) -> Vec<&str> {
         list.iter().map(|item| item.word.as_str()).collect()
+    }
+
+    #[test]
+    fn helpcode_segmentation_reuses_the_case_output_buffer() {
+        let profile =
+            crate::shuangpin::profile::profile(crate::types::ShuangpinProfileKind::Xiaohe).unwrap();
+        let mut request = QueryRequest {
+            scheme: SchemeType::Shuangpin,
+            raw_input: "nihcab".to_owned(),
+            raw_input_with_cases: "nihcAB".to_owned(),
+            enable_shuangpin_helpcode: true,
+            ..QueryRequest::default()
+        };
+        apply_shuangpin_helpcode_segmentation(&mut request, profile);
+        let expected = request.clone();
+        let pointer = request.raw_segmentation.as_ptr();
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            apply_shuangpin_helpcode_segmentation(&mut request, profile);
+        });
+        assert_eq!(request, expected);
+        assert_eq!(request.raw_segmentation, "ni'hc'AB");
+        assert_eq!(request.raw_segmentation.as_ptr(), pointer);
+        assert_eq!(allocations, 10);
     }
 
     #[test]

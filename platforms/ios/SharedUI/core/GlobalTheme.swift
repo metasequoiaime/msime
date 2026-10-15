@@ -105,30 +105,56 @@ enum SystemKeyboardTokens {
 
 /// 应用主题当前季节下的 `system`（跟随系统）键盘（设计 token §1.4，Android `AppThemePalette.keyboard*`）：面板、字母键和功能键由季节强调色与页面色混合而成，文字为黑或白，提示文字用设计稿的 `kbSub`，回车键用强调色填充。
 ///
-/// 每种颜色都是动态色，UIKit 解析时才读取 `AppThemePalette.resolved(dark:)`，所以用 `KeyboardTheme.refreshSeason()` 刷新季节后，下一次重绘即可生效，不必重建主题。应用主题无法解析时键盘改画 `NativeKeyboardTokens`（`isAvailable` 为 false），因此各 provider 自己回退到这些 token 的分支只兜住会话中途解析失效的主题库。
+/// 每种颜色都是动态色，UIKit 解析时才读取 `AppThemePalette.resolved(dark:)`。但 UIKit 只在 trait 变化或换上另一个颜色时重新解析动态色，UIButton 把带着同一个实例的配置当成没变，按键就停在旧季节；所以季节或所选应用主题每变一次（`AppThemePalette.version`），`palette` 和 `accentSoft` 就换一组新实例，键盘在 `KeyboardTheme.refreshSeason()` 报告变化后重新解析主题、重画皮肤。应用主题无法解析时键盘改画 `NativeKeyboardTokens`（`isAvailable` 为 false），因此各 provider 自己回退到这些 token 的分支只兜住会话中途解析失效的主题库。
 enum SeasonKeyboardTokens {
   /// 应用主题能否解析；能解析时才用这套配色取代原生 token。
   static var isAvailable: Bool { AppThemePalette.resolved(dark: false) != nil }
 
-  static let palette = ThemeKeyboardPalette(
-    background: derivedColor(\.background, fallback: NativeKeyboardTokens.background),
-    key: derivedColor(\.key, fallback: NativeKeyboardTokens.key),
-    functionKey: derivedColor(\.functionKey, fallback: NativeKeyboardTokens.functionKey),
-    text: adaptiveColor(0x000000, 0xFFFFFF),
-    secondary: adaptiveColor(0x5A6B5D, 0x93A596),
-    accent: UIColor { traits in
-      AppThemePalette.resolved(dark: traits.userInterfaceStyle == .dark)?.accent
-        ?? NativeKeyboardTokens.accent.resolvedColor(with: traits)
-    },
-    // 浅色强调色上用白色；深色下用 Rust 的 `on_accent`，即 mix(accent 25%, #000)，因为白色压在深色模式偏浅的强调色上对比度不到 2:1。
-    onAccent: UIColor { traits in
-      guard traits.userInterfaceStyle == .dark else { return .white }
-      return AppThemePalette.resolved(dark: true)?.onAccent ?? .black
-    })
+  /// 当前季节的配色；同一个 `AppThemePalette.version` 内总是同一组实例，由它构建出的配色和主题因此判等。
+  static var palette: ThemeKeyboardPalette { drawn().palette }
 
-  /// 季节强调色，浅色下透明度为 `22`，深色下为 `40`，对应 Rust 的 `accent_soft`。只共享一个实例，这样由这套配色构建出的配色和主题仍然判等。
-  static let accentSoft = UIColor { traits in
-    palette.accent.resolvedColor(with: traits).withAlphaComponent(traits.userInterfaceStyle == .dark ? 0x40 / 255 : 0x22 / 255)
+  /// 季节强调色，浅色下透明度为 `22`，深色下为 `40`，对应 Rust 的 `accent_soft`。与 `palette` 同一版本内共享一个实例，这样由这套配色构建出的配色和主题仍然判等。
+  static var accentSoft: UIColor { drawn().accentSoft }
+
+  /// 某个 `AppThemePalette.version` 下发出的那组颜色实例。
+  private struct Drawn {
+    let version: Int
+    let palette: ThemeKeyboardPalette
+    let accentSoft: UIColor
+  }
+
+  private static var current: Drawn?
+
+  private static func drawn() -> Drawn {
+    let version = AppThemePalette.version
+    return lock.withLock {
+      if let current, current.version == version { return current }
+      let palette = makePalette()
+      let accent = palette.accent
+      let made = Drawn(version: version, palette: palette, accentSoft: UIColor { traits in
+        accent.resolvedColor(with: traits).withAlphaComponent(traits.userInterfaceStyle == .dark ? 0x40 / 255 : 0x22 / 255)
+      })
+      current = made
+      return made
+    }
+  }
+
+  private static func makePalette() -> ThemeKeyboardPalette {
+    ThemeKeyboardPalette(
+      background: derivedColor(\.background, fallback: NativeKeyboardTokens.background),
+      key: derivedColor(\.key, fallback: NativeKeyboardTokens.key),
+      functionKey: derivedColor(\.functionKey, fallback: NativeKeyboardTokens.functionKey),
+      text: adaptiveColor(0x000000, 0xFFFFFF),
+      secondary: adaptiveColor(0x5A6B5D, 0x93A596),
+      accent: UIColor { traits in
+        AppThemePalette.resolved(dark: traits.userInterfaceStyle == .dark)?.accent
+          ?? NativeKeyboardTokens.accent.resolvedColor(with: traits)
+      },
+      // 浅色强调色上用白色；深色下用 Rust 的 `on_accent`，即 mix(accent 25%, #000)，因为白色压在深色模式偏浅的强调色上对比度不到 2:1。
+      onAccent: UIColor { traits in
+        guard traits.userInterfaceStyle == .dark else { return .white }
+        return AppThemePalette.resolved(dark: true)?.onAccent ?? .black
+      })
   }
 
   /// 一种模式下的三种混合表面色，连同混合时所用的季节一起保存，季节刷新后会重新混合。

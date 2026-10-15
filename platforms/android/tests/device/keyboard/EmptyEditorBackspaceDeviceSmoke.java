@@ -25,10 +25,7 @@ public final class EmptyEditorBackspaceDeviceSmoke extends DeviceSmoke {
             throw new AssertionError("Unknown test product");
         String ime = product.equals("app.msime.android") ? "app.msime.android/.MSIMEInputService"
             : "app.msime.android.pinyin/app.msime.android.MSIMEInputService";
-        shellDiscard("ime disable " + ime);
-        shellDiscard("ime enable " + ime);
-        shellDiscard("ime set " + ime);
-        SystemClock.sleep(1000);
+        restartIme(ime);
 
         openEditor(false);
         stage = "initial empty editor removes synthetic mention";

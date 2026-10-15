@@ -1,59 +1,27 @@
 import type { ReactNode } from "react";
 import { SettingsGroupNote } from "./settings-group-note";
-import { Checks, GroupList } from "../core/platform-controls";
+import { GroupList } from "../core/platform-controls";
 import { SliderRow } from "./slider-row";
 import { SwitchRow } from "./switch-row";
 import { ActionRow } from "./action-row";
-import { SettingsGroupBlock } from "./settings-group-block";
-import type { SwipeSymbolsDirection } from "./mobile-keyboard-feedback-section";
+import type { SwipeSymbolsDirection } from "./mobile-keyboard-feedback";
 import { SelectRow } from "./select-row";
+import { touchKeyboardSpacingLimits } from "./touch-keyboard-spacing";
 import * as settings from "./settings-style";
+import {
+  TouchKeyboardToolbarSection,
+  type TouchKeyboardToolbarSectionProps,
+} from "./touch-keyboard-toolbar-section";
 
-export type TouchToolbarPreferences = {
-  layout: boolean;
-  emoji: boolean;
-  skin: boolean;
-  clipboard: boolean;
-  ai: boolean;
-  character_set: boolean;
-  fullwidth: boolean;
-  punctuation: boolean;
-};
+export type {
+  TouchToolbarPreferences,
+  TouchVoiceShortcutKind,
+} from "./touch-keyboard-toolbar-preferences";
 
-const defaultTouchToolbar: TouchToolbarPreferences = {
-  layout: true,
-  emoji: true,
-  skin: true,
-  clipboard: false,
-  ai: false,
-  character_set: false,
-  fullwidth: false,
-  punctuation: false,
-};
-
-/// In the order the buttons sit on the touch keyboard's toolbar, after the voice entry.
-const touchToolbarOptions: readonly [keyof TouchToolbarPreferences, string][] = [
-  ["layout", "键盘设置"],
-  ["emoji", "表情"],
-  ["skin", "切换皮肤"],
-  ["clipboard", "剪贴板历史"],
-  ["ai", "AI 润色"],
-  ["character_set", "简繁切换"],
-  ["fullwidth", "全角 / 半角"],
-  ["punctuation", "中英文标点"],
-];
-
-/** How the host's keyboard treats the voice button at the top: most hosts start voice input from it, the iOS keyboard extension opens the last result recognised in the app, and the macOS desktop keyboard does not draw it. */
-export type TouchVoiceShortcutKind = "start-voice" | "last-result" | "hidden";
-
-export interface TouchKeyboardGeometrySectionProps {
+export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarSectionProps {
   heightAdjustment: number;
   keySpacingTenths: number;
   rowSpacingTenths: number;
-  touchVoiceShortcut: boolean;
-  voiceShortcutKind?: TouchVoiceShortcutKind;
-  toolbarComponents: boolean;
-  toolbar?: Partial<TouchToolbarPreferences>;
   tabletFullKeys?: boolean;
   /** 仅 iPad 宿主给出：横屏分离式键盘。没有时不画这个开关。 */
   tabletSplitKeyboard?: boolean;
@@ -69,8 +37,6 @@ export interface TouchKeyboardGeometrySectionProps {
   onHeightAdjustmentChange: (value: number) => void;
   onKeySpacingChange: (value: number) => void;
   onRowSpacingChange: (value: number) => void;
-  onTouchVoiceShortcutChange: (enabled: boolean) => void;
-  onToolbarChange: (value: TouchToolbarPreferences) => void;
   onTabletFullKeysChange: (enabled: boolean) => void;
   onTabletSplitKeyboardChange: (enabled: boolean) => void;
   onGlideTypingChange: (enabled: boolean) => void;
@@ -120,7 +86,6 @@ export function TouchKeyboardGeometrySection({
   layoutRows,
   preview,
 }: TouchKeyboardGeometrySectionProps) {
-  const toolbarValues = { ...defaultTouchToolbar, ...toolbar };
   const showVoiceShortcut = voiceShortcutKind !== "hidden";
   // HarmonyOS 手机一屏只有约 360px 宽，每行挂两三行说明会把页面撑得又长又乱，所以那里的行只留标题和取值。
   const phone = Boolean(layoutRows);
@@ -167,8 +132,8 @@ export function TouchKeyboardGeometrySection({
               wide
               displayValue={spacingText(keySpacingTenths)}
               valueText={`${spacingText(keySpacingTenths)} dp`}
-              min={30}
-              max={60}
+              min={touchKeyboardSpacingLimits.key.min}
+              max={touchKeyboardSpacingLimits.key.max}
               value={keySpacingTenths}
               onChange={onKeySpacingChange}
             />
@@ -177,8 +142,8 @@ export function TouchKeyboardGeometrySection({
               wide
               displayValue={spacingText(rowSpacingTenths)}
               valueText={`${spacingText(rowSpacingTenths)} dp`}
-              min={40}
-              max={100}
+              min={touchKeyboardSpacingLimits.row.min}
+              max={touchKeyboardSpacingLimits.row.max}
               value={rowSpacingTenths}
               onChange={onRowSpacingChange}
             />
@@ -208,16 +173,16 @@ export function TouchKeyboardGeometrySection({
           <SliderRow
             title="按键间距"
             description={`${(keySpacingTenths / 10).toFixed(1)} dp`}
-            min={30}
-            max={60}
+            min={touchKeyboardSpacingLimits.key.min}
+            max={touchKeyboardSpacingLimits.key.max}
             value={keySpacingTenths}
             onChange={onKeySpacingChange}
           />
           <SliderRow
             title="行间距"
             description={`${(rowSpacingTenths / 10).toFixed(1)} dp`}
-            min={40}
-            max={100}
+            min={touchKeyboardSpacingLimits.row.min}
+            max={touchKeyboardSpacingLimits.row.max}
             value={rowSpacingTenths}
             onChange={onRowSpacingChange}
           />
@@ -232,42 +197,14 @@ export function TouchKeyboardGeometrySection({
           />
         </GroupList>
       )}
-      {(showVoiceShortcut || toolbarComponents) && (
-        <GroupList title="工具栏">
-          {showVoiceShortcut && (
-            <SwitchRow
-              title="顶部语音入口"
-              description={
-                voiceShortcutKind === "last-result"
-                  ? "在触屏键盘工具栏直接打开最近一次语音结果"
-                  : "在键盘顶部显示一个语音按钮，点按开始语音输入"
-              }
-              checked={touchVoiceShortcut}
-              onChange={onTouchVoiceShortcutChange}
-            />
-          )}
-          {toolbarComponents && (
-            <SettingsGroupBlock>
-              <Checks
-                legend="工具栏按钮"
-                description="勾选要显示在键盘顶部工具栏的功能；未勾选的仍在「更多」里"
-                items={touchToolbarOptions.map(([key, label]) => ({
-                  value: key,
-                  // The hidden prefix keeps each box named "工具栏：…" for assistive technology, as the old per-box label did.
-                  label: (
-                    <>
-                      <span className="sr-only">工具栏：</span>
-                      {label}
-                    </>
-                  ),
-                  checked: toolbarValues[key],
-                }))}
-                onChange={(key, checked) => onToolbarChange({ ...toolbarValues, [key]: checked })}
-              />
-            </SettingsGroupBlock>
-          )}
-        </GroupList>
-      )}
+      <TouchKeyboardToolbarSection
+        touchVoiceShortcut={touchVoiceShortcut}
+        voiceShortcutKind={voiceShortcutKind}
+        toolbarComponents={toolbarComponents}
+        toolbar={toolbar}
+        onTouchVoiceShortcutChange={onTouchVoiceShortcutChange}
+        onToolbarChange={onToolbarChange}
+      />
       {(tabletFullKeys !== undefined ||
         tabletSplitKeyboard !== undefined ||
         (shuangpinKeyHints !== undefined && !phone)) && (

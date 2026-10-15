@@ -1,14 +1,15 @@
+import {
+  preeditControlState,
+  type PreeditPreferences,
+  type TsfPreeditStyle,
+  type CandidatePreeditStyle,
+} from "./preedit-preferences";
 import { PreeditStyleRow } from "./preedit-style-row";
 import { SwitchRow } from "./switch-row";
 
-export type TsfPreeditStyle = "raw" | "pinyin" | "empty";
-export type CandidatePreeditStyle = "pinyin" | "empty";
+export type { TsfPreeditStyle, CandidatePreeditStyle } from "./preedit-preferences";
 
-export interface PreeditSettingsPreferences {
-  shuangpin_preedit_uses_raw?: boolean;
-  tsf_preedit_style?: TsfPreeditStyle;
-  candidate_preedit_style?: CandidatePreeditStyle;
-}
+export interface PreeditSettingsPreferences extends PreeditPreferences {}
 
 export interface PreeditSettingsSectionProps {
   preferences: PreeditSettingsPreferences;
@@ -30,12 +31,13 @@ export function PreeditSettingsSection({
   onChange,
   onInlinePreeditChange,
 }: PreeditSettingsSectionProps) {
+  const state = preeditControlState(preferences);
   return (
     <>
       <PreeditStyleRow
         title={mobile ? "候选栏预编辑" : "候选窗口预编辑"}
         mode="candidate"
-        value={preferences.candidate_preedit_style ?? "pinyin"}
+        value={state.candidateStyle}
         onChange={(value) => onChange({ candidate_preedit_style: value as CandidatePreeditStyle })}
       />
       {showShuangpinPreedit && (
@@ -43,7 +45,7 @@ export function PreeditSettingsSection({
           title="双拼预编辑"
           description="仅在双拼方案下生效；选择保留原始双拼按键，或显示展开后的拼音分词。"
           mode="shuangpin"
-          value={preferences.shuangpin_preedit_uses_raw === false ? "pinyin" : "raw"}
+          value={state.shuangpinStyle}
           onChange={(value) => onChange({ shuangpin_preedit_uses_raw: value === "raw" })}
         />
       )}
@@ -59,7 +61,7 @@ export function PreeditSettingsSection({
         <PreeditStyleRow
           title="行内预编辑"
           mode="inline"
-          value={preferences.tsf_preedit_style ?? "raw"}
+          value={state.inlineStyle}
           onChange={(value) => onChange({ tsf_preedit_style: value as TsfPreeditStyle })}
         />
       )}

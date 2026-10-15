@@ -173,9 +173,9 @@ SkinPreviewMetrics MakeShowcaseMetrics(NSInteger pageSize, CGFloat candidateFont
     metrics.rowHeight = PreviewCandidateHeight(words, font);
     metrics.decorationHeight = MAX(0.0, decorationTop);
     const CGFloat footer = PreviewPendingFooter(pageSize) != nil ? 18.0 : 0.0;
-    metrics.horizontalHeight = (MAX(2.0, padding) + metrics.decorationHeight + metrics.preeditHeight + metrics.rowHeight + MAX(2.0, padding)) * scale;
-    metrics.verticalHeight = (MAX(2.0, padding) + metrics.decorationHeight + metrics.preeditHeight +
-                              PreviewVisibleRows(pageSize) * metrics.rowHeight + footer + MAX(2.0, padding)) * scale;
+    metrics.horizontalHeight = (padding + metrics.decorationHeight + metrics.preeditHeight + metrics.rowHeight + padding) * scale;
+    metrics.verticalHeight = (padding + metrics.decorationHeight + metrics.preeditHeight +
+                              PreviewVisibleRows(pageSize) * metrics.rowHeight + footer + padding) * scale;
     const ToolbarPreviewInputs toolbar = ToolbarInputs(preferences);
     metrics.toolbarHeight = ToolbarPreviewSize(toolbar.components, toolbar.scalePercent, toolbar.fontSize, toolbar.logo).height;
     metrics.panelHeight = 0.0;
@@ -204,7 +204,7 @@ SkinPreviewMetrics MakeAppearanceMetrics(NSInteger panelStyle, NSInteger pageSiz
     const NSInteger visibleRows = panelStyle == 1 ? PreviewVisibleRows(pageSize) : 1;
     const CGFloat footer = (panelStyle == 1 && PreviewPendingFooter(pageSize) != nil) ? 18.0 : 0.0;
     metrics.panelHeight =
-        (MAX(2.0, padding) + metrics.decorationHeight + metrics.preeditHeight + visibleRows * metrics.rowHeight + footer + MAX(2.0, padding)) * scale;
+        (padding + metrics.decorationHeight + metrics.preeditHeight + visibleRows * metrics.rowHeight + footer + padding) * scale;
     metrics.horizontalHeight = 0.0;
     metrics.verticalHeight = 0.0;
     metrics.toolbarHeight = 0.0;
@@ -265,9 +265,10 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
     NSRect chrome =
         NSMakeRect(NSMinX(rect), NSMinY(rect) + decorationTop, NSWidth(rect), NSHeight(rect) - decorationTop);
     DrawSkinChrome(chrome, skin);
-    NSBezierPath *clip = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(chrome, 1.0, 1.0)
-                                                         xRadius:MAX(1.0, tokens.radius - 1.0)
-                                                         yRadius:MAX(1.0, tokens.radius - 1.0)];
+    const CGFloat halfBorder = MAX(0.0, tokens.borderWidth) / 2.0;
+    NSBezierPath *clip = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(chrome, halfBorder, halfBorder)
+                                                         xRadius:MAX(0.0, tokens.radius - halfBorder)
+                                                         yRadius:MAX(0.0, tokens.radius - halfBorder)];
     [NSGraphicsContext saveGraphicsState];
     [clip addClip];
 
@@ -278,7 +279,7 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
         NSFontAttributeName : preeditFont,
         NSForegroundColorAttributeName : PreviewColor(tokens.text),
     };
-    const CGFloat pad = MAX(2.0, tokens.pad);
+    const CGFloat pad = msime::mac::CandidateInset(tokens);
     const CGFloat preeditHeight = PreviewPreeditHeight(preeditFontSize, preferences);
     NSRect preeditRow =
         NSMakeRect(NSMinX(chrome) + pad, NSMinY(chrome) + pad, NSWidth(chrome) - pad * 2.0, preeditHeight);
@@ -343,10 +344,10 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
             }
             break;
         }
-        NSRect row = vertical ? NSMakeRect(NSMinX(chrome) + 4.0, contentTop + index * rowHeight, NSWidth(chrome) - 8.0,
+        NSRect row = vertical ? NSMakeRect(NSMinX(chrome) + pad, contentTop + index * rowHeight, NSWidth(chrome) - 2.0 * pad,
                                            rowHeight)
                               : NSMakeRect(x, contentTop, itemWidth, rowHeight);
-        if (NSMaxY(row) > NSMaxY(chrome) - 2.0)
+        if (NSMaxY(row) > NSMaxY(chrome) - pad + 0.01)
         {
             break;
         }
@@ -677,12 +678,21 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     return self.preferences != nil ? self.preferences.candidateScalePercent / 100.0 : 1.0;
 }
 
-/// The skin as the candidate window draws it, with the user's radius and opacity over it. The scale is left out of it here because the preview draws the whole panel magnified instead, the one place a uniform transform is the same thing as multiplying every length.
+/// 先按真实窗口求边框下限与行圆角，再换回整体绘图变换使用的坐标；固定宽度的边框也要抵消该变换。
 - (msime::mac::ResolvedSkin)previewWindowSkin
 {
-    msime::mac::CandidateWindowStyle style = self.preferences != nil ? [self.preferences candidateWindowStyle] : msime::mac::CandidateWindowStyle{};
-    style.scale = 1.0;
-    return msime::mac::StyledCandidateSkin([self previewSkin], style);
+    const msime::mac::CandidateWindowStyle style = self.preferences != nil ? [self.preferences candidateWindowStyle] : msime::mac::CandidateWindowStyle{};
+    auto skin = msime::mac::StyledCandidateSkin([self previewSkin], style);
+    const double scale = [self previewScale];
+    skin.tokens.radius /= scale;
+    skin.tokens.candidateRadius /= scale;
+    skin.tokens.selectedRadius /= scale;
+    skin.tokens.pad /= scale;
+    skin.tokens.borderWidth /= scale;
+    skin.decorationTopDip /= scale;
+    skin.decorationWidthDip /= scale;
+    skin.minWidthDip /= scale;
+    return skin;
 }
 
 - (void)setShowsLayoutShowcase:(BOOL)showsLayoutShowcase
@@ -741,11 +751,11 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     const msime::mac::ResolvedSkin skin = [self previewWindowSkin];
     if (_showsLayoutShowcase)
     {
-        return MakeShowcaseMetrics(_pageSize, [self previewFontSize], skin.decorationTopDip, skin.tokens.pad,
+        return MakeShowcaseMetrics(_pageSize, [self previewFontSize], skin.decorationTopDip, msime::mac::CandidateInset(skin.tokens),
                                    [self previewPreeditFontSize], [self previewWords], self.preferences, [self previewScale])
             .totalHeight;
     }
-    return MakeAppearanceMetrics(_panelStyle, _pageSize, [self previewFontSize], skin.decorationTopDip, skin.tokens.pad,
+    return MakeAppearanceMetrics(_panelStyle, _pageSize, [self previewFontSize], skin.decorationTopDip, msime::mac::CandidateInset(skin.tokens),
                                  [self previewPreeditFontSize], [self previewWords], self.preferences, [self previewScale])
         .totalHeight;
 }
@@ -801,7 +811,7 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     const NSInteger count = MAX(_pageSize, (NSInteger)1);
     if (_showsLayoutShowcase)
     {
-        const SkinPreviewMetrics metrics = MakeShowcaseMetrics(_pageSize, [self previewFontSize], skin.decorationTopDip, skin.tokens.pad,
+        const SkinPreviewMetrics metrics = MakeShowcaseMetrics(_pageSize, [self previewFontSize], skin.decorationTopDip, msime::mac::CandidateInset(skin.tokens),
                                                               preeditFontSize, samples, self.preferences, scale);
         NSArray<NSString *> *horizontal = PreviewPageWords(samples, count);
         NSArray<NSString *> *vertical = PreviewPageWords(samples, PreviewVisibleRows(count));
@@ -828,7 +838,7 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     }
 
     const SkinPreviewMetrics metrics =
-        MakeAppearanceMetrics(_panelStyle, _pageSize, [self previewFontSize], skin.decorationTopDip, skin.tokens.pad, preeditFontSize,
+        MakeAppearanceMetrics(_panelStyle, _pageSize, [self previewFontSize], skin.decorationTopDip, msime::mac::CandidateInset(skin.tokens), preeditFontSize,
                               samples, self.preferences, scale);
     const BOOL vertical = _panelStyle == 1;
     NSArray<NSString *> *words = PreviewPageWords(samples, vertical ? PreviewVisibleRows(count) : count);

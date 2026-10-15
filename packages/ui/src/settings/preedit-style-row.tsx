@@ -1,10 +1,7 @@
+import type { PreeditStyle } from "./preedit-preferences";
 import type { ReactNode } from "react";
 import { Row } from "../core/platform-controls";
-import {
-  PreeditStyleSelect,
-  type PreeditStyle,
-  type PreeditStyleSelectMode,
-} from "./preedit-style-select";
+import { PreeditStyleSelect, type PreeditStyleSelectMode } from "./preedit-style-select";
 
 export interface PreeditStyleRowProps {
   title: ReactNode;

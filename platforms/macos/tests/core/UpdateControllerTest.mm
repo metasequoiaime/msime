@@ -21,6 +21,18 @@
 }
 @end
 
+// The Sparkle driver's shape: it can also install an update it downloaded in the background.
+@interface InstallingUpdateDriverFixture : UpdateDriverFixture
+@property(nonatomic) NSUInteger installs;
+@end
+
+@implementation InstallingUpdateDriverFixture
+- (void)installDownloadedUpdate
+{
+    ++self.installs;
+}
+@end
+
 int main()
 {
     @autoreleasepool
@@ -52,6 +64,18 @@ int main()
         driver.automaticallyChecksForUpdates = NO;
         assert(!controller.canCheckForUpdates);
         assert(!controller.automaticallyChecksForUpdates);
+
+        // A background install runs when the user has just switched to another input source. Raising the
+        // process there would pull focus to an input method the user has just left, so it must not
+        // activate; a driver that downloads nothing in the background simply has nothing to install.
+        [controller installDownloadedUpdateIfReady];
+        assert(activations == 1 && driver.checks == 1);
+        InstallingUpdateDriverFixture *installing = [InstallingUpdateDriverFixture new];
+        MSIMEUpdateController *installingController =
+            [[MSIMEUpdateController alloc] initWithDriver:installing
+                                        activationHandler:^{ ++activations; }];
+        [installingController installDownloadedUpdateIfReady];
+        assert(installing.installs == 1 && installing.checks == 0 && activations == 1);
 
         // Sparkle is only startable inside an application bundle. Everywhere else - a test binary, a
         // command-line tool, a bundle whose identifier never made it into the plist - it answers a start

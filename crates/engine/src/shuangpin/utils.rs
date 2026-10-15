@@ -192,9 +192,11 @@ pub fn is_full_help_mode(pinyin_with_cases: &str, profile: &ShuangpinProfile) ->
     if length <= 2 || !length.is_multiple_of(2) {
         return false;
     }
+    if !(bytes[length - 2].is_ascii_uppercase() || bytes[length - 1].is_ascii_uppercase()) {
+        return false;
+    }
     let base = &pinyin_with_cases[..length - 2];
     is_all_complete_pinyin(base, &pinyin_segmentation(base, profile))
-        && (bytes[length - 2].is_ascii_uppercase() || bytes[length - 1].is_ascii_uppercase())
 }
 
 /// The last two letters lowercased, swapped when the first was uppercase (:289-305).
@@ -231,6 +233,78 @@ mod tests {
 
     fn xiaohe() -> &'static ShuangpinProfile {
         profile(ShuangpinProfileKind::Xiaohe).unwrap()
+    }
+
+    #[test]
+    fn full_help_mode_without_uppercase_codes_does_not_segment_input() {
+        let long = format!("{}ab", "ni".repeat(128));
+        for kind in ALL {
+            let profile = profile(kind).unwrap();
+            for raw in ["nihc", "nihcab", "niHCab", "j;gkab", &long] {
+                assert!(!is_full_help_mode(raw, profile));
+                let (mode, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                    is_full_help_mode(raw, profile)
+                });
+                assert!(!mode);
+                assert_eq!(allocations, 0, "kind={kind:?}, raw={raw:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn full_help_mode_matches_segmentation_first_reference() {
+        fn reference(raw: &str, profile: &ShuangpinProfile) -> bool {
+            let bytes = raw.as_bytes();
+            let length = bytes.len();
+            if length <= 2 || !length.is_multiple_of(2) {
+                return false;
+            }
+            let base = &raw[..length - 2];
+            is_all_complete_pinyin(base, &pinyin_segmentation(base, profile))
+                && (bytes[length - 2].is_ascii_uppercase()
+                    || bytes[length - 1].is_ascii_uppercase())
+        }
+        let long_lower = format!("{}ab", "ni".repeat(128));
+        let long_upper = format!("{}AB", "ni".repeat(128));
+        for kind in ALL {
+            let profile = profile(kind).unwrap();
+            for &first in b"abcdefghijklmnopqrstuvwxyz;" {
+                for &second in b"abcdefghijklmnopqrstuvwxyz;" {
+                    for suffix in ["ab", "Ab", "aB", "AB"] {
+                        let raw = format!("{}{}{suffix}", char::from(first), char::from(second));
+                        assert_eq!(
+                            is_full_help_mode(&raw, profile),
+                            reference(&raw, profile),
+                            "kind={kind:?}, raw={raw:?}"
+                        );
+                    }
+                }
+            }
+            for raw in [
+                "",
+                "a",
+                "AB",
+                "nihAB",
+                "akAB",
+                "ni'ab",
+                "ni'AB",
+                "ni''AB",
+                "''''",
+                "niHCab",
+                "NIaB",
+                "ni'hcAB",
+                "nihcAB'",
+                "j;gkAB",
+                &long_lower,
+                &long_upper,
+            ] {
+                assert_eq!(
+                    is_full_help_mode(raw, profile),
+                    reference(raw, profile),
+                    "kind={kind:?}, raw={raw:?}"
+                );
+            }
+        }
     }
 
     #[test]

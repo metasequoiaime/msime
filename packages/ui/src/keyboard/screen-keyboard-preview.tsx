@@ -1,6 +1,7 @@
 import { createContext, useContext, useId } from "react";
 import type { GlobalTheme } from "../theme/global-theme";
 import { clamp } from "../core/number";
+import { touchKeyboardSpacing } from "../settings/touch-keyboard-spacing";
 import { skinColor, type TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
 import { resolveKeyboardSkinLook } from "./keyboard-skin-look";
 import {
@@ -135,8 +136,8 @@ export function ScreenKeyboardPreview({
   compact = false,
   thumbnail = false,
   customDesign,
-  keySpacingTenths = 60,
-  rowSpacingTenths = 70,
+  keySpacingTenths,
+  rowSpacingTenths,
   heightAdjustment = 0,
   layout,
   touchRows,
@@ -184,8 +185,7 @@ export function ScreenKeyboardPreview({
   const backgroundId = `touch-skin-background-${unique}`;
   const keyMaterialId = `touch-skin-key-material-${unique}`;
   const actionMaterialId = `touch-skin-action-material-${unique}`;
-  const keySpacing = clamp(keySpacingTenths / 10, 3, 6);
-  const rowSpacing = clamp(rowSpacingTenths / 10, 4, 10);
+  const { keySpacing, rowSpacing } = touchKeyboardSpacing(keySpacingTenths, rowSpacingTenths);
   // 触屏键盘按手机竖屏的比例画：桌面画布 1100 宽时，每排十个键被拉成又扁又宽的长条，不像手机上的键盘；700 宽时单键约为宽 3 高 4 的竖长方形，与手机上的键接近。桌面键盘仍是 1100。
   const canvasWidth = phoneLook ? thumbnailWidth : touch ? 700 : 1100;
   const inset = phoneLook ? thumbnailInset : 7;

@@ -904,6 +904,29 @@ if [[ $(rg -c 's\.backspaceKey\(' "$layout_rows") != $(rg -c 's\.imeLetterRows\.
   echo "Every Android layout delete key must be bound through ImeLetterRows.bindBackspaceRepeat" >&2
   exit 1
 fi
+# 拼音九键的 1 键（@#）空闲时把常用标点放进候选条（ImeNineKeyQuickPunctuation），符号面板改从九键外框底行最左边的 符 打开（KeyboardActionRow.designEntries，KeyboardActionRowSmoke 覆盖排布）；这些标点只留到下一次 Engine 转换。候选条的接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住三处：1 键不再直接打开面板、apply() 收起标点、底行的 SYMBOL_PANEL 是 符 键。
+symbol_key_body=$(sed -n '/private void symbolKey(NineKeyLayout\.Key key) {$/,/^    }$/p' "$layout_rows")
+if ! rg -q 's\.imeNineKeyQuickPunctuation\.show\(\)' <<< "$symbol_key_body" \
+  || rg -q 'showSymbolPanel' <<< "$symbol_key_body" \
+  || ! sed -n '/boolean apply(String response) throws JSONException {$/,/^    }$/p' "$account_service" | rg_q_stdin 'imeNineKeyQuickPunctuation\.clear\(\)' \
+  || ! rg -q 'case SYMBOL_PANEL -> s\.symbolPanelButton;' "$repo_root/platforms/android/java/app/msime/android/core/ImeBottomRow.java"; then
+  echo "The Android nine-key 1 key must lay quick punctuation into the candidate strip until the next Engine transition, and 符 must open the symbol panel from the bottom row" >&2
+  exit 1
+fi
+# 拼音九键格子上的长按数字画在右上角，字号和位置与 26 键字母的角标相同（KeyHintButton 的 CORNER_HINT_SP、CORNER_HINT_TOP_DP、CORNER_HINT_RIGHT_DP，基线按 ascent 算），iOS 的 keyNumberHint 也是上 3、右 5。绘制在 onDraw 里，JVM 冒烟碰不到，这里钉住它取的是同一组常量，而不是另写一套数字。
+nine_key_digit_draw=$(sed -n '/protected void onDraw(Canvas canvas) {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/keyboard/NineKeyDigitButton.java")
+for pattern in 'KeyHintButton\.CORNER_HINT_SP' 'KeyHintButton\.CORNER_HINT_TOP_DP\) - metrics\.ascent' \
+    'getWidth\(\) - DimensionPolicy\.floatPixels\(getContext\(\), KeyHintButton\.CORNER_HINT_RIGHT_DP\)'; do
+  if ! rg -q "$pattern" <<< "$nine_key_digit_draw"; then
+    echo "The Android nine-key digit hint must sit in the top-right corner exactly like the letter-key corner hint (KeyHintButton): missing $pattern" >&2
+    exit 1
+  fi
+done
+# 数字角标与字母角标同色：皮肤的 hint 色，不用强调色（原生皮肤下是系统蓝，压在每个键上太显眼）。
+if ! rg -q 'digitButton\.setDigitColor\(color\(target\.hint\(\)\)\)' "$repo_root/platforms/android/java/app/msime/android/core/ImeStyler.java"; then
+  echo "The Android nine-key digit hint must use the skin's hint colour like the letter-key corner hint" >&2
+  exit 1
+fi
 # 文本编辑面板（#5625）是工具栏面板的一员：closeToolbarPanels 要关掉它、anyToolbarPanelOpen 要算上它，否则换输入框时它会留在下一个编辑器的键盘上，收起键也不会变成「返回键盘」。
 if ! sed -n '/void closeToolbarPanels()/,/^    }$/p' "$account_service" | rg_q_stdin 'imeTextEditPanel\.close\(\)' \
   || ! sed -n '/boolean anyToolbarPanelOpen()/,/^    }$/p' "$account_service" | rg_q_stdin 'shown\(textEditPanel\)|ViewPolicy\.isVisible\(textEditPanel\)'; then
@@ -919,11 +942,11 @@ for manifest in \
     exit 1
   fi
 done
-# 键区里的系统识别服务是 SpeechRecognizer 回调接线，JVM 冒烟只能覆盖 PlatformSpeechPolicy 和 ImeVoiceEntry.choose 这些纯逻辑，这里守住回调里不能被悄悄改回去的几处（#5553）：两条入口都按错误码提示、空结果不冒用错误码，没开始聆听就被拒时转交识别窗口，系统识别服务不被 1.5 s 停顿截断，说完后收回音量光圈。
+# 键区里的系统识别服务是 SpeechRecognizer 回调接线，JVM 冒烟只能覆盖 PlatformSpeechPolicy 和 ImeVoiceEntry.choose 这些纯逻辑，这里守住回调里不能被悄悄改回去的几处（#5553）：两条入口都按错误码提示、空结果不冒用错误码，权限拒绝或聆听前启动失败时转交识别窗口，系统识别服务不被 1.5 s 停顿截断，说完后收回音量光圈。
 voice_entry="$repo_root/platforms/android/java/app/msime/android/core/ImeVoiceEntry.java"
-if ! rg -qF 'fail(PlatformSpeechPolicy.message(error, recognizerLabel(VoiceRecognitionActivity.this)))' "$voice_activity" \
+if ! rg -qF 'fail(PlatformSpeechPolicy.message(error))' "$voice_activity" \
   || ! rg -qF 'fail(PlatformSpeechPolicy.emptyResult())' "$voice_activity" \
-  || ! rg -qF 'PlatformSpeechPolicy.message(error, VoiceRecognitionActivity.recognizerLabel(s))' "$voice_entry" \
+  || ! rg -qF 'PlatformSpeechPolicy.message(error)' "$voice_entry" \
   || ! rg -qF 'PlatformSpeechPolicy.emptyResult()' "$voice_entry" \
   || ! rg -qF 's.launchVoiceActivity();' "$voice_entry" \
   || ! rg -qF 'if (platform != null) return;' "$voice_entry" \

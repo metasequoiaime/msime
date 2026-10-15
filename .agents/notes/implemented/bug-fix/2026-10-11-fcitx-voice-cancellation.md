@@ -10,7 +10,7 @@ Fcitx5 的语音请求运行在插件级 detached worker 中。关闭会话时�
 
 在 Fcitx 语音 mailbox 中加入原子取消标志，并在关闭或取消时先置位。Host API 增加保留旧 ABI 行为的可取消 stream 入口，把 C 回调转成 input-runtime 的取消探针；socket 读取每次 100ms 轮询时检查该探针。旧的 IBus 及其它调用继续使用原入口，Fcitx 仍由 detached job tracker 等待 worker 完成后再卸载插件。
 
-共享语音行读取遇到 `ErrorKind::Interrupted` 时继续原来的轮询，保留未完成的 UTF-8/JSON 字节，重新检查取消与同一个总截止时间，不把系统调用中断当成语音失败。Unix socket 入口负责设置每次读取的超时，配置失败仍立即结束；行读取循环接收一次读取的函数，便于独立核对分片和中断序列；对外接口、消息格式和 100ms 取消预算保持原样。错误分类依据 [Rust 标准库说明](https://doc.rust-lang.org/std/io/enum.ErrorKind.html#variant.Interrupted)。
+共享语音行读取遇到 `ErrorKind::Interrupted` 时继续原来的轮询，保留未完成的 UTF-8/JSON 字节，重新检查取消与同一个总截止时间，不把系统调用中断当成语音失败。Unix socket 入口负责设置每次读取的超时；配置失败时原先立即结束，现在由[对端关闭后的补读](2026-10-15-voice-buffered-response-after-close.md)接管，保留非阻塞与取消边界。行读取循环接收一次读取的函数，便于独立核对分片和中断序列；对外接口、消息格式和 100ms 取消预算保持原样。错误分类依据 [Rust 标准库说明](https://doc.rust-lang.org/std/io/enum.ErrorKind.html#variant.Interrupted)。
 
 ## Alternatives considered
 

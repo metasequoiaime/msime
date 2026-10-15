@@ -1,6 +1,8 @@
 package app.msime.android.test;
 
+import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -61,7 +63,7 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             await(field("msime-test-plain").and(node -> node.getText() != null
                 && node.getText().toString().equalsIgnoreCase("ok")));
 
-            // 第一格短按仍是符号入口，长按的 1 经真实 InputConnection 上屏。
+            // 第一格长按的 1 经真实 InputConnection 上屏；短按的常用标点见下面的 quick punctuation 一段。
             stage = "nine-key long-press one";
             AccessibilityNodeInfo one = await(key("@#"));
             if (!one.isLongClickable() || !one.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
@@ -77,6 +79,21 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
                 && node.getText().toString().equalsIgnoreCase("ok11")));
             tap(key("九键"));
             await(key("@#").and(AccessibilityNodeInfo::isLongClickable));
+
+            // 空闲时第一格短按不打开符号面板，而是把常用标点放进候选条；点一个经 Engine 上屏（中文标点下 \ 写成 、），候选条随后回到空闲。
+            stage = "nine-key 1 key quick punctuation";
+            tap(key("@#"));
+            tap(described("常用标点 5：、"));
+            await(field("msime-test-plain").and(node -> node.getText() != null
+                && node.getText().toString().equalsIgnoreCase("ok11、")));
+            awaitGone(describedPrefix("常用标点 "));
+
+            // 符号面板改从九键底行最左边的 符 打开。
+            stage = "nine-key bottom row symbol panel key";
+            tap(described("打开符号面板"));
+            await(described("符号面板"));
+            tap(described("关闭符号面板"));
+            await(key("@#"));
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
@@ -98,6 +115,19 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
         };
     }
 
+
+    /** 等匹配的节点从所有窗口里消失。 */
+    private void awaitGone(Predicate<AccessibilityNodeInfo> match) {
+        long deadline = SystemClock.uptimeMillis() + 5000;
+        do {
+            boolean shown = false;
+            for (AccessibilityWindowInfo window : automation.getWindows())
+                shown |= find(window.getRoot(), match) != null;
+            if (!shown) return;
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("The quick punctuation stayed in the candidate strip after one was used; IME showed " + imeTexts());
+    }
 
     private void openEditor() throws Exception {
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");

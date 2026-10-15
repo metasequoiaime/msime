@@ -431,3 +431,17 @@ fn common_phrases_concurrent_adds_from_two_processes_are_all_kept() {
         }
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn finished_scope_releases_inherited_lock() {
+    let root = tempfile::tempdir().unwrap();
+    let store = CommonPhrasesStore::new(root.path());
+    let held = store.lock().unwrap();
+    let inherited = crate::file_lock::testing::duplicate(&held._lock);
+    crate::file_lock::testing::assert_finished_scope_releases_lock(
+        held,
+        inherited,
+        &root.path().join(LOCK_FILE_NAME),
+    );
+}

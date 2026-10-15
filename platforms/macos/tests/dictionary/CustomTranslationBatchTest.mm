@@ -199,17 +199,23 @@ static void TestBoundsAndEmptyResults() {
     assert(calls == 1);
     AssertReleased(invalidTransport);
 }
-// A provider that reports a failure in a well-formed body - DeepLX's non-200 code, as a rate limit or an outage comes back - has not answered: negative-caching it would hide the gloss for eight minutes over something asking again fixes. An answer with no translation is still an answer.
+// 服务报错或回复缺少合法结果结构都不能记成空回答；合法空译文仍然计入已回答。
 static void TestFailedRepliesAreNotAnswers() {
-    SyntheticTranslationBatch *batch = Batch(@[Item(@"one"), Item(@"two"), Item(@"three")], ^(NSArray *results) { assert(results.count == 0); });
-    NSMutableArray *answered = [NSMutableArray array];
-    batch.onReply = ^(NSArray *results, NSArray *texts) { assert(results.count == 0); [answered addObject:texts]; };
-    [batch start];
-    batch.requests[0].reply([@"{\"code\":429,\"message\":\"rate limited\"}" dataUsingEncoding:NSUTF8StringEncoding]);
-    batch.requests[1].reply([@"{\"code\":200,\"data\":\"\"}" dataUsingEncoding:NSUTF8StringEncoding]);
-    batch.requests[2].reply([@"{\"code\":\"500\"}" dataUsingEncoding:NSUTF8StringEncoding]);
-    assert(([answered isEqual:@[@[], @[@"two"], @[]]]));
-    AssertReleased(batch);
+    for (NSString *body in @[@"{\"code\":429,\"message\":\"rate limited\"}",
+        @"{\"code\":200}", @"{\"code\":\"200\",\"data\":null}",
+        @"{\"code\":200,\"translation\":42}", @"{\"code\":200,\"result\":false}",
+        @"{\"code\":200,\"data\":{}}", @"{\"code\":200,\"data\":[null]}",
+        @"{\"code\":200,\"translations\":\"synthetic\"}"]) {
+        SyntheticTranslationBatch *batch = Batch(@[Item(@"one"), Item(@"two"), Item(@"three")], ^(NSArray *results) { assert(results.count == 0); });
+        NSMutableArray *answered = [NSMutableArray array];
+        batch.onReply = ^(NSArray *results, NSArray *texts) { assert(results.count == 0); [answered addObject:texts]; };
+        [batch start];
+        batch.requests[0].reply([body dataUsingEncoding:NSUTF8StringEncoding]);
+        batch.requests[1].reply([@"{\"code\":200,\"data\":\"\"}" dataUsingEncoding:NSUTF8StringEncoding]);
+        batch.requests[2].reply([@"{\"code\":\"500\"}" dataUsingEncoding:NSUTF8StringEncoding]);
+        assert(([answered isEqual:@[@[], @[@"two"], @[]]]));
+        AssertReleased(batch);
+    }
 }
 static NSDictionary *TencentItem(NSString *text, NSString *key, NSString *source, NSString *target) {
     return @{@"text":text, @"key":key, @"source_language":source, @"target_language":target};

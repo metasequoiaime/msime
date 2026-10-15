@@ -19,6 +19,8 @@ Status: implemented
 - 描述这项偏好的注释一并改成与引擎一致：`client-core` 的 `Preferences::wubi_mixed_pinyin`、`mcp-server` 的偏好字段说明（它会进 MCP 工具的 JSON schema，给调用方的模型看），以及 macOS 设置里解释五笔为什么保留模糊音那段注释。
 - 依赖旧标题定位控件的测试同步改：`wubi-section.test.tsx`、`input-scheme-edition.test.tsx`、Android 设备冒烟 `SettingsDeviceSmoke.java` 的 `aria-label` 选择器。`wubi-section.test.tsx` 另外钉住新的说明文字。
 
+共享 React 控件的三项偏好类型与有效状态由无 React 依赖的 `settings/wubi-preferences.ts` 持有，公共 `Preferences` 和控件共同消费；缺省、显式选择和逐字段写回不变，见[五笔控件共用偏好契约和有效状态](../simplification/2026-10-15-wubi-preferences.md)。
+
 ## Alternatives considered
 
 - **只改说明、保留标题**：改动最小，说明也就如实了。没有采用：用户按「混输」找功能，标题里没有这个词，搜索和目录浏览都找不到，#6048 的问题还在。

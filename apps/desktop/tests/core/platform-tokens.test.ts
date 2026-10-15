@@ -98,8 +98,8 @@ test("the brand accents replace the inherited purple on every platform but the s
   }
   expect(platformTokens.android.light.accent).toBe(brand.light);
   expect(platformTokens.android.dark.accent).toBe("#8FD5A6");
-  expect(platformTokens.win.light.accent).toBe("#005FB8");
-  expect(platformTokens.win.dark.accent).toBe("#60CDFF");
+  expect(platformTokens.win.light.accent).toBe(brand.light);
+  expect(platformTokens.win.dark.accent).toBe(brand.dark);
   expect(platformTokens.linux.light.accent).toBe("#3584E4");
   for (const platform of settingsPlatforms) {
     for (const appearance of ["light", "dark"] as const) {

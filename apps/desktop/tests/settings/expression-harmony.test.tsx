@@ -74,6 +74,36 @@ async function saveAndRead(save: ReturnType<typeof vi.fn>, call: number) {
 
 const group = (name: string) => screen.getByRole("region", { name });
 
+test("手机标点面板保留抽取后选项的顺序、名称和写回值", async () => {
+  const save = await mountPhone();
+  fireEvent.click(within(group("标点")).getByText("更多选项"));
+  fireEvent.click(within(group("标点")).getByRole("button", { name: /^引号样式/ }));
+  const quotes = screen.getByRole("dialog", { name: "引号样式" });
+  expect(
+    within(quotes)
+      .getAllByRole("button")
+      .map((button) => button.textContent),
+  ).toEqual(["弯引号 “ ” ‘ ’", "直角引号 「 」『 』", "繁体输出时用直角引号", "取消"]);
+  fireEvent.click(within(quotes).getByRole("button", { name: "直角引号 「 」『 』" }));
+  expect((await saveAndRead(save, 0)).quote_style).toBe("corner");
+
+  fireEvent.click(within(group("标点")).getByRole("button", { name: /^方头括号样式/ }));
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: "方头括号样式" })).getByRole("button", {
+      name: "空心 〖 〗",
+    }),
+  );
+  expect((await saveAndRead(save, 1)).bracket_style).toBe("hollow");
+
+  fireEvent.click(within(group("标点")).getByRole("button", { name: /^固定标点/ }));
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: "固定标点" })).getByRole("button", {
+      name: "始终使用英文标点",
+    }),
+  );
+  expect((await saveAndRead(save, 2)).punctuation_lock).toBe("english");
+});
+
 describe("整句联想 levels", () => {
   test("the stored switches read as the Android levels", () => {
     expect(sentenceAssociationLevel(undefined)).toBe(1);

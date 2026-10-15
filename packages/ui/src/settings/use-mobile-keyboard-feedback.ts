@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLatestRef } from "../core/use-latest-ref";
 import type {
   MobileKeyboardFeedback,
   MobileKeyboardFeedbackClient,
-} from "./mobile-keyboard-feedback-section";
+} from "./mobile-keyboard-feedback";
 import { useAsyncActionRunner } from "../core/use-async-action";
 
 export interface UseMobileKeyboardFeedbackOptions {
@@ -20,10 +20,12 @@ export function useMobileKeyboardFeedback({
 }: UseMobileKeyboardFeedbackOptions) {
   const [value, setValue] = useState<MobileKeyboardFeedback>();
   const onErrorRef = useLatestRef(onError);
+  const previewRequest = useRef(0);
   const ignoreError = useCallback(() => {}, []);
   const {
     busy,
     mounted,
+    generation,
     running: saveRunning,
     run,
   } = useAsyncActionRunner(ignoreError, undefined, client, mobile);
@@ -48,6 +50,7 @@ export function useMobileKeyboardFeedback({
 
   async function save(next: MobileKeyboardFeedback) {
     if (!client || saveRunning.current) return;
+    previewRequest.current += 1;
     const previous = value;
     onErrorRef.current("");
     await run(
@@ -68,11 +71,14 @@ export function useMobileKeyboardFeedback({
 
   async function preview() {
     if (!client?.preview || !value?.hapticsEnabled) return;
+    const owner = generation.current;
+    const request = ++previewRequest.current;
     onErrorRef.current("");
     try {
       await client.preview(value.hapticStrength);
     } catch {
-      if (mounted.current) onErrorRef.current("无法预览按键振动，请重试。");
+      if (mounted.current && generation.current === owner && previewRequest.current === request)
+        onErrorRef.current("无法预览按键振动，请重试。");
     }
   }
 

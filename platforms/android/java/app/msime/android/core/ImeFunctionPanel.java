@@ -149,6 +149,9 @@ final class ImeFunctionPanel {
             case FEEDBACK -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.FEEDBACK, () -> host("FEEDBACK"), null),
                 FunctionPanelView.State.NONE, true);
+            case COPY_DEVICE_INFO -> add(entries, states, enabled,
+                icon(item, KeyboardIconPaths.Icon.CLIPBOARD_HISTORY, s::copyDeviceInfo, null),
+                FunctionPanelView.State.NONE, true);
             case ABOUT -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.ABOUT, () -> host("ABOUT"), null),
                 FunctionPanelView.State.NONE, true);

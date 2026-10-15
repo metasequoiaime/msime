@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { Preferences } from "../index";
-import type { HelpcodeSettings } from "./pages/helpcode-page";
+import type { HelpcodeSettings } from "./helpcode-preferences";
 import { createSettingsDraftActions } from "./settings-draft-actions";
 
 export interface CreateHelpcodeSettingsActionsOptions {

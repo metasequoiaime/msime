@@ -6245,6 +6245,13 @@ static void TestEnglishModePunctuationAndWidthOutput() {
     prefs.punctuationLock = @"chinese";
     [controller setEnglishInputMode:YES];
     assert(prefs.englishMode && prefs.runtimeChinesePunctuation);
+    // 人民币跟随本次全半角状态；英文模式锁定中文标点也走同一条规则。
+    NSEvent *currency = EnglishKey(@"$", 21, NSEventModifierFlagShift);
+    assert([type(currency) isEqual:@"¥"]);
+    assert([controller handleEvent:widthToggle client:client] && prefs.runtimeFullWidthInput);
+    assert([type(currency) isEqual:@"￥"]);
+    assert([controller handleEvent:widthToggle client:client] && !prefs.runtimeFullWidthInput);
+    assert([type(currency) isEqual:@"¥"]);
     assert([type(comma) isEqual:@"，"]);
     assert([type(quote) isEqual:@"“"] && [type(quote) isEqual:@"”"]);
     assert([type(less) isEqual:@"《"] && [type(less) isEqual:@"〈"] && [type(greater) isEqual:@"〉"] && [type(greater) isEqual:@"》"]);
@@ -10922,6 +10929,17 @@ int main(int argc, char **argv) {
                 assert(std::abs(compact.height - (unscaled.height - 2 * (skinPad - 2.0))) < 0.5);
                 assert(compact.width <= unscaled.width);
                 assert(std::abs(candidateRow(NO).frame.origin.x - (rowBefore.origin.x - (skinPad - 2.0))) < 0.5);
+                // #7974：低于 2pt 时候选行继续靠近边缘，最近到 1pt 细边框的宽度；0pt 也留这么多，高亮不会压住边框。
+                const CGFloat border = [appearance candidateWindowSkinForDark:[match isEqual:NSAppearanceNameDarkAqua]].tokens.borderWidth;
+                assert(border > 0.0 && border < 2.0);
+                appearance.candidatePadding = @1;
+                [controller appearanceChanged:nil];
+                const NSSize hairline = layoutPanel.frame.size;
+                assert(std::abs(hairline.height - (unscaled.height - 2 * (skinPad - MAX(1.0, border)))) < 0.5);
+                appearance.candidatePadding = @0;
+                [controller appearanceChanged:nil];
+                assert(std::abs(layoutPanel.frame.size.height - (unscaled.height - 2 * (skinPad - border))) < 0.5);
+                assert(std::abs(candidateRow(NO).frame.origin.x - (rowBefore.origin.x - (skinPad - border))) < 0.5);
                 appearance.candidatePadding = nil;
                 [controller appearanceChanged:nil];
                 assert(NSEqualSizes(layoutPanel.frame.size, unscaled));

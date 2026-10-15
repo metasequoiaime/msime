@@ -1,5 +1,14 @@
+import type { PreeditPreferences } from "./settings/preedit-preferences";
+import type {
+  CandidateFontPreferences,
+  CandidateSizingPreferences,
+  CandidateWindowStylePreferences,
+} from "./candidate/candidate-preferences";
+import type { PunctuationPreferences } from "./settings/punctuation-preferences";
+import type { KeybindingPreferences } from "./settings/keybinding-preferences";
+import type { WubiPreferences } from "./settings/wubi-preferences";
 import type { DictionaryCollectionsClient } from "./dictionary/dictionary-collections";
-import type { TraditionalChineseVariant } from "./settings/traditional-chinese-output-section";
+import type { TraditionalChineseVariant } from "./settings/chinese-output-preferences";
 import type {
   BuiltinShuangpinProfile,
   ShuangpinCustomProblem,
@@ -118,7 +127,7 @@ export {
 } from "./settings/use-dictionary-manager";
 import { SettingsFormFooter } from "./settings/settings-form-footer";
 import { SettingsPageStatus } from "./settings/settings-page-status";
-import type { InputSourceStartupStatus } from "./settings/input-source-startup-notice";
+import type { InputSourceStartupStatus } from "./settings/input-source-startup-model";
 import { SettingsFormFrame } from "./settings/settings-form-frame";
 import { NoticeBanner, type NoticesClient } from "./settings/notice-banner";
 import { WindowTitlebar } from "./settings/window-titlebar";
@@ -423,7 +432,8 @@ export type {
   TouchKeyboardSkinDesign,
 } from "./keyboard/touch-keyboard-skin-design";
 import { type SkinCatalog } from "./skin/external-skins";
-import { TypingStatisticsPage, type TypingStatisticsClient } from "./settings/typing-statistics";
+import { TypingStatisticsPage } from "./settings/typing-statistics";
+import type { TypingStatisticsClient } from "./settings/typing-statistics-model";
 import { VocabularyReviewPage, type VocabularyReviewClient } from "./settings/vocabulary-review";
 import {
   type McpClientId,
@@ -472,19 +482,24 @@ import type { PluginPreferences } from "./settings/plugin-preferences";
 import { AboutSettingsPage } from "./settings/pages/about-page";
 import { UsageReportingSettingsPage } from "./settings/pages/usage-reporting-page";
 import { PrivacySettingsPage } from "./settings/pages/privacy-page";
-import type { CustomHelpcodeSchema, HelpcodePreferences } from "./settings/pages/helpcode-page";
+import type { CustomHelpcodeSchema, HelpcodePreferences } from "./settings/helpcode-preferences";
 import type { ClipboardHistoryClient } from "./settings/clipboard-history-section";
 import type { CloudClipboardRequest } from "./settings/cloud-clipboard-send";
-import { type FuzzyPinyinPreferences } from "./settings/fuzzy-pinyin-section";
-import { type NavigationPreferences } from "./settings/word-character-section";
-import { type MixedInputPreferences } from "./settings/mixed-input-section";
-import { type FrequencyPreferences } from "./settings/frequency-section";
-import { type LocalModePreferences } from "./settings/local-modes-section";
+import { type FuzzyPinyinPreferences } from "./settings/fuzzy-pinyin-preferences";
+import type { TranslationLanguage } from "./settings/translation-language-helpers";
+import type {
+  NavigationPreferences,
+  WordCharacterPreferences,
+} from "./settings/candidate-paging-preferences";
+import type { SentenceAssociationPreferences } from "./settings/sentence-association-preferences";
+import type { MixedInputPreferences } from "./settings/mixed-input-preferences";
+import type { FrequencyPreferences } from "./settings/frequency-preferences";
+import { type LocalModePreferences } from "./settings/local-mode-preferences";
 import { floatingToolbarPreferences } from "./settings/floating-toolbar-preferences";
-import type { SurfaceTheme, ThemeMode } from "./settings/theme-settings-section";
-import type { TouchToolbarPreferences } from "./settings/touch-keyboard-geometry-section";
+import type { ThemeMode, ThemePreferences } from "./settings/theme-preferences";
+import type { TouchToolbarPreferences } from "./settings/touch-keyboard-toolbar-preferences";
 import { HelpSettingsPage } from "./settings/help-settings-page";
-import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-feedback-section";
+import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-feedback";
 import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";
 import { defaultTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";
@@ -655,12 +670,15 @@ export {
   HelpcodeSettingsPage,
   HelpcodeSettingsGroup,
   type HelpcodeSettingsGroupProps,
+} from "./settings/pages/helpcode-page";
+export {
+  helpcodeSchemaOptions,
   type CustomHelpcodeSchema,
   type HelpcodePackOption,
   type HelpcodePreferences,
   type HelpcodeSchema,
   type HelpcodeSettings,
-} from "./settings/pages/helpcode-page";
+} from "./settings/helpcode-preferences";
 export {
   ClipboardHistorySection,
   type ClipboardHistoryClient,
@@ -692,6 +710,11 @@ export {
 } from "./settings/word-character-section";
 export { NavigationSection } from "./settings/navigation-section";
 export {
+  enabledPagingShortcuts,
+  navigationShortcutItems,
+  wordCharacterKeyOptions,
+} from "./settings/candidate-paging-options";
+export {
   handwritingPrivacyText,
   type HandwritingPlatform,
 } from "./settings/handwriting-platform-notice";
@@ -712,6 +735,7 @@ export {
   type CandidateTranslationSettingsSectionProps,
 } from "./settings/candidate-translation-settings-section";
 export { PunctuationSection, type PunctuationPreferences } from "./settings/punctuation-section";
+export { punctuationControlState } from "./settings/punctuation-preferences";
 export {
   MixedInputSection,
   defaultMixedInput,
@@ -732,6 +756,7 @@ export {
   type LocalModeKey,
   type LocalModePreferences,
 } from "./settings/local-modes-section";
+export { localModeRowsFor, type LocalModeRow } from "./settings/local-mode-options";
 export {
   PluginsSection,
   MAX_MENTIONS,
@@ -779,13 +804,13 @@ export {
   type MusicPreferences,
   type PluginPreferences,
 } from "./settings/plugin-preferences";
-export {
-  ThemeSettingsSection,
-  type SurfaceTheme,
-  type ThemeMode,
-  type ThemePreferenceKey,
-  type ThemePreferences,
-} from "./settings/theme-settings-section";
+export { ThemeSettingsSection } from "./settings/theme-settings-section";
+export type {
+  SurfaceTheme,
+  ThemeMode,
+  ThemePreferenceKey,
+  ThemePreferences,
+} from "./settings/theme-preferences";
 export { SurfaceThemeSelect, type SurfaceThemeSelectProps } from "./settings/surface-theme-select";
 export { SurfaceThemeRow, type SurfaceThemeRowProps } from "./settings/surface-theme-row";
 export { ShortcutRow, type ShortcutRowProps } from "./settings/shortcut-row";
@@ -795,6 +820,12 @@ export { OpenPanelRow, type OpenPanelRowProps } from "./settings/open-panel-row"
 export { ActionRow, type ActionRowProps } from "./settings/action-row";
 export { ActionButton, type ActionButtonProps } from "./settings/action-button";
 export { FeedbackKindOptions } from "./settings/feedback-kind-options";
+export {
+  feedbackDiagnostics,
+  feedbackMaxText,
+  feedbackTypes,
+  type FeedbackDiagnosticsSource,
+} from "./settings/feedback-contracts";
 export { OpenPanelButton, type OpenPanelButtonProps } from "./settings/open-panel-button";
 export {
   VoiceLanguageOptions,
@@ -812,6 +843,7 @@ export {
   type PreeditStyleSelectProps,
 } from "./settings/preedit-style-select";
 export { PreeditStyleRow, type PreeditStyleRowProps } from "./settings/preedit-style-row";
+export { preeditControlState } from "./settings/preedit-preferences";
 export {
   CandidateColorsSection,
   type CandidateColorKey,
@@ -844,6 +876,11 @@ export {
 } from "./settings/candidate-window-style-section";
 export { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
 export { CandidateLayoutSection, type CandidateLayout } from "./settings/candidate-layout-section";
+export { candidateLayoutOptions } from "./settings/candidate-layout-options";
+export { themeModeOptions } from "./settings/theme-mode-options";
+export { candidateTabs, type CandidateTab } from "./settings/candidate-tabs";
+export { expressionTabs, type ExpressionTab } from "./settings/expression-tabs";
+export { inputTabs, type InputTab } from "./settings/input-tabs";
 export {
   CandidateFollowCursorSection,
   type CandidateFollowCursorSectionProps,
@@ -924,6 +961,7 @@ export {
   type TelemetrySectionProps,
 } from "./settings/telemetry-section";
 export { WubiSection, type WubiPreferences, type WubiSectionProps } from "./settings/wubi-section";
+export { wubiControlState } from "./settings/wubi-preferences";
 export {
   WubiCodeLookupSection,
   WUBI_CODE_LOOKUP_MAX_LENGTH,
@@ -974,6 +1012,11 @@ export {
   type InputModeShortcutPreferences,
   type InputModeShortcutsSectionProps,
 } from "./settings/input-mode-shortcuts-section";
+export {
+  languageSwitchChoice,
+  languageSwitchPatch,
+  type LanguageSwitchChoice,
+} from "./settings/input-mode-shortcuts-model";
 export {
   ShortcutsIntroSection,
   type ShortcutsIntroSectionProps,
@@ -1106,6 +1149,11 @@ export {
   type VoiceHotkeyPlatform,
 } from "./settings/voice-hotkeys-section";
 export { FloatingToolbarPlatformNotice } from "./settings/floating-toolbar-platform-notice";
+export {
+  floatingToolbarButtonOptions,
+  floatingToolbarFontSizes,
+  floatingToolbarScales,
+} from "./settings/floating-toolbar-options";
 export {
   DoubaoAuthModeSection,
   type DoubaoAuthMode,
@@ -1562,24 +1610,26 @@ export {
   HandwritingPanel,
   KeyboardPanel,
   VoicePanel,
-  type CloudCandidate,
-  type CloudCandidateKind,
-  type CloudClipboardAction,
-  type CloudClipboardPanelClient,
-  type CloudDictionaryAction,
-  type CloudDictionaryCatalogEntry,
-  type CloudDictionaryEntry,
-  type CloudDictionaryFileFormat,
-  type CloudDictionaryKind,
-  type CloudDictionaryPanelClient,
-  type CloudDictionarySnapshotMetadata,
-  type CloudDictionarySnapshotRequest,
-  type CloudFixedPosition,
-  type CloudRankingMode,
-  type EmojiPanelClient,
-  type PanelClient,
-  type VoicePanelClient,
 } from "./keyboard/panels";
+export type {
+  CloudCandidate,
+  CloudCandidateKind,
+  CloudClipboardAction,
+  CloudClipboardPanelClient,
+  CloudDictionaryAction,
+  CloudDictionaryCatalogEntry,
+  CloudDictionaryEntry,
+  CloudDictionaryFileFormat,
+  CloudDictionaryKind,
+  CloudDictionaryPanelClient,
+  CloudDictionarySnapshotMetadata,
+  CloudDictionarySnapshotRequest,
+  CloudFixedPosition,
+  CloudRankingMode,
+  EmojiPanelClient,
+  PanelClient,
+  VoicePanelClient,
+} from "./keyboard/panel-client";
 export {
   usePanelAction,
   type PanelAction,
@@ -1651,18 +1701,7 @@ export {
   type ResourcePackStatus,
 } from "./settings/resource-packs";
 
-export type KeybindingPreferences = {
-  switch_language_shift: boolean;
-  switch_language_ctrl: boolean;
-  switch_language_ctrl_space?: boolean;
-  switch_language_ctrl_alt_space: boolean;
-  toggle_character_set_ctrl_shift_f: boolean;
-  toggle_fullwidth_option_shift_h: boolean;
-  /** 单按 Caps Lock 切换中英文，长按照常是大写锁定。缺省为关。 */
-  switch_language_caps_lock?: boolean;
-  /** Ctrl+Shift+J 在中文和日语之间切换。缺省为关。 */
-  toggle_japanese_ctrl_shift_j?: boolean;
-};
+export type { KeybindingPreferences } from "./settings/keybinding-preferences";
 export type HostPlatform = "windows" | "macos" | "linux" | "android" | "ios" | "harmony";
 /** Mirrors `client-core::preferences::InputScheme`. */
 export type InputScheme =
@@ -1835,173 +1874,128 @@ export interface EditionInfo {
 
 export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 
-/** Local whole-sentence candidate sources and optional neural reranking. */
-export type SentenceAssociationPreferences = {
-  word_lattice?: boolean;
-  neural_desktop?: boolean;
-  neural_keyboard?: boolean;
-  show_next_on_duplicate?: boolean;
-};
+export type { SentenceAssociationPreferences } from "./settings/sentence-association-preferences";
 
-export type Preferences = {
-  theme?: ThemeMode;
-  settings_theme?: SurfaceTheme;
-  candidate_theme?: SurfaceTheme;
-  toolbar_theme?: SurfaceTheme;
-  screen_keyboard_theme?: SurfaceTheme;
-  handwriting_theme?: SurfaceTheme;
-  voice_theme?: SurfaceTheme;
-  emoji_theme?: SurfaceTheme;
-  menu_theme?: SurfaceTheme;
-  ai_assistant?: AiAssistantPreferences;
-  sentence_association?: SentenceAssociationPreferences;
-  custom_translation?: { enabled: boolean; endpoint: string; api_key: string };
-  tencent_tmt?: { enabled: boolean; secret_id: string; secret_key: string; region: string };
-  niutrans?: { enabled: boolean; app_id: string; apikey: string };
-  voice_input?: VoiceInputPreferences;
-  local_modes?: LocalModePreferences;
-  clipboard_history?: boolean;
-  /** 自建云剪贴板中继的地址和令牌；缺省或地址为空表示走水杉账号。两项要么都空，要么都合规，见 `crates/client-core/src/clipboard_relay.rs`。 */
-  cloud_clipboard_relay?: { url: string; token: string };
-  cloud_candidates?: boolean;
-  candidate_translations?: boolean;
-  candidate_english_gloss?: boolean;
-  candidate_pronunciation?: boolean;
-  english_suggestions?: boolean;
-  translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
-  /** Optional second candidate-translation language; null/absent keeps one gloss row. */
-  translation_secondary_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko" | null;
-  /** The user explicitly chose the MSIME account (api.msime.app) for candidate translations; absent means not chosen. */
-  translation_account?: boolean;
-  /** Anonymous usage reporting (daily activity, session ends, crash summaries) read by every host; absent means on, the default. */
-  usage_reporting?: boolean;
-  floating_toolbar?: FloatingToolbarPreferences;
-  mixed_input?: MixedInputPreferences;
-  fuzzy_pinyin?: FuzzyPinyinPreferences;
-  frequency?: FrequencyPreferences;
-  word_character?: { enabled: boolean; keys: "brackets" | "minus_equal" };
-  /** 组字时 `;` 选第二个候选、`'` 选第三个。关闭时不写进文档；目前只有 Windows 接入，本页不显示这一项。 */
-  second_third_candidate?: { enabled: boolean; keys: "semicolon_quote" };
-  navigation?: NavigationPreferences;
-  keybindings?: KeybindingPreferences;
-  scheme: InputScheme;
-  /** Width used when desktop hosts commit printable ASCII characters. */
-  character_width?: "halfwidth" | "fullwidth";
-  wubi_code_hint?: boolean;
-  /** 五笔四码唯一候选自动上屏；缺省为开。 */
-  wubi_auto_commit_unique?: boolean;
-  /** 触屏键盘的布局；`fourteen_key` 是全拼 14 键，`nine_key_shuangpin` 是九键双拼，都只配全拼。 */
-  touch_keyboard_layout?:
-    | "twenty_six_key"
-    | "nine_key"
-    | "handwriting"
-    | "fourteen_key"
-    | "nine_key_shuangpin";
-  touch_keyboard_schemes?: TouchKeyboardSchemePreferences;
-  touch_key_spacing_tenths?: number;
-  touch_row_spacing_tenths?: number;
-  touch_keyboard_height_adjustment?: number;
-  touch_voice_shortcut?: boolean;
-  /** 九宫格数字层的排列：电话（1 2 3 在上）或计算器（7 8 9 在上）。 */
-  touch_number_keypad_order?: "phone" | "calculator";
-  /** 26 键按「123」时的数字层：一行 1 到 0，或九宫格那样的 3×3 数字键。 */
-  touch_twenty_six_key_number_layout?: "row" | "nine_key";
-  /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为开。 */
-  touch_shuangpin_key_hints?: boolean;
-  touch_toolbar?: Partial<TouchToolbarPreferences>;
-  default_ime_mode?: "chinese" | "english";
-  ime_mode_scope?: "app" | "global";
-  /** 应用例外：键是应用标识（macOS 的 bundle id、Windows 的进程基名），值是切到该应用时的起始模式。没有规则时文档里没有这个键。 */
-  app_input_mode_rules?: Record<string, AppInputModeRule>;
-  last_chinese_scheme?: ChineseScheme | null;
-  /** `custom` 用下面的 `shuangpin_custom_profile`；表不能用时输入法按小鹤运行。 */
-  shuangpin_profile: BuiltinShuangpinProfile | "custom";
-  /** 自定义双拼的键位表。选别的方案时保留，切回 `custom` 还能用；空表不写进文档。 */
-  shuangpin_custom_profile?: ShuangpinCustomProfile;
-  /** 九键双拼用哪张表，只有触屏宿主用；等于默认值 `migala3` 时文档里没有这一项。 */
-  nine_key_shuangpin_profile?: "migala2" | "migala3" | "gushi2_low" | "custom";
-  /** 九键双拼的自定义表，形状同 `shuangpin_custom_profile`，键是数字；空表不写进文档。 */
-  nine_key_shuangpin_custom_profile?: ShuangpinCustomProfile;
-  /** 五笔用 86 还是 98 码表，只在方案为五笔时起作用；缺省为 86。 */
-  wubi_profile?: "wubi86" | "wubi98";
-  /** macOS exposes the native shuangpin preedit presentation in the appearance page. */
-  shuangpin_preedit_uses_raw?: boolean;
-  /** 「输入时显示双拼键位提示」。没选过时文档里没有这一项，按关显示；macOS 那时仍沿用本机旧的选择。 */
-  shuangpin_keymap_hint?: boolean;
-  vietnamese?: VietnamesePreferences;
-  wubi_mixed_pinyin?: boolean;
-  /** 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字；缺省为关。 */
-  single_character_only?: boolean;
-  candidate_page_size: number;
-  number_row_selection?: boolean;
-  candidate_font_size?: number;
-  candidate_preedit_font_size?: number;
-  /** Whole candidate window scale in percent (50-200, default 100): the font size and every geometry constant are multiplied by it. Absent means 100; the core does not write the default. */
-  candidate_scale_percent?: number;
-  /** Alpha of the candidate card fill, border and skin background in percent (50-100, default 100); text and the selection stay opaque. */
-  candidate_opacity_percent?: number;
-  /** Candidate card corner radius in points (0-32). Absent or null follows the skin package's radius, then the host's own. */
-  candidate_corner_radius?: number | null;
-  /** Space between the candidate card's edge and its candidates in points (0-16), before the scale. Absent or null follows the skin package, then the host's own (macOS 6pt). */
-  candidate_padding?: number | null;
-  candidate_follow_cursor?: boolean;
-  /** 切换中英文后在光标旁短暂显示的徽标（macOS、Windows、Linux 和鸿蒙 2in1）。 */
-  input_mode_hud?: boolean;
-  /** macOS 菜单栏里常驻显示当前输入模式（中/双/五/日……，英文时为「英」）的状态项，默认关闭。 */
-  input_mode_status_item?: boolean;
-  candidate_font_family?: string;
-  candidate_english_font?: string | null;
-  candidate_fallback_fonts?: string[];
-  candidate_layout?: "horizontal" | "vertical";
-  /** Inline (host-drawn) preedit. Linux applies it via ClientEngine preedit_style(). */
-  tsf_preedit_style?: "raw" | "pinyin" | "empty";
-  candidate_preedit_style?: "pinyin" | "empty";
-  show_candidate_page_number?: boolean;
-  /** 候选窗和悬浮工具栏左端的水杉 logo。新装默认隐藏，旧文档缺这个字段时读成显示。 */
-  show_app_logo?: boolean;
-  /** 「展开候选」：横排候选窗按 ↓ 展开成多行候选网格，默认关闭。 */
-  expand_candidates?: boolean;
-  /** 展开按钮独立于页码显示，缺字段时默认开启。 */
-  show_candidate_expand_button?: boolean;
-  /** The one theme for the candidate window, floating toolbar, menus and touch keyboard. `theme` stays the light/dark mode that `system` and the settings window follow. */
-  global_theme?: GlobalTheme;
-  /** What the `custom` global theme is made of: an external candidate skin package, the seven candidate colour pickers and the keyboard editor design. */
-  custom_theme?: CustomTheme;
-  learning: boolean;
-  diagnostic_log?: { server?: boolean; tsf?: boolean };
-  /** 只有 Windows TSF 读取：游戏声明自己画候选却不画时由水杉的候选窗显示。由 Windows 原生设置页编辑，这个页面没有对应控件；缺省为开启、两张进程表为空。 */
-  game_compatibility?: {
-    candidate_overlay?: boolean;
-    overlay_processes?: string[];
-    excluded_processes?: string[];
+export type Preferences = PunctuationPreferences &
+  PreeditPreferences &
+  WubiPreferences &
+  CandidateFontPreferences &
+  CandidateSizingPreferences &
+  CandidateWindowStylePreferences &
+  ThemePreferences & {
+    theme?: ThemeMode;
+    ai_assistant?: AiAssistantPreferences;
+    sentence_association?: SentenceAssociationPreferences;
+    custom_translation?: { enabled: boolean; endpoint: string; api_key: string };
+    tencent_tmt?: { enabled: boolean; secret_id: string; secret_key: string; region: string };
+    niutrans?: { enabled: boolean; app_id: string; apikey: string };
+    voice_input?: VoiceInputPreferences;
+    local_modes?: LocalModePreferences;
+    clipboard_history?: boolean;
+    /** 自建云剪贴板中继的地址和令牌；缺省或地址为空表示走水杉账号。两项要么都空，要么都合规，见 `crates/client-core/src/clipboard_relay.rs`。 */
+    cloud_clipboard_relay?: { url: string; token: string };
+    cloud_candidates?: boolean;
+    candidate_translations?: boolean;
+    candidate_english_gloss?: boolean;
+    candidate_pronunciation?: boolean;
+    english_suggestions?: boolean;
+    translation_target_language?: TranslationLanguage;
+    /** 可选的第二种候选翻译语言；null 或缺省表示只显示一行释义。 */
+    translation_secondary_language?: TranslationLanguage | null;
+    /** The user explicitly chose the MSIME account (api.msime.app) for candidate translations; absent means not chosen. */
+    translation_account?: boolean;
+    /** Anonymous usage reporting (daily activity, session ends, crash summaries) read by every host; absent means on, the default. */
+    usage_reporting?: boolean;
+    floating_toolbar?: FloatingToolbarPreferences;
+    mixed_input?: MixedInputPreferences;
+    fuzzy_pinyin?: FuzzyPinyinPreferences;
+    frequency?: FrequencyPreferences;
+    word_character?: WordCharacterPreferences;
+    /** 组字时 `;` 选第二个候选、`'` 选第三个。关闭时不写进文档；目前只有 Windows 接入，本页不显示这一项。 */
+    second_third_candidate?: { enabled: boolean; keys: "semicolon_quote" };
+    navigation?: NavigationPreferences;
+    keybindings?: KeybindingPreferences;
+    scheme: InputScheme;
+    /** 触屏键盘的布局；`fourteen_key` 是全拼 14 键，`nine_key_shuangpin` 是九键双拼，都只配全拼。 */
+    touch_keyboard_layout?:
+      | "twenty_six_key"
+      | "nine_key"
+      | "handwriting"
+      | "fourteen_key"
+      | "nine_key_shuangpin";
+    touch_keyboard_schemes?: TouchKeyboardSchemePreferences;
+    touch_key_spacing_tenths?: number;
+    touch_row_spacing_tenths?: number;
+    touch_keyboard_height_adjustment?: number;
+    touch_voice_shortcut?: boolean;
+    /** 九宫格数字层的排列：电话（1 2 3 在上）或计算器（7 8 9 在上）。 */
+    touch_number_keypad_order?: "phone" | "calculator";
+    /** 26 键按「123」时的数字层：一行 1 到 0，或九宫格那样的 3×3 数字键。 */
+    touch_twenty_six_key_number_layout?: "row" | "nine_key";
+    /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为开。 */
+    touch_shuangpin_key_hints?: boolean;
+    touch_toolbar?: Partial<TouchToolbarPreferences>;
+    default_ime_mode?: "chinese" | "english";
+    ime_mode_scope?: "app" | "global";
+    /** 应用例外：键是应用标识（macOS 的 bundle id、Windows 的进程基名），值是切到该应用时的起始模式。没有规则时文档里没有这个键。 */
+    app_input_mode_rules?: Record<string, AppInputModeRule>;
+    last_chinese_scheme?: ChineseScheme | null;
+    /** `custom` 用下面的 `shuangpin_custom_profile`；表不能用时输入法按小鹤运行。 */
+    shuangpin_profile: BuiltinShuangpinProfile | "custom";
+    /** 自定义双拼的键位表。选别的方案时保留，切回 `custom` 还能用；空表不写进文档。 */
+    shuangpin_custom_profile?: ShuangpinCustomProfile;
+    /** 九键双拼用哪张表，只有触屏宿主用；等于默认值 `migala3` 时文档里没有这一项。 */
+    nine_key_shuangpin_profile?: "migala2" | "migala3" | "gushi2_low" | "custom";
+    /** 九键双拼的自定义表，形状同 `shuangpin_custom_profile`，键是数字；空表不写进文档。 */
+    nine_key_shuangpin_custom_profile?: ShuangpinCustomProfile;
+    /** 五笔用 86 还是 98 码表，只在方案为五笔时起作用；缺省为 86。 */
+    wubi_profile?: "wubi86" | "wubi98";
+    /** 「输入时显示双拼键位提示」。没选过时文档里没有这一项，按关显示；macOS 那时仍沿用本机旧的选择。 */
+    shuangpin_keymap_hint?: boolean;
+    vietnamese?: VietnamesePreferences;
+    /** 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字；缺省为关。 */
+    single_character_only?: boolean;
+    candidate_page_size: number;
+    number_row_selection?: boolean;
+    candidate_follow_cursor?: boolean;
+    /** 切换中英文后在光标旁短暂显示的徽标（macOS、Windows、Linux 和鸿蒙 2in1）。 */
+    input_mode_hud?: boolean;
+    /** macOS 菜单栏里常驻显示当前输入模式（中/双/五/日……，英文时为「英」）的状态项，默认关闭。 */
+    input_mode_status_item?: boolean;
+    candidate_layout?: "horizontal" | "vertical";
+    show_candidate_page_number?: boolean;
+    /** 候选窗和悬浮工具栏左端的水杉 logo。新装默认隐藏，旧文档缺这个字段时读成显示。 */
+    show_app_logo?: boolean;
+    /** 「展开候选」：横排候选窗按 ↓ 展开成多行候选网格，默认关闭。 */
+    expand_candidates?: boolean;
+    /** 展开按钮独立于页码显示，缺字段时默认开启。 */
+    show_candidate_expand_button?: boolean;
+    /** The one theme for the candidate window, floating toolbar, menus and touch keyboard. `theme` stays the light/dark mode that `system` and the settings window follow. */
+    global_theme?: GlobalTheme;
+    /** What the `custom` global theme is made of: an external candidate skin package, the seven candidate colour pickers and the keyboard editor design. */
+    custom_theme?: CustomTheme;
+    learning: boolean;
+    diagnostic_log?: { server?: boolean; tsf?: boolean };
+    /** 只有 Windows TSF 读取：游戏声明自己画候选却不画时由水杉的候选窗显示。由 Windows 原生设置页编辑，这个页面没有对应控件；缺省为开启、两张进程表为空。 */
+    game_compatibility?: {
+      candidate_overlay?: boolean;
+      overlay_processes?: string[];
+      excluded_processes?: string[];
+    };
+    quanpin?: {
+      autocorrect_transposition?: boolean;
+      autocorrect_neighbor?: boolean;
+    };
+    quanpin_helpcode?: HelpcodePreferences;
+    shuangpin_helpcode?: HelpcodePreferences;
+    traditional_chinese_output?: boolean;
+    /** 繁体输出用的 OpenCC 配置：标准繁体、台湾正体、台湾正体加惯用词。缺省为 `s2t`，等于缺省时文档里没有这个键。 */
+    traditional_chinese_variant?: TraditionalChineseVariant;
+    /** 中英文之间加空格：上屏文本里汉字与 ASCII 字母、数字相邻处加一个半角空格。缺省为关，关着时文档里没有这个键。 */
+    chinese_english_spacing?: boolean;
+    /** Sound packs, music and command tables; the document leaves it out while every value is the default. */
+    plugins?: PluginPreferences;
   };
-  quanpin?: {
-    autocorrect_transposition?: boolean;
-    autocorrect_neighbor?: boolean;
-  };
-  quanpin_helpcode?: HelpcodePreferences;
-  shuangpin_helpcode?: HelpcodePreferences;
-  chinese_punctuation: boolean;
-  smart_punctuation?: boolean;
-  smart_punctuation_repeat?: boolean;
-  smart_punctuation_space_convert?: boolean;
-  smart_punctuation_direct_digit?: boolean;
-  smart_punctuation_direct_letter?: boolean;
-  paired_punctuation?: boolean;
-  punctuation_lock?: "follow" | "chinese" | "english";
-  caps_lock_ascii_punctuation?: boolean;
-  /** 中文标点下引号键的样式；缺省为弯引号，等于缺省时文档里没有这个键。 */
-  quote_style?: "curly" | "corner" | "corner_when_traditional";
-  /** 中文标点下方头括号键的样式；缺省为实心，等于缺省时文档里没有这个键。 */
-  bracket_style?: "solid" | "hollow";
-  traditional_chinese_output?: boolean;
-  /** 繁体输出用的 OpenCC 配置：标准繁体、台湾正体、台湾正体加惯用词。缺省为 `s2t`，等于缺省时文档里没有这个键。 */
-  traditional_chinese_variant?: TraditionalChineseVariant;
-  /** 中英文之间加空格：上屏文本里汉字与 ASCII 字母、数字相邻处加一个半角空格。缺省为关，关着时文档里没有这个键。 */
-  chinese_english_spacing?: boolean;
-  /** Sound packs, music and command tables; the document leaves it out while every value is the default. */
-  plugins?: PluginPreferences;
-};
 export type AiAssistantPreferences = {
   enabled: boolean;
   provider: string;
@@ -2247,11 +2241,9 @@ export type FloatingToolbarPreferences = {
   scale_percent: 75 | 100 | 125 | 150;
   font_size: 16 | 18 | 20 | 22 | 24 | 26 | 28;
 };
-/** What the macOS settings app did with the input method it carries when it started. */
-export {
-  InputSourceStartupNotice,
-  type InputSourceStartupStatus,
-} from "./settings/input-source-startup-notice";
+export { InputSourceStartupNotice } from "./settings/input-source-startup-notice";
+/** macOS 设置宿主启动时对内嵌输入法的安装与启用状态。 */
+export type { InputSourceStartupStatus } from "./settings/input-source-startup-model";
 export interface SettingsClient {
   /** What the surrounding host can do. Absent hosts fall back to user-agent detection. */
   host?: HostCapabilities;
@@ -2696,6 +2688,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   } = useTouchKeyboardGeometryDrag(draft, setDraft);
   const {
     providerCredentials,
+    aiCredentialGeneration,
+    aiCredentialGenerationRef,
     aiCredentialInput,
     setAiCredentialInput,
     tencentCredentialInput,
@@ -2833,6 +2827,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     client: client.aiAssistant,
     ai,
     providerCredentialAvailable: aiProviderCredentials,
+    credentialGeneration: aiCredentialGeneration,
+    credentialGenerationRef: aiCredentialGenerationRef,
     onChange: onAiChange,
   });
   const {
@@ -3724,6 +3720,10 @@ function SettingsShell(props: SettingsPageProps) {
                 inputSourceStartup={inputSourceStartup}
                 onOpenSettings={statusActions.onOpenSettings}
                 onDismiss={statusActions.onDismiss}
+                saveError={
+                  saveState === "failed" && draft && isSettingsFormPage(page) ? saveError : ""
+                }
+                onRetrySave={() => void retrySave()}
               />
               {client.notices && (
                 <NoticeBanner client={client.notices} openExternalUrl={openExternalUrl} />
@@ -4028,7 +4028,8 @@ function SettingsShell(props: SettingsPageProps) {
                   <SettingsFormFooter
                     draft={draft}
                     busy={busy}
-                    saveState={saveState}
+                    // 保存失败由页面顶部的提示说明并重试（SettingsPageStatus），这一行不再重复同一个错误和按钮。
+                    saveState={saveState === "failed" ? "idle" : saveState}
                     saveError={saveError}
                     showRestoreDefaults={
                       Boolean(client.loadDefaultPreferences) &&

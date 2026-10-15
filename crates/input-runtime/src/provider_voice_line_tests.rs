@@ -119,3 +119,46 @@ fn voice_read_stops_when_timeout_configuration_fails() {
     );
     assert_eq!(calls.get(), 1);
 }
+
+#[test]
+fn voice_read_keeps_the_final_line_after_the_peer_closes() {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+
+    let (mut reader, mut writer) = UnixStream::pair().unwrap();
+    let line = format!("{{\"text\":\"{}\"}}\n", "合成语音".repeat(256));
+    writer.write_all(line.as_bytes()).unwrap();
+    drop(writer);
+    assert_eq!(
+        super::read_voice_provider_line(
+            &mut reader,
+            &mut Vec::new(),
+            Instant::now() + Duration::from_secs(1),
+            None,
+        ),
+        Some(line)
+    );
+}
+
+#[test]
+fn voice_read_rejects_an_incomplete_line_after_the_peer_closes() {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+
+    for bytes in [b"".as_slice(), b"{\"text\":\"synthetic\"}"] {
+        let (mut reader, mut writer) = UnixStream::pair().unwrap();
+        writer.write_all(bytes).unwrap();
+        drop(writer);
+        let mut pending = Vec::new();
+        assert_eq!(
+            super::read_voice_provider_line(
+                &mut reader,
+                &mut pending,
+                Instant::now() + Duration::from_secs(1),
+                None,
+            ),
+            None
+        );
+        assert_eq!(pending, bytes);
+    }
+}

@@ -23,6 +23,49 @@ pub(super) fn partial_sort<T: Copy>(
     sort_heap(&mut v[..middle], before);
 }
 
+/// 按到达顺序执行 `partial_sort` 的前缀选择，最后一格只标记已经溢出。
+/// 未超过 `middle` 时保持原顺序；消费者必须用 `finish_partial` 完成堆排序。
+pub(super) fn push_partial<T: Copy>(
+    v: &mut Vec<T>,
+    middle: usize,
+    value: T,
+    before: &mut impl FnMut(&T, &T) -> bool,
+) {
+    // 收集从空向量开始，束宽保持不变；已满束是密图里最常见的路径。
+    if v.len() > middle {
+        if before(&value, &v[0]) {
+            v[0] = value;
+            sift_down(&mut v[..middle], before, 0);
+        }
+        return;
+    }
+    if v.len() < middle {
+        v.push(value);
+        return;
+    }
+    if middle == 0 {
+        return;
+    }
+    make_heap(v, before);
+    v.push(value);
+    if before(&value, &v[0]) {
+        v[0] = value;
+        sift_down(&mut v[..middle], before, 0);
+    }
+}
+
+/// 只在发生溢出后排序堆并移除标记，未溢出的列沿用原到达顺序。
+pub(super) fn finish_partial<T: Copy>(
+    v: &mut Vec<T>,
+    middle: usize,
+    before: &mut impl FnMut(&T, &T) -> bool,
+) {
+    if v.len() > middle {
+        sort_heap(&mut v[..middle], before);
+        v.truncate(middle);
+    }
+}
+
 /// `std::sort(v.begin(), v.end(), before)`.
 pub(super) fn sort<T: Copy>(v: &mut [T], before: &mut impl FnMut(&T, &T) -> bool) {
     if v.is_empty() {
@@ -555,6 +598,107 @@ mod tests {
         let mut indices: Vec<usize> = sorted.iter().map(|entry| entry.1).collect();
         indices.sort_unstable();
         assert_eq!(indices, (0..len).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn streamed_selection_preserves_every_tie_and_comparison() {
+        for len in 0..260 {
+            for middle in [0, 1, 2, 5, 32, 65, len / 2, len, usize::MAX] {
+                for distinct in [1, 2, 7, 1000] {
+                    let original = tied(&scores(len as u64 * 17 + distinct as u64, len, distinct));
+                    let mut expected = original.clone();
+                    let mut old_trace = Vec::new();
+                    if len > middle {
+                        partial_sort(&mut expected, middle, &mut |a, b| {
+                            old_trace.push((a.1, b.1));
+                            descending(a, b)
+                        });
+                        expected.truncate(middle);
+                    }
+                    let mut actual = Vec::new();
+                    let mut new_trace = Vec::new();
+                    let mut before = |a: &(i32, usize), b: &(i32, usize)| {
+                        new_trace.push((a.1, b.1));
+                        descending(a, b)
+                    };
+                    for value in original {
+                        push_partial(&mut actual, middle, value, &mut before);
+                        assert!(actual.len() <= middle.saturating_add(1));
+                    }
+                    finish_partial(&mut actual, middle, &mut before);
+                    assert_eq!(actual, expected, "{len}/{middle}/{distinct}");
+                    assert_eq!(new_trace, old_trace, "{len}/{middle}/{distinct}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn streamed_selection_preserves_monotonic_inputs() {
+        for ascending in [false, true] {
+            let values = (0..1000)
+                .map(|index| {
+                    if ascending {
+                        index / 3
+                    } else {
+                        (999 - index) / 3
+                    }
+                })
+                .collect::<Vec<_>>();
+            let original = tied(&values);
+            for middle in [0, 1, 2, 31, 32, 65, 999, 1000, 1001] {
+                let mut expected = original.clone();
+                if expected.len() > middle {
+                    partial_sort(&mut expected, middle, &mut descending);
+                    expected.truncate(middle);
+                }
+                let mut actual = Vec::new();
+                for &value in &original {
+                    push_partial(&mut actual, middle, value, &mut descending);
+                }
+                finish_partial(&mut actual, middle, &mut descending);
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn streamed_selection_preserves_non_total_float_comparisons() {
+        let values = [
+            0.0_f64,
+            -0.0,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            1.0,
+            -1.0,
+        ];
+        for seed in 0..32 {
+            for middle in [0, 1, 5, 32, 65] {
+                let original = (0..129)
+                    .map(|i| (values[(i * 11 + seed) % values.len()], i))
+                    .collect::<Vec<_>>();
+                let mut before = |a: &(f64, usize), b: &(f64, usize)| a.0 > b.0;
+                let mut expected = original.clone();
+                partial_sort(&mut expected, middle, &mut before);
+                expected.truncate(middle);
+                let mut actual = Vec::new();
+                for value in original {
+                    push_partial(&mut actual, middle, value, &mut before);
+                }
+                finish_partial(&mut actual, middle, &mut before);
+                assert_eq!(
+                    actual
+                        .iter()
+                        .map(|(score, index)| (score.to_bits(), *index))
+                        .collect::<Vec<_>>(),
+                    expected
+                        .iter()
+                        .map(|(score, index)| (score.to_bits(), *index))
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
     }
 
     #[test]

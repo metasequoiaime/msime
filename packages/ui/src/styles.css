@@ -878,7 +878,7 @@
     --cand-hover: #ececec;
     --cand-selected: #e8e8e8;
   }
-  /* macOS 宿主的默认值：原生候选窗画的 `NativeCandidateTokens`（`platforms/macos/src/candidate/CandidateSkin.cpp`）和 `SkinTokens` 的几何默认值（`CandidateSkin.h`），行上下各留的边距来自 `CandidateChrome.h` 的 `MSIMECandidateRowPadding`。改原生 token 时同步改这里，`candidate-preview-native-tokens.test.ts` 会对照原生源码检查。选中底跟随强调色（调色板换了强调色也跟着换），文字白色、序号 82% 白，不画竖条；调色板没给选中前景色时用 `candidatePaletteStyle` 按选中底推导出的 `--cand-mac-selected-*`。主题的调色板写在内联样式上，仍然压过这里，与原生「主题槽位叠在原生 token 上」一致。Windows、Linux 的默认值块还没有，它们仍画上面那套。 */
+  /* macOS 宿主的默认值：原生候选窗画的 `NativeCandidateTokens`（`platforms/macos/src/candidate/CandidateSkin.cpp`）和 `SkinTokens` 的几何默认值（`CandidateSkin.h`），行上下各留的边距来自 `CandidateChrome.h` 的 `MSIMECandidateRowPadding`。改原生 token 时同步改这里，`candidate-preview-native-tokens.test.ts` 会对照原生源码检查。选中底跟随强调色（调色板换了强调色也跟着换），文字白色、序号 82% 白，不画竖条；调色板没给选中前景色时用 `candidatePaletteStyle` 按选中底推导出的 `--cand-mac-selected-*`。主题的调色板写在内联样式上，仍然压过这里，与原生「主题槽位叠在原生 token 上」一致。Windows 使用同一套默认值；Linux 保留自己的默认值。 */
   :is([data-platform="mac"]) &[data-preview-theme="light"] {
     --cand-bg: #fffffff7;
     --cand-border: #0000001f;
@@ -903,10 +903,59 @@
     --msime-host-card-radius: 10px;
     --msime-host-row-radius: 6px;
     --msime-host-border-width: 1px;
-    --msime-host-pad: 6px;
+    --msime-host-pad: 4px;
     --msime-host-row-pad-y: 6px;
   }
   :is([data-platform="mac"]) &[data-preview-theme] :is(.wnd-h, .wnd-v) {
+    /* 与原生宿主（`CandidateSkin.h` 的 `CandidateInset`、`CandidateRowRadiusFloor`）相同：内边距至少是边框宽度，用户窗口圆角扣除它后成为行圆角。只调内边距时行圆角不小于 R - d(2 + √2)，免得高亮的角伸出卡片；这里的内边距本来就从边框内沿量起，所以 R 取卡片圆角减边框。没设用户内边距时 999px 让这一项为负，皮肤的行圆角原样保留。 */
+    --msime-candidate-pad-x: max(
+      var(--msime-host-border-width),
+      var(--msime-candidate-user-pad, var(--msime-host-pad))
+    );
+    --msime-candidate-pad-y: var(--msime-candidate-pad-x);
+    --msime-candidate-row-radius: max(
+      0px,
+      calc(
+        var(
+            --msime-candidate-user-radius,
+            calc(var(--msime-host-row-radius) + var(--msime-candidate-pad-x))
+          ) -
+          var(--msime-candidate-pad-x)
+      ),
+      calc(
+        var(--msime-skin-radius, var(--msime-host-card-radius)) - var(--msime-host-border-width) -
+          max(var(--msime-candidate-pad-x), var(--msime-candidate-user-pad, 999px)) * 3.4142
+      )
+    );
+  }
+  :is([data-platform="win"]) &[data-preview-theme="light"] {
+    --cand-bg: #fffffff7;
+    --cand-border: #0000001f;
+    --cand-text: #1d1d1f;
+    --cand-num: #6e6e73;
+    --cand-accent: #2c7a4b;
+    --cand-hover: #0000000f;
+  }
+  :is([data-platform="win"]) &[data-preview-theme="dark"] {
+    --cand-bg: #28282af7;
+    --cand-border: #ffffff1f;
+    --cand-text: #f5f5f7;
+    --cand-num: #98989d;
+    --cand-accent: #5fbf84;
+    --cand-hover: #ffffff1a;
+  }
+  :is([data-platform="win"]) &[data-preview-theme] {
+    --cand-selected: var(--cand-accent);
+    --cand-selected-text: var(--cand-mac-selected-text, #ffffff);
+    --cand-selected-num: var(--cand-mac-selected-num, #ffffffd1);
+    --cand-selected-bar: none;
+    --msime-host-card-radius: 10px;
+    --msime-host-row-radius: 6px;
+    --msime-host-border-width: 1px;
+    --msime-host-pad: 6px;
+    --msime-host-row-pad-y: 6px;
+  }
+  :is([data-platform="win"]) &[data-preview-theme] :is(.wnd-h, .wnd-v) {
     /* 与原生宿主相同：内边距至少 2pt，用户窗口圆角扣除它后成为行圆角。 */
     --msime-candidate-pad-x: max(2px, var(--msime-candidate-user-pad, var(--msime-host-pad)));
     --msime-candidate-pad-y: var(--msime-candidate-pad-x);
@@ -1745,127 +1794,122 @@
   }
 
   [data-platform="win"] {
-    --accent-color: #60cdff;
-    --accent-strong: #005fb8;
-    --accent-soft: rgba(96, 205, 255, 0.16);
-    --accent-soft-border: rgba(96, 205, 255, 0.25);
-    --dropdown-item-hover-bg: rgba(96, 205, 255, 0.2);
+    --accent-color: #5fbf84;
+    --accent-strong: #2c7a4b;
+    --accent-soft: rgba(95, 191, 132, 0.22);
+    --accent-soft-border: rgba(95, 191, 132, 0.25);
+    --dropdown-item-hover-bg: rgba(95, 191, 132, 0.2);
     --p-font:
       "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Noto Sans SC", sans-serif;
-    --p-accent-text: #60cdff;
-    --p-on-accent: #000000;
-    --p-text: #ffffff;
-    --p-sub: rgba(255, 255, 255, 0.72);
-    --p-bg: #202020;
-    --p-chrome: #202020;
-    --p-hair: rgba(255, 255, 255, 0.08);
-    --p-hover: rgba(255, 255, 255, 0.07);
-    --p-press: rgba(255, 255, 255, 0.07);
-    --p-r-ctl: 4px;
-    --p-sw-w: 40px;
-    --p-sw-h: 20px;
-    --p-sw-knob: 12px;
-    --p-sw-knob-off-size: 12px;
-    --p-sw-pad: 4px;
-    --p-sw-on: #60cdff;
-    --p-sw-off: transparent;
-    --p-sw-off-ring: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
-    --p-sw-knob-on: #000000;
-    --p-sw-knob-off: rgba(255, 255, 255, 0.8);
-    --p-sw-knob-shadow: none;
-    --p-sw-label: inline;
-    --p-seg-bg: rgba(0, 0, 0, 0.12);
-    --p-seg-border: 1px solid rgba(255, 255, 255, 0.08);
-    --p-seg-r: 5px;
-    --p-seg-item-r: 4px;
-    --p-seg-on: rgba(255, 255, 255, 0.0837);
-    --p-seg-on-fg: #ffffff;
-    --p-seg-on-shadow: none;
-    --p-seg-indicator: 16px;
+    --p-accent-text: #5fbf84;
+    --p-on-accent: #ffffff;
+    --p-text: #f5f5f7;
+    --p-sub: #98989d;
+    --p-bg: #1e1e1e;
+    --p-chrome: #2a2a2a;
+    --p-hair: rgba(255, 255, 255, 0.1);
+    --p-hover: rgba(255, 255, 255, 0.1);
+    --p-press: rgba(255, 255, 255, 0.1);
+    --p-r-ctl: 6px;
+    --p-sw-w: 38px;
+    --p-sw-h: 22px;
+    --p-sw-knob: 20px;
+    --p-sw-knob-off-size: 20px;
+    --p-sw-pad: 1px;
+    --p-sw-on: #5fbf84;
+    --p-sw-off: rgba(255, 255, 255, 0.16);
+    --p-sw-off-ring: none;
+    --p-sw-knob-on: #ffffff;
+    --p-sw-knob-off: #ffffff;
+    --p-sw-knob-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+    --p-sw-label: none;
+    --p-seg-bg: rgba(255, 255, 255, 0.08);
+    --p-seg-border: none;
+    --p-seg-r: 6px;
+    --p-seg-item-r: 5px;
+    --p-seg-on: #5a5a5e;
+    --p-seg-on-fg: #f5f5f7;
+    --p-seg-on-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 1px 1.5px rgba(0, 0, 0, 0.14);
+    --p-seg-indicator: 0;
     --p-g-title-fs: 14px;
     --p-g-title-w: 600;
-    --p-g-title-fg: #ffffff;
-    --p-g-title-pad: 8px 2px 2px;
-    --p-g-title-gap: 4px;
-    --p-group-bg: transparent;
-    --p-group-r: 0;
-    --p-group-shadow: none;
-    --p-row-gap: 4px;
-    --p-row-bg: rgba(255, 255, 255, 0.0512);
-    --p-row-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
-    --p-row-r: 4px;
-    --p-row-h: 62px;
-    --p-row-pad: 10px 20px;
+    --p-g-title-fg: #f5f5f7;
+    --p-g-title-pad: 0 8px;
+    --p-g-title-gap: 8px;
+    --p-group-bg: rgba(255, 255, 255, 0.045);
+    --p-group-r: 10px;
+    --p-group-shadow: 0 0 0 1px rgba(255, 255, 255, 0.07);
+    --p-row-gap: 0;
+    --p-row-bg: transparent;
+    --p-row-shadow: none;
+    --p-row-r: 0;
+    --p-row-h: 56px;
+    --p-row-pad: 10px 16px;
     --p-row-fs: 14px;
     --p-sub-fs: 12px;
-    --p-row-divider: transparent;
+    --p-row-divider: rgba(255, 255, 255, 0.1);
     --p-row-divider-w: 1px;
     --p-row-divider-inset: 0;
     --p-row-ctl-gap: 12px;
-    --p-row-icon: flex;
-    --p-sel-bg: rgba(255, 255, 255, 0.06);
-    --p-sel-fg: #ffffff;
-    --p-sel-border: 1px solid rgba(255, 255, 255, 0.08);
-    --p-sel-pad: 5px 11px;
+    --p-row-icon: none;
+    --p-sel-bg: transparent;
+    --p-sel-fg: #f5f5f7;
+    --p-sel-border: none;
+    --p-sel-sizing: content;
+    --p-sel-pad: 1px 2px;
     --p-sel-fs: 14px;
-    --p-sel-sizing: fixed;
-    --p-btn-bg: rgba(255, 255, 255, 0.06);
-    --p-btn-fg: #ffffff;
-    --p-btn-border: 1px solid rgba(255, 255, 255, 0.08);
-    --p-title-fs: 28px;
-    --p-title-w: 600;
-    --p-groups-gap: 8px;
-    --p-slider-appearance: auto;
+    --p-btn-bg: rgba(255, 255, 255, 0.14);
+    --p-btn-fg: #f5f5f7;
+    --p-btn-border: 0.5px solid rgba(255, 255, 255, 0.1);
+    --p-title-fs: 26px;
+    --p-title-w: 700;
+    --p-groups-gap: 24px;
+    --p-slider-appearance: none;
     --p-slider-track-h: 4px;
-    --p-slider-track: rgba(120, 120, 128, 0.36);
-    --p-slider-knob-w: 22px;
-    --p-slider-knob-h: 22px;
+    --p-slider-track: rgba(255, 255, 255, 0.18);
+    --p-slider-knob-w: 20px;
+    --p-slider-knob-h: 20px;
     --p-slider-knob-r: 50%;
     --p-slider-knob: #ffffff;
-    --p-slider-knob-shadow:
-      0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 3px 8px rgba(0, 0, 0, 0.15), 0 3px 1px rgba(0, 0, 0, 0.06);
+    --p-slider-knob-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.3);
     --p-nav-h: 36px;
-    --p-nav-r: 4px;
-    --p-nav-pad: 0 12px;
-    --p-nav-selected-bg: rgba(255, 255, 255, 0.07);
-    --p-nav-pill: 3px;
-    --p-check-size: 20px;
+    --p-nav-r: 8px;
+    --p-nav-pad: 0 10px;
+    --p-nav-selected-bg: rgba(255, 255, 255, 0.1);
+    --p-nav-pill: 0;
+    --p-check-size: 18px;
     --p-check-r: 4px;
   }
 
   html[data-theme="light"] [data-platform="win"] {
-    --accent-color: #005fb8;
-    --accent-soft: rgba(0, 95, 184, 0.1);
-    --accent-soft-border: rgba(0, 95, 184, 0.22);
-    --dropdown-item-hover-bg: rgba(0, 95, 184, 0.12);
-    --p-accent-text: #005fb8;
-    --p-on-accent: #ffffff;
-    --p-text: #1b1b1b;
-    --p-sub: #5e5e5e;
-    --p-bg: #f3f3f3;
-    --p-chrome: #f3f3f3;
-    --p-hair: rgba(0, 0, 0, 0.08);
-    --p-hover: rgba(0, 0, 0, 0.045);
-    --p-press: rgba(0, 0, 0, 0.045);
-    --p-sw-on: #005fb8;
-    --p-sw-off-ring: inset 0 0 0 1px rgba(0, 0, 0, 0.6);
-    --p-sw-knob-on: #ffffff;
-    --p-sw-knob-off: rgba(0, 0, 0, 0.62);
-    --p-seg-bg: rgba(0, 0, 0, 0.04);
-    --p-seg-border: 1px solid rgba(0, 0, 0, 0.08);
-    --p-seg-on: rgba(0, 0, 0, 0.0578);
-    --p-seg-on-fg: #1b1b1b;
-    --p-g-title-fg: #1b1b1b;
-    --p-row-bg: rgba(255, 255, 255, 0.7);
-    --p-row-shadow: 0 0 0 1px rgba(0, 0, 0, 0.0578);
-    --p-sel-bg: #ffffff;
-    --p-sel-fg: #1b1b1b;
-    --p-sel-border: 1px solid rgba(0, 0, 0, 0.08);
+    --accent-color: #2c7a4b;
+    --accent-soft: rgba(44, 122, 75, 0.12);
+    --accent-soft-border: rgba(44, 122, 75, 0.22);
+    --dropdown-item-hover-bg: rgba(44, 122, 75, 0.12);
+    --p-accent-text: #2c7a4b;
+    --p-text: #1d1d1f;
+    --p-sub: #6e6e73;
+    --p-bg: #ffffff;
+    --p-chrome: #f6f6f6;
+    --p-hair: rgba(0, 0, 0, 0.09);
+    --p-hover: rgba(0, 0, 0, 0.06);
+    --p-press: rgba(0, 0, 0, 0.06);
+    --p-sw-on: #2c7a4b;
+    --p-sw-off: rgba(0, 0, 0, 0.09);
+    --p-sw-off-ring: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+    --p-seg-bg: rgba(0, 0, 0, 0.055);
+    --p-seg-on: #ffffff;
+    --p-seg-on-fg: #1d1d1f;
+    --p-g-title-fg: #1d1d1f;
+    --p-group-bg: #ffffff;
+    --p-group-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+    --p-row-divider: rgba(0, 0, 0, 0.09);
+    --p-sel-fg: #1d1d1f;
     --p-btn-bg: #ffffff;
-    --p-btn-fg: #1b1b1b;
-    --p-btn-border: 1px solid rgba(0, 0, 0, 0.08);
-    --p-slider-track: rgba(120, 120, 128, 0.2);
-    --p-nav-selected-bg: rgba(0, 0, 0, 0.045);
+    --p-btn-fg: #1d1d1f;
+    --p-btn-border: 0.5px solid rgba(0, 0, 0, 0.2);
+    --p-slider-track: rgba(0, 0, 0, 0.1);
+    --p-nav-selected-bg: rgba(0, 0, 0, 0.06);
   }
 
   [data-platform="mac"] {

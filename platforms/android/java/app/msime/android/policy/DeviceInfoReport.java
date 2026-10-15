@@ -7,7 +7,7 @@ import java.util.Locale;
 /**
  * 「关于」和「帮助与反馈」里的设备信息：每一项怎么显示，以及「复制设备信息」复制出去的文本（#5662）。
  *
- * <p>只有反馈问题时排错要用的基础信息：应用版本、品牌、型号、系统版本、处理器架构、屏幕分辨率、存储空间、运行内存、Android System WebView 版本和键盘是否已启用。没有账号、输入内容、安装的其他应用或任何标识这台设备的 id。读系统的那一半在 {@code home/DeviceInfo}，这里只做格式化，不依赖 Android。
+ * <p>只有反馈问题时排错要用的基础信息：应用版本、品牌、型号、系统版本、处理器架构、屏幕分辨率、存储空间、运行内存、Android System WebView 版本和键盘是否已启用。没有账号、输入内容、安装的其他应用或任何标识这台设备的 id。读系统的那一半在 {@code DeviceInfoCollector}，这里只做格式化，不依赖 Android。
  */
 public final class DeviceInfoReport {
     /** 读不到的项显示成这样，而不是空着。 */

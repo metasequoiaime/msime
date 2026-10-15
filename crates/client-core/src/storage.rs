@@ -52,6 +52,20 @@ impl StagingDirectory {
         }
     }
 
+    #[cfg(unix)]
+    pub(crate) fn new_at(path: PathBuf, parent: &File) -> io::Result<Self> {
+        let name = path
+            .file_name()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "staging has no name"))?
+            .to_owned();
+        Ok(Self {
+            path,
+            created: Cell::new(false),
+            parent: parent.try_clone()?,
+            name,
+        })
+    }
+
     pub(crate) fn create(&self) -> io::Result<()> {
         #[cfg(unix)]
         let result = rustix::fs::mkdirat(

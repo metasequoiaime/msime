@@ -135,7 +135,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertEqual(
         (key.gestureRecognizers ?? []).compactMap { $0 as? UILongPressGestureRecognizer }.count, 1)
     }
-    // 1 键短按仍是符号入口，同时显示数字提示并提供长按数字。
+    // 1 键短按把常用标点放进候选条，同时显示数字提示并提供长按数字。
     let symbols = try button("nineKey1", in: controller)
     XCTAssertEqual(symbols.configuration?.title, "@#")
     XCTAssertEqual(symbols.accessibilityLabel, "1 符号")
@@ -143,6 +143,16 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual((symbols.gestureRecognizers ?? []).compactMap { $0 as? UILongPressGestureRecognizer }.count, 1)
     let hint = try XCTUnwrap(symbols.subviews.first { $0.accessibilityIdentifier == "keyNumberHint" } as? UILabel)
     XCTAssertEqual(hint.text, "1")
+    // 九格的数字提示都在右上角（距上 3pt、右 5pt，与 26 键角标相同，用皮肤的次要色），键面文字不为它下移。
+    controller.view.layoutIfNeeded()
+    for digit in 1...9 {
+      let key = try button("nineKey\(digit)", in: controller)
+      let number = try XCTUnwrap(key.subviews.first { $0.accessibilityIdentifier == "keyNumberHint" })
+      XCTAssertEqual(number.frame.minY, 3, accuracy: 0.5, "\(digit)")
+      XCTAssertEqual(number.frame.maxX, key.bounds.maxX - 5, accuracy: 0.5, "\(digit)")
+      XCTAssertEqual((number as? UILabel)?.textColor, KeyboardTheme.current.secondary, "\(digit) 用角标的灰色，不用强调色")
+      XCTAssertEqual(key.configuration?.contentInsets, .zero, "\(digit)")
+    }
     XCTAssertEqual(symbols.accessibilityHint, "长按输入 1")
     XCTAssertEqual(KeyboardViewController.nineKeyHoldOptions(1), ["1"])
     XCTAssertEqual(KeyboardViewController.nineKeyHoldOptions(2), ["2", "a", "b", "c"])
@@ -172,10 +182,12 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertEqual(frame(key).midY, frame(rowKey).midY, accuracy: 0.5, key.accessibilityIdentifier ?? "")
       XCTAssertGreaterThan(frame(key).minX, frame(rowKey).maxX)
     }
-    let zero = try button("nineKeyZero", in: controller)
-    XCTAssertFalse(zero.isHidden)
-    XCTAssertEqual(zero.configuration?.title, "0")
-    XCTAssertGreaterThan(frame(zero).minY, frame(try button("nineKey8", in: controller)).maxY)
+    // 拼音网格的底行没有 0，最左边是 符。
+    XCTAssertTrue(try button("nineKeyZero", in: controller).isHidden)
+    let symbols = try button("symbolPanelKey", in: controller)
+    XCTAssertFalse(symbols.isHidden)
+    XCTAssertEqual(symbols.configuration?.title, "符")
+    XCTAssertGreaterThan(frame(symbols).minY, frame(try button("nineKey8", in: controller)).maxY)
   }
 
   func testNineKeyMiddleKeyFollowsTheSurface() {
@@ -231,7 +243,10 @@ final class NineKeyKeyboardTests: XCTestCase {
                   "the grid keeps its digits instead of the 123 layer")
     // 数字层上分词键没有可切分的内容；该键在那里输入句号。
     XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, ".")
-    XCTAssertFalse(try button("nineKeyZero", in: controller).isHidden)
+    let zero = try button("nineKeyZero", in: controller)
+    XCTAssertFalse(zero.isHidden)
+    XCTAssertEqual(zero.configuration?.title, "0")
+    XCTAssertTrue(try button("symbolPanelKey", in: controller).isHidden)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertEqual(try button("nineKey2", in: controller).configuration?.title, "ABC")
@@ -1949,11 +1964,10 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.viewWillAppear(false)
     controller.view.layoutIfNeeded()
 
-    // 拼音网格的 @# 键是面板入口；九键底行不再有 符 键。
-    let key = try button("nineKey1", in: controller)
-    XCTAssertEqual(key.accessibilityLabel, "1 符号")
-    XCTAssertTrue(try button("symbolPanelKey", in: controller).isHidden)
-    XCTAssertNil(key.menu, "这颗键不再弹菜单")
+    // 九键上面板的入口是底行最左边的 符；网格的 @# 键把常用标点放进候选条（testNineKeyOneKeyPutsQuickSymbolsInTheCandidateStrip）。
+    let key = try button("symbolPanelKey", in: controller)
+    XCTAssertFalse(key.isHidden)
+    XCTAssertNil(try button("nineKey1", in: controller).menu, "1 键不弹菜单")
     XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
 
     key.sendActions(for: .primaryActionTriggered)
@@ -1979,6 +1993,41 @@ final class NineKeyKeyboardTests: XCTestCase {
     symbol.sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+  }
+
+  /// 拼音网格的 1 键（@#）不打开面板，把常用标点直接放进候选条；点选上屏后候选条清空，再按别的键时候选条照常画 Engine 的候选。
+  func testNineKeyOneKeyPutsQuickSymbolsInTheCandidateStrip() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    func shownChips() -> [String] {
+      (1...12).compactMap { index in
+        descendants(controller.view).first { $0.accessibilityIdentifier == "candidate-\(index)" && !$0.isHidden } as? UIButton
+      }.compactMap { $0.configuration?.title }
+    }
+
+    try button("nineKey1", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+    XCTAssertEqual(shownChips(), ["，", "。", "？", "！", "、", "；", "："])
+
+    try button("candidate-2", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(shownChips(), [], "点选上屏后候选条清空")
+    XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+
+    // 再按 1 后改打拼音：候选条换回 Engine 的候选。
+    try button("nineKey1", in: controller).sendActions(for: .primaryActionTriggered)
+    for digit in "94" { try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered) }
+    controller.view.layoutIfNeeded()
+    let chips = shownChips()
+    XCTAssertFalse(chips.isEmpty)
+    XCTAssertFalse(chips.contains("，"), "\(chips)")
   }
 
   func testKeyLayoutsKeepNineKeyHeight() throws {
@@ -3043,7 +3092,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "ABC")
   }
 
-  /// 九键保留自己的底行，即设计稿的 123 1.25 | space 4.2 | 0 1.05 | 中 1.05 | return 1.6，中/英 紧挨回车左边，没有 符、， 或 。 键。
+  /// 九键保留自己的底行：符 1.05 | 123 1.25 | space 4.2 | 中 1.05 | return 1.6，中/英 紧挨回车左边，没有 0、， 或 。 键；网格的数字层把 符 换成空格右边的 0。
   func testNineKeyKeepsItsOwnBottomRow() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -3055,16 +3104,25 @@ final class NineKeyKeyboardTests: XCTestCase {
     let row = try XCTUnwrap(try button("spaceKey", in: controller).superview as? UIStackView)
     let ids = row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier)
     let globe = controller.needsInputModeSwitchKey ? ["inputModeSwitchButton"] : []
-    XCTAssertEqual(ids, ["layoutToggleButton"] + globe + ["spaceKey", "nineKeyZero", "bottomLanguageKey", "returnKey"])
+    XCTAssertEqual(ids, ["symbolPanelKey", "layoutToggleButton"] + globe + ["spaceKey", "bottomLanguageKey", "returnKey"])
     let unit = try button("spaceKey", in: controller).bounds.width / KeyboardViewController.nineKeySpaceWeight
+    XCTAssertEqual(try button("symbolPanelKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
     XCTAssertEqual(try button("layoutToggleButton", in: controller).bounds.width, unit * 1.25, accuracy: 0.5)
     XCTAssertEqual(try button("bottomLanguageKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
-    XCTAssertEqual(try button("nineKeyZero", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
     XCTAssertEqual(try button("returnKey", in: controller).bounds.width, unit * 1.6, accuracy: 0.5)
-    // 数字层保持同一底行；网格提供 1-9，这个键提供 0。
+    // 符 打开符号面板。
+    try button("symbolPanelKey", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
+    try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "closeSymbolPanel" } as? UIButton)
+      .sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    // 数字层：网格提供 1-9，符 的位置空出来，0 排在空格右边，宽度不变。
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
-    XCTAssertEqual(row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier), ids)
+    XCTAssertEqual(row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier),
+                   ["layoutToggleButton"] + globe + ["spaceKey", "nineKeyZero", "bottomLanguageKey", "returnKey"])
+    XCTAssertEqual(try button("nineKeyZero", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
     XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "九键")
   }
 

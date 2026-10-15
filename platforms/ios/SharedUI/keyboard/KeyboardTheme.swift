@@ -140,9 +140,12 @@ struct KeyboardTheme: Equatable {
   /// 键盘是否用系统 token 绘制、把背景交给系统底板：原生皮肤总是如此；其他主题只有经典兜底（没有解析出的配色、没有设计，也没有可用于跟随系统季节配色的应用主题）如此。iOS 26 有时会在第三方键盘上方、扩展窗口之外画出一条系统自己的键盘底板，扩展画什么都盖不住它。使用原生 token 的键盘让背景保持透明，同一块底板就能透出来，那一条看上去就成了键盘的一部分。
   var drawsNativeBackground: Bool { palette == nil && design == nil }
 
-  /// 键盘进程可能存活好几天，足够水杉四季换到下一个季节，或者应用换选另一个应用主题。键盘在 `viewWillAppear` 里读取 `current` 之前调用它；季节不在别处缓存，跟随系统配色、`logoCircle` 和 `logoMark` 每次解析时都会读它。
-  static func refreshSeason() {
+  /// 键盘进程可能存活好几天，足够水杉四季换到下一个季节，或者应用换选另一个应用主题。键盘在 `viewWillAppear` 里读取 `current` 之前调用它；季节不在别处缓存，跟随系统配色、`logoCircle` 和 `logoMark` 每次解析时都会读它。返回季节或所选应用主题是否变了：变了时跟随系统配色换了一组新实例（见 `SeasonKeyboardTokens`），调用方要重新解析 `current`，按键才会重新解析颜色。
+  @discardableResult
+  static func refreshSeason() -> Bool {
+    let version = AppThemePalette.version
     AppThemePalette.refresh()
+    return AppThemePalette.version != version
   }
 
   var background: UIColor {

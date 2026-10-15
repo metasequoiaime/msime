@@ -159,19 +159,19 @@ test("the corner radius follows the skin until set, and returns to it", () => {
 /** 原生 macOS 候选窗的卡片内边距（`SkinTokens::pad`），也是样式表 macOS 默认值块的 `--msime-host-pad`。 */
 const macosNativePad = String(Number(/float pad = ([\d.]+)f;/.exec(candidateSkinHeader)![1]));
 
-// #7316：内边距跟在圆角后面，跟随皮肤时滑块停在 macOS 原生的 6pt；滑块从 2 起，因为 macOS 卡片边缘至少留 2pt。
+// #7316：内边距跟在圆角后面，跟随皮肤时滑块停在 macOS 原生的 4pt；滑块覆盖核心的整个 0–16（#7974），macOS 卡片边缘至少留出边框宽度由宿主保证。
 test("the card padding follows the skin until set, writes the chosen points and returns to the skin", () => {
   const following = renderSection({ showPadding: true });
   const group = screen.getByRole("region", { name: "窗口样式" });
   const titles = [...group.querySelectorAll("[data-row-title]")].map((row) => row.textContent);
   expect(titles).toEqual(["不透明度", "圆角大小", "内边距"]);
   const slider = screen.getByRole("slider", { name: "内边距" }) as HTMLInputElement;
-  expect(slider.getAttribute("min")).toBe("2");
+  expect(slider.getAttribute("min")).toBe("0");
   expect(slider.getAttribute("max")).toBe("16");
   expect(slider.value).toBe(macosNativePad);
   expect(screen.getByText("跟随皮肤；调小后候选离窗口边缘更近，窗口更紧凑")).toBeTruthy();
-  fireEvent.change(slider, { target: { value: "2" } });
-  expect(following.onChange).toHaveBeenLastCalledWith({ candidate_padding: 2 });
+  fireEvent.change(slider, { target: { value: "1" } });
+  expect(following.onChange).toHaveBeenLastCalledWith({ candidate_padding: 1 });
 
   cleanup();
   const set = renderSection({

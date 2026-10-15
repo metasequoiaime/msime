@@ -57,7 +57,8 @@ constexpr ULONG_PTR PAIRED_PUNCTUATION_SENDINPUT_EXTRA_INFO = 0x4D535051u;
 // Marker for a caret or editing key replayed after a queued Korean syllable commit. Key sinks and the bare-Shift hook must pass these events through to the host.
 constexpr ULONG_PTR KOREAN_SYLLABLE_SENDINPUT_EXTRA_INFO = 0x4D535052u;
 // 单按 Caps Lock 切换中英文后，为撤回大写锁定再按的那一次 Caps Lock。按键处理和裸 Shift 钩子都要放它过去，不能再当成一次轻点。
-constexpr ULONG_PTR CAPS_LOCK_SENDINPUT_EXTRA_INFO = 0x4D535053u;
+// 0x4D535053 已用于面板文字，Caps Lock 必须使用独立标记，避免面板按键被当作自注入而整键放行。
+constexpr ULONG_PTR CAPS_LOCK_SENDINPUT_EXTRA_INFO = 0x4D535054u;
 constexpr bool IsSelfGeneratedSendInputExtraInfo(ULONG_PTR extraInfo)
 {
     return extraInfo == SMART_PUNCTUATION_SENDINPUT_EXTRA_INFO || extraInfo == PAIRED_PUNCTUATION_SENDINPUT_EXTRA_INFO ||

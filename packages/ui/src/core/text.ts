@@ -15,3 +15,8 @@ const utf8Encoder = new TextEncoder();
 export function utf8ByteLength(value: string): number {
   return utf8Encoder.encode(value).byteLength;
 }
+
+/** 只将 ASCII 大写字母转成小写，保留非 ASCII 字符及其他内容。 */
+export function asciiLowercase(value: string): string {
+  return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+}

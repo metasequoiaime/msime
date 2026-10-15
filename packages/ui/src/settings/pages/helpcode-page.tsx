@@ -3,41 +3,29 @@ import { Fragment } from "react";
 import { GroupList, MoreOptions } from "../../core/platform-controls";
 import { SelectRow } from "../select-row";
 import { SwitchRow } from "../switch-row";
-import { pluginPreferences, type PluginPreferences } from "../plugin-preferences";
+import { pluginPreferences } from "../plugin-preferences";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 
-export type HelpcodeSchema =
-  | "lantian"
-  | "ziranma"
-  | "shouyou2_0"
-  | "shouyouplus"
-  | "xiaohe"
-  | "jiajia"
-  | "wubi86"
-  | `custom/${string}`;
+import {
+  defaultHelpcode,
+  helpcodeSchemaOptions,
+  type CustomHelpcodeSchema,
+  type HelpcodeKey,
+  type HelpcodePackOption,
+  type HelpcodePreferences,
+  type HelpcodeSchema,
+  type HelpcodeSettings,
+} from "../helpcode-preferences";
 
-/** Metadata for a helper-code table discovered below the host's resource directory. */
-export type CustomHelpcodeSchema = {
-  schema: `custom/${string}`;
-  file_stem: string;
-  name: string;
-  name_en: string;
-};
-
-export type HelpcodePreferences = {
-  enabled: boolean;
-  schema: HelpcodeSchema;
-  show_in_candidate_window?: boolean;
-};
-
-export type HelpcodeKey = "quanpin_helpcode" | "shuangpin_helpcode";
-/** 辅助码设置，以及选中辅助码表插件的 `plugins.helpcode_pack_*`。 */
-export type HelpcodeSettings = Partial<Record<HelpcodeKey, HelpcodePreferences>> & {
-  plugins?: PluginPreferences;
-};
-
-/** 一个已安装的辅助码表插件，供下拉框选用。 */
-export type HelpcodePackOption = { id: string; name: string };
+export { defaultHelpcode } from "../helpcode-preferences";
+export type {
+  CustomHelpcodeSchema,
+  HelpcodeKey,
+  HelpcodePackOption,
+  HelpcodePreferences,
+  HelpcodeSchema,
+  HelpcodeSettings,
+} from "../helpcode-preferences";
 
 /** 下拉框里辅助码表插件的值前缀：`pack:<插件 id>`。 */
 const PACK_PREFIX = "pack:";
@@ -46,30 +34,6 @@ const packKeys = {
   quanpin_helpcode: "helpcode_pack_quanpin",
   shuangpin_helpcode: "helpcode_pack_shuangpin",
 } as const;
-
-/** The core's `default_quanpin_helpcode` / `default_shuangpin_helpcode`, used wherever a document carries no helpcode object for a scheme: this form and the candidate previews. */
-export const defaultHelpcode: Readonly<Record<HelpcodeKey, HelpcodePreferences>> = {
-  quanpin_helpcode: {
-    enabled: true,
-    schema: "ziranma",
-    show_in_candidate_window: false,
-  },
-  shuangpin_helpcode: {
-    enabled: true,
-    schema: "lantian",
-    show_in_candidate_window: true,
-  },
-};
-
-const helpcodeSchemas: readonly (readonly [HelpcodeSchema, string])[] = [
-  ["lantian", "蓝天小雨点"],
-  ["ziranma", "自然码"],
-  ["shouyou2_0", "首右2.0"],
-  ["shouyouplus", "首右plus"],
-  ["xiaohe", "小鹤"],
-  ["jiajia", "加加"],
-  ["wubi86", "五笔 86"],
-];
 
 function customSchemaLabel(schema: CustomHelpcodeSchema): string {
   if (schema.name && schema.name_en && schema.name !== schema.name_en) {
@@ -125,7 +89,7 @@ export function HelpcodeSettingsGroup({
 }: HelpcodeSettingsGroupProps) {
   const plugins = pluginPreferences(draft);
   const schemaOptions = [
-    ...helpcodeSchemas,
+    ...helpcodeSchemaOptions,
     ...customSchemas.map((schema): readonly [HelpcodeSchema, string] => [
       schema.schema,
       customSchemaLabel(schema),

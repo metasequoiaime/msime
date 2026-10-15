@@ -79,7 +79,12 @@ test("turning the Shift+letter master switch off keeps every mode switch as it w
 test("拆字反查缺键时桌面读作关、触屏读作开，切换后写回明确的布尔", () => {
   const onChange = vi.fn();
   const { rerender } = render(
-    <LocalModesSection preferences={preferences} ios={false} shiftLetterEntrySwitch onChange={onChange} />,
+    <LocalModesSection
+      preferences={preferences}
+      ios={false}
+      shiftLetterEntrySwitch
+      onChange={onChange}
+    />,
   );
   // 桌面宿主（显示总开关的那三个）缺键读作关，和 host-api 在桌面构建里的缺省一致。
   const desktop = screen.getByRole("switch", { name: /^拆字反查/ });

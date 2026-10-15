@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ThemeMode } from "../../index";
+import { themeModeOptions } from "../theme-mode-options";
 import * as settings from "../settings-style";
 import { SettingsGroupBlock } from "../settings-group-block";
 import { globalThemeDescription } from "../settings-options";
@@ -53,12 +53,6 @@ import { mobilePageTitle } from "../mobile-tab-helpers";
 import { pushMobileSettingsState } from "../mobile-navigation";
 import { useMobilePopState } from "../use-mobile-pop-state";
 import { useAsyncGeneration } from "../use-async-generation";
-
-const themeModeOptions = [
-  { value: "system", label: "跟随系统" },
-  { value: "light", label: "浅色" },
-  { value: "dark", label: "深色" },
-] as const satisfies readonly { value: ThemeMode; label: string }[];
 
 /** 设置表单的「主题」页（路由 id `skin`，手机上叫「皮肤」）：全局主题、自定义主题的组成，以及各界面的单独设置。`hidden` 让它在桌面外壳以「社区皮肤」标签页顶替时保持挂载。鸿蒙手机上主题是一组键盘缩略图网格，点按即应用，网格下方「浏览更多皮肤」打开完整的社区皮肤图库。 */
 export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {

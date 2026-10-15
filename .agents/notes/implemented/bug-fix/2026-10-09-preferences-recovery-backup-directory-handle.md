@@ -10,6 +10,8 @@ Status: implemented
 
 Unix 先打开偏好目录，再用 `openat` 配合 `O_EXCL|O_NOFOLLOW` 创建备份，写入失败用 `unlinkat` 清理；非 Unix 保留现有实现。
 
+2026-10-15：[作用域锁释放](2026-10-15-scoped-file-lock-release.md)的 API 35 完整设备验证发现，重名回归用例要求两次磁盘同步在一秒内完成，五次重试仍可能全部跨秒；重试残留的后缀还会干扰下一次比较。现有私有 `write_backup` 接收调用方给出的时间，正式恢复仍传当前 UTC 时间；测试固定时间并验证连续 `-1`、`-2` 后缀和三份内容，消除运行速度依赖，不新增测试专用生产入口。
+
 ## Alternatives considered
 
 - 只在路径写入前重新检查符号链接：检查与创建之间仍有竞态。

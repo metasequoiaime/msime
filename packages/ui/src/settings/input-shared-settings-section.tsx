@@ -4,19 +4,21 @@ import { GroupList, MoreOptions } from "../core/platform-controls";
 import { ChineseEnglishSpacingSection } from "./chinese-english-spacing-section";
 import { CloudCandidatesSection } from "./cloud-candidates-section";
 import { DefaultImeModeSection } from "./default-ime-mode-section";
-import { FrequencySection, type FrequencyPreferences } from "./frequency-section";
+import { FrequencySection } from "./frequency-section";
+import type { FrequencyPreferences } from "./frequency-preferences";
 import { ImeModeScopeSection } from "./ime-mode-scope-section";
 import { InputModeHudSection } from "./input-mode-hud-section";
 import { LearningSection } from "./learning-section";
-import { MixedInputSection, type MixedInputPreferences } from "./mixed-input-section";
+import { MixedInputSection } from "./mixed-input-section";
+import type { MixedInputPreferences } from "./mixed-input-preferences";
 import { SingleCharacterOnlySection } from "./single-character-only-section";
 import { SwitchRow } from "./switch-row";
 import { TraditionalChineseOutputSection } from "./traditional-chinese-output-section";
-import {
-  WordCharacterSection,
-  type NavigationPreferences,
-  type WordCharacterPreferences,
-} from "./word-character-section";
+import { WordCharacterSection } from "./word-character-section";
+import type {
+  NavigationPreferences,
+  WordCharacterPreferences,
+} from "./candidate-paging-preferences";
 
 export type InputSharedSettingsTab = "mode" | "selection" | "candidates" | "output" | "advanced";
 

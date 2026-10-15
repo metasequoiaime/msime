@@ -1,5 +1,6 @@
 //! Bounded persistent clipboard history. Hosts decide which clipboard events to observe.
 
+#[cfg(test)]
 use std::fs;
 #[cfg(not(unix))]
 use std::io::Write;
@@ -283,7 +284,7 @@ impl ClipboardHistoryStore {
         Ok(outcome)
     }
 
-    fn lock_writer(&self) -> std::io::Result<fs::File> {
+    fn lock_writer(&self) -> std::io::Result<crate::file_lock::ScopedFileLock> {
         let parent = self
             .path
             .parent()
@@ -301,7 +302,7 @@ impl ClipboardHistoryStore {
         let mut lock_path = self.path.as_os_str().to_owned();
         lock_path.push(".lock");
         let lock = crate::file_lock::open_private_lock_file(lock_path)?;
-        crate::file_lock::exclusive(&lock)?;
+        let lock = crate::file_lock::ScopedFileLock::exclusive(lock)?;
         Ok(lock)
     }
 
@@ -428,6 +429,20 @@ fn valid_characters(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn finished_scope_releases_inherited_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ClipboardHistoryStore::open(root.path().join("history.json"));
+        let held = store.lock_writer().unwrap();
+        let inherited = crate::file_lock::testing::duplicate(&held);
+        crate::file_lock::testing::assert_finished_scope_releases_lock(
+            held,
+            inherited,
+            &root.path().join("history.json.lock"),
+        );
+    }
 
     fn texts(store: &ClipboardHistoryStore) -> Vec<&str> {
         store

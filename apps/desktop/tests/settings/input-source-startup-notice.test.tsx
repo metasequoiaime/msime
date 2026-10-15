@@ -2,6 +2,8 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { InputSourceStartupNotice, type InputSourceStartupStatus } from "@msime/ui";
+import { inputSourceNeedsAdding as legacyNeedsAdding } from "../../../../packages/ui/src/settings/input-source-startup-notice";
+import { inputSourceNeedsAdding } from "../../../../packages/ui/src/settings/input-source-startup-model";
 
 afterEach(() => {
   cleanup();
@@ -14,6 +16,10 @@ const installed: InputSourceStartupStatus = {
   bundled_version: "1.0.0",
   installed_version: "1.0.0",
 };
+
+test("提示组件旧路径继续导出同一个添加判定", () => {
+  expect(legacyNeedsAdding).toBe(inputSourceNeedsAdding);
+});
 
 test("shows the installation result and can be dismissed", () => {
   const onDismiss = vi.fn();

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSettingsTabs } from "../use-settings-tabs";
-import { NavigationSection, defaultNavigation } from "../navigation-section";
+import { NavigationSection } from "../navigation-section";
+import { defaultNavigation, pagingPreferencesPatch } from "../candidate-paging-preferences";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList } from "../../core/platform-controls";
 import { InputSchemeSettingsContent } from "../input-scheme-settings-content";
@@ -24,15 +25,7 @@ import { CandidateTranslationOptionsSection } from "../candidate-translation-opt
 import { CandidateEnglishGlossSection } from "../candidate-english-gloss-section";
 import { ShuangpinCustomEditor } from "../shuangpin-custom-editor";
 import type { ShuangpinCustomProfileClient } from "../shuangpin-custom-profile";
-
-const inputTabs = [
-  { id: "scheme", title: "方案" },
-  { id: "mode", title: "中英文" },
-  { id: "selection", title: "选词与翻页" },
-  { id: "candidates", title: "候选与联想" },
-  { id: "output", title: "输出" },
-  { id: "advanced", title: "进阶" },
-] as const;
+import { inputTabs } from "../input-tabs";
 
 /** 输入设置页。 */
 export function InputSettingsPage() {
@@ -303,15 +296,7 @@ export function InputSettingsPage() {
               navigation={navigation}
               wordCharacter={wordCharacter}
               linux={linuxPlatform}
-              onChange={(next) =>
-                onPreferencesChange({
-                  // 只有占用了「以词定字」按键的翻页键才会改动它；否则未设置的值保持未设置。
-                  ...(next.wordCharacter !== wordCharacter
-                    ? { word_character: next.wordCharacter }
-                    : {}),
-                  navigation: next.navigation,
-                })
-              }
+              onChange={(next) => onPreferencesChange(pagingPreferencesPatch(wordCharacter, next))}
             />
           )
         }

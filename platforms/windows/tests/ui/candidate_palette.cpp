@@ -58,42 +58,32 @@ int main() {
                                   "rgba(inf, 0, 0, 1)"})
     require(parse_css_color(unsupported, fallback) == fallback);
 
-  // Defaults are the Fluent dark tokens the system theme draws.
+  // 浅深色默认值与 macOS 的实心选中样式一致。
   const CandidatePalette defaults;
-  require(same(defaults.surface, 0x2C / 255.0f, 0x2C / 255.0f, 0x2C / 255.0f,
-               1.0f));
-  require(same(defaults.text, 1.0f, 1.0f, 1.0f, 1.0f));
-  require(same(defaults.border, 1.0f, 1.0f, 1.0f, 0.08f));
-  require(same(defaults.hover, 1.0f, 1.0f, 1.0f, 0.07f));
-  require(same(defaults.number, 1.0f, 1.0f, 1.0f, 0.72f));
-  require(same(defaults.accent, 0x60 / 255.0f, 0xCD / 255.0f, 0xFF / 255.0f,
-               1.0f));
-  // Fluent selects with the hover fill, the accent text and the pill.
-  require(defaults.selected == defaults.hover &&
-          defaults.selected_text == defaults.accent &&
-          defaults.selected_number == defaults.number);
-  require(defaults.show_selected_bar && defaults.radius == 8.0f &&
-          defaults.border_width == 1.0f && defaults.item_radius == 4.0f &&
-          defaults.container_padding == 6.0f);
-  require(std::fabs(defaults.shadow_alpha - 0.14f) < 0.002f);
-  require(same(defaults.menu_fill, 0x2C / 255.0f, 0x2C / 255.0f,
-               0x2C / 255.0f, 0.97f));
+  require(defaults.surface == candidate_rgb(0x28282A, 0.97f));
+  require(defaults.text == candidate_rgb(0xF5F5F7));
+  require(same(defaults.border, 1, 1, 1, .12f));
+  require(same(defaults.hover, 1, 1, 1, .10f));
+  require(defaults.number == candidate_rgb(0x98989D));
+  require(defaults.accent == candidate_rgb(0x5FBF84));
+  require(defaults.selected == defaults.accent);
+  require(defaults.selected_text == candidate_rgb(0xFFFFFF));
+  require(defaults.selected_number == candidate_rgb(0xFFFFFF, .82f));
+  require(!defaults.show_selected_bar && defaults.radius == 10 &&
+          defaults.border_width == 1 && defaults.item_radius == 6 &&
+          defaults.container_padding == 6);
+  require(defaults.menu_fill == defaults.surface);
 
-  // The light tokens, with the geometry and the shadow shared.
   const auto light_defaults = candidate_light_palette();
-  require(same(light_defaults.surface, 1.0f, 1.0f, 1.0f, 1.0f));
-  require(same(light_defaults.border, 0.0f, 0.0f, 0.0f, 0.08f));
-  require(same(light_defaults.text, 0x1B / 255.0f, 0x1B / 255.0f,
-               0x1B / 255.0f, 1.0f));
-  require(same(light_defaults.number, 0x5E / 255.0f, 0x5E / 255.0f,
-               0x5E / 255.0f, 1.0f));
-  require(same(light_defaults.hover, 0.0f, 0.0f, 0.0f, 0.045f));
-  require(same(light_defaults.accent, 0.0f, 0x5F / 255.0f, 0xB8 / 255.0f,
-               1.0f));
-  require(light_defaults.selected == light_defaults.hover &&
-          light_defaults.selected_text == light_defaults.accent);
-  require(same(light_defaults.menu_fill, 0xF9 / 255.0f, 0xF9 / 255.0f,
-               0xF9 / 255.0f, 0.97f));
+  require(light_defaults.surface == candidate_rgb(0xFFFFFF, .97f));
+  require(same(light_defaults.border, 0, 0, 0, .12f));
+  require(light_defaults.text == candidate_rgb(0x1D1D1F));
+  require(light_defaults.number == candidate_rgb(0x6E6E73));
+  require(same(light_defaults.hover, 0, 0, 0, .06f));
+  require(light_defaults.accent == candidate_rgb(0x2C7A4B));
+  require(light_defaults.selected == light_defaults.accent);
+  require(light_defaults.selected_text == defaults.selected_text);
+  require(light_defaults.menu_fill == light_defaults.surface);
   require(light_defaults.radius == defaults.radius &&
           light_defaults.shadow_alpha == defaults.shadow_alpha &&
           light_defaults.show_selected_bar == defaults.show_selected_bar);
@@ -111,18 +101,35 @@ int main() {
   require(skinned.surface == defaults.surface &&
           skinned.accent == defaults.accent);
 
-  // Derived slots a theme leaves to the platform follow the final values: the selection fill is the hover fill, the selected text the accent and the selected numbers the secondary colour.
+  // 改强调色时推导实心选中底及可读前景色，不受悬停色影响。
   CandidatePaletteOverrides derived;
   derived.accent = "#00FF00";
   derived.hover = "#11223344";
   derived.number = "#445566";
   const auto follow = candidate_palette(derived, light_defaults);
   require(same(follow.accent, 0.0f, 1.0f, 0.0f, 1.0f));
-  require(follow.selected == follow.hover && follow.selected_text == follow.accent &&
-          follow.selected_number == follow.number);
+  require(follow.selected == follow.accent &&
+          follow.selected_text == candidate_rgb(0x1A1A1A) &&
+          follow.selected_number == candidate_rgb(0x1A1A1A, .82f));
   require(same(follow.hover, 0x11 / 255.0f, 0x22 / 255.0f, 0x33 / 255.0f,
                0x44 / 255.0f));
-  // A slot the theme sets is drawn as given, even where Fluent would derive it.
+  // 中等亮度的橙色和灰色也要用深字；固定亮度阈值会错误地选择白字。
+  for (const auto &base : {defaults, light_defaults}) {
+    for (const char *color : {"#FF8000", "#999999"}) {
+      CandidatePaletteOverrides bright;
+      bright.selected = color;
+      const auto palette = candidate_palette(bright, base);
+      require(palette.selected_text == candidate_rgb(0x1A1A1A));
+      require(palette.selected_number == candidate_rgb(0x1A1A1A, .82f));
+      bright.selected.reset();
+      bright.accent = color;
+      require(candidate_palette(bright, base).selected_text == palette.selected_text);
+    }
+    CandidatePaletteOverrides dark;
+    dark.selected = "#003366";
+    require(candidate_palette(dark, base).selected_text == candidate_rgb(0xFFFFFF));
+  }
+  // 主题显式设置的选中颜色始终优先。
   CandidatePaletteOverrides fixed = derived;
   fixed.selected = "#0000FF";
   fixed.selected_text = "#FFFFFF";
@@ -132,6 +139,19 @@ int main() {
   require(same(explicit_slots.selected_text, 1.0f, 1.0f, 1.0f, 1.0f));
   require(same(explicit_slots.selected_number, 1.0f, 1.0f, 1.0f,
                0xCC / 255.0f));
+
+  CandidatePaletteOverrides translucent;
+  translucent.selected = "#11223340";
+  const auto translucent_palette = candidate_palette(translucent, light_defaults);
+  require(translucent_palette.selected_text == translucent_palette.text);
+  require(translucent_palette.selected_number == translucent_palette.number);
+  require(candidate_palette({}).selected_text == defaults.selected_text);
+  CandidatePaletteOverrides invalid_selection;
+  invalid_selection.selected = "invalid";
+  require(candidate_palette(invalid_selection).selected_text == defaults.selected_text);
+  CandidatePaletteOverrides hover_only;
+  hover_only.hover = "#FFFFFF";
+  require(candidate_palette(hover_only).selected == defaults.selected);
 
   // Empty and unparsable slots keep the value being replaced.
   CandidatePaletteOverrides blank;
@@ -240,7 +260,7 @@ int main() {
   require(tray_menu_palette(defaults).surface !=
           tray_menu_palette(light_defaults).surface);
 
-  // The thumb of a switch that is on reads on the accent: white on the light accent #005FB8, black on the dark #60CDFF and on a white accent.
+  // 开关圆点按亮度选择黑白：浅色模式的深绿用白，深色模式的浅绿用黑。
   require(candidate_on_accent(light_defaults.accent) == candidate_rgb(0xFFFFFF));
   require(candidate_on_accent(defaults.accent) == candidate_rgb(0x000000));
   require(candidate_on_accent(candidate_rgb(0xFFFFFF)) ==

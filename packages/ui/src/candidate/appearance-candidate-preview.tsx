@@ -1,4 +1,5 @@
 import type { Preferences } from "../index";
+import { preeditControlState } from "../settings/preedit-preferences";
 import { ReservedCandidatePreview, type PreviewReserve } from "../skin/skin-candidate-preview";
 import { candidateFontSize, candidateFontStyle } from "./candidate-font-size";
 import { candidateFamilyStyle } from "./candidate-font-family";
@@ -11,7 +12,7 @@ import { useResolvedCandidateFonts, type FontFamilyResolver } from "./resolved-c
 import { SettingsPreviewBlock } from "../settings/settings-preview-block";
 import { SkinPreviewStage } from "../skin/skin-preview-stage";
 import { SkinPreviewSurface } from "../skin/skin-preview-surface";
-import { defaultHelpcode } from "../settings/pages/helpcode-page";
+import { defaultHelpcode } from "../settings/helpcode-preferences";
 import {
   candidateSkinFor,
   customCandidateStyle,
@@ -93,7 +94,7 @@ export function AppearanceCandidatePreview({
           reserve={reserve}
           orientation={preferences.candidate_layout ?? "vertical"}
           count={preferences.candidate_page_size}
-          preedit={preferences.candidate_preedit_style !== "empty"}
+          preedit={preeditControlState(preferences).candidateVisible}
           helpcode={helpcode}
           brand={brand}
         />

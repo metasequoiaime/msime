@@ -4,15 +4,8 @@ import {
   defaultNiuTrans,
   defaultTencentTranslation,
 } from "./translation-defaults";
-import {
-  mobileTranslationLanguages,
-  translationLanguages,
-  translationSecondaryLanguages,
-  type TranslationLanguage,
-} from "./translation-language-helpers";
+import { translationLanguageChoices, translationLanguages } from "./translation-language-helpers";
 import type { Preferences } from "../index";
-
-type TranslationSecondaryLanguage = "" | TranslationLanguage;
 
 export interface UseTranslationSettingsOptions {
   preferences?: Preferences;
@@ -43,25 +36,11 @@ export function useTranslationSettings({
     candidateTranslations || (candidateEnglishGlossAvailable && candidateEnglishGloss);
   const translationTargetLanguage = preferences?.translation_target_language ?? "en";
   const translationSecondaryLanguage = preferences?.translation_secondary_language ?? "";
-  const visibleTranslationLanguages = mobile
-    ? [...mobileTranslationLanguages]
-    : translationLanguages;
-  if (
-    mobile &&
-    translationTargetLanguage === "ru" &&
-    !visibleTranslationLanguages.some(([value]) => value === "ru")
-  ) {
-    visibleTranslationLanguages.push(["ru", "俄语（已保存）"]);
-  }
-  const visibleSecondaryLanguages = mobile
-    ? [
-        ["", "不显示第二种语言"] as ["", string],
-        ...mobileTranslationLanguages,
-        ...(translationSecondaryLanguage === "ru"
-          ? [["ru", "俄语（已保存）"] as ["ru", string]]
-          : []),
-      ]
-    : translationSecondaryLanguages;
+  const { visibleTranslationLanguages, visibleSecondaryLanguages } = translationLanguageChoices(
+    mobile,
+    translationTargetLanguage,
+    translationSecondaryLanguage,
+  );
   const customTranslation = preferences?.custom_translation ?? defaultCustomTranslation;
   const tencentTranslation = preferences?.tencent_tmt ?? defaultTencentTranslation;
   const niutrans = preferences?.niutrans ?? defaultNiuTrans;
@@ -89,7 +68,10 @@ export function useTranslationSettings({
     candidateTranslations &&
     (translationProvider === "none" ||
       (translationProvider === "tencent" &&
-        !(tencentTranslation.secret_id.trim() && tencentTranslation.secret_key.trim())));
+        !(
+          tencentSecretConfigured(tencentTranslation.secret_id) &&
+          tencentSecretConfigured(tencentTranslation.secret_key)
+        )));
   const onDeviceMissingLanguages = onDeviceTranslationInUse
     ? translationLanguages.filter(
         ([code]) =>
@@ -126,4 +108,7 @@ export function useTranslationSettings({
   } as const;
 }
 
-export type { TranslationLanguage, TranslationSecondaryLanguage };
+export type {
+  TranslationLanguage,
+  TranslationSecondaryLanguage,
+} from "./translation-language-helpers";

@@ -2,12 +2,19 @@ import type { ReactNode } from "react";
 import { MoreOptions } from "../core/platform-controls";
 import { SelectRow } from "./select-row";
 import { SwitchRow } from "./switch-row";
-import { translationLanguages } from "./translation-language-helpers";
-
-export type TranslationLanguage = "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
-export type TranslationSecondaryLanguage = TranslationLanguage | "";
-export type TranslationLanguageOption = readonly [TranslationLanguage, string];
-export type TranslationSecondaryLanguageOption = readonly [TranslationSecondaryLanguage, string];
+import {
+  translationLanguages,
+  type TranslationLanguage,
+  type TranslationLanguageOption,
+  type TranslationSecondaryLanguage,
+  type TranslationSecondaryLanguageOption,
+} from "./translation-language-helpers";
+export type {
+  TranslationLanguage,
+  TranslationLanguageOption,
+  TranslationSecondaryLanguage,
+  TranslationSecondaryLanguageOption,
+} from "./translation-language-helpers";
 
 export interface CandidateTranslationOptionsSectionProps {
   enabled: boolean;

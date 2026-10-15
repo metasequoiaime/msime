@@ -1,8 +1,5 @@
-import {
-  defaultCandidateEnglishFont,
-  defaultCandidateFontFamily,
-  type CandidateFontPreferences,
-} from "./candidate-font-family";
+import { defaultCandidateEnglishFont, defaultCandidateFontFamily } from "./candidate-font-family";
+import type { CandidateFontPreferences } from "./candidate-preferences";
 import { candidateMainFontPatch } from "./candidate-font-presets";
 import { useFontCatalog, type FontCatalogReader } from "./font-catalog";
 import { FontFamilyInput } from "./font-family-input";

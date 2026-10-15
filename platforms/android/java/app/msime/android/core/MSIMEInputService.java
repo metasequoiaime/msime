@@ -130,6 +130,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeTextEditPanel imeTextEditPanel;
     ImeCalculator imeCalculator;
     ImeEmailSuffixes imeEmailSuffixes;
+    ImeNineKeyQuickPunctuation imeNineKeyQuickPunctuation;
     ImeTranslationSenses imeTranslationSenses;
     ImeStylusHandwriting imeStylusHandwriting;
     long session;
@@ -435,7 +436,7 @@ public final class MSIMEInputService extends InputMethodService {
     Button globeButton;
     Button deleteButton;
     View nineKeySidebar;
-    /** 拼音九键的 1 键：组字时显示「分词」，否则「@#」，render 时按组字状态更新。 */
+    /** 拼音九键的 1 键：组字时显示「分词」，否则「@#」（点按把常用标点放进候选条），render 时按组字状态更新。 */
     Button nineKeySymbolKey;
     /** 笔画网格的通配键：只在组字中可用，render 时按组字状态更新。 */
     Button strokeWildcardKey;
@@ -556,6 +557,36 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
+    }
+
+    private long deviceInfoCopyGeneration;
+
+    /** 只在用户点击时读取白名单信息；后台收集不阻塞按键，也不触碰组字会话。 */
+    void copyDeviceInfo() {
+        long generation = ++deviceInfoCopyGeneration;
+        DeviceInfoCollector.Screen screen = DeviceInfoCollector.screen(moreButton);
+        try {
+            preferencesWorker.execute(() -> {
+                var entries = DeviceInfoCollector.collect(getApplicationContext(), screen);
+                main.post(() -> {
+                    if (generation != deviceInfoCopyGeneration || preferencesWorker.isShutdown()) return;
+                    try {
+                        ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+                        if (clipboard == null) {
+                            notice("无法复制设备信息");
+                            return;
+                        }
+                        clipboard.setPrimaryClip(ClipData.newPlainText("设备信息",
+                            DeviceInfoCollector.text(this, entries)));
+                        notice("已复制设备信息");
+                    } catch (RuntimeException unavailable) {
+                        notice("无法复制设备信息");
+                    }
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException unavailable) {
+            notice("无法复制设备信息");
+        }
     }
 
     String preferencesDirectory = "";
@@ -1448,6 +1479,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeTextEditPanel = new ImeTextEditPanel(this);
         imeCalculator = new ImeCalculator(this);
         imeEmailSuffixes = new ImeEmailSuffixes(this);
+        imeNineKeyQuickPunctuation = new ImeNineKeyQuickPunctuation(this);
         imeTranslationSenses = new ImeTranslationSenses(this);
         imeStylusHandwriting = new ImeStylusHandwriting(this, HANDWRITING_DEBOUNCE_MILLIS);
         // 必须在 super.onCreate() 之前：InputMethodService 在那里按这个主题建输入法窗口，之后再设会抛异常。按名字查是因为 core/ 要能脱离 Gradle 生成的 R 编译（check-host.sh 的 JVM 冒烟）；res/values/themes.xml 说明了这个主题为什么存在。
@@ -1531,6 +1563,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeBottomRow.resetSpaceCursor();
         imeCalculator.clear();
         imeEmailSuffixes.clear();
+        imeNineKeyQuickPunctuation.clear();
         imeTranslationSenses.clear();
         translationConsumedKeyCode = -1;
         imeStylusHandwriting.inputFinished();
@@ -1665,6 +1698,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        deviceInfoCopyGeneration++;
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
         if (clipboard != null) clipboard.removePrimaryClipChangedListener(clipboardWatcher);
         main.removeCallbacks(recentClipExpiry);
@@ -2709,6 +2743,8 @@ public final class MSIMEInputService extends InputMethodService {
             throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
         }
         view = next;
+        // 九键 1 键放进候选条的常用标点只留到下一次转换，下面的 render 画这次转换的候选。
+        imeNineKeyQuickPunctuation.clear();
         imeDebugOverlay.showDiagnostic(result.isNull("diagnostic") ? null
             : result.optString("diagnostic", ""));
         if (rebuildLayout || !KeyboardLayout.carriesLetterCase(displayedTouchLayout(view)))
@@ -2895,14 +2931,29 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.hide(englishSuggestionButtons.get(slot));
     }
 
+    /** 完整候选会放出暂扣尾部并可能重排座位，读取后必须同步同一代视图。 */
+    JSONObject currentCandidateSnapshot() throws JSONException {
+        JSONObject snapshot = value(NativeClient.allCandidates(session));
+        if (strictCandidateLong(snapshot, "session") != session)
+            throw new JSONException("Unexpected candidate session");
+        if (!sameCandidateVersion(snapshot, view)) {
+            JSONObject next = value(NativeClient.view(session));
+            if (!sameCandidateVersion(snapshot, next))
+                throw new JSONException("Unexpected candidate generation");
+            imeTranslationSenses.followOnlineRefresh(next);
+            view = next;
+        }
+        return snapshot;
+    }
+
     /** Copies Engine candidates on the IME thread, then performs only session-free IO off-thread. */
     private void scheduleCandidateGlosses() {
         if (!candidateEnglishGloss || session == 0 || view == null
                 || candidateGlossResources.isEmpty()
                 || !schemeShowsGlosses(InputViewValuePolicy.scheme(view, -1))) return;
-        long generation = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
-        if (generation < 0 || (candidateGlossRequestedSession == session
-                && candidateGlossRequestedGeneration == generation)) return;
+        long requestedGeneration = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
+        if (requestedGeneration < 0 || (candidateGlossRequestedSession == session
+                && candidateGlossRequestedGeneration == requestedGeneration)) return;
         JSONArray visible = view.optJSONArray("candidates");
         if (visible == null || visible.length() == 0) return;
         final long targetSession = session;
@@ -2913,12 +2964,12 @@ public final class MSIMEInputService extends InputMethodService {
         // 目标语言含英语时，随包的英文释义也要记进 candidateOfflineGlosses：合并在线译文时靠它让离线释义优先。只在装了非英文离线词典时才记，没装的用户（默认配置）在线译文会把「你好 hello」这类离线英文释义盖掉。
         final boolean englishTarget = candidateTranslationTargets.contains("en");
         final String request;
+        final long generation;
         final java.util.Map<String, String> targetRequests =
             new java.util.LinkedHashMap<>(offlineTargets.size());
         try {
-            JSONObject snapshot = value(NativeClient.allCandidates(targetSession));
-            if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) != targetSession
-                    || CandidateGlossPolicy.strictOr(snapshot.opt("generation"), -1) != generation) return;
+            JSONObject snapshot = currentCandidateSnapshot();
+            generation = strictCandidateLong(snapshot, "generation");
             request = CandidateGlossModel.request(generation,
                 snapshot.getJSONArray("candidates"));
             // The account path's scheme gate: a Japanese composition is not glossed into other languages. Korean Hanja rows are, as the shared translation query answers them.
@@ -2930,7 +2981,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
         } catch (JSONException | RuntimeException | LinkageError error) {
             candidateGlossRequestedSession = targetSession;
-            candidateGlossRequestedGeneration = generation;
+            candidateGlossRequestedGeneration = requestedGeneration;
             return;
         }
         CandidateGlossPolicy.Token token =
@@ -2996,11 +3047,7 @@ public final class MSIMEInputService extends InputMethodService {
                 userTranslationAppliedGeneration = -1L;
             }
             if (candidatePanelOpen) {
-                JSONObject snapshot = value(NativeClient.allCandidates(token.session()));
-                if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) == token.session()
-                        && CandidateGlossPolicy.strictOr(snapshot.opt("generation"), -1) == token.generation()) {
-                    candidatePanelSnapshot = snapshot;
-                }
+                candidatePanelSnapshot = currentCandidateSnapshot();
             }
             render();
         } catch (JSONException | RuntimeException | LinkageError error) {
@@ -3255,7 +3302,8 @@ public final class MSIMEInputService extends InputMethodService {
             String content = JsonPolicy.strictString(message.opt("content"));
             if (content == null) return texts;
             if (!OnlineCandidatePolicy.acceptsAiContent(content)) return texts;
-            JSONArray entries = new JSONObject(content).optJSONArray("candidates");
+            JSONArray entries = new JSONObject(OnlineCandidatePolicy.stripCodeFence(content))
+                .optJSONArray("candidates");
             if (entries == null) return texts;
             texts = new java.util.ArrayList<>(entries.length());
             for (int index = 0; index < entries.length(); index++) {
@@ -4053,7 +4101,7 @@ public final class MSIMEInputService extends InputMethodService {
         return InputViewValuePolicy.punctuationMarks(view);
     }
 
-    private java.util.List<QuickPunctuationPolicy.Entry> quickPunctuationEntries() {
+    java.util.List<QuickPunctuationPolicy.Entry> quickPunctuationEntries() {
         return QuickPunctuationPolicy.entries(dedicatedEnglish,
             view == null ? -1 : InputViewValuePolicy.scheme(view, -1),
             view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"));
@@ -4772,7 +4820,7 @@ public final class MSIMEInputService extends InputMethodService {
             () -> Color.parseColor(skin.accent()));
         ViewPolicy.setAllCapsFalse(button);
         button.setText("更多");
-        imeStyler.styleButton(button, true);
+        imeStyler.styleButton(button, KeyboardKeyRole.GLYPH, skin);
         bindAction(button, action);
         row.addView(button, LayoutPolicy.weightedWrapParams(1));
         return button;
@@ -4832,7 +4880,7 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
-    /** 九键网格键帽：沿用 {@link #keyboardKey} 的动作绑定，并在上沿留出数字提示的位置。 */
+    /** 九键网格键帽：沿用 {@link #keyboardKey} 的动作绑定；数字提示由 {@link NineKeyDigitButton} 画在右上角，键面文字仍居中。 */
     NineKeyDigitButton nineKeyGridKey(String label, String description, Runnable action) {
         NineKeyDigitButton button = new NineKeyDigitButton(this);
         KeyboardTypographyPolicy.setKeyTextSize(button, KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
@@ -5839,6 +5887,9 @@ public final class MSIMEInputService extends InputMethodService {
                 configured.localModel());
         } catch (RuntimeException error) {
             VoiceRecognitionActivity.clearRequest(requestId);
+            // 同一个笼统的提示有两个来源（键区里识别失败、识别窗口起不来），不记类型就分不出来
+            // （只记异常类名，不含输入、路径和凭据）。
+            ImeLog.w("Voice window launch failed: " + error.getClass().getName());
             notice("语音识别服务无法启动");
         }
     }
@@ -6992,14 +7043,15 @@ public final class MSIMEInputService extends InputMethodService {
     /** 释义（以及韩语汉字的 훈음）总是从候选下面另起一行，和 iOS 候选条一致；放在同一行会把候选撑宽，一屏只剩一两个候选。 */
     CharSequence candidateLabel(String prefix, String text, String annotation,
                                         boolean highlighted) {
-        if (annotation.isEmpty() && prefix.isEmpty()) return text;
+        if (annotation.isEmpty() && prefix.isEmpty())
+            return CandidateSymbolLabel.apply(text, 0, text.length());
         String primary = prefix + text;
         SpannableString label = new SpannableString(annotation.isEmpty() ? primary : primary + "\n" + annotation);
         if (!prefix.isEmpty()) {
             label.setSpan(new ForegroundColorSpan(candidateAppearance.number()), 0, prefix.length(),
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
-        if (annotation.isEmpty()) return label;
+        if (annotation.isEmpty()) return CandidateSymbolLabel.apply(label, prefix.length(), primary.length());
         int annotationStart = primary.length() + 1;
         // 0.62 倍：候选字与一行释义要一起放进 36 dp 的候选行，0.72 倍时释义下半截被裁掉。
         label.setSpan(new RelativeSizeSpan(0.62f), annotationStart, label.length(),
@@ -7008,7 +7060,7 @@ public final class MSIMEInputService extends InputMethodService {
         int secondary = ColorPolicy.withAlpha(foreground, 0.58f);
         label.setSpan(new ForegroundColorSpan(secondary), annotationStart, label.length(),
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        return label;
+        return CandidateSymbolLabel.apply(label, prefix.length(), primary.length());
     }
 
     /** Keep a candidate word intact; the surrounding strip/panel owns scrolling and wrapping. */
@@ -7247,18 +7299,17 @@ public final class MSIMEInputService extends InputMethodService {
         if (session == 0 || view == null
                 || (!nineKeyPanel && strictCandidatePage(view, "page_count") <= 1)) return;
         try {
-            JSONObject snapshot = value(NativeClient.allCandidates(session));
-            if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) != session
-                    || !sameCandidateVersion(snapshot, view))
-                return;
+            JSONObject snapshot = currentCandidateSnapshot();
             JSONArray entries = snapshot.optJSONArray("candidates");
             JSONArray visible = view.optJSONArray("candidates");
             if (!nineKeyPanel && (entries == null || visible == null
-                    || entries.length() <= visible.length())) return;
+                    || entries.length() <= visible.length())) {
+                render();
+                return;
+            }
             candidatePanelSnapshot = snapshot;
             candidatePanelOpen = true;
-            imeCandidates.renderExpandedCandidates();
-            imeStyler.applySkin();
+            render();
         } catch (JSONException | LinkageError error) { fail(error); }
     }
 
@@ -8735,6 +8786,9 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void render() {
+        // 完整列表展开可能换代，先同步再绘制，避免候选文字与选词身份来自两代。
+        if (candidatePanelOpen && imeNineKeyPanel.eligible()) imeNineKeyPanel.refreshSnapshot();
+        scheduleCandidateGlosses();
         // 候选栏跟随光标要先知道这个输入框报不报告光标位置。
         synchronizeCursorUpdates();
         // 浮动开关、外接键盘的候选条模式或候选栏跟随光标变了：先把窗口换成对应的布局，下面判断分离式键盘、单手模式时用的是新状态。
@@ -8801,11 +8855,13 @@ public final class MSIMEInputService extends InputMethodService {
         boolean hasHandwritingResults = handwriting && !handwritingResults.isEmpty()
             && handwritingCandidateToken != null;
         boolean hasEmailSuffixes = imeEmailSuffixes.active();
+        boolean hasNineKeyPunctuation = imeNineKeyQuickPunctuation.active();
         boolean idle = view == null || (InputViewValuePolicy.editingText(view).isEmpty()
             && "none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none"))
             && (visibleCandidates == null || visibleCandidates.length() == 0)
             && !hasEnglishSuggestions
             && !hasEmailSuffixes
+            && !hasNineKeyPunctuation
             && !hasHandwritingResults);
         if (preedit != null) {
             // 读音的字号由 ImeStyler.applySkin 在 render 末尾统一设置，这里不再另设一份。
@@ -9026,8 +9082,8 @@ public final class MSIMEInputService extends InputMethodService {
             layerButton.setContentDescription(KeyboardActionRow.layerDescription(symbols));
         }
         if (symbolPanelButton != null) {
-            ViewPolicy.setEnabled(symbolPanelButton, session != 0 && connection != null
-                && keyboardLayer == KeyboardLayout.Layer.LETTERS);
+            // 这个键只出现在拼音九键和笔画键盘的底行；拼音九键的数字键面也画这一行，在那里同样能打开面板。
+            ViewPolicy.setEnabled(symbolPanelButton, session != 0 && connection != null);
             symbolPanelButton.setContentDescription("打开符号面板");
         }
         updateReturnKey();
@@ -9114,7 +9170,6 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.setEnabled(layoutSettingsButton, session != 0 && preferencesSnapshot != null
                 && !schemeSaving && !touchGeometrySaving && !traditionalOutputSaving);
         imeLayoutRows.renderNineKeySpellings(hasDiagnostic);
-        scheduleCandidateGlosses();
         scheduleCandidateTranslations();
         scheduleUserCandidateTranslations();
         scheduleOnlineProviders();
@@ -9156,6 +9211,9 @@ public final class MSIMEInputService extends InputMethodService {
             // 义项页占用候选行：不画引擎候选，也不显示展开键和页码，义项都在这一页上。
             imeTranslationSenses.render(activeCandidates, candidateHorizontal);
             if (candidatePage != null) candidatePage.setText("");
+        } else if (hasNineKeyPunctuation) {
+            // 用户刚点了九键的 1 键，先给它要的常用标点，邮箱后缀等下一次转换之后再出现。
+            imeNineKeyQuickPunctuation.render(activeCandidates, candidateHorizontal);
         } else if (imeEmailSuffixes.active()) {
             // 邮箱后缀和英文建议占同一个候选行；打到 `@` 之后英文建议本来也没有，先给后缀。
             imeEmailSuffixes.render(activeCandidates);

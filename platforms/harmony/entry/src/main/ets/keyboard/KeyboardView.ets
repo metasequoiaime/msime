@@ -55,7 +55,7 @@ import {
   COMBO_IDLE_RESET_MILLIS, TypingEffect, TypingEffectPolicy, TypingEffectSettings
 } from './TypingEffectPolicy';
 import { HitOffset, KeyboardGeometry } from './KeyboardGeometry';
-import { NineKeyLayout, NineKey } from './input/NineKeyLayout';
+import { NineKeyAction, NineKeyActionKind, NineKeyLayout, NineKey } from './input/NineKeyLayout';
 import { FourteenKey, FourteenKeyLayout } from './input/FourteenKeyLayout';
 import { LayerCharacterRoute, LayerKey, LayerKeyKind, NumberSymbolLayout } from './input/NumberSymbolLayout';
 import { ChineseSymbolFaces } from './input/ChineseSymbolFaces';
@@ -278,16 +278,11 @@ const SPACE_LABEL_GAP_VP: number = 4;
 // 触屏 123 和 #+= 层（`NumberSymbolLayout`）：数字行 20fp，其下各行 18fp，与 Android 上同样的键尺寸一致。
 const LAYER_FIRST_ROW_FONT_SIZE: number = 20;
 const LAYER_FONT_SIZE: number = 18;
-// 触屏九键键面，按宽度份额分配：三列各占 2 份的字母格两侧各有一列 1.15 份的标点，标点和字母格都是 17fp，字母格字重 500，右上角有 10fp 的数字。底行是 123 1.25 | space 4.2 | 0 1.05 | 中 1.05 | return 1.6。
+// 触屏九键键面，按宽度份额分配：三列各占 2 份的字母格两侧各有一列 1.15 份的标点，标点和字母格都是 17fp，字母格字重 500，右上角有 10fp 的数字。底行的份额在 `NineKeyLayout.actionRow`。
 const NINE_KEY_SIDE_SHARE: number = 1.15;
 const NINE_KEY_GRID_SHARE: number = 6;
 const NINE_KEY_FONT_SIZE: number = 17;
 const NINE_KEY_LETTER_WEIGHT: number = 500;
-const NINE_KEY_HINT_TOP_VP: number = 3;
-const NINE_KEY_HINT_RIGHT_VP: number = 6;
-const NINE_KEY_SPACE_SHARE: number = 4.2;
-const NINE_KEY_ZERO_SHARE: number = 1.05;
-const NINE_KEY_RETURN_SHARE: number = 1.6;
 // 展开的候选网格：列宽至少 64vp、列间距 6vp，格高 44vp、圆角 8、词 17fp，最多 40 格，下方是 40vp 高、放「返回」和删除键的底栏。
 const EXPANDED_MIN_COLUMN_VP: number = 64;
 const EXPANDED_GAP_VP: number = 6;
@@ -542,6 +537,8 @@ struct KeyboardView {
   @State symbolLocked: boolean = false;
   /** 长按九键字母格或 14 键双字母键时弹出的字母（九键还有数字），两种键面共用 `SURFACE_NINE_KEY_HOLD`。 */
   @State nineKeyHoldOptions: string[] = [];
+  /** 拼音网格的 1 键（@#）放进候选条的常用标点；为空时候选条画 Engine 的候选。Engine 下一次回报（`onChanged`）、点选其中一个或打开别的界面时清空。 */
+  @State nineKeyQuickMarks: PunctuationEntry[] = [];
   /**
    * Which surface is covering the keys, if any.
    *
@@ -840,6 +837,8 @@ struct KeyboardView {
     KeyboardSession.shared.onChanged = (state: KeyboardState): void => {
       const wasHandwriting: boolean = KeyboardScheme.usesHandwritingFace(
         this.scheme, this.english, this.symbols, this.localMode);
+      // 这次回报的候选盖掉 1 键放进来的常用标点。
+      this.nineKeyQuickMarks = [];
       this.candidates = state.candidates;
       this.editing = state.editing;
       this.editingCaret = state.editingCaret;
@@ -2385,6 +2384,7 @@ struct KeyboardView {
     if (surface !== SURFACE_NINE_KEY_HOLD) {
       this.nineKeyHoldOptions = [];
     }
+    this.nineKeyQuickMarks = [];
     if (surface !== SURFACE_REPLY) {
       this.replyGeneration += 1;
       this.replyBusy = false;
@@ -3200,7 +3200,8 @@ struct KeyboardView {
   private stripIdle(): boolean {
     return !KeyboardFormFactor.isDesktop() && this.editing.length === 0
       && this.diagnostic.length === 0 && this.candidates.length === 0
-      && this.englishSuggestions.length === 0 && !this.showsHandwritingCandidates();
+      && this.englishSuggestions.length === 0 && !this.showsHandwritingCandidates()
+      && this.nineKeyQuickMarks.length === 0;
   }
 
   /** "current / total" and the two arrows, in the palette's secondary colour, as the design's `pageInfo` and `pageBtn` draw them. The arrows page through the Engine the way PageUp and PageDown do. */
@@ -3932,6 +3933,9 @@ struct KeyboardView {
         if (this.showsHandwritingCandidates()) {
           // OCR 结果也是候选，通过识别器而不是 Engine 选择。
           this.chipLane(0)
+        } else if (this.nineKeyQuickMarks.length > 0) {
+          // 1 键放进来的常用标点；组字中也先于 Engine 的候选显示，直到下一次回报。
+          this.chipLane(2)
         } else if (this.candidates.length > 0) {
           Scroll() {
             Row() {
@@ -4084,13 +4088,14 @@ struct KeyboardView {
   }
 
   /**
-   * 用于非 Engine 候选的普通胶囊通道：手写结果（`kind` 0），通过识别器选择；英文补全（`kind` 1），是对正在输入的单词的只读建议。列表在这里读取而不是传入，这样通道随列表变化而更新。
+   * 用于非 Engine 候选的普通胶囊通道：手写结果（`kind` 0），通过识别器选择；英文补全（`kind` 1），是对正在输入的单词的只读建议；九键 1 键的常用标点（`kind` 2），点选后按标点键的路线输入。列表在这里读取而不是传入，这样通道随列表变化而更新。
    */
   @Builder
   chipLane(kind: number) {
     Scroll() {
       Row() {
-        ForEach(kind === 0 ? this.handwritingCandidates : this.englishSuggestions, (item: string, index: number) => {
+        ForEach(kind === 0 ? this.handwritingCandidates : kind === 1 ? this.englishSuggestions
+          : this.nineKeyQuickMarks.map((mark: PunctuationEntry): string => mark.face), (item: string, index: number) => {
           Text(item)
             .fontSize(this.chipFontSize())
             .fontFamily(this.candidateFontFamily())
@@ -4110,12 +4115,15 @@ struct KeyboardView {
               }
             })
             .accessibilityText(kind === 0 ? `手写候选：${item}`
-              : KeyAccessibilityPolicy.englishSuggestion(index + 1, item))
+              : kind === 1 ? KeyAccessibilityPolicy.englishSuggestion(index + 1, item)
+              : KeyAccessibilityPolicy.symbol(item))
             .onClick(() => {
               if (kind === 0) {
                 this.chooseHandwriting(item);
-              } else {
+              } else if (kind === 1) {
                 KeyboardSession.shared.useEnglishSuggestion(index);
+              } else {
+                this.chooseNineKeyQuickMark(index);
               }
             })
         }, (item: string, index: number) => `${kind}:${index}:${item}`)
@@ -4176,7 +4184,7 @@ struct KeyboardView {
   }
 
   /**
-   * 触屏键盘的九键网格，与设计稿和 Android（`ImeLayoutRows.rebuildNineKeyRows`）一致：一列 ，。？ 键，首格是 @# 的 3×3 网格，以及一列删除键、音节分隔符和 ！。数字层重新标注网格并保留两侧的列。
+   * 触屏键盘的九键网格，与设计稿和 Android（`ImeLayoutRows.rebuildNineKeyRows`）一致：一列 ，。？ 键，首格是 @# 的 3×3 网格，以及一列删除键、音节分隔符和 ！。@# 把常用标点放进候选条（`showNineKeyQuickMarks`），符号面板从底行最左边的 符 打开。数字层重新标注网格并保留两侧的列。
    *
    * 输入数字串时，左列改为列出这些数字可能代表的读音而不是标点，鸿蒙九键一直如此；设计稿里没有放它们的位置。
    */
@@ -4289,13 +4297,13 @@ struct KeyboardView {
     };
   }
 
-  /** 到这里结束的键面是否为触屏键盘的九键网格，它有自己的底行（`nineKeyActionRow`）。假名网格也是九键布局，但保留共享底行。 */
+  /** 到这里结束的键面是否用触屏九键外框的底行（`nineKeyActionRow`）：拼音九键网格，或不在符号层的笔画键盘。假名网格也是九键布局，但保留共享底行。 */
   private touchNineKeyRow(): boolean {
-    return this.touchDesign() && !this.japanese && KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode);
+    return this.touchDesign() && !this.japanese && this.gridActionRow();
   }
 
   /**
-   * 0 在数字层上与其他九个数字一样直接输入。字母层上它不参与拼写：九键的组码只有 2~9，Engine 不接 0，交给它就是按了没反应。所以和 Android 的 `commitNineKeyLiteral` 一样，正在打的拼音先按原样上屏，再输入 0。
+   * 0 在数字层上与其他九个数字一样直接输入。字母层上（2in1 网格的控制列）它不参与拼写：九键的组码只有 2~9，Engine 不接 0，交给它就是按了没反应。所以和 Android 的 `commitNineKeyLiteral` 一样，正在打的拼音先按原样上屏，再输入 0。
    */
   private typeNineKeyZero(): void {
     if (this.symbols) {
@@ -4313,12 +4321,45 @@ struct KeyboardView {
     KeyboardSession.shared.punctuation(digit.charCodeAt(0));
   }
 
+  /** 拼音网格的 1 键（@#）：候选条换成当前模式的常用标点（与逗号长按的「常用标点」同一组），组字中也一样，Engine 下一次回报时换回它的候选。 */
+  private showNineKeyQuickMarks(): void {
+    this.nineKeyQuickMarks = QuickPunctuationPolicy.entries(this.english, this.engineScheme, this.localMode);
+  }
+
+  /** 点选 1 键放进来的一个标点：先清掉候选条，再与侧栏标点一样交给 Engine 的标点处理，组字中先上屏首选。空闲时标点不一定经过 Engine 回报（智能标点的连按替换就不经过），所以不能等 `onChanged` 来清。 */
+  private chooseNineKeyQuickMark(index: number): void {
+    const mark: PunctuationEntry = this.nineKeyQuickMarks[index];
+    this.nineKeyQuickMarks = [];
+    KeyboardSession.shared.punctuation(mark.input.charCodeAt(0));
+  }
+
+  /** 触屏九键外框底行的这个键在当前层上是否出现：数字层没有 符，只有数字层有 0（`NineKeyLayout.actionRow`）。 */
+  private nineKeyActionShown(kind: NineKeyActionKind): boolean {
+    return NineKeyLayout.actionRow(this.symbols).some((item: NineKeyAction): boolean => item.kind === kind);
+  }
+
   /**
-   * 触屏九键键面的底行，按设计稿：123 1.25 | space 4.2 | 0 1.05 | 中 1.05 | return 1.6，中/英键紧挨回车，与字母键面的底行一致。标点在网格两侧的列里，所以这里没有逗号和句号，与 Android 一致；旧控制列上的 0 移到这里，即设计稿放它的位置。123 把网格重新标注为数字，在数字层上该键显示「九键」，即 Android 中这个网格的 `KeyboardActionRow.layerTitle`。
+   * 触屏九键外框（拼音九键和笔画键盘）的底行，键序和份额见 `NineKeyLayout.actionRow`：符 | 123 | space | 中 | return，中/英键紧挨回车，与字母键面的底行一致。标点在网格两侧的列里，所以这里没有逗号和句号，与 Android 一致。123 把网格重新标注为数字，在数字层上该键显示「九键」，即 Android 中这个网格的 `KeyboardActionRow.layerTitle`；数字层的网格只有 1-9，所以那里 符 让给空格右边的 0。
    */
   @Builder
   nineKeyActionRow() {
     Row({ space: this.keySpacing() }) {
+      if (this.nineKeyActionShown(NineKeyActionKind.SYMBOL_PANEL)) {
+        this.fixedKey({
+          face: '符',
+          label: KeyAccessibilityPolicy.symbolPanel(),
+          size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+          fontWeight: FUNCTION_LABEL_WEIGHT,
+          emphasized: false,
+          special: true,
+          width: 0,
+          share: NineKeyLayout.SYMBOL_PANEL_WEIGHT,
+          action: () => {
+            KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
+            this.openSymbolSurface();
+          }
+        });
+      }
       // 长按 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是返回，长按不做事。
       Column() {
         this.fixedKey({
@@ -4332,20 +4373,22 @@ struct KeyboardView {
           action: () => this.toggleSymbolLayer()
         });
       }
-      .layoutWeight(LAYER_SHARE)
+      .layoutWeight(NineKeyLayout.LAYER_WEIGHT)
       .height('100%')
       .gesture(LongPressGesture().onAction(() => this.openSymbolsFromLayerKey()))
-      this.spaceKey(true, NINE_KEY_SPACE_SHARE);
-      this.fixedKey({
-        face: '0',
-        label: '数字 0',
-        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-        fontWeight: FUNCTION_LABEL_WEIGHT,
-        emphasized: false,
-        width: 0,
-        share: NINE_KEY_ZERO_SHARE,
-        action: () => this.typeNineKeyZero()
-      });
+      this.spaceKey(true, NineKeyLayout.SPACE_WEIGHT);
+      if (this.nineKeyActionShown(NineKeyActionKind.ZERO)) {
+        this.fixedKey({
+          face: '0',
+          label: '数字 0',
+          size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+          fontWeight: FUNCTION_LABEL_WEIGHT,
+          emphasized: false,
+          width: 0,
+          share: NineKeyLayout.ZERO_WEIGHT,
+          action: () => this.typeNineKeyZero()
+        });
+      }
       this.fixedKey({
         face: this.languageFace(),
         label: KeyAccessibilityPolicy.language(),
@@ -4354,14 +4397,14 @@ struct KeyboardView {
         emphasized: false,
         special: true,
         width: 0,
-        share: LANGUAGE_SHARE,
+        share: NineKeyLayout.LANGUAGE_WEIGHT,
         hitRegion: this.languageKeyHitRegion(),
         action: () => {
           KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_LANGUAGE);
           this.toggleTouchLanguage();
         }
       });
-      this.designReturnKey(NINE_KEY_RETURN_SHARE, true);
+      this.designReturnKey(NineKeyLayout.RETURN_WEIGHT, true);
     }
     .width('100%')
     .height(this.rowHeight(3))
@@ -4491,10 +4534,10 @@ struct KeyboardView {
       // its own digit row, rather than handing it to the Engine as a candidate position.
       action: this.symbols
         ? () => this.typeNineKeyDigit(key.input)
-        : NineKeyLayout.opensSymbols(key)
+        : NineKeyLayout.showsQuickMarks(key)
         ? () => {
           KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(key.input));
-          this.openSymbolSurface();
+          this.showNineKeyQuickMarks();
         }
         : () => {
           KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(key.input));
@@ -4508,12 +4551,12 @@ struct KeyboardView {
     Stack({ alignContent: Alignment.TopEnd }) {
       this.keyFace(this.nineKeyKeyOptions(key))
       if (this.touchDesign()) {
-        // 长按可输入的数字，包括符号入口的 1；数字层不重复印。
+        // 长按可输入的数字，包括常用标点键的 1；数字层不重复印。与 26 键字母键的角标同位同号：距顶部 3 vp、距右侧 5 vp，10fp。
         Text(NineKeyLayout.digitHint(key))
           .fontSize(KEY_HINT_FONT_SIZE)
           .fontColor(this.skin.secondary)
           .maxLines(1)
-          .margin({ top: NINE_KEY_HINT_TOP_VP, right: NINE_KEY_HINT_RIGHT_VP })
+          .margin({ top: CORNER_HINT_TOP_VP, right: CORNER_HINT_RIGHT_VP })
           .hitTestBehavior(HitTestMode.Transparent)
       }
     }
@@ -4533,8 +4576,8 @@ struct KeyboardView {
     .responseRegion(this.keyHitRegion())
     .onClick(() => {
       KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(key.input));
-      if (NineKeyLayout.opensSymbols(key)) {
-        this.openSymbolSurface();
+      if (NineKeyLayout.showsQuickMarks(key)) {
+        this.showNineKeyQuickMarks();
       } else {
         KeyboardSession.shared.press(key.input.charCodeAt(0), false);
       }
@@ -4570,7 +4613,7 @@ struct KeyboardView {
     .height(this.rowHeight(1))
 
     Row({ space: this.keySpacing() }) {
-      // 左端键照搬九键的 1 键：组字中是「分词」，送 ' 在已打的键末尾定一个音节分界；没在组字时是「符」，打开符号面板。宽度同 26 键的 Shift。
+      // 左端键组字中是「分词」，送 ' 在已打的键末尾定一个音节分界；没在组字时是「符」，打开符号面板。宽度同 26 键的 Shift。
       this.fixedKey({
         face: this.editing.length > 0 ? '分词' : '符',
         label: this.editing.length > 0 ? NineKeyLayout.separator().description
@@ -4621,7 +4664,7 @@ struct KeyboardView {
     KeyboardSession.shared.pressGridKey(key.input.charCodeAt(0));
   }
 
-  /** 第三行左端键：组字中送分词符 '，空闲时打开符号面板，同九键的 1 键（Android `ImeLayoutRows.symbolKey`）。 */
+  /** 第三行左端键：组字中送分词符 '，空闲时打开符号面板（Android `ImeLayoutRows.symbolKey`）。 */
   private tapFourteenKeySeparator(): void {
     // 一个键一个键位 id：不论组字与否都记作符号键，与 Android、iOS 的 14 键相同。
     KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
@@ -4669,7 +4712,7 @@ struct KeyboardView {
    * from those faces was tapping a candidate. It is a builder now so that every face ends the same
    * way, which is also how the Apple host is arranged.
    *
-   * 触屏键盘的字母键面改用设计稿的底行（`designActionRow`），九键网格用自己的底行（`nineKeyActionRow`）；触屏 123 和 #+= 层自己绘制底行（`designLayerFace`）。笔画键盘、假名网格、手写和所有 2in1 屏幕键盘仍用这一行。
+   * 触屏键盘的字母键面改用设计稿的底行（`designActionRow`），九键网格和笔画键盘用九键外框的底行（`nineKeyActionRow`）；触屏 123 和 #+= 层自己绘制底行（`designLayerFace`）。假名网格、手写和所有 2in1 屏幕键盘仍用这一行。
    */
   @Builder
   actionRow() {

@@ -74,13 +74,13 @@ def reference_labels() -> tuple[dict[str, str], str, str] | None:
 
 
 def shared_ui() -> dict[str, str]:
-    source = (ROOT / "packages/ui/src/settings/pages/helpcode-page.tsx").read_text(
+    source = (ROOT / "packages/ui/src/settings/helpcode-preferences.ts").read_text(
         encoding="utf-8"
     )
     block = re.search(
-        r"const helpcodeSchemas:.*?= \[(.*?)\];", source, re.S
+        r"const helpcodeSchemaOptions:.*?= \[(.*?)\];", source, re.S
     )
-    assert block, "the shared helper-code settings page no longer declares helpcodeSchemas"
+    assert block, "共享辅助码模型未声明 helpcodeSchemaOptions"
     return dict(re.findall(r'\["([^"]+)",\s*"([^"]+)"\]', block.group(1)))
 
 

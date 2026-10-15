@@ -271,46 +271,28 @@
    "op": "char",
    "arg": "'",
    "result": {
-    "handled": true
+    "handled": false,
+    "commit": "Jn"
    },
    "snapshot": {
     "scheme": "quanpin",
-    "local_mode": "super_jianpin",
-    "preedit": "Jn",
-    "raw_segmentation": "Jn",
-    "normalized_segmentation": "Jn",
-    "editing_text": "Jn",
-    "caret": 2,
+    "local_mode": "none",
+    "preedit": "",
+    "raw_segmentation": "",
+    "normalized_segmentation": "",
+    "editing_text": "",
+    "caret": 0,
     "dedicated_english": false,
     "shuangpin_profile": "xiaohe",
-    "candidate_count": 2,
-    "candidates": [
-     {
-      "word": "你",
-      "pinyin": "n",
-      "canonical_pinyin": "ni",
-      "source": 0,
-      "scheme": "quanpin",
-      "weight": 300,
-      "answers_key": true
-     },
-     {
-      "word": "拿",
-      "pinyin": "n",
-      "canonical_pinyin": "na",
-      "source": 0,
-      "scheme": "quanpin",
-      "weight": 200,
-      "answers_key": true
-     }
-    ]
+    "candidate_count": 0,
+    "candidates": []
    }
   },
   {
    "op": "command",
    "arg": "Cancel",
    "result": {
-    "handled": true
+    "handled": false
    },
    "snapshot": {
     "scheme": "quanpin",

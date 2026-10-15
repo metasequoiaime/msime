@@ -12,7 +12,6 @@ use super::schedule::{self, CardState, ReviewGrade};
 use super::wordbook::{self, Wordbook};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 
 /// The largest progress document that will be read or written.
@@ -302,7 +301,7 @@ pub struct VocabularyProgressStore {
 
 struct ProgressLock {
     directory: crate::file_lock::PrivateDirectory,
-    _lock: File,
+    _lock: crate::file_lock::ScopedFileLock,
 }
 
 impl VocabularyProgressStore {
@@ -332,7 +331,7 @@ impl VocabularyProgressStore {
             &directory,
             std::ffi::OsStr::new(LOCK_FILE),
         )?;
-        crate::file_lock::exclusive(&lock)?;
+        let lock = crate::file_lock::ScopedFileLock::exclusive(lock)?;
         Ok(ProgressLock {
             directory,
             _lock: lock,
@@ -530,6 +529,21 @@ impl VocabularyProgressStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn finished_scope_releases_inherited_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let store = VocabularyProgressStore::new(root.path());
+        let held = store.lock().unwrap();
+        let inherited = crate::file_lock::testing::duplicate(&held._lock);
+        crate::file_lock::testing::assert_finished_scope_releases_lock(
+            held,
+            inherited,
+            &root.path().join(LOCK_FILE),
+        );
+    }
+
     use crate::vocabulary::wordbook::WordbookEntry;
     use std::fs;
 
@@ -648,7 +662,7 @@ mod tests {
     #[test]
     fn an_oversized_document_is_rejected_before_loading() {
         let (directory, store) = store();
-        File::create(directory.path().join("vocabulary-progress.json"))
+        std::fs::File::create(directory.path().join("vocabulary-progress.json"))
             .unwrap()
             .set_len(MAX_DOCUMENT_BYTES + 1)
             .unwrap();

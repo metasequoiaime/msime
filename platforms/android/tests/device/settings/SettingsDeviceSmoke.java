@@ -268,10 +268,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
                 + ").value === '60' && (" + ROW_SPACING + ").value === '70' && !("
                 + VOICE_SHORTCUT + ").checked");
             stage = "cross-process system input uses saved preferences";
-            shellDiscard("ime disable app.msime.android/.MSIMEInputService");
-            shellDiscard("ime enable app.msime.android/.MSIMEInputService");
-            shellDiscard("ime set app.msime.android/.MSIMEInputService");
-            SystemClock.sleep(1000);
+            restartIme();
             shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
             stage = "cross-process keyboard uses saved skin";
@@ -286,10 +283,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             assertSharedSchemePicker();
             stage = "scheme visibility survives IME restart";
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
-            shellDiscard("ime disable app.msime.android/.MSIMEInputService");
-            shellDiscard("ime enable app.msime.android/.MSIMEInputService");
-            shellDiscard("ime set app.msime.android/.MSIMEInputService");
-            SystemClock.sleep(1000);
+            restartIme();
             shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
             assertSharedSchemePicker();

@@ -10,6 +10,8 @@ The Windows translation worker reconstructed every candidate with `source: 0` be
 
 The host translation query carries each candidate's source. Windows preserves that source and skips sources 6, 7, 13 and 14 in both offline gloss and provider planning. The shared runtime suppresses translation display for those sources, preventing same-text answer bleed between rows.
 
+共享计划对普通来源 11 的放行见[键盘模型整句翻译](2026-10-15-neural-candidate-translation-plan.md)，Windows 保留的原始来源直接交给该计划。
+
 ## Consequences
 
 Only eligible rows reach translation providers, and special rows never display a text-keyed answer inherited from an ordinary row. The `/fy` sentence path remains unchanged because it carries no candidate source.

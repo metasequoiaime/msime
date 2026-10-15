@@ -1,8 +1,20 @@
-import type { SentenceAssociationPreferences } from "../index";
+import {
+  sentenceAssociationControlState,
+  sentenceAssociationLevel,
+  sentenceAssociationWithLevel,
+  type SentenceAssociationLevel,
+  type SentenceAssociationPreferences,
+} from "./sentence-association-preferences";
 import { formatModelBytes } from "../voice/local-model-helpers";
 import { ResourcePackRow, resourcePackStatus, type ResourcePacks } from "./resource-packs";
 import { SelectRow } from "./select-row";
 import { SwitchRow } from "./switch-row";
+
+export {
+  sentenceAssociationLevel,
+  sentenceAssociationWithLevel,
+  type SentenceAssociationLevel,
+} from "./sentence-association-preferences";
 
 export interface SentenceAssociationSectionProps {
   value: SentenceAssociationPreferences | undefined;
@@ -26,7 +38,7 @@ export function SentenceAssociationSection({
   // 宿主没列出 `settled-model` 时（随包带着模型，或者不提供下载服务）没有什么要下载。
   const settledPack =
     !mobile && resourcePacks ? resourcePackStatus(resourcePacks, "settled-model") : undefined;
-  const neuralDesktop = value?.neural_desktop ?? false;
+  const state = sentenceAssociationControlState(value, { mobile, neuralKeyboard });
   const description = mobile
     ? "使用随包的神经模型重排整句候选；没有模型时保持现有候选。"
     : settledPack && settledPack.state !== "installed"
@@ -37,14 +49,14 @@ export function SentenceAssociationSection({
       <SwitchRow
         title="本地整句联想"
         description="把词库组合出的整句加入候选；关闭后仍保留单词候选。"
-        checked={value?.word_lattice ?? true}
+        checked={state.wordLatticeChecked}
         onChange={(checked) => onChange({ ...value, word_lattice: checked })}
       />
-      {(!mobile || neuralKeyboard) && (
+      {state.neuralVisible && (
         <SwitchRow
           title={mobile ? "键盘神经联想" : "桌面神经联想"}
           description={description}
-          checked={mobile ? (value?.neural_keyboard ?? false) : neuralDesktop}
+          checked={state.neuralChecked}
           onChange={(checked) => {
             onChange({
               ...value,
@@ -54,37 +66,18 @@ export function SentenceAssociationSection({
           }}
         />
       )}
-      {!mobile && neuralDesktop && resourcePacks && (
+      {!mobile && state.neuralChecked && resourcePacks && (
         <ResourcePackRow packs={resourcePacks} id="settled-model" note="桌面神经联想需要它" />
       )}
     </>
   );
 }
 
-/** HarmonyOS 手机「表达」页上「整句联想」的三个级别：0 关闭，1 标准（词网格），2 增强（词网格加键盘神经模型）。 */
-export type SentenceAssociationLevel = 0 | 1 | 2;
-
 const sentenceAssociationLevelLabels: readonly [SentenceAssociationLevel, string][] = [
   [0, "关闭"],
   [1, "标准"],
   [2, "增强"],
 ];
-
-/** 从存储的开关读出级别，与 Android 的 `ExpressionPage.sentenceLevel` 相同：默认值（`word_lattice` 开、`neural_keyboard` 关）为「标准」，词网格关闭时不论神经开关如何都是「关闭」。 */
-export function sentenceAssociationLevel(
-  value: SentenceAssociationPreferences | undefined,
-): SentenceAssociationLevel {
-  if (!(value?.word_lattice ?? true)) return 0;
-  return value?.neural_keyboard ? 2 : 1;
-}
-
-/** 把级别写回两个开关，其他字段（`neural_desktop`、`show_next_on_duplicate`）保持存储时的值。 */
-export function sentenceAssociationWithLevel(
-  value: SentenceAssociationPreferences | undefined,
-  level: SentenceAssociationLevel,
-): SentenceAssociationPreferences {
-  return { ...value, word_lattice: level > 0, neural_keyboard: level > 1 };
-}
 
 export interface SentenceAssociationLevelRowProps {
   value: SentenceAssociationPreferences | undefined;

@@ -1,17 +1,19 @@
 import { expect, test } from "vitest";
 import {
   activityMetrics,
-  addDays,
-  currentStreak,
   dailyDetailRows,
   dailySpeeds,
+  usualHours,
+  type TypingStatistics,
+} from "../../../../packages/ui/src/settings/typing-statistics-model";
+import {
+  addDays,
+  currentStreak,
   formatActiveTime,
   longestStreak,
   statisticDayKeys,
   statisticsOverviewDetails,
   statisticsOverviewMetrics,
-  usualHours,
-  type TypingStatistics,
 } from "@msime/ui";
 
 function statistics(overrides: Partial<TypingStatistics> = {}): TypingStatistics {

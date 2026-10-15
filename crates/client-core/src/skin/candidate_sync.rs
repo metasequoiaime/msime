@@ -15,6 +15,7 @@ use crate::account::{AccountApi, AccountError, AccountSessionStorage};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ffi::OsString;
+#[cfg(all(test, unix))]
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
@@ -238,7 +239,7 @@ struct SyncState {
 struct StateLock {
     directory: crate::file_lock::PrivateDirectory,
     name: OsString,
-    _lock: File,
+    _lock: crate::file_lock::ScopedFileLock,
 }
 
 fn lock_state(path: &Path) -> Result<StateLock, &'static str> {
@@ -253,7 +254,7 @@ fn lock_state(path: &Path) -> Result<StateLock, &'static str> {
     lock_name.push(".lock");
     let lock =
         crate::file_lock::open_private_lock_file_at(&directory, &lock_name).map_err(|_| STORAGE)?;
-    crate::file_lock::exclusive(&lock).map_err(|_| STORAGE)?;
+    let lock = crate::file_lock::ScopedFileLock::exclusive(lock).map_err(|_| STORAGE)?;
     Ok(StateLock {
         directory,
         name,

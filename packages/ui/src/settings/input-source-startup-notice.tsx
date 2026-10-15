@@ -2,16 +2,14 @@ import { actionRow, primary } from "../account/account-style";
 import { ActionButton } from "./action-button";
 import { SettingSectionTitle } from "./setting-section-title";
 
-export type InputSourceStartupStatus = {
-  /** `login_required`: the input method is installed, but this login session's input source list only picks it up after the user logs in again. `not_installed`: a first install, left for the user to start from the install window. */
-  action: "installed" | "updated" | "up_to_date" | "not_installed" | "login_required" | "failed";
-  /** Whether the input source is in the System Settings list; `null` when that list could not be read. */
-  enabled: boolean | null;
-  bundled_version: string | null;
-  installed_version: string | null;
-  /** Copies of the input method in `/Library/Input Methods`, which compete with the user's copy and need an administrator to remove; read afresh on every request. */
-  system_bundles?: string[];
-};
+import {
+  inputSourceNeedsAdding,
+  type InputSourceStartupStatus,
+} from "./input-source-startup-model";
+export {
+  inputSourceNeedsAdding,
+  type InputSourceStartupStatus,
+} from "./input-source-startup-model";
 
 export interface InputSourceStartupNoticeProps {
   status: InputSourceStartupStatus;
@@ -22,16 +20,6 @@ export interface InputSourceStartupNoticeProps {
 
 const settingsPath = "「系统设置 › 键盘 › 文字输入 › 输入法」";
 const openSettingsError = `无法打开系统设置，请手动前往${settingsPath}。`;
-
-/** Whether the status leaves the user something to add in System Settings, which is what the settings page keeps re-reading the list for. */
-export function inputSourceNeedsAdding(status: InputSourceStartupStatus | null): boolean {
-  return (
-    status?.enabled === false &&
-    status.action !== "failed" &&
-    status.action !== "login_required" &&
-    status.action !== "not_installed"
-  );
-}
 
 /** The steps for adding the source. macOS 27 does not let a process enable a keyboard input mode (`TISEnableInputSource` answers noErr and changes nothing, see platforms/macos/README.md), so this is the one step the settings app cannot do for the user. */
 function AddSteps() {

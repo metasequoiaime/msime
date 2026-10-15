@@ -61,11 +61,22 @@ pub fn chat_completion_body(
     {
         return Err(AiError::InvalidConfiguration);
     }
+    // JSON 模式要求对话里出现 "json" 这个词。把 Chat Completions 转成 Responses API 的网关（如 EveryAPI 上的 GPT-6 系列）会把 system 消息放进 `instructions`，只检查 input，于是只在 system 提示里写 JSON 的请求一律 400。在 user 消息里带上 `output_format` 字段，任何提示都能满足这个检查。
+    #[derive(Serialize)]
+    struct UserMessage<'a> {
+        #[serde(flatten)]
+        request: &'a AiSuggestionRequest,
+        output_format: &'static str,
+    }
+    let user = UserMessage {
+        request,
+        output_format: "json",
+    };
     let mut body = serde_json::json!({
         "model":model, "stream":false, "temperature":0.2, "max_tokens":512,
         "response_format":{"type":"json_object"},
         "messages":[{"role":"system","content":prompt},
-            {"role":"user","content":serde_json::to_string(request).map_err(|_| AiError::InvalidConfiguration)?}]
+            {"role":"user","content":serde_json::to_string(&user).map_err(|_| AiError::InvalidConfiguration)?}]
     });
     if provider == "deepseek" {
         body["thinking"] = serde_json::json!({"type":"disabled"});
@@ -161,6 +172,19 @@ fn legacy_provider_origin(provider: &str) -> Option<&'static str> {
     })
 }
 
+/// 去掉包在正文外面的 Markdown 代码块。不支持 `response_format` 的模型（如经网关调用的 Claude）会无视 JSON 模式，回答写成 ```json ... ```，里面仍是合法 JSON。
+fn strip_code_fence(content: &str) -> &str {
+    let trimmed = content.trim();
+    let Some(fenced) = trimmed
+        .strip_prefix("```")
+        .and_then(|rest| rest.strip_suffix("```"))
+    else {
+        return trimmed;
+    };
+    // 第一行是信息串（如 `json`），只有一行时没有信息串。
+    fenced.split_once('\n').map_or(fenced, |(_, json)| json)
+}
+
 /// Parse a bounded successful HTTP body containing JSON-mode chat content.
 /// Preserve provider order, omit invalid/duplicate entries, and honor the caller's
 /// configured limit. None denotes an invalid envelope; an empty list is no result.
@@ -179,7 +203,7 @@ pub fn parse_chat_completion_response(body: &[u8], limit: u8) -> Option<AiSugges
         .get("message")?
         .get("content")?
         .as_str()?;
-    let inner: serde_json::Value = serde_json::from_str(content).ok()?;
+    let inner: serde_json::Value = serde_json::from_str(strip_code_fence(content)).ok()?;
     let entries = inner.get("candidates")?.as_array()?;
     let mut candidates: Vec<AiSuggestion> = Vec::new();
     for entry in entries {
@@ -327,9 +351,12 @@ mod tests {
             assert_eq!(body["max_tokens"], 512);
             assert_eq!(body["response_format"]["type"], "json_object");
             assert_eq!(body["messages"][0]["content"], "synthetic\nprompt");
-            let decoded: AiSuggestionRequest =
-                serde_json::from_str(body["messages"][1]["content"].as_str().unwrap()).unwrap();
+            let user = body["messages"][1]["content"].as_str().unwrap();
+            let decoded: AiSuggestionRequest = serde_json::from_str(user).unwrap();
             assert_eq!(decoded, request);
+            // 网关只在 input 里找 "json"，system 提示里的不算。
+            let fields: serde_json::Value = serde_json::from_str(user).unwrap();
+            assert_eq!(fields["output_format"], "json");
             assert_eq!(body.get("thinking").is_some(), provider == "deepseek");
             assert!(body.get("token").is_none());
         }
@@ -368,6 +395,41 @@ mod tests {
                 .unwrap();
         assert!(empty.candidates.is_empty());
         assert_eq!(empty.candidates.capacity(), 0);
+    }
+    #[test]
+    fn response_accepts_json_wrapped_in_a_code_fence() {
+        let fenced = |content: &str| {
+            serde_json::to_vec(&serde_json::json!({"choices":[{"message":{"content":content}}]}))
+                .unwrap()
+        };
+        let inner = r#"{"candidates":[{"text":"甲"},{"text":"乙"}]}"#;
+        for content in [
+            format!("```json\n{inner}\n```"),
+            format!("  ```JSON\n{inner}\n```\n"),
+            format!("```\n{inner}\n```"),
+            format!("```{inner}```"),
+        ] {
+            let response = parse_chat_completion_response(&fenced(&content), 3).unwrap();
+            assert_eq!(
+                response
+                    .candidates
+                    .iter()
+                    .map(|c| c.text.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["甲", "乙"],
+                "{content:?}"
+            );
+        }
+        for content in [
+            format!("```json\n{inner}"),
+            format!("说明：\n```json\n{inner}\n```"),
+            "```json\nnot json\n```".to_string(),
+        ] {
+            assert!(
+                parse_chat_completion_response(&fenced(&content), 3).is_none(),
+                "{content:?}"
+            );
+        }
     }
     #[test]
     fn response_rejects_malformed_envelopes_and_bounds() {

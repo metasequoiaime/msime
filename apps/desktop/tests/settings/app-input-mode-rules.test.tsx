@@ -64,6 +64,12 @@ test("rule identifiers are checked the way the preferences store checks them", (
   ]);
 });
 
+test("rule duplicates fold ASCII letters while keeping non-ASCII case distinct", () => {
+  const rules = { "Äpp.exe": "english" } as const;
+  expect(appInputModeRuleProblem("ÄPP.EXE", rules, true)).toBe("duplicate");
+  expect(appInputModeRuleProblem("äpp.exe", rules, true)).toBeNull();
+});
+
 test("a Windows host edits the rule table in the 中英文 group and saves it to the shared preferences", async () => {
   const save = vi.fn(async (_revision: number, preferences: Snapshot["preferences"]) => ({
     ...initial,

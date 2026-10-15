@@ -1,11 +1,8 @@
 import type { CSSProperties } from "react";
 import { utf8ByteLength } from "../core/text";
+import type { CandidateFontPreferences } from "./candidate-preferences";
 
-export type CandidateFontPreferences = {
-  candidate_font_family?: string;
-  candidate_english_font?: string | null;
-  candidate_fallback_fonts?: string[];
-};
+export type { CandidateFontPreferences } from "./candidate-preferences";
 export const defaultCandidateEnglishFont = "Segoe UI";
 export const defaultCandidateFontFamily = "Noto Sans SC";
 export const defaultCandidateFallbackFonts = ["Noto Sans SC", "Microsoft YaHei"] as const;

@@ -1171,3 +1171,17 @@ fn publishing_updates_a_row_sync_has_not_recorded_yet() {
     );
     assert_eq!(fixture.sync(), CandidateSkinSyncReport::default());
 }
+
+#[cfg(unix)]
+#[test]
+fn finished_scope_releases_inherited_lock() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("sync.json");
+    let held = lock_state(&path).unwrap();
+    let inherited = crate::file_lock::testing::duplicate(&held._lock);
+    crate::file_lock::testing::assert_finished_scope_releases_lock(
+        held,
+        inherited,
+        &root.path().join("sync.json.lock"),
+    );
+}

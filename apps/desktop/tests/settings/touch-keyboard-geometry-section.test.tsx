@@ -57,6 +57,22 @@ test("publishes the shared touch keyboard geometry defaults", () => {
   });
 });
 
+test.each([false, true])("keeps editable spacing bounds in phone layout %s", (phone) => {
+  render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      layoutRows={phone ? <div>中文键盘</div> : undefined}
+    />,
+  );
+  const key = screen.getByLabelText("按键间距") as HTMLInputElement;
+  const row = screen.getByLabelText("行间距") as HTMLInputElement;
+  expect([key.min, key.max, row.min, row.max]).toEqual(["30", "60", "40", "100"]);
+  fireEvent.change(key, { target: { value: "0" } });
+  fireEvent.change(row, { target: { value: "110" } });
+  expect(baseProps.onKeySpacingChange).toHaveBeenLastCalledWith(30);
+  expect(baseProps.onRowSpacingChange).toHaveBeenLastCalledWith(100);
+});
+
 test("forwards geometry, toolbar, feedback, and reset actions", () => {
   render(<TouchKeyboardGeometrySection {...baseProps} />);
 

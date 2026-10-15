@@ -55,3 +55,35 @@ test("reset asks for confirmation before clearing fuzzy-pinyin rules", async () 
   await waitFor(() => expect(confirm).toHaveBeenCalled());
   expect(onChange).toHaveBeenCalledWith({ enabled: false, rules: [], seeded: true });
 });
+
+test.each(["section", "row"] as const)("%s 布局取消重置时不提交偏好", async (layout) => {
+  const onChange = vi.fn();
+  const confirm = vi.fn().mockResolvedValue(false);
+  render(
+    <FuzzyPinyinSection
+      layout={layout}
+      preferences={{ enabled: true, rules: ["z-zh"], seeded: true }}
+      onChange={onChange}
+      confirm={confirm}
+    />,
+  );
+  if (layout === "row") fireEvent.click(screen.getByText("更多选项"));
+  fireEvent.click(screen.getByRole("button", { name: "重置模糊音配置" }));
+  await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+test("行式布局通过相同规则转换取消选中，保留其他规则", () => {
+  const onChange = vi.fn();
+  render(
+    <FuzzyPinyinSection
+      layout="row"
+      preferences={{ enabled: true, rules: ["z-zh", "n-l"], seeded: true }}
+      onChange={onChange}
+      confirm={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByText("更多选项"));
+  fireEvent.click(screen.getByRole("checkbox", { name: "z ↔ zh" }));
+  expect(onChange).toHaveBeenCalledWith({ enabled: true, rules: ["n-l"], seeded: true });
+});

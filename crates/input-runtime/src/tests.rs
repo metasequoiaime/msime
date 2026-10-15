@@ -3977,6 +3977,62 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
 }
 
 #[test]
+fn rejected_local_key_commits_the_prefix_and_passes_the_current_key_to_the_host() {
+    for (entry, rejected) in [
+        (b'U', b'i'),
+        (b'U', b'I'),
+        (b'K', b'A'),
+        (b'T', b'A'),
+        (b'E', b'1'),
+        (b'U', b'!'),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let session =
+            msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        runtime
+            .dispatch(Action::Character {
+                value: entry,
+                shift: true,
+            })
+            .unwrap();
+        let transition = runtime
+            .dispatch(Action::Character {
+                value: rejected,
+                shift: rejected.is_ascii_uppercase(),
+            })
+            .unwrap();
+        assert!(!transition.handled);
+        assert_eq!(
+            transition.commit.as_deref(),
+            Some((entry as char).to_string().as_str())
+        );
+        assert_eq!(transition.view.local_mode, "none");
+        assert!(transition.view.editing_text.is_empty());
+        assert!(transition.view.candidates.is_empty());
+    }
+}
+
+#[test]
+fn local_mode_punctuation_action_still_commits_the_prefix_with_chinese_punctuation() {
+    let directory = tempfile::tempdir().unwrap();
+    let session = msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    runtime
+        .dispatch(Action::Character {
+            value: b'U',
+            shift: true,
+        })
+        .unwrap();
+    let transition = runtime.dispatch(Action::Punctuation(b'.')).unwrap();
+    assert!(transition.handled);
+    assert_eq!(transition.commit.as_deref(), Some("U。"));
+    assert_eq!(transition.view.local_mode, "none");
+}
+
+#[test]
 fn unicode_mode_digits_compose_a_code_point_rather_than_picking_a_candidate() {
     let directory = tempfile::tempdir().unwrap();
     let session = msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
@@ -5969,34 +6025,43 @@ fn a_busy_provider_keeps_only_the_newest_completed_result() {
         ai_assistant: None,
         ai_cache_only: false,
     };
-    let (started, first_running) = std::sync::mpsc::channel::<()>();
+    let (started, first_running) = std::sync::mpsc::channel::<String>();
     let (release, gate) = std::sync::mpsc::channel::<()>();
     let gate = std::sync::Mutex::new(gate);
     let worker = OnlineProviderWorker::spawn(1, move |query: &OnlineQuery| {
+        started.send(query.query_text.clone()).unwrap();
+        if query.query_text == "completion-barrier" {
+            return None;
+        }
         if query.query_text == "ni" {
-            started.send(()).unwrap();
             gate.lock().unwrap().recv().unwrap();
         }
         Some((query.query_text.clone(), 0))
     })
     .unwrap();
     assert!(worker.submit(query("ni")));
-    first_running
-        .recv_timeout(Duration::from_secs(5))
-        .expect("first query running");
+    assert_eq!(
+        first_running.recv_timeout(Duration::from_secs(5)).unwrap(),
+        "ni"
+    );
     for text in ["nih", "niha", "nihao"] {
         assert!(worker.submit(query(text)));
     }
     release.send(()).unwrap();
-    let mut answered = None;
-    for _ in 0..500 {
-        if let Some(result) = worker.try_recv() {
-            answered = Some(result.text);
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(2));
-    }
-    assert_eq!(answered, Some("nihao".to_owned()));
+    assert_eq!(
+        first_running.recv_timeout(Duration::from_secs(5)).unwrap(),
+        "nihao"
+    );
+    // 下一请求开始时，前一请求的结果已写入槽；屏障请求不产生新结果。
+    assert!(worker.submit(query("completion-barrier")));
+    assert_eq!(
+        first_running.recv_timeout(Duration::from_secs(5)).unwrap(),
+        "completion-barrier"
+    );
+    assert_eq!(
+        worker.try_recv().map(|result| result.text),
+        Some("nihao".into())
+    );
     assert!(worker.try_recv().is_none());
     worker.shutdown();
 }

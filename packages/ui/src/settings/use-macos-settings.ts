@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { InputSourceStartupStatus, SettingsClient } from "../index";
-import { inputSourceNeedsAdding } from "./input-source-startup-notice";
+import type { SettingsClient } from "../index";
+import {
+  inputSourceNeedsRecheck,
+  type InputSourceStartupStatus,
+} from "./input-source-startup-model";
 import { useAsyncGeneration } from "./use-async-generation";
 import { subscribeToWindowFocus } from "../core/window-focus";
 import { useInterval } from "../core/use-interval";
@@ -67,9 +70,7 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
   }, [client, macos, refreshInputSourceStartup]);
 
   // 系统设置可能与本窗口并排，添加输入源不一定带来焦点变化；提示等待用户操作时也定期重查。
-  const waitingOnUser =
-    inputSourceNeedsAdding(inputSourceStartup) ||
-    Boolean(inputSourceStartup?.system_bundles?.length);
+  const waitingOnUser = inputSourceNeedsRecheck(inputSourceStartup);
   useInterval(
     () => void refreshInputSourceStartup(),
     waitingOnUser && typeof window !== "undefined" ? INPUT_SOURCE_RECHECK_MS : null,

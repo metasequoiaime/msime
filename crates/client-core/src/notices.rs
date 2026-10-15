@@ -9,7 +9,6 @@ use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, TagEnd};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs::File;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -148,7 +147,7 @@ pub struct NoticeStore {
 
 struct NoticeLock {
     directory: crate::file_lock::PrivateDirectory,
-    _lock: File,
+    _lock: crate::file_lock::ScopedFileLock,
 }
 
 impl NoticeStore {
@@ -231,7 +230,7 @@ impl NoticeStore {
             &directory,
             std::ffi::OsStr::new(NOTICES_LOCK_FILE),
         )?;
-        crate::file_lock::exclusive(&lock)?;
+        let lock = crate::file_lock::ScopedFileLock::exclusive(lock)?;
         Ok(NoticeLock {
             directory,
             _lock: lock,

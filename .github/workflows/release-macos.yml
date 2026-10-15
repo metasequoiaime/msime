@@ -44,14 +44,16 @@ jobs:
     #   MACOS_DEVELOPER_ID_APPLICATION           the identity name, e.g. "Developer ID Application: Name (TEAMID)"
     #   MACOS_NOTARY_APPLE_ID, MACOS_NOTARY_TEAM_ID, MACOS_NOTARY_APP_SPECIFIC_PASSWORD  notarization credentials for xcrun notarytool
     #   HOMEBREW_TAP_TOKEN                       a token that can push to metasequoiaime/homebrew-tap, for the cask update after a release
+    #   SPARKLE_ED_PRIVATE_KEY                   Sparkle's EdDSA private key for platforms/macos/sparkle-public-key.txt (rotated 2026-10-15; the maintainer keeps a backup, and replacing it strands every installed copy); with it the input method updates itself through Sparkle from the macos-appcast release
     env:
       # 钉死 Xcode 26.3（macOS 26 SDK），与 ci-macos.yml、ci-macos-package.yml 和 iOS 的 CI、发布同一个版本；不钉就是镜像默认的 Xcode 16.4，CI 测的就不是发出去的构建。
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       # 一次发布打出的版本（shared/contracts/editions.json 的 id）：每个版本一个 DMG、一个 cask，可以同时安装。full 的 DMG 名、cask 和 bundle id 与引入版本之前相同。
       MACOS_EDITIONS: full,wubi,pinyin,japanese,vietnamese,tibetan
-      MACOS_CERTIFICATE_P12_BASE64: "${{ inputs.publish && secrets.MACOS_DEVELOPER_ID_CERTIFICATE_BASE64 || '' }}"
-      MACOS_CERTIFICATE_PASSWORD: "${{ inputs.publish && secrets.MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD || '' }}"
-      MACOS_SIGNING_IDENTITY: "${{ inputs.publish && secrets.MACOS_DEVELOPER_ID_APPLICATION || '' }}"
+      # Signing and notarization follow the secrets, not the publish input: the nightly calls this workflow with publish off, and an ad-hoc DMG is not just quarantined but never registers its input method, so the nightly macOS download was unusable. Publishing the release and pushing the Homebrew casks keep their own publish gates below.
+      MACOS_CERTIFICATE_P12_BASE64: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_BASE64 }}"
+      MACOS_CERTIFICATE_PASSWORD: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD }}"
+      MACOS_SIGNING_IDENTITY: "${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ github.sha }}", fetch-depth: 0, persist-credentials: false}
@@ -102,7 +104,7 @@ jobs:
         run: corepack enable
       # Signing is optional so that the workflow still produces a package on a fork or before the certificate exists. Without these secrets every signature is ad-hoc and nothing is notarized: Gatekeeper quarantines the downloaded app, which then has to be opened once with right-click Open, and macOS will not register the embedded input method as an input source, so the package only installs for a developer who re-signs it with their own Developer ID through platforms/macos/scripts/install.sh. With them the package gives the Windows-equivalent download, install and type flow.
       - name: Import Developer ID certificate
-        if: ${{ inputs.publish && env.MACOS_CERTIFICATE_P12_BASE64 != '' }}
+        if: ${{ env.MACOS_CERTIFICATE_P12_BASE64 != '' }}
         run: |
           set -euo pipefail
           : "${MACOS_SIGNING_IDENTITY:?MACOS_CERTIFICATE_P12_BASE64 is set but MACOS_SIGNING_IDENTITY is not}"
@@ -140,9 +142,10 @@ jobs:
         env:
           VERSION: "${{ steps.version.outputs.value }}"
           MSIME_REQUIRE_OFFICIAL_PLUGINS: '1'
-          APPLE_ID: "${{ inputs.publish && secrets.MACOS_NOTARY_APPLE_ID || '' }}"
-          APPLE_TEAM_ID: "${{ inputs.publish && secrets.MACOS_NOTARY_TEAM_ID || '' }}"
-          APPLE_APP_SPECIFIC_PASSWORD: "${{ inputs.publish && secrets.MACOS_NOTARY_APP_SPECIFIC_PASSWORD || '' }}"
+          APPLE_ID: "${{ secrets.MACOS_NOTARY_APPLE_ID }}"
+          APPLE_TEAM_ID: "${{ secrets.MACOS_NOTARY_TEAM_ID }}"
+          APPLE_APP_SPECIFIC_PASSWORD: "${{ secrets.MACOS_NOTARY_APP_SPECIFIC_PASSWORD }}"
+          MSIME_SPARKLE_PRIVATE_KEY: "${{ secrets.SPARKLE_ED_PRIVATE_KEY }}"
         run: bash platforms/macos/package-release.sh --editions "$MACOS_EDITIONS" "$VERSION" dist
       - name: Remove signing keychain
         if: ${{ always() && env.MSIME_SIGNING_KEYCHAIN != '' }}
@@ -165,6 +168,16 @@ jobs:
           # package-release.sh 剥离发布的可执行文件（输入法、它的 msime-voice-local 辅助程序、设置应用、msime-mcp）之前先写出 dSYM，再打成一个 zip；各版本共用同一组可执行文件，一份覆盖全部版本。它作为发布资产长期保留，用来符号化这个版本的崩溃报告，不像 workflow artifact 那样 90 天后过期。
           [[ -f "dist/msime-macos-${VERSION}-dsym.zip" ]]
           grep -q " msime-macos-${VERSION}-dsym.zip\$" dist/SHA256SUMS
+          # 有 Sparkle 私钥时 package-release.sh 给每个版本出一个更新 zip 和一份 appcast；要么全有，要么全无，不能只更新一部分版本。
+          appcasts=(dist/appcast-*.xml)
+          if [[ ${#appcasts[@]} -gt 0 ]]; then
+            [[ ${#appcasts[@]} -eq ${#editions[@]} ]]
+            for edition in "${editions[@]}"; do
+              prefix="$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" dmg_prefix)"
+              [[ -f "dist/appcast-${edition}.xml" && -f "dist/${prefix}-${VERSION}-input-method.zip" ]]
+              grep -q " ${prefix}-${VERSION}-input-method.zip\$" dist/SHA256SUMS
+            done
+          fi
           (cd dist && shasum -a 256 -c SHA256SUMS)
           ls -l dist
           for dmg in "${dmgs[@]}"; do
@@ -187,7 +200,42 @@ jobs:
           stable='^macos-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'macos-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
           python3 scripts/generate-release-notes.py --platform macos --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "macOS ${RELEASE}" release-notes.md dist/*.dmg "dist/msime-macos-${VERSION}-dsym.zip" dist/SHA256SUMS
+          shopt -s nullglob
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "macOS ${RELEASE}" release-notes.md dist/*.dmg dist/*-input-method.zip "dist/msime-macos-${VERSION}-dsym.zip" dist/SHA256SUMS
+      # Sparkle 读的 appcast 在一个固定的滚动 release（macos-appcast）上，地址不随版本变，写在每个输入法的 SUFeedURL 里。和 Homebrew 一样只有 main 上的正式版才更新它：beta 与 alpha 不推给所有用户。appcast 指向刚发布的 macos-vVERSION 里的更新 zip，所以先确认它们已经在那个 release 上；已发布的 appcast 版本更高时停下，免得重跑旧版本的发布把它退回去。
+      - name: Update the Sparkle appcasts
+        if: ${{ inputs.publish && !inputs.prerelease && github.ref_name == 'main' }}
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}"}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          appcasts=(dist/appcast-*.xml)
+          if [[ ${#appcasts[@]} -eq 0 ]]; then
+            echo "::warning::SPARKLE_ED_PRIVATE_KEY is not set; the input methods in this release have no Sparkle feed and the appcasts were left as they were"
+            exit 0
+          fi
+          published="$(gh release view "macos-v${VERSION}" --json assets --jq '.assets[].name')"
+          for zip in dist/*-input-method.zip; do
+            grep -qxF "$(basename "$zip")" <<< "$published"
+          done
+          if ! gh release view macos-appcast >/dev/null 2>&1; then
+            gh release create macos-appcast --prerelease --latest=false --target "$(git rev-parse HEAD)" --title "macOS Sparkle appcasts" \
+              --notes "Sparkle feeds for the macOS input method, one appcast-<edition>.xml per edition. Each release from main replaces them; the update archives they point at are on the macos-v releases."
+          fi
+          mkdir -p "$RUNNER_TEMP/appcast-current"
+          gh release download macos-appcast --pattern 'appcast-*.xml' --dir "$RUNNER_TEMP/appcast-current" --clobber || true
+          for appcast in "${appcasts[@]}"; do
+            current="$RUNNER_TEMP/appcast-current/$(basename "$appcast")"
+            new_build="$(sed -n 's:.*<sparkle\:version>\([0-9]*\)</sparkle\:version>.*:\1:p' "$appcast" | head -1)"
+            [[ -n "$new_build" ]]
+            old_build=""
+            if [[ -f "$current" ]]; then old_build="$(sed -n 's:.*<sparkle\:version>\([0-9]*\)</sparkle\:version>.*:\1:p' "$current" | head -1)"; fi
+            if [[ -n "$old_build" && "$old_build" -gt "$new_build" ]]; then
+              echo "::error::$(basename "$appcast") already offers build $old_build, newer than $new_build"
+              exit 1
+            fi
+          done
+          gh release upload macos-appcast "${appcasts[@]}" --clobber
       # brew install --cask metasequoiaime/tap/msime（五笔版 msime-wubi，拼音版 msime-pinyin，日文版 msime-japanese，越南文版 msime-vietnamese，藏文版 msime-tibetan）. Only a notarized final release goes to the tap: an ad-hoc package installs but macOS will not register its input method, and a prerelease (which every release dispatched from a branch other than main is) is not what someone installing from Homebrew asked for. stapler validate checks the ticket in the DMG itself rather than trusting which secrets were set. 每个版本一个 cask，由 platforms/macos/scripts/edition_bundle.py 从同一个模板渲染；full 的渲染结果与原来的 sed 替换相同，只有 full 把 msime-mcp 放上 PATH。
       - name: Update the Homebrew casks
         if: ${{ inputs.publish && !inputs.prerelease && github.ref_name == 'main' }}

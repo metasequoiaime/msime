@@ -151,7 +151,7 @@ final class ImeNineKeyPanel {
                 && CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) == s.session
                 && MSIMEInputService.sameCandidateVersion(snapshot, s.view)) return true;
         try {
-            JSONObject next = s.nativeValue(NativeClient.allCandidates(s.session));
+            JSONObject next = s.currentCandidateSnapshot();
             if (CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE) != s.session
                     || !MSIMEInputService.sameCandidateVersion(next, s.view)) return false;
             s.candidatePanelSnapshot = next;

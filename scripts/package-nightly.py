@@ -51,7 +51,7 @@ def package(source, output, source_sha, limit=ASSET_LIMIT):
         "直接下载对应平台和版本的文件，无需解压外层归档。\n"
         "Android：安装 APK 后，在系统设置中启用水杉输入法。\n"
         "Windows：双击 Setup EXE，按安装向导操作。\n"
-        "macOS：打开 DMG 并按其中的安装说明操作。当前 nightly 未公证，可能被系统拦截。\n"
+        "macOS：DMG 已用 Developer ID 签名并公证，打开后把应用拖进「应用程序」，再打开一次即可安装输入法。\n"
         "Linux：根据发行版和 CPU 架构选择 DEB 或 RPM，用系统包管理器安装。\n"
         "iOS：真机通过现有外部 TestFlight 组安装，须等 Apple 审核批准；\n"
         "模拟器构建只保留在 Actions artifacts 中，不出现在普通下载页。\n"

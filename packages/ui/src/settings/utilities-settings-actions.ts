@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { Preferences } from "../index";
-import type { LocalModePreferences } from "./local-modes-section";
+import type { LocalModePreferences } from "./local-mode-preferences";
 import { createSettingsDraftActions } from "./settings-draft-actions";
 
 export interface CreateUtilitiesSettingsActionsOptions {

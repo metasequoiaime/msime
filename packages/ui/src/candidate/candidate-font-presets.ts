@@ -1,9 +1,6 @@
 import type { HostPlatform } from "../index";
-import {
-  defaultCandidateFallbackFonts,
-  defaultCandidateFontFamily,
-  type CandidateFontPreferences,
-} from "./candidate-font-family";
+import { defaultCandidateFallbackFonts, defaultCandidateFontFamily } from "./candidate-font-family";
+import type { CandidateFontPreferences } from "./candidate-preferences";
 
 export type CandidateFontPresetId = "default" | "song" | "hei" | "kai" | "yuan";
 

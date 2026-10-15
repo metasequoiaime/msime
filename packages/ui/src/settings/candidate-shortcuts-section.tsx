@@ -2,10 +2,14 @@ import type { ReactNode } from "react";
 import { SettingsGroupNote } from "./settings-group-note";
 import * as settings from "./settings-style";
 import { GroupList, MoreOptions, Row } from "../core/platform-controls";
-import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
+import type {
+  NavigationPreferences,
+  WordCharacterPreferences,
+} from "./candidate-paging-preferences";
 import { ShortcutRow } from "./shortcut-row";
 import { SettingsShortcutKey } from "./settings-shortcut-key";
 import { SwitchRow } from "./switch-row";
+import { enabledPagingShortcuts, wordCharacterKeys } from "./candidate-paging-options";
 
 export interface CandidateShortcutsSectionProps {
   navigation: NavigationPreferences;
@@ -22,20 +26,6 @@ export interface CandidateShortcutsSectionProps {
   /** HarmonyOS 手机的「翻页」分组内容（外接键盘翻页键），排在「候选」和「按键速查」之间。 */
   paging?: ReactNode;
 }
-
-/** 「向前 / 向后翻页」的各组按键，顺序与输入页的翻页方式一致。 */
-const pagingKeys: [keyof NavigationPreferences, string][] = [
-  ["minus_equal", "- / ="],
-  ["comma_period", ", / ."],
-  ["brackets", "[ / ]"],
-  ["tab", "Shift+Tab / Tab"],
-  ["page_up_down", "Page Up / Page Down"],
-];
-
-const wordCharacterKeys: Record<WordCharacterPreferences["keys"], string> = {
-  brackets: "[ / ]",
-  minus_equal: "- / =",
-};
 
 /** 设计稿中的行内按钮：胶囊形，使用平台的按钮 token，13px 文字。 */
 const rowButton =
@@ -113,7 +103,7 @@ function CandidateShortcutReference({
   CandidateShortcutsSectionProps,
   "navigation" | "wordCharacter" | "numberRowSelection" | "mobile"
 >) {
-  const paging = pagingKeys.filter(([option]) => navigation[option]);
+  const paging = enabledPagingShortcuts(navigation);
   return (
     <>
       <ShortcutRow title="选择候选" chord={`Space${numberRowSelection ? " 或 1–9" : ""}`} />

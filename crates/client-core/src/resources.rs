@@ -31,18 +31,21 @@ pub struct ResourceSet {
     pub artifacts: Vec<Artifact>,
 }
 
-/// 发布包可以不内置、改为按需下载的桌面词库文件（macOS 和 Android 的发布包都这样做，见 [`on_demand_artifacts`]）。三者作为一个整体出现或缺席：日文词典与它的两份许可文本（Mozc 词典说明里的 IPAdic/ICOT 条款、Mozc 的 BSD 许可）必须同时在场，只缺一部分时按原规则校验失败。
+/// 发布包可以不内置、改为按需下载的桌面词库文件（macOS、Android 和 iOS 的发布包都这样做，见 [`on_demand_artifacts`]）。三者作为一个整体出现或缺席：日文词典与它的两份许可文本（Mozc 词典说明里的 IPAdic/ICOT 条款、Mozc 的 BSD 许可）必须同时在场，只缺一部分时按原规则校验失败。
 pub const ON_DEMAND_JAPANESE_ARTIFACTS: [&str; 3] = [
     "msime-japanese.dat",
     "msime-mozc_dictionary_oss_README.txt",
     "msime-mozc_LICENSE.txt",
 ];
 
-/// 目标系统 `target_os`（取值同 `std::env::consts::OS`）的发布包可以不内置的资源文件：macOS 和 Android 是日文词典那一组，其余平台照旧全部内置，返回空列表。
+/// 目标系统 `target_os`（取值同 `std::env::consts::OS`）的发布包可以不内置的资源文件：macOS、Android 和 iOS 是日文词典那一组，其余平台照旧全部内置，返回空列表。iOS 的发布构建以 `MSIME_IOS_OMIT_ON_DEMAND=1` 暂存资源（#7687），键盘扩展的 `EngineResources` 不带这一组；这里不列 iOS 时，运行时按完整清单校验，发布包里的键盘一启动就以 `ExistingGeneration`（缺这三个文件）报「输入运行时准备失败」。
 ///
 /// 按参数判断而不是只写 `cfg!`，测试在任何一台主机上都能检查每个目标的规则；宿主按 `std::env::consts::OS` 取本平台的那一份。
 pub const fn on_demand_artifacts(target_os: &str) -> &'static [&'static str] {
-    if same_text(target_os, "macos") || same_text(target_os, "android") {
+    if same_text(target_os, "macos")
+        || same_text(target_os, "android")
+        || same_text(target_os, "ios")
+    {
         &ON_DEMAND_JAPANESE_ARTIFACTS
     } else {
         &[]
@@ -201,6 +204,19 @@ pub struct ResourceStore {
 }
 
 #[cfg(unix)]
+struct ResourceInstallLock {
+    _file: File,
+}
+
+#[cfg(unix)]
+impl Drop for ResourceInstallLock {
+    fn drop(&mut self) {
+        // 复制或继承的描述符不能把互斥延长到资源安装结束之后。
+        let _ = crate::file_lock::unlock(&self._file);
+    }
+}
+
+#[cfg(unix)]
 struct ResourceStage {
     path: PathBuf,
     parent: File,
@@ -327,6 +343,8 @@ impl ResourceStore {
         #[cfg(not(unix))]
         let lock = crate::file_lock::open_lock_file(self.root.join("resources.lock"))?;
         crate::file_lock::exclusive(&lock)?;
+        #[cfg(unix)]
+        let _lock = ResourceInstallLock { _file: lock };
         #[cfg(unix)]
         sweep_abandoned_stages(&root_directory);
         #[cfg(not(unix))]
@@ -831,6 +849,72 @@ mod tests {
         assert!(outside.exists());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_finished_resource_install_releases_the_lock_while_a_copy_remains_open() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = crate::storage::open_private_directory(root.path()).unwrap();
+        let file = crate::file_lock::open_private_lock_file_at_raw(
+            &directory,
+            std::ffi::OsStr::new("resources.lock"),
+        )
+        .unwrap();
+        crate::file_lock::exclusive(&file).unwrap();
+        let held = ResourceInstallLock { _file: file };
+        let inherited = held._file.try_clone().unwrap();
+        let contender =
+            crate::file_lock::open_private_lock_file(root.path().join("resources.lock")).unwrap();
+        assert!(!crate::file_lock::try_exclusive(&contender).unwrap());
+
+        drop(held);
+        assert!(
+            crate::file_lock::try_exclusive(&contender).unwrap(),
+            "资源安装结束后不能由旧描述符副本继续占锁"
+        );
+        drop(inherited);
+        let next =
+            crate::file_lock::open_private_lock_file(root.path().join("resources.lock")).unwrap();
+        assert!(!crate::file_lock::try_exclusive(&next).unwrap());
+        crate::file_lock::unlock(&contender).unwrap();
+        assert!(crate::file_lock::try_exclusive(&next).unwrap());
+        crate::file_lock::unlock(&next).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resource_install_holds_the_lock_until_success_or_failure_returns() {
+        for outcome in ["success", "fetch-error", "integrity-error"] {
+            let root = tempfile::tempdir().unwrap();
+            let store = ResourceStore::new(root.path());
+            let contender =
+                crate::file_lock::open_private_lock_file(root.path().join("resources.lock"))
+                    .unwrap();
+            let result = store.install(&specification(), |_| {
+                assert!(!crate::file_lock::try_exclusive(&contender).unwrap());
+                match outcome {
+                    "fetch-error" => Err(std::io::Error::other("synthetic fetch error")),
+                    "integrity-error" => Ok(source(b"invalid")),
+                    _ => Ok(source(b"fixture")),
+                }
+            });
+            assert_eq!(result.is_ok(), outcome == "success");
+            assert!(crate::file_lock::try_exclusive(&contender).unwrap());
+            assert!(!fs::read_dir(root.path()).unwrap().any(|entry| entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with("incoming-")));
+            crate::file_lock::unlock(&contender).unwrap();
+            if result.is_ok() {
+                store
+                    .install(&specification(), |_| panic!("缓存命中不应下载"))
+                    .unwrap();
+                assert!(crate::file_lock::try_exclusive(&contender).unwrap());
+                crate::file_lock::unlock(&contender).unwrap();
+            }
+        }
+    }
+
     fn fixture_artifact(name: &str, bytes: &[u8]) -> Artifact {
         Artifact {
             name: name.into(),
@@ -970,12 +1054,13 @@ mod tests {
             .is_err());
     }
 
-    /// macOS 和 Android 的发布包可以不带日文词典组，Linux、Windows 以及其他目标照旧要求带齐。
+    /// macOS、Android 和 iOS 的发布包可以不带日文词典组，Linux、Windows 以及其他目标照旧要求带齐。
     #[test]
-    fn only_macos_and_android_ship_without_the_japanese_group() {
+    fn only_macos_android_and_ios_ship_without_the_japanese_group() {
         assert_eq!(on_demand_artifacts("macos"), ON_DEMAND_JAPANESE_ARTIFACTS);
         assert_eq!(on_demand_artifacts("android"), ON_DEMAND_JAPANESE_ARTIFACTS);
-        for target in ["linux", "windows", "ios", "", "androi", "android "] {
+        assert_eq!(on_demand_artifacts("ios"), ON_DEMAND_JAPANESE_ARTIFACTS);
+        for target in ["linux", "windows", "", "androi", "android ", "ios "] {
             assert!(on_demand_artifacts(target).is_empty(), "{target:?}");
         }
         // Android 上不带日文词典组的资源目录按子集校验通过。

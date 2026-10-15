@@ -133,7 +133,8 @@ final class KeyboardSkinTests: XCTestCase {
     let enter = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "returnKey" })
     XCTAssertFalse(hidden(enter))
 
-    let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKey1" } as? UIButton)
+    // 九键从底行的 符 打开符号面板。
+    let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "symbolPanelKey" } as? UIButton)
     key.sendActions(for: .primaryActionTriggered)
     window.layoutIfNeeded()
     let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
@@ -239,6 +240,58 @@ final class KeyboardSkinTests: XCTestCase {
     XCTAssertEqual(winter.season, "winter")
     XCTAssertEqual(skin.background.resolvedColor(with: light), AppThemePalette.mix(winter.accent, 12, winter.background))
     XCTAssertEqual(skin.accent.resolvedColor(with: light), winter.accent)
+  }
+
+  /// 键盘进程跨过一次应用主题的改动再出现时，跟随系统的功能键（⌫、分词、！、123）画新季节的颜色。按键在进窗口时就按旧季节解析了动态色，`viewWillAppear` 刷新季节之后，`applyKeyboardSkin` 给的若还是同一个动态色实例，UIButton 视为配置没变，不再重新解析，功能键就停在旧季节，直到下一次出现。
+  @MainActor
+  func testFollowSystemKeysRedrawInTheNewSeasonWhenTheKeyboardReappears() throws {
+    preserveSharedTheme()
+    XCTAssertTrue(GlobalThemePreference.save(GlobalThemeCatalog.systemId))
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .nineKey
+    selectAppTheme("qiushan")
+    func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
+    /// 按键左缘中间的像素：图标居中，这里只有按键底色。
+    func drawnFill(_ key: UIView) throws -> UInt32 {
+      let format = UIGraphicsImageRendererFormat()
+      format.scale = 1
+      let image = UIGraphicsImageRenderer(bounds: key.bounds, format: format).image { key.layer.render(in: $0.cgContext) }
+      var pixel = [UInt8](repeating: 0, count: 4)
+      let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+      let context = try XCTUnwrap(CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                            space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+      context.draw(try XCTUnwrap(image.cgImage), in: CGRect(x: -4, y: -(key.bounds.height / 2).rounded(), width: key.bounds.width, height: key.bounds.height))
+      return UInt32(pixel[0]) << 16 | UInt32(pixel[1]) << 8 | UInt32(pixel[2])
+    }
+    func assertClose(_ drawn: UInt32, _ expected: UInt32, _ message: String, line: UInt = #line) {
+      let channels = { (value: UInt32) in [value >> 16 & 0xff, value >> 8 & 0xff, value & 0xff].map(Int.init) }
+      XCTAssertTrue(zip(channels(drawn), channels(expected)).allSatisfy { abs($0 - $1) <= 2 },
+                    "\(message): drawn \(String(drawn, radix: 16)), expected \(String(expected, radix: 16))", line: line)
+    }
+
+    let controller = KeyboardViewController()
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight))
+    window.overrideUserInterfaceStyle = .light
+    window.rootViewController = controller
+    window.isHidden = false
+    defer { window.isHidden = true }
+    controller.viewWillAppear(false)
+    controller.overrideUserInterfaceStyle = .light
+    window.layoutIfNeeded()
+    let light = UITraitCollection(userInterfaceStyle: .light)
+    let delete = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKeyDelete" })
+    let autumn = packed(KeyboardTheme.current.functionKeyBackground.resolvedColor(with: light))
+    assertClose(try drawnFill(delete), autumn, "秋杉下的 ⌫")
+
+    // App 换成冬雪：只改 App Group 里的选择，键盘进程的季节缓存要等 `viewWillAppear` 才刷新。
+    UserDefaults(suiteName: MSIMEAppEdition.appGroupIdentifier)?.set("dongxue", forKey: AppThemePalette.storageKey)
+    controller.viewWillAppear(false)
+    window.layoutIfNeeded()
+    XCTAssertEqual(AppThemePalette.resolved(dark: false)?.season, "winter")
+    let winter = packed(KeyboardTheme.current.functionKeyBackground.resolvedColor(with: light))
+    XCTAssertNotEqual(winter, autumn)
+    assertClose(try drawnFill(delete), winter, "冬雪下的 ⌫")
   }
 
   /// `kbHair`（ios-kb-31）：浅色键盘上是黑色 .12；深色键盘、任一模式下的深色表面内置主题，以及背景为深色的设计上是白色 .14。

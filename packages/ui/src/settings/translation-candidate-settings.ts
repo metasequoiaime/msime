@@ -5,7 +5,7 @@ import type {
   TranslationLanguageOption,
   TranslationSecondaryLanguage,
   TranslationSecondaryLanguageOption,
-} from "./candidate-translation-options-section";
+} from "./translation-language-helpers";
 import type { TranslationProvider } from "./translation-service-selector-section";
 
 export interface CandidateTranslationSettingsOptions {

@@ -14,6 +14,48 @@ const preferences: PreeditSettingsPreferences = {
   candidate_preedit_style: "pinyin",
 };
 
+test("missing preferences preserve the preedit defaults and each selector's ordered choices", () => {
+  render(
+    <PreeditSettingsSection
+      preferences={{}}
+      mobile={false}
+      showShuangpinPreedit
+      inlinePreeditBusy={false}
+      onChange={vi.fn()}
+    />,
+  );
+
+  const choices = (label: string) => {
+    const select = screen.getByLabelText(label) as HTMLSelectElement;
+    return {
+      value: select.value,
+      options: Array.from(select.options, (option) => [option.value, option.textContent]),
+    };
+  };
+  expect(choices("候选窗口预编辑")).toEqual({
+    value: "pinyin",
+    options: [
+      ["pinyin", "拼音分词"],
+      ["empty", "不显示"],
+    ],
+  });
+  expect(choices("双拼预编辑")).toEqual({
+    value: "raw",
+    options: [
+      ["raw", "原始按键"],
+      ["pinyin", "拼音分词"],
+    ],
+  });
+  expect(choices("行内预编辑")).toEqual({
+    value: "raw",
+    options: [
+      ["raw", "原始按键"],
+      ["pinyin", "拼音分词"],
+      ["empty", "不显示"],
+    ],
+  });
+});
+
 test("desktop preedit selectors report each changed preference", () => {
   const onChange = vi.fn();
   render(

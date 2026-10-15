@@ -6,6 +6,8 @@ Status: implemented
 
 对照 macOS，Windows 候选窗有两处缺陷和一串缺失。缺陷：首行 ‹ › 翻页箭头和滚轮共用 `InputState::page_candidate` 里的 `navigation.mouse_wheel` 闸，这个开关默认关，于是默认安装上箭头画着、鼠标变手形，点了却被 Server 拒掉；滚轮开关只在 Server 启动时读一次，改了设置要重启才生效。缺失：`show_app_logo` 不起作用，logo 一直画，`HostCapabilities::app_logo` 对 Windows 为 false；设了第二种释义语言时两种释义拼成一行「a / b」，而且没有任何设置入口能设它；横排候选在释义到达后才变高，打字几秒后卡片突然长高；释义后面没有 IPA 读音，整句候选没有逐词拆解，打包也不带这两张表；悬停候选没有提示；原生设置窗口的「候选词翻译」组找不到翻译服务的凭据在哪里。后来脚本插件能给候选加注释（`script_annotation`），候选窗也要把它画出来，而且要和引擎的注释分得开、不能替换它。
 
+默认颜色和选中样式由[Windows 界面采用 macOS 的分组与选中样式](2026-10-15-windows-ui-macos-layout.md)接管；本篇的候选交互与内容规则继续有效。
+
 ## Decision
 
 **翻页闸只管滚轮。** `CandidatePage` 带 `from_wheel`，`CandidateWindow` 的 `WM_MOUSEWHEEL` 置 true、箭头点击为 false，`InputState::page_candidate` 按 `candidate_page_allowed(from_wheel, navigation.mouse_wheel)`（`src/candidate/CandidateWheel.h`）放行，和 macOS 的 `changeCandidatePage:` 不看滚轮开关一致。滚轮开关经 `server_main.cpp` 的原子量 `candidate_mouse_wheel` 发布，主循环每轮调 `CandidateWindow::set_mouse_wheel`，与 `follow_cursor` 同一条路。

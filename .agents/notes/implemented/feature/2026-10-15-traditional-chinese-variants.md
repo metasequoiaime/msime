@@ -16,12 +16,15 @@ Status: implemented
 
 **宿主能力**：`HostCapabilities::traditional_chinese_variants`，目前只有 Linux（IBus 的 `ClientEngine.cpp` 与 Fcitx5 的 `FcitxEngine.cpp`）为真。设置页「中文输出」（`packages/ui/src/settings/traditional-chinese-output-section.tsx`）在能力为真时列简体、繁体、台湾正体、台湾用词四项，否则只列简体、繁体；能力为假的宿主上存着的臺灣变体显示成「繁体」，选择时也不改写它——那个宿主本来就按 `s2t` 转换。其它五个平台接上变体时，把能力打开即可，设置页不用再改。
 
+**共享偏好转换**：`packages/ui/src/settings/chinese-output-preferences.ts` 持有三个偏好类型、`chineseOutputForm` 和 `chineseOutputPatch`，总偏好类型直接依赖这个无 React 模块。组件只负责选项文案与输入方案提示，并重导出原来的公开类型。缺省变体仍是 `s2t`；选择简体不写变体，选择当前变体只写开关，不支持变体的宿主显示标准繁体并保留已存值。鸿蒙手机的二元「中文字符集」控件保持其原有布局和布尔补丁。
+
 **账号同步**：单独的键 `input.traditional_variant`，取值同配置名；`input.character_set` 的取值不变，旧客户端照常读。服务端字段表收录这个键之前，上传前的过滤会去掉它，与 `input.quote_style` 的处理相同。
 
 ## Alternatives considered
 
 - **把 `traditional_chinese_output` 改成枚举（`simplified` / `s2t` / `s2tw` / `s2twp`）** — 一个键表达一个选择，最贴近单选界面。但六个宿主的快捷切换、托盘菜单、Windows Server 自己解析的偏好 JSON、`corner_when_traditional` 的解析和账号同步都按布尔读它，换类型要同时改全部读者，旧版本读到新文档还会整份解析失败。另起一个默认不落盘的键，旧读者完全不受影响。
 - **进程内全局变量记住当前变体，`msime_client_simplified_to_traditional` 隐式读它** — 宿主一行不改就六个平台全生效。但转换结果取决于这个进程有没有、什么时候加载过偏好（Windows Server 自己解析偏好 JSON，不经过 host-api 的偏好加载），架构文档也明确不靠全局变量传设置。显式参数让每个调用点看得见用的是哪套配置。
+- **偏好模型继续从 React 组件导入类型** — 不新增模块，所有单选逻辑也能在组件测试中覆盖。但总偏好模型因此依赖展示层，后续复用还要再次从 JSX 中取出转换规则；纯模块集中已有规则，组件保留兼容导出，调用方无需迁移公开 API。
 - **六个平台一次接完** — 用户可见的行为一次到位。macOS、iOS、HarmonyOS 在这次的开发机上无法编译验证，维护者选了核心加设置页加 Linux，其余平台另开 PR；能力位保证在此之前设置页不在这些平台上露出不起作用的选项。
 
 ## Consequences
@@ -31,6 +34,8 @@ Status: implemented
 - **重访信号**：OpenCC 固定提交升级时，臺灣词典要和 `ST*` 词典一起换；OpenCC 若改了 `s2tw.json`/`s2twp.json` 的分段或词典组，`convert_to_traditional` 要跟着改。
 
 ## Verification
+
+`apps/desktop/tests/settings/chinese-output-preferences.test.ts` 覆盖缺省值、宿主能力降级、最小补丁及切回繁体保留变体；组件回归验证选项顺序、文案与回调，真实设置页回归验证输出标签与保存链路。纯模块与组件旧路径的类型兼容另以 TypeScript 探针验证。
 
 `crates/client-core/src/chinese_conversion.rs` 的 `taiwan_variants_follow_opencc_configurations` 钉住三种配置的例子；开发时另用系统 OpenCC 1.3.2 加载由本目录词典编译的 `.ocd2` 和固定提交的三份配置，对约 2300 行语料逐行比对，三种配置都是 0 差异。分配预算在 `crates/host-api/tests/chinese_conversion_alloc.rs`，C 接口在 `crates/host-api/src/tests.rs` 的 `traditional_variant_conversion_boundary_selects_the_configuration`，Linux 两个宿主在 `platforms/linux/tests/input/traditional_output.cpp` 与 `platforms/linux/fcitx5/tests/native.cpp`（`--rows`）。
 

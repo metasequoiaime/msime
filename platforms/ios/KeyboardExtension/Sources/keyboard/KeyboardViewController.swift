@@ -206,6 +206,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var nineKeyZeroButton: UIButton!
   /// 九键外框右列的中间键：拼音网格上是分词，其数字层上是句点，笔画键旁边是重输。
   private var nineKeyMiddleButton: UIButton?
+  /// 拼音网格 1 键放进候选条的常用标点；为空时候选条画 Engine 的候选。下一次 `render` 换回 Engine 的候选。
+  private var nineKeyQuickSymbols: [String] = []
   /// The four Dachen rows, shown instead of the letter rows while the Zhuyin scheme is active.
   private var zhuyinRowViews: [UIView] = []
   /// 全拼 14 键的三排键（`FourteenKeyLayout`），中文模式下代替三排字母。
@@ -680,8 +682,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
     InputSchemePreference.refreshResourceAvailability()
-    // 进程可能跨过换季或应用主题的改动；在下面任何地方解析皮肤之前先刷新。
-    KeyboardTheme.refreshSeason()
+    // 进程可能跨过换季或应用主题的改动；在下面任何地方解析皮肤之前先刷新。变了就重新解析主题，让末尾的 `applyKeyboardSkin` 给按键换上新的颜色实例：按键进窗口时已按旧季节解析过同一批动态色，同一个实例再设一次 UIButton 不会重新解析。
+    if KeyboardTheme.refreshSeason() { KeyboardTheme.reload(session.sharedPreferences, dark: drawsDark) }
     incognito = KeyboardPrivacyPreference.incognito
     oneHandedMode = KeyboardLayoutPreference.oneHanded
     readToolbarPreferences()
@@ -1310,7 +1312,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self?.handleStrokeKey(key)
     }
     nineKeyContainer.addArrangedSubview(strokeKeys)
-    // 九格都显示数字提示并提供长按数字；1 键短按打开符号面板，不把 1 送进拼音引擎。分词仍由右列中间键承担。
+    // 九格都显示数字提示并提供长按数字；1 键短按把常用标点放进候选条（`showNineKeyQuickSymbols`），不把 1 送进拼音引擎，符号面板从底行的 符 打开。分词仍由右列中间键承担。
     for rowIndex in 0..<3 {
       let row = makeRow()
       for column in 0..<3 {
@@ -1325,12 +1327,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           if self.showsSymbols {
             self.handleSymbol(String(digit))
           }
-          else if letters == nil { self.showSymbolPanel() }
+          else if letters == nil { self.showNineKeyQuickSymbols() }
           else { self.handleCharacter(String(digit)) }
         }
         button.accessibilityIdentifier = "nineKey\(digit)"
         if var configuration = button.configuration {
-          configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 0, trailing: 0)
+          configuration.contentInsets = .zero
           configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
             var attributes = attributes
             attributes.font = KeyboardTheme.current.usesMonospacedFont
@@ -1344,14 +1346,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let number = UILabel()
         number.text = String(digit)
         number.font = .systemFont(ofSize: 10)
-        number.textColor = KeyboardTheme.current.accent
+        number.textColor = KeyboardTheme.current.secondary
         number.accessibilityIdentifier = "keyNumberHint"
         number.translatesAutoresizingMaskIntoConstraints = false
         number.isAccessibilityElement = false
         button.addSubview(number)
+        // 数字提示画在右上角，与 26 键的符号角标同一位置和颜色（距上边 3pt、右边 5pt，皮肤的次要色，`attachCornerHintLabel`），键面文字因此居中，不再为提示下移。
         NSLayoutConstraint.activate([
           number.topAnchor.constraint(equalTo: button.topAnchor, constant: 3),
-          number.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+          number.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -5),
         ])
         button.tag = digit
         let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleNineKeyHold(_:)))
@@ -1406,8 +1409,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         ? "数字 \(key.digit)"
         : (key.letters.map { "\(key.digit) \($0)" } ?? "1 符号")
       key.numberHint?.isHidden = digits
-      key.button.configuration?.contentInsets = NSDirectionalEdgeInsets(
-        top: digits ? 0 : 8, leading: 0, bottom: 0, trailing: 0)
       key.button.accessibilityHint = digits ? nil
         : (key.letters.map { "长按输入 \(key.digit) 或 \($0)" } ?? "长按输入 1")
     }
@@ -1458,6 +1459,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let key = nineKeyMiddleKey
     if button.configuration?.title != key.face { button.configuration?.title = key.face }
     button.accessibilityLabel = key.accessibilityLabel
+  }
+
+  /// 拼音网格的 1 键：候选条换成当前模式的常用标点（与 ， 长按的那一组相同），点选即上屏；组字中点选与按侧栏标点一样，先上屏首选再写标点。按其他键时 `render` 换回 Engine 的候选。
+  private func showNineKeyQuickSymbols() {
+    playInputClick()
+    nineKeyQuickSymbols = quickPunctuationSymbols
+    updateCandidateStrip(preedit: visiblePreedit, candidates: nineKeyQuickSymbols)
   }
 
   private func handleNineKeyMiddleKey() {
@@ -2780,7 +2788,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     fullSymbolsWidth = nineKeySymbolsButton.widthAnchor.constraint(equalToConstant: 34)
     row.addArrangedSubview(language)
 
-    // 九键外框的 0，位于设计稿的底行：网格的数字层放 1-9，这个键在两层上都留在原位。
+    // 九键网格数字层底行的 0：网格放 1-9，这个键补上 0。拼音网格和笔画键上它的位置让给最左边的 符。
     let zero = makeKey(title: "0", accessibilityLabel: "数字 0") { [weak self] in
       guard let self else { return }
       countKeyPress(TypingKeyID.nineKey(0))
@@ -2836,11 +2844,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if optional { constraint.priority = .init(999) }
       return constraint
     }
+    // 符 和 0 不同时显示，各占同一份 1.05，所以两者都是时有时无的键。
     nineKeyActionWidths = [
+      weight(nineKeySymbolsButton, 1.05, space: Self.nineKeySpaceWeight, optional: true),
       weight(layoutToggle, 1.25, space: Self.nineKeySpaceWeight),
       weight(language, 1.05, space: Self.nineKeySpaceWeight),
       weight(globe, 1, space: Self.nineKeySpaceWeight, optional: true),
-      weight(zero, 1.05, space: Self.nineKeySpaceWeight),
+      weight(zero, 1.05, space: Self.nineKeySpaceWeight, optional: true),
       weight(enter, 1.6, space: Self.nineKeySpaceWeight),
     ]
     layerActionWidths = [
@@ -2877,7 +2887,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       (punctuation, 1, true), (period, 1, true), (enter, 1.9, false),
     ])
     nineKeyExpandedSpaceWidths = expandedWidths(spaceWeight: Self.nineKeySpaceWeight + 1.05, entries: [
-      (layoutToggle, 1.25, false), (globe, 1, true), (zero, 1.05, false), (enter, 1.6, false),
+      (nineKeySymbolsButton, 1.05, true), (layoutToggle, 1.25, false), (globe, 1, true), (zero, 1.05, true), (enter, 1.6, false),
     ])
     let tabletEntries: [(UIView, CGFloat, Bool)] = [
       (layoutToggle, TabletLetterLayout.layerWeight, false),
@@ -2895,7 +2905,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 手机 26 键底行上空格键的弹性权重；其他键的权重都相对它来算。
   static let phoneSpaceWeight: CGFloat = 4
-  /// 九键外框底行（123 | space | 0 | 中 | return）上空格键的弹性权重。
+  /// 九键外框底行（符 | 123 | space | 中 | return，数字层为 123 | space | 0 | 中 | return）上空格键的弹性权重。
   static let nineKeySpaceWeight: CGFloat = 4.2
   /// 123 层表情键上的表情线框图标。
   private static let layerEmojiIconSide: CGFloat = 22
@@ -4893,9 +4903,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         globeWidthConstraint?.isActive = true
       }
       let layout = KeyboardLayoutPreference.geometry
-      // 符：#+= 层的符号键、假名标点菜单，以及字母行上的可选键。拼音网格从它的 @# 键打开面板，笔画键从 #+= 层打开，与 Android 一致。
+      // 符：#+= 层的符号键、假名标点菜单、字母行上的可选键，以及拼音网格和笔画键底行最左边的键，九键上打开符号面板只走它（网格的 @# 键把常用标点放进候选条）。
       nineKeySymbolsButton.isHidden = !(kana || (symbolLayer ? showsMoreSymbols
-        : !nineKeyFrame && !showsSymbols && layout.showsFullKeyboardSymbols))
+        : nineKeyFrame ? !showsSymbols : !showsSymbols && layout.showsFullKeyboardSymbols))
       let symbolsTitle = symbolLayer ? "符号" : "符"
       if nineKeySymbolsButton.configuration?.title != symbolsTitle {
         nineKeySymbolsButton.configuration?.title = symbolsTitle
@@ -4903,7 +4913,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       fullSymbolsWidth?.isActive = !nineKeySymbolsButton.isHidden && (style == .phone || style == .standard || style == .tablet)
       layerEmojiButton.isHidden = !(symbolLayer && !showsMoreSymbols)
-      nineKeyZeroButton.isHidden = style != .nineKey
+      nineKeyZeroButton.isHidden = style != .nineKey || !showsSymbols
       let hidesLanguage = !layout.showsBottomLanguage
       bottomLanguageButton?.isHidden = style == .symbolLayer || hidesLanguage
       bottomLanguageWidth?.isActive = style == .standard && !hidesLanguage
@@ -5013,7 +5023,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private enum ActionRowStyle {
     /// 手机 26 键底行：123 | ， | space | 。 | 中 | return，中/英 紧挨回车左边。
     case phone
-    /// 九键外框：123 | space | 0 | 中 | return，中/英 紧挨回车左边。
+    /// 九键外框：符 | 123 | space | 中 | return，中/英 紧挨回车左边；网格的数字层没有 符，0 排在空格右边。
     case nineKey
     /// 123 / #+= 层：拼音或 ABC | 表情或符号 | space | return。
     case symbolLayer
@@ -5036,7 +5046,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .phone:
       order = [symbols, toggle, globe, delete, comma, space, gap, splitSpace, period, language, enter, emoji, zero, tabletLayer, dismiss]
     case .nineKey:
-      order = [toggle, globe, space, gap, splitSpace, zero, language, enter, symbols, delete, comma, period, emoji, tabletLayer, dismiss]
+      order = [symbols, toggle, globe, space, gap, splitSpace, zero, language, enter, delete, comma, period, emoji, tabletLayer, dismiss]
     case .symbolLayer:
       order = [toggle, emoji, symbols, globe, space, gap, splitSpace, enter, language, delete, comma, period, zero, tabletLayer, dismiss]
     case .tablet:
@@ -5526,6 +5536,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func render(_ snapshot: MetasequoiaInputSnapshot, source originalSource: TypingSource? = nil) {
     candidateRevision &+= 1
+    // 下面的 `updateCandidateStrip` 用这次快照的候选盖掉 1 键放进来的常用标点。
+    nineKeyQuickSymbols = []
     let source = originalSource ?? typingSource
     // 看这次快照是否还在本地模式，不能看 `isInLocalMode`：它此刻还是上一个快照的值，刚从菜单打开模式时是 none，会把刚设好的触发字母清掉，候选栏标题就只剩字母、打字统计也不再记作本地模式。
     if localModeTrigger != nil && !snapshot.isInLocalMode {
@@ -6097,6 +6109,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func selectCandidate(at index: Int) {
     guard visibleCandidates.indices.contains(index) else { return }
+    if nineKeyQuickSymbols.indices.contains(index) {
+      let symbol = nineKeyQuickSymbols[index]
+      nineKeyQuickSymbols = []
+      // 没在组字时 Engine 没有候选，写标点的路线也不一定经过 `render`，所以先把候选条清空；组字中写标点会上屏首选并重画候选条。
+      if !hasComposition { updateCandidateStrip(preedit: "", candidates: []) }
+      handleSymbol(symbol)
+      return
+    }
     if inputScheme == .handwriting, !handwritingResults.isEmpty {
       if handwriting.use(at: index) { handwritingResults = [] }
       return
@@ -7003,7 +7023,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           ? Self.stripBackground(skin, palette: candidatePalette)
           : skin.keyBackground.withAlphaComponent(0.6)
       }
-      if let label = node as? UILabel, label.accessibilityIdentifier == "keyNumberHint" { label.textColor = skin.accent }
+      if let label = node as? UILabel, label.accessibilityIdentifier == "keyNumberHint" { label.textColor = skin.secondary }
       node.subviews.forEach { recolor($0) }
     }
     recolor(view)

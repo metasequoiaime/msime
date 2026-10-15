@@ -50,3 +50,5 @@ Status: implemented
 - `RBUILD_JOBS=2 rbuild bash platforms/linux/build-container.sh`：bookworm 门禁 ctest 73 项全部通过，五笔与日文版的配置检查照常；bookworm 的 CMake 检测到 libc 自带 `shm_open`，不链接 librt；bookworm 的 `wayland-client-protocol.h` 定义了 `WL_POINTER_AXIS_VALUE120_SINCE_VERSION`，`axis_value120` 照旧赋值。
 - amd64 只部分验证：`MSIME_LEGACY_ARCH=amd64` 在 Studio（arm64）上经 Rosetta 构建出了镜像（Kitware CMake、rustup-init 的 x86_64 校验和与 GCC 8.3、IBus 1.5.19、Python 3.7.3 都对）；按锁取回的 x64 sherpa-onnx 与 ONNX Runtime 库用 `llvm-readelf -V` 核对，最高要求 `GLIBC_2.17`、`GLIBCXX_3.4.19`、`CXXABI_1.3.7`、`GCC_4.0.0`，都不超过 buster；但模拟下 Rust Release 构建约 70 分钟只编完 337 个 crate 中的 130 个（当时负载 200 到 340），整条构建估计要四五个小时，就停掉了，amd64 的 .deb 没有产出，也没有跑安装、ctest 和运行时验收。
 - 没有在 UOS 20 真机或真实桌面会话里选中输入法打字；Qt 程序和 Wayland 会话没有在 IBus 1.5.19 上测过。
+
+`msime-linux-setup` 的下载请求显式声明项目客户端身份，避免镜像拒绝 Python 默认标识，见[Linux 词库下载标识](../bug-fix/2026-10-15-linux-download-user-agent.md)。

@@ -12,13 +12,7 @@ import { TranslationServiceSelectorSection } from "../translation-service-select
 import { createTranslationSettingsBindings } from "../translation-settings-bindings";
 import { MobileInputAiNotice } from "../mobile-input-ai-notice";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
-
-const expressionTabs = [
-  { id: "punctuation", title: "标点" },
-  { id: "language", title: "候选与释义" },
-  { id: "translation", title: "候选翻译" },
-  { id: "providers", title: "翻译服务" },
-] as const;
+import { expressionTabs } from "../expression-tabs";
 
 /**
  * 标点与翻译页：打出来的内容以什么形式出现——标点、其他语言的候选与释义、翻译服务。混入的英文与表情颜文字是候选来源，模糊音改的是拼音怎么解析，两者都在输入页；AI 功能在「工具」组的「AI 辅助」页。

@@ -71,9 +71,13 @@ Path(sys.argv[-1]).mkdir(parents=True)
 class Artifacts(http.server.BaseHTTPRequestHandler):
     payloads: dict = {}
     requested: list = []
+    require_project_agent = False
 
     def do_GET(self):
         Artifacts.requested.append(self.path)
+        if Artifacts.require_project_agent and self.headers.get("User-Agent") != "msime-linux-setup":
+            self.send_error(403)
+            return
         payload = Artifacts.payloads.get(self.path)
         if payload is None:
             self.send_error(404)
@@ -204,6 +208,24 @@ def check_setup(harness: Harness) -> None:
     assert options(state)["dictionaries"] == str(state / "user/dictionaries/next"), options(state)
     assert leftovers(state) == [], leftovers(state)
     assert "已切换到新版本的词库" in result.stdout and str(resources) in result.stdout, result.stdout
+
+    # 镜像拒绝 Python 默认客户端标识时，安装器仍以项目身份下载并校验，不应回退原地址。
+    state_with_agent = harness.installed("state-download-user-agent")
+    artifact = json.loads(harness.lock.read_text())["artifacts"][1]
+    origin = artifact["url"]
+    mirror_path = "/mirror/" + origin
+    Artifacts.payloads[mirror_path] = harness.current["b.db"]
+    Artifacts.require_project_agent = True
+    try:
+        result = harness.run("--update", "--download", "--state", str(state_with_agent),
+            MSIME_DOWNLOAD_MIRROR=origin.rsplit("/", 1)[0] + "/mirror/")
+        assert result.returncode == 0, result
+        assert Artifacts.requested == [mirror_path], Artifacts.requested
+        assert "改从原地址" not in result.stderr, result.stderr
+        assert (Path(options(state_with_agent)["resources"]) / "b.db").read_bytes() == harness.current["b.db"]
+    finally:
+        Artifacts.require_project_agent = False
+        Artifacts.payloads.pop(mirror_path)
 
     # Explicit --update behaves the same; once current, nothing is fetched and the refresh still runs on the file itself, with the sessions closed.
     result = harness.run("--update", "--download", "--state", str(state))

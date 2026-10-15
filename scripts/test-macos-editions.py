@@ -188,6 +188,28 @@ def check_mode_suffixes(errors: list[str], generator) -> None:
             errors.append(f"{MODE_HEADER.relative_to(ROOT)} has no mode for the suffix {suffix} the generator uses")
 
 
+def check_sparkle_feed(errors: list[str], generator, table: dict, editions: list[dict]) -> None:
+    """发布包编的是 full，CMake 把 feed 写成 appcast-full.xml；每个版本改写后要指向自己的 appcast，其余 Sparkle 键原样保留。"""
+    base = "https://example.invalid/releases/download/macos-appcast/"
+    keys = (
+        f"<key>SUFeedURL</key><string>{base}appcast-full.xml</string>\n"
+        "<key>SUPublicEDKey</key><string>AAAA</string>\n"
+        "<key>SUEnableAutomaticChecks</key><true/>\n"
+    )
+    template = TEMPLATE.read_text(encoding="utf-8")
+    if template.count("${MSIME_SPARKLE_PLIST_KEYS}") != 1:
+        errors.append("Info.plist.in must have exactly one ${MSIME_SPARKLE_PLIST_KEYS} placeholder")
+        return
+    built = template.replace("${MSIME_SPARKLE_PLIST_KEYS}", keys)
+    for entry in editions:
+        edition_id = entry["id"]
+        plist = plistlib.loads(generator.info_plist(built, edition_id, table).encode("utf-8"))
+        if plist.get("SUFeedURL") != f"{base}appcast-{edition_id}.xml":
+            errors.append(f"edition {edition_id}: SUFeedURL is {plist.get('SUFeedURL')!r}")
+        if plist.get("SUPublicEDKey") != "AAAA" or plist.get("SUEnableAutomaticChecks") is not True:
+            errors.append(f"edition {edition_id}: the other Sparkle keys did not survive")
+
+
 def main() -> int:
     generator = load_generator()
     table = generator.load_table()
@@ -196,6 +218,7 @@ def main() -> int:
     errors: list[str] = []
     check_full(errors, generator, table)
     check_mode_suffixes(errors, generator)
+    check_sparkle_feed(errors, generator, table, editions)
     with tempfile.TemporaryDirectory() as directory:
         for entry in editions:
             check_edition(errors, generator, table, entry, others, pathlib.Path(directory))

@@ -1,78 +1,26 @@
+import type {
+  PunctuationPreferences as SharedPunctuationPreferences,
+  QuoteStyle,
+  BracketStyle,
+} from "./punctuation-preferences";
+import { punctuationControlState } from "./punctuation-preferences";
+import {
+  smartPunctuation,
+  smartPunctuationRefinements,
+  capsLockPunctuation,
+  punctuationSwitches,
+  punctuationLockOptions,
+  quoteStyleOptions,
+  bracketStyleOptions,
+  type PunctuationSwitch,
+} from "./punctuation-options";
 import { MoreOptions } from "../core/platform-controls";
 import { SelectRow } from "./select-row";
 import { SwitchRow } from "./switch-row";
 
-export interface PunctuationPreferences {
-  chinese_punctuation: boolean;
-  character_width?: "halfwidth" | "fullwidth";
-  smart_punctuation?: boolean;
-  smart_punctuation_repeat?: boolean;
-  smart_punctuation_space_convert?: boolean;
-  smart_punctuation_direct_digit?: boolean;
-  smart_punctuation_direct_letter?: boolean;
-  paired_punctuation?: boolean;
-  punctuation_lock?: "follow" | "chinese" | "english";
-  caps_lock_ascii_punctuation?: boolean;
-  /** 中文标点下引号键的样式；缺省（文档里没有这个键）是弯引号。 */
-  quote_style?: QuoteStyle;
-  /** 中文标点下方头括号键的样式；缺省是实心。 */
-  bracket_style?: BracketStyle;
-}
+export type { QuoteStyle, BracketStyle } from "./punctuation-preferences";
 
-export type QuoteStyle = "curly" | "corner" | "corner_when_traditional";
-export type BracketStyle = "solid" | "hollow";
-
-type PunctuationSwitch =
-  | "smart_punctuation"
-  | "smart_punctuation_repeat"
-  | "smart_punctuation_space_convert"
-  | "smart_punctuation_direct_digit"
-  | "smart_punctuation_direct_letter"
-  | "paired_punctuation"
-  | "caps_lock_ascii_punctuation";
-
-type PunctuationSwitchCopy = readonly [PunctuationSwitch, string, string];
-
-const smartPunctuation: PunctuationSwitchCopy = [
-  "smart_punctuation",
-  "智能标点",
-  "中文标点模式下，字母或数字后的 , . : 自动使用英文标点",
-];
-
-/** 「智能标点」的细分选项，紧接在它之后列出。 */
-const smartPunctuationRefinements: readonly PunctuationSwitchCopy[] = [
-  [
-    "smart_punctuation_repeat",
-    "重复标点转中文",
-    "智能标点输出英文标点后，2 秒内再次输入同一标点时替换为中文标点",
-  ],
-  [
-    "smart_punctuation_space_convert",
-    "中文标点后按空格转换",
-    "刚输入中文标点后按空格，转换为对应英文标点",
-  ],
-  ["smart_punctuation_direct_digit", "数字后直出", "数字后输入逗号、句点或冒号时保留 ASCII 标点"],
-  ["smart_punctuation_direct_letter", "字母后直出", "字母后输入逗号、句点或冒号时保留 ASCII 标点"],
-];
-
-const pairedPunctuation: PunctuationSwitchCopy = [
-  "paired_punctuation",
-  "成对标点自动补全",
-  "输入左侧符号时自动补全右侧符号，并将光标置于中间",
-];
-
-/** 只在报告大写锁定状态的宿主上显示（`HostCapabilities.caps_lock_punctuation`）。 */
-const capsLockPunctuation: PunctuationSwitchCopy = [
-  "caps_lock_ascii_punctuation",
-  "大写锁定时使用英文标点",
-  "大写锁定打开时，中文输入下的标点使用英文标点；正在组字或固定中文标点时不变",
-];
-
-const switches: readonly PunctuationSwitchCopy[] = [
-  smartPunctuation,
-  ...smartPunctuationRefinements,
-  pairedPunctuation,
-];
+export interface PunctuationPreferences extends SharedPunctuationPreferences {}
 
 export interface PunctuationSectionProps {
   preferences: PunctuationPreferences;
@@ -92,7 +40,7 @@ export function CharacterWidthRow({
     <SwitchRow
       title="全角输入"
       description="将英文字符和空格提交为全角形式，会话开始时生效；工具栏、键盘的更多工具或快捷键可临时切换"
-      checked={(preferences.character_width ?? "halfwidth") === "fullwidth"}
+      checked={punctuationControlState(preferences).character_width === "fullwidth"}
       onChange={(checked) => onChange({ character_width: checked ? "fullwidth" : "halfwidth" })}
     />
   );
@@ -116,7 +64,7 @@ export function PunctuationSection({
       <QuoteStyleRow preferences={preferences} onChange={onChange} />
       <BracketStyleRow preferences={preferences} onChange={onChange} />
       {showCharacterWidth && <CharacterWidthRow preferences={preferences} onChange={onChange} />}
-      {switches.map(([key, label, description]) => (
+      {punctuationSwitches.map(([key, label, description]) => (
         <PunctuationSwitchRow
           key={key}
           preference={key}
@@ -140,11 +88,6 @@ export function PunctuationSection({
   );
 }
 
-/** 某个标点开关的存储值；偏好不存在时只有「成对标点」是开启的。 */
-function punctuationSwitchChecked(preferences: PunctuationPreferences, key: PunctuationSwitch) {
-  return preferences[key] ?? key === "paired_punctuation";
-}
-
 function PunctuationSwitchRow({
   preference,
   title,
@@ -160,7 +103,7 @@ function PunctuationSwitchRow({
     <SwitchRow
       title={title}
       description={description}
-      checked={punctuationSwitchChecked(preferences, preference)}
+      checked={punctuationControlState(preferences)[preference]}
       onChange={(checked) => onChange({ [preference]: checked })}
     />
   );
@@ -174,7 +117,7 @@ function PunctuationLockRow({
     <SelectRow
       title="固定标点"
       description="切换中英文时的标点形态，三者互斥"
-      value={preferences.punctuation_lock ?? "follow"}
+      value={punctuationControlState(preferences).punctuation_lock}
       onChange={(event) =>
         onChange({
           punctuation_lock: event.target.value as NonNullable<
@@ -183,9 +126,11 @@ function PunctuationLockRow({
         })
       }
     >
-      <option value="follow">跟随中英文状态</option>
-      <option value="chinese">始终使用中文标点</option>
-      <option value="english">始终使用英文标点</option>
+      {punctuationLockOptions.map(({ value, label }) => (
+        <option key={value} value={value}>
+          {label}
+        </option>
+      ))}
     </SelectRow>
   );
 }
@@ -199,12 +144,14 @@ export function QuoteStyleRow({
     <SelectRow
       title="引号样式"
       description="中文标点下 ' 键和 Shift+' 键输出的引号。直角引号：' 出「」，Shift+' 出『』"
-      value={preferences.quote_style ?? "curly"}
+      value={punctuationControlState(preferences).quote_style}
       onChange={(event) => onChange({ quote_style: event.target.value as QuoteStyle })}
     >
-      <option value="curly">弯引号 “ ” ‘ ’</option>
-      <option value="corner">直角引号 「 」『 』</option>
-      <option value="corner_when_traditional">繁体输出时用直角引号</option>
+      {quoteStyleOptions.map(({ value, label }) => (
+        <option key={value} value={value}>
+          {label}
+        </option>
+      ))}
     </SelectRow>
   );
 }
@@ -218,11 +165,14 @@ export function BracketStyleRow({
     <SelectRow
       title="方头括号样式"
       description="中文标点下 [ ] 键输出的括号"
-      value={preferences.bracket_style ?? "solid"}
+      value={punctuationControlState(preferences).bracket_style}
       onChange={(event) => onChange({ bracket_style: event.target.value as BracketStyle })}
     >
-      <option value="solid">实心 【 】</option>
-      <option value="hollow">空心 〖 〗</option>
+      {bracketStyleOptions.map(({ value, label }) => (
+        <option key={value} value={value}>
+          {label}
+        </option>
+      ))}
     </SelectRow>
   );
 }

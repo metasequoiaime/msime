@@ -3,8 +3,8 @@ import {
   defaultCandidateFallbackFonts,
   defaultCandidateFontFamily,
   validFontFamily,
-  type CandidateFontPreferences,
 } from "./candidate-font-family";
+import type { CandidateFontPreferences } from "./candidate-preferences";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 
 export type FontFamilyResolver = (names: string[]) => Promise<string[]>;

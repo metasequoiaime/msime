@@ -1,8 +1,8 @@
-import {
-  MobileKeyboardFeedbackSection,
-  type MobileKeyboardFeedback,
-  type MobileKeyboardFeedbackClient,
-} from "./mobile-keyboard-feedback-section";
+import { MobileKeyboardFeedbackSection } from "./mobile-keyboard-feedback-section";
+import type {
+  MobileKeyboardFeedback,
+  MobileKeyboardFeedbackClient,
+} from "./mobile-keyboard-feedback";
 
 export interface MobileKeyboardFeedbackSettingsProps {
   mobile: boolean;

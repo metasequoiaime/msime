@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::fs::{self, File};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::SystemTime;
@@ -886,7 +886,7 @@ pub struct TypingStatisticsStore {
 
 struct StatisticsLock {
     directory: crate::file_lock::PrivateDirectory,
-    _lock: File,
+    _lock: crate::file_lock::ScopedFileLock,
 }
 
 impl TypingStatisticsStore {
@@ -920,7 +920,7 @@ impl TypingStatisticsStore {
             &directory,
             std::ffi::OsStr::new(LOCK_FILE),
         )?;
-        crate::file_lock::exclusive(&lock)?;
+        let lock = crate::file_lock::ScopedFileLock::exclusive(lock)?;
         Ok(StatisticsLock {
             directory,
             _lock: lock,

@@ -169,6 +169,13 @@ def info_plist(template: str, edition_id: str, table: dict | None = None) -> str
     text = replace_string(text, "CFBundleName", escape(entry["display_name"]["en"]))
     text = replace_string(text, "CFBundleDisplayName", escape(entry["display_name"]["zh-Hans"]))
     text = replace_string(text, "InputMethodConnectionName", f"{bundle}_Connection")
+    # 发布包编的是 full，Sparkle 的 feed 指向 appcast-full.xml；每个版本有自己的 bundle id 和更新包，换成自己的 appcast。模板和开发构建没有这个键。
+    if "<key>SUFeedURL</key>" in text:
+        feed = plist_string(text, "SUFeedURL")
+        full_feed = f"/appcast-{FULL}.xml"
+        if not feed.endswith(full_feed):
+            raise SystemExit(f"SUFeedURL {feed} does not end in {full_feed}")
+        text = replace_string(text, "SUFeedURL", escape(f"{feed[: -len(full_feed)]}/appcast-{edition_id}.xml"))
 
     blocks = {match.group("id"): match for match in MODE_BLOCK.finditer(text)}
     prefix = full_bundle + "."

@@ -362,12 +362,17 @@ pub(super) fn build_graph(
     graph
 }
 
+struct BeamColumn<'g> {
+    hyps: Vec<Hyp<'g>>,
+    streamed: bool,
+}
+
 #[derive(Clone, Copy)]
 struct Hyp<'g> {
     score: f64,
-    /// Column and index of the hypothesis this one extends; `None` for the start.
-    prev: Option<(usize, usize)>,
-    /// The edge it arrived on; `None` only for the start.
+    /// 前驱假设的列号与行号；起点填 `(0, 0)`，只有 `edge` 非空时才可回溯。
+    prev: (usize, usize),
+    /// 到达本假设的图边；仅起点为 `None`，同时表示没有前驱。
     edge: Option<&'g Edge>,
     typo_edges: usize,
 }
@@ -386,35 +391,22 @@ fn keep_beam(column: &mut Vec<Hyp<'_>>, beam: usize) {
     column.truncate(beam);
 }
 
-/// The maximum number of hypotheses a column can receive before it is pruned: one per incoming edge for each surviving hypothesis at its source.
-fn column_capacities(
-    graph: &Graph,
-    extra: Option<&Graph>,
-    beam: usize,
-    nbest: usize,
-) -> Vec<usize> {
-    let floor = beam.max(nbest);
-    let mut incoming_edges = vec![0usize; graph.len() + 1];
-    for edges in graph {
-        for edge in edges {
+/// 按前向图累计各列在剪枝前可能收到的假设上界；源列剪枝后最多保留 `beam` 条。
+fn column_capacities(graph: &Graph, extra: Option<&Graph>, beam: usize) -> Vec<usize> {
+    let mut capacities = vec![0usize; graph.len() + 1];
+    capacities[0] = 1;
+    for (start, edges) in graph.iter().enumerate() {
+        let surviving = capacities[start].min(beam);
+        for edge in edges
+            .iter()
+            .chain(extra.into_iter().flat_map(|extra| &extra[start]))
+        {
             if edge.end <= graph.len() {
-                incoming_edges[edge.end] = incoming_edges[edge.end].saturating_add(1);
+                capacities[edge.end] = capacities[edge.end].saturating_add(surviving);
             }
         }
     }
-    if let Some(extra) = extra {
-        for edges in extra {
-            for edge in edges {
-                if edge.end <= graph.len() {
-                    incoming_edges[edge.end] = incoming_edges[edge.end].saturating_add(1);
-                }
-            }
-        }
-    }
-    incoming_edges
-        .into_iter()
-        .map(|count| floor.max(count.saturating_mul(beam)))
-        .collect()
+    capacities
 }
 
 /// Null when the options carry no personal data worth consulting, so the decode keeps its exact prior arithmetic (WL:71-76).
@@ -452,33 +444,48 @@ pub(super) fn decode_graph(
     let bigram_table = options.bigram.as_ref();
     let bigram = options.bigram.as_deref();
     let mut memo = options.bigram_memo.map(RefCell::borrow_mut);
-    let capacities = column_capacities(graph, extra, options.beam, options.nbest);
-    let mut columns: Vec<Vec<Hyp<'_>>> = capacities.into_iter().map(Vec::with_capacity).collect();
-    columns[0].push(Hyp {
+    let capacities = column_capacities(graph, extra, options.beam);
+    let stream_capacity = options.beam.saturating_add(1);
+    // 只有预扫描确认会超过束宽的非末列才流式保留堆；状态随列保存，不增加每次解码的堆分配。
+    let mut columns: Vec<BeamColumn<'_>> = capacities
+        .into_iter()
+        .enumerate()
+        .map(|(position, capacity)| BeamColumn {
+            hyps: Vec::with_capacity(if position < n && capacity > stream_capacity {
+                stream_capacity
+            } else {
+                capacity
+            }),
+            streamed: position < n && capacity > stream_capacity,
+        })
+        .collect();
+    columns[0].hyps.push(Hyp {
         score: 0.0,
-        prev: None,
+        prev: (0, 0),
         edge: None,
         typo_edges: 0,
     });
 
     // 同一列里很多假设经由同一个词到达，只是更早的历史不同；它们对每条出边查到的二元分完全一样。按前一个词把这一列所有出边的二元分记下来，同一个词只查一遍表。
     let row_capacity = options.beam.max(options.nbest);
-    let mut bigram_rows: Vec<(&str, Vec<f32>)> = Vec::new();
+    let mut bigram_rows: Vec<Vec<f32>> = Vec::new();
     let mut bigram_row_indices: HashMap<&str, usize> = HashMap::new();
-    // 这一列的出边，按原来的顺序（先图里的，再 `extra` 的）收集一次，每个假设都按这个顺序展开。
-    let mut outgoing: Vec<&Edge> = Vec::new();
     for pos in 0..n {
-        keep_beam(&mut columns[pos], options.beam);
+        if columns[pos].streamed {
+            cxx_sort::finish_partial(&mut columns[pos].hyps, options.beam, &mut scores_higher);
+        } else {
+            keep_beam(&mut columns[pos].hyps, options.beam);
+        }
         let (done, ahead) = columns.split_at_mut(pos + 1);
-        let current = &done[pos];
-        bigram_rows.clear();
+        let current = &done[pos].hyps;
+        // 行存储跨列复用；前词索引和有效行数只属于当前列，评分必须重新填满。
+        let mut used_bigram_rows = 0;
         bigram_row_indices.clear();
-        outgoing.clear();
-        outgoing.extend(
-            graph[pos]
-                .iter()
-                .chain(extra.into_iter().flat_map(|extra| extra[pos].iter())),
-        );
+        // 只读原始切片，评分与展开都按主图、附加图的相同顺序重新遍历。
+        let literal = &graph[pos];
+        let extra_edges = extra.map_or(&[][..], |extra| extra[pos].as_slice());
+        let outgoing_len = literal.len() + extra_edges.len();
+        let outgoing = literal.iter().chain(extra_edges.iter());
         for (index, hyp) in current.iter().enumerate() {
             // Column 0 has no predecessor, so the start token carries what the corpus knows about how sentences open; every later column uses the word the hypothesis arrived on.
             let previous = hyp.edge.map_or(SENTENCE_START, |edge| edge.word.as_str());
@@ -486,38 +493,46 @@ pub(super) fn decode_graph(
                 let row = if let Some(&row) = bigram_row_indices.get(previous) {
                     row
                 } else {
-                    if bigram_rows.is_empty() {
-                        bigram_rows.reserve_exact(row_capacity);
-                        bigram_row_indices.reserve(row_capacity);
+                    let row = used_bigram_rows;
+                    if row == bigram_rows.len() {
+                        if bigram_rows.is_empty() {
+                            bigram_rows.reserve_exact(row_capacity);
+                            bigram_row_indices.reserve(row_capacity);
+                        }
+                        bigram_rows.push(Vec::new());
                     }
-                    let scores = match memo.as_deref_mut() {
-                        Some(memo) => outgoing
-                            .iter()
-                            .map(|edge| memo.score(table, previous, &edge.word))
-                            .collect(),
-                        None => outgoing
-                            .iter()
-                            .map(|edge| table.bigram(previous, &edge.word))
-                            .collect(),
-                    };
-                    bigram_rows.push((previous, scores));
-                    let row = bigram_rows.len() - 1;
+                    let scores = &mut bigram_rows[row];
+                    scores.clear();
+                    scores.reserve_exact(outgoing_len);
+                    match memo.as_deref_mut() {
+                        Some(memo) => scores.extend(
+                            outgoing
+                                .clone()
+                                .map(|edge| memo.score(table, previous, &edge.word)),
+                        ),
+                        None => scores.extend(
+                            outgoing
+                                .clone()
+                                .map(|edge| table.bigram(previous, &edge.word)),
+                        ),
+                    }
+                    used_bigram_rows += 1;
                     bigram_row_indices.insert(previous, row);
                     row
                 };
-                &bigram_rows[row].1
+                &bigram_rows[row]
             });
-            // The column a hypothesis points back into was pruned before this one was expanded and is never touched again, so the word two back is stable here.
+            // 前驱列已经剪枝且不会再改变；前驱列为零时没有更早的词，起点也填零。
             let context = personal.map(|personal| {
                 let earlier = match hyp.prev {
-                    Some((column, at)) if column > 0 => {
-                        done[column][at].edge.map(|edge| edge.word.as_str())
+                    (column, at) if column > 0 => {
+                        done[column].hyps[at].edge.map(|edge| edge.word.as_str())
                     }
                     _ => None,
                 };
                 personal.context(earlier, Some(previous))
             });
-            for (at, &edge) in outgoing.iter().enumerate() {
+            for (at, edge) in outgoing.clone().enumerate() {
                 let mut score = hyp.score + edge.log_prob;
                 let static_bonus = bonuses.map_or(0.0, |bonuses| f64::from(bonuses[at]));
                 if bigram.is_some() {
@@ -535,18 +550,29 @@ pub(super) fn decode_graph(
                         );
                     }
                 }
-                ahead[edge.end - pos - 1].push(Hyp {
+                let next = Hyp {
                     score,
-                    prev: Some((pos, index)),
+                    prev: (pos, index),
                     edge: Some(edge),
                     typo_edges: hyp.typo_edges + usize::from(edge.typo),
-                });
+                };
+                let target = &mut ahead[edge.end - pos - 1];
+                if target.streamed {
+                    cxx_sort::push_partial(
+                        &mut target.hyps,
+                        options.beam,
+                        next,
+                        &mut scores_higher,
+                    );
+                } else {
+                    target.hyps.push(next);
+                }
             }
         }
     }
 
     // The loop only prunes columns [0, n), so the terminal column still holds every hypothesis that reached the end. Nothing traces back through it, so truncating it cannot break traceback.
-    let mut last = std::mem::take(&mut columns[n]);
+    let mut last = std::mem::take(&mut columns[n].hyps);
     if last.is_empty() {
         return Vec::new();
     }
@@ -554,8 +580,13 @@ pub(super) fn decode_graph(
     cxx_sort::sort(&mut last, &mut scores_higher);
     let take = options.nbest.min(last.len());
 
-    let mut paths = Vec::with_capacity(last.len());
+    // 小末列沿用线性去重；收齐唯一预算后不再物化后续假设，大末列保留原哈希回退。
+    let inline_unique = last.len() <= SMALL_SENTENCE_PATHS;
+    let mut paths: Vec<SentencePath> = Vec::with_capacity(last.len());
     for hyp in &last {
+        if inline_unique && paths.len() == take {
+            break;
+        }
         let mut words = Vec::with_capacity(n);
         let mut keys = Vec::with_capacity(n);
         let mut cursor = Some(hyp);
@@ -563,12 +594,15 @@ pub(super) fn decode_graph(
             let Some(edge) = step.edge else { break };
             words.push(edge.word.clone());
             keys.push(edge.key.as_str());
-            cursor = step.prev.map(|(column, at)| &columns[column][at]);
+            let (column, at) = step.prev;
+            cursor = Some(&columns[column].hyps[at]);
         }
         words.reverse();
         keys.reverse();
         let sentence = words.concat();
-        if sentence.is_empty() {
+        if sentence.is_empty()
+            || (inline_unique && paths.iter().any(|path| path.sentence == sentence))
+        {
             continue;
         }
         paths.push(SentencePath {
@@ -579,7 +613,9 @@ pub(super) fn decode_graph(
             typo_edges: hyp.typo_edges,
         });
     }
-    retain_unique_sentences(&mut paths, take);
+    if !inline_unique {
+        retain_unique_sentences(&mut paths, take);
+    }
     rescore_with_trigram(&mut paths, options);
     paths
 }
@@ -781,6 +817,10 @@ pub fn decode_pinned(
 }
 
 #[cfg(test)]
+#[path = "decode_bigrams_tests.rs"]
+mod bigram_buffer_tests;
+
+#[cfg(test)]
 pub(super) mod tests {
     use std::collections::HashSet;
 
@@ -886,7 +926,7 @@ pub(super) mod tests {
         let graph = vec![vec![edge(1), edge(2)], vec![edge(2)], vec![]];
         let extra = vec![vec![], vec![edge(2)], vec![]];
 
-        assert_eq!(column_capacities(&graph, Some(&extra), 4, 2), [4, 4, 12, 4]);
+        assert_eq!(column_capacities(&graph, Some(&extra), 4), [1, 1, 3, 0]);
     }
 
     #[test]
@@ -898,7 +938,51 @@ pub(super) mod tests {
         });
 
         assert!(paths.is_empty());
-        assert_eq!(allocations, 4);
+        assert_eq!(allocations, 3);
+    }
+
+    #[test]
+    fn bigram_row_allocations_do_not_grow_with_column_count() {
+        use crate::ime::personal_rerank::allocations::measure;
+
+        let directory = tempfile::tempdir().unwrap();
+        let bigram = Arc::new(pair_table(
+            directory.path(),
+            "zero.bin",
+            &[("甲", "甲", 0.0)],
+        ));
+        for length in [1, 2, 8, 32] {
+            let graph = (0..length)
+                .map(|position| {
+                    vec![Edge {
+                        end: position + 1,
+                        word: "甲".to_owned(),
+                        key: "jia".to_owned(),
+                        log_prob: -1.0,
+                        typo: false,
+                    }]
+                })
+                .collect();
+            let options = LatticeOptions {
+                beam: 1,
+                nbest: 1,
+                ..LatticeOptions::default()
+            };
+            let (plain, without) = measure(|| decode_graph(&graph, &options, None));
+            let options = LatticeOptions {
+                bigram: Some(Arc::clone(&bigram)),
+                ..options
+            };
+            let (scored, with) = measure(|| decode_graph(&graph, &options, None));
+            assert_eq!(scored, plain);
+            assert_eq!(with.remaining_bytes, without.remaining_bytes);
+            assert_eq!(with.minimum_bytes, 0);
+            assert!(with.peak_bytes <= without.peak_bytes + 256);
+            assert!(
+                with.allocations <= without.allocations + 3,
+                "{length} 列：无表 {without:?}，有表 {with:?}"
+            );
+        }
     }
 
     /// test_pinyin.cpp:540-548, like the other fake-lookup lattice cases of `test_word_lattice` (:534-677) ported here and in merge.rs; the SQLite lookup case (:641-666) is in dictionary/pinyin.rs.
@@ -1415,3 +1499,35 @@ pub(super) mod tests {
 #[cfg(test)]
 #[path = "graph_ownership_tests.rs"]
 mod graph_ownership_tests;
+
+#[cfg(test)]
+#[path = "decode_hyp_layout_tests.rs"]
+mod hyp_layout_tests;
+
+#[cfg(test)]
+#[path = "decode_capacity_tests.rs"]
+mod capacity_tests;
+
+#[cfg(test)]
+#[path = "decode_traceback_tests.rs"]
+mod traceback_tests;
+
+#[cfg(test)]
+#[path = "decode_return_tests.rs"]
+mod return_tests;
+
+#[cfg(test)]
+#[path = "decode_prefix_tests.rs"]
+mod prefix_tests;
+
+#[cfg(test)]
+#[path = "decode_outgoing_tests.rs"]
+mod outgoing_tests;
+
+#[cfg(test)]
+#[path = "decode_entry_tests.rs"]
+mod entry_tests;
+
+#[cfg(test)]
+#[path = "decode_stream_tests.rs"]
+mod stream_tests;

@@ -22,6 +22,8 @@ Status: implemented
 
 ## 与其他平台的差异
 
+共享的小牛回复判定要求 `tgtText` 为字符串；缺失或类型错误走失败退避，合法空字符串仍为可负缓存的回答。该边界也用于 macOS，见[小牛回复结构](../bug-fix/2026-10-15-niutrans-reply-shape.md)。
+
 - 地址规则与 iOS 不同：iOS 只放行 https（`TranslationProviderClient.urlRequest`），Android 跟内核 `is_secure_endpoint`，也放行回环 http，方便在本机跑 DeepLX。局域网 http 两边都不放行；AI 辅助的地址规则（`AiEndpointPolicy`）放行局域网，与这里不同。
 - 离线和在线谁优先与鸿蒙相反：Android（和 macOS 的账号路径）离线释义优先，在线译文只补离线没有的行；鸿蒙用户服务优先、离线补缺（`platforms/harmony/entry/src/main/ets/keyboard/candidate/TranslationPolicy.ts`）。
 - 桌面三端和鸿蒙会把成功的英文译文写回用户释义库（`translation_gloss_save`，`docs/windows-parity.md`），Android 还没有，这是已知的对等缺口。
@@ -46,3 +48,5 @@ Status: implemented
 - `tests/core/NativeSmoke.java` 加了合成配置的描述器、解析、失败判断和设置页检查调用；它要加载 `libmsime_android.so`，只在设备上跑。
 - 设置页和 `MSIMEInputService` 用 Gradle 的 `compileFullReleaseJavaWithJavac` 编译通过。
 - 设备验收（API 35 模拟器，本机 DeepLX 兼容 mock 经 `adb reverse` 映射到设备的 127.0.0.1:1188）：局域网 http 地址在设置页被拒、「保存」不可用；回环地址能保存，「测试连接」成功；离线释义查不到的候选显示 mock 译文，离线有英文释义的候选显示离线释义；同一页重打、换输入会话都不再请求；mock 对某个词回 `{"code":500}` 后几次重绘只请求了一次；重启 mock 之后约 30 秒内没有任何请求、30 秒后恢复（推断是重启时连不上触发了整服务退避，没有抓日志证实）；切到「不使用」后不再请求、译文消失；目标语言换成法语后按 FR 请求。`smoke.sh` 在 API 35 全套、API 28 `--core` 通过，`verify-native.sh` 核对了新增的 10 个 host 导出和 10 个 JNI 方法。没有用真实的小牛、腾讯或 DeepL 凭据请求过；原生设置页没有设置第二目标语言（`translation_secondary_language`）的入口，应用不可调试也没法直接改偏好文件，第二目标语言没有在设备上验证。
+
+自定义服务的成功码也必须经过共享结果结构校验，异常结构不进入回答集合，见[自定义翻译回复结构边界](../bug-fix/2026-10-15-custom-translation-reply-shape.md)。

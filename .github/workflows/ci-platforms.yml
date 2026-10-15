@@ -410,6 +410,49 @@ jobs:
         if: ${{ needs.changes.outputs.windows != 'true' }}
         run: echo 'No Windows or shared-platform changes; platform gate skipped.'
 
+  # WinUI 3 不在 MinGW 的编译范围内；直接使用发布设置工程做 MSVC 编译。
+  windows-settings:
+    needs: changes
+    name: Windows native settings
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the settings host
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          rustup toolchain install
+          if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain installation failed' }
+          cargo build --locked -p msime-host-api -j 2
+          if ($LASTEXITCODE -ne 0) { throw 'Settings host library build failed' }
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = @(& $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\amd64\MSBuild.exe')
+          if ($msbuild.Count -lt 1) { throw 'MSBuild not found' }
+          # 使用与发布脚本相同的完整 Build，确保 Windows SDK 引用和 WinRT 投影均已初始化。
+          $output = "$env:GITHUB_WORKSPACE/target/windows-full/x64/settings/"
+          & $msbuild[0] platforms/windows/settings/MSIME.Settings.vcxproj /restore /t:Build /p:Configuration=RelWithDebInfo /p:Platform=x64 /p:TargetName=msime-client-settings /p:HostApiLibrary="$env:GITHUB_WORKSPACE/target/debug/msime_host_api.dll.lib" /p:OutDir="$output" /p:IntDir="$env:GITHUB_WORKSPACE/target/windows-full/x64/settings-obj/" /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'Settings host build failed' }
+          Copy-Item target/debug/msime_host_api.dll $output
+      - name: Inspect native settings pages
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: powershell
+        run: |
+          & platforms/windows/tests/tools/settings_ui.ps1 -Program target/windows-full/x64/settings/msime-client-settings.exe -OutputDirectory target/windows-full/x64/settings-screenshots
+          if ($LASTEXITCODE -ne 0) { throw 'Settings UI smoke failed' }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() && needs.changes.outputs.windows == 'true' }}
+        with:
+          name: windows-native-settings-screenshots
+          path: target/windows-full/x64/settings-screenshots/
+          if-no-files-found: warn
+      - name: Windows settings unchanged
+        if: ${{ needs.changes.outputs.windows != 'true' }}
+        run: echo 'No Windows settings changes; native gate skipped.'
+
   windows-scripts:
     needs: changes
     name: Windows release script tests

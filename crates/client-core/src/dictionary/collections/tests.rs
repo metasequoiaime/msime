@@ -1014,3 +1014,20 @@ fn collections_import_maps_scel_refusals_to_stable_codes() {
     );
     assert!(fixture.store.load().unwrap().collections.is_empty());
 }
+
+#[cfg(unix)]
+#[test]
+fn finished_scope_releases_inherited_lock() {
+    let root = tempfile::tempdir().unwrap();
+    let store = DictionaryCollectionsStore::new(
+        root.path(),
+        PersonalDictionaryStore::new(root.path().join("personal")),
+    );
+    let held = store.lock().unwrap();
+    let inherited = crate::file_lock::testing::duplicate(&held._lock);
+    crate::file_lock::testing::assert_finished_scope_releases_lock(
+        held,
+        inherited,
+        &store.directory.join("index.json.lock"),
+    );
+}

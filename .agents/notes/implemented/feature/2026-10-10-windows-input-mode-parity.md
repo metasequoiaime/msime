@@ -69,7 +69,7 @@ Server 换客户端时用 `process_image_base_name`（`src/system/ProcessImageNa
 
 - Rust：`cargo test -p msime-client-core --lib -- app_input_mode host_surface` 覆盖文档读写、校验和能力位。
 - MCP：`cargo test -p msime-mcp-server` 的 `app_input_mode_rules_and_the_keymap_hint_are_set_and_invalid_rules_refused` 覆盖设置、只差大小写的重复被拒且原表不变、清空；`the_mirrors_serialize_as_the_store_does` 钉住模式值与存储一致。
-- 共享设置页：`apps/desktop/tests/settings/app-input-mode-rules.test.tsx` 覆盖规范化、校验、Windows 上编辑并保存规则表、切换提示与 Alt+Shift+H 开关。
+- 共享设置页：`apps/desktop/tests/settings/app-input-mode-rules.test.tsx` 覆盖规范化、校验、Windows 上编辑并保存规则表、切换提示与 Alt+Shift+H 开关。规范化和去重复用[公共 ASCII 小写转换](../simplification/2026-10-16-ui-ascii-lowercase.md)，非 ASCII 字母的大小写仍可区分。
 - 名称查询复用公共代次后，同一套行为测试覆盖查询函数更换、待查标识批次变化、旧成功和失败、StrictMode 重放以及缺失或失败时缓存标识回退。15 项测试在抽取前后均通过，验证现有交互和缓存行为保持一致。
 - macOS：`tests/settings/PreferenceSnapshotMergeTest.mm` 覆盖整表替换；`tests/input/ShortcutTest.mm` 的 `TestApplicationInputModeRulesFollowSharedDocument` 覆盖迁移、回退、载入后要求发布、未发布旧规则的合并、发布过滤、收不下的旧规则留在本机生效和清空；`TestApplicationInputModeRuleEditsKeepDocumentTable` 覆盖原生窗口改规则时两边分开改、还没载入文档时不写规则表、按应用查规则不分大小写。
 - Windows 宿主：`tests/input/mode_authority.cpp`（规则、让位、推送落地、`user_changed`）、`tests/input/app_input_mode_rules.cpp`、`tests/ui/input_mode_hud_layout.cpp`（含读屏播报文案）、`tests/ui/app_input_mode_rule_list.cpp` 和 `tsf/tests/input/fullwidth_chord_policy.cpp`。

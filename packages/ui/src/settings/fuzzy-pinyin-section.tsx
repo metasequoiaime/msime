@@ -7,46 +7,14 @@ import { SettingsInputDescription } from "./settings-input-description";
 import { SettingsGroupBlock } from "./settings-group-block";
 import { SettingsRowStack } from "./settings-row-stack";
 import { Checks, MoreOptions, Row } from "../core/platform-controls";
-
-export type FuzzyPinyinPreferences = { enabled: boolean; rules: string[]; seeded?: boolean };
-
-export const defaultFuzzyPinyin: FuzzyPinyinPreferences = { enabled: false, rules: [] };
-
-const fuzzyPinyinGroups: [string, [string, string][]][] = [
-  [
-    "平翘舌",
-    [
-      ["z-zh", "z ↔ zh"],
-      ["c-ch", "c ↔ ch"],
-      ["s-sh", "s ↔ sh"],
-    ],
-  ],
-  [
-    "声母",
-    [
-      ["n-l", "n ↔ l"],
-      ["f-h", "f ↔ h"],
-      ["r-l", "r ↔ l"],
-    ],
-  ],
-  [
-    "前后鼻音",
-    [
-      ["an-ang", "an ↔ ang"],
-      ["en-eng", "en ↔ eng"],
-      ["in-ing", "in ↔ ing"],
-    ],
-  ],
-  [
-    "其他韵母",
-    [
-      ["ian-iang", "ian ↔ iang"],
-      ["uan-uang", "uan ↔ uang"],
-    ],
-  ],
-];
-
-const fuzzyPinyinRuleIds = fuzzyPinyinGroups.flatMap(([, rules]) => rules.map(([id]) => id));
+import {
+  fuzzyPinyinGroups,
+  fuzzyPinyinEnabledChange,
+  fuzzyPinyinRuleChange,
+  resetFuzzyPinyin,
+  type FuzzyPinyinPreferences,
+} from "./fuzzy-pinyin-preferences";
+export { defaultFuzzyPinyin, type FuzzyPinyinPreferences } from "./fuzzy-pinyin-preferences";
 
 export interface FuzzyPinyinSectionProps {
   preferences: FuzzyPinyinPreferences;
@@ -63,20 +31,9 @@ export function FuzzyPinyinSection({
   confirm,
   layout = "section",
 }: FuzzyPinyinSectionProps) {
-  const setEnabled = (enabled: boolean) => {
-    const firstEnable = enabled && !preferences.seeded;
-    onChange({
-      ...preferences,
-      enabled,
-      ...(firstEnable ? { rules: fuzzyPinyinRuleIds, seeded: true } : {}),
-    });
-  };
-  const setRule = (id: string, checked: boolean) => {
-    const selected = new Set(preferences.rules);
-    if (checked) selected.add(id);
-    else selected.delete(id);
-    onChange({ ...preferences, rules: [...selected].sort() });
-  };
+  const setEnabled = (enabled: boolean) => onChange(fuzzyPinyinEnabledChange(preferences, enabled));
+  const setRule = (id: string, checked: boolean) =>
+    onChange(fuzzyPinyinRuleChange(preferences, id, checked));
   const reset = () => {
     void confirm({
       title: "关闭模糊音",
@@ -85,11 +42,7 @@ export function FuzzyPinyinSection({
       danger: true,
     }).then((confirmed) => {
       if (!confirmed) return;
-      onChange({
-        enabled: false,
-        rules: [],
-        seeded: preferences.seeded ?? false,
-      });
+      onChange(resetFuzzyPinyin(preferences));
     });
   };
   if (layout === "row")

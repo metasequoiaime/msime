@@ -162,67 +162,48 @@
    "op": "char",
    "arg": "1",
    "result": {
-    "handled": true
+    "handled": false,
+    "commit": "Exiao'lian"
    },
    "snapshot": {
     "scheme": "quanpin",
-    "local_mode": "emoji",
-    "preedit": "Exiao'lian",
-    "raw_segmentation": "Exiao'lian",
-    "normalized_segmentation": "Exiao'lian",
-    "editing_text": "Exiao'lian",
-    "caret": 10,
+    "local_mode": "none",
+    "preedit": "",
+    "raw_segmentation": "",
+    "normalized_segmentation": "",
+    "editing_text": "",
+    "caret": 0,
     "dedicated_english": false,
     "shuangpin_profile": "xiaohe",
-    "candidate_count": 1,
-    "candidates": [
-     {
-      "word": "😄",
-      "pinyin": "xiao'lian",
-      "canonical_pinyin": "",
-      "source": 6,
-      "scheme": "quanpin",
-      "weight": 1,
-      "answers_key": true
-     }
-    ]
+    "candidate_count": 0,
+    "candidates": []
    }
   },
   {
    "op": "command",
    "arg": "Backspace",
    "result": {
-    "handled": true
+    "handled": false
    },
    "snapshot": {
     "scheme": "quanpin",
-    "local_mode": "emoji",
-    "preedit": "Exiao'lia",
-    "raw_segmentation": "Exiao'lia",
-    "normalized_segmentation": "Exiao'lia",
-    "editing_text": "Exiao'lia",
-    "caret": 9,
+    "local_mode": "none",
+    "preedit": "",
+    "raw_segmentation": "",
+    "normalized_segmentation": "",
+    "editing_text": "",
+    "caret": 0,
     "dedicated_english": false,
     "shuangpin_profile": "xiaohe",
-    "candidate_count": 1,
-    "candidates": [
-     {
-      "word": "😄",
-      "pinyin": "xiao'lia",
-      "canonical_pinyin": "",
-      "source": 6,
-      "scheme": "quanpin",
-      "weight": 1,
-      "answers_key": true
-     }
-    ]
+    "candidate_count": 0,
+    "candidates": []
    }
   },
   {
    "op": "command",
    "arg": "Cancel",
    "result": {
-    "handled": true
+    "handled": false
    },
    "snapshot": {
     "scheme": "quanpin",

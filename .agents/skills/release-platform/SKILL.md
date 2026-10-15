@@ -47,7 +47,7 @@ git log --format='%h %s' <os>-v<上一版>..origin/develop -- platforms/<os> | g
 | Android | 只有 `platforms/android/version.txt`。versionCode 由 `gradle-app/app/build.gradle.kts` 按 `major*1e6 + minor*1e3 + patch` 算，不用手改 |
 | Linux、Windows | 只有 `platforms/<os>/version.txt` |
 | iOS | `version.txt`、`project.yml` 的 `MARKETING_VERSION`、`MSIMEClient.xcodeproj/project.pbxproj` |
-| macOS | `version.txt`、`build-number.txt`、`Info.plist.in`、`src/core/SupportWindowController.mm` 里的兜底版本字符串 |
+| macOS | `version.txt`、`build-number.txt`（新版本重置为 1）、`Info.plist.in`、`src/core/SupportWindowController.mm` 里的兜底版本字符串。`CFBundleVersion` 由 CMake 从前两个文件算出，Sparkle 靠它判断新旧，不要手写 |
 | HarmonyOS | `version.txt`、`AppScope/app.json5` 的 `versionName` **和** `versionCode`（同样按 `major*1e6 + minor*1e3 + patch`，0.2.0 是 2000），versionCode 不递增系统拒绝覆盖安装 |
 
 iOS、macOS、HarmonyOS 改完用 `git grep -nF '<旧版本号>' -- platforms/<os> apps/desktop` 再扫一遍，`47b8e97e1`（0.52.0 一次改了全部平台）是完整的参照。
@@ -128,6 +128,7 @@ gh release view <os>-vX.Y.Z --json tagName,isPrerelease,targetCommitish,assets -
 
 - 正式版 `isPrerelease` 必须是 false，否则应用内更新拿不到。
 - 附件齐全：Android 是六个 APK（`msime-android.apk`、`msime-android-<edition>.apk`）各带一个 `.sha256`。有两两大小完全相同的 APK（full 与 pinyin、tibetan 与 vietnamese）是正常的，0.2.2 起就这样，哈希不同就行。
+- macOS 正式版：`macos-appcast` release 上的 `appcast-<版本 id>.xml` 应当被这次发布更新，`<sparkle:version>` 是这次的构建号、`url` 指向 `macos-vX.Y.Z` 上的 `*-input-method.zip`。工作流日志里出现 `SPARKLE_ED_PRIVATE_KEY is not set` 说明这次没有 Sparkle 更新，已装的用户只能手动下载 DMG。
 - Android 下载 full 包核对包名、版本和签名证书。证书不是 `3a889e43…8e4132`（msime-release）的话，老用户没法覆盖升级，必须撤下：
 
   ```sh

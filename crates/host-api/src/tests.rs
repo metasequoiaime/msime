@@ -68,6 +68,92 @@ fn completed_transition_keeps_dispatch_view_without_pending_changes() {
 }
 
 #[test]
+fn currency_punctuation_follows_character_width_on_all_key_routes() {
+    for route in 0..3 {
+        let directory = tempfile::tempdir().unwrap();
+        let preferences = Preferences {
+            caps_lock_ascii_punctuation: true,
+            ..chinese_preferences()
+        };
+        let handle = test_host_with_pinyin_fixture(directory.path(), preferences);
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        for fullwidth in [false, true, false] {
+            read(msime_client_set_character_width(handle, fullwidth));
+            let currency = if fullwidth { "￥" } else { "¥" };
+            for composing in [false, true] {
+                let prefix = if composing {
+                    let view = type_letters(handle, b"nihao");
+                    view["candidates"][0]["text"].as_str().unwrap().to_owned()
+                } else {
+                    String::new()
+                };
+                let result = read(match route {
+                    0 => msime_client_character(handle, b'$', true),
+                    1 => msime_client_punctuation(handle, b'$'),
+                    _ => msime_client_punctuation_with_context(handle, b'$', 0),
+                });
+                assert_eq!(result["value"]["handled"], true);
+                assert_eq!(result["value"]["commit"], format!("{prefix}{currency}"));
+            }
+            assert_eq!(
+                read(msime_client_punctuation(handle, b','))["value"]["commit"],
+                "，"
+            );
+        }
+        read(msime_client_set_chinese_punctuation(handle, false));
+        let view = type_letters(handle, b"nihao");
+        let prefix = view["candidates"][0]["text"].as_str().unwrap();
+        assert_eq!(
+            read(msime_client_punctuation(handle, b'$'))["value"]["commit"],
+            format!("{prefix}$")
+        );
+        read(msime_client_set_chinese_punctuation(handle, true));
+        let view = type_letters(handle, b"nihao");
+        let prefix = view["candidates"][0]["text"].as_str().unwrap();
+        read(msime_client_set_caps_lock(handle, true));
+        // 大写锁定只在空闲时直出 ASCII，已有组字仍用中文标点。
+        assert_eq!(
+            read(msime_client_punctuation_with_context(handle, b'$', 0))["value"]["commit"],
+            format!("{prefix}¥")
+        );
+        let idle = read(msime_client_punctuation_with_context(handle, b'$', 0));
+        assert_eq!(idle["value"]["handled"], false);
+        assert!(idle["value"]["commit"].is_null());
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    }
+}
+
+#[test]
+fn currency_punctuation_preserves_currency_symbols_in_a_selected_phrase() {
+    let directory = tempfile::tempdir().unwrap();
+    install_phrase_table(directory.path(), "currency", &[("hb", "￥¥")]);
+    let mut preferences = chinese_preferences();
+    preferences.plugins.phrase_tables = vec!["currency".into()];
+    let handle = plugin_host(directory.path(), preferences);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    for fullwidth in [false, true, false] {
+        read(msime_client_set_character_width(handle, fullwidth));
+        for punctuation in [false, true] {
+            read(msime_client_character(handle, b'K', true));
+            let view = type_letters(handle, b"hb");
+            assert_eq!(view["candidates"][0]["text"], "￥¥");
+            let result = read(if punctuation {
+                msime_client_punctuation(handle, b'$')
+            } else {
+                msime_client_command(handle, 1)
+            });
+            let expected = match (punctuation, fullwidth) {
+                (false, _) => "￥¥",
+                (true, false) => "￥¥¥",
+                (true, true) => "￥¥￥",
+            };
+            assert_eq!(result["value"]["commit"], expected);
+        }
+    }
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+#[test]
 fn default_sentence_model_uses_verified_resources_not_prepared_dictionaries() {
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("resources");
@@ -5544,23 +5630,35 @@ fn test_host_with_pinyin_fixture(root: &std::path::Path, preferences: Preference
 }
 
 #[test]
-fn session_reads_live_preferences_when_the_options_copy_carries_a_retired_field() {
+fn session_reads_live_preferences_when_the_options_copy_is_refused() {
     let directory = tempfile::tempdir().unwrap();
     let path = |name| {
         let path = directory.path().join(name);
         std::fs::create_dir_all(&path).unwrap();
         path
     };
-    let mut stale = serde_json::to_value(chinese_preferences()).unwrap();
-    stale["autocorrect"] = json!(true);
-    let options = |preferences_directory: &std::path::Path| {
-        json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences_directory": preferences_directory, "preferences": stale }).to_string()
+    let options = |preferences_directory: &std::path::Path, preferences: &serde_json::Value| {
+        json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences_directory": preferences_directory, "preferences": preferences }).to_string()
     };
     let create =
         |options: String| read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
 
-    // Nothing to stand in for the copy: refused as before, and the directory is not created by looking.
+    // #2830 退役 `autocorrect` 后，带着它的副本曾让每个 macOS 会话都被拒。偏好结构现在不拒绝不认识的键，这样的副本自己就读得进来。
+    let mut retired = serde_json::to_value(chinese_preferences()).unwrap();
+    retired["autocorrect"] = json!(true);
     let missing = directory.path().join("missing");
+    let created = create(options(&missing, &retired));
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    assert!(!missing.exists());
+
+    // 副本本身读不了（取值类型不对）时，由实时的 preferences.json 顶替。
+    let mut stale = serde_json::to_value(chinese_preferences()).unwrap();
+    stale["candidate_page_size"] = json!("six");
+    let options = |preferences_directory: &std::path::Path| options(preferences_directory, &stale);
+
+    // Nothing to stand in for the copy: refused as before, and the directory is not created by looking.
     assert_eq!(
         create(options(&missing))["error"],
         "invalid options document"
@@ -7330,18 +7428,9 @@ fn a_session_and_dictionary_maintenance_exclude_each_other() {
         .unwrap()
         .is_none());
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
-    // Other tests spawn processes concurrently, and a fork can briefly inherit the released lock before close-on-exec runs.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    while DictionaryAccess::try_maintenance(&user, &dictionaries)
+    assert!(DictionaryAccess::try_maintenance(&user, &dictionaries)
         .unwrap()
-        .is_none()
-    {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "a destroyed session kept dictionary maintenance out"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
+        .is_some());
 }
 pub(super) fn read(pointer: *mut c_char) -> Value {
     // SAFETY: all callers pass a fresh response allocation.
@@ -8158,6 +8247,59 @@ fn ai_queries_and_delivery_follow_pending_preferences() {
     read(msime_client_destroy(handle));
 }
 #[test]
+fn custom_translation_plan_accepts_keyboard_model_sentence_candidates() {
+    let plan = |target: &str, text: &str| {
+        let request = serde_json::to_vec(&json!({
+            "target_language": target,
+            "candidates": [{
+                "text": text,
+                "source": msime_engine::CandidateSource::NeuralKeyboard as u8,
+            }],
+        }))
+        .unwrap();
+        read(unsafe { msime_client_custom_translation_plan(request.as_ptr(), request.len()) })
+    };
+    for target in ["en", "fr", "ja", "es", "ru", "de", "ko"] {
+        let planned = plan(target, "今天下雨");
+        assert_eq!(planned["ok"], true);
+        assert_eq!(
+            planned["value"],
+            json!([{
+                "text": "今天下雨",
+                "key": "今天下雨",
+                "source_language": "zh",
+                "target_language": target,
+            }]),
+            "{target}"
+        );
+    }
+    assert_eq!(
+        plan("fr", "Synthetic Word")["value"],
+        json!([{
+            "text": "Synthetic Word",
+            "key": "synthetic word",
+            "source_language": "en",
+            "target_language": "zh",
+        }])
+    );
+}
+
+#[test]
+fn custom_translation_plan_rejects_pending_special_and_unknown_sources() {
+    for source in [6, 7, 10, 12, 13, 14, 15, 255] {
+        let request = serde_json::to_vec(&json!({
+            "target_language": "en",
+            "candidates": [{"text": "合成", "source": source}],
+        }))
+        .unwrap();
+        let planned =
+            read(unsafe { msime_client_custom_translation_plan(request.as_ptr(), request.len()) });
+        assert_eq!(planned["ok"], true, "source={source}");
+        assert_eq!(planned["value"], json!([]), "source={source}");
+    }
+}
+
+#[test]
 fn custom_translation_plan_preserves_direction_and_filters_visible_sources() {
     let plan = |request: Value| {
         let bytes = serde_json::to_vec(&request).unwrap();
@@ -8454,6 +8596,87 @@ fn custom_translation_http_bridge_speaks_deepl_to_official_endpoints() {
     ] {
         assert!(parse(body)["value"].is_null());
         assert!(unsafe { msime_client_custom_translation_reply_failed(body.as_ptr(), body.len()) });
+    }
+}
+
+#[test]
+fn custom_translation_reply_success_code_requires_a_supported_result() {
+    for (body, failed) in [
+        (r#"{"code":200}"#, true),
+        (r#"{"code":"200","data":null}"#, true),
+        (r#"{"code":200,"translation":42}"#, true),
+        (r#"{"code":200,"data":""}"#, false),
+        (r#"{"code":"200","translations":[]}"#, false),
+        (r#"{"code":200,"translation":{"text":""}}"#, false),
+        (r#"{"code":429,"data":""}"#, true),
+        (r#"{"code":200,"error":"rate limited","data":""}"#, true),
+    ] {
+        assert_eq!(
+            unsafe { msime_client_custom_translation_reply_failed(body.as_ptr(), body.len()) },
+            failed,
+            "{body}"
+        );
+        let parsed = read(unsafe {
+            msime_client_parse_custom_translation_response(body.as_ptr(), body.len())
+        });
+        assert_eq!(parsed["ok"], true);
+        assert!(parsed["value"].is_null(), "{body}");
+    }
+}
+
+#[test]
+fn niutrans_reply_failure_rejects_missing_or_invalid_translation_fields() {
+    for body in [
+        "{}",
+        r#"{"message":"temporarily unavailable"}"#,
+        r#"{"tgtText":null}"#,
+        r#"{"tgtText":42}"#,
+        r#"{"tgtText":false}"#,
+        r#"{"tgtText":[]}"#,
+        r#"{"tgtText":{"text":"synthetic"}}"#,
+    ] {
+        assert!(
+            unsafe { msime_client_niutrans_translation_reply_failed(body.as_ptr(), body.len()) },
+            "{body}"
+        );
+        let parsed = read(unsafe {
+            msime_client_parse_niutrans_translation_response(body.as_ptr(), body.len())
+        });
+        assert_eq!(parsed["ok"], true);
+        assert!(parsed["value"].is_null(), "{body}");
+    }
+}
+
+#[test]
+fn niutrans_reply_failure_preserves_answers_and_error_precedence() {
+    for (body, expected) in [
+        (r#"{"tgtText":""}"#, Value::Null),
+        (r#"{"tgtText":" \n\t"}"#, Value::Null),
+        (
+            r#"{"tgtText":" synthetic\ngloss ","from":"zh","to":"en"}"#,
+            json!("synthetic gloss"),
+        ),
+    ] {
+        assert!(!unsafe {
+            msime_client_niutrans_translation_reply_failed(body.as_ptr(), body.len())
+        });
+        let parsed = read(unsafe {
+            msime_client_parse_niutrans_translation_response(body.as_ptr(), body.len())
+        });
+        assert_eq!(parsed["ok"], true);
+        assert_eq!(parsed["value"], expected);
+    }
+    for body in [
+        r#"{"errorCode":"13001","tgtText":"synthetic"}"#,
+        r#"{"errorMsg":"rate limited","tgtText":""}"#,
+    ] {
+        assert!(unsafe {
+            msime_client_niutrans_translation_reply_failed(body.as_ptr(), body.len())
+        });
+        let parsed = read(unsafe {
+            msime_client_parse_niutrans_translation_response(body.as_ptr(), body.len())
+        });
+        assert!(parsed["value"].is_null());
     }
 }
 
@@ -13247,7 +13470,7 @@ fn plugins_boundary_lists_imports_removes_and_keeps_the_name_list() {
     );
 }
 
-/// 移动端导入单个码表：`import_helpcode_table` 把正文装成辅助码表包，选中后会话里「你」的码换成表里的；坏表以 `plugin_invalid` 和带行号的中文原因被拒。
+/// 移动端导入十万条码表：末行辅助码经插件和会话到达 Engine；坏表带行号拒绝。
 #[test]
 fn plugins_boundary_imports_a_helpcode_table_the_session_then_reads() {
     let dir = tempfile::tempdir().unwrap();
@@ -13259,15 +13482,23 @@ fn plugins_boundary_imports_a_helpcode_table_the_session_then_reads() {
         .unwrap();
         read(unsafe { msime_client_plugins(request.as_ptr(), request.len()) })
     };
+    let mut table = String::from("\u{FEFF}# name: 我的辅助码\r\n");
+    for index in 0..99_999 {
+        table.push_str(&format!(
+            "{}=ab\r\n",
+            char::from_u32(0x20000 + index).unwrap()
+        ));
+    }
+    table.push_str("你=zz\r\n");
     let imported = call(json!({
         "operation": "import_helpcode_table",
         "file_name": "我的码.txt",
-        "text": "\u{FEFF}# name: 我的辅助码\r\n你=zz\r\n",
+        "text": table,
     }));
     assert_eq!(imported["ok"], true, "{imported}");
     assert_eq!(imported["value"]["kind"], "helpcode");
     assert_eq!(imported["value"]["name"], "我的辅助码");
-    assert_eq!(imported["value"]["entries"], 1);
+    assert_eq!(imported["value"]["entries"], 100_000);
     let id = imported["value"]["id"].as_str().unwrap().to_owned();
     assert!(id.starts_with("custom-"), "{id}");
     let catalog = call(json!({"operation": "catalog"}));
@@ -14228,7 +14459,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
     assert!(dictionaries.join("msime-pinyin.db").is_file());
 }
 
-/// 各目标的按需清单：macOS 和 Android 接受不含日文词典的发布包，Linux 和 Windows 仍要求完整的锁文件；本平台用的 `ON_DEMAND_ARTIFACTS` 就是本平台那一份。
+/// 各目标的按需清单：macOS、Android 和 iOS 接受不含日文词典的发布包，Linux 和 Windows 仍要求完整的锁文件；本平台用的 `ON_DEMAND_ARTIFACTS` 就是本平台那一份。
 #[test]
 fn the_platform_shipping_rule_decides_whether_a_slim_bundle_prepares() {
     use msime_client_core::resources::{on_demand_artifacts, ON_DEMAND_JAPANESE_ARTIFACTS};
@@ -14239,6 +14470,7 @@ fn the_platform_shipping_rule_decides_whether_a_slim_bundle_prepares() {
     for (target, slim_prepares) in [
         ("macos", true),
         ("android", true),
+        ("ios", true),
         ("linux", false),
         ("windows", false),
     ] {

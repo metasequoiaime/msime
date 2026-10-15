@@ -388,22 +388,22 @@ final class ImeLayoutRows {
                 NineKeyDigitButton keyButton = s.nineKeyGridKey(
                     NineKeyLayout.face(key, digits, composing), description,
                     digits ? () -> commitNineKeyLiteral(NineKeyLayout.digitInput(key))
-                        : NineKeyLayout.opensSymbols(key, false) ? () -> symbolKey(key)
+                        : NineKeyLayout.offersPunctuation(key, false) ? () -> symbolKey(key)
                         : () -> s.character(key.input()));
                 KeyboardTypographyPolicy.setFittedKeyTextSize(keyButton, 14,
                     digits ? 22 : KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
-                if (NineKeyLayout.opensSymbols(key, digits)) s.nineKeySymbolKey = keyButton;
+                if (NineKeyLayout.offersPunctuation(key, digits)) s.nineKeySymbolKey = keyButton;
                 s.keyId(keyButton, KeyPressIds.forNineKeyDigit(key.digit()));
-                // 九格都印长按可输入的数字；1 短按仍打开符号或分词，不把 1 送进拼音引擎。
+                // 九格都印长按可输入的数字；1 短按是常用标点（放进候选条）或分词，不把 1 送进拼音引擎。
                 keyButton.setDigitText(digits ? "" : NineKeyLayout.digitInput(key));
                 if (!digits) {
                     keyButton.setContentDescription("按键 " + description + "；长按输入 " + key.digit()
-                        + (NineKeyLayout.opensSymbols(key, false) ? "" : " 或字母"));
+                        + (NineKeyLayout.offersPunctuation(key, false) ? "" : " 或字母"));
                     keyButton.setOnLongClickListener(ignored -> {
                         // 长按只算这格的一次按键，随后选择菜单不重复统计。
                         s.countKey(keyButton);
                         showNineKeyHoldOptions(keyButton, NineKeyLayout.digitInput(key),
-                            NineKeyLayout.opensSymbols(key, false) ? ""
+                            NineKeyLayout.offersPunctuation(key, false) ? ""
                                 : key.label().toLowerCase(java.util.Locale.ROOT));
                         return true;
                     });
@@ -740,13 +740,13 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 拼音九键的 1 键：组字时是「分词」，把 ' 送给引擎，在已打的数字末尾定一个音节分界，只定在哪里断、不定是哪个拼音：94 分词 26 仍可以是 xi'an（西安）或 yi'an，但不再是 xian（先）；读音栏显示成 94'26，⌫ 先删分界再删数字。没在组字时是「@#」，打开符号面板。
+     * 拼音九键的 1 键：组字时是「分词」，把 ' 送给引擎，在已打的数字末尾定一个音节分界，只定在哪里断、不定是哪个拼音：94 分词 26 仍可以是 xi'an（西安）或 yi'an，但不再是 xian（先）；读音栏显示成 94'26，⌫ 先删分界再删数字。没在组字时是「@#」，把当前模式的常用标点放进候选条（{@link ImeNineKeyQuickPunctuation}），符号面板改从底行最左边的 符 打开。
      */
     private void symbolKey(NineKeyLayout.Key key) {
         if (NineKeyLayout.separatesSyllables(key, false, s.hasEngineComposition())) {
             s.character('\'', false);
         } else {
-            s.imePanels.showSymbolPanel();
+            s.imeNineKeyQuickPunctuation.show();
         }
     }
 

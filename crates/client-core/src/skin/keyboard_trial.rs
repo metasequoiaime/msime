@@ -8,7 +8,6 @@ use crate::preferences::{
 };
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
@@ -62,7 +61,7 @@ pub struct KeyboardSkinTrialStore {
 
 struct TrialLock {
     directory: file_lock::PrivateDirectory,
-    _lock: File,
+    _lock: crate::file_lock::ScopedFileLock,
 }
 
 impl KeyboardSkinTrialStore {
@@ -196,7 +195,7 @@ impl KeyboardSkinTrialStore {
         let directory = file_lock::open_private_directory(&self.directory)?;
         let lock =
             file_lock::open_private_lock_file_at(&directory, std::ffi::OsStr::new(LOCK_FILE))?;
-        file_lock::exclusive(&lock)?;
+        let lock = crate::file_lock::ScopedFileLock::exclusive(lock)?;
         Ok(TrialLock {
             directory,
             _lock: lock,
@@ -271,6 +270,22 @@ fn normalized_name(name: &str) -> Result<String, KeyboardSkinTrialError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn finished_scope_releases_inherited_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let store =
+            KeyboardSkinTrialStore::new(root.path(), Arc::new(PreferencesStore::new(root.path())));
+        let held = store.lock().unwrap();
+        let inherited = crate::file_lock::testing::duplicate(&held._lock);
+        crate::file_lock::testing::assert_finished_scope_releases_lock(
+            held,
+            inherited,
+            &root.path().join(LOCK_FILE),
+        );
+    }
+
     use std::fs;
 
     fn stores() -> (

@@ -307,6 +307,108 @@ fn model_directory_creation_stays_in_the_open_staging_directory() {
 
 #[cfg(unix)]
 #[test]
+fn publish_stays_in_the_open_root_after_the_path_is_replaced() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("models");
+    fs::create_dir(&root).unwrap();
+    let staging = root.join(".staging-fixture-new");
+    fs::create_dir(&staging).unwrap();
+    let model = staging.join("model");
+    fs::create_dir(&model).unwrap();
+    fs::write(model.join(MANIFEST_FILE), b"synthetic manifest").unwrap();
+    let root_directory = crate::storage::open_private_directory(&root).unwrap();
+    let moved = state.path().join("models-moved");
+    fs::rename(&root, &moved).unwrap();
+    fs::create_dir(&root).unwrap();
+
+    assert!(matches!(
+        publish_at(&root, &root_directory, "fixture", &model),
+        Err(LocalModelError::InvalidRoot)
+    ));
+
+    assert!(!moved.join("fixture").exists());
+    assert!(!root.join("fixture").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_publish_keeps_the_existing_model_when_staging_is_missing() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("fixture")).unwrap();
+    fs::write(root.path().join("fixture/sentinel"), b"existing model").unwrap();
+    let root_directory = crate::storage::open_private_directory(root.path()).unwrap();
+
+    assert!(publish_at(
+        root.path(),
+        &root_directory,
+        "fixture",
+        &root.path().join(".staging-fixture-missing/model"),
+    )
+    .is_err());
+
+    assert_eq!(
+        fs::read(root.path().join("fixture/sentinel")).unwrap(),
+        b"existing model"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn root_replacement_after_publish_restores_the_old_model_and_staging() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("models");
+    let moved = state.path().join("models-moved");
+    fs::create_dir_all(root.join("fixture")).unwrap();
+    fs::write(root.join("fixture/sentinel"), b"existing model").unwrap();
+    fs::create_dir_all(root.join(".staging-fixture-new/model")).unwrap();
+    fs::write(
+        root.join(".staging-fixture-new/model/sentinel"),
+        b"new model",
+    )
+    .unwrap();
+    let root_directory = crate::storage::open_private_directory(&root).unwrap();
+    let staging_directory = crate::storage::open_private_directory_at(
+        &root_directory,
+        OsStr::new(".staging-fixture-new"),
+    )
+    .unwrap();
+    fs::rename(root.join("fixture"), root.join(".old-fixture-test")).unwrap();
+    fs::rename(
+        root.join(".staging-fixture-new/model"),
+        root.join("fixture"),
+    )
+    .unwrap();
+    fs::rename(&root, &moved).unwrap();
+    fs::create_dir_all(root.join("fixture")).unwrap();
+    fs::write(root.join("fixture/sentinel"), b"replacement model").unwrap();
+
+    let result = finish_publish(
+        &root,
+        &root_directory,
+        "fixture",
+        Some(OsStr::new(".old-fixture-test")),
+        &staging_directory,
+        OsStr::new("model"),
+    );
+
+    assert!(matches!(result, Err(LocalModelError::InvalidRoot)));
+    assert_eq!(
+        fs::read(moved.join("fixture/sentinel")).unwrap(),
+        b"existing model"
+    );
+    assert_eq!(
+        fs::read(moved.join(".staging-fixture-new/model/sentinel")).unwrap(),
+        b"new model"
+    );
+    assert_eq!(
+        fs::read(root.join("fixture/sentinel")).unwrap(),
+        b"replacement model"
+    );
+    assert!(!moved.join(".old-fixture-test").exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn archive_member_creation_stays_in_the_open_model_directory() {
     use std::os::unix::fs::symlink;
 
@@ -1206,6 +1308,35 @@ fn removing_a_stray_file_model_slot_succeeds_and_cleans_it() {
 
 #[cfg(unix)]
 #[test]
+fn a_finished_model_operation_releases_the_lock_while_a_copy_remains_open() {
+    let root = tempfile::tempdir().unwrap();
+    let held = acquire_model_lock(root.path()).unwrap();
+    let inherited = held._file.try_clone().unwrap();
+    let contender =
+        crate::file_lock::open_private_lock_file(root.path().join(MODEL_LOCK_FILE)).unwrap();
+    assert!(!crate::file_lock::try_exclusive(&contender).unwrap());
+    assert!(matches!(
+        remove(root.path(), default_model_id()),
+        Err(LocalModelError::InstallRunning)
+    ));
+    assert!(!crate::file_lock::try_exclusive(&contender).unwrap());
+
+    drop(held);
+    assert!(
+        crate::file_lock::try_exclusive(&contender).unwrap(),
+        "模型操作结束后不能由旧描述符副本继续占锁"
+    );
+    drop(inherited);
+    assert!(matches!(
+        remove(root.path(), default_model_id()),
+        Err(LocalModelError::InstallRunning)
+    ));
+    crate::file_lock::unlock(&contender).unwrap();
+    remove(root.path(), default_model_id()).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn removing_while_a_different_process_installs_reports_busy() {
     let state = tempfile::tempdir().unwrap();
     let root = state.path().join("models");
@@ -1219,16 +1350,14 @@ fn removing_while_a_different_process_installs_reports_busy() {
             .unwrap();
     });
 
-    // A lock held by another host process must make removal fail immediately. Waiting for the
-    // install and deleting the newly published model would violate the host API contract.
-    let first = result_rx.recv_timeout(Duration::from_millis(100));
+    // 保持安装锁直到删除报告结果；时限只防止阻塞实现挂死，不把线程调度当成响应预算。
+    let result = result_rx.recv_timeout(Duration::from_secs(10));
     drop(held);
-    let result = first.unwrap_or_else(|_| result_rx.recv().unwrap());
     removal.join().unwrap();
-    assert!(
-        result.is_err(),
-        "removal unexpectedly waited and succeeded: {result:?}"
-    );
+    assert!(matches!(
+        result.expect("删除应在安装释放锁之前返回"),
+        Err(LocalModelError::InstallRunning)
+    ));
 }
 
 #[test]
@@ -1600,6 +1729,39 @@ fn run_pack_from(
     (result, events)
 }
 
+#[cfg(unix)]
+#[test]
+fn installing_files_rejects_root_replacement_without_touching_the_new_root() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("models");
+    let moved = state.path().join("models-moved");
+    let fetcher = pack_fetcher("", PACK_B);
+    let result = install_files_with(
+        &root,
+        "pack",
+        &pack_files(),
+        &serde_json::json!({"pack": "pack"}),
+        &[],
+        &fetcher,
+        &mut |event| {
+            if event.stage == "verify" {
+                fs::rename(&root, &moved).unwrap();
+                fs::create_dir_all(root.join("pack")).unwrap();
+                fs::write(root.join("pack/sentinel"), b"replacement model").unwrap();
+            }
+        },
+        &AtomicBool::new(false),
+    );
+
+    assert_eq!(
+        fs::read(root.join("pack/sentinel")).unwrap(),
+        b"replacement model"
+    );
+    assert!(matches!(result, Err(LocalModelError::InvalidRoot)));
+    assert_eq!(root_entries(&root), vec!["pack"]);
+    assert!(!moved.join("pack").exists());
+}
+
 #[test]
 fn installing_files_publishes_them_with_the_manifest_and_reports_progress() {
     let root = tempfile::tempdir().unwrap();
@@ -1686,16 +1848,17 @@ fn removal_refuses_while_an_install_holds_the_model_lock() {
         removed_tx.send(result).unwrap();
     });
 
-    let remove_result = removed_rx
-        .recv_timeout(Duration::from_millis(100))
-        .expect("removal should report the busy install without waiting")
-        .expect_err("removal must refuse an install in another process");
+    // 等待删除在安装仍持锁时完成；超时仅作死锁看门狗，断言前先收回两个线程。
+    let remove_result = removed_rx.recv_timeout(Duration::from_secs(10));
     release_tx.send(()).unwrap();
 
     let (install_result, _events) = install.join().unwrap();
-    assert!(install_result.is_ok(), "install failed: {install_result:?}");
     removal.join().unwrap();
-    assert!(matches!(remove_result, LocalModelError::InstallRunning));
+    assert!(install_result.is_ok(), "install failed: {install_result:?}");
+    assert!(matches!(
+        remove_result.expect("删除应在安装完成之前返回"),
+        Err(LocalModelError::InstallRunning)
+    ));
     assert!(root.path().join(id).exists());
 }
 

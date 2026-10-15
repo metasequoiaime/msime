@@ -42,7 +42,7 @@ MAINTAINERS = frozenset({"houko"})
 # 发布说明的格式以这份样例为准，模型按它的结构和措辞写，兜底版本也用同一套分组标题。
 EXAMPLE_PATH = Path(__file__).with_name("release-notes-example.md")
 
-MERGE_SUBJECT = re.compile(r"^Merge pull request #(\d+) from ")
+MERGE_SUBJECT = re.compile(r"^Merge pull request #(\d+) from [^/\s]+/(\S+)")
 SQUASH_SUBJECT = re.compile(r"\(#(\d+)\)$")
 CONVENTIONAL_SUBJECT = re.compile(r"^(\w+)(?:\([^)]*\))?!?:\s*")
 
@@ -97,20 +97,23 @@ def collect_commits(root: Path, start_tag: str | None, end_ref: str, platform: s
 
 
 def assign_pull_requests(root: Path, revision_range: str, records: list[dict[str, object]]) -> None:
-    """给每个提交标上它所属的 PR：merge commit 合进来的看合并提交，squash 进来的看标题末尾的 (#N)。"""
+    """给每个提交标上它所属的 PR：squash 进来的看标题末尾的 (#N)，merge commit 合进来的看合并提交。
+
+    release/* 分支的 PR 是把整个 develop 带进 main，不是一项改动，跳过；否则它会认领区间里所有还没归属的提交，android-v0.2.0 有 355 个 squash 提交就这样被算到了 release PR 名下。
+    """
     owner: dict[str, int] = {}
     merges = git(root, "log", "--merges", "--reverse", "--format=%H %P%x00%s", revision_range)
     for line in merges.splitlines():
         parents, _, subject = line.partition("\x00")
         match = MERGE_SUBJECT.match(subject)
         hashes = parents.split()
-        if not match or len(hashes) != 3:
+        if not match or len(hashes) != 3 or match.group(2).startswith("release/"):
             continue
         for commit in git(root, "rev-list", "--no-merges", f"{hashes[1]}..{hashes[2]}").split():
             owner.setdefault(commit, int(match.group(1)))
     for record in records:
         squash = SQUASH_SUBJECT.search(str(record["subject"]))
-        record["pr"] = owner.get(str(record["commit"])) or (int(squash.group(1)) if squash else None)
+        record["pr"] = int(squash.group(1)) if squash else owner.get(str(record["commit"]))
 
 
 def fetch_pull_requests(numbers: list[int]) -> dict[int, dict[str, object]]:
@@ -167,8 +170,10 @@ def group_by_pull_request(records: list[dict[str, object]]) -> list[dict[str, ob
     return groups
 
 
-def change_context(groups: list[dict[str, object]], pulls: dict[int, dict[str, object]], limit: int = 180) -> str:
+def change_context(groups: list[dict[str, object]], pulls: dict[int, dict[str, object]], limit: int = 1500) -> str:
     selected = groups[-limit:]
+    # 大版本动辄上千个 PR（android-v0.2.1 有 1242 组），只给最近一部分会把前面的改动整个漏掉；改为组数越多每组给得越少，总量压在十万 token 上下。
+    detail = "full" if len(selected) <= 180 else "brief" if len(selected) <= 500 else "title"
     lines: list[str] = []
     if len(groups) > limit:
         lines.append(f"（改动过多，只提供最近 {limit} 组；不要猜测未提供的改动。）")
@@ -189,17 +194,22 @@ def change_context(groups: list[dict[str, object]], pulls: dict[int, dict[str, o
             lines.append(f"[PR #{number}] 作者：{author}" + (f"；关闭 issue：{issues}" if issues else ""))
             lines.append(f"PR 标题：{pull['title']}")
             body = str(pull["body"]).strip()
-            if body:
-                lines.append(f"PR 正文：{body[:800]}")
-        for record in commits[:20]:
+            if body and detail != "title":
+                lines.append(f"PR 正文：{body[:800 if detail == 'full' else 200]}")
+            if detail != "full" and len(commits) == 1:
+                lines.append("")
+                continue
+        for record in commits[:20 if detail == "full" else 5]:
             lines.append(f"- 提交：{record['subject']}")
             body = str(record.get("body", ""))
-            if body and pull is None:
-                lines.append(f"  正文：{body[:400]}")
-        if len(commits) > 20:
-            lines.append(f"- ……另有 {len(commits) - 20} 个提交")
-        paths = sorted({str(path) for record in commits for path in list(record.get("paths", []))})
-        lines.append(f"路径：{', '.join(paths[:12])}" + (" …" if len(paths) > 12 else ""))
+            if body and pull is None and detail != "title":
+                lines.append(f"  正文：{body[:400 if detail == 'full' else 200]}")
+        shown = 20 if detail == "full" else 5
+        if len(commits) > shown:
+            lines.append(f"- ……另有 {len(commits) - shown} 个提交")
+        if detail == "full":
+            paths = sorted({str(path) for record in commits for path in list(record.get("paths", []))})
+            lines.append(f"路径：{', '.join(paths[:12])}" + (" …" if len(paths) > 12 else ""))
         lines.append("")
     return "\n".join(lines)
 
@@ -244,7 +254,7 @@ def model_notes(label: str, version: str, groups: list[dict[str, object]], pulls
     if not token or not groups:
         return None
     endpoint = os.environ.get("EVERYAPI_RELEASE_NOTES_ENDPOINT", "https://api.everyapi.ai/v1/chat/completions")
-    model = os.environ.get("EVERYAPI_RELEASE_NOTES_MODEL", "claude-sonnet-5-5")
+    model = os.environ.get("EVERYAPI_RELEASE_NOTES_MODEL", "").strip() or "claude-sonnet-5-5"
     heading = f"## v{version} 更新内容"
     prompt = f"""你是水杉输入法的发行说明编辑。请为 {label} {version} 写简体中文 Markdown 发布说明，格式和措辞照下面的样例。
 
@@ -284,6 +294,8 @@ def model_notes(label: str, version: str, groups: list[dict[str, object]], pulls
         {
             # 不带 temperature：GPT-5 系列的推理模型只接受默认值，带别的值会被直接拒绝（HTTP 400），windows-v0.2.1 的发布说明就是这样退回了确定性版本。
             "model": model,
+            # 不写的话由网关给默认上限，按样例写的长说明会被截断：android-v0.3.0 停在半句话上，改动多的版本整段返回空内容。
+            "max_tokens": 32000,
             "messages": [
                 {"role": "system", "content": "你只输出符合要求的 Markdown，不要输出分析。"},
                 {"role": "user", "content": prompt},
@@ -306,13 +318,16 @@ def model_notes(label: str, version: str, groups: list[dict[str, object]], pulls
         # 按样例写一整份说明比原来的三段式长得多，推理模型常要一两分钟，45 秒会在出结果前超时。
         with urllib.request.urlopen(request, timeout=300) as response:
             document = json.load(response)
-        content = document["choices"][0]["message"]["content"]
+        choice = document["choices"][0]
+        if choice.get("finish_reason") == "length":
+            raise ValueError("模型输出达到长度上限被截断")
+        content = choice["message"]["content"]
         if not isinstance(content, str) or not content.strip():
             raise ValueError("模型返回了空内容")
         content = content.strip()
         if content.startswith("```") and content.endswith("```"):
             content = content.split("\n", 1)[1].rsplit("\n", 1)[0].strip()
-        if not content.startswith(heading + "\n") or len(content) > 20000:
+        if not content.startswith(heading + "\n") or len(content) > 30000:
             raise ValueError("模型返回的发布说明格式不符合约束")
         return content + "\n"
     except (OSError, ValueError, KeyError, IndexError, TypeError, json.JSONDecodeError, urllib.error.URLError) as error:

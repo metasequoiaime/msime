@@ -1,5 +1,6 @@
 //! `ShuangpinEngine` (schemes-lang.md §1.6): double and single helpcode queries, the normal series query, and the fuzzy tail borrowed from quanpin.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 use super::dictionary::ShuangpinDictionary;
@@ -93,8 +94,14 @@ fn active_helpcode_query(
     } else {
         &request.raw_input_with_cases
     };
-    full_helpcode_query(raw, raw_with_cases, profile)
-        .or_else(|| single_helpcode_query(raw, &remove_manual_delimiters(raw_with_cases), profile))
+    full_helpcode_query(raw, raw_with_cases, profile).or_else(|| {
+        let pure_with_cases = if raw_with_cases.contains('\'') {
+            Cow::Owned(remove_manual_delimiters(raw_with_cases))
+        } else {
+            Cow::Borrowed(raw_with_cases.as_str())
+        };
+        single_helpcode_query(raw, &pure_with_cases, profile)
+    })
 }
 
 pub struct ShuangpinEngine {
@@ -376,6 +383,81 @@ mod tests {
 
     fn row(word: &str) -> WordItem {
         WordItem::new("ni", word, 1, CandidateSource::Database, "ni")
+    }
+
+    #[test]
+    fn short_ordinary_inputs_do_not_allocate_helpcode_query_state() {
+        let profile =
+            crate::shuangpin::profile::profile(crate::types::ShuangpinProfileKind::Xiaohe).unwrap();
+        for raw in ["n", "ni", "nihc", "nihcab"] {
+            for cased in [raw, ""] {
+                let request = crate::types::QueryRequest {
+                    raw_input: raw.into(),
+                    raw_input_with_cases: cased.into(),
+                    enable_shuangpin_helpcode: true,
+                    ..Default::default()
+                };
+                let (query, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                    super::active_helpcode_query(&request, profile)
+                });
+                assert!(query.is_none());
+                assert_eq!(allocations, 0, "raw={raw:?}, cased={cased:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn borrowed_helpcode_queries_match_the_owned_input_reference() {
+        use crate::types::{QueryRequest, ShuangpinProfileKind};
+        let fields = |query: Option<super::HelpcodeQuery>| {
+            query.map(|query| (query.base_pure, query.base_segmentation, query.help_codes))
+        };
+        for kind in [
+            ShuangpinProfileKind::Xiaohe,
+            ShuangpinProfileKind::Ziranma,
+            ShuangpinProfileKind::Shoudao,
+            ShuangpinProfileKind::Microsoft,
+        ] {
+            let profile = crate::shuangpin::profile::profile(kind).unwrap();
+            for typed in [
+                "", "n", "ni", "niu", "niU", "ui'u", "niu'", "'niu", "ni''u", "ni'hcU", "nihcAB",
+                "nihcAb", "nihcaB", "ni'hcAB'", "ni'hc'AB", "j;gkA", "''",
+            ] {
+                for keep_cases in [false, true] {
+                    for enabled in [false, true] {
+                        let request = QueryRequest {
+                            raw_input: typed.to_ascii_lowercase(),
+                            raw_input_with_cases: if keep_cases {
+                                typed.into()
+                            } else {
+                                String::new()
+                            },
+                            enable_shuangpin_helpcode: enabled,
+                            ..Default::default()
+                        };
+                        let expected = if !enabled {
+                            None
+                        } else {
+                            let raw = &request.raw_input;
+                            let cased = if request.raw_input_with_cases.is_empty() {
+                                raw
+                            } else {
+                                &request.raw_input_with_cases
+                            };
+                            super::full_helpcode_query(raw, cased, profile).or_else(|| {
+                                super::single_helpcode_query(
+                                    raw,
+                                    &super::remove_manual_delimiters(cased),
+                                    profile,
+                                )
+                            })
+                        };
+                        assert_eq!(fields(super::active_helpcode_query(&request, profile)), fields(expected),
+                            "kind={kind:?}, typed={typed:?}, keep_cases={keep_cases}, enabled={enabled}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

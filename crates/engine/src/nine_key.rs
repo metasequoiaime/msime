@@ -1455,24 +1455,24 @@ impl NineKeySession {
             shared_sentence_model(&paths.resource(assets::NEURAL_MODEL_KEYBOARD))
                 .map(|model| NeuralReranker::new(CandidateSource::NeuralKeyboard, model))
         });
-        let mut ranked = Vec::new();
-        if let Some(keyboard) = keyboard.as_mut() {
+        let ranked: &[String] = if let Some(keyboard) = keyboard.as_mut() {
             let (scored, scored_len) = collect_lattice_sentences(candidates);
             let scored = &scored[..scored_len];
-            // 模型的顺序只取决于上屏上下文、整句和它们的词网格分，三者都相同时直接用上次的结果。
-            let signature: Vec<(String, i64)> = scored
-                .iter()
-                .flatten()
-                .map(|item| (item.word.clone(), comparable_weight(item)))
-                .collect();
             let context = &self.rescoring_context;
-            if let Some(entry) = self
+            let ranked = if let Some(index) = self
                 .rerank_cache
                 .iter()
-                .find(|entry| entry.context == *context && entry.sentences == signature)
+                .position(|entry| rerank_cache_matches(entry, context, scored))
             {
-                ranked.clone_from(&entry.ranked);
+                // 缓存命中直接借用已拥有的顺序；不再复制签名或排名字符串。
+                self.rerank_cache[index].ranked.as_slice()
             } else {
+                // 缓存未命中时才拥有签名；命中路径只借用当前候选行比较。
+                let signature: Vec<(String, i64)> = scored
+                    .iter()
+                    .flatten()
+                    .map(|item| (item.word.clone(), comparable_weight(item)))
+                    .collect();
                 let mut sentences: Vec<SentencePath> = scored
                     .iter()
                     .flatten()
@@ -1484,22 +1484,28 @@ impl NineKeySession {
                         typo_edges: 0,
                     })
                     .collect();
-                if keyboard.rerank(&mut sentences, context) {
-                    ranked = sentences.into_iter().map(|path| path.sentence).collect();
-                }
+                let ranked = if keyboard.rerank(&mut sentences, context) {
+                    sentences.into_iter().map(|path| path.sentence).collect()
+                } else {
+                    Vec::new()
+                };
                 if self.rerank_cache.len() >= RERANK_CACHE_ENTRIES {
                     self.rerank_cache.remove(0);
                 }
                 self.rerank_cache.push(RerankEntry {
                     context: context.clone(),
                     sentences: signature,
-                    ranked: ranked.clone(),
+                    ranked,
                 });
-            }
-        }
+                self.rerank_cache.last().unwrap().ranked.as_slice()
+            };
+            ranked
+        } else {
+            &[]
+        };
         place_keyboard_pick(
             candidates,
-            &ranked,
+            ranked,
             self.sentence_association.show_next_on_duplicate,
             self.sentence_association.word_lattice,
         );
@@ -1938,6 +1944,19 @@ struct RerankEntry {
     context: String,
     sentences: Vec<(String, i64)>,
     ranked: Vec<String>,
+}
+
+/// 缓存命中只比较当前候选行，不为签名复制词面；签名仍在未命中时拥有并存入缓存。
+fn rerank_cache_matches(entry: &RerankEntry, context: &str, scored: &[Option<&WordItem>]) -> bool {
+    entry.context == context
+        && entry.sentences.len() == scored.len()
+        && entry
+            .sentences
+            .iter()
+            .zip(scored)
+            .all(|((word, weight), item)| {
+                item.is_some_and(|item| word == &item.word && *weight == comparable_weight(item))
+            })
 }
 
 /// 打开词库时要交给它的选项。取用词库的地方有三处，选项只在这一处攒齐（`dictionary_options`），
@@ -5048,6 +5067,26 @@ mod tests {
             Some("整句 11")
         );
         assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn rerank_cache_match_uses_borrowed_rows_without_allocating() {
+        let rows = [sentence("整句 0", 17), sentence("整句 1", 23)];
+        let scored = [Some(&rows[0]), Some(&rows[1])];
+        let entry = RerankEntry {
+            context: "上文".to_owned(),
+            sentences: rows
+                .iter()
+                .map(|row| (row.word.clone(), comparable_weight(row)))
+                .collect(),
+            ranked: vec!["整句 1".to_owned(), "整句 0".to_owned()],
+        };
+        let (matches, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            rerank_cache_matches(&entry, "上文", &scored)
+        });
+        assert!(matches);
+        assert_eq!(allocations, 0);
+        assert!(!rerank_cache_matches(&entry, "别的上下文", &scored));
     }
 
     fn row_sources(candidates: &[WordItem]) -> Vec<(&str, CandidateSource)> {

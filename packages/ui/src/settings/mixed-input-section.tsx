@@ -2,23 +2,9 @@ import { SwitchRow } from "./switch-row";
 import { SettingsRowStack } from "./settings-row-stack";
 import { SelectRow } from "./select-row";
 
-export type MixedInputPreferences = {
-  english: boolean;
-  minimum_prefix: number;
-  emoji: boolean;
-  kaomoji: boolean;
-  /** 日文混输（实验）。后加的可选成员：Rust 端关着时不写这个键，旧文档和只写前四项的宿主都没有它，缺省按关处理；也因此不放进 `defaultMixedInput`。 */
-  japanese?: boolean;
-  /** 符号混输（打拼音出符号）。后加的可选成员：Rust 端开着时不写这个键，旧文档和只写前四项的宿主都没有它，缺省按开处理；也因此不放进 `defaultMixedInput`。 */
-  symbols?: boolean;
-};
+import { mixedInputControlState, type MixedInputPreferences } from "./mixed-input-preferences";
 
-export const defaultMixedInput: MixedInputPreferences = {
-  english: true,
-  minimum_prefix: 5,
-  emoji: false,
-  kaomoji: false,
-};
+export { defaultMixedInput, type MixedInputPreferences } from "./mixed-input-preferences";
 
 const supplementalOptions: readonly ["emoji" | "kaomoji", string, string][] = [
   [
@@ -46,6 +32,7 @@ export function MixedInputSection({
   temporaryJapanese = true,
   onChange,
 }: MixedInputSectionProps) {
+  const state = mixedInputControlState(preferences);
   return (
     <>
       <SettingsRowStack role="group" aria-label="中英混输">
@@ -58,7 +45,7 @@ export function MixedInputSection({
         <SelectRow
           title="触发字符数"
           description="预编辑字母达到该长度后才出现英文候选项"
-          disabled={!preferences.english}
+          disabled={state.minimumPrefixDisabled}
           value={preferences.minimum_prefix}
           onChange={(event) =>
             onChange({ ...preferences, minimum_prefix: Number(event.target.value) })
@@ -74,7 +61,7 @@ export function MixedInputSection({
       <SwitchRow
         title="符号混输"
         description="打出符号的名称时，在候选项中加入对应的符号，紧跟在那个词后面（如「正负」后面是 ±、「平方米」后面是 ㎡）；要打完整的名称才出现"
-        checked={preferences.symbols ?? true}
+        checked={state.symbolsChecked}
         onChange={(symbols) => onChange({ ...preferences, symbols })}
       />
       {supplementalOptions.map(([key, label, description]) => (
@@ -90,7 +77,7 @@ export function MixedInputSection({
         <SwitchRow
           title="日文混输（实验）"
           description="全拼、双拼里打出完整的日文罗马字时补充一个日文候选（如 ohayou → おはよう）。用的是临时日文的那份日文词典，词典不在时不生效"
-          checked={preferences.japanese ?? false}
+          checked={state.japaneseChecked}
           onChange={(japanese) => onChange({ ...preferences, japanese })}
         />
       )}

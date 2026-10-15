@@ -1,7 +1,7 @@
 import { useSettingsForm } from "../settings-form-context";
 import { PluginsSection } from "../plugins-section";
 import { pluginPreferences } from "../plugin-preferences";
-import { defaultLocalModes } from "../local-modes-section";
+import { defaultLocalModes } from "../local-mode-preferences";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 

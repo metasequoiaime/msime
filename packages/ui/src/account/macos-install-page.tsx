@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import type { InputSourceStartupStatus } from "../settings/input-source-startup-notice";
+import type { InputSourceStartupStatus } from "../settings/input-source-startup-model";
 import { ActionButton } from "../core/action-button";
 import { useInterval } from "../core/use-interval";
 import { useTimeout } from "../core/use-timeout";

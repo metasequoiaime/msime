@@ -11,11 +11,10 @@ import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
 import { SkinCardHeader } from "./skin-card-header";
 import { SkinPreviewStage } from "./skin-preview-stage";
 import { SkinPreviewSurface } from "./skin-preview-surface";
-import {
-  candidateOpacityPercent,
-  candidateWindowStyle,
-  type CandidateWindowStylePreferences,
-} from "../candidate/candidate-window-style";
+import { dimension, skinDecorationGeometry, skinPreviewBackground } from "./skin-preview-geometry";
+export { dimension } from "./skin-preview-geometry";
+import { candidateWindowStyle } from "../candidate/candidate-window-style";
+import type { CandidateWindowStylePreferences } from "../candidate/candidate-preferences";
 import * as settings from "../settings/settings-style";
 import { SettingsExternalMeta } from "../settings/settings-external-meta";
 import { SettingsGroupBlock } from "../settings/settings-group-block";
@@ -85,12 +84,6 @@ export type SkinCatalog = {
   issues: { folder: string; reason: string }[];
 };
 
-export function dimension(value: number, maximum: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= maximum
-    ? value
-    : 0;
-}
-
 /** The decoration band's image as the scan resolved it; a document without `decorationImage` predates it and drew its preview there. */
 export function decorationImage(
   skin: Pick<ExternalSkin, "decorationImage" | "preview">,
@@ -98,18 +91,16 @@ export function decorationImage(
   return skin.decorationImage === undefined ? skin.preview : skin.decorationImage;
 }
 
-/** The preview's geometry and toolbar properties for a package drawn in `theme`: minimum width, decoration band, card radius and the `[toolbar]` radius and colours. Colours are checked again before they reach a style, as every value from a manifest is. */
+/** 指定主题下的包预览几何和工具栏属性；清单颜色写入样式前再次校验。 */
 export function skinGeometryStyle(
   skin: ExternalSkin,
   theme: "dark" | "light",
 ): Record<string, string> {
-  const top = dimension(skin.decorationTopDip, 500);
-  const width = dimension(skin.decorationWidthDip, 1000);
-  const decorated = top > 0 && width > 0;
+  const { top, width } = skinDecorationGeometry(skin);
   const style: Record<string, string> = {
     "--msime-skin-min-width": `${dimension(skin.minWidthDip, 1000)}px`,
-    "--msime-skin-decoration-top": `${decorated ? top : 0}px`,
-    "--msime-skin-decoration-width": `${decorated ? width : 0}px`,
+    "--msime-skin-decoration-top": `${top}px`,
+    "--msime-skin-decoration-width": `${width}px`,
   };
   if (typeof skin.cornerRadiusDip === "number")
     style["--msime-skin-radius"] = `${dimension(skin.cornerRadiusDip, 32)}px`;
@@ -253,8 +244,7 @@ export function ExternalSkinCard({
     skin.layouts.includes(layout) && (fixed !== null || skin.themes.includes(activeTheme));
   // 已在使用的包总能关掉，哪怕布局变了以后它不再能选。
   const deselecting = selected && onDeselect !== undefined;
-  const decorated =
-    dimension(skin.decorationTopDip, 500) > 0 && dimension(skin.decorationWidthDip, 1000) > 0;
+  const { decorated } = skinDecorationGeometry(skin);
   const decoration = decorated ? decorationImage(skin) : null;
   const { image, decodeFailed, onImageError, background } = useSkinPreviewAssets(
     readImage,
@@ -270,11 +260,10 @@ export function ExternalSkinCard({
     ...candidateWindowStyle(windowStyle ?? {}),
   } as CSSProperties;
   // 窗口不透明度连同包的背景图一起淡化，背景图本来就画在卡片底色上。
-  const opacity = candidateOpacityPercent(windowStyle?.candidate_opacity_percent) / 100;
-  const drawnBackground = background.drawn && {
-    ...background.drawn,
-    opacity: background.drawn.opacity * opacity,
-  };
+  const drawnBackground = skinPreviewBackground(
+    background.drawn,
+    windowStyle?.candidate_opacity_percent,
+  );
   const note = `${settings.skinCardDescription} ${settings.externalResourceNote}`;
   return (
     <article

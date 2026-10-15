@@ -256,10 +256,11 @@ export const secretToggle =
 // ---- the sidebar ----
 
 /*
- * Its own compositing layer: without `contain` a reflow in the content beside it re-rasterises the whole column. The scrollbar is styled through the WebKit pseudo-elements, which have no utility form. Windows 11 leaves the column on the window's Mica at 280; macOS tints it at 260 behind a hairline; GNOME and HarmonyOS 2-in-1 are 240, GNOME with a hairline and HarmonyOS in one tone with the content.
+ * 侧栏使用独立合成层，避免正文重排时重绘整列。滚动条通过 WebKit 伪元素绘制。
+ * Windows 使用 224px 紧凑侧栏，macOS 使用 260px 侧栏；GNOME 与鸿蒙二合一为 240px。
  */
 export const sidebar =
-  "relative z-1 isolate flex w-50 shrink-0 flex-col overflow-y-auto py-3 [contain:layout_style_paint] [scrollbar-gutter:stable] [transform:translateZ(0)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-sm [&::-webkit-scrollbar-thumb]:bg-[var(--scrollbar-thumb)] [&::-webkit-scrollbar-thumb]:transition-colors [&::-webkit-scrollbar-thumb:hover]:bg-[var(--scrollbar-thumb-hover)] max-phone:hidden win:w-[280px] win:px-1 win:pt-1 mac:w-[260px] mac:border-r mac:border-[rgba(0,0,0,0.5)] mac:bg-[rgba(46,46,48,0.96)] mac:px-3 mac:pt-0 mac:pb-4 mac:light-theme:border-[rgba(0,0,0,0.08)] mac:light-theme:bg-[rgba(232,232,234,0.96)] linux:w-60 linux:border-r linux:border-[var(--p-hair)] linux:bg-[#2e2e32] linux:p-2 linux:light-theme:bg-[#ebebed] hm2:w-60 hm2:bg-[#1a1a1a] hm2:px-3 hm2:pt-1 hm2:pb-4 hm2:light-theme:bg-[#f1f3f5] ipad:w-80 ipad:border-r ipad:border-[var(--p-hair)] ipad:bg-[var(--p-bg)] ipad:px-4 ipad:pt-2 ipad:pb-5";
+  "relative z-1 isolate flex w-50 shrink-0 flex-col overflow-y-auto py-3 [contain:layout_style_paint] [scrollbar-gutter:stable] [transform:translateZ(0)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-sm [&::-webkit-scrollbar-thumb]:bg-[var(--scrollbar-thumb)] [&::-webkit-scrollbar-thumb]:transition-colors [&::-webkit-scrollbar-thumb:hover]:bg-[var(--scrollbar-thumb-hover)] max-phone:hidden win:w-56 win:border-r win:border-[var(--p-hair)] win:bg-[var(--p-chrome)] win:px-3 win:pt-0 win:pb-4 mac:w-[260px] mac:border-r mac:border-[rgba(0,0,0,0.5)] mac:bg-[rgba(46,46,48,0.96)] mac:px-3 mac:pt-0 mac:pb-4 mac:light-theme:border-[rgba(0,0,0,0.08)] mac:light-theme:bg-[rgba(232,232,234,0.96)] linux:w-60 linux:border-r linux:border-[var(--p-hair)] linux:bg-[#2e2e32] linux:p-2 linux:light-theme:bg-[#ebebed] hm2:w-60 hm2:bg-[#1a1a1a] hm2:px-3 hm2:pt-1 hm2:pb-4 hm2:light-theme:bg-[#f1f3f5] ipad:w-80 ipad:border-r ipad:border-[var(--p-hair)] ipad:bg-[var(--p-bg)] ipad:px-4 ipad:pt-2 ipad:pb-5";
 /** The iPad sidebar's large 设置 title, sized like a page title. */
 export const sidebarTitle =
   "m-0 px-1 pt-1.5 pb-2.5 text-[length:var(--p-title-fs)] leading-tight [font-weight:var(--p-title-w)]";
@@ -267,13 +268,11 @@ export const sidebarTitle =
 export const sidebarHeader =
   "mt-1 mb-3 flex shrink-0 items-center gap-2 [padding:var(--p-nav-pad)] select-none [&>img]:size-6 [&>img]:shrink-0 [&>img]:rounded-md [&>span]:min-w-0 [&>span]:truncate [&>span]:text-[15px] [&>span]:font-semibold";
 /*
- * A group of sidebar items, which are the shared `NavItem`: its height, radius, padding and selected fill come from the `--p-nav-*` tokens, Windows' 3x16 accent bar included. Windows insets each item 2px by 4px and gaps its icon 16px; the rest set the space between groups (macOS 18, HarmonyOS 12, GNOME 10).
+ * 导航项的尺寸、圆角和选中底取自 `--p-nav-*`；Windows 与 macOS 的组间距为 18px，鸿蒙为 12px，GNOME 为 10px。
  */
 export const sidebarSection = (first: boolean) =>
-  `flex shrink-0 flex-col gap-0.5 win:gap-1 win:[&>button]:gap-4 ipad:gap-0 ipad:overflow-hidden ipad:rounded-[26px] ipad:bg-[var(--p-group-bg)] ${
-    first
-      ? ""
-      : "mt-3.5 mac:mt-[18px] linux:mt-2.5 hm2:mt-3 ipad:mt-5 win:mt-1 win:border-t win:border-[rgba(255,255,255,0.0837)] win:pt-1 win:light-theme:border-[rgba(0,0,0,0.0803)]"
+  `flex shrink-0 flex-col gap-0.5 ipad:gap-0 ipad:overflow-hidden ipad:rounded-[26px] ipad:bg-[var(--p-group-bg)] ${
+    first ? "" : "mt-3.5 mac:mt-[18px] linux:mt-2.5 hm2:mt-3 ipad:mt-5 win:mt-[18px]"
   }`;
 /** 侧栏一组页面的组名：小号灰字，水平内边距取导航项的 `--p-nav-pad`，与下面的页名左对齐。iPad 的每组是一张圆角卡片，组名放进卡片里会像多出一行，所以 iPad 不显示。 */
 export const sidebarGroupTitle =
@@ -303,10 +302,10 @@ export const body =
  * `relative` 让这个滚动容器成为页面里绝对定位元素的包含块（HarmonyOS 选择行背后 `sr-only` 的原生控件、视觉隐藏的单选框）。没有它，这些元素按它们在滚动内容里的位置相对文档定位，文档被撑得比窗口高；在「语音输入」这样的长页面上，滚到这个容器底部后继续上滑会接着滚动文档，把整个应用滑出屏幕，只剩下 body 的底色。
  */
 export const content =
-  "relative min-h-0 min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] win:rounded-tl-lg win:border-t win:border-l win:border-[rgba(0,0,0,0.1)] win:bg-[#1c1c1c] win:light-theme:border-[rgba(0,0,0,0.06)] win:light-theme:bg-[rgba(255,255,255,0.5)] mac:bg-[#1f1f21] mac:light-theme:bg-[#f2f2f4] linux:bg-[var(--p-bg)] hm2:bg-[#121212] hm2:light-theme:bg-[#f1f3f5] max-phone:win:rounded-none max-phone:win:border-l-0";
-/** 页面列：Windows 在图层内 36/56/48，macOS 24/48/44 且不限宽，GNOME 24/32/28 最宽 680，HarmonyOS 2-in-1 8/28/28 最宽 760，iPad 详情页 16/28/28 最宽 720，HarmonyOS 手机 4/16/24。 */
+  "relative min-h-0 min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] win:bg-[#1e1e1e] win:light-theme:bg-[#f6f6f6] mac:bg-[#1f1f21] mac:light-theme:bg-[#f2f2f4] linux:bg-[var(--p-bg)] hm2:bg-[#121212] hm2:light-theme:bg-[#f1f3f5] max-phone:win:rounded-none max-phone:win:border-l-0";
+/** 页面列：Windows 在图层内 22/22/32，macOS 24/48/44 且不限宽，GNOME 24/32/28 最宽 680，HarmonyOS 2-in-1 8/28/28 最宽 760，iPad 详情页 16/28/28 最宽 720，HarmonyOS 手机 4/16/24。 */
 export const contentColumn =
-  "mx-auto w-full max-w-[900px] px-7 pt-3.5 pb-6 max-phone:px-3 max-phone:py-3 win:px-14 win:pt-9 win:pb-12 mac:max-w-none mac:px-12 mac:pt-6 mac:pb-11 linux:max-w-[680px] linux:px-8 linux:pt-6 linux:pb-7 hm2:max-w-[760px] hm2:px-7 hm2:pt-2 hm2:pb-7 ipad:max-w-[720px] ipad:px-7 ipad:pt-4 ipad:pb-7 max-phone:win:px-4 max-phone:win:pt-5 max-phone:mac:px-4 max-phone:linux:px-4 max-phone:hm2:px-4 max-phone:harmony:px-4 max-phone:harmony:pt-1 max-phone:harmony:pb-6";
+  "mx-auto w-full max-w-[900px] px-7 pt-3.5 pb-6 max-phone:px-3 max-phone:py-3 win:max-w-none win:px-[22px] win:pt-[22px] win:pb-8 mac:max-w-none mac:px-12 mac:pt-6 mac:pb-11 linux:max-w-[680px] linux:px-8 linux:pt-6 linux:pb-7 hm2:max-w-[760px] hm2:px-7 hm2:pt-2 hm2:pb-7 ipad:max-w-[720px] ipad:px-7 ipad:pt-4 ipad:pb-7 max-phone:win:px-4 max-phone:win:pt-5 max-phone:mac:px-4 max-phone:linux:px-4 max-phone:hm2:px-4 max-phone:harmony:px-4 max-phone:harmony:pt-1 max-phone:harmony:pb-6";
 /** 页面的大标题，大小由平台的 `--p-title-*` token 决定。macOS 改放在工具栏里。HarmonyOS 手机上标题行至少 36px，与下方第一个块相隔 10px；推入标签页的页面绘制时不带自身内边距（dc.html 的详情页标题行），所以标题和返回按钮落在列的 4/16 缩进上。 */
 export const pageHeader =
   "mb-6 flex items-center gap-2.5 hm2:mb-4 max-phone:harmony:mb-2.5 max-phone:harmony:min-h-9";

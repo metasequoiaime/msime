@@ -1,37 +1,24 @@
 import { SegmentedRow } from "./segmented-row";
 import { SwitchRow } from "./switch-row";
-
-export type WordCharacterPreferences = {
-  enabled: boolean;
-  keys: "brackets" | "minus_equal";
-};
-
-export const defaultWordCharacter: WordCharacterPreferences = { enabled: true, keys: "brackets" };
-
-export type NavigationPreferences = {
-  minus_equal: boolean;
-  comma_period: boolean;
-  brackets: boolean;
-  tab: boolean;
-  page_up_down: boolean;
-  mouse_wheel?: boolean;
-  arrows: boolean;
-};
+import { wordCharacterKeyOptions } from "./candidate-paging-options";
+import {
+  wordCharacterEnabledChange,
+  type NavigationPreferences,
+  type WordCharacterPreferences,
+  type CandidatePagingChange,
+} from "./candidate-paging-preferences";
+export { defaultWordCharacter } from "./candidate-paging-preferences";
+export type {
+  NavigationPreferences,
+  WordCharacterPreferences,
+} from "./candidate-paging-preferences";
 
 export interface WordCharacterSectionProps {
   preferences: WordCharacterPreferences;
   navigation: NavigationPreferences;
   ios: boolean;
-  onChange: (next: {
-    wordCharacter: WordCharacterPreferences;
-    navigation: NavigationPreferences;
-  }) => void;
+  onChange: (next: CandidatePagingChange) => void;
 }
-
-const wordCharacterKeyOptions = [
-  { value: "brackets", label: "[ / ]" },
-  { value: "minus_equal", label: "- / =" },
-] as const satisfies readonly { value: WordCharacterPreferences["keys"]; label: string }[];
 
 /** 共用的以词定字设置及其与翻页键的互斥：输入页「选词与翻页」组里的几行。 */
 export function WordCharacterSection({
@@ -51,20 +38,14 @@ export function WordCharacterSection({
         }
         checked={preferences.enabled}
         onChange={(enabled) =>
-          onChange({
-            wordCharacter: { ...preferences, enabled },
-            navigation: enabled ? { ...navigation, [preferences.keys]: false } : navigation,
-          })
+          onChange(wordCharacterEnabledChange(preferences, navigation, enabled))
         }
       />
       {/* An iOS keyboard extension never receives hardware keys; its candidates offer the first and last character on a long press instead. */}
       {!ios && (
         <SegmentedRow
           title="以词定字快捷键"
-          options={wordCharacterKeyOptions.map((option) => ({
-            ...option,
-            disabled: navigation[option.value],
-          }))}
+          options={wordCharacterKeyOptions(navigation)}
           value={preferences.keys}
           onChange={(keys) => onChange({ wordCharacter: { ...preferences, keys }, navigation })}
         />

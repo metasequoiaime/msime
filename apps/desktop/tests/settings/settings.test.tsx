@@ -8243,6 +8243,12 @@ test("cloud dictionary exposes visible kind tabs for mobile layouts", async () =
   await screen.findByText("暂无词条");
   const tabs = screen.getByRole("tablist", { name: "云词库类型" });
   expect(tabs.querySelector("button[aria-selected='true']")?.textContent).toBe("拼音");
+  // 请求发出并不表示刷新已结束；等到页签恢复可用后再开始下一次切换。
+  await waitFor(() =>
+    expect((screen.getByRole("tab", { name: "86 五笔" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
   fireEvent.click(screen.getByRole("tab", { name: "86 五笔" }));
   await waitFor(() =>
     expect(request).toHaveBeenLastCalledWith({
@@ -8253,6 +8259,11 @@ test("cloud dictionary exposes visible kind tabs for mobile layouts", async () =
     }),
   );
   expect(tabs.querySelector("button[aria-selected='true']")?.textContent).toBe("86 五笔");
+  await waitFor(() =>
+    expect((screen.getByRole("tab", { name: "98 五笔" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
   fireEvent.click(screen.getByRole("tab", { name: "98 五笔" }));
   await waitFor(() =>
     expect(request).toHaveBeenLastCalledWith({

@@ -1,4 +1,6 @@
 import { utf8ByteLength } from "../core/text";
+import { bytesToBase64 } from "../core/base64";
+export { bytesToBase64 } from "../core/base64";
 import { dictionaryFileSizeLabel } from "./dictionary-size";
 
 // Dictionary exports in the wild are not all UTF-8: Windows tools still write
@@ -66,19 +68,6 @@ export function isScelBytes(bytes: Uint8Array): boolean {
 /** 只读文件开头几个字节判断它是不是细胞词库。 */
 export async function isScelFile(file: Blob): Promise<boolean> {
   return isScelBytes(new Uint8Array(await file.slice(0, SCEL_MAGIC.length).arrayBuffer()));
-}
-
-/** 字节转 base64。按 3 的倍数分块编码再拼接，不把几 MB 的数组一次展开成 `String.fromCharCode` 的参数（那会爆栈）。 */
-export function bytesToBase64(bytes: Uint8Array): string {
-  const chunk = 3 * 8192;
-  const parts: string[] = [];
-  for (let offset = 0; offset < bytes.length; offset += chunk) {
-    const slice = bytes.subarray(offset, offset + chunk);
-    let binary = "";
-    for (let index = 0; index < slice.length; index++) binary += String.fromCharCode(slice[index]);
-    parts.push(btoa(binary));
-  }
-  return parts.join("");
 }
 
 /** 不分批的宿主一次导入里共享解析器收的文本上限（client-core `cloud::dictionary::MAX_IMPORT_BYTES`）：超过它的文本整份被拒绝，不是只读前一部分。 */

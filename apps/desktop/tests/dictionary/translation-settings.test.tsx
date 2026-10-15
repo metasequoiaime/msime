@@ -375,6 +375,42 @@ describe("macOS points at undownloaded Apple translation languages", () => {
   }
   const hint = () => screen.queryByRole("status", { name: "系统翻译语言未下载" });
 
+  test.each([
+    ["<YOUR_TENCENT_SECRET_ID>", "<YOUR_TENCENT_SECRET_KEY>"],
+    ["FAKESECRET_id", "FAKESECRET_key"],
+    ["synthetic-id", "<YOUR_TENCENT_SECRET_KEY>"],
+    ["<YOUR_TENCENT_SECRET_ID>", "synthetic-key"],
+  ])("示例凭据 %s / %s 仍提示下载系统翻译语言", async (secret_id, secret_key) => {
+    await mountOnMacos(
+      {
+        ...noService,
+        translation_target_language: "ja",
+        tencent_tmt: { ...noService.tencent_tmt, secret_id, secret_key },
+      },
+      ["ja"],
+    );
+    expect(hint()).not.toBeNull();
+    expect(hint()!.textContent).toContain("日语");
+  });
+
+  test("可用腾讯凭据和已选择的水杉账号都不提示下载系统语言", async () => {
+    await mountOnMacos(
+      {
+        ...noService,
+        tencent_tmt: {
+          ...noService.tencent_tmt,
+          secret_id: "synthetic-id",
+          secret_key: "synthetic-key",
+        },
+      },
+      ["en"],
+    );
+    expect(hint()).toBeNull();
+    cleanup();
+    await mountOnMacos({ ...noService, translation_account: true }, ["en"]);
+    expect(hint()).toBeNull();
+  });
+
   test("names only the chosen targets and opens System Settings", async () => {
     const openSettings = await mountOnMacos(
       { ...noService, translation_target_language: "en", translation_secondary_language: "ja" },

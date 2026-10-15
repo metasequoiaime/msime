@@ -8,7 +8,7 @@ export {
 } from "./touch-keyboard-scheme-helpers";
 export { defaultAiAssistant } from "./ai-assistant-defaults";
 export { defaultVoiceInput } from "./voice-input-defaults";
-export { defaultNavigation } from "./navigation-section";
+export { defaultNavigation } from "./candidate-paging-preferences";
 export { localDictionaryKinds } from "../dictionary/dictionary-kinds";
 
 // Options and defaults that the settings model in index.tsx shares with the settings pages, or that several pages share with each other.

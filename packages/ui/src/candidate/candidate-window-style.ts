@@ -1,12 +1,7 @@
 import type { CSSProperties } from "react";
+import type { CandidateWindowStylePreferences } from "./candidate-preferences";
 
-/** The candidate window style preferences: whole-window scale, card opacity, card corner radius and card padding. Mirrors the bounds `Preferences::validate` enforces in client-core. */
-export type CandidateWindowStylePreferences = {
-  candidate_scale_percent?: number;
-  candidate_opacity_percent?: number;
-  candidate_corner_radius?: number | null;
-  candidate_padding?: number | null;
-};
+export type { CandidateWindowStylePreferences } from "./candidate-preferences";
 
 export const defaultCandidateScalePercent = 100;
 export const defaultCandidateOpacityPercent = 100;
@@ -15,8 +10,8 @@ export const candidateScaleSlider = { min: 75, max: 150, step: 5 } as const;
 export const candidateOpacitySlider = { min: 50, max: 100, step: 5 } as const;
 /** The core accepts up to 32 like a skin package's `corner_radius_dip`; the slider stops at 16, past which a card reads as a pill. */
 export const candidateCornerRadiusSlider = { min: 0, max: 16, step: 1 } as const;
-/** The core accepts 0-16; the slider starts at 2 because the macOS card keeps 2pt between the selection highlight and its edge, so 0 and 1 would draw the same as 2. */
-export const candidateCardPaddingSlider = { min: 2, max: 16, step: 1 } as const;
+/** 覆盖核心接受的整个 0–16（#7974）。macOS 卡片在选中高亮和边缘之间至少留出边框的宽度，默认 1pt 细边框下 0 和 1 画出来一样，无边框的皮肤可以让候选行贴边。 */
+export const candidateCardPaddingSlider = { min: 0, max: 16, step: 1 } as const;
 
 function boundedInteger(value: unknown, min: number, max: number): number | null {
   return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max

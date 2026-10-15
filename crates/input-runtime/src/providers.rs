@@ -171,8 +171,17 @@ fn read_voice_provider_line(
     cancelled: Option<&mut VoiceCancellation<'_>>,
 ) -> Option<String> {
     read_voice_provider_line_with(pending, deadline, cancelled, |timeout, chunk| {
-        stream.set_read_timeout(Some(timeout)).ok()?;
-        Some(stream.read(chunk))
+        if stream.set_read_timeout(Some(timeout)).is_ok() {
+            return Some(stream.read(chunk));
+        }
+        // 对端关闭后设置超时可能失败；只读取已到达的字节，不再阻塞等待。
+        stream.set_nonblocking(true).ok()?;
+        let result = stream.read(chunk);
+        stream.set_nonblocking(false).ok()?;
+        match result {
+            Err(error) if error.kind() != std::io::ErrorKind::Interrupted => None,
+            result => Some(result),
+        }
     })
 }
 

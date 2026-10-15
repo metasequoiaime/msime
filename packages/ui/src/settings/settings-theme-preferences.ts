@@ -8,10 +8,11 @@ import {
   type TouchKeyboardSkinDesign,
 } from "../keyboard/touch-keyboard-skin-design";
 import type { HostPlatform, Preferences } from "../index";
+import type { SurfaceTheme, ThemeMode } from "./theme-preferences";
 
 export interface SettingsThemePreferences {
-  themeMode: NonNullable<Preferences["theme"]>;
-  settingsTheme: NonNullable<Preferences["settings_theme"]>;
+  themeMode: ThemeMode;
+  settingsTheme: SurfaceTheme;
   globalTheme: GlobalTheme;
   customColors: CustomCandidateColors;
   customTouchKeyboardSkin: TouchKeyboardSkinDesign;

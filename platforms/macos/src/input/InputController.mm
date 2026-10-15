@@ -4095,6 +4095,11 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 - (void)showSystemCharacterPalette { [NSApp orderFrontCharacterPalette:nil]; }
 - (void)checkForUpdates:(id)sender {
     (void)sender;
+    // 带 feed 的发布包由 Sparkle 直接更新输入法本体；设置应用的「关于」页只能给出 DMG 的下载链接。
+    if (MSIMEUpdateHostUsesSparkle(NSBundle.mainBundle)) {
+        [[MSIMEUpdateController sharedController] checkForUpdates:nil];
+        return;
+    }
     MSIMEOpenDesktopUpdateSettings(NSWorkspace.sharedWorkspace, ^{
         [[MSIMEUpdateController sharedController] checkForUpdates:nil];
     });
@@ -7177,7 +7182,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     _renderedCandidateSkin = skin.candidateSkin;
     NSImage *decorationImage = [_appearance decorationImageForDark:skinDark];
     const CGFloat scale = MSIMECandidateScale(_appearance);
-    const CGFloat inset = MAX(2.0 * scale, tokens.pad);
+    const CGFloat inset = msime::mac::CandidateInset(tokens);
     NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize * scale englishFirst:YES];
     NSFont *numberFont = MSIMECandidateNumberFont(font);
     NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
@@ -7372,7 +7377,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     // 装饰图取这种明暗画的那个包的，两个槽位可以是两个包。
     NSImage *decorationImage = [_appearance decorationImageForDark:skinDark];
     const CGFloat scale = MSIMECandidateScale(_appearance);
-    const CGFloat inset = MAX(2.0 * scale, geometry.pad);
+    const CGFloat inset = msime::mac::CandidateInset(geometry);
     NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize * scale englishFirst:YES];
     id preeditValue = _view[@"preedit"];
     if (![preeditValue isKindOfClass:NSString.class]) preeditValue = _view[@"editing_text"];

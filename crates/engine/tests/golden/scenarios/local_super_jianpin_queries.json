@@ -1,7 +1,7 @@
 {
  "name": "local_super_jianpin_queries",
  "source": "tests/src/test_jianpin_input_session.cpp:84-104; query_jianpin cases :125-143 as Shift+J sessions",
- "note": "query_jianpin's result limit (:131-132, limit 1) is an internal argument; the session applies its own limit.",
+ "note": "query_jianpin 的结果上限（:131-132，limit 1）是内部参数；会话应用自己的上限。 #8043：模式不接受的字符先提交当前原文并退出，再以未处理结果交还当前键；后续空组字的取消或退格也不消费。此处刻意偏离固定 C++ 参考的静默吞键行为。",
  "covers": [
   "local modes",
   "jianpin"

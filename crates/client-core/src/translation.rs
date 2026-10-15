@@ -363,7 +363,7 @@ pub fn custom_translation_request(
     })
 }
 
-/// 区分 DeepLX 兼容回复中的失败与空回答。无 `code` 的回复必须带结果字段，显式 `error` 优先表示失败；有结果字段但译文为空仍算已回答，供宿主负缓存。
+/// 区分 DeepLX 兼容回复中的失败与空回答。不论有无 `code`，回复都必须带支持的结果结构，显式 `error` 优先表示失败；合法空结果仍算已回答，供宿主负缓存。
 pub fn translation_response_failed(response: &str) -> bool {
     let Ok(root) = serde_json::from_str::<Value>(response) else {
         return true;
@@ -375,7 +375,9 @@ pub fn translation_response_failed(response: &str) -> bool {
         return true;
     }
     if let Some(code) = object.get("code") {
-        return code.as_i64() != Some(200) && code.as_str() != Some("200");
+        if code.as_i64() != Some(200) && code.as_str() != Some("200") {
+            return true;
+        }
     }
     !["data", "translation", "result"]
         .iter()
@@ -742,6 +744,8 @@ Signature=fdaffffbe1460ecd8cbc30e296ff6f49cc3b4af10b11e099462cca023fdb2c6c"
     #[test]
     fn unsupported_result_shapes_do_not_count_as_empty_answers() {
         for response in [
+            "{}",
+            r#"{"message":"temporarily unavailable"}"#,
             r#"{"data":null}"#,
             r#"{"translation":42}"#,
             r#"{"result":false}"#,
@@ -749,14 +753,36 @@ Signature=fdaffffbe1460ecd8cbc30e296ff6f49cc3b4af10b11e099462cca023fdb2c6c"
             r#"{"data":{}}"#,
             r#"{"data":[null]}"#,
         ] {
-            assert!(translation_response_failed(response), "{response}");
+            for code in [
+                None,
+                Some(serde_json::json!(200)),
+                Some(serde_json::json!("200")),
+            ] {
+                let mut document: Value = serde_json::from_str(response).unwrap();
+                if let Some(code) = code {
+                    document["code"] = code;
+                }
+                let document = document.to_string();
+                assert!(translation_response_failed(&document), "{document}");
+            }
         }
         for response in [
             r#"{"data":""}"#,
             r#"{"translations":[]}"#,
             r#"{"translation":{"text":""}}"#,
         ] {
-            assert!(!translation_response_failed(response), "{response}");
+            for code in [
+                None,
+                Some(serde_json::json!(200)),
+                Some(serde_json::json!("200")),
+            ] {
+                let mut document: Value = serde_json::from_str(response).unwrap();
+                if let Some(code) = code {
+                    document["code"] = code;
+                }
+                let document = document.to_string();
+                assert!(!translation_response_failed(&document), "{document}");
+            }
         }
     }
 

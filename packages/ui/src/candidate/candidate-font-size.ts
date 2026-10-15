@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import type { CandidateSizingPreferences } from "./candidate-preferences";
 
 // Shared preferences and pinned Windows appearance controls both use 12–32.
 export const candidateFontSizes = Array.from({ length: 21 }, (_, index) => index + 12);
@@ -13,10 +14,7 @@ export function candidateFontSize(value: unknown): number {
 export function candidatePreeditFontSize(value: unknown): number {
   return candidateFontSizeValue(value, 15);
 }
-export function candidateFontStyle(preferences: {
-  candidate_font_size?: number;
-  candidate_preedit_font_size?: number;
-}): CSSProperties {
+export function candidateFontStyle(preferences: CandidateSizingPreferences): CSSProperties {
   return {
     "--appearance-font-size": `${candidateFontSize(preferences.candidate_font_size)}px`,
     "--appearance-preedit-font-size": `${candidatePreeditFontSize(preferences.candidate_preedit_font_size)}px`,
