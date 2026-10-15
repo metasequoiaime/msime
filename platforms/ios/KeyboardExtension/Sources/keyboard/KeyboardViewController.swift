@@ -1332,7 +1332,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         button.accessibilityIdentifier = "nineKey\(digit)"
         if var configuration = button.configuration {
-          configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 0, trailing: 0)
+          configuration.contentInsets = .zero
           configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
             var attributes = attributes
             attributes.font = KeyboardTheme.current.usesMonospacedFont
@@ -1351,9 +1351,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         number.translatesAutoresizingMaskIntoConstraints = false
         number.isAccessibilityElement = false
         button.addSubview(number)
+        // 数字提示画在右上角，与 26 键的符号角标同一位置（距上边 3pt、右边 5pt，`attachCornerHintLabel`），键面文字因此居中，不再为提示下移。
         NSLayoutConstraint.activate([
           number.topAnchor.constraint(equalTo: button.topAnchor, constant: 3),
-          number.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+          number.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -5),
         ])
         button.tag = digit
         let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleNineKeyHold(_:)))
@@ -1408,8 +1409,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         ? "数字 \(key.digit)"
         : (key.letters.map { "\(key.digit) \($0)" } ?? "1 符号")
       key.numberHint?.isHidden = digits
-      key.button.configuration?.contentInsets = NSDirectionalEdgeInsets(
-        top: digits ? 0 : 8, leading: 0, bottom: 0, trailing: 0)
       key.button.accessibilityHint = digits ? nil
         : (key.letters.map { "长按输入 \(key.digit) 或 \($0)" } ?? "长按输入 1")
     }
