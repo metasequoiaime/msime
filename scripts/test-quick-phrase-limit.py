@@ -16,7 +16,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTRACT = ROOT / "shared/contracts/ipc_protocol_limits.h"
 CONSTANT = ROOT / "crates/client-core/src/dictionary/import.rs"
 # Crates that accept a quick phrase. A bare literal here is the thing this guard exists to stop.
-SEARCH = ["crates/client-core/src", "crates/host-api/src"]
+SEARCH = ["crates/client-core/src", "crates/client-providers/src", "crates/host-api/src"]
 
 
 def contract_limit() -> int | None:

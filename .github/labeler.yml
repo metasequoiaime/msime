@@ -39,6 +39,7 @@ area/shared:
       - any-glob-to-any-file:
           - crates/client-base/**
           - crates/client-core/**
+          - crates/client-providers/**
           - crates/engine/**
           - crates/host-api/**
           - crates/input-runtime/**
