@@ -97,6 +97,15 @@ import {
   DIRECTION_DOWN,
 } from "../entry/src/main/ets/keyboard/input/JapaneseNineKeyLayout";
 import { JapaneseNineKeyActions } from "../entry/src/main/ets/keyboard/input/JapaneseNineKeyActions";
+import {
+  nineKeyShuangpinCompactHint,
+  nineKeyShuangpinDescription,
+  nineKeyShuangpinLabel,
+  nineKeyShuangpinProblemMessage,
+  nineKeyShuangpinProfileTitle,
+  normalizedNineKeyShuangpinProfile,
+  validNineKeyShuangpinKey,
+} from "../entry/src/main/ets/keyboard/input/NineKeyShuangpinKeypad";
 import { ChineseHelpcodePolicy } from "../entry/src/main/ets/keyboard/input/ChineseHelpcodePolicy";
 import { WubiCodeHintPolicy } from "../entry/src/main/ets/keyboard/input/WubiCodeHintPolicy";
 import { LetterKeyFacePolicy } from "../entry/src/main/ets/keyboard/input/LetterKeyFacePolicy";
@@ -2246,6 +2255,10 @@ group("preference ids resolve to their scheme", () => {
     KeyboardScheme.fromPreferenceId("nine_key") === KeyboardScheme.QUANPIN_NINE_KEY,
     "nine_key is the quanpin nine-key scheme, not a layout flag",
   );
+  check(
+    KeyboardScheme.fromPreferenceId("nine_key_shuangpin") === KeyboardScheme.NINE_KEY_SHUANGPIN,
+    "nine_key_shuangpin resolves to the nine-key shuangpin scheme",
+  );
   check(KeyboardScheme.fromPreferenceId("unknown") === null, "an unknown id resolves to nothing");
   check(KeyboardScheme.fromPreferenceId(null) === null, "a null id resolves to nothing");
 });
@@ -2258,6 +2271,11 @@ group("engine preferences map back to the right scheme", () => {
   check(
     KeyboardScheme.fromPreferences("quanpin", null, "nine_key") === KeyboardScheme.QUANPIN_NINE_KEY,
     "quanpin plus nine_key is the nine-key scheme",
+  );
+  check(
+    KeyboardScheme.fromPreferences("quanpin", null, "nine_key_shuangpin") ===
+      KeyboardScheme.NINE_KEY_SHUANGPIN,
+    "quanpin plus nine_key_shuangpin is the nine-key shuangpin scheme",
   );
   check(
     KeyboardScheme.fromPreferences("japanese", null, "nine_key") ===
@@ -2288,6 +2306,32 @@ group("engine preferences map back to the right scheme", () => {
   );
 });
 
+group("nine-key shuangpin keypad labels and validation follow the host contract", () => {
+  const face = { key: "2", initials: ["b", "p"], finals: ["a", "ai"], zeroInitial: true };
+  check(nineKeyShuangpinLabel(face) === "零 b p\na ai", "face label includes initials and finals");
+  check(nineKeyShuangpinCompactHint(face) === "零 b p", "compact hint uses initials");
+  check(
+    nineKeyShuangpinDescription(face) === "2，声母 b p 和零声母，韵母 a ai",
+    "screen reader description includes both parts",
+  );
+  check(normalizedNineKeyShuangpinProfile("unknown") === "migala3", "unknown profile defaults");
+  check(nineKeyShuangpinProfileTitle("gushi2_low") === "辜氏 2 低重码", "profile title resolves");
+  check(
+    validNineKeyShuangpinKey("initials", "2") && !validNineKeyShuangpinKey("initials", "20"),
+    "initial keys are one digit",
+  );
+  check(
+    validNineKeyShuangpinKey("zero_initials", "20") &&
+      !validNineKeyShuangpinKey("zero_initials", "2"),
+    "zero initials are two digits",
+  );
+  check(
+    nineKeyShuangpinProblemMessage("invalid_key", "zero_initials", "a", "2") ===
+      "零声母「a」的键「2」不对：零声母要两位数字",
+    "invalid key has a useful message",
+  );
+});
+
 group("enabled schemes keep the fixed order and never resolve to nothing", () => {
   const enabled = KeyboardScheme.enabledFromPreferenceIds(["wubi", "quanpin", "xiaohe"]);
   check(enabled.length === 3, "three known ids yield three schemes");
@@ -2304,7 +2348,7 @@ group("enabled schemes keep the fixed order and never resolve to nothing", () =>
   );
   check(
     KeyboardScheme.enabledFromPreferenceIds(null) === KeyboardScheme.DEFAULT_ENABLED &&
-      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 6,
+      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 7,
     "a null list means every scheme but the six the user turns on",
   );
 });
@@ -2355,7 +2399,7 @@ group("输入方式面板里双拼只留用户设置的那一种（#6450）", ()
   check(
     KeyboardScheme.pickerSchemes(all, KeyboardScheme.QUANPIN, null).indexOf(
       KeyboardScheme.HANDWRITING,
-    ) < 7,
+    ) < 8,
     "手写回到第一页的八格之内（英文占第三格）",
   );
   check(
@@ -2847,7 +2891,7 @@ group("全拼 14 键的键表与引擎的组码表是同一张", () => {
 group("全拼 14 键是追加在最后的一张卡，只给全拼，默认不启用", () => {
   const fourteen: SchemeDefinition = KeyboardScheme.QUANPIN_FOURTEEN_KEY;
   check(
-    KeyboardScheme.SCHEMES[16] === fourteen && KeyboardScheme.SCHEMES.length === 17,
+    KeyboardScheme.SCHEMES[17] === fourteen && KeyboardScheme.SCHEMES.length === 18,
     "按 append-only 排在笔画之后",
   );
   check(
@@ -2917,8 +2961,10 @@ group("14 键的网格与键面", () => {
   check(
     KeyboardScheme.keyGrid("fourteen_key", "quanpin", false) === KeyGrid.FOURTEEN_KEY &&
       KeyboardScheme.keyGrid("nine_key", "quanpin", false) === KeyGrid.NINE_KEY &&
+      KeyboardScheme.keyGrid("nine_key_shuangpin", "quanpin", false) ===
+        KeyGrid.NINE_KEY_SHUANGPIN &&
       KeyboardScheme.keyGrid("twenty_six_key", "quanpin", false) === KeyGrid.NONE,
-    "全拼的 14 键、九键各开各的网格，26 键不开",
+    "全拼的 14 键、九键和九键双拼各开各的网格，26 键不开",
   );
   check(
     KeyboardScheme.keyGrid("fourteen_key", "quanpin", true) === KeyGrid.NONE &&
@@ -2931,8 +2977,11 @@ group("14 键的网格与键面", () => {
     "日语九键和其他方案不开引擎网格",
   );
   check(
-    KeyGrid.NONE === 0 && KeyGrid.NINE_KEY === 1 && KeyGrid.FOURTEEN_KEY === 2,
-    "取值与 msime_client_set_key_grid 的 0、1、2 相同",
+    KeyGrid.NONE === 0 &&
+      KeyGrid.NINE_KEY === 1 &&
+      KeyGrid.FOURTEEN_KEY === 2 &&
+      KeyGrid.NINE_KEY_SHUANGPIN === 3,
+    "取值与 msime_client_set_key_grid 的 0、1、2、3 相同",
   );
   check(KeyboardScheme.usesFourteenKeyFace(true, false, "none"), "14 键布局画 14 键键面");
   check(
@@ -15958,7 +16007,7 @@ group("Korean draws the syllable, not the key letters behind it", () => {
 
 group("the Korean scheme is one more card, and remembers the Chinese scheme it replaced", () => {
   check(
-    KeyboardScheme.SCHEMES[10] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 17,
+    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 18,
     "appended after the first ten, as the shared seventeen-entry picker has it",
   );
   check(
@@ -18290,11 +18339,11 @@ group(
   "Cantonese, Zhuyin and Vietnamese are three more cards, Cantonese and Zhuyin needing a dictionary",
   () => {
     check(
-      KeyboardScheme.SCHEMES.length === 17 &&
-        KeyboardScheme.SCHEMES[10] === KeyboardScheme.KOREAN &&
-        KeyboardScheme.SCHEMES[11] === KeyboardScheme.CANTONESE &&
-        KeyboardScheme.SCHEMES[12] === KeyboardScheme.ZHUYIN &&
-        KeyboardScheme.SCHEMES[13] === KeyboardScheme.VIETNAMESE,
+      KeyboardScheme.SCHEMES.length === 18 &&
+        KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN &&
+        KeyboardScheme.SCHEMES[12] === KeyboardScheme.CANTONESE &&
+        KeyboardScheme.SCHEMES[13] === KeyboardScheme.ZHUYIN &&
+        KeyboardScheme.SCHEMES[14] === KeyboardScheme.VIETNAMESE,
       "appended after Korean, in the shared picker's order",
     );
     check(
@@ -18462,9 +18511,9 @@ group("the Dachen keys wear their bopomofo and send their ASCII key", () => {
 
 group("Stroke is one more card, opt-in and needing msime-stroke.db", () => {
   check(
-    KeyboardScheme.SCHEMES.length === 17 &&
-      KeyboardScheme.SCHEMES[14] === KeyboardScheme.TIBETAN &&
-      KeyboardScheme.SCHEMES[15] === KeyboardScheme.STROKE,
+    KeyboardScheme.SCHEMES.length === 18 &&
+      KeyboardScheme.SCHEMES[15] === KeyboardScheme.TIBETAN &&
+      KeyboardScheme.SCHEMES[16] === KeyboardScheme.STROKE,
     "appended after Tibetan, as the shared TouchKeyboardScheme::ALL appends it",
   );
   const stroke: SchemeDefinition = KeyboardScheme.STROKE;
@@ -18982,7 +19031,7 @@ group("藏文是第九个方案：按 EWTS 威利转写组字，不是中文方�
     "切换方案时提交藏文，而不是威利原文",
   );
   check(
-    KeyboardScheme.SCHEMES[14] === KeyboardScheme.TIBETAN &&
+    KeyboardScheme.SCHEMES[15] === KeyboardScheme.TIBETAN &&
       KeyboardScheme.TIBETAN.preferenceId === "tibetan" &&
       KeyboardScheme.TIBETAN.engineScheme === "tibetan" &&
       KeyboardScheme.TIBETAN.touchKeyboardLayout === "twenty_six_key" &&

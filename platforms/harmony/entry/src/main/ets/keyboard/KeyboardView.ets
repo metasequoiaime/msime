@@ -56,6 +56,7 @@ import {
 } from './TypingEffectPolicy';
 import { HitOffset, KeyboardGeometry } from './KeyboardGeometry';
 import { NineKeyAction, NineKeyActionKind, NineKeyLayout, NineKey } from './input/NineKeyLayout';
+import { NineKeyShuangpinFace, nineKeyShuangpinFace, nineKeyShuangpinLabel } from './input/NineKeyShuangpinKeypad';
 import { FourteenKey, FourteenKeyLayout } from './input/FourteenKeyLayout';
 import { LayerCharacterRoute, LayerKey, LayerKeyKind, NumberSymbolLayout } from './input/NumberSymbolLayout';
 import { ChineseSymbolFaces } from './input/ChineseSymbolFaces';
@@ -492,6 +493,7 @@ struct KeyboardView {
   /** 在触屏键盘的符号层中，当前显示的是否是 #+= 层而不是 123 层；在字母层上始终为 false（Android 的 `ImeLetterRows.moreSymbols`）。 */
   @State @Watch('dropLetterGestures') moreSymbols: boolean = false;
   @State nineKey: boolean = false;
+  @State nineKeyShuangpinFaces: NineKeyShuangpinFace[] = [];
   /** 全拼 14 键在这台设备上生效：方案是 14 键且不是 2in1；地址栏、密码框这类编辑框由 `applyEditorFace` 收回到 26 键。英文时仍为真，只是画 26 键（`drawsFourteenKey`）。 */
   @State fourteenKey: boolean = false;
   /** Scheme 3 is Japanese, which has its own grid rather than a pinyin one. */
@@ -853,7 +855,7 @@ struct KeyboardView {
       this.engineScheme = state.scheme;
       this.candidateListOpen = state.candidateListOpen;
       this.japanese = state.scheme === JAPANESE_SCHEME && !state.english
-        && this.scheme.touchKeyboardLayout === 'nine_key';
+        && KeyboardScheme.isNineKeyLayout(this.scheme.touchKeyboardLayout);
       this.shuangpinProfile = state.shuangpinProfile;
       this.localMode = state.localMode;
       this.diagnostic = state.diagnostic;
@@ -2121,7 +2123,9 @@ struct KeyboardView {
       this.english = KeyboardSession.shared.toggleLanguage();
     }
     this.scheme = candidate;
-    this.nineKey = candidate.touchKeyboardLayout === 'nine_key';
+    this.nineKey = KeyboardScheme.isNineKeyLayout(candidate.touchKeyboardLayout);
+    this.nineKeyShuangpinFaces = candidate.preferenceId === 'nine_key_shuangpin'
+      ? KeyboardSession.shared.nineKeyShuangpinFaces() : [];
     this.fourteenKey = this.offersFourteenKey(candidate);
     // The kana grid belongs to the scheme, not to what the Engine last reported: the Engine only
     // says so once something has been typed, and the face has to change before that.
@@ -2227,7 +2231,7 @@ struct KeyboardView {
    */
   private applyEditorFace(): void {
     const fullFace: boolean = KeyboardSession.shared.prefersFullFace();
-    const grid: boolean = this.scheme.touchKeyboardLayout === 'nine_key' && !fullFace;
+    const grid: boolean = KeyboardScheme.isNineKeyLayout(this.scheme.touchKeyboardLayout) && !fullFace;
     // 14 键同理：地址、密码这些编辑框画整块 26 键，离开后回到 14 键。
     const fourteen: boolean = this.offersFourteenKey(this.scheme) && !fullFace;
     if (grid === this.nineKey && fourteen === this.fourteenKey) {
@@ -2337,7 +2341,7 @@ struct KeyboardView {
       this.settings.enabledSchemes.includes(candidate.preferenceId)
       // A grid is a way of getting twenty-six letters out of nine keys, which is a problem only a
       // touch screen has. On a machine with a physical keyboard every letter already has a key.
-      && !(KeyboardFormFactor.isDesktop() && (candidate.touchKeyboardLayout === 'nine_key'
+      && !(KeyboardFormFactor.isDesktop() && (KeyboardScheme.isNineKeyLayout(candidate.touchKeyboardLayout)
         || candidate.touchKeyboardLayout === 'fourteen_key')));
   }
 
@@ -2734,7 +2738,9 @@ struct KeyboardView {
     this.applySkins();
     this.wubiProfile = this.settings.wubiProfile;
     this.scheme = this.enabledScheme();
-    this.nineKey = this.scheme.touchKeyboardLayout === 'nine_key';
+    this.nineKey = KeyboardScheme.isNineKeyLayout(this.scheme.touchKeyboardLayout);
+    this.nineKeyShuangpinFaces = this.scheme.preferenceId === 'nine_key_shuangpin'
+      ? KeyboardSession.shared.nineKeyShuangpinFaces() : [];
     this.fourteenKey = this.offersFourteenKey(this.scheme);
     this.japanese = this.scheme.engineScheme === 'japanese' && this.nineKey;
     KeyboardSession.shared.setKeyGrid(this.keyGrid());
@@ -2909,6 +2915,8 @@ struct KeyboardView {
       case 'nine_key':
       case 'fourteen_key':
         return '全拼';
+      case 'nine_key_shuangpin':
+        return '九键双拼';
       case 'xiaohe':
         return '双拼 · 小鹤';
       case 'ziranma':
@@ -4230,7 +4238,8 @@ struct KeyboardView {
         ForEach(this.symbols ? NineKeyLayout.digits() : NineKeyLayout.touchRows(), (row: NineKey[]) => {
           Row({ space: this.keySpacing() }) {
             ForEach(row, (key: NineKey) => {
-              if (!this.symbols && NineKeyLayout.holdOptions(key).length > 0) {
+              if (!this.symbols && !this.nineKeyShuangpinFaceActive()
+                && NineKeyLayout.holdOptions(key).length > 0) {
                 this.nineKeyHoldKey(key);
               } else {
                 this.flexibleKey(this.nineKeyKeyOptions(key));
@@ -4308,6 +4317,11 @@ struct KeyboardView {
   private typeNineKeyZero(): void {
     if (this.symbols) {
       this.typeNineKeyDigit('0');
+      return;
+    }
+    if (this.nineKeyShuangpinFaceActive()) {
+      KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey('0'));
+      KeyboardSession.shared.press('0'.charCodeAt(0), false);
       return;
     }
     KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey('0'));
@@ -4484,7 +4498,8 @@ struct KeyboardView {
         ForEach(this.symbols ? NineKeyLayout.digits() : NineKeyLayout.rows(), (row: NineKey[]) => {
           Row({ space: this.keySpacing() }) {
             ForEach(row, (key: NineKey) => {
-              if (!this.symbols && NineKeyLayout.holdOptions(key).length > 0) {
+              if (!this.symbols && !this.nineKeyShuangpinFaceActive()
+                && NineKeyLayout.holdOptions(key).length > 0) {
                 this.nineKeyHoldKey(key);
               } else {
                 this.flexibleKey(this.nineKeyKeyOptions(key));
@@ -4521,9 +4536,14 @@ struct KeyboardView {
   }
 
   private nineKeyKeyOptions(key: NineKey): KeyOptions {
+    const shuangpin: boolean = this.nineKeyShuangpinFaceActive();
+    const input: string = shuangpin && (key.input === '@' || key.input === "'") ? '1' : key.input;
+    const face: NineKeyShuangpinFace | null = shuangpin
+      ? nineKeyShuangpinFace(this.nineKeyShuangpinFaces, input) : null;
     return {
-      face: this.symbols ? key.label : this.nineKeyFaceOf(key),
-      label: this.symbols ? KeyAccessibilityPolicy.symbol(key.label) : this.nineKeyLabel(key),
+      face: this.symbols ? key.label : (face === null ? this.nineKeyFaceOf(key) : nineKeyShuangpinLabel(face)),
+      label: this.symbols ? KeyAccessibilityPolicy.symbol(key.label)
+        : (face === null ? this.nineKeyLabel(key) : nineKeyShuangpinLabel(face).replace(/\n/g, '，')),
       // 触屏网格：字母格 17fp、字重 500，数字用旁边 0 键的 22fp。
       size: !this.touchDesign() ? KeyboardMetrics.SMALL_KEY_FONT_SIZE
         : (this.symbols ? TOUCH_LETTER_FONT_SIZE : NINE_KEY_FONT_SIZE),
@@ -4534,6 +4554,11 @@ struct KeyboardView {
       // its own digit row, rather than handing it to the Engine as a candidate position.
       action: this.symbols
         ? () => this.typeNineKeyDigit(key.input)
+        : shuangpin
+        ? () => {
+          KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(input));
+          KeyboardSession.shared.press(input.charCodeAt(0), false);
+        }
         : NineKeyLayout.showsQuickMarks(key)
         ? () => {
           KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(key.input));
@@ -4544,6 +4569,11 @@ struct KeyboardView {
           KeyboardSession.shared.press(key.input.charCodeAt(0), false);
         }
     };
+  }
+
+  private nineKeyShuangpinFaceActive(): boolean {
+    return this.scheme.preferenceId === 'nine_key_shuangpin'
+      && !this.symbols && !this.english && this.localMode === 'none';
   }
 
   @Builder

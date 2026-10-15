@@ -24,6 +24,7 @@ import {
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { AppEdition } from './AppEdition';
 import { KeyboardScheme, KeyGrid, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
+import { NineKeyShuangpinFace, normalizedNineKeyShuangpinProfile } from './input/NineKeyShuangpinKeypad';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { EditEchoLedger } from './input/EditEchoLedger';
 import { JapaneseSpacePolicy } from './input/JapaneseSpacePolicy';
@@ -615,6 +616,18 @@ interface ViewResponse {
   error: string;
 }
 
+interface NineKeyShuangpinRawFace {
+  key?: string;
+  initials?: string[];
+  finals?: string[];
+  zero_initial?: boolean;
+}
+
+interface NineKeyShuangpinLayoutReply {
+  ok: boolean;
+  value?: { keys?: NineKeyShuangpinRawFace[] };
+}
+
 interface CreateResponse {
   ok: boolean;
   value: CreateValue;
@@ -787,6 +800,8 @@ interface PreparedPreferences {
   /** Read-only English word completions while typing directly in English. Defaults to on. */
   english_suggestions?: boolean;
   shuangpin_profile: string;
+  nine_key_shuangpin_profile?: string;
+  nine_key_shuangpin_custom_profile?: Object;
   /** `wubi86` 或 `wubi98`；旧文档里没有这个键，按 86 版。引擎自己从转交的整份文档里读它选表，这里只用来给五笔方案起名。 */
   wubi_profile?: string;
   touch_keyboard_layout: string;
@@ -1168,6 +1183,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private capsLock: boolean = false;
   // 网格也归引擎管：九键下它决定一个 2 是什么意思，14 键下它把一组字母解成拼音，都要先告诉它网格开着。取值见 `KeyGrid`。
   private keyGrid: number = KeyGrid.NONE;
+  private nineKeyShuangpinRequest: string = '';
+  private nineKeyShuangpinFaceCache: NineKeyShuangpinFace[] = [];
   // 还没读到 Engine 的视图时按本版本的默认方案算（full 是全拼）。
   private schemeName: string = AppEdition.current().defaultScheme;
   private profileName: string = 'xiaohe';
@@ -1880,6 +1897,38 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** What the user chose for the keyboard's appearance and scheme. */
   preferences(): KeyboardPreferences {
     return this.appearance;
+  }
+
+  /** 当前九键双拼方案的键面。设置或偏好改变后请求串改变才重新解析，避免每次重绘都跨 NAPI。 */
+  nineKeyShuangpinFaces(): readonly NineKeyShuangpinFace[] {
+    const preferences: PreparedPreferences | undefined = this.preparedPreferences;
+    const profile: string = normalizedNineKeyShuangpinProfile(
+      preferences?.nine_key_shuangpin_profile);
+    const table: Object | undefined = profile === 'custom'
+      ? preferences?.nine_key_shuangpin_custom_profile : undefined;
+    const request: string = JSON.stringify(table === undefined ? { profile } : { profile, table });
+    if (request === this.nineKeyShuangpinRequest) return this.nineKeyShuangpinFaceCache;
+    this.nineKeyShuangpinRequest = request;
+    this.nineKeyShuangpinFaceCache = [];
+    try {
+      const reply: NineKeyShuangpinLayoutReply = JSON.parse(
+        client.nineKeyShuangpinLayout(request)) as NineKeyShuangpinLayoutReply;
+      if (reply.ok !== true || reply.value === undefined) {
+        return this.nineKeyShuangpinFaceCache;
+      }
+      const keys: NineKeyShuangpinRawFace[] = reply.value.keys ?? [];
+      this.nineKeyShuangpinFaceCache = keys.filter((key: NineKeyShuangpinRawFace): boolean =>
+        typeof key.key === 'string' && Array.isArray(key.initials) &&
+        Array.isArray(key.finals)).map((key: NineKeyShuangpinRawFace): NineKeyShuangpinFace => ({
+          key: key.key as string,
+          initials: key.initials as string[],
+          finals: key.finals as string[],
+          zeroInitial: key.zero_initial === true
+        }));
+    } catch (error) {
+      KeyboardLog.error(`nine-key shuangpin layout unavailable: ${describeError(error)}`);
+    }
+    return this.nineKeyShuangpinFaceCache;
   }
 
   /**

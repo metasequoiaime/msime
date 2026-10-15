@@ -251,6 +251,8 @@ TEXT_ENTRY(ResolveTheme, msime_client_resolve_theme)
 // 按宿主本地月份和深色模式给出应用主题的颜色；它是纯函数，所以设置页和键盘都在主线程上解析。
 TEXT_ENTRY(ResolveAppTheme, msime_client_resolve_app_theme)
 TEXT_ENTRY(DictionaryManifest, msime_client_dictionary_manifest)
+// 九键双拼的表、问题和键面；请求与 Android、iOS 共用同一份 JSON 契约。
+TEXT_ENTRY(NineKeyShuangpinLayout, msime_client_nine_key_shuangpin_layout)
 TEXT_ENTRY(SkinResource, msime_client_skin_resource)
 TEXT_ENTRY(SkinToolbarStylesheet, msime_client_skin_toolbar_stylesheet)
 TEXT_ENTRY(KeyboardSkinTrial, msime_client_keyboard_skin_trial)
@@ -1484,6 +1486,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("appThemeCatalog", AppThemeCatalog),
         ENTRY("resolveAppTheme", ResolveAppTheme),
         ENTRY("dictionaryManifest", DictionaryManifest),
+        ENTRY("nineKeyShuangpinLayout", NineKeyShuangpinLayout),
         ENTRY("skinResource", SkinResource),
         ENTRY("skinToolbarStylesheet", SkinToolbarStylesheet),
         ENTRY("skinImport", SkinImport),
