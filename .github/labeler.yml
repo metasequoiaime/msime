@@ -37,6 +37,7 @@ platform/harmony:
 area/shared:
   - changed-files:
       - any-glob-to-any-file:
+          - crates/client-base/**
           - crates/client-core/**
           - crates/engine/**
           - crates/host-api/**
