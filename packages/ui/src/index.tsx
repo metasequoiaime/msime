@@ -1202,7 +1202,6 @@ export {
 } from "./settings/credential-test-section";
 export {
   ProviderPresetSection,
-  type ProviderPreset,
   type ProviderPresetSectionProps,
 } from "./settings/provider-preset-section";
 export {
@@ -1568,7 +1567,6 @@ export {
   isAsrServiceProvider,
   providerSettingValue,
   polishProviderUpdate,
-  type ProviderDefaults,
 } from "./voice/voice-providers";
 export {
   ASR_PROVIDER_OPTIONS,
@@ -2136,7 +2134,13 @@ export type VoiceInputPreferences = {
   doubao_boosting_table_id?: string;
   [key: string]: unknown;
 };
-export { AI_PROVIDER_OPTIONS, aiProviderOption } from "./settings/ai-provider-options";
+export type { ProviderPreset, ProviderDefaults } from "./core/provider-preset";
+export {
+  AI_PROVIDER_OPTIONS,
+  aiProviderOption,
+  type AiProviderOption,
+  type AiProviderCatalogEntry,
+} from "./settings/ai-provider-options";
 export { aiProviderUpdate } from "./settings/ai-provider-update";
 
 export type ExternalSkinCatalog = {
