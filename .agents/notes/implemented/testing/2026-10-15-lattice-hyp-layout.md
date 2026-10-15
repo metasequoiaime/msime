@@ -14,6 +14,8 @@ Status: implemented
 
 列预留条数由后续的[可达假设容量](../../implemented/testing/2026-10-15-lattice-column-capacity.md)收紧；本篇的四十八字节布局参考同时冻结原列容量函数，避免共享新容量而漂移。下列堆数据保留本次布局改动时的测量，后续容量收益单独计量。
 
+[回溯错字边计数实验](../../rejected/testing/2026-10-15-lattice-traceback-typo-count.md)尝试进一步移除派生字段，虽减少逻辑存储，但原生产入口的无表单边短图超过事前回退预算而被否决；产品继续保留四十字节假设和本篇已经落地的决定。
+
 ## Alternatives considered
 
 - 保留两个 `Option`：每个字段可独立表意，阅读最直接；但当前所有构造都遵守同一不变量，无须重复保存判别状态。
