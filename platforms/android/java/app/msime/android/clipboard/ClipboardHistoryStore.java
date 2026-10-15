@@ -43,7 +43,7 @@ public final class ClipboardHistoryStore {
      * source that imports androidx, and being excluded from that compile is worse than a
      * contract stated in prose. The
      * reason used to be discarded, so a refusal for a control character or an over-long text
-     * reached the user as 「50 条历史均已固定」 - the one refusal it could not have been.
+     * reached the user as 「200 条历史均已固定」 - the one refusal it could not have been.
      */
     public String add(String text) {
         if (!ClipboardHistoryPolicy.hasText(text)) {

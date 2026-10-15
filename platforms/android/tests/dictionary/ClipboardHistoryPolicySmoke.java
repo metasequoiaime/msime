@@ -33,7 +33,7 @@ public final class ClipboardHistoryPolicySmoke {
             == ClipboardHistoryPolicy.Rejection.TOO_LONG,
             "a reason this host does not know must not be guessed as FULL");
 
-        check(ClipboardHistoryPolicy.LIMIT == 50, "the fifty-entry limit is the shared store's");
+        check(ClipboardHistoryPolicy.LIMIT == 200, "the two-hundred-entry limit is the shared store's");
         for (ClipboardHistoryPolicy.Rejection rejection : ClipboardHistoryPolicy.Rejection.values())
             check(!ClipboardHistoryPolicy.message(rejection).isEmpty(), "each refusal is worded");
         check(ClipboardHistoryPolicy.message(ClipboardHistoryPolicy.Rejection.FULL)
