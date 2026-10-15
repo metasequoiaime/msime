@@ -17,6 +17,11 @@ pub(crate) struct ScopedFileLock {
 }
 
 impl ScopedFileLock {
+    /// 接管已经成功取得独占锁的同一个文件；本方法不执行取锁。
+    pub(crate) fn from_locked(file: File) -> Self {
+        Self { _file: file }
+    }
+
     pub(crate) fn exclusive(file: File) -> io::Result<Self> {
         exclusive(&file)?;
         Ok(Self { _file: file })

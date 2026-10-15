@@ -437,7 +437,7 @@ impl RelayClipboard {
         FileAccountSessionStorage::new(&self.directory, AccountSessionFileLayout::Native)
     }
 
-    fn lock(&self) -> Result<std::fs::File, RelayError> {
+    fn lock(&self) -> Result<crate::file_lock::ScopedFileLock, RelayError> {
         self.storage()
             .create_directory()
             .map_err(|_| RelayError::Storage)?;
@@ -446,7 +446,7 @@ impl RelayClipboard {
         let deadline = Instant::now() + LOCK_TIMEOUT;
         loop {
             if crate::file_lock::try_exclusive(&file).map_err(|_| RelayError::Storage)? {
-                return Ok(file);
+                return Ok(crate::file_lock::ScopedFileLock::from_locked(file));
             }
             if Instant::now() >= deadline {
                 return Err(RelayError::Unavailable);
