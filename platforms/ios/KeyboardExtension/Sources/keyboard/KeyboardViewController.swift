@@ -309,6 +309,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var nineKeyHeight: NSLayoutConstraint!
   private var nineKeySymbolsButton: UIButton!
   private let punctuationStack = UIStackView()
+  private let numberPadSidebar = UIStackView()
   private var quickPunctuationButton: UIButton!
   private var quickPunctuationWidth: NSLayoutConstraint?
   /// 手机 26 键底行空格键右边的 。；， 是 `quickPunctuationButton`。
@@ -1284,7 +1285,25 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       Self.drawBareInSidebar(button)
       punctuationStack.addArrangedSubview(button)
     }
-    for content in [punctuationStack, makeSpellingStrip()] {
+    numberPadSidebar.axis = .vertical
+    numberPadSidebar.distribution = .fillEqually
+    for symbol in ["+", "-", "*", "/"] {
+      let button = makeKey(title: symbol, accessibilityLabel: "运算符 \(symbol)") { [weak self] in
+        guard let self else { return }
+        countKeyPress(TypingKeyID.punctuation)
+        insertSymbolLayerLiteral(symbol)
+      }
+      Self.drawBareInSidebar(button)
+      numberPadSidebar.addArrangedSubview(button)
+    }
+    let more = makeKey(title: "#+=", accessibilityLabel: "更多符号", function: true) { [weak self] in
+      self?.countKeyPress(TypingKeyID.layer)
+      self?.toggleMoreSymbols()
+    }
+    Self.drawBareInSidebar(more)
+    more.accessibilityIdentifier = "numberPadMoreSymbols"
+    numberPadSidebar.addArrangedSubview(more)
+    for content in [punctuationStack, numberPadSidebar, makeSpellingStrip()] {
       content.translatesAutoresizingMaskIntoConstraints = false
       sidebar.addSubview(content)
       NSLayoutConstraint.activate([
@@ -1324,9 +1343,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           accessibilityLabel: letters.map { "\(digit) \($0)" } ?? "1 符号"
         ) { [weak self] in
           guard let self else { return }
-          self.countKeyPress(TypingKeyID.nineKey(digit))
+          self.countKeyPress(self.numberPadKeyID(digit))
           if self.showsSymbols {
-            self.handleSymbol(String(digit))
+            self.insertSymbolLayerLiteral(String(digit))
           }
           else if letters == nil && self.inputScheme != .nineKeyShuangpin { self.showNineKeyQuickSymbols() }
           else { self.handleCharacter(String(digit)) }
@@ -1495,7 +1514,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       handleCharacter("'")
     case .period:
       countKeyPress(TypingKeyID.character("."))
-      handleSymbol(".")
+      insertSymbolLayerLiteral(".")
     case .rewrite:
       playInputClick()
       if hasComposition { render(discardComposition()) }
@@ -2185,7 +2204,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var readingRowCarriesSpellings: Bool { typesFourteenKey }
 
   /// 九键侧栏此刻画拼音选择条，而不是标点列。14 键的选择条在读音行里，不占这个侧栏。
-  private var sidebarCarriesSpellings: Bool { !readingRowCarriesSpellings && !currentNineKeySpellings.isEmpty }
+  private var sidebarCarriesSpellings: Bool { !showsSymbols && !readingRowCarriesSpellings && !currentNineKeySpellings.isEmpty }
 
   private func fillSpellingButtons(_ buttons: inout [UIButton], in stack: UIStackView, spellings: [String], readingRow: Bool) {
     while buttons.count < spellings.count {
@@ -2636,6 +2655,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     symbols && !nineKey && !kana && !dachen
   }
 
+  /// 数字页只借用九键显示；独立语言的符号契约、本地模式和英文不变。
+  static func drawsNumberPad(symbols: Bool, moreSymbols: Bool, scheme: ChineseInputScheme,
+                             chinese: Bool, localMode: Bool) -> Bool {
+    symbols && !moreSymbols && chinese && !localMode
+      && !scheme.isJapanese && !scheme.writesAsciiPunctuation && !scheme.isZhuyin
+  }
+
+  private var numberPadShown: Bool {
+    Self.drawsNumberPad(symbols: showsSymbols, moreSymbols: showsMoreSymbols,
+                        scheme: inputScheme, chinese: isChineseMode, localMode: isInLocalMode)
+  }
+
+  /// 借用网格不改变统计布局：原拼音九键记 Nine，其余中文入口仍记 Digit。
+  private func numberPadKeyID(_ digit: Int) -> String? {
+    inputScheme == .nineKey ? TypingKeyID.nineKey(digit) : TypingKeyID.character(String(digit))
+  }
+
   private func typeSymbolLayerKey(row: Int, column: Int) {
     let chinese = symbolLayerIsChinese
     let face = SymbolLayerLayout.characterRows(more: showsMoreSymbols, chinese: chinese,
@@ -2811,9 +2847,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 九键网格数字层底行的 0：网格放 1-9，这个键补上 0。拼音网格和笔画键上它的位置让给最左边的 符。
     let zero = makeKey(title: "0", accessibilityLabel: "数字 0") { [weak self] in
       guard let self else { return }
-      countKeyPress(TypingKeyID.nineKey(0))
+      countKeyPress(numberPadKeyID(0))
       if inputScheme == .nineKeyShuangpin && !showsSymbols { handleCharacter("0") }
-      else { handleSymbol("0") }
+      else { insertSymbolLayerLiteral("0") }
     }
     zero.configuration?.contentInsets = .zero
     zero.configuration?.titleTextAttributesTransformer = Self.functionLabelTransformer
@@ -4797,7 +4833,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 此刻该不该画横屏分离式键盘：平板形态、横屏、开关打开，而且当前显示的是会分开的字母布局。开关放在最后读，手机和竖屏不读 App Group。
   private var wantsSplitKeyboard: Bool {
-    KeyboardSplitLayout.splitsLayout(scheme: inputScheme, chinese: isChineseMode, localMode: isInLocalMode)
+    !numberPadShown && KeyboardSplitLayout.splitsLayout(scheme: inputScheme, chinese: isChineseMode, localMode: isInLocalMode)
       && KeyboardSplitLayout.isActive(
         formFactor: formFactor, landscape: isLandscape, enabled: KeyboardLayoutPreference.tabletSplit)
   }
@@ -4871,16 +4907,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Dachen takes the digit row and four punctuation keys for bopomofo, so Zhuyin draws its own four rows in place of the letter rows and the number row.
     let dachen = isChineseMode && inputScheme.isZhuyin && !isInLocalMode
     zhuyinRowViews.forEach { $0.isHidden = !dachen || showsSymbols }
-    // 笔画方案在九键外框里画它的 2×3 笔画键：沿用同样的标点侧栏、删除列和功能行。它的符号层与 Android 一样是设计稿的 123 / #+= 层，所以只有拼音网格保留自己的数字层。
+    // 笔画字母层沿用九键外框，数字入口与其他中文方案共用数字九宫格。
     let strokes = isChineseMode && inputScheme.isStroke && !isInLocalMode
     let strokePad = strokes && !showsSymbols
-    // 全拼 14 键在三排字母的位置画它的三排键；123 与 26 键一样打开设计稿的 123 层，底行沿用手机 26 键底行。
+    // 全拼 14 键只在字母层画自己的三排键，数字入口共用九宫格。
     let fourteenKey = typesFourteenKey
     let fourteenKeyRows = fourteenKey && !showsSymbols
     for row in fourteenKeyRowViews where row.isHidden == fourteenKeyRows { row.isHidden = !fourteenKeyRows }
     updateFourteenKeySeparator()
-    let nineKeyFrame = nineKey || strokePad
-    let symbolLayer = Self.drawsSymbolLayer(symbols: showsSymbols, nineKey: nineKey, kana: kana, dachen: dachen)
+    let numberPad = numberPadShown
+    let nineKeyFrame = (nineKey && !showsSymbols) || strokePad || numberPad
+    let symbolLayer = Self.drawsSymbolLayer(symbols: showsSymbols, nineKey: numberPad, kana: kana, dachen: dachen)
     let letterRowsShown = !(showsSymbols || nineKeyFrame || writes || kana || dachen || fourteenKey)
     letterRowViews.forEach { $0.isHidden = !letterRowsShown }
     applyTabletLetterKeys()
@@ -4894,8 +4931,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     splitKeyboardShown = split
     for gap in splitGaps where gap.isHidden == split { gap.isHidden = !split }
     if splitSpaceButton?.isHidden == split { splitSpaceButton?.isHidden = !split }
-    // 九键数字层保留三列网格，只换键面文字。这样不会换成每排十键的符号行，也保留了用户选的布局。
-    let nineKeyDigits = nineKey && showsSymbols
+    // 数字页复用三列网格，原方案与 Engine 的组码布局不变。
+    let nineKeyDigits = numberPad
     nineKeyContainer.isHidden = !nineKeyFrame
     nineGrid?.isHidden = strokePad
     strokeKeys?.isHidden = !strokePad
@@ -4904,7 +4941,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateNineKeyMiddleKey()
     let hasSpellings = sidebarCarriesSpellings
     spellingScrollView.isHidden = !hasSpellings
-    punctuationStack.isHidden = hasSpellings
+    punctuationStack.isHidden = hasSpellings || numberPad
+    numberPadSidebar.isHidden = !numberPad
     if actionRow != nil {
       let phoneRow = Self.usesPhoneBottomRow(formFactor: formFactor, nineKeyFrame: nineKeyFrame, handwriting: writes, kana: kana,
                                              fourteenKey: fourteenKeyRows)

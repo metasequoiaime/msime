@@ -35,6 +35,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
         JSONObject base = new JSONObject(options.getJSONObject("preferences").toString())
             .put("scheme", "quanpin")
             .put("touch_keyboard_layout", "fourteen_key")
+            .put("ime_mode_scope", "global").put("default_ime_mode", "chinese")
             .put("traditional_chinese_output", false)
             .put("candidate_english_gloss", false)
             .put("mixed_input", new JSONObject().put("english", false)
@@ -50,6 +51,13 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             restartIme();
             openEditor();
             tap(field("msime-test-plain"));
+            // 键面可以先于会话准备好；等待语言键可点击，再确认上一轮没有留下英文模式。
+            Predicate<AccessibilityNodeInfo> language = node -> node.isClickable()
+                && node.getContentDescription() != null
+                && node.getContentDescription().toString().startsWith("切换到");
+            await(key("中").or(key("英")).and(language));
+            if (findKey(key("英").and(language))) tap(key("英").and(language));
+            awaitStableBounds(key("中").and(language));
 
             stage = "fourteen-key face";
             await(described("按键 Q W"));
@@ -175,19 +183,18 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             if (!"fourteen_key".equals(stored.optString("touch_keyboard_layout")))
                 throw new AssertionError("English rewrote the stored layout");
 
-            // 123 是 26 键的设计层，返回键回到 14 键。
+            // 123 默认数字九宫格；扩展符号页保留标点开关，返回仍回到 14 键。
             stage = "123 layer";
             tap(key("123"));
             await(key("1").and(AccessibilityNodeInfo::isClickable));
-            await(described("更多符号"));
+            await(key("#+="));
+            tap(key("#+="));
             stage = "number layer punctuation toggle";
             await(key("中标"));
             tap(key("中标"));
             await(key("英标"));
-            await(key("."));
             tap(key("英标"));
             await(key("中标"));
-            await(key("。"));
             tap(described("切换到字母键盘"));
             await(described("按键 Q W"));
 
@@ -244,6 +251,23 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }
+    }
+
+    // API 28 没有 clearCache；逐节点刷新，避免组字重建后仍点击已经拆掉的键面。
+    @Override protected AccessibilityNodeInfo find(AccessibilityNodeInfo node, Predicate<AccessibilityNodeInfo> match) {
+        if (node != null && android.os.Build.VERSION.SDK_INT < 34 && !node.refresh()) return null;
+        return super.find(node, match);
+    }
+
+    @Override protected AccessibilityNodeInfo findAny(AccessibilityNodeInfo node, Predicate<AccessibilityNodeInfo> match) {
+        if (node != null && android.os.Build.VERSION.SDK_INT < 34 && !node.refresh()) return null;
+        return super.findAny(node, match);
+    }
+
+    private boolean findKey(Predicate<AccessibilityNodeInfo> match) {
+        for (AccessibilityWindowInfo window : automation.getWindows())
+            if (find(window.getRoot(), match) != null) return true;
+        return false;
     }
 
     private static boolean emptyField(AccessibilityNodeInfo node) {

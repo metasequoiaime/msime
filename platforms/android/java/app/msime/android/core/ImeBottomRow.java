@@ -304,8 +304,10 @@ final class ImeBottomRow {
 
     /** 新设计的 123 / #+= 层自带底行，这时功能行整行不显示。 */
     boolean layerOwnsBottomRow() {
+        int layout = s.imeLetterRows.drawnTouchLayout();
         return s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-            && ImeLetterRows.drawsDesignLayer(s.imeLetterRows.drawnTouchLayout());
+            && !s.imeLetterRows.numberPadDrawn(layout)
+            && (ImeLetterRows.drawsDesignLayer(layout) || layout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT);
     }
 
     /**
@@ -321,6 +323,7 @@ final class ImeBottomRow {
         s.imeStyler.refreshSeasonIfNeeded();
         s.imeLetterRows.updateSecondRowIndent();
         int layout = s.imeLetterRows.drawnTouchLayout();
+        boolean numberPad = s.imeLetterRows.numberPadDrawn(layout);
         boolean globe = s.offersGlobeKey();
         boolean ownBottom = layerOwnsBottomRow();
         boolean chinesePunctuation = s.sendsChinesePunctuation();
@@ -341,10 +344,11 @@ final class ImeBottomRow {
         // 分离时空格拆成两半、空隙按可见键居中，所以常用标点键显示与否也会改变排布。
         boolean split = !ownBottom && s.splitKeyboardDrawn();
         boolean swapLanguageNumber = s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
-        String signature = layout + ":" + globe + ":" + ownBottom + ":" + split + ":" + swapLanguageNumber
+        String signature = layout + ":" + numberPad + ":" + globe + ":" + ownBottom + ":" + split + ":" + swapLanguageNumber
             + (split && s.quickPunctuationButton != null ? ":" + s.quickPunctuationButton.getVisibility() : "");
         java.util.List<KeyboardActionRow.DesignEntry> entries = ownBottom ? java.util.List.of()
-            : KeyboardActionRow.designEntries(layout, globe, swapLanguageNumber);
+            : KeyboardActionRow.designEntries(numberPad ? KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT : layout,
+                globe, swapLanguageNumber);
         // Visibility is re-asserted every time: the reply surface hides this row and restores it
         // without the surface itself having changed.
         ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());

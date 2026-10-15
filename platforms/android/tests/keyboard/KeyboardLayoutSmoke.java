@@ -6,6 +6,15 @@ public final class KeyboardLayoutSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
 
     public static void main(String[] args) {
+        // 入口只改变数字页：中文常规布局复用网格，独立语言布局与本地模式保持原契约。
+        for (int layout : new int[] {0, 1, 3, 6, 7, 8}) {
+            check(KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, layout, true, false));
+            check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.LETTERS, layout, true, false));
+        }
+        for (int layout : new int[] {2, 4, 5})
+            check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, layout, true, false));
+        check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, 0, false, false));
+        check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, 0, true, true));
         List<List<String>> letters = KeyboardLayout.rows(KeyboardLayout.Layer.LETTERS);
         check(letters.size() == 3);
         check(letters.get(0).equals(List.of("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")));

@@ -1192,8 +1192,16 @@ struct KeyboardView {
 
   /** 底排是否用网格面板那一套（「符」代替逗号，逗号等标点在侧栏）：九键拼音，或不在符号层的笔画键盘。 */
   private gridActionRow(): boolean {
-    return KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode)
+    return this.numberPadShowing() || (!this.symbols && KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode))
+      || (!this.touchDesign() && KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode))
       || (this.strokeFace() && !this.symbols);
+  }
+
+  /** 中文数字入口复用现有九宫格，扩展符号页和独立语言仍走各自的键面。 */
+  private numberPadShowing(): boolean {
+    return this.touchDesign() && NineKeyLayout.opensNumberPad(this.symbols, this.moreSymbols,
+      this.english, this.localMode, this.japanese || this.koreanFace() || this.vietnameseFace()
+        || this.tibetanFace() || this.zhuyinFace());
   }
 
   private tapLetter(letter: string): void {
@@ -4205,7 +4213,29 @@ struct KeyboardView {
   touchNineKeyGrid() {
     Row({ space: this.keySpacing() }) {
       Column({ space: this.rowSpacing() }) {
-        if (!this.symbols && this.spellings.length > 0) {
+        if (this.symbols) {
+          ForEach(NineKeyLayout.digitPunctuation(), (symbol: string) => {
+            Column() {
+              this.fixedKey(this.numberPadMarkOptions(symbol));
+            }
+            .layoutWeight(1)
+            .width('100%')
+          }, (symbol: string) => symbol + this.faceKey())
+          Column() {
+            this.fixedKey({
+              face: '#+=',
+              label: '更多符号',
+              size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+              fontWeight: FUNCTION_LABEL_WEIGHT,
+              emphasized: false,
+              special: true,
+              width: '100%',
+              action: () => this.toggleMoreSymbols()
+            });
+          }
+          .layoutWeight(1)
+          .width('100%')
+        } else if (this.spellings.length > 0) {
           Scroll() {
             Column() {
               ForEach(this.spellings, (spelling: string, index: number) => {
@@ -4265,16 +4295,21 @@ struct KeyboardView {
         .layoutWeight(1)
         .width('100%')
         Column() {
-          // 「重输」是删除键的长按（`BackspaceHoldPolicy`），所以这一格是分隔符，即 Android 的「拆分」。
+          // 数字页的中间键是字面小数点；字母页保留拼音分词。
           this.fixedKey({
-            face: this.nineKeyFaceOf(NineKeyLayout.separator()),
-            label: this.nineKeyLabel(NineKeyLayout.separator()),
+            face: this.symbols ? '.' : this.nineKeyFaceOf(NineKeyLayout.separator()),
+            label: this.symbols ? '小数点' : this.nineKeyLabel(NineKeyLayout.separator()),
             size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
             fontWeight: FUNCTION_LABEL_WEIGHT,
             emphasized: false,
             special: true,
             width: '100%',
             action: () => {
+              if (this.symbols) {
+                KeyboardSession.shared.recordKey(KeyIdPolicy.character('.'));
+                this.insertNumberPadLiteral('.');
+                return;
+              }
               KeyboardSession.shared.recordKey(KeyIdPolicy.character(NineKeyLayout.separator().input));
               KeyboardSession.shared.press(NineKeyLayout.separator().input.charCodeAt(0), false);
             }
@@ -4311,6 +4346,27 @@ struct KeyboardView {
     };
   }
 
+  private numberPadMarkOptions(symbol: string): KeyOptions {
+    return {
+      face: symbol,
+      label: KeyAccessibilityPolicy.symbol(symbol),
+      size: NINE_KEY_FONT_SIZE,
+      emphasized: false,
+      special: true,
+      width: '100%',
+      action: () => {
+        KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_PUNCTUATION);
+        this.insertNumberPadLiteral(symbol);
+      }
+    };
+  }
+
+  /** 保留显式全角设置，跳过中文标点映射和候选数字选择。 */
+  private insertNumberPadLiteral(text: string): void {
+    KeyboardSession.shared.commitRaw();
+    KeyboardSession.shared.insert(text);
+  }
+
   /** 到这里结束的键面是否用触屏九键外框的底行（`nineKeyActionRow`）：拼音九键网格，或不在符号层的笔画键盘。假名网格也是九键布局，但保留共享底行。 */
   private touchNineKeyRow(): boolean {
     return this.touchDesign() && !this.japanese && this.gridActionRow();
@@ -4334,10 +4390,10 @@ struct KeyboardView {
     KeyboardSession.shared.insert('0');
   }
 
-  /** 数字层上的一格数字：直接输入数字，不交给 Engine 当候选序号，键位记九宫格的那一格。 */
+  /** 数字按字面上屏；常规键面借用网格时记普通数字键，原九键记 Nine。 */
   private typeNineKeyDigit(digit: string): void {
-    KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(digit));
-    KeyboardSession.shared.punctuation(digit.charCodeAt(0));
+    KeyboardSession.shared.recordKey(this.nineKey ? KeyIdPolicy.nineKey(digit) : KeyIdPolicy.character(digit));
+    this.insertNumberPadLiteral(digit);
   }
 
   /** 拼音网格的 1 键（@#）：候选条换成当前模式的常用标点（与逗号长按的「常用标点」同一组），组字中也一样，Engine 下一次回报时换回它的候选。 */
@@ -4382,7 +4438,7 @@ struct KeyboardView {
       // 长按 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是返回，长按不做事。
       Column() {
         this.fixedKey({
-          face: this.symbols ? '九键' : '123',
+          face: this.symbols ? (this.nineKey ? '九键' : '返回') : '123',
           label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
           size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
           fontWeight: FUNCTION_LABEL_WEIGHT,
@@ -4451,7 +4507,7 @@ struct KeyboardView {
             .responseRegion(this.railHitRegion(index, NineKeyLayout.digitPunctuation().length))
             .onClick(() => {
               KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_PUNCTUATION);
-              KeyboardSession.shared.punctuation(symbol.charCodeAt(0));
+              this.insertNumberPadLiteral(symbol);
             })
           }, (symbol: string) => symbol + this.faceKey())
         } else if (this.spellings.length > 0) {
@@ -4524,12 +4580,12 @@ struct KeyboardView {
         }
         .layoutWeight(1)
         .width('100%')
-        // A period is punctuation while spelling and a decimal point beside the digit grid. Clear
-        // is already available by holding Delete, so it no longer spends a permanent key here.
+        // 字母页按标点路由处理句点；数字页原样写小数点。
         this.nineKeyControl('.', '句点', () => {
-          // The period key types '.', so it counts as Period as on iOS and Android; SoftPunctuation is for the side rail's cells.
+          // 小数点记 Period，侧栏的符号才记 SoftPunctuation。
           KeyboardSession.shared.recordKey(KeyIdPolicy.character('.'));
-          KeyboardSession.shared.punctuation(0x2e);
+          if (this.symbols) this.insertNumberPadLiteral('.');
+          else KeyboardSession.shared.punctuation(0x2e);
         });
         this.nineKeyControl('0', '数字 0', () => this.typeNineKeyZero());
       }
@@ -9065,14 +9121,15 @@ struct KeyboardView {
       } else if (KeyboardScheme.usesHandwritingFace(
         this.scheme, this.english, this.symbols, this.localMode)) {
         this.handwritingFace()
-      } else if (KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode)) {
+      } else if (this.numberPadShowing() || (KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode)
+        && (!this.symbols || !this.moreSymbols || !this.touchDesign()))) {
         this.nineKeyFace()
       } else if (this.zhuyinFace() && !this.symbols) {
         this.dachenFace()
       } else if (this.strokeFace() && !this.symbols) {
         this.strokeKeypadFace()
       } else if (this.drawsFourteenKey() && !this.symbols) {
-        // 14 键的字母层；123 打开的是 26 键那套数字层（下面的分支），返回后回到这里。
+        // 14 键只在字母层画自己的键组，数字页复用前面的九宫格。
         this.fourteenKeyFace()
       } else if (this.designLayerShowing()) {
         this.designLayerFace()

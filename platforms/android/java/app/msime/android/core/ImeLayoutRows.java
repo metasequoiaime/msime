@@ -303,7 +303,7 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 九键、14 键与笔画键盘左侧的符号栏：数字键面和笔画一屏三项，其他键面最多五项，更多的上下滚动。九键与笔画使用独立键帽，14 键共用一条底轨；点按原样上屏（全角模式下转全角）。
+     * 九键、14 键与笔画键盘左侧的符号栏：数字键面默认一屏四项，笔画三项，其他键面最多五项，更多的上下滚动。九键与笔画使用独立键帽，14 键共用一条底轨；点按原样上屏（全角模式下转全角）。
      */
     private FrameLayout symbolSidebar(boolean digits, boolean capped) {
         return symbolSidebar(digits, capped,
@@ -367,10 +367,18 @@ final class ImeLayoutRows {
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
 
         boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
+        boolean borrowed = s.displayedTouchLayout(s.view) != MSIMEInputService.QUANPIN_NINE_KEY_LAYOUT;
         // 左列是可以上下滚动的符号栏，字母键面默认 ，。？，！ 仍放在右列最下面，和 3×3 网格逐行对齐；数字键面默认是 + - * / = 等算式符号，！ 挪到它们后面（#5590），右列是删除、小数点和 0。两张表都可在设置里自定义。
         FrameLayout sidebar = symbolSidebar(digits, true);
         attachSpellings(sidebar, SpellingPlacement.SIDEBAR);
-        container.addView(sidebar, LayoutPolicy.weightedMatchParentParams(0.9f));
+        if (digits) {
+            LinearLayout left = LayoutPolicy.column(s);
+            left.addView(sidebar, LayoutPolicy.weightedWidthParams(1));
+            Button more = s.keyId(s.keyboardKey("#+=", "切换到更多符号", s.imeLetterRows::showMoreSymbols), "SoftLayer");
+            KeyboardTypographyPolicy.setKeyTextSize(more, 14);
+            left.addView(more, LayoutPolicy.matchWidthHeightPx(s.pixels(40)));
+            container.addView(left, LayoutPolicy.weightedMatchParentParams(0.9f));
+        } else container.addView(sidebar, LayoutPolicy.weightedMatchParentParams(0.9f));
 
         LinearLayout grid = LayoutPolicy.column(s);
         boolean composing = s.hasEngineComposition();
@@ -383,8 +391,7 @@ final class ImeLayoutRows {
             LinearLayout row = LayoutPolicy.row(s);
             for (NineKeyLayout.Key key : keys) {
                 String description = NineKeyLayout.description(key, digits, composing);
-                // On the digit layer the grid is a numeric keypad, so a tap commits the number
-                // instead of feeding it to the pinyin session.
+                // 数字层按字面上屏，不把数字交给拼音组码或选词。
                 NineKeyDigitButton keyButton = s.nineKeyGridKey(
                     NineKeyLayout.face(key, digits, composing), description,
                     digits ? () -> commitNineKeyLiteral(NineKeyLayout.digitInput(key))
@@ -393,7 +400,9 @@ final class ImeLayoutRows {
                 KeyboardTypographyPolicy.setFittedKeyTextSize(keyButton, 14,
                     digits ? 22 : KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
                 if (NineKeyLayout.offersPunctuation(key, digits)) s.nineKeySymbolKey = keyButton;
-                s.keyId(keyButton, KeyPressIds.forNineKeyDigit(key.digit()));
+                // 常规键面借用网格时仍记普通数字键，避免统计页凭空多出拼音九键。
+                s.keyId(keyButton, borrowed ? KeyPressIds.forCharacter(NineKeyLayout.digitInput(key).charAt(0))
+                    : KeyPressIds.forNineKeyDigit(key.digit()));
                 // 九格都印长按可输入的数字；1 短按是常用标点（放进候选条）或分词，不把 1 送进拼音引擎。
                 keyButton.setDigitText(digits ? "" : NineKeyLayout.digitInput(key));
                 if (!digits) {
@@ -416,7 +425,7 @@ final class ImeLayoutRows {
         container.addView(grid, LayoutPolicy.weightedMatchParentParams(3));
 
         LinearLayout actions = LayoutPolicy.column(s);
-        Runnable deleteAction = () -> {
+        Runnable deleteAction = borrowed ? s::deleteFromHandwriting : () -> {
             if (s.connection != null && !s.command(0)) s.deleteCodePointBeforeCursor();
         };
         Button delete = s.keyId(s.backspaceKey(deleteAction), "Backspace");
@@ -428,7 +437,8 @@ final class ImeLayoutRows {
         if (digits) {
             // 数字键面的 3×3 只有 1–9，右列下面两格换成小数点和 0（与 iOS、HarmonyOS 的九键右列一致），否则这一面打不出 0。这一面的点按都直接上屏、不进组字，重输在这里没有作用；小数点按字面上屏，不随中文标点模式变成「。」。
             Button period = s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period");
-            Button zero = s.keyId(s.nineKeyGridKey("0", "数字 0", () -> commitNineKeyLiteral("0")), "Nine0");
+            Button zero = s.keyId(s.nineKeyGridKey("0", "数字 0", () -> commitNineKeyLiteral("0")),
+                borrowed ? KeyPressIds.forCharacter('0') : "Nine0");
             KeyboardTypographyPolicy.setKeyTextSize(period, 22);
             KeyboardTypographyPolicy.setFittedKeyTextSize(zero, 14, 22);
             for (Button key : java.util.List.of(period, zero)) {
@@ -1336,7 +1346,8 @@ final class ImeLayoutRows {
         boolean zhuyin = layout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
         boolean fourteenKey = layout == MSIMEInputService.FOURTEEN_KEY_LAYOUT;
         Spellings spellings = Spellings.of(s.view);
-        boolean visible = !suppressed && (MSIMEInputService.drawsKeyGrid(layout) || zhuyin)
+        boolean visible = !suppressed && s.keyboardLayer == KeyboardLayout.Layer.LETTERS
+            && (MSIMEInputService.drawsKeyGrid(layout) || zhuyin)
             && !spellings.values().isEmpty();
         if (visible) ViewPolicy.show(s.nineKeySpellingScroll);
         else ViewPolicy.hide(s.nineKeySpellingScroll);

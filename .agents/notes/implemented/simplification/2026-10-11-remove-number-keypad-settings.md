@@ -13,6 +13,8 @@ Status: implemented
 
 ## Decision
 
+固定横排的默认值由[中文数字入口默认九宫格](../feature/2026-10-15-mobile-default-number-pad.md)部分取代；本篇撤掉两项设置、不保留旧偏好消费者与计算器排列的决定继续成立。以下保留撤除时的行为与理由，不能据此重新添加选项。
+
 - 三端都去掉这两行：共享设置页的 `TouchKeyboardGeometrySection`（HarmonyOS 等用共享页的宿主）、Android 的 `KeyboardOptionsPage` 与设置搜索关键词、iOS 的 `KeyboardLayoutSettingsView`。
 - 键盘不再读这两个字段，行为固定为原来的默认值：26 键（以及 14 键、韩文两套式等画字母行的方案）按 123 是一行 1 到 0 的数字页；拼音九键的数字层是电话顺序，1 2 3 在上。
 - 只为这两项存在的代码一并删除，不留走不到的分支：

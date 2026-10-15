@@ -218,6 +218,58 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
                   "添加语言应打开应用的输入设置")
   }
 
+  /// 常规中文和原九键的数字页在系统编辑器里连续输入，扩展符号往返不丢失原方案。
+  func testNumberPadTypesContinuousArithmeticIntoTheHostEditor() throws {
+    let app = XCUIApplication()
+    let field = try focusedTryoutKeyboard(app)
+    func key(_ id: String) -> XCUIElement {
+      app.descendants(matching: .any)[id].firstMatch
+    }
+    var expected = ""
+    for scheme in ["quanpin", "nineKey"] {
+      app.buttons["schemeButton"].tap()
+      let card = app.buttons["schemeCard-\(scheme)"]
+      XCTAssertTrue(card.waitForExistence(timeout: 5), "默认中文方案必须可用：\(scheme)")
+      card.tap()
+      let toggle = key("layoutToggleButton")
+      XCTAssertTrue(toggle.isHittable)
+      toggle.tap()
+      for digit in 1...9 {
+        XCTAssertTrue(key("nineKey\(digit)").isHittable, "数字 \(digit) 必须可点")
+      }
+      let one = key("nineKey1").frame
+      let two = key("nineKey2").frame
+      let four = key("nineKey4").frame
+      XCTAssertEqual(one.minY, two.minY, accuracy: 1)
+      XCTAssertEqual(one.minX, four.minX, accuracy: 1)
+      XCTAssertLessThan(one.maxX, two.minX)
+      XCTAssertLessThan(one.maxY, four.minY)
+      for character in "12.3+4-5*6/7001234567890123456789" {
+        let target: XCUIElement
+        switch character {
+        case "0": target = key("nineKeyZero")
+        case "1"..."9": target = key("nineKey\(character)")
+        case ".": target = key("nineKeyMiddleKey")
+        default: target = app.buttons["运算符 \(character)"]
+        }
+        XCTAssertTrue(target.isHittable, "数字页必须能直接输入 \(character)")
+        target.tap()
+        expected.append(character)
+      }
+      XCTAssertEqual(field.value as? String, expected, "数字与运算符必须按字面跨进程上屏")
+      key("nineKeyDelete").tap()
+      expected.removeLast()
+      XCTAssertEqual(field.value as? String, expected)
+      key("numberPadMoreSymbols").tap()
+      XCTAssertTrue(key("symbolLayerToggle").waitForExistence(timeout: 5))
+      key("symbolLayerToggle").tap()
+      XCTAssertTrue(key("nineKey1").isHittable)
+      toggle.tap()
+      XCTAssertTrue((scheme == "quanpin" ? key("字母 A") : key("nineKey2")).isHittable,
+                    "返回后必须恢复原中文方案")
+    }
+  }
+
   /// Pinyin typed on the real keyboard reaches a text field the extension does not own.
   ///
   /// The candidate is committed through `UITextDocumentProxy`, which is a cross-process call the

@@ -45,9 +45,8 @@ const PUNCTUATION: string[] = [",", ".", "?", "!"];
 const SIDE_MARKS: string[] = [",", ".", "?"];
 const CLOSING_MARK: string = "!";
 
-// What the sidebar offers on the digit layer, where there are no readings to show and the four
-// sentence marks are already on the letter layer's sidebar.
-const DIGIT_SIDEBAR: string[] = ["@", "#", "/", "-"];
+// 数字页就地提供四则运算，标点和更多符号保留在扩展页。
+const DIGIT_SIDEBAR: string[] = ["+", "-", "*", "/"];
 
 /** 触屏九键外框（拼音九键和笔画键盘）底行上的一个键。 */
 export enum NineKeyActionKind {
@@ -70,6 +69,17 @@ function action(kind: NineKeyActionKind, weight: number): NineKeyAction {
 }
 
 export class NineKeyLayout {
+  /** 只换数字页显示，不修改中文方案；独立语言、本地工具和英文保留原符号契约。 */
+  static opensNumberPad(
+    symbols: boolean,
+    more: boolean,
+    english: boolean,
+    localMode: string,
+    independentLanguage: boolean,
+  ): boolean {
+    return symbols && !more && !english && localMode === "none" && !independentLanguage;
+  }
+
   static readonly SYMBOL_PANEL_WEIGHT: number = 1.05;
   static readonly LAYER_WEIGHT: number = 1.25;
   static readonly SPACE_WEIGHT: number = 4.2;
@@ -80,7 +90,7 @@ export class NineKeyLayout {
   /**
    * 触屏九键外框的底行，与 iOS 的 `ActionRowStyle.nineKey`、Android 的 `KeyboardActionRow.designEntries` 一致：符 1.05 | 123 1.25 | space 4.2 | 中 1.05 | return 1.6，中/英紧挨回车。标点在网格两侧的列里，所以没有逗号和句号；符 是九键上打开符号面板的键。
    *
-   * 拼音网格的数字层只有 1-9，这里是唯一能打 0 的地方：数字层去掉 符，0 排在空格右边，占 符 让出的同一份宽度。笔画键盘的 123 换成共用的 123 / #+= 层，不经过数字层。
+   * 数字网格只有 1-9，这里补上 0：数字层去掉 符，0 排在空格右边，占 符 让出的同一份宽度。常规中文数字入口借用同一套网格和底行。
    */
   static actionRow(digitLayer: boolean): NineKeyAction[] {
     const row: NineKeyAction[] = [];

@@ -2726,6 +2726,26 @@ group("the digit layer re-labels the grid instead of handing over ten across", (
     "the sidebar keeps its four cells across the switch",
   );
   check(
+    NineKeyLayout.digitPunctuation().join(" ") === "+ - * /",
+    "the number pad exposes all four arithmetic operators",
+  );
+  check(
+    NineKeyLayout.opensNumberPad(true, false, false, "none", false),
+    "the ordinary Chinese numeric entry opens a number grid",
+  );
+  for (const state of [
+    [false, false, false, "none", false],
+    [true, true, false, "none", false],
+    [true, false, true, "none", false],
+    [true, false, false, "unicode", false],
+    [true, false, false, "none", true],
+  ] as [boolean, boolean, boolean, string, boolean][]) {
+    check(
+      !NineKeyLayout.opensNumberPad(...state),
+      "letters, extended symbols, English, local modes and independent languages keep their layouts",
+    );
+  }
+  check(
     NineKeyLayout.digitPunctuation().every(
       (symbol: string) => !NineKeyLayout.punctuation().includes(symbol),
     ),

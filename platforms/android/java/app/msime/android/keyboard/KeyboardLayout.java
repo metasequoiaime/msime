@@ -44,6 +44,15 @@ public final class KeyboardLayout {
 
     private KeyboardLayout() {}
 
+    /** 数字网格只换显示：中文的常规入口复用九宫格，本地模式与独立语言布局保留原符号行。 */
+    public static boolean drawsNumberPad(Layer layer, int layout, boolean chinese, boolean localMode) {
+        if (layer != Layer.SYMBOLS) return false;
+        if (layout == QUANPIN_NINE_KEY_LAYOUT) return true;
+        return chinese && !localMode && (layout == STANDARD_TOUCH_LAYOUT
+            || layout == FOURTEEN_KEY_LAYOUT || layout == HANDWRITING_LAYOUT
+            || layout == STROKE_LAYOUT || layout == ZHUYIN_NINE_KEY_LAYOUT);
+    }
+
     /**
      * 这一刻要不要在字母上方画数字行（#6022）：设置打开、在字母层、画的是标准 26 键一族或韩文两套式，并且窗口够高。九键、笔画、手写、日文假名网格和注音（大千的数字本身是注音键，注音 9 键是网格）都不画；123 / #+= 层也不画，它第一行本来就是数字；窗口低于 {@link #NUMBER_ROW_MIN_WINDOW_HEIGHT_DP}（横屏手机）时也不画，存着的设置不变，转回竖屏自动回来。
      *
