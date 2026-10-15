@@ -557,12 +557,27 @@ pub fn remove(root: &Path, id: &str) -> Result<(), LocalModelError> {
     ) {
         return Ok(());
     }
+    #[cfg(unix)]
+    let root_directory = crate::storage::open_private_directory(root)?;
+    #[cfg(unix)]
+    let lock = crate::file_lock::open_private_lock_file_at_raw(
+        &root_directory,
+        OsStr::new(MODEL_LOCK_FILE),
+    )?;
+    #[cfg(not(unix))]
     let lock = crate::file_lock::open_private_lock_file(root.join(MODEL_LOCK_FILE))?;
     if !crate::file_lock::try_exclusive_with_grace(&lock)? {
         return Err(LocalModelError::InstallRunning);
     }
-    let _lock = ModelLock { _file: lock };
+    let _lock = ModelLock {
+        _file: lock,
+        #[cfg(unix)]
+        root: root_directory,
+    };
     let target = root.join(&model.id);
+    #[cfg(unix)]
+    remove_leftovers_at(_lock.root(), &model.id);
+    #[cfg(not(unix))]
     remove_leftovers(root, &model.id);
     #[cfg(not(unix))]
     let target_is_dir = match fs::symlink_metadata(&target) {
@@ -577,16 +592,15 @@ pub fn remove(root: &Path, id: &str) -> Result<(), LocalModelError> {
     let aside = root.join(format!(".old-{}-{}", model.id, unique_suffix()));
     #[cfg(unix)]
     {
-        let root_directory = crate::storage::open_private_directory(root)?;
         rustix::fs::renameat(
-            &root_directory,
+            _lock.root(),
             std::ffi::OsStr::new(&model.id),
-            &root_directory,
+            _lock.root(),
             aside.file_name().expect("generated aside name"),
         )
         .map_err(io::Error::from)?;
         crate::storage::remove_private_tree_at(
-            &root_directory,
+            _lock.root(),
             aside.file_name().expect("generated aside name"),
         )?;
     }
@@ -643,6 +657,15 @@ fn check_root(root: &Path) -> Result<(), LocalModelError> {
 
 struct ModelLock {
     _file: File,
+    #[cfg(unix)]
+    root: File,
+}
+
+#[cfg(unix)]
+impl ModelLock {
+    fn root(&self) -> &File {
+        &self.root
+    }
 }
 
 #[cfg(unix)]
@@ -659,9 +682,21 @@ fn acquire_model_lock(root: &Path) -> Result<ModelLock, LocalModelError> {
     // `create_dir_all` 会跟随缺失路径成分中的既有符号链接；先检查最近的已存在祖先。
     crate::storage::create_directory_and_check(root)?;
     check_root(root)?;
+    #[cfg(unix)]
+    let root_directory = crate::storage::open_private_directory(root)?;
+    #[cfg(unix)]
+    let lock = crate::file_lock::open_private_lock_file_at_raw(
+        &root_directory,
+        OsStr::new(MODEL_LOCK_FILE),
+    )?;
+    #[cfg(not(unix))]
     let lock = crate::file_lock::open_private_lock_file(root.join(MODEL_LOCK_FILE))?;
     crate::file_lock::exclusive(&lock)?;
-    Ok(ModelLock { _file: lock })
+    Ok(ModelLock {
+        _file: lock,
+        #[cfg(unix)]
+        root: root_directory,
+    })
 }
 
 fn ancestor_capacity(root: &Path) -> usize {
@@ -672,7 +707,8 @@ fn unique_suffix() -> String {
     uuid::Uuid::new_v4().simple().to_string()
 }
 
-/// Staging and set-aside directories a crashed or killed install left behind for this id. 被打断的收编留下的暂存目录先把文件放回来源（见 [`restore_interrupted_adoption`]），再删。
+/// 清理这个模型被中断的安装留下的暂存目录和旧目录；被打断的收编先把文件放回来源（见 [`restore_interrupted_adoption`]），再删。
+#[cfg(any(not(unix), test))]
 fn remove_leftovers(root: &Path, id: &str) {
     #[cfg(unix)]
     {
@@ -1045,8 +1081,15 @@ pub(crate) fn install_model(
         return Err(LocalModelError::InvalidMirror);
     }
     let _lock = acquire_model_lock(root)?;
+    #[cfg(unix)]
+    remove_leftovers_at(_lock.root(), &model.id);
+    #[cfg(not(unix))]
     remove_leftovers(root, &model.id);
-    let staging = Staging::new(root.join(format!(".staging-{}-{}", model.id, unique_suffix())))?;
+    let staging_path = root.join(format!(".staging-{}-{}", model.id, unique_suffix()));
+    #[cfg(unix)]
+    let staging = Staging::new_at(staging_path, _lock.root())?;
+    #[cfg(not(unix))]
+    let staging = Staging::new(staging_path)?;
     staging.create()?;
     let model_dir = staging.path.join("model");
     staging.create_child(OsStr::new("model"))?;
@@ -1248,6 +1291,9 @@ pub(crate) fn install_model(
     }
     #[cfg(not(unix))]
     write_manifest(&model_dir, &model.manifest)?;
+    #[cfg(unix)]
+    let target = publish_at(root, _lock.root(), &model.id, &model_dir)?;
+    #[cfg(not(unix))]
     let target = publish(root, &model.id, &model_dir)?;
     progress(InstallProgress {
         stage: "done",
@@ -1274,66 +1320,127 @@ fn write_manifest_at(directory: &File, manifest: &Value) -> Result<(), LocalMode
 }
 
 /// 把完整的暂存目录移到 `<root>/<id>`：先把旧安装改名挪开，移动失败时再挪回来，成功后删除旧安装。
+#[cfg(not(unix))]
 fn publish(root: &Path, id: &str, staged: &Path) -> Result<PathBuf, LocalModelError> {
-    let target = root.join(id);
+    publish_by_path(root, id, staged)
+}
+
+#[cfg(unix)]
+fn ensure_root_still_current(root: &Path, opened: &File) -> Result<(), LocalModelError> {
+    use std::os::unix::fs::MetadataExt;
+
+    let current = crate::storage::open_private_directory(root)?;
+    let opened_metadata = opened.metadata()?;
+    let current_metadata = current.metadata()?;
+    if opened_metadata.dev() != current_metadata.dev()
+        || opened_metadata.ino() != current_metadata.ino()
+    {
+        return Err(LocalModelError::InvalidRoot);
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn publish_at(
+    root: &Path,
+    root_directory: &File,
+    id: &str,
+    staged: &Path,
+) -> Result<PathBuf, LocalModelError> {
+    ensure_root_still_current(root, root_directory)?;
     let aside = root.join(format!(".old-{}-{}", id, unique_suffix()));
-    #[cfg(unix)]
-    let root_directory = crate::storage::open_private_directory(root)?;
-    let replaced = if fs::symlink_metadata(&target).is_ok() {
-        #[cfg(unix)]
+    let staging_parent = staged.parent().ok_or(LocalModelError::InvalidRoot)?;
+    let staging_directory = crate::storage::open_private_directory_at(
+        root_directory,
+        staging_parent
+            .file_name()
+            .ok_or(LocalModelError::InvalidRoot)?,
+    )?;
+    let staged_name = staged.file_name().ok_or(LocalModelError::InvalidRoot)?;
+    let replaced = match rustix::fs::renameat(
+        root_directory,
+        OsStr::new(id),
+        root_directory,
+        aside.file_name().expect("generated aside name"),
+    ) {
+        Ok(()) => true,
+        Err(rustix::io::Errno::NOENT) => false,
+        Err(error) => return Err(io::Error::from(error).into()),
+    };
+    let publish_result = rustix::fs::renameat(
+        &staging_directory,
+        staged_name,
+        root_directory,
+        OsStr::new(id),
+    )
+    .map_err(io::Error::from);
+    if let Err(error) = publish_result {
+        if replaced {
+            let _ = rustix::fs::renameat(
+                root_directory,
+                aside.file_name().expect("generated aside name"),
+                root_directory,
+                OsStr::new(id),
+            );
+        }
+        return Err(error.into());
+    }
+    finish_publish(
+        root,
+        root_directory,
+        id,
+        replaced.then(|| aside.file_name().expect("generated aside name")),
+        &staging_directory,
+        staged_name,
+    )
+}
+
+#[cfg(unix)]
+fn finish_publish(
+    root: &Path,
+    root_directory: &File,
+    id: &str,
+    aside: Option<&OsStr>,
+    staging_directory: &File,
+    staged_name: &OsStr,
+) -> Result<PathBuf, LocalModelError> {
+    if let Err(error) = ensure_root_still_current(root, root_directory) {
         rustix::fs::renameat(
-            &root_directory,
-            std::ffi::OsStr::new(id),
-            &root_directory,
-            aside.file_name().expect("generated aside name"),
+            root_directory,
+            OsStr::new(id),
+            staging_directory,
+            staged_name,
         )
         .map_err(io::Error::from)?;
-        #[cfg(not(unix))]
+        if let Some(aside) = aside {
+            rustix::fs::renameat(root_directory, aside, root_directory, OsStr::new(id))
+                .map_err(io::Error::from)?;
+        }
+        return Err(error);
+    }
+    if let Some(aside) = aside {
+        let _ = crate::storage::remove_private_tree_at(root_directory, aside);
+    }
+    Ok(root.join(id))
+}
+
+#[cfg(not(unix))]
+fn publish_by_path(root: &Path, id: &str, staged: &Path) -> Result<PathBuf, LocalModelError> {
+    let target = root.join(id);
+    let aside = root.join(format!(".old-{}-{}", id, unique_suffix()));
+    let replaced = if fs::symlink_metadata(&target).is_ok() {
         fs::rename(&target, &aside)?;
         true
     } else {
         false
     };
-    let publish_result = {
-        #[cfg(unix)]
-        {
-            let staging_directory = crate::storage::open_private_directory(
-                staged.parent().ok_or(LocalModelError::InvalidRoot)?,
-            )?;
-            rustix::fs::renameat(
-                &staging_directory,
-                staged.file_name().ok_or(LocalModelError::InvalidRoot)?,
-                &root_directory,
-                std::ffi::OsStr::new(id),
-            )
-            .map_err(io::Error::from)
-        }
-        #[cfg(not(unix))]
-        {
-            fs::rename(staged, &target)
-        }
-    };
-    if let Err(error) = publish_result {
+    if let Err(error) = fs::rename(staged, &target) {
         if replaced {
-            #[cfg(unix)]
-            let _ = rustix::fs::renameat(
-                &root_directory,
-                aside.file_name().expect("generated aside name"),
-                &root_directory,
-                std::ffi::OsStr::new(id),
-            );
-            #[cfg(not(unix))]
             let _ = fs::rename(&aside, &target);
         }
         return Err(error.into());
     }
     if replaced {
-        #[cfg(unix)]
-        let _ = crate::storage::remove_private_tree_at(
-            &root_directory,
-            aside.file_name().expect("generated aside name"),
-        );
-        #[cfg(not(unix))]
         remove_leftover(&aside);
     }
     Ok(target)
@@ -1392,8 +1499,15 @@ pub(crate) fn install_files_with(
 ) -> Result<PathBuf, LocalModelError> {
     check_install(root, id, mirrors)?;
     let _lock = acquire_model_lock(root)?;
+    #[cfg(unix)]
+    remove_leftovers_at(_lock.root(), id);
+    #[cfg(not(unix))]
     remove_leftovers(root, id);
-    let staging = Staging::new(root.join(format!(".staging-{}-{}", id, unique_suffix())))?;
+    let staging_path = root.join(format!(".staging-{}-{}", id, unique_suffix()));
+    #[cfg(unix)]
+    let staging = Staging::new_at(staging_path, _lock.root())?;
+    #[cfg(not(unix))]
+    let staging = Staging::new(staging_path)?;
     staging.create()?;
     let pack_dir = staging.path.join("model");
     staging.create_child(OsStr::new("model"))?;
@@ -1401,6 +1515,9 @@ pub(crate) fn install_files_with(
     let pack_directory = Some(staging.open_child(OsStr::new("model"))?);
     #[cfg(not(unix))]
     let pack_directory = None;
+    #[cfg(unix)]
+    let partials = partial_directory_at(root, _lock.root(), id)?;
+    #[cfg(not(unix))]
     let partials = partial_directory(root, id)?;
     let result = download_and_publish(
         root,
@@ -1411,6 +1528,8 @@ pub(crate) fn install_files_with(
         fetcher,
         progress,
         cancel,
+        #[cfg(unix)]
+        _lock.root(),
         &pack_dir,
         pack_directory.as_ref(),
         &partials,
@@ -1432,6 +1551,7 @@ fn download_and_publish(
     fetcher: &dyn Fetcher,
     progress: &mut dyn FnMut(InstallProgress),
     cancel: &AtomicBool,
+    #[cfg(unix)] root_directory: &File,
     pack_dir: &Path,
     pack_directory: Option<&File>,
     partials: &PartialDirectory,
@@ -1502,7 +1622,16 @@ fn download_and_publish(
             moved += 1;
             Ok::<(), LocalModelError>(())
         })
-        .and_then(|()| publish(root, id, pack_dir));
+        .and_then(|()| {
+            #[cfg(unix)]
+            {
+                publish_at(root, root_directory, id, pack_dir)
+            }
+            #[cfg(not(unix))]
+            {
+                publish(root, id, pack_dir)
+            }
+        });
     let target = match published {
         Ok(target) => target,
         Err(error) => {
@@ -1615,8 +1744,15 @@ pub(crate) fn install_archive_members_with(
 ) -> Result<PathBuf, LocalModelError> {
     check_install(root, id, mirrors)?;
     let _lock = acquire_model_lock(root)?;
+    #[cfg(unix)]
+    remove_leftovers_at(_lock.root(), id);
+    #[cfg(not(unix))]
     remove_leftovers(root, id);
-    let staging = Staging::new(root.join(format!(".staging-{}-{}", id, unique_suffix())))?;
+    let staging_path = root.join(format!(".staging-{}-{}", id, unique_suffix()));
+    #[cfg(unix)]
+    let staging = Staging::new_at(staging_path, _lock.root())?;
+    #[cfg(not(unix))]
+    let staging = Staging::new(staging_path)?;
     staging.create()?;
     let pack_dir = staging.path.join("model");
     staging.create_child(OsStr::new("model"))?;
@@ -1624,6 +1760,9 @@ pub(crate) fn install_archive_members_with(
     let pack_directory = Some(staging.open_child(OsStr::new("model"))?);
     #[cfg(not(unix))]
     let pack_directory = None;
+    #[cfg(unix)]
+    let partials = partial_directory_at(root, _lock.root(), id)?;
+    #[cfg(not(unix))]
     let partials = partial_directory(root, id)?;
     let result = download_and_extract(
         root,
@@ -1636,6 +1775,8 @@ pub(crate) fn install_archive_members_with(
         fetcher,
         progress,
         cancel,
+        #[cfg(unix)]
+        _lock.root(),
         &pack_dir,
         pack_directory.as_ref(),
         &partials,
@@ -1658,6 +1799,7 @@ fn download_and_extract(
     fetcher: &dyn Fetcher,
     progress: &mut dyn FnMut(InstallProgress),
     cancel: &AtomicBool,
+    #[cfg(unix)] root_directory: &File,
     pack_dir: &Path,
     pack_directory: Option<&File>,
     partials: &PartialDirectory,
@@ -1758,6 +1900,9 @@ fn download_and_extract(
     #[cfg(not(unix))]
     write_manifest(pack_dir, manifest)?;
     check_cancel(cancel)?;
+    #[cfg(unix)]
+    let target = publish_at(root, root_directory, id, pack_dir)?;
+    #[cfg(not(unix))]
     let target = publish(root, id, pack_dir)?;
     // 归档只是来源，取完就删。
     partials.remove_tree();
@@ -1785,6 +1930,9 @@ pub(crate) fn adopt_files(
     let record = source.to_str().ok_or(LocalModelError::InvalidRoot)?;
     let _lock = acquire_model_lock(root)?;
     // 先放回上一次被打断的收编移走的文件，再检查来源里有没有这组文件。
+    #[cfg(unix)]
+    remove_leftovers_at(_lock.root(), id);
+    #[cfg(not(unix))]
     remove_leftovers(root, id);
     #[cfg(unix)]
     let source_directory = crate::storage::open_private_directory(source)?;
@@ -1820,7 +1968,11 @@ pub(crate) fn adopt_files(
         }
         names.push(name);
     }
-    let staging = Staging::new(root.join(format!(".staging-{}-{}", id, unique_suffix())))?;
+    let staging_path = root.join(format!(".staging-{}-{}", id, unique_suffix()));
+    #[cfg(unix)]
+    let staging = Staging::new_at(staging_path, _lock.root())?;
+    #[cfg(not(unix))]
+    let staging = Staging::new(staging_path)?;
     staging.create()?;
     let pack_dir = staging.path.join("model");
     staging.create_child(OsStr::new("model"))?;
@@ -1893,7 +2045,14 @@ pub(crate) fn adopt_files(
         write_manifest_at(&pack_directory, manifest)?;
         #[cfg(not(unix))]
         write_manifest(&pack_dir, manifest)?;
-        publish(root, id, &pack_dir)
+        #[cfg(unix)]
+        {
+            publish_at(root, _lock.root(), id, &pack_dir)
+        }
+        #[cfg(not(unix))]
+        {
+            publish(root, id, &pack_dir)
+        }
     })();
     if result.is_err() {
         #[cfg(unix)]
@@ -1987,6 +2146,7 @@ impl PartialDirectory {
 }
 
 /// `<root>/.partial-<id>`：没下完的文件跨安装保留在这里，供下次续传。不以 `.staging-` 或 `.old-` 开头，所以 [`remove_leftovers`] 不会清掉它；不是真实目录（比如被换成符号链接）时先删掉再建。
+#[cfg(any(not(unix), test))]
 fn partial_directory(root: &Path, id: &str) -> Result<PartialDirectory, LocalModelError> {
     #[cfg(unix)]
     {

@@ -307,6 +307,108 @@ fn model_directory_creation_stays_in_the_open_staging_directory() {
 
 #[cfg(unix)]
 #[test]
+fn publish_stays_in_the_open_root_after_the_path_is_replaced() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("models");
+    fs::create_dir(&root).unwrap();
+    let staging = root.join(".staging-fixture-new");
+    fs::create_dir(&staging).unwrap();
+    let model = staging.join("model");
+    fs::create_dir(&model).unwrap();
+    fs::write(model.join(MANIFEST_FILE), b"synthetic manifest").unwrap();
+    let root_directory = crate::storage::open_private_directory(&root).unwrap();
+    let moved = state.path().join("models-moved");
+    fs::rename(&root, &moved).unwrap();
+    fs::create_dir(&root).unwrap();
+
+    assert!(matches!(
+        publish_at(&root, &root_directory, "fixture", &model),
+        Err(LocalModelError::InvalidRoot)
+    ));
+
+    assert!(!moved.join("fixture").exists());
+    assert!(!root.join("fixture").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_publish_keeps_the_existing_model_when_staging_is_missing() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("fixture")).unwrap();
+    fs::write(root.path().join("fixture/sentinel"), b"existing model").unwrap();
+    let root_directory = crate::storage::open_private_directory(root.path()).unwrap();
+
+    assert!(publish_at(
+        root.path(),
+        &root_directory,
+        "fixture",
+        &root.path().join(".staging-fixture-missing/model"),
+    )
+    .is_err());
+
+    assert_eq!(
+        fs::read(root.path().join("fixture/sentinel")).unwrap(),
+        b"existing model"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn root_replacement_after_publish_restores_the_old_model_and_staging() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("models");
+    let moved = state.path().join("models-moved");
+    fs::create_dir_all(root.join("fixture")).unwrap();
+    fs::write(root.join("fixture/sentinel"), b"existing model").unwrap();
+    fs::create_dir_all(root.join(".staging-fixture-new/model")).unwrap();
+    fs::write(
+        root.join(".staging-fixture-new/model/sentinel"),
+        b"new model",
+    )
+    .unwrap();
+    let root_directory = crate::storage::open_private_directory(&root).unwrap();
+    let staging_directory = crate::storage::open_private_directory_at(
+        &root_directory,
+        OsStr::new(".staging-fixture-new"),
+    )
+    .unwrap();
+    fs::rename(root.join("fixture"), root.join(".old-fixture-test")).unwrap();
+    fs::rename(
+        root.join(".staging-fixture-new/model"),
+        root.join("fixture"),
+    )
+    .unwrap();
+    fs::rename(&root, &moved).unwrap();
+    fs::create_dir_all(root.join("fixture")).unwrap();
+    fs::write(root.join("fixture/sentinel"), b"replacement model").unwrap();
+
+    let result = finish_publish(
+        &root,
+        &root_directory,
+        "fixture",
+        Some(OsStr::new(".old-fixture-test")),
+        &staging_directory,
+        OsStr::new("model"),
+    );
+
+    assert!(matches!(result, Err(LocalModelError::InvalidRoot)));
+    assert_eq!(
+        fs::read(moved.join("fixture/sentinel")).unwrap(),
+        b"existing model"
+    );
+    assert_eq!(
+        fs::read(moved.join(".staging-fixture-new/model/sentinel")).unwrap(),
+        b"new model"
+    );
+    assert_eq!(
+        fs::read(root.join("fixture/sentinel")).unwrap(),
+        b"replacement model"
+    );
+    assert!(!moved.join(".old-fixture-test").exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn archive_member_creation_stays_in_the_open_model_directory() {
     use std::os::unix::fs::symlink;
 
@@ -1625,6 +1727,39 @@ fn run_pack_from(
         cancel,
     );
     (result, events)
+}
+
+#[cfg(unix)]
+#[test]
+fn installing_files_rejects_root_replacement_without_touching_the_new_root() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("models");
+    let moved = state.path().join("models-moved");
+    let fetcher = pack_fetcher("", PACK_B);
+    let result = install_files_with(
+        &root,
+        "pack",
+        &pack_files(),
+        &serde_json::json!({"pack": "pack"}),
+        &[],
+        &fetcher,
+        &mut |event| {
+            if event.stage == "verify" {
+                fs::rename(&root, &moved).unwrap();
+                fs::create_dir_all(root.join("pack")).unwrap();
+                fs::write(root.join("pack/sentinel"), b"replacement model").unwrap();
+            }
+        },
+        &AtomicBool::new(false),
+    );
+
+    assert_eq!(
+        fs::read(root.join("pack/sentinel")).unwrap(),
+        b"replacement model"
+    );
+    assert!(matches!(result, Err(LocalModelError::InvalidRoot)));
+    assert_eq!(root_entries(&root), vec!["pack"]);
+    assert!(!moved.join("pack").exists());
 }
 
 #[test]
