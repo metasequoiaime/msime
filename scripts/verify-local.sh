@@ -128,14 +128,14 @@ compare() {
 # ---- scope ----
 # Every push used to wait for every platform phase, so a push that touched only crates/dict-builder still paid for the Linux container build, the Android and HarmonyOS checks and the Windows test run. --quick now works out which files the change touches and runs a platform phase only when one of them is among that phase's inputs. The change is the union of: everything the branch changes since it left origin/develop (`origin/develop...HEAD`), the commits on HEAD since it left its upstream, the ranges git hands the pre-push hook on stdin (when this runs under .githooks/pre-push; through rbuild stdin is empty), and whatever is modified, staged or untracked in the work tree, because that is what the phases build. The origin/develop part is what makes a skip safe: a phase is skipped only when nothing the whole branch changes reaches it, so it never leans on an earlier push having been verified (a push that ran on a machine without docker, NDK or hvigor, a --no-verify push, or a manual --quick on a branch already pushed). Under pre-merge-commit the merged-in files are staged and so arrive through the work-tree part. When any of that cannot be worked out every phase runs.
 #
-# Being wrong in the direction of skipping is the expensive mistake, so a file sends the run to "everything" unless it is known not to: this script and the contract runner, the known-failures baseline, the hooks, the workspace and package manifests and lockfiles, any CMake file, shared/ and platforms/common/ (the C/C++ headers and sources every host compiles), the crates every native host links (path-trust, client-base, client-core, engine, input-runtime, host-api), and the per-edition resource locks with their generator (resources/components/, resources/editions/, scripts/editions.py: client-core embeds the edition locks, and the Windows, macOS, Linux, Android and desktop packaging and staging all read them) all run everything, as does any deletion or rename and any path the table below does not know. A file under platforms/, resources/, scripts/ or tools/ also reaches every area whose tree names it (scope_named_by below): the macOS CMake build copies files out of platforms/linux and platforms/windows, the HarmonyOS build compiles platforms/windows/third_party/miniaudio, platform builds run scripts/fetch_voice_runtime.py, and the core crates embed resource files with include_str!/include_bytes! and parse them at run time, so a resource one of them names runs everything. Names on comment lines and in Markdown do not count, or a file a header comment cites would reach everything. crates/engine-wasm reaches only the wasm target check, since everything it is built from (engine, path-trust, the manifests) already runs everything; flake.nix and flake.lock reach the Linux phases, which build what the Nix packaging under platforms/linux/nix wraps. .github reaches only the workflow lint: no platform phase builds from it, and the contract checks that read release workflows (test-macos-package-resources.py, test-windows-editions.py) always run. The phases that always run are the contract checks, the Rust workspace check and the shared Apple bridge, which are either cheap or cut across every area.
+# Being wrong in the direction of skipping is the expensive mistake, so a file sends the run to "everything" unless it is known not to: this script and the contract runner, the known-failures baseline, the hooks, the workspace and package manifests and lockfiles, any CMake file, shared/ and platforms/common/ (the C/C++ headers and sources every host compiles), the crates every native host links (path-trust, client-base, client-core, client-providers, engine, input-runtime, host-api), and the per-edition resource locks with their generator (resources/components/, resources/editions/, scripts/editions.py: client-core embeds the edition locks, and the Windows, macOS, Linux, Android and desktop packaging and staging all read them) all run everything, as does any deletion or rename and any path the table below does not know. A file under platforms/, resources/, scripts/ or tools/ also reaches every area whose tree names it (scope_named_by below): the macOS CMake build copies files out of platforms/linux and platforms/windows, the HarmonyOS build compiles platforms/windows/third_party/miniaudio, platform builds run scripts/fetch_voice_runtime.py, and the core crates embed resource files with include_str!/include_bytes! and parse them at run time, so a resource one of them names runs everything. Names on comment lines and in Markdown do not count, or a file a header comment cites would reach everything. crates/engine-wasm reaches only the wasm target check, since everything it is built from (engine, path-trust, the manifests) already runs everything; flake.nix and flake.lock reach the Linux phases, which build what the Nix packaging under platforms/linux/nix wraps. .github reaches only the workflow lint: no platform phase builds from it, and the contract checks that read release workflows (test-macos-package-resources.py, test-windows-editions.py) always run. The phases that always run are the contract checks, the Rust workspace check and the shared Apple bridge, which are either cheap or cut across every area.
 scope_all=1
 scope_why="full run"
 scope_areas=" "
 scope_count=0
 
 # The trees each area builds from, as area:pathspec, searched by scope_named_by for files one tree takes from another.
-scope_trees="linux:platforms/linux macos:platforms/macos windows:platforms/windows android:platforms/android harmony:platforms/harmony harmony:apps/harmony desktop:apps/desktop desktop:packages/ui harmony:packages/ui windows:crates/host-windows desktop:crates/host-windows macos:crates/host-macos desktop:crates/host-macos windows:scripts/test-windows-*.py harmony:scripts/test-harmony-*.py android:scripts/test-android-*.py all:shared all:platforms/common all:crates/path-trust all:crates/client-base all:crates/client-core all:crates/engine all:crates/input-runtime all:crates/host-api wasm:crates/engine-wasm"
+scope_trees="linux:platforms/linux macos:platforms/macos windows:platforms/windows android:platforms/android harmony:platforms/harmony harmony:apps/harmony desktop:apps/desktop desktop:packages/ui harmony:packages/ui windows:crates/host-windows desktop:crates/host-windows macos:crates/host-macos desktop:crates/host-macos windows:scripts/test-windows-*.py harmony:scripts/test-harmony-*.py android:scripts/test-android-*.py all:shared all:platforms/common all:crates/path-trust all:crates/client-base all:crates/client-core all:crates/client-providers all:crates/engine all:crates/input-runtime all:crates/host-api wasm:crates/engine-wasm"
 
 # What a tree names $1 by, one "<kind><TAB><text>" per line: F for the file itself, D for one of its directories, which counts only where the name is not followed by a deeper path (a directory handed to an include path, a copy or a define, as in `audios"`), and M for a Python module under scripts/, which counts in an import. A path under platforms/<os>/ is looked for without the platforms/ prefix, since sibling hosts reach it as ../<os>/...; directories are taken no shallower than platforms/<os>/<dir>, resources/<dir> and the like, because shallower ones name whole hosts.
 scope_needles() {
@@ -198,7 +198,7 @@ scope_classify() {
       Cargo.toml | Cargo.lock | rust-toolchain.toml | .cargo/* | \
       package.json | pnpm-lock.yaml | pnpm-workspace.yaml | vite.config.ts | .gitignore | .gitattributes | \
       CMakeLists.txt | */CMakeLists.txt | *.cmake | shared/* | platforms/common/* | \
-      crates/path-trust/* | crates/client-base/* | crates/client-core/* | crates/engine/* | crates/input-runtime/* | crates/host-api/* | \
+      crates/path-trust/* | crates/client-base/* | crates/client-core/* | crates/client-providers/* | crates/engine/* | crates/input-runtime/* | crates/host-api/* | \
       resources/components/* | resources/editions/* | scripts/editions.py)
       echo all ;;
     crates/engine-wasm/*) echo wasm ;;
@@ -934,7 +934,7 @@ fi
 # for that reason, and its 86 tests had never run. msime-engine and msime-tauri-mobile-platform
 # were missing too, and nothing else runs their tests on the host target.
 # msime-clipboard-relay 也不在 default-members 里，其他地方都不跑它的测试；它的端到端测试在 127.0.0.1 上起参考中继，用真正的客户端驱动连它。
-for package in msime-client-base msime-client-core msime-engine msime-engine-wasm msime-host-api msime-input-runtime msime-host-windows \
+for package in msime-client-base msime-client-core msime-client-providers msime-engine msime-engine-wasm msime-host-api msime-input-runtime msime-host-windows \
   msime-host-macos msime-mcp-server msime-tauri-mobile-platform msime-clipboard-relay msime-desktop; do
   # A package that does not build produces no failing test names, which reads as "at baseline" - which is
   # how msime-desktop went unbuildable on macOS without anything noticing. Say so instead.
@@ -980,13 +980,13 @@ else
 fi
 
 note "clippy: first-party crates"
-# 文件头很长时间里承诺了 clippy 却哪里都没跑，唯一跑过它的是已经停用的 CI workflow。下面十个 crate 今天在 -D warnings 下都是干净的，所以这是没有基线的硬门槛：一旦失败，就是被测的改动引起的。
+# 文件头很长时间里承诺了 clippy 却哪里都没跑，唯一跑过它的是已经停用的 CI workflow。下面十一个 crate 今天在 -D warnings 下都是干净的，所以这是没有基线的硬门槛：一旦失败，就是被测的改动引起的。
 #
 # The workspace as a whole is not gated: apps/desktop needs a built frontend
 # before its Tauri build script will run, which makes "clippy failed" and
 # "frontend not built" indistinguishable on a developer machine.
 clippy_failed=""
-for crate in msime-client-base msime-client-core msime-engine msime-engine-wasm msime-host-api msime-host-macos \
+for crate in msime-client-base msime-client-core msime-client-providers msime-engine msime-engine-wasm msime-host-api msime-host-macos \
              msime-host-windows msime-input-runtime msime-mcp-server msime-tauri-mobile-platform; do
   cargo clippy -p "$crate" --all-targets -- -D warnings >/dev/null 2>&1 ||
     clippy_failed="$clippy_failed  $crate"$'\n'
