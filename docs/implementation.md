@@ -8,7 +8,7 @@
 
 范围内的是「宿主编排」：会话生命周期、焦点、候选分页与身份、偏好的持久化与应用时机、账号与云服务、资源分代安装、面板与工具栏的展示状态。范围外的是「输入算法」：拼音切分、词格仲裁、候选排序、学习与调频、日文转换表，这些全部由 Engine 提供，客户端只传配置、取快照、按身份回选。简繁转换是共享层 `crates/client-base/src/chinese_conversion.rs` 按 OpenCC s2t 实现的词级转换，由宿主在显示与上屏边界调用。
 
-一条贯穿全仓库的规则：**Tauri 是公共组件，不是任何平台的产品本体**。最终安装、启动、被系统识别为输入法的，始终是 `platforms/<os>` 下的原生宿主；Tauri/React 只在用到它的平台上由它承载（`platforms/ios/build-app.sh` 顶部的注释写明了这一点，iOS 上只有 `MSIME_IOS_TAURI_COMPONENT=1` 才单独构建那部分）。
+一条贯穿全仓库的规则：**Tauri 是公共组件，不是任何平台的产品本体**。最终安装、启动、被系统识别为输入法的，始终是 `platforms/<os>` 下的原生宿主；Tauri/React 只在用到它的平台上由它承载，iOS App 与 Android 发布 APK 都不承载（`platforms/ios/build-app.sh` 顶部的注释写明了 iOS 这一点：产品 App 里没有 WebView，只有 `MSIME_IOS_TAURI_COMPONENT=1` 才单独构建那个组件）。
 
 ## 二、分层与目录
 

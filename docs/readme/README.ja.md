@@ -25,7 +25,7 @@
 [![Last commit](https://img.shields.io/github/last-commit/metasequoiaime/msime/develop)](https://github.com/metasequoiaime/msime/commits/develop)
 <a href="https://depot.dev/?utm_source=metasequoiaime"><img src="https://depot.dev/badges/built-with-depot.svg" alt="Built with Depot" height="20"></a>
 
-水杉 IME（MSIME）は、Android、iOS、macOS、Linux、Windows、HarmonyOS 向けのマルチプラットフォーム中国語入力メソッドです。6 つのプラットフォームはそれぞれ独自のネイティブ入力メソッドホストを持ち、いずれも同じ共有入力ランタイムに接続しています。設定画面はプラットフォームごとに担当が分かれており、macOS、Linux、HarmonyOS は同じ共有 React 設定ページを使い、Windows、iOS、Android はそれぞれのネイティブ設定画面を使います。設定の業務ルールは共有の Rust 層に置き、各プラットフォームの画面は画面だけを担うべきものとしています（現時点では一部のルールがまだネイティブ画面側に書かれています）。React の管理画面は Tauri を介して通常の Rust 業務ライブラリを呼び出し、入力アルゴリズムは msime-engine が提供します。
+水杉 IME（MSIME）は、Android、iOS、macOS、Linux、Windows、HarmonyOS 向けのマルチプラットフォーム中国語入力メソッドです。6 つのプラットフォームはそれぞれ独自のネイティブ入力メソッドホストを持ち、いずれも同じ共有入力ランタイムに接続しています。設定画面はプラットフォームごとに担当が分かれており、macOS、Linux、HarmonyOS は同じ共有 React 設定ページを使い、Windows、iOS、Android はそれぞれのネイティブ設定画面を使います。設定の業務ルールは共有の Rust 層に置き、各プラットフォームの画面は画面だけを担うべきものとしています（現時点では一部のルールがまだネイティブ画面側に書かれています）。React 設定ページは macOS と Linux では Tauri を介して通常の Rust 業務ライブラリを呼び出し、HarmonyOS では Tauri を経由せず、ArkWeb が読み込んで ArkTS のネイティブブリッジと NAPI を通じて Rust を呼び出します。入力アルゴリズムは msime-engine が提供します。
 
 プロジェクトのリンク：[msime.app](https://msime.app/) · [GitHub リポジトリ](https://github.com/metasequoiaime/msime) · [コントリビューター](https://github.com/metasequoiaime/msime/graphs/contributors) · [問題の報告](https://github.com/metasequoiaime/msime/issues) · [コード署名ポリシー / Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
 

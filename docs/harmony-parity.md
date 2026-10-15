@@ -136,4 +136,6 @@ ArkTS 本身也有一道：`tsc`、逻辑套件、设置包构建全绿并不代
 
 鸿蒙宿主作为系统输入法完整可用，装机运行的验收记录与复现步骤在 [platforms/harmony/README.md](../platforms/harmony/README.md)：系统接受本输入法并拉起扩展进程；`ArkTS → NAPI → Rust → C++ Engine` 整条链打通；共享 React 界面逐页渲染（欢迎流程、首页、词库页、账号页、社区页）；键盘在本应用和第三方应用里各验证过一次输入——`nihao` → 候选 `你好` → 上屏；回车键分别读作「前往」和「搜索」，都取自各自编辑器声明的动作，组合进行中变为「选定」；词库页显示的规格与提交号与锁文件一致。2-in-1 形态上安装、启用、切换为当前输入法同样验证通过，那是硬件键盘相关功能（模式和弦、语音快捷键、维护和弦）的目标形态。
 
+> 2026-10-15 补注：上段的 `ArkTS → NAPI → Rust → C++ Engine` 是验收当时的链路。2026-09-30 起引擎换成纯 Rust 的 `crates/engine`（见 [platforms/harmony/README.md](../platforms/harmony/README.md)），现在的链路是 ArkTS 经 NAPI（`platforms/harmony/native/client_napi.cpp`）到 `crates/host-api`，再到 `crates/input-runtime` 和 `crates/engine`，仓库里已经没有 C++ Engine。
+
 也记下一个只有设备会告诉你的操作事实：`ime -e <bundle>` 默认进 `BASIC_MODE`，而那个模式下框架不会创建面板、扩展的 ArkTS 完全不运行，且没有任何错误提示；必须 `-f`。

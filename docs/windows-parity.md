@@ -2079,14 +2079,14 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 
 ### Windows 原生设置窗口的页面归属与叫法跟共享设置界面对齐（2026-10-02）
 
-> 本节记录 2026-10-02 的状态，其中跳共享应用的设置路由（`settings:skin`、`settings:tools`、`settings:input`）已被 2026-10-11 合并的 #7129（`feat/windows-native-settings`，合并提交 04c6af6e96）取代：Windows 设置窗口现在原生绘制全部 18 页，不再有交给共享应用的设置页，只有 5 个面板仍拉起 `MSIME.exe`（`platforms/windows/settings/SettingsNavigation.h` 的 `pages` 与 `shell_links`）。现状以 `platforms/windows/settings/README.md` 为准。
-
 - 侧栏：「工具」组新增「AI 辅助」（共享页 `ai`），「标点与翻译」页去掉 AI 组（启用开关、服务商入口和打不开的「AI 对话」行）；`chat` 路由打开「AI 辅助」，AI 对话在共享应用里是它的子页。桌面端不再有「社区」页：社区皮肤在共享应用「主题」页的「社区皮肤」标签里，本窗口「主题」页的「社区皮肤」一行打开 `settings:skin`，`community` 路由打开本窗口的「主题」页。原来的「账户与社区」组只剩账号页，改名「账号」，页面改名「账号与同步」。
 - 「剪贴板」页改为打开共享应用的「剪贴板」页（`settings:tools`，本机剪贴板历史开关和云剪贴板入口都在那里），不再直接打开云剪贴板面板；侧栏名字随之从「云剪贴板」改回与共享界面一致的「剪贴板」，`tools` 路由打开它而不是「快捷键」页。
 - 页面内容按共享界面的分组摆放：中英混输、触发字符数、emoji 混输、颜文字混输从「标点与翻译 › 多语言与释义」移到「输入 › 候选与联想」，删掉「输入」页指向它们的「前往」行；词语学习改名「学习选词习惯」放进同一组；「拼音方案调频」从「词库」移到「输入」页末尾；Shift 加字母的本地模式组从「快捷键」移到「输入」，统一叫「快捷模式」；「切换中英文」从「输入」移到「快捷键 › 输入模式切换」，删掉「快捷键」页指回「输入」的那一行，「恢复默认快捷键」只恢复 `keybindings`；「词库 › 学习」里的「剪贴板历史」开关去掉，由共享「剪贴板」页负责。「词库」页只剩「管理」组。
 - 「辅助码详细设置」改为「辅助码插件」，打开共享 `settings:input`。共享路由里已不是独立页面的 `helpcode` 与 `download` 从 `route_aliases` 里删掉，不保留兼容映射。
 - 叫法：「主题模式」改为「颜色模式」，各界面主题的「跟随全局」改为「跟随颜色模式」，「覆盖主题模式」与「预览跟随主题模式」改为「覆盖颜色模式」，候选窗口主题与悬浮工具栏主题的说明写出各自只影响哪个界面；「关于」页的「数据与隐私」改「许可与隐私」、「开源许可」改「开源许可协议」、「版本发布记录」改「历史版本」；连接 AI 助手说明里的「候选框皮肤」改「候选窗口皮肤」；安装器 `config.default.toml` 的注释同步改为「颜色模式」。
 - 证据：`windows-settings-navigation` 覆盖新的侧栏、路由表与跳转目标，本机用 clang 编译运行通过。`main.cpp` 依赖 WinUI 3，本机没有编译，只能交给 Windows CI。
+
+> 2026-10-15 补注：本节记录 2026-10-02 的状态，其中跳共享应用的设置路由（`settings:skin`、`settings:tools`、`settings:input`）已被 2026-10-11 合并的 #7129（`feat/windows-native-settings`，合并提交 04c6af6e96）取代：Windows 设置窗口现在原生绘制全部 18 页，不再有交给共享应用的设置页，只有 5 个面板仍拉起 `MSIME.exe`（`platforms/windows/settings/SettingsNavigation.h` 的 `pages` 与 `shell_links`）。现状以 `platforms/windows/settings/README.md` 为准。
 
 ### Windows：使用上报改走共享上报器，默认开启（2026-10-02）
 
@@ -2113,8 +2113,6 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 
 ### 安装器升级与卸载生命周期（2026-09-23）
 
-> 本节「升级与卸载不停设置窗口和面板」一条写的进程形态已被 41f15b5b22（#733，2026-09-24 用 WinUI 3 重建设置）取代：`msime-client-settings.exe` 现在是 WinUI 3 原生设置程序，表情、屏幕键盘、手写等面板由 Tauri 的 `MSIME.exe` 承载（`platforms/windows/src/system/ShellSurfaces.h` 的 `shell_executable_names`），`StopImeProcesses` 按目录停掉 server 目录下的这些进程（`platforms/windows/installer/msime_setup.iss`）。
-
 对照来源 `installer/msime_setup.iss` 与 `server/src/main.cpp` 逐条核对后，下面六处差异都成立，一并修掉；另外顺带发现一处数据目录标记的问题。
 
 - **卸载删不掉自定义数据目录**：`DataDir` 注册表值带 `uninsdeletevalue`，卸载步骤里就已被删掉，`usPostUninstall` 再调 `GetDataDir` 只会回落到默认的 `{localappdata}\metasequoiaime`，自定义目录因此永远留在磁盘上。现在 `InitializeUninstall` 像缓存 `VersionDirName` 一样先调 `ResolvePreviousDataDir` 缓存路径，`usPostUninstall` 只删这个缓存路径，且仍要求它带所有权标记。注册表值照旧删除。
@@ -2126,6 +2124,8 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - **升级清理删掉了所有权标记**：`CleanAppDataExceptUserFiles` 在 `PrepareToInstall` 写入 `.metasequoiaime-data` 之后、`ssPostInstall` 之前执行，保留名单里没有标记文件，升级中途失败时重试和卸载都不再认这个目录。标记现在列入保留名单。
 
 回归：新增 `installer/tests/lifecycle.ps1`（进程停止顺序、卸载用缓存路径、权限与标记），`watchdog-task.ps1` 改为要求内层引号并加 Task Scheduler 往返，`tauri-layout.ps1` 原本断言一个已不存在的 `DataDirIsSafe`，改为断言现在的 `DataDirRejectionReason`；这几个套件与 `tsf-registration.ps1` 接进 CI 的「Windows release script tests」。`windows-installer-launch` 另外钉住卸载使用缓存路径、安装器的 `--production` 启动不算受监管；`windows-server-launch` 钉住 `supervised` 的取值。发布流水线上的 `install-smoke.ps1` 改用 `/DATADIR` 指定的自定义数据目录安装，安装后核对登录任务存下的程序是完整的 Watchdog 路径且没有参数、数据目录授予 Users 修改权限并带 Medium 完整性标签，卸载后核对这个自定义目录已被删除。
+
+> 2026-10-15 补注：本节「升级与卸载不停设置窗口和面板」一条写的进程形态已被 41f15b5b22（#733，2026-09-24 用 WinUI 3 重建设置）取代：`msime-client-settings.exe` 现在是 WinUI 3 原生设置程序，表情、屏幕键盘、手写等面板由 Tauri 的 `MSIME.exe` 承载（`platforms/windows/src/system/ShellSurfaces.h` 的 `shell_executable_names`），`StopImeProcesses` 按目录停掉 server 目录下的这些进程（`platforms/windows/installer/msime_setup.iss`）。
 
 ### Windows 对齐遗留四项（2026-09-24）
 

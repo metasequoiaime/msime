@@ -25,7 +25,7 @@
 [![Last commit](https://img.shields.io/github/last-commit/metasequoiaime/msime/develop)](https://github.com/metasequoiaime/msime/commits/develop)
 <a href="https://depot.dev/?utm_source=metasequoiaime"><img src="https://depot.dev/badges/built-with-depot.svg" alt="Built with Depot" height="20"></a>
 
-메타세쿼이아 IME(MSIME)는 Android, iOS, macOS, Linux, Windows, HarmonyOS를 위한 멀티플랫폼 중국어 입력기입니다. 여섯 플랫폼은 각자 고유한 네이티브 입력기 호스트를 가지며, 모두 동일한 공유 입력 런타임에 연결됩니다. 설정 화면은 플랫폼별로 담당이 나뉘어 macOS, Linux, HarmonyOS는 동일한 공유 React 설정 페이지를, Windows, iOS, Android는 각자의 네이티브 설정 화면을 쓰며, 설정의 비즈니스 규칙은 공유 Rust 계층에 두고 각 플랫폼 화면은 화면만 맡아야 합니다(현재는 일부 규칙이 아직 네이티브 화면 쪽에 적혀 있습니다). React 관리 화면은 Tauri를 통해 일반 Rust 비즈니스 라이브러리를 호출하며, 입력 알고리즘은 msime-engine이 제공합니다.
+메타세쿼이아 IME(MSIME)는 Android, iOS, macOS, Linux, Windows, HarmonyOS를 위한 멀티플랫폼 중국어 입력기입니다. 여섯 플랫폼은 각자 고유한 네이티브 입력기 호스트를 가지며, 모두 동일한 공유 입력 런타임에 연결됩니다. 설정 화면은 플랫폼별로 담당이 나뉘어 macOS, Linux, HarmonyOS는 동일한 공유 React 설정 페이지를, Windows, iOS, Android는 각자의 네이티브 설정 화면을 쓰며, 설정의 비즈니스 규칙은 공유 Rust 계층에 두고 각 플랫폼 화면은 화면만 맡아야 합니다(현재는 일부 규칙이 아직 네이티브 화면 쪽에 적혀 있습니다). React 설정 페이지는 macOS와 Linux에서는 Tauri를 통해 일반 Rust 비즈니스 라이브러리를 호출하고, HarmonyOS에서는 Tauri를 거치지 않고 ArkWeb이 로드하여 ArkTS 네이티브 브리지와 NAPI를 통해 Rust를 호출하며, 입력 알고리즘은 msime-engine이 제공합니다.
 
 프로젝트 홈페이지: [msime.app](https://msime.app/) · [GitHub 저장소](https://github.com/metasequoiaime/msime) · [기여자](https://github.com/metasequoiaime/msime/graphs/contributors) · [문제 보고](https://github.com/metasequoiaime/msime/issues) · [코드 서명 정책 / Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
 

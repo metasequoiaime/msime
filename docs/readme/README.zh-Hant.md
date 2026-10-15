@@ -25,7 +25,7 @@
 [![Last commit](https://img.shields.io/github/last-commit/metasequoiaime/msime/develop)](https://github.com/metasequoiaime/msime/commits/develop)
 <a href="https://depot.dev/?utm_source=metasequoiaime"><img src="https://depot.dev/badges/built-with-depot.svg" alt="Built with Depot" height="20"></a>
 
-水杉輸入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 與 HarmonyOS 的多平台中文輸入法。六個平台各有自己的原生輸入法宿主，都接入同一套共用輸入執行環境；設定介面按平台歸屬：macOS、Linux 與 HarmonyOS 用同一份共用 React 設定頁，Windows、iOS 與 Android 用各自的原生設定介面，設定的業務規則應當放在共用的 Rust 層、各平台介面只做介面（目前還有部分規則寫在原生介面裡）；React 管理介面透過 Tauri 呼叫一般的 Rust 業務函式庫；輸入演算法由 msime-engine 提供。
+水杉輸入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 與 HarmonyOS 的多平台中文輸入法。六個平台各有自己的原生輸入法宿主，都接入同一套共用輸入執行環境；設定介面按平台歸屬：macOS、Linux 與 HarmonyOS 用同一份共用 React 設定頁，Windows、iOS 與 Android 用各自的原生設定介面，設定的業務規則應當放在共用的 Rust 層、各平台介面只做介面（目前還有部分規則寫在原生介面裡）；React 設定頁在 macOS 與 Linux 上透過 Tauri 呼叫一般的 Rust 業務函式庫，在 HarmonyOS 上不經過 Tauri，由 ArkWeb 載入、經 ArkTS 原生橋與 NAPI 呼叫 Rust；輸入演算法由 msime-engine 提供。
 
 專案首頁：[msime.app](https://msime.app/) · [GitHub 儲存庫](https://github.com/metasequoiaime/msime) · [貢獻者](https://github.com/metasequoiaime/msime/graphs/contributors) · [問題回報](https://github.com/metasequoiaime/msime/issues) · [程式碼簽章政策 / Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
 

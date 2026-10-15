@@ -9,7 +9,7 @@ description: Build, launch and verify a 水杉输入法 platform host — macOS,
 
 所以「跑一下看看」永远从 `platforms/<os>` 开始，`pnpm tauri dev` 不是答案。
 
-共享 React 设置页（打字统计、词库、背单词……）确实由 Tauri 层渲染，但它是**原生宿主按需拉起的公共组件**：要看某个共享设置页，先把宿主编出来，再让宿主打开它。
+共享 React 设置页（打字统计、词库、背单词……）是**原生宿主按需拉起的公共组件**，而且只在三个平台上是设置界面：macOS 与 Linux 由宿主拉起 Tauri 设置应用，HarmonyOS 由 `pages/Settings.ets` 用 ArkWeb 加载、不经过 Tauri。Windows、iOS 与 Android 发布包的设置是原生界面，在那里看不到这些页面（归属见 [ARCHITECTURE.md](../../../docs/ARCHITECTURE.md#设置界面按平台归属)）。要看某个共享设置页，先把这三个平台之一的宿主编出来，再让宿主打开它。
 
 ## 先确认前置条件，不要假设没有
 
