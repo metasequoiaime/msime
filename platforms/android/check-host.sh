@@ -922,6 +922,11 @@ for pattern in 'KeyHintButton\.CORNER_HINT_SP' 'KeyHintButton\.CORNER_HINT_TOP_D
     exit 1
   fi
 done
+# 数字角标与字母角标同色：皮肤的 hint 色，不用强调色（原生皮肤下是系统蓝，压在每个键上太显眼）。
+if ! rg -q 'digitButton\.setDigitColor\(color\(target\.hint\(\)\)\)' "$repo_root/platforms/android/java/app/msime/android/core/ImeStyler.java"; then
+  echo "The Android nine-key digit hint must use the skin's hint colour like the letter-key corner hint" >&2
+  exit 1
+fi
 # 文本编辑面板（#5625）是工具栏面板的一员：closeToolbarPanels 要关掉它、anyToolbarPanelOpen 要算上它，否则换输入框时它会留在下一个编辑器的键盘上，收起键也不会变成「返回键盘」。
 if ! sed -n '/void closeToolbarPanels()/,/^    }$/p' "$account_service" | rg_q_stdin 'imeTextEditPanel\.close\(\)' \
   || ! sed -n '/boolean anyToolbarPanelOpen()/,/^    }$/p' "$account_service" | rg_q_stdin 'shown\(textEditPanel\)|ViewPolicy\.isVisible\(textEditPanel\)'; then

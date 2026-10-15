@@ -1346,12 +1346,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         let number = UILabel()
         number.text = String(digit)
         number.font = .systemFont(ofSize: 10)
-        number.textColor = KeyboardTheme.current.accent
+        number.textColor = KeyboardTheme.current.secondary
         number.accessibilityIdentifier = "keyNumberHint"
         number.translatesAutoresizingMaskIntoConstraints = false
         number.isAccessibilityElement = false
         button.addSubview(number)
-        // 数字提示画在右上角，与 26 键的符号角标同一位置（距上边 3pt、右边 5pt，`attachCornerHintLabel`），键面文字因此居中，不再为提示下移。
+        // 数字提示画在右上角，与 26 键的符号角标同一位置和颜色（距上边 3pt、右边 5pt，皮肤的次要色，`attachCornerHintLabel`），键面文字因此居中，不再为提示下移。
         NSLayoutConstraint.activate([
           number.topAnchor.constraint(equalTo: button.topAnchor, constant: 3),
           number.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -5),
@@ -7023,7 +7023,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           ? Self.stripBackground(skin, palette: candidatePalette)
           : skin.keyBackground.withAlphaComponent(0.6)
       }
-      if let label = node as? UILabel, label.accessibilityIdentifier == "keyNumberHint" { label.textColor = skin.accent }
+      if let label = node as? UILabel, label.accessibilityIdentifier == "keyNumberHint" { label.textColor = skin.secondary }
       node.subviews.forEach { recolor($0) }
     }
     recolor(view)
