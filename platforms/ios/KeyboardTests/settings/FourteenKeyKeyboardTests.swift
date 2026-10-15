@@ -6,10 +6,6 @@ import UIKit.UIGestureRecognizerSubclass
 @MainActor
 final class FourteenKeyKeyboardTests: XCTestCase {
   private var previousScheme = InputSchemePreference.scheme
-  /// 测试里会改的键盘偏好，结束时还原成模拟器上原来的值。
-  private var savedPreferences: [(UserDefaults, String, Any?)] = []
-  private let preferenceKeys = [(InlinePreeditPreference.defaults, InlinePreeditPreference.key),
-                                (InlinePreeditPreference.defaults, InlinePreeditPreference.styleKey)]
 
   // 认领全部方案，免得对 `InputSchemePreference.scheme` 的赋值落到模拟器上残留的别的方案。14 键要用户自己打开，不先启用就选不上。见 InputSchemeTestSupport。
   override func setUp() {
@@ -17,14 +13,10 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     enableAllInputSchemes()
     previousScheme = InputSchemePreference.scheme
     InputSchemePreference.scheme = .fourteenKey
-    savedPreferences = preferenceKeys.map { defaults, key in (defaults, key, defaults.object(forKey: key)) }
   }
 
   override func tearDown() {
     InputSchemePreference.scheme = previousScheme
-    for (defaults, key, value) in savedPreferences {
-      if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
-    }
     super.tearDown()
   }
 
@@ -253,9 +245,8 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(shown(qw))
   }
 
-  /// 行内预编辑开着时，14 键的组码不写进输入框；本地输入模式画 26 键，组字照常标记，与全拼 26 键和 Android 相同。
+  /// 14 键的组码不写进输入框；本地输入模式画 26 键，组字照常标记，与全拼 26 键和 Android 相同。
   func testInlinePreeditSkipsTheCodesButMarksALocalMode() throws {
-    InlinePreeditPreference.style = .pinyin
     let controller = makeController(width: 390)
     try tap(["BN", "UI"], in: controller)
     XCTAssertFalse(preedit(in: controller).isEmpty)

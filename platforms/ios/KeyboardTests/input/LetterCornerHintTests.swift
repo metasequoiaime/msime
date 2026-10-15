@@ -85,7 +85,7 @@ final class LetterCornerHintTests: XCTestCase {
     }
     controller.view.layoutIfNeeded()
     let preedit = try button("preeditButton", in: controller)
-    XCTAssertTrue(preedit.configuration?.title?.contains("ni") == true, "ni is composing")
+    XCTAssertTrue(preedit.accessibilityValue?.contains("ni") == true, "ni is composing")
 
     // 在 q 上下滑、松手时交给控制器的内容。
     let q = try key(labelled: "字母 Q", in: controller)

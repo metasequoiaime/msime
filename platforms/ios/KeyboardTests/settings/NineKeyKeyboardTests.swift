@@ -211,8 +211,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     for digit in "94" { try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered) }
     try button("nineKeyMiddleKey", in: controller).sendActions(for: .primaryActionTriggered)
     for digit in "26" { try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered) }
-    // 读音行显示 Engine 的拼音读音（`nine_key_reading`），不再是数字串，所以看读音：分词处断开，第一个音节正好是 94 的两个字母。
-    let reading = try button("preeditButton", in: controller).configuration?.title ?? ""
+    // 组字是 Engine 的拼音读音（`nine_key_reading`），不再是数字串，所以看读音：分词处断开，第一个音节正好是 94 的两个字母。读音写进输入框，读屏值仍是完整的组字。
+    let reading = try button("preeditButton", in: controller).accessibilityValue ?? ""
     XCTAssertTrue(reading.contains("'"), reading)
     XCTAssertEqual(reading.split(separator: "'").first?.count, 2, "the separator reaches the composition: \(reading)")
   }
@@ -1575,7 +1575,7 @@ final class NineKeyKeyboardTests: XCTestCase {
 
     try letterKey("N").sendActions(for: .primaryActionTriggered)
     try letterKey("I").sendActions(for: .primaryActionTriggered)
-    XCTAssertFalse(try button("preeditButton", in: controller).configuration?.title?.isEmpty ?? true)
+    XCTAssertFalse(try button("preeditButton", in: controller).accessibilityValue?.isEmpty ?? true)
 
     let shift = try button("shiftButton", in: controller)
     shift.sendActions(for: .primaryActionTriggered)
@@ -2306,7 +2306,7 @@ final class NineKeyKeyboardTests: XCTestCase {
   // The presentation cycle is what the device actually does: show, type, put away, show again.
   // Releasing the dictionary access on dismissal must not leave the next presentation unable to
   // convert, and a dropped keystroke would still have played its click.
-  /// 工具栏和候选共用一个顶行：空闲时只有工具栏，图标在整行里居中；组字时由候选行在原位替换它，12pt 的拼写排在候选行最左边（#7405），顶行下方的内容不移动。拼写很长时最多占三成宽。
+  /// 工具栏和候选共用一个顶行：空闲时只有工具栏，图标在整行里居中；组字时由候选行在原位替换它，顶行下方的内容不移动。拼写写进输入框，候选栏不画它：读音那一段收成零宽，第一个候选贴在行首，拼写变长也不移动。
   func testComposingSwapsTheToolbarForTheCandidatesInTheSameRow() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -2340,24 +2340,17 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
     controller.view.layoutIfNeeded()
     XCTAssertTrue(toolbar.isHidden)
-    XCTAssertFalse(reading.isHidden)
-    XCTAssertEqual(reading.frame.minY, 0, accuracy: 0.5)
-    XCTAssertEqual(reading.frame.height, idleStrip.height, accuracy: 0.5, "the spelling shares the candidate line")
-    let preedit = try button("preeditButton", in: controller)
-    XCTAssertFalse(preedit.isHidden)
-    XCTAssertEqual(preedit.configuration?.title, "nihao")
-    let transformer = try XCTUnwrap(preedit.configuration?.titleTextAttributesTransformer)
-    let attributes = transformer.callAsFunction(AttributeContainer())
-    XCTAssertEqual(attributes.uiKit.font?.pointSize, KeyboardViewController.preeditFontSize)
-    XCTAssertEqual(try XCTUnwrap(attributes.uiKit.kern), KeyboardViewController.preeditFontSize * 0.02, accuracy: 0.001)
+    XCTAssertEqual(reading.frame.width, 0, accuracy: 0.5, "the strip draws no spelling")
+    XCTAssertTrue(try button("preeditButton", in: controller).isHidden)
+    XCTAssertEqual(controller.inlineMarkedText, "nihao", "the spelling is written into the field")
     let candidate = try button("candidate-1", in: controller)
     let candidateFrame = candidate.convert(candidate.bounds, to: strip)
-    XCTAssertGreaterThanOrEqual(candidateFrame.minX, reading.frame.maxX - 0.5, "the candidates follow the spelling")
+    XCTAssertLessThanOrEqual(candidateFrame.minX, 2.5, "the first candidate starts at the leading edge")
     XCTAssertGreaterThanOrEqual(candidateFrame.minY, -0.5)
     XCTAssertLessThanOrEqual(candidateFrame.maxY, idleStrip.height + 0.5)
     XCTAssertEqual(strip.frame, idleStrip, "the row keeps its height while composing")
     XCTAssertEqual(space.convert(space.bounds, to: controller.view), idleSpace, "the keys do not move")
-    attachTopRowScreenshot(of: controller, named: "Spelling inside the candidate line")
+    attachTopRowScreenshot(of: controller, named: "Candidates from the leading edge")
 
     for letter in "zhonghuarenmingongheguo" {
       let key = try XCTUnwrap(descendants(controller.view).first {
@@ -2366,11 +2359,11 @@ final class NineKeyKeyboardTests: XCTestCase {
       key.sendActions(for: .primaryActionTriggered)
     }
     controller.view.layoutIfNeeded()
-    XCTAssertLessThanOrEqual(
-      reading.frame.width, strip.bounds.width * KeyboardViewController.inlineReadingMaximumShare + 0.5,
-      "a long spelling is cut short rather than pushing the candidates off the row")
+    let longCandidate = try button("candidate-1", in: controller)
+    XCTAssertEqual(longCandidate.convert(longCandidate.bounds, to: strip).minX, candidateFrame.minX, accuracy: 0.5,
+                   "a long spelling does not push the candidates")
     XCTAssertEqual(strip.frame, idleStrip)
-    attachTopRowScreenshot(of: controller, named: "Long spelling cut at three tenths")
+    attachTopRowScreenshot(of: controller, named: "Long spelling keeps the candidates in place")
   }
 
   private func attachTopRowScreenshot(of controller: KeyboardViewController, named name: String) {
@@ -2469,7 +2462,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         key.sendActions(for: .primaryActionTriggered)
       }
       controller.view.layoutIfNeeded()
-      XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, "nihao",
+      XCTAssertEqual(try button("preeditButton", in: controller).accessibilityValue, "nihao",
                      "round \(round): the keystrokes never reached the engine")
       XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"),
                     "round \(round): no Chinese candidate")
@@ -3304,8 +3297,9 @@ final class NineKeyKeyboardTests: XCTestCase {
       .compactMap { $0.configuration?.title }
   }
 
+  /// 正在组的内容：拼写写进输入框、候选栏不画它，读屏值仍是完整的组字。
   private func preedit(in controller: KeyboardViewController) throws -> String {
-    try XCTUnwrap(button("preeditButton", in: controller).configuration?.title)
+    try XCTUnwrap(button("preeditButton", in: controller).accessibilityValue)
   }
 
   /// 全拼九键的展开面板是三栏、只盖住键区；在面板里选拼音、退格都不收起面板，而是按新的一代候选重建。
