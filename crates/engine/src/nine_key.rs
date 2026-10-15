@@ -58,6 +58,8 @@ const SEEDED_PATH_LIMIT: usize = 24;
 const SMALL_QUERY_KEY_BATCH: usize = 64;
 // 少量九宫格候选直接扫描已保留词，避免排序后为一次去重分配哈希表。
 const SMALL_CANDIDATE_DEDUP: usize = 64;
+// 短列表保留直接排序，避免额外创建缓存键数组。
+const SMALL_CANDIDATE_SORT: usize = 32;
 
 /// The digit printed beside each of `a..=z` (NK:37).
 const KEYPAD: &[u8; 26] = b"22233344455566677778889999";
@@ -2259,6 +2261,8 @@ type RankKey = (Reverse<usize>, bool, bool, bool, bool, Reverse<i64>);
 /// 简拼行（`is_initials_row`）在同样覆盖的词典行里的位置由 `initials_lead` 决定：用户在每个数字之间都打了切分时排在前面，否则先排在音节行之后、整句行之前，去重后再由 `interleave_initials` 按权重插进音节行里。
 /// `grid` 只用来算全拼占几个组码：九键双拼一个音节两位，不是一个字母一位。
 fn rank_key(item: &WordItem, prefer_exact: bool, initials_lead: bool, grid: KeyGrid) -> RankKey {
+    #[cfg(all(test, debug_assertions))]
+    cached_rank_tests::KEY_EVALUATIONS.with(|count| count.set(count.get() + 1));
     let completion =
         prefer_exact && grid.reading_code_len(&item.canonical_pinyin) > item.pinyin.len();
     let initials = is_initials_row(item);
@@ -2437,7 +2441,7 @@ fn push_ranked(
     candidates.push(candidate);
 }
 
-/// Stable sort by `rank_key`, dedup by word, capped (NK:283-307). 截断前再把用户用过的简拼行往前挪（`boost_used_initials`）。
+/// 按 `rank_key` 稳定排序、按词去重，简拼交错和个人调频后再截断（NK:283-307）。
 fn rank_candidates(
     candidates: &mut Vec<WordItem>,
     prefer_exact: bool,
@@ -2445,7 +2449,11 @@ fn rank_candidates(
     boost: Option<&InitialsBoost>,
     grid: KeyGrid,
 ) {
-    candidates.sort_by_key(|item| rank_key(item, prefer_exact, initials_lead, grid));
+    if candidates.len() <= SMALL_CANDIDATE_SORT {
+        candidates.sort_by_key(|item| rank_key(item, prefer_exact, initials_lead, grid));
+    } else {
+        candidates.sort_by_cached_key(|item| rank_key(item, prefer_exact, initials_lead, grid));
+    }
     retain_unique_words(candidates);
     if !initials_lead {
         interleave_initials(candidates);
@@ -2940,6 +2948,9 @@ impl SyllablePrior {
         self.syllables.get(syllable).copied().unwrap_or(0.0)
     }
 }
+
+#[cfg(test)]
+mod cached_rank_tests;
 
 #[cfg(test)]
 mod tests {
