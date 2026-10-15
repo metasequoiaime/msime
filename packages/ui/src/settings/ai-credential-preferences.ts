@@ -5,3 +5,6 @@ export type AiCredentialPreferences = Pick<
   AiAssistantPreferences,
   "provider" | "endpoint" | "model"
 >;
+
+/** AI 凭据测试启用条件共同使用的最小偏好投影。 */
+export type AiCredentialTestPreferences = Pick<AiAssistantPreferences, "enabled" | "model">;

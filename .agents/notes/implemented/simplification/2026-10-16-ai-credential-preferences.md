@@ -21,6 +21,6 @@ Status: implemented
 
 ## Consequences
 
-- 两个 AI 凭据配置模块共用无 React 的 `AiCredentialPreferences`，保存和测试函数的输出字段与运行逻辑不变。
-- 原函数路径和调用方式保持；类型测试覆盖投影与 `AiAssistantPreferences` 的结构一致。
+- 两个 AI 凭据配置模块共用无 React 的 `AiCredentialPreferences`，保存和测试函数的输出字段与运行逻辑不变；测试禁用条件另共用 `AiCredentialTestPreferences` 的最小投影。
+- 原函数路径和调用方式保持；类型测试覆盖两个投影与 `AiAssistantPreferences` 的结构一致。
 - 配置测试、类型检查、构建、lint、笔记检查和 quick 门禁验证迁移。
