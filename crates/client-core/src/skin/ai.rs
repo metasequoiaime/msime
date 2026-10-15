@@ -8,6 +8,7 @@ use crate::account::{
     AccountApi, AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
 };
 use crate::preferences::{TouchKeyboardSkinDesign, TouchSkinKeyMaterial, TouchSkinKeyShape};
+use crate::theme::{luminance, readable_text};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
@@ -724,30 +725,10 @@ fn parse(text: &str) -> Result<Vec<AiSkinPlan>, AiSkinError> {
     Ok(result)
 }
 
-fn luminance(rgb: u32) -> f64 {
-    let channel = |shift: u32| {
-        let value = ((rgb >> shift) & 0xFF) as f64 / 255.0;
-        if value <= 0.04045 {
-            value / 12.92
-        } else {
-            ((value + 0.055) / 1.055).powf(2.4)
-        }
-    };
-    0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
-}
-
 fn contrast(first: u32, second: u32) -> f64 {
     let first = luminance(first);
     let second = luminance(second);
     (first.max(second) + 0.05) / (first.min(second) + 0.05)
-}
-
-pub(crate) fn readable_text(background: u32) -> u32 {
-    if luminance(background) > 0.179 {
-        0
-    } else {
-        0xFFFFFF
-    }
 }
 
 fn has_readable_text(design: &TouchKeyboardSkinDesign) -> bool {

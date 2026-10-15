@@ -2941,6 +2941,7 @@ dependencies = [
  "toml 1.1.6+spec-1.1.0",
  "unicode-general-category",
  "unicode-segmentation",
+ "url",
  "uuid",
  "winapi-util",
  "x25519-dalek",

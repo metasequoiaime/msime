@@ -4,8 +4,7 @@
 //!
 //! 版本表在编译期嵌入，结构由本模块的类型解析，跨字段和跨文件的约束（资源组件与锁文件一致、功能依赖的组件、冻结基线等）由 `scripts/test-editions.py` 检查。各平台的身份标识（`platforms` 段）大多由平台构建脚本读取；Rust 进程在运行时要用到的那几段（macOS、Windows 和 Linux）在这里解析，其余平台的段本模块不解析。
 
-use crate::account::AccountPreferenceValue;
-use crate::preferences::{InputScheme, TouchKeyboardScheme};
+use crate::preferences::{AccountPreferenceValue, InputScheme, TouchKeyboardScheme};
 use crate::resources::{ResourceError, ResourceSet};
 use serde::Deserialize;
 use std::collections::BTreeMap;

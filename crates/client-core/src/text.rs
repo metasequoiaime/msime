@@ -152,3 +152,11 @@ pub fn is_bounded_chars_without_nul(value: &str, maximum_characters: usize) -> b
 pub(crate) fn is_ascii_uri_unreserved(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~')
 }
+
+/// 皮肤、插件包等文件夹名的形状：1 到 64 字节，首字符是 ASCII 字母或数字，其余是小写 ASCII 标识符字符或点。
+pub(crate) fn safe_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id.as_bytes()[0].is_ascii_alphanumeric()
+        && is_ascii_lowercase_identifier_with_dots(id)
+}

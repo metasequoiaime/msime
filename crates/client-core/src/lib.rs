@@ -58,6 +58,7 @@ pub use text::{
     is_bounded_chars_without_nul, is_bounded_text, is_bounded_text_with_chars,
     is_bounded_text_with_options, is_bounded_utf16, is_hex_color, is_lower_hex,
 };
+pub mod theme;
 pub mod translation;
 pub mod typing_statistics;
 pub mod update_check;

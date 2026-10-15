@@ -14,7 +14,9 @@ use crate::account::{
     MAX_CLIPBOARD_RESPONSE_BYTES, MAX_ERROR_BODY_BYTES,
 };
 use crate::cloud::clipboard_e2e::{self, DriverError, HttpResponse, Operation};
-use crate::preferences::CloudClipboardRelayPreferences;
+use crate::preferences::{parse_relay_url, CloudClipboardRelayPreferences};
+/// 中继地址和令牌的校验定义在 `preferences`（偏好校验要用，放在这里会让 `preferences` 依赖本模块），从这里导回。
+pub use crate::preferences::{valid_relay_token, valid_relay_url};
 use reqwest::blocking::Client;
 use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
@@ -27,9 +29,6 @@ use std::time::{Duration, Instant};
 pub const RELAY_KEYSTORE_FILE: &str = "cloud-clipboard-relay-keystore";
 /// 同一台设备上的几个进程（输入法、设置窗口、面板）同时用中继时串行，免得第一次使用时各自登记出一台设备。
 const RELAY_LOCK_FILE: &str = "cloud-clipboard-relay.lock";
-const MAX_URL_BYTES: usize = 2048;
-const MIN_TOKEN_CHARS: usize = 16;
-const MAX_TOKEN_CHARS: usize = 256;
 /// 文件里是基地址、空间编号和约 130 个字符的密钥串，明显更大的不是这里写的。
 const MAX_KEYSTORE_FILE_BYTES: u64 = 8192;
 /// 驱动发出的请求体最多是 20 个封装或一条 16384 个字符的密文，远小于这个上限。
@@ -40,32 +39,6 @@ const LOCK_TIMEOUT: Duration = Duration::from_secs(60);
 const LOCK_POLL: Duration = Duration::from_millis(50);
 /// 保留期允许的天数，0 表示一直保留，与官方服务端相同。
 pub const RETENTION_DAYS: [u32; 4] = [0, 1, 7, 30];
-
-/// 中继地址是否可用：`https`（`http` 只放行 `localhost`、`127.0.0.1` 和 `[::1]`），有主机名，可以带路径前缀，不带查询串、片段和用户信息，不超过 2048 字节。
-pub fn valid_relay_url(url: &str) -> bool {
-    parse_relay_url(url).is_some()
-}
-
-/// 中继令牌是否可用：16 到 256 个可打印 ASCII 字符，不含空格。
-pub fn valid_relay_token(token: &str) -> bool {
-    (MIN_TOKEN_CHARS..=MAX_TOKEN_CHARS).contains(&token.len()) && crate::is_ascii_graphic(token)
-}
-
-fn parse_relay_url(url: &str) -> Option<Url> {
-    if url.is_empty() || !crate::text::is_bounded_text(url, MAX_URL_BYTES) {
-        return None;
-    }
-    let parsed = Url::parse(url).ok()?;
-    let shape = match parsed.scheme() {
-        "https" => crate::endpoint::valid_endpoint_shape(url, &parsed, "https"),
-        "http" => {
-            crate::endpoint::valid_endpoint_shape(url, &parsed, "http")
-                && matches!(parsed.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
-        }
-        _ => false,
-    };
-    (shape && !parsed.cannot_be_a_base() && parsed.query().is_none()).then_some(parsed)
-}
 
 /// 自建中继出错的原因。
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]

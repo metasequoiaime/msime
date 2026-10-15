@@ -319,28 +319,8 @@ pub struct AccountDictionarySnapshotRestore {
     pub reset: bool,
 }
 
-/// The deliberately small value set accepted by the account preferences API.
-/// Credentials, arbitrary JSON objects, and input contents never cross this
-/// boundary; platform hosts map their safe local settings to these scalars.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum AccountPreferenceValue {
-    Boolean(bool),
-    Integer(i64),
-    Number(f64),
-    String(String),
-}
-
-impl AccountPreferenceValue {
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Self::Boolean(_) => "boolean",
-            Self::Integer(_) => "integer",
-            Self::Number(_) => "number",
-            Self::String(_) => "string",
-        }
-    }
-}
+/// 定义在 `preferences`（`edition` 也要用它，放在这里会让 `edition` 依赖 `account`），从这里导回，原来的路径照常可用。
+pub use crate::preferences::AccountPreferenceValue;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AccountPreferences {
