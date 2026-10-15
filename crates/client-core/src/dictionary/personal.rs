@@ -262,6 +262,14 @@ struct PersonalDictionaryLock {
     _lock: File,
 }
 
+#[cfg(unix)]
+impl Drop for PersonalDictionaryLock {
+    fn drop(&mut self) {
+        // 操作结束即释放互斥，不能让 fork 到 exec 之间继承的描述符延长持锁时间。
+        let _ = file_lock::unlock(&self._lock);
+    }
+}
+
 impl PersonalDictionaryStore {
     pub fn new(directory: impl AsRef<Path>) -> Self {
         Self {
@@ -825,6 +833,38 @@ mod tests {
         ));
         assert_eq!(fs::read(root.path().join("sync.json")).unwrap(), original);
         assert_eq!(store.read().unwrap().requests.len(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn operation_lock_release_is_independent_of_inherited_descriptors() {
+        let root = tempfile::tempdir().unwrap();
+        let store = PersonalDictionaryStore::new(root.path());
+        let owner = store.lock().unwrap();
+        // 副本与 fork 继承的描述符一样，共享同一打开文件描述；无需依赖进程调度撞中窗口。
+        let inherited = owner._lock.try_clone().unwrap();
+        assert!(matches!(
+            store.request_page(0, None, ""),
+            Err(PersonalDictionaryError::Busy)
+        ));
+        drop(owner);
+
+        store.request_page(0, None, "fixture").unwrap();
+        assert_eq!(store.read().unwrap().requested_query, "fixture");
+
+        let next_owner = store.lock().unwrap();
+        // 旧副本销毁不能解开另一次操作独立获取的锁，失败的争用方也不能解开它。
+        drop(inherited);
+        assert!(matches!(
+            store.request_page(0, None, ""),
+            Err(PersonalDictionaryError::Busy)
+        ));
+        assert!(matches!(
+            store.request_page(0, None, ""),
+            Err(PersonalDictionaryError::Busy)
+        ));
+        drop(next_owner);
+        store.request_page(0, None, "").unwrap();
     }
 
     #[cfg(unix)]
