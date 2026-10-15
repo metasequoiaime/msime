@@ -51,6 +51,33 @@ function Find-ByName($parent, [string]$name) {
     $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $name)
     return $parent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
 }
+function Find-CheckBox($parent, [string]$name) {
+    $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $name)
+    $typeCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::CheckBox)
+    $condition = New-Object System.Windows.Automation.AndCondition($nameCondition, $typeCondition)
+    return $parent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+}
+function Assert-SelectedAccent($element) {
+    if ($element.Current.IsOffscreen) { throw 'Selected control is outside the screenshot' }
+    $bounds = $element.Current.BoundingRectangle
+    # 只检查控件左侧的选中标记，侧栏或正文里的品牌绿不能替它通过。
+    $bitmap = New-Object Drawing.Bitmap([int][Math]::Min(32, $bounds.Width), [int]$bounds.Height)
+    $graphics = [Drawing.Graphics]::FromImage($bitmap)
+    try {
+        $graphics.CopyFromScreen([int]$bounds.X, [int]$bounds.Y, 0, 0, $bitmap.Size)
+        $green = 0
+        for ($x = 0; $x -lt $bitmap.Width; $x++) {
+            for ($y = 0; $y -lt $bitmap.Height; $y++) {
+                $color = $bitmap.GetPixel($x, $y)
+                if ($color.G -gt 80 -and $color.G -gt $color.R * 1.3 -and $color.B -lt $color.G * 0.9) { $green++ }
+            }
+        }
+        if ($green -lt 8) { throw 'Selected control still uses the system accent instead of brand green' }
+    } finally {
+        $graphics.Dispose()
+        $bitmap.Dispose()
+    }
+}
 function Open-Page($window, [string]$page) {
     $item = Find-ById $window $page
     if (-not $item) { throw "Missing native page: $page" }
@@ -197,6 +224,9 @@ try {
             if ($saved.preferences.scheme -ne $scheme) { throw "Scheme was not saved: $scheme" }
             $content = Find-ById $window 'settings-content'
             $pattern = $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
+            if ($pattern.Current.VerticallyScrollable) { $pattern.SetScrollPercent(-1, 0) }
+            Start-Sleep -Milliseconds 350
+            Assert-SelectedAccent (Find-ById $window "scheme-$scheme")
             if ($pattern.Current.VerticallyScrollable) { $pattern.SetScrollPercent(-1, 55) }
             Start-Sleep -Milliseconds 500
             Save-Window $window "$theme-scheme-$scheme.png"
@@ -260,7 +290,7 @@ try {
         if (-not $size) { throw 'Toolbar preview size is missing' }
         $original = $size.Current.Name
         foreach ($enabled in @($true, $false)) {
-            $voice = Find-ByName (Find-ById $window 'settings-content') '语音输入'
+            $voice = Find-CheckBox (Find-ById $window 'settings-content') '语音输入'
             if (-not $voice) { throw 'Toolbar voice component is missing' }
             $voice.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
             $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -272,6 +302,7 @@ try {
             } while (($saved.preferences.floating_toolbar.voice -ne $enabled -or $changed -ne $enabled) -and [DateTime]::UtcNow -lt $deadline)
             if ($saved.preferences.floating_toolbar.voice -ne $enabled -or $changed -ne $enabled) { throw 'Toolbar component did not update preferences and preview together' }
             Start-Sleep -Milliseconds 350
+            if ($enabled) { Assert-SelectedAccent (Find-CheckBox (Find-ById $window 'settings-content') '语音输入') }
             Save-Window $window "$theme-toolbar-voice-$enabled.png"
         }
         # 菜单中的固定操作仍要写入真实历史存储，只操作上方构造的合成记录。

@@ -3204,14 +3204,10 @@ private:
     commit();
   }
 
-  // ---- Window chrome ----
-
-  void build_shell(double offset) {
-    Grid root;
-    root.RequestedTheme(palette_.dark ? ElementTheme::Dark : ElementTheme::Light);
-    root.Background(brush(palette_.window_bg));
-    // WinUI 的交互状态也使用品牌绿，避免开关、焦点和链接仍取系统蓝色。
-    auto resources = root.Resources();
+  // 直接覆盖控件模板查询的资源；全局强调色不会重算 WinUI 已解析的静态别名。
+  void apply_accent_resources(ResourceDictionary const &resources) {
+    if (Windows::UI::ViewManagement::AccessibilitySettings().HighContrast())
+      return;
     for (const auto *key : {L"SystemAccentColor", L"SystemAccentColorLight1",
                             L"SystemAccentColorLight2", L"SystemAccentColorLight3",
                             L"SystemAccentColorDark1", L"SystemAccentColorDark2",
@@ -3224,6 +3220,32 @@ private:
     for (const auto *key : {L"ToggleSwitchKnobFillOn", L"ToggleSwitchKnobFillOnPointerOver",
                             L"ToggleSwitchKnobFillOnPressed"})
       resources.Insert(box_value(hstring(key)), brush(palette_.on_accent));
+
+    for (const auto &[suffix, opacity] :
+         std::array<std::pair<const wchar_t *, double>, 3>{
+             {{L"", 1.0}, {L"PointerOver", 0.9}, {L"Pressed", 0.8}}}) {
+      for (const auto *key : {
+               L"CheckBoxCheckBackgroundFillChecked", L"CheckBoxCheckBackgroundStrokeChecked",
+               L"CheckBoxCheckBackgroundFillIndeterminate", L"CheckBoxCheckBackgroundStrokeIndeterminate",
+               L"RadioButtonOuterEllipseCheckedFill", L"RadioButtonOuterEllipseCheckedStroke",
+               L"SliderTrackValueFill", L"SliderThumbBackground", L"HyperlinkButtonForeground"})
+        resources.Insert(box_value(hstring(std::wstring(key) + suffix)),
+                         brush(faded(palette_.accent, opacity)));
+      for (const auto *key : {L"CheckBoxCheckGlyphForegroundChecked",
+                              L"CheckBoxCheckGlyphForegroundIndeterminate",
+                              L"RadioButtonCheckGlyphFill"})
+        resources.Insert(box_value(hstring(std::wstring(key) + suffix)),
+                         brush(palette_.on_accent));
+    }
+  }
+
+  // ---- Window chrome ----
+
+  void build_shell(double offset) {
+    Grid root;
+    root.RequestedTheme(palette_.dark ? ElementTheme::Dark : ElementTheme::Light);
+    root.Background(brush(palette_.window_bg));
+    apply_accent_resources(root.Resources());
 
     RowDefinition title_row;
     title_row.Height(GridLength{48, GridUnitType::Pixel});
