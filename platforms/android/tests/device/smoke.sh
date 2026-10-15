@@ -158,6 +158,7 @@ for entry in \
     "InitialKeyboardRowDeviceSmoke|Initial keyboard row acceptance failed" \
     "NineKeyEnglishDeviceSmoke|Nine-key English acceptance failed" \
     "NineKeyPanelDeviceSmoke|Nine-key panel acceptance failed" \
+    "QuanpinSeparatorDeviceSmoke|Quanpin separator acceptance failed" \
     "FourteenKeyDeviceSmoke|Fourteen-key acceptance failed" \
     "NineKeyShuangpinDeviceSmoke|Nine-key shuangpin acceptance failed" \
     "ChineseHelpcodeDeviceSmoke|Chinese helpcode acceptance failed" \

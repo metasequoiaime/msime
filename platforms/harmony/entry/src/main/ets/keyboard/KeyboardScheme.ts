@@ -623,6 +623,19 @@ export class KeyboardScheme {
     return fourteenKey && !english && localMode === "none";
   }
 
+  /** 中文全拼的触屏字母页用分词替代 Shift，其他方案、英文和本地模式保留大小写。 */
+  static usesQuanpinSeparator(
+    scheme: SchemeDefinition,
+    touch: boolean,
+    english: boolean,
+    symbols: boolean,
+    localMode: string,
+  ): boolean {
+    return (
+      scheme.preferenceId === "quanpin" && touch && !english && !symbols && localMode === "none"
+    );
+  }
+
   /**
    * 这个布局要引擎开哪种网格：全拼的九键和 14 键各开各的，其余（含日语九键，它有自己的假名网格）不开。
    *

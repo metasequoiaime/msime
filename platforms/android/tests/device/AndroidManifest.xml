@@ -2,6 +2,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <instrumentation android:name="app.msime.android.test.VoiceRecognitionLifecycleDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.SyntheticSpeechSetup" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.QuanpinSeparatorDeviceSmoke" android:targetPackage="app.msime.android" />
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
     <instrumentation android:name="app.msime.android.test.HostIconPreparation" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.DiagnosticsBundleDeviceSmoke" android:targetPackage="app.msime.android" />

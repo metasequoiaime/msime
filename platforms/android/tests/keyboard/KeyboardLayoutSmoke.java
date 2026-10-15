@@ -1,3 +1,4 @@
+import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardLayout;
 import app.msime.android.LetterKeyFacePolicy;
 import java.util.List;
@@ -38,6 +39,22 @@ public final class KeyboardLayoutSmoke {
             check(!KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, landscapePhone));
         for (int tall : new int[] {KeyboardLayout.NUMBER_ROW_MIN_WINDOW_HEIGHT_DP, 552, 0})
             check(KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, tall));
+
+        // 同属 26 键的双拼和直输场景仍是 Shift，不能仅凭布局决定分词动作。
+        check(KeyboardLayout.usesQuanpinSeparator(true, true,
+            KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, "none"));
+        for (KeyboardScheme scheme : KeyboardScheme.values()) {
+            check(KeyboardLayout.usesQuanpinSeparator(scheme == KeyboardScheme.QUANPIN, true, KeyboardLayout.Layer.LETTERS,
+                KeyboardLayout.STANDARD_TOUCH_LAYOUT, "none") == (scheme == KeyboardScheme.QUANPIN));
+        }
+        check(!KeyboardLayout.usesQuanpinSeparator(true, false,
+            KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, "none"));
+        check(!KeyboardLayout.usesQuanpinSeparator(true, true,
+            KeyboardLayout.Layer.SYMBOLS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, "none"));
+        check(!KeyboardLayout.usesQuanpinSeparator(true, true,
+            KeyboardLayout.Layer.LETTERS, KeyboardLayout.FOURTEEN_KEY_LAYOUT, "none"));
+        check(!KeyboardLayout.usesQuanpinSeparator(true, true,
+            KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT, "calculator"));
 
         // 新设计的 123 层（中文）。
         List<List<KeyboardLayout.LayerKey>> number = KeyboardLayout.numberLayer(true);

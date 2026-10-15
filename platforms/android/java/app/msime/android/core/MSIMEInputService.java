@@ -4062,6 +4062,14 @@ public final class MSIMEInputService extends InputMethodService {
             getResources().getConfiguration().screenHeightDp);
     }
 
+    /** 分词键只服务于已就绪的中文全拼组合，密码框和本地直输保留 Shift。 */
+    boolean usesQuanpinSeparator() {
+        return KeyboardLayout.usesQuanpinSeparator(selectedScheme == KeyboardScheme.QUANPIN,
+            session != 0 && view != null && !dedicatedEnglish && !EditorPolicy.password(editorInputType),
+            keyboardLayer, displayedTouchLayout(view),
+            view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"));
+    }
+
     int displayedTouchLayout(JSONObject value) {
         if (dedicatedEnglish) return STANDARD_TOUCH_LAYOUT;
         if (value == null) return touchLayoutHint();
@@ -7938,6 +7946,10 @@ public final class MSIMEInputService extends InputMethodService {
         // toolbar, and what the action row keeps is whatever KeyboardActionRow lists for the surface.
         LinearLayout controls = LayoutPolicy.row(this);
         shiftButton = button(controls, "⇧", () -> {
+            if (usesQuanpinSeparator()) {
+                if (hasEngineComposition()) character('\'');
+                return;
+            }
             // 韩语键面上 Shift 是双辅音那一排，不是切到英文的入口；越南语和藏文里它是字母大小写。
             if (!dedicatedEnglish && session != 0 && !helpcodeCompositionEligible()
                     && !letterCompositionActive()) {
@@ -9150,15 +9162,17 @@ public final class MSIMEInputService extends InputMethodService {
                 || shiftLayout == JAPANESE_NINE_KEY_LAYOUT;
             ViewPolicy.setVisible(shiftButton, KeyboardLayout.carriesLetterCase(shiftLayout)
                 || (!keepsOwnGrid && keyboardLayer != KeyboardLayout.Layer.LETTERS));
-            shiftButton.setText(letterCase.keyText());
-            ViewPolicy.setSelected(shiftButton, letterCase.usesUppercase());
-            shiftButton.setActivated(letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK);
+            boolean separator = usesQuanpinSeparator();
+            imeLetterRows.updateShiftKeyIdentity(separator);
+            shiftButton.setText(separator ? "分词" : letterCase.keyText());
+            ViewPolicy.setSelected(shiftButton, !separator && letterCase.usesUppercase());
+            shiftButton.setActivated(!separator && letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK);
             // The final applySkin() traversal styles this attached button once.
-            String caseLabel = shiftLayout == KeyboardLayout.KOREAN_LAYOUT
+            String caseLabel = separator ? "拼音分词" : shiftLayout == KeyboardLayout.KOREAN_LAYOUT
                 ? KoreanKeyboardLayout.SHIFT_LABEL
                 : letterCase.accessibilityLabel(dedicatedEnglish || session == 0
                     || letterCaseSchemeActive());
-            String caseValue = letterCase.accessibilityValue();
+            String caseValue = separator ? "分隔拼音音节" : letterCase.accessibilityValue();
             shiftButton.setContentDescription(Build.VERSION.SDK_INT >= 30
                 ? caseLabel : caseLabel + "，" + caseValue);
             if (Build.VERSION.SDK_INT >= 30) shiftButton.setStateDescription(caseValue);
