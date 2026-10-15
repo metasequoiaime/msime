@@ -5544,23 +5544,35 @@ fn test_host_with_pinyin_fixture(root: &std::path::Path, preferences: Preference
 }
 
 #[test]
-fn session_reads_live_preferences_when_the_options_copy_carries_a_retired_field() {
+fn session_reads_live_preferences_when_the_options_copy_is_refused() {
     let directory = tempfile::tempdir().unwrap();
     let path = |name| {
         let path = directory.path().join(name);
         std::fs::create_dir_all(&path).unwrap();
         path
     };
-    let mut stale = serde_json::to_value(chinese_preferences()).unwrap();
-    stale["autocorrect"] = json!(true);
-    let options = |preferences_directory: &std::path::Path| {
-        json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences_directory": preferences_directory, "preferences": stale }).to_string()
+    let options = |preferences_directory: &std::path::Path, preferences: &serde_json::Value| {
+        json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences_directory": preferences_directory, "preferences": preferences }).to_string()
     };
     let create =
         |options: String| read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
 
-    // Nothing to stand in for the copy: refused as before, and the directory is not created by looking.
+    // #2830 退役 `autocorrect` 后，带着它的副本曾让每个 macOS 会话都被拒。偏好结构现在不拒绝不认识的键，这样的副本自己就读得进来。
+    let mut retired = serde_json::to_value(chinese_preferences()).unwrap();
+    retired["autocorrect"] = json!(true);
     let missing = directory.path().join("missing");
+    let created = create(options(&missing, &retired));
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    assert!(!missing.exists());
+
+    // 副本本身读不了（取值类型不对）时，由实时的 preferences.json 顶替。
+    let mut stale = serde_json::to_value(chinese_preferences()).unwrap();
+    stale["candidate_page_size"] = json!("six");
+    let options = |preferences_directory: &std::path::Path| options(preferences_directory, &stale);
+
+    // Nothing to stand in for the copy: refused as before, and the directory is not created by looking.
     assert_eq!(
         create(options(&missing))["error"],
         "invalid options document"

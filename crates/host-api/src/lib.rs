@@ -1621,7 +1621,7 @@ impl HostOptions {
         self.edition.unwrap_or_else(Edition::full)
     }
 
-    /// 解析 HostOptions 文档。其中的 `preferences` 是准备运行时配置那一刻的副本，升级时被原样带下去（`refresh_options_file`），所以后续版本一旦退役某个偏好字段，这份文档就读不了，会话、快照和词库请求全部被拒：#2830 退役了 `autocorrect`，macOS 输入随之失效，每个按键都像在英文模式下一样直接交给应用。副本被拒时，改用 `preferences_directory` 下实时的 preferences.json——设置界面会保持它最新并负责修复，宿主在会话打开后本来也会应用它。副本能解析时照原样使用。
+    /// 解析 HostOptions 文档。其中的 `preferences` 是准备运行时配置那一刻的副本，升级时被原样带下去（`refresh_options_file`）。#2830 退役 `autocorrect` 时，带着它的副本曾让会话、快照和词库请求全部被拒，macOS 每个按键都像在英文模式下一样直接交给应用；偏好结构现在不拒绝不认识的键，新增或退役一个键不会再让副本读不了，但取值的类型或格式变化仍会。副本被拒时，改用 `preferences_directory` 下实时的 preferences.json——设置界面会保持它最新并负责修复，宿主在会话打开后本来也会应用它。副本能解析时照原样使用。
     pub(crate) fn from_document(mut document: Value) -> Option<Self> {
         if let Ok(options) = Self::deserialize(&document) {
             return Some(options);

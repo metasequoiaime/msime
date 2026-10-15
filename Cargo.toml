@@ -29,6 +29,7 @@ repository = "https://github.com/metasequoiaime/msime"
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_ignored = "0.1.14"
 toml = "1.1"
 thiserror = "2"
 tempfile = "3"

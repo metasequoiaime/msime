@@ -33,7 +33,7 @@ macOS 宿主的行为：
 
 - **收益**：新装默认是更简洁的候选窗和工具栏，老用户升级不变。一个偏好、一个开关，能从设置页、原生设置窗口和命令行改。
 - **代价与已知上限**：
-  - `show_app_logo` 是顶层字段，`Preferences` 带 `deny_unknown_fields`，所以早于这个字段的设置应用或 `msime-mcp` 会拒读写过这个字段的偏好文档。正式发布里输入法和设置应用在同一个包里，版本一致；开发机上单独换了输入法时，设置应用要一起更新。
+  - `show_app_logo` 是顶层字段，`Preferences` 带 `deny_unknown_fields`，所以早于这个字段的设置应用或 `msime-mcp` 会拒读写过这个字段的偏好文档。正式发布里输入法和设置应用在同一个包里，版本一致；开发机上单独换了输入法时，设置应用要一起更新。这个前提后来证明不成立（Sparkle 只更新输入法），偏好文档已改为容忍并保留未知键，见 [偏好文档保留未知键](../architecture/2026-10-15-preferences-keep-unknown-fields.md)。
   - 其他平台还没有这个开关。要做时，给 `HostCapabilities::app_logo` 加平台，并让那个平台的候选窗按偏好画 logo。
 
 ## Verification
