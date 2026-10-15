@@ -1400,6 +1400,39 @@ fn wubi_auto_commit_unique_reaches_the_runtime_without_waiting_for_the_engine() 
 }
 
 #[test]
+fn wubi_candidate_selection_updates_while_engine_preferences_are_deferred() {
+    let root = tempfile::tempdir().unwrap();
+    let handle = test_host(root.path());
+    read(msime_client_focus(handle, true));
+    read(msime_client_character(handle, b'a', false));
+    let mut preferences = Preferences::default();
+    preferences.wubi_candidate_selection.enabled = true;
+    preferences.wubi_candidate_selection.second_key = "/".into();
+    assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], true);
+    SESSIONS.with(|sessions| {
+        assert_eq!(
+            sessions.borrow()[&handle]
+                .runtime
+                .wubi_candidate_selection()
+                .slot(b'/'),
+            Some(1)
+        );
+    });
+    preferences.wubi_candidate_selection.enabled = false;
+    update(handle, 2, &preferences);
+    SESSIONS.with(|sessions| {
+        assert_eq!(
+            sessions.borrow()[&handle]
+                .runtime
+                .wubi_candidate_selection()
+                .slot(b'/'),
+            None
+        );
+    });
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn wubi_profile_reaches_engine_options() {
     use msime_client_core::preferences::WubiProfile;
     let dir = tempfile::tempdir().unwrap();

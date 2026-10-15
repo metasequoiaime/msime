@@ -44,3 +44,49 @@ test("Wubi section writes the auto-commit preference through the shared patch", 
   fireEvent.click(screen.getByLabelText("五笔四码唯一候选自动上屏"));
   expect(onChange).toHaveBeenCalledWith({ wubi_auto_commit_unique: false });
 });
+
+test("五笔快捷选词默认关闭，启用后可一起修改二三候选键", () => {
+  const onChange = vi.fn();
+  const { rerender } = render(<WubiSection preferences={{}} onChange={onChange} />);
+  const toggle = screen.getByLabelText("五笔快捷选词") as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  expect(screen.queryByLabelText("五笔第 2 候选键")).toBeNull();
+  fireEvent.click(toggle);
+  expect(onChange).toHaveBeenLastCalledWith({
+    wubi_candidate_selection: { enabled: true, second_key: ";", third_key: "'" },
+  });
+  rerender(
+    <WubiSection
+      preferences={{ wubi_candidate_selection: { enabled: true, second_key: ";", third_key: "'" } }}
+      onChange={onChange}
+    />,
+  );
+  onChange.mockClear();
+  fireEvent.change(screen.getByLabelText("五笔第 2 候选键"), { target: { value: "'" } });
+  expect((screen.getByRole("button", { name: "保存选词键" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  expect(onChange).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("五笔第 3 候选键"), { target: { value: ";" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存选词键" }));
+  expect(onChange).toHaveBeenLastCalledWith({
+    wubi_candidate_selection: { enabled: true, second_key: "'", third_key: ";" },
+  });
+});
+
+test("五笔选词键拒绝空值、字母、数字和中文标点草稿", () => {
+  const onChange = vi.fn();
+  render(
+    <WubiSection
+      preferences={{ wubi_candidate_selection: { enabled: true, second_key: ";", third_key: "'" } }}
+      onChange={onChange}
+    />,
+  );
+  for (const value of ["", "a", "2", " ", "；", "'"]) {
+    fireEvent.change(screen.getByLabelText("五笔第 2 候选键"), { target: { value } });
+    expect((screen.getByRole("button", { name: "保存选词键" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  }
+  expect(onChange).not.toHaveBeenCalled();
+});

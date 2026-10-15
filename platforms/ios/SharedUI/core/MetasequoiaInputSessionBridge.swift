@@ -400,6 +400,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     // 输入页五笔组的混拼与四码唯一自动上屏：都是引擎字段，会话空闲时重建 Engine 应用它，所以要交给活着的会话，而不等键盘扩展被杀掉后重建会话。
     "wubi_mixed_pinyin",
     "wubi_auto_commit_unique",
+    "wubi_candidate_selection",
     // Laid over the document by `hostOverrides` from the iOS switch, so a change to that switch reaches the live session too.
     "cloud_candidates",
     // Laid over the document from the iOS page size, like cloud candidates; the session applies it once idle, so an open composition keeps its page.

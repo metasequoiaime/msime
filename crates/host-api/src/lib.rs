@@ -985,6 +985,8 @@ impl HostSession {
         // 宿主状态，不是 Engine 状态：跟着最新请求的偏好走，不必等这次偏好重建 Engine，也不必等组字结束。
         self.runtime
             .set_wubi_auto_commit_unique(requested_preferences.wubi_auto_commit_unique);
+        self.runtime
+            .set_wubi_candidate_selection(requested_preferences.wubi_candidate_selection.clone());
         self.sound.update(key_sound::SoundSettings::new(
             &requested_preferences.plugins,
             &self.plugin_roots,
@@ -2596,6 +2598,7 @@ fn dispatch_call(handle: u64, action: Action, host: Option<lifecycle::InputClass
         with_session(handle, |session| {
             // 大写锁定改道先于其余处理，后面看到的都是改道后的动作。
             let action = session.caps_lock_punctuation(action);
+            let action = session.runtime.candidate_shortcut(action);
             let currency_punctuation = matches!(
                 action,
                 Action::Character { value: b'$', .. } | Action::Punctuation(b'$')

@@ -649,6 +649,16 @@ msime::windows::TsfLocalConfig tsf_local_config(
       local_modes.value("mention", false));
   // 与按键路由读同一个字段（InputState 经 preference_navigation），TIP 和 Server 对这两个键的归类才一致。
   config.second_third_candidate = msime::windows::preference_second_third_candidate(preferences);
+  const auto wubi_selection = preferences.value("wubi_candidate_selection", nlohmann::json::object());
+  config.wubi_candidate_selection = wubi_selection.value("enabled", false);
+  const auto second = wubi_selection.value("second_key", std::string(";"));
+  const auto third = wubi_selection.value("third_key", std::string("'"));
+  if (second.size() == 1 && third.size() == 1) {
+    config.wubi_second_key = static_cast<unsigned char>(second[0]);
+    config.wubi_third_key = static_cast<unsigned char>(third[0]);
+  } else {
+    config.wubi_candidate_selection = false;
+  }
   // 引号与方头括号样式：TIP 自己的标点表按它换字。缺键就是缺省（偏好文档不写等于缺省的值）。
   const auto string_preference = [&preferences](const char *key) {
     const auto found = preferences.find(key);

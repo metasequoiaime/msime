@@ -2318,6 +2318,42 @@ fn second_third_candidate_defaults_off_and_stays_out_of_default_documents() {
 }
 
 #[test]
+fn wubi_candidate_selection_defaults_roundtrip_and_rejects_invalid_keys() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(root.path());
+    let defaults = Preferences::default();
+    assert!(serde_json::to_value(&defaults)
+        .unwrap()
+        .get("wubi_candidate_selection")
+        .is_none());
+    let mut settings: WubiCandidateSelectionPreferences =
+        serde_json::from_value(serde_json::json!({"enabled": true})).unwrap();
+    assert_eq!(settings.slot(b';'), Some(1));
+    assert_eq!(settings.slot(b'\''), Some(2));
+    settings.second_key = "/".into();
+    settings.third_key = "?".into();
+    let mut preferences = Preferences {
+        wubi_candidate_selection: settings,
+        ..defaults
+    };
+    let saved = store.save(0, preferences.clone()).unwrap();
+    assert_eq!(store.load().unwrap(), saved);
+    assert_eq!(
+        saved.preferences.wubi_candidate_selection.slot(b'/'),
+        Some(1)
+    );
+    for invalid in ["", "a", "2", " ", "\n", "；", ";'", "?"] {
+        preferences.wubi_candidate_selection.second_key = invalid.into();
+        assert!(matches!(
+            preferences.validate(),
+            Err(PreferencesError::InvalidWubiCandidateSelection)
+        ));
+        assert!(store.save(saved.revision, preferences.clone()).is_err());
+        assert_eq!(store.load().unwrap(), saved);
+    }
+}
+
+#[test]
 fn navigation_accepts_windows_candidate_arrow_alias() {
     let value = serde_json::json!({"minus_equal": true, "comma_period": true, "brackets": false, "tab": true, "page_up_down": true, "mouse_wheel": true, "candidate_arrow_navigation": false});
     let parsed: NavigationPreferences = serde_json::from_value(value).unwrap();

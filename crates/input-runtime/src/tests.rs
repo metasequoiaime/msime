@@ -1088,6 +1088,140 @@ impl InputEngine for Fixture {
     }
 }
 
+fn wubi_shortcut_runtime(count: usize) -> Runtime<Fixture> {
+    let mut runtime = Runtime::new(
+        Fixture {
+            scheme: 2,
+            local_mode: "none".into(),
+            words: (0..count).map(|i| format!("合成候选{i}")).collect(),
+            ..Fixture::default()
+        },
+        3,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    runtime.set_wubi_candidate_selection(
+        msime_client_core::preferences::WubiCandidateSelectionPreferences {
+            enabled: true,
+            ..Default::default()
+        },
+    );
+    if count > 0 {
+        runtime
+            .dispatch(Action::Character {
+                value: b'a',
+                shift: false,
+            })
+            .unwrap();
+    }
+    runtime
+}
+
+#[test]
+fn wubi_candidate_shortcuts_select_current_page_on_all_character_routes() {
+    for route in 0..3 {
+        for (key, slot) in [(b';', 1), (b'\'', 2)] {
+            let mut runtime = wubi_shortcut_runtime(6);
+            runtime.dispatch(Action::NextPage).unwrap();
+            let action = match route {
+                0 => Action::Character {
+                    value: key,
+                    shift: false,
+                },
+                1 => Action::Punctuation(key),
+                _ => Action::PunctuationAscii(key),
+            };
+            let transition = runtime.dispatch(action).unwrap();
+            assert_eq!(transition.commit, Some(format!("合成候选{}", 3 + slot)));
+            assert!(transition.view.editing_text.is_empty());
+            assert!(runtime.facts().selection.is_some());
+        }
+    }
+}
+
+#[test]
+fn wubi_candidate_shortcuts_follow_the_presented_order_and_visible_page_size() {
+    let mut runtime = wubi_shortcut_runtime(3);
+    runtime.cached.candidates.rotate_right(1);
+    runtime.engine_order = vec![2, 0, 1];
+    let result = runtime.dispatch(Action::Punctuation(b';')).unwrap();
+    assert_eq!(result.commit.as_deref(), Some("合成候选0"));
+    let mut runtime = wubi_shortcut_runtime(3);
+    runtime.page_size = 1;
+    let result = runtime.dispatch(Action::PunctuationAscii(b';')).unwrap();
+    assert!(result.commit.as_deref().unwrap().ends_with(';'));
+}
+
+#[test]
+fn wubi_candidate_shortcuts_keep_punctuation_when_disabled_or_target_is_missing() {
+    for count in [0, 1, 2, 3, 4] {
+        for key in [b';', b'\''] {
+            let mut enabled = wubi_shortcut_runtime(count);
+            let mut plain = wubi_shortcut_runtime(count);
+            plain.set_wubi_candidate_selection(Default::default());
+            if count > 3 {
+                enabled.dispatch(Action::NextPage).unwrap();
+                plain.dispatch(Action::NextPage).unwrap();
+            }
+            let slot = if key == b';' { 1 } else { 2 };
+            let on_page = if count > 3 { count - 3 } else { count };
+            if slot < on_page {
+                continue;
+            }
+            let original = plain.dispatch(Action::PunctuationAscii(key)).unwrap();
+            let actual = enabled.dispatch(Action::PunctuationAscii(key)).unwrap();
+            assert_eq!(actual.handled, original.handled);
+            assert_eq!(actual.commit, original.commit);
+            assert_eq!(actual.view.editing_text, original.view.editing_text);
+            if count == 0 {
+                assert!(!actual.handled);
+            } else {
+                assert!(actual
+                    .commit
+                    .as_deref()
+                    .is_some_and(|text| text.ends_with(char::from(key))));
+            }
+        }
+    }
+}
+
+#[test]
+fn wubi_candidate_shortcuts_respect_scheme_mode_focus_and_live_custom_keys() {
+    for excluded in 0..4 {
+        let mut runtime = wubi_shortcut_runtime(3);
+        match excluded {
+            0 => runtime.cached.scheme = 0,
+            1 => runtime.cached.dedicated_english = true,
+            2 => runtime.cached.local_mode = "url".into(),
+            _ => {
+                runtime.focus(false).unwrap();
+            }
+        }
+        let result = runtime.dispatch(Action::PunctuationAscii(b';')).unwrap();
+        assert_ne!(result.commit.as_deref(), Some("合成候选1"));
+    }
+    let mut runtime = wubi_shortcut_runtime(3);
+    runtime.set_wubi_candidate_selection(
+        msime_client_core::preferences::WubiCandidateSelectionPreferences {
+            enabled: true,
+            second_key: "/".into(),
+            third_key: "?".into(),
+        },
+    );
+    assert_eq!(runtime.wubi_candidate_selection().slot(b';'), None);
+    assert_eq!(
+        runtime
+            .dispatch(Action::Character {
+                value: b'?',
+                shift: true
+            })
+            .unwrap()
+            .commit
+            .as_deref(),
+        Some("合成候选2")
+    );
+}
+
 #[test]
 fn unique_complete_wubi_code_auto_commits_unless_a_phrase_is_being_built() {
     let create = |fixture| {

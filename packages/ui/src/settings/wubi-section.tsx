@@ -1,3 +1,11 @@
+import { useState } from "react";
+import { ActionRow } from "./action-row";
+import { TextInputRow } from "./text-input-row";
+import {
+  defaultWubiCandidateSelection,
+  validWubiCandidateKeys,
+  type WubiCandidateSelectionPreferences,
+} from "./wubi-preferences";
 import { SwitchRow } from "./switch-row";
 import {
   wubiControlState,
@@ -34,12 +42,69 @@ export function WubiSection({
         checked={state.wubi_code_hint}
         onChange={(checked) => onChange({ wubi_code_hint: checked })}
       />
+      <WubiCandidateSelectionSection
+        key={JSON.stringify(preferences.wubi_candidate_selection ?? defaultWubiCandidateSelection)}
+        settings={preferences.wubi_candidate_selection ?? defaultWubiCandidateSelection}
+        onChange={(wubi_candidate_selection) => onChange({ wubi_candidate_selection })}
+      />
       <SwitchRow
         title="五笔四码唯一候选自动上屏"
         description="五笔输入达到四码且只有一个候选时，自动提交该候选。关闭后这个词留在候选列表里，用空格或数字键选它。"
         checked={state.wubi_auto_commit_unique}
         onChange={(checked) => onChange({ wubi_auto_commit_unique: checked })}
       />
+    </>
+  );
+}
+
+/** 两个字符一起保存，允许交换键位，编辑中的空值不会进入共享文档。 */
+function WubiCandidateSelectionSection({
+  settings,
+  onChange,
+}: {
+  settings: WubiCandidateSelectionPreferences;
+  onChange: (settings: WubiCandidateSelectionPreferences) => void;
+}) {
+  const [second, setSecond] = useState(settings.second_key);
+  const [third, setThird] = useState(settings.third_key);
+  const valid = validWubiCandidateKeys(second, third);
+  return (
+    <>
+      <SwitchRow
+        title="五笔快捷选词"
+        description="组字时用两个标点选当前页第 2、3 候选；候选不足时仍输入标点。"
+        checked={settings.enabled}
+        onChange={(enabled) => onChange({ ...settings, enabled })}
+      />
+      {settings.enabled && (
+        <>
+          <TextInputRow
+            title="第 2 候选键"
+            label="五笔第 2 候选键"
+            value={second}
+            maxLength={1}
+            onChange={setSecond}
+          />
+          <TextInputRow
+            title="第 3 候选键"
+            label="五笔第 3 候选键"
+            value={third}
+            maxLength={1}
+            onChange={setThird}
+          />
+          <ActionRow
+            title="自定义选词键"
+            label="保存选词键"
+            description={
+              valid
+                ? "使用两个不同的英文标点；请选择未用于翻页或以词定字的键。"
+                : "请输入两个不同的单个英文标点。"
+            }
+            disabled={!valid || (second === settings.second_key && third === settings.third_key)}
+            action={() => onChange({ ...settings, second_key: second, third_key: third })}
+          />
+        </>
+      )}
     </>
   );
 }

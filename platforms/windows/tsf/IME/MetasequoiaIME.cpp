@@ -1,3 +1,4 @@
+#include "../../common/WubiCandidateSelectionPolicy.h"
 #include "Private.h"
 #include "Globals.h"
 #include "MetasequoiaIME.h"
@@ -1875,6 +1876,12 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
         {
             validFrame = msime::windows::scheme::is_input_mode_payload(buf.data, std::size(buf.data));
         }
+        if (validFrame && buf.msg_type == Global::DataToTsfWorkerThreadMsgType::WubiCandidateSelectionChanged)
+        {
+            validFrame = buf.data[3] == L'\0' && (buf.data[0] == L'0' || buf.data[0] == L'1') &&
+                msime::windows::wubi_candidate_punctuation(buf.data[1]) &&
+                msime::windows::wubi_candidate_punctuation(buf.data[2]) && buf.data[1] != buf.data[2];
+        }
         if (validFrame && buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PunctuationMarksChanged)
         {
             // "q<0|1>b<0|1>"，后面紧跟结束符。
@@ -1955,6 +1962,7 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::DedicatedEnglishChanged ||
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PunctuationLockChanged ||
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PunctuationMarksChanged ||
+                buf.msg_type == Global::DataToTsfWorkerThreadMsgType::WubiCandidateSelectionChanged ||
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PipeReady ||
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::FocusSessionReady ||
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::UpdateVoiceComposition ||
@@ -2054,6 +2062,11 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
         else if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::SecondThirdCandidateChanged)
         {
             Global::SecondThirdCandidateEnabled.store(buf.data[0] == L'1', std::memory_order_relaxed);
+        }
+        else if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::WubiCandidateSelectionChanged)
+        {
+            Global::WubiCandidateKeys.store(msime::windows::parse_wubi_candidate_keys(buf.data, std::size(buf.data)),
+                                           std::memory_order_relaxed);
         }
         else if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PunctuationMarksChanged)
         {

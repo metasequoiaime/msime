@@ -295,6 +295,9 @@ std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config
   frames.push_back(worker_text_frame(
       FanyImeWorkerReplyType::PunctuationMarksChanged,
       std::wstring{L'q', config.corner_quotes ? L'1' : L'0', L'b', config.hollow_brackets ? L'1' : L'0'}));
+  frames.push_back(worker_text_frame(
+      FanyImeWorkerReplyType::WubiCandidateSelectionChanged,
+      std::wstring{config.wubi_candidate_selection ? L'1' : L'0', config.wubi_second_key, config.wubi_third_key}));
   return frames;
 }
 

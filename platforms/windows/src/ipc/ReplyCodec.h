@@ -97,6 +97,9 @@ struct TsfLocalConfig {
   bool dedicated_english = false;
   // 组字时 ';' 和 '\'' 选第二、第三个候选，TIP 据此把这两个键归为数字选词（SecondThirdCandidatePolicy.h）。
   bool second_third_candidate = false;
+  bool wubi_candidate_selection = false;
+  wchar_t wubi_second_key = L';';
+  wchar_t wubi_third_key = L'\'';
   // 中文标点下 '\'' 出「」、'"' 出『』（直角引号），'[' ']' 出〖〗（空心括号）。由 apply_punctuation_marks 从偏好算出。
   bool corner_quotes = false;
   bool hollow_brackets = false;

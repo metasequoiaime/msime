@@ -27,6 +27,7 @@
 #include "../HostKoreanKey.h"
 #include "../../common/PipeMetadata.h"
 #include "../../common/SecondThirdCandidatePolicy.h"
+#include "../../common/WubiCandidateSelectionPolicy.h"
 #include <atomic>
 #include <chrono>
 #include "../../../../shared/contracts/ipc_negotiation.h"
@@ -1818,6 +1819,14 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
             scheme, Global::DedicatedEnglish.active(GetTickCount64()), *classifiedWch))
     {
         return true;
+    }
+
+    if (shadow.imeOpen && msime::windows::wubi_candidate_character(
+            Global::WubiCandidateKeys.load(std::memory_order_relaxed),
+            static_cast<wchar_t>(Global::InputModeIndicator.load(std::memory_order_relaxed)),
+            Global::DedicatedEnglish.active(GetTickCount64()), *classifiedWch))
+    {
+        return setKeyState(CATEGORY_COMPOSING, FUNCTION_INPUT);
     }
 
     // 与 _IsKeyEaten（CCompositionProcessorEngine::IsSecondThirdCandidateKey）相同：打开「二三候选」后，组字中的 ';' 和 '\'' 是数字选词，排在音节分隔符和标点前面；网址模式和 V 模式拼写的符号、微软双拼的韵母 ing 仍是输入。Ctrl 和 Alt 组合键在上面已经交给应用。是否在组字和光标前的字母取自排队按键的投影，与下面的数字键相同；宿主会话拥有组字时投影从空开始，这是数字键同样有的限制（.agents/notes/implemented/bug-fix/2026-10-10-second-third-candidate-tip-slot.md）。
