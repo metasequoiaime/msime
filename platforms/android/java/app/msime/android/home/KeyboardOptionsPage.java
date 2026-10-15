@@ -3,6 +3,7 @@ package app.msime.android.home;
 import app.msime.android.DimensionPolicy;
 
 import app.msime.android.ThemeColorPolicy;
+import app.msime.android.ToolbarOrderPolicy;
 import app.msime.android.KeyboardSpacingPolicy;
 import app.msime.android.KeyboardHeightPolicy;
 import app.msime.android.KeyboardTypographyPolicy;
@@ -49,13 +50,6 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
 
     private static final String[] ANIMATIONS = {"bounce", "ripple", "glow", "lift", "none"};
     private static final String[] ANIMATION_LABELS = {"弹起", "涟漪", "发光", "浮起", "无"};
-    /** 可开关的六个工具栏按钮：存储键与行名。共享偏好的写 `touch_toolbar` 的成员名，本地设置的写完整键名。 */
-    private static final String[][] TOOLBAR_BUTTONS = {
-        {"emoji", "表情"}, {AndroidLocalSettings.TOOLBAR_PHRASE, "常用语"}, {"clipboard", "剪贴板"}, {"skin", "皮肤"},
-        {AndroidLocalSettings.TOOLBAR_SCHEME, "输入方式"}, {AndroidLocalSettings.TOOLBAR_FLOATING, "浮动键盘"},
-        {AndroidLocalSettings.TOOLBAR_TEXT_EDIT, "文本编辑"},
-    };
-
     private record State(JSONObject preferences, AndroidLocalSettings.Snapshot local,
                          KeyboardFeedbackStore.Settings feedback, KeyboardSkin skin) {}
 
@@ -204,9 +198,11 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         GroupCard bar = GroupCard.add(sectionColumn(target, "工具栏"), "键盘工具栏");
         bar.addView(toolbarPreview(requireContext(), toolbar, settings, state.skin()));
         bar.nav("显示方式", null, hidden ? "隐藏" : "输入时显示", () -> pickToolbarMode(hidden));
-        for (String[] button : TOOLBAR_BUTTONS) {
-            String member = button[0];
-            GroupCard.Row row = bar.toggle(button[1], null, toolbarButton(toolbar, settings, member),
+        bar.nav("按钮顺序", "调整工具按钮的排列；品牌和收起键保留在两端", null,
+            hidden ? null : () -> new ToolbarOrderSheet(this, settings, this::reload).show());
+        for (ToolbarOrderPolicy.Item button : toolbarOrder(settings)) {
+            String member = button.preferenceKey;
+            GroupCard.Row row = bar.toggle(button.label, null, toolbarButton(toolbar, settings, member),
                 checked -> saveToolbar(member, checked));
             row.setEnabled(!hidden);
         }
@@ -223,6 +219,10 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         clipboard.nav("排列", "剪贴板面板里一行显示几条记录", clipboardColumnsLabel(columns),
             () -> pickClipboardColumns(columns));
 
+    }
+
+    private static java.util.List<ToolbarOrderPolicy.Item> toolbarOrder(AndroidLocalSettings.Snapshot settings) {
+        return ToolbarOrderPolicy.ordered(settings.text(AndroidLocalSettings.TOOLBAR_ORDER));
     }
 
     /** 一个工具栏按钮开着没有：本地设置的看本地设置，其余看 `touch_toolbar`（缺键为开）。 */
@@ -249,8 +249,8 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
             plate.addView(note);
         } else {
             addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)));
-            for (String[] button : TOOLBAR_BUTTONS) {
-                if (toolbarButton(toolbar, settings, button[0])) addChip(context, plate, button[1], icon);
+            for (ToolbarOrderPolicy.Item button : toolbarOrder(settings)) {
+                if (toolbarButton(toolbar, settings, button.preferenceKey)) addChip(context, plate, button.label, icon);
             }
         }
         strip.addView(plate, LayoutPolicy.matchWidthHeightDp(context, 44));

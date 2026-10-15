@@ -1,6 +1,6 @@
 # Agent Note: Android 工具栏排序与按钮身份分离
 
-Status: proposed
+Status: implemented
 
 ## Problem
 
@@ -8,7 +8,7 @@ Status: proposed
 
 已检索 proposed、implemented、rejected 中的 touch_toolbar、工具栏顺序和自定义工具栏。[共享工具栏分组](../../implemented/simplification/2026-10-15-touch-keyboard-toolbar.md) 与共享开关归属相邻但不持有原生排序；[Android 启动状态](../../implemented/bug-fix/2026-10-08-android-toolbar-startup-state.md) 要求首帧使用实时状态，沿用决定。本片只处理 Android 排序，iOS、HarmonyOS 保留后续覆盖；#7639 的长按/菜单进入编辑与额外工具显隐独立处理。
 
-## Proposal
+## Decision
 
 以稳定工具 ID 保存完整排列，显示开关继续独立决定显隐。顺序保存在 AndroidLocalSettings 的本机文本字段，不参与账号同步。一个纯 Java 策略同时供设置、预览和输入法使用：重复或未知 ID 跳过、遗漏按钮按原默认顺序补齐，超长数据回默认。品牌、计算结果和收起键保持固定锚点。
 
@@ -19,14 +19,14 @@ Status: proposed
 - **在共享 touch_toolbar 对象增加顺序字段**：多个平台可复用并可随整份配置携带。但七项中常用语、输入方式、浮动键盘、文本编辑在 Android 本地独立管理，其他宿主的入口集合不同；仅为 Android 此片扩展共享契约会造成其他宿主看似支持、实际不消费，因此先采用本机已有存储。
 - **根据当前位置重建按钮与回调**：一次生成即可得到排列。但按钮还承载面板激活态、按键身份和无障碍标签；移动已有对象可直接维持绑定和触摸区域，避免位置与动作耦合。
 
-## Acceptance criteria
+## Verification
 
 - 默认顺序保持；自定义、重复、未知、缺失和超长数据有界处理。
 - 设置内上移/下移、取消、恢复默认和保存可操作，预览与真实工具栏一致。
 - 隐藏再显示、重新进入编辑器和输入法进程重启后顺序保留。
 - 重排后的表情、常用语、剪贴板、皮肤、输入方式、浮动键盘和文本编辑仍执行对应动作。
-- JVM、Android 宿主构建、专用模拟器和 quick 门禁通过。
+- `ToolbarOrderPolicySmoke` 与 232 项 Android JVM 冒烟、Android 宿主 Java/API 检查、原生库和签名 APK 构建、编辑器设备 APK 构建、`git diff --check`、笔记门禁和 quick 门禁通过。API 35 专用模拟器安装了最终 APK 并运行现有系统键盘回归；排序自定义值通过策略测试覆盖，完整设置页和重启后的排序仍需在后续设备套件中补充。
 
-## Risks
+## Consequences
 
 排序只在本机生效，不随账号同步；本片不能关闭移动端跨平台需求。最小 API 必须验证本机设置真实读写；现有品牌和收起锚点、计算结果位置不参与排序。

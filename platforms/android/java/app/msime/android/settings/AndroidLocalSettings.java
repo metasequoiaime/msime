@@ -92,6 +92,8 @@ public final class AndroidLocalSettings {
     public static final String HARDWARE_CARET_CANDIDATES = "platform.android.hardware_caret_candidates";
     /** 工具栏上的「浮动键盘」按钮，默认不显示；同步的工具栏开关表在 Rust 的 `ANDROID_LOCAL_SETTINGS` 里，这一项先只在本机。 */
     public static final String TOOLBAR_FLOATING = "platform.android.toolbar_floating";
+    /** 可选工具按钮的稳定 ID 排列，只在本机保存。 */
+    public static final String TOOLBAR_ORDER = "platform.android.toolbar_order";
     /** 工具栏上的「文本编辑」按钮（#6351），点按开关文本编辑面板，默认不显示；同步字段表里没有这个键，先只在本机。 */
     public static final String TOOLBAR_TEXT_EDIT = "platform.android.toolbar_text_edit";
     /** 手势导航下垫在键区下面的底栏（{@link KeyboardBottomBarPolicy}），默认开。是否出现还取决于导航栏的高度，换一台设备时意义不同，同步字段表里也没有这个键，只在本机。 */
@@ -215,6 +217,8 @@ public final class AndroidLocalSettings {
         bool(HARDWARE_CARET_CANDIDATES, false, false);
         bool(TOOLBAR_FLOATING, false, false);
         bool(TOOLBAR_TEXT_EDIT, false, false);
+        text(TOOLBAR_ORDER, ToolbarOrderPolicy.format(ToolbarOrderPolicy.DEFAULT_ORDER), false,
+            ToolbarOrderPolicy::normalize);
         bool(BOTTOM_BAR, true, false);
         bool(BOTTOM_PADDING, false, false);
         bool(DEVELOPER_DEBUG_OVERLAY, false, false);
