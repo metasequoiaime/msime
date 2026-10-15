@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { runAsyncAction } from "../core/async-action";
 import { CredentialTestSection } from "./credential-test-section";
 import type { CredentialTestState } from "./credential-test-state";
+import type { ProviderCredentialInput } from "./provider-credential-input";
 import { providerCredentialErrorMessage } from "./credential-utils";
 import { useAsyncGeneration } from "./use-async-generation";
 import type {
@@ -13,18 +14,14 @@ import type {
   VoiceCredentialSaveResult,
 } from "../index";
 
+export type { ProviderCredentialInput } from "./provider-credential-input";
+
 export interface ProviderCredentialsHost {
   providerCredentials?: ProviderCredentialClient;
   testApiCredential?: (
     service: ApiCredentialTestService,
     config: Record<string, unknown>,
   ) => Promise<ApiCredentialTestResult>;
-}
-
-export interface ProviderCredentialInput {
-  token: string;
-  appKey: string;
-  endpoint?: string;
 }
 
 export interface TencentCredentialInput {
