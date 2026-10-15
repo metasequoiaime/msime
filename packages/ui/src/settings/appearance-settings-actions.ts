@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { MobileKeyboardFeedback } from "./mobile-keyboard-feedback-section";
+import type { MobileKeyboardFeedback } from "./mobile-keyboard-feedback";
 import type { Preferences } from "../index";
 import { createSettingsDraftActions } from "./settings-draft-actions";
 

@@ -26,7 +26,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 键盘内的语音识别：进程内能跑的识别器（本机 sherpa 模型、豆包流式）和设备自带的系统识别服务（SpeechRecognizer）都直接在键区里聆听，键区换成 {@link VoiceListeningView}（「正在聆听…」「点任意处取消」，系统识别服务报音量时圆盘外的光圈随音量涨落），识别完自动上屏并短暂显示「已识别：…」。OpenAI 兼容的上传、还没有麦克风权限（要由 Activity 申请）、系统识别服务在键盘里没能开始聆听这几种情况仍走 VoiceRecognitionActivity（返回 false，或识别失败后由这里转交）。
+ * 键盘内的语音识别：进程内能跑的识别器（本机 sherpa 模型、豆包流式）和设备自带的系统识别服务（SpeechRecognizer）都直接在键区里聆听，键区换成 {@link VoiceListeningView}（「正在聆听…」「点任意处取消」，系统识别服务报音量时圆盘外的光圈随音量涨落），识别完自动上屏并短暂显示「已识别：…」。OpenAI 兼容的上传、还没有麦克风权限（要由 Activity 申请）、系统识别服务在键盘里无法启动或录音权限被拒这几种情况仍走 VoiceRecognitionActivity（返回 false，或识别失败后由这里转交）。
  *
  * <p>系统识别服务以前一律走识别窗口：窗口抢走焦点，键盘随之收起，屏幕上只剩对话框主题的灰色蒙层，看不到任何正在录音的提示，结果还要再到语音结果面板里手动插入（#5553）。键盘可见时系统给输入法进程前台的麦克风能力，本机模型与豆包也是在这里录音的，所以系统识别服务同样留在键区里。
  *
@@ -56,7 +56,7 @@ final class ImeVoiceEntry {
     private LocalAsrRecognizer local;
     private DoubaoRecognizer streaming;
     private SpeechRecognizer platform;
-    /** 系统识别服务已经报过 onReadyForSpeech：之后的失败不再转交识别窗口。 */
+    /** 系统识别服务已经报过 onReadyForSpeech：之后只为权限拒绝转交识别窗口。 */
     private boolean platformListening;
     /** 用户已经按语音键结束了这次系统识别：之后报的错（例如还没开始聆听就被叫停时的 ERROR_CLIENT）不再转交识别窗口，否则按两下语音键会弹出一个识别窗口重新录音。 */
     private boolean platformStopped;
@@ -344,17 +344,17 @@ final class ImeVoiceEntry {
         }
     }
 
-    /** 系统识别服务报错：还没开始聆听就被拒的转交识别窗口再试，其余按错误码提示。 */
+    /** 系统识别服务报错：权限拒绝或聆听前启动失败时转交前台窗口；主动结束后不再重试。 */
     private void platformFailed(long session, int error) {
         if (session != generation) return;
-        boolean retry = PlatformSpeechPolicy.retryInActivity(error, platformListening || platformStopped);
+        boolean retry = PlatformSpeechPolicy.retryInActivity(error, platformListening, platformStopped);
         ImeLog.w("Platform speech recognizer failed in keyboard: error " + error);
         cancel();
         if (retry) {
             s.launchVoiceActivity();
             return;
         }
-        s.notice(PlatformSpeechPolicy.message(error, VoiceRecognitionActivity.recognizerLabel(s)));
+        s.notice(PlatformSpeechPolicy.message(error));
     }
 
     private void releasePlatform() {

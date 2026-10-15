@@ -5,14 +5,10 @@ import app.msime.android.LayoutPolicy;
 
 import app.msime.android.policy.HostOptionsPolicy;
 import android.app.Activity;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.os.Bundle;
-import android.provider.Settings;
-import android.speech.RecognitionService;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -27,7 +23,6 @@ import app.msime.android.ViewPolicy;
 import java.io.File;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -74,6 +69,8 @@ public final class VoiceRecognitionActivity extends Activity {
     private TextView recordingHint;
     private boolean stopping;
     private boolean finished;
+    private boolean resumed;
+    private boolean recognitionPending;
 
     public static boolean available(Context context) {
         if (context == null) return false;
@@ -82,35 +79,6 @@ public final class VoiceRecognitionActivity extends Activity {
         } catch (RuntimeException | LinkageError unavailable) {
             // 有些厂商系统在识别服务被停用或卸载过程中会抛异常；按不可用处理，让设置页给出其他路径。
             return false;
-        }
-    }
-
-    /**
-     * 设备默认语音识别服务应用的名字，取不到时为 null，用来在错误提示里告诉用户该给哪个应用开权限。
-     *
-     * <p>不指定组件的 SpeechRecognizer 连的就是 `Settings.Secure` 里 `voice_recognition_service` 记的那个服务。这个键没有公开常量，个别系统可能不让读，读不到时设备上只装了一个识别服务就用它，有好几个就不猜。
-     */
-    public static String recognizerLabel(Context context) {
-        PackageManager packages = context.getPackageManager();
-        String packageName = null;
-        try {
-            String setting = Settings.Secure.getString(context.getContentResolver(), "voice_recognition_service");
-            ComponentName component = setting == null ? null : ComponentName.unflattenFromString(setting);
-            if (component != null) packageName = component.getPackageName();
-        } catch (SecurityException refused) {
-            packageName = null;
-        }
-        if (packageName == null) {
-            List<ResolveInfo> services = packages.queryIntentServices(new Intent(RecognitionService.SERVICE_INTERFACE), 0);
-            if (services.size() == 1 && services.get(0).serviceInfo != null) {
-                packageName = services.get(0).serviceInfo.packageName;
-            }
-        }
-        if (packageName == null) return null;
-        try {
-            return packages.getApplicationInfo(packageName, 0).loadLabel(packages).toString();
-        } catch (PackageManager.NameNotFoundException missing) {
-            return null;
         }
     }
 
@@ -217,6 +185,24 @@ public final class VoiceRecognitionActivity extends Activity {
                 REQUEST_RECORD_AUDIO);
             return;
         }
+        recognitionPending = true;
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        resumed = true;
+        startPendingRecognition();
+    }
+
+    @Override protected void onPause() {
+        resumed = false;
+        super.onPause();
+    }
+
+    /** 前台录音能力在恢复后才可用；授权回调早于恢复时只记住请求，避免重试仍在后台状态被拒。 */
+    private void startPendingRecognition() {
+        if (!resumed || !recognitionPending || finished || stopping || isFinishing()) return;
+        recognitionPending = false;
         startRecognition();
     }
 
@@ -225,7 +211,8 @@ public final class VoiceRecognitionActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode != REQUEST_RECORD_AUDIO || finished) return;
         if (grantResults.length == 1 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            startRecognition();
+            recognitionPending = true;
+            startPendingRecognition();
         } else {
             fail("语音识别需要麦克风权限");
             finishRequest();
@@ -331,6 +318,16 @@ public final class VoiceRecognitionActivity extends Activity {
         if (recognizer != null) return;
         showRecordingControls();
         recordingHint.setText("说完后稍停即可自动识别；点「完成」立即结束，「取消」会丢弃这次录音。");
+        try {
+            startPlatformRecognition();
+        } catch (SecurityException refused) {
+            platformStartFailed(SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS);
+        } catch (RuntimeException unavailable) {
+            platformStartFailed(SpeechRecognizer.ERROR_CLIENT);
+        }
+    }
+
+    private void startPlatformRecognition() {
         recognizer = SpeechRecognizer.createSpeechRecognizer(this);
         recognizer.setRecognitionListener(new RecognitionListener() {
             @Override public void onReadyForSpeech(Bundle params) { }
@@ -341,7 +338,7 @@ public final class VoiceRecognitionActivity extends Activity {
             @Override public void onError(int error) {
                 if (!finished) {
                     // 带上错误码：同一句「未返回结果」分不出网络、权限、没听到声音还是服务不可用（#5553）。
-                    if (!stopping) fail(PlatformSpeechPolicy.message(error, recognizerLabel(VoiceRecognitionActivity.this)));
+                    if (!stopping) fail(PlatformSpeechPolicy.message(error));
                     finishRequest();
                 }
             }
@@ -364,6 +361,22 @@ public final class VoiceRecognitionActivity extends Activity {
         });
         recognizer.startListening(recognitionIntent(getPackageName(),
             getIntent().getStringExtra(EXTRA_LANGUAGE), false));
+    }
+
+    /** 绑定服务也可能同步抛异常；先释放失败的识别器，结束请求时不再向它发送停止命令。 */
+    private void platformStartFailed(int error) {
+        SpeechRecognizer failed = recognizer;
+        recognizer = null;
+        if (failed != null) {
+            try {
+                failed.destroy();
+            } catch (RuntimeException unavailable) {
+                // 服务已经失效时仍要清除请求并关闭窗口。
+            }
+        }
+        if (finished) return;
+        fail(PlatformSpeechPolicy.message(error));
+        finishRequest();
     }
 
     /**
@@ -554,12 +567,18 @@ public final class VoiceRecognitionActivity extends Activity {
             provider.stop();
             return;
         }
-        if (recognizer != null) recognizer.stopListening();
+        if (recognizer != null) {
+            recognizer.stopListening();
+        } else {
+            // 等待恢复或授权时还没有识别器；停止必须撤销待启动请求，不能恢复后再开始录音。
+            finishRequest();
+        }
     }
 
     private void cancelRecognition() {
         if (finished) return;
         finished = true;
+        recognitionPending = false;
         voicePolisher.cancel();
         if (local != null) local.cancel();
         if (streaming != null) streaming.cancel();
@@ -572,6 +591,7 @@ public final class VoiceRecognitionActivity extends Activity {
     private void finishRequest() {
         if (finished) return;
         finished = true;
+        recognitionPending = false;
         if (recognizer != null) recognizer.stopListening();
         if (provider != null) provider.stop();
         if (streaming != null) streaming.stop();

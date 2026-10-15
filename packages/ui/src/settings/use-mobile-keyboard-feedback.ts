@@ -3,7 +3,7 @@ import { useLatestRef } from "../core/use-latest-ref";
 import type {
   MobileKeyboardFeedback,
   MobileKeyboardFeedbackClient,
-} from "./mobile-keyboard-feedback-section";
+} from "./mobile-keyboard-feedback";
 import { useAsyncActionRunner } from "../core/use-async-action";
 
 export interface UseMobileKeyboardFeedbackOptions {

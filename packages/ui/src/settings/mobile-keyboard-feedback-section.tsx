@@ -4,48 +4,17 @@ import { EnglishSuggestionsSection } from "./english-suggestions-section";
 import { SwitchRow } from "./switch-row";
 import { ActionButton } from "./action-button";
 
-export type MobileKeyboardFeedback = {
-  soundEnabled: boolean;
-  hapticsEnabled: boolean;
-  /** `system` 跟随系统的触感反馈设置。 */
-  hapticStrength: "light" | "medium" | "strong" | "system";
-  /** iOS keeps this Apple keyboard preference in the native App Group store. */
-  englishSuggestions?: boolean;
-  /** iOS draws the candidate strip in the keyboard skin unless this App Group switch hands it to the shared candidate skin and colours. */
-  candidatePaletteFollowsDesktop?: boolean;
-  /** iOS writes the composition into the text field as marked text only when this App Group switch is on; it has no raw/pinyin/empty choice because the strip already carries that one. */
-  inlinePreedit?: boolean;
-  /** False where the device cannot vibrate for key presses (iPad has no Taptic Engine): the vibration controls are hidden and the stored choice is left for the user's other devices. */
-  hapticsAvailable?: boolean;
-  /** iPad only: the digit row and Tab key of the full-width keyboard, kept in the App Group. Absent on a phone, where the keyboard has no room for either. */
-  tabletFullKeys?: boolean;
-  /** 仅 iPad：横屏分离式键盘，存在 App Group 的 `keyboard.tablet.split`，默认关。手机上没有这个字段。 */
-  tabletSplitKeyboard?: boolean;
-  /** 滑行输入：在 26 键字母上连续滑动输入全拼，默认关。只有键盘实现了它的宿主才给出这个字段；HarmonyOS 存在键盘自己的 `key-feedback.json`，属于设备而不进共享偏好。 */
-  glideTyping?: boolean;
-  /** 仅鸿蒙，与 `glideTyping` 一样存放在键盘自己的 `key-feedback.json` 里：手写板在最后一笔后等待多久再识别，200–1500 ms，步长 100。宿主键盘没有此设置时缺省。 */
-  handwritingDelayMs?: number;
-  /** 仅鸿蒙：手写笔迹颜色，取皮肤的按键文字颜色或固定的黑、白、蓝。 */
-  handwritingStrokeColor?: HandwritingStrokeColor;
-  /** 仅鸿蒙：手写笔迹宽度，1–8。 */
-  handwritingStrokeWidth?: number;
-  /** 按键弹出预览：按下字母键时在其上方放大显示的字符，默认开启。只有键盘实现了它的宿主才发送此字段；鸿蒙存放在键盘自己的 `key-feedback.json` 里。 */
-  keyPopup?: boolean;
-  /** 滑动输入符号：在字母键上滑动输入其角落的符号，默认开启；长按则不论开关如何都输入该符号。与 `keyPopup` 同时存在。 */
-  swipeSymbols?: boolean;
-  /** 该滑动的方向，默认向下。 */
-  swipeSymbolsDirection?: SwipeSymbolsDirection;
-};
+import {
+  mobileKeyboardFeedbackControlState,
+  type MobileKeyboardFeedback,
+} from "./mobile-keyboard-feedback";
 
-export type SwipeSymbolsDirection = "down" | "up";
-
-export type HandwritingStrokeColor = "follow_skin" | "black" | "white" | "blue";
-
-export type MobileKeyboardFeedbackClient = {
-  load(): Promise<MobileKeyboardFeedback>;
-  save(settings: MobileKeyboardFeedback): Promise<MobileKeyboardFeedback>;
-  preview?(strength: MobileKeyboardFeedback["hapticStrength"]): Promise<void>;
-};
+export type {
+  MobileKeyboardFeedback,
+  MobileKeyboardFeedbackClient,
+  SwipeSymbolsDirection,
+  HandwritingStrokeColor,
+} from "./mobile-keyboard-feedback";
 
 export interface MobileKeyboardFeedbackSectionProps {
   value: MobileKeyboardFeedback;
@@ -67,13 +36,13 @@ export function MobileEnglishSuggestionsRow({
   return (
     <EnglishSuggestionsSection
       disabled={busy}
-      value={value.englishSuggestions !== false}
+      value={mobileKeyboardFeedbackControlState(value).englishSuggestionsChecked}
       onChange={(englishSuggestions) => onChange({ ...value, englishSuggestions })}
     />
   );
 }
 
-/** Shared mobile keyboard sound, haptic, and iOS English suggestion controls: the 屏幕键盘 page's 按键反馈 group. */
+/** 共享的移动键盘声音、振动与 iOS 英文建议控件，组成「屏幕键盘」页的「按键反馈」组。 */
 export function MobileKeyboardFeedbackSection({
   value,
   busy,
@@ -83,6 +52,7 @@ export function MobileKeyboardFeedbackSection({
   onChange,
   onPreview,
 }: MobileKeyboardFeedbackSectionProps) {
+  const state = mobileKeyboardFeedbackControlState(value);
   return (
     <GroupList title="按键反馈">
       <SettingsRowStack role="group" aria-label="按键反馈">
@@ -93,7 +63,7 @@ export function MobileKeyboardFeedbackSection({
           checked={value.soundEnabled}
           onChange={(checked) => onChange({ ...value, soundEnabled: checked })}
         />
-        {value.hapticsAvailable !== false && (
+        {state.hapticsVisible && (
           <SwitchRow
             title="按键振动"
             description="振动效果取决于设备与系统支持"
@@ -111,7 +81,7 @@ export function MobileKeyboardFeedbackSection({
             onChange={(checked) => onChange({ ...value, keyPopup: checked })}
           />
         )}
-        {value.hapticsAvailable !== false && value.hapticsEnabled && (
+        {state.hapticStrengthVisible && (
           <Row title="振动强度">
             {canPreview && <ActionButton action={onPreview} disabled={busy} label="试一下振动" />}
             <Select

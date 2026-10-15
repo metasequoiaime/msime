@@ -496,7 +496,7 @@ import { floatingToolbarPreferences } from "./settings/floating-toolbar-preferen
 import type { SurfaceTheme, ThemeMode } from "./settings/theme-settings-section";
 import type { TouchToolbarPreferences } from "./settings/touch-keyboard-geometry-section";
 import { HelpSettingsPage } from "./settings/help-settings-page";
-import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-feedback-section";
+import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-feedback";
 import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";
 import { defaultTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";

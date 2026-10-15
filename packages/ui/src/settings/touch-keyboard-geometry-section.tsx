@@ -5,7 +5,7 @@ import { SliderRow } from "./slider-row";
 import { SwitchRow } from "./switch-row";
 import { ActionRow } from "./action-row";
 import { SettingsGroupBlock } from "./settings-group-block";
-import type { SwipeSymbolsDirection } from "./mobile-keyboard-feedback-section";
+import type { SwipeSymbolsDirection } from "./mobile-keyboard-feedback";
 import { SelectRow } from "./select-row";
 import { touchKeyboardSpacingLimits } from "./touch-keyboard-spacing";
 import * as settings from "./settings-style";

@@ -22,17 +22,14 @@ public final class PlatformSpeechPolicy {
      */
     public static final int MAX_LENGTH = 30;
 
-    /** 识别服务应用的名字最多用多少个字符，再长就退回泛称，免得把错误码挤出两行。 */
-    static final int MAX_SERVICE_LABEL = 12;
-
     private PlatformSpeechPolicy() {}
 
     /**
      * 一个错误码对应的提示：原因后紧跟「（错误码 N）」，识别服务自身的故障再接上 {@link #ALTERNATIVES}，整句不超过 {@link #MAX_LENGTH}。
      *
-     * <p>`service` 是设备默认识别服务应用的名字（取不到时为 null）。缺麦克风权限的时候，录音权限是按调用链检查的：水杉自己有权限、又已经转交前台的识别窗口再试过，剩下没有权限的只能是识别服务应用，用户得知道去给哪个应用开权限，所以这一句点名。
+     * <p>错误码 9 可能来自调用方或识别服务的权限与 AppOps 检查；仅凭错误码不能断言是哪一个应用没有麦克风权限。
      */
-    public static String message(int error, String service) {
+    public static String message(int error) {
         String reason = switch (error) {
             case SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_NETWORK -> "语音识别服务连不上网络";
             case SpeechRecognizer.ERROR_SERVER, SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> "语音识别服务出错";
@@ -40,10 +37,7 @@ public final class PlatformSpeechPolicy {
             case SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "没有听到声音，请靠近麦克风再试";
             case SpeechRecognizer.ERROR_NO_MATCH -> "没有识别出文字，请说清楚些再试";
             case SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "语音识别服务正忙，请稍后重试";
-            case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
-                String label = serviceLabel(service);
-                yield "请给" + (label == null ? "默认语音识别应用" : "「" + label + "」") + "开启麦克风权限";
-            }
+            case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "录音权限被拒绝";
             case SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> "语音识别请求过于频繁";
             case SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
                 "识别服务不支持所选语言";
@@ -54,14 +48,6 @@ public final class PlatformSpeechPolicy {
         return serviceFault(error) ? coded + "；" + ALTERNATIVES : coded;
     }
 
-    /** 能放进提示的识别服务应用名：去掉首尾空白，空的、含控制字符的或太长的都不用。 */
-    static String serviceLabel(String service) {
-        if (service == null) return null;
-        String label = service.strip();
-        if (label.isEmpty() || TextPolicy.codePointLength(label) > MAX_SERVICE_LABEL) return null;
-        return label.codePoints().anyMatch(TextPolicy::isControl) ? null : label;
-    }
-
     /**
      * 识别服务报了成功（onResults）却没有给出任何文字。它没有走 onError，没有错误码可报，这里也不借用 ERROR_NO_MATCH 的码：反馈回来的「错误码 7」应当只表示服务自己报的没听懂，不然分不清是哪一种失败（#5553）。
      */
@@ -70,24 +56,25 @@ public final class PlatformSpeechPolicy {
     }
 
     /**
-     * 这个错误码是不是设备识别服务自身的故障（网络、服务端、服务起不来、不支持所选语言、限流或未知错误），换成本地模型或豆包就能绕开。没听到声音、没听懂、麦克风被占用、识别服务缺权限、服务正忙是用户这边重试或调整就能解决的，不给这个出路。
+     * 这个错误码是不是设备识别服务自身的故障（网络、服务端、服务起不来、不支持所选语言、限流或未知错误），换成本地模型或豆包就能绕开。权限被拒绝也提供替代路径，因为权限开关已开仍可能被系统策略拒绝。没听到声音、没听懂、麦克风被占用、服务正忙不给这个出路。
      */
     static boolean serviceFault(int error) {
         return switch (error) {
             case SpeechRecognizer.ERROR_SPEECH_TIMEOUT, SpeechRecognizer.ERROR_NO_MATCH,
-                 SpeechRecognizer.ERROR_AUDIO, SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS,
+                 SpeechRecognizer.ERROR_AUDIO,
                  SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> false;
             default -> true;
         };
     }
 
     /**
-     * 键盘里直接调起的识别在开始聆听（onReadyForSpeech）之前就失败、而且是调用方一侧的原因（服务拒绝了这个进程、服务连接断开、权限被判为不足）时，改用识别窗口再试一次：窗口是个前台 Activity，原先的流程就是它，有的识别服务只认前台界面发起的请求。已经开始聆听之后的失败（网络、没听到声音等）换个窗口也一样，直接报给用户。
+     * 键盘里直接调起的识别在开始聆听（onReadyForSpeech）之前就失败、而且是调用方一侧的原因（服务拒绝了这个进程、服务连接断开、权限被判为不足）时，改用识别窗口再试一次：窗口是个前台 Activity，原先的流程就是它，有的识别服务只认前台界面发起的请求。权限错误即使在 onReadyForSpeech 之后到达也重试：系统可能先调用服务的 onStartListening，再做权限交付检查。用户已主动结束时不再重试。
      */
-    public static boolean retryInActivity(int error, boolean listening) {
+    public static boolean retryInActivity(int error, boolean listening, boolean stopped) {
+        if (stopped) return false;
+        if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) return true;
         if (listening) return false;
         return error == SpeechRecognizer.ERROR_CLIENT
-            || error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
             || error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED;
     }
 

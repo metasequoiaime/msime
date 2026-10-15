@@ -11,6 +11,16 @@ pub struct DictionaryAccess {
     roots: Vec<(std::path::PathBuf, crate::file_lock::PrivateDirectory)>,
 }
 
+#[cfg(unix)]
+impl Drop for DictionaryAccess {
+    fn drop(&mut self) {
+        // 继承或复制的描述符不能把租约延长到守卫结束之后。
+        for file in &self._files {
+            let _ = crate::file_lock::unlock(file);
+        }
+    }
+}
+
 impl DictionaryAccess {
     /// Acquire shared access without waiting. `None` means maintenance is active.
     pub fn try_session(user: &Path, dictionaries: &Path) -> io::Result<Option<Self>> {
@@ -45,8 +55,10 @@ impl DictionaryAccess {
         let mut roots = vec![user.canonicalize()?, dictionaries.canonicalize()?];
         roots.sort();
         roots.dedup();
-        let mut files = Vec::with_capacity(roots.len());
-        let mut directories = Vec::with_capacity(roots.len());
+        let mut access = Self {
+            _files: Vec::with_capacity(roots.len()),
+            roots: Vec::with_capacity(roots.len()),
+        };
         for root in roots {
             let directory = crate::file_lock::open_private_directory(&root)?;
             let file = crate::file_lock::open_private_lock_file_at(
@@ -61,13 +73,10 @@ impl DictionaryAccess {
             if !acquired {
                 return Ok(None);
             }
-            files.push(file);
-            directories.push((root, directory));
+            access._files.push(file);
+            access.roots.push((root, directory));
         }
-        Ok(Some(Self {
-            _files: files,
-            roots: directories,
-        }))
+        Ok(Some(access))
     }
 }
 
@@ -97,21 +106,9 @@ mod tests {
                 .is_none()
         );
         drop(second);
-        // Other tests spawn processes concurrently. On Unix, fork can briefly
-        // inherit our locked file descriptions before close-on-exec runs.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        let writer = loop {
-            if let Some(writer) =
-                DictionaryAccess::try_maintenance(user.path(), dictionaries.path()).unwrap()
-            {
-                break writer;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "released dictionary lock remained busy"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        };
+        let writer = DictionaryAccess::try_maintenance(user.path(), dictionaries.path())
+            .unwrap()
+            .unwrap();
         assert!(
             DictionaryAccess::try_session(user.path(), dictionaries.path())
                 .unwrap()
@@ -123,6 +120,106 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
+    }
+
+    #[cfg(unix)]
+    fn assert_access_releases_with_duplicate_descriptors(exclusive: bool) {
+        let user = tempfile::tempdir().unwrap();
+        let dictionaries = tempfile::tempdir().unwrap();
+        let access = DictionaryAccess::acquire(user.path(), dictionaries.path(), exclusive)
+            .unwrap()
+            .unwrap();
+        let duplicates: Vec<_> = access
+            ._files
+            .iter()
+            .map(|file| file.try_clone().unwrap())
+            .collect();
+        assert!(
+            DictionaryAccess::try_maintenance(user.path(), dictionaries.path())
+                .unwrap()
+                .is_none()
+        );
+        drop(access);
+
+        let next = DictionaryAccess::try_maintenance(user.path(), dictionaries.path())
+            .unwrap()
+            .expect("结束的访问租约不能被描述符副本继续持有");
+        drop(duplicates);
+        assert!(
+            DictionaryAccess::try_session(user.path(), dictionaries.path())
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            DictionaryAccess::try_maintenance(user.path(), dictionaries.path())
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            DictionaryAccess::try_session(user.path(), dictionaries.path())
+                .unwrap()
+                .is_none()
+        );
+        drop(next);
+        assert!(
+            DictionaryAccess::try_session(user.path(), dictionaries.path())
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn session_access_releases_with_duplicate_descriptors() {
+        assert_access_releases_with_duplicate_descriptors(false);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn maintenance_access_releases_with_duplicate_descriptors() {
+        assert_access_releases_with_duplicate_descriptors(true);
+    }
+
+    #[test]
+    fn a_busy_second_root_releases_the_first_without_releasing_the_holder() {
+        let root = tempfile::tempdir().unwrap();
+        let first = root.path().join("a");
+        let second = root.path().join("z");
+        std::fs::create_dir(&first).unwrap();
+        std::fs::create_dir(&second).unwrap();
+        let holder = DictionaryAccess::try_maintenance(&second, &second)
+            .unwrap()
+            .unwrap();
+
+        assert!(DictionaryAccess::try_maintenance(&first, &second)
+            .unwrap()
+            .is_none());
+        let first_only = DictionaryAccess::try_maintenance(&first, &first)
+            .unwrap()
+            .expect("部分获取失败应归还第一把锁");
+        assert!(DictionaryAccess::try_session(&second, &second)
+            .unwrap()
+            .is_none());
+        drop(first_only);
+        drop(holder);
+        assert!(DictionaryAccess::try_maintenance(&first, &second)
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn an_invalid_second_lock_releases_the_first_root() {
+        let root = tempfile::tempdir().unwrap();
+        let first = root.path().join("a");
+        let second = root.path().join("z");
+        std::fs::create_dir(&first).unwrap();
+        std::fs::create_dir(&second).unwrap();
+        std::fs::create_dir(second.join(".msime-dictionary-access.lock")).unwrap();
+
+        assert!(DictionaryAccess::try_maintenance(&first, &second).is_err());
+        assert!(DictionaryAccess::try_maintenance(&first, &first)
+            .unwrap()
+            .is_some());
     }
 
     #[cfg(unix)]
