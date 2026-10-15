@@ -224,6 +224,23 @@ pub struct ParallelOrderRows<'a> {
     static_evidence: Option<&'a [Option<StaticEvidence>]>,
 }
 
+/// 找出实际交给模型比较的候选中最长的一行。
+///
+/// `Reranker::best_where` 只比较前九条回答当前按键的候选；比较集合之后的长候选不能影响上下文窗口，否则会让模型每次无关的长行出现时重建前缀。
+fn longest_rerank_candidate<'a, R, F>(rows: &R, answers_key: &F) -> usize
+where
+    R: OrderRowSource<'a> + ?Sized,
+    F: Fn(OrderRow<'a>) -> bool,
+{
+    (0..rows.len())
+        .map(|index| rows.get(index))
+        .filter(|row| answers_key(*row))
+        .take(STATIC_RERANK_LIMIT)
+        .map(|row| row.text.chars().count())
+        .max()
+        .unwrap_or(0)
+}
+
 impl<'a> ParallelOrderRows<'a> {
     pub fn new(
         texts: &'a [String],
@@ -310,12 +327,7 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
             && (corrections_lead || !row.corrected)
     };
     // Only candidates that answer the key are scored, so they are the ones the window has to leave room for.
-    let longest = (0..rows.len())
-        .map(|index| rows.get(index))
-        .filter(|row| answers_key(*row))
-        .map(|row| row.text.chars().count())
-        .max()
-        .unwrap_or(0);
+    let longest = longest_rerank_candidate(rows, &answers_key);
     let context = rerank_context(context, reranker.model().context_length(), longest);
     with_row_texts(rows, |texts| {
         let leader = rows.get(0);
@@ -577,6 +589,23 @@ mod tests {
         assert!(context.ends_with(window));
         // A candidate that fills the window leaves no room, and the answer is an empty context rather than a panic.
         assert_eq!(rerank_context(&context, 64, 70), "");
+    }
+
+    #[test]
+    fn rerank_context_length_ignores_candidates_beyond_model_budget() {
+        let rows = [
+            row("甲", LATTICE_SOURCE),
+            row("乙", LATTICE_SOURCE),
+            row("丙", LATTICE_SOURCE),
+            row("丁", LATTICE_SOURCE),
+            row("戊", LATTICE_SOURCE),
+            row("己", LATTICE_SOURCE),
+            row("庚", LATTICE_SOURCE),
+            row("辛", LATTICE_SOURCE),
+            row("壬", LATTICE_SOURCE),
+            row("这是没有进入模型比较集合的长候选", LATTICE_SOURCE),
+        ];
+        assert_eq!(longest_rerank_candidate(&rows, &|row| row.answers_key), 1);
     }
 
     #[test]
