@@ -2516,7 +2516,8 @@ void CMetasequoiaIME::_CompleteDeferredKeyReplay(uint64_t replayToken)
         }
         else
         {
-            clearAppliedPrefix();
+            // 选择可能补全网址或只钉住一段，仍有组字时不能丢掉恢复前缀；完整上屏后快照为空，会自然清掉旧检查点。
+            (void)_RefreshDeferredRecoveryPrefix(context);
         }
     }
     else if (_deferredKeyInFlight.kind == DeferredKeyDown::Kind::PreservedKey && _pCompositionProcessorEngine &&
