@@ -32,17 +32,9 @@ flate2 = "1"
 uuid = { workspace = true, features = ["serde", "v4"] }
 # `formatting` for the strftime placeholders a command-table pack's templates are checked against, the same the Engine expands them with.
 time = { workspace = true, features = ["formatting"] }
-futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
-tokio = { workspace = true, features = ["rt", "net", "time"] }
-tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
 # 偏好、翻译和地址形状校验只解析地址、不联网，直接用 `url`，不经 `reqwest::Url`。锁文件里只有一份 url 2.5.8，和 reqwest 用的是同一个类型。
 url = "2.5"
-# On-device speech models: the catalog archives are tar.bz2. bzip2 0.6 defaults to the pure-Rust libbz2-rs-sys backend, so no C toolchain is needed on any host.
-tar = { version = "0.4", default-features = false }
-bzip2 = "0.6"
-# Toneless pinyin for hotword post-correction of recognizers without native hotword support.
-pinyin = { version = "0.11", default-features = false, features = ["plain", "heteronym"] }
 # Plugin packs picked as a .zip archive. Only the flate2 deflate backend: stored and deflated members are what every archiver writes, and flate2 is already here.
 zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
 # Notice bodies are simple Markdown; HarmonyOS's RichText gets HTML rendered here (raw HTML escaped, unsafe links dropped). Only the HTML writer: the default `getopts` feature is for the crate's command-line binary.

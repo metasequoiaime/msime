@@ -6,6 +6,8 @@
 //! shared prefixes were doing the grouping work that the module tree should do.
 //!
 //! 存储、文件锁、有上限的读取、文本谓词、日历和简繁转换在 `msime-client-base` 里，下面用 `use`/`pub use` 接回原来的路径：宿主照旧写 `msime_client_core::file_lock`，本 crate 内部照旧写 `crate::storage::...`。
+//!
+//! 语音、服务凭据、AI 候选设置和按需资源包在 `msime-client-providers` 里：它依赖本 crate，本 crate 不引用它，宿主写 `msime_client_providers::voice` 这类路径。`endpoint` 只为它导出，所以是 `#[doc(hidden)]`。
 
 /// The `Uuid` this crate's public API is written in terms of.
 ///
@@ -18,7 +20,6 @@
 pub use uuid;
 
 pub mod account;
-pub mod ai;
 use msime_client_base::bounded_io;
 pub use msime_client_base::calendar;
 pub mod candidate_document;
@@ -29,11 +30,11 @@ pub mod clipboard_relay;
 pub mod cloud;
 pub mod common_phrases;
 pub mod community;
-pub mod credential;
 pub mod diagnostics;
 pub mod dictionary;
 pub mod edition;
-mod endpoint;
+#[doc(hidden)]
+pub mod endpoint;
 pub use msime_client_base::file_lock;
 pub mod helpcode;
 pub mod host_surface;
@@ -42,7 +43,6 @@ pub mod panels;
 pub mod plugins;
 pub mod preferences;
 pub mod punctuation;
-pub mod resource_packs;
 pub mod resources;
 pub mod settings_document;
 pub mod skin;
@@ -65,4 +65,3 @@ pub mod translation;
 pub mod typing_statistics;
 pub mod update_check;
 pub mod vocabulary;
-pub mod voice;

@@ -315,9 +315,9 @@ fn valid_secret(value: &str) -> bool {
         && !value.starts_with("FAKESECRET_")
 }
 
-/// 规则在 client-core 的 `ai::endpoint`：https 不限主机，http 只能指向本机或局域网。provider 脚本读这份文件时按同一规则再查一次。
+/// 规则在 client-providers 的 `ai::endpoint`：https 不限主机，http 只能指向本机或局域网。provider 脚本读这份文件时按同一规则再查一次。
 fn valid_endpoint(value: &str) -> bool {
-    msime_client_core::ai::endpoint::is_allowed(value)
+    msime_client_providers::ai::endpoint::is_allowed(value)
 }
 
 type AiEntries = BTreeMap<String, Map<String, Value>>;

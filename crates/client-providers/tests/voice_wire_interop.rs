@@ -5,8 +5,8 @@
 //! Without that variable there is nothing to talk to, so both tests report why
 //! they did nothing and return rather than failing an ordinary `cargo test`.
 
-use msime_client_core::voice::controller;
-use msime_client_core::voice::controller::{Error, Phase, Transport};
+use msime_client_providers::voice::controller;
+use msime_client_providers::voice::controller::{Error, Phase, Transport};
 use std::io::{Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};

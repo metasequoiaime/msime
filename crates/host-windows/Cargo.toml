@@ -9,11 +9,13 @@ rust-version.workspace = true
 
 [dev-dependencies]
 msime-client-core = { path = "../client-core" }
+msime-client-providers = { path = "../client-providers" }
 
 # The desktop shell forbids unsafe code, so the few Win32 calls the shared
 # panels need live here behind safe wrappers.
 [target.'cfg(windows)'.dependencies]
 msime-client-core = { path = "../client-core" }
+msime-client-providers = { path = "../client-providers" }
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",

@@ -23,6 +23,7 @@ tauri-build = { version = "2", features = [] }
 tauri.workspace = true
 serde.workspace = true
 msime-client-core = { path = "../../../crates/client-core" }
+msime-client-providers = { path = "../../../crates/client-providers" }
 msime-host-api = { path = "../../../crates/host-api" }
 msime-input-runtime = { path = "../../../crates/input-runtime" }
 msime-path-trust = { path = "../../../crates/path-trust" }

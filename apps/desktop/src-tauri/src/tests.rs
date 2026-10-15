@@ -260,7 +260,7 @@ fn cantonese_zhuyin_and_stroke_are_offered_only_with_their_installed_dictionary(
 fn macos_offers_only_the_language_schemes_its_download_can_install() {
     use msime_client_core::host_surface::{HostCapabilities, HostPlatform};
     use msime_client_core::preferences::InputScheme;
-    use msime_client_core::resource_packs::ResourcePack;
+    use msime_client_providers::resource_packs::ResourcePack;
     let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
     super::drop_unpinned_language_schemes(&mut capabilities);
     let pinned = ResourcePack::LanguageDictionaries.schemes();
@@ -1083,13 +1083,13 @@ fn ink_handwriting_answer_reports_no_result_when_no_model_can_follow() {
 
 /// 在 `state_root` 下伪造一个已完整安装的手写资源包，返回其中的模型路径。
 fn publish_fake_handwriting_pack(state_root: &std::path::Path) -> std::path::PathBuf {
-    use msime_client_core::resource_packs::{self, ResourcePack};
+    use msime_client_providers::resource_packs::{self, ResourcePack};
     let pack = resource_packs::root(state_root).join(ResourcePack::Handwriting.id());
     std::fs::create_dir_all(&pack).unwrap();
     let model = pack.join("handwriting-zh_CN.model");
     std::fs::write(&model, b"synthetic").unwrap();
     std::fs::write(
-        pack.join(msime_client_core::voice::local_models::MANIFEST_FILE),
+        pack.join(msime_client_providers::voice::local_models::MANIFEST_FILE),
         serde_json::to_vec(&ResourcePack::Handwriting.manifest()).unwrap(),
     )
     .unwrap();

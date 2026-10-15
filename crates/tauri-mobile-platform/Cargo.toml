@@ -10,6 +10,7 @@ links = "msime-tauri-mobile-platform"
 
 [dependencies]
 msime-client-core = { path = "../client-core" }
+msime-client-providers = { path = "../client-providers" }
 serde.workspace = true
 serde_json.workspace = true
 tauri.workspace = true

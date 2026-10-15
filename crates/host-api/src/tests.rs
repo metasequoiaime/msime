@@ -333,7 +333,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
 
 #[test]
 fn doubao_frame_codec_is_available_through_c_abi() {
-    let request = msime_client_core::voice::doubao_frame::encode_json_frame(
+    let request = msime_client_providers::voice::doubao_frame::encode_json_frame(
         9,
         0,
         1,

@@ -1,10 +1,7 @@
 //! The bring-your-own-endpoint AI assistant's two settings-page requests: the
 //! model listing and the one-shot polish test.
 //!
-//! The validation, the requests and the response parsing live in client-core's
-//! `ai::settings`, which the native Windows settings window reaches through
-//! `msime_client_ai_models` and `msime_client_ai_test`; these commands only move
-//! the blocking call off the async runtime and turn its error into a code.
+//! The validation, the requests and the response parsing live in client-providers' `ai::settings`, which the native Windows settings window reaches through `msime_client_ai_models` and `msime_client_ai_test`; these commands only move the blocking call off the async runtime and turn its error into a code.
 //!
 //! Only the two desktop hosts that expose it build this. Android and iOS answer
 //! the same two commands from their own platform modules, because those requests
@@ -13,7 +10,7 @@
 #[cfg(not(target_os = "linux"))]
 use crate::CommandError;
 #[cfg(not(target_os = "linux"))]
-use msime_client_core::ai::settings::AiSettingsError;
+use msime_client_providers::ai::settings::AiSettingsError;
 
 #[cfg(not(target_os = "linux"))]
 fn command_error(error: AiSettingsError) -> CommandError {
@@ -32,7 +29,7 @@ pub(crate) async fn ai_models(
     token: String,
 ) -> Result<Vec<String>, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
-        msime_client_core::ai::settings::fetch_models(&endpoint, &token).map_err(command_error)
+        msime_client_providers::ai::settings::fetch_models(&endpoint, &token).map_err(command_error)
     })
     .await
     .map_err(|_| command_error(AiSettingsError::ModelsUnavailable))?
@@ -48,7 +45,7 @@ pub(crate) async fn ai_test(
     text: String,
 ) -> Result<String, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
-        msime_client_core::ai::settings::test_polish(&endpoint, &model, &prompt, &token, &text)
+        msime_client_providers::ai::settings::test_polish(&endpoint, &model, &prompt, &token, &text)
             .map_err(command_error)
     })
     .await

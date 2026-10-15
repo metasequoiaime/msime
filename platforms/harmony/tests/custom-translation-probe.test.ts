@@ -46,7 +46,7 @@ const contract = JSON.parse(repositoryFile("shared/contracts/custom-translation/
 /** Tauri 设置页显示的 DeepL 提示，从 Rust 的 `deepl_failure_message` 读出来作为期望值，鸿蒙一份不能自己改。 */
 function rustDeepLMessages(): Map<string, string> {
   // Windows 检出可能使用 CRLF，按函数边界提取前先统一换行。
-  const source = repositoryFile("crates/client-core/src/credential/translation.rs").replace(
+  const source = repositoryFile("crates/client-providers/src/credential/translation.rs").replace(
     /\r\n/g,
     "\n",
   );
