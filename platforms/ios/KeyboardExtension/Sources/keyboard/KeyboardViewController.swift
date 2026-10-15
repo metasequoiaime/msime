@@ -2667,9 +2667,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                         scheme: inputScheme, chinese: isChineseMode, localMode: isInLocalMode)
   }
 
-  /// 借用网格不改变统计布局：原拼音九键记 Nine，其余中文入口仍记 Digit。
+  /// 借用网格不改变统计布局：两种拼音九键记 Nine，其余中文入口仍记 Digit。
   private func numberPadKeyID(_ digit: Int) -> String? {
-    inputScheme == .nineKey ? TypingKeyID.nineKey(digit) : TypingKeyID.character(String(digit))
+    [.nineKey, .nineKeyShuangpin].contains(inputScheme)
+      ? TypingKeyID.nineKey(digit) : TypingKeyID.character(String(digit))
   }
 
   private func typeSymbolLayerKey(row: Int, column: Int) {

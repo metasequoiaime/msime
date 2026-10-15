@@ -43,6 +43,21 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
+  /// 九键双拼字母层的 0 仍参与组码；数字页的 0 只在数字页按字面上屏。
+  func testNineKeyShuangpinZeroContinuesCompositionOnLetterLayer() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .nineKeyShuangpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    try button("nineKey1", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("nineKeyZero", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try button("preeditButton", in: controller).accessibilityValue, "10",
+                   "字母层的 0 必须接续双拼组码，不能按数字页字面提交并结束组字")
+    controller.viewDidDisappear(false)
+  }
+
   func testSharedFrequencyPreferenceRejectsFractionalAndBooleanCounts() {
     XCTAssertNil(KeyboardViewController.sharedPreferenceInt(NSNumber(value: 2.5), range: 1...10))
     XCTAssertNil(KeyboardViewController.sharedPreferenceInt(NSNumber(value: true), range: 1...10))
