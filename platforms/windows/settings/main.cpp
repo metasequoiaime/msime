@@ -10812,8 +10812,8 @@ private:
         mode == L"dark" ||
         (mode != L"light" && (common_mode == L"dark" ||
                               (common_mode == L"system" && system_dark_)));
-    const auto colors = candidate_theme(
-        document_.String(L"global_theme", L"system"), true, dark);
+    const auto colors = msime::windows::toolbar_palette(candidate_theme(
+        document_.String(L"global_theme", L"system"), true, dark));
     std::vector<ToolbarComponent> components;
     for (const auto &item : toolbar_components_) {
       if (item.button == msime::windows::kToolbarHandwriting &&
@@ -10888,7 +10888,8 @@ private:
     }
     toolbar_preview_host_.Background(brush(to_color(colors.surface)));
     toolbar_preview_host_.BorderBrush(brush(to_color(colors.border)));
-    toolbar_preview_host_.BorderThickness(Thickness{1, 1, 1, 1});
+    const double border = colors.border_width * scale;
+    toolbar_preview_host_.BorderThickness(Thickness{border, border, border, border});
     const double radius = colors.radius * scale;
     toolbar_preview_host_.CornerRadius(
         CornerRadius{radius, radius, radius, radius});
