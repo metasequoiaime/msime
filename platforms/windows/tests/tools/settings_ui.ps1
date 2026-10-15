@@ -271,7 +271,7 @@ try {
         $sample = Find-ById $window 'candidate-preview-sample'
         if ($sample.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value -ne '杉树🌲 Alpha') { throw 'Candidate tab switch lost the preview sample' }
         $combo = Find-ById $window 'candidate-preview-appearance'
-        $selected = $combo.GetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern).GetCurrentSelection()
+        $selected = @($combo.GetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern).Current.GetSelection())
         if ($selected.Count -ne 1 -or $selected[0].Current.Name -ne $appearance) { throw 'Candidate tab switch lost the preview appearance' }
         Start-Sleep -Milliseconds 350
         Save-Window $window "$theme-candidate-custom-preview.png"

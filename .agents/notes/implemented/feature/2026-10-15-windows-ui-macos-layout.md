@@ -45,4 +45,4 @@ macOS 本机没有 Windows App SDK 运行环境，Windows runner 的结果和截
 
 `577dedebf5` 完成 18 页浅深色及两种宽度的 72 张页面截图、三种方案切换与持久化及 6 张交互截图；四张全页联系图均已查看。此后的页面结构以更新的运行证据为准。
 
-`3ab17fcf98` 的真实 WinUI 宿主编译和链接通过；Windows PowerShell 5.1 已正常读取带 BOM 的 UTF-8 脚本。运行产出浅色 1000 宽的 7 页及四个候选标签共 11 张截图，已审看联系图及输入方案、字体、皮肤、状态栏原图：分组、预览和主题缩略图可见，单选、复选和滑块均呈绿色。切入屏幕键盘时失败，原因是紧凑滑块从 `StackPanel` 改为 `Grid` 后仍保留旧强转；已同步调用方并将工厂返回类型收紧为 `Grid`。截图还暴露导航模板内层高度未缩小，已改实际资源键。两处修复后的 Windows 运行尚待验证，不能把此前 11 张图或本机 quick 当作完整验收。账号、剪贴板、统计的新布局以及深色、800 宽和新增交互尚无本轮完整运行证据。
+`b7e2ad20c0` 的真实 WinUI 宿主编译和链接通过，已运行全部 18 页的浅色 800／1000 宽截图、四个候选标签、三种输入方案切换与保存、字体搜索定位，共 48 张截图。已审看两张完整联系图及账号、剪贴板、统计、输入方案原图：新布局正常呈现，屏幕键盘切页异常和导航裁字均已消除，复选框、单选项和滑块呈绿色。自定义示例循环和切换标签后的文字保留也已执行通过；脚本随后错误调用不存在的 `SelectionPattern.GetCurrentSelection()`，尚未走完明暗保留检查。按 [.NET UI Automation 的接口](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.selectionpattern.selectionpatterninformation.getselection)改用 `Current.GetSelection()` 并保留数组结果。此修复只改验收脚本，不改变运行窗口源码。深色、工具栏组件联动、剪贴板菜单及预览状态完整验收仍待后续运行证据，不能用浅色截图推断。
