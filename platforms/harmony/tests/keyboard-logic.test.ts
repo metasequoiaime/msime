@@ -12648,8 +12648,8 @@ group("the 26-key digit layer choice travels with the account", () => {
 
 group("the shuangpin key hint switch travels with the account", () => {
   check(
-    localAccountPreferences({}, syncFeedback)["platform.harmony.shuangpin_key_hints"] === true,
-    "a document from before the switch uploads the hints as shown",
+    localAccountPreferences({}, syncFeedback)["platform.harmony.shuangpin_key_hints"] === false,
+    "a document from before the switch uploads the hints as hidden",
   );
   check(
     localAccountPreferences({ touch_shuangpin_key_hints: false }, syncFeedback)[

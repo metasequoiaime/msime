@@ -3115,9 +3115,9 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
         loaded.preferences.touch_twenty_six_key_number_layout,
         TwentySixKeyNumberLayout::Row
     );
-    // 旧文档没有这个键：双拼键位提示照旧显示。
-    assert!(loaded.preferences.touch_shuangpin_key_hints);
-    assert!(Preferences::default().touch_shuangpin_key_hints);
+    // 旧文档没有这个键：新默认关闭双拼键位提示。
+    assert!(!loaded.preferences.touch_shuangpin_key_hints);
+    assert!(!Preferences::default().touch_shuangpin_key_hints);
     assert_eq!(fs::read(store.path()).unwrap(), bytes);
 
     let saved = store

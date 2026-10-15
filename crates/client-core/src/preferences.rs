@@ -940,8 +940,8 @@ pub struct Preferences {
     /// 26 键按「123」时出一行 1 到 0 的数字符号页，还是九宫格那样的 3×3 数字层。
     #[serde(default)]
     pub touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout,
-    /// 触屏 26 键双拼时在字母键底部画当前方案的声母/韵母提示，读屏也读它。默认开；全拼、独立英文和本地模式本来就不画，不受它影响。桌面宿主原样保留、不使用。
-    #[serde(default = "enabled_by_default")]
+    /// 触屏 26 键双拼时在字母键底部画当前方案的声母/韵母提示，读屏也读它。默认关；全拼、独立英文和本地模式本来就不画，不受它影响。桌面宿主原样保留、不使用。
+    #[serde(default = "disabled_by_default")]
     pub touch_shuangpin_key_hints: bool,
     /// The optional buttons on the touch keyboard's toolbar, the counterpart of the floating toolbar's component switches. The voice entry stays under `touch_voice_shortcut`.
     #[serde(default)]
@@ -2015,6 +2015,10 @@ fn enabled_by_default() -> bool {
     true
 }
 
+fn disabled_by_default() -> bool {
+    false
+}
+
 /// Smart punctuation is off on a fresh Windows or macOS profile.
 ///
 /// It rewrites a character the user already saw land, so the source ships the whole family disabled and asks for it to be turned on deliberately - `platforms/windows/installer/config.default.toml` has every one of the five switches `false`. That file is only the installed template; the running host reads this document, so without this the effective first-run default would be the opposite of the baseline the source ships. macOS is the port of that desktop product and follows it.
@@ -2161,7 +2165,7 @@ impl Default for Preferences {
             touch_voice_shortcut: false,
             touch_number_keypad_order: NumberKeypadOrder::default(),
             touch_twenty_six_key_number_layout: TwentySixKeyNumberLayout::default(),
-            touch_shuangpin_key_hints: true,
+            touch_shuangpin_key_hints: false,
             touch_toolbar: TouchToolbarPreferences::default(),
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),

@@ -1931,7 +1931,7 @@ export type Preferences = PunctuationPreferences &
     touch_number_keypad_order?: "phone" | "calculator";
     /** 26 键按「123」时的数字层：一行 1 到 0，或九宫格那样的 3×3 数字键。 */
     touch_twenty_six_key_number_layout?: "row" | "nine_key";
-    /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为开。 */
+    /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为关。 */
     touch_shuangpin_key_hints?: boolean;
     touch_toolbar?: Partial<TouchToolbarPreferences>;
     default_ime_mode?: "chinese" | "english";

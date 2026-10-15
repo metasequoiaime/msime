@@ -4068,14 +4068,14 @@ test("the shuangpin key hint switch appears only on touch hosts and saves into t
     { name: "双拼键位提示" },
     { timeout: 3000 },
   )) as HTMLInputElement;
-  // 文档里没有这个键时按开，和以前的键盘一样画提示。
-  expect(hints.checked).toBe(true);
+  // 文档里没有这个键时按关，新安装的键盘默认不画提示。
+  expect(hints.checked).toBe(false);
   fireEvent.click(hints);
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
-    touch_shuangpin_key_hints: false,
+    touch_shuangpin_key_hints: true,
   });
 });
 

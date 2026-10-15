@@ -452,10 +452,10 @@ export function localAccountPreferences(
       TWENTY_SIX_KEY_NUMBER_LAYOUTS,
       "row",
     ),
-    // 26 键双拼的键位提示，缺省是开；账号字段表收录这个键之前上传时会被滤掉。
+    // 26 键双拼的键位提示，缺省是关；账号字段表收录这个键之前上传时会被滤掉。
     "platform.harmony.shuangpin_key_hints": flag(
       member(preferences, "touch_shuangpin_key_hints"),
-      true,
+      false,
     ),
     "platform.harmony.sound_enabled": feedback.soundEnabled,
     "platform.harmony.haptics_enabled": feedback.hapticsEnabled,

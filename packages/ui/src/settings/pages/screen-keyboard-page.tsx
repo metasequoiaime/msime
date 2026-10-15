@@ -189,10 +189,10 @@ export function ScreenKeyboardSettingsPage() {
         glideTyping={mobileKeyboardFeedback?.glideTyping}
         swipeSymbols={mobileKeyboardFeedback?.swipeSymbols}
         swipeSymbolsDirection={mobileKeyboardFeedback?.swipeSymbolsDirection}
-        // 只有触屏宿主的 26 键双拼画键位提示；不含双拼的版本（五笔、日文、越南文、藏文等）里不存在双拼键盘，和 Android、iOS 原生设置页一样不列出。缺省为开，与 client-core 的默认值一致。
+        // 只有触屏宿主的 26 键双拼画键位提示；不含双拼的版本（五笔、日文、越南文、藏文等）里不存在双拼键盘，和 Android、iOS 原生设置页一样不列出。缺省为关，与 client-core 的默认值一致。
         shuangpinKeyHints={
           mobilePlatform && supportedInputSchemes(host).includes("shuangpin")
-            ? (draft.touch_shuangpin_key_hints ?? true)
+            ? (draft.touch_shuangpin_key_hints ?? false)
             : undefined
         }
         tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
