@@ -375,7 +375,7 @@ enum class SkinSlot
     both,
     unknown,
 };
-// 以 `base` 为底的皮肤包所属的槽位，即 base 那个内置主题的明暗（client-core 的 `theme::skin_appearance`）；system 和目录里没有的 id 都是 both。
+// 以 `base` 为底的皮肤包所属的槽位，即 base 那个内置主题的明暗（client-services 的 `theme::skin_appearance`）；system 和目录里没有的 id 都是 both。
 SkinSlot SkinSlotOfBase(std::string_view base);
 // 把皮肤包 `id`（清单 base 为 `base`）放进它所属的槽位，规则与 packages/ui/src/theme/global-theme.ts 的 `applyCandidateSkin` 相同：深色皮肤写深色槽位，并清掉旧文档放在浅色槽位里的深色皮肤；浅色皮肤写浅色槽位，深色槽位空着而原来浅色槽位里的是深色或 system 底的皮肤（`slotOf` 给出 dark 或 both）时先把它挪进深色槽位，unknown 的直接覆盖；system 底的写两个槽位。`base` 照旧写成包的 base，取色器不动。
 CustomTheme ApplyCandidateSkin(CustomTheme custom, const std::string &id, const std::string &base,

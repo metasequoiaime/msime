@@ -1,7 +1,7 @@
 /**
  * Decisions for the keyboard's 云端 clipboard section, kept free of ArkUI and HTTP so they can be checked off a device.
  *
- * The keyboard never uploads on copy and never reads the system clipboard for this: cloud items are fetched when the clipboard panel opens or the user asks for a refresh, and a local history entry reaches the cloud only through an explicit 发到云剪贴板. The text bounds are the shared ones from `client-core`'s `validate_clipboard_text`, measured in UTF-16 units as the service counts them.
+ * The keyboard never uploads on copy and never reads the system clipboard for this: cloud items are fetched when the clipboard panel opens or the user asks for a refresh, and a local history entry reaches the cloud only through an explicit 发到云剪贴板. The text bounds are the shared ones from `client-services`'s `validate_clipboard_text`, measured in UTF-16 units as the service counts them.
  */
 import { utf8Length } from "../Utf8";
 import { TextPolicy } from "../TextPolicy";
@@ -165,7 +165,7 @@ export class CloudClipboardPolicy {
   /**
    * Reads the account bridge's reply to `{operation:"clipboard", clipboard_operation:"list"}`.
    *
-   * The page is checked whole, as `client-core`'s `validate_clipboard_page` does: a page with one malformed item is not shown at all, because dropping the bad rows would hide that the service sent something this client cannot honour. A disabled clipboard shows no items whatever the page carries.
+   * The page is checked whole, as `client-services`'s `validate_clipboard_page` does: a page with one malformed item is not shown at all, because dropping the bad rows would hide that the service sent something this client cannot honour. A disabled clipboard shows no items whatever the page carries.
    *
    * 应答是端到端加密驱动 `list` 的结果：`{enabled, retention_days, items, e2e:{status, code, pending_devices, undecryptable}}`。`e2e.status` 为 `pending` 时本机还在等待批准，读作 `PENDING`，不显示条目；解不开而被驱动略去的条目不算错误。
    */

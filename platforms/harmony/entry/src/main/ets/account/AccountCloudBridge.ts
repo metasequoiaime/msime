@@ -121,7 +121,7 @@ const MAX_QUICK_PHRASE_UTF16 = 199;
 /**
  * The chat bounds, which are the shared ones rather than a HarmonyOS reading of them.
  *
- * They match `BackendChatClient` on Apple and `client-core`'s account client byte for byte, because
+ * They match `BackendChatClient` on Apple and `client-services`'s account client byte for byte, because
  * the server enforces the same numbers and a client that is stricter turns a working conversation
  * into an unexplained refusal on one platform only.
  */
@@ -135,12 +135,12 @@ const MAX_CHAT_RESPONSE_BYTES = 16 * 1024;
 const CHAT_TIMEOUT_MS = 125 * 1000;
 const CHAT_ROLES = ["user", "assistant", "system"];
 
-/** The gallery's own bounds, matching `client-core`'s community skin service. */
+/** The gallery's own bounds, matching `client-services`'s community skin service. */
 const MAX_COMMUNITY_SEARCH = 128;
 
 // 应用内反馈（`POST /v1/feedback`），长度上限和字段名沿用 Android 的 `FeedbackApi`，服务端与之共用。
 const FEEDBACK_PATH = "/v1/feedback";
-/** Google 回跳地址的形状：只在 127.0.0.1 的非特权端口上，路径固定（client-core `google_loopback_target`）。端口范围的细节由后端和 `msime_client_google_loopback` 再查一次。 */
+/** Google 回跳地址的形状：只在 127.0.0.1 的非特权端口上，路径固定（client-services `google_loopback_target`）。端口范围的细节由后端和 `msime_client_google_loopback` 再查一次。 */
 const GOOGLE_LOOPBACK_TARGET = /^http:\/\/127\.0\.0\.1:[1-9]\d{3,4}\/callback$/;
 const FEEDBACK_TYPES: readonly string[] = ["bug", "suggestion", "dictionary"];
 /** 字符数（按码点），与服务端的计数方式一致。 */
@@ -219,7 +219,7 @@ function validCommunityScope(value: unknown): value is string {
 }
 
 /**
- * The reasons a report offers, in dialog order, each the exact label sent to the server. The same fixed list as client-core's `CommunityReportReason`.
+ * The reasons a report offers, in dialog order, each the exact label sent to the server. The same fixed list as client-services' `CommunityReportReason`.
  */
 export const COMMUNITY_REPORT_REASONS: readonly string[] = [
   "侵权/抄袭",
@@ -1341,7 +1341,7 @@ export class AccountCloudBridge {
     return this.signIn(action.challenge_id, action.credential);
   }
 
-  /** 用 Google 回跳带回的授权码登录；后端用 challenge 里保管的 PKCE 和 client secret 去换 token。授权码的规则与 client-core 的 `validate_google_login` 相同：可见 ASCII，最长 2048 字节。 */
+  /** 用 Google 回跳带回的授权码登录；后端用 challenge 里保管的 PKCE 和 client secret 去换 token。授权码的规则与 client-services 的 `validate_google_login` 相同：可见 ASCII，最长 2048 字节。 */
   private async googleLogin(action: Action): Promise<string> {
     if (
       !validString(action.challenge_id, 256) ||

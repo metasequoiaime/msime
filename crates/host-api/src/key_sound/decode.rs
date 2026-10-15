@@ -1,6 +1,6 @@
 //! Pack audio decoded by symphonia under the pack bounds.
 //!
-//! client-core checked each file's size, extension and header bytes when it validated the pack; the length is only known here. A sample is refused when its header declares more than `MAX_SAMPLE_MILLIS`, when decoding runs past that bound whatever the header said, and when what came out is empty or out of range, so a file that lies about its length costs at most one sample's worth of memory. A track has to declare a length within `MAX_TRACK_SECONDS` before it plays, and stops at that length while it streams.
+//! client-services checked each file's size, extension and header bytes when it validated the pack; the length is only known here. A sample is refused when its header declares more than `MAX_SAMPLE_MILLIS`, when decoding runs past that bound whatever the header said, and when what came out is empty or out of range, so a file that lies about its length costs at most one sample's worth of memory. A track has to declare a length within `MAX_TRACK_SECONDS` before it plays, and stops at that length while it streams.
 
 use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
 use kira::sound::streaming::Decoder;

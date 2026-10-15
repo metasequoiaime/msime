@@ -178,7 +178,7 @@ pub unsafe extern "C" fn msime_client_music_pack(request: *const u8, length: usi
 /// Largest `msime_client_plugins` request: a full name list at its document bound, with room for JSON escaping and the two paths.
 const MAX_PLUGINS_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 
-/// 插件页的包仓库和 @ 名单，给桌面外壳以外的设置宿主：Windows 的原生设置应用、鸿蒙的插件页，以及 Android、iOS 设置里导入辅助码表。所有规则和失败码都来自 client-core，与桌面外壳回答设置页的相同。
+/// 插件页的包仓库和 @ 名单，给桌面外壳以外的设置宿主：Windows 的原生设置应用、鸿蒙的插件页，以及 Android、iOS 设置里导入辅助码表。所有规则和失败码都来自 client-services，与桌面外壳回答设置页的相同。
 ///
 /// 脚本插件只给有授权页的宿主：请求带 `script_page: true` 时目录列出脚本包、导入接受脚本包（`import_from_settings`），桌面上还能读写授权（`script_grants`、`set_script_grant`、`reorder_scripts`，回答和桌面外壳的同名命令一样是 `ScriptGrantsView`，其中插件 `/` 指令的状态按 `state_root` 里偏好启用的指令表算）。不带它时（Android、HarmonyOS 和各处的辅助码表导入）照旧：目录经 `without_scripts`，导入走 `import_without_script_page`。
 /// # Safety
@@ -374,7 +374,7 @@ pub unsafe extern "C" fn msime_client_plugins(request: *const u8, length: usize)
     })
 }
 
-/// `response` with the page's failure record: `error` is the code, and `detail`, when client-core gave one, the rule that was broken.
+/// `response` with the page's failure record: `error` is the code, and `detail`, when client-services gave one, the rule that was broken.
 pub(super) fn plugin_response(
     operation: impl FnOnce() -> Result<Value, PluginFailure>,
 ) -> *mut c_char {

@@ -1,4 +1,4 @@
-//! 原生设置窗口的社区操作：与共享应用（Tauri）在 Windows 上的社区命令一一对应——候选窗皮肤社区（`desktop_candidate_skin_community.rs`）、插件社区（`desktop_plugin_community.rs`）、社区词包与回复模板（`community_resources.rs`）和举报（`desktop_community_report.rs`）。服务经 [`super::account`] 里同一个账号会话对象认证，用同一份 `account-session.json`；发布和安装都在这里对着宿主给的皮肤根目录或插件根目录做，规则、错误码和返回形状都是 client-core 的，与共享应用相同。
+//! 原生设置窗口的社区操作：与共享应用（Tauri）在 Windows 上的社区命令一一对应——候选窗皮肤社区（`desktop_candidate_skin_community.rs`）、插件社区（`desktop_plugin_community.rs`）、社区词包与回复模板（`community_resources.rs`）和举报（`desktop_community_report.rs`）。服务经 [`super::account`] 里同一个账号会话对象认证，用同一份 `account-session.json`；发布和安装都在这里对着宿主给的皮肤根目录或插件根目录做，规则、错误码和返回形状都是 client-services 的，与共享应用相同。
 //!
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 

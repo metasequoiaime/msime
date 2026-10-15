@@ -56,7 +56,7 @@ export function pluginErrorCode(error: unknown): string {
     : "";
 }
 
-/** The sentence for a failed host call. The desktop shell's commands and the HarmonyOS bridge both reject with `{code, detail}`, the codes being client-core's `PluginFailure`; `detail`, when present, is the rule client-core reports. */
+/** The sentence for a failed host call. The desktop shell's commands and the HarmonyOS bridge both reject with `{code, detail}`, the codes being client-services' `PluginFailure`; `detail`, when present, is the rule client-services reports. */
 export function pluginErrorMessage(error: unknown, fallback: string): string {
   const code = pluginErrorCode(error);
   const detail =

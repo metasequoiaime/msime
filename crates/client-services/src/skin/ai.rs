@@ -2,7 +2,7 @@
 //!
 //! The host owns cancellation and progress presentation. This module owns the
 //! backend contract, response validation, account refreshes, and artwork-job
-//! cleanup so that no UI or platform type enters client-core.
+//! cleanup so that no UI or platform type enters client-services.
 
 use crate::account::{
     AccountApi, AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,

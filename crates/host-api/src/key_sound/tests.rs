@@ -741,7 +741,7 @@ mod playback {
             "broken",
             "[sounds]\ndefault = \"long.wav\"\nspace = \"space.wav\"\ncommit = \"space.wav\"\nachievement = \"long.wav\"\n",
         );
-        // client-core 导入时能过（文件头正确），解码器拒绝（8 kHz 下 2 秒，超过 1.5 秒上限）。
+        // client-services 导入时能过（文件头正确），解码器拒绝（8 kHz 下 2 秒，超过 1.5 秒上限）。
         wav(&broken.join("long.wav"), 1, 8_000, 16_000);
         std::fs::copy(
             builtin_sounds().join("default/space.wav"),

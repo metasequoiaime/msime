@@ -43,7 +43,7 @@ cp resources/licenses/kfcd-chaizi-CC-BY-3.0.txt "$licenses_staged/"
 cp resources/licenses/Unicode-License-V3.txt "$licenses_staged/"
 echo "Licences staged for the HAP: $licenses_staged"
 
-# The built-in sound packs, synthesized by scripts/generate_sound_packs.py. Beside the engine directory rather than in it, which the lock check above would reject; resfile extracts them to context.resourceDir/sound-packs, the built-in pack root the keyboard names to client-core.
+# The built-in sound packs, synthesized by scripts/generate_sound_packs.py. Beside the engine directory rather than in it, which the lock check above would reject; resfile extracts them to context.resourceDir/sound-packs, the built-in pack root the keyboard names to client-services.
 sound_packs_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/sound-packs"
 rm -rf "$sound_packs_staged"
 mkdir -p "$sound_packs_staged"

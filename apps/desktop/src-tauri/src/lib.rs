@@ -574,7 +574,7 @@ struct VocabularyState(
     Option<std::path::PathBuf>,
 );
 
-// 状态的组装在 client-core（`TypingStatisticsStore::status`），Windows 原生设置窗口经 host-api 读到同样的字段。
+// 状态的组装在 client-services（`TypingStatisticsStore::status`），Windows 原生设置窗口经 host-api 读到同样的字段。
 fn typing_statistics_status(
     store: &TypingStatisticsStore,
     statistics: TypingStatistics,

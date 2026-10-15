@@ -779,7 +779,7 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
     struct Request {
         directory: String,
         action: StatisticsAction,
-        /// 设置页要的是状态：load、set_enabled、set_retention 和 reset 回答 `{statistics, availability, lastWrittenMs}`（client-core 的 `TypingStatisticsStatus`），而不只是统计本身。
+        /// 设置页要的是状态：load、set_enabled、set_retention 和 reset 回答 `{statistics, availability, lastWrittenMs}`（client-services 的 `TypingStatisticsStatus`），而不只是统计本身。
         #[serde(default)]
         status: bool,
     }

@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit;
 import org.json.JSONObject;
 
 /**
- * Anonymous usage reporting for the Android app and keyboard, on the shared reporter in client-core (msime_client_telemetry_* in msime_client.h).
+ * Anonymous usage reporting for the Android app and keyboard, on the shared reporter in client-services (msime_client_telemetry_* in msime_client.h).
  *
  * <p>The shared store owns the queue, the random install id, the daily `active`, the session marker and the network: both processes point it at the same directory and it serialises them with a file lock. This class only decides when to call it and writes crash records, which is the one thing that has to happen inside a dying process.
  *

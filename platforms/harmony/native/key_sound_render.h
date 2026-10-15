@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-// Pack bounds from client-core's sound_pack module, which validated the pack before its paths reached this host: MAX_SAMPLE_BYTES, SAMPLE_RATES, MAX_SEMITONES and SEMITONE_RANGE. The renderer checks them again because it reads the file itself.
+// Pack bounds from client-services' sound_pack module, which validated the pack before its paths reached this host: MAX_SAMPLE_BYTES, SAMPLE_RATES, MAX_SEMITONES and SEMITONE_RANGE. The renderer checks them again because it reads the file itself.
 constexpr size_t kKeySoundMaxSampleBytes = 512 * 1024;
 constexpr uint32_t kKeySoundMinSampleRate = 8000;
 constexpr uint32_t kKeySoundMaxSampleRate = 192000;

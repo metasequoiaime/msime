@@ -62,7 +62,7 @@ impl From<rusqlite::Error> for BackendError {
 
 pub(crate) type Outcome = std::result::Result<Value, BackendError>;
 
-/// Turns Simplified Chinese text into Traditional. The conversion tables live in `msime-client-core`, which this crate does not depend on, so the process that hosts the protocol supplies it.
+/// Turns Simplified Chinese text into Traditional. The conversion tables live in `msime-client-base`, which this crate does not depend on, so the process that hosts the protocol supplies it.
 pub type SimplifiedToTraditional = fn(&str) -> String;
 
 /// Answer one request. `resources` holds the pinned dictionary release; `scratch` is a directory the caller created for this request alone and removes afterwards.

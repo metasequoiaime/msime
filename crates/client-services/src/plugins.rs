@@ -195,7 +195,7 @@ impl PluginKind {
     }
 }
 
-// 移动端的类型集合不变：仍是原来那 8 种，`script` 在那里不是已知类型，`scan` 和遗留目录清扫也不会碰 `script/`。写成编译期断言，任何目标只要编译 client-core 就检查一次，不依赖哪台 CI 机器跑了测试。
+// 移动端的类型集合不变：仍是原来那 8 种，`script` 在那里不是已知类型，`scan` 和遗留目录清扫也不会碰 `script/`。写成编译期断言，任何目标只要编译 client-services 就检查一次，不依赖哪台 CI 机器跑了测试。
 #[cfg(not(any(
     target_os = "macos",
     target_os = "windows",

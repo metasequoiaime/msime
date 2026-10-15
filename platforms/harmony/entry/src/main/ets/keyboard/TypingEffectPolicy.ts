@@ -14,9 +14,9 @@ export const TYPING_EFFECT_AUTO_REPEAT: number = 0x100;
 /** Flag: sounds must stay quiet now; the tier-up sound is not reported due. */
 export const TYPING_EFFECT_MUTED: number = 0x200;
 
-/** `COMBO_MILESTONES` in client-core: the counts that move the combo up a tier. */
+/** `COMBO_MILESTONES` in client-services: the counts that move the combo up a tier. */
 export const COMBO_MILESTONES: number[] = [10, 25, 50, 100];
-/** `COMBO_IDLE_RESET_MILLIS` in client-core: the combo ends after this long without a counted key, so the badge goes with it. */
+/** `COMBO_IDLE_RESET_MILLIS` in client-services: the combo ends after this long without a counted key, so the badge goes with it. */
 export const COMBO_IDLE_RESET_MILLIS: number = 3000;
 /** `TIER_SEMITONES` in host-api: the tier-up sound rises this many semitones per tier, so the fourth tier is an octave up. */
 export const TIER_SEMITONES: number = 3;
@@ -88,7 +88,7 @@ export const TYPING_EFFECTS_OFF: TypingEffectSettings = {
 };
 
 const COLOR_PATTERN: RegExp = /^#[0-9a-fA-F]{6}$/;
-/** `effect.duration_ms`'s bounds in client-core. */
+/** `effect.duration_ms`'s bounds in client-services. */
 const MIN_FLASH_MILLIS: number = 60;
 const MAX_FLASH_MILLIS: number = 1500;
 

@@ -132,7 +132,7 @@ def main() -> int:
         if not staged.is_file() or staged.stat().st_size == 0:
             failures.append(f"audios/{cue} was not staged; the voice cue falls back to a system sound")
 
-    # The built-in sound packs are what a fresh profile selects; without them key sounds have nothing to play. Every folder in the repository's resources/sound-packs has to arrive, since client-core lists each one as built in.
+    # The built-in sound packs are what a fresh profile selects; without them key sounds have nothing to play. Every folder in the repository's resources/sound-packs has to arrive, since client-services lists each one as built in.
     packs = Path(__file__).resolve().parents[4] / "resources/sound-packs"
     for pack in sorted(path.name for path in packs.iterdir() if path.is_dir()):
         if not (resources / "sound-packs" / pack / "plugin.toml").is_file():

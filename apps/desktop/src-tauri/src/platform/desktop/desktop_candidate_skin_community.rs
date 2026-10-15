@@ -85,7 +85,7 @@ pub async fn candidate_skin_community_detail(
     .await
 }
 
-/// The preview as a `data:` URL, built only from an image whose type and leading bytes client-core has already checked.
+/// The preview as a `data:` URL, built only from an image whose type and leading bytes client-services has already checked.
 #[tauri::command]
 pub async fn candidate_skin_community_preview(
     state: State<'_, CandidateSkinCommunityState>,

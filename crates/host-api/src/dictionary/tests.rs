@@ -960,7 +960,7 @@ fn malformed_and_oversized_requests_are_redacted() {
 #[test]
 fn import_maps_shared_entries_onto_the_requested_engine_kind() {
     // Row semantics are covered exhaustively in
-    // client-core::dictionary_import, which is unit-testable without the
+    // client-services::dictionary::import, which is unit-testable without the
     // Engine. This asserts only the mapping this module is responsible for.
     let (standard, report) = parse_import(
         &Kind::Pinyin,

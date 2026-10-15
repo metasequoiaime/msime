@@ -1,12 +1,12 @@
 import UIKit
 
-/// The candidate strip's own colours: the `candidate` palette client-core resolves for the global theme (a built-in theme, or the custom theme's base, imported package and colour pickers), in the mode `candidate_theme` asks for.
+/// The candidate strip's own colours: the `candidate` palette client-services resolves for the global theme (a built-in theme, or the custom theme's base, imported package and colour pickers), in the mode `candidate_theme` asks for.
 ///
 /// On iOS the strip is part of the keyboard, so it normally draws with the keyboard palette (the selected candidate in the accent, no fill; dc.html `mobCands`). The resolved candidate palette only replaces those colours when the iOS switch (`followsDesktop`) is on, the same palette the desktop candidate window draws. The switch lives in the App Group, like the cloud candidate switch; the theme and colours stay in the shared document and sync with the desktop.
 struct CandidatePalette: Equatable {
   var text: UIColor
   var number: UIColor
-  /// Hints and translations: an imported package's translation colour, otherwise the numbers, as client-core resolves `secondary`.
+  /// Hints and translations: an imported package's translation colour, otherwise the numbers, as client-services resolves `secondary`.
   var secondary: UIColor
   var accent: UIColor
   var selected: UIColor

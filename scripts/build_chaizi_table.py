@@ -104,7 +104,7 @@ def is_compatibility(character: str) -> bool:
 
 
 def read_opencc(name: str) -> dict[str, str]:
-    """OpenCC 词典：键到第一个值，重复键取先出现的一行，与 client-core 的 `Table::parse` 相同。"""
+    """OpenCC 词典：键到第一个值，重复键取先出现的一行，与 client-base 的 `Table::parse` 相同。"""
     table: dict[str, str] = {}
     for line in read_lines(OPENCC / name):
         if not line or line.startswith("#") or "\t" not in line:
@@ -117,7 +117,7 @@ def read_opencc(name: str) -> dict[str, str]:
 
 
 class Conversion:
-    """client-core `chinese_conversion::simplified_to_traditional` 对单个字的结果：兼容表意字归一化，再查词组表（`STPhrases` 与地区词组的并集），最后查单字表。单字输入时最长匹配只可能是这一个字。"""
+    """client-base `chinese_conversion::simplified_to_traditional` 对单个字的结果：兼容表意字归一化，再查词组表（`STPhrases` 与地区词组的并集），最后查单字表。单字输入时最长匹配只可能是这一个字。"""
 
     def __init__(self) -> None:
         self.normalization = read_opencc("CJK_Compatibility_Ideographs.txt")

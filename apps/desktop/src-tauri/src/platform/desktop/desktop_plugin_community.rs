@@ -1,6 +1,6 @@
 //! Community plugin-pack commands for the macOS, Windows and Linux shells.
 //!
-//! The page browses, rates and deletes publications by id only. Publishing and installing both happen host-side against the plugins root in [`PluginsState`]: the page names an installed pack by its kind and id and never supplies a path or a byte, a published archive is built from that pack by `msime_client_services::plugins::community::pack`, and a downloaded one is verified and installed through the same import a local `.zip` goes through. Pack failures come back as `PluginFailure`, with the rule client-core reports as its detail, and account failures as the `community_*` codes, so the page can name either precisely.
+//! The page browses, rates and deletes publications by id only. Publishing and installing both happen host-side against the plugins root in [`PluginsState`]: the page names an installed pack by its kind and id and never supplies a path or a byte, a published archive is built from that pack by `msime_client_services::plugins::community::pack`, and a downloaded one is verified and installed through the same import a local `.zip` goes through. Pack failures come back as `PluginFailure`, with the rule client-services reports as its detail, and account failures as the `community_*` codes, so the page can name either precisely.
 
 use crate::platform::account_helpers::{community_id, community_service_call};
 use crate::platform::desktop::desktop_account::Storage;

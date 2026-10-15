@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep Android AI-skin response bounds aligned with client-core's byte limits."""
+"""Keep Android AI-skin response bounds aligned with client-services' byte limits."""
 
 from pathlib import Path
 

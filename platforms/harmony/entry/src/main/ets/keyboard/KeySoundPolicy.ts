@@ -1,7 +1,7 @@
 /**
  * What the 2in1 key sounds, typing melody, commit and achievement sounds play, decided without a device.
  *
- * The desktop hosts play through host-api's player (`crates/host-api/src/key_sound`), which HarmonyOS does not link; this host plays the same packs through SoundPool instead. Which pack answers which event, how a melody steps and when it starts over are that player's rules (`Selection::of`, `sounds_for`, `Melody::step`), ported here so the two cannot hear different things in the same preferences. Validating a pack is not ported: `msime_client_key_sound_pack` answers with the files client-core's validation accepted.
+ * The desktop hosts play through host-api's player (`crates/host-api/src/key_sound`), which HarmonyOS does not link; this host plays the same packs through SoundPool instead. Which pack answers which event, how a melody steps and when it starts over are that player's rules (`Selection::of`, `sounds_for`, `Melody::step`), ported here so the two cannot hear different things in the same preferences. Validating a pack is not ported: `msime_client_key_sound_pack` answers with the files client-services' validation accepted.
  */
 
 import { AudioVolumePolicy } from "./AudioVolumePolicy";
@@ -391,7 +391,7 @@ export class KeySoundPolicy {
   }
 
   /**
-   * Whether this host plays a sample: WAV only, which it decodes natively under the pack bound, both from the header and while decoding, before SoundPool sees the result. Anything else is Ogg, which only SoundPool could decode, whole and with nothing bounding how long the decoded sound is, so an Ogg sample stays silent here. The extension is the one client-core checked against the header bytes.
+   * Whether this host plays a sample: WAV only, which it decodes natively under the pack bound, both from the header and while decoding, before SoundPool sees the result. Anything else is Ogg, which only SoundPool could decode, whole and with nothing bounding how long the decoded sound is, so an Ogg sample stays silent here. The extension is the one client-services checked against the header bytes.
    */
   static isWav(file: string): boolean {
     return file.toLowerCase().endsWith(".wav");

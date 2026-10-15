@@ -44,7 +44,7 @@ const markdown = new MarkdownIt({ html: false, linkify: false, breaks: true }).d
   "image",
   "link",
 ]);
-// Mirrors the client-core byte and message limits used by the chat service.
+// Mirrors the client-services byte and message limits used by the chat service.
 
 export function ChatPage({
   client,

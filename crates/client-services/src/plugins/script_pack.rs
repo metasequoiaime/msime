@@ -61,7 +61,7 @@ pub const MAX_COMMANDS: usize = 4;
 pub const COMMAND_TRIGGER_BYTES: std::ops::RangeInclusive<usize> = 2..=16;
 /// 插件指令标题的字符数。同引擎的 `local::command::PLUGIN_TITLE_CHARS`。
 pub const COMMAND_TITLE_CHARS: std::ops::RangeInclusive<usize> = 1..=8;
-/// 内置 `/` 指令的触发词：日期、时间、星期、农历和翻译。client-core 不能依赖引擎（`docs/ARCHITECTURE.md`），这里复制了引擎 `local::command::builtin_triggers` 的全集，host-api 的一致性测试守着两边相同。
+/// 内置 `/` 指令的触发词：日期、时间、星期、农历和翻译。client-services 不能依赖引擎（`docs/ARCHITECTURE.md`），这里复制了引擎 `local::command::builtin_triggers` 的全集，host-api 的一致性测试守着两边相同。
 pub const BUILTIN_COMMAND_TRIGGERS: [&str; 15] = [
     "rq",
     "riqi",

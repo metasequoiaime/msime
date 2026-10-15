@@ -26,7 +26,7 @@ afterEach(() => {
 const TOKEN = "synthetic-relay-token-0001";
 
 test("relay addresses follow the Rust rule: https, or http only to loopback, with no query, fragment or userinfo", () => {
-  // 与 crates/client-core/src/clipboard_relay_tests.rs 的用例一一对应。
+  // 与 crates/client-services/src/clipboard_relay_tests.rs 的用例一一对应。
   for (const [url, valid] of [
     ["https://relay.example.test", true],
     ["https://relay.example.test:8443/msime/", true],

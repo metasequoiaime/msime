@@ -1,6 +1,6 @@
 import XCTest
 
-/// The strip's desktop candidate palette is the one client-core resolves for the global theme (a built-in theme, or the custom theme's base, package and pickers), and stays off until the iOS switch is on.
+/// The strip's desktop candidate palette is the one client-services resolves for the global theme (a built-in theme, or the custom theme's base, package and pickers), and stays off until the iOS switch is on.
 final class CandidatePaletteTests: XCTestCase {
   override func tearDown() {
     CandidatePalette.defaults.removeObject(forKey: CandidatePalette.followsDesktopKey)
@@ -9,7 +9,7 @@ final class CandidatePaletteTests: XCTestCase {
 
   private func hex(_ color: UIColor) -> String { ThemeColor.hex(color) }
 
-  /// What `global_theme` alone draws, as client-core resolves it.
+  /// What `global_theme` alone draws, as client-services resolves it.
   private func builtIn(_ id: String) throws -> CandidatePalette {
     CandidatePalette.palette(try XCTUnwrap(ResolvedTheme.resolve(globalTheme: id, customTheme: nil, dark: false)))
   }
@@ -68,7 +68,7 @@ final class CandidatePaletteTests: XCTestCase {
     XCTAssertEqual(explicit.number.cgColor.alpha, 1)
   }
 
-  /// Pickers lie over the base; a malformed picker makes client-core refuse the whole custom theme, and the strip draws the native tokens.
+  /// Pickers lie over the base; a malformed picker makes client-services refuse the whole custom theme, and the strip draws the native tokens.
   func testPickersOverTheBaseAndMalformedColours() throws {
     let picked = CandidatePalette.resolve(
       custom(["base": "paper", "candidate_colors": ["surface": "#040506"]]), systemDark: false)

@@ -2415,7 +2415,7 @@ fn the_grant_page_actions_grant_reorder_and_revoke_and_the_input_method_honours_
     );
 }
 
-/// client-core 校验插件清单时用的内置 `/` 指令（触发词和标题）是自己复制的一份，因为它不能依赖引擎。host-api 两边都依赖，在这里核对两份完全相同：引擎加了内置指令而清单校验不知道时，插件就能声明一个和它互为前缀的触发词，引擎再把这条插件指令静默丢掉。
+/// client-services 校验插件清单时用的内置 `/` 指令（触发词和标题）是自己复制的一份，因为它不能依赖引擎。host-api 两边都依赖，在这里核对两份完全相同：引擎加了内置指令而清单校验不知道时，插件就能声明一个和它互为前缀的触发词，引擎再把这条插件指令静默丢掉。
 #[test]
 fn the_manifest_check_knows_exactly_the_engines_builtin_commands() {
     use msime_client_services::plugins::script_pack::{
@@ -2988,7 +2988,7 @@ fn the_grant_page_lists_each_plugin_command_with_its_state() {
     );
 }
 
-/// 授权页的状态（client-core 的 `script_commands::resolve`）和引擎实际让哪些插件指令生效（`usable_plugin_commands`）是两份写法，这里拿同一批输入对两边：触发词只用 `a`、`b`、`r`、`q` 四个字母、1 到 5 个，相等、互为前缀、单字母不合规和撞上内置的 `/rq` 都很密。
+/// 授权页的状态（client-services 的 `script_commands::resolve`）和引擎实际让哪些插件指令生效（`usable_plugin_commands`）是两份写法，这里拿同一批输入对两边：触发词只用 `a`、`b`、`r`、`q` 四个字母、1 到 5 个，相等、互为前缀、单字母不合规和撞上内置的 `/rq` 都很密。
 #[test]
 fn the_grant_page_and_the_engine_resolve_plugin_commands_alike() {
     use msime_client_services::plugins::script_commands::{resolve, CommandStatus};

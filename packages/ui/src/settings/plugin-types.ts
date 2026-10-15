@@ -87,7 +87,7 @@ export type PluginPackage = {
   content_hash?: string;
 };
 
-/** `script-grants.json` 的一条：client-core 的 `script_grants::ScriptGrantView`。 */
+/** `script-grants.json` 的一条：client-services 的 `script_grants::ScriptGrantView`。 */
 export type ScriptGrant = {
   id: string;
   /** 授权时包的内容哈希；与包现在的 `content_hash` 不同时授权已经作废。 */
@@ -103,7 +103,7 @@ export type ScriptHealth = {
   disabled: "invalid" | "init" | "failed" | "slow";
 };
 
-/** 一条插件 `/` 指令在输入法里的状态：client-core 的 `script_commands::ResolvedCommand`。用户指令表永远赢，插件之间按执行顺序先到先得，相等或互为前缀都算冲突。 */
+/** 一条插件 `/` 指令在输入法里的状态：client-services 的 `script_commands::ResolvedCommand`。用户指令表永远赢，插件之间按执行顺序先到先得，相等或互为前缀都算冲突。 */
 export type ScriptCommandState = { id: string; trigger: string; title: string } & (
   | { status: "active" }
   /** 和用户指令表里的 `/conflict` 冲突，归用户的指令。 */
@@ -112,7 +112,7 @@ export type ScriptCommandState = { id: string; trigger: string; title: string } 
   | { status: "shadowed_by_plugin"; conflict_id: string; conflict: string }
 );
 
-/** 授权页读到的全部：client-core 的 `script_grants::ScriptGrantsView`。`plugins` 的顺序就是执行顺序。 */
+/** 授权页读到的全部：client-services 的 `script_grants::ScriptGrantsView`。`plugins` 的顺序就是执行顺序。 */
 export type ScriptGrantsResult = {
   revision: number;
   plugins: ScriptGrant[];

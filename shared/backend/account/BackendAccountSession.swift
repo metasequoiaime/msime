@@ -192,7 +192,7 @@ func backendClipboardKeystoreValue(_ data: Data) -> String? {
 }
 
 #if os(macOS)
-/// The macOS account session: `account-session.json` in the input method's Application Support directory, read and written by this process and by the settings app (`FileAccountSessionStorage` in `crates/client-core`). Both take `account-refresh.lock` beside it around every write, so neither refreshes from a refresh token the other has already spent; the server revokes the session when one comes back. Owner-only, and never followed through a symlink.
+/// The macOS account session: `account-session.json` in the input method's Application Support directory, read and written by this process and by the settings app (`FileAccountSessionStorage` in `crates/client-services`). Both take `account-refresh.lock` beside it around every write, so neither refreshes from a refresh token the other has already spent; the server revokes the session when one comes back. Owner-only, and never followed through a symlink.
 struct BackendDesktopSessionFile: BackendSessionStorage {
   static let fileName = "account-session.json"
   static let maximumBytes = 64 * 1024

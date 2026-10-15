@@ -5154,7 +5154,7 @@ fn chaizi_follows_the_host_form_until_the_user_flips_it() {
     read(msime_client_destroy(handle));
 }
 
-/// 拆字表的繁体字形列是生成器按 OpenCC s2t 规则算的；宿主上屏时用的是 client-core 的同一套转换。两边对每个字都必须得出同一个字形，Engine 按这一列去重才和宿主看到的一致。
+/// 拆字表的繁体字形列是生成器按 OpenCC s2t 规则算的；宿主上屏时用的是 client-base 的同一套转换。两边对每个字都必须得出同一个字形，Engine 按这一列去重才和宿主看到的一致。
 #[test]
 fn chaizi_traditional_forms_match_the_shared_conversion() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

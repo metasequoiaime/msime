@@ -1,6 +1,6 @@
 //! 云剪贴板的参考中继：按 `docs/cloud-clipboard-relay.md` 实现 `docs/cloud-clipboard-e2e.md` 里客户端用到的那组接口，只保存密文，拿不到剪贴板密钥。
 //!
-//! 协议以文档为准。官方服务（msime-cloud，Go 加 PostgreSQL）是另一份独立的实现，两边各自用测试锁住同一份文档；这个 crate 的测试用真正的客户端驱动（`msime-client-core` 的 `clipboard_relay`）连它跑完整流程。
+//! 协议以文档为准。官方服务（msime-cloud，Go 加 PostgreSQL）是另一份独立的实现，两边各自用测试锁住同一份文档；这个 crate 的测试用真正的客户端驱动（`msime-client-services` 的 `clipboard_relay`）连它跑完整流程。
 //!
 //! 鉴权只有一种：管理员发的静态令牌，`Authorization: Bearer <令牌>`。每个令牌对应一个独立的剪贴板空间，空间编号是 SHA-256(令牌) 的十六进制；令牌本身不落盘，数据库里只有空间编号。中继只说 HTTP，必须放在终止 TLS 的反向代理后面。
 

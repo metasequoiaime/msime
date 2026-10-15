@@ -41,7 +41,7 @@ pub fn season_for_month(month: u8) -> Option<Season> {
     }
 }
 
-/// 当前的 UTC 月份（1..=12）。client-core 不知道用户所在的时区，月份应由宿主传入；只有 C ABI 边界在宿主没传月份时才用它兜底，UTC 月份与本地月份最多只在月初前后差十几个小时。
+/// 当前的 UTC 月份（1..=12）。client-services 不知道用户所在的时区，月份应由宿主传入；只有 C ABI 边界在宿主没传月份时才用它兜底，UTC 月份与本地月份最多只在月初前后差十几个小时。
 pub fn current_utc_month() -> u8 {
     u8::from(time::OffsetDateTime::now_utc().month())
 }
