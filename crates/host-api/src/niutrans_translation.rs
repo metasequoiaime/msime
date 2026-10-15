@@ -73,7 +73,7 @@ pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
     }))
 }
 
-/// Whether a NiuTrans reply reports a failure (a body that is not a JSON object, or one carrying `errorCode`/`errorMsg`, which is how NiuTrans reports rate limits and credential errors) rather than an answer. `parse` returns `None` for both a failure and an answer with no text; only answers are negative-cached.
+/// 小牛回复不是 JSON 对象、带服务错误字段或缺少字符串 `tgtText` 时算失败。空字符串仍是回答；`parse` 对失败和空回答都返回 `None`，只有后者可以负缓存。
 pub fn failed(bytes: &[u8]) -> bool {
     if bytes.len() > 1048576 {
         return true;
@@ -84,7 +84,10 @@ pub fn failed(bytes: &[u8]) -> bool {
     else {
         return true;
     };
-    !root.is_object() || root.get("errorCode").is_some() || root.get("errorMsg").is_some()
+    !root.is_object()
+        || root.get("errorCode").is_some()
+        || root.get("errorMsg").is_some()
+        || !root.get("tgtText").is_some_and(Value::is_string)
 }
 
 pub fn parse(bytes: &[u8]) -> Option<Value> {

@@ -22,6 +22,8 @@ Status: implemented
 
 ## 与其他平台的差异
 
+共享的小牛回复判定要求 `tgtText` 为字符串；缺失或类型错误走失败退避，合法空字符串仍为可负缓存的回答。该边界也用于 macOS，见[小牛回复结构](../bug-fix/2026-10-15-niutrans-reply-shape.md)。
+
 - 地址规则与 iOS 不同：iOS 只放行 https（`TranslationProviderClient.urlRequest`），Android 跟内核 `is_secure_endpoint`，也放行回环 http，方便在本机跑 DeepLX。局域网 http 两边都不放行；AI 辅助的地址规则（`AiEndpointPolicy`）放行局域网，与这里不同。
 - 离线和在线谁优先与鸿蒙相反：Android（和 macOS 的账号路径）离线释义优先，在线译文只补离线没有的行；鸿蒙用户服务优先、离线补缺（`platforms/harmony/entry/src/main/ets/keyboard/candidate/TranslationPolicy.ts`）。
 - 桌面三端和鸿蒙会把成功的英文译文写回用户释义库（`translation_gloss_save`，`docs/windows-parity.md`），Android 还没有，这是已知的对等缺口。

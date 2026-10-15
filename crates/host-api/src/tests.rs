@@ -8511,6 +8511,62 @@ fn custom_translation_http_bridge_speaks_deepl_to_official_endpoints() {
 }
 
 #[test]
+fn niutrans_reply_failure_rejects_missing_or_invalid_translation_fields() {
+    for body in [
+        "{}",
+        r#"{"message":"temporarily unavailable"}"#,
+        r#"{"tgtText":null}"#,
+        r#"{"tgtText":42}"#,
+        r#"{"tgtText":false}"#,
+        r#"{"tgtText":[]}"#,
+        r#"{"tgtText":{"text":"synthetic"}}"#,
+    ] {
+        assert!(
+            unsafe { msime_client_niutrans_translation_reply_failed(body.as_ptr(), body.len()) },
+            "{body}"
+        );
+        let parsed = read(unsafe {
+            msime_client_parse_niutrans_translation_response(body.as_ptr(), body.len())
+        });
+        assert_eq!(parsed["ok"], true);
+        assert!(parsed["value"].is_null(), "{body}");
+    }
+}
+
+#[test]
+fn niutrans_reply_failure_preserves_answers_and_error_precedence() {
+    for (body, expected) in [
+        (r#"{"tgtText":""}"#, Value::Null),
+        (r#"{"tgtText":" \n\t"}"#, Value::Null),
+        (
+            r#"{"tgtText":" synthetic\ngloss ","from":"zh","to":"en"}"#,
+            json!("synthetic gloss"),
+        ),
+    ] {
+        assert!(!unsafe {
+            msime_client_niutrans_translation_reply_failed(body.as_ptr(), body.len())
+        });
+        let parsed = read(unsafe {
+            msime_client_parse_niutrans_translation_response(body.as_ptr(), body.len())
+        });
+        assert_eq!(parsed["ok"], true);
+        assert_eq!(parsed["value"], expected);
+    }
+    for body in [
+        r#"{"errorCode":"13001","tgtText":"synthetic"}"#,
+        r#"{"errorMsg":"rate limited","tgtText":""}"#,
+    ] {
+        assert!(unsafe {
+            msime_client_niutrans_translation_reply_failed(body.as_ptr(), body.len())
+        });
+        let parsed = read(unsafe {
+            msime_client_parse_niutrans_translation_response(body.as_ptr(), body.len())
+        });
+        assert!(parsed["value"].is_null());
+    }
+}
+
+#[test]
 fn niutrans_reply_failure_rejects_unbounded_lengths() {
     assert!(unsafe { msime_client_niutrans_translation_reply_failed(b"x".as_ptr(), usize::MAX) });
 }
