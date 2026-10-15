@@ -8511,6 +8511,31 @@ fn custom_translation_http_bridge_speaks_deepl_to_official_endpoints() {
 }
 
 #[test]
+fn custom_translation_reply_success_code_requires_a_supported_result() {
+    for (body, failed) in [
+        (r#"{"code":200}"#, true),
+        (r#"{"code":"200","data":null}"#, true),
+        (r#"{"code":200,"translation":42}"#, true),
+        (r#"{"code":200,"data":""}"#, false),
+        (r#"{"code":"200","translations":[]}"#, false),
+        (r#"{"code":200,"translation":{"text":""}}"#, false),
+        (r#"{"code":429,"data":""}"#, true),
+        (r#"{"code":200,"error":"rate limited","data":""}"#, true),
+    ] {
+        assert_eq!(
+            unsafe { msime_client_custom_translation_reply_failed(body.as_ptr(), body.len()) },
+            failed,
+            "{body}"
+        );
+        let parsed = read(unsafe {
+            msime_client_parse_custom_translation_response(body.as_ptr(), body.len())
+        });
+        assert_eq!(parsed["ok"], true);
+        assert!(parsed["value"].is_null(), "{body}");
+    }
+}
+
+#[test]
 fn niutrans_reply_failure_rejects_missing_or_invalid_translation_fields() {
     for body in [
         "{}",

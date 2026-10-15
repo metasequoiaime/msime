@@ -34,3 +34,5 @@ Status: implemented
 - [Android 用户翻译服务](../../implemented/feature/2026-10-12-android-user-translation-services.md)部分重叠，负责路由和缓存寿命；本篇负责共享回复结构边界，与其互链。
 - [自定义服务识别 DeepL](../../implemented/feature/2026-10-11-custom-translation-deepl-api.md)部分重叠，负责另一种服务的请求格式和错误判定，不合并。
 - 来源过滤、账号缓存作用域和离线释义笔记不管理小牛回复结构，保留。
+
+自定义翻译服务的成功码结果校验见[自定义翻译回复结构边界](2026-10-15-custom-translation-reply-shape.md)，其协议字段与小牛服务不同。

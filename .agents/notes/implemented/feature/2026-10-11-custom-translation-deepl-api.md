@@ -48,3 +48,5 @@ Android 键盘后来接上了自定义服务的运行时，同样走这个共享
 - `bash platforms/harmony/tests/run.sh` 中的 `custom-translation-probe.test.ts`：探测请求、共享用例上的 DeepL 识别、请求头、回复门槛和 DeepL 状态码文案；把 456 文案或 `DeepL-Auth-Key ` 前缀改掉后对应的组会失败。
 - iOS 的 `TranslationProviderTests` 新增了 DeepL 空密钥、DeepLX 无密钥、远程 http 的路由用例，键盘扩展与 `MSIMEKeyboardTests` 的 Swift 源码用 `swiftc -typecheck`（iOS 模拟器 SDK）通过；本机磁盘不足，没有构建模拟器原生库，XCTest 没有运行。
 - 没有真实的 DeepL 密钥，没有对 DeepL 服务端发过请求；请求格式按 DeepL 的公开文档写成，Free 与 Pro 主机、`ZH-HANS`/`EN-US`、`DeepL-Auth-Key` 头都没有被真实服务确认过。macOS 的 ctest、iOS、Windows 运行时和设备上的候选释义都没有跑。
+
+共享回复判定不论有无成功码都要求支持的结果结构，合法空回答仍负缓存，见[自定义翻译回复结构边界](../bug-fix/2026-10-15-custom-translation-reply-shape.md)。
