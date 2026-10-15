@@ -21,6 +21,6 @@ Windows 保留 WinUI 3 设置宿主与 Direct2D 输入浮层，以 macOS 的 `Se
 
 ## Verification
 
-`tests/ui/candidate_palette.cpp` 验证原生默认值、显式主题槽位优先、强调色推导和半透明选中底的前景色；`candidate_theme_reload.cpp` 验证主题重新加载后的实际颜色。共享前端运行 `typecheck`、构建、platform-tokens 和 candidate-preview-native-tokens 测试。`CI (platforms)` 的 `Windows native settings` 使用发布用 WinUI 工程，先执行 `CppWinRTMakeProjections` 再以 `/WX` 编译实际 `main.cpp`（直接调用 `ClCompile` 会跳过投影头生成），再构建真实 Rust host-api DLL、链接原生设置宿主。`tests/tools/settings_ui.ps1` 在独立合成状态目录中通过 UI Automation 遍历 18 页，保存浅深色、800／1000 宽窗口截图，关闭进程并清除合成状态；截图作为 CI 产物供视觉审查。
+`tests/ui/candidate_palette.cpp` 验证原生默认值、显式主题槽位优先、强调色推导和半透明选中底的前景色；`candidate_theme_reload.cpp` 验证主题重新加载后的实际颜色。共享前端运行 `typecheck`、构建、platform-tokens 和 candidate-preview-native-tokens 测试。`CI (platforms)` 的 `Windows native settings` 先构建真实 Rust host-api DLL，再使用发布用 WinUI 工程的完整 `Build` 流程，以 `/WX` 编译实际 `main.cpp` 并链接原生设置宿主。不能直接调用 `ClCompile` 或单独的投影生成目标：它们会跳过 Windows SDK 引用初始化或 WinRT 投影头生成。`tests/tools/settings_ui.ps1` 在独立合成状态目录中通过 UI Automation 遍历 18 页，保存浅深色、800／1000 宽窗口截图，关闭进程并清除合成状态；截图作为 CI 产物供视觉审查。
 
 macOS 本机没有 Windows App SDK 运行环境，Windows runner 的结果和截图是窗口运行与视觉审查的证据；交叉构建及策略测试不能替代它。脚本覆盖导航与页面渲染，搜索后定位、字体输入框编辑及已登录账号／社区表单的写操作仍需对应功能的交互验收，不能由截图推出。
