@@ -185,7 +185,7 @@ export function useAiAssistant({
       return;
     }
     if (testActionBusy.current || testBusy) return;
-    const generation = ++requestGeneration.current;
+    const generation = requestGeneration.current;
     setTestOutput("");
     await runAction(
       testActionBusy,
