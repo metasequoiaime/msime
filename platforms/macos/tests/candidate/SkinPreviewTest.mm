@@ -8,6 +8,10 @@
 #import "../settings/TestPreferenceSuite.h"
 #import "../settings/PreferenceViewLookup.h"
 
+@interface MSIMECandidatePreviewView (ScaledGeometryTest)
+- (msime::mac::ResolvedSkin)previewWindowSkin;
+@end
+
 static NSView *FindControl(NSView *root, NSString *label) {
     if ([root.accessibilityLabel isEqual:label]) return root;
     for (NSView *child in root.subviews) {
@@ -194,7 +198,21 @@ static NSBitmapImageRep *Draw(MSIMECandidatePreviewView *preview) {
     return bitmap;
 }
 
-// 整体大小, 不透明度 and 圆角大小 travel through the shared document like the font settings beside them, the sliders write them, and the preview draws them; 字体预设 writes the family and the front of the fallback list in one change.
+static NSRect SyntheticSelectionBounds(NSBitmapImageRep *bitmap) {
+    NSInteger minX = bitmap.pixelsWide, maxX = -1, minY = bitmap.pixelsHigh, maxY = -1;
+    for (NSInteger y = 0; y < bitmap.pixelsHigh; ++y) {
+        for (NSInteger x = 0; x < bitmap.pixelsWide; ++x) {
+            NSColor *color = [[bitmap colorAtX:x y:y] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+            // 显示器色彩配置可改变洋红色的分量，按色相分离高亮与灰色画布、文字。
+            if (color.redComponent < .8 || color.greenComponent > .5 || color.blueComponent < .8) continue;
+            minX = MIN(minX, x); maxX = MAX(maxX, x);
+            minY = MIN(minY, y); maxY = MAX(maxY, y);
+        }
+    }
+    return maxX < minX ? NSZeroRect : NSMakeRect(minX, minY, maxX - minX + 1, maxY - minY + 1);
+}
+
+// 共享文档、设置滑块、持久化与预览使用同一份候选窗样式。
 static void TestCandidateWindowStyle(MSIMEAppearancePreferences *preferences, NSUserDefaults *defaults) {
     NSView *root = preferences.window.contentView;
     MSIMECandidatePreviewView *preview = (id)MSIMEFindPreferenceViewOfClass(root, MSIMECandidatePreviewView.class);
@@ -304,7 +322,63 @@ static void TestCandidateWindowStyle(MSIMEAppearancePreferences *preferences, NS
         preferences.candidatePadding = @1;
         assert(std::abs(preview.previewContentHeight - minimumPaddingHeight) < .01);
         preferences.candidatePadding = @16;
-        assert(std::abs(preview.previewContentHeight - minimumPaddingHeight - 30.0 * preferences.candidateScalePercent / 100.0) < .01);
+        assert(std::abs(preview.previewContentHeight - minimumPaddingHeight - 2.0 * (16.0 * preferences.candidateScalePercent / 100.0 - 1.0)) < .01);
+        // 先缩放内边距、再保留固定 1pt 边框；横排、竖排和双布局预览的高度都按真实窗口计算。
+        const NSInteger previousScale = preferences.candidateScalePercent;
+        const BOOL previousVertical = preferences.vertical;
+        for (NSNumber *percent in @[@50, @100, @150, @200]) {
+            preferences.candidateScalePercent = percent.integerValue;
+            for (NSNumber *vertical in @[@NO, @YES]) {
+                preferences.vertical = vertical.boolValue;
+                for (NSNumber *showcase in @[@NO, @YES]) {
+                    [preview setShowsLayoutShowcase:showcase.boolValue];
+                    preferences.candidatePadding = @0;
+                    const CGFloat tightHeight = preview.previewContentHeight;
+                    const auto actual = [preferences candidateWindowSkinForDark:[preview previewUsesDark]];
+                    const auto drawing = [preview previewWindowSkin];
+                    const CGFloat factor = percent.doubleValue / 100.0;
+                    assert(std::abs(drawing.tokens.borderWidth * factor - actual.tokens.borderWidth) < .001);
+                    assert(std::abs(msime::mac::CandidateInset(drawing.tokens) * factor - msime::mac::CandidateInset(actual.tokens)) < .001);
+                    assert(std::abs(drawing.tokens.selectedRadius * factor - actual.tokens.selectedRadius) < .001);
+                    preferences.candidatePadding = @16;
+                    const CGFloat panels = showcase.boolValue ? 2.0 : 1.0;
+                    const CGFloat expected = 2.0 * panels * (16.0 * percent.doubleValue / 100.0 - 1.0);
+                    assert(std::abs(preview.previewContentHeight - tightHeight - expected) < .01);
+                }
+            }
+        }
+        // 位图使用合成洋红色定位高亮，防止只校验高度却漏掉候选整行未绘制。
+        [preview setShowsLayoutShowcase:NO];
+        NSDictionary *originalAppearance = [preferences cloudSettingsSnapshot];
+        const BOOL previousPreedit = preferences.showsCandidatePreedit;
+        NSString *previousSelected = preferences.candidateSelectedColor;
+        preferences.showsCandidatePreedit = NO;
+        preferences.pageSize = 1;
+        preferences.candidateSelectedColor = @"#FF00FF";
+        for (NSNumber *percent in @[@50, @100, @150, @200]) {
+            preferences.candidateScalePercent = percent.integerValue;
+            for (NSNumber *paddingValue in @[@0, @1]) {
+                preferences.candidatePadding = paddingValue;
+                for (NSNumber *vertical in @[@NO, @YES]) {
+                    preferences.vertical = vertical.boolValue;
+                    NSBitmapImageRep *bitmap = Draw(preview);
+                    const NSRect selected = SyntheticSelectionBounds(bitmap);
+                    assert(NSWidth(selected) > 10 && NSHeight(selected) > 2);
+                    if (vertical.boolValue) {
+                        const CGFloat pixelsPerPoint = bitmap.pixelsWide / NSWidth(preview.bounds);
+                        const CGFloat inset = msime::mac::CandidateInset([preferences candidateWindowSkinForDark:preview.previewUsesDark].tokens);
+                        const CGFloat expectedWidth = NSWidth(preview.bounds) - 28.0 - 2.0 * inset;
+                        assert(NSWidth(selected) / pixelsPerPoint >= expectedWidth - 2.0);
+                    }
+                }
+            }
+        }
+        preferences.candidateSelectedColor = previousSelected;
+        assert([preferences applyCloudSettingsSnapshot:originalAppearance]);
+        preferences.showsCandidatePreedit = previousPreedit;
+        [preview setShowsLayoutShowcase:NO];
+        preferences.vertical = previousVertical;
+        preferences.candidateScalePercent = previousScale;
         preferences.candidatePadding = @0;
         [preferences applySharedCandidatePreferences:@{@"candidate_padding": NSNull.null}];
         assert(preferences.candidatePadding == nil);

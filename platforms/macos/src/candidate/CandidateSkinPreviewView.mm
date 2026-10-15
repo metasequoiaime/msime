@@ -343,10 +343,10 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
             }
             break;
         }
-        NSRect row = vertical ? NSMakeRect(NSMinX(chrome) + 4.0, contentTop + index * rowHeight, NSWidth(chrome) - 8.0,
+        NSRect row = vertical ? NSMakeRect(NSMinX(chrome) + pad, contentTop + index * rowHeight, NSWidth(chrome) - 2.0 * pad,
                                            rowHeight)
                               : NSMakeRect(x, contentTop, itemWidth, rowHeight);
-        if (NSMaxY(row) > NSMaxY(chrome) - 2.0)
+        if (NSMaxY(row) > NSMaxY(chrome) - pad + 0.01)
         {
             break;
         }
@@ -677,12 +677,21 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     return self.preferences != nil ? self.preferences.candidateScalePercent / 100.0 : 1.0;
 }
 
-/// The skin as the candidate window draws it, with the user's radius and opacity over it. The scale is left out of it here because the preview draws the whole panel magnified instead, the one place a uniform transform is the same thing as multiplying every length.
+/// 先按真实窗口求边框下限与行圆角，再换回整体绘图变换使用的坐标；固定宽度的边框也要抵消该变换。
 - (msime::mac::ResolvedSkin)previewWindowSkin
 {
-    msime::mac::CandidateWindowStyle style = self.preferences != nil ? [self.preferences candidateWindowStyle] : msime::mac::CandidateWindowStyle{};
-    style.scale = 1.0;
-    return msime::mac::StyledCandidateSkin([self previewSkin], style);
+    const msime::mac::CandidateWindowStyle style = self.preferences != nil ? [self.preferences candidateWindowStyle] : msime::mac::CandidateWindowStyle{};
+    auto skin = msime::mac::StyledCandidateSkin([self previewSkin], style);
+    const double scale = [self previewScale];
+    skin.tokens.radius /= scale;
+    skin.tokens.candidateRadius /= scale;
+    skin.tokens.selectedRadius /= scale;
+    skin.tokens.pad /= scale;
+    skin.tokens.borderWidth /= scale;
+    skin.decorationTopDip /= scale;
+    skin.decorationWidthDip /= scale;
+    skin.minWidthDip /= scale;
+    return skin;
 }
 
 - (void)setShowsLayoutShowcase:(BOOL)showsLayoutShowcase

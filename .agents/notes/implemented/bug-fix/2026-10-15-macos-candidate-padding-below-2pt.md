@@ -13,6 +13,8 @@ Status: implemented
 - 原生默认内边距（`SkinTokens::pad`）从 6pt 改为 4pt：10 − 4 = 6，选中高亮的圆角与卡片内轮廓同心，横排卡片矮 4pt。共享预览的 `--msime-host-pad` 和设置页「跟随皮肤」时滑块的落点（`followedCardPadding`）同步改为 4。皮肤包自己给了 `padding` 的不受影响。
 - 有效内边距由 `CandidateSkin.h` 的 `CandidateInset(tokens)` 给出：`max(0, borderWidth, pad)`。下限从固定的 2pt 改成卡片边框的实际宽度，高亮永远不压住边框。默认 1pt 细边框下用户可以调到 1pt，0 与 1 画出来一样；无边框的皮肤可以贴边。所有宿主绘制和测量的地方都调这个函数，不再各写一份常量。
 - `StyledCandidateSkin` 改为先按整体大小缩放、再推导行圆角：内边距随缩放变大，边框不变粗，缩放后的两者比较才是窗口实际留的距离。
+- 原生预览的行宽和底边检查都读取有效内边距。固定的竖排 4pt 左右边距会掩盖 1pt 设置；固定的 2pt 底边检查会在 0/1pt 时截掉最后一行，横排只有一行时整组候选空白。位图测试以合成洋红色检查高亮确实绘出、竖排宽度随内边距变化。
+- 原生预览先用真实缩放求 `StyledCandidateSkin`，再将几何长度和边框宽度除以缩放系数，交给现有整体绘图变换。先把缩放强制为 1 再放大整张图，会错误放大边框下限，并在 50% 与 200% 时让内边距、行圆角和预览高度偏离真实窗口。
 - 用户设了窗口圆角时，行圆角仍是窗口圆角减有效内边距（同心）。只设了内边距时保留皮肤的行圆角，但不小于 `CandidateRowRadiusFloor(tokens)`：内外两个圆角在对角线方向相切时 r = R − d(2 + √2)，R、d 都从描边内沿量起。默认皮肤在 2pt 及以上结果为 0，行圆角不变；1pt 和 0pt 时行圆角变为约 7.8pt，无边框贴边时等于卡片圆角。两种用户设置都没有时皮肤几何原样保留。
 - 共享设置页和原生设置窗口的滑块都覆盖 0–16。共享预览按同一规则画：内边距取 `max(--msime-host-border-width, …)`；行圆角多一项下限，CSS 的内边距本来就从边框内沿量起，所以 R 取卡片圆角减边框；没设用户内边距时用 999px 的回退值让这一项为负。
 
@@ -29,4 +31,4 @@ Status: implemented
 - **默认值**：所有没设内边距、皮肤包也没给 `padding` 的 macOS 用户，升级后候选窗每边少 2pt。这是可见的外观变化，有意为之。
 - **代价**：默认皮肤下 0 和 1 画出来一样，滑块上有一格看不出变化。只调内边距到 1pt 以下时，候选行比皮肤定义的更圆。CSS 预览里 999px 的回退值是为了在样式表里表达「只在用户设了内边距时生效」，读起来不直观，注释写明了原因。
 - **部分取代**：[页码开关与内边距](../feature/2026-10-12-macos-candidate-page-controls-toggle.md)里「滑块从 2 起，macOS 卡片至少留 2pt」和[内圆角](2026-10-14-macos-candidate-inset-radius.md)里「有效内边距至少为 2pt」由本篇取代，两篇其余的决定不变。
-- **验证**：`candidate-skin` 覆盖 `CandidateInset` 的边框下限、无边框和负值，只调内边距时 2pt 不改行圆角、1pt 与 0pt 调到相切下限、无边框贴边等于卡片圆角、缩放后计算，极端圆角 32 和内边距 0 在各档缩放下只扣 1pt。`candidate-row-layout` 在实际控制器上检查同一组极端设置和展开网格的首行位置；`shortcut`（需要图形会话，本机跑）断言 1pt 与 0pt 时卡片高度和候选行位置都按 1pt 边框计算；`skin-preview` 检查原生滑块 0–16、预览高度在 0 和 1 之间不变，各处预览高度按默认 4pt 计算；`candidate-skin` 断言原生默认几何同心（`radius − CandidateInset == candidateRadius`）。共享侧 `candidate-window-style-section.test.tsx` 检查滑块 0–16，`candidate-preview-native-tokens.test.ts` 核对预览样式表的新公式。
+- **验证**：`candidate-skin` 覆盖 `CandidateInset` 的边框下限、无边框和负值，只调内边距时 2pt 不改行圆角、1pt 与 0pt 调到相切下限、无边框贴边等于卡片圆角、缩放后计算，极端圆角 32 和内边距 0 在各档缩放下只扣 1pt。`candidate-row-layout` 在实际控制器上检查同一组极端设置和展开网格的首行位置；`shortcut`（需要图形会话，本机跑）断言 1pt 与 0pt 时卡片高度和候选行位置都按 1pt 边框计算；`skin-preview` 检查原生滑块 0–16、100% 下预览高度在 0 和 1 之间不变，各处预览高度按默认 4pt 计算；`candidate-skin` 断言原生默认几何同心（`radius − CandidateInset == candidateRadius`）。另在 50/100/150/200%、横排/竖排/双布局预览中核对高度变化、固定边框、有效内边距和真实窗口行圆角；位图检查 0/1pt 时高亮仍绘出且竖排行宽正确。共享侧 `candidate-window-style-section.test.tsx` 检查滑块 0–16，`candidate-preview-native-tokens.test.ts` 核对预览样式表的新公式。
