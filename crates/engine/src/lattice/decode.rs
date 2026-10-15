@@ -1485,3 +1485,7 @@ mod traceback_tests;
 #[cfg(test)]
 #[path = "decode_return_tests.rs"]
 mod return_tests;
+
+#[cfg(test)]
+#[path = "decode_prefix_tests.rs"]
+mod prefix_tests;
