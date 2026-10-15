@@ -40,6 +40,7 @@ area/shared:
           - crates/client-base/**
           - crates/client-core/**
           - crates/client-providers/**
+          - crates/client-services/**
           - crates/engine/**
           - crates/host-api/**
           - crates/input-runtime/**
