@@ -332,7 +332,20 @@ try {
             $savedEntries = @(Get-Content -LiteralPath (Join-Path $state 'clipboard_history.json') -Raw | ConvertFrom-Json)
         } while (-not $savedEntries[0].pinned -and [DateTime]::UtcNow -lt $deadline)
         if (-not $savedEntries[0].pinned) { throw 'Clipboard pin action was not saved' }
-        Start-Sleep -Milliseconds 350
+        # 写盘完成不等于 UI 回调已呈现；确认固定标记与可用操作后再验收最终画面。
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        $textCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Text)
+        do {
+            Start-Sleep -Milliseconds 200
+            $more = Find-ById $window 'clipboard-entry-0-actions'
+            $pinnedVisible = $false
+            $texts = (Find-ById $window 'settings-content').FindAll([System.Windows.Automation.TreeScope]::Descendants, $textCondition)
+            foreach ($text in $texts) {
+                if ($text.Current.Name.StartsWith('已固定 · ') -and -not $text.Current.IsOffscreen) { $pinnedVisible = $true; break }
+            }
+        } while ((-not $pinnedVisible -or -not $more -or -not $more.Current.IsEnabled) -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $pinnedVisible -or -not $more -or -not $more.Current.IsEnabled) { throw 'Clipboard pin result did not finish rendering' }
+        Start-Sleep -Milliseconds 200
         Save-Window $window "$theme-clipboard-pinned.png"
         $process.CloseMainWindow() | Out-Null
         if (-not $process.WaitForExit(10000)) { throw 'Settings window failed to close' }
