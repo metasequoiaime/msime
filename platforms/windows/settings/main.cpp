@@ -3414,7 +3414,7 @@ private:
     view.IsTitleBarAutoPaddingEnabled(false);
     view.AlwaysShowHeader(false);
 
-    // Lightweight styling: the template reads these brushes, so the sidebar and the content surface take the design's palette.
+    // 通过模板资源统一侧栏和正文配色，保留原生导航行为。
     auto resources = view.Resources();
     auto put = [&resources](const wchar_t *key, Color const &color) {
       resources.Insert(box_value(hstring(key)), brush(color));
@@ -3434,7 +3434,8 @@ private:
     put(L"NavigationViewItemIconForegroundSelectedPointerOver", palette_.on_accent);
     put(L"NavigationViewItemIconForegroundSelectedPressed", palette_.on_accent);
     put(L"NavigationViewItemBackgroundSelectedPressed", palette_.accent);
-    resources.Insert(box_value(L"NavigationViewItemMinHeight"), box_value(28.0));
+    // 行高 28 包含模板上下各 2 DIP 的边距；内部仍用默认 36 会裁掉文字。
+    resources.Insert(box_value(L"NavigationViewItemOnLeftMinHeight"), box_value(24.0));
     put(L"NavigationViewItemSeparatorForeground", palette_.divider);
 
     view.PaneHeader(make_search_field());
@@ -3466,6 +3467,7 @@ private:
       item.Height(28);
       item.Margin(Thickness{6, 0, 6, 0});
       item.Padding(Thickness{8, 0, 8, 0});
+      item.VerticalContentAlignment(VerticalAlignment::Center);
       item.Tag(box_value(text(page.id)));
       A11y::SetAutomationId(item, text(page.id));
       view.MenuItems().Append(item);
@@ -4166,7 +4168,7 @@ private:
   }
 
   // 数值由 format 格式化；两列布局给滑块与数值各自留出空间。
-  FrameworkElement formatted_slider_control(std::wstring const &name, double minimum,
+  Grid formatted_slider_control(std::wstring const &name, double minimum,
                                             double maximum, double value,
                                             std::function<void(double)> apply,
                                             std::function<std::wstring(double)> format,
@@ -16463,8 +16465,8 @@ private:
         tenths_text, true);
     add_row(size, 0xE8FD, L"行间距", L"", row_slider);
     if (!indexing_) {
-      osk_key_slider_ = key_slider.as<StackPanel>().Children().GetAt(0).as<Slider>();
-      osk_row_slider_ = row_slider.as<StackPanel>().Children().GetAt(0).as<Slider>();
+      osk_key_slider_ = key_slider.Children().GetAt(0).as<Slider>();
+      osk_row_slider_ = row_slider.Children().GetAt(0).as<Slider>();
     }
     // 恢复默认也管下面的「工具栏」组，所以和共享页一样放在它重置的第一组末尾。
     auto reset = button_control(L"恢复默认", [this] { reset_screen_keyboard(); }, loaded_);
