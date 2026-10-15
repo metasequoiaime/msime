@@ -20,7 +20,7 @@ Status: implemented
   - `workflow_dispatch`：只构建不发布。
 - 附件名用 `msime-linux-legacy_<版本>_<架构>.deb`，包内的 `Package` 仍是 `msime-linux`：
   - 不改名的话，legacy 与发布页的包同为 `msime-linux_<版本>_<架构>.deb`，`download-artifact` 的 `merge-multiple` 会让后到的覆盖先到的。
-  - 检查更新挑包已移到 Rust（`crates/client-core/src/update_check.rs`）：给 full 挑包前先由 `is_other_edition_linux_package` 去掉 `msime-linux-<字母>` 开头的别的版本的包，`msime-linux-legacy_` 正好被它排除；各版本按 `msime-linux-<id>_` 前缀匹配，也不会匹配。`crates/client-core/src/update_check/tests.rs` 的发布夹具里加了两个架构的 legacy 附件，钉住这一点。版本表里将来不能有 id 为 `legacy` 的版本。
+  - 检查更新挑包已移到 Rust（`crates/client-services/src/update_check.rs`）：给 full 挑包前先由 `is_other_edition_linux_package` 去掉 `msime-linux-<字母>` 开头的别的版本的包，`msime-linux-legacy_` 正好被它排除；各版本按 `msime-linux-<id>_` 前缀匹配，也不会匹配。`crates/client-services/src/update_check/tests.rs` 的发布夹具里加了两个架构的 legacy 附件，钉住这一点。版本表里将来不能有 id 为 `legacy` 的版本。
 - 符号版本核对从 `package-legacy-container.sh` 的内联循环抽成 `platforms/linux/tests/tools/check-elf-symbol-versions.sh <deb 或目录> PREFIX=VERSION…`：容器里第 1 步照旧从 buster 的库读出上限后调用它，发布工作流对改名后的文件用固定上限调用它，人也可以拿它查任意一个包。ELF 判断改用文件头前四个字节，不依赖 `file`。
 
 ## Alternatives considered

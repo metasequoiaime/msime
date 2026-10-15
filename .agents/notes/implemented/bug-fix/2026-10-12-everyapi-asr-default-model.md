@@ -13,7 +13,7 @@ EveryAPI 作为识别服务加进来时（905925fdf9），默认模型照搬了 
 
 ## Decision
 
-- EveryAPI 的识别默认模型在所有副本里都改成 `volc.seedasr.sauc.duration`，候选模型列表去掉 whisper，只剩它。改动的副本：`crates/client-core/src/voice/provider.rs`、`shared/voice/VoiceProviders.cpp`、`packages/ui/src/voice/voice-providers.ts`、`platforms/windows/settings/VoiceSettings.h`、`platforms/macos/src/voice/VoiceProviderSettings.mm`、`platforms/linux/scripts/msime-linux-voice-provider`、`platforms/harmony/.../HttpAsrConfigurationPolicy.ts`、`platforms/ios/App/Services/CustomService.swift`，以及各自断言默认值的测试。
+- EveryAPI 的识别默认模型在所有副本里都改成 `volc.seedasr.sauc.duration`，候选模型列表去掉 whisper，只剩它。改动的副本：`crates/client-providers/src/voice/provider.rs`、`shared/voice/VoiceProviders.cpp`、`packages/ui/src/voice/voice-providers.ts`、`platforms/windows/settings/VoiceSettings.h`、`platforms/macos/src/voice/VoiceProviderSettings.mm`、`platforms/linux/scripts/msime-linux-voice-provider`、`platforms/harmony/.../HttpAsrConfigurationPolicy.ts`、`platforms/ios/App/Services/CustomService.swift`，以及各自断言默认值的测试。
 - 已存的旧值在读出时退役，文件本身不改写：
   - 共享偏好：`PreferencesStore::read_locked` 在校验之后调用 `VoiceInputPreferences::retire_unavailable_asr_model`。`asr_provider` 是 `everyapi`、`asr_model` 去掉首尾空白后等于旧名字时，清空 `asr_model`，由共享解析补上现在的默认值。经共享偏好读设置的宿主（Android、HarmonyOS、Windows、macOS、Linux 设置页）都走这条路。
   - iOS 的服务配置存在自己的 UserDefaults 里（`service.voice.model` 和 `service.voice.presets.everyAPI.model`），`CustomServiceConfiguration.currentVoiceModel` 在 `load(.voice)` 和 `loadVoicePreset` 里做同样的替换。
