@@ -1,4 +1,6 @@
 """Synthetic keystrokes into a real Gtk.Entry on an isolated Xvfb display."""
+import os
+import re
 import subprocess
 
 import dbus
@@ -12,7 +14,8 @@ from daemon import wait
 
 window = Gtk.Window(title="MSIME synthetic GTK editor")
 entry = Gtk.Entry()
-entry.set_property("im-module", "fcitx")
+module = os.environ.get("GTK_IM_MODULE", "fcitx")
+entry.set_property("im-module", module)
 window.add(entry)
 window.show_all()
 entry.grab_focus()
@@ -23,8 +26,9 @@ wait(lambda: entry.has_focus())
 bus = dbus.SessionBus()
 control = dbus.Interface(bus.get_object("org.fcitx.Fcitx5", "/controller"),
                          "org.fcitx.Fcitx.Controller1")
-# GTK creates/focuses its D-Bus input context asynchronously after X focus.
-wait(lambda: bool(str(control.CurrentInputMethod())))
+# GTK 在 X 焦点之后异步建立上下文；旧上下文仍可能返回输入法名称，必须等新前端获得焦点。
+frontend = "ibus" if module == "ibus" else "dbus"
+wait(lambda: re.search(rf"frontend:{frontend}\b.*\bfocus:1\b", str(control.DebugInfo())))
 control.SetCurrentIM("msime")
 control.Activate()
 wait(lambda: str(control.CurrentInputMethod()) == "msime")
@@ -37,4 +41,4 @@ finally:
         typing.terminate()
         typing.wait(timeout=5)
     window.destroy()
-print("Fcitx5 GTK3 editor commit passed")
+print(f"Fcitx5 GTK3 {module} 编辑器上屏验收通过")

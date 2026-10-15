@@ -313,6 +313,12 @@ if(BUILD_TESTING)
             "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
             "$<TARGET_FILE:msime-fcitx5>")
         set_tests_properties(fcitx5-gtk-editor PROPERTIES TIMEOUT 90)
+        add_test(NAME fcitx5-ibus-gtk-editor
+          COMMAND "${XVFB_RUN}" -a "${DBUS_RUN_SESSION}" --
+            "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/daemon.py"
+            "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+            "$<TARGET_FILE:msime-fcitx5>" --ibus-frontend)
+        set_tests_properties(fcitx5-ibus-gtk-editor PROPERTIES TIMEOUT 90)
       endif()
     endif()
   endif()

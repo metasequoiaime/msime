@@ -71,16 +71,20 @@ Qt 程序没有类似的做法：Qt5 不支持 text-input，只能靠 `QT_IM_MOD
 
 ### deepin 玲珑应用里只能输入字母
 
-在 deepin、统信 UOS 等带玲珑（Linglong，linyaps）的系统上，如果水杉输入法用的是 IBus，玲珑格式的应用（例如应用商店里的 Chrome、Firefox、文本编辑器）里切到中文也只能打出字母，非玲珑应用正常（#6410）。
+在 deepin、统信 UOS 等带玲珑（Linglong，linyaps）的系统上，有用户遇到玲珑应用（Chrome、Firefox、文本编辑器）里切到中文也只能打出字母、非玲珑应用正常的问题（#6410、#8009）。需要分别确认正在运行的输入法框架、应用加载的模块和框架收到的上下文，不能只凭环境变量判断原因。
 
-原因在玲珑运行时：玲珑应用跑在自己的运行时容器里，GTK、Qt 的输入法模块取自容器内的运行时，而运行时只带 Fcitx5 的 GTK2/3 和 Qt6 模块，没有任何 IBus 模块。会话 D-Bus 和 `~/.config` 都挂进了容器，所以输入法框架是 Fcitx5 时，玲珑应用能连上宿主的 Fcitx5，水杉照常工作；框架是 IBus 时，应用里的 `GTK_IM_MODULE=ibus` 找不到模块，GTK 退回自带的简单输入，于是只出字母。水杉这边改不了容器里有哪些模块，能做的是改用 Fcitx5：
+`GTK_IM_MODULE=ibus`、`QT_IM_MODULE=ibus` 不代表正在运行的是 `ibus-daemon`：Fcitx5 也提供 IBus 兼容前端。#8009 的系统只运行 Fcitx5，环境变量仍为 `ibus ibus @im=ibus`，`DebugInfo` 已出现 `frontend:ibus cap:52 focus:1`。这里的 `52` 是十六进制的普通预编辑与周边文本能力，并不表示密码字段。程序名为空也是该前端可能提供的正常结果，但这也意味着单凭这份输出还不能确认哪一个上下文属于失败的玲珑应用。若能确认该应用已经建立并聚焦了上下文，就不能再归因为它完全没有输入法模块；切换框架也不保证解决。
 
-1. 确认装了 5.0.20 及以上的 Fcitx5（deepin 默认就是 Fcitx5，`fcitx5 --version` 查看版本；没有时 `sudo apt install fcitx5`）。发布页的 `.deb`、`.rpm` 同时带 IBus 引擎和 Fcitx5 插件，不用重装水杉；更旧的 Fcitx5 会按插件声明的 `core:5.0.20` 依赖拒绝加载它。只含 IBus 的 legacy 包（见下文「旧发行版的 legacy 包」）没有 Fcitx5 插件，装的是它就只能继续用 IBus，不要照下面的步骤切换。
-2. 把输入法框架切到 Fcitx5：`im-config -n fcitx5`，然后注销并重新登录。登录后 `echo $GTK_IM_MODULE $QT_IM_MODULE $XMODIFIERS` 应当显示 `fcitx fcitx @im=fcitx`。
-3. 运行 `msime-linux-setup --register`，把水杉输入法加进 Fcitx5 当前的输入法组；也可以在 deepin 的输入法设置或 `fcitx5-configtool` 里手动添加「水杉输入法」。
-4. 不再用 IBus 的话，可以把它从开机自启动里去掉，免得两个框架同时运行。
+若确认使用的是 IBus daemon，并且应用运行时缺少 IBus 模块，可以考虑改用 Fcitx5；这只是针对模块缺失的排查路径：
 
-`msime-linux-setup` 和 `--register` 注册进 IBus 时，如果系统是 deepin/UOS 或装了玲珑（有 `ll-cli` 或 `/var/lib/linglong`），而且装着的水杉带 Fcitx5 插件（有 `fcitx5/addon/msime.conf`，legacy 包没有），会打印一句提示指向这一节，但不会替用户切换框架；其他系统的输出不变。设置窗口的首次配置页运行的是同一个脚本，提示也会显示在页面上。改用 Fcitx5 后玲珑应用里仍然只出字母的，请在 issue 里附上：玲珑应用里 `echo $GTK_IM_MODULE $QT_IM_MODULE $XMODIFIERS` 的输出、deepin 自带的拼音在同一个玲珑应用里能不能输入中文，以及焦点在那个玲珑应用里时 `busctl --user call org.fcitx.Fcitx5 /controller org.fcitx.Fcitx.Controller1 DebugInfo` 的输出里有没有它的输入上下文。
+1. 确认装了 5.0.20 及以上的 Fcitx5（`fcitx5 --version` 查看版本；没有时 `sudo apt install fcitx5`）。发布页的 `.deb`、`.rpm` 同时带 IBus 引擎和 Fcitx5 插件，不用重装水杉。只含 IBus 的 legacy 包没有 Fcitx5 插件，装的是它就不要照下面的步骤切换。
+2. 用 `im-config -n fcitx5` 切换框架，注销并重新登录。应用使用 Fcitx 模块时环境变量通常是 `fcitx fcitx @im=fcitx`；发行版也可能让应用经 IBus 兼容前端连接 Fcitx5，以实际进程和上下文为准。
+3. 运行 `msime-linux-setup --register`，或在 deepin 输入法设置、`fcitx5-configtool` 中把水杉加入当前输入法组并选中。
+4. 不再用 IBus 时，可将它从开机自启动中去掉，避免同时启动两个框架。
+
+`msime-linux-setup` 在 deepin/UOS 或带玲珑的系统上注册进 IBus、且本安装带 Fcitx5 插件时，会打印这条有条件的排查建议；legacy 包不提示，也不会自动切换框架。
+
+使用 Fcitx5 后仍然失败，请附上 `fcitx5 --version`、相关 daemon 的进程信息、宿主与玲珑应用内 `echo $GTK_IM_MODULE $QT_IM_MODULE $XMODIFIERS` 的输出、预装拼音在同一应用里是否可用，以及焦点在该应用时 `busctl --user call org.fcitx.Fcitx5 /controller org.fcitx.Fcitx.Controller1 DebugInfo` 的结果。请延迟采样并在等待时切回失败应用，避免将执行命令的终端误当成目标上下文。仅保留复现用的合成编辑器上下文，不附真实输入、私人应用名或凭据。当前隔离验收已覆盖 Fcitx5 IBus 兼容前端和 GTK IBus 模块的中文上屏，但尚未证明 Deepin 玲珑场景的问题已解决，#8009 保持打开。
 
 ## 安装后首次使用
 

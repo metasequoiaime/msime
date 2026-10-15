@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""msime-linux-setup 在带玲珑（Linglong）的系统上注册进 IBus 时提示改用 Fcitx5：玲珑运行时只带 Fcitx5 的输入法模块，IBus 用户在玲珑应用里只能打出字母（#6410）。只在注册进 IBus、本安装带 Fcitx5 插件、且系统是 deepin/UOS 或装了玲珑时提示，其他系统的输出不变。纯函数，不碰真实的系统。
-"""
+"""验证 IBus 注册后的有条件玲珑排查建议及 legacy 包边界，不接触真实系统。"""
 import importlib.machinery
 import importlib.util
 from pathlib import Path
@@ -34,7 +33,7 @@ def main() -> int:
     # 别的发行版上另装了玲珑：同样提示。
     assert note("ibus", {"ID": "ubuntu", "ID_LIKE": "debian"}, True, True) == message
 
-    # 注册进 Fcitx5：玲珑应用能用，不提示。
+    # 注册进 Fcitx5：不再建议切换到同一个框架，输入失败要继续排查。
     assert note("fcitx5", deepin, True, True) is None
     # 没有在运行的框架：没注册进 IBus，不提示。
     assert note(None, deepin, True, True) is None

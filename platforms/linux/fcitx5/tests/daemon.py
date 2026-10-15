@@ -53,6 +53,41 @@ def daemon_environment(root, addon):
                FCITX_ADDON_DIRS=f"{addon.parent}:{system_lib}/fcitx5")
 
 
+def check_ibus_frontend(bus, control):
+    """经过真实 IBus 兼容前端，覆盖有无客户端预编辑及上下文重建。"""
+    service = "org.freedesktop.IBus"
+    wait(lambda: bus.name_has_owner(service))
+    frontend = dbus.Interface(bus.get_object(service, "/org/freedesktop/IBus"), service)
+    for capabilities in (1 | 8 | 16 | 32, 1 | 8 | 16, 8 | 16 | 32):
+        path = frontend.CreateInputContext("msime-synthetic-ibus-editor")
+        proxy = bus.get_object(service, path)
+        context = dbus.Interface(proxy, "org.freedesktop.IBus.InputContext")
+        commits, preedits = [], []
+        signals = [
+            context.connect_to_signal("CommitText", lambda text: commits.append(str(text[2]))),
+            context.connect_to_signal("UpdatePreeditText",
+                                      lambda text, cursor, visible: preedits.append(str(text[2]))),
+        ]
+        try:
+            context.SetCapabilities(dbus.UInt32(capabilities))
+            context.FocusIn()
+            assert "frontend:ibus" in str(control.DebugInfo()), "没有经过 IBus 前端"
+            control.SetCurrentIM("msime")
+            control.Activate()
+            for character in "nihao":
+                assert context.ProcessKeyEvent(ord(character), 0, 0), "IBus 组字按键未接收"
+            if capabilities & 1:
+                wait(lambda: "nihao" in preedits)
+            assert context.ProcessKeyEvent(32, 0, 0), "IBus 空格上屏未接收"
+            wait(lambda: len(commits) == 1)
+            assert commits == ["你好"], "IBus 前端上屏结果不符"
+            context.FocusOut()
+        finally:
+            for signal in signals:
+                signal.remove()
+            dbus.Interface(proxy, "org.freedesktop.IBus.Service").Destroy()
+
+
 def main():
     resources, library, addon = map(Path, sys.argv[1:4])
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
@@ -111,13 +146,27 @@ def main():
             assert Path(env.get("WAYLAND_DISPLAY", "")).is_absolute(), "需要独立合成器的绝对 socket 路径"
             env.pop("DISPLAY", None)
         with (root / "daemon.log").open("w") as log:
-            daemon = subprocess.Popen(["fcitx5", "-D", "--keep"], env=env,
+            command = ["fcitx5", "-D", "--keep"]
+            if "--ibus-frontend" in sys.argv[4:]:
+                command.append("--enable=ibusfrontend")
+            daemon = subprocess.Popen(command, env=env,
                                       stdout=log, stderr=log)
             try:
                 wait(lambda: bus.name_has_owner("org.fcitx.Fcitx5"))
                 service = "org.fcitx.Fcitx5"
                 control = dbus.Interface(bus.get_object(service, "/controller"),
                                          "org.fcitx.Fcitx.Controller1")
+                if "--ibus-frontend" in sys.argv[4:]:
+                    check_ibus_frontend(bus, control)
+                    # GTK 从地址文件连接 IBus；该文件由 Fcitx5 的延迟初始化发布。
+                    wait(lambda: list((root / "config" / "ibus" / "bus").glob("*")))
+                    subprocess.run([sys.executable, str(source / "tests" / "gtk_editor.py")],
+                                   env=dict(env, GTK_IM_MODULE="ibus", GDK_BACKEND="x11"),
+                                   check=True, timeout=30)
+                    control.Exit()
+                    assert daemon.wait(timeout=10) == 0, "IBus 前端测试 daemon 未正常退出"
+                    print("Fcitx5 IBus 前端与 GTK 编辑器组字上屏验收通过")
+                    return
                 if "--wayland-punctuation" in sys.argv[4:]:
                     # 复用隔离 daemon 和合成配置，但按键走真实 Wayland/Chrome，不走 D-Bus 模拟前端。
                     subprocess.run(["node", str(source / "tests" / "wayland_punctuation.mjs")],
