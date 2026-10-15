@@ -99,6 +99,9 @@ HRESULT CKeyStateCategory::KeyStateHandler(KEYSTROKE_FUNCTION function, KeyHandl
     case FUNCTION_KOREAN_HANJA_KEY:
         return _pTextService->_HandleKoreanHanjaKey(dto.ec, dto.pContext, dto.code, dto.wch, dto.requestId);
 
+    case FUNCTION_CANDIDATE_CONTINUATION:
+        return _pTextService->_HandleCandidateContinuation(dto.ec, dto.pContext, dto.prefetchedText);
+
     case FUNCTION_UPDATE_VOICE_COMPOSITION:
         return _pTextService->_HandleUpdateVoiceComposition(dto.ec, dto.pContext, dto.prefetchedText);
 

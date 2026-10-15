@@ -16,6 +16,13 @@
 #include "FanyDefines.h"
 #include "../Utils/PerfTimer.h"
 #include "../HostRawCommit.h"
+#pragma push_macro("max")
+#undef max
+#pragma push_macro("min")
+#undef min
+#include "../HostCandidateContinuation.h"
+#pragma pop_macro("min")
+#pragma pop_macro("max")
 #include "../HostCharacterResult.h"
 #include "../HostComposition.h"
 #include "../HostKoreanKey.h"
@@ -770,6 +777,26 @@ HRESULT CMetasequoiaIME::_HandleCommitCandidateAndContinue(TfEditCookie ec, _In_
         engine->AddVirtualKey(value);
     }
     return _HandleCompositionInputWorker(engine, ec, pContext, FANY_IME_NO_REQUEST_ID);
+}
+
+HRESULT CMetasequoiaIME::_HandleCandidateContinuation(TfEditCookie ec, _In_ ITfContext *pContext,
+                                                        const std::wstring &text)
+{
+    std::string payload;
+    for (const auto ch : text)
+    {
+        if (ch <= 0 || ch > 0x7f)
+        {
+            return S_FALSE;
+        }
+        payload.push_back(static_cast<char>(ch));
+    }
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    if (!host || !msime::tsf::ContinueHostCandidate(*host, payload))
+    {
+        return S_FALSE;
+    }
+    return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext, FANY_IME_NO_REQUEST_ID);
 }
 
 HRESULT CMetasequoiaIME::_HandleUpdateVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext,

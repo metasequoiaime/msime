@@ -1,4 +1,5 @@
 #include "ReplyCodec.h"
+#include "candidate_continuation_pipe.h"
 #include <algorithm>
 #include <charconv>
 
@@ -411,6 +412,24 @@ UiSelectionFrames ui_rejected_selection() {
   auto reply = candidate_commit(1, {});
   reply.packet.msg_type = FanyImeReplyType::OutofRange;
   return triggered_selection(reply);
+}
+std::optional<UiSelectionFrames> ui_continued_selection(std::string_view payload, uint16_t transaction) {
+  const auto frames = FanyImeCandidateContinuationPipe::Encode(payload, transaction);
+  if (!frames) return std::nullopt;
+  UiSelectionFrames result;
+  for (const auto &frame : *frames) {
+    std::vector<uint8_t> bytes(sizeof(frame), 0);
+    for (size_t n = 0; n < 4; ++n) bytes[n] = static_cast<uint8_t>(frame.msg_type >> (8 * n));
+    for (size_t n = 0; n < FanyImePipeLimits::CandidateTextCapacity; ++n) {
+      const auto unit = static_cast<uint16_t>(frame.data[n]);
+      bytes[4 + 2 * n] = static_cast<uint8_t>(unit);
+      bytes[5 + 2 * n] = static_cast<uint8_t>(unit >> 8);
+    }
+    result.worker_prefix.push_back(std::move(bytes));
+  }
+  result.worker = std::move(result.worker_prefix.back());
+  result.worker_prefix.pop_back();
+  return result;
 }
 EncodedReply uiless_reply(uint64_t request, std::string_view display,
                           const std::vector<std::string> &page,

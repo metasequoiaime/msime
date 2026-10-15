@@ -25,6 +25,9 @@ inline UiDeliveryResult deliver_ui_selection(MainTransport &transport,
                                  frames.before_trigger->end()));
         if (result != KeyEventSendResult::Sent) return;
       }
+      for (const auto &frame : frames.worker_prefix)
+        if (transport.send(lease.transport, FanyImePipeRole::ToTsfWorkerThread, frame) != KeyEventSendResult::Sent)
+          return;
       sent = transport.send(lease.transport, FanyImePipeRole::ToTsfWorkerThread,
                             frames.worker) == KeyEventSendResult::Sent;
     });

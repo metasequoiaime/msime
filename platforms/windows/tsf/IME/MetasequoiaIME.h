@@ -50,6 +50,8 @@ const DWORD WM_ApplyPunctuationLock = WM_USER + 27;
 const DWORD WM_CancelKeyboardComposition = WM_USER + 28;
 const DWORD WM_CommitCandidateAndContinue = WM_USER + 29;
 const DWORD WM_ReplayKoreanSyllableKey = WM_USER + 30;
+const DWORD WM_CandidateContinuation = WM_USER + 31;
+const DWORD WM_CandidateContinuationFailed = WM_USER + 32;
 constexpr ULONG_PTR SMART_PUNCTUATION_SENDINPUT_EXTRA_INFO = 0x4D535050u;
 // Marker for caret movement synthesized by paired punctuation. Key sinks and
 // the bare-Shift hook must pass these events through to the host.
@@ -225,6 +227,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     HRESULT _HandleInsertText(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
     HRESULT _HandleCommitCandidateAndContinue(TfEditCookie ec, _In_ ITfContext *pContext,
                                                const std::wstring &payload);
+    HRESULT _HandleCandidateContinuation(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
     HRESULT _HandleUpdateVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
     HRESULT _HandleCommitVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
     HRESULT _HandleCancelVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext);
@@ -407,11 +410,14 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _PostServerCandidateCommit(_In_z_ const WCHAR *candidateText);
     bool _PostServerCandidateCommitAndContinue(_In_z_ const WCHAR *payload);
     bool _PostServerInsertText(_In_z_ const WCHAR *text);
-    bool _PostServerTextDelivery(UINT windowMessage, _In_z_ const WCHAR *text);
+    bool _PostServerTextDelivery(UINT windowMessage, _In_z_ const WCHAR *text,
+                                 uint64_t expectedFocus = 0, uint64_t expectedEpoch = 0);
     bool _TakeServerCandidateCommit(UINT token, _Out_ WorkerCandidateCommit &request);
     void _ResetVoiceCompositionAssemble();
     void _AssembleVoiceCompositionFrame(const FanyImeNamedpipeDataToTsfWorkerThread &buf);
-    void _DispatchUnsolicitedVoiceText(WPARAM wParam, KEYSTROKE_FUNCTION function);
+    void _DispatchServerText(WPARAM wParam, KEYSTROKE_FUNCTION function);
+    void _PostCandidateContinuationFailure(uint64_t focus, uint64_t epoch);
+    void _ConsumeCandidateContinuationFailure();
     struct WorkerCompartmentSwitch
     {
         UINT messageType = 0;
@@ -725,6 +731,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     UINT _ipcReconnectDelayMs;
     UINT _ipcConsecutiveFailures;
     std::mutex _pendingCommitCandidateMutex;
+    WorkerCandidateCommit _pendingContinuationFailure;
     std::map<UINT, WorkerCandidateCommit> _pendingServerCommitMessages;
     std::map<UINT, WorkerCompartmentSwitch> _pendingWorkerSwitchMessages;
     std::map<UINT, AsyncKeyRequest> _pendingAsyncKeyMessages;

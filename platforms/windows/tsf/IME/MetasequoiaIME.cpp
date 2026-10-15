@@ -29,6 +29,7 @@
 #pragma push_macro("max")
 #undef max
 #include "keyboard_composition_pipe.h"
+#include "candidate_continuation_pipe.h"
 #pragma pop_macro("max")
 
 #pragma comment(lib, "Shell32.lib")
@@ -806,7 +807,33 @@ void CMetasequoiaIME::_AssembleVoiceCompositionFrame(const FanyImeNamedpipeDataT
     }
 }
 
-void CMetasequoiaIME::_DispatchUnsolicitedVoiceText(WPARAM wParam, KEYSTROKE_FUNCTION function)
+void CMetasequoiaIME::_PostCandidateContinuationFailure(uint64_t focus, uint64_t epoch)
+{
+    // 单独保留一个有界故障槽，正常载荷队列满时仍能请求重置；旧 owner 的失败不能重置新组字。
+    if (!focus || !epoch) return;
+    {
+        std::lock_guard<std::mutex> lock(_pendingCommitCandidateMutex);
+        if (_expectedWorkerFocusToken.load(std::memory_order_acquire) != focus ||
+            !_IsCompositionEpochCurrent(epoch)) return;
+        _pendingContinuationFailure = WorkerCandidateCommit{L"", focus, epoch};
+    }
+    // 消息队列满时由 UI 线程既有的偏好定时器消费该槽，不从 worker 创建窗口定时器。
+    PostMessage(_msgWndHandle, WM_CandidateContinuationFailed, 0, 0);
+}
+
+void CMetasequoiaIME::_ConsumeCandidateContinuationFailure()
+{
+    WorkerCandidateCommit failed;
+    {
+        std::lock_guard<std::mutex> lock(_pendingCommitCandidateMutex);
+        failed = std::move(_pendingContinuationFailure);
+        _pendingContinuationFailure = {};
+    }
+    if (_IsFocusSessionCurrent(failed.focusToken) && _IsCompositionEpochCurrent(failed.compositionEpoch))
+        MarkNamedpipeSessionDirtyForOwner(this);
+}
+
+void CMetasequoiaIME::_DispatchServerText(WPARAM wParam, KEYSTROKE_FUNCTION function)
 {
     WorkerCandidateCommit request;
     if (!_TakeServerCandidateCommit(static_cast<UINT>(wParam), request))
@@ -817,6 +844,7 @@ void CMetasequoiaIME::_DispatchUnsolicitedVoiceText(WPARAM wParam, KEYSTROKE_FUN
     {
         return;
     }
+    HRESULT dispatchResult = E_FAIL;
     ITfDocumentMgr *pDocMgrFocus = nullptr;
     ITfContext *pContext = nullptr;
     if (SUCCEEDED(_GetThreadMgr()->GetFocus(&pDocMgrFocus)) && pDocMgrFocus)
@@ -826,15 +854,19 @@ void CMetasequoiaIME::_DispatchUnsolicitedVoiceText(WPARAM wParam, KEYSTROKE_FUN
             _KEYSTROKE_STATE KeystrokeState;
             KeystrokeState.Category = CATEGORY_COMPOSING;
             KeystrokeState.Function = function;
-            _InvokeKeyHandler(pContext, 0, 0, 0, KeystrokeState, FANY_IME_UNSOLICITED_REQUEST_ID,
+            dispatchResult = _InvokeKeyHandler(pContext, 0, 0, 0, KeystrokeState, FANY_IME_UNSOLICITED_REQUEST_ID,
                               std::move(request.text), 0, request.compositionEpoch, request.focusToken);
             pContext->Release();
         }
         pDocMgrFocus->Release();
     }
+    if (function == FUNCTION_CANDIDATE_CONTINUATION && dispatchResult != S_OK && dispatchResult != TF_S_ASYNC &&
+        _IsFocusSessionCurrent(request.focusToken) && _IsCompositionEpochCurrent(request.compositionEpoch))
+        MarkNamedpipeSessionDirtyForOwner(this);
 }
 
-bool CMetasequoiaIME::_PostServerTextDelivery(UINT windowMessage, _In_z_ const WCHAR *text)
+bool CMetasequoiaIME::_PostServerTextDelivery(UINT windowMessage, _In_z_ const WCHAR *text,
+                                             uint64_t expectedFocus, uint64_t expectedEpoch)
 {
     constexpr size_t maxPendingServerCommits = 64;
     if (!_workerCommitReady.load(std::memory_order_acquire) ||
@@ -852,12 +884,15 @@ bool CMetasequoiaIME::_PostServerTextDelivery(UINT windowMessage, _In_z_ const W
     UINT token = 0;
     const uint64_t focusToken = _expectedWorkerFocusToken.load(std::memory_order_acquire);
     const uint64_t compositionEpoch = _CaptureCompositionEpoch();
+    if ((expectedFocus && expectedFocus != focusToken) || (expectedEpoch && expectedEpoch != compositionEpoch))
+        return false;
     {
         std::lock_guard<std::mutex> lock(_pendingCommitCandidateMutex);
         if (!_workerCommitReady.load(std::memory_order_relaxed) ||
             _localSessionResetPending.load(std::memory_order_relaxed) || focusToken == 0 ||
             _expectedWorkerFocusToken.load(std::memory_order_relaxed) != focusToken ||
             _acknowledgedWorkerFocusToken.load(std::memory_order_relaxed) != focusToken ||
+            !_IsCompositionEpochCurrent(compositionEpoch) ||
             _pendingServerCommitMessages.size() >= maxPendingServerCommits)
         {
             return false;
@@ -874,7 +909,7 @@ bool CMetasequoiaIME::_PostServerTextDelivery(UINT windowMessage, _In_z_ const W
     {
         std::lock_guard<std::mutex> lock(_pendingCommitCandidateMutex);
         _pendingServerCommitMessages.erase(token);
-        PostMessage(ownerWindow, WM_IpcSessionDirty, 0, 0);
+        if (!expectedFocus) PostMessage(ownerWindow, WM_IpcSessionDirty, 0, 0);
         return false;
     }
     return true;
@@ -997,6 +1032,7 @@ void CMetasequoiaIME::_ClearPendingIpcRequests()
 
     std::lock_guard<std::mutex> lock(_pendingCommitCandidateMutex);
     _pendingServerCommitMessages.clear();
+    _pendingContinuationFailure = {};
     _pendingWorkerSwitchMessages.clear();
     _pendingServerCandidateString.clear();
     _hasPendingServerCandidate = false;
@@ -1707,7 +1743,10 @@ STDAPI CMetasequoiaIME::Deactivate()
 //----------------------------------------------------------------------------
 void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
 {
-    const auto notifyDisconnected = [pIME](HANDLE disconnectedPipe, UINT disconnectedGeneration) {
+    FanyImeCandidateContinuationPipe::Assembler continuation;
+    UINT continuationPipeGeneration = 0;
+    const auto notifyDisconnected = [pIME, &continuation](HANDLE disconnectedPipe, UINT disconnectedGeneration) {
+        continuation.reset();
         if (disconnectedGeneration == 0 ||
             pIME->_workerPipeGeneration.load(std::memory_order_acquire) != disconnectedGeneration)
         {
@@ -1792,6 +1831,43 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
             notifyDisconnected(workerPipe, workerGeneration);
             continue;
         }
+        if (pIME->_workerPipeGeneration.load(std::memory_order_acquire) != workerGeneration)
+        {
+            continuation.reset();
+            continue;
+        }
+        if (continuationPipeGeneration != workerGeneration)
+        {
+            continuation.reset();
+            continuationPipeGeneration = workerGeneration;
+        }
+        if (buf.msg_type == FanyImeWorkerReplyType::CandidateContinuation)
+        {
+            const auto focus = pIME->_expectedWorkerFocusToken.load(std::memory_order_acquire);
+            if (!pIME->_workerCommitReady.load(std::memory_order_acquire) || !focus ||
+                pIME->_acknowledgedWorkerFocusToken.load(std::memory_order_acquire) != focus ||
+                pIME->_localSessionResetPending.load(std::memory_order_acquire))
+            {
+                continuation.reset();
+                continue;
+            }
+            const auto epoch = pIME->_CaptureCompositionEpoch();
+            if (auto completed = continuation.accept(buf.data, std::size(buf.data), focus, epoch))
+            {
+                const std::wstring payload(completed->text.begin(), completed->text.end());
+                if (!pIME->_PostServerTextDelivery(WM_CandidateContinuation, payload.c_str(),
+                                                  completed->focus, completed->epoch))
+                    pIME->_PostCandidateContinuationFailure(completed->focus, completed->epoch);
+            }
+            else if (const auto owner = continuation.failed_owner())
+            {
+                pIME->_PostCandidateContinuationFailure(owner->focus, owner->epoch);
+            }
+            continue;
+        }
+        if (continuation.active())
+            pIME->_PostCandidateContinuationFailure(continuation.focus(), continuation.epoch());
+        continuation.reset();
         if (buf.msg_type > Global::DataToTsfWorkerThreadMsgType::MaxKnown)
         {
             continue;
@@ -2512,6 +2588,7 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         }
         if (wParam == TIMER_REFRESH_HOST_PREFERENCES)
         {
+            pIME->_ConsumeCandidateContinuationFailure();
             auto *engine = pIME->GetCompositionProcessorEngine();
             if (engine && engine->GetHostEngineAdapter() && engine->GetHostEngineAdapter()->valid())
             {
@@ -2734,14 +2811,20 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         }
         break;
     }
+    case WM_CandidateContinuationFailed:
+        pIME->_ConsumeCandidateContinuationFailure();
+        break;
+    case WM_CandidateContinuation:
+        pIME->_DispatchServerText(wParam, FUNCTION_CANDIDATE_CONTINUATION);
+        break;
     case WM_UpdateVoiceComposition:
-        pIME->_DispatchUnsolicitedVoiceText(wParam, FUNCTION_UPDATE_VOICE_COMPOSITION);
+        pIME->_DispatchServerText(wParam, FUNCTION_UPDATE_VOICE_COMPOSITION);
         break;
     case WM_CommitVoiceComposition:
-        pIME->_DispatchUnsolicitedVoiceText(wParam, FUNCTION_COMMIT_VOICE_COMPOSITION);
+        pIME->_DispatchServerText(wParam, FUNCTION_COMMIT_VOICE_COMPOSITION);
         break;
     case WM_CancelVoiceComposition:
-        pIME->_DispatchUnsolicitedVoiceText(wParam, FUNCTION_CANCEL_VOICE_COMPOSITION);
+        pIME->_DispatchServerText(wParam, FUNCTION_CANCEL_VOICE_COMPOSITION);
         break;
     case WM_AsyncFinalizeCandidate: {
         CMetasequoiaIME::AsyncKeyRequest request;
