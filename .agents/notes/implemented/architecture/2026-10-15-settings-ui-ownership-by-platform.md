@@ -6,7 +6,7 @@ Status: implemented
 
 仓库里有两套设置界面实现在同时长大。共享 React 设置页 `packages/ui/src/settings` 有 381 个文件、36,726 行（按 2446934521 的树统计，下同）；Windows 的 WinUI 3 设置程序 `platforms/windows/settings` 有 21 个文件、25,620 行，其中 `main.cpp` 19,724 行；iOS 的原生 App `platforms/ios/App/Sources`（设置之外也含对话、键盘等页面）有 82 个文件、19,749 行；Android 发布 APK 的设置页 `platforms/android/java/app/msime/android/home` 有 99 个文件、21,477 行；macOS 的 AppKit 设置窗口 `platforms/macos/src/settings` 有 14 个文件、7,250 行，加上 AI、翻译、语音服务、支持、词库、账号等独立窗口合计约 1 万行。
 
-文档却写着「六个平台都接入同一份 React 设置界面」「各平台共用同一套页面」「Tauri/React 由原生宿主按需承载」（根 README、`docs/ARCHITECTURE.md`、几份 parity 文档、Android 与 iOS 的 README）。实际进入用户手里的 React 设置页只有 macOS、Linux、HarmonyOS 三个平台：Windows 的 18 页全部是 `PageHost::Native`（`platforms/windows/settings/SettingsNavigation.h`），iOS 的 App、`SharedUI` 和键盘扩展里没有 WebView，Android 发布的 `build-apk.sh` 包不含 Tauri/WebView/React，带 React 的合包 `build-client-apk.sh` 不在任何发布 workflow 里。
+文档却写着「六个平台都接入同一份 React 设置界面」「各平台共用同一套页面」「Tauri/React 由原生宿主按需承载」（根 README、`docs/ARCHITECTURE.md`、几份 parity 文档、Android 与 iOS 的 README）。实际作为设置界面进入用户手里的 React 设置页只有 macOS、Linux、HarmonyOS 三个平台：Windows 的 18 页全部是 `PageHost::Native`（`platforms/windows/settings/SettingsNavigation.h`），托盘、开始菜单和不带面板的请求都打开原生设置程序；React 设置页虽仍随 Tauri 的 `MSIME.exe` 安装，直接运行 `MSIME.exe` 能看到（`tauri.windows.conf.json` 的 `main` 窗口，`lib.rs` 的 `second_launch_route` 回落到 `SurfaceRoute::Settings(None)`），但没有设置入口指向它；iOS 的 App、`SharedUI` 和键盘扩展里没有 WebView，Android 发布的 `build-apk.sh` 包不含 Tauri/WebView/React，带 React 的合包 `build-client-apk.sh` 不在任何发布 workflow 里。
 
 后果是同一个设置功能被写三到四遍，而且没人说清哪一份是该写的。单按 Caps Lock 切换中英文在 2026-10-11 同一天写了三遍：ed0abf979d（macOS AppKit 设置窗口）、1eef012f73（Windows 原生设置）、3d1ced4434（共享 React 设置页），见[单按 Caps Lock 切换中英文](../feature/2026-10-11-caps-lock-language-switch.md)。五笔查码写了 316213d1aa（共享 React）和 297772b297（iOS 与 Android 原生，#7124），见[五笔反查](../feature/2026-10-11-wubi-reverse-lookup.md)。macOS 的 AppKit 窗口只在设置应用打不开时出现，10 月仍有 49 个提交动了 `platforms/macos/src/settings`，例如[原生候选设置页的顶部四标签](../feature/2026-10-13-macos-candidate-settings-tabs.md)。不把归属写下来，贡献者按文档会以为改了 `packages/ui` 就覆盖了六个平台，或者继续给 macOS 回退窗口加功能。
 
@@ -38,7 +38,7 @@ macOS 的 AppKit 设置窗口冻结为最小回退。`platforms/macos/src/settin
 
 ## Consequences
 
-- **收益**：文档与代码一致，贡献者看归属表就知道一个设置功能要改哪几处。原生设置平台保留各自系统的界面。macOS 回退窗口冻结后，macOS 上同一个设置只写一份（React），四份里少掉 AppKit 那一份。业务规则集中在 Rust 层，四份界面读写的是同一份偏好与同一套校验。
+- **收益**：文档与代码一致，贡献者看归属表就知道一个设置功能要改哪几处。原生设置平台保留各自系统的界面。macOS 回退窗口冻结后，macOS 上同一个设置只写一份（React），四份里少掉 AppKit 那一份。业务规则按这条规则下沉到 Rust 层后，四份界面读写的是同一份偏好与同一套校验；今天还有规则写在原生界面里，例如 Windows 语音页的服务列表与换服务规则（`VoiceSettings.h`）、账号页的昵称校验（`AccountPageModel.h`）和 Android 的语音服务列表（`VoiceProviderPolicy.java`）。
 - **代价**：每个设置功能仍要写四份界面（`packages/ui`、Windows、iOS、Android），评审要逐个平台核对有没有漏。Rust 层没有承接的设置规则会在各平台界面里各写一份，开始漂移；把规则下沉到 `client-core` 是每个新设置功能的前置工作。macOS 用户落到回退窗口时看不到冻结之后新加的设置。
 - **已知上限与重访信号**：冻结和「每平台只写界面」都没有脚本门禁，靠评审守住。出现以下任一情况时重访：同一设置在不同平台的行为因为规则写在界面层而出了不一致的缺陷；Tauri iOS 工程或 Android 合包开始随产品发布；macOS 设置应用启动失败、用户长期停在回退窗口的报告变多；某个原生设置平台的维护跟不上新功能，四份界面里经常缺一份。
 

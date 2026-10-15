@@ -6,7 +6,7 @@
 
 ## 迁移范围与固定基线
 
-目标是迁移 MSIME-Windows 的完整功能，而不是语音、设置页或某台机器上跑得起来的子集。分工固定为：公共业务逻辑放共享 Rust 层（`crates/client-base`、`crates/client-core`、`crates/client-services`、`crates/client-providers`、`crates/input-runtime`、`crates/host-api`）；设置界面由 WinUI 3 原生设置程序 `msime-client-settings.exe`（`platforms/windows/settings/`）绘制，Tauri 壳与共享 React（`apps/desktop/`、`packages/ui/`）只承载表情、屏幕键盘、手写、语音、云词库与云剪贴板等面板，归属见[设置界面按平台归属](ARCHITECTURE.md#设置界面按平台归属)；输入算法与组合状态归 Rust 引擎 `crates/engine`；Windows 侧保留 TSF DLL 与 Server 两个进程及其协议边界。
+目标是迁移 MSIME-Windows 的完整功能，而不是语音、设置页或某台机器上跑得起来的子集。分工固定为：公共业务逻辑放共享 Rust 层（`crates/client-base`、`crates/client-core`、`crates/client-services`、`crates/client-providers`、`crates/input-runtime`、`crates/host-api`）；设置界面由 WinUI 3 原生设置程序 `msime-client-settings.exe`（`platforms/windows/settings/`）绘制，托盘、开始菜单和不带面板的请求都打开它；Tauri 壳与共享 React（`apps/desktop/`、`packages/ui/`）承载表情、屏幕键盘、手写、语音、云词库与云剪贴板等面板，React 设置页虽仍在 `MSIME.exe` 里、直接运行 `MSIME.exe` 能看到，但没有设置入口指向它，归属见[设置界面按平台归属](ARCHITECTURE.md#设置界面按平台归属)；输入算法与组合状态归 Rust 引擎 `crates/engine`；Windows 侧保留 TSF DLL 与 Server 两个进程及其协议边界。
 
 对照使用的是固定对象，不是某个仓库当天的 HEAD：
 

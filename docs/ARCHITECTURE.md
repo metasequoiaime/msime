@@ -31,13 +31,13 @@ crates/engine                  输入算法与组合状态（纯 Rust）
 | macOS | 共享 React 设置页 | 输入法菜单的设置项以 `--route=settings:<类别>` 拉起 Tauri 设置应用 `app.msime.macos`（`platforms/macos/src/core/DesktopSettingsLauncher.h`） |
 | Linux | 共享 React 设置页 | IBus 与 Fcitx5 以 `--route=settings:<类别>` 调用 `msime-linux-settings`，由它启动 Tauri 外壳（`platforms/linux/data/msime-linux-settings.in`）；没有原生设置界面 |
 | HarmonyOS | 共享 React 设置页 | `pages/Settings.ets` 用 ArkWeb 加载 `stage-settings.sh` 打包的 `rawfile/settings/index.html`，ArkTS 一侧只做原生桥，不画设置表单 |
-| Windows | 原生 WinUI 3 | `msime-client-settings.exe`（`platforms/windows/settings/`）原生绘制全部 18 页；托盘、开始菜单和不带面板的请求都打开它（`platforms/windows/src/system/ShellSurfaces.h`） |
+| Windows | 原生 WinUI 3 | `msime-client-settings.exe`（`platforms/windows/settings/`）原生绘制全部 18 页；托盘、开始菜单和不带面板的请求都打开它（`platforms/windows/src/system/ShellSurfaces.h`）；React 设置页仍随 Tauri 的 `MSIME.exe` 安装，直接运行 `MSIME.exe` 能看到，但没有设置入口指向它 |
 | iOS | 原生 SwiftUI | `platforms/ios/App/Sources/`；App、`SharedUI` 和键盘扩展里都没有 WebView |
 | Android | 原生 Java | 发布的 APK（`platforms/android/build-apk.sh`）由 `java/app/msime/android/home/` 绘制设置，不含 Tauri/React；带 React 设置的 Tauri 合包（`build-client-apk.sh`）只用于开发验证，不发布 |
 
 Tauri 在三个桌面平台上还承载共享面板：表情与符号、手写、屏幕键盘、语音、云词库和云剪贴板。Windows 原生设置窗口里这些面板的入口仍然拉起 Tauri 的 `MSIME.exe`（`platforms/windows/settings/SettingsNavigation.h` 的 `shell_links`）。
 
-由此，一个设置功能要在 `packages/ui` 实现一次，再在每个原生设置平台（Windows、iOS、Android）各实现一次。为了让每个平台的那一份只剩界面，设置项的校验、默认值、持久化和业务逻辑必须放在共享 Rust 层（`crates/client-core`，经 `crates/host-api` 提供给原生宿主），原生设置界面不复制这些规则。
+由此，一个设置功能要在 `packages/ui` 实现一次，再在每个原生设置平台（Windows、iOS、Android）各实现一次。为了让每个平台的那一份只剩界面，设置项的校验、默认值、持久化和业务逻辑必须放在共享 Rust 层（`crates/client-core`，经 `crates/host-api` 提供给原生宿主），原生设置界面不应复制这些规则。这条规则今天还没有全部落实，也没有脚本门禁：Windows 语音页的服务列表、默认地址与换服务规则（`platforms/windows/settings/VoiceSettings.h`）、账号页的昵称校验（`platforms/windows/settings/AccountPageModel.h`），以及 Android 的语音服务列表与豆包接口地址（`platforms/android/java/app/msime/android/voice/VoiceProviderPolicy.java`）仍写在原生界面一侧；新设置功能要先把规则下沉到 `client-core`。
 
 **macOS 的 AppKit 设置窗口冻结为回退。** `platforms/macos/src/settings/` 的原生设置窗口，以及 `AISettingsWindow.mm`、`TranslationSettingsWindow.mm`、`VoiceProviderSettings.mm` 等独立窗口，只在设置应用找不到、启动失败或 options 路径不是绝对路径时由 `DesktopSettingsLauncher.h` 的回退分支打开，另有以 `--preferences` 启动输入法 bundle 的独立设置窗口。它们只保留为设置应用无法启动时的最小回退，不加新功能；macOS 上的新设置只进共享 React 设置页。
 

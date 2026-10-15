@@ -4,11 +4,11 @@
 
 ## 一、目标与范围
 
-一个仓库承载六个平台（Android、iOS、macOS、Linux、Windows、HarmonyOS）的输入法客户端：业务逻辑写一次放在 Rust，管理界面写一次放在 React，输入算法完全留在上游 C++ msime-engine，各平台只保留自己的系统入口和平台能力适配。
+一个仓库承载六个平台（Android、iOS、macOS、Linux、Windows、HarmonyOS）的输入法客户端：业务逻辑写一次放在 Rust，设置界面按平台归属（macOS、Linux 与 HarmonyOS 用共享 React 设置页，Windows、iOS 与 Android 用各自的原生设置，见[设置界面按平台归属](ARCHITECTURE.md#设置界面按平台归属)），输入算法完全由 Rust 引擎 `crates/engine`（`msime-engine`）持有，各平台只保留自己的系统入口和平台能力适配。
 
 范围内的是「宿主编排」：会话生命周期、焦点、候选分页与身份、偏好的持久化与应用时机、账号与云服务、资源分代安装、面板与工具栏的展示状态。范围外的是「输入算法」：拼音切分、词格仲裁、候选排序、学习与调频、日文转换表，这些全部由 Engine 提供，客户端只传配置、取快照、按身份回选。简繁转换是共享层 `crates/client-base/src/chinese_conversion.rs` 按 OpenCC s2t 实现的词级转换，由宿主在显示与上屏边界调用。
 
-一条贯穿全仓库的规则：**Tauri 是公共组件，不是任何平台的产品本体**。最终安装、启动、被系统识别为输入法的，始终是 `platforms/<os>` 下的原生宿主；Tauri/React 由它按需承载（`platforms/ios/build-app.sh` 顶部的注释写明了这一点，iOS 上只有 `MSIME_IOS_TAURI_COMPONENT=1` 才单独构建那部分）。
+一条贯穿全仓库的规则：**Tauri 是公共组件，不是任何平台的产品本体**。最终安装、启动、被系统识别为输入法的，始终是 `platforms/<os>` 下的原生宿主；Tauri/React 只在用到它的平台上由它承载（`platforms/ios/build-app.sh` 顶部的注释写明了这一点，iOS 上只有 `MSIME_IOS_TAURI_COMPONENT=1` 才单独构建那部分）。
 
 ## 二、分层与目录
 
@@ -167,7 +167,7 @@ ArkTS 宿主，`module.json5` 声明 `mainElement: "KeyboardExtensionAbility"`�
 
 **需要重建 Engine 的配置等到组词结束才应用。** 快照进来时若组合处于活动状态，只保留最新的一份，等结束组合或失焦后再应用；拒绝旧 revision、同 revision 不同内容和非法配置。替换 Engine 前先验证新实例，保留会话句柄与焦点、推进视图代次；重建失败保留旧会话、待应用配置和已完成提交，等下一次重试。纯展示字段（字号、颜色、皮肤、布局）不走这条路，直接刷新渲染状态，因为它们不需要重建任何东西。
 
-**Tauri 是公共组件，不是产品本体。** 六个平台的产品形态都是 `platforms/<os>` 下的原生宿主，Tauri/React 由宿主按需承载。这条决策直接决定了几个看起来不一致的选择：iOS 的默认构建产物是 XcodeGen 工程的 `MSIMEApp` 而不是 Tauri 归档；Android 把 `InputMethodService` 隔离到 `:ime` 进程，因为 Tauri 最后一个窗口关闭会退出进程；macOS 的原生入口在 Tauri bundle 不可用时全部有回退路径；HarmonyOS 干脆把设置页打成随包的单文件 HTML。
+**Tauri 是公共组件，不是产品本体。** 六个平台的产品形态都是 `platforms/<os>` 下的原生宿主，Tauri/React 只在用到它的平台上由宿主承载。这条决策直接决定了几个看起来不一致的选择：iOS 的默认构建产物是 XcodeGen 工程的 `MSIMEApp` 而不是 Tauri 归档；Android 把 `InputMethodService` 隔离到 `:ime` 进程，因为 Tauri 最后一个窗口关闭会退出进程；macOS 的原生入口在 Tauri bundle 不可用时全部有回退路径；HarmonyOS 干脆把设置页打成随包的单文件 HTML。
 
 **展示状态只在回复被确认之后发布。** Windows 的候选窗口、模式面板和展示快照都不在 Engine 刚算完时更新，而是等回复写进管道并被对端确认、且焦点门禁仍然有效之后才发布。这条顺序换来两件事：窗口上看到的候选一定是编辑器里正在生效的那一组；投递失败或焦点过期时没有一个「已显示但没送到」的中间态需要回滚。隐藏事件同样是语义动作而不是视觉动作——宿主发来隐藏就调共享取消命令清掉组合与已选前缀，此后的显示/移动不复活旧内容，新输入重新发布。
 

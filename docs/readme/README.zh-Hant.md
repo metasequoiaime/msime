@@ -25,7 +25,7 @@
 [![Last commit](https://img.shields.io/github/last-commit/metasequoiaime/msime/develop)](https://github.com/metasequoiaime/msime/commits/develop)
 <a href="https://depot.dev/?utm_source=metasequoiaime"><img src="https://depot.dev/badges/built-with-depot.svg" alt="Built with Depot" height="20"></a>
 
-水杉輸入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 與 HarmonyOS 的多平台中文輸入法。六個平台各有自己的原生輸入法宿主，都接入同一套共用輸入執行環境；設定介面按平台歸屬：macOS、Linux 與 HarmonyOS 用同一份共用 React 設定頁，Windows、iOS 與 Android 用各自的原生設定介面，設定的業務邏輯都在共用的 Rust 層；React 管理介面透過 Tauri 呼叫一般的 Rust 業務函式庫；輸入演算法由 msime-engine 提供。
+水杉輸入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 與 HarmonyOS 的多平台中文輸入法。六個平台各有自己的原生輸入法宿主，都接入同一套共用輸入執行環境；設定介面按平台歸屬：macOS、Linux 與 HarmonyOS 用同一份共用 React 設定頁，Windows、iOS 與 Android 用各自的原生設定介面，設定的業務規則應當放在共用的 Rust 層、各平台介面只做介面（目前還有部分規則寫在原生介面裡）；React 管理介面透過 Tauri 呼叫一般的 Rust 業務函式庫；輸入演算法由 msime-engine 提供。
 
 專案首頁：[msime.app](https://msime.app/) · [GitHub 儲存庫](https://github.com/metasequoiaime/msime) · [貢獻者](https://github.com/metasequoiaime/msime/graphs/contributors) · [問題回報](https://github.com/metasequoiaime/msime/issues) · [程式碼簽章政策 / Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
 
@@ -43,7 +43,7 @@
 - `crates/input-runtime`：工作階段編排、焦點取消、候選分頁和帶代次的選擇；不複製 engine 的組詞狀態機。
 - `crates/engine`（`msime-engine`）：純 Rust 輸入引擎——組合狀態、各輸入方案、詞庫查詢與學習重播；由原 C++ MSIME-Engine 移植而來。
 - `crates/host-api`：版本化 C 介面、綁定執行緒的工作階段控制代碼和明確的回應釋放，六個平台的宿主都連結它。
-- `packages/ui`、`apps/desktop`：共用 React 設定頁與 Tauri 承載層，目錄名稱沿用 desktop。React 設定頁是 macOS（Tauri 設定應用程式）、Linux（Tauri 設定應用程式）與 HarmonyOS（打包成 rawfile 由 ArkWeb 載入）的設定介面；Tauri 另在三個桌面平台上承載表情與符號、手寫、螢幕鍵盤、語音、雲端詞庫、雲端剪貼簿等共用面板。Windows、iOS 與 Android 發布套件的設定是原生介面，不載入這些 React 頁面，歸屬見[架構文件](../ARCHITECTURE.md#设置界面按平台归属)。Rust 入口按 `platform/{android,ios,linux,macos,windows,desktop}`、`shared/`、`tests/` 分層。**Tauri 是公用元件，不是任何平台的產品本體**：最終安裝、啟動、被系統識別為輸入法的，始終是 `platforms/<os>` 下的原生宿主，Tauri/React 由它按需承載。
+- `packages/ui`、`apps/desktop`：共用 React 設定頁與 Tauri 承載層，目錄名稱沿用 desktop。React 設定頁是 macOS（Tauri 設定應用程式）、Linux（Tauri 設定應用程式）與 HarmonyOS（打包成 rawfile 由 ArkWeb 載入）的設定介面；Tauri 另在三個桌面平台上承載表情與符號、手寫、螢幕鍵盤、語音、雲端詞庫、雲端剪貼簿等共用面板。Windows、iOS 與 Android 發布套件的設定是原生介面：iOS 與 Android 發布套件不含這些 React 頁面；Windows 的系統匣、開始功能表和不帶面板的請求都開啟原生設定程式 `msime-client-settings.exe`，React 設定頁仍隨 Tauri 的 `MSIME.exe` 安裝，直接執行 `MSIME.exe` 看得到，但沒有設定入口指向它。歸屬見[架構文件](../ARCHITECTURE.md#设置界面按平台归属)。Rust 入口按 `platform/{android,ios,linux,macos,windows,desktop}`、`shared/`、`tests/` 分層。**Tauri 是公用元件，不是任何平台的產品本體**：最終安裝、啟動、被系統識別為輸入法的，始終是 `platforms/<os>` 下的原生宿主，Tauri/React 只在用到它的平台上由它承載。
 - `shared/apple/`：macOS 與 iOS 共用的 Foundation / Objective-C++ 橋接，不包含系統輸入法入口。
 - `platforms/`：各系統入口和適配層。Android、iOS、macOS、Linux、Windows 與 HarmonyOS 六個平台各自維護宿主邊界，每個宿主都以該系統的原生方式被識別為輸入法：Android 的輸入法服務、iOS 的鍵盤延伸功能、macOS 的 InputMethodKit bundle、Linux 的 IBus 與 Fcitx5 入口、Windows 的 TSF DLL 與 Server、HarmonyOS 的 InputMethodExtensionAbility。共用輸入演算法和組合狀態由 `crates/engine` 持有，宿主不複製。
 
