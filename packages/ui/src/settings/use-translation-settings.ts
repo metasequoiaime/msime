@@ -89,7 +89,10 @@ export function useTranslationSettings({
     candidateTranslations &&
     (translationProvider === "none" ||
       (translationProvider === "tencent" &&
-        !(tencentTranslation.secret_id.trim() && tencentTranslation.secret_key.trim())));
+        !(
+          tencentSecretConfigured(tencentTranslation.secret_id) &&
+          tencentSecretConfigured(tencentTranslation.secret_key)
+        )));
   const onDeviceMissingLanguages = onDeviceTranslationInUse
     ? translationLanguages.filter(
         ([code]) =>
