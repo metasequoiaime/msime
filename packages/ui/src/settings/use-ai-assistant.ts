@@ -12,6 +12,8 @@ export interface UseAiAssistantOptions {
   ai: AiAssistantPreferences;
   providerCredentialAvailable: boolean;
   credentialGeneration?: number;
+  /** 成功回执先更新此代次，避免 React 提交前接受旧请求。 */
+  credentialGenerationRef?: Readonly<{ current: number }>;
   onChange: (patch: Partial<AiAssistantPreferences>) => void;
 }
 
@@ -21,6 +23,7 @@ export function useAiAssistant({
   ai,
   providerCredentialAvailable,
   credentialGeneration = 0,
+  credentialGenerationRef,
   onChange,
 }: UseAiAssistantOptions) {
   const [models, setModels] = useState<string[] | null>(null);
@@ -58,12 +61,16 @@ export function useAiAssistant({
     formatError: (error: unknown) => string,
   ) => {
     if (busyRef.current || busy) return;
+    const credentialVersion = credentialGenerationRef?.current;
     const owner = ++ownerRef.current;
     busyRef.current = true;
     await runAsyncAction(
       {
         busy: false,
-        isCurrent: () => generation === requestGeneration.current && owner === ownerRef.current,
+        isCurrent: () =>
+          generation === requestGeneration.current &&
+          owner === ownerRef.current &&
+          credentialVersion === credentialGenerationRef?.current,
         setBusy: (value) => {
           if (owner !== ownerRef.current) return;
           busyRef.current = value;

@@ -52,6 +52,11 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
   const [providerCredentials, setProviderCredentials] = useState<ProviderCredentialStatus>();
   const credentialStatusGeneration = useRef(0);
   const [aiCredentialGeneration, setAiCredentialGeneration] = useState(0);
+  const aiCredentialGenerationRef = useRef(0);
+  const advanceAiCredentialGeneration = () => {
+    aiCredentialGenerationRef.current += 1;
+    setAiCredentialGeneration(aiCredentialGenerationRef.current);
+  };
   const [aiCredentialInput, setAiCredentialInput] = useState("");
   const [tencentCredentialInput, setTencentCredentialInput] = useState<TencentCredentialInput>({
     secretId: "",
@@ -81,7 +86,7 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
     credentialTestOwner.current++;
     credentialSaveRunning.current = false;
     setProviderCredentials(undefined);
-    setAiCredentialGeneration((current) => current + 1);
+    advanceAiCredentialGeneration();
     setCredentialTests((current) => (Object.keys(current).length ? {} : current));
     setProviderCredentialBusy(undefined);
     setProviderCredentialMessages((current) => (Object.keys(current).length ? {} : current));
@@ -193,7 +198,7 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
       setProviderCredentials(result);
       if (kind === "ai") {
         setAiCredentialInput("");
-        setAiCredentialGeneration((current) => current + 1);
+        advanceAiCredentialGeneration();
       } else setTencentCredentialInput({ secretId: "", secretKey: "", region: undefined });
       setProviderCredentialMessages((current) => ({
         ...current,
@@ -242,6 +247,7 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
     credentialTests,
     providerCredentials,
     aiCredentialGeneration,
+    aiCredentialGenerationRef,
     aiCredentialInput,
     setAiCredentialInput,
     tencentCredentialInput,

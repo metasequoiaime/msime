@@ -1,8 +1,19 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
   SettingsPage,
+  useAiAssistant,
+  useProviderCredentials,
   type ProviderCredentialClient,
   type ProviderCredentialStatus,
   type Snapshot,
@@ -45,10 +56,12 @@ const status: ProviderCredentialStatus = {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((accept) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((accept, fail) => {
     resolve = accept;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 test("真实保存回执返回同值 AI 副本时，当前润色请求和结果保持有效", async () => {
@@ -134,5 +147,110 @@ test.each(["save", "clear"] as const)(
     expect(screen.getByRole("button", { name: "获取模型列表" }).hasAttribute("disabled")).toBe(
       false,
     );
+  },
+);
+
+test.each(
+  (["save", "clear"] as const).flatMap((operation) =>
+    (["models", "polish"] as const).flatMap((action) =>
+      (["resolve", "reject"] as const).map((outcome) => ({ operation, action, outcome })),
+    ),
+  ),
+)(
+  "AI 凭据 $operation 成功后、React 提交前旧 $action 的 $outcome 必须失效",
+  async ({ operation, action, outcome }) => {
+    const models = deferred<string[]>();
+    const polish = deferred<string>();
+    const credentials = {
+      providerCredentials: {
+        status: async () => structuredClone(status),
+      } as ProviderCredentialClient,
+    };
+    const aiClient = { fetchModels: () => models.promise, test: () => polish.promise };
+    const onChange = vi.fn();
+    const { result } = renderHook(() => {
+      const provider = useProviderCredentials({ client: credentials });
+      const assistant = useAiAssistant({
+        client: aiClient,
+        ai: initial.preferences.ai_assistant!,
+        providerCredentialAvailable: true,
+        credentialGeneration: provider.aiCredentialGeneration,
+        credentialGenerationRef: provider.aiCredentialGenerationRef,
+        onChange,
+      });
+      return { provider, assistant };
+    });
+    act(() => result.current.assistant.setTestInput("合成测试文字"));
+    let pending!: Promise<void>;
+    act(() => {
+      pending =
+        action === "models"
+          ? result.current.assistant.fetchModels()
+          : result.current.assistant.test();
+    });
+    await act(async () => {
+      await result.current.provider.runProviderCredential(
+        "ai",
+        async () => (operation === "save" ? structuredClone(status) : { ...status, ai: [] }),
+        "合成凭据操作成功",
+      );
+      // 两个回执在同一批更新中完成，不能依赖下一轮 effect 才使旧请求失效。
+      if (outcome === "reject") {
+        (action === "models" ? models : polish).reject(new Error("旧凭据的合成错误"));
+      } else if (action === "models") models.resolve(["stale-model"]);
+      else polish.resolve("旧凭据的合成润色结果");
+      await pending;
+    });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(result.current.assistant.models).toBeNull();
+    expect(result.current.assistant.modelsStatus).toBe("");
+    expect(result.current.assistant.modelsBusy).toBe(false);
+    expect(result.current.assistant.testOutput).toBe("");
+    expect(result.current.assistant.testStatus).toBe("");
+    expect(result.current.assistant.testBusy).toBe(false);
+  },
+);
+
+test.each(["failed-ai", "tencent"] as const)(
+  "%s 凭据操作不会使当前 AI 模型请求失效",
+  async (operation) => {
+    const models = deferred<string[]>();
+    const credentials = {
+      providerCredentials: {
+        status: async () => structuredClone(status),
+      } as ProviderCredentialClient,
+    };
+    const aiClient = { fetchModels: () => models.promise, test: vi.fn() };
+    const { result } = renderHook(() => {
+      const provider = useProviderCredentials({ client: credentials });
+      const assistant = useAiAssistant({
+        client: aiClient,
+        ai: initial.preferences.ai_assistant!,
+        providerCredentialAvailable: true,
+        credentialGeneration: provider.aiCredentialGeneration,
+        credentialGenerationRef: provider.aiCredentialGenerationRef,
+        onChange: vi.fn(),
+      });
+      return { provider, assistant };
+    });
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.assistant.fetchModels();
+    });
+    await act(async () => {
+      await result.current.provider.runProviderCredential(
+        operation === "failed-ai" ? "ai" : "tencent",
+        async () => {
+          if (operation === "failed-ai") throw new Error("合成保存失败");
+          return structuredClone(status);
+        },
+        "合成凭据操作成功",
+      );
+      models.resolve(["fixture-model"]);
+      await pending;
+    });
+    expect(result.current.assistant.models).toEqual(["fixture-model"]);
+    expect(result.current.assistant.modelsStatus).toBe("已获取 1 个可用模型。");
+    expect(result.current.assistant.modelsBusy).toBe(false);
   },
 );
