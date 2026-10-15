@@ -8158,6 +8158,59 @@ fn ai_queries_and_delivery_follow_pending_preferences() {
     read(msime_client_destroy(handle));
 }
 #[test]
+fn custom_translation_plan_accepts_keyboard_model_sentence_candidates() {
+    let plan = |target: &str, text: &str| {
+        let request = serde_json::to_vec(&json!({
+            "target_language": target,
+            "candidates": [{
+                "text": text,
+                "source": msime_engine::CandidateSource::NeuralKeyboard as u8,
+            }],
+        }))
+        .unwrap();
+        read(unsafe { msime_client_custom_translation_plan(request.as_ptr(), request.len()) })
+    };
+    for target in ["en", "fr", "ja", "es", "ru", "de", "ko"] {
+        let planned = plan(target, "今天下雨");
+        assert_eq!(planned["ok"], true);
+        assert_eq!(
+            planned["value"],
+            json!([{
+                "text": "今天下雨",
+                "key": "今天下雨",
+                "source_language": "zh",
+                "target_language": target,
+            }]),
+            "{target}"
+        );
+    }
+    assert_eq!(
+        plan("fr", "Synthetic Word")["value"],
+        json!([{
+            "text": "Synthetic Word",
+            "key": "synthetic word",
+            "source_language": "en",
+            "target_language": "zh",
+        }])
+    );
+}
+
+#[test]
+fn custom_translation_plan_rejects_pending_special_and_unknown_sources() {
+    for source in [6, 7, 10, 12, 13, 14, 15, 255] {
+        let request = serde_json::to_vec(&json!({
+            "target_language": "en",
+            "candidates": [{"text": "合成", "source": source}],
+        }))
+        .unwrap();
+        let planned =
+            read(unsafe { msime_client_custom_translation_plan(request.as_ptr(), request.len()) });
+        assert_eq!(planned["ok"], true, "source={source}");
+        assert_eq!(planned["value"], json!([]), "source={source}");
+    }
+}
+
+#[test]
 fn custom_translation_plan_preserves_direction_and_filters_visible_sources() {
     let plan = |request: Value| {
         let bytes = serde_json::to_vec(&request).unwrap();

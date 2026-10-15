@@ -59,7 +59,7 @@ Status: implemented
 - **查询（MCP `lookup_candidates`、`msime expand`）**：查询会话照用户的设置保留日文混输，它不学习、不改用户数据，查询看到的就是用户打这串键时的那一行日文。来源 13 映射成 `CandidateOrigin::Japanese`，MCP 输出的 `origin` 是 `japanese`；以前任何不认识的来源都让查询报错「not local」。
 - **Windows**：`candidate_finishes_composition` 含 13，和英文 4 一致：引擎选中它就结束组字，Server 选词时不带 `HOST_HOLDS_PIECES`、随后发 `MSIME_CANCEL`，整段上屏照常出声、计连击，不被当成暂存的词段。`scripts/test-candidate-sources.py` 只核对 `CandidateActionAvailability.h` 的命名常量，13 不在置顶、固定、删除的白名单里，所以它不用改。
 - **macOS**：`CandidateDisplay` 对来源 13 不做简转繁（学校不显示成學校），上屏由 `commit_context.script_conversion` 为假保证；只有 macOS 宿主读这个字段。
-- **释义**：日文行的汉字（私、開始、寿司）是日文，当中文释义会在日文下面写出中文意思，在线释义还花掉账号额度。所以 client-core 的 `source_gets_no_gloss`（原来的 `is_emoji_or_kaomoji_source`，现在含 6、7、13）让 host-api 翻译查询里来源 13 的 `online_gloss` 为假，Engine 的 `candidate_gloss_key` 对 `CandidateSource::MixedJapanese` 返回 `None`，离线释义和自带词典的释义都不查。翻译计划（`ffi/translation.rs`）本来就跳过 10 以上的来源，不用改。这与日文方案（`SchemeType::shows_glosses` 为假）和临时日文不出释义一致。
+- **释义**：日文行的汉字（私、開始、寿司）是日文，当中文释义会在日文下面写出中文意思，在线释义还花掉账号额度。所以 client-core 的 `source_gets_no_gloss`（原来的 `is_emoji_or_kaomoji_source`，现在含 6、7、13）让 host-api 翻译查询里来源 13 的 `online_gloss` 为假，Engine 的 `candidate_gloss_key` 对 `CandidateSource::MixedJapanese` 返回 `None`，离线释义和自带词典的释义都不查。翻译计划（`ffi/translation.rs`）只接收普通已知来源，来源 13 仍被过滤；来源 11 的键盘模型整句放行见[整句翻译计划](../bug-fix/2026-10-15-neural-candidate-translation-plan.md)。这与日文方案（`SchemeType::shows_glosses` 为假）和临时日文不出释义一致。
 
 ### 校准（真实模型 `msime-japanese.dat`，66547565 字节）
 

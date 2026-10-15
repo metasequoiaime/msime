@@ -69,8 +69,8 @@ pub unsafe extern "C" fn msime_client_custom_translation_plan(
         }
         let mut results = Vec::with_capacity(request.candidates.len());
         for candidate in request.candidates {
-            // Engine CandidateSource::Emoji / Kaomoji, and unknown sources.
-            if matches!(candidate.source, 6 | 7 | 10..=255)
+            // 普通候选包括键盘模型的整句（11）；特殊行、AI 占位和未知来源不进入翻译。
+            if !matches!(candidate.source, 0..=5 | 8..=9 | 11)
                 || !msime_client_core::translation::is_valid_source_text(&candidate.text)
             {
                 continue;
