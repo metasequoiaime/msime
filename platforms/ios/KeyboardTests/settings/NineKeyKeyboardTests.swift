@@ -136,9 +136,9 @@ final class NineKeyKeyboardTests: XCTestCase {
         XCTAssertEqual(enter.bounds.width, originalReturnWidth, accuracy: 2)
         XCTAssertLessThanOrEqual(enter.convert(enter.bounds, to: controller.view).maxX, width + 0.5)
         if scheme == .quanpin {
-          let period = try button("bottomPeriodKey", in: controller)
-          XCTAssertFalse(period.isHidden)
-          XCTAssertLessThan(expanded.maxX, period.convert(period.bounds, to: controller.view).minX)
+          // 26 键底行没有 。，空格一直延伸到回车前面。
+          XCTAssertTrue(try button("bottomPeriodKey", in: controller).isHidden)
+          XCTAssertLessThan(expanded.maxX, enter.convert(enter.bounds, to: controller.view).minX)
           if width == 414 {
             let screenshot = UIGraphicsImageRenderer(bounds: controller.view.bounds).image {
               controller.view.layer.render(in: $0.cgContext)
@@ -839,7 +839,9 @@ final class NineKeyKeyboardTests: XCTestCase {
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertFalse(try button("bottomLanguageKey", in: controller).isHidden)
-    XCTAssertTrue(try button("symbolPanelKey", in: controller).isHidden)
+    // 字母层底行最左边是 符。
+    XCTAssertFalse(try button("symbolPanelKey", in: controller).isHidden)
+    XCTAssertEqual(try button("symbolPanelKey", in: controller).configuration?.title, "符")
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertEqual(faces(0), ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"])
@@ -2150,8 +2152,8 @@ final class NineKeyKeyboardTests: XCTestCase {
             }
           }
           let punctuation = try button("quickPunctuationKey", in: controller)
-          // 手写板沿用手机 26 键的底行，与 Android 的 designEntries 一致，所以它的 ， 显示在空格键旁边。
-          XCTAssertEqual(punctuation.isHidden, symbols || [.nineKey, .nineKeyShuangpin, .japaneseNineKey, .stroke].contains(scheme))
+          // 26 键字母层的底行与九键一样没有 ，（符 | 123 | 空格 | 中 | 回车）；手写、全拼 14 键和大千注音的底行仍带 ， 和 。，与 Android 的 designEntries 一致。
+          XCTAssertEqual(punctuation.isHidden, symbols || ![.handwriting, .fourteenKey, .zhuyin].contains(scheme), "\(scheme)")
           if !punctuation.isHidden {
             XCTAssertEqual(punctuation.configuration?.title, scheme.isJapanese ? "、" : scheme.writesAsciiPunctuation ? "," : "，")
             // 手机 26 键底行按相对空格键的比例分配宽度：， 占一份，空格占四份。
@@ -3077,7 +3079,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  /// 手机 26 键底行，按设计稿相对空格键的 flex 权重排列：123 1.25 | ， 1 | space 4 | 。 1 | 中 1.05 | return 1.9，中/英 紧挨回车左边，其中 ，。 经标点路径输入逗号和句号。
+  /// 手机 26 键底行与九键一样：符 1.05 | 123 1.25 | space 4 | 中 1.05 | return 1.9，没有 ， 和 。；符 打开符号面板。
   func testPhoneBottomRowFollowsTheDesignsWeights() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -3089,30 +3091,24 @@ final class NineKeyKeyboardTests: XCTestCase {
     let row = try XCTUnwrap(try button("spaceKey", in: controller).superview as? UIStackView)
     let visible = row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier)
     let globe = controller.needsInputModeSwitchKey ? ["inputModeSwitchButton"] : []
-    XCTAssertEqual(visible, ["layoutToggleButton"] + globe
-                   + ["quickPunctuationKey", "spaceKey", "bottomPeriodKey", "bottomLanguageKey", "returnKey"])
+    XCTAssertEqual(visible, ["symbolPanelKey", "layoutToggleButton"] + globe + ["spaceKey", "bottomLanguageKey", "returnKey"])
     let space = try button("spaceKey", in: controller).bounds.width
     let unit = space / KeyboardViewController.phoneSpaceWeight
+    XCTAssertEqual(try button("symbolPanelKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
+    XCTAssertEqual(try button("symbolPanelKey", in: controller).configuration?.title, "符")
     XCTAssertEqual(try button("layoutToggleButton", in: controller).bounds.width, unit * 1.25, accuracy: 0.5)
     XCTAssertEqual(try button("bottomLanguageKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
-    XCTAssertEqual(try button("quickPunctuationKey", in: controller).bounds.width, unit, accuracy: 0.5)
-    XCTAssertEqual(try button("bottomPeriodKey", in: controller).bounds.width, unit, accuracy: 0.5)
     XCTAssertEqual(try button("returnKey", in: controller).bounds.width, unit * 1.9, accuracy: 0.5)
-    XCTAssertEqual(try button("quickPunctuationKey", in: controller).configuration?.title, "，")
-    XCTAssertEqual(try button("bottomPeriodKey", in: controller).configuration?.title, "。")
     // 123 和 中 用 15pt medium 字重。
     for id in ["layoutToggleButton", "bottomLanguageKey"] {
       let transformer = try XCTUnwrap(try button(id, in: controller).configuration?.titleTextAttributesTransformer, id)
       XCTAssertEqual(transformer.callAsFunction(AttributeContainer()).uiKit.font?.pointSize, 15, id)
     }
-    // ， 长按仍弹出快捷符号。
-    XCTAssertEqual(try button("quickPunctuationKey", in: controller).menu?.children.count, 7)
-
-    // 英文下输出 ASCII 符号，键面也这样显示。
+    // 英文下底行一样：仍有 符，没有 ， 和 。。
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
-    XCTAssertEqual(try button("quickPunctuationKey", in: controller).configuration?.title, ",")
-    XCTAssertEqual(try button("bottomPeriodKey", in: controller).configuration?.title, ".")
+    XCTAssertEqual(row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier),
+                   ["symbolPanelKey", "layoutToggleButton"] + globe + ["spaceKey", "bottomLanguageKey", "returnKey"])
 
     // 123 层自带底行：ABC | emoji | space | return，⌫ 上移到该层第三行。
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)

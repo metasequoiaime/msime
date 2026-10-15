@@ -113,6 +113,8 @@ final class FourteenKeyKeyboardTests: XCTestCase {
         XCTAssertTrue(shown(try button(id, in: controller)), id)
       }
       XCTAssertFalse(shown(try button("nineKeyZero", in: controller)))
+      // 第三排已有 符，底行不再重复 26 键的 符。
+      XCTAssertFalse(shown(try button("symbolPanelKey", in: controller)))
       XCTAssertEqual(try button("quickPunctuationKey", in: controller).configuration?.title, "，")
       XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, "全拼 14 键")
       attachScreenshot(of: controller, named: "Fourteen-key keyboard at \(Int(width))pt")
