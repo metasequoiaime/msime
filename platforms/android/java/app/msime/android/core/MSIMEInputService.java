@@ -4849,7 +4849,7 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
-    /** 九键网格键帽：沿用 {@link #keyboardKey} 的动作绑定，并在上沿留出数字提示的位置。 */
+    /** 九键网格键帽：沿用 {@link #keyboardKey} 的动作绑定；数字提示由 {@link NineKeyDigitButton} 画在右上角，键面文字仍居中。 */
     NineKeyDigitButton nineKeyGridKey(String label, String description, Runnable action) {
         NineKeyDigitButton button = new NineKeyDigitButton(this);
         KeyboardTypographyPolicy.setKeyTextSize(button, KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
