@@ -3754,6 +3754,96 @@ fn nine_key_digits_of_a_keyword_add_date_time_rows() {
 }
 
 #[test]
+fn rejected_local_mode_characters_commit_raw_and_return_the_key() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (entry, spelling, rejected) in [
+        (b'U', "", b'i'),
+        (b'U', "", b'I'),
+        (b'U', "0041", b'g'),
+        (b'T', "rq", b'A'),
+        (b'K', "ab", b'A'),
+        (b'E', "xiao", b'0'),
+        (b'M', "xiao", b'0'),
+        (b'J', "nh", b'0'),
+        (b'C', "huo", b'1'),
+        (b'V', "1", b'Z'),
+        (b'/', "uuid", b'A'),
+        (b'@', "user", b'A'),
+    ] {
+        let mut session = fixture.session_with(|options| {
+            options.local_modes.chaizi = true;
+            options.local_modes.expression = true;
+            options.local_modes.command = true;
+            options.local_modes.mention = true;
+        });
+        assert!(session.character(entry, entry.is_ascii_uppercase()).handled);
+        type_text(&mut session, spelling);
+        let raw = session.input.preedit();
+        assert_eq!(raw, format!("{}{spelling}", entry as char));
+        let result = session.character(rejected, rejected.is_ascii_uppercase());
+        assert!(
+            !result.handled,
+            "{} rejected {}",
+            entry as char, rejected as char
+        );
+        assert_eq!(result.commit.as_deref(), Some(raw.as_str()));
+        let snapshot = session.snapshot();
+        assert_eq!(snapshot.local_mode, LocalInputMode::None);
+        assert!(snapshot.preedit.is_empty());
+        assert!(snapshot.candidates.is_empty());
+    }
+}
+
+#[test]
+fn accepted_local_mode_characters_keep_spelling_until_enter() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (entry, spelling) in [(b'U', "+4e2d"), (b'T', "rq"), (b'K', "ab")] {
+        let mut session = fixture.session();
+        assert!(session.character(entry, true).handled);
+        for value in spelling.bytes() {
+            let result = session.character(value, value.is_ascii_uppercase());
+            assert!(result.handled);
+            assert!(result.commit.is_none());
+        }
+        let raw = format!("{}{spelling}", entry as char);
+        assert_eq!(session.snapshot().preedit, raw);
+        assert_eq!(
+            session.command(Command::CommitRaw).commit.as_deref(),
+            Some(raw.as_str())
+        );
+    }
+}
+
+#[test]
+fn a_full_local_mode_commits_its_text_instead_of_swallowing_the_next_key() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.local_modes.chaizi = true);
+    session.character(b'C', true);
+    let spelling = "a".repeat(crate::local::GENERATED_MODE_INPUT_LIMIT - 1);
+    type_text(&mut session, &spelling);
+    let result = session.character(b'b', false);
+    assert!(!result.handled);
+    assert_eq!(result.commit, Some(format!("C{spelling}")));
+    assert!(session.snapshot().preedit.is_empty());
+}
+
+#[test]
+fn temporary_local_modes_keep_their_composition_when_returning_a_key() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for entry in *b"YR" {
+        let mut session = fixture.session();
+        assert!(session.character(entry, true).handled);
+        type_text(&mut session, "ka");
+        let before = session.snapshot();
+        let result = session.character(b'0', false);
+        assert!(!result.handled);
+        assert!(result.commit.is_none());
+        assert_eq!(session.input.preedit(), before.preedit);
+        assert_eq!(session.snapshot().local_mode, before.local_mode);
+    }
+}
+
+#[test]
 fn disabled_local_modes_leave_the_key_to_the_host() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| {
@@ -3897,14 +3987,20 @@ fn chaizi_takes_an_apostrophe_only_between_components() {
     session.character(b'C', true);
     // 紧跟 `C` 的 `'` 不收，也不当分隔符。
     assert!(!session.input.takes_local_separator());
-    session.character(b'\'', false);
-    assert_eq!(session.snapshot().preedit, "C");
+    let rejected = session.character(b'\'', false);
+    assert!(!rejected.handled);
+    assert_eq!(rejected.commit.as_deref(), Some("C"));
+    assert!(session.snapshot().preedit.is_empty());
+    session.character(b'C', true);
     // 宿主当字符送来。
     type_text(&mut session, "huo'");
-    // 连续的 `'` 不收。
-    session.character(b'\'', false);
-    assert_eq!(session.snapshot().preedit, "Chuo'");
-    type_text(&mut session, "huo");
+    // 连续的 `'` 不收，提交现有原文并退出；重新进入后继续验证合法分隔符。
+    let rejected = session.character(b'\'', false);
+    assert!(!rejected.handled);
+    assert_eq!(rejected.commit.as_deref(), Some("Chuo'"));
+    assert!(session.snapshot().preedit.is_empty());
+    session.character(b'C', true);
+    type_text(&mut session, "huo'huo");
     // 宿主当标点送来：先问 `takes_local_separator`，同样当分隔符。
     assert!(session.input.takes_local_separator());
     assert!(session.punctuation(b'\'').handled);
@@ -4011,11 +4107,14 @@ fn chaizi_takes_the_microsoft_shuangpin_ing_key() {
     let mut session = chaizi_session(&fixture, microsoft);
     session.character(b'C', true);
     type_text(&mut session, "sj");
-    // 片段 `sj` 已是一个完整音节，`;` 补不了它：不列出、吞掉。
+    // 片段 `sj` 已是一个完整音节，`;` 补不了它：先提交原文，再交还分号。
     assert_eq!(session.snapshot().spelling_symbols, "'");
-    assert!(session.character(b';', false).handled);
-    assert_eq!(session.snapshot().editing_text, "Csj");
-    session.character(b'q', false);
+    let rejected = session.character(b';', false);
+    assert!(!rejected.handled);
+    assert_eq!(rejected.commit.as_deref(), Some("Csj"));
+    assert!(session.snapshot().editing_text.is_empty());
+    session.character(b'C', true);
+    type_text(&mut session, "sjq");
     // `q` 之后 `;` 是韵母 ing。组字原文 `Csjq` 是偶数长度，按原文数奇偶的宿主会把它当标点，所以要列进 `spelling_symbols`。
     assert_eq!(session.snapshot().spelling_symbols, "';");
     assert!(session.character(b';', false).handled);
@@ -4771,10 +4870,13 @@ fn expression_mode_evaluates_what_follows_shift_v() {
     assert_eq!(snapshot.local_mode, LocalInputMode::Expression);
     assert_eq!(snapshot.spelling_symbols, "0123456789+-*/.()%^");
     assert_eq!(words(&session), ["V"]);
-    // Letters are not part of the spelling and, before any number, name no unit; the key is swallowed like in the other local modes.
-    assert!(session.character(b'x', false).handled);
-    assert_eq!(session.snapshot().preedit, "V");
+    // 数字之前的字母不能表示单位，提交入口字母后交还当前键。
+    let rejected = session.character(b'x', false);
+    assert!(!rejected.handled);
+    assert_eq!(rejected.commit.as_deref(), Some("V"));
+    assert!(session.snapshot().preedit.is_empty());
 
+    session.character(b'V', true);
     assert!(session.character(b'1', false).handled);
     // An operator reported as punctuation extends the expression instead of finishing it.
     let plus = session.punctuation(b'+');
@@ -4796,8 +4898,11 @@ fn expression_mode_converts_units_after_a_number() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = generated_modes_session(&fixture);
     session.character(b'V', true);
-    // An apostrophe before any unit letter is not a separator.
-    assert!(session.character(b'\'', false).handled);
+    // 单位字母之前的撇号不是分隔符，提交原文并退出。
+    let rejected = session.character(b'\'', false);
+    assert!(!rejected.handled);
+    assert_eq!(rejected.commit.as_deref(), Some("V"));
+    session.character(b'V', true);
     type_text(&mut session, "3jin");
     // A host that reports the apostrophe as punctuation still gets the separator.
     let apostrophe = session.punctuation(b'\'');
@@ -4805,9 +4910,12 @@ fn expression_mode_converts_units_after_a_number() {
         apostrophe.handled && apostrophe.commit.is_none(),
         "{apostrophe:?}"
     );
-    // A second apostrophe is swallowed.
-    assert!(session.character(b'\'', false).handled);
-    session.character(b'g', false);
+    // 第二个撇号同样交还宿主；重新进入后继续验证正常单位转换。
+    let rejected = session.character(b'\'', false);
+    assert!(!rejected.handled);
+    assert_eq!(rejected.commit.as_deref(), Some("V3jin'"));
+    session.character(b'V', true);
+    type_text(&mut session, "3jin'g");
     let snapshot = session.snapshot();
     assert_eq!(snapshot.preedit, "V3jin'g");
     assert_eq!(words(&session), ["1500克", "1500", "3斤=1500克"]);
@@ -4846,13 +4954,15 @@ fn expression_mode_keeps_an_unfinished_input_as_raw_text_and_bounds_it() {
 
     session.command(Command::Cancel);
     session.character(b'V', true);
-    for _ in 0..100 {
-        session.character(b'9', false);
+    for _ in 1..crate::local::GENERATED_MODE_INPUT_LIMIT {
+        assert!(session.character(b'9', false).handled);
     }
-    assert_eq!(
-        session.snapshot().preedit.len(),
-        crate::local::GENERATED_MODE_INPUT_LIMIT
-    );
+    let raw = session.snapshot().preedit;
+    assert_eq!(raw.len(), crate::local::GENERATED_MODE_INPUT_LIMIT);
+    let rejected = session.character(b'9', false);
+    assert!(!rejected.handled);
+    assert_eq!(rejected.commit.as_deref(), Some(raw.as_str()));
+    assert!(session.snapshot().preedit.is_empty());
 }
 
 #[test]
@@ -4959,11 +5069,13 @@ fn a_mark_on_a_bare_prefix_types_punctuation_instead_of_a_row() {
         Some("@。")
     );
     assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
-    // Once a letter follows, a mark is not input and the mode keeps it out.
+    // 有关键词后不接受的标点先提交原文，再交还当前键。
     session.character(b'/', false);
     type_text(&mut session, "rq");
-    assert!(session.character(b',', false).commit.is_none());
-    assert_eq!(session.snapshot().local_mode, LocalInputMode::Command);
+    let rejected = session.character(b',', false);
+    assert!(!rejected.handled);
+    assert_eq!(rejected.commit.as_deref(), Some("/rq"));
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
     // Space still picks the first row and Enter the literal prefix.
     session.command(Command::Cancel);
     session.character(b'/', false);
@@ -5197,14 +5309,18 @@ fn the_translate_command_asks_for_its_english_and_commits_the_answer() {
     let mut session = generated_modes_session(&fixture);
     session.character(b'/', false);
     type_text(&mut session, "fyhello");
-    // A host reporting the apostrophe as punctuation still separates the words; a second one in a row is swallowed.
+    // 宿主当标点送来的撇号同样能分隔单词；连续撇号则提交原文并退出。
     let apostrophe = session.punctuation(b'\'');
     assert!(
         apostrophe.handled && apostrophe.commit.is_none(),
         "{apostrophe:?}"
     );
-    assert!(session.character(b'\'', false).handled);
-    type_text(&mut session, "world");
+    let rejected = session.character(b'\'', false);
+    assert!(!rejected.handled);
+    assert_eq!(rejected.commit.as_deref(), Some("/fyhello'"));
+    assert!(session.command_translation_query().is_none());
+    session.character(b'/', false);
+    type_text(&mut session, "fyhello'world");
     let snapshot = session.snapshot();
     assert_eq!(snapshot.preedit, "/fyhello'world");
     assert_eq!(words(&session), ["hello world"]);
@@ -7370,18 +7486,20 @@ fn url_digits_and_uppercase_are_kept() {
 }
 
 #[test]
-fn url_input_stops_at_the_limit() {
+fn url_input_commits_at_the_limit_and_returns_the_overflow_key() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session();
     type_text(&mut session, "www");
     assert!(session.punctuation(b'.').handled);
-    for _ in 0..600 {
+    for _ in 4..crate::local::url::INPUT_LIMIT {
         assert!(session.character(b'a', false).handled);
     }
-    assert_eq!(
-        session.snapshot().preedit.len(),
-        crate::local::url::INPUT_LIMIT
-    );
+    let raw = session.snapshot().preedit;
+    assert_eq!(raw.len(), crate::local::url::INPUT_LIMIT);
+    let rejected = session.character(b'a', false);
+    assert!(!rejected.handled);
+    assert_eq!(rejected.commit.as_deref(), Some(raw.as_str()));
+    assert!(session.snapshot().preedit.is_empty());
 }
 
 #[test]

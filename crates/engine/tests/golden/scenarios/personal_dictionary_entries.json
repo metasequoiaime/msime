@@ -1,7 +1,7 @@
 {
  "name": "personal_dictionary_entries",
  "source": "tests/src/test_personal_dictionary.cpp:53-60; cases :61-100",
- "note": "Reference ctest personal_dictionary fails against this build (test_personal_dictionary.cpp:67-76): overlay apply_engine_english_display.py lets an English code differ from its display, so {English, hello, different} is accepted. Recorded as-is. The invalid-UTF-8 and kind-99 entries of that loop cannot be expressed in JSON and are left to a Rust unit test.",
+ "note": "参考 personal_dictionary 测试在此构建中失败（test_personal_dictionary.cpp:67-76）：apply_engine_english_display.py 允许英文编码与展示文字不同，因此接受 {English, hello, different}，黄金记录沿用此行为。同一循环中的无效 UTF-8 和 kind-99 条目无法用 JSON 表达，由 Rust 单元测试覆盖。 #8043：模式不接受的字符先提交当前原文并退出，再以未处理结果交还当前键；后续空组字的取消或退格也不消费。此处刻意偏离固定 C++ 参考的静默吞键行为。",
  "covers": [
   "personal dictionary"
  ],

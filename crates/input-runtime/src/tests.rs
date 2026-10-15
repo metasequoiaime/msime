@@ -3977,6 +3977,62 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
 }
 
 #[test]
+fn rejected_local_key_commits_the_prefix_and_passes_the_current_key_to_the_host() {
+    for (entry, rejected) in [
+        (b'U', b'i'),
+        (b'U', b'I'),
+        (b'K', b'A'),
+        (b'T', b'A'),
+        (b'E', b'1'),
+        (b'U', b'!'),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let session =
+            msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        runtime
+            .dispatch(Action::Character {
+                value: entry,
+                shift: true,
+            })
+            .unwrap();
+        let transition = runtime
+            .dispatch(Action::Character {
+                value: rejected,
+                shift: rejected.is_ascii_uppercase(),
+            })
+            .unwrap();
+        assert!(!transition.handled);
+        assert_eq!(
+            transition.commit.as_deref(),
+            Some((entry as char).to_string().as_str())
+        );
+        assert_eq!(transition.view.local_mode, "none");
+        assert!(transition.view.editing_text.is_empty());
+        assert!(transition.view.candidates.is_empty());
+    }
+}
+
+#[test]
+fn local_mode_punctuation_action_still_commits_the_prefix_with_chinese_punctuation() {
+    let directory = tempfile::tempdir().unwrap();
+    let session = msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    runtime
+        .dispatch(Action::Character {
+            value: b'U',
+            shift: true,
+        })
+        .unwrap();
+    let transition = runtime.dispatch(Action::Punctuation(b'.')).unwrap();
+    assert!(transition.handled);
+    assert_eq!(transition.commit.as_deref(), Some("U。"));
+    assert_eq!(transition.view.local_mode, "none");
+}
+
+#[test]
 fn unicode_mode_digits_compose_a_code_point_rather_than_picking_a_candidate() {
     let directory = tempfile::tempdir().unwrap();
     let session = msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();

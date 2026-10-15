@@ -380,7 +380,7 @@ impl InputSession {
     pub fn handle_local_character(&mut self, value: u8) -> KeyResult {
         let letter = value.is_ascii_alphabetic();
         let accepted = match self.local_mode {
-            // The temporary modes hand a rejected key back to the host; the others swallow it (core-session.md §15.3).
+            // 临时模式不接受的键交还宿主，同时保留当前预编辑；其他模式在下方先提交原文再退出。
             LocalInputMode::TemporaryEnglish => {
                 if !letter {
                     return KeyResult::unhandled();
@@ -443,7 +443,10 @@ impl InputSession {
             LocalInputMode::None => return KeyResult::unhandled(),
         };
         if !accepted {
-            return KeyResult::handled();
+            // 不吞掉模式无法拼写的键；先提交所见原文，再由宿主继续处理当前按键。
+            let mut result = self.commit_raw();
+            result.handled = false;
+            return result;
         }
         self.local_preedit.push(value as char);
         KeyResult::handled().with_diagnostic(self.update_local_candidates())

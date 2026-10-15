@@ -1,7 +1,7 @@
 {
  "name": "local_date_time_incomplete",
  "source": "tests/src/test_input_session.cpp:384-430,534-535; cases :1388-1393,1402-1412",
- "note": "Only the clock-independent path: an incomplete keyword shows the raw text alone. The date candidates of Trq need the internal date/time provider.",
+ "note": "这里只记录与时钟无关的路径：不完整关键词仅显示原文。Trq 的日期候选需要内部日期时间提供者。 #8043：模式不接受的字符先提交当前原文并退出，再以未处理结果交还当前键；后续空组字的取消或退格也不消费。此处刻意偏离固定 C++ 参考的静默吞键行为。",
  "covers": [
   "local modes"
  ],

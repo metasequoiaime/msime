@@ -2463,7 +2463,8 @@ impl<E: InputEngine> Runtime<E> {
                     if !result.handled && self.cached.key_grid.is_some() && value == b'\'' {
                         return Ok(result);
                     }
-                    if !result.handled && value.is_ascii_punctuation() {
+                    // 已有提交文本时直接交还结果，再跑标点路由会丢掉快捷模式刚提交的原文。
+                    if !result.handled && !result.has_commit && value.is_ascii_punctuation() {
                         return self.punctuation(value);
                     }
                     // Space the Engine let go over an open list, with nothing committed, is a pick of the highlighted row, as the Space command is (Zhuyin leaves it to the runtime; Korean commits its syllable first and so is not a pick).
