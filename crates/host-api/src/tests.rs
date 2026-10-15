@@ -7330,18 +7330,9 @@ fn a_session_and_dictionary_maintenance_exclude_each_other() {
         .unwrap()
         .is_none());
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
-    // Other tests spawn processes concurrently, and a fork can briefly inherit the released lock before close-on-exec runs.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    while DictionaryAccess::try_maintenance(&user, &dictionaries)
+    assert!(DictionaryAccess::try_maintenance(&user, &dictionaries)
         .unwrap()
-        .is_none()
-    {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "a destroyed session kept dictionary maintenance out"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
+        .is_some());
 }
 pub(super) fn read(pointer: *mut c_char) -> Value {
     // SAFETY: all callers pass a fresh response allocation.
