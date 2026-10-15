@@ -4204,14 +4204,17 @@ private:
   }
 
   // 按可用宽度等分列，重排已有子项，保留按钮与复选框的焦点和选择状态。
-  Grid responsive_grid(double minimum_width, double gap) {
+  Grid responsive_grid(double minimum_width, double gap, int maximum_columns = 0) {
     Grid grid;
     grid.ColumnSpacing(gap);
     grid.RowSpacing(gap);
-    grid.SizeChanged([minimum_width, gap](Inspectable const &sender, SizeChangedEventArgs const &) {
+    grid.SizeChanged([minimum_width, gap, maximum_columns](
+                         Inspectable const &sender, SizeChangedEventArgs const &) {
       const auto panel = sender.as<Grid>();
-      const auto columns = std::max(
+      auto columns = std::max(
           1, static_cast<int>((panel.ActualWidth() + gap) / (minimum_width + gap)));
+      if (maximum_columns > 0)
+        columns = std::min(columns, maximum_columns);
       if (static_cast<int>(panel.ColumnDefinitions().Size()) == columns)
         return;
       panel.ColumnDefinitions().Clear();
@@ -13215,6 +13218,7 @@ private:
         list.Children().Append(empty);
       }
       bool first = true;
+      size_t entry_index = 0;
       for (auto const &entry : clip_entries_) {
         Border divider;
         divider.BorderThickness(Thickness{0, first ? 0.0 : 1.0, 0, 0});
@@ -13222,8 +13226,9 @@ private:
         first = false;
         Grid row;
         row.MinHeight(62);
-        row.Padding(Thickness{12, 8, 12, 8});
+        row.Padding(Thickness{0, 8, 0, 8});
         row.ColumnSpacing(12);
+        const auto entry_id = L"clipboard-entry-" + std::to_wstring(entry_index++);
         ColumnDefinition text_column;
         text_column.Width(GridLength{1, GridUnitType::Star});
         ColumnDefinition actions_column;
@@ -13234,7 +13239,8 @@ private:
         StackPanel texts;
         texts.Spacing(2);
         texts.VerticalAlignment(VerticalAlignment::Center);
-        auto line = make_text(single_line(entry.text), 14, palette_.text);
+        auto line = make_text(single_line(entry.text), 13, palette_.text);
+        A11y::SetAutomationId(line, hstring(entry_id + L"-preview"));
         line.TextWrapping(TextWrapping::NoWrap);
         line.TextTrimming(TextTrimming::CharacterEllipsis);
         line.MaxLines(1);
@@ -13243,7 +13249,7 @@ private:
         std::wstring meta = entry.pinned ? L"已固定 · " : L"";
         meta += entry.timestamp_ms > 1'000'000'000'000ULL ? local_date_time(entry.timestamp_ms)
                                                            : std::wstring(L"旧记录");
-        texts.Children().Append(make_text(meta, 12, palette_.sub));
+        texts.Children().Append(make_text(meta, 11, palette_.sub));
         Grid::SetColumn(texts, 0);
         row.Children().Append(texts);
 
@@ -13253,30 +13259,51 @@ private:
         buttons.VerticalAlignment(VerticalAlignment::Center);
         buttons.Children().Append(button_control(
             L"重新复制", [this, value = entry.text] { recopy_clipboard_entry(value); }));
-        buttons.Children().Append(button_control(
-            L"发到云剪贴板", [this, value = entry.text] { send_to_cloud_clipboard(value); },
-            cloud_state_ == CloudClipboardState::ready && !cloud_sending_));
-        auto pin = button_control(entry.pinned ? L"取消固定" : L"固定",
-                                  [this, value = entry.text, pinned = !entry.pinned] {
-                                    set_clipboard_entry_pinned(value, pinned);
-                                  },
-                                  !clip_busy_);
+        // 次要操作放进菜单，给窄窗口中的记录正文留出空间。
+        MenuFlyout menu;
+        MenuFlyoutItem cloud;
+        cloud.Text(L"发到云剪贴板");
+        cloud.IsEnabled(cloud_state_ == CloudClipboardState::ready && !cloud_sending_);
+        cloud.Click([this, value = entry.text](Inspectable const &, RoutedEventArgs const &) {
+          send_to_cloud_clipboard(value);
+        });
+        menu.Items().Append(cloud);
+        MenuFlyoutItem pin;
+        pin.Text(entry.pinned ? L"取消固定" : L"固定");
+        pin.Click([this, value = entry.text, pinned = !entry.pinned](
+                      Inspectable const &, RoutedEventArgs const &) {
+          set_clipboard_entry_pinned(value, pinned);
+        });
         A11y::SetName(pin, entry.pinned ? L"取消固定剪贴板记录" : L"固定剪贴板记录");
-        buttons.Children().Append(pin);
-        auto remove = button_control(
-            L"删除", [this, value = entry.text] { remove_clipboard_entry(value); }, !clip_busy_);
+        A11y::SetAutomationId(pin, L"clipboard-entry-pin");
+        menu.Items().Append(pin);
+        menu.Items().Append(MenuFlyoutSeparator());
+        MenuFlyoutItem remove;
+        remove.Text(L"删除");
+        remove.Click([this, value = entry.text](Inspectable const &, RoutedEventArgs const &) {
+          remove_clipboard_entry(value);
+        });
         A11y::SetName(remove, L"删除剪贴板记录");
-        buttons.Children().Append(remove);
+        menu.Items().Append(remove);
+        Button more;
+        more.Width(32);
+        more.Height(32);
+        more.Padding(Thickness{0, 0, 0, 0});
+        more.Content(make_icon(0xE712, 14, palette_.sub));
+        more.IsEnabled(!clip_busy_);
+        more.Flyout(menu);
+        A11y::SetName(more, L"剪贴板记录的更多操作");
+        A11y::SetAutomationId(more, hstring(entry_id + L"-actions"));
+        ToolTipService::SetToolTip(more, box_value(L"更多操作"));
+        buttons.Children().Append(more);
         Grid::SetColumn(buttons, 1);
         row.Children().Append(buttons);
 
         divider.Child(row);
         list.Children().Append(divider);
       }
-      auto card = make_card();
-      A11y::SetName(card, L"剪贴板历史");
-      card.Child(list);
-      history.Children().Append(card);
+      A11y::SetName(list, L"剪贴板历史");
+      history.Children().Append(list);
     }
 
     // 云剪贴板 is a panel of its own, as in the shared app on Windows.
@@ -13499,12 +13526,8 @@ private:
 
   // 一节统计：标题（可以没有）和放图表的卡片。
   StackPanel stats_section(StackPanel const &page, std::wstring const &title) {
-    auto group = add_group(page, title);
-    StackPanel body;
-    body.Padding(Thickness{24, 18, 24, 18});
-    auto card = make_card();
-    card.Child(body);
-    group.Children().Append(card);
+    auto body = add_group(page, title);
+    body.Padding(Thickness{12, 14, 12, 14});
     return body;
   }
 
@@ -13624,22 +13647,10 @@ private:
                       typing::Activity const &activity) {
     auto body = stats_section(page, L"");
     A11y::SetName(body, L"统计概览");
-    Grid grid;
-    grid.ColumnSpacing(24);
-    grid.RowSpacing(18);
-    for (int column = 0; column < 3; ++column) {
-      ColumnDefinition definition;
-      definition.Width(GridLength{1, GridUnitType::Star});
-      grid.ColumnDefinitions().Append(definition);
-    }
+    auto grid = responsive_grid(174, 18, 3);
     const auto metrics = typing::overview_metrics(statistics, today, scope_title, scope_total, activity);
     for (size_t index = 0; index < metrics.size(); ++index) {
       auto const &metric = metrics[index];
-      if (index % 3 == 0) {
-        RowDefinition row;
-        row.Height(GridLength{1, GridUnitType::Auto});
-        grid.RowDefinitions().Append(row);
-      }
       StackPanel cell;
       cell.Spacing(4);
       auto label = make_text(metric.label, 12, palette_.sub);
@@ -13663,8 +13674,6 @@ private:
       cell.Children().Append(line);
       if (!metric.note.empty())
         cell.Children().Append(make_text(metric.note, 12, palette_.sub));
-      Grid::SetRow(cell, static_cast<int32_t>(index / 3));
-      Grid::SetColumn(cell, static_cast<int32_t>(index % 3));
       grid.Children().Append(cell);
     }
     body.Children().Append(grid);

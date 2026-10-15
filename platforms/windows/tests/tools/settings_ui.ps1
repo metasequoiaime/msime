@@ -1,4 +1,4 @@
-# 用独立合成设置运行真实 WinUI 宿主，检查全部页面并保存浅深色与窄窗口截图。
+﻿# 用独立合成设置运行真实 WinUI 宿主，检查全部页面并保存浅深色与窄窗口截图。
 param(
     [Parameter(Mandatory = $true)][string]$Program,
     [Parameter(Mandatory = $true)][string]$OutputDirectory
@@ -110,8 +110,15 @@ try {
         $preferences.settings_theme = $theme
         $preferences.theme = $theme
         $preferences.scheme = 'quanpin'
+        $preferences.clipboard_history = $true
         $document = @{format_version = 1; revision = 1; preferences = $preferences}
         [IO.File]::WriteAllText((Join-Path $state 'preferences.json'), ($document | ConvertTo-Json -Depth 64))
+        # 只读取合成历史；不触碰系统剪贴板，长记录用于检查正文与操作区是否互相挤占。
+        $entries = @(
+            @{text = 'Synthetic clipboard layout sample: a long entry remains readable in a narrow settings window.'; timestampMs = 1792027710000; pinned = $false},
+            @{text = 'Second synthetic clipboard entry'; timestampMs = 1792027700000; pinned = $false}
+        )
+        [IO.File]::WriteAllText((Join-Path $state 'clipboard_history.json'), ($entries | ConvertTo-Json -Depth 8))
         $process = Start-Process -FilePath $programPath -ArgumentList '--route=settings:input' -PassThru
         $deadline = [DateTime]::UtcNow.AddSeconds(60)
         do {
@@ -135,6 +142,21 @@ try {
                 if ($content.Current.BoundingRectangle.Width -lt 480) { throw "No usable content column on $page" }
                 # 再等一轮呈现，避免 UIA 树已经更新而屏幕仍是上一页的画面。
                 Start-Sleep -Milliseconds 500
+                if ($page -eq 'clip') {
+                    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+                    do {
+                        $preview = Find-ById $window 'clipboard-entry-0-preview'
+                        if ($preview) { break }
+                        Start-Sleep -Milliseconds 200
+                    } while ([DateTime]::UtcNow -lt $deadline)
+                    if (-not $preview) { throw 'Synthetic clipboard history was not rendered' }
+                    $more = Find-ById $window 'clipboard-entry-0-actions'
+                    if (-not $preview -or -not $more) { throw 'Clipboard preview or actions are missing' }
+                    $textBounds = $preview.Current.BoundingRectangle
+                    $actionBounds = $more.Current.BoundingRectangle
+                    if ($textBounds.Width -lt 180 -or $textBounds.Right -gt $actionBounds.Left) { throw 'Clipboard actions crowded out the text preview' }
+                    if ($actionBounds.Right -gt $content.Current.BoundingRectangle.Right) { throw 'Clipboard actions overflow the content column' }
+                }
                 Save-Window $window "$theme-$width-$page.png"
                 Write-Host "$theme $width $page rendered"
                 if ($page -eq 'candidate') {
@@ -208,6 +230,28 @@ try {
             Start-Sleep -Milliseconds 350
             Save-Window $window "$theme-toolbar-voice-$enabled.png"
         }
+        # 菜单中的固定操作仍要写入真实历史存储，只操作上方构造的合成记录。
+        Open-Page $window 'clip'
+        $more = Find-ById $window 'clipboard-entry-0-actions'
+        if (-not $more) { throw 'Clipboard actions are missing' }
+        $more.SetFocus()
+        $more.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $pin = Find-ById $window 'clipboard-entry-pin'
+        } while (-not $pin -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $pin) { throw 'Clipboard action menu did not open' }
+        Save-Window $window "$theme-clipboard-actions.png"
+        $pin.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $savedEntries = @(Get-Content -LiteralPath (Join-Path $state 'clipboard_history.json') -Raw | ConvertFrom-Json)
+        } while (-not $savedEntries[0].pinned -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $savedEntries[0].pinned) { throw 'Clipboard pin action was not saved' }
+        Start-Sleep -Milliseconds 350
+        Save-Window $window "$theme-clipboard-pinned.png"
         $process.CloseMainWindow() | Out-Null
         if (-not $process.WaitForExit(10000)) { throw 'Settings window failed to close' }
         if ($process.ExitCode -ne 0) { throw "Settings exited with $($process.ExitCode)" }
