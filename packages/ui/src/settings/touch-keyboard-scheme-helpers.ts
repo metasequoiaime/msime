@@ -100,7 +100,6 @@ export function touchKeyboardSchemeTitle(preferences: Preferences): string {
 export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["quanpin", "全拼 26 键"],
   ["nine_key", "全拼 9 键"],
-  ["nine_key_shuangpin", "九键双拼"],
   ["xiaohe", "小鹤双拼"],
   ["ziranma", "自然码双拼"],
   ["microsoft", "微软双拼"],
@@ -117,6 +116,7 @@ export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["stroke", "笔画"],
   ["zhuyin_nine_key", "注音 9 键"],
   ["fourteen_key", "全拼 14 键"],
+  ["nine_key_shuangpin", "九键双拼"],
 ];
 /** Every touch scheme in picker order; schemes are appended, never reordered. Mirrors `TouchKeyboardScheme::ALL` in client-core. */
 export const allTouchKeyboardSchemes = touchKeyboardSchemeOptions.map(([scheme]) => scheme);

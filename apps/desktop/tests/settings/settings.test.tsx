@@ -377,13 +377,16 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
     within(group)
       .getAllByRole("button")
       .map((button) => button.textContent?.replace("✓", "")),
-  ).toEqual([...touchSchemeLabels, "全拼 14 键"]);
+  ).toEqual([...touchSchemeLabels, "全拼 14 键", "九键双拼"]);
   // 高情商回复是键盘工具栏上的工具，不是输入方案。
   expect(within(group).queryByText("高情商回复")).toBeNull();
-  expect(within(group).getAllByRole("switch")).toHaveLength(12);
-  // 全拼 14 键排在最后，默认不启用。
+  expect(within(group).getAllByRole("switch")).toHaveLength(13);
+  // 全拼 14 键与九键双拼追加在原有列表后，默认不启用。
   expect(
     (screen.getByRole("switch", { name: "显示输入方案 全拼 14 键" }) as HTMLInputElement).checked,
+  ).toBe(false);
+  expect(
+    (screen.getByRole("switch", { name: "显示输入方案 九键双拼" }) as HTMLInputElement).checked,
   ).toBe(false);
   enabled.unmount();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
@@ -427,8 +430,9 @@ test("touch hosts offering Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke lis
     "笔画",
     "注音 9 键",
     "全拼 14 键",
+    "九键双拼",
   ]);
-  expect(within(group).getAllByRole("switch")).toHaveLength(18);
+  expect(within(group).getAllByRole("switch")).toHaveLength(19);
   for (const label of [
     "粤拼 26 键",
     "大千注音",

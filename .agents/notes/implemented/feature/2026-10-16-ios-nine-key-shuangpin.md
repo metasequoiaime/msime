@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+共享 React 设置页的稳定方案列表与 Rust `TouchKeyboardScheme::ALL` 一致，九键双拼追加在末尾并默认关闭；普通话语言卡片单独决定展示顺序，可把它放在全拼九键旁边。选择后写 `scheme = quanpin` 与 `touch_keyboard_layout = nine_key_shuangpin`，旧文档缺失方案列表时沿用原有默认方案。
+
 在 iOS 追加默认不启用的 `nineKeyShuangpin` 入口，对应共享标识与布局 `nine_key_shuangpin`，引擎方案保持 `quanpin`。桥接网格编号 3，重建会话时恢复该网格；设置文档持有选表和自定义表，App Group 仅保存方案选择镜像。
 
 设置页与键面都通过已有 C ABI `msime_client_nine_key_shuangpin_layout` 获取内置表、有效方案、键面和带位置的校验问题。提供米旮旯 3、米旮旯 2、辜氏 2 低重码和自定义表；自定义表支持逐项编辑及 JSON 导入导出，保存前由共享引擎校验。非法表在编辑器中保留并显示问题，禁止保存，不能把引擎用于运行时回退的有效表误作用户编辑中的表。
