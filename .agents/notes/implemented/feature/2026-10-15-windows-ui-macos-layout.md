@@ -8,7 +8,7 @@ Windows 设置窗口把每一项设置画成独立的高卡片，侧栏和页边
 
 ## Decision
 
-Windows 保留 WinUI 3 设置宿主与 Direct2D 输入浮层，以 macOS 的 `SettingsLayout.h`、`AppearancePreferences.mm`、`NativeCandidateTokens` 为布局、信息结构和默认颜色依据。窗口采用独立的侧栏搜索与内容工具栏，取消重复搜索入口；18 页均有说明。
+Windows 保留 WinUI 3 设置宿主与 Direct2D 输入浮层，以 macOS 的 `SettingsLayout.h`、`AppearancePreferences.mm`、`NativeCandidateTokens` 为布局、信息结构和默认颜色依据。窗口采用独立的侧栏搜索与内容工具栏，取消重复搜索入口；18 页均有说明。窗口初始为 1000 × 760 DIP，最小为 800 × 560 DIP，随初始系统 DPI 换算；使用工程已固定的 Windows App SDK 1.7 的 `OverlappedPresenter.PreferredMinimumWidth`／`PreferredMinimumHeight`，避免窗口缩到侧栏与正文无法操作。宽度边界参照 macOS 的 `contentMinSize`，高度包含 Windows 标题栏空间。
 
 账号页参照 macOS 的紧凑身份卡与登录分组：52 DIP 头像与说明并排，登录方式使用标准设置行，验证码表单沿用标签与控件分列，去掉大幅居中欢迎区、固定 300 DIP 表单和嵌套卡片。已登录资料卡、设置同步也不再套第二层卡片；同步操作纵排，避免窄窗挤出正文。
 
@@ -18,7 +18,7 @@ Windows 保留 WinUI 3 设置宿主与 Direct2D 输入浮层，以 macOS 的 `Se
 
 皮肤网格中的缩略图用真实候选调色板绘制选中底和前景色，网格随正文宽度重排列并等分填满，不重建按钮以保留焦点。卡片下方分行展示名称、明暗类型或使用状态，避免窄卡片文字重叠。主题选择在前，完整实时预览在后，首屏即可选择主题。实时候选预览仅在皮肤和候选窗口页提供，有独立舞台及滚动视口，横向长候选不会撑出页面。
 
-候选窗口按 macOS 分为「布局」「字体大小」「窗口样式」「预编辑」四个标签，字体与自定义候选配色从皮肤页移入相应标签。搜索索引遍历全部标签并保存条目归属，打开结果时先切换标签；标签选择只保存在窗口内，不写偏好。切换标签时释放旧字体控件引用，字体列表异步回调不会更新离开的控件。候选预览使用保存的主字体、英文字体和拼音字号，字号／字体／配色变更即时更新。
+候选窗口按 macOS 分为「布局」「字体大小」「窗口样式」「预编辑」四个标签，字体与自定义候选配色从皮肤页移入相应标签；这部分取代[原生候选字体设置](2026-10-11-windows-settings-candidate-fonts.md)为了保持旧页面组织而暂留主题页的安排，其字体目录、校验与回退契约继续沿用。搜索索引遍历全部标签并保存条目归属，打开结果时先切换标签；标签选择只保存在窗口内，不写偏好。切换标签时释放旧字体控件引用，字体列表异步回调不会更新离开的控件。候选预览使用保存的主字体、英文字体和拼音字号，字号／字体／配色变更即时更新。
 
 状态栏页有独立效果预览，复用原生 `ToolbarLayout.h` 的真实几何和 `ToolbarIcons.h` 的按钮图标，按勾选项目、缩放和图标大小绘制并显示 DIP 尺寸；长工具栏只在预览舞台内横向滚动。组件复选框与预览共用顺序表，去掉与实际可关闭状态冲突的「始终显示」伪选项。
 
@@ -33,11 +33,11 @@ Windows 保留 WinUI 3 设置宿主与 Direct2D 输入浮层，以 macOS 的 `Se
 
 ## Consequences
 
-统一基础构件会覆盖全部设置页，也要求检查特殊表单、搜索定位和窄窗口。字体与标题栏仍采用 Windows 原生能力。MinGW 不编译 WinUI 3，必须独立核实设置工程的编译与运行证据。
+统一基础构件会覆盖全部设置页，也要求检查特殊表单、搜索定位和窄窗口。字体与标题栏仍采用 Windows 原生能力。最小尺寸使用 [Windows App SDK 的窗口尺寸接口](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.overlappedpresenter.preferredminimumwidth?view=windows-app-sdk-1.7)，不另设 Win32 子类窗口过程。MinGW 不编译 WinUI 3，必须独立核实设置工程的编译与运行证据。
 
 ## Verification
 
-`tests/ui/candidate_palette.cpp` 验证原生默认值、显式主题槽位优先、强调色推导和半透明选中底的前景色；`candidate_theme_reload.cpp` 验证主题重新加载后的实际颜色。共享前端运行 `typecheck`、构建、platform-tokens 和 candidate-preview-native-tokens 测试。`CI (platforms)` 的 `Windows native settings` 先构建真实 Rust host-api DLL，再使用发布用 WinUI 工程的完整 `Build` 流程，以 `/WX` 编译实际 `main.cpp` 并链接原生设置宿主。不能直接调用 `ClCompile` 或单独的投影生成目标：它们会跳过 Windows SDK 引用初始化或 WinRT 投影头生成。`tests/tools/settings_ui.ps1` 在独立合成状态目录中通过 UI Automation 遍历 18 页，从真实 DLL 读取完整默认偏好，拒绝设置加载错误；对导航虚拟化先滚入视口，再按正文的稳定页面标识等待切页与呈现，保存浅深色、800／1000 宽窗口截图，关闭进程并清除合成状态；另通过原生单选控件切换双拼、五笔、全拼，检查合成偏好确实保存并补充截图；遍历四个候选标签、从布局标签搜索主字体并检查自动切到字体标签，真实切换工具栏语音按钮并同时核对持久化与预览尺寸变化。截图作为 CI 产物供视觉审查。
+`tests/ui/candidate_palette.cpp` 验证原生默认值、显式主题槽位优先、强调色推导和半透明选中底的前景色；`candidate_theme_reload.cpp` 验证主题重新加载后的实际颜色。共享前端运行 `typecheck`、构建、platform-tokens 和 candidate-preview-native-tokens 测试。`CI (platforms)` 的 `Windows native settings` 先构建真实 Rust host-api DLL，再使用发布用 WinUI 工程的完整 `Build` 流程，以 `/WX` 编译实际 `main.cpp` 并链接原生设置宿主。不能直接调用 `ClCompile` 或单独的投影生成目标：它们会跳过 Windows SDK 引用初始化或 WinRT 投影头生成。`tests/tools/settings_ui.ps1` 在独立合成状态目录中通过 UI Automation 遍历 18 页，从真实 DLL 读取完整默认偏好，拒绝设置加载错误；通过 `WM_GETMINMAXINFO` 检查窗口交给系统的最小拖动尺寸，避免只限制 XAML 内容；对导航虚拟化先滚入视口，再按正文的稳定页面标识等待切页与呈现，保存浅深色、800／1000 宽窗口截图，关闭进程并清除合成状态；另通过原生单选控件切换双拼、五笔、全拼，检查合成偏好确实保存并补充截图；遍历四个候选标签、从布局标签搜索主字体并检查自动切到字体标签，真实切换工具栏语音按钮并同时核对持久化与预览尺寸变化。截图作为 CI 产物供视觉审查。
 
 首轮窗口截图曾暴露两处假通过：手写的不完整偏好使所有控件变灰，虚拟化导航与固定延时令截图文件名和正文错位。因此截图数量和脚本退出码不足以验收，必须同时检查配置可用性、正文页面标识和实际像素。
 

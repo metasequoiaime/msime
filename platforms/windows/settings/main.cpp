@@ -2855,6 +2855,15 @@ struct MainWindow : WindowT<MainWindow> {
     AppWindow().Resize(
         {static_cast<int32_t>(std::lround(1000 * scale)),
          static_cast<int32_t>(std::lround(760 * scale))});
+    // 参照 macOS 的最小窗口尺寸，避免侧栏把设置正文挤到无法操作。
+    if (const auto presenter = AppWindow().Presenter().try_as<Microsoft::UI::Windowing::OverlappedPresenter>()) {
+      presenter.PreferredMinimumWidth(
+          box_value(static_cast<int32_t>(std::lround(800 * scale)))
+              .as<Windows::Foundation::IReference<int32_t>>());
+      presenter.PreferredMinimumHeight(
+          box_value(static_cast<int32_t>(std::lround(560 * scale)))
+              .as<Windows::Foundation::IReference<int32_t>>());
+    }
     build_shell(0.0);
     Activated({this, &MainWindow::on_activated});
     Closed([this](Inspectable const &, WindowEventArgs const &) {

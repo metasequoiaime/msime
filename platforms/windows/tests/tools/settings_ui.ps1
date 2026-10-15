@@ -23,6 +23,16 @@ public static class SettingsWindowProbe {
             return System.Text.Encoding.UTF8.GetString(bytes);
         } finally { msime_client_string_free(value); }
     }
+    [StructLayout(LayoutKind.Sequential)] public struct Point { public int X, Y; }
+    [StructLayout(LayoutKind.Sequential)] public struct MinMaxInfo {
+        public Point Reserved, MaxSize, MaxPosition, MinTrackSize, MaxTrackSize;
+    }
+    [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wparam, ref MinMaxInfo info);
+    public static MinMaxInfo TrackLimits(IntPtr window) {
+        var info = new MinMaxInfo();
+        SendMessage(window, 0x0024, IntPtr.Zero, ref info);
+        return info;
+    }
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
 }
 '@
@@ -112,6 +122,9 @@ try {
         } while ([DateTime]::UtcNow -lt $deadline)
         if ($process.MainWindowHandle -eq [IntPtr]::Zero) { throw 'Settings window did not open in 60 seconds' }
         $window = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+        # 检查窗口真正交给系统的拖动尺寸边界，不能只检查 XAML 内部的最小宽度。
+        $limits = [SettingsWindowProbe]::TrackLimits($process.MainWindowHandle)
+        if ($limits.MinTrackSize.X -lt 800 -or $limits.MinTrackSize.Y -lt 560) { throw 'Native window minimum size was not applied' }
         foreach ($width in @(1000, 800)) {
             if (-not [SettingsWindowProbe]::SetWindowPos($process.MainWindowHandle, [IntPtr]::Zero, 0, 0, $width, 760, 0x0040)) { throw 'Window resize failed' }
             foreach ($page in $pages) {

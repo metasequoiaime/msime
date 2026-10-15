@@ -23,6 +23,8 @@ Status: implemented
 
 ## Consequences
 
+[Windows 界面参考 macOS 改版](2026-10-15-windows-ui-macos-layout.md)接管页面位置与预览：四行字体设置归入「候选窗口 › 字体大小」，实时预览使用保存的字体。下列原始取舍中的「暂留主题页」与「预览不按字体绘制」由该改版取代；字体目录、校验和回退列表的契约仍由本篇记录。
+
 - 原生窗口不再为候选字体拉起共享应用。
 - 预设表和规则写死在 `CandidateFontPresets.h`，`candidate-font-presets.ts` 改了要同步改这里。
 - 下拉筛选和浏览器一样按区域设置转小写，个别语言的特殊大小写规则可能与 WebView2 略有出入。
