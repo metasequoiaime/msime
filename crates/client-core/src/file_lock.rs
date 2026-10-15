@@ -1,5 +1,5 @@
-//! Android std::fs::File::lock is unsupported; use rustix's safe flock on that target.
-//! The owning File keeps the lock alive and releases it when closed.
+//! Android 的 `std::fs::File::lock` 不可用，此处在该目标上使用 rustix 的安全 `flock`。
+//! 本 crate 的作用域互斥使用 `ScopedFileLock`，Unix 在结束时显式解锁，避免描述符副本继续占锁。
 //!
 //! This module is public so that no caller anywhere in the workspace has to re-derive which
 //! locking API works on which target. `host-api` had its own `File::lock` call, and on Android it
@@ -9,6 +9,43 @@ use std::ffi::OsStr;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::Path;
+
+/// 成功取得的作用域文件锁；Unix 在作用域结束时解除锁，描述符副本不能延长互斥。
+#[must_use]
+pub(crate) struct ScopedFileLock {
+    _file: File,
+}
+
+impl ScopedFileLock {
+    pub(crate) fn exclusive(file: File) -> io::Result<Self> {
+        exclusive(&file)?;
+        Ok(Self { _file: file })
+    }
+
+    pub(crate) fn try_exclusive(file: File) -> io::Result<Option<Self>> {
+        if try_exclusive(&file)? {
+            Ok(Some(Self { _file: file }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub(crate) fn try_exclusive_with_grace(file: File) -> io::Result<Option<Self>> {
+        if try_exclusive_with_grace(&file)? {
+            Ok(Some(Self { _file: file }))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ScopedFileLock {
+    fn drop(&mut self) {
+        // 操作或租约结束后，复制及继承的描述符不能继续占锁。
+        let _ = unlock(&self._file);
+    }
+}
 
 /// A parent directory opened without following an untrusted symlink. On Unix,
 /// all operations through this value stay bound to that directory if its path
@@ -353,6 +390,55 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn scoped_lock_acquisition_preserves_contention_and_releases_each_mode() {
+        for mode in 0..3 {
+            let root = tempfile::tempdir().unwrap();
+            let path = root.path().join("scope.lock");
+            let file = open_private_lock_file(&path).unwrap();
+            let held = match mode {
+                0 => ScopedFileLock::exclusive(file).unwrap(),
+                1 => ScopedFileLock::try_exclusive(file).unwrap().unwrap(),
+                _ => ScopedFileLock::try_exclusive_with_grace(file)
+                    .unwrap()
+                    .unwrap(),
+            };
+            let inherited = testing::duplicate(&held);
+            assert!(
+                ScopedFileLock::try_exclusive(open_private_lock_file(&path).unwrap())
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(ScopedFileLock::try_exclusive_with_grace(
+                open_private_lock_file(&path).unwrap()
+            )
+            .unwrap()
+            .is_none());
+            testing::assert_finished_scope_releases_lock(held, inherited, &path);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scoped_lock_releases_an_inherited_descriptor_during_unwind() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("scope.lock");
+        let mut inherited = None;
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let held = ScopedFileLock::exclusive(open_private_lock_file(&path).unwrap()).unwrap();
+            inherited = Some(testing::duplicate(&held));
+            panic!("synthetic scoped lock unwind");
+        }));
+        assert!(result.is_err());
+        let contender = open_private_lock_file(&path).unwrap();
+        assert!(try_exclusive(&contender).unwrap());
+        drop(inherited);
+        let next = open_private_lock_file(&path).unwrap();
+        assert!(!try_exclusive(&next).unwrap());
+        unlock(&contender).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn directory_bound_rename_stays_on_original_inode_after_path_replacement() {
         use std::fs;
 
@@ -523,3 +609,6 @@ mod tests {
         releasing.join().unwrap();
     }
 }
+
+#[cfg(all(test, unix))]
+pub(crate) mod testing;

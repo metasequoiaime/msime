@@ -27,7 +27,7 @@ pub(crate) const LEFTOVER_AGE: Duration = Duration::from_secs(60 * 60);
 
 /// Both plugins-root write locks, released together when dropped.
 pub(crate) struct RootWrites {
-    _file: File,
+    _file: crate::file_lock::ScopedFileLock,
     _process: MutexGuard<'static, ()>,
 }
 
@@ -37,7 +37,7 @@ pub(super) fn lock_plugin_root(root: &Path) -> io::Result<RootWrites> {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let file = crate::file_lock::open_lock_file(root.join(LOCK_FILE))?;
-    crate::file_lock::exclusive(&file)?;
+    let file = crate::file_lock::ScopedFileLock::exclusive(file)?;
     Ok(RootWrites {
         _file: file,
         _process: process,
@@ -588,6 +588,19 @@ fn write_member(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn finished_scope_releases_inherited_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let held = lock_plugin_root(root.path()).unwrap();
+        let inherited = crate::file_lock::testing::duplicate(&held._file);
+        crate::file_lock::testing::assert_finished_scope_releases_lock(
+            held,
+            inherited,
+            &root.path().join(LOCK_FILE),
+        );
+    }
 
     #[cfg(unix)]
     #[test]

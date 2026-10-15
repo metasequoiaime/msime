@@ -4,7 +4,6 @@ use crate::community::resource::{validate_resource, CommunityResource, Community
 use crate::file_lock;
 use serde_json::from_slice;
 use std::collections::HashSet;
-use std::fs::File;
 #[cfg(not(unix))]
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -34,7 +33,7 @@ pub struct CommunityResourceLibraryStore {
 }
 
 struct LibraryLock {
-    _lock: File,
+    _lock: crate::file_lock::ScopedFileLock,
     directory: file_lock::PrivateDirectory,
 }
 
@@ -98,7 +97,7 @@ impl CommunityResourceLibraryStore {
             .ok_or(CommunityResourceLibraryError::Invalid)?
             .to_owned();
         let lock = file_lock::open_private_lock_file_at(&directory, &lock_name)?;
-        file_lock::exclusive(&lock)?;
+        let lock = crate::file_lock::ScopedFileLock::exclusive(lock)?;
         Ok(LibraryLock {
             _lock: lock,
             directory,
@@ -168,6 +167,21 @@ impl CommunityResourceLibraryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn finished_scope_releases_inherited_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let store = CommunityResourceLibraryStore::new(root.path().join("library.json"));
+        let held = store.lock().unwrap();
+        let inherited = crate::file_lock::testing::duplicate(&held._lock);
+        crate::file_lock::testing::assert_finished_scope_releases_lock(
+            held,
+            inherited,
+            &root.path().join("library.json.lock"),
+        );
+    }
+
     use crate::community::resource::{CommunityResourceContent, SharedWord};
 
     fn reply() -> CommunityResource {

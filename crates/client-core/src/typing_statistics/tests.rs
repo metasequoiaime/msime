@@ -787,3 +787,17 @@ fn status_reports_whether_the_statistics_file_was_ever_written() {
     assert!(value["lastWrittenMs"].is_u64());
     assert_eq!(value["statistics"]["enabled"], true);
 }
+
+#[cfg(unix)]
+#[test]
+fn finished_scope_releases_inherited_lock() {
+    let root = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(root.path());
+    let held = store.lock().unwrap();
+    let inherited = crate::file_lock::testing::duplicate(&held._lock);
+    crate::file_lock::testing::assert_finished_scope_releases_lock(
+        held,
+        inherited,
+        &root.path().join(LOCK_FILE),
+    );
+}

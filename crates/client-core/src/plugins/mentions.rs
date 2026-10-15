@@ -7,7 +7,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 
 /// Entries in the list: the Engine keeps no more.
@@ -83,7 +82,7 @@ pub struct MentionStore {
 
 struct MentionLock {
     directory: crate::file_lock::PrivateDirectory,
-    _lock: File,
+    _lock: crate::file_lock::ScopedFileLock,
 }
 
 impl MentionStore {
@@ -144,7 +143,7 @@ impl MentionStore {
             std::ffi::OsStr::new(LOCK_FILE),
         )
         .map_err(|_| MentionError::Storage)?;
-        crate::file_lock::exclusive(&lock)?;
+        let lock = crate::file_lock::ScopedFileLock::exclusive(lock)?;
         Ok(MentionLock {
             directory,
             _lock: lock,
@@ -195,6 +194,20 @@ pub fn document_path(root: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn finished_scope_releases_inherited_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let store = MentionStore::new(root.path());
+        let held = store.lock().unwrap();
+        let inherited = crate::file_lock::testing::duplicate(&held._lock);
+        crate::file_lock::testing::assert_finished_scope_releases_lock(
+            held,
+            inherited,
+            &root.path().join(LOCK_FILE),
+        );
+    }
 
     fn entry(text: &str, key: &str) -> MentionEntry {
         MentionEntry {

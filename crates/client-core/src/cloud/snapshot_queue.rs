@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::ffi::OsStr;
 use std::{
-    fs::{self, File},
+    fs,
     io::{Read, Write},
     path::{Path, PathBuf},
 };
@@ -129,14 +129,14 @@ pub fn local_version_digest(value: &str) -> Result<&str, SnapshotQueueError> {
 
 pub struct SnapshotWorkerLease {
     _directory: crate::file_lock::PrivateDirectory,
-    _file: File,
+    _file: crate::file_lock::ScopedFileLock,
     owner: PathBuf,
 }
 
 struct SnapshotQueueLock {
     directory: crate::file_lock::PrivateDirectory,
     root: PathBuf,
-    _file: File,
+    _file: crate::file_lock::ScopedFileLock,
 }
 
 pub struct DictionarySnapshotQueue {
@@ -194,13 +194,13 @@ impl DictionarySnapshotQueue {
             .map_err(|_| SnapshotQueueError::Unavailable)?;
         let file = crate::file_lock::open_private_lock_file_at(&directory, OsStr::new(name))
             .map_err(|_| SnapshotQueueError::Unavailable)?;
-        match crate::file_lock::try_exclusive_with_grace(&file) {
-            Ok(true) => Ok(SnapshotQueueLock {
+        match crate::file_lock::ScopedFileLock::try_exclusive_with_grace(file) {
+            Ok(Some(file)) => Ok(SnapshotQueueLock {
                 directory,
                 root,
                 _file: file,
             }),
-            Ok(false) => Err(SnapshotQueueError::Busy),
+            Ok(None) => Err(SnapshotQueueError::Busy),
             Err(_) => Err(SnapshotQueueError::Unavailable),
         }
     }
@@ -279,7 +279,8 @@ impl DictionarySnapshotQueue {
         let file =
             crate::file_lock::open_private_lock_file_at(&directory, OsStr::new(STATE_LOCK_NAME))
                 .map_err(|_| SnapshotQueueError::Unavailable)?;
-        crate::file_lock::exclusive(&file).map_err(|_| SnapshotQueueError::Unavailable)?;
+        let file = crate::file_lock::ScopedFileLock::exclusive(file)
+            .map_err(|_| SnapshotQueueError::Unavailable)?;
         let lock = SnapshotQueueLock {
             directory,
             root,
@@ -692,6 +693,39 @@ fn remove_snapshot_file(path: &Path) -> Result<(), SnapshotQueueError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn finished_worker_lease_releases_inherited_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let queue = DictionarySnapshotQueue::new(root.path().to_owned()).unwrap();
+        let held = queue.acquire_worker_lease().unwrap();
+        let inherited = crate::file_lock::testing::duplicate(&held._file);
+        assert!(matches!(
+            queue.acquire_worker_lease(),
+            Err(SnapshotQueueError::Busy)
+        ));
+        crate::file_lock::testing::assert_finished_scope_releases_lock(
+            held,
+            inherited,
+            &root.path().join(WORKER_LOCK_NAME),
+        );
+        assert!(queue.acquire_worker_lease().is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finished_scope_releases_inherited_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let queue = DictionarySnapshotQueue::new(root.path().to_owned()).unwrap();
+        let held = queue.lock(STATE_LOCK_NAME).unwrap();
+        let inherited = crate::file_lock::testing::duplicate(&held._file);
+        crate::file_lock::testing::assert_finished_scope_releases_lock(
+            held,
+            inherited,
+            &root.path().join(STATE_LOCK_NAME),
+        );
+    }
 
     #[cfg(unix)]
     #[test]

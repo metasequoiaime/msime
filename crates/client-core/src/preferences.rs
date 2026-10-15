@@ -3113,9 +3113,9 @@ impl PreferencesStore {
         Ok(lock)
     }
 
-    fn lock(&self) -> Result<File, PreferencesError> {
+    fn lock(&self) -> Result<crate::file_lock::ScopedFileLock, PreferencesError> {
         let lock = self.open_lock()?;
-        crate::file_lock::exclusive(&lock)?;
+        let lock = crate::file_lock::ScopedFileLock::exclusive(lock)?;
         Ok(lock)
     }
 
@@ -3173,10 +3173,10 @@ impl PreferencesStore {
     /// None means the writer lock is busy; retry later without using defaults.
     /// File operations may still block on storage. Validation matches load().
     pub fn try_load(&self) -> Result<Option<PreferencesSnapshot>, PreferencesError> {
-        let lock = self.open_lock()?;
-        if !crate::file_lock::try_exclusive(&lock)? {
+        let Some(_lock) = crate::file_lock::ScopedFileLock::try_exclusive(self.open_lock()?)?
+        else {
             return Ok(None);
-        }
+        };
         self.read_locked().map(Some)
     }
 
@@ -3326,7 +3326,7 @@ impl PreferencesStore {
         if scope == RecoveryScope::Malformed && document.is_some() {
             return Err(failure);
         }
-        let backup_path = self.write_backup(&bytes)?;
+        let backup_path = self.write_backup(&bytes, time::OffsetDateTime::now_utc())?;
         let (preferences, salvaged) = match &document {
             Some(document) => salvage_preferences(document, self.default_preferences())?,
             None => (self.default_preferences(), false),
@@ -3363,9 +3363,12 @@ impl PreferencesStore {
         })
     }
 
-    /// Copy the damaged bytes to a new file and make sure they reached the disk before the original is replaced. `create_new` means an existing backup is never overwritten; a name already taken gets a `-N` suffix.
-    fn write_backup(&self, bytes: &[u8]) -> Result<PathBuf, PreferencesError> {
-        let now = time::OffsetDateTime::now_utc();
+    /// 按给定时间创建损坏文件备份并同步到磁盘，随后才能替换原文件；已有名称用 `-N` 后缀避让。
+    fn write_backup(
+        &self,
+        bytes: &[u8],
+        now: time::OffsetDateTime,
+    ) -> Result<PathBuf, PreferencesError> {
         let stem = format!(
             "preferences.json.corrupt-{:04}{:02}{:02}-{:02}{:02}{:02}",
             now.year(),

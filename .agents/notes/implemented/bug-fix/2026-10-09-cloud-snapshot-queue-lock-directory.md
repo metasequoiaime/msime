@@ -22,6 +22,8 @@ Status: implemented
 
 ## Consequences
 
+其他共享存储的作用域释放由[共享文件锁守卫](2026-10-15-scoped-file-lock-release.md)统一处理；与本篇部分重叠，各自保留目录身份或租约边界的决定。
+
 快照队列状态更新使用同一个已打开目录对象完成锁定、读取和写入；队列路径被替换时不会把状态写入新目录或外部目标。目录元数据访问通过共享 `PrivateDirectory` 接口复用跨平台实现。
 
 ## Verification

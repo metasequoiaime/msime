@@ -20,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(not(unix))]
 use std::fs;
-use std::fs::File;
 #[cfg(not(unix))]
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -283,7 +282,7 @@ pub struct DictionaryCollectionsStore {
 
 struct CollectionsLock {
     directory: crate::file_lock::PrivateDirectory,
-    _lock: File,
+    _lock: crate::file_lock::ScopedFileLock,
 }
 
 impl DictionaryCollectionsStore {
@@ -855,7 +854,7 @@ impl DictionaryCollectionsStore {
             &directory,
             std::ffi::OsStr::new("index.json.lock"),
         )?;
-        file_lock::exclusive(&lock)?;
+        let lock = crate::file_lock::ScopedFileLock::exclusive(lock)?;
         Ok(CollectionsLock {
             directory,
             _lock: lock,
