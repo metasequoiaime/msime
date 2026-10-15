@@ -78,7 +78,7 @@ function withAlpha(color, alpha) {
   return `${color.slice(0, 7)}${alpha}`;
 }
 
-/** `ai::readable_text`：`background` 上看得清的黑或白，按相对亮度在同一处分界，透明度不计。 */
+/** `theme::readable_text`：`background` 上看得清的黑或白，按相对亮度在同一处分界，透明度不计。 */
 function readableText(background) {
   const channel = (offset) => {
     const value = parseInt(background.slice(offset, offset + 2), 16) / 255;
