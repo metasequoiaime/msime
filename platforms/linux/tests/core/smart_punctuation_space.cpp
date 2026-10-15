@@ -137,6 +137,10 @@ int main() {
   assert(english_mode_output(U'\\', false, true, false, english, {}) == "、");
   assert(english_mode_output(U'/', false, true, false, english, {}).empty());
   assert(english_mode_output(U'^', false, true, false, english, {}) == "……");
+  assert(english_mode_output(U'$', false, true, false, english, {}) == "¥");
+  assert(english_mode_output(U'$', false, true, true, english, {}) == "￥");
+  assert(english_mode_output(U'$', false, false, false, english, {}).empty());
+  assert(english_mode_output(U'$', false, false, true, english, {}) == "＄");
   // The keypad keeps its ASCII mark, then width applies.
   assert(english_mode_output(U'.', true, true, false, english, {}).empty());
   assert(english_mode_output(U'.', true, true, true, english, {}) == "．");

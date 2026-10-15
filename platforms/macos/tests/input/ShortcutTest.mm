@@ -6243,6 +6243,13 @@ static void TestEnglishModePunctuationAndWidthOutput() {
     prefs.punctuationLock = @"chinese";
     [controller setEnglishInputMode:YES];
     assert(prefs.englishMode && prefs.runtimeChinesePunctuation);
+    // 人民币跟随本次全半角状态；英文模式锁定中文标点也走同一条规则。
+    NSEvent *currency = EnglishKey(@"$", 21, NSEventModifierFlagShift);
+    assert([type(currency) isEqual:@"¥"]);
+    assert([controller handleEvent:widthToggle client:client] && prefs.runtimeFullWidthInput);
+    assert([type(currency) isEqual:@"￥"]);
+    assert([controller handleEvent:widthToggle client:client] && !prefs.runtimeFullWidthInput);
+    assert([type(currency) isEqual:@"¥"]);
     assert([type(comma) isEqual:@"，"]);
     assert([type(quote) isEqual:@"“"] && [type(quote) isEqual:@"”"]);
     assert([type(less) isEqual:@"《"] && [type(less) isEqual:@"〈"] && [type(greater) isEqual:@"〉"] && [type(greater) isEqual:@"》"]);

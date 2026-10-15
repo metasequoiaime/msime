@@ -93,7 +93,10 @@ function client(overrides: Partial<CommunityPluginClient> = {}): CommunityPlugin
 
 async function openDetail(name = "雨声") {
   fireEvent.click(await screen.findByRole("button", { name: `查看插件 ${name}` }));
-  return screen.findByRole("heading", { name });
+  const heading = await screen.findByRole("heading", { name });
+  // 详情标题先显示列表中的旧摘要；等待详情请求完成，避免点击仍被 detailBusy 禁用的安装按钮。
+  await waitFor(() => expect(screen.queryByText("正在读取插件详情…")).toBeNull());
+  return heading;
 }
 
 test("the kind filter is sent with every page, including the ones load more appends", async () => {

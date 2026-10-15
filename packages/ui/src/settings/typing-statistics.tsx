@@ -1,3 +1,33 @@
+import {
+  DETAIL_DAYS,
+  retentionChoices,
+  activityMetrics,
+  usualHours,
+  dailySpeeds,
+  dailyDetailRows,
+  type SelectionCounts,
+  type StatisticsRetention,
+  type TypingStatistics,
+  type TypingStatisticsStatus,
+  type TypingStatisticsClient,
+  type DailyDetailRow,
+} from "./typing-statistics-model";
+export {
+  HOURS,
+  DETAIL_DAYS,
+  retentionChoices,
+  activityMetrics,
+  usualHours,
+  dailySpeeds,
+  dailyDetailRows,
+  type SelectionCounts,
+  type StatisticsRetention,
+  type TypingStatistics,
+  type TypingStatisticsStatus,
+  type TypingStatisticsClient,
+  type ActivityMetrics,
+  type DailyDetailRow,
+} from "./typing-statistics-model";
 import { ControlledCheckbox } from "../core/controlled-checkbox";
 import { rowHeading } from "../core/row-style";
 import { compactPage } from "../core/page-style";
@@ -20,12 +50,6 @@ import { StatusMessage } from "../core/status-message";
 import { formatZhNumber, formatZhPercent } from "../core/format-number";
 import { formatDateTime } from "../core/format-date";
 import { SettingsEmptyMessage } from "./settings-empty-message";
-import {
-  charactersPerMinute,
-  readableCharacters,
-  withUnknown,
-  type TypingBreakdown,
-} from "./typing-speed";
 import { useMountedRef } from "./use-mounted-ref";
 import { useAsyncGeneration } from "./use-async-generation";
 import { subscribeToWindowResume } from "../core/window-focus";
@@ -37,12 +61,9 @@ export type { TypingBreakdown } from "./typing-speed";
 export type { TypingSummary } from "./typing-summary";
 import {
   dayLabel,
-  currentStreak,
   formatActiveTime,
-  longestStreak,
   mobileTrendLength,
   recentDays,
-  statisticDayKeys,
   statisticsHeatmapWeeks,
   sumStatisticValues,
 } from "./typing-statistics-helpers";
@@ -146,68 +167,6 @@ const segmentedColumns: Record<number, string> = {
 const segmented = (columns: number) =>
   `grid gap-[3px] rounded-[9px] bg-subtle p-[3px] ${segmentedColumns[columns]} [&>button]:min-h-[34px] [&>button]:rounded-[7px] [&>button]:border-0 [&>button]:bg-transparent [&>button]:text-secondary [&>button[aria-selected=true]]:bg-raised [&>button[aria-selected=true]]:text-body [&>button[aria-selected=true]]:shadow-card`;
 
-export type SelectionCounts = {
-  /** Commits from positions 1..9, index 0 being the first candidate. */
-  ranks?: number[];
-  /** Commits from further down the list than the first page. */
-  beyond?: number;
-};
-
-/** How long recorded days are kept. Anything else a host sends is read as "forever". */
-export type StatisticsRetention = "forever" | "30d" | "90d" | "180d" | "365d";
-
-export const retentionChoices: [StatisticsRetention, string][] = [
-  ["forever", "永久保留"],
-  ["30d", "保留最近 30 天"],
-  ["90d", "保留最近 90 天"],
-  ["180d", "保留最近 180 天"],
-  ["365d", "保留最近 365 天"],
-];
-
-export type TypingStatistics = {
-  enabled: boolean;
-  /** Absent in statistics written before automatic cleanup existed, which means "forever". */
-  retention?: StatisticsRetention;
-  total: number;
-  days: Record<string, number>;
-  detail?: Partial<TypingBreakdown>;
-  dailyDetails?: Record<string, Partial<TypingBreakdown>>;
-  /** Absent in statistics written before candidate positions were counted. */
-  selections?: SelectionCounts;
-  /**
-   * Active typing time per day, in milliseconds. A day is absent when it predates the
-   * measurement, which is not the same as zero: it means unknown, and every metric divided by it
-   * has to leave that day out rather than read it as instant.
-   */
-  dailyActiveMs?: Record<string, number>;
-  /** Characters per local hour, 24 buckets per day. Absent for days the host sent no hour for. */
-  dailyHours?: Record<string, number[]>;
-  /** Presses per key per local day, keyed by `KeyboardEvent.code` or soft-keyboard id. Absent in statistics written before keys were counted. */
-  dailyKeys?: DailyKeyCounts;
-};
-
-export type TypingStatisticsStatus = {
-  statistics: TypingStatistics;
-  availability: "ready" | "neverWritten";
-  lastWrittenMs?: number | null;
-};
-
-export interface TypingStatisticsClient {
-  load(): Promise<TypingStatisticsStatus>;
-  setEnabled(enabled: boolean): Promise<TypingStatisticsStatus>;
-  /** Absent on hosts that do not keep the statistics themselves. */
-  setRetention?(retention: StatisticsRetention): Promise<TypingStatisticsStatus>;
-  /** Absent where a file manager is not reachable - iOS and Android render no button rather than a dead one. */
-  openDirectory?(): Promise<void>;
-  reset(): Promise<TypingStatisticsStatus>;
-  /**
-   * 共用存储为今天算出的各项数据（概览、习惯、按键、成就）。`userWords` 是用户加进词库的词数，用于「造词者」徽章；不传时存储按零计。不绘制基于摘要的「统计」标签页的宿主不提供它。
-   */
-  summary?(userWords?: number): Promise<TypingSummary>;
-  /** 记录用户试过键盘皮肤 `id`，计入「换装达人」徽章。 */
-  recordSkin?(id: string): Promise<void>;
-}
-
 /** Days the desktop trend bars cover. */
 const DESKTOP_TREND_DAYS = 30;
 type Slice = { id: string; title: string; count: number; color: string; symbol: string };
@@ -290,211 +249,6 @@ const sourceSymbols: Record<string, string> = {
   voice: "♪",
   unknown: "?",
 };
-
-/** Buckets in a day, matching the shared store. */
-export const HOURS = 24;
-/**
- * Character classes the speed metric counts.
- *
- * Speed is characters per active minute, and digits, punctuation, emoji and symbols are not prose:
- * counting them reads as a burst of speed for someone entering a phone number. This differs from
- * the Windows baseline in one place on purpose - there `latin` is ASCII letters only and kana fall
- * into `other`, so Japanese input measures as zero speed. This product has a full Japanese mode,
- * so `otherLetter` (kana, hangul, and every other script that is not Han or Latin) counts too.
- */
-/**
- * Offsets a `YYYY-MM-DD` key by whole days.
- *
- * Through UTC deliberately: the keys are calendar labels rather than instants, and local-time
- * arithmetic would lose or repeat a day at a daylight-saving boundary - which on those two days a
- * year would break a streak that was never broken.
- */
-/**
- * A day needs this much active time before it can win "fastest day".
- *
- * Without it a day holding a dozen characters typed in two seconds tops the ranking forever.
- */
-const fastestDayMinimumActiveMs = 60_000;
-
-export type ActivityMetrics = {
-  /** Days that have any record. Days with no record are not rows and never enter an average. */
-  recordedDays: number;
-  averagePerDay: number;
-  todayActiveMs: number;
-  totalActiveMs: number;
-  todaySpeed: number;
-  averageSpeed: number;
-  fastestSpeed: number;
-  fastestDay: string | null;
-  currentStreak: number;
-  longestStreak: number;
-  bestDay: string | null;
-  bestDayCharacters: number;
-  /** Today's 24 hourly buckets, or null when the host recorded no hours for today. */
-  todayHours: number[] | null;
-  /** False when nothing has ever measured active time, which is not the same as zero speed. */
-  hasActivity: boolean;
-};
-
-/**
- * Everything the rhythm cards show, derived in one place so the markup only formats.
- *
- * `todayKey` is passed in rather than read from the clock so the result is a function of its
- * arguments alone.
- */
-export function activityMetrics(statistics: TypingStatistics, todayKey: string): ActivityMetrics {
-  const recorded = statisticDayKeys(statistics.days);
-  const activeByDay = statistics.dailyActiveMs ?? {};
-  let totalActiveMs = 0;
-  let totalReadable = 0;
-  let fastestSpeed = 0;
-  let fastestDay: string | null = null;
-  let bestDay: string | null = null;
-  let bestDayCharacters = 0;
-  // The baseline's average is the sum of its day rows over the row count, so it divides what the recorded days hold rather than `total`, which the host's validation allows to run above them.
-  let recordedCharacters = 0;
-  for (const key of recorded) {
-    const activeMs = activeByDay[key] ?? 0;
-    const readable = readableCharacters(statistics.dailyDetails?.[key]);
-    if (activeMs > 0) {
-      totalActiveMs += activeMs;
-      totalReadable += readable;
-      if (activeMs >= fastestDayMinimumActiveMs) {
-        const speed = charactersPerMinute(readable, activeMs);
-        // Strictly greater, so the earliest day keeps a tie - `recorded` is sorted ascending.
-        if (speed > fastestSpeed) {
-          fastestSpeed = speed;
-          fastestDay = key;
-        }
-      }
-    }
-    const characters = statistics.days[key] ?? 0;
-    recordedCharacters += characters;
-    if (characters > bestDayCharacters) {
-      bestDayCharacters = characters;
-      bestDay = key;
-    }
-  }
-  const todayHours = statistics.dailyHours?.[todayKey];
-  return {
-    recordedDays: recorded.length,
-    averagePerDay: recorded.length === 0 ? 0 : recordedCharacters / recorded.length,
-    todayActiveMs: activeByDay[todayKey] ?? 0,
-    totalActiveMs,
-    todaySpeed: charactersPerMinute(
-      readableCharacters(statistics.dailyDetails?.[todayKey]),
-      activeByDay[todayKey] ?? 0,
-    ),
-    averageSpeed: charactersPerMinute(totalReadable, totalActiveMs),
-    fastestSpeed,
-    fastestDay,
-    currentStreak: currentStreak(recorded, todayKey),
-    longestStreak: longestStreak(recorded),
-    bestDay,
-    bestDayCharacters,
-    todayHours: Array.isArray(todayHours) && todayHours.length === HOURS ? todayHours : null,
-    hasActivity: totalActiveMs > 0,
-  };
-}
-
-/**
- * The average hour-by-hour profile of the days before today, the baseline the hourly chart sets today against.
- *
- * Only days with a full 24-bucket record and at least one character take part: a day the host recorded no hours for is unknown, and averaging it in as zeros would flatten the profile. Null when no such day exists.
- */
-export function usualHours(
-  dailyHours: TypingStatistics["dailyHours"],
-  todayKey: string,
-): { hours: number[]; days: number } | null {
-  const sums = Array.from({ length: HOURS }, () => 0);
-  let days = 0;
-  for (const [key, hours] of Object.entries(dailyHours ?? {})) {
-    if (key >= todayKey || !Array.isArray(hours) || hours.length !== HOURS) continue;
-    if (!hours.some((count) => count > 0)) continue;
-    hours.forEach((count, hour) => (sums[hour] += count));
-    days += 1;
-  }
-  return days === 0 ? null : { hours: sums.map((sum) => sum / days), days };
-}
-
-/**
- * Characters per active minute for each of `keys`, or null for a day whose speed is unknown.
- *
- * A day needs the same minimum active time as "fastest day" before it gets a point, so a few characters typed in two seconds do not draw a spike that flattens every real day beside it.
- */
-export function dailySpeeds(
-  statistics: TypingStatistics,
-  keys: readonly string[],
-): (number | null)[] {
-  return keys.map((key) => {
-    const activeMs = statistics.dailyActiveMs?.[key] ?? 0;
-    if (activeMs < fastestDayMinimumActiveMs) return null;
-    return charactersPerMinute(readableCharacters(statistics.dailyDetails?.[key]), activeMs);
-  });
-}
-
-/**
- * Consecutive recorded days ending today, or ending yesterday when today has no record yet.
- *
- * Today is still in progress, so it must not reset a streak the user has not actually broken.
- */
-/** `9月21日` from a `YYYY-MM-DD` key, matching the labels the trend axis uses. */
-/** How many recorded days the per-day detail table lists, as in the Windows source's `DETAIL_DAYS`. */
-export const DETAIL_DAYS = 30;
-
-export type DailyDetailRow = {
-  key: string;
-  total: number;
-  han: number;
-  latin: number;
-  number: number;
-  punctuation: number;
-  /** Other scripts, emoji, symbols and the unclassified remainder a day's breakdown does not cover. */
-  other: number;
-  /** Null when the day predates active-time measurement, which is unknown rather than zero. */
-  activeMs: number | null;
-  /** Null exactly when `activeMs` is, so an unmeasured day never reads as zero speed. */
-  speed: number | null;
-};
-
-/**
- * The per-day detail table's rows: the most recent recorded days up to today, newest first.
- *
- * Only recorded days become rows, like the source's `detailRows(overview.daily, DETAIL_DAYS)`, which takes the last rows of the recorded daily series and reverses them. The source's cjk/latin/digit/punct/other columns map onto this product's finer classes, with every class the source has no column for folded into `other`.
- */
-export function dailyDetailRows(
-  statistics: TypingStatistics,
-  todayKey: string,
-  days = DETAIL_DAYS,
-): DailyDetailRow[] {
-  const keys = statisticDayKeys(statistics.days)
-    .filter((key) => key <= todayKey)
-    .slice(-days)
-    .reverse();
-  return keys.map((key) => {
-    const total = statistics.days[key] ?? 0;
-    const detail = statistics.dailyDetails?.[key];
-    const characters = withUnknown(detail, total).characters;
-    const han = characters.han ?? 0;
-    const latin = characters.latin ?? 0;
-    const number = characters.number ?? 0;
-    const punctuation = characters.punctuation ?? 0;
-    const classified = Object.values(characters).reduce((sum, value) => sum + value, 0);
-    const recordedActive = statistics.dailyActiveMs?.[key];
-    const activeMs = typeof recordedActive === "number" ? recordedActive : null;
-    return {
-      key,
-      total,
-      han,
-      latin,
-      number,
-      punctuation,
-      other: Math.max(0, classified - han - latin - number - punctuation),
-      activeMs,
-      speed: activeMs === null ? null : charactersPerMinute(readableCharacters(detail), activeMs),
-    };
-  });
-}
 
 /** The table's columns: 汉字/字母 rather than the source's 中文/英文, because here kana and other scripts are neither and sit in 其他. */
 const detailColumns = [

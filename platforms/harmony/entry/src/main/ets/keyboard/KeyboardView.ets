@@ -283,8 +283,6 @@ const NINE_KEY_SIDE_SHARE: number = 1.15;
 const NINE_KEY_GRID_SHARE: number = 6;
 const NINE_KEY_FONT_SIZE: number = 17;
 const NINE_KEY_LETTER_WEIGHT: number = 500;
-const NINE_KEY_HINT_TOP_VP: number = 3;
-const NINE_KEY_HINT_RIGHT_VP: number = 6;
 // 展开的候选网格：列宽至少 64vp、列间距 6vp，格高 44vp、圆角 8、词 17fp，最多 40 格，下方是 40vp 高、放「返回」和删除键的底栏。
 const EXPANDED_MIN_COLUMN_VP: number = 64;
 const EXPANDED_GAP_VP: number = 6;
@@ -4553,12 +4551,12 @@ struct KeyboardView {
     Stack({ alignContent: Alignment.TopEnd }) {
       this.keyFace(this.nineKeyKeyOptions(key))
       if (this.touchDesign()) {
-        // 长按可输入的数字，包括常用标点键的 1；数字层不重复印。
+        // 长按可输入的数字，包括常用标点键的 1；数字层不重复印。与 26 键字母键的角标同位同号：距顶部 3 vp、距右侧 5 vp，10fp。
         Text(NineKeyLayout.digitHint(key))
           .fontSize(KEY_HINT_FONT_SIZE)
           .fontColor(this.skin.secondary)
           .maxLines(1)
-          .margin({ top: NINE_KEY_HINT_TOP_VP, right: NINE_KEY_HINT_RIGHT_VP })
+          .margin({ top: CORNER_HINT_TOP_VP, right: CORNER_HINT_RIGHT_VP })
           .hitTestBehavior(HitTestMode.Transparent)
       }
     }

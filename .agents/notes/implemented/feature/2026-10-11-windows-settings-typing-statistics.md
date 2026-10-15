@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-原生设置窗口的「打字统计」是 Shell 页，只有一行「打开」，用 `settings:typing-statistics` 拉起共享 Tauri 应用。整项工作的目标是任何设置都在原生窗口里改。共享页（`packages/ui/src/settings/typing-statistics.tsx`）在 Windows 上是桌面版：概览六格、六个标签下的柱形图、分时柱、速度折线、日历热力图、按键热力图、两个环形图、方案排行、按日明细和候选命中位置，下面是「记录打字统计」开关、「自动清理」保留期、刷新、打开数据目录和清空。页面上的数字全是 TypeScript 从原始统计现算的（`typing-statistics-helpers.ts`、`typing-speed.ts`、`typing-breakdown.ts`、`typing-chart.ts`、`keyboard-heatmap.ts`），C ABI 的 `msime_client_typing_statistics` 能读写统计，却回答不了「统计文件写过没有、最后什么时候写的」，而「统计没有数据」那段说明靠的就是这两项（Tauri 外壳在自己的命令里看文件修改时间）。
+原生设置窗口的「打字统计」是 Shell 页，只有一行「打开」，用 `settings:typing-statistics` 拉起共享 Tauri 应用。整项工作的目标是任何设置都在原生窗口里改。共享页（`packages/ui/src/settings/typing-statistics.tsx`）在 Windows 上是桌面版：概览六格、六个标签下的柱形图、分时柱、速度折线、日历热力图、按键热力图、两个环形图、方案排行、按日明细和候选命中位置，下面是「记录打字统计」开关、「自动清理」保留期、刷新、打开数据目录和清空。页面上的数字全是 TypeScript 从原始统计现算的（`typing-statistics-model.ts`、`typing-statistics-helpers.ts`、`typing-speed.ts`、`typing-breakdown.ts`、`typing-chart.ts`、`keyboard-heatmap.ts`），C ABI 的 `msime_client_typing_statistics` 能读写统计，却回答不了「统计文件写过没有、最后什么时候写的」，而「统计没有数据」那段说明靠的就是这两项（Tauri 外壳在自己的命令里看文件修改时间）。
 
 ## Decision
 

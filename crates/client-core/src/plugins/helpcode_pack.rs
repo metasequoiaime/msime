@@ -5,7 +5,7 @@
 //! table = "table.txt"
 //! ```
 //!
-//! `[helpcode]` 只有 `table` 一个键，点名包里的一个 `.txt` 数据文件：1 字节到 1 MiB（Engine 的 `MAX_HELPCODE_BYTES`），UTF-8，可以带 BOM。按 `\n` 分行，每行去掉一个行尾的 `\r`，其余位置的 `\r` 算控制字符。每行是空行、`#` 开头的注释，或者 `<字>=<码>`：`<字>` 恰好是一个非 ASCII、非空白、非控制字符的 Unicode 标量，`<码>` 恰好是 1 到 2 个小写 ASCII 字母，等号两边不能有空格。码更长就拒绝，而不是像 Engine 读内置表那样截断；只有空格的行也拒绝。一张表 1 到 30000 条，同一个字不能出现两次。
+//! `[helpcode]` 只有 `table` 一个键，点名包里的一个 `.txt` 数据文件：1 字节到 1 MiB（Engine 的 `MAX_HELPCODE_BYTES`），UTF-8，可以带 BOM。按 `\n` 分行，每行去掉一个行尾的 `\r`，其余位置的 `\r` 算控制字符。每行是空行、`#` 开头的注释，或者 `<字>=<码>`：`<字>` 恰好是一个非 ASCII、非空白、非控制字符的 Unicode 标量，`<码>` 恰好是 1 到 2 个小写 ASCII 字母，等号两边不能有空格。码更长就拒绝，而不是像 Engine 读内置表那样截断；只有空格的行也拒绝。一张表至少一条，不设条数上限，仍受 1 MiB 文件边界约束，同一个字不能出现两次。
 //!
 //! 包只携带数据：宿主用 [`load_codes`] 读出码表交给 Engine，选中它的方案（`plugins.helpcode_pack_quanpin` / `helpcode_pack_shuangpin`）用它替换原来的 `schema`；包载入失败时宿主退回原来的方案。
 //!
@@ -26,8 +26,8 @@ pub(crate) const MANIFEST_KEYS: [&str; 1] = ["helpcode"];
 
 /// 码表文件的字节上限，即 Engine 的 `MAX_HELPCODE_BYTES`。
 pub const MAX_TABLE_BYTES: u64 = 1024 * 1024;
-/// 一张表的条数上限。
-pub const MAX_ENTRIES: usize = 30_000;
+/// 初次预分配最多三万条，避免注释填充的小表按文件大小申请过多内存；更多条目按需增长。
+pub(crate) const INITIAL_ENTRY_CAPACITY: usize = 30_000;
 /// 详情里预览的条数。
 pub const PREVIEW_ENTRIES: usize = 8;
 /// 码表文件的扩展名。
@@ -108,7 +108,7 @@ pub(crate) fn parse_table(bytes: &[u8], name: &str) -> Result<Vec<HelpcodeEntry>
         }
         if entries.is_empty() {
             // 最短合法行是两字节字符、等号和一个码字母；除最后一行外还要有换行。
-            let capacity = (bytes.len().saturating_add(1) / 5).min(MAX_ENTRIES);
+            let capacity = (bytes.len().saturating_add(1) / 5).min(INITIAL_ENTRY_CAPACITY);
             entries.reserve_exact(capacity);
             seen.reserve(capacity);
         }
@@ -116,9 +116,6 @@ pub(crate) fn parse_table(bytes: &[u8], name: &str) -> Result<Vec<HelpcodeEntry>
             return Err(format!(
                 "{name} 里「{scalar}」出现了不止一次（第 {first} 行和第 {number} 行）"
             ));
-        }
-        if entries.len() == MAX_ENTRIES {
-            return Err(format!("{name} 的条数超过 {MAX_ENTRIES}"));
         }
         entries.push(HelpcodeEntry {
             character: character.to_owned(),

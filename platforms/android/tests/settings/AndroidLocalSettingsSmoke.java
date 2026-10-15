@@ -42,6 +42,7 @@ public final class AndroidLocalSettingsSmoke {
         atomicWrite();
         splitKeyboardRoundTrip();
         capitalizationSetting();
+        diagnosticDirectorySetting();
         syncedKeysMatchClientCore();
         System.out.println("AndroidLocalSettingsSmoke ok");
     }
@@ -105,6 +106,22 @@ public final class AndroidLocalSettingsSmoke {
             AndroidLocalSettings.accepted(Map.of(AndroidLocalSettings.AUTO_CAPITALIZATION, true)));
         check(enabled.bool(AndroidLocalSettings.AUTO_CAPITALIZATION), "explicit opt-in is respected");
         check(!enabled.synced().containsKey(AndroidLocalSettings.AUTO_CAPITALIZATION), "opt-in is not synced");
+    }
+
+    private static void diagnosticDirectorySetting() {
+        String key = AndroidLocalSettings.DIAGNOSTICS_EXPORT_TREE;
+        AndroidLocalSettings.Spec spec = AndroidLocalSettings.spec(key);
+        check("".equals(AndroidLocalSettings.defaults().text(key)), "export directory has no default grant");
+        check(!spec.synced && !LocalBackupPolicy.backsUpLocalSetting(key), "directory stays on this device");
+        String uri = "content://synthetic.documents/tree/export";
+        check(uri.equals(spec.accept(uri)), "document tree setting accepts bounded content URI");
+        check(spec.accept("/storage/emulated/0/exports") == null, "raw path is not authorization");
+        check(spec.accept("file:///synthetic/export") == null, "file URI is not authorization");
+        check(spec.accept("content://" + "x".repeat(8192)) == null, "directory setting is bounded");
+        check(spec.accept(123) == null, "directory setting rejects other types");
+        AndroidLocalSettings.Snapshot selected = new AndroidLocalSettings.Snapshot(
+            AndroidLocalSettings.accepted(Map.of(key, uri)));
+        check(uri.equals(selected.text(key)) && !selected.synced().containsKey(key), "selection remains local");
     }
 
     private static void validation() {

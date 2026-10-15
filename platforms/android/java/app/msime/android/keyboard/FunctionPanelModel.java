@@ -19,7 +19,7 @@ public final class FunctionPanelModel {
         FULL_WIDTH, CHINESE_PUNCTUATION, FUZZY_PINYIN, TRADITIONAL, HANDWRITING, DICTIONARY,
         KEYBOARD_HEIGHT, SETTINGS,
         KEY_SOUND, VIBRATION, ONE_HAND, PRIVACY, FEEDBACK, ABOUT, AI_ASSIST, LOCAL_INPUT,
-        VOICE_RESULT, VIBRATION_STRENGTH, EMOJI, CLIPBOARD, FLOATING, TEXT_EDIT
+        VOICE_RESULT, VIBRATION_STRENGTH, EMOJI, CLIPBOARD, FLOATING, TEXT_EDIT, COPY_DEVICE_INFO
     }
 
     /**
@@ -53,6 +53,7 @@ public final class FunctionPanelModel {
         action(Id.TEXT_EDIT, "文本编辑"),
         action(Id.FEEDBACK, "反馈"),
         action(Id.ABOUT, "关于"),
+        action(Id.COPY_DEVICE_INFO, "复制设备信息"),
         action(Id.EMOJI, "表情"),
         action(Id.CLIPBOARD, "剪贴板历史"));
 

@@ -15,7 +15,7 @@ SITES = {
     JAVA / "core/Telemetry.java": "AppVersionPolicy.versionName(app)",
     JAVA / "home/AccountFragment.java": 'AppVersionPolicy.versionName(requireContext(), "—")',
     JAVA / "home/DeveloperPage.java": 'AppVersionPolicy.versionName(context, "")',
-    JAVA / "home/DeviceInfo.java": "AppVersionPolicy.current(context)",
+    JAVA / "core/DeviceInfoCollector.java": "AppVersionPolicy.current(context)",
     JAVA / "home/FeedbackPage.java": "AppVersionPolicy.current(context)",
     JAVA / "home/UpdateJobService.java": 'AppVersionPolicy.versionName(context, "0")',
 }
