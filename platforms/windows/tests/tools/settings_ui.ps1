@@ -79,6 +79,19 @@ function Select-CandidateTab($window, [string]$tab) {
     $label = @{layout = '候选项排列方式'; font = '主字体'; style = '不透明度'; preedit = '行内预编辑'}[$tab]
     if (-not (Find-ByName (Find-ById $window 'settings-content') $label)) { throw "Candidate tab content is missing: $tab" }
 }
+function Select-ComboChoice($window, [string]$id, [string]$label) {
+    $combo = Find-ById $window $id
+    if (-not $combo) { throw "Missing combo: $id" }
+    $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $item = Find-ByName $combo $label
+    } while (-not $item -and [DateTime]::UtcNow -lt $deadline)
+    if (-not $item) { throw "Missing combo option: $label" }
+    $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Collapse()
+}
 function Save-Window($element, [string]$file) {
     $bounds = $element.Current.BoundingRectangle
     if ($bounds.Width -lt 600 -or $bounds.Height -lt 400) { throw 'Settings window bounds are invalid' }
@@ -210,6 +223,37 @@ try {
         if (-not (Find-ByName (Find-ById $window 'settings-content') '主字体')) { throw 'Font search target is missing' }
         Start-Sleep -Milliseconds 350
         Save-Window $window "$theme-search-candidate-font.png"
+        # 与 macOS 一样，示例与预览明暗在切标签后保留，但不写入真实设置。
+        $preferencesBeforePreview = [IO.File]::ReadAllText((Join-Path $state 'preferences.json'))
+        $sample = Find-ById $window 'candidate-preview-sample'
+        if (-not $sample) { throw 'Candidate preview sample input is missing' }
+        $sample.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('杉树🌲 Alpha')
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $first = Find-ById $window 'candidate-preview-word-0'
+            $third = Find-ById $window 'candidate-preview-word-2'
+        } while ((-not $first -or $first.Current.Name -ne '杉树🌲' -or -not $third -or $third.Current.Name -ne '杉树🌲') -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $first -or $first.Current.Name -ne '杉树🌲' -or -not $third -or $third.Current.Name -ne '杉树🌲') { throw 'Candidate preview did not cycle the custom sample' }
+        $appearance = if ($theme -eq 'light') { '预览深色' } else { '预览浅色' }
+        Select-ComboChoice $window 'candidate-preview-appearance' $appearance
+        Select-CandidateTab $window 'layout'
+        $sample = Find-ById $window 'candidate-preview-sample'
+        if ($sample.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value -ne '杉树🌲 Alpha') { throw 'Candidate tab switch lost the preview sample' }
+        $combo = Find-ById $window 'candidate-preview-appearance'
+        $selected = $combo.GetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern).GetCurrentSelection()
+        if ($selected.Count -ne 1 -or $selected[0].Current.Name -ne $appearance) { throw 'Candidate tab switch lost the preview appearance' }
+        Start-Sleep -Milliseconds 350
+        Save-Window $window "$theme-candidate-custom-preview.png"
+        $sample.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('   ')
+        Select-ComboChoice $window 'candidate-preview-appearance' '跟随设置'
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $first = Find-ById $window 'candidate-preview-word-0'
+        } while ((-not $first -or $first.Current.Name -ne '候选项') -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $first -or $first.Current.Name -ne '候选项') { throw 'Whitespace did not restore the default preview' }
+        if ([IO.File]::ReadAllText((Join-Path $state 'preferences.json')) -ne $preferencesBeforePreview) { throw 'Preview-only controls changed saved preferences' }
         # 真实开关必须同时改变持久化和预览宽度，再切回初始值，避免静态画面假通过。
         Open-Page $window 'toolbar'
         $size = Find-ById $window 'toolbar-preview-size'

@@ -10133,7 +10133,43 @@ private:
     stage.Padding(Thickness{16, 16, 16, 16});
     stage.Child(viewport);
     holder.Children().Append(stage);
-    holder.Children().Append(make_text(L"调整下方设置，预览会同步变化。", 11, palette_.sub));
+
+    Grid controls;
+    controls.ColumnSpacing(10);
+    ColumnDefinition sample_column;
+    sample_column.Width(GridLength{1, GridUnitType::Star});
+    ColumnDefinition theme_column;
+    theme_column.Width(GridLength{1, GridUnitType::Auto});
+    controls.ColumnDefinitions().Append(sample_column);
+    controls.ColumnDefinitions().Append(theme_column);
+    TextBox sample;
+    sample.FontSize(13);
+    sample.MaxLength(256);
+    sample.PlaceholderText(L"预览示例文字，以空格分隔");
+    sample.Text(hstring(preview_sample_));
+    A11y::SetName(sample, L"预览示例文字");
+    A11y::SetAutomationId(sample, L"candidate-preview-sample");
+    sample.TextChanged([this](Inspectable const &sender, TextChangedEventArgs const &) {
+      preview_sample_ = sender.as<TextBox>().Text().c_str();
+      update_preview();
+    });
+    controls.Children().Append(sample);
+    auto theme = select_control(
+        L"预览颜色模式",
+        {{L"follow", L"跟随设置"}, {L"light", L"预览浅色"}, {L"dark", L"预览深色"}},
+        preview_dark_ ? (*preview_dark_ ? L"dark" : L"light") : L"follow",
+        [this](std::wstring const &value) {
+          // 只改变预览，本机输入法和其他窗口继续使用保存的主题。
+          preview_dark_ = value == L"follow" ? std::nullopt
+                                            : std::optional<bool>(value == L"dark");
+          update_preview();
+        }, true, false);
+    A11y::SetAutomationId(theme, L"candidate-preview-appearance");
+    Grid::SetColumn(theme, 1);
+    controls.Children().Append(theme);
+    holder.Children().Append(controls);
+    holder.Children().Append(make_text(
+        L"输入示例文字比较字体，调整下方设置查看效果。", 11, palette_.sub));
     update_preview();
     return holder;
   }
@@ -10141,8 +10177,9 @@ private:
   void update_preview() {
     if (!preview_host_)
       return;
-    // Drawn from the palette the candidate window itself draws (CandidateWindow.cpp), so the preview shows the resolved theme rather than this window's chrome.
-    const auto theme = candidate_theme(document_.String(L"global_theme", L"system"));
+    // 使用候选窗自身的调色板；预览可独立比较浅深色，不改变输入法的主题。
+    const auto theme = candidate_theme(document_.String(L"global_theme", L"system"),
+                                       true, preview_dark_);
     const bool vertical =
         document_.String(L"candidate_layout", L"vertical") == L"vertical";
     const auto count = std::clamp<int>(
@@ -10160,8 +10197,12 @@ private:
     auto english_family = document_.String(L"candidate_english_font", nav::candidate_default_english_font);
     if (english_family.empty())
       english_family = main_family;
-    const auto main_font = FontFamily(hstring(main_family));
-    const auto english_font = FontFamily(hstring(english_family));
+    // 原生候选先用英文字体，再按保存的列表逐字回退；示例也沿用这个顺序。
+    auto family_chain = english_family;
+    for (const auto &family : document_.Strings(L"candidate_fallback_fonts"))
+      if (!family.empty())
+        family_chain += L"," + family;
+    const auto preview_font = FontFamily(hstring(family_chain));
     // Scale, opacity and radius through the rules the card itself uses (CandidateWindowStyle.h). The package's own radius is not known here, so an unset radius previews the theme's.
     const auto style = candidate_window_style();
     const double scale = style.scale();
@@ -10196,17 +10237,30 @@ private:
                            std::clamp(document_.Number(L"candidate_preedit_font_size", 15),
                                       12.0, 32.0) * scale,
                            to_color(theme.accent));
-      pre.FontFamily(english_font);
+      pre.FontFamily(preview_font);
       pre.FontWeight(Windows::UI::Text::FontWeight{600});
       head.Children().Append(pre);
     }
     body.Children().Append(head);
 
+    // 短示例循环填满设定的每页数量；清空或只输入空白时恢复内置示例。
+    std::vector<std::wstring> samples;
+    constexpr std::wstring_view whitespace = L" \t\r\n\v\f\u3000";
+    for (size_t start = preview_sample_.find_first_not_of(whitespace);
+         start != std::wstring::npos && samples.size() < preview_words.size();) {
+      const auto end = preview_sample_.find_first_of(whitespace, start);
+      samples.push_back(preview_sample_.substr(start, end == std::wstring::npos
+                                                        ? end : end - start));
+      start = end == std::wstring::npos ? end
+                                        : preview_sample_.find_first_not_of(whitespace, end);
+    }
     StackPanel list;
     list.Orientation(vertical ? Orientation::Vertical : Orientation::Horizontal);
     list.Spacing(4 * scale);
     for (int i = 0; i < count; ++i) {
-      const auto &[word, gloss] = preview_words[static_cast<size_t>(i)];
+      const auto &[default_word, gloss] = preview_words[static_cast<size_t>(i)];
+      const std::wstring word = samples.empty() ? default_word
+                                                : samples[static_cast<size_t>(i) % samples.size()];
       const bool highlighted = i == 0;
       Grid item;
       item.Padding(Thickness{6 * scale, 4 * scale, 10 * scale, 4 * scale});
@@ -10241,12 +10295,13 @@ private:
       cell.Children().Append(number);
       StackPanel words;
       auto candidate = make_text(word, font * scale, to_color(row_color));
+      A11y::SetAutomationId(candidate, hstring(L"candidate-preview-word-" + std::to_wstring(i)));
       candidate.TextWrapping(TextWrapping::NoWrap);
-      candidate.FontFamily(main_font);
+      candidate.FontFamily(preview_font);
       words.Children().Append(candidate);
-      if (translations) {
+      if (translations && samples.empty()) {
         auto translation = make_text(gloss, 13 * scale, to_color(translation_color));
-        translation.FontFamily(english_font);
+        translation.FontFamily(preview_font);
         words.Children().Append(translation);
       }
       cell.Children().Append(words);
@@ -14590,7 +14645,7 @@ private:
           stats_tab_ = value;
           redraw_stats();
         },
-        true, false);
+        true, false, 6, L"statistics-tab");
     tabs.HorizontalAlignment(HorizontalAlignment::Left);
     tabs.Margin(Thickness{0, 24, 0, 0});
     page.Children().Append(tabs);
@@ -14635,7 +14690,7 @@ private:
                            },
                            !stats_busy_, false));
     StackPanel actions;
-    actions.Padding(Thickness{24, 16, 24, 18});
+    actions.Padding(Thickness{0, 12, 0, 12});
     StackPanel buttons;
     buttons.Orientation(Orientation::Horizontal);
     buttons.Spacing(9);
@@ -14653,9 +14708,11 @@ private:
         12, palette_.sub);
     privacy.Margin(Thickness{0, 16, 0, 0});
     actions.Children().Append(privacy);
-    auto card = make_card();
-    card.Child(actions);
-    group.Children().Append(card);
+    Border actions_row;
+    actions_row.BorderBrush(brush(palette_.divider));
+    actions_row.BorderThickness(Thickness{0, 1, 0, 0});
+    actions_row.Child(actions);
+    group.Children().Append(actions_row);
 
     const auto message = typing::availability_notice(
         statistics.enabled, statistics.total, status.never_written,
@@ -19299,6 +19356,8 @@ private:
   bool closed_ = false;
   bool pending_save_ = false;
   bool preview_visible_ = true;
+  std::wstring preview_sample_;
+  std::optional<bool> preview_dark_;
   std::wstring candidate_tab_ = L"layout";
   std::wstring candidate_index_tab_;
   std::map<std::wstring, std::wstring> candidate_search_tabs_;
