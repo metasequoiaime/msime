@@ -345,3 +345,9 @@ pod install --deployment
 cd ../../../../..
 pnpm --filter @msime/desktop tauri ios build --target aarch64 --no-sign --ci
 ```
+
+### 九键双拼（#6572）
+
+在「输入设置 → 九键双拼方案与自定义」选择米旮旯 3、米旮旯 2、辜氏 2 低重码或自定义表，点「保存并使用」会启用并选中九键双拼。自定义表可逐项编辑，也可导入导出与 Android 互用的 JSON；有错误时显示位置并禁止保存。1 和 0 按当前方案组码，右列保留分词，底行的「符」打开符号面板。
+
+原生键面与表校验回归为 `MSIMEKeyboardTests/NineKeyShuangpinTests` 和 `NineKeyKeyboardTests/testNineKeyShuangpinKeyFacesAndNumericLayer`；系统扩展向编辑器提交文字的用例为 `MSIMEClientUITests/KeyboardExtensionEditorUITests/testNineKeyShuangpinTypesIntoTheHostEditor`。后者需在专用模拟器中启用水杉系统键盘，跳过不等于验收通过。

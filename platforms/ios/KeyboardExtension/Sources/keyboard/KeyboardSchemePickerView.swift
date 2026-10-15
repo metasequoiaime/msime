@@ -43,6 +43,7 @@ final class KeyboardSchemePickerView: UIView {
       switch scheme {
       case .quanpin: glyph = "拼"; badge = "26"
       case .nineKey: glyph = "拼"; badge = "9"
+      case .nineKeyShuangpin: glyph = "双"; badge = "9"
       case .shuangpin: glyph = "鹤"; badge = "双"
       case .ziranma: glyph = "自"; badge = "双"
       case .microsoft: glyph = "微"; badge = "双"

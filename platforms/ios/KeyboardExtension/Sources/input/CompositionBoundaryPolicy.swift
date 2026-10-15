@@ -34,7 +34,7 @@ enum CompositionBoundaryPolicy {
     if scheme.isZhuyin || scheme.isVietnamese || scheme.isTibetan {
       return boundary == .returnKey ? .commitRaw : .finishComposition
     }
-    if boundary == .deactivate || scheme.isJapanese || scheme == .nineKey || scheme == .fourteenKey { return .finishComposition }
+    if boundary == .deactivate || scheme.isJapanese || scheme.isMandarinNineKey || scheme == .fourteenKey { return .finishComposition }
     return .commitRaw
   }
 }

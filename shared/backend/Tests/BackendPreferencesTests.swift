@@ -110,6 +110,7 @@ final class BackendPreferencesTests: XCTestCase {
       if let nineKey { values["platform.ios.nine_key"] = .boolean(nineKey) }
       return try IOSPreferencePlan(values, themes: themes)
     }
+    XCTAssertEqual(try plan("quanpin", layout: "nine_key_shuangpin", nineKey: false).scheme, "nineKeyShuangpin")
     // 新版本上传的 14 键：别的 iOS 设备落成 14 键。
     XCTAssertEqual(try plan("quanpin", layout: "fourteen_key", nineKey: false).scheme, "fourteenKey")
     XCTAssertEqual(try plan("quanpin", layout: "fourteen_key", nineKey: false).scheme(keeping: "quanpin"), "fourteenKey")

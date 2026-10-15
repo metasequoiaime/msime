@@ -9,7 +9,7 @@ struct CustomSkinEditorView: View {
   var publishable = true
   @Environment(\.scenePhase) private var scenePhase
   @State private var design = CustomKeyboardSkinStore.current
-  @State private var nineKey = InputSchemePreference.scheme == .nineKey
+  @State private var nineKey = InputSchemePreference.scheme.isMandarinNineKey
   @State private var confirmReset = false
   @State private var section = "背景"
   @State private var undo: [CustomKeyboardSkin] = []

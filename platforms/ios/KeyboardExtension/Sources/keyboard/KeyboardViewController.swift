@@ -373,6 +373,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleDiagnostic: String?
   private var diagnosticDismissTimer: Timer?
   private var shuangpinKeyHints: [String: String] = [:]
+  private var nineKeyShuangpinLayout: NineKeyShuangpinLayout?
   // What the last commit armed, if anything. These belong to the editor rather than to Engine:
   // a different document, a moved caret, or a session rebuilt while the keyboard was away all
   // mean the gesture is about something else, which is what the editor generation carries.
@@ -1327,7 +1328,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           if self.showsSymbols {
             self.handleSymbol(String(digit))
           }
-          else if letters == nil { self.showNineKeyQuickSymbols() }
+          else if letters == nil && self.inputScheme != .nineKeyShuangpin { self.showNineKeyQuickSymbols() }
           else { self.handleCharacter(String(digit)) }
         }
         button.accessibilityIdentifier = "nineKey\(digit)"
@@ -1403,15 +1404,34 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func applyNineKeyDigitLayer(_ digits: Bool) {
+    let shuangpin = inputScheme == .nineKeyShuangpin
     for key in nineKeyGridKeys {
-      key.button.configuration?.title = digits ? String(key.digit) : (key.letters ?? Self.nineKeySymbolsFace)
-      key.button.accessibilityLabel = digits
-        ? "数字 \(key.digit)"
-        : (key.letters.map { "\(key.digit) \($0)" } ?? "1 符号")
-      key.numberHint?.isHidden = digits
-      key.button.accessibilityHint = digits ? nil
-        : (key.letters.map { "长按输入 \(key.digit) 或 \($0)" } ?? "长按输入 1")
+      if shuangpin {
+        let face = nineKeyShuangpinLayout?.keys.first { $0.key == String(key.digit) }
+        key.button.configuration?.title = String(key.digit)
+        key.button.configuration?.subtitle = digits ? nil : face?.compactHint
+        key.button.configuration?.subtitleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+          var attributes = attributes
+          attributes.font = .systemFont(ofSize: 11)
+          return attributes
+        }
+        key.button.accessibilityLabel = digits ? "数字 \(key.digit)" : (face?.accessibilityLabel ?? "数字 \(key.digit)")
+        key.button.accessibilityHint = nil
+        key.numberHint?.isHidden = true
+      } else {
+        key.button.configuration?.subtitle = nil
+        key.button.configuration?.title = digits ? String(key.digit) : (key.letters ?? Self.nineKeySymbolsFace)
+        key.button.accessibilityLabel = digits
+          ? "数字 \(key.digit)"
+          : (key.letters.map { "\(key.digit) \($0)" } ?? "1 符号")
+        key.numberHint?.isHidden = digits
+        key.button.accessibilityHint = digits ? nil
+          : (key.letters.map { "长按输入 \(key.digit) 或 \($0)" } ?? "长按输入 1")
+      }
+      key.button.gestureRecognizers?.filter { $0.name == "nineKeyDigitHold" }.forEach { $0.isEnabled = !shuangpin && !digits }
     }
+    let zero = nineKeyShuangpinLayout?.keys.first { $0.key == "0" }
+    nineKeyZeroButton?.accessibilityLabel = shuangpin && !digits ? (zero?.accessibilityLabel ?? "数字 0") : "数字 0"
   }
 
   /// 九键外框的左列；！ 是右列的最后一个键（`nineKeyClosingMark`）。
@@ -1490,7 +1510,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   ]
 
   @objc private func handleNineKeyHold(_ gesture: UILongPressGestureRecognizer) {
-    guard gesture.state == .began, !showsSymbols, let key = gesture.view as? UIButton,
+    guard gesture.state == .began, !showsSymbols, inputScheme != .nineKeyShuangpin, let key = gesture.view as? UIButton,
       (1...9).contains(key.tag) else { return }
     // 长按替代点按，只统计一次；菜单选项经字面输入路径上屏，1 不进入拼音引擎。
     countKeyPress(TypingKeyID.nineKey(key.tag))
@@ -2792,7 +2812,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let zero = makeKey(title: "0", accessibilityLabel: "数字 0") { [weak self] in
       guard let self else { return }
       countKeyPress(TypingKeyID.nineKey(0))
-      handleSymbol("0")
+      if inputScheme == .nineKeyShuangpin && !showsSymbols { handleCharacter("0") }
+      else { handleSymbol("0") }
     }
     zero.configuration?.contentInsets = .zero
     zero.configuration?.titleTextAttributesTransformer = Self.functionLabelTransformer
@@ -3020,8 +3041,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       synchronizeInputSchemePreference()
       // A host setting can change while this view is open. Do not start an alphabetic composition
       // from a stale 26-key tap after switching to nine keys; local utilities still need letters.
-      if inputScheme == .nineKey && !isInLocalMode
-        && !("2"..."9").contains(character) && character != "'" {
+      let gridDigits = inputScheme == .nineKeyShuangpin ? "0"..."9" : "2"..."9"
+      if inputScheme.isMandarinNineKey && !isInLocalMode
+        && !gridDigits.contains(character) && character != "'" {
         return
       }
       // 全拼 14 键同理：它的键经 `gridKey` 送组码，这里只收分词键的 `'`；切到 14 键之前按下的 26 键字母不再开始一段 26 键组字。
@@ -3877,6 +3899,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func applyInputScheme() -> MetasequoiaInputSnapshot {
     switch inputScheme {
     case .nineKey: session.switchToNineKey()
+    case .nineKeyShuangpin: session.switchToNineKeyShuangpin()
     case .fourteenKey: session.switchToFourteenKey()
     case .ziranma, .microsoft, .shoudao: session.switch(toShuangpinProfile: inputScheme.rawValue)
     case .wubi: session.switchToWubi()
@@ -4293,6 +4316,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !hasComposition, let selectedScheme, InputSchemePreference.offeredSchemes.contains(selectedScheme) {
       selectInputScheme(selectedScheme, persistShared: false)
     }
+    if inputScheme == .nineKeyShuangpin {
+      nineKeyShuangpinLayout = try? .current(in: preferences)
+    }
     if skinChanged { applyKeyboardSkin() }
     applyLayoutPreferences()
     updateShortcutButtons()
@@ -4426,7 +4452,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 全拼九键或 14 键正在组字时，展开的是三栏的九键面板（单字和笔画筛选照常可用）；其他方案、注音九键和本地模式照旧是带「返回」和 ⌫ 底栏的候选网格。
   private var opensNineKeyPanel: Bool {
-    (inputScheme == .nineKey || inputScheme == .fourteenKey) && isChineseMode && hasComposition && !isInLocalMode
+    (inputScheme.isMandarinNineKey || inputScheme == .fourteenKey) && isChineseMode && hasComposition && !isInLocalMode
   }
 
   private func candidatePanelAnnotations(_ snapshot: CandidatePanelSnapshot) -> [KeyboardCandidateAnnotation] {
@@ -4648,6 +4674,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // The hints come from the engine's own profile for the scheme the session is running, so they
     // are refreshed wherever the scheme is, and cannot drift from what the keys actually produce.
     shuangpinKeyHints = session.shuangpinKeyHints()
+    nineKeyShuangpinLayout = inputScheme == .nineKeyShuangpin ? try? .current(in: session.sharedPreferences) : nil
     updateLetterCaseControls()
 
     // 输入方式画设计稿的键盘线框图标；方案本身作为按钮的值朗读，并在它打开的选择器里显示。
@@ -4834,7 +4861,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     actionRow?.isHidden = kana
     japaneseGlobeButton?.isHidden = !needsInputModeSwitchKey
     japaneseKeys?.setModeColumnFull(needsInputModeSwitchKey)
-    let nineKey = isChineseMode && inputScheme == .nineKey && !isInLocalMode
+    let nineKey = isChineseMode && inputScheme.isMandarinNineKey && !isInLocalMode
     let writes = isChineseMode && inputScheme == .handwriting && !showsSymbols && !isInLocalMode
     if !writes && !handwriting.isHidden { handwriting.deactivate() }
     handwriting.isHidden = !writes
@@ -4913,7 +4940,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       fullSymbolsWidth?.isActive = !nineKeySymbolsButton.isHidden && (style == .phone || style == .standard || style == .tablet)
       layerEmojiButton.isHidden = !(symbolLayer && !showsMoreSymbols)
-      nineKeyZeroButton.isHidden = style != .nineKey || !showsSymbols
+      nineKeyZeroButton.isHidden = style != .nineKey || (!showsSymbols && inputScheme != .nineKeyShuangpin)
       let hidesLanguage = !layout.showsBottomLanguage
       bottomLanguageButton?.isHidden = style == .symbolLayer || hidesLanguage
       bottomLanguageWidth?.isActive = style == .standard && !hidesLanguage
@@ -5358,6 +5385,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if localModeTrigger == "R" || (isChineseMode && inputScheme.isJapanese) { return .japanese }
     if localModeTrigger != nil { return .local }
     if !isChineseMode { return .english }
+    if inputScheme == .nineKeyShuangpin { return .nineKey }
     return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
   }
 

@@ -10,7 +10,7 @@ final class AISkinDesignModel: ObservableObject {
   static let maximumPromptLength = 500
 
   @Published var prompt = ""
-  @Published var nineKey = InputSchemePreference.scheme == .nineKey
+  @Published var nineKey = InputSchemePreference.scheme.isMandarinNineKey
   @Published private(set) var proposals: [AISkinProposal] = []
   @Published var chosen = 0
   @Published private(set) var busy = false

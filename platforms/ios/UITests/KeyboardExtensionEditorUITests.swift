@@ -246,6 +246,40 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
                   "the editor holds \(value) but the chip that was tapped said \(candidate)")
   }
 
+  /// 从原生设置保存方案，再由系统加载扩展，在真实编辑器里用九键双拼提交候选。
+  func testNineKeyShuangpinTypesIntoTheHostEditor() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.tabBars.buttons["设置"].tap()
+    let input = app.buttons["inputSettingsLink"].firstMatch
+    for _ in 0..<6 where !input.isHittable { app.swipeUp() }
+    XCTAssertTrue(input.waitForExistence(timeout: 10))
+    input.tap()
+    let settings = app.buttons["nineKeyShuangpinSettingsLink"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 10))
+    settings.tap()
+    let save = app.buttons["nineKeyShuangpinSave"]
+    for _ in 0..<8 where !save.isHittable { app.swipeUp() }
+    XCTAssertTrue(save.isEnabled)
+    save.tap()
+    XCTAssertTrue(app.staticTexts["已保存，键盘将使用这张方案表"].waitForExistence(timeout: 5))
+    app.terminate()
+
+    let field = try focusedTryoutKeyboard(app)
+    XCTAssertTrue((app.buttons["schemeButton"].value as? String)?.contains("九键双拼") == true)
+    XCTAssertTrue(app.buttons["nineKeyZero"].exists)
+    for digit in "6447" {
+      let key = app.buttons["nineKey\(digit)"]
+      XCTAssertTrue(key.waitForExistence(timeout: 5))
+      key.tap()
+    }
+    let shown = (1...5).map { app.buttons["candidate-\($0)"] }.filter(\.exists)
+    let nihao = try XCTUnwrap(shown.first { $0.label.contains("你好") }, "九键双拼应给出你好候选")
+    nihao.tap()
+    XCTAssertTrue((field.value as? String ?? "").contains("你好"))
+  }
+
   /// 全拼 14 键当成系统键盘来用：点方案卡片切到 14 键，按 BN UI GH AS OP 打出「你好」，从候选条上选它上屏到别人的编辑框里。bu 和 ni 同组码，锁定词库里「不好」的权重高于「你好」，所以只要求「你好」在前几个候选里，与 Android 设备验收和 FourteenKeyKeyboardTests 相同。14 键要用户自己打开，没打开时跳过。
   func testFourteenKeysTypeNihaoIntoTheHostEditor() throws {
     let app = XCUIApplication()

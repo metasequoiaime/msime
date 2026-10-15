@@ -60,7 +60,7 @@ struct KeyboardLayoutSettingsView: View {
 
   // MARK: - 预览
 
-  private var nineKey: Bool { scheme == .nineKey }
+  private var nineKey: Bool { scheme.isMandarinNineKey }
   /// 键盘上有没有 iPad 的数字行：九键和全拼 14 键都不画它。
   private var drawsNumberRow: Bool { !nineKey && scheme != .fourteenKey }
 

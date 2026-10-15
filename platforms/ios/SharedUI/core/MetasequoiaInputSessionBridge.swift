@@ -47,6 +47,8 @@ private func msimeClientBalancePairedPunctuationAfterAutoClose(_ session: UInt64
 private func msimeClientSmartPunctuationArm(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_smart_punctuation_decide")
 private func msimeClientSmartPunctuationDecide(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_nine_key_shuangpin_layout")
+private func msimeClientNineKeyShuangpinLayout(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_shuangpin_key_hints")
 private func msimeClientShuangpinKeyHints(_ profile: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_choose_nine_key_spelling")
@@ -266,11 +268,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private var documentRevision: UInt64 = 0
   private var appliedFuzzyPinyinRules: UInt32?
   private var suspended = false
-  /// 引擎的组码网格，取值与 `msime_client_set_key_grid` 的 `grid` 相同：0 不用网格（26 键），1 九键，2 全拼 14 键。
+  /// 引擎的组码网格，取值与 `msime_client_set_key_grid` 的 `grid` 相同：0 不用网格（26 键），1 九键，2 全拼 14 键，3 九键双拼。
   enum KeyGrid: UInt8 {
     case none = 0
     case nineKey = 1
     case fourteenKey = 2
+    case nineKeyShuangpin = 3
   }
   // 网格（九键或 14 键）是会话状态，不在选项带的偏好里，所以重建的会话要再告诉一次，否则会回到 26 键。
   private var keyGrid = KeyGrid.none
@@ -500,6 +503,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     switch selected {
     case .nineKey, .japaneseNineKey: layout = "nine_key"
     case .fourteenKey: layout = "fourteen_key"
+    case .nineKeyShuangpin: layout = "nine_key_shuangpin"
     case .handwriting: layout = "handwriting"
     default: layout = "twenty_six_key"
     }
@@ -1087,6 +1091,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func `switch`(toShuangpinProfile profile: String) -> MetasequoiaInputSnapshot {
     switchScheme("shuangpin", profile: profile)
   }
+  func switchToNineKeyShuangpin() -> MetasequoiaInputSnapshot { switchToKeyGrid(.nineKeyShuangpin) }
+
   func switchToNineKey() -> MetasequoiaInputSnapshot { switchToKeyGrid(.nineKey) }
   /// 全拼 14 键：方案是全拼，按键经 `gridKey` 送组码。
   func switchToFourteenKey() -> MetasequoiaInputSnapshot { switchToKeyGrid(.fourteenKey) }
@@ -1187,6 +1193,17 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func openLocalMode(_ trigger: String) -> MetasequoiaInputSnapshot {
     guard let byte = Self.ascii(trigger) else { return diagnostic("本地输入模式无效") }
     return dispatch { pointer(for: String(UnicodeScalar(byte)), shift: true) }
+  }
+
+  /// 设置与键面共用引擎的方案表和带位置的校验结果，不创建输入会话。
+  static func nineKeyShuangpinLayout(profile: String, table: NineKeyShuangpinLayout.Table? = nil) throws -> NineKeyShuangpinLayout {
+    var request: [String: Any] = ["profile": profile]
+    if let table { request["table"] = table }
+    let data = try JSONSerialization.data(withJSONObject: request)
+    let value = try data.withUnsafeBytes { bytes in
+      try decode(msimeClientNineKeyShuangpinLayout(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count)))
+    }
+    return try JSONDecoder().decode(NineKeyShuangpinLayout.self, from: JSONSerialization.data(withJSONObject: value))
   }
 
   func nineKeySpellings() -> [String] {

@@ -80,7 +80,19 @@ struct InputSettingsView: View {
   var body: some View {
     ScrollView {
       VStack(spacing: 28) {
-        DesignGroup(title: "语言与方案", footer: footer(.languages)) { languageCard }
+        DesignGroup(title: "语言与方案", footer: footer(.languages)) {
+          languageCard
+          if ChineseInputScheme.nineKeyShuangpin.isOfferedByEdition {
+            DesignDivider(leading: 16)
+            NavigationLink(destination: NineKeyShuangpinSettingsView()) {
+              HStack {
+                Text("九键双拼方案与自定义")
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+              }.padding(16)
+            }.accessibilityIdentifier("nineKeyShuangpinSettingsLink")
+          }
+        }
         chineseGroup
         helpcodeGroup
         translationGroup

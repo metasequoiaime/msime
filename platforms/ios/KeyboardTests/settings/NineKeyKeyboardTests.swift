@@ -4,6 +4,45 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  /// 1/0 直接进入双拼组码，数字层恢复后仍显示当前方案而非电话键盘字母。
+  func testNineKeyShuangpinKeyFacesAndNumericLayer() throws {
+    let previous = MetasequoiaInputSessionBridge.loadSharedPreferences()
+    let mirror = (InputSchemePreference.enabledSchemes, InputSchemePreference.scheme)
+    let keys = ["scheme", "last_chinese_scheme", "touch_keyboard_layout", "touch_keyboard_schemes",
+                NineKeyShuangpinLayout.profileKey, NineKeyShuangpinLayout.tableKey]
+    defer {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { document in
+        for key in keys { document[key] = previous?[key] }
+      }
+      InputSchemePreference.enabledSchemes = mirror.0
+      InputSchemePreference.scheme = mirror.1
+    }
+    XCTAssertTrue(try NineKeyShuangpinLayout.save(profile: "migala3", table: nil))
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    let layout = try MetasequoiaInputSessionBridge.nineKeyShuangpinLayout(profile: "migala3")
+    for digit in 1...9 {
+      let key = try button("nineKey\(digit)", in: controller)
+      XCTAssertEqual(key.configuration?.title, String(digit))
+      XCTAssertEqual(key.configuration?.subtitle, layout.keys.first { $0.key == String(digit) }?.compactHint)
+      XCTAssertFalse(try XCTUnwrap(key.gestureRecognizers?.first { $0.name == "nineKeyDigitHold" }).isEnabled)
+    }
+    XCTAssertFalse(try button("nineKeyZero", in: controller).isHidden)
+    for digit in "6447" { try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered) }
+    XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"))
+    try button("nineKeyDelete", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertNil(try button("nineKey2", in: controller).configuration?.subtitle)
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(try button("nineKey2", in: controller).configuration?.title, "2")
+    XCTAssertEqual(try button("nineKey2", in: controller).configuration?.subtitle, "零 b c")
+    XCTAssertFalse(try button("nineKeyZero", in: controller).isHidden)
+    controller.viewDidDisappear(false)
+  }
+
   func testSharedFrequencyPreferenceRejectsFractionalAndBooleanCounts() {
     XCTAssertNil(KeyboardViewController.sharedPreferenceInt(NSNumber(value: 2.5), range: 1...10))
     XCTAssertNil(KeyboardViewController.sharedPreferenceInt(NSNumber(value: true), range: 1...10))
@@ -2070,7 +2109,8 @@ final class NineKeyKeyboardTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(returnHeight, 30)
             XCTAssertEqual(try button("zhuyinKeyq", in: controller).bounds.height, returnHeight, accuracy: 0.5)
           } else {
-            XCTAssertEqual(try button("returnKey", in: controller).bounds.height, reference, accuracy: 0.5)
+            XCTAssertEqual(try button("returnKey", in: controller).bounds.height, reference, accuracy: 0.5,
+                           "\(scheme) symbols=\(symbols)")
           }
           if scheme == .stroke {
             // 笔画键在九键外框里占九键网格的位置：两行键填满三行的高度。符号层和 Android 一样是新设计的 123 / #+= 层，不再回到九键网格。
@@ -2084,7 +2124,7 @@ final class NineKeyKeyboardTests: XCTestCase {
             if !symbols { XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, "重输") }
             XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, symbols ? "拼音" : "123")
           }
-          if symbols && ![.nineKey, .japaneseNineKey, .zhuyin].contains(scheme) {
+          if symbols && ![.nineKey, .nineKeyShuangpin, .japaneseNineKey, .zhuyin].contains(scheme) {
             // 其他所有界面都画设计稿的 123 层，其按键与字母键等高。
             XCTAssertEqual(try button("symbolLayerKey0_0", in: controller).bounds.height, reference, accuracy: 0.5, "\(scheme)")
             XCTAssertFalse(try button("symbolLayerDeleteKey", in: controller).isHidden)
@@ -2111,7 +2151,7 @@ final class NineKeyKeyboardTests: XCTestCase {
           }
           let punctuation = try button("quickPunctuationKey", in: controller)
           // 手写板沿用手机 26 键的底行，与 Android 的 designEntries 一致，所以它的 ， 显示在空格键旁边。
-          XCTAssertEqual(punctuation.isHidden, symbols || [.nineKey, .japaneseNineKey, .stroke].contains(scheme))
+          XCTAssertEqual(punctuation.isHidden, symbols || [.nineKey, .nineKeyShuangpin, .japaneseNineKey, .stroke].contains(scheme))
           if !punctuation.isHidden {
             XCTAssertEqual(punctuation.configuration?.title, scheme.isJapanese ? "、" : scheme.writesAsciiPunctuation ? "," : "，")
             // 手机 26 键底行按相对空格键的比例分配宽度：， 占一份，空格占四份。
@@ -2123,7 +2163,7 @@ final class NineKeyKeyboardTests: XCTestCase {
           // 底行的 ⌫ 只属于 Dachen 符号行：123 / #+= 层的 ⌫ 在第三行，九键网格的在右列，假名网格的在它自己的网格里。
           XCTAssertEqual(try button("symbolDeleteKey", in: controller).isHidden, !(symbols && scheme == .zhuyin))
           // 全拼 14 键画自己的三排键，键位与等高由 FourteenKeyKeyboardTests 覆盖。
-          if !symbols && ![.nineKey, .japaneseNineKey, .handwriting, .zhuyin, .stroke, .fourteenKey].contains(scheme) {
+          if !symbols && ![.nineKey, .nineKeyShuangpin, .japaneseNineKey, .handwriting, .zhuyin, .stroke, .fourteenKey].contains(scheme) {
             let delete = try button("letterDeleteKey", in: controller)
             let shift = try button("shiftButton", in: controller)
             // Korean keys are named by the jamo they type.
