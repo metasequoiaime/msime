@@ -113,6 +113,22 @@ int main() {
           follow.selected_number == candidate_rgb(0x1A1A1A, .82f));
   require(same(follow.hover, 0x11 / 255.0f, 0x22 / 255.0f, 0x33 / 255.0f,
                0x44 / 255.0f));
+  // 中等亮度的橙色和灰色也要用深字；固定亮度阈值会错误地选择白字。
+  for (const auto &base : {defaults, light_defaults}) {
+    for (const char *color : {"#FF8000", "#999999"}) {
+      CandidatePaletteOverrides bright;
+      bright.selected = color;
+      const auto palette = candidate_palette(bright, base);
+      require(palette.selected_text == candidate_rgb(0x1A1A1A));
+      require(palette.selected_number == candidate_rgb(0x1A1A1A, .82f));
+      bright.selected.reset();
+      bright.accent = color;
+      require(candidate_palette(bright, base).selected_text == palette.selected_text);
+    }
+    CandidatePaletteOverrides dark;
+    dark.selected = "#003366";
+    require(candidate_palette(dark, base).selected_text == candidate_rgb(0xFFFFFF));
+  }
   // 主题显式设置的选中颜色始终优先。
   CandidatePaletteOverrides fixed = derived;
   fixed.selected = "#0000FF";

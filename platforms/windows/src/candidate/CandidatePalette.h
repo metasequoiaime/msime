@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -181,7 +182,13 @@ inline CandidateColor candidate_selected_foreground(CandidateColor fill,
   };
   const float luminance = .2126f * linear(fill.r) + .7152f * linear(fill.g) +
                           .0722f * linear(fill.b);
-  return candidate_rgb(luminance < .45f ? 0xFFFFFF : 0x1A1A1A);
+  // 比较两个候选前景的对比度；中等亮度的橙色等背景不能靠偏高的阈值选白字。
+  const float dark_luminance = linear(0x1A / 255.0f);
+  const float white_contrast = 1.05f / (luminance + .05f);
+  const float dark_contrast =
+      (std::max(luminance, dark_luminance) + .05f) /
+      (std::min(luminance, dark_luminance) + .05f);
+  return candidate_rgb(white_contrast >= dark_contrast ? 0xFFFFFF : 0x1A1A1A);
 }
 inline CandidatePalette
 candidate_palette(const CandidatePaletteOverrides &overrides,
