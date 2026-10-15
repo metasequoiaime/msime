@@ -53,7 +53,28 @@ struct UrlTrigger
 
 inline constexpr UrlTrigger UrlTriggers[] = {{L"www", L"."}, {L"http", L":"}, {L"https", L":"}, {L"ftp", L".:"}};
 
-// 这段文字是否恰好是某个触发词，且 wch 是它的触发键。
+// 把组字转成邮箱的键：crates/engine/src/local/url.rs EMAIL_KEY。组字原文由 ASCII 字母、数字组成时，按下它进入网址模式写邮箱。
+inline constexpr wchar_t UrlEmailKey = L'@';
+
+// 这段文字是否能做邮箱的本地部分，且 wch 是 UrlEmailKey：非空，只有 ASCII 字母和数字（带撇号的拼音不算）。
+inline bool IsEmailLocalPartAndKey(const wchar_t *text, size_t length, wchar_t wch)
+{
+    if (wch != UrlEmailKey || length == 0)
+    {
+        return false;
+    }
+    for (size_t index = 0; index < length; ++index)
+    {
+        const wchar_t value = text[index];
+        if (!((value >= L'a' && value <= L'z') || (value >= L'A' && value <= L'Z') || (value >= L'0' && value <= L'9')))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// 这段文字按下 wch 是否进入网址模式：恰好是某个触发词且 wch 是它的触发键，或者能做邮箱的本地部分且 wch 是 `@`。
 inline bool IsUrlTriggerAndKey(const wchar_t *text, size_t length, wchar_t wch)
 {
     for (const UrlTrigger &trigger : UrlTriggers)
@@ -65,10 +86,10 @@ inline bool IsUrlTriggerAndKey(const wchar_t *text, size_t length, wchar_t wch)
             return true;
         }
     }
-    return false;
+    return IsEmailLocalPartAndKey(text, length, wch);
 }
 
-// 这个键是否在组字中打开网址模式：方案检测网址（scheme::DetectsUrls）、不在 Engine 的专用英文模式、光标在末尾、键击缓冲恰好是触发词、按键是它的触发键。Engine 只在同样的条件下把触发键列进 spelling_symbols，所以 Server 也把它当作输入（EditPolicy.h 的 edit_kind），两边对它是输入还是翻页、标点的判断一致。五笔在 `http` 后的 `s` 上就已进入网址模式，但 TIP 把五笔记成全拼分不出来，要等触发键 `:` 才进入。
+// 这个键是否在组字中打开网址模式：方案检测网址（scheme::DetectsUrls）、不在 Engine 的专用英文模式、光标在末尾、键击缓冲恰好是触发词、按键是它的触发键（或者缓冲能做邮箱的本地部分、按键是 `@`）。Engine 只在同样的条件下把触发键列进 spelling_symbols，所以 Server 也把它当作输入（EditPolicy.h 的 edit_kind），两边对它是输入还是翻页、标点的判断一致。五笔在 `http` 后的 `s` 上就已进入网址模式，但 TIP 把五笔记成全拼分不出来，要等触发键 `:` 才进入。
 inline bool OpensUrlMode(const wchar_t *buffer, size_t length, size_t caret, wchar_t wch, bool detectsUrls,
                          bool dedicatedEnglish)
 {
@@ -79,10 +100,10 @@ inline bool OpensUrlMode(const wchar_t *buffer, size_t length, size_t caret, wch
     return IsUrlTriggerAndKey(buffer, length, wch);
 }
 
-// 删掉一个字符之后是否还在网址模式。网址模式由 OpensUrlMode 放进触发键时进入，之后不再从缓冲前缀推断：光标处的编辑会让缓冲开头不再是触发词加触发键，而 Engine 仍在网址模式。与 Engine 相同，只有删掉的恰好是触发键（剩下的正好是触发词，删掉的是它的触发键）或缓冲删空时才退回普通组字。
-inline bool UrlModeAfterDeletion(bool urlMode, const wchar_t *remaining, size_t length, wchar_t removed)
+// 删掉一个字符之后是否还在网址模式。网址模式由 OpensUrlMode 放进触发键时进入，之后不再从缓冲前缀推断：光标处的编辑会让缓冲开头不再是触发词加触发键，而 Engine 仍在网址模式。与 Engine 相同，只有删掉的是末尾那个、恰好是进入网址模式的键（剩下的正好是触发词而删掉的是它的触发键，或剩下的能做邮箱的本地部分而删掉的是 `@`），或缓冲删空时才退回普通组字；atEnd 是删掉的字符原来在缓冲末尾，`abc@def` 删掉中间的 `@` 不退出。
+inline bool UrlModeAfterDeletion(bool urlMode, const wchar_t *remaining, size_t length, wchar_t removed, bool atEnd)
 {
-    return urlMode && length > 0 && remaining && !IsUrlTriggerAndKey(remaining, length, removed);
+    return urlMode && length > 0 && remaining && !(atEnd && IsUrlTriggerAndKey(remaining, length, removed));
 }
 
 // Whether this key opens the "/" or "@" mode: on an empty composition, with Chinese punctuation in force (with ASCII punctuation the key is the literal mark the user chose, and the Engine opens nothing), and only for a mode the Server reports on. The key then starts the composition, and the Engine takes it as the mode's first character.

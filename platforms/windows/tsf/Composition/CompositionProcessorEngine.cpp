@@ -379,7 +379,8 @@ void CCompositionProcessorEngine::RemoveVirtualKey(DWORD_PTR dwIndex)
     }
 
     _keystrokeBuffer.Set(_keystrokeBuffer.Get(), srgKeystrokeBufLen - 1);
-    _urlMode = Global::UrlModeAfterDeletion(_urlMode, _keystrokeBuffer.Get(), _keystrokeBuffer.GetLength(), removed);
+    _urlMode = Global::UrlModeAfterDeletion(_urlMode, _keystrokeBuffer.Get(), _keystrokeBuffer.GetLength(), removed,
+                                            dwIndex == _keystrokeBuffer.GetLength());
     if (_caretPosition > dwIndex)
     {
         --_caretPosition;

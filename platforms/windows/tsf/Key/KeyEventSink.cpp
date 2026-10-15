@@ -152,8 +152,9 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
             const WCHAR removed = shadow.rawInput[shadow.caret - 1];
             shadow.rawInput.erase(shadow.caret - 1, 1);
             --shadow.caret;
-            shadow.urlMode =
-                Global::UrlModeAfterDeletion(shadow.urlMode, shadow.rawInput.c_str(), shadow.rawInput.size(), removed);
+            shadow.urlMode = Global::UrlModeAfterDeletion(shadow.urlMode, shadow.rawInput.c_str(),
+                                                          shadow.rawInput.size(), removed,
+                                                          shadow.caret == shadow.rawInput.size());
         }
         shadow.inputLength = shadow.rawInput.size();
         if (shadow.inputLength == 0)
@@ -202,8 +203,9 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
         {
             const WCHAR removed = shadow.rawInput[shadow.caret];
             shadow.rawInput.erase(shadow.caret, 1);
-            shadow.urlMode =
-                Global::UrlModeAfterDeletion(shadow.urlMode, shadow.rawInput.c_str(), shadow.rawInput.size(), removed);
+            shadow.urlMode = Global::UrlModeAfterDeletion(shadow.urlMode, shadow.rawInput.c_str(),
+                                                          shadow.rawInput.size(), removed,
+                                                          shadow.caret == shadow.rawInput.size());
         }
         shadow.inputLength = shadow.rawInput.size();
         if (shadow.inputLength == 0)
