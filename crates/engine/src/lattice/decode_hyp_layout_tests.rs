@@ -109,7 +109,9 @@ fn compact_hypotheses_reduce_column_requests() {
         let graph = graph(columns, width, 0, false);
         let options = LatticeOptions::default();
         let (old, before) = measure(|| legacy::decode_graph(&graph, &options, None));
-        let (new, after) = measure(|| decode_graph(&graph, &options, None));
+        // 固定四十字节、完整物化的参考，避免把后续减少输出构造的收益混入布局预算。
+        let (new, after) =
+            measure(|| super::return_tests::full_materialization_decode(&graph, &options, None));
         assert_paths(&new, &old);
         assert_eq!(after.allocations, before.allocations);
         assert_eq!(after.remaining_bytes, before.remaining_bytes);

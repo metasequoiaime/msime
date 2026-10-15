@@ -550,8 +550,13 @@ pub(super) fn decode_graph(
     cxx_sort::sort(&mut last, &mut scores_higher);
     let take = options.nbest.min(last.len());
 
-    let mut paths = Vec::with_capacity(last.len());
+    // 小末列沿用线性去重；收齐唯一预算后不再物化后续假设，大末列保留原哈希回退。
+    let inline_unique = last.len() <= SMALL_SENTENCE_PATHS;
+    let mut paths: Vec<SentencePath> = Vec::with_capacity(last.len());
     for hyp in &last {
+        if inline_unique && paths.len() == take {
+            break;
+        }
         let mut words = Vec::with_capacity(n);
         let mut keys = Vec::with_capacity(n);
         let mut cursor = Some(hyp);
@@ -565,7 +570,9 @@ pub(super) fn decode_graph(
         words.reverse();
         keys.reverse();
         let sentence = words.concat();
-        if sentence.is_empty() {
+        if sentence.is_empty()
+            || (inline_unique && paths.iter().any(|path| path.sentence == sentence))
+        {
             continue;
         }
         paths.push(SentencePath {
@@ -576,7 +583,9 @@ pub(super) fn decode_graph(
             typo_edges: hyp.typo_edges,
         });
     }
-    retain_unique_sentences(&mut paths, take);
+    if !inline_unique {
+        retain_unique_sentences(&mut paths, take);
+    }
     rescore_with_trigram(&mut paths, options);
     paths
 }
@@ -1472,3 +1481,7 @@ mod capacity_tests;
 #[cfg(test)]
 #[path = "decode_traceback_tests.rs"]
 mod traceback_tests;
+
+#[cfg(test)]
+#[path = "decode_return_tests.rs"]
+mod return_tests;
