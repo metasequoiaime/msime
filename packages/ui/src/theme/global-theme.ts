@@ -7,6 +7,7 @@ import type { CSSProperties } from "react";
 import type { HostPlatform } from "../index";
 import type { TouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-design";
 import { candidateTextColor } from "../candidate/candidate-text-color";
+import { relativeLuminance } from "../core/color";
 import catalog from "./theme-catalog.json";
 
 /** `Preferences.global_theme`：候选窗、悬浮工具栏、菜单和触屏键盘共用的一个主题 id。`native`（原生）只在 iOS 提供，见 `offeredThemeCatalog`。 */
@@ -231,11 +232,7 @@ function macSelectedForegrounds(palette: CandidateThemePalette): [string, string
   const fill = normalizedColor(palette.selected ?? palette.accent ?? "");
   if (!fill) return [];
   const alpha = fill.length === 9 ? parseInt(fill.slice(7), 16) / 255 : 1;
-  const channel = (offset: number) => {
-    const value = parseInt(fill.slice(offset, offset + 2), 16) / 255;
-    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-  };
-  const luminance = 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+  const luminance = relativeLuminance(parseInt(fill.slice(1, 7), 16));
   const contrast = luminance < 0.45 ? "#FFFFFF" : "#1A1A1A";
   const translucent = alpha < 0.85;
   return [
@@ -300,13 +297,9 @@ function withAlpha(color: string, alpha: string): string {
   return `${color.slice(0, 7)}${alpha}`;
 }
 
-/** `ai::readable_text`: black or white, whichever reads on `background` (`#RRGGBB` or `#RRGGBBAA`; the alpha is ignored), split at the same relative luminance. */
+/** 按 `ai::readable_text` 的相对亮度阈值选择黑白文字；`background` 为 `#RRGGBB` 或 `#RRGGBBAA`，忽略 alpha。 */
 function readableText(background: string): string {
-  const channel = (offset: number) => {
-    const value = parseInt(background.slice(offset, offset + 2), 16) / 255;
-    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-  };
-  const luminance = 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+  const luminance = relativeLuminance(parseInt(background.slice(1, 7), 16));
   return luminance > 0.179 ? "#000000" : "#FFFFFF";
 }
 

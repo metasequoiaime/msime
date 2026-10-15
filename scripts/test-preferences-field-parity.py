@@ -31,6 +31,7 @@ RUST_ONLY: dict[str, set[str]] = {}
 
 
 MEMBER = re.compile(r"\s*(\w+)\??\s*:")
+TS_OBJECT_DECLARATION = re.compile(r"export type (\w+) = ((?:\w+\s*&\s*)*)\{")
 
 
 def strip_comments(source: str) -> str:
@@ -104,13 +105,9 @@ def ts_record_bodies(source: str) -> dict[str, str]:
 
 
 def ts_object_bodies(source: str) -> dict[str, str]:
-    """`export type Name = { ... }` -> the text between its braces.
-
-    Both spellings of an object type count, the braces and the `Record` that stands
-    for the same object.
-    """
+    """读取对象声明自身的成员；命名交叉部分在模块类型收集完毕后展开。"""
     out: dict[str, str] = {}
-    for match in re.finditer(r"export type (\w+) = \{", source):
+    for match in TS_OBJECT_DECLARATION.finditer(source):
         start = match.end() - 1
         depth = 0
         for index in range(start, len(source)):
@@ -226,22 +223,53 @@ def reachable_pairs(
 
 
 def page_object_bodies() -> dict[str, str]:
-    """Named object types the page can refer to: index.tsx's own, then uniquely named ones from the other files under packages/ui/src (such as `TouchKeyboardSkinDesign`, imported from keyboard/)."""
-    bodies = ts_object_bodies(UI.read_text(encoding="utf-8"))
-    elsewhere: dict[str, list[str]] = {}
+    """收集入口及其他模块中唯一命名的对象，递归展开命名交叉类型。"""
+    source = UI.read_text(encoding="utf-8")
+    bodies = ts_object_bodies(source)
+    bases = {match[1]: re.findall(r"\w+", match[2]) for match in TS_OBJECT_DECLARATION.finditer(source)}
+    elsewhere: dict[str, list[tuple[str, list[str]]]] = {}
     for path in sorted(UI.parent.rglob("*")):
         if path == UI or path.suffix not in {".ts", ".tsx"} or not path.is_file():
             continue
-        for name, body in ts_object_bodies(path.read_text(encoding="utf-8")).items():
-            elsewhere.setdefault(name, []).append(body)
+        source = path.read_text(encoding="utf-8")
+        inherited = {match[1]: re.findall(r"\w+", match[2]) for match in TS_OBJECT_DECLARATION.finditer(source)}
+        for name, body in ts_object_bodies(source).items():
+            elsewhere.setdefault(name, []).append((body, inherited.get(name, [])))
     for name, found in elsewhere.items():
         if name not in bodies and len(found) == 1:
-            bodies[name] = found[0]
-    return bodies
+            bodies[name], bases[name] = found[0]
+
+    resolved: dict[str, str] = {}
+
+    def expand(name: str, visiting: set[str]) -> str:
+        if name in resolved:
+            return resolved[name]
+        if name in visiting or name not in bodies:
+            raise ValueError(f"Cannot resolve intersection object type: {name}")
+        inherited = [expand(base, visiting | {name}) for base in bases.get(name, [])]
+        resolved[name] = ";\n".join([*inherited, bodies[name]])
+        return resolved[name]
+
+    # 只展开偏好可达的组合；无关 UI 组件可能继承这里不解析的接口。
+    pending = ["Preferences"] if "Preferences" in bodies else []
+    visited: set[str] = set()
+    while pending:
+        name = pending.pop()
+        if name in visited:
+            continue
+        visited.add(name)
+        body = expand(name, set())
+        for kind in ts_members(body).values():
+            pending.extend(word for word in re.findall(r"\w+", kind) if word in bodies)
+    return {name: body for name, body in bodies.items() if not bases.get(name)} | resolved
 
 
 def main() -> int:
-    page_bodies = page_object_bodies()
+    try:
+        page_bodies = page_object_bodies()
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 1
     # Preferences imports several object types from sibling files under
     # packages/ui/src. Build the same type index used for reachable pairs so
     # those imported declarations are available for the top-level comparison.

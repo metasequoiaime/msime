@@ -1,7 +1,10 @@
-import MarkdownIt from "markdown-it";
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useState } from "react";
 import { ActionButton } from "../core/action-button";
 import { formatZhDate } from "../core/format-date";
+import {
+  createMarkdownLinkHandler,
+  linkedMarkdownHtml as noticeBodyHtml,
+} from "../core/linked-markdown";
 import { useAsyncGeneration } from "./use-async-generation";
 
 /** One live console notice, client-core's `notices::Notice`. */
@@ -23,13 +26,7 @@ export interface NoticesClient {
   dismiss(id: string): Promise<void>;
 }
 
-// Raw HTML in a body is shown as text, and images are not rendered so a notice never loads anything from the network; links are opened externally by the click handler below.
-const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true }).disable("image");
-
-/** The HTML for a notice body; raw HTML in the source is escaped and images are left out. */
-export function noticeBodyHtml(body: string): string {
-  return markdown.render(body);
-}
+export { noticeBodyHtml };
 
 const externalLink = /^https:/i;
 
@@ -61,13 +58,7 @@ export function NoticeBanner({
     setNotices((current) => current.filter((notice) => notice.id !== id));
     void client.dismiss(id).catch(() => undefined);
   };
-  const openLink = (event: MouseEvent<HTMLDivElement>) => {
-    const anchor = (event.target as Element).closest?.("a");
-    if (!anchor) return;
-    event.preventDefault();
-    const href = anchor.getAttribute("href") ?? "";
-    if (externalLink.test(href)) void openExternalUrl(href);
-  };
+  const openLink = createMarkdownLinkHandler(openExternalUrl, externalLink);
   return (
     <section className="mb-3 flex flex-col gap-2" aria-label="公告">
       {notices.map((notice) => (

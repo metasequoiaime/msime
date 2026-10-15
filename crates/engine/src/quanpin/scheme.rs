@@ -2,7 +2,7 @@
 
 use crate::pinyin::active_helpcode::{detect_active_helpcode_length, strip_active_helpcodes};
 use crate::pinyin::segment::{cut_pinyin_by_mode, join_segments, CutMode};
-use crate::shuangpin::query::{apply_segmentation_cases, remove_manual_delimiters};
+use crate::shuangpin::query::{apply_segmentation_cases_into, remove_manual_delimiters};
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
 
 fn replace_string(target: &mut String, source: String) {
@@ -142,8 +142,12 @@ impl QuanpinScheme {
         } else {
             cased.as_str()
         };
-        let mut raw_segmentation =
-            apply_segmentation_cases(&request.normalized_segmentation, cased_source);
+        apply_segmentation_cases_into(
+            &request.normalized_segmentation,
+            cased_source,
+            &mut request.raw_segmentation,
+        );
+        let raw_segmentation = &mut request.raw_segmentation;
         if cased_source.ends_with('\'') && !raw_segmentation.ends_with('\'') {
             raw_segmentation.push('\'');
         }
@@ -151,7 +155,6 @@ impl QuanpinScheme {
             raw_segmentation.push('\'');
             raw_segmentation.push_str(&cased[cased.len() - helpcode_length..]);
         }
-        replace_string(&mut request.raw_segmentation, raw_segmentation);
         request
             .segmentation
             .clone_from(&request.normalized_segmentation);
@@ -178,6 +181,25 @@ mod tests {
             });
         }
         scheme
+    }
+
+    #[test]
+    fn refreshing_a_request_reuses_the_case_output_buffer() {
+        let scheme = typed("nihaoAB");
+        let mut request = QueryRequest {
+            enable_quanpin_helpcode: true,
+            ..QueryRequest::default()
+        };
+        scheme.build_request_into(&mut request);
+        let expected = request.clone();
+        let pointer = request.raw_segmentation.as_ptr();
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            scheme.build_request_into(&mut request);
+        });
+        assert_eq!(request, expected);
+        assert_eq!(request.raw_segmentation, "ni'hao'AB");
+        assert_eq!(request.raw_segmentation.as_ptr(), pointer);
+        assert_eq!(allocations, 16);
     }
 
     #[test]

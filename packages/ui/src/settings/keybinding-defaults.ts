@@ -1,4 +1,4 @@
-import type { KeybindingPreferences } from "../index";
+import type { KeybindingPreferences } from "./keybinding-preferences";
 
 export const defaultKeybindings: KeybindingPreferences = {
   switch_language_shift: true,

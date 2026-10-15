@@ -86,6 +86,43 @@ fn index_of(candidates: &[WordItem], word: &str) -> usize {
         .unwrap_or_else(|| panic!("{word} missing from {:?}", words(candidates)))
 }
 
+#[test]
+fn warm_queries_do_not_allocate_a_compact_input_only_for_the_empty_check() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER); INSERT INTO tbl_1_n VALUES('ni','n','你',100); CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER); INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',200);",
+    );
+    let measured = [("ni", 8), ("ni'hc", 12), ("ni''hc'", 12)].map(|(raw, budget)| {
+        let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+        let typed = request(raw, false);
+        let expected = engine.query(&typed, None);
+        assert!(!expected.is_empty(), "raw={raw:?}");
+        engine.query(&typed, None);
+        let (rows, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| engine.query(&typed, None));
+        assert_eq!(rows, expected, "raw={raw:?}");
+        (raw, allocations, budget)
+    });
+    assert!(
+        measured
+            .iter()
+            .all(|(_, allocations, budget)| allocations <= budget),
+        "{measured:?}"
+    );
+}
+
+#[test]
+fn delimiter_only_queries_return_without_allocating() {
+    let fixture = Fixture::new("");
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    for raw in ["", "'", "'''", "''''''''"] {
+        let typed = request(raw, true);
+        let (rows, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| engine.query(&typed, None));
+        assert!(rows.is_empty());
+        assert_eq!(allocations, 0, "raw={raw:?}");
+    }
+}
+
 /// A manual delimiter leaves empty pieces in the whole-input segmentation, so several of its shorter prefix groups are the same `ni` group; the reference appended each group whole and listed 你 and 拟 once per group. A word keeps its first, longest-prefix seat (decision 2026-09-30).
 #[test]
 fn prefix_groups_list_a_word_once() {

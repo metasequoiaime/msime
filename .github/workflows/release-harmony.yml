@@ -81,12 +81,17 @@ jobs:
           set -euo pipefail
           ohpm install
           hvigorw assembleHap --no-daemon
+      # hvigor names its output <module>-<product>-<signed|unsigned>.hap, which reached the release page as entry-default-unsigned.hap. Publish it under the msime-<platform>-<version> name the other platforms use, keeping -unsigned while signingConfigs in build-profile.json5 is empty, since an unsigned HAP does not install on a retail device. Copied rather than moved so the build directory still holds what hvigor wrote.
       - id: hap
         name: Locate the packaged HAP
+        env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           set -euo pipefail
-          hap=$(find platforms/harmony -type f -name '*.hap' | head -1)
-          test -n "$hap"
+          built=$(find platforms/harmony -type f -name '*.hap' | head -1)
+          test -n "$built"
+          suffix=; [[ "$built" == *-unsigned.hap ]] && suffix=-unsigned
+          hap="$RUNNER_TEMP/msime-harmony-${VERSION}${suffix}.hap"
+          cp "$built" "$hap"
           echo "path=$hap" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

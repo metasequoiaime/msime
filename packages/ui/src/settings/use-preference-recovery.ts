@@ -44,7 +44,7 @@ export function usePreferenceRecovery({
   const publishNotice = (message: string) => {
     if (message) setNotice(message);
   };
-  const { run } = useAsyncActionRunner(publishError, publishNotice);
+  const { run } = useAsyncActionRunner(publishError, publishNotice, client);
 
   async function restoreDefaults() {
     if (!client.loadDefaultPreferences || busy) return;
@@ -113,7 +113,7 @@ export function usePreferenceRecovery({
         } catch (reason) {
           if (isCurrent()) setError(errorMessage(reason));
         } finally {
-          setBusy(false);
+          if (isCurrent()) setBusy(false);
         }
       },
       { formatError: errorMessage },

@@ -197,7 +197,7 @@ struct KeyboardSkinPreview: View {
   private var miniatureBottomRow: some View {
     GeometryReader { proxy in
       let spacing: CGFloat = 5
-      let unit = (proxy.size.width - spacing * 5) / 10.2
+      let unit = (proxy.size.width - spacing * (layout.showsBottomLanguage ? 5 : 4)) / 10.2
       HStack(spacing: spacing) {
         key("123", function: true).frame(width: unit * 1.25)
         key("，").frame(width: unit)
@@ -209,9 +209,9 @@ struct KeyboardSkinPreview: View {
           }
           .foregroundStyle(color(skin.secondary))
         }
-        .frame(width: unit * 4)
+        .frame(width: unit * (layout.showsBottomLanguage ? 4 : 5.05))
         key("。").frame(width: unit)
-        key("中", function: true).frame(width: unit * 1.05)
+        if layout.showsBottomLanguage { key("中", function: true).frame(width: unit * 1.05) }
         ZStack {
           keySurface(emphasized: true)
           Image(systemName: "return").font(.system(size: 15, weight: .medium))

@@ -2,6 +2,9 @@
 // platforms/ios/SharedUI/CustomKeyboardSkin.swift and KeyboardSkinCollection.swift.
 import { boundedGraphemes } from "../core/text";
 import { clamp as clampNumber, clampFinite } from "../core/number";
+import { relativeLuminance } from "../core/color";
+
+export { relativeLuminance as skinLuminance };
 
 export function skinColorNumber(value: string): number {
   return Number.parseInt(value.slice(1), 16);
@@ -434,22 +437,14 @@ export function skinColor(value: number): string {
   return `#${clampNumber(Math.round(value), 0, 0xffffff).toString(16).padStart(6, "0")}`;
 }
 
-export function skinLuminance(rgb: number): number {
-  const channel = (shift: number) => {
-    const value = ((rgb >> shift) & 255) / 255;
-    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0);
-}
-
 export function skinContrast(first: number, second: number): number {
-  const a = skinLuminance(first),
-    b = skinLuminance(second);
+  const a = relativeLuminance(first),
+    b = relativeLuminance(second);
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
 
 export function readableSkinText(background: number): number {
-  return skinLuminance(background) > 0.179 ? 0 : 0xffffff;
+  return relativeLuminance(background) > 0.179 ? 0 : 0xffffff;
 }
 
 export function hasReadableSkinText(design: TouchKeyboardSkinDesign): boolean {

@@ -10,6 +10,7 @@ struct KeyboardLayoutSettingsView: View {
   @State private var height = KeyboardLayoutPreference.heightAdjustment
   @State private var skin = KeyboardTheme.current
   @State private var scheme = InputSchemePreference.scheme
+  @State private var hideLanguageKey = KeyboardLayoutPreference.hideLanguageKey
   @State private var tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
   @State private var tabletSplit = KeyboardLayoutPreference.tabletSplit
   @State private var glideTyping = KeyboardLayoutPreference.glideTyping
@@ -68,7 +69,7 @@ struct KeyboardLayoutSettingsView: View {
       grip
       KeyboardSkinPreview(
         skin: skin, nineKey: nineKey,
-        layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing),
+        layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey),
         heightAdjustment: height
       )
       .gesture(spacingDrag)
@@ -161,6 +162,13 @@ struct KeyboardLayoutSettingsView: View {
         .accessibilityIdentifier("appShuangpinKeyHintsToggle")
         DesignDivider()
       }
+      DesignToggleRow(title: "隐藏中/英键", subtitle: "加宽底行空格键；中英文仍可在工具栏的输入方式中切换",
+                      isOn: Binding(get: { hideLanguageKey }, set: { enabled in
+                        hideLanguageKey = enabled
+                        KeyboardLayoutPreference.hideLanguageKey = enabled
+                      }))
+        .accessibilityIdentifier("appHideLanguageKeySwitch")
+      DesignDivider()
       sliderRow("键盘高度", value: $height, range: -12...48, identifier: "appKeyboardHeightSlider",
                 field: .height, format: heightPercent)
       DesignDivider()
@@ -273,7 +281,7 @@ struct KeyboardLayoutSettingsView: View {
 
   private var resetGroup: some View {
     DesignGroup(footer: UIDevice.current.userInterfaceIdiom == .pad
-      ? "把这一页的间距、高度和横屏分离式键盘恢复成默认值。" : "把这一页的间距和高度恢复成默认值。") {
+      ? "把这一页的间距、高度、中/英键和横屏分离式键盘恢复成默认值。" : "把这一页的间距、高度和中/英键恢复成默认值。") {
       Button {
         saveFailed = !KeyboardLayoutPreference.resetGeometry()
         readPreferences()
@@ -400,6 +408,7 @@ struct KeyboardLayoutSettingsView: View {
     rowSpacing = KeyboardLayoutPreference.rowSpacing
     height = KeyboardLayoutPreference.heightAdjustment
     skin = KeyboardTheme.reload(preferences)
+    hideLanguageKey = KeyboardLayoutPreference.hideLanguageKey
     tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
     tabletSplit = KeyboardLayoutPreference.tabletSplit
     glideTyping = KeyboardLayoutPreference.glideTyping

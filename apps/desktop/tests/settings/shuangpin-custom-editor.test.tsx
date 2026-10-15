@@ -134,6 +134,226 @@ function upload(text: string, name = "table.json") {
   });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
+test.each([
+  ["template", "success"],
+  ["template", "failure"],
+  ["import", "success"],
+  ["import", "failure"],
+  ["export", "success"],
+  ["export", "failure"],
+] as const)("ignores a late %s %s after the editor client changes", async (operation, outcome) => {
+  const pending = deferred<ShuangpinCustomProfile | ShuangpinCustomProblem | string | null>();
+  const clientA = fakeClient();
+  const clientB = fakeClient();
+  const props = {
+    saved: xiaohe,
+    active: true,
+    confirm: vi.fn(async () => true),
+    onSave: vi.fn(),
+    onBack: vi.fn(),
+  };
+  const saveExport = vi.fn().mockReturnValue(pending.promise);
+  const { rerender } = render(
+    <ShuangpinCustomEditor {...props} client={clientA} saveExport={saveExport} />,
+  );
+  fireEvent.change(cell("韵母 ing"), { target: { value: ";" } });
+  await waitFor(() => expect(button("导出 JSON").disabled).toBe(false));
+
+  if (operation === "template") {
+    clientA.builtin.mockReturnValueOnce(pending.promise);
+    fireEvent.click(button("填入"));
+    await waitFor(() => expect(clientA.builtin).toHaveBeenCalledOnce());
+  } else if (operation === "import") {
+    clientA.validate.mockReturnValueOnce(pending.promise);
+    const validations = clientA.validate.mock.calls.length;
+    upload(JSON.stringify(xiaohe));
+    await waitFor(() => expect(clientA.validate).toHaveBeenCalledTimes(validations + 1));
+  } else {
+    fireEvent.click(button("导出 JSON"));
+    expect(saveExport).toHaveBeenCalledOnce();
+  }
+  expect(button("填入").disabled).toBe(true);
+
+  rerender(<ShuangpinCustomEditor {...props} client={clientB} saveExport={saveExport} />);
+  await act(async () => {
+    if (outcome === "failure") pending.reject(new Error("synthetic stale operation"));
+    else if (operation === "template") pending.resolve(xiaohe);
+    else if (operation === "import") pending.resolve(null);
+    else pending.resolve("/synthetic/old-export.json");
+    await pending.promise.catch(() => undefined);
+  });
+
+  expect(cell("韵母 ing").value).toBe(";");
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByRole("status")).toBeNull();
+  expect(button("填入").disabled).toBe(false);
+});
+
+test("an old template confirmation cannot start a request on a replaced client", async () => {
+  const confirmation = deferred<boolean>();
+  const clientA = fakeClient();
+  const clientB = fakeClient();
+  const props = {
+    saved: xiaohe,
+    active: true,
+    confirm: vi.fn().mockReturnValue(confirmation.promise),
+    onSave: vi.fn(),
+    onBack: vi.fn(),
+  };
+  const { rerender } = render(<ShuangpinCustomEditor {...props} client={clientA} />);
+  fireEvent.click(button("填入"));
+  expect(props.confirm).toHaveBeenCalledOnce();
+  rerender(<ShuangpinCustomEditor {...props} client={clientB} />);
+  await act(async () => {
+    confirmation.resolve(true);
+    await confirmation.promise;
+  });
+
+  expect(clientA.builtin).not.toHaveBeenCalled();
+  expect(clientB.builtin).not.toHaveBeenCalled();
+  expect(screen.queryByRole("status")).toBeNull();
+});
+
+test("an old action cannot block a new client or release its busy state", async () => {
+  const oldTemplate = deferred<ShuangpinCustomProfile>();
+  const newTemplate = deferred<ShuangpinCustomProfile>();
+  const clientA = fakeClient();
+  const clientB = fakeClient();
+  clientA.builtin.mockReturnValueOnce(oldTemplate.promise);
+  clientB.builtin.mockReturnValueOnce(newTemplate.promise);
+  const props = {
+    saved: xiaohe,
+    active: true,
+    confirm: vi.fn(async () => true),
+    onSave: vi.fn(),
+    onBack: vi.fn(),
+  };
+  const { rerender } = render(<ShuangpinCustomEditor {...props} client={clientA} />);
+  await act(async () => fireEvent.click(button("填入")));
+  rerender(<ShuangpinCustomEditor {...props} client={clientB} />);
+  expect(button("填入").disabled).toBe(false);
+  await act(async () => fireEvent.click(button("填入")));
+  expect(clientB.builtin).toHaveBeenCalledOnce();
+
+  await act(async () => {
+    oldTemplate.resolve(xiaohe);
+    await oldTemplate.promise;
+  });
+  expect(button("填入").disabled).toBe(true);
+  expect(screen.queryByRole("status")).toBeNull();
+  await act(async () => {
+    newTemplate.resolve({ ...xiaohe, finals: { ...xiaohe.finals, ing: ";" } });
+    await newTemplate.promise;
+  });
+  expect(cell("韵母 ing").value).toBe(";");
+  expect(button("填入").disabled).toBe(false);
+});
+
+test("a late file read cannot start validation on a replaced client", async () => {
+  vi.useFakeTimers();
+  const pending = deferred<ArrayBuffer>();
+  const clientA = fakeClient();
+  const clientB = fakeClient();
+  const file = new File([JSON.stringify(xiaohe)], "synthetic.json", { type: "application/json" });
+  vi.spyOn(file, "arrayBuffer").mockReturnValue(pending.promise);
+  const props = {
+    saved: xiaohe,
+    active: true,
+    confirm: vi.fn(async () => true),
+    onSave: vi.fn(),
+    onBack: vi.fn(),
+  };
+  const { rerender } = render(<ShuangpinCustomEditor {...props} client={clientA} />);
+  fireEvent.change(screen.getByLabelText("选择自定义双拼 JSON 文件"), {
+    target: { files: [file] },
+  });
+  expect(file.arrayBuffer).toHaveBeenCalledOnce();
+  rerender(<ShuangpinCustomEditor {...props} client={clientB} />);
+  await act(async () => {
+    pending.resolve(new TextEncoder().encode(JSON.stringify(xiaohe)).buffer);
+    await pending.promise;
+  });
+
+  expect(clientA.validate).not.toHaveBeenCalled();
+  expect(screen.queryByRole("status")).toBeNull();
+});
+
+test("a late leave confirmation cannot navigate away from a replaced client", async () => {
+  const confirmation = deferred<boolean>();
+  const props = {
+    saved: xiaohe,
+    active: true,
+    confirm: vi.fn().mockReturnValue(confirmation.promise),
+    onSave: vi.fn(),
+    onBack: vi.fn(),
+  };
+  const { rerender } = render(<ShuangpinCustomEditor {...props} client={fakeClient()} />);
+  fireEvent.change(cell("韵母 ing"), { target: { value: ";" } });
+  fireEvent.click(button("返回输入"));
+  expect(props.confirm).toHaveBeenCalledOnce();
+  rerender(<ShuangpinCustomEditor {...props} client={fakeClient()} />);
+  await act(async () => {
+    confirmation.resolve(true);
+    await confirmation.promise;
+  });
+
+  expect(props.onBack).not.toHaveBeenCalled();
+  expect(cell("韵母 ing").value).toBe(";");
+});
+
+test("a replaced export callback invalidates its pending result", async () => {
+  const pending = deferred<string>();
+  const saveExportA = vi.fn().mockReturnValue(pending.promise);
+  const props = {
+    client: fakeClient(),
+    saved: xiaohe,
+    active: true,
+    confirm: vi.fn(async () => true),
+    onSave: vi.fn(),
+    onBack: vi.fn(),
+  };
+  const { rerender } = render(<ShuangpinCustomEditor {...props} saveExport={saveExportA} />);
+  await waitFor(() => expect(button("导出 JSON").disabled).toBe(false));
+  fireEvent.click(button("导出 JSON"));
+  expect(saveExportA).toHaveBeenCalledOnce();
+  rerender(<ShuangpinCustomEditor {...props} saveExport={vi.fn()} />);
+  await act(async () => {
+    pending.resolve("/synthetic/old-export.json");
+    await pending.promise;
+  });
+
+  expect(screen.queryByRole("status")).toBeNull();
+  expect(button("填入").disabled).toBe(false);
+});
+
+test("editing the draft keeps an export from the same client valid", async () => {
+  const pending = deferred<string>();
+  const saveExport = vi.fn().mockReturnValue(pending.promise);
+  renderEditor({ client: fakeClient(), saved: xiaohe, active: true, saveExport });
+  await waitFor(() => expect(button("导出 JSON").disabled).toBe(false));
+  fireEvent.click(button("导出 JSON"));
+  expect(saveExport).toHaveBeenCalledOnce();
+  fireEvent.change(cell("韵母 ing"), { target: { value: ";" } });
+  await act(async () => {
+    pending.resolve("/synthetic/current-export.json");
+    await pending.promise;
+  });
+
+  expect(screen.getByText("已导出到 /synthetic/current-export.json")).toBeTruthy();
+  expect(cell("韵母 ing").value).toBe(";");
+  expect(button("填入").disabled).toBe(false);
+});
+
 test("StrictMode effect replay keeps validation and template actions usable", async () => {
   vi.useFakeTimers();
   const client = fakeClient();

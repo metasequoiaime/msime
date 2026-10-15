@@ -7,6 +7,7 @@ import { ActionRow } from "./action-row";
 import { SettingsGroupBlock } from "./settings-group-block";
 import type { SwipeSymbolsDirection } from "./mobile-keyboard-feedback-section";
 import { SelectRow } from "./select-row";
+import { touchKeyboardSpacingLimits } from "./touch-keyboard-spacing";
 import * as settings from "./settings-style";
 
 export type TouchToolbarPreferences = {
@@ -167,8 +168,8 @@ export function TouchKeyboardGeometrySection({
               wide
               displayValue={spacingText(keySpacingTenths)}
               valueText={`${spacingText(keySpacingTenths)} dp`}
-              min={30}
-              max={60}
+              min={touchKeyboardSpacingLimits.key.min}
+              max={touchKeyboardSpacingLimits.key.max}
               value={keySpacingTenths}
               onChange={onKeySpacingChange}
             />
@@ -177,8 +178,8 @@ export function TouchKeyboardGeometrySection({
               wide
               displayValue={spacingText(rowSpacingTenths)}
               valueText={`${spacingText(rowSpacingTenths)} dp`}
-              min={40}
-              max={100}
+              min={touchKeyboardSpacingLimits.row.min}
+              max={touchKeyboardSpacingLimits.row.max}
               value={rowSpacingTenths}
               onChange={onRowSpacingChange}
             />
@@ -208,16 +209,16 @@ export function TouchKeyboardGeometrySection({
           <SliderRow
             title="按键间距"
             description={`${(keySpacingTenths / 10).toFixed(1)} dp`}
-            min={30}
-            max={60}
+            min={touchKeyboardSpacingLimits.key.min}
+            max={touchKeyboardSpacingLimits.key.max}
             value={keySpacingTenths}
             onChange={onKeySpacingChange}
           />
           <SliderRow
             title="行间距"
             description={`${(rowSpacingTenths / 10).toFixed(1)} dp`}
-            min={40}
-            max={100}
+            min={touchKeyboardSpacingLimits.row.min}
+            max={touchKeyboardSpacingLimits.row.max}
             value={rowSpacingTenths}
             onChange={onRowSpacingChange}
           />

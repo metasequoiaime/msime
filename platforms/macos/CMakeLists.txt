@@ -137,19 +137,48 @@ target_compile_options(MSIMEClientInputMethod PRIVATE -fobjc-arc -Wall -Wextra -
 target_link_libraries(MSIMEClientInputMethod PRIVATE apple-client msime-voice-providers "-framework AppKit" "-framework InputMethodKit" "-framework Carbon" "-framework AVFoundation" "-framework Speech")
 # 单按 Caps Lock 切换中英文时用 IOKit 的 IOHIDSetModifierLockState 撤回大写锁定（系统框架，不需要额外权限）。
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework IOKit")
-# 同一版本内的构建号，与 version.txt 放在一起、随它手工设定：每个新版本从 1 重新开始，同一版本需要和上一次区分的重新构建再往上加。Sparkle 只按 CFBundleVersion 排序，所以配置 SUFeedURL 之后，构建号重新从 1 开始的版本得经由一个先比较短版本号的 feed 提供；在那之前只有「关于」窗口和设置应用读它，设置应用先比短版本号再比构建号。
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/build-number.txt")
+# build-number.txt 是同一版本内的构建号，与 version.txt 放在一起、随它手工设定：每个新版本从 1 重新开始，同一版本需要和上一次区分的重新构建再往上加。CFBundleVersion 不直接用它，而是把版本号编进去：((主 × 1000 + 次) × 1000 + 修订) × 1000 + 构建号，0.54.0 的构建 1 是 54000001。Sparkle 的安装进程（Autoupdate 的 SUPlainInstaller）只用标准比较器比新旧 bundle 的 CFBundleVersion，新的更小就当降级拒绝装，不经过输入法里的任何委托；构建号每个版本从 1 重来的话，0.53.0 的构建 3 升 0.54.0 的构建 1 就会被拒。编码后的值跨版本单调递增，又仍是一个整数：设置应用把构建号按 u64 解析（apps/desktop/src-tauri/src/platform/macos/macos_input_source.rs 的 BundleVersion），带点的写法会让它读不出版本。次版本号、修订号和构建号因此都必须小于 1000。
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/build-number.txt" "${CMAKE_CURRENT_SOURCE_DIR}/version.txt")
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/build-number.txt" MSIME_BUILD_NUMBER LIMIT_COUNT 1)
 string(STRIP "${MSIME_BUILD_NUMBER}" MSIME_BUILD_NUMBER)
-if(NOT MSIME_BUILD_NUMBER MATCHES "^[1-9][0-9]*$")
-  message(FATAL_ERROR "platforms/macos/build-number.txt must hold a positive integer, not '${MSIME_BUILD_NUMBER}'")
+if(NOT MSIME_BUILD_NUMBER MATCHES "^[1-9][0-9]?[0-9]?$")
+  message(FATAL_ERROR "platforms/macos/build-number.txt must hold an integer from 1 to 999, not '${MSIME_BUILD_NUMBER}'")
 endif()
-set(MACOSX_BUNDLE_BUNDLE_VERSION "${MSIME_BUILD_NUMBER}")
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/version.txt" MSIME_MACOS_VERSION LIMIT_COUNT 1)
+string(STRIP "${MSIME_MACOS_VERSION}" MSIME_MACOS_VERSION)
+if(NOT MSIME_MACOS_VERSION MATCHES "^([0-9]+)\\.([0-9][0-9]?[0-9]?)\\.([0-9][0-9]?[0-9]?)$")
+  message(FATAL_ERROR "platforms/macos/version.txt must be MAJOR.MINOR.PATCH with MINOR and PATCH below 1000, not '${MSIME_MACOS_VERSION}'")
+endif()
+math(EXPR MACOSX_BUNDLE_BUNDLE_VERSION "((${CMAKE_MATCH_1} * 1000 + ${CMAKE_MATCH_2}) * 1000 + ${CMAKE_MATCH_3}) * 1000 + ${MSIME_BUILD_NUMBER}")
 message(STATUS "Bundle build number: ${MACOSX_BUNDLE_BUNDLE_VERSION}")
 # 版本（edition）是 shared/contracts/editions.json 里的 id。full 用 Info.plist.in 和 resources/<语言>.lproj/InfoPlist.strings 原样构建，产物与引入版本之前相同；其他版本由 scripts/edition_bundle.py 在配置时从同样的模板生成该版本的 Info.plist 和 InfoPlist.strings（bundle id、模式、版本键），可执行文件也改成该版本的名字。原生代码在运行时从 Info.plist 读版本身份（src/core/EditionIdentity.h），所以除了这几个文件，各版本编出来的东西完全一样；发布包只编 full，再用同一个脚本把 bundle 改成各个版本（package-release.sh）。
 set(MSIME_EDITION "full" CACHE STRING "Edition id from shared/contracts/editions.json")
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(MSIME_EDITION_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/scripts/edition_bundle.py")
+# Sparkle 只在发布包里打开：package-release.sh 拿得到签更新的私钥时传入 appcast 所在的目录，这里拼出本版本的 SUFeedURL（appcast-<版本 id>.xml，edition_bundle.py 把 full 的改成别的版本的），写入 sparkle-public-key.txt 里的公钥，并打开每天一次的后台检查与静默更新。开发构建不带这些键：带了的话，本机编的输入法会被正式版覆盖。没有 feed 时 UpdateController 走官网下载页（MSIMEUpdateRouteForHost）。
+set(MSIME_SPARKLE_APPCAST_BASE_URL "" CACHE STRING "URL prefix of the appcast-<edition>.xml feeds; empty leaves Sparkle off")
+set(MSIME_SPARKLE_PLIST_KEYS "")
+if(MSIME_SPARKLE_APPCAST_BASE_URL)
+  if(NOT MSIME_SPARKLE_APPCAST_BASE_URL MATCHES "^https://.*/$")
+    message(FATAL_ERROR "MSIME_SPARKLE_APPCAST_BASE_URL must be an https URL ending in '/', not '${MSIME_SPARKLE_APPCAST_BASE_URL}'")
+  endif()
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/sparkle-public-key.txt")
+  file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/sparkle-public-key.txt" MSIME_SPARKLE_PUBLIC_KEY LIMIT_COUNT 1)
+  string(STRIP "${MSIME_SPARKLE_PUBLIC_KEY}" MSIME_SPARKLE_PUBLIC_KEY)
+  if(NOT MSIME_SPARKLE_PUBLIC_KEY MATCHES "^[A-Za-z0-9+/]+=*$")
+    message(FATAL_ERROR "platforms/macos/sparkle-public-key.txt must hold the base64 EdDSA public key that generate_keys prints")
+  endif()
+  # SURequireSignedFeed 要求 appcast 本身也带签名（generate_appcast 用同一把私钥签），SUVerifyUpdateBeforeExtraction 在解压之前验更新包的签名；两项与 MSIME-Apple 时期发出去的 0.48 版一致。SUAutomaticallyUpdate：在后台下载，输入法进程退出时安装，不弹窗。输入法是 LSBackgroundOnly，Sparkle 的标准提醒窗口会从正在打字的应用那里抢走焦点；手动「检查更新…」照常显示 Sparkle 的界面。
+  string(CONCAT MSIME_SPARKLE_PLIST_KEYS
+    "<key>SUFeedURL</key><string>${MSIME_SPARKLE_APPCAST_BASE_URL}appcast-${MSIME_EDITION}.xml</string>\n"
+    "<key>SUPublicEDKey</key><string>${MSIME_SPARKLE_PUBLIC_KEY}</string>\n"
+    "<key>SURequireSignedFeed</key><true/>\n"
+    "<key>SUVerifyUpdateBeforeExtraction</key><true/>\n"
+    "<key>SUEnableAutomaticChecks</key><true/>\n"
+    "<key>SUAutomaticallyUpdate</key><true/>\n"
+    "<key>SUScheduledCheckInterval</key><integer>86400</integer>\n")
+  message(STATUS "Sparkle feed: ${MSIME_SPARKLE_APPCAST_BASE_URL}appcast-${MSIME_EDITION}.xml")
+endif()
 if(MSIME_EDITION STREQUAL "full")
   set(MSIME_INFO_PLIST_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in")
   set(MSIME_LOCALIZED_RESOURCES "${CMAKE_CURRENT_SOURCE_DIR}/resources")

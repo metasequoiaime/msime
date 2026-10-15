@@ -23,6 +23,9 @@
 #   MACOS_SIGNING_IDENTITY        a "Developer ID Application: ... (TEAMID)" identity in the keychain. Without it everything is signed ad-hoc: the package builds and the settings app runs, but macOS will not register the embedded input method as an input source (see scripts/install.sh)
 #   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_SPECIFIC_PASSWORD
 #                                 when all three are set (and an identity is), the DMG is notarized and stapled
+#   MSIME_SPARKLE_PRIVATE_KEY     Sparkle's base64 EdDSA private key (the 32-byte seed `generate_keys -x` exports, or Sparkle's older 96-byte form) matching platforms/macos/sparkle-public-key.txt. With it (and an identity) the input method gets a Sparkle feed, and OUT_DIR also receives one <dmg_prefix>-VERSION-input-method.zip and one appcast-<edition>.xml per edition. Without it the input method has no feed and updates through the download page, as before
+#   MSIME_SPARKLE_APPCAST_BASE_URL    where the appcast-<edition>.xml files are served; defaults to the macos-appcast release
+#   MSIME_SPARKLE_DOWNLOAD_URL_PREFIX where the update zips are served; defaults to the macos-vVERSION release
 #
 # 产物是 universal 的：Apple 芯片和 Intel Mac 用同一个包。Rust 产物按两个 target 各编一次再用 lipo 合并，CMake 的目标和 Swift 后端经 CMAKE_OSX_ARCHITECTURES 编出双架构，打包后 check_app 逐个核对包里的 Mach-O 都含两种架构。需要 rustup target add aarch64-apple-darwin x86_64-apple-darwin。
 set -Eeuo pipefail
@@ -55,6 +58,31 @@ out_dir="${2:-$repo_root/target/macos-package/dist}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$repo_root/target}"
 build_dir="${MSIME_MACOS_BUILD_DIR:-$repo_root/target/macos-release}"
 identity="${MACOS_SIGNING_IDENTITY:-}"
+# Sparkle 更新的是 ~/Library/Input Methods 里的输入法本体：每个版本一个签好名的 zip、一份用私钥签过的 appcast。Sparkle 还要求新 bundle 与已装的出自同一签名身份，ad-hoc 包无从更新，所以没有 Developer ID 时不开 feed。
+sparkle_key="${MSIME_SPARKLE_PRIVATE_KEY:-}"
+sparkle_appcast_base=""
+if [ -n "$sparkle_key" ] && [ -z "$identity" ]; then
+  echo "warning: MSIME_SPARKLE_PRIVATE_KEY is set but MACOS_SIGNING_IDENTITY is not; Sparkle cannot update an ad-hoc signed input method, so the package has no feed" >&2
+  sparkle_key=""
+fi
+if [ -n "$sparkle_key" ]; then
+  sparkle_appcast_base="${MSIME_SPARKLE_APPCAST_BASE_URL:-https://github.com/metasequoiaime/msime/releases/download/macos-appcast/}"
+  sparkle_download_prefix="${MSIME_SPARKLE_DOWNLOAD_URL_PREFIX:-https://github.com/metasequoiaime/msime/releases/download/macos-v$version/}"
+  # 私钥与仓库里的公钥对不上时，发出去的每个更新包都会被 Sparkle 当作签名无效拒绝，而发版本身照常成功；所以在编译之前从私钥推出公钥比一遍。macOS 自带的 LibreSSL 不支持 Ed25519，用 Homebrew 的 OpenSSL 3。
+  # Sparkle 认两种私钥（common_cli/Secret.swift）：generate_keys 现在导出的 32 字节种子，公钥由它推出；以前的 96 字节格式是 64 字节私钥接 32 字节公钥。
+  case "$(printf '%s' "$sparkle_key" | /usr/bin/base64 -D | wc -c | tr -d '[:space:]')" in
+    32)
+      openssl3="$(brew --prefix openssl@3)/bin/openssl"
+      derived_public_key="$(printf '%s' "$sparkle_key" | /usr/bin/base64 -D | { printf '\x30\x2e\x02\x01\x00\x30\x05\x06\x03\x2b\x65\x70\x04\x22\x04\x20'; cat; } \
+        | "$openssl3" pkey -inform DER -pubout -outform DER | tail -c 32 | /usr/bin/base64)" ;;
+    96) derived_public_key="$(printf '%s' "$sparkle_key" | /usr/bin/base64 -D | tail -c 32 | /usr/bin/base64)" ;;
+    *) echo "MSIME_SPARKLE_PRIVATE_KEY is neither a 32-byte EdDSA seed nor Sparkle's older 96-byte key" >&2; exit 1 ;;
+  esac
+  if [ "$derived_public_key" != "$(tr -d '[:space:]' < platforms/macos/sparkle-public-key.txt)" ]; then
+    echo "MSIME_SPARKLE_PRIVATE_KEY does not belong to the public key in platforms/macos/sparkle-public-key.txt" >&2
+    exit 1
+  fi
+fi
 arch=universal
 architectures=(arm64 x86_64)
 rust_targets=(aarch64-apple-darwin x86_64-apple-darwin)
@@ -167,6 +195,7 @@ CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OS
 cmake -S platforms/macos -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
   -DCMAKE_OSX_ARCHITECTURES="$(IFS=';'; echo "${architectures[*]}")" \
   -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMSIME_HOST_LIBRARY="$universal_dir/libmsime_host_api.a" \
+  -DMSIME_SPARKLE_APPCAST_BASE_URL="$sparkle_appcast_base" \
   -DMSIME_REQUIRE_OFFICIAL_PLUGINS="$([ "${MSIME_REQUIRE_OFFICIAL_PLUGINS:-}" = 1 ] && echo ON || echo OFF)"
 # An explicit job count: a bare --parallel with the Makefile generator starts every compile at once and runs a 7 GB runner out of memory (ci-macos.yml).
 cmake --build "$build_dir" --config Release --parallel "$(sysctl -n hw.logicalcpu)"
@@ -219,8 +248,10 @@ tauri_bundle_dir="$CARGO_TARGET_DIR/release/bundle/macos"
 glosses="$repo_root/target/macos/offline-glosses"
 
 mkdir -p "$out_dir"
-rm -f "$out_dir/SHA256SUMS"
+rm -f "$out_dir/SHA256SUMS" "$out_dir"/appcast-*.xml "$out_dir"/*-input-method.zip
 dmgs=()
+# 更新 zip 随 DMG 一起挂在 macos-vVERSION 上并写进 SHA256SUMS；appcast 挂在滚动的 macos-appcast 上，不写进去。
+update_zips=()
 
 # 打一个版本：暂存该版本的资源和输入法 bundle，打设置应用，出 DMG 并在挂载后的 DMG 里再检查一遍。下面这些变量对当前版本有效，check_app 也读它们。
 package_edition() {
@@ -252,6 +283,30 @@ else
   codesign --force --deep --options runtime --entitlements "$entitlements" --sign - "$staged_bundle"
 fi
 codesign --verify --deep --strict "$staged_bundle"
+
+# ---- Sparkle update for this edition ----
+# 更新包就是这个签好名的输入法 bundle（DMG 公证时其中的代码一并公证）。generate_appcast 解开它读版本、用私钥签名，目录里只放这一个 zip，所以 appcast 只有这一版、不生成增量包。
+if [ -n "$sparkle_key" ]; then
+  update_zip="$out_dir/$dmg_prefix-$version-input-method.zip"
+  rm -f "$update_zip"
+  ditto -c -k --sequesterRsrc --keepParent "$staged_bundle" "$update_zip"
+  appcast_dir="$work/appcast-$edition"
+  rm -rf "$appcast_dir"
+  mkdir -p "$appcast_dir"
+  cp "$update_zip" "$appcast_dir/"
+  appcast="$out_dir/appcast-$edition.xml"
+  printf '%s' "$sparkle_key" | "$MSIME_SPARKLE_ROOT/bin/generate_appcast" --ed-key-file - \
+    --download-url-prefix "$sparkle_download_prefix" -o "$appcast" "$appcast_dir"
+  feed="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$staged_bundle/Contents/Info.plist")"
+  [ "$feed" = "${sparkle_appcast_base}appcast-$edition.xml" ] || { echo "$edition reads its updates from $feed, not appcast-$edition.xml" >&2; exit 1; }
+  build_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$staged_bundle/Contents/Info.plist")"
+  grep -qF "url=\"$sparkle_download_prefix$(basename "$update_zip")\"" "$appcast" || { echo "$appcast does not point at $(basename "$update_zip")" >&2; exit 1; }
+  grep -qF "<sparkle:version>$build_version</sparkle:version>" "$appcast" || { echo "$appcast does not offer build $build_version" >&2; exit 1; }
+  grep -qF 'sparkle:edSignature=' "$appcast" || { echo "$appcast has no EdDSA signature for the zip" >&2; exit 1; }
+  # 输入法开了 SURequireSignedFeed，没有签名的 appcast 会被整份拒收。
+  grep -qF 'sparkle-signatures:' "$appcast" || { echo "$appcast is not signed itself" >&2; exit 1; }
+  update_zips+=("$update_zip")
+fi
 
 # ---- Settings app for this edition ----
 # full 只传版本号，与引入版本之前相同。其他版本另外换掉 identifier 和 productName（决定包的 Info.plist 和 .app 文件名），把资源里 full 的输入法 bundle 和设置应用的 InfoPlist.strings 换成该版本的，再放进版本声明 edition.json。--config 按 JSON merge patch 合并，null 删掉 tauri.macos.conf.json 里的同名条目。
@@ -487,7 +542,7 @@ dsym_zip="$out_dir/msime-macos-$version-dsym.zip"
 rm -f "$dsym_zip"
 ditto -c -k --keepParent "$dsym_dir" "$dsym_zip"
 
-(cd "$out_dir" && shasum -a 256 -- "${dmgs[@]##*/}" "${dsym_zip##*/}" > SHA256SUMS && shasum -a 256 -c SHA256SUMS)
+(cd "$out_dir" && shasum -a 256 -- "${dmgs[@]##*/}" "${dsym_zip##*/}" ${update_zips[@]+"${update_zips[@]##*/}"} > SHA256SUMS && shasum -a 256 -c SHA256SUMS)
 for dmg in "${dmgs[@]}"; do
   echo "macOS package: $dmg"
 done

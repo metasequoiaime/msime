@@ -1,4 +1,4 @@
-import { skinLuminance } from "./touch-keyboard-skin-design";
+import { relativeLuminance } from "../core/color";
 import { clamp } from "../core/number";
 
 export function mixKeyboardColor(first: string, second: string, amount: number) {
@@ -13,7 +13,7 @@ export function mixKeyboardColor(first: string, second: string, amount: number) 
 
 export function readableKeyboardText(value: string) {
   const parsed = Number.parseInt(value.replace(/^#/, ""), 16);
-  return Number.isFinite(parsed) && skinLuminance(parsed) > 0.179 ? "#000000" : "#ffffff";
+  return Number.isFinite(parsed) && relativeLuminance(parsed) > 0.179 ? "#000000" : "#ffffff";
 }
 
 export function keyboardRgba(value: string, opacity: number) {

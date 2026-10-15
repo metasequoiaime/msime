@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
-import { afterEach, expect, test } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ThemeCarousel } from "@msime/ui";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const labels = ["跟随系统", "水杉", "薄荷晨光"];
 
@@ -20,6 +23,35 @@ function renderCarousel(selectedIndex: number) {
 function current() {
   return screen.getAllByRole("button").find((button) => button.getAttribute("aria-current"));
 }
+
+test("尺寸变化时按当前卡片重定位，卸载后断开观察", () => {
+  let resize!: ResizeObserverCallback;
+  const observe = vi.fn();
+  const disconnect = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(callback: ResizeObserverCallback) {
+        resize = callback;
+      }
+      observe = observe;
+      disconnect = disconnect;
+    },
+  );
+  const { unmount } = renderCarousel(0);
+  const track = observe.mock.calls[0][0] as HTMLDivElement;
+  Object.defineProperty(track, "clientWidth", { value: 300 });
+  track.scrollTo = vi.fn();
+  fireEvent.click(screen.getByRole("button", { name: "查看薄荷晨光" }));
+  vi.mocked(track.scrollTo).mockClear();
+
+  act(() => resize([], {} as ResizeObserver));
+
+  expect(track.scrollTo).toHaveBeenCalledExactlyOnceWith({ left: 600, behavior: "auto" });
+  expect(observe).toHaveBeenCalledOnce();
+  unmount();
+  expect(disconnect).toHaveBeenCalledOnce();
+});
 
 test("opens on the selected theme and keeps every card mounted", () => {
   renderCarousel(1);

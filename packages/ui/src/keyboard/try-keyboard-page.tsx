@@ -1,13 +1,5 @@
 import { SendStopButton } from "../core/send-stop-button";
-import MarkdownIt from "markdown-it";
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type MouseEvent,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { ChatClient, ChatMessage } from "../chat/chat-page";
 import { chatRequest } from "../chat/chat-prompt";
 import { resizeChatComposer } from "../chat/chat-composer-size";
@@ -16,6 +8,7 @@ import { errorCode } from "../core/error-code";
 import { touchHairline } from "../core/touch-style";
 import { makeDefaultAction, useImeSetupState, type SetupActions } from "./setup-status-card";
 import { useHostAction } from "../core/use-host-action";
+import { createMarkdownLinkHandler, linkedMarkdownHtml } from "../core/linked-markdown";
 
 /** 草稿上限，与 Android 和 Apple 的试用页相同。2000 个字符最多 8000 字节，在 client-core 单条消息 16 KiB 的上限之内，所以发送前不必再按字节检查。 */
 const DRAFT_LIMIT = 2000;
@@ -23,8 +16,6 @@ const DRAFT_LIMIT = 2000;
 const BUBBLE_LIMIT = 60;
 const GREETING = "你好，我是水杉输入法。打几个字发给我试试，比如 shuishan。";
 const GREETING_WITHOUT_CHAT = "你好，我是水杉输入法。在下面打几个字试试，比如 shuishan。";
-// 回复按 Markdown 显示：原始 HTML 当文字、不渲染图片，所以一条回复不会去网络上加载任何东西；链接由下面的点按处理交给外部浏览器。
-const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true }).disable("image");
 const openableLink = /^(https?:|mailto:)/i;
 
 type Bubble = {
@@ -200,13 +191,7 @@ export function TryKeyboardPage({
     void send();
   };
 
-  const openLink = (event: MouseEvent<HTMLDivElement>) => {
-    const anchor = (event.target as Element).closest?.("a");
-    if (!anchor) return;
-    event.preventDefault();
-    const href = anchor.getAttribute("href") ?? "";
-    if (openableLink.test(href)) onOpenUrl?.(href);
-  };
+  const openLink = createMarkdownLinkHandler(onOpenUrl, openableLink);
 
   const notReady = state?.enabled === false || state?.current === false;
   // 没启用或不是当前输入法时，这个按钮带用户把设置补完；都好了以后它只剩换走水杉这一个用处。
@@ -240,7 +225,7 @@ export function TryKeyboardPage({
               key={bubble.id}
               className={`${bubbleBase} self-start bg-[var(--p-group-bg)] [color:var(--p-text)] [&_a]:underline [&_ol]:my-1 [&_ol]:pl-5 [&_p]:my-0 [&_p+p]:mt-2 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_ul]:my-1 [&_ul]:pl-5`}
               // markdown-it 关闭了 HTML，这里只有 Markdown 自己产生的元素。
-              dangerouslySetInnerHTML={{ __html: markdown.render(bubble.content) }}
+              dangerouslySetInnerHTML={{ __html: linkedMarkdownHtml(bubble.content) }}
             />
           ) : (
             <p

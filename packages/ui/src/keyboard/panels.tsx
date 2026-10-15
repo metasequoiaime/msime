@@ -2,6 +2,7 @@ import { ControlledCheckbox } from "../core/controlled-checkbox";
 import { downloadBlob } from "../core/download-blob";
 import { trackAsyncSubscription } from "../core/async-subscription";
 import { subscribeToInterval } from "../core/use-interval";
+import { subscribeToElementResize } from "../core/element-resize";
 import {
   subscribeToDocumentVisibilityChange,
   subscribeToWindowBlur,
@@ -15,6 +16,7 @@ import {
 } from "../core/optional-storage";
 import { useConfirm } from "../core/confirm";
 import { clamp } from "../core/number";
+import { touchKeyboardSpacing } from "../settings/touch-keyboard-spacing";
 import { utf8ByteLength } from "../core/text";
 import { readDictionaryFile } from "../dictionary/dictionary-file";
 import { DictionaryFormatOptions } from "../dictionary/dictionary-format-options";
@@ -416,8 +418,8 @@ export function KeyboardPanel({
   platform,
   theme = "dark",
   layout = "twenty_six_key",
-  keySpacingTenths = 60,
-  rowSpacingTenths = 70,
+  keySpacingTenths,
+  rowSpacingTenths,
   voiceShortcut = false,
   skin = "system",
   customDesign,
@@ -715,8 +717,10 @@ export function KeyboardPanel({
       );
     return match ?? fallback;
   }
-  const keyGap = clamp(keySpacingTenths / 10, 3, 6);
-  const rowGap = clamp(rowSpacingTenths / 10, 4, 10);
+  const { keySpacing: keyGap, rowSpacing: rowGap } = touchKeyboardSpacing(
+    keySpacingTenths,
+    rowSpacingTenths,
+  );
   const keyboardStyle = {
     "--keyboard-key-gap": `${keyGap}px`,
     "--keyboard-row-gap": `${rowGap}px`,
@@ -842,12 +846,7 @@ function HandwritingCandidateButton({
     if (!element) return;
     const resize = () => setWidth(element.getBoundingClientRect().width);
     resize();
-    if (typeof ResizeObserver !== "undefined") {
-      const observer = new ResizeObserver(resize);
-      observer.observe(element);
-      return () => observer.disconnect();
-    }
-    return subscribeToWindowEvent("resize", resize);
+    return subscribeToElementResize(element, resize) ?? subscribeToWindowEvent("resize", resize);
   }, []);
   // Use Unicode code points so supplementary Han does not count as two glyphs.
   const length = Math.max(1, Array.from(candidate).length);
@@ -4201,7 +4200,7 @@ export function EmojiPanel({
     }
     const generation = clipboardLifecycle.current;
     const isCurrent = () => generation === clipboardLifecycle.current;
-    let poll: ReturnType<typeof setInterval> | undefined;
+    let stopPoll: (() => void) | undefined;
     let stopVisibility: (() => void) | undefined;
     let inFlight = 0;
     let refreshPending = false;
@@ -4264,9 +4263,9 @@ export function EmojiPanel({
       if (!isCurrent()) return stop;
       // Close the gap between the initial snapshot and subscription setup.
       refresh();
-      if (stop && poll !== undefined) {
-        clearInterval(poll);
-        poll = undefined;
+      if (stop && stopPoll !== undefined) {
+        stopPoll();
+        stopPoll = undefined;
         stopVisibility?.();
       }
       return stop;
@@ -4275,14 +4274,14 @@ export function EmojiPanel({
     // Use Windows' 400 ms interval until the host subscription is ready.
     refresh();
     if (page === "clipboard") {
-      poll = setInterval(pollVisible, 400);
+      stopPoll = subscribeToInterval(pollVisible, 400);
       stopVisibility = subscribeToDocumentVisibilityChange(pollVisible);
     }
     const disposeSubscription = trackAsyncSubscription(start(), isCurrent);
     return () => {
       refreshPending = false;
       ++clipboardGeneration.current;
-      if (poll !== undefined) clearInterval(poll);
+      stopPoll?.();
       stopVisibility?.();
       disposeSubscription();
     };

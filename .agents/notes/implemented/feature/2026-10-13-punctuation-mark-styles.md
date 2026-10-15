@@ -74,6 +74,8 @@ Status: implemented
 
 ## 相关笔记
 
+- [共享标点偏好的叶子类型](../simplification/2026-10-15-punctuation-preferences.md)：部分重叠，记录 React 偏好类型的归属与兼容接口；本篇继续持有样式行为和存储约定。
+
 - [Android 成对标点自动补全](2026-10-08-android-paired-punctuation.md)：部分重叠。那篇定下 Android 补全、跨过和改回前引号的做法，本篇只给它的几张表加了「」『』〖〗。
 - [Android 字母角标的中文标点](2026-10-12-android-letter-hint-chinese-punctuation.md)：部分重叠。角标经 `ChineseSymbolFaces` 取键面，本篇让它按样式取。
 - [二三候选键](2026-10-09-second-third-candidate-keys.md)：无关，只是共用 Worker 帧的编号序列。那篇的帧 30 不再是 `MaxKnown`，31 是本篇的帧，那篇写的事实仍然成立。

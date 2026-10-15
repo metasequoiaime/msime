@@ -1,0 +1,28 @@
+# Agent Note: 共享元素尺寸观察的注册与清理
+
+Status: implemented
+
+## Problem
+
+手写候选按钮和主题轮播分别构造 `ResizeObserver`、观察一个元素并在卸载时断开。二者都有尺寸通知，却有不同的首次计算和旧宿主回退策略，直接合并 effect 会改变页面行为。
+
+## Decision
+
+在 `packages/ui/src/core/element-resize.ts` 提供 `subscribeToElementResize(element, listener)`，只负责观察与断开，缺少 API 时返回 `undefined`。调用方保留 effect、首次布局读取及回退：候选按钮先测量，旧宿主订阅窗口 resize；轮播只在观察 API 存在时重定位。
+
+## Alternatives considered
+
+- 保留局部 observer：生命周期就近可读，但重复维护相同注册清理。
+- 共享带窗口回退的完整 Hook：调用代码更短，但会让轮播新增旧宿主监听，也会混淆候选按钮立即测量与轮播异步重定位的边界。
+
+## Verification
+
+公共订阅、主题轮播与手写候选共 18 项测试通过。新测试覆盖目标元素、原样转发通知、不会同步主动触发回调、断开清理、API 缺失、轮播按当前卡片重新定位，以及旧宿主窗口缩放后重算候选字号和卸载清理。桌面类型检查、生产构建、改动范围 lint、格式和差异检查通过；HarmonyOS 类型检查、笔记校验及 quick 门禁覆盖提交前的共享层约束。
+
+## Consequences
+
+两处共享观察生命周期，尺寸计算、effect 依赖和状态引用继续由各调用方持有。公共函数不主动调用 listener，不增加窗口回退，不改变默认观察盒或浏览器通知时序。返回 `undefined` 明确表示没有注册，由候选按钮选择窗口回退；轮播保持没有观察 API 时不额外监听的行为。本次验证共享 UI，不替代平台原生宿主验收。
+
+## Existing notes audit
+
+以 `ResizeObserver`、尺寸观察和主题轮播检索活跃笔记，无同一机制的既有决定。渲染值引用笔记持有轮播当前位置的引用边界，本片保持其即时更新方式；媒体查询订阅负责另一种浏览器通知，不合并 API。

@@ -435,7 +435,7 @@ int main(void)
             std::sort(timings.begin(), timings.end());
             printf("candidate show/hide: median=%.3fms p95=%.3fms\n", timings[30], timings[57]);
         }
-        // 首选与悬停行按相同内边距推导圆角，覆盖极端设置和缩放。
+        // 首选与悬停行按相同内边距推导圆角，覆盖极端设置和缩放。内边距 0 时窗口只留 1pt 细边框的宽度（#7974），边框不随缩放变粗，所以各档缩放都只扣 1pt。
         appearance.candidateCornerRadius = @32;
         appearance.candidatePadding = @0;
         for (NSNumber *scale in @[@50, @100, @150, @200]) {
@@ -444,9 +444,9 @@ int main(void)
             MSIMECandidateButton *selected = CandidateButton(panel.contentView, 0);
             MSIMECandidateButton *hovered = CandidateButton(panel.contentView, 1);
             hovered.candidateHovered = YES;
-            assert(selected.cornerRadius == 30.0 * scale.doubleValue / 100.0);
+            assert(selected.cornerRadius == 32.0 * scale.doubleValue / 100.0 - 1.0);
             assert(hovered.cornerRadius == selected.cornerRadius);
-            assert(NSMinX(selected.frame) >= 2.0 * scale.doubleValue / 100.0);
+            assert(std::abs(NSMinX(selected.frame) - 1.0) < 0.001);
         }
         // 前一组覆盖到 200% 缩放，首行布局断言使用 100% 的坐标。
         appearance.candidateScalePercent = 100;
@@ -465,7 +465,7 @@ int main(void)
             assert(![row.identifier isEqual:@"candidate-page-indicator"]);
             assert(![row.identifier isEqual:@"candidate-collapse"]);
         }
-        const CGFloat inset = MAX(2.0, [appearance candidateWindowSkinForDark:NO].tokens.pad);
+        const CGFloat inset = msime::mac::CandidateInset([appearance candidateWindowSkinForDark:NO].tokens);
         assert(std::abs(NSMaxY(CandidateButton(panel.contentView, 0).frame) - (NSHeight(panel.contentView.bounds) - inset)) < .01);
         appearance.showsCandidatePreedit = YES;
         assert([controller renderExpandedCandidates]);

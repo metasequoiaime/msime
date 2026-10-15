@@ -1,5 +1,6 @@
 //! `ShuangpinEngine` (schemes-lang.md §1.6): double and single helpcode queries, the normal series query, and the fuzzy tail borrowed from quanpin.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 use super::dictionary::ShuangpinDictionary;
@@ -15,7 +16,6 @@ use crate::helpcode::{
     HelpcodeKeymap,
 };
 use crate::paths::RuntimePaths;
-use crate::pinyin::segment::{join_segments, split_segments};
 use crate::quanpin::QuanpinDictionary;
 use crate::types::{
     autocorrect_type, CandidateSource, FuzzyPinyinOptions, QueryRequest, SchemeType, WordItem,
@@ -94,8 +94,14 @@ fn active_helpcode_query(
     } else {
         &request.raw_input_with_cases
     };
-    full_helpcode_query(raw, raw_with_cases, profile)
-        .or_else(|| single_helpcode_query(raw, &remove_manual_delimiters(raw_with_cases), profile))
+    full_helpcode_query(raw, raw_with_cases, profile).or_else(|| {
+        let pure_with_cases = if raw_with_cases.contains('\'') {
+            Cow::Owned(remove_manual_delimiters(raw_with_cases))
+        } else {
+            Cow::Borrowed(raw_with_cases.as_str())
+        };
+        single_helpcode_query(raw, &pure_with_cases, profile)
+    })
 }
 
 pub struct ShuangpinEngine {
@@ -135,7 +141,7 @@ impl ShuangpinEngine {
             .set_autocorrect_types(request_autocorrect_types(request));
 
         let raw = &request.raw_input;
-        if remove_manual_delimiters(raw).is_empty() {
+        if raw.bytes().all(|byte| byte == b'\'') {
             return Vec::new();
         }
         // Without a loaded table nothing matches a helpcode, which is what the reference's null keymap did.
@@ -184,17 +190,11 @@ impl ShuangpinEngine {
         let fuzzy_dictionary = self
             .fuzzy_dictionary
             .get_or_insert_with(|| QuanpinDictionary::new(paths));
-        let typed = split_segments(raw_segmentation);
         let mut fuzzy = fuzzy_dictionary.fuzzy_candidates(
             &to_quanpin_segmentation(raw_segmentation, self.profile),
             options,
         );
-        for item in &mut fuzzy {
-            let count = segment_count(&item.pinyin);
-            if count <= typed.len() {
-                item.pinyin = join_segments(&typed[..count]);
-            }
-        }
+        relabel_fuzzy_rows(&mut fuzzy, raw_segmentation);
         let fuzzy = match help_codes.len() {
             2 => filter_candidates_with_double_helpcodes(fuzzy, help_codes, keymap),
             1 => reorder_candidates_with_single_helpcode(fuzzy, help_codes, keymap),
@@ -316,6 +316,31 @@ fn segment_count(segmentation: &str) -> usize {
     }
 }
 
+// 直接借用输入前缀，保留空段；候选编码容量足够时不创建临时字符串。
+fn relabel_fuzzy_rows(rows: &mut [WordItem], raw_segmentation: &str) {
+    for item in rows {
+        if let Some(prefix) = segment_prefix(raw_segmentation, segment_count(&item.pinyin)) {
+            item.pinyin.clear();
+            item.pinyin.push_str(prefix);
+        }
+    }
+}
+
+fn segment_prefix(segmentation: &str, count: usize) -> Option<&str> {
+    if count == 0 {
+        return Some("");
+    }
+    if segmentation.is_empty() {
+        return None;
+    }
+    let mut segments = segmentation.split('\'');
+    let mut end = segments.next()?.len();
+    for _ in 1..count {
+        end += 1 + segments.next()?.len();
+    }
+    Some(&segmentation[..end])
+}
+
 fn append_fuzzy_rows(exact: &mut Vec<WordItem>, fuzzy: Vec<WordItem>) {
     if exact.len().saturating_add(fuzzy.len()) <= SMALL_FUZZY_DEDUP {
         exact.reserve(fuzzy.len());
@@ -351,12 +376,200 @@ fn append_fuzzy_rows(exact: &mut Vec<WordItem>, fuzzy: Vec<WordItem>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_fuzzy_rows, keep_typo_sentence_off_first_seat, segment_count, sort_by_coverage,
+        append_fuzzy_rows, keep_typo_sentence_off_first_seat, relabel_fuzzy_rows, segment_count,
+        sort_by_coverage,
     };
     use crate::types::{CandidateSource, WordItem};
 
     fn row(word: &str) -> WordItem {
         WordItem::new("ni", word, 1, CandidateSource::Database, "ni")
+    }
+
+    #[test]
+    fn short_ordinary_inputs_do_not_allocate_helpcode_query_state() {
+        let profile =
+            crate::shuangpin::profile::profile(crate::types::ShuangpinProfileKind::Xiaohe).unwrap();
+        for raw in ["n", "ni", "nihc", "nihcab"] {
+            for cased in [raw, ""] {
+                let request = crate::types::QueryRequest {
+                    raw_input: raw.into(),
+                    raw_input_with_cases: cased.into(),
+                    enable_shuangpin_helpcode: true,
+                    ..Default::default()
+                };
+                let (query, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                    super::active_helpcode_query(&request, profile)
+                });
+                assert!(query.is_none());
+                assert_eq!(allocations, 0, "raw={raw:?}, cased={cased:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn borrowed_helpcode_queries_match_the_owned_input_reference() {
+        use crate::types::{QueryRequest, ShuangpinProfileKind};
+        let fields = |query: Option<super::HelpcodeQuery>| {
+            query.map(|query| (query.base_pure, query.base_segmentation, query.help_codes))
+        };
+        for kind in [
+            ShuangpinProfileKind::Xiaohe,
+            ShuangpinProfileKind::Ziranma,
+            ShuangpinProfileKind::Shoudao,
+            ShuangpinProfileKind::Microsoft,
+        ] {
+            let profile = crate::shuangpin::profile::profile(kind).unwrap();
+            for typed in [
+                "", "n", "ni", "niu", "niU", "ui'u", "niu'", "'niu", "ni''u", "ni'hcU", "nihcAB",
+                "nihcAb", "nihcaB", "ni'hcAB'", "ni'hc'AB", "j;gkA", "''",
+            ] {
+                for keep_cases in [false, true] {
+                    for enabled in [false, true] {
+                        let request = QueryRequest {
+                            raw_input: typed.to_ascii_lowercase(),
+                            raw_input_with_cases: if keep_cases {
+                                typed.into()
+                            } else {
+                                String::new()
+                            },
+                            enable_shuangpin_helpcode: enabled,
+                            ..Default::default()
+                        };
+                        let expected = if !enabled {
+                            None
+                        } else {
+                            let raw = &request.raw_input;
+                            let cased = if request.raw_input_with_cases.is_empty() {
+                                raw
+                            } else {
+                                &request.raw_input_with_cases
+                            };
+                            super::full_helpcode_query(raw, cased, profile).or_else(|| {
+                                super::single_helpcode_query(
+                                    raw,
+                                    &super::remove_manual_delimiters(cased),
+                                    profile,
+                                )
+                            })
+                        };
+                        assert_eq!(fields(super::active_helpcode_query(&request, profile)), fields(expected),
+                            "kind={kind:?}, typed={typed:?}, keep_cases={keep_cases}, enabled={enabled}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fuzzy_query_reuses_the_decoded_row_code_capacity() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = crate::paths::RuntimePaths {
+            resources: root.path().into(),
+            user_data: root.path().into(),
+            cache: root.path().into(),
+            dictionaries: root.path().into(),
+        };
+        rusqlite::Connection::open(paths.dictionary(crate::assets::MAIN_DICTIONARY))
+            .unwrap()
+            .execute_batch("CREATE TABLE tbl_1_z(key TEXT, jp TEXT, value TEXT, weight INTEGER); INSERT INTO tbl_1_z VALUES('zi','z','模糊',100);")
+            .unwrap();
+        let mut engine = super::ShuangpinEngine::new(
+            crate::shuangpin::profile::profile(crate::types::ShuangpinProfileKind::Xiaohe).unwrap(),
+            &paths,
+        );
+        let rows = engine.append_fuzzy(
+            Vec::new(),
+            "vi",
+            crate::types::FuzzyPinyinOptions {
+                rules: crate::types::fuzzy_rule::Z_ZH,
+            },
+            "",
+            &crate::helpcode::HelpcodeKeymap::default(),
+        );
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].pinyin, "vi");
+        assert_eq!(rows[0].canonical_pinyin, "zi");
+        assert!(rows[0].pinyin.capacity() >= "zhi".len());
+    }
+
+    #[test]
+    fn fuzzy_relabeling_reuses_capacity_without_allocating() {
+        let mut rows = vec![row("首"), row("次"), row("空")];
+        rows[0].pinyin = "zhi'hao'jie".into();
+        rows[1].pinyin = "zhi'hao".into();
+        rows[2].pinyin.clear();
+        let pointers = rows
+            .iter()
+            .map(|row| row.pinyin.as_ptr())
+            .collect::<Vec<_>>();
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            relabel_fuzzy_rows(&mut rows, "zi'hc'jx");
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.pinyin.as_str())
+                .collect::<Vec<_>>(),
+            ["zi'hc'jx", "zi'hc", ""]
+        );
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.pinyin.as_ptr())
+                .collect::<Vec<_>>(),
+            pointers
+        );
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            relabel_fuzzy_rows(&mut [], "zi'hc'jx");
+        });
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn fuzzy_relabeling_matches_owned_segment_reference() {
+        use crate::pinyin::segment::{join_segments, split_segments};
+        let long = std::iter::repeat_n("长", 130).collect::<Vec<_>>().join("'");
+        for raw in [
+            "",
+            "zi",
+            "'",
+            "''",
+            "'zi",
+            "zi'",
+            "zi''hc'",
+            "你'好'🙂",
+            &long,
+        ] {
+            let typed = split_segments(raw);
+            let mut rows = (0..=typed.len() + 1)
+                .map(|count| {
+                    let mut item = WordItem::new(
+                        std::iter::repeat_n("a", count)
+                            .collect::<Vec<_>>()
+                            .join("'"),
+                        format!("合成{count}"),
+                        count as i64,
+                        CandidateSource::Generated,
+                        "yuan'ci",
+                    );
+                    item.fuzzy = true;
+                    item.fixed_position = 2;
+                    item.corrected_from = "synthetic".into();
+                    item.sentence_association = true;
+                    item.sentence_words = vec!["合成".into(), count.to_string()];
+                    item
+                })
+                .collect::<Vec<_>>();
+            let mut expected = rows.clone();
+            for item in &mut expected {
+                let count = split_segments(&item.pinyin).len();
+                if count <= typed.len() {
+                    item.pinyin = join_segments(&typed[..count]);
+                }
+            }
+            relabel_fuzzy_rows(&mut rows, raw);
+            assert_eq!(rows, expected, "raw={raw:?}");
+        }
     }
 
     #[test]

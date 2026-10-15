@@ -14,7 +14,7 @@ msime-path-trust = { path = "../path-trust" }
 rustix = { workspace = true, features = ["process"] }
 # The model and its reference implementation live upstream, where other input methods
 # can use them too. Pinned by commit: this is a build input, not a moving target.
-chinese-ime-lm = { git = "https://github.com/metasequoiaime/chinese-ime-lm", rev = "7e02487323ee5047a07a36b6e20d766d7c2f381d" }
+chinese-ime-lm = { git = "https://github.com/metasequoiaime/chinese-ime-lm", rev = "2bd674a9972ee44c87c7b06e87a90efe35095316" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

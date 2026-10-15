@@ -392,6 +392,28 @@ final class KeyboardFormFactorTests: XCTestCase {
     }
   }
 
+  @MainActor
+  func testHiddenLanguageKeyExpandsBothTabletSpacesWithoutMovingTheSplitGap() throws {
+    let previous = KeyboardLayoutPreference.hideLanguageKey
+    defer { KeyboardLayoutPreference.hideLanguageKey = previous }
+    try withSplitPreferences(scheme: .quanpin) {
+      KeyboardLayoutPreference.tabletSplit = true
+      KeyboardLayoutPreference.hideLanguageKey = false
+      let original = splitTestController()
+      let originalSpace = try frame(key("spaceKey", in: original), in: original)
+      KeyboardLayoutPreference.hideLanguageKey = true
+      let expanded = splitTestController()
+      XCTAssertTrue(try key("bottomLanguageKey", in: expanded).isHidden)
+      let space = try frame(key("spaceKey", in: expanded), in: expanded)
+      let right = try frame(key("splitSpaceKey", in: expanded), in: expanded)
+      let rowWidth = expanded.view.bounds.width - 2 * KeyboardFormFactor.tablet.padding.leading
+      XCTAssertGreaterThan(space.width, originalSpace.width)
+      XCTAssertEqual(right.width, space.width, accuracy: 0.5)
+      XCTAssertEqual(right.minX - space.maxX, rowWidth * KeyboardSplitLayout.gapRatio, accuracy: 1)
+      XCTAssertGreaterThanOrEqual(space.width, 44)
+    }
+  }
+
   /// 竖屏、手机、iPad 的浮动键盘（compact 宽度）都不分，开关开着也一样。
   @MainActor
   func testPortraitPhonesAndFloatingKeyboardsStayWhole() throws {

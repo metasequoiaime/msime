@@ -4097,6 +4097,11 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 - (void)showSystemCharacterPalette { [NSApp orderFrontCharacterPalette:nil]; }
 - (void)checkForUpdates:(id)sender {
     (void)sender;
+    // 带 feed 的发布包由 Sparkle 直接更新输入法本体；设置应用的「关于」页只能给出 DMG 的下载链接。
+    if (MSIMEUpdateHostUsesSparkle(NSBundle.mainBundle)) {
+        [[MSIMEUpdateController sharedController] checkForUpdates:nil];
+        return;
+    }
     MSIMEOpenDesktopUpdateSettings(NSWorkspace.sharedWorkspace, ^{
         [[MSIMEUpdateController sharedController] checkForUpdates:nil];
     });
@@ -6369,9 +6374,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         !(event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
                                  NSEventModifierFlagOption | NSEventModifierFlagCommand)) &&
         _armedGlossColumn > 0 && [self commitHighlightedGlossColumn:_armedGlossColumn client:sender]) return YES;
-    // NSTextInputClient has no caret setter; replacing the known following
-    // closing mark atomically advances the caret without duplicating text.
-    if (_appearance.pairedPunctuation && event.characters.length == 1 &&
+    // NSTextInputClient 没有设置光标的接口，所以跨过后半个是把光标后已知的那个后半个整个替换掉，光标随之后移，字不会重复。
+    //
+    // 只在本宿主记着自己补过的后半个时才读光标后的字：什么都没记时读回来既跨不过、也没有可清的，却要在每个键上向应用同步来回两次（`selectedRange` 和 `attributedSubstringFromRange:`）。
+    if (_appearance.pairedPunctuation && !_pairedPunctuation.empty() && event.characters.length == 1 &&
         !MSIMESpellingSymbolString(_view, event.characters) &&
         !(event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand))) {
         NSString *following = MSIMETextClientFollowingCharacter((id<MSIMETextClient>)sender);
@@ -7195,7 +7201,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     _renderedCandidateSkin = skin.candidateSkin;
     NSImage *decorationImage = [_appearance decorationImageForDark:skinDark];
     const CGFloat scale = MSIMECandidateScale(_appearance);
-    const CGFloat inset = MAX(2.0 * scale, tokens.pad);
+    const CGFloat inset = msime::mac::CandidateInset(tokens);
     NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize * scale englishFirst:YES];
     NSFont *numberFont = MSIMECandidateNumberFont(font);
     NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
@@ -7390,7 +7396,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     // 装饰图取这种明暗画的那个包的，两个槽位可以是两个包。
     NSImage *decorationImage = [_appearance decorationImageForDark:skinDark];
     const CGFloat scale = MSIMECandidateScale(_appearance);
-    const CGFloat inset = MAX(2.0 * scale, geometry.pad);
+    const CGFloat inset = msime::mac::CandidateInset(geometry);
     NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize * scale englishFirst:YES];
     id preeditValue = _view[@"preedit"];
     if (![preeditValue isKindOfClass:NSString.class]) preeditValue = _view[@"editing_text"];

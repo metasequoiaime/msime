@@ -247,7 +247,7 @@ inline std::optional<int64_t> parse_iso_time(std::wstring_view value) {
       const auto om = number(2);
       if (!om || *oh > 23 || *om > 59)
         return std::nullopt;
-      offset_minutes = (negative ? -1 : 1) * (*oh * 60 + *om);
+      offset_minutes = (negative ? -1 : 1) * (static_cast<int64_t>(*oh) * 60 + *om);
     } else {
       // 没有时区的日期时间 JavaScript 按本地时间读；账号服务总带时区，读不懂就不写。
       return std::nullopt;

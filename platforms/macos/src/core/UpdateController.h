@@ -8,6 +8,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) BOOL canCheckForUpdates;
 @property(nonatomic, readonly) BOOL automaticallyChecksForUpdates;
 - (void)checkForUpdates:(nullable id)sender;
+@optional
+// Installs an update that was downloaded in the background, if one is waiting. Ends this process
+// without relaunching it; the system starts the input method again from the new bundle when it is next
+// needed.
+- (void)installDownloadedUpdate;
 @end
 
 typedef void (^MetasequoiaUpdateActivationHandler)(void);
@@ -41,6 +46,14 @@ static inline MetasequoiaUpdateRoute MSIMEUpdateRouteForHost(NSString *_Nullable
     return MetasequoiaUpdateRouteUnavailable;
 }
 
+// Whether this process is a release build with a Sparkle feed, so update checks and background installs
+// go through Sparkle rather than the settings app's download page.
+static inline BOOL MSIMEUpdateHostUsesSparkle(NSBundle *bundle)
+{
+    return MSIMEUpdateRouteForHost(bundle.bundleIdentifier, bundle.bundlePath,
+                                   [bundle objectForInfoDictionaryKey:@"SUFeedURL"]) == MetasequoiaUpdateRouteSparkle;
+}
+
 typedef NSModalResponse (^MetasequoiaUpdateReleaseConfirmation)(NSURL *releaseURL);
 typedef BOOL (^MetasequoiaUpdateReleaseOpener)(NSURL *releaseURL);
 typedef void (^MetasequoiaUpdateReleaseFailure)(void);
@@ -61,6 +74,9 @@ typedef void (^MetasequoiaUpdateReleaseFailure)(void);
 @property(nonatomic, readonly) BOOL canCheckForUpdates;
 @property(nonatomic, readonly) BOOL automaticallyChecksForUpdates;
 - (void)checkForUpdates:(nullable id)sender;
+// Hands a background-downloaded update to the driver for installation. Never activates the process or
+// shows anything: it is called when the user has just switched to another input source.
+- (void)installDownloadedUpdateIfReady;
 @end
 #define MSIMEUpdateController MetasequoiaUpdateController
 

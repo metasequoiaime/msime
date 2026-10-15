@@ -309,7 +309,7 @@
     window.hasNextPage = _hasNextPage;
     for (NSView *view in [_chrome.subviews copy])
         [view removeFromSuperview];
-    const CGFloat inset = MAX(2.0, _skin.tokens.pad);
+    const CGFloat inset = msime::mac::CandidateInset(_skin.tokens);
     const CGFloat rowHeight = ceil(_font.ascender - _font.descender + _font.leading) + 12;
     const BOOL vertical = _panelType == kIMKSingleColumnScrollingCandidatePanel;
     NSMutableArray<NSNumber *> *widths = [NSMutableArray array];

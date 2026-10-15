@@ -1,8 +1,7 @@
 //! 双拼的按键处理（`R/schemes/shuangpin_scheme.cpp`，schemes-lang.md §1.8）。方案用得到 `;` 键时（微软双拼把 ing 放在 `;` 上，自定义方案可以把韵母或零声母编码的第二个键放在 `;` 上，见 `ShuangpinProfile::uses_semicolon_key`），自上一个 `'` 以来的片段长度为奇数时把 `;` 当作按键接受。
 
 use super::query::{
-    apply_segmentation_cases, effective_input_length, normalize_input, segment_input,
-    to_quanpin_segmentation,
+    apply_segmentation_cases_into, effective_input_length, segment_input, to_quanpin_segmentation,
 };
 use super::ShuangpinProfile;
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
@@ -98,9 +97,11 @@ impl ShuangpinScheme {
         request.valid = effective_input_length(&request.raw_input) > 0;
         if request.valid {
             let segmentation = segment_input(&request.raw_input, profile);
-            let raw_segmentation =
-                apply_segmentation_cases(&segmentation, &request.raw_input_with_cases);
-            request.raw_segmentation.clone_from(&raw_segmentation);
+            apply_segmentation_cases_into(
+                &segmentation,
+                &request.raw_input_with_cases,
+                &mut request.raw_segmentation,
+            );
             let normalized_segmentation = to_quanpin_segmentation(&segmentation, profile);
             request
                 .normalized_segmentation
@@ -108,8 +109,14 @@ impl ShuangpinScheme {
             request
                 .segmentation
                 .clone_from(&request.normalized_segmentation);
-            let normalized_input = normalize_input(&request.raw_input, profile);
-            request.normalized_input.clone_from(&normalized_input);
+            // 查询键直接使用本轮已经转换的切分，避免再次切分和转全拼。
+            request.normalized_input.clear();
+            request
+                .normalized_input
+                .reserve(effective_input_length(&request.normalized_segmentation));
+            for part in request.normalized_segmentation.split('\'') {
+                request.normalized_input.push_str(part);
+            }
         } else {
             request.raw_segmentation.clear();
             request.normalized_segmentation.clear();
@@ -151,6 +158,116 @@ mod tests {
                 b';' => SchemeKey::Semicolon,
                 letter => SchemeKey::Letter(letter),
             });
+        }
+    }
+
+    #[test]
+    fn refreshing_a_request_reuses_the_case_output_buffer() {
+        let typed = {
+            let mut typed = scheme(ShuangpinProfileKind::Xiaohe);
+            type_text(&mut typed, "NiHc");
+            typed
+        };
+        let mut request = typed.build_request();
+        let expected = request.clone();
+        let pointer = request.raw_segmentation.as_ptr();
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            typed.build_request_into(&mut request);
+        });
+        assert_eq!(request, expected);
+        assert_eq!(request.raw_segmentation, "Ni'Hc");
+        assert_eq!(request.raw_segmentation.as_ptr(), pointer);
+        assert_eq!(allocations, 5);
+    }
+
+    #[test]
+    fn request_normalization_reuses_the_converted_segmentation() {
+        for (kind, raw, expected, budget) in [
+            (ShuangpinProfileKind::Xiaohe, "NiHc", "nihao", 5),
+            (ShuangpinProfileKind::Xiaohe, "Ni'Hc", "nihao", 6),
+            (ShuangpinProfileKind::Xiaohe, "n", "n", 3),
+            (ShuangpinProfileKind::Microsoft, "J;gK", "jinggao", 5),
+        ] {
+            let mut typed = scheme(kind);
+            type_text(&mut typed, raw);
+            let mut request = typed.build_request();
+            let before = request.clone();
+            let pointer = request.normalized_input.as_ptr();
+            let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                typed.build_request_into(&mut request);
+            });
+            assert_eq!(request, before, "{kind:?}, raw={raw}");
+            assert_eq!(request.normalized_input, expected, "{kind:?}, raw={raw}");
+            assert_eq!(request.normalized_input.as_ptr(), pointer);
+            assert_eq!(allocations, budget, "{kind:?}, raw={raw}");
+        }
+    }
+
+    #[test]
+    fn request_normalization_matches_the_standalone_query_path() {
+        use crate::shuangpin::custom::{builtin_table, custom_profile};
+        use crate::shuangpin::query::normalize_input;
+
+        let mut profiles = [
+            ShuangpinProfileKind::Xiaohe,
+            ShuangpinProfileKind::Ziranma,
+            ShuangpinProfileKind::Shoudao,
+            ShuangpinProfileKind::Microsoft,
+        ]
+        .map(|kind| profile(kind).unwrap())
+        .to_vec();
+        let mut custom = builtin_table(ShuangpinProfileKind::Xiaohe).unwrap();
+        for (initial, key) in &mut custom.initials {
+            match initial.as_str() {
+                "zh" => *key = "i".to_owned(),
+                "ch" => *key = "v".to_owned(),
+                _ => {}
+            }
+        }
+        profiles.push(custom_profile(&custom).unwrap());
+        profiles.push(
+            custom_profile(&builtin_table(ShuangpinProfileKind::Microsoft).unwrap()).unwrap(),
+        );
+
+        let mut corpus = vec![String::new()];
+        for &first in b"abcdefghijklmnopqrstuvwxyz;'" {
+            corpus.push(char::from(first).to_string());
+            for &second in b"abcdefghijklmnopqrstuvwxyz;'" {
+                corpus.push(String::from_utf8(vec![first, second]).unwrap());
+            }
+        }
+        corpus.extend(
+            [
+                "NiHc", "Ni'Hc", "NiHcAB", "'ni''hc'", "uj'uv", "UjUV'", "j;gk", "J;'gK", ";;;",
+                "ni''''", "ni'hcx", "''''", "AABBCC", "n'h'c",
+            ]
+            .map(str::to_owned),
+        );
+        corpus.push("nihc".repeat(128));
+        corpus.push("ni'hc'".repeat(128));
+
+        for profile in profiles {
+            let mut reused = QueryRequest::default();
+            ShuangpinScheme::build_request_from_raw_into(profile, "nihc", "NiHc", &mut reused);
+            for raw in &corpus {
+                let uppercased = raw.to_ascii_uppercase();
+                for cased in ["", uppercased.as_str(), "Different"] {
+                    let mut fresh = QueryRequest::default();
+                    ShuangpinScheme::build_request_from_raw_into(profile, raw, cased, &mut fresh);
+                    assert_eq!(
+                        fresh.normalized_input,
+                        normalize_input(&fresh.raw_input, profile),
+                        "profile={:?}, raw={raw:?}, cased={cased:?}",
+                        profile.kind
+                    );
+                    ShuangpinScheme::build_request_from_raw_into(profile, raw, cased, &mut reused);
+                    assert_eq!(
+                        reused, fresh,
+                        "profile={:?}, raw={raw:?}, cased={cased:?}",
+                        profile.kind
+                    );
+                }
+            }
         }
     }
 

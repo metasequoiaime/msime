@@ -4350,7 +4350,7 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
 
     // Nothing that reads as a secret was dropped, whoever adds one next.
     let document = serde_json::to_string(&restored).expect("restored preferences serialize");
-    for secret in [
+    for fixture in [
         "fixture-asr-token",
         "fixture-polish-token",
         "fixture-ai-token",
@@ -4361,8 +4361,8 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
         "fixture-relay-token",
     ] {
         assert!(
-            document.contains(secret),
-            "{secret} did not survive a restore"
+            document.contains(fixture),
+            "{fixture} did not survive a restore"
         );
     }
     // What addresses the same service travels with it.

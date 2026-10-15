@@ -7,6 +7,7 @@ import {
 import { clamp } from "../core/number";
 import type { Preferences } from "../index";
 import { touchKeyboardGeometryPreferences } from "./touch-keyboard-geometry-preferences";
+import { touchKeyboardSpacingLimits } from "./touch-keyboard-spacing";
 
 type TouchGeometryDrag = {
   pointerId: number;
@@ -47,13 +48,15 @@ export function useTouchKeyboardGeometryDrag(
     drag.axis ??= Math.abs(dy) >= Math.abs(dx) ? "row" : "key";
     const delta = drag.axis === "row" ? dy : dx;
     const value = Math.round((drag.axis === "row" ? drag.row : drag.key) + (delta * 10) / 18);
+    const limits = touchKeyboardSpacingLimits[drag.axis];
+    const spacing = clamp(value, limits.min, limits.max);
     setDraft((current) =>
       current
         ? {
             ...current,
             ...(drag.axis === "row"
-              ? { touch_row_spacing_tenths: clamp(value, 40, 100) }
-              : { touch_key_spacing_tenths: clamp(value, 30, 60) }),
+              ? { touch_row_spacing_tenths: spacing }
+              : { touch_key_spacing_tenths: spacing }),
           }
         : current,
     );

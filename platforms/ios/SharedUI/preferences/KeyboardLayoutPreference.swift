@@ -12,6 +12,11 @@ enum KeyboardLayoutPreference {
   static let glideTypingKey = "keyboard.gesture.glide"
   static let spaceVoiceKey = "keyboard.gesture.spaceVoice"
   static let swipeSymbolsKey = "keyboard.gesture.swipeSymbols"
+  static let hideLanguageKeyKey = "keyboard.bottom.hideLanguageKey"
+  static var hideLanguageKey: Bool {
+    get { defaults.object(forKey: hideLanguageKeyKey) as? Bool ?? false }
+    set { defaults.set(newValue, forKey: hideLanguageKeyKey) }
+  }
   static let oneHandedKey = "keyboard.oneHanded"
   static var keySpacing: Double {
     get { spacing(key: keySpacingKey, fallback: 6, range: 3...6) }
@@ -111,6 +116,7 @@ enum KeyboardLayoutPreference {
     resetToDefaults()
     // 「横屏分离式键盘」和间距、高度在 App 的同一页，一起恢复成默认（关）。键盘里的间距面板也调 `resetToDefaults`，那里不显示这个开关，所以不放进上面的列表，免得在键盘里点「恢复默认」把分离式键盘悄悄关掉。
     defaults.removeObject(forKey: tabletSplitKey)
+    defaults.removeObject(forKey: hideLanguageKeyKey)
     return true
   }
   static var voiceShortcutEnabled: Bool {
@@ -147,7 +153,7 @@ enum KeyboardLayoutPreference {
     get { defaults.string(forKey: oneHandedKey).flatMap(KeyboardOneHandedMode.init(rawValue:)) ?? .off }
     set { defaults.set(newValue.rawValue, forKey: oneHandedKey) }
   }
-  static var geometry: KeyboardGeometry { KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing) }
+  static var geometry: KeyboardGeometry { KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey) }
 
   /// Values from the canonical document are integer tenths/points. Reject booleans and fractions before clamping so malformed synced data cannot silently become a valid geometry setting.
   static func sharedKeySpacing(_ value: Any?) -> Double? {
@@ -258,7 +264,7 @@ struct KeyboardGeometry: Equatable {
   /// 手机的中间字母行在两侧各缩进按键区的这一比例，约半个键宽，让九个键像设计稿那样居中排在上一行十个键的下方。
   var letterInsetRatio: Double { 0.05 }
   var centeredLetters: Bool { true }
-  var showsBottomLanguage: Bool { true }
+  var showsBottomLanguage = true
   var showsFullKeyboardSymbols: Bool { false }
 
   static func clamped(_ value: Double, _ lower: Double, _ upper: Double) -> Double {

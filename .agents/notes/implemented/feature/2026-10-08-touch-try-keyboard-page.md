@@ -15,7 +15,7 @@ Status: implemented
 - 页面本身（`packages/ui/src/keyboard/try-keyboard-page.tsx`）照 Android 的试用页做：
   - 第一条是水杉的问候；进页面就在后台加载模型目录，并把焦点交给输入框，系统随即弹出键盘。
   - 输入框限 2000 字，最多长到 4 行。宿主提供 AI 对话时，回车键显示「发送」，按下就发送；组字中的回车和 Shift+回车不发送。组合保护同时判断 `isComposing` 与 `keyCode=229`，覆盖组合结束早于最后一个键盘事件的情况。
-  - 发出的消息走宿主已有的 `ChatClient`，开头带一条系统约定，后面是最近 13 条对话。回复按 Markdown 显示：关闭原始 HTML、不渲染图片，链接只有 http、https 和 mailto 交给外部浏览器。
+  - 发出的消息走宿主已有的 `ChatClient`，开头带一条系统约定，后面是最近 13 条对话。回复按 Markdown 显示：关闭原始 HTML、不渲染图片，链接只有 http、https 和 mailto 交给外部浏览器。渲染与链接事件委托和公告共用，协议范围仍由页面持有，见[带链接 Markdown 的共享边界](../simplification/2026-10-15-linked-markdown.md)。
   - 等待回复时发送键变成「停止」，停止后迟到的回复被丢弃。
   - 模型目录没拿到时不在页面上提示；发送时再试一次，仍然失败才在对话里说明原因，未登录时附带「登录后使用 AI」按钮。
 - 页面上的按钮：

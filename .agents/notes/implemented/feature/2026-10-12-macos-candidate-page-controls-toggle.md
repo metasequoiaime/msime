@@ -30,8 +30,8 @@ logo、拼音、页码和翻页按钮都关掉时，首行高度为 0，卡片�
 新增共享偏好 `candidate_padding: Option<u8>`，写法照 `candidate_corner_radius`：
 
 - 单位是点（Windows 上将来是 DIP），核心接受 0–16，超出时 `validate` 返回 `InvalidCandidateWindowStyle`。缺省为 `None`，表示跟随皮肤包和宿主自己的值；`skip_serializing_if = "Option::is_none"`，没设过的文档不出现这个字段。
-- 优先级：用户值先于皮肤包的 `padding`，皮肤包先于宿主常量（macOS 6pt）。用户值在「整体大小」缩放之前替换 `pad`，所以缩放照样把它放大（`CandidateSkin.cpp` 的 `StyledCandidateSkin`）。
-- 只有 macOS 声明 `HostCapabilities::candidate_padding`。共享设置页「窗口样式」组在圆角下面加「内边距」一行：滑块 2–16pt，旁边「跟随皮肤」按钮把值交还皮肤（写成缺省）；跟随皮肤时滑块停在 macOS 原生的 6pt。滑块从 2 起，因为 macOS 画卡片时至少留 2pt（上面的 `inset`），0 和 1 画出来和 2 一样。
+- 优先级：用户值先于皮肤包的 `padding`，皮肤包先于宿主常量（macOS 4pt）。用户值在「整体大小」缩放之前替换 `pad`，所以缩放照样把它放大（`CandidateSkin.cpp` 的 `StyledCandidateSkin`）。
+- 只有 macOS 声明 `HostCapabilities::candidate_padding`。共享设置页「窗口样式」组在圆角下面加「内边距」一行：滑块 2–16pt，旁边「跟随皮肤」按钮把值交还皮肤（写成缺省）；跟随皮肤时滑块停在 macOS 原生的 4pt。滑块从 2 起，因为 macOS 画卡片时至少留 2pt（上面的 `inset`），0 和 1 画出来和 2 一样。这个下限后来改为边框宽度，滑块改为 0–16，见[内边距低于 2pt](../bug-fix/2026-10-15-macos-candidate-padding-below-2pt.md)。
 - `AppearancePreferences` 加 `candidatePadding`（`NSNumber`，nil 表示跟随皮肤），本机值存 `MSIMEClientCandidatePadding`，回到跟随皮肤时存空串，与圆角相同；共享值存 `_sharedCandidatePadding`，文档里是 null 或缺省时为 `NSNull`。原生设置窗口候选窗卡片里加「内边距」滑块和「跟随皮肤」按钮，「恢复默认值」覆盖它。保存时总写 `candidate_padding`，跟随皮肤时写 null，`MSIMEMergePreferenceSnapshot` 才会清掉旧值。
 - 设置页预览：`candidateWindowStyle` 在设了值时给出 `--msime-candidate-user-pad`，`styles.css` 里卡片的 `--msime-candidate-pad-x/y` 先取它，再取宿主的 `--msime-host-pad`。
 - MCP `update_preferences` 读写 `candidate_padding`，null 交还皮肤。

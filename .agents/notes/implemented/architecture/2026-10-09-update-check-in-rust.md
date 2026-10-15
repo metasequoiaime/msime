@@ -35,7 +35,7 @@ Windows 的原生 WinUI 设置窗口用 C++ 写，用不了这段 TypeScript，�
 - **收益**：「选哪个发布、哪个安装包」只有 Rust 一份规则，Windows 原生、Tauri 和鸿蒙得到同样的答案；Windows 点「检查」不再弹出共享应用；网页的联网面收窄到 IPC；原生设置窗口第一次知道并显示自己的版本号。
 - **代价与已知上限**：
   - 没有宿主的浏览器预览不再能检查更新，原来读 `https://msime.app/update.json` 的那条路径随之删除。
-  - Android、iOS 和 macOS 输入法本体的检查更新仍是各自独立的实现（`UpdateApi.java`、App Store 查询、Sparkle），不走这里，见 [Android 更新过滤非法发布标签](../bug-fix/2026-10-09-android-update-invalid-tag-selection.md)。哪天要统一它们，从这个模块扩展。
+  - Android、iOS 和 macOS 输入法本体的检查更新仍是各自独立的实现（`UpdateApi.java`、App Store 查询、Sparkle），不走这里，见 [Android 更新过滤非法发布标签](../bug-fix/2026-10-09-android-update-invalid-tag-selection.md)；macOS 的 Sparkle 怎么接通见 [macOS 输入法本体经 Sparkle 自己更新](../feature/2026-10-15-macos-sparkle-input-method-updates.md)。哪天要统一它们，从这个模块扩展。
   - 网页原来的 10 秒 `AbortController` 超时改由 Rust 的请求超时承担；鸿蒙桥接自己还有 30 秒的兜底超时。
   - 原生 Windows 窗口只显示文字提示和摘要，不像共享页面那样给可复制的 `Get-FileHash` 命令和国内镜像链接。
   - Linux 的 Nix 包里为设置页 HTTPS 请求加的 `glib-networking`（`platforms/linux/nix/fcitx5.nix`）现在可能已经不需要了，这次没有改，需要在 Linux 上验证后再决定。

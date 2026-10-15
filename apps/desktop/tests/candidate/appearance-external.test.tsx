@@ -53,6 +53,70 @@ const image = {
   bytes: [...new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>')],
 };
 
+test("external appearance keeps background fading independent of image loading", async () => {
+  const scan = vi.fn().mockResolvedValue({
+    ...catalog,
+    packages: [
+      {
+        ...catalog.packages[0],
+        background: { image: "background.svg", fit: "stretch", opacity: 0.35 },
+      },
+    ],
+  });
+  const readImage = vi.fn().mockResolvedValue(image);
+  const view = render(
+    <AppearanceCandidatePreview
+      preferences={{ ...preferences, candidate_opacity_percent: 60 }}
+      scan={scan}
+      readImage={readImage}
+    />,
+  );
+  await waitFor(() =>
+    expect(view.container.querySelector("img.skin-background-image")).not.toBeNull(),
+  );
+  const background = view.container.querySelector<HTMLImageElement>("img.skin-background-image")!;
+  expect(Number(background.style.opacity)).toBeCloseTo(0.35 * 0.6);
+  expect(drawn(view.container, "--msime-skin-decoration-top")).toBe("20px");
+  expect(drawn(view.container, "--msime-skin-decoration-width")).toBe("100px");
+  view.rerender(
+    <AppearanceCandidatePreview
+      preferences={{ ...preferences, candidate_opacity_percent: 50 }}
+      scan={scan}
+      readImage={readImage}
+    />,
+  );
+  expect(view.container.querySelector("img.skin-background-image")).toBe(background);
+  expect(Number(background.style.opacity)).toBeCloseTo(0.35 * 0.5);
+  expect(readImage).toHaveBeenCalledTimes(2);
+  expect(scan).toHaveBeenCalledOnce();
+});
+
+test.each([
+  [0, 100],
+  [20, 1001],
+  [NaN, 100],
+])(
+  "external appearance omits invalid decoration %s/%s and its image read",
+  async (decorationTopDip, decorationWidthDip) => {
+    const scan = vi.fn().mockResolvedValue({
+      ...catalog,
+      packages: [{ ...catalog.packages[0], decorationTopDip, decorationWidthDip }],
+    });
+    const readImage = vi.fn().mockResolvedValue(image);
+    const view = render(
+      <AppearanceCandidatePreview preferences={preferences} scan={scan} readImage={readImage} />,
+    );
+    await waitFor(() =>
+      expect(view.container.querySelector(".appearance-candidate-preview")).not.toBeNull(),
+    );
+    expect(drawn(view.container, "--msime-skin-decoration-top")).toBe("0px");
+    expect(drawn(view.container, "--msime-skin-decoration-width")).toBe("0px");
+    expect(view.container.querySelector(".external-skin-decorated")).toBeNull();
+    expect(view.container.querySelector(".skin-decoration-image")).toBeNull();
+    expect(readImage).not.toHaveBeenCalled();
+  },
+);
+
 test("theme changes replace external palette without rescanning or reloading images", async () => {
   const scan = vi.fn().mockResolvedValue({
     ...catalog,

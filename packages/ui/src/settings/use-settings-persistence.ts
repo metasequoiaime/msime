@@ -135,6 +135,8 @@ export function useSettingsPersistence({
   // echo and still applies another window's later write.
   const savingRef = useRef(false);
   const saveTokenRef = useAsyncGeneration();
+  // 保存归属只随宿主重置失效，卸载后仍需写完请求期间产生的编辑。
+  const saveOwnerRef = useRef(0);
   const heldChange = useRef<Snapshot>(undefined);
   const applyPreferencesChange = (value: Snapshot) => {
     const currentSnapshot = snapshotRef.current;
@@ -172,6 +174,7 @@ export function useSettingsPersistence({
     clearAutosave();
     clearTimeout(savedStatusTimer.current);
     saveTokenRef.current += 1;
+    saveOwnerRef.current += 1;
     savingRef.current = false;
     heldChange.current = undefined;
     reloadInFlightRef.current = undefined;
@@ -279,8 +282,11 @@ export function useSettingsPersistence({
   async function flush(): Promise<void> {
     const inFlight = saveInFlightRef.current;
     if (savingRef.current && inFlight) {
+      const owner = saveOwnerRef.current;
+      const saveClient = client;
       clearAutosave();
       await inFlight;
+      if (saveOwnerRef.current !== owner || clientRef.current !== saveClient) return;
       return flushRef.current();
     }
     const operation = saveNow();
@@ -297,6 +303,8 @@ export function useSettingsPersistence({
     if (!mounted.current || savingRef.current || !savePending()) return;
     if (draftRef.current && !validCandidateFonts(draftRef.current)) return;
     const saveClient = client;
+    const owner = saveOwnerRef.current;
+    const ownsSave = () => saveOwnerRef.current === owner && clientRef.current === saveClient;
     const saveToken = ++saveTokenRef.current;
     savingRef.current = true;
     clearTimeout(savedStatusTimer.current);
@@ -307,7 +315,7 @@ export function useSettingsPersistence({
     try {
       // 即使设置页在请求期间卸载，也继续写完这段时间产生的编辑。卸载后 refs 和 client 仍可用，只有 React 状态更新停止。
       while (savePending()) {
-        if (clientRef.current !== saveClient) break;
+        if (!ownsSave()) break;
         const base = snapshotRef.current;
         const sent = draftRef.current;
         if (!base || !sent || !validCandidateFonts(sent)) break;
@@ -315,23 +323,24 @@ export function useSettingsPersistence({
           let value: Snapshot;
           try {
             value = await client.save(base.revision, sent);
-            if (clientRef.current !== saveClient) break;
+            if (!ownsSave()) break;
           } catch (reason) {
+            if (!ownsSave()) break;
             if (errorCode(reason) !== "conflict" || conflicts >= CONFLICT_RETRIES) throw reason;
             conflicts += 1;
-            // Another window saved first: take its revision, put this window's edits on top, and save again.
+            // 其他窗口先保存时，把本地编辑移到其新版本上再重试。
             const latest = await client.load();
-            if (clientRef.current !== saveClient) break;
+            if (!ownsSave()) break;
             if (rebase(latest, base) && mounted.current) setNotice(mergedNotice);
             continue;
           }
           adoptSaved(value, sent);
         }
-        if (clientRef.current !== saveClient) break;
+        if (!ownsSave()) break;
       }
     } catch (reason) {
       failed = true;
-      if (mounted.current && clientRef.current === saveClient) {
+      if (mounted.current && ownsSave()) {
         setSaveState("failed");
         setSaveError(errorMessage(reason));
       }
@@ -339,10 +348,7 @@ export function useSettingsPersistence({
       if (saveTokenRef.current === saveToken) savingRef.current = false;
     }
     if (!mounted.current) return;
-    if (clientRef.current !== saveClient) {
-      if (savePending()) scheduleAutosave();
-      return;
-    }
+    if (!ownsSave()) return;
     if (!failed) {
       if (savePending()) {
         // Edited again after the loop last looked; save that too once the edits pause.

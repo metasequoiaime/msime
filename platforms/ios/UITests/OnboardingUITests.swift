@@ -150,6 +150,44 @@ final class OnboardingUITests: XCTestCase {
     add(screenshot)
   }
 
+  /// 通过原生设置页保存，重启应用后仍保留，避免开关只改变预览而没有写入共享容器。
+  @MainActor
+  func testHideLanguageKeySettingPersistsAcrossRelaunch() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    func openLayout() -> XCUIElement {
+      reachSettingsLink("keyboardLayoutLink", in: app)
+      settingsEntry("keyboardLayoutLink", in: app).tap()
+      let toggle = app.switches["appHideLanguageKeySwitch"]
+      revealBelowKeyboardPreview(toggle, in: app)
+      XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+      return toggle
+    }
+    let toggle = openLayout()
+    let original = try XCTUnwrap(toggle.value as? String)
+    addTeardownBlock { @MainActor in
+      app.terminate()
+      app.launch()
+      let restored = openLayout()
+      if restored.value as? String != original {
+        restored.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertTrue(self.wait(restored, until: "value == '\(original)'"))
+      }
+    }
+    // SwiftUI 的开关无障碍区域包含多行说明，直接点右侧滑块，避免点到说明文字。
+    toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+    let changed = original == "0" ? "1" : "0"
+    XCTAssertTrue(wait(toggle, until: "value == '\(changed)'"))
+    app.terminate()
+    app.launch()
+    XCTAssertEqual(openLayout().value as? String, changed)
+    let attachment = XCTAttachment(screenshot: app.screenshot())
+    attachment.name = "HideLanguageKey-Settings"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+  }
+
   @MainActor
   func testKeyboardSpacingSettingsPersist() throws {
     let app = XCUIApplication()

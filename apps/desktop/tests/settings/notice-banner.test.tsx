@@ -46,6 +46,35 @@ test("a middle click on a link opens it externally instead of in the webview", a
   expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/news/");
 });
 
+test.each(["click", "auxclick"])("keeps the notice HTTPS policy on nested %s", async (type) => {
+  const openExternalUrl = vi.fn();
+  render(
+    <NoticeBanner
+      client={client([
+        notice({
+          body: "[**安全**](https://example.invalid/) [普通](http://example.invalid/) [邮箱](mailto:synthetic@example.invalid) [页内](#section)",
+        }),
+      ])}
+      openExternalUrl={openExternalUrl}
+    />,
+  );
+  const card = await screen.findByRole("article", { name: "服务维护通知" });
+  for (const label of ["安全", "普通", "邮箱", "页内"]) {
+    const target =
+      label === "安全"
+        ? within(card).getByText(label, { selector: "strong" })
+        : within(card).getByRole("link", { name: label });
+    const event = new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: type === "auxclick" ? 1 : 0,
+    });
+    target.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+  }
+  expect(openExternalUrl).toHaveBeenCalledExactlyOnceWith("https://example.invalid/");
+});
+
 test("raw HTML, scripts and images in a body never become markup", () => {
   const html = noticeBodyHtml(
     '<img src=x onerror="alert(1)"> <script>alert(2)</script> ![追踪](https://example.com/p.png) [坏链接](javascript:alert(3))',

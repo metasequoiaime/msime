@@ -48,7 +48,7 @@ int main() {
         CheckColor(t.selectedHover, f.accent);
         CheckColor(t.selectedText, 0xFFFFFF);
         CheckColor(t.selectedNumber, 0xFFFFFF, .82f);
-        assert(t.radius == 10 && t.candidateRadius == 6 && t.selectedRadius == 6 && t.borderWidth == 1 && t.pad == 6 &&
+        assert(t.radius == 10 && t.candidateRadius == 6 && t.selectedRadius == 6 && t.borderWidth == 1 && t.pad == 4 &&
                !t.showSelectedBar);
         // 选中与悬停共享 6pt 行圆角，首尾位置不改变形状。
         assert(msime::mac::CandidateRowRadius(t, true) == 6);
@@ -69,7 +69,9 @@ int main() {
         skin.decorationWidthDip = 60.0;
         skin.minWidthDip = 200.0;
         const auto untouched = msime::mac::StyledCandidateSkin(skin, {});
-        assert(SameTokens(untouched.tokens, skin.tokens) && untouched.tokens.candidateRadius == 6 && untouched.tokens.pad == 6);
+        assert(SameTokens(untouched.tokens, skin.tokens) && untouched.tokens.candidateRadius == 6 && untouched.tokens.pad == 4);
+        // 原生默认的 4pt 内边距让行与卡片同心（#7974）。
+        assert(skin.tokens.radius - msime::mac::CandidateInset(skin.tokens) == skin.tokens.candidateRadius);
         assert(untouched.backgroundOpacity == 0.8 && untouched.decorationTopDip == 40.0 && untouched.minWidthDip == 200.0);
 
         // 用户圆角减去有效内边距，选中与悬停得到相同的内圆角。
@@ -83,15 +85,16 @@ int main() {
         assert(msime::mac::StyledCandidateSkin(packaged, style).tokens.radius == 0.0f);
         style.cornerRadius = 14.0;
         const auto loose = msime::mac::StyledCandidateSkin(packaged, style);
-        assert(loose.tokens.radius == 14.0f && loose.tokens.candidateRadius == 8.0f && loose.tokens.selectedRadius == 8.0f);
-        // 最大圆角和零内边距保留 2pt 安全边距，各项同时缩放。
+        assert(loose.tokens.radius == 14.0f && loose.tokens.candidateRadius == 10.0f && loose.tokens.selectedRadius == 10.0f);
+        // 最大圆角和零内边距只保留 1pt 细边框的宽度（#7974）：圆角和内边距随整体大小缩放，边框不变粗，所以扣除的始终是 1pt。
         style.cornerRadius = 32.0;
         style.padding = 0.0;
         for (double scale : {0.5, 1.0, 1.5, 2.0}) {
             style.scale = scale;
             const auto extreme = msime::mac::StyledCandidateSkin(packaged, style);
             assert(extreme.tokens.radius == 32.0 * scale);
-            assert(extreme.tokens.candidateRadius == 30.0 * scale);
+            assert(msime::mac::CandidateInset(extreme.tokens) == 1.0f);
+            assert(extreme.tokens.candidateRadius == 32.0 * scale - 1.0);
             assert(extreme.tokens.selectedRadius == extreme.tokens.candidateRadius);
         }
         // Without a user radius the package's stays, and the rows keep the host's 6pt shape they drew before the setting existed.
@@ -116,12 +119,12 @@ int main() {
         large.scale = 1.5;
         large.cornerRadius = 8.0;
         const auto scaled = msime::mac::StyledCandidateSkin(skin, large);
-        assert(scaled.tokens.radius == 12.0f && scaled.tokens.candidateRadius == 3.0f && scaled.tokens.selectedRadius == 3.0f);
-        assert(scaled.tokens.pad == 9.0f && scaled.tokens.borderWidth == skin.tokens.borderWidth);
+        assert(scaled.tokens.radius == 12.0f && scaled.tokens.candidateRadius == 6.0f && scaled.tokens.selectedRadius == 6.0f);
+        assert(scaled.tokens.pad == 6.0f && scaled.tokens.borderWidth == skin.tokens.borderWidth);
         assert(scaled.decorationTopDip == 60.0 && scaled.decorationWidthDip == 90.0 && scaled.minWidthDip == 300.0);
         assert(SameColor(scaled.tokens.surface, skin.tokens.surface) && scaled.backgroundOpacity == 0.8);
 
-        // A user padding (#7316) replaces the package's or the native 6pt before the scale multiplies it, and leaves every radius alone; out of range is clamped to the shared 0-16.
+        // 用户内边距（#7316）在缩放之前替换皮肤包的或原生的 4pt，不改任何圆角；超出范围截到共享的 0–16。
         auto padded = skin;
         padded.tokens.pad = 10.0f;
         msime::mac::CandidateWindowStyle padStyle;
@@ -134,6 +137,46 @@ int main() {
         padStyle.scale = 1.0;
         padStyle.padding = 40.0;
         assert(msime::mac::StyledCandidateSkin(padded, padStyle).tokens.pad == 16.0f);
+
+        // #7974：窗口的实际内边距可以低于 2pt，但不小于边框宽度，高亮不压住细边框；无边框的皮肤可以到 0。皮肤包给的负值也不会画到卡片外面。
+        msime::mac::SkinTokens inset = skin.tokens;
+        inset.pad = 0.0f;
+        assert(msime::mac::CandidateInset(inset) == 1.0f);
+        inset.pad = 1.5f;
+        assert(msime::mac::CandidateInset(inset) == 1.5f);
+        inset.borderWidth = 0.0f;
+        inset.pad = 0.0f;
+        assert(msime::mac::CandidateInset(inset) == 0.0f);
+        inset.pad = -3.0f;
+        assert(msime::mac::CandidateInset(inset) == 0.0f);
+
+        // 只调内边距：候选行保留皮肤的 6pt 圆角，直到内边距小到 6pt 的角会伸出 10pt 的卡片圆角，这时只调圆到刚好留在细边框内沿以内。
+        padStyle.padding = 2.0;
+        const auto two = msime::mac::StyledCandidateSkin(skin, padStyle);
+        assert(two.tokens.candidateRadius == 6.0f && two.tokens.selectedRadius == 6.0f);
+        const float tangent = 2.0f + std::sqrt(2.0f);
+        for (double tight : {1.0, 0.0}) {
+            padStyle.padding = tight;
+            const auto hairline = msime::mac::StyledCandidateSkin(skin, padStyle);
+            const float expected = 9.5f - 0.5f * tangent;
+            assert(std::abs(hairline.tokens.candidateRadius - expected) < 0.0001f && hairline.tokens.selectedRadius == hairline.tokens.candidateRadius);
+            assert(hairline.tokens.radius == 10.0f && hairline.tokens.pad == static_cast<float>(tight));
+        }
+        // 无边框且贴边时，行圆角等于卡片圆角，高亮沿着卡片的角走。
+        auto borderless = skin;
+        borderless.tokens.borderWidth = 0.0f;
+        const auto flush = msime::mac::StyledCandidateSkin(borderless, padStyle);
+        assert(flush.tokens.candidateRadius == 10.0f && flush.tokens.selectedRadius == 10.0f);
+        // 下限在缩放之后计算，和不随缩放变粗的边框比较。
+        padStyle.scale = 2.0;
+        padStyle.padding = 1.0;
+        const auto doubled = msime::mac::StyledCandidateSkin(skin, padStyle);
+        assert(doubled.tokens.pad == 2.0f && doubled.tokens.radius == 20.0f);
+        assert(std::abs(doubled.tokens.candidateRadius - (19.5f - 1.5f * tangent)) < 0.0001f);
+        // 没有用户内边距时，皮肤自己的 pad 再小，行圆角也保持解析出来的值。
+        auto thin = skin;
+        thin.tokens.pad = 0.0f;
+        assert(msime::mac::StyledCandidateSkin(thin, {}).tokens.candidateRadius == 6.0f);
     }
 
     // The picker is the shared catalog, in its order, and only its ids are themes.

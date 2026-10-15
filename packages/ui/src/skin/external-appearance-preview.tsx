@@ -2,7 +2,6 @@ import { useEffect, useId, useMemo, useState, type CSSProperties, type ReactNode
 import type { Preferences } from "../index";
 import {
   decorationImage,
-  dimension,
   drawnPackagePalette,
   skinGeometryStyle,
   useSkinPreviewAssets,
@@ -24,11 +23,12 @@ import type { SkinImageReader } from "./skin-image";
 import { ReservedCandidatePreview, type PreviewReserve } from "./skin-candidate-preview";
 import { candidateFontSize, candidateFontStyle } from "../candidate/candidate-font-size";
 import { candidateFamilyStyle } from "../candidate/candidate-font-family";
-import { candidateOpacityPercent, candidateWindowStyle } from "../candidate/candidate-window-style";
+import { candidateWindowStyle } from "../candidate/candidate-window-style";
 import { ActionButton } from "../core/action-button";
 import { StatusMessage } from "../core/status-message";
 import { SkinPreviewStage } from "./skin-preview-stage";
 import { SkinPreviewSurface } from "./skin-preview-surface";
+import { skinDecorationGeometry, skinPreviewBackground } from "./skin-preview-geometry";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 
 /** 使用宿主的主题解析；同一皮肤支持横竖两种排布时，等待新排布的结果期间保留已有配色。 */
@@ -102,8 +102,7 @@ function LoadedPreview({
       );
   const hideBar = palette?.show_selected_bar === false;
   const paletteFailed = useSelectedBarPalette(scope, hideBar);
-  const decorated =
-    dimension(skin.decorationTopDip, 500) > 0 && dimension(skin.decorationWidthDip, 1000) > 0;
+  const { decorated } = skinDecorationGeometry(skin);
   const decoration = decorated ? decorationImage(skin) : null;
   const { image, decodeFailed, onImageError, background } = useSkinPreviewAssets(
     readImage,
@@ -119,12 +118,11 @@ function LoadedPreview({
     // After the package geometry: the user's corner radius beats the package's, as on the hosts.
     ...candidateWindowStyle(preferences),
   } as CSSProperties;
-  // The window opacity fades the package background along with the surface it lies on.
-  const opacity = candidateOpacityPercent(preferences.candidate_opacity_percent) / 100;
-  const drawnBackground = background.drawn && {
-    ...background.drawn,
-    opacity: background.drawn.opacity * opacity,
-  };
+  // 窗口不透明度连同包的背景图一起淡化。
+  const drawnBackground = skinPreviewBackground(
+    background.drawn,
+    preferences.candidate_opacity_percent,
+  );
   return (
     <div className={decorated ? "external-skin-decorated" : undefined}>
       <SkinPreviewSurface

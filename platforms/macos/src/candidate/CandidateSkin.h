@@ -1,6 +1,8 @@
 // Adapted from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <functional>
 #include <optional>
@@ -30,12 +32,12 @@ struct SkinTokens
     Rgba selectedNumber;
     Rgba hover;
     Rgba accent;
-    // The macOS candidate geometry of design-tokens-desktop §1.2: a 10pt card, 6pt rows, a 1pt hairline and no selection bar. Themes only recolour; a package or a toolbar stylesheet may still change these.
+    // macOS 候选窗的几何，来自 design-tokens-desktop §1.2：10pt 卡片圆角、6pt 行圆角、1pt 细边框、不画选中竖条。内边距原为 6pt，#7974 收紧到 4pt：10 − 4 = 6，选中高亮与卡片同心，窗口也更紧凑。主题只改颜色；皮肤包或工具栏样式表仍可以改这些值。
     float radius = 10.0f;
     float candidateRadius = 6.0f;
     float selectedRadius = 6.0f;
     float borderWidth = 1.0f;
-    float pad = 6.0f;
+    float pad = 4.0f;
     bool showSelectedBar = false;
     // The translation line when a package gives one (the resolved `secondary` differs from `number`); none draws it like the numbers.
     std::optional<Rgba> translation;
@@ -47,6 +49,20 @@ struct SkinTokens
 inline float CandidateRowRadius(const SkinTokens &tokens, bool highlighted)
 {
     return highlighted ? tokens.selectedRadius : tokens.candidateRadius;
+}
+
+// 卡片边缘到候选行的实际距离：内边距可以小到 0，但选中高亮不能压住卡片的边框，所以至少留出边框的宽度（#7974）。`tokens` 已经按整体大小缩放过时，内边距随之缩放，边框不变粗，下限也就不变。
+inline float CandidateInset(const SkinTokens &tokens)
+{
+    return std::max({0.0f, tokens.borderWidth, tokens.pad});
+}
+
+// 候选行的圆角至少要多大，高亮的角才不伸出卡片的圆角：两个圆角在对角线方向相切时 r = R - d(2 + √2)，卡片圆角 R 和内边距 d 都从边框内沿量起（窗口按矩形裁掉描边外侧的一半）。内边距够大时结果是 0，不改变行圆角。
+inline float CandidateRowRadiusFloor(const SkinTokens &tokens)
+{
+    const float halfBorder = std::max(0.0f, tokens.borderWidth) / 2.0f;
+    const float inset = CandidateInset(tokens) - halfBorder;
+    return std::max(0.0f, tokens.radius - halfBorder - inset * (2.0f + std::sqrt(2.0f)));
 }
 
 // The user's own 候选窗 style from the shared preferences: candidate_scale_percent and candidate_opacity_percent as factors, candidate_corner_radius in points, none to keep the theme's or the package's card radius, and candidate_padding in points, none to keep the theme's or the package's `pad`. The defaults leave a skin exactly as it was resolved.

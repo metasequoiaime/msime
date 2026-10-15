@@ -903,12 +903,15 @@
     --msime-host-card-radius: 10px;
     --msime-host-row-radius: 6px;
     --msime-host-border-width: 1px;
-    --msime-host-pad: 6px;
+    --msime-host-pad: 4px;
     --msime-host-row-pad-y: 6px;
   }
   :is([data-platform="mac"]) &[data-preview-theme] :is(.wnd-h, .wnd-v) {
-    /* 与原生宿主相同：内边距至少 2pt，用户窗口圆角扣除它后成为行圆角。 */
-    --msime-candidate-pad-x: max(2px, var(--msime-candidate-user-pad, var(--msime-host-pad)));
+    /* 与原生宿主（`CandidateSkin.h` 的 `CandidateInset`、`CandidateRowRadiusFloor`）相同：内边距至少是边框宽度，用户窗口圆角扣除它后成为行圆角。只调内边距时行圆角不小于 R - d(2 + √2)，免得高亮的角伸出卡片；这里的内边距本来就从边框内沿量起，所以 R 取卡片圆角减边框。没设用户内边距时 999px 让这一项为负，皮肤的行圆角原样保留。 */
+    --msime-candidate-pad-x: max(
+      var(--msime-host-border-width),
+      var(--msime-candidate-user-pad, var(--msime-host-pad))
+    );
     --msime-candidate-pad-y: var(--msime-candidate-pad-x);
     --msime-candidate-row-radius: max(
       0px,
@@ -918,6 +921,10 @@
             calc(var(--msime-host-row-radius) + var(--msime-candidate-pad-x))
           ) -
           var(--msime-candidate-pad-x)
+      ),
+      calc(
+        var(--msime-skin-radius, var(--msime-host-card-radius)) - var(--msime-host-border-width) -
+          max(var(--msime-candidate-pad-x), var(--msime-candidate-user-pad, 999px)) * 3.4142
       )
     );
   }

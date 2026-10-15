@@ -1,0 +1,35 @@
+# Agent Note: macOS nightly 用 Developer ID 签名并公证
+
+Status: implemented
+
+## Problem
+
+[六平台 nightly](2026-10-14-six-platform-nightly-builds.md) 接入时，`release-macos.yml` 把 Developer ID 证书和三项公证凭据都改成只在 `inputs.publish` 为真时读取，nightly 以 `publish: false` 调用它，于是每晚的 DMG 都是 ad-hoc 签名、未公证。ad-hoc 包不只是被 Gatekeeper 隔离、右键打开一次就好：macOS 不会把其中的输入法注册成输入源，普通用户下载后根本打不了字，只有用自己的 Developer ID 重签（`platforms/macos/scripts/install.sh`）的开发者能装。nightly 发布页上的 macOS 下载因此等于不存在，而 `README.txt` 只写了「当前 nightly 未公证，可能被系统拦截」，比实际后果轻得多。
+
+当时的依据是 nightly 不碰正式发布密钥，但同一个 nightly 里 iOS 照样用正式签名上传 TestFlight 并提交外部审核；从 develop 手动触发的 beta 也一直带 Developer ID 签名和公证，同一个 workflow、同一类 GitHub 托管 runner。macOS nightly 读取这组 secrets 并不扩大它们的暴露面。
+
+## Decision
+
+`release-macos.yml` 的签名与公证跟着 secrets 走，不再看 `publish`：
+
+- job 级环境变量 `MACOS_CERTIFICATE_P12_BASE64`、`MACOS_CERTIFICATE_PASSWORD`、`MACOS_SIGNING_IDENTITY` 直接取对应的 `MACOS_DEVELOPER_ID_*` secret；「Import Developer ID certificate」只判断证书是否配置。
+- 「Build macOS package」的 `APPLE_ID`、`APPLE_TEAM_ID`、`APPLE_APP_SPECIFIC_PASSWORD` 直接取 `MACOS_NOTARY_*` secret。三项齐全且有签名身份时，`platforms/macos/package-release.sh` 提交 `notarytool --wait` 并 staple；它以 `set -Eeuo pipefail` 运行，公证或 staple 失败就让构建失败，不会发出一个半公证的包。
+- 对外的动作仍各有门控，不随签名放开：发布 `macos-v` release 的步骤 `if: inputs.publish`；更新 Homebrew tap 的步骤 `if: inputs.publish && !inputs.prerelease && github.ref_name == 'main'`，并另外用 `stapler validate` 核对。nightly 的 DMG 只进它自己的滚动 `nightly` prerelease。
+- `scripts/package-nightly.py` 写进 `README.txt` 的 macOS 说明改为「DMG 已用 Developer ID 签名并公证，打开后把应用拖进「应用程序」，再打开一次即可安装输入法」。
+
+没有配置这些 secrets 的仓库（fork）照旧退回 ad-hoc，`package-release.sh` 打印未公证的警告；这时 `README.txt` 的说法不成立，但 fork 不会发布这个仓库的 nightly。
+
+## Alternatives considered
+
+- **保持 ad-hoc，只把 README 写准确** — 最强的理由是 nightly 不需要公证的等待时间，也不让日常定时任务碰长期凭据。否定：写准确之后的内容就是「macOS 包普通用户装不上」，等于明说这个下载没有用；而凭据暴露面的理由在 iOS nightly 和 develop beta 面前不成立。
+- **给可复用 workflow 加一个独立的 `sign` 输入，nightly 显式传 `sign: true`** — 最强的理由是签名与发布两个意图都显式写在调用方。否定：没有哪个调用方想要「有证书却不签」的包；多一个输入只是把 secrets 是否存在这件事重复声明一遍，`publish: false` 的手动构建（用来验证一个分支能不能打包）也应该产出能装的包，这正是 nightly 接入前的行为。
+
+## Consequences
+
+- **收益**：nightly 的 macOS DMG 与正式版一样，下载、拖进应用程序、打开一次就能打字；任何 `publish: false` 的手动构建也产出可安装的包，恢复到 nightly 接入前的行为。
+- **代价**：每晚六个版本的 DMG 都要等 Apple 公证，macOS nightly 变长，`release-macos` 并发组被占用的时间随之变长；公证服务故障会让当晚 nightly 整体不更新（六平台任一失败都不更新滚动 Release）。如果公证排队频繁拖过 job 的 120 分钟超时，或 Apple 对公证次数设限，就要重访：例如只公证 full 版本，其余版本在 README 里说明。
+
+## Verification
+
+- `actionlint .github/workflows/release-macos.yml .github/workflows/nightly.yml` 通过；`python3 scripts/test-nightly-packaging.py` 通过。
+- 落地后第一次 nightly 的 macOS 任务日志里应出现 `notarytool submit` 与 `stapler staple`，且没有 `warning: not notarized`；下载其中一个 DMG 运行 `xcrun stapler validate` 应通过。

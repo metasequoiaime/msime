@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""验证分卷恢复、校验值和六平台完整性，不创建 GiB 级测试文件。"""
+"""验证 nightly 直接提供原生分发文件，过滤源码和调试符号。"""
 
 import hashlib
 import importlib.util
 from pathlib import Path
-import random
-import tarfile
 import tempfile
 import unittest
 
@@ -17,56 +15,69 @@ spec.loader.exec_module(packaging)
 
 
 class NightlyPackagingTests(unittest.TestCase):
-    def test_round_trip(self):
-        for limit in (4096, 1024**2):
-            with self.subTest(limit=limit), tempfile.TemporaryDirectory() as temporary:
+    def prepare(self, source):
+        expected = {}
+        for platform, suffixes in packaging.PLATFORM_SUFFIXES.items():
+            directory = source / platform / "artifact"
+            directory.mkdir(parents=True)
+            for suffix in suffixes:
+                name = f"msime-{platform}{suffix}"
+                payload = f"synthetic {platform} {suffix}".encode()
+                (directory / name).write_bytes(payload)
+                expected[name] = payload
+            (directory / "SHA256SUMS").write_text("ignored manifest")
+            (directory / "symbols-dsym.zip").write_bytes(b"ignored symbols")
+            (directory / "source.tar.xz").write_bytes(b"ignored sources")
+        simulator = source / "ios"
+        simulator.mkdir()
+        (simulator / "msime-ios-simulator.tar.gz").write_bytes(b"simulator only")
+        return expected
+
+    def test_native_files_and_checksums(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, output = root / "source", root / "dist"
+            expected = self.prepare(source)
+            packaging.package(source, output, "a" * 40)
+            self.assertEqual({path.name for path in output.iterdir()},
+                             set(expected) | {"SHA256SUMS", "README.txt"})
+            for name, payload in expected.items():
+                self.assertEqual((output / name).read_bytes(), payload)
+            entries = (output / "SHA256SUMS").read_text().splitlines()
+            self.assertEqual(len(entries), len(expected))
+            for line in entries:
+                digest, name = line.split("  ")
+                self.assertEqual(hashlib.sha256(expected[name]).hexdigest(), digest)
+            self.assertIn("TestFlight", (output / "README.txt").read_text())
+            self.assertIn("unsigned HAP", (output / "README.txt").read_text())
+
+    def test_oversized_and_duplicate_files(self):
+        for case in ("oversized", "duplicate"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 source, output = root / "source", root / "dist"
-                generator = random.Random(7767)
-                expected = {}
-                for platform in packaging.PLATFORMS:
-                    directory = source / platform / "artifact"
-                    directory.mkdir(parents=True)
-                    payload = generator.getrandbits(9000 * 8).to_bytes(9000, "little")
-                    path = directory / "payload.bin"
-                    path.write_bytes(payload)
-                    expected[path.relative_to(source).as_posix()] = payload
-                packaging.package(source, output, "a" * 40, limit)
-                self.assertTrue(all(path.stat().st_size <= limit for path in output.iterdir()))
-                for line in (output / "ARCHIVE_SHA256SUMS").read_text().splitlines():
-                    digest, name = line.split("  ")
-                    self.assertEqual(hashlib.sha256((output / name).read_bytes()).hexdigest(), digest)
-                if limit == 4096:
-                    self.assertFalse(list(output.glob("*.tar.gz")))
-                    self.assertIn("cat msime-nightly-", (output / "README.txt").read_text())
-                    for first in sorted(output.glob("*.part000")):
-                        archive = first.with_suffix("")
-                        archive.write_bytes(b"".join(part.read_bytes() for part in
-                                                   sorted(output.glob(archive.name + ".part*"))))
+                self.prepare(source)
+                if case == "oversized":
+                    with self.assertRaisesRegex(ValueError, "超出附件大小限制"):
+                        packaging.package(source, output, "a" * 40, limit=1)
                 else:
-                    self.assertFalse(list(output.glob("*.part*")))
-                archives = list(output.glob("*.tar.gz"))
-                self.assertEqual(len(archives), 7)
-                for archive in archives:
-                    with tarfile.open(archive) as contents:
-                        actual = {member.name.removeprefix("./"): contents.extractfile(member).read()
-                                  for member in contents.getmembers() if member.isfile()}
-                    self.assertTrue(actual)
-                    self.assertTrue(all(expected[name] == payload for name, payload in actual.items()))
-                    if len(actual) == 6:
-                        self.assertEqual(actual, expected)
-                for line in (output / "SHA256SUMS").read_text().splitlines():
-                    digest, name = line.split("  ")
-                    self.assertEqual(hashlib.sha256(expected[name.removeprefix("./")]).hexdigest(), digest)
+                    extra = source / "android" / "extra"
+                    extra.mkdir()
+                    (extra / "msime-android.apk").write_bytes(b"different edition")
+                    with self.assertRaisesRegex(ValueError, "分发文件重名"):
+                        packaging.package(source, output, "a" * 40)
+                self.assertFalse(output.exists())
 
     def test_missing_platform_and_stale_output(self):
         with tempfile.TemporaryDirectory() as temporary:
             source, output = Path(temporary) / "source", Path(temporary) / "dist"
-            with self.assertRaisesRegex(ValueError, "缺少平台产物"):
+            self.prepare(source)
+            next((source / "android").rglob("*.apk")).unlink()
+            with self.assertRaisesRegex(ValueError, "缺少平台分发文件"):
                 packaging.package(source, output, "a" * 40)
             self.assertFalse(output.exists())
             output.mkdir()
-            (output / "stale.tar.gz").touch()
+            (output / "stale.apk").touch()
             with self.assertRaisesRegex(ValueError, "输出目录必须为空"):
                 packaging.package(source, output, "a" * 40)
 

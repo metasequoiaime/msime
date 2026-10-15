@@ -84,21 +84,23 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             for (String pair : new String[] {"A S", "G H", "U I"}) tap(described("按键 " + pair));
             await(described(STRIP));
             awaitGone(described("符号栏，可上下滑动"));
-            AccessibilityNodeInfo shi = await(described("选择拼音 shi"));
             await(described("选择拼音 shu"));
-            Rect strip = new Rect();
-            shi.getBoundsInScreen(strip);
-            Rect sidebar = new Rect();
-            await(described(STRIP)).getBoundsInScreen(sidebar);
-            Rect letter = new Rect();
-            await(described("按键 Q W")).getBoundsInScreen(letter);
-            if (letter.left != idleLetter.left || letter.width() != idleLetter.width())
-                throw new AssertionError("Starting composition moved the fourteen-key letter grid");
+            // 组字一开始，候选条和左侧栏还在布局；每个尺寸都等停稳再量，否则会读到过渡中的字母键顶边，误报区域高度变了（Release Android run 38669833730，API 35）。
             Rect composingSpace = new Rect();
             awaitStableBounds(key("空格")).getBoundsInScreen(composingSpace);
+            Rect letter = new Rect();
+            awaitStableBounds(described("按键 Q W")).getBoundsInScreen(letter);
+            Rect strip = new Rect();
+            awaitStableBounds(described("选择拼音 shi")).getBoundsInScreen(strip);
+            Rect sidebar = new Rect();
+            awaitStableBounds(described(STRIP)).getBoundsInScreen(sidebar);
+            String measured = "idle letter " + idleLetter + ", idle space " + idleSpace + ", letter " + letter
+                + ", space " + composingSpace + ", tolerance " + heightTolerance;
+            if (letter.left != idleLetter.left || letter.width() != idleLetter.width())
+                throw new AssertionError("Starting composition moved the fourteen-key letter grid: " + measured);
             if (Math.abs((composingSpace.bottom - letter.top)
                     - (idleSpace.bottom - idleLetter.top)) > heightTolerance)
-                throw new AssertionError("Pinyin sidebar changed the fourteen-key area height");
+                throw new AssertionError("Pinyin sidebar changed the fourteen-key area height: " + measured);
             Rect candidate = new Rect();
             await(describedPrefix("候选 1：")).getBoundsInScreen(candidate);
             if (sidebar.right > letter.left || sidebar.top < candidate.bottom - 1)
@@ -214,7 +216,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
                 tap(described("按键 A S"));
                 tap(described("按键 U I"));
                 Rect narrowLetter = new Rect();
-                await(described("按键 Q W")).getBoundsInScreen(narrowLetter);
+                awaitStableBounds(described("按键 Q W")).getBoundsInScreen(narrowLetter);
                 int columnLeft = -1;
                 int firstTop = Integer.MAX_VALUE;
                 int lastTop = Integer.MIN_VALUE;

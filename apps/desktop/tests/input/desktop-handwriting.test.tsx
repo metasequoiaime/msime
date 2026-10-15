@@ -9,6 +9,8 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.resetAllMocks();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 function client() {
   return {
@@ -35,6 +37,21 @@ function write() {
     fireEvent(canvas, event);
   }
 }
+
+test("旧宿主在窗口缩放后重算候选字号并在卸载时移除监听", async () => {
+  vi.stubGlobal("ResizeObserver", undefined);
+  const view = render(<DesktopHandwriting client={client()} theme="light" platform="linux" />);
+  write();
+  const candidate = await screen.findByRole("button", { name: "中" });
+  vi.spyOn(candidate, "getBoundingClientRect").mockReturnValue({ width: 40 } as DOMRect);
+  act(() => window.dispatchEvent(new Event("resize")));
+  expect(candidate.style.fontSize).toBe("20.8px");
+  vi.mocked(candidate.getBoundingClientRect).mockClear();
+
+  view.unmount();
+  act(() => window.dispatchEvent(new Event("resize")));
+  expect(candidate.getBoundingClientRect).not.toHaveBeenCalled();
+});
 
 test.each([false, "failure"])("macOS 设置试写在能力为 %s 时只识别并复制", async (permission) => {
   if (permission === false) vi.mocked(invoke).mockResolvedValue(false);

@@ -15,7 +15,8 @@ final class NineKeyKeyboardTests: XCTestCase {
   private var savedKeyboardPreferences: [String: Any] = [:]
   private let preferenceKeys = [KeyboardLayoutPreference.keySpacingKey,
     KeyboardLayoutPreference.rowSpacingKey, KeyboardLayoutPreference.heightAdjustmentKey,
-    KeyboardLayoutPreference.voiceShortcutKey]
+    KeyboardLayoutPreference.voiceShortcutKey, KeyboardLayoutPreference.hideLanguageKeyKey,
+    ImeModeMemoryPreference.enabledKey, ImeModeMemoryPreference.lastChineseKey]
   override func tearDown() {
     for key in preferenceKeys {
       if let value = savedKeyboardPreferences[key] { KeyboardLayoutPreference.defaults.set(value, forKey: key) }
@@ -65,6 +66,55 @@ final class NineKeyKeyboardTests: XCTestCase {
           attachment.lifetime = .keepAlways
           add(attachment)
         }
+      }
+    }
+  }
+
+  func testHidingLanguageKeyExpandsSpaceAndReloadsAcrossPhoneLayouts() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    for scheme in [ChineseInputScheme.quanpin, .fourteenKey, .nineKey] {
+      InputSchemePreference.scheme = scheme
+      for width in [320.0, 414.0] {
+        KeyboardLayoutPreference.hideLanguageKey = false
+        let controller = KeyboardViewController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: width, height: KeyboardViewController.defaultKeyboardHeight)
+        controller.view.layoutIfNeeded()
+        let space = try button("spaceKey", in: controller)
+        let language = try button("bottomLanguageKey", in: controller)
+        let enter = try button("returnKey", in: controller)
+        let originalSpace = space.convert(space.bounds, to: controller.view)
+        let originalReturnWidth = enter.bounds.width
+        XCTAssertFalse(language.isHidden)
+        KeyboardLayoutPreference.hideLanguageKey = true
+        controller.viewWillAppear(false)
+        controller.view.layoutIfNeeded()
+        let expanded = space.convert(space.bounds, to: controller.view)
+        XCTAssertTrue(language.isHidden)
+        XCTAssertGreaterThan(expanded.width, originalSpace.width + 20, "\(scheme) / \(width)")
+        XCTAssertGreaterThan(expanded.maxX, originalSpace.maxX + 15)
+        XCTAssertEqual(enter.bounds.width, originalReturnWidth, accuracy: 2)
+        XCTAssertLessThanOrEqual(enter.convert(enter.bounds, to: controller.view).maxX, width + 0.5)
+        if scheme == .quanpin {
+          let period = try button("bottomPeriodKey", in: controller)
+          XCTAssertFalse(period.isHidden)
+          XCTAssertLessThan(expanded.maxX, period.convert(period.bounds, to: controller.view).minX)
+          if width == 414 {
+            let screenshot = UIGraphicsImageRenderer(bounds: controller.view.bounds).image {
+              controller.view.layer.render(in: $0.cgContext)
+            }
+            let attachment = XCTAttachment(image: screenshot)
+            attachment.name = "HiddenLanguageKey-ExpandedSpace"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+          }
+        }
+        KeyboardLayoutPreference.hideLanguageKey = false
+        controller.viewWillAppear(false)
+        controller.view.layoutIfNeeded()
+        XCTAssertFalse(language.isHidden)
+        XCTAssertEqual(space.bounds.width, originalSpace.width, accuracy: 0.5)
       }
     }
   }
@@ -1381,6 +1431,115 @@ final class NineKeyKeyboardTests: XCTestCase {
     shift.sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(shift.accessibilityValue, "关闭")
     XCTAssertEqual(colours().icon, off.1)
+  }
+
+  /// 临时英文的边界要经过真实键盘事件，防止只修改大小写图标而仍留在英文。
+  func testShiftTemporaryEnglishReturnsAfterWordBoundariesWithoutChangingMemory() throws {
+    let previous = InputSchemePreference.scheme
+    let defaults = ImeModeMemoryPreference.defaults
+    let memoryKeys = [ImeModeMemoryPreference.enabledKey, ImeModeMemoryPreference.lastChineseKey]
+    let saved = memoryKeys.map { defaults.object(forKey: $0) }
+    defer {
+      InputSchemePreference.scheme = previous
+      for (key, value) in zip(memoryKeys, saved) {
+        if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+      }
+    }
+    InputSchemePreference.scheme = .quanpin
+    ImeModeMemoryPreference.setEnabled(true)
+    ImeModeMemoryPreference.record(chinese: true)
+    for (boundary, letters) in [("spaceKey", ["A"]), ("spaceKey", ["H", "E", "L"]),
+                                ("bottomPeriodKey", ["H", "E", "L"]), ("returnKey", ["H", "E", "L"])] {
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      let language = try button("bottomLanguageKey", in: controller)
+      try button("shiftButton", in: controller).sendActions(for: .primaryActionTriggered)
+      XCTAssertEqual(language.accessibilityValue, "英文输入")
+      XCTAssertEqual(defaults.object(forKey: ImeModeMemoryPreference.lastChineseKey) as? Bool, true)
+      for letter in letters {
+        let key = try XCTUnwrap(descendants(controller.view).first {
+          $0.accessibilityLabel == "字母 \(letter)" || $0.accessibilityLabel == "大写 \(letter)"
+        } as? UIButton)
+        key.sendActions(for: .primaryActionTriggered)
+      }
+      XCTAssertEqual(language.accessibilityValue, "英文输入", "单次大写用完后仍可继续英文单词")
+      try button(boundary, in: controller).sendActions(for: .primaryActionTriggered)
+      XCTAssertEqual(language.accessibilityValue, "中文输入", boundary)
+      XCTAssertEqual(defaults.object(forKey: ImeModeMemoryPreference.lastChineseKey) as? Bool, true)
+      let n = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 N" } as? UIButton)
+      n.sendActions(for: .primaryActionTriggered)
+      XCTAssertEqual(try preedit(in: controller), "n", "恢复后下一字母进入中文组字")
+    }
+  }
+
+  func testTemporaryCapsLockKeepsEnglishUntilShiftUnlocks() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    let language = try button("bottomLanguageKey", in: controller)
+    if language.accessibilityValue == "英文输入" { language.sendActions(for: .primaryActionTriggered) }
+    let shift = try button("shiftButton", in: controller)
+    shift.sendActions(for: .primaryActionTriggered)
+    shift.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(shift.accessibilityValue, "开启")
+    try button("spaceKey", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(language.accessibilityValue, "英文输入")
+    shift.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(language.accessibilityValue, "中文输入")
+    XCTAssertEqual(shift.accessibilityValue, "关闭")
+  }
+
+  func testExplicitEnglishDoesNotReturnOnSpaceOrShiftUnlock() throws {
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    let language = try button("bottomLanguageKey", in: controller)
+    if language.accessibilityValue != "英文输入" { language.sendActions(for: .primaryActionTriggered) }
+    let shift = try button("shiftButton", in: controller)
+    shift.sendActions(for: .primaryActionTriggered)
+    shift.sendActions(for: .primaryActionTriggered)
+    shift.sendActions(for: .primaryActionTriggered)
+    try button("spaceKey", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(language.accessibilityValue, "英文输入")
+  }
+
+  func testTemporaryEnglishEndsOnANewOrdinaryFieldAndKeyboardDismissal() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    let language = try button("bottomLanguageKey", in: controller)
+    if language.accessibilityValue == "英文输入" { language.sendActions(for: .primaryActionTriggered) }
+    let firstDocument = UUID()
+    controller.applyInputContext(keyboardType: .default, documentIdentifier: firstDocument)
+    let shift = try button("shiftButton", in: controller)
+    shift.sendActions(for: .primaryActionTriggered)
+    controller.applyInputContext(keyboardType: .default, documentIdentifier: firstDocument)
+    XCTAssertEqual(language.accessibilityValue, "英文输入", "同一输入框的回调不结束临时英文")
+    controller.applyInputContext(keyboardType: .default, documentIdentifier: UUID())
+    XCTAssertEqual(language.accessibilityValue, "中文输入")
+    shift.sendActions(for: .primaryActionTriggered)
+    shift.sendActions(for: .primaryActionTriggered)
+    controller.viewWillDisappear(false)
+    XCTAssertEqual(language.accessibilityValue, "中文输入", "收起键盘连同临时大写锁定一起清掉")
+  }
+
+  func testTemporaryEnglishDoesNotReplaceTheLanguageBeforeLatinField() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    let language = try button("bottomLanguageKey", in: controller)
+    if language.accessibilityValue == "英文输入" { language.sendActions(for: .primaryActionTriggered) }
+    try button("shiftButton", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.applyInputContext(keyboardType: .URL, documentIdentifier: UUID())
+    try button("spaceKey", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(language.accessibilityValue, "英文输入", "网址字段继续使用英文")
+    controller.applyInputContext(keyboardType: .default, documentIdentifier: UUID())
+    XCTAssertEqual(language.accessibilityValue, "中文输入")
   }
 
   func testShiftEntersHelpcodeWhileComposingShuangpin() throws {

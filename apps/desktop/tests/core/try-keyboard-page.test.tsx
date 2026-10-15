@@ -268,3 +268,35 @@ test("a link in a reply opens outside, and other schemes are ignored", async () 
   // markdown-it 不把 javascript: 渲染成链接。
   expect(within(page).queryByRole("link", { name: "坏的" })).toBeNull();
 });
+
+test.each(["http://example.invalid/", "mailto:synthetic@example.invalid"])(
+  "an auxiliary click on a nested reply link delegates %s",
+  async (url) => {
+    const onOpenUrl = vi.fn();
+    const { page, field } = renderPage({
+      chat: chatClient({ complete: vi.fn().mockResolvedValue(`[**合成链接**](${url})`) }),
+      onOpenUrl,
+    });
+    type(field, "合成问题");
+    fireEvent.keyDown(field, { key: "Enter" });
+    const target = await within(page).findByText("合成链接", { selector: "strong" });
+    const event = new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 });
+    target.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(onOpenUrl).toHaveBeenCalledExactlyOnceWith(url);
+  },
+);
+
+test("a reply link cannot navigate when the host has no URL opener", async () => {
+  const { page, field } = renderPage({
+    chat: chatClient({
+      complete: vi.fn().mockResolvedValue("[合成链接](https://example.invalid/)"),
+    }),
+  });
+  type(field, "合成问题");
+  fireEvent.keyDown(field, { key: "Enter" });
+  const target = await within(page).findByRole("link", { name: "合成链接" });
+  const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+  target.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(true);
+});

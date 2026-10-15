@@ -5,7 +5,7 @@ import { ErrorAlert } from "../core/error-alert";
 import { GroupList, PageIntro, Row } from "../core/platform-controls";
 import { select as selectStyle, textInput } from "../core/platform-controls-style";
 import { StatusMessage } from "../core/status-message";
-import { useAsyncActionRunner } from "../core/use-async-action";
+import { useAsyncActionRunner, type AsyncActionOperation } from "../core/use-async-action";
 import { useDebouncedCallback } from "../core/use-debounced-callback";
 import { readDictionaryFile } from "../dictionary/dictionary-file";
 import { ActionButton } from "./action-button";
@@ -99,7 +99,12 @@ export function ShuangpinCustomEditor({
   const [checkFailed, setCheckFailed] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const back = useRef<HTMLButtonElement>(null);
-  const { busy, mounted, run: runAsyncAction } = useAsyncActionRunner(setError, setNotice);
+  const {
+    busy,
+    mounted,
+    generation: actionGeneration,
+    run: runAsyncAction,
+  } = useAsyncActionRunner(setError, setNotice, client, saveExport);
   const generation = useAsyncGeneration(client, draft);
   const { schedule: validateLater } = useDebouncedCallback(
     (validationClient: ShuangpinCustomProfileClient, profile: Draft, current: number) => {
@@ -142,13 +147,13 @@ export function ShuangpinCustomEditor({
     });
   };
 
-  const run = (action: () => Promise<void>) =>
-    runAsyncAction(async () => action(), {
+  const run = (action: AsyncActionOperation) =>
+    runAsyncAction(action, {
       formatError: () => "操作失败，请稍后重试。",
     });
 
   const applyTemplate = () =>
-    run(async () => {
+    run(async (isCurrent) => {
       if (
         !emptyShuangpinCustomProfile(draft) &&
         !(await confirm({
@@ -158,9 +163,10 @@ export function ShuangpinCustomEditor({
         }))
       )
         return;
+      if (!isCurrent()) return;
       try {
         const table = await client.builtin(template);
-        if (!mounted.current) return;
+        if (!isCurrent()) return;
         if (!table) {
           setError("这个方案没有可用的键位表。");
           return;
@@ -169,33 +175,34 @@ export function ShuangpinCustomEditor({
         const title = builtinShuangpinProfiles.find(([name]) => name === template)?.[1] ?? "";
         setNotice(`已填入${title}的键位，改动想换的键后保存。`);
       } catch {
-        if (mounted.current) setError("无法读取内置方案的键位，请稍后重试。");
+        if (isCurrent()) setError("无法读取内置方案的键位，请稍后重试。");
       }
     });
 
   const importFile = (file: File | undefined) => {
     if (!file) return;
-    void run(async () => {
+    void run(async (isCurrent) => {
       let profile: ShuangpinCustomProfile;
       try {
         profile = parseShuangpinCustomProfile(
           await readDictionaryFile(file, MAX_SHUANGPIN_CUSTOM_IMPORT_BYTES),
         );
       } catch (cause) {
-        if (mounted.current)
+        if (isCurrent())
           setError(
             `没有导入：${cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。"}`,
           );
         return;
       }
+      if (!isCurrent()) return;
       let result: ShuangpinCustomProblem | null;
       try {
         result = await client.validate(normalizedShuangpinCustomProfile(profile));
       } catch {
-        if (mounted.current) setError("无法校验导入的键位表，请稍后重试。");
+        if (isCurrent()) setError("无法校验导入的键位表，请稍后重试。");
         return;
       }
-      if (!mounted.current) return;
+      if (!isCurrent()) return;
       // 不合法的表不进草稿，免得把正在编辑的表冲掉，只换来一张存不了的表。
       if (result) {
         setError(`没有导入：${shuangpinCustomProblemMessage(result)}`);
@@ -207,7 +214,7 @@ export function ShuangpinCustomEditor({
   };
 
   const exportFile = () =>
-    run(async () => {
+    run(async (isCurrent) => {
       const contents = shuangpinCustomProfileExport(draft);
       if (!saveExport) {
         downloadBlob(
@@ -219,10 +226,10 @@ export function ShuangpinCustomEditor({
       }
       try {
         const path = await saveExport(SHUANGPIN_CUSTOM_EXPORT_NAME, contents);
-        if (!mounted.current) return;
+        if (!isCurrent()) return;
         setNotice(path === null ? "已取消导出。" : `已导出到 ${path}`);
       } catch (cause) {
-        if (mounted.current)
+        if (isCurrent())
           setError(
             cause instanceof Error && cause.message
               ? cause.message
@@ -238,6 +245,7 @@ export function ShuangpinCustomEditor({
   };
 
   const leave = async () => {
+    const current = actionGeneration.current;
     if (
       dirty &&
       !(await confirm({
@@ -248,6 +256,7 @@ export function ShuangpinCustomEditor({
       }))
     )
       return;
+    if (!mounted.current || current !== actionGeneration.current) return;
     onBack();
   };
 

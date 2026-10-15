@@ -21,7 +21,7 @@ use crate::paths::RuntimePaths;
 use crate::pinyin::autocorrect::autocorrect_suppression_key;
 use crate::quanpin::QuanpinScheme;
 use crate::shuangpin::query::{
-    apply_segmentation_cases, detect_active_double_helpcode_length, remove_manual_delimiters,
+    apply_segmentation_cases_into, detect_active_double_helpcode_length, remove_manual_delimiters,
     segment_input, to_quanpin_segmentation, trim_trailing_letters_preserve_delimiters,
 };
 use crate::shuangpin::ShuangpinProfile;
@@ -1155,12 +1155,11 @@ fn apply_shuangpin_helpcode_segmentation(request: &mut QueryRequest, profile: &S
     let effective_with_cases = remove_manual_delimiters(&request.raw_input_with_cases);
     let help_codes = &effective_with_cases[effective_with_cases.len() - HELPCODE_LENGTH..];
 
-    request
-        .raw_segmentation
-        .clone_from(&apply_segmentation_cases(
-            &base_segmentation,
-            &base_raw_with_cases,
-        ));
+    apply_segmentation_cases_into(
+        &base_segmentation,
+        &base_raw_with_cases,
+        &mut request.raw_segmentation,
+    );
     append_help_codes(&mut request.raw_segmentation, help_codes);
     request
         .normalized_segmentation
@@ -1197,6 +1196,29 @@ mod tests {
 
     fn words(list: &[WordItem]) -> Vec<&str> {
         list.iter().map(|item| item.word.as_str()).collect()
+    }
+
+    #[test]
+    fn helpcode_segmentation_reuses_the_case_output_buffer() {
+        let profile =
+            crate::shuangpin::profile::profile(crate::types::ShuangpinProfileKind::Xiaohe).unwrap();
+        let mut request = QueryRequest {
+            scheme: SchemeType::Shuangpin,
+            raw_input: "nihcab".to_owned(),
+            raw_input_with_cases: "nihcAB".to_owned(),
+            enable_shuangpin_helpcode: true,
+            ..QueryRequest::default()
+        };
+        apply_shuangpin_helpcode_segmentation(&mut request, profile);
+        let expected = request.clone();
+        let pointer = request.raw_segmentation.as_ptr();
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            apply_shuangpin_helpcode_segmentation(&mut request, profile);
+        });
+        assert_eq!(request, expected);
+        assert_eq!(request.raw_segmentation, "ni'hc'AB");
+        assert_eq!(request.raw_segmentation.as_ptr(), pointer);
+        assert_eq!(allocations, 10);
     }
 
     #[test]

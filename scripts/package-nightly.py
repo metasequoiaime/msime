@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
-"""打包六平台 nightly，超出 GitHub 单附件限制时自动分卷。"""
+"""暂存 nightly 原生安装文件，并说明 iOS TestFlight 安装入口。"""
 
 import argparse
-import hashlib
-import os
-from pathlib import Path
-import subprocess
 from datetime import datetime, timezone
+import hashlib
+from pathlib import Path
+import shutil
 
 
-PLATFORMS = ("android", "ios", "macos", "linux", "harmony", "windows")
+PLATFORM_SUFFIXES = {
+    "android": (".apk",),
+    "macos": (".dmg",),
+    "linux": (".deb", ".rpm"),
+    "harmony": (".hap",),
+    "windows": (".exe",),
+}
 ASSET_LIMIT = 2 * 1024**3 - 1
 
 
@@ -18,62 +23,41 @@ def checksum(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def split_archive(path, limit):
-    if path.stat().st_size <= limit:
-        return []
-    parts = []
-    with path.open("rb") as source:
-        while source.tell() < path.stat().st_size:
-            part = path.with_name(f"{path.name}.part{len(parts):03d}")
-            with part.open("wb") as destination:
-                remaining = limit
-                while remaining:
-                    chunk = source.read(min(1024**2, remaining))
-                    if not chunk:
-                        break
-                    destination.write(chunk)
-                    remaining -= len(chunk)
-            parts.append(part)
-    path.unlink()
-    return parts
-
-
 def package(source, output, source_sha, limit=ASSET_LIMIT):
     if limit < 1:
         raise ValueError("附件大小上限必须为正数")
     if output.exists() and any(output.iterdir()):
         raise ValueError("输出目录必须为空，避免上传上一次的产物")
-    for platform in PLATFORMS:
-        if not any(path.is_file() for path in (source / platform).rglob("*")):
-            raise ValueError(f"缺少平台产物：{platform}")
+    selected = {}
+    for platform, suffixes in PLATFORM_SUFFIXES.items():
+        files = sorted(path for path in (source / platform).rglob("*")
+                       if path.is_file() and path.name.endswith(suffixes))
+        if not files:
+            raise ValueError(f"缺少平台分发文件：{platform}")
+        for path in files:
+            if path.name in selected:
+                raise ValueError(f"分发文件重名，禁止覆盖：{path.name}")
+            if path.stat().st_size > limit:
+                raise ValueError(f"分发文件超出附件大小限制，禁止发布：{path.name}")
+            selected[path.name] = path
     output.mkdir(parents=True, exist_ok=True)
-    files = sorted(path for path in source.rglob("*") if path.is_file())
+    for name, path in selected.items():
+        shutil.copyfile(path, output / name)
     (output / "SHA256SUMS").write_text("".join(
-        f"{checksum(path)}  ./{path.relative_to(source).as_posix()}\n" for path in files
+        f"{checksum(output / name)}  {name}\n" for name in sorted(selected)
     ))
-    now = datetime.now(timezone.utc)
-    stem = f"msime-nightly-{{}}{now:%Y-%m-%d}-{source_sha[:12]}.tar.gz"
-    instructions = []
-    for platform in (*PLATFORMS, None):
-        archive = output / stem.format(f"{platform}-" if platform else "")
-        subprocess.run(["tar", "-czf", str(archive.resolve()), "-C", str(source),
-                        platform or "."], check=True,
-                       env={**os.environ, "COPYFILE_DISABLE": "1"})
-        if split_archive(archive, limit):
-            instructions.append(f"cat {archive.name}.part* > {archive.name}\n")
-    archives = sorted(output.glob("*.tar.gz*"))
-    (output / "ARCHIVE_SHA256SUMS").write_text("".join(
-        f"{checksum(path)}  {path.name}\n" for path in archives
-    ))
-    readme = (f"nightly source: {source_sha}\nbuilt at: {now.isoformat()}\n\n"
-              "按平台下载对应压缩包；全部平台也可下载总包。\n"
-              "sha256sum --ignore-missing -c ARCHIVE_SHA256SUMS 校验下载文件。\n"
-              "解压后运行 sha256sum --ignore-missing -c SHA256SUMS 校验内容。\n")
-    if instructions:
-        readme += ("\n分卷包需下载同名的全部 .part 文件，在同一目录按序合并后解压：\n"
-                   + "".join(instructions)
-                   + "Windows 可在 WSL/Git Bash 中执行上述命令。\n")
-    (output / "README.txt").write_text(readme)
+    (output / "README.txt").write_text(
+        f"nightly source: {source_sha}\nprepared at: {datetime.now(timezone.utc).isoformat()}\n\n"
+        "直接下载对应平台和版本的文件，无需解压外层归档。\n"
+        "Android：安装 APK 后，在系统设置中启用水杉输入法。\n"
+        "Windows：双击 Setup EXE，按安装向导操作。\n"
+        "macOS：DMG 已用 Developer ID 签名并公证，打开后把应用拖进「应用程序」，再打开一次即可安装输入法。\n"
+        "Linux：根据发行版和 CPU 架构选择 DEB 或 RPM，用系统包管理器安装。\n"
+        "iOS：真机通过现有外部 TestFlight 组安装，须等 Apple 审核批准；\n"
+        "模拟器构建只保留在 Actions artifacts 中，不出现在普通下载页。\n"
+        "HarmonyOS：unsigned HAP 供模拟器或开发签名使用，不能直接安装到零售设备。\n\n"
+        "下载校验清单后，在文件所在目录运行 sha256sum --ignore-missing -c SHA256SUMS。\n"
+    )
     if any(path.stat().st_size > limit for path in output.iterdir()):
         raise ValueError("仍有附件超出大小限制，禁止发布")
 

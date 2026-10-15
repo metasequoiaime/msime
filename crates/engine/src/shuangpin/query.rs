@@ -1,4 +1,4 @@
-//! Query-layer helpers (schemes-lang.md §1.5, `shuangpin_query.cpp`). `raw_length_for_effective_prefix` and `apply_segmentation_cases` are also used by quanpin and the session.
+//! 查询层辅助函数（schemes-lang.md §1.5，`shuangpin_query.cpp`）。`raw_length_for_effective_prefix` 和 `apply_segmentation_cases_into` 也供全拼与会话使用。
 //!
 //! Raw input is ASCII (see `utils`), so offsets are byte offsets and letters are bytes.
 
@@ -183,17 +183,28 @@ pub fn is_complete_input(raw: &str, profile: &ShuangpinProfile) -> bool {
     })
 }
 
-/// Re-apply the typed case to a lowercased segmentation, skipping `'` in both; unchanged if the letters differ (:221-282).
-pub fn apply_segmentation_cases(segmentation: &str, raw_with_cases: &str) -> String {
+/// 按原始输入还原大小写，两侧均跳过 `'`；编码不匹配时保留原切分（:221-282）。
+/// 直接写入已有输出，复用请求字段的容量；空输入和回退也覆盖旧内容。
+pub(crate) fn apply_segmentation_cases_into(
+    segmentation: &str,
+    raw_with_cases: &str,
+    result: &mut String,
+) {
+    result.clear();
     if segmentation.is_empty() || raw_with_cases.is_empty() {
-        return String::new();
+        return;
     }
-    let letters = remove_manual_delimiters(segmentation);
-    if letters != remove_manual_delimiters(raw_with_cases).to_ascii_lowercase() {
-        return segmentation.to_string();
+    let letters = segmentation.bytes().filter(|&byte| byte != b'\'');
+    let typed_letters = raw_with_cases
+        .bytes()
+        .filter(|&byte| byte != b'\'')
+        .map(|byte| byte.to_ascii_lowercase());
+    if !letters.eq(typed_letters) {
+        result.push_str(segmentation);
+        return;
     }
     let cased = raw_with_cases.as_bytes();
-    let mut result = String::with_capacity(segmentation.len());
+    result.reserve_exact(segmentation.len());
     let mut index = 0;
     for &byte in segmentation.as_bytes() {
         if byte == b'\'' {
@@ -204,9 +215,11 @@ pub fn apply_segmentation_cases(segmentation: &str, raw_with_cases: &str) -> Str
             index += 1;
         }
         let Some(&typed) = cased.get(index) else {
-            return segmentation.to_string();
+            result.clear();
+            result.push_str(segmentation);
+            return;
         };
-        // The reference compares `ch == cased + ('a' - 'A')`, i.e. the typed uppercase letter of a lowercase key.
+        // 参考实现比较 `ch == cased + ('a' - 'A')`，即小写编码对应的原始大写字母。
         if byte == typed || u16::from(byte) == u16::from(typed) + 32 {
             result.push(char::from(typed));
         } else {
@@ -214,7 +227,6 @@ pub fn apply_segmentation_cases(segmentation: &str, raw_with_cases: &str) -> Str
         }
         index += 1;
     }
-    result
 }
 
 #[cfg(test)]
@@ -222,6 +234,12 @@ mod tests {
     use super::*;
     use crate::shuangpin::profile::profile;
     use crate::types::ShuangpinProfileKind;
+
+    fn apply_segmentation_cases(segmentation: &str, raw_with_cases: &str) -> String {
+        let mut result = String::new();
+        apply_segmentation_cases_into(segmentation, raw_with_cases, &mut result);
+        result
+    }
 
     fn xiaohe() -> &'static ShuangpinProfile {
         profile(ShuangpinProfileKind::Xiaohe).unwrap()
@@ -347,6 +365,113 @@ mod tests {
         assert!(!is_complete_input("ni'", xiaohe()));
         assert!(!is_complete_input("ni''hc", xiaohe()));
         assert!(!is_complete_input("", xiaohe()));
+    }
+
+    #[test]
+    fn applying_cases_allocates_only_the_owned_ascii_result() {
+        for (segmentation, typed, expected) in [
+            ("ni'hc'ab", "nihcAB", "ni'hc'AB"),
+            ("ni'hc", "nihx", "ni'hc"),
+            ("j;'gk", "J;gK", "J;'gK"),
+            ("''", "'", "''"),
+        ] {
+            let (result, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                apply_segmentation_cases(segmentation, typed)
+            });
+            assert_eq!(result, expected);
+            assert_eq!(
+                allocations, 1,
+                "segmentation={segmentation:?}, typed={typed:?}"
+            );
+        }
+        for (segmentation, typed) in [("", "ni"), ("ni", ""), ("", "")] {
+            let (result, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                apply_segmentation_cases(segmentation, typed)
+            });
+            assert!(result.is_empty());
+            assert_eq!(allocations, 0);
+        }
+    }
+
+    fn owned_case_reference(segmentation: &str, raw_with_cases: &str) -> String {
+        if segmentation.is_empty() || raw_with_cases.is_empty() {
+            return String::new();
+        }
+        let letters = remove_manual_delimiters(segmentation);
+        if letters != remove_manual_delimiters(raw_with_cases).to_ascii_lowercase() {
+            return segmentation.to_string();
+        }
+        let cased = raw_with_cases.as_bytes();
+        let mut result = String::with_capacity(segmentation.len());
+        let mut index = 0;
+        for &byte in segmentation.as_bytes() {
+            if byte == b'\'' {
+                result.push('\'');
+                continue;
+            }
+            while index < cased.len() && cased[index] == b'\'' {
+                index += 1;
+            }
+            let Some(&typed) = cased.get(index) else {
+                return segmentation.to_string();
+            };
+            // 保留旧实现只对原始输入一侧做大小写匹配的回填规则。
+            if byte == typed || u16::from(byte) == u16::from(typed) + 32 {
+                result.push(char::from(typed));
+            } else {
+                result.push(char::from(byte));
+            }
+            index += 1;
+        }
+        result
+    }
+
+    #[test]
+    fn case_byte_comparison_matches_the_owned_reference() {
+        let mut corpus = vec![String::new()];
+        let mut layer = vec![String::new()];
+        for _ in 0..3 {
+            let mut next = Vec::new();
+            for prefix in &layer {
+                for suffix in ['n', 'i', 'N', 'I', '\'', ';', '你'] {
+                    let mut value = prefix.clone();
+                    value.push(suffix);
+                    next.push(value);
+                }
+            }
+            corpus.extend(next.iter().cloned());
+            layer = next;
+        }
+        corpus.extend(
+            [
+                "ni'hc'ab", "nihcAB", "nihcAB'", "Ni'hC", "NI'hc", "j;'gk", "J;gK", "ni'hx",
+            ]
+            .map(str::to_owned),
+        );
+        corpus.push(std::iter::repeat_n("ni", 128).collect::<Vec<_>>().join("'"));
+        corpus.push("NI".repeat(128));
+        let mut output = String::with_capacity(4096);
+        for segmentation in &corpus {
+            for typed in &corpus {
+                let expected = owned_case_reference(segmentation, typed);
+                assert_eq!(
+                    apply_segmentation_cases(segmentation, typed),
+                    expected,
+                    "segmentation={segmentation:?}, typed={typed:?}"
+                );
+                output.push_str("旧内容");
+                let pointer = output.as_ptr();
+                let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                    apply_segmentation_cases_into(segmentation, typed, &mut output);
+                });
+                assert_eq!(
+                    output, expected,
+                    "segmentation={segmentation:?}, typed={typed:?}"
+                );
+                assert_eq!(output.as_ptr(), pointer);
+                assert_eq!(allocations, 0);
+            }
+        }
     }
 
     #[test]

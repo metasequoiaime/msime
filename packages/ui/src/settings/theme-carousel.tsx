@@ -12,6 +12,7 @@ import { useLatestRef } from "../core/use-latest-ref";
 import * as settings from "./settings-style";
 import { ActionButton } from "../core/action-button";
 import { clamp } from "../core/number";
+import { subscribeToElementResize } from "../core/element-resize";
 
 /** 导航最多显示的圆点数。每个已安装的皮肤都是一张卡片，主题多于这个数时，圆点改为跟随当前卡片的一段窗口，导航行的宽度不随皮肤数量增长。 */
 export const MAX_CAROUSEL_DOTS = 9;
@@ -73,13 +74,11 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
     show(at >= 0 ? at : current.current, false);
   }, [keySignature, show]);
 
-  // The page mounts inside a hidden fieldset, where the track has no width; snapping again once it is laid out (and on every later resize) keeps the chosen card in view.
+  // 页面先挂载在隐藏的 fieldset 中；布局完成或尺寸变化后重新定位，保持当前卡片可见。
   useEffect(() => {
     const element = track.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => show(current.current, false));
-    observer.observe(element);
-    return () => observer.disconnect();
+    if (!element) return;
+    return subscribeToElementResize(element, () => show(current.current, false));
   }, [show]);
 
   function onScroll() {

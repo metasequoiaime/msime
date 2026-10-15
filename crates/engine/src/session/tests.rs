@@ -561,7 +561,7 @@ fn caret_prefix_expands_its_own_initial_list() {
     let (grew, allocations) =
         crate::ime::personal_rerank::allocations::count(|| session.expand_initial_candidates());
     assert!(grew);
-    assert_eq!(allocations, 319, "光标前缀展开申请次数：{allocations}");
+    assert_eq!(allocations, 315, "光标前缀展开申请次数：{allocations}");
     let widened = words(&session);
     assert_eq!(widened.len(), 30);
     assert!(widened.contains(&"丝".to_owned()), "{widened:?}");
@@ -1558,7 +1558,7 @@ fn ignored_scheme_key_does_not_clone_preedit_for_change_detection() {
     });
 
     assert!(!result.handled);
-    assert_eq!(allocations, 28);
+    assert_eq!(allocations, 23);
 }
 
 #[test]
@@ -1572,7 +1572,7 @@ fn typing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection() {
     });
 
     assert!(result.handled);
-    assert_eq!(allocations, 130);
+    assert_eq!(allocations, 127);
 }
 
 #[test]
@@ -1585,7 +1585,7 @@ fn backspacing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection()
         crate::ime::personal_rerank::allocations::count(|| session.command(Command::Backspace));
 
     assert!(result.handled);
-    assert_eq!(allocations, 19);
+    assert_eq!(allocations, 15);
 }
 
 #[test]
@@ -1645,7 +1645,7 @@ fn setting_the_caret_does_not_build_editing_text_to_clamp_it() {
     });
 
     assert_eq!(session.snapshot().caret_position, 2);
-    assert_eq!(allocations, 25);
+    assert_eq!(allocations, 22);
 }
 
 #[test]
@@ -1659,7 +1659,7 @@ fn moving_the_caret_does_not_build_the_preedit_twice() {
 
     assert!(result.handled);
     assert_eq!(
-        allocations, 25,
+        allocations, 22,
         "光标移动复用编辑文本长度后的分配次数：{allocations}"
     );
 }
@@ -1675,7 +1675,7 @@ fn typing_at_a_caret_reuses_the_editing_text_length() {
         crate::ime::personal_rerank::allocations::count(|| session.character(b'x', false));
 
     assert!(result.handled);
-    assert_eq!(allocations, 202, "光标处输入的分配次数：{allocations}");
+    assert_eq!(allocations, 194, "光标处输入的分配次数：{allocations}");
 }
 
 #[test]
@@ -1751,7 +1751,7 @@ fn selecting_a_shuangpin_candidate_does_not_clone_the_full_request() {
         crate::ime::personal_rerank::allocations::count(|| session.select(index));
 
     assert_eq!(result.commit.as_deref(), Some("你好"));
-    assert_eq!(allocations, 19, "双拼候选选择分配次数：{allocations}");
+    assert_eq!(allocations, 17, "双拼候选选择分配次数：{allocations}");
 }
 
 #[test]
@@ -3412,7 +3412,7 @@ fn shuangpin_snapshot_does_not_build_unused_raw_preedit() {
 
     assert_eq!(snapshot.preedit, "ni'hao");
     assert_eq!(
-        allocations, 42,
+        allocations, 36,
         "shuangpin snapshot allocations: {allocations}"
     );
 }

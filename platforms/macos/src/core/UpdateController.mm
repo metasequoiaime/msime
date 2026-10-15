@@ -69,8 +69,16 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
 
 @end
 
-@interface MetasequoiaSparkleUpdateDriver : NSObject <MetasequoiaUpdateDriver>
+// The input method is LSBackgroundOnly and lives as long as the login session, so Sparkle's defaults do
+// not fit it. Its relaunch would start the bundle as a standalone launch, which opens the preferences
+// window (input_method_main.mm). Its install-on-quit rarely comes, and if the delegate leaves the
+// background-downloaded update to Sparkle, after SUScheduledImpatientCheckInterval Sparkle presents it in
+// a window that takes focus from whatever the user is typing into. So the driver keeps the install
+// handler and runs it when the user switches to another input source (installDownloadedUpdate); Sparkle
+// still installs on quit if that comes first.
+@interface MetasequoiaSparkleUpdateDriver : NSObject <MetasequoiaUpdateDriver, SPUUpdaterDelegate>
 @property(nonatomic, readonly) SPUStandardUpdaterController *updaterController;
+@property(nonatomic, copy, nullable) void (^pendingInstall)(void);
 @end
 
 @implementation MetasequoiaSparkleUpdateDriver
@@ -81,7 +89,7 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
     if (self != nil)
     {
         _updaterController = [[SPUStandardUpdaterController alloc] initWithStartingUpdater:YES
-                                                                           updaterDelegate:nil
+                                                                           updaterDelegate:self
                                                                         userDriverDelegate:nil];
     }
     return self;
@@ -100,6 +108,28 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
 - (void)checkForUpdates:(id)sender
 {
     [self.updaterController checkForUpdates:sender];
+}
+
+- (void)installDownloadedUpdate
+{
+    void (^install)(void) = self.pendingInstall;
+    if (install != nil) install();
+}
+
+- (BOOL)updaterShouldRelaunchApplication:(SPUUpdater *)updater
+{
+    (void)updater;
+    return NO;
+}
+
+- (BOOL)updater:(SPUUpdater *)updater
+    willInstallUpdateOnQuit:(SUAppcastItem *)item
+    immediateInstallationBlock:(void (^)(void))immediateInstallHandler
+{
+    (void)updater;
+    (void)item;
+    self.pendingInstall = immediateInstallHandler;
+    return YES;
 }
 
 @end
@@ -189,6 +219,11 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
 {
     self.activationHandler();
     [self.driver checkForUpdates:sender];
+}
+
+- (void)installDownloadedUpdateIfReady
+{
+    if ([self.driver respondsToSelector:@selector(installDownloadedUpdate)]) [self.driver installDownloadedUpdate];
 }
 
 @end

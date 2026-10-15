@@ -1,3 +1,4 @@
+import type { KeybindingPreferences } from "./keybinding-preferences";
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsRowStack } from "./settings-row-stack";
 import { InputModeHudSection } from "./input-mode-hud-section";
@@ -5,15 +6,7 @@ import { GroupList, Row } from "../core/platform-controls";
 import { SwitchRow } from "./switch-row";
 import { SelectRow } from "./select-row";
 
-export interface InputModeShortcutPreferences {
-  switch_language_shift: boolean;
-  switch_language_ctrl: boolean;
-  switch_language_ctrl_space?: boolean;
-  switch_language_ctrl_alt_space: boolean;
-  toggle_character_set_ctrl_shift_f: boolean;
-  toggle_fullwidth_option_shift_h: boolean;
-  switch_language_caps_lock?: boolean;
-  toggle_japanese_ctrl_shift_j?: boolean;
+export interface InputModeShortcutPreferences extends KeybindingPreferences {
   input_mode_hud?: boolean;
 }
 

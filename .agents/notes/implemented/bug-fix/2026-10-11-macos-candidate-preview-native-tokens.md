@@ -6,7 +6,7 @@ Status: implemented
 
 macOS 的「主题」页打开的是共享 React 设置页，卡片里的候选预览是 `SkinCandidatePreview` 画的一段 HTML，样式来自 `packages/ui/src/styles.css` 的 `@utility skin-card-preview`。这套样式是从 MSIME-Windows 04a8df56 搬来的旧 Windows 候选窗样式，对所有平台一样。`system` 主题没有调色板（`theme-catalog.json` 里 `candidate: null`），主题和皮肤包没定的槽位也都落到它写死的默认值上：浅色选中底 `#e8e8e8`、选中行黑字、无条件画一根强调色竖条、卡片圆角 6px、行圆角 4px、边框 1.5px、内边距 1–2px。
 
-macOS 原生候选窗画的是 `NativeCandidateTokens`（`platforms/macos/src/candidate/CandidateSkin.cpp`）：强调色实心选中、白字、82% 白序号、不画竖条，卡片 10pt、行 6pt、1pt 细边框、内边距 6pt（`CandidateSkin.h` 的 `SkinTokens` 默认值），行上下各留 6pt（`CandidateChrome.h` 的 `MSIMECandidateRowPadding`）。于是 #7099 里「跟随系统」的预览是灰底、绿竖条、黑字、小圆角，实际窗口却是绿色实心、白字、大圆角。
+macOS 原生候选窗画的是 `NativeCandidateTokens`（`platforms/macos/src/candidate/CandidateSkin.cpp`）：强调色实心选中、白字、82% 白序号、不画竖条，卡片 10pt、行 6pt、1pt 细边框、内边距 4pt（`CandidateSkin.h` 的 `SkinTokens` 默认值），行上下各留 6pt（`CandidateChrome.h` 的 `MSIMECandidateRowPadding`）。于是 #7099 里「跟随系统」的预览是灰底、绿竖条、黑字、小圆角，实际窗口却是绿色实心、白字、大圆角。
 
 另外三处让预览不反映实际：`candidatePaletteStyle` 只输出 bg/border/text/num/accent/selected/hover，主题的 `selected_text`、`selected_number`、`show_selected_bar` 到不了预览；「主题」页的卡片不套用用户在「候选窗口 → 窗口样式」设的圆角和不透明度，而 macOS 原生回退页 `CandidateSkinPreviewView` 是套用的；圆角滑块在「跟随皮肤」时写死显示 6，macOS 实际跟随的是 10。
 
@@ -18,7 +18,7 @@ macOS 原生候选窗画的是 `NativeCandidateTokens`（`platforms/macos/src/ca
 
 **选中前景色和竖条开关进预览。** `candidatePaletteStyle` 多写 `--cand-selected-text`、`--cand-selected-num`，`show_selected_bar` 为 boolean 时写 `--cand-selected-bar: block | none`，null 不写。选中行的文字和序号读这两个变量，没有时退回普通行的颜色；`.first::before` 的 `display` 读 `--cand-selected-bar`，没有时画。选中行悬停时保持选中底（`.first:hover` 写在 `.cand:hover` 之后，特异性相同、后者胜出）：选中前景色是按选中底配的，悬停换成 `--cand-hover` 后，macOS 浅色的白字会落在近白的卡片上，深色选中底的自定义主题在所有平台都一样。原生 macOS 是 `selectedHover = selected`，Windows 的选中底本来就是悬停底，所以这条对各平台都是照原生画。皮肤包 `show_selected_bar = false` 原来走 `skin-palette.ts` 的 `selectedBarCss`（`!important` 的 `display:none`），这条路保留，它和变量给的是同一个结论；包写 `true` 时只有变量能在 macOS 上把竖条重新画出来。
 
-**macOS 的选中前景色推导。** 调色板给了选中底却没给选中文字色时（`system` 底上的皮肤包，或只挑了强调色的自定义主题），原生走 `DeriveSelectedForegrounds`：选中底不透明度低于 0.85 时文字、序号退回普通行颜色，否则按相对亮度 0.45 取白或 #1A1A1A，序号 82%。CSS 算不了对比度，所以 `candidatePaletteStyle` 在 TS 里按同一条规则算好，写成 `--cand-mac-selected-text` / `--cand-mac-selected-num`；只有 macOS 宿主块读它们（`--cand-selected-text: var(--cand-mac-selected-text, #ffffff)`），其他平台不受影响。
+**macOS 的选中前景色推导。** 调色板给了选中底却没给选中文字色时（`system` 底上的皮肤包，或只挑了强调色的自定义主题），原生走 `DeriveSelectedForegrounds`：选中底不透明度低于 0.85 时文字、序号退回普通行颜色，否则按相对亮度 0.45 取白或 #1A1A1A，序号 82%。CSS 算不了对比度，所以 `candidatePaletteStyle` 在 TS 里按同一条规则算好，写成 `--cand-mac-selected-text` / `--cand-mac-selected-num`；只有 macOS 宿主块读它们（`--cand-selected-text: var(--cand-mac-selected-text, #ffffff)`），其他平台不受影响。纯数值亮度公式由[公共相对亮度方法](../simplification/2026-10-15-shared-relative-luminance.md)提供，本篇的透明度与阈值规则保持独立。
 
 **用户的窗口样式画到每张卡上。** 用户圆角对行圆角的限制（`--msime-candidate-row-radius`）和不透明度的 `color-mix` 从 `appearance-candidate-preview` 挪进 `skin-card-preview`；「主题」页的主题卡片和皮肤包卡片（`ExternalSkinCard` 的 `windowStyle`）都铺上 `candidateWindowStyle(draft)`，包卡片的背景图同样乘上不透明度。缩放不铺：zoom 只在 `appearance-candidate-preview` 上生效，和原生预览一样不在卡片上放大。
 
@@ -35,7 +35,7 @@ macOS 原生候选窗画的是 `NativeCandidateTokens`（`platforms/macos/src/ca
 
 ## Consequences
 
-- **收益**：macOS 上「跟随系统」和主题、皮肤包没定的槽位，预览画的是原生候选窗的选中色、白字、无竖条、10/6 圆角和 6 的内边距；内置主题的选中行文字色在所有平台的预览里都按主题画；「主题」页卡片随用户的圆角和不透明度变化。
+- **收益**：macOS 上「跟随系统」和主题、皮肤包没定的槽位，预览画的是原生候选窗的选中色、白字、无竖条、10/6 圆角和 4 的内边距；内置主题的选中行文字色在所有平台的预览里都按主题画；「主题」页卡片随用户的圆角和不透明度变化。
 - **用户可见的跨平台变化**：内置主题（shuishan、light、paper、night、ink）的预览选中行文字从普通文字色变成主题的 `selected_text`（强调色），Windows、Linux 也一样。这是对的：两边原生都画 `selected_text`（`platforms/windows/src/candidate/CandidatePalette.h`、`platforms/linux/src/candidates/CandidateColors.h`）。
 - **已知差异**：行高、26pt 的首行、翻页指示器「1 / N ‹ ›」、横排为释义预留的高度（cc8105f5d8）、嵌入式预编辑时首行不显示拼音，这些预览都不画；首尾高亮与悬停的圆角差异由[内圆角决定](2026-10-14-macos-candidate-inset-radius.md)消除，用户圆角和最小内边距按同一公式绘制。竖条颜色仍读 `--accent-strong`，macOS 块不改它，免得连带改掉悬浮工具栏预览和光标的颜色。
 - **代价与重访信号**：macOS token 有三份，靠对照测试维持一致；`CandidateSkin.cpp` 的写法（`Rgb(0x…, a)`、`Rgba{…}`、`if (dark) { … } else { … }`）变了，测试的解析要跟着改。Windows、Linux 补宿主块时沿用同一组 `--msime-host-*` 变量和对照测试的做法；补完后 `followedCornerRadius` 也要按平台改。
@@ -45,3 +45,5 @@ macOS 原生候选窗画的是 `NativeCandidateTokens`（`platforms/macos/src/ca
 - `pnpm --filter ./apps/desktop exec vitest run tests/candidate/candidate-preview-native-tokens.test.ts`：调色板输出、macOS 推导规则、选中行和竖条的样式规则、宿主块与原生源码的对照、几何变量的回退值。
 - `tests/settings/skin-page-window-style.test.tsx`、`tests/settings/candidate-window-style-section.test.tsx`、`tests/candidate/external-skins.test.tsx`：主题页上的主题卡片和已安装皮肤包的卡片都铺上用户窗口样式；滑块跟随值按平台，macOS 的值对照原生源码，「候选窗口」页把宿主平台传给滑块。
 - 选中行悬停的规则顺序在 `candidate-preview-native-tokens.test.ts` 里检查（jsdom 不算 `:hover`，所以查的是两条规则在横排、竖排里的先后）。
+
+共享 UI 的装饰几何与背景透明度纯计算归属见[外部皮肤预览几何](../simplification/2026-10-15-skin-preview-geometry.md)，窗口透明度的覆盖及叠加规则保持本篇约定。
