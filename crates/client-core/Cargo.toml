@@ -33,6 +33,7 @@ time = { workspace = true, features = ["formatting"] }
 url = "2.5"
 
 [dev-dependencies]
+msime-client-base = { path = "../client-base", features = ["test-support"] }
 msime-path-trust = { path = "../path-trust", features = ["test-support"] }
 # `examples/install_resources.rs` 用阻塞的 HTTP 客户端下载钉住的资源；库本身不联网，所以只在 dev-dependencies 里。规格与 msime-client-services 的那份相同。
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }

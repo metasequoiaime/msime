@@ -27,6 +27,8 @@ Status: implemented
 
 宿主按模块所在的 crate 写路径：`msime_client_services::skin`、`msime_client_providers::voice`。base 的模块由 core 的 lib.rs 用 `use`/`pub use` 接回原路径，宿主照旧写 `msime_client_core::file_lock`，core 内部照旧写 `crate::storage::...`；base 里原来的 `pub(crate)` 是 `pub`，storage 和 bounded_io 是 `#[doc(hidden)] pub mod`。services 和 providers 的 lib.rs 用私有 `use` 把 base 和 core 的模块接到自己的根上，模块内部的 `crate::...` 路径不变。
 
+文件锁的 `ScopedFileLock::from_locked`、`try_exclusive` 和 `try_exclusive_with_grace` 同样公开，供 core 和 services 跨 crate 取得或接管守卫。描述符副本和作用域释放的测试辅助模块归 base，通过默认关闭的 `test-support` feature 提供；core 和 services 只在 dev-dependencies 启用，避免依赖 crate 的 `cfg(test)` 在调用方测试中不可见，也避免把辅助 API 编进正常产品。
+
 每个新 crate 都同时在根 `Cargo.toml` 的 `members` 和 `default-members` 里：path 依赖会自动成为 member，但不会进显式的 `default-members`，漏了的话裸 `cargo test` 就会悄悄不再跑它的测试。
 
 ### 依赖环怎么断

@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[features]
+# 供依赖 crate 的文件锁回归测试复用，正常产品构建不启用。
+test-support = []
+
 [dependencies]
 msime-path-trust = { path = "../path-trust" }
 serde.workspace = true

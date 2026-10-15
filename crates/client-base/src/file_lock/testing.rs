@@ -1,10 +1,10 @@
 use super::*;
 
-pub(crate) fn duplicate(lock: &ScopedFileLock) -> File {
+pub fn duplicate(lock: &ScopedFileLock) -> File {
     lock._file.try_clone().unwrap()
 }
 
-pub(crate) fn assert_finished_scope_releases_lock<T>(held: T, inherited: File, path: &Path) {
+pub fn assert_finished_scope_releases_lock<T>(held: T, inherited: File, path: &Path) {
     let contender = open_private_lock_file(path).unwrap();
     assert!(!try_exclusive(&contender).unwrap());
     drop(held);

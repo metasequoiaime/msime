@@ -37,6 +37,7 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 zune-jpeg = "0.5.15"
 
 [dev-dependencies]
+msime-client-base = { path = "../client-base", features = ["test-support"] }
 msime-path-trust = { path = "../path-trust", features = ["test-support"] }
 # 皮肤社区包的测试往 PNG 里插填充块时用它算块的 CRC（`skin::candidate_community` 的测试）。
 flate2 = "1"

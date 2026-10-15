@@ -19,7 +19,7 @@ pub struct ScopedFileLock {
 
 impl ScopedFileLock {
     /// 接管已经成功取得独占锁的同一个文件；本方法不执行取锁。
-    pub(crate) fn from_locked(file: File) -> Self {
+    pub fn from_locked(file: File) -> Self {
         Self { _file: file }
     }
 
@@ -35,7 +35,7 @@ impl ScopedFileLock {
         &self._file
     }
 
-    pub(crate) fn try_exclusive(file: File) -> io::Result<Option<Self>> {
+    pub fn try_exclusive(file: File) -> io::Result<Option<Self>> {
         if try_exclusive(&file)? {
             Ok(Some(Self { _file: file }))
         } else {
@@ -43,7 +43,7 @@ impl ScopedFileLock {
         }
     }
 
-    pub(crate) fn try_exclusive_with_grace(file: File) -> io::Result<Option<Self>> {
+    pub fn try_exclusive_with_grace(file: File) -> io::Result<Option<Self>> {
         if try_exclusive_with_grace(&file)? {
             Ok(Some(Self { _file: file }))
         } else {
@@ -623,5 +623,6 @@ mod tests {
     }
 }
 
-#[cfg(all(test, unix))]
-pub(crate) mod testing;
+#[cfg(all(any(test, feature = "test-support"), unix))]
+#[doc(hidden)]
+pub mod testing;
