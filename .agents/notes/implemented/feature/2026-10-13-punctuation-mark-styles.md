@@ -42,6 +42,8 @@ Status: implemented
 - 同时调 `Runtime::set_punctuation_marks`，View 里多出 `punctuation_marks: {"quotes": "curly"|"corner", "brackets": "solid"|"hollow"}`。
 - 宿主画键面、做补全、输出英文模式下的中文标点时都读这个字段，不自己解析偏好。
 
+人民币符号的宽度后处理见[人民币标点跟随全半角状态](../bug-fix/2026-10-15-currency-punctuation-character-width.md)；这里的固定表和样式选择仍成立。
+
 **宿主。** 各宿主的表只做加法。
 - macOS：`MSIMEPunctuationPairs` 加『』〖〗；改回前引号认」』，但只在按的是 `'` `"` 时改（`MSIMECornerQuoteKey`）；按键出的「『只在同样的键上补全；空格转换反查加这几个字；`PairedPunctuation.h` 的 `paired_closing_for_key` 按 tracker 栈顶在两组后半个里挑。
 - Linux（IBus 与 Fcitx5）：`normalize_punctuation_pair` 按文本末尾实际是哪一组就补哪一组；跨过同 macOS；`SmartPunctuationSpace.h` 的反查加这几个字。

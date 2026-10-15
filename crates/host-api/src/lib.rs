@@ -2596,6 +2596,10 @@ fn dispatch_call(handle: u64, action: Action, host: Option<lifecycle::InputClass
         with_session(handle, |session| {
             // 大写锁定改道先于其余处理，后面看到的都是改道后的动作。
             let action = session.caps_lock_punctuation(action);
+            let currency_punctuation = matches!(
+                action,
+                Action::Character { value: b'$', .. } | Action::Punctuation(b'$')
+            );
             let pending = session.lifecycle_input(&action, host);
             // Which row the user reached for, read before dispatching because the view it is
             // relative to is gone afterwards. Every platform host routes candidate selection
@@ -2605,7 +2609,7 @@ fn dispatch_call(handle: u64, action: Action, host: Option<lifecycle::InputClass
             let efficiency = position.and_then(|_| session.efficiency_candidate(&action));
             let result = session.runtime.dispatch(action).map_err(|e| e.to_string());
             // 报错前 runtime 可能已经改了组字，生命周期照样收尾。
-            let result = session.lifecycle_on_error(pending, result)?;
+            let mut result = session.lifecycle_on_error(pending, result)?;
             // Text the Engine generated (a calculator result, a command, a mention) was picked, not typed, and stays out of the statistics the way it stays out of learning.
             let counts_as_typing = result
                 .commit_context
@@ -2621,6 +2625,15 @@ fn dispatch_call(handle: u64, action: Action, host: Option<lifecycle::InputClass
                 }
             }
             let facts = session.runtime.facts();
+            // 固定标点表返回全角人民币；半角只改本次 `$` 产生的尾巴，候选和短语里的符号保持原文。
+            if currency_punctuation && result.view.character_width == CharacterWidth::Halfwidth {
+                if let Some(commit) = result.commit.as_mut() {
+                    if facts.tail_chars == 1 && commit.ends_with('￥') {
+                        commit.truncate(commit.len() - '￥'.len_utf8());
+                        commit.push('¥');
+                    }
+                }
+            }
             let mut result = session.complete_transition(result);
             // 脚本插件可能在这里改写上屏的 body（`before_commit`），宿主拿到的是改写之后的文本；引擎学习和 AI 上文已经按原文记下。
             let feedback = session.lifecycle_after(pending, facts, &mut result);

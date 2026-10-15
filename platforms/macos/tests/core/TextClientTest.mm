@@ -191,6 +191,15 @@ static void TestEngineMaintenance() {
     }
     englishView = [session setDedicatedEnglishEnabled:NO error:&error];
     assert(!error && [englishView[@"dedicated_english"] isEqual:@NO]);
+    // 真正的 Apple 桥和 Engine 会话在半角、全角、再半角时输出不同人民币码位。
+    for (NSNumber *fullwidth in @[@NO, @YES, @NO]) {
+        assert([session setCharacterWidthFull:fullwidth.boolValue error:&error] && !error);
+        NSString *currency = fullwidth.boolValue ? @"￥" : @"¥";
+        assert([[session punctuation:'$' preceding:0 error:&error][@"commit"] isEqual:currency] && !error);
+        for (char key : std::string("nihao")) assert([session typeASCII:key shift:NO error:&error]);
+        NSString *expected = [@"你好" stringByAppendingString:currency];
+        assert([[session punctuation:'$' preceding:0 error:&error][@"commit"] isEqual:expected] && !error);
+    }
     assert(![session onlineQueryWithError:&error] && !error);
     for (char key : std::string("nihao")) assert([session typeASCII:key shift:NO error:&error]);
     NSDictionary *query = [session onlineQueryWithError:&error];

@@ -1,6 +1,6 @@
 import { formatZhNumber } from "../core/format-number";
 import { dayLabel, formatActiveTime } from "./typing-statistics-helpers";
-import type { ActivityMetrics, TypingStatistics } from "./typing-statistics";
+import type { ActivityMetrics, TypingStatistics } from "./typing-statistics-model";
 
 export type StatisticsOverviewMetric = {
   label: string;

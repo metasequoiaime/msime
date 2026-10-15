@@ -1206,6 +1206,35 @@ fn removing_a_stray_file_model_slot_succeeds_and_cleans_it() {
 
 #[cfg(unix)]
 #[test]
+fn a_finished_model_operation_releases_the_lock_while_a_copy_remains_open() {
+    let root = tempfile::tempdir().unwrap();
+    let held = acquire_model_lock(root.path()).unwrap();
+    let inherited = held._file.try_clone().unwrap();
+    let contender =
+        crate::file_lock::open_private_lock_file(root.path().join(MODEL_LOCK_FILE)).unwrap();
+    assert!(!crate::file_lock::try_exclusive(&contender).unwrap());
+    assert!(matches!(
+        remove(root.path(), default_model_id()),
+        Err(LocalModelError::InstallRunning)
+    ));
+    assert!(!crate::file_lock::try_exclusive(&contender).unwrap());
+
+    drop(held);
+    assert!(
+        crate::file_lock::try_exclusive(&contender).unwrap(),
+        "模型操作结束后不能由旧描述符副本继续占锁"
+    );
+    drop(inherited);
+    assert!(matches!(
+        remove(root.path(), default_model_id()),
+        Err(LocalModelError::InstallRunning)
+    ));
+    crate::file_lock::unlock(&contender).unwrap();
+    remove(root.path(), default_model_id()).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn removing_while_a_different_process_installs_reports_busy() {
     let state = tempfile::tempdir().unwrap();
     let root = state.path().join("models");
@@ -1219,16 +1248,14 @@ fn removing_while_a_different_process_installs_reports_busy() {
             .unwrap();
     });
 
-    // A lock held by another host process must make removal fail immediately. Waiting for the
-    // install and deleting the newly published model would violate the host API contract.
-    let first = result_rx.recv_timeout(Duration::from_millis(100));
+    // 保持安装锁直到删除报告结果；时限只防止阻塞实现挂死，不把线程调度当成响应预算。
+    let result = result_rx.recv_timeout(Duration::from_secs(10));
     drop(held);
-    let result = first.unwrap_or_else(|_| result_rx.recv().unwrap());
     removal.join().unwrap();
-    assert!(
-        result.is_err(),
-        "removal unexpectedly waited and succeeded: {result:?}"
-    );
+    assert!(matches!(
+        result.expect("删除应在安装释放锁之前返回"),
+        Err(LocalModelError::InstallRunning)
+    ));
 }
 
 #[test]
@@ -1686,16 +1713,17 @@ fn removal_refuses_while_an_install_holds_the_model_lock() {
         removed_tx.send(result).unwrap();
     });
 
-    let remove_result = removed_rx
-        .recv_timeout(Duration::from_millis(100))
-        .expect("removal should report the busy install without waiting")
-        .expect_err("removal must refuse an install in another process");
+    // 等待删除在安装仍持锁时完成；超时仅作死锁看门狗，断言前先收回两个线程。
+    let remove_result = removed_rx.recv_timeout(Duration::from_secs(10));
     release_tx.send(()).unwrap();
 
     let (install_result, _events) = install.join().unwrap();
-    assert!(install_result.is_ok(), "install failed: {install_result:?}");
     removal.join().unwrap();
-    assert!(matches!(remove_result, LocalModelError::InstallRunning));
+    assert!(install_result.is_ok(), "install failed: {install_result:?}");
+    assert!(matches!(
+        remove_result.expect("删除应在安装完成之前返回"),
+        Err(LocalModelError::InstallRunning)
+    ));
     assert!(root.path().join(id).exists());
 }
 

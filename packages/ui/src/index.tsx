@@ -431,7 +431,8 @@ export type {
   TouchKeyboardSkinDesign,
 } from "./keyboard/touch-keyboard-skin-design";
 import { type SkinCatalog } from "./skin/external-skins";
-import { TypingStatisticsPage, type TypingStatisticsClient } from "./settings/typing-statistics";
+import { TypingStatisticsPage } from "./settings/typing-statistics";
+import type { TypingStatisticsClient } from "./settings/typing-statistics-model";
 import { VocabularyReviewPage, type VocabularyReviewClient } from "./settings/vocabulary-review";
 import {
   type McpClientId,
@@ -495,7 +496,7 @@ import type { FrequencyPreferences } from "./settings/frequency-preferences";
 import { type LocalModePreferences } from "./settings/local-mode-preferences";
 import { floatingToolbarPreferences } from "./settings/floating-toolbar-preferences";
 import type { SurfaceTheme, ThemeMode } from "./settings/theme-settings-section";
-import type { TouchToolbarPreferences } from "./settings/touch-keyboard-geometry-section";
+import type { TouchToolbarPreferences } from "./settings/touch-keyboard-toolbar-preferences";
 import { HelpSettingsPage } from "./settings/help-settings-page";
 import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-feedback";
 import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
@@ -1575,24 +1576,26 @@ export {
   HandwritingPanel,
   KeyboardPanel,
   VoicePanel,
-  type CloudCandidate,
-  type CloudCandidateKind,
-  type CloudClipboardAction,
-  type CloudClipboardPanelClient,
-  type CloudDictionaryAction,
-  type CloudDictionaryCatalogEntry,
-  type CloudDictionaryEntry,
-  type CloudDictionaryFileFormat,
-  type CloudDictionaryKind,
-  type CloudDictionaryPanelClient,
-  type CloudDictionarySnapshotMetadata,
-  type CloudDictionarySnapshotRequest,
-  type CloudFixedPosition,
-  type CloudRankingMode,
-  type EmojiPanelClient,
-  type PanelClient,
-  type VoicePanelClient,
 } from "./keyboard/panels";
+export type {
+  CloudCandidate,
+  CloudCandidateKind,
+  CloudClipboardAction,
+  CloudClipboardPanelClient,
+  CloudDictionaryAction,
+  CloudDictionaryCatalogEntry,
+  CloudDictionaryEntry,
+  CloudDictionaryFileFormat,
+  CloudDictionaryKind,
+  CloudDictionaryPanelClient,
+  CloudDictionarySnapshotMetadata,
+  CloudDictionarySnapshotRequest,
+  CloudFixedPosition,
+  CloudRankingMode,
+  EmojiPanelClient,
+  PanelClient,
+  VoicePanelClient,
+} from "./keyboard/panel-client";
 export {
   usePanelAction,
   type PanelAction,

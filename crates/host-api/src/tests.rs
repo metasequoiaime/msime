@@ -68,6 +68,92 @@ fn completed_transition_keeps_dispatch_view_without_pending_changes() {
 }
 
 #[test]
+fn currency_punctuation_follows_character_width_on_all_key_routes() {
+    for route in 0..3 {
+        let directory = tempfile::tempdir().unwrap();
+        let preferences = Preferences {
+            caps_lock_ascii_punctuation: true,
+            ..chinese_preferences()
+        };
+        let handle = test_host_with_pinyin_fixture(directory.path(), preferences);
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        for fullwidth in [false, true, false] {
+            read(msime_client_set_character_width(handle, fullwidth));
+            let currency = if fullwidth { "￥" } else { "¥" };
+            for composing in [false, true] {
+                let prefix = if composing {
+                    let view = type_letters(handle, b"nihao");
+                    view["candidates"][0]["text"].as_str().unwrap().to_owned()
+                } else {
+                    String::new()
+                };
+                let result = read(match route {
+                    0 => msime_client_character(handle, b'$', true),
+                    1 => msime_client_punctuation(handle, b'$'),
+                    _ => msime_client_punctuation_with_context(handle, b'$', 0),
+                });
+                assert_eq!(result["value"]["handled"], true);
+                assert_eq!(result["value"]["commit"], format!("{prefix}{currency}"));
+            }
+            assert_eq!(
+                read(msime_client_punctuation(handle, b','))["value"]["commit"],
+                "，"
+            );
+        }
+        read(msime_client_set_chinese_punctuation(handle, false));
+        let view = type_letters(handle, b"nihao");
+        let prefix = view["candidates"][0]["text"].as_str().unwrap();
+        assert_eq!(
+            read(msime_client_punctuation(handle, b'$'))["value"]["commit"],
+            format!("{prefix}$")
+        );
+        read(msime_client_set_chinese_punctuation(handle, true));
+        let view = type_letters(handle, b"nihao");
+        let prefix = view["candidates"][0]["text"].as_str().unwrap();
+        read(msime_client_set_caps_lock(handle, true));
+        // 大写锁定只在空闲时直出 ASCII，已有组字仍用中文标点。
+        assert_eq!(
+            read(msime_client_punctuation_with_context(handle, b'$', 0))["value"]["commit"],
+            format!("{prefix}¥")
+        );
+        let idle = read(msime_client_punctuation_with_context(handle, b'$', 0));
+        assert_eq!(idle["value"]["handled"], false);
+        assert!(idle["value"]["commit"].is_null());
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    }
+}
+
+#[test]
+fn currency_punctuation_preserves_currency_symbols_in_a_selected_phrase() {
+    let directory = tempfile::tempdir().unwrap();
+    install_phrase_table(directory.path(), "currency", &[("hb", "￥¥")]);
+    let mut preferences = chinese_preferences();
+    preferences.plugins.phrase_tables = vec!["currency".into()];
+    let handle = plugin_host(directory.path(), preferences);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    for fullwidth in [false, true, false] {
+        read(msime_client_set_character_width(handle, fullwidth));
+        for punctuation in [false, true] {
+            read(msime_client_character(handle, b'K', true));
+            let view = type_letters(handle, b"hb");
+            assert_eq!(view["candidates"][0]["text"], "￥¥");
+            let result = read(if punctuation {
+                msime_client_punctuation(handle, b'$')
+            } else {
+                msime_client_command(handle, 1)
+            });
+            let expected = match (punctuation, fullwidth) {
+                (false, _) => "￥¥",
+                (true, false) => "￥¥¥",
+                (true, true) => "￥¥￥",
+            };
+            assert_eq!(result["value"]["commit"], expected);
+        }
+    }
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+#[test]
 fn default_sentence_model_uses_verified_resources_not_prepared_dictionaries() {
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("resources");
