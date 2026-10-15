@@ -40,7 +40,23 @@ public final class SymbolPanelView extends LinearLayout {
     private final ButtonFactory buttons;
     private final Listener listener;
     private final LinearLayout categories;
-    private final GridLayout grid = new GridLayout(getContext());
+    private final GridLayout grid = new GridLayout(getContext()) {
+        @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            int width = getMeasuredWidth();
+            if (width <= 0 || width == measuredGridWidth) return;
+            measuredGridWidth = width;
+            SymbolPanelModel.Category category = SymbolPanelModel.categories(recents).get(selected);
+            if (!category.fromCatalog() && !category.symbols().isEmpty()) {
+                // 测量期间按新宽度重排并再次测量，确保本轮布局拿到每个键的尺寸。
+                // 若等布局完成后才替换子视图，新键没有经过测量，首次打开就会整片空白。
+                removeAllViews();
+                appendRows(category, category.symbols(), 0);
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            }
+        }
+    };
+    private int measuredGridWidth;
     private final ScrollView gridScroll = new ScrollView(getContext());
     private final List<Button> categoryButtons =
         new java.util.ArrayList<>(SymbolPanelModel.categories(List.of()).size());
@@ -109,15 +125,6 @@ public final class SymbolPanelView extends LinearLayout {
         grid.setColumnCount(SymbolPanelModel.COLUMNS);
         grid.setUseDefaultMargins(false);
         grid.setAlignmentMode(GridLayout.ALIGN_BOUNDS);
-        grid.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-            if (right - left <= 0 || right - left == oldRight - oldLeft) return;
-            SymbolPanelModel.Category category = SymbolPanelModel.categories(this.recents).get(selected);
-            // 长条目按可用宽度重新跨列；目录分页仍沿用原来的行起始索引。
-            if (!category.fromCatalog() && !category.symbols().isEmpty()) {
-                grid.removeAllViews();
-                appendRows(category, category.symbols(), 0);
-            }
-        });
         gridScroll.setVerticalScrollBarEnabled(true);
         gridScroll.setContentDescription("符号网格；每行五个");
         gridScroll.setOnScrollChangeListener((view, scrollX, scrollY, oldX, oldY) -> {
@@ -230,7 +237,7 @@ public final class SymbolPanelView extends LinearLayout {
     private void appendRows(SymbolPanelModel.Category category, List<String> symbols, int from) {
         int columns = category.columns();
         int rowIndex = from / columns, columnIndex = 0;
-        float columnWidth = grid.getWidth() / (float) columns;
+        float columnWidth = grid.getMeasuredWidth() / (float) columns;
         for (int index = from; index < symbols.size(); index++) {
             String symbol = symbols.get(index);
             boolean pairable = PairedPunctuationPolicy.symbolClosing(symbol) != null;

@@ -58,6 +58,12 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
             openPanel();
             tap(describedPrefix("符号分类 常用"));
             assertCharacters(reveal(symbol("@protonmail.com")), "@protonmail.com");
+            stage = "first recent panel after input method restart";
+            restartIme();
+            shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
+            tap(field("msime-test-plain"));
+            openPanel();
+            assertCharacters(reveal(symbol("@protonmail.com")), "@protonmail.com");
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             android.content.SharedPreferences.Editor restore = recents.edit();
