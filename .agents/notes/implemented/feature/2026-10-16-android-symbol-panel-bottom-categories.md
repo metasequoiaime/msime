@@ -12,6 +12,8 @@ Status: implemented
 
 移除锁定开关后，面板固定连续输入，点左上返回关闭。符号提交、成对补全、最近记录、隐私保护和 Engine 目录分页不变。
 
+设备夹具在 API 34 以下查询无障碍节点前调用 `refresh()`，统一放在 `DeviceSmoke.find` / `findAny`，符号用例不再重复重写。旧系统可能同时缓存已改变的文本、可见性与子树；只在最后的文本谓词里刷新会漏掉被旧可见性过滤掉的节点。断言及等待时间保持原样。
+
 ## Historical audit
 
 - [常用记录](../feature/2026-10-08-android-symbol-panel-recents.md)部分重叠：继续保持输入后不重排当前格子，原文的锁定限定更新为固定连续输入。
@@ -36,5 +38,6 @@ Status: implemented
 - 两台设备的 `SymbolPanelLayoutDeviceSmoke` 均通过：首次布局和变宽后网格全宽、分类与删除在底部，连续点击不关闭；触摸分发覆盖左右切类、纵向滚动和取消不误输入。
 - 两台设备的 `LongSymbolCellDeviceSmoke` 均通过：系统输入法里的网格横划与竖划不误上屏，底栏可滚到最后分类，删除位置固定，连续输入 `12` 并逐字删除，长邮箱后缀完整绘制与上屏，最近记录在重启后可见。测试先显式选择中文，避免初始最近分类影响方向断言。
 - 两台设备的 `PairedPunctuationDeviceSmoke` 均通过：普通编辑器及忽略 `newCursorPosition` 的合成编辑器中，连续输入成对标点并跨过后半个后光标正确。
-- 全套 smoke 首轮因专用模拟器为合成编辑器保存了英文模式而停在 `phrase commit result`；仅把该合成编辑器切回中文后，API 35 的主回归通过。API 28 已通过普通拼音上屏和删除，但仍停在已有记录的 `limited composition typing` 阶段，不能宣称完整 `--core` 通过。该限制也记录于[叹号快捷手势](../bug-fix/2026-10-16-android-exclamation-superscript-shortcuts.md)。API 35 其他回归仍在运行，结束后同步最终结果。
+- 全套 smoke 首轮因专用模拟器为合成编辑器保存了英文模式而停在 `phrase commit result`；仅把该合成编辑器切回中文后继续验收。API 28 的 `limited composition typing` 失败曾记录于[叹号快捷手势](../bug-fix/2026-10-16-android-exclamation-superscript-shortcuts.md)；本次诊断确认刷新后编辑器为预期的 26 个合成汉字，统一刷新查询节点后，原 `DeviceSmoke` 的全部输入断言通过。最终标准 `smoke.sh emulator-5566 --core` 完整通过，包括受限输入框和剪贴板保存生命周期。API 35 的主回归及上述三项符号专项通过，其他用例的通过结果按实际套件记录。
+- API 28 仅截取符号面板检查视觉：全宽网格、底部滚动分类、左上返回和右下删除正常。
 - 未在手机真机验收。

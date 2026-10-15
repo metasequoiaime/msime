@@ -181,15 +181,4 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
             previousRight = bounds.right;
         }
     }
-
-    // 旧 Android 的布局重建不总是清掉无障碍子树缓存，查询之前刷新节点。
-    @Override protected AccessibilityNodeInfo find(AccessibilityNodeInfo node, Predicate<AccessibilityNodeInfo> match) {
-        if (node != null && android.os.Build.VERSION.SDK_INT < 34 && !node.refresh()) return null;
-        return super.find(node, match);
-    }
-
-    @Override protected AccessibilityNodeInfo findAny(AccessibilityNodeInfo node, Predicate<AccessibilityNodeInfo> match) {
-        if (node != null && android.os.Build.VERSION.SDK_INT < 34 && !node.refresh()) return null;
-        return super.findAny(node, match);
-    }
 }
