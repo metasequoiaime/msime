@@ -46,7 +46,7 @@ core 那组模块（含 base）里 must 没有任何对 services、providers 模
 
 ### 落地方式
 
-拆分分五个阶段，每个阶段一个 PR，按顺序合并，正文写 `Refs #8068`，最后一个写 `Fixes #8068`：
+拆分分五个阶段，放在同一个 PR 里（正文写 `Fixes #8068`），每个阶段是一组可以单独构建的提交：
 
 - 阶段 0 在 client-core 内部切断 SCC-A，即上一节列出的下沉。
 - 阶段 1 抽出 base，backend-engine 改依赖 base。Android 设备上的单测改用 cargo runner 逐个测试程序运行，[Android 设备门禁](../../implemented/testing/2026-10-08-android-device-gates.md) 的命令随之就地更新。
@@ -76,7 +76,7 @@ core 那组模块（含 base）里 must 没有任何对 services、providers 模
 - **收益**：`cargo tree -p msime-client-core -e normal` 里没有 reqwest 和 tokio，`cargo tree -p msime-input-runtime -e normal` 里没有 reqwest、tokio、image、zip、wasmi、tar，backend-engine 只依赖 client-base；改皮肤、账号或语音不再让只依赖 core 或 base 的宿主重编。模块按职责落在四个 crate 里，依赖方向由 Cargo 强制，core 那组模块不可能再悄悄引用上层。
 - **代价**：对外 API 变大：base 约 67 项、core 约 7 项从 `pub(crate)` 变成 `pub`，用 `#[doc(hidden)]` 压住，没有承诺稳定性。宿主要按模块所在的 crate 写路径，host-api、desktop 和 tauri-mobile-platform 直接依赖 core、services、providers 三个（base 经它们传递进来）。
 - **已知上限**：二进制不会变小，host-api 仍然链接全部四个 crate，受益的只是 backend-engine、input-runtime、host-macos 的编译图和增量编译。CI 不跑 rustdoc，intra-doc 链接断了只在本地 `cargo doc` 时出现 warning。fuzz 不在 CI 里，`fuzz/Cargo.lock` 要手工保持同步。Android 设备测试在 PR 上不跑，动到 base 或 services 的文件读写时要在本机 API 28、35 模拟器上跑过。
-- **重访信号**：core 需要引用 services 或 providers 里的东西时，按阶段 0 的做法把被引用的定义下沉到 core 再从原位置导回，never 反向加依赖；某个宿主只想要 services 里的一小块却得链进整个 services 时，再考虑按模块继续拆或加 feature。
+- **重访信号**：core 需要引用 services 或 providers 里的东西时，按阶段 0 的做法把被引用的定义下沉到 core 再从原位置导回，绝不反向加依赖；某个宿主只想要 services 里的一小块却得链进整个 services 时，再考虑按模块继续拆或加 feature。
 
 ## Verification
 
