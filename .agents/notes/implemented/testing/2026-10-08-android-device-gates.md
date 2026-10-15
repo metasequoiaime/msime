@@ -24,6 +24,7 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 - 设备测试统一用 `ime list` 给出的短写 id `app.msime.android/.MSIMEInputService`。
 - `DeviceSmoke.restartIme` 不把三条 `ime` 命令返回加固定睡眠当成切换完成：禁用当前输入法后，系统的异步回退可能覆盖随后的选择。它读取默认输入法标识，连续四次确认水杉被选中；回退覆盖时重新选择，十五秒内不能稳定就报告测试准备失败，不再把系统键盘误报为产品空窗口。第二次 nightly 的高度重启用例等待水杉节点超时，设备没有崩溃，日志中的编辑器实际绑定了 `LatinIME`，因此需要确认选择状态，而非放宽高度断言或跳过套件。
 - `PreferencesDeviceSmoke` 也复用 `restartIme`，不再自行执行三条命令并固定等待一秒。本批 API 35 的偏好套件在第一枚字母键前失败，失败后默认输入法为 `LatinIME` 且没有产品崩溃；这是同一异步回退竞态遗漏的调用方。偏好文件准备、编辑器焦点与所有业务断言保持原样。
+- 其余直接重绑输入法的八个套件（AI 占位、剪贴板编辑、空编辑器退格、宿主入口、设置、设置生命周期、打字统计和手写）统一调用 `restartIme`；需要版本专用组件 id 的套件通过同一个重载传入 id。`scripts/test-android-device-ime-rebind.py` 把这条约束固定下来，避免新的套件退回三条命令加固定一秒等待。
 - `CopyDeviceInfoDeviceSmoke` 在系统输入套件之后也先回到 `HomeActivity` 并复用 `restartIme`。一次 API 28 单项观察在未重新选择输入法时实际落到 `LatinIME`，在第一枚字母键前失败；复制白名单、剪贴板和编辑器断言保持原样。修复后同一 API 28 二进制的单项复制重复通过。
 - 本机并行会话不能共用同一台 AVD 做安装验收。复用 `emulator-5580` 时，其他会话替换了测试 APK，设备包的 SHA-256 与本次构建不一致，随后观察到的候选排序、资源校验和 instrumentation 退出都不能作为本次提交的证据。独立验收使用本任务创建的 AVD 名称和端口，并确认设备包哈希；AVD 数据仍放在规定的 `target/android/avd-home`，完成后关闭并删除本任务创建的 AVD，不动原来运行的设备。
 - 设备测试读控件状态走 `DeviceSmoke.state()`/`switchState()`：API 30 起读状态描述，更早的系统按应用实际暴露的 `isSelected`/`isEnabled` 折算。
@@ -66,6 +67,7 @@ CI 的 Android job 只做 `check-host.sh`、各版本 Gradle 编译和 NewApi li
 ## Verification
 
 - `PreferencesDeviceSmoke` 的旧准备流程在 API 35 失败：第一枚字母键前输入法树为空，截图为系统键盘，默认输入法标识为 `LatinIME`。改用现有状态等待后，设备单项通过，覆盖延迟应用、候选页大小、标点及坏文件恢复；独立审查确认所有业务断言保持原样。
+- 本批的 Android 主机门禁通过（231 项 JVM 冒烟、121 个设备源码编译和重绑定契约检查）。独立 API 28 AVD 上核心 `smoke.sh --core` 通过，受影响的空编辑器退格和宿主入口套件也通过；API 35 AVD 上核心 `smoke.sh --core` 与 `PreferencesDeviceSmoke` 通过，后者实际走共享稳定重绑定。API 28 的剪贴板编辑默认参数指向未安装的 pinyin 版本，单独运行该参数属于测试夹具错误，不作为产品结果；设置生命周期和打字统计在清理后的 API 35 AVD 上分别停在既有 WebView／统计准备阶段，未观察到输入法选择失败。
 - `CopyDeviceInfoDeviceSmoke` 的旧准备流程在一次 API 28 单项观察中未确认水杉输入法，截图显示系统 `LatinIME`，在第一枚字母键前失败；这是准备状态证据，不是剪贴板白名单断言失败。加入 `HomeActivity` 清焦点和 `restartIme` 后，在同一 API 28 AVD 上 3 次单项复制均通过。
 - 重启选择检查在本任务独立的 API 35 arm64 AVD `msime-client-test-api35-nightly-7767`（`emulator-5582`）上通过不带跳过名单的完整 `smoke.sh`，包含高度、模糊拼音首选、十四键、剪贴板图片、实体键翻译、AI 占位和五笔查码。设备安装的测试 APK 与本地构建的 SHA-256 一致。quick 门禁、`pnpm run verify-notes` 和 `git diff --check` 通过。共享 AVD 上此前的单项与失败记录不作为本次完整验收依据。
 - 本机 Apple 芯片上，API 28、31、35 三台 arm64 AVD：`build-core-test.sh` + `run-core-test.sh` 各为 1077 通过、0 失败、10 忽略。

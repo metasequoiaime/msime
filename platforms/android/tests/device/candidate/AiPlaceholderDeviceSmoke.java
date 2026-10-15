@@ -62,10 +62,7 @@ public final class AiPlaceholderDeviceSmoke extends DeviceSmoke {
                 stage = "AI preferences";
                 publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
                 shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
-                shellDiscard("ime disable app.msime.android/.MSIMEInputService");
-                shellDiscard("ime enable app.msime.android/.MSIMEInputService");
-                shellDiscard("ime set app.msime.android/.MSIMEInputService");
-                SystemClock.sleep(1000);
+                restartIme();
                 shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
                 stage = "editor focus";
                 tap(field("msime-test-plain"));
