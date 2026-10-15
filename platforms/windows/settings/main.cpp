@@ -4021,7 +4021,9 @@ private:
                                   std::function<void(std::wstring const &)> apply,
                                   bool enabled = true, bool document = true) {
     ComboBox combo;
-    combo.Width(190);
+    combo.Width(168);
+    combo.MinHeight(28);
+    combo.FontSize(13);
     int32_t selected = -1;
     for (size_t i = 0; i < options.size(); ++i) {
       if (options[i].enabled) {
@@ -4069,9 +4071,9 @@ private:
     for (const auto &option : options) {
       const bool on = option.value == current;
       Button button;
-      button.Height(28);
+      button.Height(26);
       button.MinWidth(0);
-      button.Padding(Thickness{14, 0, 14, 0});
+      button.Padding(Thickness{10, 0, 10, 0});
       button.CornerRadius(CornerRadius{4, 4, 4, 4});
       button.BorderThickness(Thickness{1, 1, 1, 1});
       button.Background(brush(on ? (palette_.dark ? rgba(0x5A, 0x5A, 0x5E, 1) : rgba(255, 255, 255, 1)) : transparent_color()));
@@ -4079,7 +4081,7 @@ private:
       button.HorizontalContentAlignment(HorizontalAlignment::Stretch);
       button.VerticalContentAlignment(VerticalAlignment::Stretch);
       Grid content;
-      auto label = make_text(option.label, 14, on ? palette_.text : palette_.sub);
+      auto label = make_text(option.label, 13, on ? palette_.text : palette_.sub);
       label.TextWrapping(TextWrapping::NoWrap);
       label.HorizontalAlignment(HorizontalAlignment::Center);
       label.VerticalAlignment(VerticalAlignment::Center);
@@ -4111,17 +4113,23 @@ private:
         [suffix](double shown) { return number_text(shown) + suffix; }, enabled, step);
   }
 
-  // The same slider with the value beside it written by `format`, for values not shown as a plain whole number.
+  // 数值由 format 格式化；两列布局给滑块与数值各自留出空间。
   FrameworkElement formatted_slider_control(std::wstring const &name, double minimum,
                                             double maximum, double value,
                                             std::function<void(double)> apply,
                                             std::function<std::wstring(double)> format,
                                             bool enabled = true, double step = 1) {
-    StackPanel box;
-    box.Orientation(Orientation::Horizontal);
-    box.Spacing(16);
+    Grid box;
+    box.Width(218);
+    box.ColumnSpacing(8);
+    ColumnDefinition track_column;
+    track_column.Width(GridLength{1, GridUnitType::Star});
+    ColumnDefinition value_column;
+    value_column.Width(GridLength{1, GridUnitType::Auto});
+    box.ColumnDefinitions().Append(track_column);
+    box.ColumnDefinitions().Append(value_column);
     Slider slider;
-    slider.Width(180);
+    slider.MinWidth(100);
     slider.Minimum(minimum);
     slider.Maximum(maximum);
     slider.StepFrequency(step);
@@ -4131,11 +4139,13 @@ private:
     slider.VerticalAlignment(VerticalAlignment::Center);
     slider.IsEnabled(enabled && loaded_);
     A11y::SetName(slider, hstring(name));
-    auto label = make_text(format(std::clamp(value, minimum, maximum)), 14,
+    auto label = make_text(format(std::clamp(value, minimum, maximum)), 12,
                            palette_.text);
-    label.Width(60);
+    label.MinWidth(48);
+    label.TextWrapping(TextWrapping::NoWrap);
     label.TextAlignment(TextAlignment::Right);
     label.VerticalAlignment(VerticalAlignment::Center);
+    Grid::SetColumn(label, 1);
     slider.ValueChanged(
         [weak_label = make_weak(label), on_slide = std::move(apply), step,
          format](Inspectable const &,
@@ -4163,19 +4173,53 @@ private:
     return button;
   }
 
+  // 按可用宽度等分列，重排已有子项，保留按钮与复选框的焦点和选择状态。
+  Grid responsive_grid(double minimum_width, double gap) {
+    Grid grid;
+    grid.ColumnSpacing(gap);
+    grid.RowSpacing(gap);
+    grid.SizeChanged([minimum_width, gap](Inspectable const &sender, SizeChangedEventArgs const &) {
+      const auto panel = sender.as<Grid>();
+      const auto columns = std::max(
+          1, static_cast<int>((panel.ActualWidth() + gap) / (minimum_width + gap)));
+      if (static_cast<int>(panel.ColumnDefinitions().Size()) == columns)
+        return;
+      panel.ColumnDefinitions().Clear();
+      panel.RowDefinitions().Clear();
+      for (int column = 0; column < columns; ++column) {
+        ColumnDefinition definition;
+        definition.Width(GridLength{1, GridUnitType::Star});
+        panel.ColumnDefinitions().Append(definition);
+      }
+      const auto count = static_cast<int>(panel.Children().Size());
+      for (int index = 0; index < count; ++index) {
+        if (index % columns == 0) {
+          RowDefinition definition;
+          definition.Height(GridLength{1, GridUnitType::Auto});
+          panel.RowDefinitions().Append(definition);
+        }
+        const auto child = panel.Children().GetAt(static_cast<uint32_t>(index));
+        Grid::SetRow(child, index / columns);
+        Grid::SetColumn(child, index % columns);
+      }
+    });
+    return grid;
+  }
+
   FrameworkElement checks_panel(std::vector<Check> checks,
                                 double item_width = 174) {
-    VariableSizedWrapGrid grid;
-    grid.Orientation(Orientation::Horizontal);
-    grid.ItemWidth(item_width + 24);
-    grid.ItemHeight(36);
-    grid.Margin(Thickness{0, 0, 0, 18});
+    auto grid = responsive_grid(item_width, 8);
+    grid.Margin(Thickness{0, 4, 0, 8});
     for (auto &check : checks) {
       record(check.label, L"");
       CheckBox box;
-      box.Content(box_value(hstring(check.label)));
+      box.Content(make_text(check.label, 12, palette_.text));
       box.IsChecked(check.on);
       box.MinWidth(0);
+      box.MinHeight(28);
+      box.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+      box.HorizontalAlignment(HorizontalAlignment::Stretch);
+      A11y::SetName(box, hstring(check.label));
       box.IsEnabled(check.enabled && loaded_);
       box.Click([apply = std::move(check.apply)](Inspectable const &sender,
                                                  RoutedEventArgs const &) {
@@ -4553,7 +4597,7 @@ private:
     // 社区皮肤图库顶替主题页的设置，上面不画预览。
     if (id == "themes")
       follow_skin_search();
-    if (has_preview(id) && preview_visible_ && !indexing_ && !(id == "themes" && skin_community_view_))
+    if (id == "candidate" && preview_visible_ && !indexing_)
       page.Children().Append(make_preview());
     if (id == "themes")
       build_themes_page(page);
@@ -5412,7 +5456,7 @@ private:
     record(L"设置同步", std::wstring(am::sync_description));
     StackPanel body;
     body.Spacing(12);
-    body.Padding(Thickness{25, 16, 25, 16});
+    body.Padding(Thickness{0, 8, 0, 8});
     body.Children().Append(make_text(am::sync_description, 13, palette_.sub));
     if (sync_cloud_)
       body.Children().Append(make_text(
@@ -5420,7 +5464,6 @@ private:
               std::to_wstring(std::llround(sync_cloud_->GetNamedNumber(L"revision", 0))),
           12, palette_.sub));
     StackPanel actions;
-    actions.Orientation(Orientation::Horizontal);
     actions.Spacing(8);
     actions.Children().Append(
         button_control(L"刷新云端设置", [this] { load_settings_sync(); }, !sync_busy_));
@@ -5436,11 +5479,9 @@ private:
       body.Children().Append(make_text(L"正在处理…", 12, palette_.sub));
     if (!sync_message_.empty())
       body.Children().Append(make_text(sync_message_, 12, palette_.text));
-    auto card = make_card();
-    card.Child(body);
-    A11y::SetName(card, L"设置同步");
-    group.Children().Append(card);
-    mark_search_target(L"设置同步", card);
+    A11y::SetName(body, L"设置同步");
+    group.Children().Append(body);
+    mark_search_target(L"设置同步", body);
   }
 
   // ---- 页面 ----
@@ -5453,18 +5494,6 @@ private:
     bar.Message(hstring(message));
     bar.Margin(Thickness{0, 0, 0, 12});
     return bar;
-  }
-
-  // 登录卡片里的一个大按钮（account.provider / account.submit）。
-  Button account_wide_button(std::wstring const &label, std::function<void()> click, bool enabled,
-                             bool accent = false) {
-    auto button = button_control(label, std::move(click), enabled).as<Button>();
-    button.Width(300);
-    button.Height(36);
-    button.HorizontalAlignment(HorizontalAlignment::Center);
-    if (accent)
-      make_primary(button);
-    return button;
   }
 
   // 卡片底部的小链接（account.link）。
@@ -5532,87 +5561,80 @@ private:
     page.Children().Append(footnote);
   }
 
-  // 登录卡片：欢迎语和登录方式；选了邮箱或手机号后是号码、验证码和登录。
+  // 账号介绍与登录方式分别成组，沿用设置页的标签、说明和操作两列布局。
   void build_account_sign_in(StackPanel const &page) {
-    auto group = add_group(page, L"");
-    StackPanel body;
-    body.Spacing(12);
-    body.Padding(Thickness{32, 32, 32, 28});
-    body.HorizontalAlignment(HorizontalAlignment::Stretch);
-
-    auto badge = make_account_avatar(84, 32, L"杉");
-    badge.HorizontalAlignment(HorizontalAlignment::Center);
-    body.Children().Append(badge);
-    const bool email = account_channel_ == AccountChannel::email;
-    const bool phone = account_channel_ == AccountChannel::phone;
-    auto heading = make_text(email ? L"邮箱登录" : phone ? L"手机号登录" : L"欢迎来到水杉", 17,
-                             palette_.text);
+    auto identity = add_group(page, L"");
+    Grid intro;
+    intro.ColumnSpacing(14);
+    intro.Padding(Thickness{0, 8, 0, 8});
+    ColumnDefinition avatar_column;
+    avatar_column.Width(GridLength{1, GridUnitType::Auto});
+    ColumnDefinition text_column;
+    text_column.Width(GridLength{1, GridUnitType::Star});
+    intro.ColumnDefinitions().Append(avatar_column);
+    intro.ColumnDefinitions().Append(text_column);
+    intro.Children().Append(make_account_avatar(52, 22, L"杉"));
+    StackPanel texts;
+    texts.Spacing(3);
+    texts.VerticalAlignment(VerticalAlignment::Center);
+    auto heading = make_text(L"水杉账号", 17, palette_.text);
     heading.FontWeight(Windows::UI::Text::FontWeight{600});
-    heading.HorizontalAlignment(HorizontalAlignment::Center);
-    heading.TextAlignment(TextAlignment::Center);
-    body.Children().Append(heading);
-    auto note = make_text(account_channel_ != AccountChannel::none
-                              ? L"我们会发送一个 6 位验证码完成登录"
-                              : L"登录后在设备之间同步设置和词库，还可以发布你的候选窗口皮肤",
-                          13, palette_.sub);
-    note.HorizontalAlignment(HorizontalAlignment::Center);
-    note.TextAlignment(TextAlignment::Center);
-    body.Children().Append(note);
+    texts.Children().Append(heading);
+    texts.Children().Append(make_text(
+        L"在设备之间同步设置和词库，分享候选窗口皮肤。", 11, palette_.sub));
+    Grid::SetColumn(texts, 1);
+    intro.Children().Append(texts);
+    identity.Children().Append(intro);
 
+    const bool email = account_channel_ == AccountChannel::email;
+    auto group = add_group(page, account_channel_ == AccountChannel::none
+                                    ? L"登录" : email ? L"邮箱登录" : L"手机号登录");
     if (account_channel_ == AccountChannel::none) {
       if (account_google_)
-        body.Children().Append(account_wide_button(
-            account_google_waiting_ ? L"正在等待浏览器完成 Google 登录…" : L"使用 Google 登录",
-            [this] { sign_in_with_google(); }, !account_busy_));
-      if (account_google_waiting_) {
-        auto cancel = account_link(L"取消 Google 登录", [this] { cancel_account_google(); });
-        cancel.HorizontalAlignment(HorizontalAlignment::Center);
-        body.Children().Append(cancel);
-      }
-      // 与共享页一样，选择验证码登录方式不等进行中的操作：选了就结束等待中的 Google 登录。
+        add_row(group, 0, L"Google",
+                account_google_waiting_ ? L"正在等待浏览器完成登录…" : L"使用已有的 Google 账号",
+                button_control(L"使用 Google 登录", [this] { sign_in_with_google(); },
+                               !account_busy_));
+      if (account_google_waiting_)
+        add_row(group, 0, L"取消浏览器登录", L"可以改用邮箱或手机号",
+                account_link(L"取消", [this] { cancel_account_google(); }));
+      // 选择验证码方式时仍结束等待中的 Google 登录。
       if (account_email_)
-        body.Children().Append(account_wide_button(
-            L"邮箱登录", [this] { choose_account_channel(AccountChannel::email); }, true));
+        add_row(group, 0, L"邮箱", L"通过邮箱接收 6 位验证码",
+                button_control(L"邮箱登录",
+                               [this] { choose_account_channel(AccountChannel::email); }));
       if (account_phone_)
-        body.Children().Append(account_wide_button(
-            L"手机号登录", [this] { choose_account_channel(AccountChannel::phone); }, true));
-      if (!account_email_ && !account_phone_ && !account_google_) {
-        auto none = make_text(L"当前没有可用的验证码登录方式，请稍后重试。", 12, palette_.sub);
-        none.HorizontalAlignment(HorizontalAlignment::Center);
-        none.TextAlignment(TextAlignment::Center);
-        body.Children().Append(none);
-      }
-      StackPanel footer;
-      footer.Orientation(Orientation::Horizontal);
-      footer.Spacing(16);
-      footer.HorizontalAlignment(HorizontalAlignment::Center);
-      footer.Children().Append(
-          account_link(L"刷新登录方式", [this] { refresh_account_providers(); }, !account_busy_));
-      footer.Children().Append(account_link(
-          L"清除失效登录状态",
-          [this] { end_account_session(account_action(L"forget"), L"已清除失效登录状态。"); },
-          !account_busy_));
-      body.Children().Append(footer);
+        add_row(group, 0, L"手机号", L"通过短信接收 6 位验证码",
+                button_control(L"手机号登录",
+                               [this] { choose_account_channel(AccountChannel::phone); }));
+      if (!account_email_ && !account_phone_ && !account_google_)
+        add_row(group, 0, L"暂无可用登录方式", L"请稍后刷新重试。", nullptr);
     } else {
-      build_account_code_form(body, email);
+      build_account_code_form(group, email);
     }
+    mark_search_target(L"使用 Google 登录", group);
+    mark_search_target(L"邮箱登录", group);
+    mark_search_target(L"手机号登录", group);
 
-    auto card = make_card();
-    card.Child(body);
-    group.Children().Append(card);
-    mark_search_target(L"使用 Google 登录", card);
-    mark_search_target(L"邮箱登录", card);
-    mark_search_target(L"手机号登录", card);
+    if (account_channel_ == AccountChannel::none) {
+      auto actions = add_group(page, L"登录状态");
+      add_row(actions, 0, L"登录方式", L"重新获取当前可用的登录服务",
+              button_control(L"刷新", [this] { refresh_account_providers(); }, !account_busy_));
+      add_row(actions, 0, L"清除失效登录状态", L"无法正常登录时可清除本机失效状态后重试",
+              button_control(L"清除", [this] {
+                end_account_session(account_action(L"forget"), L"已清除失效登录状态。");
+              }, !account_busy_));
+    }
   }
 
   void build_account_code_form(StackPanel const &body, bool email) {
     StackPanel form;
-    form.Spacing(12);
-    form.Width(300);
-    form.HorizontalAlignment(HorizontalAlignment::Center);
+    form.Spacing(8);
+    form.Padding(Thickness{0, 6, 0, 6});
     const auto label = email ? L"邮箱地址" : L"手机号（含国家区号）";
     TextBox target;
-    target.Header(box_value(hstring(label)));
+    target.Width(240);
+    target.FontSize(13);
     target.MaxLength(320);
     target.Text(hstring(account_target_));
     target.IsEnabled(!account_busy_);
@@ -5640,11 +5662,10 @@ private:
       }
       update_account_code_controls();
     });
-    form.Children().Append(target);
+    add_row(form, 0, label, L"我们会发送一个 6 位验证码完成登录", target);
 
     auto resend = button_control(L"获取验证码", [this] { request_account_code(); }).as<Button>();
-    resend.HorizontalAlignment(HorizontalAlignment::Stretch);
-    resend.Height(36);
+    resend.HorizontalAlignment(HorizontalAlignment::Right);
     if (!account_challenge_)
       make_primary(resend);
     form.Children().Append(resend);
@@ -5654,7 +5675,8 @@ private:
     code_panel.Spacing(12);
     code_panel.Visibility(account_challenge_ ? Visibility::Visible : Visibility::Collapsed);
     TextBox code;
-    code.Header(box_value(L"6 位验证码"));
+    code.Width(160);
+    code.FontSize(13);
     code.MaxLength(6);
     code.Text(hstring(account_code_));
     code.IsEnabled(!account_busy_);
@@ -5677,10 +5699,9 @@ private:
       }
       update_account_code_controls();
     });
-    code_panel.Children().Append(code);
+    add_row(code_panel, 0, L"验证码", L"输入本次收到的 6 位数字", code);
     auto login = button_control(L"登录", [this] { sign_in_with_code(); }).as<Button>();
-    login.HorizontalAlignment(HorizontalAlignment::Stretch);
-    login.Height(36);
+    login.HorizontalAlignment(HorizontalAlignment::Right);
     make_primary(login);
     code_panel.Children().Append(login);
     form.Children().Append(code_panel);
@@ -5688,14 +5709,13 @@ private:
     account_code_panel_ = code_panel;
 
     auto hint = make_text(L"验证码只用于本次登录，请勿向他人透露。", 12, palette_.sub);
-    hint.TextAlignment(TextAlignment::Center);
-    hint.HorizontalAlignment(HorizontalAlignment::Center);
+    hint.Margin(Thickness{0, 4, 0, 0});
     form.Children().Append(hint);
     auto cancel = account_link(L"取消", [this] {
       account_channel_ = AccountChannel::none;
       redraw_account();
     }, !account_busy_);
-    cancel.HorizontalAlignment(HorizontalAlignment::Center);
+    cancel.HorizontalAlignment(HorizontalAlignment::Left);
     form.Children().Append(cancel);
     body.Children().Append(form);
     update_account_code_controls();
@@ -5719,7 +5739,7 @@ private:
     content.ColumnDefinitions().Append(text_column);
     content.ColumnDefinitions().Append(chevron_column);
     const auto name = am::preferred_name(user.display_name, user.id);
-    auto avatar = make_account_avatar(58, 24, name);
+    auto avatar = make_account_avatar(52, 22, name);
     Grid::SetColumn(avatar, 0);
     content.Children().Append(avatar);
     StackPanel texts;
@@ -5741,11 +5761,10 @@ private:
     card.Content(content);
     card.HorizontalAlignment(HorizontalAlignment::Stretch);
     card.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-    card.Padding(Thickness{20, 16, 25, 16});
-    card.Background(brush(palette_.card));
-    card.BorderBrush(brush(palette_.stroke));
-    card.BorderThickness(Thickness{1, 1, 1, 1});
-    card.CornerRadius(CornerRadius{3, 3, 3, 3});
+    card.Padding(Thickness{0, 8, 0, 8});
+    card.Background(brush(transparent_color()));
+    card.BorderThickness(Thickness{0, 0, 0, 0});
+    card.CornerRadius(CornerRadius{6, 6, 6, 6});
     card.IsEnabled(!account_busy_);
     A11y::SetName(card, L"编辑个人资料");
     card.Click([this](Inspectable const &, RoutedEventArgs const &) { edit_account_profile(); });
@@ -6590,7 +6609,7 @@ private:
     const auto preview = preview_for(theme.id);
     const auto candidate = candidate_theme(theme.id, false);
     Button card;
-    card.Width(184);
+    card.HorizontalAlignment(HorizontalAlignment::Stretch);
     card.Padding(Thickness{10, 10, 10, 10});
     card.CornerRadius(CornerRadius{10, 10, 10, 10});
     card.Background(brush(palette_.card));
@@ -6625,16 +6644,14 @@ private:
     surface.Child(panel);
     body.Children().Append(surface);
 
-    Grid footer;
-    footer.Padding(Thickness{2, 0, 2, 0});
-    auto name = make_text(theme.title, 14, palette_.text);
-    footer.Children().Append(name);
-    if (on) {
-      auto badge = make_text(L"使用中", 12, palette_.accent);
-      badge.HorizontalAlignment(HorizontalAlignment::Right);
-      badge.VerticalAlignment(VerticalAlignment::Center);
-      footer.Children().Append(badge);
-    }
+    StackPanel footer;
+    footer.Spacing(2);
+    footer.Margin(Thickness{2, 0, 2, 0});
+    footer.Children().Append(make_text(theme.title, 13, palette_.text));
+    const auto detail = on ? L"使用中" : theme.id == L"custom" ? L"自定义候选配色"
+                                    : theme.dark ? (*theme.dark ? L"深色主题" : L"浅色主题")
+                                                 : L"跟随颜色模式";
+    footer.Children().Append(make_text(detail, 11, on ? palette_.accent : palette_.sub));
     body.Children().Append(footer);
     card.Content(body);
     A11y::SetName(card, hstring(L"主题 " + theme.title));
@@ -6691,9 +6708,9 @@ private:
     const auto listed = listed_skins();
     const auto shown = sk::shown_package(custom_selected, custom, active_dark, listed);
 
-    // 卡片上的明暗预览只改卡片，页首照共享页说明这一点。
+    // 主题选择在前，当前设置的完整预览在卡片之后，避免预览占满首屏。
     auto intro = make_text(
-        L"选择候选窗口和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。", 14,
+        L"选择候选窗口和悬浮工具栏使用的主题。卡片展示每款主题的候选配色。", 11,
         palette_.sub);
     intro.Margin(Thickness{4, 0, 4, 12});
     page.Children().Append(intro);
@@ -6704,10 +6721,7 @@ private:
               nullptr);
     } else {
       record(L"全局主题", L"候选窗口、悬浮工具栏、菜单和屏幕键盘的配色");
-      VariableSizedWrapGrid cards;
-      cards.Orientation(Orientation::Horizontal);
-      cards.ItemWidth(196);
-      cards.ItemHeight(148);
+      auto cards = responsive_grid(174, 10);
       mark_search_target(L"全局主题", cards);
       for (const auto &theme : themes_) {
         record(theme.title, L"主题");
@@ -6721,6 +6735,9 @@ private:
       }
       page.Children().Append(cards);
     }
+
+    if (preview_visible_ && !indexing_)
+      page.Children().Append(make_preview());
 
     if (!skin_packages_.empty()) {
       StackPanel list;
@@ -11138,7 +11155,6 @@ private:
   // ---- 标点与翻译 ----
 
   void build_expression_page(StackPanel const &page) {
-    build_input_habits(page);
     auto punctuation = add_group(page, L"标点");
     bool_row(punctuation, 0xE8C1, L"中文标点", L"在中文模式下使用全角标点。",
              L"chinese_punctuation", true);
@@ -11175,6 +11191,8 @@ private:
     bool_row(punctuation, 0xE943, L"成对标点自动补全",
              L"输入左侧符号时自动补全右侧符号，并将光标置于中间",
              L"paired_punctuation", false);
+
+    build_input_habits(page);
 
     auto gloss = add_group(page, L"多语言与释义");
     bool_row(gloss, 0xE82D, L"显示英文释义",
@@ -11681,7 +11699,6 @@ private:
   // ---- 快捷键 ----
 
   void build_shortcuts_page(StackPanel const &page) {
-    build_selection_keys(page);
     auto keys = add_group(page, L"输入模式切换");
     // 偏好里仍是三个独立的布尔值，这里和共用设置页一样只让选一个：同时开着多个时按 Shift > 单击 Ctrl > Ctrl+Alt+Space 显示第一个，选中一项时一次写全三个，「不使用」三个都关。
     const std::array<std::pair<const wchar_t *, const wchar_t *>, 3> switches{{
@@ -11725,6 +11742,8 @@ private:
     bool_row(keys, 0xE8D3, L"Alt+Shift+H 切换全半角",
              L"中文模式下切换全角与半角。关掉后这个组合键交给应用处理；工具栏的全半角开关和 Ctrl+Shift+Space 不受影响。",
              L"keybindings.toggle_fullwidth_option_shift_h", true);
+
+    build_selection_keys(page);
 
     auto reset = add_group(page, L"");
     add_row(reset, 0xE72C, L"恢复默认快捷键",

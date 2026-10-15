@@ -39,6 +39,10 @@ Windows 平台的实现源码在 `src/` 下；`tsf/`、`msimeui/`、`tests/`、`
 
 `settings/` 是独立的 Windows App SDK / WinUI 3 设置宿主。它只负责设置窗口和共享偏好文件的读写；TSF、Server 和共享面板仍由各自的宿主负责。
 
+设置布局参照 macOS 原生宿主：侧栏保留一个设置项搜索入口，正文用功能组卡片和标签／控件两列布局，窄行把控件移到说明下方。「输入方案」逐项选择方案，仅展示当前方案的专属选项；「输入习惯」从标点开始，「按键」从中英文切换开始。账号使用并排身份信息和分组登录表单，皮肤卡片与复选框按可用宽度自动排列；皮肤选择位于完整实时预览之前。
+
+Windows 原生界面验收入口是 `tests/tools/settings_ui.ps1`：通过真实 host-api DLL 生成完整默认配置，在独立合成状态中遍历 18 页的浅深色、800／1000 宽窗口并截图，另外切换双拼、五笔、全拼并核对持久化。截图须同时检查页面对应关系和实际像素；本机 MinGW quick 门禁不编译 WinUI，也不能代替 Windows 上的运行验收。
+
 ### `panels/` 是什么
 
 `EmojiPanel.h`、`HandwritingPanel.h` 和 `EmojiPanelIcons.{h,cpp}` 不在 `CMakeLists.txt` 里，也没有任何文件 include 它们——它们不参与构建。产品里的表情/符号面板和手写识别板由共享桌面面板宿主（Tauri）提供，托盘菜单通过 `--route` 拉起，见下文「托盘菜单与共享界面」。`msimeui/demos/` 下另有一份**在构建的** `EmojiPanel`，但那是 demo，比这里这份短（163 行对 210 行），且不接 `ClipboardHistory` 与 `NativeTextInput`。这里这份是原生面板的另一条实现路线，单独成目录保留，让它的状态一眼可见，而不是混在 `system/` 里。
