@@ -137,7 +137,9 @@ add_library(msime-ibus-host STATIC
   src/overlay/WaveOverlaySurfaceFactory.cpp)
 target_compile_options(msime-ibus-host PRIVATE -Wall -Wextra -Werror)
 target_include_directories(msime-ibus-host PUBLIC src src/core src/candidates src/clipboard src/providers src/voice src/overlay src/system src/entrypoints ../../crates/host-api/include)
-target_link_libraries(msime-ibus-host PUBLIC PkgConfig::IBUS PkgConfig::XKBCOMMON nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
+# ClientEngine.cpp 用到 pthread，由这个库自己公开声明，链接它的可执行文件不必各自补 `Threads::Threads`。glibc 2.34 之前 pthread 不在 libc 里，漏掉就只在 Debian 10 这类旧系统上链接失败（#7849 新加的 ibus-mode-hint-lifecycle 就是这样）。
+find_package(Threads REQUIRED)
+target_link_libraries(msime-ibus-host PUBLIC PkgConfig::IBUS PkgConfig::XKBCOMMON nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}" Threads::Threads)
 if(X11_SURFACE_FOUND)
   target_sources(msime-ibus-host PRIVATE src/overlay/WaveOverlayX11Surface.cpp)
   target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_HAS_X11_SURFACE)
