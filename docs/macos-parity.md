@@ -4,7 +4,7 @@
 
 ## 范围与固定基线
 
-迁移的范围是 MSIME-Apple 的 macOS 完整功能，而不是设置页或能在某台机器上跑起来的子集。落地形态按四条原则：公共业务放共享层、公共管理界面放 Tauri；输入算法与组合状态归 C++ Engine；平台特性按 macOS 自身的机制适配，不照搬来源的实现形态；每一项的等价性由可重跑的比对而不是逐项人工确认来保证。
+迁移的范围是 MSIME-Apple 的 macOS 完整功能，而不是设置页或能在某台机器上跑起来的子集。落地形态按四条原则：公共业务放共享层、公共管理界面放 Tauri；输入算法与组合状态归 Rust 引擎 `crates/engine`；平台特性按 macOS 自身的机制适配，不照搬来源的实现形态；每一项的等价性由可重跑的比对而不是逐项人工确认来保证。
 
 2026-09-20 本次对照使用以下不可变对象：
 
@@ -85,7 +85,7 @@
 
 | 来源文件 | 个数 | 去向 |
 | --- | --- | --- |
-| `PreferencesWindowController.mm/.h` | 78 | 原生设置窗口。目标的设置面在 Tauri，按指令不该有对应物 |
+| `PreferencesWindowController.mm/.h` | 78 | 原生设置窗口。目标的主设置面是 Tauri 设置应用；目标保留的 `platforms/macos/src/settings/PreferencesWindowController.mm` 与 `AppearancePreferences.mm` 只是设置应用无法启动时的回退，冻结不加新功能（见[设置界面按平台归属](ARCHITECTURE.md#设置界面按平台归属)），所以不为来源的这些符号逐个找对应物 |
 | `DictionaryInstaller.mm` | 18 | 词库安装。下沉到引擎与共享 Rust |
 | `MetasequoiaInputController.mm` | 15 | 目标当时也有同名文件，**逐条核对见下**（那份是从未参与构建的直连适配器，2026-09-30 随 C++ Engine 删除；下面的对应物都在产品控制器 `platforms/macos/src/input/InputController.mm`） |
 | `PersonalDictionaryView.mm`、`PersonalDictionaryStore.mm/.h` | 14 | 原生个人词库界面与存储。目标是 Tauri 词库页 + 共享词库 ABI，且为超集 |

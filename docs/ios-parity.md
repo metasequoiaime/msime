@@ -6,7 +6,7 @@ macOS 的同类文档是 [macos-parity.md](macos-parity.md)，方法一致：先
 
 ## 范围与基线
 
-迁移的目标是 MSIME-Apple 的 iOS 完整功能，而不是能编译的子集。公共业务放共享层、公共管理界面放 Tauri；输入算法与组合状态仍归 C++ Engine；平台特性按 iOS 自身的机制适配，不照搬来源的实现形态。
+迁移的目标是 MSIME-Apple 的 iOS 完整功能，而不是能编译的子集。公共业务放共享层；设置与管理界面是 `platforms/ios/App` 的原生 SwiftUI 页面，iOS 的 App 里没有 WebView，共享 React 设置页和 Tauri 页不会到达用户（归属见[设置界面按平台归属](ARCHITECTURE.md#设置界面按平台归属)）；输入算法与组合状态归 Rust 引擎 `crates/engine`；平台特性按 iOS 自身的机制适配，不照搬来源的实现形态。
 
 比对在固定对象上进行，便于复核：
 
@@ -22,12 +22,14 @@ macOS 的同类文档是 [macos-parity.md](macos-parity.md)，方法一致：先
 | 源文件名 | 192 | 来源 `platforms/ios` 与 `shared` 下的 Swift/ObjC/C++ 文件按文件名在目标检索 | 集中在 `shared/apple-bridge/` 与 `shared/backend/`：前者是 ObjC 桥接层，由 `crates/host-api` 的 C ABI 取代；后者是 Swift 后端客户端，由 `crates/client-services` 与 `crates/client-core` 取代 |
 | 中文文案 | 1666 | 抽取来源全部源文件的中文字面量，逐条精确检索 | 测试断言文案、措辞差异、Tauri 页以不同表述覆盖、落在注释里的引号 |
 | 符号 | 584 | ObjC 方法、C/C++ 函数与 Swift 函数名，按原名与 snake_case 改名两种形式检索 | 61 个在被 C ABI 取代的 ObjC 桥接层（`InputSessionAdapter`、`MetasequoiaInputSessionBridge`、`CandidateTranslation`、`MSIMEBackendClient`）；其余是改名或重构等价物 |
-| 可达控件标识 | 254 | 抽取来源全部 `accessibilityIdentifier` 字面量逐个检索 | 2 个：`emojiCategory-` 在目标用连字符，自定义皮肤重置由 Tauri 页覆盖 |
+| 可达控件标识 | 254 | 抽取来源全部 `accessibilityIdentifier` 字面量逐个检索 | 2 个：`emojiCategory-` 在目标用连字符，自定义皮肤重置由原生皮肤编辑器的「重置我的皮肤」覆盖（`App/Sources/community/CustomSkinEditorView.swift`） |
 | 同名文件成员 | 116 对 | 逐对抽取 `func` / `var` / `let` 名做差集 | 16 个文件有差集，逐个核实全是重构等价物：候选注解并成 `KeyboardCandidateAnnotation`、「更多」面板从布尔开关换成显式页枚举（之后又随全平台设计改成按 Android 顺序排的扁平工具列表 `KeyboardTool`，以分页网格显示）、表情目录从内存表换成分页 ABI |
 | 测试断言 | 来源 232 | 来源 `test*` 函数名逐个检索，按名未命中的逐簇对到改名或拆分后的用例 | 目标 `KeyboardTests`/`ServiceTests`/`tests`/`TransportTests` 现有 312 个 `test*`，整体是来源的超集 |
-| 设置面控件文案 | 219 | 抽取来源 `platforms/ios/App` 与 `shared/backend-ui` 全部 `Toggle` / `Picker` / `Button` / `NavigationLink` / `Section` / `TextField` / `Slider` 的中文字面量 | 2 条：`从相册选一张`（Tauri 皮肤编辑器的「选择照片」，webview 的 file input 直接给出共享偏好要的 base64）、`显示释义`（输入设置里叫「显示英文释义」） |
+| 设置面控件文案 | 219 | 抽取来源 `platforms/ios/App` 与 `shared/backend-ui` 全部 `Toggle` / `Picker` / `Button` / `NavigationLink` / `Section` / `TextField` / `Slider` 的中文字面量 | 2 条：`从相册选一张`（原生皮肤编辑器的「选择照片」，`App/Sources/community/CustomSkinEditorView.swift`）、`显示释义`（输入设置里叫「显示英文释义」） |
 | 界面测试 | 来源 38 / 目标 39 | 逐个用例对照 | 组织方式不同：来源按屏拆四个文件，目标合在 `platforms/ios/UITests/` 的流程用例里，覆盖面相当 |
 | iOS 偏好同步字段 | 8 | 字段逐个对照 | 全部对上，目标为超集（多出三个调频字段） |
+
+「中文文案」一轴里归为「Tauri 页以不同表述覆盖」的未命中，是比对时按共享页面归的类。iOS 发布的 App 不含 Tauri 页，这种覆盖在产品里不成立；这些文案各自有没有原生实现，没有逐条回验。
 
 上表是迁移时的基线。之后目标按全平台设计稿改版，加了来源没有的功能，不在上表的比对范围内：App 跟随四季的应用主题（Rust `msime_client_resolve_app_theme`，选择存在 App Group 的 `general.app_theme`，暂不随设置同步（Android 会同步），键盘「跟随系统」皮肤与品牌标也跟着季节换色），以及键盘的功能菜单——品牌键打开的分页网格，取代来源的分组「更多」面板。
 

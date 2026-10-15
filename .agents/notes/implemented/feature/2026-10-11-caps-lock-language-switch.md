@@ -16,7 +16,7 @@ Status: implemented
 - macOS：系统只在锁定状态改变时报一次 FlagsChanged，没有松开事件。控制器在大写锁定从关变开时布防，并暂不把这次的大写锁定报告给会话和工具栏；每 10 毫秒用 `CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, 0x39)` 查键是否还按着。松开且在分界内就用 IOKit 的 `IOHIDSetModifierLockState(kIOHIDCapsLockState, false)` 撤回；按住超过分界、按着时打字或撤不回，就把大写锁定补报给会话。失焦、换会话等外部重置时按实际锁定状态报告。
 - Windows：TIP 在 `OnTestKeyDown` 的 Caps Lock 首次按下时布防（`GetKeyState` 这时还是按下前的状态），`_TrackModifierHotkeyArming` 遇到别的键按下时取消；`OnTestKeyUp` 和 `OnKeyUp` 认定后用 `SendInput` 再按一次 Caps Lock 撤回，合成事件带 `CAPS_LOCK_SENDINPUT_EXTRA_INFO`（`0x4D535054`），按键处理和裸 Shift 钩子都放行，然后把切换排进延迟按键队列。松开事件不吃掉。系统设置成只有 Shift 能关掉大写锁定（`KLF_SHIFTLOCK`）时不布防。合成的那一下被 TIP 当作自注入放行，TIP 撤回成功后自己把 `Global::CapsLockEnabled` 记成关；Server 的低级钩子（`MaintenanceHotkey.cpp`）在跳过注入按键之前计入 Caps Lock，因为它记的锁定状态是每按下一次翻转一次，漏掉撤回的那一下，报告给工具栏和语言栏的大写锁定就从此反着，直到 Server 重启。
 - Linux：IBus 与 Fcitx5 按 `Caps_Lock` 符号认键，排除被 xkb 选项改成 `Caps_Lock` 的 Shift 键；按下事件带的是按下前的锁定状态，松开时认定。撤回用 libX11 的 `XkbLockModifiers`（`platforms/linux/src/system/CapsLockRelease.cpp`，X11 宏不流进宿主代码），只在 X11 会话里可用；`WAYLAND_DISPLAY` 有值或 `XDG_SESSION_TYPE=wayland` 时不布防。Fcitx5 不把 `Caps_Lock` 算作修饰键，组字时按下它会照普通按键先把首选上屏，所以布防了的按下直接交给应用、不往下走，组字留到松开时由切换上屏原文；IBus 宿主本来就把 Caps Lock 当修饰键放过。
-- 原生设置：macOS 设置窗口「按键」页、Windows 原生设置窗口「输入模式切换」组各加一行；Linux 的设置窗口就是共享设置页。
+- 原生设置：macOS 设置窗口「按键」页、Windows 原生设置窗口「输入模式切换」组各加一行；Linux 的设置窗口就是共享设置页。同一个开关写在三处设置界面，是[设置界面按平台归属](../architecture/2026-10-15-settings-ui-ownership-by-platform.md)记录的代价之一；macOS 的 AppKit 设置窗口按那篇冻结为回退。
 
 Windows 的 `0x4D535053` 留给[面板文字注入](2026-10-10-windows-clipboard-privacy-panel-statistics-host-diagnostics.md)：面板标记只跳过直通统计，不能进入 `IsSelfGeneratedSendInputExtraInfo` 的整键放行集合。Caps Lock 使用相邻的 `0x4D535054`，避免同值时把面板字符错误地按自注入放行；保留面板已有值也让设置应用与 TIP 的标记契约保持兼容。
 

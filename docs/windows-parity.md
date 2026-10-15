@@ -6,7 +6,7 @@
 
 ## 迁移范围与固定基线
 
-目标是迁移 MSIME-Windows 的完整功能，而不是语音、设置页或某台机器上跑得起来的子集。分工固定为：公共业务逻辑放共享 Rust 层（`crates/client-base`、`crates/client-core`、`crates/client-services`、`crates/client-providers`、`crates/input-runtime`、`crates/host-api`），公共管理界面放 Tauri 壳与共享 React 设置页（`apps/desktop/`、`packages/ui/`），输入算法与组合状态仍归 C++ Engine，Windows 侧保留 TSF DLL 与 Server 两个进程及其协议边界。
+目标是迁移 MSIME-Windows 的完整功能，而不是语音、设置页或某台机器上跑得起来的子集。分工固定为：公共业务逻辑放共享 Rust 层（`crates/client-base`、`crates/client-core`、`crates/client-services`、`crates/client-providers`、`crates/input-runtime`、`crates/host-api`）；设置界面由 WinUI 3 原生设置程序 `msime-client-settings.exe`（`platforms/windows/settings/`）绘制，Tauri 壳与共享 React（`apps/desktop/`、`packages/ui/`）只承载表情、屏幕键盘、手写、语音、云词库与云剪贴板等面板，归属见[设置界面按平台归属](ARCHITECTURE.md#设置界面按平台归属)；输入算法与组合状态归 Rust 引擎 `crates/engine`；Windows 侧保留 TSF DLL 与 Server 两个进程及其协议边界。
 
 对照使用的是固定对象，不是某个仓库当天的 HEAD：
 
@@ -158,7 +158,7 @@
 | `skin/candidate_skin_catalog.cpp` | `crates/client-services/src/skin/catalog.rs` | 皮肤目录跨平台共享 |
 | `english/`、`emoji/`、`kaomoji/`、`conversion/` | Engine 与共享偏好 | 这些是输入算法的一部分，Engine 拥有 |
 | `user-dictionary-replay/` | 无 | 只服务来源的 `DataDir` 词库布局，本仓不带 |
-| `settings/`、`webview2/`、`emoji-panel/`、`keyboard-panel/`、`handwriting-panel/` | Tauri 壳（`apps/desktop/`、`packages/ui/`） | 公共功能与界面放 Tauri；来源用 WebView2 自绘，这边两个桌面宿主共用同一个 Tauri 应用，入口契约见 `src/system/ShellSurfaces.h` |
+| `settings/`、`webview2/`、`emoji-panel/`、`keyboard-panel/`、`handwriting-panel/` | 设置：WinUI 3 原生设置程序（`platforms/windows/settings/`）；面板：Tauri 壳（`apps/desktop/`、`packages/ui/`） | 来源用 WebView2 自绘；这边设置由 `msime-client-settings.exe` 原生绘制，表情、屏幕键盘、手写等面板走 Tauri 的 `MSIME.exe`，入口契约见 `src/system/ShellSurfaces.h` |
 | `utils/` | 分散在对应模块 | 工具函数不单独成目录 |
 
 来源另有 `experiments/tsf-edit-control`，已迁入 `platforms/windows/experiments/tsf-edit-control` 并接成 Windows-only CMake 目标：Direct2D/DirectWrite 绘制的原生 Win32 编辑宿主与最小 demo，用来重复检查 TSF 文档上下文、preedit 与 display attribute、候选位置、软换行、选区、插入点和鼠标命中这些边界。它是验证工具而非产品组件，不注册 TSF、不启动生产 Server。来源工程特有而这边不存在的 `common.ver`、`InputScope.h`、`tsattrs.h` 依赖已去除，宿主仍用系统 TSF 头文件。
@@ -179,7 +179,7 @@
 
 **这四个表面走合成交换链，而不是来源的分层窗口。** 来源的输入法窗口用 `WS_EX_LAYERED`（`server/src/window/ime_windows.cpp`），DirectComposition 只出现在它的 WebView2 与设置路径里；这边统一走 `DeviceResources::EnsureForComposition`（`DCompositionCreateDevice` 加 `CreateSwapChainForComposition`）。理由是合成交换链避开 `UpdateLayeredWindow` 每帧的 CPU 拷贝，而这四个表面都是低延迟且不能抢焦点的。失败时也不回退到普通 HWND 交换链：那拿不到逐像素透明，候选卡片的阴影会退化成不透明矩形，静默变丑比明确失败更糟。代价记在这里：无 DirectComposition 的环境（如 Wine）要画出这套，是一次明确的渲染路径工作。
 
-**设置页与各类面板走 Tauri 与共享 React。** 设置、表情、手写、屏幕键盘、语音面板都在独立的 Tauri 进程里，两个桌面宿主共用同一个应用，入口契约是 `src/system/ShellSurfaces.h`。
+**设置页原生绘制，各类面板走 Tauri 与共享 React。** 设置由 WinUI 3 程序 `msime-client-settings.exe` 原生绘制全部页面；表情、手写、屏幕键盘、语音、云词库与云剪贴板面板在独立的 Tauri 进程 `MSIME.exe` 里。两者读同一个 `--route=` 参数，入口契约是 `src/system/ShellSurfaces.h`。
 
 **菜单的禁用语义因此与来源不同。** 来源的菜单 HTML 里 `disabled` 出现零次——它的面板全在同进程内，永远可用。这边的面板在独立的壳里，壳可能不在，所以能力缺失的行**保持可见但置灰**，而不是点了没反应或干脆隐藏（`src/candidate/TrayMenuLayout.h` 的注释写明依据：保住来源「菜单从不隐藏条目」的可见性语义，同时诚实反映进程边界）。托盘菜单的动作与来源一一对应，且这边多出手写识别板。
 
@@ -260,7 +260,7 @@
 
 **Server 是窗口程序而不是控制台程序。** 控制台子系统会让 Watchdog 与 TSF DLL 每次拉起 Server 都带出一个黑色控制台窗口。现在链接为 Windows 子系统（MinGW `-mwindows`；MSVC `WIN32_EXECUTABLE` 加 `/ENTRY:wmainCRTStartup`，入口仍是 `wmain`）。`--config` 预览与 `--help` 从终端启动时挂到父控制台（`AttachConsole(ATTACH_PARENT_PROCESS)`），状态行与 Ctrl+C 照旧；受管启动（`--watchdog-managed` / `--production`）从不挂接，因为 TSF DLL 是在当前焦点程序里拉起 Server 的，那个程序本身可能是控制台程序。
 
-**退出码是 Watchdog 契约的一部分。** 维护快捷键的「停止」（Ctrl+Shift+Alt+T）返回 `watchdog::stop_exit_code` 而不是 0——返回 0 会被 Watchdog 判为非正常退出并在两秒后重新拉起，等于停不下来。已打开的设置等 Tauri 窗口是独立进程，不随 Server 关闭，与「重启」时的行为相同。
+**退出码是 Watchdog 契约的一部分。** 维护快捷键的「停止」（Ctrl+Shift+Alt+T）返回 `watchdog::stop_exit_code` 而不是 0——返回 0 会被 Watchdog 判为非正常退出并在两秒后重新拉起，等于停不下来。已打开的 WinUI 设置窗口和 Tauri 面板都是独立进程，不随 Server 关闭，与「重启」时的行为相同。
 
 **命名管道分三个角色**：Main、Aux、Diagnostic（`src/ipc/` 下的 `PipeListener`、`PipeService`、`PipeMainTransport`、`AuxListener`、`DiagnosticListener` 等）。协议侧的几条规则是这条边界的要害，都由用例钉住：
 
@@ -2079,6 +2079,8 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 
 ### Windows 原生设置窗口的页面归属与叫法跟共享设置界面对齐（2026-10-02）
 
+> 本节记录 2026-10-02 的状态，其中跳共享应用的设置路由（`settings:skin`、`settings:tools`、`settings:input`）已被 2026-10-11 合并的 #7129（`feat/windows-native-settings`，合并提交 04c6af6e96）取代：Windows 设置窗口现在原生绘制全部 18 页，不再有交给共享应用的设置页，只有 5 个面板仍拉起 `MSIME.exe`（`platforms/windows/settings/SettingsNavigation.h` 的 `pages` 与 `shell_links`）。现状以 `platforms/windows/settings/README.md` 为准。
+
 - 侧栏：「工具」组新增「AI 辅助」（共享页 `ai`），「标点与翻译」页去掉 AI 组（启用开关、服务商入口和打不开的「AI 对话」行）；`chat` 路由打开「AI 辅助」，AI 对话在共享应用里是它的子页。桌面端不再有「社区」页：社区皮肤在共享应用「主题」页的「社区皮肤」标签里，本窗口「主题」页的「社区皮肤」一行打开 `settings:skin`，`community` 路由打开本窗口的「主题」页。原来的「账户与社区」组只剩账号页，改名「账号」，页面改名「账号与同步」。
 - 「剪贴板」页改为打开共享应用的「剪贴板」页（`settings:tools`，本机剪贴板历史开关和云剪贴板入口都在那里），不再直接打开云剪贴板面板；侧栏名字随之从「云剪贴板」改回与共享界面一致的「剪贴板」，`tools` 路由打开它而不是「快捷键」页。
 - 页面内容按共享界面的分组摆放：中英混输、触发字符数、emoji 混输、颜文字混输从「标点与翻译 › 多语言与释义」移到「输入 › 候选与联想」，删掉「输入」页指向它们的「前往」行；词语学习改名「学习选词习惯」放进同一组；「拼音方案调频」从「词库」移到「输入」页末尾；Shift 加字母的本地模式组从「快捷键」移到「输入」，统一叫「快捷模式」；「切换中英文」从「输入」移到「快捷键 › 输入模式切换」，删掉「快捷键」页指回「输入」的那一行，「恢复默认快捷键」只恢复 `keybindings`；「词库 › 学习」里的「剪贴板历史」开关去掉，由共享「剪贴板」页负责。「词库」页只剩「管理」组。
@@ -2110,6 +2112,8 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 证据：`msime-client-core` 的 `telemetry_is_opt_in_and_survives_a_save`（默认、旧文档、非布尔值拒绝、保存往返）；设置页用例覆盖 Windows 显示且默认关闭、保存写入 `telemetry_enabled: true`、其余五个平台与无宿主时不显示；`windows-telemetry-consent` 在本机用 clang 编译运行，并做过变异检查。`build-cross.sh x64` 交叉编译链接通过（含 Server 与该用例）。没有在 Windows 主机上运行 Server，也没有抓包确认开关关闭时不发请求、开启时启动不再被阻塞；安装器文案未在真实向导里看过。
 
 ### 安装器升级与卸载生命周期（2026-09-23）
+
+> 本节「升级与卸载不停设置窗口和面板」一条写的进程形态已被 41f15b5b22（#733，2026-09-24 用 WinUI 3 重建设置）取代：`msime-client-settings.exe` 现在是 WinUI 3 原生设置程序，表情、屏幕键盘、手写等面板由 Tauri 的 `MSIME.exe` 承载（`platforms/windows/src/system/ShellSurfaces.h` 的 `shell_executable_names`），`StopImeProcesses` 按目录停掉 server 目录下的这些进程（`platforms/windows/installer/msime_setup.iss`）。
 
 对照来源 `installer/msime_setup.iss` 与 `server/src/main.cpp` 逐条核对后，下面六处差异都成立，一并修掉；另外顺带发现一处数据目录标记的问题。
 
