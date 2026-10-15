@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 把 msime-client-base 和 msime-client-core 的单测交叉编译后在专用 AVD 上整套运行：run-core-test.sh 是这个目标的 cargo runner，cargo 把每个测试程序分别交给它。设备用 MSIME_ANDROID_TEST_SERIAL 选，默认是 API 35 的 emulator-5580（见 run-core-test.sh）。ABI 跟着 start-emulator.sh 选的系统镜像走：arm64 主机（Apple 芯片）是 arm64-v8a，x86_64 主机（CI 的 Linux runner）是 x86_64，也可以用参数指定。
+# 把 msime-client-base、msime-client-core 和 msime-client-providers 的单测交叉编译后在专用 AVD 上整套运行：run-core-test.sh 是这个目标的 cargo runner，cargo 把每个测试程序分别交给它。设备用 MSIME_ANDROID_TEST_SERIAL 选，默认是 API 35 的 emulator-5580（见 run-core-test.sh）。ABI 跟着 start-emulator.sh 选的系统镜像走：arm64 主机（Apple 芯片）是 arm64-v8a，x86_64 主机（CI 的 Linux runner）是 x86_64，也可以用参数指定。
 #
-# 这一步存在的原因：client-base 和 client-core 的私有文件读写在 Android 上受 /data 只给搜索权限、SELinux 禁止硬链接这些限制，macOS 和 Linux 上的单测一条都碰不到。0.3.0 就因此带着「词库准备失败」和匿名账号写入失败发了出去。
+# 这一步存在的原因：client-base、client-core 和 client-providers 的私有文件读写在 Android 上受 /data 只给搜索权限、SELinux 禁止硬链接这些限制，macOS 和 Linux 上的单测一条都碰不到。0.3.0 就因此带着「词库准备失败」和匿名账号写入失败发了出去。
 set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../../../.." && pwd)
 cd "$repo_root"
@@ -27,4 +27,4 @@ export "AR_${target//-/_}=$bin/llvm-ar"
 export "CARGO_TARGET_${upper}_LINKER=$bin/${target}28-clang"
 export "CARGO_TARGET_${upper}_RUNNER=bash $repo_root/platforms/android/tests/device/run-core-test.sh"
 export CARGO_TARGET_DIR="$repo_root/target/android-cargo"
-cargo test -p msime-client-base -p msime-client-core --lib --locked --no-fail-fast --target "$target"
+cargo test -p msime-client-base -p msime-client-core -p msime-client-providers --lib --locked --no-fail-fast --target "$target"
