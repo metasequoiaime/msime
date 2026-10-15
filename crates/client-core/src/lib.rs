@@ -7,7 +7,7 @@
 //!
 //! 存储、文件锁、有上限的读取、文本谓词、日历和简繁转换在 `msime-client-base` 里，下面用 `use`/`pub use` 接回原来的路径：宿主照旧写 `msime_client_core::file_lock`，本 crate 内部照旧写 `crate::storage::...`。
 //!
-//! 语音、服务凭据、AI 候选设置和按需资源包在 `msime-client-providers` 里：它依赖本 crate，本 crate 不引用它，宿主写 `msime_client_providers::voice` 这类路径。`endpoint` 只为它导出，所以是 `#[doc(hidden)]`。
+//! 语音、服务凭据、AI 候选设置和按需资源包在 `msime-client-providers` 里：它依赖本 crate，本 crate 不引用它，宿主写 `msime_client_providers::voice` 这类路径。`endpoint` 只为它和下面的 `msime-client-services` 导出，不是宿主接口，所以是 `#[doc(hidden)]`。
 //!
 //! 账号、社区、遥测、公告、检查更新、诊断、自建剪贴板中继、皮肤、插件、词库、生词本、常用语和打字统计在 `msime-client-services` 里，依赖方向与 providers 相同：它依赖本 crate，本 crate 不引用它，宿主写 `msime_client_services::skin` 这类路径。
 

@@ -22,9 +22,7 @@ fn valid_font_family(value: &str) -> bool {
     !value.is_empty() && crate::text::is_bounded_text(value, 128)
 }
 
-/// The deliberately small value set accepted by the account preferences API.
-/// Credentials, arbitrary JSON objects, and input contents never cross this
-/// boundary; platform hosts map their safe local settings to these scalars.
+/// 账号偏好接口接受的值，有意只留这几种标量：凭据、任意 JSON 对象和输入内容都不经过这个边界，各平台宿主把自己可以安全同步的本地设置映射成这些标量。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum AccountPreferenceValue {

@@ -2278,10 +2278,7 @@ pub unsafe extern "C" fn msime_client_save_preferences(
 
 /// Read or update 背单词 wordbooks and review progress.
 ///
-/// A shim: the request is parsed into the shared action type and the answer is the shared status,
-/// serialised. Every rule — what an action does, how the queue is built, what counts as today —
-/// belongs to `msime_client_services::vocabulary::session`, so this host and the Tauri command layer
-/// cannot drift from each other.
+/// 只做转接：请求解析成共享的动作类型，应答是序列化后的共享状态。每条规则（动作做什么、复习队列怎么排、哪天算今天）都在 `msime_client_services::vocabulary::session`，所以这里和 Tauri 命令层不会各说各的。
 /// # Safety
 /// `request` points to `length` readable JSON bytes. Null is rejected.
 #[no_mangle]

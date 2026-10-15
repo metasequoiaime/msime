@@ -3245,7 +3245,6 @@ version = "0.1.0"
 dependencies = [
  "msime-client-core",
  "msime-client-providers",
- "msime-client-services",
  "serde",
  "serde_json",
  "tauri",
