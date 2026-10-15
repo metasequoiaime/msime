@@ -23,7 +23,8 @@
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 <key>LSBackgroundOnly</key><true/>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
-<!-- macOS 27 上 imklaunchagent 拒绝不是 `<CFBundleIdentifier>_Connection` 形式的连接名（"unrecognized 'InputMethodConnectionName' value"），之后再也不按需拉起输入法：在别的途径启动进程之前，它的模式在输入菜单里一直是灰的。input_method_main.mm 使用从这里读到的名字，info-plist-names 检查它的形式。 -->
+<!-- Sparkle 的 SUFeedURL、SUPublicEDKey 和自动检查只出现在发布包里，由 CMakeLists.txt 的 MSIME_SPARKLE_PLIST_KEYS 填入；开发构建这里是空的。 -->
+${MSIME_SPARKLE_PLIST_KEYS}<!-- macOS 27 上 imklaunchagent 拒绝不是 `<CFBundleIdentifier>_Connection` 形式的连接名（"unrecognized 'InputMethodConnectionName' value"），之后再也不按需拉起输入法：在别的途径启动进程之前，它的模式在输入菜单里一直是灰的。input_method_main.mm 使用从这里读到的名字，info-plist-names 检查它的形式。 -->
 <key>InputMethodConnectionName</key><string>app.msime.inputmethod.MetasequoiaIME_Connection</string>
 <key>InputMethodServerControllerClass</key><string>MSIMEInputController</string>
 <key>InputMethodServerDelegateClass</key><string>MSIMEInputController</string>

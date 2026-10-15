@@ -9,6 +9,7 @@
 #import "../settings/AppearancePreferences.h"
 #import "../core/FloatingToolbarPanel.h"
 #import "../core/UsageReporting.h"
+#import "../core/UpdateController.h"
 #import "../candidate/CandidateSkin.h"
 #import "../voice/VoiceAudioMuter.h"
 #include "../core/DiagnosticLog.h"
@@ -147,7 +148,11 @@ int main(int argc, const char *argv[]) {
                     [[MSIMEFloatingToolbarPanel sharedPanel] deactivateForInputSourceSwitch];
                     // 切到 ABC 等别的输入源后，菜单栏状态项不能留着一个过期的「中」；切回来时 activateServer: 的同步会按当前模式重新放上。焦点在客户端之间移动不会走到这里，所以 deactivateServer: 不隐藏它。
                     [[MSIMEInputModeStatusItem sharedItem] hide];
+                    // 用户刚离开水杉，这时装后台下好的更新不会打断打字：进程退出，切回来时系统从新 bundle 拉起（UpdateController.mm）。
+                    if (MSIMEUpdateHostUsesSparkle(NSBundle.mainBundle)) [[MSIMEUpdateController sharedController] installDownloadedUpdateIfReady];
                 }];
+        // 带 feed 的发布包在这里启动 Sparkle，它才会按 SUScheduledCheckInterval 在后台检查和下载；没有 feed 的构建不创建更新控制器，「检查更新…」用到时再建。
+        if (MSIMEUpdateHostUsesSparkle(NSBundle.mainBundle)) (void)[MSIMEUpdateController sharedController];
         Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
         id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
         if ([shared respondsToSelector:@selector(startClipboardCaptureWithOptions:)]) {
