@@ -15175,8 +15175,8 @@ group("candidate snapshots keep generation identities exact", () => {
   }
 });
 
-group("「候选栏预编辑：不显示」 hides the spelling on the phone line", () => {
-  // Windows candidate_window_preedit_style = "empty" is preeditVisible=false. The phone showed the spelling whatever the setting said; Android honours it through the same policy.
+group("the composition line hides the spelling when it is not to be drawn", () => {
+  // 2in1 的「候选窗口预编辑：不显示」即 Windows candidate_window_preedit_style = "empty"（preeditVisible=false）；手机在拼写写进输入框时走同一条规则。
   const shown = CandidatePreeditStylePolicy.visible(true, "", "nihao", "none");
   check(shown.text === "nihao" && shown.caret, "pinyin shows the spelling and its caret");
   const hidden = CandidatePreeditStylePolicy.visible(false, "", "nihao", "none");
@@ -15843,8 +15843,8 @@ group("the 2in1 draws the composition inline as tsf_preedit_style says", () => {
     "empty leaves the document alone",
   );
   check(
-    InlinePreeditPolicy.text("raw", false, true, "nihao", "ni'hao", "") === "",
-    "a phone keeps the spelling above its keys",
+    InlinePreeditPolicy.text("raw", false, true, "nihao", "ni'hao", "") === "ni'hao",
+    "a phone writes the segmented spelling into the field whatever the desktop style says",
   );
   check(
     InlinePreeditPolicy.text("raw", true, false, "nihao", "ni'hao", "") === "",
@@ -15867,6 +15867,138 @@ group("the 2in1 draws the composition inline as tsf_preedit_style says", () => {
     "an editor that keeps preview text out of its content is read as is",
   );
   check(InlinePreeditPolicy.beforePreview("好a", "") === "好a", "no preview, nothing removed");
+});
+
+group(
+  "a phone always writes the composition into the field and the strip leaves the reading out",
+  () => {
+    // 产品决定：与 Apple 键盘、Gboard 一样，组字总以拼音分词写进输入框，候选栏不画读音，候选从行首开始不再左右移动；没有开关。
+    for (const style of ["raw", "pinyin", "empty"]) {
+      check(
+        InlinePreeditPolicy.text(style, false, true, "nihao", "ni'hao", "") === "ni'hao",
+        `the phone ignores the desktop style ${style}`,
+      );
+    }
+    check(
+      InlinePreeditPolicy.text("raw", false, true, "nihao", "", "") === "nihao",
+      "without a segmented spelling the phone falls back to the letters",
+    );
+    check(
+      InlinePreeditPolicy.text("raw", false, true, "hao", "hao", "你") === "你hao",
+      "a held phrase piece leads the spelling on a phone too",
+    );
+    check(
+      InlinePreeditPolicy.text("raw", false, true, "", "", "海滩") === "海滩",
+      "a held phrase piece alone stays in the field",
+    );
+    check(
+      InlinePreeditPolicy.text("raw", false, false, "nihao", "ni'hao", "") === "",
+      "an editor that takes no preview text gets none",
+    );
+    check(
+      InlinePreeditPolicy.text("raw", false, true, "", "", "") === "",
+      "no composition, no preview on a phone",
+    );
+    check(
+      InlinePreeditPolicy.text("raw", false, true, "shi", "shi", "", false, true) === "",
+      "14 键和日语读音（stripOnly）不写进输入框",
+    );
+    check(
+      InlinePreeditPolicy.text("raw", true, true, "nihao", "ni'hao", "", false, true) === "nihao",
+      "stripOnly only concerns the phone; a 2in1 still follows its style",
+    );
+
+    check(
+      SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.QUANPIN, true),
+      "全拼 14 键的组码留在候选栏上",
+    );
+    check(
+      !SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.QUANPIN, false),
+      "全拼 26 键和九键写进输入框",
+    );
+    check(
+      SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.JAPANESE, false),
+      "日语的假名读音保持原来的做法，留在候选栏上",
+    );
+    check(
+      !SchemeCompositionPolicy.keepsReadingOnStrip(-1, true),
+      "英文和本地模式在 14 键下画 26 键，组字照常写进输入框",
+    );
+    check(
+      !SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.SHUANGPIN, true) &&
+        !SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.WUBI, false) &&
+        !SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.STROKE, false),
+      "其他方案都写进输入框",
+    );
+
+    check(
+      InlinePreeditPolicy.hidesStripReading(false, "ni'hao", false),
+      "the strip leaves the reading out while the field shows it",
+    );
+    check(
+      !InlinePreeditPolicy.hidesStripReading(false, "", false),
+      "with nothing in the field (an editor without preview text, 14 键, Japanese) the strip still draws it",
+    );
+    check(
+      !InlinePreeditPolicy.hidesStripReading(false, "한", true),
+      "a composition that is the text itself keeps its place on the strip as before",
+    );
+    check(
+      !InlinePreeditPolicy.hidesStripReading(true, "nihao", false),
+      "a 2in1 candidate window follows its own preedit setting",
+    );
+    const hidden = CandidatePreeditStylePolicy.visible(
+      !InlinePreeditPolicy.hidesStripReading(false, "ni'hao", false),
+      "",
+      "nihao",
+      "none",
+    );
+    check(hidden.text === "" && !hidden.caret, "so the phone line draws no spelling and no caret");
+  },
+);
+
+group("nine-key writes its pinyin reading into the field, never the digits", () => {
+  // iOS 真机上九键打 nihao，输入框里出现的是 64426：写进去的是 preedit 的数字。这里写的必须是 nine_key_reading。
+  const reading: string = SchemeCompositionPolicy.reading(
+    SchemeTraits.QUANPIN,
+    "64426",
+    "64'426",
+    "ni'hao",
+  );
+  const spelling: string = SchemeCompositionPolicy.fieldSpelling(
+    SchemeTraits.QUANPIN,
+    "64426",
+    "64'426",
+    "ni'hao",
+  );
+  check(spelling === "ni'hao", "the segmented form for nine-key is the Engine's reading");
+  const preview: string = InlinePreeditPolicy.text(
+    "raw",
+    false,
+    true,
+    reading,
+    spelling,
+    "",
+    false,
+    SchemeCompositionPolicy.keepsReadingOnStrip(SchemeTraits.QUANPIN, false),
+  );
+  check(preview === "ni'hao", "the nine-key preview text is the reading");
+  check(!/[0-9]/.test(preview), "the nine-key preview text contains no digits");
+  check(
+    InlinePreeditPolicy.text("pinyin", false, true, reading, spelling, "你") === "你ni'hao",
+    "a held phrase piece leads the nine-key reading",
+  );
+  check(
+    SchemeCompositionPolicy.fieldSpelling(SchemeTraits.QUANPIN, "64426", "ni'426", "") === "ni'426",
+    "only when the Engine has no reading does the field fall back to its preedit",
+  );
+  check(
+    SchemeCompositionPolicy.fieldSpelling(SchemeTraits.QUANPIN, "nihao", "ni'hao", "") ===
+      "ni'hao" &&
+      SchemeCompositionPolicy.fieldSpelling(SchemeTraits.STROKE, "hs", "一丨", "") === "一丨" &&
+      SchemeCompositionPolicy.fieldSpelling(-1, "hello", "hello", "") === "hello",
+    "every other composition writes its preedit",
+  );
 });
 
 console.log("Korean Dubeolsik");
@@ -18638,8 +18770,8 @@ group("a Stroke composition draws its glyphs at the Engine's caret", () => {
   check(
     InlinePreeditPolicy.text("raw", true, true, reading, "一丨", "") === "一丨" &&
       InlinePreeditPolicy.text("pinyin", true, true, reading, "一丨", "") === "一丨" &&
-      InlinePreeditPolicy.text("raw", false, true, reading, "一丨", "") === "",
-    "a 2in1 previews the glyphs in either style when handed the drawn reading; a phone keeps them on the strip",
+      InlinePreeditPolicy.text("raw", false, true, reading, "一丨", "") === "一丨",
+    "the glyphs are previewed in either style and on a phone too, never the typed letters",
   );
 });
 

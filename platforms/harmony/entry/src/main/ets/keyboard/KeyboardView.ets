@@ -452,6 +452,8 @@ struct KeyboardView {
   @State candidatePage: number = 0;
   @State candidatePageCount: number = 1;
   @State phrasePrefix: string = '';
+  /** 手机上拼写正写在输入框里，候选栏不画读音；见 `KeyboardSession.compositionInField`。 */
+  @State compositionInField: boolean = false;
   @State spellings: string[] = [];
   @State engineScheme: number = 0;
   /** Whether the scheme's openable candidate list (the Korean Hanja list, the Zhuyin list) is on the strip, as the Engine last reported it. */
@@ -808,6 +810,8 @@ struct KeyboardView {
       this.english = KeyboardSession.shared.isEnglish();
       // 会话在每次获得焦点时重读按键反馈文件，设置应用所做的改动（字母键手势、滑行输入、手写板）就从这里进来，不带偏好修订号；视图的手势跟随这份副本。
       this.feedback = KeyboardSession.shared.feedbackSettings();
+      // 带进这个编辑框的组字，要等它的属性说明是否接受预上屏文字后才知道拼写写不写得进输入框。
+      this.compositionInField = KeyboardSession.shared.compositionInField();
       this.applyEditorFace();
       this.applyAutomaticCase();
       this.syncCloudClipboardEditor();
@@ -845,6 +849,7 @@ struct KeyboardView {
       this.candidatePage = state.page;
       this.candidatePageCount = state.pageCount;
       this.phrasePrefix = state.phrasePrefix;
+      this.compositionInField = state.compositionInField;
       this.spellings = state.spellings;
       this.nineKeySingleCharacter = state.nineKeySingleCharacter;
       this.nineKeyStrokes = state.nineKeyStrokes;
@@ -3000,10 +3005,10 @@ struct KeyboardView {
       && KeyboardSession.shared.glossRows() > 0;
   }
 
-  /** The composition as 「候选栏预编辑」 lets it be seen; see CandidatePreeditStylePolicy. */
+  /** 画出来的组字，见 CandidatePreeditStylePolicy：2in1 的候选窗口照「候选窗口预编辑」；手机没有这个设置，拼写写在输入框里时候选栏不画读音，写不进去（14 键、日语、不接受预上屏文字的编辑框）时照旧画。 */
   private visibleComposition(): VisibleComposition {
-    return CandidatePreeditStylePolicy.visible(this.settings.candidateShowPreedit, this.phrasePrefix, this.editing,
-      this.localMode);
+    return CandidatePreeditStylePolicy.visible(KeyboardFormFactor.isDesktop()
+      ? this.settings.candidateShowPreedit : !this.compositionInField, this.phrasePrefix, this.editing, this.localMode);
   }
 
   /** One candidate row without the reserved gloss line; see KeyboardMetrics.candidateRowHeightVp. */
@@ -3889,7 +3894,7 @@ struct KeyboardView {
               .fontFamily(this.candidateFontFamily())
               .maxLines(1)
           } else {
-            // 「候选栏预编辑：不显示」：这一行保留位置但不显示拼写，不过短语中已选定的部分和本地模式的触发符仍会显示。
+            // 拼写写在输入框里：这一行保留位置但不画拼写，候选不会因此上下移动；短语中已选定的部分和本地模式的触发符仍会显示。
             Text(this.visibleComposition().text)
               .fontSize(PREEDIT_FONT_SIZE)
               .letterSpacing(PREEDIT_LETTER_SPACING)

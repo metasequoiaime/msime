@@ -62,6 +62,25 @@ export class SchemeCompositionPolicy {
       : editing;
   }
 
+  /** 手机写进输入框的拼音分词形式：全拼九键有读音时就是读音（`ni'hao`），绝不是按下的数字，引擎算不出读音时才退回 `preedit`；其他方案都是 `preedit`（笔画是字形，韩语等是写出来的字）。 */
+  static fieldSpelling(
+    rulesScheme: number,
+    editing: string,
+    preedit: string,
+    nineKeyReading: string = "",
+  ): string {
+    return SchemeCompositionPolicy.drawsNineKeyReading(rulesScheme, editing, nineKeyReading)
+      ? nineKeyReading
+      : preedit;
+  }
+
+  /** 读音只画在候选栏上、不写进输入框的组字：全拼 14 键的组码（`fourteenKey` 指会话开着 14 键网格），以及日语的假名读音。英文和本地模式下 `rulesScheme` 是 -1，照常写进输入框。 */
+  static keepsReadingOnStrip(rulesScheme: number, fourteenKey: boolean): boolean {
+    return (
+      rulesScheme === SchemeTraits.JAPANESE || (rulesScheme === SchemeTraits.QUANPIN && fourteenKey)
+    );
+  }
+
   /** The caret within `reading`: the Engine's own in a spelling, the end of a composition the scheme keeps the caret at the end of. 九键读音和数字长度不同，引擎的光标是数字串里的位置，所以画读音时光标在末尾。 */
   static caret(
     rulesScheme: number,
