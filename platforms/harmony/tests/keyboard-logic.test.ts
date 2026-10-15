@@ -3127,6 +3127,37 @@ group("九键外框底行：符 | 123 | 空格 | 中 | 回车，数字层把 符
   );
 });
 
+group("26 键底行与九键一样：符 | 123 | 空格 | 中 | 回车；14 键和大千注音保留逗号句号", () => {
+  const leads = (
+    scheme: string,
+    english: boolean,
+    fourteenKey: boolean,
+    symbols: boolean,
+  ): boolean =>
+    KeyboardScheme.designRowLeadsWithSymbolPanel(
+      SchemeCompositionPolicy.selectedRulesScheme(scheme, english, "none"),
+      KeyboardScheme.usesFourteenKeyFace(fourteenKey, english, "none"),
+      symbols,
+    );
+  for (const scheme of ["quanpin", "shuangpin", "wubi", "korean", "vietnamese", "tibetan"]) {
+    check(leads(scheme, false, false, false), `${scheme} 的 26 键字母层以 符 打头`);
+    check(leads(scheme, true, false, false), `${scheme} 切到英文仍以 符 打头`);
+    check(!leads(scheme, false, false, true), `${scheme} 的符号行不带 符`);
+  }
+  check(!leads("quanpin", false, true, false), "14 键第三行已有 符，底行保留逗号句号");
+  check(leads("quanpin", true, true, false), "14 键切到英文画 26 键，底行以 符 打头");
+  check(!leads("zhuyin", false, false, false), "大千注音保留逗号句号");
+  check(leads("zhuyin", true, false, false), "注音切到英文画 26 键，底行以 符 打头");
+  check(
+    KeyboardScheme.designRowLeadsWithSymbolPanel(
+      SchemeCompositionPolicy.selectedRulesScheme("zhuyin", false, "unicode"),
+      false,
+      false,
+    ),
+    "本地模式画 26 键，底行以 符 打头",
+  );
+});
+
 console.log("NumberSymbolLayout");
 
 function texts(row: LayerKey[]): string {

@@ -227,6 +227,8 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 触屏的拼音九键和笔画键盘共用九键外框的底行（`nineKeyActionRow`，键序和份额在 `NineKeyLayout.actionRow`）：`符 1.05 | 123 1.25 | 空格 4.2 | 中/英 1.05 | 回车 1.6`，与 iOS、Android 相同。符 打开符号面板，九键上打开面板只走它和长按 123。拼音网格的数字层只有 1–9，所以那一层底行是 `九键 | 空格 | 0 | 中/英 | 回车`，0 占 符 让出的同一份宽度。假名网格、手写和 2in1 屏幕键盘仍用共享的 `classicActionRow`。
 
+触屏 26 键一族（全拼、双拼、五笔、英文、韩文、越南语等）的字母层与九键、搜狗一样，设计底行（`designActionRow`）换成 `符 1.05 | 123 1.25 | 空格 4 | 中/英 1.05 | 回车 1.9`，不放逗号句号，中英文模式相同（`KeyboardScheme.designRowLeadsWithSymbolPanel`）。符 同样打开符号面板、记作 `SoftSymbol`。14 键（第三行左端已有 符）、大千注音和它沿用的共享符号行仍是 `123 | ， | 空格 | 。 | 中/英 | 回车`，123 / #+= 层自带底行。
+
 拼音网格左上角的 @#（1 键）不打开符号面板：短按把当前模式的常用标点放进候选条，就是逗号长按的那一组（`QuickPunctuationPolicy.entries`，中文模式是 `， 。 ？ ！ 、 ； ：`），组字中也一样。点选一个与侧栏标点一样交给 Engine 的标点处理（组字中先上屏首选），候选条随即清空；Engine 下一次回报候选（`onChanged`）或打开别的界面时换回 Engine 的候选。长按仍输入 1。
 
 ## 全拼九键的三栏展开面板
@@ -239,7 +241,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 ## 全拼 14 键
 
-触屏方案 `QUANPIN_FOURTEEN_KEY`（preferenceId 和 layout 都是 `fourteen_key`，卡片「拼 14」，追加在方案表末尾，默认不启用），把 QWERTY 上相邻两个字母合成一键：`QW ER TY UI OP` / `AS DF GH JK L`（不缩进）/ `[符/分词] ZX CV BN M [⌫]`，四行与 26 键等高，底行就是 26 键的 `actionRow`。键表在 `keyboard/input/FourteenKeyLayout.ts`，与 Android、iOS 和引擎 `KeyGrid::FourteenKey` 是同一张表，`scripts/test-fourteen-key-table.py` 核对。手机和平板提供，2in1 与九键一样不提供：选择器里过滤掉，同步过来的 `fourteen_key` 在 2in1 上画 26 键、不开网格。
+触屏方案 `QUANPIN_FOURTEEN_KEY`（preferenceId 和 layout 都是 `fourteen_key`，卡片「拼 14」，追加在方案表末尾，默认不启用），把 QWERTY 上相邻两个字母合成一键：`QW ER TY UI OP` / `AS DF GH JK L`（不缩进）/ `[符/分词] ZX CV BN M [⌫]`，四行与 26 键等高，底行是 `123 | ， | 空格 | 。 | 中/英 | 回车`（26 键换成了 `符 | 123 | 空格 | 中/英 | 回车`，14 键第三行左端已经有 符，保留带逗号句号的这一行）。键表在 `keyboard/input/FourteenKeyLayout.ts`，与 Android、iOS 和引擎 `KeyGrid::FourteenKey` 是同一张表，`scripts/test-fourteen-key-table.py` 核对。手机和平板提供，2in1 与九键一样不提供：选择器里过滤掉，同步过来的 `fourteen_key` 在 2in1 上画 26 键、不开网格。
 
 点一下经 `pressGridKey`（NAPI `gridKey`，`msime_client_grid_key`）送这一组的首字母；会话的网格是 `keyGrid`（`KeyGrid` 的 0 / 1 / 2，与 C ABI 一致），建会话、获得焦点、词库维护后重建这三处都重发 `setKeyGrid`。组字不写进输入框，读音行显示 `nine_key_reading`；拼音选择条在读音右侧横向滚动（读音最多占半行），不盖住候选，在 123 层和三栏面板开着时照样画；展开候选用九键的三栏面板（`NineKeyPanelPolicy.threeColumn` 放宽到 14 键）。第三排左端键组字时是「分词」（送 `'`），空闲时是「符」（打开符号面板），两种状态都记作 `SoftSymbol`。两个字母的键长按弹出这两个字母（复用 `SURFACE_NINE_KEY_HOLD`），选中后先结束组字再上屏，L、M 不弹。`qwertyLettersShowing` 不含 14 键，所以没有滑行；没有 Shift、按键气泡、双拼提示和角标。英文画 26 键，`selectEnglish` 不改写 `touch_keyboard_layout`，切回中文恢复 14 键；密码框、网址框（`prefersFullFace`）和本地模式画 26 键；123 与 26 键相同，是一行数字。组字中在 123 层点字符、打开符号或表情面板这些走 `commitRaw` 的路径，Engine 对 14 键结束组字取首选，不会把组码原样上屏。
 
