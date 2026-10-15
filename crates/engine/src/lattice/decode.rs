@@ -1490,3 +1490,7 @@ mod prefix_tests;
 #[cfg(test)]
 #[path = "decode_outgoing_tests.rs"]
 mod outgoing_tests;
+
+#[cfg(test)]
+#[path = "decode_entry_tests.rs"]
+mod entry_tests;
