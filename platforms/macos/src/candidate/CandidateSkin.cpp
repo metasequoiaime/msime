@@ -130,12 +130,9 @@ void DeriveSelectedForegrounds(SkinTokens &tokens, bool text, bool number)
 ResolvedSkin StyledCandidateSkin(ResolvedSkin skin, const CandidateWindowStyle &style)
 {
     SkinTokens &tokens = skin.tokens;
-    // 用户圆角扣除有效内边距，选中与悬停共享同一内轮廓。
     if (style.cornerRadius)
         tokens.radius = static_cast<float>(std::clamp(*style.cornerRadius, 0.0, 32.0));
     if (style.padding) tokens.pad = static_cast<float>(std::clamp(*style.padding, 0.0, 16.0));
-    if (style.cornerRadius)
-        tokens.candidateRadius = tokens.selectedRadius = std::max(0.0f, tokens.radius - std::max(2.0f, tokens.pad));
     const float opacity = static_cast<float>(std::clamp(style.opacity, 0.0, 1.0));
     tokens.surface.a *= opacity;
     tokens.border.a *= opacity;
@@ -145,6 +142,15 @@ ResolvedSkin StyledCandidateSkin(ResolvedSkin skin, const CandidateWindowStyle &
     tokens.candidateRadius = static_cast<float>(tokens.candidateRadius * scale);
     tokens.selectedRadius = static_cast<float>(tokens.selectedRadius * scale);
     tokens.pad = static_cast<float>(tokens.pad * scale);
+    // 行圆角在缩放之后推导：边框不随整体大小变粗，缩放后的内边距和它比较才是窗口实际留的距离。用户圆角扣除有效内边距，选中与悬停共享同一内轮廓；只调内边距时保留皮肤的行圆角，内边距小到高亮的角会伸出卡片时才把它调圆。
+    if (style.cornerRadius)
+        tokens.candidateRadius = tokens.selectedRadius = std::max(0.0f, tokens.radius - CandidateInset(tokens));
+    else if (style.padding)
+    {
+        const float floor = CandidateRowRadiusFloor(tokens);
+        tokens.candidateRadius = std::max(tokens.candidateRadius, floor);
+        tokens.selectedRadius = std::max(tokens.selectedRadius, floor);
+    }
     skin.decorationTopDip *= scale;
     skin.decorationWidthDip *= scale;
     skin.minWidthDip *= scale;

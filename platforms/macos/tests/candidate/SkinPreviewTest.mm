@@ -285,7 +285,7 @@ static void TestCandidateWindowStyle(MSIMEAppearancePreferences *preferences, NS
         NSSlider *padding = (id)FindControl(root, @"内边距");
         NSButton *followPadding = (id)FindControl(root, @"内边距跟随皮肤");
         assert([padding isKindOfClass:NSSlider.class] && [followPadding isKindOfClass:NSButton.class]);
-        assert(padding.minValue == 2 && padding.maxValue == 16);
+        assert(padding.minValue == 0 && padding.maxValue == 16);
         [preferences applySharedCandidatePreferences:@{}];
         assert(preferences.candidatePadding == nil && !followPadding.enabled);
         assert(padding.integerValue == lround([preferences resolvedSkinForDark:NO].tokens.pad));
@@ -299,9 +299,12 @@ static void TestCandidateWindowStyle(MSIMEAppearancePreferences *preferences, NS
         }
         [preferences applySharedCandidatePreferences:@{@"candidate_padding": @0}];
         assert([preferences.candidatePadding isEqual:@0]);
+        // 0pt 仍留出 1pt 细边框的宽度（#7974），所以 1pt 和 0pt 一样高，16pt 比它多 2 × 15pt 而不是 2 × 16pt。
         const CGFloat minimumPaddingHeight = preview.previewContentHeight;
+        preferences.candidatePadding = @1;
+        assert(std::abs(preview.previewContentHeight - minimumPaddingHeight) < .01);
         preferences.candidatePadding = @16;
-        assert(std::abs(preview.previewContentHeight - minimumPaddingHeight - 28.0 * preferences.candidateScalePercent / 100.0) < .01);
+        assert(std::abs(preview.previewContentHeight - minimumPaddingHeight - 30.0 * preferences.candidateScalePercent / 100.0) < .01);
         preferences.candidatePadding = @0;
         [preferences applySharedCandidatePreferences:@{@"candidate_padding": NSNull.null}];
         assert(preferences.candidatePadding == nil);

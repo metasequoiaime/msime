@@ -3586,8 +3586,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _candidateCornerRadiusReset.accessibilityLabel = @"圆角大小跟随皮肤";
     NSStackView *cornerRadiusControls = [NSStackView stackViewWithViews:@[ _candidateCornerRadiusSlider, _candidateCornerRadiusLabel, _candidateCornerRadiusReset ]];
     cornerRadiusControls.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    // 2pt 起：候选窗边缘至少留 2pt（InputController 的 inset），更小的值画出来一样。
-    _candidatePaddingSlider = styleSlider(2.0, 16.0, 1.0, @"内边距");
+    // 0pt 起（#7974）：候选窗边缘至少留出边框的宽度（CandidateInset），默认皮肤的 1pt 细边框下 0 与 1 画出来一样，无边框的皮肤可以贴边。
+    _candidatePaddingSlider = styleSlider(0.0, 16.0, 1.0, @"内边距");
     _candidatePaddingLabel = styleValueLabel();
     _candidatePaddingReset = [NSButton buttonWithTitle:@"跟随皮肤" target:self action:@selector(resetCandidatePadding:)];
     _candidatePaddingReset.accessibilityLabel = @"内边距跟随皮肤";

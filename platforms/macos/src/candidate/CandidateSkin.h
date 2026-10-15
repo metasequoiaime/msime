@@ -1,6 +1,8 @@
 // Adapted from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <functional>
 #include <optional>
@@ -47,6 +49,20 @@ struct SkinTokens
 inline float CandidateRowRadius(const SkinTokens &tokens, bool highlighted)
 {
     return highlighted ? tokens.selectedRadius : tokens.candidateRadius;
+}
+
+// 卡片边缘到候选行的实际距离：内边距可以小到 0，但选中高亮不能压住卡片的边框，所以至少留出边框的宽度（#7974）。`tokens` 已经按整体大小缩放过时，内边距随之缩放，边框不变粗，下限也就不变。
+inline float CandidateInset(const SkinTokens &tokens)
+{
+    return std::max({0.0f, tokens.borderWidth, tokens.pad});
+}
+
+// 候选行的圆角至少要多大，高亮的角才不伸出卡片的圆角：两个圆角在对角线方向相切时 r = R - d(2 + √2)，卡片圆角 R 和内边距 d 都从边框内沿量起（窗口按矩形裁掉描边外侧的一半）。内边距够大时结果是 0，不改变行圆角。
+inline float CandidateRowRadiusFloor(const SkinTokens &tokens)
+{
+    const float halfBorder = std::max(0.0f, tokens.borderWidth) / 2.0f;
+    const float inset = CandidateInset(tokens) - halfBorder;
+    return std::max(0.0f, tokens.radius - halfBorder - inset * (2.0f + std::sqrt(2.0f)));
 }
 
 // The user's own 候选窗 style from the shared preferences: candidate_scale_percent and candidate_opacity_percent as factors, candidate_corner_radius in points, none to keep the theme's or the package's card radius, and candidate_padding in points, none to keep the theme's or the package's `pad`. The defaults leave a skin exactly as it was resolved.
