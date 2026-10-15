@@ -38,3 +38,5 @@ CI 运行 `38689785228` 在 3504 项中有 1 项失败：Linux AI 凭据保存�
 ## Existing notes audit
 
 [设置重载隔离宿主代次](../../implemented/bug-fix/2026-10-15-settings-reload-owner-generation.md)持有设置快照采纳规则，不覆盖 AI 子请求，属于部分重叠。[AI 回复模板代次](../../implemented/simplification/2026-10-12-ai-reply-generation.md)提供公共代次工具的现成做法，功能无关。[Windows 原生 AI 页](../../implemented/feature/2026-10-11-windows-settings-ai-page.md)记录原生宿主操作归属，功能边界不同，本次只修改共享 hook。
+
+[凭据草稿保留](2026-10-16-provider-credential-draft.md)管理成功回执后的逐字段清理，保留操作期间的新输入。

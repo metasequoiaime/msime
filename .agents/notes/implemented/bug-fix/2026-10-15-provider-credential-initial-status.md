@@ -26,3 +26,5 @@ Status: implemented
 ## Existing notes audit
 
 检索活跃笔记中的 `useProviderCredentials`、凭据状态和请求归属，仅 [AI 配置与凭据请求归属](../../implemented/bug-fix/2026-10-15-ai-assistant-preferences-owner.md)部分重叠：它使旧网络请求失效，本篇管理已加载状态的发布顺序，保留并互链。其余平台原生凭据、缓存和文件校验笔记不涉及共享 hook 的初始读取，无相同决定。
+
+[凭据草稿保留](2026-10-16-provider-credential-draft.md)管理成功回执后的逐字段清理，保留操作期间的新输入。
