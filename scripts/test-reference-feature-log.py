@@ -320,7 +320,7 @@ REVIEWED_COMMITS: dict[str, str] = {
     ),
     "feat(ui): add a WeChat-inspired skin with light/dark variants and synchronized candidate and toolbar previews": (
         "Replaced by the global themes: the built-in skins are gone and the five built-in themes of "
-        "crates/client-core/src/skin/theme.rs, each one fixed palette for the candidate window, "
+        "crates/client-core/src/theme.rs, each one fixed palette for the candidate window, "
         "toolbar and keyboard, take their place, previewed by "
         "packages/ui/src/candidate/appearance-candidate-preview.tsx and the theme cards of packages/ui/src/index.tsx."
     ),
@@ -418,7 +418,7 @@ REVIEWED_COMMITS: dict[str, str] = {
     ),
     "feat: add Fluent light theme and dynamic theme switching for settings UI": (
         "html[data-theme] light and dark palettes in packages/ui/src/styles.css; the candidate skin is "
-        "replaced by the global themes of crates/client-core/src/skin/theme.rs, where `system` follows the "
+        "replaced by the global themes of crates/client-core/src/theme.rs, where `system` follows the "
         "light/dark mode on the platform's own tokens."
     ),
     "feat: hide ftb wnd immediately when tsf ime deactiavted": (

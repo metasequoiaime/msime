@@ -26,7 +26,7 @@ export type MusicPreferences = { enabled: boolean; pack: string; volume: number 
 /** Mirrors `client-core::preferences::AchievementPreferences`. */
 export type AchievementPreferences = { enabled: boolean };
 
-/** Mirrors `client-core::plugins::EffectStyle`: what a host draws on keys and commits. */
+/** 对应 `client-core::preferences::EffectStyle`：宿主在按键和上屏时画的特效。 */
 export type EffectStyle = "off" | "flash" | "sparks" | "power_mode";
 
 /** Mirrors `client-core::preferences::PluginPreferences`. The document leaves the whole section out while it is at these defaults, so a page reading one merges it over `defaultPluginPreferences`. */
@@ -56,9 +56,9 @@ export type PluginPreferences = {
   helpcode_pack_shuangpin: string;
 };
 
-/** `client-core::plugins::DEFAULT_SOUND_PACK`. */
+/** `client-core::preferences::DEFAULT_SOUND_PACK`。 */
 export const DEFAULT_SOUND_PACK = "default";
-/** `client-core::plugins::DEFAULT_MELODY_PACK`. */
+/** `client-core::preferences::DEFAULT_MELODY_PACK`。 */
 export const DEFAULT_MELODY_PACK = "twinkle";
 /** `PluginPreferences::MAX_COMMAND_TABLES`. */
 export const MAX_COMMAND_TABLES = 16;
