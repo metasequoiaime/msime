@@ -640,7 +640,7 @@ install(FILES data/voice/start.pcm data/voice/end.pcm data/voice/SOURCE.md
         DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/voice")
 # `msime-linux-handwriting --local` 识别用的 zinnia 模型及其 LGPL-2.1 许可证。它有 26.8 MB，不进版本库：scripts/fetch_handwriting_model.py 把 resources/handwriting-model.lock.json 锁定的文件下载到 target/handwriting-model，存在时这里取用，并逐个文件按锁校验。MSIME_BUNDLE_HANDWRITING_MODEL 打开时（默认如此，packaging/ 下的发行版构建和 nix 都依赖这个默认值）打包必须带上模型，否则包里的离线识别器第一笔就会失败；关闭时（我们自己发布的 deb/rpm，由 package-container.sh 关闭）不安装模型，由设置应用按需下载到用户目录。开发安装没有模型时，只是 --local 报告未安装模型。
 # 模型只认汉字：不提供手写的版本（版本表 `features.handwriting` 为 false 的日文、越南文和藏文版）即使下载或指定了模型，也既不装模型也不装它的许可证，打包时也不要求有模型。
-# 我们自己发布的 deb/rpm（package-container.sh）传 -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF：包里不带模型和它的许可证，设置应用在需要时按同一份锁把两者下载到用户的状态目录（client-core 的手写资源包）。发行版仓库的包不传这个选项，照旧随包。
+# 我们自己发布的 deb/rpm（package-container.sh）传 -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF：包里不带模型和它的许可证，设置应用在需要时按同一份锁把两者下载到用户的状态目录（client-providers 的手写资源包）。发行版仓库的包不传这个选项，照旧随包。
 if(NOT MSIME_EDITION_HANDWRITING)
   if(MSIME_HANDWRITING_MODEL_DIR)
     message(STATUS "Edition ${MSIME_EDITION} offers no handwriting; not installing the model in ${MSIME_HANDWRITING_MODEL_DIR}")

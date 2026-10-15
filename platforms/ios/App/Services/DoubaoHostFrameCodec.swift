@@ -19,9 +19,7 @@ private func msimeClientDoubaoAudioFrame(_ sequence: Int32, _ pcm: UnsafePointer
 @_silgen_name("msime_client_string_free")
 private func msimeClientStringFree(_ value: UnsafeMutablePointer<CChar>?)
 
-/// Swift closures over the host-api Doubao C ABI. The frame layout stays in
-/// client-core; this adapter only owns pointer lifetime and response JSON
-/// extraction for the iOS transport coordinator.
+/// Swift closures over the host-api Doubao C ABI. The frame layout stays in client-providers; this adapter only owns pointer lifetime and response JSON extraction for the iOS transport coordinator.
 enum DoubaoHostFrameCodec {
   private static let maximumTranscriptCharacters = 10_000
 

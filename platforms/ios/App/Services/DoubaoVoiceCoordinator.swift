@@ -64,9 +64,7 @@ final class DoubaoVoiceCoordinator {
     try await receiveUntilFinal(generation: generation)
   }
 
-  /// Runs a complete PCM recording using a host-injected codec. The codec is
-  /// normally backed by `MSIMEClientSession` and therefore keeps wire layout
-  /// ownership in client-core instead of duplicating it in Swift.
+  /// Runs a complete PCM recording using a host-injected codec. The codec is normally backed by `MSIMEClientSession` and therefore keeps wire layout ownership in client-providers instead of duplicating it in Swift.
   func run(endpoint: URL, handshake: DoubaoHandshake, generation: UInt64,
            pcm: Data, codec: FrameCodec) async throws {
     try await transport.start(endpoint: endpoint, handshake: handshake)
@@ -139,8 +137,7 @@ final class DoubaoVoiceCoordinator {
   }
 }
 
-/// Host-injected Doubao transport and frame codec. The wire layout remains in
-/// client-core; the app only supplies the platform transport and codec bridge.
+/// Host-injected Doubao transport and frame codec. The wire layout remains in client-providers; the app only supplies the platform transport and codec bridge.
 final class DoubaoVoiceClient: @unchecked Sendable {
   enum Failure: Error { case emptyTranscript }
 

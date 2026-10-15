@@ -8,7 +8,7 @@ Xcode 工程由 XcodeGen 从 `project.yml` 生成，`project.yml` 是唯一权�
 
 `apps/desktop/src-tauri/gen/apple` 下的 Tauri 生成工程是共享设置界面的构建产物来源，使用 iOS 17 最低版本和同一 `group.app.msime.ios` App Group。它服务于原生宿主承载共享界面这一用途，**不作为 iOS 的产品 App 分发或启动**。原生入口只解析系统提供的共享容器 URL 并注入状态根；偏好校验、并发 revision 和首次 HostOptions 默认文档仍由 Rust 共享层负责。生成工程链接系统 SQLite，并从既有 `target/ios/EngineResources` 嵌入固定词库。
 
-共享 Tauri 语音面板通过 `tauri-mobile-platform` 在 App 进程内使用 `AVAudioRecorder` 录制 16 kHz、单声道、PCM16 WAV，最长 60 秒；停止后把有界录音上传到当前 `PreferencesStore` 中选择的服务。OpenAI、SiliconFlow 和 Groq 使用 HTTPS multipart 批量转写；Doubao 使用 WSS、共享 `client-core` 鉴权策略和帧编解码 ABI，并按 Windows 的 200 ms PCM16 分帧发送。两种传输都禁止重定向并限制接口、模型、token、音频、消息、累计响应和识别文本大小；取消会停止录音或网络请求并删除临时文件。provider 凭据只在 Rust 与原生插件之间传递，不进入 WebView、日志或键盘扩展。
+共享 Tauri 语音面板通过 `tauri-mobile-platform` 在 App 进程内使用 `AVAudioRecorder` 录制 16 kHz、单声道、PCM16 WAV，最长 60 秒；停止后把有界录音上传到当前 `PreferencesStore` 中选择的服务。OpenAI、SiliconFlow 和 Groq 使用 HTTPS multipart 批量转写；Doubao 使用 WSS、共享 `client-providers` 鉴权策略和帧编解码 ABI，并按 Windows 的 200 ms PCM16 分帧发送。两种传输都禁止重定向并限制接口、模型、token、音频、消息、累计响应和识别文本大小；取消会停止录音或网络请求并删除临时文件。provider 凭据只在 Rust 与原生插件之间传递，不进入 WebView、日志或键盘扩展。
 
 **iOS 的产品宿主是 `platforms/ios` 的原生 App（`MSIMEApp`）**，它承载应用生命周期、图标与设置界面，并嵌入 `MSIMEKeyboardExtension`。Tauri/React 在 iOS 上是**公共组件**——提供跨平台共享的功能与界面，由原生宿主按需承载——**不是产品本体，也不作为独立 App 启动**。扩展继续从 `platforms/ios` 编译唯一一份原生键盘、共享 UI、宿主桥接与平台服务源码，不依赖常驻桌面服务；App 与扩展各自打包已校验词库，并通过 App Group 共享状态。真机 target 使用锁定的 ML Kit Digital Ink 8.0.0，arm64 模拟器使用明确的无识别 fallback。
 

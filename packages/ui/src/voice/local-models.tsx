@@ -30,7 +30,7 @@ export {
   visibleLocalModels,
 } from "./local-model-helpers";
 
-/** One catalog model as the host reports it, the shape of `LocalModelStatus` in `msime_client_core::voice::local_models`. */
+/** One catalog model as the host reports it, the shape of `LocalModelStatus` in `msime_client_providers::voice::local_models`. */
 export type LocalVoiceModel = {
   id: string;
   title: string;
