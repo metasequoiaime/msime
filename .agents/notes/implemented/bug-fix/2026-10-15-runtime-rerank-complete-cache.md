@@ -16,6 +16,8 @@ Status: implemented
 
 部分共享位置的归一化复用由[共享状态归一化](2026-10-15-runtime-rerank-normalization-reuse.md)接续；完全命中与上一轮缓存寿命继续遵循本篇。
 
+末位置的完整前向由[候选末位置按需前向](2026-10-15-runtime-defer-terminal-forward.md)接入延迟计算；本篇的累计分、共享和缓存失效规则继续保留。
+
 ## Alternatives considered
 
 - 缩小候选集或跳过模型：可以直接减少推理，但会改变排序质量与既有门控，本次不采用。

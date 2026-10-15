@@ -14,6 +14,8 @@ Status: implemented
 
 检索活跃笔记中的 `Reranker`、共享前缀与归一化：[完全命中缓存](../../implemented/bug-fix/2026-10-15-runtime-rerank-complete-cache.md)部分重叠，继续持有上一轮完整状态，本篇补充分叉状态复用；[静态评分缓冲](../../implemented/testing/2026-10-15-rerank-static-score-buffer.md)、[神经排序缓冲](../../implemented/testing/2026-10-14-neural-rerank-score-buffers.md)属于模型外的缓冲管理；[九键句子设置](../../implemented/feature/2026-10-09-nine-key-sentence-options.md)归引擎内模型配置；其它命中属于词库查询、模糊路径或非重排归一化，均无关。没有完全吸收或过时提案。
 
+末位置的完整前向由[候选末位置按需前向](2026-10-15-runtime-defer-terminal-forward.md)接入延迟计算；本篇的累计分、共享和缓存失效规则继续保留。
+
 ## Alternatives considered
 
 - 缓存每状态完整词表分布：可直接读取任意 token，但内存随词表大小乘位置数增长，键盘扩展不承担这项成本。
