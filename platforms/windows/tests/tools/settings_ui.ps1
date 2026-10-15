@@ -157,6 +157,7 @@ try {
         $preferences.settings_theme = $theme
         $preferences.theme = $theme
         $preferences.scheme = 'quanpin'
+        $preferences.default_ime_mode = 'chinese'
         $preferences.clipboard_history = $true
         $document = @{format_version = 1; revision = 1; preferences = $preferences}
         [IO.File]::WriteAllText((Join-Path $state 'preferences.json'), ($document | ConvertTo-Json -Depth 64))
@@ -238,6 +239,17 @@ try {
             Start-Sleep -Milliseconds 500
             Save-Window $window "$theme-scheme-$scheme.png"
             Write-Host "$theme $scheme selected and saved"
+            if ($scheme -ne 'quanpin') {
+                Open-Page $window 'toolbar'
+                $expected = if ($scheme -eq 'shuangpin') { '双' } else { '五' }
+                $deadline = [DateTime]::UtcNow.AddSeconds(10)
+                do {
+                    Start-Sleep -Milliseconds 200
+                    $badge = Find-ByName (Find-ById $window 'settings-content') $expected
+                } while (-not $badge -and [DateTime]::UtcNow -lt $deadline)
+                if (-not $badge -or $badge.Current.IsOffscreen) { throw "Toolbar preview does not reflect scheme: $scheme" }
+                Open-Page $window 'typing'
+            }
         }
         # 搜索必须打开所属页内标签，不能只打开候选窗口后留下不可见的目标。
         Open-Page $window 'candidate'

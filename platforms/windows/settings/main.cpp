@@ -10854,6 +10854,10 @@ private:
     Canvas::SetLeft(handle, (metrics.logo + 3) * scale);
     Canvas::SetTop(handle, height * 0.269);
     canvas.Children().Append(handle);
+    msime::windows::ToolbarLanguageState language;
+    language.scheme = msime::windows::scheme::scheme_from_name(utf8(
+        hstring(document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W))));
+    language.mode = msime::windows::scheme::input_mode(language.scheme);
     for (size_t index = 0; index < components.size(); ++index) {
       const auto &component = components[index];
       const auto rect = msime::windows::toolbar_cell(index, metrics);
@@ -10863,7 +10867,9 @@ private:
       Canvas::SetLeft(cell, rect.left * scale);
       Canvas::SetTop(cell, rect.top * scale);
       const bool state =
-          component.button == msime::windows::kToolbarFullwidth
+          component.button == msime::windows::kToolbarLanguage
+              ? document_.String(L"default_ime_mode", L"chinese") != L"english"
+          : component.button == msime::windows::kToolbarFullwidth
               ? document_.String(L"character_width", L"halfwidth") ==
                     L"fullwidth"
           : component.button == msime::windows::kToolbarPunctuation
@@ -10871,7 +10877,8 @@ private:
           : component.button == msime::windows::kToolbarCharacterSet
               ? document_.Boolean(L"traditional_chinese_output", false)
               : true;
-      const auto icon = msime::windows::toolbar_icon(component.button, state);
+      const auto icon =
+          msime::windows::toolbar_icon(component.button, state, language);
       FrameworkElement glyph =
           icon.codepoint ? make_icon(icon.codepoint, metrics.icon * scale,
                                      to_color(colors.text))
@@ -10887,16 +10894,25 @@ private:
       canvas.Children().Append(cell);
     }
     toolbar_preview_host_.Background(brush(to_color(colors.surface)));
-    toolbar_preview_host_.BorderBrush(brush(to_color(colors.border)));
     const double border = colors.border_width * scale;
-    toolbar_preview_host_.BorderThickness(Thickness{border, border, border, border});
     const double radius = colors.radius * scale;
     toolbar_preview_host_.CornerRadius(
         CornerRadius{radius, radius, radius, radius});
-    toolbar_preview_host_.Child(canvas);
+    // 边框叠在固定尺寸的内容内，避免 XAML Border 把外观撑大并移动图标。
+    Grid content;
+    content.Width(width);
+    content.Height(height);
+    content.Children().Append(canvas);
+    Border outline;
+    outline.BorderBrush(brush(to_color(colors.border)));
+    outline.BorderThickness(Thickness{border, border, border, border});
+    outline.CornerRadius(CornerRadius{radius, radius, radius, radius});
+    outline.IsHitTestVisible(false);
+    content.Children().Append(outline);
+    toolbar_preview_host_.Child(content);
     const auto status = document_.Boolean(L"floating_toolbar.enabled", true)
-                            ? L"调整按钮和尺寸，预览会同步变化。"
-                            : L"工具栏已隐藏，开启后使用以下外观。";
+                            ? L"按默认输入状态预览，调整按钮和尺寸会同步变化。"
+                            : L"工具栏已隐藏，按默认输入状态预览开启后的外观。";
     toolbar_preview_size_.Text(hstring(number_text(width) + L" × " +
                                        number_text(height) + L" DIP · " +
                                        status));
