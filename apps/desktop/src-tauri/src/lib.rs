@@ -3580,23 +3580,18 @@ fn launch_route_from_args(args: &[String]) -> Option<SurfaceRoute> {
     })
 }
 
-/// What a second launch should bring to the front.
+/// 再次启动时应该把哪个界面带到前台。
 ///
-/// Every surface this product opens for itself names one: the Windows host builds `--route=` into
-/// the command line in `ShellLauncher.cpp`, and the tray, the toolbar and the panels all go through
-/// it. So a launch *without* a route is the user starting the application themselves - the Start
-/// menu entry, a shortcut, the installed icon - and the window they meant is the settings window.
+/// 产品自己打开的界面都带路由：Windows 宿主在 `platforms/windows/src/system/ShellLauncher.cpp` 里把 `--route=` 拼进命令行，托盘、悬浮工具栏和原生设置窗口里的面板入口都经过它。Windows 的设置本身是 WinUI 3 原生程序 `msime-client-settings.exe`（`platforms/windows/settings/`），托盘的设置项和开始菜单都打开它，不打开本程序；按 `platforms/windows/src/system/ShellSurfaces.h` 的 `shell_executable_names`，本程序 `MSIME.exe` 在 Windows 上只收到面板路由。所以不带路由的启动是用户自己启动本程序：Linux 的桌面入口，macOS 的 Finder 或启动台，Windows 上则是直接运行 `MSIME.exe`；这时用户要的是设置窗口。
 ///
-/// Doing nothing in that case is what makes a second launch look broken: the running instance stays
-/// behind whatever is in front, and the click appears to be ignored. The reference activates its
-/// existing window here rather than exiting silently.
+/// 这种情况下什么都不做，再次启动就像坏了：已在运行的实例留在前台窗口后面，点击看起来被忽略。参照实现在这里激活已有窗口，而不是悄悄退出。
 fn second_launch_route(args: &[String]) -> SurfaceRoute {
     launch_route_from_args(args).unwrap_or(SurfaceRoute::Settings(None))
 }
 
-/// Whether this macOS launch joins the single settings instance.
+/// 这次 macOS 启动是否并入唯一的设置实例。
 ///
-/// Only the settings window is one per user, as on Windows where `settings_launcher.cpp` re-routes the existing window instead of starting another. Panel launches carry a per-session identity and options path in their environment and exit with their panel, so each keeps its own process. A launch without a route is Finder or Launchpad opening the application, which means the settings window.
+/// 每个用户只有设置窗口是单实例：再次启动设置时把路由交给已经打开的设置窗口，让它换到请求的页面，而不是另起一个。面板启动在环境变量里带着各自会话的身份和 options 路径，随面板一起退出，所以各自保留独立进程。Windows 与 Linux 不走这里，它们在 `run` 里让整个 Tauri 进程都注册单实例插件。不带路由的启动是 Finder 或启动台打开应用，指的就是设置窗口。
 #[cfg(target_os = "macos")]
 fn macos_settings_launch(route: Option<SurfaceRoute>) -> bool {
     route.is_none_or(|route| route.panel().is_none())
