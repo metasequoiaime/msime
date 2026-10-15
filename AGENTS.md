@@ -54,7 +54,7 @@
 - 各平台版本号（`platforms/<os>/version.txt` 及随它一起改的文件，macOS 还有 `build-number.txt`）先经普通 PR 合入 `develop`，再从包含它的 `develop` 切 release 分支，让 `main` 上的版本号始终来自 `develop`。
 - release 分支合入 `main` 用 merge commit，不要 squash：squash 会让 `develop` 的提交不在 `main` 的祖先里，下一次发版会在双方各自新增过的文件上冲突。
 - 各平台的 Release 工作流按触发分支给发布加后缀：`main` 不加（`android-v0.1.4`），`develop` 加 `-beta`（`android-v0.1.4-beta`），其他分支加 `-alpha`。后缀只在 tag、标题和发布说明上，包内版本号仍是 `X.Y.Z`；带后缀的发布一律标为 prerelease，应用内更新检查不会提供它，Homebrew cask 和 Linux 发行版包定义也只在 `main` 的正式版之后更新。网页引擎只能从 `main` 发布，后缀只出现在其他分支的构建产物里。
-- Release Android 的 `publish` 依赖 `device` job（`android-device.yml`，API 28 和 35 模拟器上跑 client-core 单测和装包验收），它不过就不发。不要为了赶发版把这个依赖去掉；它失败时先看上传的 logcat，确认是设备环境问题还是产品问题。
+- Release Android 的 `publish` 依赖 `device` job（`android-device.yml`，API 28 和 35 模拟器上跑 client-base、client-core、client-providers 和 client-services 单测和装包验收），它不过就不发。不要为了赶发版把这个依赖去掉；它失败时先看上传的 logcat，确认是设备环境问题还是产品问题。
 - 网页引擎（Release Web Engine）勾选 `publish` 时只能在 `main` 上运行，workflow 会拒绝其他分支：它同时发布 npm 包 `@msime/web-engine`，npm 的 `latest` 会被接入方的版本范围和不带版本号的 CDN 地址自动取走。只构建不发布时任何分支都可以。
 
 ## Worktree

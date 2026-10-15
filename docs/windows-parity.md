@@ -6,7 +6,7 @@
 
 ## 迁移范围与固定基线
 
-目标是迁移 MSIME-Windows 的完整功能，而不是语音、设置页或某台机器上跑得起来的子集。分工固定为：公共业务逻辑放共享 Rust 层（`crates/client-core`、`crates/input-runtime`、`crates/host-api`），公共管理界面放 Tauri 壳与共享 React 设置页（`apps/desktop/`、`packages/ui/`），输入算法与组合状态仍归 C++ Engine，Windows 侧保留 TSF DLL 与 Server 两个进程及其协议边界。
+目标是迁移 MSIME-Windows 的完整功能，而不是语音、设置页或某台机器上跑得起来的子集。分工固定为：公共业务逻辑放共享 Rust 层（`crates/client-base`、`crates/client-core`、`crates/client-services`、`crates/client-providers`、`crates/input-runtime`、`crates/host-api`），公共管理界面放 Tauri 壳与共享 React 设置页（`apps/desktop/`、`packages/ui/`），输入算法与组合状态仍归 C++ Engine，Windows 侧保留 TSF DLL 与 Server 两个进程及其协议边界。
 
 对照使用的是固定对象，不是某个仓库当天的 HEAD：
 
@@ -518,7 +518,7 @@ cargo run -p msime-input-runtime --example local_modes -- <verified-dictionary-d
 
 - **混输最小前缀的默认值**：来源固定对象 `467b9804`（包含 `1cf27e2f`）的 `installer/default_config/config.default.toml` 给出 5；门禁通过 `reference_source.py` 直接读取这个固定对象核对。
 
-快捷短语编码与来源一致，只能包含英文字母（来源 `dictionary_manager` 的 `valid_code`），导入时先转小写，`NH` 存为 `nh`。新增、编辑和导入里带数字的编码一律拒绝：设置页提示「快捷短语编码只能包含英文字母，长度 1 到 32。」，文本导入不收这一行，计入失败数并列在错误明细里（来源 `ImportQuickPhrase` 同样走 `append_error`，跳过数只留给重复行），个人词库 JSON 文件整份拒绝，设置页在预览时就指出是第几条。检查集中在写入新内容的几层（`quick_phrase_code_is_well_formed`，由 client-core 导入解析、`PersonalWord::validate_new`、host-api 的 `replacement_for_engine` 与 iOS 逐条校验新词条所用的 `msime_client_dictionary_validate`、账户写入前的 `validate_new_dictionary_value`、设置页个人词库 JSON 的预览校验）；读取已存条目、编辑或删除时对原条目的核对、云端拉回的条目仍用宽松检查。因此已经存有数字编码的条目照常出现在列表里，照常导出和同步，但在 K 模式下打不出来：引擎在 K 模式吞掉一切非字母按键，`quick_phrase_query` 也只认 a-z。这类条目可以删除，或改成纯字母编码后保存；只改权重也要先改编码。重新导入导出的文件时，这些行计入失败数。
+快捷短语编码与来源一致，只能包含英文字母（来源 `dictionary_manager` 的 `valid_code`），导入时先转小写，`NH` 存为 `nh`。新增、编辑和导入里带数字的编码一律拒绝：设置页提示「快捷短语编码只能包含英文字母，长度 1 到 32。」，文本导入不收这一行，计入失败数并列在错误明细里（来源 `ImportQuickPhrase` 同样走 `append_error`，跳过数只留给重复行），个人词库 JSON 文件整份拒绝，设置页在预览时就指出是第几条。检查集中在写入新内容的几层（`quick_phrase_code_is_well_formed`，由 client-services 导入解析、`PersonalWord::validate_new`、host-api 的 `replacement_for_engine` 与 iOS 逐条校验新词条所用的 `msime_client_dictionary_validate`、账户写入前的 `validate_new_dictionary_value`、设置页个人词库 JSON 的预览校验）；读取已存条目、编辑或删除时对原条目的核对、云端拉回的条目仍用宽松检查。因此已经存有数字编码的条目照常出现在列表里，照常导出和同步，但在 K 模式下打不出来：引擎在 K 模式吞掉一切非字母按键，`quick_phrase_query` 也只认 a-z。这类条目可以删除，或改成纯字母编码后保存；只改权重也要先改编码。重新导入导出的文件时，这些行计入失败数。
 
 增量记录（2026-09-21，每页候选项数量：macOS 把共享默认值改写掉了）：来源外观页的「每页候选项数量」提供 3–9，默认 6；共享偏好 `candidate_page_size` 接受 1–9，默认也是 6。macOS 这一侧是 `NormalizeCandidatePageSize`：只认 5、7、9，**其余一律改写成 9**。于是一个谁都没动过的设置，在这个平台上显示并保存为 9，而别的平台是 6；从别处写下的配置（另一个宿主、手改、云端同步回来的外观快照）带着 4 或 6 进来也会被静默改掉。云外观校验器 `MSIMECloudAppearanceCandidatePageSize` 同样只接受这三个值，一份别的宿主写的快照会被整条拒绝。
 
@@ -981,7 +981,7 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 
 保留策略删掉某天时必须连着删掉它的两个新轴，否则刚写完的文档过不了自己的校验、用户会因为一条陈旧条目丢掉整份历史；`reset` 连 `last_commit_ms` 一起清掉，它是重置后唯一还能说出用户情况的字段。两条都有用例。
 
-验证：`cargo test -p msime-client-core typing_statistics` 13 项、`apps/desktop` 全套 91 文件 806 条用例、HarmonyOS 逻辑回归 1204 条断言、Windows 纯逻辑用例全部通过；`cargo fmt` / `clippy` / `tsc --noEmit` 干净；设置页动作门控、配色对照、偏好字段对照三个静态检查通过；HarmonyOS 设置 bundle 已重新生成。渲染断言反向验证过（去掉速度里的 `han` 会让五条用例变红）。
+验证：`cargo test -p msime-client-services typing_statistics` 13 项、`apps/desktop` 全套 91 文件 806 条用例、HarmonyOS 逻辑回归 1204 条断言、Windows 纯逻辑用例全部通过；`cargo fmt` / `clippy` / `tsc --noEmit` 干净；设置页动作门控、配色对照、偏好字段对照三个静态检查通过；HarmonyOS 设置 bundle 已重新生成。渲染断言反向验证过（去掉速度里的 `han` 会让五条用例变红）。
 
 本批的验证空洞两处，写明而不是略过：`apps/desktop/src-tauri` 在本机被整包排除（缺 macOS app bundle 资源），所以 `panel_input.rs` 那处只核对了 `time::OffsetDateTime::hour` 在 vendored `time-0.3.55` 里的实际签名，没有编译过；Android、macOS、HarmonyOS 三个宿主的改动同样没有在各自工具链上编译，本机只有 Windows 交叉与 Rust/TS 这几条路径。没有任何一项在真机上看到过数字。
 

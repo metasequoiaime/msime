@@ -32,9 +32,9 @@ find "$ref"/platforms/ios/App "$ref"/platforms/ios/SharedUI "$ref"/platforms/ios
 | `MSIMEBackendClient.m/.h` | `crates/client-services/src/account`；鸿蒙的传输在 `AccountCloudBridge.ts` |
 | `ShuangpinKeymap.cpp/.h` | `msime_client_shuangpin_key_hints`，由 `ShuangpinKeyHintPolicy.ts` 消费 |
 
-## `shared/backend`（14）——由 `crates/client-core` 取代
+## `shared/backend`（14）——由 `crates/client-services` 与 `crates/client-core` 取代
 
-Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-core，传输由 ArkTS 用系统 HTTPS 栈完成。
+Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-services（账号、社区、词库等）和 client-core（云候选、云剪贴板加密），传输由 ArkTS 用系统 HTTPS 栈完成。
 
 | 来源 | 去处 |
 | --- | --- |
