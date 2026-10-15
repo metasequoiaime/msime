@@ -54,7 +54,7 @@ struct VocabularyReviewStatus: Equatable {
 /// 背单词 storage, through the shared entry point.
 ///
 /// Every rule — the intervals, the ease, what a lapse costs, how the queue is ordered — belongs to
-/// `client-core::vocabulary`. Hand-rolling any of it in Swift would give this host a second
+/// `client-services::vocabulary`. Hand-rolling any of it in Swift would give this host a second
 /// scheduler that quietly disagrees with the five others, which is what the shared layer exists to
 /// prevent. This type only moves JSON across the boundary.
 struct VocabularyReviewStore {

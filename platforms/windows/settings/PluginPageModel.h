@@ -60,7 +60,7 @@ struct SymbolGroup {
   std::vector<std::wstring> items;
 };
 
-// `client-core::plugins::scan` 列出的一个包：清单的字段，加上它那一类的内容（`PluginPackage`）。没有的数字是 nullopt，没有的文字是空串。
+// `client-services::plugins::scan` 列出的一个包：清单的字段，加上它那一类的内容（`PluginPackage`）。没有的数字是 nullopt，没有的文字是空串。
 struct Package {
   std::wstring id, name, version, license, author, description;
   bool builtin = false;
@@ -1123,7 +1123,7 @@ inline constexpr std::wstring_view grant_dialog_failed = L"授权没有写入，
 
 // ---- @ 名单 ----
 
-// `client-core::plugins::mentions::MentionEntry`。
+// `client-services::plugins::mentions::MentionEntry`。
 struct Mention {
   std::wstring text, key;
   bool operator==(Mention const &other) const { return text == other.text && key == other.key; }

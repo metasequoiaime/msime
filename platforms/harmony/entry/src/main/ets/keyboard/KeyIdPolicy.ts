@@ -1,7 +1,7 @@
 /**
  * Key ids for the per-key press counts the shared typing-statistics store keeps (`record_keys`), and the in-memory batch they wait in until they are written.
  *
- * The ids are W3C `KeyboardEvent.code` names plus a few on-screen-only ones. This list must equal `KEY_IDS` in `crates/client-core/src/typing_statistics.rs` exactly: the store rejects a whole batch that carries one id it does not know, so an id invented here would silently cost every press around it. A key with no mapping is not counted rather than filed under a guess.
+ * The ids are W3C `KeyboardEvent.code` names plus a few on-screen-only ones. This list must equal `KEY_IDS` in `crates/client-services/src/typing_statistics.rs` exactly: the store rejects a whole batch that carries one id it does not know, so an id invented here would silently cost every press around it. A key with no mapping is not counted rather than filed under a guess.
  *
  * Only counts leave this file. No order, no timestamps and no text: a batch is a day and a count per key.
  */

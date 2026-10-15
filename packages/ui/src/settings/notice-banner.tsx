@@ -7,7 +7,7 @@ import {
 } from "../core/linked-markdown";
 import { useAsyncGeneration } from "./use-async-generation";
 
-/** One live console notice, client-core's `notices::Notice`. */
+/** One live console notice, client-services' `notices::Notice`. */
 export type AppNotice = {
   id: string;
   title: string;

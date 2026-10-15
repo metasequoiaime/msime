@@ -8,7 +8,7 @@ import java.util.List;
  * <p>The shared layer answers every action with the whole status, so this holds one snapshot and
  * nothing else: which books exist, which is selected, what today's counts are, and the queue the
  * session should deal. No scheduling arithmetic lives here — the intervals, the ease and what a
- * lapse costs all belong to `client-core::vocabulary::schedule`, and a second implementation on
+ * lapse costs all belong to `client-services::vocabulary::schedule`, and a second implementation on
  * this side would quietly disagree with the one every other host uses.
  *
  * <p>Android-free on purpose, like {@link TypingStatisticsModel}: `org.json` is a stub in the SDK

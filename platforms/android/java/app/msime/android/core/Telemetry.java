@@ -34,7 +34,7 @@ import org.json.JSONObject;
 public final class Telemetry {
     private static final String TAG = "MSIMETelemetry";
     private static final String DIRECTORY = "telemetry";
-    /** Must match CRASH_DIRECTORY in crates/client-core/src/telemetry.rs: every `*.crash` file there is turned into a crash event on the next session start. */
+    /** Must match CRASH_DIRECTORY in crates/client-services/src/telemetry.rs: every `*.crash` file there is turned into a crash event on the next session start. */
     static final String CRASH_DIRECTORY = "telemetry-crashes";
     static final String CRASH_EXTENSION = ".crash";
     /** The server's limits (message 1000 Unicode scalars, stack 16000) and the stack's byte cap that keeps an event under 32 KiB. The shared store applies them again when it reads the record; clipping here keeps the dying process's write small. */

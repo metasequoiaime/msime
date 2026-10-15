@@ -212,7 +212,7 @@ export function packMarker(
   }
 }
 
-/** 单词本插件在背单词里的词书 id：`client-core::plugins::wordbook_pack::book_id`。 */
+/** 单词本插件在背单词里的词书 id：`client-services::plugins::wordbook_pack::book_id`。 */
 export function wordbookPackBookId(id: string): string {
   return `pack-${id}`;
 }

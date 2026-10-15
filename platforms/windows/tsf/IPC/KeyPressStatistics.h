@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-// The key heatmap counts physical keys, so a press is identified by its scan code (WM_KEYDOWN lParam bits 16-23, with bit 24 marking the E0-prefixed extended keys) and never by its VK: a VK follows the active layout, which would put an AZERTY "A" on the Q key. The names are the shared store's canonical ids (W3C KeyboardEvent.code, KEY_IDS in crates/client-core/src/typing_statistics.rs); the store rejects a whole batch over one unknown id, so a scan code without an entry here is simply not counted. Kept free of Windows headers so it can be tested on its own.
+// The key heatmap counts physical keys, so a press is identified by its scan code (WM_KEYDOWN lParam bits 16-23, with bit 24 marking the E0-prefixed extended keys) and never by its VK: a VK follows the active layout, which would put an AZERTY "A" on the Q key. The names are the shared store's canonical ids (W3C KeyboardEvent.code, KEY_IDS in crates/client-services/src/typing_statistics.rs); the store rejects a whole batch over one unknown id, so a scan code without an entry here is simply not counted. Kept free of Windows headers so it can be tested on its own.
 inline const wchar_t *KeyIdFromScanCode(unsigned scanCode, bool extended)
 {
     if (extended)

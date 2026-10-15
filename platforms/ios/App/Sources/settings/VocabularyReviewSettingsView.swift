@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 /// 背单词: the review session, as a page of the settings app.
 ///
 /// Nothing here schedules anything. The intervals, the ease, what a lapse costs and the order of
-/// the queue all come back from `client-core::vocabulary` through `VocabularyReviewStore`; this
+/// the queue all come back from `client-services::vocabulary` through `VocabularyReviewStore`; this
 /// view shows a card, reports which button was pressed, and draws the counts it is handed.
 struct VocabularyReviewSettingsView: View {
   @Environment(\.horizontalSizeClass) private var widthClass
