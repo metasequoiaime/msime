@@ -3,7 +3,8 @@ import { GroupList } from "../core/platform-controls";
 import { CandidateEnglishGlossSection } from "./candidate-english-gloss-section";
 import { CandidatePronunciationSection } from "./candidate-pronunciation-section";
 import { EnglishSuggestionsSection } from "./english-suggestions-section";
-import { MixedInputSection, type MixedInputPreferences } from "./mixed-input-section";
+import { MixedInputSection } from "./mixed-input-section";
+import type { MixedInputPreferences } from "./mixed-input-preferences";
 
 export interface InputLanguageOptionsSectionProps {
   grouped?: boolean;

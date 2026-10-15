@@ -23,7 +23,7 @@ Status: implemented
 - **切分路径按音节频度截断。** `SyllablePrior` 在九键第一次查词前用 `QuanpinDictionary::best_weights` 取每个完整音节最常用单字的权重，记成 `ln(weight / 各音节权重之和)`，前缀取以它开头的音节里最高的那个。`split_paths` 的排序变成：音节少、末音节完整、频度之和高，最后才是字典序（只为确定性）。频度只决定留哪 48 条路径，候选本身的先后仍由词库和整句解码决定。
 - **整句跨路径比较前每个音节扣一份奖励。** `rank_key` 对 `Generated` 行用 `comparable_weight`：`weight - PHRASE_LENGTH_BONUS * 1000 * 音节数`。同一条路径内所有整句扣的一样多，先后不变；路径之间多切出来的音节得靠词本身的分量取胜。`PHRASE_LENGTH_BONUS` 从 `LatticeOptions::default` 的字面量提成 `lattice::decode` 的公开常量，两处共用。
 - **没有任何拼音读法时给英文词。** 拼音候选为空且没有锁定拼音时，`english_candidates` 不再看中英混输开关和最短前缀，`77` 直接给出 QQ。拼音有读法时混输开关照旧说了算。
-- **Android 九键：组字时 1 键是「分词」，右列中间是「重输」。** 不组字时 1 键仍是 `@#`、打开符号面板；组字时键面换成「分词」，点按向引擎送 `'`（原「拆分」的功能）。右列中间那格改回「重输」，组字时丢掉整串（`discardComposition`），和搜狗、讯飞九键的位置一致；长按 ⌫ 清空保留。1 键的键面在 `ImeLayoutRows.updateNineKeySymbolKey` 里随 render 更新。
+- **Android 九键：组字时 1 键是「分词」，右列中间是「重输」。** 不组字时 1 键仍是 `@#`，把常用标点放进候选条（原为打开符号面板，见 [九键底行与 1 键](../feature/2026-10-15-nine-key-symbol-key-and-quick-marks.md)）；组字时键面换成「分词」，点按向引擎送 `'`（原「拆分」的功能）。右列中间那格改回「重输」，组字时丢掉整串（`discardComposition`），和搜狗、讯飞九键的位置一致；长按 ⌫ 清空保留。1 键的键面在 `ImeLayoutRows.updateNineKeySymbolKey` 里随 render 更新。
 
 ## Alternatives considered
 

@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { TouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-design";
 import { resolveKeyboardSkinLook } from "../keyboard/keyboard-skin-look";
 import type { GlobalTheme } from "../theme/global-theme";
-import type { HandwritingStrokeColor } from "./mobile-keyboard-feedback-section";
+import type { HandwritingStrokeColor } from "./mobile-keyboard-feedback";
 import { useTimeout } from "../core/use-timeout";
 
 /** 「水」的四笔，画在 100 × 100 的格子里：竖钩、左边的横撇、右上的撇、右下的捺。 */

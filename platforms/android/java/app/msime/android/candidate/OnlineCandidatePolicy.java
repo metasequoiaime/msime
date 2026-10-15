@@ -103,6 +103,16 @@ public final class OnlineCandidatePolicy {
         return content != null && !content.isEmpty() && TextPolicy.utf8Length(content) <= MAX_AI_CONTENT_BYTES;
     }
 
+    /** 去掉包在正文外面的 Markdown 代码块，与 client-core 的 `strip_code_fence` 一致：不支持 `response_format` 的模型（如经网关调用的 Claude）会把 JSON 写成 ```json ... ```。 */
+    public static String stripCodeFence(String content) {
+        String trimmed = content.trim();
+        if (trimmed.length() < 6 || !trimmed.startsWith("```") || !trimmed.endsWith("```")) return trimmed;
+        String fenced = trimmed.substring(3, trimmed.length() - 3);
+        // 第一行是信息串（如 `json`），只有一行时没有信息串。
+        int newline = fenced.indexOf('\n');
+        return newline < 0 ? fenced : fenced.substring(newline + 1);
+    }
+
     /**
      * The candidates a reply may contribute: provider order, no duplicates, capped at the limit.
      *

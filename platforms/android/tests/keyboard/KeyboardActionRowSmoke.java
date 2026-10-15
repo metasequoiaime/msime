@@ -27,6 +27,42 @@ public final class KeyboardActionRowSmoke {
         check(nineKey.get(nineKey.size() - 2).slot() == KeyboardActionRow.DesignSlot.LANGUAGE
                 && nineKey.get(nineKey.size() - 1).slot() == KeyboardActionRow.DesignSlot.RETURN,
             "中/英 sits right before return on the nine-key row too");
+        // 拼音九键和笔画键盘共用九键外框：符 | 123 |（地球）| 空格 | 中 | ↵，符 与 中/英 同宽，没有逗号句号。
+        for (int layout : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT}) {
+            check(designSlots(layout, false, false).equals(List.of(KeyboardActionRow.DesignSlot.SYMBOL_PANEL,
+                    KeyboardActionRow.DesignSlot.LAYER, KeyboardActionRow.DesignSlot.SPACE,
+                    KeyboardActionRow.DesignSlot.LANGUAGE, KeyboardActionRow.DesignSlot.RETURN)),
+                "nine-key frame row: 符 | 123 | space | 中 | return, layout " + layout);
+            check(designSlots(layout, true, false).equals(List.of(KeyboardActionRow.DesignSlot.SYMBOL_PANEL,
+                    KeyboardActionRow.DesignSlot.LAYER, KeyboardActionRow.DesignSlot.GLOBE,
+                    KeyboardActionRow.DesignSlot.SPACE, KeyboardActionRow.DesignSlot.LANGUAGE,
+                    KeyboardActionRow.DesignSlot.RETURN)),
+                "the globe follows 123, after 符, layout " + layout);
+            // 交换语言键与数字键：符 仍在最左，中/英 换到 123 的位置。
+            check(designSlots(layout, true, true).equals(List.of(KeyboardActionRow.DesignSlot.SYMBOL_PANEL,
+                    KeyboardActionRow.DesignSlot.LANGUAGE, KeyboardActionRow.DesignSlot.GLOBE,
+                    KeyboardActionRow.DesignSlot.SPACE, KeyboardActionRow.DesignSlot.LAYER,
+                    KeyboardActionRow.DesignSlot.RETURN)),
+                "swapping 中/英 and 123 keeps 符 first, layout " + layout);
+            check(designSlots(layout, false, true).equals(List.of(KeyboardActionRow.DesignSlot.SYMBOL_PANEL,
+                    KeyboardActionRow.DesignSlot.LANGUAGE, KeyboardActionRow.DesignSlot.SPACE,
+                    KeyboardActionRow.DesignSlot.LAYER, KeyboardActionRow.DesignSlot.RETURN)),
+                "swapping without the globe keeps 符 first, layout " + layout);
+            check(KeyboardActionRow.designEntries(layout, true).get(0).equals(new KeyboardActionRow.DesignEntry(
+                    KeyboardActionRow.DesignSlot.SYMBOL_PANEL, KeyboardActionRow.DESIGN_SYMBOL_PANEL_WEIGHT))
+                    && KeyboardActionRow.DESIGN_SYMBOL_PANEL_WEIGHT == KeyboardActionRow.DESIGN_LANGUAGE_WEIGHT,
+                "符 takes the same share as 中/英");
+        }
+        // 只有九键外框带 符：26 键一族、手写和 14 键的底行不变。
+        for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.FOURTEEN_KEY_LAYOUT,
+                KeyboardLayout.KOREAN_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT}) {
+            for (boolean globe : new boolean[] {false, true})
+                check(!designSlots(layout, globe, false).contains(KeyboardActionRow.DesignSlot.SYMBOL_PANEL)
+                        && !designSlots(layout, globe, true).contains(KeyboardActionRow.DesignSlot.SYMBOL_PANEL),
+                    "no 符 outside the nine-key frame, layout " + layout);
+        }
+        check("打开符号面板".equals(KeyboardActionRow.designDescription(KeyboardActionRow.DesignSlot.SYMBOL_PANEL, true)),
+            "符 describes the panel it opens");
         // 各普通底行交换动作与宽度，地球和其它按键顺序保持，回车不向数字入口让位。
         for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT,
                 KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.KOREAN_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT,
@@ -35,12 +71,13 @@ public final class KeyboardActionRowSmoke {
                 List<KeyboardActionRow.DesignEntry> original = KeyboardActionRow.designEntries(layout, globe);
                 List<KeyboardActionRow.DesignEntry> swapped = KeyboardActionRow.designEntries(layout, globe, true);
                 check(swapped.size() == original.size(), "swap preserves key count");
-                check(swapped.get(0).equals(new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LANGUAGE,
-                    KeyboardActionRow.DESIGN_LANGUAGE_WEIGHT)), "language starts swapped row with its width");
+                int layer = designSlots(layout, globe, false).indexOf(KeyboardActionRow.DesignSlot.LAYER);
+                check(swapped.get(layer).equals(new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LANGUAGE,
+                    KeyboardActionRow.DESIGN_LANGUAGE_WEIGHT)), "language takes the number entry's position with its width");
                 check(swapped.get(swapped.size() - 2).equals(new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LAYER,
                     KeyboardActionRow.DESIGN_LAYER_WEIGHT)), "number entry takes language position with its width");
-                for (int index = 1; index < original.size(); index++) {
-                    if (original.get(index).slot() != KeyboardActionRow.DesignSlot.LANGUAGE)
+                for (int index = 0; index < original.size(); index++) {
+                    if (index != layer && original.get(index).slot() != KeyboardActionRow.DesignSlot.LANGUAGE)
                         check(swapped.get(index).equals(original.get(index)), "other keys keep position and width");
                 }
                 check(!KeyboardActionRow.languageBesideReturn(swapped), "return does not yield to numeric entry");
@@ -218,6 +255,11 @@ public final class KeyboardActionRowSmoke {
                 == KeyboardLayout.LayerKeyKind.PUNCTUATION_TOGGLE,
             "the extended symbol layer keeps the punctuation toggle");
         System.out.println("Android action row: composition, weights and layer faces passed");
+    }
+
+    private static List<KeyboardActionRow.DesignSlot> designSlots(int layout, boolean globe, boolean swap) {
+        return KeyboardActionRow.designEntries(layout, globe, swap).stream()
+            .map(KeyboardActionRow.DesignEntry::slot).toList();
     }
 
     private static List<Slot> slots(int layout, boolean globe) {

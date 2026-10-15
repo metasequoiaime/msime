@@ -16,6 +16,8 @@ Status: implemented
 
 末位置的完整前向由[候选末位置按需前向](2026-10-15-runtime-defer-terminal-forward.md)接入延迟计算；本篇的累计分、共享和缓存失效规则继续保留。
 
+[同批候选前缀复用](2026-10-15-runtime-same-batch-cache.md)补充当前批次已算状态的复用，原有完整命中、归一化共享和失效规则继续成立。
+
 ## Alternatives considered
 
 - 缓存每状态完整词表分布：可直接读取任意 token，但内存随词表大小乘位置数增长，键盘扩展不承担这项成本。

@@ -59,7 +59,12 @@ import { ReplyKeyboardPolicy } from "../entry/src/main/ets/keyboard/ReplyKeyboar
 import { ReplyContextPolicy } from "../entry/src/main/ets/keyboard/ReplyContextPolicy";
 import { CommunityReplyLibraryPolicy } from "../entry/src/main/ets/keyboard/CommunityReplyLibraryPolicy";
 import { TextPolicy } from "../entry/src/main/ets/keyboard/TextPolicy";
-import { NineKeyLayout, NineKey } from "../entry/src/main/ets/keyboard/input/NineKeyLayout";
+import {
+  NineKeyAction,
+  NineKeyActionKind,
+  NineKeyLayout,
+  NineKey,
+} from "../entry/src/main/ets/keyboard/input/NineKeyLayout";
 import {
   NineKeyPanelBackspace,
   NineKeyPanelMode,
@@ -1100,7 +1105,10 @@ group("keeps translation provider policy bounded and credential-free in signatur
     generation: 12,
     target_language: "en",
     target_languages: ["en", "ja"],
-    candidates: [{ text: "你好", source: 0 }, { text: "你好", source: 14 }],
+    candidates: [
+      { text: "你好", source: 0 },
+      { text: "你好", source: 14 },
+    ],
     custom_translation: null,
     tencent_tmt: null,
     niutrans: { enabled: true, app_id: "account", apikey: "secret" },
@@ -1110,9 +1118,11 @@ group("keeps translation provider policy bounded and credential-free in signatur
   };
   check(TranslationPolicy.provider(query) === "niutrans", "NiuTrans has provider precedence");
   check(
-    TranslationPolicy.sourceGetsNoGloss(6) && TranslationPolicy.sourceGetsNoGloss(7)
-      && TranslationPolicy.sourceGetsNoGloss(13) && TranslationPolicy.sourceGetsNoGloss(14)
-      && !TranslationPolicy.sourceGetsNoGloss(0),
+    TranslationPolicy.sourceGetsNoGloss(6) &&
+      TranslationPolicy.sourceGetsNoGloss(7) &&
+      TranslationPolicy.sourceGetsNoGloss(13) &&
+      TranslationPolicy.sourceGetsNoGloss(14) &&
+      !TranslationPolicy.sourceGetsNoGloss(0),
     "special candidate sources never receive glosses",
   );
   check(TranslationPolicy.targets(query).join(",") === "en,ja", "targets are deduplicated");
@@ -1216,8 +1226,13 @@ group("asks a /fy sentence query as its own item into its own target", () => {
     "a candidate gloss query is not a command request",
   );
   check(
-    TranslationPolicy.commandItem({ ...query, candidates: [{ text: "a", source: 0 }, { text: "b", source: 0 }] }) ===
-      null,
+    TranslationPolicy.commandItem({
+      ...query,
+      candidates: [
+        { text: "a", source: 0 },
+        { text: "b", source: 0 },
+      ],
+    }) === null,
     "a sentence query holds exactly one text",
   );
   check(
@@ -1245,7 +1260,10 @@ group("offline dictionaries fill only what the user's own translator left", () =
     generation: 3,
     target_language: "en",
     target_languages: ["ja", "fr"],
-    candidates: [{ text: "你好", source: 0 }, { text: "世界", source: 0 }],
+    candidates: [
+      { text: "你好", source: 0 },
+      { text: "世界", source: 0 },
+    ],
     english_gloss: true,
     offline_gloss_languages: ["en", "fr", "de"],
   };
@@ -2941,10 +2959,13 @@ group(
       "still three by three",
     );
     check(rows[0][0].label === "@#", "the first cell reads @#");
-    check(NineKeyLayout.opensSymbols(rows[0][0]), "and opens the symbol panel instead of spelling");
     check(
-      rows.flat().filter((key: NineKey) => NineKeyLayout.opensSymbols(key)).length === 1,
-      "no other cell opens the panel",
+      NineKeyLayout.showsQuickMarks(rows[0][0]),
+      "and puts the common marks in the candidate strip instead of spelling",
+    );
+    check(
+      rows.flat().filter((key: NineKey) => NineKeyLayout.showsQuickMarks(key)).length === 1,
+      "no other cell does",
     );
     check(
       rows
@@ -2958,7 +2979,7 @@ group(
       NineKeyLayout.rows()[0][0].input === "'" && NineKeyLayout.separator().input === "'",
       "the 2in1 grid keeps the separator in its first cell, and the touch grid reaches it as separator()",
     );
-    check(!NineKeyLayout.opensSymbols(NineKeyLayout.separator()), "the separator spells");
+    check(!NineKeyLayout.showsQuickMarks(NineKeyLayout.separator()), "the separator spells");
     check(
       NineKeyLayout.sideMarks().concat([NineKeyLayout.closingMark()]).join("") ===
         NineKeyLayout.punctuation().join(""),
@@ -2968,16 +2989,92 @@ group(
   },
 );
 
-group("九键字母层显示长按数字，包括符号入口的 1", () => {
+group("九键字母层显示长按数字，包括常用标点键的 1", () => {
   const rows: NineKey[][] = NineKeyLayout.touchRows();
   check(NineKeyLayout.digitHint(rows[0][1]) === "2", "ABC prints 2");
   check(NineKeyLayout.digitHint(rows[2][2]) === "9", "WXYZ prints 9");
-  check(NineKeyLayout.digitHint(rows[0][0]) === "1", "符号入口显示 1，短按仍打开符号面板");
-  check(NineKeyLayout.holdOptions(rows[0][0]).join("") === "1", "符号入口长按只提供数字 1");
+  check(NineKeyLayout.digitHint(rows[0][0]) === "1", "常用标点键显示 1");
+  check(NineKeyLayout.holdOptions(rows[0][0]).join("") === "1", "常用标点键长按只提供数字 1");
   check(NineKeyLayout.digitHint(NineKeyLayout.separator()) === "", "the separator prints none");
   check(
     NineKeyLayout.digitHint(NineKeyLayout.digits()[0][1]) === "",
     "a digit cell is its digit already",
+  );
+});
+
+group("九键 1 键的读屏名说它放的是常用标点，不再说符号面板", () => {
+  const key: NineKey = NineKeyLayout.touchRows()[0][0];
+  check(key.description === KeyAccessibilityPolicy.punctuation(), `1 键读作 ${key.description}`);
+  check(key.description !== KeyAccessibilityPolicy.symbolPanel(), "符号面板归底行的 符");
+});
+
+group("九键 1 键放进候选条的是逗号长按的那一组常用标点", () => {
+  // 视图的 `showNineKeyQuickMarks` 用的就是 `QuickPunctuationPolicy.entries`，与 iOS 中文模式的 ， 。 ？ ！ 、 ； ： 相同。
+  check(
+    QuickPunctuationPolicy.entries(false, 0, "none")
+      .map((entry: PunctuationEntry) => entry.face)
+      .join(" ") === "， 。 ？ ！ 、 ； ：",
+    "中文模式",
+  );
+  check(
+    QuickPunctuationPolicy.entries(true, 0, "none")
+      .map((entry: PunctuationEntry) => entry.face)
+      .join(" ") === ", . ? ! : ; @",
+    "英文模式是 ASCII 那一组",
+  );
+  check(
+    QuickPunctuationPolicy.entries(false, 0, "none").every(
+      (entry: PunctuationEntry) => entry.input.length === 1 && entry.input.charCodeAt(0) < 128,
+    ),
+    "点选后交给 Engine 的是 ASCII 标点键，和侧栏标点走同一条路",
+  );
+});
+
+function actionKinds(row: NineKeyAction[]): string {
+  return row.map((action: NineKeyAction) => action.kind).join(" ");
+}
+
+function actionWeight(row: NineKeyAction[]): number {
+  return row.reduce((sum: number, action: NineKeyAction) => sum + action.weight, 0);
+}
+
+group("九键外框底行：符 | 123 | 空格 | 中 | 回车，数字层把 符 换成空格右边的 0", () => {
+  const letters: NineKeyAction[] = NineKeyLayout.actionRow(false);
+  check(
+    actionKinds(letters) ===
+      [
+        NineKeyActionKind.SYMBOL_PANEL,
+        NineKeyActionKind.LAYER_TOGGLE,
+        NineKeyActionKind.SPACE,
+        NineKeyActionKind.LANGUAGE,
+        NineKeyActionKind.RETURN,
+      ].join(" "),
+    `拼音九键和笔画键盘：${actionKinds(letters)}`,
+  );
+  check(
+    letters.map((action: NineKeyAction) => action.weight).join(" ") === "1.05 1.25 4.2 1.05 1.6",
+    "符 占 0 原来的 1.05，与 中/英 相同",
+  );
+  const digits: NineKeyAction[] = NineKeyLayout.actionRow(true);
+  check(
+    actionKinds(digits) ===
+      [
+        NineKeyActionKind.LAYER_TOGGLE,
+        NineKeyActionKind.SPACE,
+        NineKeyActionKind.ZERO,
+        NineKeyActionKind.LANGUAGE,
+        NineKeyActionKind.RETURN,
+      ].join(" "),
+    `数字层网格只有 1-9，底行保留 0：${actionKinds(digits)}`,
+  );
+  check(
+    Math.abs(actionWeight(letters) - actionWeight(digits)) < 1e-9,
+    "两层的空格一样宽：0 和 符 占同一份",
+  );
+  check(
+    letters[letters.length - 2].kind === NineKeyActionKind.LANGUAGE &&
+      digits[digits.length - 2].kind === NineKeyActionKind.LANGUAGE,
+    "中/英 两层都紧挨回车",
   );
 });
 

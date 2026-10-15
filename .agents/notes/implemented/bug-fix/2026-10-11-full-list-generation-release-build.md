@@ -21,3 +21,5 @@ release 构建里打开完整列表并放出尾部后，旧页的 ID 失效，�
 ## Verification
 
 `crates/input-runtime/src/tests.rs` 的 `releasing_the_held_tail_publishes_a_new_generation` 断言放出尾部后快照的代次大于之前、并与当前 view 一致。修复前用 `cargo test -p msime-input-runtime --release` 运行它在 `full.generation > before` 处失败，debug 构建下修复前后都通过；修复后 release 和 debug 下整个 crate 的 182 个测试都通过。
+
+[Android 展开候选后同步视图](2026-10-15-android-expanded-candidate-view.md)补齐宿主读取完整候选导致的代次失步，保留本篇的运行时身份围栏。

@@ -7,20 +7,19 @@ public final class NineKeyLayout {
     /**
      * A grid key.
      *
-     * <p>{@code digit} is what the key prints on the digit layer and what a hold offers; it is not
-     * always {@code input}, because key 1 opens the symbol panel rather than feeding a number.
+     * <p>{@code digit} 是这个键在数字键面上印的数字，也是长按给出的数字；它不一定等于 {@code input}：1 键在拼音键面上把常用标点放进候选条，不送数字。
      */
     public record Key(int digit, String label, char input, String description) {}
 
 
-    /** 1 键在拼音键面上是「@#」，点按打开符号面板，不送进引擎（引擎的九键不收 1）。组字时它改作「分词」，见 {@link #separatesSyllables}。 */
-    public static boolean opensSymbols(Key key, boolean digits) {
+    /** 1 键在拼音键面上是「@#」，点按把当前模式的常用标点放进候选条（点选上屏），不送进引擎（引擎的九键不收 1）；符号面板从底行最左边的 符 打开。组字时它改作「分词」，见 {@link #separatesSyllables}。 */
+    public static boolean offersPunctuation(Key key, boolean digits) {
         return !digits && key != null && key.digit() == 1;
     }
 
     /** 组字时 1 键是「分词」：在已打的数字末尾定一个音节分界（向引擎送 '）。和搜狗、讯飞九键的习惯一样，右列中间那格就留给「重输」。 */
     public static boolean separatesSyllables(Key key, boolean digits, boolean composing) {
-        return composing && opensSymbols(key, digits);
+        return composing && offersPunctuation(key, digits);
     }
 
     /** 拼音键面上 1 键随组字状态换的键面。 */

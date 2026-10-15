@@ -133,7 +133,8 @@ final class KeyboardSkinTests: XCTestCase {
     let enter = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "returnKey" })
     XCTAssertFalse(hidden(enter))
 
-    let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKey1" } as? UIButton)
+    // 九键从底行的 符 打开符号面板。
+    let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "symbolPanelKey" } as? UIButton)
     key.sendActions(for: .primaryActionTriggered)
     window.layoutIfNeeded()
     let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })

@@ -11,6 +11,10 @@ public final class QuickPunctuationPolicySmoke {
             && chinese.get(0).input() == ',', "Chinese quick punctuation uses full-width faces");
         check(chinese.get(4).face().equals("、") && chinese.get(4).input() == '\\',
             "Chinese ideographic comma maps to backslash");
+        // 拼音九键 1 键放进候选条的也是这一组，顺序与 iOS 九键的 quickPunctuationSymbols 相同。
+        check(chinese.stream().map(QuickPunctuationPolicy.Entry::face).toList()
+                .equals(java.util.List.of("，", "。", "？", "！", "、", "；", "：")),
+            "the Chinese set, in the order the nine-key 1 key lays it into the candidate strip");
         var japanese = QuickPunctuationPolicy.entries(false, 3, "none");
         check(japanese.get(0).face().equals("、") && japanese.get(4).input() == '[',
             "Japanese quick punctuation uses Japanese faces and ASCII engine inputs");

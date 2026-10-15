@@ -278,7 +278,7 @@ export class KeyIdPolicy {
   }
 
   /**
-   * 九键网格中的一格，按其上印的数字定位。字母层的第一格在 2in1 网格上发送音节分隔符而不是 1，在触摸网格上作为 @# 打开符号面板（Android 的 `KeyPressIds.forNineKeyDigit(1)`），无论哪种，都是印着 1 的那一格。
+   * 九键网格中的一格，按其上印的数字定位。字母层的第一格在 2in1 网格上发送音节分隔符而不是 1，在触摸网格上作为 @# 把常用标点放进候选条（Android 的 `KeyPressIds.forNineKeyDigit(1)`），无论哪种，都是印着 1 的那一格。
    */
   static nineKey(input: string): string | null {
     if (input === "'" || input === "@") return "Nine1";

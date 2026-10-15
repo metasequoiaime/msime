@@ -26,6 +26,7 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
     private static final float DISC_MARK_DP = 28f;
     private static final float ACTIVE_SIDE_DP = 40f;
     private static final float ACTIVE_RADIUS_DP = 12f;
+    private static final float ACTIVE_INSET_DP = 4f;
 
     private final IntSupplier accent;
     private final Paint mark = KeyboardBrandMark.newPaint();
@@ -85,7 +86,10 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
         float centerX = getPaddingLeft() + width / 2f;
         float centerY = getPaddingTop() + height / 2f;
         if (panelOpen && Color.alpha(panelOpenFill) > 0) {
-            float side = BoundsPolicy.atMost(shorter,
+            // 背景与按钮边缘至少隔开 4 dp，整格仍可点击，标志保持原有位置和尺寸。
+            float available = Math.max(0f, Math.min(getWidth(), getHeight())
+                - DimensionPolicy.floatPixels(getContext(), ACTIVE_INSET_DP * 2));
+            float side = BoundsPolicy.atMost(available,
                 DimensionPolicy.floatPixels(getContext(), ACTIVE_SIDE_DP));
             bounds.set(centerX - side / 2f, centerY - side / 2f, centerX + side / 2f,
                 centerY + side / 2f);

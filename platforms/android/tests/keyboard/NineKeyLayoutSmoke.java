@@ -24,10 +24,10 @@ public final class NineKeyLayoutSmoke {
         check(NineKeyLayout.face(separator, false).equals("@#"));
         check(NineKeyLayout.face(letters, false).equals("ABC"));
         check(NineKeyLayout.description(separator, false).equals("符号"));
-        // 1 键在拼音键面上打开符号面板，数字键面上照常是 1；组字时它是「分词」，向引擎送 '，在已打的数字末尾定一个音节分界，右列中间那格留给「重输」。
-        check(NineKeyLayout.opensSymbols(separator, false));
-        check(!NineKeyLayout.opensSymbols(separator, true));
-        check(!NineKeyLayout.opensSymbols(letters, false));
+        // 1 键在拼音键面上把常用标点放进候选条，数字键面上照常是 1；组字时它是「分词」，向引擎送 '，在已打的数字末尾定一个音节分界，右列中间那格留给「重输」。
+        check(NineKeyLayout.offersPunctuation(separator, false));
+        check(!NineKeyLayout.offersPunctuation(separator, true));
+        check(!NineKeyLayout.offersPunctuation(letters, false));
         check(NineKeyLayout.separatesSyllables(separator, false, true));
         check(!NineKeyLayout.separatesSyllables(separator, false, false));
         check(!NineKeyLayout.separatesSyllables(separator, true, true));
@@ -39,7 +39,7 @@ public final class NineKeyLayoutSmoke {
         check(NineKeyLayout.description(separator, false, false).equals("符号"));
         check(!NineKeyLayout.description(separator, false, true).equals("符号"));
         check(NineKeyLayout.description(letters, false).equals("2 ABC"));
-        // The digit layer prints the number the key carries, including key 1, which opens the symbol panel on the pinyin layer.
+        // 数字键面印每个键自己的数字，包括 1 键：它在拼音键面上是「@#」（常用标点）。
         check(NineKeyLayout.face(separator, true).equals("1"));
         check(NineKeyLayout.face(letters, true).equals("2"));
         check(NineKeyLayout.description(separator, true).equals("数字 1"));

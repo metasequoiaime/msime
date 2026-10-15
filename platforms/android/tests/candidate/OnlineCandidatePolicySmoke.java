@@ -107,6 +107,17 @@ public final class OnlineCandidatePolicySmoke {
         // A multi-byte scalar counts its UTF-8 bytes, not its UTF-16 units.
         check(!OnlineCandidatePolicy.acceptsAiContent(
             "好".repeat(OnlineCandidatePolicy.MAX_AI_CONTENT_BYTES / 3 + 1)));
+        // 不支持 JSON 模式的模型把回答包在代码块里，去掉整段围栏后交给 JSON 解析；其他形状原样保留，由解析失败。
+        String inner = "{\"candidates\":[]}";
+        check(inner.equals(OnlineCandidatePolicy.stripCodeFence(inner)));
+        check(inner.equals(OnlineCandidatePolicy.stripCodeFence(" " + inner + "\n")));
+        check((inner + "\n").equals(OnlineCandidatePolicy.stripCodeFence("```json\n" + inner + "\n```")));
+        check((inner + "\n").equals(OnlineCandidatePolicy.stripCodeFence("  ```JSON\n" + inner + "\n```\n")));
+        check((inner + "\n").equals(OnlineCandidatePolicy.stripCodeFence("```\n" + inner + "\n```")));
+        check(inner.equals(OnlineCandidatePolicy.stripCodeFence("```" + inner + "```")));
+        check(("```json\n" + inner).equals(OnlineCandidatePolicy.stripCodeFence("```json\n" + inner)));
+        check(("说明：\n```json\n" + inner + "\n```").equals(
+            OnlineCandidatePolicy.stripCodeFence("说明：\n```json\n" + inner + "\n```")));
 
         check(OnlineCandidatePolicy.QUIET_INTERVAL_MILLIS == 350);
         System.out.println(

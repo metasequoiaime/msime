@@ -13,10 +13,7 @@ import { SettingsPreviewBlock } from "./settings-preview-block";
 import { SelectRow } from "./select-row";
 import { SliderRow } from "./slider-row";
 import { useOptionalSettingsForm } from "./settings-form-context";
-import type {
-  HandwritingStrokeColor,
-  MobileKeyboardFeedback,
-} from "./mobile-keyboard-feedback-section";
+import type { HandwritingStrokeColor, MobileKeyboardFeedback } from "./mobile-keyboard-feedback";
 import { HandwritingPadPreview } from "./handwriting-pad-preview";
 import { keyboardThemeId } from "../theme/global-theme";
 
