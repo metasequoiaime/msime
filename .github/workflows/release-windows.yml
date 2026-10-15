@@ -102,7 +102,7 @@ jobs:
       - name: Install sccache
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - if: matrix.arch == 'x64'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: {node-version: 24}
       # Reads the pnpm version from packageManager in package.json.
       - if: matrix.arch == 'x64'
@@ -125,7 +125,7 @@ jobs:
           ./platforms/windows/Build-RustOutputs.ps1 -Architecture $env:ARCH -OutputDirectory (Join-Path $env:RUNNER_TEMP 'msime-rust') -TargetVersion $env:VERSION
           Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP "msime-rust/$env:ARCH") | Format-Table Name, Length
       # Not msime-windows-*: the coexistence and publish jobs download that pattern as the installers.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-rust-windows-${{ matrix.arch }}-${{ needs.source.outputs.version }}
           path: ${{ runner.temp }}/msime-rust/
@@ -145,7 +145,7 @@ jobs:
           rustup toolchain install
           rustup target add wasm32-unknown-unknown
           bash scripts/build-official-plugins.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: official-plugin-packs-windows
           path: target/plugin-packs/
@@ -178,18 +178,18 @@ jobs:
           "value=$env:VERSION" >> $env:GITHUB_OUTPUT
           "release=$env:RELEASE" >> $env:GITHUB_OUTPUT
           $baseline = (Get-Content platforms/windows/vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'; "vcpkg-baseline=$baseline" >> $env:GITHUB_OUTPUT
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: {node-version: 24}
       # Reads the pnpm version from packageManager in package.json.
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       # Each architecture's Rust outputs land in msime-rust/<arch>, the layout Build-Client.ps1 -RustOutputs reads.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: msime-rust-windows-*-${{ needs.source.outputs.version }}
           path: ${{ runner.temp }}/msime-rust
           merge-multiple: true
       # 官方插件包（official-plugins 作业构建、核对过哈希的那一份）放到打包脚本找它的位置；MSIME_REQUIRE_OFFICIAL_PLUGINS=1 让缺了它的安装包打不出来。
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: official-plugin-packs-windows
           path: target/plugin-packs
@@ -311,7 +311,7 @@ jobs:
           ./platforms/windows/installer/Collect-Symbols.ps1 -Edition $env:EDITION -Version $env:VERSION -OutputDirectory dist-symbols
           Get-ChildItem dist-symbols | Format-Table Name, Length
       # 单独的产物，名字不匹配下面的 msime-windows-* 模式，所以 coexistence 任务不会下载符号；publish 两个都取。
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-symbols-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}
           path: dist-symbols/
@@ -323,13 +323,13 @@ jobs:
         env: {EDITION: "${{ matrix.edition }}"}
         run: ./platforms/windows/installer/SignPath-PackageBinaries.ps1 -Mode Stage -Edition $env:EDITION -Directory (Join-Path $env:RUNNER_TEMP 'signpath-payload')
       - if: needs.source.outputs.signpath == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-signpath-payload-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}
           path: ${{ runner.temp }}/signpath-payload/
           if-no-files-found: error
       # 暂存包交给 package 任务编译安装包：签名要等这个任务结束、六个版本一起提交，所以编译不能留在这里。上传的是 .gitignore 列出的那些暂存内容，加上 msime_setup.iss：Prepare-PackageFiles.ps1 把版本号就地写进了这个受版本控制的文件，package 任务检出的那份还是 0.0.1，不带上它编出的安装包名和版本资源都是 0.0.1。安装包不收 PDB 和 .ilk（msime_setup.iss），符号已经进了上面的符号包，这里不再传。
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-staged-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}
           path: |
@@ -355,13 +355,13 @@ jobs:
     # SignPath 的 action 用 GITHUB_TOKEN 读取本任务的信息并下载要签的 artifact。
     permissions: {actions: read, contents: read}
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: msime-signpath-payload-windows-*-${{ needs.release.outputs.version }}
           path: ${{ runner.temp }}/signpath-payload
           merge-multiple: true
       - id: unsigned
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-signpath-request-payload-${{ needs.release.outputs.version }}
           path: ${{ runner.temp }}/signpath-payload/
@@ -377,7 +377,7 @@ jobs:
           wait-for-completion: true
           wait-for-completion-timeout-in-seconds: 4800
           output-artifact-directory: ${{ runner.temp }}/signpath-payload-signed
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-signed-payload-windows-${{ needs.release.outputs.version }}
           path: ${{ runner.temp }}/signpath-payload-signed/
@@ -397,12 +397,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: msime-staged-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}
           path: platforms/windows/installer
       - if: needs.source.outputs.signpath == 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: msime-signed-payload-windows-${{ needs.release.outputs.version }}
           path: ${{ runner.temp }}/signpath-payload-signed
@@ -442,7 +442,7 @@ jobs:
           [IO.File]::WriteAllText((Join-Path $PWD "dist/$name.sha256"), "$hash  $name`n")
           Get-ChildItem dist | Format-Table Name, Length
       # 签名时这一份还要交给 sign-installers，名字不能匹配下游取安装包用的 msime-windows-* 模式；不签名时它就是最终的安装包。
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ needs.source.outputs.signpath == 'true' && 'msime-unsigned-installer-windows' || 'msime-windows' }}-${{ matrix.edition }}-${{ needs.release.outputs.version }}
           path: dist/
@@ -463,13 +463,13 @@ jobs:
     timeout-minutes: 90
     permissions: {actions: read, contents: read}
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: msime-unsigned-installer-windows-*-${{ needs.release.outputs.version }}
           path: ${{ runner.temp }}/installers
           merge-multiple: true
       - id: unsigned
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-signpath-request-installers-${{ needs.release.outputs.version }}
           path: ${{ runner.temp }}/installers/*.exe
@@ -505,7 +505,7 @@ jobs:
             Write-Output "$($installer.Name) 已签名：$($signature.SignerCertificate.Subject)"
           }
           Get-ChildItem dist | Format-Table Name, Length
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-windows-signed-${{ needs.release.outputs.version }}
           path: dist/
@@ -519,7 +519,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: msime-windows-*-${{ needs.release.outputs.version }}
           path: dist
@@ -548,7 +548,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
       # 签名时六个安装包在同一个 msime-windows-signed-<版本> 产物里，每个任务取整份、只装自己那个。
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: msime-windows-${{ needs.source.outputs.signpath == 'true' && 'signed' || matrix.edition }}-${{ needs.release.outputs.version }}
           path: dist
@@ -574,12 +574,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: msime-windows-*-${{ needs.release.outputs.version }}
           path: dist
           merge-multiple: true
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: msime-symbols-windows-*-${{ needs.release.outputs.version }}
           path: dist
