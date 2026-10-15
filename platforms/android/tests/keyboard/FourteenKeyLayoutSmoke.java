@@ -107,12 +107,14 @@ public final class FourteenKeyLayoutSmoke {
         check(!KeyboardLayout.carriesLetterCase(fourteen), "no Shift");
         check(!KeyboardLayout.drawsNumberRow(true, KeyboardLayout.Layer.LETTERS, fourteen, 760), "no number row");
         check(!SplitKeyboardPolicy.drawn(true, 800, true, fourteen), "never split");
-        // 底行与 26 键相同：123 ， 空格 。 中 回车。
-        check(KeyboardActionRow.designEntries(fourteen, false).equals(
-            KeyboardActionRow.designEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, false))
-            && KeyboardActionRow.designEntries(fourteen, true).equals(
-                KeyboardActionRow.designEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true)),
-            "the bottom row is the 26-key one");
+        // 底行是 123 ， 空格 。 中 回车：第三行左端已经有 符，所以不像 26 键那样换成 符 | 123 | 空格 | 中 | 回车。
+        check(KeyboardActionRow.designEntries(fourteen, false).stream().map(KeyboardActionRow.DesignEntry::slot).toList()
+                .equals(List.of(KeyboardActionRow.DesignSlot.LAYER, KeyboardActionRow.DesignSlot.COMMA,
+                    KeyboardActionRow.DesignSlot.SPACE, KeyboardActionRow.DesignSlot.PERIOD,
+                    KeyboardActionRow.DesignSlot.LANGUAGE, KeyboardActionRow.DesignSlot.RETURN))
+            && !KeyboardActionRow.designEntries(fourteen, true).contains(new KeyboardActionRow.DesignEntry(
+                KeyboardActionRow.DesignSlot.SYMBOL_PANEL, KeyboardActionRow.DESIGN_SYMBOL_PANEL_WEIGHT)),
+            "the bottom row keeps comma and period and has no 符");
         check(KeyboardActionRow.layerTitle(fourteen, false).equals("123")
             && KeyboardActionRow.layerTitle(fourteen, true).equals("14键"), "the layer key titles");
         // 三栏面板与九键共用：按 14 键的布局判断，字母层组字时画三栏，123 层不画。
