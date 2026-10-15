@@ -33,7 +33,7 @@ Status: implemented
 ## Verification
 
 - #7765：旧实现拒绝十万条回归（`条数超过 30000`）；取消条数限制后，client-core 的 17 项辅助码回归、132 项插件回归及 host-api 导入到 Engine 会话的回归通过。十万条表恰好 1 MiB 可导入、扫描和完整载入；多一个字节、末尾重复字或非法长码会被拒绝，已安装的好表不被替换；注释填充文件的初始容量仍受限。Android API 28、35 各跑完整 client-core 套件，1377 项通过、13 项忽略，7 项无法在设备准备硬链接的测试按既有规则排除。
-- #7765 的宿主验证：Android `HelpcodeImportDeviceSmoke` 在 API 28、35 的独立 AVD 上经安装产品 JNI 导入十万条、重新读目录、用末行「你=zz」过滤真实 Engine 候选并删除；API 28 `smoke.sh --core` 整套通过。iOS 使用完整 12 项固定资源，`HelpcodeSettingsTests` 五项通过，十万条表的末行「是=ya」在已打开会话重读后成为首选，删除后回到内置表；夹具显式创建目录并断言初始化诊断，避免资源准备失败被误报为输入行为失败。Clippy、Rustfmt、笔记校验、差异检查和本地 quick 门禁通过。这里验证的是模拟器测试宿主，不能由此推导 iOS 真机扩展的内存峰值；上述三万条的旧内存测量也不代表十万条的开销。
+- #7765 的宿主验证：Android `HelpcodeImportDeviceSmoke` 在 API 28、35 的独立 AVD 上经安装产品 JNI 导入十万条、重新读目录、用末行「你=zz」过滤真实 Engine 候选并删除；API 28 `smoke.sh --core` 与 API 35 默认完整 `smoke.sh` 均整套通过。API 35 使用包含固定日文、注音资源的完整 APK（SHA-256 `cc2c4039393b20612468f61d0b3600326331f7f7c818d5a86afa0c1b011ee9fe`），语言切换、九键、十四键、辅助码和剪贴板保存生命周期均通过；不把测试夹具缺少语言资源的早期失败算作产品通过。iOS 使用完整 12 项固定资源，`HelpcodeSettingsTests` 五项通过，十万条表的末行「是=ya」在已打开会话重读后成为首选，删除后回到内置表；夹具显式创建目录并断言初始化诊断，避免资源准备失败被误报为输入行为失败。Clippy、Rustfmt、笔记校验、差异检查和本地 quick 门禁通过。这里验证的是模拟器测试宿主，不能由此推导 iOS 真机扩展的内存峰值；上述三万条的旧内存测量也不代表十万条的开销。
 
 
 - `cargo test -p msime-client-core --lib helpcode` / `plugins`：`plugins/tests.rs` 覆盖可读 id、哈希 id、57/58 字节主干的边界、`# name:` 和 80 字节截断、带引号和反斜杠的文件名、重复字/三字母码/空表/GBK/超长各自被拒并带行号、二次导入替换且不留 `.staging-*`、`scan` 列出与 `load_codes` 读出。
