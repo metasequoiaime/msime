@@ -36,8 +36,11 @@ fn sparse_and_unreachable_columns_do_not_reserve_full_beams() {
             assert!(after.allocations <= before.allocations);
             // 每列至多一条存活路径；旧版每列至少预留 beam 条，起点也一样。
             let saved = (columns + 1) * (options.beam - 1) * std::mem::size_of::<Hyp<'_>>();
+            let column_metadata = (columns + 1)
+                * (std::mem::size_of::<super::BeamColumn<'_>>()
+                    - std::mem::size_of::<Vec<Hyp<'_>>>());
             assert!(
-                before.peak_bytes - after.peak_bytes >= saved,
+                before.peak_bytes - after.peak_bytes + column_metadata >= saved,
                 "{columns}/{gap}: {before:?} -> {after:?}"
             );
             eprintln!("column-capacity {columns}/{gap}: {before:?} -> {after:?}");

@@ -1,7 +1,7 @@
 // 固定 b50aeb2f059da4bbdc073f08b4104dcabf93c12a 的解码正文，仅翻译注释。
 use super::*;
 
-pub(super) fn decode_graph(
+pub(in crate::lattice::decode) fn decode_graph(
     graph: &Graph,
     options: &LatticeOptions<'_>,
     extra: Option<&Graph>,
