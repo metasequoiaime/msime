@@ -87,6 +87,12 @@ public final class RecentClipboardSuggestionSmoke {
         check(!RecentClipboardSuggestion.enabled(false, false), "both off, nothing shown");
         check(RecentClipboardSuggestion.enabled(true, true), "history on and the switch on shows it");
         check(!RecentClipboardSuggestion.enabled(true, false), "the local switch can still turn it off");
+        check(RecentClipboardSuggestion.allowedWithToolbarPanel(false, false),
+            "the idle toolbar may show a recent copy");
+        check(!RecentClipboardSuggestion.allowedWithToolbarPanel(false, true),
+            "other toolbar panels hide the recent copy");
+        check(RecentClipboardSuggestion.allowedWithToolbarPanel(true, true),
+            "the text edit panel keeps the recent copy in the toolbar");
 
         AndroidLocalSettings.Spec spec = AndroidLocalSettings.spec(AndroidLocalSettings.CLIPBOARD_SUGGESTION);
         check(AndroidLocalSettings.defaults().bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION),

@@ -278,9 +278,14 @@ final class ImeToolbar {
         dismiss.setContentDescription("不再显示这条复制的内容");
         bindToolbarAction(dismiss, s::dismissRecentClip);
         row.addView(dismiss, LayoutPolicy.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
-        // 这一行只在没有工具栏面板开着时显示，收起键在这里只有收起键盘这一个意思。
+        // 文本编辑面板也显示最近复制；收起键与普通工具栏一样先返回键盘。
         Button collapse = s.shortcutButton(row, "收起", KeyboardShortcutIconPolicy.Icon.DISMISS,
-            () -> s.requestHideSelf(0));
+            () -> {
+                if (s.anyToolbarPanelOpen()) {
+                    s.closeToolbarPanels();
+                    s.render();
+                } else s.requestHideSelf(0);
+            });
         collapse.setContentDescription("收起键盘");
         collapse.setLayoutParams(LayoutPolicy.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
         recentClipCollapseButton = collapse;
@@ -297,6 +302,7 @@ final class ImeToolbar {
         boolean visible = text != null || image;
         ViewPolicy.setVisible(s.recentClipRow, visible);
         if (!visible) return;
+        recentClipCollapseButton.setContentDescription(s.anyToolbarPanelOpen() ? "返回键盘" : "收起键盘");
         String preview = image ? ClipboardImagePolicy.LABEL : RecentClipboardSuggestion.preview(text);
         if (!preview.contentEquals(s.recentClipButton.getText())) s.recentClipButton.setText(preview);
         s.recentClipButton.setContentDescription(image ? "发送最近复制的图片" : "粘贴最近复制的内容：" + preview);

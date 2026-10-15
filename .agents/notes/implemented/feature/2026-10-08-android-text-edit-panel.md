@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+面板打开时的复制预览及返回键由 [文本编辑中实时显示最近复制](2026-10-15-android-recent-copy-in-text-edit.md) 持有；本篇继续描述编辑器动作和键盘布局。
+
 - 功能面板第 3 页加一格「文本编辑」（`FunctionPanelModel.Id.TEXT_EDIT`，Lucide text-cursor-input 图标，经 `generate_keyboard_icons.py` 生成），点开 `ImeTextEditPanel`。面板是又一个工具栏面板：加入 `closeToolbarPanels`、`anyToolbarPanelOpen`、`alignOverlaysBelowTopRow` 和皮肤底色，打开功能面板时先关掉它（它后加入外框，否则会盖住功能面板）。只要有输入连接就可用，不要求引擎会话。
 - 键和动作在无 Android 依赖的 `TextEditPanelModel`：4 × 4，左边 ← → 各占三行、中间 ↑ 选择 ↓，下排 移到开头 / 移到结尾 / 退格，右列 全选 / 复制 / 剪切 / 粘贴。视图用嵌套的 LinearLayout 按权重搭出同样的形状。
 - 打开前由 Engine 完成组字，之后所有动作直接作用于编辑器，不经过 Engine：
