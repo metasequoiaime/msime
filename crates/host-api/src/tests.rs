@@ -13372,7 +13372,7 @@ fn plugins_boundary_lists_imports_removes_and_keeps_the_name_list() {
     );
 }
 
-/// 移动端导入单个码表：`import_helpcode_table` 把正文装成辅助码表包，选中后会话里「你」的码换成表里的；坏表以 `plugin_invalid` 和带行号的中文原因被拒。
+/// 移动端导入十万条码表：末行辅助码经插件和会话到达 Engine；坏表带行号拒绝。
 #[test]
 fn plugins_boundary_imports_a_helpcode_table_the_session_then_reads() {
     let dir = tempfile::tempdir().unwrap();
@@ -13384,15 +13384,23 @@ fn plugins_boundary_imports_a_helpcode_table_the_session_then_reads() {
         .unwrap();
         read(unsafe { msime_client_plugins(request.as_ptr(), request.len()) })
     };
+    let mut table = String::from("\u{FEFF}# name: 我的辅助码\r\n");
+    for index in 0..99_999 {
+        table.push_str(&format!(
+            "{}=ab\r\n",
+            char::from_u32(0x20000 + index).unwrap()
+        ));
+    }
+    table.push_str("你=zz\r\n");
     let imported = call(json!({
         "operation": "import_helpcode_table",
         "file_name": "我的码.txt",
-        "text": "\u{FEFF}# name: 我的辅助码\r\n你=zz\r\n",
+        "text": table,
     }));
     assert_eq!(imported["ok"], true, "{imported}");
     assert_eq!(imported["value"]["kind"], "helpcode");
     assert_eq!(imported["value"]["name"], "我的辅助码");
-    assert_eq!(imported["value"]["entries"], 1);
+    assert_eq!(imported["value"]["entries"], 100_000);
     let id = imported["value"]["id"].as_str().unwrap().to_owned();
     assert!(id.starts_with("custom-"), "{id}");
     let catalog = call(json!({"operation": "catalog"}));

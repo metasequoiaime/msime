@@ -365,9 +365,9 @@ pub(super) fn build_graph(
 #[derive(Clone, Copy)]
 struct Hyp<'g> {
     score: f64,
-    /// Column and index of the hypothesis this one extends; `None` for the start.
-    prev: Option<(usize, usize)>,
-    /// The edge it arrived on; `None` only for the start.
+    /// 前驱假设的列号与行号；起点填 `(0, 0)`，只有 `edge` 非空时才可回溯。
+    prev: (usize, usize),
+    /// 到达本假设的图边；仅起点为 `None`，同时表示没有前驱。
     edge: Option<&'g Edge>,
     typo_edges: usize,
 }
@@ -456,7 +456,7 @@ pub(super) fn decode_graph(
     let mut columns: Vec<Vec<Hyp<'_>>> = capacities.into_iter().map(Vec::with_capacity).collect();
     columns[0].push(Hyp {
         score: 0.0,
-        prev: None,
+        prev: (0, 0),
         edge: None,
         typo_edges: 0,
     });
@@ -516,10 +516,10 @@ pub(super) fn decode_graph(
                 };
                 &bigram_rows[row]
             });
-            // The column a hypothesis points back into was pruned before this one was expanded and is never touched again, so the word two back is stable here.
+            // 前驱列已经剪枝且不会再改变；前驱列为零时没有更早的词，起点也填零。
             let context = personal.map(|personal| {
                 let earlier = match hyp.prev {
-                    Some((column, at)) if column > 0 => {
+                    (column, at) if column > 0 => {
                         done[column][at].edge.map(|edge| edge.word.as_str())
                     }
                     _ => None,
@@ -546,7 +546,7 @@ pub(super) fn decode_graph(
                 }
                 ahead[edge.end - pos - 1].push(Hyp {
                     score,
-                    prev: Some((pos, index)),
+                    prev: (pos, index),
                     edge: Some(edge),
                     typo_edges: hyp.typo_edges + usize::from(edge.typo),
                 });
@@ -572,7 +572,8 @@ pub(super) fn decode_graph(
             let Some(edge) = step.edge else { break };
             words.push(edge.word.clone());
             keys.push(edge.key.as_str());
-            cursor = step.prev.map(|(column, at)| &columns[column][at]);
+            let (column, at) = step.prev;
+            cursor = Some(&columns[column][at]);
         }
         words.reverse();
         keys.reverse();
@@ -1472,3 +1473,7 @@ pub(super) mod tests {
 #[cfg(test)]
 #[path = "graph_ownership_tests.rs"]
 mod graph_ownership_tests;
+
+#[cfg(test)]
+#[path = "decode_hyp_layout_tests.rs"]
+mod hyp_layout_tests;

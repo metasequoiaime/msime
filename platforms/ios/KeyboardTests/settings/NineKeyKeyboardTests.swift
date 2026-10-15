@@ -143,6 +143,15 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual((symbols.gestureRecognizers ?? []).compactMap { $0 as? UILongPressGestureRecognizer }.count, 1)
     let hint = try XCTUnwrap(symbols.subviews.first { $0.accessibilityIdentifier == "keyNumberHint" } as? UILabel)
     XCTAssertEqual(hint.text, "1")
+    // 九格的数字提示都在右上角（距上 3pt、右 5pt，与 26 键角标相同），键面文字不为它下移。
+    controller.view.layoutIfNeeded()
+    for digit in 1...9 {
+      let key = try button("nineKey\(digit)", in: controller)
+      let number = try XCTUnwrap(key.subviews.first { $0.accessibilityIdentifier == "keyNumberHint" })
+      XCTAssertEqual(number.frame.minY, 3, accuracy: 0.5, "\(digit)")
+      XCTAssertEqual(number.frame.maxX, key.bounds.maxX - 5, accuracy: 0.5, "\(digit)")
+      XCTAssertEqual(key.configuration?.contentInsets, .zero, "\(digit)")
+    }
     XCTAssertEqual(symbols.accessibilityHint, "长按输入 1")
     XCTAssertEqual(KeyboardViewController.nineKeyHoldOptions(1), ["1"])
     XCTAssertEqual(KeyboardViewController.nineKeyHoldOptions(2), ["2", "a", "b", "c"])

@@ -57,6 +57,7 @@
     <instrumentation android:name="app.msime.android.test.FeedbackInputStabilityDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.ChineseLanguageReturnDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.EmptyEditorBackspaceDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.HelpcodeImportDeviceSmoke" android:targetPackage="app.msime.android" />
     <application android:label="MSIME Editor Fixture" android:allowBackup="false">
         <!-- 合成服务只发回调，不录音；专用模拟器测试结束后恢复系统的默认识别服务。 -->
         <service android:name="app.msime.android.test.LegacySyntheticSpeechService" android:enabled="false" android:exported="true" android:permission="android.permission.RECORD_AUDIO">

@@ -489,6 +489,7 @@ import type {
   NavigationPreferences,
   WordCharacterPreferences,
 } from "./settings/candidate-paging-preferences";
+import type { SentenceAssociationPreferences } from "./settings/sentence-association-preferences";
 import type { MixedInputPreferences } from "./settings/mixed-input-preferences";
 import type { FrequencyPreferences } from "./settings/frequency-preferences";
 import { type LocalModePreferences } from "./settings/local-mode-preferences";
@@ -1836,13 +1837,7 @@ export interface EditionInfo {
 
 export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 
-/** Local whole-sentence candidate sources and optional neural reranking. */
-export type SentenceAssociationPreferences = {
-  word_lattice?: boolean;
-  neural_desktop?: boolean;
-  neural_keyboard?: boolean;
-  show_next_on_duplicate?: boolean;
-};
+export type { SentenceAssociationPreferences } from "./settings/sentence-association-preferences";
 
 export type Preferences = PunctuationPreferences &
   PreeditPreferences &
