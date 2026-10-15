@@ -32,4 +32,4 @@ Status: implemented
 
 `TextEditRecentClipboardDeviceSmoke` 在合成编辑器中经真实 InputConnection 检查复制和剪切后预览、点按粘贴、面板位置稳定、关闭预览仍保留面板、返回键盘、其他面板隐藏预览，以及历史与本地建议两个开关。测试先准备编辑器文字，等待可能的输入连接重建完成后才打开面板；空输入框的无障碍文字可能是 hint，断言同时识别 `isShowingHintText()`。旧版本在 API 28 的「面板保持打开时显示预览」断言失败，修正版在 API 28/35 整套通过。同一套件注册在默认 API 35 验收清单中，API 28 可单独执行。
 
-Android host 的 231 项 JVM 冒烟、设备测试源编译和 JNI/API/资源契约通过。原生宿主 Java 重新构建，APK 签名和验证通过；本次没有改 Rust/C ABI，装包复用先前验证的原生库和资源，不把它当作当前 develop 的 Rust 全量重编。`verify-local.sh --quick` 曾在 Rust workspace 编译阶段耗尽磁盘，随后设备/Apple bridge 编译连锁失败；已清理本任务的 Rust 缓存，完整 quick 尚未通过。
+Android host 的 231 项 JVM 冒烟、设备测试源编译和 JNI/API/资源契约通过。原生宿主 Java 重新构建，APK 签名和验证通过；本次没有改 Rust/C ABI，装包复用先前验证的原生库和资源，不把它当作当前 develop 的 Rust 全量重编。`verify-local.sh --quick` 首次在 Rust workspace 编译阶段耗尽磁盘；清理已合并且无修改的任务 worktree 后重新执行，Rust workspace、Android target、Android 宿主与共享 Apple bridge 编译均通过，quick 门禁通过。
