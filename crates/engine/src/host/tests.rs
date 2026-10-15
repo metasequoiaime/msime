@@ -3490,3 +3490,22 @@ fn hidden_helpcode_snapshot_does_not_recompute_annotations() {
     );
     assert!(!snapshot.candidates.is_empty());
 }
+
+/// #7616：只按了入口键就回车时，上屏的是入口字母本身，去掉标记后没有正文可学——以前会报「英文词学不了」（`Y`），临时日文还会把补出来的 `r` 写进英文词库。
+#[test]
+fn a_bare_entry_letter_raw_commit_learns_nothing() {
+    for (letter, mode, word) in [
+        (b'Y', "temporary_english", "y"),
+        (b'R', "temporary_japanese", "r"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let value = options(dir.path());
+        let mut session = Session::new(&value).unwrap();
+        assert!(session.character(letter, true).unwrap().handled);
+        assert_eq!(session.snapshot().unwrap().local_mode, mode);
+        let result = session.command(Command::CommitRaw).unwrap();
+        assert_eq!(result.commit, (letter as char).to_string());
+        assert_eq!(result.diagnostic, "");
+        assert_eq!(english_word_count(&value, word), 0);
+    }
+}

@@ -8591,3 +8591,40 @@ fn enter_commits_the_local_preedit_with_its_entry_letter() {
     assert_eq!(enters(b'T', "rq").as_deref(), Some("Trq"));
     assert_eq!(enters(b'C', "ab").as_deref(), Some("Cab"));
 }
+
+/// #7616：宿主结束组字那条路（`Action::Finish`、失焦结束、macOS 的 `Cmd+A` 走 `MSIME_FINISH_COMPOSITION`）也要结束大写串。它调用 `InputSession::finish`，不经过 `handle_command`；runtime 的字面标点路由（`Action::PunctuationAscii`，runtime.rs:2226 与 2416）同样调 `Session::finish`，所以这里直接覆盖这个入口。
+#[test]
+fn a_host_finish_ends_the_uppercase_run() {
+    let setup = || {
+        let fixture = Fixture::new(QUANPIN_FIXTURE);
+        fixture.session_with(|options| {
+            options.enabled_schemes = SchemeSet::of(&[
+                SchemeType::Quanpin,
+                SchemeType::Shuangpin,
+                SchemeType::JapaneseRomaji,
+            ]);
+            // 颜文字关掉，`M` 才会交给宿主（它仍是入口字母，所以不会开始拼音组字）。
+            options.local_modes.kaomoji = false;
+            options.local_modes.temporary_english = true;
+        })
+    };
+
+    let mut session = setup();
+    assert!(!session.character(b'M', true).handled);
+    session.finish(0);
+    assert!(session.character(b'Y', true).handled);
+    assert_eq!(
+        session.snapshot().local_mode,
+        LocalInputMode::TemporaryEnglish
+    );
+
+    // 引擎侧的标点路由本来就结束这一串，一并钉住。
+    let mut session = setup();
+    assert!(!session.character(b'M', true).handled);
+    session.punctuation(b'.');
+    assert!(session.character(b'Y', true).handled);
+    assert_eq!(
+        session.snapshot().local_mode,
+        LocalInputMode::TemporaryEnglish
+    );
+}

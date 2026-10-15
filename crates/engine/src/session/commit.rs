@@ -98,6 +98,8 @@ impl InputSession {
 
     /// Commit segment by segment until nothing is composing. An open Korean Hanja list is closed first, so finishing (punctuation, leaving the client, a host's finish key) commits the Hangul: only an explicit choice commits a Hanja.
     pub(super) fn finish_composition(&mut self, first_index: usize) -> KeyResult {
+        // 上屏/结束组字同样结束大写串：宿主结束键（`Action::Finish`、失焦、macOS 的 Cmd+A）与字面标点路由都从这里过，不经过 `handle_command`（#7616）。
+        self.end_uppercase_run();
         self.close_korean_hanja();
         let mut result = KeyResult::unhandled();
         // 高亮停在 AI 占位行上时，按没有高亮处理：上屏首选，不上屏占位文字。

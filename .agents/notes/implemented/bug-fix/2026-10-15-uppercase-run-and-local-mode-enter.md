@@ -12,9 +12,9 @@ Status: implemented
 
 ## Decision
 
-判定留在共享引擎：会话记住「上一枚按键是本会话交还给宿主的大写字母」，这一串大写里只有第一枚字母能进快捷模式，后面的入口字母照常交给宿主当大写字母。任何不是「交给宿主的大写字母」的按键都结束这一串——小写字母、数字、标点、任意命令（回车、空格、退格、光标）、失焦或换应用的重置——下一枚字母重新算第一枚。没有组字时 Shift+字母只可能被交给宿主或进快捷模式，所以各宿主不需要各自的实现，macOS 那边 #7723 的特判随之删除。
+判定留在共享引擎：会话记住「上一枚按键是本会话交还给宿主的大写字母」，这一串大写里只有第一枚字母能进快捷模式，后面的入口字母照常交给宿主当大写字母。任何不是「交给宿主的大写字母」的按键都结束这一串——小写字母、数字、标点、任意命令（回车、空格、退格、光标）、宿主结束组字（`Action::Finish`、失焦结束、macOS 的 `Cmd+A`，它们经过 `InputSession::finish` 而不经过 `handle_command`；runtime 的字面标点路由同样调它）、失焦或换应用的重置——下一枚字母重新算第一枚。没有组字时 Shift+字母只可能被交给宿主或进快捷模式，所以各宿主不需要各自的实现，macOS 那边 #7723 的特判随之删除。
 
-回车保持「原样上屏」的语义，并把入口字母算作文本：本地模式回车时上屏所见预编辑，空输入时就是入口字母本身。进词库的一侧仍把入口字母当标记——`LocalInputMode::without_entry_marker` 是这两侧的唯一判据，临时日文照旧补 `r` 前缀，所以学进词库的英文词和打字统计的口径不变。
+回车保持「原样上屏」的语义，并把入口字母算作文本：本地模式回车时上屏所见预编辑，空输入时就是入口字母本身。进词库的一侧仍把入口字母当标记——`LocalInputMode::without_entry_marker` 是这两侧的唯一判据，只有入口字母时去掉标记后没有正文，就直接跳过学习（旧实现上屏空串，同样不学；不跳的话临时英文会报「学不了」，临时日文还会把补出来的 `r` 写进词库），临时日文照旧补 `r` 前缀，所以学进词库的英文词和打字统计的口径不变。
 
 ## Alternatives considered
 
@@ -29,8 +29,8 @@ Status: implemented
 
 ## Verification
 
-- `crates/engine/src/session/tests.rs`：`only_the_first_letter_of_an_uppercase_run_opens_a_shortcut`（连打 `M`、`R`、`E`，后两枚交给宿主；重置上下文或一条命令之后入口键照旧进模式）与 `enter_commits_the_local_preedit_with_its_entry_letter`（上屏 `R`、`Rka`、`Y`、`Yhe`、`Trq`、`Cab`）。
-- `crates/engine/src/host/tests.rs`：临时英文回车上屏 `Yrustacean`，词库学的仍是 `rustacean`；临时日文回车上屏 `Rkk`，词库学的仍是带 `r` 前缀的 `rkk`。
+- `crates/engine/src/session/tests.rs`：`only_the_first_letter_of_an_uppercase_run_opens_a_shortcut`（连打 `M`、`R`、`E`，后两枚交给宿主；重置上下文或一条命令之后入口键照旧进模式）、`a_host_finish_ends_the_uppercase_run`（宿主结束键与标点路由同样结束这一串，来自 PR #8035 的评审）与 `enter_commits_the_local_preedit_with_its_entry_letter`（上屏 `R`、`Rka`、`Y`、`Yhe`、`Trq`、`Cab`）。
+- `crates/engine/src/host/tests.rs`：临时英文回车上屏 `Yrustacean`，词库学的仍是 `rustacean`；临时日文回车上屏 `Rkk`，词库学的仍是带 `r` 前缀的 `rkk`；`a_bare_entry_letter_raw_commit_learns_nothing`（只按入口键回车：上屏 `Y`/`R`，无诊断，英文词库不多出 `y`/`r`，来自 PR #8035 的评审）。
 - 黄金场景 `temp_japanese_enter`、`temp_english_enter_and_learning` 只在上屏文本一处与参考实现不同，学词那一半（`dump_journal`）没有变化。
 - `cargo test -p msime-engine -p msime-input-runtime -p msime-host-api -p msime-client-core`；`bash scripts/verify-local.sh --quick`（macOS、Windows 阶段在本机跳过）。
 - macOS `ShortcutTest` 的相应用例同步改到新契约；本机编不了 macOS，未运行。

@@ -712,9 +712,9 @@ impl Session {
                 || (chinese_scheme && !complete_pure_pinyin));
         let mut result = self.inner.command(crate::types::Command::CommitRaw);
         if let Some(commit) = result.commit.as_deref().filter(|_| should_learn) {
-            if !commit.is_empty() {
-                // 进词库的词去掉临时模式的入口字母：回车上屏的原文带它，词库里不该有（#7616）。
-                let text = before.local_mode.without_entry_marker(commit);
+            // 进词库的词去掉临时模式的入口字母：回车上屏的原文带它，词库里不该有（#7616）。只有入口字母时正文为空，那就没有词可学（旧实现上屏空串，同样不学）。
+            let text = before.local_mode.without_entry_marker(commit);
+            if !text.is_empty() {
                 let word = if before.local_mode == LocalInputMode::TemporaryJapanese {
                     temporary_japanese_word(text)
                 } else {

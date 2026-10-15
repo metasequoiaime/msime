@@ -269,7 +269,7 @@ impl InputSession {
     }
 
     /// 这一串大写到此为止：不是「交给宿主的大写字母」的按键都算结束，下一枚字母重新算这一串的第一枚（#7616）。
-    fn end_uppercase_run(&mut self) {
+    pub(super) fn end_uppercase_run(&mut self) {
         self.uppercase_passthrough = false;
     }
 
