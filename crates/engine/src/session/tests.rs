@@ -3761,7 +3761,10 @@ fn disabled_local_modes_leave_the_key_to_the_host() {
         options.local_modes.unicode = false;
     });
     assert!(!session.character(b'Y', true).handled);
+    // 连续大写里只有第一枚字母能进快捷模式（#7616），所以这里每问一枚就结束上一串。
+    session.reset_context();
     assert!(!session.character(b'U', true).handled);
+    session.reset_context();
     assert!(session.character(b'K', true).handled);
 }
 
@@ -8523,4 +8526,68 @@ fn set_punctuation_marks_applies_live_without_resetting_alternation() {
     session.set_punctuation_marks(crate::punctuation::PunctuationMarks::default());
     assert_eq!(session.punctuation(b'"').commit.as_deref(), Some("“"));
     assert_eq!(session.punctuation(b'[').commit.as_deref(), Some("【"));
+}
+
+/// #7616：连续按住 Shift 打大写时只有第一枚字母能进快捷模式。报告里按住 Shift 连打 `MRI`，`R` 是临时日文入口，但它在 `M` 之后，所以交给宿主，整串照常是大写字母。
+#[test]
+fn only_the_first_letter_of_an_uppercase_run_opens_a_shortcut() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.enabled_schemes = SchemeSet::of(&[
+            SchemeType::Quanpin,
+            SchemeType::Shuangpin,
+            SchemeType::JapaneseRomaji,
+        ]);
+        options.local_modes.temporary_japanese = true;
+        // 报告里的人没有开颜文字，`M` 才落到宿主手里；开着的话 `M` 自己就是这一串的第一枚字母。
+        options.local_modes.kaomoji = false;
+    });
+
+    assert!(!session.character(b'M', true).handled);
+    // 临时日文的 `R` 和表情的 `E` 都是入口键，但都在 `M` 之后，所以照常当大写字母交给宿主。
+    assert!(!session.character(b'R', true).handled);
+    assert!(!session.character(b'E', true).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+
+    // 换应用、失焦、上屏这类边界之后这一串结束，入口键照旧进模式。
+    session.reset_context();
+    assert!(session.character(b'R', true).handled);
+    assert_eq!(
+        session.snapshot().local_mode,
+        LocalInputMode::TemporaryJapanese
+    );
+    assert!(session.command(Command::Cancel).handled);
+
+    // 命令同样结束这一串：回车之后的第一枚字母重新算第一枚。
+    assert!(!session.character(b'M', true).handled);
+    assert!(!session.command(Command::CommitRaw).handled);
+    assert!(session.character(b'E', true).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::Emoji);
+}
+
+/// #7616：本地模式里回车上屏的是屏幕上的预编辑原文，入口字母算在内；只有入口字母时就是它自己。以前两个临时模式回车会把入口字母当标记丢掉，空输入时什么都不上屏。
+#[test]
+fn enter_commits_the_local_preedit_with_its_entry_letter() {
+    let enters = |letter: u8, typed: &str| {
+        let fixture = Fixture::new(QUANPIN_FIXTURE);
+        let mut session = fixture.session_with(|options| {
+            options.enabled_schemes = SchemeSet::of(&[
+                SchemeType::Quanpin,
+                SchemeType::Shuangpin,
+                SchemeType::JapaneseRomaji,
+            ]);
+            options.local_modes.chaizi = true;
+        });
+        assert!(session.character(letter, true).handled);
+        type_text(&mut session, typed);
+        session.command(Command::CommitRaw).commit
+    };
+
+    assert_eq!(enters(b'R', "").as_deref(), Some("R"));
+    assert_eq!(enters(b'R', "ka").as_deref(), Some("Rka"));
+    assert_eq!(enters(b'Y', "").as_deref(), Some("Y"));
+    assert_eq!(enters(b'Y', "he").as_deref(), Some("Yhe"));
+    // 其它本地模式本来就是原样上屏含入口字母，这条规则没有改变它们。
+    assert_eq!(enters(b'T', "rq").as_deref(), Some("Trq"));
+    assert_eq!(enters(b'C', "ab").as_deref(), Some("Cab"));
 }

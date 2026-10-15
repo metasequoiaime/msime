@@ -88,6 +88,8 @@ pub(super) struct InputSession {
     pub temporary_original_scheme: Option<SchemeType>,
     pub local_preedit: String,
     pub local_candidates: Vec<WordItem>,
+    /// 上一枚按键是交给宿主的大写字母（没有组字时 Shift+字母就走这条路）。连续按住 Shift 打大写时它让这一串开了头：后面的字母不再进快捷模式，第一枚仍照旧（#7616）。
+    pub uppercase_passthrough: bool,
     /// 插件指令行的缓存：（问的是哪一份本地预编辑串，插件给的行）。只有一槽，预编辑串一变就清掉，所以 `/uuid` 退成 `/uui` 再打回 `/uuid` 会重新问插件；预编辑串不变时（方向键、翻页、列表重建）行一直在，不再问。0 行也缓存成空表。
     pub plugin_rows: Option<(String, Vec<WordItem>)>,
     pub online_requests: OnlineRequestGuard,
@@ -171,6 +173,7 @@ impl InputSession {
             temporary_original_scheme: None,
             local_preedit: String::new(),
             local_candidates: Vec::new(),
+            uppercase_passthrough: false,
             plugin_rows: None,
             online_requests: OnlineRequestGuard::new(),
             ai_seat: false,
@@ -259,6 +262,18 @@ impl InputSession {
 
     /// input_session.cpp:88-245: caret insertion, dedicated English, local modes and their Shift entries, the acceptance gate, then the scheme. Handled iff the preedit changed.
     pub fn handle_character(&mut self, value: u8, shift_only: bool) -> KeyResult {
+        let result = self.dispatch_character(value, shift_only);
+        // #7616：交还给宿主的大写字母让这一串开了头，直到下一枚不是大写字母的键为止。
+        self.uppercase_passthrough = value.is_ascii_uppercase() && !result.handled;
+        result
+    }
+
+    /// 这一串大写到此为止：不是「交给宿主的大写字母」的按键都算结束，下一枚字母重新算这一串的第一枚（#7616）。
+    fn end_uppercase_run(&mut self) {
+        self.uppercase_passthrough = false;
+    }
+
+    fn dispatch_character(&mut self, value: u8, shift_only: bool) -> KeyResult {
         // 改字时能写进组字的键先退出改字再照常键入；数字和空格等留给候选选择，宿主或 runtime 再按选择处理。
         if self.conversion.is_some() {
             if !(value.is_ascii_alphabetic() || value == b'\'' || value == b';') {
@@ -300,7 +315,8 @@ impl InputSession {
             return self.handle_stroke_character(value);
         }
         if !self.has_composition() {
-            let entry = if shift_only {
+            // 连续大写里只有第一枚字母能进快捷模式，第二枚起留给宿主当大写字母。
+            let entry = if shift_only && !self.uppercase_passthrough {
                 self.local_mode_for_entry(value)
             } else {
                 None
@@ -777,6 +793,7 @@ impl InputSession {
 
     /// input_session.cpp:294-406.
     pub fn handle_command(&mut self, command: Command) -> KeyResult {
+        self.end_uppercase_run();
         if !self.has_composition() {
             // With nothing composed every command is left to the host, which edits the text, moves the caret or inserts a newline, so the chain no longer ends where the host's text does.
             self.chain.reset();
@@ -949,6 +966,7 @@ impl InputSession {
 
     /// input_session.cpp:247-258.
     pub fn handle_candidate_key(&mut self, value: u8) -> KeyResult {
+        self.end_uppercase_run();
         // A VNI digit spells the composing word; there is no list to select from.
         if self.vietnamese_rules_apply()
             && self
@@ -981,6 +999,7 @@ impl InputSession {
 
     /// input_session.cpp:260-292. `/` and `@` never open their modes here: a runtime finishes the composition before it asks for the mark, so an empty composition at this point does not mean the key was typed with nothing composed. They open through `handle_character`, which the runtime reaches first.
     pub fn handle_punctuation(&mut self, value: u8) -> KeyResult {
+        self.end_uppercase_run();
         if matches!(
             self.local_mode,
             LocalInputMode::Command | LocalInputMode::Mention
@@ -1421,6 +1440,7 @@ impl InputSession {
 
     /// Resets the chain and recomputes when the list was personally reranked.
     pub fn reset_commit_context(&mut self) {
+        self.end_uppercase_run();
         self.chain.reset();
         // A list reordered for the forgotten context must not stay on screen.
         if self.personal_reranked {
