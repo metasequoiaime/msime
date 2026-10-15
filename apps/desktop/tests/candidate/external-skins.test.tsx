@@ -2,7 +2,7 @@
 import { testHost } from "../support/host";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { ComponentProps } from "react";
+import { useLayoutEffect, type ComponentProps } from "react";
 import {
   act,
   cleanup,
@@ -17,6 +17,7 @@ import {
   ExternalSkinCard,
   selectedBarCss,
   useSkinPreviewAssets,
+  usePreviewBackground,
   useSkinCatalog,
 } from "../../../../packages/ui/src/skin/external-skins";
 import * as settingsStyle from "../../../../packages/ui/src/settings/settings-style";
@@ -354,6 +355,42 @@ test("image read and decode failures retain base preview and can be retried", as
   expect(card.querySelectorAll(".candidate .container")).toHaveLength(2);
   await refresh();
   await waitFor(() => expect(card.querySelectorAll("img.skin-decoration-image")).toHaveLength(2));
+});
+
+test("首帧提交时的图片解码失败不会被稍后执行的加载 effect 清除", async () => {
+  const readSkinImage = vi.fn().mockResolvedValue(imageData);
+  const { result } = renderHook(() => {
+    const assets = useSkinPreviewAssets(readSkinImage, { id: "sample" }, "images/top.png", 0);
+    useLayoutEffect(() => {
+      if (assets.image?.url) assets.onImageError();
+    }, [assets.image]);
+    return assets;
+  });
+  await waitFor(() => expect(result.current.image?.url).toBeDefined());
+  expect(result.current.decodeFailed).toBe(true);
+});
+
+test("首帧背景图解码失败保留回退，刷新同一图片后允许重试", async () => {
+  const readSkinImage = vi.fn().mockResolvedValue(imageData);
+  const skin = {
+    id: "sample",
+    background: { image: "images/top.png", fit: "cover" as const, opacity: 1 },
+  };
+  const { result, rerender } = renderHook(
+    ({ revision }) => {
+      const background = usePreviewBackground(readSkinImage, skin, revision);
+      useLayoutEffect(() => {
+        if (revision === 0 && background.drawn?.url) background.onError();
+      }, [background.drawn?.url, revision]);
+      return background;
+    },
+    { initialProps: { revision: 0 } },
+  );
+  await waitFor(() => expect(result.current.failed).toBe(true));
+  expect(result.current.drawn).toBeUndefined();
+  rerender({ revision: 1 });
+  await waitFor(() => expect(result.current.drawn?.url).toBe(skinImageUrl(imageData)));
+  expect(result.current.failed).toBe(false);
 });
 
 test("old image response cannot replace current resource after catalog refresh", async () => {

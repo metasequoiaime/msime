@@ -18,3 +18,5 @@ Status: implemented
 ## Consequences
 
 外部皮肤扫描与主题解析共享相同的代次守卫模式，旧目录扫描结果不能覆盖新预览。源码契约测试覆盖扫描和主题两处调用。
+
+图片读取后的浏览器解码错误由[图片解码代次](../bug-fix/2026-10-16-skin-preview-decode-generation.md)单独按读取结果归属，不由扫描响应代次清空。
