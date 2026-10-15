@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { runAsyncAction } from "../core/async-action";
-import { CredentialTestSection, type CredentialTestState } from "./credential-test-section";
+import { CredentialTestSection } from "./credential-test-section";
+import type { CredentialTestState } from "./credential-test-state";
 import { providerCredentialErrorMessage } from "./credential-utils";
 import { useAsyncGeneration } from "./use-async-generation";
 import type {
@@ -41,12 +42,7 @@ export interface UseProviderCredentialsOptions {
 
 export function useProviderCredentials({ client }: UseProviderCredentialsOptions) {
   const [credentialTests, setCredentialTests] = useState<
-    Partial<
-      Record<
-        ApiCredentialTestService,
-        { signature: string; busy: boolean; ok?: boolean; message: string }
-      >
-    >
+    Partial<Record<ApiCredentialTestService, CredentialTestState>>
   >({});
   const credentialTestGeneration = useRef<Partial<Record<ApiCredentialTestService, number>>>({});
   const [providerCredentials, setProviderCredentials] = useState<ProviderCredentialStatus>();
@@ -236,7 +232,7 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
     <CredentialTestSection
       label={label}
       config={config}
-      state={credentialTests[service] as CredentialTestState | undefined}
+      state={credentialTests[service]}
       disabled={disabled}
       available={Boolean(client.testApiCredential)}
       onTest={() => void runCredentialTest(service, config)}

@@ -1198,8 +1198,8 @@ export {
 export {
   CredentialTestSection,
   type CredentialTestSectionProps,
-  type CredentialTestState,
 } from "./settings/credential-test-section";
+export type { CredentialTestState } from "./settings/credential-test-state";
 export {
   ProviderPresetSection,
   type ProviderPresetSectionProps,
