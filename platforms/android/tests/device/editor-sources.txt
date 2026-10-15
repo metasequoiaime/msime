@@ -113,3 +113,4 @@ platforms/android/tests/device/clipboard/PinyinClipboardEditLifecycleDeviceSmoke
 platforms/android/tests/device/keyboard/InputFailureCategoryDeviceSmoke.java
 platforms/android/tests/device/candidate/StaleCandidateDeviceSmoke.java
 platforms/android/tests/device/keyboard/ChineseLanguageReturnDeviceSmoke.java
+platforms/android/tests/device/candidate/CandidateExpansionDeviceSmoke.java

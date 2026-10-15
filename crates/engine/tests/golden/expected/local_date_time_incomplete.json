@@ -81,37 +81,28 @@
    "op": "char",
    "arg": "1",
    "result": {
-    "handled": true
+    "handled": false,
+    "commit": "Tr"
    },
    "snapshot": {
     "scheme": "quanpin",
-    "local_mode": "date_time",
-    "preedit": "Tr",
-    "raw_segmentation": "Tr",
-    "normalized_segmentation": "Tr",
-    "editing_text": "Tr",
-    "caret": 2,
+    "local_mode": "none",
+    "preedit": "",
+    "raw_segmentation": "",
+    "normalized_segmentation": "",
+    "editing_text": "",
+    "caret": 0,
     "dedicated_english": false,
     "shuangpin_profile": "xiaohe",
-    "candidate_count": 1,
-    "candidates": [
-     {
-      "word": "Tr",
-      "pinyin": "Tr",
-      "canonical_pinyin": "",
-      "source": 9,
-      "scheme": "quanpin",
-      "weight": 1,
-      "answers_key": true
-     }
-    ]
+    "candidate_count": 0,
+    "candidates": []
    }
   },
   {
    "op": "command",
    "arg": "Cancel",
    "result": {
-    "handled": true
+    "handled": false
    },
    "snapshot": {
     "scheme": "quanpin",

@@ -270,7 +270,7 @@ impl MsimeServer {
 
     #[tool(
         name = "get_preferences",
-        description = "Read the preferences an agent may see: input scheme, shuangpin layout, candidate page size, font size and layout, the starting mode, character width, punctuation, Traditional Chinese output, Wubi switches and a few more. Pass the returned revision to update_preferences.",
+        description = "Read the preferences an agent may see: input scheme, shuangpin layout, candidate page size, font size and layout, the starting mode, character width, punctuation, Traditional Chinese output, Wubi switches, whether the AI assistant is on and a few more. Pass the returned revision to update_preferences.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn get_preferences(&self) -> Result<Json<PreferencesView>, String> {
@@ -285,7 +285,7 @@ impl MsimeServer {
 
     #[tool(
         name = "update_preferences",
-        description = "Change some of the preferences get_preferences returns. Only the fields given change. Refused when the preferences changed since expected_revision was read, and for a scheme the installed edition of the input method does not offer.",
+        description = "Change some of the preferences get_preferences returns. Only the fields given change. Refused when the preferences changed since expected_revision was read, for a scheme the installed edition of the input method does not offer, and for turning the AI assistant on. Turn the AI assistant off when the user finds the AI candidate slow or in the way: it holds one candidate slot showing … while it waits for the model.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,

@@ -1,24 +1,16 @@
-import { GroupList, Row } from "../core/platform-controls";
+import { GroupList } from "../core/platform-controls";
 import { SelectRow } from "./select-row";
 
-export type FrequencyPreferences = {
-  mode: "disabled" | "pin" | "halve" | "linear" | "promote";
-  trigger_count: number;
-  linear_step: number;
-};
+import { frequencyValueOptions, type FrequencyPreferences } from "./frequency-preferences";
 
-export const defaultFrequency: FrequencyPreferences = {
-  mode: "promote",
-  trigger_count: 1,
-  linear_step: 1,
-};
+export { defaultFrequency, type FrequencyPreferences } from "./frequency-preferences";
 
 export interface FrequencySectionProps {
   preferences: FrequencyPreferences;
   onChange: (preferences: FrequencyPreferences) => void;
 }
 
-/** Shared pinyin frequency adjustment controls: the 拼音方案调频 group. */
+/** 共享拼音调频控件，组成「拼音方案调频」组。 */
 export function FrequencySection({ preferences, onChange }: FrequencySectionProps) {
   return (
     <GroupList title="拼音方案调频">
@@ -47,8 +39,7 @@ export function FrequencySection({ preferences, onChange }: FrequencySectionProp
           value={preferences[key]}
           onChange={(event) => onChange({ ...preferences, [key]: Number(event.target.value) })}
         >
-          {/* A persisted value above the standard range stays selectable rather than silently snapping to 6. */}
-          {[1, 2, 3, 4, 5, 6, ...(preferences[key] > 6 ? [preferences[key]] : [])].map((value) => (
+          {frequencyValueOptions(preferences[key]).map((value) => (
             <option key={value} value={value}>
               {value}
             </option>

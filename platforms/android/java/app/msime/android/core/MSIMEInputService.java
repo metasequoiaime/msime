@@ -2895,14 +2895,29 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.hide(englishSuggestionButtons.get(slot));
     }
 
+    /** 完整候选会放出暂扣尾部并可能重排座位，读取后必须同步同一代视图。 */
+    JSONObject currentCandidateSnapshot() throws JSONException {
+        JSONObject snapshot = value(NativeClient.allCandidates(session));
+        if (strictCandidateLong(snapshot, "session") != session)
+            throw new JSONException("Unexpected candidate session");
+        if (!sameCandidateVersion(snapshot, view)) {
+            JSONObject next = value(NativeClient.view(session));
+            if (!sameCandidateVersion(snapshot, next))
+                throw new JSONException("Unexpected candidate generation");
+            imeTranslationSenses.followOnlineRefresh(next);
+            view = next;
+        }
+        return snapshot;
+    }
+
     /** Copies Engine candidates on the IME thread, then performs only session-free IO off-thread. */
     private void scheduleCandidateGlosses() {
         if (!candidateEnglishGloss || session == 0 || view == null
                 || candidateGlossResources.isEmpty()
                 || !schemeShowsGlosses(InputViewValuePolicy.scheme(view, -1))) return;
-        long generation = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
-        if (generation < 0 || (candidateGlossRequestedSession == session
-                && candidateGlossRequestedGeneration == generation)) return;
+        long requestedGeneration = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
+        if (requestedGeneration < 0 || (candidateGlossRequestedSession == session
+                && candidateGlossRequestedGeneration == requestedGeneration)) return;
         JSONArray visible = view.optJSONArray("candidates");
         if (visible == null || visible.length() == 0) return;
         final long targetSession = session;
@@ -2913,12 +2928,12 @@ public final class MSIMEInputService extends InputMethodService {
         // 目标语言含英语时，随包的英文释义也要记进 candidateOfflineGlosses：合并在线译文时靠它让离线释义优先。只在装了非英文离线词典时才记，没装的用户（默认配置）在线译文会把「你好 hello」这类离线英文释义盖掉。
         final boolean englishTarget = candidateTranslationTargets.contains("en");
         final String request;
+        final long generation;
         final java.util.Map<String, String> targetRequests =
             new java.util.LinkedHashMap<>(offlineTargets.size());
         try {
-            JSONObject snapshot = value(NativeClient.allCandidates(targetSession));
-            if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) != targetSession
-                    || CandidateGlossPolicy.strictOr(snapshot.opt("generation"), -1) != generation) return;
+            JSONObject snapshot = currentCandidateSnapshot();
+            generation = strictCandidateLong(snapshot, "generation");
             request = CandidateGlossModel.request(generation,
                 snapshot.getJSONArray("candidates"));
             // The account path's scheme gate: a Japanese composition is not glossed into other languages. Korean Hanja rows are, as the shared translation query answers them.
@@ -2930,7 +2945,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
         } catch (JSONException | RuntimeException | LinkageError error) {
             candidateGlossRequestedSession = targetSession;
-            candidateGlossRequestedGeneration = generation;
+            candidateGlossRequestedGeneration = requestedGeneration;
             return;
         }
         CandidateGlossPolicy.Token token =
@@ -2996,11 +3011,7 @@ public final class MSIMEInputService extends InputMethodService {
                 userTranslationAppliedGeneration = -1L;
             }
             if (candidatePanelOpen) {
-                JSONObject snapshot = value(NativeClient.allCandidates(token.session()));
-                if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) == token.session()
-                        && CandidateGlossPolicy.strictOr(snapshot.opt("generation"), -1) == token.generation()) {
-                    candidatePanelSnapshot = snapshot;
-                }
+                candidatePanelSnapshot = currentCandidateSnapshot();
             }
             render();
         } catch (JSONException | RuntimeException | LinkageError error) {
@@ -3255,7 +3266,8 @@ public final class MSIMEInputService extends InputMethodService {
             String content = JsonPolicy.strictString(message.opt("content"));
             if (content == null) return texts;
             if (!OnlineCandidatePolicy.acceptsAiContent(content)) return texts;
-            JSONArray entries = new JSONObject(content).optJSONArray("candidates");
+            JSONArray entries = new JSONObject(OnlineCandidatePolicy.stripCodeFence(content))
+                .optJSONArray("candidates");
             if (entries == null) return texts;
             texts = new java.util.ArrayList<>(entries.length());
             for (int index = 0; index < entries.length(); index++) {
@@ -4772,7 +4784,7 @@ public final class MSIMEInputService extends InputMethodService {
             () -> Color.parseColor(skin.accent()));
         ViewPolicy.setAllCapsFalse(button);
         button.setText("更多");
-        imeStyler.styleButton(button, true);
+        imeStyler.styleButton(button, KeyboardKeyRole.GLYPH, skin);
         bindAction(button, action);
         row.addView(button, LayoutPolicy.weightedWrapParams(1));
         return button;
@@ -7247,18 +7259,17 @@ public final class MSIMEInputService extends InputMethodService {
         if (session == 0 || view == null
                 || (!nineKeyPanel && strictCandidatePage(view, "page_count") <= 1)) return;
         try {
-            JSONObject snapshot = value(NativeClient.allCandidates(session));
-            if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) != session
-                    || !sameCandidateVersion(snapshot, view))
-                return;
+            JSONObject snapshot = currentCandidateSnapshot();
             JSONArray entries = snapshot.optJSONArray("candidates");
             JSONArray visible = view.optJSONArray("candidates");
             if (!nineKeyPanel && (entries == null || visible == null
-                    || entries.length() <= visible.length())) return;
+                    || entries.length() <= visible.length())) {
+                render();
+                return;
+            }
             candidatePanelSnapshot = snapshot;
             candidatePanelOpen = true;
-            imeCandidates.renderExpandedCandidates();
-            imeStyler.applySkin();
+            render();
         } catch (JSONException | LinkageError error) { fail(error); }
     }
 
@@ -8735,6 +8746,9 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void render() {
+        // 完整列表展开可能换代，先同步再绘制，避免候选文字与选词身份来自两代。
+        if (candidatePanelOpen && imeNineKeyPanel.eligible()) imeNineKeyPanel.refreshSnapshot();
+        scheduleCandidateGlosses();
         // 候选栏跟随光标要先知道这个输入框报不报告光标位置。
         synchronizeCursorUpdates();
         // 浮动开关、外接键盘的候选条模式或候选栏跟随光标变了：先把窗口换成对应的布局，下面判断分离式键盘、单手模式时用的是新状态。
@@ -9114,7 +9128,6 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.setEnabled(layoutSettingsButton, session != 0 && preferencesSnapshot != null
                 && !schemeSaving && !touchGeometrySaving && !traditionalOutputSaving);
         imeLayoutRows.renderNineKeySpellings(hasDiagnostic);
-        scheduleCandidateGlosses();
         scheduleCandidateTranslations();
         scheduleUserCandidateTranslations();
         scheduleOnlineProviders();

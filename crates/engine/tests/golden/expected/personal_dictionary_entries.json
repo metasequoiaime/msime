@@ -722,37 +722,31 @@
    "op": "type",
    "arg": "test1",
    "result": {
-    "handled": true
+    "handled": false,
+    "commit": "Ktest",
+    "unhandled_at": [
+     4
+    ]
    },
    "snapshot": {
     "scheme": "quanpin",
-    "local_mode": "quick_phrase",
-    "preedit": "Ktest",
-    "raw_segmentation": "Ktest",
-    "normalized_segmentation": "Ktest",
-    "editing_text": "Ktest",
-    "caret": 5,
+    "local_mode": "none",
+    "preedit": "",
+    "raw_segmentation": "",
+    "normalized_segmentation": "",
+    "editing_text": "",
+    "caret": 0,
     "dedicated_english": false,
     "shuangpin_profile": "xiaohe",
-    "candidate_count": 1,
-    "candidates": [
-     {
-      "word": "fixture\nsecond line",
-      "pinyin": "test1",
-      "canonical_pinyin": "",
-      "source": 5,
-      "scheme": "quanpin",
-      "weight": 12345,
-      "answers_key": true
-     }
-    ]
+    "candidate_count": 0,
+    "candidates": []
    }
   },
   {
    "op": "command",
    "arg": "Cancel",
    "result": {
-    "handled": true
+    "handled": false
    },
    "snapshot": {
     "scheme": "quanpin",

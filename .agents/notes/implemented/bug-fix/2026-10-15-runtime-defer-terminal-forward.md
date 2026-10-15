@@ -14,6 +14,8 @@ Status: implemented
 
 已检索末位置、模型缓存、归一化和量化热点笔记。[运行时归一化复用](../../implemented/bug-fix/2026-10-15-runtime-rerank-normalization-reuse.md)与[完全命中缓存](../../implemented/bug-fix/2026-10-15-runtime-rerank-complete-cache.md)部分重叠，继续约束共享及寿命；本项只推迟无需用于当前概率的末位置前向。没有需要废弃的宿主提案。
 
+同批已算前缀由[本轮候选复用](2026-10-15-runtime-same-batch-cache.md)补充，原有末位置按需计算和失效规则继续成立。
+
 ## Alternatives considered
 
 - 保持提前计算：续跑更简单，延长时没有补算开销，但末字修改与候选消失时的完整前向无用。

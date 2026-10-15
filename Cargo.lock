@@ -684,7 +684,7 @@ dependencies = [
 [[package]]
 name = "chinese-ime-lm"
 version = "0.2.0"
-source = "git+https://github.com/metasequoiaime/chinese-ime-lm?rev=4c213a872c2afecf20b49aca8131e30537c39b55#4c213a872c2afecf20b49aca8131e30537c39b55"
+source = "git+https://github.com/metasequoiaime/chinese-ime-lm?rev=0f19789abbad5aa887e3b27088bf168acf6e9098#0f19789abbad5aa887e3b27088bf168acf6e9098"
 dependencies = [
  "serde",
  "serde_json",
@@ -4500,9 +4500,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "once_cell",
  "ring",

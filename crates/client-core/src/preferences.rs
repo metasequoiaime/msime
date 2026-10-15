@@ -1097,6 +1097,7 @@ pub struct Preferences {
     /// 向云候选服务多要一条候选。它会把正在组的拼写发给 `https://inputtools.google.com`，所以新装默认关闭（见 `Default`）；已存文档缺这个字段时读成开启，升级沿用原来的行为。
     #[serde(default = "enabled_by_default")]
     pub cloud_candidates: bool,
+    /// 新装默认关闭候选翻译；旧文档缺字段时仍沿用原有开启行为，显式保存的选择不变。
     #[serde(default = "enabled_by_default")]
     pub candidate_translations: bool,
     /// Show bounded offline English glosses from the packaged Engine dictionary.
@@ -2222,7 +2223,7 @@ impl Default for Preferences {
             cloud_clipboard_relay: CloudClipboardRelayPreferences::default(),
             // 会把输入内容发出设备的两条路径新装都关闭，由 Windows、macOS、Linux 的首次询问或各平台的设置开关打开。
             cloud_candidates: false,
-            candidate_translations: true,
+            candidate_translations: false,
             candidate_english_gloss: false,
             candidate_pronunciation: false,
             english_suggestions: true,

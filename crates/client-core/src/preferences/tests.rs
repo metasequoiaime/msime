@@ -654,6 +654,55 @@ fn cloud_candidates_start_off_but_an_upgraded_document_keeps_them() {
 }
 
 #[test]
+fn candidate_translations_start_off_in_each_edition_and_the_first_document() {
+    for edition in crate::edition::Edition::all() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::for_edition(directory.path(), edition);
+        let initial = store.load().unwrap();
+        assert!(
+            !initial.preferences.candidate_translations,
+            "{}",
+            edition.id
+        );
+        let first = store.write_first_document().unwrap();
+        assert!(!first.preferences.candidate_translations);
+        assert_eq!(store.load().unwrap(), first);
+        let mut enabled = first.preferences;
+        enabled.candidate_translations = true;
+        assert!(
+            !enabled
+                .restored_to_defaults_for(edition)
+                .candidate_translations
+        );
+    }
+}
+
+#[test]
+fn candidate_translations_keep_legacy_and_explicit_choices() {
+    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    legacy["preferences"]
+        .as_object_mut()
+        .unwrap()
+        .remove("candidate_translations");
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(
+        directory.path().join("preferences.json"),
+        serde_json::to_vec(&legacy).unwrap(),
+    )
+    .unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let mut current = store.load().unwrap();
+    assert!(current.preferences.candidate_translations);
+    for enabled in [false, true] {
+        let mut chosen = current.preferences;
+        chosen.candidate_translations = enabled;
+        current = store.save(current.revision, chosen).unwrap();
+        assert_eq!(store.load().unwrap(), current);
+        assert_eq!(current.preferences.candidate_translations, enabled);
+    }
+}
+
+#[test]
 fn translation_account_is_an_explicit_choice_on_every_platform() {
     let defaults = Preferences::default();
     assert!(!defaults.translation_account);

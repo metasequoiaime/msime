@@ -18,7 +18,7 @@ Fcitx5 的四个读取点统一使用共享契约的缺省值 `true`。显式 `f
 
 ## Consequences
 
-旧配置在 Fcitx5 下恢复与共享契约一致的开启行为；用户明确保存的 `false` 不受影响。新增策略单测和 native 测试覆盖缺字段状态栏切换。
+旧配置在 Fcitx5 下恢复与共享契约一致的开启行为；用户明确保存的 `false` 不受影响。新增策略单测和 native 测试覆盖缺字段状态栏切换。[新装默认关闭候选翻译](../feature/2026-10-15-new-install-candidate-translations-off.md)只改变新建完整快照的初值；本篇的旧文档缺字段兼容读取继续使用 `true`，不跟随新装初值改变。
 
 ## Verification
 

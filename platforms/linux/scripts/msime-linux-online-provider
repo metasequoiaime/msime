@@ -326,6 +326,16 @@ def configured_ai(query, path, cache=None, cache_lock=None):
     return rows
 
 
+def strip_code_fence(content):
+    """去掉包在正文外面的 Markdown 代码块，与 client-core 的 `strip_code_fence` 一致：不支持 `response_format` 的模型（如经网关调用的 Claude）会把 JSON 写成 ```json ... ```。"""
+    trimmed = content.strip()
+    if len(trimmed) < 6 or not trimmed.startswith("```") or not trimmed.endswith("```"):
+        return trimmed
+    fenced = trimmed[3:-3]
+    # 第一行是信息串（如 `json`），只有一行时没有信息串。
+    return fenced.split("\n", 1)[1] if "\n" in fenced else fenced
+
+
 def ai(query, config):
     options = query.get("ai_assistant")
     if not query.get("ai_eligible") or not isinstance(options, dict) or not options.get("enabled"):
@@ -350,12 +360,13 @@ def ai(query, config):
             "messages": [{"role": "system", "content": prompt},
                          {"role": "user", "content": json.dumps({
                              "segmented_pinyin": segments, "context": context,
-                             "candidate_limit": limit}, ensure_ascii=False)}]}
+                             "candidate_limit": limit, "output_format": "json"},
+                             ensure_ascii=False)}]}
     if config["provider"] == "deepseek":
         body["thinking"] = {"type": "disabled"}
     result = fetch(config["endpoint"], AI_REQUEST_TIMEOUT, body, config["token"],
                    connect_timeout=AI_CONNECT_TIMEOUT)
-    parsed = json.loads(result["choices"][0]["message"]["content"])
+    parsed = json.loads(strip_code_fence(result["choices"][0]["message"]["content"]))
     values = parsed.get("candidates")
     if not isinstance(values, list):
         return None

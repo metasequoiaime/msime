@@ -398,6 +398,8 @@ pub struct PreferencesView {
     pub game_candidate_overlay: bool,
     /// Whether the dictionary learns from typing. Read-only here: turning it off is the user's decision.
     pub learning: bool,
+    /// AI 助手：组字停顿后把拼音和前文发给用户配置的模型，回答作为一个候选放在固定座位上，等待时那一格显示「…」，没有回答时显示「—」。接口地址、模型和密钥不在这里。
+    pub ai_assistant: bool,
 }
 
 impl From<&PreferencesSnapshot> for PreferencesView {
@@ -446,6 +448,7 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             diagnostic_log_tsf: preferences.diagnostic_log.tsf,
             game_candidate_overlay: preferences.game_compatibility.candidate_overlay,
             learning: preferences.learning,
+            ai_assistant: preferences.ai_assistant.enabled,
         }
     }
 }
@@ -508,6 +511,8 @@ pub struct PreferencesChange {
     pub diagnostic_log_tsf: Option<bool>,
     /// Windows only. Turn on when the candidate window is missing in a game; turn off when it replaces a game's own candidates.
     pub game_candidate_overlay: Option<bool>,
+    /// 只能关：用户嫌 AI 候选慢、占位置或不想用时关掉它。打开会把用户打的字发给外部服务并产生费用，由用户在设置里自己打开，这里给 true 会被拒绝。
+    pub ai_assistant: Option<bool>,
 }
 
 impl PreferencesChange {
@@ -544,6 +549,7 @@ impl PreferencesChange {
             && self.diagnostic_log_server.is_none()
             && self.diagnostic_log_tsf.is_none()
             && self.game_candidate_overlay.is_none()
+            && self.ai_assistant.is_none()
     }
 
     fn apply(&self, preferences: &mut Preferences) {
@@ -649,6 +655,9 @@ impl PreferencesChange {
         if let Some(value) = self.game_candidate_overlay {
             preferences.game_compatibility.candidate_overlay = value;
         }
+        if let Some(value) = self.ai_assistant {
+            preferences.ai_assistant.enabled = value;
+        }
     }
 }
 
@@ -697,6 +706,9 @@ pub fn update(
     let previous = store.load().map_err(|error| error.to_string())?;
     if previous.revision != change.expected_revision {
         return Err("the preferences changed since they were read; read them again".into());
+    }
+    if change.ai_assistant == Some(true) && !previous.preferences.ai_assistant.enabled {
+        return Err("the AI assistant sends what the user types to an outside service; only the user can turn it on, in the input method's settings".into());
     }
     let mut preferences = previous.preferences.clone();
     change.apply(&mut preferences);
@@ -1360,6 +1372,69 @@ mod tests {
         let cleared = update(directory.path(), &options, Edition::full(), &cleared).unwrap();
         assert!(cleared.app_input_mode_rules.is_empty());
         assert_eq!(cleared.shuangpin_keymap_hint, None);
+    }
+
+    /// AI 助手只能关不能开，关掉时接口地址、模型和密钥原样留着，用户在设置里重新打开就能接着用。
+    #[test]
+    fn the_ai_assistant_can_be_turned_off_but_not_on() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let mut preferences = Preferences::default();
+        preferences.ai_assistant.enabled = true;
+        preferences.ai_assistant.model = "synthetic-model".into();
+        preferences.ai_assistant.tokens.insert(
+            "https://synthetic.invalid:443".into(),
+            "synthetic-token".into(),
+        );
+        store.save(0, preferences).unwrap();
+        let before = load(directory.path(), Edition::full()).unwrap();
+        assert!(before.ai_assistant);
+        let view = serde_json::to_string(&before).unwrap();
+        assert!(!view.contains("synthetic-token") && !view.contains("synthetic-model"));
+
+        // 已经开着时给 true 什么也不改，不算打开。
+        let unchanged: PreferencesChange = serde_json::from_value(json!({
+            "expected_revision": before.revision,
+            "ai_assistant": true,
+        }))
+        .unwrap();
+        let before = update(directory.path(), &options, Edition::full(), &unchanged).unwrap();
+        assert!(before.ai_assistant);
+
+        let off: PreferencesChange = serde_json::from_value(json!({
+            "expected_revision": before.revision,
+            "ai_assistant": false,
+        }))
+        .unwrap();
+        assert!(!off.is_empty());
+        let after = update(directory.path(), &options, Edition::full(), &off).unwrap();
+        assert!(!after.ai_assistant);
+        let stored = store.load().unwrap().preferences.ai_assistant;
+        assert!(!stored.enabled);
+        assert_eq!(stored.model, "synthetic-model");
+        assert_eq!(
+            stored
+                .tokens
+                .get("https://synthetic.invalid:443")
+                .map(String::as_str),
+            Some("synthetic-token")
+        );
+
+        let on: PreferencesChange = serde_json::from_value(json!({
+            "expected_revision": after.revision,
+            "ai_assistant": true,
+        }))
+        .unwrap();
+        let refused = update(directory.path(), &options, Edition::full(), &on).unwrap_err();
+        assert!(
+            refused.contains("only the user can turn it on"),
+            "{refused}"
+        );
+        let stored = store.load().unwrap();
+        assert_eq!(stored.revision, after.revision);
+        assert!(!stored.preferences.ai_assistant.enabled);
     }
 
     #[test]

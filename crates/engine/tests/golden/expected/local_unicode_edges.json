@@ -51,37 +51,28 @@
    "op": "char",
    "arg": "g",
    "result": {
-    "handled": true
+    "handled": false,
+    "commit": "U"
    },
    "snapshot": {
     "scheme": "quanpin",
-    "local_mode": "unicode",
-    "preedit": "U",
-    "raw_segmentation": "U",
-    "normalized_segmentation": "U",
-    "editing_text": "U",
-    "caret": 1,
+    "local_mode": "none",
+    "preedit": "",
+    "raw_segmentation": "",
+    "normalized_segmentation": "",
+    "editing_text": "",
+    "caret": 0,
     "dedicated_english": false,
     "shuangpin_profile": "xiaohe",
-    "candidate_count": 1,
-    "candidates": [
-     {
-      "word": "U",
-      "pinyin": "U",
-      "canonical_pinyin": "",
-      "source": 9,
-      "scheme": "quanpin",
-      "weight": 1,
-      "answers_key": true
-     }
-    ]
+    "candidate_count": 0,
+    "candidates": []
    }
   },
   {
    "op": "command",
    "arg": "Cancel",
    "result": {
-    "handled": true
+    "handled": false
    },
    "snapshot": {
     "scheme": "quanpin",

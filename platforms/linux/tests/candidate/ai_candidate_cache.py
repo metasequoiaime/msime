@@ -261,6 +261,35 @@ class AiRequestBudget(unittest.TestCase):
         self.assertEqual(fetch.call_args.args[1], provider.AI_REQUEST_TIMEOUT)
         self.assertEqual(fetch.call_args.kwargs["connect_timeout"], provider.AI_CONNECT_TIMEOUT)
 
+    def test_candidate_request_names_json_outside_the_system_prompt(self):
+        # 把 Chat Completions 转成 Responses API 的网关只在 input 里找 "json"，system 提示里的不算，JSON 模式会被 400 拒绝。
+        with mock.patch.object(provider, "fetch", side_effect=worker_fetch) as fetch:
+            provider.ai(query(), {"provider": "synthetic",
+                                  "endpoint": "https://ai.invalid/v1/chat/completions",
+                                  "model": "synthetic-model", "token": "synthetic-token"})
+        body = fetch.call_args.args[2]
+        self.assertEqual(body["response_format"], {"type": "json_object"})
+        user = json.loads(body["messages"][1]["content"])
+        self.assertEqual(user["output_format"], "json")
+        self.assertEqual(user["segmented_pinyin"], ["ni", "hao"])
+
+    def test_candidate_answer_in_a_code_fence_is_read(self):
+        inner = json.dumps({"candidates": [{"text": "你好"}, {"text": "拟好"}]}, ensure_ascii=False)
+        config = {"provider": "synthetic", "endpoint": "https://ai.invalid/v1/chat/completions",
+                  "model": "synthetic-model", "token": "synthetic-token"}
+        for content in (f"```json\n{inner}\n```", f"  ```JSON\n{inner}\n```\n",
+                        f"```\n{inner}\n```", f"```{inner}```"):
+            answer = {"choices": [{"message": {"content": content}}]}
+            with mock.patch.object(provider, "fetch", return_value=answer):
+                self.assertEqual(provider.ai(query(), config),
+                                 [{"text": "你好", "source": 1}, {"text": "拟好", "source": 1}],
+                                 content)
+        for content in (f"```json\n{inner}", f"说明：\n```json\n{inner}\n```"):
+            answer = {"choices": [{"message": {"content": content}}]}
+            with mock.patch.object(provider, "fetch", return_value=answer):
+                with self.assertRaises(ValueError, msg=content):
+                    provider.ai(query(), config)
+
     def test_polish_test_asks_for_a_deadline_the_worker_accepts(self):
         # ai_polish_test once asked for 8 s while the worker capped at 7 s, so every press came back empty.
         profile = {"provider": "synthetic", "endpoint": "https://ai.invalid/v1/chat/completions",
