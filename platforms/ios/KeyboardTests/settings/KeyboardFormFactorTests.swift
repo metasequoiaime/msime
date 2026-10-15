@@ -477,15 +477,23 @@ final class KeyboardFormFactorTests: XCTestCase {
       relayout(controller)
       XCTAssertEqual(visibleGaps(in: controller).count, 5)
 
-      // 123 符号页同样分开：数字 12345 | 67890。
+      // 中文 123 默认九宫格，保持完整网格；英文 123 的数字行仍按 12345 | 67890 分开。
       try key("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
-      XCTAssertEqual(visibleGaps(in: controller).count, 4, "three symbol rows and the bottom row")
+      XCTAssertTrue(visibleGaps(in: controller).isEmpty)
+      XCTAssertFalse(try key("nineKey1", in: controller).isHidden)
+      try key("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+      try key("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+      try key("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(visibleGaps(in: controller).count, 4, "三行英文符号与底行均保留中缝")
       let five = try frame(titled("5", in: controller), in: controller)
       let six = try frame(titled("6", in: controller), in: controller)
       XCTAssertEqual(six.minX - five.maxX, gap, accuracy: 1)
       try key("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
+
+      try key("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
 
       // 关掉数字行与 Tab 键后字母照样分开。
       KeyboardLayoutPreference.tabletFullKeys = false

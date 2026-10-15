@@ -3573,7 +3573,10 @@ final class NineKeyKeyboardTests: XCTestCase {
       try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == id }, id)
     }
 
-    for scheme in [ChineseInputScheme.quanpin, .shuangpin, .fourteenKey, .handwriting, .stroke] {
+    // CI 只暂存核心词库；可下载词库缺失时方案会回落全拼，只验收实际可用的入口。
+    var schemes: [ChineseInputScheme] = [.quanpin, .shuangpin, .fourteenKey, .handwriting]
+    if InputSchemePreference.installedLanguageSchemes?.contains(.stroke) != false { schemes.append(.stroke) }
+    for scheme in schemes {
       for tablet in [false, true] {
         let controller = try layer(after: scheme, tablet: tablet)
         XCTAssertFalse(shown(try view("symbolLayerRow0", in: controller)))
