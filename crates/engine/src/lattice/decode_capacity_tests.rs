@@ -45,7 +45,7 @@ fn sparse_and_unreachable_columns_do_not_reserve_full_beams() {
     }
 }
 
-fn graph(columns: usize, width: usize, seed: usize, extra: bool) -> Graph {
+pub(super) fn graph(columns: usize, width: usize, seed: usize, extra: bool) -> Graph {
     const WORDS: [&str; 8] = ["甲", "乙", "丙", "丁", "甲乙", "乙丙", "测试", "甲"];
     (0..columns)
         .map(|start| {
@@ -63,7 +63,7 @@ fn graph(columns: usize, width: usize, seed: usize, extra: bool) -> Graph {
         .collect()
 }
 
-fn assert_paths(actual: &[SentencePath], expected: &[SentencePath]) {
+pub(super) fn assert_paths(actual: &[SentencePath], expected: &[SentencePath]) {
     assert_eq!(actual.len(), expected.len());
     for (actual, expected) in actual.iter().zip(expected) {
         assert_eq!(actual.sentence, expected.sentence);

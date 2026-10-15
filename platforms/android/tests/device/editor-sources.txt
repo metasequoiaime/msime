@@ -120,3 +120,5 @@ platforms/android/tests/device/voice/VoiceRecognitionLifecycleDeviceSmoke.java
 platforms/android/tests/device/voice/SyntheticSpeechService.java
 platforms/android/tests/device/voice/LegacySyntheticSpeechService.java
 platforms/android/tests/device/voice/SyntheticSpeechSetup.java
+
+platforms/android/tests/device/keyboard/SymbolPanelLayoutDeviceSmoke.java

@@ -1468,3 +1468,7 @@ mod hyp_layout_tests;
 #[cfg(test)]
 #[path = "decode_capacity_tests.rs"]
 mod capacity_tests;
+
+#[cfg(test)]
+#[path = "decode_traceback_tests.rs"]
+mod traceback_tests;

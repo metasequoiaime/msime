@@ -1,5 +1,5 @@
 import { errorCode } from "../core/error-code";
-import type { CloudClipboardAction, CloudClipboardResponse } from "../keyboard/panels";
+import type { CloudClipboardAction, CloudClipboardResponse } from "../keyboard/panel-client";
 
 /** One cloud clipboard request, the same actions the 云剪贴板 panel sends, issued by a host for the settings window itself. */
 export type CloudClipboardRequest = (

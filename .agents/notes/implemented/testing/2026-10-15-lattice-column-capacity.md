@@ -14,6 +14,8 @@ Status: implemented
 
 按 `column_capacities`、列容量、预留列检索活跃树，仅命中[假设布局](../../implemented/testing/2026-10-15-lattice-hyp-layout.md)和[建图行所有权](../../implemented/testing/2026-10-14-lattice-graph-row-ownership.md)：前者缩小单个假设字段，本项减少预留条数，互不替代；后者管理图边，与解码列存储无关。[二元评分缓冲](../../implemented/testing/2026-10-11-lattice-bigram-lazy-reserve.md)管理评分行，保留其生命周期。
 
+[回溯错字边计数实验](../../rejected/testing/2026-10-15-lattice-traceback-typo-count.md)尝试进一步移除派生字段，虽减少逻辑存储，但原生产入口的无表单边短图超过事前回退预算而被否决；产品继续保留四十字节假设和本篇已经落地的决定。
+
 ## Alternatives considered
 
 - 仅把起点容量缩为一：实现最小，也能省去固定存储；但后续单路径和不可达列仍预留满束宽，已有前向图可直接求出更紧的上界。
