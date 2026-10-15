@@ -124,5 +124,6 @@ test("手机候选栏保持现有设置布局", async () => {
   await settingsFormReady();
   expect(screen.queryByRole("tablist", { name: "候选窗口设置分类" })).toBeNull();
   expect(screen.getByRole("combobox", { name: "字号" })).toBeTruthy();
-  expect(screen.getByRole("combobox", { name: "候选栏预编辑" })).toBeTruthy();
+  // 触屏键盘把拼写写进输入框、候选栏不画它，没有「候选栏预编辑」。
+  expect(screen.queryByRole("combobox", { name: "候选栏预编辑" })).toBeNull();
 });

@@ -4202,7 +4202,8 @@ test("the iOS skin page hands the candidate strip to the desktop candidate skin"
   );
 });
 
-test("iOS offers 行内预编辑 as its own keyboard switch instead of the shared preedit style", async () => {
+// 触屏键盘固定把拼写以拼音分词写进输入框、候选栏不画它：iOS 不再提供「行内预编辑」开关，也没有「候选栏预编辑」。
+test("iOS offers neither 行内预编辑 nor 候选栏预编辑", async () => {
   const load = vi.fn().mockResolvedValue({
     soundEnabled: true,
     hapticsEnabled: false,
@@ -4221,18 +4222,10 @@ test("iOS offers 行内预编辑 as its own keyboard switch instead of the share
     mobileKeyboardFeedback: { load, save: saveFeedback },
   };
   render(<SettingsPage initialPage="appearance" client={client} />);
-  const inline = (await screen.findByLabelText("行内预编辑", undefined, {
-    timeout: 3000,
-  })) as HTMLInputElement;
-  expect(inline.type).toBe("checkbox");
-  expect(inline.checked).toBe(false);
-  expect(screen.queryByRole("option", { name: "原始按键" })).toBeNull();
-  fireEvent.click(inline);
-  await waitFor(() =>
-    expect(saveFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({ inlinePreedit: true, candidatePaletteFollowsDesktop: false }),
-    ),
-  );
+  await settingsFormReady();
+  expect(screen.queryByLabelText("行内预编辑")).toBeNull();
+  expect(screen.queryByLabelText("候选栏预编辑")).toBeNull();
+  expect(saveFeedback).not.toHaveBeenCalled();
   expect(save).not.toHaveBeenCalled();
 });
 
@@ -9359,7 +9352,7 @@ test("a host that fixes the candidate page size and layout does not offer them",
       )}
     />,
   );
-  await screen.findByLabelText("候选栏预编辑", undefined, { timeout: 3000 });
+  await settingsFormReady();
   expect(screen.queryByLabelText("每页候选项数量")).toBeNull();
   expect(screen.queryByLabelText("候选项排列方式")).toBeNull();
   unmount();

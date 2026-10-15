@@ -57,7 +57,6 @@ export function AppearanceSettingsPage() {
     busy,
     page,
     mobileKeyboardFeedback,
-    mobileKeyboardFeedbackBusy,
     saveMobileKeyboardFeedback,
     selectPage,
   } = useSettingsForm();
@@ -278,20 +277,19 @@ export function AppearanceSettingsPage() {
           />
         </CandidateWindowStyleSection>,
       )}
-      {panel(
-        "preedit",
-        <GroupList title="预编辑">
-          <PreeditSettingsSection
-            preferences={draft}
-            mobile={mobilePlatform}
-            showShuangpinPreedit={showShuangpinPreedit}
-            inlinePreedit={mobileKeyboardFeedback?.inlinePreedit}
-            inlinePreeditBusy={mobileKeyboardFeedbackBusy}
-            onChange={appearanceActions.onPreferencesChange}
-            onInlinePreeditChange={appearanceActions.onInlinePreeditChange}
-          />
-        </GroupList>,
-      )}
+      {/* 触屏键盘只剩「双拼预编辑」一行，不显示双拼时整组不出现。 */}
+      {(!mobilePlatform || showShuangpinPreedit) &&
+        panel(
+          "preedit",
+          <GroupList title="预编辑">
+            <PreeditSettingsSection
+              preferences={draft}
+              mobile={mobilePlatform}
+              showShuangpinPreedit={showShuangpinPreedit}
+              onChange={appearanceActions.onPreferencesChange}
+            />
+          </GroupList>,
+        )}
     </SettingsPageFieldset>
   );
 }
@@ -315,7 +313,6 @@ function HarmonyPhoneCandidateGroups() {
     draft,
     setDraft,
     mobileKeyboardFeedback,
-    mobileKeyboardFeedbackBusy,
     saveMobileKeyboardFeedback,
   } = useSettingsForm();
   const appearanceActions = createAppearanceSettingsActions({
@@ -397,10 +394,7 @@ function HarmonyPhoneCandidateGroups() {
             preferences={draft}
             mobile
             showShuangpinPreedit={showShuangpinPreedit}
-            inlinePreedit={mobileKeyboardFeedback?.inlinePreedit}
-            inlinePreeditBusy={mobileKeyboardFeedbackBusy}
             onChange={appearanceActions.onPreferencesChange}
-            onInlinePreeditChange={appearanceActions.onInlinePreeditChange}
           />
         </MoreOptions>
       </GroupList>
