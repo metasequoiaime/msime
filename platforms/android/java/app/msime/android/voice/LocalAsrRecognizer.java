@@ -59,6 +59,19 @@ public final class LocalAsrRecognizer {
             this.runtimeMissing = runtimeMissing;
         }
 
+        /** 固定诊断类别与界面文案独立，避免把提示或异常详情写进日志。 */
+        public DiagnosticEventKind diagnosticKind() {
+            return switch (failure) {
+                case PERMISSION -> DiagnosticEventKind.VOICE_FAILURE_PERMISSION;
+                case UNAVAILABLE -> DiagnosticEventKind.VOICE_FAILURE_AUDIO;
+                case MODEL -> DiagnosticEventKind.VOICE_FAILURE_MODEL;
+                case RUNTIME -> runtimeMissing ? DiagnosticEventKind.VOICE_FAILURE_RUNTIME_MISSING
+                    : DiagnosticEventKind.VOICE_FAILURE_RUNTIME;
+                case CANCELLED -> DiagnosticEventKind.VOICE_CANCELLED;
+                case EMPTY -> DiagnosticEventKind.VOICE_EMPTY;
+            };
+        }
+
         public Failure failure() {
             return failure;
         }
@@ -72,6 +85,17 @@ public final class LocalAsrRecognizer {
     private static final Object RUNTIME_LOCK = new Object();
     private static final String ONNXRUNTIME_LIBRARY = "libonnxruntime.so";
     private static final String SHERPA_LIBRARY = "libsherpa-onnx-c-api.so";
+
+    private java.util.function.Consumer<DiagnosticEventKind> diagnostics = kind -> { };
+
+    /** 由调用方回传到唯一的日志写入进程；识别器不保存诊断文件。 */
+    public void diagnostics(java.util.function.Consumer<DiagnosticEventKind> sink) {
+        diagnostics = sink == null ? kind -> { } : sink;
+    }
+
+    private void diagnostic(DiagnosticEventKind kind) {
+        diagnostics.accept(kind);
+    }
 
     private final AtomicBoolean stopped = new AtomicBoolean();
     private final AtomicBoolean cancelled = new AtomicBoolean();
@@ -141,14 +165,17 @@ public final class LocalAsrRecognizer {
     public String recognize(String modelDirectory, Path trustedRoot, String language, String hostOptions,
                             String[] hotwordTexts, String[] hotwordPinyin,
                             Listener listener) throws Refused {
+        diagnostic(DiagnosticEventKind.VOICE_LOCAL_MODEL_CHECK);
         if (!LocalAsrPolicy.installed(modelDirectory, trustedRoot)) throw new Refused(Failure.MODEL);
         String hotwordMode = hotwordMode(modelDirectory, trustedRoot);
         if (hotwordMode == null) throw new Refused(Failure.MODEL);
         JSONArray hotwords = supplied(hotwordTexts, hotwordPinyin);
         if (hotwords.length() == 0) hotwords = hotwords(hostOptions);
+        diagnostic(DiagnosticEventKind.VOICE_LOCAL_RUNTIME_CHECK);
         requireRuntime(trustedRoot);
         BlockingQueue<short[]> audio = new LinkedBlockingQueue<>();
         AtomicBoolean captureFailed = new AtomicBoolean();
+        diagnostic(DiagnosticEventKind.VOICE_LOCAL_RECORDER_OPEN);
         AudioRecord recorder = openRecorder();
         Thread capture = ThreadPolicy.namedThread("msime-local-asr-capture",
             () -> capture(recorder, audio, captureFailed));
@@ -158,6 +185,7 @@ public final class LocalAsrRecognizer {
             // Native session creation can fail before the cleanup scope used to
             // own the recorder exists. Keep both resources in this scope so a
             // linker/runtime failure cannot leave the microphone allocated.
+            diagnostic(DiagnosticEventKind.VOICE_LOCAL_NATIVE_START);
             created = NativeClient.localSpeechCreate();
             synchronized (handleLock) {
                 handle = created;
@@ -272,8 +300,10 @@ public final class LocalAsrRecognizer {
     private void capture(AudioRecord recorder, BlockingQueue<short[]> audio,
                          AtomicBoolean failed) {
         try {
+            diagnostic(DiagnosticEventKind.VOICE_LOCAL_CAPTURE_START);
             recorder.startRecording();
             if (recorder.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) {
+                diagnostic(DiagnosticEventKind.VOICE_LOCAL_CAPTURE_START_FAILURE);
                 failed.set(true);
                 return;
             }
@@ -285,6 +315,7 @@ public final class LocalAsrRecognizer {
                 if (requested == 0) break;
                 int read = recorder.read(chunk, 0, requested);
                 if (read < 0) {
+                    diagnostic(DiagnosticEventKind.VOICE_LOCAL_CAPTURE_READ_FAILURE);
                     failed.set(true);
                     return;
                 }
@@ -302,6 +333,7 @@ public final class LocalAsrRecognizer {
                 audio.add(read == chunk.length ? chunk : java.util.Arrays.copyOf(chunk, read));
             }
         } catch (IllegalStateException error) {
+            diagnostic(DiagnosticEventKind.VOICE_LOCAL_CAPTURE_EXCEPTION);
             failed.set(true);
         } finally {
             VoicePcmRecorder.stopIfRecording(recorder);

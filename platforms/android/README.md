@@ -271,7 +271,11 @@ JVM 冒烟只覆盖无 Android 依赖的策略层；焦点、选区、编辑器�
 
 `FeedbackInputStabilityDeviceSmoke` 在真实原生反馈页连续输入 50 次合成拼音短语，每组核对上屏文字、退格和字数计数，再收起并重开键盘；不点击提交，结束后恢复偏好、输入模式与默认输入法。通过 `smoke.sh emulator-5566 --core --feedback`（API 28）或 `smoke.sh emulator-5580 --feedback`（API 35）运行，也可安装原生宿主和 `editor-test.apk` 后单独执行 `adb -s <serial> shell am instrument -w app.msime.android.test/app.msime.android.test.FeedbackInputStabilityDeviceSmoke`。测试失败只输出固定阶段；本地成功不代表已经解释 #7837 的原设备崩溃或连接失败。
 
-`DiagnosticsBundleDeviceSmoke` 调用安装后的原生宿主生成合成诊断包，核对上传器读取与请求编码、旧格式、类别选择、隐私过滤和记录上限，不连接云端。通过 `smoke.sh emulator-5566 --core --diagnostics` 或单独执行 `adb -s <serial> shell am instrument -w app.msime.android.test/app.msime.android.test.DiagnosticsBundleDeviceSmoke` 运行；本轮诊断上传回归只验证 API 28。
+`DiagnosticsBundleDeviceSmoke` 调用安装后的原生宿主生成合成诊断包，核对上传器读取与请求编码、旧格式、类别选择、隐私过滤和记录上限，不连接云端。本地识别器拒绝不存在的合成模型后，真实阶段与失败事件经写入器、JNI 导出保留在 ZIP；上传编码继续过滤本地类别。通过 `smoke.sh emulator-5566 --core --diagnostics` 或单独执行 `adb -s <serial> shell am instrument -w app.msime.android.test/app.msime.android.test.DiagnosticsBundleDeviceSmoke` 运行。
+
+排查键盘语音失败时，先在开发者选项开启「记录输入日志」，从普通输入框复现一次，再手动导出诊断 ZIP 并包含输入事件。`voice_engine_*` 表示实际选用的引擎，`voice_local_*` 表示模型、运行库、录音器和原生启动阶段，`voice_failure_*` 与 `voice_platform_*` 表示固定失败类别。记录不包含音频、识别文本、模型路径、凭据或异常详情；密码框、不做个性化学习的输入框和隐私模式都不记录。键盘发起的独立识别窗口通过整数事件回传同一个写入器，设置页独立发起的请求不在此日志覆盖范围。新增类别仅保留在手动 ZIP，MCP 上传仍过滤它们；旧诊断包缺少语音事件不能证明没有发生语音故障。
+
+`VoiceDiagnosticsPrivacyDeviceSmoke` 验证启动与收到窗口事件时的日志、密码框、不做个性化学习和隐私模式门禁，并拒绝非语音和越界事件。`--diagnostics` 包含该检查；`voice-lifecycle.sh` 同时验证系统识别窗口经 Binder 回传固定引擎与权限失败事件，不带额外负载。
 
 开发者选项 → 数据 → 默认导出文件夹通过系统选择器取得持久读写授权，首次点“导出”也可直接选目录并继续。之后“导出诊断包”每次生成独立 ZIP，不再打开选择器；“分享诊断包”保留发送到其他应用的入口。取消更改保留旧目录，权限失效或目录删除时提示重新选择。默认目录只在本机保存，不参与同步或备份，重置设置会清除默认目录。提供方写入失败时可能留下未完成文件，需要手动删除。
 

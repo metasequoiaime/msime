@@ -126,6 +126,9 @@ if [[ "$diagnostics" == true ]]; then
   result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DiagnosticsBundleDeviceSmoke)
   printf '%s\n' "$result"
   [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Diagnostics bundle acceptance failed" >&2; exit 1; }
+  result=$(run_instrumentation app.msime.android.test/app.msime.android.test.VoiceDiagnosticsPrivacyDeviceSmoke)
+  printf '%s\n' "$result"
+  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Voice diagnostics privacy acceptance failed" >&2; exit 1; }
   bash platforms/android/tests/device/diagnostics-export-directory.sh "$serial"
 fi
 # 三万条以上的码表也要经应用沙箱的 JNI 和真实 Engine 验证，API 28 的核心套件同样执行。

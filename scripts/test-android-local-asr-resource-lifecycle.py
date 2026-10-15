@@ -13,7 +13,7 @@ def main() -> int:
     source = SOURCE.read_text(encoding="utf-8")
     required = [
         re.compile(r"AudioRecord recorder = openRecorder\(\);\s+Thread capture ="),
-        re.compile(r"long created = 0;\s+boolean captureStarted = false;\s+try \{\s+(?://[^\n]*\n\s+)*created = NativeClient\.localSpeechCreate\(\);"),
+        re.compile(r"long created = 0;\s+boolean captureStarted = false;\s+try \{\s+(?://[^\n]*\n\s+)*(?:diagnostic\(DiagnosticEventKind\.VOICE_LOCAL_NATIVE_START\);\s+)?created = NativeClient\.localSpeechCreate\(\);"),
         re.compile(r"if \(created != 0\) NativeClient\.localSpeechDestroy\(created\);"),
     ]
     if any(pattern.search(source) is None for pattern in required):

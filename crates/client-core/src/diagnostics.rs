@@ -31,7 +31,7 @@ pub const MAX_CRASH_STACK_BYTES: usize = 16 * 1024;
 const MAX_LINE_BYTES: usize = 32 * 1024;
 
 /// 诊断包固定事件种类；输入失败类别仅供本地导出，云端上传器另按服务契约过滤。
-pub const EVENT_KINDS: [&str; 14] = [
+pub const EVENT_KINDS: [&str; 46] = [
     "key_down",
     "key_up",
     "candidate_shown",
@@ -46,6 +46,38 @@ pub const EVENT_KINDS: [&str; 14] = [
     "input_failure_invalid_response",
     "input_failure_editor_rejected",
     "input_failure_jni_link",
+    "voice_engine_local",
+    "voice_engine_streaming",
+    "voice_engine_platform",
+    "voice_engine_http",
+    "voice_activity_launch",
+    "voice_local_model_check",
+    "voice_local_runtime_check",
+    "voice_local_recorder_open",
+    "voice_local_native_start",
+    "voice_local_capture_start",
+    "voice_local_capture_read_failure",
+    "voice_local_capture_start_failure",
+    "voice_local_capture_exception",
+    "voice_failure_permission",
+    "voice_failure_audio",
+    "voice_failure_model",
+    "voice_failure_runtime_missing",
+    "voice_failure_runtime",
+    "voice_cancelled",
+    "voice_empty",
+    "voice_success",
+    "voice_failure_security",
+    "voice_failure_link",
+    "voice_failure_null_pointer",
+    "voice_failure_unexpected",
+    "voice_failure_network",
+    "voice_platform_server",
+    "voice_platform_client",
+    "voice_platform_busy",
+    "voice_platform_unavailable",
+    "voice_platform_other",
+    "voice_failure_response",
 ];
 
 /// 要包含哪几类内容。缺省全部不包含。

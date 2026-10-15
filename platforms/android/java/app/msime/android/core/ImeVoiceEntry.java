@@ -62,6 +62,7 @@ final class ImeVoiceEntry {
     private boolean platformStopped;
     private long generation;
     private boolean recognizing;
+    private boolean diagnosticAllowed;
 
     ImeVoiceEntry(MSIMEInputService s) {
         this.s = s;
@@ -127,6 +128,12 @@ final class ImeVoiceEntry {
             s.localSettings.bool(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK), fallbackInstalled,
             uploadConfigured, VoiceRecognitionActivity.available(s));
         if (engine == null) return false;
+        diagnosticAllowed = s.imeDebugOverlay.logging();
+        recordDiagnostic(switch (engine) {
+            case LOCAL -> DiagnosticEventKind.VOICE_ENGINE_LOCAL;
+            case STREAMING -> DiagnosticEventKind.VOICE_ENGINE_STREAMING;
+            case PLATFORM -> DiagnosticEventKind.VOICE_ENGINE_PLATFORM;
+        });
         String model = localConfigured ? configured.localModel() : fallbackModel;
         String provider = engine == Engine.LOCAL ? LocalAsrPolicy.PROVIDER : DoubaoAsrPolicy.PROVIDER;
         String rawLanguage = JsonPolicy.strictString(voice.opt("language"));
@@ -150,6 +157,7 @@ final class ImeVoiceEntry {
         if (engine == Engine.LOCAL) {
             LocalAsrRecognizer.watchMemory(s);
             local = new LocalAsrRecognizer();
+            local.diagnostics(kind -> diagnostic(session, kind));
             local.retainAudio(contribute);
         } else {
             streaming = new DoubaoRecognizer();
@@ -177,14 +185,17 @@ final class ImeVoiceEntry {
                             stream.punctuation(), stream.ddc(), stream.boostingTableId(),
                             (update, last) -> s.main.post(() -> heard(session, update)));
                         pcm = runningStream.retainedAudio();
-                        if (text == null) failure = "语音识别服务未响应，请稍后重试";
+                        if (text == null) {
+                            diagnostic(session, DiagnosticEventKind.VOICE_FAILURE_RESPONSE);
+                            failure = "语音识别服务未响应，请稍后重试";
+                        }
                     }
                 } catch (LocalAsrRecognizer.Refused refused) {
+                    diagnostic(session, refused.diagnosticKind());
                     failure = LocalAsrPolicy.failureMessage(refused.failure(), refused.runtimeMissing());
                 } catch (RuntimeException | LinkageError error) {
-                    // 兜底：本机模型和豆包流式都不该抛非预期异常。不记类型的话，用户只看到下面这句
-                    // 泛泛的提示，诊断包里也只有一条被 catch 住的失败，事后无从知道是哪一类问题
-                    // （只记引擎与异常类名，不含输入、路径和凭据）。
+                    // ZIP 只记固定异常类别，logcat 仅补异常类名，不写消息、路径或凭据。
+                    diagnostic(session, VoiceDiagnostics.unexpected(error));
                     ImeLog.w("Voice engine failed: "
                         + (runningLocal != null ? "local" : "streaming") + " "
                         + error.getClass().getName());
@@ -274,6 +285,7 @@ final class ImeVoiceEntry {
         try {
             recognizer = SpeechRecognizer.createSpeechRecognizer(s);
         } catch (RuntimeException error) {
+            recordDiagnostic(VoiceDiagnostics.unexpected(error));
             return false;
         }
         platform = recognizer;
@@ -312,10 +324,23 @@ final class ImeVoiceEntry {
             recognizer.startListening(VoiceRecognitionActivity.recognitionIntent(s.getPackageName(),
                 language, true));
         } catch (RuntimeException error) {
+            recordDiagnostic(VoiceDiagnostics.unexpected(error));
             releasePlatform();
             return false;
         }
         return true;
+    }
+
+    /** 启动时不允许记录的请求，稍后切换输入框也不能补记。 */
+    private void recordDiagnostic(DiagnosticEventKind kind) {
+        if (diagnosticAllowed) s.imeDebugOverlay.recordEvent(kind);
+    }
+
+    /** 工作线程与录音线程都回到主线程检查代次和隐私开关。 */
+    private void diagnostic(long session, DiagnosticEventKind kind) {
+        s.main.post(() -> {
+            if (session == generation) recordDiagnostic(kind);
+        });
     }
 
     private static String firstResult(Bundle results) {
@@ -358,6 +383,7 @@ final class ImeVoiceEntry {
     private void platformFailed(long session, int error) {
         if (session != generation) return;
         boolean retry = PlatformSpeechPolicy.retryInActivity(error, platformListening, platformStopped);
+        recordDiagnostic(VoiceDiagnostics.platformFailure(error));
         ImeLog.w("Platform speech recognizer failed in keyboard: error " + error);
         cancel();
         if (retry) {
@@ -378,6 +404,8 @@ final class ImeVoiceEntry {
     private void delivered(long session, String text, String failure, byte[] pcm, long elapsedMillis,
                            String language, String provider) {
         if (session != generation) return;
+        if (text != null && !text.isEmpty()) recordDiagnostic(DiagnosticEventKind.VOICE_SUCCESS);
+        else if (failure == null) recordDiagnostic(DiagnosticEventKind.VOICE_EMPTY);
         recognizing = false;
         local = null;
         streaming = null;

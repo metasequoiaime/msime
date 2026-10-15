@@ -71,7 +71,7 @@ fn input_events_drop_every_line_that_carries_text_or_unknown_kinds() {
 }
 
 #[test]
-fn local_input_failure_categories_survive_export_without_private_fields() {
+fn local_failure_categories_survive_export_without_private_fields() {
     let directory = tempfile::tempdir().unwrap();
     let events = directory.path().join("input-events.ndjson");
     let kinds = [
@@ -79,6 +79,17 @@ fn local_input_failure_categories_survive_export_without_private_fields() {
         "input_failure_invalid_response",
         "input_failure_editor_rejected",
         "input_failure_jni_link",
+        "voice_engine_local",
+        "voice_local_model_check",
+        "voice_local_runtime_check",
+        "voice_local_recorder_open",
+        "voice_local_native_start",
+        "voice_local_capture_start",
+        "voice_local_capture_read_failure",
+        "voice_failure_model",
+        "voice_failure_runtime_missing",
+        "voice_failure_permission",
+        "voice_failure_null_pointer",
     ];
     let mut rows = String::new();
     for kind in kinds {
@@ -99,8 +110,8 @@ fn local_input_failure_categories_survive_export_without_private_fields() {
     request.sources.input_events = Some(events.to_string_lossy().into_owned());
     let bundle = build_bundle(&request).unwrap();
     let counts = bundle.counts.input_events.unwrap();
-    assert_eq!(counts.kept, 4);
-    assert_eq!(counts.dropped, 5);
+    assert_eq!(counts.kept, kinds.len());
+    assert_eq!(counts.dropped, kinds.len() + 1);
     let sections = bundle.sections.unwrap();
     let kept = sections["input_events"].as_array().unwrap();
     for (row, kind) in kept.iter().zip(kinds) {

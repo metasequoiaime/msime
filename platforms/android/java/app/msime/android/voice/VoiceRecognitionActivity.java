@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.os.ResultReceiver;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -35,6 +36,7 @@ import java.util.concurrent.Executors;
  * <p>Either way this activity persists only the bounded text result for the isolated IME process.
  */
 public final class VoiceRecognitionActivity extends Activity {
+    private static final String EXTRA_DIAGNOSTICS = "app.msime.android.voice.DIAGNOSTICS";
     private static final int REQUEST_RECORD_AUDIO = 1;
     private static final String EXTRA_LANGUAGE = "app.msime.android.voice.LANGUAGE";
     private static final String EXTRA_REQUEST_ID = "app.msime.android.voice.REQUEST_ID";
@@ -134,8 +136,18 @@ public final class VoiceRecognitionActivity extends Activity {
                               String provider, String requestFormat, String endpoint, String model,
                               String token, Streaming streaming, Polish polish, String localModel,
                               String[] localHotwordTexts, String[] localHotwordPinyin) {
+        launch(context, requestId, language, provider, requestFormat, endpoint, model, token,
+            streaming, polish, localModel, localHotwordTexts, localHotwordPinyin, null);
+    }
+
+    /** 键盘窗口的固定事件回传；没有接收器的独立入口不写键盘日志。 */
+    public static void launch(Context context, String requestId, String language,
+                              String provider, String requestFormat, String endpoint, String model,
+                              String token, Streaming streaming, Polish polish, String localModel,
+                              String[] localHotwordTexts, String[] localHotwordPinyin, ResultReceiver diagnostics) {
         markLaunched(requestId);
         Intent intent = new Intent(context, VoiceRecognitionActivity.class);
+        if (diagnostics != null) intent.putExtra(EXTRA_DIAGNOSTICS, diagnostics);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         intent.putExtra(EXTRA_REQUEST_ID, requestId);
         intent.putExtra(EXTRA_LANGUAGE, safeLanguage(language));
@@ -167,6 +179,12 @@ public final class VoiceRecognitionActivity extends Activity {
         context.startActivity(intent);
     }
 
+    @SuppressWarnings("deprecation") // API 28 仍需要旧的 Parcelable 读取入口。
+    private void diagnostic(DiagnosticEventKind kind) {
+        ResultReceiver sink = getIntent().getParcelableExtra(EXTRA_DIAGNOSTICS);
+        if (sink != null) sink.send(kind.ordinal(), null);
+    }
+
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         active = new WeakReference<>(this);
@@ -175,6 +193,7 @@ public final class VoiceRecognitionActivity extends Activity {
         // Only the platform recognizer needs the system service. A configured provider records
         // here, so a device without that service can still use voice input through one.
         if (!usesLocal() && !usesStreaming() && !usesProvider() && !available(this)) {
+            diagnostic(DiagnosticEventKind.VOICE_PLATFORM_UNAVAILABLE);
             fail("设备没有可用的系统语音识别服务");
             finish();
             return;
@@ -214,6 +233,7 @@ public final class VoiceRecognitionActivity extends Activity {
             recognitionPending = true;
             startPendingRecognition();
         } else {
+            diagnostic(DiagnosticEventKind.VOICE_FAILURE_PERMISSION);
             fail("语音识别需要麦克风权限");
             finishRequest();
         }
@@ -318,6 +338,7 @@ public final class VoiceRecognitionActivity extends Activity {
         if (recognizer != null) return;
         showRecordingControls();
         recordingHint.setText("说完后稍停即可自动识别；点「完成」立即结束，「取消」会丢弃这次录音。");
+        diagnostic(DiagnosticEventKind.VOICE_ENGINE_PLATFORM);
         try {
             startPlatformRecognition();
         } catch (SecurityException refused) {
@@ -337,6 +358,7 @@ public final class VoiceRecognitionActivity extends Activity {
             @Override public void onEndOfSpeech() { }
             @Override public void onError(int error) {
                 if (!finished) {
+                    diagnostic(VoiceDiagnostics.platformFailure(error));
                     // 带上错误码：同一句「未返回结果」分不出网络、权限、没听到声音还是服务不可用（#5553）。
                     if (!stopping) fail(PlatformSpeechPolicy.message(error));
                     finishRequest();
@@ -352,6 +374,7 @@ public final class VoiceRecognitionActivity extends Activity {
                     deliver(values.get(0));
                     return;
                 }
+                diagnostic(DiagnosticEventKind.VOICE_EMPTY);
                 // 服务报了成功却没有文字：和键盘里一样说清楚，不再悄无声息地关掉窗口（#5553）。
                 if (!stopping) fail(PlatformSpeechPolicy.emptyResult());
                 finishRequest();
@@ -365,6 +388,7 @@ public final class VoiceRecognitionActivity extends Activity {
 
     /** 绑定服务也可能同步抛异常；先释放失败的识别器，结束请求时不再向它发送停止命令。 */
     private void platformStartFailed(int error) {
+        diagnostic(VoiceDiagnostics.platformFailure(error));
         SpeechRecognizer failed = recognizer;
         recognizer = null;
         if (failed != null) {
@@ -387,6 +411,7 @@ public final class VoiceRecognitionActivity extends Activity {
      */
     private void startProviderRecognition() {
         if (provider != null) return;
+        diagnostic(DiagnosticEventKind.VOICE_ENGINE_HTTP);
         showRecordingControls();
         Intent intent = getIntent();
         String requestId = intent.getStringExtra(EXTRA_REQUEST_ID);
@@ -404,6 +429,13 @@ public final class VoiceRecognitionActivity extends Activity {
             try {
                 text = running.recognize(requestId, language, requestFormat, endpoint, model, token);
             } catch (HttpAsrRecognizer.Refused refused) {
+                diagnostic(switch (refused.failure()) {
+                    case PERMISSION -> DiagnosticEventKind.VOICE_FAILURE_PERMISSION;
+                    case UNAVAILABLE -> DiagnosticEventKind.VOICE_FAILURE_AUDIO;
+                    case NETWORK -> DiagnosticEventKind.VOICE_FAILURE_NETWORK;
+                    case EMPTY -> DiagnosticEventKind.VOICE_EMPTY;
+                    case CANCELLED -> DiagnosticEventKind.VOICE_CANCELLED;
+                });
                 message = switch (refused.failure()) {
                     case PERMISSION -> "语音识别需要麦克风权限";
                     case UNAVAILABLE -> "麦克风被其他应用占用";
@@ -412,6 +444,7 @@ public final class VoiceRecognitionActivity extends Activity {
                     case CANCELLED -> null;
                 };
             } catch (RuntimeException | LinkageError error) {
+                diagnostic(VoiceDiagnostics.unexpected(error));
                 // 识别组件的意外失败也必须结束请求，不能让录音页永远停在转写中。
                 message = "语音识别服务未响应，请稍后重试";
             }
@@ -477,6 +510,7 @@ public final class VoiceRecognitionActivity extends Activity {
      */
     private void startLocalRecognition() {
         if (local != null) return;
+        diagnostic(DiagnosticEventKind.VOICE_ENGINE_LOCAL);
         showRecordingControls();
         recordingHint.setText("正在本机识别，音频不会离开设备。说完后点「完成」；「取消」会丢弃这次录音。");
         LocalAsrRecognizer.watchMemory(this);
@@ -487,21 +521,24 @@ public final class VoiceRecognitionActivity extends Activity {
         String[] hotwordPinyin = intent.getStringArrayExtra(EXTRA_LOCAL_HOTWORD_PINYIN);
         File files = getFilesDir();
         local = new LocalAsrRecognizer();
+        local.diagnostics(this::diagnostic);
         if (providerWorker == null) providerWorker = Executors.newSingleThreadExecutor();
         LocalAsrRecognizer running = local;
         providerWorker.execute(() -> {
             String text = null;
             String message = null;
             try {
-                text = running.recognize(modelDirectory, files.toPath(), language,
+                text = running.recognize(modelDirectory, files == null ? null : files.toPath(), language,
                     HostOptionsPolicy.readRuntimeOptions(files),
                     hotwordTexts, hotwordPinyin,
                     partial -> runOnUiThread(() -> {
                         if (!finished && recordingHint != null) recordingHint.setText(partial);
                     }));
             } catch (LocalAsrRecognizer.Refused refused) {
+                diagnostic(refused.diagnosticKind());
                 message = LocalAsrPolicy.failureMessage(refused.failure(), refused.runtimeMissing());
             } catch (RuntimeException | LinkageError error) {
+                diagnostic(VoiceDiagnostics.unexpected(error));
                 // 本地模型或 JNI 的意外失败也要回到可重试的页面状态。
                 message = "本地语音识别组件无法加载";
             }
@@ -519,6 +556,7 @@ public final class VoiceRecognitionActivity extends Activity {
     /** Stream while the user speaks, then deliver the provider's final result. */
     private void startStreamingRecognition() {
         if (streaming != null) return;
+        diagnostic(DiagnosticEventKind.VOICE_ENGINE_STREAMING);
         showRecordingControls();
         Intent intent = getIntent();
         String endpoint = intent.getStringExtra(EXTRA_STREAM_ENDPOINT);
@@ -537,6 +575,7 @@ public final class VoiceRecognitionActivity extends Activity {
                 text = running.recognize(endpoint, headers, itn, punctuation, ddc, boosting,
                     null);
             } catch (RuntimeException | LinkageError error) {
+                diagnostic(VoiceDiagnostics.unexpected(error));
                 // 参数、TLS 或共享 JNI 的意外失败不能让请求悬挂在录音窗口。
                 message = "语音识别服务未响应，请稍后重试";
             }
@@ -546,7 +585,10 @@ public final class VoiceRecognitionActivity extends Activity {
                 if (finished) return;
                 if (polishedText != null && !polishedText.isEmpty()) saveResult(polishedText);
                 else if (finalMessage != null) fail(finalMessage);
-                else fail("语音识别未返回结果");
+                else {
+                    diagnostic(DiagnosticEventKind.VOICE_FAILURE_RESPONSE);
+                    fail("语音识别未返回结果");
+                }
                 finishRequest();
             });
         });
@@ -635,6 +677,7 @@ public final class VoiceRecognitionActivity extends Activity {
     }
 
     private void saveResult(String text) {
+        diagnostic(DiagnosticEventKind.VOICE_SUCCESS);
         File files = getFilesDir();
         if (files == null) {
             Toast.makeText(this, "语音结果无法保存", Toast.LENGTH_SHORT).show();

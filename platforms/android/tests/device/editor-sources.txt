@@ -121,6 +121,7 @@ platforms/android/tests/device/keyboard/HelpcodeImportDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidateExpansionDeviceSmoke.java
 
 platforms/android/tests/device/voice/VoiceRecognitionLifecycleDeviceSmoke.java
+platforms/android/tests/device/voice/VoiceDiagnosticsPrivacyDeviceSmoke.java
 platforms/android/tests/device/voice/SyntheticSpeechService.java
 platforms/android/tests/device/voice/LegacySyntheticSpeechService.java
 platforms/android/tests/device/voice/SyntheticSpeechSetup.java

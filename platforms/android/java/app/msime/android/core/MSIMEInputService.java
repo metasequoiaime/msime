@@ -5868,6 +5868,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 打开语音识别窗口：上传式服务商、需要申请麦克风权限，或者系统识别服务在键盘里没能开始聆听时用它。 */
     void launchVoiceActivity() {
+        imeDebugOverlay.recordEvent(DiagnosticEventKind.VOICE_ACTIVITY_LAUNCH);
         String requestId = "ime-" + Long.toUnsignedString(SystemClock.uptimeMillis());
         // The configuration the settings app resolves, read through the same shared entry. This
         // keyboard's voice button used to launch the platform recogniser unconditionally, so a
@@ -5884,14 +5885,37 @@ public final class MSIMEInputService extends InputMethodService {
             VoiceRecognitionActivity.launch(this, requestId, voiceLanguage,
                 configured.providerName(), configured.requestFormat(), configured.endpoint(),
                 configured.model(), configured.token(), configured.streaming(), configured.polish(),
-                configured.localModel());
+                configured.localModel(), null, null, voiceDiagnosticsReceiver());
         } catch (RuntimeException error) {
             VoiceRecognitionActivity.clearRequest(requestId);
             // 同一个笼统的提示有两个来源（键区里识别失败、识别窗口起不来），不记类型就分不出来
             // （只记异常类名，不含输入、路径和凭据）。
+            imeDebugOverlay.recordEvent(VoiceDiagnostics.unexpected(error));
             ImeLog.w("Voice window launch failed: " + error.getClass().getName());
             notice("语音识别服务无法启动");
         }
+    }
+
+    /** 两次隐私检查：被抑制的请求不能在切换输入框后补记；当前已关闭也不再记录。 */
+    private android.os.ResultReceiver voiceDiagnosticsReceiver() {
+        if (!voiceDiagnosticsAllowed()) return null;
+        return new android.os.ResultReceiver(main) {
+            @Override protected void onReceiveResult(int code, android.os.Bundle ignored) {
+                DiagnosticEventKind kind = VoiceDiagnostics.fromCode(code);
+                if (kind != null && voiceDiagnosticsAllowed()) imeDebugOverlay.recordEvent(kind);
+            }
+        };
+    }
+
+    private boolean voiceDiagnosticsAllowed() {
+        if (!imeDebugOverlay.logging()) return false;
+        // 窗口接手后键盘的偏好轮询可能已停；不能只信启动前的内存快照。
+        File files = getFilesDir();
+        if (files == null) return false;
+        AndroidLocalSettings.Snapshot current = AndroidLocalSettings.load(new File(
+            HostOptionsPolicy.bootstrapStateDirectory(files), AndroidLocalSettings.FILE_NAME).toPath());
+        return current.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG)
+            && !current.bool(AndroidLocalSettings.INCOGNITO);
     }
 
     private void insertVoiceResult() {
