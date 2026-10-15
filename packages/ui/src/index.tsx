@@ -3700,6 +3700,10 @@ function SettingsShell(props: SettingsPageProps) {
                 inputSourceStartup={inputSourceStartup}
                 onOpenSettings={statusActions.onOpenSettings}
                 onDismiss={statusActions.onDismiss}
+                saveError={
+                  saveState === "failed" && draft && isSettingsFormPage(page) ? saveError : ""
+                }
+                onRetrySave={() => void retrySave()}
               />
               {client.notices && (
                 <NoticeBanner client={client.notices} openExternalUrl={openExternalUrl} />
@@ -4004,7 +4008,8 @@ function SettingsShell(props: SettingsPageProps) {
                   <SettingsFormFooter
                     draft={draft}
                     busy={busy}
-                    saveState={saveState}
+                    // 保存失败由页面顶部的提示说明并重试（SettingsPageStatus），这一行不再重复同一个错误和按钮。
+                    saveState={saveState === "failed" ? "idle" : saveState}
                     saveError={saveError}
                     showRestoreDefaults={
                       Boolean(client.loadDefaultPreferences) &&
