@@ -1237,7 +1237,9 @@ struct KeyboardView {
     const automatic: boolean = this.letterCase.isAutomatic();
     const shifted: boolean = KeyboardSession.shared.entersHelpcode(held)
       || (this.english && held);
-    KeyboardSession.shared.press(letter.charCodeAt(0), shifted);
+    // 英文组合按实际字符保留大小写，Shift 标志本身不会把小写 ASCII 改为大写。
+    const input: string = this.english && held ? letter.toUpperCase() : letter;
+    KeyboardSession.shared.press(input.charCodeAt(0), shifted);
     // A one-shot Shift is spent by the letter that follows it; Caps Lock is not. Neither is an
     // automatic Shift: it is not spent but recomputed from the text, which the change this press
     // just caused has already done. Clearing it here would give a capitals-only field one capital.
