@@ -61,7 +61,7 @@
       <TreatWarningAsError>true</TreatWarningAsError>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(HostApiInclude);$(MSBuildProjectDirectory)\..\src\system;$(MSBuildProjectDirectory)\..\src\candidate;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(HostApiInclude);$(MSBuildProjectDirectory)\..\common;$(MSBuildProjectDirectory)\..\src\system;$(MSBuildProjectDirectory)\..\src\candidate;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /bigobj %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>UNICODE;_UNICODE;NOMINMAX;WIN32_LEAN_AND_MEAN;MSIME_EDITION_$(MsimeEdition.ToUpperInvariant());MSIME_WINDOWS_VERSION=&quot;$(MsimeVersion)&quot;;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>

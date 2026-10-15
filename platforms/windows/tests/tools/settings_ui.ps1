@@ -5,7 +5,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing, System.Windows.Forms
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -36,6 +36,38 @@ $process = $null
 function Find-ById($parent, [string]$id) {
     $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, $id)
     return $parent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+}
+function Find-ByName($parent, [string]$name) {
+    $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $name)
+    return $parent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+}
+function Open-Page($window, [string]$page) {
+    $item = Find-ById $window $page
+    if (-not $item) { throw "Missing native page: $page" }
+    $item.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern).ScrollIntoView()
+    $item = Find-ById $window $page
+    $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        Start-Sleep -Milliseconds 200
+        $content = Find-ById $window 'settings-content'
+        $title = if ($content) { Find-ById $content "settings-page-$page" } else { $null }
+    } while (-not $title -and [DateTime]::UtcNow -lt $deadline)
+    if (-not $title) { throw "Page did not change to $page" }
+    if (Find-ById $content 'settings-load-error') { throw 'Synthetic preferences were rejected by the real host' }
+}
+function Select-CandidateTab($window, [string]$tab) {
+    $button = Find-ById $window "candidate-tab-$tab"
+    if (-not $button) { throw "Missing candidate tab: $tab" }
+    $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $button = Find-ById $window "candidate-tab-$tab"
+    } while ((-not $button -or $button.Current.ItemStatus -ne '已选择') -and [DateTime]::UtcNow -lt $deadline)
+    if (-not $button -or $button.Current.ItemStatus -ne '已选择') { throw "Candidate tab did not change: $tab" }
+    $label = @{layout = '候选项排列方式'; font = '主字体'; style = '不透明度'; preedit = '行内预编辑'}[$tab]
+    if (-not (Find-ByName (Find-ById $window 'settings-content') $label)) { throw "Candidate tab content is missing: $tab" }
 }
 function Save-Window($element, [string]$file) {
     $bounds = $element.Current.BoundingRectangle
@@ -84,32 +116,26 @@ try {
             if (-not [SettingsWindowProbe]::SetWindowPos($process.MainWindowHandle, [IntPtr]::Zero, 0, 0, $width, 760, 0x0040)) { throw 'Window resize failed' }
             foreach ($page in $pages) {
                 if ($process.HasExited) { throw "Settings exited on $page" }
-                $item = Find-ById $window $page
-                if (-not $item) { throw "Missing native page: $page" }
-                # 虚拟化会复用导航元素；滚入视口后重新取元素，以正文的稳定 id 等待页面完成切换。
-                $item.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern).ScrollIntoView()
-                $item = Find-ById $window $page
-                $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
-                $deadline = [DateTime]::UtcNow.AddSeconds(15)
-                do {
-                    Start-Sleep -Milliseconds 200
-                    $content = Find-ById $window 'settings-content'
-                    $title = if ($content) { Find-ById $content "settings-page-$page" } else { $null }
-                } while (-not $title -and [DateTime]::UtcNow -lt $deadline)
-                if (-not $title) { throw "Page did not change to $page" }
-                if (Find-ById $content 'settings-load-error') { throw 'Synthetic preferences were rejected by the real host' }
+                # 复用导航等待，既验证正文身份，也处理侧栏虚拟化。
+                Open-Page $window $page
+                $content = Find-ById $window 'settings-content'
                 if ($content.Current.BoundingRectangle.Width -lt 480) { throw "No usable content column on $page" }
                 # 再等一轮呈现，避免 UIA 树已经更新而屏幕仍是上一页的画面。
                 Start-Sleep -Milliseconds 500
                 Save-Window $window "$theme-$width-$page.png"
                 Write-Host "$theme $width $page rendered"
+                if ($page -eq 'candidate') {
+                    foreach ($tab in @('layout', 'font', 'style', 'preedit')) {
+                        Select-CandidateTab $window $tab
+                        Start-Sleep -Milliseconds 350
+                        Save-Window $window "$theme-$width-candidate-tab-$tab.png"
+                    }
+                    Select-CandidateTab $window 'layout'
+                }
             }
         }
         # 通过真实单选控件切换方案，再读合成偏好确认保存成功，避免只验证静态页面。
-        $typing = Find-ById $window 'typing'
-        $typing.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern).ScrollIntoView()
-        $typing = Find-ById $window 'typing'
-        $typing.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+        Open-Page $window 'typing'
         Start-Sleep -Milliseconds 700
         foreach ($scheme in @('shuangpin', 'wubi', 'quanpin')) {
             $radio = Find-ById $window "scheme-$scheme"
@@ -127,6 +153,47 @@ try {
             Start-Sleep -Milliseconds 500
             Save-Window $window "$theme-scheme-$scheme.png"
             Write-Host "$theme $scheme selected and saved"
+        }
+        # 搜索必须打开所属页内标签，不能只打开候选窗口后留下不可见的目标。
+        Open-Page $window 'candidate'
+        Select-CandidateTab $window 'layout'
+        $search = Find-ById $window 'settings-search'
+        if (-not $search) { throw 'Settings search is missing' }
+        $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
+        $input = $search.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+        if (-not $input -and $search.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit) { $input = $search }
+        if (-not $input) { throw 'Settings search input is missing' }
+        $input.SetFocus()
+        $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('主字体')
+        [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $font = Find-ById $window 'candidate-tab-font'
+        } while ((-not $font -or $font.Current.ItemStatus -ne '已选择') -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $font -or $font.Current.ItemStatus -ne '已选择') { throw 'Font search did not select the font tab' }
+        if (-not (Find-ByName (Find-ById $window 'settings-content') '主字体')) { throw 'Font search target is missing' }
+        Start-Sleep -Milliseconds 350
+        Save-Window $window "$theme-search-candidate-font.png"
+        # 真实开关必须同时改变持久化和预览宽度，再切回初始值，避免静态画面假通过。
+        Open-Page $window 'toolbar'
+        $size = Find-ById $window 'toolbar-preview-size'
+        if (-not $size) { throw 'Toolbar preview size is missing' }
+        $original = $size.Current.Name
+        foreach ($enabled in @($true, $false)) {
+            $voice = Find-ByName (Find-ById $window 'settings-content') '语音输入'
+            if (-not $voice) { throw 'Toolbar voice component is missing' }
+            $voice.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            do {
+                Start-Sleep -Milliseconds 200
+                $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw | ConvertFrom-Json
+                $size = Find-ById $window 'toolbar-preview-size'
+                $changed = $size -and ($size.Current.Name -ne $original)
+            } while (($saved.preferences.floating_toolbar.voice -ne $enabled -or $changed -ne $enabled) -and [DateTime]::UtcNow -lt $deadline)
+            if ($saved.preferences.floating_toolbar.voice -ne $enabled -or $changed -ne $enabled) { throw 'Toolbar component did not update preferences and preview together' }
+            Start-Sleep -Milliseconds 350
+            Save-Window $window "$theme-toolbar-voice-$enabled.png"
         }
         $process.CloseMainWindow() | Out-Null
         if (-not $process.WaitForExit(10000)) { throw 'Settings window failed to close' }
