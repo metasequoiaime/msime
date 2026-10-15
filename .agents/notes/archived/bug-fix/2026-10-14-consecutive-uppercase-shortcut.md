@@ -1,6 +1,7 @@
 # Agent Note: 连续大写输入不误触发快捷模式
 
 Status: implemented
+Archived: 2026-10-15
 
 ## Problem
 
