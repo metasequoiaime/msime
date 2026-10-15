@@ -5856,6 +5856,9 @@ public final class MSIMEInputService extends InputMethodService {
                 configured.localModel());
         } catch (RuntimeException error) {
             VoiceRecognitionActivity.clearRequest(requestId);
+            // 同一个笼统的提示有两个来源（键区里识别失败、识别窗口起不来），不记类型就分不出来
+            // （只记异常类名，不含输入、路径和凭据）。
+            ImeLog.w("Voice window launch failed: " + error.getClass().getName());
             notice("语音识别服务无法启动");
         }
     }
