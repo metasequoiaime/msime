@@ -1155,6 +1155,14 @@ impl LocalInputMode {
         matches!(self, Self::Expression | Self::Command | Self::Mention)
     }
 
+    /// 去掉临时模式预编辑开头的入口字母（`Y`、`R`）。它是模式标记、不是用户打的字，所以进词库的词不能带它；回车原样上屏时它算文本（#7616），那一处不走这里。
+    pub fn without_entry_marker(self, text: &str) -> &str {
+        match self {
+            Self::TemporaryEnglish | Self::TemporaryJapanese => text.get(1..).unwrap_or_default(),
+            _ => text,
+        }
+    }
+
     /// 候选注释由 Engine 自己给出、不补辅助码的模式：V、`/`、`@` 的行不是按拼音拼出来的，辅助码说明不了它们；拆字的行注释的是字的读音，用户正是不会读这个字才来查，辅助码夹在读音里只会添乱。和 `generates_text` 分开，是因为拆字上屏的字是用户挑出来的，照常计入打字统计。
     pub fn annotates_rows(self) -> bool {
         matches!(

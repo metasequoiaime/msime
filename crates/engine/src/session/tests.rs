@@ -3281,7 +3281,7 @@ fn temporary_english_shows_its_prefix_until_a_word_matches() {
     assert_eq!(snapshot.candidates[0].source, CandidateSource::Generated);
     assert_eq!(
         session.command(Command::CommitRaw).commit.as_deref(),
-        Some("he")
+        Some("Yhe")
     );
 
     session.character(b'Y', true);
@@ -3382,7 +3382,7 @@ fn temporary_japanese_returns_to_the_original_scheme() {
     assert_eq!(session.snapshot().preedit, "Rk");
     assert_eq!(
         session.command(Command::CommitRaw).commit.as_deref(),
-        Some("k")
+        Some("Rk")
     );
     assert_eq!(session.snapshot().scheme, SchemeType::Shuangpin);
     assert_eq!(

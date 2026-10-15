@@ -1863,14 +1863,7 @@ impl InputSession {
         } else {
             self.preedit()
         };
-        // The temporary modes' prefix letter is a mode marker, not text; every other local mode commits it (core-session.md §15.5).
-        if matches!(
-            self.local_mode,
-            LocalInputMode::TemporaryEnglish | LocalInputMode::TemporaryJapanese
-        ) && !raw.is_empty()
-        {
-            raw.remove(0);
-        }
+        // 回车上屏的是屏幕上这段预编辑原文，本地模式的入口字母也算在内：临时模式以前把入口字母当标记丢掉，空输入时回车什么都不上屏（#7616）。进词库的词仍要去掉标记，见下面学习那一处。
         // 五笔临时拼音反查的引导键 `z` 同样是标记：回车上屏的是键入的拼音。
         if self.local_mode == LocalInputMode::None
             && !self.dedicated_english
@@ -1883,7 +1876,7 @@ impl InputSession {
             && learn_entered_english_word(
                 &self.paths.dictionary(assets::ENGLISH_DICTIONARY),
                 self.journal_path(),
-                &raw,
+                self.local_mode.without_entry_marker(&raw),
                 ENTERED_ENGLISH_WORD_WEIGHT,
             )
             .is_err()

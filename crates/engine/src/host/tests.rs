@@ -1769,7 +1769,8 @@ fn local_mode_raw_commit_is_learned_as_an_english_word() {
     assert_eq!(session.snapshot().unwrap().local_mode, "temporary_english");
     let result = session.command(Command::CommitRaw).unwrap();
     assert!(result.has_commit);
-    assert_eq!(result.commit, "rustacean");
+    // 回车上屏的是所见预编辑：临时英文的入口字母 `Y` 算文本（#7616）；进词库的词仍不带它。
+    assert_eq!(result.commit, "Yrustacean");
     assert_eq!(result.diagnostic, "");
     assert_eq!(english_word_count(&value, "rustacean"), 1);
 }
@@ -1821,16 +1822,11 @@ fn temporary_japanese_raw_commit_learns_with_the_r_prefix() {
     assert_eq!(session.snapshot().unwrap().local_mode, "temporary_japanese");
     let result = session.command(Command::CommitRaw).unwrap();
     assert!(result.has_commit);
-    assert!(!result.commit.starts_with('R'), "{:?}", result.commit);
-    assert!(
-        result.commit.bytes().all(|byte| byte.is_ascii_alphabetic()),
-        "{:?}",
-        result.commit
-    );
+    // 回车上屏所见预编辑，入口字母 `R` 算文本（#7616）；词库里学的仍是不带标记、带 `r` 前缀的词（bridge.cpp:1349-1357）。
+    assert_eq!(result.commit, "Rkk");
     assert_eq!(result.diagnostic, "");
-    let learned = format!("r{}", result.commit).to_ascii_lowercase();
-    assert_eq!(english_word_count(&value, &learned), 1);
-    assert_eq!(english_word_count(&value, &result.commit), 0);
+    assert_eq!(english_word_count(&value, "rkk"), 1);
+    assert_eq!(english_word_count(&value, "kk"), 0);
 }
 
 /// bridge.cpp:1349-1357: a local-mode commit that is not an English word (here the Unicode mode's hex digits) is still committed; the failed learning is reported beside it rather than undoing it.
