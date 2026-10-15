@@ -25,15 +25,7 @@ import { CandidateTranslationOptionsSection } from "../candidate-translation-opt
 import { CandidateEnglishGlossSection } from "../candidate-english-gloss-section";
 import { ShuangpinCustomEditor } from "../shuangpin-custom-editor";
 import type { ShuangpinCustomProfileClient } from "../shuangpin-custom-profile";
-
-const inputTabs = [
-  { id: "scheme", title: "方案" },
-  { id: "mode", title: "中英文" },
-  { id: "selection", title: "选词与翻页" },
-  { id: "candidates", title: "候选与联想" },
-  { id: "output", title: "输出" },
-  { id: "advanced", title: "进阶" },
-] as const;
+import { inputTabs } from "../input-tabs";
 
 /** 输入设置页。 */
 export function InputSettingsPage() {

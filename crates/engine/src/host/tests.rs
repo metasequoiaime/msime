@@ -6,7 +6,7 @@ use rusqlite::Connection;
 
 use super::glosses::{candidate_gloss_display, candidate_gloss_key};
 use super::*;
-use crate::types::SchemeType;
+use crate::types::{CandidateSource, SchemeType, WordItem};
 
 fn options(root: &Path) -> EngineOptions {
     let path = |name| {
@@ -2531,6 +2531,39 @@ fn wubi_reverse_code_fast_path_requires_the_display_word_identity() {
             "座位错位时应回退到按词查找"
         );
     }
+}
+
+#[test]
+fn wubi_reverse_code_fast_path_requires_full_candidate_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = helpcode_fixture(
+        root.path(),
+        "INSERT INTO wubi86 VALUES('wqvb','你好',300);",
+        "",
+    );
+    options.scheme = SchemeType::Wubi as u8;
+    options.show_helpcode = false;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"wq");
+    let snapshot = session.snapshot().unwrap();
+    let index = snapshot
+        .candidates
+        .iter()
+        .position(|candidate| candidate == "你好")
+        .unwrap();
+    let different_identity = WordItem::new(
+        "different",
+        "你好",
+        0,
+        CandidateSource::Database,
+        "different",
+    );
+
+    assert_eq!(
+        session.candidate_wubi_code_for_display_item(index, &different_identity),
+        None,
+        "同词面但候选身份不同，不得复用该座位的反查码"
+    );
 }
 
 #[test]

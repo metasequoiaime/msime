@@ -16,6 +16,9 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
     @Override protected void runChecks() throws Exception {
         Intent intent = new Intent(getTargetContext(), EditorActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        // 先清除上个编辑器的焦点，等系统确认被测输入法已选中，避免异步回退留下系统键盘。
+        shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+        restartIme();
         startActivitySync(intent);
         stage = "device information editor focus";
         tap(field("msime-test-plain"));

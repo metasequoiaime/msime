@@ -70,10 +70,7 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
             publish(preferences, preferenceSnapshot.toString().getBytes(StandardCharsets.UTF_8));
             Files.deleteIfExists(statistics.toPath());
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
-            shellDiscard("ime disable app.msime.android/.MSIMEInputService");
-            shellDiscard("ime enable app.msime.android/.MSIMEInputService");
-            shellDiscard("ime set app.msime.android/.MSIMEInputService");
-            SystemClock.sleep(1000);
+            restartIme();
 
             stage = "IME aggregate write";
             typeSyntheticPhrase();

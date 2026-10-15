@@ -873,6 +873,11 @@ export {
 } from "./settings/candidate-window-style-section";
 export { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
 export { CandidateLayoutSection, type CandidateLayout } from "./settings/candidate-layout-section";
+export { candidateLayoutOptions } from "./settings/candidate-layout-options";
+export { themeModeOptions } from "./settings/theme-mode-options";
+export { candidateTabs, type CandidateTab } from "./settings/candidate-tabs";
+export { expressionTabs, type ExpressionTab } from "./settings/expression-tabs";
+export { inputTabs, type InputTab } from "./settings/input-tabs";
 export {
   CandidateFollowCursorSection,
   type CandidateFollowCursorSectionProps,

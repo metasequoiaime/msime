@@ -35,10 +35,7 @@ public final class ClipboardEditDeviceSmoke extends DeviceSmoke {
             throw new AssertionError("Unknown test product");
         String ime = product.equals("app.msime.android") ? product + "/.MSIMEInputService"
             : product + "/app.msime.android.MSIMEInputService";
-        shellDiscard("ime disable " + ime);
-        shellDiscard("ime enable " + ime);
-        shellDiscard("ime set " + ime);
-        SystemClock.sleep(1000);
+        restartIme(ime);
         openEditor();
         ClipboardManager clipboard = getTargetContext().getSystemService(ClipboardManager.class);
         ClipData originalClip = clipboard.getPrimaryClip();
