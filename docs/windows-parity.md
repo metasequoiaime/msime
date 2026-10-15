@@ -85,7 +85,7 @@
 | 候选中英释义、腾讯云翻译、自定义翻译 | README 候选翻译 / 自定义翻译 | `src/candidate/TranslationWorker.cpp`、`src/candidate/CandidateTranslationPolicy.h`，共享 `crates/client-core/src/translation.rs` 与 `translation/store.rs` |
 | 设置读取、保存、热更新与窗口行为 | `settings_app.cpp`、`config-sync.ts` | Tauri `load_preferences` / `save_preferences`、`src/system/PreferenceMonitor.cpp` 与 Server 的发布回调 |
 | 损坏配置备份与修复 | `BackupCorruptConfig`、`SyncConfigWithInstalledTemplate`、`ReapplyRealCredentials` | `crates/client-core/src/preferences.rs` 的 `recover` / `recover_malformed`：原文件先备份为同目录 `preferences.json.corrupt-<UTC 时间戳>`，再保留每个仍可解析的字段（含服务凭据）；设置页读取报格式错误时提供「修复配置文件…」并可在文件管理器中显示备份；macOS 输入法进程在 JSON 解析失败时经 Host API `msime_client_recover_preferences` 自动修复一次 |
-| API 凭据测试 | 来源 `server/src/settings/api_credential_test.cpp`，经设置窗 `apiCredentialTest` 消息测试 `translation.tencent` / `translation.niutrans` / 自定义翻译、`voice.asr`、`voice.polish` 与 `ai.assistant` | Tauri `test_api_credential` → `crates/client-core/src/credential/`（豆包、批量 ASR、腾讯 / NiuTrans / DeepLX） |
+| API 凭据测试 | 来源 `server/src/settings/api_credential_test.cpp`，经设置窗 `apiCredentialTest` 消息测试 `translation.tencent` / `translation.niutrans` / 自定义翻译、`voice.asr`、`voice.polish` 与 `ai.assistant` | Tauri `test_api_credential` → `crates/client-providers/src/credential/`（豆包、批量 ASR、腾讯 / NiuTrans / DeepLX） |
 | 词库查询、增改删、导入导出、快捷短语 | `dictionary_manager.cpp`、设置 `dict.ts` / `tools-settings.ts` | Tauri `dictionary_request`、共享 `dictionary/access.rs` 与 `dictionary/import.rs` |
 | 语音热键、流式 / 批量 ASR、润色、声音 / 静音、上屏方式 | `server/src/voice-input/`、设置 `voice.ts` | `src/voice/`（`VoiceHotkey.cpp`、`VoiceInputSession.cpp`、`DoubaoAsrClient.cpp`、`SystemAsrStream.cpp`（「Windows 系统识别」，SAPI 进程内听写）、`CuePlayer.cpp`、`SystemAudioMuter.cpp`、`WaveOverlay.cpp`、`VoiceSessionEpoch.h`）+ Tauri 语音面板 |
 | 录音设备选择 | 来源语音设置 | `src/voice/VoiceCaptureSelection.h` 与 `VoiceInputSession`，按稳定设备 ID 枚举、保存并透传给 `AudioCapture::start` |
@@ -153,7 +153,7 @@
 | `window/`（候选窗、悬浮工具栏、托盘） | `platforms/windows/src/candidate/` | 低延迟、不抢焦点，保留原生 Direct2D |
 | `voice-input/` | `platforms/windows/src/voice/` + Tauri 语音面板 | 热键与上屏原生，界面在 Tauri |
 | `cloud/cloud_ime.cpp` | `platforms/windows/src/candidate/CloudCandidateWorker.cpp` | 在输入队列上跑，跟着会话生命周期 |
-| `cloud/tencent_tmt.cpp`、`cloud_translation.cpp` | `crates/client-core/src/credential/translation.rs` | 凭据与请求逻辑跨平台共享 |
+| `cloud/tencent_tmt.cpp`、`cloud_translation.cpp` | `crates/client-providers/src/credential/translation.rs` | 凭据与请求逻辑跨平台共享 |
 | `cloud/custom_translation.cpp`、`translation_gloss.cpp` | `crates/client-core/src/translation.rs` | 同上 |
 | `skin/candidate_skin_catalog.cpp` | `crates/client-core/src/skin/catalog.rs` | 皮肤目录跨平台共享 |
 | `english/`、`emoji/`、`kaomoji/`、`conversion/` | Engine 与共享偏好 | 这些是输入算法的一部分，Engine 拥有 |
@@ -814,7 +814,7 @@ macOS 缺后半条。`ShouldRoutePhysicalCandidateDigit` 明确把 Unicode 模�
 
 增量记录（2026-09-19）：Linux IBus 与 Fcitx5 现接入 Windows 候选翻译快捷语义。候选页存在有效高亮译文时，Ctrl+Enter 提交当前已渲染译文并结束 Engine 组合；没有译文时仍将组合交给应用。IBus 通过 session/generation 与最近渲染候选身份校验，Fcitx5 使用其原生候选页的同一份共享 View；两者不伪造 Windows 的多译义副候选窗口。Linux 两个宿主同时接入 Ctrl+Backspace、Ctrl+Left、Ctrl+Right 的共享分段编辑命令。合成 provider/Engine bridge 回归已通过，原生 IBus/Fcitx5 桌面验证仍需 Linux 环境执行。
 
-增量记录（目标基线之后）：Windows `ai.assistant` / `voice.polish` 已从共享设置按钮接到 Tauri `test_api_credential` 的 Windows 分支及 `client-core::credential::probe`。共享实现注入传输，生产 HTTPS 请求禁用重定向，5 秒连接/15 秒总时限、256 KiB 响应上限，公开错误不携带响应原文。Linux provider 路径保持不变。ASR（OpenAI、SiliconFlow、Groq、Doubao、system）与三类翻译凭据测试现均经过 Tauri 命令路由，桌面命令回归覆盖无凭据分类；合成请求测试和共享模块 Windows 交叉检查不能替代 Windows 原生设置窗口或真实服务验证。上表的明确缺口描述保留为固定目标提交时的状态。
+增量记录（目标基线之后）：Windows `ai.assistant` / `voice.polish` 已从共享设置按钮接到 Tauri `test_api_credential` 的 Windows 分支及 `client-providers::credential::probe`。共享实现注入传输，生产 HTTPS 请求禁用重定向，5 秒连接/15 秒总时限、256 KiB 响应上限，公开错误不携带响应原文。Linux provider 路径保持不变。ASR（OpenAI、SiliconFlow、Groq、Doubao、system）与三类翻译凭据测试现均经过 Tauri 命令路由，桌面命令回归覆盖无凭据分类；合成请求测试和共享模块 Windows 交叉检查不能替代 Windows 原生设置窗口或真实服务验证。上表的明确缺口描述保留为固定目标提交时的状态。
 
 Linux 在线 provider 的 AI 凭据测试与 Windows 终态契约对齐：只有响应中的 `choices` 为非空数组才报告连接成功；空数组、错误对象或无模型回答的 JSON 会判定失败。回归使用合成响应，不记录真实 token、提示词或服务端正文；该增量只收紧 Linux 凭据探测，不改变在线候选解析路径。
 
@@ -829,7 +829,7 @@ Linux 在线 provider 的 AI 凭据测试与 Windows 终态契约对齐：只有
 
 剪贴板长度增量（2026-09-18）：固定来源 `MSIME-Windows` 远端默认分支 `develop` 的 `734b11e3b20c3ce44e5e96b877b37d6ed878c0a4`，`ClipboardHistory::kMaxChars` 为 4000 UTF-16 单位。Windows Tauri 粘贴宿主现使用共享历史的 12000 UTF-8 字节上限，不再误用普通输入的 4096 字节上限，避免完整中文历史记录可保存却无法粘贴。语音包装函数仍保留 4096 字节限制；空串、NUL 和超限均在系统操作前拒绝。跨宿主纯策略测试覆盖 4000 个合成汉字、补充平面字符与边界，Windows 条件编译交叉检查覆盖真实调用；未据此宣称完成 Windows 实机剪贴板验证。
 
-翻译凭据测试增量：Windows 腾讯云、NiuTrans、自定义 DeepLX 测试现由 Tauri 调用 `client-core::credential_translation`，复用共享签名及解析。腾讯设置按钮传递当前编辑的 SecretId/SecretKey/地域；Linux 的 provider 请求保持原样。测试要求真实译文字段，不把任意 HTTP 2xx 当作成功；返回结果不包含服务端原文。自定义服务保留 HTTP/HTTPS 支持，禁止重定向。此项不改变固定基线记录，也不代表真实服务或 Windows 原生窗口验证完成。
+翻译凭据测试增量：Windows 腾讯云、NiuTrans、自定义 DeepLX 测试现由 Tauri 调用 `client-providers::credential::translation`，复用共享签名及解析。腾讯设置按钮传递当前编辑的 SecretId/SecretKey/地域；Linux 的 provider 请求保持原样。测试要求真实译文字段，不把任意 HTTP 2xx 当作成功；返回结果不包含服务端原文。自定义服务保留 HTTP/HTTPS 支持，禁止重定向。此项不改变固定基线记录，也不代表真实服务或 Windows 原生窗口验证完成。
 
 - hello 中的 `client_id` 不是认证；控制器进程不能复用 TSF 目标进程 ID。必须由 OS 对端信息验证控制器，再单独绑定目标焦点租约。
 - `PipeRegistry` 注册代际不等于激活 epoch。排队前检查还不够，执行时仍需检查焦点、会话及代际。
@@ -1074,7 +1074,7 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 - 超时两个 worker 各有各的值且都合理：云候选连接 2000ms / 总计 2000ms，AI 连接 2500ms / 总计 8000ms（LLM 本就更慢，照抄 2 秒会把它全判超时）。两者都是 `CURLOPT_PROTOCOLS_STR="https"`、不跟随重定向、`NOSIGNAL`。
 - 取消不只是「丢弃结果」：`CURLOPT_XFERINFOFUNCTION` 接到取消判据上，被取代的请求在传输途中就会中止，write 回调里也再查一次。
 - 响应与请求都有界：响应 256 KiB（AI 1 MiB）、query 16 KiB、AI 的 URL ≤ 2048 且必须 https、POST body 有大小上限。
-- 提供方路由两边同形：来源 `ai_assistant.cpp` 只对 `deepseek` 特判（多一个 thinking 字段），其余走通用 OpenAI 兼容路径；本仓 `client-core/src/ai.rs` 完全一致。
+- 提供方路由两边同形：来源 `ai_assistant.cpp` 只对 `deepseek` 特判（多一个 thinking 字段），其余走通用 OpenAI 兼容路径；本仓 `client-providers/src/ai.rs` 完全一致。
 
 **查出一处覆盖缺口并补上。** 整个 `platforms/windows/tests/` 里**没有一个文件提到过这三个 worker**——`CloudCandidateWorker`、`AiCandidateWorker`、`TranslationWorker` 的排队、去抖与取消一行覆盖都没有。这属于本表反复出现的「按源码核对为正确实现但零测试覆盖」，而这里出 bug 的表现是「打完字之后旧的云候选才冒出来」，不会在别处被发现。给 worker 加可注入的 fetcher（默认仍是真实那个），补四条用例：结果带对 lease 与 query、去抖窗口内只付一次且付新的那次、在途被取代的请求能看见自己被取代且结果绝不交付、五种非法请求一个都到不了网络。两种破坏分别红在不同断言上。
 
@@ -1375,9 +1375,9 @@ macOS 对应同一份 `settings_launcher.cpp` 语义，但只对设置窗生效�
 
 **用户词库日志重放。** 来源有一个独立 exe 走 Engine 的 `user_dictionary::replay`，把日志重放进新装词库。本仓同样有这个工具（`crates/engine-bridge/src/bin/MetasequoiaImeDictionaryReplay.rs`），只是 macOS 的词库更新不走它：走的是快照 staging，把用户词条、固定位、选择记录成流写进新一代（`stage_dictionary_state`）。两条路都保住用户数据，形态差异，不是缺口。
 
-**AI 那一半的时序。** 来源防抖 650ms、连接 2500ms、总计 8000ms，命中缓存时跳过防抖直接出；缓存键是 provider + endpoint + model + 分段拼音。macOS 的 `_aiTimer` 是 0.65 秒，`client-core/src/ai.rs` 的 descriptor 是 2500/8000，`MSIMEAICacheKey` 是同样四项并加入 descriptor 的 scope 摘要（包含完整配置但不保存凭据），命中时也是直接 apply 不等防抖。这样同一端点或模型轮换凭据后不会复用旧候选。唯一差别是本仓给缓存加了 4096 条上限而来源不清（只在 Stop 时清），方向是更严。
+**AI 那一半的时序。** 来源防抖 650ms、连接 2500ms、总计 8000ms，命中缓存时跳过防抖直接出；缓存键是 provider + endpoint + model + 分段拼音。macOS 的 `_aiTimer` 是 0.65 秒，`client-providers/src/ai.rs` 的 descriptor 是 2500/8000，`MSIMEAICacheKey` 是同样四项并加入 descriptor 的 scope 摘要（包含完整配置但不保存凭据），命中时也是直接 apply 不等防抖。这样同一端点或模型轮换凭据后不会复用旧候选。唯一差别是本仓给缓存加了 4096 条上限而来源不清（只在 Stop 时清），方向是更严。
 
-**Linux 的 AI 时序后补对齐（2026-09-23）。** 上一段只核了 macOS，Linux 当时并不一致：IBus 与 Fcitx5 两个引擎把云候选和 AI 共用一个 500ms 防抖，provider 的 AI 请求总计 7 秒且不单独限连接，缓存命中也要等满防抖。现在两个引擎分开计时（云 500ms、AI 650ms）；输入一变就先向 provider 发一次只查缓存的探测（`OnlineQuery.ai_cache_only`，provider 在这种请求上连云候选也不查、未命中也绝不出网），命中立刻上屏，未命中才在 650ms 后发真请求。provider 的 AI 请求改为总计 8 秒、连接 2.5 秒（`ConnectBoundedHTTPSConnection` 只在握手阶段用 2.5 秒，读响应仍是 8 秒），引擎侧等 AI 回包的 socket 期限相应放到 9 秒，多出的一秒留给子进程启动，云候选与缓存探测仍是 500ms。顺带修掉设置页「润色测试」永远失败的问题：它向 HTTP 子进程要 8 秒，而子进程的上限写死 7 秒、超限直接拒绝，于是每次都返回空；原有用例全部 mock 了 `fetch`，走不到这道校验，所以一直没被发现。现在上限与调用方共用 `AI_REQUEST_TIMEOUT`，`ai_candidate_cache.py` 用真实的子进程校验逻辑跑一遍候选请求与润色测试，`scripts/test-cloud-request-budget.py` 把 Linux 的这几个数钉在 `client-core/src/ai.rs` 的 descriptor 上。
+**Linux 的 AI 时序后补对齐（2026-09-23）。** 上一段只核了 macOS，Linux 当时并不一致：IBus 与 Fcitx5 两个引擎把云候选和 AI 共用一个 500ms 防抖，provider 的 AI 请求总计 7 秒且不单独限连接，缓存命中也要等满防抖。现在两个引擎分开计时（云 500ms、AI 650ms）；输入一变就先向 provider 发一次只查缓存的探测（`OnlineQuery.ai_cache_only`，provider 在这种请求上连云候选也不查、未命中也绝不出网），命中立刻上屏，未命中才在 650ms 后发真请求。provider 的 AI 请求改为总计 8 秒、连接 2.5 秒（`ConnectBoundedHTTPSConnection` 只在握手阶段用 2.5 秒，读响应仍是 8 秒），引擎侧等 AI 回包的 socket 期限相应放到 9 秒，多出的一秒留给子进程启动，云候选与缓存探测仍是 500ms。顺带修掉设置页「润色测试」永远失败的问题：它向 HTTP 子进程要 8 秒，而子进程的上限写死 7 秒、超限直接拒绝，于是每次都返回空；原有用例全部 mock 了 `fetch`，走不到这道校验，所以一直没被发现。现在上限与调用方共用 `AI_REQUEST_TIMEOUT`，`ai_candidate_cache.py` 用真实的子进程校验逻辑跑一遍候选请求与润色测试，`scripts/test-cloud-request-budget.py` 把 Linux 的这几个数钉在 `client-providers/src/ai.rs` 的 descriptor 上。
 
 **本批唯一真动的地方**：macOS 在建会话时额外请求 `phrase_preedit`（第二十七批加的），此前没有任何用例钉住——这个请求一旦丢了，半截词会退回逐段上屏，而那看起来就是普通打字，没有别的东西会发现。把这一步抽成 `MSIMESessionOptions` 并在 `ShortcutTest` 钉住：请求被加上、文件原有的键原样透传、不修改调用方的字典、以及「文件里写着 `phrase_preedit: false` 也不作数」——旧文件根本早于这个行为。反向验证过。
 

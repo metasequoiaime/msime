@@ -30,8 +30,7 @@ private enum IOSVoiceDoubaoFrame {
   case serviceError
 }
 
-/// Bounded WebSocket transport for one completed iOS PCM16 recording. Wire
-/// frames and response decompression stay in client-core through its C ABI.
+/// Bounded WebSocket transport for one completed iOS PCM16 recording. Wire frames and response decompression stay in client-providers, reached through the host-api C ABI.
 final class IOSVoiceDoubaoTransport: NSObject, URLSessionWebSocketDelegate,
     URLSessionTaskDelegate {
   private static let pcmChunkBytes = 6_400

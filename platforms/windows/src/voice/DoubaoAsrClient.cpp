@@ -48,7 +48,7 @@ std::wstring Utf8ToWide(const std::string &value)
     return result;
 }
 
-// Doubao v1 frames are built and decoded by the shared host library (crates/client-core/src/voice/doubao_frame.rs), the codec every other host uses. Each builder is called once with no buffer to learn the frame's size and once more to write it.
+// Doubao v1 frames are built and decoded by the shared host library (crates/client-providers/src/voice/doubao_frame.rs), the codec every other host uses. Each builder is called once with no buffer to learn the frame's size and once more to write it.
 template <typename Build> std::vector<std::uint8_t> BuildFrame(Build build)
 {
     std::size_t length = 0;

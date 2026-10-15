@@ -38,7 +38,7 @@ struct LocalAsrOptions {
   std::string model_dir;
   // Host language tag ("zh-CN", "en", "auto", ...). Models that cannot take a hint ignore it.
   std::string language;
-  // Words to bias recognition toward. Transducer and FunASR-nano models use them natively; others ignore them and the host corrects the text afterwards (client-core voice::hotwords).
+  // Words to bias recognition toward. Transducer and FunASR-nano models use them natively; others ignore them and the host corrects the text afterwards (client-providers voice::hotwords).
   std::vector<std::string> hotwords;
   // 0 picks from the hardware.
   int threads = 0;

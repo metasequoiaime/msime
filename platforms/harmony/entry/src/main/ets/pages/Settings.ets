@@ -1329,7 +1329,7 @@ class SettingsBridge {
   /**
    * 「从文件导入」：用系统选择器让用户多选自己下载好的模型文件，不联网安装。
    *
-   * 选择器给的是原生库打不开的文档 URI，所以先把文件复制进私有缓存目录，用固定的序号作文件名，再把这些路径交给和下载同一个 `msime_client_voice_local_model_install`（带 `files`），由 client-core 按长度和 SHA-256 认文件、校验、解压并发布，和其他宿主完全相同。长度和目录里任何一个需要的文件都对不上的选择不复制。缓存副本不论成败都在安装结束后删掉。用户关掉选择器时回答 null，不算失败。
+   * 选择器给的是原生库打不开的文档 URI，所以先把文件复制进私有缓存目录，用固定的序号作文件名，再把这些路径交给和下载同一个 `msime_client_voice_local_model_install`（带 `files`），由 client-providers 按长度和 SHA-256 认文件、校验、解压并发布，和其他宿主完全相同。长度和目录里任何一个需要的文件都对不上的选择不复制。缓存副本不论成败都在安装结束后删掉。用户关掉选择器时回答 null，不算失败。
    */
   private async importVoiceModel(root: string, id: string): Promise<string> {
     const context: common.UIAbilityContext | undefined = this.context;

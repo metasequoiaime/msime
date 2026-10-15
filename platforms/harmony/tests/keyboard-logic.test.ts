@@ -15602,7 +15602,7 @@ group("AI model catalogs keep each provider's protocol and path", () => {
   );
 });
 
-// 与 crates/client-core/src/ai/endpoint.rs 跑同一组用例；这里的判断和 Rust 不一致时，鸿蒙宿主会放行或拒绝与其他平台不同的地址。
+// 与 crates/client-providers/src/ai/endpoint.rs 跑同一组用例；这里的判断和 Rust 不一致时，鸿蒙宿主会放行或拒绝与其他平台不同的地址。
 declare const __dirname: string;
 declare function require(name: "fs"): { readFileSync(path: string, encoding: "utf8"): string };
 interface AiEndpointContractCase {

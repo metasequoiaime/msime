@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <vector>
 
-// The frame layout (header, gzip, sequence numbers) is client-core's, reached through the host-api Doubao ABI that iOS and Android use too. This file owns the socket, the PCM chunking and reading the transcript out of a decoded payload.
+// The frame layout (header, gzip, sequence numbers) is client-providers', reached through the host-api Doubao ABI that iOS and Android use too. This file owns the socket, the PCM chunking and reading the transcript out of a decoded payload.
 namespace {
 constexpr std::size_t kDoubaoChunkSamples = 3200; // 200 ms at 16 kHz.
 constexpr NSUInteger kDoubaoResponseLimit = 1024 * 1024;
@@ -163,8 +163,7 @@ BOOL ParseResponse(NSData *message, DoubaoResponse *response) {
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url.URL];
     request.timeoutInterval = 10;
     request.cachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
-    // The same client-core policy owns probe and recording authentication on all
-    // hosts. This adapter only translates the sensitive ABI result to NSURLRequest.
+    // The same client-providers policy owns probe and recording authentication on all hosts. This adapter only translates the sensitive ABI result to NSURLRequest.
     NSData *authInput = [NSJSONSerialization dataWithJSONObject:@{
         @"auth_mode":snapshot[@"doubao_auth_mode"] ?: @"", @"app_id":snapshot[@"asr_app_key"] ?: @"",
         @"token":snapshot[@"asr_token"] ?: @"", @"resource_id":[snapshot[@"asr_resource_id"] length]

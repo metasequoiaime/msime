@@ -44,7 +44,7 @@ https://inputtools.google.com/request?text=ni%20hao&itc=zh-t-i0-pinyin&num=1&ie=
 
 ### 候选翻译（默认不联网）
 
-`candidate_translations` 默认 `true`，支持腾讯机器翻译（`https://tmt.tencentcloudapi.com`）、小牛翻译（`https://api.niutrans.com/v2/text/translate`）和自定义端点。三者都要求你在设置里填入自己的 API 凭据，默认全为空字符串——**没有凭据就不会发出请求**，开关为真也一样。发送内容是待翻译的候选词。代码在 `crates/client-core/src/credential/translation.rs`。自定义端点的主机名恰好是 `api.deepl.com` 或 `api-free.deepl.com`（https、默认端口）时，按 DeepL v2 格式带上你填的密钥发给 DeepL：密钥以 `:fx` 结尾的发往 `https://api-free.deepl.com/v2/translate`，其余发往 `https://api.deepl.com/v2/translate`，与你填的是两个 DeepL 主机中的哪一个无关；这种地址没有密钥时不发。其他自定义端点原样使用你填的地址。请求由 `crates/client-core/src/translation.rs` 的 `custom_translation_request` 构造，Linux provider（`platforms/linux/scripts/msime-linux-online-provider`）照写的一份由 `shared/contracts/custom-translation/cases.json` 的共享用例约束。
+`candidate_translations` 默认 `true`，支持腾讯机器翻译（`https://tmt.tencentcloudapi.com`）、小牛翻译（`https://api.niutrans.com/v2/text/translate`）和自定义端点。三者都要求你在设置里填入自己的 API 凭据，默认全为空字符串——**没有凭据就不会发出请求**，开关为真也一样。发送内容是待翻译的候选词。代码在 `crates/client-providers/src/credential/translation.rs`。自定义端点的主机名恰好是 `api.deepl.com` 或 `api-free.deepl.com`（https、默认端口）时，按 DeepL v2 格式带上你填的密钥发给 DeepL：密钥以 `:fx` 结尾的发往 `https://api-free.deepl.com/v2/translate`，其余发往 `https://api.deepl.com/v2/translate`，与你填的是两个 DeepL 主机中的哪一个无关；这种地址没有密钥时不发。其他自定义端点原样使用你填的地址。请求由 `crates/client-core/src/translation.rs` 的 `custom_translation_request` 构造，Linux provider（`platforms/linux/scripts/msime-linux-online-provider`）照写的一份由 `shared/contracts/custom-translation/cases.json` 的共享用例约束。
 
 Android 也支持这三种服务（含按主机名识别的 DeepL），在「设置 → 输入 → 翻译 → 翻译服务」里选择和填写凭据。选了它们之后，键盘把当前一页的中文候选词直接发给你配置的第三方服务翻译，不经过水杉服务器，候选词按该服务自己的数据政策处理：每页最多 10 个词，每个不超过 40 字，跳过表情和颜文字候选；腾讯每批最多 9 个词，小牛和自定义每个词单独请求一次；设置了第二目标语言时，每种语言各请求一次。离线释义查得到的语言仍然先用离线释义，但请求不因此省掉。自定义端点在 Android 上只接受 https，或指向本机（`localhost`、`127.0.0.1`、`[::1]`）的 http，局域网 http 不接受。同一设置下已经回答过的词（包括回答「没有译文」的）不会重复请求；失败时同一个词 30 秒内不再请求，整个服务连不上时 30 秒内不再发任何请求。凭据只保存在本机的设置文件里，不随设置同步上传，也不写进日志。代码在 `platforms/android/java/app/msime/android/candidate/UserTranslationClient.java` 和 `TranslationHttpTransport.java`。
 
@@ -59,9 +59,9 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 - `local`：设备上的识别模型，`asr_model_path` 是一个绝对路径，指向设置页下载的 sherpa-onnx 模型目录（包含 `msime-model.json`）。不需要 Token，也没有端点。
 - `system`：调用操作系统自带的识别（macOS / iOS / HarmonyOS），数据流向由操作系统决定。macOS 与 iOS 26 起使用 SpeechAnalyzer（设备端）；更早的系统在识别器支持时设置 `requiresOnDeviceRecognition`，不支持时由系统决定是否上传。
 
-选择云端服务时，发送的是录制的音频。代码在 `crates/client-core/src/credential/asr.rs`，服务选择逻辑在 `crates/client-core/src/preferences.rs`。
+选择云端服务时，发送的是录制的音频。代码在 `crates/client-providers/src/credential/asr.rs`，服务选择逻辑在 `crates/client-core/src/preferences.rs`。
 
-**本地模型**全程在设备上运行：录音、识别结果和热词都不离开设备，识别期间不发出任何网络请求。macOS 与 Linux 的输入法进程不自己加载模型，而是拉起本机的 `msime-voice-local` 辅助进程，经标准输入输出交换音频和文本（协议见 `shared/voice/README.md`），不经过网络套接字；Windows 在本机的 `msime-client-server` 进程内识别，Android、iOS 与 HarmonyOS 在应用进程内识别。热词取自你的个人词库（只取用户自己添加的拼音词条），在本机交给识别器，或在识别后于本机做近音替换（`crates/client-core/src/voice/hotwords.rs`）。
+**本地模型**全程在设备上运行：录音、识别结果和热词都不离开设备，识别期间不发出任何网络请求。macOS 与 Linux 的输入法进程不自己加载模型，而是拉起本机的 `msime-voice-local` 辅助进程，经标准输入输出交换音频和文本（协议见 `shared/voice/README.md`），不经过网络套接字；Windows 在本机的 `msime-client-server` 进程内识别，Android、iOS 与 HarmonyOS 在应用进程内识别。热词取自你的个人词库（只取用户自己添加的拼音词条），在本机交给识别器，或在识别后于本机做近音替换（`crates/client-providers/src/voice/hotwords.rs`）。
 
 唯一的联网发生在**下载模型**时，且只在你在设置页点「下载」后发生。用「从文件导入」安装时完全不联网：选中的本地文件只在本机按长度和 SHA-256 校验后解压进模型目录；设置页里每个文件的下载链接用系统浏览器打开，输入法本身不发请求（Android 的 full 与拼音版在打开「离线识别」而本机还没有语音运行库时会下载它，见[资源与更新下载](#资源与更新下载)）：
 
@@ -71,7 +71,7 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 | 发送内容 | 对模型归档的 HTTPS GET 请求，User-Agent 为 `msime/<版本号>`，不携带任何输入内容、音频、账号或设备标识 |
 | 需要凭据 | 否 |
 | 偏好字段 | `voice_input.asr_model_mirror`，默认空字符串，表示直接访问 GitHub |
-| 代码 | `crates/client-core/src/voice/local_models.rs`；地址、长度和 SHA-256 固定在 `resources/local-asr-models.json` |
+| 代码 | `crates/client-providers/src/voice/local_models.rs`；地址、长度和 SHA-256 固定在 `resources/local-asr-models.json` |
 
 镜像必须是 `https://` 地址，请求 URL 是镜像前缀加上原始 GitHub 地址，所以**镜像运营方能看到你的 IP 和你下载的是哪个模型**。下载内容按目录里固定的 SHA-256 校验，镜像无法替换文件；校验不过的下载会被丢弃。重定向离开 HTTPS 时请求被拒绝。模型装好之后，识别不再需要网络。
 
@@ -81,7 +81,7 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 
 ### AI 联想（自带端点与密钥）
 
-配置完整才会发起请求，发送内容是当前查询。默认值按平台不同：Windows 与 macOS 跟随来源模板，`ai_assistant.enabled` 默认开启，并预填 DeepSeek 的接口（`https://api.deepseek.com/chat/completions`）与模型（`deepseek-v4-flash`）；Token 默认为空，`chat_completion_http_request`（`crates/client-core/src/ai.rs`）在没有可用密钥时拒绝构造请求，因此不会发出任何请求。其余宿主默认关闭，接口为空，需要显式启用并自己填写。端点可以改成任意服务，代码对它做校验：必须是 http/https、不得内嵌用户名密码、长度不超过 2048、不含控制字符（`apps/desktop/src-tauri/src/ai.rs`）。常见的 DeepSeek、OpenAI、Groq、SiliconFlow、OpenRouter、EveryAPI 只是文档和测试里出现的示例，仓库不预置任何一家的密钥。
+配置完整才会发起请求，发送内容是当前查询。默认值按平台不同：Windows 与 macOS 跟随来源模板，`ai_assistant.enabled` 默认开启，并预填 DeepSeek 的接口（`https://api.deepseek.com/chat/completions`）与模型（`deepseek-v4-flash`）；Token 默认为空，`chat_completion_http_request`（`crates/client-providers/src/ai.rs`）在没有可用密钥时拒绝构造请求，因此不会发出任何请求。其余宿主默认关闭，接口为空，需要显式启用并自己填写。端点可以改成任意服务，代码对它做校验：必须是 http/https、不得内嵌用户名密码、长度不超过 2048、不含控制字符（`apps/desktop/src-tauri/src/ai.rs`）。常见的 DeepSeek、OpenAI、Groq、SiliconFlow、OpenRouter、EveryAPI 只是文档和测试里出现的示例，仓库不预置任何一家的密钥。
 
 ### 账号与同步（需要登录）
 
@@ -134,7 +134,7 @@ Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审
 | 需要凭据 | 否 |
 | 偏好字段 | 沿用 `voice_input.asr_model_mirror`，默认空字符串，表示直接访问 GitHub；下载失败时资源包那一行和手写面板都提供「设置下载镜像」 |
 | 存放位置 | 偏好目录下的 `resource-packs/<资源包>/`：macOS 是 `~/Library/Application Support/app.msime.macos/resource-packs/`，Windows 是输入法服务的数据目录，Linux 是运行时选项记录的状态目录，Android 是应用私有目录 `files/bootstrap/state/resource-packs/`（没下完的部分留在同一目录下的 `.partial-<资源包>/`，下次接着下载）；许可证文本放在数据旁边 |
-| 代码 | `crates/client-core/src/resource_packs.rs`、`apps/desktop/src-tauri/src/platform/desktop/desktop_resource_packs.rs`，Android 经 `crates/host-api/src/ffi/pack_downloads.rs` 调用同一份实现；地址、长度和 SHA-256 固定在 `resources/desktop-dictionary.lock.json`、`resources/language-dictionaries.lock.json`、`resources/offline-glosses.lock.json`、`resources/voice-runtime.lock.json` 与 `resources/voice-runtime-android.lock.json`（语音运行库归档和从中取出的两个库）、`resources/handwriting-model.lock.json` 和 `resources/settled-model.lock.json` |
+| 代码 | `crates/client-providers/src/resource_packs.rs`、`apps/desktop/src-tauri/src/platform/desktop/desktop_resource_packs.rs`，Android 经 `crates/host-api/src/ffi/pack_downloads.rs` 调用同一份实现；地址、长度和 SHA-256 固定在 `resources/desktop-dictionary.lock.json`、`resources/language-dictionaries.lock.json`、`resources/offline-glosses.lock.json`、`resources/voice-runtime.lock.json` 与 `resources/voice-runtime-android.lock.json`（语音运行库归档和从中取出的两个库）、`resources/handwriting-model.lock.json` 和 `resources/settled-model.lock.json` |
 
 镜像规则和下面本地语音模型的相同：必须是 `https://` 地址，镜像运营方能看到你的 IP 和你下载的是哪个资源包，但下载内容按固定的 SHA-256 校验，镜像无法替换文件，校验不过就换下一个来源。不需要这些功能就不会发生这些请求；缺少资源包时对应的方案或手写面板显示为不可用，桌面神经联想保持现有候选；Android 上缺少的语言不出现在键盘里，离线释义只有英文，本地语音识别不可用，中文输入不受影响。
 
