@@ -8,9 +8,9 @@ Status: implemented
 
 ## Decision
 
-上游 `chinese-ime-lm` 通过 [PR #53](https://github.com/metasequoiaime/chinese-ime-lm/pull/53) 将截断后的编码向量直接移动进 `resume`：评分循环先对拥有的 `Vec<u32>` 原地截断，完全命中和新建 `TailRun` 都直接移动这份向量，不再复制 token 缓冲。上游合并提交固定为 `9cf7f0c80d528f852fb0124651a000f41bcd7a00`；`crates/engine`、`crates/input-runtime`、主锁文件和 fuzz 锁文件使用同一提交。
+上游 `chinese-ime-lm` 通过 [PR #53](https://github.com/metasequoiaime/chinese-ime-lm/pull/53) 将截断后的编码向量直接移动进 `resume`：评分循环先按原有窗口限制 Unicode scalar 编码，完全命中和新建 `TailRun` 都直接移动这份向量，不再复制 token 缓冲。完整文本编码入口保持不设上限。上游 [PR #54](https://github.com/metasequoiaime/chinese-ime-lm/pull/54) 随后修复超窗口容量回退，当前固定提交为 `541ccb1e86c5bec67a6aa8b0d9dc6ae9bbb7f12f`；`crates/engine`、`crates/input-runtime`、主锁文件和 fuzz 锁文件使用同一提交。
 
-候选文字、截断窗口、比较顺序、续跑状态、浮点计算和缓存失效规则保持不变。测试专用指针夹具验证首次评分和完全命中复用时，保存的 token 缓冲地址就是编码结果的地址；上游原实现对这两个路径均失败。
+候选文字、截断窗口、比较顺序、续跑状态、浮点计算和缓存失效规则保持不变。测试专用指针夹具验证首次评分和完全命中复用时，保存的 token 缓冲地址就是编码结果的地址；回放上游原评分流程时，这两个路径均因缓冲指针变化失败。
 
 ## Existing decisions
 
@@ -26,12 +26,16 @@ Status: implemented
 
 ## Verification
 
-上游工作树在合并前通过 `cargo fmt --manifest-path reference/Cargo.toml -- --check`、`cargo test --manifest-path reference/Cargo.toml --locked`（20 个单元测试、14 个模型文件测试）和 `cargo clippy --manifest-path reference/Cargo.toml --all-targets --locked -- -D warnings`。指针测试在旧实现上先失败，改动后通过。
+上游工作树在合并前通过 `cargo fmt --manifest-path reference/Cargo.toml -- --check`、`cargo test --manifest-path reference/Cargo.toml --locked`（20 个单元测试、14 个模型文件测试）和 `cargo clippy --manifest-path reference/Cargo.toml --all-targets --locked -- -D warnings`。最终指针测试回放旧评分流程时失败，恢复优化后通过。最初使用复制计数的红绿测试已被实际指针对照替换。
 
-主项目更新四处固定来源后，运行引擎和 runtime 单测、Clippy、fmt、笔记检查与 `git diff --check`，并用固定资源 `7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe` 和 `resources/eval/sentences-nine-key-v1.tsv` 重跑九键延迟基准。模型臂 mean 9.12 ms、p95 22.30 ms，重排增量 mean 3.33 ms、p95 12.91 ms；相对当前基线模型臂 p95 22.76 ms 有小幅下降，但仍超过 16 ms，目标继续 active。`bash scripts/verify-local.sh --quick` 在提交前运行。
+主项目更新四处固定来源后，运行引擎和 runtime 单测、Clippy、fmt、笔记检查与 `git diff --check`，并用固定资源 `7356c4a452d8ba15475c0e57f134fccf7b7cbe267440461541c74d09b11b6ffe` 和 `resources/eval/sentences-nine-key-v1.tsv` 重跑九键延迟基准。当前模型臂 mean 8.63 ms、p95 21.14 ms，重排增量 mean 3.11 ms、p95 12.52 ms；模型臂 p95 仍超过 16 ms，目标继续 active。该轮 `MSIME_BUILD_JOBS=4 CARGO_BUILD_JOBS=4 bash scripts/verify-local.sh --quick` 通过，含 Rust 工作区、Android 目标与 Java 宿主、WASM、Linux 设置组件及 87 项原生测试、macOS 与共享 Apple bridge 编译；Windows 交叉构建和 HarmonyOS 完整构建因缺环境跳过。引擎实际为 2139 项通过、28 项既有忽略，另有 31 项 golden 通过，runtime 288 项通过。
 
 ## Consequences
 
-每个候选少一次 token 缓冲复制和对应分配，`resume` 仍拥有自己的可变候选列表，状态生命周期不变。编码 `Vec` 的容量由原始候选长度决定，`truncate` 不改变它；超出模型上下文的候选因此可能保留未使用容量，但这是旧实现编码后复制时同样存在的容量上界，不新增常驻缓存。
+每个候选少一次 token 缓冲复制和对应分配，`resume` 仍拥有自己的可变候选列表，状态生命周期不变。初次直接移动版本使用 `truncate`，只缩短长度而保留原始候选容量，确实使缓存的持有空间相对旧版截断切片复制发生回退。当前改为编码前限制窗口：8 位置模型面对 65536 字的合成长候选时，编码及缓存长度均为 7，容量受窗口数量级约束；原始直接移动实现该测试保留 98306 容量并失败。不再把原始输入决定的瞬时容量上界与旧缓存的窗口上界混为一谈。
 
 这项改动不改变模型权重、前向矩阵、候选质量或公开接口；它只减少候选 token 的内存操作。九键端到端延迟仍需固定资源实测，不能从局部分配减少推断已达到 16 ms 目标。
+
+## Bounded encoding verification
+
+上游容量预算先在直接移动版本失败，修复后汉字、ASCII 和 emoji 冷热查询通过。固定 #53 的完整评分流程进行 180 轮对照，分数位模式、缓存 token 顺序、KV 和累计分一致；Unicode 前缀对照覆盖空串、组合符、补充平面字符和未知字。Rust 1.97.1 与 1.75.0 各通过 23 项单元测试与 14 项模型文件测试，保留既有三精度序列与原位移动回归。主项目门禁与九键测量已完成：模型臂 p95 21.14 ms，重排增量 p95 12.52 ms，九键 16 ms 目标仍未达成。
