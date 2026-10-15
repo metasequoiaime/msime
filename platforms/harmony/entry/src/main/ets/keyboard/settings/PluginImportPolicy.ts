@@ -1,7 +1,7 @@
 /**
  * How much of a picked pack the 扩展 page copies into its staging directory before `msime_client_plugins` checks it.
  *
- * The picker hands back a document URI the native library cannot open, so the pick is copied into the app's cache first. The desktop shell has no such copy: client-services' `plugins::import` reads the picked folder or archive itself and stops at its bounds while copying. A staging copy that copied whatever was picked would bypass those bounds, and a wrong pick such as Downloads would be copied whole, possibly filling the device, before client-core refused it. So the copy stops at the same bounds, taken from `crates/client-services/src/plugins/import.rs` and `plugins.rs`; every rule a pack must meet is still checked by client-core on the staged copy.
+ * The picker hands back a document URI the native library cannot open, so the pick is copied into the app's cache first. The desktop shell has no such copy: client-services' `plugins::import` reads the picked folder or archive itself and stops at its bounds while copying. A staging copy that copied whatever was picked would bypass those bounds, and a wrong pick such as Downloads would be copied whole, possibly filling the device, before client-services refused it. So the copy stops at the same bounds, taken from `crates/client-services/src/plugins/import.rs` and `plugins.rs`; every rule a pack must meet is still checked by client-services on the staged copy.
  */
 
 /** `plugins::MAX_PACK_FILES`. */
@@ -13,7 +13,7 @@ const MAX_TOTAL_BYTES: number = 66 * 1024 * 1024;
 /** import.rs `MAX_ARCHIVE_BYTES`. */
 const MAX_ARCHIVE_BYTES: number = 80 * 1024 * 1024;
 
-/** A refusal in the reply shape `msime_client_plugins` uses, with client-core's code and the detail it gives for the same rule. */
+/** A refusal in the reply shape `msime_client_plugins` uses, with client-services' code and the detail it gives for the same rule. */
 export interface PluginImportRefusal {
   ok: boolean;
   error: string;
@@ -30,12 +30,12 @@ export enum PickedEntryKind {
 }
 
 export class PluginImportPolicy {
-  /** The staged copy of a picked archive. client-core goes by the `.zip` extension and reads the pack id from plugin.toml, so the picked file's own name, which may be long or carry spaces, is not needed. */
+  /** The staged copy of a picked archive. client-services goes by the `.zip` extension and reads the pack id from plugin.toml, so the picked file's own name, which may be long or carry spaces, is not needed. */
   static readonly ARCHIVE_NAME: string = "pack.zip";
   /** The staged copy of a picked folder, named for the same reason. */
   static readonly FOLDER_NAME: string = "pack";
 
-  /** A name client-core's folder copy leaves behind (`.DS_Store`, `.git`), so it is neither checked nor copied here. */
+  /** A name client-services' folder copy leaves behind (`.DS_Store`, `.git`), so it is neither checked nor copied here. */
   static hidden(name: string): boolean {
     return name.startsWith(".");
   }
@@ -55,7 +55,7 @@ export class PluginFolderScan {
   private bytes: number = 0;
 
   /**
-   * Take one entry that is not hidden, of `bytes`. Returns the refusal once the folder cannot be a pack, with the detail client-core's folder copy gives for the same rule, or null to go on.
+   * Take one entry that is not hidden, of `bytes`. Returns the refusal once the folder cannot be a pack, with the detail client-services' folder copy gives for the same rule, or null to go on.
    */
   take(name: string, kind: PickedEntryKind, bytes: number): PluginImportRefusal | null {
     if (kind === PickedEntryKind.LINK) {

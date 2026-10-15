@@ -1,6 +1,6 @@
 //! 脚本插件（只在桌面）：清单的版本与权限规则、`[script]` 表、模块校验、内容哈希、导入，以及 `script-grants.json` 的读写。
 //!
-//! 模块用手写的 wasm 二进制：client-core 不依赖 wat，测试也不提交 `.wasm`。
+//! 模块用手写的 wasm 二进制：client-services 不依赖 wat，测试也不提交 `.wasm`。
 
 use super::script_grants::{self, ScriptGrantError, ScriptGrants};
 use super::script_pack::{self, ScriptPack};
@@ -1381,7 +1381,7 @@ fn the_content_hash_of_a_pack_without_commands_is_unchanged() {
     );
 }
 
-/// client-core 复制的内置指令规则在清单里生效：每个内置触发词本身、以及在它后面加一个字母，都不能声明。
+/// client-services 复制的内置指令规则在清单里生效：每个内置触发词本身、以及在它后面加一个字母，都不能声明。
 #[test]
 fn every_builtin_trigger_is_reserved() {
     let files = tempdir().unwrap();

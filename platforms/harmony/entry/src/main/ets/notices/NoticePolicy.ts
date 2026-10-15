@@ -2,14 +2,14 @@ import { TextPolicy } from "../keyboard/TextPolicy";
 /**
  * Notices from the MSIME service, shown as a dismissible card above the settings page.
  *
- * client-core fetches the feed (`msime_client_notices`, at most once a minute), drops the ones the user dismissed and renders each Markdown body to HTML with raw HTML escaped and only http, https and mailto links kept. What is left for this host is reading that answer, wrapping the HTML in a page that can load nothing and run nothing, and deciding which link taps leave the application.
+ * client-services fetches the feed (`msime_client_notices`, at most once a minute), drops the ones the user dismissed and renders each Markdown body to HTML with raw HTML escaped and only http, https and mailto links kept. What is left for this host is reading that answer, wrapping the HTML in a page that can load nothing and run nothing, and deciding which link taps leave the application.
  */
 
 /** One notice as the settings page shows it. */
 export interface NoticeItem {
   id: string;
   title: string;
-  /** The body rendered by client-core; safe to display, still never given scripts or network access. */
+  /** The body rendered by client-services; safe to display, still never given scripts or network access. */
   html: string;
 }
 
@@ -35,7 +35,7 @@ function validText(value: unknown, maximum: number): value is string {
   );
 }
 
-/** Keep the host-side id contract identical to client-core so dismissals can be persisted. */
+/** Keep the host-side id contract identical to client-services so dismissals can be persisted. */
 function validId(value: unknown): value is string {
   return (
     typeof value === "string" &&
@@ -115,7 +115,7 @@ export class NoticePolicy {
   /**
    * The link to open in the system browser or mail application when the user taps it in a notice, or null for a navigation the card keeps (its own page) or refuses.
    *
-   * Only the schemes client-core leaves in a body: anything else in a link was not written by the notice and is not followed.
+   * Only the schemes client-services leaves in a body: anything else in a link was not written by the notice and is not followed.
    */
   static externalLink(url: string): string | null {
     const lower: string = url.toLowerCase();

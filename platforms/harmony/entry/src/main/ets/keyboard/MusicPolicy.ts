@@ -1,7 +1,7 @@
 /**
  * What the 2in1 background music plays and when, decided without a device.
  *
- * The desktop hosts stream music through host-api's player (`crates/host-api/src/key_sound/player.rs`, `tick_music`), which HarmonyOS does not link; this host streams the same packs through AVPlayer instead. The rules are that player's: music plays only while switched on with a pack chosen and while the host says the input method is active in a field that is not a secure one; tracks play in the pack's order and start over after the last; a track whose length is not within the pack bound is skipped; a pack with no playable track plays nothing until the settings change. Validating a pack is not ported: `msime_client_music_pack` answers with the tracks client-core's validation accepted.
+ * The desktop hosts stream music through host-api's player (`crates/host-api/src/key_sound/player.rs`, `tick_music`), which HarmonyOS does not link; this host streams the same packs through AVPlayer instead. The rules are that player's: music plays only while switched on with a pack chosen and while the host says the input method is active in a field that is not a secure one; tracks play in the pack's order and start over after the last; a track whose length is not within the pack bound is skipped; a pack with no playable track plays nothing until the settings change. Validating a pack is not ported: `msime_client_music_pack` answers with the tracks client-services' validation accepted.
  */
 import { MusicPreferenceDocument, PluginPreferenceDocument } from "./KeySoundPolicy";
 import { AudioVolumePolicy } from "./AudioVolumePolicy";

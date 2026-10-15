@@ -286,7 +286,7 @@ set(MSIME_VOICE_CUE_RESOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../windows/installer/assets/audios/end.mp3")
 target_sources(MSIMEClientInputMethod PRIVATE ${MSIME_VOICE_CUE_RESOURCES})
 set_source_files_properties(${MSIME_VOICE_CUE_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/audios")
-# The built-in sound packs, synthesized by scripts/generate_sound_packs.py, one folder per pack under Resources/sound-packs: the directory the input method and the settings page name to client-core as the built-in pack root. Beside EngineResources rather than in it, because that directory has to hold exactly what the dictionary lock pins.
+# The built-in sound packs, synthesized by scripts/generate_sound_packs.py, one folder per pack under Resources/sound-packs: the directory the input method and the settings page name to client-services as the built-in pack root. Beside EngineResources rather than in it, because that directory has to hold exactly what the dictionary lock pins.
 # Every folder there is staged, so a pack the generator adds ships without being named here too.
 file(GLOB MSIME_SOUND_PACK_DIRECTORIES LIST_DIRECTORIES true CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/sound-packs/*")
 foreach(MSIME_SOUND_PACK_DIRECTORY ${MSIME_SOUND_PACK_DIRECTORIES})
@@ -1245,7 +1245,7 @@ foreach(msime_target IN LISTS MSIME_DIRECTORY_TARGETS)
   endforeach()
 endforeach()
 
-# CandidateSkin.cpp reads external skin manifests through SkinManifestBridge.mm, which calls the shared client-core loader in the Rust host library. Every target compiling the one needs the other and apple-client, so this loop keeps them together instead of a hand-kept list that a new consumer could miss.
+# CandidateSkin.cpp reads external skin manifests through SkinManifestBridge.mm, which calls the shared client-services loader in the Rust host library. Every target compiling the one needs the other and apple-client, so this loop keeps them together instead of a hand-kept list that a new consumer could miss.
 set_source_files_properties(src/candidate/SkinManifestBridge.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 get_property(MSIME_SKIN_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(msime_target IN LISTS MSIME_SKIN_TARGETS)

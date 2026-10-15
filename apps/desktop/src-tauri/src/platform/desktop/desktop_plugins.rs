@@ -180,7 +180,7 @@ fn import_pack_at(source: &Path, root: &Path) -> Result<PluginSummary, PluginFai
     Ok(plugins::import_from_settings(source, root)?)
 }
 
-/// Remove an installed pack. A built-in sound pack cannot be removed; an official pack's id removes only an imported copy left in the plugins directory (client-core's `remove`).
+/// Remove an installed pack. A built-in sound pack cannot be removed; an official pack's id removes only an imported copy left in the plugins directory (client-services' `remove`).
 #[tauri::command]
 pub async fn remove_plugin_pack(
     state: State<'_, PluginsState>,

@@ -35,7 +35,7 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(l.holdLetters.isEmpty)
     XCTAssertTrue(FourteenKeyLayout.rows[2][3].holdLetters.isEmpty, "M has no hold menu")
     XCTAssertEqual(qw.keyID, "FourteenQW")
-    // 每个键都记到 client-core 认得的 id 上，否则整批按键统计会被拒收。
+    // 每个键都记到 client-services 认得的 id 上，否则整批按键统计会被拒收。
     for key in FourteenKeyLayout.rows.joined() {
       XCTAssertNotNil(key.keyID, key.face)
     }

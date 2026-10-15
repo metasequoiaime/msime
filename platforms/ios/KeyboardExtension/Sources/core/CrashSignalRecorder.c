@@ -1,4 +1,4 @@
-// The keyboard's fatal-signal handler for usage reporting. It does only async-signal-safe work: open the crash record path client-core's msime_client_telemetry_begin returned (O_EXCL, so a record the uncaught-exception handler already wrote is kept), write a summary line and the frames, and hand the signal back to whoever had it before. backtrace_symbols_fd writes "index binary address symbol + offset" without allocating and names a binary by its file name only.
+// The keyboard's fatal-signal handler for usage reporting. It does only async-signal-safe work: open the crash record path client-services' msime_client_telemetry_begin returned (O_EXCL, so a record the uncaught-exception handler already wrote is kept), write a summary line and the frames, and hand the signal back to whoever had it before. backtrace_symbols_fd writes "index binary address symbol + offset" without allocating and names a binary by its file name only.
 #include <execinfo.h>
 #include <fcntl.h>
 #include <limits.h>

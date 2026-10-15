@@ -319,7 +319,7 @@ else {
 
 $targetAudios = Join-Path $targetAppData 'audios'
 Copy-DirectoryContents -Source $audioSource -Destination $targetAudios
-# The built-in sound packs, synthesized by scripts/generate_sound_packs.py. The Server names DataDir\sound-packs to client-core as the built-in pack root; installed packs live under DataDir\plugins, which is user state.
+# The built-in sound packs, synthesized by scripts/generate_sound_packs.py. The Server names DataDir\sound-packs to client-services as the built-in pack root; installed packs live under DataDir\plugins, which is user state.
 $targetSoundPacks = Join-Path $targetAppData 'sound-packs'
 Reset-Directory -LiteralPath $targetSoundPacks
 Copy-DirectoryContents -Source (Join-Path $RepoRoot 'resources/sound-packs') -Destination $targetSoundPacks

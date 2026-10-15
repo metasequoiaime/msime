@@ -6,7 +6,7 @@ use std::path::Path;
 use super::mentions::MentionError;
 use super::{PluginError, PluginKind};
 
-/// A failure the page can name: `code` picks the sentence, `detail` is the rule client-core reports for a refused pack or name, so the user learns which file or entry to fix.
+/// A failure the page can name: `code` picks the sentence, `detail` is the rule client-services reports for a refused pack or name, so the user learns which file or entry to fix.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PluginFailure {
     pub code: &'static str,

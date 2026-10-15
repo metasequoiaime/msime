@@ -75,7 +75,7 @@ public final class FourteenKeyLayoutSmoke {
         check(FourteenKeyLayout.holdLetters(qw).equals("qw"), "QW holds q and w");
         check(FourteenKeyLayout.holdLetters(l).isEmpty() && FourteenKeyLayout.holdLetters(m).isEmpty(),
             "L and M do not hold");
-        // 键位 id 与 client-core KEY_IDS 逐字一致，不记到 26 键的 KeyQ 上。
+        // 键位 id 与 client-services KEY_IDS 逐字一致，不记到 26 键的 KeyQ 上。
         List<String> ids = new ArrayList<>();
         for (List<FourteenKeyLayout.Key> row : FourteenKeyLayout.rows())
             for (FourteenKeyLayout.Key key : row) ids.add(FourteenKeyLayout.keyId(key));

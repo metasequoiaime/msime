@@ -138,7 +138,7 @@ fn preferences_error(error: PreferencesError) -> String {
     .to_owned()
 }
 
-/// 设置同步的应用：client-core 算出应用后的偏好和读到时的修订号，再按这个修订号写回，与共享应用的 `account_preferences_apply` 相同；关掉剪贴板历史时与 `msime_client_save_preferences` 一样清掉已存的历史。返回保存后的偏好快照，宿主用它重画页面。
+/// 设置同步的应用：client-services 算出应用后的偏好和读到时的修订号，再按这个修订号写回，与共享应用的 `account_preferences_apply` 相同；关掉剪贴板历史时与 `msime_client_save_preferences` 一样清掉已存的历史。返回保存后的偏好快照，宿主用它重画页面。
 fn apply_preferences(
     session: &Session,
     directory: &str,

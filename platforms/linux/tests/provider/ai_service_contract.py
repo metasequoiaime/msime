@@ -282,7 +282,7 @@ class AiServiceContract(unittest.TestCase):
         sent.clear()
         online.ai({**query, "ai_assistant": {**options, "prompt_custom_1": "synthetic prompt"}}, PRIVATE)
         self.assertEqual(sent[0]["messages"][0]["content"], "synthetic prompt")
-        # An empty slot two or three gets the built-in text too, not slot one's, as client-core does; "custom" names no slot and sends nothing.
+        # An empty slot two or three gets the built-in text too, not slot one's, as client-providers does; "custom" names no slot and sends nothing.
         for slot in ("custom_2", "custom_3"):
             sent.clear()
             online.ai({**query, "ai_assistant": {**options, "prompt_id": slot, "prompt_custom_1": "synthetic prompt"}}, PRIVATE)

@@ -7,7 +7,7 @@
 //! template = "{date:%Y-%m-%d} 张三"
 //! ```
 //!
-//! A template is literal text and three placeholders: `{date}` or `{date:FORMAT}`, `{time}` or `{time:FORMAT}`, and `{weekday}`, with FORMAT a strftime description. Nothing else - no clipboard, no environment, no nesting - so a table can only ever produce text. The Engine expands templates (`crates/engine/src/local/command.rs`) and silently drops a row it cannot use; the rules are repeated here, where client-core cannot reach the Engine, so a pack is refused with the reason instead of losing rows nobody is told about.
+//! A template is literal text and three placeholders: `{date}` or `{date:FORMAT}`, `{time}` or `{time:FORMAT}`, and `{weekday}`, with FORMAT a strftime description. Nothing else - no clipboard, no environment, no nesting - so a table can only ever produce text. The Engine expands templates (`crates/engine/src/local/command.rs`) and silently drops a row it cannot use; the rules are repeated here, where client-services cannot reach the Engine, so a pack is refused with the reason instead of losing rows nobody is told about.
 
 use serde::Serialize;
 use std::collections::HashSet;

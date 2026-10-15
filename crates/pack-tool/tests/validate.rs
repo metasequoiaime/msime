@@ -1,4 +1,4 @@
-//! `msime-pack validate` against real pack folders: the report lines, the exit status, and that the rules are client-core's.
+//! `msime-pack validate` against real pack folders: the report lines, the exit status, and that the rules are client-services'.
 
 use std::ffi::OsString;
 use std::fs;

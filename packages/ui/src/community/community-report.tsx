@@ -4,7 +4,7 @@ import { CommunityTextareaField } from "./community-textarea-field";
 import { CommunityConfirmationActions } from "./community-confirmation-actions";
 import { ActionButton } from "../core/action-button";
 
-/** What a report names, as `POST /v1/community/reports` and client-core's `CommunityReportKind` spell it. */
+/** What a report names, as `POST /v1/community/reports` and client-services' `CommunityReportKind` spell it. */
 export type CommunityReportKind =
   | "skins"
   | "candidate-skins"
@@ -12,7 +12,7 @@ export type CommunityReportKind =
   | "dictionaries"
   | "replies";
 
-/** The fixed reasons a report offers, in the order the dialog lists them; the label is what the moderators see. Mirrors client-core's `CommunityReportReason::ALL`. */
+/** The fixed reasons a report offers, in the order the dialog lists them; the label is what the moderators see. Mirrors client-services' `CommunityReportReason::ALL`. */
 export const communityReportReasons = [
   "侵权/抄袭",
   "色情低俗",

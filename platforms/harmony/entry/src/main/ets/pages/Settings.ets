@@ -640,7 +640,7 @@ struct Settings {
   }
 
   /**
-   * Fetches the notices when the window opens or comes back to the front, never on a timer: client-core answers from its copy for a minute after a fetch, which is as often as the service wants to be asked.
+   * Fetches the notices when the window opens or comes back to the front, never on a timer: client-services answers from its copy for a minute after a fetch, which is as often as the service wants to be asked.
    */
   private loadNotices(): void {
     const generation: number = ++this.noticeRequest;
@@ -1459,7 +1459,7 @@ class SettingsBridge {
   /**
    * Installs a pack folder or `.zip` file the user picks with the system picker.
    *
-   * What the picker hands back is a document URI the native library cannot open, so the pick is copied into a private staging directory first, under a fixed name rather than the picked one, and installed from there by `msime_client_plugins` on a worker thread, which checks it by the same rules as every other host and leaves nothing installed when it refuses. The copy stops at client-core's bounds (`PluginImportPolicy`), so a wrong pick is refused before it is copied whole. The staging copy is removed however the import ends, after the worker has finished with it. The reply is the installed pack, or null when the user closed the picker, which is not a failure.
+   * What the picker hands back is a document URI the native library cannot open, so the pick is copied into a private staging directory first, under a fixed name rather than the picked one, and installed from there by `msime_client_plugins` on a worker thread, which checks it by the same rules as every other host and leaves nothing installed when it refuses. The copy stops at client-services' bounds (`PluginImportPolicy`), so a wrong pick is refused before it is copied whole. The staging copy is removed however the import ends, after the worker has finished with it. The reply is the installed pack, or null when the user closed the picker, which is not a failure.
    */
   private async importPlugin(document: string): Promise<string> {
     const context: common.UIAbilityContext | undefined = this.context;

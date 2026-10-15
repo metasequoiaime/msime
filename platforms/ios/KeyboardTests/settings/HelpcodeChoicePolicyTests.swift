@@ -94,7 +94,7 @@ final class HelpcodeChoicePolicyTests: XCTestCase {
     XCTAssertEqual(HelpcodeChoicePolicy.decode(nil), .failure(.tooLarge))
   }
 
-  /// 码表不合格时把 client-core 的原因原样告诉用户，其余失败码给固定的提示。
+  /// 码表不合格时把 client-services 的原因原样告诉用户，其余失败码给固定的提示。
   func testImportFailureMessages() {
     typealias Failure = MetasequoiaInputSessionBridge.PluginFailure
     XCTAssertEqual(HelpcodeChoicePolicy.importFailure(Failure(code: "plugin_invalid", detail: "mine.txt 第 2 行：码必须是 1 到 2 个小写字母")),

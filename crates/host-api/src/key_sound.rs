@@ -123,7 +123,7 @@ impl PluginRoots {
         }
     }
 
-    /// 两个内置目录，交给 client-core 的载入和列目录。
+    /// 两个内置目录，交给 client-services 的载入和列目录。
     pub(crate) fn builtin(&self) -> BuiltinDirs<'_> {
         BuiltinDirs {
             sounds: self.builtin_sounds.as_deref(),
@@ -142,7 +142,7 @@ impl PluginRoots {
         Some(directory.join(MANIFEST_FILE))
     }
 
-    /// A validated pack of `kind` by client-core's rules. Only a built-in sound or music pack resolves without a state root: every other pack is only ever installed under it, and looking one up without it would read `<kind>/<id>` against the working directory and hand back relative paths.
+    /// A validated pack of `kind` by client-services' rules. Only a built-in sound or music pack resolves without a state root: every other pack is only ever installed under it, and looking one up without it would read `<kind>/<id>` against the working directory and hand back relative paths.
     pub(crate) fn load(&self, kind: PluginKind, id: &str) -> Result<PluginSummary, String> {
         let builtin = plugins::is_builtin(kind, id);
         let installed = match self.installed.as_deref() {
@@ -462,7 +462,7 @@ pub(crate) fn decibels(volume: u8) -> f32 {
     (20.0 * (f32::from(volume.min(100)) / 100.0).log10()).max(SILENCE)
 }
 
-/// The files of one validated sound pack as absolute paths, for a host that plays packs itself. Validation is client-core's, the same `scan` lists the pack by, so a host never opens a file the manifest does not name.
+/// The files of one validated sound pack as absolute paths, for a host that plays packs itself. Validation is client-services', the same `scan` lists the pack by, so a host never opens a file the manifest does not name.
 pub(crate) fn pack_files(roots: &PluginRoots, id: &str) -> Result<Value, String> {
     let package = roots.load(PluginKind::Sound, id)?;
     let PluginContent::Sound(pack) = &package.content else {
@@ -497,7 +497,7 @@ pub(crate) fn pack_files(roots: &PluginRoots, id: &str) -> Result<Value, String>
     }))
 }
 
-/// The tracks of one validated music pack as absolute paths, in play order, for a host that streams music itself. The pack is checked by the same client-core rules `scan` lists it by; how long a track may play is `music_pack::MAX_TRACK_SECONDS`, which the host checks against each track's duration before playing it, as the desktop decoder checks its frame count.
+/// The tracks of one validated music pack as absolute paths, in play order, for a host that streams music itself. The pack is checked by the same client-services rules `scan` lists it by; how long a track may play is `music_pack::MAX_TRACK_SECONDS`, which the host checks against each track's duration before playing it, as the desktop decoder checks its frame count.
 pub(crate) fn music_pack_files(roots: &PluginRoots, id: &str) -> Result<Value, String> {
     let package = roots.load(PluginKind::Music, id)?;
     let PluginContent::Music(pack) = &package.content else {

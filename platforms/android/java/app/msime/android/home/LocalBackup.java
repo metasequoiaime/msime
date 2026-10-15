@@ -59,7 +59,7 @@ import org.json.JSONObject;
 /**
  * 本地备份与恢复（#5659）：把设置、Android 本地设置、自定义皮肤、常用语、个人词库和输入记录打成一个 zip，存到用户在系统文件选择器里选的位置；换手机或降级时再从这个文件恢复。全程只在本机，不经过云端，也不需要登录。包的格式见 {@link LocalBackupPolicy}。
  *
- * <p>内容大体与云同步相同，复用同一套导出和应用：设置文档走 client-core 的 `msime_client_account_settings_export`/`_apply`（凭据与诊断日志永远不在里面），个人词库走 `export_snapshot`（{@link CloudSync#exportDictionarySnapshot}）。只有输入记录是云同步没有的：学习调权、删除记录、固定位置和选词计数由 `export_snapshot` 一并写进词库快照，快照格式装不下的输入习惯（整句联想、连续选词、拼写纠错、自动纠错抑制、置顶）由 `export_habits` 另写一个条目。恢复是合并而不是覆盖：设置按备份里的值改写，皮肤按 id 和更新时间合并，常用语只加本机还没有的，词经命名词库的待发送队列在键盘空闲时陆续写入，本机已有的词不会被删掉；输入记录和输入习惯排给键盘在收起后空闲时合并，本机已有的保留本机，计数取较大的那个。
+ * <p>内容大体与云同步相同，复用同一套导出和应用：设置文档走 client-services 的 `msime_client_account_settings_export`/`_apply`（凭据与诊断日志永远不在里面），个人词库走 `export_snapshot`（{@link CloudSync#exportDictionarySnapshot}）。只有输入记录是云同步没有的：学习调权、删除记录、固定位置和选词计数由 `export_snapshot` 一并写进词库快照，快照格式装不下的输入习惯（整句联想、连续选词、拼写纠错、自动纠错抑制、置顶）由 `export_habits` 另写一个条目。恢复是合并而不是覆盖：设置按备份里的值改写，皮肤按 id 和更新时间合并，常用语只加本机还没有的，词经命名词库的待发送队列在键盘空闲时陆续写入，本机已有的词不会被删掉；输入记录和输入习惯排给键盘在收起后空闲时合并，本机已有的保留本机，计数取较大的那个。
  *
  * <p>恢复分两步，先校验再动本机：{@link #prepare} 核对 manifest 记的校验和，再逐项解析设置、皮肤和常用语，并让原生侧完整校验词库快照和输入习惯，任何一项不过都不进入恢复（{@link LocalBackupPolicy.Compatibility#DAMAGED}）。{@link #restore} 先改设置、皮肤和常用语，改之前记下本机原来的样子，其中任何一部分写入失败就全部撤销回去，词库和输入记录也不再动；这几部分都成功后才排词库和输入记录，它们是只增不删、本机优先的合并，排到一半失败时已排的照样写入，再恢复一次不会重复。
  *
@@ -500,7 +500,7 @@ final class LocalBackup {
         }
     }
 
-    /** 把一份设置文档按它自己每个值的类型声明字段表，交给 client-core 应用（与云同步同一条路）。偏好恰好被键盘抢先写了一次时重读重来一次。 */
+    /** 把一份设置文档按它自己每个值的类型声明字段表，交给 client-services 应用（与云同步同一条路）。偏好恰好被键盘抢先写了一次时重读重来一次。 */
     private static void applySettingsDocument(Context context, String directory, JSONObject settings)
             throws IOException, JSONException {
         Map<String, String> types = LocalBackupPolicy.fieldTypes(CloudSync.map(settings));
@@ -520,7 +520,7 @@ final class LocalBackup {
         }
     }
 
-    /** 设置文档按备份里的值声明字段类型后交给 client-core 应用，再写回 Android 本地设置。改了任何设置时返回 true；写入失败时抛出，由调用方撤销。 */
+    /** 设置文档按备份里的值声明字段类型后交给 client-services 应用，再写回 Android 本地设置。改了任何设置时返回 true；写入失败时抛出，由调用方撤销。 */
     private static boolean restoreSettings(Context context, String directory, ZipFile zip)
             throws IOException, JSONException {
         boolean applied = false;
@@ -559,7 +559,7 @@ final class LocalBackup {
     }
 
     /**
-     * 逐条加回常用语；本机已经有的跳过，记进 `undo.presentPhrases`，等全部成功后再认领其中的预置示例。返回新加的条数，新加的 id 记进 `undo` 以便撤销。正文不合规或超过上限的条目不算失败，计入 `unheld` 在结果里说明；读不出本机常用语或 client-core 报了别的错时抛出，由调用方撤销。
+     * 逐条加回常用语；本机已经有的跳过，记进 `undo.presentPhrases`，等全部成功后再认领其中的预置示例。返回新加的条数，新加的 id 记进 `undo` 以便撤销。正文不合规或超过上限的条目不算失败，计入 `unheld` 在结果里说明；读不出本机常用语或 client-services 报了别的错时抛出，由调用方撤销。
      */
     private static int restorePhrases(Context context, ZipFile zip, Undo undo, List<String> unheld)
             throws IOException, JSONException {

@@ -42,7 +42,7 @@ id HostValue(char *(*function)(const uint8_t *, size_t), NSDictionary *request) 
     return response[@"value"];
 }
 
-// The user's own dictionary words, heaviest first, as client-core picks them. A dictionary that is busy or unreadable only costs this session its hotwords.
+// The user's own dictionary words, heaviest first, as client-providers picks them. A dictionary that is busy or unreadable only costs this session its hotwords.
 NSArray<NSDictionary *> *FetchHotwords(NSDictionary *hostOptions) {
     id value = HostValue(msime_client_voice_hotwords, @{@"options" : hostOptions, @"limit" : @200});
     id words = [value isKindOfClass:NSDictionary.class] ? value[@"hotwords"] : nil;

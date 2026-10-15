@@ -1,6 +1,6 @@
 //! 命名词库：用户自建、导入或从社区安装的一组词条，可以单独启用和停用。
 //!
-//! Engine 只有一个用户词库，这里不改它，只在 client-core 里加一层集合的元数据；词条真正写进用户词库仍然走个人词库的跨进程队列（[`PersonalDictionaryStore`]），键盘在下一次同步时应用。
+//! Engine 只有一个用户词库，这里不改它，只在 client-services 里加一层集合的元数据；词条真正写进用户词库仍然走个人词库的跨进程队列（[`PersonalDictionaryStore`]），键盘在下一次同步时应用。
 //!
 //! 存储在 `<preferences_directory>/DictionaryCollections/` 下：`index.json` 是集合列表，`index.json.lock` 是整个目录的文件锁，每个集合的词条在 `<uuid>.json`（所以停用以后还能重新启用），`outbox.json` 是还没交给个人词库队列的增删。个人词库队列同时最多只接受 128 个未完成的请求，一个两万条的集合要分很多批送进去，所以启用和停用先记进待发送队列，再由 [`DictionaryCollectionsStore::flush`] 在队列有空位时一批批送出；每次修改之后也会顺手送一批。不属于任何集合的大批词（Android 本地备份恢复的个人词库）也借这个待发送队列分批送出，见 [`DictionaryCollectionsStore::queue_words`]。
 //!
@@ -212,7 +212,7 @@ pub enum DictionaryCollectionsAction {
     Flush,
 }
 
-/// `hans` 格式的读音来源。client-core 不依赖 Engine，宿主把 Engine 的「汉字转拼音」包成这个接口传进来。
+/// `hans` 格式的读音来源。client-services 不依赖 Engine，宿主把 Engine 的「汉字转拼音」包成这个接口传进来。
 pub trait HanReadings {
     /// `word` 的拼音编码（例如 `ni'hao`），给不出时为 `None`。
     fn pinyin(&self, word: &str) -> Option<String>;

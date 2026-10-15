@@ -13,7 +13,7 @@ private func msimeClientTelemetryFlush(_ request: UnsafePointer<UInt8>?, _ lengt
 @_silgen_name("msime_client_telemetry_clear")
 private func msimeClientTelemetryClear(_ request: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 
-/// Anonymous usage reporting through client-core's telemetry queue (msime_client_telemetry_* in msime_client.h), shared by the app and the keyboard through the App Group.
+/// Anonymous usage reporting through client-services' telemetry queue (msime_client_telemetry_* in msime_client.h), shared by the app and the keyboard through the App Group.
 ///
 /// The keyboard is the input method, so it owns the sessions: one per keyboard presentation that ended normally, and a session_crash only when its crash handler left a record. The app sends what is queued and turns MetricKit crash diagnostics into crash records. Nothing is recorded or sent while the usage_reporting preference (default on) is off.
 enum UsageReporting {

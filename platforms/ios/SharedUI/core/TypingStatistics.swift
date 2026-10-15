@@ -332,7 +332,7 @@ enum TypingKeyID {
     let numpadDigits: [String] = (0...9).map { "Numpad\($0)" }
     let numpad: [String] = ["NumpadDecimal", "NumpadEnter", "NumpadAdd", "NumpadSubtract", "NumpadMultiply", "NumpadDivide", "NumLock"]
     let nineKey: [String] = (0...9).map { "Nine\($0)" }
-    // 全拼 14 键的各键，按键面上的字母命名，与 client-core 的 `KEY_IDS` 逐字一致。
+    // 全拼 14 键的各键，按键面上的字母命名，与 client-services 的 `KEY_IDS` 逐字一致。
     let fourteenKey: [String] = ["QW", "ER", "TY", "UI", "OP", "AS", "DF", "GH", "JK", "L", "ZX", "CV", "BN", "M"].map { "Fourteen\($0)" }
     let soft: [String] = ["SoftPunctuation", "SoftSymbol", "SoftLayer", "SoftLanguage", "SoftGlobe", "SoftEmoji", "SoftVoice"]
     var keys: [String] = letters
@@ -1009,7 +1009,7 @@ struct TypingStatisticsStore {
 
   /// 原生统计页「统计没有数据」那张卡的正文，nil 表示不需要这张卡。`recordingOff` 只在确实读到了统计文档且其中记录关闭时为真：此时键盘本来就不写，「记录已关闭」那张卡已经说明了原因，这里再让人去开完全访问，会把人引到错误的地方。
   ///
-  /// 文件存在不能说明键盘写过：在 app 里开启记录时，`client-core` 的 `set_enabled` 会无条件写出 `typing-statistics.json`，而键盘没有完全访问权限时不记录任何东西，数字会一直是零。app 读不到键盘是否有完全访问（iOS 没有公开 API，键盘没有完全访问时也写不了 App Group，留下的标记在权限收回后会过期），所以计数为零时始终先提醒这一项，再说其他可能。
+  /// 文件存在不能说明键盘写过：在 app 里开启记录时，`client-services` 的 `set_enabled` 会无条件写出 `typing-statistics.json`，而键盘没有完全访问权限时不记录任何东西，数字会一直是零。app 读不到键盘是否有完全访问（iOS 没有公开 API，键盘没有完全访问时也写不了 App Group，留下的标记在权限收回后会过期），所以计数为零时始终先提醒这一项，再说其他可能。
   static func emptyStatisticsAdvice(_ availability: Availability, recordingOff: Bool, total: Int) -> String? {
     if recordingOff { return nil }
     switch availability {

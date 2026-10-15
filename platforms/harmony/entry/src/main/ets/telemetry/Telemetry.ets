@@ -10,7 +10,7 @@ import { CrashDestination, CrashReport, TelemetryPolicy } from './TelemetryPolic
 /**
  * Anonymous usage reporting (the `usage_reporting` preference, on by default).
  *
- * The queue, the random install id, the daily `active` and the session bookkeeping live in client-core under `files/state/telemetry`, which the settings application and the keyboard extension share; client-core locks it across the two processes. A session is one keyboard process: the keyboard begins it when the extension is created and ends it when the extension is destroyed normally. The settings application only sends what is queued.
+ * The queue, the random install id, the daily `active` and the session bookkeeping live in client-services under `files/state/telemetry`, which the settings application and the keyboard extension share; client-services locks it across the two processes. A session is one keyboard process: the keyboard begins it when the extension is created and ends it when the extension is destroyed normally. The settings application only sends what is queued.
  *
  * Crashes are HarmonyOS's own reports. HiAppEvent hands a watcher the previous run's `APP_CRASH` on the next start, JavaScript and native alike, so this installs no handler and changes nothing about how a crash ends the process. A crash of the keyboard process that is reported before this keyboard begins its own session is written as that unfinished session's crash record, which makes it a `session_crash`; anything else is a standalone record. Records are sent as `crash` events on the next start.
  */
@@ -217,7 +217,7 @@ export class HarmonyTelemetry {
     const destination: CrashDestination =
       TelemetryPolicy.destination(report, HarmonyTelemetry.previousKeyboardPid, HarmonyTelemetry.began);
     if (destination === CrashDestination.Session) {
-      // The marker on disk is still the crashed session's, so client-core writes the record under that session's id.
+      // The marker on disk is still the crashed session's, so client-services writes the record under that session's id.
       const request: CrashRecordRequest = {
         directory: HarmonyTelemetry.directory, message: report.message, stack: report.stack
       };

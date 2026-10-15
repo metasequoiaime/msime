@@ -6,7 +6,7 @@
 //! - [`compile`]/[`validate`]：写死的 wasmi `Config`（Eager 编译、关闭不允许的提案、fuel 计量、栈限制）和模块校验（导出、import 白名单、双向的静态最小权限）。导入时和加载时用同一份。
 //! - [`ScriptInstance`]：每会话每插件一个实例，按轮和按钩子的固定 fuel 配额、`StoreLimits` 卡死的线性内存、`before_commit` 和 `command` 的快照复位、观察类 import，以及修改类 import 暂存、校验过的动作（[`Actions`]，含 `command` 给出的行）。
 //!
-//! 接口不带泛型：宿主（host-api）、client-core 和 pack-tool 都只看到这里的具体类型，wasmi 不出现在它们的签名里。
+//! 接口不带泛型：宿主（host-api）、client-services 和 pack-tool 都只看到这里的具体类型，wasmi 不出现在它们的签名里。
 
 #![cfg(any(
     target_os = "macos",

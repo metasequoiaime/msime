@@ -135,7 +135,7 @@ enum BackendSyncPolicy {
 
   /// 本机要新增的正文和要删掉的本机 id：`target` 是合并或云端的结果，`local` 是本机现有的（id, 正文）。
   ///
-  /// 本机 id 由 client-core 生成，和云端 id 不通用，所以按正文对齐：`target` 里有、本机没有的正文要新增；本机有、`target` 里没有的要删掉（只有「使用云端」和下载才会走到删除）。
+  /// 本机 id 由 client-services 生成，和云端 id 不通用，所以按正文对齐：`target` 里有、本机没有的正文要新增；本机有、`target` 里没有的要删掉（只有「使用云端」和下载才会走到删除）。
   static func localPlan(_ local: [(id: String, text: String)], target: [Phrase]) -> (add: [String], remove: [String]) {
     let wanted = Set(target.map(\.text))
     let present = Set(local.map(\.text))
