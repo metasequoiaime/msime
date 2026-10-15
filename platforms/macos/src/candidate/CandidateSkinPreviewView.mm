@@ -265,9 +265,10 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
     NSRect chrome =
         NSMakeRect(NSMinX(rect), NSMinY(rect) + decorationTop, NSWidth(rect), NSHeight(rect) - decorationTop);
     DrawSkinChrome(chrome, skin);
-    NSBezierPath *clip = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(chrome, 1.0, 1.0)
-                                                         xRadius:MAX(1.0, tokens.radius - 1.0)
-                                                         yRadius:MAX(1.0, tokens.radius - 1.0)];
+    const CGFloat halfBorder = MAX(0.0, tokens.borderWidth) / 2.0;
+    NSBezierPath *clip = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(chrome, halfBorder, halfBorder)
+                                                         xRadius:MAX(0.0, tokens.radius - halfBorder)
+                                                         yRadius:MAX(0.0, tokens.radius - halfBorder)];
     [NSGraphicsContext saveGraphicsState];
     [clip addClip];
 

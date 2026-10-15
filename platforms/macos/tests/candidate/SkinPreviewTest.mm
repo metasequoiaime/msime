@@ -368,7 +368,7 @@ static void TestCandidateWindowStyle(MSIMEAppearancePreferences *preferences, NS
                         const CGFloat pixelsPerPoint = bitmap.pixelsWide / NSWidth(preview.bounds);
                         const CGFloat inset = msime::mac::CandidateInset([preferences candidateWindowSkinForDark:preview.previewUsesDark].tokens);
                         const CGFloat expectedWidth = NSWidth(preview.bounds) - 28.0 - 2.0 * inset;
-                        assert(NSWidth(selected) / pixelsPerPoint >= expectedWidth - 2.0);
+                        assert(NSWidth(selected) / pixelsPerPoint >= expectedWidth - 1.0);
                     }
                 }
             }
