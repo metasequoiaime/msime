@@ -6,7 +6,7 @@ use std::io::{Read, Write};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
 
-use msime_client_core::chinese_conversion::simplified_to_traditional;
+use msime_client_base::chinese_conversion::simplified_to_traditional;
 use msime_engine::backend::{execute_raw, BackendError, MAXIMUM_REQUEST_BYTES};
 
 fn main() {

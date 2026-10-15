@@ -105,7 +105,7 @@ pub fn open_private_lock_file_at(directory: &PrivateDirectory, name: &OsStr) -> 
 }
 
 #[cfg(unix)]
-pub(crate) fn open_private_lock_file_at_raw(directory: &File, name: &OsStr) -> io::Result<File> {
+pub fn open_private_lock_file_at_raw(directory: &File, name: &OsStr) -> io::Result<File> {
     ensure_regular(crate::storage::open_private_lock_file_at(directory, name)?)
 }
 
@@ -179,7 +179,7 @@ fn secure_lock_file_options(path: &Path) -> io::Result<OpenOptions> {
     Ok(options)
 }
 
-pub(crate) fn open_lock_file(path: impl AsRef<Path>) -> io::Result<File> {
+pub fn open_lock_file(path: impl AsRef<Path>) -> io::Result<File> {
     let path = path.as_ref();
     ensure_regular(secure_lock_file_options(path)?.open(path)?)
 }
@@ -264,7 +264,7 @@ pub fn open_private_file(path: impl AsRef<Path>) -> io::Result<File> {
 
 /// Create a new private file without following a final symlink.
 /// Callers still decide when to write and sync the returned handle.
-pub(crate) fn create_private_file(path: &Path) -> io::Result<File> {
+pub fn create_private_file(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -304,7 +304,7 @@ pub fn replace_private_file_with_permissions(
     )
 }
 
-pub(crate) fn try_shared(file: &File) -> io::Result<bool> {
+pub fn try_shared(file: &File) -> io::Result<bool> {
     #[cfg(not(target_os = "android"))]
     {
         match file.try_lock_shared() {
@@ -324,7 +324,7 @@ pub(crate) fn try_shared(file: &File) -> io::Result<bool> {
 }
 
 /// False is contention, not an I/O failure. Never waits for another lock owner.
-pub(crate) fn try_exclusive(file: &File) -> io::Result<bool> {
+pub fn try_exclusive(file: &File) -> io::Result<bool> {
     #[cfg(not(target_os = "android"))]
     {
         match file.try_lock() {
@@ -354,7 +354,7 @@ pub(crate) fn try_exclusive(file: &File) -> io::Result<bool> {
 ///
 /// 因此在报告占用之前短暂重试。总时长有上限，仍然不会无限等待——真正被别的进程长期持有
 /// 的锁还是会如实返回 false。
-pub(crate) fn try_exclusive_with_grace(file: &File) -> io::Result<bool> {
+pub fn try_exclusive_with_grace(file: &File) -> io::Result<bool> {
     const ATTEMPTS: u32 = 10;
     const INTERVAL: std::time::Duration = std::time::Duration::from_millis(5);
     for attempt in 0..ATTEMPTS {
@@ -386,7 +386,7 @@ pub fn exclusive(file: &File) -> io::Result<()> {
 }
 
 #[cfg(unix)]
-pub(crate) fn unlock(file: &File) -> io::Result<()> {
+pub fn unlock(file: &File) -> io::Result<()> {
     #[cfg(not(target_os = "android"))]
     {
         file.unlock()

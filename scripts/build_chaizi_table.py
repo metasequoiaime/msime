@@ -34,7 +34,7 @@ from fetch_wordbooks import digest, fetch  # noqa: E402  （按锁下载并校�
 LOCK = ROOT / "resources/chaizi.lock.json"
 GENERATOR = "scripts/build_chaizi_table.py"
 DEFAULT_CACHE = ROOT / "target/chaizi-cache"
-OPENCC = ROOT / "crates/client-core/data/opencc"
+OPENCC = ROOT / "crates/client-base/data/opencc"
 KEYS_TABLE = ROOT / "crates/engine/src/local/chaizi.tsv"
 CHARS_TABLE = ROOT / "crates/engine/src/local/chaizi-chars.tsv"
 

@@ -5,7 +5,7 @@
          ∪ 这些字在 Unihan 里的 kTraditionalVariant
          ∪ 这些字作为 OpenCC STCharacters.txt 的键时的全部单字值。
 
-并入繁体形是因为注音方案按词库直接输出繁体，粤语方案的词库也以繁体为主；不并入的话，們、這、發、乾 都会被当成生僻字。Unihan 来自 resources/character-glosses.lock.json 锁定的 Unihan-17.0.0.zip（校验 sha256），OpenCC 来自仓库里 vendored 的 crates/client-core/data/opencc/STCharacters.txt。
+并入繁体形是因为注音方案按词库直接输出繁体，粤语方案的词库也以繁体为主；不并入的话，們、這、發、乾 都会被当成生僻字。Unihan 来自 resources/character-glosses.lock.json 锁定的 Unihan-17.0.0.zip（校验 sha256），OpenCC 来自仓库里 vendored 的 crates/client-base/data/opencc/STCharacters.txt。
 
 输出两个文件，都提交进仓库：
 
@@ -32,7 +32,7 @@ sys.dont_write_bytecode = True  # 导入 scripts/ 下的脚本时不留下 __pyc
 from fetch_wordbooks import digest, fetch  # noqa: E402  （按锁下载并校验）
 
 LOCK = ROOT / "resources/character-glosses.lock.json"
-OPENCC = ROOT / "crates/client-core/data/opencc/STCharacters.txt"
+OPENCC = ROOT / "crates/client-base/data/opencc/STCharacters.txt"
 OPENCC_COMMIT = "26753884f1984add422f3b0249ccee8613deaff6"
 CACHE = ROOT / "target/script-plugins/cache"
 DATA = ROOT / "plugins/script/data"
