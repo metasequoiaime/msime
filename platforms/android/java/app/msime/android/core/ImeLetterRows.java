@@ -876,6 +876,7 @@ final class ImeLetterRows {
                 KeyboardTypographyPolicy.setKeyTextSize(key, firstRow ? 20 : 18);
                 if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
                 if (text.length() == 1) s.keyId(key, KeyPressIds.forCharacter(text.charAt(0)));
+                bindSuperscriptShortcut(key, text);
                 return key;
             }
             case LAYER_TOGGLE -> {
@@ -935,5 +936,53 @@ final class ImeLetterRows {
         if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
         return key;
+    }
+
+    /** 123 / #+= 层的叹号：上滑输入 0，长按选择上标或下标 0；轻点仍输入叹号。 */
+    private void bindSuperscriptShortcut(Button key, String text) {
+        if (!SuperscriptShortcutPolicy.applies(text)) return;
+        key.setContentDescription(text + "；上滑输入 0；长按选择上标 ⁰ 或下标 ₀");
+        key.setOnLongClickListener(ignored -> {
+            s.imeLayoutRows.showSuperscriptOptions(key);
+            return true;
+        });
+        final float[] downY = new float[1];
+        final boolean[] swiped = new boolean[1];
+        key.setOnTouchListener((view, event) -> {
+            switch (event.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN -> {
+                    downY[0] = DimensionPolicy.fromPixels(s, event.getY());
+                    swiped[0] = false;
+                    return false;
+                }
+                case android.view.MotionEvent.ACTION_MOVE -> {
+                    if (!swiped[0] && SuperscriptShortcutPolicy.swipedUp(downY[0],
+                            DimensionPolicy.fromPixels(s, event.getY()))) {
+                        swiped[0] = true;
+                        key.cancelLongPress();
+                        android.view.MotionEvent cancel = android.view.MotionEvent.obtain(event);
+                        cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
+                        key.onTouchEvent(cancel);
+                        cancel.recycle();
+                    }
+                    return swiped[0];
+                }
+                case android.view.MotionEvent.ACTION_UP -> {
+                    if (!swiped[0]) return false;
+                    swiped[0] = false;
+                    key.setPressed(false);
+                    s.imeKeyFeedback.playFeedback(key);
+                    s.countKey(key);
+                    s.imeLayoutRows.commitNineKeyLiteral(SuperscriptShortcutPolicy.ZERO);
+                    return true;
+                }
+                case android.view.MotionEvent.ACTION_CANCEL -> {
+                    swiped[0] = false;
+                    key.setPressed(false);
+                    return false;
+                }
+                default -> { return swiped[0]; }
+            }
+        });
     }
 }

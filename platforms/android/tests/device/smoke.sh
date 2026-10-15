@@ -148,6 +148,7 @@ for entry in \
     "EmojiPickerDeviceSmoke|Emoji picker acceptance failed" \
     "PairedPunctuationDeviceSmoke|Paired punctuation acceptance failed" \
     "LetterHintPunctuationDeviceSmoke|Letter hint punctuation acceptance failed" \
+    "SuperscriptShortcutDeviceSmoke|Superscript shortcut acceptance failed" \
     "PreferencesDeviceSmoke|Preferences acceptance failed" \
     "ThemeModeDeviceSmoke|Theme mode acceptance failed" \
     "LanguageNumberKeySwapDeviceSmoke|Language/number key swap acceptance failed" \

@@ -12,6 +12,7 @@ platforms/android/tests/device/keyboard/CopyDeviceInfoDeviceSmoke.java
 platforms/android/tests/device/keyboard/EmojiPickerDeviceSmoke.java
 platforms/android/tests/device/keyboard/PairedPunctuationDeviceSmoke.java
 platforms/android/tests/device/keyboard/LetterHintPunctuationDeviceSmoke.java
+platforms/android/tests/device/keyboard/SuperscriptShortcutDeviceSmoke.java
 platforms/android/tests/device/keyboard/ChineseHelpcodeDeviceSmoke.java
 platforms/android/tests/device/keyboard/ChineseHelpcodeOffDeviceSmoke.java
 platforms/android/tests/device/keyboard/MicrosoftShuangpinDeviceSmoke.java
@@ -81,6 +82,9 @@ platforms/android/java/app/msime/android/keyboard/KeyboardSpacingPolicy.java
 platforms/android/java/app/msime/android/keyboard/KeyboardTypographyPolicy.java
 platforms/android/java/app/msime/android/keyboard/KeyboardKeyRole.java
 platforms/android/java/app/msime/android/keyboard/KeyboardLayout.java
+platforms/android/java/app/msime/android/keyboard/SuperscriptShortcutPolicy.java
+platforms/android/java/app/msime/android/keyboard/SwipeHintPolicy.java
+platforms/android/java/app/msime/android/keyboard/LetterHintTable.java
 platforms/android/java/app/msime/android/keyboard/KeyboardPressButton.java
 platforms/android/java/app/msime/android/keyboard/KeyboardPressFeedback.java
 platforms/android/java/app/msime/android/keyboard/KeyboardSkin.java

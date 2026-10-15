@@ -848,6 +848,22 @@ final class ImeLayoutRows {
     void showNineKeyHoldOptions(Button anchor, String digit, String letters) {
         dismissNineKeyHoldOptions();
         if (s.keyboardRoot == null) return;
+        java.util.List<String> choices = new java.util.ArrayList<>(letters.length() + 1);
+        if (!digit.isEmpty()) choices.add(digit);
+        for (int index = 0; index < letters.length(); index++)
+            choices.add(String.valueOf(letters.charAt(index)));
+        showTextOptions(anchor, choices);
+    }
+
+    /** 123 符号页「！」键长按的上标、下标选项。 */
+    void showSuperscriptOptions(Button anchor) {
+        dismissNineKeyHoldOptions();
+        if (s.keyboardRoot == null) return;
+        showTextOptions(anchor, SuperscriptShortcutPolicy.variants());
+    }
+
+    /** 显示不依赖具体键位的短文本选项，并复用九键长按弹窗的生命周期。 */
+    private void showTextOptions(Button anchor, java.util.List<String> choices) {
         s.imeKeyFeedback.playFeedback(anchor);
         LinearLayout options = LayoutPolicy.row(s);
         int padding = s.pixels(5);
@@ -856,11 +872,6 @@ final class ImeLayoutRows {
             Color.parseColor(s.skin.background()), s.pixels(10),
             DimensionPolicy.atLeastOnePixel(s, 1), Color.parseColor(s.skin.accent()));
         ViewPolicy.setBackground(options, surface);
-
-        java.util.List<String> choices = new java.util.ArrayList<>(letters.length() + 1);
-        if (!digit.isEmpty()) choices.add(digit);
-        for (int index = 0; index < letters.length(); index++)
-            choices.add(String.valueOf(letters.charAt(index)));
         for (String choice : choices) {
             Button option = s.keyboardKey(choice, "输入 " + choice,
                 () -> commitNineKeyHoldOption(choice));
