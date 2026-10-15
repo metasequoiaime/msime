@@ -13,8 +13,8 @@ name = "msime-pack"
 path = "src/main.rs"
 
 [dependencies]
-# Every rule lives in client-core's plugins module; this tool only reports what `plugins::validate` answers.
-msime-client-core = { path = "../client-core" }
+# Every rule lives in client-services' plugins module; this tool only reports what `plugins::validate` answers.
+msime-client-services = { path = "../client-services" }
 # `run` 读夹具、写一行一个事件的 JSON。两者都已是工作区依赖，不新增第三方 crate。
 serde.workspace = true
 serde_json.workspace = true

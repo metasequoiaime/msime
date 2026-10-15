@@ -4,14 +4,14 @@
 
 use crate::*;
 use key_sound::{KeyClass, PluginRoots, SessionSound};
-use msime_client_core::plugins::mentions::{MentionEntry, MentionStore};
-use msime_client_core::plugins::{self, PluginFailure};
+use msime_client_services::plugins::mentions::{MentionEntry, MentionStore};
+use msime_client_services::plugins::{self, PluginFailure};
 #[cfg(any(
     target_os = "macos",
     target_os = "windows",
     all(target_os = "linux", not(target_env = "ohos"))
 ))]
-use msime_client_core::plugins::{script_commands, script_grants};
+use msime_client_services::plugins::{script_commands, script_grants};
 
 /// 授权页说明插件指令的状态时用的用户指令表：状态目录 `state_root`（插件根目录的上一级，偏好文件也在这里）里偏好启用的指令表包，和输入法交给引擎的是同一份。偏好读不出时按没有启用任何指令表说明。
 #[cfg(any(

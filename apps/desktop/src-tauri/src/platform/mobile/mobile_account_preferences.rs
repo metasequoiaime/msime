@@ -1,5 +1,5 @@
-use msime_client_core::account::AccountPreferenceValue;
 use msime_client_core::preferences::FrequencyPreferences;
+use msime_client_services::account::AccountPreferenceValue;
 use std::collections::BTreeMap;
 
 /// 三档，或者 `system`（跟随系统的触感反馈设置），与 client-core 的 `valid_haptic_strength` 相同。

@@ -477,7 +477,7 @@ impl AccountError {
 }
 
 // The shared data types and limits stay here; the behaviour is split by what it
-// does. Each part is re-exported, so `client_core::account::X` still resolves to
+// does. Each part is re-exported, so `msime_client_services::account::X` still resolves to
 // everything it did when this was one file.
 mod anonymous;
 mod api;

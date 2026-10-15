@@ -247,7 +247,7 @@ fn install_effect(state: &Path, style: &str) {
 
 #[test]
 fn the_selected_effect_pack_replaces_the_preferences_style_and_follows_a_reimport() {
-    use msime_client_core::plugins::EffectStyle;
+    use msime_client_services::plugins::EffectStyle;
 
     let state = tempfile::tempdir().unwrap();
     let roots = PluginRoots::new(state.path().to_str(), None, None, "");

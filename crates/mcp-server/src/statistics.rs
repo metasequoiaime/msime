@@ -1,8 +1,8 @@
 //! Typing statistics as an agent may see them: counts per day and per category, never text.
 //!
-//! The document already holds nothing typed (`msime_client_core::typing_statistics` classifies commits in memory and keeps counts only). Active time, typing speed and the hourly distribution are shown as the settings page shows them, but the hours only summed over the covered days, never day by day, and the last commit instant not at all: it would tell an agent whether the user is at the keyboard right now.
+//! The document already holds nothing typed (`msime_client_services::typing_statistics` classifies commits in memory and keeps counts only). Active time, typing speed and the hourly distribution are shown as the settings page shows them, but the hours only summed over the covered days, never day by day, and the last commit instant not at all: it would tell an agent whether the user is at the keyboard right now.
 
-use msime_client_core::typing_statistics::{TypingStatistics, TypingStatisticsStore};
+use msime_client_services::typing_statistics::{TypingStatistics, TypingStatisticsStore};
 use rmcp::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -157,7 +157,7 @@ fn per_minute(characters: u64, active_ms: u64) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use msime_client_core::typing_statistics::TypingBreakdown;
+    use msime_client_services::typing_statistics::TypingBreakdown;
 
     #[test]
     fn only_the_most_recent_days_are_covered_and_the_last_commit_stays_out() {

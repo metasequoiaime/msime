@@ -1,14 +1,14 @@
 use crate::platform::mobile::mobile_account_preferences::{
     frequency_account_preferences, insert_bool, insert_string, valid_mobile_haptic_strength,
 };
-use msime_client_core::account::{
-    validate_account_preferences, AccountError, AccountPreferenceValue, AccountPreferences,
-};
 use msime_client_core::preferences::{
     ChineseScheme, FrequencyMode, InputScheme, Preferences, ShuangpinProfile, TouchKeyboardLayout,
     TouchKeyboardScheme, TouchKeyboardSkinDesign, WubiProfile,
 };
-use msime_client_core::skin::theme::GlobalTheme;
+use msime_client_services::account::{
+    validate_account_preferences, AccountError, AccountPreferenceValue, AccountPreferences,
+};
+use msime_client_services::skin::theme::GlobalTheme;
 use msime_tauri_mobile_platform::IosKeyboardPreferences;
 use std::collections::BTreeMap;
 
@@ -546,12 +546,14 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
 #[cfg(test)]
 mod tests {
     use super::{local_account_preferences, IosPreferencePlan};
-    use msime_client_core::account::{AccountError, AccountPreferenceValue, AccountPreferences};
     use msime_client_core::preferences::{
         InputScheme, Preferences, ShuangpinProfile, TouchKeyboardLayout, TouchKeyboardScheme,
         WubiProfile,
     };
-    use msime_client_core::skin::theme::GlobalTheme;
+    use msime_client_services::account::{
+        AccountError, AccountPreferenceValue, AccountPreferences,
+    };
+    use msime_client_services::skin::theme::GlobalTheme;
     use msime_tauri_mobile_platform::IosKeyboardPreferences;
     use std::collections::BTreeMap;
 

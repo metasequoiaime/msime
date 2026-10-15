@@ -911,10 +911,12 @@ fn a_mobile_store_holding_a_digit_quick_phrase_still_exports_it() {
         .synchronize(
             |_| Ok(()),
             |_| {
-                Ok(msime_client_core::dictionary::personal::PersonalWordPage {
-                    entries: vec![legacy.clone()],
-                    has_more: false,
-                })
+                Ok(
+                    msime_client_services::dictionary::personal::PersonalWordPage {
+                        entries: vec![legacy.clone()],
+                        has_more: false,
+                    },
+                )
             },
         )
         .unwrap();
@@ -1006,7 +1008,7 @@ fn engine_backed_pinyin_import_resolves_lengths_and_reports_invalid_rows() {
     assert_eq!(report.first_failures[0].line, 2);
     assert_eq!(
         report.first_failures[0].issue,
-        msime_client_core::dictionary::import::ImportIssue::Pinyin
+        msime_client_services::dictionary::import::ImportIssue::Pinyin
     );
 
     let (wubi, _) = parse_import(&Kind::Wubi, "windows", "wq\t你好\t9\n", Some(&options)).unwrap();

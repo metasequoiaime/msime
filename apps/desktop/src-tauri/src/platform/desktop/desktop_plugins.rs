@@ -1,14 +1,14 @@
 //! 插件 page commands for the macOS, Windows and Linux shells: the plugin packs installed under the state directory, the built-in sound packs the bundle ships, and the @ mode's name list.
 //!
-//! Every rule lives in `msime_client_core::plugins`; these are shims that resolve the roots host-side and hand them over. The page never names a path: it asks for the catalog, asks the host to show its own picker for an import, and names a pack to remove by kind and id. The input processes read the same `<state>/plugins` directory (`preferences_directory/plugins` in host-api), so an import or a name-list save reaches them without any notification of its own: sound and music settings travel through the preferences document, and the command tables and the name list are reread when a field gains focus after their files changed.
+//! Every rule lives in `msime_client_services::plugins`; these are shims that resolve the roots host-side and hand them over. The page never names a path: it asks for the catalog, asks the host to show its own picker for an import, and names a pack to remove by kind and id. The input processes read the same `<state>/plugins` directory (`preferences_directory/plugins` in host-api), so an import or a name-list save reaches them without any notification of its own: sound and music settings travel through the preferences document, and the command tables and the name list are reread when a field gains focus after their files changed.
 
 use crate::DictionaryHostOptions;
-use msime_client_core::plugins::mentions::{MentionEntry, MentionStore};
-use msime_client_core::plugins::script_grants::{self, ScriptGrantsView};
-use msime_client_core::plugins::{
+use msime_client_core::preferences::PreferencesStore;
+use msime_client_services::plugins::mentions::{MentionEntry, MentionStore};
+use msime_client_services::plugins::script_grants::{self, ScriptGrantsView};
+use msime_client_services::plugins::{
     self, script_commands, BuiltinDirs, PluginCatalog, PluginFailure, PluginSummary,
 };
-use msime_client_core::preferences::PreferencesStore;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::State;
@@ -332,7 +332,7 @@ pub async fn save_plugin_mentions(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use msime_client_core::plugins::PluginKind;
+    use msime_client_services::plugins::PluginKind;
     use std::fs;
 
     fn write_command_table(directory: &Path, id: &str) {

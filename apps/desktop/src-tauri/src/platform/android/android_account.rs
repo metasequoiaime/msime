@@ -18,14 +18,6 @@ use crate::shared::account_dto::{
     providers_response_without_apple, ChallengeResponse, ChatModelsResponse, ChatResponse,
     PreferenceSchemaResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
-use msime_client_core::account::settings_sync::{
-    apply_android_settings, export_android_settings, needs_host_feedback, HostKeyboardFeedback,
-};
-use msime_client_core::account::{
-    merge_account_preferences, AccountChatMessage, AccountError, AccountPreferenceSchema,
-    AccountPreferenceValue, AccountPreferences, AccountSessionStorage, BackendAccountClient,
-    BackendAccountSession, SavedAccountSession,
-};
 use msime_client_core::cloud::dictionary::DictionaryKind;
 use msime_client_core::cloud::snapshot_validation::{
     has_keys as snapshot_has_keys, parse_strict_object, required_integer as snapshot_integer,
@@ -35,6 +27,14 @@ use msime_client_core::edition::{
     filter_downloaded_account_settings, filter_uploaded_account_settings,
 };
 use msime_client_core::preferences::{Preferences, PreferencesSnapshot, PreferencesStore};
+use msime_client_services::account::settings_sync::{
+    apply_android_settings, export_android_settings, needs_host_feedback, HostKeyboardFeedback,
+};
+use msime_client_services::account::{
+    merge_account_preferences, AccountChatMessage, AccountError, AccountPreferenceSchema,
+    AccountPreferenceValue, AccountPreferences, AccountSessionStorage, BackendAccountClient,
+    BackendAccountSession, SavedAccountSession,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};

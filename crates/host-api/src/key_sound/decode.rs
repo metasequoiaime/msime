@@ -5,7 +5,7 @@
 use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
 use kira::sound::streaming::Decoder;
 use kira::Frame;
-use msime_client_core::plugins::{music_pack, sound_pack};
+use msime_client_services::plugins::{music_pack, sound_pack};
 use std::convert::Infallible;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;

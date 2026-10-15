@@ -8,7 +8,7 @@
 //! import 从不回调宿主，所以这里的锁都不会在脚本代码运行时被重入；锁的顺序固定为先 `REGISTRY` 后单个 `Health`，从不反过来。
 
 use msime_client_core::file_lock;
-use msime_client_core::plugins::script_pack;
+use msime_client_services::plugins::script_pack;
 use msime_script_runtime::{limits, Failure, ScriptModule};
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
@@ -30,7 +30,7 @@ const SLOW_LIMIT: u32 = 3;
 #[cfg_attr(test, allow(dead_code))]
 const SLOW_AFTER: Duration = Duration::from_millis(4);
 /// 健康文件名，放在 `user_data` 下；授权页按同一个名字读它。
-pub(super) const HEALTH_FILE: &str = msime_client_core::plugins::script_grants::HEALTH_FILE;
+pub(super) const HEALTH_FILE: &str = msime_client_services::plugins::script_grants::HEALTH_FILE;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     // 持锁时不跑脚本代码，也不调用会 panic 的东西；真被毒化了，里面的计数仍然可用。

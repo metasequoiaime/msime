@@ -4,8 +4,9 @@
 //!
 //! 列表、上传和设备管理（`devices`、`approve`、`reject`、`remove`、`reset`）经端到端加密驱动，结果形状见 `docs/cloud-clipboard-e2e.md` 的「共享面板的动作」；驱动给出的错误码（例如 `clipboard_device_pending`）原样作为 `CommandError` 的 `code` 交给面板。
 
-use msime_client_core::account::{AccountApi, AccountSessionStorage, BackendAccountSession};
-use msime_client_core::{clipboard_relay::RelayConfig, preferences::PreferencesStore};
+use msime_client_core::preferences::PreferencesStore;
+use msime_client_services::account::{AccountApi, AccountSessionStorage, BackendAccountSession};
+use msime_client_services::clipboard_relay::RelayConfig;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -41,7 +42,7 @@ pub(crate) fn relay_cloud_clipboard_request(
     msime_host_api::cloud_clipboard::relay_request(
         config,
         directory,
-        &msime_client_core::account::cloud_clipboard_device_name(),
+        &msime_client_services::account::cloud_clipboard_device_name(),
         action,
     )
     .map_err(|code| crate::CommandError { code })
@@ -65,11 +66,11 @@ pub(crate) async fn cloud_clipboard_request<A: AccountApi, S: AccountSessionStor
 #[cfg(test)]
 mod tests {
     use super::cloud_clipboard_request;
-    use msime_client_core::account::{
+    use msime_client_core::cloud::clipboard_e2e::{HttpRequest, HttpResponse};
+    use msime_client_services::account::{
         AccountApi, AccountChallenge, AccountError, AccountProfile, AccountSessionStorage,
         AccountTokens, AccountUser, BackendAccountSession, SavedAccountSession,
     };
-    use msime_client_core::cloud::clipboard_e2e::{HttpRequest, HttpResponse};
     use serde_json::{json, Value};
     use std::sync::{Arc, Mutex};
 

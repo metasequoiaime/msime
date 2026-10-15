@@ -14,12 +14,12 @@
     allow(dead_code)
 )]
 
-use msime_client_core::plugins::effect_pack::TypingEffect;
-use msime_client_core::plugins::{
+use msime_client_core::preferences::{KeySoundMode, PluginPreferences};
+use msime_client_services::plugins::effect_pack::TypingEffect;
+use msime_client_services::plugins::{
     self, music_pack, sound_pack, BuiltinDirs, EffectStyle, PluginContent, PluginKind,
     PluginSummary, MANIFEST_FILE,
 };
-use msime_client_core::preferences::{KeySoundMode, PluginPreferences};
 use serde_json::{json, Value};
 use std::cell::Cell;
 use std::path::{Path, PathBuf};

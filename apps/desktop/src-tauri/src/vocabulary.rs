@@ -1,7 +1,7 @@
 //! 背单词 commands.
 //!
 //! Every one of these is a shim: it resolves the user's local day, names an action, and hands both
-//! to `msime_client_core::vocabulary::session`. The rules — what an action does, how the queue is
+//! to `msime_client_services::vocabulary::session`. The rules — what an action does, how the queue is
 //! built, what a lapse costs — live there, because the C ABI entry point the native hosts call
 //! goes through the same function and the two must not drift.
 //!
@@ -9,11 +9,11 @@
 //! keep one request in flight instead of following every change with a read of its own.
 
 use crate::{CommandError, VocabularyState};
-use msime_client_core::vocabulary::session::{self, ReviewAction, ReviewStatus};
+use msime_client_services::vocabulary::session::{self, ReviewAction, ReviewStatus};
 
 impl From<session::ReviewSessionError> for CommandError {
     fn from(value: session::ReviewSessionError) -> Self {
-        use msime_client_core::vocabulary::library::WordbookLibraryError;
+        use msime_client_services::vocabulary::library::WordbookLibraryError;
         use session::ReviewSessionError;
         Self {
             code: match value {
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn session_failures_carry_a_code_the_page_can_act_on() {
-        use msime_client_core::vocabulary::library::WordbookLibraryError;
+        use msime_client_services::vocabulary::library::WordbookLibraryError;
         use session::ReviewSessionError;
 
         let code = |error: ReviewSessionError| CommandError::from(error).code;
@@ -161,7 +161,7 @@ mod tests {
         // would read as the application being broken rather than the file being wrong.
         assert_eq!(
             code(ReviewSessionError::Import(
-                msime_client_core::vocabulary::import::WordbookImportError::NoUsableRows
+                msime_client_services::vocabulary::import::WordbookImportError::NoUsableRows
             )),
             "wordbook_unreadable"
         );

@@ -5,11 +5,11 @@
 use crate::platform::account_helpers::call_session;
 use crate::platform::desktop::desktop_account::AccountState;
 use crate::shared::account_dto::PreferenceSchemaResponse;
-use msime_client_core::account::settings_sync::{
+use msime_client_core::preferences::PreferencesStore;
+use msime_client_services::account::settings_sync::{
     prepare_desktop_settings_apply, upload_desktop_settings,
 };
-use msime_client_core::account::AccountPreferences;
-use msime_client_core::preferences::PreferencesStore;
+use msime_client_services::account::AccountPreferences;
 use std::sync::Arc;
 use tauri::State;
 
