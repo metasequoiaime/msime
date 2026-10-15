@@ -85,7 +85,7 @@
 
 | 来源文件 | 个数 | 去向 |
 | --- | --- | --- |
-| `PreferencesWindowController.mm/.h` | 78 | 原生设置窗口。目标的主设置面是 Tauri 设置应用；目标保留的 `platforms/macos/src/settings/PreferencesWindowController.mm` 与 `AppearancePreferences.mm` 只是设置应用无法启动时的回退，冻结不加新功能（见[设置界面按平台归属](ARCHITECTURE.md#设置界面按平台归属)），所以不为来源的这些符号逐个找对应物 |
+| `PreferencesWindowController.mm/.h` | 78 | 原生设置窗口。目标的设置面在 Tauri，按指令不该有对应物 |
 | `DictionaryInstaller.mm` | 18 | 词库安装。下沉到引擎与共享 Rust |
 | `MetasequoiaInputController.mm` | 15 | 目标当时也有同名文件，**逐条核对见下**（那份是从未参与构建的直连适配器，2026-09-30 随 C++ Engine 删除；下面的对应物都在产品控制器 `platforms/macos/src/input/InputController.mm`） |
 | `PersonalDictionaryView.mm`、`PersonalDictionaryStore.mm/.h` | 14 | 原生个人词库界面与存储。目标是 Tauri 词库页 + 共享词库 ABI，且为超集 |
@@ -96,6 +96,8 @@
 | `InputModeRouting.h`、`InputControllerKeyRouting.h` | 3 | 已在行为层比对中逐条核过 |
 | `Uninstaller.h` | 2 | 卸载器五条规则已逐条核过 |
 | `VoiceInputService.mm` | 1 | `beginCapture` → 目标的语音采集 |
+
+> 2026-10-15 补注：上表 `PreferencesWindowController.mm/.h` 一行的理由是重跑当时的记录。目标现在保留着同名的 `platforms/macos/src/settings/PreferencesWindowController.mm` 与 `AppearancePreferences.mm`，只在设置应用无法启动时由 `platforms/macos/src/core/DesktopSettingsLauncher.h` 的回退分支打开；2026-10-15 定下的设置界面归属（见[设置界面按平台归属](ARCHITECTURE.md#设置界面按平台归属)）把这套 AppKit 窗口冻结为回退、不加新功能，macOS 的主设置面仍是 Tauri 设置应用，所以这 78 个符号照旧不逐个找对应物。
 
 - 「目标也有同名文件」的那 **28 个**（控制器 15、悬浮工具栏 6、候选面板 7）逐条对照，全部有对应物：`MetasequoiaTogglePinnedWord` → `MSIMETogglePinnedCandidate`；`availableGlossColumnsPrimary` / `setArmedGlossColumn` → `_armedGlossColumn` 与其夹取；`commitGlossAtVisibleOffset` / `insertGlossForModifiedDigit` → `commitCandidateGlossColumn:` 及其 Option/Control 分支；`handleSolitaryShiftFlags` → `MSIMEModifierTap` 与 #3179 的原样上屏；`translationDictionary` → `candidate_glosses_with_user`；`LocalModeOptionsMatch` → 目标比的是整个 `Preferences` 值；`toolbarWidth` / `visibleButtonCount` / `applyItemVisibility` → `_preferredSize` 与 `_appliedComponentMask`；`MetasequoiaIsUsableCaretRect` → `MSIMEValidCaret`。
 - 唯一没有同名对应物且**确实不该有**的是 `rightMouseDown`：目标把候选菜单挂在按钮的 `menu` 属性上，右键由 AppKit 自带的 `menuForEvent:` 接手，而不是覆写鼠标事件——用的是框架自身的契约。
