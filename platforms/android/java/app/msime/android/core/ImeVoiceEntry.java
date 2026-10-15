@@ -165,7 +165,11 @@ final class ImeVoiceEntry {
                 byte[] pcm = null;
                 try {
                     if (runningLocal != null) {
-                        text = runningLocal.recognize(model, files.toPath(), language, options, null, null,
+                        // 上面挑引擎时已经把 `files` 为 null 的情况算过了，这里直接解引用会让取不到
+                        // files 目录的设备吃一个 NPE，再被下面的兜底改写成那句泛泛的提示；把 null 交给
+                        // 识别器当「模型不可用」处理，用户看到的就是对得上的文案。
+                        text = runningLocal.recognize(model, files == null ? null : files.toPath(),
+                            language, options, null, null,
                             partial -> s.main.post(() -> heard(session, partial)));
                         pcm = runningLocal.retainedAudio();
                     } else if (runningStream != null && stream != null) {
