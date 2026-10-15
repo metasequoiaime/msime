@@ -8,7 +8,7 @@ Windows 设置窗口把每一项设置画成独立的高卡片，侧栏和页边
 
 ## Decision
 
-Windows 保留 WinUI 3 设置宿主与 Direct2D 输入浮层，以 macOS 的 `SettingsLayout.h`、`NativeCandidateTokens` 为布局和默认颜色依据。设置以功能组为卡片，标签与控件分列，窄行把控件移到标签下方；搜索保留设置项检索。候选窗、工具栏和托盘共用绿色强调色与浅深色表面，用户主题及皮肤覆盖继续优先。
+Windows 保留 WinUI 3 设置宿主与 Direct2D 输入浮层，以 macOS 的 `SettingsLayout.h`、`AppearancePreferences.mm`、`NativeCandidateTokens` 为布局、信息结构和默认颜色依据。窗口采用独立的侧栏搜索与内容工具栏，取消重复搜索入口；18 页均有说明。输入设置拆为「输入方案」「输入习惯」「按键」：输入方式逐项单选，专属选项与辅助码仅显示当前方案；选词与翻页归按键，混输、输出、快捷模式与调频归输入习惯。路由 id 和持久化字段保持稳定，搜索索引由所属页面重新登记，方案专属项只索引当前可见选项，切换后的偏好修订使索引重建。皮肤网格中的缩略图也用真实候选调色板绘制选中底和前景色。实时候选预览仅在皮肤和候选窗口页提供，有独立舞台及滚动视口，横向长候选不会撑出页面。设置以功能组为卡片，标签与控件分列，窄行把控件移到标签下方；搜索保留设置项检索。候选窗、工具栏和托盘共用绿色强调色与浅深色表面，用户主题及皮肤覆盖继续优先。
 
 ## Alternatives considered
 
@@ -21,6 +21,8 @@ Windows 保留 WinUI 3 设置宿主与 Direct2D 输入浮层，以 macOS 的 `Se
 
 ## Verification
 
-`tests/ui/candidate_palette.cpp` 验证原生默认值、显式主题槽位优先、强调色推导和半透明选中底的前景色；`candidate_theme_reload.cpp` 验证主题重新加载后的实际颜色。共享前端运行 `typecheck`、构建、platform-tokens 和 candidate-preview-native-tokens 测试。`CI (platforms)` 的 `Windows native settings` 先构建真实 Rust host-api DLL，再使用发布用 WinUI 工程的完整 `Build` 流程，以 `/WX` 编译实际 `main.cpp` 并链接原生设置宿主。不能直接调用 `ClCompile` 或单独的投影生成目标：它们会跳过 Windows SDK 引用初始化或 WinRT 投影头生成。`tests/tools/settings_ui.ps1` 在独立合成状态目录中通过 UI Automation 遍历 18 页，保存浅深色、800／1000 宽窗口截图，关闭进程并清除合成状态；截图作为 CI 产物供视觉审查。
+`tests/ui/candidate_palette.cpp` 验证原生默认值、显式主题槽位优先、强调色推导和半透明选中底的前景色；`candidate_theme_reload.cpp` 验证主题重新加载后的实际颜色。共享前端运行 `typecheck`、构建、platform-tokens 和 candidate-preview-native-tokens 测试。`CI (platforms)` 的 `Windows native settings` 先构建真实 Rust host-api DLL，再使用发布用 WinUI 工程的完整 `Build` 流程，以 `/WX` 编译实际 `main.cpp` 并链接原生设置宿主。不能直接调用 `ClCompile` 或单独的投影生成目标：它们会跳过 Windows SDK 引用初始化或 WinRT 投影头生成。`tests/tools/settings_ui.ps1` 在独立合成状态目录中通过 UI Automation 遍历 18 页，从真实 DLL 读取完整默认偏好，拒绝设置加载错误；对导航虚拟化先滚入视口，再按正文的稳定页面标识等待切页与呈现，保存浅深色、800／1000 宽窗口截图，关闭进程并清除合成状态；截图作为 CI 产物供视觉审查。
+
+首轮窗口截图曾暴露两处假通过：手写的不完整偏好使所有控件变灰，虚拟化导航与固定延时令截图文件名和正文错位。因此截图数量和脚本退出码不足以验收，必须同时检查配置可用性、正文页面标识和实际像素。
 
 macOS 本机没有 Windows App SDK 运行环境，Windows runner 的结果和截图是窗口运行与视觉审查的证据；交叉构建及策略测试不能替代它。脚本覆盖导航与页面渲染，搜索后定位、字体输入框编辑及已登录账号／社区表单的写操作仍需对应功能的交互验收，不能由截图推出。

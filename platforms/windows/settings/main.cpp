@@ -944,32 +944,33 @@ std::optional<Color> parse_hex(std::wstring_view value) {
 
 // ---- Page labels ----
 
-// The sidebar's labels and Segoe Fluent Icons glyphs, keyed by the page ids of SettingsNavigation.h, in the design's wording.
+// 页面名称、说明与侧栏图标，按稳定的路由 id 取值。
 struct PageLabel {
   std::string_view id;
   const wchar_t *title;
   wchar_t glyph;
+  const wchar_t *summary;
 };
 
 constexpr std::array<PageLabel, 18> page_labels{{
-    {"typing", L"输入", 0xE765},
-    {"expression", L"标点与翻译", 0xE8C1},
-    {"shortcuts", L"快捷键", 0xEDA7},
-    {"lexicon", L"词库", 0xE82D},
-    {"themes", L"主题", 0xE790},
-    {"candidate", L"候选窗口", 0xE8FD},
-    {"toolbar", L"悬浮工具栏", 0xE7F4},
-    {"osk", L"屏幕键盘", 0xE92E},
-    {"voice", L"语音输入", 0xE720},
-    {"hand", L"手写输入", 0xE929},
-    {"clip", L"剪贴板", 0xE77F},
-    {"stats", L"打字统计", 0xE9D2},
-    {"plugins", L"插件", 0xEA86},
-    {"ai", L"AI 辅助", 0xE99A},
-    {"account", L"账号与同步", 0xE77B},
-    {"dev", L"维护与诊断", 0xE90F},
-    {"feedback", L"帮助与反馈", 0xED15},
-    {"about", L"关于", 0xE946},
+    {"typing", L"输入方案", 0xE765, L"选择输入方式；专属选项随当前方案变化。"},
+    {"expression", L"输入习惯", 0xE8C1, L"调整标点、混输、输出和选词习惯。"},
+    {"shortcuts", L"按键", 0xEDA7, L"设置中英文切换、选词和翻页使用的按键。"},
+    {"lexicon", L"词库", 0xE82D, L"管理本机词库、个人词条和常用语。"},
+    {"themes", L"皮肤", 0xE790, L"选择候选窗口皮肤，搭配自己的字体和配色。"},
+    {"candidate", L"候选窗口", 0xE8FD, L"调整候选的排列、文字和显示位置。"},
+    {"toolbar", L"状态栏", 0xE7F4, L"选择悬浮工具栏显示的内容和交互方式。"},
+    {"osk", L"屏幕键盘", 0xE92E, L"设置屏幕键盘的布局、按键和外观。"},
+    {"voice", L"语音输入", 0xE720, L"选择识别方式，配置语音转写和文本整理。"},
+    {"hand", L"手写输入", 0xE929, L"设置手写识别和候选展示。"},
+    {"clip", L"剪贴板", 0xE77F, L"管理剪贴板记录和跨设备发送。"},
+    {"stats", L"打字统计", 0xE9D2, L"查看输入量、速度和使用趋势。"},
+    {"plugins", L"插件", 0xEA86, L"管理输入扩展，浏览和安装社区插件。"},
+    {"ai", L"AI 辅助", 0xE99A, L"配置候选补全、文本整理和服务连接。"},
+    {"account", L"账号", 0xE77B, L"登录并管理跨设备同步与云端内容。"},
+    {"dev", L"维护与诊断", 0xE90F, L"导入导出设置，检查本机状态和诊断信息。"},
+    {"feedback", L"帮助与反馈", 0xED15, L"查阅使用帮助，反馈问题和建议。"},
+    {"about", L"关于", 0xE946, L"查看版本、更新和许可信息。"},
 }};
 static_assert(page_labels.size() == nav::pages.size());
 static_assert(page_labels[0].id == nav::default_page);
@@ -3026,15 +3027,12 @@ private:
     render_page(true);
   }
 
-  // Rebuilds the window in a new palette and carries over where the user was: the scroll position, the text in the title bar search and the sidebar filter. Setting the text does not open the suggestion list, which only answers typing.
+  // 切换明暗时保留滚动位置和侧栏搜索内容；恢复文字不会主动打开建议列表。
   void rebuild_shell() {
     const double offset = scroll_ ? scroll_.VerticalOffset() : 0.0;
     const hstring query = search_ ? search_.Text() : hstring();
-    const hstring filter = filter_ ? filter_.Text() : hstring();
     build_shell(offset);
     search_.Text(query);
-    filter_.Text(filter);
-    filter_navigation(std::wstring(filter.c_str()));
   }
 
   void on_activated(Inspectable const &, WindowActivatedEventArgs const &args) {
@@ -3251,60 +3249,65 @@ private:
   Grid make_titlebar() {
     Grid bar;
     bar.Height(48);
-    ColumnDefinition lead;
-    lead.Width(GridLength{1, GridUnitType::Auto});
-    ColumnDefinition middle;
-    middle.Width(GridLength{1, GridUnitType::Star});
+    ColumnDefinition sidebar;
+    sidebar.Width(GridLength{224, GridUnitType::Pixel});
+    ColumnDefinition content;
+    content.Width(GridLength{1, GridUnitType::Star});
     ColumnDefinition caption;
     caption.Width(GridLength{140, GridUnitType::Pixel});
-    bar.ColumnDefinitions().Append(lead);
-    bar.ColumnDefinitions().Append(middle);
+    bar.ColumnDefinitions().Append(sidebar);
+    bar.ColumnDefinitions().Append(content);
     bar.ColumnDefinitions().Append(caption);
 
     StackPanel identity;
     identity.Orientation(Orientation::Horizontal);
-    identity.Padding(Thickness{12, 0, 0, 0});
+    identity.Spacing(10);
+    identity.Margin(Thickness{18, 0, 12, 0});
     identity.VerticalAlignment(VerticalAlignment::Center);
+    Image logo;
+    logo.Width(24);
+    logo.Height(24);
+    show_logo(logo, 48);
+    identity.Children().Append(logo);
+    auto product = make_text(MSIME_EDITION_DISPLAY_NAME, 13, palette_.text);
+    product.FontWeight(Windows::UI::Text::FontWeight{600});
+    product.VerticalAlignment(VerticalAlignment::Center);
+    identity.Children().Append(product);
+    bar.Children().Append(identity);
 
+    StackPanel tools;
+    tools.Orientation(Orientation::Horizontal);
+    tools.Spacing(8);
+    tools.Margin(Thickness{12, 0, 0, 0});
+    tools.VerticalAlignment(VerticalAlignment::Center);
     back_ = Button();
-    back_.Width(40);
-    back_.Height(36);
+    back_.Width(32);
+    back_.Height(30);
     back_.Padding(Thickness{0, 0, 0, 0});
-    back_.CornerRadius(CornerRadius{4, 4, 4, 4});
+    back_.CornerRadius(CornerRadius{6, 6, 6, 6});
     back_.Background(brush(transparent_color()));
     back_.BorderThickness(Thickness{0, 0, 0, 0});
     back_.Content(make_icon(0xE72B, 12, palette_.text));
     back_.IsEnabled(!history_.empty());
     A11y::SetName(back_, L"返回");
-    back_.Click([this](Inspectable const &, RoutedEventArgs const &) {
-      go_back();
-    });
-    identity.Children().Append(back_);
+    back_.Click([this](Inspectable const &, RoutedEventArgs const &) { go_back(); });
+    tools.Children().Append(back_);
+    toolbar_title_ = make_text(page_label(current_page_).title, 13, palette_.sub);
+    toolbar_title_.VerticalAlignment(VerticalAlignment::Center);
+    tools.Children().Append(toolbar_title_);
+    Grid::SetColumn(tools, 1);
+    bar.Children().Append(tools);
+    bar.Loaded([this](Inspectable const &, RoutedEventArgs const &) { update_passthrough(); });
+    bar.SizeChanged([this](Inspectable const &, SizeChangedEventArgs const &) { update_passthrough(); });
+    return bar;
+  }
 
-    Image logo;
-    logo.Width(18);
-    logo.Height(18);
-    logo.Margin(Thickness{8, 0, 12, 0});
-    logo.VerticalAlignment(VerticalAlignment::Center);
-    show_logo(logo, 36);
-    identity.Children().Append(logo);
-
-    auto product = make_text(MSIME_EDITION_DISPLAY_NAME, 12, palette_.text);
-    product.VerticalAlignment(VerticalAlignment::Center);
-    identity.Children().Append(product);
-    auto section = make_text(L"设置", 12, palette_.sub);
-    section.Margin(Thickness{6, 0, 0, 0});
-    section.VerticalAlignment(VerticalAlignment::Center);
-    identity.Children().Append(section);
-    Grid::SetColumn(identity, 0);
-    bar.Children().Append(identity);
-
+  AutoSuggestBox make_search_field() {
     search_ = AutoSuggestBox();
-    search_.PlaceholderText(L"搜索");
+    search_.PlaceholderText(L"搜索设置");
     search_.QueryIcon(SymbolIcon(Symbol::Find));
-    search_.MaxWidth(360);
     search_.Height(32);
-    search_.Margin(Thickness{16, 0, 16, 0});
+    search_.Margin(Thickness{12, 4, 12, 12});
     search_.HorizontalAlignment(HorizontalAlignment::Stretch);
     search_.VerticalAlignment(VerticalAlignment::Center);
     A11y::SetName(search_, L"搜索设置");
@@ -3316,7 +3319,7 @@ private:
         update_suggestions(search_query_);
       } else if (reason == AutoSuggestionBoxTextChangeReason::SuggestionChosen &&
                  std::wstring_view(sender.Text()) == no_search_results) {
-        // Moving onto the no-results line would put it in the box in place of what was typed.
+        // 无结果提示不能替换用户已经输入的查询。
         sender.Text(hstring(search_query_));
       }
     });
@@ -3330,19 +3333,10 @@ private:
             return;
           open_search_result(chosen, std::wstring(args.QueryText().c_str()));
         });
-    Grid::SetColumn(search_, 1);
-    bar.Children().Append(search_);
-
-    bar.Loaded([this](Inspectable const &, RoutedEventArgs const &) {
-      update_passthrough();
-    });
-    bar.SizeChanged([this](Inspectable const &, SizeChangedEventArgs const &) {
-      update_passthrough();
-    });
-    return bar;
+    return search_;
   }
 
-  // The title bar is a drag region; the back button and the search box take their own clicks.
+  // 标题栏保留拖动区域；返回按钮接收自己的点击。
   void update_passthrough() {
     if (!titlebar_ || !titlebar_.XamlRoot())
       return;
@@ -3363,7 +3357,6 @@ private:
           static_cast<int32_t>(std::lround(bounds.Height * scale))});
     };
     add(back_);
-    add(search_);
     Microsoft::UI::Input::InputNonClientPointerSource::GetForWindowId(
         AppWindow().Id())
         .SetRegionRects(Microsoft::UI::Input::NonClientRegionKind::Passthrough,
@@ -3405,25 +3398,7 @@ private:
     resources.Insert(box_value(L"NavigationViewItemMinHeight"), box_value(28.0));
     put(L"NavigationViewItemSeparatorForeground", palette_.divider);
 
-    filter_ = AutoSuggestBox();
-    filter_.PlaceholderText(L"搜索");
-    filter_.QueryIcon(SymbolIcon(Symbol::Find));
-    A11y::SetName(filter_, L"筛选页面");
-    filter_.TextChanged([this](AutoSuggestBox const &sender,
-                               AutoSuggestBoxTextChangedEventArgs const &) {
-      filter_navigation(std::wstring(sender.Text().c_str()));
-    });
-    filter_.QuerySubmitted([this](AutoSuggestBox const &,
-                                  AutoSuggestBoxQuerySubmittedEventArgs const &) {
-      for (auto const &value : navigation_.MenuItems()) {
-        const auto item = value.try_as<NavigationViewItem>();
-        if (item && item.Visibility() == Visibility::Visible) {
-          navigate(utf8(unbox_value<hstring>(item.Tag())), true);
-          return;
-        }
-      }
-    });
-    view.AutoSuggestBox(filter_);
+    view.PaneHeader(make_search_field());
 
     // 每组以标题开头；`SettingsNavigation.h` 的页面按组排序，所以组一变就该插入标题。
     std::optional<std::size_t> group;
@@ -3449,6 +3424,9 @@ private:
       item.Icon(icon);
       item.FontSize(13);
       item.MinHeight(28);
+      item.Height(28);
+      item.Margin(Thickness{6, 0, 6, 0});
+      item.Padding(Thickness{8, 0, 8, 0});
       item.Tag(box_value(text(page.id)));
       A11y::SetAutomationId(item, text(page.id));
       view.MenuItems().Append(item);
@@ -3469,23 +3447,6 @@ private:
     scroll_.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);
     view.Content(scroll_);
     return view;
-  }
-
-  void filter_navigation(std::wstring const &query) {
-    const auto needle = lowercase(query);
-    for (auto const &value : navigation_.MenuItems()) {
-      if (const auto item = value.try_as<NavigationViewItem>()) {
-        const auto label = lowercase(
-            unbox_value_or<hstring>(item.Content(), L"").c_str());
-        item.Visibility(needle.empty() || label.find(needle) != std::wstring::npos
-                            ? Visibility::Visible
-                            : Visibility::Collapsed);
-      } else if (const auto header =
-                     value.try_as<NavigationViewItemHeader>()) {
-        header.Visibility(needle.empty() ? Visibility::Visible
-                                         : Visibility::Collapsed);
-      }
-    }
   }
 
   void select_navigation_item() {
@@ -3656,6 +3617,7 @@ private:
     if (!scroll_)
       return;
     back_.IsEnabled(!history_.empty());
+    toolbar_title_.Text(page_label(current_page_).title);
     preview_host_ = nullptr;
     focus_target_ = nullptr;
 
@@ -3673,7 +3635,7 @@ private:
     build_page(current_page_, page);
     scroll_.Content(page);
 
-    // Weak references: the page owns this handler, so a strong one would keep the page alive through a cycle.
+    // 页面持有回调，弱引用避免页面与控件互相持有。
     const bool focus = static_cast<bool>(focus_target_);
     weak_ref<FrameworkElement> weak_target;
     if (focus)
@@ -3709,10 +3671,21 @@ private:
     row.ColumnDefinitions().Append(tools_column);
 
     auto title = make_text(page_label(current_page_).title, 22, palette_.text);
+    A11y::SetAutomationId(title, text("settings-page-" + current_page_));
     title.FontWeight(Windows::UI::Text::FontWeight{600});
     title.VerticalAlignment(VerticalAlignment::Center);
-    Grid::SetColumn(title, 0);
-    row.Children().Append(title);
+    StackPanel heading;
+    heading.Spacing(4);
+    heading.Children().Append(title);
+    heading.Children().Append(make_text(page_label(current_page_).summary, 11, palette_.sub));
+    Grid::SetColumnSpan(heading, 2);
+    row.Children().Append(heading);
+    RowDefinition heading_row;
+    heading_row.Height(GridLength{1, GridUnitType::Auto});
+    RowDefinition actions_row;
+    actions_row.Height(GridLength{1, GridUnitType::Auto});
+    row.RowDefinitions().Append(heading_row);
+    row.RowDefinitions().Append(actions_row);
 
     if (has_preview(current_page_)) {
       StackPanel tools;
@@ -3755,15 +3728,17 @@ private:
         });
         tools.Children().Append(edit);
       }
-      Grid::SetColumn(tools, 1);
+      Grid::SetRow(tools, 1);
+      Grid::SetColumnSpan(tools, 2);
+      tools.HorizontalAlignment(HorizontalAlignment::Right);
+      tools.Margin(Thickness{0, 8, 0, 0});
       row.Children().Append(tools);
     }
     return row;
   }
 
   static bool has_preview(std::string_view page) {
-    return page == "typing" || page == "expression" || page == "candidate" ||
-           page == "themes";
+    return page == "candidate" || page == "themes";
   }
 
   FrameworkElement make_load_failure() {
@@ -3772,6 +3747,7 @@ private:
     bar.IsClosable(false);
     bar.Severity(InfoBarSeverity::Error);
     bar.Title(L"无法读取设置");
+    A11y::SetAutomationId(bar, L"settings-load-error");
     bar.Message(hstring(load_error_.empty() ? L"读取设置失败，请稍后重试。"
                                             : load_error_));
     bar.Margin(Thickness{0, 0, 0, 12});
@@ -6612,10 +6588,11 @@ private:
 
   FrameworkElement make_theme_card(ThemeEntry const &theme, bool on) {
     const auto preview = preview_for(theme.id);
+    const auto candidate = candidate_theme(theme.id, false);
     Button card;
     card.Width(184);
     card.Padding(Thickness{10, 10, 10, 10});
-    card.CornerRadius(CornerRadius{6, 6, 6, 6});
+    card.CornerRadius(CornerRadius{10, 10, 10, 10});
     card.Background(brush(palette_.card));
     card.BorderBrush(brush(on ? palette_.accent : palette_.stroke));
     card.BorderThickness(on ? Thickness{2, 2, 2, 2} : Thickness{1, 1, 1, 1});
@@ -6625,19 +6602,25 @@ private:
     body.Spacing(8);
     Border surface;
     surface.Height(84);
-    surface.CornerRadius(CornerRadius{4, 4, 4, 4});
+    surface.CornerRadius(CornerRadius{8, 8, 8, 8});
     surface.Background(brush(preview.background));
     Border panel;
-    panel.CornerRadius(CornerRadius{4, 4, 4, 4});
-    panel.Padding(Thickness{10, 6, 10, 6});
-    panel.Background(brush(preview.panel));
+    panel.CornerRadius(CornerRadius{8, 8, 8, 8});
+    panel.Padding(Thickness{4, 4, 4, 4});
+    panel.Background(brush(to_color(candidate.surface)));
     panel.HorizontalAlignment(HorizontalAlignment::Center);
     panel.VerticalAlignment(VerticalAlignment::Center);
     StackPanel words;
-    words.Orientation(Orientation::Horizontal);
-    words.Spacing(10);
-    words.Children().Append(make_text(L"1 候选", 13, preview.accent));
-    words.Children().Append(make_text(L"2 候选", 13, preview.text));
+    words.Spacing(2);
+    Border selected;
+    selected.Background(brush(to_color(candidate.selected)));
+    selected.CornerRadius(CornerRadius{6, 6, 6, 6});
+    selected.Padding(Thickness{8, 4, 8, 4});
+    selected.Child(make_text(L"1  水杉输入法", 12, to_color(candidate.selected_text)));
+    words.Children().Append(selected);
+    auto alternate = make_text(L"2  水杉", 12, to_color(candidate.text));
+    alternate.Margin(Thickness{8, 2, 8, 2});
+    words.Children().Append(alternate);
     panel.Child(words);
     surface.Child(panel);
     body.Children().Append(surface);
@@ -10090,11 +10073,27 @@ private:
   // ---- 界面预览 ----
 
   FrameworkElement make_preview() {
-    Grid holder;
-    holder.Padding(Thickness{0, 8, 0, 40});
+    StackPanel holder;
+    holder.Spacing(8);
+    holder.Margin(Thickness{0, 8, 0, 12});
+    auto label = make_text(L"实时预览", 13, palette_.text);
+    label.FontWeight(Windows::UI::Text::FontWeight{600});
+    holder.Children().Append(label);
     preview_host_ = Border();
     preview_host_.HorizontalAlignment(HorizontalAlignment::Center);
-    holder.Children().Append(preview_host_);
+    ScrollViewer viewport;
+    viewport.MaxHeight(248);
+    viewport.HorizontalScrollBarVisibility(ScrollBarVisibility::Auto);
+    viewport.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
+    viewport.HorizontalContentAlignment(HorizontalAlignment::Center);
+    viewport.Content(preview_host_);
+    Border stage;
+    stage.Background(brush(palette_.seg_well));
+    stage.CornerRadius(CornerRadius{10, 10, 10, 10});
+    stage.Padding(Thickness{16, 16, 16, 16});
+    stage.Child(viewport);
+    holder.Children().Append(stage);
+    holder.Children().Append(make_text(L"调整下方设置，预览会同步变化。", 11, palette_.sub));
     update_preview();
     return holder;
   }
@@ -10756,57 +10755,6 @@ private:
 
   void build_typing_page(StackPanel const &page) {
     const auto scheme = document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W);
-    auto schemes = add_group(page, L"输入方案");
-    // 只列出本版本提供的方案。
-    std::vector<Option> scheme_options;
-    for (Option const &option : std::vector<Option>{
-             {L"quanpin", L"全拼"}, {L"shuangpin", L"双拼"}, {L"wubi", L"五笔"},
-             {L"cantonese", L"粤拼"}, {L"zhuyin", L"注音"},
-             {L"japanese", L"日语"}, {L"korean", L"韩语"}, {L"vietnamese", L"越南语"},
-             {L"tibetan", L"藏文"}, {L"stroke", L"笔画"}})
-      if (edition_offers_scheme(option.value))
-        scheme_options.push_back(option);
-    // Cantonese, Zhuyin and Stroke need their dictionary in language-dictionaries beside the resources; chosen without it, the Engine runs the last Chinese scheme instead and the tray shows that one.
-    add_row(schemes, 0xE765, L"输入方案",
-            L"全拼、双拼、五笔、粤拼、注音、日语、韩语、越南语、藏文或笔画。粤拼、注音和笔画需要安装对应词库，未安装时沿用上次的中文方案", segmented_control(
-        L"输入方案", scheme_options, scheme, [this](std::wstring const &next) { select_scheme(next); }));
-    if (scheme == L"shuangpin" || indexing_) {
-      select_row(schemes, 0xE8AB, L"双拼方案", L"", L"shuangpin_profile",
-                 {{L"xiaohe", L"小鹤双拼"}, {L"ziranma", L"自然码双拼"},
-                  {L"microsoft", L"微软双拼"}, {L"shoudao", L"首道双拼"}},
-                 L"xiaohe");
-      // 共享偏好 shuangpin_keymap_hint，与共享设置的同名开关相同；没选过时文档里没有这一项，按关显示。
-      bool_row(schemes, 0xE765, L"输入时显示双拼键位提示",
-               L"双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。",
-               L"shuangpin_keymap_hint", false);
-    }
-    if (scheme == L"vietnamese" || indexing_) {
-      segment_row(schemes, 0xE8AB, L"越南语输入法", L"Telex 用字母打声调和变音，VNI 用数字键",
-                  L"vietnamese.input_method", {{L"telex", L"Telex"}, {L"vni", L"VNI"}}, L"telex");
-      segment_row(schemes, 0xE8D2, L"声调位置", L"oa、oe、uy 中声调标在哪个元音上：新式 hoà，旧式 hòa",
-                  L"vietnamese.tone_style", {{L"modern", L"新式"}, {L"classic", L"旧式"}}, L"modern");
-    }
-    // 藏文只有威利转写一种输入法，没有可调的选项，这一行只说明按键。
-    if (scheme == L"tibetan" || indexing_)
-      add_row(schemes, 0xE8AB, L"藏文输入法",
-              L"威利转写（EWTS）：用拉丁字母拼写，区分大小写。空格上屏并加音节点 ་，/ 上屏并加垂符 །，回车只上屏藏文，Esc 先显示拉丁原文",
-              nullptr);
-    if (scheme == L"wubi" || indexing_) {
-      select_row(schemes, 0xE8AB, L"五笔方案", L"", L"wubi_profile",
-                 {{L"wubi86", L"86 五笔"}, {L"wubi98", L"98 五笔"}}, L"wubi86");
-      bool_row(schemes, 0xE8D2, L"五笔拼音混输",
-               L"五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。",
-               L"wubi_mixed_pinyin", MSIME_EDITION_WUBI_MIXED_PINYIN_DEFAULT != 0);
-      bool_row(schemes, 0xE8CB, L"候选显示剩余编码",
-               L"在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。",
-               L"wubi_code_hint", true);
-      bool_row(schemes, 0xE8CB, L"四码唯一候选自动上屏",
-               L"五笔输入达到四码且只有一个候选时，自动提交该候选。关闭后这个词留在候选列表里，用空格或数字键选它。",
-               L"wubi_auto_commit_unique", true);
-    }
-    if (scheme == L"wubi" || indexing_)
-      build_wubi_code_lookup(page);
-
     auto language = add_group(page, L"中英文");
     segment_row(language, 0xE774, L"默认中英文", L"新焦点会话开始时使用的中文或英文状态",
                 L"default_ime_mode", {{L"chinese", L"中文"}, {L"english", L"英文"}},
@@ -10820,6 +10768,94 @@ private:
              L"input_mode_hud", true);
     app_input_mode_rule_row(language);
 
+    auto schemes = add_group(page, L"输入方案");
+    // 只列出本版本提供的方案。
+    std::vector<Option> scheme_options;
+    for (Option const &option : std::vector<Option>{
+             {L"quanpin", L"全拼"}, {L"shuangpin", L"双拼"}, {L"wubi", L"五笔"},
+             {L"cantonese", L"粤拼"}, {L"zhuyin", L"注音"},
+             {L"japanese", L"日语"}, {L"korean", L"韩语"}, {L"vietnamese", L"越南语"},
+             {L"tibetan", L"藏文"}, {L"stroke", L"笔画"}})
+      if (edition_offers_scheme(option.value))
+        scheme_options.push_back(option);
+    for (const auto &option : scheme_options) {
+      RadioButton radio;
+      radio.Content(box_value(hstring(option.label + L"输入")));
+      radio.GroupName(L"input-scheme");
+      radio.MinHeight(32);
+      radio.IsChecked(option.value == scheme);
+      radio.IsEnabled(loaded_);
+      radio.Checked([this, next = option.value](Inspectable const &, RoutedEventArgs const &) {
+        select_scheme(next);
+      });
+      A11y::SetName(radio, hstring(option.label + L"输入"));
+      A11y::SetAutomationId(radio, hstring(L"scheme-" + option.value));
+      record(option.label + L"输入", L"输入方案");
+      Border choice;
+      choice.Padding(Thickness{0, 2, 0, 2});
+      if (schemes.Children().Size() > 0) {
+        choice.BorderBrush(brush(palette_.divider));
+        choice.BorderThickness(Thickness{0, 1, 0, 0});
+      }
+      choice.Child(radio);
+      schemes.Children().Append(choice);
+      mark_search_target(option.label + L"输入", radio);
+    }
+    StackPanel scheme_options_group{nullptr};
+    if (scheme == L"shuangpin" || scheme == L"wubi" || scheme == L"vietnamese" ||
+        scheme == L"tibetan")
+      scheme_options_group = add_group(page, L"当前方案选项");
+    if (scheme == L"shuangpin") {
+      select_row(scheme_options_group, 0xE8AB, L"双拼方案", L"", L"shuangpin_profile",
+                 {{L"xiaohe", L"小鹤双拼"}, {L"ziranma", L"自然码双拼"},
+                  {L"microsoft", L"微软双拼"}, {L"shoudao", L"首道双拼"}},
+                 L"xiaohe");
+      // 共享偏好 shuangpin_keymap_hint，与共享设置的同名开关相同；没选过时文档里没有这一项，按关显示。
+      bool_row(scheme_options_group, 0xE765, L"输入时显示双拼键位提示",
+               L"双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。",
+               L"shuangpin_keymap_hint", false);
+    }
+    if (scheme == L"vietnamese") {
+      segment_row(scheme_options_group, 0xE8AB, L"越南语输入法", L"Telex 用字母打声调和变音，VNI 用数字键",
+                  L"vietnamese.input_method", {{L"telex", L"Telex"}, {L"vni", L"VNI"}}, L"telex");
+      segment_row(scheme_options_group, 0xE8D2, L"声调位置", L"oa、oe、uy 中声调标在哪个元音上：新式 hoà，旧式 hòa",
+                  L"vietnamese.tone_style", {{L"modern", L"新式"}, {L"classic", L"旧式"}}, L"modern");
+    }
+    // 藏文只有威利转写一种输入法，没有可调的选项，这一行只说明按键。
+    if (scheme == L"tibetan")
+      add_row(scheme_options_group, 0xE8AB, L"藏文输入法",
+              L"威利转写（EWTS）：用拉丁字母拼写，区分大小写。空格上屏并加音节点 ་，/ 上屏并加垂符 །，回车只上屏藏文，Esc 先显示拉丁原文",
+              nullptr);
+    if (scheme == L"wubi") {
+      select_row(scheme_options_group, 0xE8AB, L"五笔方案", L"", L"wubi_profile",
+                 {{L"wubi86", L"86 五笔"}, {L"wubi98", L"98 五笔"}}, L"wubi86");
+      bool_row(scheme_options_group, 0xE8D2, L"五笔拼音混输",
+               L"五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。",
+               L"wubi_mixed_pinyin", MSIME_EDITION_WUBI_MIXED_PINYIN_DEFAULT != 0);
+      bool_row(scheme_options_group, 0xE8CB, L"候选显示剩余编码",
+               L"在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。",
+               L"wubi_code_hint", true);
+      bool_row(scheme_options_group, 0xE8CB, L"四码唯一候选自动上屏",
+               L"五笔输入达到四码且只有一个候选时，自动提交该候选。关闭后这个词留在候选列表里，用空格或数字键选它。",
+               L"wubi_auto_commit_unique", true);
+    }
+    if (scheme == L"wubi")
+      build_wubi_code_lookup(page);
+
+    // 辅助码与搜索索引均只登记当前方案；切换方案后的修订会使索引重建。
+    if (scheme == L"quanpin" || scheme == L"shuangpin") {
+      if (!indexing_)
+        load_helpcode_sources();
+      auto helpcode = add_group(page, L"辅助码");
+      if (edition_offers_scheme(L"quanpin") && (scheme == L"quanpin"))
+        helpcode_rows(helpcode, L"全拼", L"quanpin", true, L"ziranma", false);
+      if (edition_offers_scheme(L"shuangpin") && (scheme == L"shuangpin"))
+        helpcode_rows(helpcode, L"双拼", L"shuangpin", true, L"lantian", true);
+    }
+  }
+
+  // 设置按任务归页，搜索索引随所属页面一起建立。
+  void build_selection_keys(StackPanel const &page) {
     auto word = add_group(page, L"选词与翻页");
     const bool word_enabled = document_.Boolean(L"word_character.enabled", false);
     const auto word_keys = document_.String(L"word_character.keys", L"brackets");
@@ -10835,7 +10871,7 @@ private:
                                  doc.SetBoolean(L"word_character.enabled", false);
                                  return;
                                }
-                               // The chosen pair stops paging, which the store requires.
+                               // 同一键组不能同时用于以词定字和翻页。
                                doc.SetString(L"word_character.keys", value);
                                doc.SetBoolean(L"word_character.enabled", true);
                                doc.SetBoolean(L"navigation." + value, false);
@@ -10871,7 +10907,7 @@ private:
       paging_checks.push_back(
           {label, document_.Boolean(key, false),
            [this, key, pair, word_enabled, word_keys](bool on) {
-             // 以词定字 and 翻页 cannot share a key pair: taking the pair for paging turns 以词定字 off.
+             // 把以词定字占用的键组改为翻页时，同一次保存关闭以词定字。
              const bool conflict = on && word_enabled && pair == word_keys;
              change([&](PreferencesDocument &doc) {
                doc.SetBoolean(key, on);
@@ -10883,6 +10919,9 @@ private:
     add_row(word, 0xE8AB, L"翻页方式", L"选择用于翻页的按键", nullptr,
             checks_panel(std::move(paging_checks), 190));
 
+  }
+
+  void build_input_habits(StackPanel const &page) {
     auto candidates = add_group(page, L"候选与联想");
     bool_row(candidates, 0xE753, L"云候选", L"向在线服务请求额外候选",
              L"cloud_candidates", false);
@@ -10926,7 +10965,7 @@ private:
       const wchar_t *label;
       bool default_on;
     };
-    // V, / and @ are off until the user turns them on: each takes a key that used to type itself.
+    // V、/、@ 会占用原本可直接输入的键，默认关闭。
     // 拆字反查（C 模式）同理在桌面默认关：打开后句首和中英混打的大写 C（C 盘、C 语言）会进模式。共享文档在用户动过开关之前没有这个键，host-api 在桌面构建里把缺键读作关。
     const std::array<LocalMode, 12> modes{{
         {L"quick_phrase", L"快捷短语(K 模式)", true},
@@ -10970,15 +11009,6 @@ private:
              L"quanpin.autocorrect_transposition", true);
     fuzzy_row(correction);
 
-    // 辅助码只用于全拼和双拼：与共享页的 editionUsesHelpcode 相同，本版本提供其中之一就显示这一组，组里全拼和双拼两族都列出；两者都没有的版本（五笔版）不显示。
-    if (edition_offers_scheme(L"quanpin") || edition_offers_scheme(L"shuangpin")) {
-      if (!indexing_)
-        load_helpcode_sources();
-      auto helpcode = add_group(page, L"辅助码");
-      helpcode_rows(helpcode, L"全拼", L"quanpin", true, L"ziranma", false);
-      helpcode_rows(helpcode, L"双拼", L"shuangpin", true, L"lantian", true);
-    }
-
     auto frequency = add_group(page, L"拼音方案调频");
     select_row(frequency, 0xE8CB, L"调频方式", L"", L"frequency.mode",
                {{L"disabled", L"关闭"}, {L"pin", L"一次置顶"}, {L"halve", L"折半调频"},
@@ -10987,8 +11017,7 @@ private:
     number_select_row(frequency, 0xE8EF, L"触发频次(第几次上屏触发)", L"",
                       L"frequency.trigger_count", {1, 2, 3, 4, 5, 6}, 1, L"");
     number_select_row(frequency, 0xE8EF, L"线性调频步长", L"",
-                      L"frequency.linear_step", {1, 2, 3, 4, 5, 6}, 1, L"");
-  }
+                      L"frequency.linear_step", {1, 2, 3, 4, 5, 6}, 1, L"");  }
 
   // 选择日语、韩语、越南语或藏语时记住被替换的中文方案，切回时回到它；选择中文方案（包括粤拼、注音和笔画）时记住这个方案。在这几种语言之间切换保留记住的方案，因为它们都不是存储接受的中文方案。规则与托盘相同（server_main.cpp 的 store_input_scheme）。
   void select_scheme(std::wstring const &next) {
@@ -11108,6 +11137,7 @@ private:
   // ---- 标点与翻译 ----
 
   void build_expression_page(StackPanel const &page) {
+    build_input_habits(page);
     auto punctuation = add_group(page, L"标点");
     bool_row(punctuation, 0xE8C1, L"中文标点", L"在中文模式下使用全角标点。",
              L"chinese_punctuation", true);
@@ -11650,6 +11680,7 @@ private:
   // ---- 快捷键 ----
 
   void build_shortcuts_page(StackPanel const &page) {
+    build_selection_keys(page);
     auto keys = add_group(page, L"输入模式切换");
     // 偏好里仍是三个独立的布尔值，这里和共用设置页一样只让选一个：同时开着多个时按 Shift > 单击 Ctrl > Ctrl+Alt+Space 显示第一个，选中一项时一次写全三个，「不使用」三个都关。
     const std::array<std::pair<const wchar_t *, const wchar_t *>, 3> switches{{
@@ -19227,7 +19258,7 @@ private:
   Grid titlebar_{nullptr};
   Button back_{nullptr};
   AutoSuggestBox search_{nullptr};
-  AutoSuggestBox filter_{nullptr};
+  TextBlock toolbar_title_{nullptr};
   NavigationView navigation_{nullptr};
   ScrollViewer scroll_{nullptr};
   Border preview_host_{nullptr};

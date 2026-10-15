@@ -10,6 +10,19 @@ Add-Type @'
 using System;
 using System.Runtime.InteropServices;
 public static class SettingsWindowProbe {
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern bool SetDllDirectory(string path);
+    [DllImport("msime_host_api.dll", CallingConvention = CallingConvention.Cdecl)] static extern IntPtr msime_client_default_preferences();
+    [DllImport("msime_host_api.dll", CallingConvention = CallingConvention.Cdecl)] static extern void msime_client_string_free(IntPtr value);
+    public static string DefaultPreferences() {
+        IntPtr value = msime_client_default_preferences();
+        try {
+            int length = 0;
+            while (Marshal.ReadByte(value, length) != 0) length++;
+            byte[] bytes = new byte[length];
+            Marshal.Copy(value, bytes, 0, length);
+            return System.Text.Encoding.UTF8.GetString(bytes);
+        } finally { msime_client_string_free(value); }
+    }
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
 }
 '@
@@ -47,9 +60,16 @@ function Save-Window($element, [string]$file) {
 try {
     New-Item -ItemType Directory -Force $state | Out-Null
     $env:MSIME_CLIENT_STATE_DIR = $state
+    if (-not [SettingsWindowProbe]::SetDllDirectory([IO.Path]::GetDirectoryName($programPath))) { throw 'Settings DLL path could not be set' }
+    $defaults = [SettingsWindowProbe]::DefaultPreferences() | ConvertFrom-Json
+    if (-not $defaults.ok) { throw 'Default preferences could not be loaded' }
     foreach ($theme in @('light', 'dark')) {
-        $document = @{format_version = 1; revision = 1; preferences = @{settings_theme = $theme; theme = $theme; scheme = 'quanpin'}}
-        [IO.File]::WriteAllText((Join-Path $state 'preferences.json'), ($document | ConvertTo-Json -Depth 4))
+        $preferences = $defaults.value
+        $preferences.settings_theme = $theme
+        $preferences.theme = $theme
+        $preferences.scheme = 'quanpin'
+        $document = @{format_version = 1; revision = 1; preferences = $preferences}
+        [IO.File]::WriteAllText((Join-Path $state 'preferences.json'), ($document | ConvertTo-Json -Depth 64))
         $process = Start-Process -FilePath $programPath -ArgumentList '--route=settings:input' -PassThru
         $deadline = [DateTime]::UtcNow.AddSeconds(60)
         do {
@@ -66,13 +86,21 @@ try {
                 if ($process.HasExited) { throw "Settings exited on $page" }
                 $item = Find-ById $window $page
                 if (-not $item) { throw "Missing native page: $page" }
+                # 虚拟化会复用导航元素；滚入视口后重新取元素，以正文的稳定 id 等待页面完成切换。
+                $item.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern).ScrollIntoView()
+                $item = Find-ById $window $page
                 $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
-                # 等待本轮 WinUI 布局与异步状态标签落地；这里不更改任何输入设置。
+                $deadline = [DateTime]::UtcNow.AddSeconds(15)
+                do {
+                    Start-Sleep -Milliseconds 200
+                    $content = Find-ById $window 'settings-content'
+                    $title = if ($content) { Find-ById $content "settings-page-$page" } else { $null }
+                } while (-not $title -and [DateTime]::UtcNow -lt $deadline)
+                if (-not $title) { throw "Page did not change to $page" }
+                if (Find-ById $content 'settings-load-error') { throw 'Synthetic preferences were rejected by the real host' }
+                if ($content.Current.BoundingRectangle.Width -lt 480) { throw "No usable content column on $page" }
+                # 再等一轮呈现，避免 UIA 树已经更新而屏幕仍是上一页的画面。
                 Start-Sleep -Milliseconds 500
-                $content = Find-ById $window 'settings-content'
-                if (-not $content -or $content.Current.BoundingRectangle.Width -lt 480) { throw "No usable content column on $page" }
-                $titleCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $item.Current.Name)
-                if (-not $content.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $titleCondition)) { throw "Page title did not change to $page" }
                 Save-Window $window "$theme-$width-$page.png"
                 Write-Host "$theme $width $page rendered"
             }
@@ -84,6 +112,7 @@ try {
     }
 } finally {
     if ($process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+    [SettingsWindowProbe]::SetDllDirectory($null) | Out-Null
     $env:MSIME_CLIENT_STATE_DIR = $oldState
     Remove-Item -LiteralPath $state -Recurse -Force -ErrorAction SilentlyContinue
 }

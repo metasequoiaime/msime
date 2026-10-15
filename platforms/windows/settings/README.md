@@ -36,6 +36,12 @@
 
 `--route=settings:<id>` 指定打开的页面，可以是共享路由的设置分类 id（`appearance`、`dictionary`、`about` 等，映射见 `route_aliases`），也可以是本窗口的页面 id；其他值打开默认的「输入」页。
 
+## 页面与导航
+
+窗口参照 macOS 原生设置：侧栏只保留一个设置项搜索，正文工具栏显示当前页面；各页标题附一行用途说明。「输入方案」逐项选择输入方式，专属选项和辅助码随当前方案变化；「输入习惯」集中混输、输出、快捷模式、纠错和调频；「按键」集中选词、翻页与快捷键。原有路由 id 不变，搜索结果按新归属打开页面。
+
+实时预览位于「皮肤」「候选窗口」页的独立预览区域，横向候选可滚动。
+
 ## 外观与主题预览
 
 窗口以 macOS 的紧凑分组布局为依据，强调色固定为浅色 `#2C7A4B`、深色 `#5FBF84`（与候选窗口原生调色板相同），不跟随 Windows 的个性化强调色。「设置界面主题」只覆盖本窗口的明暗。
@@ -88,7 +94,7 @@ Windows App SDK 版本由 `WindowsAppSDKVersion` 属性控制，默认值与项�
 
 ## 界面验收
 
-`CI (platforms)` 的 `Windows native settings` 编译并链接本工程与真实 host-api DLL，再运行 `tests/tools/settings_ui.ps1`。脚本使用独立合成状态，通过 UI Automation 访问全部 18 页，在浅色、深色及 800／1000 宽窗口下保存截图，产物为 `windows-native-settings-screenshots`。本机也可对构建好的宿主运行：
+`CI (platforms)` 的 `Windows native settings` 编译并链接本工程与真实 host-api DLL，再运行 `tests/tools/settings_ui.ps1`。脚本使从真实 host-api DLL 取得完整默认偏好，用独立合成状态，通过 UI Automation 访问全部 18 页，在浅色、深色及 800／1000 宽窗口下保存截图，产物为 `windows-native-settings-screenshots`。本机也可对构建好的宿主运行：
 
 ```powershell
 powershell -NoProfile -File platforms/windows/tests/tools/settings_ui.ps1 `
