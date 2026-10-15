@@ -4,6 +4,7 @@ import app.msime.android.LayoutPolicy;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.graphics.Typeface;
 import android.os.SystemClock;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
@@ -86,7 +87,11 @@ final class ImeTextEditPanel {
             s.imeLetterRows.bindBackspaceRepeat(button, run);
         } else {
             button = s.keyboardKey(spec.label(), spec.description(), run);
-            if (action == TextEditPanelModel.Action.SELECT || spec.label().length() > 1)
+            if (isArrow(action)) {
+                // 系统默认按钮字号和字重让方向箭头显得细小；编辑面板的箭头是主要操作，统一放大并加粗。
+                KeyboardTypographyPolicy.setKeyTextSize(button, 24);
+                button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            } else if (action == TextEditPanelModel.Action.SELECT || spec.label().length() > 1)
                 KeyboardTypographyPolicy.setKeyTextSize(button, 16);
             if (spec.repeats()) bindRepeat(button, run);
         }
@@ -94,6 +99,15 @@ final class ImeTextEditPanel {
         button.setContentDescription(spec.description());
         buttons.put(action, button);
         return button;
+    }
+
+    private static boolean isArrow(TextEditPanelModel.Action action) {
+        return action == TextEditPanelModel.Action.LEFT
+            || action == TextEditPanelModel.Action.UP
+            || action == TextEditPanelModel.Action.DOWN
+            || action == TextEditPanelModel.Action.RIGHT
+            || action == TextEditPanelModel.Action.DOCUMENT_START
+            || action == TextEditPanelModel.Action.DOCUMENT_END;
     }
 
     /** 按下立即执行一次，按住按 {@link BackspaceRepeatPolicy} 的节奏连发，松手或滑出键停止。 */
