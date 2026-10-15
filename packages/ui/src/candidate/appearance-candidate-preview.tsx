@@ -1,4 +1,5 @@
 import type { Preferences } from "../index";
+import { preeditControlState } from "../settings/preedit-preferences";
 import { ReservedCandidatePreview, type PreviewReserve } from "../skin/skin-candidate-preview";
 import { candidateFontSize, candidateFontStyle } from "./candidate-font-size";
 import { candidateFamilyStyle } from "./candidate-font-family";
@@ -93,7 +94,7 @@ export function AppearanceCandidatePreview({
           reserve={reserve}
           orientation={preferences.candidate_layout ?? "vertical"}
           count={preferences.candidate_page_size}
-          preedit={preferences.candidate_preedit_style !== "empty"}
+          preedit={preeditControlState(preferences).candidateVisible}
           helpcode={helpcode}
           brand={brand}
         />

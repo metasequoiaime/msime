@@ -90,7 +90,7 @@ impl FileAccountSessionStorage {
         .map_err(|_| AccountError::Storage)
     }
 
-    fn lock(&self) -> Result<File, AccountError> {
+    fn lock(&self) -> Result<crate::file_lock::ScopedFileLock, AccountError> {
         self.create_directory()?;
         let file = crate::file_lock::open_private_lock_file(
             self.directory.join(ACCOUNT_REFRESH_LOCK_FILE),
@@ -99,7 +99,7 @@ impl FileAccountSessionStorage {
         let deadline = std::time::Instant::now() + LOCK_TIMEOUT;
         loop {
             if crate::file_lock::try_exclusive(&file).map_err(|_| AccountError::Storage)? {
-                return Ok(file);
+                return Ok(crate::file_lock::ScopedFileLock::from_locked(file));
             }
             if std::time::Instant::now() >= deadline {
                 return Err(AccountError::Unavailable);
@@ -324,7 +324,7 @@ impl AccountSessionStorage for FileAccountSessionStorage {
         &self,
         body: impl FnOnce() -> Result<T, AccountError>,
     ) -> Result<T, AccountError> {
-        // Released when the handle closes at the end of this call.
+        // Unix 由守卫在本次调用结束时显式解锁；Windows 继续通过关闭文件释放锁。
         let _lock = self.lock()?;
         body()
     }
@@ -500,5 +500,19 @@ mod tests {
         adopt_legacy_account_session(&legacy, &shared);
 
         assert!(!shared.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finished_refresh_scope_releases_an_inherited_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = FileAccountSessionStorage::new(root.path(), AccountSessionFileLayout::Native);
+        let held = storage.lock().unwrap();
+        let inherited = crate::file_lock::testing::duplicate(&held);
+        crate::file_lock::testing::assert_finished_scope_releases_lock(
+            held,
+            inherited,
+            &root.path().join(ACCOUNT_REFRESH_LOCK_FILE),
+        );
     }
 }

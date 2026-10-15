@@ -11,7 +11,6 @@
 use super::wordbook::{self, Wordbook, WordbookEntry};
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 
 /// The most books one library may hold.
@@ -72,7 +71,7 @@ pub struct WordbookLibrary {
 
 struct LibraryLock {
     directory: crate::file_lock::PrivateDirectory,
-    _lock: File,
+    _lock: crate::file_lock::ScopedFileLock,
 }
 
 impl WordbookLibrary {
@@ -109,7 +108,7 @@ impl WordbookLibrary {
         let directory = crate::file_lock::open_private_directory(&self.directory)?;
         let lock =
             crate::file_lock::open_private_lock_file_at(&directory, OsStr::new("wordbooks.lock"))?;
-        crate::file_lock::exclusive(&lock)?;
+        let lock = crate::file_lock::ScopedFileLock::exclusive(lock)?;
         Ok(LibraryLock {
             directory,
             _lock: lock,
@@ -289,6 +288,21 @@ impl WordbookLibrary {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn finished_scope_releases_inherited_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let store = WordbookLibrary::new(root.path());
+        let held = store.lock().unwrap();
+        let inherited = crate::file_lock::testing::duplicate(&held._lock);
+        crate::file_lock::testing::assert_finished_scope_releases_lock(
+            held,
+            inherited,
+            &store.directory.join("wordbooks.lock"),
+        );
+    }
+
     use std::fs;
 
     fn entries(words: &[&str]) -> Vec<WordbookEntry> {
@@ -431,7 +445,7 @@ mod tests {
     fn an_oversized_book_is_rejected_before_loading() {
         let (_directory, library) = library();
         fs::create_dir_all(library.directory()).unwrap();
-        File::create(library.directory().join("user-1.json"))
+        std::fs::File::create(library.directory().join("user-1.json"))
             .unwrap()
             .set_len(MAX_BOOK_BYTES + 1)
             .unwrap();

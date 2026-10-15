@@ -1,7 +1,8 @@
-import type {
-  PreeditPreferences,
-  TsfPreeditStyle,
-  CandidatePreeditStyle,
+import {
+  preeditControlState,
+  type PreeditPreferences,
+  type TsfPreeditStyle,
+  type CandidatePreeditStyle,
 } from "./preedit-preferences";
 import { PreeditStyleRow } from "./preedit-style-row";
 
@@ -23,16 +24,15 @@ export function PreeditSettingsSection({
   showShuangpinPreedit,
   onChange,
 }: PreeditSettingsSectionProps) {
+  const state = preeditControlState(preferences);
   return (
     <>
       {!mobile && (
         <PreeditStyleRow
           title="候选窗口预编辑"
           mode="candidate"
-          value={preferences.candidate_preedit_style ?? "pinyin"}
-          onChange={(value) =>
-            onChange({ candidate_preedit_style: value as CandidatePreeditStyle })
-          }
+          value={state.candidateStyle}
+          onChange={(value) => onChange({ candidate_preedit_style: value as CandidatePreeditStyle })}
         />
       )}
       {showShuangpinPreedit && (
@@ -40,7 +40,7 @@ export function PreeditSettingsSection({
           title="双拼预编辑"
           description="仅在双拼方案下生效；选择保留原始双拼按键，或显示展开后的拼音分词。"
           mode="shuangpin"
-          value={preferences.shuangpin_preedit_uses_raw === false ? "pinyin" : "raw"}
+          value={state.shuangpinStyle}
           onChange={(value) => onChange({ shuangpin_preedit_uses_raw: value === "raw" })}
         />
       )}
@@ -48,7 +48,7 @@ export function PreeditSettingsSection({
         <PreeditStyleRow
           title="行内预编辑"
           mode="inline"
-          value={preferences.tsf_preedit_style ?? "raw"}
+          value={state.inlineStyle}
           onChange={(value) => onChange({ tsf_preedit_style: value as TsfPreeditStyle })}
         />
       )}

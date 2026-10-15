@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { Preferences } from "../index";
+import { preeditControlState } from "../settings/preedit-preferences";
 import {
   decorationImage,
   drawnPackagePalette,
@@ -138,7 +139,7 @@ function LoadedPreview({
             reserve={reserve}
             orientation={layout}
             count={preferences.candidate_page_size}
-            preedit={preferences.candidate_preedit_style !== "empty"}
+            preedit={preeditControlState(preferences).candidateVisible}
             helpcode={helpcode}
             brand={brand}
             decorated={decorated}

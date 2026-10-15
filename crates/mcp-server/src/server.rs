@@ -23,7 +23,6 @@ use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
 use rmcp::schemars::JsonSchema;
 use rmcp::{prompt_handler, tool, tool_handler, tool_router, Json, ServerHandler};
 use serde::{Deserialize, Serialize};
-use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -630,20 +629,22 @@ impl MsimeServer {
     }
 }
 
-/// Space writes across processes as `claim_write` spaces them within one: each `msime-mcp call` is a process of its own, and a server may run beside it. The returned file holds the lock for the whole write, so two processes never overlap on a check-then-write edit either. Waits for a write another process is running, then refuses when that one began less than the interval ago.
-fn claim_shared_write(config: &Config) -> Result<File, String> {
+/// 跨进程串行写入，并限制两次写入开始的最短间隔；守卫覆盖整个写入，包括错误返回和展开。
+fn claim_shared_write(config: &Config) -> Result<file_lock::ScopedFileLock, String> {
     let state_dir = config.state_dir(&config.read_options()?)?;
-    let mut file = file_lock::open_private_lock_file(state_dir.join(WRITE_LOCK))
+    let file = file_lock::open_private_lock_file(state_dir.join(WRITE_LOCK))
         .map_err(|_| "cannot open the write lock in the state directory")?;
-    file_lock::exclusive(&file).map_err(|_| "cannot take the write lock")?;
-    let bytes = crate::bounded::read(&file, WRITE_LOCK_READ_LIMIT)
+    let held =
+        file_lock::ScopedFileLock::exclusive(file).map_err(|_| "cannot take the write lock")?;
+    let mut file = held.file();
+    let bytes = crate::bounded::read(file, WRITE_LOCK_READ_LIMIT)
         .map_err(|_| "cannot read the write lock")?;
     let text = std::str::from_utf8(&bytes).map_err(|_| "cannot read the write lock")?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| "the system clock is before 1970")?
         .as_millis();
-    // A time ahead of the clock is a clock set back, not a recent write.
+    // 时间戳在当前时间之后表示时钟回拨，不算最近一次写入。
     if let Ok(previous) = text.trim().parse::<u128>() {
         if previous <= now && now - previous < WRITE_INTERVAL.as_millis() {
             return Err("writes are limited to one a second; try again shortly".into());
@@ -653,7 +654,7 @@ fn claim_shared_write(config: &Config) -> Result<File, String> {
         .and_then(|()| file.seek(SeekFrom::Start(0)))
         .and_then(|_| file.write_all(now.to_string().as_bytes()))
         .map_err(|_| "cannot record the write")?;
-    Ok(file)
+    Ok(held)
 }
 
 /// Clears the write-in-progress flag when the write it covers ends, however it ends.
@@ -701,6 +702,8 @@ async fn blocking<T: Send + 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(all(unix, not(target_os = "android")))]
+    use std::fs::File;
     use std::path::PathBuf;
 
     fn server(allow_write: bool) -> MsimeServer {
@@ -823,6 +826,63 @@ mod tests {
             claim_shared_write(&config).unwrap_err(),
             "cannot read the write lock"
         );
+    }
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    fn try_shared_write_test_lock(file: &File) -> bool {
+        match file.try_lock() {
+            Ok(()) => true,
+            Err(std::fs::TryLockError::WouldBlock) => false,
+            Err(error) => panic!("合成写锁取锁失败：{error}"),
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    fn assert_shared_write_scope_releases_lock(unwind: bool) {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, b"{}").unwrap();
+        let config = Config {
+            options,
+            state_dir: Some(directory.path().to_owned()),
+            allow_write: true,
+            allow_dictionary_read: false,
+        };
+        let path = directory.path().join(WRITE_LOCK);
+        let held = claim_shared_write(&config).unwrap();
+        let inherited = held.file().try_clone().unwrap();
+        let contender = file_lock::open_private_lock_file(&path).unwrap();
+        assert!(!try_shared_write_test_lock(&contender));
+
+        let result = std::panic::catch_unwind(move || {
+            let _held = held;
+            if unwind {
+                panic!("合成的写入展开");
+            }
+        });
+        assert_eq!(result.is_err(), unwind);
+        assert!(
+            try_shared_write_test_lock(&contender),
+            "MCP 写入作用域结束后不能由旧描述符副本继续占锁"
+        );
+        drop(inherited);
+        let next = file_lock::open_private_lock_file(&path).unwrap();
+        assert!(!try_shared_write_test_lock(&next));
+        contender.unlock().unwrap();
+        assert!(try_shared_write_test_lock(&next));
+        next.unlock().unwrap();
+    }
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    #[test]
+    fn a_finished_shared_write_scope_releases_an_inherited_lock() {
+        assert_shared_write_scope_releases_lock(false);
+    }
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    #[test]
+    fn an_unwinding_shared_write_scope_releases_an_inherited_lock() {
+        assert_shared_write_scope_releases_lock(true);
     }
 
     #[tokio::test]

@@ -45,7 +45,10 @@ fn recovery_backup_does_not_follow_a_symlinked_directory() {
     let store = PreferencesStore::new(&directory);
 
     assert!(store
-        .write_backup(b"synthetic damaged preferences")
+        .write_backup(
+            b"synthetic damaged preferences",
+            time::OffsetDateTime::now_utc(),
+        )
         .is_err());
     assert!(outside.path().read_dir().unwrap().next().is_none());
 }
@@ -4740,23 +4743,30 @@ fn recover_is_not_needed_for_valid_missing_or_repaired_documents() {
 fn recover_suffixes_a_backup_name_that_is_taken() {
     let directory = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(directory.path());
-    // Two backups within the same second share a stamp; retry the rare pair that straddles a second.
-    let collided = (0..5).any(|_| {
-        let first = store.write_backup(b"first").unwrap();
-        let second = store.write_backup(b"second").unwrap();
-        assert_eq!(fs::read(&first).unwrap(), b"first");
-        assert_eq!(fs::read(&second).unwrap(), b"second");
-        let first = first.file_name().unwrap().to_str().unwrap().to_owned();
-        second.file_name().unwrap().to_str().unwrap() == format!("{first}-1")
-    });
-    assert!(collided);
+    // 固定备份时间，确保重名分支不依赖设备能否在一秒内完成两次同步写入。
+    let stamp = time::OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+    let first = store.write_backup(b"first", stamp).unwrap();
+    let second = store.write_backup(b"second", stamp).unwrap();
+    let third = store.write_backup(b"third", stamp).unwrap();
+    assert_eq!(fs::read(&first).unwrap(), b"first");
+    assert_eq!(fs::read(&second).unwrap(), b"second");
+    assert_eq!(fs::read(&third).unwrap(), b"third");
+    let first = first.file_name().unwrap().to_str().unwrap();
+    assert_eq!(
+        second.file_name().unwrap().to_str().unwrap(),
+        format!("{first}-1")
+    );
+    assert_eq!(
+        third.file_name().unwrap().to_str().unwrap(),
+        format!("{first}-2")
+    );
 
-    // A whole recovery whose stamp is taken keeps both backups.
+    // 完整恢复保留既有备份和本次损坏内容。
     let path = directory.path().join("preferences.json");
     fs::write(&path, b"damaged").unwrap();
     let (_, backup, _) = expect_recovered(store.recover().unwrap());
     assert_eq!(fs::read(backup).unwrap(), b"damaged");
-    assert!(corrupt_backups(directory.path()).len() >= 3);
+    assert_eq!(corrupt_backups(directory.path()).len(), 4);
 }
 
 #[cfg(unix)]
@@ -5703,4 +5713,18 @@ fn an_unknown_key_goes_back_only_into_a_written_section() {
     let mut preferences = serde_json::json!({"section": {}});
     restore_unknown_fields(&mut preferences, &unknown);
     assert_eq!(preferences["section"]["from_a_newer_build"], true);
+}
+
+#[cfg(unix)]
+#[test]
+fn finished_scope_releases_inherited_lock() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(root.path());
+    let held = store.lock().unwrap();
+    let inherited = crate::file_lock::testing::duplicate(&held);
+    crate::file_lock::testing::assert_finished_scope_releases_lock(
+        held,
+        inherited,
+        &root.path().join("preferences.lock"),
+    );
 }

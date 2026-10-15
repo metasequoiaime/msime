@@ -261,3 +261,17 @@ fn invalid_requests_never_leave_the_device() {
     assert_eq!(relay.add(" "), Err(RelayError::Invalid));
     assert!(RelayClipboard::new(config("https://relay.example.test"), "relative", "合成").is_err());
 }
+
+#[cfg(unix)]
+#[test]
+fn finished_relay_scope_releases_an_inherited_lock() {
+    let root = tempfile::tempdir().unwrap();
+    let relay = clipboard(root.path(), "https://relay.example.test", TOKEN);
+    let held = relay.lock().unwrap();
+    let inherited = crate::file_lock::testing::duplicate(&held);
+    crate::file_lock::testing::assert_finished_scope_releases_lock(
+        held,
+        inherited,
+        &root.path().join(RELAY_LOCK_FILE),
+    );
+}

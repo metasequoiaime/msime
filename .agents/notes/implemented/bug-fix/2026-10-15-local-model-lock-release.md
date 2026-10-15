@@ -13,6 +13,8 @@ Status: implemented
 本地模型成功取得的根目录锁由私有 `ModelLock` 守卫持有，Unix 析构时复用 `file_lock::unlock`。阻塞安装和非阻塞删除都由同一个守卫负责释放；只有取得锁之后才构造守卫，失败的竞争者不得解锁其他操作。Windows 继续沿用关闭描述符的行为。现有根目录检查、清理顺序、文件格式和删除忙碌策略不变。
 
 ## Historical notes
+资源安装作用域结束时的释放语义见[资源安装锁释放](2026-10-15-resource-install-lock-release.md)，该决定与本篇部分重叠，保留各自的操作边界。
+
 
 - [模型删除拒绝安装竞争](../../implemented/bug-fix/2026-10-12-local-model-remove-lock-race.md)：部分重叠，保留真实竞争返回忙碌的决定，本篇约束持锁操作结束时的释放。
 - [个人词库锁释放](../../implemented/bug-fix/2026-10-15-personal-dictionary-lock-release.md)和[词库访问锁释放](../../implemented/bug-fix/2026-10-15-dictionary-access-lock-release.md)：部分重叠，复用相同的 Unix 释放语义；各自维护不同的操作边界。
@@ -34,5 +36,7 @@ Status: implemented
 语义依据为 [Rust File::unlock](https://doc.rust-lang.org/std/fs/struct.File.html#method.unlock) 与 [Linux flock(2)](https://man7.org/linux/man-pages/man2/flock.2.html)，沿用仓库个人词库和词库访问租约的解锁实现。
 
 ## Consequences
+
+其他共享存储的作用域释放由[共享文件锁守卫](2026-10-15-scoped-file-lock-release.md)统一处理；与本篇部分重叠，各自保留目录身份或租约边界的决定。
 
 操作结束后继承描述符不会再延长互斥，后续安装和删除可以按实际持锁状态继续。析构不能返回解锁错误，失败由描述符关闭兜底。回归验证复制描述符的锁语义，不声称捕获实际产品 `fork` 现场；模型删除测试首次超时仍是独立调查线索。

@@ -163,7 +163,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             restartIme();
             openEditor();
             Rect pair = new Rect();
-            awaitStableBounds(description("按键 Q W")).getBoundsInScreen(pair);
+            awaitSettledKeyboardKey(description("按键 Q W")).getBoundsInScreen(pair);
             Rect fourteenSpace = keyBounds("空格");
             int fourteenSpan = fourteenSpace.bottom - pair.top;
             if (Math.abs(fourteenSpan - twentySixSpan) > tolerance)
@@ -193,14 +193,15 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         restartIme();
         openEditor();
         Rect bounds = new Rect();
-        awaitSettledKeyboardKey().getBoundsInScreen(bounds);
+        awaitSettledKeyboardKey(key("n")).getBoundsInScreen(bounds);
         return bounds;
     }
 
     /**
      * 输入法重启后，旧窗口可能在无障碍树里短暂保留；只等键位本身两次相同会把旧窗口的稳定坐标当成新窗口。这里同时比较输入法窗口的边界，并连续等四次，覆盖 API 35 上的窗口切换动画。
      */
-    private AccessibilityNodeInfo awaitSettledKeyboardKey() {
+    private AccessibilityNodeInfo awaitSettledKeyboardKey(
+            java.util.function.Predicate<AccessibilityNodeInfo> selector) {
         Rect previousKey = null;
         Rect previousWindow = null;
         int stable = 0;
@@ -209,12 +210,16 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             for (AccessibilityWindowInfo window : automation.getWindows()) {
                 if (window.getType() != AccessibilityWindowInfo.TYPE_INPUT_METHOD)
                     continue;
-                AccessibilityNodeInfo node = find(window.getRoot(), key("n"));
+                AccessibilityNodeInfo node = find(window.getRoot(), selector);
                 if (node == null) continue;
                 Rect keyBounds = new Rect();
                 Rect windowBounds = new Rect();
                 node.getBoundsInScreen(keyBounds);
                 window.getBoundsInScreen(windowBounds);
+                if (keyBounds.isEmpty() || !windowBounds.contains(keyBounds)) {
+                    stable = 0;
+                    break;
+                }
                 if (keyBounds.equals(previousKey) && windowBounds.equals(previousWindow)) {
                     stable++;
                 } else {

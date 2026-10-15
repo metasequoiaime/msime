@@ -9,3 +9,19 @@ export type PreeditPreferences = {
   tsf_preedit_style?: TsfPreeditStyle;
   candidate_preedit_style?: CandidatePreeditStyle;
 };
+
+/** 设置控件与候选预览共用的有效显示状态；缺省值不写回偏好。 */
+export function preeditControlState(preferences: PreeditPreferences): {
+  candidateStyle: CandidatePreeditStyle;
+  candidateVisible: boolean;
+  shuangpinStyle: "raw" | "pinyin";
+  inlineStyle: TsfPreeditStyle;
+} {
+  const candidateStyle = preferences.candidate_preedit_style ?? "pinyin";
+  return {
+    candidateStyle,
+    candidateVisible: candidateStyle !== "empty",
+    shuangpinStyle: preferences.shuangpin_preedit_uses_raw === false ? "pinyin" : "raw",
+    inlineStyle: preferences.tsf_preedit_style ?? "raw",
+  };
+}

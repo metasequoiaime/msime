@@ -8,7 +8,6 @@ use crate::community::resource::{validate_resource, CommunityResource, Community
 use crate::file_lock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use uuid::Uuid;
@@ -148,7 +147,7 @@ pub struct CommonPhrasesStore {
 
 struct CommonPhrasesLock {
     directory: crate::file_lock::PrivateDirectory,
-    _lock: File,
+    _lock: crate::file_lock::ScopedFileLock,
 }
 
 impl CommonPhrasesStore {
@@ -365,7 +364,7 @@ impl CommonPhrasesStore {
         let directory = crate::file_lock::open_private_directory(parent)?;
         let lock =
             file_lock::open_private_lock_file_at(&directory, std::ffi::OsStr::new(LOCK_FILE_NAME))?;
-        file_lock::exclusive(&lock)?;
+        let lock = crate::file_lock::ScopedFileLock::exclusive(lock)?;
         Ok(CommonPhrasesLock {
             directory,
             _lock: lock,

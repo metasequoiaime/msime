@@ -362,6 +362,11 @@ pub(super) fn build_graph(
     graph
 }
 
+struct BeamColumn<'g> {
+    hyps: Vec<Hyp<'g>>,
+    streamed: bool,
+}
+
 #[derive(Clone, Copy)]
 struct Hyp<'g> {
     score: f64,
@@ -440,8 +445,21 @@ pub(super) fn decode_graph(
     let bigram = options.bigram.as_deref();
     let mut memo = options.bigram_memo.map(RefCell::borrow_mut);
     let capacities = column_capacities(graph, extra, options.beam);
-    let mut columns: Vec<Vec<Hyp<'_>>> = capacities.into_iter().map(Vec::with_capacity).collect();
-    columns[0].push(Hyp {
+    let stream_capacity = options.beam.saturating_add(1);
+    // 只有预扫描确认会超过束宽的非末列才流式保留堆；状态随列保存，不增加每次解码的堆分配。
+    let mut columns: Vec<BeamColumn<'_>> = capacities
+        .into_iter()
+        .enumerate()
+        .map(|(position, capacity)| BeamColumn {
+            hyps: Vec::with_capacity(if position < n && capacity > stream_capacity {
+                stream_capacity
+            } else {
+                capacity
+            }),
+            streamed: position < n && capacity > stream_capacity,
+        })
+        .collect();
+    columns[0].hyps.push(Hyp {
         score: 0.0,
         prev: (0, 0),
         edge: None,
@@ -452,21 +470,22 @@ pub(super) fn decode_graph(
     let row_capacity = options.beam.max(options.nbest);
     let mut bigram_rows: Vec<Vec<f32>> = Vec::new();
     let mut bigram_row_indices: HashMap<&str, usize> = HashMap::new();
-    // 这一列的出边，按原来的顺序（先图里的，再 `extra` 的）收集一次，每个假设都按这个顺序展开。
-    let mut outgoing: Vec<&Edge> = Vec::new();
     for pos in 0..n {
-        keep_beam(&mut columns[pos], options.beam);
+        if columns[pos].streamed {
+            cxx_sort::finish_partial(&mut columns[pos].hyps, options.beam, &mut scores_higher);
+        } else {
+            keep_beam(&mut columns[pos].hyps, options.beam);
+        }
         let (done, ahead) = columns.split_at_mut(pos + 1);
-        let current = &done[pos];
+        let current = &done[pos].hyps;
         // 行存储跨列复用；前词索引和有效行数只属于当前列，评分必须重新填满。
         let mut used_bigram_rows = 0;
         bigram_row_indices.clear();
-        outgoing.clear();
-        outgoing.extend(
-            graph[pos]
-                .iter()
-                .chain(extra.into_iter().flat_map(|extra| extra[pos].iter())),
-        );
+        // 只读原始切片，评分与展开都按主图、附加图的相同顺序重新遍历。
+        let literal = &graph[pos];
+        let extra_edges = extra.map_or(&[][..], |extra| extra[pos].as_slice());
+        let outgoing_len = literal.len() + extra_edges.len();
+        let outgoing = literal.iter().chain(extra_edges.iter());
         for (index, hyp) in current.iter().enumerate() {
             // Column 0 has no predecessor, so the start token carries what the corpus knows about how sentences open; every later column uses the word the hypothesis arrived on.
             let previous = hyp.edge.map_or(SENTENCE_START, |edge| edge.word.as_str());
@@ -484,16 +503,16 @@ pub(super) fn decode_graph(
                     }
                     let scores = &mut bigram_rows[row];
                     scores.clear();
-                    scores.reserve_exact(outgoing.len());
+                    scores.reserve_exact(outgoing_len);
                     match memo.as_deref_mut() {
                         Some(memo) => scores.extend(
                             outgoing
-                                .iter()
+                                .clone()
                                 .map(|edge| memo.score(table, previous, &edge.word)),
                         ),
                         None => scores.extend(
                             outgoing
-                                .iter()
+                                .clone()
                                 .map(|edge| table.bigram(previous, &edge.word)),
                         ),
                     }
@@ -507,13 +526,13 @@ pub(super) fn decode_graph(
             let context = personal.map(|personal| {
                 let earlier = match hyp.prev {
                     (column, at) if column > 0 => {
-                        done[column][at].edge.map(|edge| edge.word.as_str())
+                        done[column].hyps[at].edge.map(|edge| edge.word.as_str())
                     }
                     _ => None,
                 };
                 personal.context(earlier, Some(previous))
             });
-            for (at, &edge) in outgoing.iter().enumerate() {
+            for (at, edge) in outgoing.clone().enumerate() {
                 let mut score = hyp.score + edge.log_prob;
                 let static_bonus = bonuses.map_or(0.0, |bonuses| f64::from(bonuses[at]));
                 if bigram.is_some() {
@@ -531,18 +550,29 @@ pub(super) fn decode_graph(
                         );
                     }
                 }
-                ahead[edge.end - pos - 1].push(Hyp {
+                let next = Hyp {
                     score,
                     prev: (pos, index),
                     edge: Some(edge),
                     typo_edges: hyp.typo_edges + usize::from(edge.typo),
-                });
+                };
+                let target = &mut ahead[edge.end - pos - 1];
+                if target.streamed {
+                    cxx_sort::push_partial(
+                        &mut target.hyps,
+                        options.beam,
+                        next,
+                        &mut scores_higher,
+                    );
+                } else {
+                    target.hyps.push(next);
+                }
             }
         }
     }
 
     // The loop only prunes columns [0, n), so the terminal column still holds every hypothesis that reached the end. Nothing traces back through it, so truncating it cannot break traceback.
-    let mut last = std::mem::take(&mut columns[n]);
+    let mut last = std::mem::take(&mut columns[n].hyps);
     if last.is_empty() {
         return Vec::new();
     }
@@ -565,7 +595,7 @@ pub(super) fn decode_graph(
             words.push(edge.word.clone());
             keys.push(edge.key.as_str());
             let (column, at) = step.prev;
-            cursor = Some(&columns[column][at]);
+            cursor = Some(&columns[column].hyps[at]);
         }
         words.reverse();
         keys.reverse();
@@ -1489,3 +1519,15 @@ mod return_tests;
 #[cfg(test)]
 #[path = "decode_prefix_tests.rs"]
 mod prefix_tests;
+
+#[cfg(test)]
+#[path = "decode_outgoing_tests.rs"]
+mod outgoing_tests;
+
+#[cfg(test)]
+#[path = "decode_entry_tests.rs"]
+mod entry_tests;
+
+#[cfg(test)]
+#[path = "decode_stream_tests.rs"]
+mod stream_tests;

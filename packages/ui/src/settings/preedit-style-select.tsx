@@ -1,27 +1,9 @@
 import type { PreeditStyle } from "./preedit-preferences";
+import { preeditStyleOptions, type PreeditStyleSelectMode } from "./preedit-style-options";
 import { Select } from "../core/platform-controls";
 
 export type { PreeditStyle } from "./preedit-preferences";
-export type PreeditStyleSelectMode = "shuangpin" | "inline" | "candidate";
-
-const preeditStyleOptions: Record<
-  PreeditStyleSelectMode,
-  readonly { value: PreeditStyle; label: string }[]
-> = {
-  shuangpin: [
-    { value: "raw", label: "原始按键" },
-    { value: "pinyin", label: "拼音分词" },
-  ],
-  inline: [
-    { value: "raw", label: "原始按键" },
-    { value: "pinyin", label: "拼音分词" },
-    { value: "empty", label: "不显示" },
-  ],
-  candidate: [
-    { value: "pinyin", label: "拼音分词" },
-    { value: "empty", label: "不显示" },
-  ],
-};
+export type { PreeditStyleSelectMode } from "./preedit-style-options";
 
 export interface PreeditStyleSelectProps {
   mode: PreeditStyleSelectMode;
@@ -29,7 +11,7 @@ export interface PreeditStyleSelectProps {
   onChange: (value: PreeditStyle) => void;
 }
 
-/** Shared presentation choices for inline and candidate-window preedit controls. */
+/** 行内、双拼与候选窗口预编辑共用的样式选择器。 */
 export function PreeditStyleSelect({ mode, value, onChange }: PreeditStyleSelectProps) {
   return (
     <Select value={value} onChange={(event) => onChange(event.target.value as PreeditStyle)}>

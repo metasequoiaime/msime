@@ -17,6 +17,7 @@ import { PreeditSettingsSection } from "../preedit-settings-section";
 import { appearanceSettingsPreferences } from "../appearance-settings-preferences";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
 import { CandidateFontUnsupportedNotice } from "../candidate-font-unsupported-notice";
+import { candidateTabs, type CandidateTab } from "../candidate-tabs";
 import { createAppearanceSettingsActions } from "../appearance-settings-actions";
 import {
   CandidateFontPresetRow,
@@ -24,14 +25,6 @@ import {
   CandidateWindowStyleSection,
 } from "../candidate-window-style-section";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
-
-const candidateTabs = [
-  { id: "layout", title: "布局" },
-  { id: "font", title: "字体与大小" },
-  { id: "style", title: "窗口样式" },
-  { id: "preedit", title: "预编辑" },
-] as const;
-type CandidateTab = (typeof candidateTabs)[number]["id"];
 
 /** 候选窗口设置页，路由标识为 `appearance`。 */
 export function AppearanceSettingsPage() {

@@ -204,6 +204,19 @@ pub struct ResourceStore {
 }
 
 #[cfg(unix)]
+struct ResourceInstallLock {
+    _file: File,
+}
+
+#[cfg(unix)]
+impl Drop for ResourceInstallLock {
+    fn drop(&mut self) {
+        // 复制或继承的描述符不能把互斥延长到资源安装结束之后。
+        let _ = crate::file_lock::unlock(&self._file);
+    }
+}
+
+#[cfg(unix)]
 struct ResourceStage {
     path: PathBuf,
     parent: File,
@@ -330,6 +343,8 @@ impl ResourceStore {
         #[cfg(not(unix))]
         let lock = crate::file_lock::open_lock_file(self.root.join("resources.lock"))?;
         crate::file_lock::exclusive(&lock)?;
+        #[cfg(unix)]
+        let _lock = ResourceInstallLock { _file: lock };
         #[cfg(unix)]
         sweep_abandoned_stages(&root_directory);
         #[cfg(not(unix))]
@@ -832,6 +847,72 @@ mod tests {
 
         assert!(!moved.join("incoming-stale").exists());
         assert!(outside.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_finished_resource_install_releases_the_lock_while_a_copy_remains_open() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = crate::storage::open_private_directory(root.path()).unwrap();
+        let file = crate::file_lock::open_private_lock_file_at_raw(
+            &directory,
+            std::ffi::OsStr::new("resources.lock"),
+        )
+        .unwrap();
+        crate::file_lock::exclusive(&file).unwrap();
+        let held = ResourceInstallLock { _file: file };
+        let inherited = held._file.try_clone().unwrap();
+        let contender =
+            crate::file_lock::open_private_lock_file(root.path().join("resources.lock")).unwrap();
+        assert!(!crate::file_lock::try_exclusive(&contender).unwrap());
+
+        drop(held);
+        assert!(
+            crate::file_lock::try_exclusive(&contender).unwrap(),
+            "资源安装结束后不能由旧描述符副本继续占锁"
+        );
+        drop(inherited);
+        let next =
+            crate::file_lock::open_private_lock_file(root.path().join("resources.lock")).unwrap();
+        assert!(!crate::file_lock::try_exclusive(&next).unwrap());
+        crate::file_lock::unlock(&contender).unwrap();
+        assert!(crate::file_lock::try_exclusive(&next).unwrap());
+        crate::file_lock::unlock(&next).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resource_install_holds_the_lock_until_success_or_failure_returns() {
+        for outcome in ["success", "fetch-error", "integrity-error"] {
+            let root = tempfile::tempdir().unwrap();
+            let store = ResourceStore::new(root.path());
+            let contender =
+                crate::file_lock::open_private_lock_file(root.path().join("resources.lock"))
+                    .unwrap();
+            let result = store.install(&specification(), |_| {
+                assert!(!crate::file_lock::try_exclusive(&contender).unwrap());
+                match outcome {
+                    "fetch-error" => Err(std::io::Error::other("synthetic fetch error")),
+                    "integrity-error" => Ok(source(b"invalid")),
+                    _ => Ok(source(b"fixture")),
+                }
+            });
+            assert_eq!(result.is_ok(), outcome == "success");
+            assert!(crate::file_lock::try_exclusive(&contender).unwrap());
+            assert!(!fs::read_dir(root.path()).unwrap().any(|entry| entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with("incoming-")));
+            crate::file_lock::unlock(&contender).unwrap();
+            if result.is_ok() {
+                store
+                    .install(&specification(), |_| panic!("缓存命中不应下载"))
+                    .unwrap();
+                assert!(crate::file_lock::try_exclusive(&contender).unwrap());
+                crate::file_lock::unlock(&contender).unwrap();
+            }
+        }
     }
 
     fn fixture_artifact(name: &str, bytes: &[u8]) -> Artifact {

@@ -540,14 +540,14 @@ impl TelemetryStore {
         self.read_queue()
     }
 
-    fn lock(&self) -> Result<File, TelemetryError> {
+    fn lock(&self) -> Result<crate::file_lock::ScopedFileLock, TelemetryError> {
         if !self.directory.is_absolute()
             || !crate::storage::create_directory_and_check(&self.directory)?
         {
             return Err(TelemetryError::Storage);
         }
         let file = crate::file_lock::open_private_lock_file(self.directory.join(LOCK_FILE))?;
-        crate::file_lock::exclusive(&file)?;
+        let file = crate::file_lock::ScopedFileLock::exclusive(file)?;
         Ok(file)
     }
 

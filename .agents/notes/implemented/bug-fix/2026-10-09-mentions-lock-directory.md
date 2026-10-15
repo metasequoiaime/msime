@@ -17,6 +17,8 @@ Status: implemented
 
 ## Consequences
 
+其他共享存储的作用域释放由[共享文件锁守卫](2026-10-15-scoped-file-lock-release.md)统一处理；与本篇部分重叠，各自保留目录身份或租约边界的决定。
+
 名单保存的锁、临时文件和最终文档始终绑定同一目录对象；目录替换不会把已取得锁的写入重定向到新目录。
 
 ## Verification

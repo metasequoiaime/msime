@@ -322,3 +322,17 @@ fn the_feed_is_fetched_anonymously_and_bad_items_are_left_out() {
     assert_eq!(items[0].id, "7");
     assert_eq!(items[0].targets, ["harmony"]);
 }
+
+#[cfg(unix)]
+#[test]
+fn finished_scope_releases_inherited_lock() {
+    let root = tempfile::tempdir().unwrap();
+    let store = NoticeStore::new(root.path());
+    let held = store.lock().unwrap();
+    let inherited = crate::file_lock::testing::duplicate(&held._lock);
+    crate::file_lock::testing::assert_finished_scope_releases_lock(
+        held,
+        inherited,
+        &root.path().join(NOTICES_LOCK_FILE),
+    );
+}

@@ -1,5 +1,6 @@
 import { SegmentedRow } from "./segmented-row";
 import { SwitchRow } from "./switch-row";
+import { wordCharacterKeyOptions } from "./candidate-paging-options";
 import {
   wordCharacterEnabledChange,
   type NavigationPreferences,
@@ -18,11 +19,6 @@ export interface WordCharacterSectionProps {
   ios: boolean;
   onChange: (next: CandidatePagingChange) => void;
 }
-
-const wordCharacterKeyOptions = [
-  { value: "brackets", label: "[ / ]" },
-  { value: "minus_equal", label: "- / =" },
-] as const satisfies readonly { value: WordCharacterPreferences["keys"]; label: string }[];
 
 /** 共用的以词定字设置及其与翻页键的互斥：输入页「选词与翻页」组里的几行。 */
 export function WordCharacterSection({
@@ -49,10 +45,7 @@ export function WordCharacterSection({
       {!ios && (
         <SegmentedRow
           title="以词定字快捷键"
-          options={wordCharacterKeyOptions.map((option) => ({
-            ...option,
-            disabled: navigation[option.value],
-          }))}
+          options={wordCharacterKeyOptions(navigation)}
           value={preferences.keys}
           onChange={(keys) => onChange({ wordCharacter: { ...preferences, keys }, navigation })}
         />

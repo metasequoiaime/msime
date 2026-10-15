@@ -1,17 +1,13 @@
 import { SegmentedRow } from "./segmented-row";
+import { candidateLayoutOptions, type CandidateLayout } from "./candidate-layout-options";
 
-export type CandidateLayout = "horizontal" | "vertical";
+export type { CandidateLayout } from "./candidate-layout-options";
 
 export interface CandidateLayoutSectionProps {
   value?: CandidateLayout;
   fixed: boolean;
   onChange: (value: CandidateLayout) => void;
 }
-
-const candidateLayoutOptions = [
-  { value: "horizontal", label: "横向" },
-  { value: "vertical", label: "纵向" },
-] as const satisfies readonly { value: CandidateLayout; label: string }[];
 
 /** Candidate orientation selector for hosts whose candidate panel exposes a choice: one row of the 候选窗口 page's layout group. */
 export function CandidateLayoutSection({ value, fixed, onChange }: CandidateLayoutSectionProps) {

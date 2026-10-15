@@ -687,3 +687,17 @@ fn the_backend_sender_posts_anonymously_and_reads_retry_after() {
         Delivery::Failed
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn finished_scope_releases_inherited_lock() {
+    let root = tempfile::tempdir().unwrap();
+    let store = TelemetryStore::new(root.path());
+    let held = store.lock().unwrap();
+    let inherited = crate::file_lock::testing::duplicate(&held);
+    crate::file_lock::testing::assert_finished_scope_releases_lock(
+        held,
+        inherited,
+        &root.path().join(LOCK_FILE),
+    );
+}

@@ -50,6 +50,28 @@ const selections: Record<string, Pick<Preferences, "global_theme" | "custom_them
   "custom package": { global_theme: "custom", custom_theme: { candidate_skin: "sample" } },
 };
 
+test.each(["system", "custom package"])(
+  "%s preview follows the candidate preedit default and stored styles",
+  async (name) => {
+    const selection = selections[name];
+    const view = render(
+      <AppearanceCandidatePreview preferences={{ ...preferences, ...selection }} scan={scan} />,
+    );
+    await waitFor(() => expect(view.container.querySelectorAll(".cand")).toHaveLength(6));
+    for (const candidate_preedit_style of [undefined, "empty", "pinyin"] as const) {
+      view.rerender(
+        <AppearanceCandidatePreview
+          preferences={{ ...preferences, ...selection, candidate_preedit_style }}
+          scan={scan}
+        />,
+      );
+      const preedit = view.container.querySelector<HTMLElement>(".pinyin");
+      expect(preedit).not.toBeNull();
+      expect(preedit!.hidden).toBe(candidate_preedit_style === "empty");
+    }
+  },
+);
+
 test.each(Object.keys(selections))(
   "%s preview follows each scheme's enable and display flags",
   async (name) => {

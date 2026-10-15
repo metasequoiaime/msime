@@ -28,6 +28,8 @@ macOS 的 defaults 键保留。原生外观面板仍读写它，值经 `merged[@
 
 Linux 的 IBus 属性菜单在没有偏好目录时改走 `close()`/`open()` 重建会话：这个开关是由 runtime 判定的，override 只在会话建立或重读偏好时经 `apply_session_overrides` 交给它，照搬 `WubiCodeHint`（宿主渲染时读）那种「改状态 + render」的做法会让菜单显示关了、四码唯一仍在上屏。
 
+共享 React 控件的三项偏好类型与有效状态由无 React 依赖的 `settings/wubi-preferences.ts` 持有，公共 `Preferences` 和控件共同消费；缺省、显式选择和逐字段写回不变，见[五笔控件共用偏好契约和有效状态](../simplification/2026-10-15-wubi-preferences.md)。
+
 ## Alternatives considered
 
 - **只修 macOS**：让 `MSIMEShouldAutoCommitWubi` 真正生效，其他平台维持恒定开启。改动最小，但「开关只在一半平台存在」正是这次要消灭的不一致；共享契约里仍然没有这个字段，Windows/Linux 用户照样关不掉。

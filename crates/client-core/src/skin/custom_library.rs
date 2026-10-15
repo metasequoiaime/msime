@@ -4,7 +4,6 @@ use crate::file_lock;
 use crate::preferences::TouchKeyboardSkinDesign;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use unicode_segmentation::UnicodeSegmentation;
@@ -69,7 +68,7 @@ pub struct CustomSkinLibraryStore {
 
 struct CustomSkinLibraryLock {
     directory: crate::file_lock::PrivateDirectory,
-    _lock: File,
+    _lock: crate::file_lock::ScopedFileLock,
 }
 
 impl CustomSkinLibraryStore {
@@ -175,7 +174,7 @@ impl CustomSkinLibraryStore {
         let directory = crate::file_lock::open_private_directory(&self.directory)?;
         let lock =
             file_lock::open_private_lock_file_at(&directory, std::ffi::OsStr::new(LOCK_FILE))?;
-        file_lock::exclusive(&lock)?;
+        let lock = crate::file_lock::ScopedFileLock::exclusive(lock)?;
         Ok(CustomSkinLibraryLock {
             directory,
             _lock: lock,
@@ -285,6 +284,21 @@ fn unique_import_name(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn finished_scope_releases_inherited_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let store = CustomSkinLibraryStore::new(root.path());
+        let held = store.lock().unwrap();
+        let inherited = crate::file_lock::testing::duplicate(&held._lock);
+        crate::file_lock::testing::assert_finished_scope_releases_lock(
+            held,
+            inherited,
+            &store.directory.join(LOCK_FILE),
+        );
+    }
+
     use std::fs;
 
     fn create(name: &str, design: TouchKeyboardSkinDesign) -> CustomSkinLibraryAction {
