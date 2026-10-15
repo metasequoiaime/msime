@@ -168,10 +168,12 @@ if(MSIME_SPARKLE_APPCAST_BASE_URL)
   if(NOT MSIME_SPARKLE_PUBLIC_KEY MATCHES "^[A-Za-z0-9+/]+=*$")
     message(FATAL_ERROR "platforms/macos/sparkle-public-key.txt must hold the base64 EdDSA public key that generate_keys prints")
   endif()
-  # SUAutomaticallyUpdate：在后台下载，输入法进程退出时安装，不弹窗。输入法是 LSBackgroundOnly，Sparkle 的标准提醒窗口会从正在打字的应用那里抢走焦点；手动「检查更新…」照常显示 Sparkle 的界面。
+  # SURequireSignedFeed 要求 appcast 本身也带签名（generate_appcast 用同一把私钥签），SUVerifyUpdateBeforeExtraction 在解压之前验更新包的签名；两项与 MSIME-Apple 时期发出去的 0.48 版一致。SUAutomaticallyUpdate：在后台下载，输入法进程退出时安装，不弹窗。输入法是 LSBackgroundOnly，Sparkle 的标准提醒窗口会从正在打字的应用那里抢走焦点；手动「检查更新…」照常显示 Sparkle 的界面。
   string(CONCAT MSIME_SPARKLE_PLIST_KEYS
     "<key>SUFeedURL</key><string>${MSIME_SPARKLE_APPCAST_BASE_URL}appcast-${MSIME_EDITION}.xml</string>\n"
     "<key>SUPublicEDKey</key><string>${MSIME_SPARKLE_PUBLIC_KEY}</string>\n"
+    "<key>SURequireSignedFeed</key><true/>\n"
+    "<key>SUVerifyUpdateBeforeExtraction</key><true/>\n"
     "<key>SUEnableAutomaticChecks</key><true/>\n"
     "<key>SUAutomaticallyUpdate</key><true/>\n"
     "<key>SUScheduledCheckInterval</key><integer>86400</integer>\n")

@@ -23,7 +23,7 @@
 #   MACOS_SIGNING_IDENTITY        a "Developer ID Application: ... (TEAMID)" identity in the keychain. Without it everything is signed ad-hoc: the package builds and the settings app runs, but macOS will not register the embedded input method as an input source (see scripts/install.sh)
 #   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_SPECIFIC_PASSWORD
 #                                 when all three are set (and an identity is), the DMG is notarized and stapled
-#   MSIME_SPARKLE_PRIVATE_KEY     the base64 EdDSA seed that `generate_keys -x` exports, matching platforms/macos/sparkle-public-key.txt. With it (and an identity) the input method gets a Sparkle feed, and OUT_DIR also receives one <dmg_prefix>-VERSION-input-method.zip and one appcast-<edition>.xml per edition. Without it the input method has no feed and updates through the download page, as before
+#   MSIME_SPARKLE_PRIVATE_KEY     Sparkle's base64 EdDSA private key (the 32-byte seed `generate_keys -x` exports, or Sparkle's older 96-byte form) matching platforms/macos/sparkle-public-key.txt. With it (and an identity) the input method gets a Sparkle feed, and OUT_DIR also receives one <dmg_prefix>-VERSION-input-method.zip and one appcast-<edition>.xml per edition. Without it the input method has no feed and updates through the download page, as before
 #   MSIME_SPARKLE_APPCAST_BASE_URL    where the appcast-<edition>.xml files are served; defaults to the macos-appcast release
 #   MSIME_SPARKLE_DOWNLOAD_URL_PREFIX where the update zips are served; defaults to the macos-vVERSION release
 #
@@ -69,9 +69,15 @@ if [ -n "$sparkle_key" ]; then
   sparkle_appcast_base="${MSIME_SPARKLE_APPCAST_BASE_URL:-https://github.com/metasequoiaime/msime/releases/download/macos-appcast/}"
   sparkle_download_prefix="${MSIME_SPARKLE_DOWNLOAD_URL_PREFIX:-https://github.com/metasequoiaime/msime/releases/download/macos-v$version/}"
   # 私钥与仓库里的公钥对不上时，发出去的每个更新包都会被 Sparkle 当作签名无效拒绝，而发版本身照常成功；所以在编译之前从私钥推出公钥比一遍。macOS 自带的 LibreSSL 不支持 Ed25519，用 Homebrew 的 OpenSSL 3。
-  openssl3="$(brew --prefix openssl@3)/bin/openssl"
-  derived_public_key="$(printf '%s' "$sparkle_key" | /usr/bin/base64 -D | { printf '\x30\x2e\x02\x01\x00\x30\x05\x06\x03\x2b\x65\x70\x04\x22\x04\x20'; cat; } \
-    | "$openssl3" pkey -inform DER -pubout -outform DER | tail -c 32 | /usr/bin/base64)"
+  # Sparkle 认两种私钥（common_cli/Secret.swift）：generate_keys 现在导出的 32 字节种子，公钥由它推出；以前的 96 字节格式是 64 字节私钥接 32 字节公钥。
+  case "$(printf '%s' "$sparkle_key" | /usr/bin/base64 -D | wc -c | tr -d '[:space:]')" in
+    32)
+      openssl3="$(brew --prefix openssl@3)/bin/openssl"
+      derived_public_key="$(printf '%s' "$sparkle_key" | /usr/bin/base64 -D | { printf '\x30\x2e\x02\x01\x00\x30\x05\x06\x03\x2b\x65\x70\x04\x22\x04\x20'; cat; } \
+        | "$openssl3" pkey -inform DER -pubout -outform DER | tail -c 32 | /usr/bin/base64)" ;;
+    96) derived_public_key="$(printf '%s' "$sparkle_key" | /usr/bin/base64 -D | tail -c 32 | /usr/bin/base64)" ;;
+    *) echo "MSIME_SPARKLE_PRIVATE_KEY is neither a 32-byte EdDSA seed nor Sparkle's older 96-byte key" >&2; exit 1 ;;
+  esac
   if [ "$derived_public_key" != "$(tr -d '[:space:]' < platforms/macos/sparkle-public-key.txt)" ]; then
     echo "MSIME_SPARKLE_PRIVATE_KEY does not belong to the public key in platforms/macos/sparkle-public-key.txt" >&2
     exit 1
@@ -296,7 +302,9 @@ if [ -n "$sparkle_key" ]; then
   build_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$staged_bundle/Contents/Info.plist")"
   grep -qF "url=\"$sparkle_download_prefix$(basename "$update_zip")\"" "$appcast" || { echo "$appcast does not point at $(basename "$update_zip")" >&2; exit 1; }
   grep -qF "<sparkle:version>$build_version</sparkle:version>" "$appcast" || { echo "$appcast does not offer build $build_version" >&2; exit 1; }
-  grep -qF 'sparkle:edSignature=' "$appcast" || { echo "$appcast has no EdDSA signature" >&2; exit 1; }
+  grep -qF 'sparkle:edSignature=' "$appcast" || { echo "$appcast has no EdDSA signature for the zip" >&2; exit 1; }
+  # 输入法开了 SURequireSignedFeed，没有签名的 appcast 会被整份拒收。
+  grep -qF 'sparkle-signatures:' "$appcast" || { echo "$appcast is not signed itself" >&2; exit 1; }
   update_zips+=("$update_zip")
 fi
 

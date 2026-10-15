@@ -44,7 +44,7 @@ jobs:
     #   MACOS_DEVELOPER_ID_APPLICATION           the identity name, e.g. "Developer ID Application: Name (TEAMID)"
     #   MACOS_NOTARY_APPLE_ID, MACOS_NOTARY_TEAM_ID, MACOS_NOTARY_APP_SPECIFIC_PASSWORD  notarization credentials for xcrun notarytool
     #   HOMEBREW_TAP_TOKEN                       a token that can push to metasequoiaime/homebrew-tap, for the cask update after a release
-    #   MACOS_SPARKLE_PRIVATE_KEY                the EdDSA seed (generate_keys -x) for platforms/macos/sparkle-public-key.txt; with it the input method updates itself through Sparkle from the macos-appcast release
+    #   SPARKLE_ED_PRIVATE_KEY                   Sparkle's EdDSA private key for platforms/macos/sparkle-public-key.txt (the pair the 0.48 builds shipped with); with it the input method updates itself through Sparkle from the macos-appcast release
     env:
       # 钉死 Xcode 26.3（macOS 26 SDK），与 ci-macos.yml、ci-macos-package.yml 和 iOS 的 CI、发布同一个版本；不钉就是镜像默认的 Xcode 16.4，CI 测的就不是发出去的构建。
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
@@ -145,7 +145,7 @@ jobs:
           APPLE_ID: "${{ secrets.MACOS_NOTARY_APPLE_ID }}"
           APPLE_TEAM_ID: "${{ secrets.MACOS_NOTARY_TEAM_ID }}"
           APPLE_APP_SPECIFIC_PASSWORD: "${{ secrets.MACOS_NOTARY_APP_SPECIFIC_PASSWORD }}"
-          MSIME_SPARKLE_PRIVATE_KEY: "${{ secrets.MACOS_SPARKLE_PRIVATE_KEY }}"
+          MSIME_SPARKLE_PRIVATE_KEY: "${{ secrets.SPARKLE_ED_PRIVATE_KEY }}"
         run: bash platforms/macos/package-release.sh --editions "$MACOS_EDITIONS" "$VERSION" dist
       - name: Remove signing keychain
         if: ${{ always() && env.MSIME_SIGNING_KEYCHAIN != '' }}
@@ -211,7 +211,7 @@ jobs:
           shopt -s nullglob
           appcasts=(dist/appcast-*.xml)
           if [[ ${#appcasts[@]} -eq 0 ]]; then
-            echo "::warning::MACOS_SPARKLE_PRIVATE_KEY is not set; the input methods in this release have no Sparkle feed and the appcasts were left as they were"
+            echo "::warning::SPARKLE_ED_PRIVATE_KEY is not set; the input methods in this release have no Sparkle feed and the appcasts were left as they were"
             exit 0
           fi
           published="$(gh release view "macos-v${VERSION}" --json assets --jq '.assets[].name')"
