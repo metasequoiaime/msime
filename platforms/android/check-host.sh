@@ -913,6 +913,20 @@ if ! rg -q 's\.imeNineKeyQuickPunctuation\.show\(\)' <<< "$symbol_key_body" \
   echo "The Android nine-key 1 key must lay quick punctuation into the candidate strip until the next Engine transition, and 符 must open the symbol panel from the bottom row" >&2
   exit 1
 fi
+# 拼音九键格子上的长按数字画在右上角，字号和位置与 26 键字母的角标相同（KeyHintButton 的 CORNER_HINT_SP、CORNER_HINT_TOP_DP、CORNER_HINT_RIGHT_DP，基线按 ascent 算），iOS 的 keyNumberHint 也是上 3、右 5。绘制在 onDraw 里，JVM 冒烟碰不到，这里钉住它取的是同一组常量，而不是另写一套数字。
+nine_key_digit_draw=$(sed -n '/protected void onDraw(Canvas canvas) {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/keyboard/NineKeyDigitButton.java")
+for pattern in 'KeyHintButton\.CORNER_HINT_SP' 'KeyHintButton\.CORNER_HINT_TOP_DP\) - metrics\.ascent' \
+    'getWidth\(\) - DimensionPolicy\.floatPixels\(getContext\(\), KeyHintButton\.CORNER_HINT_RIGHT_DP\)'; do
+  if ! rg -q "$pattern" <<< "$nine_key_digit_draw"; then
+    echo "The Android nine-key digit hint must sit in the top-right corner exactly like the letter-key corner hint (KeyHintButton): missing $pattern" >&2
+    exit 1
+  fi
+done
+# 数字角标与字母角标同色：皮肤的 hint 色，不用强调色（原生皮肤下是系统蓝，压在每个键上太显眼）。
+if ! rg -q 'digitButton\.setDigitColor\(color\(target\.hint\(\)\)\)' "$repo_root/platforms/android/java/app/msime/android/core/ImeStyler.java"; then
+  echo "The Android nine-key digit hint must use the skin's hint colour like the letter-key corner hint" >&2
+  exit 1
+fi
 # 文本编辑面板（#5625）是工具栏面板的一员：closeToolbarPanels 要关掉它、anyToolbarPanelOpen 要算上它，否则换输入框时它会留在下一个编辑器的键盘上，收起键也不会变成「返回键盘」。
 if ! sed -n '/void closeToolbarPanels()/,/^    }$/p' "$account_service" | rg_q_stdin 'imeTextEditPanel\.close\(\)' \
   || ! sed -n '/boolean anyToolbarPanelOpen()/,/^    }$/p' "$account_service" | rg_q_stdin 'shown\(textEditPanel\)|ViewPolicy\.isVisible\(textEditPanel\)'; then

@@ -13,6 +13,9 @@ export interface SettingsStatusMessagesProps {
   openPreferencesDirectory?: () => Promise<void>;
   macos: boolean;
   onError: (message: string) => void;
+  /** 自动保存失败的原因；空串表示没有失败。保存状态本来只写在表单最后一行，页面一长就得滚到底才看得见，改了设置却存不下来时用户在原处什么也看不到，所以失败也在页面顶部说一次。 */
+  saveError?: string;
+  onRetrySave?: () => void;
 }
 
 /** Error and save-status messages shared by the settings content surface. */
@@ -26,9 +29,22 @@ export function SettingsStatusMessages({
   openPreferencesDirectory,
   macos,
   onError,
+  saveError = "",
+  onRetrySave,
 }: SettingsStatusMessagesProps) {
   return (
     <>
+      {saveError && (
+        <ErrorAlert>
+          设置没有保存：{saveError}
+          {onRetrySave && (
+            <>
+              {" "}
+              <ActionButton action={onRetrySave} disabled={busy} label="重试" />
+            </>
+          )}
+        </ErrorAlert>
+      )}
       {error && (
         <ErrorAlert>
           {error}

@@ -12,7 +12,7 @@
 #include <string_view>
 #include <vector>
 
-// 「打字统计」页的派生数字和文案，照共享设置在 Windows 上画的那一版（`packages/ui/src/settings/typing-statistics.tsx` 的桌面分支，`mobile` 为假、`platform` 为 windows、没有 `look`）逐条移植：`typing-statistics-helpers.ts`、`typing-statistics-overview.tsx`、`typing-speed.ts`、`typing-breakdown.ts`、`typing-chart.ts` 的环形图几何和 `keyboard-heatmap.ts` 加 `keyboard/keyboard-layouts.ts` 的按键布局。数字格式照 `formatZhNumber`（`toLocaleString("zh-CN")`）、`formatZhPercent`（`toFixed(1)`）和 `Math.round` 的规则。只给手机外观用的摘要（`typing-summary.ts`）和手机键盘布局不在这里。不依赖 Windows 和 WinRT 头文件，「今天」由调用方传入，方便单独测试。
+// 「打字统计」页的派生数字和文案，照共享设置在 Windows 上画的那一版（`packages/ui/src/settings/typing-statistics.tsx` 的桌面分支，`mobile` 为假、`platform` 为 windows、没有 `look`）逐条移植：`typing-statistics-model.ts`、`typing-statistics-helpers.ts`、`typing-statistics-overview.tsx`、`typing-speed.ts`、`typing-breakdown.ts`、`typing-chart.ts` 的环形图几何和 `keyboard-heatmap.ts` 加 `keyboard/keyboard-layouts.ts` 的按键布局。数字格式照 `formatZhNumber`（`toLocaleString("zh-CN")`）、`formatZhPercent`（`toFixed(1)`）和 `Math.round` 的规则。只给手机外观用的摘要（`typing-summary.ts`）和手机键盘布局不在这里。不依赖 Windows 和 WinRT 头文件，「今天」由调用方传入，方便单独测试。
 namespace msime::settings::typing {
 
 // ---- 数字与文字 ----

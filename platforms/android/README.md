@@ -273,6 +273,10 @@ JVM 冒烟只覆盖无 Android 依赖的策略层；焦点、选区、编辑器�
 
 `DiagnosticsBundleDeviceSmoke` 调用安装后的原生宿主生成合成诊断包，核对上传器读取与请求编码、旧格式、类别选择、隐私过滤和记录上限，不连接云端。通过 `smoke.sh emulator-5566 --core --diagnostics` 或单独执行 `adb -s <serial> shell am instrument -w app.msime.android.test/app.msime.android.test.DiagnosticsBundleDeviceSmoke` 运行；本轮诊断上传回归只验证 API 28。
 
+开发者选项 → 数据 → 默认导出文件夹通过系统选择器取得持久读写授权，首次点“导出”也可直接选目录并继续。之后“导出诊断包”每次生成独立 ZIP，不再打开选择器；“分享诊断包”保留发送到其他应用的入口。取消更改保留旧目录，权限失效或目录删除时提示重新选择。默认目录只在本机保存，不参与同步或备份，重置设置会清除默认目录。提供方写入失败时可能留下未完成文件，需要手动删除。
+
+`smoke.sh --diagnostics` 同时执行 `diagnostics-export-directory.sh <serial>`：原生开发者页经系统选择器向合成文档提供方申请跨 UID 授权，强停产品后再次直接导出，核对取消、撤权、目录删除、已有非空文档保护和写入失败。脚本仅用于专用 AVD，开始时清理合成编辑器包的数据，保留产品数据，结束后恢复产品原来的本机设置；也可在安装原生宿主与 `editor-test.apk` 后单独运行。
+
 剪贴板保存期间的重建回归用 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/clipboard-edit-lifecycle.sh emulator-5580 app.msime.android`（API 28 换 `emulator-5566`，拼音版换 `app.msime.android.pinyin`）。它阻塞真实共享存储队列，分别重建 Fragment 视图和 Activity，检查草稿、忙碌状态、成功返回及保存失败后的重试；最后核对条目数、时间戳和固定状态并恢复历史、偏好、图标和引导状态。`smoke.sh` 的普通及 `--core` 路径都会运行这条回归。
 
 `InputFailureCategoryDeviceSmoke` 从已安装产品调用真实响应解析与编辑器写入，用合成响应和拒绝组字的连接区分原生拒绝、响应损坏、编辑器拒写和 JNI 链接错误，检查异常原文不会进入诊断类别。`smoke.sh` 的普通与 `--core` 路径都运行。输入失败的 logcat 记录只包含 `input_failure reason=<固定类别>`，不包含异常说明、堆栈或输入内容；诊断 ZIP 的 P19 输入事件格式不变。

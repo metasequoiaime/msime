@@ -68,6 +68,92 @@ fn completed_transition_keeps_dispatch_view_without_pending_changes() {
 }
 
 #[test]
+fn currency_punctuation_follows_character_width_on_all_key_routes() {
+    for route in 0..3 {
+        let directory = tempfile::tempdir().unwrap();
+        let preferences = Preferences {
+            caps_lock_ascii_punctuation: true,
+            ..chinese_preferences()
+        };
+        let handle = test_host_with_pinyin_fixture(directory.path(), preferences);
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        for fullwidth in [false, true, false] {
+            read(msime_client_set_character_width(handle, fullwidth));
+            let currency = if fullwidth { "￥" } else { "¥" };
+            for composing in [false, true] {
+                let prefix = if composing {
+                    let view = type_letters(handle, b"nihao");
+                    view["candidates"][0]["text"].as_str().unwrap().to_owned()
+                } else {
+                    String::new()
+                };
+                let result = read(match route {
+                    0 => msime_client_character(handle, b'$', true),
+                    1 => msime_client_punctuation(handle, b'$'),
+                    _ => msime_client_punctuation_with_context(handle, b'$', 0),
+                });
+                assert_eq!(result["value"]["handled"], true);
+                assert_eq!(result["value"]["commit"], format!("{prefix}{currency}"));
+            }
+            assert_eq!(
+                read(msime_client_punctuation(handle, b','))["value"]["commit"],
+                "，"
+            );
+        }
+        read(msime_client_set_chinese_punctuation(handle, false));
+        let view = type_letters(handle, b"nihao");
+        let prefix = view["candidates"][0]["text"].as_str().unwrap();
+        assert_eq!(
+            read(msime_client_punctuation(handle, b'$'))["value"]["commit"],
+            format!("{prefix}$")
+        );
+        read(msime_client_set_chinese_punctuation(handle, true));
+        let view = type_letters(handle, b"nihao");
+        let prefix = view["candidates"][0]["text"].as_str().unwrap();
+        read(msime_client_set_caps_lock(handle, true));
+        // 大写锁定只在空闲时直出 ASCII，已有组字仍用中文标点。
+        assert_eq!(
+            read(msime_client_punctuation_with_context(handle, b'$', 0))["value"]["commit"],
+            format!("{prefix}¥")
+        );
+        let idle = read(msime_client_punctuation_with_context(handle, b'$', 0));
+        assert_eq!(idle["value"]["handled"], false);
+        assert!(idle["value"]["commit"].is_null());
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    }
+}
+
+#[test]
+fn currency_punctuation_preserves_currency_symbols_in_a_selected_phrase() {
+    let directory = tempfile::tempdir().unwrap();
+    install_phrase_table(directory.path(), "currency", &[("hb", "￥¥")]);
+    let mut preferences = chinese_preferences();
+    preferences.plugins.phrase_tables = vec!["currency".into()];
+    let handle = plugin_host(directory.path(), preferences);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    for fullwidth in [false, true, false] {
+        read(msime_client_set_character_width(handle, fullwidth));
+        for punctuation in [false, true] {
+            read(msime_client_character(handle, b'K', true));
+            let view = type_letters(handle, b"hb");
+            assert_eq!(view["candidates"][0]["text"], "￥¥");
+            let result = read(if punctuation {
+                msime_client_punctuation(handle, b'$')
+            } else {
+                msime_client_command(handle, 1)
+            });
+            let expected = match (punctuation, fullwidth) {
+                (false, _) => "￥¥",
+                (true, false) => "￥¥¥",
+                (true, true) => "￥¥￥",
+            };
+            assert_eq!(result["value"]["commit"], expected);
+        }
+    }
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+#[test]
 fn default_sentence_model_uses_verified_resources_not_prepared_dictionaries() {
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("resources");
@@ -5544,23 +5630,35 @@ fn test_host_with_pinyin_fixture(root: &std::path::Path, preferences: Preference
 }
 
 #[test]
-fn session_reads_live_preferences_when_the_options_copy_carries_a_retired_field() {
+fn session_reads_live_preferences_when_the_options_copy_is_refused() {
     let directory = tempfile::tempdir().unwrap();
     let path = |name| {
         let path = directory.path().join(name);
         std::fs::create_dir_all(&path).unwrap();
         path
     };
-    let mut stale = serde_json::to_value(chinese_preferences()).unwrap();
-    stale["autocorrect"] = json!(true);
-    let options = |preferences_directory: &std::path::Path| {
-        json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences_directory": preferences_directory, "preferences": stale }).to_string()
+    let options = |preferences_directory: &std::path::Path, preferences: &serde_json::Value| {
+        json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences_directory": preferences_directory, "preferences": preferences }).to_string()
     };
     let create =
         |options: String| read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
 
-    // Nothing to stand in for the copy: refused as before, and the directory is not created by looking.
+    // #2830 退役 `autocorrect` 后，带着它的副本曾让每个 macOS 会话都被拒。偏好结构现在不拒绝不认识的键，这样的副本自己就读得进来。
+    let mut retired = serde_json::to_value(chinese_preferences()).unwrap();
+    retired["autocorrect"] = json!(true);
     let missing = directory.path().join("missing");
+    let created = create(options(&missing, &retired));
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    assert!(!missing.exists());
+
+    // 副本本身读不了（取值类型不对）时，由实时的 preferences.json 顶替。
+    let mut stale = serde_json::to_value(chinese_preferences()).unwrap();
+    stale["candidate_page_size"] = json!("six");
+    let options = |preferences_directory: &std::path::Path| options(preferences_directory, &stale);
+
+    // Nothing to stand in for the copy: refused as before, and the directory is not created by looking.
     assert_eq!(
         create(options(&missing))["error"],
         "invalid options document"
@@ -13372,7 +13470,7 @@ fn plugins_boundary_lists_imports_removes_and_keeps_the_name_list() {
     );
 }
 
-/// 移动端导入单个码表：`import_helpcode_table` 把正文装成辅助码表包，选中后会话里「你」的码换成表里的；坏表以 `plugin_invalid` 和带行号的中文原因被拒。
+/// 移动端导入十万条码表：末行辅助码经插件和会话到达 Engine；坏表带行号拒绝。
 #[test]
 fn plugins_boundary_imports_a_helpcode_table_the_session_then_reads() {
     let dir = tempfile::tempdir().unwrap();
@@ -13384,15 +13482,23 @@ fn plugins_boundary_imports_a_helpcode_table_the_session_then_reads() {
         .unwrap();
         read(unsafe { msime_client_plugins(request.as_ptr(), request.len()) })
     };
+    let mut table = String::from("\u{FEFF}# name: 我的辅助码\r\n");
+    for index in 0..99_999 {
+        table.push_str(&format!(
+            "{}=ab\r\n",
+            char::from_u32(0x20000 + index).unwrap()
+        ));
+    }
+    table.push_str("你=zz\r\n");
     let imported = call(json!({
         "operation": "import_helpcode_table",
         "file_name": "我的码.txt",
-        "text": "\u{FEFF}# name: 我的辅助码\r\n你=zz\r\n",
+        "text": table,
     }));
     assert_eq!(imported["ok"], true, "{imported}");
     assert_eq!(imported["value"]["kind"], "helpcode");
     assert_eq!(imported["value"]["name"], "我的辅助码");
-    assert_eq!(imported["value"]["entries"], 1);
+    assert_eq!(imported["value"]["entries"], 100_000);
     let id = imported["value"]["id"].as_str().unwrap().to_owned();
     assert!(id.starts_with("custom-"), "{id}");
     let catalog = call(json!({"operation": "catalog"}));

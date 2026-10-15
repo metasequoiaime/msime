@@ -1,4 +1,4 @@
-import type { InkPoint } from "./panels";
+import type { InkPoint } from "./panel-client";
 import type { PointerEvent } from "react";
 import { clamp } from "../core/number";
 

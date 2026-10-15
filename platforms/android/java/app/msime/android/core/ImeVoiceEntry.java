@@ -165,7 +165,11 @@ final class ImeVoiceEntry {
                 byte[] pcm = null;
                 try {
                     if (runningLocal != null) {
-                        text = runningLocal.recognize(model, files.toPath(), language, options, null, null,
+                        // 上面挑引擎时已经把 `files` 为 null 的情况算过了，这里直接解引用会让取不到
+                        // files 目录的设备吃一个 NPE，再被下面的兜底改写成那句泛泛的提示；把 null 交给
+                        // 识别器当「模型不可用」处理，用户看到的就是对得上的文案。
+                        text = runningLocal.recognize(model, files == null ? null : files.toPath(),
+                            language, options, null, null,
                             partial -> s.main.post(() -> heard(session, partial)));
                         pcm = runningLocal.retainedAudio();
                     } else if (runningStream != null && stream != null) {
@@ -178,6 +182,12 @@ final class ImeVoiceEntry {
                 } catch (LocalAsrRecognizer.Refused refused) {
                     failure = LocalAsrPolicy.failureMessage(refused.failure(), refused.runtimeMissing());
                 } catch (RuntimeException | LinkageError error) {
+                    // 兜底：本机模型和豆包流式都不该抛非预期异常。不记类型的话，用户只看到下面这句
+                    // 泛泛的提示，诊断包里也只有一条被 catch 住的失败，事后无从知道是哪一类问题
+                    // （只记引擎与异常类名，不含输入、路径和凭据）。
+                    ImeLog.w("Voice engine failed: "
+                        + (runningLocal != null ? "local" : "streaming") + " "
+                        + error.getClass().getName());
                     failure = "语音识别服务无法启动";
                 }
                 String result = text == null ? null : TextPolicy.trimmed(text);

@@ -195,7 +195,7 @@ assert shared_fuzzy_rule_ids, "FuzzyPinyinRule has no serialized identifiers"
 
 fuzzy_preferences_default = re.search(
     r"#\[derive\([^)]*Default[^)]*\)\]\s*"
-    r"#\[serde\(deny_unknown_fields\)\]\s*"
+    r"(?:#\[serde\([^)]*\)\]\s*)?"
     r"pub struct FuzzyPinyinPreferences\s*\{(.*?)\}",
     core_source,
     re.DOTALL,

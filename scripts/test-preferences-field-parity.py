@@ -1,13 +1,7 @@
 #!/usr/bin/env python3
 """Keep the settings page's Preferences shape and the Rust document in step.
 
-`client_core::preferences::Preferences` carries `deny_unknown_fields`, and
-Tauri's `save_preferences` deserializes the front end's object straight into
-it. A key the page can write but the struct does not have therefore does not
-get dropped - it fails the whole save, so touching one unmapped toggle stops
-the settings window persisting anything at all. That is what happened to the
-three smart-punctuation sub-switches, and nothing would have caught it before
-a user did.
+设置页能写、Rust 偏好结构里却没有字段的键，是一个永远不生效的开关。偏好结构以前带 `deny_unknown_fields`，这样的键会让整次保存失败，三个智能标点子开关就因此让设置窗口什么都存不下来；现在偏好文档容忍并保留本版本不认识的键（见 `.agents/notes/implemented/architecture/2026-10-15-preferences-keep-unknown-fields.md`），保存不再失败，键原样留在文档里，但没有任何代码读它。失败变得悄无声息，所以这道检查仍然必要。
 
 A field only Rust has is the milder direction: a setting nobody can reach from
 the settings page. Those exist on purpose sometimes, so they are listed here
@@ -289,7 +283,7 @@ def main() -> int:
             failures.append(
                 f"{label}: the settings page can write {unmapped}, which "
                 f"client_core::preferences::{name} has no field for. "
-                "deny_unknown_fields means saving fails outright."
+                "The key is kept in the document as unknown and never takes effect."
             )
         unreachable = sorted(fields - page - RUST_ONLY.get(name, set()))
         if unreachable:

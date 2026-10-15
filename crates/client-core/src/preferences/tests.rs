@@ -1128,10 +1128,10 @@ fn generated_local_modes_are_off_by_default_and_when_absent() {
         assert_eq!(written["preferences"]["local_modes"][*key], true);
     }
 
-    // The fields stay closed to anything else.
+    // 别的键是更新版本的模式：读得进来，记为未知键，保存时原样写回。
     let mut unknown = serde_json::to_value(Preferences::default()).unwrap();
     unknown["local_modes"]["calculator"] = true.into();
-    assert!(serde_json::from_value::<Preferences>(unknown).is_err());
+    assert_eq!(unknown_paths(&unknown), [["local_modes", "calculator"]]);
 }
 
 #[test]
@@ -1324,8 +1324,10 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
             None => value["plugins"][key] = true.into(),
             Some(section) => value["plugins"][section] = serde_json::json!({ key: true }),
         }
-        assert!(
-            serde_json::from_value::<Preferences>(value).is_err(),
+        let expected: Vec<&str> = path.into_iter().chain([key]).collect();
+        assert_eq!(
+            unknown_paths(&value),
+            [[&["plugins"][..], &expected].concat()],
             "{key}"
         );
     }
@@ -1444,10 +1446,13 @@ fn game_compatibility_defaults_on_and_stays_out_of_the_document() {
     // 恢复默认时回到开启、两张表清空。
     assert_eq!(chosen.restored_to_defaults().game_compatibility, defaults);
 
-    // 段落里多出未知的键时整份文档读不进来。
+    // 段落里多出的键记为未知键，取值不合规仍然读不进来。
     let mut value = serialized.clone();
     value["game_compatibility"] = serde_json::json!({ "auto_rules": true });
-    assert!(serde_json::from_value::<Preferences>(value).is_err());
+    assert_eq!(
+        unknown_paths(&value),
+        [["game_compatibility", "auto_rules"]]
+    );
     let mut value = serialized;
     value["game_compatibility"] = serde_json::json!({ "candidate_overlay": "yes" });
     assert!(serde_json::from_value::<Preferences>(value).is_err());
@@ -1850,12 +1855,10 @@ fn global_theme_ids_round_trip_and_reject_unknown_ids() {
         "candidate_surface_color",
         "candidate_border_color",
     ] {
-        let mut invalid = serde_json::to_value(Preferences::default()).unwrap();
-        invalid[removed] = serde_json::Value::Null;
-        assert!(
-            serde_json::from_value::<Preferences>(invalid).is_err(),
-            "{removed} must no longer be accepted"
-        );
+        // 退役的键不再是设置：读到时和更新版本的键一样记为未知键，不影响任何字段。
+        let mut retired = serde_json::to_value(Preferences::default()).unwrap();
+        retired[removed] = serde_json::Value::Null;
+        assert_eq!(unknown_paths(&retired), [[removed]], "{removed}");
     }
 }
 
@@ -1911,7 +1914,9 @@ fn custom_theme_round_trips_every_part() {
 
     let mut unknown = serde_json::to_value(&custom_theme).unwrap();
     unknown["candidate_colors"]["selected_text"] = "#000000".into();
-    assert!(serde_json::from_value::<CustomTheme>(unknown).is_err());
+    let (read, ignored) = deserialize_keeping_unknown::<CustomTheme>(&unknown, &[]).unwrap();
+    assert_eq!(read, custom_theme);
+    assert_eq!(ignored.len(), 1);
     for base in ["fluent", "wechat", "dark"] {
         let mut unknown = serde_json::to_value(&custom_theme).unwrap();
         unknown["base"] = base.into();
@@ -2295,13 +2300,18 @@ fn second_third_candidate_defaults_off_and_stays_out_of_default_documents() {
     assert!(partial.enabled);
     assert_eq!(partial.keys, SecondThirdCandidateKeys::SemicolonQuote);
 
-    // 未知的键位名和多余字段都拒绝，不会被悄悄读成某个默认键位。
-    for invalid in [
-        serde_json::json!({"enabled": true, "keys": "shift"}),
-        serde_json::json!({"enabled": true, "keys": "semicolon_quote", "extra": 1}),
-    ] {
-        assert!(serde_json::from_value::<SecondThirdCandidatePreferences>(invalid).is_err());
-    }
+    // 未知的键位名拒绝，不会被悄悄读成某个默认键位；多余字段是更新版本的设置，记为未知键。
+    assert!(serde_json::from_value::<SecondThirdCandidatePreferences>(
+        serde_json::json!({"enabled": true, "keys": "shift"})
+    )
+    .is_err());
+    let (extra, ignored) = deserialize_keeping_unknown::<SecondThirdCandidatePreferences>(
+        &serde_json::json!({"enabled": true, "keys": "semicolon_quote", "extra": 1}),
+        &[],
+    )
+    .unwrap();
+    assert!(extra.enabled);
+    assert_eq!(ignored.len(), 1);
 }
 
 #[test]
@@ -2576,8 +2586,11 @@ fn vietnamese_preferences_default_when_absent_and_round_trip() {
 
 #[test]
 fn vietnamese_preferences_reject_unknown_members_and_values() {
+    // 多出的成员是更新版本的设置，记为未知键；未知的取值仍然拒绝。
+    let mut document = serde_json::to_value(Preferences::default()).unwrap();
+    document["vietnamese"] = serde_json::json!({ "input_method": "telex", "layout": "us" });
+    assert_eq!(unknown_paths(&document), [["vietnamese", "layout"]]);
     for invalid in [
-        serde_json::json!({ "input_method": "telex", "layout": "us" }),
         serde_json::json!({ "input_method": "viqr" }),
         serde_json::json!({ "tone_style": "old" }),
     ] {
@@ -2966,10 +2979,10 @@ fn upgrade_without_a_stored_touch_scheme_list_keeps_the_previous_default() {
     let preferences = damaged["preferences"].as_object_mut().unwrap();
     preferences.remove("touch_keyboard_schemes");
     preferences.insert("candidate_page_size".into(), 7.into());
-    preferences.insert("future_setting".into(), true.into());
+    preferences.insert("learning".into(), "yes".into());
     fs::write(store.path(), serde_json::to_vec(&damaged).unwrap()).unwrap();
     let RecoveryOutcome::Recovered { snapshot, .. } = store.recover().unwrap() else {
-        panic!("a document with an unknown field is recovered");
+        panic!("a document with a wrong-typed field is recovered");
     };
     assert_eq!(snapshot.preferences.candidate_page_size, 7);
     assert_eq!(snapshot.preferences.touch_keyboard_schemes.enabled, legacy);
@@ -3853,15 +3866,37 @@ fn candidate_font_names_reject_control_characters() {
 }
 
 #[test]
-fn malformed_future_and_unknown_documents_are_preserved() {
+fn malformed_and_future_format_documents_are_preserved() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    for bytes in ["broken".to_owned(), serde_json::to_string(&PreferencesSnapshot { format_version: 2, ..PreferencesSnapshot::default() }).unwrap(),
-        r#"{"format_version":1,"revision":0,"preferences":{"scheme":"quanpin","candidate_page_size":5,"learning":true,"chinese_punctuation":true,"future_option":true}}"#.to_owned()] {
+    for bytes in [
+        "broken".to_owned(),
+        serde_json::to_string(&PreferencesSnapshot {
+            format_version: 2,
+            ..PreferencesSnapshot::default()
+        })
+        .unwrap(),
+    ] {
         fs::write(store.path(), &bytes).unwrap();
         assert!(store.save(0, Preferences::default()).is_err());
         assert_eq!(fs::read_to_string(store.path()).unwrap(), bytes);
     }
+    // 只是多了更新版本的键的文档照常保存，那个键留在文档里。
+    fs::write(store.path(), r#"{"format_version":1,"revision":0,"preferences":{"scheme":"quanpin","candidate_page_size":5,"learning":true,"chinese_punctuation":true,"future_option":true}}"#).unwrap();
+    store.save(0, Preferences::default()).unwrap();
+    let written: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(written["preferences"]["future_option"], true);
+}
+
+/// `value` 作为偏好对象读取时本版本不认识的键路径。
+fn unknown_paths(value: &serde_json::Value) -> Vec<Vec<String>> {
+    deserialize_keeping_unknown::<Preferences>(value, &[])
+        .unwrap()
+        .1
+        .into_iter()
+        .map(|field| field.path)
+        .collect()
 }
 
 #[test]
@@ -5565,4 +5600,107 @@ fn punctuation_styles_default_omitted_roundtrip_and_reject_unknown_values() {
             "{key}={value}"
         );
     }
+}
+
+/// `value` 里每一个对象（数组元素里的除外）的键路径。
+fn object_paths(value: &serde_json::Value, path: &mut Vec<String>, found: &mut Vec<Vec<String>>) {
+    let serde_json::Value::Object(object) = value else {
+        return;
+    };
+    found.push(path.clone());
+    for (key, child) in object {
+        path.push(key.clone());
+        object_paths(child, path, found);
+        path.pop();
+    }
+}
+
+fn at<'a>(value: &'a serde_json::Value, path: &[String]) -> Option<&'a serde_json::Value> {
+    path.iter()
+        .try_fold(value, |node, key| node.get(key.as_str()))
+}
+
+fn at_mut<'a>(value: &'a mut serde_json::Value, path: &[String]) -> &'a mut serde_json::Value {
+    path.iter().fold(value, |node, key| &mut node[key.as_str()])
+}
+
+/// macOS 的输入法由 Sparkle 单独更新，设置应用和 `msime-mcp` 不跟着变：更新版本写进偏好文档的键，旧版本要读得了，保存时也不能抹掉。旧版本曾因 `deny_unknown_fields` 整份拒读，设置页改什么都存不下来。
+#[test]
+fn settings_from_a_newer_build_are_read_and_kept_through_a_save() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let saved = store.save(0, Preferences::default()).unwrap();
+    let mut document = serde_json::to_value(&saved).unwrap();
+
+    // 默认文档里的每个对象逐个试一遍：结构要把新键当作未知键收下；以用户数据为键的 map（凭据、应用例外、键位表）把它当成一条数据或因值的类型不符拒绝，跳过。任何一个结构说 unknown field，就是它还在拒绝更新版本的文档。
+    let mut objects = Vec::new();
+    object_paths(&document["preferences"], &mut Vec::new(), &mut objects);
+    let mut planted = Vec::new();
+    for object in objects {
+        let mut trial = document["preferences"].clone();
+        let mut key = object.clone();
+        key.push("from_a_newer_build".into());
+        at_mut(&mut trial, &object)["from_a_newer_build"] = "kept".into();
+        match deserialize_keeping_unknown::<Preferences>(&trial, &[]) {
+            Ok((_, unknown)) if unknown.iter().any(|field| field.path == key) => planted.push(key),
+            Ok(_) => {}
+            Err(error) => assert!(
+                !error.to_string().contains("unknown field"),
+                "{object:?}: {error}"
+            ),
+        }
+    }
+    assert!(planted.len() > 20, "{planted:?}");
+    for (index, key) in planted.iter().enumerate() {
+        let (field, parent) = key.split_last().unwrap();
+        at_mut(&mut document["preferences"], parent)[field.as_str()] =
+            serde_json::json!({"kept": index});
+    }
+    fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.preferences, saved.preferences);
+
+    let mut changed = loaded.preferences.clone();
+    changed.candidate_page_size = 9;
+    let written = store.save(loaded.revision, changed).unwrap();
+    assert_eq!(written.preferences.candidate_page_size, 9);
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(on_disk["preferences"]["candidate_page_size"], 9);
+    for key in &planted {
+        assert_eq!(
+            at(&on_disk["preferences"], key),
+            at(&document["preferences"], key),
+            "{key:?}"
+        );
+    }
+    assert_eq!(store.load().unwrap(), written);
+
+    // 恢复默认设置是整份回到默认，更新版本写下的键一并清掉。
+    let restored = store.restore_defaults(written.revision).unwrap();
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(
+        on_disk["preferences"],
+        serde_json::to_value(&restored.preferences).unwrap()
+    );
+}
+
+/// 未知键的父对象这次因为取默认值没有写出时不重建它：只凭一个未知键写出半个已知对象，读它的版本会缺字段。父对象写出时照常放回，本版本已有同名键时以本版本为准。
+#[test]
+fn an_unknown_key_goes_back_only_into_a_written_section() {
+    let unknown = vec![UnknownPreferenceField {
+        path: vec!["section".into(), "from_a_newer_build".into()],
+        value: true.into(),
+    }];
+    let mut preferences = serde_json::json!({});
+    restore_unknown_fields(&mut preferences, &unknown);
+    assert_eq!(preferences, serde_json::json!({}));
+    let mut preferences = serde_json::json!({"section": {"from_a_newer_build": false}});
+    restore_unknown_fields(&mut preferences, &unknown);
+    assert_eq!(preferences["section"]["from_a_newer_build"], false);
+    let mut preferences = serde_json::json!({"section": {}});
+    restore_unknown_fields(&mut preferences, &unknown);
+    assert_eq!(preferences["section"]["from_a_newer_build"], true);
 }

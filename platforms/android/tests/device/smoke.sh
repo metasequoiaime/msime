@@ -95,6 +95,10 @@ run_instrumentation() {
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "System input acceptance failed" >&2; exit 1; }
+# 菜单复制使用真实系统剪贴板与组字会话，最低 API 的核心验收也必须覆盖。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.CopyDeviceInfoDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Device information copy acceptance failed" >&2; exit 1; }
 # 在安装产品中区分失败来源；只用合成响应和拒写连接，不读取实际输入。
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.InputFailureCategoryDeviceSmoke)
 printf '%s\n' "$result"
@@ -118,7 +122,12 @@ if [[ "$diagnostics" == true ]]; then
   result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DiagnosticsBundleDeviceSmoke)
   printf '%s\n' "$result"
   [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Diagnostics bundle acceptance failed" >&2; exit 1; }
+  bash platforms/android/tests/device/diagnostics-export-directory.sh "$serial"
 fi
+# 三万条以上的码表也要经应用沙箱的 JNI 和真实 Engine 验证，API 28 的核心套件同样执行。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.HelpcodeImportDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Helpcode import acceptance failed" >&2; exit 1; }
 if [[ "$core" == true ]]; then
   bash platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
   echo "Dedicated Android AVD: install, resource setup, core typing and clipboard save lifecycle acceptance passed"
@@ -147,6 +156,7 @@ for entry in \
     "ChineseHelpcodeDeviceSmoke|Chinese helpcode acceptance failed" \
     "ChineseHelpcodeOffDeviceSmoke|Chinese helpcode-off Shift letter acceptance failed" \
     "MicrosoftShuangpinDeviceSmoke|Microsoft double-pinyin acceptance failed" \
+    "SymbolPanelLayoutDeviceSmoke|Symbol panel first layout acceptance failed" \
     "LongSymbolCellDeviceSmoke|Long symbol cell acceptance failed" \
     "EmailSuffixDeviceSmoke|Email suffix acceptance failed" \
     "NumberRowDeviceSmoke|Number row acceptance failed" \

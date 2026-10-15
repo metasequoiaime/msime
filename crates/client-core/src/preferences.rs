@@ -100,7 +100,7 @@ pub enum TouchSkinKeyMaterial {
 
 /// Apple-compatible keyboard editor design: the keyboard half of the custom theme. Named designs live in a separate bounded library.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 pub struct TouchKeyboardSkinDesign {
     pub background: u32,
     pub key_background: u32,
@@ -265,7 +265,7 @@ fn supported_skin_photo(bytes: &[u8]) -> bool {
 
 /// What the `custom` global theme is made of. It is kept while another theme is selected, so switching back restores it.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct CustomTheme {
     /// 自定义主题的底：`system` 或五个内置主题之一，不能是 `custom`，也不能是只在部分宿主上提供的 `native`（见 `GlobalTheme::is_base`）。皮肤包和取色器没设的候选颜色由它补上；没有键盘设计时，键盘也画它的。应用了皮肤包时，改用包清单自己的 `base`。
     #[serde(skip_serializing_if = "is_system_theme")]
@@ -358,7 +358,7 @@ impl CustomTheme {
 
 /// The seven candidate colour pickers, each `#RRGGBB` or unset.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct CustomCandidateColors {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
@@ -498,7 +498,6 @@ impl StoredTouchKeyboardScheme {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct StoredTouchKeyboardSchemePreferences {
     #[serde(default)]
     enabled: Option<Vec<StoredTouchKeyboardScheme>>,
@@ -725,7 +724,7 @@ pub enum VietnameseToneStyle {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct VietnamesePreferences {
     pub input_method: VietnameseInputMethod,
     pub tone_style: VietnameseToneStyle,
@@ -797,7 +796,7 @@ pub enum CharacterWidthPreference {
 
 /// Candidate sentence-association sources. The dictionary lattice keeps its historical default; neural rerankers are opt-in because they add model work while typing or settling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct SentenceAssociationPreferences {
     #[serde(default = "enabled_by_default")]
     pub word_lattice: bool,
@@ -822,7 +821,6 @@ impl Default for SentenceAssociationPreferences {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Preferences {
     #[serde(default)]
     pub default_ime_mode: DefaultImeMode,
@@ -1382,7 +1380,7 @@ impl Default for AiAssistantPreferences {
 /// problem. The two hosts log separately because they are separate processes.
 /// Neither records keystrokes, input text or candidates.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct DiagnosticLogPreferences {
     /// Server-side timing and window state: slow request stages, candidate
     /// window, floating toolbar, menus, focus sessions and transport status.
@@ -1393,7 +1391,7 @@ pub struct DiagnosticLogPreferences {
 
 /// Windows 游戏兼容：游戏声明自己画候选却不画时，由水杉的候选窗显示。DLL 在每次激活时读取，对已打开的游戏要重新激活输入法才生效。各项都等于默认值时不写进文档，没有这个键的旧版本照样能读。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct GameCompatibilityPreferences {
     /// 总开关。关闭时任何进程都不强制使用水杉的候选窗，两张表也不起作用。
     pub candidate_overlay: bool,
@@ -1589,7 +1587,6 @@ pub enum PreeditStyle {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct LocalModePreferences {
     pub unicode: bool,
     pub date_time: bool,
@@ -1642,7 +1639,7 @@ impl Default for LocalModePreferences {
 
 /// What the plugin packs do: which pack sounds and how loud, and which command tables the `/` mode reads. Everything is off in a fresh profile. Pack ids name a built-in pack or one installed under the plugins directory; a host that cannot find the named pack stays silent rather than falling back to another.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct PluginPreferences {
     pub key_sound: KeySoundPreferences,
     pub commit_sound: CommitSoundPreferences,
@@ -1738,7 +1735,7 @@ pub enum KeySoundMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct KeySoundPreferences {
     pub enabled: bool,
     pub mode: KeySoundMode,
@@ -1761,14 +1758,14 @@ impl Default for KeySoundPreferences {
 
 /// A sound when text is committed, from the key sound pack's `commit` sample. Independent of the key sound switch.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct CommitSoundPreferences {
     pub enabled: bool,
 }
 
 /// The sequence pack a key plays a note of when `key_sound.mode` is `melody`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct MelodyPreferences {
     pub pack: String,
 }
@@ -1783,7 +1780,7 @@ impl Default for MelodyPreferences {
 
 /// Background music, streamed from an installed music pack while the input method is active. Off, and with no pack chosen, until the user picks one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct MusicPreferences {
     pub enabled: bool,
     pub pack: String,
@@ -1803,13 +1800,12 @@ impl Default for MusicPreferences {
 
 /// A short jingle, the key sound pack's `achievement` sample, when the commit count passes one of `plugins::ACHIEVEMENT_MILESTONES`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct AchievementPreferences {
     pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MixedInputPreferences {
     pub english: bool,
     pub minimum_prefix: u8,
@@ -1860,7 +1856,6 @@ impl FrequencyMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct FrequencyPreferences {
     pub mode: FrequencyMode,
     pub trigger_count: u8,
@@ -1886,7 +1881,6 @@ pub enum WordCharacterKeys {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct WordCharacterPreferences {
     pub enabled: bool,
     pub keys: WordCharacterKeys,
@@ -1912,7 +1906,7 @@ pub enum SecondThirdCandidateKeys {
 
 /// 缺哪个字段就取默认值，宿主的设置页只写 `enabled` 也能读。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct SecondThirdCandidatePreferences {
     pub enabled: bool,
     pub keys: SecondThirdCandidateKeys,
@@ -1926,7 +1920,7 @@ impl SecondThirdCandidatePreferences {
 
 /// 自建的云剪贴板中继：基地址和中继管理员发的令牌，两项要么都空（不用中继），要么都合规。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct CloudClipboardRelayPreferences {
     /// 中继的基地址，例如 `https://relay.example.com/msime`；规则见 [`crate::clipboard_relay::valid_relay_url`]。
     pub url: String,
@@ -1952,7 +1946,6 @@ impl CloudClipboardRelayPreferences {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct NavigationPreferences {
     pub minus_equal: bool,
     pub comma_period: bool,
@@ -1980,7 +1973,6 @@ impl Default for NavigationPreferences {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct KeybindingPreferences {
     #[serde(default = "enabled_by_default")]
     pub switch_language_shift: bool,
@@ -2293,7 +2285,6 @@ fn is_true(value: &bool) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(deny_unknown_fields)]
 pub struct FuzzyPinyinPreferences {
     #[serde(default)]
     pub enabled: bool,
@@ -2316,7 +2307,6 @@ impl FuzzyPinyinPreferences {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct QuanpinPreferences {
     #[serde(default = "enabled_by_default")]
     pub autocorrect_transposition: bool,
@@ -2370,7 +2360,6 @@ impl NineKeyShuangpinProfile {
 ///
 /// 九键双拼的自定义表（`Preferences::nine_key_shuangpin_custom_profile`）用同一个形状，对应 Engine 的 `NineKeyShuangpinTable`：`initials` 放全部 23 个声母，键是数字。
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ShuangpinCustomProfile {
     #[serde(default)]
     pub initials: BTreeMap<String, String>,
@@ -2476,7 +2465,6 @@ impl<'de> Deserialize<'de> for HelpcodeSchema {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct HelpcodePreferences {
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
@@ -3097,7 +3085,8 @@ impl PreferencesStore {
             return Ok(current);
         }
         let preferences = current.preferences.clone();
-        self.save_locked(current, 0, preferences)
+        // 还没有文件，也就没有未知键。
+        self.save_locked(current, &[], 0, preferences)
     }
 
     /// 修复损坏文件时垫底的默认偏好。
@@ -3135,11 +3124,19 @@ impl PreferencesStore {
     }
 
     fn read_locked(&self) -> Result<PreferencesSnapshot, PreferencesError> {
+        self.read_locked_keeping_unknown()
+            .map(|(snapshot, _unknown)| snapshot)
+    }
+
+    /// `read_locked`，另外交出文档里本版本不认识的偏好键，供保存时原样写回（见 [`UnknownPreferenceField`]）。
+    fn read_locked_keeping_unknown(
+        &self,
+    ) -> Result<(PreferencesSnapshot, Vec<UnknownPreferenceField>), PreferencesError> {
         let path = self.path();
         let metadata = match std::fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(self.missing_document())
+                return Ok((self.missing_document(), Vec::new()))
             }
             Err(error) => return Err(error.into()),
         };
@@ -3154,7 +3151,9 @@ impl PreferencesStore {
             MAX_DOCUMENT_BYTES,
             || PreferencesError::DocumentTooLarge,
         )?;
-        let mut snapshot: PreferencesSnapshot = serde_json::from_slice(&bytes)?;
+        let document: serde_json::Value = serde_json::from_slice(&bytes)?;
+        let (mut snapshot, unknown) =
+            deserialize_keeping_unknown::<PreferencesSnapshot>(&document, &["preferences"])?;
         if snapshot.format_version != 1 {
             return Err(PreferencesError::UnsupportedFormat);
         }
@@ -3163,7 +3162,7 @@ impl PreferencesStore {
             .preferences
             .voice_input
             .retire_unavailable_asr_model();
-        Ok(snapshot)
+        Ok((snapshot, unknown))
     }
 
     pub fn load(&self) -> Result<PreferencesSnapshot, PreferencesError> {
@@ -3215,8 +3214,8 @@ impl PreferencesStore {
         preferences: Preferences,
     ) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
-        let current = self.read_locked()?;
-        self.save_locked(current, expected_revision, preferences)
+        let (current, unknown) = self.read_locked_keeping_unknown()?;
+        self.save_locked(current, &unknown, expected_revision, preferences)
     }
 
     /// 「恢复默认设置」：在同一把锁里读出当前文档，换成本存储所属版本的默认偏好（[`Preferences::restored_to_defaults_for`]，服务凭据和 `fuzzy_pinyin.seeded` 保留），再按 `expected_revision` 做比较并交换写回。修订号不符时返回 `Conflict`，什么也不写。
@@ -3227,13 +3226,15 @@ impl PreferencesStore {
         let _lock = self.lock()?;
         let current = self.read_locked()?;
         let restored = current.preferences.restored_to_defaults_for(self.edition());
-        self.save_locked(current, expected_revision, restored)
+        // 恢复默认值连同更新版本写下的设置一起清掉：用户要的是整份回到默认。
+        self.save_locked(current, &[], expected_revision, restored)
     }
 
-    /// `save` 的主体，调用方已持有锁并读出了 `current`。
+    /// `save` 的主体，调用方已持有锁并读出了 `current`。`unknown` 是盘上文档里本版本不认识的键，写入时原样放回。
     fn save_locked(
         &self,
         current: PreferencesSnapshot,
+        unknown: &[UnknownPreferenceField],
         expected_revision: u64,
         mut preferences: Preferences,
     ) -> Result<PreferencesSnapshot, PreferencesError> {
@@ -3283,10 +3284,14 @@ impl PreferencesStore {
                 .ok_or(PreferencesError::RevisionExhausted)?,
             preferences,
         };
+        let mut document = serde_json::to_value(&snapshot)?;
+        if let Some(preferences) = document.get_mut("preferences") {
+            restore_unknown_fields(preferences, unknown);
+        }
         atomic_write(
             &self.directory,
             &self.path(),
-            &serde_json::to_vec_pretty(&snapshot)?,
+            &serde_json::to_vec_pretty(&document)?,
         )?;
         Ok(snapshot)
     }
@@ -3300,7 +3305,7 @@ impl PreferencesStore {
         self.recover_within(RecoveryScope::Unreadable)
     }
 
-    /// `recover`, restricted to a document that is not well-formed JSON (truncated, empty, overwritten with other bytes). A well-formed document the schema rejects - unknown fields or a newer `format_version` - returns the load error unchanged, because it is most likely a newer build's file and rewriting it behind the user's back would lose that build's settings. Input method hosts call this automatically; the explicit settings-page repair uses `recover`.
+    /// `recover`, restricted to a document that is not well-formed JSON (truncated, empty, overwritten with other bytes). A well-formed document the schema rejects - a newer `format_version`, say - returns the load error unchanged, because it is most likely a newer build's file and rewriting it behind the user's back would lose that build's settings. Input method hosts call this automatically; the explicit settings-page repair uses `recover`.
     pub fn recover_malformed(&self) -> Result<RecoveryOutcome, PreferencesError> {
         self.recover_within(RecoveryScope::Malformed)
     }
@@ -3428,6 +3433,83 @@ impl PreferencesStore {
             }
             return Ok(path);
         }
+    }
+}
+
+/// 偏好文档里本版本不认识的一个键：从 `preferences` 对象起的键路径和它的原值。
+///
+/// 偏好文档由好几个程序各自按自己的版本读写：macOS 的输入法由 Sparkle 单独更新，设置应用和 `msime-mcp` 不跟着变，Windows、Linux 的宿主也会写设置页不认识的键。偏好结构因此不拒绝未知键，读取时记下它们，保存时放回原处，旧版本读得了新版本的文档，也不会把新版本的设置抹掉。
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct UnknownPreferenceField {
+    path: Vec<String>,
+    value: serde_json::Value,
+}
+
+/// 把 `document` 反序列化成 `T`，同时收集 `prefix`（逐级的对象键）之下本版本不认识的键。路径经过数组元素的键不收集：数组整个属于一个已知字段，元素位置在新旧版本之间没有对应关系。
+pub(crate) fn deserialize_keeping_unknown<T: serde::de::DeserializeOwned>(
+    document: &serde_json::Value,
+    prefix: &[&str],
+) -> Result<(T, Vec<UnknownPreferenceField>), serde_json::Error> {
+    let mut paths: Vec<Vec<String>> = Vec::new();
+    let value = serde_ignored::deserialize(document, |path| {
+        if let Some(keys) = object_key_path(&path) {
+            paths.push(keys);
+        }
+    })?;
+    let unknown = paths
+        .into_iter()
+        .filter_map(|keys| {
+            let rest = keys.strip_prefix(
+                prefix
+                    .iter()
+                    .map(|key| key.to_string())
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            )?;
+            let value = keys
+                .iter()
+                .try_fold(document, |node, key| node.get(key.as_str()))?
+                .clone();
+            Some(UnknownPreferenceField {
+                path: rest.to_vec(),
+                value,
+            })
+        })
+        .collect();
+    Ok((value, unknown))
+}
+
+/// `serde_ignored` 报告的路径换成逐级的对象键；经过数组元素时返回 `None`。
+fn object_key_path(path: &serde_ignored::Path<'_>) -> Option<Vec<String>> {
+    match path {
+        serde_ignored::Path::Root => Some(Vec::new()),
+        serde_ignored::Path::Map { parent, key } => {
+            let mut keys = object_key_path(parent)?;
+            keys.push(key.clone());
+            Some(keys)
+        }
+        serde_ignored::Path::Some { parent }
+        | serde_ignored::Path::NewtypeStruct { parent }
+        | serde_ignored::Path::NewtypeVariant { parent } => object_key_path(parent),
+        serde_ignored::Path::Seq { .. } => None,
+    }
+}
+
+/// 把读取时记下的未知键放回本版本写出的偏好对象。父对象这次没有写出（取默认值时省略）就不放：凭一个未知键重建半个已知对象，读它的版本会缺字段；本版本已经写出同名的键时以本版本为准。
+fn restore_unknown_fields(preferences: &mut serde_json::Value, unknown: &[UnknownPreferenceField]) {
+    for field in unknown {
+        let Some((key, parents)) = field.path.split_last() else {
+            continue;
+        };
+        let Some(serde_json::Value::Object(parent)) = parents
+            .iter()
+            .try_fold(&mut *preferences, |node, key| node.get_mut(key.as_str()))
+        else {
+            continue;
+        };
+        parent
+            .entry(key.clone())
+            .or_insert_with(|| field.value.clone());
     }
 }
 

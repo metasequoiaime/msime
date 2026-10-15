@@ -89,6 +89,9 @@ inline std::string english_mode_output(char32_t character, bool keypad,
     return {};
   const auto value = static_cast<char>(character);
   if (chinese_punctuation && !keypad) {
+    // 固定表保留全角人民币；实际按键输出按当前宽度选择，不改其他中文标点。
+    if (value == '$' && !fullwidth)
+      return "¥";
     auto mark = english_mode_chinese_punctuation(value, state, marks);
     if (!mark.empty())
       return mark;

@@ -2345,7 +2345,7 @@ fn helpcode_lines(count: u32) -> Vec<u8> {
 fn helpcode_tables_are_bounded_and_load_as_codes() {
     let root = tempdir().unwrap();
     let full_path = installed_helpcode(root.path(), "full", &helpcode_lines(30_000));
-    installed_helpcode(root.path(), "over", &helpcode_lines(30_001));
+    let over_path = installed_helpcode(root.path(), "over", &helpcode_lines(30_001));
     let detail = helpcode_pack::read(&full_path, "table.txt").unwrap();
     assert_eq!(detail.entries, 30_000);
     assert_eq!(detail.preview.len(), helpcode_pack::PREVIEW_ENTRIES);
@@ -2370,8 +2370,10 @@ fn helpcode_tables_are_bounded_and_load_as_codes() {
         serde_json::json!({"character": "一", "code": "ab"})
     );
     assert_eq!(
-        reason(root.path(), PluginKind::Helpcode, "over"),
-        "table.txt 的条数超过 30000"
+        helpcode_pack::read(&over_path, "table.txt")
+            .unwrap()
+            .entries,
+        30_001
     );
 
     // 1 MiB 以内可以，多一个字节就不行。
@@ -2417,6 +2419,56 @@ fn helpcode_tables_are_bounded_and_load_as_codes() {
 }
 
 #[test]
+fn imported_helpcode_tables_keep_one_hundred_thousand_entries_within_the_byte_limit() {
+    let root = tempdir().unwrap();
+    // 补充平面的合成字符避免代理区，最后一条常用字用于核对整表未被截断。
+    let mut table: String = (0..99_999)
+        .map(|index| format!("{}=ab\n", char::from_u32(0x20000 + index).unwrap()))
+        .collect();
+    table.push_str("你=zz\n#");
+    table.extend(std::iter::repeat_n(
+        'x',
+        helpcode_pack::MAX_TABLE_BYTES as usize - table.len(),
+    ));
+    assert_eq!(table.len() as u64, helpcode_pack::MAX_TABLE_BYTES);
+    let summary = helpcode_pack::import_table(root.path(), "large.txt", table.as_bytes()).unwrap();
+    let detail = helpcode_pack::read(&summary.directory, "table.txt").unwrap();
+    assert_eq!(detail.entries, 100_000);
+    assert_eq!(detail.preview.len(), helpcode_pack::PREVIEW_ENTRIES);
+    let codes = helpcode_pack::load_codes(root.path(), &summary.id).unwrap();
+    assert_eq!(codes.len(), 100_000);
+    assert_eq!(codes["\u{20000}"], "ab");
+    assert_eq!(
+        codes[&char::from_u32(0x20000 + 99_998).unwrap().to_string()],
+        "ab"
+    );
+    assert_eq!(codes["你"], "zz");
+
+    table.push('x');
+    assert!(matches!(
+        helpcode_pack::import_table(root.path(), "large.txt", table.as_bytes()),
+        Err(PluginError::Invalid(reason)) if reason == "large.txt 超过 1 MiB"
+    ));
+    // 超限和大表末尾的非法行都不能替换已安装的好表。
+    let unpadded = table.split("\n#").next().unwrap();
+    for (tail, message) in [
+        ("你=cd\n", "出现了不止一次"),
+        ("好=abc\n", "第 100001 行的码必须是 1 到 2 个小写字母"),
+    ] {
+        let invalid = format!("{unpadded}\n{tail}");
+        assert!(matches!(
+            helpcode_pack::import_table(root.path(), "large.txt", invalid.as_bytes()),
+            Err(PluginError::Invalid(reason)) if reason.contains(message)
+        ));
+    }
+    assert_eq!(
+        helpcode_pack::load_codes(root.path(), &summary.id).unwrap(),
+        codes
+    );
+    assert!(staging_leftovers(root.path()).is_empty());
+}
+
+#[test]
 fn helpcode_parser_reserves_capacity_from_input_size() {
     for (input, expected_len) in [("é=a", 1), ("é=a\n", 1), ("é=a\nê=b", 2)] {
         let input = input.as_bytes();
@@ -2424,16 +2476,25 @@ fn helpcode_parser_reserves_capacity_from_input_size() {
         assert_eq!(entries.len(), expected_len);
         assert_eq!(
             entries.capacity(),
-            (input.len().saturating_add(1) / 5).min(helpcode_pack::MAX_ENTRIES)
+            (input.len().saturating_add(1) / 5).min(helpcode_pack::INITIAL_ENTRY_CAPACITY)
         );
     }
 
-    let full: String = (0..helpcode_pack::MAX_ENTRIES)
+    let full: String = (0..helpcode_pack::INITIAL_ENTRY_CAPACITY)
         .map(|index| format!("{}=n\n", char::from_u32(0x4e00 + index as u32).unwrap()))
         .collect();
     let entries = helpcode_pack::parse_table(full.as_bytes(), "table.txt").unwrap();
-    assert_eq!(entries.len(), helpcode_pack::MAX_ENTRIES);
-    assert_eq!(entries.capacity(), helpcode_pack::MAX_ENTRIES);
+    assert_eq!(entries.len(), helpcode_pack::INITIAL_ENTRY_CAPACITY);
+    assert_eq!(entries.capacity(), helpcode_pack::INITIAL_ENTRY_CAPACITY);
+
+    let mut comment = String::from("你=a\n#");
+    comment.extend(std::iter::repeat_n(
+        'x',
+        helpcode_pack::MAX_TABLE_BYTES as usize - comment.len(),
+    ));
+    let entries = helpcode_pack::parse_table(comment.as_bytes(), "comment.txt").unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries.capacity(), helpcode_pack::INITIAL_ENTRY_CAPACITY);
 }
 
 #[test]

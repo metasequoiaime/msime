@@ -9,6 +9,7 @@ final class HelpcodeSettingsTests: XCTestCase {
     super.setUp()
     state = FileManager.default.temporaryDirectory
       .appendingPathComponent("msime-helpcode-\(UUID().uuidString)", isDirectory: true)
+    XCTAssertNoThrow(try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true))
   }
 
   override func tearDown() {
@@ -31,6 +32,7 @@ final class HelpcodeSettingsTests: XCTestCase {
   /// A Shift letter narrows the composition by helpcode, and turning helpcode off in the app reaches the session the keyboard already has.
   func testReloadTurnsHelpcodeOffInTheLiveSession() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertFalse(bridge.initializationFailed, bridge.cancel().diagnosticText ?? "运行时初始化失败")
     let plain = compose(bridge, "shi", helpcode: nil)
     // 自然码 Y is the 讠 radical: 识 试 诗 lead instead of 是.
     let narrowed = compose(bridge, "shi", helpcode: "Y")
@@ -52,6 +54,7 @@ final class HelpcodeSettingsTests: XCTestCase {
   /// "Show in the candidate bar" puts each candidate's helpcode in the annotations the strip draws.
   func testShownHelpcodeReachesTheCandidateAnnotations() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertFalse(bridge.initializationFailed, bridge.cancel().diagnosticText ?? "运行时初始化失败")
     XCTAssertEqual(compose(bridge, "shi", helpcode: nil).candidateAnnotations.first, "", "全拼 ships with helpcode hidden")
 
     update { $0["show_in_candidate_window"] = true }
@@ -67,15 +70,20 @@ final class HelpcodeSettingsTests: XCTestCase {
   /// 在设置 App 里导入的码表（#7176）装进键盘读的插件目录，并选中到发起导入的那一份；已经打开的键盘重读设置后按它缩小候选，删掉后退回内置方案。
   func testImportedTableReachesTheLiveSessionAndRemovalFallsBack() async throws {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertFalse(bridge.initializationFailed, bridge.cancel().diagnosticText ?? "运行时初始化失败")
     // 自然码 Y 是讠旁，「识」排第一。
     XCTAssertEqual(compose(bridge, "shi", helpcode: "Y").candidates.first, "识")
 
-    // 合成的码表：只有「是」的码以 y 开头，其余 shi 音的字都以 q 开头。
+    // 十万条合成码表，只有末行「是」以 y 开头，其余 shi 音的字都以 q 开头。
     let table = state.appendingPathComponent("测试码表.txt")
-    try "# name: 测试码表\n是=ya\n识=qa\n时=qb\n事=qc\n十=qd\n使=qe\n市=qf\n世=qg\n式=qh\n实=qi\n"
-      .write(to: table, atomically: true, encoding: .utf8)
+    var text = "# name: 测试码表\n识=qa\n时=qb\n事=qc\n十=qd\n使=qe\n市=qf\n世=qg\n式=qh\n实=qi\n"
+    for index in 0..<99_990 {
+      text += "\(UnicodeScalar(0x20000 + index)!)=ab\n"
+    }
+    text += "是=ya\n"
+    try text.write(to: table, atomically: true, encoding: .utf8)
     let message = HelpcodeSettingsView.importTable(table, into: HelpcodeSettingsView.quanpin, stateRoot: state)
-    XCTAssertEqual(message, "已导入「测试码表」，共 10 条，已切换到这套辅助码")
+    XCTAssertEqual(message, "已导入「测试码表」，共 100000 条，已切换到这套辅助码")
 
     let packs = HelpcodeSettingsView.installedPacks(stateRoot: state)
     XCTAssertEqual(packs.map(\.name), ["测试码表"])

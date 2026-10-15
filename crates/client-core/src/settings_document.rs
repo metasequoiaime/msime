@@ -102,8 +102,16 @@ pub fn import_document(
             imported.insert(section.to_owned(), value.clone());
         }
     }
-    let mut preferences: Preferences = serde_json::from_value(Value::Object(imported))
+    // 偏好结构本身容忍未知键（旧版本要读得了新版本的偏好文档），导入不同：文件里有本版本不认识的设置，说明它出自更新的版本，只导入认识的那部分会悄悄丢掉其余的，所以整份拒绝。
+    let (mut preferences, unknown) =
+        crate::preferences::deserialize_keeping_unknown::<Preferences>(
+            &Value::Object(imported),
+            &[],
+        )
         .map_err(|_| SettingsDocumentError::Unsupported)?;
+    if !unknown.is_empty() {
+        return Err(SettingsDocumentError::Unsupported);
+    }
     // 记录一次性种子已经做过；文件里的值不能让本机重新种下用户关掉的规则。文件里标着种过（导出时随文件写出），或者模糊音开着，规则就是用户在另一台电脑上定下的（包括有意清空），标成已种过，本机以后第一次打开模糊音时不再被盖成全部规则（PreferencesStore::save、Windows 设置窗口和共享设置页的首次打开种子都看这个标记）。
     preferences.fuzzy_pinyin.seeded = current.fuzzy_pinyin.seeded
         || preferences.fuzzy_pinyin.seeded

@@ -559,6 +559,36 @@ public final class MSIMEInputService extends InputMethodService {
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
     }
 
+    private long deviceInfoCopyGeneration;
+
+    /** 只在用户点击时读取白名单信息；后台收集不阻塞按键，也不触碰组字会话。 */
+    void copyDeviceInfo() {
+        long generation = ++deviceInfoCopyGeneration;
+        DeviceInfoCollector.Screen screen = DeviceInfoCollector.screen(moreButton);
+        try {
+            preferencesWorker.execute(() -> {
+                var entries = DeviceInfoCollector.collect(getApplicationContext(), screen);
+                main.post(() -> {
+                    if (generation != deviceInfoCopyGeneration || preferencesWorker.isShutdown()) return;
+                    try {
+                        ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+                        if (clipboard == null) {
+                            notice("无法复制设备信息");
+                            return;
+                        }
+                        clipboard.setPrimaryClip(ClipData.newPlainText("设备信息",
+                            DeviceInfoCollector.text(this, entries)));
+                        notice("已复制设备信息");
+                    } catch (RuntimeException unavailable) {
+                        notice("无法复制设备信息");
+                    }
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException unavailable) {
+            notice("无法复制设备信息");
+        }
+    }
+
     String preferencesDirectory = "";
     private long appearanceLoadGeneration;
     private String runtimeOptionsForSnapshot = "";
@@ -1668,6 +1698,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        deviceInfoCopyGeneration++;
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
         if (clipboard != null) clipboard.removePrimaryClipChangedListener(clipboardWatcher);
         main.removeCallbacks(recentClipExpiry);
@@ -4849,7 +4880,7 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
-    /** 九键网格键帽：沿用 {@link #keyboardKey} 的动作绑定，并在上沿留出数字提示的位置。 */
+    /** 九键网格键帽：沿用 {@link #keyboardKey} 的动作绑定；数字提示由 {@link NineKeyDigitButton} 画在右上角，键面文字仍居中。 */
     NineKeyDigitButton nineKeyGridKey(String label, String description, Runnable action) {
         NineKeyDigitButton button = new NineKeyDigitButton(this);
         KeyboardTypographyPolicy.setKeyTextSize(button, KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
@@ -5856,6 +5887,9 @@ public final class MSIMEInputService extends InputMethodService {
                 configured.localModel());
         } catch (RuntimeException error) {
             VoiceRecognitionActivity.clearRequest(requestId);
+            // 同一个笼统的提示有两个来源（键区里识别失败、识别窗口起不来），不记类型就分不出来
+            // （只记异常类名，不含输入、路径和凭据）。
+            ImeLog.w("Voice window launch failed: " + error.getClass().getName());
             notice("语音识别服务无法启动");
         }
     }

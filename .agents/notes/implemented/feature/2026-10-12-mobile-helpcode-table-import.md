@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+- #7765：辅助码表不设条数上限，统一以 1 MiB 原始文件字节为边界；严格格式、重复字和空表检查不变。解析器只把初次预分配限制在三万条，之后按实际条目增长，避免注释占满文件的小表一开始就分配二十万条容量。文件上限与 Engine 一致，插件导入、目录扫描和会话读取都执行同一规则。
+
 - client-core 的 `plugins::helpcode_pack::import_table(root, file_name, bytes)` 把单个码表包成辅助码表包：先按辅助码表包的严格规则 `parse_table` 校验（失败是 `PluginError::Invalid`，原因带用户的文件名和行号；重复字报出两处行号），显示名取开头的 `# name:`（`helpcode::display_names`，与 `custom/` 列表共用），没有时用去掉扩展名的文件名，在字符边界上截到清单 `name` 的 80 字节。id 是 `custom-<小写文件名主干>`，满足 `safe_id`（含 64 字节上限）才用，否则是 `custom-<小写主干 SHA-256 前 12 位>`；同名再次导入整包替换。`plugin.toml` 经 toml 序列化写出（`license = "NOASSERTION"`、`version = "1"`、`description = "从 <文件名> 导入"`），和原样字节的 `table.txt` 一起放进 `root` 下 `.staging-` 前缀的临时目录，再交给现有的 `plugins::import`，复用它的校验、`packs.lock`、遗留清扫和原子换入。
 - host-api 的 `msime_client_plugins` 增加 action `import_helpcode_table {file_name, text}`：码表正文是 JSON 里的 UTF-8 字符串，1 MiB 的合法码表在 2 MiB 请求上限之内。宿主负责先按原始字节限 1 MiB、再严格按 UTF-8 解码，解码失败不调用。失败码沿用 `plugin_invalid` + `detail`。
 - Android（`TypingPage`，规则在 `HelpcodeChoicePolicy`）：「辅助码方案」列表在内置方案之后列出 `catalog` 里 `kind = "helpcode"` 的包（「名称（插件）」，选中的包不在了显示「id（插件，未找到）」），然后是「导入辅助码表…」（SAF `OpenDocument`，MIME 放行 `text/plain` 和 `application/octet-stream`）和「管理已导入的码表」（逐个删除）。选包只写当前方案那一份的 `plugins.helpcode_pack_*`；选内置方案写 `schema` 并把包清成 `""`，与共享页 `helpcode-page.tsx` 相同。导入成功后自动选中到发起导入的那一份并在提示里说明已切换；删除正在用的包时把全拼、双拼两份里指向它的选择都清掉，退回内置方案。`state_root` 是 `HostStore.directory`，即键盘读的 runtime option `preferences_directory`。
@@ -15,6 +17,8 @@ Status: implemented
 - 鸿蒙不在这一步。鸿蒙的设置应用和键盘扩展各用一个沙箱（[鸿蒙共享沙箱提案](../../implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md)），键盘读不到设置导入的包；鸿蒙电脑今天已能在插件页导入 helpcode 包，同样卡在这里。沙箱打通后，在共享的 `HelpcodeSettingsGroup` 加「导入辅助码表」行，经 `SettingsClient.plugins` 调同一个 action，鸿蒙手机、鸿蒙电脑和桌面会同时得到这个入口。iOS 的设置应用和键盘扩展共用 App Group 容器，没有这个问题，所以不等沙箱。
 
 ## Alternatives considered
+
+- **同时取消预分配容量上限** — 直接按文件长度预估全部条目可减少大表增长次数；但 1 MiB 注释加一条数据也会预分配约二十万条，移动端会为不存在的数据占用内存。三万只作为初始容量，不作为接受条件。
 
 - **复制进资源目录的 `helpcodes/custom/`，选 `custom/<stem>`** — 与桌面手工放文件的路径完全一致，Engine 已经会读，规则也宽松（后出现的行覆盖前面的，码截到两个字母），用户在桌面能用的表在手机上一定能用，这是它最强的理由。不用它：iOS 的资源目录是只读的 app bundle，鸿蒙每个进程各自暂存一份资源，Android 的资源目录由 `Bootstrap.prepare` 在安装包变化后管理；而插件目录是设置进程和键盘都看得见的那一份，有跨进程锁、原子换入，坏表在导入时就拒绝而不是在键盘里静默截断。代价是与桌面 `custom/` 的宽松规则不一致，桌面能用的表在手机上可能被拒，报错里因此写明文件名、原因和行号。
 - **扩展 `import` 接受 `.txt` 路径** — 少一个 action，宿主像导入文件夹一样传路径。不用它：移动端选到的是 content URI（Android）或 security-scoped URL（iOS），传路径就得先在宿主里复制一份到可读的位置，再让核心再复制一遍；正文放进 JSON 只读一次，严格解码也留在宿主，GBK 表能在调用前就给出「不是 UTF-8」而不是被替换字符变成「等号左边必须恰好是一个字」。
@@ -27,6 +31,10 @@ Status: implemented
 - 与 [Windows 原生设置选辅助码插件](2026-10-11-windows-settings-helpcode-packs.md) 部分重叠：几处都照搬 `helpcode-page.tsx` 的选择规则，共享页改了规则要同步改 `main.cpp`、Android 的 `HelpcodeChoicePolicy.java` 和 iOS 的 `HelpcodeChoicePolicy.swift`。
 
 ## Verification
+
+- #7765：旧实现拒绝十万条回归（`条数超过 30000`）；取消条数限制后，client-core 的 17 项辅助码回归、132 项插件回归及 host-api 导入到 Engine 会话的回归通过。十万条表恰好 1 MiB 可导入、扫描和完整载入；多一个字节、末尾重复字或非法长码会被拒绝，已安装的好表不被替换；注释填充文件的初始容量仍受限。Android API 28、35 各跑完整 client-core 套件，1377 项通过、13 项忽略，7 项无法在设备准备硬链接的测试按既有规则排除。
+- #7765 的宿主验证：Android `HelpcodeImportDeviceSmoke` 在 API 28、35 的独立 AVD 上经安装产品 JNI 导入十万条、重新读目录、用末行「你=zz」过滤真实 Engine 候选并删除；API 28 `smoke.sh --core` 与 API 35 默认完整 `smoke.sh` 均整套通过。API 35 使用包含固定日文、注音资源的完整 APK（SHA-256 `cc2c4039393b20612468f61d0b3600326331f7f7c818d5a86afa0c1b011ee9fe`），语言切换、九键、十四键、辅助码和剪贴板保存生命周期均通过；不把测试夹具缺少语言资源的早期失败算作产品通过。iOS 使用完整 12 项固定资源，`HelpcodeSettingsTests` 五项通过，十万条表的末行「是=ya」在已打开会话重读后成为首选，删除后回到内置表；夹具显式创建目录并断言初始化诊断，避免资源准备失败被误报为输入行为失败。Clippy、Rustfmt、笔记校验、差异检查和本地 quick 门禁通过。这里验证的是模拟器测试宿主，不能由此推导 iOS 真机扩展的内存峰值；上述三万条的旧内存测量也不代表十万条的开销。
+
 
 - `cargo test -p msime-client-core --lib helpcode` / `plugins`：`plugins/tests.rs` 覆盖可读 id、哈希 id、57/58 字节主干的边界、`# name:` 和 80 字节截断、带引号和反斜杠的文件名、重复字/三字母码/空表/GBK/超长各自被拒并带行号、二次导入替换且不留 `.staging-*`、`scan` 列出与 `load_codes` 读出。
 - `cargo test -p msime-host-api --lib plugins`：`plugins_boundary_imports_a_helpcode_table_the_session_then_reads` 导入后把 `plugins.helpcode_pack_shuangpin` 设成返回的 id，会话里「你」的码被替换；坏表返回 `{ok:false,error:"plugin_invalid",detail}`。

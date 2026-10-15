@@ -49,7 +49,7 @@ class IntersectionParityTests(unittest.TestCase):
         with contextlib.redirect_stderr(errors):
             self.assertEqual(PARITY.main(), 1)
         self.assertIn("chinese_punctuation", errors.getvalue())
-        self.assertIn("deny_unknown_fields", errors.getvalue())
+        self.assertIn("never takes effect", errors.getvalue())
 
     def test_missing_base_is_rejected_instead_of_skipping_its_fields(self):
         self.shared.write_text("")

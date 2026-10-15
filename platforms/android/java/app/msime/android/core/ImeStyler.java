@@ -288,7 +288,7 @@ final class ImeStyler {
         if (button instanceof SpaceKeyFace space)
             space.setFaceColor(color(target.toolbarIcon()));
         if (button instanceof NineKeyDigitButton digitButton)
-            digitButton.setDigitColor(color(target.accent()));
+            digitButton.setDigitColor(color(target.hint()));
         applySkinTypeface(button, target);
         applyShadow(button, target);
     }

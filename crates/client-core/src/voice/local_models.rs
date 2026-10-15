@@ -561,7 +561,7 @@ pub fn remove(root: &Path, id: &str) -> Result<(), LocalModelError> {
     if !crate::file_lock::try_exclusive_with_grace(&lock)? {
         return Err(LocalModelError::InstallRunning);
     }
-    let _lock = lock;
+    let _lock = ModelLock { _file: lock };
     let target = root.join(&model.id);
     remove_leftovers(root, &model.id);
     #[cfg(not(unix))]
@@ -641,17 +641,27 @@ fn check_root(root: &Path) -> Result<(), LocalModelError> {
     Ok(())
 }
 
-/// Serialize every operation that mutates a model root, including operations made by separate
-/// host processes. The lock lives in the root and is deliberately kept after the operation so a
-/// later process cannot create a different inode while an earlier process still owns the lock.
-fn acquire_model_lock(root: &Path) -> Result<File, LocalModelError> {
-    // `create_dir_all` follows an existing symlink in a missing path component.
-    // Use the storage helper that checks the nearest existing ancestor first.
+struct ModelLock {
+    _file: File,
+}
+
+#[cfg(unix)]
+impl Drop for ModelLock {
+    fn drop(&mut self) {
+        // 复制或继承的描述符不能把互斥延长到模型操作结束之后。
+        let _ = crate::file_lock::unlock(&self._file);
+    }
+}
+
+/// 串行化模型根目录的所有写操作，包括其他宿主进程的操作。锁文件始终保留，
+/// 避免前一操作仍持锁时，后续操作创建不同 inode 而绕过互斥。
+fn acquire_model_lock(root: &Path) -> Result<ModelLock, LocalModelError> {
+    // `create_dir_all` 会跟随缺失路径成分中的既有符号链接；先检查最近的已存在祖先。
     crate::storage::create_directory_and_check(root)?;
     check_root(root)?;
     let lock = crate::file_lock::open_private_lock_file(root.join(MODEL_LOCK_FILE))?;
     crate::file_lock::exclusive(&lock)?;
-    Ok(lock)
+    Ok(ModelLock { _file: lock })
 }
 
 fn ancestor_capacity(root: &Path) -> usize {
