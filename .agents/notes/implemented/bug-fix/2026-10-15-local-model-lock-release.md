@@ -13,6 +13,8 @@ Status: implemented
 本地模型成功取得的根目录锁由私有 `ModelLock` 守卫持有，Unix 析构时复用 `file_lock::unlock`。阻塞安装和非阻塞删除都由同一个守卫负责释放；只有取得锁之后才构造守卫，失败的竞争者不得解锁其他操作。Windows 继续沿用关闭描述符的行为。现有根目录检查、清理顺序、文件格式和删除忙碌策略不变。
 
 ## Historical notes
+资源安装作用域结束时的释放语义见[资源安装锁释放](2026-10-15-resource-install-lock-release.md)，该决定与本篇部分重叠，保留各自的操作边界。
+
 
 - [模型删除拒绝安装竞争](../../implemented/bug-fix/2026-10-12-local-model-remove-lock-race.md)：部分重叠，保留真实竞争返回忙碌的决定，本篇约束持锁操作结束时的释放。
 - [个人词库锁释放](../../implemented/bug-fix/2026-10-15-personal-dictionary-lock-release.md)和[词库访问锁释放](../../implemented/bug-fix/2026-10-15-dictionary-access-lock-release.md)：部分重叠，复用相同的 Unix 释放语义；各自维护不同的操作边界。
