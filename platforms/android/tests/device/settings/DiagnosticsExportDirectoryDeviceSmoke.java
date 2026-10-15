@@ -368,8 +368,23 @@ public final class DiagnosticsExportDirectoryDeviceSmoke extends Instrumentation
     private void tap(Predicate<AccessibilityNodeInfo> predicate) throws Exception {
         await(predicate);
         automation.waitForIdle(300, 3000);
-        click(await(predicate));
-        SystemClock.sleep(150);
+        Rect previous = null;
+        int stable = 0;
+        long deadline = SystemClock.uptimeMillis() + 5000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            AccessibilityNodeInfo node = await(predicate);
+            Rect current = new Rect();
+            node.getBoundsInScreen(current);
+            stable = !current.isEmpty() && current.equals(previous) ? stable + 1 : 0;
+            if (stable >= 2) {
+                click(node);
+                SystemClock.sleep(150);
+                return;
+            }
+            previous = current;
+            SystemClock.sleep(150);
+        }
+        throw new AssertionError("synthetic control bounds did not settle");
     }
     private void click(AccessibilityNodeInfo node) throws Exception {
         Rect bounds = new Rect();
