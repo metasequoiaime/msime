@@ -15,7 +15,8 @@ public final class ChineseHelpcodeDeviceSmoke extends DeviceSmoke {
         stage = "helpcode composition start";
         tap(field("msime-test-plain"));
         tap(key("n"));
-        await(imeTextContains("n"));
+        // 拼写写在输入框里，候选栏不再画它。
+        await(field("msime-test-plain").and(node -> equalsText("n", node.getText())));
 
         stage = "helpcode shift";
         tap(key("⇧"));

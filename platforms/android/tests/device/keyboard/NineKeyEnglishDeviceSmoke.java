@@ -48,10 +48,10 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             stage = "real nine-key digit entry";
             tap(key("MNO"));
             tap(key("JKL"));
-            // 九键的组字（按下的数字）不写进输入框，只显示在键盘自己的预编辑栏上（MSIMEInputService 里 hidesNineKeyComposing 的说明）：输入框保持空，引擎收到两个数字后有了候选，「展开」可用。
+            // 九键按下的数字不写进输入框，写的是引擎给的拼音读音 `nine_key_reading`（MSIMEInputService.composingText）：引擎收到两个数字后有了候选，「展开」可用，输入框里有组字。首行是英文词时引擎不给九键读音，宿主退回 `preedit`，所以这里只断言组字写进了输入框，不断言其中没有数字。
             await(key("展开").and(AccessibilityNodeInfo::isEnabled));
-            await(field("msime-test-plain").and(node -> node.getText() == null
-                || node.getText().length() == 0 || equalsText("Plain editor", node.getText())));
+            await(field("msime-test-plain").and(node -> node.getText() != null
+                && node.getText().length() > 0 && !node.isShowingHintText()));
 
             // dict-v1.0.0 has zero English weights, so production acceptance deliberately
             // checks the complete Engine candidate set instead of assuming first-page rank.

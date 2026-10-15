@@ -499,8 +499,6 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean hardwareKeyboardUserExpanded;
     /** Resolved 以词定字 binding: `disabled`, `brackets` or `minus_equal`. */
     private String wordCharacterBinding = WordCharacterPolicy.DISABLED;
-    /** 「候选栏预编辑」: whether the strip draws what is being spelled. */
-    private String candidatePreeditStyle = CandidatePreeditStylePolicy.PINYIN;
     /** Which hardware keys page the candidate list, from the shared `navigation` preferences. */
     private CandidateNavigationPolicy.Bindings candidateNavigation =
         CandidateNavigationPolicy.Bindings.defaults();
@@ -823,8 +821,6 @@ public final class MSIMEInputService extends InputMethodService {
         if (session == 0) chinesePunctuation = chinesePunctuationPreference;
         applyPairedPunctuation(preferences == null || preferences.optBoolean("paired_punctuation", true));
         wordCharacterBinding = wordCharacterBindingFrom(preferences);
-        candidatePreeditStyle = CandidatePreeditStylePolicy.style(preferences == null ? null
-            : InputViewValuePolicy.textOr(preferences, "candidate_preedit_style", CandidatePreeditStylePolicy.PINYIN));
         candidateNavigation = candidateNavigationFrom(
             preferences == null ? null : preferences.optJSONObject("navigation"));
         JSONObject keybindings = preferences == null ? null : preferences.optJSONObject("keybindings");
@@ -2574,8 +2570,6 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextChinesePunctuation = preferences.optBoolean("chinese_punctuation", true);
         boolean nextPairedPunctuation = preferences.optBoolean("paired_punctuation", true);
         String nextWordCharacterBinding = wordCharacterBindingFrom(preferences);
-        String nextCandidatePreeditStyle = CandidatePreeditStylePolicy.style(
-            InputViewValuePolicy.textOr(preferences, "candidate_preedit_style", CandidatePreeditStylePolicy.PINYIN));
         CandidateNavigationPolicy.Bindings nextCandidateNavigation =
             candidateNavigationFrom(preferences.optJSONObject("navigation"));
         boolean nextLanguageCtrl = nextKeybindings != null
@@ -2661,7 +2655,6 @@ public final class MSIMEInputService extends InputMethodService {
         chinesePunctuationPreference = nextChinesePunctuation;
         applyPairedPunctuation(nextPairedPunctuation);
         wordCharacterBinding = nextWordCharacterBinding;
-        candidatePreeditStyle = nextCandidatePreeditStyle;
         candidateNavigation = nextCandidateNavigation;
         hardwareLanguageCtrl = nextLanguageCtrl;
         defaultImeMode = nextDefaultImeMode;
@@ -2763,18 +2756,30 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextDedicatedEnglish = InputViewValuePolicy.booleanValue(
             next, "dedicated_english", dedicatedEnglish);
         String reading = InputViewValuePolicy.textOr(next, "reading", "");
+        String phrasePrefix = InputViewValuePolicy.textOr(next, "phrase_prefix", "");
+        String preedit = InputViewValuePolicy.textOr(next, "preedit", "");
+        // 拼写类方案的拼写写进输入框，候选栏不再画它（CandidatePreeditStylePolicy）。画出来的是引擎的 `preedit`（双拼按「双拼预编辑」可以是 ni'hao），不是按下的键；光标移走、不经引擎结束组字区时（drawn 为假）留在文档里的仍是按下的键，与以前相同。本地模式和专用英文照旧写 editing_text。
+        boolean spelling = !nextDedicatedEnglish && CandidatePreeditStylePolicy.writesSpelling(nextViewScheme)
+            && "none".equals(InputViewValuePolicy.textOr(next, "local_mode", "none"));
+        String typed = drawn && spelling
+            ? CandidatePreeditStylePolicy.inlineSpelling(false, "", preedit, editingText) : editingText;
         // 笔画的 editing_text 是字母 hspnzx，reading 才是用户按下的笔画字形（一丨丿丶乛＊），所以同样标记 reading。日语的 editing_text 是罗马字（九键的 ち 送的是 chi），reading 才是假名。哪些方案这样做由引擎的 `draws_reading` 决定。
         String composing = KoreanInputPolicy.composing(
             InputSchemeTraits.drawsReading(nextViewScheme) && !nextDedicatedEnglish,
-            InputViewValuePolicy.textOr(next, "phrase_prefix", ""), editingText,
+            phrasePrefix, typed,
             drawn ? InputViewValuePolicy.textOr(next, "display_reading", reading) : reading);
-        // 九键的 editing_text 是按下的数字键（64426），写进输入框对用户没有意义；和 iOS 默认一样不在输入框里标记组词，组词只显示在键盘自己的预编辑栏上（选过的音节显示为拼音，如 ni'426）。注音 9 键例外：上面已经按大千的规则标记 reading（转换结果加未完成的数字），照常留在输入框里。14 键同理，editing_text 是组码字母（bugao），也不写进输入框；英文和本地模式画的是 26 键，照常标记。
+        // 九键的 editing_text 是按下的数字键（64426），不能写进输入框：写的是引擎给的拼音读音 `nine_key_reading`（ni'hao），即候选栏原来画的那段读音。光标移走、不经引擎结束组字区时（drawn 为假）不留下任何文字，与组字不进输入框时相同。注音 9 键例外：上面已经按大千的规则标记 reading（转换结果加未完成的数字），照常留在输入框里。14 键的 editing_text 是组码字母（bugao），不写进输入框，读音画在候选栏上；英文和本地模式画的是 26 键，照常标记。
         boolean fourteenKeyGrid = !nextDedicatedEnglish && touchLayout(next) == FOURTEEN_KEY_LAYOUT;
-        // 九键双拼的 editing_text 也是数字（`nine_key` 在它下面为假），同样不写进输入框。
+        // 九键双拼的 editing_text 也是数字（`nine_key` 在它下面为假），同样写读音。
         boolean shuangpinGrid = !nextDedicatedEnglish && nineKeyShuangpinGrid(next);
         if (ZhuyinInputPolicy.hidesNineKeyComposing(InputViewValuePolicy.booleanValue(
                 next, "nine_key", false) || fourteenKeyGrid || shuangpinGrid,
-                ZhuyinInputPolicy.active(nextViewScheme, nextDedicatedEnglish))) composing = "";
+                ZhuyinInputPolicy.active(nextViewScheme, nextDedicatedEnglish))) {
+            composing = drawn && spelling && !fourteenKeyGrid
+                ? PhrasePreeditPolicy.composing(phrasePrefix, CandidatePreeditStylePolicy.inlineSpelling(true,
+                    InputViewValuePolicy.textOr(next, "nine_key_reading", ""), preedit, editingText))
+                : "";
+        }
         return composing;
     }
 
@@ -4338,7 +4343,7 @@ public final class MSIMEInputService extends InputMethodService {
             InputViewValuePolicy.textOr(value, "touch_keyboard_layout", ""));
     }
 
-    /** 画着的是引擎组码网格的键面（拼音九键或 14 键）：读音行显示 `nine_key_reading`，组字不写进输入框。 */
+    /** 画着的是引擎组码网格的键面（拼音九键或 14 键）：读音取 `nine_key_reading`（九键写进输入框，14 键画在读音行上）。 */
     static boolean drawsKeyGrid(int layout) {
         return KeyboardLayout.drawsKeyGrid(layout);
     }
@@ -8880,8 +8885,7 @@ public final class MSIMEInputService extends InputMethodService {
             String spelling = !nineKeyPreedit.isEmpty() ? nineKeyPreedit
                 : reading.isEmpty() ? editingText : reading;
             String localModeTitle = "none".equals(localModeKey) ? spelling : editingText;
-            // A mode's own name is a label saying which mode is running, not composed input, so it
-            // survives 「不显示」; anything the mode is spelling beyond its trigger does not.
+            // 本地模式自己的名字说明正在哪个模式里，不是拼写，所以照常画；模式在触发键之后拼写的内容和其他拼写一样，写进输入框后就不画。
             boolean localModeName = false;
             for (LocalInputMode mode : LocalInputMode.values()) {
                 if (mode.preferenceKey().equals(localModeKey)
@@ -8891,8 +8895,11 @@ public final class MSIMEInputService extends InputMethodService {
                     break;
                 }
             }
-            localModeTitle = CandidatePreeditStylePolicy.composedText(
-                candidatePreeditStyle, localModeTitle, localModeName);
+            // 拼写写在输入框里时候选栏不再重复画它（CandidatePreeditStylePolicy）；14 键不写输入框，编辑器截短了组字时整段组字只留在键盘上，这两种照常画。
+            boolean spellingInEditor = view != null && connection != null && !editorCompositionSuppressed
+                && !composingText(view, editingText, true).isEmpty();
+            localModeTitle = CandidatePreeditStylePolicy.composedText(CandidatePreeditStylePolicy.style(
+                InputViewValuePolicy.scheme(view, -1), spellingInEditor), localModeTitle, localModeName);
             boolean idleTitle = idle && editingText.isEmpty();
             // 新设计去掉了空闲时的品牌药丸：空闲时读音行整行隐藏，品牌标在工具栏最左。
             brandPillVisible = false;
