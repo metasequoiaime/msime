@@ -1,7 +1,7 @@
 /**
  * How much of a picked pack the 扩展 page copies into its staging directory before `msime_client_plugins` checks it.
  *
- * The picker hands back a document URI the native library cannot open, so the pick is copied into the app's cache first. The desktop shell has no such copy: client-core's `plugins::import` reads the picked folder or archive itself and stops at its bounds while copying. A staging copy that copied whatever was picked would bypass those bounds, and a wrong pick such as Downloads would be copied whole, possibly filling the device, before client-core refused it. So the copy stops at the same bounds, taken from `crates/client-core/src/plugins/import.rs` and `plugins.rs`; every rule a pack must meet is still checked by client-core on the staged copy.
+ * The picker hands back a document URI the native library cannot open, so the pick is copied into the app's cache first. The desktop shell has no such copy: client-services' `plugins::import` reads the picked folder or archive itself and stops at its bounds while copying. A staging copy that copied whatever was picked would bypass those bounds, and a wrong pick such as Downloads would be copied whole, possibly filling the device, before client-core refused it. So the copy stops at the same bounds, taken from `crates/client-services/src/plugins/import.rs` and `plugins.rs`; every rule a pack must meet is still checked by client-core on the staged copy.
  */
 
 /** `plugins::MAX_PACK_FILES`. */

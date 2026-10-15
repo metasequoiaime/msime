@@ -2,7 +2,7 @@ import { clamp } from "../core/number";
 import type { TypingBreakdown } from "./typing-speed";
 
 /**
- * 打字统计 `summary` 操作的返回：「统计」页的概览、习惯、按键和成就，在 Rust 里（`crates/client-core/src/typing_statistics/metrics.rs`）统一算一次，各平台显示的数字因此一致。字段名沿用 serde 名，即 snake_case；Rust 的 `Option` 在这里是 `null`，页面把它显示为「—」而不是 0。
+ * 打字统计 `summary` 操作的返回：「统计」页的概览、习惯、按键和成就，在 Rust 里（`crates/client-services/src/typing_statistics/metrics.rs`）统一算一次，各平台显示的数字因此一致。字段名沿用 serde 名，即 snake_case；Rust 的 `Option` 在这里是 `null`，页面把它显示为「—」而不是 0。
  *
  * 下面的文案函数移植自 Android 的 `TypingStatisticsSummary.java`，两个产品对同样的数字说同样的话。
  */

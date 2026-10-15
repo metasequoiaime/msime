@@ -71,7 +71,7 @@ struct TypingBreakdown: Decodable, Equatable {
   }
 }
 
-/// The statistics document as the shared Rust store (`crates/client-core/src/typing_statistics.rs`) writes it; this side only reads it.
+/// The statistics document as the shared Rust store (`crates/client-services/src/typing_statistics.rs`) writes it; this side only reads it.
 struct TypingStatistics: Decodable {
   /// Off until the user turns it on, as the shared store ships it; a document that says otherwise keeps what it says.
   var enabled = false
@@ -315,7 +315,7 @@ extension TypingStatistics {
   }
 }
 
-/// The key ids the shared store accepts, W3C `KeyboardEvent.code` names plus the on-screen keys a touch keyboard has and a hardware one does not. A copy of `KEY_IDS` in `crates/client-core/src/typing_statistics.rs`: the store rejects a whole batch that carries any other id, so a key that maps to nothing here is left uncounted rather than given a made-up name.
+/// The key ids the shared store accepts, W3C `KeyboardEvent.code` names plus the on-screen keys a touch keyboard has and a hardware one does not. A copy of `KEY_IDS` in `crates/client-services/src/typing_statistics.rs`: the store rejects a whole batch that carries any other id, so a key that maps to nothing here is left uncounted rather than given a made-up name.
 enum TypingKeyID {
   // Built from typed parts: as one chain of `+` over closures and literals, the Xcode 26.2 compiler gives up with
   // "unable to type-check this expression in reasonable time" and the keyboard extension does not build.
@@ -586,7 +586,7 @@ extension TypingStatistics {
   }
 }
 
-/// 存储层 `summary` 操作的返回：统计页画的概览、习惯、按键和成就。镜像 `crates/client-core/src/typing_statistics/metrics.rs` 里的 `TypingSummary`，所有数字都在那边算好，这边只解码和格式化。Rust 留空的字段（样本太少、没有活跃时长、还没有记录）在这里保持 nil，页面上显示 '—' 而不是 0。
+/// 存储层 `summary` 操作的返回：统计页画的概览、习惯、按键和成就。镜像 `crates/client-services/src/typing_statistics/metrics.rs` 里的 `TypingSummary`，所有数字都在那边算好，这边只解码和格式化。Rust 留空的字段（样本太少、没有活跃时长、还没有记录）在这里保持 nil，页面上显示 '—' 而不是 0。
 struct TypingSummary: Decodable, Equatable {
   struct DayCount: Decodable, Equatable {
     var day: String

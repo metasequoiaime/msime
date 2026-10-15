@@ -122,9 +122,9 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 
 第七套五笔 86（`wubi86`）不同：它由本仓库从 msime-dictionary 的 86 五笔码表生成，上游许可明确（极点码表 Apache-2.0，另有 16 个字的码来自并入的 rime-wubi 行，LGPL-3.0，按 GPL-3.0 分发），可以随包分发。来源、生成命令、摘要和 Apache-2.0 全文在 [`resources/helpcodes/NOTICE-wubi86.md`](../resources/helpcodes/NOTICE-wubi86.md)。
 
-## 自带音效包与插件包（`resources/sound-packs/`、`client-core::plugins`）
+## 自带音效包与插件包（`resources/sound-packs/`、`client-services::plugins`）
 
-内置的九套音效包和两套背景音乐包是本项目自己的作品，随各平台安装包分发，放在资源目录的旁边（资源目录必须与锁文件完全一致）。它们的标识登记在 `client-core::plugins` 的 `BUILTIN_SOUND_PACKS` 与 `BUILTIN_MUSIC_PACKS`，这些标识保留给内置包，用户导入的包不能占用。
+内置的九套音效包和两套背景音乐包是本项目自己的作品，随各平台安装包分发，放在资源目录的旁边（资源目录必须与锁文件完全一致）。它们的标识登记在 `client-services::plugins` 的 `BUILTIN_SOUND_PACKS` 与 `BUILTIN_MUSIC_PACKS`，这些标识保留给内置包，用户导入的包不能占用。
 
 | 项 | 值 |
 | --- | --- |
@@ -140,7 +140,7 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 
 | crate | 版本 | 许可证 | 用途 |
 | --- | --- | --- | --- |
-| `zip`（关闭默认特性，只开 `deflate-flate2`） | 8.6 | MIT | 导入用户选中的 `.zip` 插件包（`crates/client-core/src/plugins/import.rs`）。带进 `typed-path`（MIT OR Apache-2.0）；其余依赖 `crc32fast`、`indexmap`、`memchr`、`flate2` 原本就在锁文件里 |
+| `zip`（关闭默认特性，只开 `deflate-flate2`） | 8.6 | MIT | 导入用户选中的 `.zip` 插件包（`crates/client-services/src/plugins/import.rs`）。带进 `typed-path`（MIT OR Apache-2.0）；其余依赖 `crc32fast`、`indexmap`、`memchr`、`flate2` 原本就在锁文件里 |
 
 播放音效包与背景音乐用到的 Rust crate，只链进 macOS、Windows、Linux 的 `host-api`（`crates/host-api/src/key_sound/`）；iOS、Android、HarmonyOS 不链接，HarmonyOS 2in1 用系统 SoundPool 播 `msime_client_key_sound_pack` 解析出的文件，WAV 样本先经上文的 miniaudio 在长度上限内解码、按旋律音高重写，背景音乐则由系统 AVPlayer 流式播放 `msime_client_music_pack` 解析出的曲目：
 
@@ -171,7 +171,7 @@ MPL-2.0 是文件级 copyleft，与本仓库的 GPL-3.0 兼容：这些 crate �
 | 取用方式 | `scripts/fetch_wordbooks.py` 按锁校验后展开到被忽略的 `target/wordbooks/` |
 | 分发限制 | MIT，保留版权声明与许可全文即可；与本仓库的 GPL-3.0 分发兼容 |
 
-**源文件不进版本库，也不整份随包**。脚本只取 `word`、`phonetic` 和 `translation` 的首行释义——卡片要显示的就这三样——按 `tag` 列（`zk`/`gk`/`cet4`/`cet6`/`ky`/`ielts`/`toefl`/`gre`）分成八本，写成 `client-core::vocabulary::wordbook::Wordbook` 直接能反序列化的 JSON。八本合计约 3 MB，宿主用 serde_json 读，不需要 CSV 解析器或 SQLite 驱动。
+**源文件不进版本库，也不整份随包**。脚本只取 `word`、`phonetic` 和 `translation` 的首行释义——卡片要显示的就这三样——按 `tag` 列（`zk`/`gk`/`cet4`/`cet6`/`ky`/`ielts`/`toefl`/`gre`）分成八本，写成 `client-services::vocabulary::wordbook::Wordbook` 直接能反序列化的 JSON。八本合计约 3 MB，宿主用 serde_json 读，不需要 CSV 解析器或 SQLite 驱动。
 
 考纲归属是 ECDICT 提供的：仓库自带的 `msime-english.db` 有中英释义和语料频次，够做「最常用的一千词」，但不足以断言某个词在四级大纲里。那是已发布的考纲，凭频次给它安一个名字就是编的。
 

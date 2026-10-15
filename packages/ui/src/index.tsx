@@ -2305,7 +2305,7 @@ export interface SettingsClient {
   /** Open the folder holding the preferences document, where a repair leaves its backup. */
   openPreferencesDirectory?: () => Promise<void>;
   readAppVersion?: () => Promise<string>;
-  /** 经由 `msime_client_core::update_check`（Tauri 的 `update_check` 命令，或原生宿主上的 `msime_client_update_check`）把本平台、本版本最新的已发布版本与当前运行的版本号比较。未提供时关于页不提供检查更新。 */
+  /** 经由 `msime_client_services::update_check`（Tauri 的 `update_check` 命令，或原生宿主上的 `msime_client_update_check`）把本平台、本版本最新的已发布版本与当前运行的版本号比较。未提供时关于页不提供检查更新。 */
   checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
   openExternalUrl?: (url: string) => Promise<void>;
   /** The console's app notices; the host fetches and caches the feed and remembers dismissals. Absent shows none. */

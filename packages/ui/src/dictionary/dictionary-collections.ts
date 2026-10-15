@@ -2,7 +2,7 @@ import type { CommunityResource } from "../community/community-resources";
 import { formatZhNumber } from "../core/format-number";
 
 /**
- * 命名词库（`msime_client_dictionary_collections`）在界面上的形状，与 client-core `dictionary/collections.rs` 的 `DictionaryCollectionsView` 一致。
+ * 命名词库（`msime_client_dictionary_collections`）在界面上的形状，与 client-services `dictionary/collections.rs` 的 `DictionaryCollectionsView` 一致。
  *
  * Engine 只有一个用户词库；命名词库是它上面的一层元数据，词条经个人词库队列分批送进 Engine，所以启用、停用、删除只增删「不属于别的已启用词库、也不是用户自己加的」那些词。内置拼音词库不是集合，任何修改都会得到 `builtin_locked`。
  */

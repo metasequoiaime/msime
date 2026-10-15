@@ -43,7 +43,7 @@ public final class CloudClipboardRelayPolicy {
     private CloudClipboardRelayPolicy() {}
 
     /**
-     * 驱动和中继给出的已知错误码，与 `crates/client-core/src/account/clipboard.rs` 的 `CLIPBOARD_ERROR_CODES` 相同。Android 自己跑中继的驱动（{@link app.msime.android.CloudClipboardRelay}），驱动报的错要按 Rust 那条路（`RelayError::code`）同样归类，面板和设置页才给出相同的说法。
+     * 驱动和中继给出的已知错误码，与 `crates/client-services/src/account/clipboard.rs` 的 `CLIPBOARD_ERROR_CODES` 相同。Android 自己跑中继的驱动（{@link app.msime.android.CloudClipboardRelay}），驱动报的错要按 Rust 那条路（`RelayError::code`）同样归类，面板和设置页才给出相同的说法。
      */
     // 不用 Set.of：它要 API 30，minSdk 是 28。
     private static final java.util.List<String> KNOWN_CODES = Arrays.asList(

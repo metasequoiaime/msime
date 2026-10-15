@@ -56,7 +56,7 @@ import { CommunityPageShell } from "./community-page-shell";
 import { useCommunityInstallState } from "./community-install-state";
 import { communityInstallPreflight } from "./community-install-preflight";
 
-/** The kinds a pack can be shared as, which is every kind, effect packs included. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
+/** The kinds a pack can be shared as, which is every kind, effect packs included. Mirrors `client-services::plugins::community::PUBLISHABLE_KINDS`. */
 export type CommunityPluginKind = PluginKind;
 
 export const communityPluginKinds: readonly CommunityPluginKind[] = [
@@ -70,7 +70,7 @@ export const communityPluginKinds: readonly CommunityPluginKind[] = [
   "symbol_set",
 ];
 
-/** One publication, `client-core::plugins::community::CommunityPlugin`. */
+/** One publication, `client-services::plugins::community::CommunityPlugin`. */
 export type CommunityPlugin = {
   id: string;
   kind: CommunityPluginKind;

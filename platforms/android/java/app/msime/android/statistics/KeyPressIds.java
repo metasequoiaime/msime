@@ -11,7 +11,7 @@ import java.util.Set;
 /**
  * The key ids the shared statistics store accepts, and how this host's keys map onto them.
  *
- * <p>The ids are W3C KeyboardEvent.code names plus the on-screen ids, copied verbatim from KEY_IDS in crates/client-core/src/typing_statistics.rs. The store rejects a whole batch that carries one id outside that list, so nothing here invents an id: a key that has no mapping returns {@code null} and is simply not counted.
+ * <p>The ids are W3C KeyboardEvent.code names plus the on-screen ids, copied verbatim from KEY_IDS in crates/client-services/src/typing_statistics.rs. The store rejects a whole batch that carries one id outside that list, so nothing here invents an id: a key that has no mapping returns {@code null} and is simply not counted.
  *
  * <p>Pure Java (the KeyEvent constants are compile-time ints) so the mapping can be checked on a host JVM.
  */

@@ -1,6 +1,6 @@
 import type { EffectStyle } from "./plugin-preferences";
 
-/** 对应 `client-core::plugins::PluginKind`。`script` 只在桌面（macOS、Windows、Linux）出现，页面只在宿主声明了 `script_plugins` 时展示它。 */
+/** 对应 `client-services::plugins::PluginKind`。`script` 只在桌面（macOS、Windows、Linux）出现，页面只在宿主声明了 `script_plugins` 时展示它。 */
 export type PluginKind =
   | "sound"
   | "music"
@@ -25,13 +25,13 @@ export type ScriptCapability =
 
 export type PluginCommand = { trigger: string; title: string; template: string };
 
-/** 脚本插件在 `/` 指令里声明的一条指令：`client-core::plugins::script_pack::ScriptCommand`。和指令表的一条不同，它没有模板，候选由插件给出。 */
+/** 脚本插件在 `/` 指令里声明的一条指令：`client-services::plugins::script_pack::ScriptCommand`。和指令表的一条不同，它没有模板，候选由插件给出。 */
 export type ScriptCommand = { trigger: string; title: string };
 
-/** 辅助码表的一条：`client-core::plugins::helpcode_pack::HelpcodeEntry`。 */
+/** 辅助码表的一条：`client-services::plugins::helpcode_pack::HelpcodeEntry`。 */
 export type PluginHelpcodeEntry = { character: string; code: string };
 
-/** 符号集的一组：`client-core::plugins::symbol_set::SymbolGroup`。 */
+/** 符号集的一组：`client-services::plugins::symbol_set::SymbolGroup`。 */
 export type PluginSymbolGroup = {
   tab: "symbols" | "kaomoji";
   title: string;
@@ -40,10 +40,10 @@ export type PluginSymbolGroup = {
   items: string[];
 };
 
-/** 短语表的一行：`client-core::plugins::phrase_table::PhraseRow`。 */
+/** 短语表的一行：`client-services::plugins::phrase_table::PhraseRow`。 */
 export type PluginPhrase = { key: string; text: string };
 
-/** One pack as `client-core::plugins::scan` lists it: the manifest's fields, with the content of its kind flattened in. */
+/** One pack as `client-services::plugins::scan` lists it: the manifest's fields, with the content of its kind flattened in. */
 export type PluginPackage = {
   id: string;
   name: string;
@@ -72,13 +72,13 @@ export type PluginPackage = {
   first_words?: string[];
   /** 符号集的各组。 */
   groups?: PluginSymbolGroup[];
-  /** Effect packs: `client-core::plugins::effect_pack::EffectPack`, never `off`. */
+  /** Effect packs: `client-services::plugins::effect_pack::EffectPack`, never `off`. */
   style?: EffectStyle;
   intensity?: number;
   colors?: string[];
   duration_ms?: number | null;
   particles?: number | null;
-  /** 脚本插件（`client-core::plugins::script_pack::ScriptPack`）：ABI 版本、模块文件名、声明的钩子、申请的能力、每个实例预留的内存页数和内容哈希。授权绑定在内容哈希上。 */
+  /** 脚本插件（`client-services::plugins::script_pack::ScriptPack`）：ABI 版本、模块文件名、声明的钩子、申请的能力、每个实例预留的内存页数和内容哈希。授权绑定在内容哈希上。 */
   abi?: number;
   module?: string;
   hooks?: string[];
@@ -129,7 +129,7 @@ export type PluginIssue = { kind: PluginKind; folder: string; reason: string };
 
 export type PluginCatalogResult = { packages: PluginPackage[]; issues: PluginIssue[] };
 
-/** One entry of the @ mode's name list, `client-core::plugins::mentions::MentionEntry`. */
+/** One entry of the @ mode's name list, `client-services::plugins::mentions::MentionEntry`. */
 export type MentionEntry = { text: string; key: string };
 
 /**

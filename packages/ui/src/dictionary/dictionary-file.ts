@@ -52,7 +52,7 @@ export async function readDictionaryFile(
   return decodeDictionaryBytes(new Uint8Array(await file.arrayBuffer()));
 }
 
-/** 搜狗细胞词库（`.scel`）文件的上限，与 client-core `dictionary::scel::MAX_SCEL_BYTES` 相同。 */
+/** 搜狗细胞词库（`.scel`）文件的上限，与 client-services `dictionary::scel::MAX_SCEL_BYTES` 相同。 */
 export const MAX_SCEL_FILE_BYTES = 8 * 1024 * 1024;
 
 /** 细胞词库的前 4 字节。只看这 4 字节而不是整个 12 字节的魔数：版本不对的细胞词库也该交给宿主，由它说「版本不支持」，而不是被当成文本读出一堆乱码。 */

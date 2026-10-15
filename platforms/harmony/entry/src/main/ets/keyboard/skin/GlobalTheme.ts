@@ -1,7 +1,7 @@
 /**
  * The shared global theme as this host reads it: the catalog the picker draws, the resolved answer every surface is coloured from, and the ArkUI tokens a `null` slot falls back to.
  *
- * The ids, titles and palettes all come from `msime_client_theme_catalog` and `msime_client_resolve_theme` (crates/client-core/src/skin/theme.rs). Nothing here keeps a copy of them. What this file does own is the Harmony native token table, because `system` and every `null` slot mean "draw the platform's own colours", and those are this host's to define.
+ * The ids, titles and palettes all come from `msime_client_theme_catalog` and `msime_client_resolve_theme` (crates/client-services/src/skin/theme.rs). Nothing here keeps a copy of them. What this file does own is the Harmony native token table, because `system` and every `null` slot mean "draw the platform's own colours", and those are this host's to define.
  *
  * The shared layer writes colours as `#RRGGBB` or `#RRGGBBAA` with the alpha last. ArkUI reads an eight-digit colour as `#AARRGGBB`, so every colour is converted once, when the answer is parsed, and nothing downstream sees the shared order.
  */
