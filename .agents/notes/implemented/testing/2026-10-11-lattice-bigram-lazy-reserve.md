@@ -48,6 +48,8 @@ Status: implemented
 
 ## Consequences
 
+[出边切片借用](2026-10-15-lattice-outgoing-borrow.md)移除上游临时出边指针向量，评分行按主图和附加图的原顺序借用填充；本篇评分行的延后预留、跨列复用、前词索引和生命周期保持。
+
 [可达假设容量](../../implemented/testing/2026-10-15-lattice-column-capacity.md)进一步消除不可达列的假设存储，单列空图的分配总数从本篇当时的四次降至三次；二元评分缓冲的延后预留和跨列复用保持。
 
 没有二元表时每次解码省去两次缓存分配；配置二元表且确实解码到路径时保留原 `row_capacity` 预留，避免逐行扩容。分配计数只覆盖 Rust 堆调用，不代表 SQLite 或系统分配器的 RSS 和端到端输入延迟。

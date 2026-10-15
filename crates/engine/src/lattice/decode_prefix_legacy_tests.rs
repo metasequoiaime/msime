@@ -1,7 +1,7 @@
 use super::*;
 
 // 固定 59f20f26b5 的完整解码正文；假设与排序等未变的 helper 共用，旧键构造独立保留。
-pub(super) fn decode_graph(
+pub(in super::super) fn decode_graph(
     graph: &Graph,
     options: &LatticeOptions<'_>,
     extra: Option<&Graph>,

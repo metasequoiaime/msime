@@ -452,8 +452,6 @@ pub(super) fn decode_graph(
     let row_capacity = options.beam.max(options.nbest);
     let mut bigram_rows: Vec<Vec<f32>> = Vec::new();
     let mut bigram_row_indices: HashMap<&str, usize> = HashMap::new();
-    // 这一列的出边，按原来的顺序（先图里的，再 `extra` 的）收集一次，每个假设都按这个顺序展开。
-    let mut outgoing: Vec<&Edge> = Vec::new();
     for pos in 0..n {
         keep_beam(&mut columns[pos], options.beam);
         let (done, ahead) = columns.split_at_mut(pos + 1);
@@ -461,12 +459,11 @@ pub(super) fn decode_graph(
         // 行存储跨列复用；前词索引和有效行数只属于当前列，评分必须重新填满。
         let mut used_bigram_rows = 0;
         bigram_row_indices.clear();
-        outgoing.clear();
-        outgoing.extend(
-            graph[pos]
-                .iter()
-                .chain(extra.into_iter().flat_map(|extra| extra[pos].iter())),
-        );
+        // 只读原始切片，评分与展开都按主图、附加图的相同顺序重新遍历。
+        let literal = &graph[pos];
+        let extra_edges = extra.map_or(&[][..], |extra| extra[pos].as_slice());
+        let outgoing_len = literal.len() + extra_edges.len();
+        let outgoing = literal.iter().chain(extra_edges.iter());
         for (index, hyp) in current.iter().enumerate() {
             // Column 0 has no predecessor, so the start token carries what the corpus knows about how sentences open; every later column uses the word the hypothesis arrived on.
             let previous = hyp.edge.map_or(SENTENCE_START, |edge| edge.word.as_str());
@@ -484,16 +481,16 @@ pub(super) fn decode_graph(
                     }
                     let scores = &mut bigram_rows[row];
                     scores.clear();
-                    scores.reserve_exact(outgoing.len());
+                    scores.reserve_exact(outgoing_len);
                     match memo.as_deref_mut() {
                         Some(memo) => scores.extend(
                             outgoing
-                                .iter()
+                                .clone()
                                 .map(|edge| memo.score(table, previous, &edge.word)),
                         ),
                         None => scores.extend(
                             outgoing
-                                .iter()
+                                .clone()
                                 .map(|edge| table.bigram(previous, &edge.word)),
                         ),
                     }
@@ -513,7 +510,7 @@ pub(super) fn decode_graph(
                 };
                 personal.context(earlier, Some(previous))
             });
-            for (at, &edge) in outgoing.iter().enumerate() {
+            for (at, edge) in outgoing.clone().enumerate() {
                 let mut score = hyp.score + edge.log_prob;
                 let static_bonus = bonuses.map_or(0.0, |bonuses| f64::from(bonuses[at]));
                 if bigram.is_some() {
@@ -1489,3 +1486,7 @@ mod return_tests;
 #[cfg(test)]
 #[path = "decode_prefix_tests.rs"]
 mod prefix_tests;
+
+#[cfg(test)]
+#[path = "decode_outgoing_tests.rs"]
+mod outgoing_tests;

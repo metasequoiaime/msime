@@ -3,7 +3,7 @@ use super::super::personal::tests::record_run;
 use super::*;
 
 #[path = "decode_prefix_legacy_tests.rs"]
-mod legacy;
+pub(super) mod legacy;
 
 #[path = "decode_prefix_experiment_tests.rs"]
 mod experiment;

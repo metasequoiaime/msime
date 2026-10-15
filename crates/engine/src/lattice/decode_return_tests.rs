@@ -51,11 +51,13 @@ fn unused_small_beam_paths_are_not_materialized() {
         assert_eq!(new.capacity(), old.capacity());
         assert_eq!(after.remaining_bytes, before.remaining_bytes);
         // 每条单词非空路径需要词向量、键向量、词串、句子和读音五次申请；大末列保留原回退。
-        let saved = if width <= SMALL_SENTENCE_PATHS {
+        let materialization_saved = if width <= SMALL_SENTENCE_PATHS {
             (width - nbest.min(width)) * 5
         } else {
             0
         };
+        // 出边借用另省一次指针缓冲申请，仍分别核对完整物化和出边存储的预算。
+        let saved = materialization_saved + 1;
         assert_eq!(
             before.allocations - after.allocations,
             saved,
@@ -86,7 +88,8 @@ fn duplicates_keep_the_first_path_without_joining_unused_keys() {
     assert_paths(&new, &old);
     assert_eq!(new.len(), 4);
     assert_eq!(new[0].key, "k0");
-    assert_eq!(before.allocations - after.allocations, 28);
+    // 28 次无用读音拼接，另加一次出边指针缓冲申请。
+    assert_eq!(before.allocations - after.allocations, 28 + 1);
     assert_eq!(after.remaining_bytes, before.remaining_bytes);
 }
 
