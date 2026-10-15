@@ -9,7 +9,6 @@ rust-version.workspace = true
 
 [dev-dependencies]
 msime-client-core = { path = "../client-core" }
-msime-client-providers = { path = "../client-providers" }
 
 # The desktop shell forbids unsafe code, so the few Win32 calls the shared
 # panels need live here behind safe wrappers.

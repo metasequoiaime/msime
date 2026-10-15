@@ -27,8 +27,8 @@ hex = "0.4"
 md-5 = "0.11"
 base64 = "0.23"
 uuid = { workspace = true, features = ["serde", "v4"] }
-# `formatting` 原本供命令表插件包校验 strftime 占位符；插件已搬到 msime-client-services，那边自己开着。这里照旧保留，只依赖本 crate 的宿主拿到的 `time` 特性集合不变。
-time = { workspace = true, features = ["formatting"] }
+# 只用来取当前 UTC 时间、拼损坏备份的文件名，不需要 `formatting`：命令表插件包的 strftime 校验已随插件搬到 msime-client-services，那边自己开着。
+time.workspace = true
 # 偏好、翻译和地址形状校验只解析地址、不联网，直接用 `url`，不经 `reqwest::Url`。锁文件里只有一份 url 2.5.8，和 reqwest 用的是同一个类型。
 url = "2.5"
 

@@ -25,6 +25,8 @@ rustup target add "$target" >/dev/null 2>&1 || true
 export "CC_${target//-/_}=$bin/${target}28-clang"
 export "AR_${target//-/_}=$bin/llvm-ar"
 export "CARGO_TARGET_${upper}_LINKER=$bin/${target}28-clang"
-export "CARGO_TARGET_${upper}_RUNNER=bash $repo_root/platforms/android/tests/device/run-core-test.sh"
+# runner 用 `--config` 的 TOML 数组传入：`CARGO_TARGET_<triple>_RUNNER` 环境变量会被 cargo 按空白切开，仓库路径一带空格（例如外接盘 `/Volumes/My Disk/...`）脚本就找不到了。数组元素写成 TOML 字面字符串，路径里不能有单引号。
+runner="$repo_root/platforms/android/tests/device/run-core-test.sh"
+[[ "$runner" != *"'"* ]] || { echo "repository path must not contain a single quote: $repo_root" >&2; exit 1; }
 export CARGO_TARGET_DIR="$repo_root/target/android-cargo"
-cargo test -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --lib --locked --no-fail-fast --target "$target"
+cargo --config "target.$target.runner=['bash', '$runner']" test -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --lib --locked --no-fail-fast --target "$target"

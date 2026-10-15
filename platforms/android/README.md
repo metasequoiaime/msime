@@ -387,9 +387,11 @@ android_toolchain="$ANDROID_SDK_ROOT/ndk/28.2.13676358/toolchains/llvm/prebuilt/
 CC_aarch64_linux_android="$android_toolchain/aarch64-linux-android28-clang" \
 AR_aarch64_linux_android="$android_toolchain/llvm-ar" \
 CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$android_toolchain/aarch64-linux-android28-clang" \
-CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER="bash $PWD/platforms/android/tests/device/run-core-test.sh" \
-cargo test -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --lib --target aarch64-linux-android --locked
+cargo --config "target.aarch64-linux-android.runner=['bash', '$PWD/platforms/android/tests/device/run-core-test.sh']" \
+  test -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --lib --target aarch64-linux-android --locked
 ```
+
+runner 用 `--config` 传 TOML 数组，而不是 `CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER` 环境变量：cargo 会按空白切开那个变量，仓库路径带空格时脚本就找不到了。`platforms/android/tests/device/build-core-test.sh` 也是这样做的。
 
 8 项测试在 Android 上通过，包含独立 PreferencesStore 的并发冲突和资源失败保护。Android 标准库文件锁不可用，共享锁封装在该目标使用 rustix 安全 flock，其他目标保留标准库锁；不放宽共享核心的 unsafe 禁令。启动页和软键盘均应用系统栏 inset，避免操作被 ActionBar 或导航栏遮挡。
 
