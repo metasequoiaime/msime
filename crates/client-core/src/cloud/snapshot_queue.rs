@@ -484,12 +484,37 @@ impl DictionarySnapshotQueue {
         })
     }
 
-    fn check_lease(&self, lease: &SnapshotWorkerLease) -> Result<PathBuf, SnapshotQueueError> {
-        let root = self.root()?;
-        if lease.owner != root {
-            return Err(SnapshotQueueError::Invalid);
-        }
-        Ok(root)
+    fn update_worker<T>(
+        &self,
+        lease: &SnapshotWorkerLease,
+        action: impl FnOnce(&mut SnapshotQueueState) -> Result<T, SnapshotQueueError>,
+    ) -> Result<(T, crate::file_lock::PrivateDirectory), SnapshotQueueError> {
+        self.update(|lock, state| {
+            if lease.owner != lock.root {
+                return Err(SnapshotQueueError::Invalid);
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                let owner = lease
+                    ._directory
+                    .metadata()
+                    .map_err(|_| SnapshotQueueError::Unavailable)?;
+                let locked = lock
+                    .directory
+                    .metadata()
+                    .map_err(|_| SnapshotQueueError::Unavailable)?;
+                if owner.dev() != locked.dev() || owner.ino() != locked.ino() {
+                    return Err(SnapshotQueueError::Invalid);
+                }
+            }
+            // 校验、状态读写和终态清理始终使用实际持锁的目录对象。
+            let directory = lock
+                .directory
+                .try_clone()
+                .map_err(|_| SnapshotQueueError::Unavailable)?;
+            Ok((action(state)?, directory))
+        })
     }
 
     pub fn claim(
@@ -497,8 +522,7 @@ impl DictionarySnapshotQueue {
         lease: &SnapshotWorkerLease,
         current_account_id: &str,
     ) -> Result<Option<SnapshotRequest>, SnapshotQueueError> {
-        self.check_lease(lease)?;
-        let (claimed, cancelled) = self.update(|_, state| {
+        let ((claimed, cancelled), directory) = self.update_worker(lease, |state| {
             let Some(request) = state
                 .request
                 .as_mut()
@@ -514,7 +538,7 @@ impl DictionarySnapshotQueue {
             Ok((Some(request.clone()), None))
         })?;
         if let Some(id) = cancelled {
-            self.delete_snapshot(id)?;
+            delete_snapshot_at(&directory, id)?;
         }
         Ok(claimed)
     }
@@ -528,11 +552,10 @@ impl DictionarySnapshotQueue {
         current_account_id: &str,
         apply: impl FnOnce() -> Result<String, SnapshotQueueError>,
     ) -> Result<bool, SnapshotQueueError> {
-        self.check_lease(lease)?;
         if !valid_local_version(current_version) {
             return Err(SnapshotQueueError::Invalid);
         }
-        let applied = self.update(|_, state| {
+        let (applied, directory) = self.update_worker(lease, |state| {
             let request = state.request.as_mut().ok_or(SnapshotQueueError::Conflict)?;
             let can_complete = request.status.active()
                 || (already_applied && request.status == SnapshotRequestStatus::Applied);
@@ -557,13 +580,12 @@ impl DictionarySnapshotQueue {
             }
             Ok(request.status == SnapshotRequestStatus::Applied)
         })?;
-        self.delete_snapshot(id)?;
+        delete_snapshot_at(&directory, id)?;
         Ok(applied)
     }
 
     pub fn fail(&self, id: Uuid, lease: &SnapshotWorkerLease) -> Result<(), SnapshotQueueError> {
-        self.check_lease(lease)?;
-        self.transition(id, SnapshotRequestStatus::Failed)
+        self.transition(id, lease, SnapshotRequestStatus::Failed)
     }
 
     pub fn cancel(&self, account_id: &str) -> Result<(), SnapshotQueueError> {
@@ -592,12 +614,13 @@ impl DictionarySnapshotQueue {
     fn transition(
         &self,
         id: Uuid,
+        lease: &SnapshotWorkerLease,
         status: SnapshotRequestStatus,
     ) -> Result<(), SnapshotQueueError> {
         if status.active() {
             return Err(SnapshotQueueError::Invalid);
         }
-        let changed = self.update(|_, state| {
+        let (changed, directory) = self.update_worker(lease, |state| {
             let Some(request) = state
                 .request
                 .as_mut()
@@ -609,7 +632,7 @@ impl DictionarySnapshotQueue {
             Ok(true)
         })?;
         if changed {
-            self.delete_snapshot(id)?;
+            delete_snapshot_at(&directory, id)?;
         }
         Ok(())
     }
@@ -644,6 +667,17 @@ impl DictionarySnapshotQueue {
     fn delete_snapshot(&self, id: Uuid) -> Result<(), SnapshotQueueError> {
         let path = self.file_path(id)?;
         remove_snapshot_file(&path)
+    }
+}
+
+fn delete_snapshot_at(
+    directory: &crate::file_lock::PrivateDirectory,
+    id: Uuid,
+) -> Result<(), SnapshotQueueError> {
+    match crate::file_lock::remove_private_file_at(directory, OsStr::new(&format!("{id}.ndjson"))) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(SnapshotQueueError::Unavailable),
     }
 }
 
@@ -701,6 +735,141 @@ mod tests {
 
     fn version(owner: &str, digest: char) -> String {
         format!("local-v1:{owner}:{}", digest.to_string().repeat(64))
+    }
+
+    #[test]
+    fn worker_from_another_queue_cannot_claim_a_request() {
+        let parent = tempfile::tempdir().unwrap();
+        let owner = DictionarySnapshotQueue::new(parent.path().join("owner")).unwrap();
+        let other = DictionarySnapshotQueue::new(parent.path().join("other")).unwrap();
+        let lease = owner.acquire_worker_lease().unwrap();
+        other
+            .publish_local_version(&version("legacy", 'a'))
+            .unwrap();
+        let before = other.read().unwrap();
+        assert!(matches!(
+            other.claim(&lease, "fixture"),
+            Err(SnapshotQueueError::Invalid)
+        ));
+        assert_eq!(other.read().unwrap(), before);
+    }
+
+    #[cfg(unix)]
+    fn assert_replaced_queue_rejects_old_worker(
+        action: impl FnOnce(
+            &DictionarySnapshotQueue,
+            &SnapshotWorkerLease,
+            Uuid,
+            &str,
+        ) -> Result<(), SnapshotQueueError>,
+    ) {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("queue");
+        let moved = parent.path().join("moved");
+        let source = parent.path().join("snapshot.ndjson");
+        fs::write(&source, b"synthetic snapshot\n").unwrap();
+        let digest = hex::encode(Sha256::digest(b"synthetic snapshot\n"));
+        let queue = DictionarySnapshotQueue::new(root.clone()).unwrap();
+        queue
+            .publish_local_version(&version("legacy", 'a'))
+            .unwrap();
+        let stale = queue.acquire_worker_lease().unwrap();
+        let original_state = fs::read(root.join(STATE_NAME)).unwrap();
+        fs::rename(&root, &moved).unwrap();
+
+        let initial = version("legacy", 'b');
+        queue.publish_local_version(&initial).unwrap();
+        let id = queue
+            .enqueue(&source, "fixture", 1, &initial, &digest)
+            .unwrap();
+        let fresh = queue.acquire_worker_lease().unwrap();
+        let replacement_state = fs::read(root.join(STATE_NAME)).unwrap();
+        assert!(matches!(
+            action(&queue, &stale, id, &initial),
+            Err(SnapshotQueueError::Invalid)
+        ));
+        assert_eq!(fs::read(root.join(STATE_NAME)).unwrap(), replacement_state);
+        assert_eq!(fs::read(moved.join(STATE_NAME)).unwrap(), original_state);
+        assert_eq!(
+            fs::read(queue.file_path(id).unwrap()).unwrap(),
+            b"synthetic snapshot\n"
+        );
+        assert_eq!(queue.claim(&fresh, "fixture").unwrap().unwrap().id, id);
+        assert!(queue
+            .complete(id, &fresh, &initial, false, "fixture", || {
+                Ok(version(&id.to_string(), 'c'))
+            })
+            .unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn old_worker_cannot_claim_a_replacement_queue() {
+        assert_replaced_queue_rejects_old_worker(|queue, stale, _, _| {
+            queue.claim(stale, "stale-account").map(|_| ())
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn old_worker_cannot_complete_a_replacement_queue() {
+        let mut activated = false;
+        assert_replaced_queue_rejects_old_worker(|queue, stale, id, initial| {
+            queue
+                .complete(id, stale, initial, false, "fixture", || {
+                    activated = true;
+                    Ok(version(&id.to_string(), 'c'))
+                })
+                .map(|_| ())
+        });
+        assert!(!activated, "旧租约不能执行替换队列的激活回调");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn old_worker_cannot_fail_a_replacement_queue() {
+        assert_replaced_queue_rejects_old_worker(|queue, stale, id, _| queue.fail(id, stale));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn completion_cleanup_stays_in_the_leased_directory_after_replacement() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("queue");
+        let moved = parent.path().join("moved");
+        let source = parent.path().join("snapshot.ndjson");
+        fs::write(&source, b"synthetic snapshot\n").unwrap();
+        let digest = hex::encode(Sha256::digest(b"synthetic snapshot\n"));
+        let initial = version("legacy", 'a');
+        let queue = DictionarySnapshotQueue::new(root.clone()).unwrap();
+        queue.publish_local_version(&initial).unwrap();
+        let id = queue
+            .enqueue(&source, "fixture", 1, &initial, &digest)
+            .unwrap();
+        let lease = queue.acquire_worker_lease().unwrap();
+        queue.claim(&lease, "fixture").unwrap();
+        let replacement_state = fs::read(root.join(STATE_NAME)).unwrap();
+        let name = format!("{id}.ndjson");
+        assert!(queue
+            .complete(id, &lease, &initial, false, "fixture", || {
+                fs::rename(&root, &moved).unwrap();
+                fs::create_dir(&root).unwrap();
+                fs::write(root.join(STATE_NAME), &replacement_state).unwrap();
+                fs::write(root.join(&name), b"synthetic replacement").unwrap();
+                Ok(version(&id.to_string(), 'b'))
+            })
+            .unwrap());
+        assert!(!moved.join(&name).exists(), "终态快照应从原目录清理");
+        assert_eq!(
+            fs::read(root.join(&name)).unwrap(),
+            b"synthetic replacement"
+        );
+        assert_eq!(fs::read(root.join(STATE_NAME)).unwrap(), replacement_state);
+        let original = DictionarySnapshotQueue::new(moved).unwrap().read().unwrap();
+        assert_eq!(
+            original.request.unwrap().status,
+            SnapshotRequestStatus::Applied
+        );
     }
 
     #[test]

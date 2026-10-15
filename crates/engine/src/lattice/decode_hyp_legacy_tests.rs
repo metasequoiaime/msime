@@ -22,6 +22,36 @@ fn keep_beam(column: &mut Vec<Hyp<'_>>, beam: usize) {
     column.truncate(beam);
 }
 
+fn column_capacities(
+    graph: &Graph,
+    extra: Option<&Graph>,
+    beam: usize,
+    nbest: usize,
+) -> Vec<usize> {
+    let floor = beam.max(nbest);
+    let mut incoming_edges = vec![0usize; graph.len() + 1];
+    for edges in graph {
+        for edge in edges {
+            if edge.end <= graph.len() {
+                incoming_edges[edge.end] = incoming_edges[edge.end].saturating_add(1);
+            }
+        }
+    }
+    if let Some(extra) = extra {
+        for edges in extra {
+            for edge in edges {
+                if edge.end <= graph.len() {
+                    incoming_edges[edge.end] = incoming_edges[edge.end].saturating_add(1);
+                }
+            }
+        }
+    }
+    incoming_edges
+        .into_iter()
+        .map(|count| floor.max(count.saturating_mul(beam)))
+        .collect()
+}
+
 pub(super) fn decode_graph(
     graph: &Graph,
     options: &LatticeOptions<'_>,

@@ -386,35 +386,22 @@ fn keep_beam(column: &mut Vec<Hyp<'_>>, beam: usize) {
     column.truncate(beam);
 }
 
-/// The maximum number of hypotheses a column can receive before it is pruned: one per incoming edge for each surviving hypothesis at its source.
-fn column_capacities(
-    graph: &Graph,
-    extra: Option<&Graph>,
-    beam: usize,
-    nbest: usize,
-) -> Vec<usize> {
-    let floor = beam.max(nbest);
-    let mut incoming_edges = vec![0usize; graph.len() + 1];
-    for edges in graph {
-        for edge in edges {
+/// 按前向图累计各列在剪枝前可能收到的假设上界；源列剪枝后最多保留 `beam` 条。
+fn column_capacities(graph: &Graph, extra: Option<&Graph>, beam: usize) -> Vec<usize> {
+    let mut capacities = vec![0usize; graph.len() + 1];
+    capacities[0] = 1;
+    for (start, edges) in graph.iter().enumerate() {
+        let surviving = capacities[start].min(beam);
+        for edge in edges
+            .iter()
+            .chain(extra.into_iter().flat_map(|extra| &extra[start]))
+        {
             if edge.end <= graph.len() {
-                incoming_edges[edge.end] = incoming_edges[edge.end].saturating_add(1);
+                capacities[edge.end] = capacities[edge.end].saturating_add(surviving);
             }
         }
     }
-    if let Some(extra) = extra {
-        for edges in extra {
-            for edge in edges {
-                if edge.end <= graph.len() {
-                    incoming_edges[edge.end] = incoming_edges[edge.end].saturating_add(1);
-                }
-            }
-        }
-    }
-    incoming_edges
-        .into_iter()
-        .map(|count| floor.max(count.saturating_mul(beam)))
-        .collect()
+    capacities
 }
 
 /// Null when the options carry no personal data worth consulting, so the decode keeps its exact prior arithmetic (WL:71-76).
@@ -452,7 +439,7 @@ pub(super) fn decode_graph(
     let bigram_table = options.bigram.as_ref();
     let bigram = options.bigram.as_deref();
     let mut memo = options.bigram_memo.map(RefCell::borrow_mut);
-    let capacities = column_capacities(graph, extra, options.beam, options.nbest);
+    let capacities = column_capacities(graph, extra, options.beam);
     let mut columns: Vec<Vec<Hyp<'_>>> = capacities.into_iter().map(Vec::with_capacity).collect();
     columns[0].push(Hyp {
         score: 0.0,
@@ -900,7 +887,7 @@ pub(super) mod tests {
         let graph = vec![vec![edge(1), edge(2)], vec![edge(2)], vec![]];
         let extra = vec![vec![], vec![edge(2)], vec![]];
 
-        assert_eq!(column_capacities(&graph, Some(&extra), 4, 2), [4, 4, 12, 4]);
+        assert_eq!(column_capacities(&graph, Some(&extra), 4), [1, 1, 3, 0]);
     }
 
     #[test]
@@ -912,7 +899,7 @@ pub(super) mod tests {
         });
 
         assert!(paths.is_empty());
-        assert_eq!(allocations, 4);
+        assert_eq!(allocations, 3);
     }
 
     #[test]
@@ -1477,3 +1464,7 @@ mod graph_ownership_tests;
 #[cfg(test)]
 #[path = "decode_hyp_layout_tests.rs"]
 mod hyp_layout_tests;
+
+#[cfg(test)]
+#[path = "decode_capacity_tests.rs"]
+mod capacity_tests;
