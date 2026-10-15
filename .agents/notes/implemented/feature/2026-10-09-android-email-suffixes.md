@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-符号格的固定单格省略策略由 [长符号条目跨列](../bug-fix/2026-10-14-android-long-symbol-cell-width.md) 部分取代；后缀表和邮箱输入框补全规则仍沿用本篇。以下保留原选择及其验证缺口。
+符号格的固定单格省略策略由 [长符号条目跨列](../bug-fix/2026-10-14-android-long-symbol-cell-width.md) 部分取代；后缀表和邮箱输入框补全规则仍沿用本篇。引擎在全拼、双拼、五笔组字后打 `@` 时给出同一份后缀（[引擎网址模式补全](2026-10-15-engine-email-url-completions.md)），两份表由 `scripts/test-email-suffixes.py` 核对。以下保留原选择及其验证缺口。
 
 - 后缀表是一份常量 `EmailSuffixPolicy.SUFFIXES`（`platforms/android/java/app/msime/android/policy/`，无 Android 依赖），20 个，国内常用的在前：@qq.com、@163.com、@126.com、@foxmail.com、@139.com、@189.cn、@aliyun.com，然后是 @gmail.com、@outlook.com、@hotmail.com、@live.com、@icloud.com、@yahoo.com、@proton.me、@protonmail.com、@aol.com、@mail.com、@gmx.com、@naver.com、@yahoo.co.jp。符号面板「网络」分类在原来的网址片段之后直接接上这份表，候选栏用同一份、同一个顺序，两处不会各写一份。
 - 符号格里超过 4 个码位的非颜文字条目（`http://`、邮箱后缀）缩小字号：9 个码位以内 13sp，再长 11sp，并设成单行、放不下时末尾省略，不折行（`SymbolPanelModel.cellTextSizeSp` / `singleLineCell`）。4 个码位以内（单个符号、`.com`、`www.`）仍是 18sp。「常用」里点过的后缀按同样的规则画。

@@ -310,7 +310,7 @@ impl InputSession {
                 return KeyResult::handled().with_diagnostic(self.enter_local_mode(mode, value));
             }
         }
-        // 组字原文是 `www`、`http` 等时，`.` `:`（五笔还有 `http` 后的 `s`）把组字转成网址，必须在下面的接受过滤之前判断。
+        // 组字原文是 `www`、`http` 等时，`.` `:`（五笔还有 `http` 后的 `s`）把组字转成网址；原文由 ASCII 字母、数字组成时，`@` 把它转成邮箱。必须在下面的接受过滤之前判断。
         if let Some(text) = self.url_entry(value) {
             self.enter_url_mode(text);
             return KeyResult::handled();
@@ -1209,9 +1209,9 @@ impl InputSession {
                 String::new()
             };
         }
-        // 组字原文是网址触发词时发布触发键，runtime 才会把它当作字符送进来，而不是先结束组字。发布的键必须正是 `url_entry` 接受的键。
+        // 组字原文是网址触发词时发布触发键，原文能做邮箱的本地部分时发布 `@`，runtime 才会把它当作字符送进来，而不是先结束组字。发布的键必须正是 `url_entry` 接受的键。
         if let Some(keys) = self.url_entry_keys() {
-            return keys.to_owned();
+            return keys;
         }
         if self.has_composition() || !self.scheme().opens_table_modes() {
             return String::new();
@@ -1722,8 +1722,8 @@ impl InputSession {
                 .is_none_or(|caret| caret >= self.editing_text_len())
     }
 
-    /// 当前组字的网址触发键；组字原文不是触发词或条件不满足时为 `None`。
-    fn url_entry_keys(&self) -> Option<&'static str> {
+    /// 当前组字进入网址模式的按键（触发键和邮箱的 `@`）；没有这样的键或条件不满足时为 `None`。
+    fn url_entry_keys(&self) -> Option<String> {
         if !self.url_entry_ready() {
             return None;
         }
@@ -1741,13 +1741,66 @@ impl InputSession {
         opens.then(|| format!("{raw}{}", char::from(value)))
     }
 
-    /// 丢弃组字（连同引擎里的原文和候选），以 `text` 为预编辑进入网址模式。
-    fn enter_url_mode(&mut self, text: String) {
+    /// 丢弃组字（连同引擎里的原文和候选），以 `text` 为预编辑进入网址模式；已在网址模式时换成新的预编辑（选中网址补全）。
+    pub(super) fn enter_url_mode(&mut self, text: String) {
         self.reset_composition();
         self.local_mode = LocalInputMode::Url;
         self.local_preedit = text;
         self.chain.reset();
         self.add_local_fallback_candidate();
+        self.add_url_completions();
+    }
+
+    /// 网址模式在整段网址那一行后面接上补全：邮箱后缀和顶级域名（`url::email_completions`、`url::tld_completions`）。整段网址留在第一行，空格、失焦和结束网址的标点上屏的仍是用户打的网址，补全要明确选中才用。来源记成 `Fallback` 而不是 `Generated`：runtime 的整句读法降位按 `Generated` 认词网格整句，同样宽的补全会被当成整句挪位。
+    pub(super) fn add_url_completions(&mut self) {
+        let completions = url::email_completions(&self.local_preedit)
+            .into_iter()
+            .chain(url::tld_completions(&self.local_preedit));
+        self.local_candidates.extend(
+            completions.map(|text| WordItem::new("", text, 0, CandidateSource::Fallback, "")),
+        );
+    }
+
+    /// 组字原文是 `ht`、`www` 这类网址开头时，在候选里接上 `https://`、`www.` 等补全（`url::scheme_completions`）：第一行是词典或英文词典里的词（五笔 `www` 的“众”）时排在它后面，否则排在最前面。五笔四码（`http`）不加：runtime 的顶字在第 5 个字母上选第一行，补全领先时 `s` 会接到 `https://` 后面，而 `http` 加 `s` 本来直接进入网址模式。
+    pub(super) fn insert_url_scheme_completions(&self, items: &mut Vec<WordItem>) {
+        if !self.url_entry_ready() || (self.is_wubi() && self.raw_with_cases().len() >= 4) {
+            return;
+        }
+        let at = usize::from(items.first().is_some_and(|item| {
+            item.source.is_dictionary() || item.source == CandidateSource::EnglishDictionary
+        }));
+        let completions = url::scheme_completions(self.raw_with_cases())
+            .map(|text| WordItem::new("", text, 0, CandidateSource::Fallback, ""));
+        items.splice(at..at, completions);
+    }
+
+    /// 这一行是网址补全：组字里的 `https://` 等，或网址模式里补全了邮箱后缀、顶级域名的行。补全不算回答了按键，重排模型不拿它比较。
+    pub(super) fn is_url_completion(&self, item: &WordItem) -> bool {
+        if item.source != CandidateSource::Fallback {
+            return false;
+        }
+        match self.local_mode {
+            LocalInputMode::None => {
+                self.url_entry_ready()
+                    && url::scheme_completions(self.raw_with_cases()).any(|text| text == item.word)
+            }
+            LocalInputMode::Url => item.word != self.local_preedit,
+            _ => false,
+        }
+    }
+
+    /// 选中第 `index` 行时不上屏、以它为预编辑（重新）进入网址模式的行：组字里的 `https://` 等，和网址模式里补全了顶级域名的行（之后还可能接着打路径）。邮箱补全选中即上屏，不在此列。
+    pub(super) fn url_continuation(&self, index: usize) -> Option<String> {
+        let item = self.candidates().get(index)?;
+        let continues = match self.local_mode {
+            LocalInputMode::None => self.is_url_completion(item),
+            LocalInputMode::Url => {
+                item.source == CandidateSource::Fallback
+                    && url::tld_completions(&self.local_preedit).contains(&item.word)
+            }
+            _ => false,
+        };
+        continues.then(|| item.word.clone())
     }
 
     fn enter_local_mode(&mut self, mode: LocalInputMode, letter: u8) -> Option<String> {
@@ -1817,7 +1870,7 @@ impl InputSession {
         KeyResult::handled()
     }
 
-    /// 网址模式删掉 `removed` 后剩下 `remaining` 时是否退回组字：恰为进入网址模式的逆操作，即组字原文 `remaining` 按下 `removed` 正好会进入网址模式（`www.` 删掉 `.`、五笔 `https` 删掉 `s`），误触发后还能选回原来的字（五笔 `www` 的“众”）。`www.example` 删掉中间的 `.` 不满足，留在网址模式。退格和光标处的删除走同一条规则。
+    /// 网址模式删掉末尾的 `removed` 后剩下 `remaining` 时是否退回组字：恰为进入网址模式的逆操作，即组字原文 `remaining` 按下 `removed` 正好会进入网址模式（`www.` 删掉 `.`、五笔 `https` 删掉 `s`、`zhangsan@` 删掉 `@`），误触发后还能选回原来的字（五笔 `www` 的“众”）。`www.example` 删掉中间的 `.` 不满足，留在网址模式。退格和光标处的删除走同一条规则；删的不是末尾那个字符时由调用方排除（`abc@def` 删掉 `@`）。
     pub(super) fn url_reverts(&self, remaining: &str, removed: char) -> bool {
         let Ok(key) = u8::try_from(removed) else {
             return false;

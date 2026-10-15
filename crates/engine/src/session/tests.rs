@@ -3411,8 +3411,9 @@ fn shuangpin_snapshot_does_not_build_unused_raw_preedit() {
         crate::ime::personal_rerank::allocations::count(|| session.snapshot());
 
     assert_eq!(snapshot.preedit, "ni'hao");
+    // 其中一次是 `spelling_symbols` 里的邮箱入口 `@`。
     assert_eq!(
-        allocations, 36,
+        allocations, 37,
         "shuangpin snapshot allocations: {allocations}"
     );
 }
@@ -5037,7 +5038,7 @@ fn slash_after_a_composition_is_still_the_typed_character() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = generated_modes_session(&fixture);
     type_text(&mut session, "ni");
-    assert!(session.snapshot().spelling_symbols.is_empty());
+    assert!(!session.snapshot().spelling_symbols.contains('/'));
     assert!(!session.character(b'/', false).handled);
     // A runtime finishes the composition before it asks for the mark, so the session is empty by the time the mark is translated; it must not open the mode then.
     let finished = session.finish(0);
@@ -7242,8 +7243,8 @@ fn url_www_dot_opens_url_mode_in_wubi() {
     let fixture = Fixture::new(URL_WUBI_FIXTURE);
     let mut session = wubi_session(&fixture);
     type_text(&mut session, "www");
-    assert_eq!(words(&session), ["众"]);
-    assert_eq!(session.snapshot().spelling_symbols, ".");
+    assert_eq!(words(&session), ["众", "www."]);
+    assert_eq!(session.snapshot().spelling_symbols, ".@");
 
     let dot = session.punctuation(b'.');
     assert!(dot.handled && dot.commit.is_none(), "{dot:?}");
@@ -7272,7 +7273,7 @@ fn url_scheme_colon_in_quanpin_and_shuangpin() {
     for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
         let mut session = fixture.session_with(|options| options.scheme = scheme);
         type_text(&mut session, "https");
-        assert_eq!(session.snapshot().spelling_symbols, ":", "{scheme:?}");
+        assert_eq!(session.snapshot().spelling_symbols, ":@", "{scheme:?}");
         type_url(&mut session, "://github.com/a?b=1");
         assert_eq!(session.snapshot().local_mode, LocalInputMode::Url);
         let committed = session.command(Command::CommitRaw);
@@ -7298,7 +7299,7 @@ fn url_wubi_https_opens_on_the_fifth_letter() {
     let fixture = Fixture::new(URL_WUBI_FIXTURE);
     let mut session = wubi_session(&fixture);
     type_text(&mut session, "http");
-    assert_eq!(session.snapshot().spelling_symbols, ":");
+    assert_eq!(session.snapshot().spelling_symbols, ":@");
     // 五笔码长上限是 4，别的第 5 个字母照旧被拒。
     assert!(!session.character(b't', false).handled);
     assert_eq!(session.snapshot().preedit, "http");
@@ -7353,7 +7354,7 @@ fn url_backspace_past_the_trigger_restores_the_code() {
     assert_eq!(snapshot.local_mode, LocalInputMode::None);
     assert_eq!(snapshot.preedit, "www");
     assert_eq!(snapshot.editing_text, "www");
-    assert_eq!(words(&session), ["众"]);
+    assert_eq!(words(&session), ["众", "www."]);
     assert_eq!(session.select(0).commit.as_deref(), Some("众"));
 }
 
@@ -7379,7 +7380,7 @@ fn url_wubi_backspace_never_clips_the_letters_and_undoes_the_s() {
     let snapshot = session.snapshot();
     assert_eq!(snapshot.local_mode, LocalInputMode::None);
     assert_eq!(snapshot.preedit, "http");
-    assert_eq!(snapshot.spelling_symbols, ":");
+    assert_eq!(snapshot.spelling_symbols, ":@");
 }
 
 #[test]
@@ -7395,8 +7396,8 @@ fn url_caret_delete_of_the_trigger_restores_the_code() {
     let snapshot = session.snapshot();
     assert_eq!(snapshot.local_mode, LocalInputMode::None);
     assert_eq!(snapshot.preedit, "www");
-    assert_eq!(snapshot.spelling_symbols, ".");
-    assert_eq!(words(&session), ["众"]);
+    assert_eq!(snapshot.spelling_symbols, ".@");
+    assert_eq!(words(&session), ["众", "www."]);
 }
 
 /// 五笔开混拼时码长不再限 4，`http` 加 `s` 仍直接进入网址模式；`https:` 删掉 `:` 能退回组字 `https`。
@@ -7417,7 +7418,7 @@ fn url_wubi_mixed_pinyin_reverts_https_colon_to_the_composition() {
     let snapshot = session.snapshot();
     assert_eq!(snapshot.local_mode, LocalInputMode::None);
     assert_eq!(snapshot.preedit, "https");
-    assert_eq!(snapshot.spelling_symbols, ":");
+    assert_eq!(snapshot.spelling_symbols, ":@");
 }
 
 /// 退回组字只是进入的逆操作：删掉中间的 `.` 后剩下的 `wwwexample` 不是触发词，留在网址模式。
@@ -7507,14 +7508,16 @@ fn url_spelling_symbols_follow_the_composition() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session();
     for (raw, keys) in [
-        ("www", "."),
-        ("ftp", ".:"),
-        ("http", ":"),
-        ("https", ":"),
-        ("ni", ""),
-        ("wwww", ""),
+        ("www", ".@"),
+        ("ftp", ".:@"),
+        ("http", ":@"),
+        ("https", ":@"),
+        // 不是触发词的字母和数字仍能做邮箱的本地部分。
+        ("ni", "@"),
+        ("wwww", "@"),
         // 大写的辅助码不算触发词。
-        ("wwW", ""),
+        ("wwW", "@"),
+        ("xi'an", ""),
     ] {
         type_text(&mut session, raw);
         assert_eq!(session.snapshot().spelling_symbols, keys, "{raw}");
@@ -7541,6 +7544,226 @@ fn url_spelling_symbols_follow_the_composition() {
     let mut korean = fixture.session_with(|options| options.scheme = SchemeType::Korean);
     korean.character(b'd', false);
     assert!(!korean.snapshot().spelling_symbols.contains('.'));
+}
+
+/// 网址模式里补全了邮箱后缀或顶级域名的行：整段网址那一行之后的全部行。
+fn url_completions(session: &Session) -> Vec<String> {
+    words(session).split_off(1)
+}
+
+#[test]
+fn url_at_after_a_local_part_offers_email_suffixes() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "zhangsan");
+    assert_eq!(session.snapshot().spelling_symbols, "@");
+    let at = session.punctuation(b'@');
+    assert!(at.handled && at.commit.is_none(), "{at:?}");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::Url);
+    assert_eq!(snapshot.preedit, "zhangsan@");
+    // 打的网址留在第一行，空格和结束网址的标点上屏的仍是它；后缀按表的顺序接在后面。
+    let expected: Vec<String> = crate::local::url::EMAIL_SUFFIXES
+        .iter()
+        .map(|suffix| format!("zhangsan{suffix}"))
+        .collect();
+    assert_eq!(words(&session)[0], "zhangsan@");
+    assert_eq!(url_completions(&session), expected);
+    assert!(snapshot
+        .candidate_sources
+        .iter()
+        .all(|source| *source == CandidateSource::Fallback));
+    assert!(snapshot.candidate_answers_key[0]);
+    assert!(!snapshot.candidate_answers_key[1..].contains(&true));
+
+    // 后缀显示着时数字照样是网址的一部分，不选候选，并按已打的域名缩小范围。
+    let digit = session.character(b'1', false);
+    assert!(digit.handled && digit.commit.is_none(), "{digit:?}");
+    assert_eq!(
+        url_completions(&session),
+        [
+            "zhangsan@163.com",
+            "zhangsan@126.com",
+            "zhangsan@139.com",
+            "zhangsan@189.cn"
+        ]
+    );
+    // 已经打成一个完整后缀时不再补全。
+    type_url(&mut session, "63.com");
+    assert_eq!(words(&session), ["zhangsan@163.com"]);
+
+    // 选中后缀上屏整个邮箱并结束网址模式。
+    for _ in 0..".com".len() {
+        assert!(session.command(Command::Backspace).handled);
+    }
+    assert_eq!(words(&session), ["zhangsan@163", "zhangsan@163.com"]);
+    let picked = session.select(1);
+    assert_eq!(picked.commit.as_deref(), Some("zhangsan@163.com"));
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+    assert!(session.snapshot().preedit.is_empty());
+
+    // 空格不是网址的一部分：交还 runtime，由它上屏高亮的第一行，也就是打的网址。
+    type_text(&mut session, "abc");
+    assert!(session.character(b'@', true).handled);
+    assert!(!session.character(b' ', false).handled);
+    assert_eq!(session.select(0).commit.as_deref(), Some("abc@"));
+}
+
+#[test]
+fn url_email_backspace_over_the_at_returns_to_the_composition() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+    assert!(session.punctuation(b'@').handled);
+    assert_eq!(session.snapshot().preedit, "nihao@");
+    // 删掉 `@` 退回组字，误触发后还能选回“你好”。
+    assert!(session.command(Command::Backspace).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert_eq!(snapshot.editing_text, "nihao");
+    assert_eq!(words(&session)[0], "你好");
+    assert_eq!(session.select(0).commit.as_deref(), Some("你好"));
+
+    // 只有删掉末尾的 `@` 才是进入的逆操作：`abc@def` 删掉中间的 `@` 留在网址模式。
+    type_text(&mut session, "abc");
+    assert!(session.punctuation(b'@').handled);
+    type_url(&mut session, "def");
+    for _ in 0.."def".len() {
+        assert!(session.command(Command::MoveLeft).handled);
+    }
+    assert!(session.command(Command::Backspace).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::Url);
+    assert_eq!(snapshot.preedit, "abcdef");
+}
+
+#[test]
+fn url_at_needs_a_plain_local_part() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    // 带撇号的组字不是邮箱：`@` 照旧结束组字。
+    type_text(&mut session, "ni'hao");
+    assert!(!session.snapshot().spelling_symbols.contains('@'));
+    assert!(!session.character(b'@', true).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert_eq!(snapshot.editing_text, "ni'hao");
+}
+
+#[test]
+fn url_scheme_completions_enter_url_mode_when_picked() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "htt");
+    // 第一行是词典里的词（`h` 的“好”）时补全排在它后面。
+    assert_eq!(words(&session)[..3], ["好", "https://", "http://"]);
+    let snapshot = session.snapshot();
+    assert!(!snapshot.candidate_answers_key[1] && !snapshot.candidate_answers_key[2]);
+
+    // 选中补全不上屏，以它为预编辑进入网址模式，接着打网址。
+    let picked = session.select(1);
+    assert!(picked.handled && picked.commit.is_none(), "{picked:?}");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::Url);
+    assert_eq!(snapshot.preedit, "https://");
+    assert_eq!(snapshot.caret_position, "https://".len());
+    assert_eq!(words(&session), ["https://"]);
+    type_url(&mut session, "github");
+    assert_eq!(
+        url_completions(&session),
+        [
+            "https://github.com",
+            "https://github.cn",
+            "https://github.net",
+            "https://github.org",
+            "https://github.com.cn"
+        ]
+    );
+    // 选中顶级域名同样不上屏，还可以接着打路径。
+    let tld = session.select(1);
+    assert!(tld.handled && tld.commit.is_none(), "{tld:?}");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::Url);
+    assert_eq!(snapshot.preedit, "https://github.com");
+    assert_eq!(words(&session), ["https://github.com"]);
+    type_url(&mut session, "/a");
+    let committed = session.select(0);
+    assert_eq!(committed.commit.as_deref(), Some("https://github.com/a"));
+
+    for (raw, completions) in [
+        ("ht", &["https://", "http://"][..]),
+        ("http", &["https://", "http://"]),
+        ("https", &["https://"]),
+        ("ww", &["www."]),
+        ("www", &["www."]),
+        ("ft", &["ftp://"]),
+    ] {
+        type_text(&mut session, raw);
+        let shown = words(&session);
+        assert!(
+            shown
+                .windows(completions.len())
+                .any(|window| window == completions),
+            "{raw}: {shown:?}"
+        );
+        session.command(Command::Cancel);
+    }
+    // 一个字母、别的拼音都不给。
+    for raw in ["h", "w", "nihao"] {
+        type_text(&mut session, raw);
+        assert!(
+            !words(&session)
+                .iter()
+                .any(|word| word.contains("://") || word == "www."),
+            "{raw}"
+        );
+        session.command(Command::Cancel);
+    }
+}
+
+#[test]
+fn url_scheme_completion_is_not_taken_by_finishing() {
+    let fixture = Fixture::new(URL_WUBI_FIXTURE);
+    let mut session = wubi_session(&fixture);
+    // 码表里没有 `ft`：补全是唯一的行，排在最前面。
+    type_text(&mut session, "ft");
+    assert_eq!(words(&session), ["ftp://"]);
+    // 结束组字（标点、失焦）时高亮停在补全上不算选中：没有别的行，上屏原文。
+    let finished = session.finish(0);
+    assert_eq!(finished.commit.as_deref(), Some("ft"));
+    assert!(session.snapshot().preedit.is_empty());
+    type_text(&mut session, "ft");
+    let comma = session.punctuation(b',');
+    assert_eq!(comma.commit.as_deref(), Some("ft，"));
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+
+    // 后面有组字自己的行时上屏那一行。
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "htt");
+    let finished = session.finish(1);
+    assert!(finished.commit.is_some_and(|text| text.starts_with('好')));
+}
+
+#[test]
+fn url_wubi_keeps_its_word_ahead_of_the_scheme_completion() {
+    let fixture = Fixture::new(URL_WUBI_FIXTURE);
+    let mut session = wubi_session(&fixture);
+    type_text(&mut session, "www");
+    assert_eq!(words(&session), ["众", "www."]);
+    assert_eq!(session.select(0).commit.as_deref(), Some("众"));
+
+    type_text(&mut session, "www");
+    let picked = session.select(1);
+    assert!(picked.handled && picked.commit.is_none(), "{picked:?}");
+    assert_eq!(session.snapshot().preedit, "www.");
+    type_url(&mut session, "baidu");
+    assert_eq!(url_completions(&session)[0], "www.baidu.com");
+    session.command(Command::Cancel);
+
+    // 五笔四码 `http` 不给补全：runtime 的顶字会在下一个字母上选第一行。
+    type_text(&mut session, "http");
+    assert!(words(&session).is_empty());
 }
 
 #[test]

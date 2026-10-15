@@ -3488,8 +3488,9 @@ fn hidden_helpcode_snapshot_does_not_recompute_annotations() {
     let (snapshot, allocations) =
         crate::ime::personal_rerank::allocations::count(|| session.snapshot().unwrap());
     eprintln!("隐藏辅助码快照分配: {allocations}");
+    // 其中一次是 `spelling_symbols` 里的邮箱入口 `@`。
     assert!(
-        allocations <= 32,
+        allocations <= 33,
         "隐藏辅助码重复构造分配了 {allocations} 次"
     );
     assert!(!snapshot.candidates.is_empty());
