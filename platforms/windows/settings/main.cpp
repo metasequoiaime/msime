@@ -10847,9 +10847,9 @@ private:
       if (!indexing_)
         load_helpcode_sources();
       auto helpcode = add_group(page, L"辅助码");
-      if (edition_offers_scheme(L"quanpin") && (scheme == L"quanpin"))
+      if (edition_offers_scheme(L"quanpin") && scheme == L"quanpin")
         helpcode_rows(helpcode, L"全拼", L"quanpin", true, L"ziranma", false);
-      if (edition_offers_scheme(L"shuangpin") && (scheme == L"shuangpin"))
+      if (edition_offers_scheme(L"shuangpin") && scheme == L"shuangpin")
         helpcode_rows(helpcode, L"双拼", L"shuangpin", true, L"lantian", true);
     }
   }
@@ -11017,7 +11017,8 @@ private:
     number_select_row(frequency, 0xE8EF, L"触发频次(第几次上屏触发)", L"",
                       L"frequency.trigger_count", {1, 2, 3, 4, 5, 6}, 1, L"");
     number_select_row(frequency, 0xE8EF, L"线性调频步长", L"",
-                      L"frequency.linear_step", {1, 2, 3, 4, 5, 6}, 1, L"");  }
+                      L"frequency.linear_step", {1, 2, 3, 4, 5, 6}, 1, L"");
+  }
 
   // 选择日语、韩语、越南语或藏语时记住被替换的中文方案，切回时回到它；选择中文方案（包括粤拼、注音和笔画）时记住这个方案。在这几种语言之间切换保留记住的方案，因为它们都不是存储接受的中文方案。规则与托盘相同（server_main.cpp 的 store_input_scheme）。
   void select_scheme(std::wstring const &next) {

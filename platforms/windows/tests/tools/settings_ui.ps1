@@ -105,6 +105,29 @@ try {
                 Write-Host "$theme $width $page rendered"
             }
         }
+        # 通过真实单选控件切换方案，再读合成偏好确认保存成功，避免只验证静态页面。
+        $typing = Find-ById $window 'typing'
+        $typing.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern).ScrollIntoView()
+        $typing = Find-ById $window 'typing'
+        $typing.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+        Start-Sleep -Milliseconds 700
+        foreach ($scheme in @('shuangpin', 'wubi', 'quanpin')) {
+            $radio = Find-ById $window "scheme-$scheme"
+            if (-not $radio -or -not $radio.Current.IsEnabled) { throw "Scheme option is unavailable: $scheme" }
+            $radio.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            do {
+                Start-Sleep -Milliseconds 200
+                $saved = Get-Content -LiteralPath (Join-Path $state 'preferences.json') -Raw | ConvertFrom-Json
+            } while ($saved.preferences.scheme -ne $scheme -and [DateTime]::UtcNow -lt $deadline)
+            if ($saved.preferences.scheme -ne $scheme) { throw "Scheme was not saved: $scheme" }
+            $content = Find-ById $window 'settings-content'
+            $pattern = $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
+            if ($pattern.Current.VerticallyScrollable) { $pattern.SetScrollPercent(-1, 55) }
+            Start-Sleep -Milliseconds 500
+            Save-Window $window "$theme-scheme-$scheme.png"
+            Write-Host "$theme $scheme selected and saved"
+        }
         $process.CloseMainWindow() | Out-Null
         if (-not $process.WaitForExit(10000)) { throw 'Settings window failed to close' }
         if ($process.ExitCode -ne 0) { throw "Settings exited with $($process.ExitCode)" }
