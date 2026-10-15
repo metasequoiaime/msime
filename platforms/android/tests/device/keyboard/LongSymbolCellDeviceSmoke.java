@@ -82,6 +82,7 @@ public final class LongSymbolCellDeviceSmoke extends DeviceSmoke {
 
     private void checkNavigation() throws Exception {
         stage = "symbol panel bottom geometry";
+        tap(describedPrefix("符号分类 中文"));
         Rect panel = bounds(described("符号面板"));
         Rect grid = bounds(described("符号网格；长条目加宽"));
         Rect category = bounds(describedPrefix("符号分类 中文"));

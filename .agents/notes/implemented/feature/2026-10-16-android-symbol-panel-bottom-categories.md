@@ -31,5 +31,10 @@ Status: implemented
 ## Verification
 
 - 原 APK 在 API 28 和 35 上均被新布局断言拒绝：网格没有铺满宽度。
-- Android 宿主检查、首轮 quick、完整 APK 构建与签名校验通过。
-- 方向接管修正后，API 28 的安装产品布局与触摸分发用例通过；系统输入法和其他设备回归仍在验证。
+- `platforms/android/check-host.sh`：235 个 JVM smoke、127 个设备源码编译通过；`scripts/verify-local.sh --quick`、`pnpm run verify-notes` 和 `git diff --check` 通过。
+- 最终完整原生 APK 构建、签名与 16 KB 对齐检查通过，已安装到 API 28 和 35 专用模拟器。两台设备的 client-core 单测均为 1420 passed、0 failed、13 ignored、7 filtered out。
+- 两台设备的 `SymbolPanelLayoutDeviceSmoke` 均通过：首次布局和变宽后网格全宽、分类与删除在底部，连续点击不关闭；触摸分发覆盖左右切类、纵向滚动和取消不误输入。
+- 两台设备的 `LongSymbolCellDeviceSmoke` 均通过：系统输入法里的网格横划与竖划不误上屏，底栏可滚到最后分类，删除位置固定，连续输入 `12` 并逐字删除，长邮箱后缀完整绘制与上屏，最近记录在重启后可见。测试先显式选择中文，避免初始最近分类影响方向断言。
+- 两台设备的 `PairedPunctuationDeviceSmoke` 均通过：普通编辑器及忽略 `newCursorPosition` 的合成编辑器中，连续输入成对标点并跨过后半个后光标正确。
+- 全套 smoke 首轮因专用模拟器为合成编辑器保存了英文模式而停在 `phrase commit result`；仅把该合成编辑器切回中文后，API 35 的主回归通过。API 28 已通过普通拼音上屏和删除，但仍停在已有记录的 `limited composition typing` 阶段，不能宣称完整 `--core` 通过。该限制也记录于[叹号快捷手势](../bug-fix/2026-10-16-android-exclamation-superscript-shortcuts.md)。API 35 其他回归仍在运行，结束后同步最终结果。
+- 未在手机真机验收。
