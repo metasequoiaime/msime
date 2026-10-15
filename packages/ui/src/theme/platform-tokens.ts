@@ -29,7 +29,7 @@ export const settingsPlatforms: readonly SettingsPlatform[] = [
 ];
 
 /**
- * How a group of rows is drawn: `card` gives every row its own card with a gap between (Windows 11 settings), `inset` puts the rows in one rounded container with hairlines between them (macOS, GNOME, HarmonyOS, iOS), `separated` leaves the rows on the page with no container and no hairlines (Material 3).
+ * 分组样式：`card` 每行独立成卡，`inset` 把行放进带细分隔线的圆角容器，`separated` 直接排在页面上。Windows 与 macOS 共用 `inset`。
  */
 export type GroupListStyle = "card" | "inset" | "separated";
 
@@ -69,7 +69,7 @@ export interface PlatformTokens {
     knobOn: string;
     knobOff: string;
     knobShadow: string;
-    /** Windows prints 开/关 beside the switch. */
+    /** 是否在开关旁显示状态文字。 */
     label: boolean;
   };
   segmented: {
@@ -80,7 +80,7 @@ export interface PlatformTokens {
     on: string;
     onText: string;
     onShadow: string;
-    /** Windows marks the chosen item with a short accent bar under it, 0 elsewhere. */
+    /** 分段选中项底部标记的宽度；0 表示只用背景区分。 */
     indicatorWidth: string;
   };
   groupTitle: { size: string; weight: string; color: string; pad: string; gap: string };
@@ -91,7 +91,7 @@ export interface PlatformTokens {
     shadow: string;
     rowGap: string;
     rowBg: string;
-    /** The Windows card outline; `none` where rows share a container. */
+    /** 独立行卡片的轮廓；共用容器时为 `none`。 */
     rowShadow: string;
     rowRadius: string;
     rowHeight: string;
@@ -166,85 +166,9 @@ function tokensFor(platform: SettingsPlatform, dark: boolean): PlatformTokens {
   const check = { size: "18px", radius: "4px" };
 
   if (platform === "win") {
-    const text = S("#1B1B1B", "#FFFFFF");
-    const border = S("rgba(0,0,0,.08)", "rgba(255,255,255,.08)");
-    const hover = S("rgba(0,0,0,.045)", "rgba(255,255,255,.07)");
-    const accents = accentPair("#005FB8", "#60CDFF");
     return {
+      ...tokensFor("mac", dark),
       font: "'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'Noto Sans SC', sans-serif",
-      ...accents,
-      accentSoft: S("rgba(0,95,184,.1)", "rgba(96,205,255,.16)"),
-      onAccent,
-      text,
-      sub: S("#5E5E5E", "rgba(255,255,255,.72)"),
-      bg: S("#F3F3F3", "#202020"),
-      chrome: S("#F3F3F3", "#202020"),
-      hair: border,
-      hover,
-      press: hover,
-      controlRadius: "4px",
-      switch: {
-        width: "40px",
-        height: "20px",
-        knob: "12px",
-        knobOffSize: "12px",
-        pad: "4px",
-        on: accents.accent,
-        off: "transparent",
-        offRing: `inset 0 0 0 1px ${S("rgba(0,0,0,.6)", "rgba(255,255,255,.6)")}`,
-        knobOn: S("#FFFFFF", "#000000"),
-        knobOff: S("rgba(0,0,0,.62)", "rgba(255,255,255,.8)"),
-        knobShadow: "none",
-        label: true,
-      },
-      segmented: {
-        bg: S("rgba(0,0,0,.04)", "rgba(0,0,0,.12)"),
-        border: `1px solid ${border}`,
-        radius: "5px",
-        itemRadius: "4px",
-        on: S("rgba(0,0,0,.0578)", "rgba(255,255,255,.0837)"),
-        onText: text,
-        onShadow: "none",
-        indicatorWidth: "16px",
-      },
-      groupTitle: { size: "14px", weight: "600", color: text, pad: "8px 2px 2px", gap: "4px" },
-      group: {
-        style: "card",
-        bg: "transparent",
-        radius: "0",
-        shadow: "none",
-        rowGap: "4px",
-        rowBg: S("rgba(255,255,255,.7)", "rgba(255,255,255,.0512)"),
-        rowShadow: S("0 0 0 1px rgba(0,0,0,.0578)", "0 0 0 1px rgba(0,0,0,.1)"),
-        rowRadius: "4px",
-        rowHeight: "62px",
-        rowPad: "10px 20px",
-        rowSize: "14px",
-        subSize: "12px",
-        divider: false,
-        dividerWidth: "1px",
-        dividerInset: "0",
-        controlGap: "12px",
-        rowIcon: true,
-      },
-      select: {
-        bg: S("#FFFFFF", "rgba(255,255,255,.06)"),
-        fg: text,
-        border: `1px solid ${border}`,
-        pad: "5px 11px",
-        size: "14px",
-        chevron: "⌄",
-      },
-      button: {
-        bg: S("#FFFFFF", "rgba(255,255,255,.06)"),
-        fg: text,
-        border: `1px solid ${border}`,
-      },
-      pageTitle: { size: "28px", weight: "600" },
-      groupsGap: "8px",
-      slider: { ...nativeSlider, native: true },
-      nav: { height: "36px", radius: "4px", pad: "0 12px", selectedBg: hover, pill: true },
-      check: { size: "20px", radius: "4px" },
     };
   }
 

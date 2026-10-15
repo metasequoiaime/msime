@@ -861,7 +861,7 @@ Color rgba(int red, int green, int blue, double alpha) {
 
 Color transparent_color() { return Color{0, 0, 0, 0}; }
 
-// The design's Windows palette (`w` in the prototype), which spells out the Fluent tokens. The accent is the design's fixed Fluent blue, #60CDFF on dark and #005FB8 on light, the same accent the candidate window's native palette draws (CandidatePalette.h), rather than the user's Windows accent colour.
+// 设置与输入浮层采用 macOS 的品牌绿及分层表面；Windows 控件仍由 WinUI 提供。
 struct Palette {
   bool dark = false;
   Color text, sub, faint, subtle, subtle2, card, stroke, stroke2, divider,
@@ -871,37 +871,37 @@ struct Palette {
 Palette make_palette(bool dark) {
   Palette p;
   p.dark = dark;
-  p.accent = dark ? rgba(0x60, 0xCD, 0xFF, 1) : rgba(0x00, 0x5F, 0xB8, 1);
-  p.on_accent = dark ? rgba(0, 0, 0, 1) : rgba(255, 255, 255, 1);
+  p.accent = dark ? rgba(0x5F, 0xBF, 0x84, 1) : rgba(0x2C, 0x7A, 0x4B, 1);
+  p.on_accent = rgba(255, 255, 255, 1);
   if (dark) {
-    p.text = rgba(255, 255, 255, 1);
-    p.sub = rgba(255, 255, 255, .786);
+    p.text = rgba(0xF5, 0xF5, 0xF7, 1);
+    p.sub = rgba(0x98, 0x98, 0x9D, 1);
     p.faint = rgba(255, 255, 255, .6);
     p.subtle = rgba(255, 255, 255, .0605);
     p.subtle2 = rgba(255, 255, 255, .0837);
-    p.card = rgba(255, 255, 255, .0512);
+    p.card = rgba(0x35, 0x35, 0x35, 1);
     p.stroke = rgba(255, 255, 255, .07);
     p.stroke2 = rgba(255, 255, 255, .093);
     p.divider = rgba(255, 255, 255, .0837);
     p.seg_well = rgba(0, 0, 0, .12);
     p.preview_bg = rgba(0x2C, 0x2C, 0x2C, 1);
-    p.window_bg = rgba(0x20, 0x20, 0x20, 1);
-    p.content_bg = rgba(0x1C, 0x1C, 0x1C, 1);
+    p.window_bg = rgba(0x2A, 0x2A, 0x2A, 1);
+    p.content_bg = rgba(0x1E, 0x1E, 0x1E, 1);
     p.edge = rgba(0, 0, 0, .1);
   } else {
-    p.text = rgba(0, 0, 0, .894);
-    p.sub = rgba(0, 0, 0, .606);
+    p.text = rgba(0x1D, 0x1D, 0x1F, 1);
+    p.sub = rgba(0x6E, 0x6E, 0x73, 1);
     p.faint = rgba(0, 0, 0, .45);
     p.subtle = rgba(0, 0, 0, .0373);
     p.subtle2 = rgba(0, 0, 0, .0578);
-    p.card = rgba(255, 255, 255, .7);
+    p.card = rgba(255, 255, 255, 1);
     p.stroke = rgba(0, 0, 0, .0578);
     p.stroke2 = rgba(0, 0, 0, .0803);
     p.divider = rgba(0, 0, 0, .0803);
     p.seg_well = rgba(0, 0, 0, .04);
     p.preview_bg = rgba(255, 255, 255, 1);
-    p.window_bg = rgba(0xF3, 0xF3, 0xF3, 1);
-    p.content_bg = rgba(255, 255, 255, .5);
+    p.window_bg = rgba(0xF6, 0xF6, 0xF6, 1);
+    p.content_bg = rgba(0xF6, 0xF6, 0xF6, 1);
     p.edge = rgba(0, 0, 0, .06);
   }
   return p;
@@ -2847,10 +2847,10 @@ struct MainWindow : WindowT<MainWindow> {
     system_dark_ = system_dark();
     input_method_ = input_method_state();
     palette_ = make_palette(resolve_dark());
-    // The window opens at the design's size in the system's scale; the user may resize it from there.
+    // 初始尺寸按系统缩放换算，正文保留 macOS 的紧凑密度。
     const double scale = static_cast<double>(GetDpiForSystem()) / 96.0;
     AppWindow().Resize(
-        {static_cast<int32_t>(std::lround(1100 * scale)),
+        {static_cast<int32_t>(std::lround(1000 * scale)),
          static_cast<int32_t>(std::lround(760 * scale))});
     build_shell(0.0);
     Activated({this, &MainWindow::on_activated});
@@ -3196,6 +3196,21 @@ private:
     Grid root;
     root.RequestedTheme(palette_.dark ? ElementTheme::Dark : ElementTheme::Light);
     root.Background(brush(palette_.window_bg));
+    // WinUI 的交互状态也使用品牌绿，避免开关、焦点和链接仍取系统蓝色。
+    auto resources = root.Resources();
+    for (const auto *key : {L"SystemAccentColor", L"SystemAccentColorLight1",
+                            L"SystemAccentColorLight2", L"SystemAccentColorLight3",
+                            L"SystemAccentColorDark1", L"SystemAccentColorDark2",
+                            L"SystemAccentColorDark3"})
+      resources.Insert(box_value(hstring(key)), box_value(palette_.accent));
+    for (const auto *key : {L"SystemControlHighlightAccentBrush", L"AccentFillColorDefaultBrush",
+                            L"AccentTextFillColorPrimaryBrush", L"ToggleSwitchFillOn",
+                            L"ToggleSwitchFillOnPointerOver", L"ToggleSwitchFillOnPressed"})
+      resources.Insert(box_value(hstring(key)), brush(palette_.accent));
+    for (const auto *key : {L"ToggleSwitchKnobFillOn", L"ToggleSwitchKnobFillOnPointerOver",
+                            L"ToggleSwitchKnobFillOnPressed"})
+      resources.Insert(box_value(hstring(key)), brush(palette_.on_accent));
+
     RowDefinition title_row;
     title_row.Height(GridLength{48, GridUnitType::Pixel});
     RowDefinition body_row;
@@ -3358,7 +3373,9 @@ private:
   NavigationView make_navigation() {
     NavigationView view;
     view.PaneDisplayMode(NavigationViewPaneDisplayMode::Left);
-    view.OpenPaneLength(280);
+    view.OpenPaneLength(224);
+    view.CompactModeThresholdWidth(0);
+    view.ExpandedModeThresholdWidth(0);
     view.IsPaneToggleButtonVisible(false);
     view.IsBackButtonVisible(NavigationViewBackButtonVisible::Collapsed);
     view.IsSettingsVisible(false);
@@ -3374,11 +3391,18 @@ private:
     put(L"NavigationViewContentGridBorderBrush", palette_.edge);
     put(L"NavigationViewExpandedPaneBackground", transparent_color());
     put(L"NavigationViewDefaultPaneBackground", transparent_color());
-    put(L"NavigationViewSelectionIndicatorForeground", palette_.accent);
-    put(L"NavigationViewItemBackgroundSelected", palette_.subtle);
-    put(L"NavigationViewItemBackgroundSelectedPointerOver", palette_.subtle2);
+    put(L"NavigationViewSelectionIndicatorForeground", transparent_color());
+    put(L"NavigationViewItemBackgroundSelected", palette_.accent);
+    put(L"NavigationViewItemBackgroundSelectedPointerOver", palette_.accent);
     put(L"NavigationViewItemBackgroundPointerOver", palette_.subtle);
-    put(L"NavigationViewItemForegroundSelected", palette_.text);
+    put(L"NavigationViewItemForegroundSelected", palette_.on_accent);
+    put(L"NavigationViewItemForegroundSelectedPointerOver", palette_.on_accent);
+    put(L"NavigationViewItemForegroundSelectedPressed", palette_.on_accent);
+    put(L"NavigationViewItemIconForegroundSelected", palette_.on_accent);
+    put(L"NavigationViewItemIconForegroundSelectedPointerOver", palette_.on_accent);
+    put(L"NavigationViewItemIconForegroundSelectedPressed", palette_.on_accent);
+    put(L"NavigationViewItemBackgroundSelectedPressed", palette_.accent);
+    resources.Insert(box_value(L"NavigationViewItemMinHeight"), box_value(28.0));
     put(L"NavigationViewItemSeparatorForeground", palette_.divider);
 
     filter_ = AutoSuggestBox();
@@ -3410,13 +3434,23 @@ private:
         group = page.group;
         NavigationViewItemHeader header;
         header.Content(box_value(hstring(group_titles[page.group])));
+        header.FontSize(11);
+        header.MinHeight(24);
+        header.Height(24);
+        header.Padding(Thickness{12, 0, 12, 0});
+        header.Foreground(brush(palette_.sub));
         view.MenuItems().Append(header);
       }
       const auto &label = page_label(page.id);
       NavigationViewItem item;
       item.Content(box_value(hstring(label.title)));
-      item.Icon(make_icon(label.glyph, 16, palette_.text));
+      auto icon = make_icon(label.glyph, 14, palette_.text);
+      icon.ClearValue(IconElement::ForegroundProperty());
+      item.Icon(icon);
+      item.FontSize(13);
+      item.MinHeight(28);
       item.Tag(box_value(text(page.id)));
+      A11y::SetAutomationId(item, text(page.id));
       view.MenuItems().Append(item);
     }
     view.SelectionChanged(
@@ -3430,6 +3464,7 @@ private:
         });
 
     scroll_ = ScrollViewer();
+    A11y::SetAutomationId(scroll_, L"settings-content");
     scroll_.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
     scroll_.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);
     view.Content(scroll_);
@@ -3625,7 +3660,7 @@ private:
     focus_target_ = nullptr;
 
     StackPanel page;
-    page.Padding(Thickness{56, 36, 56, 48});
+    page.Padding(Thickness{22, 22, 22, 32});
     page.Spacing(4);
     if (input_method_ == InputMethodState::missing ||
         input_method_ == InputMethodState::not_default)
@@ -3665,7 +3700,7 @@ private:
   FrameworkElement make_page_title() {
     Grid row;
     row.MinHeight(40);
-    row.Margin(Thickness{0, 0, 0, 24});
+    row.Margin(Thickness{0, 0, 0, 8});
     ColumnDefinition title_column;
     title_column.Width(GridLength{1, GridUnitType::Star});
     ColumnDefinition tools_column;
@@ -3673,7 +3708,7 @@ private:
     row.ColumnDefinitions().Append(title_column);
     row.ColumnDefinitions().Append(tools_column);
 
-    auto title = make_text(page_label(current_page_).title, 28, palette_.text);
+    auto title = make_text(page_label(current_page_).title, 22, palette_.text);
     title.FontWeight(Windows::UI::Text::FontWeight{600});
     title.VerticalAlignment(VerticalAlignment::Center);
     Grid::SetColumn(title, 0);
@@ -3870,77 +3905,100 @@ private:
     queue_refresh();
   }
 
+  // 标题位于卡片之外；同一功能组的行共用一张圆角卡片。
   StackPanel add_group(StackPanel const &page, std::wstring const &title) {
-    StackPanel group;
-    group.Spacing(4);
+    StackPanel section;
+    section.Spacing(6);
+    section.Margin(Thickness{0, 14, 0, 0});
     if (!title.empty()) {
-      auto heading = make_text(title, 20, palette_.text);
+      auto heading = make_text(title, 13, palette_.text);
       heading.FontWeight(Windows::UI::Text::FontWeight{600});
-      heading.Padding(Thickness{4, 28, 4, 8});
-      group.Children().Append(heading);
+      section.Children().Append(heading);
     }
-    page.Children().Append(group);
-    return group;
+    StackPanel rows;
+    rows.Padding(Thickness{12, 6, 12, 6});
+    auto card = make_card();
+    card.Child(rows);
+    section.Children().Append(card);
+    page.Children().Append(section);
+    return rows;
   }
 
   Border make_card() {
     Border card;
     card.Background(brush(palette_.card));
-    card.BorderBrush(brush(palette_.stroke));
-    card.BorderThickness(Thickness{1, 1, 1, 1});
-    card.CornerRadius(CornerRadius{3, 3, 3, 3});
+    card.CornerRadius(CornerRadius{10, 10, 10, 10});
     return card;
   }
 
-  // One Fluent settings card: a 20px icon, the title and its explanation, and the control on the right. `below` holds the check lists that open under the header.
-  Border add_row(StackPanel const &group, wchar_t glyph,
+  // 行内不重复画图标；标签和控件分别贴住卡片两边，窄窗口将控件放在下一行。
+  Border add_row(StackPanel const &group, wchar_t,
                  std::wstring const &title, std::wstring const &subtitle,
                  FrameworkElement const &control,
                  FrameworkElement const &below = nullptr) {
     record(title, subtitle);
     Grid header;
-    header.MinHeight(62);
-    header.Padding(Thickness{25, 10, 25, 10});
-    header.ColumnSpacing(16);
-    ColumnDefinition icon_column;
-    icon_column.Width(GridLength{20, GridUnitType::Pixel});
+    header.MinHeight(subtitle.empty() ? 30 : 38);
+    header.Padding(Thickness{0, 4, 0, 4});
+    header.ColumnSpacing(12);
     ColumnDefinition text_column;
     text_column.Width(GridLength{1, GridUnitType::Star});
     ColumnDefinition control_column;
     control_column.Width(GridLength{1, GridUnitType::Auto});
-    header.ColumnDefinitions().Append(icon_column);
     header.ColumnDefinitions().Append(text_column);
     header.ColumnDefinitions().Append(control_column);
-
-    auto icon = make_icon(glyph, 20, palette_.text);
-    icon.VerticalAlignment(VerticalAlignment::Center);
-    Grid::SetColumn(icon, 0);
-    header.Children().Append(icon);
+    RowDefinition label_row;
+    label_row.Height(GridLength{1, GridUnitType::Auto});
+    RowDefinition field_row;
+    field_row.Height(GridLength{1, GridUnitType::Auto});
+    header.RowDefinitions().Append(label_row);
+    header.RowDefinitions().Append(field_row);
 
     StackPanel texts;
-    texts.Spacing(1);
+    texts.Spacing(2);
     texts.VerticalAlignment(VerticalAlignment::Center);
-    texts.Children().Append(make_text(title, 14, palette_.text));
+    texts.Children().Append(make_text(title, 13, palette_.text));
     if (!subtitle.empty())
-      texts.Children().Append(make_text(subtitle, 12, palette_.sub));
-    Grid::SetColumn(texts, 1);
+      texts.Children().Append(make_text(subtitle, 11, palette_.sub));
     header.Children().Append(texts);
 
     if (control) {
       control.VerticalAlignment(VerticalAlignment::Center);
-      Grid::SetColumn(control, 2);
+      control.HorizontalAlignment(HorizontalAlignment::Right);
+      Grid::SetColumn(control, 1);
       header.Children().Append(control);
+      // 用控件自身的期望宽度判断，长按钮、字体组合框和滑块都不挤掉标签。
+      header.SizeChanged([weak_control = make_weak(control), weak_texts = make_weak(texts)](
+                             Inspectable const &sender, SizeChangedEventArgs const &) {
+        const auto row = sender.as<Grid>();
+        const auto field = weak_control.get();
+        const auto labels = weak_texts.get();
+        if (!field || !labels)
+          return;
+        const bool stacked = row.ActualWidth() < field.DesiredSize().Width + 192;
+        Grid::SetColumnSpan(labels, stacked ? 2 : 1);
+        Grid::SetColumn(field, stacked ? 0 : 1);
+        Grid::SetRow(field, stacked ? 1 : 0);
+        Grid::SetColumnSpan(field, stacked ? 2 : 1);
+        field.Margin(Thickness{0, stacked ? 6.0 : 0.0, 0, 0});
+      });
+    } else {
+      Grid::SetColumnSpan(texts, 2);
     }
 
     StackPanel body;
     body.Children().Append(header);
     if (below)
       body.Children().Append(below);
-    auto card = make_card();
-    card.Child(body);
-    group.Children().Append(card);
-    mark_search_target(title, card);
-    return card;
+    Border row;
+    if (group.Children().Size() > 0) {
+      row.BorderBrush(brush(palette_.divider));
+      row.BorderThickness(Thickness{0, 1, 0, 0});
+    }
+    row.Child(body);
+    group.Children().Append(row);
+    mark_search_target(title, row);
+    return row;
   }
 
   // ---- Controls ----
@@ -3967,14 +4025,6 @@ private:
   FrameworkElement toggle_control(std::wstring const &name, bool on,
                                   std::function<void(bool)> apply,
                                   bool enabled = true, bool document = true) {
-    StackPanel box;
-    box.Orientation(Orientation::Horizontal);
-    box.Spacing(12);
-    auto state = make_text(on ? L"开" : L"关", 14, palette_.text);
-    state.Width(24);
-    state.TextAlignment(TextAlignment::Right);
-    state.VerticalAlignment(VerticalAlignment::Center);
-    box.Children().Append(state);
     ToggleSwitch toggle;
     toggle.OnContent(box_value(L""));
     toggle.OffContent(box_value(L""));
@@ -3982,15 +4032,11 @@ private:
     toggle.IsOn(on);
     toggle.IsEnabled(enabled && (loaded_ || !document));
     A11y::SetName(toggle, hstring(name));
-    toggle.Toggled([weak_state = make_weak(state), on_toggle = std::move(apply)](
+    toggle.Toggled([on_toggle = std::move(apply)](
                        Inspectable const &sender, RoutedEventArgs const &) {
-      const bool value = sender.as<ToggleSwitch>().IsOn();
-      if (auto label = weak_state.get())
-        label.Text(value ? L"开" : L"关");
-      on_toggle(value);
+      on_toggle(sender.as<ToggleSwitch>().IsOn());
     });
-    box.Children().Append(toggle);
-    return box;
+    return toggle;
   }
 
   FrameworkElement select_control(std::wstring const &name,
@@ -3999,7 +4045,7 @@ private:
                                   std::function<void(std::wstring const &)> apply,
                                   bool enabled = true, bool document = true) {
     ComboBox combo;
-    combo.Width(156);
+    combo.Width(190);
     int32_t selected = -1;
     for (size_t i = 0; i < options.size(); ++i) {
       if (options[i].enabled) {
@@ -4027,12 +4073,14 @@ private:
     return combo;
   }
 
-  // The design's segmented control: a well of buttons; the chosen one is raised and carries a 16x3 accent underline.
+  // 分段控件用浮起的选中底；超过三项用下拉框，避免整排选项撑破卡片。
   FrameworkElement segmented_control(std::wstring const &name,
                                      std::vector<Option> const &options,
                                      std::wstring const &current,
                                      std::function<void(std::wstring const &)> apply,
                                      bool enabled = true, bool document = true) {
+    if (options.size() > 3)
+      return select_control(name, options, current, std::move(apply), enabled, document);
     Border well;
     well.Background(brush(palette_.seg_well));
     well.BorderBrush(brush(palette_.stroke));
@@ -4045,12 +4093,12 @@ private:
     for (const auto &option : options) {
       const bool on = option.value == current;
       Button button;
-      button.Height(30);
+      button.Height(28);
       button.MinWidth(0);
       button.Padding(Thickness{14, 0, 14, 0});
       button.CornerRadius(CornerRadius{4, 4, 4, 4});
       button.BorderThickness(Thickness{1, 1, 1, 1});
-      button.Background(brush(on ? palette_.subtle2 : transparent_color()));
+      button.Background(brush(on ? (palette_.dark ? rgba(0x5A, 0x5A, 0x5E, 1) : rgba(255, 255, 255, 1)) : transparent_color()));
       button.BorderBrush(brush(on ? palette_.stroke : transparent_color()));
       button.HorizontalContentAlignment(HorizontalAlignment::Stretch);
       button.VerticalContentAlignment(VerticalAlignment::Stretch);
@@ -4060,17 +4108,6 @@ private:
       label.HorizontalAlignment(HorizontalAlignment::Center);
       label.VerticalAlignment(VerticalAlignment::Center);
       content.Children().Append(label);
-      if (on) {
-        Border underline;
-        underline.Width(16);
-        underline.Height(3);
-        underline.CornerRadius(CornerRadius{1.5, 1.5, 1.5, 1.5});
-        underline.Background(brush(palette_.accent));
-        underline.HorizontalAlignment(HorizontalAlignment::Center);
-        underline.VerticalAlignment(VerticalAlignment::Bottom);
-        underline.Margin(Thickness{0, 0, 0, 1});
-        content.Children().Append(underline);
-      }
       button.Content(content);
       A11y::SetName(button, hstring(name + L" " + option.label));
       if (on)
@@ -4156,7 +4193,7 @@ private:
     grid.Orientation(Orientation::Horizontal);
     grid.ItemWidth(item_width + 24);
     grid.ItemHeight(36);
-    grid.Margin(Thickness{61, 0, 25, 18});
+    grid.Margin(Thickness{0, 0, 0, 18});
     for (auto &check : checks) {
       record(check.label, L"");
       CheckBox box;
@@ -7206,7 +7243,7 @@ private:
 
     StackPanel below;
     below.Spacing(4);
-    below.Margin(Thickness{61, 0, 25, 14});
+    below.Margin(Thickness{0, 0, 0, 14});
     const std::wstring status = skins_busy_       ? L"正在读取皮肤目录。"
                                 : !skins_scanned_ ? L"尚未扫描。点击“刷新皮肤”读取皮肤目录。"
                                 : skin_packages_.empty() ? L"没有发现外部皮肤。"
@@ -9832,7 +9869,7 @@ private:
 
     // 状态是读屏会播报的区域。
     auto status = make_text(font_catalog_message(), 12, palette_.sub);
-    status.Margin(Thickness{61, 0, 25, 14});
+    status.Margin(Thickness{0, 0, 0, 14});
     A11y::SetLiveSetting(status, Automation::Peers::AutomationLiveSetting::Polite);
     status.Visibility(status.Text().empty() ? Visibility::Collapsed : Visibility::Visible);
     auto refresh_button = button_control(
@@ -10297,7 +10334,7 @@ private:
     problem.IsOpen(false);
     problem.IsClosable(true);
     problem.Severity(InfoBarSeverity::Error);
-    problem.Margin(Thickness{61, 0, 25, 16});
+    problem.Margin(Thickness{0, 0, 0, 16});
     problem.Visibility(Visibility::Collapsed);
     problem.Closed([](InfoBar const &sender, InfoBarClosedEventArgs const &) {
       sender.Visibility(Visibility::Collapsed);
@@ -10336,7 +10373,7 @@ private:
     if (!rules.empty()) {
       StackPanel list;
       list.Spacing(4);
-      list.Margin(Thickness{61, 0, 25, 16});
+      list.Margin(Thickness{0, 0, 0, 16});
       for (auto const &rule : rules) {
         const std::wstring name = rule.first;
         const std::wstring mode = rule.second;
@@ -10404,7 +10441,7 @@ private:
     problem.IsOpen(false);
     problem.IsClosable(true);
     problem.Severity(InfoBarSeverity::Error);
-    problem.Margin(Thickness{61, 0, 25, 16});
+    problem.Margin(Thickness{0, 0, 0, 16});
     problem.Visibility(Visibility::Collapsed);
     problem.Closed([](InfoBar const &sender, InfoBarClosedEventArgs const &) {
       sender.Visibility(Visibility::Collapsed);
@@ -10446,7 +10483,7 @@ private:
     if (!names.empty()) {
       StackPanel list;
       list.Spacing(4);
-      list.Margin(Thickness{61, 0, 25, 16});
+      list.Margin(Thickness{0, 0, 0, 16});
       for (auto const &name : names) {
         Grid item;
         item.ColumnSpacing(16);
@@ -10590,7 +10627,7 @@ private:
 
     StackPanel below;
     below.Spacing(8);
-    below.Margin(Thickness{61, 0, 25, 16});
+    below.Margin(Thickness{0, 0, 0, 16});
     below.Children().Append(input);
     below.Children().Append(search);
     if (!wubi_lookup_error_.empty())
@@ -11604,7 +11641,7 @@ private:
     below.Children().Append(checks_panel(std::move(checks), 120));
     auto note = make_text(L"平翘舌 z c s、声母 n-l f-h r-l、前后鼻音 an en in、其他韵母 ian uan。勾选容易混淆的读音后，会补充对应候选。关闭总开关会保留已选规则。",
                           12, palette_.sub);
-    note.Margin(Thickness{61, 0, 25, 16});
+    note.Margin(Thickness{0, 0, 0, 16});
     below.Children().Append(note);
     add_row(group, 0xE8D2, L"模糊音", L"全拼、九键与双拼均支持；更改会在当前输入结束后生效",
             toggle, below);
@@ -12303,7 +12340,7 @@ private:
 
     StackPanel results;
     results.Spacing(4);
-    results.Margin(Thickness{61, 0, 25, 16});
+    results.Margin(Thickness{0, 0, 0, 16});
     const auto label = lexicon_kind_label(lexicon_kind_);
     std::wstring status = lexicon_message_;
     if (status.empty() && !lexicon_listed_)
@@ -12457,7 +12494,7 @@ private:
 
     StackPanel card;
     card.Spacing(8);
-    card.Margin(Thickness{61, 0, 25, 16});
+    card.Margin(Thickness{0, 0, 0, 16});
     if (status.wordbook.empty()) {
       card.Children().Append(make_text(L"先选一本词书。", 13, palette_.sub));
     } else if (status.queue.empty()) {
@@ -12803,7 +12840,7 @@ private:
     StackPanel actions;
     actions.Orientation(Orientation::Horizontal);
     actions.Spacing(8);
-    actions.Margin(Thickness{61, 0, 25, 16});
+    actions.Margin(Thickness{0, 0, 0, 16});
     actions.Children().Append(button_control(
         L"从系统剪贴板同步",
         [this] { change_clipboard_history(clipboard_action(L"sync"), L"无法同步剪贴板历史"); },
@@ -12847,7 +12884,7 @@ private:
         first = false;
         Grid row;
         row.MinHeight(62);
-        row.Padding(Thickness{25, 10, 25, 10});
+        row.Padding(Thickness{12, 8, 12, 8});
         row.ColumnSpacing(12);
         ColumnDefinition text_column;
         text_column.Width(GridLength{1, GridUnitType::Star});
@@ -14754,7 +14791,7 @@ private:
     row.HorizontalAlignment(HorizontalAlignment::Stretch);
     row.HorizontalContentAlignment(HorizontalAlignment::Stretch);
     row.MinHeight(62);
-    row.Padding(Thickness{25, 10, 25, 10});
+    row.Padding(Thickness{12, 8, 12, 8});
     row.Background(brush(palette_.card));
     row.BorderBrush(brush(palette_.stroke));
     row.BorderThickness(Thickness{1, 1, 1, 1});
@@ -14840,7 +14877,7 @@ private:
       first = false;
       StackPanel texts;
       texts.Spacing(1);
-      texts.Padding(Thickness{25, 10, 25, 10});
+      texts.Padding(Thickness{12, 8, 12, 8});
       auto head = make_text(title, 14, palette_.text);
       head.IsTextSelectionEnabled(true);
       texts.Children().Append(head);
@@ -15952,7 +15989,7 @@ private:
       else if (target == L"script-down")
         chosen = down;
       if (!chosen)
-        chosen = control.as<StackPanel>().Children().GetAt(1).as<FrameworkElement>();
+        chosen = control;
       focus_target_ = chosen;
     }
   }
@@ -17198,7 +17235,7 @@ private:
                            [this] { refresh_capture_devices(); }, !capture_busy_),
             [&] {
               StackPanel holder;
-              holder.Margin(Thickness{61, 0, 25, 14});
+              holder.Margin(Thickness{0, 0, 0, 14});
               holder.Children().Append(status);
               return holder;
             }());
@@ -17912,10 +17949,10 @@ private:
                      .GetAt(0)
                      .as<Grid>()
                      .Children()
-                     .GetAt(1)
+                     .GetAt(0)
                      .as<StackPanel>();
     if (texts.Children().Size() < 2) {
-      auto line = make_text(L"", 12, palette_.sub);
+      auto line = make_text(L"", 11, palette_.sub);
       line.Visibility(Visibility::Collapsed);
       texts.Children().Append(line);
     }
@@ -18564,7 +18601,7 @@ private:
     auto code = make_text(value, 12, palette_.sub);
     code.FontFamily(Media::FontFamily(L"Consolas"));
     code.IsTextSelectionEnabled(true);
-    code.Padding(Thickness{61, 0, 25, 12});
+    code.Padding(Thickness{0, 0, 0, 12});
     return code;
   }
 
@@ -18690,7 +18727,7 @@ private:
     // 检查经由 `msime_client_update_check` 在这里执行，结果显示在该行下方；只有「前往下载」会离开窗口。
     StackPanel update_lines;
     update_lines.Spacing(4);
-    update_lines.Padding(Thickness{61, 0, 25, 12});
+    update_lines.Padding(Thickness{0, 0, 0, 12});
     auto update_status = make_text(L"", 12, palette_.text);
     auto update_detail = make_text(L"", 12, palette_.sub);
     update_status.IsTextSelectionEnabled(true);

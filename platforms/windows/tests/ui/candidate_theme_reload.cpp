@@ -94,8 +94,8 @@ int main() {
          papered.text == candidate_rgb(0x2B2B2B) &&
          papered.accent == candidate_rgb(0x8A5A2B));
   assert(papered.number == candidate_light_palette().number);
-  assert(papered.selected == papered.hover &&
-         papered.selected_text == papered.accent && papered.show_selected_bar);
+  assert(papered.selected == papered.accent &&
+         papered.selected_text == candidate_rgb(0xFFFFFF) && papered.show_selected_bar);
   assert(papered.menu_fill == papered.surface);
 
   // A custom theme that draws a package names it, and the assets follow that name.

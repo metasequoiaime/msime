@@ -1,6 +1,6 @@
 # Windows WinUI 3 设置
 
-`MSIME.Settings.vcxproj` 是 Windows 设置窗口的原生宿主（安装后为 `msime-client-settings.exe`）。它使用 Windows App SDK 的 WinUI 3 控件，按 Windows 11 设置的样式绘制：标题栏搜索框、280 宽的侧栏（带页面筛选）、每行一张 Fluent 卡片。它不启动 Tauri 作为设置界面，也不拥有 TSF 或输入会话。
+`MSIME.Settings.vcxproj` 是 Windows 设置窗口的原生宿主（安装后为 `msime-client-settings.exe`）。它使用 Windows App SDK 的 WinUI 3 控件，参考 macOS 原生设置的分组与密度绘制：标题栏搜索框、224 宽的侧栏（带页面筛选）、每组一张 10 DIP 圆角卡片。组内使用细分隔线、13 DIP 标签和 11 DIP 说明，移除重复行图标和开关状态文字，窄行把控件排到标签下方。页面边距为 22 DIP，强调色与候选窗统一为品牌绿，浅深色随主题切换。它不启动 Tauri 作为设置界面，也不拥有 TSF 或输入会话。
 
 ## 页面
 
@@ -84,3 +84,16 @@ msbuild MSIME.Settings.vcxproj /p:Configuration=RelWithDebInfo /p:Platform=x64 `
 ```
 
 Windows App SDK 版本由 `WindowsAppSDKVersion` 属性控制，默认值与项目文件固定，发布构建使用 self-contained unpackaged 模式。项目没有 XAML 编译器：应用自己实现 `IXamlMetadataProvider` 并转交给 WinUI 控件库的元数据提供者，界面全部在 `main.cpp` 中用代码构建。
+
+
+## 界面验收
+
+`CI (platforms)` 的 `Windows native settings` 编译并链接本工程与真实 host-api DLL，再运行 `tests/tools/settings_ui.ps1`。脚本使用独立合成状态，通过 UI Automation 访问全部 18 页，在浅色、深色及 800／1000 宽窗口下保存截图，产物为 `windows-native-settings-screenshots`。本机也可对构建好的宿主运行：
+
+```powershell
+powershell -NoProfile -File platforms/windows/tests/tools/settings_ui.ps1 `
+  -Program target/windows-full/x64/settings/msime-client-settings.exe `
+  -OutputDirectory target/windows-full/x64/settings-screenshots
+```
+
+脚本不注册输入法，不修改现有用户偏好；页面运行验收仍不能替代 TSF 在真实编辑器里的输入验证。
