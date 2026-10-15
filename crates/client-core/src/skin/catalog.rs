@@ -12,6 +12,10 @@ use std::path::Path;
 use toml::Value;
 
 mod windows_looks;
+/// 定义在 `crate::text`（偏好校验要用），从这里导回。
+pub(crate) use crate::text::safe_id;
+/// 定义在 `crate::theme`（偏好校验要用），从这里导回，原来的路径照常可用。
+pub use crate::theme::is_selectable_id;
 pub use windows_looks::{is_windows_look, WINDOWS_DEFAULTS_FOLDER, WINDOWS_LOOK_IDS};
 
 /// Manifest values, not trusted CSS. Renderers must validate color syntax before
@@ -310,23 +314,9 @@ pub fn is_reserved(id: &str) -> bool {
         || id == WINDOWS_DEFAULTS_FOLDER
 }
 
-/// 偏好里保存的皮肤选择（`custom_theme.candidate_skin`）要满足的规则：文件夹名的形状，且不是全局主题 ID。它比 [`is_external_id`] 宽：被 msime-windows 内置外观或 `default` 占用的名字以前可以当皮肤文件夹，旧设置和其他设备同步来的设置可能还写着它们；它们仍是合法的设置值，只是目录里不会有这个包，自定义主题照常画它的 base。若按 `is_external_id` 校验，这样的设置会让整份偏好被拒绝。后加的全局主题 ID `native` 同理：加它之前 `native` 是合法的皮肤文件夹名，所以仍可保存。
-pub fn is_selectable_id(id: &str) -> bool {
-    safe_id(id)
-        && super::theme::GlobalTheme::from_id(id)
-            .is_none_or(|theme| theme == super::theme::GlobalTheme::Native)
-}
-
 /// 该名字能否作为外部皮肤的文件夹名。目录扫描只列出这样的文件夹，导入时按同一规则把关，免得拷进来一个扫描随后拒绝的皮肤。
 pub fn is_external_id(id: &str) -> bool {
     safe_id(id) && !is_reserved(id)
-}
-
-pub(crate) fn safe_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 64
-        && id.as_bytes()[0].is_ascii_alphanumeric()
-        && crate::is_ascii_lowercase_identifier_with_dots(id)
 }
 
 pub(crate) fn contained(root: &Path, child: &Path) -> bool {

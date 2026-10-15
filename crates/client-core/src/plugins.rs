@@ -86,10 +86,8 @@ pub const BUILTIN_MUSIC_PACKS: [&str; 2] = ["msime-music-lofi", "msime-music-amb
 pub const BUILTIN_SCRIPT_PACKS: [&str; 1] = ["uuid"];
 /// 桌面安装包随带的官方短语表（`plugins/official-packs.json`），保留方式同 [`BUILTIN_SCRIPT_PACKS`]。不在 `phrase_tables` 偏好里就不进 K 模式。
 pub const BUILTIN_PHRASE_TABLES: [&str; 1] = ["latex-symbols"];
-/// The sound pack a fresh profile selects.
-pub const DEFAULT_SOUND_PACK: &str = "default";
-/// The melody pack a fresh profile selects.
-pub const DEFAULT_MELODY_PACK: &str = "twinkle";
+/// 定义在 `preferences`（偏好的默认值要用，放在这里会让 `preferences` 依赖插件模块），从这里导回。
+pub use crate::preferences::{DEFAULT_MELODY_PACK, DEFAULT_SOUND_PACK};
 
 /// Commit counts at which a host with achievements switched on plays the achievement sample.
 pub const ACHIEVEMENT_MILESTONES: [u64; 9] = [
@@ -285,31 +283,8 @@ pub fn pack_directory(
         .map(|(parent, _)| parent.join(id))
 }
 
-/// The typing effect a host draws on keys and commits. Closed: every style is built into the hosts, and an effect pack (`PluginKind::Effect`) only selects one of them and tunes it within `effect_pack`'s bounds, so no pack can supply a style of its own.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EffectStyle {
-    #[default]
-    Off,
-    /// A brief flash on the host's own candidate surface.
-    Flash,
-    /// Sparks where the host can draw them, a flash where it cannot.
-    Sparks,
-    /// Sparks, a shake and a combo that grows the effect as it climbs.
-    PowerMode,
-}
-
-impl EffectStyle {
-    /// The style's number in `msime_client_typing_effect`'s answer.
-    pub fn code(self) -> u32 {
-        match self {
-            Self::Off => 0,
-            Self::Flash => 1,
-            Self::Sparks => 2,
-            Self::PowerMode => 3,
-        }
-    }
-}
+/// 定义在 `preferences`（`PluginPreferences::effect_style` 的类型），从这里导回。
+pub use crate::preferences::EffectStyle;
 
 /// A combo starts over after the keyboard has been quiet this long, as a melody does.
 pub const COMBO_IDLE_RESET_MILLIS: u64 = sound_pack::MELODY_IDLE_RESET_MILLIS;

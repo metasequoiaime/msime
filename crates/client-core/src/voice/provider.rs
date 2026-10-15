@@ -411,6 +411,41 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_retired_everyapi_asr_model_falls_back_to_the_current_default_on_load() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = crate::preferences::PreferencesStore::new(directory.path());
+        let load_with = |provider: &str, model: &str| {
+            let snapshot = store.load().unwrap();
+            let mut preferences = snapshot.preferences;
+            preferences.voice_input.asr_provider = provider.into();
+            preferences.voice_input.asr_model = model.into();
+            store.save(snapshot.revision, preferences).unwrap();
+            store.load().unwrap().preferences.voice_input.asr_model
+        };
+        // EveryAPI never served this model; an empty field lets the resolver use the current default.
+        assert_eq!(load_with("everyapi", "openai/whisper-large-v3-turbo"), "");
+        assert_eq!(load_with("everyapi", " openai/whisper-large-v3-turbo "), "");
+        let resolved = mobile_voice_provider_configuration(&{
+            let mut preferences = store.load().unwrap().preferences;
+            preferences.voice_input.asr_token = "fixture-token".into();
+            preferences.voice_input.asr_endpoint.clear();
+            preferences
+        })
+        .unwrap();
+        assert_eq!(resolved.model, "volc.seedasr.sauc.duration");
+        // A model the user chose, or the same name under another provider, is left alone.
+        assert_eq!(
+            load_with("everyapi", "volc.seedasr.sauc.duration"),
+            "volc.seedasr.sauc.duration"
+        );
+        assert_eq!(load_with("everyapi", "custom-model"), "custom-model");
+        assert_eq!(
+            load_with("groq", "openai/whisper-large-v3-turbo"),
+            "openai/whisper-large-v3-turbo"
+        );
+    }
+
+    #[test]
     fn credential_test_config_resolves_what_the_keyboard_would_send() {
         let mut preferences = Preferences::default();
         preferences.voice_input.asr_provider = "doubao".into();

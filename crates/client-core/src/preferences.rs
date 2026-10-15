@@ -22,6 +22,29 @@ fn valid_font_family(value: &str) -> bool {
     !value.is_empty() && crate::text::is_bounded_text(value, 128)
 }
 
+/// The deliberately small value set accepted by the account preferences API.
+/// Credentials, arbitrary JSON objects, and input contents never cross this
+/// boundary; platform hosts map their safe local settings to these scalars.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AccountPreferenceValue {
+    Boolean(bool),
+    Integer(i64),
+    Number(f64),
+    String(String),
+}
+
+impl AccountPreferenceValue {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Boolean(_) => "boolean",
+            Self::Integer(_) => "integer",
+            Self::Number(_) => "number",
+            Self::String(_) => "string",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum InputScheme {
@@ -269,7 +292,7 @@ fn supported_skin_photo(bytes: &[u8]) -> bool {
 pub struct CustomTheme {
     /// 自定义主题的底：`system` 或五个内置主题之一，不能是 `custom`，也不能是只在部分宿主上提供的 `native`（见 `GlobalTheme::is_base`）。皮肤包和取色器没设的候选颜色由它补上；没有键盘设计时，键盘也画它的。应用了皮肤包时，改用包清单自己的 `base`。
     #[serde(skip_serializing_if = "is_system_theme")]
-    pub base: crate::skin::theme::GlobalTheme,
+    pub base: crate::theme::GlobalTheme,
     /// 浅色模式用的候选窗皮肤包（宿主皮肤目录里的文件夹名），也是没设 `candidate_skin_dark` 时深色模式用的那款。不会是全局主题 ID。皮肤包只在它 `base` 的明暗下绘制，见 `CustomTheme::candidate_skin_for`。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub candidate_skin: Option<String>,
@@ -284,8 +307,8 @@ pub struct CustomTheme {
     pub keyboard: Option<TouchKeyboardSkinDesign>,
 }
 
-fn is_system_theme(theme: &crate::skin::theme::GlobalTheme) -> bool {
-    *theme == crate::skin::theme::GlobalTheme::System
+fn is_system_theme(theme: &crate::theme::GlobalTheme) -> bool {
+    *theme == crate::theme::GlobalTheme::System
 }
 
 impl CustomTheme {
@@ -337,7 +360,7 @@ impl CustomTheme {
         if [&self.candidate_skin, &self.candidate_skin_dark]
             .into_iter()
             .flatten()
-            .any(|skin| !crate::skin::catalog::is_selectable_id(skin))
+            .any(|skin| !crate::theme::is_selectable_id(skin))
         {
             return Err(PreferencesError::InvalidCandidateSkin);
         }
@@ -869,7 +892,7 @@ pub struct Preferences {
     pub menu_theme: SettingsTheme,
     /// The one theme that colours the candidate window, toolbar, menus and touch keyboard on every host. `theme` above stays the light/dark mode the `system` theme and the settings window follow.
     #[serde(default)]
-    pub global_theme: crate::skin::theme::GlobalTheme,
+    pub global_theme: crate::theme::GlobalTheme,
     #[serde(default)]
     pub custom_theme: CustomTheme,
     #[serde(default)]
@@ -1118,7 +1141,7 @@ pub struct Preferences {
     /// 候选翻译服务选的是水杉账号时为真，候选词会发到 `https://api.msime.app/v1/translate`。新装和缺字段时都是关闭，必须由用户显式选择。
     #[serde(default)]
     pub translation_account: bool,
-    /// Send anonymous usage reports (daily activity, session ends, crash summaries; see [`crate::telemetry`] and PRIVACY.md) to `https://api.msime.app/v1/telemetry/events`. On by default; turning it off stops all reporting and clears the local queue. A reader treats an absent key as on.
+    /// Send anonymous usage reports (daily activity, session ends, crash summaries; see `telemetry` and PRIVACY.md) to `https://api.msime.app/v1/telemetry/events`. On by default; turning it off stops all reporting and clears the local queue. A reader treats an absent key as on.
     #[serde(default = "enabled_by_default")]
     pub usage_reporting: bool,
 }
@@ -1637,6 +1660,32 @@ impl Default for LocalModePreferences {
     }
 }
 
+/// The typing effect a host draws on keys and commits. Closed: every style is built into the hosts, and an effect pack (`PluginKind::Effect`) only selects one of them and tunes it within `effect_pack`'s bounds, so no pack can supply a style of its own.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectStyle {
+    #[default]
+    Off,
+    /// A brief flash on the host's own candidate surface.
+    Flash,
+    /// Sparks where the host can draw them, a flash where it cannot.
+    Sparks,
+    /// Sparks, a shake and a combo that grows the effect as it climbs.
+    PowerMode,
+}
+
+impl EffectStyle {
+    /// The style's number in `msime_client_typing_effect`'s answer.
+    pub fn code(self) -> u32 {
+        match self {
+            Self::Off => 0,
+            Self::Flash => 1,
+            Self::Sparks => 2,
+            Self::PowerMode => 3,
+        }
+    }
+}
+
 /// What the plugin packs do: which pack sounds and how loud, and which command tables the `/` mode reads. Everything is off in a fresh profile. Pack ids name a built-in pack or one installed under the plugins directory; a host that cannot find the named pack stays silent rather than falling back to another.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -1649,7 +1698,7 @@ pub struct PluginPreferences {
     /// Installed command-table packs the `/` mode reads, in priority order: the first pack that defines a trigger wins.
     pub command_tables: Vec<String>,
     /// The typing effect a host draws on keys and commits; `Off` draws nothing.
-    pub effect_style: crate::plugins::EffectStyle,
+    pub effect_style: EffectStyle,
     /// 0-100: how large and how long the effect is drawn. Only the host reads it.
     pub effect_intensity: u8,
     /// An installed effect pack whose style and parameters replace `effect_style` and `effect_intensity`; empty for none, which leaves those two in force. A selected pack that cannot be loaded draws no effect rather than falling back (`plugins::effect_pack::TypingEffect::resolve`). Left out of the document while empty, so a build from before effect packs still reads a document that never selected one.
@@ -1679,7 +1728,7 @@ impl Default for PluginPreferences {
             music: MusicPreferences::default(),
             achievements: AchievementPreferences::default(),
             command_tables: Vec::new(),
-            effect_style: crate::plugins::EffectStyle::Off,
+            effect_style: EffectStyle::Off,
             effect_intensity: 50,
             effect_pack: String::new(),
             combo_counter: false,
@@ -1702,7 +1751,7 @@ impl PluginPreferences {
     }
 
     fn validate(&self) -> bool {
-        let pack = |id: &str| id.is_empty() || crate::skin::catalog::safe_id(id);
+        let pack = |id: &str| id.is_empty() || crate::text::safe_id(id);
         pack(&self.key_sound.pack)
             && pack(&self.melody.pack)
             && pack(&self.music.pack)
@@ -1712,13 +1761,13 @@ impl PluginPreferences {
             && self.effect_intensity <= 100
             && self.command_tables.len() <= Self::MAX_COMMAND_TABLES
             && self.command_tables.iter().enumerate().all(|(index, id)| {
-                crate::skin::catalog::safe_id(id) && !self.command_tables[..index].contains(id)
+                crate::text::safe_id(id) && !self.command_tables[..index].contains(id)
             })
             && pack(&self.helpcode_pack_quanpin)
             && pack(&self.helpcode_pack_shuangpin)
             && self.phrase_tables.len() <= Self::MAX_PHRASE_TABLES
             && self.phrase_tables.iter().enumerate().all(|(index, id)| {
-                crate::skin::catalog::safe_id(id) && !self.phrase_tables[..index].contains(id)
+                crate::text::safe_id(id) && !self.phrase_tables[..index].contains(id)
             })
     }
 }
@@ -1733,6 +1782,11 @@ pub enum KeySoundMode {
     /// The next note of the melody pack.
     Melody,
 }
+
+/// The sound pack a fresh profile selects.
+pub const DEFAULT_SOUND_PACK: &str = "default";
+/// The melody pack a fresh profile selects.
+pub const DEFAULT_MELODY_PACK: &str = "twinkle";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -1750,7 +1804,7 @@ impl Default for KeySoundPreferences {
         Self {
             enabled: false,
             mode: KeySoundMode::Keys,
-            pack: crate::plugins::DEFAULT_SOUND_PACK.to_owned(),
+            pack: DEFAULT_SOUND_PACK.to_owned(),
             volume: 50,
         }
     }
@@ -1773,7 +1827,7 @@ pub struct MelodyPreferences {
 impl Default for MelodyPreferences {
     fn default() -> Self {
         Self {
-            pack: crate::plugins::DEFAULT_MELODY_PACK.to_owned(),
+            pack: DEFAULT_MELODY_PACK.to_owned(),
         }
     }
 }
@@ -1918,13 +1972,43 @@ impl SecondThirdCandidatePreferences {
     }
 }
 
+const MAX_URL_BYTES: usize = 2048;
+const MIN_TOKEN_CHARS: usize = 16;
+const MAX_TOKEN_CHARS: usize = 256;
+
+/// 中继地址是否可用：`https`（`http` 只放行 `localhost`、`127.0.0.1` 和 `[::1]`），有主机名，可以带路径前缀，不带查询串、片段和用户信息，不超过 2048 字节。
+pub fn valid_relay_url(url: &str) -> bool {
+    parse_relay_url(url).is_some()
+}
+
+/// 中继令牌是否可用：16 到 256 个可打印 ASCII 字符，不含空格。
+pub fn valid_relay_token(token: &str) -> bool {
+    (MIN_TOKEN_CHARS..=MAX_TOKEN_CHARS).contains(&token.len()) && crate::is_ascii_graphic(token)
+}
+
+pub(crate) fn parse_relay_url(url: &str) -> Option<url::Url> {
+    if url.is_empty() || !crate::text::is_bounded_text(url, MAX_URL_BYTES) {
+        return None;
+    }
+    let parsed = url::Url::parse(url).ok()?;
+    let shape = match parsed.scheme() {
+        "https" => crate::endpoint::valid_endpoint_shape(url, &parsed, "https"),
+        "http" => {
+            crate::endpoint::valid_endpoint_shape(url, &parsed, "http")
+                && matches!(parsed.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
+        }
+        _ => false,
+    };
+    (shape && !parsed.cannot_be_a_base() && parsed.query().is_none()).then_some(parsed)
+}
+
 /// 自建的云剪贴板中继：基地址和中继管理员发的令牌，两项要么都空（不用中继），要么都合规。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct CloudClipboardRelayPreferences {
-    /// 中继的基地址，例如 `https://relay.example.com/msime`；规则见 [`crate::clipboard_relay::valid_relay_url`]。
+    /// 中继的基地址，例如 `https://relay.example.com/msime`；规则见 [`valid_relay_url`]。
     pub url: String,
-    /// 中继令牌，每个令牌对应中继上一个独立的剪贴板空间；规则见 [`crate::clipboard_relay::valid_relay_token`]。
+    /// 中继令牌，每个令牌对应中继上一个独立的剪贴板空间；规则见 [`valid_relay_token`]。
     pub token: String,
 }
 
@@ -1939,9 +2023,7 @@ impl CloudClipboardRelayPreferences {
     }
 
     fn validate(&self) -> bool {
-        self.is_default()
-            || (crate::clipboard_relay::valid_relay_url(&self.url)
-                && crate::clipboard_relay::valid_relay_token(&self.token))
+        self.is_default() || (valid_relay_url(&self.url) && valid_relay_token(&self.token))
     }
 }
 
@@ -2135,7 +2217,7 @@ impl Default for Preferences {
             emoji_theme: SettingsTheme::default(),
             menu_theme: SettingsTheme::default(),
             // 新装在所有平台都跟随系统。触屏键盘的跟随系统皮肤按应用主题当前季节取色，键盘与应用界面是同一套颜色；原先触屏默认的薄荷晨光是固定配色，秋冬季节和应用主题对不上。
-            global_theme: crate::skin::theme::GlobalTheme::default(),
+            global_theme: crate::theme::GlobalTheme::default(),
             custom_theme: CustomTheme::default(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
@@ -2528,7 +2610,7 @@ pub fn valid_model_mirror(mirror: &str) -> bool {
     {
         return false;
     }
-    let Ok(url) = reqwest::Url::parse(mirror) else {
+    let Ok(url) = url::Url::parse(mirror) else {
         return false;
     };
     crate::endpoint::valid_endpoint_shape(mirror, &url, "https") && url.query().is_none()
@@ -3728,7 +3810,7 @@ fn diagnostic_endpoint(endpoint: &str) -> String {
     if endpoint.is_empty() {
         return String::new();
     }
-    let Ok(mut url) = reqwest::Url::parse(endpoint) else {
+    let Ok(mut url) = url::Url::parse(endpoint) else {
         return REDACTED.to_owned();
     };
     // Both setters only fail for URLs that cannot carry userinfo (no host), which then has none to strip.

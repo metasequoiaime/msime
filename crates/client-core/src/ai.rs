@@ -275,6 +275,34 @@ impl AiSuggestionResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_ai_assistant_requests_carry_the_builtin_associative_prompt() {
+        // The stored slot stays empty on purpose: blank means "use the built-in prompt" at request time, here and in the Linux provider's copy of the same text.
+        let mut ai = crate::preferences::Preferences::default().ai_assistant;
+        assert!(ai.prompt_custom_1.is_empty());
+        ai.enabled = true;
+        ai.endpoint = "https://synthetic.invalid/chat".into();
+        ai.model = "synthetic-model".into();
+        ai.tokens.insert(
+            "https://synthetic.invalid:443".into(),
+            "synthetic-token".into(),
+        );
+        let request = AiSuggestionRequest {
+            segmented_pinyin: vec!["shu".into(), "ru".into()],
+            context: String::new(),
+            candidate_limit: ai.candidate_limit,
+        };
+        let descriptor = chat_completion_http_request(&ai, &request)
+            .unwrap()
+            .unwrap();
+        let system = &descriptor["body"]["messages"][0];
+        assert_eq!(system["role"], "system");
+        assert_eq!(system["content"], DEFAULT_CANDIDATE_PROMPT);
+        assert!(DEFAULT_CANDIDATE_PROMPT.contains("JSON"));
+        assert!(DEFAULT_CANDIDATE_PROMPT.contains("\"candidates\""));
+    }
+
     struct Stub;
     impl AiSuggestor for Stub {
         fn suggest(&self, _: &AiSuggestionRequest) -> Result<AiSuggestionResponse, AiError> {
