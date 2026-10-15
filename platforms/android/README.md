@@ -384,7 +384,7 @@ CC_aarch64_linux_android="$android_toolchain/aarch64-linux-android28-clang" \
 AR_aarch64_linux_android="$android_toolchain/llvm-ar" \
 CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$android_toolchain/aarch64-linux-android28-clang" \
 CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER="bash $PWD/platforms/android/tests/device/run-core-test.sh" \
-cargo test -p msime-client-core --lib --target aarch64-linux-android --locked
+cargo test -p msime-client-base -p msime-client-core --lib --target aarch64-linux-android --locked
 ```
 
 8 项测试在 Android 上通过，包含独立 PreferencesStore 的并发冲突和资源失败保护。Android 标准库文件锁不可用，共享锁封装在该目标使用 rustix 安全 flock，其他目标保留标准库锁；不放宽共享核心的 unsafe 禁令。启动页和软键盘均应用系统栏 inset，避免操作被 ActionBar 或导航栏遮挡。
