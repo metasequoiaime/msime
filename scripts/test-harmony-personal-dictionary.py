@@ -5,7 +5,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SESSION = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"
-STORE = ROOT / "crates/client-core/src/dictionary/personal.rs"
+STORE = ROOT / "crates/client-services/src/dictionary/personal.rs"
 SETTINGS = ROOT / "platforms/harmony/entry/src/main/ets/pages/Settings.ets"
 POLICY = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/DictionaryMaintenancePolicy.ts"
 HOST = ROOT / "crates/host-api/src/dictionary.rs"

@@ -5,8 +5,8 @@
 use crate::platform::account_helpers::community_service_call;
 use crate::platform::desktop::desktop_account::Storage;
 use crate::CommandError;
-use msime_client_core::account::BackendAccountClient;
-use msime_client_core::community::report::{
+use msime_client_services::account::BackendAccountClient;
+use msime_client_services::community::report::{
     BackendCommunityReportService, CommunityReport, CommunityReportKind,
 };
 use std::sync::Arc;
@@ -16,7 +16,7 @@ pub(crate) struct CommunityReportState {
     pub(crate) service: Arc<BackendCommunityReportService<BackendAccountClient, Storage>>,
 }
 
-/// Files one report. `reason` is the label of one of [`msime_client_core::community::report::CommunityReportReason::ALL`]; anything else, a malformed id or a detail past the limit is `community_invalid` ([`CommunityReport::from_labels`]).
+/// Files one report. `reason` is the label of one of [`msime_client_services::community::report::CommunityReportReason::ALL`]; anything else, a malformed id or a detail past the limit is `community_invalid` ([`CommunityReport::from_labels`]).
 #[tauri::command]
 pub async fn community_report(
     state: State<'_, CommunityReportState>,

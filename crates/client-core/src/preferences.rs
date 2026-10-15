@@ -195,7 +195,8 @@ impl TouchKeyboardSkinDesign {
         }
     }
 
-    pub(crate) fn validate(&self) -> bool {
+    #[doc(hidden)]
+    pub fn validate(&self) -> bool {
         let colors = [
             Some(self.background),
             Some(self.key_background),
@@ -1986,7 +1987,8 @@ pub fn valid_relay_token(token: &str) -> bool {
     (MIN_TOKEN_CHARS..=MAX_TOKEN_CHARS).contains(&token.len()) && crate::is_ascii_graphic(token)
 }
 
-pub(crate) fn parse_relay_url(url: &str) -> Option<url::Url> {
+#[doc(hidden)]
+pub fn parse_relay_url(url: &str) -> Option<url::Url> {
     if url.is_empty() || !crate::text::is_bounded_text(url, MAX_URL_BYTES) {
         return None;
     }

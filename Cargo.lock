@@ -2926,18 +2926,13 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "chacha20poly1305",
- "flate2",
  "getrandom 0.4.3",
  "hex",
  "hkdf",
  "hmac",
- "image",
- "libc",
  "md-5",
  "msime-client-base",
  "msime-path-trust",
- "msime-script-runtime",
- "pulldown-cmark",
  "reqwest 0.12.28",
  "rustix",
  "serde",
@@ -2947,14 +2942,10 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "time",
- "toml 1.1.6+spec-1.1.0",
- "unicode-general-category",
  "unicode-segmentation",
  "url",
  "uuid",
  "x25519-dalek",
- "zip",
- "zune-jpeg",
 ]
 
 [[package]]
@@ -2987,6 +2978,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "msime-client-services"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "flate2",
+ "getrandom 0.4.3",
+ "hex",
+ "image",
+ "libc",
+ "msime-client-base",
+ "msime-client-core",
+ "msime-path-trust",
+ "msime-script-runtime",
+ "pulldown-cmark",
+ "reqwest 0.12.28",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "toml 1.1.6+spec-1.1.0",
+ "unicode-general-category",
+ "unicode-segmentation",
+ "uuid",
+ "zip",
+ "zune-jpeg",
+]
+
+[[package]]
 name = "msime-clipboard-relay"
 version = "0.1.0"
 dependencies = [
@@ -2995,6 +3017,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "msime-client-core",
+ "msime-client-services",
  "rusqlite",
  "serde",
  "serde_json",
@@ -3011,6 +3034,7 @@ dependencies = [
  "hex",
  "msime-client-core",
  "msime-client-providers",
+ "msime-client-services",
  "msime-host-api",
  "msime-host-macos",
  "msime-host-windows",
@@ -3109,6 +3133,7 @@ dependencies = [
  "lru",
  "msime-client-core",
  "msime-client-providers",
+ "msime-client-services",
  "msime-engine",
  "msime-host-windows",
  "msime-input-runtime",
@@ -3176,6 +3201,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "msime-client-core",
+ "msime-client-services",
  "msime-host-api",
  "msime-host-windows",
  "rmcp",
@@ -3191,7 +3217,7 @@ dependencies = [
 name = "msime-pack-tool"
 version = "0.1.0"
 dependencies = [
- "msime-client-core",
+ "msime-client-services",
  "msime-script-runtime",
  "serde",
  "serde_json",
@@ -3219,6 +3245,7 @@ version = "0.1.0"
 dependencies = [
  "msime-client-core",
  "msime-client-providers",
+ "msime-client-services",
  "serde",
  "serde_json",
  "tauri",

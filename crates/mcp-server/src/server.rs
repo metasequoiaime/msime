@@ -13,8 +13,8 @@ use crate::words::{
     LookupRequest, LookupView, WordEditRequest, WordImportOutcome, WordImportRequest, WordListPage,
     WordListRequest,
 };
-use msime_client_core::dictionary::quiesce::QuiescedHosts;
 use msime_client_core::file_lock;
+use msime_client_services::dictionary::quiesce::QuiescedHosts;
 use msime_host_api::{DictionaryOptions, QuickPhrase, QuickPhraseEdit, WordEdit};
 use rmcp::handler::server::router::prompt::PromptRouter;
 use rmcp::handler::server::router::tool::ToolRouter;

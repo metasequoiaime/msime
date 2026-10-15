@@ -1,10 +1,10 @@
 //! Moving the Linux data directory with the input hosts held off it.
 //!
-//! The lease and `QuiescedHosts`, which keeps it up across the requests of one settings-page action, are shared with macOS and the MCP server (`msime_client_core::dictionary::quiesce`; `is_lease_file` is re-exported here). What stays Linux-only is the long hold: moving the data directory keeps the IBus and Fcitx5 hosts off the user directory for the whole copy, with the lease up and the exclusive dictionary lock held together (`hold_hosts_off`).
+//! The lease and `QuiescedHosts`, which keeps it up across the requests of one settings-page action, are shared with macOS and the MCP server (`msime_client_services::dictionary::quiesce`; `is_lease_file` is re-exported here). What stays Linux-only is the long hold: moving the data directory keeps the IBus and Fcitx5 hosts off the user directory for the whole copy, with the lease up and the exclusive dictionary lock held together (`hold_hosts_off`).
 
-use msime_client_core::dictionary::access::DictionaryAccess;
-pub(crate) use msime_client_core::dictionary::quiesce::is_lease_file;
-use msime_client_core::dictionary::quiesce::{Lease, RETRY_BUDGET, RETRY_INTERVAL};
+use msime_client_services::dictionary::access::DictionaryAccess;
+pub(crate) use msime_client_services::dictionary::quiesce::is_lease_file;
+use msime_client_services::dictionary::quiesce::{Lease, RETRY_BUDGET, RETRY_INTERVAL};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -22,7 +22,7 @@ pub(crate) struct HostsHeldOff<Access = DictionaryAccess> {
     _lease: Lease,
 }
 
-/// Keep both hosts off `user_data` for as long as the returned guard lives, for work that replaces the directory rather than editing through the Engine, such as moving the data root. Unlike `msime_client_core::dictionary::quiesce::QuiescedHosts` the lease goes up first and stays up until the guard is dropped. A host that is not running holds no lock, so it cannot keep this busy. `Ok(None)` when `user_data` does not exist: no session can be open on it.
+/// Keep both hosts off `user_data` for as long as the returned guard lives, for work that replaces the directory rather than editing through the Engine, such as moving the data root. Unlike `msime_client_services::dictionary::quiesce::QuiescedHosts` the lease goes up first and stays up until the guard is dropped. A host that is not running holds no lock, so it cannot keep this busy. `Ok(None)` when `user_data` does not exist: no session can be open on it.
 pub(crate) fn hold_hosts_off(
     user_data: &Path,
     dictionaries: &Path,
@@ -65,7 +65,7 @@ fn hold_with<Access>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use msime_client_core::dictionary::quiesce::LEASE_NAME;
+    use msime_client_services::dictionary::quiesce::LEASE_NAME;
 
     fn lease_expiry(directory: &Path) -> Option<u128> {
         std::fs::read_to_string(directory.join(LEASE_NAME))

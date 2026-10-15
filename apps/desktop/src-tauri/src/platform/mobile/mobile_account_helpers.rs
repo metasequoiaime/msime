@@ -11,9 +11,9 @@ use crate::shared::account_dto::{
     ChallengeResponse, ChatModelsResponse, ChatResponse, PreferenceSchemaResponse, ProfileResponse,
     StatusResponse,
 };
-use msime_client_core::account::AccountChatMessage;
-use msime_client_core::account::AccountError;
-use msime_client_core::account::AccountPreferences;
+use msime_client_services::account::AccountChatMessage;
+use msime_client_services::account::AccountError;
+use msime_client_services::account::AccountPreferences;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;

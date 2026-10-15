@@ -411,7 +411,7 @@ impl IosKeyboardPreferences {
             self.haptic_strength.as_str(),
             "light" | "medium" | "strong" | "system"
         )
-            // The ids of msime_client_core::skin::theme::GlobalTheme, which this crate does not depend on; the desktop crate's iOS account tests hold the two lists together.
+            // The ids of msime_client_services::skin::theme::GlobalTheme, which this crate does not depend on; the desktop crate's iOS account tests hold the two lists together.
             && matches!(
                 self.global_theme.as_str(),
                 "system" | "native" | "shuishan" | "light" | "paper" | "night" | "ink" | "custom"

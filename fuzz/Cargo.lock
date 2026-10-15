@@ -1377,19 +1377,13 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "chacha20poly1305",
- "flate2",
  "getrandom 0.4.3",
  "hex",
  "hkdf",
  "hmac",
- "image",
- "libc",
  "md-5",
  "msime-client-base",
  "msime-path-trust",
- "msime-script-runtime",
- "pulldown-cmark",
- "reqwest",
  "rustix",
  "serde",
  "serde_json",
@@ -1397,14 +1391,10 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "time",
- "toml",
- "unicode-general-category",
  "unicode-segmentation",
  "url",
  "uuid",
  "x25519-dalek",
- "zip",
- "zune-jpeg",
 ]
 
 [[package]]
@@ -1433,6 +1423,35 @@ dependencies = [
  "tokio-tungstenite",
  "uuid",
  "zip",
+]
+
+[[package]]
+name = "msime-client-services"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "getrandom 0.4.3",
+ "hex",
+ "image",
+ "msime-client-base",
+ "msime-client-core",
+ "msime-path-trust",
+ "msime-script-runtime",
+ "pulldown-cmark",
+ "reqwest",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "toml",
+ "unicode-general-category",
+ "unicode-segmentation",
+ "uuid",
+ "zip",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -1468,6 +1487,7 @@ version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "msime-client-core",
+ "msime-client-services",
  "msime-host-api",
  "rusqlite",
  "serde_json",
@@ -1486,6 +1506,7 @@ dependencies = [
  "lru",
  "msime-client-core",
  "msime-client-providers",
+ "msime-client-services",
  "msime-engine",
  "msime-host-windows",
  "msime-input-runtime",

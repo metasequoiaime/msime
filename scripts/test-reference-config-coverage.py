@@ -39,7 +39,7 @@ SHARED = [
     ROOT / "crates/client-core/src/preferences.rs",
     ROOT / "packages/ui/src/index.tsx",
     # The typing statistics switch and retention live in their own document rather than in the preferences.
-    ROOT / "crates/client-core/src/typing_statistics.rs",
+    ROOT / "crates/client-services/src/typing_statistics.rs",
 ]
 # reference `section.key` -> the field path that answers it on this side (see the module docstring), or `!kind: why` for the ones that deliberately have no target. A per-provider token such as `token_deepseek` maps to the provider-keyed `tokens` map that holds it.
 MAPPING: dict[str, str] = {

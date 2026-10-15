@@ -4,8 +4,8 @@ use super::process::{self, Health, Lookup, Reservation, Trip};
 use super::{CallTexts, RewriteRequest};
 use crate::key_sound::{stamp, PackStamp};
 use crate::lifecycle::{Context, InputClass, LifecycleEvent, LocalModeClass};
-use msime_client_core::plugins::script_pack::ScriptCommand;
-use msime_client_core::plugins::{
+use msime_client_services::plugins::script_pack::ScriptCommand;
+use msime_client_services::plugins::{
     pack_directory, script_commands, script_grants, BuiltinDirs, PluginKind, MANIFEST_FILE,
 };
 use msime_input_runtime::{

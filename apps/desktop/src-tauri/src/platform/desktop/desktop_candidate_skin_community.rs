@@ -5,13 +5,13 @@
 use crate::platform::account_helpers::{community_error, community_id, community_service_call};
 use crate::platform::desktop::desktop_account::Storage;
 use crate::{CommandError, RuntimeOptionsState, SkinCatalogResponse, SkinDirectoryState};
-use msime_client_core::account::AccountError;
-use msime_client_core::account::BackendAccountClient;
-use msime_client_core::skin::candidate_community::{
+use msime_client_services::account::AccountError;
+use msime_client_services::account::BackendAccountClient;
+use msime_client_services::skin::candidate_community::{
     self, BackendCandidateSkinCommunityService, CandidateSkinCategory, CandidateSkinItem,
     CandidateSkinPackPreview, CandidateSkinPackage, CandidateSkinPage, CandidateSkinVisibility,
 };
-use msime_client_core::skin::candidate_sync::{
+use msime_client_services::skin::candidate_sync::{
     self, CandidateSkinPublishError, CandidateSkinSyncReport,
 };
 use serde::Serialize;

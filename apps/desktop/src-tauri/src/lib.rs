@@ -76,13 +76,13 @@ use msime_client_core::panels::{
 use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
-use msime_client_core::skin::custom_library::{
+use msime_client_services::skin::custom_library::{
     CustomSkinLibraryAction, CustomSkinLibraryError, CustomSkinLibraryStore, SavedTouchKeyboardSkin,
 };
-use msime_client_core::skin::keyboard_trial::KeyboardSkinTrialStore;
+use msime_client_services::skin::keyboard_trial::KeyboardSkinTrialStore;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
-use msime_client_core::typing_statistics::TypingSource;
-use msime_client_core::typing_statistics::{
+use msime_client_services::typing_statistics::TypingSource;
+use msime_client_services::typing_statistics::{
     TypingStatistics, TypingStatisticsStatus, TypingStatisticsStore,
 };
 #[cfg(target_os = "android")]
@@ -635,7 +635,7 @@ async fn set_typing_statistics_retention(
         );
         let statistics = store
             .set_retention(
-                msime_client_core::typing_statistics::StatisticsRetention::parse(&retention),
+                msime_client_services::typing_statistics::StatisticsRetention::parse(&retention),
                 &today,
             )
             .map_err(|_| CommandError { code: "storage" })?;
@@ -801,7 +801,7 @@ fn read_skin_toolbar_stylesheet_at(
     root: PathBuf,
     id: &str,
 ) -> Result<Option<String>, CommandError> {
-    msime_client_core::skin::catalog::read_toolbar_stylesheet(root, id)
+    msime_client_services::skin::catalog::read_toolbar_stylesheet(root, id)
         .map_err(|_| CommandError { code: "storage" })
 }
 
@@ -821,7 +821,7 @@ fn read_skin_stylesheet_at(
     id: &str,
     relative: &str,
 ) -> Result<String, CommandError> {
-    msime_client_core::skin::catalog::read_stylesheet(root, id, relative)
+    msime_client_services::skin::catalog::read_stylesheet(root, id, relative)
         .map_err(|_| CommandError { code: "storage" })
 }
 
@@ -852,7 +852,7 @@ fn read_skin_resource_at(
     id: &str,
     relative: &str,
 ) -> Result<SkinResourceResponse, CommandError> {
-    let resource = msime_client_core::skin::catalog::read_resource(root, id, relative)
+    let resource = msime_client_services::skin::catalog::read_resource(root, id, relative)
         .map_err(|_| CommandError { code: "storage" })?;
     Ok(SkinResourceResponse {
         content_type: resource.content_type,
@@ -944,7 +944,7 @@ async fn import_picked_skin(app: &tauri::AppHandle, root: PathBuf) -> Result<(),
         return Ok(());
     };
     let copied = tauri::async_runtime::spawn_blocking(move || {
-        msime_client_core::skin::folder_import::import(&source, &root)
+        msime_client_services::skin::folder_import::import(&source, &root)
     })
     .await;
     let _ = platform.end_skin_folder_access();
@@ -958,13 +958,13 @@ async fn import_picked_skin(app: &tauri::AppHandle, root: PathBuf) -> Result<(),
 struct SkinCatalogResponse {
     directory: String,
     #[serde(flatten)]
-    catalog: msime_client_core::skin::catalog::SkinCatalog,
+    catalog: msime_client_services::skin::catalog::SkinCatalog,
 }
 
 fn read_skin_catalog(root: PathBuf) -> SkinCatalogResponse {
     SkinCatalogResponse {
         directory: root.to_string_lossy().into_owned(),
-        catalog: msime_client_core::skin::catalog::scan(root),
+        catalog: msime_client_services::skin::catalog::scan(root),
     }
 }
 
@@ -1022,7 +1022,7 @@ async fn list_helpcode_schemas(
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ResolveThemeRequest {
-    global_theme: msime_client_core::skin::theme::GlobalTheme,
+    global_theme: msime_client_services::skin::theme::GlobalTheme,
     #[serde(default)]
     custom_theme: msime_client_core::preferences::CustomTheme,
     dark: bool,
@@ -1033,8 +1033,8 @@ struct ResolveThemeRequest {
 fn resolve_theme_at(
     root: &std::path::Path,
     request: ResolveThemeRequest,
-) -> Result<msime_client_core::skin::theme::ResolvedTheme, CommandError> {
-    use msime_client_core::skin::theme::{self, GlobalTheme, ThemePackage};
+) -> Result<msime_client_services::skin::theme::ResolvedTheme, CommandError> {
+    use msime_client_services::skin::theme::{self, GlobalTheme, ThemePackage};
     request.custom_theme.validate()?;
     let global_theme = request.global_theme;
     // 按请求的明暗取槽位：深色模式先取 `candidate_skin_dark`，与 `msime_client_resolve_theme` 相同。
@@ -1042,7 +1042,7 @@ fn resolve_theme_at(
         .custom_theme
         .candidate_skin_for(request.dark)
         .filter(|_| global_theme == GlobalTheme::Custom)
-        .and_then(|id| msime_client_core::skin::catalog::load_package(root, id).ok())
+        .and_then(|id| msime_client_services::skin::catalog::load_package(root, id).ok())
         .map(|summary| ThemePackage::from(&summary));
     Ok(theme::resolve(
         global_theme,
@@ -1057,7 +1057,7 @@ fn resolve_theme_at(
 async fn resolve_theme(
     directory: tauri::State<'_, SkinDirectoryState>,
     request: ResolveThemeRequest,
-) -> Result<msime_client_core::skin::theme::ResolvedTheme, CommandError> {
+) -> Result<msime_client_services::skin::theme::ResolvedTheme, CommandError> {
     // The host chooses the root; the webview names a package only by id.
     let root = directory.0.clone();
     tauri::async_runtime::spawn_blocking(move || resolve_theme_at(&root, request))
@@ -1781,7 +1781,7 @@ fn sync_runtime_options(
         let catalog = runtime
             .skins
             .as_deref()
-            .map(|root| (root, msime_client_core::skin::catalog::scan(root)));
+            .map(|root| (root, msime_client_services::skin::catalog::scan(root)));
         let mut document = runtime
             .document
             .lock()
@@ -1847,7 +1847,7 @@ fn linux_runtime_options_bytes(document: &Value) -> Result<Vec<u8>, RuntimeOptio
 fn runtime_options_with_skin_catalog(
     document: &mut Value,
     root: &std::path::Path,
-    catalog: &msime_client_core::skin::catalog::SkinCatalog,
+    catalog: &msime_client_services::skin::catalog::SkinCatalog,
 ) -> Result<Vec<u8>, RuntimeOptionsError> {
     let serialize = |document: &Value| {
         serde_json::to_vec_pretty(document)
@@ -1862,7 +1862,7 @@ fn runtime_options_with_skin_catalog(
         .collect();
     let selected: Vec<&str> = selected.iter().map(String::as_str).collect();
     let mut published =
-        msime_client_core::skin::catalog::host_candidate_catalog(catalog, root, &selected);
+        msime_client_services::skin::catalog::host_candidate_catalog(catalog, root, &selected);
     loop {
         document["candidate_skin_catalog"] = published.clone();
         let bytes = serialize(document)?;
@@ -1895,7 +1895,7 @@ fn runtime_options_with_skin_catalog(
 #[cfg(target_os = "linux")]
 fn publish_candidate_skin_catalog(
     runtime: &RuntimeOptionsState,
-    catalog: &msime_client_core::skin::catalog::SkinCatalog,
+    catalog: &msime_client_services::skin::catalog::SkinCatalog,
 ) -> Result<(), RuntimeOptionsError> {
     let (Some(path), Some(root)) = (runtime.path.as_ref(), runtime.skins.as_ref()) else {
         return Ok(());
@@ -2508,7 +2508,7 @@ fn append_plugin_symbol_groups(
     kaomoji: &mut Vec<EmojiCatalogGroup>,
     symbols: &mut Vec<EmojiCatalogGroup>,
 ) {
-    use msime_client_core::plugins::symbol_set::SymbolTab;
+    use msime_client_services::plugins::symbol_set::SymbolTab;
     for group in groups {
         let items: Vec<EmojiCatalogItem> = group
             .items
@@ -2664,7 +2664,7 @@ fn restart_input_method_blocking() -> Result<(), HostActionError> {
         // 只重启本版本的 Server：管道名带本安装包所属版本的后缀（full 没有后缀）。
         let pipe = msime_client_core::edition::Edition::of_windows_package()
             .ok()
-            .and_then(msime_client_core::dictionary::quiesce::server::pipe_name)
+            .and_then(msime_client_services::dictionary::quiesce::server::pipe_name)
             .ok_or(HostActionError {
                 code: "unavailable",
             })?;
@@ -4883,7 +4883,10 @@ fn sync_omarchy_theme() -> i32 {
         document: Arc::new(Mutex::new(Value::Null)),
         skins: Some(root.clone()),
     };
-    match publish_candidate_skin_catalog(&runtime, &msime_client_core::skin::catalog::scan(&root)) {
+    match publish_candidate_skin_catalog(
+        &runtime,
+        &msime_client_services::skin::catalog::scan(&root),
+    ) {
         Ok(()) => 0,
         Err(_) => fail("cannot publish the skin catalog to the runtime options"),
     }
@@ -5114,7 +5117,7 @@ pub fn run() {
             let community_resource_library_path =
                 ios_community_resource_library_path(&directory);
             #[cfg(any(target_os = "android", target_os = "ios"))]
-            app.manage(msime_client_core::community::resource_library::CommunityResourceLibraryStore::new(
+            app.manage(msime_client_services::community::resource_library::CommunityResourceLibraryStore::new(
                 community_resource_library_path,
             ));
             app.manage(keyboard_skin_trials);

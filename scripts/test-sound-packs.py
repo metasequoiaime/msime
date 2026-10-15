@@ -19,9 +19,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKS = ROOT / "resources/sound-packs"
-PLUGINS = ROOT / "crates/client-core/src/plugins.rs"
-SOUND_PACK = ROOT / "crates/client-core/src/plugins/sound_pack.rs"
-MUSIC_PACK = ROOT / "crates/client-core/src/plugins/music_pack.rs"
+PLUGINS = ROOT / "crates/client-services/src/plugins.rs"
+SOUND_PACK = ROOT / "crates/client-services/src/plugins/sound_pack.rs"
+MUSIC_PACK = ROOT / "crates/client-services/src/plugins/music_pack.rs"
 # Bytes of every built-in music track together. They ship in every host's bundle, so a new loop has to fit or replace one.
 MUSIC_BUDGET = 3_670_016
 SAMPLE_RATES = range(8_000, 192_001)

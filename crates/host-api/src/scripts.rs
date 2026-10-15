@@ -1,4 +1,4 @@
-//! 脚本插件在输入法进程里的一侧：进程开关、每个会话的实例集合，以及把生命周期核心推导出的观察类事件按授权投递给脚本。解释器、ABI v1 和配额在 `msime-script-runtime`，授权文件和包的读取在 client-core 的 `plugins::script_grants`、`plugins::script_pack`。
+//! 脚本插件在输入法进程里的一侧：进程开关、每个会话的实例集合，以及把生命周期核心推导出的观察类事件按授权投递给脚本。解释器、ABI v1 和配额在 `msime-script-runtime`，授权文件和包的读取在 client-services 的 `plugins::script_grants`、`plugins::script_pack`。
 //!
 //! - **进程开关** `msime_client_scripts_enable`：只有 4 个桌面入口在启动时打开它，即 macOS 的 IMK 进程、Windows Server、IBus 引擎进程和 Fcitx5 addon。Windows TIP（与 Server 共用同一份 DLL，被注入每个应用进程）、设置应用和 MCP 从不调用。移动端恒为关。三个桌面平台的开发构建和 release 构建都能打开：授权文件（client-core 的 `script_grants`）不签名，同一用户下的进程能伪造授权，这一残余风险写在授权页上，macOS 和 Linux 是共享设置页，Windows 是原生设置应用（platforms/windows/settings，经 `msime_client_plugins` 的 `script_page` 列出脚本包并读写授权）。Windows 的提权窗口（`ELEVATED`）里不运行脚本。
 //! - **运行条件**，五项同时满足：进程开关开着；会话经 `msime_client_set_lifecycle` 选择加入（没选择加入的会话没有 `LifecycleState`，也就没有这里的任何东西）；字段属性带 KNOWN；不是 SECURE 或 PRIVATE；不是 ELEVATED。属性未知按不满足处理；属性变得不满足时正在跑的实例当场丢弃。每次聚焦之后属性还要重新确认（聚焦前报告过属性，或者聚焦后第一个不带 PASSTHROUGH 的键），否则新字段在第一个键之前沿用的是上一个字段的属性。

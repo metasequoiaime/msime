@@ -23,7 +23,7 @@ ANDROID = ROOT / "platforms/android/java/app/msime/android/keyboard/FourteenKeyL
 IOS = ROOT / "platforms/ios/KeyboardExtension/Sources/input/FourteenKeyLayout.swift"
 HARMONY = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/input/FourteenKeyLayout.ts"
 KEY_ID_SOURCES = {
-    "client-core": ROOT / "crates/client-core/src/typing_statistics.rs",
+    "client-core": ROOT / "crates/client-services/src/typing_statistics.rs",
     "android": ROOT / "platforms/android/java/app/msime/android/statistics/KeyPressIds.java",
     "harmony": ROOT / "platforms/harmony/entry/src/main/ets/keyboard/KeyIdPolicy.ts",
 }

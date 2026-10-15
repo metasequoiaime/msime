@@ -71,7 +71,7 @@ REVIEWED: dict[str, str] = {
         "Release plumbing; see the product lock bullets above."
     ),
     "**product:** lock the shared-session stack and validate dictionary formats": (
-        "Dictionary format validation is crates/client-core/src/dictionary/import.rs, which is "
+        "Dictionary format validation is crates/client-services/src/dictionary/import.rs, which is "
         "where the shared import path enforces the same rules."
     ),
     "**product:** require locked commits to be on their default branch at release": (
@@ -126,7 +126,7 @@ REVIEWED_COMMITS: dict[str, str] = {
     ),
     "feat: 输入统计（DLL 采集、Server 聚合存储与设置页展示）": (
         "Collected in the Server rather than the DLL: platforms/windows/src/input/TypingStatistics.h "
-        "hands each commit to the shared store in crates/client-core/src/typing_statistics.rs. Keys "
+        "hands each commit to the shared store in crates/client-services/src/typing_statistics.rs. Keys "
         "the TIP passes through are counted in the DLL by platforms/windows/tsf/IPC/PassthroughStatistics.h. "
         "The settings page shows them (apps/desktop/tests/settings/typing-statistics.test.tsx)."
     ),
@@ -304,7 +304,7 @@ REVIEWED_COMMITS: dict[str, str] = {
         "platforms/windows/tsf/Key/ClientKeyRouter.h, wrapped by AuthenticatedClientKeyRouter.h."
     ),
     "feat(server): 批量导入兼容 Rime userdb.txt 与 dict.yaml": (
-        "ImportFormat::Rime in crates/client-core/src/dictionary/import.rs."
+        "ImportFormat::Rime in crates/client-services/src/dictionary/import.rs."
     ),
     "feat(protocol): use pinned typed messages across WebView pages": (
         "No WebView2 message protocol here: settings is the Tauri app in apps/desktop whose commands "
@@ -395,10 +395,10 @@ REVIEWED_COMMITS: dict[str, str] = {
     ),
     "feat(settings): add quanpin dictionary batch import UI": (
         "The import operation of the local dictionary manager, apps/desktop/src/main.tsx over "
-        "crates/client-core/src/dictionary/import.rs."
+        "crates/client-services/src/dictionary/import.rs."
     ),
     "feat(settings): support batch import of quanpin user phrases": (
-        "crates/client-core/src/dictionary/import.rs (standard, windows, rime and hans formats)."
+        "crates/client-services/src/dictionary/import.rs (standard, windows, rime and hans formats)."
     ),
     "feat: add ranking settings and fixed-position candidate menus": (
         "[frequency_adjustment] in platforms/windows/installer/config.default.toml; pin, fix at 1-5 "
