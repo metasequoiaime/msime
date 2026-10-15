@@ -39,7 +39,7 @@
 
 ## モジュール境界
 
-- `crates/client-core`：ホストに依存しないクライアントの業務ロジック——ローカル設定、固定リソースの世代別インストール、アカウントとセッション、クラウドと AI、スキン、辞書、クリップボード、音声、翻訳、タイピング統計。Tauri、UI、プラットフォームホストには依存しません。
+- `crates/client-base`、`crates/client-core`、`crates/client-services`、`crates/client-providers`：ホストに依存しないクライアントの業務ロジック。依存の向きは base → core → services と core → providers で、4 つとも Tauri、UI、プラットフォームホストには依存しません。client-base はストレージ、ファイルロック、テキスト判定、暦、簡体字から繁体字への変換。client-core はローカル設定とエディション、テーマ、句読点、クリップボード、翻訳、クラウド候補とクラウドクリップボードのプロトコル、固定リソースの世代別インストール。client-services はアカウントとセッション、コミュニティ、利用統計、お知らせ、更新確認、診断、クリップボードリレー、スキン、プラグイン、辞書、定型文、タイピング統計。client-providers は音声、サービスの認証情報、AI、オンデマンドのリソースパック。
 - `crates/input-runtime`：セッションのオーケストレーション、フォーカス喪失時のキャンセル、候補のページング、世代付きの選択。engine の変換ステートマシンは複製しません。
 - `crates/engine`（`msime-engine`）：純粋な Rust 製の入力エンジン——コンポジション状態、各入力方式、辞書検索、学習のリプレイ。元の C++ 版 MSIME-Engine から移植したものです。
 - `crates/host-api`：バージョン付きの C インターフェース、スレッドに紐づいたセッションハンドル、明示的なレスポンス解放。6 つのプラットフォームのホストはすべてこれをリンクします。
@@ -82,9 +82,9 @@
 クロスプラットフォームのローカル検証の入口は `bash scripts/verify-local.sh` です：`--quick` はビルド段階のみを実行し、マージ前のゲートとなります。引数なしでは全項目を実行し、Rust テスト、fmt、clippy、依存関係の監査、フロントエンドの lint と型チェック、各ネイティブホストの ctest、そして文変換と 1 キーごとのレイテンシの評価を含みます。各段階では失敗したテスト名を `scripts/known-failures.txt` と照合し、リストにない名前の場合にのみ失敗とします。`git config core.hooksPath .githooks` で `--quick` を pre-push に組み込めます。
 
 ```sh
-cargo test -p msime-client-core --locked
+cargo test -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --locked
 cargo fmt --all --check
-cargo clippy -p msime-client-core --all-targets --locked -- -D warnings
+cargo clippy -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --all-targets --locked -- -D warnings
 pnpm install --frozen-lockfile
 pnpm --filter @msime/desktop test
 pnpm build

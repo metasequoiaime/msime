@@ -39,7 +39,7 @@ Project home: [msime.app](https://msime.app/) · [GitHub repository](https://git
 
 ## Module boundaries
 
-- `crates/client-core`: host-independent client business logic — local configuration, generational installation of pinned resources, accounts and sessions, cloud and AI, skins, dictionaries, clipboard, voice, translation, typing statistics; does not depend on Tauri, UI or platform hosts.
+- `crates/client-base`, `crates/client-core`, `crates/client-services`, `crates/client-providers`: host-independent client business logic, layered base → core → services and core → providers; none of the four depends on Tauri, UI or platform hosts. client-base holds storage, file locks, text predicates, the calendar and Simplified-to-Traditional conversion; client-core holds local configuration and editions, themes, punctuation, clipboard, translation, the cloud candidate and cloud clipboard protocols, and generational installation of pinned resources; client-services holds accounts and sessions, community, usage statistics, notices, update checks, diagnostics, the clipboard relay, skins, plugins, dictionaries, common phrases and typing statistics; client-providers holds voice, service credentials, AI and on-demand resource packs.
 - `crates/input-runtime`: session orchestration, focus cancellation, candidate paging and generation-tagged selection; does not duplicate the engine's composition state machine.
 - `crates/engine` (`msime-engine`): pure Rust input engine — composition state, the input schemes, dictionary lookup and learning replay; ported from the original C++ MSIME-Engine.
 - `crates/host-api`: versioned C interface, thread-bound session handles and explicit response freeing; the hosts on all six platforms link against it.
@@ -82,9 +82,9 @@ Before contributing code, read the [architecture overview](../ARCHITECTURE.md), 
 The cross-platform local verification entry point is `bash scripts/verify-local.sh`: `--quick` runs only the build stage and is the pre-merge gate; with no arguments it runs the full suite, including Rust tests, fmt, clippy, dependency audit, frontend lint and type checks, ctest for each native host, and the whole-sentence conversion and per-keystroke latency benchmarks. Each stage compares the names of failing tests against `scripts/known-failures.txt` and fails only on names not on that list. `git config core.hooksPath .githooks` hooks `--quick` into pre-push.
 
 ```sh
-cargo test -p msime-client-core --locked
+cargo test -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --locked
 cargo fmt --all --check
-cargo clippy -p msime-client-core --all-targets --locked -- -D warnings
+cargo clippy -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --all-targets --locked -- -D warnings
 pnpm install --frozen-lockfile
 pnpm --filter @msime/desktop test
 pnpm build

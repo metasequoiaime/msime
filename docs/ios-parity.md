@@ -19,7 +19,7 @@ macOS 的同类文档是 [macos-parity.md](macos-parity.md)，方法一致：先
 
 | 轴 | 规模 | 方法 | 未命中的去向 |
 | --- | --- | --- | --- |
-| 源文件名 | 192 | 来源 `platforms/ios` 与 `shared` 下的 Swift/ObjC/C++ 文件按文件名在目标检索 | 集中在 `shared/apple-bridge/` 与 `shared/backend/`：前者是 ObjC 桥接层，由 `crates/host-api` 的 C ABI 取代；后者是 Swift 后端客户端，由 `crates/client-core` 取代 |
+| 源文件名 | 192 | 来源 `platforms/ios` 与 `shared` 下的 Swift/ObjC/C++ 文件按文件名在目标检索 | 集中在 `shared/apple-bridge/` 与 `shared/backend/`：前者是 ObjC 桥接层，由 `crates/host-api` 的 C ABI 取代；后者是 Swift 后端客户端，由 `crates/client-services` 与 `crates/client-core` 取代 |
 | 中文文案 | 1666 | 抽取来源全部源文件的中文字面量，逐条精确检索 | 测试断言文案、措辞差异、Tauri 页以不同表述覆盖、落在注释里的引号 |
 | 符号 | 584 | ObjC 方法、C/C++ 函数与 Swift 函数名，按原名与 snake_case 改名两种形式检索 | 61 个在被 C ABI 取代的 ObjC 桥接层（`InputSessionAdapter`、`MetasequoiaInputSessionBridge`、`CandidateTranslation`、`MSIMEBackendClient`）；其余是改名或重构等价物 |
 | 可达控件标识 | 254 | 抽取来源全部 `accessibilityIdentifier` 字面量逐个检索 | 2 个：`emojiCategory-` 在目标用连字符，自定义皮肤重置由 Tauri 页覆盖 |

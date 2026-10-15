@@ -39,7 +39,7 @@
 
 ## 모듈 경계
 
-- `crates/client-core`: 호스트와 무관한 클라이언트 비즈니스 로직 — 로컬 설정, 고정 리소스의 세대별 설치, 계정과 세션, 클라우드와 AI, 스킨, 사전, 클립보드, 음성, 번역, 타이핑 통계. Tauri, UI, 플랫폼 호스트에 의존하지 않습니다.
+- `crates/client-base`, `crates/client-core`, `crates/client-services`, `crates/client-providers`: 호스트와 무관한 클라이언트 비즈니스 로직. 의존 방향은 base → core → services와 core → providers이며, 네 crate 모두 Tauri, UI, 플랫폼 호스트에 의존하지 않습니다. client-base는 저장소, 파일 잠금, 텍스트 판정, 달력, 간체-번체 변환. client-core는 로컬 설정과 에디션, 테마, 문장 부호, 클립보드, 번역, 클라우드 후보와 클라우드 클립보드 프로토콜, 고정 리소스의 세대별 설치. client-services는 계정과 세션, 커뮤니티, 사용 통계, 공지, 업데이트 확인, 진단, 클립보드 릴레이, 스킨, 플러그인, 사전, 상용구, 타이핑 통계. client-providers는 음성, 서비스 자격 증명, AI, 필요할 때 내려받는 리소스 팩.
 - `crates/input-runtime`: 세션 오케스트레이션, 포커스 취소, 후보 페이지 나누기, 세대(generation)가 붙은 선택. engine의 단어 조합 상태 머신을 복제하지 않습니다.
 - `crates/engine`(`msime-engine`): 순수 Rust 입력 엔진 — 조합 상태, 각 입력 방식, 사전 조회와 학습 재생. 기존 C++ MSIME-Engine에서 이식했습니다.
 - `crates/host-api`: 버전이 지정된 C 인터페이스, 스레드에 묶인 세션 핸들, 명시적 응답 해제. 여섯 플랫폼의 호스트가 모두 이를 링크합니다.
@@ -82,9 +82,9 @@
 크로스 플랫폼 로컬 검증 진입점은 `bash scripts/verify-local.sh`입니다. `--quick`은 빌드 단계만 실행하며 병합 전 게이트입니다. 인자 없이 실행하면 전체를 실행하며, Rust 테스트, fmt, clippy, 의존성 감사, 프런트엔드 lint와 타입 검사, 각 네이티브 호스트의 ctest, 그리고 문장 단위 변환과 키 입력별 지연 평가가 포함됩니다. 각 단계는 실패한 테스트 이름을 `scripts/known-failures.txt`와 대조해, 목록에 없는 이름에 대해서만 실패합니다. `git config core.hooksPath .githooks`로 `--quick`을 pre-push에 걸 수 있습니다.
 
 ```sh
-cargo test -p msime-client-core --locked
+cargo test -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --locked
 cargo fmt --all --check
-cargo clippy -p msime-client-core --all-targets --locked -- -D warnings
+cargo clippy -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --all-targets --locked -- -D warnings
 pnpm install --frozen-lockfile
 pnpm --filter @msime/desktop test
 pnpm build

@@ -14,11 +14,14 @@
 
 ### Rust workspace
 
-工作区共九个成员：八个 `crates/*` 加 `apps/desktop/src-tauri`。`default-members` 刻意排除 `msime-desktop`——它需要已构建的前端和已打包的平台 bundle 才能跑 build script，所以裸 `cargo test` 只覆盖库。工具链钉在 `rust-toolchain.toml` 的 1.97.1；`[workspace.lints.rust] unsafe_code = "deny"` 用 `deny` 而非 `forbid`，因为四个 FFI crate 需要在 crate root 写 `#![allow(unsafe_code)]` 作为有据可查的豁免，`forbid` 下它们只能整体不继承 lint 表。
+工作区共二十个成员：十九个 `crates/*` 加 `apps/desktop/src-tauri`。`default-members` 刻意排除 `msime-desktop`——它需要已构建的前端和已打包的平台 bundle 才能跑 build script，所以裸 `cargo test` 只覆盖库。工具链钉在 `rust-toolchain.toml` 的 1.97.1；`[workspace.lints.rust] unsafe_code = "deny"` 用 `deny` 而非 `forbid`，因为四个 FFI crate 需要在 crate root 写 `#![allow(unsafe_code)]` 作为有据可查的豁免，`forbid` 下它们只能整体不继承 lint 表。
 
 | crate | 职责 |
 | --- | --- |
-| `msime-client-core` | 宿主无关的客户端业务：`preferences`、`account`、`ai`、`cloud`、`community`、`credential`、`dictionary`、`helpcode`、`skin`、`translation`、`voice`、`clipboard`、`punctuation`、`chinese_conversion`、`typing_statistics`、`resources`、`host_surface`、`panels`。不依赖 Tauri、React、Engine 或任何平台 API。 |
+| `msime-client-base` | 客户端最底层、不联网的本地能力：`storage`、`file_lock`、`bounded_io`、`text`、`calendar`、`chinese_conversion`（含 `data/opencc/`）。client-core 用 `use`/`pub use` 把它们接回原来的路径，`msime-backend-engine` 只依赖这一层。 |
+| `msime-client-core` | 宿主无关的客户端核心：`preferences`、`edition`、`host_surface`、`settings_document`、`theme`、`punctuation`、`helpcode`、`clipboard`、`translation`、`cloud`、`resources`、`panels`、`candidate_document`。不带网络栈，`msime-input-runtime` 只依赖它。与另外三个 client crate 一样不依赖 Tauri、React、Engine 或任何平台 API。 |
+| `msime-client-services` | 账号与用户内容，依赖 client-core：`account`、`community`、`telemetry`、`notices`、`update_check`、`diagnostics`、`clipboard_relay`、`skin`、`plugins`、`dictionary`、`vocabulary`、`common_phrases`、`typing_statistics`。 |
+| `msime-client-providers` | 语音与外部服务，依赖 client-core，与 client-services 互不引用：`voice`、`credential`、`ai`、`resource_packs`。 |
 | `msime-engine` | 纯 Rust 输入引擎（由 C++ MSIME-Engine 移植）：组合状态、全拼／双拼／五笔／九键／全拼 14 键／日语等方案、词库查询与分代准备、学习日志与回放、手写识别；`examples/` 下是各类真实词库探针，`tests/golden/` 是从 C++ 参考实现录下的行为基准。 |
 | `msime-input-runtime` | 输入宿主的会话编排：焦点、候选翻页、代次选择、全半角转换、在线候选调度。含重排模型 `Reranker` 的接入。 |
 | `msime-host-api` | 版本化 C ABI（`msime_client_abi_version()` 返回 3），132 个 `msime_client_*` 导出（头文件另有 2 个 `static inline` 辅助函数），`crate-type = ["cdylib", "staticlib", "rlib"]`。`ffi/` 按 host/session/input/candidates/lifecycle/providers/translation/voice 分文件。 |
@@ -196,7 +199,7 @@ ArkTS 宿主，`module.json5` 声明 `mainElement: "KeyboardExtensionAbility"`�
 
 测试跟着边界走：能在宿主机上跑的就别要求设备，需要设备才成立的就明确标成设备套件，两者不互相冒充。
 
-**共享 Rust。** 裸 `cargo test` 覆盖八个 `default-members`（`client-core`、`engine`、`input-runtime`、`host-api`、`host-macos`、`host-windows`、`tauri-mobile-platform`、`ios-native-ffi`）；`verify-local.sh` 另外把 `msime-desktop` 一并跑上，并单独检测「编译失败」而不是把它误读成「零个失败测试名」。真实词库不是单测的前提：`crates/engine/examples/` 下是一批探针，接收一个已备齐的资源目录后在临时用户目录里验证具体行为（九键候选顺序、调频五种模式、混输优先级、辅助码五种方案、双拼四套键位、首尾字抽取），原资源不被改写。`crates/input-runtime/examples/` 另有 `convert_eval` 与 `rerank_latency`，前者跑 `resources/eval/` 的四套数据集比对基线，后者量重排的逐键延迟。
+**共享 Rust。** 裸 `cargo test` 覆盖十五个 `default-members`（`path-trust`、`client-base`、`client-core`、`client-providers`、`client-services`、`engine`、`engine-wasm`、`input-runtime`、`host-api`、`host-windows`、`host-macos`、`tauri-mobile-platform`、`ios-native-ffi`、`mcp-server`、`script-runtime`）；`verify-local.sh` 另外把 `msime-desktop` 一并跑上，并单独检测「编译失败」而不是把它误读成「零个失败测试名」。真实词库不是单测的前提：`crates/engine/examples/` 下是一批探针，接收一个已备齐的资源目录后在临时用户目录里验证具体行为（九键候选顺序、调频五种模式、混输优先级、辅助码五种方案、双拼四套键位、首尾字抽取），原资源不被改写。`crates/input-runtime/examples/` 另有 `convert_eval` 与 `rerank_latency`，前者跑 `resources/eval/` 的四套数据集比对基线，后者量重排的逐键延迟。
 
 **共享界面。** `apps/desktop/tests/` 下 99 个 Vitest 文件按 account / candidate / chat / community / core / dictionary / emoji / input / settings / skin / support / voice 十二个域组织。写这些用例有一条必须遵守的时序：`render(<SettingsPage …>)` 之后要先等初始加载落定再去点侧栏，页面此时还在解析快照，加载完成后自己做的选择会覆盖掉提前点下的分类——不等就会得到一个随机失败、看起来像产品回归的用例。
 

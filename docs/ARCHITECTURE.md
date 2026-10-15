@@ -18,7 +18,7 @@ crates/engine                  输入算法与组合状态（纯 Rust）
 
 `host-api` 的词库管理接口（个人词条、固定资源的校验与编辑）直接调用 `crates/engine`，不经过 `input-runtime`；按键与会话一律走上面这条链路。
 
-`crates/client-core` 与上面这条链路平行，负责本地配置和固定资源的分代安装，不参与按键处理。`packages/ui` 与 `apps/desktop` 是共享的 React 设置页和承载它们的 Tauri 层，各平台共用同一个 Rust 入口库与同一套页面。
+`crates/client-base`、`crates/client-core`、`crates/client-services` 和 `crates/client-providers` 与上面这条链路平行，不参与按键处理：client-base 是存储、文件锁、文本谓词和简繁转换这些不联网的底层，client-core 负责本地配置、版本、主题和固定资源的分代安装，client-services 是账号、社区、皮肤、插件、词库和打字统计这些联网或处理用户内容的服务，client-providers 是语音、服务凭据、AI 和按需资源包。依赖方向是 base → core → services 与 core → providers，services 和 providers 互不引用；`input-runtime` 只依赖 client-core，`backend-engine` 只依赖 client-base，它们的编译图里没有 reqwest、tokio 这些网络栈。`packages/ui` 与 `apps/desktop` 是共享的 React 设置页和承载它们的 Tauri 层，各平台共用同一个 Rust 入口库与同一套页面。
 
 **产品本体是 `platforms/<os>` 的原生宿主。** Android、iOS、HarmonyOS、Linux、macOS、Windows 一律如此：最终安装、启动、被系统识别为输入法的都是原生宿主。Tauri/React 是跨平台共享功能与界面的公共组件，由原生宿主按需承载，不单独作为某个平台的产品去启动或验收。`apps/desktop` 的目录名和 Tauri 生成的工程都不改变这一点。
 
@@ -26,7 +26,7 @@ crates/engine                  输入算法与组合状态（纯 Rust）
 
 **输入算法归 Rust 引擎 crate `crates/engine`。** 组词状态机、候选排序、学习回放都在 engine 里。`input-runtime` 仍然不复制组词逻辑：它只维护宿主编排和展示状态——它知道当前是第几页、焦点在不在、这次选择属于哪一代快照，但它不知道「ni hao」应该出什么词。在 `input-runtime` 或宿主里再写一份组词规则，就等于让两份实现开始漂移。
 
-**`client-core` 不依赖 Tauri、React、Engine 或平台宿主。** 平台能力一律通过接口注入。这条保证了它可以被链进任何宿主进程，包括没有 Tauri 运行时的键盘扩展。
+**client-base、client-core、client-services 和 client-providers 不依赖 Tauri、React、Engine 或平台宿主。** 平台能力一律通过接口注入。这条保证了它们可以被链进任何宿主进程，包括没有 Tauri 运行时的键盘扩展。
 
 **平台库不依赖桌面应用。** iOS 键盘扩展不依赖常驻桌面服务，Android 的 `:ime` 进程不需要设置窗口活着。设置窗口关闭不能结束输入法进程；跨进程的设置变更需要明确的持久化与通知机制，不能靠共享内存里的一个全局变量。
 

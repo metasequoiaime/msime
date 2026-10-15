@@ -39,7 +39,7 @@
 
 ## 模組邊界
 
-- `crates/client-core`：與宿主無關的用戶端業務——本機設定、固定資源分代安裝、帳號與工作階段、雲端與 AI、皮膚、詞庫、剪貼簿、語音、翻譯、打字統計；不依賴 Tauri、UI 或平台宿主。
+- `crates/client-base`、`crates/client-core`、`crates/client-services`、`crates/client-providers`：與宿主無關的用戶端業務，依賴方向是 base → core → services 與 core → providers，四個都不依賴 Tauri、UI 或平台宿主。client-base 是儲存、檔案鎖、文字判定、日曆和簡繁轉換；client-core 是本機設定與版本、主題、標點、剪貼簿、翻譯、雲端候選與雲端剪貼簿協定、固定資源分代安裝；client-services 是帳號與工作階段、社群、使用統計、公告、檢查更新、診斷、剪貼簿中繼、皮膚、外掛、詞庫、常用語和打字統計；client-providers 是語音、服務憑證、AI 和按需下載的資源包。
 - `crates/input-runtime`：工作階段編排、焦點取消、候選分頁和帶代次的選擇；不複製 engine 的組詞狀態機。
 - `crates/engine`（`msime-engine`）：純 Rust 輸入引擎——組合狀態、各輸入方案、詞庫查詢與學習重播；由原 C++ MSIME-Engine 移植而來。
 - `crates/host-api`：版本化 C 介面、綁定執行緒的工作階段控制代碼和明確的回應釋放，六個平台的宿主都連結它。
@@ -82,9 +82,9 @@
 跨平台的本機驗證入口是 `bash scripts/verify-local.sh`：`--quick` 只跑編譯階段，是合併前的關卡；不帶參數則跑全量，包含 Rust 測試、fmt、clippy、相依性稽核、前端 lint 與型別檢查、各原生宿主的 ctest 以及整句轉換與逐鍵延遲評測。每個階段把失敗的測試名稱與 `scripts/known-failures.txt` 比對，只因不在清單裡的名稱而判定失敗。`git config core.hooksPath .githooks` 可以把 `--quick` 掛到 pre-push 上。
 
 ```sh
-cargo test -p msime-client-core --locked
+cargo test -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --locked
 cargo fmt --all --check
-cargo clippy -p msime-client-core --all-targets --locked -- -D warnings
+cargo clippy -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --all-targets --locked -- -D warnings
 pnpm install --frozen-lockfile
 pnpm --filter @msime/desktop test
 pnpm build
