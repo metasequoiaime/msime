@@ -1,0 +1,138 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
+import {
+  SettingsPage,
+  type ProviderCredentialClient,
+  type ProviderCredentialStatus,
+  type Snapshot,
+} from "@msime/ui";
+import { testHost } from "../support/host";
+import { saveSettingsNow, settingsFormReady } from "../support/settings-form";
+
+afterEach(cleanup);
+
+const initial: Snapshot = {
+  format_version: 1,
+  revision: 1,
+  preferences: {
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
+    ai_assistant: {
+      enabled: true,
+      provider: "openai",
+      endpoint: "https://ai.example.test/v1",
+      model: "fixture-model",
+      candidate_limit: 3,
+      prompt_custom_1: "",
+      prompt_custom_2: "",
+      prompt_custom_3: "",
+    },
+  },
+};
+const status: ProviderCredentialStatus = {
+  ai: [{ provider: "openai", endpoint: "https://ai.example.test/v1", model: "fixture-model" }],
+  aiInvalid: false,
+  tencent: null,
+  tencentInvalid: false,
+  voiceAsr: [],
+  voicePolish: [],
+  voiceInvalid: false,
+};
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((accept) => {
+    resolve = accept;
+  });
+  return { promise, resolve };
+}
+
+test("真实保存回执返回同值 AI 副本时，当前润色请求和结果保持有效", async () => {
+  const saving = deferred<Snapshot>();
+  const polish = deferred<string>();
+  let receipt!: Snapshot;
+  const save = vi.fn((_revision, preferences) => {
+    receipt = { ...initial, revision: 2, preferences: structuredClone(preferences) };
+    return saving.promise;
+  });
+  render(
+    <SettingsPage
+      initialPage="ai"
+      client={{
+        load: async () => initial,
+        save,
+        host: testHost({ platform: "linux", ai_provider_credentials: true }),
+        aiAssistant: { fetchModels: vi.fn(), test: () => polish.promise },
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("switch", { name: "启用 AI 辅助" }));
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalledOnce());
+  fireEvent.change(screen.getByLabelText("AI 测试输入"), { target: { value: "合成测试文字" } });
+  fireEvent.click(screen.getByRole("button", { name: "发送并润色" }));
+  await act(async () => {
+    saving.resolve(receipt);
+    await saving.promise;
+  });
+  expect(screen.getByRole("button", { name: "发送中…" }).hasAttribute("disabled")).toBe(true);
+  await act(async () => {
+    polish.resolve("有效的合成润色结果");
+    await polish.promise;
+  });
+  expect(await screen.findByText("有效的合成润色结果")).toBeTruthy();
+});
+
+test.each(["save", "clear"] as const)(
+  "Linux AI 凭据 %s 完成后，旧模型列表不能覆盖配置",
+  async (operation) => {
+    const models = deferred<string[]>();
+    const credentials = {
+      status: async () => structuredClone(status),
+      saveAi: vi.fn().mockResolvedValue(structuredClone(status)),
+      clearAi: vi.fn().mockResolvedValue({ ...status, ai: [] }),
+    } as unknown as ProviderCredentialClient;
+    render(
+      <SettingsPage
+        initialPage="ai"
+        client={{
+          load: async () => initial,
+          save: vi.fn(),
+          providerCredentials: credentials,
+          host: testHost({ platform: "linux", ai_provider_credentials: true }),
+          aiAssistant: { fetchModels: () => models.promise, test: vi.fn() },
+        }}
+      />,
+    );
+    await settingsFormReady();
+    const group = await screen.findByRole("group", { name: "AI 凭据" });
+    await within(group).findByText("已保存，留空则保留原凭据");
+    fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
+    if (operation === "save") {
+      fireEvent.change(within(group).getByLabelText("AI API Token"), {
+        target: { value: "synthetic-rotated-key" },
+      });
+      fireEvent.click(within(group).getByRole("button", { name: "保存凭据" }));
+      await within(group).findByText("凭据已保存，provider 服务下次请求时生效。");
+    } else {
+      fireEvent.click(within(group).getByRole("button", { name: "清除凭据" }));
+      await within(group).findByText("凭据已清除。");
+    }
+    await act(async () => {
+      models.resolve(["stale-model"]);
+      await models.promise;
+    });
+    expect((screen.queryByLabelText("AI 模型（自定义）") as HTMLInputElement | null)?.value).toBe(
+      "fixture-model",
+    );
+    expect(screen.queryByText("已获取 1 个可用模型。")).toBeNull();
+    expect(screen.getByRole("button", { name: "获取模型列表" }).hasAttribute("disabled")).toBe(
+      false,
+    );
+  },
+);

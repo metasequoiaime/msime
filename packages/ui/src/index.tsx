@@ -2696,6 +2696,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   } = useTouchKeyboardGeometryDrag(draft, setDraft);
   const {
     providerCredentials,
+    aiCredentialGeneration,
     aiCredentialInput,
     setAiCredentialInput,
     tencentCredentialInput,
@@ -2833,6 +2834,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     client: client.aiAssistant,
     ai,
     providerCredentialAvailable: aiProviderCredentials,
+    credentialGeneration: aiCredentialGeneration,
     onChange: onAiChange,
   });
   const {
