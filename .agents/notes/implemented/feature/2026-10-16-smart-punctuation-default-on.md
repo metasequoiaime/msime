@@ -85,6 +85,7 @@ Status: implemented
 
 ## Verification
 
+- 保存迁移标记的夹具同时改变重复标点子开关：Android 等平台的旧总开关已经关闭，只再次保存关闭会命中无变化快速返回，文件按约定不写，不能据此断言标记落盘。夹具确保发生真实保存，并核对总开关、子开关及标记；无变化保存的生产行为不变。
 - `msime-client-core`（Studio，macOS，迁移会翻转的平台）：`preferences::tests::smart_punctuation_defaults_on_everywhere`、`smart_punctuation_settle_flips_only_where_the_old_default_was_off`（两种平台参数都测）、`smart_punctuation_migration_runs_once_and_a_later_off_sticks`（旧文档读入时打开、文件不变、写入方漏掉标记照样落盘、关掉后再读仍关、恢复默认回到开）、`smart_punctuation_turned_off_on_a_fresh_profile_stays_off`、`smart_punctuation_recovery_migrates_only_a_legacy_document`；`punctuation::tests::the_shipped_defaults_do_what_the_switch_says_they_do`（默认偏好下数字和字母后的 `,` `.` `:` 走 ASCII，中文、空格、中文标点和无前文后归 Engine，重复按句点换回「。」）；`settings_document::tests::an_old_file_keeps_its_smart_punctuation_and_this_machine_s_marker`。全部 395 项通过。
 - `msime-host-api`：`default_preferences_keep_ascii_after_a_digit_and_repeat_turns_it_chinese` 经 `msime_client_punctuation_with_context` 和 `msime_client_smart_punctuation_arm`/`decide` 验证默认偏好下数字后三个标点交给宿主出 ASCII、「计」后出「，。：」、ASCII 句点后再按句点换成「。」；`a_legacy_preferences_document_loads_with_smart_punctuation_settled` 经 `msime_client_load_preferences` 验证旧文档读出时迁移。645 项通过。
 - `msime-client-services`：`settings_sync_after_the_smart_punctuation_migration` 验证迁移后上传「开」、手动应用旧快照后关掉且再读不被改回。873 项通过。`msime-mcp-server` 全部通过。四个 crate 的 clippy `-D warnings` 无告警。
