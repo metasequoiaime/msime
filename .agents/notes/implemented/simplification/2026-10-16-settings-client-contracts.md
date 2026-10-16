@@ -10,6 +10,8 @@ Status: implemented
 
 `core/settings-client.ts` 组合现有领域客户端并持有设置宿主接口与恢复结果。AI 调用和凭据测试分别归入 `core/ai-assistant-client.ts`、`core/api-credential-test.ts`，让服务 hook 直接依赖自己的契约。三个模块只有类型，包入口保留全部旧导出，内部消费者直接引用公共模块。字段、方法形式、可选性、空值、参数和返回值保持原样。
 
+按钮能力门禁从 `core/settings-client.ts` 和原入口一起取得可选回调，保留迁移前完全相同的 42 个名称。按钮扫描仍沿用原入口范围与既有守卫规则，不把这次声明迁移变成新的全 UI 检查器。
+
 ## Historical audit
 
 检索 `SettingsClient`、`PreferencesRecovery`、AI 调用、凭据测试及宿主契约的活跃笔记：
@@ -27,6 +29,8 @@ Status: implemented
 ## Verification
 
 五个声明与旧入口去除注释及空白后逐字一致；临时 TypeScript 探针先因三个新模块不存在而失败，迁移后实际编译器确认独立旧基线、新模块及旧公开导出完全一致，覆盖必需方法、可选能力、恢复空值、凭据配置的 `unknown` 和服务名联合。14 个内部消费者除了类型导入外完全一致；入口除迁出声明与类型导入外完全一致，运行时导入符号及顺序保持不变。20 个相关测试文件、127 项测试通过；桌面生产构建、鸿蒙类型检查、lint、格式、笔记与差异检查通过。lint 仅有三条既有未使用导入警告。
+
+接口迁出后，`test-settings-action-guard.py` 原先只读入口，导致识别的回调从 42 降到 1；修正声明读取源后恢复同一集合。新增四项回归：迁出接口的未受保护调用必须失败，三种既有保护形式通过，没有回调时失败，原入口的回调仍被检查。负向用例在修正前错误通过，修正后准确失败；四项测试全部通过，修正后的 `bash scripts/verify-local.sh --quick` 通过。
 
 ## Consequences
 
