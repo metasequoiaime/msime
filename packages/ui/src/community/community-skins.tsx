@@ -1,11 +1,10 @@
 // Source: MSIME-Apple@9ca823ab40018ced3cb71812503dbc3b94615ac0
 // (`SkinCommunityView.swift`, `CommunityGalleryStyle.swift`).
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import {
   communitySkinMessage,
-  communitySkinPublishMessage,
   communityNeedsSignIn,
   communityPublishLoginAction,
 } from "./community-helpers";
@@ -14,7 +13,6 @@ import {
   useCommunityGallery,
   type CommunityGalleryClient,
 } from "./community-gallery";
-import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailSummary } from "./community-detail-summary";
 import { StatusMessage } from "../core/status-message";
 import { CommunityDetailFrame } from "./community-detail-frame";
@@ -22,10 +20,8 @@ import * as style from "./community-style";
 import type { CommunitySearchFormProps } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunityReportSection } from "./community-report";
-import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
-import { CommunityPublicationWarning } from "./community-publication-warning";
 import { CommunityNotice } from "./community-notice";
-import { CommunitySelectField } from "./community-select-field";
+import { CommunitySkinPublishDialog } from "./community-skin-publish-dialog";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
@@ -40,10 +36,7 @@ import { ActionButton } from "../core/action-button";
 import { useToast } from "../core/toast";
 import { boundedGraphemes } from "../core/text";
 import type { Preferences } from "../core/preferences-model";
-import { useAsyncActionRunner } from "../core/use-async-action";
-import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import { useCommunityDetailHistory } from "./use-community-detail-history";
-import { communityPublishFields } from "./community-publish-validation";
 import {
   CommunitySkinCategoryFilter,
   CommunitySkinCategorySelect,
@@ -56,10 +49,7 @@ import {
 } from "./community-skin-category-model";
 import { useCommunitySkinLibrary, type CommunitySkinPillState } from "./use-community-skin-library";
 import { useCommunitySkinCategoryFilter } from "./use-community-skin-category-filter";
-import type {
-  CustomSkinLibraryClient,
-  SavedTouchKeyboardSkin,
-} from "../keyboard/touch-keyboard-skin-design";
+import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 
 import {
   type CommunitySkin,
@@ -73,175 +63,6 @@ export {
   type CommunitySkinDownload,
   type CommunitySkinClient,
 } from "./community-skin-model";
-
-function CommunitySkinPublishDialog({
-  client,
-  library,
-  onClose,
-  onPublished,
-  onLogin,
-}: {
-  client: CommunitySkinClient;
-  library: CustomSkinLibraryClient;
-  onClose: () => void;
-  onPublished: () => Promise<void>;
-  /** Where to send someone who has to sign in before publishing; absent leaves the sentence alone. */
-  onLogin?: () => void;
-}) {
-  const [saved, setSaved] = useState<SavedTouchKeyboardSkin[]>([]);
-  const [selectedId, setSelectedId] = useState("");
-  const {
-    name,
-    description,
-    agreed,
-    publicationId,
-    setName,
-    onNameChange,
-    onDescriptionChange,
-    onAgreedChange,
-    resetPublication,
-  } = useCommunityPublicationDraft();
-  const [category, setCategory] = useState<CommunitySkinCategory>("other");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  // Kept next to the sentence because publishMessage collapses the code, and this is the one
-  // failure the dialog can do something about rather than only name.
-  const [signInRequired, setSignInRequired] = useState(false);
-  const {
-    busy: actionBusy,
-    generation: clientGeneration,
-    running: actionRunning,
-    run: runAsyncAction,
-  } = useAsyncActionRunner(setError, undefined, client, library);
-  const busy = loading || actionBusy;
-
-  useEffect(() => {
-    const generation = clientGeneration.current;
-    setLoading(true);
-    void library
-      .load()
-      .then((items) => {
-        if (generation !== clientGeneration.current) return;
-        setSaved(items);
-        const first = items[0];
-        if (first) {
-          setSelectedId(first.id);
-          setName(first.name);
-        }
-      })
-      .catch((loadError) => {
-        if (generation !== clientGeneration.current) return;
-        setError(communitySkinPublishMessage(loadError));
-        setSignInRequired(communityNeedsSignIn(loadError));
-      })
-      .finally(() => {
-        if (generation === clientGeneration.current) setLoading(false);
-      });
-  }, [client, clientGeneration, library]);
-
-  const selected = saved.find((item) => item.id === selectedId) ?? null;
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (busy || actionRunning.current || !selected) return;
-    const { normalizedName, normalizedDescription, nameValid, descriptionValid } =
-      communityPublishFields(name, description);
-    if (!nameValid || !descriptionValid || !agreed) {
-      setError("请填写有效名称和说明，并确认拥有公开发布所需的素材权利。");
-      return;
-    }
-    setSignInRequired(false);
-    await runAsyncAction(
-      async (isCurrent) => {
-        await client.publish(
-          publicationId,
-          normalizedName,
-          normalizedDescription,
-          selected.design,
-          category,
-        );
-        if (!isCurrent()) return;
-        await onPublished();
-      },
-      {
-        formatError: communitySkinPublishMessage,
-        onError: (publishError) => setSignInRequired(communityNeedsSignIn(publishError)),
-      },
-    );
-  };
-
-  return (
-    <CommunityDialogFrame
-      title="发布我的皮肤"
-      ariaLabel="发布我的皮肤"
-      busy={busy}
-      onClose={onClose}
-      error={error}
-      signInRequired={signInRequired}
-      onLogin={onLogin}
-      onSubmit={(event) => void submit(event)}
-    >
-      {busy && saved.length === 0 && <StatusMessage role="status">正在读取我的皮肤…</StatusMessage>}
-      {!busy && saved.length === 0 && (
-        <CommunityNotice>还没有命名保存的皮肤，请先在“设计我的皮肤”中保存一款。</CommunityNotice>
-      )}
-      {saved.length > 0 && (
-        <>
-          <CommunitySelectField
-            label="发布设计"
-            ariaLabel="发布设计"
-            value={selectedId}
-            disabled={busy}
-            onChange={(nextId) => {
-              const item = saved.find((value) => value.id === nextId);
-              setSelectedId(nextId);
-              resetPublication();
-              if (item) setName(item.name);
-            }}
-          >
-            {saved.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </CommunitySelectField>
-          {selected && (
-            <div className={`${style.cardStage} max-h-[220px]`}>
-              <ScreenKeyboardPreview theme="light" skin="custom" customDesign={selected.design} />
-            </div>
-          )}
-          <CommunitySkinPublicationFields
-            name={name}
-            description={description}
-            agreed={agreed}
-            busy={busy}
-            agreementText="我拥有发布所用素材的权利，并同意其他用户免费下载使用"
-            onNameChange={onNameChange}
-            onDescriptionChange={onDescriptionChange}
-            onAgreedChange={onAgreedChange}
-          />
-          <CommunitySkinCategorySelect
-            ariaLabel="发布分类"
-            value={category}
-            disabled={busy}
-            onChange={(next) => {
-              // 分类也是这次发布的内容，换了分类就是另一次发布，不能沿用上一次的发布 id。
-              resetPublication();
-              setCategory(next);
-            }}
-          />
-          <CommunityPublicationWarning>
-            发布后设计及照片壁纸将公开。请勿包含私人照片或敏感信息；发布成功后可在“我的作品”中下架。
-          </CommunityPublicationWarning>
-        </>
-      )}
-      <CommunityDialogActions busy={busy} onClose={onClose}>
-        <button type="submit" className="primary" disabled={busy || !selected || !agreed}>
-          {busy ? "正在发布…" : "公开发布"}
-        </button>
-      </CommunityDialogActions>
-    </CommunityDialogFrame>
-  );
-}
 
 function CommunitySkinCard({
   skin,

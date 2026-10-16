@@ -2,11 +2,14 @@ import { expect, test } from "vitest";
 
 test("community skin and resource publishing reuse shared field validation", () => {
   const skins = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/community/community-skins.tsx", {
-      eager: true,
-      query: "?raw",
-      import: "default",
-    }),
+    import.meta.glob<string>(
+      "../../../../packages/ui/src/community/use-community-skin-publication.ts",
+      {
+        eager: true,
+        query: "?raw",
+        import: "default",
+      },
+    ),
   )[0];
   const resources = Object.values(
     import.meta.glob<string>("../../../../packages/ui/src/community/community-resources.tsx", {

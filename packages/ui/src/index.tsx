@@ -1476,6 +1476,10 @@ export {
   CommunitySelectField,
   type CommunitySelectFieldProps,
 } from "./community/community-select-field";
+export {
+  CommunitySkinPublishDialog,
+  type CommunitySkinPublishDialogProps,
+} from "./community/community-skin-publish-dialog";
 export { CandidateSkinPublishDialog } from "./community/candidate-skin-publish-dialog";
 export { CommunityPluginPublishDialog, CommunityPluginsPage } from "./community/community-plugins";
 export {
