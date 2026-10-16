@@ -43,6 +43,7 @@
 #include "LexiconImportModel.h"
 #include "PluginPageModel.h"
 #include "PreferencePath.h"
+#include "PunctuationSettings.h"
 #include "AccountPageModel.h"
 #include "AiSettings.h"
 #include "AppInputModeRuleList.h"
@@ -106,6 +107,7 @@ using A11y = Microsoft::UI::Xaml::Automation::AutomationProperties;
 namespace nav = msime::settings;
 namespace pg = msime::settings::plugins;
 namespace vs = msime::settings::voice;
+namespace ps = msime::settings::punctuation;
 namespace ais = msime::settings::ai;
 namespace am = msime::settings::account;
 
@@ -10878,14 +10880,17 @@ private:
       cell.Height((rect.bottom - rect.top) * scale);
       Canvas::SetLeft(cell, rect.left * scale);
       Canvas::SetTop(cell, rect.top * scale);
+      const bool chinese_mode = document_.String(L"default_ime_mode", L"chinese") != L"english";
+      // 标点按钮照 TIP 的 ResolvePunctuationOpen 画：锁定时取锁定值，跟随时随中英文模式（PunctuationSettings.h 的 toolbar_chinese_punctuation）。
       const bool state =
           component.button == msime::windows::kToolbarLanguage
-              ? document_.String(L"default_ime_mode", L"chinese") != L"english"
+              ? chinese_mode
           : component.button == msime::windows::kToolbarFullwidth
               ? document_.String(L"character_width", L"halfwidth") ==
                     L"fullwidth"
           : component.button == msime::windows::kToolbarPunctuation
-              ? document_.Boolean(L"chinese_punctuation", true)
+              ? ps::toolbar_chinese_punctuation(
+                    chinese_mode, document_.String(L"punctuation_lock", L"follow"))
           : component.button == msime::windows::kToolbarCharacterSet
               ? document_.Boolean(L"traditional_chinese_output", false)
               : true;
@@ -11525,42 +11530,83 @@ private:
   // ---- 标点与翻译 ----
 
   void build_expression_page(StackPanel const &page) {
+    // 与共享页 PunctuationSection 相同，主流程只留四行：「标点」选择、引号样式、智能标点、成对标点；方头括号样式和智能标点的四个细分开关收进「更多选项」。规则在 PunctuationSettings.h。
     auto punctuation = add_group(page, L"标点");
-    bool_row(punctuation, 0xE8C1, L"中文标点", L"在中文模式下使用全角标点。",
-             L"chinese_punctuation", true);
-    // 两项只在中文标点下起作用，所以紧跟在「中文标点」之后。取值与共享设置页、偏好文档相同。
+    // 「中文标点」开关和「固定标点」合成一个「标点」选择（PunctuationModeRow）：显示值每次从两个键推出，锁定优先，打开页面不改写文档；只有用户选了一项才写入。
+    {
+      std::vector<Option> modes;
+      for (auto const &choice : ps::mode_choices)
+        modes.push_back({std::wstring(choice.value), std::wstring(choice.label)});
+      const std::wstring mode(ps::mode(document_.Boolean(L"chinese_punctuation", true),
+                                       document_.String(L"punctuation_lock", L"follow")));
+      add_row(punctuation, 0xE8C1, L"标点", std::wstring(ps::mode_description),
+              select_control(L"标点", std::move(modes), mode, [this](std::wstring const &value) {
+                const auto patch = ps::mode_patch(value);
+                if (!patch)
+                  return;
+                change([&](PreferencesDocument &doc) {
+                  if (patch->chinese_punctuation)
+                    doc.SetBoolean(L"chinese_punctuation", *patch->chinese_punctuation);
+                  doc.SetString(L"punctuation_lock", patch->punctuation_lock);
+                }, true);
+              }));
+    }
+    // 引号样式只在中文标点下起作用，所以紧跟在「标点」之后。取值与共享设置页、偏好文档相同。
     select_row(punctuation, 0xE8C1, L"引号样式",
                L"中文标点下 ' 键和 Shift+' 键输出的引号。直角引号：' 出「」，Shift+' 出『』",
                L"quote_style",
                {{L"curly", L"弯引号 “ ” ‘ ’"}, {L"corner", L"直角引号 「 」『 』"},
                 {L"corner_when_traditional", L"繁体输出时用直角引号"}},
                L"curly");
-    select_row(punctuation, 0xE8C1, L"方头括号样式", L"中文标点下 [ ] 键输出的括号",
-               L"bracket_style", {{L"solid", L"实心 【 】"}, {L"hollow", L"空心 〖 〗"}}, L"solid");
-    select_row(punctuation, 0xE72E, L"固定标点", L"切换中英文时的标点形态，三者互斥",
-               L"punctuation_lock",
-               {{L"follow", L"跟随中英文状态"}, {L"chinese", L"始终使用中文标点"},
-                {L"english", L"始终使用英文标点"}},
-               L"follow");
+    // 智能标点（SmartPunctuationRow）：用户切换时连同数字后直出、字母后直出一起写成同一个值。Windows 上三者默认都是关，TIP 的 ResolvePunctuation 要所在一侧的直出也开着才输出 ASCII，只写总开关时打开了也不起作用。以前只写过总开关的文档在说明里多一句提示，不改写存储。
     const bool smart = document_.Boolean(L"smart_punctuation", false);
-    bool_row(punctuation, 0xE945, L"智能标点",
-             L"中文标点模式下，字母或数字后的 , . : 自动使用英文标点",
-             L"smart_punctuation", false, true);
-    bool_row(punctuation, 0xE8EE, L"重复标点转中文",
-             L"智能标点输出英文标点后，2 秒内再次输入同一标点时替换为中文标点",
-             L"smart_punctuation_repeat", false, false, smart);
-    bool_row(punctuation, 0xE8EE, L"中文标点后按空格转换",
-             L"刚输入中文标点后按空格，转换为对应英文标点",
-             L"smart_punctuation_space_convert", false, false, smart);
-    bool_row(punctuation, 0xE8EE, L"数字后直出",
-             L"数字后输入逗号、句点或冒号时保留 ASCII 标点",
-             L"smart_punctuation_direct_digit", false, false, smart);
-    bool_row(punctuation, 0xE8EE, L"字母后直出",
-             L"字母后输入逗号、句点或冒号时保留 ASCII 标点",
-             L"smart_punctuation_direct_letter", false, false, smart);
+    const bool inert =
+        ps::smart_punctuation_inert(smart, document_.Boolean(L"smart_punctuation_direct_digit", false),
+                                    document_.Boolean(L"smart_punctuation_direct_letter", false));
+    add_row(punctuation, 0xE945, L"智能标点",
+            std::wstring(inert ? ps::smart_punctuation_inert_description
+                               : ps::smart_punctuation_description),
+            toggle_control(L"智能标点", smart, [this](bool value) {
+              change([&](PreferencesDocument &doc) {
+                for (auto const key : ps::smart_punctuation_keys)
+                  doc.SetBoolean(key, value);
+              }, true);
+            }));
     bool_row(punctuation, 0xE943, L"成对标点自动补全",
              L"输入左侧符号时自动补全右侧符号，并将光标置于中间",
              L"paired_punctuation", false);
+    // 「更多选项」：方头括号样式和智能标点的四个细分开关。细分开关只在智能标点打开时才起作用，所以总开关关着时变灰，值不动。Windows 没有「大写锁定时使用英文标点」一行（HostCapabilities 的 caps_lock_punctuation 只在 macOS 为真）。
+    Expander more;
+    more.Header(box_value(L"更多选项"));
+    more.HorizontalAlignment(HorizontalAlignment::Stretch);
+    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    more.IsExpanded(punctuation_more_open_ || focus_row_ == L"方头括号样式" ||
+                    focus_row_ == L"重复标点转中文" || focus_row_ == L"中文标点后按空格转换" ||
+                    focus_row_ == L"数字后直出" || focus_row_ == L"字母后直出");
+    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
+      punctuation_more_open_ = true;
+    });
+    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
+      punctuation_more_open_ = false;
+    });
+    StackPanel rows;
+    rows.Spacing(4);
+    select_row(rows, 0xE8C1, L"方头括号样式", L"中文标点下 [ ] 键输出的括号",
+               L"bracket_style", {{L"solid", L"实心 【 】"}, {L"hollow", L"空心 〖 〗"}}, L"solid");
+    bool_row(rows, 0xE8EE, L"重复标点转中文",
+             L"智能标点输出英文标点后，2 秒内再次输入同一标点时替换为中文标点",
+             L"smart_punctuation_repeat", false, false, smart);
+    bool_row(rows, 0xE8EE, L"中文标点后按空格转换",
+             L"刚输入中文标点后按空格，转换为对应英文标点",
+             L"smart_punctuation_space_convert", false, false, smart);
+    bool_row(rows, 0xE8EE, L"数字后直出",
+             L"数字后输入逗号、句点或冒号时保留 ASCII 标点",
+             L"smart_punctuation_direct_digit", false, true, smart);
+    bool_row(rows, 0xE8EE, L"字母后直出",
+             L"字母后输入逗号、句点或冒号时保留 ASCII 标点",
+             L"smart_punctuation_direct_letter", false, true, smart);
+    more.Content(rows);
+    punctuation.Children().Append(more);
 
     build_input_habits(page);
 
@@ -11568,27 +11614,39 @@ private:
     bool_row(gloss, 0xE82D, L"显示英文释义",
              L"在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。",
              L"candidate_english_gloss", false, true);
-    // 与共享设置「标点与翻译」页的「显示读音」相同，释义打开（英文释义或候选词翻译）时才可选。日文罗马音由系统的微软日语输入法（IFELanguage）读出，没有它时只读纯假名的释义。
-    bool_row(gloss, 0xE8D4, L"显示读音",
-             L"在释义后面标出怎么读：英文释义给音标，日文释义给罗马音。音标来自随输入法打包的离线词表，罗马音由系统生成，都不联网。需要先打开释义。",
-             L"candidate_pronunciation", false, false,
-             document_.Boolean(L"candidate_english_gloss", false) ||
-                 document_.Boolean(L"candidate_translations", false));
 
     auto candidates = add_group(page, L"候选词翻译");
     const bool translations = document_.Boolean(L"candidate_translations", false);
+    // 与共享页的 candidateGlossLanguagesEnabled 相同：目标语言和第二种语言也决定离线释义查哪种语言（host-api 的 msime_client_translation_query 在只开英文释义时也按它们给出 offline_gloss_languages），所以翻译或英文释义打开时都可选。
+    const bool glosses = translations || document_.Boolean(L"candidate_english_gloss", false);
     bool_row(candidates, 0xE8C1, L"候选词翻译", L"为当前候选请求翻译结果并显示在候选行",
              L"candidate_translations", false, true);
     select_row(candidates, 0xE774, L"目标语言", L"候选词翻译目标语言",
                L"translation_target_language",
                {{L"en", L"英语"}, {L"fr", L"法语"}, {L"ja", L"日语"}, {L"es", L"西班牙语"},
                 {L"ru", L"俄语"}, {L"de", L"德语"}, {L"ko", L"韩语"}},
-               L"en", false, translations);
-    // 第二种语言：候选窗在第一种语言下面再画一行。和共享设置页一样，翻译或英文释义打开时可选，「不显示第二种语言」写回 null。
+               L"en", false, glosses);
+    // 「显示读音」是释义的子行，与共享页一样画在目标语言之后，只在任一释义来源（英文释义或候选词翻译）打开时画出来（建搜索索引时照样收录，与下面几组服务设置相同）；两个开关都会重画，已存的值不动。日文罗马音由系统的微软日语输入法（IFELanguage）读出，没有它时只读纯假名的释义。
+    if (glosses || indexing_)
+      bool_row(candidates, 0xE8D4, L"显示读音",
+               L"在释义后面标出怎么读：英文释义给音标，日文释义给罗马音。音标来自随输入法打包的离线词表，罗马音由系统生成，都不联网。",
+               L"candidate_pronunciation", false);
+    // 第二种语言：候选窗在第一种语言下面再画一行。和共享页 CandidateTranslationOptionsSection 的默认布局一样收进「更多选项」（它会上云，所以只折叠不砍），翻译或英文释义打开时可选，「不显示第二种语言」写回 null。
     {
-      const bool glosses =
-          translations || document_.Boolean(L"candidate_english_gloss", false);
-      add_row(candidates, 0xE774, L"第二种语言", L"候选词下方可同时显示第二种释义",
+      Expander translation_more;
+      translation_more.Header(box_value(L"更多选项"));
+      translation_more.HorizontalAlignment(HorizontalAlignment::Stretch);
+      translation_more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+      translation_more.IsExpanded(translation_more_open_ || focus_row_ == L"第二种语言");
+      translation_more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
+        translation_more_open_ = true;
+      });
+      translation_more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
+        translation_more_open_ = false;
+      });
+      StackPanel translation_rows;
+      translation_rows.Spacing(4);
+      add_row(translation_rows, 0xE774, L"第二种语言", L"候选词下方可同时显示第二种释义",
               select_control(L"第二种语言",
                              {{L"", L"不显示第二种语言"}, {L"en", L"英语"}, {L"fr", L"法语"},
                               {L"ja", L"日语"}, {L"es", L"西班牙语"}, {L"ru", L"俄语"},
@@ -11604,12 +11662,16 @@ private:
                                }, false);
                              },
                              glosses));
+      translation_more.Content(translation_rows);
+      candidates.Children().Append(translation_more);
     }
-    // 翻译服务：共享页「候选词翻译」组的最后一行（`translation-service-selector-section.tsx`），候选词翻译关着时不可选。Windows 的 Server 会问水杉账号，所以和共享页一样列出它。选了腾讯云、小牛翻译或自定义服务时，下面多一组只属于它的设置；规则在 TranslationServiceSettings.h。
+    // 翻译服务：共享页「翻译服务」一行（`translation-service-selector-section.tsx`），候选词翻译关着时不可选。Windows 的 Server 会问水杉账号，所以和共享页一样列出它。选了腾讯云、小牛翻译或自定义服务时，下面多一组只属于它的设置；规则在 TranslationServiceSettings.h。
+    // `none` 不叫「关闭」：Windows 没有系统翻译，但 host-api 仍把装好的离线词库语言放进查询，TranslationWorker 照样从离线词库填出释义，所以与共享页 offlineFallback 的 dictionary 一支同名同说明。
     const std::wstring provider(nav::translation_provider(translation_choice()));
-    add_row(candidates, 0xE774, L"翻译服务", L"",
+    add_row(candidates, 0xE774, L"翻译服务",
+            L"不联网，候选只显示离线词库查得到的释义：英文来自「显示英文释义」，其他语言要装有对应的离线词库；选择在线服务后由该服务翻译",
             select_control(L"候选词翻译服务",
-                           {{L"none", L"关闭"},
+                           {{L"none", L"不使用在线服务"},
                             {L"tencent", L"腾讯云机器翻译"},
                             {L"niutrans", L"小牛翻译（NiuTrans）"},
                             {L"custom", L"自定义 DeepLX 兼容服务"},
@@ -11635,11 +11697,14 @@ private:
     choice.tencent = document_.Boolean(L"tencent_tmt.enabled", true);
     choice.tencent_secret_id = document_.String(L"tencent_tmt.secret_id", L"");
     choice.tencent_secret_key = document_.String(L"tencent_tmt.secret_key", L"");
+    choice.tencent_chosen = tencent_chosen_;
     return choice;
   }
 
   // 共享页的 setTranslationProvider：只打开所选的一种服务，其余两种关掉；选水杉账号时写 translation_account，否则去掉这一项（读作关）。凭据都留着，换回来时还在。
   void select_translation_provider(std::wstring const &provider) {
+    // 腾讯云默认就是 enabled，选它不改文档；记下这次选择，没有可用密钥时也显示腾讯云和它的凭据框。
+    tencent_chosen_ = provider == L"tencent";
     change([&](PreferencesDocument &doc) {
       doc.SetBoolean(L"custom_translation.enabled", provider == L"custom");
       doc.SetBoolean(L"tencent_tmt.enabled", provider == L"tencent");
@@ -11856,7 +11921,7 @@ private:
     }
   }
 
-  // 腾讯云机器翻译（`tencent-translation-section.tsx`，Windows 一支）：SecretId、SecretKey、地域，「测试配置」，然后是凭据的提示或「未填写腾讯云凭据」的警告，都只在候选词翻译打开时显示。
+  // 腾讯云机器翻译（`tencent-translation-section.tsx`，Windows 一支）：SecretId、SecretKey，「更多选项」里的地域，「测试配置」，然后是凭据的提示或「未填写腾讯云凭据」的警告，都只在候选词翻译打开时显示。
   void build_tencent_translation_group(StackPanel const &page, bool available) {
     auto group = add_group(page, L"腾讯云机器翻译");
     group.Children().Append(group_note(L"需要填入你自己的腾讯云 API 凭据。"));
@@ -11877,7 +11942,8 @@ private:
         else if (available && nav::tencent_missing_credentials_warning(
                                   document_.Boolean(L"custom_translation.enabled", false),
                                   fields->id, fields->key))
-          message = L"未填写腾讯云凭据，候选词翻译不会有任何结果。请填入 SecretId 与 "
+          // 与共享页 offlineFallback 的 dictionary 一支相同：缺凭据时 host-api 不把腾讯云放进查询，离线词库照样出释义，所以只说不会请求在线翻译，不说没有任何结果。
+          message = L"未填写腾讯云凭据，填好之前不会请求在线翻译。请填入 SecretId 与 "
                     L"SecretKey，或在上面的翻译服务中改选其他服务。";
         show_warning(shown, message);
       }
@@ -11903,7 +11969,23 @@ private:
                                refresh();
                                return saved;
                              }));
-    add_row(group, 0xE774, L"地域", L"",
+    // 地域收进「更多选项」：请求一律发往 tmt.tencentcloudapi.com，地域只写进 X-TC-Region，留空按广州处理（crates/client-core/src/translation.rs），平时用不着改；需要境外数据驻留的人仍能填。与共享页 MoreOptions 的 defaultOpen 相同，第一次画出时已存的地域不合规就展开，让错误旁边就是要改的那一格。
+    if (!indexing_ && !tencent_region_open_)
+      tencent_region_open_ = !nav::tencent_credential_issue(L"", L"", fields->region).empty();
+    Expander more;
+    more.Header(box_value(L"更多选项"));
+    more.HorizontalAlignment(HorizontalAlignment::Stretch);
+    more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    more.IsExpanded(tencent_region_open_.value_or(false) || focus_row_ == L"地域");
+    more.Expanding([this](Expander const &, ExpanderExpandingEventArgs const &) {
+      tencent_region_open_ = true;
+    });
+    more.Collapsed([this](Expander const &, ExpanderCollapsedEventArgs const &) {
+      tencent_region_open_ = false;
+    });
+    StackPanel rows;
+    rows.Spacing(4);
+    add_row(rows, 0xE774, L"地域", L"",
             credential_input(L"腾讯云地域", fields->region, false, L"ap-guangzhou", available,
                              [this, fields, refresh](std::wstring const &value) {
                                fields->region = value;
@@ -11913,6 +11995,8 @@ private:
                                refresh();
                                return saved;
                              }));
+    more.Content(rows);
+    group.Children().Append(more);
     add_credential_test(
         group, L"translation.tencent", L"测试腾讯云翻译配置",
         [fields] {
@@ -19439,6 +19523,12 @@ private:
   };
   std::map<std::wstring, CredentialTest> credential_tests_;
   std::map<std::wstring, std::function<void()>> credential_test_views_;
+  // 「标点与翻译」页三个「更多选项」是否展开，跨页面重建保留：「标点」组、「候选词翻译」组的第二种语言、腾讯云的地域。地域那一个与共享页 MoreOptions 的 defaultOpen 相同，第一次画出时按已存的地域合不合规决定，之后由用户自己展开收起。
+  bool punctuation_more_open_ = false;
+  bool translation_more_open_ = false;
+  std::optional<bool> tencent_region_open_;
+  // 用户这次在「翻译服务」里选了腾讯云（共享页 useTranslationSettings 的 tencentChosen）。腾讯云默认就是 enabled，选它不改文档，只能靠这个窗口内的状态把它和「从没选过」分开；窗口关掉就忘。
+  bool tencent_chosen_ = false;
 
   // 词库: the dictionary and code prefix being looked at, the page of words last read and what the page says about it. Kept across redraws, which every request ends with.
   std::wstring lexicon_kind_ = L"quick_phrase";
