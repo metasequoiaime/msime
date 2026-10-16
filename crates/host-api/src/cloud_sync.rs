@@ -976,14 +976,20 @@ fn settings_upload(
                 }
                 _ => library.clone(),
             };
-            if let Some((kept, total, count)) =
-                policy::trim_skin_library(&library, policy::skin_budget(other))
-            {
-                trimmed = Some(count < total);
-                settings.insert(
-                    policy::SKINS_KEY.to_owned(),
-                    AccountPreferenceValue::String(kept),
-                );
+            match policy::trim_skin_library(&library, policy::skin_budget(other)) {
+                Some((kept, total, count)) => {
+                    trimmed = Some(count < total);
+                    settings.insert(
+                        policy::SKINS_KEY.to_owned(),
+                        AccountPreferenceValue::String(kept),
+                    );
+                }
+                // 宿主给的皮肤库不是 JSON 数组：保留云端原有的库。服务端整份替换设置文档，不放回去就等于因为一份读不懂的本机值删掉了云端的皮肤库。
+                None => {
+                    if let Some(existing) = cloud_settings.get(policy::SKINS_KEY) {
+                        settings.insert(policy::SKINS_KEY.to_owned(), existing.clone());
+                    }
+                }
             }
         }
     } else {

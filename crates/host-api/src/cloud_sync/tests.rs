@@ -1383,6 +1383,38 @@ fn an_account_switch_during_the_round_voids_it() {
 }
 
 #[test]
+fn an_unreadable_local_skin_library_does_not_delete_the_cloud_library() {
+    let fixture = Fixture::new();
+    let library =
+        json!([{ "id": "cloud", "name": "cloud", "design": {}, "updated_at": 1 }]).to_string();
+    fixture.api.cloud().preferences = AccountPreferences {
+        revision: 2,
+        settings: [
+            ("input.schema".to_owned(), string("wubi")),
+            (policy::SKINS_KEY.to_owned(), string(&library)),
+        ]
+        .into(),
+    };
+    fixture.local.local().settings = [("input.schema".to_owned(), string("quanpin"))].into();
+    fixture.local.local().skins = Some("{\"not\":\"an array\"}".into());
+    fixture.enable();
+    let capabilities = Capabilities {
+        settings: true,
+        skins_library: true,
+        ..Capabilities::default()
+    };
+    let merged = fixture.run(Trigger::Choice, Some(Choice::Merge), capabilities, NOW);
+    assert_eq!(merged["outcome"], "done", "{merged}");
+    let cloud = fixture.api.cloud().preferences.clone();
+    assert_eq!(cloud.revision, 3);
+    assert_eq!(cloud.settings.get("input.schema"), Some(&string("quanpin")));
+    assert_eq!(
+        cloud.settings.get(policy::SKINS_KEY),
+        Some(&string(&library))
+    );
+}
+
+#[test]
 fn a_skin_library_is_trimmed_to_the_budget_and_merged_with_the_cloud() {
     let fixture = Fixture::new();
     let design = |id: &str, updated_at: u64, size: usize| json!({ "id": id, "name": id, "design": { "pad": "x".repeat(size) }, "updated_at": updated_at });
