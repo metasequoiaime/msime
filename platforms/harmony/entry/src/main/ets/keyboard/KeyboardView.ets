@@ -5198,7 +5198,7 @@ struct KeyboardView {
     this.confirmingClear = false;
   }
 
-  /** On a 2in1 the candidate management strip is the candidate context menu Windows draws in `menu_theme`; the other strips, and every strip on a phone, belong to the keyboard. */
+  /** 2in1 上候选管理条就是 Windows 画的那种候选右键菜单，明暗跟随颜色模式；其他条，以及手机上的每一条，都属于键盘。 */
   private overlayIsMenu(): boolean {
     return KeyboardFormFactor.isDesktop() && this.managing >= 0 && !this.punctuation && !this.brackets
       && this.expandedGloss < 0;

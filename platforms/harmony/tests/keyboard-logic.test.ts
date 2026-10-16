@@ -4247,6 +4247,49 @@ group("a theme with a fixed mode is offered and drawn only in that mode", () => 
   );
 });
 
+// 编号色和边框色跟随主题（HostCapabilities 的 candidate_number_color、candidate_border_color 在 HarmonyOS 为假）：解析请求里的自定义主题去掉存下的这两个槽位，其余原样带上，原文档不变。
+group("the resolve request drops the number and border colours the host does not draw", () => {
+  const stored = {
+    base: "paper",
+    candidate_skin: "sakura",
+    candidate_skin_dark: "dusk",
+    candidate_colors: {
+      text: "#102030",
+      number: "#123456",
+      accent: "#203040",
+      selected: "#304050",
+      hover: "#405060",
+      surface: "#506070",
+      border: "#654321",
+    },
+  };
+  const drawn = GlobalTheme.hostDrawnCustomTheme(stored);
+  check(
+    JSON.stringify(drawn?.candidate_colors) ===
+      JSON.stringify({
+        text: "#102030",
+        accent: "#203040",
+        selected: "#304050",
+        hover: "#405060",
+        surface: "#506070",
+      }),
+    `only the drawn slots reach the resolver: ${JSON.stringify(drawn?.candidate_colors)}`,
+  );
+  check(
+    drawn?.base === "paper" &&
+      drawn.candidate_skin === "sakura" &&
+      drawn.candidate_skin_dark === "dusk",
+    "the base and both skin slots are kept",
+  );
+  check(stored.candidate_colors.number === "#123456", "the stored document is left alone");
+  check(GlobalTheme.hostDrawnCustomTheme(undefined) === undefined, "no custom theme stays absent");
+  const plain = { base: "night" };
+  check(
+    GlobalTheme.hostDrawnCustomTheme(plain) === plain,
+    "a theme without colours passes through",
+  );
+});
+
 group("maps safe external toolbar CSS to ArkUI values", () => {
   const base = GlobalTheme.candidateColors(null, true);
   const toolbar = ToolbarSkinPolicy.fromCss(

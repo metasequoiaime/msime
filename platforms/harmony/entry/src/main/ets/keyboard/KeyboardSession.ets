@@ -837,9 +837,7 @@ interface PreparedPreferences {
   /** Named first so Latin comes from it and Han falls through; absent means one family answers. */
   candidate_english_font?: string | null;
   candidate_fallback_fonts: string[];
-  // 'follow', 'dark' or 'light' for the keyboard specifically; theme is the app mode it falls back
-  // to, and only if both defer does the system decide. A global theme with a fixed appearance
-  // overrides all of them.
+  // 屏幕键盘自己的明暗（'follow'、'dark' 或 'light'）。各界面一律跟随颜色模式（`HostCapabilities::surface_themes_follow`）之后，宿主不再读它和下面五项各界面的明暗，字段留着，偏好文档照旧解析。
   screen_keyboard_theme: string;
   /** 'follow', 'dark' or 'light' for the floating toolbar; it falls back to the app mode. */
   toolbar_theme?: string;
@@ -1433,12 +1431,13 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.customDesign = design === undefined ? null : CustomKeyboardSkin.from(design);
     this.themeLight = this.resolveTheme(preferences, false);
     this.themeDark = this.resolveTheme(preferences, true);
-    const keyboardDark: boolean = this.themeDarkFor(preferences.screen_keyboard_theme, preferences.theme);
+    // 键盘、工具栏与各个面板一律跟随颜色模式（`HostCapabilities::surface_themes_follow`），存下的各界面单独明暗不再读；只有候选窗口仍按 `candidate_theme` 单独设明暗。
+    const keyboardDark: boolean = this.themeDarkFor('follow', preferences.theme);
     const candidateDark: boolean = this.themeDarkFor(preferences.candidate_theme, preferences.theme);
     const candidateTheme: ResolvedTheme | null = candidateDark ? this.themeDark : this.themeLight;
     const candidateColors: CandidateColors = GlobalTheme.candidateColors(
       candidateTheme === null ? null : candidateTheme.candidate, candidateDark);
-    const toolbarDark: boolean = this.themeDarkFor(preferences.toolbar_theme ?? 'follow', preferences.theme);
+    const toolbarDark: boolean = this.themeDarkFor('follow', preferences.theme);
     const toolbarTheme: ResolvedTheme | null = toolbarDark ? this.themeDark : this.themeLight;
     // `candidate_skin` is the one signal that a package was drawn in this layout and mode; the package catalog is only read for what the theme does not carry.
     const packageId: string | null = candidateTheme === null ? null : candidateTheme.candidate_skin;
@@ -1498,12 +1497,13 @@ export class KeyboardSession implements HardwareKeyTarget {
       candidateDark: candidateDark,
       candidateSelectedBar: preferences.candidate_selected_bar ?? candidateColors.showSelectedBar,
       pairedPunctuation: preferences.paired_punctuation !== false,
-      keyboardTheme: preferences.screen_keyboard_theme,
-      toolbarTheme: preferences.toolbar_theme ?? 'follow',
-      voiceTheme: preferences.voice_theme ?? 'follow',
-      emojiTheme: preferences.emoji_theme ?? 'follow',
-      handwritingTheme: preferences.handwriting_theme ?? 'follow',
-      menuTheme: preferences.menu_theme ?? 'follow',
+      // 各界面跟随颜色模式，见上面的 `keyboardDark`。
+      keyboardTheme: 'follow',
+      toolbarTheme: 'follow',
+      voiceTheme: 'follow',
+      emojiTheme: 'follow',
+      handwritingTheme: 'follow',
+      menuTheme: 'follow',
       appMode: preferences.theme,
       scheme: preferences.scheme,
       shuangpinProfile: preferences.shuangpin_profile,
@@ -1582,7 +1582,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     const request: ResolveThemeRequest = {
       // 固定明暗的主题在另一种明暗下按跟随系统解析，见 `GlobalTheme.fitsMode`。两种明暗于是不再一致，`fixedAppearance` 也就不再把各界面钉在那种明暗上。
       global_theme: GlobalTheme.effectiveId(this.themeCatalog, preferences.global_theme, dark),
-      custom_theme: preferences.custom_theme,
+      // 编号色和边框色跟随主题，存下的这两个槽位不交给解析器，见 `GlobalTheme.hostDrawnCustomTheme`。
+      custom_theme: GlobalTheme.hostDrawnCustomTheme(preferences.custom_theme),
       dark: dark,
       layout: preferences.candidate_layout === 'horizontal' ? 'horizontal' : 'vertical',
       skins_directory: `${this.stateDirectory}/skins`
@@ -2036,7 +2037,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardSkin.resolveDark(surfaceTheme, this.appearance.appMode, this.appearance.dark)));
   }
 
-  /** The 2in1 candidate context menu's colours. Menus derive from the candidate palette rather than the keyboard's, in the mode `menu_theme` picks the way `surfaceSkin` resolves the keyboard-side surfaces. */
+  /** 2in1 候选右键菜单的颜色。菜单从候选调色板派生而不是键盘的，明暗跟随颜色模式（`appearance.menuTheme` 固定为 `follow`），与 `surfaceSkin` 解析键盘一侧各界面的方式相同。 */
   menuColors(): CandidateColors {
     const dark: boolean = GlobalTheme.surfaceDark(this.fixedAppearance(),
       KeyboardSkin.resolveDark(this.appearance.menuTheme, this.appearance.appMode, this.appearance.dark));
@@ -2757,7 +2758,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.onPanelKey(key);
   }
 
-  /** Tell whichever window is drawing the mode badge what to put on it, at the floating toolbar's size and in the toolbar theme's palette (toolbar_theme, then theme, then the system), as the macOS badge wears them. */
+  /** 告诉正在画模式角标的窗口要画什么：按悬浮工具栏的尺寸，用工具栏的调色板，明暗跟随颜色模式（`theme`，再是系统），与 macOS 的角标一致。 */
   setModeBadge(english: boolean): void {
     if (this.onModeBadge !== undefined) {
       this.onModeBadge(english, this.toolbarFontSize(), this.toolbarScale(), this.toolbarSkin);
