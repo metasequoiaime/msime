@@ -22,8 +22,10 @@ def main() -> int:
     candidate = texts[SOURCES[0]]
     if "private static String normalize(" in candidate:
         errors.append(f"{SOURCES[0]}: 不应保留 normalize 转发方法")
-    if combined.count("TextPolicy.lowercaseTrimmed(") < 7:
-        errors.append("Android 文本调用点应直接复用 TextPolicy.lowercaseTrimmed")
+    # 调用数量会随功能删减变化，只要求每个相关文件直接复用共享策略。
+    for source, text in texts.items():
+        if "TextPolicy.lowercaseTrimmed(" not in text:
+            errors.append(f"{source}: 应直接复用 TextPolicy.lowercaseTrimmed")
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1

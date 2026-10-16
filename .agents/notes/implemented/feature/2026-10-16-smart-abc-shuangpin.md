@@ -51,3 +51,5 @@ Status: implemented
 - Fcitx5 完整原生上下文、独立智能 ABC 状态栏选择与保存、AI、真实 daemon 前端、GTK 与 IBus GTK 编辑器共 6 项验收通过。独立用例既检查标签和落盘，也经真实按键上屏「你好」并轮换回小鹤。
 - 系统验收夹具同步现有契约：语音合成回包补齐 `ok: true`；Fcitx5 测试显式开启译文并结束大写串后测快捷模式；IBus 用 Ctrl+左右测试逐字母编辑，临时模式回车保留入口字母。均未修改相应生产行为。
 - 最终 `bash scripts/verify-local.sh --quick`、`pnpm run verify-notes` 和差异检查通过；HarmonyOS 真打包因缺少 staged 依赖明确跳过；本次 Windows 完整交叉编译因其他运行占用依赖锁跳过，pipe-only 的 x86_64 与 i686 交叉编译通过。
+
+- PR 与新版 `develop` 合并检查时，手机候选翻译缩为单目标语言使 `lowercaseTrimmed` 调用数从 7 减到 6，旧契约测试误报。契约改为逐文件确认复用共享策略，并保留拒绝嵌套调用的约束；当前分支、新版 `develop` 的单目标实现及错误嵌套反例均已验证，不改变 Android 产品行为。
