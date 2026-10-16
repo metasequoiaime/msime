@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { GroupList, NavRow } from "../core/platform-controls";
 import { useToast } from "../core/toast";
 import { resourceMessage } from "../community/community-helpers";
+import { addCommunityReply } from "../community/community-resource-actions";
 import {
-  addCommunityReply,
   communityResourceSubtitle,
   type CommunityResource,
   type CommunityResourceClient,
-} from "../community/community-resources";
+} from "../community/community-resource-model";
 import { useSettingsForm } from "./settings-form-context";
 import { useAsyncGeneration } from "./use-async-generation";
 import * as settings from "./settings-style";

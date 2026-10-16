@@ -30,13 +30,9 @@ import { CommunityRatingMetrics } from "./community-rating-metrics";
 import {
   CommunityReportSection,
   communityReportedNotice,
-  type CommunityModeration,
   type CommunityReportReason,
 } from "./community-report";
-import {
-  CommunityResourceScopeButtons,
-  type CommunityResourceScope,
-} from "./community-resource-scope-buttons";
+import { CommunityResourceScopeButtons } from "./community-resource-scope-buttons";
 import { CommunityInputField } from "./community-input-field";
 import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
@@ -54,159 +50,33 @@ import { CommunityPageShell } from "./community-page-shell";
 import { communityPublishFields } from "./community-publish-validation";
 import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 import { useCommunityDetailHistory } from "./use-community-detail-history";
-
-export type CommunityResourceKind = "dictionary" | "reply";
-export type { CommunityResourceScope } from "./community-resource-scope-buttons";
-export type CommunitySharedWord = {
-  kind: "pinyin" | "wubi" | "quick" | "english";
-  code: string;
-  word: string;
-  weight: number;
-};
-export type CommunityResourceContent = { entries?: CommunitySharedWord[]; prompt?: string };
-export type CommunityResource = {
-  id: string;
-  kind: CommunityResourceKind;
-  name: string;
-  description: string;
-  author: string;
-  content: CommunityResourceContent;
-  revision: number;
-  saves: number;
-  saved: boolean;
-  owned: boolean;
-  rating_count: number;
-  rating_average: number;
-  my_rating: number;
-  /** Sent only on the user's own items; `removed` shows 已下架. */
-  moderation?: CommunityModeration | null;
-};
-export type CommunityResourcePage = { items: CommunityResource[]; has_more: boolean };
-export type CommunityResourceApplication = {
-  revision: number;
-  imported: number;
-  resource_revision: number;
-};
-export type CommunityLocalDictionaryClient = {
-  import?(
-    kind: "pinyin" | "wubi" | "quick_phrase" | "english",
-    format: "standard",
-    text: string,
-    requestId: string,
-  ): Promise<{ applied: number }>;
-  /** 宿主有命名词库时，把共享词库装成一个独立的词库（之后可以在「词库」里停用或删除），代替逐条导入本机词库。 */
-  installCollection?(resource: CommunityResource): Promise<void>;
-};
-
-export interface CommunityResourceClient {
-  list(
-    kind: CommunityResourceKind,
-    scope: CommunityResourceScope,
-    search: string,
-    offset: number,
-  ): Promise<CommunityResourcePage>;
-  detail(id: string): Promise<CommunityResource>;
-  publish(
-    id: string,
-    kind: CommunityResourceKind,
-    name: string,
-    description: string,
-    content: CommunityResourceContent,
-    revision: number,
-  ): Promise<void>;
-  apply(id: string, resourceRevision: number): Promise<CommunityResourceApplication>;
-  save(id: string, saved: boolean): Promise<void>;
-  rate(id: string, stars: number): Promise<void>;
-  unpublish(id: string): Promise<void>;
-  /** 把回复模板存进本机「高情商回复」键盘、从中移除。只有移动端有这个键盘；桌面宿主不提供这两个，页面就不显示对应的按钮，回复模板只能收藏、评分、举报和发布。 */
-  storeReply?(item: CommunityResource): Promise<void>;
-  removeReply?(id: string): Promise<void>;
-  /** Reports another user's dictionary or reply template to the moderators. */
-  report?(
-    kind: CommunityResourceKind,
-    id: string,
-    reason: CommunityReportReason,
-    detail: string,
-  ): Promise<void>;
-}
-
-/** 宿主能否把共享词库装到本机：装成命名词库，或导入本机词库。 */
-function importsLocally(
-  dictionary: CommunityLocalDictionaryClient | undefined,
-): dictionary is CommunityLocalDictionaryClient {
-  return Boolean(dictionary?.installCollection || dictionary?.import);
-}
-
-/** 把共享词库装到本机，返回要提示的话：有命名词库时装成一个词库，否则把词条导入本机词库。详情页的「导入这版词库到本机」和 HarmonyOS 行上的「添加」都走这里。 */
-async function installCommunityDictionaryLocally(
-  dictionary: CommunityLocalDictionaryClient,
-  item: CommunityResource,
-): Promise<string> {
-  if (dictionary.installCollection) {
-    await dictionary.installCollection(item);
-    return `已添加「${item.name}」，可以在「词库」里停用或删除`;
-  }
-  if (!dictionary.import) return "";
-  const applied = await importCommunityDictionary(
-    { import: dictionary.import.bind(dictionary) },
-    item.content.entries ?? [],
-  );
-  return `已添加「${item.name}」，本机词库应用 ${applied} 个词条`;
-}
-
-/** 回复模板的「添加」：收藏它，再把重新读到的最新一版存进本机「高情商回复」键盘，返回要提示的话。没有这个键盘的宿主只收藏。社区图库行上的「添加」和「AI 辅助」页「回复模板」一组的「添加」都走这里。 */
-export async function addCommunityReply(
-  client: CommunityResourceClient,
-  item: CommunityResource,
-): Promise<string> {
-  await client.save(item.id, true);
-  const latest = await client.detail(item.id);
-  if (!client.storeReply) return `已收藏「${item.name}」`;
-  await client.storeReply(latest);
-  return `已添加「${item.name}」到高情商回复键盘`;
-}
-
-/** 把共享词库的词条导入本机词库，每种词条类型发一次请求，返回实际应用的词条数。 */
-async function importCommunityDictionary(
-  dictionary: Required<Pick<CommunityLocalDictionaryClient, "import">>,
-  entries: readonly CommunitySharedWord[],
-): Promise<number> {
-  const groups = new Map<CommunitySharedWord["kind"], CommunitySharedWord[]>();
-  for (const entry of entries) {
-    const group = groups.get(entry.kind) ?? [];
-    group.push(entry);
-    groups.set(entry.kind, group);
-  }
-  let applied = 0;
-  for (const [entryKind, group] of groups) {
-    const kind = entryKind === "quick" ? "quick_phrase" : entryKind;
-    const text = group.map((entry) => `${entry.word}\t${entry.code}\t${entry.weight}`).join("\n");
-    const result = await dictionary.import(
-      kind,
-      "standard",
-      text,
-      `community-local-${Date.now()}-${entryKind}`,
-    );
-    applied += result.applied;
-  }
-  return applied;
-}
-
-/**
- * HarmonyOS 手机上行下方的元信息行，对应 Android 的 `CommunityRequest.resourceSubtitle`：「@作者 · 4,812 条」。只写条目本身带有的信息：没有作者时不写作者，只有带了词条的词库才写条数，用户自己已下架的作品写「已下架」。设计稿中的「本周更新」需要更新时间，而本客户端的资源不带这个字段，所以从不写出。
- */
-export function communityResourceSubtitle(item: CommunityResource): string {
-  const entries = item.content.entries;
-  return [
-    item.author ? `@${item.author}` : "",
-    item.kind === "dictionary" && entries && entries.length > 0
-      ? `${formatZhNumber(entries.length)} 条`
-      : "",
-    item.owned && item.moderation === "removed" ? "已下架" : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-}
+import {
+  addCommunityReply,
+  canInstallCommunityDictionary,
+  installCommunityDictionaryLocally,
+} from "./community-resource-actions";
+import {
+  communityResourceSubtitle,
+  type CommunityResourceKind,
+  type CommunityResourceScope,
+  type CommunitySharedWord,
+  type CommunityResource,
+  type CommunityLocalDictionaryClient,
+  type CommunityResourceClient,
+} from "./community-resource-model";
+export { addCommunityReply } from "./community-resource-actions";
+export { communityResourceSubtitle } from "./community-resource-model";
+export type {
+  CommunityResourceKind,
+  CommunityResourceScope,
+  CommunitySharedWord,
+  CommunityResourceContent,
+  CommunityResource,
+  CommunityResourcePage,
+  CommunityResourceApplication,
+  CommunityLocalDictionaryClient,
+  CommunityResourceClient,
+} from "./community-resource-model";
 
 function ResourceCard({ item, open }: { item: CommunityResource; open: () => void }) {
   return (
@@ -480,19 +350,14 @@ function ResourceDetail({
     });
   const applyLocal = () =>
     void run(async (generation) => {
-      if (localDictionary?.installCollection) {
-        await localDictionary.installCollection(item);
-        if (!mounted.current || generation !== clientGeneration.current) return;
-        setNotice(`已添加为词库「${item.name}」，可以在「词库」里停用或删除。`);
-        return;
-      }
-      if (!localDictionary?.import) return;
-      const applied = await importCommunityDictionary(
-        { import: localDictionary.import.bind(localDictionary) },
-        item.content.entries ?? [],
+      if (!localDictionary) return;
+      const result = await installCommunityDictionaryLocally(localDictionary, item);
+      if (!mounted.current || generation !== clientGeneration.current || !result) return;
+      setNotice(
+        result.kind === "collection"
+          ? `已添加为词库「${item.name}」，可以在「词库」里停用或删除。`
+          : `已导入本机词库，应用 ${result.applied} 个词条。`,
       );
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      setNotice(`已导入本机词库，应用 ${applied} 个词条。`);
     });
   const storeReply = () =>
     void run(async (generation) => {
@@ -808,8 +673,15 @@ export function CommunityResourcesPage({
       if (item.kind === "dictionary") {
         // 列表里的副本可能比服务器将导入的版本旧，所以词条取自重新获取的详情，与详情页的做法相同。
         const latest = await client.detail(item.id);
-        if (importsLocally(localDictionary)) {
-          toast(await installCommunityDictionaryLocally(localDictionary, latest));
+        if (canInstallCommunityDictionary(localDictionary)) {
+          const result = await installCommunityDictionaryLocally(localDictionary, latest);
+          toast(
+            result?.kind === "collection"
+              ? `已添加「${latest.name}」，可以在「词库」里停用或删除`
+              : result?.kind === "entries"
+                ? `已添加「${latest.name}」，本机词库应用 ${result.applied} 个词条`
+                : "",
+          );
         } else {
           const result = await client.apply(latest.id, latest.revision);
           toast(`已添加「${item.name}」，云端词库新增或更新 ${result.imported} 个词条`);

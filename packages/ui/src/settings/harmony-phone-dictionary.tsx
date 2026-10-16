@@ -9,8 +9,11 @@ import { useToast } from "../core/toast";
 import { useAsyncActionRunner } from "../core/use-async-action";
 import { useDebouncedCallback } from "../core/use-debounced-callback";
 import * as dialog from "../community/community-style";
-import type { CommunityResource, CommunityResourceClient } from "../community/community-resources";
-import { communityResourceSubtitle } from "../community/community-resources";
+import type {
+  CommunityResource,
+  CommunityResourceClient,
+} from "../community/community-resource-model";
+import { communityResourceSubtitle } from "../community/community-resource-model";
 import {
   binaryCollectionFormat,
   collectionFailureMessage,

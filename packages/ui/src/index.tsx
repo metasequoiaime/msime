@@ -513,7 +513,10 @@ import { defaultTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-he
 import { logo } from "./settings/settings-options";
 import type { CommunitySkinClient } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
-import type { CommunityResource, CommunityResourceClient } from "./community/community-resources";
+import type {
+  CommunityResource,
+  CommunityResourceClient,
+} from "./community/community-resource-model";
 import type { CandidateSkinCommunityClient } from "./community/community-candidate-skins";
 import { CommunityPluginsPage, type CommunityPluginClient } from "./community/community-plugins";
 import * as communityStyle from "./community/community-style";
@@ -1379,19 +1382,18 @@ export {
   type CommunityDestinationScope,
   type CommunityDestinationView,
 } from "./community/community-destination";
-export {
-  CommunityHomePage,
-  CommunityResourcesPage,
-  type CommunityLocalDictionaryClient,
-  type CommunityResource,
-  type CommunityResourceApplication,
-  type CommunityResourceClient,
-  type CommunityResourceContent,
-  type CommunityResourceKind,
-  type CommunityResourcePage,
-  type CommunityResourceScope,
-  type CommunitySharedWord,
-} from "./community/community-resources";
+export { CommunityHomePage, CommunityResourcesPage } from "./community/community-resources";
+export type {
+  CommunityLocalDictionaryClient,
+  CommunityResource,
+  CommunityResourceApplication,
+  CommunityResourceClient,
+  CommunityResourceContent,
+  CommunityResourceKind,
+  CommunityResourcePage,
+  CommunityResourceScope,
+  CommunitySharedWord,
+} from "./community/community-resource-model";
 export {
   CommunityCandidateSkinsPage,
   candidateSkinCategories,
