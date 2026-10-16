@@ -97,6 +97,12 @@ export const pages = [
     title: "发送哪些内容",
     icon: settingsIcons.about,
   },
+  // 「维护与诊断」里「连接 AI 助手」那一行打开：本机 `msime-mcp` 服务的连接命令、配置和两个权限开关。整块原来直接摊在维护页上，是那一页最长的一块，收成一行后维护页只剩服务、日志、数据目录和卸载。
+  {
+    id: "mcp",
+    title: "连接 AI 助手",
+    icon: settingsIcons.developer,
+  },
   // 触屏宿主「我的 › 隐私」打开：数据怎么处理的几句话、匿名使用统计开关和完整隐私政策的链接。桌面的这些在「关于」里。
   {
     id: "privacy",
@@ -141,4 +147,29 @@ export const subPageParents: Partial<Record<SettingsPageId, SettingsPageId>> = {
   "usage-reporting": "about",
   privacy: "account",
   "try-keyboard": "home",
+  mcp: "developer",
 };
+
+/**
+ * 桌面上并进另一页的页面，键是并进去的页，值是承载它的页。它们仍是可路由的 id：宿主菜单、托盘、旧链接和页内跳转打开它时显示承载页，桌面侧栏不再列出它。`settingsNavGroups` 不变，触屏宿主和 Windows 原生设置窗口（`SettingsNavigation.h`）照旧列出这些页。
+ *
+ * 「帮助与反馈」没有一项偏好，只有帮助入口、问题报告和反馈渠道，桌面上画在「关于」里。
+ */
+export const desktopMergedPages: Partial<Record<SettingsPageId, SettingsPageId>> = {
+  feedback: "about",
+};
+
+/** 桌面上真正显示的页面：并进别的页的 id 换成承载它的页，其他原样返回。 */
+export function desktopPage(id: SettingsPageId): SettingsPageId {
+  return desktopMergedPages[id] ?? id;
+}
+
+/** 桌面宿主按平台改写的页名；触屏宿主的页名由 `mobilePageTitle` 改写。macOS 的账号页没有设置同步（设置同步只接在 Windows 的账号会话上），叫「账号」。 */
+export function desktopPageTitle(
+  id: SettingsPageId,
+  title: string,
+  platform: string | undefined,
+): string {
+  if (id === "account" && platform === "macos") return "账号";
+  return title;
+}

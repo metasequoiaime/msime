@@ -2502,7 +2502,15 @@ test("macOS 维护与诊断 page exposes reversible uninstall with explicit data
   expect(within(about).queryByText("卸载水杉输入法")).toBeNull();
   const groupTitles = (scope: HTMLElement) =>
     [...scope.querySelectorAll("[data-group-title]")].map((node) => node.textContent);
-  expect(groupTitles(about)).toEqual(["版本与更新", "系统信息", "许可与隐私"]);
+  // 桌面上「帮助与反馈」并进「关于」，几组接在「版本与更新」后面。
+  expect(groupTitles(about)).toEqual([
+    "版本与更新",
+    "帮助",
+    "提交可复现的问题",
+    "反馈与交流",
+    "系统信息",
+    "许可与隐私",
+  ]);
   fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   const developer = await screen.findByRole("group", { name: "维护与诊断" });
   expect(await within(developer).findByText("卸载水杉输入法")).toBeDefined();
@@ -6342,7 +6350,7 @@ test("help, about and feedback pages expose their Windows content and actions", 
   render(<SettingsPage client={client} />);
   await settingsReady();
 
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   expect(await screen.findByText("快速上手")).toBeDefined();
   expect(screen.getByText(/Win \+ Space/)).toBeDefined();
@@ -6358,7 +6366,7 @@ test("help, about and feedback pages expose their Windows content and actions", 
     ),
   );
 
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByText("GitHub Issues")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "复制群号" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledWith("829919142"));
@@ -6377,7 +6385,7 @@ test("Linux help quick start covers both Fcitx5 and IBus", async () => {
   render(<SettingsPage client={client} />);
   await settingsReady();
 
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   const intro = await screen.findByText(/Linux 桌面环境下的中文输入法/);
   expect(intro.textContent).toContain("Fcitx5");
@@ -6403,7 +6411,7 @@ test("Linux help network section says what goes online and where credentials liv
   render(<SettingsPage client={client} />);
   await settingsReady();
 
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   const network = await screen.findByText(/日常拼音输入无需联网/);
   const text = network.textContent ?? "";
@@ -6567,7 +6575,7 @@ test("macOS support pages use client project and privacy links", async () => {
   fireEvent.click(screen.getByRole("button", { name: "第三方组件许可" }));
   await waitFor(() => expect(openThirdPartyLicenses).toHaveBeenCalledOnce());
 
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.change(screen.getByRole("combobox", { name: "反馈类型" }), {
     target: { value: "候选词不对" },
   });
@@ -6598,7 +6606,7 @@ test("macOS and iOS help pages use their native host instructions", async () => 
       }}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   // 帮助 is an entry on the 反馈 page, which is only drawn once the settings have loaded.
   fireEvent.click(await screen.findByRole("button", { name: "帮助" }));
   // macOS answers the three questions as term/description rows, not prose, so the page carries the
@@ -6657,7 +6665,7 @@ test("the sidebar follows the six titled navigation groups", async () => {
     ["主题", "候选窗口", "悬浮工具栏"],
     ["屏幕键盘与手写", "语音输入"],
     ["剪贴板", "AI 辅助"],
-    ["维护与诊断", "帮助与反馈", "关于"],
+    ["维护与诊断", "关于"],
   ]);
   // 组名对辅助技术可见；没有账号客户端时「账号」组整组消失，桌面也不再有「社区」入口。
   expect(
@@ -6808,7 +6816,7 @@ test("the feedback report leads with the release and the scheme", async () => {
     />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(await screen.findByRole("button", { name: "复制报告" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledOnce());
   const report = copyText.mock.calls[0][0] as string;
@@ -6831,7 +6839,7 @@ test("a host that cannot name its release still reports something", async () => 
     />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(await screen.findByRole("button", { name: "复制报告" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledOnce());
   const report = copyText.mock.calls[0][0] as string;
@@ -7159,7 +7167,7 @@ const referenceSections: {
   {
     page: "help",
     button: "帮助",
-    via: "帮助与反馈",
+    via: "关于",
     titles: ["快速上手", "基本功能"],
   },
 ];
@@ -7356,8 +7364,9 @@ test.each([
     <SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), host }} />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
-  const page = await screen.findByRole("group", { name: "帮助与反馈" });
+  // 桌面上「帮助与反馈」并进了「关于」。
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  const page = await screen.findByRole("group", { name: "关于" });
   for (const channel of ["GitHub Issues", "QQ 交流群", "Telegram 群组"]) {
     expect(within(page).getByText(channel)).toBeTruthy();
   }
@@ -7380,14 +7389,73 @@ test("the feedback page opens with 帮助 and links the report to 诊断日志",
     />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
-  const page = await screen.findByRole("group", { name: "帮助与反馈" });
+  // 桌面上「帮助与反馈」并进了「关于」。
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  const page = await screen.findByRole("group", { name: "关于" });
   const help = within(page).getByRole("button", { name: "帮助" });
   const kind = within(page).getByRole("combobox", { name: "反馈类型" });
   expect(help.compareDocumentPosition(kind) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(within(page).queryByText("提交问题时建议附上")).toBeNull();
   fireEvent.click(within(page).getByRole("button", { name: "诊断日志" }));
   expect(await screen.findByRole("heading", { name: "维护与诊断" })).toBeDefined();
+});
+
+test("on the desktop 帮助与反馈 lives in 关于: its route opens 关于 and 帮助 returns there", async () => {
+  render(
+    <SettingsPage
+      initialPage="feedback"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        copyText: vi.fn(),
+        host: testHost({ platform: "macos" }),
+      }}
+    />,
+  );
+  const page = await screen.findByRole("group", { name: "关于" });
+  expect(screen.queryByRole("group", { name: "帮助与反馈" })).toBeNull();
+  expect(within(page).getByRole("button", { name: "复制报告" })).toBeTruthy();
+  expect(within(page).getByText("GitHub Issues")).toBeTruthy();
+  const sidebar = screen.getByRole("navigation", { name: "设置分类" });
+  expect(within(sidebar).queryByRole("button", { name: "帮助与反馈" })).toBeNull();
+  fireEvent.click(within(page).getByRole("button", { name: "帮助" }));
+  expect(await screen.findByRole("group", { name: "开始输入" })).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "返回关于" }));
+  expect(await screen.findByRole("group", { name: "关于" })).toBeTruthy();
+});
+
+test("the account page is called 账号 on macOS and keeps 账号与同步 where settings sync", async () => {
+  const accountClient = {
+    status: vi.fn().mockResolvedValue({ user: null }),
+    providers: vi.fn().mockResolvedValue({ email: true, phone: false }),
+    requestCode: vi.fn(),
+    login: vi.fn(),
+    profile: vi.fn(),
+    rename: vi.fn(),
+    logout: vi.fn(),
+    deleteAccount: vi.fn(),
+    clearExpired: vi.fn(),
+  };
+  for (const [platform, title] of [
+    ["macos", "账号"],
+    ["windows", "账号与同步"],
+  ] as const) {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          account: accountClient,
+          host: testHost({ platform }),
+        }}
+      />,
+    );
+    await settingsReady();
+    const sidebar = screen.getByRole("navigation", { name: "设置分类" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: title }));
+    expect(await screen.findByRole("heading", { name: title })).toBeTruthy();
+    cleanup();
+  }
 });
 
 test("the feedback page has no 诊断日志 link where 维护与诊断 has no logs", async () => {
@@ -8068,7 +8136,7 @@ test("macOS sidebar uses the same six groups", async () => {
     // 手写页在 macOS 上只有一个打开按钮，并进屏幕键盘页。
     ["屏幕键盘与手写", "语音输入"],
     ["剪贴板", "AI 辅助"],
-    ["维护与诊断", "帮助与反馈", "关于"],
+    ["维护与诊断", "关于"],
   ]);
 });
 

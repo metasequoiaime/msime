@@ -211,7 +211,8 @@ test("the 2in1 keeps the GitHub report even when the host can submit", async () 
     feedback: { submit: vi.fn() },
     host: { mobile_settings: false, panel_windows: true },
   });
-  const page = await feedbackPage();
+  // 2in1 是桌面形态：「帮助与反馈」并进「关于」，打开 `feedback` 显示的是「关于」。
+  const page = await screen.findByRole("group", { name: "关于" });
   expect(await within(page).findByRole("button", { name: "在 GitHub 提交" })).toBeTruthy();
   expect(within(page).queryByRole("switch", { name: "附带诊断信息" })).toBeNull();
 });

@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { mobilePageTitle } from "../../../../packages/ui/src/settings/mobile-tab-helpers";
 import { settingsPageProjections } from "../../../../packages/ui/src/settings/settings-page-projections";
+import { desktopPageTitle } from "../../../../packages/ui/src/settings/settings-page-registry";
 
 const project = (overrides: Partial<Parameters<typeof settingsPageProjections>[0]> = {}) =>
   settingsPageProjections({
@@ -15,6 +16,7 @@ const project = (overrides: Partial<Parameters<typeof settingsPageProjections>[0
     showDeveloperPage: true,
     hasPlugins: true,
     hasHandwriting: true,
+    hasMcp: true,
     mobileHiddenPageIds: ["floating-toolbar", "plugins"],
     mobilePageTitle,
     ...overrides,
@@ -52,8 +54,10 @@ test("projects the desktop sidebar into the titled navigation groups", () => {
     { title: "更多输入方式", ids: ["screen-keyboard", "voice", "handwriting"] },
     { title: "工具", ids: ["tools", "typing-statistics", "plugins", "ai"] },
     { title: "账号", ids: ["account"] },
-    { title: "支持", ids: ["developer", "feedback", "about"] },
+    // 桌面上「帮助与反馈」并进「关于」，侧栏不再列出它；它仍是可路由的页面。
+    { title: "支持", ids: ["developer", "about"] },
   ]);
+  expect(project().availablePages.map((page) => page.id)).toContain("feedback");
   // 宿主不提供的页从所在组里消失；整组为空时整组不出现。
   expect(
     groupIds(
@@ -70,8 +74,35 @@ test("projects the desktop sidebar into the titled navigation groups", () => {
     { title: "外观", ids: ["skin", "appearance", "floating-toolbar"] },
     { title: "更多输入方式", ids: ["screen-keyboard", "voice", "handwriting"] },
     { title: "工具", ids: ["tools", "ai"] },
-    { title: "支持", ids: ["developer", "feedback", "about"] },
+    { title: "支持", ids: ["developer", "about"] },
   ]);
+});
+
+test("the 连接 AI 助手 page exists only where the host reports the MCP server, and is never in the sidebar", () => {
+  const desktop = project();
+  expect(desktop.availablePages.map((page) => page.id)).toContain("mcp");
+  expect(
+    desktop.sidebarGroups.flatMap((group) => group.pages.map((page) => page.id)),
+  ).not.toContain("mcp");
+  expect(project({ hasMcp: false }).availablePages.map((page) => page.id)).not.toContain("mcp");
+});
+
+test("macOS calls the account page 账号, since only Windows syncs settings through it", () => {
+  const title = (platform: string) =>
+    project({
+      desktopPageTitle: (id, name) => desktopPageTitle(id, name, platform),
+    }).availablePages.find((page) => page.id === "account")?.title;
+  expect(title("macos")).toBe("账号");
+  expect(title("windows")).toBe("账号与同步");
+  expect(title("linux")).toBe("账号与同步");
+  // 没给改写函数时用注册表里的名字；触屏宿主按 `mobilePageTitle` 叫它「我的」。
+  expect(project().availablePages.find((page) => page.id === "account")?.title).toBe("账号与同步");
+  expect(
+    project({
+      mobilePlatform: true,
+      desktopPageTitle: (id, name) => desktopPageTitle(id, name, "macos"),
+    }).availablePages.find((page) => page.id === "account")?.title,
+  ).toBe("我的");
 });
 
 test("no longer offers 其他平台下载 as a page of its own", () => {
