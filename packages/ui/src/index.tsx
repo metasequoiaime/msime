@@ -1712,7 +1712,21 @@ export {
   type CloudDictionaryQueryToolbarProps,
 } from "./keyboard/cloud-dictionary-query-toolbar";
 export type { EmojiCatalogGroup } from "./emoji/emoji-catalog";
-export type { VoiceCaptureDevice, VoiceDeviceReader } from "./voice/voice-device-picker";
+export type { VoiceCaptureDevice, VoiceDeviceReader } from "./voice/voice-device-model";
+export {
+  VoiceDevicePicker,
+  VoiceMicrophonePicker,
+  type VoiceDevicePickerProps,
+  type VoiceMicrophonePickerProps,
+} from "./voice/voice-device-picker";
+export {
+  useVoiceDevicePicker,
+  useVoiceMicrophonePicker,
+  type UseVoiceDevicePickerOptions,
+  type UseVoiceMicrophonePickerOptions,
+  type VoiceDevicePickerState,
+  type VoiceMicrophonePickerState,
+} from "./voice/use-voice-device-picker";
 export {
   LocalModelManager,
   formatModelBytes,

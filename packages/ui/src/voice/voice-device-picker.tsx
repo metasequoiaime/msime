@@ -1,21 +1,20 @@
-import { useEffect, useState } from "react";
-import { useAsyncActionRunner } from "../core/use-async-action";
+import { SYSTEM_DEFAULT, STORED, FOREIGN } from "./voice-device-model";
+import {
+  useVoiceMicrophonePicker,
+  useVoiceDevicePicker,
+  type UseVoiceMicrophonePickerOptions,
+  type UseVoiceDevicePickerOptions,
+} from "./use-voice-device-picker";
 import { ActionRow } from "../settings/action-row";
 import { SelectRow } from "../settings/select-row";
 
-export type VoiceCaptureDevice = {
-  backend: "pulse" | "pipewire" | "alsa" | "windows" | "macos" | "harmony";
-  id: string;
-  label: string;
-};
-export type VoiceDeviceReader = () => Promise<VoiceCaptureDevice[]>;
+export type { VoiceCaptureDevice, VoiceDeviceReader } from "./voice-device-model";
 
-/** 麦克风下拉里「系统默认设备」的值，也是存储里的空设备。 */
-const SYSTEM_DEFAULT = "";
-/** 存着的设备不在读到的列表里（拔掉了，或者还没读完）时，为它保留的那一项的值。 */
-const STORED = "stored";
-/** 存着别的平台的后端时显示的那一项的值。它和「系统默认设备」分开，用户选「系统默认设备」才是一次真正的改动，能把外来的后端和设备清掉。 */
-const FOREIGN = "foreign";
+export interface VoiceMicrophonePickerProps extends UseVoiceMicrophonePickerOptions {
+  /** 选中的麦克风拔掉后改用系统默认设备（HarmonyOS），而不是拒绝录音（macOS、Windows）。 */
+  fallsBackToDefault?: boolean;
+}
+export type VoiceDevicePickerProps = UseVoiceDevicePickerOptions;
 
 /**
  * 只有一种录音后端的宿主（macOS 只用 CoreAudio，Windows、HarmonyOS 也各只有一种）上，录音设备只用一个「麦克风」下拉选：第一项是系统默认设备，下面是读到的设备。可见时自动读取设备列表，不需要先点刷新。
@@ -29,41 +28,14 @@ export function VoiceMicrophonePicker({
   backendSupported,
   fallsBackToDefault = false,
   choose,
-}: {
-  read: VoiceDeviceReader;
-  /** 下拉在屏幕上：每次变为可见时重新读取设备列表。 */
-  active: boolean;
-  device: string;
-  /** 存着的后端在这个宿主上有效；无效时宿主不读存着的设备。 */
-  backendSupported: boolean;
-  /** 选中的麦克风拔掉后宿主改用系统默认设备照常录音（HarmonyOS），而不是拒绝录音（macOS、Windows）。 */
-  fallsBackToDefault?: boolean;
-  choose: (backend: VoiceCaptureDevice["backend"] | "", device: string) => void;
-}) {
-  const [devices, setDevices] = useState<VoiceCaptureDevice[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState("");
-  const { busy, run } = useAsyncActionRunner(setError, undefined, read);
-  useEffect(() => {
-    if (!active) return;
-    void run(
-      async (isCurrent) => {
-        const result = await read();
-        if (!isCurrent()) return;
-        setDevices(result);
-        setLoaded(true);
-      },
-      { formatError: () => "无法读取设备列表，可以先用系统默认设备" },
-    );
-  }, [active, read, run]);
-  const index = device ? devices.findIndex((item) => item.id === device) : -1;
-  const value = !backendSupported
-    ? FOREIGN
-    : !device
-      ? SYSTEM_DEFAULT
-      : index >= 0
-        ? String(index)
-        : STORED;
+}: VoiceMicrophonePickerProps) {
+  const { devices, loaded, error, busy, value, select } = useVoiceMicrophonePicker({
+    read,
+    active,
+    device,
+    backendSupported,
+    choose,
+  });
   return (
     <SelectRow
       title="麦克风"
@@ -78,13 +50,7 @@ export function VoiceMicrophonePicker({
       aria-label="麦克风"
       aria-busy={busy}
       value={value}
-      onChange={(event) => {
-        const next = event.target.value;
-        const item = next === SYSTEM_DEFAULT ? undefined : devices[Number(next)];
-        // FOREIGN 和 STORED 都是禁用项，选不到；其余的值不是系统默认设备就是列表里的一项。
-        if (item) choose(item.backend, item.id);
-        else if (next === SYSTEM_DEFAULT) choose("", "");
-      }}
+      onChange={(event) => select(event.target.value)}
     >
       <option value={SYSTEM_DEFAULT}>系统默认设备</option>
       {devices.map((item, position) => (
@@ -107,45 +73,13 @@ export function VoiceMicrophonePicker({
   );
 }
 
-export function VoiceDevicePicker({
-  read,
-  backend,
-  device,
-  choose,
-}: {
-  read: VoiceDeviceReader;
-  backend: string;
-  device: string;
-  choose: (backend: VoiceCaptureDevice["backend"], device: string) => void;
-}) {
-  const [devices, setDevices] = useState<VoiceCaptureDevice[]>([]);
-  const [notice, setNotice] = useState("点击刷新读取可用录音设备");
-  const { busy, run } = useAsyncActionRunner(
-    (message) => {
-      if (message) setNotice(message);
-    },
-    undefined,
+export function VoiceDevicePicker({ read, backend, device, choose }: VoiceDevicePickerProps) {
+  const { devices, notice, busy, refresh, selected, select } = useVoiceDevicePicker({
     read,
-  );
-  useEffect(() => {
-    setDevices([]);
-  }, [read]);
-  async function refresh() {
-    void run(
-      async (isCurrent) => {
-        const result = await read();
-        if (!isCurrent()) return;
-        setDevices(result);
-        setNotice(
-          result.length
-            ? "选择设备后从下一次录音生效"
-            : "未发现设备，可手动填写设备名称或使用默认设备",
-        );
-      },
-      { formatError: () => "无法读取设备列表，可重试或手动填写" },
-    );
-  }
-  const selected = devices.findIndex((item) => item.backend === backend && item.id === device);
+    backend,
+    device,
+    choose,
+  });
   // 「录音设备」分组里的两行：先读取设备列表，再从中选择。HarmonyOS 手机上选择行与其他选择行一样点开选择面板。
   return (
     <>
@@ -163,10 +97,7 @@ export function VoiceDevicePicker({
         aria-label="可用录音设备"
         value={selected < 0 ? "" : String(selected)}
         disabled={!devices.length || busy}
-        onChange={(event) => {
-          const item = devices[Number(event.target.value)];
-          if (item) choose(item.backend, item.id);
-        }}
+        onChange={(event) => select(event.target.value)}
       >
         <option value="" disabled hidden>
           选择设备

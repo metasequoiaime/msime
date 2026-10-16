@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi, type Mock } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { VoiceCaptureDevicesSection, type VoiceCaptureBackend } from "@msime/ui";
-import { VoiceDevicePicker } from "../../../../packages/ui/src/voice/voice-device-picker";
+import {
+  VoiceCaptureDevicesSection,
+  VoiceDevicePicker,
+  VoiceMicrophonePicker,
+  type VoiceCaptureBackend,
+} from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -276,4 +280,35 @@ test("the microphone list is not read while the group is off screen", async () =
     />,
   );
   await waitFor(() => expect(read).toHaveBeenCalledOnce());
+});
+
+test("切换麦克风读取器后不能选择旧读取器的设备", async () => {
+  const initial = vi.fn(async () => macDevices);
+  let finish!: (devices: typeof macDevices) => void;
+  const pending = new Promise<typeof macDevices>((resolve) => {
+    finish = resolve;
+  });
+  const replacement = vi.fn(() => pending);
+  const props = { active: true, device: "uid-usb", backendSupported: true, choose: vi.fn() };
+  const { rerender } = render(<VoiceMicrophonePicker {...props} read={initial} />);
+  await screen.findByRole("option", { name: "Synthetic USB microphone" });
+  rerender(<VoiceMicrophonePicker {...props} read={replacement} />);
+  expect(screen.queryByRole("option", { name: "Synthetic USB microphone" })).toBeNull();
+  expect(screen.getByRole("option", { name: "已选的麦克风（读取中…）" })).toBeTruthy();
+  await act(async () => {
+    finish([]);
+  });
+});
+
+test("切换手动设备读取器后恢复待刷新提示", async () => {
+  const initial = vi.fn(async () => macDevices);
+  const replacement = vi.fn(async () => []);
+  const props = { backend: "", device: "", choose: vi.fn() };
+  const { rerender } = render(<VoiceDevicePicker {...props} read={initial} />);
+  fireEvent.click(screen.getByRole("button", { name: "刷新设备" }));
+  await screen.findByText("选择设备后从下一次录音生效");
+  rerender(<VoiceDevicePicker {...props} read={replacement} />);
+  expect(screen.getByRole("status").textContent).toBe("点击刷新读取可用录音设备");
+  expect(screen.queryByRole("option", { name: /Synthetic USB microphone/ })).toBeNull();
+  expect(replacement).not.toHaveBeenCalled();
 });

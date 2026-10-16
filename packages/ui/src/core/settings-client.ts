@@ -9,7 +9,7 @@ import type {
 } from "../settings/shuangpin-custom-profile";
 import type { AppThemeClient, FeedbackClient, HostChromeClient } from "./host-contracts";
 import type { PickedApplication } from "../settings/app-input-mode-rules";
-import type { VoiceDeviceReader } from "../voice/voice-device-picker";
+import type { VoiceDeviceReader } from "../voice/voice-device-model";
 import type { LocalVoiceModelClient } from "../voice/local-models";
 import type { ResourcePackClient } from "../settings/resource-packs";
 import type { DictionaryClient, DictionaryManifest } from "../dictionary/dictionary-contracts";
