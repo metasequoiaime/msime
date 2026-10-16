@@ -43,6 +43,8 @@ test("旧宿主在窗口缩放后重算候选字号并在卸载时移除监听",
   const view = render(<DesktopHandwriting client={client()} theme="light" platform="linux" />);
   write();
   const candidate = await screen.findByRole("button", { name: "中" });
+  // 按钮出现时 effect 可能尚未执行；先等首次测量完成，再触发旧宿主的窗口回退。
+  await waitFor(() => expect(candidate.style.fontSize).toBe("13px"));
   vi.spyOn(candidate, "getBoundingClientRect").mockReturnValue({ width: 40 } as DOMRect);
   act(() => window.dispatchEvent(new Event("resize")));
   expect(candidate.style.fontSize).toBe("20.8px");
