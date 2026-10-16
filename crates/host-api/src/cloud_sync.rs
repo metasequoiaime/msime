@@ -480,6 +480,8 @@ struct SettingsData {
     local: Option<LocalSettings>,
     saved: Option<AccountPreferences>,
     skins_trimmed: Option<bool>,
+    /// 这一轮没有动皮肤库的原因：本机或云端的皮肤库读不懂，云端的那份原样留着。
+    skins_skipped: Option<&'static str>,
     writes: HostWrites,
     deferred: Option<AccountPreferences>,
 }
@@ -630,8 +632,9 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                 };
                 match settings_upload(&cloud, local, base.as_ref(), &schema, skins, mode) {
                     Err(reason) => Event::LocalFailed { reason },
-                    Ok((document, trimmed)) => {
+                    Ok((document, trimmed, skipped)) => {
                         data.skins_trimmed = trimmed;
+                        data.skins_skipped = skipped;
                         match context
                             .remote(|api, token| api.put_preferences_detailed(&document, token))?
                         {
@@ -1000,7 +1003,12 @@ fn committed(
     }
 }
 
-/// 要上传的设置文档：云端文档（去掉隐私键和字段表外的键）按键三方合并本机的值；有皮肤库能力时按剩下的预算放进裁剪后的皮肤库，合并时先并上云端的设计。返回文档和皮肤库有没有被裁剪。
+/// 本机的皮肤库（宿主给的 `custom_keyboard_skins`）不是 JSON 数组。
+const LOCAL_SKINS_UNREADABLE: &str = "skins_library_unreadable";
+/// 云端的皮肤库不是 JSON 数组（可能是更新的版本写的）。
+const CLOUD_SKINS_UNREADABLE: &str = "cloud_skins_library_unreadable";
+
+/// 要上传的设置文档：云端文档（去掉隐私键和字段表外的键）按键三方合并本机的值；有皮肤库能力时按剩下的预算放进裁剪后的皮肤库，合并时先并上云端的设计。本机或云端的皮肤库读不懂时这个键原样用云端的值（云端没有就不放），不拿另一份替换它。返回文档、皮肤库有没有被裁剪，和皮肤库没有动的原因。
 fn settings_upload(
     cloud: &AccountPreferences,
     local: &LocalSettings,
@@ -1008,7 +1016,7 @@ fn settings_upload(
     schema: &AccountPreferenceSchema,
     skins: bool,
     mode: Mode,
-) -> Result<(AccountPreferences, Option<bool>), String> {
+) -> Result<(AccountPreferences, Option<bool>, Option<&'static str>), String> {
     let cloud_settings = syncable(&cloud.settings, schema);
     let mut local_settings = syncable(&local.settings, schema);
     local_settings.remove(policy::SKINS_KEY);
@@ -1017,6 +1025,7 @@ fn settings_upload(
     }
     let mut settings = policy::merge_settings(&cloud_settings, &local_settings, base);
     let mut trimmed = None;
+    let mut skipped = None;
     let skins_field = schema.fields.contains_key(policy::SKINS_KEY);
     if skins && skins_field {
         if let Some(library) = &local.skins {
@@ -1024,30 +1033,43 @@ fn settings_upload(
             let other =
                 serde_json::to_vec(&json!({ "revision": cloud.revision, "settings": settings }))
                     .map_or(usize::MAX, |bytes| bytes.len());
-            let cloud_library = match cloud_settings.get(policy::SKINS_KEY) {
-                Some(AccountPreferenceValue::String(library)) => Some(library.as_str()),
-                _ => None,
-            };
-            let library = match (mode, cloud_library) {
-                (Mode::Merge, Some(cloud_library)) => {
-                    policy::merge_skin_libraries(library, cloud_library)
-                        .unwrap_or_else(|| library.clone())
+            let existing = cloud_settings.get(policy::SKINS_KEY);
+            // 云端的库：没有、读得懂，或者读不懂（不是字符串、不是 JSON 数组）。
+            let cloud_library = match existing {
+                None => Ok(None),
+                Some(AccountPreferenceValue::String(text))
+                    if policy::skin_library_readable(text) =>
+                {
+                    Ok(Some(text.as_str()))
                 }
-                _ => library.clone(),
+                Some(_) => Err(CLOUD_SKINS_UNREADABLE),
             };
-            match policy::trim_skin_library(&library, policy::skin_budget(other)) {
-                Some((kept, total, count)) => {
+            let library = match cloud_library {
+                _ if !policy::skin_library_readable(library) => Err(LOCAL_SKINS_UNREADABLE),
+                Err(reason) => Err(reason),
+                Ok(Some(cloud_library)) if mode == Mode::Merge => {
+                    policy::merge_skin_libraries(library, cloud_library)
+                        .ok_or(CLOUD_SKINS_UNREADABLE)
+                }
+                Ok(_) => Ok(library.clone()),
+            };
+            match library.and_then(|library| {
+                policy::trim_skin_library(&library, policy::skin_budget(other))
+                    .ok_or(LOCAL_SKINS_UNREADABLE)
+            }) {
+                Ok((kept, total, count)) => {
                     trimmed = Some(count < total);
                     settings.insert(
                         policy::SKINS_KEY.to_owned(),
                         AccountPreferenceValue::String(kept),
                     );
                 }
-                // 宿主给的皮肤库不是 JSON 数组：保留云端原有的库。服务端整份替换设置文档，不放回去就等于因为一份读不懂的本机值删掉了云端的皮肤库。
-                None => {
-                    if let Some(existing) = cloud_settings.get(policy::SKINS_KEY) {
+                // 本机或云端的皮肤库读不懂：这个键原样用云端的值。服务端整份替换设置文档，不放回去就等于因为一份读不懂的本机值删掉了云端的皮肤库；云端那份读不懂时（可能是更新的版本写的）也不能拿本机的库整份替换它。
+                Err(reason) => {
+                    if let Some(existing) = existing {
                         settings.insert(policy::SKINS_KEY.to_owned(), existing.clone());
                     }
+                    skipped = Some(reason);
                 }
             }
         }
@@ -1072,7 +1094,7 @@ fn settings_upload(
     {
         return Err("settings_too_large".to_owned());
     }
-    Ok((document, trimmed))
+    Ok((document, trimmed, skipped))
 }
 
 /// `run`：跑一轮。返回 `{outcome, reason?, run_id?, host_writes?, sections?, status}`，见头文件。
@@ -1190,6 +1212,7 @@ pub(crate) fn run<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
                 local: None,
                 saved: None,
                 skins_trimmed: None,
+                skins_skipped: None,
                 writes: HostWrites::default(),
                 deferred: None,
             },
@@ -1283,6 +1306,7 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
     let previous_stall = round.state.sections.dictionary.stall;
     let mut keep_choice = false;
     let mut dictionary_queued = false;
+    let mut skins_skipped = None;
     if dictionary_stalled {
         let outcome = SectionOutcome::new(OutcomeKind::Skipped, Some(DICTIONARY_BACKOFF));
         progress.sections.insert(
@@ -1297,6 +1321,7 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
         if let Some(trimmed) = data.skins_trimmed {
             progress.skins_trimmed = Some(trimmed);
         }
+        skins_skipped = data.skins_skipped;
         slots.push((Section::Settings, slot));
     } else if round.locked_settings && round.capabilities.settings {
         outcomes.insert(
@@ -1381,12 +1406,22 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
                 }
                 if section == Section::Settings {
                     if let Some(generation) = slot.skins_generation {
+                        // 皮肤库读不懂、这一轮没有动它：设置照常推进，皮肤库在 sections 里单独报出来。标记照样清掉，读不懂的库再传几次也一样，不能让它一直把节流缩到 30 秒。
+                        let skins_outcome = match skins_skipped {
+                            Some(reason) => {
+                                let skipped =
+                                    SectionOutcome::new(OutcomeKind::Skipped, Some(reason));
+                                outcomes.insert(Section::Skins, skipped.clone());
+                                skipped
+                            }
+                            None => outcome.clone(),
+                        };
                         progress.sections.insert(
                             Section::Skins,
                             SectionProgress {
                                 cursor: change.cursor,
                                 clean_to: change.clean_to.map(|_| generation),
-                                ..SectionProgress::outcome(outcome.clone())
+                                ..SectionProgress::outcome(skins_outcome)
                             },
                         );
                     }

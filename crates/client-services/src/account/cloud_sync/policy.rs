@@ -458,6 +458,11 @@ fn library_items(library: &str) -> Option<Vec<serde_json::Value>> {
     }
 }
 
+/// 皮肤库读不读得懂：是 JSON 数组才算。
+pub fn skin_library_readable(library: &str) -> bool {
+    library_items(library).is_some()
+}
+
 fn updated_at(item: &serde_json::Value) -> u64 {
     item.get("updated_at")
         .and_then(serde_json::Value::as_u64)

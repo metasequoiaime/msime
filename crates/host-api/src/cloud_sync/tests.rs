@@ -1425,6 +1425,66 @@ fn an_unreadable_local_skin_library_does_not_delete_the_cloud_library() {
         cloud.settings.get(policy::SKINS_KEY),
         Some(&string(&library))
     );
+    assert_eq!(
+        merged["sections"]["skins"]["reason"], LOCAL_SKINS_UNREADABLE,
+        "{merged}"
+    );
+}
+
+#[test]
+fn an_unreadable_cloud_skin_library_is_never_replaced_by_the_local_one() {
+    let capabilities = Capabilities {
+        settings: true,
+        skins_library: true,
+        ..Capabilities::default()
+    };
+    // 云端的皮肤库不是 JSON 数组（可能是更新的版本写的）：合并时不拿本机的库整份替换它。
+    let unreadable = json!({ "format": 2, "designs": [] }).to_string();
+    let local_library =
+        json!([{ "id": "local", "name": "local", "design": {}, "updated_at": 5 }]).to_string();
+    let fixture = Fixture::new();
+    fixture.api.cloud().preferences = AccountPreferences {
+        revision: 2,
+        settings: [
+            ("input.schema".to_owned(), string("wubi")),
+            (policy::SKINS_KEY.to_owned(), string(&unreadable)),
+        ]
+        .into(),
+    };
+    fixture.local.local().settings = [("input.schema".to_owned(), string("quanpin"))].into();
+    fixture.local.local().skins = Some(local_library.clone());
+    fixture.enable();
+    let merged = fixture.run(Trigger::Choice, Some(Choice::Merge), capabilities, NOW);
+    assert_eq!(merged["outcome"], "done", "{merged}");
+    assert_eq!(merged["sections"]["settings"]["outcome"], "synced");
+    assert_eq!(
+        merged["sections"]["skins"]["reason"], CLOUD_SKINS_UNREADABLE,
+        "{merged}"
+    );
+    let cloud = fixture.api.cloud().preferences.clone();
+    assert_eq!(cloud.revision, 3);
+    assert_eq!(cloud.settings.get("input.schema"), Some(&string("quanpin")));
+    assert_eq!(
+        cloud.settings.get(policy::SKINS_KEY),
+        Some(&string(&unreadable))
+    );
+    // 之后本机改了皮肤、云端没变（上传）：照样不替换。
+    store_mark(&fixture, Section::Skins);
+    let uploaded = fixture.run(Trigger::Manual, None, capabilities, NOW + 60_000);
+    assert_eq!(
+        uploaded["sections"]["skins"]["reason"], CLOUD_SKINS_UNREADABLE,
+        "{uploaded}"
+    );
+    assert_eq!(
+        fixture
+            .api
+            .cloud()
+            .preferences
+            .settings
+            .get(policy::SKINS_KEY),
+        Some(&string(&unreadable))
+    );
+    assert!(!fixture.state().sections.skins.dirty());
 }
 
 #[test]
