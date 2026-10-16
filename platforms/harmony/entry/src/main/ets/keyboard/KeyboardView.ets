@@ -1198,17 +1198,17 @@ struct KeyboardView {
     };
   }
 
-  /** 底排是否用网格面板那一套（「符」代替逗号，逗号等标点在侧栏）：九键拼音，或不在符号层的笔画键盘。 */
+  /** 底排是否用网格面板那一套（「符」代替逗号，逗号等标点在侧栏）：九键网格画着的时候（与 `typingFace` 的九键分支同一条件，英文九键的 123 页也是网格，0 只在这一排），或不在符号层的笔画键盘。 */
   private gridActionRow(): boolean {
-    return this.numberPadShowing() || (!this.symbols && KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode))
-      || (!this.touchDesign() && KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode))
+    return this.numberPadShowing() || (KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode)
+      && (!this.symbols || !this.moreSymbols || !this.touchDesign()))
       || (this.strokeFace() && !this.symbols);
   }
 
-  /** 中文数字入口复用现有九宫格，扩展符号页和独立语言仍走各自的键面。 */
+  /** 中文数字入口复用现有九宫格，扩展符号页和独立语言仍走各自的键面。日文按键盘自己的方案判定，26 键罗马字也算独立语言；`this.japanese` 只指假名网格。 */
   private numberPadShowing(): boolean {
     return this.touchDesign() && NineKeyLayout.opensNumberPad(this.symbols, this.moreSymbols,
-      this.english, this.localMode, this.japanese || this.koreanFace() || this.vietnameseFace()
+      this.english, this.localMode, this.scheme.engineScheme === 'japanese' || this.koreanFace() || this.vietnameseFace()
         || this.tibetanFace() || this.zhuyinFace());
   }
 
