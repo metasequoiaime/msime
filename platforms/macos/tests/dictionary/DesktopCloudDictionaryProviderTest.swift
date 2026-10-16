@@ -16,6 +16,7 @@ import CryptoKit
   var lastExport: URL?
   var snapshotSource: URL?
   var lastCode = ""
+  var lastProfile = ""
   var lastPosition: Int?
   var lastReplacement: BackendAccountClient.DictionaryValue?
   var lastMode: BackendAccountClient.RankingMode?
@@ -49,7 +50,7 @@ import CryptoKit
     return .init(revision:1, previous:nil, replacement:nil)
   }
   func personalCandidates(_ query: BackendAccountClient.CandidateQuery, token: String) async throws -> BackendAccountClient.PersonalCandidates {
-    try tick(); assert(query.text == "heig" && query.scheme == "shuangpin")
+    try tick(); lastProfile = query.profile; assert(query.text == "heig" && query.scheme == "shuangpin")
     return .init(candidates:[.init(code:"heig", word:"合成", weight:100, canonical_pinyin:"he'cheng")], context:"pinyin:he'cheng", revision:0)
   }
   func rankCandidate(_ candidate: BackendAccountClient.PersonalCandidate, query: BackendAccountClient.CandidateQuery, revision: Int64, mode: BackendAccountClient.RankingMode, step: Int, trigger: Int, forceTop: Bool, token: String) async throws -> BackendAccountClient.RankingResult {
@@ -314,6 +315,9 @@ import CryptoKit
       var request = query; request["kind"] = kind
       _ = try await provider.execute(request as NSDictionary)
     }
+    query["profile"] = "smart_abc"
+    _ = try await provider.execute(query as NSDictionary)
+    assert(api.lastProfile == "smart_abc")
     query.merge(["operation":"rank", "code":"he'cheng", "word":"合成", "revision":0, "linear_step":3, "trigger_count":2, "force_top":true]) { _, new in new }
     for mode in BackendAccountClient.RankingMode.allCases {
       query["mode"] = mode.rawValue

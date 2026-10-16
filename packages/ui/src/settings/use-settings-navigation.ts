@@ -1,6 +1,7 @@
 import {
   useEffect,
   useRef,
+  useState,
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
@@ -19,7 +20,7 @@ export interface SettingsNavigationOptions {
   mobilePlatform: boolean;
   mobileHiddenPageIds: readonly SettingsPageId[];
   availablePages: readonly { id: SettingsPageId }[];
-  /** 并进别的页的页 id 指向现在承载它的页（见 `settingsPageProjections`）；打开旧 id 时打开承载页。 */
+  /** 合并到其他页的旧 id 映射到当前承载页。 */
   pageAliases?: Partial<Record<SettingsPageId, SettingsPageId>>;
   page: SettingsPageId;
   setPage: Dispatch<SetStateAction<SettingsPageId>>;
@@ -33,7 +34,7 @@ export interface SettingsNavigationOptions {
 
 const noPageAliases: Partial<Record<SettingsPageId, SettingsPageId>> = {};
 
-/** Owns mobile settings history, tab memory, and route-driven page selection. */
+/** 管理移动设置页的历史记录、标签记忆与外部路由。 */
 export function useSettingsNavigation({
   mobilePlatform,
   mobileHiddenPageIds,
@@ -48,16 +49,31 @@ export function useSettingsNavigation({
   setAccountLoginReturnPage,
   accountLoginReturnPage,
 }: SettingsNavigationOptions) {
-  const mobileActiveTab = mobileTabForPage(page);
+  const [mobileActiveTab, setMobileActiveTab] = useState<MobilePrimaryPageId>(() =>
+    mobileTabForPage(page),
+  );
+  const loginReturnTab = useRef<MobilePrimaryPageId>(mobileActiveTab);
   const handledRoute = useRef(route?.nonce);
 
   /** 打开 `next`。在移动端它是一条新的 WebView 历史记录，因此系统返回手势可以返回；`replace` 则用它替换当前记录，用于从背后没有设置记录的页面向上返回。 */
-  const selectPage = (requested: SettingsPageId, replace = false) => {
+  const selectPage = (
+    requested: SettingsPageId,
+    replace = false,
+    sourceTab?: MobilePrimaryPageId,
+  ) => {
     const next = pageAliases[requested] ?? requested;
     if (mobilePlatform && mobileHiddenPageIds.includes(next)) return;
-    if (next === page) return;
+    const owner =
+      sourceTab ??
+      (mobilePrimaryPageIds.includes(next as MobilePrimaryPageId)
+        ? (next as MobilePrimaryPageId)
+        : mobileActiveTab);
+    if (next === page && owner === mobileActiveTab) return;
     if (page === "account" && next !== "account") setAccountLoginReturnPage(null);
-    if (mobilePlatform) mobileLastPageByTab.current[mobileTabForPage(next)] = next;
+    if (mobilePlatform) {
+      mobileLastPageByTab.current[owner] = next;
+      setMobileActiveTab(owner);
+    }
     setPage(next);
     if (mobilePlatform && typeof window !== "undefined") {
       const current = window.history.state;
@@ -65,6 +81,7 @@ export function useSettingsNavigation({
         ...(current && typeof current === "object" ? current : {}),
         msimeSettings: true,
         page: next,
+        tab: owner,
       } as Record<string, unknown>;
       delete state.panel;
       if (replace) window.history.replaceState(state, "");
@@ -76,14 +93,13 @@ export function useSettingsNavigation({
   useEffect(() => {
     if (!route || route.nonce === handledRoute.current) return;
     handledRoute.current = route.nonce;
-    // A route to a page this host does not offer opens 输入 rather than an empty page.
-    selectPage(
-      requestedPage(
-        pageAliases[route.page as SettingsPageId] ?? route.page,
-        availablePages,
-        "input",
-      ),
+    // 宿主未提供的路由回到输入页，并恢复该页默认的标签归属。
+    const next = requestedPage(
+      pageAliases[route.page as SettingsPageId] ?? route.page,
+      availablePages,
+      "input",
     );
+    selectPage(next, false, mobileTabForPage(next));
     // Route nonces intentionally provide the effect's identity; the page callback reads current state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.nonce]);
@@ -95,7 +111,12 @@ export function useSettingsNavigation({
     const current = window.history.state;
     if (!current || current.msimeSettings !== true) {
       window.history.replaceState(
-        { ...(current && typeof current === "object" ? current : {}), msimeSettings: true, page },
+        {
+          ...(current && typeof current === "object" ? current : {}),
+          msimeSettings: true,
+          page,
+          tab: mobileActiveTab,
+        },
         "",
       );
     }
@@ -106,7 +127,11 @@ export function useSettingsNavigation({
     if (state?.msimeSettings !== true || typeof state.page !== "string") return;
     const restored = requestedPage(state.page, availablePages, "input");
     if (restored !== "account") setAccountLoginReturnPage(null);
-    mobileLastPageByTab.current[mobileTabForPage(restored)] = restored;
+    const owner = mobilePrimaryPageIds.includes(state.tab as MobilePrimaryPageId)
+      ? (state.tab as MobilePrimaryPageId)
+      : mobileTabForPage(restored);
+    mobileLastPageByTab.current[owner] = restored;
+    setMobileActiveTab(owner);
     setPage(restored);
   });
 
@@ -121,11 +146,18 @@ export function useSettingsNavigation({
     }
     const remembered = mobileLastPageByTab.current[primary];
     const available = availablePages.some((item) => item.id === remembered);
-    selectPage(available && !mobileHiddenPageIds.includes(remembered) ? remembered : primary);
+    selectPage(
+      available && !mobileHiddenPageIds.includes(remembered) ? remembered : primary,
+      false,
+      primary,
+    );
   };
 
   const openAccountLogin = () => {
-    if (mobilePlatform) setAccountLoginReturnPage(page);
+    if (mobilePlatform) {
+      loginReturnTab.current = mobileActiveTab;
+      setAccountLoginReturnPage(page);
+    }
     selectPage("account");
   };
 
@@ -133,13 +165,14 @@ export function useSettingsNavigation({
     const previous = accountLoginReturnPage;
     setAccountLoginReturnPage(null);
     if (!previous) return;
-    mobileLastPageByTab.current[mobileTabForPage(previous)] = previous;
+    mobileLastPageByTab.current[loginReturnTab.current] = previous;
+    setMobileActiveTab(loginReturnTab.current);
     setPage(previous);
     if (mobilePlatform && typeof window !== "undefined") window.history.back();
   };
 
   useEffect(() => {
-    // 启动时请求的页（`initialPage`）或记住的页已经并进别的页时，打开承载它的页。
+    // 已合并的旧页面仍属于打开它的标签，不能在别名重定向时跳到其他标签。
     const alias = pageAliases[page];
     if (alias) {
       setPage(alias);
@@ -148,7 +181,11 @@ export function useSettingsNavigation({
     const pageAvailable =
       availablePages.some((item) => item.id === page) &&
       (!mobilePlatform || !mobileHiddenPageIds.includes(page));
-    if (!pageAvailable) setPage(mobilePlatform && hasHomePage ? "home" : "input");
+    if (!pageAvailable) {
+      const fallback = mobilePlatform && hasHomePage ? "home" : "input";
+      setMobileActiveTab(mobileTabForPage(fallback));
+      setPage(fallback);
+    }
   }, [
     availablePages,
     hasHomePage,

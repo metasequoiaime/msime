@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guard Harmony streamed downloads when the destination cannot be opened."""
+"""守住鸿蒙流式下载在目标文件无法打开时的清理路径。"""
 
 from pathlib import Path
 
@@ -7,6 +7,7 @@ from pathlib import Path
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     source = (root / "platforms/harmony/entry/src/main/ets/account/HarmonyAccountCloudBridge.ets").read_text()
+    cleanup = (root / "platforms/harmony/entry/src/main/ets/keyboard/NativeCleanup.ets").read_text()
     start = source.index("  async download(")
     body = source[start : source.index("\n  async uploadSnapshot(", start)]
     helper_start = source.index("  private openSafeDestination(")
@@ -22,8 +23,11 @@ def main() -> int:
             "const pathStat: fs.Stat = fs.lstatSync(destination);" in helper
             and "const opened: fs.Stat = fs.statSync(handle.fd);" in helper
             and "opened.ino !== pathStat.ino" in helper,
-        "request is destroyed on open failure": "if (handle !== undefined) fs.closeSync(handle);" in body
-            and "request.destroy();" in body,
+        "request is destroyed on open failure": "if (handle !== undefined) NativeCleanup.close(handle);" in body
+            and "request.destroy();" in body and "} finally {" in body,
+        "close failures do not interrupt request destruction":
+            "fs.closeSync(file);" in cleanup and "catch {" in cleanup
+            and "KeyboardLog.error('native file cleanup failed');" in cleanup,
         "export staging directory rejects symlinks":
             "if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);" in export_body
             and "if (!this.safeDirectory(directory))" in export_body,

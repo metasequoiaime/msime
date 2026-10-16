@@ -350,6 +350,7 @@ int main() {
   require(tray_menu_shuangpin_label("ziranma") == "双拼（自然码）");
   require(tray_menu_shuangpin_label("microsoft") == "双拼（微软）");
   require(tray_menu_shuangpin_label("shoudao") == "双拼（首道）");
+  require(tray_menu_shuangpin_label("smart_abc") == "双拼（智能 ABC）");
   require(tray_menu_shuangpin_label("unknown") == "双拼");
   // 五笔一行跟随存储的码表版本，不认识的版本退回方案名。
   require(tray_menu_wubi_label("wubi86") == "五笔 86");

@@ -329,6 +329,8 @@ int main() {
          TypingSource::Microsoft);
   assert(resolve_typing_source(1, false, false, "none", "shoudao") ==
          TypingSource::Shoudao);
+  assert(resolve_typing_source(1, false, false, "none", "smart_abc") == TypingSource::SmartAbc);
+  assert(typing_source_id(TypingSource::SmartAbc) == "smart_abc");
   assert(resolve_typing_source(2, false, false, "none", "xiaohe") ==
          TypingSource::Wubi);
   assert(resolve_typing_source(3, false, false, "none", "xiaohe") ==

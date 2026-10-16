@@ -3,6 +3,9 @@ import UIKit
 
 /// 手机上的 设置 标签页：搜索框、键盘状态卡片，然后是按移动端设计稿分组卡片排列的各设置页。各行来自 SettingsPage，iPad 侧边栏也读同一份。
 struct SettingsView: View {
+  var navigationTitle: String = "设置"
+  var showsStatusCard = true
+  var handlesExternalRoutes = true
   @Environment(\.scenePhase) private var scenePhase
   @EnvironmentObject private var router: SettingsRouter
   @EnvironmentObject private var navigation: AppNavigation
@@ -30,7 +33,7 @@ struct SettingsView: View {
               Task.detached(priority: .utility) { AppNotices.dismiss(notice.id) }
             }
           }
-          KeyboardStatusCard(scheme: scheme, tryout: navigation.openChat)
+          if showsStatusCard { KeyboardStatusCard(scheme: scheme, tryout: navigation.openChat) }
         }
         ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
           DesignCard(radius: MetasequoiaTheme.cardRadius) {
@@ -48,11 +51,12 @@ struct SettingsView: View {
     .overlay {
       if groups.isEmpty { ContentUnavailableView.search(text: query) }
     }
-    .navigationTitle("设置")
+    .navigationTitle(navigationTitle)
     .navigationBarTitleDisplayMode(.large)
-    .navigationDestination(item: $router.settingsPage) { $0.destination }
+    .navigationDestination(item: Binding(get: { handlesExternalRoutes && navigation.tab == .settings ? router.settingsPage : nil },
+      set: { if handlesExternalRoutes && navigation.tab == .settings { router.settingsPage = $0 } })) { $0.destination }
     .onAppear { refresh() }
-    .onChange(of: scenePhase) { if $0 == .active { refresh(); Task { await loadNotices() } } }
+    .onChange(of: scenePhase) { _, phase in if phase == .active { refresh(); Task { await loadNotices() } } }
     .task { await loadNotices() }
     .tint(MetasequoiaTheme.accent)
   }

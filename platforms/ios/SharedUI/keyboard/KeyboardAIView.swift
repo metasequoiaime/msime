@@ -47,7 +47,7 @@ struct KeyboardAIView: View {
         }
         .accessibilityIdentifier("keyboardAIScroll")
         .disablingScrollEdgeEffects()
-        .onChange(of: errorID) { _ in proxy.scrollTo("status", anchor: .top) }
+        .onChange(of: errorID) { proxy.scrollTo("status", anchor: .top) }
       }
       HStack {
         if busy {

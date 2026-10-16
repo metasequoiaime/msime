@@ -23,7 +23,7 @@ const NIGHT_HOURS: [usize; 5] = [23, 0, 1, 2, 3];
 /// 「早起鸟」计入的本地小时：4 点到 5 点，也就是早上 6 点以前。
 const EARLY_HOURS: [usize; 2] = [4, 5];
 /// 算作双拼的输入来源。
-const SHUANGPIN_SOURCES: [&str; 4] = ["shuangpin", "ziranma", "microsoft", "shoudao"];
+const SHUANGPIN_SOURCES: [&str; 5] = ["shuangpin", "ziranma", "microsoft", "shoudao", "smart_abc"];
 /// 每字按键数的分子除了 `KeyA`–`KeyZ`，还有九键上带字母的 2–9 格；其余按键（空格、退格、符号）不是在拼字。
 const NINE_SPELLING_KEYS: [&str; 8] = [
     "Nine2", "Nine3", "Nine4", "Nine5", "Nine6", "Nine7", "Nine8", "Nine9",

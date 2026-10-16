@@ -1,14 +1,18 @@
-# The iOS library is consumed as the static `libapp.a` the Tauri CLI hands to Xcode, but
-# `cargo build --lib` also produces the cdylib, and that one has to link on its own. Four of its
-# symbols are Swift `@_cdecl` exports -- the personal-dictionary and snapshot bridges -- which
-# Xcode compiles into the app target, so they do not exist yet when cargo links. Deferring their
-# resolution is what lets the documented iOS build get past that link; the app binary still
-# resolves them for real when Xcode links the static library against the Swift objects.
-#
-# Scoped to the two iOS targets on purpose. A workspace-wide relaxation would hide genuinely
-# missing symbols on every other platform, which is the failure this exists to avoid.
+# Tauri 的 iOS cdylib 先于 Swift 宿主链接；只延后解析这四个由宿主导出的桥接符号。
+# 静态库在 Xcode 最终链接时仍必须找到真实实现，其余未定义符号继续报错。
+# 使用逐符号的 -U，避免 iOS 已弃用的全局 -undefined dynamic_lookup。
 [target.aarch64-apple-ios]
-rustflags = ["-C", "link-arg=-Wl,-undefined,dynamic_lookup"]
+rustflags = [
+  "-C", "link-arg=-Wl,-U,_msime_ios_personal_dictionary_request",
+  "-C", "link-arg=-Wl,-U,_msime_ios_personal_dictionary_string_free",
+  "-C", "link-arg=-Wl,-U,_msime_ios_dictionary_snapshot_request",
+  "-C", "link-arg=-Wl,-U,_msime_ios_dictionary_snapshot_string_free"
+]
 
 [target.aarch64-apple-ios-sim]
-rustflags = ["-C", "link-arg=-Wl,-undefined,dynamic_lookup"]
+rustflags = [
+  "-C", "link-arg=-Wl,-U,_msime_ios_personal_dictionary_request",
+  "-C", "link-arg=-Wl,-U,_msime_ios_personal_dictionary_string_free",
+  "-C", "link-arg=-Wl,-U,_msime_ios_dictionary_snapshot_request",
+  "-C", "link-arg=-Wl,-U,_msime_ios_dictionary_snapshot_string_free"
+]

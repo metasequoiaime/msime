@@ -14,6 +14,11 @@ use tauri::Manager;
 #[cfg(target_os = "ios")]
 tauri::ios_plugin_binding!(init_plugin_msime_mobile_platform);
 
+/// Android 语音桥调用或参数校验失败，不携带平台返回的敏感内容。
+#[cfg(target_os = "android")]
+#[derive(Debug)]
+pub struct AndroidVoiceError;
+
 #[cfg(target_os = "android")]
 #[derive(Clone)]
 pub struct AndroidVoicePlatform<R: Runtime>(PluginHandle<R>);
@@ -106,9 +111,9 @@ impl<R: Runtime> AndroidVoicePlatform<R> {
         language: &str,
         provider: Option<MobileVoiceTranscriptionRequest>,
         polish: Option<AndroidVoicePolishRequest>,
-    ) -> Result<String, ()> {
+    ) -> Result<String, AndroidVoiceError> {
         if !valid_android_voice_request(request_id, language) {
-            return Err(());
+            return Err(AndroidVoiceError);
         }
         let provider = provider.filter(MobileVoiceTranscriptionRequest::is_valid);
         let polish = polish.filter(AndroidVoicePolishRequest::is_valid);
@@ -124,41 +129,41 @@ impl<R: Runtime> AndroidVoicePlatform<R> {
                 },
             )
             .await
-            .map_err(|_| ())?;
+            .map_err(|_| AndroidVoiceError)?;
         if !msime_client_core::is_bounded_chars_without_nul(&response.text, 10_000) {
-            return Err(());
+            return Err(AndroidVoiceError);
         }
         Ok(response.text)
     }
 
-    pub fn stop_voice(&self, request_id: &str) -> Result<(), ()> {
+    pub fn stop_voice(&self, request_id: &str) -> Result<(), AndroidVoiceError> {
         if !valid_android_voice_request(request_id, "und") {
-            return Err(());
+            return Err(AndroidVoiceError);
         }
         self.0
             .run_mobile_plugin("stopVoice", serde_json::json!({ "requestId": request_id }))
-            .map_err(|_| ())
+            .map_err(|_| AndroidVoiceError)
     }
 
-    pub fn cancel_voice(&self, request_id: Option<&str>) -> Result<(), ()> {
+    pub fn cancel_voice(&self, request_id: Option<&str>) -> Result<(), AndroidVoiceError> {
         if request_id.is_some_and(|value| !valid_android_voice_request(value, "und")) {
-            return Err(());
+            return Err(AndroidVoiceError);
         }
         self.0
             .run_mobile_plugin(
                 "cancelVoice",
                 serde_json::json!({ "requestId": request_id }),
             )
-            .map_err(|_| ())
+            .map_err(|_| AndroidVoiceError)
     }
 
-    pub fn save_voice_text(&self, text: &str) -> Result<(), ()> {
+    pub fn save_voice_text(&self, text: &str) -> Result<(), AndroidVoiceError> {
         if !valid_mobile_voice_text(text) {
-            return Err(());
+            return Err(AndroidVoiceError);
         }
         self.0
             .run_mobile_plugin("saveVoiceText", serde_json::json!({ "text": text }))
-            .map_err(|_| ())
+            .map_err(|_| AndroidVoiceError)
     }
 }
 

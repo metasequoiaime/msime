@@ -864,214 +864,194 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
    * directory against the pinned lock and rejects any file the lock does not name.
    */
   async onCreate(want: Want): Promise<void> {
-    const files: string = this.context.filesDir;
-    const resources: string = `${files}/engine`;
-    const state: string = `${files}/state`;
-    if (!fs.accessSync(state)) {
-      fs.mkdirSync(state, true);
-    }
-    // 设置应用经共享沙箱发布的偏好、皮肤、插件等，在会话第一次读它们之前导入；拿不到共享目录时照旧只用自己的 files/state。
-    const groupDir: string | null = await SharedStateMirror.resolve(this.context);
-    const sharedSandbox = HarmonySharedSandboxPolicy.status(groupDir);
-    if (sharedSandbox.available) {
-      const mirror: SharedStateMirror = new SharedStateMirror(sharedSandbox.directory, files);
-      const fullMode = (): boolean => this.fullAccessMode();
-      KeyboardSession.shared.useSharedSandbox(mirror, fullMode);
-      SharedStateSync.keyboardSync(mirror, state, fullMode());
-    }
-    // Covers a keyboard enabled without the app ever being opened; the app's first launch does the same, and whichever runs first registers the account.
-    client.ensureAnonymousAccount(state).catch((error: Error): void => {
-      KeyboardLog.error(`anonymous account: ${describeError(error)}`);
-    });
-    // One usage-reporting session per keyboard process, started before the early returns below so a process that never gets a panel still has one.
-    HarmonyTelemetry.keyboardStarted(state);
-    if (!StagedResources.stage(`${this.context.resourceDir}/engine`, resources,
-        `${files}/engine.ready`)) {
-      return;
-    }
-    // Optional non-English candidate glosses, staged beside the resources where the Engine looks for them, on the same ordinary storage SQLite needs. A package built without them removes any an earlier one left; either way the keyboard still starts.
-    const glosses: string = `${this.context.resourceDir}/offline-glosses`;
-    if (fs.accessSync(glosses)) {
-      StagedResources.stage(glosses, `${files}/offline-glosses`, `${files}/offline-glosses.ready`);
-    } else {
-      StagedResources.unstage(`${files}/offline-glosses`, `${files}/offline-glosses.ready`);
-    }
-    StagedResources.stageLanguageDictionaries(this.context.resourceDir, files);
-    // The extension context knows the system colour mode; the view has no context of its own to ask.
-    const systemDark: boolean =
-      this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
-    // The packaged recording tones are read through this context, which the session has none of.
-    KeyboardSession.shared.useVoiceContext(this.context);
-    // The built-in sound packs are read from, and pitched notes written under, this context's directories.
-    KeyboardSession.shared.useSoundContext(this.context);
-    const started: boolean = KeyboardSession.shared.start(resources, state, systemDark);
-    if (!started) {
-      // Without a session there is nothing to show. Leaving the panel uncreated keeps the framework
-      // from presenting an inert keyboard.
-      KeyboardLog.error('onCreate: no session, panel not created');
-      return;
-    }
-    engine.on('inputStart', this.started);
-    engine.on('inputStop', this.stopped);
-    inputMethodEngine.getKeyboardDelegate().on('selectionChange', this.selectionChanged);
-    inputMethodEngine.getKeyboardDelegate().on('textChange', this.textChanged);
-    // Which gestures are bound is the document's business, so the keyboard and the settings page
-    // cannot disagree about what a key does. Bound before any key can arrive, on every device: a
-    // keyboard may be plugged into this one later.
-    this.modeKeys.use(KeyboardSession.shared.modeBindings());
-    // Every device, not only the one with a toolbar: a phone reaches the settings application from its tools panel.
-    KeyboardSession.shared.onOpenSettings = (page: string | undefined): void => {
-      this.openSettings(page);
-    };
-    KeyboardSession.shared.onPreferencesReloaded = (): void => {
-      this.preferencesReloaded();
-    };
-    if (KeyboardFormFactor.isDesktop()) {
-      // A candidate window belongs beside the text it is offering candidates for, not at a fixed
-      // place on the screen, so it follows the caret the editor reports. Only a candidate window has
-      // anywhere to go: a fixed soft keyboard sits at the bottom wherever the caret is.
-      inputMethodEngine.getKeyboardDelegate().on('cursorContextChange', this.caretMoved);
-    }
-    // Where the keys are the machine's, routing them is the only way anything reaches the Engine at
-    // all: nothing is ever tapped on a panel that draws no keys. Where they are not, an attached
-    // keyboard still has to compose — unrouted, the framework hands the key to the editor and a
-    // phone with a keyboard types raw letters — so the enumeration decides, and keeps deciding as
-    // keyboards come and go.
-    this.routeKeysWhenAttached();
-    // A machine with its own keys gets a candidate window rather than a keyboard. The framework does
-    // not show or hide a FLAG_CANDIDATE panel for you, which costs nothing here: this host has always
-    // driven show and hide itself from inputStart and inputStop rather than leaving it to the
-    // framework. The flag is chosen at creation instead of switched afterwards with changeFlag, which
-    // requires hiding the panel first and would only be worth that if a device could change what it
-    // is while running.
-    const desktop: boolean = KeyboardFormFactor.isDesktop();
-    const info: inputMethodEngine.PanelInfo = {
-      type: inputMethodEngine.PanelType.SOFT_KEYBOARD,
-      flag: desktop ? inputMethodEngine.PanelFlag.FLAG_CANDIDATE
-        : inputMethodEngine.PanelFlag.FLG_FIXED
-    };
     try {
-      const panel: inputMethodEngine.Panel = await engine.createPanel(this.context, info);
-      // onDestroy can arrive while the framework is still creating or populating the panel. Do
-      // not attach a late panel after teardown; otherwise the ability leaks a window with no host
-      // callbacks left to hide or destroy it.
-      if (this.tornDown) {
-        await engine.destroyPanel(panel);
+      const files: string = this.context.filesDir;
+      const resources: string = `${files}/engine`;
+      const state: string = `${files}/state`;
+      if (!fs.accessSync(state)) {
+        fs.mkdirSync(state, true);
+      }
+      // 设置应用经共享沙箱发布的偏好、皮肤、插件等，在会话第一次读它们之前导入；拿不到共享目录时照旧只用自己的 files/state。
+      const groupDir: string | null = await SharedStateMirror.resolve(this.context);
+      const sharedSandbox = HarmonySharedSandboxPolicy.status(groupDir);
+      if (sharedSandbox.available) {
+        const mirror: SharedStateMirror = new SharedStateMirror(sharedSandbox.directory, files);
+        const fullMode = (): boolean => this.fullAccessMode();
+        KeyboardSession.shared.useSharedSandbox(mirror, fullMode);
+        SharedStateSync.keyboardSync(mirror, state, fullMode());
+      }
+      // 覆盖从未打开应用就启用键盘的场景；应用首次启动也会注册账号，由先运行的一方完成。
+      client.ensureAnonymousAccount(state).catch((error: Error): void => {
+        KeyboardLog.error(`anonymous account: ${describeError(error)}`);
+      });
+      // 每个键盘进程只启动一个用量上报会话；在下方提前返回之前创建，让没有面板的进程也能上报。
+      HarmonyTelemetry.keyboardStarted(state);
+      if (!StagedResources.stage(`${this.context.resourceDir}/engine`, resources,
+          `${files}/engine.ready`)) {
         return;
       }
-      this.panel = panel;
-      await panel.setUiContent('keyboard/KeyboardView');
-      if (this.tornDown) {
-        if (this.panel === panel) {
-          this.panel = undefined;
-          await engine.destroyPanel(panel);
-        }
-        return;
-      }
-      // A panel has no size until it is given one, and a zero-height panel never appears. The height
-      // is the candidate row plus four key rows, or the strip alone where the keys are not drawn; the
-      // width is the display width, which the panel reports through its own window rather than being
-      // assumed here.
-      // vp2px is a UI-context global and an extension ability has no UI context here, so the
-      // conversion is done from the display's own density rather than borrowed from the environment.
-      const screen: display.Display = display.getDefaultDisplaySync();
-      // The same numbers the view lays itself out with; a panel that disagrees clips its bottom row.
-      const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
-      const heightVp: number = desktop
-        ? KeyboardMetrics.candidateHeightVp(settings.candidateLayout, 0,
-          settings.candidateShowPreedit, settings.candidateDecorationTopVp,
-          KeyboardSession.shared.glossRows(), settings.candidateFontSize,
-          settings.candidatePreeditFontSize)
-        : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
-          KeyboardSession.shared.glossRows(), settings.candidateFontSize,
-          settings.candidatePreeditFontSize);
-      // A soft keyboard is as wide as the screen because it has to be; a candidate window is as wide
-      // as its content, and covering the width of a desktop with one would hide the very text the
-      // candidates are for.
-      const widthPx: number = desktop
-        ? Math.round(KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP * screen.densityPixels)
-        : screen.width;
-      this.density = screen.densityPixels;
-      this.screenWidth = screen.width;
-      this.screenHeight = screen.height;
-      await panel.resize(widthPx, Math.round(heightVp * screen.densityPixels));
-      if (this.tornDown) {
-        if (this.panel === panel) {
-          this.panel = undefined;
-          await engine.destroyPanel(panel);
-        }
-        return;
-      }
-      // The view asks; only the ability holds the panel.
-      KeyboardSession.shared.onDismiss = (): void => {
-        panel.hide();
-      };
-      if (desktop) {
-        KeyboardSession.shared.onCandidateWidth = (widthVp: number): void => {
-          this.candidateWidthVp = widthVp;
-        };
-        KeyboardSession.shared.onCandidateCount = (count: number): void => {
-          this.candidateCount = count;
-          if (KeyboardSession.shared.composing()
-            && KeyboardSession.shared.openSurface() === DesktopSurface.NONE) {
-            this.resizeCandidateWindow(DesktopSurface.NONE).then((): void => {
-              this.placeCandidateWindow();
-            }).catch((error: Object): void => {
-              KeyboardLog.error(`candidate window would not resize: ${describeError(error)}`);
-            });
-          }
-        };
-        KeyboardSession.shared.onComposition = (active: boolean): void => {
-          // A surface the toolbar opened stays open across a composition; it was asked for, and a
-          // window that shut itself the moment a word was typed would be useless for picking an
-          // emoji to put in that word.
-          if (KeyboardSession.shared.openSurface() !== DesktopSurface.NONE) {
-            return;
-          }
-          if (active) {
-            this.candidateAnchor = KeyboardSession.shared.preferences().candidateFollowCursor
-              ? undefined : [this.caret[0], this.caret[1], this.caret[2]] as CandidateAnchor;
-            this.resizeCandidateWindow(DesktopSurface.NONE);
-            this.placeCandidateWindow();
-            panel.show();
-          } else {
-            this.candidateAnchor = undefined;
-            this.candidateWidthVp = KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP;
-            panel.hide();
-          }
-        };
-        KeyboardSession.shared.onSurfaceRequested = (surface: DesktopSurface): void => {
-          this.showDesktopSurface(surface);
-        };
+      // 可选的非英文候选释义暂存到引擎资源旁的普通存储目录，满足 SQLite 要求；当前包不带释义时移除旧文件，不阻止键盘启动。
+      const glosses: string = `${this.context.resourceDir}/offline-glosses`;
+      if (fs.accessSync(glosses)) {
+        StagedResources.stage(glosses, `${files}/offline-glosses`, `${files}/offline-glosses.ready`);
       } else {
-        KeyboardSession.shared.onTouchHeight = (requestedHeightVp: number): void => {
-          panel.resize(screen.width, Math.round(requestedHeightVp * this.density))
-            .catch((error: Object): void => {
-              KeyboardLog.error(`touch keyboard would not resize: ${describeError(error)}`);
-            });
-        };
+        StagedResources.unstage(`${files}/offline-glosses`, `${files}/offline-glosses.ready`);
       }
-      if (desktop) {
-        await this.reconcileStatusPanels();
+      StagedResources.stageLanguageDictionaries(this.context.resourceDir, files);
+      // 扩展上下文提供系统颜色模式，视图本身没有可查询的上下文。
+      const systemDark: boolean =
+        this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
+      // 通过该上下文读取随包录音提示音，会话本身不持有上下文。
+      KeyboardSession.shared.useVoiceContext(this.context);
+      // 在该上下文的目录中读取内置音效包并写入变调音符。
+      KeyboardSession.shared.useSoundContext(this.context);
+      const started: boolean = KeyboardSession.shared.start(resources, state, systemDark);
+      if (!started) {
+        // 没有会话就不创建面板，避免系统显示无法响应的键盘。
+        KeyboardLog.error('onCreate: no session, panel not created');
+        return;
       }
-      KeyboardLog.info(`panel ready: ${KeyboardFormFactor.describe()}, `
-        + `${desktop ? 'candidate window' : 'soft keyboard'}`
-        + `${this.toolbar !== undefined ? ', with toolbar' : ''}`
-        + `${this.hud !== undefined ? ', with mode badge' : ''}`);
-      // Serve whatever focused while the panel was still being built.
-      if (this.pending !== undefined) {
-        KeyboardSession.shared.attach(this.pending);
-        this.pending = undefined;
-        if (!desktop) {
-          this.panel.show();
+      engine.on('inputStart', this.started);
+      engine.on('inputStop', this.stopped);
+      inputMethodEngine.getKeyboardDelegate().on('selectionChange', this.selectionChanged);
+      inputMethodEngine.getKeyboardDelegate().on('textChange', this.textChanged);
+      // 手势绑定取自偏好文档，保证键盘与设置页一致；每种设备都在接收按键前完成绑定，兼容之后插入的实体键盘。
+      this.modeKeys.use(KeyboardSession.shared.modeBindings());
+      // 所有设备都绑定设置入口，手机也可以从工具面板打开设置应用。
+      KeyboardSession.shared.onOpenSettings = (page: string | undefined): void => {
+        this.openSettings(page);
+      };
+      KeyboardSession.shared.onPreferencesReloaded = (): void => {
+        this.preferencesReloaded();
+      };
+      if (KeyboardFormFactor.isDesktop()) {
+        // 候选窗口跟随编辑器报告的光标，显示在对应文本旁；固定软键盘始终位于屏幕底部，不随光标移动。
+        inputMethodEngine.getKeyboardDelegate().on('cursorContextChange', this.caretMoved);
+      }
+      // 设备自带实体键盘时必须路由按键，否则没有软键可向引擎发送输入；手机外接键盘也需同样处理，避免系统直接向编辑器写入字母。随键盘接入与移除持续更新设备枚举结果。
+      this.routeKeysWhenAttached();
+      // 设备自带实体键盘时创建候选窗口；`FLAG_CANDIDATE` 面板由宿主在 `inputStart` 与 `inputStop` 中自行控制显隐。创建时确定标志，避免使用必须先隐藏面板的 `changeFlag`。
+      const desktop: boolean = KeyboardFormFactor.isDesktop();
+      const info: inputMethodEngine.PanelInfo = {
+        type: inputMethodEngine.PanelType.SOFT_KEYBOARD,
+        flag: desktop ? inputMethodEngine.PanelFlag.FLAG_CANDIDATE
+          : inputMethodEngine.PanelFlag.FLG_FIXED
+      };
+      try {
+        const panel: inputMethodEngine.Panel = await engine.createPanel(this.context, info);
+        // 系统仍在创建或填充面板时也可能触发 `onDestroy`；销毁后不再挂载迟到的面板，避免窗口失去宿主清理回调而泄漏。
+        if (this.tornDown) {
+          await engine.destroyPanel(panel);
+          return;
         }
+        this.panel = panel;
+        await panel.setUiContent('keyboard/KeyboardView');
+        if (this.tornDown) {
+          if (this.panel === panel) {
+            this.panel = undefined;
+            await engine.destroyPanel(panel);
+          }
+          return;
+        }
+        // 面板必须明确设置尺寸；高度为候选行加四行按键，不绘制按键时只保留候选条。宽度通过面板窗口读取。
+        // 扩展能力此处没有 UI 上下文，不能调用全局 `vp2px`，改用屏幕密度换算。
+        const screen: display.Display = display.getDefaultDisplaySync();
+        // 面板尺寸与视图布局使用同一组数值，避免裁掉最底行。
+        const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
+        const heightVp: number = desktop
+          ? KeyboardMetrics.candidateHeightVp(settings.candidateLayout, 0,
+            settings.candidateShowPreedit, settings.candidateDecorationTopVp,
+            KeyboardSession.shared.glossRows(), settings.candidateFontSize,
+            settings.candidatePreeditFontSize)
+          : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment,
+            KeyboardSession.shared.glossRows(), settings.candidateFontSize,
+            settings.candidatePreeditFontSize);
+        // 软键盘占满屏幕宽度，候选窗口只按内容取宽，避免在桌面上遮住候选所对应的文本。
+        const widthPx: number = desktop
+          ? Math.round(KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP * screen.densityPixels)
+          : screen.width;
+        this.density = screen.densityPixels;
+        this.screenWidth = screen.width;
+        this.screenHeight = screen.height;
+        await panel.resize(widthPx, Math.round(heightVp * screen.densityPixels));
+        if (this.tornDown) {
+          if (this.panel === panel) {
+            this.panel = undefined;
+            await engine.destroyPanel(panel);
+          }
+          return;
+        }
+        // 视图发出请求，由持有面板的扩展能力执行。
+        KeyboardSession.shared.onDismiss = (): void => {
+          panel.hide();
+        };
+        if (desktop) {
+          KeyboardSession.shared.onCandidateWidth = (widthVp: number): void => {
+            this.candidateWidthVp = widthVp;
+          };
+          KeyboardSession.shared.onCandidateCount = (count: number): void => {
+            this.candidateCount = count;
+            if (KeyboardSession.shared.composing()
+              && KeyboardSession.shared.openSurface() === DesktopSurface.NONE) {
+              this.resizeCandidateWindow(DesktopSurface.NONE).then((): void => {
+                this.placeCandidateWindow();
+              }).catch((error: Object): void => {
+                KeyboardLog.error(`candidate window would not resize: ${describeError(error)}`);
+              });
+            }
+          };
+          KeyboardSession.shared.onComposition = (active: boolean): void => {
+            // 工具栏打开的面板在组合输入期间保持打开，便于向正在输入的文字中插入表情。
+            if (KeyboardSession.shared.openSurface() !== DesktopSurface.NONE) {
+              return;
+            }
+            if (active) {
+              this.candidateAnchor = KeyboardSession.shared.preferences().candidateFollowCursor
+                ? undefined : [this.caret[0], this.caret[1], this.caret[2]] as CandidateAnchor;
+              this.resizeCandidateWindow(DesktopSurface.NONE);
+              this.placeCandidateWindow();
+              panel.show();
+            } else {
+              this.candidateAnchor = undefined;
+              this.candidateWidthVp = KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP;
+              panel.hide();
+            }
+          };
+          KeyboardSession.shared.onSurfaceRequested = (surface: DesktopSurface): void => {
+            this.showDesktopSurface(surface);
+          };
+        } else {
+          KeyboardSession.shared.onTouchHeight = (requestedHeightVp: number): void => {
+            panel.resize(screen.width, Math.round(requestedHeightVp * this.density))
+              .catch((error: Object): void => {
+                KeyboardLog.error(`touch keyboard would not resize: ${describeError(error)}`);
+              });
+          };
+        }
+        if (desktop) {
+          await this.reconcileStatusPanels();
+        }
+        KeyboardLog.info(`panel ready: ${KeyboardFormFactor.describe()}, `
+          + `${desktop ? 'candidate window' : 'soft keyboard'}`
+          + `${this.toolbar !== undefined ? ', with toolbar' : ''}`
+          + `${this.hud !== undefined ? ', with mode badge' : ''}`);
+        // 面板创建完成后，服务创建期间获得焦点的编辑器。
+        if (this.pending !== undefined) {
+          KeyboardSession.shared.attach(this.pending);
+          this.pending = undefined;
+          if (!desktop) {
+            this.panel.show();
+          }
+        }
+      } catch (error) {
+        // 系统只允许一个软键盘面板；创建被拒绝时销毁会话，避免会话继续绑定到不存在的绘制区域。
+        KeyboardLog.error(`panel creation failed: ${describeError(error)}`);
+        this.teardown();
+        return;
       }
     } catch (error) {
-      // The framework allows exactly one soft keyboard panel. If it refused, the session has nothing
-      // to draw into, so tear it back down rather than leaving it attached to no surface.
-      KeyboardLog.error(`panel creation failed: ${describeError(error)}`);
-      this.teardown();
-      return;
+      KeyboardLog.error('inputmethodextability.KeyboardExtensionAbility.onCreate failed');
+      throw error as Error;
     }
   }
 

@@ -1962,8 +1962,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 }
 - (NSString *)lastSyncedInputScheme { return [_defaults stringForKey:LastSyncedSchemeKey]; }
 - (void)setLastSyncedInputScheme:(NSString *)value { [_defaults setObject:value forKey:LastSyncedSchemeKey]; }
-- (NSString *)shuangpinProfile { NSString *value = _sharedShuangpinProfile ?: [_defaults stringForKey:ShuangpinProfileKey]; return [@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"custom"] containsObject:value] ? value : @"xiaohe"; }
-- (void)setShuangpinProfile:(NSString *)value { if (![@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"custom"] containsObject:value]) value = @"xiaohe"; _sharedShuangpinProfile = nil; [_defaults setObject:value forKey:ShuangpinProfileKey]; [self preferencesChanged]; }
+- (NSString *)shuangpinProfile { NSString *value = _sharedShuangpinProfile ?: [_defaults stringForKey:ShuangpinProfileKey]; return [@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"smart_abc", @"custom"] containsObject:value] ? value : @"xiaohe"; }
+- (void)setShuangpinProfile:(NSString *)value { if (![@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"smart_abc", @"custom"] containsObject:value]) value = @"xiaohe"; _sharedShuangpinProfile = nil; [_defaults setObject:value forKey:ShuangpinProfileKey]; [self preferencesChanged]; }
 - (NSString *)wubiProfile { NSString *value = _sharedWubiProfile ?: [_defaults stringForKey:WubiProfileKey]; return [@[@"wubi86", @"wubi98"] containsObject:value] ? value : @"wubi86"; }
 - (void)setWubiProfile:(NSString *)value { if (![@[@"wubi86", @"wubi98"] containsObject:value]) value = @"wubi86"; _sharedWubiProfile = nil; [_defaults setObject:value forKey:WubiProfileKey]; [self preferencesChanged]; }
 - (BOOL)shuangpinPreeditUsesRaw { if (_sharedShuangpinPreeditUsesRaw) return _sharedShuangpinPreeditUsesRaw.boolValue; return [_defaults objectForKey:ShuangpinPreeditKey] == nil ? YES : [_defaults boolForKey:ShuangpinPreeditKey]; }
@@ -2088,7 +2088,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id lastChinese = preferences[@"last_chinese_scheme"];
     if ([@[@"quanpin", @"shuangpin", @"wubi", @"cantonese", @"zhuyin", @"stroke"] containsObject:lastChinese] && MSIMEEditionOffersScheme(lastChinese)) _lastChineseScheme = [lastChinese copy];
     // 自定义表由共享偏好管理；原生设置暂不编辑它，但保存其它选项时必须保留这个方案名。
-    if ([@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"custom"] containsObject:profile]) _sharedShuangpinProfile = [profile copy];
+    if ([@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"smart_abc", @"custom"] containsObject:profile]) _sharedShuangpinProfile = [profile copy];
     if (LocalModeBoolean(raw)) _sharedShuangpinPreeditUsesRaw = raw;
     // 文档没有这一项时回到 nil，getter 读 defaults：从没在共享设置里选过，就沿用本机升级前的选择。文档一旦带着这一项载入，那个选择已经发布过（或者文档里有更新的选择），文档从此是唯一来源：删掉本机旧键，之后文档再缺这一项（共享设置页恢复默认设置、导入不带这一项的设置文件）就是关，旧选择不会复活。与 AppInputModeRulesKey 迁移完成后删除旧键是同一个做法。
     id keymap = preferences[@"shuangpin_keymap_hint"];
@@ -3244,7 +3244,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSString *schemeName = pinyinMatching ? nil : @[@"日语", @"韩语", @"粤拼", @"注音", @"越南语", @"藏文", @"笔画"][storedScheme - 3];
     _pinyinMatchingSchemeLabel.stringValue = pinyinMatching ? @"" : [NSString stringWithFormat:@"当前方案为%@，模糊音与全拼纠错只作用于拼音查询，在%@下不生效。", schemeName, schemeName];
     _pinyinMatchingSchemeLabel.hidden = pinyinMatching;
-    NSDictionary *profileIndexes = @{@"xiaohe": @0, @"ziranma": @1, @"shoudao": @2, @"microsoft": @3};
+    NSDictionary *profileIndexes = @{@"xiaohe": @0, @"ziranma": @1, @"shoudao": @2, @"microsoft": @3, @"smart_abc": @4};
     [_profileButton selectItemAtIndex:[profileIndexes[self.shuangpinProfile] integerValue]];
     const BOOL wubi98 = [self.wubiProfile isEqual:@"wubi98"];
     [_wubiSchemeButton selectItemAtIndex:wubi98 ? 1 : 0];
@@ -5022,7 +5022,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)candidateEnglishGlossChanged:(NSSwitch *)sender { self.candidateEnglishGloss = sender.state == NSControlStateValueOn; }
 - (void)quanpinHelpcodeChanged:(NSSwitch *)sender { self.quanpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
 - (void)shuangpinHelpcodeChanged:(NSSwitch *)sender { self.shuangpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
-- (void)profileChanged:(NSPopUpButton *)sender { self.shuangpinProfile = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"][sender.indexOfSelectedItem]; }
+- (void)profileChanged:(NSPopUpButton *)sender { self.shuangpinProfile = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"smart_abc"][sender.indexOfSelectedItem]; }
 - (void)wubiProfileChanged:(NSPopUpButton *)sender { self.wubiProfile = sender.indexOfSelectedItem == 1 ? @"wubi98" : @"wubi86"; }
 - (void)preeditChanged:(NSPopUpButton *)sender { self.shuangpinPreeditUsesRaw = sender.indexOfSelectedItem == 1; }
 - (void)inputModeShortcutChanged:(NSSwitch *)sender { self.inputModeShortcut = sender.state == NSControlStateValueOn; }

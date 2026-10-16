@@ -365,7 +365,7 @@ if section == "我的" {
       }
       .background(Color(uiColor: .systemGroupedBackground))
     }
-    .onChange(of: scenePhase) { phase in
+    .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
       let current = CustomKeyboardSkinStore.current
       if current != design { design = current; undo.removeAll(); redo.removeAll() }
@@ -409,7 +409,7 @@ if section == "我的" {
       NavigationView {
         Form {
           TextField("皮肤名称", text: $name).accessibilityIdentifier("customSkinName")
-            .onChange(of: name) { if $0.count > 32 { name = String($0.prefix(32)) } }
+            .onChange(of: name) { _, value in if value.count > 32 { name = String(value.prefix(32)) } }
           Button("保存") {
             let title = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(32))
             guard !saved.contains(where: { $0.id != renaming && $0.name == title }) else {

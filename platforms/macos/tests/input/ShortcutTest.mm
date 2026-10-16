@@ -1144,8 +1144,8 @@ static void TestSharedInputPreferences() {
 
 static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
     NSPopUpButton *profiles = (id)PreferenceControl(appearance, @selector(profileChanged:));
-    NSArray *identifiers = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"];
-    NSArray *titles = @[@"小鹤双拼", @"自然码双拼", @"首道双拼", @"微软双拼"];
+    NSArray *identifiers = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"smart_abc"];
+    NSArray *titles = @[@"小鹤双拼", @"自然码双拼", @"首道双拼", @"微软双拼", @"智能 ABC 双拼"];
     assert([profiles.itemTitles isEqual:titles]);
     for (NSUInteger index = 0; index < identifiers.count; ++index) {
         [profiles selectItemAtIndex:index];
@@ -1156,6 +1156,9 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
         NSPopUpButton *restoredProfiles = (id)PreferenceControl(restored, @selector(profileChanged:));
         assert([restoredProfiles.titleOfSelectedItem isEqual:titles[index]]);
     }
+    [appearance applySharedInputPreferences:@{@"shuangpin_profile": @"smart_abc"}];
+    assert([appearance.shuangpinProfile isEqual:@"smart_abc"]);
+    assert([[appearance sharedPreferencesByMerging:@{}][@"shuangpin_profile"] isEqual:@"smart_abc"]);
     assert(!appearance.shuangpinKeymap);
     NSButton *toggle = (id)PreferenceControl(appearance, @selector(keymapChanged:));
     toggle.state = NSControlStateValueOn;
@@ -1184,7 +1187,7 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
     [defaults setBool:YES forKey:@"MSIMEClientShuangpinKeymap"];
     HiddenKeymapPanel *panel = [[HiddenKeymapPanel alloc] init];
     assert(panel.ignoresMouseEvents && panel.floatingPanel);
-    for (NSString *profile in @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"]) {
+    for (NSString *profile in @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"smart_abc"]) {
         NSArray *rows = MSIMEShuangpinKeymapRows(profile);
         assert(rows.count == 3 && [rows[0] count] == 10 && [rows[2] count] == 7);
         assert([rows[1] count] == ([profile isEqual:@"microsoft"] ? 10 : 9));

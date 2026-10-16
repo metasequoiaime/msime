@@ -3385,6 +3385,7 @@ fn shuangpin_profiles_preserve_legacy_files_and_reject_unknown_values() {
         ShuangpinProfile::Xiaohe,
         ShuangpinProfile::Ziranma,
         ShuangpinProfile::Shoudao,
+        ShuangpinProfile::SmartAbc,
         ShuangpinProfile::Microsoft,
     ] {
         let saved = store

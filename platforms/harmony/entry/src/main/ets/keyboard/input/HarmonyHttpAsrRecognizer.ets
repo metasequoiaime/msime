@@ -1,3 +1,4 @@
+import { NativeCleanup } from '../NativeCleanup';
 import audio from '@ohos.multimedia.audio';
 import http from '@ohos.net.http';
 import { installNoRedirectGuard } from '../../network/HarmonyHttpSecurity';
@@ -135,11 +136,11 @@ export class HarmonyHttpAsrRecognizer {
     };
     this.capturer = capturer;
     this.readCallback = readCallback;
-    capturer.on('readData', readCallback);
     try {
+      capturer.on('readData', readCallback);
       await capturer.start();
     } catch (error) {
-      capturer.off('readData', readCallback);
+      NativeCleanup.detach(capturer, readCallback);
       if (this.capturer === capturer) {
         this.capturer = undefined;
         this.readCallback = undefined;
@@ -290,11 +291,11 @@ export class HarmonyHttpAsrRecognizer {
     if (transcriptionLanguage.length > 0) {
       fields += `\r\n--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${transcriptionLanguage}`;
     }
-    const head: Uint8Array = encoder.encode(
+    const head: Uint8Array = encoder.encodeInto(
       fields
       + `\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="speech.wav"\r\n`
       + 'Content-Type: audio/wav\r\n\r\n');
-    const tail: Uint8Array = encoder.encode(`\r\n--${boundary}--\r\n`);
+    const tail: Uint8Array = encoder.encodeInto(`\r\n--${boundary}--\r\n`);
     const audio: Uint8Array = new Uint8Array(wav);
     const result: Uint8Array = new Uint8Array(head.length + audio.length + tail.length);
     result.set(head, 0);
@@ -328,7 +329,7 @@ export class HarmonyHttpAsrRecognizer {
     const capturer: audio.AudioCapturer | undefined = this.capturer;
     this.capturer = undefined;
     if (capturer === undefined) return;
-    if (this.readCallback !== undefined) capturer.off('readData', this.readCallback);
+    if (this.readCallback !== undefined) NativeCleanup.detach(capturer, this.readCallback);
     this.readCallback = undefined;
     try {
       await capturer.stop();

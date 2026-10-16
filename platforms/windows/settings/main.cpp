@@ -11182,7 +11182,8 @@ private:
     if (scheme == L"shuangpin") {
       select_row(scheme_options_group, 0xE8AB, L"双拼方案", L"", L"shuangpin_profile",
                  {{L"xiaohe", L"小鹤双拼"}, {L"ziranma", L"自然码双拼"},
-                  {L"microsoft", L"微软双拼"}, {L"shoudao", L"首道双拼"}},
+                  {L"microsoft", L"微软双拼"}, {L"shoudao", L"首道双拼"},
+                  {L"smart_abc", L"智能 ABC 双拼"}},
                  L"xiaohe");
       // 共享偏好 shuangpin_keymap_hint，与共享设置的同名开关相同；没选过时文档里没有这一项，按关显示。
       bool_row(scheme_options_group, 0xE765, L"输入时显示双拼键位提示",

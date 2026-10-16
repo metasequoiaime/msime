@@ -181,7 +181,7 @@ struct CloudDictionaryFilesView: View {
     var errorDescription: String? { "无法读取文件，请确认是大小不超过 64 KiB 的 UTF-8 文本。" }
   }
 
-  private static func readTextFile(from url: URL) throws -> String {
+  nonisolated private static func readTextFile(from url: URL) throws -> String {
     let content = try PersonalDictionaryImport.readText(from: url)
     guard content.utf8.count <= 65536, !content.contains("\0") else { throw InvalidTextFile() }
     return content
