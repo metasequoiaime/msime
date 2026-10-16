@@ -382,6 +382,9 @@ impl SyncState {
         if progress.consumed_choice {
             self.pending_choice = None;
         }
+        if let Some(choice) = progress.kept_choice {
+            self.pending_choice = Some(choice);
+        }
         self.run = None;
         self.bump();
     }
@@ -458,6 +461,9 @@ pub struct RoundProgress {
     /// 这一轮用掉了记下的选择。
     #[serde(default)]
     pub consumed_choice: bool,
+    /// 这一轮用了选择、但还没做完（词库合并时云端的词没排完）：记成 `pending_choice`，下一轮接着用，不再问用户。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept_choice: Option<Choice>,
 }
 
 /// 交给宿主写的值写完之前，要提交的进度。

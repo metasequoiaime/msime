@@ -303,6 +303,25 @@ fn parse_personal_dictionary_import(text: &str) -> Result<Vec<PersonalWord>, Str
     Ok(entries)
 }
 
+/// 一个要排进个人词库导入队列的词，按 `import_personal` 导入文件的规则规范化并检查；`kind` 是导入文件的写法（`pinyin`、`quickPhrase` 等），不合规时为 `None`。云同步合并时用它算出与队列里一致的身份。
+pub(crate) fn personal_import_word(
+    kind: &str,
+    key: &str,
+    value: &str,
+    weight: i64,
+) -> Option<PersonalWord> {
+    let kind: PersonalWordKind = serde_json::from_value(json!(kind)).ok()?;
+    let word = normalize_personal_word(PersonalWord {
+        kind,
+        key: key.to_owned(),
+        value: value.to_owned(),
+        weight,
+    })
+    .ok()?;
+    word.validate_new().ok()?;
+    Some(word)
+}
+
 /// Native management requests return only redacted errors.
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.

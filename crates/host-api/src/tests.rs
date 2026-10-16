@@ -15384,7 +15384,7 @@ fn dictionary_count_and_snapshot_export_answer_for_an_empty_store() {
 }
 
 /// `empty_host_options` with an empty main dictionary, which the Engine needs before it stores a pinyin word (`ni'…` lands in `tbl_2_n`) or a quick phrase.
-fn host_options_with_main_dictionary(root: &Path) -> Value {
+pub(crate) fn host_options_with_main_dictionary(root: &Path) -> Value {
     for name in ["resources", "user", "cache", "dictionaries"] {
         std::fs::create_dir_all(root.join(name)).unwrap();
     }

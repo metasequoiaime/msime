@@ -327,9 +327,13 @@ struct Local {
     next_id: u32,
     words: bool,
     pending: usize,
+    /// 激活队列里有等键盘激活的快照；交给激活队列时置上，像真的队列一样。
+    snapshot_pending: bool,
     exported: usize,
     replaced: Vec<(String, i64)>,
     merged: usize,
+    /// 合并时返回的错误，比如云端的词这一轮没排完。
+    merge_failure: Option<String>,
     cancelled: Vec<String>,
 }
 
@@ -432,6 +436,7 @@ impl SyncLocal for FakeLocal {
         Ok(DictionaryLocal {
             has_words: local.words,
             pending: local.pending,
+            snapshot_pending: local.snapshot_pending,
         })
     }
     fn export_dictionary(&self, destination: &Path) -> Result<(), String> {
@@ -445,14 +450,15 @@ impl SyncLocal for FakeLocal {
         revision: i64,
     ) -> Result<(), String> {
         assert!(snapshot.exists());
-        self.local()
-            .replaced
-            .push((account_id.to_owned(), revision));
+        let mut local = self.local();
+        local.replaced.push((account_id.to_owned(), revision));
+        local.snapshot_pending = true;
         Ok(())
     }
     fn merge_dictionary(&self, _: &Path) -> Result<(), String> {
-        self.local().merged += 1;
-        Ok(())
+        let mut local = self.local();
+        local.merged += 1;
+        local.merge_failure.clone().map_or(Ok(()), Err)
     }
     fn cancel_dictionary(&self, account_id: &str) -> Result<(), String> {
         self.local().cancelled.push(account_id.to_owned());
@@ -1351,6 +1357,79 @@ fn dictionary_merge_imports_cloud_words_and_marks_for_upload() {
 }
 
 #[test]
+fn a_downloaded_snapshot_blocks_uploads_until_the_keyboard_activates_it() {
+    let fixture = Fixture::new();
+    fixture.api.cloud().dictionary_revision = 4;
+    fixture.enable();
+    let dictionary = Capabilities {
+        dictionary: true,
+        ..Capabilities::default()
+    };
+    // 新设备选「使用云端」：快照交给激活队列，打开开关时的待上传标记照旧留着。
+    let downloaded = fixture.run(Trigger::Choice, Some(Choice::UseCloud), dictionary, NOW);
+    assert_eq!(
+        downloaded["sections"]["dictionary"]["outcome"], "synced",
+        "{downloaded}"
+    );
+    assert_eq!(fixture.local.local().replaced, [(USER.to_owned(), 4)]);
+    assert!(fixture.state().sections.dictionary.dirty());
+    // 键盘还没激活快照：不能把激活前的本机词库整份传上去。
+    let blocked = fixture.run(Trigger::Manual, None, dictionary, NOW + 60_000);
+    assert_eq!(
+        blocked["sections"]["dictionary"]["reason"], "dictionary_pending",
+        "{blocked}"
+    );
+    assert_eq!(fixture.local.local().exported, 0);
+    assert_eq!(fixture.api.cloud().snapshot_uploads, 0);
+    assert_eq!(fixture.api.cloud().dictionary_revision, 4);
+    assert!(fixture.state().sections.dictionary.dirty());
+    // 激活以后照常上传。
+    fixture.local.local().snapshot_pending = false;
+    let uploaded = fixture.run(Trigger::Manual, None, dictionary, NOW + 120_000);
+    assert_eq!(
+        uploaded["sections"]["dictionary"]["outcome"], "synced",
+        "{uploaded}"
+    );
+    assert_eq!(fixture.api.cloud().snapshot_uploads, 1);
+}
+
+#[test]
+fn an_unfinished_merge_keeps_the_cursor_and_the_choice_for_the_next_round() {
+    let fixture = Fixture::new();
+    fixture.local.local().words = true;
+    fixture.local.local().merge_failure = Some(MERGE_PENDING.to_owned());
+    fixture.api.cloud().dictionary_revision = 4;
+    fixture.enable();
+    let dictionary = Capabilities {
+        dictionary: true,
+        ..Capabilities::default()
+    };
+    let partial = fixture.run(Trigger::Choice, Some(Choice::Merge), dictionary, NOW);
+    assert_eq!(
+        partial["sections"]["dictionary"]["outcome"], "failed",
+        "{partial}"
+    );
+    assert_eq!(partial["sections"]["dictionary"]["reason"], MERGE_PENDING);
+    let state = fixture.state();
+    assert_eq!(state.sections.dictionary.cursor, None);
+    assert_eq!(state.pending_choice, Some(Choice::Merge));
+    assert_eq!(
+        partial["status"]["status_line"],
+        policy::local_message(MERGE_PENDING)
+    );
+    // 下一轮不再问选择，接着合并；排完以后推进游标、用掉选择，等键盘应用后再整份上传。
+    fixture.local.local().merge_failure = None;
+    let merged = fixture.run(Trigger::Manual, None, dictionary, NOW + 60_000);
+    assert_eq!(merged["outcome"], "done", "{merged}");
+    assert_eq!(fixture.local.local().merged, 2);
+    assert_eq!(fixture.api.cloud().snapshot_uploads, 0);
+    let state = fixture.state();
+    assert_eq!(state.sections.dictionary.cursor, Some(4));
+    assert_eq!(state.pending_choice, None);
+    assert!(state.sections.dictionary.dirty());
+}
+
+#[test]
 fn legacy_state_is_imported_once() {
     let fixture = Fixture::new();
     let ios = json!({
@@ -1605,4 +1684,163 @@ fn snapshot_words_drop_deleted_entries_and_the_queue_needs_a_published_version()
         queued.snapshot_revision(&file),
         Err("dictionary_invalid".to_owned())
     );
+}
+
+/// 合成的云端快照：`count` 个两字拼音词，外加一个重复的词和一个不合规的词。
+fn cloud_snapshot(file: &Path, count: usize) {
+    // 合成的主词库只有 `tbl_2_n`：第一个音节都以 n 开头。
+    const FIRST: [(&str, &str); 16] = [
+        ("ni", "你"),
+        ("na", "拿"),
+        ("nu", "怒"),
+        ("ne", "呢"),
+        ("nan", "南"),
+        ("nai", "奶"),
+        ("nao", "脑"),
+        ("nei", "内"),
+        ("nen", "嫩"),
+        ("neng", "能"),
+        ("nin", "您"),
+        ("niu", "牛"),
+        ("nian", "年"),
+        ("niao", "鸟"),
+        ("nong", "农"),
+        ("nuo", "诺"),
+    ];
+    const SECOND: [(&str, &str); 16] = [
+        ("ni", "你"),
+        ("hao", "好"),
+        ("shui", "水"),
+        ("shan", "杉"),
+        ("ma", "马"),
+        ("da", "大"),
+        ("la", "拉"),
+        ("ka", "卡"),
+        ("ta", "他"),
+        ("pa", "怕"),
+        ("fa", "发"),
+        ("ha", "哈"),
+        ("sa", "撒"),
+        ("wa", "瓦"),
+        ("ya", "压"),
+        ("zha", "扎"),
+    ];
+    let entry = |id: String, code: String, word: String| json!({"type": "entry", "data": {"id": id, "kind": "pinyin", "code": code, "word": word, "weight": 7, "revision": 1, "updated_at": "2026-09-01T00:00:00Z"}});
+    let mut lines =
+        vec![json!({"type": "header", "format": "msime-dictionary-snapshot", "version": 1})];
+    for index in 0..count {
+        let (first, first_word) = FIRST[index / SECOND.len()];
+        let (second, second_word) = SECOND[index % SECOND.len()];
+        lines.push(entry(
+            format!("w{index}"),
+            format!("{first}'{second}"),
+            format!("{first_word}{second_word}"),
+        ));
+    }
+    lines.push(entry("dup".into(), "ni'ni".into(), "你你".into()));
+    lines.push(entry("bad".into(), "ni'huai".into(), "你坏\u{7}".into()));
+    let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    std::fs::write(file, text).unwrap();
+}
+
+/// 像键盘那样把个人词库队列里排着的请求都写进 Engine。
+fn drain_personal_queue(options: &Value) {
+    let request = options.to_string();
+    for _ in 0..200 {
+        let synced = crate::dictionary::personal_dictionary_sync_json(request.as_bytes()).unwrap();
+        if synced["pending_count"] == 0 {
+            let store = PersonalDictionaryStore::new(
+                Path::new(options["preferences_directory"].as_str().unwrap())
+                    .join("PersonalDictionary"),
+            );
+            let state = store.read().unwrap();
+            assert!(
+                state
+                    .requests
+                    .iter()
+                    .all(|request| request.status == PersonalWordRequestStatus::Applied),
+                "{:?}",
+                state
+                    .requests
+                    .iter()
+                    .find(|request| request.status != PersonalWordRequestStatus::Applied)
+            );
+            return;
+        }
+    }
+    panic!("the personal dictionary queue did not drain");
+}
+
+#[test]
+fn merging_more_cloud_words_than_the_queue_holds_continues_over_several_rounds() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = crate::tests::host_options_with_main_dictionary(directory.path());
+    let local = HostLocal {
+        options: Some(options.clone()),
+        ..host_local(directory.path(), HostInputs::default())
+    };
+    let work = directory.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let file = work.join("download.ndjson");
+    cloud_snapshot(&file, 200);
+    let store = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
+    // 第一轮只排得下 128 个：这一类失败，没排进去的词不能当成合并完了。
+    assert_eq!(local.merge_dictionary(&file), Err(MERGE_PENDING.to_owned()));
+    assert_eq!(store.read().unwrap().pending_count(), 128);
+    assert!(!work.join("merge-local.ndjson").exists());
+    // 键盘还没应用：再合并一次不重复排、不报冲突，仍然没完，也不能上传。
+    assert_eq!(local.merge_dictionary(&file), Err(MERGE_PENDING.to_owned()));
+    assert_eq!(store.read().unwrap().requests.len(), 128);
+    let probe = local.dictionary().unwrap();
+    assert_eq!(probe.pending, 128);
+    assert!(policy::upload_blocked(
+        probe.pending,
+        probe.snapshot_pending
+    ));
+    // 键盘应用以后，下一轮跳过已经在本机的词，把剩下的 72 个排完。
+    drain_personal_queue(&options);
+    assert_eq!(local.merge_dictionary(&file), Ok(()));
+    assert_eq!(store.read().unwrap().pending_count(), 72);
+    drain_personal_queue(&options);
+    // 全都在本机了：再合并什么也不排。
+    assert_eq!(local.merge_dictionary(&file), Ok(()));
+    assert_eq!(store.read().unwrap().pending_count(), 0);
+    let count = local
+        .dictionary_call(json!({ "operation": "count", "user_only": true }))
+        .unwrap();
+    assert_eq!(count["count"], 200, "{count}");
+}
+
+#[test]
+fn a_snapshot_waiting_for_activation_is_reported_so_uploads_wait() {
+    use msime_client_core::cloud::snapshot_queue::local_version;
+    use sha2::{Digest, Sha256};
+    let directory = tempfile::tempdir().unwrap();
+    let options = crate::tests::host_options_with_main_dictionary(directory.path());
+    let queue_directory = directory.path().join("queue");
+    let local = HostLocal {
+        options: Some(options),
+        snapshot_queue: Some(queue_directory.clone()),
+        ..host_local(directory.path(), HostInputs::default())
+    };
+    let idle = local.dictionary().unwrap();
+    assert!(!idle.snapshot_pending);
+    assert!(!policy::upload_blocked(idle.pending, idle.snapshot_pending));
+    let queue = DictionarySnapshotQueue::new(queue_directory).unwrap();
+    let version = local_version(None, &"0".repeat(64)).unwrap();
+    queue.publish_local_version(&version).unwrap();
+    let file = directory.path().join("download.ndjson");
+    std::fs::write(&file, "synthetic snapshot\n").unwrap();
+    let sha256 = hex::encode(Sha256::digest(std::fs::read(&file).unwrap()));
+    queue.enqueue(&file, USER, 4, &version, &sha256).unwrap();
+    let waiting = local.dictionary().unwrap();
+    assert!(waiting.snapshot_pending);
+    assert_eq!(waiting.pending, 0);
+    assert!(policy::upload_blocked(
+        waiting.pending,
+        waiting.snapshot_pending
+    ));
+    // 退出登录取消了排着的快照：不再挡上传。
+    local.cancel_dictionary(USER).unwrap();
+    assert!(!local.dictionary().unwrap().snapshot_pending);
 }
