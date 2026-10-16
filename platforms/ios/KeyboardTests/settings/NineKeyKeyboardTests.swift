@@ -3333,9 +3333,9 @@ final class NineKeyKeyboardTests: XCTestCase {
       .compactMap { $0.configuration?.title }
   }
 
-  /// 正在组的内容：拼写写进输入框、候选栏不画它，读屏值仍是完整的组字。
+  /// 正在组的内容：拼写写进输入框、候选栏不画它，读屏值仍是完整的组字。空闲时这个键给的是本地输入菜单、没有读屏值，返回空串，调用方可以拿它当空闲的基准比较。
   private func preedit(in controller: KeyboardViewController) throws -> String {
-    try XCTUnwrap(button("preeditButton", in: controller).accessibilityValue)
+    try button("preeditButton", in: controller).accessibilityValue ?? ""
   }
 
   /// 全拼九键的展开面板是三栏、只盖住键区；在面板里选拼音、退格都不收起面板，而是按新的一代候选重建。
