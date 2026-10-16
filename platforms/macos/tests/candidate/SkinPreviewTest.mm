@@ -705,29 +705,38 @@ int main(int argc, const char **argv) {
         TestFallbackFonts(preferences, defaults);
         TestCloudImportCache(preferences, defaults);
         TestCandidateWindowStyle(preferences, defaults);
-        [preferences applySharedCandidatePreferences:@{@"navigation": @{@"minus_equal": @NO, @"brackets": @YES, @"tab": @NO}}];
-        assert(![preferences navigationEnabled:@"minus_equal"] && [preferences navigationEnabled:@"brackets"] && ![preferences navigationEnabled:@"tab"]);
-        NSButton *tabControl = (id)FindControl(preferences.window.contentView, @"Tab / Shift-Tab 翻页");
-        assert(tabControl && tabControl.state == NSControlStateValueOff);
-        tabControl.state = NSControlStateValueOn;
-        [NSApp sendAction:tabControl.action to:tabControl.target from:tabControl];
-        assert([preferences navigationEnabled:@"tab"]);
+        [preferences applySharedCandidatePreferences:@{@"navigation": @{@"minus_equal": @NO, @"brackets": @YES, @"arrows": @NO}}];
+        assert(![preferences navigationEnabled:@"minus_equal"] && [preferences navigationEnabled:@"brackets"] && ![preferences navigationEnabled:@"arrows"]);
+        NSButton *arrowsControl = (id)FindControl(preferences.window.contentView, @"方向键选择候选");
+        assert(arrowsControl && arrowsControl.state == NSControlStateValueOff);
+        arrowsControl.state = NSControlStateValueOn;
+        [NSApp sendAction:arrowsControl.action to:arrowsControl.target from:arrowsControl];
+        assert([preferences navigationEnabled:@"arrows"]);
         NSDictionary *navigation = [preferences sharedPreferencesByMerging:@{}][@"navigation"];
-        assert([navigation[@"tab"] isEqual:@YES]);
-        assert(navigation[@"comma_period"] == nil && navigation[@"arrows"] == nil);
+        assert([navigation[@"arrows"] isEqual:@YES]);
+        assert(navigation[@"comma_period"] == nil && navigation[@"tab"] == nil && navigation[@"page_up_down"] == nil);
         // The persistence worker merges captured edits into each fresh revision,
         // including CAS retries; it must not overwrite unowned navigation flags.
         NSDictionary *capturedNavigation = @{@"navigation": navigation};
         NSDictionary *latestNavigation = @{@"navigation": @{@"minus_equal": @NO, @"brackets": @YES,
             @"page_up_down": @NO, @"comma_period": @NO, @"tab": @NO, @"arrows": @NO}};
         NSDictionary *retryNavigation = MSIMEMergePreferenceSnapshot(latestNavigation, capturedNavigation)[@"navigation"];
-        assert(retryNavigation.count == 6 && [retryNavigation[@"tab"] isEqual:@YES]);
-        assert([retryNavigation[@"comma_period"] isEqual:@NO] && [retryNavigation[@"arrows"] isEqual:@NO]);
-        assert([latestNavigation[@"navigation"][@"tab"] isEqual:@NO]);
-        [preferences setNavigation:@"tab" enabled:NO];
+        assert(retryNavigation.count == 6 && [retryNavigation[@"arrows"] isEqual:@YES]);
+        assert([retryNavigation[@"comma_period"] isEqual:@NO] && [retryNavigation[@"tab"] isEqual:@NO]);
+        assert([latestNavigation[@"navigation"][@"arrows"] isEqual:@NO]);
+        [preferences setNavigation:@"arrows" enabled:NO];
         MSIMEAppearancePreferences *navigationReloaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot];
-        assert(![navigationReloaded navigationEnabled:@"tab"]);
-        [preferences setNavigation:@"tab" enabled:YES];
+        assert(![navigationReloaded navigationEnabled:@"arrows"]);
+        [preferences setNavigation:@"arrows" enabled:YES];
+        // Tab / Shift-Tab 和 Page Up / Page Down 在 macOS 上固定开启：窗口里没有它们的复选框，共享文档里存的关和这里的设置都不起作用，合并时也不写回文档。
+        assert(FindControl(preferences.window.contentView, @"Tab / Shift-Tab 翻页") == nil);
+        assert(FindControl(preferences.window.contentView, @"Page Up / Page Down 翻页") == nil);
+        [preferences applySharedCandidatePreferences:@{@"navigation": @{@"tab": @NO, @"page_up_down": @NO}}];
+        [preferences setNavigation:@"tab" enabled:NO];
+        [preferences setNavigation:@"page_up_down" enabled:NO];
+        assert([preferences navigationEnabled:@"tab"] && [preferences navigationEnabled:@"page_up_down"]);
+        NSDictionary *fixedNavigation = [preferences sharedPreferencesByMerging:@{}][@"navigation"];
+        assert(fixedNavigation[@"tab"] == nil && fixedNavigation[@"page_up_down"] == nil);
         [preferences applySharedCandidatePreferences:@{@"word_character": @{@"enabled": @YES, @"keys": @"brackets"}, @"navigation": @{@"brackets": @NO}}];
         [preferences setNavigation:@"brackets" enabled:YES];
         assert(![preferences navigationEnabled:@"brackets"]);
