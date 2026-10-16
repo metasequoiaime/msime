@@ -20,6 +20,8 @@ Status: implemented
 - [发布建议字段](../../implemented/simplification/2026-10-12-community-publication-suggestions.md)无关：持有 Rust 打包器默认值生成，不改变建议字段来源。
 - 其他目录、宿主、脚本授权和平台发布笔记无关：本次不改宿主打包、磁盘目录、权限、发布工作流或服务端协议。检索未发现持有插件预检 owner 的既有笔记，没有需要拒绝或吸收的旧提案。
 
+[候选窗口皮肤发布](../simplification/2026-10-16-candidate-skin-publication.md)沿用状态拆分边界，独立保留其预览和许可证补写流程。
+
 ## Alternatives considered
 
 - 只迁出完整对话框：模块搬迁最小，但状态仍绑定界面，其他共享入口无法独立复用或验证流程；同时抽出 hook。

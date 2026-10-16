@@ -1,20 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { boundedGraphemes, utf8ByteLength } from "../core/text";
-import {
-  communityPublishFields,
-  handleCommunityPublishKeyDown,
-} from "./community-publish-validation";
-import { errorCode } from "../core/error-code";
-import type { ExternalSkin, SkinCatalog } from "../skin/external-skins";
-import type { SkinImageReader } from "../skin/skin-image";
-import { renderSkinPreview } from "../skin/skin-preview-render";
-import { useAsyncActionRunner } from "../core/use-async-action";
-import {
-  candidateSkinMegabytes,
-  candidateSkinMessage,
-  communityLicenseLine,
-  communityNeedsSignIn,
-} from "./community-helpers";
+import { handleCommunityPublishKeyDown } from "./community-publish-validation";
+import { candidateSkinMegabytes, communityLicenseLine } from "./community-helpers";
 import * as style from "./community-style";
 import { CommunityMetrics } from "./community-metrics";
 import { StatusMessage } from "../core/status-message";
@@ -26,36 +11,24 @@ import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog
 import { CommunitySkinCategorySelect } from "./community-skin-category";
 import { CommunitySelectField } from "./community-select-field";
 import { ActionButton } from "../core/action-button";
-import { useCommunityPublicationDraft } from "./use-community-publication-draft";
-import { useAsyncGeneration } from "../settings/use-async-generation";
 import {
-  type CandidateSkinCategory,
-  type CandidateSkinCommunityClient,
-  type CandidateSkinPackPreview,
-  type CandidateSkinVisibility,
-  type CommunityCandidateSkin,
-} from "./community-candidate-skin-model";
+  useCandidateSkinPublication,
+  candidateSkinAssetLicenses as assetLicenses,
+  type CandidateSkinPublicationOptions,
+} from "./use-candidate-skin-publication";
 
-type LocalSkinOption = { id: string; name: string };
-
-/** The server's package limit, stated next to the packed size so the author sees the headroom. */
+/** 服务端的包体积上限与打包大小并列，方便作者查看剩余空间。 */
 const packageLimit = "2 MB";
-
 const publishWarning =
   "仅上传 skin.toml 与 PNG/JPEG 图片（需包含预览图）；单个文件不超过 1 MB、合计不超过 2 MB、每边不超过 2048 像素。服务器会重新编码图片并去除元数据。登录期间修改本地皮肤，会自动同步到这款作品。";
 
-/** Asset licenses offered when a public package names none; the host bounds the manifest value to this many UTF-8 bytes. */
-const assetLicenses = [
-  { value: "CC-BY-4.0", label: "CC BY 4.0（推荐：可自由使用，需署名作者）" },
-  { value: "CC0-1.0", label: "CC0 1.0（放弃权利，任何人可随意使用）" },
-] as const;
-const assetLicenseLimit = 120;
+export interface CandidateSkinPublishDialogProps extends CandidateSkinPublicationOptions {
+  onClose: () => void;
+  /** 未登录导致发布失败时的登录入口；未提供时只显示错误。 */
+  onLogin?: () => void;
+}
 
-/**
- * Publishes one of the user's installed candidate-window skin packages.
- *
- * The host packs the package itself from its own skin directory, so the webview only names the folder; `packPreview` runs the same checks the upload will, which lets a package the server would refuse say so before the form is even shown. The root is a `div`, not a `form`: from the 主题 page it renders inside the settings form, where a nested form is invalid and its submit would bubble into a preferences save.
- */
+/** 根节点保持 div，可嵌入主题设置表单，避免提交冒泡保存偏好。 */
 export function CandidateSkinPublishDialog({
   client,
   localSkins,
@@ -65,252 +38,53 @@ export function CandidateSkinPublishDialog({
   onClose,
   onPublished,
   onLogin,
-}: {
-  client: CandidateSkinCommunityClient;
-  /** The installed packages to choose from; absent, only `initialSkinId` is offered. */
-  localSkins?: () => Promise<SkinCatalog>;
-  initialSkinId?: string;
-  openSkinDirectory?: () => Promise<void>;
-  /** Reads a package's images, so a package without a preview can have one drawn from its own; absent, it is only told to add one. */
-  readImage?: SkinImageReader;
-  onClose: () => void;
-  onPublished: (skin: CommunityCandidateSkin) => void | Promise<void>;
-  /** Where to send someone who has to sign in before publishing; absent leaves the sentence alone. */
-  onLogin?: () => void;
-}) {
-  const [options, setOptions] = useState<LocalSkinOption[]>(
-    initialSkinId ? [{ id: initialSkinId, name: initialSkinId }] : [],
-  );
-  const [packages, setPackages] = useState<ExternalSkin[]>([]);
-  const [optionsLoading, setOptionsLoading] = useState(Boolean(localSkins));
-  const [skinId, setSkinId] = useState(initialSkinId ?? "");
-  const [pack, setPack] = useState<CandidateSkinPackPreview | null>(null);
-  const [packError, setPackError] = useState("");
-  const [packCode, setPackCode] = useState<string | undefined>();
-  // Bumped once a drawn preview is saved, so the package is checked again.
-  const [packRevision, setPackRevision] = useState(0);
-  const [drawing, setDrawing] = useState(false);
-  const [drawFailed, setDrawFailed] = useState(false);
-  const [licenseChoice, setLicenseChoice] = useState<string>(assetLicenses[0].value);
-  const [customLicense, setCustomLicense] = useState("");
-  const [writingLicense, setWritingLicense] = useState(false);
-  const [licenseFailed, setLicenseFailed] = useState(false);
-  const [packLoading, setPackLoading] = useState(false);
+}: CandidateSkinPublishDialogProps) {
   const {
+    options,
+    optionsLoading,
+    skinId,
+    pack,
+    packError,
+    packLoading,
+    previewless,
+    drawing,
+    drawFailed,
+    licenseless,
+    licenseChoice,
+    customLicense,
+    licenseValid,
+    writingLicense,
+    licenseFailed,
     name,
     description,
     agreed,
-    publicationId,
-    setName,
-    setAgreed,
+    visibility,
+    category,
+    error,
+    signInRequired,
+    openFailed,
+    busy,
+    ready,
+    setSkinId,
+    setVisibility,
+    setLicenseChoice,
+    setCustomLicense,
     onNameChange,
     onDescriptionChange,
     onAgreedChange,
-    resetPublication,
-  } = useCommunityPublicationDraft();
-  const [visibility, setVisibility] = useState<CandidateSkinVisibility>("public");
-  const [category, setCategory] = useState<CandidateSkinCategory>("other");
-  const [error, setError] = useState("");
-  const [signInRequired, setSignInRequired] = useState(false);
-  const [openFailed, setOpenFailed] = useState(false);
-  const {
-    busy,
-    generation: clientGeneration,
-    running: actionRunning,
-    run: runAsyncAction,
-  } = useAsyncActionRunner(setError, undefined, client, localSkins);
-  const packGeneration = useAsyncGeneration(client, skinId, visibility, packRevision);
-  const drawRunning = useRef(false);
-  const drawOwner = useAsyncGeneration();
-  const licenseRunning = useRef(false);
-  const licenseOwner = useAsyncGeneration();
-  // The package whose name the form was filled from, so switching visibility re-checks the package without discarding a name the user typed.
-  const namedSkin = useRef("");
-
-  useEffect(() => {
-    const generation = clientGeneration.current;
-    drawOwner.current++;
-    drawRunning.current = false;
-    licenseOwner.current++;
-    licenseRunning.current = false;
-    setDrawing(false);
-    setWritingLicense(false);
-    if (localSkins) {
-      setOptionsLoading(true);
-      void localSkins()
-        .then((catalog) => {
-          if (generation !== clientGeneration.current) return;
-          const loaded = catalog.packages.map((item) => ({
-            id: item.id,
-            name: item.name,
-          }));
-          setPackages(catalog.packages);
-          setOptions(loaded);
-          setSkinId((current) =>
-            current && loaded.some((item) => item.id === current) ? current : (loaded[0]?.id ?? ""),
-          );
-        })
-        .catch(() => {
-          if (generation === clientGeneration.current) setError("读取本地皮肤失败，请重试。");
-        })
-        .finally(() => {
-          if (generation === clientGeneration.current) setOptionsLoading(false);
-        });
-    }
-  }, [client, clientGeneration, localSkins]);
-
-  useEffect(() => {
-    const generation = packGeneration.current;
-    setPack(null);
-    setPackError("");
-    setPackCode(undefined);
-    setDrawFailed(false);
-    setLicenseFailed(false);
-    setAgreed(false);
-    resetPublication();
-    if (!skinId) {
-      setPackLoading(false);
-      return;
-    }
-    setPackLoading(true);
-    void client
-      .packPreview(skinId, visibility)
-      .then((value) => {
-        if (generation !== packGeneration.current) return;
-        setPack(value);
-        if (namedSkin.current !== skinId) {
-          namedSkin.current = skinId;
-          setName(boundedGraphemes(value.suggestedName, 32));
-        }
-      })
-      .catch((packFailure) => {
-        if (generation !== packGeneration.current) return;
-        setPackError(candidateSkinMessage(packFailure));
-        setPackCode(errorCode(packFailure));
-      })
-      .finally(() => {
-        if (generation === packGeneration.current) setPackLoading(false);
-      });
-  }, [client, skinId, visibility, packGeneration, packRevision]);
-
-  // A decorated package without an image of its own draws its preview as the decoration, so a drawn preview would change its look; the host refuses it too.
-  const previewless =
-    packCode === "candidate_skin_preview_required"
-      ? packages.find(
-          (item) =>
-            item.id === skinId &&
-            !(item.decorationTopDip > 0 && item.decorationWidthDip > 0 && !item.decorationImage),
-        )
-      : undefined;
-  const drawPreview = async () => {
-    if (!previewless || !readImage || drawing || drawRunning.current) return;
-    const owner = ++drawOwner.current;
-    drawRunning.current = true;
-    const clientGenerationAtStart = clientGeneration.current;
-    const packGenerationAtStart = packGeneration.current;
-    setDrawing(true);
-    setDrawFailed(false);
-    try {
-      const bytes = await renderSkinPreview(previewless, readImage);
-      const catalog = await client.addPreview(previewless.id, bytes);
-      if (
-        clientGenerationAtStart !== clientGeneration.current ||
-        packGenerationAtStart !== packGeneration.current
-      )
-        return;
-      setPackages(catalog.packages);
-      setPackRevision((revision) => revision + 1);
-    } catch {
-      if (
-        packGenerationAtStart === packGeneration.current &&
-        clientGenerationAtStart === clientGeneration.current
-      )
-        setDrawFailed(true);
-    } finally {
-      if (drawOwner.current === owner) drawRunning.current = false;
-      if (
-        packGenerationAtStart === packGeneration.current &&
-        clientGenerationAtStart === clientGeneration.current
-      )
-        setDrawing(false);
-      else if (drawOwner.current === owner) setDrawing(false);
-    }
-  };
-
-  // Only a public package needs an asset license; the host writes the chosen one into skin.toml, so the author never edits the manifest by hand.
-  const licenseless = packCode === "candidate_skin_license_required" && skinId !== "";
-  const licenseValue = licenseChoice === "other" ? customLicense.trim() : licenseChoice;
-  const licenseValid = licenseValue.length > 0 && utf8ByteLength(licenseValue) <= assetLicenseLimit;
-  const writeLicense = async () => {
-    if (!licenseless || !licenseValid || writingLicense || licenseRunning.current) return;
-    const owner = ++licenseOwner.current;
-    licenseRunning.current = true;
-    const clientGenerationAtStart = clientGeneration.current;
-    const packGenerationAtStart = packGeneration.current;
-    setWritingLicense(true);
-    setLicenseFailed(false);
-    try {
-      const catalog = await client.addLicense(skinId, licenseValue);
-      if (
-        clientGenerationAtStart !== clientGeneration.current ||
-        packGenerationAtStart !== packGeneration.current
-      )
-        return;
-      setPackages(catalog.packages);
-      setPackRevision((revision) => revision + 1);
-    } catch {
-      if (
-        packGenerationAtStart === packGeneration.current &&
-        clientGenerationAtStart === clientGeneration.current
-      )
-        setLicenseFailed(true);
-    } finally {
-      if (licenseOwner.current === owner) licenseRunning.current = false;
-      if (
-        packGenerationAtStart === packGeneration.current &&
-        clientGenerationAtStart === clientGeneration.current
-      )
-        setWritingLicense(false);
-      else if (licenseOwner.current === owner) setWritingLicense(false);
-    }
-  };
-
-  const { normalizedName, normalizedDescription, nameValid, descriptionValid } =
-    communityPublishFields(name, description);
-  const ready = Boolean(pack) && !packLoading && nameValid && descriptionValid && agreed;
-
-  const submit = async () => {
-    if (busy || actionRunning.current || !ready || !skinId) return;
-    setSignInRequired(false);
-    await runAsyncAction(
-      async (isCurrent) => {
-        const published = await client.publish(
-          skinId,
-          publicationId,
-          normalizedName,
-          normalizedDescription,
-          visibility,
-          category,
-        );
-        if (!isCurrent()) return;
-        await onPublished(published);
-      },
-      {
-        formatError: (publishError) => candidateSkinMessage(publishError, true),
-        onError: (publishError) => setSignInRequired(communityNeedsSignIn(publishError)),
-      },
-    );
-  };
-
-  const openFolder = async () => {
-    if (!openSkinDirectory) return;
-    setOpenFailed(false);
-    try {
-      await openSkinDirectory();
-    } catch {
-      setOpenFailed(true);
-    }
-  };
+    changeCategory,
+    drawPreview,
+    writeLicense,
+    submit,
+    openFolder,
+  } = useCandidateSkinPublication({
+    client,
+    localSkins,
+    initialSkinId,
+    openSkinDirectory,
+    readImage,
+    onPublished,
+  });
 
   return (
     <CommunityDialogFrame
@@ -480,11 +254,7 @@ export function CandidateSkinPublishDialog({
             ariaLabel="发布分类"
             value={category}
             disabled={busy}
-            onChange={(next) => {
-              // 分类也是这次发布的内容，换了分类就是另一次发布，不能沿用上一次的发布 id。
-              resetPublication();
-              setCategory(next);
-            }}
+            onChange={changeCategory}
           />
           <CommunityPublicationWarning>{publishWarning}</CommunityPublicationWarning>
         </>

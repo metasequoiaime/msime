@@ -21,6 +21,8 @@ Status: implemented
 
 [插件发布模块](../bug-fix/2026-10-16-community-plugin-publication.md)沿用此边界，独立持有目录筛选、打包预检与发布结果。
 
+[候选窗口皮肤发布](2026-10-16-candidate-skin-publication.md)独立持有预检、可见性、预览生成和许可证补写，继续复用相同草稿工具。
+
 ## Alternatives considered
 
 - 只迁出对话框文件：能直接复用完整界面，但状态与 JSX 仍绑定，生命周期验证还得渲染表单；本次同时提取状态 hook，便于独立使用和测试。

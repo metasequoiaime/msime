@@ -12,6 +12,8 @@ Status: implemented
 
 插件的事件入口位于独立 `community-plugin-publish-dialog.tsx`，仍调用同一个共享处理函数；状态边界见[插件发布模块](2026-10-16-community-plugin-publication.md)。
 
+[候选窗口皮肤发布状态](../simplification/2026-10-16-candidate-skin-publication.md)独立后，IME 事件仍由对话框转交同一处理函数，hook 不接收键盘事件。
+
 ## Alternatives considered
 
 - 只允许点击发布按钮，可以完全避开输入法回车边界，但会移除现有文本框快捷提交；沿用其他共享输入框的组合事件检查即可保留两者。

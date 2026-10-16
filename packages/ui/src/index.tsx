@@ -1484,7 +1484,10 @@ export {
   CommunitySkinPublishDialog,
   type CommunitySkinPublishDialogProps,
 } from "./community/community-skin-publish-dialog";
-export { CandidateSkinPublishDialog } from "./community/candidate-skin-publish-dialog";
+export {
+  CandidateSkinPublishDialog,
+  type CandidateSkinPublishDialogProps,
+} from "./community/candidate-skin-publish-dialog";
 export { CommunityPluginsPage } from "./community/community-plugins";
 export {
   CommunityPluginPublishDialog,

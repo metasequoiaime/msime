@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 test("candidate skin publish loading reuses the shared client generation lifecycle", () => {
   const source = Object.values(
     import.meta.glob<string>(
-      "../../../../packages/ui/src/community/candidate-skin-publish-dialog.tsx",
+      "../../../../packages/ui/src/community/use-candidate-skin-publication.ts",
       {
         eager: true,
         query: "?raw",
