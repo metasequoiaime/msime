@@ -992,13 +992,7 @@ int wmain(int argc, wchar_t **argv) {
     // registers later is not left holding compiled defaults. A revision is
     // used instead of a bool so an older send cannot clear a newer update.
     auto tsf_config_revision = std::make_shared<msime::windows::RevisionFence>();
-    // The toolbar resolves light/dark from its own preference, independently
-    // of the candidate card: toolbar_theme is honoured on macOS and in the
-    // settings preview but was ignored by the Windows surface, which simply
-    // took the card's palette.
-    // The tray and candidate context menus. Windows draws its own menus, so
-    // this override only ever mattered here, and it was the one surface theme
-    // the client did not have.
+    // 工具栏、托盘菜单、语音浮层一律跟随颜色模式（HostCapabilities::surface_themes_follow），不读存下的 toolbar_theme、menu_theme、voice_theme；三个原子量照旧由偏好发布更新，只是都由全局的 `theme` 算出。
     // Cross-application CN/EN authority, when the user asked for one state to
     // follow them between applications.
     auto mode_scope_global = std::make_shared<std::atomic<bool>>(
@@ -1010,25 +1004,14 @@ int wmain(int argc, wchar_t **argv) {
         ReadAppInputModeRules(prepared.at("value").at("preferences"));
     auto input_mode_hud_enabled = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences").value("input_mode_hud", true));
-    auto menu_theme = std::make_shared<std::atomic<SurfaceThemeMode>>([&] {
+    // "follow" 取全局的 `theme`，它的 "system" 再交给 Windows 的应用模式。
+    const auto followed_surface_theme = [&] {
       const auto &stored = prepared.at("value").at("preferences");
-      const auto theme = stored.value("menu_theme", std::string("follow"));
-      const auto global = stored.value("theme", std::string("dark"));
-      return surface_theme_mode(theme, global);
-    }());
-    auto toolbar_theme = std::make_shared<std::atomic<SurfaceThemeMode>>([&] {
-      const auto &stored = prepared.at("value").at("preferences");
-      const auto theme = stored.value("toolbar_theme", std::string("follow"));
-      // "follow" defers to the global theme, and that in turn to Windows.
-      const auto global = stored.value("theme", std::string("dark"));
-      return surface_theme_mode(theme, global);
-    }());
-    auto voice_theme = std::make_shared<std::atomic<SurfaceThemeMode>>([&] {
-      const auto &stored = prepared.at("value").at("preferences");
-      const auto theme = stored.value("voice_theme", std::string("follow"));
-      return surface_theme_mode(
-          theme, stored.value("theme", std::string("dark")));
-    }());
+      return surface_theme_mode("follow", stored.value("theme", std::string("dark")));
+    };
+    auto menu_theme = std::make_shared<std::atomic<SurfaceThemeMode>>(followed_surface_theme());
+    auto toolbar_theme = std::make_shared<std::atomic<SurfaceThemeMode>>(followed_surface_theme());
+    auto voice_theme = std::make_shared<std::atomic<SurfaceThemeMode>>(followed_surface_theme());
     auto toolbar_enabled = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
             .value("floating_toolbar", nlohmann::json::object())
@@ -1169,26 +1152,11 @@ int wmain(int argc, wchar_t **argv) {
           }
           input_mode_hud_enabled->store(preferences.value("input_mode_hud", true),
                                         std::memory_order_release);
-          {
-            const auto theme =
-                preferences.value("menu_theme", std::string("follow"));
-            const auto global = preferences.value("theme", std::string("dark"));
-            menu_theme->store(surface_theme_mode(theme, global),
-                              std::memory_order_release);
-          }
-          {
-            const auto theme =
-                preferences.value("toolbar_theme", std::string("follow"));
-            const auto global = preferences.value("theme", std::string("dark"));
-            toolbar_theme->store(surface_theme_mode(theme, global),
-                                 std::memory_order_release);
-          }
-          // 语音面板主题: follow / dark / light. The overlay has had the setter
-          // all along, but nothing read the preference, so it was always dark.
-          // The overlay is built later, so publish through a flag the loop
-          // applies.
-          const auto voice_surface_theme =
-              preferences.value("voice_theme", std::string("follow"));
+          // 工具栏、托盘菜单和语音浮层跟随颜色模式，只看全局的 `theme`（见上面三个原子量的说明）。语音浮层在后面才建，所以经原子量交给循环去套用。
+          const auto surface_mode =
+              surface_theme_mode("follow", preferences.value("theme", std::string("dark")));
+          menu_theme->store(surface_mode, std::memory_order_release);
+          toolbar_theme->store(surface_mode, std::memory_order_release);
           // Publish the TSF-local settings; the loop pushes them to the
           // focused TIP, since the server is constructed after this handler.
           {
@@ -1203,11 +1171,7 @@ int wmain(int argc, wchar_t **argv) {
             std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
             *tray_preferences = std::move(menu);
           }
-          voice_theme->store(
-              surface_theme_mode(
-                  voice_surface_theme,
-                  preferences.value("theme", std::string("dark"))),
-              std::memory_order_release);
+          voice_theme->store(surface_mode, std::memory_order_release);
           // The settings page owns this too; without reconciling it here the
           // toolbar only followed the preference across a restart.
           const auto toolbar_preferences =

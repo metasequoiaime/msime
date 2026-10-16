@@ -11,6 +11,7 @@
 
 namespace msime::windows {
 // The preference fields the card, the toolbar and the menus are coloured from: the light/dark modes, the global theme and what a custom theme is made of. The custom keyboard design (which may carry a photo) colours nothing drawn here, so it is left behind rather than copied across threads.
+// 自定义主题里存下的编号色和边框色也不带过来：Windows 的编号色和边框色跟随主题和皮肤（HostCapabilities 的 candidate_number_color、candidate_border_color 为假），选了文字颜色时编号色由它推出，边框取主题的发丝线。候选窗、工具栏、托盘菜单和语音浮层都从这里取值，所以一处去掉就都不画；文档不改。
 inline nlohmann::json
 candidate_theme_values(const nlohmann::json &preferences) {
   nlohmann::json result = nlohmann::json::object();
@@ -28,6 +29,12 @@ candidate_theme_values(const nlohmann::json &preferences) {
     for (auto entry = stored.begin(); entry != stored.end(); ++entry)
       if (entry.key() != "keyboard")
         custom[entry.key()] = entry.value();
+    if (custom.contains("candidate_colors") &&
+        custom.at("candidate_colors").is_object()) {
+      auto &colors = custom.at("candidate_colors");
+      colors.erase("number");
+      colors.erase("border");
+    }
     result["custom_theme"] = std::move(custom);
   }
   return result;

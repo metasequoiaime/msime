@@ -36,6 +36,21 @@ int main() {
        {"unrelated", "synthetic"}});
   // The custom keyboard (which may carry a photo) colours nothing here, so it is not copied across threads.
   assert(stored.size() == 3 && stored.at("custom_theme") == custom);
+  // 编号色和边框色跟随主题：存下的这两个槽位不带过线程边界，文字、悬停等其余颜色照旧。
+  const auto picked = candidate_theme_values(
+      {{"global_theme", "custom"},
+       {"custom_theme",
+        {{"candidate_colors",
+          {{"text", "#102030"},
+           {"hover", "#405060"},
+           {"number", "#123456"},
+           {"border", "#654321"}}}}}});
+  assert(picked.at("custom_theme").at("candidate_colors") ==
+         nlohmann::json({{"text", "#102030"}, {"hover", "#405060"}}));
+  assert(candidate_theme_request(picked, false, false, root)
+             .at("custom_theme")
+             .at("candidate_colors") ==
+         nlohmann::json({{"text", "#102030"}, {"hover", "#405060"}}));
   const auto request = candidate_theme_request(stored, true, false, root);
   assert(request.at("global_theme") == "custom" && request.at("dark") == true &&
          request.at("layout") == "vertical" &&
