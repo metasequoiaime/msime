@@ -188,6 +188,7 @@ export {
   type UseInputSourceUninstallOptions,
 } from "./settings/use-input-source-uninstall";
 export {
+  touchKeyboardResetSubjects,
   useTouchKeyboardSettingsReset,
   type TouchKeyboardSettingsResetConfirmOptions,
   type UseTouchKeyboardSettingsResetOptions,
@@ -1155,8 +1156,9 @@ export {
 export { FloatingToolbarPlatformNotice } from "./settings/floating-toolbar-platform-notice";
 export {
   floatingToolbarButtonOptions,
-  floatingToolbarFontSizes,
-  floatingToolbarScales,
+  floatingToolbarSize,
+  floatingToolbarSizes,
+  type FloatingToolbarSize,
 } from "./settings/floating-toolbar-options";
 export {
   DoubaoAuthModeSection,
@@ -1794,6 +1796,10 @@ export interface HostCapabilities {
   fixed_candidate_layout?: "horizontal" | "vertical";
   /** The touch keyboard picks its toolbar buttons from `touch_toolbar`. */
   touch_toolbar_components: boolean;
+  /** 宿主按 `touch_keyboard_height_adjustment` 改变屏幕键盘的高度（Windows 与触屏宿主）；macOS 和 Linux 的键盘窗口高度固定，不给「键盘高度」滑块。缺省按提供处理。 */
+  touch_keyboard_height?: boolean;
+  /** 宿主的屏幕键盘按 `touch_key_spacing_tenths` / `touch_row_spacing_tenths` 画间距；macOS 为 false，键盘面板固定用默认间距，设置页不给间距滑块、拖动调间距和「恢复默认」。缺省按提供处理。 */
+  touch_keyboard_spacing?: boolean;
   shuangpin_preedit: boolean;
   /** 宿主在双拼组字时按 `shuangpin_keymap_hint` 在候选窗旁画键位图（macOS 和 Windows）。 */
   shuangpin_keymap_hint?: boolean;
@@ -2507,6 +2513,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showFloatingToolbar,
     showToolbarAppearance,
     showToolbarComponents,
+    showTouchKeyboardHeight,
+    showTouchKeyboardSpacing,
     showCandidateFontControls,
     showCandidatePreeditFont,
     showCandidateEnglishFont,
@@ -2774,7 +2782,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     setError,
     setNotice,
     confirm,
-    voiceShortcut: !macosPlatform,
   });
   const openExternalUrl = useExternalUrl({
     openExternalUrl: client.openExternalUrl,
@@ -2959,31 +2966,39 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     // Sound packs, music and the / and @ modes all belong to a physical keyboard and a desktop candidate window; a phone keeps its own keyboard feedback settings.
     "plugins",
   ];
-  const { availablePages, sidebarGroups, mobilePrimaryPages, mobileSecondaryGroups } =
-    settingsPageProjections({
-      mobilePlatform,
-      hasHomePage,
-      hasTypingStatistics: Boolean(client.typingStatistics),
-      hasVocabularyReview: Boolean(client.vocabularyReview),
-      hasAccount: Boolean(client.account || client.appIcon),
-      hasChat: Boolean(client.chat),
-      hasCommunity: Boolean(client.communitySkins || client.communityResources),
-      showFloatingToolbar,
-      showDeveloperPage,
-      // A host with a pack store, or one that plays or routes something the page switches.
-      hasPlugins:
-        !mobilePlatform &&
-        (Boolean(client.plugins) ||
-          Boolean(client.communityPlugins) ||
-          showKeySound ||
-          showMusic ||
-          showPluginTriggers ||
-          showTypingEffects),
-      // full 不带版本信息，手写一直都在。
-      hasHandwriting: client.host?.edition?.handwriting ?? true,
-      mobileHiddenPageIds,
-      mobilePageTitle,
-    });
+  const {
+    availablePages,
+    sidebarGroups,
+    mobilePrimaryPages,
+    mobileSecondaryGroups,
+    pageAliases,
+    handwritingOnScreenKeyboardPage,
+  } = settingsPageProjections({
+    mobilePlatform,
+    hasHomePage,
+    hasTypingStatistics: Boolean(client.typingStatistics),
+    hasVocabularyReview: Boolean(client.vocabularyReview),
+    hasAccount: Boolean(client.account || client.appIcon),
+    hasChat: Boolean(client.chat),
+    hasCommunity: Boolean(client.communitySkins || client.communityResources),
+    showFloatingToolbar,
+    showDeveloperPage,
+    // A host with a pack store, or one that plays or routes something the page switches.
+    hasPlugins:
+      !mobilePlatform &&
+      (Boolean(client.plugins) ||
+        Boolean(client.communityPlugins) ||
+        showKeySound ||
+        showMusic ||
+        showPluginTriggers ||
+        showTypingEffects),
+    // full 不带版本信息，手写一直都在。
+    hasHandwriting: client.host?.edition?.handwriting ?? true,
+    // macOS 和 Linux 桌面的手写页只有一个打开按钮，并进屏幕键盘页；Windows 的共享设置页跟原生设置窗口一样分成两页。
+    handwritingOnScreenKeyboardPage: macosPlatform || linuxPlatform,
+    mobileHiddenPageIds,
+    mobilePageTitle,
+  });
   // 子页面在导航里点亮它的上级页面，并提供回到上级的入口。触屏宿主上「AI 对话」是底部的「对话」标签页，不再是「AI 辅助」的子页面，标签页的根页面没有上级。
   const navigationPage: SettingsPageId =
     mobilePlatform && mobilePrimaryPageIds.includes(page as MobilePrimaryPageId)
@@ -2994,6 +3009,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       mobilePlatform,
       mobileHiddenPageIds,
       availablePages,
+      pageAliases,
       page,
       setPage,
       mobileLastPageByTab,
@@ -3052,6 +3068,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showFloatingToolbar,
     showToolbarAppearance,
     showToolbarComponents,
+    showTouchKeyboardHeight,
+    showTouchKeyboardSpacing,
     showCandidateFontControls,
     showCandidatePreeditFont,
     showCandidateEnglishFont,
@@ -3282,6 +3300,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     touchKeyboardHeightAdjustment,
     installerTrust,
     availablePages,
+    handwritingOnScreenKeyboardPage,
     sidebarGroups,
     mobileActiveTab,
     untitledOnPhone,
@@ -3373,6 +3392,7 @@ function SettingsShell(props: SettingsPageProps) {
     dirty,
     keyboardPreviewTheme,
     availablePages,
+    handwritingOnScreenKeyboardPage,
     sidebarGroups,
     mobileActiveTab,
     untitledOnPhone,
@@ -3996,7 +4016,8 @@ function SettingsShell(props: SettingsPageProps) {
                     <DictionarySettingsPage />
                     <ScreenKeyboardSettingsPage />
                     <VoiceSettingsPage />
-                    <HandwritingSettingsPage />
+                    {/* 手写并进屏幕键盘页时，那一页自己画手写的分组。 */}
+                    {!handwritingOnScreenKeyboardPage && <HandwritingSettingsPage />}
                     <ToolsSettingsPage />
                     <PluginsSettingsPage hidden={pluginCommunityShown} />
                     <DeveloperSettingsPage />
@@ -4028,6 +4049,13 @@ function SettingsShell(props: SettingsPageProps) {
                     showRestoreDefaults={
                       Boolean(client.loadDefaultPreferences) &&
                       canRestoreDefaultsOnPage(page) &&
+                      // macOS 的屏幕键盘页（并进手写之后）只剩两个打开按钮，没有一项偏好，页脚的全局「恢复默认设置」在那里只会让人以为它恢复这一页。
+                      !(
+                        page === "screen-keyboard" &&
+                        !mobilePlatform &&
+                        !model.showTouchKeyboardHeight &&
+                        !model.showTouchKeyboardSpacing
+                      ) &&
                       !skinCommunityShown &&
                       !pluginCommunityShown
                     }
