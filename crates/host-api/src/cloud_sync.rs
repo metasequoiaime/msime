@@ -21,8 +21,8 @@ use msime_client_services::account::cloud_sync::policy::{
 };
 use msime_client_services::account::cloud_sync::state::{
     import_android, import_ios_v1, ActivationChange, BaseChange, OutcomeKind, PendingCommit,
-    RoundProgress, RunLease, SectionBase, SectionOutcome, SectionProgress, SyncFailure, SyncState,
-    SyncStateStore,
+    RoundProgress, RunLease, SectionBase, SectionOutcome, SectionProgress, Stall, StallChange,
+    SyncFailure, SyncState, SyncStateStore,
 };
 use msime_client_services::account::harmony_settings::{
     apply_harmony_settings, export_harmony_settings,
@@ -137,6 +137,23 @@ pub(crate) struct DictionaryLocal {
     pub(crate) activation: SnapshotActivation,
 }
 
+/// 词库合并没做完或者失败：`reason` 是原因码（[`MERGE_PENDING`]、[`MERGE_REJECTED`]、[`MERGE_BLOCKED`] 或 `dictionary_storage` 这类）。
+#[derive(Debug, PartialEq)]
+pub(crate) struct MergeStop {
+    pub(crate) reason: String,
+    /// 这一轮往导入队列里排了新的词（或者重排了暂时失败的）：合并在往前走，退避不加长。
+    pub(crate) queued: bool,
+}
+
+impl From<String> for MergeStop {
+    fn from(reason: String) -> Self {
+        Self {
+            reason,
+            queued: false,
+        }
+    }
+}
+
 /// 驱动用到的本机读写。错误是稳定的原因码（`settings_storage`、`phrases_storage`、`dictionary_storage` 等）。
 pub(crate) trait SyncLocal {
     fn export_settings(&self) -> Result<LocalSettings, String>;
@@ -168,7 +185,7 @@ pub(crate) trait SyncLocal {
         account_id: &str,
         revision: i64,
     ) -> Result<String, String>;
-    fn merge_dictionary(&self, snapshot: &Path) -> Result<(), String>;
+    fn merge_dictionary(&self, snapshot: &Path) -> Result<(), MergeStop>;
     fn cancel_dictionary(&self, account_id: &str) -> Result<(), String>;
     /// 校验下载到的快照（与激活队列用的同一套规则），返回它的修订号。
     fn snapshot_revision(&self, snapshot: &Path) -> Result<i64, String>;
@@ -451,6 +468,8 @@ struct DictionaryData {
     probe: Option<AccountDictionaryProbe>,
     /// 这一轮下载后交给激活队列的请求 id。
     enqueued: Option<String>,
+    /// 这一轮合并往导入队列里排了词。
+    queued: bool,
 }
 
 /// 云端文档里会写回本机、也会被上传的部分：去掉隐私键和字段表外的键。
@@ -473,6 +492,10 @@ struct Round<'a, A: AccountApi, S: AccountSessionStorage, L: SyncLocal> {
     phrases: Option<(Slot, PhrasesData)>,
     dictionary: Option<(Slot, DictionaryData)>,
     locked_settings: bool,
+    /// 词库在合并的退避里，这一轮跳过它。
+    dictionary_stalled: bool,
+    /// 词库这一轮用的选择：宿主带来的、另一轮在跑时记下的，或者词库合并没做完时留下的。
+    dictionary_choice: Option<Choice>,
 }
 
 impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
@@ -859,15 +882,22 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                         Err(reason) => Event::LocalFailed { reason },
                         Ok(revision) => {
                             let user = context.user;
+                            let queued = std::cell::Cell::new(false);
                             let written = context.locally(|| match target {
-                                WriteTarget::MergeIntoLocal => {
-                                    context.local.merge_dictionary(&file).map(|()| None)
-                                }
+                                WriteTarget::MergeIntoLocal => context
+                                    .local
+                                    .merge_dictionary(&file)
+                                    .map(|()| None)
+                                    .map_err(|stop| {
+                                        queued.set(stop.queued);
+                                        stop.reason
+                                    }),
                                 _ => context
                                     .local
                                     .replace_dictionary(&file, user, revision)
                                     .map(Some),
                             })?;
+                            data.queued |= queued.get();
                             match written {
                                 Ok(enqueued) => {
                                     data.enqueued = enqueued;
@@ -937,6 +967,7 @@ fn committed(
         unheld,
         cleared: commit.reset_cleared.then_some(false),
         activation: ActivationChange::Keep,
+        stall: StallChange::Keep,
         outcome: SectionOutcome::new(OutcomeKind::Synced, None),
     }
 }
@@ -1048,11 +1079,27 @@ pub(crate) fn run<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
     .into_iter()
     .filter_map(|(enabled, section)| enabled.then_some(section))
     .collect();
-    let (begun, snapshot) = store
+    // 宿主这一次带来的选择才不等节流；状态里记着的选择（`pending_choice`、词库合并没做完时留下的）照样等。
+    let forced = request.trigger.forced() || request.choice.is_some();
+    let (begun, snapshot, dictionary_stalled) = store
         .update(|state| {
             state.reconcile(user.as_deref());
             let choice = request.choice.or(state.pending_choice);
-            let begun = match gate(state, now_ms, request.trigger, choice, &participating) {
+            // 词库合并在退避里：回到前台时这一轮不碰词库，它的待上传标记也不把节流缩到 30 秒。
+            let dictionary_stalled =
+                capabilities.dictionary && !forced && state.sections.dictionary.stalled(now_ms);
+            let gated: Vec<Section> = participating
+                .iter()
+                .copied()
+                .filter(|section| !(dictionary_stalled && *section == Section::Dictionary))
+                .collect();
+            let begun = match gate(
+                state,
+                now_ms,
+                request.trigger,
+                request.choice.is_some(),
+                &gated,
+            ) {
                 Err(reason) => {
                     // 另一轮还在跑时做出的选择记下来，下一轮用它，不丢掉。
                     if let (Some(choice), "busy") = (request.choice, reason.as_str()) {
@@ -1065,7 +1112,7 @@ pub(crate) fn run<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
                     Ok(state.begin_run(user, now_ms, choice))
                 }
             };
-            (begun, state.clone())
+            (begun, state.clone(), dictionary_stalled)
         })
         .map_err(storage)?;
     let lease = match begun {
@@ -1075,7 +1122,8 @@ pub(crate) fn run<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
     let (user, generation) = identity.expect("gate requires an account");
     // 词库快照的中转文件放在状态目录下面；状态锁已经建好了状态目录。
     let work = store.directory().join("work");
-    if request.capabilities.dictionary && std::fs::create_dir_all(&work).is_err() {
+    let dictionary = capabilities.dictionary && !dictionary_stalled;
+    if dictionary && std::fs::create_dir_all(&work).is_err() {
         let state = store
             .update(|state| {
                 state.release(&lease.id);
@@ -1084,6 +1132,8 @@ pub(crate) fn run<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
             .map_err(storage)?;
         return Ok(skipped("dictionary_storage", &state, now_ms));
     }
+    let choice = lease.choice;
+    let dictionary_choice = choice.or(snapshot.sections.dictionary.choice);
     let mut round = Round {
         context: Context {
             session,
@@ -1099,8 +1149,9 @@ pub(crate) fn run<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
         phrases: None,
         dictionary: None,
         locked_settings: request.settings_locked,
+        dictionary_stalled,
+        dictionary_choice,
     };
-    let choice = lease.choice;
     if capabilities.settings && !round.locked_settings {
         let slot = round.slot(Section::Settings, choice);
         round.settings = Some((
@@ -1129,13 +1180,15 @@ pub(crate) fn run<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
             },
         ));
     }
-    if capabilities.dictionary {
-        let slot = round.slot(Section::Dictionary, choice);
+    if dictionary {
+        // 设置和常用语只用宿主带来的或 `pending_choice` 里的选择；词库合并没做完时留下的选择只给词库。
+        let slot = round.slot(Section::Dictionary, dictionary_choice);
         round.dictionary = Some((
             slot,
             DictionaryData {
                 probe: None,
                 enqueued: None,
+                queued: false,
             },
         ));
     }
@@ -1184,6 +1237,8 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
     now_ms: u64,
 ) -> Result<Value, String> {
     let run_id = lease.id.as_str();
+    let round_dictionary_choice = round.dictionary_choice;
+    let dictionary_stalled = round.dictionary_stalled;
     let user = lease.user_id.as_str();
     let mut progress = RoundProgress::default();
     let mut outcomes: BTreeMap<Section, SectionOutcome> = BTreeMap::new();
@@ -1192,12 +1247,22 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
     let mut writes = HostWrites::default();
     let mut deferred = None;
     let mut slots: Vec<(Section, Slot)> = Vec::new();
-    // 词库还没同步过（或云端被清空后等着选择）时这一轮用的是用户的选择；合并没排完时把选择留给下一轮，不再问一次。
+    // 词库还没同步过（或云端被清空后等着选择）时这一轮用的是用户的选择；合并没排完、或者键盘还没发布过本机词库版本时把选择留给下一轮，不再问一次。
     let dictionary_needs_choice = {
         let dictionary = &round.state.sections.dictionary;
         dictionary.cursor.is_none() || dictionary.cleared
     };
+    let previous_stall = round.state.sections.dictionary.stall;
     let mut keep_choice = false;
+    let mut dictionary_queued = false;
+    if dictionary_stalled {
+        let outcome = SectionOutcome::new(OutcomeKind::Skipped, Some(DICTIONARY_BACKOFF));
+        progress.sections.insert(
+            Section::Dictionary,
+            SectionProgress::outcome(outcome.clone()),
+        );
+        outcomes.insert(Section::Dictionary, outcome);
+    }
     if let Some((slot, data)) = round.settings {
         writes.absorb(data.writes);
         deferred = data.deferred;
@@ -1220,7 +1285,8 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
         }
         slots.push((Section::Phrases, slot));
     }
-    if let Some((slot, _)) = round.dictionary {
+    if let Some((slot, data)) = round.dictionary {
+        dictionary_queued = data.queued;
         slots.push((Section::Dictionary, slot));
     }
     let mut failed = false;
@@ -1251,9 +1317,9 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
             }
             OutcomeKind::Failed => {
                 failed = true;
-                keep_choice |= section == Section::Dictionary
-                    && dictionary_needs_choice
-                    && outcome.reason.as_deref().is_some_and(merge_unfinished);
+                let stalled = section == Section::Dictionary
+                    && outcome.reason.as_deref().is_some_and(merge_stalled);
+                keep_choice |= stalled && dictionary_needs_choice;
                 if progress.failure.is_none() {
                     progress.failure = Some(failure_record(section, &slot, &outcome));
                 }
@@ -1262,9 +1328,19 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
                     progress.not_before_ms =
                         Some(progress.not_before_ms.map_or(at, |old| old.max(at)));
                 }
-                progress
-                    .sections
-                    .insert(section, SectionProgress::outcome(outcome.clone()));
+                let mut change = SectionProgress::outcome(outcome.clone());
+                // 合并没做完：退避一阵再自动重试，不在每次回到前台时都重新下载整份快照。这一轮排进了新的词就从头数，没有进展才翻倍。
+                if stalled {
+                    let rounds = match previous_stall {
+                        Some(stall) if !dictionary_queued => stall.rounds.saturating_add(1),
+                        _ => 1,
+                    };
+                    change.stall = StallChange::Set(Stall {
+                        rounds,
+                        until_ms: now_ms.saturating_add(policy::stall_ms(rounds)),
+                    });
+                }
+                progress.sections.insert(section, change);
             }
             OutcomeKind::Synced | OutcomeKind::Unchanged => {
                 let mut change = slot
@@ -1272,6 +1348,9 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
                     .clone()
                     .unwrap_or_else(|| SectionProgress::outcome(outcome.clone()));
                 change.outcome = outcome.clone();
+                if section == Section::Dictionary {
+                    change.stall = StallChange::Clear;
+                }
                 if section == Section::Settings {
                     if let Some(generation) = slot.skins_generation {
                         progress.sections.insert(
@@ -1334,9 +1413,10 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
             "status": status_value(&state, now_ms),
         }));
     }
-    progress.synced = !failed;
+    // 词库在退避里没有跑，也不算同步成功：上次的失败原因留着，状态行照旧说明词库为什么停下。
+    progress.synced = !failed && !dictionary_stalled;
     progress.consumed_choice = lease.choice.is_some();
-    progress.kept_choice = lease.choice.filter(|_| keep_choice);
+    progress.kept_choice = round_dictionary_choice.filter(|_| keep_choice);
     if writes.is_empty() && deferred.is_none() {
         let result = store
             .update(|state| {
@@ -1524,9 +1604,17 @@ const TRANSIENT_APPLY_FAILURES: [&str; 2] = [
 /// 新词的权重上限，与 Engine `user_dictionary::personal::MAX_ENTRY_WEIGHT` 相同（那个模块不公开）。
 const MAX_IMPORT_WEIGHT: i64 = 100_000_000;
 
-/// 合并没做完的那几个原因：游标不推进，首次同步的选择留给下一轮。
-fn merge_unfinished(reason: &str) -> bool {
-    matches!(reason, MERGE_PENDING | MERGE_REJECTED | MERGE_BLOCKED)
+/// 键盘还没发布过本机词库版本，下载的快照没法交给激活队列（新装以后还没打开过键盘就打开了同步）。
+const DICTIONARY_UNPUBLISHED: &str = "dictionary_unpublished";
+/// 词库在合并的退避里，这一轮没有碰它。
+const DICTIONARY_BACKOFF: &str = "dictionary_backoff";
+
+/// 词库这一轮没做完、下一轮还要重来的那几个原因：合并没做完，或者键盘还没发布过本机词库版本。游标不推进，首次同步的选择留给下一轮，词库退避一阵再自动重试。
+fn merge_stalled(reason: &str) -> bool {
+    matches!(
+        reason,
+        MERGE_PENDING | MERGE_REJECTED | MERGE_BLOCKED | DICTIONARY_UNPUBLISHED
+    )
 }
 
 /// 快照里的一个词在本机的身份，本机导出的词和云端的词都这样算，两边才对得上；种类不认识时为 `None`。
@@ -1855,7 +1943,7 @@ impl SyncLocal for HostLocal {
             .read()
             .map_err(|_| "dictionary_storage".to_owned())?
             .local_version
-            .ok_or_else(|| "dictionary_unpublished".to_owned())?;
+            .ok_or_else(|| DICTIONARY_UNPUBLISHED.to_owned())?;
         let sha256 = inspect_snapshot_json(snapshot)
             .ok()
             .and_then(|metadata| {
@@ -1872,7 +1960,7 @@ impl SyncLocal for HostLocal {
     }
 
     /// 把云端快照的词并进本机：本机还没有的词排进个人词库导入队列，等键盘应用。只有云端的每个词都已经在本机（或者本机排着删除、改掉它）时才算合并完，返回 `Ok`；否则这一类以 [`MERGE_PENDING`]、[`MERGE_REJECTED`] 或 [`MERGE_BLOCKED`] 失败，游标不推进、不标待上传，下一轮云端相对游标仍然有改动，走的还是合并，重新下载、接着排。合并完以后才会整份上传，所以没进本机的云端词不会被本机快照从云端删掉。
-    fn merge_dictionary(&self, snapshot: &Path) -> Result<(), String> {
+    fn merge_dictionary(&self, snapshot: &Path) -> Result<(), MergeStop> {
         let storage = |_| "dictionary_storage".to_owned();
         let cloud = snapshot_words(snapshot)?;
         // 本机已经有的词不再排队：队列一次最多容纳 `PERSONAL_IMPORT_BATCH` 个没应用完的请求，云端的词多于这个数时要分几轮排进去，每一轮都得跳过前几轮已经被键盘应用的词，才能往后推进。
@@ -1908,6 +1996,7 @@ impl SyncLocal for HostLocal {
         let mut words: Vec<PersonalWord> = Vec::new();
         let mut retry = Vec::new();
         let (mut unfinished, mut rejected, mut blocked) = (false, false, false);
+        let mut enqueued = false;
         for word in &cloud {
             let Some(identity) = stored_identity(word) else {
                 rejected = true;
@@ -1942,9 +2031,13 @@ impl SyncLocal for HostLocal {
         }
         for id in &retry {
             match store.retry(id) {
+                Ok(()) => {
+                    unfinished = true;
+                    enqueued = true;
+                }
                 // 冲突说明同一个词已经有排着的请求。
-                Ok(()) | Err(PersonalDictionaryError::Conflict) => unfinished = true,
-                Err(_) => return Err("dictionary_storage".to_owned()),
+                Err(PersonalDictionaryError::Conflict) => unfinished = true,
+                Err(_) => return Err("dictionary_storage".to_owned().into()),
             }
         }
         let room = policy::PERSONAL_IMPORT_BATCH.saturating_sub(waiting.len());
@@ -1957,24 +2050,28 @@ impl SyncLocal for HostLocal {
                 msime_client_core::uuid::Uuid::new_v4()
             );
             match store.enqueue_import(words, id) {
-                Ok(()) => {}
+                Ok(()) => enqueued = true,
                 // 排队和读状态之间别处也排了词：这一轮先停下，下一轮接着排。
                 Err(
                     PersonalDictionaryError::TooManyRequests | PersonalDictionaryError::Conflict,
                 ) => {}
-                Err(_) => return Err("dictionary_storage".to_owned()),
+                Err(_) => return Err("dictionary_storage".to_owned().into()),
             }
         }
         // 队列被失败的请求占满，又没有排着的请求会被键盘应用、腾出位置：等下去也排不进去。
         blocked |= left_over && !unfinished && state.pending_count() == 0;
+        let stop = |reason: &str| MergeStop {
+            reason: reason.to_owned(),
+            queued: enqueued,
+        };
         if rejected {
-            return Err(MERGE_REJECTED.to_owned());
+            return Err(stop(MERGE_REJECTED));
         }
         if blocked {
-            return Err(MERGE_BLOCKED.to_owned());
+            return Err(stop(MERGE_BLOCKED));
         }
         if unfinished || left_over {
-            return Err(MERGE_PENDING.to_owned());
+            return Err(stop(MERGE_PENDING));
         }
         Ok(())
     }

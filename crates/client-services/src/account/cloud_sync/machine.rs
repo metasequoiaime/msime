@@ -52,12 +52,12 @@ impl SkipReason {
     }
 }
 
-/// 这一轮要不要跑：要有绑定的账号、开关开着、不在服务端要求的退避里；回到前台时还要满足节流（只看 `sections` 这几类的待上传标记，宿主不同步的分类打开开关时也被标过，不能让它们一直把节流缩到 30 秒）；已经有一轮在跑（租约没过期）时不跑。
+/// 这一轮要不要跑：要有绑定的账号、开关开着、不在服务端要求的退避里；回到前台时还要满足节流（只看 `sections` 这几类的待上传标记，宿主不同步的分类打开开关时也被标过，不能让它们一直把节流缩到 30 秒；词库在合并的退避里时调用方也不把它算进来）；已经有一轮在跑（租约没过期）时不跑。`chosen` 是宿主这一次请求带没带用户的选择：带了就不等节流。状态里记着的选择（另一轮在跑时做的 `pending_choice`、词库合并没做完时留下的）不算，否则合并一直做不完时每次回到前台都会跳过节流、重新下载整份快照。
 pub fn gate(
     state: &SyncState,
     now_ms: u64,
     trigger: Trigger,
-    choice: Option<Choice>,
+    chosen: bool,
     sections: &[Section],
 ) -> Result<(), SkipReason> {
     if state.account_id.is_empty() {
@@ -69,7 +69,7 @@ pub fn gate(
     if state.backoff_until(now_ms).is_some() {
         return Err(SkipReason::Backoff);
     }
-    let forced = trigger.forced() || choice.is_some();
+    let forced = trigger.forced() || chosen;
     let any_dirty = sections
         .iter()
         .any(|section| state.sections.get(*section).dirty());

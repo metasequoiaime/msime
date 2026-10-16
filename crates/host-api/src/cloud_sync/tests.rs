@@ -336,6 +336,10 @@ struct Local {
     merged: usize,
     /// 合并时返回的错误，比如云端的词这一轮没排完。
     merge_failure: Option<String>,
+    /// 合并没做完时这一轮有没有往导入队列里排了新的词。
+    merge_queued: bool,
+    /// 交给激活队列时返回的错误，比如键盘还没发布过本机词库版本。
+    replace_failure: Option<String>,
     cancelled: Vec<String>,
 }
 
@@ -470,14 +474,23 @@ impl SyncLocal for FakeLocal {
     ) -> Result<String, String> {
         assert!(snapshot.exists());
         let mut local = self.local();
+        if let Some(reason) = local.replace_failure.clone() {
+            return Err(reason);
+        }
         local.replaced.push((account_id.to_owned(), revision));
         local.snapshot_pending = true;
         Ok(format!("snapshot-{}", local.replaced.len()))
     }
-    fn merge_dictionary(&self, _: &Path) -> Result<(), String> {
+    fn merge_dictionary(&self, _: &Path) -> Result<(), MergeStop> {
         let mut local = self.local();
         local.merged += 1;
-        local.merge_failure.clone().map_or(Ok(()), Err)
+        match local.merge_failure.clone() {
+            None => Ok(()),
+            Some(reason) => Err(MergeStop {
+                reason,
+                queued: local.merge_queued,
+            }),
+        }
     }
     fn cancel_dictionary(&self, account_id: &str) -> Result<(), String> {
         self.local().cancelled.push(account_id.to_owned());
@@ -1664,7 +1677,8 @@ fn an_unfinished_merge_keeps_the_cursor_and_the_choice_for_the_next_round() {
     assert_eq!(partial["sections"]["dictionary"]["reason"], MERGE_PENDING);
     let state = fixture.state();
     assert_eq!(state.sections.dictionary.cursor, None);
-    assert_eq!(state.pending_choice, Some(Choice::Merge));
+    assert_eq!(state.sections.dictionary.choice, Some(Choice::Merge));
+    assert_eq!(state.pending_choice, None);
     assert_eq!(
         partial["status"]["status_line"],
         policy::local_message(MERGE_PENDING)
@@ -1677,7 +1691,7 @@ fn an_unfinished_merge_keeps_the_cursor_and_the_choice_for_the_next_round() {
     assert_eq!(fixture.api.cloud().snapshot_uploads, 0);
     let state = fixture.state();
     assert_eq!(state.sections.dictionary.cursor, Some(4));
-    assert_eq!(state.pending_choice, None);
+    assert_eq!(state.sections.dictionary.choice, None);
     assert!(state.sections.dictionary.dirty());
 
     // 云端有本机导入不了的词、或者被别的失败请求挡住时也一样：不推进、不上传，选择留着，状态行说清楚为什么停下。
@@ -1695,11 +1709,188 @@ fn an_unfinished_merge_keeps_the_cursor_and_the_choice_for_the_next_round() {
         );
         let state = fixture.state();
         assert_eq!(state.sections.dictionary.cursor, None);
-        assert_eq!(state.pending_choice, Some(Choice::Merge));
+        assert_eq!(state.sections.dictionary.choice, Some(Choice::Merge));
         let again = fixture.run(Trigger::Manual, None, dictionary, NOW + 60_000);
         assert_eq!(again["sections"]["dictionary"]["reason"], reason, "{again}");
         assert_eq!(fixture.api.cloud().snapshot_uploads, 0);
     }
+}
+
+fn snapshot_downloads(fixture: &Fixture) -> usize {
+    fixture
+        .api
+        .calls()
+        .iter()
+        .filter(|call| **call == "snapshot_download")
+        .count()
+}
+
+#[test]
+fn an_active_trigger_after_an_unfinished_merge_is_throttled_and_backs_off() {
+    let dictionary = Capabilities {
+        dictionary: true,
+        ..Capabilities::default()
+    };
+    let fixture = Fixture::new();
+    fixture.local.local().words = true;
+    fixture.local.local().merge_failure = Some(MERGE_REJECTED.to_owned());
+    fixture.api.cloud().dictionary_revision = 4;
+    fixture.enable();
+    let stopped = fixture.run(Trigger::Choice, Some(Choice::Merge), dictionary, NOW);
+    assert_eq!(
+        stopped["sections"]["dictionary"]["reason"], MERGE_REJECTED,
+        "{stopped}"
+    );
+    assert_eq!(snapshot_downloads(&fixture), 1);
+    let state = fixture.state();
+    assert_eq!(state.sections.dictionary.choice, Some(Choice::Merge));
+    assert_eq!(state.pending_choice, None);
+    assert_eq!(
+        state.sections.dictionary.stall,
+        Some(Stall {
+            rounds: 1,
+            until_ms: NOW + policy::STALL_BASE_MS,
+        })
+    );
+    // 紧接着回到前台：留下的选择不让这一轮跳过节流；过了 30 秒，词库的待上传标记也因为退避不再把节流缩短。都不重新下载快照。
+    for offset in [1_000, 2_000, 40_000, 120_000] {
+        let skipped = fixture.run(Trigger::Active, None, dictionary, NOW + offset);
+        assert_eq!(skipped["reason"], "throttled", "{skipped}");
+    }
+    assert_eq!(snapshot_downloads(&fixture), 0);
+    // 退避到期：自动重试一次，还是没做完，这一轮没有排进新的词，退避翻倍。
+    let retried = fixture.run(
+        Trigger::Active,
+        None,
+        dictionary,
+        NOW + policy::STALL_BASE_MS,
+    );
+    assert_eq!(
+        retried["sections"]["dictionary"]["reason"], MERGE_REJECTED,
+        "{retried}"
+    );
+    assert_eq!(snapshot_downloads(&fixture), 1);
+    let stall = fixture.state().sections.dictionary.stall.unwrap();
+    assert_eq!(stall.rounds, 2);
+    assert_eq!(
+        stall.until_ms,
+        NOW + policy::STALL_BASE_MS + policy::stall_ms(2)
+    );
+    // 节流到期了，词库还在退避里：这一轮跳过词库，失败原因留着，不算同步成功。
+    let later = NOW + 2 * policy::STALL_BASE_MS;
+    let skipped = fixture.run(Trigger::Active, None, dictionary, later);
+    assert_eq!(
+        skipped["sections"]["dictionary"]["reason"], DICTIONARY_BACKOFF,
+        "{skipped}"
+    );
+    assert_eq!(
+        skipped["status"]["status_line"],
+        policy::local_message(MERGE_REJECTED)
+    );
+    assert_eq!(snapshot_downloads(&fixture), 0);
+    // 手动同步不等退避。这一轮排进了新的词：合并在往前走，退避从头数。
+    {
+        let mut local = fixture.local.local();
+        local.merge_failure = Some(MERGE_PENDING.to_owned());
+        local.merge_queued = true;
+    }
+    let progressed = fixture.run(Trigger::Manual, None, dictionary, later + 1_000);
+    assert_eq!(
+        progressed["sections"]["dictionary"]["reason"], MERGE_PENDING,
+        "{progressed}"
+    );
+    assert_eq!(snapshot_downloads(&fixture), 1);
+    assert_eq!(
+        fixture.state().sections.dictionary.stall,
+        Some(Stall {
+            rounds: 1,
+            until_ms: later + 1_000 + policy::STALL_BASE_MS,
+        })
+    );
+    // 合并做完：退避和留下的选择都清掉。
+    fixture.local.local().merge_failure = None;
+    let merged = fixture.run(Trigger::Manual, None, dictionary, later + 2_000);
+    assert_eq!(
+        merged["sections"]["dictionary"]["outcome"], "synced",
+        "{merged}"
+    );
+    let state = fixture.state();
+    assert_eq!(state.sections.dictionary.stall, None);
+    assert_eq!(state.sections.dictionary.choice, None);
+    assert_eq!(state.sections.dictionary.cursor, Some(4));
+}
+
+#[test]
+fn a_choice_kept_for_the_dictionary_is_not_applied_to_a_cleared_phrase_cloud() {
+    let capabilities = Capabilities {
+        phrases: true,
+        dictionary: true,
+        ..Capabilities::default()
+    };
+    let fixture = Fixture::new();
+    fixture.api.cloud().phrases = cloud_phrases(3, &["云端"]);
+    fixture.local.add_phrase("本机");
+    fixture.local.local().words = true;
+    fixture.local.local().merge_failure = Some(MERGE_PENDING.to_owned());
+    fixture.api.cloud().dictionary_revision = 4;
+    fixture.enable();
+    let first = fixture.run(Trigger::Choice, Some(Choice::Merge), capabilities, NOW);
+    assert_eq!(first["sections"]["phrases"]["outcome"], "synced", "{first}");
+    assert_eq!(first["sections"]["dictionary"]["reason"], MERGE_PENDING);
+    assert_eq!(
+        fixture.state().sections.dictionary.choice,
+        Some(Choice::Merge)
+    );
+    // 之后别处「删除云端数据」清空了常用语：给词库留下的「合并」不能替用户回答这一次，要问。
+    fixture.api.cloud().phrases = AccountPhrases {
+        revision: 9,
+        phrases: Vec::new(),
+    };
+    let asked = fixture.run(Trigger::Manual, None, capabilities, NOW + 60_000);
+    assert_eq!(asked["outcome"], "needs_choice", "{asked}");
+    assert_eq!(asked["reason"], "cloud_cleared");
+    assert!(fixture.api.cloud_texts().is_empty());
+    assert_eq!(fixture.local.texts(), ["本机", "云端"]);
+    assert_eq!(
+        fixture.state().sections.dictionary.choice,
+        Some(Choice::Merge)
+    );
+}
+
+#[test]
+fn a_snapshot_the_keyboard_cannot_take_yet_keeps_the_first_run_choice() {
+    let dictionary = Capabilities {
+        dictionary: true,
+        ..Capabilities::default()
+    };
+    // 新装以后还没打开过键盘就打开了同步：键盘没发布过本机词库版本，快照交不给激活队列。
+    let fixture = Fixture::new();
+    fixture.api.cloud().dictionary_revision = 4;
+    fixture.local.local().replace_failure = Some(DICTIONARY_UNPUBLISHED.to_owned());
+    fixture.enable();
+    let first = fixture.run(Trigger::Choice, Some(Choice::UseCloud), dictionary, NOW);
+    assert_eq!(
+        first["sections"]["dictionary"]["reason"], DICTIONARY_UNPUBLISHED,
+        "{first}"
+    );
+    let state = fixture.state();
+    assert_eq!(state.sections.dictionary.cursor, None);
+    assert_eq!(state.sections.dictionary.choice, Some(Choice::UseCloud));
+    assert!(state.sections.dictionary.stall.is_some());
+    // 键盘打开过一次以后，退避过后的自动同步接着下载，不再问一次选择。
+    fixture.local.local().replace_failure = None;
+    let resumed = fixture.run(
+        Trigger::Active,
+        None,
+        dictionary,
+        NOW + policy::STALL_BASE_MS,
+    );
+    assert_eq!(resumed["outcome"], "done", "{resumed}");
+    assert_eq!(fixture.local.local().replaced, [(USER.to_owned(), 4)]);
+    let state = fixture.state();
+    assert_eq!(state.sections.dictionary.cursor, Some(4));
+    assert_eq!(state.sections.dictionary.choice, None);
+    assert_eq!(state.sections.dictionary.stall, None);
 }
 
 #[test]
@@ -2211,7 +2402,10 @@ fn a_word_edited_in_the_cloud_panel_is_merged_rather_than_dropped() {
     };
     assert_eq!(snapshot_words(&file).unwrap(), [edited]);
     // 改后的词还不在本机：排进导入队列，合并没完，不能整份上传把它从云端删掉。
-    assert_eq!(local.merge_dictionary(&file), Err(MERGE_PENDING.to_owned()));
+    assert_eq!(
+        local.merge_dictionary(&file).map_err(|stop| stop.reason),
+        Err(MERGE_PENDING.to_owned())
+    );
     let store = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
     let queued: Vec<String> = store
         .read()
@@ -2222,7 +2416,10 @@ fn a_word_edited_in_the_cloud_panel_is_merged_rather_than_dropped() {
         .collect();
     assert_eq!(queued, ["你号"]);
     drain_personal_queue(&options);
-    assert_eq!(local.merge_dictionary(&file), Ok(()));
+    assert_eq!(
+        local.merge_dictionary(&file).map_err(|stop| stop.reason),
+        Ok(())
+    );
 }
 
 /// 合成的云端快照：`count` 个两字拼音词，外加一个重复的词。不合规的词见 `cloud_words_that_never_reach_this_device_keep_the_merge_from_finishing`。
@@ -2322,12 +2519,18 @@ fn merging_more_cloud_words_than_the_queue_holds_continues_over_several_rounds()
     let file = work.join("download.ndjson");
     cloud_snapshot(&file, 200);
     let store = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
-    // 第一轮只排得下 128 个：这一类失败，没排进去的词不能当成合并完了。
-    assert_eq!(local.merge_dictionary(&file), Err(MERGE_PENDING.to_owned()));
+    // 第一轮只排得下 128 个：这一类失败，没排进去的词不能当成合并完了。排进了新的词，合并在往前走。
+    let pending = |queued| {
+        Err(MergeStop {
+            reason: MERGE_PENDING.to_owned(),
+            queued,
+        })
+    };
+    assert_eq!(local.merge_dictionary(&file), pending(true));
     assert_eq!(store.read().unwrap().pending_count(), 128);
     assert!(!work.join("merge-local.ndjson").exists());
-    // 键盘还没应用：再合并一次不重复排、不报冲突，仍然没完，也不能上传。
-    assert_eq!(local.merge_dictionary(&file), Err(MERGE_PENDING.to_owned()));
+    // 键盘还没应用：再合并一次不重复排、不报冲突，仍然没完，也不能上传；这一轮什么都没排，退避要加长。
+    assert_eq!(local.merge_dictionary(&file), pending(false));
     assert_eq!(store.read().unwrap().requests.len(), 128);
     let probe = local.dictionary(None).unwrap();
     assert_eq!(probe.pending, 128);
@@ -2337,11 +2540,17 @@ fn merging_more_cloud_words_than_the_queue_holds_continues_over_several_rounds()
     ));
     // 键盘应用以后，下一轮跳过已经在本机的词，把剩下的 72 个排上；排着的词还没进本机，合并仍然没完。
     drain_personal_queue(&options);
-    assert_eq!(local.merge_dictionary(&file), Err(MERGE_PENDING.to_owned()));
+    assert_eq!(
+        local.merge_dictionary(&file).map_err(|stop| stop.reason),
+        Err(MERGE_PENDING.to_owned())
+    );
     assert_eq!(store.read().unwrap().pending_count(), 72);
     drain_personal_queue(&options);
     // 全都在本机了：合并完，什么也不排。
-    assert_eq!(local.merge_dictionary(&file), Ok(()));
+    assert_eq!(
+        local.merge_dictionary(&file).map_err(|stop| stop.reason),
+        Ok(())
+    );
     assert_eq!(store.read().unwrap().pending_count(), 0);
     let count = local
         .dictionary_call(json!({ "operation": "count", "user_only": true }))
@@ -2474,7 +2683,10 @@ fn cloud_words_that_never_reach_this_device_keep_the_merge_from_finishing() {
             ("pinyin", "ni'hao", "你好", 0),
         ],
     );
-    assert_eq!(local.merge_dictionary(&file), Err(MERGE_PENDING.to_owned()));
+    assert_eq!(
+        local.merge_dictionary(&file).map_err(|stop| stop.reason),
+        Err(MERGE_PENDING.to_owned())
+    );
     let weights: Vec<i64> = store
         .read()
         .unwrap()
@@ -2484,10 +2696,16 @@ fn cloud_words_that_never_reach_this_device_keep_the_merge_from_finishing() {
         .collect();
     assert_eq!(weights, [MAX_IMPORT_WEIGHT, 1]);
     // 键盘还没应用：词都排上了，但还不在本机，合并仍然没完。
-    assert_eq!(local.merge_dictionary(&file), Err(MERGE_PENDING.to_owned()));
+    assert_eq!(
+        local.merge_dictionary(&file).map_err(|stop| stop.reason),
+        Err(MERGE_PENDING.to_owned())
+    );
     assert_eq!(store.read().unwrap().requests.len(), 2);
     drain_personal_queue(&options);
-    assert_eq!(local.merge_dictionary(&file), Ok(()));
+    assert_eq!(
+        local.merge_dictionary(&file).map_err(|stop| stop.reason),
+        Ok(())
+    );
 
     // 旧版本留下的带数字的快捷短语编码、带控制字符的词，本机新词的规则不收：不能当成合并完了。
     for word in [
@@ -2496,7 +2714,7 @@ fn cloud_words_that_never_reach_this_device_keep_the_merge_from_finishing() {
     ] {
         snapshot_with(&file, &[word]);
         assert_eq!(
-            local.merge_dictionary(&file),
+            local.merge_dictionary(&file).map_err(|stop| stop.reason),
             Err(MERGE_REJECTED.to_owned()),
             "{word:?}"
         );
@@ -2510,16 +2728,22 @@ fn cloud_words_that_never_reach_this_device_keep_the_merge_from_finishing() {
         ("pinyin", "nu'ma", "怒马", 3),
     ];
     snapshot_with(&file, &words);
-    assert_eq!(local.merge_dictionary(&file), Err(MERGE_PENDING.to_owned()));
+    assert_eq!(
+        local.merge_dictionary(&file).map_err(|stop| stop.reason),
+        Err(MERGE_PENDING.to_owned())
+    );
     fail_personal_queue(&store, "dictionary maintenance busy");
     assert_eq!(store.read().unwrap().pending_count(), 0);
-    assert_eq!(local.merge_dictionary(&file), Err(MERGE_PENDING.to_owned()));
+    assert_eq!(
+        local.merge_dictionary(&file).map_err(|stop| stop.reason),
+        Err(MERGE_PENDING.to_owned())
+    );
     assert_eq!(store.read().unwrap().pending_count(), 3);
     assert_eq!(store.read().unwrap().requests.len(), 3 + 2);
     // 键盘拒了这些词（例如本机方案存不了中文词）：再排还会被拒，这一类停下来说明原因，不上传。
     fail_personal_queue(&store, crate::NO_CHINESE_DICTIONARY);
     assert_eq!(
-        local.merge_dictionary(&file),
+        local.merge_dictionary(&file).map_err(|stop| stop.reason),
         Err(MERGE_REJECTED.to_owned())
     );
     assert_eq!(store.read().unwrap().pending_count(), 0);
@@ -2542,7 +2766,10 @@ fn cloud_words_that_never_reach_this_device_keep_the_merge_from_finishing() {
     store.enqueue(None, Some(mine), "user-add".into()).unwrap();
     fail_personal_queue(&store, "dictionary edit rejected");
     snapshot_with(&file, &words[..1]);
-    assert_eq!(local.merge_dictionary(&file), Err(MERGE_BLOCKED.to_owned()));
+    assert_eq!(
+        local.merge_dictionary(&file).map_err(|stop| stop.reason),
+        Err(MERGE_BLOCKED.to_owned())
+    );
     assert_eq!(store.read().unwrap().requests.len(), 1);
 
     // 队列被别的失败请求占满，又没有排着的请求能腾出位置：等下去也排不进云端的词。
@@ -2561,6 +2788,9 @@ fn cloud_words_that_never_reach_this_device_keep_the_merge_from_finishing() {
     while store.read().unwrap().pending_count() > 0 {
         fail_personal_queue(&store, "dictionary edit rejected");
     }
-    assert_eq!(local.merge_dictionary(&file), Err(MERGE_BLOCKED.to_owned()));
+    assert_eq!(
+        local.merge_dictionary(&file).map_err(|stop| stop.reason),
+        Err(MERGE_BLOCKED.to_owned())
+    );
     assert_eq!(store.read().unwrap().pending_count(), 0);
 }

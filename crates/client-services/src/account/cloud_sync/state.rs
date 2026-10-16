@@ -4,7 +4,7 @@
 //!
 //! 一轮里要交给宿主写的值没有写完之前，要提交的进度放在旁边的 `pending.json`（上限 4 MiB，iOS 的设置文档可能带着 800 KB 的自定义键盘皮肤），提交时一起读出。
 
-use super::policy::{Choice, Mode, Section, LEASE_MS, MAX_BACKOFF_MS};
+use super::policy::{Choice, Mode, Section, LEASE_MS, MAX_BACKOFF_MS, MAX_STALL_MS};
 use crate::account::AccountPreferences;
 use crate::file_lock;
 use serde::{Deserialize, Serialize};
@@ -45,6 +45,12 @@ pub struct SectionState {
     /// 只对词库：下载下来交给激活队列、还没确认激活的云端快照的请求 id。游标在下载时就记成了快照的修订号，这份快照最后没有激活（冲突、失败、取消）时，下一轮靠它知道本机缺着那些词，改按合并处理而不是上传。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub activation: Option<String>,
+    /// 只对词库：首次同步（或云端被清空以后）用户选了、合并却还没做完时留下的选择，下一轮词库接着用，不再问。它只给词库用，不进 `pending_choice`：设置和常用语这时多半已经同步过了，以后它们的云端被清空还要重新问用户。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub choice: Option<Choice>,
+    /// 只对词库：合并一直没做完（词还排着等键盘应用、云端有本机导入不了的词、被别的失败请求挡住，或者键盘还没发布过本机词库版本）时的退避。退避期间回到前台的自动同步跳过词库，不用每次都重新下载整份快照；用户手动同步、打开开关或做选择时不等。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stall: Option<Stall>,
     /// 最近一轮这一类的结果。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_outcome: Option<SectionOutcome>,
@@ -72,6 +78,20 @@ impl SectionState {
     pub fn unheld_set(&self) -> BTreeSet<String> {
         self.unheld.iter().cloned().collect()
     }
+
+    /// 还在合并的退避里。离现在超过 [`MAX_STALL_MS`] 的按已过期处理：那是时钟往回拨以前记下的。
+    pub fn stalled(&self, now_ms: u64) -> bool {
+        self.stall
+            .is_some_and(|stall| now_ms < stall.until_ms && stall.until_ms - now_ms <= MAX_STALL_MS)
+    }
+}
+
+/// 词库合并的退避：连着几轮没做完，退避到什么时候。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Stall {
+    /// 连着没有进展的轮数；这一轮往导入队列里排了新的词时重新从 1 数起。
+    pub rounds: u32,
+    pub until_ms: u64,
 }
 
 /// 基线：设置是 键 → 值的摘要，常用语是正文摘要的集合。
@@ -203,7 +223,7 @@ pub struct SyncState {
     pub prompted_at_ms: Option<u64>,
     /// 服务端给了 `Retry-After` 时，在这之前不再联网。
     pub not_before_ms: Option<u64>,
-    /// 用户在另一轮还在跑时做出的选择，下一轮用它。
+    /// 用户在另一轮还在跑时做出的选择，下一轮用它。记着它不让下一轮跳过节流，只有宿主这一次带来的选择才不等节流。
     pub pending_choice: Option<Choice>,
     pub run: Option<RunLease>,
     pub failure: Option<SyncFailure>,
@@ -380,6 +400,15 @@ impl SyncState {
                 ActivationChange::Clear => state.activation = None,
                 ActivationChange::Set(id) => state.activation = Some(id.clone()),
             }
+            match change.stall {
+                StallChange::Keep => {}
+                StallChange::Clear => state.stall = None,
+                StallChange::Set(stall) => state.stall = Some(stall),
+            }
+            // 游标推进了，首次同步（或清空以后）的那一次选择就用完了。
+            if change.cursor.is_some() {
+                state.choice = None;
+            }
             state.last_outcome = Some(change.outcome.clone());
         }
         if progress.synced {
@@ -403,7 +432,7 @@ impl SyncState {
             self.pending_choice = None;
         }
         if let Some(choice) = progress.kept_choice {
-            self.pending_choice = Some(choice);
+            self.sections.dictionary.choice = Some(choice);
         }
         self.run = None;
         self.bump();
@@ -440,6 +469,9 @@ pub struct SectionProgress {
     /// 只对词库：等激活的快照要不要改记。
     #[serde(default)]
     pub activation: ActivationChange,
+    /// 只对词库：合并的退避要不要改记。
+    #[serde(default)]
+    pub stall: StallChange,
     pub outcome: SectionOutcome,
 }
 
@@ -453,6 +485,7 @@ impl SectionProgress {
             unheld: None,
             cleared: None,
             activation: ActivationChange::Keep,
+            stall: StallChange::Keep,
             outcome,
         }
     }
@@ -478,6 +511,16 @@ pub enum ActivationChange {
     Set(String),
 }
 
+/// 词库合并的退避怎么改记。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StallChange {
+    #[default]
+    Keep,
+    Clear,
+    Set(Stall),
+}
+
 /// 一轮要提交的全部进度。
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RoundProgress {
@@ -497,7 +540,7 @@ pub struct RoundProgress {
     /// 这一轮用掉了记下的选择。
     #[serde(default)]
     pub consumed_choice: bool,
-    /// 这一轮用了选择、但还没做完（词库合并时云端的词没排完）：记成 `pending_choice`，下一轮接着用，不再问用户。
+    /// 词库这一轮用了首次同步（或清空以后）的选择、但还没做完（合并没做完，或者键盘还没发布过本机词库版本）：记在词库的 `choice` 里，下一轮词库接着用，不再问用户。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kept_choice: Option<Choice>,
 }

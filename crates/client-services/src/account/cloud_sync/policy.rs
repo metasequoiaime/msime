@@ -20,6 +20,10 @@ pub const MAX_CONFLICT_RETRIES: u32 = 2;
 pub const LEASE_MS: u64 = 180 * 1000;
 /// 服务端 `Retry-After` 退避的上限，与遥测（`telemetry.rs` 的 `MAX_RETRY_AFTER`）相同：更长的按这么长记，离现在比这更远的 `not_before_ms`（时钟往回拨以后）不再挡，手动同步最多被挡这么久。
 pub const MAX_BACKOFF_MS: u64 = 24 * 60 * 60 * 1000;
+/// 词库合并没做完时第一次退避的时长；之后每多一轮没有进展就翻倍，到 [`MAX_STALL_MS`] 为止。
+pub const STALL_BASE_MS: u64 = THROTTLE_MS;
+/// 词库合并退避的上限：云端有本机导入不了的词时合并永远做不完，这样每台设备一天最多自动重下几次整份快照。
+pub const MAX_STALL_MS: u64 = 6 * 60 * 60 * 1000;
 /// 设备本地且涉及隐私、无论如何都不上传也不应用的设置，按键名里的片段识别。
 pub const LOCAL_ONLY_FRAGMENTS: [&str; 4] = [
     "incognito",
@@ -121,6 +125,14 @@ pub fn due(now_ms: u64, last_attempt_ms: Option<u64>, any_dirty: bool) -> bool {
     };
     let elapsed = now_ms - last;
     elapsed >= THROTTLE_MS || any_dirty && elapsed >= DIRTY_DEBOUNCE_MS
+}
+
+/// 词库合并连着 `rounds` 轮没做完以后要退避多久：第一轮 [`STALL_BASE_MS`]，之后每轮翻倍，不超过 [`MAX_STALL_MS`]。`rounds` 为 0 时按 1 算。
+pub fn stall_ms(rounds: u32) -> u64 {
+    let shift = rounds.saturating_sub(1).min(16);
+    STALL_BASE_MS
+        .saturating_mul(1u64 << shift)
+        .min(MAX_STALL_MS)
 }
 
 /// 首次选择的提示要不要再弹：用户刚打开开关或手动同步时总是弹；否则距上次弹满 [`THROTTLE_MS`] 才再弹。

@@ -704,7 +704,7 @@ fn the_gate_needs_an_account_respects_backoff_throttle_and_the_lease() {
     let now = 10 * THROTTLE_MS;
     let mut state = SyncState::default();
     let check = |state: &SyncState, now: u64, trigger: Trigger, choice: Option<Choice>| {
-        gate(state, now, trigger, choice, &all)
+        gate(state, now, trigger, choice.is_some(), &all)
     };
     assert_eq!(
         check(&state, now, Trigger::Manual, None),
@@ -741,7 +741,7 @@ fn the_gate_needs_an_account_respects_backoff_throttle_and_the_lease() {
     state.sections.dictionary.generation += 1;
     assert_eq!(check(&state, now, Trigger::Active, None), Ok(()));
     assert_eq!(
-        gate(&state, now, Trigger::Active, None, &[Section::Phrases]),
+        gate(&state, now, Trigger::Active, false, &[Section::Phrases]),
         Err(SkipReason::Throttled)
     );
     // 服务端要求的退避连手动同步也挡。

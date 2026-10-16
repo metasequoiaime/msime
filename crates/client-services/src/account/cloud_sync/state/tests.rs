@@ -169,6 +169,7 @@ fn finishing_a_round_advances_only_what_the_round_saw() {
             unheld: Some(vec!["cd".repeat(32)]),
             cleared: Some(false),
             activation: ActivationChange::Keep,
+            stall: StallChange::Keep,
             outcome: SectionOutcome::new(OutcomeKind::Synced, None),
         },
     );
@@ -446,4 +447,58 @@ fn a_backoff_never_lasts_longer_than_a_day() {
     state.begin_run("a", 0, None);
     state.finish_round(&RoundProgress::default(), 0);
     assert_eq!(state.not_before_ms, None);
+}
+
+#[test]
+fn a_choice_kept_for_the_dictionary_and_its_backoff_are_recorded_and_cleared() {
+    let mut state = bound("a");
+    state.set_enabled(true).unwrap();
+    let stall = Stall {
+        rounds: 2,
+        until_ms: 10_000,
+    };
+    let mut progress = RoundProgress {
+        consumed_choice: true,
+        kept_choice: Some(Choice::UseCloud),
+        ..RoundProgress::default()
+    };
+    progress.sections.insert(
+        Section::Dictionary,
+        SectionProgress {
+            stall: StallChange::Set(stall),
+            ..SectionProgress::outcome(SectionOutcome::new(
+                OutcomeKind::Failed,
+                Some("dictionary_merge_pending"),
+            ))
+        },
+    );
+    state.finish_round(&progress, 5_000);
+    // 留下的选择只给词库，不进 `pending_choice`。
+    assert_eq!(state.pending_choice, None);
+    assert_eq!(state.sections.dictionary.choice, Some(Choice::UseCloud));
+    assert_eq!(state.sections.dictionary.stall, Some(stall));
+    assert!(state.sections.dictionary.stalled(9_999));
+    assert!(!state.sections.dictionary.stalled(10_000));
+    // 时钟往回拨以前记下的、离现在超过上限的退避不再挡。
+    let far = Stall {
+        rounds: 1,
+        until_ms: 1_000 + MAX_STALL_MS + 1,
+    };
+    let mut rewound = state.sections.dictionary.clone();
+    rewound.stall = Some(far);
+    assert!(!rewound.stalled(1_000));
+    assert!(rewound.stalled(1_001));
+    // 词库推进了游标：选择用完，退避清掉。
+    let mut progress = RoundProgress::default();
+    progress.sections.insert(
+        Section::Dictionary,
+        SectionProgress {
+            cursor: Some(4),
+            stall: StallChange::Clear,
+            ..SectionProgress::outcome(SectionOutcome::new(OutcomeKind::Synced, None))
+        },
+    );
+    state.finish_round(&progress, 6_000);
+    assert_eq!(state.sections.dictionary.choice, None);
+    assert_eq!(state.sections.dictionary.stall, None);
 }

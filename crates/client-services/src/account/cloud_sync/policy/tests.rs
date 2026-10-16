@@ -530,3 +530,14 @@ fn relative_time_matches_android() {
     assert_eq!(ago(now, now - 50 * 3_600_000), "2 天前");
     assert_eq!(ago(now, now + 60_000), "刚刚");
 }
+
+#[test]
+fn the_merge_backoff_doubles_up_to_its_cap() {
+    assert_eq!(stall_ms(0), STALL_BASE_MS);
+    assert_eq!(stall_ms(1), STALL_BASE_MS);
+    assert_eq!(stall_ms(2), 2 * STALL_BASE_MS);
+    assert_eq!(stall_ms(3), 4 * STALL_BASE_MS);
+    assert_eq!(stall_ms(7), 64 * STALL_BASE_MS);
+    assert_eq!(stall_ms(8), MAX_STALL_MS);
+    assert_eq!(stall_ms(u32::MAX), MAX_STALL_MS);
+}
