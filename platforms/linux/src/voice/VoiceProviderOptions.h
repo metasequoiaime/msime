@@ -15,8 +15,9 @@ namespace msime::linux_host {
 inline nlohmann::json voice_provider_options(const nlohmann::json &preferences) {
   const auto voice = preferences.value("voice_input", nlohmann::json::object());
   nlohmann::json options = nlohmann::json::object();
+  // 开始、结束提示音（`start_sound`、`end_sound`）不转发：设置页只给提示音总开关（`voice_cue_switches` 为 false），语音服务没收到这两项时按缺省都播放。
   constexpr const char *boolean_keys[] = {
-      "sound_enabled", "start_sound", "end_sound", "mute_system_audio",
+      "sound_enabled", "mute_system_audio",
       "polish_enabled", "polish_text", "doubao_enable_itn",
       "doubao_enable_punc", "doubao_enable_ddc", "stream_inline_preedit",
       "hotkey_hold_space_lock"};
@@ -40,6 +41,15 @@ inline nlohmann::json voice_provider_options(const nlohmann::json &preferences) 
       value.resize(end);
     }
     options[key] = std::move(value);
+  }
+  // 语音服务只认这几种录音后端，别的一律拒绝录音。别的平台写下的后端（从 macOS、Windows 拷来的配置里的 `macos`、`windows`）连同它的设备一起不转发，服务改用自己的录音设置照常录音。后端名区分大小写，与服务和 Linux 设置页的「录音后端」一致：存着的 `Pulse` 在页面上写「此平台不可用」，这里也不转发。
+  if (options.contains("capture_backend")) {
+    const auto &backend = options.at("capture_backend").get_ref<const std::string &>();
+    if (backend != "" && backend != "auto" && backend != "pulse" && backend != "pipewire" &&
+        backend != "alsa") {
+      options.erase("capture_backend");
+      options.erase("capture_device");
+    }
   }
   const auto prompt_text = [&](const char *key) {
     if (!voice.contains(key) || !voice.at(key).is_string()) return std::string{};
