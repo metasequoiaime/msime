@@ -1375,6 +1375,10 @@ export type {
 } from "./community/community-resource-model";
 export { CommunityCandidateSkinsPage } from "./community/community-candidate-skins";
 export {
+  CommunityCandidateSkinCard,
+  type CommunityCandidateSkinCardProps,
+} from "./community/community-candidate-skin-card";
+export {
   CandidateSkinPreviewImage,
   CommunityCandidateSkinDetail,
   type CandidateSkinPreviewLoader,
@@ -1535,6 +1539,10 @@ export {
   type CandidateSkinPublishDialogProps,
 } from "./community/candidate-skin-publish-dialog";
 export { CommunityPluginsPage } from "./community/community-plugins";
+export {
+  CommunityPluginDetail,
+  type CommunityPluginDetailProps,
+} from "./community/community-plugin-detail";
 export {
   CommunityPluginPublishDialog,
   type CommunityPluginPublishDialogProps,

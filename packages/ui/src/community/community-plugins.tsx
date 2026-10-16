@@ -2,7 +2,6 @@ import { useMemo, useRef, useState } from "react";
 import type { PluginCatalogResult, PluginPackage } from "../settings/plugin-types";
 import { kindLabels } from "../settings/plugin-catalog-helpers";
 import {
-  candidateSkinMegabytes,
   communityNeedsSignIn,
   communityPluginMessage,
   communityPublishLoginAction,
@@ -12,21 +11,15 @@ import {
   useCommunityGallery,
   type CommunityGalleryClient,
 } from "./community-gallery";
-import { CommunityDetailSummary } from "./community-detail-summary";
 import * as style from "./community-style";
 import { CommunityGalleryHeader } from "./community-gallery-header";
-import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunityNotice } from "./community-notice";
-import { CommunityReportSection } from "./community-report";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityCard } from "./community-card";
-import { CommunityMetrics } from "./community-metrics";
-import { CommunityInstallActions } from "./community-install-actions";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
-import { CommunityDetailFrame } from "./community-detail-frame";
 import { ActionButton } from "../core/action-button";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
@@ -34,6 +27,7 @@ import { CommunityPageShell } from "./community-page-shell";
 import { useCommunityInstallState } from "./community-install-state";
 import { communityInstallPreflight } from "./community-install-preflight";
 import { CommunityPluginPublishDialog } from "./community-plugin-publish-dialog";
+import { CommunityPluginDetail } from "./community-plugin-detail";
 
 import {
   type CommunityPluginKind,
@@ -193,81 +187,28 @@ export function CommunityPluginsPage({
 
   if (selected) {
     return (
-      <CommunityDetailFrame
-        backDisabled={actionBusy}
-        onBack={closeDetail}
+      <CommunityPluginDetail
+        plugin={selected}
+        actionBusy={actionBusy}
+        detailBusy={detailBusy}
+        actionNotice={actionNotice}
         error={error}
         signInRequired={signInRequired}
+        installed={installed}
+        confirmReplace={confirmReplace}
+        confirmUnpublish={confirmUnpublish}
         onLogin={onLogin}
-      >
-        <CommunityDetailSummary
-          title={selected.name}
-          noteParts={[
-            kindLabels[selected.kind],
-            selected.author,
-            selected.version && `v${selected.version}`,
-          ]}
-          owned={selected.owned}
-          moderation={selected.moderation}
-          description={selected.description}
-          metrics={
-            <CommunityMetrics>
-              {[
-                selected.plugin_id,
-                selected.license && `授权 ${selected.license}`,
-                candidateSkinMegabytes(selected.size),
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </CommunityMetrics>
-          }
-          downloads={selected.downloads}
-          ratingCount={selected.rating_count}
-          ratingAverage={selected.rating_average}
-          myRating={selected.my_rating}
-          detailBusy={detailBusy}
-          actionNotice={actionNotice}
-          loadingText="正在读取插件详情…"
-        />
-        <CommunityInstallActions
-          installed={installed}
-          installedContent={
-            <CommunityActionNotice>
-              已安装到插件目录，可在「我的插件」中选用。
-            </CommunityActionNotice>
-          }
-          actionBusy={actionBusy}
-          detailBusy={detailBusy}
-          confirmReplace={confirmReplace}
-          replaceAriaLabel="确认替换插件"
-          replaceMessage={
-            <>
-              已安装同 id 的{kindLabels[selected.kind]}“{selected.plugin_id}
-              ”，安装会整体替换它。
-            </>
-          }
-          onInstall={(replace) => void install(replace)}
-          onCancelReplace={() => setConfirmReplace(false)}
-        />
-        <CommunityModerationSection
-          owned={selected.owned}
-          actionBusy={actionBusy}
-          ratingDescription="我的评分（安装后可评，可重新选择）"
-          unpublishMessage={`下架后其他用户无法再下载，下载数和评分会清空；已安装的插件会保留。确定下架“${selected.name}”吗？`}
-          confirmUnpublish={confirmUnpublish}
-          onRate={(stars) => void rateSelected(stars)}
-          onRequestUnpublish={() => setConfirmUnpublish(true)}
-          onUnpublish={() =>
-            void unpublishSelected("已下架这个插件；其他用户将无法再下载。已安装的插件会保留。")
-          }
-          onCancelUnpublish={() => setConfirmUnpublish(false)}
-          unpublishLabel="下架这个插件"
-          unpublishConfirmLabel="确认下架插件"
-        />
-        {!selected.owned && client.report && (
-          <CommunityReportSection actionBusy={actionBusy} onReport={reportSelected} />
-        )}
-      </CommunityDetailFrame>
+        onBack={closeDetail}
+        onInstall={(replace) => void install(replace)}
+        onCancelReplace={() => setConfirmReplace(false)}
+        onRate={(stars) => void rateSelected(stars)}
+        onRequestUnpublish={() => setConfirmUnpublish(true)}
+        onUnpublish={() =>
+          void unpublishSelected("已下架这个插件；其他用户将无法再下载。已安装的插件会保留。")
+        }
+        onCancelUnpublish={() => setConfirmUnpublish(false)}
+        onReport={client.report ? reportSelected : undefined}
+      />
     );
   }
 

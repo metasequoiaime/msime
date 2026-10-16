@@ -637,6 +637,63 @@ fn smart_punctuation_gestures_follow_their_own_switches() {
 }
 
 #[test]
+fn smart_punctuation_space_decision_rechecks_live_switches() {
+    for (smart, space_convert) in [(true, true), (false, true), (true, false)] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut preferences = Preferences {
+            smart_punctuation: true,
+            smart_punctuation_space_convert: true,
+            ..chinese_preferences()
+        };
+        let handle = test_host_preferences(dir.path(), preferences.clone());
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        let committed = read(msime_client_punctuation_with_context(
+            handle,
+            b'.',
+            u32::from('中'),
+        ));
+        assert_eq!(committed["value"]["commit"], "。");
+        let arm = json!({
+            "ascii": 46, "commit": committed["value"]["commit"], "timestamp_ms": 1_000,
+            "editor_generation": 3, "auto_closed_pair": false
+        })
+        .to_string();
+        // 安全：请求缓冲区在调用期间保持有效。
+        let armed =
+            read(unsafe { msime_client_smart_punctuation_arm(handle, arm.as_ptr(), arm.len()) });
+        assert_eq!(armed["value"]["space"]["ascii"], 46);
+
+        preferences.smart_punctuation = smart;
+        preferences.smart_punctuation_space_convert = space_convert;
+        let updated = update(handle, 1, &preferences);
+        assert_eq!(updated["ok"], true);
+        assert_eq!(updated["value"]["deferred"], false);
+
+        // 宿主保存的快照与编辑器上下文都仍有效，执行时必须尊重已经生效的开关。
+        let decide = json!({
+            "character": 32, "preceding": "。", "timestamp_ms": 1_100,
+            "editor_generation": 3, "repeat": null, "space": armed["value"]["space"]
+        })
+        .to_string();
+        // 安全：请求缓冲区在调用期间保持有效。
+        let decided = read(unsafe {
+            msime_client_smart_punctuation_decide(handle, decide.as_ptr(), decide.len())
+        });
+        assert_eq!(decided["ok"], true);
+        assert_eq!(
+            decided["value"]["space_ascii"],
+            if smart && space_convert {
+                json!(46)
+            } else {
+                Value::Null
+            },
+            "smart={smart}, space_convert={space_convert}"
+        );
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    }
+}
+
+#[test]
 fn shuangpin_key_hint_boundary_publishes_the_engine_face() {
     let hints = |value: &str| {
         // SAFETY: the slice outlives the call.

@@ -303,22 +303,12 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     if rows.len() < 2 {
         return None;
     }
+    let leader = rows.get(0);
     // 引擎让英文或日文混输行领先的列表原样保留，见 `ENGLISH_SOURCE`、`MIXED_JAPANESE_SOURCE`。
-    if matches!(rows.get(0).source, ENGLISH_SOURCE | MIXED_JAPANESE_SOURCE) {
+    if matches!(leader.source, ENGLISH_SOURCE | MIXED_JAPANESE_SOURCE) {
         return None;
     }
-    // A dictionary hit earns the model's deference because it carries corpus frequency for the
-    // key the user typed. That premise fails the moment the engine offers a correction of that
-    // key: the frequency then belongs to the letters that arrived rather than to the word they
-    // were aiming at, and the list holds both readings. So the whole list loses the exemption,
-    // not the corrected rows — the row that would wrongly win is the uncorrected one.
-    //
-    // With correction off, or with nothing corrected, this is exactly the previous behaviour,
-    // which is what the 2052-case dictionary measurement was taken on.
-    //
-    // 不许领先的纠错行（双拼）只是附带的一个改正：它不算回答了按键，模型不拿它比较，也不因为它的存在撤掉词典命中的豁免，排序和没有纠错时完全一样。
     let corrections_lead = corrections_may_lead(scheme);
-    let corrected_key = corrections_lead && (0..rows.len()).any(|index| rows.get(index).corrected);
     let answers_key = |row: OrderRow<'a>| {
         row.answers_key
             && !CATALOG_SOURCES.contains(&row.source)
@@ -326,12 +316,21 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
             && row.source != MIXED_JAPANESE_SOURCE
             && (corrections_lead || !row.corrected)
     };
-    // Only candidates that answer the key are scored, so they are the ones the window has to leave room for.
+    // 首行不回答当前按键时，上游同样拒绝比较，无需准备模型输入。
+    if !answers_key(leader) {
+        return None;
+    }
+    // 词典命中携带当前按键的词频；全拼出现任何纠错行时，这份依据不再可信，
+    // 整表撤销豁免。双拼纠错行不许领先，也不撤销词典首选的豁免。
+    let corrected_key = corrections_lead && (0..rows.len()).any(|index| rows.get(index).corrected);
+    let trusted_leader = DICTIONARY_SOURCES.contains(&leader.source) && !corrected_key;
+    if trusted_leader {
+        return None;
+    }
+    // 只有参与比较的候选需要占用模型上下文窗口。
     let longest = longest_rerank_candidate(rows, &answers_key);
     let context = rerank_context(context, reranker.model().context_length(), longest);
-    let leader = rows.get(0);
-    let trusted_leader = DICTIONARY_SOURCES.contains(&leader.source) && !corrected_key;
-    if !trusted_leader && answers_key(leader) && rows.static_evidence(0).is_some() {
+    if rows.static_evidence(0).is_some() {
         let mut considered = [0; STATIC_RERANK_LIMIT];
         let mut statik = [0.0; STATIC_RERANK_LIMIT];
         let mut subset = [""; STATIC_RERANK_LIMIT];

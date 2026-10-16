@@ -15,12 +15,8 @@ import {
   useCommunityGallery,
   type CommunityGalleryClient,
 } from "./community-gallery";
-import * as style from "./community-style";
 import { CommunityGalleryHeader } from "./community-gallery-header";
 import { CommunityScopeButtons } from "./community-scope-buttons";
-import { CommunityCardMetrics } from "./community-card-metrics";
-import { CommunityCardAuthor } from "./community-card-author";
-import { CommunityCard } from "./community-card";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityActionNotice } from "./community-action-notice";
@@ -31,13 +27,10 @@ import { useCommunityInstallState } from "./community-install-state";
 import { communityInstallPreflight } from "./community-install-preflight";
 import { ActionButton } from "../core/action-button";
 import { CommunitySkinCategoryFilter } from "./community-skin-category";
-import { communitySkinCategoryLabel } from "./community-skin-category-model";
 import { useCommunitySkinCategoryFilter } from "./use-community-skin-category-filter";
-import {
-  CandidateSkinPreviewImage,
-  type CandidateSkinPreviewLoader,
-  CommunityCandidateSkinDetail,
-} from "./community-candidate-skin-detail";
+import { CommunityCandidateSkinCard } from "./community-candidate-skin-card";
+import { CommunityCandidateSkinDetail } from "./community-candidate-skin-detail";
+import type { CandidateSkinPreviewLoader } from "./community-candidate-skin-preview";
 
 import {
   type CandidateSkinVisibility,
@@ -61,43 +54,6 @@ export {
 } from "./community-candidate-skin-model";
 
 const CANDIDATE_SKIN_PREVIEW_CACHE_CAPACITY = 16;
-
-function CommunityCandidateSkinCard({
-  skin,
-  load,
-  open,
-}: {
-  skin: CommunityCandidateSkin;
-  load: CandidateSkinPreviewLoader;
-  open: () => void;
-}) {
-  return (
-    <CommunityCard aria-label={`查看候选窗口皮肤 ${skin.name}`} onClick={open}>
-      <CandidateSkinPreviewImage
-        id={skin.id}
-        name={skin.name}
-        load={load}
-        className={style.cardStage}
-      />
-      <strong className={style.cardTitle}>{skin.name}</strong>
-      <CommunityCardAuthor
-        prefix={communitySkinCategoryLabel(skin.category) ?? undefined}
-        author={skin.author}
-        owned={skin.owned}
-        private={skin.visibility === "private"}
-        removed={skin.moderation === "removed"}
-      />
-      <CommunityCardMetrics
-        downloads={skin.downloads}
-        ratingCount={skin.rating_count}
-        ratingAverage={skin.rating_average}
-      />
-      {skin.license.assets.trim() && (
-        <span className={style.cardAuthor}>素材授权 {skin.license.assets.trim()}</span>
-      )}
-    </CommunityCard>
-  );
-}
 
 /** The community gallery of candidate-window skin packages: browse, install into the external skin directory, rate, publish and take down. */
 export function CommunityCandidateSkinsPage({
