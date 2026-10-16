@@ -2,6 +2,8 @@
 
 Status: implemented
 
+底部第二格先后被 [AI 对话改为二级页面](2026-10-16-mobile-chat-secondary-page.md) 与 [触屏宿主底部第二格恢复为社区](2026-10-16-mobile-community-bottom-tab.md) 取代。
+
 ## Problem
 
 [触屏设置去掉「社区」标签页](2026-10-11-touch-community-merged-into-feature-pages.md) 把社区内容并进了皮肤、词库和 AI 辅助页，同时把底部标签栏从四格删成了三格（设置 / 统计 / 我的）。仓库负责人纠正：底部必须保持四个标签页，「让你换，不是让你删」。空出来的那一格要放一个值得常驻底部的功能。

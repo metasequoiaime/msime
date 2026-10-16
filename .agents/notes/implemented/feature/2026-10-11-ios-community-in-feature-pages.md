@@ -2,6 +2,8 @@
 
 Status: implemented
 
+社区重新有底部标签页，见 [触屏宿主底部第二格恢复为社区](2026-10-16-mobile-community-bottom-tab.md)；功能页里的社区内容与「我的发布与收藏」仍按本篇。
+
 皮肤页的社区预览与「浏览更多皮肤」已被 [iOS 与鸿蒙手机皮肤页改为内置、我的、社区顶部分类](2026-10-16-mobile-skin-page-top-tabs.md) 取代：社区皮肤改为皮肤页的「社区」分类，`SkinCommunityView` 重新有嵌入形态。底部标签另见 [AI 对话改为二级页面](2026-10-16-mobile-chat-secondary-page.md)。词库、回复模板的入口不变。
 
 ## Problem
