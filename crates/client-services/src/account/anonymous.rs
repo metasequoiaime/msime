@@ -236,6 +236,52 @@ where
         .map(|credentials| token(credentials, true))
 }
 
+/// 用 [`shared_access_token_in`] 取到的令牌做一次请求：登录账号优先，没有登录时用匿名账号；`expected_user_id` 为 `Some` 时只用这个账号，登录和匿名会话都不是它时是 `account_identity_changed`，不会退回另一个账号。服务端以 401 拒绝令牌时带着它刷新一次，只在同一个账号里重试。Rust 不会自动注册匿名账号，宿主要先调 `ensure_anonymous`。
+///
+/// 返回请求的结果和令牌属于哪个账号；令牌本身不要交给页面。
+pub fn with_shared_access_token<A, S1, S2, T>(
+    account: &BackendAccountSession<A, S1>,
+    anonymous: &BackendAccountSession<A, S2>,
+    expected_user_id: Option<&str>,
+    operation: impl Fn(&A, &str) -> Result<T, AccountFailure>,
+) -> Result<(T, SharedAccessToken), AccountFailure>
+where
+    A: AccountApi,
+    S1: AccountSessionStorage,
+    S2: AccountSessionStorage,
+{
+    let bound = |error: AccountError| {
+        if expected_user_id.is_some() && error == AccountError::Cancelled {
+            AccountFailure::identity_changed()
+        } else {
+            error.into()
+        }
+    };
+    let token =
+        shared_access_token_in(account, anonymous, None, expected_user_id).map_err(bound)?;
+    let api = |token: &SharedAccessToken| {
+        if token.anonymous {
+            &anonymous.api
+        } else {
+            &account.api
+        }
+    };
+    match operation(api(&token), &token.access_token) {
+        Err(failure) if failure.is_unauthorized() => {
+            let replacement = shared_access_token_in(
+                account,
+                anonymous,
+                Some(&token.access_token),
+                Some(&token.user_id),
+            )
+            .map_err(bound)?;
+            let result = operation(api(&replacement), &replacement.access_token)?;
+            Ok((result, replacement))
+        }
+        result => result.map(|result| (result, token)),
+    }
+}
+
 /// [`shared_access_token`] 读匿名会话用的存储：文件仍是 `anonymous-session.json`，但每次都重新读，刷新时持与登录会话同一把 `account-refresh.lock`。输入法进程里几个线程可能同时取令牌，每次调用又各建一个会话，不加锁时它们会拿同一个刷新令牌各刷新一次，而服务端见到用过的刷新令牌会吊销整个会话。[`ensure_anonymous_account`] 和其他宿主读写匿名会话的方式不变；host-api 按目录缓存匿名会话时也用它。
 pub struct LockedAnonymousSessionStorage {
     session: AnonymousSessionStorage,

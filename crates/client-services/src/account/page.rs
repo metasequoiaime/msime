@@ -4,7 +4,8 @@
 
 use super::{account_avatar_is_uploaded, account_avatar_url_allowed};
 use super::{
-    AccountChallenge, AccountPreferenceField, AccountPreferenceSchema, AccountProfile, AccountUser,
+    AccountChallenge, AccountChatModels, AccountPreferenceField, AccountPreferenceSchema,
+    AccountProfile, AccountUser,
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
@@ -126,6 +127,41 @@ impl From<AccountProfile> for ProfileResponse {
 }
 
 /// 设置同步卡片读到的字段表：Windows 的共享应用和原生设置窗口、iOS、Android 都返回这个形状。
+/// 对话可用的一个模型。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatModelResponse {
+    id: String,
+}
+
+/// 对话可用的模型和默认模型：`{data:[{id}], defaultModel}`。iOS、Android 的 Tauri 账号命令和 `msime_client_account` 的 `chat_models` 返回的都是它。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatModelsResponse {
+    data: Vec<ChatModelResponse>,
+    default_model: String,
+}
+
+impl From<AccountChatModels> for ChatModelsResponse {
+    fn from(models: AccountChatModels) -> Self {
+        Self {
+            data: models
+                .data
+                .into_iter()
+                .map(|model| ChatModelResponse { id: model.id })
+                .collect(),
+            default_model: models.default_model,
+        }
+    }
+}
+
+/// 一次对话的回答：`{content}`。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatResponse {
+    pub content: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreferenceSchemaResponse {

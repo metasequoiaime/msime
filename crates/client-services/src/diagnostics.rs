@@ -704,5 +704,8 @@ fn write_zip_contents(
     writer.finish().map_err(std::io::Error::other)
 }
 
+/// 把诊断包的 `sections` 按服务端规则重建并上传成 MCP 日志快照。
+pub mod upload;
+
 #[cfg(test)]
 mod tests;

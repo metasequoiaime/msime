@@ -307,6 +307,82 @@ impl BackendAccountClient {
         serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)
     }
 
+    /// 返回 [`AccountFailure`] 的新接口发请求用：与 [`Self::request_with_limit_timeout_accept`] 相同，失败时带着状态码、服务端错误码和 `Retry-After`。请求体超过 `maximum_request_bytes` 时在本地以 [`AccountFailure::too_large`] 拒绝，不发出去。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn request_detailed(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&str>,
+        body: Option<Vec<u8>>,
+        maximum_request_bytes: usize,
+        maximum_response_bytes: usize,
+        timeout: Duration,
+        accept: &str,
+    ) -> Result<Vec<u8>, AccountFailure> {
+        if body
+            .as_ref()
+            .is_some_and(|body| body.len() > maximum_request_bytes)
+        {
+            return Err(AccountFailure::too_large());
+        }
+        let response = self
+            .prepare(method, path, token, body, maximum_request_bytes, accept)?
+            .timeout(timeout)
+            .send()
+            .map_err(|_| AccountError::Unavailable)?;
+        read_detailed_response(response, maximum_response_bytes)
+    }
+
+    /// [`Self::request_detailed`] 的 JSON 版本：请求体由 `body` 序列化，2xx 的正文解成 `T`，解不出是 `account_unavailable`。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn json_detailed<T: DeserializeOwned, B: Serialize>(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&str>,
+        body: Option<&B>,
+        maximum_request_bytes: usize,
+        maximum_response_bytes: usize,
+        timeout: Duration,
+    ) -> Result<T, AccountFailure> {
+        let body = body
+            .map(serde_json::to_vec)
+            .transpose()
+            .map_err(|_| AccountError::Invalid)?;
+        let bytes = self.request_detailed(
+            method,
+            path,
+            token,
+            body,
+            maximum_request_bytes,
+            maximum_response_bytes,
+            timeout,
+            "application/json",
+        )?;
+        serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable.into())
+    }
+
+    /// 给不经 [`Self::prepare`] 的请求（multipart 上传、流式下载）拼出地址，只允许发往构造时给定的源站。
+    pub(super) fn url(&self, path: &str) -> Result<Url, AccountError> {
+        if !path.starts_with("/v1/") || path.contains('\\') {
+            return Err(AccountError::Invalid);
+        }
+        let url = self.origin.join(path).map_err(|_| AccountError::Invalid)?;
+        if url.scheme() != self.origin.scheme()
+            || url.host_str() != self.origin.host_str()
+            || url.port_or_known_default() != self.origin.port_or_known_default()
+        {
+            return Err(AccountError::Invalid);
+        }
+        Ok(url)
+    }
+
+    /// 本客户端的 HTTP 客户端，给 [`Self::url`] 配套的请求用。
+    pub(super) fn http(&self) -> &Client {
+        &self.client
+    }
+
     /// POSTs a JSON `body` to `path` without credentials and reports the response status with its `Retry-After` delay (seconds form only), for callers whose handling depends on the status itself rather than on a decoded document, such as telemetry delivery. The response body is discarded. A request that never got a response is `Err(Unavailable)`.
     pub(crate) fn post_for_status(
         &self,
@@ -1098,6 +1174,34 @@ impl BackendAccountClient {
     }
 }
 
+/// `/v1/chat/completions` 的请求体。[`BackendAccountClient`] 发请求和会话层的本地预检用同一份，量的是同一串字节。
+#[derive(Serialize)]
+struct ChatBody<'a> {
+    messages: &'a [AccountChatMessage],
+    model: &'a str,
+    max_tokens: u16,
+    stream: bool,
+}
+
+impl<'a> ChatBody<'a> {
+    fn new(messages: &'a [AccountChatMessage], model: &'a str) -> Self {
+        Self {
+            messages,
+            model,
+            max_tokens: 2048,
+            stream: false,
+        }
+    }
+}
+
+/// 序列化后的聊天请求体。
+pub(super) fn chat_request_body(
+    messages: &[AccountChatMessage],
+    model: &str,
+) -> Result<Vec<u8>, AccountError> {
+    serde_json::to_vec(&ChatBody::new(messages, model)).map_err(|_| AccountError::Invalid)
+}
+
 impl AccountApi for BackendAccountClient {
     fn providers(&self) -> Result<std::collections::HashMap<String, bool>, AccountError> {
         #[derive(Deserialize)]
@@ -1273,13 +1377,6 @@ impl AccountApi for BackendAccountClient {
             return Err(AccountError::Invalid);
         }
         validate_chat_request(messages, model)?;
-        #[derive(Serialize)]
-        struct Body<'a> {
-            messages: &'a [AccountChatMessage],
-            model: &'a str,
-            max_tokens: u16,
-            stream: bool,
-        }
         #[derive(Deserialize)]
         struct Response {
             choices: Vec<Choice>,
@@ -1288,14 +1385,8 @@ impl AccountApi for BackendAccountClient {
         struct Choice {
             message: AccountChatMessage,
         }
-        let body = Body {
-            messages,
-            model,
-            max_tokens: 2048,
-            stream: false,
-        };
-        let body_bytes = serde_json::to_vec(&body).map_err(|_| AccountError::Invalid)?;
-        if body_bytes.len() > MAX_CHAT_REQUEST_BYTES {
+        let body = ChatBody::new(messages, model);
+        if chat_request_body(messages, model)?.len() > MAX_CHAT_REQUEST_BYTES {
             return Err(AccountError::Invalid);
         }
         let response = self.json_with_limit_timeout::<Response, _>(
@@ -1570,5 +1661,81 @@ impl AccountApi for BackendAccountClient {
         access_token: &str,
     ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
         self.restore_dictionary_snapshot(snapshot, revision, access_token)
+    }
+
+    fn translate(
+        &self,
+        request: &AccountTranslateRequest,
+        timeout: Duration,
+        access_token: &str,
+    ) -> Result<AccountTranslations, AccountFailure> {
+        self.translate_texts(request, timeout, access_token)
+    }
+
+    fn phrases(&self, access_token: &str) -> Result<AccountPhrases, AccountFailure> {
+        self.load_phrases(access_token)
+    }
+
+    fn put_phrases(
+        &self,
+        phrases: &AccountPhrases,
+        access_token: &str,
+    ) -> Result<AccountPhrases, AccountFailure> {
+        self.store_phrases(phrases, access_token)
+    }
+
+    fn devices(&self, access_token: &str) -> Result<AccountDevices, AccountFailure> {
+        self.list_devices(access_token)
+    }
+
+    fn revoke_device(&self, id: &str, access_token: &str) -> Result<(), AccountFailure> {
+        self.revoke_device(id, access_token)
+    }
+
+    fn data_summary(&self, access_token: &str) -> Result<AccountDataSummary, AccountFailure> {
+        self.data_summary(access_token)
+    }
+
+    fn data_export(
+        &self,
+        destination: &Path,
+        access_token: &str,
+    ) -> Result<AccountDataExport, AccountFailure> {
+        self.data_export_to_file(destination, access_token)
+    }
+
+    fn data_delete(&self, sections: &[String], access_token: &str) -> Result<(), AccountFailure> {
+        self.data_delete(sections, access_token)
+    }
+
+    fn feedback(
+        &self,
+        feedback: &AccountFeedback,
+        access_token: &str,
+    ) -> Result<AccountFeedbackReceipt, AccountFailure> {
+        self.send_feedback(feedback, access_token)
+    }
+
+    fn diagnostics_upload(
+        &self,
+        upload: &crate::diagnostics::upload::DiagnosticUpload,
+        access_token: &str,
+    ) -> Result<crate::diagnostics::upload::DiagnosticUploadReceipt, AccountFailure> {
+        self.diagnostics_upload(upload, access_token)
+    }
+
+    fn diagnostics_state(
+        &self,
+        access_token: &str,
+    ) -> Result<crate::diagnostics::upload::DiagnosticState, AccountFailure> {
+        self.diagnostics_state(access_token)
+    }
+
+    fn diagnostics_regenerate_token(&self, access_token: &str) -> Result<String, AccountFailure> {
+        self.diagnostics_regenerate_token(access_token)
+    }
+
+    fn diagnostics_delete(&self, access_token: &str) -> Result<(), AccountFailure> {
+        self.diagnostics_delete(access_token)
     }
 }

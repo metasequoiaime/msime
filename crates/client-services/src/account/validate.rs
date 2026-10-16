@@ -417,6 +417,29 @@ pub(super) fn read_bounded_response(
 /// Largest error body read to find the server's error code; the backend's error documents are a few dozen bytes.
 pub(crate) const MAX_ERROR_BODY_BYTES: u64 = 4096;
 
+/// 与 [`read_bounded_response`] 相同，失败时是带状态码和 `Retry-After` 的 [`AccountFailure`]。
+pub(super) fn read_detailed_response(
+    response: Response,
+    maximum_response_bytes: usize,
+) -> Result<Vec<u8>, AccountFailure> {
+    if !response.status().is_success() {
+        return Err(failure_from_response(response));
+    }
+    read_bounded_response(response, maximum_response_bytes).map_err(Into::into)
+}
+
+/// 与 [`error_from_response`] 相同，另外留下状态码、服务端的错误码和 `Retry-After`，给返回 [`AccountFailure`] 的新接口用。
+pub(super) fn failure_from_response(response: Response) -> AccountFailure {
+    let status = response.status().as_u16();
+    let retry_after = response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let body = crate::bounded_io::read_bounded(response, MAX_ERROR_BODY_BYTES).unwrap_or_default();
+    AccountFailure::from_http_response(status, &body, retry_after.as_deref())
+}
+
 pub(super) fn error_from_response(response: Response) -> AccountError {
     let status = response.status();
     let body = crate::bounded_io::read_bounded(response, MAX_ERROR_BODY_BYTES).unwrap_or_default();

@@ -476,12 +476,152 @@ impl AccountError {
     }
 }
 
+/// 新接口（释义、常用语、我的设备、云端数据、反馈、诊断上传）的失败：在 [`AccountError`] 之外带着 HTTP 状态码、服务端的错误码和 `Retry-After` 的秒数，宿主据此区分「需要最近登录」「请求太大」「不存在」「被限流、多久后重试」。`AccountError` 的变体不变，已有接口返回的码也不变。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AccountFailure {
+    pub error: AccountError,
+    /// 服务端回的 HTTP 状态码；没拿到响应或本地就拒绝时为 `None`。
+    pub status: Option<u16>,
+    /// 服务端 `{"error":{"code":...}}` 里的码；本地预检用 [`Self::too_large`] 和 [`Self::identity_changed`] 的两个本地码。
+    pub server_code: Option<String>,
+    /// `Retry-After` 的秒数，只认整数秒；HTTP-date 形式忽略。
+    pub retry_after_seconds: Option<u64>,
+}
+
+/// 本地预检发现请求体超过服务端整包上限时的码。服务端走 `decode` 的接口超限时回的是 400 `invalid_json`，所以本地先拦下。
+const LOCAL_TOO_LARGE: &str = "request_too_large";
+/// 绑定账号的操作发现当前会话已不是那个账号时的码。
+const LOCAL_IDENTITY_CHANGED: &str = "identity_changed";
+
+impl From<AccountError> for AccountFailure {
+    fn from(error: AccountError) -> Self {
+        Self {
+            error,
+            status: None,
+            server_code: None,
+            retry_after_seconds: None,
+        }
+    }
+}
+
+impl AccountFailure {
+    /// 请求体超过服务端的上限，在本地就拒绝，`code()` 是 `account_too_large`。
+    pub fn too_large() -> Self {
+        Self {
+            error: AccountError::Invalid,
+            status: None,
+            server_code: Some(LOCAL_TOO_LARGE.to_owned()),
+            retry_after_seconds: None,
+        }
+    }
+
+    /// 操作绑定的账号已不是当前登录或匿名会话的账号，`code()` 是 `account_identity_changed`；不会退回另一个账号去做。
+    pub fn identity_changed() -> Self {
+        Self {
+            error: AccountError::Cancelled,
+            status: None,
+            server_code: Some(LOCAL_IDENTITY_CHANGED.to_owned()),
+            retry_after_seconds: None,
+        }
+    }
+
+    /// 宿主自己收到的失败响应：`status` 是 HTTP 状态码，`body` 是响应正文，`retry_after` 是 `Retry-After` 头的原文。映射与本 crate 自己的请求相同。
+    pub fn from_http_response(status: u16, body: &[u8], retry_after: Option<&str>) -> Self {
+        let parsed = StatusCode::from_u16(status).unwrap_or(StatusCode::SERVICE_UNAVAILABLE);
+        Self {
+            error: AccountError::from_response(parsed, body),
+            status: Some(status),
+            server_code: server_error_code(body),
+            retry_after_seconds: retry_after.and_then(parse_retry_after),
+        }
+    }
+
+    /// 交给宿主的错误码。`account_too_large` 的 413 规则只对反馈和快照接口有效：走 64 KiB 整包上限的接口超限时服务端回 400 `invalid_json`，那些接口靠本地预检报这个码。
+    pub fn code(&self) -> &'static str {
+        let server = self.server_code.as_deref();
+        if server == Some("recent_login_required") {
+            return "account_recent_login_required";
+        }
+        if server == Some(LOCAL_IDENTITY_CHANGED) {
+            return "account_identity_changed";
+        }
+        if self.status == Some(413)
+            || matches!(
+                server,
+                Some(
+                    "feedback_too_large"
+                        | "screenshot_too_large"
+                        | "snapshot_too_large"
+                        | LOCAL_TOO_LARGE
+                )
+            )
+        {
+            return "account_too_large";
+        }
+        match self.status {
+            Some(404) => "account_not_found",
+            Some(429) => "account_rate_limited",
+            Some(503) if server == Some("server_busy") => "account_rate_limited",
+            _ => self.error.code(),
+        }
+    }
+
+    /// 是不是服务端以 401 拒绝了令牌（或本地没有会话），调用方据此带着被拒的令牌刷新后重试一次。
+    pub fn is_unauthorized(&self) -> bool {
+        self.error == AccountError::Unauthorized
+    }
+}
+
+/// `Retry-After` 的整数秒；HTTP-date 和其他写法都不认。
+pub(crate) fn parse_retry_after(value: &str) -> Option<u64> {
+    value.trim().parse::<u64>().ok()
+}
+
+/// 在 UTF-8 字符边界上截到不超过 `maximum` 字节。
+pub(crate) fn truncate_at_char_boundary(value: &mut String, maximum: usize) {
+    if value.len() > maximum {
+        let mut end = maximum;
+        while !value.is_char_boundary(end) {
+            end -= 1;
+        }
+        value.truncate(end);
+    }
+}
+
+/// 按 RFC 3339 读一个时间，读不出时为 `None`；超过 64 字节的不读。
+pub(crate) fn parse_rfc3339(value: &str) -> Option<time::OffsetDateTime> {
+    if value.len() > 64 {
+        return None;
+    }
+    time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).ok()
+}
+
+/// 服务端错误正文 `{"error":{"code":...}}` 里的码，读不出时为 `None`。
+fn server_error_code(body: &[u8]) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Envelope {
+        error: Detail,
+    }
+    #[derive(Deserialize)]
+    struct Detail {
+        code: String,
+    }
+    serde_json::from_slice::<Envelope>(body)
+        .ok()
+        .map(|envelope| envelope.error.code)
+        .filter(|code| !code.is_empty() && code.len() <= 64)
+}
+
 // 共用的数据类型和上限留在这里，行为按用途拆到各子模块。每个部分都重新导出，所以 `msime_client_services::account::X` 仍能解析到这里还是单个文件时的全部内容。
 mod anonymous;
 mod api;
 mod avatar;
 mod client;
 mod clipboard;
+/// 「我的设备」：列出和撤销登录会话。
+mod devices;
+/// App 内反馈。
+mod feedback;
 mod file_storage;
 mod google;
 /// 宿主注入的会话存储（钥匙串、App Group、AndroidKeyStore），C 接口的 `msime_client_session_store_register` 经它接进来。
@@ -490,25 +630,39 @@ mod host_storage;
 pub mod ios_settings;
 /// 账号页读到的脱敏响应，Tauri 的账号命令和原生设置窗口的 C 接口共用。
 pub mod page;
+/// 无编码常用语的整列表同步。
+mod phrases;
 mod session;
 /// 本地偏好与账号设置同步文档之间的映射，Tauri 和安卓原生宿主共用。
 pub mod settings_sync;
+/// 账号释义（`/v1/translate`）。
+mod translate;
+/// 云端数据的汇总、导出和删除。
+mod user_data;
 mod validate;
 
 pub use anonymous::{
     ensure_anonymous_account, ensure_anonymous_account_in, shared_access_token,
-    shared_access_token_in, AnonymousSessionStorage, LockedAnonymousSessionStorage,
-    SharedAccessToken, ANONYMOUS_ACCOUNT_FILE, ANONYMOUS_SESSION_FILE,
+    shared_access_token_in, with_shared_access_token, AnonymousSessionStorage,
+    LockedAnonymousSessionStorage, SharedAccessToken, ANONYMOUS_ACCOUNT_FILE,
+    ANONYMOUS_SESSION_FILE,
 };
 pub use api::*;
 pub use avatar::*;
 pub use client::*;
 pub use clipboard::*;
+pub use devices::*;
+pub use feedback::*;
 pub use file_storage::*;
 pub use google::*;
 pub use host_storage::*;
+pub use phrases::*;
 pub use session::*;
+pub use translate::*;
+pub use user_data::*;
 pub use validate::*;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transport_tests;

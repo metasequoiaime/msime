@@ -711,25 +711,35 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.authenticated_with_user_at(None, operation)
     }
 
-    fn authenticated_with_user_at<T, F>(
+    /// 返回 [`AccountFailure`] 的新接口用的 [`Self::authenticated`]：401 时同样带着被拒的令牌刷新一次、在同一个账号里重试，结束时同样核对账号没有变。
+    fn authenticated_detailed<T, F>(&self, operation: F) -> Result<T, AccountFailure>
+    where
+        F: Fn(&A, &str) -> Result<T, AccountFailure>,
+    {
+        self.authenticated_with_user_at(None, operation)
+            .map(|(_, result, _)| result)
+    }
+
+    fn authenticated_with_user_at<T, E, F>(
         &self,
         expected: Option<(&str, u64)>,
         operation: F,
-    ) -> Result<(String, T, u64), AccountError>
+    ) -> Result<(String, T, u64), E>
     where
-        F: Fn(&A, &str) -> Result<T, AccountError>,
+        E: AuthenticationError,
+        F: Fn(&A, &str) -> Result<T, E>,
     {
         let (user_id, token, generation) =
             self.credentials_with_generation(None, expected.map(|(user, _)| user))?;
         if expected.is_some_and(|(_, prior)| prior != generation) {
-            return Err(AccountError::Cancelled);
+            return Err(AccountError::Cancelled.into());
         }
         let result = match operation(&self.api, &token) {
-            Err(AccountError::Unauthorized) => {
+            Err(error) if error.unauthorized() => {
                 let (_, replacement, replacement_generation) =
                     self.credentials_with_generation(Some(&token), Some(&user_id))?;
                 if replacement_generation != generation {
-                    return Err(AccountError::Cancelled);
+                    return Err(AccountError::Cancelled.into());
                 }
                 operation(&self.api, &replacement)
             }
@@ -744,9 +754,78 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                 .map(|saved| saved.tokens.user.id.as_str())
                 != Some(user_id.as_str())
         {
-            return Err(AccountError::Cancelled);
+            return Err(AccountError::Cancelled.into());
         }
         Ok((user_id, result, generation))
+    }
+
+    /// 与 [`Self::chat`] 相同，失败时是 [`AccountFailure`]：序列化后的请求体超过服务端的 64 KiB 整包上限时在本地报 `account_too_large`，不发出去。
+    pub fn chat_checked(
+        &self,
+        messages: &[AccountChatMessage],
+        model: &str,
+    ) -> Result<String, AccountFailure> {
+        validate_chat_request(messages, model)?;
+        if super::client::chat_request_body(messages, model)?.len() > MAX_CHAT_REQUEST_BYTES {
+            return Err(AccountFailure::too_large());
+        }
+        self.chat(messages, model).map_err(Into::into)
+    }
+
+    /// 云端的常用语列表。只用这个会话的账号。
+    pub fn phrases(&self) -> Result<AccountPhrases, AccountFailure> {
+        self.authenticated_detailed(|api, token| api.phrases(token))
+    }
+
+    /// 按 `phrases.revision` 比较并交换，整份替换云端的常用语；发送前完整校验，冲突是 `account_conflict`，不重试。
+    pub fn put_phrases(&self, phrases: &AccountPhrases) -> Result<AccountPhrases, AccountFailure> {
+        phrases_request_body(phrases)?;
+        self.authenticated_detailed(|api, token| api.put_phrases(phrases, token))
+    }
+
+    /// 「我的设备」：本人未撤销、未过期的登录会话。
+    pub fn devices(&self) -> Result<AccountDevices, AccountFailure> {
+        self.authenticated_detailed(|api, token| api.devices(token))
+    }
+
+    /// 撤销一个登录会话，返回本机是否因此退出了登录。本地保存的会话 id 是客户端生成的 UUID，不是服务端的会话 id，所以先列一次：要撤销的是当前会话时改走 [`Self::logout`]（服务端效果相同，本地会话同时清掉）；否则 `DELETE`。列不出来时直接 `DELETE`：万一撤销的是当前会话，下一次请求 401、刷新被拒时本地会话会被清掉。
+    pub fn revoke_device(&self, id: &str) -> Result<bool, AccountFailure> {
+        if !valid_device_session_id(id) {
+            return Err(AccountError::Invalid.into());
+        }
+        let current = self.devices().is_ok_and(|devices| {
+            devices
+                .sessions
+                .iter()
+                .any(|device| device.id == id && device.current)
+        });
+        if current {
+            self.logout(false)?;
+            return Ok(true);
+        }
+        self.authenticated_detailed(|api, token| api.revoke_device(id, token))
+            .map(|()| false)
+    }
+
+    /// 云端数据各分区的汇总。
+    pub fn data_summary(&self) -> Result<AccountDataSummary, AccountFailure> {
+        self.authenticated_detailed(|api, token| api.data_summary(token))
+    }
+
+    /// 把云端数据导出成 zip 写到 `destination`（绝对路径）。服务端每天只允许 3 次，超了是 `account_rate_limited`，带 `retry_after_seconds`。
+    pub fn data_export(&self, destination: &Path) -> Result<AccountDataExport, AccountFailure> {
+        if !destination.is_absolute() {
+            return Err(AccountError::Invalid.into());
+        }
+        self.authenticated_detailed(|api, token| api.data_export(destination, token))
+    }
+
+    /// 清空所选分区。服务端要求会话在 10 分钟内建立，否则是 `account_recent_login_required`。
+    pub fn data_delete(&self, sections: &[String]) -> Result<(), AccountFailure> {
+        if !valid_data_sections(sections) {
+            return Err(AccountError::Invalid.into());
+        }
+        self.authenticated_detailed(|api, token| api.data_delete(sections, token))
     }
 
     pub fn preference_schema(&self) -> Result<AccountPreferenceSchema, AccountError> {
@@ -1084,6 +1163,23 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             current.tokens.user = user;
             self.storage.save(current)
         })
+    }
+}
+
+/// 认证调用的错误类型：已有接口用 [`AccountError`]，新接口用 [`AccountFailure`]；两者都要能从会话错误转换过来，也都要认得出 401。
+trait AuthenticationError: From<AccountError> {
+    fn unauthorized(&self) -> bool;
+}
+
+impl AuthenticationError for AccountError {
+    fn unauthorized(&self) -> bool {
+        *self == AccountError::Unauthorized
+    }
+}
+
+impl AuthenticationError for AccountFailure {
+    fn unauthorized(&self) -> bool {
+        self.is_unauthorized()
     }
 }
 

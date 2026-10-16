@@ -254,6 +254,97 @@ pub trait AccountApi: Send + Sync + 'static {
     ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
         Err(AccountError::Unavailable)
     }
+
+    // 以下是 #8201 补上的接口。它们返回带状态码、服务端错误码和 `Retry-After` 的 [`AccountFailure`]，默认实现都是 `account_unavailable`，不影响已有的实现者。
+
+    /// `POST /v1/translate`，见 [`translate_request_body`] 和 [`parse_translate_response`]。
+    fn translate(
+        &self,
+        _request: &AccountTranslateRequest,
+        _timeout: Duration,
+        _access_token: &str,
+    ) -> Result<AccountTranslations, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `GET /v1/users/me/phrases`。
+    fn phrases(&self, _access_token: &str) -> Result<AccountPhrases, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `PUT /v1/users/me/phrases`：按 `phrases.revision` 比较并交换，整份替换。
+    fn put_phrases(
+        &self,
+        _phrases: &AccountPhrases,
+        _access_token: &str,
+    ) -> Result<AccountPhrases, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `GET /v1/users/me/sessions`。
+    fn devices(&self, _access_token: &str) -> Result<AccountDevices, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `DELETE /v1/users/me/sessions/{id}`。
+    fn revoke_device(&self, _id: &str, _access_token: &str) -> Result<(), AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `GET /v1/users/me/data`。
+    fn data_summary(&self, _access_token: &str) -> Result<AccountDataSummary, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `GET /v1/users/me/data/export`，流式写到 `destination`。
+    fn data_export(
+        &self,
+        _destination: &Path,
+        _access_token: &str,
+    ) -> Result<AccountDataExport, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `DELETE /v1/users/me/data`。
+    fn data_delete(&self, _sections: &[String], _access_token: &str) -> Result<(), AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `POST /v1/feedback`，`feedback` 由 [`prepare_feedback`] 校验过。
+    fn feedback(
+        &self,
+        _feedback: &AccountFeedback,
+        _access_token: &str,
+    ) -> Result<AccountFeedbackReceipt, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `POST /v1/users/me/diagnostics`，`upload` 由 [`crate::diagnostics::upload::prepare_upload`] 重建过。
+    fn diagnostics_upload(
+        &self,
+        _upload: &crate::diagnostics::upload::DiagnosticUpload,
+        _access_token: &str,
+    ) -> Result<crate::diagnostics::upload::DiagnosticUploadReceipt, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `GET /v1/users/me/diagnostics`。
+    fn diagnostics_state(
+        &self,
+        _access_token: &str,
+    ) -> Result<crate::diagnostics::upload::DiagnosticState, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `POST /v1/users/me/diagnostics/token`：旧令牌立即失效。
+    fn diagnostics_regenerate_token(&self, _access_token: &str) -> Result<String, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `DELETE /v1/users/me/diagnostics`。
+    fn diagnostics_delete(&self, _access_token: &str) -> Result<(), AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
 }
 
 pub trait AccountSessionStorage: Send + Sync + 'static {
