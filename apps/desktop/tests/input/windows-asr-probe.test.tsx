@@ -41,6 +41,8 @@ test.each(
       }}
     />,
   );
+  // 检查按钮在「服务配置」子视图里，识别服务的配置都收在那里。
+  fireEvent.click(await screen.findByRole("button", { name: "服务配置" }));
   const button = await screen.findByRole("button", { name: "测试语音识别配置" });
   expect(probe).not.toHaveBeenCalled();
   expect(screen.getByText(/一秒合成静音/)).toBeTruthy();
@@ -56,9 +58,12 @@ test.each(
   });
   // Switching to a streaming provider must not send its credentials through
   // the multipart batch probe; Linux has its separate provider-based control.
+  fireEvent.click(screen.getByRole("button", { name: "返回" }));
   fireEvent.change(screen.getByRole("combobox", { name: "识别服务" }), {
     target: { value: "doubao" },
   });
+  fireEvent.click(screen.getByRole("button", { name: "服务配置" }));
+  expect(screen.getByRole("region", { name: "识别服务" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "测试语音识别配置" })).toBeNull();
 });
 
@@ -88,6 +93,7 @@ test("macOS system recognition does not expose an API credential probe", async (
     />,
   );
   await screen.findByRole("combobox", { name: "识别服务" });
+  fireEvent.click(screen.getByRole("button", { name: "服务配置" }));
   expect(screen.queryByRole("button", { name: "测试语音识别配置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "测试豆包识别配置" })).toBeNull();
   expect(screen.queryByText(/一秒合成静音/)).toBeNull();

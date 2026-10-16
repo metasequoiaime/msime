@@ -10,6 +10,97 @@ export type VoiceCaptureDevice = {
 };
 export type VoiceDeviceReader = () => Promise<VoiceCaptureDevice[]>;
 
+/** 麦克风下拉里「系统默认设备」的值，也是存储里的空设备。 */
+const SYSTEM_DEFAULT = "";
+/** 存着的设备不在读到的列表里（拔掉了，或者还没读完）时，为它保留的那一项的值。 */
+const STORED = "stored";
+/** 存着别的平台的后端时显示的那一项的值。它和「系统默认设备」分开，用户选「系统默认设备」才是一次真正的改动，能把外来的后端和设备清掉。 */
+const FOREIGN = "foreign";
+
+/**
+ * 只有一种录音后端的宿主（macOS 只用 CoreAudio）上，录音设备只用一个「麦克风」下拉选：第一项是系统默认设备，下面是读到的设备。可见时自动读取设备列表，不需要先点刷新。
+ *
+ * 系统默认设备这一项必须有：选过的耳机或 USB 麦克风拔掉后录音会失败，只有改回它才能恢复。存着别的平台的后端（比如 `pulse`）时宿主不理会它和它的设备、用系统默认设备录音，这里也照实显示为系统默认设备，但用单独的一项标出存着外来设置，选「系统默认设备」就把它清掉；打开页面时不改写存储。
+ */
+export function VoiceMicrophonePicker({
+  read,
+  active,
+  device,
+  backendSupported,
+  choose,
+}: {
+  read: VoiceDeviceReader;
+  /** 下拉在屏幕上：每次变为可见时重新读取设备列表。 */
+  active: boolean;
+  device: string;
+  /** 存着的后端在这个宿主上有效；无效时宿主不读存着的设备。 */
+  backendSupported: boolean;
+  choose: (backend: VoiceCaptureDevice["backend"] | "", device: string) => void;
+}) {
+  const [devices, setDevices] = useState<VoiceCaptureDevice[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState("");
+  const { busy, run } = useAsyncActionRunner(setError, undefined, read);
+  useEffect(() => {
+    if (!active) return;
+    void run(
+      async (isCurrent) => {
+        const result = await read();
+        if (!isCurrent()) return;
+        setDevices(result);
+        setLoaded(true);
+      },
+      { formatError: () => "无法读取设备列表，可以先用系统默认设备" },
+    );
+  }, [active, read, run]);
+  const index = device ? devices.findIndex((item) => item.id === device) : -1;
+  const value = !backendSupported
+    ? FOREIGN
+    : !device
+      ? SYSTEM_DEFAULT
+      : index >= 0
+        ? String(index)
+        : STORED;
+  return (
+    <SelectRow
+      title="麦克风"
+      description={
+        <span role="status">
+          {error || "从下一次录音生效。选中的麦克风拔掉后无法录音，改回系统默认设备即可。"}
+        </span>
+      }
+      aria-label="麦克风"
+      aria-busy={busy}
+      value={value}
+      onChange={(event) => {
+        const next = event.target.value;
+        const item = next === SYSTEM_DEFAULT ? undefined : devices[Number(next)];
+        // FOREIGN 和 STORED 都是禁用项，选不到；其余的值不是系统默认设备就是列表里的一项。
+        if (item) choose(item.backend, item.id);
+        else if (next === SYSTEM_DEFAULT) choose("", "");
+      }}
+    >
+      <option value={SYSTEM_DEFAULT}>系统默认设备</option>
+      {devices.map((item, position) => (
+        <option key={`${item.backend}:${item.id}`} value={String(position)}>
+          {item.label}
+        </option>
+      ))}
+      {value === FOREIGN && (
+        <option value={FOREIGN} disabled>
+          系统默认设备（已忽略其他平台的录音设置）
+        </option>
+      )}
+      {value === STORED && (
+        <option value={STORED} disabled>
+          {/* 读取失败也算读完了：失败原因已经写在说明里，不能一直显示「读取中」。 */}
+          {loaded || error ? "已选的麦克风（未连接）" : "已选的麦克风（读取中…）"}
+        </option>
+      )}
+    </SelectRow>
+  );
+}
+
 export function VoiceDevicePicker({
   read,
   backend,

@@ -5,25 +5,17 @@ import { SwitchRow } from "./switch-row";
 export interface VoiceRecordingBehaviorSectionProps {
   linux: boolean;
   soundEnabled: boolean;
-  startSound: boolean;
-  endSound: boolean;
   muteSystemAudio: boolean;
   onSoundEnabledChange: (enabled: boolean) => void;
-  onStartSoundChange: (enabled: boolean) => void;
-  onEndSoundChange: (enabled: boolean) => void;
   onMuteSystemAudioChange: (enabled: boolean) => void;
 }
 
-/** Host-side recording prompts and audio muting preferences. */
+/** Host-side recording prompts and audio muting preferences: the 录音行为 group on the voice page. 开始、结束提示音分开的两个开关在「服务配置」子页的 {@link VoiceCueSwitchesSection} 里。 */
 export function VoiceRecordingBehaviorSection({
   linux,
   soundEnabled,
-  startSound,
-  endSound,
   muteSystemAudio,
   onSoundEnabledChange,
-  onStartSoundChange,
-  onEndSoundChange,
   onMuteSystemAudioChange,
 }: VoiceRecordingBehaviorSectionProps) {
   return (
@@ -40,22 +32,46 @@ export function VoiceRecordingBehaviorSection({
         onChange={onSoundEnabledChange}
       />
       <SwitchRow
+        title="录音时静音其他声音"
+        aria-label="录音时静音其他声音"
+        checked={muteSystemAudio}
+        onChange={onMuteSystemAudioChange}
+      />
+    </GroupList>
+  );
+}
+
+export interface VoiceCueSwitchesSectionProps {
+  soundEnabled: boolean;
+  startSound: boolean;
+  endSound: boolean;
+  onStartSoundChange: (enabled: boolean) => void;
+  onEndSoundChange: (enabled: boolean) => void;
+}
+
+/** 开始、结束提示音各自的开关，只在分别读这两个值的宿主上给出（`voice_cue_switches`）。总开关关着时两个都不响，所以跟着变灰，与手机的做法一致。 */
+export function VoiceCueSwitchesSection({
+  soundEnabled,
+  startSound,
+  endSound,
+  onStartSoundChange,
+  onEndSoundChange,
+}: VoiceCueSwitchesSectionProps) {
+  return (
+    <GroupList title="提示音">
+      <SwitchRow
         title="开始录音提示音"
         aria-label="开始录音提示音"
+        disabled={!soundEnabled}
         checked={startSound}
         onChange={onStartSoundChange}
       />
       <SwitchRow
         title="结束录音提示音"
         aria-label="结束录音提示音"
+        disabled={!soundEnabled}
         checked={endSound}
         onChange={onEndSoundChange}
-      />
-      <SwitchRow
-        title="录音时静音其他声音"
-        aria-label="录音时静音其他声音"
-        checked={muteSystemAudio}
-        onChange={onMuteSystemAudioChange}
       />
     </GroupList>
   );

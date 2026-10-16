@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { VoiceCaptureDevicesSection } from "@msime/ui";
+import { afterEach, expect, test, vi, type Mock } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { VoiceCaptureDevicesSection, type VoiceCaptureBackend } from "@msime/ui";
 import { VoiceDevicePicker } from "../../../../packages/ui/src/voice/voice-device-picker";
 
 afterEach(() => {
@@ -68,4 +68,167 @@ test("ignores a second device refresh while the first is pending", async () => {
   await waitFor(() =>
     expect(screen.getByText("未发现设备，可手动填写设备名称或使用默认设备")).toBeTruthy(),
   );
+});
+
+// 「沿用服务设置」只在 Linux 说得通：那里录音由单独运行的语音服务负责。其他宿主的空后端就是系统默认。
+test("names the empty backend after what it means on the platform", () => {
+  const props = {
+    windows: false,
+    backend: "" as const,
+    device: "",
+    readDevices: vi.fn().mockResolvedValue([]),
+    onBackendChange: vi.fn(),
+    onDeviceChange: vi.fn(),
+  };
+  const { rerender } = render(
+    <VoiceCaptureDevicesSection
+      {...props}
+      harmony={false}
+      linux
+      backendOptions={[["pulse", "PulseAudio"]]}
+    />,
+  );
+  expect(screen.getByRole("option", { name: "沿用服务设置" })).toBeTruthy();
+  expect(screen.getByText(/PulseAudio source/)).toBeTruthy();
+  rerender(
+    <VoiceCaptureDevicesSection
+      {...props}
+      harmony
+      backendOptions={[["harmony", "HarmonyOS 音频"]]}
+    />,
+  );
+  expect(screen.queryByRole("option", { name: "沿用服务设置" })).toBeNull();
+  expect(screen.getByRole("option", { name: "系统默认" })).toBeTruthy();
+});
+
+const macDevices = [
+  { backend: "macos" as const, id: "uid-usb", label: "Synthetic USB microphone" },
+  { backend: "macos" as const, id: "uid-headset", label: "Synthetic headset" },
+];
+
+function renderMicrophone(
+  overrides: {
+    backend?: VoiceCaptureBackend;
+    device?: string;
+    active?: boolean;
+    read?: Mock<() => Promise<typeof macDevices>>;
+  } = {},
+) {
+  const read = overrides.read ?? vi.fn(async () => macDevices);
+  const onBackendChange = vi.fn();
+  const view = render(
+    <VoiceCaptureDevicesSection
+      windows={false}
+      harmony={false}
+      backends={false}
+      active={overrides.active ?? true}
+      backend={overrides.backend ?? ""}
+      device={overrides.device ?? ""}
+      backendOptions={[
+        ["auto", "自动选择"],
+        ["macos", "CoreAudio"],
+      ]}
+      readDevices={read}
+      onBackendChange={onBackendChange}
+      onDeviceChange={vi.fn()}
+    />,
+  );
+  return { read, onBackendChange, view };
+}
+
+// macOS 只用 CoreAudio：录音后端、刷新按钮、可用设备和手填设备名合成一个「麦克风」下拉，第一项是系统默认设备，列表在可见时自动读取。
+test("one host backend gets a single microphone select that loads by itself", async () => {
+  const { read, onBackendChange } = renderMicrophone();
+  expect(screen.queryByLabelText("录音后端")).toBeNull();
+  expect(screen.queryByLabelText("麦克风设备")).toBeNull();
+  expect(screen.queryByRole("button", { name: "刷新设备" })).toBeNull();
+  expect(screen.queryByText(/PulseAudio/)).toBeNull();
+  const select = screen.getByRole("combobox", { name: "麦克风" }) as HTMLSelectElement;
+  expect(select.value).toBe("");
+  expect(within(select).getByRole("option", { name: "系统默认设备" })).toBeTruthy();
+  await waitFor(() =>
+    expect(within(select).getByRole("option", { name: "Synthetic headset" })).toBeTruthy(),
+  );
+  expect(read).toHaveBeenCalledOnce();
+  fireEvent.change(select, { target: { value: "1" } });
+  expect(onBackendChange).toHaveBeenCalledWith("macos", "uid-headset");
+});
+
+// 系统默认设备这一项必须能选回去：选过的麦克风拔掉后录音会失败，只有改回它才能恢复。
+test("an unplugged microphone stays visible and the system default clears it", async () => {
+  const { onBackendChange } = renderMicrophone({ backend: "macos", device: "uid-gone" });
+  const select = screen.getByRole("combobox", { name: "麦克风" }) as HTMLSelectElement;
+  await waitFor(() =>
+    expect(within(select).getByRole("option", { name: "已选的麦克风（未连接）" })).toBeTruthy(),
+  );
+  expect(select.value).toBe("stored");
+  fireEvent.change(select, { target: { value: "" } });
+  expect(onBackendChange).toHaveBeenCalledWith("", "");
+});
+
+// 别的平台写下的后端（比如 pulse）宿主不理会，连同它的设备一起，用系统默认设备录音；这里照实显示，打开时不改写存储。它用单独一项标出，选「系统默认设备」是一次真正的改动，能把外来的后端和设备清掉。
+test("a foreign backend reads as the system default and choosing the default clears it", async () => {
+  const { onBackendChange, read } = renderMicrophone({
+    backend: "pulse",
+    device: "alsa_input.synthetic",
+  });
+  const select = screen.getByRole("combobox", { name: "麦克风" }) as HTMLSelectElement;
+  await waitFor(() => expect(read).toHaveBeenCalled());
+  expect(select.value).toBe("foreign");
+  expect(
+    within(select).getByRole("option", { name: "系统默认设备（已忽略其他平台的录音设置）" }),
+  ).toBeTruthy();
+  expect(onBackendChange).not.toHaveBeenCalled();
+  fireEvent.change(select, { target: { value: "" } });
+  expect(onBackendChange).toHaveBeenCalledWith("", "");
+});
+
+// 宿主的 MSIMEVoiceCaptureBackendSupported 不分大小写，设置页也一样：存着 `MacOS` 时宿主照样读存着的设备。
+test("the stored backend is matched without regard to case", async () => {
+  renderMicrophone({ backend: "MacOS" as VoiceCaptureBackend, device: "uid-usb" });
+  const select = screen.getByRole("combobox", { name: "麦克风" }) as HTMLSelectElement;
+  await waitFor(() => expect(select.value).toBe("0"));
+});
+
+// 读取设备列表失败也算读完：说明里写着失败原因，存着的设备不能一直显示「读取中」。
+test("a failed read stops showing the stored microphone as loading", async () => {
+  renderMicrophone({
+    backend: "macos",
+    device: "uid-usb",
+    read: vi.fn(async (): Promise<typeof macDevices> => {
+      throw new Error("synthetic failure");
+    }),
+  });
+  const select = screen.getByRole("combobox", { name: "麦克风" }) as HTMLSelectElement;
+  await waitFor(() =>
+    expect(screen.getByText("无法读取设备列表，可以先用系统默认设备")).toBeTruthy(),
+  );
+  expect(within(select).getByRole("option", { name: "已选的麦克风（未连接）" })).toBeTruthy();
+  expect(within(select).queryByRole("option", { name: "已选的麦克风（读取中…）" })).toBeNull();
+});
+
+test("a stored device that is still connected is selected", async () => {
+  renderMicrophone({ backend: "macos", device: "uid-usb" });
+  const select = screen.getByRole("combobox", { name: "麦克风" }) as HTMLSelectElement;
+  await waitFor(() => expect(select.value).toBe("0"));
+});
+
+test("the microphone list is not read while the group is off screen", async () => {
+  const { read, view } = renderMicrophone({ active: false });
+  expect(read).not.toHaveBeenCalled();
+  view.rerender(
+    <VoiceCaptureDevicesSection
+      windows={false}
+      harmony={false}
+      backends={false}
+      active
+      backend=""
+      device=""
+      backendOptions={[["macos", "CoreAudio"]]}
+      readDevices={read}
+      onBackendChange={vi.fn()}
+      onDeviceChange={vi.fn()}
+    />,
+  );
+  await waitFor(() => expect(read).toHaveBeenCalledOnce());
 });

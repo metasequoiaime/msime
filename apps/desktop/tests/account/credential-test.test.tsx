@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { selectSettingsTab, settingsFormReady } from "../support/settings-form";
+import {
+  openVoiceServiceConfig,
+  selectSettingsTab,
+  settingsFormReady,
+} from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
@@ -85,9 +89,10 @@ test("Linux voice and AI tests never send private tokens from preferences", asyn
   mount(testApiCredential);
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  // 两个检查按钮都在「服务配置」子视图里。
+  openVoiceServiceConfig();
   fireEvent.click(screen.getByRole("button", { name: "测试语音识别配置" }));
   await screen.findByText("fixture ok");
-  selectSettingsTab("润色");
   fireEvent.click(screen.getByRole("button", { name: "测试语音润色配置" }));
   await vi.waitFor(() => expect(testApiCredential).toHaveBeenCalledTimes(2));
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));

@@ -1182,6 +1182,8 @@ export {
 export {
   VoiceRecordingBehaviorSection,
   type VoiceRecordingBehaviorSectionProps,
+  VoiceCueSwitchesSection,
+  type VoiceCueSwitchesSectionProps,
 } from "./settings/voice-recording-behavior-section";
 export {
   VoiceModelMirrorRow,
@@ -1808,6 +1810,12 @@ export interface HostCapabilities {
   voice_provider_settings: boolean;
   /** The host draws interim recognition text, so the streaming-preedit switch has an effect. */
   voice_stream_preedit: boolean;
+  /** 宿主读 `voice_input.hotkey_hold_space_lock`，所以给出空格锁定开关。macOS 固定为开，报 false；缺省按 true。 */
+  voice_space_lock_switch?: boolean;
+  /** 宿主分别读开始、结束提示音，所以在总开关之外给出这两个开关。macOS 只读总开关，报 false；缺省按 true。 */
+  voice_cue_switches?: boolean;
+  /** 宿主有不止一种录音后端，所以给出「录音后端」和手填设备名。macOS 只用 CoreAudio，报 false，设置页只给「麦克风」下拉；缺省按 true。 */
+  voice_capture_backends?: boolean;
   /** The host tells the runtime its character width, so 全角输入 has something to act on. */
   character_width: boolean;
   ai_provider_credentials: boolean;
@@ -2481,6 +2489,9 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showVoiceCommitMode,
     showVoiceProviderSettings,
     showVoiceStreamPreedit,
+    showVoiceSpaceLockSwitch,
+    showVoiceCueSwitches,
+    showVoiceCaptureBackends,
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
@@ -3037,6 +3048,9 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showVoiceCommitMode,
     showVoiceProviderSettings,
     showVoiceStreamPreedit,
+    showVoiceSpaceLockSwitch,
+    showVoiceCueSwitches,
+    showVoiceCaptureBackends,
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
