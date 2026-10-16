@@ -2,6 +2,8 @@
 
 Status: implemented
 
+候选栏后缀「只在邮箱输入框里出现」已被 [三端任何输入框都给邮箱后缀](2026-10-16-mobile-email-suffix-any-field.md) 取代：非密码框即可。本篇的后缀表、匹配与补全规则仍成立。
+
 ## Problem
 
 #6147：Android 符号面板「网络」分类里的邮箱后缀只有 `@qq.com` 和 `@gmail.com`。用户要两件事：补上 18 个常用后缀（@163.com @126.com @139.com @189.cn @aliyun.com @foxmail.com @outlook.com @hotmail.com @live.com @icloud.com @yahoo.com @proton.me @protonmail.com @aol.com @mail.com @gmx.com @naver.com @yahoo.co.jp）；打完邮箱前缀、按下 @ 之后，候选栏自动列出后缀，点一下补全。
