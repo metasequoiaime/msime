@@ -1011,3 +1011,37 @@ fn editions_without_a_chinese_scheme_offer_no_handwriting_or_offline_glosses() {
         assert!(edition.offline_glosses, "{id}");
     }
 }
+
+#[test]
+fn macos_fixes_ai_candidate_limit_and_effect_intensity_at_their_defaults() {
+    // macOS 不再给「候选数量」和「效果强度」，宿主固定用默认值；固定的值必须正好是新档案的默认值，否则没改过的人升级后也会变。
+    let macos = HostCapabilities::for_platform(HostPlatform::Macos);
+    assert_eq!(
+        macos.fixed_ai_candidate_limit,
+        Some(crate::preferences::AiAssistantPreferences::default().candidate_limit)
+    );
+    assert_eq!(
+        macos.fixed_effect_intensity,
+        Some(crate::preferences::PluginPreferences::default().effect_intensity)
+    );
+    let json = serde_json::to_value(&macos).unwrap();
+    assert_eq!(json["fixed_ai_candidate_limit"], 3);
+    assert_eq!(json["fixed_effect_intensity"], 50);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        let host = HostCapabilities::for_platform(platform);
+        assert_eq!(host.fixed_ai_candidate_limit, None);
+        assert_eq!(host.fixed_effect_intensity, None);
+        assert_eq!(platform.fixed_ai_candidate_limit(), None);
+        assert_eq!(platform.fixed_effect_intensity(), None);
+        // 按偏好的宿主不写这两个键，旧版本设置页读到的能力文档不变。
+        let json = serde_json::to_value(&host).unwrap();
+        assert!(json.get("fixed_ai_candidate_limit").is_none());
+        assert!(json.get("fixed_effect_intensity").is_none());
+    }
+}

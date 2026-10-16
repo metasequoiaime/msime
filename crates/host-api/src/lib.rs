@@ -125,6 +125,13 @@ fn english_minimum_prefix_for(
         msime_client_core::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX
     }
 }
+
+/// 会话实际用的 AI 联想候选数量：本库编译到的平台固定了这个数（`HostPlatform::fixed_ai_candidate_limit`，macOS）时用固定值，不读偏好里存的值；否则用偏好。座位配置、在线查询和请求描述都从这里取，`chat_completion_http_request` 要求请求和配置里的数量一致。
+fn host_ai_candidate_limit(stored: u8) -> u8 {
+    ffi::host::compiled_platform()
+        .fixed_ai_candidate_limit()
+        .unwrap_or(stored)
+}
 mod doubao_auth;
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
 mod handwriting_cells;
@@ -465,7 +472,7 @@ impl HostSession {
             provider: ai.provider.clone(),
             model: ai.model.clone(),
             endpoint: ai.endpoint.clone(),
-            candidate_limit: ai.candidate_limit,
+            candidate_limit: host_ai_candidate_limit(ai.candidate_limit),
             prompt_id: ai.prompt_id.clone(),
             prompt_custom_1: ai.prompt_custom_1.clone(),
             prompt_custom_2: ai.prompt_custom_2.clone(),

@@ -15,7 +15,7 @@
     NSDictionary *_committed;
     NSButton *_enabled;
     NSPopUpButton *_provider;
-    NSTextField *_model, *_endpoint, *_limit, *_status;
+    NSTextField *_model, *_endpoint, *_status;
     NSArray<NSTextField *> *_prompts;
 }
 
@@ -29,24 +29,24 @@
     window.title = @"AI 联想设置"; window.delegate = self; self.window = window;
     _enabled = [NSButton checkboxWithTitle:@"启用 AI 联想" target:self action:@selector(commit:)];
     _provider = [[NSPopUpButton alloc] initWithFrame:NSZeroRect]; [_provider addItemsWithTitles:@[@"DeepSeek", @"OpenAI", @"SiliconFlow", @"Groq"]]; _provider.target = self; _provider.action = @selector(commit:);
-    _model = [NSTextField textFieldWithString:@""]; _endpoint = [NSTextField textFieldWithString:@""]; _limit = [NSTextField textFieldWithString:@"3"];
+    _model = [NSTextField textFieldWithString:@""]; _endpoint = [NSTextField textFieldWithString:@""];
+    // 没有「候选数量」：macOS 的 AI 联想固定给 3 个候选（client-core 的 `HostPlatform::fixed_ai_candidate_limit`），宿主不读文档里存的值，这里也不再写它。
     NSMutableArray *prompts = [NSMutableArray array]; for (NSUInteger i = 0; i < 3; ++i) [prompts addObject:[NSTextField textFieldWithString:@""]]; _prompts = prompts;
-    NSGridView *grid = [NSGridView gridViewWithViews:@[@[[NSTextField labelWithString:@"状态"], _enabled], @[[NSTextField labelWithString:@"提供商"], _provider], @[[NSTextField labelWithString:@"模型"], _model], @[[NSTextField labelWithString:@"接口地址"], _endpoint], @[[NSTextField labelWithString:@"候选数量"], _limit], @[[NSTextField labelWithString:@"自定义提示词 1"], _prompts[0]], @[[NSTextField labelWithString:@"自定义提示词 2"], _prompts[1]], @[[NSTextField labelWithString:@"自定义提示词 3"], _prompts[2]]]];
-    grid.rowSpacing = 12; for (NSView *view in @[_model, _endpoint, _limit, _prompts[0], _prompts[1], _prompts[2]]) { view.translatesAutoresizingMaskIntoConstraints = NO; [view.widthAnchor constraintEqualToConstant:390].active = YES; ((NSTextField *)view).delegate = self; }
+    NSGridView *grid = [NSGridView gridViewWithViews:@[@[[NSTextField labelWithString:@"状态"], _enabled], @[[NSTextField labelWithString:@"提供商"], _provider], @[[NSTextField labelWithString:@"模型"], _model], @[[NSTextField labelWithString:@"接口地址"], _endpoint], @[[NSTextField labelWithString:@"自定义提示词 1"], _prompts[0]], @[[NSTextField labelWithString:@"自定义提示词 2"], _prompts[1]], @[[NSTextField labelWithString:@"自定义提示词 3"], _prompts[2]]]];
+    grid.rowSpacing = 12; for (NSView *view in @[_model, _endpoint, _prompts[0], _prompts[1], _prompts[2]]) { view.translatesAutoresizingMaskIntoConstraints = NO; [view.widthAnchor constraintEqualToConstant:390].active = YES; ((NSTextField *)view).delegate = self; }
     _status = [NSTextField wrappingLabelWithString:@""];
     NSStackView *stack = [NSStackView stackViewWithViews:@[grid, _status]]; stack.orientation = NSUserInterfaceLayoutOrientationVertical; stack.spacing = 16; stack.translatesAutoresizingMaskIntoConstraints = NO; [window.contentView addSubview:stack]; [NSLayoutConstraint activateConstraints:@[[stack.leadingAnchor constraintEqualToAnchor:window.contentView.leadingAnchor constant:20], [stack.trailingAnchor constraintEqualToAnchor:window.contentView.trailingAnchor constant:-20], [stack.topAnchor constraintEqualToAnchor:window.contentView.topAnchor constant:20]]]; [window center];
 }
 - (void)showWindow:(id)sender { if (!self.window) [self loadWindow]; [super showWindow:sender]; [self reload:nil]; }
-- (void)reload:(id)sender { (void)sender; if (!_directory.isAbsolutePath) { _status.stringValue = @"请先激活输入法。"; return; } _snapshot = [MSIMEClientSession loadPreferencesInDirectory:_directory error:nil]; NSDictionary *ai = _snapshot[@"preferences"][@"ai_assistant"]; _enabled.state = [ai[@"enabled"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff; NSArray *providers = @[@"deepseek", @"openai", @"siliconflow", @"groq"]; NSUInteger index = [providers indexOfObject:ai[@"provider"]]; [_provider selectItemAtIndex:index == NSNotFound ? 0 : index]; _model.stringValue = ai[@"model"] ?: @""; _endpoint.stringValue = ai[@"endpoint"] ?: @""; _limit.stringValue = [ai[@"candidate_limit"] stringValue] ?: @"3"; for (NSUInteger i = 0; i < 3; ++i) _prompts[i].stringValue = ai[[NSString stringWithFormat:@"prompt_custom_%lu", (unsigned long)i + 1]] ?: @""; _committed = _snapshot ? [self form] : nil; _status.stringValue = _snapshot ? @"修改会自动保存。" : @"加载失败。"; }
+- (void)reload:(id)sender { (void)sender; if (!_directory.isAbsolutePath) { _status.stringValue = @"请先激活输入法。"; return; } _snapshot = [MSIMEClientSession loadPreferencesInDirectory:_directory error:nil]; NSDictionary *ai = _snapshot[@"preferences"][@"ai_assistant"]; _enabled.state = [ai[@"enabled"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff; NSArray *providers = @[@"deepseek", @"openai", @"siliconflow", @"groq"]; NSUInteger index = [providers indexOfObject:ai[@"provider"]]; [_provider selectItemAtIndex:index == NSNotFound ? 0 : index]; _model.stringValue = ai[@"model"] ?: @""; _endpoint.stringValue = ai[@"endpoint"] ?: @""; for (NSUInteger i = 0; i < 3; ++i) _prompts[i].stringValue = ai[[NSString stringWithFormat:@"prompt_custom_%lu", (unsigned long)i + 1]] ?: @""; _committed = _snapshot ? [self form] : nil; _status.stringValue = _snapshot ? @"修改会自动保存。" : @"加载失败。"; }
 /// The AI keys as the controls now read.
-- (NSDictionary *)form { NSArray *providers = @[@"deepseek", @"openai", @"siliconflow", @"groq"]; return @{ @"enabled": @(_enabled.state == NSControlStateValueOn), @"provider": providers[_provider.indexOfSelectedItem], @"model": _model.stringValue, @"endpoint": _endpoint.stringValue, @"candidate_limit": @(_limit.integerValue), @"prompt_custom_1": _prompts[0].stringValue, @"prompt_custom_2": _prompts[1].stringValue, @"prompt_custom_3": _prompts[2].stringValue }; }
+- (NSDictionary *)form { NSArray *providers = @[@"deepseek", @"openai", @"siliconflow", @"groq"]; return @{ @"enabled": @(_enabled.state == NSControlStateValueOn), @"provider": providers[_provider.indexOfSelectedItem], @"model": _model.stringValue, @"endpoint": _endpoint.stringValue, @"prompt_custom_1": _prompts[0].stringValue, @"prompt_custom_2": _prompts[1].stringValue, @"prompt_custom_3": _prompts[2].stringValue }; }
 /// Writes the keys that changed since the last save; an invalid value is reported and nothing is written until it is corrected.
 - (void)commit:(id)sender {
     (void)sender; if (!_snapshot) return;
     NSDictionary *form = [self form];
     NSMutableDictionary *edits = [NSMutableDictionary dictionary]; for (NSString *key in form) if (![form[key] isEqual:_committed[key]]) edits[key] = form[key];
     if (!edits.count) return;
-    NSInteger limit = [form[@"candidate_limit"] integerValue]; if (limit < 1 || limit > 10) { _status.stringValue = @"候选数量必须为 1～10；修改尚未保存。"; return; }
     // 规则见 AIEndpointPolicy.h：https 不限主机，http 只能指向本机或局域网；公网 http 要说清楚为什么不行。
     if ([form[@"enabled"] boolValue]) {
         MSIMEAIEndpointProblem problem = MSIMEAIEndpointCheck(form[@"endpoint"], nil);

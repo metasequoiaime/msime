@@ -43,13 +43,13 @@ FOUNDATION_EXPORT NSColor *_Nullable MSIMETypingEffectColor(id _Nullable value);
 /// Typing effects drawn beside the candidate card: sparks at the caret, a flash over the card and the combo badge on its corner. A non-activating, click-through panel under the candidate window. It holds no timer and no running emitter once an effect has played out: the emitter's birth rate goes back to 0 and the panel leaves the screen.
 @interface MSIMETypingEffectPanel : NSPanel
 + (instancetype)sharedPanel;
-/// Reads `plugins.effect_style`, `plugins.effect_pack`, `plugins.combo_counter` and `plugins.effect_intensity`. A document without `plugins` leaves the current settings alone; turning everything off takes the panel off screen.
+/// 读 `plugins.effect_style`、`plugins.effect_pack` 和 `plugins.combo_counter`。强度在 macOS 上固定为 50，不读 `plugins.effect_intensity`（见 client-core 的 `HostPlatform::fixed_effect_intensity`），每次都重置成 50。文档里没有 `plugins` 时保留当前设置；全部关掉时面板离开屏幕。
 - (void)applyPreferences:(NSDictionary *)preferences;
-/// The session's resolved effect, the value of msime_client_typing_effect_settings, applied after `applyPreferences:`. Its intensity replaces the preference's, and an effect pack's colours, duration_ms and particles replace the panel's accent, flash length and spark count; a hint left null keeps the panel's own. nil, as without a session, drops the pack's hints and keeps the preferences' intensity.
+/// 会话解析出的效果，即 msime_client_typing_effect_settings 的值，在 `applyPreferences:` 之后应用。它的强度替换固定的 50（选了特效包时是包自带的强度），特效包的颜色、duration_ms 和 particles 替换面板自己的强调色、闪光时长和火花数；留空的提示沿用面板自己的。nil（没有会话时）丢掉包的提示，强度保持固定的 50。
 - (void)applySettings:(nullable NSDictionary *)settings;
 /// 有没有东西要画：样式不是 off、选了特效包，或者开着连击计数。为 NO 时控制器什么都不画；按键照样报告给生命周期核心（按键音靠它），答复丢掉。
 @property(nonatomic, readonly) BOOL configured;
-/// `plugins.effect_intensity`, 0-100, or the effect pack's; 50 until set.
+/// 0-100：固定的 50，或特效包自带的强度。
 @property(nonatomic, readonly) NSUInteger intensity;
 /// The effect pack's colours, empty without a pack or when it names none: the flash and badge take the first, the sparks cycle through them.
 @property(nonatomic, copy, readonly) NSArray<NSColor *> *effectColors;

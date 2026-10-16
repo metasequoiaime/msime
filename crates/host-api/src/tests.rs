@@ -8255,6 +8255,41 @@ fn an_in_memory_ai_credential_stays_bound_to_its_endpoint() {
 }
 
 #[test]
+fn the_ai_request_sends_the_platforms_candidate_limit() {
+    // 存下的数量是 1。固定数量的平台（macOS）不读它：在线查询和请求描述用同一个固定值，`chat_completion_http_request` 才不会因为两边不一致拒绝请求。
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        scheme: InputScheme::Quanpin,
+        ..chinese_preferences()
+    };
+    preferences.ai_assistant.enabled = true;
+    preferences.ai_assistant.model = "synthetic-model".into();
+    preferences.ai_assistant.token = "synthetic-private".into();
+    preferences.ai_assistant.endpoint = "https://api.deepseek.com/chat/completions".into();
+    preferences.ai_assistant.candidate_limit = 1;
+    let expected = host_ai_candidate_limit(1);
+    let handle = test_host_preferences(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    for byte in b"nihao" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    let query = read(msime_client_online_query(handle))["value"].clone();
+    assert_eq!(query["ai_assistant"]["candidate_limit"], expected);
+    let query = query.to_string();
+    let descriptor =
+        read(unsafe { msime_client_ai_request_for_query(handle, query.as_ptr(), query.len()) });
+    assert_eq!(descriptor["ok"], true);
+    let user: Value = serde_json::from_str(
+        descriptor["value"]["body"]["messages"][1]["content"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(user["candidate_limit"], expected);
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn ai_queries_and_delivery_follow_pending_preferences() {
     let dir = tempfile::tempdir().unwrap();
     let mut preferences = Preferences {
@@ -8352,9 +8387,10 @@ fn ai_queries_and_delivery_follow_pending_preferences() {
                 current["ai_assistant"]["prompt_custom_1"],
                 preferences.ai_assistant.prompt_custom_1
             );
+            // 固定候选数量的平台（macOS）不读存下的值，查询里始终是固定值。
             assert_eq!(
                 current["ai_assistant"]["candidate_limit"],
-                preferences.ai_assistant.candidate_limit
+                host_ai_candidate_limit(preferences.ai_assistant.candidate_limit)
             );
         }
         for batch in [false, true] {

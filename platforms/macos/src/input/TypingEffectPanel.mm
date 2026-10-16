@@ -220,8 +220,8 @@ NSColor *MSIMETypingEffectColor(id value) {
     _packSelected = [pack isKindOfClass:NSString.class] && [pack length] > 0;
     id counter = plugins[@"combo_counter"];
     _comboCounter = [counter isKindOfClass:NSNumber.class] && [counter boolValue];
-    id intensity = plugins[@"effect_intensity"];
-    _intensity = [intensity isKindOfClass:NSNumber.class] ? (NSUInteger)Clamp([intensity doubleValue], 0, 100) : kDefaultIntensity;
+    // 「效果强度」在 macOS 上已经撤掉，强度固定为默认值，文档里存的旧值不再读；特效包的强度随后由 applySettings: 换上。
+    _intensity = kDefaultIntensity;
     if (!self.configured) [self settle];
 }
 
