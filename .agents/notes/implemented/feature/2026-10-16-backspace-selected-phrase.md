@@ -31,7 +31,7 @@ Windows 当前 `EngineSessionAdapter` 和 `ServerSession` 使用准备好的 opt
 - 共享 React 页面三个开关用例通过，验证旧文档默认开启、关闭值回显与字段更新。
 - 相关三个 crate 的全目标 `clippy -D warnings`、前端类型检查与构建通过。
 - `scripts/verify-local.sh --quick` 通过：包括 Rust 工作区、Android/wasm 目标、Android Java 宿主、Windows x64 链接及 GNU 桌面检查、macOS 原生、Apple 桥接和 x64/i686 管道编译。Windows 本机宿主测试 155 项通过；初次运行缺少 x64 缓存，起始 i686 语法阶段跳过。Linux Docker 不可用、HarmonyOS 缺暂存原生库/资源/模块、macOS Tauri 资源包未暂存，相关阶段跳过。
-- iOS 原生模拟器构建与活会话重载用例正在单独运行，尚不能据此声称设备已验收。Android 本轮只有宿主/JVM 检查，未运行模拟器；没有安装用户真机。
+- iOS 原生模拟器构建通过，`MSIMEKeyboardTests/CandidateOptionsSettingsTests/testBackspaceSelectionSwitchReachesAnExistingComposition` 实际执行 1 项、0 失败：真实原生桥接会话在组字中重载 App 写入的关闭值，连续退格保留已选词段，删空后只提交一次。专用模拟器在测试结束后删除；这不代替真机键盘按钮与真实编辑器验收。Android 本轮只有宿主/JVM 检查，未运行模拟器；没有安装用户真机。
 
 ## Consequences
 
