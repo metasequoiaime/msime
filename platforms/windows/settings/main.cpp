@@ -959,7 +959,7 @@ struct PageLabel {
 };
 
 // 「手写输入」并进了「屏幕键盘」页（见 `SettingsNavigation.h`），提供手写的版本里那一页叫「屏幕键盘与手写」，与共享设置 UI 的 `screenKeyboardAndHandwritingTitle` 相同。
-constexpr std::array<PageLabel, 17> page_labels{{
+constexpr std::array<PageLabel, 16> page_labels{{
     {"typing", L"输入方案", 0xE765, L"选择输入方式；专属选项随当前方案变化。"},
     {"expression", L"输入习惯", 0xE8C1, L"调整标点、混输、输出和选词习惯。"},
     {"shortcuts", L"按键", 0xEDA7, L"设置中英文切换、选词和翻页使用的按键。"},
@@ -977,8 +977,7 @@ constexpr std::array<PageLabel, 17> page_labels{{
     {"ai", L"AI 辅助", 0xE99A, L"配置候选补全、文本整理和服务连接。"},
     {"account", L"账号", 0xE77B, L"登录并管理跨设备同步与云端内容。"},
     {"dev", L"维护与诊断", 0xE90F, L"导入导出设置，检查本机状态和诊断信息。"},
-    {"feedback", L"帮助与反馈", 0xED15, L"查阅使用帮助，反馈问题和建议。"},
-    {"about", L"关于", 0xE946, L"查看版本、更新和许可信息。"},
+    {"about", L"关于", 0xE946, L"查看版本和更新，查阅使用帮助、反馈问题，以及许可信息。"},
 }};
 static_assert(page_labels.size() == nav::pages.size());
 static_assert(page_labels[0].id == nav::default_page);
@@ -4710,8 +4709,6 @@ private:
       build_account_page(page);
     else if (id == "dev")
       build_dev_page(page);
-    else if (id == "feedback")
-      build_feedback_page(page);
     else if (id == "about")
       build_about_page(page);
   }
@@ -18945,13 +18942,10 @@ private:
     }
   }
 
-  // ---- 帮助与反馈、关于 ----
+  // ---- 关于（含并进来的帮助与反馈） ----
 
-  // 共享设置的「帮助与反馈」页（`packages/ui/src/settings/pages/feedback-page.tsx`）在 Windows 上的样子：页首一句说明，「帮助」，「提交可复现的问题」的报告，「反馈与交流」的三个渠道。共享页的「帮助」是一个子页入口，本窗口没有子页，直接把帮助内容画在这里（`build_help_section`）。报告的格式、诊断信息和 GitHub 地址的拼法在 `FeedbackReport.h`。
-  void build_feedback_page(StackPanel const &page) {
-    auto intro = make_text(L"遇到问题或有功能建议时，可以通过以下渠道提交和交流。", 14, palette_.sub);
-    intro.Margin(Thickness{4, 0, 4, 4});
-    page.Children().Append(intro);
+  // 共享设置的 `FeedbackSections`（`packages/ui/src/settings/pages/feedback-page.tsx`）在 Windows 上的样子，画在「关于」页「版本与更新」之后：「帮助」，「提交可复现的问题」的报告，「反馈与交流」的三个渠道。桌面上「帮助与反馈」并进了「关于」（`desktopMergedPages`），没有单独的页，也就没有页首那句说明。共享页的「帮助」是一个子页入口，本窗口没有子页，直接把帮助内容画在这里（`build_help_section`），「关于」因此比共享页长。报告的格式、诊断信息和 GitHub 地址的拼法在 `FeedbackReport.h`。
+  void build_feedback_sections(StackPanel const &page) {
     build_help_section(page);
 
     auto report = add_group(page, L"提交可复现的问题");
@@ -19227,6 +19221,9 @@ private:
                 show_notice(L"复制失败，请重试");
             }));
     url_row(updates, 0xE8A5, L"历史版本", L"各版本的更新说明与安装包。", L"查看", releases_url);
+
+    // 并进来的帮助与反馈，顺序与共享的 about-page.tsx 相同：版本与更新 → 帮助与反馈 → 许可与隐私。
+    build_feedback_sections(page);
 
     auto privacy = add_group(page, L"许可与隐私");
     bool_row(privacy, 0xE9D2, L"匿名使用统计",
@@ -19583,7 +19580,7 @@ private:
   TextBlock update_status_{nullptr};
   TextBlock update_detail_{nullptr};
 
-  // 「帮助与反馈」页的报告草稿和「已复制」标记：跨页面重建保留，关闭窗口即丢弃，与共享页的组件状态一样。按钮是该页当前的那一组。
+  // 「关于」页里并进来的帮助与反馈的报告草稿和「已复制」标记：跨页面重建保留，关闭窗口即丢弃，与共享页的组件状态一样。按钮是该页当前的那一组。
   std::wstring feedback_kind_{msime::settings::feedback_kinds[0]};
   std::wstring feedback_detail_;
   bool feedback_report_copied_ = false;
