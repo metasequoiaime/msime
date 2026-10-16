@@ -144,6 +144,7 @@ enum class SkinAnimationPreset
     glow,
 };
 
+// 皮肤包清单显式写出的动效；没写的预设是 none，内置主题和不画包时全为 none（即时显隐）。
 struct SkinAnimation
 {
     SkinAnimationPreset enter = SkinAnimationPreset::none;
