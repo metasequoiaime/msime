@@ -2,6 +2,7 @@
 #include "FocusGate.h"
 #include "ReplyCodec.h"
 #include "ReplyComposer.h"
+#include "ipc_negotiation.h"
 
 namespace msime::windows {
 // 只在输入队列上使用。记住已确认送达的 UI-less
@@ -11,7 +12,9 @@ public:
   void delivered(const FocusLease &lease, const PendingReply &reply,
                  const FanyImeNamedpipeData &packet) {
     lease_.reset();
-    if (!(packet.modifiers_down & FanyImePipeFlags::UiLess))
+    if (!(packet.modifiers_down & FanyImePipeFlags::UiLess) ||
+        !(packet.modifiers_down & FanyImePipeFlags::ServerUiLessCandidates) ||
+        !(lease.transport.capabilities & FanyImeProtocol::UiLessCandidates))
       return;
     const auto &view = reply.source.transition.at("view");
     if (view.at("editing_text").get<std::string>().empty())

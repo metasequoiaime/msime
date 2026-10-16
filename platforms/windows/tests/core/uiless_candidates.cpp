@@ -1,5 +1,6 @@
 #include "UiLessCandidateSync.h"
 #include "uiless_page.h"
+#include "PipeMetadata.h"
 #include <stdexcept>
 using namespace msime::windows;
 void require(bool value) {
@@ -34,11 +35,18 @@ int main() {
   require(FanyImeUiLessPage::IsCurrent(42, 42) &&
           FanyImeUiLessPage::IsCurrent(43, 42));
   require(FanyImeUiLessPage::IsCurrent(0, 42));
+  const auto capabilities = FanyImeProtocol::Capabilities | FanyImeProtocol::UiLessCandidates;
+  const auto hello = FanyImeProtocol::Hello(42, 1, capabilities);
+  require(!(FanyImeProtocol::Negotiate(hello).capabilities & FanyImeProtocol::UiLessCandidates));
+  require(FanyImeProtocol::Negotiate(hello, capabilities).capabilities & FanyImeProtocol::UiLessCandidates);
+  require(PipeMetadata::key_modifiers(FanyImePipeFlags::UiLess |
+              FanyImePipeFlags::ServerUiLessCandidates | PipeMetadata::CandidateActive | 3u) == 3u);
 
   {
     // 同一份已确认回复之后，云候选/AI/重排只能更新它所属的 UI-less 页。
     UiLessCandidateSync sync;
     FocusLease lease{PipeTicket{42, {1, 2, 3}}, 7, 9};
+    lease.transport.capabilities |= FanyImeProtocol::UiLessCandidates;
     nlohmann::json view = {{"session", 12},
                            {"generation", 20},
                            {"focused", true},
@@ -56,6 +64,13 @@ int main() {
     view["generation"] = 21;
     require(!sync.updated(lease, view));
     packet.modifiers_down = FanyImePipeFlags::UiLess;
+    sync.delivered(lease, reply, packet);
+    require(!sync.updated(lease, view));
+    packet.modifiers_down |= FanyImePipeFlags::ServerUiLessCandidates;
+    auto oldLease = lease;
+    oldLease.transport.capabilities &= ~FanyImeProtocol::UiLessCandidates;
+    sync.delivered(oldLease, reply, packet);
+    require(!sync.updated(oldLease, view));
     sync.delivered(lease, reply, packet);
     auto stale = lease;
     ++stale.token;

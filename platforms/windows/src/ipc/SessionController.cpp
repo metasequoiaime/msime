@@ -770,14 +770,18 @@ void SessionController::push_uiless_candidates(const FocusLease &lease,
   const auto frame = uiless_candidates_.updated(lease, view);
   if (!frame || stopping_)
     return;
-  bool failed = frame->empty();
-  if (!failed)
+  bool failed = false;
+  try {
     focus_.with_active(lease, [&] {
       if (!stopping_ && transport_.current(lease.transport))
         failed =
+            frame->empty() ||
             transport_.send(lease.transport, FanyImePipeRole::ToTsfWorkerThread,
                             *frame) != KeyEventSendResult::Sent;
     });
+  } catch (...) {
+    failed = true;
+  }
   // 不确定是否送达时关闭这一连接，让客户端重建一致的候选页，不能继续按旧页选词。
   if (failed) {
     focus_.invalidate(lease.transport);

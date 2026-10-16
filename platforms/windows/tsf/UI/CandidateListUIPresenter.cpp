@@ -1783,6 +1783,11 @@ bool CCandidateListUIPresenter::_ConsumeUiLessCompositionReply(uint64_t requestI
 
 bool CCandidateListUIPresenter::_ApplyUiLessPayload(const FanyImeUiLessPage::Payload &payload)
 {
+    // 有效的 TIP 会话用自己的候选身份选词，Server 的列表不能覆盖它；这里只更新旧管道路径。
+    auto *engine = _pTextService ? _pTextService->GetCompositionProcessorEngine() : nullptr;
+    auto *host = engine ? engine->GetHostEngineAdapter() : nullptr;
+    if (host && host->valid())
+        return false;
     if (!payload.hasPage || !FanyImeUiLessPage::IsCurrent(payload.generation, _lastUiLessGeneration))
         return false;
     if (payload.generation)

@@ -355,7 +355,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
         return (_dwActivateFlags & TF_TMF_UIELEMENTENABLEDONLY) ? TRUE : FALSE;
     }
 
-    CCompositionProcessorEngine *GetCompositionProcessorEngine()
+    CCompositionProcessorEngine *GetCompositionProcessorEngine() const
     {
         return (_pCompositionProcessorEngine);
     };

@@ -156,6 +156,8 @@ constexpr std::uint32_t Observe(bool keyboardDisabled, bool secureMode, bool ele
 namespace FanyImePipeFlags
 {
 constexpr std::uint32_t UiLess = 0x80000000u;
+// 仅在协商到 UiLessCandidates 后设置：TIP 没有有效的本地引擎会话，请 Server 推送候选页。
+constexpr std::uint32_t ServerUiLessCandidates = 0x08000000u;
 } // namespace FanyImePipeFlags
 
 namespace FanyImePipeRole
