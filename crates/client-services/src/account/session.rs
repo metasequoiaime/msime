@@ -913,6 +913,14 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.authenticated_detailed(|api, token| api.data_delete(sections, token))
     }
 
+    /// 把 `platform`（[`DOWNLOAD_LINK_PLATFORMS`] 之一）的下载链接发到这个账号已验证的邮箱。只用这个会话的账号；没有已验证邮箱是 `account_no_verified_email`。
+    pub fn download_link(&self, platform: &str) -> Result<AccountDownloadLink, AccountFailure> {
+        if !DOWNLOAD_LINK_PLATFORMS.contains(&platform) {
+            return Err(AccountError::Invalid.into());
+        }
+        self.authenticated_detailed(|api, token| api.download_link(platform, token))
+    }
+
     /// 以指定的那一次登录发一个请求：`user_id` 和 `generation` 是调用方先前从 [`Self::with_current_identity`] 读到的。会话换了账号、退出后重新登录（代次变了）时是 `account_cancelled`，不会用别的登录去发；401 时带着被拒的令牌刷新一次，在同一次登录里重试。给云同步这种「读、合并、写」要横跨好几个请求的调用方用，每一步都落在开始那一轮的登录上。
     pub fn authenticated_as<T, F>(
         &self,

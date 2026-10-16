@@ -553,6 +553,9 @@ impl AccountFailure {
         if server == Some(LOCAL_IDENTITY_CHANGED) {
             return "account_identity_changed";
         }
+        if server == Some("no_verified_email") {
+            return "account_no_verified_email";
+        }
         if self.status == Some(413)
             || matches!(
                 server,
@@ -632,6 +635,8 @@ mod clipboard;
 pub mod cloud_sync;
 /// 「我的设备」：列出和撤销登录会话。
 mod devices;
+/// 「其他平台下载」的「发送链接」。
+mod download_link;
 /// App 内反馈。
 mod feedback;
 mod file_storage;
@@ -654,6 +659,8 @@ mod translate;
 /// 云端数据的汇总、导出和删除。
 mod user_data;
 mod validate;
+/// 语音贡献。
+mod voice_contribution;
 
 pub use anonymous::{
     ensure_anonymous_account, ensure_anonymous_account_in, shared_access_token,
@@ -667,6 +674,7 @@ pub use avatar::*;
 pub use client::*;
 pub use clipboard::*;
 pub use devices::*;
+pub use download_link::*;
 pub use feedback::*;
 pub use file_storage::*;
 pub use google::*;
@@ -676,6 +684,7 @@ pub use session::*;
 pub use translate::*;
 pub use user_data::*;
 pub use validate::*;
+pub use voice_contribution::*;
 
 #[cfg(test)]
 mod sign_in_tests;

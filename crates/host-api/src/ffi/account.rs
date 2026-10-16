@@ -4,7 +4,7 @@
 //!
 //! 请求带 `session_store` 而不带 `directory` 时，会话在宿主注入的存储里（[`super::session_store`]），会话对象是注册时建好的那一个。
 //!
-//! #8201 新增的操作（对话、释义、常用语、我的设备、云端数据、反馈、诊断上传）在 [`crate::account_ops`]；它们失败时还可能带 `retry_after_seconds`。登录账号优先、退回匿名账号的几项，按目录时用同一目录里的 `anonymous-session.json`（每个目录一个会话对象，刷新时与登录会话共用 `account-refresh.lock`），注入时用该 store 的匿名会话。
+//! #8201 新增的操作（对话、释义、常用语、我的设备、云端数据、反馈、诊断上传、发送下载链接、语音贡献）在 [`crate::account_ops`]；它们失败时还可能带 `retry_after_seconds`。登录账号优先、退回匿名账号的几项，按目录时用同一目录里的 `anonymous-session.json`（每个目录一个会话对象，刷新时与登录会话共用 `account-refresh.lock`），注入时用该 store 的匿名会话。
 //!
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 

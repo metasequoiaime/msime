@@ -1932,6 +1932,22 @@ impl AccountApi for BackendAccountClient {
         self.diagnostics_delete(access_token)
     }
 
+    fn download_link(
+        &self,
+        platform: &str,
+        access_token: &str,
+    ) -> Result<AccountDownloadLink, AccountFailure> {
+        self.send_download_link(platform, access_token)
+    }
+
+    fn voice_contribution(
+        &self,
+        contribution: &AccountVoiceContribution,
+        access_token: &str,
+    ) -> Result<AccountVoiceContributionReceipt, AccountFailure> {
+        self.send_voice_contribution(contribution, access_token)
+    }
+
     fn preference_schema_detailed(
         &self,
         access_token: &str,

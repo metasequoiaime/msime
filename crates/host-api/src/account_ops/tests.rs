@@ -3,8 +3,9 @@
 use super::*;
 use msime_client_services::account::{
     AccountChallenge, AccountChatModel, AccountChatModels, AccountDataExport, AccountDataSection,
-    AccountDataSummary, AccountDevice, AccountDevices, AccountFeedback, AccountFeedbackReceipt,
-    AccountProfile, AccountTokens, AccountTranslations, AccountUser, SavedAccountSession,
+    AccountDataSummary, AccountDevice, AccountDevices, AccountDownloadLink, AccountFeedback,
+    AccountFeedbackReceipt, AccountProfile, AccountTokens, AccountTranslations, AccountUser,
+    AccountVoiceContribution, AccountVoiceContributionReceipt, SavedAccountSession,
 };
 use msime_client_services::diagnostics::upload::{
     DiagnosticState, DiagnosticUpload, DiagnosticUploadReceipt,
@@ -271,6 +272,29 @@ impl AccountApi for FakeApi {
     }
     fn diagnostics_delete(&self, access_token: &str) -> Result<(), AccountFailure> {
         self.call("diagnostics_delete", access_token)
+    }
+    fn download_link(
+        &self,
+        platform: &str,
+        access_token: &str,
+    ) -> Result<AccountDownloadLink, AccountFailure> {
+        self.call("download_link", access_token)?;
+        assert_eq!(platform, "windows");
+        Ok(AccountDownloadLink {
+            sent_to: Some("s***@example.test".into()),
+        })
+    }
+    fn voice_contribution(
+        &self,
+        contribution: &AccountVoiceContribution,
+        access_token: &str,
+    ) -> Result<AccountVoiceContributionReceipt, AccountFailure> {
+        self.call("voice_contribution", access_token)?;
+        let payload: Value = serde_json::from_slice(contribution.payload()).unwrap();
+        assert_eq!(payload["transcript"], "合成识别文本");
+        Ok(AccountVoiceContributionReceipt {
+            id: "0123456789abcdef".repeat(4),
+        })
     }
 }
 
@@ -728,5 +752,117 @@ fn bad_requests_fail_before_any_backend_call() {
         })),
         "diagnostics_invalid"
     );
+    assert!(fixture.api.calls().is_empty());
+}
+
+/// 16 kHz 单声道 16 位 PCM 的 WAV（全零），`millis` 毫秒长，编成标准 base64。
+fn wav_base64(millis: u32) -> String {
+    let data = millis * 32;
+    let mut wav = Vec::new();
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    for field in [16_u32, 0x0001_0001, 16_000, 32_000, 0x0010_0002] {
+        wav.extend_from_slice(&field.to_le_bytes());
+    }
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data.to_le_bytes());
+    wav.resize(wav.len() + data as usize, 0);
+    base64::engine::general_purpose::STANDARD.encode(wav)
+}
+
+fn voice_contribution(audio: String) -> Value {
+    json!({
+        "operation": "voice_contribution",
+        "language": "zh-CN",
+        "provider": "system",
+        "transcript": " 合成识别文本 ",
+        "app_version": "0.9.0",
+        "audio": audio,
+    })
+}
+
+#[test]
+fn the_download_link_goes_only_to_the_signed_in_account() {
+    let fixture = Fixture::signed_in();
+    assert_eq!(
+        fixture
+            .run(json!({ "operation": "download_link", "platform": "windows" }))
+            .unwrap(),
+        json!({ "sent_to": "s***@example.test" })
+    );
+    assert_eq!(fixture.api.calls(), ["download_link a"]);
+    assert_eq!(
+        fixture.code(json!({ "operation": "download_link", "platform": "web" })),
+        "account_invalid"
+    );
+    assert!(fixture.api.calls().is_empty());
+    fixture.api.failures.lock().unwrap().insert(
+        "download_link",
+        AccountFailure::from_http_response(
+            409,
+            br#"{"error":{"code":"no_verified_email","message":"no verified email"}}"#,
+            None,
+        ),
+    );
+    assert_eq!(
+        fixture.code(json!({ "operation": "download_link", "platform": "windows" })),
+        "account_no_verified_email"
+    );
+
+    // 匿名账号没有邮箱，不退回它。
+    let anonymous_only = Fixture::new(None, Some(saved('1', '2', ANONYMOUS_USER)));
+    assert_eq!(
+        anonymous_only.code(json!({ "operation": "download_link", "platform": "windows" })),
+        "account_unauthorized"
+    );
+    assert!(anonymous_only.api.calls().is_empty());
+}
+
+#[test]
+fn a_voice_contribution_prefers_the_signed_in_account() {
+    let fixture = Fixture::signed_in();
+    assert_eq!(
+        fixture.run(voice_contribution(wav_base64(1500))).unwrap(),
+        json!({ "id": "0123456789abcdef".repeat(4), "duration_ms": 1500 })
+    );
+    assert_eq!(fixture.api.calls(), ["voice_contribution a"]);
+
+    let anonymous_only = Fixture::new(None, Some(saved('1', '2', ANONYMOUS_USER)));
+    assert!(anonymous_only
+        .run(voice_contribution(wav_base64(800)))
+        .is_ok());
+    assert_eq!(anonymous_only.api.calls(), ["voice_contribution 1"]);
+
+    let neither = Fixture::new(None, None);
+    assert_eq!(
+        neither.code(voice_contribution(wav_base64(800))),
+        "account_unauthorized"
+    );
+    assert!(neither.api.calls().is_empty());
+}
+
+#[test]
+fn a_bad_voice_contribution_is_not_sent() {
+    let fixture = Fixture::signed_in();
+    // 不是 base64、不是 WAV、超过 60 秒。
+    for audio in [
+        "不是 base64".to_owned(),
+        base64::engine::general_purpose::STANDARD.encode(b"OggS synthetic"),
+        wav_base64(60_001),
+    ] {
+        assert_eq!(fixture.code(voice_contribution(audio)), "account_invalid");
+    }
+    // 解码前按长度挡掉一定超过 2 MiB 的音频：同样不是 base64 的字符，超长的是 account_too_large，不超长的才去解码、报 account_invalid。
+    let mut large = "!".repeat(MAX_VOICE_AUDIO_BASE64_BYTES + 4);
+    assert_eq!(
+        fixture.code(voice_contribution(large.clone())),
+        "account_too_large"
+    );
+    large.truncate(MAX_VOICE_AUDIO_BASE64_BYTES);
+    assert_eq!(fixture.code(voice_contribution(large)), "account_invalid");
+    let mut blank = voice_contribution(wav_base64(800));
+    blank["transcript"] = json!("  ");
+    assert_eq!(fixture.code(blank), "account_invalid");
     assert!(fixture.api.calls().is_empty());
 }

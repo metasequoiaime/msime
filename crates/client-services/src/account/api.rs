@@ -379,6 +379,24 @@ pub trait AccountApi: Send + Sync + 'static {
         Err(AccountError::Unavailable.into())
     }
 
+    /// `POST /v1/users/me/download-link`：把 `platform` 的下载链接发到账号已验证的邮箱。
+    fn download_link(
+        &self,
+        _platform: &str,
+        _access_token: &str,
+    ) -> Result<AccountDownloadLink, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
+    /// `POST /v1/voice/contributions`，`contribution` 由 [`prepare_voice_contribution`] 校验过。
+    fn voice_contribution(
+        &self,
+        _contribution: &AccountVoiceContribution,
+        _access_token: &str,
+    ) -> Result<AccountVoiceContributionReceipt, AccountFailure> {
+        Err(AccountError::Unavailable.into())
+    }
+
     // 以下几项给云同步（`cloud_sync`）用：与上面同名的接口相同，失败时带着状态码、服务端错误码和 `Retry-After`，同步据此区分 409 `revision_conflict` 和别的 409，并尊重限流。默认实现转调不带细节的那个，只实现了旧接口的假后端照样能用。
 
     /// 与 [`Self::preference_schema`] 相同，失败时是 [`AccountFailure`]。

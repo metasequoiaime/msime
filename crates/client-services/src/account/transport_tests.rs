@@ -439,6 +439,143 @@ fn feedback_is_sent_as_multipart_with_its_screenshots() {
     );
 }
 
+#[test]
+fn the_download_link_posts_the_platform_and_reads_the_masked_address() {
+    // msime-cloud `download_link.go`：成功回 202 `{sent_to}`，没有已验证邮箱回 409 `no_verified_email`，邮件没配置回 503 `provider_disabled`，限流回 429。
+    let (origin, received) = serve(vec![
+        json_response("202 Accepted", json!({ "sent_to": "u***@example.test" })),
+        json_response(
+            "202 Accepted",
+            json!({ "sent_to": "u***@example.test\u{7}" }),
+        ),
+        error_response("409 Conflict", "no_verified_email", &[]),
+        error_response("503 Service Unavailable", "provider_disabled", &[]),
+        error_response(
+            "429 Too Many Requests",
+            "rate_limit_exceeded",
+            &[("Retry-After", "3600")],
+        ),
+    ]);
+    let client = client(&origin);
+    assert_eq!(
+        client.download_link("harmony-pc", &token('a')).unwrap(),
+        AccountDownloadLink {
+            sent_to: Some("u***@example.test".into())
+        }
+    );
+    let sent = received.recv().unwrap();
+    assert_eq!(sent.line(), "POST /v1/users/me/download-link HTTP/1.1");
+    assert_eq!(
+        sent.header("authorization"),
+        Some(format!("Bearer {}", token('a')).as_str())
+    );
+    assert_eq!(sent.header("content-type"), Some("application/json"));
+    assert_eq!(sent.json(), json!({ "platform": "harmony-pc" }));
+    // 邮件已经发出，收件地址不合规时只是不显示它。
+    assert_eq!(
+        client.download_link("ios", &token('a')).unwrap(),
+        AccountDownloadLink { sent_to: None }
+    );
+    assert_eq!(
+        received.recv().unwrap().json(),
+        json!({ "platform": "ios" })
+    );
+    assert_eq!(
+        client.download_link("ios", &token('a')).unwrap_err().code(),
+        "account_no_verified_email"
+    );
+    assert_eq!(
+        client.download_link("ios", &token('a')).unwrap_err().code(),
+        "account_unavailable"
+    );
+    let limited = client.download_link("ios", &token('a')).unwrap_err();
+    assert_eq!(limited.code(), "account_rate_limited");
+    assert_eq!(limited.retry_after_seconds, Some(3600));
+    // 服务端不认的平台不发请求：假服务器的五个响应已经用完。
+    for platform in ["web", "Windows", "harmony_pc", ""] {
+        assert_eq!(
+            client
+                .download_link(platform, &token('a'))
+                .unwrap_err()
+                .code(),
+            "account_invalid",
+            "{platform}"
+        );
+    }
+}
+
+#[test]
+fn a_voice_contribution_is_sent_as_multipart_with_its_wav() {
+    let wav = synthetic_wav(1, 16_000, 16, 32_000 * 2);
+    let contribution = prepare_voice_contribution(&AccountVoiceContributionInput {
+        language: "zh-CN".into(),
+        provider: "system".into(),
+        transcript: " 合成识别文本 ".into(),
+        app_version: "0.9.0".into(),
+        audio: wav.clone(),
+    })
+    .unwrap();
+    let id = "0123456789abcdef".repeat(4);
+    // msime-cloud `voice_contributions.go`：成功回 201 `{id}`（64 位小写十六进制），限流回 429 带 `Retry-After: 3600`，设备令牌回 401。
+    let (origin, received) = serve(vec![
+        json_response("201 Created", json!({ "id": id })),
+        json_response("201 Created", json!({ "id": "not-an-id" })),
+        error_response(
+            "429 Too Many Requests",
+            "rate_limit_exceeded",
+            &[("Retry-After", "3600")],
+        ),
+        error_response("413 Payload Too Large", "audio_too_large", &[]),
+    ]);
+    let client = client(&origin);
+    assert_eq!(
+        client
+            .voice_contribution(&contribution, &token('a'))
+            .unwrap(),
+        AccountVoiceContributionReceipt { id: id.clone() }
+    );
+    let sent = received.recv().unwrap();
+    assert_eq!(sent.line(), "POST /v1/voice/contributions HTTP/1.1");
+    assert_eq!(
+        sent.header("authorization"),
+        Some(format!("Bearer {}", token('a')).as_str())
+    );
+    assert!(sent
+        .header("content-type")
+        .unwrap()
+        .starts_with("multipart/form-data; boundary="));
+    let body = String::from_utf8_lossy(&sent.body);
+    assert!(body.contains(r#"name="payload""#));
+    assert!(body.contains("Content-Type: application/json"));
+    assert!(body.contains(r#""duration_ms":2000"#));
+    assert!(body.contains(r#""transcript":"合成识别文本""#));
+    assert!(body.contains(r#"name="audio"; filename="voice.wav""#));
+    assert!(body.contains("Content-Type: audio/wav"));
+    assert!(sent
+        .body
+        .windows(wav.len())
+        .any(|window| window == wav.as_slice()));
+    assert_eq!(
+        client
+            .voice_contribution(&contribution, &token('a'))
+            .unwrap_err()
+            .code(),
+        "account_unavailable"
+    );
+    let limited = client
+        .voice_contribution(&contribution, &token('a'))
+        .unwrap_err();
+    assert_eq!(limited.code(), "account_rate_limited");
+    assert_eq!(limited.retry_after_seconds, Some(3600));
+    assert_eq!(
+        client
+            .voice_contribution(&contribution, &token('a'))
+            .unwrap_err()
+            .code(),
+        "account_too_large"
+    );
+}
+
 fn upload() -> DiagnosticUpload {
     let bundle = DiagnosticBundle {
         sections: Some(
@@ -531,6 +668,11 @@ fn failure_codes_follow_the_documented_order() {
     assert_eq!(failure(503, "skin_jobs_busy"), "account_unavailable");
     assert_eq!(failure(403, "account_banned"), "account_banned");
     assert_eq!(failure(400, "invalid_json"), "account_invalid");
+    assert_eq!(
+        failure(409, "no_verified_email"),
+        "account_no_verified_email"
+    );
+    assert_eq!(failure(409, "revision_conflict"), "account_conflict");
     assert_eq!(AccountFailure::too_large().code(), "account_too_large");
     assert_eq!(
         AccountFailure::identity_changed().code(),
