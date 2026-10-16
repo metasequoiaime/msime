@@ -35,7 +35,7 @@ const webp = [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50];
 function main(): void {
   console.log("account avatar policy");
 
-  // 与 client-core `account_avatar_url_allowed` 相同的规则：HTTPS、无凭据和端口、只认头像存储桶与 Google 头像主机。
+  // 与 client-services `account_avatar_url_allowed` 相同的规则：HTTPS、无凭据和端口、只认头像存储桶与 Google 头像主机。
   group("only HTTPS avatars on the upload bucket or Google's picture host are fetched", () => {
     for (const url of [
       "https://lh3.googleusercontent.com/a/ACg8ocSynthetic=s96-c",

@@ -15,7 +15,7 @@ public final class HelpcodeChoicePolicy {
 
     /** 方案列表里已导入码表的值前缀：`pack:<包 id>`，与共享设置页相同。 */
     public static final String PACK_PREFIX = "pack:";
-    /** 码表文件的字节上限，即 client-core 的 `helpcode_pack::MAX_TABLE_BYTES`。超过它就不读进内存、不调 JNI。 */
+    /** 码表文件的字节上限，即 client-services 的 `helpcode_pack::MAX_TABLE_BYTES`。超过它就不读进内存、不调 JNI。 */
     public static final int MAX_TABLE_BYTES = 1024 * 1024;
     /** 两份方案各自的包选择键。 */
     public static final List<String> PACK_KEYS = List.of("helpcode_pack_quanpin", "helpcode_pack_shuangpin");
@@ -102,7 +102,7 @@ public final class HelpcodeChoicePolicy {
         return selected ? imported + "，已切换到这套辅助码" : imported + "；切换失败，请在列表里选择它";
     }
 
-    /** `import_helpcode_table` 失败时的提示：码表不合格时把 client-core 给的原因（带文件名和行号）原样告诉用户。 */
+    /** `import_helpcode_table` 失败时的提示：码表不合格时把 client-services 给的原因（带文件名和行号）原样告诉用户。 */
     public static String importFailure(String error, String detail) {
         if ("plugin_invalid".equals(error) && detail != null && !detail.isEmpty()) return "无法导入：" + detail;
         if ("plugin_storage".equals(error) || "storage".equals(error)) return "保存码表失败，请重试";

@@ -157,7 +157,7 @@ public:
   // translation_page 是点击所在那一帧的释义页编号（Engine 自己的候选为 0），必须等于眼下的 translation_page()：释义页沿用 Engine 列表的 session 和 generation、序号也从 0 起，只靠这两个字段分不清点的是哪一张表。
   std::optional<PendingReply> select_candidate(ServerSession &session,
       uint64_t expected_session, uint64_t generation, size_t index,
-      uint64_t translation_page);
+      uint64_t translation_page, bool continuation_supported = false);
   // Ctrl+Enter 打开的释义页的编号，没有打开时为 0。每打开一页取一个新编号，写进这一页 view 的 translation_page，候选窗画出来、点击原样带回。
   uint64_t translation_page() const {
     return translation_page_active_ ? translation_page_serial_ : 0;

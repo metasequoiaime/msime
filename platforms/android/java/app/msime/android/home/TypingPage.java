@@ -706,7 +706,7 @@ public final class TypingPage extends ReloadingDetailPage {
         }
         sheet.option("导入辅助码表…", false, () -> {
             importShuangpin = shuangpin;
-            // SAF 给 .txt 报的 MIME 不一定是 text/plain，所以一并放行 octet-stream，内容由 client-core 校验。
+            // SAF 给 .txt 报的 MIME 不一定是 text/plain，所以一并放行 octet-stream，内容由 client-services 校验。
             openTable.launch(new String[] {"text/plain", "application/octet-stream"});
         });
         List<HelpcodeChoicePolicy.Pack> packs = state.helpcodePacks();

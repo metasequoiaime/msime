@@ -36,7 +36,7 @@ public final class SyncApi {
     public static final String SNAPSHOT = "/v1/users/me/dictionary/snapshot";
     public static final String REVISION_CONFLICT = "revision_conflict";
     static final String NDJSON = "application/x-ndjson";
-    /** 快照文件上限，与 client-core 的 `MAX_DICTIONARY_SNAPSHOT_BYTES` 一致。 */
+    /** 快照文件上限，与 client-services 的 `MAX_DICTIONARY_SNAPSHOT_BYTES` 一致。 */
     public static final long MAX_SNAPSHOT_BYTES = 512L * 1024L * 1024L;
     /** 与 NativeClient 的快照行上限一致，避免合并路径为一行异常数据分配整份快照。 */
     static final int MAX_SNAPSHOT_LINE_CHARS = 65_535;
@@ -106,7 +106,7 @@ public final class SyncApi {
 
     // ---- 偏好 ----
 
-    /** 服务端字段表 `{fields:{key:{type,…}}}`，原样交给 client-core 的 apply 用。 */
+    /** 服务端字段表 `{fields:{key:{type,…}}}`，原样交给 client-services 的 apply 用。 */
     public JSONObject preferencesSchema() throws CloudApi.Failure {
         return cloud.json("GET", PREFERENCES_SCHEMA, null, CloudApi.Auth.ACCOUNT);
     }
@@ -554,7 +554,7 @@ public final class SyncApi {
             HttpsURLConnection connection = (HttpsURLConnection) new URL(CloudApi.ORIGIN + path).openConnection();
             HttpConnectionPolicy.rejectRedirects(connection);
             connection.setRequestMethod(method);
-            // 快照在服务端整份导出或原子恢复，读超时和 client-core 一样放宽到两分钟以上。
+            // 快照在服务端整份导出或原子恢复，读超时和 client-services 一样放宽到两分钟以上。
             HttpConnectionPolicy.setTimeouts(connection, CloudApi.CONNECT_TIMEOUT_MILLIS, 130_000);
             connection.setRequestProperty("Accept", accept);
             connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);

@@ -128,9 +128,9 @@ public enum KeyboardScheme {
             || this == NINE_KEY_SHUANGPIN;
     }
 
-    /** 日文词典资源包的 id，与 client-core `ResourcePack::Japanese` 一致。 */
+    /** 日文词典资源包的 id，与 client-providers `ResourcePack::Japanese` 一致。 */
     public static final String JAPANESE_PACK = "japanese";
-    /** 粤拼、注音和笔画共用的语言词库资源包的 id，与 client-core `ResourcePack::LanguageDictionaries` 一致。 */
+    /** 粤拼、注音和笔画共用的语言词库资源包的 id，与 client-providers `ResourcePack::LanguageDictionaries` 一致。 */
     public static final String LANGUAGE_DICTIONARIES_PACK = "language-dictionaries";
     /** 方案可用性要看的资源包。 */
     private static final List<String> SCHEME_PACKS = List.of(JAPANESE_PACK, LANGUAGE_DICTIONARIES_PACK);

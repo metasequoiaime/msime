@@ -14,12 +14,12 @@
     allow(dead_code)
 )]
 
-use msime_client_core::plugins::effect_pack::TypingEffect;
-use msime_client_core::plugins::{
+use msime_client_core::preferences::{KeySoundMode, PluginPreferences};
+use msime_client_services::plugins::effect_pack::TypingEffect;
+use msime_client_services::plugins::{
     self, music_pack, sound_pack, BuiltinDirs, EffectStyle, PluginContent, PluginKind,
     PluginSummary, MANIFEST_FILE,
 };
-use msime_client_core::preferences::{KeySoundMode, PluginPreferences};
 use serde_json::{json, Value};
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
@@ -123,7 +123,7 @@ impl PluginRoots {
         }
     }
 
-    /// 两个内置目录，交给 client-core 的载入和列目录。
+    /// 两个内置目录，交给 client-services 的载入和列目录。
     pub(crate) fn builtin(&self) -> BuiltinDirs<'_> {
         BuiltinDirs {
             sounds: self.builtin_sounds.as_deref(),
@@ -142,7 +142,7 @@ impl PluginRoots {
         Some(directory.join(MANIFEST_FILE))
     }
 
-    /// A validated pack of `kind` by client-core's rules. Only a built-in sound or music pack resolves without a state root: every other pack is only ever installed under it, and looking one up without it would read `<kind>/<id>` against the working directory and hand back relative paths.
+    /// 按 client-services 的规则校验过的一个 `kind` 类包。只有内置音效包或音乐包不需要状态根目录就能解析：其他包都只会装在状态根目录下，没有它时去查，就会相对工作目录读 `<kind>/<id>`，交回相对路径。
     pub(crate) fn load(&self, kind: PluginKind, id: &str) -> Result<PluginSummary, String> {
         let builtin = plugins::is_builtin(kind, id);
         let installed = match self.installed.as_deref() {
@@ -462,7 +462,7 @@ pub(crate) fn decibels(volume: u8) -> f32 {
     (20.0 * (f32::from(volume.min(100)) / 100.0).log10()).max(SILENCE)
 }
 
-/// The files of one validated sound pack as absolute paths, for a host that plays packs itself. Validation is client-core's, the same `scan` lists the pack by, so a host never opens a file the manifest does not name.
+/// 一个校验过的音效包的文件，以绝对路径给出，供自己播放音效包的宿主使用。校验用的是 client-services 的，也就是 `scan` 列出这个包时用的同一套，所以宿主不会打开清单没有列出的文件。
 pub(crate) fn pack_files(roots: &PluginRoots, id: &str) -> Result<Value, String> {
     let package = roots.load(PluginKind::Sound, id)?;
     let PluginContent::Sound(pack) = &package.content else {
@@ -497,7 +497,7 @@ pub(crate) fn pack_files(roots: &PluginRoots, id: &str) -> Result<Value, String>
     }))
 }
 
-/// The tracks of one validated music pack as absolute paths, in play order, for a host that streams music itself. The pack is checked by the same client-core rules `scan` lists it by; how long a track may play is `music_pack::MAX_TRACK_SECONDS`, which the host checks against each track's duration before playing it, as the desktop decoder checks its frame count.
+/// 一个校验过的音乐包的曲目，以绝对路径按播放顺序给出，供自己流式播放音乐的宿主使用。这个包按 `scan` 列出它时用的同一套 client-services 规则检查；一首曲目最多能播多久是 `music_pack::MAX_TRACK_SECONDS`，宿主在播放每首曲目之前用它核对曲目时长，就像桌面解码器核对帧数那样。
 pub(crate) fn music_pack_files(roots: &PluginRoots, id: &str) -> Result<Value, String> {
     let package = roots.load(PluginKind::Music, id)?;
     let PluginContent::Music(pack) = &package.content else {

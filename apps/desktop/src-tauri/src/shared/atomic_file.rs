@@ -206,7 +206,7 @@ pub(crate) fn write(path: &Path, contents: &[u8]) -> io::Result<()> {
 /// directory selected by the path. Callers can then use the descriptor for
 /// all writes, so a replacement of the path cannot redirect the operation.
 ///
-/// Apple 平台不逐级打开：iOS 沙盒不允许应用以读方式打开容器的祖先目录，逐级 `RDONLY` 在走到 App Group 容器之前就 EPERM，而 Darwin 没有 `O_PATH`。`O_NOFOLLOW_ANY` 让内核在一次解析里拒绝路径上任何一级符号链接，解析只需要祖先的搜索权限。路径经过 `msime-path-trust` 列出的系统别名（`/var`、`/tmp`）时先换成它唯一受信任的目标再打开。与 `msime-client-core` 的 `storage::open_private_directory` 保持一致。
+/// Apple 平台不逐级打开：iOS 沙盒不允许应用以读方式打开容器的祖先目录，逐级 `RDONLY` 在走到 App Group 容器之前就 EPERM，而 Darwin 没有 `O_PATH`。`O_NOFOLLOW_ANY` 让内核在一次解析里拒绝路径上任何一级符号链接，解析只需要祖先的搜索权限。路径经过 `msime-path-trust` 列出的系统别名（`/var`、`/tmp`）时先换成它唯一受信任的目标再打开。与 `msime-client-base` 的 `storage::open_private_directory` 保持一致。
 #[cfg(target_vendor = "apple")]
 pub(crate) fn open_private_directory(parent: &Path) -> io::Result<OwnedFd> {
     let flags = rustix::fs::OFlags::RDONLY

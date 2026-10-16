@@ -680,7 +680,7 @@ pub(crate) async fn move_data_directory(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use msime_client_core::dictionary::access::DictionaryAccess;
+    use msime_client_services::dictionary::access::DictionaryAccess;
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -744,7 +744,7 @@ mod tests {
         fs::read_dir(directory).unwrap().any(|entry| {
             let name = entry.unwrap().file_name();
             linux_dictionary_quiesce::is_lease_file(&name)
-                && name != msime_client_core::dictionary::quiesce::LEASE_LOCK_NAME
+                && name != msime_client_services::dictionary::quiesce::LEASE_LOCK_NAME
         })
     }
 
@@ -870,7 +870,7 @@ mod tests {
         let moved = layout.target.join("user");
         assert!(!has_lease(&moved));
         assert!(!moved
-            .join(msime_client_core::dictionary::quiesce::LEASE_LOCK_NAME)
+            .join(msime_client_services::dictionary::quiesce::LEASE_LOCK_NAME)
             .exists());
         assert_eq!(
             fs::read(moved.join("msime_user.db")).unwrap(),
@@ -908,7 +908,7 @@ mod tests {
         assert!(!layout
             .target
             .join("user")
-            .join(msime_client_core::dictionary::quiesce::LEASE_LOCK_NAME)
+            .join(msime_client_services::dictionary::quiesce::LEASE_LOCK_NAME)
             .exists());
         let leftovers: Vec<_> = fs::read_dir(&layout.default)
             .unwrap()

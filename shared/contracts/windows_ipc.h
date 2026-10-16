@@ -331,7 +331,9 @@ constexpr std::uint32_t SecondThirdCandidateChanged = 30;
 constexpr std::uint32_t PunctuationMarksChanged = 31;
 // 五笔快捷选词：载荷为开关 0/1 和两个 ASCII 标点。TIP 作为字符交给共享会话，候选不足时由原标点路径处理。
 constexpr std::uint32_t WubiCandidateSelectionChanged = 32;
-constexpr std::uint32_t MaxKnown = WubiCandidateSelectionChanged;
+// 已协商的无上屏候选选择，按 candidate_continuation_pipe.h 分帧传输。
+constexpr std::uint32_t CandidateContinuation = 33;
+constexpr std::uint32_t MaxKnown = CandidateContinuation;
 // Source compatibility for the Server's historical spellings.
 constexpr std::uint32_t SwitchToEn = SwitchToEnglish;
 constexpr std::uint32_t SwitchToCn = SwitchToChinese;

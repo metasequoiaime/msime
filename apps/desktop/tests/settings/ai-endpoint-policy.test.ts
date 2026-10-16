@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { aiCredentialOrigin, aiEndpointHint, aiEndpointProblem } from "@msime/ui";
 import contract from "../../../../shared/contracts/ai-endpoint/cases.json";
 
-// 与 crates/client-core/src/ai/endpoint.rs 跑同一组用例：设置页的判断和 Rust 不一致时，页面会放行宿主拒绝的地址，或者把 Token 存在宿主找不到的来源键下。
+// 与 crates/client-providers/src/ai/endpoint.rs 跑同一组用例：设置页的判断和 Rust 不一致时，页面会放行宿主拒绝的地址，或者把 Token 存在宿主找不到的来源键下。
 test.each(contract.cases)("$endpoint is $result", ({ endpoint, result, origin }) => {
   const problem = aiEndpointProblem(endpoint);
   expect(problem ?? "allowed").toBe(result);

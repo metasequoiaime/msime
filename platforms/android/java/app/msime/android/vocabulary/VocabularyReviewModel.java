@@ -5,15 +5,9 @@ import java.util.List;
 /**
  * 共享背单词状态的只读视图。
  *
- * <p>The shared layer answers every action with the whole status, so this holds one snapshot and
- * nothing else: which books exist, which is selected, what today's counts are, and the queue the
- * session should deal. No scheduling arithmetic lives here — the intervals, the ease and what a
- * lapse costs all belong to `client-core::vocabulary::schedule`, and a second implementation on
- * this side would quietly disagree with the one every other host uses.
+ * <p>共享层对每个操作都回传完整状态，所以这里只保存一份快照，别的什么都不存：有哪些词书、选中了哪本、今天的计数是多少，以及本轮该发的队列。这里不做任何排期计算——间隔、难度系数和遗忘的代价全部归 `client-services::vocabulary::schedule` 管，在这一侧再实现一遍只会悄悄地和其他所有宿主用的那份不一致。
  *
- * <p>Android-free on purpose, like {@link TypingStatisticsModel}: `org.json` is a stub in the SDK
- * jar and throws on a host JVM, so the decoding lives in {@link VocabularyReviewDocument} and
- * everything the page reasons about can be exercised by `check-host.sh`.
+ * <p>和 {@link TypingStatisticsModel} 一样有意不依赖 Android：`org.json` 在 SDK jar 里只是桩，在主机 JVM 上会抛异常，所以解码放在 {@link VocabularyReviewDocument}，页面要推理的一切都能由 `check-host.sh` 跑到。
  */
 public final class VocabularyReviewModel {
     /** Read a non-negative JSON count without org.json's lossy numeric coercion. */

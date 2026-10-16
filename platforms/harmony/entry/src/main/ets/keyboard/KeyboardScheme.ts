@@ -624,6 +624,19 @@ export class KeyboardScheme {
   }
 
   /**
+   * 触屏设计底行是否与九键外框一样画成 符 | 123 | 空格 | 中/英 | 回车（和搜狗一样，不放逗号句号）：26 键一族的字母层，全拼、双拼、五笔、英文、韩文、越南语等都是，中英文模式相同。14 键第三行左端已经有 符，大千注音和它沿用的共享符号行仍是 123 | ， | 空格 | 。 | 中/英 | 回车。只用于走设计底行的键面，九键、笔画、手写和假名网格各有自己的底行。
+   *
+   * @param rulesScheme 按键实际交给的方案（`SchemeCompositionPolicy.selectedRulesScheme`），英文和本地模式下不是注音
+   */
+  static designRowLeadsWithSymbolPanel(
+    rulesScheme: number,
+    fourteenKeyFace: boolean,
+    symbols: boolean,
+  ): boolean {
+    return !symbols && !fourteenKeyFace && rulesScheme !== SchemeTraits.ZHUYIN;
+  }
+
+  /**
    * 这个布局要引擎开哪种网格：全拼的九键和 14 键各开各的，其余（含日语九键，它有自己的假名网格）不开。
    *
    * 2in1 有实体键盘，不提供 14 键（`offeredSchemes` 把它滤掉），同步过来的 `fourteen_key` 在 2in1 上画 26 键，所以也不开 14 键网格；九键在 2in1 上的行为不在这里改变。

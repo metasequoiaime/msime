@@ -4,7 +4,7 @@
 
 use super::with_bounded_bytes;
 use crate::*;
-use msime_client_core::account::{
+use msime_client_services::account::{
     google_loopback_plan, google_loopback_reply, google_loopback_target, GoogleCallback,
     GOOGLE_CALLBACK_IO_TIMEOUT, GOOGLE_CALLBACK_MAX_REQUEST_BYTES,
 };

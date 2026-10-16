@@ -25,7 +25,7 @@ pub(crate) fn skin_manifest(colors: &HashMap<String, String>) -> Option<String> 
     let color = |key: &str| {
         colors
             .get(key)
-            .and_then(|value| msime_client_core::skin::theme::normalized_color(value))
+            .and_then(|value| msime_client_services::skin::theme::normalized_color(value))
     };
     color("background")?;
     color("foreground")?;
@@ -92,7 +92,7 @@ mod tests {
         let manifest = skin_manifest(&parse_resolved_colors(TOKYO_NIGHT)).unwrap();
         let root = tempfile::tempdir().unwrap();
         assert!(install(root.path(), &manifest).unwrap());
-        let catalog = msime_client_core::skin::catalog::scan(root.path());
+        let catalog = msime_client_services::skin::catalog::scan(root.path());
         assert!(catalog.issues.is_empty(), "{:?}", catalog.issues);
         let package = &catalog.packages[0];
         assert_eq!(package.id, SKIN_ID);
@@ -116,7 +116,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         install(root.path(), &manifest).unwrap();
         assert_eq!(
-            msime_client_core::skin::catalog::scan(root.path())
+            msime_client_services::skin::catalog::scan(root.path())
                 .packages
                 .len(),
             1

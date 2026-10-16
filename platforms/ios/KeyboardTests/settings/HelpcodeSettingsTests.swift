@@ -104,7 +104,7 @@ final class HelpcodeSettingsTests: XCTestCase {
     XCTAssertEqual(compose(bridge, "shi", helpcode: "Y").candidates.first, "识")
   }
 
-  /// 坏表整张拒绝，提示里是 client-core 给的文件名、原因和行号；GBK 码表在调用 host-api 之前就被拒；什么都没装上。
+  /// 坏表整张拒绝，提示里是 client-services 给的文件名、原因和行号；GBK 码表在调用 host-api 之前就被拒；什么都没装上。
   func testRejectedTablesInstallNothing() throws {
     try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
     let duplicate = state.appendingPathComponent("mine.txt")

@@ -21,7 +21,7 @@ private func appThemeReply(_ raw: UnsafeMutablePointer<CChar>?) -> Any? {
 
 /// 应用主题（水杉四季 / 春芽 / 夏荫 / 秋杉 / 冬雪）：宿主界面和跟随系统的键盘皮肤用的季节色。
 ///
-/// 季节、种子色和按月份取季的规则都在 Rust 里（`msime_client_resolve_app_theme`、`msime_client_app_theme_catalog`）；这个类型只保存用户的选择，缓存当月浅色和深色两套解析结果，并移植 Android 的 `color-mix`，让派生色与设计稿逐位一致。选择存在 App Group 里，键盘扩展因此画出同一个季节；iOS 的设置同步目前不携带它（Android 经 client-core 的 `android_local` 同步 `general.app_theme`），换设备要重选。解析失败时所有读取方都退回经典绿色 token，所以库缺失或损坏也不会让任何颜色落空。
+/// 季节、种子色和按月份取季的规则都在 Rust 里（`msime_client_resolve_app_theme`、`msime_client_app_theme_catalog`）；这个类型只保存用户的选择，缓存当月浅色和深色两套解析结果，并移植 Android 的 `color-mix`，让派生色与设计稿逐位一致。选择存在 App Group 里，键盘扩展因此画出同一个季节；iOS 的设置同步目前不携带它（Android 经 client-services 的 `android_local` 同步 `general.app_theme`），换设备要重选。解析失败时所有读取方都退回经典绿色 token，所以库缺失或损坏也不会让任何颜色落空。
 enum AppThemePalette {
   /// 解析后主题的一种模式：`{id, season, accent, accent_soft, on_accent, background, card, hair}`。
   struct Resolved: Equatable {
@@ -121,7 +121,7 @@ enum AppThemePalette {
     refresh()
   }
 
-  /// 来自 client-core 的选择器条目，id、标题和颜色都由它管理。
+  /// 来自 client-services 的选择器条目，id、标题和颜色都由它管理。
   static func catalog() -> [CatalogEntry] {
     lock.lock()
     defer { lock.unlock() }

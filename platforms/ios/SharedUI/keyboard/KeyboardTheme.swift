@@ -1,6 +1,6 @@
 import UIKit
 
-/// 触屏键盘如何绘制一个全局主题：使用 client-core 为它解析出的键盘配色；没有解析出配色时（`system`，或既无基础主题也无设计的自定义主题），使用应用主题所在季节的跟随系统配色（`SeasonKeyboardTokens`），应用主题也解析不了时退回 UIKit 自带 token 作为经典兜底；`native`（原生）不跟季节，画系统键盘的 token（`SystemKeyboardTokens`）；此外还有自定义主题自带的键盘设计。
+/// 触屏键盘如何绘制一个全局主题：使用 client-services 为它解析出的键盘配色；没有解析出配色时（`system`，或既无基础主题也无设计的自定义主题），使用应用主题所在季节的跟随系统配色（`SeasonKeyboardTokens`），应用主题也解析不了时退回 UIKit 自带 token 作为经典兜底；`native`（原生）不跟季节，画系统键盘的 token（`SystemKeyboardTokens`）；此外还有自定义主题自带的键盘设计。
 ///
 /// A design is drawn in full (photo, gradient, pattern, key shape and material); every other theme draws flat keys in the design's native geometry (dc.html L1555-1558).
 struct KeyboardTheme: Equatable {

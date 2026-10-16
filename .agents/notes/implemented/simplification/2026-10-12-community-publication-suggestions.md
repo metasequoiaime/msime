@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`crates/client-core/src/community.rs` 提供 `suggested_publication_fields`，接收本地名称、可选简介和回退 ID。候选皮肤与插件打包器共用它，继续先按字符数截取、再去除首尾空白、再校验；名称无效时取回退 ID 的前 32 个字符，简介无效时使用空字符串。打包产物字段及校验边界保持原样。
+`crates/client-services/src/community.rs` 提供 `suggested_publication_fields`，接收本地名称、可选简介和回退 ID。候选皮肤与插件打包器共用它，继续先按字符数截取、再去除首尾空白、再校验；名称无效时取回退 ID 的前 32 个字符，简介无效时使用空字符串。打包产物字段及校验边界保持原样。
 
 ## Alternatives considered
 

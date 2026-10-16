@@ -74,7 +74,7 @@ License: CC-BY-4.0 and LGPL-2.1+ and LGPL-3
 Comment:
  The license text of each dictionary travels beside it.
 
-Files: crates/client-core/data/opencc/*
+Files: crates/client-base/data/opencc/*
 Copyright: Carbo Kuo and the OpenCC contributors
 License: Apache-2.0
 

@@ -1,9 +1,9 @@
-//! 设置页的检查更新（`msime_client_core::update_check`）。
+//! 设置页的检查更新（`msime_client_services::update_check`）。
 //!
 //! 检查放在这里而不是在 webview 里 `fetch`，是为了让每个宿主都问同一份 Rust 代码：哪个发布更新、哪个安装包属于本版本和本架构；原生 Windows 设置窗口和 HarmonyOS 页面经由 `msime_client_update_check` 调到同一个函数。
 
 use crate::CommandError;
-use msime_client_core::update_check::{
+use msime_client_services::update_check::{
     check_for_update, UpdateCheck, UpdateCheckError, UpdateCheckRequest,
 };
 

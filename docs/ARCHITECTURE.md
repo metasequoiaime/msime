@@ -18,15 +18,34 @@ crates/engine                  输入算法与组合状态（纯 Rust）
 
 `host-api` 的词库管理接口（个人词条、固定资源的校验与编辑）直接调用 `crates/engine`，不经过 `input-runtime`；按键与会话一律走上面这条链路。
 
-`crates/client-core` 与上面这条链路平行，负责本地配置和固定资源的分代安装，不参与按键处理。`packages/ui` 与 `apps/desktop` 是共享的 React 设置页和承载它们的 Tauri 层，各平台共用同一个 Rust 入口库与同一套页面。
+`crates/client-base`、`crates/client-core`、`crates/client-services` 和 `crates/client-providers` 与上面这条链路平行，不参与按键处理：client-base 是存储、文件锁、文本谓词和简繁转换这些不联网的底层，client-core 负责本地配置、版本、主题和固定资源的分代安装，client-services 是账号、社区、皮肤、插件、词库和打字统计这些联网或处理用户内容的服务，client-providers 是语音、服务凭据、AI 和按需资源包。依赖方向是 base → core → services 与 core → providers，services 和 providers 互不引用；`input-runtime` 只依赖 client-core，`backend-engine` 只依赖 client-base，它们的编译图里没有 reqwest、tokio 这些网络栈。`packages/ui` 是共享的 React 设置页，`apps/desktop` 是在 macOS 与 Linux 上承载它们的 Tauri 层；HarmonyOS 不经过 Tauri，`platforms/harmony/stage-settings.sh` 把 `apps/harmony` 构建进 ArkWeb 加载的 rawfile，页面经 ArkTS 原生桥和 NAPI 调用 Rust；哪些平台的设置界面用这些页面，见下面的[设置界面按平台归属](#设置界面按平台归属)。
 
-**产品本体是 `platforms/<os>` 的原生宿主。** Android、iOS、HarmonyOS、Linux、macOS、Windows 一律如此：最终安装、启动、被系统识别为输入法的都是原生宿主。Tauri/React 是跨平台共享功能与界面的公共组件，由原生宿主按需承载，不单独作为某个平台的产品去启动或验收。`apps/desktop` 的目录名和 Tauri 生成的工程都不改变这一点。
+**产品本体是 `platforms/<os>` 的原生宿主。** Android、iOS、HarmonyOS、Linux、macOS、Windows 一律如此：最终安装、启动、被系统识别为输入法的都是原生宿主。Tauri/React 是跨平台共享功能与界面的公共组件，只在用到它的平台上由原生宿主承载，不单独作为某个平台的产品去启动或验收。`apps/desktop` 的目录名和 Tauri 生成的工程都不改变这一点。
+
+### 设置界面按平台归属
+
+设置界面按平台分属两套实现：macOS、Linux 与 HarmonyOS 用 `packages/ui` 的共享 React 设置页，Windows、iOS 与 Android 发布包用各自的原生设置界面。决定的理由和放弃的方案见[决策笔记](../.agents/notes/implemented/architecture/2026-10-15-settings-ui-ownership-by-platform.md)。
+
+| 平台 | 设置界面 | 入口与承载 |
+| --- | --- | --- |
+| macOS | 共享 React 设置页 | 输入法菜单的设置项以 `--route=settings:<类别>` 拉起 Tauri 设置应用 `app.msime.macos`（`platforms/macos/src/core/DesktopSettingsLauncher.h`） |
+| Linux | 共享 React 设置页 | IBus 与 Fcitx5 的「设置…」以 `--route=settings` 调用 `msime-linux-settings`，关于、帮助、反馈和词库四项以 `--route=settings:<类别>` 调用（`platforms/linux/src/core/ClientEngine.cpp`、`platforms/linux/fcitx5/FcitxEngine.cpp`），由它启动 Tauri 外壳（`platforms/linux/data/msime-linux-settings.in`）；没有原生设置界面 |
+| HarmonyOS | 共享 React 设置页 | `pages/Settings.ets` 用 ArkWeb 加载 `stage-settings.sh` 打包的 `rawfile/settings/index.html`，ArkTS 一侧只做原生桥，不画设置表单 |
+| Windows | 原生 WinUI 3 | `msime-client-settings.exe`（`platforms/windows/settings/`）原生绘制全部 18 页；托盘、开始菜单和不带面板的请求都打开它（`platforms/windows/src/system/ShellSurfaces.h`）；React 设置页仍随 Tauri 的 `MSIME.exe` 安装，直接运行 `MSIME.exe` 能看到，但没有设置入口指向它 |
+| iOS | 原生 SwiftUI | `platforms/ios/App/Sources/`；App、`SharedUI` 和键盘扩展里都没有 WebView |
+| Android | 原生 Java | 发布的 APK（`platforms/android/build-apk.sh`）的设置 App 各页在 `java/app/msime/android/home/`，另有 `settings/`、`account/`、`community/`、`statistics/` 下的页面，不含 Tauri/React；带 React 设置的 Tauri 合包（`build-client-apk.sh`）只用于开发验证，不发布 |
+
+Tauri 在三个桌面平台上还承载共享面板：表情与符号、手写、屏幕键盘、语音、云词库和云剪贴板，Linux 另有本地剪贴板面板（`SurfaceRoute::Clipboard`，`msime-linux-settings --panel clipboard`）。Windows 原生设置窗口里语音、屏幕键盘、手写、云词库和云剪贴板这 5 个面板的入口拉起 Tauri 的 `MSIME.exe`（`platforms/windows/settings/SettingsNavigation.h` 的 `shell_links::all`）；表情与符号面板不从设置窗口打开，由 Server 的托盘菜单和浮动工具栏拉起（`platforms/windows/src/system/ShellSurfaces.h` 的 `shell_surface_request`）。
+
+由此，一个设置功能要在 `packages/ui` 实现一次，再在每个原生设置平台（Windows、iOS、Android）各实现一次。为了让每个平台的那一份只剩界面，设置项的校验、默认值、持久化和业务逻辑必须放在共享 Rust 层（偏好在 `crates/client-core`，账号、皮肤、词库等在 `crates/client-services`，语音与 AI 在 `crates/client-providers`，都经 `crates/host-api` 提供给原生宿主），原生设置界面不应复制这些规则。这条规则今天还没有全部落实，也没有脚本门禁：Windows 语音页的服务列表、默认地址与换服务规则（`platforms/windows/settings/VoiceSettings.h`）、账号页的昵称校验（`platforms/windows/settings/AccountPageModel.h`），以及 Android 的语音服务列表与豆包接口地址（`platforms/android/java/app/msime/android/voice/VoiceProviderPolicy.java`）仍写在原生界面一侧；新设置功能要先把规则下沉到上面对应的共享 Rust crate。
+
+**macOS 的 AppKit 设置窗口冻结为回退。** `platforms/macos/src/settings/` 的原生设置窗口，以及 `AISettingsWindow.mm`、`TranslationSettingsWindow.mm`、`VoiceProviderSettings.mm` 等独立窗口，只在设置应用找不到、启动失败或 options 路径不是绝对路径时由 `DesktopSettingsLauncher.h` 的回退分支打开，另有以 `--preferences` 启动输入法 bundle 的独立设置窗口。它们只保留为设置应用无法启动时的最小回退，不加新功能；macOS 上的新设置只进共享 React 设置页。
 
 ## 四条不能打破的边界
 
 **输入算法归 Rust 引擎 crate `crates/engine`。** 组词状态机、候选排序、学习回放都在 engine 里。`input-runtime` 仍然不复制组词逻辑：它只维护宿主编排和展示状态——它知道当前是第几页、焦点在不在、这次选择属于哪一代快照，但它不知道「ni hao」应该出什么词。在 `input-runtime` 或宿主里再写一份组词规则，就等于让两份实现开始漂移。
 
-**`client-core` 不依赖 Tauri、React、Engine 或平台宿主。** 平台能力一律通过接口注入。这条保证了它可以被链进任何宿主进程，包括没有 Tauri 运行时的键盘扩展。
+**client-base、client-core、client-services 和 client-providers 不依赖 Tauri、React、Engine 或平台宿主。** 平台能力一律通过接口注入。这条保证了它们可以被链进任何宿主进程，包括没有 Tauri 运行时的键盘扩展。
 
 **平台库不依赖桌面应用。** iOS 键盘扩展不依赖常驻桌面服务，Android 的 `:ime` 进程不需要设置窗口活着。设置窗口关闭不能结束输入法进程；跨进程的设置变更需要明确的持久化与通知机制，不能靠共享内存里的一个全局变量。
 

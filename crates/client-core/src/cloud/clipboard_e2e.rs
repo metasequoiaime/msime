@@ -396,8 +396,9 @@ impl DriverError {
         Self::local("invalid_response")
     }
 
-    /// 按服务端的错误正文（`{"error":{"code":...}}`）得出错误码，读不出时是 `http_<状态码>`。自建中继的直连接口（`crate::clipboard_relay`）也这样读。
-    pub(crate) fn from_response(response: &HttpResponse) -> Self {
+    /// 按服务端的错误正文（`{"error":{"code":...}}`）得出错误码，读不出时是 `http_<状态码>`。自建中继的直连接口（`msime_client_services::clipboard_relay`）也这样读。
+    #[doc(hidden)]
+    pub fn from_response(response: &HttpResponse) -> Self {
         #[derive(Deserialize)]
         struct Body {
             error: Inner,

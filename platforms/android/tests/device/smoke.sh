@@ -145,6 +145,8 @@ skipped_suites=()
 for entry in \
     "CandidatePanelDeviceSmoke|Candidate panel acceptance failed" \
     "MoreToolsDeviceSmoke|More tools acceptance failed" \
+    "ToolbarEdgesDeviceSmoke|Toolbar fixed edges acceptance failed" \
+    "ToolbarScrollDeviceSmoke|Toolbar swipe acceptance failed" \
     "EmojiPickerDeviceSmoke|Emoji picker acceptance failed" \
     "PairedPunctuationDeviceSmoke|Paired punctuation acceptance failed" \
     "LetterHintPunctuationDeviceSmoke|Letter hint punctuation acceptance failed" \

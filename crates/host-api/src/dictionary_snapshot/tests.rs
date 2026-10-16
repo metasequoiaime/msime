@@ -96,8 +96,8 @@ fn snapshot_file_open_does_not_follow_a_leaf_symlink() {
 
 #[test]
 fn queue_state_can_be_polled_while_an_engine_session_holds_shared_access() {
-    use msime_client_core::dictionary::access::DictionaryAccess;
     use msime_client_core::preferences::Preferences;
+    use msime_client_services::dictionary::access::DictionaryAccess;
     use std::fs;
 
     let root = tempfile::tempdir().unwrap();
@@ -310,7 +310,7 @@ fn snapshot_publication_rejects_a_symlinked_parent() {
 
 #[test]
 fn restore_reinspects_the_exact_file_before_upload() {
-    use msime_client_core::account::AccountDictionarySnapshotRestore;
+    use msime_client_services::account::AccountDictionarySnapshotRestore;
     use sha2::{Digest, Sha256};
     use std::fs;
 
@@ -365,7 +365,7 @@ fn restore_reinspects_the_exact_file_before_upload() {
 
 #[test]
 fn restore_maps_account_errors_without_exposing_snapshot_data() {
-    use msime_client_core::account::AccountError;
+    use msime_client_services::account::AccountError;
     use sha2::{Digest, Sha256};
     use std::fs;
 
@@ -412,7 +412,7 @@ fn activation_keeps_a_replaced_live_root_out_of_the_swap() {
 #[test]
 fn discard_does_not_require_maintenance_lock_for_live_paths() {
     use super::*;
-    use msime_client_core::dictionary::access::DictionaryAccess;
+    use msime_client_services::dictionary::access::DictionaryAccess;
     use msime_engine::host::EngineOptions;
     use std::fs;
 
@@ -517,7 +517,7 @@ fn activation_case(
     replace_live_user: bool,
 ) {
     use super::*;
-    use msime_client_core::dictionary::access::DictionaryAccess;
+    use msime_client_services::dictionary::access::DictionaryAccess;
     use msime_engine::host::EngineOptions;
     use std::fs;
     use std::path::Path;
@@ -1291,7 +1291,7 @@ fn queued_learning_merges_when_idle_keeping_local_rows_and_the_larger_count() {
     );
 
     // 还有会话开着时拿不到独占访问，文件留着下次再试。
-    let session = msime_client_core::dictionary::access::DictionaryAccess::try_session(
+    let session = msime_client_services::dictionary::access::DictionaryAccess::try_session(
         &device.root.path().join("user"),
         &device.root.path().join("dictionaries"),
     )
@@ -1576,7 +1576,7 @@ fn learning_habits_export_queue_and_merge_when_idle() {
     let pending = device.root.path().join(super::habits::HABITS_FILES.pending);
     assert!(pending.exists());
 
-    let session = msime_client_core::dictionary::access::DictionaryAccess::try_session(
+    let session = msime_client_services::dictionary::access::DictionaryAccess::try_session(
         &device.root.path().join("user"),
         &device.root.path().join("dictionaries"),
     )

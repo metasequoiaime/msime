@@ -1,9 +1,9 @@
 /**
- * Key sounds, the typing melody, commit and achievement sounds on a 2in1, played through SoundPool.
+ * 2in1 设备上的按键音、打字旋律、上屏音和成就音，经 SoundPool 播放。
  *
- * The desktop hosts play these through host-api, which does not link an audio stack on HarmonyOS, so this host plays the same packs itself. What a pack holds comes from `msime_client_key_sound_pack`, which answers with the files client-core's validation accepted; which of them an event plays is `KeySoundPolicy`, the desktop player's rules. A WAV sample is decoded natively (`keySoundRenderNotes`, miniaudio) under the pack's length bound and written back out once per pitch it is played at, so SoundPool only ever decodes files this host wrote, and a melody's notes are pitched the way the desktop pitches them. An Ogg sample stays silent: nothing here decodes Vorbis, and SoundPool would decode it whole with nothing bounding its length.
+ * 桌面宿主经 host-api 播放这些声音，而 host-api 在 HarmonyOS 上不链接音频栈，所以本宿主自己播放同样的包。包里有什么来自 `msime_client_key_sound_pack`，它应答的是通过 client-services 校验的文件；某个事件播放其中哪一个由 `KeySoundPolicy` 决定，规则与桌面播放器相同。WAV 采样在包的时长上限内由原生代码（`keySoundRenderNotes`，miniaudio）解码，并按播放用到的每个音高各写出一份，因此 SoundPool 只会解码本宿主自己写出的文件，旋律的音高也与桌面的处理方式一致。Ogg 采样保持静音：这里没有任何东西解码 Vorbis，而 SoundPool 会把它整个解码，没有任何长度限制。
  *
- * Nothing is created until a sound is switched on, and nothing here can stop a key from typing. A pack that will not load says so once and stays silent; SoundPool failing to play turns the sounds off until the settings change. The pool mixes with whatever else is playing rather than pausing it: SoundPool plays short sounds in mixing mode for the music stream usage, unlike the voice recording's CONCURRENCY_PAUSE_OTHERS session.
+ * 在打开某种声音之前什么都不创建，这里的任何东西都不会阻止按键输入。加载不了的包只报告一次，然后保持静音；SoundPool 播放失败则把声音关掉，直到设置发生变化。声音池与正在播放的其他声音混音，而不是暂停它们：SoundPool 以音乐流用途、混音模式播放短音，这与语音录音使用的 `CONCURRENCY_PAUSE_OTHERS` 会话不同。
  */
 import audio from '@ohos.multimedia.audio';
 import media from '@ohos.multimedia.media';

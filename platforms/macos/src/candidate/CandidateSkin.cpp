@@ -527,7 +527,7 @@ SkinTokens ToolbarSkinTokens(const ResolvedSkin &skin, const std::filesystem::pa
     return tokens;
 }
 
-// LoadSkinPackage and ScanSkinCatalog live in SkinManifestBridge.mm: manifests are validated by the shared client-core loader over the host C ABI.
+// `LoadSkinPackage` 和 `ScanSkinCatalog` 在 SkinManifestBridge.mm 中：清单经宿主 C ABI 交给共享的 client-services 加载器校验。
 
 SkinSlot SkinSlotOfBase(std::string_view base)
 {
@@ -601,7 +601,7 @@ std::vector<SkinListEntry> ListSkins(const std::filesystem::path &skinsRoot)
     return entries;
 }
 
-// ThemeCatalog and ResolveSkin live in SkinManifestBridge.mm as well: both are answered by the shared client-core theme module over the host C ABI.
+// `ThemeCatalog` 和 `ResolveSkin` 也在 SkinManifestBridge.mm 中：两者都经宿主 C ABI 由共享的 client-services 主题模块应答。
 
 std::filesystem::path DefaultSkinsRoot()
 {

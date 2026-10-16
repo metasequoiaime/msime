@@ -44,13 +44,13 @@ struct ModelEntry {
     active: Option<bool>,
 }
 
-/// 规则在 client-core 的 `ai::endpoint`：https 不限主机，http 只能指向本机或局域网。
+/// 规则在 client-providers 的 `ai::endpoint`：https 不限主机，http 只能指向本机或局域网。
 fn valid_endpoint(endpoint: &str) -> Result<reqwest::Url, Error> {
     let value = endpoint.trim();
     if value.is_empty() || !is_bounded_text_with_options(value, MAX_ENDPOINT_LENGTH, false) {
         return Err(Error::Invalid);
     }
-    msime_client_core::ai::endpoint::validate(value).map_err(|_| Error::Invalid)
+    msime_client_providers::ai::endpoint::validate(value).map_err(|_| Error::Invalid)
 }
 
 fn valid_token(token: &str) -> Result<String, Error> {
@@ -63,7 +63,7 @@ fn valid_token(token: &str) -> Result<String, Error> {
 
 // The same listing address the desktop hosts use (`ai::settings::fetch_models`), keeping the endpoint's query.
 fn models_url(endpoint: &str) -> Result<reqwest::Url, Error> {
-    Ok(msime_client_core::ai::endpoint::models_url(
+    Ok(msime_client_providers::ai::endpoint::models_url(
         valid_endpoint(endpoint)?,
         false,
     ))
@@ -118,7 +118,7 @@ pub fn fetch_models(endpoint: &str, token: &str) -> Result<Vec<String>, Error> {
         .host_str()
         .is_some_and(|host| host.eq_ignore_ascii_case("api.anthropic.com"));
     // 不跟随重定向；https 地址只走 https，局域网的 http 接口直连、不走代理。
-    let client = msime_client_core::ai::endpoint::blocking_client_builder(&base_url)
+    let client = msime_client_providers::ai::endpoint::blocking_client_builder(&base_url)
         .connect_timeout(Duration::from_secs(30))
         .timeout(Duration::from_secs(30))
         .build()
@@ -237,7 +237,7 @@ pub fn polish(
         ],
         "stream": false
     });
-    let client = msime_client_core::ai::endpoint::blocking_client_builder(&endpoint)
+    let client = msime_client_providers::ai::endpoint::blocking_client_builder(&endpoint)
         .connect_timeout(Duration::from_secs(30))
         .timeout(Duration::from_secs(60))
         .build()

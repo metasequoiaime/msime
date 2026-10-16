@@ -2,11 +2,11 @@
 //!
 //! 它们都是设置页在输入进程运行期间写的文件：导入的指令表包、短语表包、辅助码表包和 `mentions.json`。会话记下读过的每个文件的修改时间、长度和（Unix 上的）inode，输入框获得焦点和偏好应用时再看一遍，有变动才重新读。关着的模式什么都不读。
 
-use msime_client_core::plugins::{
+use msime_client_core::preferences::PluginPreferences;
+use msime_client_services::plugins::{
     command_table, helpcode_pack, kind_directory, mentions, pack_directory, phrase_table,
     BuiltinDirs, PluginKind, MANIFEST_FILE,
 };
-use msime_client_core::preferences::PluginPreferences;
 use msime_engine::host::{
     load_helpcode_keymap, CommandTableEntry, EngineOptions, HelpcodeKeymap, MentionEntry,
     QuickPhraseEntry, SharedKeymap,

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { runAsyncAction } from "../core/async-action";
 import { CredentialTestSection } from "./credential-test-section";
 import type { CredentialTestState } from "./credential-test-state";
+import type { CredentialStatusMessageValue } from "./credential-status-message-model";
 import type { ProviderCredentialInput } from "./provider-credential-input";
 import { providerCredentialErrorMessage } from "./credential-utils";
 import { useAsyncGeneration } from "./use-async-generation";
@@ -31,7 +32,7 @@ export interface TencentCredentialInput {
 }
 
 export type ProviderCredentialBusy = "ai" | "tencent" | VoiceCredentialKind;
-export type ProviderCredentialMessage = { ok: boolean; text: string };
+export type ProviderCredentialMessage = CredentialStatusMessageValue;
 
 export interface UseProviderCredentialsOptions {
   client: ProviderCredentialsHost;

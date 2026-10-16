@@ -66,7 +66,7 @@ export const pages = [
     title: "账号与同步",
     icon: settingsIcons.account,
   },
-  // 「社区」页不属于任何导航分组，桌面宿主的侧栏没有这一页：候选窗口皮肤在「主题」页浏览，插件包在「插件」页浏览，Windows 只从账号页「我的内容」里的词库、回复模板几行进入这一页。触屏宿主没有这一页，社区内容列在皮肤、词库、AI 辅助这些功能页里。
+  // 「社区」页不属于任何导航分组，桌面宿主的侧栏没有这一页：候选窗口皮肤在「主题」页浏览，插件包在「插件」页浏览，桌面上只有账号页「我的内容」里的几行（发布的与收藏的词库、回复模板等）经 `useSettingsDestinationActions` 的 `openCommunity` 进入这一页，词库页的「社区词库」组和 AI 辅助页的回复模板只在触屏宿主渲染，走 `openCommunityGallery`。Windows 的设置入口不打开这一页（React 设置页只在直接运行 `MSIME.exe` 时出现）：原生设置窗口在「账号与同步」页里自己画社区词库与回复模板，`community` 路由打开原生的「主题」页（`platforms/windows/settings/SettingsNavigation.h`）。触屏宿主没有这一页，社区内容列在皮肤、词库、AI 辅助这些功能页里。
   {
     id: "community",
     title: "社区",

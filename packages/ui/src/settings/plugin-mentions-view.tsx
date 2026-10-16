@@ -12,7 +12,7 @@ import { SettingsPhraseForm } from "./settings-phrase-form";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { SettingsWarning } from "./settings-warning";
 
-/** `client-core::plugins::mentions::MAX_ENTRIES`. */
+/** `client-services::plugins::mentions::MAX_ENTRIES`. */
 export const MAX_MENTIONS = 1000;
 /** `mentions::MAX_TEXT_UTF16`: the Windows candidate pipe's text field. */
 const MAX_MENTION_TEXT_UTF16 = 199;

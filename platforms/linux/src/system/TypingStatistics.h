@@ -220,7 +220,7 @@ private:
   bool read_ = false;
 };
 
-// The key heatmap's id for an evdev key code (linux/input-event-codes.h): the W3C KeyboardEvent.code name, one of KEY_IDS in crates/client-core/src/typing_statistics.rs. IBus hands engines the evdev code itself; Fcitx5's raw key code is the XKB code, which is the evdev code plus 8. A key outside that list (PrintScreen, ScrollLock, Pause, F13 and up, media keys, and the JIS 半角/全角, katakana and hiragana codes, which XKB does not use for the keys on a JIS keyboard) answers empty and is not counted, because the store rejects a whole batch for one unknown id.
+// The key heatmap's id for an evdev key code (linux/input-event-codes.h): the W3C KeyboardEvent.code name, one of KEY_IDS in crates/client-services/src/typing_statistics.rs. IBus hands engines the evdev code itself; Fcitx5's raw key code is the XKB code, which is the evdev code plus 8. A key outside that list (PrintScreen, ScrollLock, Pause, F13 and up, media keys, and the JIS 半角/全角, katakana and hiragana codes, which XKB does not use for the keys on a JIS keyboard) answers empty and is not counted, because the store rejects a whole batch for one unknown id.
 constexpr std::string_view evdev_key_id(uint32_t code) {
   switch (code) {
   case 1: return "Escape";

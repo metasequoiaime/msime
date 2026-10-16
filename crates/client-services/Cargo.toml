@@ -1,0 +1,57 @@
+[package]
+name = "msime-client-services"
+description = "Client side of the backend services and user content: account, community, telemetry, notices, update check, diagnostics, the self-hosted clipboard relay, skins, plugins, dictionaries, vocabulary, common phrases and typing statistics."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+msime-client-base = { path = "../client-base" }
+msime-client-core = { path = "../client-core" }
+msime-path-trust = { path = "../path-trust" }
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+tempfile.workspace = true
+unicode-general-category.workspace = true
+unicode-segmentation.workspace = true
+sha2.workspace = true
+# 脚本插件的随机数（`plugins::script_commands`）直接取自系统的 `getrandom`，与 client-core 的云剪贴板加密用的是同一份。
+getrandom = "0.4"
+hex = "0.4"
+base64 = "0.23"
+uuid = { workspace = true, features = ["serde", "v4"] }
+# `formatting` for the strftime placeholders a command-table pack's templates are checked against, the same the Engine expands them with.
+time = { workspace = true, features = ["formatting"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+# Plugin packs picked as a .zip archive. Only the flate2 deflate backend: stored and deflated members are what every archiver writes, and flate2 is already here.
+zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+# Notice bodies are simple Markdown; HarmonyOS's RichText gets HTML rendered here (raw HTML escaped, unsafe links dropped). Only the HTML writer: the default `getopts` feature is for the crate's command-line binary.
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+# 候选窗口皮肤的图片在安装、发布和补预览图之前完整解码一遍，和服务端重新编码时一样；只看签名会放过截断的图。只开 PNG 和 JPEG 两种解码器，包里只允许这两种格式。
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
+# `image` 固定用宽松模式解码 JPEG，截断的 JPEG 也能“解码成功”，所以 JPEG 直接用严格模式的 `zune-jpeg` 解码。版本和特性与 `image` 依赖的那份相同，不引入新的 crate。
+zune-jpeg = "0.5.15"
+
+[dev-dependencies]
+msime-client-base = { path = "../client-base", features = ["test-support"] }
+msime-path-trust = { path = "../path-trust", features = ["test-support"] }
+# 皮肤社区包的测试往 PNG 里插填充块时用它算块的 CRC（`skin::candidate_community` 的测试）。
+flate2 = "1"
+
+# 脚本插件（`kind = "script"`）只在桌面存在：macOS、Windows 和非 ohos 的 Linux。清单解析和导入时用它校验模块（只编译，不执行）；移动端和 wasm32 上不引用它，`PluginKind::Script` 也不存在。
+[target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dependencies]
+msime-script-runtime = { path = "../script-runtime" }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["fs"] }
+
+# 皮肤同步的测试用 `libc::O_NONBLOCK` 打开 FIFO 的写端（`skin::candidate_sync` 的测试）。
+[target.'cfg(unix)'.dev-dependencies]
+libc.workspace = true
+
+[lints]
+workspace = true

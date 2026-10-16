@@ -15,7 +15,7 @@ Status: implemented
 - 用户名、密码、`#` 片段（包括空片段）、控制字符、缺主机、`scheme:///path`、超出 65535 的端口和 http(s) 以外的协议仍然无效，与原来一致。
 - 保存 Token 的来源键是 `scheme://host:port`：主机小写，端口总是写出来（https 默认 443，http 默认 80），IPv6 带方括号。原有 https 地址的来源键不变，已存的 Token 不受影响。
 - 共享设置页的 Token 说明展示服务地址，省略默认端口，保留 `/v1` 等接口前缀；请求动作与查询参数不展示。显示地址不作为来源键，Token 的存储和读取规则保持上述契约。
-- 权威实现是 `crates/client-core/src/ai/endpoint.rs`（`validate`、`credential_origin`、`is_local_network_host`）。`chat_completion_http_request`、Tauri 侧的桌面模型列表与测试（`apps/desktop/src-tauri/src/ai.rs`）、iOS 的移动端请求（`shared/mobile_ai.rs`，只在 https 地址上要求 `https_only`）、iOS 键盘偏好的 Token 来源键（`lib.rs` 的 `ios_keyboard_ai_preferences`）和 Linux 的 `ai-provider.json` 写入都调用它。
+- 权威实现是 `crates/client-providers/src/ai/endpoint.rs`（`validate`、`credential_origin`、`is_local_network_host`）。`chat_completion_http_request`、Tauri 侧的桌面模型列表与测试（`apps/desktop/src-tauri/src/ai.rs`）、iOS 的移动端请求（`shared/mobile_ai.rs`，只在 https 地址上要求 `https_only`）、iOS 键盘偏好的 Token 来源键（`lib.rs` 的 `ios_keyboard_ai_preferences`）和 Linux 的 `ai-provider.json` 写入都调用它。
 - 设置页（`packages/ui/src/settings/ai-endpoint-policy.ts`）、Android、iOS、macOS、Windows、Linux provider 脚本和 HarmonyOS 键盘要在本地判断（填 Token 前、发请求前），各有一份同规则的实现。它们都逐条跑 `shared/contracts/ai-endpoint/cases.json`；改规则时先改 Rust 和这份用例。
 - 所有发往 AI 接口的请求仍然不跟随重定向，http 的局域网请求不会被转到别的主机；http 请求一律直连、不经过系统或环境变量里的代理（client-core 的 `blocking_client_builder`、Windows 的 `CURLOPT_NOPROXY`、Linux provider 的 `request_opener`、Android 的 `Proxy.NO_PROXY`、iOS 与 macOS 会话的空 `connectionProxyDictionary`），否则代理会收到明文 Token，而代理本身可能在公网上。https 请求照旧走代理。
 

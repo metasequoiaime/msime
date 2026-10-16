@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::key_sound::SoundSettings;
-use msime_client_core::plugins::effect_pack::TypingEffect;
-use msime_client_core::plugins::EffectStyle;
+use msime_client_services::plugins::effect_pack::TypingEffect;
+use msime_client_services::plugins::EffectStyle;
 
 fn idle() -> Sample {
     Sample::default()

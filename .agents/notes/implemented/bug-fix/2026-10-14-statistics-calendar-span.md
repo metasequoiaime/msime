@@ -32,4 +32,4 @@ UTC 算术不能替代本地日期标签生成，否则接近 UTC 换日的用�
 
 ## 历史检索与参考
 
-已按 `mobileTrendLength`、夏令时、`DST`、趋势天数和本地午夜检索活跃笔记，没有持有这条跨度决定的笔记。`crates/client-core/src/calendar.rs` 与共享 UI 的 `addDays` 已采用按日历字段运算的边界。[MDN 的 Date 文档](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date#date_components_and_time_zones)说明本地偏移随日期和夏令时变化；这里沿用项目的 UTC 日期坐标方式。
+已按 `mobileTrendLength`、夏令时、`DST`、趋势天数和本地午夜检索活跃笔记，没有持有这条跨度决定的笔记。`crates/client-base/src/calendar.rs` 与共享 UI 的 `addDays` 已采用按日历字段运算的边界。[MDN 的 Date 文档](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date#date_components_and_time_zones)说明本地偏移随日期和夏令时变化；这里沿用项目的 UTC 日期坐标方式。

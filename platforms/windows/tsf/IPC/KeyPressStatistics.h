@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-// The key heatmap counts physical keys, so a press is identified by its scan code (WM_KEYDOWN lParam bits 16-23, with bit 24 marking the E0-prefixed extended keys) and never by its VK: a VK follows the active layout, which would put an AZERTY "A" on the Q key. The names are the shared store's canonical ids (W3C KeyboardEvent.code, KEY_IDS in crates/client-core/src/typing_statistics.rs); the store rejects a whole batch over one unknown id, so a scan code without an entry here is simply not counted. Kept free of Windows headers so it can be tested on its own.
+// 按键热力图统计的是物理键，所以一次按键用它的扫描码识别（`WM_KEYDOWN` 的 `lParam` 第 16-23 位，第 24 位标记带 E0 前缀的扩展键），从不用 VK：VK 跟随当前布局，会把 AZERTY 的 "A" 记到 Q 键上。键名采用共享存储的规范 id（W3C `KeyboardEvent.code`，即 `crates/client-services/src/typing_statistics.rs` 中的 `KEY_IDS`）；只要有一个未知 id，存储就会拒绝整批数据，所以这里没有条目的扫描码直接不计数。本文件不引用 Windows 头文件，以便单独测试。
 inline const wchar_t *KeyIdFromScanCode(unsigned scanCode, bool extended)
 {
     if (extended)

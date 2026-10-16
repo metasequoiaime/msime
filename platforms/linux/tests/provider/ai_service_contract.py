@@ -60,9 +60,7 @@ class AiServiceContract(unittest.TestCase):
         online.fetch = fetch
 
     def test_model_catalogue_sits_beside_the_configured_endpoint(self):
-        # The endpoint's own API prefix is reused rather than assumed, which is
-        # what client-core's ai::endpoint::models_url does for the hosts that
-        # hold the token themselves.
+        # 复用端点自己的 API 前缀而不是假定一个，这与 client-providers 的 ai::endpoint::models_url 为自己持有 token 的宿主所做的一致。
         self.assertEqual(
             online.ai_models_url(PRIVATE["endpoint"]),
             "https://service.example.invalid/openai/v1/models",
@@ -107,7 +105,7 @@ class AiServiceContract(unittest.TestCase):
         self.assertEqual(self.requests, [])
 
     def test_endpoint_policy_matches_the_shared_cases(self):
-        # 与 crates/client-core/src/ai/endpoint.rs 跑同一组用例；这里不派生来源键，只核对 result。
+        # 与 crates/client-providers/src/ai/endpoint.rs 跑同一组用例；这里不派生来源键，只核对 result。
         contract = json.loads((REPOSITORY / "shared/contracts/ai-endpoint/cases.json").read_text())
         self.assertGreater(len(contract["cases"]), 40)
         for case in contract["cases"]:
@@ -284,7 +282,7 @@ class AiServiceContract(unittest.TestCase):
         sent.clear()
         online.ai({**query, "ai_assistant": {**options, "prompt_custom_1": "synthetic prompt"}}, PRIVATE)
         self.assertEqual(sent[0]["messages"][0]["content"], "synthetic prompt")
-        # An empty slot two or three gets the built-in text too, not slot one's, as client-core does; "custom" names no slot and sends nothing.
+        # 第二、第三个槽位为空时同样得到内置文本，而不是第一个槽位的文本，与 client-providers 的做法一致；"custom" 不指向任何槽位，什么都不发送。
         for slot in ("custom_2", "custom_3"):
             sent.clear()
             online.ai({**query, "ai_assistant": {**options, "prompt_id": slot, "prompt_custom_1": "synthetic prompt"}}, PRIVATE)
@@ -295,7 +293,7 @@ class AiServiceContract(unittest.TestCase):
 
     def test_builtin_prompt_matches_client_core(self):
         # The provider cannot import the Rust constant at run time, so keep the two copies from drifting apart here. The Rust literal only uses escapes JSON shares (\n and \").
-        source = (REPOSITORY / "crates/client-core/src/ai.rs").read_text()
+        source = (REPOSITORY / "crates/client-providers/src/ai.rs").read_text()
         literal = re.search(r'pub const DEFAULT_CANDIDATE_PROMPT: &str = ("(?:[^"\\]|\\.)*");', source)
         self.assertIsNotNone(literal)
         self.assertEqual(online.DEFAULT_AI_PROMPT, json.loads(literal.group(1)))

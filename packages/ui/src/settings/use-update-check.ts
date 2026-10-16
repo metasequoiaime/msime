@@ -8,7 +8,7 @@ import {
 } from "./update-manifest";
 
 export interface UseUpdateCheckOptions {
-  /** 宿主的检查更新（`SettingsClient.checkUpdate`），经由 `msime_client_core::update_check` 询问 GitHub。未提供时页面不提供检查。 */
+  /** 宿主的检查更新（`SettingsClient.checkUpdate`），经由 `msime_client_services::update_check` 询问 GitHub。未提供时页面不提供检查。 */
   checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
   /** 宿主所在平台（`HostCapabilities.platform`），同时也是它的发布 tag 前缀。 */
   platform: string | null;

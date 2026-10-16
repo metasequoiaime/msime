@@ -44,7 +44,7 @@ public final class LocalBackupPolicy {
     /** 与原生侧输入习惯文件的上限相同；整句联想最多 20 万行，远到不了。 */
     public static final long MAX_HABITS_BYTES = 256L * 1024 * 1024;
 
-    /** 设置文档的字段最多这么多个，与 client-core 的上限相同。 */
+    /** 设置文档的字段最多这么多个，与 client-services 的上限相同。 */
     static final int MAX_SETTINGS_FIELDS = 512;
 
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmm", Locale.ROOT);
@@ -129,7 +129,7 @@ public final class LocalBackupPolicy {
     }
 
     /**
-     * 恢复设置时交给 {@code msime_client_account_settings_apply} 的字段类型：备份里的设置文档是 client-core 自己导出的，每个键按它自己的值声明类型，这样应用的逻辑和云同步完全相同，只是没有服务端字段表。值不是布尔、整数、小数或字符串的键不声明（client-core 会跳过它），超过字段上限时返回 null。
+     * 恢复设置时交给 {@code msime_client_account_settings_apply} 的字段类型：备份里的设置文档是 client-services 自己导出的，每个键按它自己的值声明类型，这样应用的逻辑和云同步完全相同，只是没有服务端字段表。值不是布尔、整数、小数或字符串的键不声明（client-services 会跳过它），超过字段上限时返回 null。
      */
     public static Map<String, String> fieldTypes(Map<String, ?> settings) {
         if (settings.size() > MAX_SETTINGS_FIELDS) return null;

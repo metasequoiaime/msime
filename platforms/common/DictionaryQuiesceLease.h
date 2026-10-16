@@ -16,7 +16,7 @@
 
 namespace msime::dictionary_lease {
 
-// Dictionary maintenance (import, edit, clearing learned data) needs the Engine's exclusive lock, and every open input session holds it shared. Windows asks its server to drop the sessions for the duration (DictionaryQuiesce/DictionaryResume); on Linux and macOS the settings window writes this lease beside the lock instead, and the input hosts (IBus, Fcitx5 and the macOS input method) close their sessions and open no new ones while it is live. The lease carries its own expiry, in Unix milliseconds, so a settings process that dies mid-import cannot leave input off: past the expiry, or with an expiry further out than any real lease, it is ignored. The name, the expiry on the first line (readers stop at the newline; every writer puts an owner line after it) and the bound are shared with crates/client-core/src/dictionary/quiesce.rs.
+// 词库维护（导入、编辑、清除学习数据）需要 Engine 的独占锁，而每个打开的输入会话都以共享方式持有这把锁。Windows 让它的服务端在维护期间丢掉这些会话（DictionaryQuiesce/DictionaryResume）；在 Linux 和 macOS 上则改由设置窗口在锁旁边写下这份租约，输入宿主（IBus、Fcitx5 和 macOS 输入法）在租约有效期间关闭会话，也不开新会话。租约自带以 Unix 毫秒表示的过期时间，因此导入中途退出的设置进程不会让输入一直停用：过了过期时间，或者过期时间比任何真实租约都远，租约就被忽略。文件名、第一行上的过期时间（读者读到换行就停；每个写者都会在它后面再写一行 owner）以及这个上限，都与 crates/client-services/src/dictionary/quiesce.rs 共用。
 inline constexpr std::string_view kDictionaryQuiesceLeaseName = ".msime-dictionary-quiesce";
 // Rust writers use the same persistent advisory lock. It serializes the
 // read-and-remove sequence with every publisher, so a writer cannot remove a

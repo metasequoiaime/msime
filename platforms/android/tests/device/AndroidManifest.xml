@@ -87,4 +87,6 @@
         <!-- 合成编辑器「复制图片」的来源（#6781）：不导出，剪贴板按 grantUriPermissions 把读权限授给读它的输入法。 -->
         <provider android:name="app.msime.android.test.ImageClipProvider" android:authorities="app.msime.android.test.images" android:exported="false" android:grantUriPermissions="true" />
     </application>
+    <instrumentation android:name="app.msime.android.test.ToolbarEdgesDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.ToolbarScrollDeviceSmoke" android:targetPackage="app.msime.android" />
 </manifest>

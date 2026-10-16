@@ -10,7 +10,7 @@ import { makeDefaultAction, useImeSetupState, type SetupActions } from "./setup-
 import { useHostAction } from "../core/use-host-action";
 import { createMarkdownLinkHandler, linkedMarkdownHtml } from "../core/linked-markdown";
 
-/** 草稿上限，与 Android 和 Apple 的试用页相同。2000 个字符最多 8000 字节，在 client-core 单条消息 16 KiB 的上限之内，所以发送前不必再按字节检查。 */
+/** 草稿上限，与 Android 和 Apple 的试用页相同。2000 个字符最多 8000 字节，在 client-services 单条消息 16 KiB 的上限之内，所以发送前不必再按字节检查。 */
 const DRAFT_LIMIT = 2000;
 /** 对话区最多保留的气泡数，超过时从最早的开始丢，与 Android 相同。 */
 const BUBBLE_LIMIT = 60;

@@ -48,14 +48,14 @@ ANONYMOUS_ACCOUNT_SUBJECT_LENGTH = 16
 ANONYMOUS_ACCOUNT_SECRET_LENGTH = 48
 ANONYMOUS_ACCOUNT_TIMEOUT = 10.0
 CLOUD_REQUEST_TIMEOUT = 2.0
-# AI 推理与 Windows、client-core 保持 8 秒总预算和 2.5 秒连接预算；匿名账号认证另用 10 秒，HTTP worker 必须接受两者。
+# AI 推理与 Windows、client-providers 保持 8 秒总预算和 2.5 秒连接预算；匿名账号认证另用 10 秒，HTTP worker 必须接受两者。
 AI_REQUEST_TIMEOUT = 8.0
 AI_CONNECT_TIMEOUT = 2.5
 HTTP_WORKER_MAX_TIMEOUT = max(AI_REQUEST_TIMEOUT, ANONYMOUS_ACCOUNT_TIMEOUT)
 # One request line from client-core. UnixSocketProvider::ai_test lets a polish test carry an 8192-byte prompt and an 8192-byte sample in a request up to 32768 bytes, so that kind alone gets the larger limit; every other request keeps the 16384-byte one.
 REQUEST_LINE_LIMIT = 16384
 AI_TEST_REQUEST_LINE_LIMIT = 32768
-# The associative prompt a blank prompt slot stands for: Windows compiles it into AiAssistantConfig::prompt (ime_config.h) and client-core keeps the same text as ai::DEFAULT_CANDIDATE_PROMPT for the hosts that build their request there. The shared preferences leave the slot empty, so without this every Linux AI request carried an empty system message and the model answered prose the JSON parser rejects. ai_service_contract.py keeps this copy equal to the client-core one.
+# 空白提示词槽位所代表的联想提示词：Windows 把它编译进 AiAssistantConfig::prompt（ime_config.h），client-providers 把同样的文本存为 ai::DEFAULT_CANDIDATE_PROMPT，供在那里构造请求的宿主使用。共享偏好让这个槽位留空，所以没有这一份时，Linux 的每个 AI 请求都带着空的 system 消息，模型回的是 JSON 解析器拒收的散文。ai_service_contract.py 保证这份副本与 client-providers 的那份相同。
 DEFAULT_AI_PROMPT = "你是一个中文全拼输入法联想引擎。输入为已经切分好的拼音数组、前文上下文和候选数量。\n\n优先生成与拼音严格对应的中文候选：若有 N 段拼音，首选必须尽量为 N 个汉字，每段拼音对应一个汉字，不得随意增删或改变读音。结合上下文、常用程度、语义完整性和固定搭配排序。\n\n若去掉分词后能明显组成更合理的英文单词、缩写、产品名或技术术语，如 `deep + seek → DeepSeek`、`git + hub → GitHub`，可优先返回英文；不要生造英文或做牵强匹配。\n\n只输出合法 JSON，不要解释或输出 Markdown：\n\n{\n\"candidates\": [\n{\n\"text\": \"候选内容\",\n\"type\": \"chinese或english\",\n\"confidence\": 0.98\n}\n]\n}\n\n候选按推荐程度降序排列，数量不超过指定上限；没有合理结果时返回空数组。"
 
 
@@ -232,7 +232,7 @@ def ai_prompt(options):
     prompt = options.get("prompt_" + selected, "")
     if not isinstance(prompt, str) or len(prompt.encode()) > 8192:
         return None
-    # Blank means "not customised" and gets the same built-in text client-core falls back to.
+    # 空白表示「没有自定义」，取 client-providers 回退时用的同一份内置文本。
     return prompt if prompt.strip() else DEFAULT_AI_PROMPT
 
 
@@ -327,7 +327,7 @@ def configured_ai(query, path, cache=None, cache_lock=None):
 
 
 def strip_code_fence(content):
-    """去掉包在正文外面的 Markdown 代码块，与 client-core 的 `strip_code_fence` 一致：不支持 `response_format` 的模型（如经网关调用的 Claude）会把 JSON 写成 ```json ... ```。"""
+    """去掉包在正文外面的 Markdown 代码块，与 client-providers 的 `strip_code_fence` 一致：不支持 `response_format` 的模型（如经网关调用的 Claude）会把 JSON 写成 ```json ... ```。"""
     trimmed = content.strip()
     if len(trimmed) < 6 or not trimmed.startswith("```") or not trimmed.endswith("```"):
         return trimmed
@@ -646,7 +646,7 @@ def custom_translation(config, text, source, target, timeout):
     return None
 
 
-# AI 辅助接口地址的传输策略，与 crates/client-core/src/ai/endpoint.rs 一致：https 不限主机；http 只能指向本机或局域网，公网主机必须走 https，API Token 不能明文经过互联网。不做 DNS 解析，除 localhost 和 .local 以外的域名一律按公网处理。用例在 shared/contracts/ai-endpoint/cases.json，tests/provider/ai_service_contract.py 逐条核对。
+# AI 辅助接口地址的传输策略，与 crates/client-providers/src/ai/endpoint.rs 一致：https 不限主机；http 只能指向本机或局域网，公网主机必须走 https，API Token 不能明文经过互联网。不做 DNS 解析，除 localhost 和 .local 以外的域名一律按公网处理。用例在 shared/contracts/ai-endpoint/cases.json，tests/provider/ai_service_contract.py 逐条核对。
 AI_LOCAL_NETWORKS = tuple(ipaddress.ip_network(network) for network in (
     "127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
     "100.64.0.0/10", "169.254.0.0/16", "::1/128", "fe80::/10", "fc00::/7"))

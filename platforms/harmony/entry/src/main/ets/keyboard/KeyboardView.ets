@@ -4812,14 +4812,38 @@ struct KeyboardView {
     }
   }
 
+  /** 设计底行是否以 符 打头、不放逗号句号（`KeyboardScheme.designRowLeadsWithSymbolPanel`）：26 键一族的字母层。 */
+  private designSymbolPanelRow(): boolean {
+    return KeyboardScheme.designRowLeadsWithSymbolPanel(
+      SchemeCompositionPolicy.selectedRulesScheme(this.scheme.engineScheme, this.english, this.localMode),
+      this.drawsFourteenKey(), this.symbols);
+  }
+
   /**
-   * 设计稿的底行，按宽度份额分配：123 1.25 | ， 1 | space 4 | 。 1 | 中 1.05 | return 1.9，即 Android 的 `KeyboardActionRow.designEntries`。中/英键放在回车左边，与经典底行的位置一致。
+   * 设计稿的底行，按宽度份额分配：123 1.25 | ， 1 | space 4 | 。 1 | 中 1.05 | return 1.9，即 Android 的 `KeyboardActionRow.designEntries`。中/英键放在回车左边，与经典底行的位置一致。26 键一族的字母层与九键一样换成 符 1.05 | 123 1.25 | space 4 | 中 1.05 | return 1.9（`designSymbolPanelRow`）；14 键、大千注音保留逗号句号。
    *
    * 功能键文字 15fp、字重 500。逗号保留长按弹出「常用标点」列表；句号是新加的。回车键始终使用操作色。
    */
   @Builder
   designActionRow() {
     Row({ space: this.keySpacing() }) {
+      if (this.designSymbolPanelRow()) {
+        // 与 中/英 同宽，和九键底行的 符 一样打开符号面板，按键记作同一个符号键。
+        this.fixedKey({
+          face: '符',
+          label: KeyAccessibilityPolicy.symbolPanel(),
+          size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+          fontWeight: FUNCTION_LABEL_WEIGHT,
+          emphasized: false,
+          special: true,
+          width: 0,
+          share: LANGUAGE_SHARE,
+          action: () => {
+            KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
+            this.openSymbolSurface();
+          }
+        });
+      }
       // 长按 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是返回，长按不做事。
       Column() {
         this.fixedKey({
@@ -4836,33 +4860,37 @@ struct KeyboardView {
       .layoutWeight(LAYER_SHARE)
       .height('100%')
       .gesture(LongPressGesture().onAction(() => this.openSymbolsFromLayerKey()))
-      Column() {
+      if (!this.designSymbolPanelRow()) {
+        Column() {
+          this.fixedKey({
+            face: this.chinesePunctuationFaces() ? '，' : ',',
+            label: KeyAccessibilityPolicy.punctuation(),
+            size: TOUCH_LETTER_FONT_SIZE,
+            emphasized: false,
+            width: '100%',
+            action: () => this.typeComma()
+          });
+        }
+        .layoutWeight(PUNCTUATION_SHARE)
+        .height('100%')
+        .gesture(LongPressGesture().onAction(() => {
+          this.managing = -1;
+          this.brackets = false;
+          this.punctuation = true;
+        }))
+      }
+      this.spaceKey(true, SPACE_SHARE);
+      if (!this.designSymbolPanelRow()) {
         this.fixedKey({
-          face: this.chinesePunctuationFaces() ? '，' : ',',
-          label: KeyAccessibilityPolicy.punctuation(),
+          face: this.chinesePunctuationFaces() ? '。' : '.',
+          label: KeyAccessibilityPolicy.period(),
           size: TOUCH_LETTER_FONT_SIZE,
           emphasized: false,
-          width: '100%',
-          action: () => this.typeComma()
+          width: 0,
+          share: PUNCTUATION_SHARE,
+          action: () => this.typePeriod()
         });
       }
-      .layoutWeight(PUNCTUATION_SHARE)
-      .height('100%')
-      .gesture(LongPressGesture().onAction(() => {
-        this.managing = -1;
-        this.brackets = false;
-        this.punctuation = true;
-      }))
-      this.spaceKey(true, SPACE_SHARE);
-      this.fixedKey({
-        face: this.chinesePunctuationFaces() ? '。' : '.',
-        label: KeyAccessibilityPolicy.period(),
-        size: TOUCH_LETTER_FONT_SIZE,
-        emphasized: false,
-        width: 0,
-        share: PUNCTUATION_SHARE,
-        action: () => this.typePeriod()
-      });
       this.fixedKey({
         face: this.languageFace(),
         label: KeyAccessibilityPolicy.language(),

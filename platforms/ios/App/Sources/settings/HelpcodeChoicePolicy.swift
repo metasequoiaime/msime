@@ -6,7 +6,7 @@ import Foundation
 enum HelpcodeChoicePolicy {
   /// 方案列表里已导入码表的值前缀：`pack:<包 id>`，与共享设置页相同。
   static let packPrefix = "pack:"
-  /// 码表文件的字节上限，即 client-core 的 `helpcode_pack::MAX_TABLE_BYTES`。超过它就不读进内存、不调用 host-api。
+  /// 码表文件的字节上限，即 client-services 的 `helpcode_pack::MAX_TABLE_BYTES`。超过它就不读进内存、不调用 host-api。
   static let maximumTableBytes = 1_048_576
   /// 两份方案各自的包选择键。
   static let packKeys = ["helpcode_pack_quanpin", "helpcode_pack_shuangpin"]
@@ -115,7 +115,7 @@ enum HelpcodeChoicePolicy {
     return selected ? imported + "，已切换到这套辅助码" : imported + "；切换失败，请在列表里选择它"
   }
 
-  /// `import_helpcode_table` 失败时的提示：码表不合格时把 client-core 给的原因（带文件名和行号）原样告诉用户。
+  /// `import_helpcode_table` 失败时的提示：码表不合格时把 client-services 给的原因（带文件名和行号）原样告诉用户。
   static func importFailure(_ failure: MetasequoiaInputSessionBridge.PluginFailure) -> String {
     if failure.code == "plugin_invalid", let detail = failure.detail, !detail.isEmpty { return "无法导入：\(detail)" }
     if failure.code == "plugin_storage" || failure.code == "storage" { return "保存码表失败，请重试" }

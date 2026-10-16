@@ -72,7 +72,7 @@ pub unsafe extern "C" fn msime_client_ai_request_for_query(
             if let Some(credential) = &session.ai_credential {
                 if credential.endpoint == config.endpoint {
                     if let Some(origin) =
-                        msime_client_core::ai::endpoint::credential_origin(&config.endpoint)
+                        msime_client_providers::ai::endpoint::credential_origin(&config.endpoint)
                     {
                         config.tokens.insert(origin, credential.token.clone());
                     }
@@ -83,7 +83,7 @@ pub unsafe extern "C" fn msime_client_ai_request_for_query(
                 context: query.ai_context,
                 candidate_limit: config.candidate_limit,
             };
-            msime_client_core::ai::chat_completion_http_request(&config, &request)
+            msime_client_providers::ai::chat_completion_http_request(&config, &request)
                 .map(|value| value.unwrap_or(Value::Null))
                 .map_err(|error| error.to_string())
         })

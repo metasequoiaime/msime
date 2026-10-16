@@ -22,7 +22,7 @@ struct IOSPreferencePlan {
   /// `custom_theme.keyboard`, the keyboard design as JSON; absent when the uploading device had none, which leaves the local design alone.
   let customSkinJSON: String?
 
-  /// `themes` is the global theme catalog of the client-core the app links (`msime_client_theme_catalog`); the plan does not keep its own copy of the ids.
+  /// `themes` 是应用所链接的 client-services 的全局主题目录（`msime_client_theme_catalog`）；plan 自己不另存一份 id。
   init(_ values: [String: BackendPreferenceValue], themes: Set<String>) throws {
     func string(_ key: String) throws -> String? {
       guard let value = values[key] else { return nil }

@@ -640,7 +640,7 @@ struct Settings {
   }
 
   /**
-   * Fetches the notices when the window opens or comes back to the front, never on a timer: client-core answers from its copy for a minute after a fetch, which is as often as the service wants to be asked.
+   * 在窗口打开或回到前台时获取公告，从不按定时器获取：client-services 在一次获取后的一分钟内都用自己的副本回答，这正是服务希望被询问的频率。
    */
   private loadNotices(): void {
     const generation: number = ++this.noticeRequest;
@@ -1329,7 +1329,7 @@ class SettingsBridge {
   /**
    * 「从文件导入」：用系统选择器让用户多选自己下载好的模型文件，不联网安装。
    *
-   * 选择器给的是原生库打不开的文档 URI，所以先把文件复制进私有缓存目录，用固定的序号作文件名，再把这些路径交给和下载同一个 `msime_client_voice_local_model_install`（带 `files`），由 client-core 按长度和 SHA-256 认文件、校验、解压并发布，和其他宿主完全相同。长度和目录里任何一个需要的文件都对不上的选择不复制。缓存副本不论成败都在安装结束后删掉。用户关掉选择器时回答 null，不算失败。
+   * 选择器给的是原生库打不开的文档 URI，所以先把文件复制进私有缓存目录，用固定的序号作文件名，再把这些路径交给和下载同一个 `msime_client_voice_local_model_install`（带 `files`），由 client-providers 按长度和 SHA-256 认文件、校验、解压并发布，和其他宿主完全相同。长度和目录里任何一个需要的文件都对不上的选择不复制。缓存副本不论成败都在安装结束后删掉。用户关掉选择器时回答 null，不算失败。
    */
   private async importVoiceModel(root: string, id: string): Promise<string> {
     const context: common.UIAbilityContext | undefined = this.context;
@@ -1457,9 +1457,9 @@ class SettingsBridge {
   }
 
   /**
-   * Installs a pack folder or `.zip` file the user picks with the system picker.
+   * 安装用户用系统选择器选中的包目录或 `.zip` 文件。
    *
-   * What the picker hands back is a document URI the native library cannot open, so the pick is copied into a private staging directory first, under a fixed name rather than the picked one, and installed from there by `msime_client_plugins` on a worker thread, which checks it by the same rules as every other host and leaves nothing installed when it refuses. The copy stops at client-core's bounds (`PluginImportPolicy`), so a wrong pick is refused before it is copied whole. The staging copy is removed however the import ends, after the worker has finished with it. The reply is the installed pack, or null when the user closed the picker, which is not a failure.
+   * 选择器交回的是原生库打不开的文档 URI，所以先把选中的内容复制进私有暂存目录，用固定的名字而不是选中时的名字，再在工作线程上由 `msime_client_plugins` 从那里安装；它按与其他所有宿主相同的规则检查，拒绝时不留下任何已安装的内容。复制到 client-services 的上限（`PluginImportPolicy`）就停止，因此选错的文件在被整份复制之前就会被拒绝。不论导入怎样结束，暂存副本都会在工作线程用完之后删掉。回答是安装好的包；用户关掉选择器时回答 null，不算失败。
    */
   private async importPlugin(document: string): Promise<string> {
     const context: common.UIAbilityContext | undefined = this.context;

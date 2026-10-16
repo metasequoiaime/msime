@@ -9,7 +9,7 @@ import java.nio.file.Paths;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** AI 接口地址策略与 client-core 跑同一组用例：shared/contracts/ai-endpoint/cases.json 的每一条都要得出相同的结论和来源键。 */
+/** AI 接口地址策略与 client-providers 跑同一组用例：shared/contracts/ai-endpoint/cases.json 的每一条都要得出相同的结论和来源键。 */
 public final class AiEndpointPolicySmoke {
     // 冒烟只有 android.jar 里抛 Stub! 的 org.json，用例文件每条一行，按固定的三个字段逐行匹配。
     private static final Pattern CASE = Pattern.compile(

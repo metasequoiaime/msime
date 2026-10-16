@@ -1,4 +1,4 @@
-//! 写死的 wasmi `Config`、模块校验和编译。导入时（client-core、pack-tool）和加载时（输入法进程）走同一份校验。
+//! 写死的 wasmi `Config`、模块校验和编译。导入时（client-services、pack-tool）和加载时（输入法进程）走同一份校验。
 
 use crate::abi::{self, Capability, CapabilityRuleError, CapabilitySet, HookSet, ImportSpec, Ty};
 use crate::instance::{linker, HostState};
@@ -29,7 +29,7 @@ fn config() -> Config {
     config
 }
 
-/// 清单里和模块有关的声明，由解析清单的一方（client-core 的 `script_pack`）填好交进来。
+/// 清单里和模块有关的声明，由解析清单的一方（client-services 的 `script_pack`）填好交进来。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Declaration {
     /// 清单 `permissions`。

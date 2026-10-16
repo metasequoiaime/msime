@@ -10,7 +10,7 @@ import java.util.Arrays;
 /**
  * 云剪贴板改走自建中继（`docs/cloud-clipboard-relay.md`）时 Android 宿主这一侧的纯逻辑：设置页的地址和令牌规则、共享层答的路线、键盘用来认出「中继换过了」的绑定，以及给人看的错误说法。不依赖 Android 和 org.json，JVM 冒烟直接测它。
  *
- * <p>地址和令牌的规则与 `crates/client-core/src/clipboard_relay.rs` 的 `valid_relay_url`、`valid_relay_token` 以及共享设置页的 `packages/ui/src/settings/cloud-clipboard-relay.ts` 相同。保存偏好时 Rust 还会再校验一遍，不合规的值整份偏好都存不进去；这里只为了在输入框里当场说明哪里不行。
+ * <p>地址和令牌的规则与 `crates/client-core/src/preferences.rs` 的 `valid_relay_url`、`valid_relay_token` 以及共享设置页的 `packages/ui/src/settings/cloud-clipboard-relay.ts` 相同。保存偏好时 Rust 还会再校验一遍，不合规的值整份偏好都存不进去；这里只为了在输入框里当场说明哪里不行。
  */
 public final class CloudClipboardRelayPolicy {
     /** 偏好里的键：`{url, token}`，没配置时不写进文档。 */
@@ -43,7 +43,7 @@ public final class CloudClipboardRelayPolicy {
     private CloudClipboardRelayPolicy() {}
 
     /**
-     * 驱动和中继给出的已知错误码，与 `crates/client-core/src/account/clipboard.rs` 的 `CLIPBOARD_ERROR_CODES` 相同。Android 自己跑中继的驱动（{@link app.msime.android.CloudClipboardRelay}），驱动报的错要按 Rust 那条路（`RelayError::code`）同样归类，面板和设置页才给出相同的说法。
+     * 驱动和中继给出的已知错误码，与 `crates/client-services/src/account/clipboard.rs` 的 `CLIPBOARD_ERROR_CODES` 相同。Android 自己跑中继的驱动（{@link app.msime.android.CloudClipboardRelay}），驱动报的错要按 Rust 那条路（`RelayError::code`）同样归类，面板和设置页才给出相同的说法。
      */
     // 不用 Set.of：它要 API 30，minSdk 是 28。
     private static final java.util.List<String> KNOWN_CODES = Arrays.asList(
