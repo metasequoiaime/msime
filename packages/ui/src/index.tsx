@@ -1668,6 +1668,11 @@ export {
 } from "./keyboard/cloud-dictionary-item";
 export { CloudPanelHeader, type CloudPanelHeaderProps } from "./keyboard/cloud-panel-header";
 export {
+  PanelActivationButtons,
+  type PanelActivationButtonsProps,
+  type PanelActivationMode,
+} from "./keyboard/panel-activation-buttons";
+export {
   CloudDictionaryPagination,
   type CloudDictionaryPaginationProps,
 } from "./keyboard/cloud-dictionary-pagination";
