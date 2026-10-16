@@ -3358,6 +3358,61 @@ fn selecting_a_temporary_english_candidate_does_not_clone_full_ranking_rows() {
 }
 
 #[test]
+fn japanese_long_vowel_can_be_inserted_inside_the_romaji() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::JapaneseRomaji);
+    type_text(&mut session, "kohi-");
+    session.set_caret(Some(2));
+
+    let result = session.character(b'-', false);
+
+    assert!(result.handled);
+    assert!(result.commit.is_none());
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.editing_text, "ko-hi-");
+    assert_eq!(snapshot.caret_position, 3);
+    assert!(words(&session).contains(&"こーひー".to_owned()));
+    assert!(words(&session).contains(&"コーヒー".to_owned()));
+}
+
+#[test]
+fn japanese_long_vowel_can_be_inserted_before_the_first_romaji() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::JapaneseRomaji);
+    type_text(&mut session, "ka");
+    session.command(Command::MoveHome);
+
+    let result = session.character(b'-', false);
+
+    assert!(result.handled);
+    assert!(result.commit.is_none());
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.editing_text, "-ka");
+    assert_eq!(snapshot.caret_position, 1);
+    assert!(words(&session).contains(&"ーか".to_owned()));
+    session.command(Command::Backspace);
+    assert_eq!(session.snapshot().editing_text, "ka");
+    assert_eq!(session.snapshot().caret_position, 0);
+}
+
+#[test]
+fn chinese_caret_editing_does_not_claim_the_japanese_long_vowel_key() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        let mut session = fixture.session_with(|options| options.scheme = scheme);
+        type_text(&mut session, "ka");
+        session.set_caret(Some(1));
+        let before = session.snapshot();
+
+        let result = session.character(b'-', false);
+
+        assert!(!result.handled, "{scheme:?}");
+        assert!(result.commit.is_none(), "{scheme:?}");
+        assert_eq!(session.snapshot(), before, "{scheme:?}");
+    }
+}
+
+#[test]
 fn temporary_japanese_returns_to_the_original_scheme() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| {

@@ -151,7 +151,8 @@ impl InputSession {
                 LocalInputMode::None => {
                     let scheme = self.scheme();
                     accepted = lower
-                        || (upper && matches!(scheme, SchemeType::Quanpin | SchemeType::Shuangpin));
+                        || (upper && matches!(scheme, SchemeType::Quanpin | SchemeType::Shuangpin))
+                        || (value == b'-' && scheme == SchemeType::JapaneseRomaji);
                     if value == b';'
                         && scheme == SchemeType::Shuangpin
                         && self.profile.uses_semicolon_key()
