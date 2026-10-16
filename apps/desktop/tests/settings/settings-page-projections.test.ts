@@ -87,14 +87,16 @@ test("the 连接 AI 助手 page exists only where the host reports the MCP serve
   expect(project({ hasMcp: false }).availablePages.map((page) => page.id)).not.toContain("mcp");
 });
 
-test("macOS calls the account page 账号, since only Windows syncs settings through it", () => {
+test("macOS and Linux call the account page 账号, since only Windows syncs settings through it on desktop", () => {
   const title = (platform: string) =>
     project({
       desktopPageTitle: (id, name) => desktopPageTitle(id, name, platform),
     }).availablePages.find((page) => page.id === "account")?.title;
   expect(title("macos")).toBe("账号");
   expect(title("windows")).toBe("账号与同步");
-  expect(title("linux")).toBe("账号与同步");
+  expect(title("linux")).toBe("账号");
+  // 鸿蒙 2in1 的账号会话接了设置同步，仍叫「账号与同步」。
+  expect(title("harmony")).toBe("账号与同步");
   // 没给改写函数时用注册表里的名字；触屏宿主按 `mobilePageTitle` 叫它「我的」。
   expect(project().availablePages.find((page) => page.id === "account")?.title).toBe("账号与同步");
   expect(

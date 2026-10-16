@@ -18241,17 +18241,19 @@ group("typing effects decode host-api's answer and draw what it asks", () => {
   });
   check(
     power.style === TypingEffectStyle.POWER_MODE &&
-      power.intensity === 80 &&
       power.comboCounter &&
       power.tierSound &&
       TypingEffectPolicy.active(power),
     "the shared preference keys are read",
   );
   check(
-    TypingEffectPolicy.settings({ effect_style: "confetti", effect_intensity: 150 }).style ===
-      TypingEffectStyle.OFF &&
+    power.intensity === 50 &&
       TypingEffectPolicy.settings({ effect_intensity: 150 }).intensity === 50,
-    "an unknown style is off and an out-of-range intensity takes the default",
+    "the stored intensity is not read: HarmonyOS fixes it at the default, as HostPlatform::fixed_effect_intensity says",
+  );
+  check(
+    TypingEffectPolicy.settings({ effect_style: "confetti" }).style === TypingEffectStyle.OFF,
+    "an unknown style is off",
   );
   check(
     TypingEffectPolicy.active(TypingEffectPolicy.settings({ combo_counter: true })),
@@ -18409,7 +18411,7 @@ group("an effect pack's parameters replace the preference values once host-api r
     duration_ms: 99999,
   });
   check(
-    odd.intensity === 40 && odd.flashMillis === 1500 && odd.color === undefined,
+    odd.intensity === 50 && odd.flashMillis === 1500 && odd.color === undefined,
     "out-of-range values are clamped or ignored rather than drawn",
   );
   check(

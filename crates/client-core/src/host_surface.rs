@@ -61,14 +61,25 @@ impl HostPlatform {
 
     /// 这个宿主固定使用的 AI 联想候选数量，不读 `ai_assistant.candidate_limit`；`None` 表示按偏好。见 `HostCapabilities::fixed_ai_candidate_limit`。
     pub fn fixed_ai_candidate_limit(self) -> Option<u8> {
-        // macOS 的 AI 座位只坐一行，同一批多出来的回答排到候选列表末尾，数量改了几乎看不出差别，所以固定为默认值 3，设置页不再给这一项。
-        (self == HostPlatform::Macos).then_some(3)
+        // AI 座位在共享的 engine/input-runtime 里只坐一行，同一批多出来的回答排到候选列表末尾，数量改了几乎看不出差别，所以桌面三家和鸿蒙固定为默认值 3，设置页不再给这一项。鸿蒙的候选条横向滚动，排在末尾的回答更难看到。Android、iOS 这一轮没有跟进，仍按偏好。
+        matches!(
+            self,
+            HostPlatform::Macos
+                | HostPlatform::Windows
+                | HostPlatform::Linux
+                | HostPlatform::Harmony
+        )
+        .then_some(3)
     }
 
     /// 这个宿主固定使用的打字效果强度（0-100），不读 `plugins.effect_intensity`；`None` 表示按偏好。特效包自带的强度不受影响。见 `HostCapabilities::fixed_effect_intensity`。
     pub fn fixed_effect_intensity(self) -> Option<u8> {
-        // macOS 的三种样式（闪光、火花、Power Mode）本身就是强度的粗调，特效包也会换掉强度，所以强度固定为默认值 50。
-        (self == HostPlatform::Macos).then_some(50)
+        // macOS 和 Windows 的三种样式（闪光、火花、Power Mode）本身就是强度的粗调，鸿蒙把三种样式都画成亮度不同的卡片闪光，特效包也会换掉强度，所以强度固定为默认值 50。Linux 不画样式，只在辅助行里显示连击数，没有强度可调，仍是 `None`，能力文档不变。
+        matches!(
+            self,
+            HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Harmony
+        )
+        .then_some(50)
     }
 
     pub fn as_str(self) -> &'static str {
@@ -304,10 +315,10 @@ pub struct HostCapabilities {
     pub fixed_candidate_page_size: Option<u8>,
     /// 宿主能画、能用数字键选的每页候选数上限，共享文档里更大的值在这个宿主上按它截断，设置页也只给到它。macOS、Linux 和 Android 的实体键盘用 0 键选第十个，上限是 `MAX_CANDIDATE_PAGE_SIZE`（10）；Windows 的 TSF 只把 1–9 当作选词键、候选窗口也只排得下九个，iOS 固定九个，鸿蒙没有这项设置、实体键盘也只认 1–9，这三个宿主是 9。
     pub max_candidate_page_size: u8,
-    /// 宿主固定使用的 AI 联想候选数量（`HostPlatform::fixed_ai_candidate_limit`），这时设置页不显示「候选数量」，宿主也不读文档里存的值。按偏好的宿主没有这一项。
+    /// 宿主固定使用的 AI 联想候选数量（`HostPlatform::fixed_ai_candidate_limit`，macOS、Windows、Linux、鸿蒙），这时设置页不显示「候选数量」，宿主也不读文档里存的值。按偏好的宿主没有这一项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fixed_ai_candidate_limit: Option<u8>,
-    /// 宿主固定使用的打字效果强度（`HostPlatform::fixed_effect_intensity`），这时设置页不显示「效果强度」，宿主也不读文档里存的值。按偏好的宿主没有这一项。
+    /// 宿主固定使用的打字效果强度（`HostPlatform::fixed_effect_intensity`，macOS、Windows、鸿蒙），这时设置页不显示「效果强度」，宿主也不读文档里存的值。按偏好的宿主没有这一项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fixed_effect_intensity: Option<u8>,
     /// The one candidate layout the host draws, when it offers no choice. The iOS candidate strip is a horizontal row above the keys, so an external skin is adopted there only for its horizontal layout; the skin page has to judge compatibility by that rather than by the shared setting, which defaults to vertical. Absent on a host that follows the setting.

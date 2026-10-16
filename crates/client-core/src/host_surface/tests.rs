@@ -1016,35 +1016,51 @@ fn editions_without_a_chinese_scheme_offer_no_handwriting_or_offline_glosses() {
 }
 
 #[test]
-fn macos_fixes_ai_candidate_limit_and_effect_intensity_at_their_defaults() {
-    // macOS 不再给「候选数量」和「效果强度」，宿主固定用默认值；固定的值必须正好是新档案的默认值，否则没改过的人升级后也会变。
-    let macos = HostCapabilities::for_platform(HostPlatform::Macos);
-    assert_eq!(
-        macos.fixed_ai_candidate_limit,
-        Some(crate::preferences::AiAssistantPreferences::default().candidate_limit)
-    );
-    assert_eq!(
-        macos.fixed_effect_intensity,
-        Some(crate::preferences::PluginPreferences::default().effect_intensity)
-    );
-    let json = serde_json::to_value(&macos).unwrap();
-    assert_eq!(json["fixed_ai_candidate_limit"], 3);
-    assert_eq!(json["fixed_effect_intensity"], 50);
+fn fixed_ai_candidate_limit_and_effect_intensity_sit_at_their_defaults() {
+    // 不给「候选数量」「效果强度」的宿主固定用默认值；固定的值必须正好是新档案的默认值，否则没改过的人升级后也会变。
+    let limit = crate::preferences::AiAssistantPreferences::default().candidate_limit;
+    let intensity = crate::preferences::PluginPreferences::default().effect_intensity;
     for platform in [
+        HostPlatform::Macos,
         HostPlatform::Windows,
         HostPlatform::Linux,
-        HostPlatform::Android,
-        HostPlatform::Ios,
         HostPlatform::Harmony,
     ] {
         let host = HostCapabilities::for_platform(platform);
-        assert_eq!(host.fixed_ai_candidate_limit, None);
-        assert_eq!(host.fixed_effect_intensity, None);
-        assert_eq!(platform.fixed_ai_candidate_limit(), None);
-        assert_eq!(platform.fixed_effect_intensity(), None);
-        // 按偏好的宿主不写这两个键，旧版本设置页读到的能力文档不变。
+        assert_eq!(host.fixed_ai_candidate_limit, Some(limit), "{platform:?}");
         let json = serde_json::to_value(&host).unwrap();
-        assert!(json.get("fixed_ai_candidate_limit").is_none());
-        assert!(json.get("fixed_effect_intensity").is_none());
+        assert_eq!(json["fixed_ai_candidate_limit"], 3, "{platform:?}");
+    }
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Harmony,
+    ] {
+        let host = HostCapabilities::for_platform(platform);
+        assert_eq!(host.fixed_effect_intensity, Some(intensity), "{platform:?}");
+        let json = serde_json::to_value(&host).unwrap();
+        assert_eq!(json["fixed_effect_intensity"], 50, "{platform:?}");
+    }
+    // Android、iOS 仍按偏好决定 AI 候选数量；Linux 不画效果样式，没有强度，Android、iOS 也按偏好。按偏好的宿主不写这些键，旧版本设置页读到的能力文档不变。
+    for platform in [HostPlatform::Android, HostPlatform::Ios] {
+        let host = HostCapabilities::for_platform(platform);
+        assert_eq!(host.fixed_ai_candidate_limit, None, "{platform:?}");
+        assert_eq!(platform.fixed_ai_candidate_limit(), None, "{platform:?}");
+        let json = serde_json::to_value(&host).unwrap();
+        assert!(
+            json.get("fixed_ai_candidate_limit").is_none(),
+            "{platform:?}"
+        );
+    }
+    for platform in [
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+    ] {
+        let host = HostCapabilities::for_platform(platform);
+        assert_eq!(host.fixed_effect_intensity, None, "{platform:?}");
+        assert_eq!(platform.fixed_effect_intensity(), None, "{platform:?}");
+        let json = serde_json::to_value(&host).unwrap();
+        assert!(json.get("fixed_effect_intensity").is_none(), "{platform:?}");
     }
 }

@@ -7424,7 +7424,7 @@ test("on the desktop 帮助与反馈 lives in 关于: its route opens 关于 and
   expect(await screen.findByRole("group", { name: "关于" })).toBeTruthy();
 });
 
-test("the account page is called 账号 on macOS and keeps 账号与同步 where settings sync", async () => {
+test("the account page is called 账号 on macOS and Linux and keeps 账号与同步 where settings sync", async () => {
   const accountClient = {
     status: vi.fn().mockResolvedValue({ user: null }),
     providers: vi.fn().mockResolvedValue({ email: true, phone: false }),
@@ -7438,6 +7438,7 @@ test("the account page is called 账号 on macOS and keeps 账号与同步 where
   };
   for (const [platform, title] of [
     ["macos", "账号"],
+    ["linux", "账号"],
     ["windows", "账号与同步"],
   ] as const) {
     render(
@@ -10061,13 +10062,12 @@ test("the AI page is grouped like the other pages", async () => {
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
   expect(page.querySelector(".section")).toBeNull();
-  // 桌面没有「测试工具」（润色测试只在 iOS、Android 上保留），提示词收进「服务」的「更多选项」。
-  expect(pageGroupTitles(page)).toEqual(["服务", "联想"]);
+  // 桌面没有「测试工具」（润色测试只在 iOS、Android 上保留），提示词收进「服务」的「更多选项」。Windows 固定 AI 候选数量，「联想」组不出现。
+  expect(pageGroupTitles(page)).toEqual(["服务"]);
   const endpoint = within(page).getByLabelText("AI 接口地址");
   const more = endpoint.closest("details");
   expect(more).not.toBeNull();
   expect(more!.open).toBe(false);
-  expect(within(page).getByRole("region", { name: "联想" }).textContent).toContain("候选数量");
   const prompt = within(page).getByLabelText("AI 联想自定义提示词") as HTMLTextAreaElement;
   expect(prompt.value).toBe("second");
   expect(prompt.closest("details")).toBe(more);
@@ -10075,7 +10075,28 @@ test("the AI page is grouped like the other pages", async () => {
   expect(within(page).queryByRole("button", { name: "发送并润色" })).toBeNull();
 });
 
-test("the macOS AI page has no candidate count, which the host fixes at three", async () => {
+test.each(["macos", "windows", "linux", "harmony"])(
+  "the %s AI page has no candidate count, which the host fixes at three",
+  async (platform) => {
+    render(
+      <SettingsPage
+        initialPage="ai"
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          aiAssistant: { fetchModels: vi.fn(), test: vi.fn() },
+          host: testHost({ platform }),
+        }}
+      />,
+    );
+    await settingsReady();
+    const page = screen.getByRole("group", { name: "AI 辅助" });
+    expect(within(page).queryByRole("region", { name: "联想" })).toBeNull();
+    expect(within(page).queryByLabelText("AI 候选数量")).toBeNull();
+  },
+);
+
+test("the macOS AI page shows only the service group", async () => {
   render(
     <SettingsPage
       initialPage="ai"
@@ -10090,6 +10111,23 @@ test("the macOS AI page has no candidate count, which the host fixes at three", 
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
   expect(pageGroupTitles(page)).toEqual(["服务"]);
-  expect(within(page).queryByLabelText("AI 候选数量")).toBeNull();
   expect(within(page).queryByRole("button", { name: "发送并润色" })).toBeNull();
+});
+
+// Android 这一轮没有固定 AI 候选数量，仍按偏好，所以「联想」组和「候选数量」照旧。
+test("the Android AI page still offers the candidate count", async () => {
+  render(
+    <SettingsPage
+      initialPage="ai"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        aiAssistant: { fetchModels: vi.fn(), test: vi.fn() },
+        host: testHost({ platform: "android" }),
+      }}
+    />,
+  );
+  await settingsReady();
+  const page = screen.getByRole("group", { name: "AI 辅助" });
+  expect(within(page).getByRole("region", { name: "联想" }).textContent).toContain("候选数量");
 });

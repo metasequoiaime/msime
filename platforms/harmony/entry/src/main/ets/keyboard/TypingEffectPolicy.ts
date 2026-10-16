@@ -98,21 +98,15 @@ export class TypingEffectPolicy {
     return Math.min(Math.max(intensity, 0), 100);
   }
 
-  /** The settings `preferences.plugins` asks for; a missing record or an unknown style is off. */
+  /** The settings `preferences.plugins` asks for; a missing record or an unknown style is off. 强度固定为 `DEFAULT_INTENSITY`，不读 `plugins.effect_intensity`（client-core 的 `HostPlatform::fixed_effect_intensity`）：这里每种样式都是亮度不同的卡片闪光，样式本身就是强度的粗调，设置页也不再给「效果强度」。特效包自带的强度仍由 `resolve` 换上。 */
   static settings(plugins: PluginPreferenceDocument | undefined): TypingEffectSettings {
     if (plugins === undefined) {
       return TYPING_EFFECTS_OFF;
     }
-    const intensity: number =
-      typeof plugins.effect_intensity === "number" &&
-      plugins.effect_intensity >= 0 &&
-      plugins.effect_intensity <= 100
-        ? Math.round(plugins.effect_intensity)
-        : DEFAULT_INTENSITY;
     const comboCounter: boolean = plugins.combo_counter === true;
     return {
       style: TypingEffectPolicy.style(plugins.effect_style),
-      intensity: intensity,
+      intensity: DEFAULT_INTENSITY,
       comboCounter: comboCounter,
       tierSound: comboCounter && plugins.combo_tier_sound === true,
       pack: typeof plugins.effect_pack === "string" ? plugins.effect_pack : "",

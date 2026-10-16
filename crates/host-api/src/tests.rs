@@ -8272,7 +8272,7 @@ fn an_in_memory_ai_credential_stays_bound_to_its_endpoint() {
 
 #[test]
 fn the_ai_request_sends_the_platforms_candidate_limit() {
-    // 存下的数量是 1。固定数量的平台（macOS）不读它：在线查询和请求描述用同一个固定值，`chat_completion_http_request` 才不会因为两边不一致拒绝请求。
+    // 存下的数量是 1。固定数量的平台（macOS、Windows、Linux）不读它：在线查询和请求描述用同一个固定值，`chat_completion_http_request` 才不会因为两边不一致拒绝请求。
     let dir = tempfile::tempdir().unwrap();
     let mut preferences = Preferences {
         scheme: InputScheme::Quanpin,
@@ -8403,7 +8403,7 @@ fn ai_queries_and_delivery_follow_pending_preferences() {
                 current["ai_assistant"]["prompt_custom_1"],
                 preferences.ai_assistant.prompt_custom_1
             );
-            // 固定候选数量的平台（macOS）不读存下的值，查询里始终是固定值。
+            // 固定候选数量的平台（macOS、Windows、Linux）不读存下的值，查询里始终是固定值。
             assert_eq!(
                 current["ai_assistant"]["candidate_limit"],
                 host_ai_candidate_limit(preferences.ai_assistant.candidate_limit)

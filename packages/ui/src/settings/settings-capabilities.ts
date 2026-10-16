@@ -92,13 +92,13 @@ export function settingsCapabilities({
   const showMusic = host ? host.music : false;
   const showPluginTriggers = host ? host.plugin_triggers : false;
   const showTypingEffects = host ? host.typing_effects : false;
-  // Linux shows the combo count as text in the candidate panel's aux line and draws no flash or sparks, so only the counter switch has an effect there.
+  // Linux shows the combo count as text in the candidate panel's aux line and draws no flash or sparks, so no style, pack or intensity has an effect there; the counter switch does, and so does 升档音, which host-api plays from the key-sound pack.
   const showTypingEffectStyles = showTypingEffects && !linux;
   // An effect pack only sets a drawn style's parameters, so it is offered wherever a style is.
   const showTypingEffectPacks = showTypingEffectStyles;
-  // 宿主固定了效果强度（`HostCapabilities.fixed_effect_intensity`，macOS）时不给「效果强度」；没有宿主时（网页预览）照样给出。
+  // 宿主固定了效果强度（`HostCapabilities.fixed_effect_intensity`，macOS、Windows、鸿蒙）时不给「效果强度」；没有宿主时（网页预览）照样给出。
   const showEffectIntensity = host ? host.fixed_effect_intensity === undefined : true;
-  // 宿主固定了 AI 联想的候选数量（`HostCapabilities.fixed_ai_candidate_limit`，macOS）时不给「候选数量」。
+  // 宿主固定了 AI 联想的候选数量（`HostCapabilities.fixed_ai_candidate_limit`，macOS、Windows、Linux、鸿蒙）时不给「候选数量」。
   const showAiCandidateLimit = host ? host.fixed_ai_candidate_limit === undefined : true;
   // HarmonyOS 没有粒子浮层：每种样式都是候选卡片闪一下，火花和 Power Mode 闪得更亮，所以那里的样式说明不能许诺火花。Windows 和 macOS 一样在光标处画火花。
   const typingEffectsFlashOnly = showTypingEffectStyles && harmony;

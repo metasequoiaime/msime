@@ -164,12 +164,12 @@ export function desktopPage(id: SettingsPageId): SettingsPageId {
   return desktopMergedPages[id] ?? id;
 }
 
-/** 桌面宿主按平台改写的页名；触屏宿主的页名由 `mobilePageTitle` 改写。macOS 的账号页没有设置同步（设置同步只接在 Windows 的账号会话上），叫「账号」。 */
+/** 桌面宿主按平台改写的页名；触屏宿主的页名由 `mobilePageTitle` 改写。macOS 和 Linux 的账号页没有设置同步（设置同步只接在 Windows 和鸿蒙的账号会话上），叫「账号」。 */
 export function desktopPageTitle(
   id: SettingsPageId,
   title: string,
   platform: string | undefined,
 ): string {
-  if (id === "account" && platform === "macos") return "账号";
+  if (id === "account" && (platform === "macos" || platform === "linux")) return "账号";
   return title;
 }

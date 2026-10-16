@@ -81,7 +81,7 @@ export interface PluginsSectionProps {
   effectPacks?: boolean;
   /** 宿主把每种特效样式都画成候选卡片闪一下，越强的样式闪得越亮，不画火花（HarmonyOS）；只在 `effectStyles` 为真时读取。 */
   effectFlashOnly?: boolean;
-  /** 宿主按 `plugins.effect_intensity` 画效果，「声音与效果」给出「效果强度」；固定强度的宿主（`HostCapabilities.fixed_effect_intensity`）不给。 */
+  /** 宿主按 `plugins.effect_intensity` 画效果，「声音与效果」给出「效果强度」；固定强度的宿主（macOS、Windows、鸿蒙，`HostCapabilities.fixed_effect_intensity`）不给。 */
   effectIntensity?: boolean;
   /** 打字统计是否打开；关着时「成就音效」不能打开。不知道时按打开处理。 */
   statisticsEnabled?: boolean;

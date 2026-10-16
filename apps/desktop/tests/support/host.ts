@@ -9,6 +9,7 @@ export function testHost(
   const harmony = platform === "harmony";
   const linux = platform === "linux";
   const macos = platform === "macos";
+  const windows = platform === "windows";
   const mobile = android || harmony || platform === "ios";
   const candidateSelectionAppearance = fields.candidate_selection_appearance ?? false;
   return {
@@ -78,8 +79,9 @@ export function testHost(
     wordbook_packs: false,
     symbol_set_packs: false,
     input_schemes: ["quanpin", "shuangpin", "wubi", "japanese", "korean"],
-    // macOS 固定 AI 候选数量和打字效果强度（`HostPlatform::fixed_*`），其他宿主没有这两项。
-    ...(macos ? { fixed_ai_candidate_limit: 3, fixed_effect_intensity: 50 } : {}),
+    // 与 client-core 的 `HostPlatform::fixed_*` 一致：macOS、Windows、Linux、鸿蒙固定 AI 候选数量，macOS、Windows、鸿蒙固定打字效果强度，Android、iOS 都按偏好。
+    ...(macos || windows || linux || harmony ? { fixed_ai_candidate_limit: 3 } : {}),
+    ...(macos || windows || harmony ? { fixed_effect_intensity: 50 } : {}),
     ...fields,
     platform,
   };
