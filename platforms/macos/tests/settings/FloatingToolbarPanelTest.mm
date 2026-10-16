@@ -105,12 +105,13 @@ int main() {
         assert(panel.appearance == nil);
         [panel applyThemePreferences:@{@"theme": @"light", @"toolbar_theme": @"follow"}];
         assert([panel.appearance.name isEqualToString:NSAppearanceNameAqua]);
+        // macOS 的工具栏只看颜色模式：工具栏单独的明暗设置和其他界面的都不读，固定明暗的主题由 InputController 钉住 `theme`。
         [panel applyThemePreferences:@{@"theme": @"light", @"toolbar_theme": @"dark"}];
+        assert([panel.appearance.name isEqualToString:NSAppearanceNameAqua]);
+        [panel applyThemePreferences:@{@"theme": @"dark", @"toolbar_theme": @"light", @"candidate_theme": @"light", @"settings_theme": @"light"}];
         assert([panel.appearance.name isEqualToString:NSAppearanceNameDarkAqua]);
-        [panel applyThemePreferences:@{@"theme": @"dark", @"toolbar_theme": @"light", @"candidate_theme": @"dark", @"settings_theme": @"dark"}];
-        assert([panel.appearance.name isEqualToString:NSAppearanceNameAqua]);
         [panel applyThemePreferences:@{@"theme": @"system", @"toolbar_theme": @"light"}];
-        assert([panel.appearance.name isEqualToString:NSAppearanceNameAqua]);
+        assert(panel.appearance == nil);
         [panel applyThemePreferences:@{@"theme": @"system", @"toolbar_theme": @"follow"}];
         assert(panel.appearance == nil);
         assert([panel.frameAutosaveName isEqualToString:@"MetasequoiaFloatingToolbarFrame"]);
@@ -140,7 +141,7 @@ int main() {
         [panel applyLightSkin:light darkSkin:dark];
         for (NSString *mode in @[@"light", @"dark"]) {
             const auto expected = [mode isEqual:@"dark"] ? dark : light;
-            [panel applyThemePreferences:@{@"toolbar_theme": mode}];
+            [panel applyThemePreferences:@{@"theme": mode}];
             // Legacy notifications and size updates must not replace host-supplied colors.
             [NSNotificationCenter.defaultCenter postNotificationName:MetasequoiaCandidateSkinDidChangeNotification object:nil];
             [panel applySizingPreferences:@{}];
@@ -164,7 +165,7 @@ int main() {
         toolbarLight.hover = {0.0, 0.0, 0.0, 0.06};
         toolbarDark.hover = {1.0, 1.0, 1.0, 0.10};
         [panel applyLightToolbarSkin:toolbarLight darkSkin:toolbarDark];
-        [panel applyThemePreferences:@{@"toolbar_theme": @"dark"}];
+        [panel applyThemePreferences:@{@"theme": @"dark"}];
         assert([[[panel valueForKey:@"chrome"] valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(toolbarDark.surface)]);
 
         NSButton *inputMode = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarInputMode");
@@ -230,10 +231,10 @@ int main() {
         [inputMode mouseEntered:entered];
         [panel orderOut:nil];
         assert(![[inputMode valueForKey:@"hovered"] boolValue]);
-        [panel applyThemePreferences:@{@"toolbar_theme": @"dark"}];
+        [panel applyThemePreferences:@{@"theme": @"dark"}];
         assert([[inputMode valueForKey:@"hoverFillColor"] isEqual:MetasequoiaColorFromRgba(toolbarDark.hover)]);
         assert([[divider valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(toolbarDark.border)]);
-        [panel applyThemePreferences:@{@"toolbar_theme": @"light"}];
+        [panel applyThemePreferences:@{@"theme": @"light"}];
         assert([[inputMode valueForKey:@"hoverFillColor"] isEqual:MetasequoiaColorFromRgba(toolbarLight.hover)]);
         assert([[divider valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(toolbarLight.border)]);
         // The toolbar palette's radius drives the chrome at the current scale, and a package divider colour replaces the outline on the divider only.
@@ -245,11 +246,11 @@ int main() {
             roundedDark.radius = 16.0f;
             roundedDark.divider = msime::mac::Rgba{0.9f, 0.1f, 0.1f, 1.0f};
             [panel applyLightToolbarSkin:roundedLight darkSkin:roundedDark];
-            [panel applyThemePreferences:@{@"toolbar_theme": @"dark"}];
+            [panel applyThemePreferences:@{@"theme": @"dark"}];
             assert([[panel valueForKey:@"chrome"] layer].cornerRadius == 16.0);
             assert([[divider valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(*roundedDark.divider)]);
             assert([[[panel valueForKey:@"chrome"] valueForKey:@"strokeColor"] isEqual:MetasequoiaColorFromRgba(roundedDark.border)]);
-            [panel applyThemePreferences:@{@"toolbar_theme": @"light"}];
+            [panel applyThemePreferences:@{@"theme": @"light"}];
             assert([[panel valueForKey:@"chrome"] layer].cornerRadius == 4.0);
             assert([[divider valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(roundedLight.border)]);
             [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @150, @"font_size": @24}}];
@@ -262,7 +263,7 @@ int main() {
             msime::mac::SkinTokens card = light;
             card.radius = 28.0f;
             [candidateOnly applyLightSkin:card darkSkin:card];
-            [candidateOnly applyThemePreferences:@{@"toolbar_theme": @"light"}];
+            [candidateOnly applyThemePreferences:@{@"theme": @"light"}];
             assert([[candidateOnly valueForKey:@"chrome"] layer].cornerRadius == 10.0);
         }
         for (NSNumber *scale in @[@75, @100, @125, @150]) {

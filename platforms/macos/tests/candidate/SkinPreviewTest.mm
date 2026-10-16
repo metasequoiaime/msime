@@ -514,10 +514,10 @@ static void TestCustomThemeClearsSurviveSave() {
     // A picker set while the system theme is on screen makes system the custom theme's base, over a stored night base and package.
     document = @{@"global_theme": @"system", @"custom_theme": @{@"base": @"night", @"candidate_skin": @"wide-card"}};
     [preferences applySharedCandidatePreferences:document];
-    preferences.candidateNumberColor = @"#203040";
+    preferences.candidateSurfaceColor = @"#203040";
     save();
     assert([preferences.globalTheme isEqual:@"custom"] && [preferences.customThemeBase isEqual:@"system"]);
-    assert(preferences.customCandidateSkin == nil && [preferences.candidateNumberColor isEqual:@"#203040"]);
+    assert(preferences.customCandidateSkin == nil && [preferences.candidateSurfaceColor isEqual:@"#203040"]);
     // A package whose manifest base is system replaces a stored built-in base the same way.
     document = @{@"global_theme": @"night", @"custom_theme": @{@"base": @"night"}};
     [preferences applySharedCandidatePreferences:document];
@@ -774,22 +774,27 @@ int main(int argc, const char **argv) {
         NSDictionary *rowColors = @{@"text": @"#102030", @"number": @"#203040", @"accent": @"#304050", @"selected": @"#405060",
             @"hover": @"#506070", @"surface": @"#607080", @"border": @"#708090"};
         [preferences applySharedCandidatePreferences:@{@"global_theme": @"custom", @"custom_theme": Pickers(rowColors)}];
-        NSArray *pickedColors = @[preferences.candidateTextColor, preferences.candidateNumberColor, preferences.candidateAccentColor,
-            preferences.candidateSelectedColor, preferences.candidateHoverColor, preferences.candidateSurfaceColor,
-            preferences.candidateBorderColor];
-        NSArray *expectedColors = @[@"#102030", @"#203040", @"#304050", @"#405060", @"#506070", @"#607080", @"#708090"];
+        NSArray *pickedColors = @[preferences.candidateTextColor, preferences.candidateAccentColor,
+            preferences.candidateSelectedColor, preferences.candidateHoverColor, preferences.candidateSurfaceColor];
+        NSArray *expectedColors = @[@"#102030", @"#304050", @"#405060", @"#506070", @"#607080"];
         assert([pickedColors isEqual:expectedColors]);
         {
             const msime::mac::SkinTokens tokens = [preferences resolvedSkinForDark:NO].tokens;
-            const msime::mac::Rgba drawn[] = {tokens.text, tokens.number, tokens.accent, tokens.selected, tokens.hover, tokens.surface, tokens.border};
+            const msime::mac::Rgba drawn[] = {tokens.text, tokens.accent, tokens.selected, tokens.hover, tokens.surface};
             for (NSUInteger index = 0; index < expectedColors.count; ++index) assert(TokenIs(drawn[index], expectedColors[index]));
+            // 文档里的编号色和边框色在 macOS 上不读：编号色由文字颜色推出（约 62% 不透明），边框跟随主题，都不是文档里的值。
+            assert(TokenIs(tokens.number, @"#102030", 0x9d / 255.0));
+            assert(!TokenIs(tokens.border, @"#708090"));
         }
+        // 合并时编号色和边框色照文档原样带过，本机不再写自己的值进去。
+        NSDictionary *mergedColors = [preferences sharedPreferencesByMerging:@{@"custom_theme": Pickers(@{@"number": @"#0A0B0C"})}][@"custom_theme"][@"candidate_colors"];
+        assert([mergedColors[@"number"] isEqual:@"#0A0B0C"] && mergedColors[@"border"] == nil);
         for (id invalid in @[@YES, @"red", @"#123", @"#12345678", @"#GG0000"])
-            [preferences applySharedCandidatePreferences:@{@"custom_theme": Pickers(@{@"text": @"#102030", @"number": invalid})}];
-        assert([preferences.candidateNumberColor isEqual:@"#203040"]);
+            [preferences applySharedCandidatePreferences:@{@"custom_theme": Pickers(@{@"text": @"#102030", @"accent": invalid})}];
+        assert([preferences.candidateAccentColor isEqual:@"#304050"]);
         [preferences applySharedCandidatePreferences:@{@"custom_theme": Pickers(@{@"text": @"#102030"})}];
-        // An explicit text colour also sets the numbers when the number picker is unset, about 62% opaque; an unset accent is the native one.
-        assert(preferences.candidateNumberColor == nil && preferences.candidateAccentColor == nil);
+        // 设了文字颜色时编号色也由它推出，约 62% 不透明；没设强调色时用原生的那个。
+        assert(preferences.candidateAccentColor == nil);
         assert(TokenIs([preferences resolvedSkinForDark:NO].tokens.number, @"#102030", 0x9d / 255.0));
         assert(TokenIs([preferences resolvedSkinForDark:NO].tokens.accent, @"#2C7A4B"));
         preferences.candidateTextColor = @"#112233";

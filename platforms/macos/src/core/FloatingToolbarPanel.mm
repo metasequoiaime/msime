@@ -781,9 +781,8 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
 
 - (void)applyThemePreferences:(NSDictionary *)preferences
 {
-    NSString *surface = preferences[@"toolbar_theme"];
-    NSString *mode = preferences[@"theme"];
-    NSString *resolved = ([surface isEqual:@"dark"] || [surface isEqual:@"light"]) ? surface : mode;
+    // macOS 的工具栏一律跟随颜色模式，不读工具栏单独的明暗设置；固定明暗的主题由 InputController 把 `theme` 钉成那种明暗再交过来。
+    NSString *resolved = preferences[@"theme"];
     if ([resolved isEqual:@"light"])
         self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
     else if (resolved == nil || [resolved isEqual:@"system"])

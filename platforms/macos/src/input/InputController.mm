@@ -3543,14 +3543,14 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     NSDictionary *view = [_session setCharacterWidthFull:_appearance.runtimeFullWidthInput error:nil];
     if (view) [self apply:@{@"view":view}];
 }
-// The menus take the global theme's mode as the toolbar does (THEME_CONTRACT §6): a theme that fixes its own mode fixes theirs over menu_theme and the interface theme, which still decide for `system` and a custom theme over it. NSMenu has no palette of its own to recolour, so the mode is what a theme can reach.
+// 菜单和工具栏一样取全局主题的明暗（THEME_CONTRACT §6）：固定明暗的主题盖过颜色模式，`system` 和以它为底的自定义主题仍由颜色模式决定。NSMenu 没有可以重新着色的调色板，主题能影响的只有明暗。macOS 的菜单没有单独的明暗设置，所以钉住的是交给 ApplyMetasequoiaMenuTheme 的 `theme`。
 - (NSDictionary *)resolvedMenuThemePreferences {
     NSDictionary *preferences = _menuThemePreferences ?: @{};
     if (!_appearance) return preferences;
     const auto fixed = [_appearance fixedThemeMode];
     if (!fixed) return preferences;
     NSMutableDictionary *pinned = [preferences mutableCopy];
-    pinned[@"menu_theme"] = *fixed ? @"dark" : @"light";
+    pinned[@"theme"] = *fixed ? @"dark" : @"light";
     return pinned;
 }
 // 「输入方案」子菜单：输入法菜单和悬浮工具栏的切换输入方案按钮用的是同一份。`currentTitle` 带回正在用的方案的名字，没有打勾的项时为 nil。
@@ -5380,11 +5380,11 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if ([shared respondsToSelector:@selector(applyHandwritingPreferences:)])
         [shared performSelector:@selector(applyHandwritingPreferences:) withObject:preferences];
     [[MSIMEScreenKeyboardPanel sharedPanel] applyThemePreferences:preferences];
-    // The global theme arrives with the rest of the document, so the toolbar takes the palette resolved from it here as well as on activation. A theme with a mode of its own fixes the toolbar's mode as it fixes the candidate window's.
+    // 全局主题随文档其余部分一起到达，所以工具栏除了在激活时，在这里也取由它解析出的调色板。自带明暗的主题像钉住候选窗一样钉住工具栏的明暗。工具栏和中英文提示在 macOS 上没有单独的明暗设置，只看 `theme`，所以钉住的就是它。
     NSDictionary *toolbarThemePreferences = preferences;
     if (const auto fixed = [_appearance fixedThemeMode]) {
         NSMutableDictionary *pinned = [preferences mutableCopy];
-        pinned[@"toolbar_theme"] = *fixed ? @"dark" : @"light";
+        pinned[@"theme"] = *fixed ? @"dark" : @"light";
         toolbarThemePreferences = pinned;
     }
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];

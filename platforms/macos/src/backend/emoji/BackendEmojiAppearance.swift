@@ -41,9 +41,8 @@ struct MacEmojiPalette {
 
   func apply(_ preferences: NSDictionary) {
     let resolved: ColorScheme?
-    let surface = preferences["emoji_theme"] as? String
-    let global = preferences["theme"] as? String
-    switch (surface == "dark" || surface == "light") ? surface : global {
+    // macOS 的表情面板一律跟随颜色模式，不读它单独的明暗设置。
+    switch preferences["theme"] as? String {
     case "light": resolved = .light
     case "system": resolved = nil
     case "dark": resolved = .dark

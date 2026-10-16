@@ -69,12 +69,11 @@ metasequoia::mac::CustomTheme MetasequoiaStoredCustomTheme(void)
     custom.candidateSkin = read(@"MSIMEClientCustomCandidateSkin");
     custom.candidateSkinDark = read(@"MSIMEClientCustomCandidateSkinDark");
     custom.candidateColors.text = read(@"MSIMEClientCandidateTextColor");
-    custom.candidateColors.number = read(@"MSIMEClientCandidateNumberColor");
+    // 编号色和边框色在 macOS 上固定跟随主题和皮肤，与 MSIMEAppearancePreferences 一样不读以前存下的值。
     custom.candidateColors.accent = read(@"MSIMEClientCandidateAccentColor");
     custom.candidateColors.selected = read(@"MSIMEClientCandidateSelectedColor");
     custom.candidateColors.hover = read(@"MSIMEClientCandidateHoverColor");
     custom.candidateColors.surface = read(@"MSIMEClientCandidateSurfaceColor");
-    custom.candidateColors.border = read(@"MSIMEClientCandidateBorderColor");
     return custom;
 }
 
