@@ -124,8 +124,23 @@ export function InputSharedSettingsSection({
     />
   );
 
-  // 少有人改的行收进所在组末的「更多选项」。鸿蒙手机已经把整页收在一个「更多选项」里，那里不再套一层，照原样直列。
-  const more = (rows: ReactNode) => (foldIntoMore ? rows : <MoreOptions>{rows}</MoreOptions>);
+  // 少有人改的行收进所在组末的「更多选项」。鸿蒙手机已经把整页收在一个「更多选项」里，那里不再套一层，这些行也留在原来的位置上：混输各行和只出单字在学习开关之前，全角输入在「输出」组最前。
+  const candidatesMoreRows = (
+    <>
+      {mixedInput && onMixedInputChange && (
+        <MixedInputMoreRows
+          preferences={mixedInput}
+          temporaryJapanese={temporaryJapanese}
+          onChange={onMixedInputChange}
+        />
+      )}
+      <SingleCharacterOnlySection
+        value={preferences.single_character_only}
+        onChange={(single_character_only) => onPreferencesChange({ single_character_only })}
+      />
+      {candidatesMore}
+    </>
+  );
 
   // 输入页按「基础 → 进阶」排列：先是每个人都会碰到的中英文和选词翻页，再是候选来源（云候选、中英混输、emoji、神经联想和学习，其余收进「更多选项」）和输出形式，进阶的快捷模式、模糊音、辅助码由页面经 beforeFrequency 放在调频之前。
   const groups = (
@@ -179,36 +194,23 @@ export function InputSharedSettingsSection({
               onChange={onMixedInputChange}
             />
           )}
+          {foldIntoMore && candidatesMoreRows}
           {beforeLearning}
           {learningRow}
           {afterLearning}
-          {more(
-            <>
-              {mixedInput && onMixedInputChange && (
-                <MixedInputMoreRows
-                  preferences={mixedInput}
-                  temporaryJapanese={temporaryJapanese}
-                  onChange={onMixedInputChange}
-                />
-              )}
-              <SingleCharacterOnlySection
-                value={preferences.single_character_only}
-                onChange={(single_character_only) => onPreferencesChange({ single_character_only })}
-              />
-              {candidatesMore}
-            </>,
-          )}
+          {!foldIntoMore && <MoreOptions>{candidatesMoreRows}</MoreOptions>}
         </GroupList>,
       )}
       {renderGroup(
         "output",
         <GroupList title="输出">
+          {foldIntoMore && outputMore}
           {!foldIntoMore && traditionalOutputRow}
           <ChineseEnglishSpacingSection
             value={preferences.chinese_english_spacing}
             onChange={(chinese_english_spacing) => onPreferencesChange({ chinese_english_spacing })}
           />
-          {outputMore && more(outputMore)}
+          {!foldIntoMore && outputMore && <MoreOptions>{outputMore}</MoreOptions>}
         </GroupList>,
       )}
       {renderGroup(

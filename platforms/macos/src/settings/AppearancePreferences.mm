@@ -1440,12 +1440,14 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     merged[@"smart_punctuation_space_convert"] = @(self.smartPunctuationSpaceConvert);
     merged[@"paired_punctuation"] = @(self.pairedPunctuation);
     merged[@"punctuation_lock"] = self.punctuationLock;
-    // 不写 `minimum_prefix`：macOS 把触发字符数固定为 5（host-api 不读文档里的值），这里写回本机存过的旧值只会把它一直留在文档里。合并按键进行，文档原有的值保持不动。
+    // 不从本机写 `minimum_prefix`：macOS 把触发字符数固定为 5（host-api 不读文档里的值），写回本机存过的旧值只会把它一直留在文档里。但下面整个对象替换掉传入文档的 `mixed_input`，而 client-core 的 `MixedInputPreferences.minimum_prefix` 是必填字段，所以传入文档里原有的值要原样带过来，否则合并出的完整文档读不回来；传入的是空字典时（InputController 再用 MSIMEMergePreferenceSnapshot 按键合并到磁盘上的文档）就不带这个键，磁盘上的值保持不动。
     NSMutableDictionary *mixedInput = [@{
         @"english": @(self.mixedEnglishInput),
         @"emoji": @(self.mixedEmojiInput),
         @"kaomoji": @(self.mixedKaomojiInput)
     } mutableCopy];
+    id storedMinimumPrefix = [merged[@"mixed_input"] isKindOfClass:NSDictionary.class] ? merged[@"mixed_input"][@"minimum_prefix"] : nil;
+    if (storedMinimumPrefix) mixedInput[@"minimum_prefix"] = storedMinimumPrefix;
     // 整个对象重写，所以符号混输必须带上，否则在共享页关掉后，这里改一次别的混输开关就会把它冲回默认的开。与 client-core 相同，只在关掉时写这个键。
     if (!self.mixedSymbolInput) mixedInput[@"symbols"] = @NO;
     merged[@"mixed_input"] = mixedInput;

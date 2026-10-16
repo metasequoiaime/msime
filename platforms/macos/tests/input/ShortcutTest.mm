@@ -1687,6 +1687,9 @@ static void TestMixedInputPreferences() {
     assert(!preferences.mixedEnglishInput && preferences.mixedEmojiInput && preferences.mixedKaomojiInput &&
            !preferences.mixedSymbolInput);
     assert([preferences sharedPreferencesByMerging:@{}][@"mixed_input"][@"minimum_prefix"] == nil);
+    // 合并进一份完整文档时整个 `mixed_input` 被替换，文档原有的触发字符数要带过来：client-core 里它是必填字段，丢了整份文档就读不回来。
+    NSDictionary *storedMixedInput = @{ @"mixed_input": @{ @"english": @YES, @"minimum_prefix": @7 } };
+    assert([[preferences sharedPreferencesByMerging:storedMixedInput][@"mixed_input"][@"minimum_prefix"] isEqual:@7]);
     assert([defaults objectForKey:@"MSIMEClientMixedInput"] == nil);
     [preferences applySharedInputPreferences:@{ @"mixed_input": @{
         @"english": @1, @"minimum_prefix": @9, @"emoji": @"true", @"kaomoji": NSNull.null, @"symbols": @"true" } }];

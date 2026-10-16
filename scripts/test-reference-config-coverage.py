@@ -241,19 +241,6 @@ COMPOSED_AT_RUNTIME: dict[str, str] = {
 }
 
 PLATFORM_LOCAL: dict[str, str] = {
-    "mixed_input.minimum_prefix": (
-        "macOS 固定为默认的 5，host-api 不读它，共享页按 HostCapabilities.mixed_input_minimum_prefix "
-        "只在其他宿主上给出「触发字符数」；页面仍在那些宿主上拼写这个字段，记在这里是因为它不再是"
-        "每个宿主都能改的设置。"
-    ),
-    "navigation.page_up_down": (
-        "macOS 把 PageUp / PageDown 翻页固定为开，输入法不读它，共享页按 "
-        "HostCapabilities.tab_page_paging_switches 只在其他宿主上给出这个复选框。"
-    ),
-    "navigation.tab": (
-        "macOS 把 Shift+Tab / Tab 翻页固定为开，输入法不读它，共享页按 "
-        "HostCapabilities.tab_page_paging_switches 只在其他宿主上给出这个复选框。"
-    ),
     "quanpin.autocorrect_neighbor": (
         "Quanpin typo correction is enabled by the shared Engine default on every host; the "
         "shared settings page intentionally has no toggle, while an explicit false in the "

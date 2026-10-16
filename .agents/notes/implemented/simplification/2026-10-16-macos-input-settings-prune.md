@@ -34,9 +34,9 @@ macOS 的「输入」页默认状态（full 版、全拼、模糊音关）有约
 - 原生回退窗口跟着删：
   - `NavigationControls()` 不再列 Tab 和 PageUp 两个复选框。
   - 删掉「中英混输触发长度」弹出框和 `mixedEnglishMinimumPrefix` 属性。
-  - `sharedPreferencesByMerging:` 不再写 `navigation.tab`、`navigation.page_up_down` 和 `mixed_input.minimum_prefix`。`MSIMEMergePreferenceSnapshot` 按键合并，文档原有的值保持不动。
+  - `sharedPreferencesByMerging:` 不再写 `navigation.tab`、`navigation.page_up_down`，也不从本机写 `mixed_input.minimum_prefix`。`MSIMEMergePreferenceSnapshot` 按键合并，文档原有的值保持不动。但 `mixed_input` 在这个方法里是整个对象替换的，而 client-core 的 `minimum_prefix` 是必填字段，所以传入文档里原有的 `minimum_prefix` 要原样带过去；第一版漏了这一步，合并出的完整文档读不回来，CI 上 `local-mode-preferences`、`shortcut`、`shortcut-translations` 三个测试因此失败。
   - `applyNavigationPreset:` 不再写 `page_up_down`。
-- `scripts/test-reference-config-coverage.py` 把三个字段记进 `PLATFORM_LOCAL`。
+- `scripts/test-reference-config-coverage.py` 不改。三个字段在 Windows、Linux 和移动端的共享页上照旧可改，不属于 `PLATFORM_LOCAL`（那里只收在本仓库根本没有对应设置对象的项）；记进去只会让「共享页上有控件」的检查对它们失效。
 
 ### 共享页的布局改动（所有宿主）
 
@@ -54,7 +54,7 @@ macOS 的「输入」页默认状态（full 版、全拼、模糊音关）有约
 - **候选与联想**：
   - 符号混输、颜文字混输、日文混输、只出单字、本地整句联想收进组末的「更多选项」。为此拆出 `MixedInputMoreRows` 和 `SentenceWordLatticeRow`。
   - 全角输入（起始状态）收进「输出」组的「更多选项」。
-  - 鸿蒙手机已经把整页收在一个「更多选项」里，那里不再套第二层，直接平铺。
+  - 鸿蒙手机已经把整页收在一个「更多选项」里，那里不再套第二层，这些行也留在原来的位置上：混输各行和只出单字在学习开关之前，全角输入在「输出」组最前，鸿蒙手机的顺序与改动前一致（唯一的差别是符号混输排到 emoji 混输之后）。
 - **快捷键页**：候选参考行和「打开屏幕键盘」并进一个「按键速查」组，内容收在「更多选项」里，与鸿蒙手机的做法一致。「候选操作」组只在有数字键选词开关时出现。鸿蒙手机的布局不变。
 - **文案**：菜单栏中/英状态的说明缩成一句。
 
@@ -117,5 +117,5 @@ macOS 的「输入」页默认状态（full 版、全拼、模糊音关）有约
   - 缺键时的 emoji 混输与 Control+Shift+F 默认值。
 - 原生 macOS 的改动只能由 CI 编译：
   - `SkinPreviewTest.mm` 断言窗口里没有两个翻页复选框、存着的关不起作用、合并结果不写回。
-  - `ShortcutTest.mm` 断言存着关时 Tab、Shift+Tab、PageUp、PageDown 照样翻页，并且混输合并结果不带 `minimum_prefix`。
+  - `ShortcutTest.mm` 断言存着关时 Tab、Shift+Tab、PageUp、PageDown 照样翻页；混输合并进空字典时不带 `minimum_prefix`，合并进带着它的文档时原样保留。
 - `scripts/test-reference-config-coverage.py` 和 `platforms/macos/tests/settings/preference_coverage.py` 通过。
