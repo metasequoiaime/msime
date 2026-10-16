@@ -199,6 +199,11 @@ function Wait-RelayControl($window, [string]$id) {
     throw "Missing enabled cloud clipboard control: $id"
 }
 function Assert-CloudClipboardRelaySettings($window) {
+    function Read-RelayPreference($document) {
+        $property = $document.preferences.PSObject.Properties['cloud_clipboard_relay']
+        if ($property) { return $property.Value }
+        return $null
+    }
     $path = Join-Path $state 'preferences.json'
     $beforeEdit = [IO.File]::ReadAllText($path)
     $scroll = (Find-ById $window 'settings-content').GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
@@ -224,7 +229,7 @@ function Assert-CloudClipboardRelaySettings($window) {
     do {
         Start-Sleep -Milliseconds 200
         $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
-        $relay = $saved.preferences.cloud_clipboard_relay
+        $relay = Read-RelayPreference $saved
     } while (($relay.url -ne 'http://127.0.0.1:9/msime' -or $relay.token -ne 'synthetic-relay-token') -and [DateTime]::UtcNow -lt $deadline)
     if ($relay.url -ne 'http://127.0.0.1:9/msime' -or $relay.token -ne 'synthetic-relay-token') { throw 'Relay address and token were not saved together' }
     Open-Page $window 'typing'
@@ -239,8 +244,9 @@ function Assert-CloudClipboardRelaySettings($window) {
     do {
         Start-Sleep -Milliseconds 200
         $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
-    } while ($saved.preferences.cloud_clipboard_relay -and [DateTime]::UtcNow -lt $deadline)
-    if ($saved.preferences.cloud_clipboard_relay) { throw 'Switching to account retained relay credentials' }
+        $relay = Read-RelayPreference $saved
+    } while ($relay -and [DateTime]::UtcNow -lt $deadline)
+    if ($relay) { throw 'Switching to account retained relay credentials' }
     Write-Host 'Cloud clipboard relay masking, draft, Rust validation, atomic save, reload and account switch passed'
 }
 function Save-Window($element, [string]$file) {
