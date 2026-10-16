@@ -209,7 +209,7 @@ private struct TabReselectionObserver: UIViewControllerRepresentable {
   }
   func updateUIViewController(_ controller: Probe, context: Context) {
     controller.reselectSettings = reselectSettings
-    controller.attach()
+    controller.attachLater()
   }
   static func dismantleUIViewController(_ controller: Probe, coordinator: ()) { controller.detach() }
 
@@ -226,12 +226,17 @@ private struct TabReselectionObserver: UIViewControllerRepresentable {
 
     override func viewDidAppear(_ animated: Bool) {
       super.viewDidAppear(animated)
-      attach()
+      attachLater()
     }
     override func didMove(toParent parent: UIViewController?) {
       super.didMove(toParent: parent)
       if parent == nil { detach() }
-      else { DispatchQueue.main.async { [weak self] in self?.attach() } }
+      else { attachLater() }
+    }
+    func attachLater() {
+      for delay in [0.0, 0.05, 0.2, 0.5] {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.attach() }
+      }
     }
     private func findTabs(in root: UIViewController) -> UITabBarController? {
       if let tabs = root as? UITabBarController { return tabs }
