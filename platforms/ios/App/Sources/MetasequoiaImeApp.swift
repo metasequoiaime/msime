@@ -200,6 +200,77 @@ private struct FirstRunContainer: View {
   }
 }
 
+/// SwiftUI 在部分系统版本上不会把重复选择写回 Binding，转发系统回调以恢复设置根页。
+private struct TabReselectionObserver: UIViewControllerRepresentable {
+  let reselectSettings: () -> Void
+
+  func makeUIViewController(context: Context) -> Probe {
+    Probe(reselectSettings: reselectSettings)
+  }
+  func updateUIViewController(_ controller: Probe, context: Context) {
+    controller.reselectSettings = reselectSettings
+    controller.attach()
+  }
+  static func dismantleUIViewController(_ controller: Probe, coordinator: ()) { controller.detach() }
+
+  final class Probe: UIViewController, UITabBarControllerDelegate {
+    var reselectSettings: () -> Void
+    private weak var observed: UITabBarController?
+    private weak var originalDelegate: UITabBarControllerDelegate?
+
+    init(reselectSettings: @escaping () -> Void) {
+      self.reselectSettings = reselectSettings
+      super.init(nibName: nil, bundle: nil)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidAppear(_ animated: Bool) {
+      super.viewDidAppear(animated)
+      attach()
+    }
+    override func didMove(toParent parent: UIViewController?) {
+      super.didMove(toParent: parent)
+      if parent == nil { detach() }
+      else { DispatchQueue.main.async { [weak self] in self?.attach() } }
+    }
+    private func findTabs(in root: UIViewController) -> UITabBarController? {
+      if let tabs = root as? UITabBarController { return tabs }
+      for child in root.children {
+        if let tabs = findTabs(in: child) { return tabs }
+      }
+      return nil
+    }
+    func attach() {
+      var root: UIViewController = self
+      while let parent = root.parent { root = parent }
+      guard let controller = tabBarController ?? findTabs(in: root), controller.delegate !== self else { return }
+      detach()
+      observed = controller
+      originalDelegate = controller.delegate
+      controller.delegate = self
+    }
+    func detach() {
+      if observed?.delegate === self { observed?.delegate = originalDelegate }
+      observed = nil
+      originalDelegate = nil
+    }
+    func tabBarController(_ controller: UITabBarController, shouldSelect viewController: UIViewController) -> Bool {
+      let allowed = originalDelegate?.tabBarController?(controller, shouldSelect: viewController) ?? true
+      if allowed && controller.selectedIndex == 0 && controller.selectedViewController === viewController {
+        reselectSettings()
+      }
+      return allowed
+    }
+    // 其余可选回调交还 SwiftUI 原来的委托，保留系统选择、动画及适配行为。
+    override func responds(to selector: Selector!) -> Bool {
+      super.responds(to: selector) || originalDelegate?.responds(to: selector) == true
+    }
+    override func forwardingTarget(for selector: Selector!) -> Any? {
+      originalDelegate?.responds(to: selector) == true ? originalDelegate : super.forwardingTarget(for: selector)
+    }
+  }
+}
+
 private struct MainTabView: View {
   @ObservedObject var navigation: AppNavigation
   @ObservedObject var router: SettingsRouter
@@ -216,6 +287,9 @@ private struct MainTabView: View {
       NavigationStack { AccountSettingsView() }
         .tabItem { Label("我的", systemImage: "person.fill") }.tag(AppNavigation.Tab.account)
     }
+    .background(TabReselectionObserver {
+      navigation.select(.settings, router: router)
+    }.frame(width: 0, height: 0))
     .environmentObject(navigation)
     .environmentObject(router)
     .tint(MetasequoiaTheme.accent)

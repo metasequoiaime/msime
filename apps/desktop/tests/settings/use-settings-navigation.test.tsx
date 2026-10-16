@@ -81,7 +81,7 @@ test("an aliased page id opens the page that now carries it", () => {
       const [page, setPage] = useState<SettingsPageId>(initialPage);
       const mobileLastPageByTab = useRef({
         home: "home" as SettingsPageId,
-        chat: "chat" as SettingsPageId,
+        more: "more" as SettingsPageId,
         "typing-statistics": "typing-statistics" as SettingsPageId,
         account: "account" as SettingsPageId,
       });
