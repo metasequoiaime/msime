@@ -384,7 +384,7 @@ key_bindings 可选对象示例：
 {"minus_equal":false,"comma_period":true,"brackets":false,"tab":false,"page_up_down":true,"arrows":true,"word_character":"brackets"}
 ```
 
-对象提供时七个字段必须完整且无未知字段，前六项仅接受布尔值，分别控制减号/等号、逗号/句号、方括号、Tab、PageUp/Down、上下箭头；word_character 仅 disabled/brackets/minus_equal。显式对象覆盖共享设置，修改启动文件需重启。未提供对象时使用共享 preferences.json 的 navigation 和 word_character，并通过现有监听器动态发布；旧设置缺省采用 Windows 默认值（除方括号外全部开启，以词定字关闭、键组为方括号）。共享设置禁止以词定字与同键翻页同时开启；UI 切换会同时关闭冲突项。绑定在输入队列更新，不读盘、不解析每次按键；它独立于延迟中的 Engine 方案。显式启动配置仍按以词定字优先处理同键绑定，Microsoft 分号及 Unicode 编辑优先级不变。这份配置只决定这一个 Server 实例怎么分流按键，不改变 TSF 同步契约：接在它上面的客户端必须使用匹配的吃键配置。
+对象提供时七个字段必须完整且无未知字段，前六项仅接受布尔值，分别控制减号/等号、逗号/句号、方括号、Tab、PageUp/Down、上下箭头；word_character 仅 disabled/brackets/minus_equal。显式对象覆盖共享设置，修改启动文件需重启。未提供对象时使用共享 preferences.json 的 navigation 和 word_character，并通过现有监听器动态发布；其中 Tab 和 PageUp/PageDown 两组固定开启，不读共享设置里存的值（关掉只会让这几个键在组字时被吃掉，并不交还应用，设置页也不再给这两个开关）；旧设置缺省采用 Windows 默认值（除方括号外全部开启，以词定字关闭、键组为方括号）。共享设置禁止以词定字与同键翻页同时开启：设置页不让以词定字选已用于翻页的键组，把以词定字占用的键组改为翻页时同一次保存关闭以词定字。绑定在输入队列更新，不读盘、不解析每次按键；它独立于延迟中的 Engine 方案。显式启动配置仍按以词定字优先处理同键绑定，Microsoft 分号及 Unicode 编辑优先级不变。这份配置只决定这一个 Server 实例怎么分流按键，不改变 TSF 同步契约：接在它上面的客户端必须使用匹配的吃键配置。
 
 #### 托盘菜单与共享界面
 
