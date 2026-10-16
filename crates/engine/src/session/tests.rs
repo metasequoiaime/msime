@@ -2867,6 +2867,23 @@ fn an_edit_rejects_the_answer_to_the_old_composition() {
     assert!(words(&session).contains(&"妮".to_owned()));
 }
 
+#[test]
+fn accepting_an_online_answer_does_not_rebuild_the_live_query() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "ni");
+    let query = session.online_query().expect("a quanpin query");
+    let (accepted, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        session.apply_online_candidate(&query, "妮", CandidateSource::CloudSuggestion)
+    });
+
+    assert!(accepted);
+    assert!(
+        allocations <= 41,
+        "在线回包校验不应重建完整查询，仍申请了 {allocations} 次分配"
+    );
+}
+
 /// test_runtime_isolation.cpp:257-268: moving the caret changes no query field, so an answer to the unchanged composition is still accepted.
 #[test]
 fn caret_only_movement_keeps_the_online_generation() {
