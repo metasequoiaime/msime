@@ -1576,7 +1576,7 @@ test("input parity controls persist cloud, translation and punctuation settings"
   selectSettingsTab("标点");
   // Anchored too: 重复标点转中文 names 智能标点 in its description, because the reference's wording
   // for it states the precondition rather than leaving the pair's relationship to be guessed.
-  // 用户切换智能标点总开关时，数字后直出和字母后直出跟着写成同一个值。
+  // 用户切换智能标点总开关时（默认开，收在「更多选项」里），数字后直出和字母后直出跟着写成同一个值。
   fireEvent.click(screen.getByRole("switch", { name: /^智能标点/ }));
   // 「标点」选择合并了中文标点开关和固定标点；选「始终英文标点」只写锁定，会上云的起始标点保持原值。
   fireEvent.change(screen.getByRole("combobox", { name: /^标点/ }), {
@@ -1589,9 +1589,9 @@ test("input parity controls persist cloud, translation and punctuation settings"
     cloud_candidates: false,
     candidate_translations: false,
     translation_target_language: "ja",
-    smart_punctuation: true,
-    smart_punctuation_direct_digit: true,
-    smart_punctuation_direct_letter: true,
+    smart_punctuation: false,
+    smart_punctuation_direct_digit: false,
+    smart_punctuation_direct_letter: false,
     punctuation_lock: "english",
   });
 });

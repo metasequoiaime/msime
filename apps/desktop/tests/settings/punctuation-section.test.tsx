@@ -25,21 +25,49 @@ test("punctuation controls use existing defaults and send focused preference pat
   expect(
     (screen.getByRole("switch", { name: /^成对标点自动补全/ }) as HTMLInputElement).checked,
   ).toBe(true);
-  expect((screen.getByRole("switch", { name: /^智能标点/ }) as HTMLInputElement).checked).toBe(
-    false,
-  );
+  // 智能标点默认开，总开关和四个细分开关一起收在「更多选项」里；缺键时重复转中文和两种直出跟着开，空格转换关。
+  const smart = screen.getByRole("switch", { name: /^智能标点/ }) as HTMLInputElement;
+  expect(smart.checked).toBe(true);
+  expect(smart.closest("details")?.textContent).toContain("更多选项");
   expect(screen.queryByRole("switch", { name: "全角输入" })).toBeNull();
   expect(screen.queryByRole("switch", { name: "中文标点" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: /^固定标点/ })).toBeNull();
+  for (const [name, checked] of [
+    [/^重复标点转中文/, true],
+    [/^中文标点后按空格转换/, false],
+    [/^数字后直出/, true],
+    [/^字母后直出/, true],
+  ] as const) {
+    const row = screen.getByRole("switch", { name }) as HTMLInputElement;
+    expect(row.checked).toBe(checked);
+    expect(row.disabled).toBe(false);
+    expect(row.closest("details")).toBe(smart.closest("details"));
+  }
 
-  // 智能标点关着时，它的四个细分开关在「更多选项」里、变灰，值不动。
+  // 用户切换总开关时，数字后直出和字母后直出跟着写成同一个值。
+  fireEvent.click(smart);
+  expect(onChange).toHaveBeenLastCalledWith({
+    smart_punctuation: false,
+    smart_punctuation_direct_digit: false,
+    smart_punctuation_direct_letter: false,
+  });
+});
+
+test("smart punctuation refinements grey out while the master switch is off", () => {
+  const onChange = vi.fn();
+  render(
+    <PunctuationSection
+      preferences={{ chinese_punctuation: true, smart_punctuation: false }}
+      showCharacterWidth={false}
+      onChange={onChange}
+    />,
+  );
+  // 智能标点关着时，它的四个细分开关变灰，值不动。
   for (const name of [/^重复标点转中文/, /^中文标点后按空格转换/, /^数字后直出/, /^字母后直出/]) {
     const row = screen.getByRole("switch", { name }) as HTMLInputElement;
     expect(row.disabled).toBe(true);
     expect(row.closest("details")?.textContent).toContain("更多选项");
   }
-
-  // 用户切换总开关时，数字后直出和字母后直出跟着写成同一个值。
   fireEvent.click(screen.getByRole("switch", { name: /^智能标点/ }));
   expect(onChange).toHaveBeenLastCalledWith({
     smart_punctuation: true,
@@ -214,11 +242,16 @@ test("quote and bracket styles follow 标点, show their defaults and send their
     "corner",
     "corner_when_traditional",
   ]);
-  // 引号样式紧跟在「标点」选择之后、排在智能标点前面；方头括号样式收进「更多选项」。
+  // 引号样式紧跟在「标点」选择之后、排在成对标点前面；方头括号样式收进「更多选项」，排在智能标点前面。
   const controls = Array.from(document.querySelectorAll("input, select"));
   const mode = controls.indexOf(screen.getByRole("combobox", { name: /^标点/ }));
   expect(controls.indexOf(quotes())).toBe(mode + 1);
-  expect(controls.indexOf(screen.getByRole("switch", { name: /^智能标点/ }))).toBe(mode + 2);
+  expect(controls.indexOf(screen.getByRole("switch", { name: /^成对标点自动补全/ }))).toBe(
+    mode + 2,
+  );
+  expect(controls.indexOf(screen.getByRole("switch", { name: /^智能标点/ }))).toBe(
+    controls.indexOf(brackets()) + 1,
+  );
   expect(quotes().closest("details")).toBeNull();
   expect(brackets().closest("details")?.textContent).toContain("更多选项");
 
@@ -269,7 +302,13 @@ test("the HarmonyOS phone section greys out smart punctuation refinements and wr
   // 手机仍按设计稿保留「使用英文标点」开关和「更多选项」里的「固定标点」，不换成桌面的「标点」选择。
   expect(screen.getByRole("switch", { name: "使用英文标点" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "固定标点" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("switch", { name: /^智能标点/ }));
+  // 智能标点默认开，和桌面一样连同细分开关收在「更多选项」里。
+  const smart = screen.getByRole("switch", { name: /^智能标点/ }) as HTMLInputElement;
+  expect(smart.closest("details")?.textContent).toContain("更多选项");
+  expect(smart.closest("details")).toBe(
+    screen.getByRole("switch", { name: /^重复标点转中文/ }).closest("details"),
+  );
+  fireEvent.click(smart);
   expect(onChange).toHaveBeenLastCalledWith({
     smart_punctuation: true,
     smart_punctuation_direct_digit: true,

@@ -26,11 +26,12 @@ export function punctuationControlState(
   return {
     chinese_punctuation: preferences.chinese_punctuation,
     character_width: preferences.character_width ?? "halfwidth",
-    smart_punctuation: preferences.smart_punctuation ?? false,
-    smart_punctuation_repeat: preferences.smart_punctuation_repeat ?? false,
+    // 智能标点、重复标点转中文和两种直出在所有平台上默认开，与 client-core 的 `smart_punctuation_default` 相同；空格转换默认关。
+    smart_punctuation: preferences.smart_punctuation ?? true,
+    smart_punctuation_repeat: preferences.smart_punctuation_repeat ?? true,
     smart_punctuation_space_convert: preferences.smart_punctuation_space_convert ?? false,
-    smart_punctuation_direct_digit: preferences.smart_punctuation_direct_digit ?? false,
-    smart_punctuation_direct_letter: preferences.smart_punctuation_direct_letter ?? false,
+    smart_punctuation_direct_digit: preferences.smart_punctuation_direct_digit ?? true,
+    smart_punctuation_direct_letter: preferences.smart_punctuation_direct_letter ?? true,
     paired_punctuation: preferences.paired_punctuation ?? true,
     punctuation_lock: preferences.punctuation_lock ?? "follow",
     caps_lock_ascii_punctuation: preferences.caps_lock_ascii_punctuation ?? false,
