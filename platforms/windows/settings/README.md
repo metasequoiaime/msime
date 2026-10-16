@@ -94,7 +94,7 @@ Windows App SDK 版本由 `WindowsAppSDKVersion` 属性控制，默认值与项�
 
 ## 界面验收
 
-`CI (platforms)` 的 `Windows native settings` 编译并链接本工程与真实 host-api DLL，再运行 `tests/tools/settings_ui.ps1`。脚本使从真实 host-api DLL 取得完整默认偏好，用独立合成状态，通过 UI Automation 访问全部 17 页，在浅色、深色及 800／1000 宽窗口下保存截图，产物为 `windows-native-settings-screenshots`。本机也可对构建好的宿主运行：
+`CI (platforms)` 的 `Windows native settings` 编译并链接本工程与真实 host-api DLL，再运行 `tests/tools/settings_ui.ps1`。脚本使从真实 host-api DLL 取得完整默认偏好，用独立合成状态，通过 UI Automation 访问全部 16 页，在浅色、深色及 800／1000 宽窗口下保存截图，产物为 `windows-native-settings-screenshots`。本机也可对构建好的宿主运行：
 
 ```powershell
 powershell -NoProfile -File platforms/windows/tests/tools/settings_ui.ps1 `

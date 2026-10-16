@@ -16,7 +16,7 @@ macOS 设置里「工具」「账号」「支持」几组页面上的控件，�
 - host-api 按编译到的平台（`compiled_platform()`）取值：`host_ai_candidate_limit` 用在会话创建时和偏好更新时的 AI 座位配置、在线查询，以及 `msime_client_ai_request_for_query` 建请求时的配置上，三处同一个值，`chat_completion_http_request` 对「请求与配置数量一致」的检查照常成立；`SoundSettings::new` 的效果强度同样取固定值。macOS 的 `InputController` 本来就从在线查询读 `candidate_limit`（含 AI 缓存键），不需要改；`TypingEffectPanel` 的 `applyPreferences:` 不再读 `plugins.effect_intensity`，固定为 `kDefaultIntensity`，特效包的强度仍由 `applySettings:` 换上。
 - 设置页由 `settingsCapabilities` 的 `showAiCandidateLimit`、`showEffectIntensity` 决定是否画这两行；没有宿主时（网页预览）照样画。
 - 原生回退窗口 `AISettingsWindow.mm` 去掉「候选数量」一行和它的校验，`MSIMEAISettingsMerge` 不再把 `candidate_limit` 当作自己管的键，保存别的字段时文档里的数量原样保留，不会被回退窗口写回。`AppearancePreferences.mm` 没有这两项，`sharedPreferencesByMerging:` 也不写它们。
-- 偏好字段、校验、云同步映射都不动；没有数据迁移，存着别的值的文档在 macOS 上不再被读，在 Windows、Linux 上照旧生效。
+- 偏好字段、校验、云同步映射都不动；没有数据迁移，存着别的值的文档在 macOS 上不再被读，在 Android、iOS 上照旧生效。
 
 **其余是共享页的布局改动，对所有宿主一样。**
 
@@ -100,3 +100,7 @@ macOS 的决定逐项搬到 Windows、Linux 和 HarmonyOS，判据是控件在�
 - 跟进：`cargo test -p msime-client-core`（`fixed_ai_candidate_limit_and_effect_intensity_sit_at_their_defaults` 逐平台钉住固定值）、`cargo test -p msime-host-api`（按 `compiled_platform()` 取值的用例在各平台 CI 上各自成立）；共享页 `settings.test.tsx`（四个固定数量的平台没有「联想」组，Android 仍有）、`plugins-section.test.tsx`（Windows 和鸿蒙 2in1 没有效果强度，Linux 有升档音）、`settings-page-projections.test.ts`（Linux 的账号页名）；鸿蒙 `platforms/harmony/tests/run.sh`（`TypingEffectPolicy` 不读存下的强度）；`scripts/test-linux-ibus-ai-candidate-limit.py`（IBus 的 AI 设置比较不含固定的候选数量，去掉修复时失败）；Windows 的 `windows-ai-settings`、`windows-plugin-page-model`、`windows-settings-navigation` 在本机用 clang 编译运行过，原生窗口和 Server 的改动只能由 CI 的 Windows 构建编译。
 
 相关：[AI 座位只坐一行](../feature/2026-10-11-ai-seat-placeholder.md)、[Windows 原生 AI 页](../feature/2026-10-11-windows-settings-ai-page.md)、[Windows 原生插件页](../feature/2026-10-11-windows-settings-plugins.md)、[Windows 原生统计页](../feature/2026-10-11-windows-settings-typing-statistics.md)、[Windows 原生剪贴板页](../feature/2026-10-11-windows-settings-clipboard.md)、[Windows 原生反馈页](../feature/2026-10-11-windows-settings-feedback.md)、[关于页系统信息](../feature/2026-10-10-shared-about-system-info.md)、[插件选择与播放条件](../bug-fix/2026-10-10-plugin-selection-playback-gates.md)。
+
+### 审查后的验收约束
+
+Windows 的「帮助与反馈」并入「关于」、手写并入屏幕键盘后，原生侧栏共 16 页。真实宿主验收同步访问这 16 页，并检查「关于」仍有反馈类型、描述、复制报告与交流入口；`scripts/test-windows-settings-ui-pages.py` 在本地与 CI 上核对 PowerShell 验收清单和 `SettingsNavigation.h` 的页面顺序，防止只改导航却漏改设备验收。保留独立的清单核对，是为了在不能启动 WinUI 的开发机器上也能立即发现这类漂移；真实 Windows 验收仍负责确认控件实际呈现。

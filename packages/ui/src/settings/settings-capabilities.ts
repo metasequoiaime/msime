@@ -92,7 +92,7 @@ export function settingsCapabilities({
   const showMusic = host ? host.music : false;
   const showPluginTriggers = host ? host.plugin_triggers : false;
   const showTypingEffects = host ? host.typing_effects : false;
-  // Linux shows the combo count as text in the candidate panel's aux line and draws no flash or sparks, so no style, pack or intensity has an effect there; the counter switch does, and so does 升档音, which host-api plays from the key-sound pack.
+  // Linux 只在候选辅助行显示连击数，不画闪光和火花，所以样式、特效包和强度都不起作用；连击开关和 host-api 从按键音效包播放的升档音仍然有效。
   const showTypingEffectStyles = showTypingEffects && !linux;
   // An effect pack only sets a drawn style's parameters, so it is offered wherever a style is.
   const showTypingEffectPacks = showTypingEffectStyles;

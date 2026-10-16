@@ -41,7 +41,7 @@ New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 $outputPath = (Resolve-Path -LiteralPath $OutputDirectory).Path
 $state = Join-Path ([IO.Path]::GetTempPath()) ('msime-settings-ui-' + [Guid]::NewGuid())
 $oldState = $env:MSIME_CLIENT_STATE_DIR
-$pages = @('typing', 'expression', 'shortcuts', 'lexicon', 'themes', 'candidate', 'toolbar', 'osk', 'voice', 'clip', 'stats', 'plugins', 'ai', 'account', 'dev', 'feedback', 'about')
+$pages = @('typing', 'expression', 'shortcuts', 'lexicon', 'themes', 'candidate', 'toolbar', 'osk', 'voice', 'clip', 'stats', 'plugins', 'ai', 'account', 'dev', 'about')
 $process = $null
 function Find-ById($parent, [string]$id) {
     $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, $id)
@@ -210,6 +210,13 @@ try {
                     foreach ($name in @('打开手写识别板', '高度、间距和顶部语音入口回到默认')) {
                         if (-not (Find-ByName $content $name)) { throw "Screen keyboard page is missing: $name" }
                     }
+                }
+                if ($page -eq 'about') {
+                    # 反馈并进关于后仍须能生成报告；不能只删除旧导航的验收。
+                    foreach ($name in @('反馈类型', '反馈描述', '复制报告', '查看 Issues')) {
+                        if (-not (Find-ByName $content $name)) { throw "About page is missing merged feedback content: $name" }
+                    }
+                    if (Find-ById $window 'feedback') { throw 'Merged feedback page is still in the sidebar' }
                 }
                 if ($page -eq 'toolbar') {
                     # 缩放和图标尺寸合成一个「工具栏大小」。

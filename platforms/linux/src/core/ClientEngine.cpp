@@ -2292,7 +2292,7 @@ void online_dispatch(IBusEngine *engine, uint8_t only_source, bool ai_cache_only
         const auto desired = s.applied_preferences_snapshot.value("ai_assistant", Json::object());
         const auto current = query.value("ai_assistant", Json::object());
         bool matches = desired.value("enabled", false) && current.value("enabled", false);
-        // Engine preference application may be deferred until composition ends. Never launch another request with the superseded AI settings.
+        // 引擎可能等组字结束才应用偏好，不能再用已被替换的 AI 设置发出请求。
         // 不比较 candidate_limit：Linux 的候选数量由 host-api 固定（client-core 的 `HostPlatform::fixed_ai_candidate_limit`），查询里永远是固定值，而 desired 是文档里存的原值，存的不是 3 时两边永远不等，AI 请求就再也发不出去。推迟应用的偏好改动也改不了这个固定值，没有什么要防。
         for (const auto *key : {"provider", "model", "endpoint",
                                 "prompt_id", "prompt_custom_1",

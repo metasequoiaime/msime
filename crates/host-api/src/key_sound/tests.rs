@@ -258,7 +258,7 @@ fn the_selected_effect_pack_replaces_the_preferences_style_and_follows_a_reimpor
         ..PluginPreferences::default()
     };
 
-    // No pack: the preferences' own style and intensity, and the host's defaults for the rest. 固定强度的平台（macOS、Windows）不读存下的 30，用它的固定值。
+    // 没有特效包时使用偏好的样式和强度，其他参数取宿主默认值；固定强度的平台（macOS、Windows、鸿蒙）不读存下的 30，使用固定值。
     let intensity = crate::ffi::host::compiled_platform()
         .fixed_effect_intensity()
         .unwrap_or(30);

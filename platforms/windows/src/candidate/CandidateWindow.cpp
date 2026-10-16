@@ -1013,7 +1013,7 @@ void CandidateWindow::take_typing_effect() {
   // A 0 decodes to no combo and no flash, which kills both timers below and clears a count still on the card.
   effect_ = decode_typing_effect(*packed);
   effect_started_ = GetTickCount64();
-  // The focused session's effect pack, published with the key; before any session has published one the fixed default intensity and the host's own flash stand.
+  // 焦点会话随按键发布特效包；还没有会话发布设置时，使用固定默认强度和宿主自带闪光。
   if (const auto settings = unpack_typing_effect_settings(TypingEffectSignal::instance().settings()))
     effect_settings_ = *settings;
   else
