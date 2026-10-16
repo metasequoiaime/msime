@@ -1,4 +1,3 @@
-import { SettingsGroupNote } from "../settings-group-note";
 import { useSettingsForm } from "../settings-form-context";
 import { ClipboardHistorySection } from "../clipboard-history-section";
 import { CLOUD_PANEL_SESSION_NOTE } from "../cloud-panel-session-notice";
@@ -40,18 +39,16 @@ export function ToolsSettingsPage() {
         onError={setError}
         cloudRequest={page === "tools" ? client.cloudClipboardRequest : undefined}
         cloudRoute={cloudRoute}
+        // macOS 的「云剪贴板」组里没有任何控件，只有这一句去哪里打开的说明；组撤掉了，说明挪进一直显示的「剪贴板」组。剪贴板历史关着时「历史记录」组不出现，所以不能放在那里。
+        note={macosPlatform ? CLOUD_PANEL_SESSION_NOTE : undefined}
       />
-      {(macosPlatform || client.openCloudClipboard) && (
+      {!macosPlatform && client.openCloudClipboard && (
         <GroupList title="云剪贴板">
-          {macosPlatform ? (
-            <SettingsGroupNote>{CLOUD_PANEL_SESSION_NOTE}</SettingsGroupNote>
-          ) : (
-            <OpenPanelRow
-              title="云剪贴板"
-              action={() => openPanel(client.openCloudClipboard)}
-              label="打开云剪贴板"
-            />
-          )}
+          <OpenPanelRow
+            title="云剪贴板"
+            action={() => openPanel(client.openCloudClipboard)}
+            label="打开云剪贴板"
+          />
         </GroupList>
       )}
       {client.cloudClipboardRelay && (

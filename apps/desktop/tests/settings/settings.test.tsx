@@ -33,6 +33,7 @@ import {
   type CustomSkinLibraryAction,
   type FloatingToolbarPreferences,
   type HostCapabilities,
+  type Preferences,
   type SavedTouchKeyboardSkin,
   type SettingsClient,
   type UpdateCheckResult,
@@ -2835,14 +2836,59 @@ test("clipboard history reloads when its page opens while an earlier list is pen
   expect(screen.queryByText("synthetic stale")).toBeNull();
 });
 
-test("clipboard history ignores an initial list that finishes after a manual sync", async () => {
-  const initialList = deferred<Array<{ text: string; timestampMs: number; pinned: boolean }>>();
-  const list = vi.fn().mockImplementation(() => initialList.promise);
+/** 剪贴板历史从关到开并保存：保存回执里开关是开的，「剪贴板」页据此自动同步一次系统剪贴板。 */
+function clipboardHistoryOffClient(clipboard: NonNullable<SettingsClient["clipboard"]>) {
+  const save = vi.fn(async (revision: number, preferences: Preferences) => ({
+    ...initial,
+    revision: revision + 1,
+    preferences,
+  }));
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue({
+      ...initial,
+      preferences: { ...initial.preferences, clipboard_history: false },
+    }),
+    save,
+    clipboard,
+  };
+  return { client, save };
+}
+
+async function turnClipboardHistoryOnAndSave(save: ReturnType<typeof vi.fn>) {
+  fireEvent.click(screen.getByRole("switch", { name: "剪贴板历史" }));
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalled());
+}
+
+test("turning clipboard history on and saving syncs the system clipboard once, and there is no sync button", async () => {
+  const list = vi.fn().mockResolvedValue([]);
   const sync = vi
     .fn()
     .mockResolvedValue([
       { text: "synthetic synced", timestampMs: 1_789_000_000_000, pinned: false },
     ]);
+  const { client, save } = clipboardHistoryOffClient({ list, sync, clear: vi.fn() });
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  expect(screen.queryByRole("button", { name: "从系统剪贴板同步" })).toBeNull();
+  // 只打开开关、还没保存时不同步：宿主读的是保存后的开关。
+  fireEvent.click(screen.getByRole("switch", { name: "剪贴板历史" }));
+  expect(sync).not.toHaveBeenCalled();
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  expect(await screen.findByText("synthetic synced")).toBeDefined();
+  expect(sync).toHaveBeenCalledTimes(1);
+  // 之后离开再回来不会再同步。
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  expect(sync).toHaveBeenCalledTimes(1);
+});
+
+test("opening the page with clipboard history already on does not sync", async () => {
+  const list = vi.fn().mockResolvedValue([]);
+  const sync = vi.fn().mockResolvedValue([]);
   const snapshot = { ...initial, preferences: { ...initial.preferences, clipboard_history: true } };
   render(
     <SettingsPage
@@ -2856,7 +2902,23 @@ test("clipboard history ignores an initial list that finishes after a manual syn
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
   await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
-  fireEvent.click(screen.getByRole("button", { name: "从系统剪贴板同步" }));
+  expect(sync).not.toHaveBeenCalled();
+});
+
+test("clipboard history ignores a list that finishes after the sync turning it on ran", async () => {
+  const initialList = deferred<Array<{ text: string; timestampMs: number; pinned: boolean }>>();
+  const list = vi.fn().mockImplementation(() => initialList.promise);
+  const sync = vi
+    .fn()
+    .mockResolvedValue([
+      { text: "synthetic synced", timestampMs: 1_789_000_000_000, pinned: false },
+    ]);
+  const { client, save } = clipboardHistoryOffClient({ list, sync, clear: vi.fn() });
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  await turnClipboardHistoryOnAndSave(save);
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
   expect(await screen.findByText("synthetic synced")).toBeDefined();
 
   await act(async () =>
@@ -2868,7 +2930,7 @@ test("clipboard history ignores an initial list that finishes after a manual syn
   expect(screen.queryByText("synthetic stale")).toBeNull();
 });
 
-test("clipboard history waits for a sync before accepting deletion", async () => {
+test("clipboard history waits for the sync turning it on before accepting deletion", async () => {
   const pendingSync = deferred<Array<{ text: string; timestampMs: number; pinned: boolean }>>();
   const entry = { text: "synthetic record", timestampMs: 1_789_000_000_000, pinned: false };
   let entries = [entry];
@@ -2876,22 +2938,19 @@ test("clipboard history waits for a sync before accepting deletion", async () =>
   const remove = vi.fn().mockImplementation(async () => {
     entries = [];
   });
-  const snapshot = { ...initial, preferences: { ...initial.preferences, clipboard_history: true } };
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(snapshot),
-        save: vi.fn(),
-        clipboard: { list, sync: () => pendingSync.promise, remove, clear: vi.fn() },
-      }}
-    />,
-  );
+  const { client, save } = clipboardHistoryOffClient({
+    list,
+    sync: () => pendingSync.promise,
+    remove,
+    clear: vi.fn(),
+  });
+  render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  await turnClipboardHistoryOnAndSave(save);
   const row = (await screen.findByText(entry.text)).closest(
     "[data-clipboard-entry-row]",
   ) as HTMLElement;
-  fireEvent.click(screen.getByRole("button", { name: "从系统剪贴板同步" }));
   const deleteButton = within(row).getByRole("button", {
     name: "删除剪贴板记录",
   }) as HTMLButtonElement;
@@ -2952,31 +3011,24 @@ test("clipboard history applies a sync that finishes after leaving and reopening
   const oldEntry = { text: "synthetic old", timestampMs: 1_788_000_000_000, pinned: false };
   const newEntry = { text: "synthetic new", timestampMs: 1_789_000_000_000, pinned: false };
   const list = vi.fn().mockResolvedValue([oldEntry]);
-  const snapshot = { ...initial, preferences: { ...initial.preferences, clipboard_history: true } };
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(snapshot),
-        save: vi.fn(),
-        clipboard: {
-          list,
-          sync: () => pendingSync.promise,
-          clear: vi.fn().mockResolvedValue(undefined),
-        },
-      }}
-    />,
-  );
+  const { client, save } = clipboardHistoryOffClient({
+    list,
+    sync: () => pendingSync.promise,
+    clear: vi.fn().mockResolvedValue(undefined),
+  });
+  render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  await turnClipboardHistoryOnAndSave(save);
   expect(await screen.findByText(oldEntry.text)).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "从系统剪贴板同步" }));
 
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
   await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
-  expect(
-    (screen.getByRole("button", { name: "从系统剪贴板同步" }) as HTMLButtonElement).disabled,
-  ).toBe(true);
+  // 同步还没回来，开关保持不可用。
+  expect((screen.getByRole("switch", { name: "剪贴板历史" }) as HTMLInputElement).disabled).toBe(
+    true,
+  );
 
   await act(async () => pendingSync.resolve([newEntry]));
   expect(screen.getByText(newEntry.text)).toBeDefined();
@@ -8313,7 +8365,11 @@ test("macOS opens handwriting for copying while input-session panels use the nat
   await waitFor(() => expect(client.openHandwriting).toHaveBeenCalledTimes(1));
 
   fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
-  expect(await screen.findByText(/请从输入法菜单中的「云剪贴板…」打开/)).toBeDefined();
+  // 「云剪贴板」组在 macOS 上没有控件，整组撤掉；去哪里打开的那句说明挪进一直显示的「剪贴板」组。
+  const note = await screen.findByText(/请从输入法菜单中的「云剪贴板…」打开/);
+  const tools = screen.getByRole("group", { name: "剪贴板" });
+  expect(within(tools).getByRole("region", { name: "剪贴板" }).contains(note)).toBe(true);
+  expect(within(tools).queryByRole("region", { name: "云剪贴板" })).toBeNull();
   expect(screen.queryByRole("button", { name: "打开云剪贴板" })).toBeNull();
   // The cloud dictionary only manages words, so it needs no input session and opens from 词库 like on every other desktop.
   expect(screen.queryByRole("button", { name: "打开云词库" })).toBeNull();
