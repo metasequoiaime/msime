@@ -7,7 +7,7 @@ import { ActionButton } from "../core/action-button";
 import { FluentIcon } from "../core/fluent-icons";
 import { NavGroup, NavRow } from "../core/platform-controls";
 import type { ImeSetupClient } from "../core/host-contracts";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { touchKeyboardSchemeTitle } from "../settings/touch-keyboard-scheme-helpers";
 import { SetupStatusCard } from "./setup-status-card";
 import { logo } from "../settings/app-resources";

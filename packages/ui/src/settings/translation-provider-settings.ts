@@ -1,5 +1,6 @@
 import type { ProviderCredentialStatus } from "../core/provider-credential-contracts";
-import type { Preferences, SettingsClient } from "../index";
+import type { SettingsClient } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import type { useProviderCredentials } from "./use-provider-credentials";
 import {
   customTranslationCredentialTestConfig,

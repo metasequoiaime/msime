@@ -1,4 +1,4 @@
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { preeditControlState } from "../settings/preedit-preferences";
 import { ReservedCandidatePreview, type PreviewReserve } from "../skin/skin-candidate-preview";
 import { candidateFontSize, candidateFontStyle } from "./candidate-font-size";

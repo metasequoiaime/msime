@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { ActionButton } from "../core/action-button";
 import { errorCode } from "../core/error-code";
 import { FluentIcon, type FluentIconName } from "../core/fluent-icons";

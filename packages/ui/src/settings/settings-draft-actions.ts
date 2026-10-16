@@ -1,10 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
-import type {
-  AiAssistantPreferences,
-  CustomTheme,
-  Preferences,
-  VoiceInputPreferences,
-} from "../index";
+import type { AiAssistantPreferences, CustomTheme, VoiceInputPreferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { defaultAiAssistant } from "./ai-assistant-defaults";
 import { defaultVoiceInput } from "./voice-input-defaults";
 import { defaultTouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-design";

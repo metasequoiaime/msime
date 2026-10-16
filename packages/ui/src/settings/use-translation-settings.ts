@@ -6,7 +6,7 @@ import {
   defaultTencentTranslation,
 } from "./translation-defaults";
 import { translationLanguageChoices, translationLanguages } from "./translation-language-helpers";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 
 export interface UseTranslationSettingsOptions {
   preferences?: Preferences;

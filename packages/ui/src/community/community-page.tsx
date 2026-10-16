@@ -14,7 +14,7 @@ import {
 } from "./community-candidate-skins";
 import type { SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 
 export interface CommunityPageProps {
   skins?: CommunitySkinClient;

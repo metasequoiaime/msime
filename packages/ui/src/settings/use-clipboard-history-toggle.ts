@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 
 export interface UseClipboardHistoryToggleOptions {
   draft: Preferences | undefined;

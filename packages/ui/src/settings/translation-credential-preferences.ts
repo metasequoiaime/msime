@@ -1,4 +1,4 @@
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 
 /** 自定义翻译服务的共享偏好模型。 */
 export type CustomTranslationPreferences = NonNullable<Preferences["custom_translation"]>;

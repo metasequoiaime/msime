@@ -1,4 +1,4 @@
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { FluentIcon, type FluentIconName } from "../core/fluent-icons";
 import { NavGroup, NavRow } from "../core/platform-controls";
 import { globalThemeTitle } from "../theme/global-theme";

@@ -1,6 +1,6 @@
 import type { TouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-design";
 import { customThemeBase, type CustomCandidateColors } from "../theme/global-theme";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 
 /** 应用一个候选颜色：保留当前主题作底，并清掉浅色、深色两个槽位的皮肤包。 */
 export function updateCandidateColor(

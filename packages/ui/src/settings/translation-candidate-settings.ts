@@ -1,4 +1,4 @@
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import type { CandidateTranslationSettingsSectionProps } from "./candidate-translation-settings-section";
 import type {
   TranslationLanguage,

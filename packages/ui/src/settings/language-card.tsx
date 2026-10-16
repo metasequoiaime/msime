@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { ActionSheet, type SheetOption } from "../core/action-sheet";
 import {
   languageRemovalFallback,

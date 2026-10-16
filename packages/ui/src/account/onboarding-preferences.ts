@@ -1,4 +1,4 @@
-import type { Snapshot, Preferences } from "../index";
+import type { Snapshot, Preferences } from "../core/preferences-model";
 import type { TouchKeyboardScheme } from "../settings/touch-keyboard-scheme-helpers";
 import type { OnboardingChoices, OnboardingInputScheme } from "./onboarding-page";
 

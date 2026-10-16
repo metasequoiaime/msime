@@ -1,5 +1,5 @@
 import { useLayoutEffect, useState } from "react";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import type { ImeSetupClient, ImeSetupState } from "../core/host-contracts";
 import { MsimeMark } from "../core/brand-logo";
 import { FluentIcon } from "../core/fluent-icons";

@@ -5,7 +5,7 @@ import {
   type SetStateAction,
 } from "react";
 import { clamp } from "../core/number";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { touchKeyboardGeometryPreferences } from "./touch-keyboard-geometry-preferences";
 import { touchKeyboardSpacingLimits } from "./touch-keyboard-spacing";
 
