@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAsyncActionRunner } from "../core/use-async-action";
 import { appendUniqueById } from "./community-helpers";
-import { communityReportedNotice, type CommunityReportReason } from "./community-report";
+import { communityReportedNotice, type CommunityReportReason } from "./community-report-model";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 
 export type CommunityGalleryPage<T> = {

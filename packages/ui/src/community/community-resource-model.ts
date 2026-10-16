@@ -1,5 +1,5 @@
 import { formatZhNumber } from "../core/format-number";
-import type { CommunityModeration, CommunityReportReason } from "./community-report";
+import type { CommunityModeration, CommunityReportReason } from "./community-report-model";
 
 export type CommunityResourceScope = "" | "mine" | "saved";
 

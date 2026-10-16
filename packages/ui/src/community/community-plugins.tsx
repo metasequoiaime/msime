@@ -4,12 +4,8 @@ import {
   communityPublishFields,
   handleCommunityPublishKeyDown,
 } from "./community-publish-validation";
-import {
-  kindLabels,
-  type PluginCatalogResult,
-  type PluginKind,
-  type PluginPackage,
-} from "../settings/plugins-section";
+import type { PluginCatalogResult, PluginKind, PluginPackage } from "../settings/plugin-types";
+import { kindLabels } from "../settings/plugin-catalog-helpers";
 import { packKindLabel } from "../settings/plugin-catalog-helpers";
 import { StatusMessage } from "../core/status-message";
 import {
@@ -33,11 +29,7 @@ import { CommunitySelectField } from "./community-select-field";
 import { CommunityPublicationMetadataFields } from "./community-publication-metadata-fields";
 import { CommunityPublicationWarning } from "./community-publication-warning";
 import { CommunityNotice } from "./community-notice";
-import {
-  CommunityReportSection,
-  type CommunityModeration,
-  type CommunityReportReason,
-} from "./community-report";
+import { CommunityReportSection } from "./community-report";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityCard } from "./community-card";
@@ -56,86 +48,21 @@ import { CommunityPageShell } from "./community-page-shell";
 import { useCommunityInstallState } from "./community-install-state";
 import { communityInstallPreflight } from "./community-install-preflight";
 
-/** 包可以按哪些类型分享：所有类型都可以，效果包也在内。与 `client-services::plugins::community::PUBLISHABLE_KINDS` 保持一致。 */
-export type CommunityPluginKind = PluginKind;
-
-export const communityPluginKinds: readonly CommunityPluginKind[] = [
-  "sound",
-  "music",
-  "command_table",
-  "effect",
-  "phrase_table",
-  "helpcode",
-  "wordbook",
-  "symbol_set",
-];
-
-/** 一条发布，对应 `client-services::plugins::community::CommunityPlugin`。 */
-export type CommunityPlugin = {
-  id: string;
-  kind: CommunityPluginKind;
-  /** The manifest id, which is also the folder the pack installs into. */
-  plugin_id: string;
-  name: string;
-  description: string;
-  author: string;
-  version: string;
-  license: string;
-  size: number;
-  sha256: string;
-  downloads: number;
-  rating_count: number;
-  rating_average: number;
-  owned: boolean;
-  my_rating: number;
-  created_at: string;
-  /** Sent only on the user's own packs; `removed` shows 已下架. */
-  moderation?: CommunityModeration | null;
-};
-
-export type CommunityPluginPage = {
-  plugins: CommunityPlugin[];
-  has_more: boolean;
-  /** Listed packs of a kind this client cannot install (one newer than this client), left out by the host but still counted toward the next offset. */
-  skipped?: number;
-};
-
-/** What the host's packer made of an installed pack before anything is uploaded. */
-export type CommunityPluginPackPreview = {
-  suggestedName: string;
-  suggestedDescription: string;
-  version: string;
-  license: string;
-  fileCount: number;
-  size: number;
-};
-
-/** Desktop community commands for plugin packs. The host packs an installed pack itself and installs a download through the same import a local `.zip` goes through, so the webview names a pack by kind and id, or a publication by its id, and never passes paths or bytes. */
-export interface CommunityPluginClient {
-  list(
-    offset: number,
-    search: string,
-    kind: CommunityPluginKind | null,
-    /** Only the signed-in user's own packs, removed ones included. */
-    mine?: boolean,
-  ): Promise<CommunityPluginPage>;
-  detail(id: string): Promise<CommunityPlugin>;
-  packPreview(kind: CommunityPluginKind, pluginId: string): Promise<CommunityPluginPackPreview>;
-  /** `id` is the page's publication id: reusing it after a failed attempt lets the server answer a retry with the item it already stored. */
-  publish(
-    kind: CommunityPluginKind,
-    pluginId: string,
-    id: string,
-    name: string,
-    description: string,
-  ): Promise<CommunityPlugin>;
-  /** Downloads, verifies and installs, replacing an installed pack of the same kind and id. `kind` and `pluginId` are the listing's, the pack the page asked about replacing; the host refuses a download that names another. */
-  install(id: string, kind: CommunityPluginKind, pluginId: string): Promise<PluginPackage>;
-  rate(id: string, stars: number): Promise<{ stars: number }>;
-  delete(id: string): Promise<{ deleted: boolean }>;
-  /** Reports another user's pack to the moderators. */
-  report?(id: string, reason: CommunityReportReason, detail: string): Promise<void>;
-}
+import {
+  type CommunityPluginKind,
+  communityPluginKinds,
+  type CommunityPlugin,
+  type CommunityPluginPackPreview,
+  type CommunityPluginClient,
+} from "./community-plugin-model";
+export {
+  type CommunityPluginKind,
+  communityPluginKinds,
+  type CommunityPlugin,
+  type CommunityPluginPage,
+  type CommunityPluginPackPreview,
+  type CommunityPluginClient,
+} from "./community-plugin-model";
 
 /** The server's archive limit, stated next to the packed size so the author sees the headroom. */
 const archiveLimit = "8 MB";

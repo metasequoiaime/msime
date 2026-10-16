@@ -7,8 +7,8 @@ import {
   CommunityHarmonyLoadMore,
   CommunityHarmonySearch,
   CommunitySkinsPage,
-  type CommunitySkinClient,
 } from "./community-skins";
+import { type CommunitySkinClient } from "./community-skin-model";
 import { useToast } from "../core/toast";
 import { boundedGraphemes } from "../core/text";
 import type { Preferences } from "../core/preferences-model";
@@ -27,11 +27,8 @@ import { CommunityGalleryHeader } from "./community-gallery-header";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailHeader } from "./community-detail-header";
 import { CommunityRatingMetrics } from "./community-rating-metrics";
-import {
-  CommunityReportSection,
-  communityReportedNotice,
-  type CommunityReportReason,
-} from "./community-report";
+import { CommunityReportSection } from "./community-report";
+import { communityReportedNotice, type CommunityReportReason } from "./community-report-model";
 import { CommunityResourceScopeButtons } from "./community-resource-scope-buttons";
 import { CommunityInputField } from "./community-input-field";
 import { CommunitySelectField } from "./community-select-field";

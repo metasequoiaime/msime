@@ -18,12 +18,12 @@ import {
   type SavedTouchKeyboardSkin,
   type TouchKeyboardSkinDesign,
 } from "./touch-keyboard-skin-design";
-import type { CommunitySkinClient } from "../community/community-skins";
+import type { CommunitySkinClient } from "../community/community-skin-model";
 import {
   communitySkinCategories,
   communitySkinCategoryLabels,
   type CommunitySkinCategory,
-} from "../community/community-skin-category";
+} from "../community/community-skin-category-model";
 import * as doc from "../settings/document-style";
 import * as community from "../community/community-style";
 import { SettingsPageHeader } from "../settings/settings-page-header";

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { CommunityRemovedBadge, type CommunityModeration } from "./community-report";
+import { CommunityRemovedBadge } from "./community-report";
+import { type CommunityModeration } from "./community-report-model";
 import * as style from "./community-style";
 
 export interface CommunityDetailHeaderProps {

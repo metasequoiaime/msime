@@ -3,7 +3,7 @@ import type {
   CommunitySkinClient,
   CommunitySkinDownload,
   CommunitySkinPage,
-} from "./community-skins";
+} from "./community-skin-model";
 
 export type CommunitySkinOperation =
   | "list"

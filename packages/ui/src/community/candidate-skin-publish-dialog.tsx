@@ -34,7 +34,7 @@ import {
   type CandidateSkinPackPreview,
   type CandidateSkinVisibility,
   type CommunityCandidateSkin,
-} from "./community-candidate-skins";
+} from "./community-candidate-skin-model";
 
 type LocalSkinOption = { id: string; name: string };
 

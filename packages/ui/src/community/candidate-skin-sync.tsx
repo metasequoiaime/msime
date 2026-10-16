@@ -4,7 +4,7 @@ import { useAsyncActionRunner } from "../core/use-async-action";
 import type {
   CandidateSkinCommunityClient,
   CandidateSkinSyncReport,
-} from "./community-candidate-skins";
+} from "./community-candidate-skin-model";
 
 export type CandidateSkinSyncState = {
   busy: boolean;

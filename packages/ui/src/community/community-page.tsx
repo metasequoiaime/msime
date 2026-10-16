@@ -7,11 +7,10 @@ import type {
   CommunityResourceKind,
   CommunityResourceScope,
 } from "./community-resource-model";
-import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
-import {
-  CommunityCandidateSkinsPage,
-  type CandidateSkinCommunityClient,
-} from "./community-candidate-skins";
+import { CommunitySkinsPage } from "./community-skins";
+import { type CommunitySkinClient } from "./community-skin-model";
+import { CommunityCandidateSkinsPage } from "./community-candidate-skins";
+import { type CandidateSkinCommunityClient } from "./community-candidate-skin-model";
 import type { SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
 import type { Preferences } from "../core/preferences-model";

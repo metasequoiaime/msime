@@ -25,7 +25,7 @@ import {
   type TouchSkinKeyMaterial,
   type TouchSkinKeyShape,
 } from "./touch-keyboard-skin-design";
-import type { CommunitySkinClient } from "../community/community-skins";
+import type { CommunitySkinClient } from "../community/community-skin-model";
 import * as skin from "./touch-skin-style";
 import * as doc from "../settings/document-style";
 import { SettingsPageHeader } from "../settings/settings-page-header";

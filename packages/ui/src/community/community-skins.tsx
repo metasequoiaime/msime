@@ -21,11 +21,7 @@ import { CommunityDetailFrame } from "./community-detail-frame";
 import * as style from "./community-style";
 import type { CommunitySearchFormProps } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
-import {
-  CommunityReportSection,
-  type CommunityModeration,
-  type CommunityReportReason,
-} from "./community-report";
+import { CommunityReportSection } from "./community-report";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
 import { CommunityPublicationWarning } from "./community-publication-warning";
 import { CommunityNotice } from "./community-notice";
@@ -54,71 +50,31 @@ import { communityPublishFields } from "./community-publish-validation";
 import {
   CommunitySkinCategoryFilter,
   CommunitySkinCategorySelect,
+} from "./community-skin-category";
+import {
   communitySkinCategories,
   communitySkinCategoryLabel,
   communitySkinCategoryLabels,
-  useCommunitySkinCategoryFilter,
   type CommunitySkinCategory,
-} from "./community-skin-category";
+} from "./community-skin-category-model";
+import { useCommunitySkinCategoryFilter } from "./use-community-skin-category-filter";
 import type {
   CustomSkinLibraryClient,
   SavedTouchKeyboardSkin,
-  TouchKeyboardSkinDesign,
 } from "../keyboard/touch-keyboard-skin-design";
 
-export type CommunitySkin = {
-  id: string;
-  name: string;
-  description: string;
-  author: string;
-  design: TouchKeyboardSkinDesign;
-  downloads: number;
-  rating_count: number;
-  rating_average: number;
-  owned: boolean;
-  my_rating: number;
-  /** Sent only on the user's own skins; `removed` shows 已下架. */
-  moderation?: CommunityModeration | null;
-  /** 发布分类；早于分类功能的服务端不返回。 */
-  category?: CommunitySkinCategory;
-};
-
-export type CommunitySkinPage = {
-  skins: CommunitySkin[];
-  has_more: boolean;
-};
-
-export type CommunitySkinTrial = { id: string; name: string };
-export type CommunitySkinDownload = {
-  skin: { id: string; name: string; design: TouchKeyboardSkinDesign };
-  trial: CommunitySkinTrial;
-};
-
-export interface CommunitySkinClient {
-  /** `mine` lists only the signed-in user's own skins, removed ones included. `category` 为 `null` 时列出全部分类。 */
-  list(
-    offset: number,
-    search: string,
-    mine: boolean,
-    category: CommunitySkinCategory | null,
-  ): Promise<CommunitySkinPage>;
-  detail(id: string): Promise<CommunitySkin>;
-  download(id: string, name: string): Promise<CommunitySkinDownload>;
-  rate(id: string, stars: number): Promise<void>;
-  publish(
-    id: string,
-    name: string,
-    description: string,
-    design: TouchKeyboardSkinDesign,
-    category: CommunitySkinCategory,
-  ): Promise<void>;
-  unpublish(id: string): Promise<void>;
-  /** 修改自己作品的发布分类，返回修改后的条目。 */
-  setCategory(id: string, category: CommunitySkinCategory): Promise<CommunitySkin>;
-  finishTrial(id: string, keep: boolean): Promise<void>;
-  /** Reports another user's skin to the moderators. */
-  report?(id: string, reason: CommunityReportReason, detail: string): Promise<void>;
-}
+import {
+  type CommunitySkin,
+  type CommunitySkinTrial,
+  type CommunitySkinClient,
+} from "./community-skin-model";
+export {
+  type CommunitySkin,
+  type CommunitySkinPage,
+  type CommunitySkinTrial,
+  type CommunitySkinDownload,
+  type CommunitySkinClient,
+} from "./community-skin-model";
 
 function CommunitySkinPublishDialog({
   client,

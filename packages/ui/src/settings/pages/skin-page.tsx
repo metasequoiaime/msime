@@ -27,7 +27,7 @@ import {
   useSkinCatalog,
 } from "../../skin/external-skins";
 import { CandidateSkinPublishDialog } from "../../community/candidate-skin-publish-dialog";
-import type { CandidateSkinVisibility } from "../../community/community-candidate-skins";
+import type { CandidateSkinVisibility } from "../../community/community-candidate-skin-model";
 import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
 import { AiSkinGeneration } from "../../keyboard/ai-skin-generation";
 import { TouchKeyboardSkinEditor } from "../../keyboard/touch-keyboard-skin-editor";

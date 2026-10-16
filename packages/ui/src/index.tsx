@@ -1249,14 +1249,14 @@ export {
   type PreeditSettingsPreferences,
   type TsfPreeditStyle,
 } from "./settings/preedit-settings-section";
+export { CommunitySkinsPage } from "./community/community-skins";
 export {
-  CommunitySkinsPage,
   type CommunitySkin,
   type CommunitySkinClient,
   type CommunitySkinDownload,
   type CommunitySkinPage,
   type CommunitySkinTrial,
-} from "./community/community-skins";
+} from "./community/community-skin-model";
 export {
   createCommunitySkinClient,
   type CommunitySkinOperation,
@@ -1272,14 +1272,16 @@ export {
 export {
   CommunityRemovedBadge,
   CommunityReportSection,
+  type CommunityReportSectionProps,
+} from "./community/community-report";
+export {
   communityReportDetailLimit,
   communityReportReasons,
   communityReportedNotice,
   type CommunityModeration,
   type CommunityReportKind,
   type CommunityReportReason,
-  type CommunityReportSectionProps,
-} from "./community/community-report";
+} from "./community/community-report-model";
 export {
   CommunityErrorAlert,
   type CommunityErrorAlertProps,
@@ -1331,8 +1333,8 @@ export type {
   CommunityResourceScope,
   CommunitySharedWord,
 } from "./community/community-resource-model";
+export { CommunityCandidateSkinsPage } from "./community/community-candidate-skins";
 export {
-  CommunityCandidateSkinsPage,
   candidateSkinCategories,
   candidateSkinCategoryLabels,
   type CandidateSkinCategory,
@@ -1344,7 +1346,7 @@ export {
   type CommunityCandidateSkin,
   type CommunityCandidateSkinLicense,
   type CommunityCandidateSkinPage,
-} from "./community/community-candidate-skins";
+} from "./community/community-candidate-skin-model";
 export {
   CommunityScopeButtons,
   type CommunityScopeButtonsProps,
@@ -1475,16 +1477,15 @@ export {
   type CommunitySelectFieldProps,
 } from "./community/community-select-field";
 export { CandidateSkinPublishDialog } from "./community/candidate-skin-publish-dialog";
+export { CommunityPluginPublishDialog, CommunityPluginsPage } from "./community/community-plugins";
 export {
-  CommunityPluginPublishDialog,
-  CommunityPluginsPage,
   communityPluginKinds,
   type CommunityPlugin,
   type CommunityPluginClient,
   type CommunityPluginKind,
   type CommunityPluginPackPreview,
   type CommunityPluginPage,
-} from "./community/community-plugins";
+} from "./community/community-plugin-model";
 export { CommunityPage, type CommunityPageProps } from "./community/community-page";
 export type { SkinCatalog, ExternalSkin } from "./skin/external-skins";
 export type { SkinImage, SkinImageReader } from "./skin/skin-image";

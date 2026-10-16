@@ -22,11 +22,7 @@ import * as style from "./community-style";
 import { CommunityGalleryHeader } from "./community-gallery-header";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunityModerationSection } from "./community-moderation-section";
-import {
-  CommunityReportSection,
-  type CommunityModeration,
-  type CommunityReportReason,
-} from "./community-report";
+import { CommunityReportSection } from "./community-report";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityCard } from "./community-card";
@@ -45,125 +41,30 @@ import { ActionButton } from "../core/action-button";
 import {
   CommunitySkinCategoryFilter,
   CommunitySkinCategorySelect,
-  communitySkinCategories,
-  communitySkinCategoryLabel,
-  communitySkinCategoryLabels,
-  useCommunitySkinCategoryFilter,
-  type CommunitySkinCategory,
 } from "./community-skin-category";
+import { communitySkinCategoryLabel } from "./community-skin-category-model";
+import { useCommunitySkinCategoryFilter } from "./use-community-skin-category-filter";
 
-/** The server's license columns; each is `""` when the manifest leaves it out. */
-export type CommunityCandidateSkinLicense = {
-  code: string;
-  assets: string;
-  source: string;
-};
-
-/** Who can see a package: everyone in the gallery, or only its owner, whose library sync keeps private packages in. */
-export type CandidateSkinVisibility = "public" | "private";
-
-/** 候选窗口皮肤的发布分类，与社区键盘皮肤共用；只是发布元数据，不写进 skin.toml。 */
-export type CandidateSkinCategory = CommunitySkinCategory;
-export const candidateSkinCategories = communitySkinCategories;
-export const candidateSkinCategoryLabels = communitySkinCategoryLabels;
-
-export type CommunityCandidateSkin = {
-  id: string;
-  /** The manifest id, which is also the folder the package installs into. */
-  package_id: string;
-  name: string;
-  description: string;
-  author: string;
-  version: string;
-  license: CommunityCandidateSkinLicense;
-  size: number;
-  file_count: number;
-  downloads: number;
-  rating_count: number;
-  rating_average: number;
-  owned: boolean;
-  my_rating: number;
-  created_at: string;
-  visibility: CandidateSkinVisibility;
-  updated_at: string;
-  /** Sent only on the user's own packages; `removed` shows 已下架. */
-  moderation?: CommunityModeration | null;
-  /** 发布分类；早于分类功能的服务端不返回。 */
-  category?: CandidateSkinCategory;
-};
-
-export type CommunityCandidateSkinPage = {
-  skins: CommunityCandidateSkin[];
-  has_more: boolean;
-};
-
-/** What the host's packer found in a local package before anything is uploaded; the license comes from skin.toml, so absent keys are `null`. */
-export type CandidateSkinPackPreview = {
-  suggestedName: string;
-  license: {
-    code: string | null;
-    assets: string | null;
-    source: string | null;
-  };
-  fileCount: number;
-  size: number;
-};
-
-/** A package one sync run left as it was, with a `candidate_skin_*` rule code or an `account_*` request code. */
-export type CandidateSkinSyncSkip = { package_id: string; code: string };
-
-/** What one sync of the local skin directory with the user's library did, each list by package id. */
-export type CandidateSkinSyncReport = {
-  uploaded: string[];
-  downloaded: string[];
-  deleted_local: string[];
-  deleted_cloud: string[];
-  skipped: CandidateSkinSyncSkip[];
-  /** `account_rate_limited` or `candidate_skin_library_limit` when uploads stopped for the rest of the run. */
-  stopped: string | null;
-};
-
-/** Desktop community commands for candidate-window skin packages; the host packs, downloads and installs, so the webview never handles paths or package bytes. */
-export interface CandidateSkinCommunityClient {
-  /** `category` 为 `null` 时列出全部分类。 */
-  list(
-    offset: number,
-    search: string,
-    mine: boolean,
-    category: CandidateSkinCategory | null,
-  ): Promise<CommunityCandidateSkinPage>;
-  detail(id: string): Promise<CommunityCandidateSkin>;
-  preview(id: string): Promise<{ dataUrl: string }>;
-  /** Downloads and installs into the external skin directory, answering with the rescanned catalog. */
-  install(id: string, replace: boolean): Promise<SkinCatalog>;
-  /** Checks the package against the rules for `visibility`: only a public package needs an asset license. */
-  packPreview(
-    skinId: string,
-    visibility: CandidateSkinVisibility,
-  ): Promise<CandidateSkinPackPreview>;
-  /** Saves `bytes`, a PNG or JPEG preview the page drew, into the installed package `skinId`, which has none, and answers with the rescanned catalog. */
-  addPreview(skinId: string, bytes: number[]): Promise<SkinCatalog>;
-  /** Writes `assets`, the asset license the user chose, into the manifest of the installed package `skinId`, which has none, and answers with the rescanned catalog. */
-  addLicense(skinId: string, assets: string): Promise<SkinCatalog>;
-  /** A package sync already keeps in the library is updated in place, so publishing never leaves a second copy. */
-  publish(
-    skinId: string,
-    id: string,
-    name: string,
-    description: string,
-    visibility: CandidateSkinVisibility,
-    category: CandidateSkinCategory,
-  ): Promise<CommunityCandidateSkin>;
-  setVisibility(id: string, visibility: CandidateSkinVisibility): Promise<CommunityCandidateSkin>;
-  /** 修改自己作品的发布分类。 */
-  setCategory(id: string, category: CandidateSkinCategory): Promise<CommunityCandidateSkin>;
-  /** Brings the local skin directory and the signed-in user's library in step; `community_unauthorized` when signed out. */
-  sync(): Promise<CandidateSkinSyncReport>;
-  rate(id: string, stars: number): Promise<{ stars: number }>;
-  unpublish(id: string): Promise<{ deleted: boolean }>;
-  /** Reports another user's package to the moderators. */
-  report?(id: string, reason: CommunityReportReason, detail: string): Promise<void>;
-}
+import {
+  type CandidateSkinVisibility,
+  type CandidateSkinCategory,
+  candidateSkinCategoryLabels,
+  type CommunityCandidateSkin,
+  type CandidateSkinCommunityClient,
+} from "./community-candidate-skin-model";
+export {
+  type CommunityCandidateSkinLicense,
+  type CandidateSkinVisibility,
+  type CandidateSkinCategory,
+  candidateSkinCategories,
+  candidateSkinCategoryLabels,
+  type CommunityCandidateSkin,
+  type CommunityCandidateSkinPage,
+  type CandidateSkinPackPreview,
+  type CandidateSkinSyncSkip,
+  type CandidateSkinSyncReport,
+  type CandidateSkinCommunityClient,
+} from "./community-candidate-skin-model";
 
 type PreviewLoader = (id: string) => Promise<string>;
 const CANDIDATE_SKIN_PREVIEW_CACHE_CAPACITY = 16;

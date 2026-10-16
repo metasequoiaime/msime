@@ -4,34 +4,20 @@ import { CommunityTextareaField } from "./community-textarea-field";
 import { CommunityConfirmationActions } from "./community-confirmation-actions";
 import { ActionButton } from "../core/action-button";
 
-/** 举报针对的对象类别，写法与 `POST /v1/community/reports` 和 client-services 的 `CommunityReportKind` 一致。 */
-export type CommunityReportKind =
-  | "skins"
-  | "candidate-skins"
-  | "plugins"
-  | "dictionaries"
-  | "replies";
-
-/** 举报可选的固定理由，按对话框列出的顺序；标签就是审核人员看到的文字。与 client-services 的 `CommunityReportReason::ALL` 对应。 */
-export const communityReportReasons = [
-  "侵权/抄袭",
-  "色情低俗",
-  "违法违规",
-  "垃圾广告",
-  "恶意插件",
-  "其他",
-] as const;
-
-export type CommunityReportReason = (typeof communityReportReasons)[number];
-
-/** Longest optional detail the server accepts. */
-export const communityReportDetailLimit = 1000;
-
-/** Where the signed-in user's own published item stands with the moderators; sent only for one's own items. */
-export type CommunityModeration = "approved" | "pending" | "removed";
-
-/** The notice a gallery shows once a report was filed (a repeated report of the same item is accepted the same way). */
-export const communityReportedNotice = "已收到举报，我们会尽快处理。";
+import {
+  communityReportReasons,
+  type CommunityReportReason,
+  communityReportDetailLimit,
+  type CommunityModeration,
+} from "./community-report-model";
+export {
+  type CommunityReportKind,
+  communityReportReasons,
+  type CommunityReportReason,
+  communityReportDetailLimit,
+  type CommunityModeration,
+  communityReportedNotice,
+} from "./community-report-model";
 
 /** The 已下架 badge on the owner's own item that moderators removed. Nothing else about moderation is shown: no reason and no pending state. */
 export function CommunityRemovedBadge({
