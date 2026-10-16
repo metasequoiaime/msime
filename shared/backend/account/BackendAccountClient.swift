@@ -78,7 +78,7 @@ struct BackendAccountClient: Sendable {
     let id: String
     let display_name: String
     let created_at: String
-    /// The verified email of the linked Google identity and the avatar URL, both optional like Rust's `AccountUser`. Kept so a session Swift rewrites (refresh, profile update) does not drop them for the Rust readers of the same store; `var` so the memberwise initializer defaults them to nil.
+    /// 已绑定 Google 身份的验证邮箱和头像 URL，与 Rust 的 `AccountUser` 一样都是可选的。保留它们是为了 Swift 改写会话（刷新、更新资料）时不替同一份存储的 Rust 读取方丢掉这两个字段；声明为 `var`，memberwise 初始化器才会默认给 nil。
     var email: String?
     var avatar_url: String?
     var preferredDisplayName: String {

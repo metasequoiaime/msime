@@ -287,7 +287,7 @@ final class BackendAccountClientTests: XCTestCase {
     XCTAssertEqual(renamed.preferredDisplayName, "我的昵称")
   }
 
-  /// Rust's `AccountUser` writes `email` and `avatar_url` into the same stored session; a Swift rewrite must keep them, and must not invent them for an older document.
+  /// Rust 的 `AccountUser` 会把 `email` 和 `avatar_url` 写进同一份存储的会话；Swift 改写时必须保留它们，旧文档里没有时也不能凭空补出来。
   func testUserKeepsOptionalEmailAndAvatarAcrossARewrite() throws {
     let full = Data(#"{"id":"synthetic-user","display_name":"","created_at":"2026-01-01T00:00:00Z","email":"person@example.test","avatar_url":"https://media.msime.app/avatars/synthetic.jpg"}"#.utf8)
     let user = try JSONDecoder().decode(BackendAccountClient.User.self, from: full)
