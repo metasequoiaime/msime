@@ -17,7 +17,7 @@ const kaomojiDescription =
 
 export interface MixedInputSectionProps {
   preferences: MixedInputPreferences;
-  /** 宿主读触发字符数（`HostCapabilities.mixed_input_minimum_prefix`）时显示「触发字符数」；为假时（macOS）它固定为 5，这一行不出现。缺省为真。 */
+  /** 宿主读触发字符数（`HostCapabilities.mixed_input_minimum_prefix`）时显示「触发字符数」；为假时（macOS、Windows、Linux 三个桌面宿主）它固定为 5，这一行不出现。缺省为真。 */
   showMinimumPrefix?: boolean;
   onChange: (preferences: MixedInputPreferences) => void;
 }

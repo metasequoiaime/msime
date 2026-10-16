@@ -24,7 +24,7 @@ export const defaultNavigation: NavigationPreferences = {
   arrows: true,
 };
 
-/** 宿主把 Tab、PageUp/PageDown 两组翻页键固定为开时（`HostCapabilities.tab_page_paging_switches` 为假，macOS），速查按实际生效的样子列出它们，不看文档里存的值。 */
+/** 宿主把 Tab、PageUp/PageDown 两组翻页键固定为开时（`HostCapabilities.tab_page_paging_switches` 为假：macOS、Windows、HarmonyOS），速查按实际生效的样子列出它们，不看文档里存的值。 */
 export function effectiveNavigation(
   navigation: NavigationPreferences,
   tabPageSwitches: boolean,
