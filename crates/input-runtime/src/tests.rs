@@ -3785,6 +3785,42 @@ fn switching_the_language_drops_the_composition_being_spelled() {
 }
 
 #[test]
+fn dedicated_english_caret_does_not_turn_rejected_keys_into_candidate_picks() {
+    for value in *b"1! " {
+        let directory = tempfile::tempdir().unwrap();
+        let session =
+            msime_engine::host::Session::new(&real_engine_options(directory.path())).unwrap();
+        let mut runtime = Runtime::new(session, 5).unwrap();
+        runtime.focus(true).unwrap();
+        runtime.set_dedicated_english(true).unwrap();
+        type_characters(&mut runtime, "synthetic");
+        runtime
+            .dispatch(Action::Command(Command::MoveLeft))
+            .unwrap();
+        let before = runtime.view();
+        assert_eq!(before.caret_position, "synthetic".len() - 1);
+
+        let result = character(&mut runtime, value);
+
+        assert!(
+            result.handled && result.commit.is_none(),
+            "{value:?}: {result:?}"
+        );
+        assert_eq!(result.view.editing_text, before.editing_text);
+        assert_eq!(result.view.caret_position, before.caret_position);
+        assert_eq!(texts(&result.view), texts(&before));
+        assert_eq!(
+            runtime
+                .dispatch(Action::SelectHighlighted)
+                .unwrap()
+                .commit
+                .as_deref(),
+            Some("synthetic")
+        );
+    }
+}
+
+#[test]
 fn switching_language_clears_held_phrase_even_if_refresh_fails() {
     let mut runtime = Runtime::new(
         Fixture {

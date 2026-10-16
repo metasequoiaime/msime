@@ -4328,6 +4328,28 @@ fn dedicated_english_offers_the_typed_word_when_unknown() {
 }
 
 #[test]
+fn dedicated_english_caret_rejects_nonletters_without_releasing_the_key() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
+    let mut session = fixture.session();
+    session.set_dedicated_english(true);
+    type_text(&mut session, "HE");
+    session.command(Command::MoveLeft);
+    let before = session.snapshot();
+    assert_eq!(before.caret_position, 1);
+
+    for value in *b"0123456789 !\t" {
+        let result = session.character(value, false);
+        assert!(result.handled, "{value:?}: {result:?}");
+        assert!(result.commit.is_none(), "{value:?}: {result:?}");
+        assert_eq!(session.snapshot(), before, "{value:?}");
+    }
+
+    assert!(session.character(b'L', true).handled);
+    assert_eq!(session.snapshot().preedit, "HLE");
+    assert_eq!(session.snapshot().caret_position, 2);
+}
+
+#[test]
 fn dedicated_english_writes_ascii_punctuation_unless_locked_to_chinese() {
     let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
     let mut session = fixture.session();

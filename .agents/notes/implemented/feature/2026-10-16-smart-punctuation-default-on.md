@@ -90,6 +90,7 @@ Status: implemented
 - `msime-client-services`：`settings_sync_after_the_smart_punctuation_migration` 验证迁移后上传「开」、手动应用旧快照后关掉且再读不被改回。873 项通过。`msime-mcp-server` 全部通过。四个 crate 的 clippy `-D warnings` 无告警。
 - `apps/desktop` vitest：智能标点默认显示为开、总开关和细分开关同在「更多选项」、主流程顺序、关掉时细分开关变灰、手机分组同样收进折叠区、整页保存写入关闭的补丁。
 - `scripts/test-default-config-parity.py` 对照安装模板和 Rust 默认；`scripts/test-preferences-field-parity.py` 和 `platforms/macos/tests/settings/preference_coverage.py` 记下迁移标记不是设置。
-- 既有 `TestRealSessionComposition` 显式关闭智能标点，固定普通中文标点契约；其前一步输入 `U4e2d` 会留下字母前文，跟随新默认值时逗号应为 ASCII，不能再断言中文逗号。默认打开与上下文标点仍由下面的独立用例验证。
 - macOS 原生：`shortcut`（默认开、回到未存状态后控制器按默认走带前文的标点入口，数字后的句点前文取自客户端）、`smart-punctuation-space`、`cloud-appearance-settings`。
+- `TestRealSessionComposition` 验证普通中文标点开关时，会先提交原文 `U4e2d`；智能标点默认开启后，末尾字母使逗号正确走 ASCII，原来期待中文逗号的断言因夹具缺少显式偏好而失败。该用例在会话与控制器中都显式关闭智能标点，保留中文标点开关的两条断言；默认开启、数字与字母后的 ASCII 路线继续由独立的智能标点用例覆盖。
+- 整合夹具修正后，macOS 本机 `ctest --test-dir target/macos-isolated -R '^(shortcut|smart-punctuation-space|smart-punctuation-shadow)$' --output-on-failure` 三项全部通过，`bash scripts/verify-local.sh --quick` 通过；未安装替换系统输入法。
 - WinUI 设置页和 Windows Server 的改动本机无法编译，由 CI 编译；没有在真实输入法里装机验证。

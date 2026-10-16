@@ -203,6 +203,10 @@ impl InputSession {
             }
         }
         if !accepted {
+            // 专用英文的字符入口统一消费非字母键，光标位置不能让数字变成选词键；显式标点另走标点入口。
+            if self.dedicated_english {
+                return KeyResult::handled();
+            }
             return KeyResult::unhandled();
         }
         let bytes = text.as_bytes();

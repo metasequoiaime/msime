@@ -5671,7 +5671,7 @@ static void TestRealSessionComposition() {
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     NSMutableDictionary *options = [@{@"api_version": @1,
         @"preferences": @{@"scheme": @"quanpin", @"default_ime_mode": @"chinese", @"candidate_page_size": @5,
-                          @"learning": @NO, @"chinese_punctuation": @YES}} mutableCopy];
+                          @"learning": @NO, @"chinese_punctuation": @YES, @"smart_punctuation": @NO}} mutableCopy];
     for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
         NSString *path = [root stringByAppendingPathComponent:name];
         assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
@@ -5686,8 +5686,8 @@ static void TestRealSessionComposition() {
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *prefs =
         [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:root]];
-    // 本用例验证普通中文标点；智能标点的上下文路线有独立用例覆盖。
-    prefs.smartPunctuation = NO;
+    // 此处验证普通中文标点开关，显式关闭智能标点，避免上一段原文末尾的字母改变逗号路线。
+    [prefs applySharedInputPreferences:options[@"preferences"]];
     ShortcutClient *client = [ShortcutClient new];
     client.document = @"";
     client.caret = NSMakeRect(100, 100, 1, 16);
