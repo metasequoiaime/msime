@@ -595,12 +595,11 @@ fn smart_punctuation_gestures_follow_their_own_switches() {
         "editor_generation": 1, "auto_closed_pair": false
     });
 
-    // The shipped defaults are not the same for the two: repeat follows smart punctuation, which is off on Windows and macOS as the source ships it and on elsewhere, while space conversion is off everywhere until asked for, because it rewrites a character the user already watched land.
+    // 两者的默认不同：重复转中文跟着智能标点在所有平台上默认开，它是句末数字（「100。」）的退路；空格转换处处默认关，因为它改写的是用户已经看着落下去的字符。
     let shipped = test_host_preferences(dir.path(), chinese_preferences());
-    let repeat_shipped = !cfg!(any(windows, target_os = "macos"));
     assert_eq!(
-        arm(shipped, comma.clone())["value"]["repeat"]["committed"] == ",",
-        repeat_shipped
+        arm(shipped, comma.clone())["value"]["repeat"]["committed"],
+        ","
     );
     assert!(
         arm(shipped, period.clone())["value"]["space"].is_null(),
@@ -7028,13 +7027,105 @@ fn explicit_punctuation_finishes_unicode_and_rejects_invalid_bytes() {
     }
 }
 
+// 智能标点默认开，走的是宿主真正用的入口：什么都不改的偏好下，数字后的 , . : 交给宿主按 ASCII 上屏（`0.10.1` 不会变成 `0。10。1`），中文后照旧是中文标点；ASCII 句点刚上屏后两秒内再按一次句点，换回「。」，句末是数字（「共计 100。」）靠的就是这条退路。
+#[test]
+fn default_preferences_keep_ascii_after_a_digit_and_repeat_turns_it_chinese() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_preferences(dir.path(), chinese_preferences());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+
+    for punctuation in *b",.:" {
+        let after_digit = read(msime_client_punctuation_with_context(
+            handle,
+            punctuation,
+            u32::from('1'),
+        ));
+        assert_eq!(after_digit["ok"], true);
+        assert_eq!(
+            after_digit["value"]["handled"], false,
+            "{} after a digit should be left to the host as ASCII",
+            punctuation as char
+        );
+    }
+    for (punctuation, chinese) in [(b',', "，"), (b'.', "。"), (b':', "：")] {
+        let after_chinese = read(msime_client_punctuation_with_context(
+            handle,
+            punctuation,
+            u32::from('计'),
+        ));
+        assert_eq!(after_chinese["value"]["commit"], chinese);
+    }
+
+    // 「100」后宿主上屏了 ASCII 句点，再按一次句点：换成中文句号。
+    let arm = json!({
+        "ascii": 46, "commit": ".", "timestamp_ms": 10_000,
+        "editor_generation": 1, "auto_closed_pair": false
+    })
+    .to_string();
+    // SAFETY: the buffer outlives the call.
+    let armed =
+        read(unsafe { msime_client_smart_punctuation_arm(handle, arm.as_ptr(), arm.len()) });
+    assert_eq!(armed["value"]["repeat"]["committed"], ".");
+    let decide = json!({
+        "character": 46, "preceding": ".", "timestamp_ms": 10_800,
+        "editor_generation": 1, "repeat": armed["value"]["repeat"], "space": null
+    })
+    .to_string();
+    // SAFETY: the buffer outlives the call.
+    let decided = read(unsafe {
+        msime_client_smart_punctuation_decide(handle, decide.as_ptr(), decide.len())
+    });
+    assert_eq!(decided["value"]["replace_with"], "。");
+    read(msime_client_destroy(handle));
+}
+
+// 默认改变之前的偏好文档经宿主的读取入口读出来：macOS、Windows 上存着的旧默认 `false` 一次性改成开，别的平台原样；空格转换不动。
+#[test]
+fn a_legacy_preferences_document_loads_with_smart_punctuation_settled() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut legacy =
+        serde_json::to_value(msime_client_core::preferences::PreferencesSnapshot::default())
+            .unwrap();
+    let preferences = legacy["preferences"].as_object_mut().unwrap();
+    for key in [
+        "smart_punctuation",
+        "smart_punctuation_repeat",
+        "smart_punctuation_direct_digit",
+        "smart_punctuation_direct_letter",
+        "smart_punctuation_space_convert",
+    ] {
+        preferences.insert(key.into(), false.into());
+    }
+    preferences.remove("smart_punctuation_migrated").unwrap();
+    std::fs::write(
+        directory.path().join("preferences.json"),
+        serde_json::to_vec(&legacy).unwrap(),
+    )
+    .unwrap();
+    let path = directory.path().to_str().unwrap();
+    let loaded = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(loaded["ok"], true, "{loaded}");
+    let flipped = cfg!(any(windows, target_os = "macos"));
+    let preferences = &loaded["value"]["preferences"];
+    for key in [
+        "smart_punctuation",
+        "smart_punctuation_repeat",
+        "smart_punctuation_direct_digit",
+        "smart_punctuation_direct_letter",
+    ] {
+        assert_eq!(preferences[key], flipped, "{key}");
+    }
+    assert_eq!(preferences["smart_punctuation_space_convert"], false);
+    assert_eq!(preferences["smart_punctuation_migrated"], true);
+}
+
 #[test]
 fn contextual_punctuation_respects_editor_context_preferences_and_composition() {
     let dir = tempfile::tempdir().unwrap();
     let handle = test_host_preferences(
         dir.path(),
         Preferences {
-            // Stated rather than inherited: the default is `!cfg!(any(windows, target_os = "macos"))`, because the source ships the whole family off. Leaving it to the default made this a test that quietly asserted the opposite thing on those hosts - and passed wherever else it was run, since the suite only runs for the host target.
+            // 写明而不靠默认：这条测的是开关打开时的路线，默认值另有 `default_preferences_keep_ascii_after_a_digit_and_repeat_turns_it_chinese` 守着。
             smart_punctuation: true,
             smart_punctuation_direct_digit: true,
             smart_punctuation_direct_letter: true,

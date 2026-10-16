@@ -4072,7 +4072,8 @@ fn smart_punctuation_sub_switches_survive_a_save() {
 
     // A document that predates them reads them as their defaults, which is what the family's
     // parent says: the two halves of 智能标点 follow it, and the space rewrite does not.
-    let following_parent = !cfg!(any(windows, target_os = "macos"));
+    let following_parent = Preferences::default().smart_punctuation;
+    assert!(following_parent);
     let defaults = serde_json::to_value(Preferences::default()).unwrap();
     assert_eq!(
         defaults["smart_punctuation_space_convert"],
@@ -4164,21 +4165,17 @@ fn caps_lock_ascii_punctuation_defaults_off_and_survives_a_save() {
     assert_eq!(store.load().unwrap(), saved);
 }
 
-// The source ships every smart-punctuation switch disabled, and the running host reads this document rather than the installed template. A fresh Windows or macOS profile must therefore start with the family off, macOS following the desktop product it ports; Linux, Android, iOS and HarmonyOS keep what they have shipped. A stored value is never reinterpreted either way.
+// 智能标点在所有平台上默认开：新文档、缺键的文档都按开读入，数字后的 `.` 直接出英文。空格转换不跟着开，它改写的是用户已经看着落下去的字符，又没有反悔手势。文档里明写的值照样保留。
 #[test]
-fn smart_punctuation_first_run_follows_the_source_on_desktop_ports() {
-    let expected = !cfg!(any(windows, target_os = "macos"));
+fn smart_punctuation_defaults_on_everywhere() {
     let defaults = Preferences::default();
-    assert_eq!(defaults.smart_punctuation, expected);
-    assert_eq!(defaults.smart_punctuation_repeat, expected);
-    // The two halves of 智能标点 follow it. The reference has no such halves - one switch there
-    // means "ASCII after a letter or a digit", which is the sentence this page shows under the
-    // parent - so with them off the parent was on out of the box and did nothing.
-    assert_eq!(defaults.smart_punctuation_direct_digit, expected);
-    assert_eq!(defaults.smart_punctuation_direct_letter, expected);
-    // Space-after-punctuation is not one of those halves: it rewrites a character the user already
-    // saw land, and the reference has no equivalent at all, so it stays off until asked for.
+    assert!(defaults.smart_punctuation);
+    assert!(defaults.smart_punctuation_repeat);
+    assert!(defaults.smart_punctuation_direct_digit);
+    assert!(defaults.smart_punctuation_direct_letter);
     assert!(!defaults.smart_punctuation_space_convert);
+    // 新文档从一开始就带着迁移标记，所以之后关掉的值不会被当成旧默认改回去。
+    assert!(defaults.smart_punctuation_migrated);
 
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
@@ -4188,17 +4185,169 @@ fn smart_punctuation_first_run_follows_the_source_on_desktop_ports() {
     preferences.remove("smart_punctuation_repeat").unwrap();
     fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
     let loaded = store.load().unwrap().preferences;
-    assert_eq!(loaded.smart_punctuation, expected);
-    assert_eq!(loaded.smart_punctuation_repeat, expected);
+    assert!(loaded.smart_punctuation);
+    assert!(loaded.smart_punctuation_repeat);
 
     // A document that states the opposite keeps stating it.
     let mut stored = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
-    stored["preferences"]["smart_punctuation"] = (!expected).into();
-    stored["preferences"]["smart_punctuation_repeat"] = (!expected).into();
+    stored["preferences"]["smart_punctuation"] = false.into();
+    stored["preferences"]["smart_punctuation_repeat"] = false.into();
     fs::write(store.path(), serde_json::to_vec(&stored).unwrap()).unwrap();
     let loaded = store.load().unwrap().preferences;
-    assert_eq!(loaded.smart_punctuation, !expected);
-    assert_eq!(loaded.smart_punctuation_repeat, !expected);
+    assert!(!loaded.smart_punctuation);
+    assert!(!loaded.smart_punctuation_repeat);
+}
+
+/// 默认改变之前写下的文档：智能标点这一族存着 `false`，没有迁移标记。
+fn smart_punctuation_legacy_document() -> serde_json::Value {
+    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    let preferences = legacy["preferences"].as_object_mut().unwrap();
+    for key in [
+        "smart_punctuation",
+        "smart_punctuation_repeat",
+        "smart_punctuation_direct_digit",
+        "smart_punctuation_direct_letter",
+        "smart_punctuation_space_convert",
+    ] {
+        preferences.insert(key.into(), false.into());
+    }
+    assert_eq!(
+        preferences.remove("smart_punctuation_migrated"),
+        Some(true.into())
+    );
+    legacy
+}
+
+// 迁移本身与平台无关地验证：以前默认关的平台把四个开关打开，空格转换不动；其余平台旧文档里的 `false` 是用户自己关的，原样保留。两种都标上标记，第二次不再改。
+#[test]
+fn smart_punctuation_settle_flips_only_where_the_old_default_was_off() {
+    let legacy: Preferences =
+        serde_json::from_value(smart_punctuation_legacy_document()["preferences"].clone()).unwrap();
+    assert!(!legacy.smart_punctuation_migrated);
+
+    let mut desktop = legacy.clone();
+    desktop.settle_smart_punctuation_default(true);
+    assert!(desktop.smart_punctuation);
+    assert!(desktop.smart_punctuation_repeat);
+    assert!(desktop.smart_punctuation_direct_digit);
+    assert!(desktop.smart_punctuation_direct_letter);
+    assert!(!desktop.smart_punctuation_space_convert);
+    assert!(desktop.smart_punctuation_migrated);
+    // 用户之后关掉，再走一遍迁移也不会打开。
+    desktop.smart_punctuation = false;
+    desktop.settle_smart_punctuation_default(true);
+    assert!(!desktop.smart_punctuation);
+
+    let mut other = legacy;
+    other.settle_smart_punctuation_default(false);
+    assert!(!other.smart_punctuation);
+    assert!(!other.smart_punctuation_repeat);
+    assert!(!other.smart_punctuation_direct_digit);
+    assert!(!other.smart_punctuation_direct_letter);
+    assert!(other.smart_punctuation_migrated);
+}
+
+// 经过存储的完整路径：旧文档读入时迁移（macOS、Windows 打开，其余平台不动），文件在下一次真正的保存之前保持原样；用户随后关掉智能标点，保存下来的文档带着标记，再读还是关。
+#[test]
+fn smart_punctuation_migration_runs_once_and_a_later_off_sticks() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut legacy = smart_punctuation_legacy_document();
+    legacy["revision"] = 3.into();
+    let bytes = serde_json::to_vec(&legacy).unwrap();
+    fs::write(store.path(), &bytes).unwrap();
+
+    let flipped = SMART_PUNCTUATION_WAS_OFF_BY_DEFAULT;
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.revision, 3);
+    assert_eq!(loaded.preferences.smart_punctuation, flipped);
+    assert_eq!(loaded.preferences.smart_punctuation_repeat, flipped);
+    assert_eq!(loaded.preferences.smart_punctuation_direct_digit, flipped);
+    assert_eq!(loaded.preferences.smart_punctuation_direct_letter, flipped);
+    assert!(!loaded.preferences.smart_punctuation_space_convert);
+    assert!(loaded.preferences.smart_punctuation_migrated);
+    // 只读不写：两次读得到同样的结果，文件没有变。
+    assert_eq!(store.load().unwrap(), loaded);
+    assert_eq!(fs::read(store.path()).unwrap(), bytes);
+
+    // 写入方的偏好里没有标记（比如照旧形状拼出来的 JSON），保存时也带上，否则下一次读会把刚关掉的又打开。
+    let mut off = serde_json::to_value(&loaded.preferences).unwrap();
+    off["smart_punctuation"] = false.into();
+    off.as_object_mut()
+        .unwrap()
+        .remove("smart_punctuation_migrated")
+        .unwrap();
+    let off: Preferences = serde_json::from_value(off).unwrap();
+    assert!(!off.smart_punctuation_migrated);
+    let saved = store.save(3, off).unwrap();
+    assert!(saved.preferences.smart_punctuation_migrated);
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(
+        on_disk["preferences"]["smart_punctuation_migrated"],
+        serde_json::Value::Bool(true)
+    );
+    let reloaded = store.load().unwrap();
+    assert_eq!(reloaded, saved);
+    assert!(!reloaded.preferences.smart_punctuation);
+    assert_eq!(reloaded.preferences.smart_punctuation_direct_digit, flipped);
+
+    // 恢复默认设置回到默认开，标记仍在。
+    let restored = store.restore_defaults(saved.revision).unwrap();
+    assert!(restored.preferences.smart_punctuation);
+    assert!(restored.preferences.smart_punctuation_migrated);
+}
+
+// 新装：第一份文档带着标记，用户关掉之后不会因为「没有标记」被当成旧文档打开。
+#[test]
+fn smart_punctuation_turned_off_on_a_fresh_profile_stays_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let first = store.write_first_document().unwrap();
+    assert!(first.preferences.smart_punctuation);
+    assert!(first.preferences.smart_punctuation_migrated);
+    let saved = store
+        .save(
+            first.revision,
+            Preferences {
+                smart_punctuation: false,
+                smart_punctuation_repeat: false,
+                ..first.preferences
+            },
+        )
+        .unwrap();
+    let reloaded = store.load().unwrap();
+    assert_eq!(reloaded, saved);
+    assert!(!reloaded.preferences.smart_punctuation);
+    assert!(!reloaded.preferences.smart_punctuation_repeat);
+}
+
+// 修复损坏文档时，没有标记的旧文档照样迁移一次；带着标记的文档里关掉的值原样保留。
+#[test]
+fn smart_punctuation_recovery_migrates_only_a_legacy_document() {
+    let flipped = SMART_PUNCTUATION_WAS_OFF_BY_DEFAULT;
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut legacy = smart_punctuation_legacy_document();
+    legacy["preferences"]["learning"] = serde_json::json!("yes");
+    fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert!(store.load().is_err());
+    let (snapshot, _, salvaged) = expect_recovered(store.recover().unwrap());
+    assert!(salvaged);
+    assert_eq!(snapshot.preferences.smart_punctuation, flipped);
+    assert_eq!(
+        snapshot.preferences.smart_punctuation_direct_letter,
+        flipped
+    );
+    assert!(snapshot.preferences.smart_punctuation_migrated);
+    assert_eq!(store.load().unwrap(), snapshot);
+
+    let mut current = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    current["preferences"]["smart_punctuation"] = false.into();
+    current["preferences"]["learning"] = serde_json::json!("yes");
+    fs::write(store.path(), serde_json::to_vec(&current).unwrap()).unwrap();
+    let (snapshot, _, _) = expect_recovered(store.recover().unwrap());
+    assert!(!snapshot.preferences.smart_punctuation);
 }
 
 // The source ships muting, DDC and text polishing on; `config.default.toml` says so for Windows, and macOS follows the desktop product it ports. Each is a plain voice switch, so no platform reason keeps them off there. The other hosts keep what they have shipped, and a stored value is never reinterpreted.

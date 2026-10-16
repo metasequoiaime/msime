@@ -831,7 +831,7 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
         preferences.chinese_punctuation = value
     })?;
     applier.set_bool("input.smart_punctuation", |preferences, value| {
-        // 数字后、字母后直出两半不上云，但智能标点要其中之一为真才起作用（`punctuation::route`）。别的设备打开或关掉了智能标点时，两半跟着写成同一个值，和设置页切换总开关的写法一致；云端值和本机相同时不动，用户在本机单独调过的一半不会每次同步都被冲掉。
+        // 数字后、字母后直出两半不上云，但智能标点要其中之一为真才起作用（`punctuation::route`）。别的设备打开或关掉了智能标点时，两半跟着写成同一个值，和设置页切换总开关的写法一致；云端值和本机相同时不动，用户在本机单独调过的一半不会每次同步都被冲掉。智能标点默认开的一次性迁移（`Preferences::smart_punctuation_migrated`）不在这里重来：上传取的是迁移后读出的值；默认改变之前上传的快照里可能是旧默认的「关」，用户在桌面上手动应用它时照快照的值生效，迁移标记留在本机，之后不会再被改回开。
         if preferences.smart_punctuation != value {
             preferences.smart_punctuation_direct_digit = value;
             preferences.smart_punctuation_direct_letter = value;

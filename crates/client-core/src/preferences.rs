@@ -1048,7 +1048,7 @@ pub struct Preferences {
     pub smart_punctuation: bool,
     #[serde(default = "smart_punctuation_default")]
     pub smart_punctuation_repeat: bool,
-    /// Space after a just-committed Chinese punctuation rewrites it as ASCII. Off by default on every host, like the rest of the family in the source: it changes a character the user already saw land.
+    /// 刚上屏的中文标点后按空格，把它改回 ASCII 并吞掉空格。所有宿主默认关：它改写的是用户已经看着落下去的字符，而且没有像重复转中文那样的反悔手势（再按一次空格只是空格），所以不跟着智能标点默认开，见 `smart_punctuation_default`。
     #[serde(default)]
     pub smart_punctuation_space_convert: bool,
     /// Keep `,` `.` `:` as ASCII when they follow a digit.
@@ -1066,6 +1066,9 @@ pub struct Preferences {
     /// unaffected, since this answers only for one that does not.
     #[serde(default = "smart_punctuation_default")]
     pub smart_punctuation_direct_letter: bool,
+    /// 内部标记，不是设置：这份文档已经按「智能标点默认开」定过一次。macOS 和 Windows 以前默认关，旧文档把那个 `false` 明明白白存了下来，分不出「从没动过」和「自己关掉」，所以读到没有这个标记的文档时，在这两个平台上把智能标点、重复标点转中文和两种直出一次性打开，再标上它（`Preferences::settle_smart_punctuation_default`）；之后用户关掉就一直关着。新文档从一开始就带着它（`Default` 为真），缺键时按假读，也就是「这是旧文档」。保存时只会从假变真（`PreferencesStore::save`），恢复默认设置和导入设置文件都不会把它清掉。不在任何设置页上显示。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub smart_punctuation_migrated: bool,
     #[serde(default = "enabled_by_default")]
     pub paired_punctuation: bool,
     #[serde(default)]
@@ -2154,13 +2157,32 @@ fn disabled_by_default() -> bool {
     false
 }
 
-/// Smart punctuation is off on a fresh Windows or macOS profile.
+/// 智能标点在所有平台上默认开：中文模式下打 `0.10.1` 得到的是 `0.10.1`，不是 `0。10。1`。同一个默认也给重复标点转中文、数字后直出和字母后直出；空格转换不跟着开（见 `smart_punctuation_space_convert`）。
 ///
-/// It rewrites a character the user already saw land, so the source ships the whole family disabled and asks for it to be turned on deliberately - `platforms/windows/installer/config.default.toml` has every one of the five switches `false`. That file is only the installed template; the running host reads this document, so without this the effective first-run default would be the opposite of the baseline the source ships. macOS is the port of that desktop product and follows it.
+/// 以前 Windows 和 macOS 默认关，照的是来源产品的安装模板（`platforms/windows/installer/config.default.toml` 五个开关全是 `false`），理由是它会改写一个用户已经看见落下去的字符，句末是数字时（「共计 100。」）句号也会变成 `.`。现在默认开，靠的是重复标点转中文这条退路：输出 ASCII 之后两秒内再按同一个键，就换回中文标点，「100。」只多按一下；而数字后的 `.` 被改成「。」时，默认关的一侧没有对应的退路。用户能找到的开关不该是这种基本行为的前提。决定和取舍见 `.agents/notes/implemented/feature/2026-10-16-smart-punctuation-default-on.md`。
 ///
-/// Linux, Android, iOS and HarmonyOS keep what they have shipped, since a preference that changes under existing users is worse than one that differs by platform. A stored value is never reinterpreted either way; this answers only for a document that does not have the key yet.
+/// 这个函数只回答「文档里还没有这个键」。旧的 macOS、Windows 文档里存着以前默认的 `false`，由 [`Preferences::settle_smart_punctuation_default`] 在读入时一次性改过来。
 fn smart_punctuation_default() -> bool {
-    !cfg!(any(windows, target_os = "macos"))
+    true
+}
+
+/// macOS 和 Windows 以前把智能标点这一族默认关，读入没有 `smart_punctuation_migrated` 标记的旧文档时要一次性打开；其余平台一直默认开，旧文档里的 `false` 就是用户自己关的，不动。
+const SMART_PUNCTUATION_WAS_OFF_BY_DEFAULT: bool = cfg!(any(windows, target_os = "macos"));
+
+impl Preferences {
+    /// 读入偏好文档时调用一次：文档还没有 `smart_punctuation_migrated` 标记，就是这次默认改变之前写下的。`was_off_by_default` 为真（macOS、Windows，见 [`SMART_PUNCTUATION_WAS_OFF_BY_DEFAULT`]）时把智能标点、重复标点转中文、数字后直出和字母后直出打开；不论平台都标上标记，之后再读不会重来，用户之后关掉的值原样保留。空格转换不动。只改内存里读到的这份，文件等下一次真正的保存才带上新值和标记，在那之前每次读都得到同样的结果。
+    fn settle_smart_punctuation_default(&mut self, was_off_by_default: bool) {
+        if self.smart_punctuation_migrated {
+            return;
+        }
+        if was_off_by_default {
+            self.smart_punctuation = true;
+            self.smart_punctuation_repeat = true;
+            self.smart_punctuation_direct_digit = true;
+            self.smart_punctuation_direct_letter = true;
+        }
+        self.smart_punctuation_migrated = true;
+    }
 }
 
 /// Three voice switches the source ships on and the shared document had off: muting other audio while recording, Doubao's semantic smoothing (DDC), and polishing the recognized text.
@@ -2336,6 +2358,7 @@ impl Default for Preferences {
             smart_punctuation_space_convert: false,
             smart_punctuation_direct_digit: smart_punctuation_default(),
             smart_punctuation_direct_letter: smart_punctuation_default(),
+            smart_punctuation_migrated: true,
             paired_punctuation: true,
             punctuation_lock: PunctuationLock::Follow,
             caps_lock_ascii_punctuation: false,
@@ -3326,6 +3349,9 @@ impl PreferencesStore {
             .preferences
             .voice_input
             .retire_unavailable_asr_model();
+        snapshot
+            .preferences
+            .settle_smart_punctuation_default(SMART_PUNCTUATION_WAS_OFF_BY_DEFAULT);
         Ok((snapshot, unknown))
     }
 
@@ -3434,6 +3460,10 @@ impl PreferencesStore {
         } else if current.preferences.fuzzy_pinyin.seeded {
             // Keep the internal marker monotonic even if a client sends a snapshot without the field.
             preferences.fuzzy_pinyin.seeded = true;
+        }
+        // 智能标点的一次性迁移标记同样只增不减：`current` 是按迁移后的样子读出来的，标记总在；写入方（设置页、宿主、MCP、同步）的偏好里没有这个键时照样带上，否则下一次读会把用户刚关掉的智能标点又打开。
+        if current.preferences.smart_punctuation_migrated {
+            preferences.smart_punctuation_migrated = true;
         }
         preferences.validate()?;
         // Hosts save whenever a setting might have changed, several processes and controllers at a time, and every reader reloads and reapplies the whole document when the revision moves. Writing the same settings again would cost an fsync under the exclusive lock and a reload everywhere for nothing, so an unchanged document keeps its revision. An existing file only: the first save still creates it.
@@ -3708,6 +3738,10 @@ fn salvage_preferences(
     if !source.contains_key("touch_keyboard_schemes") {
         salvaged.remove("touch_keyboard_schemes");
     }
+    // 同理，没有智能标点迁移标记的损坏文档出自默认改变之前，垫底值里也去掉标记，读回来照旧文档那样迁移一次。
+    if !source.contains_key("smart_punctuation_migrated") {
+        salvaged.remove("smart_punctuation_migrated");
+    }
     let mut kept = false;
     for (key, value) in &source {
         let mut candidate = salvaged.clone();
@@ -3741,7 +3775,8 @@ fn salvage_preferences(
         }
     }
     // Every step above was accepted by the same check, so this cannot fail on the salvaged map.
-    let preferences: Preferences = serde_json::from_value(serde_json::Value::Object(salvaged))?;
+    let mut preferences: Preferences = serde_json::from_value(serde_json::Value::Object(salvaged))?;
+    preferences.settle_smart_punctuation_default(SMART_PUNCTUATION_WAS_OFF_BY_DEFAULT);
     Ok((preferences, kept))
 }
 
