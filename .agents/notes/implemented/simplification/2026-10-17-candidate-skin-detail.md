@@ -10,7 +10,7 @@ Status: implemented
 
 `packages/ui/src/community/community-candidate-skin-detail.tsx` 持有候选窗口皮肤详情的展示与回调契约，公开 `CommunityCandidateSkinDetail`、`CommunityCandidateSkinDetailProps`、`CandidateSkinPreviewImage` 和 `CandidateSkinPreviewLoader`。组件接收已选皮肤、预览加载器、详情状态和动作回调，继续复用公共详情框架、摘要、安装、分类、评分、下架和举报控件；预览组件保留 `useAsyncGeneration` 的迟到结果守卫。
 
-`CommunityCandidateSkinsPage` 仍持有客户端、列表和详情状态、每客户端容量 16 的预览 Promise LRU、安装预检、同步通知、评分和发布动作。页面只把这些状态接线到详情组件；卡片与详情继续共享同一个页面缓存。此边界延续[社区皮肤详情独立复用](2026-10-17-community-skin-detail.md)的展示与图库分层，并与[社区皮肤图库状态](2026-10-17-community-skin-gallery.md)保持状态归属一致。
+[`useCommunityCandidateSkinGallery`](2026-10-17-community-candidate-skin-gallery.md) 持有客户端、列表和详情状态、每客户端容量 16 的预览 Promise LRU、安装预检、同步通知、评分和发布动作。`CommunityCandidateSkinsPage` 只把这些状态接线到详情组件；卡片与详情继续共享同一个图库缓存。此边界延续[社区皮肤详情独立复用](2026-10-17-community-skin-detail.md)的展示与图库分层，并与[社区皮肤图库状态](2026-10-17-community-skin-gallery.md)保持状态归属一致。
 
 ## 旧笔记归属
 
@@ -34,4 +34,4 @@ Status: implemented
 
 ## Consequences
 
-其他共享宿主可以直接复用候选皮肤详情布局并注入平台动作；详情组件不会自行读取客户端、修改皮肤或持有确认状态。页面仍是预览 LRU 和业务生命周期的唯一 owner，调用方必须提供预览加载器与动作回调。此片不改文件读写、权限、网络协议或原生资源，不声明设备验收。
+其他共享宿主可以直接复用候选皮肤详情布局并注入平台动作；详情组件不会自行读取客户端、修改皮肤或持有确认状态。图库 hook 是预览 LRU 和业务生命周期的唯一 owner，调用方必须提供预览加载器与动作回调。此片不改文件读写、权限、网络协议或原生资源，不声明设备验收。
