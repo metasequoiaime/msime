@@ -226,7 +226,11 @@ private struct TabReselectionObserver: UIViewControllerRepresentable {
 
     override func viewDidAppear(_ animated: Bool) {
       super.viewDidAppear(animated)
-      attachLater()
+      attach()
+    }
+    override func viewDidLayoutSubviews() {
+      super.viewDidLayoutSubviews()
+      attach()
     }
     override func didMove(toParent parent: UIViewController?) {
       super.didMove(toParent: parent)
@@ -234,21 +238,10 @@ private struct TabReselectionObserver: UIViewControllerRepresentable {
       else { attachLater() }
     }
     func attachLater() {
-      for delay in [0.0, 0.05, 0.2, 0.5] {
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.attach() }
-      }
-    }
-    private func findTabs(in root: UIViewController) -> UITabBarController? {
-      if let tabs = root as? UITabBarController { return tabs }
-      for child in root.children {
-        if let tabs = findTabs(in: child) { return tabs }
-      }
-      return nil
+      DispatchQueue.main.async { [weak self] in self?.attach() }
     }
     func attach() {
-      var root: UIViewController = self
-      while let parent = root.parent { root = parent }
-      guard let controller = tabBarController ?? findTabs(in: root), controller.delegate !== self else { return }
+      guard let controller = tabBarController, controller.delegate !== self else { return }
       detach()
       observed = controller
       originalDelegate = controller.delegate
@@ -260,10 +253,10 @@ private struct TabReselectionObserver: UIViewControllerRepresentable {
       originalDelegate = nil
     }
     func tabBarController(_ controller: UITabBarController, shouldSelect viewController: UIViewController) -> Bool {
+      let reselectedSettings = controller.selectedIndex == 0 && controller.selectedViewController === viewController
       let allowed = originalDelegate?.tabBarController?(controller, shouldSelect: viewController) ?? true
-      if allowed && controller.selectedIndex == 0 && controller.selectedViewController === viewController {
-        reselectSettings()
-      }
+      // 重选已经显示的标签不需要一次新的选择，即使 SwiftUI 拒绝重复选择也要恢复根页。
+      if reselectedSettings { reselectSettings() }
       return allowed
     }
     // 其余可选回调交还 SwiftUI 原来的委托，保留系统选择、动画及适配行为。
@@ -283,7 +276,10 @@ private struct MainTabView: View {
   var body: some View {
     // On iOS 26 and later the system draws this as the floating glass pill; earlier releases keep the classic bar.
     TabView(selection: Binding(get: { navigation.tab }, set: { navigation.select($0, router: router) })) {
-      settingsTab.id(navigation.settingsRoot)
+      settingsTab
+        .background(TabReselectionObserver {
+          navigation.select(.settings, router: router)
+        }.frame(width: 0, height: 0))
         .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(AppNavigation.Tab.settings)
       NavigationStack { SettingsView(navigationTitle: "全部设置", showsStatusCard: false, handlesExternalRoutes: false) }
         .tabItem { Label("全部设置", systemImage: "square.grid.2x2.fill") }.tag(AppNavigation.Tab.allSettings)
@@ -292,9 +288,6 @@ private struct MainTabView: View {
       NavigationStack { AccountSettingsView() }
         .tabItem { Label("我的", systemImage: "person.fill") }.tag(AppNavigation.Tab.account)
     }
-    .background(TabReselectionObserver {
-      navigation.select(.settings, router: router)
-    }.frame(width: 0, height: 0))
     .environmentObject(navigation)
     .environmentObject(router)
     .tint(MetasequoiaTheme.accent)
@@ -320,7 +313,9 @@ private struct MainTabView: View {
 
   // Both idiom and width class: a Max-size iPhone turned sideways is regular width but stays a phone, and an iPad in a narrow Split View or Slide Over pane gets the phone's stack.
   @ViewBuilder private var settingsTab: some View {
-    if UIDevice.current.userInterfaceIdiom == .pad && widthClass == .regular { TabletSettingsView() }
+    if UIDevice.current.userInterfaceIdiom == .pad && widthClass == .regular {
+      TabletSettingsView().id(navigation.settingsRoot)
+    }
     else {
       NavigationStack {
         SettingsView()
@@ -328,6 +323,7 @@ private struct MainTabView: View {
             KeyboardTryoutView(title: "AI 对话", focusRequest: navigation.chatFocusRequest)
           }
       }
+      .id(navigation.settingsRoot)
     }
   }
 }
