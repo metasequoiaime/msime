@@ -6871,6 +6871,10 @@ show_selected_bar = true
             assert(NSMaxX(decoration.frame) == chrome.bounds.size.width - overhang && NSMaxY(decoration.frame) == chrome.bounds.size.height);
             MSIMECandidateButton *first = PageButton(chrome, 0);
             assert(NSMaxY(first.frame) <= NSMinY(decoration.frame));
+            // 光标在屏幕中间，卡片放在下方：贴着光标的是卡片顶边（窗口顶边减 48pt 装饰带），不是窗口顶边；装饰带朝上伸过光标这一行。
+            const NSRect caret = ((ShortcutClient *)[controller valueForKey:@"activeClient"]).caret;
+            assert(NSMinY(caret) - 4 - (NSHeight(panel.frame) - 48) >= NSMinY(MSIMECandidateScreen(caret).visibleFrame));
+            assert(fabs(NSMaxY(panel.frame) - 48 - (NSMinY(caret) - 4)) <= 0.5 && NSMaxY(panel.frame) > NSMaxY(caret));
             assert(first.showSelectedBar == [theme isEqual:NSAppearanceNameDarkAqua]);
             const auto tokens = [external resolvedSkinForDark:[theme isEqual:NSAppearanceNameDarkAqua]].tokens;
             assert([chrome.fillColor isEqual:SkinColor(tokens.surface)]);

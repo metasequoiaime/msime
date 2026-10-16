@@ -14,10 +14,12 @@ inline CGFloat MSIMETallestCandidateHeight(CGFloat remembered, CGFloat current, 
 }
 
 // Decides the side of the caret with the taller of the current height and flipDecisionHeight, but places the panel with its current height. A vertical list that grows as candidates arrive therefore does not jump from below the caret to above it, and a shorter later page that stays above the caret sits against the line instead of leaving the tallest page's gap.
-inline NSPoint MSIMECandidateOrigin(NSRect caret, NSSize size, NSRect bounds, CGFloat flipDecisionHeight) {
+// cardTopInset 是窗口顶上留给皮肤装饰的透明带（MSIMECandidateChromeView.cardTopInset），size 和 flipDecisionHeight 都含这条带。放在光标下方时贴着光标的是卡片顶边，不是窗口顶边：透明带朝上伸，盖在光标所在的这一行和上面几行上，装饰图不透明的地方会挡住那里的字。放不下、翻到光标上方时窗口底边就是卡片底边，透明带在最上面，和以前一样贴着光标上方。翻不翻只看卡片：卡片在光标下方放得下就放下方，透明带朝上伸不占光标下方的地方。最后整个窗口（连同透明带）仍夹进可见区域，光标贴近屏幕上边、透明带伸出上边时宁可把窗口往下压、卡片和光标之间留出一段，也不让装饰图被屏幕边缘裁掉；留出的这段至多是透明带伸出的部分，比以前整条透明带的空隙小。cardTopInset 为 0 时结果和以前完全一样。
+inline NSPoint MSIMECandidateOrigin(NSRect caret, NSSize size, NSRect bounds, CGFloat flipDecisionHeight, CGFloat cardTopInset = 0) {
     const CGFloat x = MIN(MAX(NSMinX(caret), NSMinX(bounds)), MAX(NSMinX(bounds), NSMaxX(bounds) - size.width));
-    const CGFloat decisionHeight = MAX(size.height, flipDecisionHeight);
-    CGFloat y = NSMinY(caret) - size.height - 4;
+    const CGFloat band = MIN(MAX(cardTopInset, 0.0), size.height);
+    const CGFloat decisionHeight = MAX(size.height, flipDecisionHeight) - band;
+    CGFloat y = NSMinY(caret) - (size.height - band) - 4;
     if (NSMinY(caret) - decisionHeight - 4 < NSMinY(bounds)) y = NSMaxY(caret) + 4;
     y = MIN(MAX(y, NSMinY(bounds)), MAX(NSMinY(bounds), NSMaxY(bounds) - size.height));
     return NSMakePoint(x, y);

@@ -1,5 +1,6 @@
 #import "CandidatePanel.h"
 #import "CandidateMotion.h"
+#import "CandidatePlacement.h"
 #import "CandidateSkinAppearance.h"
 #import "CandidateTypography.h"
 #import "CandidateWindowLevel.h"
@@ -477,28 +478,21 @@
     [self layoutCandidates];
     NSRect bounds = [self screenForCaret].visibleFrame;
     NSSize size = _window.frame.size;
-    CGFloat x = MIN(MAX(NSMinX(caret), NSMinX(bounds)), MAX(NSMinX(bounds), NSMaxX(bounds) - size.width));
     const BOOL vertical = _panelType == kIMKSingleColumnScrollingCandidatePanel;
     if (vertical)
         _tallestVerticalHeight = MAX(_tallestVerticalHeight, size.height);
-    const CGFloat decisionHeight = vertical ? _tallestVerticalHeight : size.height;
-    CGFloat y = NSMinY(caret) - size.height - 4;
-    // Use the tallest vertical page seen in this composition to choose the
-    // side of the caret, but place the current page with its actual height.
-    // This prevents a growing page from jumping below-to-above while avoiding
-    // an empty gap when a later page is shorter.
-    const CGFloat decisionY = NSMinY(caret) - decisionHeight - 4;
-    if (decisionY < NSMinY(bounds))
-        y = NSMaxY(caret) + 4;
-    y = MIN(MAX(y, NSMinY(bounds)), MAX(NSMinY(bounds), NSMaxY(bounds) - size.height));
-    [_window setFrameOrigin:NSMakePoint(x, y)];
+    // Use the tallest vertical page seen in this composition to choose the side of the caret, but place the current page with its actual height. This prevents a growing page from jumping below-to-above while avoiding an empty gap when a later page is shorter.
+    // 和产品面板同一套摆法：layoutCandidates 在卡片顶上留的装饰带不算进光标和卡片之间的距离。
+    const CGFloat decorationHeight = _skin.decorationTopDip > 0.0 ? _skin.decorationTopDip : 0.0;
+    const NSPoint origin = MSIMECandidateOrigin(caret, size, bounds, vertical ? _tallestVerticalHeight : size.height, decorationHeight);
+    [_window setFrameOrigin:origin];
     NSMutableArray<NSView *> *rows = [NSMutableArray array];
     for (NSView *view in _chrome.subviews)
         if ([view isKindOfClass:MetasequoiaCandidateButton.class] && view.tag >= 0)
             [rows addObject:view];
     [_motion showPanel:_window animation:_skin.animation rows:rows];
     msime_macos_diagnostic_writef("candidate-position hint=%ld rows=%lu vertical=%d size=(%.0f,%.0f) origin=(%.0f,%.0f) flipped=%d",
-        (long)hint, (unsigned long)_data.count, vertical ? 1 : 0, size.width, size.height, x, y, y >= NSMaxY(caret) ? 1 : 0);
+        (long)hint, (unsigned long)_data.count, vertical ? 1 : 0, size.width, size.height, origin.x, origin.y, origin.y >= NSMaxY(caret) ? 1 : 0);
 }
 - (void)hide
 {

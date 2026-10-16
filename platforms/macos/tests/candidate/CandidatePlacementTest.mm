@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <initializer_list>
 
 // Where the candidate window goes, and when the caret it is told about is worth using at all.
 //
@@ -70,6 +71,52 @@ int main()
         assert(NSEqualPoints(MSIMECandidateOrigin(mid, fullList, screen, 0), MSIMECandidateOrigin(mid, fullList, screen)));
         // With room below for the tallest list too, the memory changes nothing.
         assert(MSIMECandidateOrigin(caret, shortList, screen, 300).y == 600 - 100 - 4);
+
+        // 皮肤装饰：窗口顶上有一条 104pt 的透明带，卡片 120pt，窗口共 224pt。放在光标下方时卡片顶边在光标下方 4pt，透明带朝上伸过光标这一行，卡片和光标之间不再隔着整条带。
+        const CGFloat band = 104;
+        const NSSize decorated = NSMakeSize(320, 120 + band);
+        const NSPoint card = MSIMECandidateOrigin(caret, decorated, screen, 0, band);
+        assert(card.x == 400);
+        assert(card.y == 600 - 120 - 4);
+        assert(card.y + decorated.height - band == NSMinY(caret) - 4);
+        assert(card.y + decorated.height > NSMaxY(caret));
+        // 没有装饰带时和以前逐点相同；负的带高当 0。
+        for (const NSRect probe : {caret, low, right, far, top, mid})
+            for (const NSRect display : {screen, left})
+                for (const CGFloat memory : {0.0, 300.0}) {
+                    assert(NSEqualPoints(MSIMECandidateOrigin(probe, panel, display, memory, 0), MSIMECandidateOrigin(probe, panel, display, memory)));
+                    assert(NSEqualPoints(MSIMECandidateOrigin(probe, panel, display, memory, -20), MSIMECandidateOrigin(probe, panel, display, memory)));
+                }
+        // 光标下方连卡片都放不下才翻到上方。翻上去以后透明带在最上面，窗口底边就是卡片底边，照旧贴着光标上方 4pt。
+        const NSPoint lifted = MSIMECandidateOrigin(low, decorated, screen, 0, band);
+        assert(lifted.y == NSMaxY(low) + 4);
+        // 翻不翻只看卡片：光标离屏幕下边 150pt，放得下 120pt 的卡片，放不下 224pt 的整个窗口。以前按整个窗口判断会翻到上方，现在留在下方。
+        const NSRect lowish = NSMakeRect(400, 150, 2, 18);
+        assert(MSIMECandidateOrigin(lowish, decorated, screen, 0, 0).y == NSMaxY(lowish) + 4);
+        assert(MSIMECandidateOrigin(lowish, decorated, screen, 0, band).y == 150 - 120 - 4);
+        // 光标贴近屏幕上边、透明带伸出上边时，整个窗口夹回可见区域：装饰图不被裁掉，卡片和光标之间留出的只是伸出去的那一段，比整条带小。
+        const NSRect nearTop = NSMakeRect(400, 960, 2, 18);
+        const NSPoint pressed = MSIMECandidateOrigin(nearTop, decorated, screen, 0, band);
+        assert(pressed.y == NSMaxY(screen) - decorated.height);
+        const CGFloat gap = NSMinY(nearTop) - (pressed.y + decorated.height - band);
+        assert(gap > 4 && gap < band + 4);
+        assert(gap == 4 + (NSMinY(nearTop) - 4 + band - NSMaxY(screen)));
+        // 左右边缘的夹取和装饰带无关。
+        assert(MSIMECandidateOrigin(right, decorated, screen, 0, band).x == 1600 - 320);
+        assert(MSIMECandidateOrigin(beyond, decorated, left, 0, band).x == NSMinX(left));
+        // 屏幕下边：放不下卡片时翻到上方，翻上去也在可见区域里。
+        const NSRect bottom = NSMakeRect(400, 2, 2, 18);
+        const NSPoint lowest = MSIMECandidateOrigin(bottom, decorated, screen, 0, band);
+        assert(lowest.y == NSMaxY(bottom) + 4 && lowest.y >= NSMinY(screen) && lowest.y + decorated.height <= NSMaxY(screen));
+        // 竖排的翻转记忆同样只按卡片算：记下的最高窗口 404pt（卡片 300pt）放不下，100pt 的卡片随它留在上方；没有记忆时 100pt 的卡片放在下方。
+        const NSSize shortDecorated = NSMakeSize(320, 100 + band);
+        const CGFloat tallestDecorated = 300 + band;
+        assert(MSIMECandidateOrigin(mid, shortDecorated, screen, tallestDecorated, band).y == NSMaxY(mid) + 4);
+        assert(MSIMECandidateOrigin(mid, shortDecorated, screen, 0, band).y == 250 - 100 - 4);
+        // 卡片 300pt 时光标下方放不下，翻到上方；记下的高度含装饰带，按卡片算的结果是 250 - 300 - 4 < 0。
+        assert(MSIMECandidateOrigin(mid, NSMakeSize(320, tallestDecorated), screen, tallestDecorated, band).y == NSMaxY(mid) + 4);
+        // 记忆里的窗口 304pt（卡片 200pt）在光标下方放得下：带进记忆也留在下方，不因为整个窗口高过光标就翻上去。
+        assert(MSIMECandidateOrigin(mid, shortDecorated, screen, 200 + band, band).y == 250 - 100 - 4);
 
         // The memory: vertical lists raise it while the panel stays up, a hidden panel starts over, and horizontal rows neither raise it nor are placed by it.
         CGFloat tallest = MSIMETallestCandidateHeight(0, 100, true, false);
