@@ -16,9 +16,11 @@ Status: implemented
 
 - `crates/client-services/src/plugins/community.rs` 的 `PUBLISHABLE_KINDS` 加入 `PluginKind::Effect`，顺序与 `PluginKind::ALL` 一致，现在等于全部八种数据类插件；桌面上的 `script` 不进这个列表，见 [脚本插件进入插件包体系](../architecture/2026-10-12-script-plugin-kind-and-grants.md)。`effect` 属于服务端冻结的旧类型集合，不用写进 `KINDS_DECLARATION`；`kinds_declaration_lists_the_new_publishable_kinds` 显式排除旧类型后比较，仍然成立。
 - `pack` 把特效包的清单和说明文件打成归档，`install` 按同样的校验装回去；`validate_page` 不再去掉特效包条目。`validate_page` 里按 `PUBLISHABLE_KINDS` 过滤的那一步保留，现在什么也不去掉，留给将来旧类型集合与可发布类型不一致的情况。
-- `packages/ui/src/community/community-plugins.tsx` 的 `CommunityPluginKind` 等于 `PluginKind`，`communityPluginKinds` 加入 `effect`，社区页多一个「特效包」筛选，发布对话框列出所有非内置的已装包；`community-helpers.ts` 里不会再出现的「特效包暂不支持分享。」删掉。
+- `packages/ui/src/community/community-plugin-model.ts` 的 `CommunityPluginKind` 等于 `PluginKind`，`communityPluginKinds` 加入 `effect`，社区页多一个「特效包」筛选，发布对话框列出所有非内置的已装包；`community-helpers.ts` 里不会再出现的「特效包暂不支持分享。」删掉。
 
 插件库只放在 msime-cloud 数据库，不同步到 GitHub 仓库。`docs/plugins.md` 改为指向应用内「插件 → 社区插件 → 发布我的插件」，并写明服务端的配额：压缩后 8 MB、每个账号 20 个、合计 32 MB、每小时 10 次。GitHub 仓库 `metasequoiaime/msime-plugins` 已于 2026-10-10 由维护者删除：其中 17 个精选包由 msime-cloud 的种子一次性导入数据库，文档里所有指向它的链接（作者模板、`msime-pack` 的用途说明）一并去掉；每种类型的清单写法都在 `docs/plugins.md` 里，能通过校验的完整例子在 `crates/client-services/tests/fixtures/plugin-packs/valid/`。
+
+发布对话框与状态独立模块的边界见[插件发布模块](../bug-fix/2026-10-16-community-plugin-publication.md)，可发布类型集合与此处规则一致。
 
 ## Alternatives considered
 

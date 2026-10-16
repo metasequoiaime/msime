@@ -1,13 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { boundedGraphemes } from "../core/text";
-import {
-  communityPublishFields,
-  handleCommunityPublishKeyDown,
-} from "./community-publish-validation";
-import type { PluginCatalogResult, PluginKind, PluginPackage } from "../settings/plugin-types";
+import { useMemo, useRef, useState } from "react";
+import type { PluginCatalogResult, PluginPackage } from "../settings/plugin-types";
 import { kindLabels } from "../settings/plugin-catalog-helpers";
-import { packKindLabel } from "../settings/plugin-catalog-helpers";
-import { StatusMessage } from "../core/status-message";
 import {
   candidateSkinMegabytes,
   communityNeedsSignIn,
@@ -19,15 +12,11 @@ import {
   useCommunityGallery,
   type CommunityGalleryClient,
 } from "./community-gallery";
-import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailSummary } from "./community-detail-summary";
 import * as style from "./community-style";
 import { CommunityGalleryHeader } from "./community-gallery-header";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityScopeButtons } from "./community-scope-buttons";
-import { CommunitySelectField } from "./community-select-field";
-import { CommunityPublicationMetadataFields } from "./community-publication-metadata-fields";
-import { CommunityPublicationWarning } from "./community-publication-warning";
 import { CommunityNotice } from "./community-notice";
 import { CommunityReportSection } from "./community-report";
 import { CommunityCardMetrics } from "./community-card-metrics";
@@ -39,20 +28,17 @@ import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityDetailFrame } from "./community-detail-frame";
 import { ActionButton } from "../core/action-button";
-import { useAsyncActionRunner } from "../core/use-async-action";
-import { useCommunityPublicationDraft } from "./use-community-publication-draft";
-import { useAsyncGeneration } from "../settings/use-async-generation";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
 import { useCommunityInstallState } from "./community-install-state";
 import { communityInstallPreflight } from "./community-install-preflight";
+import { CommunityPluginPublishDialog } from "./community-plugin-publish-dialog";
 
 import {
   type CommunityPluginKind,
   communityPluginKinds,
   type CommunityPlugin,
-  type CommunityPluginPackPreview,
   type CommunityPluginClient,
 } from "./community-plugin-model";
 export {
@@ -64,11 +50,10 @@ export {
   type CommunityPluginClient,
 } from "./community-plugin-model";
 
-/** The server's archive limit, stated next to the packed size so the author sees the headroom. */
-const archiveLimit = "8 MB";
-
-const publishWarning =
-  "上传的是插件目录中的全部文件（不含隐藏文件），压缩后不超过 8 MB；每个账号最多发布 20 个、合计 32 MB，每小时最多发布 10 次。其他用户下载后会按原样安装。";
+export {
+  CommunityPluginPublishDialog,
+  type CommunityPluginPublishDialogProps,
+} from "./community-plugin-publish-dialog";
 
 function CommunityPluginCard({ plugin, open }: { plugin: CommunityPlugin; open: () => void }) {
   return (
@@ -376,239 +361,5 @@ export function CommunityPluginsPage({
         />
       )}
     </CommunityPageShell>
-  );
-}
-
-/** `label` 是类型显示名：本机的包知道自己是不是旋律音效包，所以用 `packKindLabel`；社区列表的条目不带 `mode`，只能用 `kindLabels`。 */
-type LocalPluginOption = {
-  key: string;
-  kind: CommunityPluginKind;
-  label: string;
-  id: string;
-  name: string;
-};
-
-function optionKey(kind: PluginKind, id: string): string {
-  return `${kind}/${id}`;
-}
-
-/**
- * Publishes one of the user's installed, non-built-in plugin packs.
- *
- * The host packs the pack from its own plugins directory, so the webview only names it by kind and id; `packPreview` runs the same packer the upload will, which lets a pack the server would refuse say so before the form is filled in. The publication id is drawn afresh whenever the pack, the name or the description changes and kept across a failed attempt, so a retry after a lost response is recognised by the server as the same publication.
- */
-export function CommunityPluginPublishDialog({
-  client,
-  localPlugins,
-  onClose,
-  onPublished,
-  onLogin,
-}: {
-  client: CommunityPluginClient;
-  localPlugins: () => Promise<PluginCatalogResult>;
-  onClose: () => void;
-  onPublished: (plugin: CommunityPlugin) => void | Promise<void>;
-  onLogin?: () => void;
-}) {
-  const [options, setOptions] = useState<LocalPluginOption[]>([]);
-  const [optionsLoading, setOptionsLoading] = useState(true);
-  const [selection, setSelection] = useState("");
-  const [pack, setPack] = useState<CommunityPluginPackPreview | null>(null);
-  const [packError, setPackError] = useState("");
-  const [packLoading, setPackLoading] = useState(false);
-  const {
-    name,
-    description,
-    agreed,
-    publicationId,
-    setName,
-    setDescription,
-    setAgreed,
-    onNameChange,
-    onDescriptionChange,
-    onAgreedChange,
-    resetPublication,
-  } = useCommunityPublicationDraft();
-  const [error, setError] = useState("");
-  const [signInRequired, setSignInRequired] = useState(false);
-  const {
-    busy,
-    generation: clientGeneration,
-    running: actionRunning,
-    run: runAsyncAction,
-  } = useAsyncActionRunner(setError, undefined, client, localPlugins);
-
-  useEffect(() => {
-    const generation = clientGeneration.current;
-    setOptionsLoading(true);
-    void localPlugins()
-      .then((catalog) => {
-        if (generation !== clientGeneration.current) return;
-        const loaded: LocalPluginOption[] = [];
-        for (const item of catalog.packages) {
-          if (item.builtin) continue;
-          // 桌面的目录里有脚本插件，它们不能发布到社区（`PUBLISHABLE_KINDS` 里没有 script）。
-          if (!communityPluginKinds.includes(item.kind)) continue;
-          loaded.push({
-            key: optionKey(item.kind, item.id),
-            kind: item.kind,
-            label: packKindLabel(item),
-            id: item.id,
-            name: item.name,
-          });
-        }
-        setOptions(loaded);
-        setSelection((current) =>
-          current && loaded.some((item) => item.key === current) ? current : (loaded[0]?.key ?? ""),
-        );
-      })
-      .catch(() => {
-        if (generation === clientGeneration.current) setError("读取本地插件失败，请重试。");
-      })
-      .finally(() => {
-        if (generation === clientGeneration.current) setOptionsLoading(false);
-      });
-  }, [client, localPlugins, clientGeneration]);
-
-  const chosen = useMemo(
-    () => options.find((item) => item.key === selection) ?? null,
-    [options, selection],
-  );
-  const packGeneration = useAsyncGeneration(chosen);
-
-  useEffect(() => {
-    const generation = packGeneration.current;
-    setPack(null);
-    setPackError("");
-    setAgreed(false);
-    resetPublication();
-    if (!chosen) {
-      setPackLoading(false);
-      return;
-    }
-    setPackLoading(true);
-    void client
-      .packPreview(chosen.kind, chosen.id)
-      .then((value) => {
-        if (generation !== packGeneration.current) return;
-        setPack(value);
-        setName(boundedGraphemes(value.suggestedName, 32));
-        setDescription(value.suggestedDescription);
-      })
-      .catch((packFailure) => {
-        if (generation === packGeneration.current)
-          setPackError(communityPluginMessage(packFailure));
-      })
-      .finally(() => {
-        if (generation === packGeneration.current) setPackLoading(false);
-      });
-  }, [client, chosen, packGeneration]);
-
-  const { normalizedName, normalizedDescription, nameValid, descriptionValid } =
-    communityPublishFields(name, description);
-  const ready = Boolean(pack) && !packLoading && nameValid && descriptionValid && agreed;
-
-  const submit = async () => {
-    if (busy || actionRunning.current || !ready || !chosen) return;
-    setSignInRequired(false);
-    await runAsyncAction(
-      async (isCurrent) => {
-        const published = await client.publish(
-          chosen.kind,
-          chosen.id,
-          publicationId,
-          normalizedName,
-          normalizedDescription,
-        );
-        if (!isCurrent()) return;
-        await onPublished(published);
-      },
-      {
-        formatError: (publishError) => communityPluginMessage(publishError, true),
-        onError: (publishError) => setSignInRequired(communityNeedsSignIn(publishError)),
-      },
-    );
-  };
-
-  return (
-    <CommunityDialogFrame
-      title="发布插件"
-      titleClassName={style.dialogTitle}
-      ariaLabel="发布插件"
-      busy={busy}
-      onClose={onClose}
-      error={error}
-      signInRequired={signInRequired}
-      onLogin={onLogin}
-      onKeyDown={(event) => handleCommunityPublishKeyDown(event, () => void submit())}
-    >
-      {optionsLoading && <StatusMessage role="status">正在读取本地插件…</StatusMessage>}
-      {!optionsLoading && options.length === 0 && (
-        <CommunityNotice>
-          还没有可发布的插件。内置插件不能发布，请先在「我的插件」中导入自己的音效包、音乐包、指令表、特效包、短语表、辅助码表、单词本或符号集。
-        </CommunityNotice>
-      )}
-      {options.length > 0 && (
-        <CommunitySelectField
-          label="发布插件"
-          ariaLabel="发布插件"
-          value={selection}
-          disabled={busy}
-          onChange={setSelection}
-        >
-          {options.map((item) => (
-            <option key={item.key} value={item.key}>
-              {item.label} · {item.name === item.id ? item.id : `${item.name}（${item.id}）`}
-            </option>
-          ))}
-        </CommunitySelectField>
-      )}
-      {packLoading && <StatusMessage role="status">正在检查插件…</StatusMessage>}
-      {packError && (
-        <div className={style.confirmation} role="alert">
-          <p>{packError}</p>
-        </div>
-      )}
-      {pack && (
-        <>
-          <CommunityMetrics>
-            {[
-              `v${pack.version}`,
-              pack.license && `授权 ${pack.license}`,
-              `${pack.fileCount} 个文件`,
-              `${candidateSkinMegabytes(pack.size)} / ${archiveLimit}`,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </CommunityMetrics>
-          <CommunityPublicationMetadataFields
-            name={name}
-            description={description}
-            agreed={agreed}
-            busy={busy}
-            nameLabel="名称"
-            nameAriaLabel="发布插件名称"
-            descriptionLabel="说明"
-            descriptionAriaLabel="发布插件说明"
-            agreementText="我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用"
-            agreementClassName={style.agreementBox}
-            onNameChange={onNameChange}
-            onDescriptionChange={onDescriptionChange}
-            onAgreedChange={onAgreedChange}
-          />
-          <CommunityPublicationWarning>{publishWarning}</CommunityPublicationWarning>
-        </>
-      )}
-      <CommunityDialogActions busy={busy} onClose={onClose}>
-        {!packError && (
-          <ActionButton
-            action={() => submit()}
-            className="primary"
-            disabled={busy || !ready}
-            label={busy ? "正在发布…" : "公开发布"}
-          />
-        )}
-      </CommunityDialogActions>
-    </CommunityDialogFrame>
   );
 }

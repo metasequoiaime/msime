@@ -1,7 +1,18 @@
 import { expect, test } from "vitest";
 
 test("plugin publish dialogs reuse the shared dialog actions", () => {
-  const plugins = Object.values(
+  const dialog = Object.values(
+    import.meta.glob<string>(
+      "../../../../packages/ui/src/community/community-plugin-publish-dialog.tsx",
+      {
+        eager: true,
+        query: "?raw",
+        import: "default",
+      },
+    ),
+  )[0];
+
+  const page = Object.values(
     import.meta.glob<string>("../../../../packages/ui/src/community/community-plugins.tsx", {
       eager: true,
       query: "?raw",
@@ -9,6 +20,12 @@ test("plugin publish dialogs reuse the shared dialog actions", () => {
     }),
   )[0];
 
-  expect(plugins).toContain("CommunityDialogActions");
-  expect(plugins).not.toContain("<div className={style.dialogActions}>");
+  expect(dialog).toContain("CommunityDialogActions");
+  expect(dialog).toContain("useCommunityPluginPublication({ client, localPlugins, onPublished })");
+  expect(dialog).not.toContain("./community-plugins");
+  expect(page).toContain('from "./community-plugin-publish-dialog"');
+  expect(page).toContain("<CommunityPluginPublishDialog");
+  expect(page).not.toContain("function CommunityPluginPublishDialog(");
+  expect(page).not.toContain("useCommunityPublicationDraft(");
+  expect(dialog).not.toContain("<div className={style.dialogActions}>");
 });

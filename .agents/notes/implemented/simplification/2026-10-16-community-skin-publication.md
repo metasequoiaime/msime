@@ -19,6 +19,8 @@ Status: implemented
 - [社区发布回车](../bug-fix/2026-10-14-community-publish-ime-submit.md)持有候选皮肤和插件发布的输入法按键契约，本次键盘皮肤对话框仍用原表单提交，不改变该入口。
 - [社区皮肤宿主桥接](2026-10-15-community-skin-host-bridge.md)持有跨宿主命令契约，不改变客户端方法与返回值。
 
+[插件发布模块](../bug-fix/2026-10-16-community-plugin-publication.md)沿用此边界，独立持有目录筛选、打包预检与发布结果。
+
 ## Alternatives considered
 
 - 只迁出对话框文件：能直接复用完整界面，但状态与 JSX 仍绑定，生命周期验证还得渲染表单；本次同时提取状态 hook，便于独立使用和测试。

@@ -10,6 +10,7 @@ import {
   SettingsPage,
   type CommunityPlugin,
   type CommunityPluginClient,
+  type CommunityPluginPackPreview,
   type PluginCatalogResult,
   type PluginPackage,
 } from "@msime/ui";
@@ -65,10 +66,12 @@ function catalog(packages: PluginPackage[]): () => Promise<PluginCatalogResult> 
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function client(overrides: Partial<CommunityPluginClient> = {}): CommunityPluginClient {
@@ -411,6 +414,74 @@ test.each(["success", "failure"])(
     expect(screen.queryByText("读取本地插件失败，请重试。")).toBeNull();
   },
 );
+
+test.each([
+  { outcome: "success", timing: "before" },
+  { outcome: "failure", timing: "before" },
+  { outcome: "success", timing: "after" },
+  { outcome: "failure", timing: "after" },
+])("客户端切换后忽略旧预检 $outcome（当前结果 $timing）", async ({ outcome, timing }) => {
+  const oldPreview = deferred<CommunityPluginPackPreview>();
+  const nextPreview = deferred<CommunityPluginPackPreview>();
+  const nextCatalog = deferred<PluginCatalogResult>();
+  const localPlugins = catalog([pack("sound", "rain")]);
+  const initial = client({ packPreview: vi.fn().mockReturnValue(oldPreview.promise) });
+  const replacement = client({ packPreview: vi.fn().mockReturnValue(nextPreview.promise) });
+  const onPublished = vi.fn();
+  const onClose = vi.fn();
+  const view = (current: CommunityPluginClient) => (
+    <StrictMode>
+      <CommunityPluginPublishDialog
+        client={current}
+        localPlugins={localPlugins}
+        onClose={onClose}
+        onPublished={onPublished}
+      />
+    </StrictMode>
+  );
+  const { rerender, unmount } = render(view(initial));
+  await waitFor(() => expect(initial.packPreview).toHaveBeenCalledWith("sound", "rain"));
+  vi.mocked(localPlugins).mockReturnValue(nextCatalog.promise);
+  rerender(view(replacement));
+  await waitFor(() => expect(replacement.packPreview).toHaveBeenCalledWith("sound", "rain"));
+
+  const currentPack = {
+    suggestedName: "当前雨声",
+    suggestedDescription: "当前客户端的说明",
+    version: "2.0.0",
+    license: "MIT",
+    fileCount: 4,
+    size: 2048,
+  };
+  if (timing === "after") {
+    await act(async () => nextPreview.resolve(currentPack));
+    fireEvent.click(screen.getByRole("checkbox", { name: "确认拥有发布内容权利" }));
+  }
+  await act(async () => {
+    if (outcome === "success") {
+      oldPreview.resolve({ ...currentPack, suggestedName: "过期雨声", version: "1.0.0" });
+    } else {
+      oldPreview.reject({ code: "plugin_community_too_large" });
+    }
+  });
+  expect(screen.queryByRole("alert")).toBeNull();
+  if (timing === "before") {
+    expect(screen.getByText("正在检查插件…")).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: "发布插件名称" })).toBeNull();
+    await act(async () => nextPreview.resolve(currentPack));
+  }
+  expect((screen.getByRole("textbox", { name: "发布插件名称" }) as HTMLInputElement).value).toBe(
+    "当前雨声",
+  );
+  expect(screen.getByText(/v2\.0\.0/)).toBeTruthy();
+  if (timing === "after") {
+    expect(
+      (screen.getByRole("checkbox", { name: "确认拥有发布内容权利" }) as HTMLInputElement).checked,
+    ).toBe(true);
+  }
+  unmount();
+  await act(async () => nextCatalog.resolve({ packages: [], issues: [] }));
+});
 
 test.each([
   { name: "组词期间", event: { isComposing: true } },

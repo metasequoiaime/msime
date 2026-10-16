@@ -10,6 +10,8 @@ Status: implemented
 
 在共享回车处理入口检查 `nativeEvent.isComposing` 和 `keyCode === 229`。组合事件保留默认行为，不调用发布；独立普通回车继续提交，复选框仍只阻止外层表单提交。
 
+插件的事件入口位于独立 `community-plugin-publish-dialog.tsx`，仍调用同一个共享处理函数；状态边界见[插件发布模块](2026-10-16-community-plugin-publication.md)。
+
 ## Alternatives considered
 
 - 只允许点击发布按钮，可以完全避开输入法回车边界，但会移除现有文本框快捷提交；沿用其他共享输入框的组合事件检查即可保留两者。
