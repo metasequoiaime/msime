@@ -994,6 +994,23 @@ fn macos_restart_targets_the_input_method_bundle() {
     );
 }
 
+// 「修复输入源」的安装一步：没有可装的、或者 bundle 已留在原处只等登记时都不算失败，修复接着去重新登记；真正装坏才报失败。
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_repair_install_fails_only_when_the_install_breaks() {
+    use super::macos_input_source::{InstallError, Refresh, RefreshOutcome};
+    let up_to_date = RefreshOutcome {
+        refresh: Refresh::UpToDate,
+        bundled: None,
+        installed: None,
+    };
+    assert!(super::repair_install_result(Ok(up_to_date)).is_ok());
+    assert!(super::repair_install_result(Err(InstallError::SourceUnavailable)).is_ok());
+    assert!(super::repair_install_result(Err(InstallError::RegistrationPending)).is_ok());
+    assert!(super::repair_install_result(Err(InstallError::Registration)).is_err());
+    assert!(super::repair_install_result(Err(InstallError::InvalidBundle)).is_err());
+}
+
 #[test]
 fn on_device_translation_downloadable_keeps_only_choosable_targets() {
     // `defaults read` prints a string value followed by a newline.

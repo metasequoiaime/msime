@@ -550,11 +550,6 @@ fn registry_probe_exit_code(executable: &Path, timeout: std::time::Duration) -> 
     }
 }
 
-pub(crate) fn install(resource_directory: Option<&Path>) -> Result<(), InstallError> {
-    let _guard = install_lock();
-    install_unlocked(resource_directory)
-}
-
 fn install_unlocked(resource_directory: Option<&Path>) -> Result<(), InstallError> {
     let source = find_source(
         resource_directory,

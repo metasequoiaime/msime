@@ -20,42 +20,44 @@ export function InputMethodServiceSection({
 }: InputMethodServiceSectionProps) {
   if (!visible) return null;
 
+  // macOS 只给一个「修复输入源」：原来并排的「重新注册当前输入源」和「安装或更新水杉输入源」要用户猜该按哪个，应用启动时也已经自动安装或更新过输入源。修复先按版本补装输入源（没装时安装、随附的更新时替换，从不降级；不是打包运行、没有随附的输入源时宿主跳过这一步），再重新注册并启用它。安装失败也照样重新注册已装的那份，原来单独的「重新注册」就能修好的情况不能因为安装失败而修不了；注册完再把安装失败报出来。
+  const repairInputSource =
+    macos && installInputSource && restartInputMethod
+      ? async () => {
+          let installFailed = false;
+          let installFailure: unknown;
+          try {
+            await installInputSource();
+          } catch (error) {
+            installFailed = true;
+            installFailure = error;
+          }
+          await restartInputMethod();
+          if (installFailed) throw installFailure;
+        }
+      : restartInputMethod;
+
   return (
     <GroupList title="输入法服务">
       <SettingsGroupNote>
         {macos
-          ? "重新注册并启用已安装的水杉输入源；当前输入法进程继续按系统生命周期运行。"
+          ? "输入源没装或比应用随附的旧时先装上随附的版本（已装的更新时保留不动），再重新注册并启用它；输入法从输入法菜单里消失或切换不过去时使用。当前输入法进程继续按系统生命周期运行。"
           : linux
             ? "重启 IBus 输入法服务；使用 Fcitx5 时重载水杉插件，关闭并重建所有输入会话，不影响其他输入法。"
             : "请求受监督的输入法服务重新启动。"}
       </SettingsGroupNote>
-      <Row title={macos ? "重新注册当前输入源" : "立即重启输入法服务"}>
+      <Row title={macos ? "修复输入源" : "立即重启输入法服务"}>
         <HostActionButton
-          action={restartInputMethod}
-          label={macos ? "重新注册" : "重启"}
-          success={
-            macos ? "已重新注册输入源。" : linux ? "已请求重启输入法服务。" : "已发送重启请求。"
-          }
+          action={repairInputSource}
+          label={macos ? "修复" : "重启"}
+          success={macos ? "输入源已修复。" : linux ? "已请求重启输入法服务。" : "已发送重启请求。"}
           error={
             macos
-              ? "重新注册输入源失败，请确认输入法已经安装。"
+              ? "修复输入源失败，请确认输入法已经安装后重试。"
               : "重启输入法服务失败，请稍后重试。"
           }
         />
       </Row>
-      {macos && installInputSource && (
-        <Row
-          title="安装或更新水杉输入源"
-          description="将当前应用随附的 IMK bundle 安装到本机输入法目录，然后注册到系统。"
-        >
-          <HostActionButton
-            action={installInputSource}
-            label="安装 / 更新"
-            success="输入源已安装并注册。"
-            error="输入源安装或注册失败，请重试。"
-          />
-        </Row>
-      )}
     </GroupList>
   );
 }

@@ -2171,9 +2171,9 @@ test("the macOS shortcuts page omits the maintenance chords and 维护与诊断 
   expect(screen.queryByText("输入上下文维护快捷键")).toBeNull();
   expect(screen.queryByText("Ctrl+Shift+Option+T")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
-  fireEvent.click(screen.getByRole("button", { name: "重新注册" }));
+  fireEvent.click(screen.getByRole("button", { name: "修复" }));
   await waitFor(() => expect(restartInputMethod).toHaveBeenCalledOnce());
-  expect(await screen.findByText("已重新注册输入源。")).toBeDefined();
+  expect(await screen.findByText("输入源已修复。")).toBeDefined();
 });
 
 test("Linux restart copy covers both input method frameworks", async () => {
@@ -2200,24 +2200,31 @@ test("Linux restart copy covers both input method frameworks", async () => {
   expect(await screen.findByText("已请求重启输入法服务。")).toBeDefined();
 });
 
-test("macOS service page exposes installation separately from re-registration", async () => {
+test("the macOS service page repairs the input source in one action: install, then register", async () => {
   const installInputSource = vi.fn().mockResolvedValue(undefined);
+  const restartInputMethod = vi.fn().mockResolvedValue(undefined);
   render(
     <SettingsPage
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        restartInputMethod: vi.fn().mockResolvedValue(undefined),
+        restartInputMethod,
         installInputSource,
         host: testHost({ platform: "macos", restart_input_method: true, panel_windows: true }),
       }}
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
-  expect(await screen.findByText("安装或更新水杉输入源")).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "安装 / 更新" }));
-  await waitFor(() => expect(installInputSource).toHaveBeenCalledOnce());
-  expect(await screen.findByText("输入源已安装并注册。")).toBeDefined();
+  expect(await screen.findByText("修复输入源")).toBeDefined();
+  expect(screen.queryByText("安装或更新水杉输入源")).toBeNull();
+  expect(screen.queryByRole("button", { name: "重新注册" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "修复" }));
+  await waitFor(() => expect(restartInputMethod).toHaveBeenCalledOnce());
+  expect(installInputSource).toHaveBeenCalledOnce();
+  expect(installInputSource.mock.invocationCallOrder[0]).toBeLessThan(
+    restartInputMethod.mock.invocationCallOrder[0],
+  );
+  expect(await screen.findByText("输入源已修复。")).toBeDefined();
 });
 
 test("macOS reports the start-time input method refresh and a source that still needs enabling", async () => {
@@ -2323,7 +2330,7 @@ test("macOS stays quiet when the input method is current and enabled, and points
     />,
   );
   const banner = await screen.findByRole("alert", { name: "水杉输入法安装状态" });
-  expect(within(banner).getByText(/点「安装 \/ 更新」重试/)).toBeDefined();
+  expect(within(banner).getByText(/点「修复」重试/)).toBeDefined();
   expect(within(banner).queryByRole("button", { name: "打开键盘设置" })).toBeNull();
 });
 

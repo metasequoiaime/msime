@@ -2648,7 +2648,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   // 只有五笔的版本里辅助码没有用处（五笔不用辅助码），不显示这一组；模糊音照常显示，五笔混拼查全拼时会用到。
   const showHelpcode =
     (!mobilePlatform || showHelpcodeShiftEntry) && editionUsesHelpcode(client.host?.edition);
-  // 维护与诊断页收纳输入法服务（重启、重新注册）、诊断日志、数据目录、本地 MCP 服务和 macOS 的卸载；这些一样都没有的宿主不显示这一页。
+  // 维护与诊断页收纳输入法服务（重启，macOS 上是修复输入源）、诊断日志、数据目录、本地 MCP 服务的入口和 macOS 的卸载；这些一样都没有的宿主不显示这一页。
   const showDeveloperPage =
     Boolean(client.mcpServerStatus) ||
     Boolean(showRestartInputMethod) ||
