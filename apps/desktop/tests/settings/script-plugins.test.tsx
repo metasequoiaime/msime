@@ -337,7 +337,9 @@ test("enabling a pack goes through the grant dialog with the hash the page showe
   expect(setScriptGrant).toHaveBeenCalledWith("pangu", HASH, true, ["read_commit"]);
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect((screen.getByRole("switch", { name: "启用" }) as HTMLInputElement).checked).toBe(true);
-  expect(screen.getByText(/第 1 位，共 1 个/)).toBeTruthy();
+  // 只有它一个在运行：顺序无从调整，「执行顺序」一组不出现。
+  expect(screen.queryByText("执行顺序")).toBeNull();
+  expect(screen.queryByRole("button", { name: "提前" })).toBeNull();
 });
 
 test("a refusal over the memory ledger keeps the pack off and says why", async () => {
@@ -391,6 +393,7 @@ test("turning a pack off revokes its grant, and the order buttons reorder the ru
   );
   await openScript("上屏计数");
   await waitFor(() => expect(screen.getByText(/第 2 位，共 2 个/)).toBeTruthy());
+  expect(screen.getByText("执行顺序")).toBeTruthy();
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "提前" }));
   });

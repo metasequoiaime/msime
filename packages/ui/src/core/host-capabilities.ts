@@ -71,6 +71,10 @@ export interface HostCapabilities {
   fixed_candidate_page_size?: number;
   /** 宿主能排的最大每页候选数：macOS、Linux、Android 为 10（第十个用 0 键选），其余为 9。 */
   max_candidate_page_size?: number;
+  /** 宿主固定使用的 AI 联想候选数量（macOS 为 3）；有它时设置页不显示「候选数量」，宿主也不读文档里存的值。 */
+  fixed_ai_candidate_limit?: number;
+  /** 宿主固定使用的打字效果强度（macOS 为 50）；有它时设置页不显示「效果强度」，宿主也不读文档里存的值。 */
+  fixed_effect_intensity?: number;
   /** 宿主只支持一种候选排列时固定为此值，不提供选择。 */
   fixed_candidate_layout?: "horizontal" | "vertical";
   /** 触屏键盘按 `touch_toolbar` 选择工具栏按钮。 */

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useSettingsForm } from "../settings-form-context";
 import { PluginsSection } from "../plugins-section";
 import { pluginPreferences } from "../plugin-preferences";
@@ -21,6 +22,7 @@ export function PluginsSettingsPage({ hidden = false }: { hidden?: boolean }) {
     showTypingEffects,
     showTypingEffectStyles,
     showTypingEffectPacks,
+    showEffectIntensity,
     typingEffectsFlashOnly,
     showHelpcode,
     showWordbookPacks,
@@ -39,6 +41,22 @@ export function PluginsSettingsPage({ hidden = false }: { hidden?: boolean }) {
           .then(() => selectPage("vocabulary"))
           .catch(() => setError("没能打开背单词，请重试。"))
     : undefined;
+  // 「成就音效」按打字统计计数：每次进入本页读一次统计开关，关着时那一行不能打开。宿主没有打字统计或读取失败时不知道，按打开处理。
+  const statistics = showKeySound ? client.typingStatistics : undefined;
+  const [statisticsEnabled, setStatisticsEnabled] = useState<boolean>();
+  useEffect(() => {
+    if (page !== "plugins" || !statistics) return;
+    let current = true;
+    statistics.load().then(
+      (status) => {
+        if (current) setStatisticsEnabled(status.statistics.enabled);
+      },
+      () => undefined,
+    );
+    return () => {
+      current = false;
+    };
+  }, [page, statistics]);
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   const localModes = draft.local_modes ?? defaultLocalModes;
   return (
@@ -53,6 +71,8 @@ export function PluginsSettingsPage({ hidden = false }: { hidden?: boolean }) {
         effectStyles={showTypingEffectStyles}
         effectPacks={showTypingEffectPacks}
         effectFlashOnly={typingEffectsFlashOnly}
+        effectIntensity={showEffectIntensity}
+        statisticsEnabled={statistics ? statisticsEnabled : undefined}
         quickPhraseMode={draft.local_modes?.quick_phrase ?? true}
         commandMode={draft.local_modes?.command ?? false}
         mentionMode={draft.local_modes?.mention ?? false}

@@ -78,6 +78,8 @@ export function testHost(
     wordbook_packs: false,
     symbol_set_packs: false,
     input_schemes: ["quanpin", "shuangpin", "wubi", "japanese", "korean"],
+    // macOS 固定 AI 候选数量和打字效果强度（`HostPlatform::fixed_*`），其他宿主没有这两项。
+    ...(macos ? { fixed_ai_candidate_limit: 3, fixed_effect_intensity: 50 } : {}),
     ...fields,
     platform,
   };
