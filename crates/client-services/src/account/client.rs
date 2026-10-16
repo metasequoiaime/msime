@@ -54,6 +54,27 @@ pub fn valid_client_agent(agent: &str) -> bool {
     version_valid && detail_valid
 }
 
+fn build_http_client(agent: &str) -> Result<Client, AccountError> {
+    Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(30))
+        .user_agent(agent)
+        .build()
+        .map_err(|_| AccountError::Unavailable)
+}
+
+/// [`BackendAccountClient::new`] 用的 HTTP 客户端，整个进程共用一个（克隆只是多一个引用）。reqwest 的阻塞客户端各自带一个后台线程和它的事件循环（macOS 上占三个文件描述符），宿主按账号目录、社区服务、AI 皮肤、整份快照各建一个 `BackendAccountClient`，各建一份时这些线程和描述符跟着按目录缓存的会话一直留着：测试里每个用例一个临时目录，几十个用例就把默认 256 的打开文件上限占掉一大半。客户端里只有连接池、不跟随重定向和 30 秒超时这几样与账号无关的配置，令牌每个请求单独带，共用不会串号。建不出来时不缓存，下一次再试。
+fn shared_default_client() -> Result<Client, AccountError> {
+    static SHARED: std::sync::Mutex<Option<Client>> = std::sync::Mutex::new(None);
+    let mut shared = SHARED.lock().map_err(|_| AccountError::Unavailable)?;
+    if let Some(client) = shared.as_ref() {
+        return Ok(client.clone());
+    }
+    let client = build_http_client(DEFAULT_USER_AGENT)?;
+    *shared = Some(client.clone());
+    Ok(client)
+}
+
 impl BackendAccountClient {
     pub fn new() -> Result<Self, AccountError> {
         Self::with_origin(ACCOUNT_ORIGIN, false)
@@ -90,12 +111,12 @@ impl BackendAccountClient {
         {
             return Err(AccountError::Invalid);
         }
-        let client = Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(Duration::from_secs(30))
-            .user_agent(agent)
-            .build()
-            .map_err(|_| AccountError::Unavailable)?;
+        // 正式服务端、默认 User-Agent 的客户端整个进程共用一个；自报 User-Agent 的和测试连本机回环的各建各的。
+        let client = if agent == DEFAULT_USER_AGENT && !allow_http_loopback {
+            shared_default_client()?
+        } else {
+            build_http_client(agent)?
+        };
         Ok(Self { client, origin })
     }
 
