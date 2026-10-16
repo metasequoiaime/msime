@@ -4,6 +4,8 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -95,6 +97,29 @@ class OpenCCInputTests(unittest.TestCase):
             with self.subTest(commit=commit, path=path), patch.object(fetch_opencc, "LOCK", record):
                 with self.assertRaises(ValueError):
                     fetch_opencc.read_lock()
+
+    @unittest.skipUnless(shutil.which("git"), "需要 Git 验证 Windows 检出")
+    def test_windows_checkout_preserves_locked_licence_bytes(self):
+        checkout = self.cache / "checkout"
+        checkout.mkdir()
+        relative = "resources/licenses/OpenCC-Apache-2.0.txt"
+        licence = checkout / relative
+        licence.parent.mkdir(parents=True)
+        original = (fetch_opencc.ROOT / relative).read_bytes()
+        licence.write_bytes(original)
+        (checkout / ".gitattributes").write_bytes((fetch_opencc.ROOT / ".gitattributes").read_bytes())
+
+        def git(*arguments):
+            return subprocess.run(
+                ["git", "-c", "core.autocrlf=true", "-c", "core.eol=crlf", *arguments],
+                cwd=checkout, check=True, capture_output=True,
+            )
+
+        git("init", "--quiet")
+        git("add", "--", ".gitattributes", relative)
+        licence.unlink()
+        git("checkout-index", "--force", "--", relative)
+        self.assertEqual(licence.read_bytes(), original)
 
 
 if __name__ == "__main__":
