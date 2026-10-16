@@ -211,7 +211,10 @@ fn the_configuration_snapshot_is_redacted_inside_the_zip() {
     assert!(bundle.counts.config_snapshot);
     assert!(bundle.bytes.unwrap() > 0);
     let mut archive = zip::ZipArchive::new(File::open(&destination).unwrap()).unwrap();
-    let mut names: Vec<_> = archive.file_names().map(str::to_owned).collect();
+    let mut names: Vec<_> = archive
+        .file_names()
+        .map(|name| name.unwrap().into_owned())
+        .collect();
     names.sort();
     assert_eq!(
         names,

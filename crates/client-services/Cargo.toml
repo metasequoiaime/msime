@@ -28,7 +28,7 @@ uuid = { workspace = true, features = ["serde", "v4"] }
 time = { workspace = true, features = ["formatting", "parsing"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
 # Plugin packs picked as a .zip archive. Only the flate2 deflate backend: stored and deflated members are what every archiver writes, and flate2 is already here.
-zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+zip = { version = "9.0", default-features = false, features = ["deflate-flate2"] }
 # Notice bodies are simple Markdown; HarmonyOS's RichText gets HTML rendered here (raw HTML escaped, unsafe links dropped). Only the HTML writer: the default `getopts` feature is for the crate's command-line binary.
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 # 候选窗口皮肤的图片在安装、发布和补预览图之前完整解码一遍，和服务端重新编码时一样；只看签名会放过截断的图。只开 PNG 和 JPEG 两种解码器，包里只允许这两种格式。

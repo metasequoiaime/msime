@@ -30,7 +30,7 @@ bzip2 = "0.6"
 # Toneless pinyin for hotword post-correction of recognizers without native hotword support.
 pinyin = { version = "0.11", default-features = false, features = ["plain", "heteronym"] }
 # 下载来的 .zip 归档在 `voice::local_models` 里解出指定的成员。只开 flate2 的 deflate 后端，与 client-services 用的是同一份。
-zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+zip = { version = "9.0", default-features = false, features = ["deflate-flate2"] }
 
 [dev-dependencies]
 msime-path-trust = { path = "../path-trust", features = ["test-support"] }

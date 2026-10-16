@@ -83,7 +83,7 @@ fn packed_signature() -> PackedPlugin {
 fn member_names(archive: &[u8]) -> Vec<String> {
     let mut zip = zip::ZipArchive::new(Cursor::new(archive)).unwrap();
     (0..zip.len())
-        .map(|index| zip.by_index(index).unwrap().name().to_owned())
+        .map(|index| zip.by_index(index).unwrap().name().unwrap().into_owned())
         .collect()
 }
 

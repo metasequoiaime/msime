@@ -401,34 +401,29 @@ fn extract(
     let mut members: Vec<(usize, Vec<String>)> = Vec::with_capacity(archive.len());
     for index in 0..archive.len() {
         let member = archive.by_index_raw(index).map_err(archive_error)?;
-        if !plain_archive_name(member.name()) {
+        let name = member.name().map_err(archive_error)?;
+        if !plain_archive_name(&name) {
             return Err(PluginError::Archive(format!(
                 "{} 不是普通的相对文件路径",
-                member.name()
+                name
             )));
         }
         let path = member
             .enclosed_name()
-            .ok_or_else(|| PluginError::Archive(format!("{} 指向了压缩包之外", member.name())))?;
+            .ok_or_else(|| PluginError::Archive(format!("{} 指向了压缩包之外", name)))?;
         let components = plain_components(&path)
-            .ok_or_else(|| PluginError::Archive(format!("{} 不是普通的文件路径", member.name())))?;
+            .ok_or_else(|| PluginError::Archive(format!("{} 不是普通的文件路径", name)))?;
         if components.first().is_some_and(|first| first == "__MACOSX")
             || components.iter().any(|part| part.starts_with('.'))
         {
             continue;
         }
         if member.is_symlink() {
-            return Err(PluginError::Invalid(format!(
-                "{} 是符号链接",
-                member.name()
-            )));
+            return Err(PluginError::Invalid(format!("{} 是符号链接", name)));
         }
         if member.is_dir() {
             if components.len() > 1 {
-                return Err(PluginError::Invalid(format!(
-                    "{} 是子文件夹",
-                    member.name()
-                )));
+                return Err(PluginError::Invalid(format!("{} 是子文件夹", name)));
             }
             continue;
         }
