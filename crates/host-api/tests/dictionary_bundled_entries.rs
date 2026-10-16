@@ -1,6 +1,6 @@
 //! Bundled dictionary rows through the management request: found by code, re-weighted or deleted, journaled so the change survives replay onto a freshly installed dictionary, and exported with the learned pinyin weights.
 
-use msime_client_core::dictionary::access::DictionaryAccess;
+use msime_client_services::dictionary::access::DictionaryAccess;
 use msime_host_api::dictionary_request_json;
 use serde_json::{json, Value};
 use std::path::PathBuf;

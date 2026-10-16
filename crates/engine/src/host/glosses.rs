@@ -48,6 +48,42 @@ pub fn english_completions(resources: &str, prefix: &str, limit: usize) -> Resul
         .collect())
 }
 
+thread_local! {
+    // 每个宿主查询线程只保留最近一个固定资源目录，缓存不会随输入内容无限增长。
+    static ENGLISH_CORRECTION: std::cell::RefCell<Option<(std::path::PathBuf, EnglishDictionary)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// 手机英文始终以原始按键为第一行，仅在需要时附加唯一纠错；不创建或改变输入会话。
+pub fn english_corrections(resources: &str, raw: &str) -> Result<Vec<String>> {
+    if raw.is_empty()
+        || raw.len() > 128
+        || !raw
+            .bytes()
+            .all(|byte| byte.is_ascii_alphabetic() || byte == b'\'')
+    {
+        return Err(EngineError::invalid(
+            diagnostics::INVALID_ENGLISH_COMPLETION_PREFIX,
+        ));
+    }
+    let mut candidates = vec![raw.to_owned()];
+    ENGLISH_CORRECTION.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let path = Path::new(resources).join(assets::ENGLISH_DICTIONARY);
+        if slot
+            .as_ref()
+            .is_none_or(|(cached, dictionary)| cached != &path || !dictionary.ready())
+        {
+            *slot = Some((path.clone(), EnglishDictionary::open(&path, None, None)));
+        }
+        if let Some((_, dictionary)) = slot.as_ref() {
+            if let Some(correction) = dictionary.correct_mobile_english(raw) {
+                candidates.push(correction);
+            }
+        }
+    });
+    Ok(candidates)
+}
+
 /// Parallel to `candidates`; empty for ineligible rows (emoji, kaomoji, neither Latin nor Han).
 pub fn candidate_glosses(resources: &str, candidates: &[(String, u8)]) -> Result<Vec<String>> {
     candidate_glosses_with_user(resources, "", candidates)

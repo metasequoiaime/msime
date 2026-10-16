@@ -8,6 +8,7 @@
 #include "KeyHandlerEditSession.h"
 #include "TfTextLayoutSink.h"
 #include <string>
+#include "../../../../shared/contracts/uiless_page.h"
 
 class CReadingLine;
 
@@ -87,6 +88,7 @@ class CCandidateListUIPresenter : public CTfTextLayoutSink,
     void _SetText(_In_ CMetasequoiaImeArray<CCandidateListItem> *pCandidateList, BOOL isAddFindKeyCode);
     void _ClearList();
     void _ApplyUiLessCandidatePage(_In_ const std::wstring &page, int selectedIndex = 0);
+    bool _ApplyUiLessPayload(const FanyImeUiLessPage::Payload &payload);
     void _NotifyUiLessHost();
     bool _ConsumeUiLessCompositionReply(uint64_t requestId);
     UINT _GetCount() const
@@ -169,4 +171,5 @@ class CCandidateListUIPresenter : public CTfTextLayoutSink,
     BOOL _candidateUiSessionActive;
     BOOL _asyncCleanupPending;
     std::wstring _lastUiLessCandidatePage;
+    std::uint64_t _lastUiLessGeneration = 0;
 };

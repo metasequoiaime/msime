@@ -23,6 +23,11 @@ constexpr std::uint32_t GameHostCandidate = 1u << 5;
 constexpr std::uint32_t FieldTraits = 1u << 6;
 // 可选：Ctrl+Shift+J 的 KeyEvent 在中文方案和日语方案之间切换，不改组字，Server 不回复。TIP 只在协商到这一位之后才吃这个组合键并发给 Server；协商不到时（新 TIP 配旧 Server）把它交给应用，免得旧 Server 把它当普通按键送进组字。和 FieldTraits 一样不放进 Capabilities 和 RequiredCapabilities。
 constexpr std::uint32_t JapaneseToggleShortcut = 1u << 7;
+// 可选：TIP 能在自己的宿主会话里执行外部候选窗发来的继续组字选择。
+constexpr std::uint32_t CandidateContinuation = 1u << 8;
+// 可选：TIP 以 ServerUiLessCandidates 明确请求旧管道路径的后台候选页。
+constexpr std::uint32_t UiLessCandidates = 1u << 9;
+constexpr std::uint32_t HostOnlineCandidates = 1u << 10;
 constexpr std::uint32_t Capabilities = RequestIds | FocusEpochs | FramedVoice;
 constexpr std::uint32_t RequiredCapabilities = RequestIds | FocusEpochs;
 

@@ -1069,8 +1069,9 @@ int main(int argc, char **argv) {
                                        std::string(argv[2]) == "--ctrl-space" ||
                                        std::string(argv[2]) == "--caps-lock" ||
                                        std::string(argv[2]) == "--japanese-toggle" ||
-                                       std::string(argv[2]) == "--local-modes")),
-            "usage: fcitx5-native-test <verified-resources> [--ai|--ctrl-space|--caps-lock|--japanese-toggle|--local-modes]");
+                                       std::string(argv[2]) == "--local-modes" ||
+                                       std::string(argv[2]) == "--smart-abc")),
+            "usage: fcitx5-native-test <verified-resources> [--ai|--ctrl-space|--caps-lock|--japanese-toggle|--local-modes|--smart-abc]");
     const bool ai = argc == 3 && std::string(argv[2]) == "--ai";
     const std::string suggestion = ai ? "合成候选" : "在线";
     char temporary[] = "/tmp/msime-fcitx5-test-XXXXXX";
@@ -1378,6 +1379,42 @@ int main(int argc, char **argv) {
     require(!state->voice_hotkey_hold_space_lock_,
             "initial voice context reads the hold-to-lock preference");
     require(state->view_.contains("candidates"), "focus must unpack transition view");
+    // 标准双拼方案的独立验收也在完整上下文套件中运行，避免通用测试的其它失败掩盖新增入口。
+    {
+      const auto press = [&](fcitx::KeySym sym) {
+        fcitx::KeyEvent event(&ic, fcitx::Key(sym));
+        engine.keyEvent(entry, event);
+        return event.accepted();
+      };
+      engine.scheme_shuangpin_action_.activate(&ic);
+      for (int attempt = 0; attempt < 5 &&
+           state->view_.value("shuangpin_profile", std::string{}) != "smart_abc"; ++attempt)
+        engine.shuangpin_profile_action_.activate(&ic);
+      const auto profilePreferencesDirectory = options.at("preferences_directory").get<std::string>();
+      const auto stored = response(msime_client_load_preferences(
+          reinterpret_cast<const uint8_t *>(profilePreferencesDirectory.data()), profilePreferencesDirectory.size()));
+      require(state->view_.value("shuangpin_profile", std::string{}) == "smart_abc" &&
+                  stored.at("preferences").at("shuangpin_profile") == "smart_abc" &&
+                  engine.shuangpin_profile_action_.shortText(&ic) == "双拼方案：智能 ABC",
+              "智能 ABC 状态栏选择、标签或持久化失败");
+      const auto committedBeforeAbc = ic.committed;
+      for (const auto character : {FcitxKey_n, FcitxKey_i, FcitxKey_h, FcitxKey_k})
+        require(press(character), "智能 ABC 字母未进入组合");
+      require(press(FcitxKey_space) && ic.committed == committedBeforeAbc + "你好",
+              "智能 ABC 状态栏选择后未按键位组词上屏");
+      engine.shuangpin_profile_action_.activate(&ic);
+      require(state->view_.value("shuangpin_profile", std::string{}) == "xiaohe",
+              "智能 ABC 作为末项应轮换回小鹤");
+      engine.scheme_quanpin_action_.activate(&ic);
+      require(state->view_.value("scheme", 0u) == 0, "智能 ABC 夹具应恢复全拼");
+      ic.committed.clear();
+      if (argc == 3 && std::string(argv[2]) == "--smart-abc") {
+        state->close();
+        removeFixtureTree(directory);
+        std::cout << "Fcitx5 智能 ABC 状态栏切换、保存与组词上屏通过\n";
+        return 0;
+      }
+    }
     // A pre-preference-store runtime options document may omit newly added keys.
     // The shared preference contract treats candidate translations as enabled when absent;
     // the Fcitx host must preserve that default when the status action toggles it.
@@ -1412,8 +1449,11 @@ int main(int argc, char **argv) {
                 "Uppercase without Shift must pass through");
         require(state->view_.value("local_mode", std::string("none")) == "none",
                 "Uppercase without Shift must not enter a local mode");
+        // #7616 连续大写期间不再进入快捷模式；用小写输入结束这一串，取消合成组字后再测入口。
+        require(!press(sym, shiftState), "连续大写中的 Shift 字母应留给编辑器");
+        require(press(FcitxKey_n) && press(FcitxKey_Escape), "快捷模式夹具应先结束连续大写并清空合成组字");
         press(FcitxKey_Shift_L, shiftState);
-        require(press(sym, shiftState), "Shift local-mode shortcut must be consumed");
+        require(press(sym, shiftState), (std::string("Shift 快捷模式未处理：") + mode).c_str());
         require(state->view_.value("local_mode", std::string("none")) == mode,
                 "Shift local-mode shortcut must enter its mode");
         press(sym, shiftState, true);
@@ -1464,6 +1504,7 @@ int main(int argc, char **argv) {
     changedPreferences["smart_punctuation"] = true;
     changedPreferences["smart_punctuation_repeat"] = true;
     changedPreferences["learning"] = true;
+    changedPreferences["candidate_translations"] = true;
     const auto preferenceDirectory = options["preferences_directory"].get<std::string>();
     if (argc == 3 && std::string(argv[2]) == "--ctrl-space") {
       const auto press = [&](bool release = false, bool ctrl = true) {

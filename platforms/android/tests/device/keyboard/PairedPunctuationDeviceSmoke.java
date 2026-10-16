@@ -37,7 +37,7 @@ public final class PairedPunctuationDeviceSmoke extends DeviceSmoke {
         }
     }
 
-    /** 长按 123 打开符号面板，切到「中文」，点 `description` 那个符号；点完面板自己关上。 */
+    /** 长按 123 打开符号面板，切到「中文」点选，再显式返回键盘。 */
     private void insertFromSymbolPanel(String description) throws Exception {
         AccessibilityNodeInfo layer = await(described("切换到数字和符号"));
         if (!layer.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
@@ -46,6 +46,7 @@ public final class PairedPunctuationDeviceSmoke extends DeviceSmoke {
         tap(describedPrefix("符号分类 中文"));
         await(described("符号分类 中文，已选中"));
         tap(described(description));
+        tap(described("关闭符号面板"));
         await(key("n").and(AccessibilityNodeInfo::isClickable));
     }
 

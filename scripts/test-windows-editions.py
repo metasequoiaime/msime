@@ -51,7 +51,7 @@ IDENTIFIER_HOMES = {
     "crates/client-core/src/edition.rs",
 }
 # 不该自己写出来的 full 和 msime-windows 标识：TSF 的 CLSID 和 profile，以及 HKLM 键。管道、事件和互斥量的基名不在其中，它们本来就要和版本后缀拼在一起写。
-SCANNED = ["platforms/windows", "crates/host-windows", "crates/client-core/src", "crates/mcp-server/src", "apps/desktop/src-tauri/src"]
+SCANNED = ["platforms/windows", "crates/host-windows", "crates/client-base/src", "crates/client-core/src", "crates/client-providers/src", "crates/client-services/src", "crates/mcp-server/src", "apps/desktop/src-tauri/src"]
 SCANNED_SUFFIXES = {".h", ".cpp", ".rs", ".ps1", ".iss", ".rc", ".vcxproj", ".cmake", ".txt"}
 
 

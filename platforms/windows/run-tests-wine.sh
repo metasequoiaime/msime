@@ -186,10 +186,8 @@ if [ "${#rust_command[@]}" -gt 0 ]; then
   # --no-run builds the test binaries and prints where they landed. Report a
   # build failure as a test failure while still running the C++ suite below.
   # host-api is the DLL the Server links against, so its FFI boundary is worth exercising on the target it ships for; it needs no vcpkg prefix, since its C parts build with the same MinGW toolchain.
-  # client-core carries the shared logic plus a few #[cfg(windows)] paths - the
-  # file-replacement retry in the gloss store among them - that the host run can
-  # never reach, because on macOS and Linux the other branch is compiled.
-  rust_packages="-p msime-host-windows -p msime-client-core -p msime-engine -p msime-host-api"
+  # client-core 除了共享逻辑，还有几条 #[cfg(windows)] 分支（释义库替换文件时的重试就是其一），主机上的测试永远走不到：macOS 和 Linux 编译的是另一条分支。client-base 里的存储和文件锁同样有 Windows 分支（硬链接数经 winapi-util 读取），一起编出 Windows 目标的测试程序。client-providers 的库测试同样只编不跑，它的 voice_wire_interop 集成测试照旧在 Wine 下运行。client-services 的词库和账号里也有 Windows 分支（词库停用经 Server 辅助管道的释放、账号设备名取 `COMPUTERNAME`），库测试同样只编不跑，保住这些分支在 Windows 目标上的编译覆盖。
+  rust_packages="-p msime-host-windows -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services -p msime-engine -p msime-host-api"
   # Filter on profile.test: --no-run also reports examples, which are ordinary
   # programs that expect arguments and would be counted as failures here.
   # --tests excludes examples, which are not tests and need not build for this
@@ -209,7 +207,7 @@ for line in sys.stdin:
         continue
     executable = message.get("executable")
     target = message.get("target", {}).get("name")
-    if target in {"msime_client_core", "msime_engine", "msime_host_api", "golden"}:
+    if target in {"msime_client_base", "msime_client_core", "msime_client_providers", "msime_client_services", "msime_engine", "msime_host_api", "golden"}:
         continue
     if executable and message.get("profile", {}).get("test"):
         print(executable)' \
@@ -257,6 +255,7 @@ for exe in /bin-win/windows-*.exe /bin-win/tsf/msime-tsf-*.exe /bin-win/msimeui-
   [ "$name" = windows-installer-launch ] && argument="$MSIME_INSTALLER"
   [ "$name" = windows-stroke-keys ] && argument="$MSIME_STROKE_FIXTURE"
   [ "$name" = windows-zhuyin-keys ] && argument="$MSIME_ZHUYIN_FIXTURE"
+  [ "$name" = windows-host-online-candidates ] && argument="Z:\\fixtures\\msime-pinyin-online.db"
   [ "$name" = msime-tsf-paired-punctuation-wiring-test ] && argument="$MSIME_TSF_SOURCE"
   [ "$name" = msime-tsf-smart-punctuation-focus-wiring-test ] && argument="$MSIME_TSF_SOURCE"
   [ "$name" = msime-tsf-japanese-conversion-wiring-test ] && argument="$MSIME_TSF_SOURCE"

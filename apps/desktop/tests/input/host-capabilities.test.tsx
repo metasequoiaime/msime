@@ -223,7 +223,7 @@ test("the restart action needs both the capability and an injected handler", asy
 
 test("toolbar scale is hidden while Linux component choices remain available", async () => {
   // The Linux host stands the toolbar up as an IBus property menu: the enable
-  // switch and component visibility work, but scale and icon size have no surface.
+  // switch and component visibility work, but the toolbar size has no surface.
   const menuOnly = mount({
     host: capabilities({
       platform: "linux",
@@ -235,8 +235,7 @@ test("toolbar scale is hidden while Linux component choices remain available", a
   fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
   expect(screen.getByLabelText("在输入法菜单显示工具栏")).toBeTruthy();
   expect(screen.queryByLabelText("在桌面显示悬浮工具栏")).toBeNull();
-  expect(screen.queryByLabelText("工具栏缩放")).toBeNull();
-  expect(screen.queryByLabelText("图标尺寸")).toBeNull();
+  expect(screen.queryByLabelText("工具栏大小")).toBeNull();
   expect(screen.getByRole("group", { name: "按钮" })).toBeTruthy();
   menuOnly.unmount();
 
@@ -245,8 +244,10 @@ test("toolbar scale is hidden while Linux component choices remain available", a
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
   expect(screen.getByLabelText("在桌面显示悬浮工具栏")).toBeTruthy();
-  expect(screen.getByLabelText("工具栏缩放")).toBeTruthy();
-  expect(screen.getByLabelText("图标尺寸")).toBeTruthy();
+  expect(screen.getByLabelText("工具栏大小")).toBeTruthy();
+  // 缩放和图标尺寸合并成了这一个控件，不再分开出现。
+  expect(screen.queryByLabelText("工具栏缩放")).toBeNull();
+  expect(screen.queryByLabelText("图标尺寸")).toBeNull();
 });
 
 test("the Linux toolbar page explains the menu at the top instead of previewing a floating bar", async () => {
@@ -358,6 +359,7 @@ test("candidate appearance follows host capabilities", async () => {
     }),
   });
   await settingsFormReady();
+  expect(screen.queryByRole("radiogroup", { name: "候选字体", hidden: true })).toBeNull();
   expect(screen.queryByLabelText("主字体")).toBeNull();
   expect(screen.queryByLabelText("字号")).toBeNull();
   expect(screen.queryByLabelText("预编辑字号")).toBeNull();
@@ -464,7 +466,8 @@ test("Linux panel font takes the family and size but not a preedit size", async 
     }),
   });
   await settingsFormReady();
-  expect(screen.getByLabelText("主字体")).toBeTruthy();
+  // 字体框在「候选字体」选「自定义…」后才出现，字体控件在不在看预设那一行。
+  expect(screen.getByRole("radiogroup", { name: "候选字体", hidden: true })).toBeTruthy();
   expect(screen.getByLabelText("字号")).toBeTruthy();
   // The application draws the composition there, so a preedit size would change nothing.
   expect(screen.queryByLabelText("预编辑字号")).toBeNull();
@@ -499,7 +502,8 @@ test("macOS candidate appearance exposes the shared English face control", async
   });
   await settingsFormReady();
   expect(screen.getByLabelText("英文字体")).toBeTruthy();
-  expect(screen.getByLabelText("主字体")).toBeTruthy();
+  // 字体框在「候选字体」选「自定义…」后才出现，字体控件在不在看预设那一行。
+  expect(screen.getByRole("radiogroup", { name: "候选字体", hidden: true })).toBeTruthy();
 });
 
 test("Linux candidate appearance offers the English face, which leads the panel's Pango family list", async () => {
@@ -516,7 +520,8 @@ test("Linux candidate appearance offers the English face, which leads the panel'
   // Unset follows the primary family, which is what the panel draws until one is chosen.
   expect(english.value).toBe("Noto Sans SC");
   expect(screen.getByText(/未设置时跟随候选主字体/)).toBeTruthy();
-  expect(screen.getByLabelText("主字体")).toBeTruthy();
+  // 字体框在「候选字体」选「自定义…」后才出现，字体控件在不在看预设那一行。
+  expect(screen.getByRole("radiogroup", { name: "候选字体", hidden: true })).toBeTruthy();
 });
 
 // Android 的触屏候选栏画键盘皮肤的颜色，不读候选颜色：字体和字号照常给，候选颜色取色器不显示。
@@ -533,7 +538,8 @@ test("Android candidate appearance exposes native font controls but no candidate
   });
   await settingsFormReady();
   expect(screen.getByLabelText("英文字体")).toBeTruthy();
-  expect(screen.getByLabelText("主字体")).toBeTruthy();
+  // 字体框在「候选字体」选「自定义…」后才出现，字体控件在不在看预设那一行。
+  expect(screen.getByRole("radiogroup", { name: "候选字体", hidden: true })).toBeTruthy();
   expect(screen.getByLabelText("字号")).toBeTruthy();
   expect(screen.queryByLabelText("候选强调色")).toBeNull();
   expect(screen.queryByLabelText("候选悬停色")).toBeNull();
@@ -695,7 +701,7 @@ test("the candidate English font follows the capability rather than a list of pl
   expect(await screen.findByLabelText("英文字体")).toBeTruthy();
   cleanup();
   appearance(false);
-  await screen.findByLabelText("主字体");
+  await screen.findByRole("radiogroup", { name: "候选字体", hidden: true });
   expect(screen.queryByLabelText("英文字体")).toBeNull();
 });
 

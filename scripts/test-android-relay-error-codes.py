@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Android 自己跑中继的端到端加密驱动时，驱动报的错要按 Rust 那条路同样归类。
 
-`CloudClipboardRelayPolicy.driverFailureCode`（platforms/android/java/app/msime/android/clipboard/CloudClipboardRelayPolicy.java）照抄了 `crates/client-core/src/account/clipboard.rs` 的 `CLIPBOARD_ERROR_CODES`：已知码原样交给界面，其余按状态码归成 `invalid_cloud_clipboard`、`not_found` 或 `relay_unavailable`。Rust 那边加了码而 Java 没跟上，Android 上那个码就会被说成「连不上中继」。这里核对两份清单完全相同。
+`CloudClipboardRelayPolicy.driverFailureCode`（platforms/android/java/app/msime/android/clipboard/CloudClipboardRelayPolicy.java）照抄了 `crates/client-services/src/account/clipboard.rs` 的 `CLIPBOARD_ERROR_CODES`：已知码原样交给界面，其余按状态码归成 `invalid_cloud_clipboard`、`not_found` 或 `relay_unavailable`。Rust 那边加了码而 Java 没跟上，Android 上那个码就会被说成「连不上中继」。这里核对两份清单完全相同。
 
 Java 清单里的 `CODE_*` 常量按同一个类里的定义展开。
 """
@@ -10,7 +10,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-RUST = ROOT / "crates/client-core/src/account/clipboard.rs"
+RUST = ROOT / "crates/client-services/src/account/clipboard.rs"
 JAVA = ROOT / "platforms/android/java/app/msime/android/clipboard/CloudClipboardRelayPolicy.java"
 
 

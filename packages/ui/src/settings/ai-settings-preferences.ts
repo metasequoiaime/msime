@@ -1,4 +1,5 @@
-import type { AiAssistantPreferences, ProviderCredentialStatus } from "../index";
+import type { ProviderCredentialStatus } from "../core/provider-credential-contracts";
+import type { AiAssistantPreferences } from "../index";
 import { defaultAiAssistant } from "./ai-assistant-defaults";
 
 export interface AiSettingsPreferences {

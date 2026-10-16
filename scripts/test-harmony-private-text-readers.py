@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Harmony private text readers must validate and read through one descriptor."""
+"""鸿蒙私有文本读取必须通过同一个描述符完成校验与读取。"""
 from pathlib import Path
 import sys
 
@@ -29,7 +29,7 @@ def main() -> int:
         "fs.statSync(handle.fd)",
         "stat.ino !== expected.ino",
         "fs.readSync",
-        "fs.closeSync",
+        "NativeCleanup.close(handle)",
         "isFile",
     )
     missing = [token for token in required_helper if token not in helper]
@@ -38,7 +38,7 @@ def main() -> int:
     if "fs.readTextSync(this.file)" in account_region:
         missing.append("account descriptor read")
     for label, region in (("staged marker", staged_region), ("telemetry marker", telemetry_region)):
-        for token in ("fs.openSync", "fs.statSync(handle.fd)", "fs.readSync", "fs.closeSync"):
+        for token in ("fs.openSync", "fs.statSync(handle.fd)", "fs.readSync", "NativeCleanup.close(handle)"):
             if token not in region:
                 missing.append(f"{label}: {token}")
         for token in ("fs.lstatSync", "stat.ino !== expected.ino"):

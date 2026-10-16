@@ -61,7 +61,7 @@ pub struct EngineOptions {
     pub scheme: u8,
     /// 会话允许运行的方案，`prepare_options` 填 [`SchemeSet::ALL`]，`prepare_options_for` 填调用方给的集合。宿主按产品版本收窄它：`scheme` 不在其中时建会话失败（`INPUT_SCHEME_NOT_ENABLED`），不在其中的方案不构造 provider。
     pub enabled_schemes: SchemeSet,
-    /// 0 xiaohe, 1 ziranma, 2 shoudao, 3 microsoft, 4 custom（表在 `shuangpin_custom_profile`）。双拼不在 `enabled_schemes` 里时不校验，不合法的值按小鹤处理。
+    /// 0 小鹤，1 自然码，2 首道，3 微软，4 自定义（表在 `shuangpin_custom_profile`），5 智能 ABC。双拼不在 `enabled_schemes` 里时不校验，不合法的值按小鹤处理。
     pub shuangpin_profile: u8,
     /// `shuangpin_profile` 为 4 时的键位表（`SessionOptions::shuangpin_custom_profile`）。双拼在 `enabled_schemes` 里时缺表或表不合法，建会话失败（`INVALID_CUSTOM_SHUANGPIN_PROFILE`）；宿主应先用 `validate_shuangpin_custom_profile` 校验，不合法就不要传 4。
     pub shuangpin_custom_profile: Option<ShuangpinCustomTable>,

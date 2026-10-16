@@ -5,7 +5,7 @@
 //! 以前的版本把会话放在设置应用自己的 `%LOCALAPPDATA%\<tauri identifier>`。启动时新目录还没有会话而旧目录有，就把旧文件搬过来，用户不用重新登录。
 
 use crate::platform::desktop::{desktop_account, desktop_cloud_dictionary};
-use msime_client_core::account::{AccountSessionFileLayout, FileAccountSessionStorage};
+use msime_client_services::account::{AccountSessionFileLayout, FileAccountSessionStorage};
 use tauri::Manager;
 
 /// 在 Server 也读的那份本用户会话文件上注册桌面账号状态，以及经这个会话服务云词库面板的状态。
@@ -17,7 +17,7 @@ pub fn setup(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .join(&identity.user_data_directory)
         .join("account");
     let local = app.path().app_local_data_dir()?;
-    msime_client_core::account::adopt_legacy_account_session(&local, &directory);
+    msime_client_services::account::adopt_legacy_account_session(&local, &directory);
     app.manage(desktop_cloud_dictionary::CloudDictionaryState::new(
         local.join("dictionary-snapshots"),
     ));

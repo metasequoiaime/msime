@@ -20,7 +20,7 @@ fi
 bash "$repo_root/platforms/ios/stage-resources.sh" "$resource_dir"
 bash "$repo_root/platforms/ios/build-native.sh" "$native_variant"
 
-# iOS 的产品本体是 platforms/ios 下的原生宿主 MSIMEApp：装机、启动、被系统识别为输入法的都是它，所以它是这个脚本的默认产物。Tauri/React 是它承载的公共组件，不是 iOS 的产品本体；只在需要单独构建那部分时用 MSIME_IOS_TAURI_COMPONENT=1 显式选择，不拿它作为 iOS 的产品去启动或验收。
+# iOS 的产品本体是 platforms/ios 下的原生宿主 MSIMEApp：装机、启动、被系统识别为输入法的都是它，所以它是这个脚本的默认产物。MSIMEApp 的设置是原生 SwiftUI，App 和键盘扩展里没有 WebView，不承载 Tauri/React；Tauri/React 只是单独构建的公共组件，不是 iOS 的产品本体，也不随产品分发。只在需要单独构建那部分时用 MSIME_IOS_TAURI_COMPONENT=1 显式选择，不拿它作为 iOS 的产品去启动或验收。
 if [ "${MSIME_IOS_TAURI_COMPONENT:-0}" = 1 ]; then
   if [ "$variant" = device ]; then
     command -v pod >/dev/null || { echo "CocoaPods is required for the device handwriting build" >&2; exit 1; }

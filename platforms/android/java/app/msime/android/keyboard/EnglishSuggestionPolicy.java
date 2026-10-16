@@ -2,11 +2,11 @@ package app.msime.android.keyboard;
 
 import app.msime.android.TextPolicy;
 
-/** Pure text boundaries for direct English completion in the Android host. */
+/** 普通英文当前词的边界和替换范围，纠错内容由共享引擎决定。 */
 public final class EnglishSuggestionPolicy {
     private EnglishSuggestionPolicy() {}
 
-    /** Read Latin letters backwards, normalizing full-width forms for the ASCII dictionary. */
+    /** 从光标向前读取字母及词内撇号，全角字母按 ASCII 规范查询。 */
     public static String currentWord(CharSequence beforeCursor) {
         if (beforeCursor == null || beforeCursor.length() == 0) return "";
         StringBuilder result = new StringBuilder(beforeCursor.length());
@@ -21,7 +21,7 @@ public final class EnglishSuggestionPolicy {
     }
 
     private static int normalizeLetter(int codePoint) {
-        if (TextPolicy.isAsciiLetter(codePoint)) return codePoint;
+        if (TextPolicy.isAsciiLetter(codePoint) || codePoint == '\'') return codePoint;
         if ((codePoint >= 0xff21 && codePoint <= 0xff3a)
                 || (codePoint >= 0xff41 && codePoint <= 0xff5a)) {
             return codePoint - 0xfee0;

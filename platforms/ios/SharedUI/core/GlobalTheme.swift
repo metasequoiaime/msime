@@ -18,7 +18,7 @@ private func themeReply(_ raw: UnsafeMutablePointer<CChar>?) -> Any? {
   return reply["value"]
 }
 
-/// A colour client-core publishes: `#RRGGBB` or `#RRGGBBAA`, alpha last. Anything else reads as unset, which means the native token.
+/// client-services 发布的颜色：`#RRGGBB` 或 `#RRGGBBAA`，alpha 在最后。其他任何写法都当作未设置，也就是改用原生的颜色令牌。
 enum ThemeColor {
   static func parse(_ value: Any?) -> UIColor? {
     guard let value = value as? String, value.first == "#", value.count == 7 || value.count == 9,
@@ -250,7 +250,7 @@ private func themeAppearance(_ value: Any?) -> UIUserInterfaceStyle? {
   }
 }
 
-/// One theme of `msime_client_theme_catalog`, in picker order. The ids, titles and colours come from client-core; the host keeps no copy.
+/// `msime_client_theme_catalog` 里的一个主题，按选择器顺序排列。id、标题和颜色来自 client-services；宿主不保留副本。
 struct GlobalThemeEntry: Equatable {
   struct Preview: Equatable { let background, panel, accent, text: UIColor }
   let id: String
@@ -299,7 +299,7 @@ enum GlobalThemeCatalog {
   static func effectiveId(_ id: String, dark: Bool) -> String { fits(id, dark: dark) ? id : systemId }
 }
 
-/// 候选皮肤包放进自定义主题的哪个槽位：它清单 `base` 的明暗（client-core `theme::skin_appearance`）。包也只在这个明暗下绘制。
+/// 候选皮肤包放进自定义主题的哪个槽位：它清单 `base` 的明暗（client-services `theme::skin_appearance`）。包也只在这个明暗下绘制。
 enum CandidateSkinSlot: Equatable {
   case light
   case dark
@@ -519,7 +519,7 @@ enum GlobalThemePreference {
     }
   }
 
-  /// 不再使用皮肤包 `id`：只清掉放着它的槽位，另一个槽位、取色器和键盘设计都不动（共享设置页的 `removeCandidateSkin`）。取下的是最后一款皮肤时底改回跟随系统（不写 `base`）：底是应用皮肤时写进来的包 base，两个槽位都空以后 client-core 在两种明暗下都用它，留着深色皮肤的 `night` 会让浅色模式变成深色。
+  /// 不再使用皮肤包 `id`：只清掉放着它的槽位，另一个槽位、取色器和键盘设计都不动（共享设置页的 `removeCandidateSkin`）。取下的是最后一款皮肤时底改回跟随系统（不写 `base`）：底是应用皮肤时写进来的包 base，两个槽位都空以后 client-services 在两种明暗下都用它，留着深色皮肤的 `night` 会让浅色模式变成深色。
   static func removingPackage(_ id: String) -> (inout [String: Any]) -> Void {
     { document in
       var custom = customTheme(in: document)

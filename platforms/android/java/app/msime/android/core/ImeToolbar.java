@@ -48,31 +48,35 @@ final class ImeToolbar {
         this.s = s;
     }
 
-    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、浮动键盘、文本编辑、收起，等分整行宽度；哪些显示由 render 按 `touch_toolbar` 与本地设置决定。数字键面上有算式结果时，品牌键右边多一个结果胶囊（{@link ImeCalculator}）。 */
+    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、浮动键盘、文本编辑、收起；两端固定，中间工具等分剩余宽度，放不下时横向滚动；哪些显示由 render 按 `touch_toolbar` 与本地设置决定。数字键面上有算式结果时，品牌键右边多一个结果胶囊（{@link ImeCalculator}）。 */
     void installShortcutBar(Button dismissButton) {
         appliedOrder = null;
         s.shortcutBar.removeAllViews();
         s.dismissShortcutButton = dismissButton;
-        Button[] buttons = {s.moreButton, s.emojiShortcutButton, s.phraseShortcutButton,
-            s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton,
-            s.textEditShortcutButton, dismissButton};
         shortcutButtons = new Button[] {s.emojiShortcutButton, s.phraseShortcutButton,
             s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton,
             s.textEditShortcutButton};
-        for (Button button : buttons) {
+        for (Button button : new Button[] {s.moreButton, dismissButton}) {
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                0, s.pixels(44), 1);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(s.pixels(44), s.pixels(44));
+            params.setMarginStart(s.pixels(1));
+            params.setMarginEnd(s.pixels(1));
+            s.shortcutToolbar.addView(button, button == s.moreButton ? 0 : s.shortcutToolbar.getChildCount(), params);
+            ViewPolicy.setMinimumWidth(button, s.pixels(40));
+        }
+        // 数字键面的计算结果（#5688）放在中间滚动区最前面；没有结果时隐藏，不占宽度。
+        Button result = s.imeCalculator.chip();
+        if (result.getParent() instanceof LinearLayout parent) parent.removeView(result);
+        s.shortcutBar.addView(result, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, s.pixels(44)));
+        for (Button button : shortcutButtons) {
+            if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(s.pixels(40), s.pixels(44), 1);
             params.setMarginStart(s.pixels(1));
             params.setMarginEnd(s.pixels(1));
             s.shortcutBar.addView(button, params);
             ViewPolicy.setMinimumWidth(button, s.pixels(40));
         }
-        // 数字键面的计算结果（#5688）挨着品牌键，在工具栏最左边；没有结果时隐藏，不占宽度。
-        Button result = s.imeCalculator.chip();
-        if (result.getParent() instanceof LinearLayout parent) parent.removeView(result);
-        s.shortcutBar.addView(result, 1, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, s.pixels(44)));
         // 旧的回复、语音、简繁、AI 润色、⚙ 入口不在新工具栏上：AI 在功能面板第 2 页，语音由长按空格进入，设置在功能面板里。按钮对象保留，服务里其余代码照常更新它们的状态。
         for (Button retired : new Button[] {s.scriptShortcutButton, s.aiPolishShortcutButton,
                 s.replyShortcutButton, s.voiceShortcutButton, s.layoutSettingsButton}) {
@@ -99,8 +103,8 @@ final class ImeToolbar {
                 case FLOATING -> s.floatingShortcutButton;
                 case TEXT_EDIT -> s.textEditShortcutButton;
             };
-            // 品牌和算式结果固定在开头，收起键固定在末尾。
-            s.shortcutBar.addView(button, index + 2);
+            // 算式结果保留为中间滚动区的第一项，两端按钮不参与排序。
+            s.shortcutBar.addView(button, index + 1);
         }
         appliedOrder = order;
     }
@@ -149,13 +153,18 @@ final class ImeToolbar {
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         s.shortcutBar = LayoutPolicy.row(s);
         ViewPolicy.setCenteredVertically(s.shortcutBar);
-        s.shortcutBar.setContentDescription("键盘快捷栏");
-        LayoutPolicy.setPaddingDp(s.shortcutBar, s, 2, 0, 2, 0);
+        s.shortcutToolbar = LayoutPolicy.row(s);
+        ViewPolicy.setCenteredVertically(s.shortcutToolbar);
+        s.shortcutToolbar.setContentDescription("键盘快捷栏");
+        LayoutPolicy.setPaddingDp(s.shortcutToolbar, s, 2, 0, 2, 0);
         s.shortcutScroll = new HorizontalScrollView(s);
         s.shortcutScroll.setHorizontalScrollBarEnabled(false);
+        s.shortcutScroll.setContentDescription("可滑动键盘工具");
         s.shortcutScroll.setFillViewport(true);
         s.shortcutScroll.addView(s.shortcutBar, new HorizontalScrollView.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT));
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        s.shortcutToolbar.addView(s.shortcutScroll, new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
         s.scriptShortcutButton = s.button(s.shortcutBar, "简", s::toggleChineseOutput);
         s.scriptShortcutButton.setContentDescription("切换到繁体");
         s.emojiShortcutButton = s.shortcutButton(s.shortcutBar, "☺",

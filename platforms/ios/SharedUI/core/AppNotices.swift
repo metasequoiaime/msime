@@ -5,7 +5,7 @@ private func msimeClientNotices(_ request: UnsafePointer<UInt8>?, _ length: UInt
 @_silgen_name("msime_client_notice_dismiss")
 private func msimeClientNoticeDismiss(_ request: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 
-/// A notice from GET /v1/notices?channel=app&platform=ios, through client-core (msime_client_notices), which caches the feed for a minute and leaves out the ones the user dismissed.
+/// 来自 GET /v1/notices?channel=app&platform=ios 的一条公告，经由 client-services（msime_client_notices）获取；它把公告列表缓存一分钟，并略去用户已关闭的公告。
 struct AppNotice: Identifiable, Equatable, Sendable {
   let id: String
   let title: String

@@ -1,10 +1,9 @@
-import { useId, useState } from "react";
-import type { ReactNode } from "react";
-import * as settingsStyle from "../settings-style";
+import { useState } from "react";
 import { AppearanceCandidatePreview } from "../../candidate/appearance-candidate-preview";
 import { CandidateFontControls } from "../../candidate/candidate-font-controls";
+import { currentCandidateFontPreset } from "../../candidate/candidate-font-presets";
 import { useSettingsForm } from "../settings-form-context";
-import { GroupList, LinkRow, MoreOptions } from "../../core/platform-controls";
+import { GroupList, MoreOptions } from "../../core/platform-controls";
 import { CandidateFollowCursorSection } from "../candidate-follow-cursor-section";
 import { CandidatePageNumberSection } from "../candidate-page-number-section";
 import { CandidateAppLogoSection } from "../candidate-app-logo-section";
@@ -17,19 +16,21 @@ import { PreeditSettingsSection } from "../preedit-settings-section";
 import { appearanceSettingsPreferences } from "../appearance-settings-preferences";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
 import { CandidateFontUnsupportedNotice } from "../candidate-font-unsupported-notice";
-import { candidateTabs, type CandidateTab } from "../candidate-tabs";
 import { createAppearanceSettingsActions } from "../appearance-settings-actions";
 import {
   CandidateFontPresetRow,
   CandidateScaleRow,
+  CandidateWindowStyleRows,
   CandidateWindowStyleSection,
 } from "../candidate-window-style-section";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 
-/** 候选窗口设置页，路由标识为 `appearance`。 */
+/**
+ * 候选窗口设置页，路由标识为 `appearance`。预览下面是一列：排列方式、每页数量、候选字体（预设加「自定义…」，选它才出现字体框）和字号，其余的都收在同一个「更多选项」里——展开候选、页码与翻页按钮、logo、跟随光标、英文字体、预编辑字号、整体大小、不透明度、圆角、内边距和预编辑各行。这些都有人在调（页码和内边距来自 #7316，圆角来自 #7761），所以只收起、不删。颜色和明暗在侧栏的「主题」页，本页不再放跳转行。HarmonyOS 手机另有自己的布局，见 `HarmonyPhoneCandidateGroups`。
+ */
 export function AppearanceSettingsPage() {
-  const [selectedTab, setSelectedTab] = useState<CandidateTab>("layout");
-  const tabsId = useId();
+  // 用户点了「自定义…」但字体还停在某个预设上时，靠它把字体框亮出来；选回预设就收起。
+  const [customFont, setCustomFont] = useState(false);
   const {
     client,
     harmonyPlatform,
@@ -46,12 +47,12 @@ export function AppearanceSettingsPage() {
     showCandidatePadding,
     snapshot,
     draft,
+    previewCustomTheme,
     setDraft,
     busy,
     page,
     mobileKeyboardFeedback,
     saveMobileKeyboardFeedback,
-    selectPage,
   } = useSettingsForm();
   const appearanceActions = createAppearanceSettingsActions({
     mobileKeyboardFeedback,
@@ -61,13 +62,6 @@ export function AppearanceSettingsPage() {
   const showPageNumber = host?.candidate_page_number === true;
   const showAppLogo = host?.app_logo === true;
   const showExpandCandidates = host?.expand_candidates === true;
-  const showLayoutGroup =
-    host?.fixed_candidate_page_size === undefined ||
-    host?.fixed_candidate_layout === undefined ||
-    showPageNumber ||
-    showAppLogo ||
-    showExpandCandidates ||
-    showCandidateFollowCursor;
   const surfaceName = mobilePlatform ? "候选栏" : "候选窗口";
   if (harmonyPlatform && mobilePlatform) {
     return (
@@ -76,7 +70,7 @@ export function AppearanceSettingsPage() {
       </SettingsPageFieldset>
     );
   }
-  // 桌面预览随当前样例伸缩，让下方标签紧邻候选窗；手机保留原有的最高排布占位。
+  // 桌面预览随当前样例伸缩；手机保留原有的最高排布占位。
   const layoutFixed = host?.fixed_candidate_layout !== undefined;
   const pageSizeFixed = host?.fixed_candidate_page_size !== undefined;
   const previewReserve =
@@ -93,26 +87,17 @@ export function AppearanceSettingsPage() {
                 ),
               ),
         };
-  const panel = (tab: CandidateTab, children: ReactNode) =>
-    mobilePlatform ? (
-      children
-    ) : (
-      <div
-        role="tabpanel"
-        id={`${tabsId}-${tab}-panel`}
-        aria-labelledby={`${tabsId}-${tab}-tab`}
-        hidden={selectedTab !== tab}
-        tabIndex={0}
-      >
-        {children}
-      </div>
-    );
+  // 字体不是任何预设（例如霞鹜文楷），或者用户刚点了「自定义…」，字体框就在主流程里。
+  const showFontField = customFont || currentCandidateFontPreset(draft, host?.platform) === null;
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "appearance"} ariaLabel="候选窗口">
-      {/* 预览在四组设置间共用，切换标签时保持挂载；Linux 上由桌面环境接管候选面板时，限制说明紧跟在预览下面。 */}
+      {/* Linux 上由桌面环境接管候选面板时，限制说明紧跟在预览下面。 */}
       <GroupList>
         <AppearanceCandidatePreview
-          preferences={appearanceSettingsPreferences(draft, host?.platform === "windows")}
+          preferences={appearanceSettingsPreferences(
+            { ...draft, custom_theme: previewCustomTheme },
+            host?.platform === "windows",
+          )}
           scan={client.scanSkinCatalog}
           readImage={client.readSkinImage}
           resolveTheme={client.resolveTheme}
@@ -127,122 +112,104 @@ export function AppearanceSettingsPage() {
           <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
         )}
       </GroupList>
-      {!mobilePlatform && (
-        <div className={settingsStyle.candidateTabs} role="tablist" aria-label="候选窗口设置分类">
-          {candidateTabs.map((tab, index) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              id={`${tabsId}-${tab.id}-tab`}
-              aria-controls={`${tabsId}-${tab.id}-panel`}
-              aria-selected={selectedTab === tab.id}
-              tabIndex={selectedTab === tab.id ? 0 : -1}
-              onClick={() => setSelectedTab(tab.id)}
-              onKeyDown={(event) => {
-                let next: number;
-                if (event.key === "ArrowRight") next = (index + 1) % candidateTabs.length;
-                else if (event.key === "ArrowLeft")
-                  next = (index + candidateTabs.length - 1) % candidateTabs.length;
-                else if (event.key === "Home") next = 0;
-                else if (event.key === "End") next = candidateTabs.length - 1;
-                else return;
-                event.preventDefault();
-                setSelectedTab(candidateTabs[next].id);
-                document.getElementById(`${tabsId}-${candidateTabs[next].id}-tab`)?.focus();
-              }}
-            >
-              {tab.title}
-            </button>
-          ))}
-        </div>
-      )}
-      {panel(
-        "layout",
-        showLayoutGroup && (
-          <GroupList title="布局">
-            <CandidateLayoutSection
-              value={draft.candidate_layout}
-              fixed={host?.fixed_candidate_layout !== undefined}
-              onChange={(candidate_layout) =>
-                appearanceActions.onPreferencesChange({ candidate_layout })
-              }
+      <GroupList title="布局与字体">
+        {/* iOS 候选栏的排列和每页数量都是固定的，这两行在那里不出现。 */}
+        <CandidateLayoutSection
+          value={draft.candidate_layout}
+          fixed={layoutFixed}
+          onChange={(candidate_layout) =>
+            appearanceActions.onPreferencesChange({ candidate_layout })
+          }
+        />
+        <CandidatePageSizeSection
+          value={draft.candidate_page_size}
+          fixed={pageSizeFixed}
+          max={host?.max_candidate_page_size}
+          onChange={(candidate_page_size) =>
+            appearanceActions.onPreferencesChange({ candidate_page_size })
+          }
+        />
+        {showCandidateFontControls ? (
+          <>
+            <CandidateFontPresetRow
+              preferences={draft}
+              platform={host?.platform}
+              onChange={appearanceActions.onPreferencesChange}
+              custom={customFont}
+              onCustomChange={setCustomFont}
             />
-            {/* iOS 候选栏每页固定九项，不提供无效的数量选择器。 */}
-            <CandidatePageSizeSection
-              value={draft.candidate_page_size}
-              fixed={host?.fixed_candidate_page_size !== undefined}
-              max={host?.max_candidate_page_size}
-              onChange={(candidate_page_size) =>
-                appearanceActions.onPreferencesChange({ candidate_page_size })
-              }
-            />
-            {showExpandCandidates && (
-              <CandidateExpandSection
-                value={draft.expand_candidates}
-                showButton={draft.show_candidate_expand_button}
-                onShowButtonChange={(show_candidate_expand_button) =>
-                  appearanceActions.onPreferencesChange({ show_candidate_expand_button })
-                }
-                onChange={(expand_candidates) =>
-                  appearanceActions.onPreferencesChange({ expand_candidates })
-                }
-              />
-            )}
-            {showPageNumber && (
-              <CandidatePageNumberSection
-                value={draft.show_candidate_page_number}
-                platform={host?.platform}
-                onChange={(show_candidate_page_number) =>
-                  appearanceActions.onPreferencesChange({ show_candidate_page_number })
-                }
-              />
-            )}
-            {showAppLogo && (
-              <CandidateAppLogoSection
-                value={draft.show_app_logo}
-                onChange={(show_app_logo) =>
-                  appearanceActions.onPreferencesChange({ show_app_logo })
-                }
-              />
-            )}
-            {showCandidateFollowCursor && (
-              <CandidateFollowCursorSection
-                value={draft.candidate_follow_cursor}
-                onChange={(candidate_follow_cursor) =>
-                  appearanceActions.onPreferencesChange({ candidate_follow_cursor })
-                }
-              />
-            )}
-          </GroupList>
-        ),
-      )}
-      {panel(
-        "font",
-        <GroupList title="字体与大小">
-          {showCandidateFontControls ? (
-            <>
-              <CandidateFontPresetRow
-                preferences={draft}
-                platform={host?.platform}
-                onChange={appearanceActions.onPreferencesChange}
-              />
+            {showFontField && (
               <CandidateFontControls
                 value={draft}
                 onChange={appearanceActions.onPreferencesChange}
                 readFonts={client.listFontFamilies}
                 windows={host?.platform === "windows"}
-                englishFont={showCandidateEnglishFont}
+                englishFont={false}
               />
-              <CandidateSizingSection
-                preferences={draft}
-                showFontControls
-                showPreeditFont={showCandidatePreeditFont}
-                onChange={appearanceActions.onPreferencesChange}
-              />
-            </>
-          ) : (
-            <CandidateFontUnsupportedNotice />
+            )}
+            <CandidateSizingSection
+              preferences={draft}
+              showFontControls
+              showPreeditFont={false}
+              onChange={appearanceActions.onPreferencesChange}
+            />
+          </>
+        ) : (
+          <CandidateFontUnsupportedNotice />
+        )}
+        <MoreOptions>
+          {showExpandCandidates && (
+            <CandidateExpandSection
+              value={draft.expand_candidates}
+              showButton={draft.show_candidate_expand_button}
+              onShowButtonChange={(show_candidate_expand_button) =>
+                appearanceActions.onPreferencesChange({ show_candidate_expand_button })
+              }
+              onChange={(expand_candidates) =>
+                appearanceActions.onPreferencesChange({ expand_candidates })
+              }
+            />
+          )}
+          {showPageNumber && (
+            <CandidatePageNumberSection
+              value={draft.show_candidate_page_number}
+              platform={host?.platform}
+              onChange={(show_candidate_page_number) =>
+                appearanceActions.onPreferencesChange({ show_candidate_page_number })
+              }
+            />
+          )}
+          {showAppLogo && (
+            <CandidateAppLogoSection
+              value={draft.show_app_logo}
+              onChange={(show_app_logo) => appearanceActions.onPreferencesChange({ show_app_logo })}
+            />
+          )}
+          {showCandidateFollowCursor && (
+            <CandidateFollowCursorSection
+              value={draft.candidate_follow_cursor}
+              onChange={(candidate_follow_cursor) =>
+                appearanceActions.onPreferencesChange({ candidate_follow_cursor })
+              }
+            />
+          )}
+          {showCandidateFontControls && showCandidateEnglishFont && (
+            <CandidateFontControls
+              value={draft}
+              onChange={appearanceActions.onPreferencesChange}
+              readFonts={client.listFontFamilies}
+              windows={host?.platform === "windows"}
+              mainFont={false}
+              englishFont
+            />
+          )}
+          {showCandidateFontControls && (
+            <CandidateSizingSection
+              preferences={draft}
+              showFontControls={false}
+              showPreeditFont={showCandidatePreeditFont}
+              onChange={appearanceActions.onPreferencesChange}
+            />
           )}
           {showCandidateWindowScale && (
             <CandidateScaleRow
@@ -251,38 +218,23 @@ export function AppearanceSettingsPage() {
               onChange={appearanceActions.onPreferencesChange}
             />
           )}
-        </GroupList>,
-      )}
-      {panel(
-        "style",
-        <CandidateWindowStyleSection
-          preferences={draft}
-          platform={host?.platform}
-          showOpacity={showCandidateWindowOpacity}
-          showCornerRadius={showCandidateCornerRadius}
-          showPadding={showCandidatePadding}
-          onChange={appearanceActions.onPreferencesChange}
-        >
-          <LinkRow
-            title="皮肤、颜色与明暗"
-            description={`${surfaceName}的皮肤、颜色和明暗在「主题」页设置`}
-            onClick={() => selectPage("skin")}
+          <CandidateWindowStyleRows
+            preferences={draft}
+            platform={host?.platform}
+            showOpacity={showCandidateWindowOpacity}
+            showCornerRadius={showCandidateCornerRadius}
+            showPadding={showCandidatePadding}
+            onChange={appearanceActions.onPreferencesChange}
           />
-        </CandidateWindowStyleSection>,
-      )}
-      {/* 触屏键盘只剩「双拼预编辑」一行，不显示双拼时整组不出现。 */}
-      {(!mobilePlatform || showShuangpinPreedit) &&
-        panel(
-          "preedit",
-          <GroupList title="预编辑">
-            <PreeditSettingsSection
-              preferences={draft}
-              mobile={mobilePlatform}
-              showShuangpinPreedit={showShuangpinPreedit}
-              onChange={appearanceActions.onPreferencesChange}
-            />
-          </GroupList>,
-        )}
+          {/* 触屏键盘只剩「双拼预编辑」一行，不显示双拼时这里什么也不画。 */}
+          <PreeditSettingsSection
+            preferences={draft}
+            mobile={mobilePlatform}
+            showShuangpinPreedit={showShuangpinPreedit}
+            onChange={appearanceActions.onPreferencesChange}
+          />
+        </MoreOptions>
+      </GroupList>
     </SettingsPageFieldset>
   );
 }

@@ -16,7 +16,7 @@ same reasoning ``fetch_settled_model.py`` records. A second one-artifact manifes
 
 The source CSV is 66 MB and is never shipped: this script keeps only word, phonetic and the first
 gloss line, which is what a card shows, and writes one compact JSON per book in exactly the shape
-``client-core::vocabulary::wordbook::Wordbook`` deserialises. The eight books together are under
+``client-services::vocabulary::wordbook::Wordbook`` deserialises. The eight books together are under
 3 MB, so the hosts read them with serde_json and no host needs a CSV parser or a SQLite driver.
 
 Idempotent: a download matching the pinned digest is reused, and books already written are only

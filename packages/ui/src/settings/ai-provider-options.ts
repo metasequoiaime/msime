@@ -1,3 +1,4 @@
+import type { ProviderDefaults } from "../core/provider-preset";
 import {
   deepseekChatEndpoint,
   deepseekDocumentationUrl,
@@ -11,19 +12,12 @@ import {
   siliconFlowTextDocumentationUrl,
 } from "../core/provider-resources";
 
-/**
- * `models` are the models the provider is known to accept and `documentation`
- * explains the endpoint and how to obtain an API key. These values are
- * presentation metadata; requests still use the user's saved preferences.
- */
-export const AI_PROVIDER_OPTIONS: readonly {
-  id: string;
-  title: string;
-  endpoint: string;
-  model: string;
-  models?: readonly string[];
-  documentation?: string;
-}[] = [
+export type AiProviderOption = { id: string; title: string };
+
+export type AiProviderCatalogEntry = AiProviderOption & ProviderDefaults;
+
+/** 已知模型和接入说明仅用于展示；实际请求仍使用用户保存的偏好。 */
+export const AI_PROVIDER_OPTIONS: readonly AiProviderCatalogEntry[] = [
   {
     id: "everyapi",
     title: "EveryAPI",

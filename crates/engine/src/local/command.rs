@@ -218,14 +218,14 @@ pub fn command_title<'a>(trigger: &str, table: &'a [CommandTableEntry]) -> Optio
         .map(|(_, title)| *title)
 }
 
-/// 内置指令的全部触发词（日期、时间、星期、农历和翻译）。插件触发词不能等于它们，也不能和它们互为前缀；client-core 校验插件清单时复制了一份，由一致性测试守着。
+/// 内置指令的全部触发词（日期、时间、星期、农历和翻译）。插件触发词不能等于它们，也不能和它们互为前缀；client-services 校验插件清单时复制了一份，由一致性测试守着。
 pub fn builtin_triggers() -> impl Iterator<Item = &'static str> {
     BUILTINS
         .iter()
         .flat_map(|(aliases, _)| aliases.iter().copied())
 }
 
-/// 内置指令的标题，同 [`builtin_triggers`] 一样由 client-core 复制一份。
+/// 内置指令的标题，同 [`builtin_triggers`] 一样由 client-services 复制一份。
 pub fn builtin_titles() -> impl Iterator<Item = &'static str> {
     BUILTINS.iter().map(|(_, title)| *title)
 }
@@ -246,7 +246,7 @@ fn valid_plugin_title(title: &str) -> bool {
         && title.trim() == title
 }
 
-/// 宿主交来的插件指令里引擎能用的那些，按原顺序：触发词是 2 到 16 个小写字母、标题是 1 到 8 个字符（不含控制字符，首尾不是空白），并且触发词不等于、也不和任何内置触发词、用户指令表的触发词、排在前面的插件触发词互为前缀。用户的指令表永远赢，插件之间先到先得。过滤之后任何两个生效的触发词都没有前缀关系，所以一段输入至多匹配一个。client-core 算有效触发词时，触发词用同一套规则；标题以这里为下限（只拒控制字符和首尾空白），client-core 可以更严。触发词重复时只留第一条合规的，它的标题就是行旁显示的标题（`CandidateQueries::plugin_command_title`）。`table` 必须先经过 `usable_command_table`。
+/// 宿主交来的插件指令里引擎能用的那些，按原顺序：触发词是 2 到 16 个小写字母、标题是 1 到 8 个字符（不含控制字符，首尾不是空白），并且触发词不等于、也不和任何内置触发词、用户指令表的触发词、排在前面的插件触发词互为前缀。用户的指令表永远赢，插件之间先到先得。过滤之后任何两个生效的触发词都没有前缀关系，所以一段输入至多匹配一个。client-services 算有效触发词时，触发词用同一套规则；标题以这里为下限（只拒控制字符和首尾空白），client-services 可以更严。触发词重复时只留第一条合规的，它的标题就是行旁显示的标题（`CandidateQueries::plugin_command_title`）。`table` 必须先经过 `usable_command_table`。
 pub fn usable_plugin_commands(
     table: &[CommandTableEntry],
     plugin: &[PluginCommand],

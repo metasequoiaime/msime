@@ -43,6 +43,8 @@ int main() {
             TypingSource::Microsoft);
     require(resolve_typing_source(1, false, false, "none", "shoudao") ==
             TypingSource::Shoudao);
+    require(resolve_typing_source(1, false, false, "none", "smart_abc") == TypingSource::SmartAbc);
+    require(typing_source_id(TypingSource::SmartAbc) == "smart_abc");
     require(resolve_typing_source(2, false, false, "none", "xiaohe") ==
             TypingSource::Wubi);
     require(resolve_typing_source(3, false, false, "none", "xiaohe") ==
@@ -61,7 +63,7 @@ int main() {
     require(resolve_typing_source(8, false, false, "none", "xiaohe") ==
             TypingSource::Tibetan);
     require(typing_source_id(TypingSource::Tibetan) == "tibetan");
-    // 笔画按自己的 id 计数，就是 client-core 的 TypingSource 读的那个。
+    // 笔画按自己的 id 计数，就是 client-services 的 TypingSource 读的那个。
     require(resolve_typing_source(9, false, false, "none", "xiaohe") ==
             TypingSource::Stroke);
     require(typing_source_id(TypingSource::Stroke) == "stroke");

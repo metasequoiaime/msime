@@ -199,6 +199,7 @@ const sources = [
   ["ziranma", "自然码双拼"],
   ["microsoft", "微软双拼"],
   ["shoudao", "首道双拼"],
+  ["smart_abc", "智能 ABC 双拼"],
   ["wubi", "五笔"],
   ["japanese", "日语"],
   ["korean", "韩语"],
@@ -233,6 +234,7 @@ const sourceSymbols: Record<string, string> = {
   ziranma: "自",
   microsoft: "微",
   shoudao: "首",
+  smart_abc: "智",
   wubi: "五",
   japanese: "日",
   korean: "韩",
@@ -1060,7 +1062,7 @@ function StatisticsHourlyBars({
  * On iOS the keyboard extension cannot reach the shared App Group container without Full Access,
  * so there the prerequisite is named rather than the typing.
  *
- * iOS 上统计文件存在也不能说明键盘写过：在 app 里开启记录时 `client-core` 的 `set_enabled` 会无条件写出统计文件，而没有完全访问的键盘什么都不记，计数一直是零。app 读不到键盘是否有完全访问，所以计数为零时也先提醒这一项，再说其他可能。
+ * iOS 上统计文件存在也不能说明键盘写过：在 app 里开启记录时 `client-services` 的 `set_enabled` 会无条件写出统计文件，而没有完全访问的键盘什么都不记，计数一直是零。app 读不到键盘是否有完全访问，所以计数为零时也先提醒这一项，再说其他可能。
  */
 export function availabilityNotice(
   statistics: Pick<TypingStatistics, "enabled" | "total">,
@@ -1341,6 +1343,7 @@ export function TypingStatisticsPage({
         "ziranma",
         "microsoft",
         "shoudao",
+        "smart_abc",
         "wubi",
         "cantonese",
         "zhuyin",

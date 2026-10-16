@@ -1,9 +1,9 @@
 /**
- * Key ids for the per-key press counts the shared typing-statistics store keeps (`record_keys`), and the in-memory batch they wait in until they are written.
+ * 共享打字统计存储记录的逐键按键次数（`record_keys`）所用的键 id，以及它们写出之前所在的内存批次。
  *
- * The ids are W3C `KeyboardEvent.code` names plus a few on-screen-only ones. This list must equal `KEY_IDS` in `crates/client-core/src/typing_statistics.rs` exactly: the store rejects a whole batch that carries one id it does not know, so an id invented here would silently cost every press around it. A key with no mapping is not counted rather than filed under a guess.
+ * 这些 id 是 W3C `KeyboardEvent.code` 名，加上少数只在屏幕键盘上有的 id。这个列表必须与 `crates/client-services/src/typing_statistics.rs` 里的 `KEY_IDS` 完全一致：只要一批里有一个存储层不认识的 id，它就整批拒绝，所以在这里自造的 id 会悄悄让它前后的每次按键都丢掉。没有映射的键不计数，而不是按猜测归类。
  *
- * Only counts leave this file. No order, no timestamps and no text: a batch is a day and a count per key.
+ * 离开这个文件的只有计数。没有顺序、没有时间戳、没有文本：一批就是一天加上每个键一个计数。
  */
 export const KEY_IDS: readonly string[] = [
   "KeyA",

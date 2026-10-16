@@ -7,7 +7,7 @@ import {
   type ValidatedUpdate,
 } from "../../../../packages/ui/src/settings/update-manifest";
 
-// 哪个发布、哪个安装包属于某个平台、版本和架构，由 Rust 决定（`crates/client-core/src/update_check.rs` 及其测试）；这里覆盖的是页面拿到答复后怎么做。
+// 哪个发布、哪个安装包属于某个平台、版本和架构，由 Rust 决定（`crates/client-services/src/update_check.rs` 及其测试）；这里覆盖的是页面拿到答复后怎么做。
 
 const page = "https://github.com/metasequoiaime/msime/releases";
 

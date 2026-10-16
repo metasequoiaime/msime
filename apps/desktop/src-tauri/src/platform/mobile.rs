@@ -10,7 +10,7 @@ pub(crate) mod mobile_ai_skin_requests;
 pub(crate) mod mobile_community;
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
-use msime_client_core::account::{BackendAccountClient, BackendAccountSession};
+use msime_client_services::account::{BackendAccountClient, BackendAccountSession};
 
 /// The account session storage of the running mobile target. Shared commands name it instead of either platform's type, so one body compiles for both.
 #[cfg(target_os = "android")]

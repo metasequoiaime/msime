@@ -19,6 +19,34 @@ export interface ThemeSettingsSectionProps {
   onChange: (key: ThemePreferenceKey, value: SurfaceTheme) => void;
 }
 
+/** 「候选窗口主题」一行：候选窗口在颜色模式之上单独设明暗。各界面一律跟随颜色模式的宿主（`surface_themes_follow`）只剩这一项，主题页把它放进「明暗」组；其他宿主仍在「高级」组里与各界面并列。 */
+export function CandidateThemeRow({
+  value,
+  mobile,
+  linux,
+  onChange,
+}: {
+  value: SurfaceTheme | undefined;
+  mobile: boolean;
+  linux: boolean;
+  onChange: (value: SurfaceTheme) => void;
+}) {
+  return (
+    <SurfaceThemeRow
+      title={mobile ? "候选栏主题" : "候选窗口主题"}
+      description={
+        mobile
+          ? "覆盖候选栏的明暗外观；跟随时使用键盘主题"
+          : linux
+            ? "覆盖颜色模式；IBus 候选窗口与 Fcitx5 经典界面按此明暗着色"
+            : "覆盖颜色模式，只影响候选窗口"
+      }
+      value={value}
+      onChange={onChange}
+    />
+  );
+}
+
 /** The 主题 page's 高级 group, shared by desktop and touch settings hosts: each surface can still hold its own light or dark over the colour mode. */
 export function ThemeSettingsSection({
   preferences,
@@ -41,15 +69,9 @@ export function ThemeSettingsSection({
         value={preferences.screen_keyboard_theme ?? "follow"}
         onChange={(value) => onChange("screen_keyboard_theme", value)}
       />
-      <SurfaceThemeRow
-        title={mobile ? "候选栏主题" : "候选窗口主题"}
-        description={
-          mobile
-            ? "覆盖候选栏的明暗外观；跟随时使用键盘主题"
-            : linux
-              ? "覆盖颜色模式；IBus 候选窗口与 Fcitx5 经典界面按此明暗着色"
-              : "覆盖颜色模式，只影响候选窗口"
-        }
+      <CandidateThemeRow
+        mobile={mobile}
+        linux={linux}
         value={preferences.candidate_theme}
         onChange={(value) => onChange("candidate_theme", value)}
       />

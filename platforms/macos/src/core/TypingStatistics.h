@@ -32,6 +32,7 @@ enum class TypingSource {
     Reply,
     Voice,
     Unknown,
+    SmartAbc,
 };
 
 constexpr std::string_view TypingSourceId(TypingSource source) {
@@ -42,6 +43,7 @@ constexpr std::string_view TypingSourceId(TypingSource source) {
     case TypingSource::Ziranma: return "ziranma";
     case TypingSource::Microsoft: return "microsoft";
     case TypingSource::Shoudao: return "shoudao";
+    case TypingSource::SmartAbc: return "smart_abc";
     case TypingSource::Wubi: return "wubi";
     case TypingSource::Japanese: return "japanese";
     case TypingSource::Korean: return "korean";
@@ -75,6 +77,7 @@ constexpr TypingSource ResolveTypingSource(int scheme, bool nineKey,
         if (shuangpinProfile == "ziranma") return TypingSource::Ziranma;
         if (shuangpinProfile == "microsoft") return TypingSource::Microsoft;
         if (shuangpinProfile == "shoudao") return TypingSource::Shoudao;
+        if (shuangpinProfile == "smart_abc") return TypingSource::SmartAbc;
         return TypingSource::Shuangpin;
     case 2: return TypingSource::Wubi;
     case 3: return TypingSource::Japanese;
@@ -99,7 +102,7 @@ constexpr bool ShouldCountPassthroughCharacter(char16_t ch, bool control, bool c
     return true;
 }
 
-// The key heatmap id for a macOS virtual key code (`NSEvent.keyCode`, the Carbon kVK_* constants), or an empty view for a key the heatmap has no id for. kVK codes name physical positions, so a key counts in the same place whatever the active layout (AZERTY, Dvorak, Shuangpin keymaps) makes it type. The ids are the W3C `KeyboardEvent.code` names that crates/client-core typing_statistics.rs KEY_IDS accepts; one id outside that list rejects the whole batch, so keys without a whitelisted name (F13-F20, keypad =, the JIS keypad comma, volume keys) return empty rather than a guess. Help sits where Insert is on PC keyboards and is reported as Insert, the way browsers do. The JIS かな and 英数 keys are Lang1 and Lang2.
+// The key heatmap id for a macOS virtual key code (`NSEvent.keyCode`, the Carbon kVK_* constants), or an empty view for a key the heatmap has no id for. kVK codes name physical positions, so a key counts in the same place whatever the active layout (AZERTY, Dvorak, Shuangpin keymaps) makes it type. The ids are the W3C `KeyboardEvent.code` names that crates/client-services typing_statistics.rs KEY_IDS accepts; one id outside that list rejects the whole batch, so keys without a whitelisted name (F13-F20, keypad =, the JIS keypad comma, volume keys) return empty rather than a guess. Help sits where Insert is on PC keyboards and is reported as Insert, the way browsers do. The JIS かな and 英数 keys are Lang1 and Lang2.
 constexpr std::string_view KeyIdForVirtualKeyCode(unsigned short keyCode) {
     switch (keyCode) {
     case 0x00: return "KeyA";

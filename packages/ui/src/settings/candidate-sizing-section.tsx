@@ -16,7 +16,7 @@ export interface CandidateSizingSectionProps {
   onChange: (patch: Partial<CandidateSizingPreferences>) => void;
 }
 
-/** 设置宿主共用的候选字号控件：「候选窗口」页「字体与大小」组里的字号各行，标题不再写出界面名称，因为页面已经点明。 */
+/** 设置宿主共用的候选字号控件：「候选窗口」页主流程里的「字号」一行和「更多选项」里的「预编辑字号」，标题不再写出界面名称，因为页面已经点明。 */
 export function CandidateSizingSection({
   preferences,
   showFontControls,

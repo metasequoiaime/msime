@@ -741,6 +741,38 @@ static void TestSharedPunctuation() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// 原生窗口的「智能标点」开关被用户切换时，数字后直出和字母后直出跟着写成同一个值，和共享设置页的总开关一样；在载入的文档里看到两半之前每次保存都带上，之后不再写，别处单独设过的一半不会被冲掉。
+static void TestSmartPunctuationWritesBothHalves() {
+    NSString *suite = [@"msime.smart-punctuation." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert([prefs sharedPreferencesByMerging:@{}][@"smart_punctuation_direct_digit"] == nil);
+    NSSwitch *smart = (id)PreferenceControl(prefs, @selector(smartPunctuationChanged:));
+    assert(smart);
+    smart.state = NSControlStateValueOn;
+    [NSApp sendAction:smart.action to:smart.target from:smart];
+    NSDictionary *merged = [prefs sharedPreferencesByMerging:@{}];
+    assert([merged[@"smart_punctuation"] isEqual:@YES]);
+    assert([merged[@"smart_punctuation_direct_digit"] isEqual:@YES] && [merged[@"smart_punctuation_direct_letter"] isEqual:@YES]);
+    // 载入的文档还没有这次保存的两半（例如保存失败），下一次保存照样带上。
+    [prefs applySharedInputPreferences:@{@"smart_punctuation": @YES, @"smart_punctuation_direct_digit": @NO, @"smart_punctuation_direct_letter": @NO}];
+    assert([[prefs sharedPreferencesByMerging:@{}][@"smart_punctuation_direct_letter"] isEqual:@YES]);
+    // 文档里两半都已写好，就不再写。
+    [prefs applySharedInputPreferences:@{@"smart_punctuation": @YES, @"smart_punctuation_direct_digit": @YES, @"smart_punctuation_direct_letter": @YES}];
+    merged = [prefs sharedPreferencesByMerging:@{}];
+    assert(merged[@"smart_punctuation_direct_digit"] == nil && merged[@"smart_punctuation_direct_letter"] == nil);
+    // 之后共享设置页单独关掉字母后直出，原生端的保存不会把它冲回去。
+    [prefs applySharedInputPreferences:@{@"smart_punctuation": @YES, @"smart_punctuation_direct_digit": @YES, @"smart_punctuation_direct_letter": @NO}];
+    assert([prefs sharedPreferencesByMerging:@{}][@"smart_punctuation_direct_letter"] == nil);
+    // 关掉总开关时两半一起关。
+    smart.state = NSControlStateValueOff;
+    [NSApp sendAction:smart.action to:smart.target from:smart];
+    merged = [prefs sharedPreferencesByMerging:@{}];
+    assert([merged[@"smart_punctuation"] isEqual:@NO]);
+    assert([merged[@"smart_punctuation_direct_digit"] isEqual:@NO] && [merged[@"smart_punctuation_direct_letter"] isEqual:@NO]);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // 原生窗口各节「恢复默认值」的入口：删掉本机值，也清掉共享值。
 @interface MSIMEAppearancePreferences (SectionRestore)
 - (void)removeStoredKeys:(NSArray<NSString *> *)keys;
@@ -1112,8 +1144,8 @@ static void TestSharedInputPreferences() {
 
 static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
     NSPopUpButton *profiles = (id)PreferenceControl(appearance, @selector(profileChanged:));
-    NSArray *identifiers = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"];
-    NSArray *titles = @[@"小鹤双拼", @"自然码双拼", @"首道双拼", @"微软双拼"];
+    NSArray *identifiers = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"smart_abc"];
+    NSArray *titles = @[@"小鹤双拼", @"自然码双拼", @"首道双拼", @"微软双拼", @"智能 ABC 双拼"];
     assert([profiles.itemTitles isEqual:titles]);
     for (NSUInteger index = 0; index < identifiers.count; ++index) {
         [profiles selectItemAtIndex:index];
@@ -1124,6 +1156,9 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
         NSPopUpButton *restoredProfiles = (id)PreferenceControl(restored, @selector(profileChanged:));
         assert([restoredProfiles.titleOfSelectedItem isEqual:titles[index]]);
     }
+    [appearance applySharedInputPreferences:@{@"shuangpin_profile": @"smart_abc"}];
+    assert([appearance.shuangpinProfile isEqual:@"smart_abc"]);
+    assert([[appearance sharedPreferencesByMerging:@{}][@"shuangpin_profile"] isEqual:@"smart_abc"]);
     assert(!appearance.shuangpinKeymap);
     NSButton *toggle = (id)PreferenceControl(appearance, @selector(keymapChanged:));
     toggle.state = NSControlStateValueOn;
@@ -1152,7 +1187,7 @@ static void TestKeymap(NSUserDefaults *defaults, MSIMEAppearancePreferences *app
     [defaults setBool:YES forKey:@"MSIMEClientShuangpinKeymap"];
     HiddenKeymapPanel *panel = [[HiddenKeymapPanel alloc] init];
     assert(panel.ignoresMouseEvents && panel.floatingPanel);
-    for (NSString *profile in @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"]) {
+    for (NSString *profile in @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft", @"smart_abc"]) {
         NSArray *rows = MSIMEShuangpinKeymapRows(profile);
         assert(rows.count == 3 && [rows[0] count] == 10 && [rows[2] count] == 7);
         assert([rows[1] count] == ([profile isEqual:@"microsoft"] ? 10 : 9));
@@ -1357,6 +1392,8 @@ static void TestPairedPunctuationPreferences() {
     assert([initial[@"paired_punctuation"] isEqual:@YES] && [initial[@"punctuation_lock"] isEqual:@"follow"]);
     [preferences applySharedInputPreferences:@{ @"paired_punctuation": @NO, @"punctuation_lock": @"english" }];
     assert(!preferences.pairedPunctuation && [preferences.punctuationLock isEqual:@"english"]);
+    // 锁定英文标点时运行时标点就是英文，即使起始标点还是中文。
+    assert(preferences.chinesePunctuation && !preferences.runtimeChinesePunctuation);
     assert([defaults objectForKey:@"MSIMEClientPairedPunctuation"] == nil && [defaults objectForKey:@"MSIMEClientPunctuationLock"] == nil);
     [preferences applySharedInputPreferences:@{ @"paired_punctuation": @1, @"punctuation_lock": @"invalid" }];
     assert(!preferences.pairedPunctuation && [preferences.punctuationLock isEqual:@"english"]);
@@ -1368,11 +1405,13 @@ static void TestPairedPunctuationPreferences() {
     [lock selectItemAtIndex:1];
     [NSApp sendAction:lock.action to:lock.target from:lock];
     assert(preferences.pairedPunctuation && [preferences.punctuationLock isEqual:@"chinese"]);
+    assert(preferences.runtimeChinesePunctuation);
     assert([defaults boolForKey:@"MSIMEClientPairedPunctuation"] && [[defaults stringForKey:@"MSIMEClientPunctuationLock"] isEqual:@"chinese"]);
     MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     assert(reopened.pairedPunctuation && [reopened.punctuationLock isEqual:@"chinese"]);
     [preferences applySharedInputPreferences:@{ @"paired_punctuation": @NO, @"punctuation_lock": @"follow" }];
     assert(!preferences.pairedPunctuation && [preferences.punctuationLock isEqual:@"follow"]);
+    assert(preferences.runtimeChinesePunctuation == preferences.chinesePunctuation);
     ShortcutSession *session = [ShortcutSession new];
     ShortcutClient *client = [ShortcutClient new];
     MSIMEInputController *controller = [MSIMEInputController alloc];
@@ -6641,6 +6680,9 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     appearance.globalTheme = @"paper";
     assert([controller.menu.appearance.name isEqual:NSAppearanceNameAqua]);
     appearance.globalTheme = @"system";
+    // 跟随系统的主题下菜单按颜色模式着色，菜单单独的明暗设置在 macOS 上不读。
+    [controller setValue:@{@"theme": @"light", @"menu_theme": @"dark"} forKey:@"menuThemePreferences"];
+    assert([controller.menu.appearance.name isEqual:NSAppearanceNameAqua]);
     [controller setValue:@{@"theme": @"system", @"menu_theme": @"follow"} forKey:@"menuThemePreferences"];
     assert(controller.menu.appearance == nil);
     [controller setValue:nil forKey:@"menuThemePreferences"];
@@ -10038,6 +10080,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestSharedWubiProfile(); }
         @autoreleasepool { TestIndependentAssistancePreferences(); }
         @autoreleasepool { TestSharedPunctuation(); }
+        @autoreleasepool { TestSmartPunctuationWritesBothHalves(); }
         @autoreleasepool { TestSharedTraditionalOutput(); }
         @autoreleasepool { TestCandidatePageNumberPreference(); }
         @autoreleasepool { TestPageSizeCache(); }
@@ -10512,7 +10555,7 @@ int main(int argc, char **argv) {
             assert([preeditLabel.textColor isEqual:SkinColor(preeditTokens.accent)]);
             assert([caretLabel.caretColor isEqual:SkinColor(preeditTokens.accent)]);
             if (!vertical.boolValue) {
-                // The seven pickers are the custom theme's, and draw while it is selected.
+                // 取色器属于自定义主题，选中它时才画。文档里的编号色和边框色在 macOS 上不读，下面比的是解析出的颜色，所以照样成立。
                 [appearance applySharedCandidatePreferences:@{@"global_theme": @"custom", @"custom_theme": @{@"candidate_colors": @{
                     @"text": @"#102030", @"number": @"#203040", @"accent": @"#304050", @"selected": @"#405060",
                     @"hover": @"#506070", @"surface": @"#607080", @"border": @"#708090"}}}];

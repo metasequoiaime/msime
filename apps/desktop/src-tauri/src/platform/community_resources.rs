@@ -3,8 +3,8 @@
 //! 服务经本平台的账号会话认证，各平台建账号状态时一并登记 [`CommunityResourceState`]。把回复模板存进本机「高情商回复」键盘只有移动端有，那两个命令留在 `mobile_community`。
 
 use super::account_helpers::{community_id, community_service_call};
-use msime_client_core::account::{AccountError, BackendAccountClient, BackendAccountSession};
-use msime_client_core::community::resource::{
+use msime_client_services::account::{AccountError, BackendAccountClient, BackendAccountSession};
+use msime_client_services::community::resource::{
     BackendCommunityResourceService, CommunityResource, CommunityResourceApplication,
     CommunityResourceContent, CommunityResourceKind, CommunityResourcePage,
     CommunityResourcePublication, CommunityResourceScope,

@@ -6,7 +6,7 @@ Status: implemented
 
 #6829：用户想用自己的 DeepL API 密钥（Free 或 Pro）做候选词翻译。「自定义」翻译服务只会说 DeepLX 的协议：所有宿主都发 `Authorization: Bearer <key>`，正文的 `text` 是单个字符串。DeepL 官方 API 要求 `Authorization: DeepL-Auth-Key <key>`、`text` 为字符串数组，于是把 DeepL 地址填进「自定义」只会得到 403，设置页提示「服务未返回有效译文」。解析回复不是问题：`translations[0].text` 早就能读。
 
-请求在五处各自拼：`crates/host-api/src/ffi/translation.rs` 的运行时描述器（Windows、macOS、iOS、鸿蒙键盘都发它）、`crates/client-core/src/credential/translation.rs` 的设置页连接测试（Windows、macOS 的 Tauri 设置页）、Linux 的 Python provider、鸿蒙设置页自己的连接测试。
+请求在五处各自拼：`crates/host-api/src/ffi/translation.rs` 的运行时描述器（Windows、macOS、iOS、鸿蒙键盘都发它）、`crates/client-providers/src/credential/translation.rs` 的设置页连接测试（Windows、macOS 的 Tauri 设置页）、Linux 的 Python provider、鸿蒙设置页自己的连接测试。
 
 ## Decision
 
@@ -44,7 +44,7 @@ Android 键盘后来接上了自定义服务的运行时，同样走这个共享
 - `cargo test -p msime-host-api --lib custom_translation`：描述器的 URL、请求头、正文，空密钥报错，最长密钥的头长度为 4111，DeepL 回复与错误正文的解析。
 - Linux：在 `msime-linux-build-gate` 容器（Python 3.11）里跑 `custom_translation_contract.py`、`custom_translation_config.py`、`credential_test_contract.py`、`translation_provider_selection.py`、`translation_cache_parity.py`。
 - `apps/desktop` 的 vitest（翻译设置，含按共享用例核对 `isDeepLApiEndpoint`、`customTranslationKeyIssue` 和 DeepL 空密钥提示的渲染；鸿蒙表情页的服务选项）、`tsc --noEmit`；鸿蒙 `hvigorw assembleHap` 编译 ArkTS。
-- `python3 scripts/test-harmony-custom-translation-probe.py`；把鸿蒙 429 文案或探测请求的源语言改掉后它会失败。
+- `python3 scripts/test-harmony-custom-translation-probe.py`；把鸿蒙 429 文案或探测请求的源语言改掉后它会失败。文案提取允许状态码判断与 `return` 之间换行，格式化不能改变契约检查结果。
 - `bash platforms/harmony/tests/run.sh` 中的 `custom-translation-probe.test.ts`：探测请求、共享用例上的 DeepL 识别、请求头、回复门槛和 DeepL 状态码文案；把 456 文案或 `DeepL-Auth-Key ` 前缀改掉后对应的组会失败。
 - iOS 的 `TranslationProviderTests` 新增了 DeepL 空密钥、DeepLX 无密钥、远程 http 的路由用例，键盘扩展与 `MSIMEKeyboardTests` 的 Swift 源码用 `swiftc -typecheck`（iOS 模拟器 SDK）通过；本机磁盘不足，没有构建模拟器原生库，XCTest 没有运行。
 - 没有真实的 DeepL 密钥，没有对 DeepL 服务端发过请求；请求格式按 DeepL 的公开文档写成，Free 与 Pro 主机、`ZH-HANS`/`EN-US`、`DeepL-Auth-Key` 头都没有被真实服务确认过。macOS 的 ctest、iOS、Windows 运行时和设备上的候选释义都没有跑。

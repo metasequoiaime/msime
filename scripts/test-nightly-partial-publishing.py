@@ -1,0 +1,336 @@
+#!/usr/bin/env python3
+"""用合成安装包模拟连续发布与中断，确认失败平台不会拖住其他平台。"""
+
+import copy
+from contextlib import redirect_stderr, redirect_stdout
+import hashlib
+import importlib.util
+import io
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+
+SPEC = importlib.util.spec_from_file_location(
+    "nightly_publishing", Path(__file__).with_name("publish-nightly.py"))
+PUBLISHING = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(PUBLISHING)
+OLD_SHA, NEW_SHA = "a" * 40, "b" * 40
+
+
+class FakeGitHub:
+    repository = "synthetic/ime"
+
+    def __init__(self, legacy=True):
+        self.current = ({"id": 1, "body": f"nightly source: {OLD_SHA}\n",
+                         "published_at": "2026-01-01T00:00:00Z", "draft": False}
+                        if legacy else None)
+        self.files = {}
+        self.events = []
+        self.failed_platform = None
+        self.corrupt_platform = None
+        self.fail_commit = False
+        self.fail_checksum = False
+        self.fail_cleanup = False
+        if legacy:
+            for platform, suffixes in PUBLISHING.PACKAGING.PLATFORM_SUFFIXES.items():
+                for suffix in suffixes:
+                    self.files[f"old-{platform}{suffix}"] = f"old {platform} {suffix}".encode()
+            self.files["README.txt"] = b"old instructions"
+            self.files["SHA256SUMS"] = b"old manifest"
+
+    def release(self):
+        return copy.deepcopy(self.current)
+
+    def assets(self, release):
+        return {name: {"id": name, "name": name,
+                       "digest": "sha256:" + hashlib.sha256(payload).hexdigest()}
+                for name, payload in self.files.items()}
+
+    def create(self, source_sha):
+        self.events.append("create")
+        self.current = {"id": 1, "body": "", "draft": True, "published_at": None}
+        return self.release()
+
+    def upload(self, paths):
+        self.events.append("upload")
+        for index, path in enumerate(paths):
+            if self.fail_checksum and path.name.startswith("SHA256SUMS"):
+                raise RuntimeError("合成校验清单上传失败")
+            if self.failed_platform and self.failed_platform in path.name and index == len(paths) - 1:
+                raise RuntimeError("合成平台上传中断")
+            if path.name in self.files:
+                raise RuntimeError("禁止覆盖同名旧附件")
+            self.files[path.name] = (b"corrupted" if self.corrupt_platform and self.corrupt_platform in path.name
+                                     else path.read_bytes())
+
+    def commit(self, release, body, source_sha):
+        self.events.append("commit")
+        if self.fail_commit:
+            raise RuntimeError("合成正文提交失败")
+        self.current.update(body=body, draft=False, target_commitish=source_sha)
+
+    def delete(self, asset):
+        self.events.append("delete")
+        if self.fail_cleanup:
+            raise RuntimeError("合成清理失败")
+        del self.files[asset["name"]]
+
+
+class PartialPublishingTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="msime-nightly-test-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.source = self.root / "source"
+        for platform, suffixes in PUBLISHING.PACKAGING.PLATFORM_SUFFIXES.items():
+            directory = self.source / platform / "artifact"
+            directory.mkdir(parents=True)
+            for suffix in suffixes:
+                (directory / f"new-{platform}{suffix}").write_bytes(f"new {platform} {suffix}".encode())
+            (directory / "source.zip").write_bytes(b"not an installer")
+        self.env = patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        for redirect in (redirect_stdout, redirect_stderr):
+            capture = redirect(io.StringIO())
+            capture.__enter__()
+            self.addCleanup(capture.__exit__, None, None, None)
+        self.client = FakeGitHub()
+
+    def publish(self, successful, *, build_id="10.1", sha=NEW_SHA, downloads=None):
+        results = {platform: "success" if platform in successful else "failure"
+                   for platform in PUBLISHING.PLATFORMS}
+        downloads = downloads if downloads is not None else {
+            platform: {"outcome": "success"} for platform in successful if platform != "ios"}
+        return PUBLISHING.publish(self.client, self.source, self.root / build_id,
+                                  results, downloads, sha, build_id,
+                                  f"https://github.com/synthetic/ime/actions/runs/{build_id.split('.')[0]}")
+
+    def state(self):
+        return PUBLISHING.previous_state(self.client.release(), self.client.assets(self.client.release()))
+
+    def assert_manifest_matches(self):
+        state = self.state()
+        lines = self.client.files[state["checksum"]].decode().splitlines()
+        expected = {file["name"] for build in state["platforms"].values() for file in build["files"]}
+        self.assertEqual({line.split("  ")[1] for line in lines}, expected)
+        for line in lines:
+            digest, name = line.split("  ")
+            self.assertEqual(digest, hashlib.sha256(self.client.files[name]).hexdigest())
+
+    def test_three_failed_platforms_keep_their_bytes(self):
+        original = copy.deepcopy(self.client.files)
+        state = self.publish({"windows", "linux", "ios"})
+        for platform in ("android", "macos", "harmony"):
+            self.assertEqual(state["platforms"][platform]["source"], OLD_SHA)
+            for file in state["platforms"][platform]["files"]:
+                self.assertEqual(self.client.files[file["name"]], original[file["name"]])
+        for platform in ("windows", "linux", "ios"):
+            self.assertEqual(state["platforms"][platform]["source"], NEW_SHA)
+        self.assertNotIn("old-windows.exe", self.client.files)
+        self.assertNotIn("old-linux.deb", self.client.files)
+        self.assert_manifest_matches()
+        self.assertIn("保留上次成功构建", self.client.current["body"])
+        self.assertIn("待 Apple 审核", self.client.current["body"])
+        self.assertLess(self.client.events.index("commit"), self.client.events.index("delete"))
+
+    def test_first_run_partial_success_is_published(self):
+        self.client = FakeGitHub(legacy=False)
+        state = self.publish({"windows"})
+        self.assertEqual(set(state["platforms"]), {"windows"})
+        self.assertFalse(self.client.current["draft"])
+        self.assertIn("暂无成功构建", self.client.current["body"])
+        self.assert_manifest_matches()
+
+    def test_all_failed_keep_every_native_file(self):
+        original = copy.deepcopy(self.client.files)
+        state = self.publish(set())
+        for platform in PUBLISHING.PACKAGING.PLATFORM_SUFFIXES:
+            self.assertEqual(state["platforms"][platform]["source"], OLD_SHA)
+            for file in state["platforms"][platform]["files"]:
+                self.assertEqual(self.client.files[file["name"]], original[file["name"]])
+        self.assert_manifest_matches()
+
+    def test_first_run_all_failed_does_not_create_empty_release(self):
+        self.client = FakeGitHub(legacy=False)
+        self.assertIsNone(self.publish(set()))
+        self.assertIsNone(self.client.current)
+        self.assertEqual(self.client.events, [])
+
+    def test_second_run_preserves_each_platform_source(self):
+        first = self.publish({"windows", "ios"})
+        windows_files = copy.deepcopy(first["platforms"]["windows"]["files"])
+        state = self.publish({"linux"}, build_id="11.1", sha="c" * 40)
+        self.assertEqual(state["platforms"]["windows"]["files"], windows_files)
+        self.assertEqual(state["platforms"]["windows"]["source"], NEW_SHA)
+        self.assertEqual(state["platforms"]["linux"]["source"], "c" * 40)
+        self.assertEqual(state["platforms"]["android"]["source"], OLD_SHA)
+        self.assert_manifest_matches()
+
+    def test_partial_upload_failure_keeps_old_platform_and_publishes_others(self):
+        self.client.failed_platform = "linux"
+        original = copy.deepcopy(self.client.files)
+        with self.assertRaisesRegex(RuntimeError, "其他平台已发布"):
+            self.publish({"linux", "windows"})
+        state = self.state()
+        self.assertEqual(state["platforms"]["windows"]["source"], NEW_SHA)
+        self.assertEqual(state["platforms"]["linux"]["source"], OLD_SHA)
+        for suffix in (".deb", ".rpm"):
+            self.assertEqual(self.client.files["old-linux" + suffix], original["old-linux" + suffix])
+        self.assertNotIn("new-linux-nightly.10.1.deb", self.client.files)
+        self.assert_manifest_matches()
+
+    def test_digest_mismatch_keeps_old_platform(self):
+        self.client.corrupt_platform = "android"
+        with self.assertRaisesRegex(RuntimeError, "android"):
+            self.publish({"android", "windows"})
+        self.assertEqual(self.state()["platforms"]["android"]["source"], OLD_SHA)
+        self.assertEqual(self.state()["platforms"]["windows"]["source"], NEW_SHA)
+        self.assert_manifest_matches()
+
+    def test_failed_download_does_not_use_partial_files(self):
+        with self.assertRaisesRegex(RuntimeError, "android"):
+            self.publish({"android", "windows"}, downloads={
+                "android": {"outcome": "failure"}, "windows": {"outcome": "success"}})
+        self.assertEqual(self.state()["platforms"]["android"]["source"], OLD_SHA)
+        self.assertEqual(self.state()["platforms"]["windows"]["source"], NEW_SHA)
+
+    def test_missing_successful_artifact_only_blocks_its_platform(self):
+        next((self.source / "android").rglob("*.apk")).unlink()
+        with self.assertRaisesRegex(RuntimeError, "android"):
+            self.publish({"android", "windows"})
+        self.assertEqual(self.state()["platforms"]["windows"]["source"], NEW_SHA)
+        self.assertEqual(self.state()["platforms"]["android"]["source"], OLD_SHA)
+
+    def test_commit_failure_does_not_delete_previous_downloads(self):
+        original = copy.deepcopy(self.client.files)
+        body = self.client.current["body"]
+        self.client.fail_commit = True
+        with self.assertRaisesRegex(RuntimeError, "正文提交失败"):
+            self.publish({"windows"})
+        self.assertEqual(self.client.current["body"], body)
+        self.assertNotIn("delete", self.client.events)
+        for name, payload in original.items():
+            self.assertEqual(self.client.files[name], payload)
+        self.client.fail_commit = False
+        self.publish({"windows"}, build_id="10.2")
+        self.assertNotIn("new-windows-nightly.10.1.exe", self.client.files)
+        self.assert_manifest_matches()
+
+    def test_checksum_upload_failure_keeps_old_body_and_downloads(self):
+        original = copy.deepcopy(self.client.files)
+        body = self.client.current["body"]
+        self.client.fail_checksum = True
+        with self.assertRaisesRegex(RuntimeError, "校验清单"):
+            self.publish({"windows"})
+        self.assertEqual(self.client.current["body"], body)
+        for name, payload in original.items():
+            self.assertEqual(self.client.files[name], payload)
+        self.assertNotIn("delete", self.client.events)
+
+    def test_cleanup_failure_leaves_new_downloads_available(self):
+        self.client.fail_cleanup = True
+        state = self.publish({"windows"})
+        self.assertEqual(state["platforms"]["windows"]["source"], NEW_SHA)
+        self.assert_manifest_matches()
+
+    def test_cleanup_list_failure_does_not_fail_completed_publication(self):
+        assets = self.client.assets
+
+        def list_assets(release):
+            if "commit" in self.client.events:
+                raise RuntimeError("合成清理列表网络中断")
+            return assets(release)
+
+        with patch.object(self.client, "assets", side_effect=list_assets):
+            state = self.publish({"windows"})
+        self.assertEqual(state["platforms"]["windows"]["source"], NEW_SHA)
+        self.assert_manifest_matches()
+
+    def test_ios_only_does_not_publish_simulator_archive(self):
+        self.client = FakeGitHub(legacy=False)
+        state = self.publish({"ios"})
+        self.assertEqual(set(state["platforms"]), {"ios"})
+        self.assertEqual(state["platforms"]["ios"]["files"], [])
+        self.assertEqual(self.client.files, {})
+        self.assertIn("TestFlight", self.client.current["body"])
+
+    def test_unknown_previous_body_prevents_mutations(self):
+        self.client.current["body"] = "unknown layout"
+        original = copy.deepcopy(self.client.files)
+        with self.assertRaisesRegex(ValueError, "无法确认"):
+            self.publish({"windows"})
+        self.assertEqual(self.client.files, original)
+        self.assertEqual(self.client.events, [])
+
+    def test_metadata_digest_mismatch_prevents_mutations(self):
+        self.publish({"windows"})
+        self.client.files["new-windows-nightly.10.1.exe"] = b"changed outside publisher"
+        self.client.events.clear()
+        with self.assertRaisesRegex(ValueError, "摘要不符"):
+            self.publish({"linux"}, build_id="11.1")
+        self.assertEqual(self.client.events, [])
+
+    def test_legacy_names_are_identified_by_native_format(self):
+        self.client.files["entry-default-unsigned.hap"] = self.client.files.pop("old-harmony.hap")
+        self.client.files["MetasequoiaIME-Full_Setup_v0.1.0.exe"] = self.client.files.pop("old-windows.exe")
+        state = self.publish({"android"})
+        self.assertEqual(state["platforms"]["harmony"]["files"][0]["name"], "entry-default-unsigned.hap")
+        self.assertEqual(state["platforms"]["windows"]["files"][0]["name"], "MetasequoiaIME-Full_Setup_v0.1.0.exe")
+        self.assert_manifest_matches()
+
+    def test_workflow_environment_reaches_the_incremental_publisher(self):
+        import json
+        env = {"NEEDS_RESULTS": json.dumps({
+                   platform: {"result": "success" if platform == "windows" else "failure"}
+                   for platform in PUBLISHING.PLATFORMS}),
+               "DOWNLOAD_RESULTS": json.dumps({"windows": {"outcome": "success"}}),
+               "GITHUB_REPOSITORY": "synthetic/ime", "SOURCE_SHA": NEW_SHA,
+               "GITHUB_RUN_ID": "12", "GITHUB_RUN_ATTEMPT": "2",
+               "GITHUB_SERVER_URL": "https://github.com"}
+        with patch.dict(os.environ, env), patch.object(PUBLISHING, "GitHub", return_value=self.client), \
+                patch.object(PUBLISHING.sys, "argv", ["publish-nightly.py", str(self.source), str(self.root / "cli")]):
+            PUBLISHING.main()
+        self.assertEqual(self.state()["platforms"]["windows"]["source"], NEW_SHA)
+        self.assertIn("new-windows-nightly.12.2.exe", self.client.files)
+        self.assertEqual(self.state()["platforms"]["android"]["source"], OLD_SHA)
+
+
+class GitHubClientTests(unittest.TestCase):
+    def test_only_404_is_treated_as_missing(self):
+        client = PUBLISHING.GitHub("synthetic/ime")
+        with patch.object(PUBLISHING.subprocess, "run", side_effect=[
+                subprocess.CompletedProcess([], 1, "", "HTTP 404"),
+                subprocess.CompletedProcess([], 0, "[]", "")]):
+            self.assertIsNone(client.release())
+        with patch.object(PUBLISHING.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", "HTTP 401")):
+            with self.assertRaisesRegex(RuntimeError, "401"):
+                client.release()
+
+    def test_all_asset_pages_are_used(self):
+        client = PUBLISHING.GitHub("synthetic/ime")
+        with patch.object(client, "api", return_value=[[{"name": "a"}], [{"name": "b"}]]) as api:
+            self.assertEqual(set(client.assets({"id": 1})), {"a", "b"})
+            self.assertTrue(api.call_args.kwargs["paginate"])
+
+    def test_interrupted_initial_draft_is_reused(self):
+        client = PUBLISHING.GitHub("synthetic/ime")
+        draft = {"id": 2, "tag_name": "nightly", "draft": True}
+        with patch.object(client, "api", side_effect=[None, [[], [draft]]]):
+            self.assertEqual(client.release(), draft)
+
+    def test_initial_draft_is_published_before_ref_is_moved(self):
+        client = PUBLISHING.GitHub("synthetic/ime")
+        with patch.object(client, "api") as api:
+            client.commit({"id": 1}, "synthetic notes", NEW_SHA)
+        self.assertEqual(api.call_args_list[0].args[1], "releases/1")
+        self.assertFalse(api.call_args_list[0].args[2]["draft"])
+        self.assertEqual(api.call_args_list[1].args[1], "git/refs/tags/nightly")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1572,7 +1572,7 @@ fn typing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection() {
     });
 
     assert!(result.handled);
-    assert_eq!(allocations, 127);
+    assert_eq!(allocations, 126);
 }
 
 #[test]
@@ -1675,7 +1675,7 @@ fn typing_at_a_caret_reuses_the_editing_text_length() {
         crate::ime::personal_rerank::allocations::count(|| session.character(b'x', false));
 
     assert!(result.handled);
-    assert_eq!(allocations, 194, "光标处输入的分配次数：{allocations}");
+    assert_eq!(allocations, 192, "光标处输入的分配次数：{allocations}");
 }
 
 #[test]
@@ -4898,6 +4898,24 @@ fn expression_mode_evaluates_what_follows_shift_v() {
 }
 
 #[test]
+fn expression_mode_commits_finite_results_near_the_float_limit() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = generated_modes_session(&fixture);
+    for (input, expected) in [
+        ("(2^1023)*1.9999999999999998", "1.79769313486232e308"),
+        ("(2^1023)*-1.9999999999999998", "-1.79769313486232e308"),
+    ] {
+        assert!(session.character(b'V', true).handled);
+        type_text(&mut session, input);
+        assert_eq!(
+            words(&session),
+            [expected.to_owned(), format!("{input}={expected}")]
+        );
+        assert_eq!(session.select(0).commit.as_deref(), Some(expected));
+    }
+}
+
+#[test]
 fn expression_mode_converts_units_after_a_number() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = generated_modes_session(&fixture);
@@ -4934,6 +4952,35 @@ fn expression_mode_converts_units_after_a_number() {
     session.character(b'V', true);
     type_text(&mut session, "3xyz");
     assert_eq!(words(&session), ["V3xyz"]);
+}
+
+#[test]
+fn expression_mode_converts_signed_measurements() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = generated_modes_session(&fixture);
+    for (input, expected) in [
+        ("-10cf", vec!["14℉", "14", "-10℃=14℉"]),
+        ("+0.5kg'g", vec!["500克", "500", "+0.5千克=500克"]),
+    ] {
+        session.character(b'V', true);
+        for byte in input.bytes() {
+            let result = if matches!(byte, b'-' | b'+' | b'.' | b'\'') {
+                session.punctuation(byte)
+            } else {
+                session.character(byte, false)
+            };
+            assert!(
+                result.handled && result.commit.is_none(),
+                "{input}: {result:?}"
+            );
+        }
+        assert_eq!(session.snapshot().preedit, format!("V{input}"));
+        assert_eq!(words(&session), expected);
+        assert_eq!(
+            session.select(2).commit.as_deref(),
+            expected.get(2).copied()
+        );
+    }
 }
 
 #[test]

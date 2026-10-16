@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-在 `crates/client-core/src/file_lock.rs` 增加共用的 `create_private_file`，集中 `create_new`、Unix 的 `O_NOFOLLOW | O_CLOEXEC` 和 Windows 的 reparse point 防护。社区归档继续自行写入并 `sync_all`；资源在 Unix 上继续使用目录句柄 `openat`，只有非 Unix/测试路径调用共用入口；语音模型的所有路径创建调用共用入口。
+在 `crates/client-base/src/file_lock.rs` 增加共用的 `create_private_file`，集中 `create_new`、Unix 的 `O_NOFOLLOW | O_CLOEXEC` 和 Windows 的 reparse point 防护。社区归档继续自行写入并 `sync_all`；资源在 Unix 上继续使用目录句柄 `openat`，只有非 Unix/测试路径调用共用入口；语音模型的所有路径创建调用共用入口。
 
 ## Alternatives considered
 

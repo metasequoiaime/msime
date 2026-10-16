@@ -60,7 +60,7 @@ struct SymbolGroup {
   std::vector<std::wstring> items;
 };
 
-// `client-core::plugins::scan` 列出的一个包：清单的字段，加上它那一类的内容（`PluginPackage`）。没有的数字是 nullopt，没有的文字是空串。
+// `client-services::plugins::scan` 列出的一个包：清单的字段，加上它那一类的内容（`PluginPackage`）。没有的数字是 nullopt，没有的文字是空串。
 struct Package {
   std::wstring id, name, version, license, author, description;
   bool builtin = false;
@@ -654,7 +654,7 @@ inline std::wstring symbol_group_preview(SymbolGroup const &group) {
 
 // ---- 出错说明 ----
 
-// 宿主调用失败时的句子（`pluginErrorMessage`）：code 是 client-core 的 `PluginFailure`，detail 是它报告的规则。
+// 宿主调用失败时的句子（`pluginErrorMessage`）：code 是 client-services 的 `PluginFailure`，detail 是它报告的规则。
 inline std::wstring error_message(std::wstring_view code, std::wstring const &detail,
                                   std::wstring const &fallback) {
   const std::wstring reason = detail.empty() ? std::wstring() : L"（" + detail + L"）";
@@ -696,7 +696,7 @@ inline std::wstring imported_notice(Package const &pack) {
 
 // ---- 脚本插件（实验） ----
 
-// 「脚本插件（实验）」分组、详情和授权对话框，照 `plugin-script-view.tsx` 和 `plugin-list-view.tsx` 的脚本分组移植。规则（依赖、互斥、哈希绑定、准入）的权威在 client-core 的 `script_grants`，这里只是让页面先按同样的规则勾选和说明，宿主还会再查一遍。
+// 「脚本插件（实验）」分组、详情和授权对话框，照 `plugin-script-view.tsx` 和 `plugin-list-view.tsx` 的脚本分组移植。规则（依赖、互斥、哈希绑定、准入）的权威在 client-services 的 `script_grants`，这里只是让页面先按同样的规则勾选和说明，宿主还会再查一遍。
 
 // 脚本插件的能力，按 `msime_script_runtime::Capability::ALL` 的顺序（`SCRIPT_CAPABILITIES`）。
 inline constexpr std::array<std::wstring_view, 8> script_capabilities{
@@ -846,7 +846,7 @@ inline std::vector<std::wstring> toggle_capability(std::vector<std::wstring> con
   return sorted();
 }
 
-// `script-grants.json` 的一条（client-core 的 `ScriptGrantView`）。
+// `script-grants.json` 的一条（client-services 的 `ScriptGrantView`）。
 struct ScriptGrant {
   std::wstring id;
   // 授权时包的内容哈希；与包现在的 `content_hash` 不同时授权已经作废。
@@ -860,7 +860,7 @@ struct ScriptHealth {
   std::wstring id, hash, disabled;
 };
 
-// 一条插件 `/` 指令在输入法里的状态（client-core 的 `script_commands::ResolvedCommand`，`ScriptCommandState`）。`status` 是 `active`、`shadowed_by_user_table`（和用户指令表里的 `/conflict` 冲突）或 `shadowed_by_plugin`（和执行顺序在前的插件 `conflict_id` 的 `/conflict` 冲突）；用不到的字段是空串。
+// 一条插件 `/` 指令在输入法里的状态（client-services 的 `script_commands::ResolvedCommand`，`ScriptCommandState`）。`status` 是 `active`、`shadowed_by_user_table`（和用户指令表里的 `/conflict` 冲突）或 `shadowed_by_plugin`（和执行顺序在前的插件 `conflict_id` 的 `/conflict` 冲突）；用不到的字段是空串。
 struct ScriptCommandState {
   std::wstring id, trigger, title, status, conflict, conflict_id;
 };
@@ -1123,7 +1123,7 @@ inline constexpr std::wstring_view grant_dialog_failed = L"授权没有写入，
 
 // ---- @ 名单 ----
 
-// `client-core::plugins::mentions::MentionEntry`。
+// `client-services::plugins::mentions::MentionEntry`。
 struct Mention {
   std::wstring text, key;
   bool operator==(Mention const &other) const { return text == other.text && key == other.key; }

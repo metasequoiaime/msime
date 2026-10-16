@@ -583,36 +583,52 @@ pub(super) fn decode_graph(
     // 小末列沿用线性去重；收齐唯一预算后不再物化后续假设，大末列保留原哈希回退。
     let inline_unique = last.len() <= SMALL_SENTENCE_PATHS;
     let mut paths: Vec<SentencePath> = Vec::with_capacity(last.len());
+    let mut trace = Vec::new();
     for hyp in &last {
         if inline_unique && paths.len() == take {
             break;
         }
-        let mut words = Vec::with_capacity(n);
-        let mut keys = Vec::with_capacity(n);
+        // 图在回溯期间不变；首条实际访问的路径才申请引用页，后续路径复用它。
+        trace.clear();
+        trace.reserve_exact(n);
         let mut cursor = Some(hyp);
         while let Some(step) = cursor {
             let Some(edge) = step.edge else { break };
-            words.push(edge.word.clone());
-            keys.push(edge.key.as_str());
+            trace.push(edge);
             let (column, at) = step.prev;
             cursor = Some(&columns[column].hyps[at]);
         }
-        words.reverse();
-        keys.reverse();
-        let sentence = words.concat();
+        trace.reverse();
+        let mut sentence = String::with_capacity(trace.iter().map(|edge| edge.word.len()).sum());
+        for edge in &trace {
+            sentence.push_str(&edge.word);
+        }
         if sentence.is_empty()
             || (inline_unique && paths.iter().any(|path| path.sentence == sentence))
         {
             continue;
         }
+        // 保留的路径才复制拥有词；按边数连接读音，空读音也保留原分隔符。
+        let mut words = Vec::with_capacity(n);
+        let mut key = String::with_capacity(
+            trace.iter().map(|edge| edge.key.len()).sum::<usize>() + trace.len().saturating_sub(1),
+        );
+        for (index, edge) in trace.iter().enumerate() {
+            words.push(edge.word.clone());
+            if index != 0 {
+                key.push('\'');
+            }
+            key.push_str(&edge.key);
+        }
         paths.push(SentencePath {
             sentence,
-            key: keys.join("'"),
+            key,
             log_prob: hyp.score,
             words,
             typo_edges: hyp.typo_edges,
         });
     }
+    drop(trace);
     if !inline_unique {
         retain_unique_sentences(&mut paths, take);
     }
@@ -1531,3 +1547,7 @@ mod entry_tests;
 #[cfg(test)]
 #[path = "decode_stream_tests.rs"]
 mod stream_tests;
+
+#[cfg(test)]
+#[path = "decode_materialization_tests.rs"]
+mod materialization_tests;

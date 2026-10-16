@@ -53,7 +53,9 @@ final class InputHabitPreferenceTests: XCTestCase {
     XCTAssertEqual(FrequencyAdjustmentPreference.mode, .disabled)
     XCTAssertEqual(FrequencyAdjustmentPreference.triggerCount, 10)
     XCTAssertEqual(CandidateTranslationPreference.primary.code, "RU")
-    XCTAssertEqual(CandidateTranslationPreference.secondary?.code, "JA")
+    // 第二种语言照样同步、保留给桌面端；手机键盘只显示一种候选翻译，不取它。
+    XCTAssertEqual(CandidateTranslationPreference.languages[CandidateTranslationPreference.secondaryIndex].code, "JA")
+    XCTAssertNil(CandidateTranslationPreference.secondary)
   }
 
   func testNoSecondLanguageRemovesTheKeyAndTheSameLanguageTwiceIsNone() throws {

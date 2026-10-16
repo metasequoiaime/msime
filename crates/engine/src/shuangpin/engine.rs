@@ -417,6 +417,7 @@ mod tests {
             ShuangpinProfileKind::Ziranma,
             ShuangpinProfileKind::Shoudao,
             ShuangpinProfileKind::Microsoft,
+            ShuangpinProfileKind::SmartAbc,
         ] {
             let profile = crate::shuangpin::profile::profile(kind).unwrap();
             for typed in [

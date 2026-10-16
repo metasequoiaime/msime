@@ -43,7 +43,7 @@ Status: implemented
 
 ### 汉字的判定
 
-复用 `msime_client_core::dictionary::is_han_character`（基本区、扩展 A 到 F、兼容表意文字），host-api 的个人词校验已经在用它。Engine 的 `text::is_han` 多覆盖 U+3007「〇」和扩展 G、H，但它在私有模块里；为这个功能把它公开或再抄一份范围，都不如复用现成的公开函数。代价是「〇」和扩展 G、H 的字旁边不加空格。
+复用 `msime_client_services::dictionary::is_han_character`（基本区、扩展 A 到 F、兼容表意文字），host-api 的个人词校验已经在用它。Engine 的 `text::is_han` 多覆盖 U+3007「〇」和扩展 G、H，但它在私有模块里；为这个功能把它公开或再抄一份范围，都不如复用现成的公开函数。代价是「〇」和扩展 G、H 的字旁边不加空格。
 
 ### 和生命周期 `rewritable()` 的区别
 

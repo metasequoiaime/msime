@@ -628,7 +628,7 @@ export function applyAccountPreferences(
   if (smartPunctuation !== null) preferences.smart_punctuation = smartPunctuation;
   const pairedPunctuation = reader.boolean("input.paired_punctuation");
   if (pairedPunctuation !== null) preferences.paired_punctuation = pairedPunctuation;
-  // 不认得的样式（更新的版本加的）只跳过这个键，与 client-core 的设置同步一致。
+  // 不认得的样式（更新的版本加的）只跳过这个键，与 client-services 的设置同步一致。
   const quoteStyle = reader.text("input.quote_style");
   if (quoteStyle !== null && QUOTE_STYLES.includes(quoteStyle))
     preferences.quote_style = quoteStyle;

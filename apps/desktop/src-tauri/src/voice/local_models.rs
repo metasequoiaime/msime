@@ -1,10 +1,11 @@
-//! On-device speech models for the `local` provider: the settings page lists, downloads, cancels and removes them here, and a starting voice session reads the user's dictionary words from here to pass along as hotwords.
+//! `local` 提供方的端侧语音模型：设置页在这里列出、下载、取消和删除它们，开始一次语音会话时也从这里读用户的词库词，作为热词传下去。
 //!
-//! Models live in `<app data dir>/voice-models/<id>`, the directory `voice_input.asr_model_path` is set to when the user picks one. Installing is `msime_client_core::voice::local_models`, which downloads into a staging directory, verifies every checksum and renames the finished model into place; this module only runs it off the command thread, forwards its progress as the `voice-local-model-progress` event and keeps the cancellation flag of each running install.
+//! 模型放在 `<app data dir>/voice-models/<id>`，用户选中某个模型时 `voice_input.asr_model_path` 就设为这个目录。安装由 `msime_client_providers::voice::local_models` 完成：它下载到暂存目录，校验每一个校验和，再把完成的模型改名放到位；本模块只把它放到命令线程之外运行，把进度转发成 `voice-local-model-progress` 事件，并保管每个进行中安装的取消标志。
 
 use crate::*;
-use msime_client_core::voice::hotwords::Hotword;
-use msime_client_core::voice::local_models::{self, LocalModelError, LocalModelStatus};
+#[cfg(unix)]
+use msime_client_providers::voice::hotwords::Hotword;
+use msime_client_providers::voice::local_models::{self, LocalModelError, LocalModelStatus};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -369,7 +370,7 @@ pub(crate) fn dictionary_hotwords_with(
     limit: usize,
     mut list: impl FnMut(&Value) -> Option<Value>,
 ) -> Vec<Hotword> {
-    msime_client_core::voice::hotwords::hotwords_from_dictionary_pages(
+    msime_client_providers::voice::hotwords::hotwords_from_dictionary_pages(
         limit,
         HOTWORD_PAGE,
         HOTWORD_MAX_ROWS,
@@ -394,7 +395,7 @@ pub(crate) fn dictionary_hotwords_with(
                         entry["weight"].as_i64().unwrap_or(0),
                     ))
                 }));
-                msime_client_core::voice::hotwords::DictionaryHotwordPage {
+                msime_client_providers::voice::hotwords::DictionaryHotwordPage {
                     entries,
                     has_more: page["has_more"].as_bool() == Some(true),
                 }
@@ -430,7 +431,7 @@ pub(crate) fn session_hotwords(dictionary: &DictionaryHostOptions) -> Vec<Hotwor
     match dictionary.snapshot() {
         Ok(options) => dictionary_hotwords(
             &options,
-            msime_client_core::voice::hotwords::DEFAULT_HOTWORD_LIMIT,
+            msime_client_providers::voice::hotwords::DEFAULT_HOTWORD_LIMIT,
         ),
         Err(_) => Vec::new(),
     }

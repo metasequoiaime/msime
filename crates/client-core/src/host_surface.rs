@@ -194,8 +194,10 @@ pub struct HostCapabilities {
     pub candidate_row_colors: bool,
     /// The host can apply candidate accent, selection, hover and border appearance.
     pub candidate_selection_appearance: bool,
-    /// The host outlines the candidate panel in the border colour. Separate from `candidate_selection_appearance` because Linux draws the border (the Fcitx5 classic UI theme carries it) while neither Linux panel has a hover state.
+    /// 宿主按用户在自定义主题里选的边框色（`custom_theme.candidate_colors.border`）给候选窗描边。与 `candidate_selection_appearance` 分开，因为 Linux 画边框（Fcitx5 classicui 主题带边框色）而两个 Linux 面板都没有悬停状态。macOS 不读这个槽位：边框是 1pt 的发丝线，一律跟随主题和皮肤，设置页不给取色器。
     pub candidate_border_color: bool,
+    /// 宿主按用户在自定义主题里选的编号色（`custom_theme.candidate_colors.number`）画候选编号。macOS 不读这个槽位：选了文字颜色时编号色由它推出，否则跟随主题和皮肤，设置页不给取色器。
+    pub candidate_number_color: bool,
     /// 宿主应用 `candidate_scale_percent` 调整候选显示。自绘浮动窗口缩放字体和几何尺寸；桌面面板可以缩放自己拥有的字体描述。
     pub candidate_window_scale: bool,
     /// The host can lower the alpha of its candidate card fill, border and skin background by `candidate_opacity_percent` while keeping text opaque. A panel the desktop draws, or a strip that is part of an opaque keyboard, cannot.
@@ -281,6 +283,10 @@ pub struct HostCapabilities {
     pub fixed_candidate_layout: Option<crate::preferences::CandidateLayout>,
     /// The touch keyboard reads `touch_toolbar` to choose the buttons on the row above its keys. iOS 与 Android 的键盘读它；其他宿主上这些开关什么也不会隐藏。
     pub touch_toolbar_components: bool,
+    /// 宿主按 `touch_keyboard_height_adjustment` 改变屏幕键盘的高度，设置页才给出「键盘高度」滑块。Android、iOS 和 HarmonyOS 的键盘按它加减键盘高度，Windows 的 Tauri 键盘面板按它定窗口高度（`panel_window.rs` 的 `windows_panel_height`）；macOS 和 Linux 的键盘窗口高度是固定的，滑块在那里只会让设置页的预览变高，实际键盘不变。
+    pub touch_keyboard_height: bool,
+    /// 宿主的屏幕键盘按 `touch_key_spacing_tenths` 和 `touch_row_spacing_tenths` 画键距和行距，设置页才给出两个间距滑块、在预览上拖动调间距和「恢复默认」。macOS 不提供：鼠标操作的键盘面板用不着触屏的间距微调，键盘面板固定用默认的 6.0 / 7.0 dp，不再读存下的值。
+    pub touch_keyboard_spacing: bool,
     /// The host applies a separate family for Latin text in the candidate panel.
     /// A host whose renderer resolves one family list per glyph, or which draws
     /// Latin from its own font, can honour this; one with a single typeface for
@@ -301,6 +307,8 @@ pub struct HostCapabilities {
     pub input_mode_status_item: bool,
     /// 宿主按 `expand_candidates` 让横排候选窗按 ↓ 展开成多行候选网格。目前只有 macOS 实现；其他桌面宿主接上之前不提供这个开关，免得设置页存下一个宿主不理会的值。
     pub expand_candidates: bool,
+    /// 宿主画的各个界面（设置窗口、屏幕键盘、悬浮工具栏与中英文提示、菜单、表情面板、手写识别板、语音输入弹出条）一律跟随颜色模式，不读 `settings_theme`、`screen_keyboard_theme`、`toolbar_theme`、`menu_theme`、`emoji_theme`、`handwriting_theme`、`voice_theme`，设置页也不给这几行；候选窗口仍按 `candidate_theme` 单独设明暗。目前只有 macOS：固定明暗的内置主题本来就会盖过工具栏和菜单的单独设置，单给一个界面定明暗的需求由「夜」「墨」这类主题满足。
+    pub surface_themes_follow: bool,
     /// The host can run a 背单词 review session — that is, it has wired the shared vocabulary
     /// entry point and can reach the review store.
     pub vocabulary_review: bool,
@@ -585,16 +593,17 @@ impl HostCapabilities {
                     | HostPlatform::Android
                     | HostPlatform::Ios
             ),
-            // Linux 上只有 Fcitx5 的 classicui 主题画边框和圆角（下面的 `candidate_corner_radius` 同理）；IBus 面板画不了，运行中的 IBus 宿主经 `candidate_panel_limit`（`CandidatePanelLimit::IbusPanel`）让设置页说明这一点，能力位本身仍按平台给。
+            // Linux 上只有 Fcitx5 的 classicui 主题画边框和圆角（下面的 `candidate_corner_radius` 同理）；IBus 面板画不了，运行中的 IBus 宿主经 `candidate_panel_limit`（`CandidatePanelLimit::IbusPanel`）让设置页说明这一点，能力位本身仍按平台给。macOS 的边框色固定跟随主题和皮肤，宿主不读用户选的边框色。
             candidate_border_color: matches!(
                 platform,
                 HostPlatform::Windows
-                    | HostPlatform::Macos
                     | HostPlatform::Harmony
                     | HostPlatform::Android
                     | HostPlatform::Ios
                     | HostPlatform::Linux
             ),
+            // macOS 的编号色固定跟随主题和皮肤（选了文字颜色时由文字颜色推出），宿主不读用户选的编号色；其余宿主照旧。
+            candidate_number_color: platform != HostPlatform::Macos,
             // Windows 和 macOS 自绘候选浮窗并缩放全部几何尺寸。Linux 的桌面面板拥有卡片几何，但可以缩放唯一的 Pango 字体描述，这正是高 DPI 面板需要的部分。鸿蒙只随字号调整，iOS 和 Android 绘制键盘候选条，所以两者都不提供此控件。
             candidate_window_scale: matches!(
                 platform,
@@ -638,6 +647,8 @@ impl HostCapabilities {
             input_mode_status_item: matches!(platform, HostPlatform::Macos),
             // 展开候选网格目前只有 macOS 的候选窗画（#7307）。Windows 和 Linux 的桌面候选窗以后可以接同一个偏好；触屏键盘本来就有自己的展开面板。
             expand_candidates: matches!(platform, HostPlatform::Macos),
+            // 只有 macOS 让工具栏、菜单和各面板一律跟随颜色模式；Windows 原生设置页和其他宿主仍提供各界面的单独明暗。
+            surface_themes_follow: platform == HostPlatform::Macos,
             // Windows chooses between TSF, SendInput and a paste; macOS between system events and its input session. The Linux hosts commit through the IBus or Fcitx5 input context, the desktop voice panel hands its text to the active host the way every panel does, and the voice provider only recognizes, so a stored mode would change nothing there. A keyboard extension commits through its input client and has nothing to choose between either.
             voice_commit_mode: matches!(platform, HostPlatform::Windows | HostPlatform::Macos),
             // The Linux hosts write the snapshot's `preedit` into the IBus and
@@ -687,6 +698,16 @@ impl HostCapabilities {
                 .then_some(crate::preferences::CandidateLayout::Horizontal),
             // The iOS shortcut bar is the touch counterpart of the Windows floating toolbar, and its buttons follow the same kind of per-component switches. Android 的原生键盘工具栏也按 `touch_toolbar` 选按钮。
             touch_toolbar_components: matches!(platform, HostPlatform::Ios | HostPlatform::Android),
+            // Tauri 键盘面板只在 Windows 上按这一项定窗口高度；macOS 的面板和原生回退面板高度固定，Linux 同样没有接上。
+            touch_keyboard_height: matches!(
+                platform,
+                HostPlatform::Windows
+                    | HostPlatform::Android
+                    | HostPlatform::Ios
+                    | HostPlatform::Harmony
+            ),
+            // 只有 macOS 把间距固定成默认值；Windows 与 Linux 的 Tauri 键盘面板和触屏键盘照旧读用户的间距。
+            touch_keyboard_spacing: platform != HostPlatform::Macos,
             // Linux keeps AI credentials in the provider service's owner-only
             // configuration file and passes only non-sensitive options over its
             // socket. Every other host holds the token itself.
@@ -699,7 +720,7 @@ impl HostCapabilities {
             wordbook_packs: platform.is_desktop(),
             // Windows 和 Linux 桌面的符号面板是 Tauri 层的表情面板（`load_emoji_catalog`），Linux 的 Fcitx5 菜单和 macOS 的原生表情与符号面板另外读同一批插件组。HarmonyOS 在自己的设置投影里按形态打开；Android 和 iOS 没有接入。
             symbol_set_packs: platform.is_desktop(),
-            // 三个桌面平台的输入法进程在启动时打开脚本插件（`msime_client_scripts_enable`），授权由设置应用经 client-core 的 `script_grants` 写入，授权页写明同一用户下的其他程序能伪造授权。Windows 的授权页在原生设置应用里（经 host-api 的 `msime_client_plugins`），共享设置页在 Windows 上也照样显示这一组。移动端没有脚本插件。各宿主接入生命周期核心（`msime_client_set_lifecycle`）之前，会话不满足运行条件，授权写下了也不会运行。
+            // 三个桌面平台的输入法进程在启动时打开脚本插件（`msime_client_scripts_enable`），授权由设置应用经 client-services 的 `script_grants` 写入，授权页写明同一用户下的其他程序能伪造授权。Windows 的授权页在原生设置应用里（经 host-api 的 `msime_client_plugins`），共享设置页在 Windows 上也照样显示这一组。移动端没有脚本插件。各宿主接入生命周期核心（`msime_client_set_lifecycle`）之前，会话不满足运行条件，授权写下了也不会运行。
             script_plugins: platform.is_desktop(),
             // The three desktop hosts play the packs, route V, / and @ by the Engine's spelling symbols and stream music while they are the active input method. HarmonyOS claims key sounds, music and the triggers per form factor in its own settings projection (2in1 only); the phone and tablet hosts wire none of them. A switch with nothing behind it reads as a setting being ignored, so each host flips here only in the change that wires it.
             // Android 的按键音由 IME 进程的 SoundPool 播放（与本项同一波接入），所以 Android 也声明；手机和平板上的 HarmonyOS 与 iOS 仍未接入。

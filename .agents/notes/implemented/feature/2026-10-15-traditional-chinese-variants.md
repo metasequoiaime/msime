@@ -4,13 +4,13 @@ Status: implemented
 
 ## Problem
 
-繁体输出原来只有一套配置：`crates/client-core/src/chinese_conversion.rs` 固定按 OpenCC `s2t.json` 转换，宿主经 `msime_client_simplified_to_traditional` 调用，设置页是一个「繁体输出」开关。`s2t` 出的是 OpenCC 标准字形（「裏面」「着急」「乾麪」），臺灣用户要的是臺灣正体字形（「裡面」「著急」「乾麵」），往往还要臺灣惯用词（「軟體」「滑鼠」「程式碼」）。维护者要求加上 `s2tw` 与 `s2twp`，设置页把开关改成单选。
+繁体输出原来只有一套配置：`crates/client-base/src/chinese_conversion.rs` 固定按 OpenCC `s2t.json` 转换，宿主经 `msime_client_simplified_to_traditional` 调用，设置页是一个「繁体输出」开关。`s2t` 出的是 OpenCC 标准字形（「裏面」「着急」「乾麪」），臺灣用户要的是臺灣正体字形（「裡面」「著急」「乾麵」），往往还要臺灣惯用词（「軟體」「滑鼠」「程式碼」）。维护者要求加上 `s2tw` 与 `s2twp`，设置页把开关改成单选。
 
 ## Decision
 
 **偏好**：`Preferences::traditional_chinese_variant`，类型 `chinese_conversion::TraditionalVariant`，序列化为配置名 `"s2t"`、`"s2tw"`、`"s2twp"`，默认 `s2t`，默认时不写进文档（`Preferences` 带 `deny_unknown_fields`，旧版本读不了这个键）。`traditional_chinese_output` 保持布尔开关不变：工具栏、托盘菜单、Ctrl+Shift+F 和账号同步的 `input.character_set` 都只翻转它，变体在开关之外单独存，切回繁体时还是原来的变体。
 
-**转换**：`convert_to_traditional(text, variant)`，`simplified_to_traditional` 是它的 `s2t` 特例。臺灣两种配置照搬 OpenCC 的 `s2tw.json`、`s2twp.json`：规范化之后先按 `STPhrases` 与地区词组的并集做最大正向匹配分段（命中的词组各成一段，连续未命中的字并成一段），每段先做 `s2t`，再在同一段内做第二遍：`s2tw` 查 `TWVariantsPhrases` → `TWVariants`，`s2twp` 在前面加 `TWPhrases`，组内先命中的词典优先（`short_circuit`）。第二遍 never 跨段——这是 OpenCC 的行为，跨段实现会在少数词组边界上与 OpenCC 不同。三份臺灣词典取自已固定的同一个 OpenCC 提交，原样放在 `crates/client-core/data/opencc/`，第一次用到臺灣变体时才解析。整次转换只申请输出和逐段暂存两块缓冲，与分段数无关。
+**转换**：`convert_to_traditional(text, variant)`，`simplified_to_traditional` 是它的 `s2t` 特例。臺灣两种配置照搬 OpenCC 的 `s2tw.json`、`s2twp.json`：规范化之后先按 `STPhrases` 与地区词组的并集做最大正向匹配分段（命中的词组各成一段，连续未命中的字并成一段），每段先做 `s2t`，再在同一段内做第二遍：`s2tw` 查 `TWVariantsPhrases` → `TWVariants`，`s2twp` 在前面加 `TWPhrases`，组内先命中的词典优先（`short_circuit`）。第二遍 never 跨段——这是 OpenCC 的行为，跨段实现会在少数词组边界上与 OpenCC 不同。三份臺灣词典取自已固定的同一个 OpenCC 提交，原样放在 `crates/client-base/data/opencc/`，第一次用到臺灣变体时才解析。整次转换只申请输出和逐段暂存两块缓冲，与分段数无关。
 
 **C 接口**：`msime_client_convert_to_traditional(text, length, variant)`，`variant` 0/1/2 对应三个配置名，未知编号返回 NULL（调用方保留原文）。旧的 `msime_client_simplified_to_traditional` 保留，等于 variant 0。宿主读偏好时把配置名换成编号存进会话状态，`platforms/common/ChineseTextConversion.h` 的 `traditional_variant_code` 是这条换算的唯一 C++ 实现，认不出的名字按 `s2t`。
 
@@ -37,6 +37,6 @@ Status: implemented
 
 `apps/desktop/tests/settings/chinese-output-preferences.test.ts` 覆盖缺省值、宿主能力降级、最小补丁及切回繁体保留变体；组件回归验证选项顺序、文案与回调，真实设置页回归验证输出标签与保存链路。纯模块与组件旧路径的类型兼容另以 TypeScript 探针验证。
 
-`crates/client-core/src/chinese_conversion.rs` 的 `taiwan_variants_follow_opencc_configurations` 钉住三种配置的例子；开发时另用系统 OpenCC 1.3.2 加载由本目录词典编译的 `.ocd2` 和固定提交的三份配置，对约 2300 行语料逐行比对，三种配置都是 0 差异。分配预算在 `crates/host-api/tests/chinese_conversion_alloc.rs`，C 接口在 `crates/host-api/src/tests.rs` 的 `traditional_variant_conversion_boundary_selects_the_configuration`，Linux 两个宿主在 `platforms/linux/tests/input/traditional_output.cpp` 与 `platforms/linux/fcitx5/tests/native.cpp`（`--rows`）。
+`crates/client-base/src/chinese_conversion.rs` 的 `taiwan_variants_follow_opencc_configurations` 钉住三种配置的例子；开发时另用系统 OpenCC 1.3.2 加载由本目录词典编译的 `.ocd2` 和固定提交的三份配置，对约 2300 行语料逐行比对，三种配置都是 0 差异。分配预算在 `crates/host-api/tests/chinese_conversion_alloc.rs`，C 接口在 `crates/host-api/src/tests.rs` 的 `traditional_variant_conversion_boundary_selects_the_configuration`，Linux 两个宿主在 `platforms/linux/tests/input/traditional_output.cpp` 与 `platforms/linux/fcitx5/tests/native.cpp`（`--rows`）。
 
 相关：转换扫描的分配约束见[繁简转换未变化的扫描借用原文](../simplification/2026-10-14-chinese-conversion-borrow-unchanged.md)和[繁简词典用实际首字节排除不可能的前缀](../simplification/2026-10-14-chinese-prefix-byte-filter.md)。

@@ -1,5 +1,7 @@
 #pragma once
 #include "msime_client.h"
+#include <memory>
+namespace msime::windows { class HostOnlineCandidateSync; }
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -42,6 +44,7 @@ struct EngineResult {
 };
 class EngineSessionAdapter final {
 public:
+  EngineSessionAdapter();
   static bool parse_result(const std::string &, EngineResult *, std::string *);
   ~EngineSessionAdapter();
   bool create(const std::string &, std::string *);
@@ -52,6 +55,13 @@ public:
   bool select(uint64_t, std::size_t, std::string *, std::string *);
   bool select_edge(uint64_t, std::size_t, uint8_t, std::string *, std::string *);
   bool view(std::string *, std::string *) const;
+  bool online_query(std::string *, std::string *) const;
+  bool apply_cloud(const std::string &, const std::string &, std::string *, std::string *);
+  bool apply_ai(const std::string &, const std::string &, std::string *, std::string *);
+  bool resolve_ai(const std::string &, std::string *, std::string *);
+  bool rerank_settled(std::string *, std::string *);
+  void capture_online_request(uint64_t request);
+  bool apply_online_update(const std::string &payload);
   bool punctuation(uint8_t, std::string *, std::string *);
   bool focus(bool, std::string *, std::string *);
   bool chinese_punctuation(bool, std::string *, std::string *);
@@ -67,5 +77,6 @@ public:
 private:
   bool response(char *, std::string *, std::string *) const;
   uint64_t session_ = 0;
+  std::unique_ptr<msime::windows::HostOnlineCandidateSync> online_;
 };
 }

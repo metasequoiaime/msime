@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class EditorSmoke {
-    static final class Sink implements EditorBridge.Sink {
+    static class Sink implements EditorBridge.Sink {
         final List<String> calls = new ArrayList<>();
         boolean reject;
         public void begin() { calls.add("begin"); }
@@ -16,6 +16,28 @@ public final class EditorSmoke {
         public boolean finish() { calls.add("finish"); return true; }
         public boolean select(int start, int end) { calls.add("select:" + start + "," + end); return true; }
         public void end() { calls.add("end"); }
+    }
+    static final class VerificationSink extends Sink {
+        boolean batch;
+        String pending;
+        String applied;
+        boolean rejectVerification;
+        boolean disconnectVerification;
+        boolean disconnectEnd;
+        @Override public void begin() { super.begin(); batch = true; }
+        @Override public boolean compose(String text) { pending = text; return super.compose(text); }
+        @Override public void end() {
+            super.end();
+            if (disconnectEnd) throw new IllegalStateException("synthetic disconnect");
+            applied = pending;
+            batch = false;
+        }
+        @Override public boolean verify() {
+            calls.add("verify");
+            check(!batch && "n".equals(applied));
+            if (disconnectVerification) throw new IllegalStateException("synthetic disconnect");
+            return !rejectVerification;
+        }
     }
     static final class DisconnectedSink implements EditorBridge.Sink {
         public void begin() {}
@@ -27,6 +49,29 @@ public final class EditorSmoke {
     }
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
     public static void main(String[] args) {
+        // 读回验证必须在编辑器应用整批命令之后运行，拒写和断开仍由调用方统一处理。
+        EditorBridge deferredBridge = new EditorBridge();
+        VerificationSink deferred = new VerificationSink();
+        check(deferredBridge.apply(deferred, null, "n"));
+        check(deferred.calls.equals(List.of("begin", "compose:n", "end", "verify")));
+        deferred.rejectVerification = true;
+        check(!deferredBridge.apply(deferred, null, "n"));
+        deferred.rejectVerification = false;
+        deferred.disconnectVerification = true;
+        check(!deferredBridge.apply(deferred, null, "n"));
+        deferred.calls.clear();
+        deferred.reject = true;
+        check(!deferredBridge.apply(deferred, null, "n"));
+        check(deferred.calls.equals(List.of("begin", "compose:n", "end")));
+        deferred.calls.clear();
+        deferred.reject = false;
+        deferred.disconnectEnd = true;
+        check(!deferredBridge.apply(deferred, null, "n"));
+        check(deferred.calls.equals(List.of("begin", "compose:n", "end")));
+        deferred.calls.clear();
+        deferred.disconnectEnd = false;
+        deferredBridge.settle(deferred, "n", 0, 1, 1, 1);
+        check(deferred.calls.equals(List.of("begin", "compose:n", "finish", "select:1,1", "end")));
         EditorBridge bridge = new EditorBridge();
         Sink sink = new Sink();
         check(bridge.apply(sink, null, "nihao"));

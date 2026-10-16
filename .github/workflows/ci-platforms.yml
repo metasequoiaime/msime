@@ -166,7 +166,7 @@ jobs:
       - name: Android platform unchanged
         if: ${{ needs.changes.outputs.android != 'true' }}
         run: echo 'No Android or shared-platform changes; platform gate skipped.'
-  # 上面只证明编译得过；这里在 API 28 和 35 的模拟器上真正运行 client-core 单测和 APK。0.3.0 的三个设备上才出现的问题（词库准备失败、匿名账号写不进、Android 9 启动崩溃）全过了上面那个 job。
+  # 上面只证明编译得过；这里在 API 28 和 35 的模拟器上真正运行 client-base、client-core、client-providers、client-services 单测和 APK。0.3.0 的三个设备上才出现的问题（词库准备失败、匿名账号写不进、Android 9 启动崩溃）全过了上面那个 job。
   # 打 APK、起两台模拟器是打包级的验收，不在 PR 上跑：合进 develop 后的 push 跑一次，Release Android 发版前用同一个提交再跑一次（见 .agents/notes/implemented/process/2026-10-09-no-packaging-on-pull-requests.md）。
   android-device:
     needs: changes
@@ -227,7 +227,7 @@ jobs:
         if: ${{ needs.changes.outputs.linux != 'true' }}
         run: echo 'No Linux or shared-platform changes; platform gate skipped.'
 
-  # msime-engine 的单元测试和 golden 基准此前没有任何 CI 作业运行：上面的 Linux 容器只测 client-core、input-runtime 和 host-api，提交前的 `verify-local.sh --quick` 不跑 Rust 测试，只有很少有人跑的全量 `verify-local.sh` 才跑。引擎里钉死精确次数的分配预算测试因此在 develop 上红了好几个 PR 都没人发现（见 .agents/notes/implemented/testing/2026-10-10-engine-tests-in-ci.md）。这里以 runner 的普通用户运行；整句模型不在仓库里，依赖它的测试会自行跳过并说明原因。
+  # msime-engine 的单元测试和 golden 基准此前没有任何 CI 作业运行：上面的 Linux 容器只测 client-base、client-core、client-providers、client-services、input-runtime 和 host-api，提交前的 `verify-local.sh --quick` 不跑 Rust 测试，只有很少有人跑的全量 `verify-local.sh` 才跑。引擎里钉死精确次数的分配预算测试因此在 develop 上红了好几个 PR 都没人发现（见 .agents/notes/implemented/testing/2026-10-10-engine-tests-in-ci.md）。这里以 runner 的普通用户运行；整句模型不在仓库里，依赖它的测试会自行跳过并说明原因。
   engine:
     needs: changes
     name: Rust engine
@@ -315,7 +315,7 @@ jobs:
         with:
           persist-credentials: false
       # The settings page below is built with the same toolchain contributors and the release build run; the runner's default Node is not pinned to anything.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: ${{ needs.changes.outputs.harmonyos == 'true' }}
         with:
           node-version-file: .nvmrc
@@ -346,7 +346,7 @@ jobs:
         if: ${{ needs.changes.outputs.ui == 'true' }}
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: ${{ needs.changes.outputs.ui == 'true' }}
         with:
           node-version-file: .nvmrc
@@ -443,7 +443,7 @@ jobs:
         run: |
           & platforms/windows/tests/tools/settings_ui.ps1 -Program target/windows-full/x64/settings/msime-client-settings.exe -OutputDirectory target/windows-full/x64/settings-screenshots
           if ($LASTEXITCODE -ne 0) { throw 'Settings UI smoke failed' }
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() && needs.changes.outputs.windows == 'true' }}
         with:
           name: windows-native-settings-screenshots
@@ -526,7 +526,7 @@ jobs:
           tar -xzf "$tools/binaryen.tar.gz" -C "$tools"
           echo "$tools/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
           echo "$tools/binaryen-version_133/bin" >> "$GITHUB_PATH"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: ${{ needs.changes.outputs.web == 'true' }}
         with:
           node-version-file: .nvmrc
@@ -558,7 +558,7 @@ jobs:
           AR_wasm32_unknown_unknown: llvm-ar
         run: cargo clippy --locked -p msime-engine-wasm --target wasm32-unknown-unknown -- -D warnings
       # PR 上只验证能构建，不出产物。
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ needs.changes.outputs.web == 'true' && github.event_name != 'pull_request' }}
         with:
           name: web-engine-${{ github.sha }}

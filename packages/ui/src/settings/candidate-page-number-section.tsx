@@ -1,4 +1,5 @@
-import type { HostPlatform } from "../index";
+import type { HostPlatform } from "../core/host-capabilities";
+
 import { SwitchRow } from "./switch-row";
 
 export interface CandidatePageNumberSectionProps {
@@ -8,7 +9,7 @@ export interface CandidatePageNumberSectionProps {
   onChange: (value: boolean) => void;
 }
 
-/** 「显示页码」开关，供会绘制页码的宿主使用（`HostCapabilities::candidate_page_number`）：「候选窗口」页「布局」组中的一行。 */
+/** 「显示页码」开关，供会绘制页码的宿主使用（`HostCapabilities::candidate_page_number`）：「候选窗口」页「更多选项」里的一行。 */
 export function CandidatePageNumberSection({
   value,
   platform,

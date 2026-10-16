@@ -72,45 +72,50 @@ export class HarmonyLocalAsrRecognizer {
    */
   async start(config: VoiceInputConfiguration, hotwordOptions: Object | null, onResult: LocalAsrResultHandler,
     onError: LocalAsrErrorHandler): Promise<void> {
-    if (this.active) throw new Error('语音识别正在进行');
-    const directory: string = LocalAsrPolicy.modelUnderRoot(
-      config.asr_model_path, config.local_model_root);
-    if (directory.length === 0) throw new Error('请先在设置中下载并选择本地语音模型');
-    const id: number = this.sessionId + 1;
-    this.sessionId = id;
-    this.active = true;
-    this.finishing = false;
-    this.requestPosted = false;
-    this.hotwords = [];
-    this.resultHandler = onResult;
-    this.errorHandler = onError;
-    this.clearIdle();
-    const recognizer: worker.ThreadWorker = this.ensureWorker();
-    this.hotwords = await this.fetchHotwords(hotwordOptions);
-    if (id !== this.sessionId) return;
-    const request: LocalAsrRequest = {
-      type: 'start', id: id, directory: directory, root: config.local_model_root ?? '',
-      language: config.language ?? '',
-      hotwords: this.hotwords.map((word: LocalHotword): string => word.text), threads: 0, pcm: null
-    };
-    recognizer.postMessage(request);
-    this.requestPosted = true;
-    if (this.finishing) {
-      // Released while the hotwords were still being read: nothing was recorded, so the session ends at once.
-      this.postFinish(id);
-      return;
-    }
-    this.timeoutHandle = setTimeout((): void => {
-      if (id === this.sessionId && this.active) this.stop();
-    }, MAX_DURATION_MS);
     try {
-      await this.capture.start(config.capture_backend, config.capture_device, (data: ArrayBuffer): void => {
-        this.sendAudio(id, data);
-      });
-    } catch (error) {
+      if (this.active) throw new Error('语音识别正在进行');
+      const directory: string = LocalAsrPolicy.modelUnderRoot(
+        config.asr_model_path, config.local_model_root);
+      if (directory.length === 0) throw new Error('请先在设置中下载并选择本地语音模型');
+      const id: number = this.sessionId + 1;
+      this.sessionId = id;
+      this.active = true;
+      this.finishing = false;
+      this.requestPosted = false;
+      this.hotwords = [];
+      this.resultHandler = onResult;
+      this.errorHandler = onError;
+      this.clearIdle();
+      const recognizer: worker.ThreadWorker = this.ensureWorker();
+      this.hotwords = await this.fetchHotwords(hotwordOptions);
       if (id !== this.sessionId) return;
-      this.fail(id, `语音采集启动失败：${describeError(error)}`);
-      throw new Error('语音采集启动失败');
+      const request: LocalAsrRequest = {
+        type: 'start', id: id, directory: directory, root: config.local_model_root ?? '',
+        language: config.language ?? '',
+        hotwords: this.hotwords.map((word: LocalHotword): string => word.text), threads: 0, pcm: null
+      };
+      recognizer.postMessage(request);
+      this.requestPosted = true;
+      if (this.finishing) {
+        // 热词读取期间已被释放，尚未录音，直接结束会话。
+        this.postFinish(id);
+        return;
+      }
+      this.timeoutHandle = setTimeout((): void => {
+        if (id === this.sessionId && this.active) this.stop();
+      }, MAX_DURATION_MS);
+      try {
+        await this.capture.start(config.capture_backend, config.capture_device, (data: ArrayBuffer): void => {
+          this.sendAudio(id, data);
+        });
+      } catch (error) {
+        if (id !== this.sessionId) return;
+        this.fail(id, `语音采集启动失败：${describeError(error)}`);
+        throw new Error('语音采集启动失败');
+      }
+    } catch (error) {
+      KeyboardLog.error('keyboard.input.HarmonyLocalAsrRecognizer.start failed');
+      throw error as Error;
     }
   }
 
@@ -145,11 +150,16 @@ export class HarmonyLocalAsrRecognizer {
   }
 
   private postFinish(id: number): void {
-    if (this.worker === undefined) return;
-    const request: LocalAsrRequest = {
-      type: 'finish', id: id, directory: '', root: '', language: '', hotwords: [], threads: 0, pcm: null
-    };
-    this.worker.postMessage(request);
+    try {
+      if (this.worker === undefined) return;
+      const request: LocalAsrRequest = {
+        type: 'finish', id: id, directory: '', root: '', language: '', hotwords: [], threads: 0, pcm: null
+      };
+      this.worker.postMessage(request);
+    } catch (error) {
+      KeyboardLog.error('keyboard.input.HarmonyLocalAsrRecognizer.postFinish failed');
+      this.fail(id, '本地语音识别结束失败');
+    }
   }
 
   private ensureWorker(): worker.ThreadWorker {
@@ -168,13 +178,18 @@ export class HarmonyLocalAsrRecognizer {
   }
 
   private sendAudio(id: number, data: ArrayBuffer): void {
-    if (id !== this.sessionId || this.finishing || this.worker === undefined) return;
-    // The capturer may reuse its buffer, so a copy is what crosses to the worker, and it is transferred rather than copied again.
-    const copy: ArrayBuffer = data.slice(0);
-    const request: LocalAsrRequest = {
-      type: 'audio', id: id, directory: '', root: '', language: '', hotwords: [], threads: 0, pcm: copy
-    };
-    this.worker.postMessage(request, [copy]);
+    try {
+      if (id !== this.sessionId || this.finishing || this.worker === undefined) return;
+      // 采集器可能复用缓冲区，先复制再把副本转移给工作线程，避免再次复制。
+      const copy: ArrayBuffer = data.slice(0);
+      const request: LocalAsrRequest = {
+        type: 'audio', id: id, directory: '', root: '', language: '', hotwords: [], threads: 0, pcm: copy
+      };
+      this.worker.postMessage(request, [copy]);
+    } catch (error) {
+      KeyboardLog.error('keyboard.input.HarmonyLocalAsrRecognizer.sendAudio failed');
+      this.fail(id, '本地语音音频传递失败');
+    }
   }
 
   private handle(reply: LocalAsrReply): void {

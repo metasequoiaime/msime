@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 msime-path-trust = { path = "../path-trust" }
-chinese-ime-lm = { git = "https://github.com/metasequoiaime/chinese-ime-lm", rev = "541ccb1e86c5bec67a6aa8b0d9dc6ae9bbb7f12f" }
+chinese-ime-lm = { git = "https://github.com/metasequoiaime/chinese-ime-lm", rev = "6ce2cbb5b76e189a1ef6ff11eaa0435bfd9983a0" }
 chinese-number = { version = "0.8", default-features = false, features = ["std", "number-to-chinese"] }
 # 藏文方案的 EWTS（扩展威利转写）到 Unicode 藏文的转换。MIT OR Apache-2.0，无依赖。
 ewts = "0.1.3"
@@ -32,7 +32,7 @@ unicode-segmentation.workspace = true
 # Vietnamese Telex and VNI transforms. MIT; pinned exactly because the uppercase workaround in vietnamese/scheme.rs is written against this version's output.
 vi = "=0.8.0"
 
-# 翻译 sidecar 写入前在 Windows 上读硬链接数，见 host/options.rs 的 `has_single_link`；与 client-core 用的是同一版。
+# 翻译 sidecar 写入前在 Windows 上读硬链接数，见 host/options.rs 的 `has_single_link`；与 client-base 用的是同一版。
 [target.'cfg(windows)'.dependencies]
 winapi-util = "0.1.11"
 

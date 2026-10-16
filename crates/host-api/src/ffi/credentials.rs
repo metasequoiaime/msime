@@ -36,7 +36,7 @@ pub unsafe extern "C" fn msime_client_test_api_credential(
             .get("config")
             .filter(|config| config.is_object())
             .ok_or("invalid credential test request")?;
-        let result = msime_client_core::credential::test_service(service, config);
+        let result = msime_client_providers::credential::test_service(service, config);
         Ok(json!({"ok": result.ok, "message": result.message}))
     })
 }
@@ -75,13 +75,13 @@ pub unsafe extern "C" fn msime_client_test_voice_credential(
         let snapshot = msime_client_core::preferences::PreferencesStore::new(directory)
             .load()
             .map_err(|_| "preferences unavailable")?;
-        let Some(config) = msime_client_core::voice::provider::credential_test_config(
+        let Some(config) = msime_client_providers::voice::provider::credential_test_config(
             &snapshot.preferences,
             service,
         ) else {
             return Ok(json!({"ok": false, "message": "当前服务不需要测试。"}));
         };
-        let result = msime_client_core::credential::test_service(service, &config);
+        let result = msime_client_providers::credential::test_service(service, &config);
         Ok(json!({"ok": result.ok, "message": result.message}))
     })
 }
@@ -149,7 +149,7 @@ pub unsafe extern "C" fn msime_client_ai_models(request: *const u8, length: usiz
     response(|| {
         let [endpoint, token] =
             unsafe { ai_settings_request(request, length, ["endpoint", "token"]) }?;
-        msime_client_core::ai::settings::fetch_models(&endpoint, &token)
+        msime_client_providers::ai::settings::fetch_models(&endpoint, &token)
             .map(|models| json!(models))
             .map_err(|error| error.code().to_owned())
     })
@@ -168,7 +168,7 @@ pub unsafe extern "C" fn msime_client_ai_test(request: *const u8, length: usize)
                 ["endpoint", "model", "prompt", "token", "text"],
             )
         }?;
-        msime_client_core::ai::settings::test_polish(&endpoint, &model, &prompt, &token, &text)
+        msime_client_providers::ai::settings::test_polish(&endpoint, &model, &prompt, &token, &text)
             .map(|reply| json!(reply))
             .map_err(|error| error.code().to_owned())
     })
@@ -190,7 +190,7 @@ pub unsafe extern "C" fn msime_client_ai_endpoint_check(
                     .map_err(|_| "invalid endpoint".to_owned())
             })
         }?;
-        use msime_client_core::ai::endpoint::{self, AiEndpointError};
+        use msime_client_providers::ai::endpoint::{self, AiEndpointError};
         let problem = match endpoint::validate(&endpoint) {
             Ok(_) => Value::Null,
             Err(AiEndpointError::Invalid) => json!("invalid"),

@@ -1,4 +1,4 @@
-// AI 辅助接口地址的传输策略，与 crates/client-core/src/ai/endpoint.rs 逐条一致：https 不限主机；http 只能指向本机或局域网（回环、RFC 1918、100.64.0.0/10、链路本地、IPv6 唯一本地地址、`.local`），因为 API Token 不能明文经过互联网。检查时不做 DNS 解析，除 `localhost` 和 `.local` 以外的域名一律按公网处理。两边共用 shared/contracts/ai-endpoint/cases.json 里的用例。
+// AI 辅助接口地址的传输策略，与 crates/client-providers/src/ai/endpoint.rs 逐条一致：https 不限主机；http 只能指向本机或局域网（回环、RFC 1918、100.64.0.0/10、链路本地、IPv6 唯一本地地址、`.local`），因为 API Token 不能明文经过互联网。检查时不做 DNS 解析，除 `localhost` 和 `.local` 以外的域名一律按公网处理。两边共用 shared/contracts/ai-endpoint/cases.json 里的用例。
 
 import { utf8ByteLength } from "../core/text";
 

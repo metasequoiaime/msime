@@ -1,4 +1,5 @@
-import type { Preferences, ProviderCredentialStatus, SettingsClient } from "../index";
+import type { ProviderCredentialStatus } from "../core/provider-credential-contracts";
+import type { Preferences, SettingsClient } from "../index";
 import type { useProviderCredentials } from "./use-provider-credentials";
 import {
   customTranslationCredentialTestConfig,
@@ -10,6 +11,11 @@ import {
 } from "./translation-credential-test-config";
 import type { TranslationProviderSettingsSectionProps } from "./translation-provider-settings-section";
 import { type TranslationProvider } from "./translation-service-selector-section";
+import type {
+  CustomTranslationPreferences,
+  NiuTransPreferences,
+  TencentTranslationPreferences,
+} from "./translation-credential-preferences";
 import {
   customTranslationKeyIssue,
   tencentCredentialIssue,
@@ -17,9 +23,6 @@ import {
 } from "./translation-validation";
 import { tencentSecretConfigured } from "./credential-utils";
 
-type CustomTranslationPreferences = NonNullable<Preferences["custom_translation"]>;
-type NiuTransPreferences = NonNullable<Preferences["niutrans"]>;
-type TencentTranslationPreferences = NonNullable<Preferences["tencent_tmt"]>;
 type ProviderCredentials = ReturnType<typeof useProviderCredentials>;
 
 export interface TranslationProviderSettingsOptions {
@@ -101,6 +104,7 @@ export function createTranslationProviderSettings({
         !customTranslation.enabled &&
         !tencentSecretConfigured(tencentTranslation.secret_id) &&
         !tencentSecretConfigured(tencentTranslation.secret_key),
+      offlineFallback: macos,
       status: providerCredentials
         ? {
             tencent: providerCredentials.tencent,

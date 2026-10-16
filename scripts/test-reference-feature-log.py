@@ -71,7 +71,7 @@ REVIEWED: dict[str, str] = {
         "Release plumbing; see the product lock bullets above."
     ),
     "**product:** lock the shared-session stack and validate dictionary formats": (
-        "Dictionary format validation is crates/client-core/src/dictionary/import.rs, which is "
+        "Dictionary format validation is crates/client-services/src/dictionary/import.rs, which is "
         "where the shared import path enforces the same rules."
     ),
     "**product:** require locked commits to be on their default branch at release": (
@@ -126,7 +126,7 @@ REVIEWED_COMMITS: dict[str, str] = {
     ),
     "feat: 输入统计（DLL 采集、Server 聚合存储与设置页展示）": (
         "Collected in the Server rather than the DLL: platforms/windows/src/input/TypingStatistics.h "
-        "hands each commit to the shared store in crates/client-core/src/typing_statistics.rs. Keys "
+        "hands each commit to the shared store in crates/client-services/src/typing_statistics.rs. Keys "
         "the TIP passes through are counted in the DLL by platforms/windows/tsf/IPC/PassthroughStatistics.h. "
         "The settings page shows them (apps/desktop/tests/settings/typing-statistics.test.tsx)."
     ),
@@ -209,7 +209,7 @@ REVIEWED_COMMITS: dict[str, str] = {
     "feat(settings): API Key 配置项增加连通性测试按钮": (
         "The settings page calls the test_api_credential command (apps/desktop/src-tauri/src/lib.rs, "
         "apps/desktop/src/account/credential-test-client.ts); probes live in "
-        "crates/client-core/src/credential/."
+        "crates/client-providers/src/credential/."
     ),
     "feat(translation): 候选词翻译支持小牛翻译（NiuTrans）": (
         "crates/host-api/src/niutrans_translation.rs builds the request; "
@@ -217,7 +217,7 @@ REVIEWED_COMMITS: dict[str, str] = {
         "platforms/windows/installer/config.default.toml."
     ),
     "feat(voice): 豆包语音识别支持新版控制台单 API Key 鉴权": (
-        "crates/client-core/src/credential/doubao_auth.rs picks the headers per auth mode; "
+        "crates/client-providers/src/credential/doubao_auth.rs picks the headers per auth mode; "
         "platforms/windows/src/voice/DoubaoAsrClient.cpp passes auth_mode through."
     ),
     "feat(tsf): 成对标点补全加修饰键闸门与配对栈": (
@@ -304,7 +304,7 @@ REVIEWED_COMMITS: dict[str, str] = {
         "platforms/windows/tsf/Key/ClientKeyRouter.h, wrapped by AuthenticatedClientKeyRouter.h."
     ),
     "feat(server): 批量导入兼容 Rime userdb.txt 与 dict.yaml": (
-        "ImportFormat::Rime in crates/client-core/src/dictionary/import.rs."
+        "ImportFormat::Rime in crates/client-services/src/dictionary/import.rs."
     ),
     "feat(protocol): use pinned typed messages across WebView pages": (
         "No WebView2 message protocol here: settings is the Tauri app in apps/desktop whose commands "
@@ -320,7 +320,7 @@ REVIEWED_COMMITS: dict[str, str] = {
     ),
     "feat(ui): add a WeChat-inspired skin with light/dark variants and synchronized candidate and toolbar previews": (
         "Replaced by the global themes: the built-in skins are gone and the five built-in themes of "
-        "crates/client-core/src/skin/theme.rs, each one fixed palette for the candidate window, "
+        "crates/client-core/src/theme.rs, each one fixed palette for the candidate window, "
         "toolbar and keyboard, take their place, previewed by "
         "packages/ui/src/candidate/appearance-candidate-preview.tsx and the theme cards of packages/ui/src/index.tsx."
     ),
@@ -395,10 +395,10 @@ REVIEWED_COMMITS: dict[str, str] = {
     ),
     "feat(settings): add quanpin dictionary batch import UI": (
         "The import operation of the local dictionary manager, apps/desktop/src/main.tsx over "
-        "crates/client-core/src/dictionary/import.rs."
+        "crates/client-services/src/dictionary/import.rs."
     ),
     "feat(settings): support batch import of quanpin user phrases": (
-        "crates/client-core/src/dictionary/import.rs (standard, windows, rime and hans formats)."
+        "crates/client-services/src/dictionary/import.rs (standard, windows, rime and hans formats)."
     ),
     "feat: add ranking settings and fixed-position candidate menus": (
         "[frequency_adjustment] in platforms/windows/installer/config.default.toml; pin, fix at 1-5 "
@@ -418,7 +418,7 @@ REVIEWED_COMMITS: dict[str, str] = {
     ),
     "feat: add Fluent light theme and dynamic theme switching for settings UI": (
         "html[data-theme] light and dark palettes in packages/ui/src/styles.css; the candidate skin is "
-        "replaced by the global themes of crates/client-core/src/skin/theme.rs, where `system` follows the "
+        "replaced by the global themes of crates/client-core/src/theme.rs, where `system` follows the "
         "light/dark mode on the platform's own tokens."
     ),
     "feat: hide ftb wnd immediately when tsf ime deactiavted": (

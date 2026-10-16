@@ -12,6 +12,8 @@ Android 拼音九键左侧的符号栏原来是 ，。？ 三个键铺满三行�
 
 ## Decision
 
+Android 数字层的 0 与空格位置由[底行中间的数字 0](2026-10-16-android-nine-key-numeric-bottom-row.md)取代；下文保留此前布局的理由，其余决定继续成立。
+
 ### 左侧符号栏
 
 字母键面的九项默认表与数字左栏的五行密度已由[三项默认符号栏](2026-10-13-android-nine-key-default-symbols.md)取代；本篇保留原来的扩充理由，自定义、滚动、数字键面和手势决定继续成立。
@@ -19,7 +21,7 @@ Android 拼音九键左侧的符号栏原来是 ，。？ 三个键铺满三行�
 - 拼音九键和笔画键盘的左栏是 `NineKeySymbolRail`（`platforms/android/java/app/msime/android/keyboard/NineKeySymbolRail.java`）：一个不显示滚动条、带上下渐隐边的 `ScrollView`，数字键面和笔画一屏最多显示三项，其他键面最多显示 `NineKeySidebarPolicy.VISIBLE_ROWS`（5）项，多出来的上下滑动。每个符号键的高度在 `onMeasure` 里按栏高均分（`NineKeySidebarPolicy.rowHeight`），并扣掉键自己的上下外边距，所以键盘高度和行距偏好变了不用重建；符号不足当前键面的可见行数时按实际个数均分整栏，不留空白；键盘高度调到最矮、五个会让每个低于 `MIN_ROW_HEIGHT_DP`（28 dp）时一屏少放几个。
 - 符号表来自本地设置 `platform.android.nine_key_symbols`（`AndroidLocalSettings` 新增的 `TEXT` 类设置）：用空格分开的符号，存储前经 `NineKeySidebarPolicy.normalize` 规范成单空格连接、去重；空串、单个符号超过 4 个码位、含控制字符、超过 30 个符号或文本超过 200 个 UTF-16 单元一律不合规，写入时拒收，读到时整张表回到默认值。默认表是 `， 。 ？ 、 ： ； …… ～ @`：前三个和原来一样，！ 仍在右列最下面，不在左栏重复。
 - 设置页「键盘 › 布局 › 九键左侧符号」用 `InputDialog` 编辑这张表，留空恢复默认（删掉这一项）。键盘每次出现时重读本地设置，`ImeLayoutRows.sidebarStale` 发现屏上的符号表和设置不同时，`render` 重建键行。
-- 这个设置只在本机，不随账号同步：同步表在 `crates/client-core/src/account/settings_sync.rs` 的 `ANDROID_LOCAL_SETTINGS`，那里只有布尔、选项和整数三种类型。
+- 这个设置只在本机，不随账号同步：同步表在 `crates/client-services/src/account/settings_sync.rs` 的 `ANDROID_LOCAL_SETTINGS`，那里只有布尔、选项和整数三种类型。
 
 ### 拼音九键的数字键面
 
@@ -30,7 +32,7 @@ Android 拼音九键左侧的符号栏原来是 ，。？ 三个键铺满三行�
 
 - `ArithmeticResultPolicy`（`platforms/android/java/app/msime/android/policy/`，无 Android 依赖）从光标前文字的末尾取最长的一段算式：加减乘除、括号、小数点、一元负号，`×` `÷` 和全角数字、运算符先换成半角。要以数字或右括号结尾、至少一次二元运算；不从一个数的中间开始。BigDecimal 求值，除法的中间结果按 `MathContext.DECIMAL128`（34 位有效数字）保留，只在最后格式化时舍到至多 10 位小数；最初用 `DECIMAL64`（16 位）时 `50/3*600000` 显示成 `10000000.000000002`，除法的舍入误差被后面的乘法放大到了第 9 位小数。除以零或结果的绝对值达到 10^15 时没有结果。
 - 最长的完整算式像日期或号码时整体不给结果（`looksLikeNumberSequence`）：两个以上同一个 `-` 或 `/` 连着的纯数字段（`2026-10-08`、`2026/10/08`、`138-1234-5678`），或者有以 0 开头的多位整数（`0571-88886666`、`10-08`）。不退到更短的后缀，否则 `138-1234-5678` 会改算 `1234-5678`。
-- `ImeCalculator`（`core/`）在选区变化（`onUpdateSelection`）和切换键面时，只要键盘在数字 / 符号层（`Layer.SYMBOLS`，九键和 26 键都算）、不是密码框、没有组字，就向编辑器要光标前 64 个字符重算；结果是工具栏品牌键右边的一个 `PILL` 胶囊「= 144」，没有结果时隐藏，不占宽度；胶囊最宽 96 dp，长结果截断显示（点按仍上屏完整结果），否则七个各至少 40 dp 的工具栏键加上它会超出 393 dp 宽的屏幕，把最右边的「收起」挤到滚动区外。点按经 `commitNineKeyLiteral` 上屏 `=144`，算式后面已经打了 `=` 时只上屏 `144`。离开数字层时 `render` 里的 `syncVisibility` 不做 IPC 就收起它，离开输入框时清掉。
+- `ImeCalculator`（`core/`）在选区变化（`onUpdateSelection`）和切换键面时，只要键盘在数字 / 符号层（`Layer.SYMBOLS`，九键和 26 键都算）、不是密码框、没有组字，就向编辑器要光标前 64 个字符重算；结果是工具栏品牌键右边的一个 `PILL` 胶囊「= 144」，没有结果时隐藏，不占宽度；胶囊最宽 96 dp，长结果截断显示（点按仍上屏完整结果），避免长结果占满中间区域。品牌与收起键已由[工具栏固定两端](2026-10-15-android-toolbar-order.md)移到滚动容器外，胶囊作为中间第一项随工具滚动，两端不再受其宽度影响。点按经 `commitNineKeyLiteral` 上屏 `=144`，算式后面已经打了 `=` 时只上屏 `144`。离开数字层时 `render` 里的 `syncVisibility` 不做 IPC 就收起它，离开输入框时清掉。
 - 读到的上文只在内存里算一次，不记日志、不保存。
 
 ### 九键的 1 键

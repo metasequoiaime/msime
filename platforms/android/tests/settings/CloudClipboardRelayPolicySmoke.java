@@ -10,7 +10,7 @@ public final class CloudClipboardRelayPolicySmoke {
     private static final String TOKEN = "synthetic-relay-token-0001";
 
     public static void main(String[] args) {
-        // 与 crates/client-core/src/clipboard_relay_tests.rs 和 apps/desktop/tests/settings/cloud-clipboard-relay.test.tsx 的用例一一对应。
+        // 与 crates/client-services/src/clipboard_relay_tests.rs 和 apps/desktop/tests/settings/cloud-clipboard-relay.test.tsx 的用例一一对应。
         Object[][] urls = {
             {"https://relay.example.test", true},
             {"https://relay.example.test:8443/msime/", true},

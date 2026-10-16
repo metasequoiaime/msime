@@ -1,3 +1,4 @@
+import { KeyboardLog } from '../keyboard/KeyboardLog';
 import { ErrorEvent, MessageEvents, ThreadWorkerGlobalScope, worker } from '@kit.ArkTS';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
@@ -68,7 +69,11 @@ let session: Session | undefined = undefined;
 
 function reply(type: string, id: number, text: string, correct: boolean): void {
   const message: LocalAsrReply = { type: type, id: id, text: text, correct: correct };
-  workerPort.postMessage(message);
+  try {
+    workerPort.postMessage(message);
+  } catch {
+    KeyboardLog.error('local ASR reply could not be delivered');
+  }
 }
 
 const textReaderApi: LocalAsrTextReaderApi = {
@@ -94,7 +99,7 @@ const textReaderApi: LocalAsrTextReaderApi = {
   },
   read: (fd: number, buffer: ArrayBuffer): number => fs.readSync(fd, buffer),
   close: (file: LocalAsrTextFile): void => fs.closeSync(file.fd),
-  decode: (bytes: Uint8Array): string => util.TextDecoder.create('utf-8').decode(bytes),
+  decode: (bytes: Uint8Array): string => util.TextDecoder.create('utf-8').decodeToString(bytes),
 };
 
 function readText(path: string, maximumBytes: number): string {

@@ -23,7 +23,7 @@ public final class ChineseHelpcodeDeviceSmoke extends DeviceSmoke {
         await(key("N"));
         stage = "helpcode letter";
         tap(key("N"));
-        // 组字现在写进输入框（DeviceSmoke 里打 nihao 输入框显示 nihao）：辅助码字母以大写进入组字、没有上屏，一次性的 Shift 用掉后键面回到小写。这个测试写于组字还不进输入框的时候，原先断言输入框为空。
+        // 组字现在写进输入框（DeviceSmoke 里打 nihao 输入框显示 nihao）：辅助码字母以大写进入组字、没有上屏，一次性的 Shift 随之用掉。中文模式的字母键面一直画大写，`key()` 按字母而不按大小写找键，Shift 前后画哪种大小写由 `LetterKeyFacePolicySmoke` 覆盖。这个测试写于组字还不进输入框的时候，原先断言输入框为空。
         await(field("msime-test-plain").and(node -> equalsText("nN", node.getText())));
         await(key("n"));
     }

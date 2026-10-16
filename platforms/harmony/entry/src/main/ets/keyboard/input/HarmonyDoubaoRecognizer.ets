@@ -1,3 +1,4 @@
+import { NativeCleanup } from '../NativeCleanup';
 import audio from '@ohos.multimedia.audio';
 import webSocket from '@ohos.net.webSocket';
 import util from '@ohos.util';
@@ -154,7 +155,7 @@ export class HarmonyDoubaoRecognizer {
         start.request.corpus = { boosting_table_id: config.doubao_boosting_table_id };
       }
       const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
-      const payload: ArrayBuffer = encoder.encode(JSON.stringify(start)).buffer as ArrayBuffer;
+      const payload: ArrayBuffer = encoder.encodeInto(JSON.stringify(start)).buffer as ArrayBuffer;
       const frame: ArrayBuffer = client.doubaoEncodeFrame(1, 1, 1, payload);
       if (!await socket.send(frame)) throw new Error('start frame rejected');
       this.connected = true;
@@ -231,11 +232,16 @@ export class HarmonyDoubaoRecognizer {
       this.onAudio(data, token);
     };
     this.readCallback = readCallback;
-    capturer.on('readData', readCallback);
+    try {
+      capturer.on('readData', readCallback);
+    } catch (error) {
+      await this.releaseCapturer();
+      throw error as Error;
+    }
     // `stop()` may have arrived after the capturer was created but before `start()`;
     // do not bring a microphone up for a session that is already finishing.
     if (!this.isCurrent(token, socket) || this.settled || this.stopping) {
-      capturer.off('readData', readCallback);
+      NativeCleanup.detach(capturer, readCallback);
       if (this.capturer === capturer) {
         this.readCallback = undefined;
         this.capturer = undefined;
@@ -246,7 +252,7 @@ export class HarmonyDoubaoRecognizer {
     try {
       await capturer.start();
     } catch (error) {
-      capturer.off('readData', readCallback);
+      NativeCleanup.detach(capturer, readCallback);
       if (this.capturer === capturer) {
         this.readCallback = undefined;
         this.capturer = undefined;
@@ -297,19 +303,24 @@ export class HarmonyDoubaoRecognizer {
   }
 
   private async finishFrame(): Promise<void> {
-    await this.releaseCapturer();
-    const socket: webSocket.WebSocket | undefined = this.socket;
-    if (socket === undefined || this.settled || !this.connected) return;
-    const token: number = this.sessionToken;
-    const pending: ArrayBuffer = this.pending.buffer.slice(
-      this.pending.byteOffset, this.pending.byteOffset + this.pending.byteLength) as ArrayBuffer;
-    this.pending = new Uint8Array(0);
-    const finalFrame: ArrayBuffer = client.doubaoEncodeFrame(2, 3, -this.sequence, pending);
-    this.sequence += 1;
-    const sent: boolean = await this.sendChain;
-    if (!this.isCurrent(token, socket) || this.settled) return;
-    if (!sent || !await socket.send(finalFrame)) {
-      await this.fail('豆包语音识别结束帧发送失败。', token);
+    try {
+      await this.releaseCapturer();
+      const socket: webSocket.WebSocket | undefined = this.socket;
+      if (socket === undefined || this.settled || !this.connected) return;
+      const token: number = this.sessionToken;
+      const pending: ArrayBuffer = this.pending.buffer.slice(
+        this.pending.byteOffset, this.pending.byteOffset + this.pending.byteLength) as ArrayBuffer;
+      this.pending = new Uint8Array(0);
+      const finalFrame: ArrayBuffer = client.doubaoEncodeFrame(2, 3, -this.sequence, pending);
+      this.sequence += 1;
+      const sent: boolean = await this.sendChain;
+      if (!this.isCurrent(token, socket) || this.settled) return;
+      if (!sent || !await socket.send(finalFrame)) {
+        await this.fail('豆包语音识别结束帧发送失败。', token);
+      }
+    } catch (error) {
+      KeyboardLog.error('keyboard.input.HarmonyDoubaoRecognizer.finishFrame failed');
+      throw error as Error;
     }
   }
 
@@ -373,7 +384,7 @@ export class HarmonyDoubaoRecognizer {
     const capturer: audio.AudioCapturer | undefined = this.capturer;
     this.capturer = undefined;
     if (capturer === undefined) return;
-    if (this.readCallback !== undefined) capturer.off('readData', this.readCallback);
+    if (this.readCallback !== undefined) NativeCleanup.detach(capturer, this.readCallback);
     this.readCallback = undefined;
     try {
       await capturer.stop();

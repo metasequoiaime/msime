@@ -87,11 +87,12 @@ int main()
         [NSApplication sharedApplication];
         PreferencesTarget *target = [[PreferencesTarget alloc] init];
         NSMenu *menu = CreateMetasequoiaInputMenu(target, NO, NO);
+        // macOS 的菜单只看颜色模式，它单独的明暗设置不读。
         ApplyMetasequoiaMenuTheme(menu, @{@"theme": @"light", @"menu_theme": @"dark"});
         assert(menu.appearance != nil);
-        assert([[menu.appearance name] isEqualToString:NSAppearanceNameDarkAqua]);
-        ApplyMetasequoiaMenuTheme(menu, @{@"theme": @"dark", @"menu_theme": @"light"});
         assert([[menu.appearance name] isEqualToString:NSAppearanceNameAqua]);
+        ApplyMetasequoiaMenuTheme(menu, @{@"theme": @"dark", @"menu_theme": @"light"});
+        assert([[menu.appearance name] isEqualToString:NSAppearanceNameDarkAqua]);
         ApplyMetasequoiaMenuTheme(menu, @{@"theme": @"system", @"menu_theme": @"follow"});
         assert(menu.appearance == nil);
         ApplyMetasequoiaMenuTheme(menu, @{@"theme": @"dark", @"menu_theme": @"invalid"});

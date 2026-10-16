@@ -333,7 +333,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
 
 #[test]
 fn doubao_frame_codec_is_available_through_c_abi() {
-    let request = msime_client_core::voice::doubao_frame::encode_json_frame(
+    let request = msime_client_providers::voice::doubao_frame::encode_json_frame(
         9,
         0,
         1,
@@ -737,6 +737,12 @@ fn host_capability_boundary_describes_each_platform() {
     assert_eq!(macos["value"]["expand_candidates"], true);
     assert_eq!(windows["value"]["expand_candidates"], false);
     assert_eq!(linux["value"]["expand_candidates"], false);
+    // macOS 的各界面一律跟随颜色模式，编号色和边框色跟随主题，设置页按这三项收起对应的控件。
+    assert_eq!(macos["value"]["surface_themes_follow"], true);
+    assert_eq!(macos["value"]["candidate_number_color"], false);
+    assert_eq!(macos["value"]["candidate_border_color"], false);
+    assert_eq!(windows["value"]["surface_themes_follow"], false);
+    assert_eq!(windows["value"]["candidate_number_color"], true);
 
     let android = capabilities("android");
     assert_eq!(android["value"]["panel_windows"], false);
@@ -1719,6 +1725,7 @@ fn builtin_shuangpin_tables_are_valid_custom_profiles() {
         ShuangpinProfile::Ziranma,
         ShuangpinProfile::Shoudao,
         ShuangpinProfile::Microsoft,
+        ShuangpinProfile::SmartAbc,
     ] {
         let table = builtin_shuangpin_custom_profile(profile).unwrap();
         assert_eq!(
@@ -3507,7 +3514,7 @@ fn skin_catalog_reaches_native_presenters_without_the_settings_shell() {
     assert_eq!(catalog["value"]["issues"][0]["folder"], "broken");
     assert_eq!(
         catalog["value"],
-        serde_json::to_value(msime_client_core::skin::catalog::scan(&root)).unwrap()
+        serde_json::to_value(msime_client_services::skin::catalog::scan(&root)).unwrap()
     );
     let relative = "skins";
     assert_eq!(scan(relative)["ok"], false);
@@ -3554,6 +3561,22 @@ fn custom_helpcode_schemas_reach_native_presenters_without_the_settings_shell() 
         read(unsafe { msime_client_helpcode_schemas(std::ptr::null(), 0) })["ok"],
         false
     );
+}
+
+#[test]
+fn discovered_custom_helpcode_extensions_are_loadable_by_the_engine() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path().join("resources");
+    let custom = resources.join("helpcodes/custom");
+    std::fs::create_dir_all(&custom).unwrap();
+    std::fs::write(custom.join("synthetic.TXT"), "# name: uppercase\n你=ab\n").unwrap();
+    let path = resources.to_str().unwrap();
+    let catalog = read(unsafe { msime_client_helpcode_schemas(path.as_ptr(), path.len()) });
+    assert_eq!(catalog["ok"], true);
+    assert_eq!(catalog["value"].as_array().unwrap().len(), 1);
+    let schema = catalog["value"][0]["schema"].as_str().unwrap();
+    let loaded = msime_engine::host::load_helpcode_keymap(&resources, schema).unwrap();
+    assert_eq!(loaded.code("你"), Some("ab"));
 }
 
 #[test]
@@ -3874,8 +3897,8 @@ fn resolve_theme_reads_the_package_from_either_source() {
     assert!(value["keyboard"].is_object());
 
     // The Linux hosts pass the entry they read from candidate_skin_catalog instead of the root.
-    let entry = msime_client_core::skin::catalog::host_candidate_catalog(
-        &msime_client_core::skin::catalog::scan(&root),
+    let entry = msime_client_services::skin::catalog::host_candidate_catalog(
+        &msime_client_services::skin::catalog::scan(&root),
         &root,
         &["sakura"],
     )["packages"][0]
@@ -3934,7 +3957,7 @@ fn resolve_theme_reads_the_package_from_either_source() {
 
     // A SkinSummary is not a catalog entry: passing one as `package` is refused, not read without its declared modes.
     let summary = serde_json::to_value(
-        msime_client_core::skin::catalog::load_package(&root, "sakura").unwrap(),
+        msime_client_services::skin::catalog::load_package(&root, "sakura").unwrap(),
     )
     .unwrap();
     let refused = call(json!({
@@ -4101,7 +4124,7 @@ fn installing_a_community_skin_is_one_step_so_a_failed_import_ends_its_trial() {
     let applied = preferences.load().unwrap();
     assert_eq!(
         applied.preferences.global_theme,
-        msime_client_core::skin::theme::GlobalTheme::Custom
+        msime_client_services::skin::theme::GlobalTheme::Custom
     );
     assert_eq!(
         applied
@@ -4129,7 +4152,7 @@ fn installing_a_community_skin_is_one_step_so_a_failed_import_ends_its_trial() {
     let reverted = preferences.load().unwrap();
     assert_ne!(
         reverted.preferences.global_theme,
-        msime_client_core::skin::theme::GlobalTheme::Custom
+        msime_client_services::skin::theme::GlobalTheme::Custom
     );
     // The library keeps it: declining the trial is declining to wear it now, not to own it.
     let library = json!({"directory": root}).to_string();
@@ -4299,7 +4322,7 @@ fn ai_skin_planning_keeps_the_instruction_and_the_parser_together() {
     assert_eq!(composed["value"]["body"]["messages"][0]["role"], "system");
     assert_eq!(
         composed["value"]["body"]["messages"][0]["content"],
-        msime_client_core::skin::ai::AI_SKIN_SYSTEM_PROMPT
+        msime_client_services::skin::ai::AI_SKIN_SYSTEM_PROMPT
     );
     assert_eq!(
         composed["value"]["body"]["messages"][1]["content"],
@@ -5187,7 +5210,7 @@ fn chaizi_follows_the_host_form_until_the_user_flips_it() {
     read(msime_client_destroy(handle));
 }
 
-/// 拆字表的繁体字形列是生成器按 OpenCC s2t 规则算的；宿主上屏时用的是 client-core 的同一套转换。两边对每个字都必须得出同一个字形，Engine 按这一列去重才和宿主看到的一致。
+/// 拆字表的繁体字形列是生成器按 OpenCC s2t 规则算的；宿主上屏时用的是 client-base 的同一套转换。两边对每个字都必须得出同一个字形，Engine 按这一列去重才和宿主看到的一致。
 #[test]
 fn chaizi_traditional_forms_match_the_shared_conversion() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -5942,7 +5965,7 @@ fn translation_queries_use_latest_preferences_without_resetting_composition() {
     );
     assert_eq!(secondary_gloss["value"]["english_gloss"], true);
 
-    // 离线英文释义关着、只开候选翻译时：用户目录照旧带上，存成功的英文翻译；英文目标下整句候选仍要逐词拆解（和 macOS currentGlossRequest 一样不要求离线释义开着），所以带 gloss_breakdown 和拆解表所在的资源目录。
+    // 离线英文释义关着、只开候选翻译时：用户目录照旧带上，存成功的英文翻译。整句候选不再逐词拆解，所以不带 gloss_breakdown；读音和离线释义都没开，资源目录也不带。
     preferences.candidate_english_gloss = false;
     preferences.translation_target_language =
         msime_client_core::preferences::TranslationTargetLanguage::En;
@@ -5951,11 +5974,11 @@ fn translation_queries_use_latest_preferences_without_resetting_composition() {
     update(handle, 9, &preferences);
     let online = read(msime_client_translation_query(handle));
     assert_eq!(online["value"]["english_gloss"], false);
-    assert_eq!(online["value"]["gloss_breakdown"], true);
-    assert!(online["value"]["resources"].is_string());
+    assert!(online["value"].get("gloss_breakdown").is_none());
+    assert!(online["value"]["resources"].is_null());
     assert!(online["value"]["user_data"].is_string());
 
-    // 目标语言里没有英文时没有拆解，资源目录也不带。
+    // 目标语言里没有英文时资源目录同样不带。
     preferences.translation_target_language =
         msime_client_core::preferences::TranslationTargetLanguage::Ja;
     preferences.translation_secondary_language = None;
@@ -6698,6 +6721,52 @@ fn shuangpin_preedit_mode_is_applied_after_composition() {
     let restored = read(msime_client_character(handle, b'k', false));
     assert_eq!(restored["value"]["view"]["preedit"], before["preedit"]);
     msime_client_destroy(handle);
+}
+
+#[test]
+fn smart_abc_profile_commits_and_defers_switching_until_composition_finishes() {
+    let dir = tempfile::tempdir().unwrap();
+    let smart_abc = Preferences {
+        scheme: InputScheme::Shuangpin,
+        shuangpin_profile: ShuangpinProfile::SmartAbc,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), smart_abc.clone());
+    read(msime_client_focus(handle, true));
+    assert_eq!(
+        read(msime_client_view(handle))["value"]["shuangpin_profile"],
+        "smart_abc"
+    );
+    SESSIONS.with(|sessions| assert_eq!(sessions.borrow()[&handle].options.shuangpin_profile, 5));
+    for character in b"nihk" {
+        assert_eq!(
+            read(msime_client_character(handle, *character, false))["ok"],
+            true
+        );
+    }
+    let xiaohe = Preferences {
+        shuangpin_profile: ShuangpinProfile::Xiaohe,
+        ..smart_abc.clone()
+    };
+    assert_eq!(update(handle, 1, &xiaohe)["value"]["deferred"], true);
+    assert_eq!(
+        read(msime_client_command(handle, 1))["value"]["commit"],
+        "本地"
+    );
+    assert_eq!(update(handle, 1, &xiaohe)["value"]["deferred"], false);
+    assert_eq!(
+        read(msime_client_view(handle))["value"]["shuangpin_profile"],
+        "xiaohe"
+    );
+    assert_eq!(update(handle, 2, &smart_abc)["value"]["deferred"], false);
+    for character in b"agfu" {
+        read(msime_client_character(handle, *character, false));
+    }
+    assert_eq!(
+        read(msime_client_command(handle, 1))["value"]["commit"],
+        "政府"
+    );
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
 #[test]
@@ -8629,6 +8698,33 @@ fn custom_translation_http_bridge_speaks_deepl_to_official_endpoints() {
     ] {
         assert!(parse(body)["value"].is_null());
         assert!(unsafe { msime_client_custom_translation_reply_failed(body.as_ptr(), body.len()) });
+    }
+}
+
+#[test]
+fn translation_object_fallback_reaches_the_custom_response_bridge() {
+    for (body, expected) in [
+        (
+            r#"{"data":{"text":"","translation":"synthetic"}}"#,
+            "synthetic",
+        ),
+        (
+            r#"{"code":200,"result":[{"text":"","data":"  synthetic\ntranslation  "}]}"#,
+            "synthetic translation",
+        ),
+        (
+            r#"{"translations":[{"text":"","translation":"synthetic translation"}]}"#,
+            "synthetic translation",
+        ),
+    ] {
+        assert!(!unsafe {
+            msime_client_custom_translation_reply_failed(body.as_ptr(), body.len())
+        });
+        let parsed = read(unsafe {
+            msime_client_parse_custom_translation_response(body.as_ptr(), body.len())
+        });
+        assert_eq!(parsed["ok"], true);
+        assert_eq!(parsed["value"], expected, "{body}");
     }
 }
 
@@ -12327,6 +12423,24 @@ fn voice_hotword_correction_rewrites_homophones() {
 }
 
 #[test]
+fn voice_hotword_correction_preserves_an_exact_dictionary_word() {
+    let request = json!({
+        "text": "名天和铭天",
+        "hotwords": [
+            {"text": "明天", "pinyin": "ming tian"},
+            {"text": "名天", "pinyin": "ming tian"}
+        ]
+    })
+    .to_string();
+    let corrected =
+        read(unsafe { msime_client_voice_hotword_correct(request.as_ptr(), request.len()) });
+    assert_eq!(
+        corrected,
+        json!({"ok": true, "value": {"text": "名天和明天"}})
+    );
+}
+
+#[test]
 fn voice_hotword_correction_rejects_unbounded_work() {
     let hotwords = (0..1_001)
         .map(|_| json!({"text": "明天", "pinyin": "ming tian"}))
@@ -12626,13 +12740,13 @@ fn save_mentions(root: &std::path::Path, entries: &[(&str, &str)]) {
     let entries: Vec<_> = entries
         .iter()
         .map(
-            |(text, key)| msime_client_core::plugins::mentions::MentionEntry {
+            |(text, key)| msime_client_services::plugins::mentions::MentionEntry {
                 text: (*text).into(),
                 key: (*key).into(),
             },
         )
         .collect();
-    msime_client_core::plugins::mentions::MentionStore::new(root.join("state/plugins"))
+    msime_client_services::plugins::mentions::MentionStore::new(root.join("state/plugins"))
         .save(&entries)
         .unwrap();
 }
@@ -12713,7 +12827,7 @@ fn a_reimported_table_of_the_same_length_and_time_is_picked_up() {
             format!("schema_version = 1\nkind = \"command_table\"\nid = \"work\"\nname = \"work\"\nversion = \"1\"\nlicense = \"CC0-1.0\"\n[[commands]]\ntrigger = \"sig\"\ntitle = \"签名\"\ntemplate = \"{template}\"\n"),
         )
         .unwrap();
-        msime_client_core::plugins::import(&source, &plugins).unwrap();
+        msime_client_services::plugins::import(&source, &plugins).unwrap();
     };
     import("first", "张三敬上");
     let mut preferences = chinese_preferences();
@@ -13387,9 +13501,9 @@ fn plugins_boundary_lists_imports_removes_and_keeps_the_name_list() {
     };
     // Every built-in pack, sound and music alike, in the catalog's id order, with `extra` among them.
     let builtins = |extra: &[&str]| -> Vec<String> {
-        msime_client_core::plugins::BUILTIN_SOUND_PACKS
+        msime_client_services::plugins::BUILTIN_SOUND_PACKS
             .iter()
-            .chain(msime_client_core::plugins::BUILTIN_MUSIC_PACKS.iter())
+            .chain(msime_client_services::plugins::BUILTIN_MUSIC_PACKS.iter())
             .chain(extra)
             .map(|id| (*id).to_owned())
             .collect::<std::collections::BTreeSet<_>>()
@@ -13977,7 +14091,7 @@ fn telemetry_abi_runs_a_session_through_a_crash_and_clears_when_turned_off() {
     let ended = reporting_call(msime_client_telemetry_end, json!({"directory": directory}));
     assert_eq!(ended["value"], true);
 
-    let store = msime_client_core::telemetry::TelemetryStore::new(&directory);
+    let store = msime_client_services::telemetry::TelemetryStore::new(&directory);
     let kinds: Vec<_> = store
         .queued()
         .unwrap()
@@ -14041,7 +14155,7 @@ fn telemetry_abi_reads_consent_from_the_shared_preferences() {
     let stopped = reporting_call(msime_client_telemetry_begin, request);
     assert_eq!(stopped["value"]["enabled"], false);
     assert!(
-        msime_client_core::telemetry::TelemetryStore::new(&directory)
+        msime_client_services::telemetry::TelemetryStore::new(&directory)
             .queued()
             .unwrap()
             .is_empty()
@@ -15013,7 +15127,7 @@ fn snapshot_export_leaves_out_a_multi_line_quick_phrase_and_counts_it() {
 /// A dictionary collection adding a word the user already has must leave the user's row alone and say so, so that turning the collection off later does not delete it.
 #[test]
 fn a_collection_addition_of_an_existing_user_word_is_left_alone_and_reported() {
-    use msime_client_core::dictionary::personal::{
+    use msime_client_services::dictionary::personal::{
         PersonalDictionaryStore, PersonalWord, PersonalWordKind,
     };
     let directory = tempfile::tempdir().unwrap();
@@ -15097,7 +15211,7 @@ fn common_phrases_and_collections_forward_to_client_core() {
 /// Android 和鸿蒙手机经命名词库送细胞词库的字节：一个 8 MiB 的文件经 base64 后连同宿主选项仍在 17 MiB 的请求上限之内，导入成一个集合，装满两万条后停下并说明。
 #[test]
 fn a_cell_dictionary_at_its_size_limit_fits_one_collections_request() {
-    use msime_client_core::dictionary::scel::MAX_SCEL_BYTES;
+    use msime_client_services::dictionary::scel::MAX_SCEL_BYTES;
     let mut bytes = crate::dictionary::scel_fixture::scel(&[(&["ce", "shi"], &["测试"])]);
     let mut groups = 1u32;
     let mut index = 0u32;
@@ -15780,4 +15894,72 @@ fn space_convert_turns_corner_quotes_and_hollow_brackets_back_to_ascii() {
         assert_eq!(decided["value"]["space_ascii"], key, "{mark}");
     }
     read(msime_client_destroy(handle));
+}
+
+#[test]
+fn mobile_english_correction_request_preserves_raw_and_the_session() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    let path = resources.join("msime-english.db");
+    msime_engine::ensure_english_schema(&path).unwrap();
+    rusqlite::Connection::open(&path).unwrap().execute_batch(
+        "INSERT INTO english_words VALUES('language','language',5000000000),('speak','speak',4000000000),('english','English',4000000000),('what','what',5000000000),('is','is',5000000000),('that','that',5000000000);"
+    ).unwrap();
+    let handle = test_host(root.path());
+    let before = read(msime_client_view(handle))["value"].clone();
+    let call = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        let resources = resources.to_str().unwrap().as_bytes();
+        read(unsafe {
+            msime_client_english_completions_request(
+                request.as_ptr(),
+                request.len(),
+                resources.as_ptr(),
+                resources.len(),
+            )
+        })
+    };
+    for (raw, correction) in [
+        ("whatisthat", "what is that"),
+        ("languaage", "language"),
+        ("languge", "language"),
+        ("langiage", "language"),
+        ("imchinese", "I'm Chinese"),
+        ("speskebglish", "speak English"),
+        ("i", "I"),
+        ("i'm", "I'm"),
+        ("youre", "you're"),
+        ("hes", "he's"),
+    ] {
+        let response = call(json!({"prefix": raw, "limit": 2, "correction": true}));
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["value"]["prefix"], raw);
+        assert_eq!(response["value"]["items"], json!([raw, correction]));
+    }
+    for raw in [
+        "language",
+        "omg",
+        "thx",
+        "you're",
+        "i''m",
+        "abcdefghijklmnopqrstuvwxyzabcdefg",
+    ] {
+        assert_eq!(
+            call(json!({"prefix":raw,"limit":32,"correction":true}))["value"]["items"],
+            json!([raw])
+        );
+    }
+    assert_eq!(
+        call(json!({"prefix":"languaage","limit":1,"correction":true}))["value"]["items"],
+        json!(["languaage"])
+    );
+    assert_eq!(call(json!({"prefix":"i'm","limit":2}))["ok"], false);
+    assert_eq!(
+        call(json!({"prefix":"he!","limit":2,"correction":true}))["ok"],
+        false
+    );
+    assert_eq!(read(msime_client_view(handle))["value"], before);
+    assert!(!path.with_extension("db-journal").exists());
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }

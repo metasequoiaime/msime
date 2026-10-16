@@ -14,7 +14,7 @@ FOUNDATION_EXPORT NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSi
 - (void)showEnglishInputMode:(BOOL)englishInputMode nearCaretRect:(NSRect)caretRect;
 /// The badge's fill, outline and glyph colour: the floating toolbar's, so it follows the selected theme and skin. Pass dynamic colours to follow the appearance. Until set, the system window colours.
 - (void)setSurfaceColor:(NSColor *)surface borderColor:(NSColor *)border textColor:(NSColor *)text;
-/// The light or dark mode the badge is drawn in. It wears the floating toolbar's palette, so it takes the toolbar's rule: `toolbar_theme` when it names a mode, otherwise `theme`, and the system appearance for `system` or neither. The controller passes the dictionary it gives the toolbar, whose `toolbar_theme` is pinned when the theme has a mode of its own.
+/// 提示画成哪种明暗。它用悬浮工具栏的调色板，所以也按工具栏的规则：取 `theme`，为 `system` 或缺省时跟随系统外观。控制器传入交给工具栏的同一个字典，全局主题自带明暗时其中的 `theme` 已被钉住。工具栏和提示在 macOS 上没有单独的明暗设置。
 - (void)applyThemePreferences:(NSDictionary *)preferences;
 /// 紧凑提示独立使用 18pt 字号和 32pt 高度，图标遵循 `show_app_logo`；悬浮工具栏字号与缩放不影响它。
 - (void)applySizingPreferences:(NSDictionary *)preferences;

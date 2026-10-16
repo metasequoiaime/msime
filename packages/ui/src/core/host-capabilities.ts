@@ -1,0 +1,158 @@
+import type { InputScheme } from "./input-scheme";
+
+export type HostPlatform = "windows" | "macos" | "linux" | "android" | "ios" | "harmony";
+/** 对应 `client-core::host_surface::HostCapabilities`。 */
+export interface HostCapabilities {
+  platform: HostPlatform;
+  /** 签名 HAP 带有数据组 id 时，HarmonyOS 输入法扩展与设置 Ability 才能共享文件。 */
+  harmony_shared_sandbox?: boolean;
+  /** 设置是否使用手机导航与触屏界面。 */
+  mobile_settings: boolean;
+  restart_input_method: boolean;
+  panel_windows: boolean;
+  ime_mode_scope: boolean;
+  /** 宿主按 `app_input_mode_rules` 给指定应用定起始中英文模式（macOS 和 Windows）。 */
+  app_input_mode_rules?: boolean;
+  typing_statistics: boolean;
+  /** 宿主已接通共享的背单词入口。 */
+  vocabulary_review: boolean;
+  fuzzy_pinyin: boolean;
+  system_fonts: boolean;
+  window_chrome: boolean;
+  floating_toolbar: boolean;
+  floating_toolbar_appearance: boolean;
+  floating_toolbar_components: boolean;
+  /** 工具栏带手写面板按钮，目前只有 macOS 工具栏提供。 */
+  floating_toolbar_handwriting: boolean;
+  /** 工具栏带语音输入按钮，目前只有 macOS 工具栏提供。 */
+  floating_toolbar_voice: boolean;
+  /** 工具栏带切换输入方案的按钮（目前只有 macOS）。 */
+  floating_toolbar_input_scheme: boolean;
+  mode_switch_shortcuts: boolean;
+  panel_shortcuts: boolean;
+  number_row_selection: boolean;
+  /** 宿主没有桌面面板窗口也响应外接键盘的录音快捷键（HarmonyOS 手机），设置页因而仍提供这些开关。 */
+  voice_hotkeys?: boolean;
+  voice_capture_devices: boolean;
+  candidate_font_controls: boolean;
+  candidate_preedit_font: boolean;
+  candidate_page_number: boolean;
+  /** 宿主按 `show_app_logo` 显示或隐藏候选窗和悬浮工具栏左端的水杉 logo（macOS 和 Windows）。 */
+  app_logo?: boolean;
+  /** 宿主按 `traditional_chinese_variant` 选 OpenCC 的 s2t、s2tw 或 s2twp 做繁体转换（目前只有 Linux）；没有时设置页只给简体和繁体。 */
+  traditional_chinese_variants?: boolean;
+  /** 宿主按 `expand_candidates` 让横排候选窗按 ↓ 展开成多行候选网格（目前只有 macOS）。 */
+  expand_candidates?: boolean;
+  /** 宿主画的各个界面一律跟随颜色模式，不读 `settings_theme` 等各界面的单独明暗，只有候选窗口仍读 `candidate_theme`（目前只有 macOS）。 */
+  surface_themes_follow?: boolean;
+  candidate_row_colors: boolean;
+  candidate_selection_appearance: boolean;
+  /** 宿主按用户选的边框色给候选窗描边。Linux 由 Fcitx5 的 classicui 主题描边，没有 hover 状态；IBus 面板描不了，运行中的 IBus 宿主以 `candidate_panel_limit: "ibus_panel"` 说明。macOS 的边框色固定跟随主题，不读用户选的值。 */
+  candidate_border_color: boolean;
+  /** 宿主按用户选的编号色画候选编号。macOS 的编号色固定跟随主题（选了文字颜色时由它推出），不读用户选的值；缺省按读取处理。 */
+  candidate_number_color?: boolean;
+  /** 宿主绘制独立候选窗，并按 `candidate_scale_percent` 缩放字体与几何尺寸。 */
+  candidate_window_scale: boolean;
+  /** 宿主按 `candidate_opacity_percent` 降低候选卡片底色、边框及皮肤背景的不透明度，文字保持不透明。 */
+  candidate_window_opacity: boolean;
+  /** 宿主按 `candidate_corner_radius` 设置候选卡片圆角，优先于皮肤包里的半径。 */
+  candidate_corner_radius: boolean;
+  /** 宿主按 `candidate_padding` 设置卡片边缘与候选之间的内边距，优先于皮肤包；目前只有 macOS。 */
+  candidate_padding: boolean;
+  candidate_follow_cursor: boolean;
+  input_mode_hud: boolean;
+  /** 宿主在系统菜单栏放一个常驻状态项显示当前输入模式。只有 macOS 提供：Windows 有托盘语言栏，Linux 有输入法面板，触屏键盘的键面已显示模式。 */
+  input_mode_status_item: boolean;
+  candidate_english_font: boolean;
+  english_suggestions: boolean;
+  helpcode_shift_entry: boolean;
+  skin_directory_import: boolean;
+  /** 宿主只支持一种每页候选数时固定为此值，不提供选择。 */
+  fixed_candidate_page_size?: number;
+  /** 宿主能排的最大每页候选数：macOS、Linux、Android 为 10（第十个用 0 键选），其余为 9。 */
+  max_candidate_page_size?: number;
+  /** 宿主只支持一种候选排列时固定为此值，不提供选择。 */
+  fixed_candidate_layout?: "horizontal" | "vertical";
+  /** 触屏键盘按 `touch_toolbar` 选择工具栏按钮。 */
+  touch_toolbar_components: boolean;
+  /** 宿主按 `touch_keyboard_height_adjustment` 改变屏幕键盘的高度（Windows 与触屏宿主）；macOS 和 Linux 的键盘窗口高度固定，不给「键盘高度」滑块。缺省按提供处理。 */
+  touch_keyboard_height?: boolean;
+  /** 宿主的屏幕键盘按 `touch_key_spacing_tenths` / `touch_row_spacing_tenths` 画间距；macOS 为 false，键盘面板固定用默认间距，设置页不给间距滑块、拖动调间距和「恢复默认」。缺省按提供处理。 */
+  touch_keyboard_spacing?: boolean;
+  shuangpin_preedit: boolean;
+  /** 宿主在双拼组字时按 `shuangpin_keymap_hint` 在候选窗旁画键位图（macOS 和 Windows）。 */
+  shuangpin_keymap_hint?: boolean;
+  /** 宿主响应 Ctrl+Shift+Alt 维护快捷键。 */
+  maintenance_shortcuts: boolean;
+  /** 宿主保留 Option/Alt+Shift+H 用于切换字符宽度。 */
+  fullwidth_chord: boolean;
+  /** 宿主运行配置的转写服务，因此相关设置会生效。 */
+  voice_provider_settings: boolean;
+  /** 宿主绘制临时识别文字，因此流式预编辑开关会生效。 */
+  voice_stream_preedit: boolean;
+  /** 宿主向运行时报告字符宽度，因此全角输入能够生效。 */
+  character_width: boolean;
+  ai_provider_credentials: boolean;
+  voice_commit_mode: boolean;
+  /** 宿主运行的操作系统版本，供反馈页附带。 */
+  os_version?: string;
+  /** 宿主编译时的 CPU 架构（Rust 的 `std::env::consts::ARCH`，如 `x86_64`、`aarch64`）；更新检查据此选择本机的 Linux 安装包。 */
+  arch?: string;
+  /** 内核版本（Linux 的 `/proc/sys/kernel/osrelease`），「关于」页系统信息用；宿主读不到时缺省。 */
+  kernel_version?: string;
+  /** 桌面会话（Linux 的 `XDG_CURRENT_DESKTOP` 与 `XDG_SESSION_TYPE`，如 `ubuntu:GNOME (wayland)`）。 */
+  desktop_session?: string;
+  /** 水杉实际挂在哪个输入法框架上（Linux 的 `IBus` / `Fcitx5`），取自运行中的宿主写的状态。 */
+  input_method_framework?: string;
+  /** 设备型号（Linux 的 DMI 厂商与产品名）。 */
+  device_model?: string;
+  /** 运行中的 Linux 宿主报告的、画候选列表的桌面面板为什么不理会候选字体、颜色和皮肤；面板全都照办时缺省。`ibus_panel` 是部分不生效：IBus 面板接收字体和颜色，不接收圆角、边框颜色和皮肤的装饰图。 */
+  candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel" | "ibus_panel";
+  /** 宿主播放 `plugins` 中的音效包：按键音、旋律、上屏音和成就提示音。 */
+  key_sound: boolean;
+  /** 宿主处理 V、/、@ 模式：把 / 和 @ 交给运行时；模式使用数字时保留数字输入，并加载命令表与 @ 名称表。 */
+  plugin_triggers: boolean;
+  /** 宿主作为当前输入法时，流式播放选中的音乐包。 */
+  music: boolean;
+  /** 宿主绘制打字特效及 `msime_client_typing_effect` 返回的连击计数。 */
+  typing_effects: boolean;
+  /** 宿主向会话报告大写锁定状态，「大写锁定时使用英文标点」在这里有效（目前只有 macOS）。 */
+  caps_lock_punctuation?: boolean;
+  /** 宿主能分辨 Caps Lock 的轻点和长按并撤回大写锁定，「单按 Caps Lock 切换中英文」在这里有效（三个桌面宿主）。 */
+  caps_lock_language_switch?: boolean;
+  /** 快捷模式只从实体键盘的 Shift+字母进入，「Shift+字母进入快捷模式」总开关在这里有意义（三个桌面宿主）。 */
+  shift_letter_entry_switch?: boolean;
+  /** 宿主处理 Ctrl+Shift+J 在中文和日语之间切换（Windows 和 Linux）。本版本还要同时提供中文方案和日语，设置页才显示它的开关。 */
+  japanese_toggle_shortcut?: boolean;
+  /** 背单词书目列出单词本插件（`pack-<插件 id>` 词书）。 */
+  wordbook_packs: boolean;
+  /** 符号面板显示已安装的符号集插件。 */
+  symbol_set_packs: boolean;
+  /** 插件页显示「脚本插件（实验）」分组和授权页（macOS 和 Linux 的宿主）。 */
+  script_plugins?: boolean;
+  /** 宿主提供的输入方案；其他方案显示为禁用。 */
+  input_schemes: InputScheme[];
+  /** 运行中的版本，不是 full 时才有。缺省就是 full：所有方案都属于本版本，`input_schemes` 之外的方案只是这个宿主暂不支持，显示为禁用；有它时，`edition.input_schemes` 之外的方案在本版本里不存在，设置页直接不列出。 */
+  edition?: EditionInfo;
+}
+
+/** 对应 `client-core::host_surface::EditionInfo`。 */
+export interface EditionInfo {
+  id: string;
+  /** 版本的中文产品名，例如「水杉五笔」。缺省时按 full 的「水杉输入法」。 */
+  display_name?: string;
+  /** 本版本提供的方案，顺序与全部方案的顺序一致。 */
+  input_schemes: InputScheme[];
+  /** 本版本的默认方案，偏好里的方案不可用时 host-api 回退到它。 */
+  default_scheme: InputScheme;
+  /** 本版本是否带临时日文。 */
+  temporary_japanese: boolean;
+  /** 本版本是否带键盘神经联想用的模型。不带时触屏宿主不列出神经联想开关；桌面的神经联想用另一份模型，不归这一项管。 */
+  neural_keyboard: boolean;
+  /** 本版本是否带非英文目标语言的离线候选释义。它们按中文候选查，所以只有提供中文方案的版本带。 */
+  offline_glosses: boolean;
+  /** 本版本是否提供手写。手写模型只认汉字，不提供中文方案的版本（日文、越南文和藏文版）没有手写：设置页不列出手写页，宿主也不打开手写面板、不下载模型。 */
+  handwriting: boolean;
+  /** 本版本里五笔混拼的默认值。 */
+  wubi_mixed_pinyin_default: boolean;
+}

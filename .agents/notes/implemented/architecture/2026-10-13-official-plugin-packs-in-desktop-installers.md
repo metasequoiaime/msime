@@ -12,7 +12,7 @@ Status: implemented
 
 **两个官方包。** 脚本插件 uuid（`plugins/script/uuid/`，`/uuid`、`/guid` 给出同一个随机 v4 UUID 的四种写法）和短语表 latex-symbols（`plugins/phrase_table/latex-symbols/`，369 条 LaTeX 命令名到符号）。uuid 是 `provide_commands` 和 `random_fill` 的参考样板（审查意见 M6）：README、清单的 `description` 和插件指南都这样写，不当作卖点；真要给所有平台用会做成内置的 `/uuid`。两个包都在 `plugins/official-packs.json` 里登记，`format_version` 1，每条 `kind`、`id`、`source`，脚本包另有 `content_hash`。
 
-**保留 id，所有平台都生效。** `client-core::plugins` 新增 `BUILTIN_SCRIPT_PACKS = ["uuid"]`、`BUILTIN_PHRASE_TABLES = ["latex-symbols"]`，`is_builtin` 对 `Script`、`PhraseTable` 查这两张表；`is_official` 是「内置、但不是音效或音乐包」。导入、社区发布照旧按 `is_builtin` 拒绝（`plugin_reserved`），测试用 `include_str!` 读 `official-packs.json`，断言两边的 id 完全相同。动手前查过社区后端：公开目录里没有 `latex` 或 `uuid` 的包（2026-10-13 的匿名查询，全目录 18 个包）。
+**保留 id，所有平台都生效。** `client-services::plugins` 新增 `BUILTIN_SCRIPT_PACKS = ["uuid"]`、`BUILTIN_PHRASE_TABLES = ["latex-symbols"]`，`is_builtin` 对 `Script`、`PhraseTable` 查这两张表；`is_official` 是「内置、但不是音效或音乐包」。导入、社区发布照旧按 `is_builtin` 拒绝（`plugin_reserved`），测试用 `include_str!` 读 `official-packs.json`，断言两边的 id 完全相同。动手前查过社区后端：公开目录里没有 `latex` 或 `uuid` 的包（2026-10-13 的匿名查询，全目录 18 个包）。
 
 **内置目录 `BuiltinDirs { sounds, packs }`。** 替换原来的 `builtin_sounds: Option<&Path>` 参数：`scan` 多扫一遍 `packs` 下按 `<kind>/<id>/` 排的包（只认官方 id，别的文件夹报为问题，因为 `load_package` 不会从那里读它）；`load_package`、`load_package_unread`、`script_pack::load` 经同一个 `pack_parent` 解析：官方 id 永远从 `packs` 读，宿主没有这个目录时报「内置插件包不可用」，绝不退回插件目录。`pack_directory` 按同一规则给出包文件夹，宿主拿它盖清单的戳。脚本插件和短语表的函数只要官方目录，参数是 `builtin_packs: Option<&Path>`：`script_grants::{set, view}`、`script_commands::{granted_commands, granted_commands_of}`、`phrase_table::enabled_phrases`。
 

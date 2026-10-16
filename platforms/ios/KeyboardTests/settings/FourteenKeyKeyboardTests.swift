@@ -35,7 +35,7 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(l.holdLetters.isEmpty)
     XCTAssertTrue(FourteenKeyLayout.rows[2][3].holdLetters.isEmpty, "M has no hold menu")
     XCTAssertEqual(qw.keyID, "FourteenQW")
-    // 每个键都记到 client-core 认得的 id 上，否则整批按键统计会被拒收。
+    // 每个键都记到 client-services 认得的 id 上，否则整批按键统计会被拒收。
     for key in FourteenKeyLayout.rows.joined() {
       XCTAssertNotNil(key.keyID, key.face)
     }
@@ -113,6 +113,8 @@ final class FourteenKeyKeyboardTests: XCTestCase {
         XCTAssertTrue(shown(try button(id, in: controller)), id)
       }
       XCTAssertFalse(shown(try button("nineKeyZero", in: controller)))
+      // 第三排已有 符，底行不再重复 26 键的 符。
+      XCTAssertFalse(shown(try button("symbolPanelKey", in: controller)))
       XCTAssertEqual(try button("quickPunctuationKey", in: controller).configuration?.title, "，")
       XCTAssertEqual(try button("schemeButton", in: controller).accessibilityValue, "全拼 14 键")
       attachScreenshot(of: controller, named: "Fourteen-key keyboard at \(Int(width))pt")

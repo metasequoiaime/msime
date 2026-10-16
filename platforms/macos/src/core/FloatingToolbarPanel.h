@@ -65,7 +65,7 @@ FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)deactivateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate;
 /// Counterpart of the reference's WM_IMEDEACTIVATE: the user selected another input source, so the toolbar hides and releases whichever controller owns it. A client focus-out does not call this; the toolbar stays resident with its owner until the next activation hands it on.
 - (void)deactivateForInputSourceSwitch;
-/// Apply validated shared preferences without persisting platform-local defaults.
+/// 应用校验过的共享偏好，不写本机的 defaults。明暗只看 `theme`：工具栏一律跟随颜色模式，固定明暗的主题由调用方把 `theme` 钉住。
 - (void)applyThemePreferences:(NSDictionary *)preferences;
 - (void)applySizingPreferences:(NSDictionary *)preferences;
 /// Use the active host's resolved palette without reading another preference store.

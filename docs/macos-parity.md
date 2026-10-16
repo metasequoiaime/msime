@@ -4,7 +4,7 @@
 
 ## 范围与固定基线
 
-迁移的范围是 MSIME-Apple 的 macOS 完整功能，而不是设置页或能在某台机器上跑起来的子集。落地形态按四条原则：公共业务放共享层、公共管理界面放 Tauri；输入算法与组合状态归 C++ Engine；平台特性按 macOS 自身的机制适配，不照搬来源的实现形态；每一项的等价性由可重跑的比对而不是逐项人工确认来保证。
+迁移的范围是 MSIME-Apple 的 macOS 完整功能，而不是设置页或能在某台机器上跑起来的子集。落地形态按四条原则：公共业务放共享层、公共管理界面放 Tauri；输入算法与组合状态归 Rust 引擎 `crates/engine`；平台特性按 macOS 自身的机制适配，不照搬来源的实现形态；每一项的等价性由可重跑的比对而不是逐项人工确认来保证。
 
 2026-09-20 本次对照使用以下不可变对象：
 
@@ -96,6 +96,8 @@
 | `InputModeRouting.h`、`InputControllerKeyRouting.h` | 3 | 已在行为层比对中逐条核过 |
 | `Uninstaller.h` | 2 | 卸载器五条规则已逐条核过 |
 | `VoiceInputService.mm` | 1 | `beginCapture` → 目标的语音采集 |
+
+> 2026-10-15 补注：上表 `PreferencesWindowController.mm/.h` 一行的理由是重跑当时的记录。目标现在保留着同名的 `platforms/macos/src/settings/PreferencesWindowController.mm` 与 `AppearancePreferences.mm`，只在设置应用无法启动时由 `platforms/macos/src/core/DesktopSettingsLauncher.h` 的回退分支打开；2026-10-15 定下的设置界面归属（见[设置界面按平台归属](ARCHITECTURE.md#设置界面按平台归属)）把这套 AppKit 窗口冻结为回退、不加新功能，macOS 的主设置面仍是 Tauri 设置应用，所以这 78 个符号照旧不逐个找对应物。
 
 - 「目标也有同名文件」的那 **28 个**（控制器 15、悬浮工具栏 6、候选面板 7）逐条对照，全部有对应物：`MetasequoiaTogglePinnedWord` → `MSIMETogglePinnedCandidate`；`availableGlossColumnsPrimary` / `setArmedGlossColumn` → `_armedGlossColumn` 与其夹取；`commitGlossAtVisibleOffset` / `insertGlossForModifiedDigit` → `commitCandidateGlossColumn:` 及其 Option/Control 分支；`handleSolitaryShiftFlags` → `MSIMEModifierTap` 与 #3179 的原样上屏；`translationDictionary` → `candidate_glosses_with_user`；`LocalModeOptionsMatch` → 目标比的是整个 `Preferences` 值；`toolbarWidth` / `visibleButtonCount` / `applyItemVisibility` → `_preferredSize` 与 `_appliedComponentMask`；`MetasequoiaIsUsableCaretRect` → `MSIMEValidCaret`。
 - 唯一没有同名对应物且**确实不该有**的是 `rightMouseDown`：目标把候选菜单挂在按钮的 `menu` 属性上，右键由 AppKit 自带的 `menuForEvent:` 接手，而不是覆写鼠标事件——用的是框架自身的契约。

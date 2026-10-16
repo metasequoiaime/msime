@@ -1,4 +1,4 @@
-// 与 crates/client-core/src/ai/endpoint.rs 跑同一组用例：两边结论不一致时，设置窗口会放行输入法拒绝发出的地址，或者反过来。
+// 与 crates/client-providers/src/ai/endpoint.rs 跑同一组用例：两边结论不一致时，设置窗口会放行输入法拒绝发出的地址，或者反过来。
 #import "../../src/core/AIEndpointPolicy.h"
 #include <cassert>
 #include <cstdio>

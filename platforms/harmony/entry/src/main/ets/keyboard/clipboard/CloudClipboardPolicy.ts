@@ -1,7 +1,7 @@
 /**
- * Decisions for the keyboard's 云端 clipboard section, kept free of ArkUI and HTTP so they can be checked off a device.
+ * 键盘云端剪贴板区的各项决策，不依赖 ArkUI 和 HTTP，因此可以脱离设备检查。
  *
- * The keyboard never uploads on copy and never reads the system clipboard for this: cloud items are fetched when the clipboard panel opens or the user asks for a refresh, and a local history entry reaches the cloud only through an explicit 发到云剪贴板. The text bounds are the shared ones from `client-core`'s `validate_clipboard_text`, measured in UTF-16 units as the service counts them.
+ * 键盘从不在复制时上传，也从不为此读取系统剪贴板：云端条目在剪贴板面板打开或用户要求刷新时获取，本地历史条目只有经用户明确执行「发到云剪贴板」才会到达云端。文本上限是 `client-services` 的 `validate_clipboard_text` 中共用的那组，和服务一样按 UTF-16 单元计量。
  */
 import { utf8Length } from "../Utf8";
 import { TextPolicy } from "../TextPolicy";
@@ -163,9 +163,9 @@ export class CloudClipboardPolicy {
   }
 
   /**
-   * Reads the account bridge's reply to `{operation:"clipboard", clipboard_operation:"list"}`.
+   * 读取账号桥对 `{operation:"clipboard", clipboard_operation:"list"}` 的应答。
    *
-   * The page is checked whole, as `client-core`'s `validate_clipboard_page` does: a page with one malformed item is not shown at all, because dropping the bad rows would hide that the service sent something this client cannot honour. A disabled clipboard shows no items whatever the page carries.
+   * 整页一起检查，与 `client-services` 的 `validate_clipboard_page` 一样：只要有一个条目格式不对，整页都不显示，因为丢掉坏行会掩盖服务发来了本客户端无法遵从的内容。剪贴板被停用时，不论页面带了什么都不显示条目。
    *
    * 应答是端到端加密驱动 `list` 的结果：`{enabled, retention_days, items, e2e:{status, code, pending_devices, undecryptable}}`。`e2e.status` 为 `pending` 时本机还在等待批准，读作 `PENDING`，不显示条目；解不开而被驱动略去的条目不算错误。
    */

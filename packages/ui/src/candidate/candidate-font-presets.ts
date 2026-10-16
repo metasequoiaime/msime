@@ -1,4 +1,5 @@
-import type { HostPlatform } from "../index";
+import type { HostPlatform } from "../core/host-capabilities";
+
 import { defaultCandidateFallbackFonts, defaultCandidateFontFamily } from "./candidate-font-family";
 import type { CandidateFontPreferences } from "./candidate-preferences";
 
