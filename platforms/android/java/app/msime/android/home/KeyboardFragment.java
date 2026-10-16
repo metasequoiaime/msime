@@ -42,15 +42,6 @@ import org.json.JSONObject;
  */
 public final class KeyboardFragment extends HomeTabFragment {
 
-    /** 全部设置入口复用设置列表，不重复首页的键盘状态卡。 */
-    static KeyboardFragment allSettings() {
-        KeyboardFragment fragment = new KeyboardFragment();
-        Bundle arguments = new Bundle();
-        arguments.putBoolean("all_settings", true);
-        fragment.setArguments(arguments);
-        return fragment;
-    }
-
     @Nullable private JSONObject snapshot;
     private AndroidLocalSettings.Snapshot local = AndroidLocalSettings.defaults();
     /** The current scheme's title for the status line, or null until the preferences are read. */
@@ -113,11 +104,6 @@ public final class KeyboardFragment extends HomeTabFragment {
         buildRows(view);
         render();
         reload();
-        if (getArguments() != null && getArguments().getBoolean("all_settings")) {
-            ViewPolicy.hide(card);
-            ((TextView) view.findViewById(R.id.keyboard_title)).setText("全部设置");
-            ((TextView) bar).setText("全部设置");
-        }
 
         // Preparation is silent while it works out and while it is done; it only takes the screen
         // when the keyboard cannot reach the Engine, which is the one case the user has to know.
@@ -284,8 +270,7 @@ public final class KeyboardFragment extends HomeTabFragment {
             ((SearchPill) view.findViewById(R.id.keyboard_search)).query());
         boolean active = !query.isEmpty();
         ViewPolicy.setVisible(view.findViewById(R.id.keyboard_notices), !active);
-        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_status_card), !active
-            && (getArguments() == null || !getArguments().getBoolean("all_settings")));
+        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_status_card), !active);
         ViewPolicy.setVisible(view.findViewById(R.id.keyboard_rows), !active);
         LinearLayout results = view.findViewById(R.id.keyboard_search_results);
         results.removeAllViews();

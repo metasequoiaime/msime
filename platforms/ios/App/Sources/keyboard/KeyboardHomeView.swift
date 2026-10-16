@@ -3,17 +3,6 @@ import UIKit
 
 /// 手机上的 设置 标签页：搜索框、键盘状态卡片，然后是按移动端设计稿分组卡片排列的各设置页。各行来自 SettingsPage，iPad 侧边栏也读同一份。
 struct SettingsView: View {
-  /// 这份列表属于哪个标签页，决定行推入的页面记在哪里。
-  enum Stack {
-    /// 设置标签页：页面记在 `SettingsRouter.settingsPage`，键盘发来的深链接也推入这条栈。
-    case settings
-    /// 「全部设置」标签页：页面记在 `AppNavigation.allSettingsPage`，不接收深链接。
-    case allSettings
-  }
-
-  var stack: Stack = .settings
-  var navigationTitle: String = "设置"
-  var showsStatusCard = true
   @Environment(\.scenePhase) private var scenePhase
   @EnvironmentObject private var router: SettingsRouter
   @EnvironmentObject private var navigation: AppNavigation
@@ -41,12 +30,12 @@ struct SettingsView: View {
               Task.detached(priority: .utility) { AppNotices.dismiss(notice.id) }
             }
           }
-          if showsStatusCard { KeyboardStatusCard(scheme: scheme, tryout: navigation.openChat) }
+          KeyboardStatusCard(scheme: scheme, tryout: navigation.openChat)
         }
         ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
           DesignCard(radius: MetasequoiaTheme.cardRadius) {
             ForEach(group) { page in
-              SettingsCardRow(page: page, value: value(for: page), isLast: page == group.last, selection: destination)
+              SettingsCardRow(page: page, value: value(for: page), isLast: page == group.last, selection: $router.settingsPage)
             }
           }
         }
@@ -59,22 +48,14 @@ struct SettingsView: View {
     .overlay {
       if groups.isEmpty { ContentUnavailableView.search(text: query) }
     }
-    .navigationTitle(navigationTitle)
+    .navigationTitle("设置")
     .navigationBarTitleDisplayMode(.large)
     // 不按当前选中的标签页过滤：切走时读到 nil 会把推入的页面弹掉，切回来再重新推入，页面里更深一层的导航就丢了。
-    .navigationDestination(item: destination) { $0.destination }
+    .navigationDestination(item: $router.settingsPage) { $0.destination }
     .onAppear { refresh() }
     .onChange(of: scenePhase) { _, phase in if phase == .active { refresh(); Task { await loadNotices() } } }
     .task { await loadNotices() }
     .tint(MetasequoiaTheme.accent)
-  }
-
-  /// 本列表推入的页面。每个标签页各用一份状态，一个标签页里点的行不会推进另一个标签页的栈。
-  private var destination: Binding<SettingsPage?> {
-    switch stack {
-    case .settings: return $router.settingsPage
-    case .allSettings: return $navigation.allSettingsPage
-    }
   }
 
   private func value(for page: SettingsPage) -> String? {

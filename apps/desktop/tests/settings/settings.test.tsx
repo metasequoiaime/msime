@@ -3890,13 +3890,13 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
   );
   await settingsFormReady();
   const primary = screen.getByRole("navigation", { name: "主要功能" });
-  // 有社区客户端也没有「社区」标签页：社区内容并进了皮肤、词库、AI 辅助这些功能页，第二格换成了 AI 对话。源应用把最后一格叫「我的」，也是这一页自己的标题；标签栏原先写的是「账号」，和它对不上。
+  // 有社区客户端时第二格是「社区」（皮肤与词库两类图库），与「设置」重复的「全部设置」已去掉。源应用把最后一格叫「我的」，也是这一页自己的标题；标签栏原先写的是「账号」，和它对不上。
   expect(
     within(primary)
       .getAllByRole("button")
       .map((button) => button.textContent),
-  ).toEqual(["设置", "全部设置", "统计", "我的"]);
-  // 标签栏只有这四项。其余页面都是「设置」标签根页上的一行，「社区」和「AI 对话」不在其中。
+  ).toEqual(["设置", "社区", "统计", "我的"]);
+  // 标签栏只有这四项。其余页面都是「设置」标签根页上的一行，皮肤页也在其中；已有标签页的「社区」和二级页「AI 对话」不在其中。
   const home = screen.getByRole("region", { name: "首页" });
   const secondaryLabels = [...home.querySelectorAll("[data-row-title]")].map(
     (row) => row.textContent ?? "",
@@ -3905,6 +3905,7 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
   expect(secondaryLabels).toContain("剪贴板");
   expect(secondaryLabels).not.toContain("社区");
   expect(secondaryLabels).not.toContain("AI 对话");
+  expect(secondaryLabels).toContain("皮肤");
   expect(secondaryLabels).not.toContain("辅助码");
   // A touch host calls the shortcut page 外接键盘快捷键, and this one routes no hardware chords.
   expect(secondaryLabels).not.toContain("外接键盘快捷键");
@@ -4475,7 +4476,7 @@ test("mobile account deep links participate in the back stack", async () => {
     // The tab and the sidebar entry share the page's title, so reach for the one in the bar.
     const bar = screen.getByRole("navigation", { name: "主要功能" });
     fireEvent.click(within(bar).getByRole("button", { name: "我的" }));
-    // 反馈 and 关于 live in 我的 on a touch host, so the 全部设置 list does not repeat them.
+    // 触屏宿主上反馈和关于在「我的」里，「设置」列表不再重复列出。
     expect(screen.queryByRole("button", { name: "帮助与反馈" })).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "关于" }));
     expect(window.history.state).toEqual(

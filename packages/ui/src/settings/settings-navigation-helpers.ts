@@ -1,9 +1,9 @@
-/** 触屏设置宿主共用的四个底部标签页：设置、全部设置、统计、我的。AI 对话从「AI 辅助」进入二级页，避免系统键盘弹出时主导航消失。 */
-export type MobilePrimaryPageId = "home" | "more" | "typing-statistics" | "account";
+/** 触屏设置宿主共用的四个底部标签页：设置、社区、统计、我的。「社区」的根页在顶部分「皮肤 / 词库」两类，是完整的社区图库；皮肤页回到「设置」列表里，从「设置」推入。桌面和 2in1 没有底部标签，侧栏照旧。AI 对话从「AI 辅助」进入二级页，避免系统键盘弹出时主导航消失。 */
+export type MobilePrimaryPageId = "home" | "community" | "typing-statistics" | "account";
 
 export const mobilePrimaryPageIds: readonly MobilePrimaryPageId[] = [
   "home",
-  "more",
+  "community",
   "typing-statistics",
   "account",
 ];
@@ -17,7 +17,7 @@ const accountTabPages: readonly string[] = [
   "privacy",
 ];
 
-/** 让嵌套的设置页留在打开它们的标签页的导航栈上：「我的」自己的子页面留在「我的」，其他页面都留在「设置」。 */
+/** 让嵌套的设置页留在打开它们的标签页的导航栈上：标签页的根页（例如社区）属于自己的标签，「我的」自己的子页面留在「我的」，其他页面（包括皮肤页）都留在「设置」。 */
 export function mobileTabForPage(page: string): MobilePrimaryPageId {
   if (mobilePrimaryPageIds.includes(page as MobilePrimaryPageId)) {
     return page as MobilePrimaryPageId;

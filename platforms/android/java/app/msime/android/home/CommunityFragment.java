@@ -37,16 +37,17 @@ import java.util.Map;
 import org.json.JSONObject;
 
 /**
- * 一类社区作品的完整列表：皮肤直接嵌入皮肤页的社区 Tab；词库、短语或 AI 回复模板从对应功能页末尾的「浏览更多…」打开，压在那一页上面，返回回到那一页。底部导航原先有一个「社区」tab 把四类放在一页里分段显示，这个 tab 已经撤掉，社区内容并进了各功能页。
+ * 一类社区作品的完整列表：皮肤和词库嵌在底部「社区」tab（{@link CommunityTabPage}）的「皮肤 / 词库」两个分类里，皮肤还嵌在皮肤页的社区分类里；短语或 AI 回复模板从对应功能页末尾的「浏览更多…」打开，压在那一页上面，返回回到那一页。
  *
- * <p>独立页面经 {@link PageId#COMMUNITY} 和 {@link SettingsNavigator} 打开，皮肤 Tab 经子 Fragment 承载；类型放在参数 {@link #ARG_KIND} 里（{@link CommunityRequest.Kind#id()}），缺省或不认识时是皮肤。列表里有搜索、皮肤的分类筛选、详情面板、举报，作者还能在详情里改自己皮肤的分类。
+ * <p>独立页面经 {@link PageId#COMMUNITY} 和 {@link SettingsNavigator} 打开，嵌入的分类经子 Fragment 承载；类型放在参数 {@link #ARG_KIND} 里（{@link CommunityRequest.Kind#id()}），缺省或不认识时是皮肤。列表里有搜索、皮肤的分类筛选、详情面板、举报，作者还能在详情里改自己皮肤的分类。
  *
  * <p>发布和评分要登录的账号，这个宿主只带键盘的匿名身份，一个永远回答「请先登录」的发布按钮不如诚实地没有。拿走作品是打开这一页的目的，每张卡片都能做到：皮肤的「获取」存进自定义皮肤库（并记一次下载），之后同一个按钮变成「使用」并把它换到键盘上；词库的「添加」装成命名词库，短语包的「添加」装进常用语；回复模板手机上还不能添加，只能看详情。
  */
 public final class CommunityFragment extends Fragment {
     /** 参数：要列出的作品类型，取 {@link CommunityRequest.Kind#id()}。 */
     public static final String ARG_KIND = "kind";
-    private static final String ARG_SKIN_TAB = "skin_tab";
+    /** 嵌在别的页面的分类里，由父页提供标题和分类导航。键名带连字符，外部深链的参数键（`HostDeepLink.isAllowedArgKey`）伪造不了它。 */
+    private static final String ARG_EMBEDDED = "community-embedded";
     private record LoadedPage(CommunityCatalog.Page page, String sessionId, boolean stable) {}
 
     /** 这一页列出的作品类型。 */
@@ -61,7 +62,7 @@ public final class CommunityFragment extends Fragment {
     // 预览按用户自己的布局画。读不到就按 26 键，那是默认值。
     private boolean nineKey;
 
-    /** 从功能页打开某一类作品的完整列表，压在当前页面上面。 */
+    /** 打开某一类作品的完整列表：皮肤和词库切到「社区」tab 并选中那一类，其余类型压在当前页面上面。 */
     public static void browse(Context context, CommunityRequest.Kind kind) {
         Bundle arguments = new Bundle();
         arguments.putString(ARG_KIND, kind.id());
@@ -91,9 +92,23 @@ public final class CommunityFragment extends Fragment {
 
     /** 皮肤社区分类直接承载完整列表，由父页提供标题、返回按钮和分类 Tab。 */
     static CommunityFragment skinTab() {
-        CommunityFragment fragment = forKind(CommunityRequest.Kind.SKIN);
-        fragment.requireArguments().putBoolean(ARG_SKIN_TAB, true);
+        return embedded(CommunityRequest.Kind.SKIN);
+    }
+
+    /** 嵌在父页分类里的完整列表，不显示自己的标题和返回按钮。 */
+    static CommunityFragment embedded(CommunityRequest.Kind kind) {
+        CommunityFragment fragment = forKind(kind);
+        fragment.requireArguments().putBoolean(ARG_EMBEDDED, true);
         return fragment;
+    }
+
+    /** 参数里的作品类型；缺省或不认识时是皮肤。 */
+    static CommunityRequest.Kind kind(@Nullable Bundle arguments) {
+        String id = arguments == null ? null : arguments.getString(ARG_KIND);
+        for (CommunityRequest.Kind value : CommunityRequest.kinds()) {
+            if (value.id().equals(id)) return value;
+        }
+        return CommunityRequest.Kind.SKIN;
     }
 
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
@@ -103,11 +118,7 @@ public final class CommunityFragment extends Fragment {
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         Bundle arguments = getArguments();
-        if (arguments != null) {
-            for (CommunityRequest.Kind value : CommunityRequest.kinds()) {
-                if (value.id().equals(arguments.getString(ARG_KIND))) kind = value;
-            }
-        }
+        kind = kind(arguments);
         if (state != null) {
             search = state.getString("community-search", search);
             String selected = state.getString("community-category", "");
@@ -121,7 +132,7 @@ public final class CommunityFragment extends Fragment {
         View back = view.findViewById(R.id.community_back);
         back.setContentDescription("返回");
         ViewPolicy.bindClick(back, () -> requireActivity().getOnBackPressedDispatcher().onBackPressed());
-        if (arguments != null && arguments.getBoolean(ARG_SKIN_TAB)) {
+        if (arguments != null && arguments.getBoolean(ARG_EMBEDDED)) {
             ViewPolicy.hide((View) back.getParent());
         }
 
@@ -167,7 +178,7 @@ public final class CommunityFragment extends Fragment {
         });
         items.setLayoutManager(grid);
         items.setAdapter(adapter);
-        if (arguments != null && arguments.getBoolean(ARG_SKIN_TAB)) PageInsetsPolicy.bind(items);
+        if (arguments != null && arguments.getBoolean(ARG_EMBEDDED)) PageInsetsPolicy.bind(items);
         items.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView list, int dx, int dy) {
                 if (dy <= 0 || loading || !hasMore) return;
@@ -209,7 +220,7 @@ public final class CommunityFragment extends Fragment {
     }
 
     /** 切回社区分类时更新已获取标记，不清空搜索条件和列表。 */
-    void refreshSkinLibrary() { refreshTaken(); }
+    void refreshTakenMarks() { refreshTaken(); }
 
     /** 离开社区分类时收起搜索键盘，避免它遮挡其他分类。 */
     void closeSearchKeyboard() {

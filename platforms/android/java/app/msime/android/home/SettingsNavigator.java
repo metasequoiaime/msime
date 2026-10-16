@@ -6,6 +6,7 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
+import app.msime.android.CommunityRequest;
 import app.msime.android.ContextPolicy;
 import app.msime.android.HostDeepLink;
 import app.msime.android.R;
@@ -15,6 +16,8 @@ import java.util.List;
  * 打开详情页的唯一入口：先切到页面所属的 tab，再把页面压进 HomeActivity 的 `home_content`。
  *
  * <p>导航用 FragmentManager 的回退栈，整个宿主只有这一个栈：返回一层弹出一页，切 tab 先清空栈（HomeActivity 负责），所以「返回」永远回到眼前这个 tab 里的上一页，不会跳回别的 tab。页面之间是 M3 fade-through（新页面 0.28 秒从 94 % 缩放淡入，曲线 `cubic-bezier(.2, 0, 0, 1)`，旧页面快速淡出），与 tab 切换是同一种动效。
+ *
+ * <p>{@link PageId#COMMUNITY} 带皮肤或词库类型时是例外：这两类作品的完整列表是「社区」tab 的两个分类（{@link CommunityTabPage}），不再压进任何栈，打开它（`CommunityFragment.browse`、`HomeActivity.openCommunity`、深链）就是切到那个 tab 并选中对应分类。短语和 AI 回复模板的完整列表照常压在打开它的功能页上面。
  *
  * <p>页面按 {@link PageId} 里登记的类名经 `FragmentFactory.instantiate` 创建：类还不存在（后续切片才建）时只记一条日志并提示「即将推出」，不切 tab，也不崩。不在 HomeActivity 里调用时（例如旧的二级 Activity），改为发一个指向 HomeActivity 的深链。
  */
@@ -43,6 +46,12 @@ public final class SettingsNavigator {
         FragmentManager manager = home.getSupportFragmentManager();
         // 保存状态之后不能再提交导航；这时 Activity 已不在前台，用户也点不到任何入口，丢掉这次请求比崩溃好。
         if (manager.isStateSaved() || home.isFinishing()) return;
+        // 皮肤和词库的完整列表是社区 tab 的分类：再压一份就和底部那一格重复了。切过去时 HomeActivity 清空栈，再选中对应分类。
+        CommunityRequest.Kind community = communityTabKind(page, args);
+        if (community != null) {
+            home.openCommunityTab(community);
+            return;
+        }
 
         Fragment fragment;
         try {
@@ -74,6 +83,18 @@ public final class SettingsNavigator {
             .commit();
         // 立即执行，让紧接着的第二次点击能从栈顶看到这一页。
         manager.executePendingTransactions();
+    }
+
+    /** 页面实际落在哪个 tab：社区 tab 承载的完整列表落在社区 tab，其余按 {@link PageId#tab()}。HomeActivity 处理深链时用它先切 tab。 */
+    static int tab(PageId page, @Nullable Bundle args) {
+        return communityTabKind(page, args) != null ? HostDeepLink.TAB_COMMUNITY : page.tab();
+    }
+
+    /** `page` 是社区 tab 的某个分类时返回那一类作品，否则为 null。 */
+    @Nullable private static CommunityRequest.Kind communityTabKind(PageId page, @Nullable Bundle args) {
+        if (page != PageId.COMMUNITY) return null;
+        CommunityRequest.Kind kind = CommunityFragment.kind(args);
+        return CommunityTabPage.hosts(kind) ? kind : null;
     }
 
     /** `home_content` 里当前看得见的那一个 Fragment（最后加入且未隐藏的）。 */

@@ -1,9 +1,39 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// 「社区」标签页的根页面：标题下固定一排「皮肤 / 词库」分段，固定方式与皮肤页的分类相同。两段分别嵌入完整的皮肤社区和词库社区列表，搜索、分类、详情、获取或添加、举报和发布都在各自的列表里，右上角的发布按钮跟着当前分段走。所选分段存在 `AppNavigation` 里，推入详情页再返回、切换标签页再回来都保留，词库页的「浏览更多词库」也靠它直接落在「词库」。回复模板不在这里，仍在「AI 润色与回复」页里浏览。
+struct CommunityHomeView: View {
+  @EnvironmentObject private var navigation: AppNavigation
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+  var body: some View {
+    Group {
+      switch navigation.communitySegment {
+      case .skin: SkinCommunityView(embedded: true)
+      case .dictionary: CommunityResourcesView(kind: .dictionary, embedded: true)
+      }
+    }
+    // 放在安全区内边距里而不是列表上方的一行，列表仍是页面的滚动视图，大标题照样随滚动收进导航栏。
+    .safeAreaInset(edge: .top, spacing: 0) {
+      DesignSegmentedControl(items: [("皮肤", AppNavigation.CommunitySegment.skin), ("词库", .dictionary)],
+                             selection: $navigation.communitySegment, style: .rounded, identifierPrefix: "communityTab")
+        .frame(maxWidth: horizontalSizeClass == .regular ? CommunityLayout.regularMaxWidth : .infinity)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16).padding(.vertical, 8)
+        // 限制在自己的 frame 内：颜色背景默认会延伸进安全区，在这里会盖住大标题。
+        .background(MetasequoiaTheme.canvas, ignoresSafeAreaEdges: [])
+    }
+    .designCanvasBackground()
+    .navigationTitle("社区")
+    .navigationBarTitleDisplayMode(.large)
+  }
+}
+
 struct CommunityResourcesView: View {
   let kind: CommunityResourceKind
   var initialScope = ""
+  /// 嵌在「社区」标签页的「词库」分段里时为 true：不设自己的导航标题，沿用「社区」；发布按钮照常放在导航栏右侧。
+  var embedded = false
   private var scope: String { initialScope }
   @State private var search = ""
   @State private var items: [CommunityResource] = []
@@ -32,6 +62,13 @@ struct CommunityResourcesView: View {
     return signedIn
   }
   var body: some View {
+    if embedded { page } else {
+      page.navigationTitle(initialScope.isEmpty ? "\(kind.title)社区" : "\(initialScope == "saved" ? "收藏的" : "我发布的")\(kind.title)")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+  }
+
+  private var page: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 16) {
         CommunitySearchField(text: $search, placeholder: "搜索\(kind.title)") { startLoad() }
@@ -56,8 +93,6 @@ struct CommunityResourcesView: View {
       }.communityPageContent(regular: horizontalSizeClass == .regular)
     }
     .background(MetasequoiaTheme.canvas)
-    .navigationTitle(initialScope.isEmpty ? "\(kind.title)社区" : "\(initialScope == "saved" ? "收藏的" : "我发布的")\(kind.title)")
-    .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       if offersPublishing {
         ToolbarItem(placement: .navigationBarTrailing) {

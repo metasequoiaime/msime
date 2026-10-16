@@ -123,7 +123,7 @@ function renderPhone(
 const communityRow = async (name: string) =>
   within(await screen.findByRole("region", { name: "社区作品" })).findByRole("button", { name });
 
-// 「我的 → 收藏的回复模板」不再去「社区」标签页：它打开「AI 辅助」页，并在上面打开收藏范围的回复模板图库。返回依次关掉详情、图库，再回到「我的」。
+// 「我的 → 收藏的回复模板」不去「社区」标签页（那里只有皮肤和词库）：它打开「AI 辅助」页，并在上面打开收藏范围的回复模板图库。返回依次关掉详情、图库，再回到「我的」。
 test("a 我的 community row opens the gallery on its feature page, and back unwinds detail, gallery and page", async () => {
   const { resources } = renderPhone("account");
   fireEvent.click(await communityRow("收藏的回复模板"));
@@ -135,9 +135,9 @@ test("a 我的 community row opens the gallery on its feature page, and back unw
     page: "ai",
     communityGallery: { category: "reply", scope: "saved", initialMine: false },
   });
-  // 底部标签栏里没有「社区」。
+  // 底部的「社区」标签没有点亮：回复模板图库盖在「AI 辅助」页上。
   const bar = screen.getByRole("navigation", { name: "主要功能" });
-  expect(within(bar).queryByRole("button", { name: "社区" })).toBeNull();
+  expect(within(bar).getByRole("button", { name: "社区" }).getAttribute("aria-current")).toBeNull();
 
   fireEvent.click(await within(gallery).findByRole("button", { name: "查看回复模板 礼貌回复" }));
   expect(await screen.findByRole("heading", { name: "礼貌回复" })).toBeTruthy();
@@ -269,12 +269,139 @@ test("the desktop AI page has no reply template group", async () => {
   expect(resources.list).not.toHaveBeenCalled();
 });
 
-// 其他触屏宿主的词库页是桌面表单，社区词库从「社区词库」一组进入，图库同样在本页上打开。
-test("another touch host opens the dictionary gallery from the 词库 page", async () => {
+// 其他触屏宿主的词库页是桌面表单，社区词库从「社区词库」一组进入：「浏览更多词库」切到底部「社区」标签的「词库」分类，不在词库页上盖一层图库；返回回到词库页。
+test("another touch host's 浏览更多词库 switches to the 社区 tab's 词库 category", async () => {
   const { resources } = renderPhone("dictionary", { platform: "android" });
 
   fireEvent.click(await screen.findByRole("button", { name: "浏览更多词库" }));
-  expect(await screen.findByRole("dialog", { name: "社区词库" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: "社区" })).toBeTruthy();
+  const tabs = screen.getByRole("tablist", { name: "社区分类" });
+  expect(within(tabs).getByRole("tab", { name: "词库" }).getAttribute("aria-selected")).toBe(
+    "true",
+  );
   await waitFor(() => expect(resources.list).toHaveBeenCalledWith("dictionary", "", "", 0));
-  expect(screen.getByRole("heading", { level: 1, name: "词库" })).toBeTruthy();
+  expect(screen.queryByRole("dialog", { name: "社区词库" })).toBeNull();
+  expect(window.history.state).toMatchObject({ page: "community", tab: "community" });
+  const bar = screen.getByRole("navigation", { name: "主要功能" });
+  expect(within(bar).getByRole("button", { name: "社区" }).getAttribute("aria-current")).toBe(
+    "page",
+  );
+
+  window.history.back();
+  expect(await screen.findByRole("heading", { level: 1, name: "词库" })).toBeTruthy();
+  expect(within(bar).getByRole("button", { name: "设置" }).getAttribute("aria-current")).toBe(
+    "page",
+  );
+});
+
+// ---- 底部「社区」标签 ----
+
+function dictionaryResource(id: string, name: string): CommunityResource {
+  return {
+    id,
+    kind: "dictionary",
+    name,
+    description: "合成的词库说明",
+    author: "示例作者",
+    content: { entries: [{ kind: "pinyin", word: "合成词", code: "he'cheng'ci", weight: 10 }] },
+    revision: 1,
+    saves: 0,
+    saved: false,
+    owned: false,
+    rating_count: 0,
+    rating_average: 0,
+    my_rating: 0,
+  } as unknown as CommunityResource;
+}
+
+// 第二格「社区」的根页：标题「社区」，顶部「皮肤 / 词库」两类，皮肤在前并默认选中，内容是完整的社区皮肤图库（搜索、发布）。它是标签页的根页，没有返回按钮；图库自带表单，画在设置表单之外。
+test("the 社区 tab root shows the 皮肤 and 词库 categories with the full skin gallery first", async () => {
+  const { skins, resources } = renderPhone("home");
+  const bar = await screen.findByRole("navigation", { name: "主要功能" });
+  fireEvent.click(within(bar).getByRole("button", { name: "社区" }));
+
+  expect(await screen.findByRole("heading", { level: 1, name: "社区" })).toBeTruthy();
+  expect(within(bar).getByRole("button", { name: "社区" }).getAttribute("aria-current")).toBe(
+    "page",
+  );
+  expect(screen.queryByRole("button", { name: "返回" })).toBeNull();
+  const tabs = screen.getByRole("tablist", { name: "社区分类" });
+  expect(
+    within(tabs)
+      .getAllByRole("tab")
+      .map((tab) => tab.textContent),
+  ).toEqual(["皮肤", "词库"]);
+  expect(within(tabs).getByRole("tab", { name: "皮肤" }).getAttribute("aria-selected")).toBe(
+    "true",
+  );
+
+  const panel = screen.getByRole("tabpanel", { name: "皮肤" });
+  expect(within(panel).getByRole("search")).toBeTruthy();
+  expect(within(panel).getByRole("button", { name: "发布设计" })).toBeTruthy();
+  expect(panel.closest("form")).toBeNull();
+  await waitFor(() => expect(skins.list).toHaveBeenCalledWith(0, "", false, null));
+  // 没选中的分类不挂载，不提前去拉词库列表。
+  expect(resources.list).not.toHaveBeenCalledWith("dictionary", "", "", 0);
+  expect(window.history.state).toMatchObject({ page: "community", tab: "community" });
+});
+
+// 切到「词库」是完整的社区词库列表；离开「社区」标签再回来，仍是上次选的分类。
+test("switching to 词库 shows the community dictionary list and the choice is remembered", async () => {
+  const resources = resourcesClient([
+    dictionaryResource("10000000-0000-4000-8000-000000000301", "合成词库"),
+  ]);
+  renderPhone("community", { resources });
+  const tabs = await screen.findByRole("tablist", { name: "社区分类" });
+
+  fireEvent.click(within(tabs).getByRole("tab", { name: "词库" }));
+  const panel = screen.getByRole("tabpanel", { name: "词库" });
+  expect(screen.queryByRole("tabpanel", { name: "皮肤" })).toBeNull();
+  await waitFor(() => expect(resources.list).toHaveBeenCalledWith("dictionary", "", "", 0));
+  expect(await within(panel).findByRole("button", { name: "查看词库 合成词库" })).toBeTruthy();
+  expect(within(panel).getByRole("search")).toBeTruthy();
+  expect(panel.closest("form")).toBeNull();
+
+  const bar = screen.getByRole("navigation", { name: "主要功能" });
+  fireEvent.click(within(bar).getByRole("button", { name: "我的" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "我的" })).toBeTruthy();
+  fireEvent.click(within(bar).getByRole("button", { name: "社区" }));
+  expect(
+    within(await screen.findByRole("tablist", { name: "社区分类" }))
+      .getByRole("tab", { name: "词库" })
+      .getAttribute("aria-selected"),
+  ).toBe("true");
+});
+
+// 鸿蒙手机词库页「发现词库」末尾的「浏览更多词库」同样切到「社区」标签的「词库」分类。
+test("the HarmonyOS phone's 浏览更多词库 switches to the 社区 tab's 词库 category", async () => {
+  const resources = resourcesClient([
+    dictionaryResource("10000000-0000-4000-8000-000000000302", "发现的词库"),
+  ]);
+  render(
+    <SettingsPage
+      initialPage="dictionary"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn().mockResolvedValue(initial),
+        host: testHost({ platform: "harmony" }),
+        home: {},
+        account: account(),
+        communitySkins: skinsClient(),
+        communityResources: resources,
+        dictionaryCollections: {
+          load: vi.fn().mockResolvedValue({ collections: [], formats: [] }),
+          flush: vi.fn().mockResolvedValue({ collections: [], formats: [] }),
+        } as never,
+      }}
+    />,
+  );
+
+  fireEvent.click(await screen.findByRole("button", { name: "浏览更多词库" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "社区" })).toBeTruthy();
+  expect(
+    within(screen.getByRole("tablist", { name: "社区分类" }))
+      .getByRole("tab", { name: "词库" })
+      .getAttribute("aria-selected"),
+  ).toBe("true");
+  expect(screen.queryByRole("dialog", { name: "社区词库" })).toBeNull();
 });

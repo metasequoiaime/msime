@@ -37,8 +37,29 @@ import app.msime.android.ViewPolicy;
  * </ul>
  *
  * <p>页面从别的页面返回、或整个应用回到前台时会调 {@link #onBecameVisible()}；需要刷新数据的页面覆盖它。
+ *
+ * <p>详情页也可以经 {@link #asTabRoot} 直接作为底部某个 tab 的根页（社区 tab 的 {@link CommunityTabPage}）：根页没有可返回的地方，不显示返回按钮，标题对齐设置 tab 的顶栏。
  */
 public abstract class DetailPage extends HomeTabFragment {
+    /** tab 根页在 arguments 里的标记。键名带连字符，外部深链的参数键（`HostDeepLink.isAllowedArgKey`）伪造不了它。 */
+    private static final String ARG_TAB_ROOT = "detail-tab-root";
+    /** 根页的标题起始边距，与设置 tab 收起后的顶栏（`page_keyboard.xml` 的 `keyboard_bar`）一致。 */
+    private static final int TAB_ROOT_TITLE_START = 20;
+
+    /** 把详情页标成 tab 根页，HomeActivity 建 tab 页时用；标记放在 arguments 里，进程恢复后仍在。 */
+    static <T extends DetailPage> T asTabRoot(T page) {
+        Bundle args = page.getArguments() == null ? new Bundle() : new Bundle(page.getArguments());
+        args.putBoolean(ARG_TAB_ROOT, true);
+        page.setArguments(args);
+        return page;
+    }
+
+    /** 是否作为 tab 根页承载。 */
+    protected final boolean isTabRoot() {
+        Bundle args = getArguments();
+        return args != null && args.getBoolean(ARG_TAB_ROOT, false);
+    }
+
     @Nullable private TextView largeTitle;
     @Nullable private TextView barTitle;
     @Nullable private View bar;
@@ -160,9 +181,19 @@ public abstract class DetailPage extends HomeTabFragment {
         setTitle(title());
 
         View back = view.findViewById(R.id.ms_detail_back);
-        back.setContentDescription("返回");
-        ViewPolicy.bindClick(back,
-            () -> requireActivity().getOnBackPressedDispatcher().onBackPressed());
+        if (isTabRoot()) {
+            // tab 根页没有上一页；系统返回键仍由 HomeActivity 处理（回到第一个 tab）。
+            ViewPolicy.hide(back);
+            FrameLayout.LayoutParams titleParams = (FrameLayout.LayoutParams) barTitle.getLayoutParams();
+            titleParams.setMarginStart(DimensionPolicy.pixels(requireContext(), TAB_ROOT_TITLE_START));
+            barTitle.setLayoutParams(titleParams);
+            ViewPolicy.setPaddingDp(requireContext(), view.findViewById(R.id.ms_detail_header),
+                TAB_ROOT_TITLE_START, 0, Ui.PAGE_PADDING, 0);
+        } else {
+            back.setContentDescription("返回");
+            ViewPolicy.bindClick(back,
+                () -> requireActivity().getOnBackPressedDispatcher().onBackPressed());
+        }
 
         NestedScrollView scroll = view.findViewById(R.id.ms_detail_scroll);
         View navigation = fixedNavigation();

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AccountUser } from "./account-page";
+import type { AccountUser } from "./account-model";
 import { preferredAccountName } from "./account-labels";
 import * as account from "./account-style";
 import { useAsyncGeneration } from "../settings/use-async-generation";

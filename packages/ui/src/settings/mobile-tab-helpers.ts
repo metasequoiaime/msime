@@ -16,7 +16,8 @@ export function mobileTabIcon(id: string, icon: string): string {
 /** HarmonyOS 手机为每个底部标签页绘制的 Fluent 图标。 */
 export function harmonyTabIcon(id: string): FluentIconName | undefined {
   if (id === "home") return "settings";
-  if (id === "more") return "grid";
+  // 与「我的」里「我发布的皮肤」那一行同一个字形。
+  if (id === "community") return "people_community";
   if (id === "typing-statistics") return "data_bar_vertical";
   if (id === "account") return "person";
   return undefined;
@@ -24,7 +25,7 @@ export function harmonyTabIcon(id: string): FluentIconName | undefined {
 
 const mobilePrimaryTitles: Record<string, string> = {
   home: "设置",
-  more: "全部设置",
+  community: "社区",
   "typing-statistics": "统计",
   account: "我的",
 };

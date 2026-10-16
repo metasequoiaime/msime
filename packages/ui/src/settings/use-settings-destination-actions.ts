@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { AccountCommunityDestination } from "../account/account-page";
+import type { AccountCommunityDestination } from "../account/account-model";
 import {
   communityDestinationView,
   type CommunityDestinationView,
@@ -10,7 +10,7 @@ export interface UseSettingsDestinationActionsOptions {
   selectPage: (page: "skin" | "community" | "about") => void;
   setShowTouchSkinEditor: Dispatch<SetStateAction<boolean>>;
   setCommunityDestination: Dispatch<SetStateAction<AccountCommunityDestination | "all">>;
-  /** 触屏宿主没有「社区」页：给了它时，去社区的入口改为在对应功能页里打开完整图库（见 `useCommunityGallerySubview`）。桌面宿主不给，仍去「社区」页。 */
+  /** 触屏宿主给它：去社区的入口按类别去「社区」标签的对应分类，或在功能页里打开完整图库（「我的」里的作品与收藏、回复模板）。桌面宿主不给，仍去「社区」页。 */
   openCommunityGallery?: (view: CommunityDestinationView) => void;
 }
 

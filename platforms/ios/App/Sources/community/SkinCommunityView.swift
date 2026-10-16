@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SkinCommunityView: View {
   var onlyMine = false
-  /// 嵌在皮肤页「社区」分类里时为 true：不设自己的导航标题，沿用皮肤页的「皮肤」；发布按钮照常放在导航栏右侧。
+  /// 嵌在皮肤页「社区」分类或「社区」标签页的「皮肤」分段里时为 true：不设自己的导航标题，沿用所在页面的「皮肤」或「社区」；发布按钮照常放在导航栏右侧。
   var embedded = false
   private var visibleSkins: [CommunitySkin] { onlyMine ? skins.filter(\.owned) : skins }
   @State private var skins: [CommunitySkin] = []

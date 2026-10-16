@@ -107,7 +107,7 @@ public final class SkinsPage extends ReloadingDetailPage {
                 getChildFragmentManager().beginTransaction()
                     .add(R.id.skin_community_content, CommunityFragment.skinTab(), COMMUNITY_TAG)
                     .commitNow();
-            } else if (community != null) community.refreshSkinLibrary();
+            } else if (community != null) community.refreshTakenMarks();
         } else if (community != null) community.closeSearchKeyboard();
     }
 

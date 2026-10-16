@@ -2,6 +2,8 @@
 
 Status: implemented
 
+底部第二格先后被 [AI 对话改为二级页面](2026-10-16-mobile-chat-secondary-page.md) 与 [触屏宿主底部第二格恢复为社区](2026-10-16-mobile-community-bottom-tab.md) 取代。
+
 ## Problem
 
 [社区并进功能页](2026-10-11-android-community-into-feature-pages.md)那一步把底部的「社区」tab 直接删了，底部只剩设置、统计、我的三格。产品的意思是换掉这一格而不是删掉它：底部保持四个 tab，原来社区那一格换成 AI 对话，顺序是 设置 / 对话 / 统计 / 我的。

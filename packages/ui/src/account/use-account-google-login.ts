@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
-import type { AccountClient, AccountUser } from "./account-page";
+import type { AccountClient, AccountUser } from "./account-model";
 
 /** 账号页面共用的浏览器登录等待状态和迟到结果守卫。 */
 export function useAccountGoogleLogin({

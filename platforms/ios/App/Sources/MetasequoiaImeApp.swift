@@ -281,8 +281,8 @@ private struct MainTabView: View {
           navigation.select(.settings, router: router)
         }.frame(width: 0, height: 0))
         .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(AppNavigation.Tab.settings)
-      NavigationStack { SettingsView(stack: .allSettings, navigationTitle: "全部设置", showsStatusCard: false) }
-        .tabItem { Label("全部设置", systemImage: "square.grid.2x2.fill") }.tag(AppNavigation.Tab.allSettings)
+      NavigationStack { CommunityHomeView() }.id(navigation.communityRoot)
+        .tabItem { Label("社区", systemImage: "person.3.fill") }.tag(AppNavigation.Tab.community)
       NavigationStack { TypingStatisticsView() }
         .tabItem { Label("统计", systemImage: "chart.bar.fill") }.tag(AppNavigation.Tab.statistics)
       NavigationStack { AccountSettingsView() }

@@ -7,7 +7,7 @@ import {
   type MutableRefObject,
   type SetStateAction,
 } from "react";
-import type { AccountCommunityDestination } from "../account/account-page";
+import type { AccountCommunityDestination } from "../account/account-model";
 import {
   mobilePrimaryPageIds,
   mobileTabForPage,

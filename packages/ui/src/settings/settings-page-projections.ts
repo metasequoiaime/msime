@@ -91,14 +91,13 @@ export function settingsPageProjections({
         (item.id !== "vocabulary" || hasVocabularyReview) &&
         (item.id !== "account" || hasAccount) &&
         (item.id !== "chat" || hasChat) &&
-        // 触屏宿主没有「社区」页：社区内容列在皮肤、词库、AI 辅助这些功能页里，完整图库是那些页面上的子视图。
-        (item.id !== "community" || (hasCommunity && !mobilePlatform)) &&
+        // 有社区服务的宿主才有「社区」页。触屏宿主上它是底部「社区」标签的根页（皮肤与词库两类图库）；桌面上它不在侧栏里，只从「我的内容」各行进入。
+        (item.id !== "community" || hasCommunity) &&
         (item.id !== "floating-toolbar" || showFloatingToolbar) &&
         (item.id !== "developer" || showDeveloperPage) &&
         (item.id !== "plugins" || hasPlugins) &&
         (item.id !== "handwriting" || (hasHandwriting && !handwritingOnScreenKeyboardPage)) &&
         (item.id !== "mcp" || hasMcp) &&
-        (item.id !== "more" || mobilePlatform) &&
         // 「隐私」页是触屏「我的」里那一行打开的；桌面的隐私设置在「关于」里。
         (item.id !== "privacy" || mobilePlatform) &&
         // 触屏宿主从「AI 辅助」进入二级对话，独立试用页只留给没有对话客户端的宿主。
@@ -113,6 +112,7 @@ export function settingsPageProjections({
           : desktopPageTitle(item.id, item.title),
     }));
 
+  // 触屏的「设置」列表（和 iPad 侧栏）不列底部标签页自己的根页：社区、统计、我的已经各占一格。桌面和 2in1 的侧栏不经过这条过滤。
   const mobileListedPage = (id: SettingsPageId): boolean =>
     ((id !== "about" && id !== "feedback") || !hasAccount) &&
     !mobilePrimaryPageIds.includes(id as MobilePrimaryPageId) &&
@@ -121,7 +121,6 @@ export function settingsPageProjections({
   // 桌面侧栏不列出并进别的页的页面（`desktopMergedPages`）；它们仍在 `availablePages` 里，路由打开时显示承载页。
   const sidebarPages = availablePages.filter(
     (item) =>
-      item.id !== "more" &&
       !(mobilePlatform && mobileHiddenPageIds.includes(item.id)) &&
       (mobilePlatform || desktopMergedPages[item.id] === undefined),
   );

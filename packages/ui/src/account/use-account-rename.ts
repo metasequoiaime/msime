@@ -1,5 +1,5 @@
 import { isValidAccountName, normalizeAccountName } from "./account-labels";
-import type { AccountClient, AccountProfile } from "./account-page";
+import type { AccountClient, AccountProfile } from "./account-model";
 import type { AccountActionState } from "./account-operation";
 
 /** Shares nickname validation, update, and stale-client protection across profile views. */

@@ -215,12 +215,12 @@ test("root rows open their pages", () => {
   ]);
 });
 
-test("a shell that passes no root pages still reaches every page through 全部设置", () => {
-  const onOpenPage = vi.fn();
-  render(<HomePage preferences={preferences} onOpenPage={onOpenPage} touchLayout />);
+// 「全部设置」与「设置」根页重复，已去掉：没有给出根页面的外壳只显示搜索和状态卡片，不再有指向那份列表的行。
+test("a shell that passes no root pages has no 全部设置 row", () => {
+  render(<HomePage preferences={preferences} onOpenPage={vi.fn()} touchLayout />);
 
-  fireEvent.click(screen.getByRole("button", { name: "全部设置" }));
-  expect(onOpenPage).toHaveBeenCalledWith("more");
+  expect(screen.queryByRole("button", { name: "全部设置" })).toBeNull();
+  expect(statusCard()).toBeTruthy();
 });
 
 // ---- 搜索 ----
@@ -524,9 +524,9 @@ test("renders the keyboard home surface with the current skin and scheme", () =>
   expect(screen.getByText("夜青 · 小鹤双拼")).toBeTruthy();
   expect(screen.getByRole("img", { name: "屏幕键盘完整布局预览" })).toBeTruthy();
   expect(screen.getByText("高情商回复")).toBeTruthy();
-  // 磁贴与主题页同名；「全部设置」的副标题按导航分组概括。
+  // 磁贴与主题页同名。桌面有侧栏，首页不再放指向「全部设置」列表的卡片。
   expect(screen.getByRole("button", { name: /^主题/ })).toBeTruthy();
-  expect(screen.getByText("打字、外观、语音与词库")).toBeTruthy();
+  expect(screen.queryByText("全部设置")).toBeNull();
   // 桌面首页没有「设置」根页的那些界面。
   expect(screen.queryByRole("searchbox")).toBeNull();
   expect(screen.queryByRole("group", { name: "水杉输入法状态" })).toBeNull();
@@ -551,17 +551,9 @@ test("routes home shortcuts to the shared settings pages", () => {
   fireEvent.click(screen.getByRole("button", { name: /^主题/ }));
   fireEvent.click(screen.getByRole("button", { name: /输入方案/ }));
   fireEvent.click(screen.getByRole("button", { name: /按键/ }));
-  // 这一行过去只跳到「外观」；现在它打开「全部设置」列表，所有没有独立标签页的页面都从那里进入。
-  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
   fireEvent.click(screen.getByRole("button", { name: /高情商回复/ }));
 
-  expect(onOpenPage.mock.calls).toEqual([
-    ["skin"],
-    ["input"],
-    ["screen-keyboard"],
-    ["more"],
-    ["ai"],
-  ]);
+  expect(onOpenPage.mock.calls).toEqual([["skin"], ["input"], ["screen-keyboard"], ["ai"]]);
 });
 
 test("exposes Apple home shortcuts for dictionary, AI and system settings", () => {

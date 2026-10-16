@@ -1,4 +1,4 @@
-import type { AccountClient } from "./account-page";
+import type { AccountClient } from "./account-model";
 import type { AccountActionState } from "./account-operation";
 
 export type AccountSessionAction = "logout" | "logout-all" | "delete";

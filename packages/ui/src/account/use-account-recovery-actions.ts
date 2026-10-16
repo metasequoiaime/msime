@@ -1,4 +1,4 @@
-import type { AccountClient, AccountProviders } from "./account-page";
+import type { AccountClient, AccountProviders } from "./account-model";
 import type { AccountActionState } from "./account-operation";
 
 /** Runs account recovery calls and ignores results from an old client or screen. */
