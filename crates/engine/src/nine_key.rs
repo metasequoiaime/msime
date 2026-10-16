@@ -2227,7 +2227,7 @@ fn seeded_paths(
         let tails = if tail.is_empty() {
             vec![Vec::new()]
         } else {
-            table.split_paths(tail, &[], prior)
+            table.split_paths_limited(tail, &[], prior, SEED_TAIL_LIMIT)
         };
         for tail_path in tails.into_iter().take(SEED_TAIL_LIMIT) {
             let mut path: Path = Vec::with_capacity(kept + tail_path.len());
@@ -2977,6 +2977,17 @@ impl SpellingTable {
     ///
     /// 每个位置只留 48 条，留哪些就决定了哪些读法还能查到。原先在字典序上截断，而 9 键是 wxyz、7 键是 pqrs，于是长串里 xi 开头的路径把 yi、zhe 开头的全部挤掉，`943426943426` 只剩「洗点一点」查不到「一点一点」，`7264685487` 只剩「盘后」查不到「然后」。
     fn split_paths(&self, digits: &str, splits: &[usize], prior: &SyllablePrior) -> Vec<Path> {
+        self.split_paths_limited(digits, splits, prior, PATH_LIMIT)
+    }
+
+    /// 所有中间页仍保留完整搜索宽度，只按消费者上限物化最终路径。
+    fn split_paths_limited(
+        &self,
+        digits: &str,
+        splits: &[usize],
+        prior: &SyllablePrior,
+        output_limit: usize,
+    ) -> Vec<Path> {
         let length = digits.len();
         let mut suffix: Vec<Vec<SpellingPath<'_>>> = vec![Vec::new(); length + 1];
         suffix[length].push(SpellingPath {
@@ -3020,19 +3031,31 @@ impl SpellingTable {
                 }
             }
             // 按码分组访问音节；比较项与原拥有路径相同，只在需要字典序时回溯音节。
-            result.sort_by(|a, b| {
+            let compare = |a: &SpellingPath<'_>, b: &SpellingPath<'_>| {
                 a.length
                     .cmp(&b.length)
                     .then_with(|| b.complete.cmp(&a.complete))
                     .then_with(|| b.score.total_cmp(&a.score))
                     .then_with(|| a.pieces(&suffix).cmp(b.pieces(&suffix)))
-            });
-            result.truncate(PATH_LIMIT);
+            };
+            let keep = if offset == 0 {
+                output_limit.min(PATH_LIMIT)
+            } else {
+                PATH_LIMIT
+            };
+            // 根页没有前驱消费者；同分同读法的路径输出相同，只选择最终采用的前几条。
+            if keep < PATH_LIMIT && result.len() > keep {
+                result.select_nth_unstable_by(keep, compare);
+                result.truncate(keep);
+            }
+            result.sort_by(compare);
+            result.truncate(keep);
             suffix[offset] = result;
         }
         // 后继一定在更大偏移，取出根页不影响回溯；只有最终保留路径才物化字符串。
         std::mem::take(&mut suffix[0])
             .into_iter()
+            .take(output_limit)
             .map(|root| {
                 let mut path = Vec::with_capacity(root.length);
                 path.extend(root.pieces(&suffix).map(str::to_owned));
@@ -3115,6 +3138,9 @@ mod initials_code_tests;
 
 #[cfg(test)]
 mod path_chain_tests;
+
+#[cfg(test)]
+mod seed_tail_tests;
 
 #[cfg(test)]
 mod code_prefix_tests;
