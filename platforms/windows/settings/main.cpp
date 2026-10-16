@@ -11502,7 +11502,9 @@ private:
     // 与共享页一样，少有人改的混输开关收在组末的「更多选项」里。
     auto candidates_more = add_more_options(
         candidates, candidates_more_open_,
-        focus_row_ == L"符号混输" || focus_row_ == L"颜文字混输");
+        focus_row_ == L"符号混输" || focus_row_ == L"颜文字混输" ||
+            focus_row_ == L"日文混输（实验）" || focus_row_ == L"只出单字" ||
+            focus_row_ == L"本地整句联想");
     // 符号混输是后加的可选键，默认开，文档里平时没有它，回退值必须是 true。
     bool_row(candidates_more, 0xE8EF, L"符号混输",
              L"打出符号的名称时在候选项中加入对应的符号，紧跟在那个词后面（如「正负」后面是 ±、「平方米」后面是 ㎡）；要打完整的名称才出现",
@@ -11510,6 +11512,18 @@ private:
     bool_row(candidates_more, 0xE76E, L"颜文字混输",
              L"中文输入时在候选项中加入匹配的颜文字，紧跟在它描绘的那个词后面、排在同一个词的 emoji 之后，对不上候选词的排在末尾",
              L"mixed_input.kaomoji", false);
+    // 不带临时日语的版本没有这项能力，host-api 也会把偏好固定为关。
+    if constexpr (MSIME_EDITION_TEMPORARY_JAPANESE) {
+      bool_row(candidates_more, 0xE76E, L"日文混输（实验）",
+               L"全拼、双拼里打出完整的日文罗马字时补充一个日文候选（如 ohayou → おはよう）；词典不在时不生效",
+               L"mixed_input.japanese", false);
+    }
+    bool_row(candidates_more, 0xE8C1, L"只出单字",
+             L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字",
+             L"single_character_only", false);
+    bool_row(candidates_more, 0xE8C1, L"本地整句联想",
+             L"把词库组合出的整句加入候选；关闭后仍保留单词候选",
+             L"sentence_association.word_lattice", true);
 
     auto output = add_group(page, L"输出");
     bool_row(output, 0xE8C1, L"繁体输出", L"将提交的简体中文转换为繁体中文",
