@@ -4,8 +4,8 @@
 
 use super::with_bounded_bytes;
 use crate::*;
-use msime_client_core::account::AccountError;
-use msime_client_core::community::report::{
+use msime_client_services::account::AccountError;
+use msime_client_services::community::report::{
     CommunityReport, CommunityReportKind, CommunityReportReason,
 };
 

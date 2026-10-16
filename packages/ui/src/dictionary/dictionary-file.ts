@@ -52,7 +52,7 @@ export async function readDictionaryFile(
   return decodeDictionaryBytes(new Uint8Array(await file.arrayBuffer()));
 }
 
-/** 搜狗细胞词库（`.scel`）文件的上限，与 client-core `dictionary::scel::MAX_SCEL_BYTES` 相同。 */
+/** 搜狗细胞词库（`.scel`）文件的上限，与 client-services `dictionary::scel::MAX_SCEL_BYTES` 相同。 */
 export const MAX_SCEL_FILE_BYTES = 8 * 1024 * 1024;
 
 /** 细胞词库的前 4 字节。只看这 4 字节而不是整个 12 字节的魔数：版本不对的细胞词库也该交给宿主，由它说「版本不支持」，而不是被当成文本读出一堆乱码。 */
@@ -73,7 +73,7 @@ export async function isScelFile(file: Blob): Promise<boolean> {
 /** 不分批的宿主一次导入里共享解析器收的文本上限（client-core `cloud::dictionary::MAX_IMPORT_BYTES`）：超过它的文本整份被拒绝，不是只读前一部分。 */
 export const UNBATCHED_IMPORT_TEXT_BYTES = 64 * 1024;
 
-/** 共享解析器一次导入最多看的行数（client-core `import::MAX_ENTRIES`）。 */
+/** 共享解析器一次导入最多看的行数（client-services `import::MAX_ENTRIES`）。 */
 const IMPORT_EXAMINED_ROWS = 1000;
 
 /**

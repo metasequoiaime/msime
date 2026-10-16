@@ -4,7 +4,7 @@
 
 ## 影响范围
 
-- [ ] 共享 Rust / client-core
+- [ ] 共享 Rust / client-base、client-core、client-services、client-providers
 - [ ] React / Tauri 界面
 - [ ] Android
 - [ ] iOS

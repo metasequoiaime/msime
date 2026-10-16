@@ -25,7 +25,7 @@
 [![Last commit](https://img.shields.io/github/last-commit/metasequoiaime/msime/develop)](https://github.com/metasequoiaime/msime/commits/develop)
 <a href="https://depot.dev/?utm_source=metasequoiaime"><img src="https://depot.dev/badges/built-with-depot.svg" alt="Built with Depot" height="20"></a>
 
-水杉輸入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 與 HarmonyOS 的多平台中文輸入法。六個平台各有自己的原生輸入法宿主，都接入同一套共用輸入執行環境和同一份 React 設定介面；React 管理介面透過 Tauri 呼叫一般的 Rust 業務函式庫；輸入演算法由 msime-engine 提供。
+水杉輸入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 與 HarmonyOS 的多平台中文輸入法。六個平台各有自己的原生輸入法宿主，都接入同一套共用輸入執行環境；設定介面按平台歸屬：macOS、Linux 與 HarmonyOS 用同一份共用 React 設定頁，Windows、iOS 與 Android 用各自的原生設定介面，設定的業務規則應當放在共用的 Rust 層、各平台介面只做介面（目前還有部分規則寫在原生介面裡）；React 設定頁在 macOS 與 Linux 上透過 Tauri 呼叫一般的 Rust 業務函式庫，在 HarmonyOS 上不經過 Tauri，由 ArkWeb 載入、經 ArkTS 原生橋與 NAPI 呼叫 Rust；輸入演算法由 msime-engine 提供。
 
 專案首頁：[msime.app](https://msime.app/) · [GitHub 儲存庫](https://github.com/metasequoiaime/msime) · [貢獻者](https://github.com/metasequoiaime/msime/graphs/contributors) · [問題回報](https://github.com/metasequoiaime/msime/issues) · [程式碼簽章政策 / Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
 
@@ -39,11 +39,11 @@
 
 ## 模組邊界
 
-- `crates/client-core`：與宿主無關的用戶端業務——本機設定、固定資源分代安裝、帳號與工作階段、雲端與 AI、皮膚、詞庫、剪貼簿、語音、翻譯、打字統計；不依賴 Tauri、UI 或平台宿主。
+- `crates/client-base`、`crates/client-core`、`crates/client-services`、`crates/client-providers`：與宿主無關的用戶端業務，依賴方向是 base → core → services 與 core → providers，四個都不依賴 Tauri、UI 或平台宿主。client-base 是儲存、檔案鎖、文字判定、日曆和簡繁轉換；client-core 是本機設定與版本、主題、標點、剪貼簿、翻譯、雲端候選與雲端剪貼簿協定、固定資源分代安裝；client-services 是帳號與工作階段、社群、使用統計、公告、檢查更新、診斷、剪貼簿中繼、皮膚、外掛、詞庫、常用語和打字統計；client-providers 是語音、服務憑證、AI 和按需下載的資源包。
 - `crates/input-runtime`：工作階段編排、焦點取消、候選分頁和帶代次的選擇；不複製 engine 的組詞狀態機。
 - `crates/engine`（`msime-engine`）：純 Rust 輸入引擎——組合狀態、各輸入方案、詞庫查詢與學習重播；由原 C++ MSIME-Engine 移植而來。
 - `crates/host-api`：版本化 C 介面、綁定執行緒的工作階段控制代碼和明確的回應釋放，六個平台的宿主都連結它。
-- `packages/ui`、`apps/desktop`：共用 React 設定頁與 Tauri 承載層，各平台使用同一個 Rust 入口函式庫、commands 與 React 頁面；目錄名稱沿用 desktop。Rust 入口按 `platform/{android,ios,linux,macos,windows,desktop}`、`shared/`、`tests/` 分層。**Tauri 是公用元件，不是任何平台的產品本體**：最終安裝、啟動、被系統識別為輸入法的，始終是 `platforms/<os>` 下的原生宿主，Tauri/React 由它按需承載。
+- `packages/ui`、`apps/desktop`：共用 React 設定頁與 Tauri 承載層，目錄名稱沿用 desktop。React 設定頁是 macOS（Tauri 設定應用程式）、Linux（Tauri 設定應用程式）與 HarmonyOS（打包成 rawfile 由 ArkWeb 載入）的設定介面；Tauri 另在三個桌面平台上承載表情與符號、手寫、螢幕鍵盤、語音、雲端詞庫、雲端剪貼簿等共用面板。Windows、iOS 與 Android 發布套件的設定是原生介面：iOS 與 Android 發布套件不含這些 React 頁面；Windows 的系統匣、開始功能表和不帶面板的請求都開啟原生設定程式 `msime-client-settings.exe`，React 設定頁仍隨 Tauri 的 `MSIME.exe` 安裝，直接執行 `MSIME.exe` 看得到，但沒有設定入口指向它。歸屬見[架構文件](../ARCHITECTURE.md#设置界面按平台归属)。Rust 入口按 `platform/{android,ios,linux,macos,windows,desktop}`、`shared/`、`tests/` 分層。**Tauri 是公用元件，不是任何平台的產品本體**：最終安裝、啟動、被系統識別為輸入法的，始終是 `platforms/<os>` 下的原生宿主，Tauri/React 只在用到它的平台上由它承載。
 - `shared/apple/`：macOS 與 iOS 共用的 Foundation / Objective-C++ 橋接，不包含系統輸入法入口。
 - `platforms/`：各系統入口和適配層。Android、iOS、macOS、Linux、Windows 與 HarmonyOS 六個平台各自維護宿主邊界，每個宿主都以該系統的原生方式被識別為輸入法：Android 的輸入法服務、iOS 的鍵盤延伸功能、macOS 的 InputMethodKit bundle、Linux 的 IBus 與 Fcitx5 入口、Windows 的 TSF DLL 與 Server、HarmonyOS 的 InputMethodExtensionAbility。共用輸入演算法和組合狀態由 `crates/engine` 持有，宿主不複製。
 
@@ -51,7 +51,7 @@
 
 | 平台 | 入口目錄 | 宿主形態與整合方式 |
 | --- | --- | --- |
-| [Android](../../platforms/android/README.md) | `platforms/android/` | 輸入法服務 `app.msime.android.MSIMEInputService` 跑在 `:ime` 獨立行程，Java 宿主經 `platforms/android/native/client_jni.cpp` 呼叫 host-api；Tauri/React 設定與輸入法同一套件、不同行程，共用私有 files/bootstrap/state；手寫走 ML Kit Digital Ink |
+| [Android](../../platforms/android/README.md) | `platforms/android/` | 輸入法服務 `app.msime.android.MSIMEInputService` 跑在 `:ime` 獨立行程，Java 宿主經 `platforms/android/native/client_jni.cpp` 呼叫 host-api；發布的 APK（`build-apk.sh`）用原生 Java 設定介面，不含 Tauri/React；帶 React 設定的 Tauri 合併打包（`build-client-apk.sh`）與輸入法同一套件、不同行程、共用私有 files/bootstrap/state，只用於開發驗證，不發布；手寫走 ML Kit Digital Ink |
 | [iOS](../../platforms/ios/README.md) | `platforms/ios/` | XcodeGen 從 `project.yml` 產生的原生 App 內嵌鍵盤延伸功能 `MSIMEKeyboardExtension`，兩者透過 App Group `group.app.msime.ios` 共用狀態；Swift 鍵盤直接呼叫 host-api，手寫走 ML Kit Digital Ink |
 | [macOS](../../platforms/macos/README.md) | `platforms/macos/` | InputMethodKit bundle（產物名稱 `水杉输入法.app`，bundle id `app.msime.inputmethod.MetasequoiaIME`），Swift 後端編成 `MSIMEBackend.dylib` 隨 bundle 散布，Sparkle 負責自動更新 |
 | [Linux](../../platforms/linux/README.md) | `platforms/linux/` | IBus 與 Fcitx5 是兩個並列的系統入口，連結同一份 host-api ABI；線上聯想、語音、剪貼簿等能力由獨立的 provider 行程加 systemd 使用者單元承載；CPack 產出 TGZ 與 DEB |
@@ -82,9 +82,9 @@
 跨平台的本機驗證入口是 `bash scripts/verify-local.sh`：`--quick` 只跑編譯階段，是合併前的關卡；不帶參數則跑全量，包含 Rust 測試、fmt、clippy、相依性稽核、前端 lint 與型別檢查、各原生宿主的 ctest 以及整句轉換與逐鍵延遲評測。每個階段把失敗的測試名稱與 `scripts/known-failures.txt` 比對，只因不在清單裡的名稱而判定失敗。`git config core.hooksPath .githooks` 可以把 `--quick` 掛到 pre-push 上。
 
 ```sh
-cargo test -p msime-client-core --locked
+cargo test -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --locked
 cargo fmt --all --check
-cargo clippy -p msime-client-core --all-targets --locked -- -D warnings
+cargo clippy -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --all-targets --locked -- -D warnings
 pnpm install --frozen-lockfile
 pnpm --filter @msime/desktop test
 pnpm build
@@ -95,13 +95,13 @@ pnpm tauri dev
 
 桌面設定的應用程式識別碼和預設應用程式資料目錄按平台命名：macOS 是 `app.msime.macos`，Windows 是 `app.msime.windows`，Linux 是 `app.msime.linux`。偏好設定儲存在其中的 `preferences.json`。也可用絕對路徑環境變數 `MSIME_CLIENT_STATE_DIR` 指向隔離的開發目錄。macOS 原生宿主讀取同一份設定，並在目前組詞結束後套用更新；多個設定視窗同時儲存時透過 revision 偵測衝突，使用者須明確重新讀取後再決定是否覆寫。
 
-Android 合併打包的建置和裝置測試見 [Android 宿主](../../platforms/android/README.md#tauri--react-共享设置合包)。Tauri 設定與原生 `:ime` 服務同一套件、不同行程，共用私有 files/bootstrap/state；關閉設定視窗不會結束輸入法行程。iOS 的產品宿主是 `platforms/ios` 的原生 App，它內嵌原生鍵盤延伸功能並透過 App Group 共用狀態；Tauri/React 在 iOS 上只作為共用功能與介面的公用元件，不作為獨立 App 啟動。簽章與裝置安裝步驟見 [iOS 宿主](../../platforms/ios/README.md)。
+Android 合併打包的建置和裝置測試見 [Android 宿主](../../platforms/android/README.md#tauri--react-共享设置合包)。合併打包只用於開發驗證，發布的 APK 是不含 Tauri 的原生套件；合併打包裡 Tauri 設定與原生 `:ime` 服務同一套件、不同行程，共用私有 files/bootstrap/state，關閉設定視窗不會結束輸入法行程。iOS 的產品宿主是 `platforms/ios` 的原生 App，設定介面是 SwiftUI 原生頁面，它內嵌原生鍵盤延伸功能並透過 App Group 共用狀態；App 裡沒有 WebView，Tauri iOS 專案只在單獨建置公用元件時產出，不作為 App 發布或啟動。簽章與裝置安裝步驟見 [iOS 宿主](../../platforms/ios/README.md)。
 
 共用設定支援 shuangpin_profile：xiaohe（小鶴）、ziranma（自然碼）、shoudao（首道）、microsoft（微軟），以及 custom（自訂雙拼，鍵位表存在 shuangpin_custom_profile）。未設定時按小鶴讀取，未知值拒絕；設定頁在非雙拼方案下停用此選項，但保留已選的值。macOS 和 Linux 的設定頁可以從內建方案起步編輯自訂鍵位、匯入匯出 JSON，鍵位表要通過 Engine 的檢查才能儲存；鍵位表不能用時輸入法按小鶴執行。方案變更沿用組詞結束後再替換 Engine 的規則。
 
 Linux 本機建置、隔離的 D-Bus / IBus 測試和安裝後的首次設定見 [Linux 宿主](../../platforms/linux/README.md)。宿主支援設定檔自動重新讀取，安裝後由隨附安裝的 `msime-linux-setup` 備齊詞庫並準備執行設定；`msime-linux-setup --download` 依 `resources/desktop-dictionary.lock.json` 取回缺少的詞庫，圖形入口在缺少 `runtime-options.json` 時會開啟同一套首次設定頁。
 
-功能對齊以 MSIME-Windows 的完整功能為行為基準：公用業務和介面逐項接入共用層與 Tauri，Windows 沿用 TSF DLL 與 Server 分行程的結構，但兩者之間的協定只服務本儲存庫同版本的建置，不再相容 MSIME-Windows 的舊設定、共享記憶體、無版本交握和舊語音管道，Android、iOS、macOS、Linux 與 HarmonyOS 依各自的系統能力適配。`scripts/test-reference-*.py` 把這條基準固化成可重跑的關卡——參考實作的出廠設定鍵、四個介面的機器可讀能力清單、changelog 的每條特性、以及 `windows/`、`server/`、`ui/src` 下的每個原始檔，都必須對應到本儲存庫的實作或一條寫明理由的缺席紀錄。
+功能對齊以 MSIME-Windows 的完整功能為行為基準：公用業務逐項接入共用層，介面按平台歸屬接入共用 React 頁或該平台的原生設定，Windows 沿用 TSF DLL 與 Server 分行程的結構，但兩者之間的協定只服務本儲存庫同版本的建置，不再相容 MSIME-Windows 的舊設定、共享記憶體、無版本交握和舊語音管道，Android、iOS、macOS、Linux 與 HarmonyOS 依各自的系統能力適配。`scripts/test-reference-*.py` 把這條基準固化成可重跑的關卡——參考實作的出廠設定鍵、四個介面的機器可讀能力清單、changelog 的每條特性、以及 `windows/`、`server/`、`ui/src` 下的每個原始檔，都必須對應到本儲存庫的實作或一條寫明理由的缺席紀錄。
 
 ## 輸入引擎
 

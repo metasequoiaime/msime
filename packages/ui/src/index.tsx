@@ -52,6 +52,7 @@ import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import type { ResourcePackClient } from "./settings/resource-packs";
 import type { WubiCodeLookup } from "./settings/wubi-code-lookup-section";
+import type { CloudClipboardRelayPreferences } from "./settings/cloud-clipboard-relay-preferences";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   type DictionaryEntry,
@@ -495,6 +496,7 @@ import type {
 import type { SentenceAssociationPreferences } from "./settings/sentence-association-preferences";
 import type { MixedInputPreferences } from "./settings/mixed-input-preferences";
 import type { FrequencyPreferences } from "./settings/frequency-preferences";
+import type { AiAssistantPreferences } from "./settings/ai-assistant-preferences";
 import { type LocalModePreferences } from "./settings/local-mode-preferences";
 import { floatingToolbarPreferences } from "./settings/floating-toolbar-preferences";
 import type { ThemeMode, ThemePreferences } from "./settings/theme-preferences";
@@ -1207,8 +1209,8 @@ export {
 export {
   CredentialStatusMessage,
   type CredentialStatusMessageProps,
-  type CredentialStatusMessageValue,
 } from "./settings/credential-status-message";
+export type { CredentialStatusMessageValue } from "./settings/credential-status-message";
 export { CredentialActions, type CredentialActionsProps } from "./settings/credential-actions";
 export { SettingToggle, type SettingToggleProps } from "./settings/setting-toggle";
 export { SettingField, type SettingFieldProps } from "./settings/setting-field";
@@ -1873,6 +1875,7 @@ export interface EditionInfo {
 export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 
 export type { SentenceAssociationPreferences } from "./settings/sentence-association-preferences";
+export type { AiAssistantPreferences } from "./settings/ai-assistant-preferences";
 
 export type Preferences = PunctuationPreferences &
   PreeditPreferences &
@@ -1890,8 +1893,8 @@ export type Preferences = PunctuationPreferences &
     voice_input?: VoiceInputPreferences;
     local_modes?: LocalModePreferences;
     clipboard_history?: boolean;
-    /** 自建云剪贴板中继的地址和令牌；缺省或地址为空表示走水杉账号。两项要么都空，要么都合规，见 `crates/client-core/src/clipboard_relay.rs`。 */
-    cloud_clipboard_relay?: { url: string; token: string };
+    /** 自建云剪贴板中继的地址和令牌；缺省或地址为空表示走水杉账号。两项要么都空，要么都合规，见 `crates/client-core/src/preferences.rs` 的 `CloudClipboardRelayPreferences`。 */
+    cloud_clipboard_relay?: CloudClipboardRelayPreferences;
     cloud_candidates?: boolean;
     candidate_translations?: boolean;
     candidate_english_gloss?: boolean;
@@ -1994,19 +1997,6 @@ export type Preferences = PunctuationPreferences &
     /** Sound packs, music and command tables; the document leaves it out while every value is the default. */
     plugins?: PluginPreferences;
   };
-export type AiAssistantPreferences = {
-  enabled: boolean;
-  provider: string;
-  model: string;
-  endpoint: string;
-  candidate_limit: number;
-  token?: string;
-  tokens?: Record<string, string>;
-  prompt_id?: string;
-  prompt_custom_1: string;
-  prompt_custom_2: string;
-  prompt_custom_3: string;
-};
 /** What the Linux online provider holds, never the secrets themselves. */
 export type ProviderCredentialStatus = {
   ai: { provider: string; endpoint: string; model: string }[];
@@ -2157,7 +2147,7 @@ export type Snapshot = {
   candidate_skin_catalog?: ExternalSkinCatalog;
 };
 export type DictionaryFailure = { request_id: string; label: string; error: string };
-/** Mirrors the import response from `client-core::dictionary_import`. */
+/** 对应 `client-services::dictionary::import` 的导入响应。 */
 export interface DictionaryImportResult {
   applied: number;
   /** Rows examined and skipped. */
@@ -2325,7 +2315,7 @@ export interface SettingsClient {
   /** Open the folder holding the preferences document, where a repair leaves its backup. */
   openPreferencesDirectory?: () => Promise<void>;
   readAppVersion?: () => Promise<string>;
-  /** 经由 `msime_client_core::update_check`（Tauri 的 `update_check` 命令，或原生宿主上的 `msime_client_update_check`）把本平台、本版本最新的已发布版本与当前运行的版本号比较。未提供时关于页不提供检查更新。 */
+  /** 经由 `msime_client_services::update_check`（Tauri 的 `update_check` 命令，或原生宿主上的 `msime_client_update_check`）把本平台、本版本最新的已发布版本与当前运行的版本号比较。未提供时关于页不提供检查更新。 */
   checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
   openExternalUrl?: (url: string) => Promise<void>;
   /** The console's app notices; the host fetches and caches the feed and remembers dismissals. Absent shows none. */

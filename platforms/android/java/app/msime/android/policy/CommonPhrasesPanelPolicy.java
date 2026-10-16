@@ -29,7 +29,7 @@ public final class CommonPhrasesPanelPolicy {
     /**
      * 剪贴板记录存成常用语前的正文：`\r\n` 和单独的 `\r` 换成 `\n`。
      *
-     * <p>剪贴板历史允许回车和制表符，常用语只允许换行；从 Windows 或网页复制来的多行文字常带 `\r\n`，不换掉就整条存不进去。client-core 收社区短语时也是这样换的（`normalize_line_breaks`）。制表符不换：换成空格会悄悄改掉用户以后上屏的文字。
+     * <p>剪贴板历史允许回车和制表符，常用语只允许换行；从 Windows 或网页复制来的多行文字常带 `\r\n`，不换掉就整条存不进去。client-services 收社区短语时也是这样换的（`normalize_line_breaks`）。制表符不换：换成空格会悄悄改掉用户以后上屏的文字。
      */
     public static String clipboardPhraseText(String text) {
         if (text == null) return "";

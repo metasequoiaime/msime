@@ -5,7 +5,7 @@
 //! The React surface receives the same redacted DTOs as every other host: the tokens never leave this process.
 
 use crate::platform::desktop::desktop_account;
-use msime_client_core::account::{AccountSessionFileLayout, FileAccountSessionStorage};
+use msime_client_services::account::{AccountSessionFileLayout, FileAccountSessionStorage};
 use std::path::Path;
 
 /// Registers the shared desktop account state around the session file in `directory`, the resolved shared state directory.

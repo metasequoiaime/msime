@@ -71,7 +71,7 @@ struct TypingBreakdown: Decodable, Equatable {
   }
 }
 
-/// The statistics document as the shared Rust store (`crates/client-core/src/typing_statistics.rs`) writes it; this side only reads it.
+/// 共享 Rust 存储（`crates/client-services/src/typing_statistics.rs`）写出的统计文档；这一侧只读取它。
 struct TypingStatistics: Decodable {
   /// Off until the user turns it on, as the shared store ships it; a document that says otherwise keeps what it says.
   var enabled = false
@@ -315,7 +315,7 @@ extension TypingStatistics {
   }
 }
 
-/// The key ids the shared store accepts, W3C `KeyboardEvent.code` names plus the on-screen keys a touch keyboard has and a hardware one does not. A copy of `KEY_IDS` in `crates/client-core/src/typing_statistics.rs`: the store rejects a whole batch that carries any other id, so a key that maps to nothing here is left uncounted rather than given a made-up name.
+/// 共享存储接受的键 id：W3C `KeyboardEvent.code` 名，加上触屏键盘有而硬件键盘没有的屏幕键。它是 `crates/client-services/src/typing_statistics.rs` 里 `KEY_IDS` 的副本：只要一批里有任何别的 id，存储层就整批拒绝，所以这里映射不到任何 id 的键不计数，而不是给它编一个名字。
 enum TypingKeyID {
   // Built from typed parts: as one chain of `+` over closures and literals, the Xcode 26.2 compiler gives up with
   // "unable to type-check this expression in reasonable time" and the keyboard extension does not build.
@@ -332,7 +332,7 @@ enum TypingKeyID {
     let numpadDigits: [String] = (0...9).map { "Numpad\($0)" }
     let numpad: [String] = ["NumpadDecimal", "NumpadEnter", "NumpadAdd", "NumpadSubtract", "NumpadMultiply", "NumpadDivide", "NumLock"]
     let nineKey: [String] = (0...9).map { "Nine\($0)" }
-    // 全拼 14 键的各键，按键面上的字母命名，与 client-core 的 `KEY_IDS` 逐字一致。
+    // 全拼 14 键的各键，按键面上的字母命名，与 client-services 的 `KEY_IDS` 逐字一致。
     let fourteenKey: [String] = ["QW", "ER", "TY", "UI", "OP", "AS", "DF", "GH", "JK", "L", "ZX", "CV", "BN", "M"].map { "Fourteen\($0)" }
     let soft: [String] = ["SoftPunctuation", "SoftSymbol", "SoftLayer", "SoftLanguage", "SoftGlobe", "SoftEmoji", "SoftVoice"]
     var keys: [String] = letters
@@ -586,7 +586,7 @@ extension TypingStatistics {
   }
 }
 
-/// 存储层 `summary` 操作的返回：统计页画的概览、习惯、按键和成就。镜像 `crates/client-core/src/typing_statistics/metrics.rs` 里的 `TypingSummary`，所有数字都在那边算好，这边只解码和格式化。Rust 留空的字段（样本太少、没有活跃时长、还没有记录）在这里保持 nil，页面上显示 '—' 而不是 0。
+/// 存储层 `summary` 操作的返回：统计页画的概览、习惯、按键和成就。镜像 `crates/client-services/src/typing_statistics/metrics.rs` 里的 `TypingSummary`，所有数字都在那边算好，这边只解码和格式化。Rust 留空的字段（样本太少、没有活跃时长、还没有记录）在这里保持 nil，页面上显示 '—' 而不是 0。
 struct TypingSummary: Decodable, Equatable {
   struct DayCount: Decodable, Equatable {
     var day: String
@@ -1009,7 +1009,7 @@ struct TypingStatisticsStore {
 
   /// 原生统计页「统计没有数据」那张卡的正文，nil 表示不需要这张卡。`recordingOff` 只在确实读到了统计文档且其中记录关闭时为真：此时键盘本来就不写，「记录已关闭」那张卡已经说明了原因，这里再让人去开完全访问，会把人引到错误的地方。
   ///
-  /// 文件存在不能说明键盘写过：在 app 里开启记录时，`client-core` 的 `set_enabled` 会无条件写出 `typing-statistics.json`，而键盘没有完全访问权限时不记录任何东西，数字会一直是零。app 读不到键盘是否有完全访问（iOS 没有公开 API，键盘没有完全访问时也写不了 App Group，留下的标记在权限收回后会过期），所以计数为零时始终先提醒这一项，再说其他可能。
+  /// 文件存在不能说明键盘写过：在 app 里开启记录时，`client-services` 的 `set_enabled` 会无条件写出 `typing-statistics.json`，而键盘没有完全访问权限时不记录任何东西，数字会一直是零。app 读不到键盘是否有完全访问（iOS 没有公开 API，键盘没有完全访问时也写不了 App Group，留下的标记在权限收回后会过期），所以计数为零时始终先提醒这一项，再说其他可能。
   static func emptyStatisticsAdvice(_ availability: Availability, recordingOff: Bool, total: Int) -> String? {
     if recordingOff { return nil }
     switch availability {

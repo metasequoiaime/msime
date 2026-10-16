@@ -26,6 +26,6 @@ Status: implemented
 
 ## Verification
 
-- `crates/client-core/src/account/tests.rs`：有链接时三种回跳页带按钮、Content-Length 正确，404 页不带；网页协议、带引号或空格、大写 scheme、没有 `://`、超长的链接都不画按钮，回跳照常是 `Code`。
+- `crates/client-services/src/account/tests.rs`：有链接时三种回跳页带按钮、Content-Length 正确，404 页不带；网页协议、带引号或空格、大写 scheme、没有 `://`、超长的链接都不画按钮，回跳照常是 `Code`。
 - `crates/host-api/src/ffi/google.rs`：`reply` 带 `return_link` 时回复里有按钮，不带时没有。
 - 模拟器上的验证见 PR。

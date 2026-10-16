@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`crates/client-core/src/community.rs` 持有 `CommunityRatingRequest`、`CommunityRatingResponse` 和 `CommunityDeletionResponse`。三个资源 API 继续使用自己的 URL、鉴权、入参检查和错误映射，只复用 JSON 字段形状及严格反序列化规则。评分回包仍须与请求星数一致，删除回包仍须为 `deleted: true`。
+`crates/client-services/src/community.rs` 持有 `CommunityRatingRequest`、`CommunityRatingResponse` 和 `CommunityDeletionResponse`。三个资源 API 继续使用自己的 URL、鉴权、入参检查和错误映射，只复用 JSON 字段形状及严格反序列化规则。评分回包仍须与请求星数一致，删除回包仍须为 `deleted: true`。
 
 ## Alternatives considered
 

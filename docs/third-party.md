@@ -122,9 +122,9 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 
 第七套五笔 86（`wubi86`）不同：它由本仓库从 msime-dictionary 的 86 五笔码表生成，上游许可明确（极点码表 Apache-2.0，另有 16 个字的码来自并入的 rime-wubi 行，LGPL-3.0，按 GPL-3.0 分发），可以随包分发。来源、生成命令、摘要和 Apache-2.0 全文在 [`resources/helpcodes/NOTICE-wubi86.md`](../resources/helpcodes/NOTICE-wubi86.md)。
 
-## 自带音效包与插件包（`resources/sound-packs/`、`client-core::plugins`）
+## 自带音效包与插件包（`resources/sound-packs/`、`client-services::plugins`）
 
-内置的九套音效包和两套背景音乐包是本项目自己的作品，随各平台安装包分发，放在资源目录的旁边（资源目录必须与锁文件完全一致）。它们的标识登记在 `client-core::plugins` 的 `BUILTIN_SOUND_PACKS` 与 `BUILTIN_MUSIC_PACKS`，这些标识保留给内置包，用户导入的包不能占用。
+内置的九套音效包和两套背景音乐包是本项目自己的作品，随各平台安装包分发，放在资源目录的旁边（资源目录必须与锁文件完全一致）。它们的标识登记在 `client-services::plugins` 的 `BUILTIN_SOUND_PACKS` 与 `BUILTIN_MUSIC_PACKS`，这些标识保留给内置包，用户导入的包不能占用。
 
 | 项 | 值 |
 | --- | --- |
@@ -140,7 +140,7 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 
 | crate | 版本 | 许可证 | 用途 |
 | --- | --- | --- | --- |
-| `zip`（关闭默认特性，只开 `deflate-flate2`） | 8.6 | MIT | 导入用户选中的 `.zip` 插件包（`crates/client-core/src/plugins/import.rs`）。带进 `typed-path`（MIT OR Apache-2.0）；其余依赖 `crc32fast`、`indexmap`、`memchr`、`flate2` 原本就在锁文件里 |
+| `zip`（关闭默认特性，只开 `deflate-flate2`） | 8.6 | MIT | 导入用户选中的 `.zip` 插件包（`crates/client-services/src/plugins/import.rs`）。带进 `typed-path`（MIT OR Apache-2.0）；其余依赖 `crc32fast`、`indexmap`、`memchr`、`flate2` 原本就在锁文件里 |
 
 播放音效包与背景音乐用到的 Rust crate，只链进 macOS、Windows、Linux 的 `host-api`（`crates/host-api/src/key_sound/`）；iOS、Android、HarmonyOS 不链接，HarmonyOS 2in1 用系统 SoundPool 播 `msime_client_key_sound_pack` 解析出的文件，WAV 样本先经上文的 miniaudio 在长度上限内解码、按旋律音高重写，背景音乐则由系统 AVPlayer 流式播放 `msime_client_music_pack` 解析出的曲目：
 
@@ -171,7 +171,7 @@ MPL-2.0 是文件级 copyleft，与本仓库的 GPL-3.0 兼容：这些 crate �
 | 取用方式 | `scripts/fetch_wordbooks.py` 按锁校验后展开到被忽略的 `target/wordbooks/` |
 | 分发限制 | MIT，保留版权声明与许可全文即可；与本仓库的 GPL-3.0 分发兼容 |
 
-**源文件不进版本库，也不整份随包**。脚本只取 `word`、`phonetic` 和 `translation` 的首行释义——卡片要显示的就这三样——按 `tag` 列（`zk`/`gk`/`cet4`/`cet6`/`ky`/`ielts`/`toefl`/`gre`）分成八本，写成 `client-core::vocabulary::wordbook::Wordbook` 直接能反序列化的 JSON。八本合计约 3 MB，宿主用 serde_json 读，不需要 CSV 解析器或 SQLite 驱动。
+**源文件不进版本库，也不整份随包**。脚本只取 `word`、`phonetic` 和 `translation` 的首行释义——卡片要显示的就这三样——按 `tag` 列（`zk`/`gk`/`cet4`/`cet6`/`ky`/`ielts`/`toefl`/`gre`）分成八本，写成 `client-services::vocabulary::wordbook::Wordbook` 直接能反序列化的 JSON。八本合计约 3 MB，宿主用 serde_json 读，不需要 CSV 解析器或 SQLite 驱动。
 
 考纲归属是 ECDICT 提供的：仓库自带的 `msime-english.db` 有中英释义和语料频次，够做「最常用的一千词」，但不足以断言某个词在四级大纲里。那是已发布的考纲，凭频次给它安一个名字就是编的。
 
@@ -282,7 +282,7 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 | [modood/Administrative-divisions-of-China](https://github.com/modood/Administrative-divisions-of-China) 的省、地、县三级行政区划，提交 `c49d495b40ac73eb1a66f6eeae5f8fd10696f035` | WTFPL（全文在 `resources/licenses/Administrative-divisions-of-China-WTFPL.txt`）；上游整理自国家统计局公布的统计用区划代码与城乡划分代码 | `crates/engine/src/local/places.tsv`，`@` 模式在用户自己的列表之后补充的内置地名（3302 个，约 126 KB，`include_str!` 编进引擎）。`msime-dict-build places` 读 `dist/provinces.csv`、`dist/cities.csv`、`dist/areas.csv` 三个文件生成这张表，三者的 URL、长度与 SHA-256 固定在 `resources/dictionary-sources.lock.json` 的 `places/` 条目；拼音由生成器按字注音，再用 `crates/dict-builder/src/places.rs` 的 `READINGS` 纠正地名专用读音。只取地名和上级关系，不带区划代码。设置里「@ 地名」默认关闭 |
 | [libhangul](https://github.com/libhangul/libhangul) 的 `data/hanja/hanja.txt`，提交 `717409ce61524bb3d8426060a384822f21354c62` | BSD-3-Clause（文件头单独声明，Copyright (c) 2005,2006 Choe Hwanjin；全文在 `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`）。libhangul 仓库整体是 LGPL-2.1，但本仓只取这一份单独声明 BSD-3 的数据文件。上游提交历史说明 2006–2007 年部分读音和词表整理自国立国语院的材料，这些材料能否以 BSD 再授权无法独立核实，属于上游作者的声明 | `crates/engine/src/korean/hanja.tsv`，韩语模式把正在组字的音节转换成汉字时的候选表（555 个音节、28416 行，约 430 KB，`include_str!` 编进引擎）。`msime-dict-build hanja --dictionary <msime-dictionary checkout>` 读 msime-dictionary 原样收录的这一个文件（`sources/korean/hanja.txt`，大小与 SHA-256 由该仓 `upstream.lock.json` 固定）生成这张表，libhangul 提交记在 `resources/dictionary-sources.lock.json` 的 `libhangul` 引用里。只取单音节条目：键是一个预组合音节，值是基本多文种平面内的一个统一汉字，即 CJK 统一汉字、扩展 A 区汉字，或兼容汉字区里 NFC 不改写的 12 个统一汉字（U+FA0E 﨎、U+FA11 﨑 等）；真正的兼容汉字（NFC 会改写，固定版本的单音节条目里没有）、辅助平面汉字和两字值都丢弃；每个音节内保持上游顺序，保留上游的训音（훈음）注释，约 27% 的行有训音，扩展 A 区一行都没有。词条级数据（约 5.7 MB）不使用。BSD-3 第 2 条要求二进制分发时附带版权声明和条款，表编进引擎后随六个平台的引擎一起分发，所以六个平台的通知渠道都收录这份文本：Windows 的 `Collect-Notices.ps1`，macOS 输入法包的 `Resources/Licenses`（`CMakeLists.txt` 与 `THIRD_PARTY_NOTICES.txt`），Linux 安装的声明（`CMakeLists.txt` 与 `data/THIRD_PARTY_NOTICES.txt`），Android 的 `assets/native-notices`（`build-native.sh`），iOS App 的资源（`project.yml`），HarmonyOS 的 `resfile/licenses`（`stage-resources.sh`）。`scripts/test-korean-hanja-table.py` 检查这几处都还在 |
 | [kfcd/chaizi](https://github.com/kfcd/chaizi)（開放詞典《漢語拆字字典》）的 `chaizi-jt.txt`、`chaizi-ft.txt`，提交 `e177ab54ce4edf255315a60593ffecbd8167e96b` | CC BY 3.0 Unported（© 2015 開放詞典，http://www.kaifangcidian.com）；署名、改动说明和许可证全文在 `resources/licenses/kfcd-chaizi-CC-BY-3.0.txt`。表里的读音、名次和繁体字形取自 Unihan 17.0.0，Unicode-3.0（全文在 `resources/licenses/Unicode-License-V3.txt`） | `crates/engine/src/local/chaizi.tsv` 与 `chaizi-chars.tsv`，拆字反查（C 模式）的部件拼音索引（约 1.8 万个键、20 387 字，两表合计约 0.6 MB，`include_str!` 编进引擎，网页引擎里是空表）。`scripts/build_chaizi_table.py` 按 `resources/chaizi.lock.json` 校验后读这两个文件：简繁两表取并集，去掉「□」占位行、私用区和兼容表意字的条目（兼容字归一后已在表里的并入）及含私用区部件的拆法，按部件的去调拼音重新索引（读音取 Unihan 17.0.0 的 `kMandarin` 与 `kTGHZ2013`，加上生成器里 `ALIASES` 的部首俗称，如 氵 san、辶 zou），给每个字附 `kMandarin` 首个读音、按《通用规范汉字表》排的名次和 OpenCC s2t 的繁体字形；没有读音的部件所在的拆法不进索引。`scripts/test-chaizi-table.py` 离线检查表的不变量与署名，CI 的 Rust engine 作业设 `MSIME_FETCH=1` 下载锁定输入后逐字节核对。CC BY 3.0 第 4(b) 条要求分发改编作品时署名并写明改动，许可证文件就是这份说明；Unicode License V3 要求随数据或相关文档附上它的版权与许可声明。随引擎分发的每个平台都要在声明渠道里带上这两份文件；`test-chaizi-table.py` 的 `NOTICE_CHANNELS` 列出已经接上的渠道。CC BY 3.0 与 GPL-3.0 的关系、App Store 等带 DRM 的渠道与第 4(a) 条技术措施条款的关系，以及上游没有说明这份数据自身的来源，三点都未经法务审阅，需要维护者判断，见 `.agents/notes/implemented/feature/2026-10-13-builtin-chaizi-mode.md`。设置里的「拆字」开关只停用功能，数据仍随二进制；真正退出要删掉两张表，并让 `local::chaizi` 的查询返回空 |
-| [OpenCC](https://github.com/BYVoid/OpenCC) 词典，提交 `26753884f1984add422f3b0249ccee8613deaff6` | Apache-2.0 | `crates/client-core/data/opencc/`，许可证全文在同目录 `LICENSE`。`STPhrases.txt`、`STCharacters.txt`、`CJK_Compatibility_Ideographs.txt`，以及臺灣变体用的 `TWPhrases.txt`、`TWVariants.txt`、`TWVariantsPhrases.txt` 原样取自该提交的 `data/dictionary/`；`STPhrases_GeneratedFromRegionalPhrases.txt` 是该提交的 OpenCC 构建产物（`data/scripts/generate_st_phrases_from_regional_phrases.py` 用 `t2s.json` 生成），本仓不重新生成。提交号与来源 MSIME-Windows 的 `vendor/opencc` 子模块一致。只使用数据，不链接 OpenCC 的 C++ 库；`chinese_conversion.rs` 按 `s2t.json`、`s2tw.json`、`s2twp.json` 的规则实现转换。Windows 通知由 `Collect-Notices.ps1` 一并收集 |
+| [OpenCC](https://github.com/BYVoid/OpenCC) 词典，提交 `26753884f1984add422f3b0249ccee8613deaff6` | Apache-2.0 | `crates/client-base/data/opencc/`，许可证全文在同目录 `LICENSE`。`STPhrases.txt`、`STCharacters.txt`、`CJK_Compatibility_Ideographs.txt`，以及臺灣变体用的 `TWPhrases.txt`、`TWVariants.txt`、`TWVariantsPhrases.txt` 原样取自该提交的 `data/dictionary/`；`STPhrases_GeneratedFromRegionalPhrases.txt` 是该提交的 OpenCC 构建产物（`data/scripts/generate_st_phrases_from_regional_phrases.py` 用 `t2s.json` 生成），本仓不重新生成。提交号与来源 MSIME-Windows 的 `vendor/opencc` 子模块一致。只使用数据，不链接 OpenCC 的 C++ 库；`chinese_conversion.rs` 按 `s2t.json`、`s2tw.json`、`s2twp.json` 的规则实现转换。Windows 通知由 `Collect-Notices.ps1` 一并收集 |
 
 ## 脚本插件合集（`plugins/script/`）
 
@@ -291,7 +291,7 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 | 组件 | 许可证 | 位置与说明 |
 | --- | --- | --- |
 | Unicode Han Database（Unihan）17.0.0 的 `kTGH`（《通用规范汉字表》）与 `kTraditionalVariant` | Unicode-3.0（全文在 `resources/licenses/Unicode-License-V3.txt`） | `plugins/script/data/common-chars.bin`，生僻字类插件共用的常用字集（8105 字并上它们的繁体形，共 11 049 字，约 4 KiB）。`plugins/script/tools/gen_common_chars.py` 读 `resources/character-glosses.lock.json` 锁定的 `Unihan-17.0.0.zip`（校验 sha256）生成，来源说明在同目录的 `common-chars-NOTICE.txt`。插件包随附 `Unicode-License-V3.txt` |
-| [OpenCC](https://github.com/BYVoid/OpenCC) 词典，提交 `26753884f1984add422f3b0249ccee8613deaff6` | Apache-2.0（全文在 `crates/client-core/data/opencc/LICENSE`） | 读的是上面「编译进共享库的数据」里 vendored 的同一份文件。常用字集取 `STCharacters.txt` 里《通用规范汉字表》各字的繁体单字值（只由 OpenCC 补进集合的有 151 字）。插件包随附 `OpenCC-LICENSE.txt`，组装时（`plugins/script/tools/assemble.py`）逐字节核对它和仓库里的原件相同 |
+| [OpenCC](https://github.com/BYVoid/OpenCC) 词典，提交 `26753884f1984add422f3b0249ccee8613deaff6` | Apache-2.0（全文在 `crates/client-base/data/opencc/LICENSE`） | 读的是上面「编译进共享库的数据」里 vendored 的同一份文件。常用字集取 `STCharacters.txt` 里《通用规范汉字表》各字的繁体单字值（只由 OpenCC 补进集合的有 151 字）。插件包随附 `OpenCC-LICENSE.txt`，组装时（`plugins/script/tools/assemble.py`）逐字节核对它和仓库里的原件相同 |
 
 ## 官方短语表（`plugins/phrase_table/`）
 
@@ -316,11 +316,11 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 
 ### 模型（`resources/local-asr-models.json`）
 
-模型目录由设置页的模型管理下载：`client-core::voice::local_models` 只接受 HTTPS，逐字节校验长度与 SHA-256，只保留目录清单 `files` 里列出的文件（`test_wavs`、`test_onnx.py`、`bpe.model` 不解包），最后写入 `msime-model.json`。三份归档都是 sherpa-onnx 项目转换成 ONNX 后在 `asr-models` 发布里公开提供的版本，下表的许可证取自目录里各条目的 `license` 字段：
+模型目录由设置页的模型管理下载：`client-providers::voice::local_models` 只接受 HTTPS，逐字节校验长度与 SHA-256，只保留目录清单 `files` 里列出的文件（`test_wavs`、`test_onnx.py`、`bpe.model` 不解包），最后写入 `msime-model.json`。三份归档都是 sherpa-onnx 项目转换成 ONNX 后在 `asr-models` 发布里公开提供的版本，下表的许可证取自目录里各条目的 `license` 字段：
 
 | 目录 id | 模型 | 许可证 | 来源 | 说明 |
 | --- | --- | --- | --- | --- |
-| `x-asr-zh-en-streaming`（默认） | X-ASR 中英流式 zipformer transducer，int8 | Apache-2.0 | [Gilgamesh-J/X-ASR](https://github.com/Gilgamesh-J/X-ASR) | 原生支持热词。热词需要的 `bpe.vocab` 上游归档里没有，仓库自带一份 `resources/voice-models/x-asr-zh-en-bpe.vocab`（69,594 字节，SHA-256 记在目录的 `extra` 里），编译进 `client-core`，安装时写入模型目录；它是该模型的派生数据，适用同一许可证 |
+| `x-asr-zh-en-streaming`（默认） | X-ASR 中英流式 zipformer transducer，int8 | Apache-2.0 | [Gilgamesh-J/X-ASR](https://github.com/Gilgamesh-J/X-ASR) | 原生支持热词。热词需要的 `bpe.vocab` 上游归档里没有，仓库自带一份 `resources/voice-models/x-asr-zh-en-bpe.vocab`（69,594 字节，SHA-256 记在目录的 `extra` 里），编译进 `client-providers`，安装时写入模型目录；它是该模型的派生数据，适用同一许可证 |
 | `sense-voice-small` | SenseVoice-Small，int8 | **FunASR Model License v1.1**（`LicenseRef-FunASR-Model-License-1.1`），不是 OSI 开源许可证 | [FunAudioLLM/SenseVoice](https://github.com/FunAudioLLM/SenseVoice)，条款全文见 [FunASR MODEL_LICENSE](https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE) | 阿里巴巴通义实验室。条款要求保留模型名称和署名，目录条目的 `notice` 原样记录了这段署名，设置页在模型旁显示它。**不随 MSIME 分发**，只在用户点下载时从上游取得 |
 | `fun-asr-nano`（仅桌面） | Fun-ASR-Nano-2512，int8 | Apache-2.0 | [FunAudioLLM/Fun-ASR](https://github.com/FunAudioLLM/Fun-ASR) | 阿里巴巴通义实验室。解码器是 Qwen3-0.6B，同为 Apache-2.0 |
 | `silero_vad.onnx`（后两个模型的附加文件） | Silero VAD | MIT | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | 整句模型用它切分语音段。从 sherpa-onnx 的 `asr-models` 发布下载，SHA-256 固定在目录的 `extra` 里 |
@@ -331,7 +331,7 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 
 | crate | 版本 | 许可证 | 用途 |
 | --- | --- | --- | --- |
-| `pinyin` | 0.11 | MIT | 把用户词库的热词转成无声调拼音，给不支持原生热词的模型做近音纠正（`client-core::voice::hotwords`） |
+| `pinyin` | 0.11 | MIT | 把用户词库的热词转成无声调拼音，给不支持原生热词的模型做近音纠正（`client-providers::voice::hotwords`） |
 | `tar` | 0.4 | MIT OR Apache-2.0 | 解包模型归档 |
 | `bzip2` | 0.6 | MIT OR Apache-2.0 | 解压 `.tar.bz2`。0.6 默认使用纯 Rust 的 `libbz2-rs-sys` 后端，该 crate 的许可证是 `bzip2-1.0.6`（bzip2 原作的 BSD 式许可，要求保留版权声明） |
 

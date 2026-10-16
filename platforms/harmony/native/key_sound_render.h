@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-// Pack bounds from client-core's sound_pack module, which validated the pack before its paths reached this host: MAX_SAMPLE_BYTES, SAMPLE_RATES, MAX_SEMITONES and SEMITONE_RANGE. The renderer checks them again because it reads the file itself.
+// 包的各项上限取自 client-services 的 `sound_pack` 模块（包的路径到达本宿主之前已由它校验过）：`MAX_SAMPLE_BYTES`、`SAMPLE_RATES`、`MAX_SEMITONES` 和 `SEMITONE_RANGE`。渲染器自己读文件，所以会再检查一遍。
 constexpr size_t kKeySoundMaxSampleBytes = 512 * 1024;
 constexpr uint32_t kKeySoundMinSampleRate = 8000;
 constexpr uint32_t kKeySoundMaxSampleRate = 192000;

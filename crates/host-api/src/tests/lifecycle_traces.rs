@@ -5,7 +5,7 @@ use crate::lifecycle::{
     Call, CommitOrigin, Cue, InputClass, LifecycleEvent, COMMIT_OBSERVE_ONLY, CUES, FEEDBACK,
     HOST_HOLDS_PIECES, SUPPORTED_FLAGS, TRAIT_KNOWN, TRAIT_SECURE,
 };
-use msime_client_core::plugins::EffectStyle;
+use msime_client_services::plugins::EffectStyle;
 use msime_input_runtime::{SelectionHow, SelectionOutcome};
 use std::cell::RefCell;
 use std::rc::Rc;

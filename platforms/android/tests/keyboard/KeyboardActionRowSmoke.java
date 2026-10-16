@@ -6,9 +6,9 @@ import java.util.List;
 
 public final class KeyboardActionRowSmoke {
     public static void main(String[] args) {
-        // 新设计底行：123 1.25 / ， 1 / 空格 4 / 。 1 / 中 1.05 / ↵ 1.9，地球键条件插在 123 之后。
+        // 14 键（以及手写、大千注音）的底行：123 1.25 / ， 1 / 空格 4 / 。 1 / 中 1.05 / ↵ 1.9，地球键条件插在 123 之后。
         List<KeyboardActionRow.DesignEntry> design =
-            KeyboardActionRow.designEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, false);
+            KeyboardActionRow.designEntries(KeyboardLayout.FOURTEEN_KEY_LAYOUT, false);
         check(design.equals(List.of(
                 new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LAYER, 1.25f),
                 new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.COMMA, 1f),
@@ -18,7 +18,7 @@ public final class KeyboardActionRowSmoke {
                 new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.RETURN, 1.9f))),
             "design row order and weights");
         List<KeyboardActionRow.DesignEntry> withGlobe =
-            KeyboardActionRow.designEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true);
+            KeyboardActionRow.designEntries(KeyboardLayout.FOURTEEN_KEY_LAYOUT, true);
         check(withGlobe.size() == 7 && withGlobe.get(1).slot() == KeyboardActionRow.DesignSlot.GLOBE
                 && withGlobe.get(5).slot() == KeyboardActionRow.DesignSlot.LANGUAGE,
             "the globe follows 123 only when switching is offered, 中/英 stays next to return");
@@ -27,8 +27,9 @@ public final class KeyboardActionRowSmoke {
         check(nineKey.get(nineKey.size() - 2).slot() == KeyboardActionRow.DesignSlot.LANGUAGE
                 && nineKey.get(nineKey.size() - 1).slot() == KeyboardActionRow.DesignSlot.RETURN,
             "中/英 sits right before return on the nine-key row too");
-        // 拼音九键和笔画键盘共用九键外框：符 | 123 |（地球）| 空格 | 中 | ↵，符 与 中/英 同宽，没有逗号句号。
-        for (int layout : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT}) {
+        // 拼音九键和笔画键盘的九键外框，以及 26 键一族（标准 26 键、韩文键面）：符 | 123 |（地球）| 空格 | 中 | ↵，符 与 中/英 同宽，没有逗号句号。
+        for (int layout : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT,
+                KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.KOREAN_LAYOUT}) {
             check(designSlots(layout, false, false).equals(List.of(KeyboardActionRow.DesignSlot.SYMBOL_PANEL,
                     KeyboardActionRow.DesignSlot.LAYER, KeyboardActionRow.DesignSlot.SPACE,
                     KeyboardActionRow.DesignSlot.LANGUAGE, KeyboardActionRow.DesignSlot.RETURN)),
@@ -53,13 +54,17 @@ public final class KeyboardActionRowSmoke {
                     && KeyboardActionRow.DESIGN_SYMBOL_PANEL_WEIGHT == KeyboardActionRow.DESIGN_LANGUAGE_WEIGHT,
                 "符 takes the same share as 中/英");
         }
-        // 只有九键外框带 符：26 键一族、手写和 14 键的底行不变。
-        for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.FOURTEEN_KEY_LAYOUT,
-                KeyboardLayout.KOREAN_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT}) {
-            for (boolean globe : new boolean[] {false, true})
+        // 14 键第三行左端已经有 符；它和手写、大千注音的底行不带 符，仍有逗号句号。
+        for (int layout : new int[] {KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT,
+                KeyboardLayout.HANDWRITING_LAYOUT}) {
+            for (boolean globe : new boolean[] {false, true}) {
                 check(!designSlots(layout, globe, false).contains(KeyboardActionRow.DesignSlot.SYMBOL_PANEL)
                         && !designSlots(layout, globe, true).contains(KeyboardActionRow.DesignSlot.SYMBOL_PANEL),
-                    "no 符 outside the nine-key frame, layout " + layout);
+                    "no 符 on the 14-key, handwriting or Dachen row, layout " + layout);
+                check(KeyboardActionRow.designEntries(layout, globe).equals(
+                        KeyboardActionRow.designEntries(KeyboardLayout.FOURTEEN_KEY_LAYOUT, globe)),
+                    "the 14-key, handwriting and Dachen rows keep comma and period, layout " + layout);
+            }
         }
         check("打开符号面板".equals(KeyboardActionRow.designDescription(KeyboardActionRow.DesignSlot.SYMBOL_PANEL, true)),
             "符 describes the panel it opens");
@@ -119,7 +124,9 @@ public final class KeyboardActionRowSmoke {
         // 中/英紧挨回车的两种底行，回车都把键帽左边让给中/英；没有底行时不让。
         check(KeyboardActionRow.languageBesideReturn(design)
                 && KeyboardActionRow.languageBesideReturn(withGlobe)
-                && KeyboardActionRow.languageBesideReturn(nineKey),
+                && KeyboardActionRow.languageBesideReturn(nineKey)
+                && KeyboardActionRow.languageBesideReturn(
+                    KeyboardActionRow.designEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true)),
             "return yields to the language key wherever it sits right before return");
         check(!KeyboardActionRow.languageBesideReturn(List.of())
                 && !KeyboardActionRow.languageBesideReturn(List.of(
@@ -251,10 +258,8 @@ public final class KeyboardActionRowSmoke {
             "the digit page returns to 26 keys");
         check("九键".equals(KeyboardActionRow.layerTitle(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true)),
             "the digit page returns to the grid the user picked");
-        check("14键".equals(KeyboardActionRow.layerTitle(KeyboardLayout.FOURTEEN_KEY_LAYOUT, true))
-                && KeyboardActionRow.designEntries(KeyboardLayout.FOURTEEN_KEY_LAYOUT, false)
-                    .equals(KeyboardActionRow.designEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, false)),
-            "the fourteen-key keyboard keeps the 26-key bottom row and returns from its digit page by name");
+        check("14键".equals(KeyboardActionRow.layerTitle(KeyboardLayout.FOURTEEN_KEY_LAYOUT, true)),
+            "the fourteen-key keyboard returns from its digit page by name");
         check("123".equals(KeyboardActionRow.layerTitle(KeyboardLayout.KOREAN_LAYOUT, false))
                 && "한".equals(KeyboardActionRow.layerTitle(KeyboardLayout.KOREAN_LAYOUT, true)),
             "the Korean digit page returns to the Hangul keycaps");

@@ -4,9 +4,9 @@
 //!
 //! A skin is written by the same rule the community gallery installs a download by (`candidate_community::install`): the manifest verbatim plus exactly the images it references, a preview among them, and no stylesheet. Every skin made here can therefore be synced and shared without further changes.
 
-use msime_client_core::skin::candidate_community::{self, CandidateSkinPackage};
-use msime_client_core::skin::{candidate_sync, catalog};
 use msime_client_core::uuid::Uuid;
+use msime_client_services::skin::candidate_community::{self, CandidateSkinPackage};
+use msime_client_services::skin::{candidate_sync, catalog};
 use rmcp::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

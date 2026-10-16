@@ -126,16 +126,16 @@ compare() {
 }
 
 # ---- scope ----
-# Every push used to wait for every platform phase, so a push that touched only crates/dict-builder still paid for the Linux container build, the Android and HarmonyOS checks and the Windows test run. --quick now works out which files the change touches and runs a platform phase only when one of them is among that phase's inputs. The change is the union of: everything the branch changes since it left origin/develop (`origin/develop...HEAD`), the commits on HEAD since it left its upstream, the ranges git hands the pre-push hook on stdin (when this runs under .githooks/pre-push; through rbuild stdin is empty), and whatever is modified, staged or untracked in the work tree, because that is what the phases build. The origin/develop part is what makes a skip safe: a phase is skipped only when nothing the whole branch changes reaches it, so it never leans on an earlier push having been verified (a push that ran on a machine without docker, NDK or hvigor, a --no-verify push, or a manual --quick on a branch already pushed). Under pre-merge-commit the merged-in files are staged and so arrive through the work-tree part. When any of that cannot be worked out every phase runs.
+# 以前每次 push 都要等所有平台阶段跑完，于是只改了 crates/dict-builder 的 push 也得为 Linux 容器构建、Android 和 HarmonyOS 检查以及 Windows 测试付出时间。现在 --quick 会算出改动涉及哪些文件，只有其中某个文件属于某个平台阶段的输入时才跑那个阶段。改动是以下几部分的并集：分支离开 origin/develop 以来的全部改动（`origin/develop...HEAD`）、HEAD 离开其上游以来的提交、git 经 stdin 交给 pre-push 钩子的范围（在 .githooks/pre-push 下运行时才有；经 rbuild 运行时 stdin 为空），以及工作树里已修改、已暂存或未跟踪的一切，因为各阶段构建的就是这些。让跳过变得安全的是 origin/develop 这一部分：只有整个分支的改动都触及不到某个阶段时才跳过它，因此从不依赖之前某次 push 已经验证过（那次 push 可能跑在没有 docker、NDK 或 hvigor 的机器上，可能带了 --no-verify，也可能是在已推送的分支上手动跑的 --quick）。在 pre-merge-commit 下，合并进来的文件已暂存，因此经工作树这一部分进入。其中任何一项算不出来时，所有阶段都跑。
 #
-# Being wrong in the direction of skipping is the expensive mistake, so a file sends the run to "everything" unless it is known not to: this script and the contract runner, the known-failures baseline, the hooks, the workspace and package manifests and lockfiles, any CMake file, shared/ and platforms/common/ (the C/C++ headers and sources every host compiles), the crates every native host links (path-trust, client-core, engine, input-runtime, host-api), and the per-edition resource locks with their generator (resources/components/, resources/editions/, scripts/editions.py: client-core embeds the edition locks, and the Windows, macOS, Linux, Android and desktop packaging and staging all read them) all run everything, as does any deletion or rename and any path the table below does not know. A file under platforms/, resources/, scripts/ or tools/ also reaches every area whose tree names it (scope_named_by below): the macOS CMake build copies files out of platforms/linux and platforms/windows, the HarmonyOS build compiles platforms/windows/third_party/miniaudio, platform builds run scripts/fetch_voice_runtime.py, and the core crates embed resource files with include_str!/include_bytes! and parse them at run time, so a resource one of them names runs everything. Names on comment lines and in Markdown do not count, or a file a header comment cites would reach everything. crates/engine-wasm reaches only the wasm target check, since everything it is built from (engine, path-trust, the manifests) already runs everything; flake.nix and flake.lock reach the Linux phases, which build what the Nix packaging under platforms/linux/nix wraps. .github reaches only the workflow lint: no platform phase builds from it, and the contract checks that read release workflows (test-macos-package-resources.py, test-windows-editions.py) always run. The phases that always run are the contract checks, the Rust workspace check and the shared Apple bridge, which are either cheap or cut across every area.
+# 错在跳过的那一边代价最大，所以除非确知不需要，否则一个文件就会让这次运行变成「全部跑」：本脚本和契约运行器、已知失败基线、钩子、workspace 和各包的清单与锁文件、任何 CMake 文件、shared/ 和 platforms/common/（每个宿主都编译的 C/C++ 头文件和源文件）、每个原生宿主都链接的 crate（path-trust、client-base、client-core、client-providers、client-services、engine、input-runtime、host-api），以及各版本的资源锁和它们的生成器（resources/components/、resources/editions/、scripts/editions.py：client-core 内嵌了版本锁，Windows、macOS、Linux、Android 和桌面端的打包与暂存也都读它们），这些全都会触发全部阶段，任何删除或重命名、以及下表不认识的任何路径也一样。platforms/、resources/、scripts/ 或 tools/ 下的文件还会触及每一个在自己目录树里点到它名字的区域（见下面的 scope_named_by）：macOS 的 CMake 构建会从 platforms/linux 和 platforms/windows 拷贝文件，HarmonyOS 构建会编译 platforms/windows/third_party/miniaudio，各平台构建会运行 scripts/fetch_voice_runtime.py，核心 crate 用 include_str!/include_bytes! 内嵌资源文件并在运行时解析，所以被其中某个 crate 点名的资源会触发全部阶段。注释行和 Markdown 里出现的名字不算，否则文件头注释引用的文件就会触及一切。crates/engine-wasm 只触及 wasm 目标检查，因为构建它的一切（engine、path-trust、各清单）本来就会触发全部阶段；flake.nix 和 flake.lock 触及 Linux 阶段，那些阶段构建的正是 platforms/linux/nix 下 Nix 打包所包装的东西。.github 只触及 workflow lint：没有哪个平台阶段从它构建，而读取发布 workflow 的契约检查（test-macos-package-resources.py、test-windows-editions.py）总是运行。总是运行的阶段是契约检查、Rust workspace 检查和共享的 Apple 桥接层，它们要么开销小，要么横跨所有区域。
 scope_all=1
 scope_why="full run"
 scope_areas=" "
 scope_count=0
 
 # The trees each area builds from, as area:pathspec, searched by scope_named_by for files one tree takes from another.
-scope_trees="linux:platforms/linux macos:platforms/macos windows:platforms/windows android:platforms/android harmony:platforms/harmony harmony:apps/harmony desktop:apps/desktop desktop:packages/ui harmony:packages/ui windows:crates/host-windows desktop:crates/host-windows macos:crates/host-macos desktop:crates/host-macos windows:scripts/test-windows-*.py harmony:scripts/test-harmony-*.py android:scripts/test-android-*.py all:shared all:platforms/common all:crates/path-trust all:crates/client-core all:crates/engine all:crates/input-runtime all:crates/host-api wasm:crates/engine-wasm"
+scope_trees="linux:platforms/linux macos:platforms/macos windows:platforms/windows android:platforms/android harmony:platforms/harmony harmony:apps/harmony desktop:apps/desktop desktop:packages/ui harmony:packages/ui windows:crates/host-windows desktop:crates/host-windows macos:crates/host-macos desktop:crates/host-macos windows:scripts/test-windows-*.py harmony:scripts/test-harmony-*.py android:scripts/test-android-*.py all:shared all:platforms/common all:crates/path-trust all:crates/client-base all:crates/client-core all:crates/client-providers all:crates/client-services all:crates/engine all:crates/input-runtime all:crates/host-api wasm:crates/engine-wasm"
 
 # What a tree names $1 by, one "<kind><TAB><text>" per line: F for the file itself, D for one of its directories, which counts only where the name is not followed by a deeper path (a directory handed to an include path, a copy or a define, as in `audios"`), and M for a Python module under scripts/, which counts in an import. A path under platforms/<os>/ is looked for without the platforms/ prefix, since sibling hosts reach it as ../<os>/...; directories are taken no shallower than platforms/<os>/<dir>, resources/<dir> and the like, because shallower ones name whole hosts.
 scope_needles() {
@@ -198,7 +198,7 @@ scope_classify() {
       Cargo.toml | Cargo.lock | rust-toolchain.toml | .cargo/* | \
       package.json | pnpm-lock.yaml | pnpm-workspace.yaml | vite.config.ts | .gitignore | .gitattributes | \
       CMakeLists.txt | */CMakeLists.txt | *.cmake | shared/* | platforms/common/* | \
-      crates/path-trust/* | crates/client-core/* | crates/engine/* | crates/input-runtime/* | crates/host-api/* | \
+      crates/path-trust/* | crates/client-base/* | crates/client-core/* | crates/client-providers/* | crates/client-services/* | crates/engine/* | crates/input-runtime/* | crates/host-api/* | \
       resources/components/* | resources/editions/* | scripts/editions.py)
       echo all ;;
     crates/engine-wasm/*) echo wasm ;;
@@ -934,7 +934,7 @@ fi
 # for that reason, and its 86 tests had never run. msime-engine and msime-tauri-mobile-platform
 # were missing too, and nothing else runs their tests on the host target.
 # msime-clipboard-relay 也不在 default-members 里，其他地方都不跑它的测试；它的端到端测试在 127.0.0.1 上起参考中继，用真正的客户端驱动连它。
-for package in msime-client-core msime-engine msime-engine-wasm msime-host-api msime-input-runtime msime-host-windows \
+for package in msime-client-base msime-client-core msime-client-providers msime-client-services msime-engine msime-engine-wasm msime-host-api msime-input-runtime msime-host-windows \
   msime-host-macos msime-mcp-server msime-tauri-mobile-platform msime-clipboard-relay msime-desktop; do
   # A package that does not build produces no failing test names, which reads as "at baseline" - which is
   # how msime-desktop went unbuildable on macOS without anything noticing. Say so instead.
@@ -980,13 +980,13 @@ else
 fi
 
 note "clippy: first-party crates"
-# 文件头很长时间里承诺了 clippy 却哪里都没跑，唯一跑过它的是已经停用的 CI workflow。下面九个 crate 今天在 -D warnings 下都是干净的，所以这是没有基线的硬门槛：一旦失败，就是被测的改动引起的。
+# 文件头很长时间里承诺了 clippy 却哪里都没跑，唯一跑过它的是已经停用的 CI workflow。下面十二个 crate 今天在 -D warnings 下都是干净的，所以这是没有基线的硬门槛：一旦失败，就是被测的改动引起的。
 #
 # The workspace as a whole is not gated: apps/desktop needs a built frontend
 # before its Tauri build script will run, which makes "clippy failed" and
 # "frontend not built" indistinguishable on a developer machine.
 clippy_failed=""
-for crate in msime-client-core msime-engine msime-engine-wasm msime-host-api msime-host-macos \
+for crate in msime-client-base msime-client-core msime-client-providers msime-client-services msime-engine msime-engine-wasm msime-host-api msime-host-macos \
              msime-host-windows msime-input-runtime msime-mcp-server msime-tauri-mobile-platform; do
   cargo clippy -p "$crate" --all-targets -- -D warnings >/dev/null 2>&1 ||
     clippy_failed="$clippy_failed  $crate"$'\n'

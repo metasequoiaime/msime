@@ -281,30 +281,15 @@ char *msime_client_nine_key_shuangpin_layout(const uint8_t *request, size_t leng
  * Creates the directory/lock file if absent, never overwrites preference contents.
  */
 char *msime_client_load_preferences(const uint8_t *directory, size_t length);
-/* Private aggregate typing statistics. JSON request (<=65536 bytes):
- * {directory:absolute path,action:{operation:"load"|"reset"}}
+/* 私有的聚合打字统计。JSON 请求（<=65536 字节）：
+ * {directory:绝对路径,action:{operation:"load"|"reset"}}
  * {directory,action:{operation:"set_enabled",enabled:bool}}
  * {directory,action:{operation:"set_retention",retention,day:"YYYY-MM-DD"}}
- *   retention is forever|30d|90d|180d|365d; anything else is read as forever,
- *   never as a shorter window. `day` is the caller's local day.
- * {directory,action:{operation:"record",text,source,day:"YYYY-MM-DD",hour?:0-23}}.
- * Record classifies committed text in memory and persists only aggregate counts;
- * text is never returned or stored. May block on disk/file lock: use a worker.
- * `hour` is the commit's local hour and must come from the same instant as `day`;
- * omit it rather than guess, and the day keeps its counts with no hourly split.
- * Record answers {recorded, milestone}: milestone is the achievement count (100, 1000, ...)
- * the total just passed, or null. It is only computed while a session in this process has
- * achievement sounds on, and on the desktop hosts the jingle is then already queued.
+ *   retention 取 forever|30d|90d|180d|365d，其他值一律按 forever 读，绝不当成更短的时间窗。`day` 是调用方的本地日期。
+ * {directory,action:{operation:"record",text,source,day:"YYYY-MM-DD",hour?:0-23}}。
+ * record 在内存里给上屏文本分类，只持久化聚合计数；文本既不返回也不存储。可能阻塞在磁盘或文件锁上：请在工作线程调用。`hour` 是这次上屏的本地小时，必须与 `day` 取自同一时刻；拿不准就省略，不要猜，这一天的计数照样保留，只是不按小时拆分。record 返回 {recorded, milestone}：milestone 是总数刚刚越过的成就计数（100、1000……），没有越过时为 null。只有本进程里有会话开着成就音效时才计算它，而在桌面宿主上此时提示音已经排进队列。
  * {directory,action:{operation:"record_keys",day:"YYYY-MM-DD",keys:{"KeyA":3,...}}}
- *   adds per-key press counts to `day`, the local day the presses happened on
- *   (flush a batch that crossed midnight under the old day first). Only each
- *   key's daily press count is stored: no order, timing or text. Key ids are
- *   W3C KeyboardEvent.code names plus soft-keyboard ids (Nine0-Nine9,
- *   SoftPunctuation, SoftSymbol, SoftLayer, SoftLanguage, SoftGlobe, SoftEmoji,
- *   SoftVoice); the full list is KEY_IDS in client-core typing_statistics.rs.
- *   An unknown id or a zero count rejects the whole batch; never invent ids.
- *   Returns {recorded:n}, 0 when statistics are off (nothing is written).
- *   Hosts batch in memory and call this from a worker, never per key.
+ *   把各键的按键次数加到 `day` 上，`day` 是这些按键发生的本地日期（跨过午夜的一批先按旧日期写出）。每个键只存每日按键次数：不存顺序、时间或文本。键 id 是 W3C KeyboardEvent.code 名加上软键盘 id（Nine0-Nine9、SoftPunctuation、SoftSymbol、SoftLayer、SoftLanguage、SoftGlobe、SoftEmoji、SoftVoice）；完整列表是 client-services typing_statistics.rs 里的 KEY_IDS。只要有一个未知 id 或零计数就拒绝整批；绝不要自造 id。返回 {recorded:n}，统计关闭时为 0（什么都不写）。宿主在内存里攒批，从工作线程调用，绝不每按一个键调用一次。
  * {directory,action:{operation:"summary",day:"YYYY-MM-DD",user_words?:n}} 返回调用方本地 `day` 的派生指标（总览、习惯、按键、成就）；统计开着时，新解锁的成就在锁内写下。user_words 是词库 "count" 加 user_only:true 的结果。隐私模式不影响它：它只读。
  * {directory,action:{operation:"record_voice",day,milliseconds}} 记一次语音输入的时长；{directory,action:{operation:"record_skin",id}} 记一次用到的皮肤。两者都返回 {recorded}。
  * 请求顶层可加 status:true（只用于 load、set_enabled、set_retention 和 reset，用于别的操作时整个请求被拒绝）：回答换成设置页读的状态 {statistics,availability:"ready"|"neverWritten",lastWrittenMs:n|null}，availability 和 lastWrittenMs 来自统计文件的修改时间，与 Tauri 外壳的 load_typing_statistics 相同。
@@ -1033,7 +1018,7 @@ char *msime_client_music_pack(const uint8_t *request, size_t length);
 char *msime_client_plugins(const uint8_t *request, size_t length);
 /* 不带编码的常用语（<=4 MiB）：{directory: 偏好目录的绝对路径, action:{operation:"load"|"add"{text}|"remove"{id}|"replace"{id,text}|"move"{id,index}|"install_pack"{resource}|"remove_pack"{id}}}。Value 是整份文档 {phrases:[{id,text,pack}],packs:[{id,name,revision}],skipped?}；错误是固定的代码（common_phrases_io、_corrupt、_invalid、_duplicate、_limit、_too_large、_not_found）。设置进程和键盘进程都会调用，调用时锁住文件。在工作线程上调用。 */
 char *msime_client_common_phrases(const uint8_t *request, size_t length);
-/* 具名词库集合（<=17 MiB）：{options: 带 preferences_directory 的 HostOptions, action:{operation:"load"|"create"|"rename"|"delete"|"set_enabled"|"add_words"|"remove_words"|"import"|"install_community"|"queue_words"{entries}|"flush", ...}}，格式见 client-core 的 dictionary::collections；import 的 format 为 "scel"（搜狗细胞词库）时文件按 base64 放在 bytes_base64（不超过 8 MiB），不带 text，结构损坏时是 import_malformed；queue_words 把不属于任何集合的词（本地备份恢复的个人词库，每次最多 20000 个）排进待发送队列，value 带 queued。词条经个人词库队列传过去，键盘在下一次会话时应用。Value 是集合视图；错误是固定的代码（collections_*、builtin_locked、unsupported_format、import_*、personal_dictionary_*）。在工作线程上调用。 */
+/* 具名词库集合（<=17 MiB）：{options: 带 preferences_directory 的 HostOptions, action:{operation:"load"|"create"|"rename"|"delete"|"set_enabled"|"add_words"|"remove_words"|"import"|"install_community"|"queue_words"{entries}|"flush", ...}}，格式见 client-services 的 dictionary::collections；import 的 format 为 "scel"（搜狗细胞词库）时文件按 base64 放在 bytes_base64（不超过 8 MiB），不带 text，结构损坏时是 import_malformed；queue_words 把不属于任何集合的词（本地备份恢复的个人词库，每次最多 20000 个）排进待发送队列，value 带 queued。词条经个人词库队列传过去，键盘在下一次会话时应用。Value 是集合视图；错误是固定的代码（collections_*、builtin_locked、unsupported_format、import_*、personal_dictionary_*）。在工作线程上调用。 */
 char *msime_client_dictionary_collections(const uint8_t *request, size_t length);
 /* 诊断包（<=65536 字节）：{state_root: 偏好目录, include:{crash_logs,performance_logs,input_events,config_snapshot}, sources:{crash_logs,performance_logs,input_events: 绝对路径|null}, destination: .zip 的绝对路径|null}。输入事件和性能记录只有恰好是 {t_ms, kind (key_down|key_up|candidate_shown|candidate_selected|commit|backspace|panel_open|panel_close|ime_start|ime_finish|input_failure_runtime_rejected|input_failure_invalid_response|input_failure_editor_rejected|input_failure_jni_link), duration_ms} 时才保留，带其他任何键（text、key、candidate……）的整行都丢掉并计数。崩溃记录只保留异常类型和栈帧：异常说明可能带着正在输入的文字，message 只留冒号前的异常类型，stack 的说明行同样处理，路径只留文件名。input_failure_* 仅供本地诊断，云端上传器须按服务端白名单过滤。配置快照把所有凭据换成 "<redacted>"。给了 destination 时写出 zip，value 是 {path,bytes,counts}；没给时 value 是 {counts,sections}，sections 是上传请求体的对象（crash_logs、perf_trace、input_events、config_snapshot）。错误：diagnostics_invalid、diagnostics_source、diagnostics_preferences、diagnostics_write。在工作线程上调用。 */
 char *msime_client_diagnostic_bundle(const uint8_t *request, size_t length);

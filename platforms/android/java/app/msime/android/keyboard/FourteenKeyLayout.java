@@ -70,7 +70,7 @@ public final class FourteenKeyLayout {
         return key.letters().length() > 1 ? key.letters() : "";
     }
 
-    /** 按键热力图的键位 id：`FourteenQW`、`FourteenL`，与 client-core `KEY_IDS` 逐字一致。 */
+    /** 按键热力图的键位 id：`FourteenQW`、`FourteenL`，与 client-services `KEY_IDS` 逐字一致。 */
     public static String keyId(Key key) {
         return "Fourteen" + face(key);
     }

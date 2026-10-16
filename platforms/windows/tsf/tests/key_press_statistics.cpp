@@ -23,7 +23,7 @@ bool Is(const wchar_t *actual, const wchar_t *expected)
     return actual != nullptr && std::wstring(actual) == expected;
 }
 
-// The ids a physical keyboard can produce, copied from KEY_IDS in crates/client-core/src/typing_statistics.rs. The store rejects a whole batch over one id outside that list, so every id this table emits has to be in it.
+// 物理键盘能产生的 id，抄自 crates/client-services/src/typing_statistics.rs 中的 KEY_IDS。存储只要遇到一个不在该列表里的 id 就会拒绝整批，所以这张表发出的每个 id 都必须在列表里。
 const std::set<std::wstring> &PhysicalKeyIds()
 {
     static const std::set<std::wstring> ids = {

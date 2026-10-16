@@ -109,6 +109,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var keyAreaPanel: UIView?
   private let moreShortcut = KeyboardBrandMarkButton()
   private var morePicker: KeyboardMorePickerView?
+  /// 输入方式或功能面板打开时是不是横屏；转屏后行数变了就关掉它（`closePickerBuiltForOtherOrientation`）。
+  private var pickerLandscape = false
   /// 键盘高度：占据工具栏位置的内联调节条（此时按键照常可用），以及按「取消」时要恢复的调整值。
   private var inlineHeightBar: InlineHeightBar?
   private var inlineHeightSnapshot: CGFloat = 0
@@ -2890,6 +2892,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ]
     let phoneSpace = Self.phoneSpaceWeight
     phoneActionWidths = [
+      weight(nineKeySymbolsButton, 1.05, space: phoneSpace, optional: true),
       weight(layoutToggle, 1.25, space: phoneSpace),
       weight(language, 1.05, space: phoneSpace),
       weight(globe, 1, space: phoneSpace, optional: true),
@@ -2911,7 +2914,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       entries.map { key, value, optional in weight(key, value, space: spaceWeight, optional: optional) }
     }
     phoneExpandedSpaceWidths = expandedWidths(spaceWeight: phoneSpace + 1.05, entries: [
-      (layoutToggle, 1.25, false), (globe, 1, true), (delete, 1, true),
+      (nineKeySymbolsButton, 1.05, true), (layoutToggle, 1.25, false), (globe, 1, true), (delete, 1, true),
       (punctuation, 1, true), (period, 1, true), (enter, 1.9, false),
     ])
     nineKeyExpandedSpaceWidths = expandedWidths(spaceWeight: Self.nineKeySpaceWeight + 1.05, entries: [
@@ -3518,12 +3521,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateLetterCaseControls() {
-    // 设计稿在所有模式下都画小写键面；只有下一键真的会输入大写时键面才变大写：英文的 Shift 或大写锁定，组字中的辅助码 Shift（无障碍标签里也会体现，并以大写辅助码交给 Engine），以及越南语和藏文区分大小写的字母。
+    // 中文模式的字母键面画大写（与搜狗、微信、百度、豆包的拼音 26 键一致），输入的仍是小写拼写；英文模式画小写，只有下一键真的会输入大写时键面才变大写：英文的 Shift 或大写锁定，组字中的辅助码 Shift（无障碍标签里也会体现，并以大写辅助码交给 Engine），以及越南语和藏文区分大小写的字母（它们按 Shift 画大小写，不跟中文模式画大写）。日语罗马字照日文键盘的惯例画小写；本地输入模式（英文补全、Unicode、快捷短语等）按字面输入，也画小写。
     let casedLetters = typesCasedLetters
     let shifted = letterCaseState != .lowercase && (!isChineseMode || entersHelpcode || casedLetters)
     // 只读一次，不要每个键读一次。`isInLocalMode` 看起来像属性，其实是一次完整的 C ABI 往返：Rust 把整个视图（预编辑、每个候选及其编码和释义）序列化成 JSON，Swift 再解析回来。放在下面的循环里调用，每次按键都会做二十七遍。
     let inLocalMode = isInLocalMode
-    let usesUppercase = shifted
+    let usesUppercase = shifted || (isChineseMode && !casedLetters && !inputScheme.isJapanese && !inLocalMode)
     let korean = typesKorean
     let koreanShifted = korean && letterCaseState != .lowercase
     for (button, lowercase, hintLabel, cornerLabel) in letterButtons {
@@ -4978,23 +4981,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       let layout = KeyboardLayoutPreference.geometry
       // 符：#+= 层的符号键、假名标点菜单、字母行上的可选键，以及拼音网格和笔画键底行最左边的键，九键上打开符号面板只走它（网格的 @# 键把常用标点放进候选条）。
+      // 手机 26 键底行最左边也有 符（与九键、搜狗一致）；14 键第三排自带 符，手写不画字母行，都不加。
+      let phoneLetterSymbols = style == .phone && letterRowsShown
       nineKeySymbolsButton.isHidden = !(kana || (symbolLayer ? showsMoreSymbols
-        : nineKeyFrame ? !showsSymbols : !showsSymbols && layout.showsFullKeyboardSymbols))
+        : nineKeyFrame ? !showsSymbols : !showsSymbols && (layout.showsFullKeyboardSymbols || phoneLetterSymbols)))
       let symbolsTitle = symbolLayer ? "符号" : "符"
       if nineKeySymbolsButton.configuration?.title != symbolsTitle {
         nineKeySymbolsButton.configuration?.title = symbolsTitle
         nineKeySymbolsButton.configuration?.titleTextAttributesTransformer = symbolLayer ? Self.functionLabelTransformer : Self.keyLabelTransformer
       }
-      fullSymbolsWidth?.isActive = !nineKeySymbolsButton.isHidden && (style == .phone || style == .standard || style == .tablet)
+      fullSymbolsWidth?.isActive = !nineKeySymbolsButton.isHidden && (style == .standard || style == .tablet)
       layerEmojiButton.isHidden = !(symbolLayer && !showsMoreSymbols)
       nineKeyZeroButton.isHidden = style != .nineKey || (!showsSymbols && inputScheme != .nineKeyShuangpin)
       let hidesLanguage = !layout.showsBottomLanguage
       bottomLanguageButton?.isHidden = style == .symbolLayer || hidesLanguage
       bottomLanguageWidth?.isActive = style == .standard && !hidesLanguage
       // iPad 的 26 键从第三排字母输入 ，。，所以它的底行没有自己的 ，。
-      quickPunctuationButton.isHidden = nineKeyFrame || showsSymbols || kana || style == .tablet
+      // 手机 26 键底行与九键一样不放 ， 和 。（符 | 123 | space | 中 | return）；14 键和手写的底行仍带它们。
+      quickPunctuationButton.isHidden = nineKeyFrame || showsSymbols || kana || style == .tablet || phoneLetterSymbols
       quickPunctuationWidth?.isActive = !quickPunctuationButton.isHidden && style == .standard
-      periodKey.isHidden = style != .phone || showsSymbols
+      periodKey.isHidden = style != .phone || showsSymbols || phoneLetterSymbols
       let punctuation = quickPunctuationSymbols
       if phoneRow {
         // ， 与旁边的 。 一样从下面的标点键面取键面；长按仍弹出快捷标点。
@@ -5095,7 +5101,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 屏幕上当前界面画哪种底行。
   private enum ActionRowStyle {
-    /// 手机 26 键底行：123 | ， | space | 。 | 中 | return，中/英 紧挨回车左边。
+    /// 手机底行：26 键是 符 | 123 | space | 中 | return（与九键一样）；14 键和手写是 123 | ， | space | 。 | 中 | return。中/英 紧挨回车左边。
     case phone
     /// 九键外框：符 | 123 | space | 中 | return，中/英 紧挨回车左边；网格的数字层没有 符，0 排在空格右边。
     case nineKey
@@ -6780,7 +6786,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardService()
     closeKeyboardPicker()
     moreToolsPage = .root
-    let picker = KeyboardMorePickerView(tools: makeTools(), formFactor: formFactor)
+    let picker = KeyboardMorePickerView(tools: makeTools(), formFactor: formFactor, landscape: isLandscape)
+    pickerLandscape = isLandscape
     morePicker = picker
     installPanel(picker)
     picker.resetToFirstPage()
@@ -6956,8 +6963,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func showSchemePicker() {
     closeKeyboardService()
     closeKeyboardPicker()
+    pickerLandscape = isLandscape
     let picker = KeyboardSchemePickerView(
-      selected: inputScheme, isChineseMode: isChineseMode, showsHeader: false, formFactor: formFactor,
+      selected: inputScheme, isChineseMode: isChineseMode, showsHeader: false, formFactor: formFactor, landscape: isLandscape,
       shuangpinProfile: session.sharedPreferences?["shuangpin_profile"] as? String,
       onSelect: { [weak self] scheme in
         guard let self else { return }
@@ -7189,7 +7197,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// iPad 旋转时 size class 不变，traitCollectionDidChange 不会被叫到；转完再核对一次分离式键盘（viewDidLayoutSubviews 通常已经处理过）。
   override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
     super.viewWillTransition(to: size, with: coordinator)
-    coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.updateSplitKeyboardIfNeeded() }
+    coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+      guard let self else { return }
+      updateSplitKeyboardIfNeeded()
+      closePickerBuiltForOtherOrientation()
+    }
+  }
+
+  /// 输入方式和功能面板按打开时的横竖屏定行数（`KeyboardPagedGridView.pickerRows`）：手机竖屏三行的面板转到横屏放不下，所以转屏后行数不再相同时关掉面板，再打开就按新方向排。
+  private func closePickerBuiltForOtherOrientation() {
+    guard morePicker != nil || schemePicker != nil else { return }
+    let rows = { KeyboardPagedGridView.pickerRows(formFactor: self.formFactor, landscape: $0) }
+    if rows(pickerLandscape) != rows(isLandscape) { closeKeyboardPicker() }
   }
 
   @objc private func prepareKeyFeedback() {

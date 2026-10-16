@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 把 msime-client-core 的单测交叉编译成专用 AVD 能直接运行的程序，最后一行打印它的路径，交给 run-core-test.sh。ABI 跟着 start-emulator.sh 选的系统镜像走：arm64 主机（Apple 芯片）是 arm64-v8a，x86_64 主机（CI 的 Linux runner）是 x86_64，也可以用参数指定。
+# 把 msime-client-base、msime-client-core、msime-client-providers 和 msime-client-services 的单测交叉编译后在专用 AVD 上整套运行：run-core-test.sh 是这个目标的 cargo runner，cargo 把每个测试程序分别交给它。设备用 MSIME_ANDROID_TEST_SERIAL 选，默认是 API 35 的 emulator-5580（见 run-core-test.sh）。ABI 跟着 start-emulator.sh 选的系统镜像走：arm64 主机（Apple 芯片）是 arm64-v8a，x86_64 主机（CI 的 Linux runner）是 x86_64，也可以用参数指定。
 #
-# 这一步存在的原因：client-core 的私有文件读写在 Android 上受 /data 只给搜索权限、SELinux 禁止硬链接这些限制，macOS 和 Linux 上的单测一条都碰不到。0.3.0 就因此带着「词库准备失败」和匿名账号写入失败发了出去。
+# 这一步存在的原因：client-base、client-core、client-providers 和 client-services 的私有文件读写在 Android 上受 /data 只给搜索权限、SELinux 禁止硬链接这些限制，macOS 和 Linux 上的单测一条都碰不到。0.3.0 就因此带着「词库准备失败」和匿名账号写入失败发了出去。
 set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../../../.." && pwd)
 cd "$repo_root"
@@ -25,12 +25,8 @@ rustup target add "$target" >/dev/null 2>&1 || true
 export "CC_${target//-/_}=$bin/${target}28-clang"
 export "AR_${target//-/_}=$bin/llvm-ar"
 export "CARGO_TARGET_${upper}_LINKER=$bin/${target}28-clang"
+# runner 用 `--config` 的 TOML 数组传入：`CARGO_TARGET_<triple>_RUNNER` 环境变量会被 cargo 按空白切开，仓库路径一带空格（例如外接盘 `/Volumes/My Disk/...`）脚本就找不到了。数组元素写成 TOML 字面字符串，路径里不能有单引号。
+runner="$repo_root/platforms/android/tests/device/run-core-test.sh"
+[[ "$runner" != *"'"* ]] || { echo "repository path must not contain a single quote: $repo_root" >&2; exit 1; }
 export CARGO_TARGET_DIR="$repo_root/target/android-cargo"
-messages=$(cargo test -p msime-client-core --lib --locked --target "$target" --no-run --message-format json)
-executable=$(python3 -c '
-import json, sys
-paths = [m["executable"] for m in map(json.loads, sys.stdin) if m.get("reason") == "compiler-artifact" and m.get("executable") and m["target"]["name"] == "msime_client_core"]
-print(paths[-1] if paths else "")
-' <<< "$messages")
-[[ -n "$executable" && -f "$executable" ]] || { echo "cargo did not report the client-core test executable" >&2; exit 1; }
-echo "$executable"
+cargo --config "target.$target.runner=['bash', '$runner']" test -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --lib --locked --no-fail-fast --target "$target"

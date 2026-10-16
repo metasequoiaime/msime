@@ -7,7 +7,7 @@ import {
 } from "../core/linked-markdown";
 import { useAsyncGeneration } from "./use-async-generation";
 
-/** One live console notice, client-core's `notices::Notice`. */
+/** 一条正在生效的控制台公告，对应 client-services 的 `notices::Notice`。 */
 export type AppNotice = {
   id: string;
   title: string;

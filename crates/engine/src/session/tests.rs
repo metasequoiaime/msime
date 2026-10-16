@@ -4937,6 +4937,35 @@ fn expression_mode_converts_units_after_a_number() {
 }
 
 #[test]
+fn expression_mode_converts_signed_measurements() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = generated_modes_session(&fixture);
+    for (input, expected) in [
+        ("-10cf", vec!["14℉", "14", "-10℃=14℉"]),
+        ("+0.5kg'g", vec!["500克", "500", "+0.5千克=500克"]),
+    ] {
+        session.character(b'V', true);
+        for byte in input.bytes() {
+            let result = if matches!(byte, b'-' | b'+' | b'.' | b'\'') {
+                session.punctuation(byte)
+            } else {
+                session.character(byte, false)
+            };
+            assert!(
+                result.handled && result.commit.is_none(),
+                "{input}: {result:?}"
+            );
+        }
+        assert_eq!(session.snapshot().preedit, format!("V{input}"));
+        assert_eq!(words(&session), expected);
+        assert_eq!(
+            session.select(2).commit.as_deref(),
+            expected.get(2).copied()
+        );
+    }
+}
+
+#[test]
 fn expression_mode_keeps_an_unfinished_input_as_raw_text_and_bounds_it() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = generated_modes_session(&fixture);

@@ -14,7 +14,7 @@ Android 的字母层只有 `KeyboardLayout` 的三行字母，`ImeLetterRows.reb
 
 ### 数字行
 
-- 新增本地设置「键盘 › 布局 › 数字行」（`platform.android.number_row`，布尔，默认关，所有设备都有，不随账号同步）。同步字段表（`crates/client-core/src/account/settings_sync.rs` 的 `ANDROID_LOCAL_SETTINGS`）不加这个键，与 `NINE_KEY_SWIPE`、`GLIDE_TYPING` 一样先只在本机。
+- 新增本地设置「键盘 › 布局 › 数字行」（`platform.android.number_row`，布尔，默认关，所有设备都有，不随账号同步）。同步字段表（`crates/client-services/src/account/settings_sync.rs` 的 `ANDROID_LOCAL_SETTINGS`）不加这个键，与 `NINE_KEY_SWIPE`、`GLIDE_TYPING` 一样先只在本机。
 - 画不画由 `KeyboardLayout.drawsNumberRow(enabled, layer, touchLayout, windowHeightDp)` 决定：开关打开、在字母层、画的是标准 26 键一族（`STANDARD_TOUCH_LAYOUT`）或韩文两套式（`KOREAN_LAYOUT`），并且窗口可用高度（`Configuration.screenHeightDp`）不低于 480 dp（`NUMBER_ROW_MIN_WINDOW_HEIGHT_DP`）。手机横屏时窗口只有 330–430 dp，默认高度的键盘约 300 dp，再加一行 63 dp 就超过窗口，工具栏或底行被挤出去、应用也没有可见区域；`KeyboardGeometry.windowHeightAdjustment` 只按三行字母算，管不到这一行。所以手机横屏时不画，存着的设置不变，转回竖屏由 `numberRowStale` 重建出来；竖屏手机、平板横屏和折叠屏内屏都在 480 dp 以上。九键、日文假名网格、手写、笔画、注音（大千的数字本身是注音键，注音 9 键是网格）不画；123 / #+= 层不改，它的第一行本来就是数字。
 - `ImeLetterRows.addNumberRow` 在字母行之前加一行 1–0（`KeyboardLayout.NUMBER_ROW`），20sp，键位 id 与字符相同，参与热力图。高度角色与第一行字母相同（`KeyboardHeightRole(KEY_ROW_HEIGHT_DP, 3, 0, true)`），键盘整体高出一行，键盘高度设置和行距照样作用在这一行上。分离式键盘画着时这一行同样从中间分开（12345 | 67890）。
 - 数字键经 `type()` 交给 Engine，和字母键一样：没有组字时 Engine 不收，宿主上屏这个数字（全角模式下是全角）；英文直输时直接上屏。组字中当前页有对应候选的 1–9 由 runtime 选词（`runtime.rs` 的 `Action::Character` 分支，与 iPad 数字行「组字中 1–9 选候选」一致）；当前页之外的 1–9 被 runtime 当作已处理吞掉，什么也不发生；`0` 和没有候选时的 1–9 被拒。被拒的数字原来直接 `commitText` 进组字区，把正在组的拼音换成这个数字（nihao 再按 0 只剩 0，候选栏还挂着 nihao 的候选，再选「你好」得到「0你好」），现在和被拒的标点一样先按首选结束组合再上屏（`DeclinedKeyPolicy.finishesComposition` 把数字也算进去），得到「你好0」。

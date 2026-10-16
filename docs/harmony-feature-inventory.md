@@ -26,21 +26,21 @@ find "$ref"/platforms/ios/App "$ref"/platforms/ios/SharedUI "$ref"/platforms/ios
 | `MetasequoiaInputSessionBridge.mm/.h` | 同上；ArkTS 侧的对应物是 `KeyboardSession.ets` |
 | `CandidateTranslation.cpp/.h` | `crates/client-core/src/translation.rs` + `ffi/translation.rs` |
 | `DictionaryInstallation.mm/.h` | `crates/client-core/src/resources.rs`（暂存与校验），鸿蒙由 `StagedResources.ets` 调用 |
-| `DictionarySessionLease.mm/.h` | `crates/client-core/src/dictionary/access.rs` 的 `DictionaryAccess` |
+| `DictionarySessionLease.mm/.h` | `crates/client-services/src/dictionary/access.rs` 的 `DictionaryAccess` |
 | `DictionarySnapshotBridge.mm/.h` | `crates/host-api/src/dictionary_snapshot.rs` |
-| `PersonalDictionaryBridge.mm/.h` | `crates/client-core/src/dictionary/personal.rs` + `msime_client_personal_dictionary_request`（#3411） |
-| `MSIMEBackendClient.m/.h` | `crates/client-core/src/account`；鸿蒙的传输在 `AccountCloudBridge.ts` |
+| `PersonalDictionaryBridge.mm/.h` | `crates/client-services/src/dictionary/personal.rs` + `msime_client_personal_dictionary_request`（#3411） |
+| `MSIMEBackendClient.m/.h` | `crates/client-services/src/account`；鸿蒙的传输在 `AccountCloudBridge.ts` |
 | `ShuangpinKeymap.cpp/.h` | `msime_client_shuangpin_key_hints`，由 `ShuangpinKeyHintPolicy.ts` 消费 |
 
-## `shared/backend`（14）——由 `crates/client-core` 取代
+## `shared/backend`（14）——由 `crates/client-services` 与 `crates/client-core` 取代
 
-Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-core，传输由 ArkTS 用系统 HTTPS 栈完成。
+Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-services（账号、社区、词库等）和 client-core（云候选、云剪贴板加密），传输由 ArkTS 用系统 HTTPS 栈完成。
 
 | 来源 | 去处 |
 | --- | --- |
-| `BackendAccountClient.swift` | `crates/client-core/src/account/client.rs`；ArkTS 侧 `AccountCloudBridge.ts` |
-| `BackendAccountSession.swift` | `crates/client-core/src/account/session.rs`；ArkTS 侧同上的会话与 generation |
-| `BackendAnonymousAccount.swift` | `crates/client-core/src/account/anonymous.rs`，经 N-API `ensureAnonymousAccount` 在应用或键盘首次启动时注册到 `files/state`；鸿蒙默认离线，无需登录即可输入 |
+| `BackendAccountClient.swift` | `crates/client-services/src/account/client.rs`；ArkTS 侧 `AccountCloudBridge.ts` |
+| `BackendAccountSession.swift` | `crates/client-services/src/account/session.rs`；ArkTS 侧同上的会话与 generation |
+| `BackendAnonymousAccount.swift` | `crates/client-services/src/account/anonymous.rs`，经 N-API `ensureAnonymousAccount` 在应用或键盘首次启动时注册到 `files/state`；鸿蒙默认离线，无需登录即可输入 |
 | `BackendCandidateClient.swift` | `crates/client-core/src/cloud`；`OnlineCandidatePolicy.ts` |
 | `BackendChatClient.swift` | `AccountCloudBridge.chat`（#3327） |
 | `BackendClipboardClient.swift` | `AccountCloudBridge.clipboard` + `CloudClipboardPanel` |
@@ -67,8 +67,8 @@ Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-core�
 
 | 来源 | 去处 |
 | --- | --- |
-| `AISkinService.swift` | `crates/client-core/src/skin/ai.rs` + `HarmonyAiSkins.ets`（#3341） |
-| `SkinCommunityAPI.swift` | `crates/client-core/src/skin/community.rs` + `AccountCloudBridge.community`（#3336） |
+| `AISkinService.swift` | `crates/client-services/src/skin/ai.rs` + `HarmonyAiSkins.ets`（#3341） |
+| `SkinCommunityAPI.swift` | `crates/client-services/src/skin/community.rs` + `AccountCloudBridge.community`（#3336） |
 | `CloudDictionaryTransfer.swift` | 云词库面板与 `cloudDictionarySnapshot` |
 | `CommunityPreviewFixtures.swift` | `packages/ui/src/community`（未登录时的离线预览数据） |
 | `CustomService.swift` | 共享 `ai_assistant` / `voice_input` 偏好；鸿蒙不另存一份服务配置 |
@@ -124,7 +124,7 @@ Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-core�
 | `KeyboardSkinTrial` | `msime_client_keyboard_skin_trial`（#3336） |
 | `ClipboardHistoryStore` | `clipboard/ClipboardHistoryStore.ts` |
 | `CommunityResource` | `CommunityReplyLibraryPolicy.ts` + `msime_client_community_resource_library`（#3338） |
-| `PersonalDictionaryStore`、`PersonalDictionaryImport`、`PersonalWordBridge` | `crates/client-core/src/dictionary/personal.rs`（#3411） |
+| `PersonalDictionaryStore`、`PersonalDictionaryImport`、`PersonalWordBridge` | `crates/client-services/src/dictionary/personal.rs`（#3411） |
 | `DictionarySnapshotQueue` | `HarmonyAccountCloudBridge.snapshot` + `snapshotPrepare/Activate` |
 | `TypingStatistics` | `TypingStatisticsPolicy.ts` + `msime_client_typing_statistics` |
 | `ReplyKeyboardView` | `ReplyKeyboardPolicy.ts` + `KeyboardView.replyFace` |

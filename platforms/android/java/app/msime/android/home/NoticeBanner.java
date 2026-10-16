@@ -27,9 +27,9 @@ import org.json.JSONObject;
 /**
  * 设置页顶上的公告：服务端发给 Android 应用的通知，一次一张，点「知道了」后这台设备不再显示。
  *
- * <p>The feed, its one-minute cache and the dismissed ids live in the shared client-core store (msime_client_notices); this class asks it when the app home opens and draws the newest notice that is left. Never called from the keyboard process: notices are app content, and the input method must not poll.
+ * <p>公告源、它的一分钟缓存和已关闭的 id 都在共享的 client-services 存储里（`msime_client_notices`）；本类在应用首页打开时向它询问，并绘制剩下的最新一条公告。键盘进程从不调用它：公告属于应用内容，输入法不能轮询。
  *
- * <p>The body is simple Markdown rendered by Markwon's core, which has no HTML support: raw HTML in a notice is never interpreted, and images are not loaded. Links open in the browser, and only http, https and mailto ones.
+ * <p>正文是简单的 Markdown，由 Markwon 的核心渲染，它不支持 HTML：公告里的原始 HTML 从不被解释，图片也不加载。链接在浏览器里打开，而且只限 http、https 和 mailto 链接。
  */
 final class NoticeBanner {
     private static final String DIRECTORY = "notices";

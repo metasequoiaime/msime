@@ -106,7 +106,7 @@ public final class CommunityRequest {
     public static final int MAX_PHRASES = 200;
     /** 每条短语最多 2000 个 UTF-16 单元，与服务端的限制一致。 */
     public static final int MAX_PHRASE_UNITS = 2000;
-    /** 分组名最多 32 个 Unicode 字符，与 client-core 的社区资源契约一致。 */
+    /** 分组名最多 32 个 Unicode 字符，与 client-services 的社区资源契约一致。 */
     public static final int MAX_PHRASE_GROUP_UNITS = 32;
 
     /** 短语包的条数是否在 1–200 之间。 */

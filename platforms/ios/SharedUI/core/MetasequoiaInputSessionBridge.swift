@@ -585,7 +585,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     persistSharedPreferences(stateRoot: sharedStateRoot(stateRoot), marksCloudSync: stateRoot == nil, mutate) != nil
   }
 
-  /// `msime_client_plugins` 失败时的失败码和 client-core 给的原因（码表不合格时带文件名和行号），见 `include/msime_client.h`。
+  /// `msime_client_plugins` 失败时的失败码和 client-services 给的原因（码表不合格时带文件名和行号），见 `include/msime_client.h`。
   struct PluginFailure: Error, Equatable {
     let code: String
     var detail: String? = nil

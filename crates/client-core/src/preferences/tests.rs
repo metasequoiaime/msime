@@ -188,41 +188,6 @@ fn voice_commit_mode_defaults_for_legacy_documents() {
 }
 
 #[test]
-fn the_retired_everyapi_asr_model_falls_back_to_the_current_default_on_load() {
-    let directory = tempfile::tempdir().unwrap();
-    let store = PreferencesStore::new(directory.path());
-    let load_with = |provider: &str, model: &str| {
-        let snapshot = store.load().unwrap();
-        let mut preferences = snapshot.preferences;
-        preferences.voice_input.asr_provider = provider.into();
-        preferences.voice_input.asr_model = model.into();
-        store.save(snapshot.revision, preferences).unwrap();
-        store.load().unwrap().preferences.voice_input.asr_model
-    };
-    // EveryAPI never served this model; an empty field lets the resolver use the current default.
-    assert_eq!(load_with("everyapi", "openai/whisper-large-v3-turbo"), "");
-    assert_eq!(load_with("everyapi", " openai/whisper-large-v3-turbo "), "");
-    let resolved = crate::voice::provider::mobile_voice_provider_configuration(&{
-        let mut preferences = store.load().unwrap().preferences;
-        preferences.voice_input.asr_token = "fixture-token".into();
-        preferences.voice_input.asr_endpoint.clear();
-        preferences
-    })
-    .unwrap();
-    assert_eq!(resolved.model, "volc.seedasr.sauc.duration");
-    // A model the user chose, or the same name under another provider, is left alone.
-    assert_eq!(
-        load_with("everyapi", "volc.seedasr.sauc.duration"),
-        "volc.seedasr.sauc.duration"
-    );
-    assert_eq!(load_with("everyapi", "custom-model"), "custom-model");
-    assert_eq!(
-        load_with("groq", "openai/whisper-large-v3-turbo"),
-        "openai/whisper-large-v3-turbo"
-    );
-}
-
-#[test]
 fn oversized_preference_documents_are_rejected_before_loading() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("preferences.json");
@@ -1207,13 +1172,19 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
     let defaults = PluginPreferences::default();
     assert!(!defaults.key_sound.enabled);
     assert_eq!(defaults.key_sound.mode, KeySoundMode::Keys);
-    assert_eq!(defaults.key_sound.pack, crate::plugins::DEFAULT_SOUND_PACK);
-    assert_eq!(defaults.melody.pack, crate::plugins::DEFAULT_MELODY_PACK);
+    assert_eq!(
+        defaults.key_sound.pack,
+        crate::preferences::DEFAULT_SOUND_PACK
+    );
+    assert_eq!(
+        defaults.melody.pack,
+        crate::preferences::DEFAULT_MELODY_PACK
+    );
     assert!(
         !defaults.commit_sound.enabled && !defaults.music.enabled && !defaults.achievements.enabled
     );
     assert!(defaults.music.pack.is_empty() && defaults.command_tables.is_empty());
-    assert_eq!(defaults.effect_style, crate::plugins::EffectStyle::Off);
+    assert_eq!(defaults.effect_style, crate::preferences::EffectStyle::Off);
     assert_eq!(defaults.effect_intensity, 50);
     assert!(defaults.effect_pack.is_empty());
     assert!(defaults.phrase_tables.is_empty());
@@ -1262,7 +1233,7 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
             },
             achievements: AchievementPreferences { enabled: true },
             command_tables: vec!["sig".into(), "work.notes".into()],
-            effect_style: crate::plugins::EffectStyle::PowerMode,
+            effect_style: crate::preferences::EffectStyle::PowerMode,
             effect_intensity: 100,
             effect_pack: "neon".into(),
             combo_counter: true,
@@ -1695,7 +1666,7 @@ fn appearance_preferences_absent_defaults_and_roundtrip() {
     assert!(loaded.preferences.show_candidate_expand_button);
     // 缺这两项的旧文档按类型默认值读，保持跟随系统；触屏构建的新安装才用薄荷晨光（#2178），所以这里不能直接比 `Preferences::default()`。
     let mut expected = PreferencesSnapshot::default();
-    expected.preferences.global_theme = crate::skin::theme::GlobalTheme::default();
+    expected.preferences.global_theme = crate::theme::GlobalTheme::default();
     expected.preferences.custom_theme = CustomTheme::default();
     assert_eq!(loaded, expected);
     assert_eq!(
@@ -1822,7 +1793,7 @@ fn screen_keyboard_theme_roundtrips_independently() {
 
 #[test]
 fn global_theme_ids_round_trip_and_reject_unknown_ids() {
-    use crate::skin::theme::GlobalTheme;
+    use crate::theme::GlobalTheme;
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
     // 新安装在所有构建上都跟随系统。
@@ -1875,7 +1846,7 @@ fn custom_theme_round_trips_every_part() {
         Vec::<&String>::new()
     );
     let custom_theme = CustomTheme {
-        base: crate::skin::theme::GlobalTheme::Paper,
+        base: crate::theme::GlobalTheme::Paper,
         candidate_skin: Some("sakura.v2".into()),
         candidate_skin_dark: Some("night-sakura".into()),
         candidate_colors: CustomCandidateColors {
@@ -1897,7 +1868,7 @@ fn custom_theme_round_trips_every_part() {
         .save(
             0,
             Preferences {
-                global_theme: crate::skin::theme::GlobalTheme::Custom,
+                global_theme: crate::theme::GlobalTheme::Custom,
                 custom_theme: custom_theme.clone(),
                 ..Preferences::default()
             },
@@ -1931,8 +1902,8 @@ fn custom_theme_round_trips_every_part() {
 
     // `native` 只在部分宿主上提供，不能当自定义主题的底。
     for base in [
-        crate::skin::theme::GlobalTheme::Custom,
-        crate::skin::theme::GlobalTheme::Native,
+        crate::theme::GlobalTheme::Custom,
+        crate::theme::GlobalTheme::Native,
     ] {
         let mut preferences = saved.preferences.clone();
         preferences.custom_theme.base = base;
@@ -1984,7 +1955,7 @@ fn custom_theme_keyboard_matches_apple_fields_and_bounds() {
         photo_position: Some(1.0),
     };
     let preferences = Preferences {
-        global_theme: crate::skin::theme::GlobalTheme::Custom,
+        global_theme: crate::theme::GlobalTheme::Custom,
         custom_theme: CustomTheme {
             keyboard: Some(design.clone()),
             ..CustomTheme::default()
@@ -3666,33 +3637,6 @@ fn ai_assistant_rejects_unknown_provider_and_invalid_candidate_limit() {
 }
 
 #[test]
-fn default_ai_assistant_requests_carry_the_builtin_associative_prompt() {
-    // The stored slot stays empty on purpose: blank means "use the built-in prompt" at request time, here and in the Linux provider's copy of the same text.
-    let mut ai = Preferences::default().ai_assistant;
-    assert!(ai.prompt_custom_1.is_empty());
-    ai.enabled = true;
-    ai.endpoint = "https://synthetic.invalid/chat".into();
-    ai.model = "synthetic-model".into();
-    ai.tokens.insert(
-        "https://synthetic.invalid:443".into(),
-        "synthetic-token".into(),
-    );
-    let request = crate::ai::AiSuggestionRequest {
-        segmented_pinyin: vec!["shu".into(), "ru".into()],
-        context: String::new(),
-        candidate_limit: ai.candidate_limit,
-    };
-    let descriptor = crate::ai::chat_completion_http_request(&ai, &request)
-        .unwrap()
-        .unwrap();
-    let system = &descriptor["body"]["messages"][0];
-    assert_eq!(system["role"], "system");
-    assert_eq!(system["content"], crate::ai::DEFAULT_CANDIDATE_PROMPT);
-    assert!(crate::ai::DEFAULT_CANDIDATE_PROMPT.contains("JSON"));
-    assert!(crate::ai::DEFAULT_CANDIDATE_PROMPT.contains("\"candidates\""));
-}
-
-#[test]
 fn candidate_font_size_bounds_are_strict() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
@@ -3738,7 +3682,7 @@ fn candidate_font_size_bounds_are_strict() {
     // 新安装在所有构建上都跟随系统，自定义主题为空。
     assert_eq!(
         initial.preferences.global_theme,
-        crate::skin::theme::GlobalTheme::System
+        crate::theme::GlobalTheme::System
     );
     assert_eq!(initial.preferences.custom_theme, CustomTheme::default());
     assert_eq!(initial.preferences.theme, ThemeMode::System);
@@ -4917,7 +4861,7 @@ fn mint_morning_is_the_community_design_and_a_valid_custom_theme() {
         assert_eq!(&written[key], value, "{key}");
     }
     let preferences = Preferences {
-        global_theme: crate::skin::theme::GlobalTheme::Custom,
+        global_theme: crate::theme::GlobalTheme::Custom,
         custom_theme: CustomTheme {
             keyboard: Some(design),
             ..CustomTheme::default()
@@ -4928,7 +4872,7 @@ fn mint_morning_is_the_community_design_and_a_valid_custom_theme() {
     // 薄荷晨光不再是触屏构建的默认值：新安装在桌面和触屏构建（Android、iOS、鸿蒙）上都跟随系统，自定义主题为空。client-core 的单测也在 Android 模拟器上整套运行（`platforms/android/tests/device/run-core-test.sh`），两种构建都要守住这一点。
     assert_eq!(
         Preferences::default().global_theme,
-        crate::skin::theme::GlobalTheme::System
+        crate::theme::GlobalTheme::System
     );
     assert_eq!(Preferences::default().custom_theme, CustomTheme::default());
 }

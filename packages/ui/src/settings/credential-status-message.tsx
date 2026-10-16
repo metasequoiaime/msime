@@ -1,7 +1,6 @@
-export interface CredentialStatusMessageValue {
-  ok: boolean;
-  text: string;
-}
+import type { CredentialStatusMessageValue } from "./credential-status-message-model";
+
+export type { CredentialStatusMessageValue } from "./credential-status-message-model";
 
 export interface CredentialStatusMessageProps {
   message?: CredentialStatusMessageValue;

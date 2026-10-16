@@ -2,11 +2,7 @@
 
 /// Require an explicit host, the selected secure scheme, and no URL credentials or fragment.
 /// Callers retain their own length and field-specific validation.
-pub(crate) fn valid_endpoint_shape(
-    endpoint: &str,
-    url: &reqwest::Url,
-    expected_scheme: &str,
-) -> bool {
+pub fn valid_endpoint_shape(endpoint: &str, url: &url::Url, expected_scheme: &str) -> bool {
     url.scheme() == expected_scheme
         && endpoint.split_once("://").is_some_and(|(_, authority)| {
             authority
@@ -35,7 +31,7 @@ mod tests {
             ("http://api.example.invalid/v1", "https", false),
             ("https://api.example.invalid/v1", "wss", false),
         ] {
-            let url = reqwest::Url::parse(endpoint).unwrap();
+            let url = url::Url::parse(endpoint).unwrap();
             assert_eq!(
                 valid_endpoint_shape(endpoint, &url, scheme),
                 expected,

@@ -359,7 +359,7 @@ statistics = windows_defaults["statistics"]
 assert statistics["enabled"] is False, "the statistics template must ship them off"
 assert re.search(
     r"fn enabled_by_default\(\) -> bool \{\s*(?:///[^\n]*\n\s*)*false\s*\}",
-    (ROOT / "crates/client-core/src/typing_statistics.rs").read_text(encoding="utf-8"),
+    (ROOT / "crates/client-services/src/typing_statistics.rs").read_text(encoding="utf-8"),
 ), "the shared statistics default must be off, matching the template"
 
 # An unrecognised retention is read as forever. The template must name one the code knows, or the
@@ -369,7 +369,7 @@ assert statistics["retention"] in retentions, (
     f"unknown statistics retention {statistics['retention']!r}; "
     f"the shared store understands {sorted(retentions)}"
 )
-statistics_source = (ROOT / "crates/client-core/src/typing_statistics.rs").read_text(
+statistics_source = (ROOT / "crates/client-services/src/typing_statistics.rs").read_text(
     encoding="utf-8"
 )
 for spelling in retentions - {"forever"}:

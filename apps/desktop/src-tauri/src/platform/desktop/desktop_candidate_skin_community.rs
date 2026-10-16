@@ -5,13 +5,13 @@
 use crate::platform::account_helpers::{community_error, community_id, community_service_call};
 use crate::platform::desktop::desktop_account::Storage;
 use crate::{CommandError, RuntimeOptionsState, SkinCatalogResponse, SkinDirectoryState};
-use msime_client_core::account::AccountError;
-use msime_client_core::account::BackendAccountClient;
-use msime_client_core::skin::candidate_community::{
+use msime_client_services::account::AccountError;
+use msime_client_services::account::BackendAccountClient;
+use msime_client_services::skin::candidate_community::{
     self, BackendCandidateSkinCommunityService, CandidateSkinCategory, CandidateSkinItem,
     CandidateSkinPackPreview, CandidateSkinPackage, CandidateSkinPage, CandidateSkinVisibility,
 };
-use msime_client_core::skin::candidate_sync::{
+use msime_client_services::skin::candidate_sync::{
     self, CandidateSkinPublishError, CandidateSkinSyncReport,
 };
 use serde::Serialize;
@@ -85,7 +85,7 @@ pub async fn candidate_skin_community_detail(
     .await
 }
 
-/// The preview as a `data:` URL, built only from an image whose type and leading bytes client-core has already checked.
+/// 预览图的 `data:` URL，只用 client-services 已经检查过类型和开头字节的图片构造。
 #[tauri::command]
 pub async fn candidate_skin_community_preview(
     state: State<'_, CandidateSkinCommunityState>,

@@ -18,7 +18,7 @@ fn emoji_group_page_capacity_reserves_the_first_page_size() {
 /// 插件符号组追加在内置组之后：符号以插件名为上级分类，颜文字排在 All 之后；每组带包 id，组的关键词放在组上，各项的关键词仍是符号本身。
 #[test]
 fn plugin_symbol_groups_follow_the_built_in_catalog() {
-    use msime_client_core::plugins::symbol_set::SymbolTab;
+    use msime_client_services::plugins::symbol_set::SymbolTab;
     let group =
         |tab, title: &str, keywords: &str, items: &[&str]| msime_host_api::PluginSymbolGroup {
             pack: "arrows".into(),
@@ -260,7 +260,7 @@ fn cantonese_zhuyin_and_stroke_are_offered_only_with_their_installed_dictionary(
 fn macos_offers_only_the_language_schemes_its_download_can_install() {
     use msime_client_core::host_surface::{HostCapabilities, HostPlatform};
     use msime_client_core::preferences::InputScheme;
-    use msime_client_core::resource_packs::ResourcePack;
+    use msime_client_providers::resource_packs::ResourcePack;
     let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
     super::drop_unpinned_language_schemes(&mut capabilities);
     let pinned = ResourcePack::LanguageDictionaries.schemes();
@@ -534,7 +534,7 @@ fn ios_named_skin_library_shares_the_apple_app_group_root() {
         super::ios_custom_skin_library_root(std::path::Path::new("/fixture/app-group/MSIME"));
     assert_eq!(root, std::path::Path::new("/fixture/app-group"));
     assert_eq!(
-        msime_client_core::skin::custom_library::CustomSkinLibraryStore::new(root).path(),
+        msime_client_services::skin::custom_library::CustomSkinLibraryStore::new(root).path(),
         std::path::Path::new("/fixture/app-group/CustomSkins/library.json")
     );
 }
@@ -1083,13 +1083,13 @@ fn ink_handwriting_answer_reports_no_result_when_no_model_can_follow() {
 
 /// 在 `state_root` 下伪造一个已完整安装的手写资源包，返回其中的模型路径。
 fn publish_fake_handwriting_pack(state_root: &std::path::Path) -> std::path::PathBuf {
-    use msime_client_core::resource_packs::{self, ResourcePack};
+    use msime_client_providers::resource_packs::{self, ResourcePack};
     let pack = resource_packs::root(state_root).join(ResourcePack::Handwriting.id());
     std::fs::create_dir_all(&pack).unwrap();
     let model = pack.join("handwriting-zh_CN.model");
     std::fs::write(&model, b"synthetic").unwrap();
     std::fs::write(
-        pack.join(msime_client_core::voice::local_models::MANIFEST_FILE),
+        pack.join(msime_client_providers::voice::local_models::MANIFEST_FILE),
         serde_json::to_vec(&ResourcePack::Handwriting.manifest()).unwrap(),
     )
     .unwrap();
@@ -1157,7 +1157,8 @@ fn packaged_handwriting_model_ignores_a_relative_preferences_directory() {
 #[test]
 fn typing_statistics_status_reports_file_availability_without_content() {
     let directory = tempfile::tempdir().unwrap();
-    let store = msime_client_core::typing_statistics::TypingStatisticsStore::new(directory.path());
+    let store =
+        msime_client_services::typing_statistics::TypingStatisticsStore::new(directory.path());
     let missing = super::typing_statistics_status(&store, store.load().unwrap())
         .ok()
         .unwrap();
@@ -1629,7 +1630,7 @@ fn write_candidate_skin(skins: &std::path::Path, id: &str, name: &str) {
 #[test]
 fn resolve_theme_reads_the_custom_package_from_the_host_skin_root() {
     use super::{resolve_theme_at, ResolveThemeRequest};
-    use msime_client_core::skin::theme::{GlobalTheme, ThemeSource};
+    use msime_client_services::skin::theme::{GlobalTheme, ThemeSource};
     let directory = tempfile::tempdir().expect("temporary directory");
     let package = directory.path().join("sakura");
     std::fs::create_dir_all(&package).unwrap();
@@ -1663,7 +1664,7 @@ fn resolve_theme_reads_the_custom_package_from_the_host_skin_root() {
     // 皮肤包的 paper 底固定浅色，画的是它的浅色配色。
     assert_eq!(
         resolved.appearance,
-        Some(msime_client_core::skin::theme::ThemeAppearance::Light)
+        Some(msime_client_services::skin::theme::ThemeAppearance::Light)
     );
     assert_eq!(candidate.surface.as_deref(), Some("#FFF0F5"));
     assert_eq!(candidate.text.as_deref(), Some("#123456"));
@@ -1746,7 +1747,7 @@ fn resolve_theme_reads_the_custom_package_from_the_host_skin_root() {
     .unwrap();
     assert_eq!(
         based.appearance,
-        Some(msime_client_core::skin::theme::ThemeAppearance::Dark)
+        Some(msime_client_services::skin::theme::ThemeAppearance::Dark)
     );
     assert!(based.keyboard.is_some());
     // Retired and misspelt ids are refused, not read as system.
@@ -1819,7 +1820,7 @@ fn runtime_options_sync_publishes_the_installed_skin_catalog() {
 
     // A rescan after the user removes the package publishes the smaller list without a save.
     std::fs::remove_dir_all(skins.join("sakura")).unwrap();
-    publish_candidate_skin_catalog(&state, &msime_client_core::skin::catalog::scan(&skins))
+    publish_candidate_skin_catalog(&state, &msime_client_services::skin::catalog::scan(&skins))
         .unwrap();
     let rescanned: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(
@@ -1836,7 +1837,7 @@ fn runtime_options_sync_publishes_the_installed_skin_catalog() {
     };
     publish_candidate_skin_catalog(
         &missing,
-        &msime_client_core::skin::catalog::SkinCatalog::default(),
+        &msime_client_services::skin::catalog::SkinCatalog::default(),
     )
     .unwrap();
 }
@@ -1853,7 +1854,7 @@ fn runtime_options_skin_catalog_stays_within_what_the_hosts_read() {
             &format!("皮肤 {index:02}"),
         );
     }
-    let catalog = msime_client_core::skin::catalog::scan(&skins);
+    let catalog = msime_client_services::skin::catalog::scan(&skins);
     let mut preferences = serde_json::to_value(Preferences::default()).unwrap();
     // The last package by name: beyond the package cap and the first to go when trimming, were the selection not protected in both.
     preferences["custom_theme"]["candidate_skin"] = "skin39".into();
@@ -1996,7 +1997,7 @@ fn runtime_options_the_hosts_could_not_read_are_refused_and_the_old_file_kept() 
         skins: Some(skins.clone()),
     };
     assert!(matches!(
-        publish_candidate_skin_catalog(&state, &msime_client_core::skin::catalog::scan(&skins)),
+        publish_candidate_skin_catalog(&state, &msime_client_services::skin::catalog::scan(&skins)),
         Err(RuntimeOptionsError::TooLarge)
     ));
     assert_eq!(std::fs::read(&path).unwrap(), oversized);
@@ -2111,7 +2112,7 @@ fn skin_rescan_keeps_its_list_when_the_catalog_cannot_be_published() {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn desktop_account_storage_round_trips_an_owner_only_session() {
-    use msime_client_core::account::{
+    use msime_client_services::account::{
         AccountSessionFileLayout, AccountSessionStorage, AccountTokens, AccountUser,
         FileAccountSessionStorage, SavedAccountSession,
     };
@@ -2185,7 +2186,7 @@ fn desktop_account_storage_round_trips_an_owner_only_session() {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn desktop_account_storage_refuses_a_symlinked_or_oversized_store() {
-    use msime_client_core::account::{
+    use msime_client_services::account::{
         AccountSessionFileLayout, AccountSessionStorage, FileAccountSessionStorage,
     };
 
@@ -2798,7 +2799,7 @@ fn a_picked_windows_program_becomes_its_file_name() {
 
 #[test]
 fn dictionary_scel_text_converts_a_cell_dictionary_and_keeps_the_codes() {
-    // 最小的细胞词库：拼音表 ce、shi，一组一个词「测试」。布局见 client-core 的 `dictionary::scel`。
+    // 最小的细胞词库：拼音表 ce、shi，一组一个词「测试」。布局见 client-services 的 `dictionary::scel`。
     let mut bytes = vec![0u8; 0x2628];
     bytes[..12].copy_from_slice(b"\x40\x15\x00\x00DCS\x01\x01\x00\x00\x00");
     bytes[0x120..0x124].copy_from_slice(&1u32.to_le_bytes());

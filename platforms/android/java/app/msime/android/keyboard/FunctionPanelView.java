@@ -22,7 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 功能菜单：横向分页、每页四列三行的条目，下方页点。
+ * 功能菜单：横向分页的条目，下方页点。每页四列，行数见 {@link #setPickerGrid}：手机竖屏和平板三行，手机横屏两行。
  *
  * <p>条目没有底色：30 dp 图标区与常规字重标签，间距 7 dp，条目高 52 dp。字形条目画方框。开启状态用强调色和图标右下角的勾标表达。
  *
@@ -65,6 +65,12 @@ public final class FunctionPanelView extends LinearLayout {
     }
 
     public static final float ITEM_HEIGHT_DP = 52f;
+    private static final float PADDING_TOP_DP = 10f;
+    private static final float PADDING_BOTTOM_DP = 4f;
+    private static final float DOTS_TOP_MARGIN_DP = 8f;
+    /** 网格以外的高度：上下内边距和页点（含它的上边距），不含外面容器的内边距。 */
+    public static final float CHROME_DP = PADDING_TOP_DP + PADDING_BOTTOM_DP + DOTS_TOP_MARGIN_DP
+        + KeyboardPagerDots.DOT_DP;
 
     private final PagedTileGrid grid;
     private final KeyboardPagerDots dots;
@@ -72,22 +78,23 @@ public final class FunctionPanelView extends LinearLayout {
     private int foreground = Color.BLACK;
     private int accent = Color.BLUE;
     private int panelBackground = Color.WHITE;
+    private PagedTileGrid.PickerGrid layout = new PagedTileGrid.PickerGrid(FunctionPanelModel.ROWS, 12f);
 
     public FunctionPanelView(Context context) {
         super(context);
         setOrientation(VERTICAL);
         setContentDescription("更多工具");
-        LayoutPolicy.setPaddingDp(this, context, 0, 10, 0, 4);
+        LayoutPolicy.setPaddingDp(this, context, 0, PADDING_TOP_DP, 0, PADDING_BOTTOM_DP);
         grid = new PagedTileGrid(context);
-        grid.setGrid(FunctionPanelModel.COLUMNS, FunctionPanelModel.ROWS);
-        grid.setSpacing(ITEM_HEIGHT_DP, 16f, 4f, 4f);
+        grid.setGrid(FunctionPanelModel.COLUMNS, layout.rows());
+        grid.setSpacing(ITEM_HEIGHT_DP, layout.rowGap(), 4f, 4f);
         dots = new KeyboardPagerDots(context);
         grid.setOnPageChangeListener((page, count) -> dots.setActive(page, true));
         LinearLayout.LayoutParams gridParams = LayoutPolicy.weightedWidthParams(1f);
         addView(grid, gridParams);
         LinearLayout.LayoutParams dotParams = LayoutPolicy.wrapParams();
         dotParams.gravity = Gravity.CENTER_HORIZONTAL;
-        dotParams.topMargin = DimensionPolicy.pixels(context, 8);
+        dotParams.topMargin = DimensionPolicy.pixels(context, DOTS_TOP_MARGIN_DP);
         addView(dots, dotParams);
     }
 
@@ -98,6 +105,17 @@ public final class FunctionPanelView extends LinearLayout {
         panelBackground = kbBackground;
         dots.setColors(accentColor, hairline);
         for (Tile tile : tiles) tile.invalidate();
+    }
+
+    /** 每页的行数和行距（{@link PagedTileGrid#pickerGrid}）；变了才重排，停在的页超出新页数时退到最后一页，页点跟着重算。 */
+    public void setPickerGrid(PagedTileGrid.PickerGrid value) {
+        if (value.equals(layout)) return;
+        layout = value;
+        grid.setGrid(FunctionPanelModel.COLUMNS, layout.rows());
+        grid.setSpacing(ITEM_HEIGHT_DP, layout.rowGap(), 4f, 4f);
+        grid.setPage(grid.page(), false);
+        dots.setCount(grid.pageCount());
+        dots.setActive(grid.page(), false);
     }
 
     /** 换掉全部条目；状态都重置为 {@link State#NONE}。 */

@@ -1,7 +1,7 @@
-//! 在 127.0.0.1 上起参考中继，用真正的客户端（`msime_client_core::clipboard_relay`，经端到端加密驱动）跑完整流程。每台「设备」是一个独立的密钥串目录。
+//! 在 127.0.0.1 上起参考中继，用真正的客户端（`msime_client_services::clipboard_relay`，经端到端加密驱动）跑完整流程。每台「设备」是一个独立的密钥串目录。
 
-use msime_client_core::account::AccountClipboardE2eStatus;
-use msime_client_core::clipboard_relay::{RelayClipboard, RelayConfig, RelayError};
+use msime_client_services::account::AccountClipboardE2eStatus;
+use msime_client_services::clipboard_relay::{RelayClipboard, RelayConfig, RelayError};
 use msime_clipboard_relay::{store::RelayStore, Relay, Server};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -261,8 +261,8 @@ fn oversized_or_unauthenticated_requests_are_refused() {
 /// 自己跑驱动、自己保存密钥串的宿主（Android 把密钥串交给 AndroidKeyStore 加密）只借 `RelayTransport` 发请求：它与用 `RelayClipboard` 的设备互相批准、互传，密钥串只在宿主自己手里，客户端这边不落任何文件。
 #[test]
 fn a_host_that_keeps_its_own_keystore_pairs_through_the_transport_alone() {
-    use msime_client_core::clipboard_relay::RelayTransport;
     use msime_client_core::cloud::clipboard_e2e::{self, HttpResponse, Operation};
+    use msime_client_services::clipboard_relay::RelayTransport;
 
     let root = tempfile::tempdir().unwrap();
     let server = start(&root.path().join("relay.db"));

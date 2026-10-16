@@ -1,6 +1,6 @@
 import XCTest
 
-/// 与 `crates/client-core/src/ai/endpoint.rs` 跑同一组用例（`shared/contracts/ai-endpoint/cases.json`）。两边结论不一致时，设置页会放行键盘拒绝的地址，或者把 Token 存在键盘找不到的来源键下。
+/// 与 `crates/client-providers/src/ai/endpoint.rs` 跑同一组用例（`shared/contracts/ai-endpoint/cases.json`）。两边结论不一致时，设置页会放行键盘拒绝的地址，或者把 Token 存在键盘找不到的来源键下。
 final class AIEndpointPolicyTests: XCTestCase {
   func testSharedContractCases() throws {
     let file = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "cases", withExtension: "json"))

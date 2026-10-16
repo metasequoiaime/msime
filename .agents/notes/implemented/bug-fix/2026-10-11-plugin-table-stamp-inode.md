@@ -20,4 +20,4 @@ Unix 上重新导入的表在下一次获得焦点时一定会被换上。代价
 
 ## Verification
 
-`crates/host-api/src/tests.rs` 的 `a_reimported_table_of_the_same_length_and_time_is_picked_up`（仅 Unix）用 `msime_client_core::plugins::import` 先后导入两张同长度的 `work` 指令表，把新清单的修改时间设回旧值，获得焦点后断言候选换成新模板。若戳不含 inode，该测试拿到的仍是旧模板。
+`crates/host-api/src/tests.rs` 的 `a_reimported_table_of_the_same_length_and_time_is_picked_up`（仅 Unix）用 `msime_client_services::plugins::import` 先后导入两张同长度的 `work` 指令表，把新清单的修改时间设回旧值，获得焦点后断言候选换成新模板。若戳不含 inode，该测试拿到的仍是旧模板。

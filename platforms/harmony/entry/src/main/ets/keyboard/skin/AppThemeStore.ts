@@ -3,7 +3,7 @@
  *
  * 与按键反馈一样，它不在共享偏好里：在 Android 上它同样是本地设置文件，因为它给本宿主自己的页面着色，而不是账号同步的内容。设置页写入、键盘读取，两者都使用 `KeyboardFeedback` 文件所在的状态目录，因此两个进程对 `system` 键盘所用的季节色调看法一致。
  *
- * 本文件只负责解析、校验和序列化；读写留给调用方的文件辅助函数，与 `KeyboardFeedback` 和 `KeyboardSession.feedbackIn` / `saveFeedbackIn` 的分工相同。id 是共享层的 `AppTheme` id（`crates/client-core/src/skin/app_theme.rs`），`msime_client_resolve_app_theme` 接受这些 id。
+ * 本文件只负责解析、校验和序列化；读写留给调用方的文件辅助函数，与 `KeyboardFeedback` 和 `KeyboardSession.feedbackIn` / `saveFeedbackIn` 的分工相同。id 是共享层的 `AppTheme` id（`crates/client-services/src/skin/app_theme.rs`），`msime_client_resolve_app_theme` 接受这些 id。
  */
 
 interface AppThemeDocument {

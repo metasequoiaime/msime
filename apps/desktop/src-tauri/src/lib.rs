@@ -76,13 +76,13 @@ use msime_client_core::panels::{
 use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
-use msime_client_core::skin::custom_library::{
+use msime_client_services::skin::custom_library::{
     CustomSkinLibraryAction, CustomSkinLibraryError, CustomSkinLibraryStore, SavedTouchKeyboardSkin,
 };
-use msime_client_core::skin::keyboard_trial::KeyboardSkinTrialStore;
+use msime_client_services::skin::keyboard_trial::KeyboardSkinTrialStore;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
-use msime_client_core::typing_statistics::TypingSource;
-use msime_client_core::typing_statistics::{
+use msime_client_services::typing_statistics::TypingSource;
+use msime_client_services::typing_statistics::{
     TypingStatistics, TypingStatisticsStatus, TypingStatisticsStore,
 };
 #[cfg(target_os = "android")]
@@ -312,7 +312,7 @@ fn drop_uninstalled_language_schemes(
 /// macOS 按需下载语言词库包：包里没有某方案的词库（锁文件还没固定它）时，选了它 host-api 也只会退回别的方案，所以设置页不列出它。
 fn drop_unpinned_language_schemes(capabilities: &mut HostCapabilities) {
     use msime_client_core::preferences::InputScheme;
-    use msime_client_core::resource_packs::ResourcePack;
+    use msime_client_providers::resource_packs::ResourcePack;
     let pinned = ResourcePack::LanguageDictionaries.schemes();
     capabilities.input_schemes.retain(|scheme| {
         let name = match scheme {
@@ -574,7 +574,7 @@ struct VocabularyState(
     Option<std::path::PathBuf>,
 );
 
-// 状态的组装在 client-core（`TypingStatisticsStore::status`），Windows 原生设置窗口经 host-api 读到同样的字段。
+// 状态的组装在 client-services（`TypingStatisticsStore::status`），Windows 原生设置窗口经 host-api 读到同样的字段。
 fn typing_statistics_status(
     store: &TypingStatisticsStore,
     statistics: TypingStatistics,
@@ -635,7 +635,7 @@ async fn set_typing_statistics_retention(
         );
         let statistics = store
             .set_retention(
-                msime_client_core::typing_statistics::StatisticsRetention::parse(&retention),
+                msime_client_services::typing_statistics::StatisticsRetention::parse(&retention),
                 &today,
             )
             .map_err(|_| CommandError { code: "storage" })?;
@@ -801,7 +801,7 @@ fn read_skin_toolbar_stylesheet_at(
     root: PathBuf,
     id: &str,
 ) -> Result<Option<String>, CommandError> {
-    msime_client_core::skin::catalog::read_toolbar_stylesheet(root, id)
+    msime_client_services::skin::catalog::read_toolbar_stylesheet(root, id)
         .map_err(|_| CommandError { code: "storage" })
 }
 
@@ -821,7 +821,7 @@ fn read_skin_stylesheet_at(
     id: &str,
     relative: &str,
 ) -> Result<String, CommandError> {
-    msime_client_core::skin::catalog::read_stylesheet(root, id, relative)
+    msime_client_services::skin::catalog::read_stylesheet(root, id, relative)
         .map_err(|_| CommandError { code: "storage" })
 }
 
@@ -852,7 +852,7 @@ fn read_skin_resource_at(
     id: &str,
     relative: &str,
 ) -> Result<SkinResourceResponse, CommandError> {
-    let resource = msime_client_core::skin::catalog::read_resource(root, id, relative)
+    let resource = msime_client_services::skin::catalog::read_resource(root, id, relative)
         .map_err(|_| CommandError { code: "storage" })?;
     Ok(SkinResourceResponse {
         content_type: resource.content_type,
@@ -944,7 +944,7 @@ async fn import_picked_skin(app: &tauri::AppHandle, root: PathBuf) -> Result<(),
         return Ok(());
     };
     let copied = tauri::async_runtime::spawn_blocking(move || {
-        msime_client_core::skin::folder_import::import(&source, &root)
+        msime_client_services::skin::folder_import::import(&source, &root)
     })
     .await;
     let _ = platform.end_skin_folder_access();
@@ -958,13 +958,13 @@ async fn import_picked_skin(app: &tauri::AppHandle, root: PathBuf) -> Result<(),
 struct SkinCatalogResponse {
     directory: String,
     #[serde(flatten)]
-    catalog: msime_client_core::skin::catalog::SkinCatalog,
+    catalog: msime_client_services::skin::catalog::SkinCatalog,
 }
 
 fn read_skin_catalog(root: PathBuf) -> SkinCatalogResponse {
     SkinCatalogResponse {
         directory: root.to_string_lossy().into_owned(),
-        catalog: msime_client_core::skin::catalog::scan(root),
+        catalog: msime_client_services::skin::catalog::scan(root),
     }
 }
 
@@ -1022,7 +1022,7 @@ async fn list_helpcode_schemas(
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ResolveThemeRequest {
-    global_theme: msime_client_core::skin::theme::GlobalTheme,
+    global_theme: msime_client_services::skin::theme::GlobalTheme,
     #[serde(default)]
     custom_theme: msime_client_core::preferences::CustomTheme,
     dark: bool,
@@ -1033,8 +1033,8 @@ struct ResolveThemeRequest {
 fn resolve_theme_at(
     root: &std::path::Path,
     request: ResolveThemeRequest,
-) -> Result<msime_client_core::skin::theme::ResolvedTheme, CommandError> {
-    use msime_client_core::skin::theme::{self, GlobalTheme, ThemePackage};
+) -> Result<msime_client_services::skin::theme::ResolvedTheme, CommandError> {
+    use msime_client_services::skin::theme::{self, GlobalTheme, ThemePackage};
     request.custom_theme.validate()?;
     let global_theme = request.global_theme;
     // 按请求的明暗取槽位：深色模式先取 `candidate_skin_dark`，与 `msime_client_resolve_theme` 相同。
@@ -1042,7 +1042,7 @@ fn resolve_theme_at(
         .custom_theme
         .candidate_skin_for(request.dark)
         .filter(|_| global_theme == GlobalTheme::Custom)
-        .and_then(|id| msime_client_core::skin::catalog::load_package(root, id).ok())
+        .and_then(|id| msime_client_services::skin::catalog::load_package(root, id).ok())
         .map(|summary| ThemePackage::from(&summary));
     Ok(theme::resolve(
         global_theme,
@@ -1057,7 +1057,7 @@ fn resolve_theme_at(
 async fn resolve_theme(
     directory: tauri::State<'_, SkinDirectoryState>,
     request: ResolveThemeRequest,
-) -> Result<msime_client_core::skin::theme::ResolvedTheme, CommandError> {
+) -> Result<msime_client_services::skin::theme::ResolvedTheme, CommandError> {
     // The host chooses the root; the webview names a package only by id.
     let root = directory.0.clone();
     tauri::async_runtime::spawn_blocking(move || resolve_theme_at(&root, request))
@@ -1492,7 +1492,7 @@ fn ios_keyboard_ai_preferences(
     }
     .to_owned();
     // 来源键与设置页一致：https 不限主机，http 只认本机或局域网（`ai::endpoint`）。
-    let token = msime_client_core::ai::credential_for_endpoint(preferences)
+    let token = msime_client_providers::ai::credential_for_endpoint(preferences)
         .map(str::to_owned)
         .unwrap_or_default();
     let enabled = preferences.enabled
@@ -1672,7 +1672,7 @@ async fn test_api_credential(
         let _ = runtime;
         // The same checks the native Windows settings window runs through `msime_client_test_api_credential`.
         let result = tauri::async_runtime::spawn_blocking(move || {
-            msime_client_core::credential::test_service(&service, &config)
+            msime_client_providers::credential::test_service(&service, &config)
         })
         .await
         .map_err(|_| CommandError {
@@ -1687,10 +1687,10 @@ async fn test_api_credential(
     {
         let _ = runtime;
         let result = tauri::async_runtime::spawn_blocking(move || {
-            let result = msime_client_core::credential::probe::test_chat(
+            let result = msime_client_providers::credential::probe::test_chat(
                 &service,
                 &config,
-                &msime_client_core::credential::probe::ChatProbeTransport,
+                &msime_client_providers::credential::probe::ChatProbeTransport,
             );
             msime_input_runtime::CredentialTestResult {
                 ok: result.ok,
@@ -1781,7 +1781,7 @@ fn sync_runtime_options(
         let catalog = runtime
             .skins
             .as_deref()
-            .map(|root| (root, msime_client_core::skin::catalog::scan(root)));
+            .map(|root| (root, msime_client_services::skin::catalog::scan(root)));
         let mut document = runtime
             .document
             .lock()
@@ -1847,7 +1847,7 @@ fn linux_runtime_options_bytes(document: &Value) -> Result<Vec<u8>, RuntimeOptio
 fn runtime_options_with_skin_catalog(
     document: &mut Value,
     root: &std::path::Path,
-    catalog: &msime_client_core::skin::catalog::SkinCatalog,
+    catalog: &msime_client_services::skin::catalog::SkinCatalog,
 ) -> Result<Vec<u8>, RuntimeOptionsError> {
     let serialize = |document: &Value| {
         serde_json::to_vec_pretty(document)
@@ -1862,7 +1862,7 @@ fn runtime_options_with_skin_catalog(
         .collect();
     let selected: Vec<&str> = selected.iter().map(String::as_str).collect();
     let mut published =
-        msime_client_core::skin::catalog::host_candidate_catalog(catalog, root, &selected);
+        msime_client_services::skin::catalog::host_candidate_catalog(catalog, root, &selected);
     loop {
         document["candidate_skin_catalog"] = published.clone();
         let bytes = serialize(document)?;
@@ -1895,7 +1895,7 @@ fn runtime_options_with_skin_catalog(
 #[cfg(target_os = "linux")]
 fn publish_candidate_skin_catalog(
     runtime: &RuntimeOptionsState,
-    catalog: &msime_client_core::skin::catalog::SkinCatalog,
+    catalog: &msime_client_services::skin::catalog::SkinCatalog,
 ) -> Result<(), RuntimeOptionsError> {
     let (Some(path), Some(root)) = (runtime.path.as_ref(), runtime.skins.as_ref()) else {
         return Ok(());
@@ -2508,7 +2508,7 @@ fn append_plugin_symbol_groups(
     kaomoji: &mut Vec<EmojiCatalogGroup>,
     symbols: &mut Vec<EmojiCatalogGroup>,
 ) {
-    use msime_client_core::plugins::symbol_set::SymbolTab;
+    use msime_client_services::plugins::symbol_set::SymbolTab;
     for group in groups {
         let items: Vec<EmojiCatalogItem> = group
             .items
@@ -2664,7 +2664,7 @@ fn restart_input_method_blocking() -> Result<(), HostActionError> {
         // 只重启本版本的 Server：管道名带本安装包所属版本的后缀（full 没有后缀）。
         let pipe = msime_client_core::edition::Edition::of_windows_package()
             .ok()
-            .and_then(msime_client_core::dictionary::quiesce::server::pipe_name)
+            .and_then(msime_client_services::dictionary::quiesce::server::pipe_name)
             .ok_or(HostActionError {
                 code: "unavailable",
             })?;
@@ -3580,23 +3580,18 @@ fn launch_route_from_args(args: &[String]) -> Option<SurfaceRoute> {
     })
 }
 
-/// What a second launch should bring to the front.
+/// 再次启动时应该把哪个界面带到前台。
 ///
-/// Every surface this product opens for itself names one: the Windows host builds `--route=` into
-/// the command line in `ShellLauncher.cpp`, and the tray, the toolbar and the panels all go through
-/// it. So a launch *without* a route is the user starting the application themselves - the Start
-/// menu entry, a shortcut, the installed icon - and the window they meant is the settings window.
+/// 产品自己打开的界面都带路由：Windows 宿主在 `platforms/windows/src/system/ShellLauncher.cpp` 里把 `--route=` 拼进命令行，托盘、悬浮工具栏和原生设置窗口里的面板入口都经过它。Windows 的设置本身是 WinUI 3 原生程序 `msime-client-settings.exe`（`platforms/windows/settings/`），托盘的设置项和开始菜单都打开它，不打开本程序；按 `platforms/windows/src/system/ShellSurfaces.h` 的 `shell_executable_names`，本程序 `MSIME.exe` 在 Windows 上只收到面板路由。所以不带路由的启动是用户自己启动本程序：Linux 的桌面入口，macOS 的 Finder 或启动台，Windows 上则是直接运行 `MSIME.exe`；这时用户要的是设置窗口。
 ///
-/// Doing nothing in that case is what makes a second launch look broken: the running instance stays
-/// behind whatever is in front, and the click appears to be ignored. The reference activates its
-/// existing window here rather than exiting silently.
+/// 这种情况下什么都不做，再次启动就像坏了：已在运行的实例留在前台窗口后面，点击看起来被忽略。参照实现在这里激活已有窗口，而不是悄悄退出。
 fn second_launch_route(args: &[String]) -> SurfaceRoute {
     launch_route_from_args(args).unwrap_or(SurfaceRoute::Settings(None))
 }
 
-/// Whether this macOS launch joins the single settings instance.
+/// 这次 macOS 启动是否并入唯一的设置实例。
 ///
-/// Only the settings window is one per user, as on Windows where `settings_launcher.cpp` re-routes the existing window instead of starting another. Panel launches carry a per-session identity and options path in their environment and exit with their panel, so each keeps its own process. A launch without a route is Finder or Launchpad opening the application, which means the settings window.
+/// 每个用户只有设置窗口是单实例：再次启动设置时把路由交给已经打开的设置窗口，让它换到请求的页面，而不是另起一个。面板启动在环境变量里带着各自会话的身份和 options 路径，随面板一起退出，所以各自保留独立进程。Windows 与 Linux 不走这里，它们在 `run` 里让整个 Tauri 进程都注册单实例插件。不带路由的启动是 Finder 或启动台打开应用，指的就是设置窗口。
 #[cfg(target_os = "macos")]
 fn macos_settings_launch(route: Option<SurfaceRoute>) -> bool {
     route.is_none_or(|route| route.panel().is_none())
@@ -4041,7 +4036,7 @@ pub(crate) fn handwriting_model_without_pack(document: Option<&Value>) -> bool {
 
 /// HostOptions 文档里绝对 `preferences_directory` 下已完整安装的手写资源包里的模型；相对路径、缺少 `msime-model.json` 的目录和符号链接一律忽略。
 fn downloaded_handwriting_model(document: Option<&Value>) -> Option<PathBuf> {
-    use msime_client_core::resource_packs::{self, ResourcePack};
+    use msime_client_providers::resource_packs::{self, ResourcePack};
     let state_root = document?
         .get("preferences_directory")
         .and_then(Value::as_str)
@@ -4883,7 +4878,10 @@ fn sync_omarchy_theme() -> i32 {
         document: Arc::new(Mutex::new(Value::Null)),
         skins: Some(root.clone()),
     };
-    match publish_candidate_skin_catalog(&runtime, &msime_client_core::skin::catalog::scan(&root)) {
+    match publish_candidate_skin_catalog(
+        &runtime,
+        &msime_client_services::skin::catalog::scan(&root),
+    ) {
         Ok(()) => 0,
         Err(_) => fail("cannot publish the skin catalog to the runtime options"),
     }
@@ -5114,7 +5112,7 @@ pub fn run() {
             let community_resource_library_path =
                 ios_community_resource_library_path(&directory);
             #[cfg(any(target_os = "android", target_os = "ios"))]
-            app.manage(msime_client_core::community::resource_library::CommunityResourceLibraryStore::new(
+            app.manage(msime_client_services::community::resource_library::CommunityResourceLibraryStore::new(
                 community_resource_library_path,
             ));
             app.manage(keyboard_skin_trials);

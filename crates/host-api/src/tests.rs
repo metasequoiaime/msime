@@ -333,7 +333,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
 
 #[test]
 fn doubao_frame_codec_is_available_through_c_abi() {
-    let request = msime_client_core::voice::doubao_frame::encode_json_frame(
+    let request = msime_client_providers::voice::doubao_frame::encode_json_frame(
         9,
         0,
         1,
@@ -3507,7 +3507,7 @@ fn skin_catalog_reaches_native_presenters_without_the_settings_shell() {
     assert_eq!(catalog["value"]["issues"][0]["folder"], "broken");
     assert_eq!(
         catalog["value"],
-        serde_json::to_value(msime_client_core::skin::catalog::scan(&root)).unwrap()
+        serde_json::to_value(msime_client_services::skin::catalog::scan(&root)).unwrap()
     );
     let relative = "skins";
     assert_eq!(scan(relative)["ok"], false);
@@ -3874,8 +3874,8 @@ fn resolve_theme_reads_the_package_from_either_source() {
     assert!(value["keyboard"].is_object());
 
     // The Linux hosts pass the entry they read from candidate_skin_catalog instead of the root.
-    let entry = msime_client_core::skin::catalog::host_candidate_catalog(
-        &msime_client_core::skin::catalog::scan(&root),
+    let entry = msime_client_services::skin::catalog::host_candidate_catalog(
+        &msime_client_services::skin::catalog::scan(&root),
         &root,
         &["sakura"],
     )["packages"][0]
@@ -3934,7 +3934,7 @@ fn resolve_theme_reads_the_package_from_either_source() {
 
     // A SkinSummary is not a catalog entry: passing one as `package` is refused, not read without its declared modes.
     let summary = serde_json::to_value(
-        msime_client_core::skin::catalog::load_package(&root, "sakura").unwrap(),
+        msime_client_services::skin::catalog::load_package(&root, "sakura").unwrap(),
     )
     .unwrap();
     let refused = call(json!({
@@ -4101,7 +4101,7 @@ fn installing_a_community_skin_is_one_step_so_a_failed_import_ends_its_trial() {
     let applied = preferences.load().unwrap();
     assert_eq!(
         applied.preferences.global_theme,
-        msime_client_core::skin::theme::GlobalTheme::Custom
+        msime_client_services::skin::theme::GlobalTheme::Custom
     );
     assert_eq!(
         applied
@@ -4129,7 +4129,7 @@ fn installing_a_community_skin_is_one_step_so_a_failed_import_ends_its_trial() {
     let reverted = preferences.load().unwrap();
     assert_ne!(
         reverted.preferences.global_theme,
-        msime_client_core::skin::theme::GlobalTheme::Custom
+        msime_client_services::skin::theme::GlobalTheme::Custom
     );
     // The library keeps it: declining the trial is declining to wear it now, not to own it.
     let library = json!({"directory": root}).to_string();
@@ -4299,7 +4299,7 @@ fn ai_skin_planning_keeps_the_instruction_and_the_parser_together() {
     assert_eq!(composed["value"]["body"]["messages"][0]["role"], "system");
     assert_eq!(
         composed["value"]["body"]["messages"][0]["content"],
-        msime_client_core::skin::ai::AI_SKIN_SYSTEM_PROMPT
+        msime_client_services::skin::ai::AI_SKIN_SYSTEM_PROMPT
     );
     assert_eq!(
         composed["value"]["body"]["messages"][1]["content"],
@@ -5187,7 +5187,7 @@ fn chaizi_follows_the_host_form_until_the_user_flips_it() {
     read(msime_client_destroy(handle));
 }
 
-/// 拆字表的繁体字形列是生成器按 OpenCC s2t 规则算的；宿主上屏时用的是 client-core 的同一套转换。两边对每个字都必须得出同一个字形，Engine 按这一列去重才和宿主看到的一致。
+/// 拆字表的繁体字形列是生成器按 OpenCC s2t 规则算的；宿主上屏时用的是 client-base 的同一套转换。两边对每个字都必须得出同一个字形，Engine 按这一列去重才和宿主看到的一致。
 #[test]
 fn chaizi_traditional_forms_match_the_shared_conversion() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -12626,13 +12626,13 @@ fn save_mentions(root: &std::path::Path, entries: &[(&str, &str)]) {
     let entries: Vec<_> = entries
         .iter()
         .map(
-            |(text, key)| msime_client_core::plugins::mentions::MentionEntry {
+            |(text, key)| msime_client_services::plugins::mentions::MentionEntry {
                 text: (*text).into(),
                 key: (*key).into(),
             },
         )
         .collect();
-    msime_client_core::plugins::mentions::MentionStore::new(root.join("state/plugins"))
+    msime_client_services::plugins::mentions::MentionStore::new(root.join("state/plugins"))
         .save(&entries)
         .unwrap();
 }
@@ -12713,7 +12713,7 @@ fn a_reimported_table_of_the_same_length_and_time_is_picked_up() {
             format!("schema_version = 1\nkind = \"command_table\"\nid = \"work\"\nname = \"work\"\nversion = \"1\"\nlicense = \"CC0-1.0\"\n[[commands]]\ntrigger = \"sig\"\ntitle = \"签名\"\ntemplate = \"{template}\"\n"),
         )
         .unwrap();
-        msime_client_core::plugins::import(&source, &plugins).unwrap();
+        msime_client_services::plugins::import(&source, &plugins).unwrap();
     };
     import("first", "张三敬上");
     let mut preferences = chinese_preferences();
@@ -13387,9 +13387,9 @@ fn plugins_boundary_lists_imports_removes_and_keeps_the_name_list() {
     };
     // Every built-in pack, sound and music alike, in the catalog's id order, with `extra` among them.
     let builtins = |extra: &[&str]| -> Vec<String> {
-        msime_client_core::plugins::BUILTIN_SOUND_PACKS
+        msime_client_services::plugins::BUILTIN_SOUND_PACKS
             .iter()
-            .chain(msime_client_core::plugins::BUILTIN_MUSIC_PACKS.iter())
+            .chain(msime_client_services::plugins::BUILTIN_MUSIC_PACKS.iter())
             .chain(extra)
             .map(|id| (*id).to_owned())
             .collect::<std::collections::BTreeSet<_>>()
@@ -13977,7 +13977,7 @@ fn telemetry_abi_runs_a_session_through_a_crash_and_clears_when_turned_off() {
     let ended = reporting_call(msime_client_telemetry_end, json!({"directory": directory}));
     assert_eq!(ended["value"], true);
 
-    let store = msime_client_core::telemetry::TelemetryStore::new(&directory);
+    let store = msime_client_services::telemetry::TelemetryStore::new(&directory);
     let kinds: Vec<_> = store
         .queued()
         .unwrap()
@@ -14041,7 +14041,7 @@ fn telemetry_abi_reads_consent_from_the_shared_preferences() {
     let stopped = reporting_call(msime_client_telemetry_begin, request);
     assert_eq!(stopped["value"]["enabled"], false);
     assert!(
-        msime_client_core::telemetry::TelemetryStore::new(&directory)
+        msime_client_services::telemetry::TelemetryStore::new(&directory)
             .queued()
             .unwrap()
             .is_empty()
@@ -15013,7 +15013,7 @@ fn snapshot_export_leaves_out_a_multi_line_quick_phrase_and_counts_it() {
 /// A dictionary collection adding a word the user already has must leave the user's row alone and say so, so that turning the collection off later does not delete it.
 #[test]
 fn a_collection_addition_of_an_existing_user_word_is_left_alone_and_reported() {
-    use msime_client_core::dictionary::personal::{
+    use msime_client_services::dictionary::personal::{
         PersonalDictionaryStore, PersonalWord, PersonalWordKind,
     };
     let directory = tempfile::tempdir().unwrap();
@@ -15097,7 +15097,7 @@ fn common_phrases_and_collections_forward_to_client_core() {
 /// Android 和鸿蒙手机经命名词库送细胞词库的字节：一个 8 MiB 的文件经 base64 后连同宿主选项仍在 17 MiB 的请求上限之内，导入成一个集合，装满两万条后停下并说明。
 #[test]
 fn a_cell_dictionary_at_its_size_limit_fits_one_collections_request() {
-    use msime_client_core::dictionary::scel::MAX_SCEL_BYTES;
+    use msime_client_services::dictionary::scel::MAX_SCEL_BYTES;
     let mut bytes = crate::dictionary::scel_fixture::scel(&[(&["ce", "shi"], &["测试"])]);
     let mut groups = 1u32;
     let mut index = 0u32;

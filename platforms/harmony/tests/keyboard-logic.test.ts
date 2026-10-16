@@ -231,6 +231,7 @@ import { AppThemeStore } from "../entry/src/main/ets/keyboard/skin/AppThemeStore
 import {
   FunctionPanelItem,
   FunctionPanelPolicy,
+  PickerGrid,
 } from "../entry/src/main/ets/keyboard/FunctionPanelPolicy";
 import { KeyboardIconPaths } from "../entry/src/main/ets/keyboard/KeyboardIconPaths";
 import { OneHandedMode, OneHandedPolicy } from "../entry/src/main/ets/keyboard/OneHandedPolicy";
@@ -3127,6 +3128,37 @@ group("九键外框底行：符 | 123 | 空格 | 中 | 回车，数字层把 符
   );
 });
 
+group("26 键底行与九键一样：符 | 123 | 空格 | 中 | 回车；14 键和大千注音保留逗号句号", () => {
+  const leads = (
+    scheme: string,
+    english: boolean,
+    fourteenKey: boolean,
+    symbols: boolean,
+  ): boolean =>
+    KeyboardScheme.designRowLeadsWithSymbolPanel(
+      SchemeCompositionPolicy.selectedRulesScheme(scheme, english, "none"),
+      KeyboardScheme.usesFourteenKeyFace(fourteenKey, english, "none"),
+      symbols,
+    );
+  for (const scheme of ["quanpin", "shuangpin", "wubi", "korean", "vietnamese", "tibetan"]) {
+    check(leads(scheme, false, false, false), `${scheme} 的 26 键字母层以 符 打头`);
+    check(leads(scheme, true, false, false), `${scheme} 切到英文仍以 符 打头`);
+    check(!leads(scheme, false, false, true), `${scheme} 的符号行不带 符`);
+  }
+  check(!leads("quanpin", false, true, false), "14 键第三行已有 符，底行保留逗号句号");
+  check(leads("quanpin", true, true, false), "14 键切到英文画 26 键，底行以 符 打头");
+  check(!leads("zhuyin", false, false, false), "大千注音保留逗号句号");
+  check(leads("zhuyin", true, false, false), "注音切到英文画 26 键，底行以 符 打头");
+  check(
+    KeyboardScheme.designRowLeadsWithSymbolPanel(
+      SchemeCompositionPolicy.selectedRulesScheme("zhuyin", false, "unicode"),
+      false,
+      false,
+    ),
+    "本地模式画 26 键，底行以 符 打头",
+  );
+});
+
 console.log("NumberSymbolLayout");
 
 function texts(row: LayerKey[]): string {
@@ -3599,34 +3631,62 @@ group("the wubi hint shows only the untyped suffix", () => {
 
 group("the letter face and the engine input are decided separately", () => {
   check(
-    LetterKeyFacePolicy.face("a", true, false, false) === "a",
-    "Chinese mode draws lowercase faces, as the design, Android and iOS do",
+    LetterKeyFacePolicy.face("a", true, false, false, false) === "A",
+    "Chinese mode draws uppercase faces, as Sogou, WeChat, Baidu, Doubao, Android and iOS do",
   );
   check(
-    LetterKeyFacePolicy.face("a", true, false, true) === "A",
+    LetterKeyFacePolicy.face("a", true, false, false, true) === "A",
     "a Chinese key that will type uppercase helpcode draws it",
   );
+  // 中文的本地输入模式（英文补全、Unicode、快捷短语等）按字面输入，键面回到小写。
   check(
-    LetterKeyFacePolicy.face("a", true, true, false) === "a",
-    "a local mode keeps the lowercase face",
+    LetterKeyFacePolicy.face("a", true, false, true, false) === "a",
+    "a Chinese local mode draws the lowercase it types",
   );
   check(
-    LetterKeyFacePolicy.face("a", true, true, true) === "a",
-    "a Chinese local mode keeps the lowercase face under Shift",
+    LetterKeyFacePolicy.face("a", true, false, true, true) === "a",
+    "a Chinese local mode stays lowercase under Shift",
   );
   check(
-    LetterKeyFacePolicy.face("a", false, false, false) === "a",
+    LetterKeyFacePolicy.face("a", false, false, false, false) === "a",
     "English unshifted is lowercase",
   );
-  check(LetterKeyFacePolicy.face("a", false, false, true) === "A", "English shifted is uppercase");
-  check(LetterKeyFacePolicy.face("", true, false, false) === "", "an empty face stays empty");
+  check(
+    LetterKeyFacePolicy.face("a", false, false, false, true) === "A",
+    "English shifted is uppercase",
+  );
+  // 越南语、藏文由调用方传 chineseMode = false，键面跟 Shift 走。
+  check(
+    LetterKeyFacePolicy.face("a", false, false, false, false) === "a",
+    "Vietnamese unshifted is lowercase",
+  );
+  check(
+    LetterKeyFacePolicy.face("a", false, false, false, true) === "A",
+    "Vietnamese follows Shift",
+  );
+  check(
+    LetterKeyFacePolicy.face("a", true, true, false, false) === "a",
+    "Japanese romaji keeps lowercase faces",
+  );
+  check(
+    LetterKeyFacePolicy.face("a", true, true, false, true) === "A",
+    "Japanese romaji draws the uppercase Shift types",
+  );
+  check(
+    LetterKeyFacePolicy.face("a", true, true, true, true) === "a",
+    "a Japanese local mode keeps the lowercase face under Shift",
+  );
+  check(
+    LetterKeyFacePolicy.face("", true, false, false, false) === "",
+    "an empty face stays empty",
+  );
   check(
     LetterKeyFacePolicy.accessibilityLabel("a", false, false, true) === "大写 A",
     "a shifted English key announces uppercase",
   );
   check(
     LetterKeyFacePolicy.accessibilityLabel("a", true, false, false) === "字母 A",
-    "a Chinese key announces the letter",
+    "a Chinese uppercase face still announces the letter, not uppercase input",
   );
   check(
     LetterKeyFacePolicy.accessibilityLabel("a", true, false, true) === "大写 A",
@@ -9280,6 +9340,67 @@ group("the function panel follows the design's order, then the Harmony extras", 
   const ids = FunctionPanelPolicy.items().map((item: FunctionPanelItem) => item.id);
   check(new Set(ids).size === ids.length, "every id is unique");
 });
+
+group(
+  "the function panel and the scheme picker page three rows in portrait and two in phone landscape",
+  () => {
+    // 视图的键区：四行键高加高度调整，再加三份行距（KeyboardView.surfaceHeight）。
+    const keyArea = (adjustment: number, rowSpacingTenths: number): number =>
+      KeyboardMetrics.ROW_HEIGHT_VP * KeyboardMetrics.KEY_ROWS +
+      KeyboardGeometry.heightAdjustment(adjustment) +
+      KeyboardMetrics.touchRowGapsVp(KeyboardGeometry.rowSpacing(rowSpacingTenths));
+    // KeyboardView 的磁贴网格：每行至少 52vp，上方留白 10、页点 14、下方留白 4。
+    const row: number = 52;
+    const chrome: number = 10 + 14 + 4;
+    const same = (grid: PickerGrid, rows: number, rowsGap: number): boolean =>
+      grid.rows === rows && grid.rowsGap === rowsGap;
+    const minimum: number = keyArea(
+      KeyboardGeometry.MIN_HEIGHT_ADJUSTMENT_VP,
+      KeyboardGeometry.MIN_ROW_SPACING_TENTHS,
+    );
+    const standard: number = keyArea(0, KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS);
+    const tallest: number = keyArea(
+      KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_VP,
+      KeyboardGeometry.MAX_ROW_SPACING_TENTHS,
+    );
+    check(
+      minimum === 176 && standard === 197 && tallest === 254,
+      "the key area spans 176–254vp, 197 by default",
+    );
+    check(
+      same(FunctionPanelPolicy.pickerGrid(false, tallest, row, chrome), 3, 12),
+      "a tall key area shows three rows 12vp apart, as on iOS",
+    );
+    const portrait: PickerGrid = FunctionPanelPolicy.pickerGrid(false, standard, row, chrome);
+    check(same(portrait, 3, 6), "the default key area narrows the gap to keep three rows");
+    check(
+      3 * row + 2 * portrait.rowsGap + chrome <= standard,
+      "three rows fit the default key area",
+    );
+    check(
+      same(FunctionPanelPolicy.pickerGrid(true, tallest, row, chrome), 2, 16),
+      "phone landscape stays two rows 16vp apart however tall the keys are",
+    );
+    // 最矮的键区连行距 0 也放不下三行，退回两行；两行放得下。
+    check(3 * row + chrome > minimum, "three rows overflow the minimum key area");
+    const short: PickerGrid = FunctionPanelPolicy.pickerGrid(false, minimum, row, chrome);
+    check(same(short, 2, 16), "the minimum key area falls back to two rows");
+    check(2 * row + short.rowsGap + chrome <= minimum, "two rows fit the minimum key area");
+    check(
+      same(FunctionPanelPolicy.pickerGrid(false, 3 * row + chrome + 7, row, chrome), 2, 16),
+      "a gap under 4vp drops to two rows instead",
+    );
+    check(
+      KeyboardFormFactorPolicy.phoneLandscape(800, 360),
+      "a phone on its side is phone landscape",
+    );
+    check(!KeyboardFormFactorPolicy.phoneLandscape(360, 800), "an upright phone is not");
+    check(
+      !KeyboardFormFactorPolicy.phoneLandscape(1280, 800),
+      "a tablet on its side keeps three rows",
+    );
+  },
+);
 
 /** 具有此 id 的磁贴，查找方式与视图按 id 查找相同。 */
 function panelItem(id: string): FunctionPanelItem | null {
@@ -15606,7 +15727,7 @@ group("AI model catalogs keep each provider's protocol and path", () => {
   );
 });
 
-// 与 crates/client-core/src/ai/endpoint.rs 跑同一组用例；这里的判断和 Rust 不一致时，鸿蒙宿主会放行或拒绝与其他平台不同的地址。
+// 与 crates/client-providers/src/ai/endpoint.rs 跑同一组用例；这里的判断和 Rust 不一致时，鸿蒙宿主会放行或拒绝与其他平台不同的地址。
 declare const __dirname: string;
 declare function require(name: "fs"): { readFileSync(path: string, encoding: "utf8"): string };
 interface AiEndpointContractCase {

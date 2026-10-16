@@ -29,7 +29,7 @@
 - 桌面 shell（Tauri）提供跨平台命令层，并按 Windows / macOS / Linux / Android / iOS 分目录接入各自的账号、凭据、数据目录、输入源与音频能力。
 - HarmonyOS 宿主消费同一份设置页的单文件构建产物，由 `platforms/harmony/stage-settings.sh` 在每次打 HAP 前从 `packages/ui` 构建、不提交进仓库，`entry/hvigorfile.ts` 在它缺失时拒绝打包。
 - 外观页新增「候选窗」分组，集中设置候选主题、候选字体预设（默认 / 宋体 / 黑体 / 楷体 / 圆体）、整体大小、不透明度、背景 / 焦点高亮 / 文字 / 序号四种颜色和圆角大小。共享偏好新增 `candidate_scale_percent`（50–200%，字号与窗口几何一并缩放）、`candidate_opacity_percent`（50–100%，只作用于卡片底色、边框和皮肤背景图，文字保持不透明）和 `candidate_corner_radius`（0–32pt，优先于皮肤包的 `corner_radius_dip`）；宿主能力新增 `candidate_window_scale`、`candidate_window_opacity`、`candidate_corner_radius` 三个开关，Windows 与 macOS 全部支持，Linux（Fcitx5）只支持圆角，HarmonyOS 2in1 支持圆角与不透明度，iOS 与 Android 不提供。可见变化：设置了焦点高亮颜色后，选中候选的文字改为按该底色明暗自动取黑或白（序号随之取同色半透明），不再沿用强调色。兼容性：三项保持默认时不写入偏好文档，旧版本照常读取；一旦调整过其中任一项，尚未升级的旧版本宿主（例如更新后尚未重启的输入法进程，或经同步共用同一份文档的另一台设备）会因不认识这些键而整份加载失败，需要一并升级。
-- 词库导入支持搜狗细胞词库（`.scel`）：client-core 的 `dictionary::scel` 把用户自己选的文件转成标准文本（只取词和拼音，权重统一为默认值 10000，读不出的词条按词序计入「跳过」，不完整或损坏的文件整份拒绝），再走现有的文本导入。共享设置页（macOS、Linux、鸿蒙 2in1 和 Tauri 移动壳）的拼音词库多一项「搜狗细胞词库 .scel（仅导入）」，经新 C ABI `msime_client_dictionary_scel_text` 转换，鸿蒙 2in1 和 Tauri 移动壳一次导入只收 64 KiB 文本、只看 1000 行，所以只导入词库开头的一部分（移动壳的个人词库队列另有 128 条上限）并提示文件过长；Android 和鸿蒙手机的命名词库按 base64 经 `bytes_base64` 导入，文件不超过 8 MiB；iOS 原生 App 的「导入个人词库 → 词库文件」也能选它，受队列上限一次最多导入 128 个词。讯飞没有可核实的二进制格式，它导出的纯词表仍用「汉字自动注音」导入。
+- 词库导入支持搜狗细胞词库（`.scel`）：client-services 的 `dictionary::scel` 把用户自己选的文件转成标准文本（只取词和拼音，权重统一为默认值 10000，读不出的词条按词序计入「跳过」，不完整或损坏的文件整份拒绝），再走现有的文本导入。共享设置页（macOS、Linux、鸿蒙 2in1 和 Tauri 移动壳）的拼音词库多一项「搜狗细胞词库 .scel（仅导入）」，经新 C ABI `msime_client_dictionary_scel_text` 转换，鸿蒙 2in1 和 Tauri 移动壳一次导入只收 64 KiB 文本、只看 1000 行，所以只导入词库开头的一部分（移动壳的个人词库队列另有 128 条上限）并提示文件过长；Android 和鸿蒙手机的命名词库按 base64 经 `bytes_base64` 导入，文件不超过 8 MiB；iOS 原生 App 的「导入个人词库 → 词库文件」也能选它，受队列上限一次最多导入 128 个词。讯飞没有可核实的二进制格式，它导出的纯词表仍用「汉字自动注音」导入。
 
 #### macOS
 
@@ -105,7 +105,7 @@
 
 - 语音服务 `local` 改为基于 sherpa-onnx 的设备端识别，六个平台共用同一份模型目录与设置页。运行时 sherpa-onnx v1.13.8 按平台由 `resources/voice-runtime.lock.json` 固定 SHA-256，`scripts/fetch_voice_runtime.py` 校验后取回，宿主在首次识别时动态加载，缺少运行时的包照常启动、只把本地识别标为不可用。
 - 模型目录 `resources/local-asr-models.json` 提供三个模型：默认的中英流式 X-ASR（边说边出字，自带标点），支持中英日韩粤的 SenseVoice-Small，以及仅桌面提供、约 1 GB 的 Fun-ASR-Nano。模型不随包分发，在设置页按需下载，逐文件校验长度与 SHA-256，完整就位后才写入 `msime-model.json`，下载可取消，也可配置 HTTPS 镜像（`voice_input.asr_model_mirror`）。
-- 用户词库里自己添加的拼音词条作为热词：X-ASR 与 Fun-ASR-Nano 原生使用，SenseVoice 在识别后按拼音做近音替换（`client-core::voice::hotwords`，含 zh/z、n/l、an/ang 等模糊对）。
+- 用户词库里自己添加的拼音词条作为热词：X-ASR 与 Fun-ASR-Nano 原生使用，SenseVoice 在识别后按拼音做近音替换（`client-providers::voice::hotwords`，含 zh/z、n/l、an/ang 等模糊对）。
 - `voice_input.asr_model_path` 接受已安装的模型目录，Unix、Windows 盘符、UNC 等绝对路径写法在任何系统上都能通过校验，同一份偏好文件跨平台读取不再被拒。
 - 宿主接口新增 `msime_client_voice_hotwords`、`msime_client_voice_hotword_correct`、`msime_client_voice_local_models`、`msime_client_voice_local_model_install`、`msime_client_voice_local_model_cancel` 与 `msime_client_voice_local_model_remove`。
 - `msime-voice-local` 辅助进程通过标准输入输出上的 JSON 行协议识别，macOS 与 Linux 的输入法进程由它加载模型，自身不常驻数百 MB 的模型；空闲 120 秒释放模型，空闲 10 分钟退出。协议见 `shared/voice/README.md`，许可证见[第三方组件清单](third-party.md)。
@@ -122,7 +122,7 @@
 - Android 原生安装包的候选翻译改用已登录账号的令牌：此前它读取的是 Tauri 合包才写入的会话存储，原生包登录后仍一直使用匿名账号。合包照旧使用其 Rust 会话的令牌。
 - 新装时没有任何功能会把输入内容发出设备（#3817）：云联想把正在组的拼音发给 Google 输入工具，六个平台新装默认关闭，Windows、Linux 与 macOS 在首次使用时询问且默认选项是不启用，已存配置升级沿用原值；语音识别、语音润色、AI 联想默认凭据为空，不填就不发请求；候选翻译在所有平台新装时都不联网，要在设置里选择一个翻译服务才发请求。
 - 在线候选释义走水杉账号（`https://api.msime.app/v1/translate`）改为显式选择：新增偏好 `translation_account`（所有平台新装及恢复默认时都为 `false`；配置文件里缺这个字段按 `false` 读，未选时不写入配置文件），只有在翻译服务里选了「水杉账号」、候选翻译开着、且没有启用你自己的小牛、自定义或凭据可用的腾讯服务时，macOS、iOS、Android 才把当前页的中文候选词发给它。此前这三个平台在没有配置自己的服务时会默认走这条路径。升级影响：没选过翻译服务的用户，包括已登录账号的用户，升级后都不再收到在线释义，要重新在设置里选择「水杉账号」或填入自己的服务；在此之前，非英语目标语言没有释义，英文释义只来自离线词典，iOS 上非英语的释义行（主语言和第二语言都算）会收起。细节见[网络请求与数据流向](../PRIVACY.md#候选翻译默认不联网)。
-- 六个平台均在安装后首次启动时注册本机匿名水杉账号：Linux 在 `postinst` / `msime-linux-setup`，Windows 在 Server 首次以 `--production` 启动时，macOS 在输入法首次激活时，iOS 与 Android 在应用首次打开时，HarmonyOS 在应用或键盘首次启动时。只发送本机随机生成的标识与口令，不含输入内容，失败时下次启动重试。Windows 与 HarmonyOS 经新的 host C ABI `msime_client_ensure_anonymous_account`，由共享层 `client-core` 实现，与其他平台使用相同的文件名与协议。
+- 六个平台均在安装后首次启动时注册本机匿名水杉账号：Linux 在 `postinst` / `msime-linux-setup`，Windows 在 Server 首次以 `--production` 启动时，macOS 在输入法首次激活时，iOS 与 Android 在应用首次打开时，HarmonyOS 在应用或键盘首次启动时。只发送本机随机生成的标识与口令，不含输入内容，失败时下次启动重试。Windows 与 HarmonyOS 经新的 host C ABI `msime_client_ensure_anonymous_account`，由共享层 `client-services` 实现，与其他平台使用相同的文件名与协议。
 - 六个平台均在启动时上报一次安装事件；Android、iOS、macOS、Linux、Windows 还会在崩溃时上报（HarmonyOS 暂无崩溃上报）。字段、去重与离线重试行为按平台不同，逐条见[网络请求与数据流向](../PRIVACY.md)，那里同时记录发送内容、目的地、代码位置和关闭方式。
 - 按需下载的资源包扩展到三个桌面平台：Windows 和 macOS 的安装包不再内置桌面神经联想模型（约 25 MB），打开「桌面神经联想」时由设置应用下载，Linux 在安装布局里没有它时同样下载；Windows 只在系统没有中文 Windows Ink 识别器时才下载手写模型，Ink 可用时手写面板照常识别、不等下载；我们自己发布的 Linux deb/rpm 不再带手写模型，第一次打开手写面板时下载，发行版仓库的包继续内置。下载失败时资源包行和手写面板都提供「设置下载镜像」。已下载的资源包只在文件字节（名字、SHA-256、长度）变了时才算过期：此前每次发布新的词库版本，即使日文词典没变也会因下载地址变化被当成过期而停用。细节见[资源与更新下载](../PRIVACY.md#资源与更新下载)。
 

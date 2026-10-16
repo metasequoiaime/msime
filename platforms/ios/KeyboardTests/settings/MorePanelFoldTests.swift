@@ -60,10 +60,10 @@ final class MorePanelFoldTests: XCTestCase {
       return a.minX < b.minX
     }
     XCTAssertEqual(ordered.map(\.tool.title), expectedTitles)
-    XCTAssertEqual(panel.pageCount, (expectedTitles.count + 7) / 8)
+    XCTAssertEqual(panel.pageCount, (expectedTitles.count + 11) / 12)
     for index in 0..<panel.pageCount {
-      XCTAssertEqual(tiles.filter { page(of: $0, in: scroll) == index }.count, min(8, expectedTitles.count - index * 8),
-                     "page \(index + 1) holds 4 × 2 tiles")
+      XCTAssertEqual(tiles.filter { page(of: $0, in: scroll) == index }.count, min(12, expectedTitles.count - index * 12),
+                     "page \(index + 1) holds 4 × 3 tiles")
     }
     // 翻页能让每个图块都进入视野。
     for tile in ordered {
@@ -77,8 +77,29 @@ final class MorePanelFoldTests: XCTestCase {
     XCTAssertEqual(KeyboardFunctionTileView.height, 52)
   }
 
-  /// iPad 键盘每页显示 6 × 2 个图块。
-  func testTheTabletMenuHoldsTwelveTilesAPage() {
+  /// 三行的面板在最矮的手机竖屏键盘里也放得下：键盘高度调到最低（-12pt）、行距调到最小（4pt）时，三行格子和页码圆点都在面板里，不被裁掉。
+  func testThreeRowsFitTheShortestPortraitKeyArea() {
+    let tools = (0..<20).map { index in KeyboardTool(id: "tool\(index)", title: "工具\(index)", face: .glyph("\(index)")) {} }
+    let form = KeyboardFormFactor.phone
+    let available = KeyboardHeightPercent.keyBlockHeight(keyHeight: form.keyHeight(landscape: false, handwriting: false), rows: 4, rowSpacing: 4)
+      + KeyboardHeightPercent.adjustmentRange.lowerBound + form.topRowGap + form.padding.bottom
+    for build in [{ KeyboardMorePickerView(tools: tools, formFactor: form) as UIView },
+                  { KeyboardSchemePickerView(selected: .quanpin, showsHeader: false, formFactor: form, onSelect: { _ in }, onClose: {}) as UIView }] {
+      let panel = build()
+      panel.frame = CGRect(x: 0, y: 0, width: 375, height: available)
+      panel.layoutIfNeeded()
+      let grid = descendants(panel).compactMap { $0 as? KeyboardPagedGridView }.first
+      XCTAssertEqual(grid?.rows, 3)
+      let dots = descendants(panel).compactMap { $0 as? KeyboardPagerDotsView }.first
+      for view in [grid as UIView?, dots as UIView?].compactMap({ $0 }) {
+        XCTAssertLessThanOrEqual(view.convert(view.bounds, to: panel).maxY, available + 0.5, "\(type(of: panel)) in \(available)pt")
+      }
+      XCTAssertGreaterThanOrEqual(grid?.bounds.height ?? 0, grid?.gridHeight ?? .infinity, "\(type(of: panel)) shows all three rows")
+    }
+  }
+
+  /// iPad 键盘每页显示 6 × 3 个图块，手机竖屏 4 × 3，手机横屏放不下三行，仍是 4 × 2。
+  func testTheTabletMenuHoldsEighteenTilesAPage() {
     let tools = (0..<20).map { index in KeyboardTool(id: "tool\(index)", title: "工具\(index)", face: .glyph("\(index)")) {} }
     let tablet = KeyboardMorePickerView(tools: tools, formFactor: .tablet)
     tablet.frame = CGRect(x: 0, y: 0, width: 820, height: 237)
@@ -87,9 +108,12 @@ final class MorePanelFoldTests: XCTestCase {
     let phone = KeyboardMorePickerView(tools: tools, formFactor: .phone)
     phone.frame = CGRect(x: 0, y: 0, width: 380, height: 201)
     phone.layoutIfNeeded()
-    XCTAssertEqual(phone.pageCount, 3)
+    XCTAssertEqual(phone.pageCount, 2)
     let grid = descendants(tablet).compactMap { $0 as? KeyboardPagedGridView }.first
-    XCTAssertEqual(grid?.tilesPerPage, 12)
+    XCTAssertEqual(grid?.tilesPerPage, 18)
+    let landscape = KeyboardMorePickerView(tools: tools, formFactor: .phone, landscape: true)
+    XCTAssertEqual(descendants(landscape).compactMap { $0 as? KeyboardPagedGridView }.first?.tilesPerPage, 8)
+    XCTAssertEqual(KeyboardPagedGridView.pickerRows(formFactor: .tablet, landscape: true), 3)
   }
 
   /// Windows 上的 Ctrl+Shift+Alt+C 组合键在 iOS 上没有键可按，所以菜单把它放在最后一页；点这个图块会关闭菜单并提示已生效。
@@ -98,7 +122,7 @@ final class MorePanelFoldTests: XCTestCase {
     let panel = try openMenu(in: controller)
     let scroll = try XCTUnwrap(descendants(panel).compactMap { $0 as? UIScrollView }.first)
     let card = try tile("moreCard-清除候选缓存", in: controller)
-    XCTAssertEqual(page(of: card, in: scroll), 2, "清除候选缓存 is on the third page")
+    XCTAssertEqual(page(of: card, in: scroll), panel.pageCount - 1, "清除候选缓存 is on the last page")
     card.sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
 

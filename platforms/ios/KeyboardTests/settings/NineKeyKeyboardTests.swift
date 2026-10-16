@@ -136,9 +136,9 @@ final class NineKeyKeyboardTests: XCTestCase {
         XCTAssertEqual(enter.bounds.width, originalReturnWidth, accuracy: 2)
         XCTAssertLessThanOrEqual(enter.convert(enter.bounds, to: controller.view).maxX, width + 0.5)
         if scheme == .quanpin {
-          let period = try button("bottomPeriodKey", in: controller)
-          XCTAssertFalse(period.isHidden)
-          XCTAssertLessThan(expanded.maxX, period.convert(period.bounds, to: controller.view).minX)
+          // 26 键底行没有 。，空格一直延伸到回车前面。
+          XCTAssertTrue(try button("bottomPeriodKey", in: controller).isHidden)
+          XCTAssertLessThan(expanded.maxX, enter.convert(enter.bounds, to: controller.view).minX)
           if width == 414 {
             let screenshot = UIGraphicsImageRenderer(bounds: controller.view.bounds).image {
               controller.view.layer.render(in: $0.cgContext)
@@ -839,7 +839,9 @@ final class NineKeyKeyboardTests: XCTestCase {
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertFalse(try button("bottomLanguageKey", in: controller).isHidden)
-    XCTAssertTrue(try button("symbolPanelKey", in: controller).isHidden)
+    // 字母层底行最左边是 符。
+    XCTAssertFalse(try button("symbolPanelKey", in: controller).isHidden)
+    XCTAssertEqual(try button("symbolPanelKey", in: controller).configuration?.title, "符")
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertEqual(faces(0), ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"])
@@ -1167,12 +1169,12 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertEqual(panel.currentPage, 0)
       XCTAssertNil(descendants(panel).first { $0.accessibilityIdentifier == "closeMorePicker" }, "the toolbar row is the menu's only header")
 
-      // 手机上每页 4 × 2 个 52pt 图块，每页一个圆点，当前页圆点宽 16pt。
+      // 手机竖屏每页 4 × 3 个 52pt 图块，每页一个圆点，当前页圆点宽 16pt。
       let tiles = descendants(panel).compactMap { $0 as? KeyboardFunctionTileView }
       for tile in tiles { XCTAssertEqual(tile.bounds.height, 52, accuracy: 0.5, tile.tool.title) }
       let scroll = try XCTUnwrap(descendants(panel).compactMap { $0 as? UIScrollView }.first)
-      XCTAssertEqual(tiles.filter { page(of: $0, in: scroll) == 0 }.count, 8)
-      XCTAssertEqual(panel.pageCount, (tiles.count + 7) / 8)
+      XCTAssertEqual(tiles.filter { page(of: $0, in: scroll) == 0 }.count, min(12, tiles.count))
+      XCTAssertEqual(panel.pageCount, (tiles.count + 11) / 12)
       let dots = try XCTUnwrap(descendants(panel).compactMap { $0 as? KeyboardPagerDotsView }.first)
       XCTAssertEqual(dots.count, panel.pageCount)
       XCTAssertEqual(dots.subviews[dots.active].bounds.width, KeyboardPagerDotsView.activeWidth)
@@ -1185,12 +1187,11 @@ final class NineKeyKeyboardTests: XCTestCase {
         XCTAssertEqual(try tile("moreCard-振动", in: controller).accessibilityLabel, "按键振动")
       }
 
-      // 拨动开关后菜单保持打开，停在原来那一页。
+      // 拨动开关后菜单保持打开，停在原来那一页：停在第 2 页时拨动一个开关（每页 12 个时隐私模式在第 1 页），面板就地重画，不跳回第 1 页。
       let grid = try XCTUnwrap(descendants(panel).compactMap { $0 as? KeyboardPagedGridView }.first)
       grid.scrollToPage(1, animated: false)
       XCTAssertEqual(panel.currentPage, 1)
       let privacy = try tile("moreCard-隐私模式", in: controller)
-      XCTAssertEqual(page(of: privacy, in: scroll), 1)
       XCTAssertEqual(privacy.accessibilityValue, "已关闭")
       privacy.sendActions(for: .primaryActionTriggered)
       XCTAssertTrue(KeyboardPrivacyPreference.incognito)
@@ -1819,8 +1820,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(space.superview?.alpha, 0, "the keys are hidden under the panel", file: file, line: line)
   }
 
-  func testLetterFacesAreLowercaseUntilShiftUppercasesThem() throws {
-    // 设计稿在所有模式下都画小写键面；只有下一键会输入大写字母时键面才变成大写。无论哪种情况，引擎收到的都是小写输入。
+  func testLetterFacesAreUppercaseForChineseAndLowercaseUntilShiftOtherwise() throws {
+    // 中文方案的键面画大写（与主流拼音键盘一致）；日语罗马字和英文画小写，只有下一键会输入大写字母时键面才变成大写。无论哪种情况，引擎收到的都是小写输入。
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
     for scheme in [ChineseInputScheme.quanpin, .japanese] {
@@ -1833,7 +1834,8 @@ final class NineKeyKeyboardTests: XCTestCase {
 
       let a = try XCTUnwrap(
         descendants(controller.view).first { $0.accessibilityLabel == "字母 A" } as? UIButton)
-      XCTAssertEqual(a.configuration?.title, "a", "\(scheme) draws lowercase letter faces")
+      let chineseFace = scheme == .quanpin ? "A" : "a"
+      XCTAssertEqual(a.configuration?.title, chineseFace, "\(scheme) letter faces")
       XCTAssertEqual(a.accessibilityLabel, "字母 A", "The pinyin face is not an uppercase keystroke")
       // 设计稿在手机上用固定的 22pt 键面字号，不用 Dynamic Type 样式。
       let transformer = try XCTUnwrap(a.configuration?.titleTextAttributesTransformer)
@@ -1844,7 +1846,7 @@ final class NineKeyKeyboardTests: XCTestCase {
 
       a.sendActions(for: .primaryActionTriggered)
       XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "candidate-1" })
-      XCTAssertEqual(a.configuration?.title, "a", "composing keeps lowercase faces")
+      XCTAssertEqual(a.configuration?.title, chineseFace, "composing keeps the faces")
 
       try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
@@ -2150,8 +2152,8 @@ final class NineKeyKeyboardTests: XCTestCase {
             }
           }
           let punctuation = try button("quickPunctuationKey", in: controller)
-          // 手写板沿用手机 26 键的底行，与 Android 的 designEntries 一致，所以它的 ， 显示在空格键旁边。
-          XCTAssertEqual(punctuation.isHidden, symbols || [.nineKey, .nineKeyShuangpin, .japaneseNineKey, .stroke].contains(scheme))
+          // 26 键字母层的底行与九键一样没有 ，（符 | 123 | 空格 | 中 | 回车）；手写、全拼 14 键和大千注音的底行仍带 ， 和 。，与 Android 的 designEntries 一致。
+          XCTAssertEqual(punctuation.isHidden, symbols || ![.handwriting, .fourteenKey, .zhuyin].contains(scheme), "\(scheme)")
           if !punctuation.isHidden {
             XCTAssertEqual(punctuation.configuration?.title, scheme.isJapanese ? "、" : scheme.writesAsciiPunctuation ? "," : "，")
             // 手机 26 键底行按相对空格键的比例分配宽度：， 占一份，空格占四份。
@@ -3077,7 +3079,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  /// 手机 26 键底行，按设计稿相对空格键的 flex 权重排列：123 1.25 | ， 1 | space 4 | 。 1 | 中 1.05 | return 1.9，中/英 紧挨回车左边，其中 ，。 经标点路径输入逗号和句号。
+  /// 手机 26 键底行与九键一样：符 1.05 | 123 1.25 | space 4 | 中 1.05 | return 1.9，没有 ， 和 。；符 打开符号面板。
   func testPhoneBottomRowFollowsTheDesignsWeights() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -3089,30 +3091,24 @@ final class NineKeyKeyboardTests: XCTestCase {
     let row = try XCTUnwrap(try button("spaceKey", in: controller).superview as? UIStackView)
     let visible = row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier)
     let globe = controller.needsInputModeSwitchKey ? ["inputModeSwitchButton"] : []
-    XCTAssertEqual(visible, ["layoutToggleButton"] + globe
-                   + ["quickPunctuationKey", "spaceKey", "bottomPeriodKey", "bottomLanguageKey", "returnKey"])
+    XCTAssertEqual(visible, ["symbolPanelKey", "layoutToggleButton"] + globe + ["spaceKey", "bottomLanguageKey", "returnKey"])
     let space = try button("spaceKey", in: controller).bounds.width
     let unit = space / KeyboardViewController.phoneSpaceWeight
+    XCTAssertEqual(try button("symbolPanelKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
+    XCTAssertEqual(try button("symbolPanelKey", in: controller).configuration?.title, "符")
     XCTAssertEqual(try button("layoutToggleButton", in: controller).bounds.width, unit * 1.25, accuracy: 0.5)
     XCTAssertEqual(try button("bottomLanguageKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
-    XCTAssertEqual(try button("quickPunctuationKey", in: controller).bounds.width, unit, accuracy: 0.5)
-    XCTAssertEqual(try button("bottomPeriodKey", in: controller).bounds.width, unit, accuracy: 0.5)
     XCTAssertEqual(try button("returnKey", in: controller).bounds.width, unit * 1.9, accuracy: 0.5)
-    XCTAssertEqual(try button("quickPunctuationKey", in: controller).configuration?.title, "，")
-    XCTAssertEqual(try button("bottomPeriodKey", in: controller).configuration?.title, "。")
     // 123 和 中 用 15pt medium 字重。
     for id in ["layoutToggleButton", "bottomLanguageKey"] {
       let transformer = try XCTUnwrap(try button(id, in: controller).configuration?.titleTextAttributesTransformer, id)
       XCTAssertEqual(transformer.callAsFunction(AttributeContainer()).uiKit.font?.pointSize, 15, id)
     }
-    // ， 长按仍弹出快捷符号。
-    XCTAssertEqual(try button("quickPunctuationKey", in: controller).menu?.children.count, 7)
-
-    // 英文下输出 ASCII 符号，键面也这样显示。
+    // 英文下底行一样：仍有 符，没有 ， 和 。。
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
-    XCTAssertEqual(try button("quickPunctuationKey", in: controller).configuration?.title, ",")
-    XCTAssertEqual(try button("bottomPeriodKey", in: controller).configuration?.title, ".")
+    XCTAssertEqual(row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier),
+                   ["symbolPanelKey", "layoutToggleButton"] + globe + ["spaceKey", "bottomLanguageKey", "returnKey"])
 
     // 123 层自带底行：ABC | emoji | space | return，⌫ 上移到该层第三行。
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)

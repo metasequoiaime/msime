@@ -1067,7 +1067,7 @@ interface DictionaryCollectionsFlushResponse {
   error?: string;
 }
 
-/** 命名词库接受的操作，与 client-core 的 `DictionaryCollectionsAction` 一致；别的一律在桥上拒绝。 */
+/** 命名词库接受的操作，与 client-services 的 `DictionaryCollectionsAction` 一致；别的一律在桥上拒绝。 */
 const DICTIONARY_COLLECTION_OPERATIONS: string[] = [
   'load', 'create', 'rename', 'delete', 'set_enabled', 'add_words', 'remove_words', 'import',
   'install_community', 'queue_words', 'flush',
@@ -4483,7 +4483,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`AI query unavailable: ${describeError(error)}`);
       return false;
     }
-    // 描述符由 client-core 按同一规则生成，这里在发出前再拦一次：http 只能发往本机或局域网，Token 不明文经过互联网。
+    // 描述符由 client-providers 按同一规则生成，这里在发出前再拦一次：http 只能发往本机或局域网，Token 不明文经过互联网。
     if (typeof descriptor.url !== 'string' || !AiEndpointPolicy.allowed(descriptor.url)) return false;
     const request = http.createHttp();
     installNoRedirectGuard(request);

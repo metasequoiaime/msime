@@ -2,7 +2,7 @@ import { utf8Length } from "../Utf8";
 import { TextPolicy } from "../TextPolicy";
 
 /**
- * AI 辅助接口地址的传输策略，与 crates/client-core/src/ai/endpoint.rs 一致：https 不限主机；http 只能指向本机或局域网，也就是回环（`localhost`、`127.0.0.0/8`、`::1`）、RFC 1918 私有 IPv4、`100.64.0.0/10`、链路本地（`169.254/16`、`fe80::/10`）、IPv6 唯一本地地址 `fc00::/7` 和 `.local` 主机名。公网主机必须走 https，API Token 不能明文经过互联网。检查时不做 DNS 解析，除 `localhost` 和 `.local` 以外的域名一律按公网处理。
+ * AI 辅助接口地址的传输策略，与 crates/client-providers/src/ai/endpoint.rs 一致：https 不限主机；http 只能指向本机或局域网，也就是回环（`localhost`、`127.0.0.0/8`、`::1`）、RFC 1918 私有 IPv4、`100.64.0.0/10`、链路本地（`169.254/16`、`fe80::/10`）、IPv6 唯一本地地址 `fc00::/7` 和 `.local` 主机名。公网主机必须走 https，API Token 不能明文经过互联网。检查时不做 DNS 解析，除 `localhost` 和 `.local` 以外的域名一律按公网处理。
  *
  * 这里没有 WHATWG URL 解析器可用（node 测试和设备上都要能跑），所以只认规范写法：IPv4 必须是四段十进制且不带前导零，其他看起来像数字的主机（`10.1`、`0x7f000001`、`010.0.0.1`）一律按无效拒绝，而不是猜它指向哪里——系统 http 模块交给 curl 时，这类写法可能被解析成别的地址。拒绝的方向总是安全的。用例与 Rust 共用 shared/contracts/ai-endpoint/cases.json。
  */

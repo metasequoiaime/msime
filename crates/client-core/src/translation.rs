@@ -225,7 +225,7 @@ pub fn is_secure_endpoint(endpoint: &str) -> bool {
     if !crate::text::is_bounded_text(endpoint, 2048) {
         return false;
     }
-    let Ok(url) = reqwest::Url::parse(endpoint) else {
+    let Ok(url) = url::Url::parse(endpoint) else {
         return false;
     };
     match url.scheme() {
@@ -261,7 +261,7 @@ pub fn endpoint_issue(endpoint: &str) -> &'static str {
     {
         return "接口地址不能包含控制字符。";
     }
-    let Ok(url) = reqwest::Url::parse(endpoint) else {
+    let Ok(url) = url::Url::parse(endpoint) else {
         return "请填写以 http:// 或 https:// 开头的完整接口地址。";
     };
     // `new URL` 的 username、password、hash 和 hostname 为空字符串时不算有。
@@ -294,7 +294,7 @@ pub struct CustomTranslationRequest {
 
 /// 地址是否指向 DeepL 官方 API：https、默认端口，主机名恰好是 `api.deepl.com` 或 `api-free.deepl.com`。只看主机名，不看路径：自建 DeepLX 也提供 `/v2/translate`，按路径识别会改掉这些用户现有的请求格式。
 pub fn is_deepl_api_endpoint(endpoint: &str) -> bool {
-    let Ok(url) = reqwest::Url::parse(endpoint) else {
+    let Ok(url) = url::Url::parse(endpoint) else {
         return false;
     };
     // `Url` 会把写明的 443 当作默认端口去掉，所以 `port()` 为空即默认端口。

@@ -3,8 +3,10 @@
 //! The settings window asks for the feed when it opens; the input method process never does. Fetching happens here rather than in the webview because the API refuses browser origins it does not list, and the cache and dismissed ids live in `notices.json` in the shared state directory, through [`NoticeStore`], so a refetch never happens more often than the server's one-minute cache allows. The page renders each body's Markdown itself, with raw HTML disabled.
 
 use crate::CommandError;
-use msime_client_core::account::BackendAccountClient;
-use msime_client_core::notices::{fetch_notices, Notice, NoticeChannel, NoticeError, NoticeStore};
+use msime_client_services::account::BackendAccountClient;
+use msime_client_services::notices::{
+    fetch_notices, Notice, NoticeChannel, NoticeError, NoticeStore,
+};
 use std::path::PathBuf;
 use std::time::SystemTime;
 

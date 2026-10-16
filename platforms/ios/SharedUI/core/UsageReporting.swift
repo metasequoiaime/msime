@@ -13,9 +13,9 @@ private func msimeClientTelemetryFlush(_ request: UnsafePointer<UInt8>?, _ lengt
 @_silgen_name("msime_client_telemetry_clear")
 private func msimeClientTelemetryClear(_ request: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 
-/// Anonymous usage reporting through client-core's telemetry queue (msime_client_telemetry_* in msime_client.h), shared by the app and the keyboard through the App Group.
+/// 经 client-services 的遥测队列（msime_client.h 中的 `msime_client_telemetry_*`）进行匿名使用上报，App 和键盘通过 App Group 共用。
 ///
-/// The keyboard is the input method, so it owns the sessions: one per keyboard presentation that ended normally, and a session_crash only when its crash handler left a record. The app sends what is queued and turns MetricKit crash diagnostics into crash records. Nothing is recorded or sent while the usage_reporting preference (default on) is off.
+/// 键盘就是输入法本身，所以会话归它管：每次正常结束的键盘展示记一个会话，只有崩溃处理器留下了记录时才记一条 `session_crash`。App 负责发送队列里的内容，并把 MetricKit 的崩溃诊断转成崩溃记录。`usage_reporting` 偏好（默认开启）关闭时，什么都不记录也不发送。
 enum UsageReporting {
   static let preferenceKey = "usage_reporting"
 

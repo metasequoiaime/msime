@@ -2902,8 +2902,22 @@ dependencies = [
 name = "msime-backend-engine"
 version = "0.1.0"
 dependencies = [
- "msime-client-core",
+ "msime-client-base",
  "msime-engine",
+]
+
+[[package]]
+name = "msime-client-base"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "msime-path-trust",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
+ "winapi-util",
 ]
 
 [[package]]
@@ -2911,25 +2925,46 @@ name = "msime-client-core"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
- "bzip2",
  "chacha20poly1305",
- "flate2",
- "futures-util",
  "getrandom 0.4.3",
  "hex",
  "hkdf",
  "hmac",
- "image",
- "libc",
  "md-5",
+ "msime-client-base",
  "msime-path-trust",
- "msime-script-runtime",
- "pinyin",
- "pulldown-cmark",
  "reqwest 0.12.28",
  "rustix",
  "serde",
  "serde_ignored",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "unicode-segmentation",
+ "url",
+ "uuid",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "msime-client-providers"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "bzip2",
+ "flate2",
+ "futures-util",
+ "hex",
+ "libc",
+ "msime-client-base",
+ "msime-client-core",
+ "msime-path-trust",
+ "pinyin",
+ "reqwest 0.12.28",
+ "rustix",
+ "serde",
  "serde_json",
  "sha2 0.11.0",
  "tar",
@@ -2938,12 +2973,37 @@ dependencies = [
  "time",
  "tokio",
  "tokio-tungstenite",
+ "uuid",
+ "zip",
+]
+
+[[package]]
+name = "msime-client-services"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "flate2",
+ "getrandom 0.4.3",
+ "hex",
+ "image",
+ "libc",
+ "msime-client-base",
+ "msime-client-core",
+ "msime-path-trust",
+ "msime-script-runtime",
+ "pulldown-cmark",
+ "reqwest 0.12.28",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
  "toml 1.1.6+spec-1.1.0",
  "unicode-general-category",
  "unicode-segmentation",
  "uuid",
- "winapi-util",
- "x25519-dalek",
  "zip",
  "zune-jpeg",
 ]
@@ -2957,6 +3017,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "msime-client-core",
+ "msime-client-services",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2972,6 +3033,8 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "msime-client-core",
+ "msime-client-providers",
+ "msime-client-services",
  "msime-host-api",
  "msime-host-macos",
  "msime-host-windows",
@@ -3069,6 +3132,8 @@ dependencies = [
  "libc",
  "lru",
  "msime-client-core",
+ "msime-client-providers",
+ "msime-client-services",
  "msime-engine",
  "msime-host-windows",
  "msime-input-runtime",
@@ -3103,6 +3168,7 @@ name = "msime-host-windows"
 version = "0.1.0"
 dependencies = [
  "msime-client-core",
+ "msime-client-providers",
  "windows",
  "windows-collections",
  "windows-numerics",
@@ -3135,6 +3201,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "msime-client-core",
+ "msime-client-services",
  "msime-host-api",
  "msime-host-windows",
  "rmcp",
@@ -3150,7 +3217,7 @@ dependencies = [
 name = "msime-pack-tool"
 version = "0.1.0"
 dependencies = [
- "msime-client-core",
+ "msime-client-services",
  "msime-script-runtime",
  "serde",
  "serde_json",
@@ -3177,6 +3244,7 @@ name = "msime-tauri-mobile-platform"
 version = "0.1.0"
 dependencies = [
  "msime-client-core",
+ "msime-client-providers",
  "serde",
  "serde_json",
  "tauri",

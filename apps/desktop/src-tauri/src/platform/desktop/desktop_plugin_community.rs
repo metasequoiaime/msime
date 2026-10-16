@@ -1,17 +1,17 @@
-//! Community plugin-pack commands for the macOS, Windows and Linux shells.
+//! macOS、Windows 和 Linux 外壳的社区插件包命令。
 //!
-//! The page browses, rates and deletes publications by id only. Publishing and installing both happen host-side against the plugins root in [`PluginsState`]: the page names an installed pack by its kind and id and never supplies a path or a byte, a published archive is built from that pack by `msime_client_core::plugins::community::pack`, and a downloaded one is verified and installed through the same import a local `.zip` goes through. Pack failures come back as `PluginFailure`, with the rule client-core reports as its detail, and account failures as the `community_*` codes, so the page can name either precisely.
+//! 页面只按 id 浏览、评分和删除发布。发布和安装都在宿主端针对 [`PluginsState`] 里的插件根目录进行：页面只按类型和 id 指定一个已安装的包，从不提供路径或任何字节；发布的归档由 `msime_client_services::plugins::community::pack` 从该包构建，下载的归档经过校验后，走与本地 `.zip` 相同的导入流程安装。包的失败以 `PluginFailure` 返回，其 detail 是 client-services 报告的规则；账号失败以 `community_*` 代码返回，因此页面能准确说出是哪一种。
 
 use crate::platform::account_helpers::{community_id, community_service_call};
 use crate::platform::desktop::desktop_account::Storage;
 use crate::platform::desktop::desktop_plugins::PluginsState;
 use crate::CommandError;
-use msime_client_core::account::BackendAccountClient;
-use msime_client_core::plugins::community::{
+use msime_client_services::account::BackendAccountClient;
+use msime_client_services::plugins::community::{
     self, BackendCommunityPluginService, CommunityPlugin, CommunityPluginPackPreview,
     CommunityPluginPage,
 };
-use msime_client_core::plugins::{PluginFailure, PluginKind, PluginSummary};
+use msime_client_services::plugins::{PluginFailure, PluginKind, PluginSummary};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::State;
