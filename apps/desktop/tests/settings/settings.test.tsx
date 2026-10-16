@@ -3167,7 +3167,7 @@ test("a pinyin prefix typed without separators keeps the rows the host matched",
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   fireEvent.change(await screen.findByLabelText("本地词库类型"), { target: { value: "pinyin" } });
   await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
-  fireEvent.change(screen.getByRole("textbox", { name: "编码前缀" }), {
+  fireEvent.change(screen.getByRole("textbox", { name: "词条或编码" }), {
     target: { value: "NiHao" },
   });
   fireEvent.click(screen.getByRole("button", { name: "查询" }));
@@ -3178,6 +3178,36 @@ test("a pinyin prefix typed without separators keeps the rows the host matched",
   await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
   await waitFor(() => expect(within(results).queryByText("再见")).toBeNull());
   expect(within(results).getByText("你好")).toBeDefined();
+});
+
+test("local dictionary searches Chinese words and clearly reports no match", async () => {
+  const entry = { kind: "pinyin" as const, key: "he'cheng", value: "合成", weight: 10 };
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({ entries: [], has_more: false })
+    .mockResolvedValueOnce({ entries: [entry], has_more: false })
+    .mockResolvedValueOnce({ entries: [], has_more: false });
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    dictionary: { list, edit: vi.fn() },
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.change(await screen.findByLabelText("本地词库类型"), { target: { value: "pinyin" } });
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+  const query = screen.getByRole("textbox", { name: "词条或编码" });
+  fireEvent.change(query, { target: { value: "合成" } });
+  fireEvent.click(screen.getByRole("button", { name: "查询" }));
+  const results = await screen.findByRole("list", { name: "词库查询结果" });
+  expect(await within(results).findByText("合成")).toBeDefined();
+  expect(list).toHaveBeenLastCalledWith(0, 100, "pinyin", "合成");
+  fireEvent.change(query, { target: { value: "无匹配合成词" } });
+  fireEvent.click(screen.getByRole("button", { name: "查询" }));
+  await waitFor(() => expect(screen.queryByRole("list", { name: "词库查询结果" })).toBeNull());
+  expect(screen.getAllByText("未找到匹配词条").length).toBeGreaterThan(0);
+  expect(screen.queryByText("点击查询后查看拼音词条")).toBeNull();
 });
 
 test("a refused pinyin entry says why instead of asking for a retry", async () => {

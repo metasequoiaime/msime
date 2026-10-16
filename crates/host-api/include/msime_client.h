@@ -148,7 +148,7 @@ char *msime_client_community(const uint8_t *request, size_t length);
 char *msime_client_create(const uint8_t *options, size_t length);
 /* Management JSON (<=2248576 bytes), trusted native caller only:
  * {options: <same HostOptions as create>, action: {operation:"list",offset:0,limit:100}}
- * List takes optional kind and query (a code prefix). Without them it lists the user's own words; with a kind and a nonblank query (quick_phrase needs none) it also finds the bundled words of that dictionary, user words first. user_only:true keeps any list to the user's own words, filtered by the kind and code prefix across the whole store.
+ * List 的 kind 与 query 可选：ASCII 查询匹配编码前缀，含非 ASCII 字符时匹配词条字面内容。无查询时列个人词条；指定 kind 与非空查询时包含内置行，quick_phrase 空查询也包含内置行。个人行优先；user_only:true 始终只列个人词条，在整库筛选后分页。
  * or action:{operation:"edit",previous:null|Entry,replacement:null|Entry,request_id:"..."}.
  * Batch import: action:{operation:"import",kind:"pinyin"|"wubi"|"wubi98"|"quick_phrase"|"english",
  * format:"standard"|"windows"|"rime"|"hans",text:"word<TAB>code<TAB>weight\\n",request_id:"..."}.

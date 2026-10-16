@@ -85,9 +85,13 @@ impl Entry {
         self
     }
 
-    /// Does this row belong on a page filtered by `kind` and code `prefix`?
+    /// 按种类筛选；非 ASCII 查询按词条包含匹配，其余保留编码前缀规则。
     fn matches(&self, kind: Option<Kind>, prefix: &str) -> bool {
         let same_kind = kind.map(|wanted| wanted == self.kind).unwrap_or(true);
+        if !prefix.is_ascii() {
+            let word = prefix.trim();
+            return same_kind && !word.is_empty() && self.value.contains(word);
+        }
         dictionary_row_matches(same_kind, (&self.kind).into(), &self.key, prefix)
     }
 }
@@ -156,7 +160,7 @@ enum Operation {
         /// is what older callers sent.
         #[serde(default)]
         kind: Option<Kind>,
-        /// Code prefix to search for, matched case-insensitively. Pinyin separators are ignored on both sides, so `nihao` and `nih` find `ni'hao`. With a kind, a prefix searches the working dictionary itself, bundled words included, as does the quick-phrase list with no prefix; every other page lists the user's own words only.
+        /// ASCII 查询按编码前缀匹配，忽略大小写与拼音分隔符；非 ASCII 查询按词条字面包含匹配。指定种类时非空查询包含内置行，快捷短语空查询也列出内置行；其他空查询只列个人词条。
         #[serde(default)]
         query: Option<String>,
         /// Keep the page to the user's own words even with a kind and a prefix. The mobile personal dictionary queue sets this: its edits cannot carry a bundled row, which may only be re-weighted or deleted in place.
@@ -701,7 +705,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             if prefix.len() > 256 {
                 return Err("invalid dictionary page".into());
             }
-            // A code within one dictionary is looked up in the dictionary itself, the way the reference's manager searches, so a bundled word can be found and re-weighted. Quick phrases are few enough to list whole. Without a code the page stays the user's own words: the bundled pinyin tables alone hold hundreds of thousands of rows.
+            // 非空查询在目标词库内筛选后分页，以便找到并调整内置行；快捷短语允许整表列出，其余空查询仅列个人词条。
             if let Some(kind) = kind.filter(|kind| {
                 !user_only && (*kind == Kind::QuickPhrase || names_a_code(*kind, &prefix))
             }) {
@@ -1246,14 +1250,14 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
     }
 }
 
-/// Does `prefix` hold anything to look a code up by? Whitespace, and a pinyin syllable separator, do not.
+/// 查询是否包含编码或词条内容；ASCII 空白与拼音音节分隔符不计入。
 fn names_a_code(kind: Kind, prefix: &str) -> bool {
     prefix
         .bytes()
         .any(|byte| !byte.is_ascii_whitespace() && (kind != Kind::Pinyin || byte != b'\''))
 }
 
-/// One page of the dictionary table of `kind` under code `prefix`, bundled rows included and each marked with where it comes from. The caller holds dictionary access.
+/// 按编码前缀或词条查询目标词库的一页，标明个人与内置来源；调用方持有词库访问锁。
 fn table_entries_page(
     options: &msime_engine::host::EngineOptions,
     kind: Kind,
@@ -1279,7 +1283,7 @@ fn table_entries_page(
     Ok((entries, page.has_more))
 }
 
-/// One page of the user's own words, optionally within one dictionary and under one code prefix. The caller holds dictionary access.
+/// 个人词条分页，支持种类、编码前缀或词条内容筛选；调用方持有词库访问锁。
 fn user_entries_page(
     options: &msime_engine::host::EngineOptions,
     offset: usize,
@@ -1896,7 +1900,7 @@ fn scan_user_quick_phrases(
     Ok(())
 }
 
-/// One page of the user's quick phrases whose code starts with `code_prefix` (case-insensitive).
+/// 个人快捷短语分页：ASCII 按编码前缀忽略大小写查询，非 ASCII 按词条内容查询。
 pub fn user_quick_phrases(
     options: &DictionaryOptions,
     code_prefix: &str,
@@ -2093,7 +2097,7 @@ fn word_from_entry(kind: WordKind, entry: Entry) -> Word {
     }
 }
 
-/// One page of a typing dictionary under `code_prefix`: the user's own words, or with `include_bundled` and a code to look up, every row the dictionary has under it.
+/// 按编码前缀或词条内容查询输入词库的一页；默认只列个人词条，`include_bundled` 与非空查询会包含内置行。
 pub fn dictionary_words(
     options: &DictionaryOptions,
     kind: WordKind,

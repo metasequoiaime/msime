@@ -29,7 +29,7 @@ import {
 } from "../dictionary/dictionary-export";
 import {
   dictionaryErrorMessage,
-  dictionaryKeyMatches,
+  dictionaryEntryMatches,
   importFailureMessage,
 } from "../dictionary/dictionary-errors";
 import type {
@@ -136,7 +136,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
       const page = await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, query);
       if (!mounted.current || generation !== phraseRequestGeneration.current) return;
       const entries = page.entries.filter(
-        (entry) => entry.kind === kind && dictionaryKeyMatches(kind, entry.key, query),
+        (entry) => entry.kind === kind && dictionaryEntryMatches(entry, query),
       );
       setPhrases(entries);
       setDictionaryPendingCount(page.pending_count ?? 0);
