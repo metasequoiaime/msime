@@ -3999,7 +3999,7 @@ public final class MSIMEInputService extends InputMethodService {
         catch (RuntimeException ignored) { return null; }
     }
 
-    private boolean japaneseSchemeActive() {
+    boolean japaneseSchemeActive() {
         return view != null && InputViewValuePolicy.scheme(view, -1) == 3;
     }
 

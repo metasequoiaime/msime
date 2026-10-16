@@ -95,7 +95,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 硬件键盘快捷键消费共享 `keybindings`：Shift+Space、Ctrl+Alt+Space 和单击 Shift/Ctrl 可切换中英，Ctrl+Shift+F 切换简繁，Alt+Shift+H 切换全角输入；每个开关都按偏好即时生效。修饰键单击只有在 600 ms 内且期间没有按下其他键时才触发，组合键优先于普通编辑器快捷键；不匹配或关闭的快捷键继续交给 Android/编辑器。触屏键盘的 Shift 和“简/繁”按钮仍走各自原生路径。
 
-键值与键面是两件事：`KeyboardLayout.rows(layer)` 只给键值，字母恒为小写，因为这是交给 Engine 的形式，Engine 只能用小写字母起拼音组合；键面由 `LetterKeyFacePolicy` 单独决定，中文 26 键按 Apple 一律画大写。两者曾被合并处理，导致中文态把 `N` 发给 Engine、被拒后当字面上屏，26 键中文输入整体失效。
+键值与键面是两件事：`KeyboardLayout.rows(layer)` 只给键值，字母恒为小写，因为这是交给 Engine 的形式，Engine 只能用小写字母起拼音组合；键面由 `LetterKeyFacePolicy` 单独决定，中文模式下中文方案（全拼、双拼、五笔、粤拼等）的 26 键与 iOS、HarmonyOS 一样一律画大写；英文模式和日语罗马字平时画小写、Shift 或大写锁定时画大写，越南语、藏文的键面跟 Shift 走，读屏只在下一键真的输入大写时读「大写」。两者曾被合并处理，导致中文态把 `N` 发给 Engine、被拒后当字面上屏，26 键中文输入整体失效。
 
 软键盘的主按键区按 Apple 键盘的基础层次拆成字母层和符号层；字母层支持可见的 Shift 状态，符号层保留标点、括号和数字，两个层次均通过无障碍描述暴露当前按键。层次排列由无 Android 依赖的 `KeyboardLayout` 提供，便于在主机测试中验证布局不被宿主生命周期改变。
 
