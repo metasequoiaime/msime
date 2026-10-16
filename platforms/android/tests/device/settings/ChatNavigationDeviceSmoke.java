@@ -56,9 +56,9 @@ public final class ChatNavigationDeviceSmoke extends DeviceSmoke {
         tap(id("tryout_field"));
         await(id("tryout_field").and(AccessibilityNodeInfo::isFocused));
         tap(id("tryout_back"));
-        await(id("ms_detail_title").and(node -> equalsText("AI 润色与回复", node.getText())));
+        await(id("ms_detail_bar_title").and(node -> equalsText("AI 润色与回复", node.getText())));
         shellDiscard("input keyevent 4");
-        await(id("keyboard_title").and(node -> equalsText("全部设置", node.getText())));
+        awaitAny(id("keyboard_title").and(node -> equalsText("全部设置", node.getText())));
         stage = "home tryout uses secondary chat";
         tap(id("tab_settings"));
         tap(id("keyboard_try"));
