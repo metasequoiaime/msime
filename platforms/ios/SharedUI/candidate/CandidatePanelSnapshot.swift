@@ -21,10 +21,9 @@ struct CandidatePanelSnapshot: Equatable, Sendable {
     case invalidResponse
   }
 
-  /// 换了一代之后，是不是只有 AI 行变了：AI 回答到达时第一条插在第一页最后一格，原来那一格和后面的行各往后挪一格，同一批多出来的 AI 候选接在末尾；组字和其余各行的先后都没动。展开的候选网格据此留着、原地换上新的一代，而不是在用户看着它时收起（#6888）。AI 行是来源 3，以及共享内核已经不再产出的占位行来源 12。
+  /// 换了一代之后，是不是最多只有 AI 行变了：组字相同，AI 以外的各行逐行相同（文字和来源，先后不变）。AI 回答到达时第一条插在第一页最后一格，原来那一格和后面的行各往后挪一格，同一批多出来的接在末尾；回答的词全都已在列表里时引擎什么都不插，却照样接受并换一代，列表一行都没变。两种情况展开的候选网格都留着、原地换上新的一代，而不是在用户看着它时收起（#6888）。AI 行是来源 3，以及共享内核已经不再产出的占位行来源 12。
   func onlyTheAISeatChanged(since previous: CandidatePanelSnapshot) -> Bool {
-    guard preedit == previous.preedit,
-          entries.contains(where: { $0.source == CandidateMarker.aiSource }) else { return false }
+    guard preedit == previous.preedit else { return false }
     return entries.lazy.filter { !Self.isAIRow($0) }
       .elementsEqual(previous.entries.lazy.filter { !Self.isAIRow($0) }) { $0.text == $1.text && $0.source == $1.source }
   }

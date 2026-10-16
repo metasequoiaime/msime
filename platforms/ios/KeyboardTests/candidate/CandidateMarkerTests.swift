@@ -87,7 +87,7 @@ final class CandidateMarkerTests: XCTestCase {
     XCTAssertEqual(try chip(3).accessibilityLabel, "候选词 3：AI 候选没有结果")
   }
 
-  /// AI 的回答到达时换了一代，但只有 AI 行变了：第一条插在第一页最后一格（这里每页两个），其余接在末尾，别的行先后不变，展开的网格据此原地刷新、不收起（#6888）。别的行变了、组字变了、行数变少、云候选到达都不算。
+  /// AI 的回答到达时换了一代，但最多只有 AI 行变了：第一条插在第一页最后一格（这里每页两个），其余接在末尾，别的行先后不变；回答的词全都已在列表里时换了一代、列表一行没变。两种情况展开的网格都原地刷新、不收起（#6888）。别的行变了、组字变了、行数变少、云候选到达都不算。
   func testOnlyAChangeInTheAISeatKeepsTheExpandedPanel() throws {
     func snapshot(_ generation: UInt64, _ rows: [(String, Int)], preedit: String = "nihao") throws -> CandidatePanelSnapshot {
       try CandidatePanelSnapshot.decode([
@@ -108,8 +108,8 @@ final class CandidateMarkerTests: XCTestCase {
     XCTAssertFalse(try snapshot(5, [("你好", 0), ("合成一", 3), ("倪好", 0)]).onlyTheAISeatChanged(since: waiting))
     XCTAssertFalse(try snapshot(5, [("你好", 0), ("云", 2), ("合成一", 3), ("倪好", 0), ("拟好", 0)]).onlyTheAISeatChanged(since: waiting))
     XCTAssertFalse(try snapshot(5, [("你好", 0), ("合成一", 3), ("倪好", 0), ("拟好", 0)], preedit: "nihaoa").onlyTheAISeatChanged(since: waiting))
-    XCTAssertFalse(try snapshot(5, [("你好", 0), ("倪好", 0), ("拟好", 0)]).onlyTheAISeatChanged(since: waiting),
-                   "a list without AI rows is refreshed the way it always was")
+    XCTAssertTrue(try snapshot(5, [("你好", 0), ("倪好", 0), ("拟好", 0)]).onlyTheAISeatChanged(since: waiting),
+                  "an answer whose words are all listed already adds nothing but still takes a new generation")
   }
 
   /// 原地刷新时网格留在用户滚到的位置：AI 回答插进第一页最后一格；九键面板换拼音那样的重建仍回到开头。
