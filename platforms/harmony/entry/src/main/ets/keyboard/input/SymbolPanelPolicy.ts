@@ -1,4 +1,4 @@
-import { KeyboardGeometry } from '../KeyboardGeometry';
+import { KeyboardGeometry } from "../KeyboardGeometry";
 
 /** The independent symbol keyboard, separate from the Unicode emoji catalog. */
 export interface SymbolPanelCategory {
@@ -52,7 +52,37 @@ const CATEGORIES: SymbolPanelCategory[] = [
   {
     id: "chinese",
     title: "中文",
+    // 中文标点和全角符号排在最前，与 Android、iOS 的「中文」同一份同一顺序。
     symbols: [
+      "，",
+      "。",
+      "？",
+      "！",
+      "、",
+      "；",
+      "：",
+      "…",
+      "—",
+      "·",
+      "“",
+      "”",
+      "‘",
+      "’",
+      "（",
+      "）",
+      "《",
+      "》",
+      "【",
+      "】",
+      "～",
+      "＆",
+      "＃",
+      "＠",
+      "％",
+      "＋",
+      "－",
+      "＝",
+      "／",
       "〈",
       "〉",
       "「",
@@ -245,7 +275,7 @@ const CATEGORIES: SymbolPanelCategory[] = [
   },
 ];
 
-const MAX_SYMBOLS_PER_CATEGORY: number = 64;
+const MAX_SYMBOLS_PER_CATEGORY: number = 96;
 
 export class SymbolPanelPolicy {
   static categories(): SymbolPanelCategory[] {

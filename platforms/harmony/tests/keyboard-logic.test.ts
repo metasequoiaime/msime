@@ -1643,7 +1643,7 @@ group("SymbolPanelPolicy", () => {
     "the symbol panel keeps its stable category order",
   );
   check(
-    symbolCategories.map((category) => category.symbols.length).join(",") === "30,50,40,50,30",
+    symbolCategories.map((category) => category.symbols.length).join(",") === "30,79,40,50,30",
     "the complete committed symbol catalog is present",
   );
   check(
