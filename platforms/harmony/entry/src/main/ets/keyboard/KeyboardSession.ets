@@ -2173,7 +2173,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.candidateGlossEnabled = CandidateGlossLayoutPolicy.displays(
       this.candidateEnglishGloss, preferences.candidate_translations);
     const glossTargets: string[] = [preferences.translation_target_language];
-    if (preferences.translation_secondary_language !== undefined
+    // 手机和平板只显示一种候选翻译（TranslationPolicy.keepPrimaryOnly），第二种语言只在 2in1 的候选窗上显示。
+    if (KeyboardFormFactor.isDesktop()
+        && preferences.translation_secondary_language !== undefined
         && preferences.translation_secondary_language !== null
         && !glossTargets.includes(preferences.translation_secondary_language)) {
       glossTargets.push(preferences.translation_secondary_language);
@@ -4530,6 +4532,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.invalidateTranslationProviders();
       return;
     }
+    if (!KeyboardFormFactor.isDesktop()) TranslationPolicy.keepPrimaryOnly(query);
     const signature: string = TranslationPolicy.signature(query);
     if (signature === this.translationSignature) return;
     this.invalidateTranslationProviders();

@@ -10,24 +10,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Validates and presents the one-or-two language candidate gloss configuration. */
+/** Validates and presents the candidate gloss configuration of the touch keyboard. */
 public final class CandidateTranslationPolicy {
-    /** Candidate translation supports one primary and at most one secondary language. */
-    public static final int MAX_TARGETS = 2;
+    /** 触屏键盘只显示一种候选翻译（主目标语言）：第二种语言让每个候选下多一行，候选栏太高。共享偏好里的第二种候选语言留给桌面端，这里不读。iOS、HarmonyOS 相同。 */
+    public static final int MAX_TARGETS = 1;
     private static final Set<String> SUPPORTED = Set.of("en", "fr", "ja", "es", "ru", "de", "ko");
     /** Targets with an offline dictionary format; mirrors OFFLINE_GLOSS_LANGUAGES in crates/host-api. */
     public static final Set<String> OFFLINE_GLOSS_LANGUAGES = Set.of("fr", "ja", "es", "ru", "de", "ko");
 
     private CandidateTranslationPolicy() {}
 
-    /** Primary always falls back to English; a malformed or duplicate secondary is ignored. */
-    public static List<String> targets(String primary, String secondary) {
-        ArrayList<String> result = new ArrayList<>(MAX_TARGETS);
+    /** 唯一的目标语言就是主目标语言，不认识时退回英语。 */
+    public static List<String> targets(String primary) {
         String first = TextPolicy.lowercaseTrimmed(primary);
-        result.add(SUPPORTED.contains(first) ? first : "en");
-        String second = TextPolicy.lowercaseTrimmed(secondary);
-        if (SUPPORTED.contains(second) && !result.contains(second)) result.add(second);
-        return List.copyOf(result);
+        return List.of(SUPPORTED.contains(first) ? first : "en");
     }
 
     /** Keep the two language rows readable in a single Android candidate annotation. */

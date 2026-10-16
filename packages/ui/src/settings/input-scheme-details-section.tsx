@@ -1,5 +1,6 @@
 import { LinkRow, Row } from "../core/platform-controls";
-import type { InputScheme, VietnamesePreferences } from "../index";
+import type { InputScheme } from "../index";
+import { resolveVietnamesePreferences, type VietnamesePreferences } from "./vietnamese-preferences";
 import {
   cantoneseInputSchemeOptions,
   japaneseInputSchemeOptions,
@@ -110,8 +111,8 @@ export function InputSchemeDetailsSection({
     scheme === "vietnamese" ||
     scheme === "tibetan" ||
     scheme === "stroke";
-  const inputMethod = vietnamese?.input_method ?? "telex";
-  const toneStyle = vietnamese?.tone_style ?? "modern";
+  const { input_method: inputMethod, tone_style: toneStyle } =
+    resolveVietnamesePreferences(vietnamese);
   const changeVietnamese = (patch: VietnamesePreferences) =>
     onVietnameseChange?.({ input_method: inputMethod, tone_style: toneStyle, ...patch });
   // 双拼的各行只在双拼方案下出现：其他方案下它们改不了正在用的方案，原先灰着显示的双拼方案也只是多出来的一行。
