@@ -1,15 +1,19 @@
 import AuthenticationServices
 import SwiftUI
 
-// 每个标签页保存各自的导航栈；AI 对话与键盘试用从设置栈的二级页打开。
+// 每个标签页保存各自的导航栈；AI 对话与键盘试用从设置栈的二级页打开。「社区」标签页按皮肤、词库分段，词库页的「浏览更多词库」切到这个标签页的对应分段。
 final class AppNavigation: ObservableObject {
-  enum Tab: Hashable { case settings, allSettings, statistics, account }
+  enum Tab: Hashable { case settings, community, statistics, account }
+  /// 「社区」标签页顶部的分段。
+  enum CommunitySegment: Hashable { case skin, dictionary }
   @Published var tab: Tab = .settings
+  /// 「社区」标签页当前的分段。放在这里而不放在社区页的 `@State` 里，是为了让功能页的「浏览更多…」指定切到哪一段，社区栈重建回根页面后也不丢。
+  @Published var communitySegment = CommunitySegment.skin
+  /// 替换它即可把社区导航栈重建回根页面。
+  @Published var communityRoot = UUID()
   /// 设置状态卡上的「试用键盘」每点一次加一。对话页出现时发现它变了就把焦点放进输入框，从 AI 设置页进入时不弹键盘。
   @Published var chatFocusRequest = 0
   @Published var settingsChat = false
-  /// 「全部设置」标签页从自己的列表推入的页面。和设置标签页的 `SettingsRouter.settingsPage` 分开：那一个还接收键盘发来的深链接，并驱动 iPad 设置侧栏的选中项，两个标签页共用它时会互相推入页面。放在这里而不放在视图里，是为了在 app 因换主题或换季（`paletteVersion`）重建内容时保住打开的页面。
-  @Published var allSettingsPage: SettingsPage?
   /// 替换它即可把设置导航栈重建回根页面。
   @Published var settingsRoot = UUID()
   /// The keyboard's voice panel sends msime://voice: the keyboard cannot record, so the app opens straight onto the recording screen.
@@ -22,6 +26,13 @@ final class AppNavigation: ObservableObject {
     chatFocusRequest += 1
     settingsChat = true
     tab = .settings
+  }
+
+  /// 功能页的「浏览更多…」打开社区标签页的某一段。社区栈先回到根页面，免得落在上次在那里看过的详情页上。
+  func openCommunity(_ segment: CommunitySegment) {
+    communitySegment = segment
+    communityRoot = UUID()
+    tab = .community
   }
 
   /// 点了标签栏的某一项。设置正显示时再点它就回到根页面，与 Android 标签栏重选时弹出该标签的页面一样；切换标签则各自保留导航栈，与 iOS 惯例一致。

@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// 词库页：已安装的词库、导入入口、可添加的社区词库和进入完整词库社区的「浏览更多词库」、学习开关，以及进入「背单词」和「词库信息」的链接。「学习」保存在共享偏好文档里（见 InputHabitPreference），键盘下次出现时重新读取；手机和 iPad 显示同一个页面。
+/// 词库页：已安装的词库、导入入口、可添加的社区词库和切到「社区」标签页「词库」分段的「浏览更多词库」、学习开关，以及进入「背单词」和「词库信息」的链接。「学习」保存在共享偏好文档里（见 InputHabitPreference），键盘下次出现时重新读取；手机和 iPad 显示同一个页面。
 struct DictionarySettingsView: View {
-  /// 设计稿最多列出这么多社区词库；完整列表（搜索、详情、收藏、评分、举报和发布）在「浏览更多词库」推入的词库社区里。
+  /// 设计稿最多列出这么多社区词库；完整列表（搜索、详情、收藏、评分、举报和发布）在「社区」标签页的「词库」分段里。
   private static let discoverLimit = 8
+
+  @EnvironmentObject private var navigation: AppNavigation
 
   @State private var habits = InputHabitPreference.mirrored
   @State private var saveFailed = false
@@ -106,7 +108,8 @@ struct DictionarySettingsView: View {
       DictionaryNoteRow(text: discoverFailed ? "暂时无法加载社区词库" : "正在读取社区词库…")
     }
     DesignDivider(leading: 0)
-    NavigationLink(destination: CommunityResourcesView(kind: .dictionary)) {
+    // 完整的词库社区是「社区」标签页的一段，切过去，不在当前栈里再推入一份。
+    Button { navigation.openCommunity(.dictionary) } label: {
       DesignNavRowLabel(title: "浏览更多词库")
     }
     .buttonStyle(PressFillButtonStyle())

@@ -129,9 +129,9 @@ struct SkinSettingsView: View {
 
   // MARK: - 我的设计
 
-  /// 键盘当前绘制的设计；键盘绘制内置主题时为 nil。
+  /// 键盘当前绘制的设计；键盘绘制内置主题时为 nil。直接读存储而不看 `customSkinData`：设计存在带点号的键（`customKeyboardSkin.v1`）里，`@AppStorage` 观察不到别处（社区「使用」）写入的新值，会一直是空的。
   private var activeDesign: CustomKeyboardSkin? {
-    guard skin == GlobalThemeCatalog.customId, !customSkinData.isEmpty else { return nil }
+    guard skin == GlobalThemeCatalog.customId else { return nil }
     return CustomKeyboardSkinStore.stored
   }
 
