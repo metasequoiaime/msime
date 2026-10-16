@@ -115,6 +115,53 @@ pub(super) fn ensure_anonymous_account_with<A: AccountApi>(
         .map(|_| ())
 }
 
+/// [`ensure_anonymous_account`] 的注入存储版本：匿名会话在 `session` 的存储里（宿主的 `ANONYMOUS` 项），身份在 `identity` 的 [`SessionStoreItem::AnonymousIdentity`] 项。登录在调用方缓存的这个会话对象上完成，存储不跨进程共享时它也能直接看到新会话。
+///
+/// 分两段：身份按「不存在才写」在锁外确定，宿主报告已经有值时重新读取并采用读到的那份，与文件路径的 no-clobber 发布相同；随后 `sign_in_anonymous` 自己在匿名槽上加锁保存会话。两个进程可能拿同一个身份各登录一次，后写的会话覆盖先写的，服务端只是多留一个会话。会阻塞网络。
+pub fn ensure_anonymous_account_in<A: AccountApi, S: AccountSessionStorage>(
+    session: &BackendAccountSession<A, S>,
+    identity: &dyn SessionStoreBackend,
+) -> Result<(), AccountError> {
+    // 宿主的 load 本身是原子的，读已有会话不需要锁；读不了或不合法时与文件路径一样重新登录。
+    if matches!(
+        session.storage.load(),
+        Ok(Some(saved)) if super::session::validate_saved_session(&saved).is_ok()
+    ) {
+        return Ok(());
+    }
+    let identity = stored_anonymous_identity(identity)?;
+    session
+        .sign_in_anonymous(&identity.subject, &identity.secret)
+        .map(|_| ())
+}
+
+/// 宿主存储里的身份，或新生成并以「不存在才写」发布的一份。已有但不合法的身份不替换：替换会注册第二个账号，第一个账号名下的东西就成了孤儿。
+fn stored_anonymous_identity(
+    backend: &dyn SessionStoreBackend,
+) -> Result<AnonymousIdentity, AccountError> {
+    let item = SessionStoreItem::AnonymousIdentity;
+    let read = || -> Result<Option<AnonymousIdentity>, AccountError> {
+        backend
+            .read(item, item.capacity())?
+            .map(|bytes| serde_json::from_slice(&bytes).map_err(|_| AccountError::Storage))
+            .transpose()
+    };
+    if let Some(saved) = read()? {
+        return saved
+            .is_valid()
+            .then_some(saved)
+            .ok_or(AccountError::Storage);
+    }
+    let identity = AnonymousIdentity::generate();
+    let bytes = serde_json::to_vec(&identity).map_err(|_| AccountError::Storage)?;
+    match backend.write(item, &bytes)? {
+        WriteOutcome::Written => Ok(identity),
+        WriteOutcome::AlreadyExists => read()?
+            .filter(AnonymousIdentity::is_valid)
+            .ok_or(AccountError::Storage),
+    }
+}
+
 /// 输入法进程调用账号服务时用的令牌，以及它属于哪个账号。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SharedAccessToken {
@@ -141,35 +188,62 @@ pub(super) fn shared_access_token_with<A: AccountApi + Clone>(
         api.clone(),
         FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Native),
     );
-    match signed_in.credentials(rejected_token, None) {
-        Ok((user_id, access_token)) => {
-            return Ok(SharedAccessToken {
-                access_token,
-                user_id,
-                anonymous: false,
-            })
+    let anonymous = BackendAccountSession::new(api, LockedAnonymousSessionStorage::new(directory));
+    shared_access_token_in(&signed_in, &anonymous, rejected_token, None)
+}
+
+/// [`shared_access_token`] 的会话版本：调用方给出登录会话和匿名会话，登录的优先，没有登录（或登录的会话已被服务端吊销并清掉）时用匿名的。`rejected_token` 两个会话都用，传入后强制刷新。
+///
+/// `expected_user_id` 为 `Some` 时只接受这个账号的会话：登录会话的当前用户是它就用登录会话，否则匿名会话是它就用匿名会话，都不是时是 [`AccountError::Cancelled`]，不会退回另一个账号；401 后的刷新也只在这个账号里进行。
+pub fn shared_access_token_in<A, S1, S2>(
+    account: &BackendAccountSession<A, S1>,
+    anonymous: &BackendAccountSession<A, S2>,
+    rejected_token: Option<&str>,
+    expected_user_id: Option<&str>,
+) -> Result<SharedAccessToken, AccountError>
+where
+    A: AccountApi,
+    S1: AccountSessionStorage,
+    S2: AccountSessionStorage,
+{
+    let token = |(user_id, access_token): (String, String), anonymous: bool| SharedAccessToken {
+        access_token,
+        user_id,
+        anonymous,
+    };
+    if let Some(expected) = expected_user_id {
+        let current = |status: Option<AccountUser>| status.is_some_and(|user| user.id == expected);
+        if current(account.status()?) {
+            return account
+                .credentials(rejected_token, Some(expected))
+                .map(|credentials| token(credentials, false));
         }
+        if current(anonymous.status()?) {
+            return anonymous
+                .credentials(rejected_token, Some(expected))
+                .map(|credentials| token(credentials, true));
+        }
+        return Err(AccountError::Cancelled);
+    }
+    match account.credentials(rejected_token, None) {
+        Ok(credentials) => return Ok(token(credentials, false)),
         // 没有登录，或者登录的会话已被服务端吊销并清掉：退回匿名账号。
         Err(AccountError::Unauthorized) => {}
         Err(error) => return Err(error),
     }
-    BackendAccountSession::new(api, LockedAnonymousSessionStorage::new(directory))
+    anonymous
         .credentials(rejected_token, None)
-        .map(|(user_id, access_token)| SharedAccessToken {
-            access_token,
-            user_id,
-            anonymous: true,
-        })
+        .map(|credentials| token(credentials, true))
 }
 
-/// [`shared_access_token`] 读匿名会话用的存储：文件仍是 `anonymous-session.json`，但每次都重新读，刷新时持与登录会话同一把 `account-refresh.lock`。输入法进程里几个线程可能同时取令牌，每次调用又各建一个会话，不加锁时它们会拿同一个刷新令牌各刷新一次，而服务端见到用过的刷新令牌会吊销整个会话。只用在这里，[`ensure_anonymous_account`] 和其他宿主读写匿名会话的方式不变。
-struct LockedAnonymousSessionStorage {
+/// [`shared_access_token`] 读匿名会话用的存储：文件仍是 `anonymous-session.json`，但每次都重新读，刷新时持与登录会话同一把 `account-refresh.lock`。输入法进程里几个线程可能同时取令牌，每次调用又各建一个会话，不加锁时它们会拿同一个刷新令牌各刷新一次，而服务端见到用过的刷新令牌会吊销整个会话。[`ensure_anonymous_account`] 和其他宿主读写匿名会话的方式不变；host-api 按目录缓存匿名会话时也用它。
+pub struct LockedAnonymousSessionStorage {
     session: AnonymousSessionStorage,
     lock: FileAccountSessionStorage,
 }
 
 impl LockedAnonymousSessionStorage {
-    fn new(directory: &Path) -> Self {
+    pub fn new(directory: &Path) -> Self {
         Self {
             session: AnonymousSessionStorage::new(directory),
             lock: FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Native),
@@ -736,6 +810,182 @@ mod tests {
             shared_access_token_with(api, dir.path(), None)
                 .unwrap()
                 .anonymous
+        );
+    }
+
+    use super::super::host_storage::tests::MemoryBackend;
+
+    fn host_sessions(
+        backend: &Arc<MemoryBackend>,
+        api: RegisteringApi,
+    ) -> (
+        BackendAccountSession<RegisteringApi, HostSessionStorage>,
+        BackendAccountSession<RegisteringApi, HostSessionStorage>,
+    ) {
+        let locks = Arc::new(HostStoreLocks::new());
+        let dynamic: Arc<dyn SessionStoreBackend> = backend.clone();
+        (
+            BackendAccountSession::new(
+                api.clone(),
+                HostSessionStorage::new(dynamic.clone(), HostSessionSlot::Account, locks.clone()),
+            ),
+            BackendAccountSession::new(
+                api,
+                HostSessionStorage::new(dynamic, HostSessionSlot::Anonymous, locks),
+            ),
+        )
+    }
+
+    #[test]
+    fn the_injected_store_registers_once_on_the_cached_session() {
+        let backend = Arc::new(MemoryBackend::default());
+        let api = RegisteringApi::default();
+        let (_, anonymous) = host_sessions(&backend, api.clone());
+        // 不跨进程共享的存储只读一次；登录必须落在这个缓存的对象上，否则它会一直以为没有会话。
+        assert_eq!(anonymous.status().unwrap(), None);
+
+        ensure_anonymous_account_in(&anonymous, backend.as_ref()).unwrap();
+        assert_eq!(anonymous.status().unwrap().unwrap().id, "fixture-anonymous");
+        ensure_anonymous_account_in(&anonymous, backend.as_ref()).unwrap();
+
+        let items = backend.items.lock().unwrap();
+        let identity: AnonymousIdentity =
+            serde_json::from_slice(&items[&SessionStoreItem::AnonymousIdentity]).unwrap();
+        assert!(identity.is_valid());
+        assert!(items.contains_key(&SessionStoreItem::Anonymous));
+        assert!(!items.contains_key(&SessionStoreItem::Account));
+        assert_eq!(
+            *api.challenges.lock().unwrap(),
+            [("anonymous".to_string(), identity.subject.clone())]
+        );
+        assert_eq!(api.logins.lock().unwrap().len(), 1);
+    }
+
+    /// 本进程读身份时还没有，写入时另一个进程已经抢先发布了一份。
+    struct RacingIdentity {
+        inner: MemoryBackend,
+        theirs: Vec<u8>,
+    }
+
+    impl SessionStoreBackend for RacingIdentity {
+        fn read(
+            &self,
+            item: SessionStoreItem,
+            capacity: usize,
+        ) -> Result<Option<Vec<u8>>, AccountError> {
+            self.inner.read(item, capacity)
+        }
+        fn write(
+            &self,
+            item: SessionStoreItem,
+            bytes: &[u8],
+        ) -> Result<WriteOutcome, AccountError> {
+            if item == SessionStoreItem::AnonymousIdentity {
+                self.inner.write(item, &self.theirs)?;
+            }
+            self.inner.write(item, bytes)
+        }
+        fn remove(&self, item: SessionStoreItem) -> Result<(), AccountError> {
+            self.inner.remove(item)
+        }
+        fn lock(&self, item: SessionStoreItem, timeout: Duration) -> Result<u64, AccountError> {
+            self.inner.lock(item, timeout)
+        }
+        fn unlock(&self, item: SessionStoreItem, token: u64) {
+            self.inner.unlock(item, token)
+        }
+        fn shared_across_processes(&self) -> bool {
+            false
+        }
+        fn layout(&self) -> AccountSessionFileLayout {
+            AccountSessionFileLayout::Native
+        }
+    }
+
+    #[test]
+    fn an_identity_another_process_published_first_is_reread_and_used() {
+        let theirs = AnonymousIdentity::generate();
+        let backend = Arc::new(RacingIdentity {
+            inner: MemoryBackend::default(),
+            theirs: serde_json::to_vec(&theirs).unwrap(),
+        });
+        let api = RegisteringApi::default();
+        let dynamic: Arc<dyn SessionStoreBackend> = backend.clone();
+        let anonymous = BackendAccountSession::new(
+            api.clone(),
+            HostSessionStorage::new(
+                dynamic,
+                HostSessionSlot::Anonymous,
+                Arc::new(HostStoreLocks::new()),
+            ),
+        );
+        ensure_anonymous_account_in(&anonymous, backend.as_ref()).unwrap();
+        // 用的是先发布的那一份，不是本进程生成的。
+        assert_eq!(
+            *api.challenges.lock().unwrap(),
+            [("anonymous".to_string(), theirs.subject.clone())]
+        );
+        assert_eq!(
+            *api.logins.lock().unwrap(),
+            [("fixture-challenge".to_string(), theirs.secret.clone())]
+        );
+    }
+
+    #[test]
+    fn a_corrupt_injected_identity_is_not_replaced() {
+        let backend = Arc::new(MemoryBackend::default());
+        backend.items.lock().unwrap().insert(
+            SessionStoreItem::AnonymousIdentity,
+            br#"{"subject":"msime-short","secret":"x"}"#.to_vec(),
+        );
+        let api = RegisteringApi::default();
+        let (_, anonymous) = host_sessions(&backend, api.clone());
+        assert_eq!(
+            ensure_anonymous_account_in(&anonymous, backend.as_ref()),
+            Err(AccountError::Storage)
+        );
+        assert!(api.challenges.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_expected_user_picks_its_own_session_and_never_falls_back() {
+        let backend = Arc::new(MemoryBackend::default());
+        let (account, anonymous) = host_sessions(&backend, RegisteringApi::default());
+        anonymous
+            .storage
+            .save(&anonymous_session('a', 'b'))
+            .unwrap();
+        account.storage.save(&signed_in_session('c')).unwrap();
+
+        let token = shared_access_token_in(&account, &anonymous, None, None).unwrap();
+        assert_eq!(
+            (token.user_id.as_str(), token.anonymous),
+            ("synthetic-user", false)
+        );
+        let token =
+            shared_access_token_in(&account, &anonymous, None, Some("fixture-anonymous")).unwrap();
+        assert_eq!(
+            (token.user_id.as_str(), token.anonymous, token.access_token),
+            ("fixture-anonymous", true, "a".repeat(64))
+        );
+        let token =
+            shared_access_token_in(&account, &anonymous, None, Some("synthetic-user")).unwrap();
+        assert!(!token.anonymous);
+        assert_eq!(
+            shared_access_token_in(&account, &anonymous, None, Some("someone-else")),
+            Err(AccountError::Cancelled)
+        );
+
+        // 登录的会话没了：不带 expected 时退回匿名账号，带着登录账号的 id 时不退回。
+        account.forget().unwrap();
+        assert!(
+            shared_access_token_in(&account, &anonymous, None, None)
+                .unwrap()
+                .anonymous
+        );
+        assert_eq!(
+            shared_access_token_in(&account, &anonymous, None, Some("synthetic-user")),
+            Err(AccountError::Cancelled)
         );
     }
 

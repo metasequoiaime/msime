@@ -3405,6 +3405,48 @@ fn the_c_header_aliases_the_candidate_list_command_and_extends_the_scheme_legend
 }
 
 #[test]
+fn the_c_header_declares_the_session_store_as_rust_reads_it() {
+    const HEADER: &str = include_str!("../include/msime_client.h");
+    assert!(HEADER.contains("#define MSIME_CLIENT_SESSION_STORE_VERSION 1\n"));
+    assert!(HEADER.contains("#define MSIME_CLIENT_SESSION_STORE_SHARED 1u\n"));
+    for item in [
+        "MSIME_CLIENT_SESSION_ITEM_ACCOUNT = 1,",
+        "MSIME_CLIENT_SESSION_ITEM_CLIPBOARD_KEYSTORE = 2,",
+        "MSIME_CLIENT_SESSION_ITEM_ANONYMOUS = 3,",
+        "MSIME_CLIENT_SESSION_ITEM_ANONYMOUS_IDENTITY = 4,",
+    ] {
+        assert!(HEADER.contains(item), "{item}");
+    }
+    // 字段顺序与 `ffi::session_store::SessionStoreV1` 相同；布局本身由那边的 size_of/offset_of 测试锁住。
+    let start = HEADER
+        .find("typedef struct msime_client_session_store {")
+        .unwrap();
+    let end = start
+        + HEADER[start..]
+            .find("} msime_client_session_store;")
+            .unwrap();
+    let mut position = start;
+    for field in [
+        "uint32_t version;",
+        "uint32_t layout;",
+        "uint32_t flags;",
+        "const char *client_agent;",
+        "void *context;",
+        "intptr_t (*load)(void *context, uint32_t item, uint8_t *buffer, size_t capacity);",
+        "int32_t (*save)(void *context, uint32_t item, const uint8_t *bytes, size_t length);",
+        "int32_t (*remove)(void *context, uint32_t item);",
+        "int32_t (*lock)(void *context, uint32_t item, uint32_t timeout_ms, uint64_t *token);",
+        "void (*unlock)(void *context, uint32_t item, uint64_t token);",
+        "void (*release)(void *context);",
+    ] {
+        let found = HEADER[position..end]
+            .find(field)
+            .unwrap_or_else(|| panic!("{field} missing or out of order"));
+        position += found + field.len();
+    }
+}
+
+#[test]
 fn nine_key_digits_offer_ranked_english_across_the_host_boundary() {
     use msime_client_core::preferences::MixedInputPreferences;
 

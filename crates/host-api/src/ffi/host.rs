@@ -244,7 +244,12 @@ pub unsafe extern "C" fn msime_client_ensure_anonymous_account(
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AccountAccessTokenRequest {
-    directory: String,
+    /// 与 `session_store` 恰好给一个。
+    #[serde(default)]
+    directory: Option<String>,
+    /// `msime_client_session_store_register` 给的 id：登录会话和匿名会话都在宿主注入的存储里。
+    #[serde(default)]
+    session_store: Option<u64>,
     #[serde(default)]
     rejected_token: Option<String>,
 }
@@ -265,16 +270,34 @@ pub unsafe extern "C" fn msime_client_account_access_token(
         let bytes = unsafe { std::slice::from_raw_parts(request, length) };
         let request: AccountAccessTokenRequest =
             serde_json::from_slice(bytes).map_err(|_| "account_invalid")?;
-        let directory = std::path::Path::new(&request.directory);
-        if !directory.is_absolute() {
-            return Err("account_invalid".into());
-        }
-        msime_client_services::account::shared_access_token(
-            directory,
-            request.rejected_token.as_deref(),
+        let rejected = request.rejected_token.as_deref();
+        let token = match super::session_store::session_source(
+            request.directory.as_deref(),
+            false,
+            request.session_store,
         )
-        .map_err(|error| error.code().to_owned())
-        .and_then(|token| serde_json::to_value(token).map_err(|_| "account_unavailable".into()))
+        .ok_or("account_invalid")?
+        {
+            super::session_store::Source::Directory(directory) => {
+                let directory = std::path::Path::new(directory);
+                if !directory.is_absolute() {
+                    return Err("account_invalid".into());
+                }
+                msime_client_services::account::shared_access_token(directory, rejected)
+            }
+            // 登录的优先，没有时用匿名的，与按目录时相同。
+            super::session_store::Source::Store(entry) => {
+                msime_client_services::account::shared_access_token_in(
+                    &entry.account,
+                    &entry.anonymous,
+                    rejected,
+                    None,
+                )
+            }
+        };
+        token
+            .map_err(|error| error.code().to_owned())
+            .and_then(|token| serde_json::to_value(token).map_err(|_| "account_unavailable".into()))
     })
 }
 
@@ -1993,23 +2016,43 @@ pub unsafe extern "C" fn msime_client_account_cloud_clipboard(
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct CloudRequest {
-            directory: String,
+            #[serde(default)]
+            directory: Option<String>,
+            #[serde(default)]
+            session_store: Option<u64>,
             action: Value,
         }
         // SAFETY: guaranteed by the documented caller contract.
         let bytes = unsafe { std::slice::from_raw_parts(request, length) };
         let request: CloudRequest = serde_json::from_slice(bytes).map_err(|_| INVALID)?;
-        let directory = std::path::Path::new(&request.directory);
-        if !directory.is_absolute() || request.directory.len() > 16384 {
-            return Err(INVALID.into());
+        let source = super::session_store::session_source(
+            request.directory.as_deref(),
+            false,
+            request.session_store,
+        )
+        .ok_or(INVALID)?;
+        if let super::session_store::Source::Directory(directory) = &source {
+            if !std::path::Path::new(directory).is_absolute() || directory.len() > 16384 {
+                return Err(INVALID.into());
+            }
         }
         crate::cloud_clipboard::validate_request(&request.action).map_err(|_| INVALID)?;
-        let client = BackendAccountClient::new().map_err(|error| error.code().to_owned())?;
-        let session = BackendAccountSession::new(
-            client,
-            FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Native),
-        );
-        crate::cloud_clipboard::account_request(&session, &request.action).map_err(str::to_owned)
+        match source {
+            super::session_store::Source::Directory(directory) => {
+                let client =
+                    BackendAccountClient::new().map_err(|error| error.code().to_owned())?;
+                let session = BackendAccountSession::new(
+                    client,
+                    FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Native),
+                );
+                crate::cloud_clipboard::account_request(&session, &request.action)
+            }
+            // 注入的存储用注册时建好的会话对象，不每次新建。
+            super::session_store::Source::Store(entry) => {
+                crate::cloud_clipboard::account_request(&entry.account, &request.action)
+            }
+        }
+        .map_err(str::to_owned)
     })
 }
 

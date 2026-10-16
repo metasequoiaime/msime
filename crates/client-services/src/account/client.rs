@@ -12,12 +12,70 @@ pub struct BackendAccountClient {
     origin: Url,
 }
 
+/// 没有宿主自报的 User-Agent 时发的值，与改动前相同。
+const DEFAULT_USER_AGENT: &str = "MSIME/Android";
+/// 服务端认的平台 ID（msime-cloud `internal/account/sessions.go` 的 `sessionPlatforms`）。
+const CLIENT_AGENT_PLATFORMS: [&str; 6] =
+    ["android", "ios", "macos", "windows", "linux", "harmony"];
+const MAX_CLIENT_AGENT_BYTES: usize = 256;
+const MAX_CLIENT_AGENT_VERSION_BYTES: usize = 32;
+
+/// 宿主自报的 User-Agent 是否是服务端「我的设备」认得出的形状：`msime-<平台>/<版本> (<设备>; <系统>; edition=<id>)`，括号部分可省略。与服务端的 `msimeAgent` 正则 `^msime-([a-z]+)/([0-9A-Za-z.+_-]{1,32})(?: \(([^()]*)\))?$` 等价，另外要求平台是六个之一、整串不超过 256 字节且全是可打印 ASCII。用字符串切分实现，不用正则。
+pub fn valid_client_agent(agent: &str) -> bool {
+    if agent.len() > MAX_CLIENT_AGENT_BYTES
+        || !agent.bytes().all(|byte| (0x20..=0x7e).contains(&byte))
+    {
+        return false;
+    }
+    let Some(rest) = agent.strip_prefix("msime-") else {
+        return false;
+    };
+    let Some((platform, rest)) = rest.split_once('/') else {
+        return false;
+    };
+    if !CLIENT_AGENT_PLATFORMS.contains(&platform) {
+        return false;
+    }
+    let (version, detail) = match rest.split_once(' ') {
+        Some((version, detail)) => (version, Some(detail)),
+        None => (rest, None),
+    };
+    let version_valid = !version.is_empty()
+        && version.len() <= MAX_CLIENT_AGENT_VERSION_BYTES
+        && version
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b".+_-".contains(&byte));
+    let detail_valid = detail.is_none_or(|detail| {
+        detail
+            .strip_prefix('(')
+            .and_then(|inner| inner.strip_suffix(')'))
+            .is_some_and(|inner| !inner.contains(['(', ')']))
+    });
+    version_valid && detail_valid
+}
+
 impl BackendAccountClient {
     pub fn new() -> Result<Self, AccountError> {
         Self::with_origin(ACCOUNT_ORIGIN, false)
     }
 
+    /// 与 [`Self::new`] 相同，只是登录、刷新和其余请求都以 `agent` 作 User-Agent，服务端「我的设备」据此显示平台、设备和版本。`agent` 不是 [`valid_client_agent`] 认的形状时是 [`AccountError::Invalid`]。
+    pub fn with_user_agent(agent: &str) -> Result<Self, AccountError> {
+        if !valid_client_agent(agent) {
+            return Err(AccountError::Invalid);
+        }
+        Self::with_origin_and_agent(ACCOUNT_ORIGIN, false, agent)
+    }
+
     fn with_origin(origin: &str, allow_http_loopback: bool) -> Result<Self, AccountError> {
+        Self::with_origin_and_agent(origin, allow_http_loopback, DEFAULT_USER_AGENT)
+    }
+
+    fn with_origin_and_agent(
+        origin: &str,
+        allow_http_loopback: bool,
+        agent: &str,
+    ) -> Result<Self, AccountError> {
         let origin = Url::parse(origin).map_err(|_| AccountError::Invalid)?;
         let valid_scheme = origin.scheme() == "https"
             || (allow_http_loopback
@@ -35,7 +93,7 @@ impl BackendAccountClient {
         let client = Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(30))
-            .user_agent("MSIME/Android")
+            .user_agent(agent)
             .build()
             .map_err(|_| AccountError::Unavailable)?;
         Ok(Self { client, origin })
@@ -44,6 +102,11 @@ impl BackendAccountClient {
     #[cfg(test)]
     pub(crate) fn loopback(origin: &str) -> Result<Self, AccountError> {
         Self::with_origin(origin, true)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn loopback_with_agent(origin: &str, agent: &str) -> Result<Self, AccountError> {
+        Self::with_origin_and_agent(origin, true, agent)
     }
 
     fn request(

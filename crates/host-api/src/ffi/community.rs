@@ -4,14 +4,13 @@
 
 use super::account::{session_for, Session};
 use super::plugins::plugin_response;
+use super::session_store::{session_source, SessionStorage, Source};
 use super::with_bounded_bytes;
 use crate::*;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use key_sound::PluginRoots;
 use msime_client_core::uuid::Uuid;
-use msime_client_services::account::{
-    AccountError, BackendAccountClient, FileAccountSessionStorage,
-};
+use msime_client_services::account::{AccountError, BackendAccountClient};
 use msime_client_services::community::report::{
     BackendCommunityReportService, CommunityReport, CommunityReportKind,
 };
@@ -33,10 +32,10 @@ use msime_client_services::skin::catalog;
 const MAX_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 const MAX_DIRECTORY_BYTES: usize = 16 * 1024;
 
-type Storage = FileAccountSessionStorage;
+type Storage = SessionStorage;
 
-/// 一个账号目录上的四个社区服务，与共享应用在 `desktop_account::manage` 里建的相同，都经同一个会话对象认证。
-struct Services {
+/// 一个账号目录（或一个注入的会话存储）上的四个社区服务，与共享应用在 `desktop_account::manage` 里建的相同，都经同一个会话对象认证。
+pub(super) struct Services {
     candidate_skins: BackendCandidateSkinCommunityService<BackendAccountClient, Storage>,
     plugins: BackendCommunityPluginService<BackendAccountClient, Storage>,
     resources: BackendCommunityResourceService<BackendAccountClient, Storage>,
@@ -53,25 +52,35 @@ fn services_for(directory: &Path, legacy: Option<&Path>) -> Result<Arc<Services>
         return Ok(Arc::clone(existing));
     }
     let session: Arc<Session> = session_for(directory, legacy)?;
-    let client = BackendAccountClient::new()?;
-    let created = Arc::new(Services {
-        candidate_skins: BackendCandidateSkinCommunityService::new(
-            client.clone(),
-            Arc::clone(&session),
-        ),
-        plugins: BackendCommunityPluginService::new(client.clone(), Arc::clone(&session)),
-        resources: BackendCommunityResourceService::new(client.clone(), Arc::clone(&session)),
-        report: BackendCommunityReportService::new(client, session),
-    });
+    let created = Arc::new(Services::new(BackendAccountClient::new()?, session));
     services.insert(directory.to_path_buf(), Arc::clone(&created));
     Ok(created)
+}
+
+impl Services {
+    /// 经 `session` 认证的四个服务，共用 `client`。
+    pub(super) fn new(client: BackendAccountClient, session: Arc<Session>) -> Self {
+        Self {
+            candidate_skins: BackendCandidateSkinCommunityService::new(
+                client.clone(),
+                Arc::clone(&session),
+            ),
+            plugins: BackendCommunityPluginService::new(client.clone(), Arc::clone(&session)),
+            resources: BackendCommunityResourceService::new(client.clone(), Arc::clone(&session)),
+            report: BackendCommunityReportService::new(client, session),
+        }
+    }
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CommunityRequest {
-    /// 账号目录，与 `msime_client_account` 的 `directory` 相同。
-    directory: String,
+    /// 账号目录，与 `msime_client_account` 的 `directory` 相同；与 `session_store` 恰好给一个。
+    #[serde(default)]
+    directory: Option<String>,
+    /// 注入的会话存储，与 `msime_client_account` 的 `session_store` 相同。
+    #[serde(default)]
+    session_store: Option<u64>,
     /// 旧版本放会话的目录，与 `msime_client_account` 的 `legacy_directory` 相同。
     #[serde(default)]
     legacy_directory: Option<String>,
@@ -511,13 +520,27 @@ pub unsafe extern "C" fn msime_client_community(request: *const u8, length: usiz
             })
         }
         .map_err(|_| invalid())?;
-        let directory = absolute_directory(&request.directory)?;
+        let source = session_source(
+            request.directory.as_deref(),
+            request.legacy_directory.is_some(),
+            request.session_store,
+        )
+        .ok_or_else(invalid)?;
+        let directory = match &source {
+            Source::Directory(directory) => Some(absolute_directory(directory)?),
+            Source::Store(_) => None,
+        };
         let legacy = optional_directory(request.legacy_directory.as_deref())?;
         let skins = optional_directory(request.skins_directory.as_deref())?;
         optional_directory(request.state_root.as_deref())?;
         // `<state_root>/plugins`, the root `msime_client_plugins` lists and imports into.
         let plugins = PluginRoots::new(request.state_root.as_deref(), None, None, "").installed;
-        let services = services_for(directory, legacy).map_err(account)?;
+        let services = match source {
+            Source::Store(entry) => Arc::clone(&entry.community),
+            Source::Directory(_) => {
+                services_for(directory.ok_or_else(invalid)?, legacy).map_err(account)?
+            }
+        };
         run(&services, skins, plugins.as_deref(), request.action)
     })
 }

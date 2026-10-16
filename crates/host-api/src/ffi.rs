@@ -225,6 +225,7 @@ pub mod plugins;
 pub mod providers;
 pub mod reporting;
 pub mod session;
+pub mod session_store;
 pub mod translation;
 pub mod voice;
 

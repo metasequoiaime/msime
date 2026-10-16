@@ -2,8 +2,11 @@
 //!
 //! 每个会话目录在进程里只有一个会话对象，这样进行中的 Google 登录可以被另一次调用里的 `google_cancel` 结束；会话文件本身每次访问都重新读，共享应用、输入法和这里同时登录、刷新或退出时以文件为准，刷新时共用 `account-refresh.lock`。
 //!
+//! 请求带 `session_store` 而不带 `directory` 时，会话在宿主注入的存储里（[`super::session_store`]），会话对象是注册时建好的那一个。
+//!
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
+use super::session_store::{session_source, SessionStorage, Source};
 use super::with_bounded_bytes;
 use crate::*;
 use msime_client_core::preferences::PreferencesError;
@@ -15,15 +18,16 @@ use msime_client_services::account::settings_sync::{
     prepare_desktop_settings_apply, upload_desktop_settings,
 };
 use msime_client_services::account::{
-    adopt_legacy_account_session, AccountError, AccountPreferences, AccountSessionFileLayout,
-    BackendAccountClient, BackendAccountSession, FileAccountSessionStorage,
+    adopt_legacy_account_session, ensure_anonymous_account, ensure_anonymous_account_in,
+    AccountError, AccountPreferences, AccountSessionFileLayout, BackendAccountClient,
+    BackendAccountSession, FileAccountSessionStorage,
 };
 
 /// 请求的上限：应用云端设置时请求里带着整份云端设置文档（其中可能有 Android 的自定义键盘皮肤库，最多 768 KiB），与 Android 的设置同步导出一样给 4 MiB；目录各最多 16 KiB。
 const MAX_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 const MAX_DIRECTORY_BYTES: usize = 16 * 1024;
 
-pub(super) type Session = BackendAccountSession<BackendAccountClient, FileAccountSessionStorage>;
+pub(super) type Session = BackendAccountSession<BackendAccountClient, SessionStorage>;
 
 /// 每个会话目录一个会话对象。只在取对象时持锁，账号调用本身在锁外进行。
 static ACCOUNT_SESSIONS: OnceLock<Mutex<HashMap<PathBuf, Arc<Session>>>> = OnceLock::new();
@@ -31,11 +35,15 @@ static ACCOUNT_SESSIONS: OnceLock<Mutex<HashMap<PathBuf, Arc<Session>>>> = OnceL
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AccountRequest {
-    /// 共享应用登录时写 `account-session.json` 的目录。
-    directory: String,
-    /// 旧版本放会话的目录；新目录还没有会话而这里有时，先把它搬过去（[`adopt_legacy_account_session`]）。
+    /// 共享应用登录时写 `account-session.json` 的目录；与 `session_store` 恰好给一个。
+    #[serde(default)]
+    directory: Option<String>,
+    /// 旧版本放会话的目录；新目录还没有会话而这里有时，先把它搬过去（[`adopt_legacy_account_session`]）。只能与 `directory` 一起给。
     #[serde(default)]
     legacy_directory: Option<String>,
+    /// `msime_client_session_store_register` 给的 id；与 `directory` 恰好给一个。
+    #[serde(default)]
+    session_store: Option<u64>,
     action: AccountAction,
 }
 
@@ -79,6 +87,8 @@ enum AccountAction {
         user_id: String,
         preferences: AccountPreferences,
     },
+    /// 本机匿名账号还没有会话时注册它，与 `msime_client_ensure_anonymous_account` 相同，但失败时返回账号错误码。
+    EnsureAnonymous,
 }
 
 /// 目录对应的会话对象，第一次用到时建立；建立前先接管旧目录里的会话，与共享应用启动时做的一样。社区操作（`msime_client_community`）经同一个对象认证。
@@ -97,7 +107,10 @@ pub(super) fn session_for(
     let client = BackendAccountClient::new()?;
     let session = Arc::new(BackendAccountSession::new(
         client,
-        FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Native),
+        SessionStorage::File(FileAccountSessionStorage::new(
+            directory,
+            AccountSessionFileLayout::Native,
+        )),
     ));
     sessions.insert(directory.to_path_buf(), Arc::clone(&session));
     Ok(session)
@@ -218,10 +231,10 @@ fn run_account(session: &Session, action: AccountAction) -> Result<Value, Accoun
             value(PreferenceSchemaResponse::from(session.preference_schema()?))
         }
         AccountAction::PreferencesLoad => value(session.preferences()?),
-        // 要写本机偏好、错误码不全是账号错误码的两项由 run 处理，不会到这里。
-        AccountAction::PreferencesUpload { .. } | AccountAction::PreferencesApply { .. } => {
-            Err(AccountError::Invalid)
-        }
+        // 要写本机偏好、错误码不全是账号错误码的两项由 run 处理，要看会话来源的 ensure_anonymous 由导出函数处理，都不会到这里。
+        AccountAction::PreferencesUpload { .. }
+        | AccountAction::PreferencesApply { .. }
+        | AccountAction::EnsureAnonymous => Err(AccountError::Invalid),
     }
 }
 
@@ -250,14 +263,38 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
                 |bytes| serde_json::from_slice(bytes).map_err(|_| invalid()),
             )?
         };
-        let directory = absolute_directory(&request.directory)?;
-        let legacy = request
-            .legacy_directory
-            .as_deref()
-            .map(absolute_directory)
-            .transpose()?;
-        let session = session_for(directory, legacy).map_err(|error| error.code().to_owned())?;
-        run(&session, request.action)
+        let code = |error: AccountError| error.code().to_owned();
+        let source = session_source(
+            request.directory.as_deref(),
+            request.legacy_directory.is_some(),
+            request.session_store,
+        )
+        .ok_or_else(invalid)?;
+        match source {
+            Source::Directory(directory) => {
+                let directory = absolute_directory(directory)?;
+                let legacy = request
+                    .legacy_directory
+                    .as_deref()
+                    .map(absolute_directory)
+                    .transpose()?;
+                if matches!(request.action, AccountAction::EnsureAnonymous) {
+                    return ensure_anonymous_account(directory)
+                        .map(|()| Value::Bool(true))
+                        .map_err(code);
+                }
+                let session = session_for(directory, legacy).map_err(code)?;
+                run(&session, request.action)
+            }
+            Source::Store(entry) => {
+                if matches!(request.action, AccountAction::EnsureAnonymous) {
+                    return ensure_anonymous_account_in(&entry.anonymous, entry.backend.as_ref())
+                        .map(|()| Value::Bool(true))
+                        .map_err(code);
+                }
+                run(&entry.account, request.action)
+            }
+        }
     })
 }
 
@@ -311,6 +348,257 @@ mod tests {
                 session_id: None,
             })
             .unwrap();
+    }
+
+    mod injected {
+        use super::super::super::session_store::tests::{
+            leaked_store, registered, session_bytes, unregister, TestStore,
+        };
+        use super::*;
+        use std::sync::atomic::Ordering;
+
+        const SHARED: u32 = 1;
+
+        fn store_action(id: u64, action: Value) -> Value {
+            call(json!({ "session_store": id, "action": action }))
+        }
+
+        fn access_token(request: Value) -> Value {
+            let bytes = request.to_string();
+            // SAFETY: the buffer is live for the call, and the returned string is freed below.
+            unsafe {
+                let raw = msime_client_account_access_token(bytes.as_ptr(), bytes.len());
+                let text = CStr::from_ptr(raw).to_str().unwrap().to_owned();
+                msime_client_string_free(raw);
+                serde_json::from_str(&text).unwrap()
+            }
+        }
+
+        fn cloud_clipboard(request: Value) -> Value {
+            let bytes = request.to_string();
+            // SAFETY: as above.
+            unsafe {
+                let raw = msime_client_account_cloud_clipboard(bytes.as_ptr(), bytes.len());
+                let text = CStr::from_ptr(raw).to_str().unwrap().to_owned();
+                msime_client_string_free(raw);
+                serde_json::from_str(&text).unwrap()
+            }
+        }
+
+        fn community(request: Value) -> Value {
+            let bytes = request.to_string();
+            // SAFETY: as above.
+            unsafe {
+                let raw =
+                    crate::ffi::community::msime_client_community(bytes.as_ptr(), bytes.len());
+                let text = CStr::from_ptr(raw).to_str().unwrap().to_owned();
+                msime_client_string_free(raw);
+                serde_json::from_str(&text).unwrap()
+            }
+        }
+
+        fn put(store: &TestStore, item: u32, bytes: Vec<u8>) {
+            store.items.lock().unwrap().insert(item, bytes);
+        }
+
+        #[test]
+        fn status_forget_and_tokens_go_through_the_host_store() {
+            let store = leaked_store();
+            let id = registered(store, SHARED, 0);
+            assert_eq!(
+                store_action(id, json!({ "operation": "status" })),
+                json!({ "ok": true, "value": { "user": null } })
+            );
+            put(store, 1, session_bytes("synthetic-user", 'a', true));
+            put(store, 2, b"v1.synthetic-keystore".to_vec());
+            assert_eq!(
+                store_action(id, json!({ "operation": "status" }))["value"]["user"]["id"],
+                "synthetic-user"
+            );
+            assert_eq!(
+                access_token(json!({ "session_store": id })),
+                json!({ "ok": true, "value": {
+                    "access_token": "a".repeat(64),
+                    "user_id": "synthetic-user",
+                    "anonymous": false,
+                } })
+            );
+            // 会话已有登录 ID、令牌也没过期：取令牌不加锁、不写入。
+            assert!(store.locks.lock().unwrap().is_empty());
+            assert!(store.saves.lock().unwrap().is_empty());
+
+            // 清掉本地会话在 ACCOUNT 锁里进行，密钥串一起删掉。
+            assert_eq!(
+                store_action(id, json!({ "operation": "forget" })),
+                json!({ "ok": true, "value": null })
+            );
+            assert!(store.items.lock().unwrap().is_empty());
+            let locks = store.locks.lock().unwrap().clone();
+            assert_eq!(locks.len(), 1);
+            assert_eq!(locks[0].0, 1);
+            assert_eq!(*store.unlocks.lock().unwrap(), locks);
+
+            // 没有登录时用匿名会话；两个都没有时是 account_unauthorized。
+            assert_eq!(
+                access_token(json!({ "session_store": id }))["error"],
+                "account_unauthorized"
+            );
+            put(store, 3, session_bytes("synthetic-anonymous", 'c', true));
+            let token = access_token(json!({ "session_store": id }));
+            assert_eq!(token["value"]["user_id"], "synthetic-anonymous");
+            assert_eq!(token["value"]["anonymous"], true);
+
+            // 其他只经会话的操作在发请求前就结束，与按目录时相同。
+            assert_eq!(
+                store_action(id, json!({ "operation": "profile" }))["error"],
+                "account_unauthorized"
+            );
+            assert_eq!(
+                cloud_clipboard(json!({
+                    "session_store": id,
+                    "action": { "operation": "list", "search": "" },
+                }))["error"],
+                "account_unauthorized"
+            );
+            let skins = tempfile::tempdir().unwrap();
+            assert_eq!(
+                community(json!({
+                    "session_store": id,
+                    "skins_directory": skins.path(),
+                    "action": { "operation": "candidate_skin_sync" },
+                }))["error"],
+                "community_unauthorized"
+            );
+            assert_eq!(
+                store_action(id, json!({ "operation": "google_cancel" })),
+                json!({ "ok": true, "value": null })
+            );
+
+            assert_eq!(unregister(id)["value"], true);
+            assert_eq!(store.releases.load(Ordering::SeqCst), 1);
+            assert_eq!(
+                store_action(id, json!({ "operation": "status" })),
+                json!({ "ok": false, "error": "account_invalid" })
+            );
+        }
+
+        #[test]
+        fn an_apple_layout_store_reads_what_swift_wrote() {
+            let store = leaked_store();
+            let id = registered(store, SHARED, 1);
+            // Swift 的 BackendSavedSession：expiresAt 是 2001 年起的秒数。
+            let document = json!({
+                "tokens": {
+                    "access_token": "a".repeat(64),
+                    "refresh_token": "b".repeat(64),
+                    "token_type": "Bearer",
+                    "expires_in": 900,
+                    "user": {
+                        "id": "synthetic-user",
+                        "display_name": "",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "email": "person@example.test",
+                    },
+                },
+                "expiresAt": 800_000_000.0,
+                "sessionID": "6f9619ff-8b86-d011-b42d-00c04fc964ff",
+            });
+            put(store, 1, document.to_string().into_bytes());
+            let user = &store_action(id, json!({ "operation": "status" }))["value"]["user"];
+            assert_eq!(user["id"], "synthetic-user");
+            assert_eq!(user["email"], "person@example.test");
+            unregister(id);
+        }
+
+        #[test]
+        fn an_unshared_store_is_read_once_and_a_shared_one_on_every_call() {
+            for (flags, expected) in [(0, 1), (SHARED, 3)] {
+                let store = leaked_store();
+                let id = registered(store, flags, 0);
+                put(store, 1, session_bytes("synthetic-user", 'a', true));
+                for _ in 0..3 {
+                    assert_eq!(
+                        store_action(id, json!({ "operation": "status" }))["value"]["user"]["id"],
+                        "synthetic-user"
+                    );
+                }
+                assert_eq!(
+                    store.loads.load(Ordering::SeqCst),
+                    expected,
+                    "flags {flags}"
+                );
+                unregister(id);
+            }
+        }
+
+        #[test]
+        fn a_session_without_a_login_id_is_migrated_under_the_host_lock() {
+            let store = leaked_store();
+            let id = registered(store, SHARED, 0);
+            put(store, 1, session_bytes("synthetic-user", 'a', false));
+            assert_eq!(
+                access_token(json!({ "session_store": id }))["value"]["access_token"],
+                "a".repeat(64)
+            );
+            assert_eq!(*store.saves.lock().unwrap(), [1]);
+            let saved: serde_json::Value =
+                serde_json::from_slice(&store.items.lock().unwrap()[&1]).unwrap();
+            assert!(saved["session_id"].is_string());
+            let locks = store.locks.lock().unwrap().clone();
+            assert_eq!(locks.len(), 1);
+            assert_eq!(locks[0].0, 1);
+            assert_eq!(*store.unlocks.lock().unwrap(), locks);
+            unregister(id);
+        }
+
+        #[test]
+        fn every_entry_needs_exactly_one_session_source() {
+            let store = leaked_store();
+            let id = registered(store, 0, 0);
+            let root = tempfile::tempdir().unwrap();
+            let directory = root.path().join("account");
+            let status = json!({ "operation": "status" });
+            for request in [
+                json!({ "directory": directory, "session_store": id, "action": status }),
+                json!({ "action": status }),
+                json!({ "session_store": u64::MAX, "action": status }),
+                json!({ "session_store": id, "legacy_directory": directory, "action": status }),
+                json!({ "session_store": "1", "action": status }),
+            ] {
+                assert_eq!(
+                    call(request.clone()),
+                    json!({ "ok": false, "error": "account_invalid" }),
+                    "{request}"
+                );
+            }
+            let list = json!({ "operation": "list", "search": "" });
+            for request in [
+                json!({ "directory": directory, "session_store": id, "action": list }),
+                json!({ "action": list }),
+                json!({ "session_store": u64::MAX, "action": list }),
+            ] {
+                assert_eq!(cloud_clipboard(request)["error"], "invalid_cloud_clipboard");
+            }
+            for request in [
+                json!({ "directory": directory, "session_store": id }),
+                json!({}),
+                json!({ "session_store": u64::MAX }),
+            ] {
+                assert_eq!(access_token(request)["error"], "account_invalid");
+            }
+            let report = json!({ "operation": "candidate_skin_sync" });
+            for request in [
+                json!({ "directory": directory, "session_store": id, "action": report }),
+                json!({ "action": report }),
+                json!({ "session_store": u64::MAX, "action": report }),
+            ] {
+                assert_eq!(community(request)["error"], "community_invalid");
+            }
+            // 什么都没写进宿主的存储，也没有建目录。
+            assert!(store.items.lock().unwrap().is_empty());
+            assert!(!directory.exists());
+            unregister(id);
+        }
     }
 
     #[test]

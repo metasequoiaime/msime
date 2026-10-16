@@ -7,11 +7,11 @@ use std::fs::File;
 use std::path::PathBuf;
 
 /// A session document is a pair of JWTs, a user and an expiry. Anything appreciably larger is not one, and is rejected before it is parsed.
-const MAX_SESSION_BYTES: u64 = 64 * 1024;
+pub(crate) const MAX_SESSION_BYTES: u64 = 64 * 1024;
 /// Seconds between the Unix epoch and the Foundation reference date, 2001-01-01.
 const APPLE_REFERENCE_DATE_UNIX_SECONDS: f64 = 978_307_200.0;
 /// How long a refresh waits for another process's. The Swift side gives up after the same time, and its refresh request times out well before it.
-const LOCK_TIMEOUT: Duration = Duration::from_secs(20);
+pub(crate) const LOCK_TIMEOUT: Duration = Duration::from_secs(20);
 const LOCK_POLL: Duration = Duration::from_millis(50);
 
 pub const ACCOUNT_SESSION_FILE: &str = "account-session.json";
@@ -19,7 +19,7 @@ pub const ACCOUNT_REFRESH_LOCK_FILE: &str = "account-refresh.lock";
 /// 云剪贴板的密钥串，与会话文件同目录、同样仅本人可读写。macOS 上输入法和设置应用（Swift）读写同一个文件，内容是密钥串本身（UTF-8，不带换行）。
 pub const CLOUD_CLIPBOARD_KEYSTORE_FILE: &str = "cloud-clipboard-keystore";
 /// 密钥串约 130 个字符；明显更大的文件不是这里写的。
-const MAX_KEYSTORE_BYTES: u64 = 4096;
+pub(crate) const MAX_KEYSTORE_BYTES: u64 = 4096;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccountSessionFileLayout {
@@ -78,16 +78,7 @@ impl FileAccountSessionStorage {
     }
 
     fn encode(&self, session: &SavedAccountSession) -> Result<Vec<u8>, AccountError> {
-        match self.layout {
-            AccountSessionFileLayout::Native => serde_json::to_vec(session),
-            AccountSessionFileLayout::Apple => serde_json::to_vec(&AppleSavedSession {
-                tokens: session.tokens.clone(),
-                expires_at: session.expires_at_unix_ms as f64 / 1000.0
-                    - APPLE_REFERENCE_DATE_UNIX_SECONDS,
-                session_id: session.session_id,
-            }),
-        }
-        .map_err(|_| AccountError::Storage)
+        encode_session(self.layout, session)
     }
 
     fn lock(&self) -> Result<crate::file_lock::ScopedFileLock, AccountError> {
@@ -147,7 +138,25 @@ fn move_session_if_absent(source: &Path, destination: &Path) -> std::io::Result<
     }
 }
 
-fn decode(bytes: &[u8]) -> Result<SavedAccountSession, AccountError> {
+/// 按 `layout` 编码一份会话文档。文件存储和宿主注入的存储（`host_storage`）写出的字节相同。
+pub(crate) fn encode_session(
+    layout: AccountSessionFileLayout,
+    session: &SavedAccountSession,
+) -> Result<Vec<u8>, AccountError> {
+    match layout {
+        AccountSessionFileLayout::Native => serde_json::to_vec(session),
+        AccountSessionFileLayout::Apple => serde_json::to_vec(&AppleSavedSession {
+            tokens: session.tokens.clone(),
+            expires_at: session.expires_at_unix_ms as f64 / 1000.0
+                - APPLE_REFERENCE_DATE_UNIX_SECONDS,
+            session_id: session.session_id,
+        }),
+    }
+    .map_err(|_| AccountError::Storage)
+}
+
+/// 两种布局都接受；合法性由读取方（`BackendAccountSession` 的 `validate_saved_session`）再查一遍。
+pub(crate) fn decode(bytes: &[u8]) -> Result<SavedAccountSession, AccountError> {
     let value: serde_json::Value =
         serde_json::from_slice(bytes).map_err(|_| AccountError::Storage)?;
     if value.get("expiresAt").is_none() {
@@ -422,6 +431,35 @@ mod tests {
                 Err(AccountError::Storage)
             );
         }
+    }
+
+    #[test]
+    fn an_apple_layout_document_keeps_the_email_and_avatar_of_its_user() {
+        // Swift 的 `BackendSavedSession` 写出的形状：expiresAt 是 2001 年起的秒数，sessionID 是 UUID。
+        let document = br#"{"tokens":{"access_token":"synthetic-access","refresh_token":"synthetic-refresh","token_type":"Bearer","expires_in":900,"user":{"id":"synthetic-user","display_name":"","created_at":"2026-01-01T00:00:00Z","email":"person@example.test","avatar_url":"https://media.msime.app/avatars/synthetic.jpg"}},"expiresAt":800000000,"sessionID":"6f9619ff-8b86-d011-b42d-00c04fc964ff"}"#;
+        let saved = decode(document).unwrap();
+        assert_eq!(
+            saved.tokens.user.email.as_deref(),
+            Some("person@example.test")
+        );
+        assert_eq!(
+            saved.tokens.user.avatar_url.as_deref(),
+            Some("https://media.msime.app/avatars/synthetic.jpg")
+        );
+        assert_eq!(saved.expires_at_unix_ms, 1_778_307_200_000);
+        assert!(saved.session_id.is_some());
+
+        // 再按 Apple 布局写回，两个字段原样保留。
+        let encoded: serde_json::Value = serde_json::from_slice(
+            &encode_session(AccountSessionFileLayout::Apple, &saved).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(encoded["tokens"]["user"]["email"], "person@example.test");
+        assert_eq!(
+            encoded["tokens"]["user"]["avatar_url"],
+            "https://media.msime.app/avatars/synthetic.jpg"
+        );
+        assert_eq!(encoded["expiresAt"], 800_000_000.0);
     }
 
     #[test]

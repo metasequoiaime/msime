@@ -2932,3 +2932,92 @@ fn desktop_settings_sync_uploads_input_keys_and_applies_only_for_the_reading_use
     assert_eq!(revision, store.load().unwrap().revision);
     assert!(applied.validate().is_ok());
 }
+
+#[test]
+fn client_agents_follow_the_shape_the_backend_parses() {
+    for agent in [
+        "msime-ios/1.4.0",
+        "msime-android/1.4.0-beta.2+7 (Pixel 8; Android 15; edition=full)",
+        "msime-macos/1.0 ()",
+        "msime-harmony/0.9_1 (Mate 60; HarmonyOS 5)",
+    ] {
+        assert!(valid_client_agent(agent), "{agent}");
+        assert!(
+            BackendAccountClient::with_user_agent(agent).is_ok(),
+            "{agent}"
+        );
+    }
+    for agent in [
+        "",
+        "MSIME/Android",
+        "msime-web/1.0",
+        "msime-ios/",
+        "msime-ios",
+        "msime-IOS/1.0",
+        "msime-ios/1.0 beta",
+        "msime-ios/1.0  (iPhone)",
+        "msime-ios/1.0 (iPhone",
+        "msime-ios/1.0 (a)(b)",
+        "msime-ios/1.0 (a) tail",
+        "msime-ios/1.0 (iPhone\u{7})",
+        "msime-ios/1.0 (iPhone 15 \u{4e2d})",
+        "msime-ios/1.0/2",
+    ] {
+        assert!(!valid_client_agent(agent), "{agent:?}");
+    }
+    let version = "1".repeat(32);
+    assert!(valid_client_agent(&format!("msime-linux/{version}")));
+    assert!(!valid_client_agent(&format!("msime-linux/{version}1")));
+    let detail = "x".repeat(256 - "msime-linux/1 ()".len());
+    assert!(valid_client_agent(&format!("msime-linux/1 ({detail})")));
+    assert!(!valid_client_agent(&format!("msime-linux/1 ({detail}x)")));
+    assert_eq!(
+        BackendAccountClient::with_user_agent("MSIME/Android").err(),
+        Some(AccountError::Invalid)
+    );
+}
+
+#[test]
+fn the_host_agent_is_sent_and_the_default_stays_the_old_one() {
+    fn agent_of(client: impl FnOnce(&str) -> BackendAccountClient) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let read = stream.read(&mut buffer).unwrap();
+                assert_ne!(read, 0);
+                request.extend_from_slice(&buffer[..read]);
+            }
+            std::io::Write::write_all(
+                &mut stream,
+                b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n",
+            )
+            .unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        let _ = client(&origin).providers();
+        let request = server.join().unwrap();
+        request
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("user-agent")
+                    .then(|| value.trim().to_owned())
+            })
+            .unwrap()
+    }
+    assert_eq!(
+        agent_of(|origin| BackendAccountClient::loopback(origin).unwrap()),
+        "MSIME/Android"
+    );
+    assert_eq!(
+        agent_of(|origin| {
+            BackendAccountClient::loopback_with_agent(origin, "msime-ios/1.4.0 (iPhone; iOS 18)")
+                .unwrap()
+        }),
+        "msime-ios/1.4.0 (iPhone; iOS 18)"
+    );
+}
