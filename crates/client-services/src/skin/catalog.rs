@@ -193,6 +193,25 @@ pub struct SkinAnimation {
     pub selection: SkinAnimationPreset,
     pub duration_ms: u16,
     pub stagger_ms: u16,
+    /// 清单的 `[animation]` 表里实际写了哪几个预设。上面的值已经补好默认，宿主据此区分“皮肤要求的动画”和“省略后套用的默认组合”；macOS 只播放写了的预设，见 .agents/notes/implemented/feature/2026-10-16-macos-candidate-declared-motion.md。
+    pub declared: SkinAnimationDeclared,
+}
+
+/// `SkinAnimation` 的三个预设各自是否由清单显式写出。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SkinAnimationDeclared {
+    pub enter: bool,
+    pub exit: bool,
+    pub selection: bool,
+}
+
+impl SkinAnimationDeclared {
+    pub const NONE: Self = Self {
+        enter: false,
+        exit: false,
+        selection: false,
+    };
 }
 
 impl SkinAnimation {
@@ -203,6 +222,7 @@ impl SkinAnimation {
             selection: SkinAnimationPreset::None,
             duration_ms: 0,
             stagger_ms: 0,
+            declared: SkinAnimationDeclared::NONE,
         }
     }
 
@@ -213,6 +233,7 @@ impl SkinAnimation {
             selection: SkinAnimationPreset::Spring,
             duration_ms: 180,
             stagger_ms: 14,
+            declared: SkinAnimationDeclared::NONE,
         }
     }
 }
@@ -842,6 +863,11 @@ fn read_animation(
         )?,
         duration_ms,
         stagger_ms,
+        declared: SkinAnimationDeclared {
+            enter: animation.contains_key("enter"),
+            exit: animation.contains_key("exit"),
+            selection: animation.contains_key("selection"),
+        },
     })
 }
 

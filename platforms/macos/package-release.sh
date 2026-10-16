@@ -507,7 +507,7 @@ fi
 
 if [ -n "$identity" ] && [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]; then
   xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
-  xcrun stapler staple "$dmg"
+  bash "$repo_root/platforms/macos/scripts/staple-ticket.sh" "$dmg"
   spctl -a -t open --context context:primary-signature -v "$dmg"
 else
   echo "warning: not notarized; Gatekeeper will quarantine the downloaded app until the user opens it with right-click Open" >&2

@@ -25,7 +25,7 @@ macOS 的「输入」页默认状态（full 版、全拼、模糊音关）有约
 
 ### macOS 固定三项（按宿主能力位）
 
-- `HostCapabilities` 新增 `tab_page_paging_switches` 和 `mixed_input_minimum_prefix`，macOS 为假，其余宿主为真。TS 类型里两项可选，缺省按真处理（早于它们的宿主照旧显示）。
+- `HostCapabilities` 新增 `tab_page_paging_switches` 和 `mixed_input_minimum_prefix`，macOS 为假。其余宿主上的取值见下面的「各平台跟进」：`tab_page_paging_switches` 在 Windows 和 HarmonyOS 上也为假，Linux、Android、iOS 为真；`mixed_input_minimum_prefix` 在 Windows 和 Linux 上也为假，三个触屏宿主为真。TS 类型里两项可选，缺省按真处理（早于它们的宿主照旧显示）。
 - 宿主不再读存着的值：
   - macOS 的 `-[MSIMEAppearancePreferences navigationEnabled:]` 对 `tab`、`page_up_down` 一律返回 YES。
   - host-api 的 `host_english_minimum_prefix` 按 `HostPlatform::reads_mixed_input_minimum_prefix` 判断，macOS 上固定用 `DEFAULT_MIXED_INPUT_MINIMUM_PREFIX`（5）。
@@ -36,7 +36,59 @@ macOS 的「输入」页默认状态（full 版、全拼、模糊音关）有约
   - 删掉「中英混输触发长度」弹出框和 `mixedEnglishMinimumPrefix` 属性。
   - `sharedPreferencesByMerging:` 不再写 `navigation.tab`、`navigation.page_up_down`，也不从本机写 `mixed_input.minimum_prefix`。`MSIMEMergePreferenceSnapshot` 按键合并，文档原有的值保持不动。但 `mixed_input` 在这个方法里是整个对象替换的，而 client-core 的 `minimum_prefix` 是必填字段，所以传入文档里原有的 `minimum_prefix` 要原样带过去；第一版漏了这一步，合并出的完整文档读不回来，CI 上 `local-mode-preferences`、`shortcut`、`shortcut-translations` 三个测试因此失败。
   - `applyNavigationPreset:` 不再写 `page_up_down`。
-- `scripts/test-reference-config-coverage.py` 不改。三个字段在 Windows、Linux 和移动端的共享页上照旧可改，不属于 `PLATFORM_LOCAL`（那里只收在本仓库根本没有对应设置对象的项）；记进去只会让「共享页上有控件」的检查对它们失效。
+- `scripts/test-reference-config-coverage.py` 不改。三个字段在别的宿主的共享页上照旧可改（各平台跟进之后，两组翻页键在 Linux、Android、iOS 上可改，触发字符数在 Android、iOS、HarmonyOS 上可改），不属于 `PLATFORM_LOCAL`（那里只收在本仓库根本没有对应设置对象的项）；记进去只会让「共享页上有控件」的检查对它们失效。
+
+### 各平台跟进（Windows、Linux、HarmonyOS）
+
+macOS 这一轮之后，三个平台逐项核对：控件在这个平台上存在、macOS 的理由在这里也成立，才跟进；理由不成立的保留，并写明原因。
+
+**Windows**
+
+- Tab / PageUp 固定开启。理由在 Windows 上更强：候选窗显示时 TIP 总把 Tab、PageUp、PageDown 交给 Server（`CompositionProcessorEngine.cpp` 的 `FUNCTION_SERVER_CANDIDATE_KEY`），组字时也一样；Server 的 `navigation_action`（`NavigationPolicy.h`）对关掉的绑定只回答 `NavigationReply::Ignored`，`ServerSession::navigate` 只在有组字时运行。开关从来不会把键还给应用，只会让它失效。改法：
+  - `preference_navigation` 解码共享偏好后把 `tab`、`page_up_down` 置为开。开发者预览显式给出的 `key_bindings`（`PreviewConfig.h`）不经过这里，不动。
+  - WinUI「选词与翻页」不再列这两个复选框，「翻页方式」的说明用共享页的同一句话。
+  - `navigation_policy.cpp` 断言存着关时两组仍开，`preference_monitor.cpp` 改为期望两组为开。
+- 触发字符数固定为 5：理由来自 Engine，与平台无关；host-api 是唯一的读取方。WinUI 去掉「触发字符数」滑块。
+- 双拼预编辑从「候选窗口 › 预编辑」移到「输入方案 › 当前方案选项」，只在双拼下出现。原来它对所有方案显示，说明却写着只在双拼下生效，与 macOS 是同一个缺陷。
+- 以词定字：WinUI 本来就是一个「关闭 / [ / ] / - / =」下拉，「关闭」也不动记着的键组。但选键组时会悄悄关掉同组翻页键（`doc.SetBoolean(L"navigation." + value, false)`），正是下面 Alternatives considered 里否决的「以词定字选键时把同组翻页键抢过来」。现在已用于翻页的键组不可选（`Option.enabled`，当前选中的除外），改翻页勾选时重画页面以刷新可选状态。
+- 调频：学习选词习惯关闭时整组不画；调频关闭时不画触发频次；步长只在线性调频下出现。学习开关和调频方式改为改动后重画。
+- 「更多选项」折叠：
+  - 符号混输、颜文字混输收进「候选与联想」组末；全角输入收进「输出」。
+  - 各快捷模式的勾选收进新的「逐个模式」组，总开关的说明换成共享页那句。
+  - 折叠用 WinUI 已有的 `Expander` 写法（本地识别模型、AI 辅助两处），抽成 `add_more_options`，标题固定为「更多选项」；搜索落到折叠里的某一行时自动展开。
+- emoji 混输的字面回退值改为开，与 Windows 的 `source_mixed_emoji_default` 一致。平时由出厂偏好兜底，只在读不到出厂偏好时起作用。
+- 已经一致、无需改动的：
+  - 六种单方案语言：WinUI 本来没画假控件。
+  - 双拼各行本来只在双拼下出现；Ctrl+Shift+F 缺键本来按开。
+  - 快捷键页：WinUI 的「按键」页本来只有真控件，没有只读速查行。页面数不变，`SettingsNavigation.h` 不动。
+- 有意不跟进的：
+  - 辅助码另一族：WinUI 只画当前方案那一族，比共享页更紧，再加一个折叠的另一族是加行而不是减行。
+  - 临时日语词库的下载行：WinUI 没有这一行。
+- 已知缺口，本次不修：WinUI「输入习惯」没有日文混输、只出单字、本地整句联想三行，host-api 在 Windows 上都读它们。这是对齐问题，不是精简，应单独立项。
+
+**Linux**
+
+- 触发字符数固定为 5，理由同上。共享页按能力位自动藏起这一行，`platforms/linux` 下没有读取方，不用改宿主。
+- Tab / PageUp 保留，因为理由在 Linux 上不成立：
+  - fcitx5 对关掉的绑定跳出分派，落到 `if (composing) command(MSIME_FINISH_COMPOSITION); return false;`，结束组字并把 Tab、PageUp 还给应用（`FcitxEngine.cpp`）。
+  - IBus 的 `NavigationBindings::command` 同样返回空，交还按键。
+  - 开关在这里有实际作用，所以 `tab_page_paging_switches` 仍为真，`navigation_bindings.cpp` 不改。
+- 其余布局改动都在共享页里，#8217 已经覆盖 Linux。
+
+**HarmonyOS**
+
+- Tab / PageUp 固定开启。组字时 `HardwareKeyRouter` 把关掉的 Tab、PageUp 判为 `HardwareKeyAction.IGNORED`，`HardwareKeyDispatch` 消费掉这个键，与 macOS 是同一个陷阱。只有韩文汉字列表和注音选字列表（都走 `routeHanjaList`）把关掉的键交还应用，固定开启后在列表里也翻页，这与 macOS「没有候选窗时」的代价相当。改法：
+  - `KeyboardSession.ets` 固定 `tab: true`、`pageUpDown: true`，不再读存值；`scripts/test-harmony-fixed-paging-keys.py` 钉住这条接线和能力位。
+  - 手机「外接键盘快捷键」页的 `NavigationSection` 原来没接能力位，现在传 `tabPageSwitches`，说明里写「候选栏」。网格从六项变成四项，偏离 [iOS 与鸿蒙全平台设计](../feature/2026-10-07-ios-harmony-all-platform-design.md) 里的六项网格。
+  - 二合一的输入页本来就传这个能力位；速查经 `effectiveNavigation` 自动把 Tab、PgUp 列为生效。
+- 触发字符数保留：
+  - 鸿蒙是触屏宿主，九键、十四键上触发字符数数的是按键次数；Android 也是应用户要求（#7081）才加的这一项。
+  - 在玻璃上多打几个字母代价更大，「让英文更早出现」的理由更站得住。
+  - 所以鸿蒙与 Android、iOS 一样继续读；手机布局已经把它收在「更多」里。
+- 双拼预编辑留在候选窗口/候选栏页：每种鸿蒙形态都有触屏方案，方案组不画双拼各行（上面的二合一修正已覆盖）。
+- 快捷模式总开关在鸿蒙上不存在（`shift_letter_entry_switch` 为假），保持平铺。
+
+**共同的同步前提**：`settings_sync.rs` 目前不同步 `navigation.*` 和 `mixed_input.minimum_prefix`。哪天开始同步，所有固定它们的宿主都要改为按条件显示（翻页键是 macOS、Windows、HarmonyOS，触发字符数是三个桌面宿主），否则别的设备同步来的值会在这些宿主上看不见却生效。
 
 ### 共享页的布局改动（所有宿主）
 
@@ -82,7 +134,7 @@ macOS 的「输入」页默认状态（full 版、全拼、模糊音关）有约
 
 - **只藏起 Tab / PageUp 和触发字符数的控件，宿主继续读存着的值**：改动最小，改过的人保留原行为。没有采用，是因为改过的人从此改不回来，与[撤掉数字键面设置](2026-10-11-remove-number-keypad-settings.md)否决的做法相同。三项都不上云，固定下来不会和别的设备冲突。
 - **保留 Tab / PageUp 开关的最强理由**：有人可能希望候选窗显示时 Tab 交还应用（例如在表格里跳格）。但 macOS 上候选窗显示时关掉它并不交还，只是让这个键失效。候选窗没显示时，关掉的 PageUp/PageDown 确实交给应用，这是保留这个开关唯一实际的作用；它只在组字却没有候选窗的少数时刻起作用（韩文音节、注音组字，或光标位置无效），不值得为它保留一个控件。真要交还，需要先改 `InputController.mm` 的按键路由，那是另一项功能，不是保留开关的理由。
-- **保留触发字符数的最强理由**：打英文多的人想让短词更早出现。默认值 5 是用数据定的，调低的代价落在多数人身上；不想要英文候选的人有「中英混输」开关。Windows、Linux 和移动端的页面仍然给出这一项。
+- **保留触发字符数的最强理由**：打英文多的人想让短词更早出现。默认值 5 是用数据定的，调低的代价落在多数人身上；不想要英文候选的人有「中英混输」开关。触屏宿主（Android、iOS、HarmonyOS）的页面仍然给出这一项，理由见「各平台跟进」。
 - **把触发频次、步长、调频方式一起固定或并进学习开关**：它们会上云，iOS 和 Windows 原生设置也能改，只在 macOS 固定会让同步来的值看不见却生效。`learning=false` 还会停掉新词和整句学习，并成一个选择要六个取值。所以只按条件显示。
 - **以词定字选键时把同组翻页键抢过来**（旧开关打开时的做法）：不会出现选不了的情况。但这会悄悄改掉另一项设置；禁用被占用的键组，和原生窗口、旧分段控件的互斥一致。只有在用户把两组都设成翻页键时，才需要先取消一组。
 - **给 `MoreOptions` 加标题参数，直接叫「高级」或「逐个模式」**：最贴近报告的叫法。但组件注释明确规定折叠区名字固定为「更多选项」、不另起「高级」，各平台布局都依赖这个统一叫法。需要名字的地方用组标题表达。
@@ -100,22 +152,28 @@ macOS 的「输入」页默认状态（full 版、全拼、模糊音关）有约
   - macOS 上改过 Tab / PageUp 翻页或触发字符数的人，会回到固定值且无处可改。
   - 把触发字符数改成别的值的人，英文候选出现的时机会变。
   - 关掉过 PageUp/PageDown 的人，在组字而候选窗没显示时按这两个键，原本直接交给应用（先结束失焦上屏的组字），现在先作为翻页命令交给会话，会话不处理才交给应用。
-  - 共享页上，所有宿主的「以词定字」都换成三选一，Windows 和 Linux 的「触发字符数」「Tab」行不变。
-  - Windows 原生 WinUI 页仍有这些控件，与共享页的布局暂时不一致，属于后续工作。
-- 文档里留着的 `navigation.tab=false` 之类的值不清理。macOS 不读它们，其他宿主照旧读。
-- **需要重访的信号**：有人要求 Tab 在候选窗显示时交还应用；或者账号同步开始收录 `navigation` 或 `mixed_input`，那时这三项在 macOS 上的固定需要改成按条件显示。
+  - 共享页上，所有宿主的「以词定字」都换成三选一。
+  - Windows 上关掉过 Tab 或 PageUp/PageDown 的人，组字时按它们会翻页。原来这个键什么也不做，也从不交给应用。
+  - Windows 上存着较小触发字符数的人回到 5，英文候选出现得晚一些。较早的 Windows 文档里可能存着 2（共享默认曾钉在 2，见 `docs/macos-parity.md`），这是有意的默认值，但看得出变化。Linux 同理。
+  - 鸿蒙实体键盘上关掉过 Tab 或 PageUp/PageDown 的人，组字时按它们会翻页；手机「外接键盘翻页键」网格从六项变成四项。
+- 文档里留着的 `navigation.tab=false` 之类的值不清理。macOS、Windows 和 HarmonyOS 不读翻页键的这两项，三个桌面宿主不读触发字符数，其他宿主照旧读。
+- **需要重访的信号**：有人要求 Tab 在候选窗显示时交还应用；或者账号同步开始收录 `navigation` 或 `mixed_input`，那时这三项在各个固定它们的宿主上都需要改成按条件显示。
 
 ## Verification
 
-- `cargo test -p msime-client-core host_surface` 的 `macos_fixes_the_tab_page_paging_keys_and_the_mixed_input_prefix` 钉住能力位。
-- `cargo test -p msime-host-api` 的 `english_minimum_prefix_is_fixed_where_the_host_does_not_read_it`，以及 `mixed_input_changes_defer_until_composition_ends` 在 macOS 上读到 5，钉住宿主不读存值。
+- `cargo test -p msime-client-core host_surface` 的 `hosts_fix_the_tab_page_paging_keys_and_the_mixed_input_prefix` 逐个宿主钉住两个能力位。
+- `cargo test -p msime-host-api` 的 `english_minimum_prefix_is_fixed_where_the_host_does_not_read_it`（三个桌面宿主拿 5），以及 `mixed_input_changes_defer_until_composition_ends` 在桌面构建上读到 5、触屏构建上照文档，钉住宿主不读存值。
 - `pnpm --filter @msime/desktop test` 覆盖：
   - 方案说明行、双拼各行与双拼预编辑只在双拼下出现、鸿蒙二合一的双拼预编辑恰好出现在一个页面上、以词定字三选一。
   - 调频按条件显示、各组的「更多选项」、逐个模式与日文词库行。
   - 桌面辅助码布局、按键速查。
-  - macOS 无 Tab / PageUp 复选框且速查仍列出它们、macOS 无触发字符数。
+  - macOS 和 Windows 无 Tab / PageUp 复选框且速查仍列出它们，Linux 照旧列出；macOS、Windows、Linux 无触发字符数。
+  - 鸿蒙手机「外接键盘翻页键」只剩四项并写「候选栏」，点「↑ / ↓」写回偏好（`candidate-shortcuts-harmony.test.tsx`）。
   - 缺键时的 emoji 混输与 Control+Shift+F 默认值。
 - 原生 macOS 的改动只能由 CI 编译：
   - `SkinPreviewTest.mm` 断言窗口里没有两个翻页复选框、存着的关不起作用、合并结果不写回。
   - `ShortcutTest.mm` 断言存着关时 Tab、Shift+Tab、PageUp、PageDown 照样翻页；混输合并进空字典时不带 `minimum_prefix`，合并进带着它的文档时原样保留。
+- Windows 和鸿蒙的原生改动也只能由 CI 编译：
+  - `platforms/windows/tests/input/navigation_policy.cpp` 断言存着关时 Tab、PageUp 仍翻页，`preference_monitor.cpp` 期望发布后两组为开。WinUI `main.cpp` 没有测试框架，只有 CI 构建。
+  - `scripts/test-harmony-fixed-paging-keys.py` 钉住 `KeyboardSession.ets` 不读存值、能力位对鸿蒙为假。
 - `scripts/test-reference-config-coverage.py` 和 `platforms/macos/tests/settings/preference_coverage.py` 通过。

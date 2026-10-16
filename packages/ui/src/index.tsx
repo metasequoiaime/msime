@@ -467,6 +467,8 @@ import { DeveloperSettingsPage } from "./settings/pages/developer-page";
 import { DictionarySettingsPage } from "./settings/pages/dictionary-page";
 import { AppearanceSettingsPage } from "./settings/pages/appearance-page";
 import { SkinSettingsPage } from "./settings/pages/skin-page";
+import { skinGridTabs } from "./settings/skin-grid";
+import { useSettingsTabs } from "./settings/use-settings-tabs";
 import { FloatingToolbarSettingsPage } from "./settings/pages/floating-toolbar-page";
 import { ScreenKeyboardSettingsPage } from "./settings/pages/screen-keyboard-page";
 import { ShortcutSettingsPage } from "./settings/pages/shortcuts-page";
@@ -489,7 +491,7 @@ import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";
 import { defaultTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";
 import { logo } from "./settings/settings-options";
-import type { CommunitySkinClient } from "./community/community-skins";
+import { CommunitySkinsPage, type CommunitySkinClient } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
 import type {
   CommunityResource,
@@ -2543,7 +2545,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     mobileHiddenPageIds,
     mobilePageTitle,
   });
-  // 子页面在导航里点亮它的上级页面，并提供回到上级的入口。触屏宿主上「AI 对话」是底部的「对话」标签页，不再是「AI 辅助」的子页面，标签页的根页面没有上级。
+  // 子页面在导航里点亮它的上级页面，并提供回到上级的入口；标签页的根页面没有上级。触屏宿主上「AI 对话」同样是「AI 辅助」的子页面。
   const navigationPage: SettingsPageId =
     mobilePlatform && mobilePrimaryPageIds.includes(page as MobilePrimaryPageId)
       ? page
@@ -2966,7 +2968,7 @@ function SettingsShell(props: SettingsPageProps) {
   } = model;
   // 对话页第一次打开后就一直挂着（见下方渲染处），切走只隐藏。
   const [chatMounted, setChatMounted] = useState(page === "chat");
-  // 首页「试用键盘」切到对话页时加一，对话页随即聚焦输入框、弹出键盘；点底部标签进来不加，不弹键盘。
+  // 首页「试用键盘」打开对话页时加一，对话页随即聚焦输入框、弹出键盘；从「AI 辅助」进入不加，不弹键盘。
   const [chatFocusRequest, setChatFocusRequest] = useState(0);
   useEffect(() => {
     if (page === "chat") setChatMounted(true);
@@ -2979,7 +2981,7 @@ function SettingsShell(props: SettingsPageProps) {
   const pushedPage = harmonyPhone && !tabRootPage;
   // 「试用键盘」是一页对话：对话区在页面内滚动，输入栏贴着内容区底部，和 Android 的试用页一样不带底部标签栏，键盘弹起时输入栏直接落在键盘上方。
   const fillsContent = mobilePlatform && page === "try-keyboard";
-  // 触屏上的「对话」标签同样是一页对话，内容区撑满、输入栏贴底，但它是标签页，底部标签栏照常显示。
+  // 触屏上的 AI 对话同样是一页对话，内容区撑满、输入栏贴底，但它是「AI 辅助」的二级页，底部标签栏照常显示。
   const contentFills = fillsContent || (mobilePlatform && page === "chat");
   const pageColumnRef = useRef<HTMLDivElement>(null);
   const launchPage = useRef(page);
@@ -3005,6 +3007,14 @@ function SettingsShell(props: SettingsPageProps) {
   const recordCommunitySkin = (id: string) => {
     void client.typingStatistics?.recordSkin?.(id);
   };
+  // HarmonyOS 手机的皮肤页与 Android 皮肤页一样在顶部分「内置 / 我的 / 社区」。「社区」是完整的社区皮肤图库，自带搜索和发布表单，所以和桌面的「社区皮肤」一样画在设置表单之外，标签的选择也就放在这里；前两个分类的网格由皮肤页自己画。没有社区服务的宿主不给「社区」。
+  const skinTabs = useSettingsTabs(
+    skinGridTabs.filter((tab) => tab.id !== "community" || Boolean(client.communitySkins)),
+    "皮肤分类",
+    harmonyPlatform && mobilePlatform,
+  );
+  const phoneSkinCommunityShown =
+    page === "skin" && Boolean(client.communitySkins) && skinTabs.selected === "community";
   const { onOpenPage } = createSettingsPageSelection({ selectPage });
   const statusActions = createSettingsStatusActions({
     recoverPreferences,
@@ -3046,10 +3056,11 @@ function SettingsShell(props: SettingsPageProps) {
   const pageTitle = availablePages.find((item) => item.id === page)?.title ?? "输入";
   // A community gallery stands in for the page's own settings, so the form's page-level actions do not apply while it is shown.
   const skinCommunityShown =
-    page === "skin" && Boolean(client.communityCandidateSkins) && skinView === "community";
+    (page === "skin" && Boolean(client.communityCandidateSkins) && skinView === "community") ||
+    phoneSkinCommunityShown;
   const pluginCommunityShown =
     page === "plugins" && Boolean(client.communityPlugins) && pluginView === "community";
-  // 子页面（「词库」下的「背单词」、「帮助与反馈」下的「帮助」，桌面上还有「AI 辅助」下的「AI 对话」）在返回时写出父页面的名字。
+  // 子页面（「词库」下的「背单词」、「帮助与反馈」下的「帮助」、「AI 辅助」下的「AI 对话」）在返回时写出父页面的名字。
   const parentPage =
     navigationPage !== page ? availablePages.find((item) => item.id === navigationPage) : undefined;
   // HarmonyOS 手机和边缘滑动一样，沿导航推入的 WebView 历史返回。设置打开时所在的页面身后没有设置的历史条目（最多只有宿主自己的，比如引导页的），所以从那里按钮改为向上，以替换当前条目的方式去到上级页面或所在标签页的根页面：如果推入新条目，刚离开的页面会留在上级页面后面，系统返回手势会回到它。此后上级页面占据最底部的条目，所以它自己的返回按钮也同样向上。
@@ -3074,7 +3085,7 @@ function SettingsShell(props: SettingsPageProps) {
     macShell || settingsPlatform === "hm2" || ipadShell || (winShell && !titlebarShown);
   const sidebarBrandShown = !mobilePlatform && !titlebarShown;
   const navNeedle = navQuery.trim().toLocaleLowerCase();
-  // iPad 的标签栏已有对话、统计和我的；`settingsPageProjections` 在手机和 iPad 上都不把这几个标签页列进侧栏，这里不必再过滤一次。
+  // iPad 的标签栏已有全部设置、统计和我的；`settingsPageProjections` 在手机和 iPad 上都不把这几个标签页列进侧栏，这里不必再过滤一次。
   const shownSidebarGroups = navNeedle
     ? sidebarGroups
         .map((group) => ({
@@ -3506,7 +3517,29 @@ function SettingsShell(props: SettingsPageProps) {
                   </button>
                 </div>
               )}
-              {skinCommunityShown && (
+              {page === "skin" && skinTabs.tabList}
+              {phoneSkinCommunityShown && client.communitySkins && (
+                <div className="mt-6">
+                  {skinTabs.panel(
+                    "community",
+                    <CommunitySkinsPage
+                      client={client.communitySkins}
+                      theme={keyboardPreviewTheme}
+                      localSkinLibrary={client.customSkinLibrary}
+                      mobile
+                      onLogin={openAccountLogin}
+                      look="harmony"
+                      preferences={draft}
+                      // 「使用」和网格里的卡片一样先进入草稿，再由表单的自动保存写入。
+                      onApplyPreferences={setDraft}
+                      onSkinApplied={recordCommunitySkin}
+                      // 详情的历史记录留在皮肤页上，返回先关详情、再离开这一页。
+                      historyPage="skin"
+                    />,
+                  )}
+                </div>
+              )}
+              {skinCommunityShown && client.communityCandidateSkins && (
                 <div className="mt-4">
                   <CommunityPage
                     candidateSkins={client.communityCandidateSkins}
@@ -3555,7 +3588,7 @@ function SettingsShell(props: SettingsPageProps) {
               {draft && isSettingsFormPage(page) && (
                 <SettingsFormFrame showReload={false} busy={busy}>
                   <SettingsFormContext.Provider value={{ ...model, draft }}>
-                    <SkinSettingsPage hidden={skinCommunityShown} />
+                    <SkinSettingsPage hidden={skinCommunityShown} tabs={skinTabs} />
                     <AppearanceSettingsPage />
                     <FloatingToolbarSettingsPage />
                     <InputSettingsPage />

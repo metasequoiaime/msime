@@ -47,6 +47,10 @@
     "fcitx5-table-extra": {
       "repository": "https://github.com/fcitx/fcitx5-table-extra.git",
       "commit": "dbc7154a7f0b9fc04313160ae8066ed4d8cbc446"
+    },
+    "OpenCC": {
+      "repository": "https://github.com/BYVoid/OpenCC.git",
+      "commit": "26753884f1984add422f3b0249ccee8613deaff6"
     }
   },
   "mozc": {

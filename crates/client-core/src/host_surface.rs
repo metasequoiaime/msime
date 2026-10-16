@@ -51,9 +51,12 @@ impl HostPlatform {
         }
     }
 
-    /// 这个宿主是否读偏好里的中英混输触发字符数，见 `HostCapabilities::mixed_input_minimum_prefix`。不读的宿主（macOS）固定用 [`crate::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX`]。
+    /// 这个宿主是否读偏好里的中英混输触发字符数，见 `HostCapabilities::mixed_input_minimum_prefix`。只有触屏宿主（Android、iOS、HarmonyOS）读：九键、十四键上触发字符数是按键次数，在玻璃上多打几个字母的代价更大，Android 也是应用户要求才加的这一项。三个桌面宿主（macOS、Windows、Linux）不读，固定用 [`crate::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX`]。
     pub fn reads_mixed_input_minimum_prefix(self) -> bool {
-        self != HostPlatform::Macos
+        matches!(
+            self,
+            HostPlatform::Android | HostPlatform::Ios | HostPlatform::Harmony
+        )
     }
 
     pub fn as_str(self) -> &'static str {
@@ -345,9 +348,16 @@ pub struct HostCapabilities {
     pub shift_letter_entry_switch: bool,
     /// 宿主实现了「Ctrl+Shift+J 在中文和日语之间切换」（`KeybindingPreferences::toggle_japanese_ctrl_shift_j`）：实体键盘在中文状态按下时，从中文方案切到日语方案，或从日语等外语方案回到 `last_chinese_scheme`。设置页还要看本版本是否同时提供中文方案和日语，才显示这个开关。
     pub japanese_toggle_shortcut: bool,
-    /// 宿主读 `navigation.tab` 和 `navigation.page_up_down`，设置页给出「Shift+Tab / Tab」和「PageUp / PageDown」两组翻页键的开关。macOS 不读，两组固定开启：候选窗显示时，关掉的 Tab 和 PageUp/PageDown 照样被输入法占着（`InputController.mm` 返回已处理），关掉只让它们什么也不做，并不会把键还给应用。候选窗没显示时 Tab 一律交给应用；关掉的 PageUp/PageDown 原本也直接交给应用（先结束失焦上屏的组字），固定开启后先作为翻页命令交给会话，会话不处理才交给应用。这两项不进账号同步，固定下来不会让别的设备同步来的值在 Mac 上看不见却生效。
+    /// 宿主读 `navigation.tab` 和 `navigation.page_up_down`，设置页给出「Shift+Tab / Tab」和「PageUp / PageDown」两组翻页键的开关。只在关掉确实把键还给应用的宿主上为真：
+    ///
+    /// - macOS 不读，两组固定开启：候选窗显示时，关掉的 Tab 和 PageUp/PageDown 照样被输入法占着（`InputController.mm` 返回已处理），关掉只让它们什么也不做。候选窗没显示时 Tab 一律交给应用；关掉的 PageUp/PageDown 原本也直接交给应用（先结束失焦上屏的组字），固定开启后先作为翻页命令交给会话，会话不处理才交给应用。
+    /// - Windows 不读，两组固定开启（`NavigationPolicy.h` 的 `preference_navigation`）：候选窗显示或组字时 TIP 总把这几个键交给 Server，关掉的绑定由 `navigation_action` 回答 `NavigationReply::Ignored`，键被吃掉，不会还给应用。
+    /// - HarmonyOS 不读，两组固定开启（`KeyboardSession.ets`）：组字时关掉的绑定被 `HardwareKeyRouter` 判为 `IGNORED` 并消费掉，同样只是让键失效。
+    /// - Linux 照旧读：fcitx5 对关掉的绑定结束组字并把键还给应用（`FcitxEngine.cpp`），开关有实际作用。Android 和 iOS 也照旧读。
+    ///
+    /// 这两项不进账号同步，固定下来不会让别的设备同步来的值在固定的宿主上看不见却生效。
     pub tab_page_paging_switches: bool,
-    /// 宿主读 `mixed_input.minimum_prefix`，设置页给出「触发字符数」。macOS 不读，固定为默认的 5（[`HostPlatform::reads_mixed_input_minimum_prefix`]）：调低会让常见简拼被英文词抢走首选，不喜欢英文候选的人有「中英混输」开关。这一项不进账号同步。
+    /// 宿主读 `mixed_input.minimum_prefix`，设置页给出「触发字符数」。三个桌面宿主不读，固定为默认的 5（[`HostPlatform::reads_mixed_input_minimum_prefix`]）：调低会让常见简拼被英文词抢走首选，不喜欢英文候选的人有「中英混输」开关。这一项不进账号同步。
     pub mixed_input_minimum_prefix: bool,
     /// The operating system release, as the machine reports it, for the feedback
     /// page to attach. Not a platform assumption like the flags above -- the host
@@ -758,8 +768,11 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Windows | HostPlatform::Linux
             ),
-            // macOS 的输入法把 Tab 和 PageUp/PageDown 两组翻页键固定为开（`AppearancePreferences.mm` 的 `-navigationEnabled:`），其余宿主照旧读偏好。
-            tab_page_paging_switches: platform != HostPlatform::Macos,
+            // macOS（`AppearancePreferences.mm` 的 `-navigationEnabled:`）、Windows（`NavigationPolicy.h` 的 `preference_navigation`）和 HarmonyOS（`KeyboardSession.ets`）把 Tab 和 PageUp/PageDown 两组翻页键固定为开，其余宿主照旧读偏好。
+            tab_page_paging_switches: !matches!(
+                platform,
+                HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Harmony
+            ),
             mixed_input_minimum_prefix: platform.reads_mixed_input_minimum_prefix(),
             os_version: None,
             arch: None,

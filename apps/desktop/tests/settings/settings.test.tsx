@@ -7515,6 +7515,9 @@ const optionHosts: [string, HostCapabilities][] = [
       ime_mode_scope: true,
       mode_switch_shortcuts: true,
       panel_shortcuts: true,
+      // Windows 和 macOS 一样固定 Tab、PageUp/PageDown 和中英混输的触发字符数。
+      tab_page_paging_switches: false,
+      mixed_input_minimum_prefix: false,
     }),
   ],
   // The same lists, asked of macOS. A choice that exists on one host and not the other is a
@@ -7523,19 +7526,24 @@ const optionHosts: [string, HostCapabilities][] = [
   ["macos", macosHostCapabilities],
 ];
 
-/** macOS 固定下来、不再给控件的选项。 */
-const macosFixedOptions: Record<string, string> = {
-  触发字符数: "macOS 固定为 5（HostCapabilities.mixed_input_minimum_prefix）",
+/** 各宿主固定下来、不再给控件的选项。 */
+const fixedOptions: Record<string, Record<string, string>> = {
+  macos: { 触发字符数: "桌面宿主固定为 5（HostCapabilities.mixed_input_minimum_prefix）" },
+  windows: { 触发字符数: "桌面宿主固定为 5（HostCapabilities.mixed_input_minimum_prefix）" },
 };
 
-test("macOS offers no 触发字符数, which it fixes at five", async () => {
+test.each([
+  ["macos", macosHostCapabilities],
+  ["windows", testHost({ platform: "windows", mixed_input_minimum_prefix: false })],
+  ["linux", testHost({ platform: "linux", mixed_input_minimum_prefix: false })],
+] as const)("%s offers no 触发字符数, which it fixes at five", async (_platform, host) => {
   render(
     <SettingsPage
       initialPage="input"
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: macosHostCapabilities,
+        host,
       }}
     />,
   );
@@ -7549,11 +7557,11 @@ test.each(
   referenceOptions.flatMap((entry) =>
     optionHosts
       .map(([platform, host]) => ({ ...entry, platform, host }))
-      // macOS 不给的那几行在上面的小节表里按 `macosAbsentSections` 核对过不出现；macOS 固定下来的几项（`macosFixedOptions`）也不在页面上。
+      // macOS 不给的那几行在上面的小节表里按 `macosAbsentSections` 核对过不出现；各宿主固定下来的几项（`fixedOptions`）也不在页面上。
       .filter(
         ({ control, host, platform }) =>
           !(host.surface_themes_follow && control in macosAbsentSections) &&
-          !(platform === "macos" && control in macosFixedOptions),
+          !(control in (fixedOptions[platform] ?? {})),
       ),
   ),
 )(
@@ -7930,41 +7938,63 @@ test("rarely changed candidate and output rows sit in each group's 更多选项"
   expect(outputFold.contains(within(output).getByText("全角输入"))).toBe(true);
 });
 
-test("macOS fixes Tab and PageUp/PageDown paging: no switches, and the reference still lists them", async () => {
-  const stored: Snapshot = {
-    ...initial,
-    preferences: {
-      ...initial.preferences,
-      navigation: {
-        minus_equal: true,
-        comma_period: true,
-        brackets: false,
-        tab: false,
-        page_up_down: false,
-        arrows: true,
+// Windows 和 macOS 一样：关掉的 Tab、PageUp/PageDown 在组字时被吃掉，不会还给应用，所以两组固定开启。
+test.each(["macos", "windows"] as const)(
+  "%s fixes Tab and PageUp/PageDown paging: no switches, and the reference still lists them",
+  async (platform) => {
+    const stored: Snapshot = {
+      ...initial,
+      preferences: {
+        ...initial.preferences,
+        navigation: {
+          minus_equal: true,
+          comma_period: true,
+          brackets: false,
+          tab: false,
+          page_up_down: false,
+          arrows: true,
+        },
       },
-    },
-  };
+    };
+    render(
+      <SettingsPage
+        initialPage="input"
+        client={{
+          load: vi.fn().mockResolvedValue(stored),
+          save: vi.fn(),
+          host: testHost({ platform, tab_page_paging_switches: false }),
+        }}
+      />,
+    );
+    await settingsReady();
+    selectSettingsTab("选词与翻页");
+    expect(await screen.findByRole("checkbox", { name: "- / =" })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "Shift+Tab / Tab" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "PageUp / PageDown" })).toBeNull();
+    // 速查列出实际生效的翻页键，不看文档里存的关。
+    fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+    const reference = screen.getByRole("region", { name: "按键速查" });
+    expect(within(reference).getByText("Shift+Tab / Tab")).toBeTruthy();
+    expect(within(reference).getByText("Page Up / Page Down")).toBeTruthy();
+  },
+);
+
+// Linux 的 fcitx5 对关掉的 Tab、PageUp/PageDown 结束组字并把键还给应用，开关有实际作用，照旧列出。
+test("Linux keeps the Tab and PageUp/PageDown paging switches", async () => {
   render(
     <SettingsPage
       initialPage="input"
       client={{
-        load: vi.fn().mockResolvedValue(stored),
+        load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: testHost({ platform: "macos", tab_page_paging_switches: false }),
+        host: testHost({ platform: "linux", tab_page_paging_switches: true }),
       }}
     />,
   );
   await settingsReady();
   selectSettingsTab("选词与翻页");
-  expect(await screen.findByRole("checkbox", { name: "- / =" })).toBeTruthy();
-  expect(screen.queryByRole("checkbox", { name: "Shift+Tab / Tab" })).toBeNull();
-  expect(screen.queryByRole("checkbox", { name: "PageUp / PageDown" })).toBeNull();
-  // 速查列出实际生效的翻页键，不看文档里存的关。
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
-  const reference = screen.getByRole("region", { name: "按键速查" });
-  expect(within(reference).getByText("Shift+Tab / Tab")).toBeTruthy();
-  expect(within(reference).getByText("Page Up / Page Down")).toBeTruthy();
+  expect(await screen.findByRole("checkbox", { name: "Shift+Tab / Tab" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "PageUp / PageDown" })).toBeTruthy();
 });
 
 test.each(["macos", "windows", "linux"] as const)(

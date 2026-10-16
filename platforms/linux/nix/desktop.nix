@@ -6,6 +6,7 @@
   version,
   craneLib,
   cargoSources,
+  openccInputs,
   callPackage,
   stdenvNoCC,
   python3,
@@ -110,7 +111,9 @@ let
     cargoExtraArgs = "--locked -p msime-desktop --bin msime-desktop --features tauri/custom-protocol";
     # Rust 单测由 verify-local.sh 负责。
     doCheck = false;
-    nativeBuildInputs = [ pkg-config ];
+    nativeBuildInputs = [ pkg-config python3 ];
+    env.MSIME_OPENCC_SOURCE_DIR = "${openccInputs}";
+    env.MSIME_OPENCC_OFFLINE = "1";
     # dbus 来自 tao；alsa-lib 来自经 msime-host-api 链进来的 cpal；gtk3 也是对话框插件（rfd）要的。
     buildInputs = [
       alsa-lib
@@ -129,7 +132,7 @@ craneLib.buildPackage (
   // {
     inherit cargoArtifacts;
     # 应用报告的版本取 Linux 平台的版本号，与发布包相同，应用内的更新检查才是同类相比。
-    env.TAURI_CONFIG = builtins.toJSON { inherit version; };
+    env = commonArgs.env // { TAURI_CONFIG = builtins.toJSON { inherit version; }; };
     preBuild = ''
       cp -r --no-preserve=mode ${frontend} apps/desktop/dist
     '';
