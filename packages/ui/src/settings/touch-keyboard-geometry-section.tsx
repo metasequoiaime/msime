@@ -7,6 +7,7 @@ import { ActionRow } from "./action-row";
 import type { SwipeSymbolsDirection } from "./mobile-keyboard-feedback";
 import { SelectRow } from "./select-row";
 import { touchKeyboardSpacingLimits } from "./touch-keyboard-spacing";
+import { touchKeyboardResetSubjects } from "./use-touch-keyboard-settings-reset";
 import * as settings from "./settings-style";
 import {
   TouchKeyboardToolbarSection,
@@ -22,6 +23,10 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   heightAdjustment: number;
   keySpacingTenths: number;
   rowSpacingTenths: number;
+  /** 宿主的键盘按 `touch_keyboard_height_adjustment` 改变高度时为 true（缺省）；macOS 和 Linux 的键盘窗口高度固定，不画「键盘高度」。 */
+  showHeight?: boolean;
+  /** 宿主的键盘按两个间距值画键距和行距时为 true（缺省）；macOS 固定用默认间距，不画两个间距滑块。高度和间距都不画时整个「尺寸」组连同「恢复默认」一起不画。 */
+  showSpacing?: boolean;
   tabletFullKeys?: boolean;
   /** 仅 iPad 宿主给出：横屏分离式键盘。没有时不画这个开关。 */
   tabletSplitKeyboard?: boolean;
@@ -43,7 +48,8 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   onSwipeSymbolsChange?: (enabled: boolean) => void;
   onSwipeSymbolsDirectionChange?: (direction: SwipeSymbolsDirection) => void;
   onShuangpinKeyHintsChange?: (enabled: boolean) => void;
-  onReset: () => void;
+  /** 「恢复默认」：参数是这一页实际给出、会被恢复的几项，如「高度、间距和工具栏按钮」，确认框照它措辞。 */
+  onReset: (subjects: string) => void;
   /** HarmonyOS 手机：「布局」组开头的行。给出时按手机的排法：「布局」只放键盘的选择，「尺寸」把预览、三个滑块和「恢复默认」放进同一张卡片，各行不带长说明。 */
   layoutRows?: ReactNode;
   /** HarmonyOS 手机：「尺寸」卡片顶部的键盘预览（不带分组），在它上面拖动调的就是下面的间距。 */
@@ -60,6 +66,8 @@ export function TouchKeyboardGeometrySection({
   heightAdjustment,
   keySpacingTenths,
   rowSpacingTenths,
+  showHeight = true,
+  showSpacing = true,
   touchVoiceShortcut,
   voiceShortcutKind = "start-voice",
   toolbarComponents,
@@ -101,9 +109,14 @@ export function TouchKeyboardGeometrySection({
       onChange={(enabled) => onShuangpinKeyHintsChange?.(enabled)}
     />
   );
-  const resetDescription = showVoiceShortcut
-    ? "高度、间距、顶部语音入口和工具栏按钮回到默认"
-    : "高度、间距和工具栏按钮回到默认";
+  // 只列这一页上看得到的几项：工具栏按钮只在触屏宿主的「工具栏」组里出现，以前桌面上也写着它。
+  const resetSubjects = touchKeyboardResetSubjects({
+    height: showHeight,
+    spacing: showSpacing,
+    voiceShortcut: showVoiceShortcut,
+    toolbar: toolbarComponents,
+  });
+  const resetDescription = `${resetSubjects}回到默认`;
 
   return (
     <>
@@ -151,51 +164,61 @@ export function TouchKeyboardGeometrySection({
               type="button"
               className={settings.centeredDangerRow}
               aria-label="恢复屏幕键盘默认设置"
-              onClick={() => void onReset()}
+              onClick={() => onReset(resetSubjects)}
             >
               恢复默认
             </button>
           </GroupList>
         </>
       ) : (
-        <GroupList title="尺寸">
-          <SettingsGroupNote>
-            只改变触屏键位的外观，不改变输入方案；也可以直接在上方预览上左右拖动调节键距、上下拖动调节行距。
-          </SettingsGroupNote>
-          <SliderRow
-            title="键盘高度"
-            description={`${heightAdjustment > 0 ? "+" : ""}${heightAdjustment} dp`}
-            min={-12}
-            max={48}
-            value={heightAdjustment}
-            onChange={onHeightAdjustmentChange}
-          />
-          <SliderRow
-            title="按键间距"
-            description={`${(keySpacingTenths / 10).toFixed(1)} dp`}
-            min={touchKeyboardSpacingLimits.key.min}
-            max={touchKeyboardSpacingLimits.key.max}
-            value={keySpacingTenths}
-            onChange={onKeySpacingChange}
-          />
-          <SliderRow
-            title="行间距"
-            description={`${(rowSpacingTenths / 10).toFixed(1)} dp`}
-            min={touchKeyboardSpacingLimits.row.min}
-            max={touchKeyboardSpacingLimits.row.max}
-            value={rowSpacingTenths}
-            onChange={onRowSpacingChange}
-          />
-          {/* 重置一如既往也覆盖下面的「工具栏」组；它放在这里，也就是它所重置的第一组的末尾。 */}
-          <ActionRow
-            title="恢复默认"
-            description={resetDescription}
-            action={onReset}
-            className="danger-text"
-            ariaLabel="恢复屏幕键盘默认设置"
-            label="恢复默认"
-          />
-        </GroupList>
+        (showHeight || showSpacing) && (
+          <GroupList title="尺寸">
+            <SettingsGroupNote>
+              {showSpacing
+                ? "只改变触屏键位的外观，不改变输入方案；也可以直接在上方预览上左右拖动调节键距、上下拖动调节行距。"
+                : "只改变触屏键位的外观，不改变输入方案。"}
+            </SettingsGroupNote>
+            {showHeight && (
+              <SliderRow
+                title="键盘高度"
+                description={`${heightAdjustment > 0 ? "+" : ""}${heightAdjustment} dp`}
+                min={-12}
+                max={48}
+                value={heightAdjustment}
+                onChange={onHeightAdjustmentChange}
+              />
+            )}
+            {showSpacing && (
+              <>
+                <SliderRow
+                  title="按键间距"
+                  description={`${(keySpacingTenths / 10).toFixed(1)} dp`}
+                  min={touchKeyboardSpacingLimits.key.min}
+                  max={touchKeyboardSpacingLimits.key.max}
+                  value={keySpacingTenths}
+                  onChange={onKeySpacingChange}
+                />
+                <SliderRow
+                  title="行间距"
+                  description={`${(rowSpacingTenths / 10).toFixed(1)} dp`}
+                  min={touchKeyboardSpacingLimits.row.min}
+                  max={touchKeyboardSpacingLimits.row.max}
+                  value={rowSpacingTenths}
+                  onChange={onRowSpacingChange}
+                />
+              </>
+            )}
+            {/* 重置一如既往也覆盖下面的「工具栏」组；它放在这里，也就是它所重置的第一组的末尾。 */}
+            <ActionRow
+              title="恢复默认"
+              description={resetDescription}
+              action={() => onReset(resetSubjects)}
+              className="danger-text"
+              ariaLabel="恢复屏幕键盘默认设置"
+              label="恢复默认"
+            />
+          </GroupList>
+        )
       )}
       <TouchKeyboardToolbarSection
         touchVoiceShortcut={touchVoiceShortcut}

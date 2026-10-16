@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { CustomHelpcodeSchema, HelpcodePackOption } from "./pages/helpcode-page";
+import type { CustomHelpcodeSchema, HelpcodePackOption } from "./helpcode-preferences";
 import type { PluginClient } from "./plugin-types";
 import { useAsyncGeneration } from "./use-async-generation";
 

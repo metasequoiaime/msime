@@ -102,15 +102,15 @@ public final class KeyboardActionRow {
         return symbols ? "切换到字母键盘" : "切换到数字和符号";
     }
 
-    // ---- 新设计的底行（plan §2.8，N/design-tokens.md §5）：123 1.25 / ， 1 / 空格 4 / 。 1 / 中 1.05 / ↵ 1.9；九键外框是 符 1.05 / 123 1.25 / 空格 4 / 中 1.05 / ↵ 1.9 ----
+    // ---- 新设计的底行（plan §2.8，N/design-tokens.md §5）：14 键、手写和大千注音是 123 1.25 / ， 1 / 空格 4 / 。 1 / 中 1.05 / ↵ 1.9；26 键一族和九键外框是 符 1.05 / 123 1.25 / 空格 4 / 中 1.05 / ↵ 1.9 ----
 
-    /** 新设计底行的键，按排列顺序；符 只在九键外框（拼音九键、笔画）最左边出现，地球键只在宿主允许切换输入法时插在 123 之后，中/英紧挨在回车左边。 */
-    public enum DesignSlot { SYMBOL_PANEL, LAYER, GLOBE, COMMA, SPACE, PERIOD, LANGUAGE, RETURN }
+    /** 新设计底行的键，按排列顺序；符 只在 26 键一族（标准 26 键、韩文键面）和九键外框（拼音九键、笔画）最左边出现，地球键只在宿主允许切换输入法时插在 123 之后，中/英紧挨在回车左边。 */
+    public enum DesignSlot { SYMBOL_PANEL, LAYER, GLOBE, COMMA, SPACE, ZERO, PERIOD, LANGUAGE, RETURN }
 
     /** 新设计底行里的一个键与它的宽度份额。 */
     public record DesignEntry(DesignSlot slot, float weight) {}
 
-    /** 九键外框底行最左边 符 的宽度份额，与 中/英 相同（iOS 的九键底行同样给它 1.05）。 */
+    /** 26 键一族和九键外框底行最左边 符 的宽度份额，与 中/英 相同（iOS 的这两种底行同样给它 1.05）。 */
     public static final float DESIGN_SYMBOL_PANEL_WEIGHT = 1.05f;
     public static final float DESIGN_LAYER_WEIGHT = 1.25f;
     public static final float DESIGN_LANGUAGE_WEIGHT = 1.05f;
@@ -122,9 +122,11 @@ public final class KeyboardActionRow {
     public static final float DESIGN_LETTER_EDGE_WEIGHT = 1.4f;
 
     /**
-     * 新设计的底行：123 |（地球）| ， | 空格 | 。 | 中/英 | 回车。中/英放在回车左边，右手拇指够得着；注音 9 键的逗号句号在网格最后一行，日文假名网格不带底行。
+     * 新设计的底行：123 |（地球）| ， | 空格 | 。 | 中/英 | 回车。中/英放在回车左边，右手拇指够得着；注音 9 键的逗号句号在网格最后一行，日文假名网格不带底行。这一行留给 14 键（第三行左端已经有 符）、手写和大千注音。
      *
-     * <p>拼音九键和笔画键盘共用九键外框，标点在侧栏，底行不放逗号句号，改成 符 | 123 |（地球）| 空格 | 中/英 | 回车，与 iOS 一致：符 打开符号面板，拼音网格的 1 键（@#）不再打开面板，而是把常用标点放进候选条。拼音九键数字键面的 0 在网格右列，所以这一行在字母、数字两个键面上相同（iOS 的 0 在底行，数字键面上由它替下 符）；笔画键盘的数字键面是自带底行的 123 层。
+     * <p>26 键一族（标准 26 键，含全拼、双拼、五笔、英文等，以及韩文键面）和搜狗一样，底行与九键外框相同：符 | 123 |（地球）| 空格 | 中/英 | 回车，最左边的 符 打开符号面板，不放逗号句号，中英文模式相同。123 / #+= 层自带底行，有自己的符号入口。
+     *
+     * <p>拼音九键和笔画键盘的字母层是 符 | 123 |（地球）| 空格 | 中/英 | 回车。拼音九键数字层由四参数重载排布，0 接替空格、空格移到右列；笔画键盘的数字键面是自带底行的 123 层。
      *
      * @param touchLayout {@link KeyboardLayout} 的界面常量
      * @param globe 宿主是否可以切换到下一个输入法（`shouldOfferSwitchingToNextInputMethod()`）
@@ -133,16 +135,19 @@ public final class KeyboardActionRow {
         // 日语九键和注音九键的四行键块自带 123、中/英、空格、换行（注音九键的这几个是挪过去的底栏键），不再要底栏。
         if (touchLayout == KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT
                 || touchLayout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT) return List.of();
-        boolean nineKeyFrame = touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT
-            || touchLayout == KeyboardLayout.STROKE_LAYOUT;
+        // 九键外框和 26 键一族：符 打头，不放逗号句号。
+        boolean symbolPanelRow = touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT
+            || touchLayout == KeyboardLayout.STROKE_LAYOUT
+            || touchLayout == KeyboardLayout.STANDARD_TOUCH_LAYOUT
+            || touchLayout == KeyboardLayout.KOREAN_LAYOUT;
         List<DesignEntry> entries = new ArrayList<>(MAX_ROW_ENTRIES);
-        if (nineKeyFrame) entries.add(new DesignEntry(DesignSlot.SYMBOL_PANEL, DESIGN_SYMBOL_PANEL_WEIGHT));
+        if (symbolPanelRow) entries.add(new DesignEntry(DesignSlot.SYMBOL_PANEL, DESIGN_SYMBOL_PANEL_WEIGHT));
         entries.add(new DesignEntry(DesignSlot.LAYER, DESIGN_LAYER_WEIGHT));
         if (globe) entries.add(new DesignEntry(DesignSlot.GLOBE, DESIGN_GLOBE_WEIGHT));
-        if (!nineKeyFrame)
+        if (!symbolPanelRow)
             entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
         entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_SPACE_WEIGHT));
-        if (!nineKeyFrame)
+        if (!symbolPanelRow)
             entries.add(new DesignEntry(DesignSlot.PERIOD, DESIGN_PUNCTUATION_WEIGHT));
         entries.add(new DesignEntry(DesignSlot.LANGUAGE, DESIGN_LANGUAGE_WEIGHT));
         entries.add(new DesignEntry(DesignSlot.RETURN, DESIGN_RETURN_WEIGHT));
@@ -151,7 +156,22 @@ public final class KeyboardActionRow {
 
     /** 可选交换语言键与数字键，键的宽度跟随动作，其它键顺序不变。 */
     public static List<DesignEntry> designEntries(int touchLayout, boolean globe, boolean swapLanguageNumber) {
+        return designEntries(touchLayout, globe, swapLanguageNumber, false);
+    }
+
+    /** 九键数字层底行保留符号入口，0 位于原空格处；常驻空格键移到右列，手势保持。 */
+    public static List<DesignEntry> designEntries(int touchLayout, boolean globe,
+            boolean swapLanguageNumber, boolean digits) {
         List<DesignEntry> entries = designEntries(touchLayout, globe);
+        if (digits && touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT) {
+            List<DesignEntry> numeric = new ArrayList<>(entries);
+            java.util.Collections.swap(numeric, 0, 1);
+            for (int index = 0; index < numeric.size(); index++) {
+                if (numeric.get(index).slot() == DesignSlot.SPACE)
+                    numeric.set(index, new DesignEntry(DesignSlot.ZERO, DESIGN_SPACE_WEIGHT));
+            }
+            entries = List.copyOf(numeric);
+        }
         if (!swapLanguageNumber || entries.isEmpty()) return entries;
         List<DesignEntry> swapped = new ArrayList<>(entries);
         int layer = -1, language = -1;
@@ -193,6 +213,7 @@ public final class KeyboardActionRow {
             case GLOBE -> "切换输入法";
             case COMMA, PERIOD -> punctuationFace(slot, chinesePunctuation);
             case SPACE -> "空格";
+            case ZERO -> "数字 0";
             case RETURN -> "换行";
         };
     }

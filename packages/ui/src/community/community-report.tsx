@@ -4,7 +4,7 @@ import { CommunityTextareaField } from "./community-textarea-field";
 import { CommunityConfirmationActions } from "./community-confirmation-actions";
 import { ActionButton } from "../core/action-button";
 
-/** What a report names, as `POST /v1/community/reports` and client-core's `CommunityReportKind` spell it. */
+/** 举报针对的对象类别，写法与 `POST /v1/community/reports` 和 client-services 的 `CommunityReportKind` 一致。 */
 export type CommunityReportKind =
   | "skins"
   | "candidate-skins"
@@ -12,7 +12,7 @@ export type CommunityReportKind =
   | "dictionaries"
   | "replies";
 
-/** The fixed reasons a report offers, in the order the dialog lists them; the label is what the moderators see. Mirrors client-core's `CommunityReportReason::ALL`. */
+/** 举报可选的固定理由，按对话框列出的顺序；标签就是审核人员看到的文字。与 client-services 的 `CommunityReportReason::ALL` 对应。 */
 export const communityReportReasons = [
   "侵权/抄袭",
   "色情低俗",

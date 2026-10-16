@@ -1,9 +1,9 @@
 /**
- * Background music on a 2in1, streamed through AVPlayer.
+ * 二合一设备上的背景音乐，经 AVPlayer 流式播放。
  *
- * The desktop hosts stream music through host-api, which does not link an audio stack on HarmonyOS, so this host streams the same packs itself. Which tracks a pack has comes from `msime_client_music_pack`, which answers with the files client-core's validation accepted; when music may play and in what order is `MusicPolicy`, the desktop player's rules. AVPlayer streams from the file rather than decoding it whole, so a track costs a decoder's buffers, not its length in memory, and Ogg tracks play here as well as WAV. Before a track starts its declared length is read with AVMetadataExtractor and checked against the pack bound, and while it plays its position is checked against the same bound, as the desktop decoder checks its frame count.
+ * 桌面宿主经 host-api 流式播放音乐，而 host-api 在 HarmonyOS 上不链接音频栈，所以这个宿主自己流式播放同样的音乐包。一个包有哪些曲目由 `msime_client_music_pack` 给出，它回答的是 client-services 校验通过的文件；音乐何时可以播放、按什么顺序播放由 `MusicPolicy` 决定，也就是桌面播放器的规则。AVPlayer 从文件流式读取而不是整个解码，所以一首曲目占用的是解码器的缓冲区，而不是与时长相当的内存，并且这里除了 WAV 也能播放 Ogg 曲目。曲目开始前用 AVMetadataExtractor 读出它声明的时长，与包的上限核对；播放过程中再用同一个上限核对播放位置，就像桌面解码器核对帧数那样。
  *
- * Nothing is created until music is switched on and an editor that may hear it has focus. A pack that will not load, a pack with no track of an allowed length, or AVPlayer failing turns music off until the settings change, with one line in the log; nothing here can stop a key from typing.
+ * 在音乐打开、并且一个可能听到它的编辑框获得焦点之前，什么都不创建。包载入失败、包里没有一首时长允许的曲目，或者 AVPlayer 出错，都会关闭音乐直到设置变化，并在日志里留下一行；这里的任何事都不会让按键打不出字。
  */
 import audio from '@ohos.multimedia.audio';
 import media from '@ohos.multimedia.media';

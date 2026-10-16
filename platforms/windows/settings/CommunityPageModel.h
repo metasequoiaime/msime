@@ -220,7 +220,7 @@ inline std::wstring candidate_skin_message(std::wstring_view code, bool publishi
   return L"社区暂时不可用，请稍后重试。";
 }
 
-// communityPluginMessage：插件图库和发布对话框的句子；打包失败是 client-core 的 plugin_* 码，按「插件」页的说法（pluginErrorMessage，带上 detail）。
+// communityPluginMessage：插件图库和发布对话框的句子；打包失败是 client-services 的 plugin_* 码，按「插件」页的说法（pluginErrorMessage，带上 detail）。
 inline std::wstring plugin_message(std::wstring_view code, std::wstring const &detail,
                                    bool publishing = false) {
   if (auto moderation = moderation_message(code); !moderation.empty())
@@ -313,7 +313,7 @@ inline std::wstring category_label(std::wstring_view category) {
   return {};
 }
 
-// communityPluginKinds：社区插件的类型筛选，与 client-core 的 PUBLISHABLE_KINDS 一致。
+// communityPluginKinds：社区插件的类型筛选，与 client-services 的 PUBLISHABLE_KINDS 一致。
 inline constexpr std::array<std::wstring_view, 8> plugin_kinds{
     L"sound", L"music", L"command_table", L"effect",
     L"phrase_table", L"helpcode", L"wordbook", L"symbol_set"};
@@ -474,7 +474,7 @@ inline std::wstring resource_card_metrics(double saves, double rating_count, dou
   return L"☆ " + rating(rating_count, average) + L" · " + zh_number(saves) + L" 人收藏";
 }
 
-// 发布对话框里词条的类型（ResourceEditor 的「类型」下拉框），值与 client-core 的 DictionaryKind 一致。
+// 发布对话框里词条的类型（ResourceEditor 的「类型」下拉框），值与 client-services 的 DictionaryKind 一致。
 inline constexpr std::array<Choice, 4> shared_word_kinds{{
     {L"pinyin", L"拼音"},
     {L"wubi", L"五笔"},

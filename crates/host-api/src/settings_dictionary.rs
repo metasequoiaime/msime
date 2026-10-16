@@ -4,10 +4,10 @@
 //!
 //! `msime_host_api::dictionary_request_json` takes at most 64 KiB per request and reads at most `import::MAX_ENTRIES` rows from one import. That is the contract `msime-client-dictionary` documents, so it stays as it is. The page instead sends a file of up to [`MAX_IMPORT_TEXT_BYTES`] as a run of line-aligned requests under both bounds and answers with one report for the whole file, the way the Windows settings page imports a file whole. Each request carries its own ID, `<id>-<n>`, so the host's per-row receipts still make a repeated import a no-op.
 
-use msime_client_core::dictionary::import::{
+use msime_client_services::dictionary::import::{
     self, ImportError, ImportFailure, ImportFormat, ImportKind, REPORTED_FAILURES,
 };
-use msime_client_core::dictionary::is_han_character;
+use msime_client_services::dictionary::is_han_character;
 use serde_json::{json, Value};
 
 /// The largest file text the page imports. The page refuses files over 32 MiB (`MAX_DICTIONARY_FILE_BYTES` in `packages/ui/src/dictionary/dictionary-file.ts`) before reading them, and a file that size decodes to at most 48 MiB of UTF-8, since a two-byte GBK or UTF-16 character becomes three; this is that bound, so a file the page accepted is never refused here. At 60 KiB a request, text this size is at least 820 requests, and more for a file of short lines, since a request also carries at most `import::MAX_ENTRIES` rows. That takes longer than the 30 seconds input sessions stay released, so every request renews the release before it goes: the lease through `QuiescedHosts::run` on Linux and macOS, the Server's DictionaryQuiesce on Windows.
@@ -360,7 +360,7 @@ pub fn request(
         let requires_quiesce = action_requires_quiesce(action);
         let user_data = options["user_data"].as_str().map(str::to_owned);
         // Renewed before each later request, so a large import that runs past the 30 second bound keeps the hosts released; let go when `hosts` goes, after the last request, whatever the outcome.
-        let mut hosts = msime_client_core::dictionary::quiesce::QuiescedHosts::new(
+        let mut hosts = msime_client_services::dictionary::quiesce::QuiescedHosts::new(
             user_data.as_deref(),
             announce,
         );

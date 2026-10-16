@@ -1,5 +1,5 @@
 import { SurfaceThemeRow } from "./surface-theme-row";
-import type { SurfaceTheme } from "./surface-theme-select";
+import type { SurfaceTheme } from "./theme-preferences";
 
 export interface ScreenKeyboardThemeSectionProps {
   mobile: boolean;

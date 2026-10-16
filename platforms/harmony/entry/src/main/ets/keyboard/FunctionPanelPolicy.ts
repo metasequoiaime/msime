@@ -1,11 +1,17 @@
 /**
- * 工具栏 logo 键打开的功能面板：有哪些格子、顺序如何、叫什么。视图按四列两行分页。
+ * 工具栏 logo 键打开的功能面板：有哪些格子、顺序如何、叫什么。视图按四列分页，手机竖屏和平板三行、手机横屏两行（`pickerGrid`）。
  *
  * 顺序是设计稿的十四个格子（`全平台 UI.dc.html` 的功能面板），后接鸿蒙键盘自己的额外项，先例是 `platforms/android/java/app/msime/android/keyboard/FunctionPanelModel.java` 的做法。这里只说明有什么、叫什么；开关是否打开、点按做什么归视图管，按 `id` 对应。
  */
 import { HapticStrength, KeyboardFeedback } from "./KeyboardFeedback";
 import { KeyboardIconPaths } from "./KeyboardIconPaths";
 import { KeyAccessibilityPolicy } from "./input/KeyAccessibilityPolicy";
+
+/** 输入方式和功能面板一页的行数和行距（vp），见 `FunctionPanelPolicy.pickerGrid`。 */
+export interface PickerGrid {
+  readonly rows: number;
+  readonly rowsGap: number;
+}
 
 /** 一个格子。格子画 `glyph`（描边方框里的一个字符）或 `icon`（24 视框的线条图标）其中之一，不会两者都画。 */
 export interface FunctionPanelItem {
@@ -77,6 +83,7 @@ function actionIcon(
 
 export class FunctionPanelPolicy {
   static readonly COLUMNS: number = 4;
+  /** 两行一页：皮肤选择器，以及手机横屏时的功能面板和输入方式。 */
   static readonly ROWS: number = 2;
   static readonly PAGE_SIZE: number = FunctionPanelPolicy.COLUMNS * FunctionPanelPolicy.ROWS;
 
@@ -148,6 +155,24 @@ export class FunctionPanelPolicy {
       KeyboardIconPaths.VIBRATION_STRENGTH,
     ),
   ];
+
+  /**
+   * 输入方式和功能面板每页几行、行距多少，与 iOS `KeyboardPagedGridView.pickerRows` / `pickerRowGap`、Android `PagedTileGrid.pickerGrid` 同一条规则：手机横屏两行、行距 16，其余三行、行距 12。鸿蒙的键区默认只有 197vp（四行 44vp 加三份 7vp 行距），最矮 176vp，三行 52vp 的磁贴连同留白和页点在行距 12 下放不进去：先把行距收小，收到 4 还放不下就退回两行，不裁掉磁贴。
+   *
+   * `keyAreaVp` 是面板占的键区高度，`rowHeightVp` 是磁贴的最小行高，`chromeVp` 是网格以外的高度（上方留白、页点和下方留白）。
+   */
+  static pickerGrid(
+    phoneLandscape: boolean,
+    keyAreaVp: number,
+    rowHeightVp: number,
+    chromeVp: number,
+  ): PickerGrid {
+    if (phoneLandscape) {
+      return { rows: 2, rowsGap: 16 };
+    }
+    const gap: number = Math.min(12, Math.floor((keyAreaVp - chromeVp - 3 * rowHeightVp) / 2));
+    return gap >= 4 ? { rows: 3, rowsGap: gap } : { rows: 2, rowsGap: 16 };
+  }
 
   /** 所有格子，按页面顺序。 */
   static items(): FunctionPanelItem[] {

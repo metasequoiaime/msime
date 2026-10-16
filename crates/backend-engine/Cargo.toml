@@ -15,7 +15,7 @@ path = "src/main.rs"
 [dependencies]
 msime-engine = { path = "../engine" }
 # Only for its Simplified to Traditional conversion (the OpenCC s2t tables), which the server's `convert` operation answers.
-msime-client-core = { path = "../client-core" }
+msime-client-base = { path = "../client-base" }
 
 [lints]
 workspace = true

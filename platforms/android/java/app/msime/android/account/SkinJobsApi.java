@@ -15,16 +15,16 @@ import org.json.JSONObject;
 /**
  * AI 设计皮肤的四类请求：`GET /v1/models` 取默认模型、`POST /v1/chat/completions` 让模型出三套设计、`POST /v1/skins/jobs` 为每套设计生成背景图并轮询 `GET /v1/skins/jobs/{id}`，最后 `DELETE` 释放任务。
  *
- * <p>提示词和答案的解析不在这里：系统提示词、请求体和「三套设计是否合格」都由 client-core 决定（{@link Planner}，默认经 `NativeClient.aiSkinPlan`），这里只管传输、轮询、取消与清理，和 client-core 的 `BackendAiSkinService::generate` 是同一条流程。身份用真实账号，没有时用设备的匿名账号；服务端按用户每天限额（默认 10 次），超出时 429 `rate_limit_exceeded` 加 `Retry-After`。503 表示这个部署没有开 AI 皮肤，页面据此隐藏入口。
+ * <p>提示词和答案的解析不在这里：系统提示词、请求体和「三套设计是否合格」都由 client-services 决定（{@link Planner}，默认经 `NativeClient.aiSkinPlan`），这里只管传输、轮询、取消与清理，和 client-services 的 `BackendAiSkinService::generate` 是同一条流程。身份用真实账号，没有时用设备的匿名账号；服务端按用户每天限额（默认 10 次），超出时 429 `rate_limit_exceeded` 加 `Retry-After`。503 表示这个部署没有开 AI 皮肤，页面据此隐藏入口。
  *
  * <p>纯 Java，不 import `androidx`、`R` 或 `home/`（check-host 会编译它）；全部方法阻塞，不要在主线程调用。
  */
 public final class SkinJobsApi {
-    /** 一次生成最多等多久背景图，与 client-core 的 `MAX_ARTWORK_SECONDS` 一致。 */
+    /** 一次生成最多等多久背景图，与 client-services 的 `MAX_ARTWORK_SECONDS` 一致。 */
     static final long ARTWORK_TIMEOUT_MILLIS = 200_000;
     /** 任务还在运行时两次查询之间等多久。 */
     static final long POLL_INTERVAL_MILLIS = 5_000;
-    /** 描述的字符上限，与 client-core 一致。 */
+    /** 描述的字符上限，与 client-services 一致。 */
     public static final int MAX_PROMPT_CHARACTERS = 500;
     /** 一次生成的设计套数；页面预览和背景图任务并行度共用这个上限。 */
     public static final int MAX_DESIGNS = 3;
@@ -39,7 +39,7 @@ public final class SkinJobsApi {
     /** 一个生成背景图的任务；`artwork` 只在成功时有。 */
     public record Job(String id, String state, Artwork artwork) {}
 
-    /** client-core 那一侧的三个决定；冒烟测试换成内存实现。 */
+    /** client-services 那一侧的三个决定；冒烟测试换成内存实现。 */
     public interface Planner {
         /** 拼出聊天请求：返回 `{path, body}`。 */
         JSONObject compose(String prompt, String model) throws CloudApi.Failure;
@@ -51,7 +51,7 @@ public final class SkinJobsApi {
         boolean artworkValid(JSONObject artwork);
     }
 
-    /** 经 JNI 调 client-core 的 {@link Planner}。 */
+    /** 经 JNI 调 client-services 的 {@link Planner}。 */
     public static final Planner NATIVE = new Planner() {
         @Override public JSONObject compose(String prompt, String model) throws CloudApi.Failure {
             try {
@@ -231,7 +231,7 @@ public final class SkinJobsApi {
         throw invalid("invalid_response");
     }
 
-    /** 发 client-core 拼好的聊天请求，返回助手回答的正文。 */
+    /** 发 client-services 拼好的聊天请求，返回助手回答的正文。 */
     public String chat(JSONObject composed) throws CloudApi.Failure {
         String path = JsonPolicy.strictString(composed.opt("path"));
         JSONObject body = composed.optJSONObject("body");

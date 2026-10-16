@@ -190,11 +190,10 @@ with sync_playwright() as playwright:
         set_surface_theme(page, "悬浮工具栏主题", "dark")
         open_page(page, "悬浮工具栏")
         expect(toolbar.locator(".status-bar")).to_have_css("background-color", "rgb(26, 26, 26)")
-        for scale in [75, 100, 125, 150]:
-            page.get_by_label("工具栏缩放", exact=True).select_option(str(scale))
-            for size in [16, 18, 20, 22, 24, 26, 28]:
-                page.get_by_label("图标尺寸", exact=True).select_option(str(size))
-                expect(toolbar.locator(".icon").first).to_have_css("width", f"{size * scale / 100:g}px")
+        # 「工具栏大小」每一档同时写缩放和图标尺寸，175% 存成 150% 缩放加 28 的图标。
+        for percent, scale, size in [(75, 75, 24), (100, 100, 24), (125, 125, 24), (150, 150, 24), (175, 150, 28)]:
+            page.get_by_label("工具栏大小", exact=True).select_option(str(percent))
+            expect(toolbar.locator(".icon").first).to_have_css("width", f"{size * scale / 100:g}px")
         for key, label in [("fullwidth", "全角 / 半角"), ("punctuation", "中英文标点"), ("character_set", "简繁切换"), ("emoji", "表情与符号"), ("screen_keyboard", "屏幕键盘"), ("settings", "设置")]:
             toggle = page.get_by_role("checkbox", name=label, exact=True)
             toggle.uncheck()

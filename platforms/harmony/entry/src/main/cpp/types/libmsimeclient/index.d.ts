@@ -35,6 +35,8 @@ export const appThemeCatalog: () => string;
 export const resolveAppTheme: (request: string) => string;
 /** Staged engine resources in; `{profile,sourceCommit}` from the packaged dictionary manifest out. */
 export const dictionaryManifest: (resources: string) => string;
+/** 九键双拼方案的表、问题和每个数字键的键面；请求为 `{profile, table?}`。 */
+export const nineKeyShuangpinLayout: (request: string) => string;
 /** JSON resource request; returns a structured response containing contentType and byte values. */
 export const skinResource: (request: string) => string;
 /** JSON stylesheet request; returns a nullable stylesheet in the structured response. */

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { subscribeMediaQuery } from "../core/media-query";
 import type { AppThemeClient, HostChromeClient, ResolvedAppTheme } from "../core/host-contracts";
 import { resolveSettingsTheme } from "./theme-helpers";
-import type { SurfaceTheme, ThemeMode } from "./theme-settings-section";
+import type { SurfaceTheme, ThemeMode } from "./theme-preferences";
 
 /** 同步设置页文档的主题，需要时跟随系统配色。返回设置页当前是否以深色绘制，这样宿主按外观解析的颜色（鸿蒙的应用主题、系统栏）能与文档采用同一个答案。 */
 export function useSettingsTheme(themeMode: ThemeMode, settingsTheme: SurfaceTheme): boolean {

@@ -41,11 +41,11 @@ MAX_VOLUME_OUTPUT = 4096
 ASR_PROVIDERS = {"openai", "groq", "siliconflow", "everyapi", "mistral", "bailian"}
 POLISH_PROVIDERS = (ASR_PROVIDERS - {"everyapi", "mistral", "bailian"}) | {"deepseek"}
 ASR_PROVIDERS = ASR_PROVIDERS | {"doubao"}
-# 整句上传的请求格式，与 client-core 的 `voice::provider::asr_request_format` 相同：multipart 是 OpenAI 兼容的 /audio/transcriptions，chat_audio 是 Chat Completions 带 input_audio（阿里云百炼）。请求体按格式拼，不按 provider 名字判断。
+# 整句上传的请求格式，与 client-providers 的 `voice::provider::asr_request_format` 相同：multipart 是 OpenAI 兼容的 /audio/transcriptions，chat_audio 是 Chat Completions 带 input_audio（阿里云百炼）。请求体按格式拼，不按 provider 名字判断。
 CHAT_AUDIO = "chat_audio"
 REQUEST_FORMATS = {"openai": "multipart", "groq": "multipart", "siliconflow": "multipart",
                    "everyapi": "multipart", "mistral": "multipart", "bailian": CHAT_AUDIO}
-# 百炼限制请求里的音频含 Base64 编码不超过 10 MB；与 client-core 的 CHAT_AUDIO_MAX_WAV_BYTES 相同，约 218 秒。
+# 百炼限制请求里的音频含 Base64 编码不超过 10 MB；与 client-providers 的 CHAT_AUDIO_MAX_WAV_BYTES 相同，约 218 秒。
 CHAT_AUDIO_MAX_WAV = 7_000_000
 # On-device recognition through the msime-voice-local helper (msime_voice_local.py). It needs no credential: the request names the installed model directory in `asr_model_path`, so a private file entry for it carries only the provider name.
 LOCAL_PROVIDER = "local"

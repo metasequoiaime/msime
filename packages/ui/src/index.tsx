@@ -43,6 +43,7 @@ import {
   isSettingsFormPage,
 } from "./settings/settings-page-visibility";
 import { settingsInputPreferences } from "./settings/settings-input-preferences";
+import type { AppInputModeRule, PickedApplication } from "./settings/app-input-mode-rules";
 import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
 import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences";
 import { clipboardHistoryEnabled } from "./settings/clipboard-history-preferences";
@@ -51,6 +52,8 @@ import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import type { ResourcePackClient } from "./settings/resource-packs";
 import type { WubiCodeLookup } from "./settings/wubi-code-lookup-section";
+import type { CloudClipboardRelayPreferences } from "./settings/cloud-clipboard-relay-preferences";
+import type { VoiceInputPreferences } from "./settings/voice-input-preferences";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   type DictionaryEntry,
@@ -186,6 +189,7 @@ export {
   type UseInputSourceUninstallOptions,
 } from "./settings/use-input-source-uninstall";
 export {
+  touchKeyboardResetSubjects,
   useTouchKeyboardSettingsReset,
   type TouchKeyboardSettingsResetConfirmOptions,
   type UseTouchKeyboardSettingsResetOptions,
@@ -482,7 +486,7 @@ import type { PluginPreferences } from "./settings/plugin-preferences";
 import { AboutSettingsPage } from "./settings/pages/about-page";
 import { UsageReportingSettingsPage } from "./settings/pages/usage-reporting-page";
 import { PrivacySettingsPage } from "./settings/pages/privacy-page";
-import type { CustomHelpcodeSchema, HelpcodePreferences } from "./settings/pages/helpcode-page";
+import type { CustomHelpcodeSchema, HelpcodePreferences } from "./settings/helpcode-preferences";
 import type { ClipboardHistoryClient } from "./settings/clipboard-history-section";
 import type { CloudClipboardRequest } from "./settings/cloud-clipboard-send";
 import { type FuzzyPinyinPreferences } from "./settings/fuzzy-pinyin-preferences";
@@ -494,9 +498,10 @@ import type {
 import type { SentenceAssociationPreferences } from "./settings/sentence-association-preferences";
 import type { MixedInputPreferences } from "./settings/mixed-input-preferences";
 import type { FrequencyPreferences } from "./settings/frequency-preferences";
+import type { AiAssistantPreferences } from "./settings/ai-assistant-preferences";
 import { type LocalModePreferences } from "./settings/local-mode-preferences";
 import { floatingToolbarPreferences } from "./settings/floating-toolbar-preferences";
-import type { SurfaceTheme, ThemeMode } from "./settings/theme-settings-section";
+import type { ThemeMode, ThemePreferences } from "./settings/theme-preferences";
 import type { TouchToolbarPreferences } from "./settings/touch-keyboard-toolbar-preferences";
 import { HelpSettingsPage } from "./settings/help-settings-page";
 import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-feedback";
@@ -670,12 +675,16 @@ export {
   HelpcodeSettingsPage,
   HelpcodeSettingsGroup,
   type HelpcodeSettingsGroupProps,
+} from "./settings/pages/helpcode-page";
+export {
+  helpcodeSchemaOptions,
   type CustomHelpcodeSchema,
   type HelpcodePackOption,
   type HelpcodePreferences,
   type HelpcodeSchema,
   type HelpcodeSettings,
-} from "./settings/pages/helpcode-page";
+} from "./settings/helpcode-preferences";
+export type { AppInputModeRule, PickedApplication } from "./settings/app-input-mode-rules";
 export {
   ClipboardHistorySection,
   type ClipboardHistoryClient,
@@ -801,13 +810,13 @@ export {
   type MusicPreferences,
   type PluginPreferences,
 } from "./settings/plugin-preferences";
-export {
-  ThemeSettingsSection,
-  type SurfaceTheme,
-  type ThemeMode,
-  type ThemePreferenceKey,
-  type ThemePreferences,
-} from "./settings/theme-settings-section";
+export { ThemeSettingsSection } from "./settings/theme-settings-section";
+export type {
+  SurfaceTheme,
+  ThemeMode,
+  ThemePreferenceKey,
+  ThemePreferences,
+} from "./settings/theme-preferences";
 export { SurfaceThemeSelect, type SurfaceThemeSelectProps } from "./settings/surface-theme-select";
 export { SurfaceThemeRow, type SurfaceThemeRowProps } from "./settings/surface-theme-row";
 export { ShortcutRow, type ShortcutRowProps } from "./settings/shortcut-row";
@@ -1148,8 +1157,9 @@ export {
 export { FloatingToolbarPlatformNotice } from "./settings/floating-toolbar-platform-notice";
 export {
   floatingToolbarButtonOptions,
-  floatingToolbarFontSizes,
-  floatingToolbarScales,
+  floatingToolbarSize,
+  floatingToolbarSizes,
+  type FloatingToolbarSize,
 } from "./settings/floating-toolbar-options";
 export {
   DoubaoAuthModeSection,
@@ -1193,18 +1203,17 @@ export {
 export {
   CredentialTestSection,
   type CredentialTestSectionProps,
-  type CredentialTestState,
 } from "./settings/credential-test-section";
+export type { CredentialTestState } from "./settings/credential-test-state";
 export {
   ProviderPresetSection,
-  type ProviderPreset,
   type ProviderPresetSectionProps,
 } from "./settings/provider-preset-section";
 export {
   CredentialStatusMessage,
   type CredentialStatusMessageProps,
-  type CredentialStatusMessageValue,
 } from "./settings/credential-status-message";
+export type { CredentialStatusMessageValue } from "./settings/credential-status-message";
 export { CredentialActions, type CredentialActionsProps } from "./settings/credential-actions";
 export { SettingToggle, type SettingToggleProps } from "./settings/setting-toggle";
 export { SettingField, type SettingFieldProps } from "./settings/setting-field";
@@ -1563,7 +1572,6 @@ export {
   isAsrServiceProvider,
   providerSettingValue,
   polishProviderUpdate,
-  type ProviderDefaults,
 } from "./voice/voice-providers";
 export {
   ASR_PROVIDER_OPTIONS,
@@ -1719,8 +1727,6 @@ export type VietnamesePreferences = {
   input_method?: "telex" | "vni";
   tone_style?: "modern" | "classic";
 };
-/** 对应 `client-core::preferences::AppInputModeRule`。 */
-export type AppInputModeRule = "chinese" | "english";
 /** Mirrors `client-core::host_surface::HostCapabilities`. */
 export interface HostCapabilities {
   platform: HostPlatform;
@@ -1791,6 +1797,10 @@ export interface HostCapabilities {
   fixed_candidate_layout?: "horizontal" | "vertical";
   /** The touch keyboard picks its toolbar buttons from `touch_toolbar`. */
   touch_toolbar_components: boolean;
+  /** 宿主按 `touch_keyboard_height_adjustment` 改变屏幕键盘的高度（Windows 与触屏宿主）；macOS 和 Linux 的键盘窗口高度固定，不给「键盘高度」滑块。缺省按提供处理。 */
+  touch_keyboard_height?: boolean;
+  /** 宿主的屏幕键盘按 `touch_key_spacing_tenths` / `touch_row_spacing_tenths` 画间距；macOS 为 false，键盘面板固定用默认间距，设置页不给间距滑块、拖动调间距和「恢复默认」。缺省按提供处理。 */
+  touch_keyboard_spacing?: boolean;
   shuangpin_preedit: boolean;
   /** 宿主在双拼组字时按 `shuangpin_keymap_hint` 在候选窗旁画键位图（macOS 和 Windows）。 */
   shuangpin_keymap_hint?: boolean;
@@ -1872,22 +1882,17 @@ export interface EditionInfo {
 export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 
 export type { SentenceAssociationPreferences } from "./settings/sentence-association-preferences";
+export type { VoiceInputPreferences } from "./settings/voice-input-preferences";
+export type { AiAssistantPreferences } from "./settings/ai-assistant-preferences";
 
 export type Preferences = PunctuationPreferences &
   PreeditPreferences &
   WubiPreferences &
   CandidateFontPreferences &
   CandidateSizingPreferences &
-  CandidateWindowStylePreferences & {
+  CandidateWindowStylePreferences &
+  ThemePreferences & {
     theme?: ThemeMode;
-    settings_theme?: SurfaceTheme;
-    candidate_theme?: SurfaceTheme;
-    toolbar_theme?: SurfaceTheme;
-    screen_keyboard_theme?: SurfaceTheme;
-    handwriting_theme?: SurfaceTheme;
-    voice_theme?: SurfaceTheme;
-    emoji_theme?: SurfaceTheme;
-    menu_theme?: SurfaceTheme;
     ai_assistant?: AiAssistantPreferences;
     sentence_association?: SentenceAssociationPreferences;
     custom_translation?: { enabled: boolean; endpoint: string; api_key: string };
@@ -1896,8 +1901,8 @@ export type Preferences = PunctuationPreferences &
     voice_input?: VoiceInputPreferences;
     local_modes?: LocalModePreferences;
     clipboard_history?: boolean;
-    /** 自建云剪贴板中继的地址和令牌；缺省或地址为空表示走水杉账号。两项要么都空，要么都合规，见 `crates/client-core/src/clipboard_relay.rs`。 */
-    cloud_clipboard_relay?: { url: string; token: string };
+    /** 自建云剪贴板中继的地址和令牌；缺省或地址为空表示走水杉账号。两项要么都空，要么都合规，见 `crates/client-core/src/preferences.rs` 的 `CloudClipboardRelayPreferences`。 */
+    cloud_clipboard_relay?: CloudClipboardRelayPreferences;
     cloud_candidates?: boolean;
     candidate_translations?: boolean;
     candidate_english_gloss?: boolean;
@@ -1936,7 +1941,7 @@ export type Preferences = PunctuationPreferences &
     touch_number_keypad_order?: "phone" | "calculator";
     /** 26 键按「123」时的数字层：一行 1 到 0，或九宫格那样的 3×3 数字键。 */
     touch_twenty_six_key_number_layout?: "row" | "nine_key";
-    /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为开。 */
+    /** 触屏 26 键双拼时在字母键底部画声母/韵母提示；缺省为关。 */
     touch_shuangpin_key_hints?: boolean;
     touch_toolbar?: Partial<TouchToolbarPreferences>;
     default_ime_mode?: "chinese" | "english";
@@ -2000,19 +2005,6 @@ export type Preferences = PunctuationPreferences &
     /** Sound packs, music and command tables; the document leaves it out while every value is the default. */
     plugins?: PluginPreferences;
   };
-export type AiAssistantPreferences = {
-  enabled: boolean;
-  provider: string;
-  model: string;
-  endpoint: string;
-  candidate_limit: number;
-  token?: string;
-  tokens?: Record<string, string>;
-  prompt_id?: string;
-  prompt_custom_1: string;
-  prompt_custom_2: string;
-  prompt_custom_3: string;
-};
 /** What the Linux online provider holds, never the secrets themselves. */
 export type ProviderCredentialStatus = {
   ai: { provider: string; endpoint: string; model: string }[];
@@ -2095,52 +2087,13 @@ export type ApiCredentialTestService =
   | "voice.polish"
   | "ai.assistant";
 export type ApiCredentialTestResult = { ok: boolean; message: string };
-export type VoiceInputPreferences = {
-  enabled: boolean;
-  language: string;
-  capture_backend?: "" | "auto" | "pulse" | "pipewire" | "alsa" | "windows" | "macos" | "harmony";
-  capture_device?: string;
-  asr_provider?: string;
-  asr_endpoint?: string;
-  asr_token?: string;
-  asr_tokens?: Record<string, string>;
-  asr_app_key?: string;
-  doubao_auth_mode?: "api_key" | "legacy";
-  hotkey_ralt?: boolean;
-  hotkey_ctrl_f9?: boolean;
-  hotkey_ctrl_win?: boolean;
-  hotkey_rctrl_ralt?: boolean;
-  hotkey_hold_space_lock?: boolean;
-  sound_enabled?: boolean;
-  start_sound?: boolean;
-  end_sound?: boolean;
-  mute_system_audio?: boolean;
-  polish_enabled?: boolean;
-  polish_text?: boolean;
-  asr_model?: string;
-  /** Absolute path the `local` provider loads: an installed model directory (one holding msime-model.json). */
-  asr_model_path?: string;
-  /** Optional `https://` prefix put in front of every model download URL (a ghproxy-style mirror); empty downloads from the catalog URLs as-is. */
-  asr_model_mirror?: string;
-  asr_resource_id?: string;
-  commit_mode?: "tsf" | "sendinput" | "ctrl_v";
-  polish_provider?: string;
-  polish_endpoint?: string;
-  polish_token?: string;
-  polish_tokens?: Record<string, string>;
-  polish_model?: string;
-  polish_prompt_id?: string;
-  polish_prompt_custom_1?: string;
-  polish_prompt_custom_2?: string;
-  polish_prompt_custom_3?: string;
-  stream_inline_preedit?: boolean;
-  doubao_enable_itn?: boolean;
-  doubao_enable_punc?: boolean;
-  doubao_enable_ddc?: boolean;
-  doubao_boosting_table_id?: string;
-  [key: string]: unknown;
-};
-export { AI_PROVIDER_OPTIONS, aiProviderOption } from "./settings/ai-provider-options";
+export type { ProviderPreset, ProviderDefaults } from "./core/provider-preset";
+export {
+  AI_PROVIDER_OPTIONS,
+  aiProviderOption,
+  type AiProviderOption,
+  type AiProviderCatalogEntry,
+} from "./settings/ai-provider-options";
 export { aiProviderUpdate } from "./settings/ai-provider-update";
 
 export type ExternalSkinCatalog = {
@@ -2157,7 +2110,7 @@ export type Snapshot = {
   candidate_skin_catalog?: ExternalSkinCatalog;
 };
 export type DictionaryFailure = { request_id: string; label: string; error: string };
-/** Mirrors the import response from `client-core::dictionary_import`. */
+/** 对应 `client-services::dictionary::import` 的导入响应。 */
 export interface DictionaryImportResult {
   applied: number;
   /** Rows examined and skipped. */
@@ -2325,7 +2278,7 @@ export interface SettingsClient {
   /** Open the folder holding the preferences document, where a repair leaves its backup. */
   openPreferencesDirectory?: () => Promise<void>;
   readAppVersion?: () => Promise<string>;
-  /** 经由 `msime_client_core::update_check`（Tauri 的 `update_check` 命令，或原生宿主上的 `msime_client_update_check`）把本平台、本版本最新的已发布版本与当前运行的版本号比较。未提供时关于页不提供检查更新。 */
+  /** 经由 `msime_client_services::update_check`（Tauri 的 `update_check` 命令，或原生宿主上的 `msime_client_update_check`）把本平台、本版本最新的已发布版本与当前运行的版本号比较。未提供时关于页不提供检查更新。 */
   checkUpdate?: (request: UpdateCheckRequest) => Promise<UpdateCheckResult>;
   openExternalUrl?: (url: string) => Promise<void>;
   /** The console's app notices; the host fetches and caches the feed and remembers dismissals. Absent shows none. */
@@ -2399,7 +2352,7 @@ export interface SettingsClient {
    */
   pickVoiceModelPath?: () => Promise<string | null>;
   /** 应用例外的「添加应用…」：宿主弹出系统的选应用对话框，交回规则用的标识（macOS 的 Bundle ID，Windows 的程序文件名）和应用名称，用户取消时为 null；所选不是应用程序时以 `not_application` 拒绝。没有它的宿主只能手填应用标识。 */
-  pickApplication?: () => Promise<{ id: string; name: string } | null>;
+  pickApplication?: () => Promise<PickedApplication | null>;
   /** 应用例外列表的显示名称：按规则标识查本机装着的应用，查不到的不返回（macOS）。 */
   applicationNames?: (ids: string[]) => Promise<Record<string, string>>;
   /** The host's on-device speech model store; hosts that provide it offer the `local` provider with a model manager. */
@@ -2517,6 +2470,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showFloatingToolbar,
     showToolbarAppearance,
     showToolbarComponents,
+    showTouchKeyboardHeight,
+    showTouchKeyboardSpacing,
     showCandidateFontControls,
     showCandidatePreeditFont,
     showCandidateEnglishFont,
@@ -2784,7 +2739,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     setError,
     setNotice,
     confirm,
-    voiceShortcut: !macosPlatform,
   });
   const openExternalUrl = useExternalUrl({
     openExternalUrl: client.openExternalUrl,
@@ -2969,31 +2923,39 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     // Sound packs, music and the / and @ modes all belong to a physical keyboard and a desktop candidate window; a phone keeps its own keyboard feedback settings.
     "plugins",
   ];
-  const { availablePages, sidebarGroups, mobilePrimaryPages, mobileSecondaryGroups } =
-    settingsPageProjections({
-      mobilePlatform,
-      hasHomePage,
-      hasTypingStatistics: Boolean(client.typingStatistics),
-      hasVocabularyReview: Boolean(client.vocabularyReview),
-      hasAccount: Boolean(client.account || client.appIcon),
-      hasChat: Boolean(client.chat),
-      hasCommunity: Boolean(client.communitySkins || client.communityResources),
-      showFloatingToolbar,
-      showDeveloperPage,
-      // A host with a pack store, or one that plays or routes something the page switches.
-      hasPlugins:
-        !mobilePlatform &&
-        (Boolean(client.plugins) ||
-          Boolean(client.communityPlugins) ||
-          showKeySound ||
-          showMusic ||
-          showPluginTriggers ||
-          showTypingEffects),
-      // full 不带版本信息，手写一直都在。
-      hasHandwriting: client.host?.edition?.handwriting ?? true,
-      mobileHiddenPageIds,
-      mobilePageTitle,
-    });
+  const {
+    availablePages,
+    sidebarGroups,
+    mobilePrimaryPages,
+    mobileSecondaryGroups,
+    pageAliases,
+    handwritingOnScreenKeyboardPage,
+  } = settingsPageProjections({
+    mobilePlatform,
+    hasHomePage,
+    hasTypingStatistics: Boolean(client.typingStatistics),
+    hasVocabularyReview: Boolean(client.vocabularyReview),
+    hasAccount: Boolean(client.account || client.appIcon),
+    hasChat: Boolean(client.chat),
+    hasCommunity: Boolean(client.communitySkins || client.communityResources),
+    showFloatingToolbar,
+    showDeveloperPage,
+    // A host with a pack store, or one that plays or routes something the page switches.
+    hasPlugins:
+      !mobilePlatform &&
+      (Boolean(client.plugins) ||
+        Boolean(client.communityPlugins) ||
+        showKeySound ||
+        showMusic ||
+        showPluginTriggers ||
+        showTypingEffects),
+    // full 不带版本信息，手写一直都在。
+    hasHandwriting: client.host?.edition?.handwriting ?? true,
+    // macOS 和 Linux 桌面的手写页只有一个打开按钮，并进屏幕键盘页；Windows 的共享设置页跟原生设置窗口一样分成两页。
+    handwritingOnScreenKeyboardPage: macosPlatform || linuxPlatform,
+    mobileHiddenPageIds,
+    mobilePageTitle,
+  });
   // 子页面在导航里点亮它的上级页面，并提供回到上级的入口。触屏宿主上「AI 对话」是底部的「对话」标签页，不再是「AI 辅助」的子页面，标签页的根页面没有上级。
   const navigationPage: SettingsPageId =
     mobilePlatform && mobilePrimaryPageIds.includes(page as MobilePrimaryPageId)
@@ -3004,6 +2966,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       mobilePlatform,
       mobileHiddenPageIds,
       availablePages,
+      pageAliases,
       page,
       setPage,
       mobileLastPageByTab,
@@ -3062,6 +3025,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showFloatingToolbar,
     showToolbarAppearance,
     showToolbarComponents,
+    showTouchKeyboardHeight,
+    showTouchKeyboardSpacing,
     showCandidateFontControls,
     showCandidatePreeditFont,
     showCandidateEnglishFont,
@@ -3292,6 +3257,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     touchKeyboardHeightAdjustment,
     installerTrust,
     availablePages,
+    handwritingOnScreenKeyboardPage,
     sidebarGroups,
     mobileActiveTab,
     untitledOnPhone,
@@ -3383,6 +3349,7 @@ function SettingsShell(props: SettingsPageProps) {
     dirty,
     keyboardPreviewTheme,
     availablePages,
+    handwritingOnScreenKeyboardPage,
     sidebarGroups,
     mobileActiveTab,
     untitledOnPhone,
@@ -4006,7 +3973,8 @@ function SettingsShell(props: SettingsPageProps) {
                     <DictionarySettingsPage />
                     <ScreenKeyboardSettingsPage />
                     <VoiceSettingsPage />
-                    <HandwritingSettingsPage />
+                    {/* 手写并进屏幕键盘页时，那一页自己画手写的分组。 */}
+                    {!handwritingOnScreenKeyboardPage && <HandwritingSettingsPage />}
                     <ToolsSettingsPage />
                     <PluginsSettingsPage hidden={pluginCommunityShown} />
                     <DeveloperSettingsPage />
@@ -4038,6 +4006,13 @@ function SettingsShell(props: SettingsPageProps) {
                     showRestoreDefaults={
                       Boolean(client.loadDefaultPreferences) &&
                       canRestoreDefaultsOnPage(page) &&
+                      // macOS 的屏幕键盘页（并进手写之后）只剩两个打开按钮，没有一项偏好，页脚的全局「恢复默认设置」在那里只会让人以为它恢复这一页。
+                      !(
+                        page === "screen-keyboard" &&
+                        !mobilePlatform &&
+                        !model.showTouchKeyboardHeight &&
+                        !model.showTouchKeyboardSpacing
+                      ) &&
                       !skinCommunityShown &&
                       !pluginCommunityShown
                     }

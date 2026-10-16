@@ -10,6 +10,8 @@ Status: implemented
 
 两项 hook 移到 `settings/use-helpcode-catalog.ts` 并从公共入口导出，设置模型调用同一实现。原有异步代次和依赖保持一致：自定义表的 reader 更换时等待新回答，缺少 reader 或当前读取失败时清空；插件只在输入页打开时读取，离开时清空，再进入时刷新，且只投影 `kind="helpcode"` 的 id 和名称。旧宿主与旧页面请求的成功或失败均不能改写当前列表。
 
+目录元数据类型从 `settings/helpcode-preferences.ts` 引入，与页面和候选预览共用[辅助码公共模型](2026-10-16-helpcode-preferences.md)，不依赖页面模块。
+
 ## Alternatives considered
 
 - 保留入口内的私有 hook：调用位置与逻辑相邻，已有设置整页测试。代价是它们不能单独复用，生命周期检查仍需定位入口源码。

@@ -25,7 +25,7 @@
 [![Last commit](https://img.shields.io/github/last-commit/metasequoiaime/msime/develop)](https://github.com/metasequoiaime/msime/commits/develop)
 <a href="https://depot.dev/?utm_source=metasequoiaime"><img src="https://depot.dev/badges/built-with-depot.svg" alt="Built with Depot" height="20"></a>
 
-메타세쿼이아 IME(MSIME)는 Android, iOS, macOS, Linux, Windows, HarmonyOS를 위한 멀티플랫폼 중국어 입력기입니다. 여섯 플랫폼은 각자 고유한 네이티브 입력기 호스트를 가지며, 모두 동일한 공유 입력 런타임과 동일한 React 설정 화면에 연결됩니다. React 관리 화면은 Tauri를 통해 일반 Rust 비즈니스 라이브러리를 호출하며, 입력 알고리즘은 msime-engine이 제공합니다.
+메타세쿼이아 IME(MSIME)는 Android, iOS, macOS, Linux, Windows, HarmonyOS를 위한 멀티플랫폼 중국어 입력기입니다. 여섯 플랫폼은 각자 고유한 네이티브 입력기 호스트를 가지며, 모두 동일한 공유 입력 런타임에 연결됩니다. 설정 화면은 플랫폼별로 담당이 나뉘어 macOS, Linux, HarmonyOS는 동일한 공유 React 설정 페이지를, Windows, iOS, Android는 각자의 네이티브 설정 화면을 쓰며, 설정의 비즈니스 규칙은 공유 Rust 계층에 두고 각 플랫폼 화면은 화면만 맡아야 합니다(현재는 일부 규칙이 아직 네이티브 화면 쪽에 적혀 있습니다). React 설정 페이지는 macOS와 Linux에서는 Tauri를 통해 일반 Rust 비즈니스 라이브러리를 호출하고, HarmonyOS에서는 Tauri를 거치지 않고 ArkWeb이 로드하여 ArkTS 네이티브 브리지와 NAPI를 통해 Rust를 호출하며, 입력 알고리즘은 msime-engine이 제공합니다.
 
 프로젝트 홈페이지: [msime.app](https://msime.app/) · [GitHub 저장소](https://github.com/metasequoiaime/msime) · [기여자](https://github.com/metasequoiaime/msime/graphs/contributors) · [문제 보고](https://github.com/metasequoiaime/msime/issues) · [코드 서명 정책 / Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
 
@@ -39,11 +39,11 @@
 
 ## 모듈 경계
 
-- `crates/client-core`: 호스트와 무관한 클라이언트 비즈니스 로직 — 로컬 설정, 고정 리소스의 세대별 설치, 계정과 세션, 클라우드와 AI, 스킨, 사전, 클립보드, 음성, 번역, 타이핑 통계. Tauri, UI, 플랫폼 호스트에 의존하지 않습니다.
+- `crates/client-base`, `crates/client-core`, `crates/client-services`, `crates/client-providers`: 호스트와 무관한 클라이언트 비즈니스 로직. 의존 방향은 base → core → services와 core → providers이며, 네 crate 모두 Tauri, UI, 플랫폼 호스트에 의존하지 않습니다. client-base는 저장소, 파일 잠금, 텍스트 판정, 달력, 간체-번체 변환. client-core는 로컬 설정과 에디션, 테마, 문장 부호, 클립보드, 번역, 클라우드 후보와 클라우드 클립보드 프로토콜, 고정 리소스의 세대별 설치. client-services는 계정과 세션, 커뮤니티, 사용 통계, 공지, 업데이트 확인, 진단, 클립보드 릴레이, 스킨, 플러그인, 사전, 상용구, 타이핑 통계. client-providers는 음성, 서비스 자격 증명, AI, 필요할 때 내려받는 리소스 팩.
 - `crates/input-runtime`: 세션 오케스트레이션, 포커스 취소, 후보 페이지 나누기, 세대(generation)가 붙은 선택. engine의 단어 조합 상태 머신을 복제하지 않습니다.
 - `crates/engine`(`msime-engine`): 순수 Rust 입력 엔진 — 조합 상태, 각 입력 방식, 사전 조회와 학습 재생. 기존 C++ MSIME-Engine에서 이식했습니다.
 - `crates/host-api`: 버전이 지정된 C 인터페이스, 스레드에 묶인 세션 핸들, 명시적 응답 해제. 여섯 플랫폼의 호스트가 모두 이를 링크합니다.
-- `packages/ui`, `apps/desktop`: 공유 React 설정 페이지와 Tauri 호스팅 계층. 각 플랫폼은 동일한 Rust 진입 라이브러리, commands, React 페이지를 사용하며, 디렉터리 이름은 desktop을 그대로 씁니다. Rust 진입부는 `platform/{android,ios,linux,macos,windows,desktop}`, `shared/`, `tests/`로 계층이 나뉩니다. **Tauri는 공용 컴포넌트이지 어느 플랫폼의 제품 본체도 아닙니다**: 최종적으로 설치되고 실행되며 시스템에 입력기로 인식되는 것은 항상 `platforms/<os>` 아래의 네이티브 호스트이며, Tauri/React는 필요에 따라 그 호스트가 품습니다.
+- `packages/ui`, `apps/desktop`: 공유 React 설정 페이지와 Tauri 호스팅 계층. 디렉터리 이름은 desktop을 그대로 씁니다. React 설정 페이지는 macOS(Tauri 설정 앱), Linux(Tauri 설정 앱), HarmonyOS(rawfile로 패키징되어 ArkWeb이 로드)의 설정 화면이며, Tauri는 세 데스크톱 플랫폼에서 이모지와 기호, 필기, 화면 키보드, 음성, 클라우드 사전, 클라우드 클립보드 같은 공유 패널도 품습니다. Windows, iOS, Android 릴리스 패키지의 설정은 네이티브 화면입니다. iOS와 Android 릴리스 패키지에는 이 React 페이지가 들어 있지 않습니다. Windows에서는 트레이, 시작 메뉴, 패널을 지정하지 않은 요청이 모두 네이티브 설정 프로그램 `msime-client-settings.exe`를 엽니다. React 설정 페이지는 Tauri의 `MSIME.exe`에 포함된 채 설치되어 `MSIME.exe`를 직접 실행하면 보이지만, 그곳을 가리키는 설정 진입점은 없습니다. 담당 구분은 [아키텍처 문서](../ARCHITECTURE.md#设置界面按平台归属)를 참고하십시오. Rust 진입부는 `platform/{android,ios,linux,macos,windows,desktop}`, `shared/`, `tests/`로 계층이 나뉩니다. **Tauri는 공용 컴포넌트이지 어느 플랫폼의 제품 본체도 아닙니다**: 최종적으로 설치되고 실행되며 시스템에 입력기로 인식되는 것은 항상 `platforms/<os>` 아래의 네이티브 호스트이며, Tauri/React는 그것을 쓰는 플랫폼에서만 그 호스트가 품습니다.
 - `shared/apple/`: macOS와 iOS가 함께 쓰는 Foundation / Objective-C++ 브리지이며, 시스템 입력기 진입점은 포함하지 않습니다.
 - `platforms/`: 각 시스템의 진입점과 어댑터 계층. Android, iOS, macOS, Linux, Windows, HarmonyOS 여섯 플랫폼은 각자 호스트 경계를 관리하며, 각 호스트는 해당 시스템의 네이티브 방식으로 입력기로 인식됩니다: Android의 입력기 서비스, iOS의 키보드 확장, macOS의 InputMethodKit bundle, Linux의 IBus와 Fcitx5 진입점, Windows의 TSF DLL과 Server, HarmonyOS의 InputMethodExtensionAbility. 공유 입력 알고리즘과 조합 상태는 `crates/engine`이 보유하며, 호스트는 이를 복제하지 않습니다.
 
@@ -51,7 +51,7 @@
 
 | 플랫폼 | 진입 디렉터리 | 호스트 형태와 통합 방식 |
 | --- | --- | --- |
-| [Android](../../platforms/android/README.md) | `platforms/android/` | 입력기 서비스 `app.msime.android.MSIMEInputService`는 `:ime` 독립 프로세스에서 실행되며, Java 호스트는 `platforms/android/native/client_jni.cpp`를 거쳐 host-api를 호출합니다. Tauri/React 설정은 입력기와 같은 패키지의 다른 프로세스이며, 비공개 files/bootstrap/state를 공유합니다. 필기 입력은 ML Kit Digital Ink를 사용합니다 |
+| [Android](../../platforms/android/README.md) | `platforms/android/` | 입력기 서비스 `app.msime.android.MSIMEInputService`는 `:ime` 독립 프로세스에서 실행되며, Java 호스트는 `platforms/android/native/client_jni.cpp`를 거쳐 host-api를 호출합니다. 릴리스되는 APK(`build-apk.sh`)는 네이티브 Java 설정 화면을 쓰며 Tauri/React를 포함하지 않습니다. React 설정을 포함한 Tauri 통합 패키지(`build-client-apk.sh`)는 입력기와 같은 패키지의 다른 프로세스로 비공개 files/bootstrap/state를 공유하지만, 개발용이며 릴리스하지 않습니다. 필기 입력은 ML Kit Digital Ink를 사용합니다 |
 | [iOS](../../platforms/ios/README.md) | `platforms/ios/` | XcodeGen이 `project.yml`로부터 생성하는 네이티브 App에 키보드 확장 `MSIMEKeyboardExtension`이 내장되며, 둘은 App Group `group.app.msime.ios`를 통해 상태를 공유합니다. Swift 키보드가 host-api를 직접 호출하고, 필기 입력은 ML Kit Digital Ink를 사용합니다 |
 | [macOS](../../platforms/macos/README.md) | `platforms/macos/` | InputMethodKit bundle(산출물 이름 `水杉输入法.app`, bundle id `app.msime.inputmethod.MetasequoiaIME`). Swift 백엔드는 `MSIMEBackend.dylib`로 빌드되어 bundle과 함께 배포되며, Sparkle이 자동 업데이트를 담당합니다 |
 | [Linux](../../platforms/linux/README.md) | `platforms/linux/` | IBus와 Fcitx5는 나란히 있는 두 시스템 진입점으로, 동일한 host-api ABI를 링크합니다. 온라인 연상, 음성, 클립보드 등의 기능은 독립 provider 프로세스와 systemd 사용자 유닛이 담당합니다. CPack으로 TGZ와 DEB를 만듭니다 |
@@ -82,9 +82,9 @@
 크로스 플랫폼 로컬 검증 진입점은 `bash scripts/verify-local.sh`입니다. `--quick`은 빌드 단계만 실행하며 병합 전 게이트입니다. 인자 없이 실행하면 전체를 실행하며, Rust 테스트, fmt, clippy, 의존성 감사, 프런트엔드 lint와 타입 검사, 각 네이티브 호스트의 ctest, 그리고 문장 단위 변환과 키 입력별 지연 평가가 포함됩니다. 각 단계는 실패한 테스트 이름을 `scripts/known-failures.txt`와 대조해, 목록에 없는 이름에 대해서만 실패합니다. `git config core.hooksPath .githooks`로 `--quick`을 pre-push에 걸 수 있습니다.
 
 ```sh
-cargo test -p msime-client-core --locked
+cargo test -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --locked
 cargo fmt --all --check
-cargo clippy -p msime-client-core --all-targets --locked -- -D warnings
+cargo clippy -p msime-client-base -p msime-client-core -p msime-client-providers -p msime-client-services --all-targets --locked -- -D warnings
 pnpm install --frozen-lockfile
 pnpm --filter @msime/desktop test
 pnpm build
@@ -95,13 +95,13 @@ pnpm tauri dev
 
 데스크톱 설정의 앱 식별자와 기본 앱 데이터 디렉터리는 플랫폼별로 이름이 정해집니다: macOS는 `app.msime.macos`, Windows는 `app.msime.windows`, Linux는 `app.msime.linux`입니다. 환경설정은 그 안의 `preferences.json`에 저장됩니다. 절대 경로 환경 변수 `MSIME_CLIENT_STATE_DIR`로 격리된 개발 디렉터리를 지정할 수도 있습니다. macOS 네이티브 호스트는 같은 설정을 읽고 현재 단어 조합이 끝난 뒤 업데이트를 적용합니다. 여러 설정 창이 동시에 저장하면 revision으로 충돌을 감지하며, 사용자는 명시적으로 다시 읽은 뒤 덮어쓸지 결정해야 합니다.
 
-Android 통합 패키지 빌드와 기기 테스트는 [Android 호스트](../../platforms/android/README.md#tauri--react-共享设置合包)를 참고하십시오. Tauri 설정과 네이티브 `:ime` 서비스는 같은 패키지의 다른 프로세스이며, 비공개 files/bootstrap/state를 공유합니다. 설정 창을 닫아도 입력기 프로세스는 종료되지 않습니다. iOS의 제품 호스트는 `platforms/ios`의 네이티브 App으로, 네이티브 키보드 확장을 내장하고 App Group을 통해 상태를 공유합니다. iOS에서 Tauri/React는 공유 기능과 화면을 위한 공용 컴포넌트로만 쓰이며, 독립 App으로 실행되지 않습니다. 서명과 기기 설치 절차는 [iOS 호스트](../../platforms/ios/README.md)를 참고하십시오.
+Android 통합 패키지 빌드와 기기 테스트는 [Android 호스트](../../platforms/android/README.md#tauri--react-共享设置合包)를 참고하십시오. 통합 패키지는 개발용이며, 릴리스되는 APK는 Tauri를 포함하지 않는 네이티브 패키지입니다. 통합 패키지에서 Tauri 설정과 네이티브 `:ime` 서비스는 같은 패키지의 다른 프로세스로 비공개 files/bootstrap/state를 공유하며, 설정 창을 닫아도 입력기 프로세스는 종료되지 않습니다. iOS의 제품 호스트는 `platforms/ios`의 네이티브 App으로, 설정 화면은 네이티브 SwiftUI 페이지입니다. 네이티브 키보드 확장을 내장하고 App Group을 통해 상태를 공유합니다. App에는 WebView가 없으며, Tauri iOS 프로젝트는 공용 컴포넌트를 따로 빌드할 때만 만들어지고 App으로 배포되거나 실행되지 않습니다. 서명과 기기 설치 절차는 [iOS 호스트](../../platforms/ios/README.md)를 참고하십시오.
 
 공유 설정은 shuangpin_profile로 xiaohe(小鹤), ziranma(自然码), shoudao(首道), microsoft(마이크로소프트), 그리고 custom(사용자 정의 쌍병, 키 표는 shuangpin_custom_profile에 저장)을 지원합니다. 기본값은 Xiaohe로 읽으며, 알 수 없는 값은 거부합니다. 설정 페이지는 쌍병이 아닌 방식에서 이 선택을 비활성화하지만 이미 선택된 값은 유지합니다. macOS와 Linux의 설정 페이지에서는 내장 방식을 출발점으로 사용자 정의 키 배치를 편집하고 JSON으로 가져오거나 내보낼 수 있으며, 키 표는 Engine의 검사를 통과해야만 저장되고 쓸 수 없는 표일 때 입력기는 Xiaohe로 동작합니다. 방식 변경은 단어 조합이 끝난 뒤 Engine을 교체하는 규칙을 그대로 따릅니다.
 
 Linux 로컬 빌드, 격리된 D-Bus / IBus 테스트, 설치 후 최초 설정은 [Linux 호스트](../../platforms/linux/README.md)를 참고하십시오. 호스트는 설정 파일 자동 재로드를 지원하며, 설치 후에는 함께 설치되는 `msime-linux-setup`이 사전을 갖추고 실행 설정을 준비합니다. `msime-linux-setup --download`는 `resources/desktop-dictionary.lock.json`에 따라 누락된 사전을 내려받으며, 그래픽 진입점은 `runtime-options.json`이 없을 때 같은 최초 설정 페이지를 엽니다.
 
-기능 정합은 MSIME-Windows의 전체 기능을 동작 기준선으로 삼습니다: 공통 비즈니스 로직과 화면은 항목별로 공유 계층과 Tauri에 연결하고, Windows는 TSF DLL과 Server가 프로세스를 나누는 구조를 그대로 따르지만, 둘 사이의 프로토콜은 이 저장소의 같은 버전 빌드만을 위한 것으로, MSIME-Windows의 옛 설정, 공유 메모리, 버전 없는 핸드셰이크, 옛 음성 파이프와는 더 이상 호환하지 않습니다. Android, iOS, macOS, Linux, HarmonyOS는 각 시스템의 역량에 맞게 적응합니다. `scripts/test-reference-*.py`는 이 기준선을 다시 실행할 수 있는 게이트로 고정합니다 — 참조 구현의 출고 설정 키, 네 화면의 기계 판독 가능한 기능 목록, changelog의 모든 기능 항목, 그리고 `windows/`, `server/`, `ui/src` 아래의 모든 소스 파일은 반드시 이 저장소의 구현이나 이유를 명시한 부재 기록 하나에 대응되어야 합니다.
+기능 정합은 MSIME-Windows의 전체 기능을 동작 기준선으로 삼습니다: 공통 비즈니스 로직은 항목별로 공유 계층에 연결하고 화면은 플랫폼별 담당에 따라 공유 React 페이지나 해당 플랫폼의 네이티브 설정에 연결하며, Windows는 TSF DLL과 Server가 프로세스를 나누는 구조를 그대로 따르지만, 둘 사이의 프로토콜은 이 저장소의 같은 버전 빌드만을 위한 것으로, MSIME-Windows의 옛 설정, 공유 메모리, 버전 없는 핸드셰이크, 옛 음성 파이프와는 더 이상 호환하지 않습니다. Android, iOS, macOS, Linux, HarmonyOS는 각 시스템의 역량에 맞게 적응합니다. `scripts/test-reference-*.py`는 이 기준선을 다시 실행할 수 있는 게이트로 고정합니다 — 참조 구현의 출고 설정 키, 네 화면의 기계 판독 가능한 기능 목록, changelog의 모든 기능 항목, 그리고 `windows/`, `server/`, `ui/src` 아래의 모든 소스 파일은 반드시 이 저장소의 구현이나 이유를 명시한 부재 기록 하나에 대응되어야 합니다.
 
 ## 입력 엔진
 

@@ -13,7 +13,7 @@ public final class EnglishSuggestionPolicySmoke {
         check(EnglishSuggestionPolicy.currentWord("中文Ｈｅ").equals("He"),
             "full-width capitalization should normalize");
         check(EnglishSuggestionPolicy.currentWord("done. ").isEmpty(), "punctuation boundary");
-        check(EnglishSuggestionPolicy.currentWord("don't").equals("t"), "apostrophe boundary");
+        check(EnglishSuggestionPolicy.currentWord("don't").equals("don't"), "apostrophe stays in the current word");
         var replacement = EnglishSuggestionPolicy.replacement("iph", "iphone", false);
         check(replacement != null && replacement.deleteCount() == 3
             && replacement.insert().equals("iphone"), "replacement span");
@@ -25,6 +25,9 @@ public final class EnglishSuggestionPolicySmoke {
             "normalized full-width replacement keeps initial capitalization and length");
         check(EnglishSuggestionPolicy.replacement("hello", "hello", false) == null,
             "identical replacement is omitted");
+        var segmented = EnglishSuggestionPolicy.replacement("imchinese", "I'm Chinese", false);
+        check(segmented != null && segmented.deleteCount() == 9
+            && segmented.insert().equals("I'm Chinese"), "split correction replaces the entire current word");
         System.out.println("Android English suggestion policy: boundaries and replacement passed");
     }
 }

@@ -17,6 +17,14 @@ public final class EditorSmoke {
         public boolean select(int start, int end) { calls.add("select:" + start + "," + end); return true; }
         public void end() { calls.add("end"); }
     }
+    static final class DisconnectedSink implements EditorBridge.Sink {
+        public void begin() {}
+        public boolean commit(String value) { throw new AssertionError("commit must not run"); }
+        public boolean compose(String value) { throw new IllegalStateException("synthetic disconnected editor"); }
+        public boolean finish() { throw new AssertionError("finish must not run"); }
+        public boolean select(int start, int end) { throw new AssertionError("select must not run"); }
+        public void end() { throw new IllegalStateException("synthetic disconnected editor"); }
+    }
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
     public static void main(String[] args) {
         EditorBridge bridge = new EditorBridge();
@@ -101,6 +109,8 @@ public final class EditorSmoke {
         sink.reject = true;
         check(!bridge.apply(sink, "🌲", "next"));
         check(sink.calls.equals(List.of("begin", "commit:🌲", "end")));
+        // 宿主可能在两次跨进程调用之间撤销 InputConnection；断开的编辑器应当只是本次编辑失败，不能让输入法进程崩溃。
+        check(!bridge.apply(new DisconnectedSink(), null, "next"));
         check(EditorPolicy.useEngine(1));
         // No-suggestion text, and Chrome's address bar (URI + no suggestions), still compose.
         check(EditorPolicy.useEngine(0x80001));

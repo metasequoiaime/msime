@@ -1,0 +1,35 @@
+# Agent Note: 五笔二三候选字符按当前页选择并保留标点回退
+
+Status: implemented
+
+## Problem
+
+#8127 要求五笔组字时以分号和单引号选择当前页第二、第三候选，默认关闭，可改键，候选不足时仍输出标点。现有 Windows 通用二三候选规则不提供自定义字符，而且候选不足时吞键；其他宿主未接入，不能直接用同一个开关表示两种行为。
+
+## Decision
+
+新增五笔专用共享偏好 `wubi_candidate_selection`，包含 `enabled`、`second_key` 和 `third_key`，缺省关闭、两个字符为 `;` 与 `'`。两个键必须是不同的单个 ASCII 标点，避免占用五笔字母、数字选词和控制键。运行时只在五笔普通中文组字且当前页有对应可见候选时，把字符或标点动作转成当前代次的选择动作；其他情况沿用原动作。设置变更立即进入现有会话，宿主继续负责物理键与修饰键处理。
+
+共享 React、iOS 活跃会话和 host-api 各宿主的按键路由按同一偏好接入；Windows TIP 增加配置帧以把自定义字符送入共享会话。Android、HarmonyOS 和其他宿主交给共享 JSON/host-api 路由，候选不足时保留原标点。Windows TIP 与 Server 的归类必须一致，不能仅把 Server 标点回包当作数字选词。旧通用二三候选设置的历史行为独立保留。
+
+## Alternatives considered
+
+- 扩展旧通用开关能复用 Windows 推送，但会改变其他方案及候选不足时的既有行为，也无法给其他宿主自动补上输入路径。
+- 直接在 Engine 里按原始座位选词可以减少适配，但运行时已重排或隐藏的候选会选错，选择必须走当前视图身份与 `engine_order`。
+- 各平台各自复制五笔判断便于接入本机事件，却会让当前页、缺候选回退与自定义键校验独立漂移；共享运行时统一字符语义，物理事件归类仍由宿主掌握。
+
+## Verification
+
+默认文档省略新配置；启用、保存、回读和非法键校验通过。字符与两种标点路由选择当前页第二、第三项，覆盖分页、展示重排、少候选、非五笔、英文、快捷模式与实时修改。共享设置入口可操作，Windows TIP 与 Server 的配置帧和输入路由编译通过。
+
+## Consequences
+
+自定义范围限单个 ASCII 标点，不支持组合快捷键；与翻页、以词定字冲突时偏好保存被拒绝。组字中的快捷模式和非五笔方案沿用原有标点与输入路由。旧通用二三候选仍独立保留，五笔路径只下沉已解码字符的选择语义。
+
+## Verification
+
+`msime-client-core` 1,475 项、`msime-input-runtime` 292 项、`msime-host-api` 634 项单测通过；新增五笔快捷键回归覆盖当前页、展示顺序、缺候选标点回退、非五笔/英文/快捷模式、实时配置和偏好校验。共享 UI 类型检查及 7 项五笔设置测试通过。Windows x64 MinGW 全量构建与 `windows-tsf-config-frames` 目标编译通过；Linux/macOS 本机不能执行 MinGW Windows ELF 测试，未将其称作 Windows 运行时验收。`pnpm run verify-notes` 与 `git diff --check` 通过。
+
+## Related notes
+
+[通用二三候选](2026-10-09-second-third-candidate-keys.md)仍只管理 Windows 固定分号/单引号规则；本篇管理五笔可配置字符及共享 host-api 语义。

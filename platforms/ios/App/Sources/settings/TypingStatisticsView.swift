@@ -54,7 +54,7 @@ struct TypingStatisticsView: View {
 
   /// 热力图默认显示的键盘布局：键盘当前方案是九键时用九键。
   private var showsNineKey: Bool {
-    nineKeyChoice ?? [.nineKey, .japaneseNineKey].contains(InputSchemePreference.scheme)
+    nineKeyChoice ?? [.nineKey, .nineKeyShuangpin, .japaneseNineKey].contains(InputSchemePreference.scheme)
   }
 
   var body: some View {

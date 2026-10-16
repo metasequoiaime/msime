@@ -3,7 +3,7 @@ import Foundation
 /// Validated values only; the platform applies this plan through its existing setters.
 struct IOSPreferencePlan {
   /// `platform.ios.keyboard_layout` 认得的取值，与 Android 的 `platform.android.keyboard_layout` 同一套词：方案用哪种触屏键盘（26 键、九键、14 键、手写）。服务端只限它是不超过 32 字节的字符串，以后可能多出别的取值，所以不认识的取值当作没有这一项。
-  static let keyboardLayouts: Set<String> = ["twenty_six_key", "nine_key", "fourteen_key", "handwriting"]
+  static let keyboardLayouts: Set<String> = ["twenty_six_key", "nine_key", "fourteen_key", "handwriting", "nine_key_shuangpin"]
 
   let scheme: String?
   /// 云端写着认得的 `platform.ios.keyboard_layout`：方案的键盘布局由它说了算，见 `scheme(keeping:)`。
@@ -22,7 +22,7 @@ struct IOSPreferencePlan {
   /// `custom_theme.keyboard`, the keyboard design as JSON; absent when the uploading device had none, which leaves the local design alone.
   let customSkinJSON: String?
 
-  /// `themes` is the global theme catalog of the client-core the app links (`msime_client_theme_catalog`); the plan does not keep its own copy of the ids.
+  /// `themes` 是应用所链接的 client-services 的全局主题目录（`msime_client_theme_catalog`）；plan 自己不另存一份 id。
   init(_ values: [String: BackendPreferenceValue], themes: Set<String>) throws {
     func string(_ key: String) throws -> String? {
       guard let value = values[key] else { return nil }
@@ -45,6 +45,7 @@ struct IOSPreferencePlan {
       case "quanpin":
         switch layout {
         case "fourteen_key": scheme = "fourteenKey"
+        case "nine_key_shuangpin": scheme = "nineKeyShuangpin"
         case "handwriting": scheme = "handwriting"
         default: scheme = usesNineKey ? "nineKey" : "quanpin"
         }

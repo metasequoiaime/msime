@@ -21,7 +21,7 @@ public enum InputFeatureToggle {
     CLOUD_CANDIDATES(Group.DICTIONARY, "cloud_candidates", false, "云候选",
         "向服务端请求长句与新词，需要联网"),
     ENGLISH_SUGGESTIONS(Group.DICTIONARY, "english_suggestions", true, "英文联想",
-        "英文模式下补全单词"),
+        "保留原文并提供纠错，空格默认采用纠错结果"),
     SINGLE_CHARACTER_ONLY(Group.DICTIONARY, "single_character_only", false, "只出单字",
         "候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字"),
 

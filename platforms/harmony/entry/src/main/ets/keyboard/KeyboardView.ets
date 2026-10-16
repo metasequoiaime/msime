@@ -56,6 +56,7 @@ import {
 } from './TypingEffectPolicy';
 import { HitOffset, KeyboardGeometry } from './KeyboardGeometry';
 import { NineKeyAction, NineKeyActionKind, NineKeyLayout, NineKey } from './input/NineKeyLayout';
+import { NineKeyShuangpinFace, nineKeyShuangpinFace, nineKeyShuangpinLabel } from './input/NineKeyShuangpinKeypad';
 import { FourteenKey, FourteenKeyLayout } from './input/FourteenKeyLayout';
 import { LayerCharacterRoute, LayerKey, LayerKeyKind, NumberSymbolLayout } from './input/NumberSymbolLayout';
 import { ChineseSymbolFaces } from './input/ChineseSymbolFaces';
@@ -105,7 +106,9 @@ import { ReplyKeyboardPolicy, ReplyStyle } from './ReplyKeyboardPolicy';
 import { CommunityReplyTemplate } from './CommunityReplyLibraryPolicy';
 import { SymbolPanelCategory, SymbolPanelPolicy } from './input/SymbolPanelPolicy';
 import { BackspaceHoldAction, BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
-import { FunctionPanelItem, FunctionPanelPolicy } from './FunctionPanelPolicy';
+import { FunctionPanelItem, FunctionPanelPolicy, PickerGrid } from './FunctionPanelPolicy';
+import { KeyboardFormFactorPolicy } from './KeyboardFormFactorPolicy';
+import display from '@ohos.display';
 import { KeyboardIconPaths } from './KeyboardIconPaths';
 import { BrandTile } from './faces/BrandTile';
 import { HeightBar } from './faces/HeightBar';
@@ -298,9 +301,8 @@ const SKIN_TOP_PADDING_VP: number = 4;
 const SKIN_ROWS_GAP_VP: number = 2;
 const SKIN_MIN_COLUMNS_GAP_VP: number = 6;
 const PANEL_DOTS_ROOM_VP: number = 14;
-// 功能面板和方案选择的磁贴网格：上方 10vp、行间 16vp，每行至少 52vp（设计稿和 Android 的 `FunctionPanelView`）；面板比这高时两行平分多出来的高度，而不是在底下空着一块。
+// 功能面板和方案选择的磁贴网格：上方 10vp，每行至少 52vp（设计稿和 Android 的 `FunctionPanelView`），行数和行距见 `FunctionPanelPolicy.pickerGrid`；面板比这高时各行平分多出来的高度，而不是在底下空着一块。
 const TILE_TOP_PADDING_VP: number = 10;
-const TILE_ROWS_GAP_VP: number = 16;
 const TILE_MIN_ROW_VP: number = 52;
 const PANEL_BOTTOM_PADDING_VP: number = 4;
 const PANEL_SIDE_PADDING_VP: number = 4;
@@ -452,6 +454,8 @@ struct KeyboardView {
   @State candidatePage: number = 0;
   @State candidatePageCount: number = 1;
   @State phrasePrefix: string = '';
+  /** 手机上拼写正写在输入框里，候选栏不画读音；见 `KeyboardSession.compositionInField`。 */
+  @State compositionInField: boolean = false;
   @State spellings: string[] = [];
   @State engineScheme: number = 0;
   /** Whether the scheme's openable candidate list (the Korean Hanja list, the Zhuyin list) is on the strip, as the Engine last reported it. */
@@ -492,6 +496,7 @@ struct KeyboardView {
   /** 在触屏键盘的符号层中，当前显示的是否是 #+= 层而不是 123 层；在字母层上始终为 false（Android 的 `ImeLetterRows.moreSymbols`）。 */
   @State @Watch('dropLetterGestures') moreSymbols: boolean = false;
   @State nineKey: boolean = false;
+  @State nineKeyShuangpinFaces: NineKeyShuangpinFace[] = [];
   /** 全拼 14 键在这台设备上生效：方案是 14 键且不是 2in1；地址栏、密码框这类编辑框由 `applyEditorFace` 收回到 26 键。英文时仍为真，只是画 26 键（`drawsFourteenKey`）。 */
   @State fourteenKey: boolean = false;
   /** Scheme 3 is Japanese, which has its own grid rather than a pinyin one. */
@@ -625,6 +630,9 @@ struct KeyboardView {
   @State phraseState: string = PHRASE_LIST_LOADING;
   /** 每次从标志打开功能面板时递增，让 `PagedTiles` 回到第一页。 */
   @State panelResetToken: number = 0;
+  /** 手机横屏（`KeyboardFormFactorPolicy.phoneLandscape`）：功能面板和方案选择只排两行。转屏时随屏幕变化重读，开着的面板跟着按新行数重排。 */
+  @State phoneLandscape: boolean = false;
+  private readonly displayChanged: (id: number) => void = (_id: number): void => this.readOrientation();
   /** 共享偏好 `touch_shuangpin_key_hints`：关掉时 26 键双拼的字母键不画声母/韵母提示。 */
   @State shuangpinKeyHints: boolean = KeyboardSession.shared.preferences().shuangpinKeyHints;
 
@@ -707,6 +715,8 @@ struct KeyboardView {
     new CanvasRenderingContext2D(new RenderingContextSettings(true));
 
   aboutToAppear(): void {
+    this.readOrientation();
+    display.on('change', this.displayChanged);
     this.english = KeyboardSession.shared.isEnglish();
     this.clipboardEnabled = KeyboardSession.shared.clipboardHistoryAllowed();
     KeyboardSession.shared.onClipboardHistoryChanged = (enabled: boolean): void => {
@@ -808,6 +818,8 @@ struct KeyboardView {
       this.english = KeyboardSession.shared.isEnglish();
       // 会话在每次获得焦点时重读按键反馈文件，设置应用所做的改动（字母键手势、滑行输入、手写板）就从这里进来，不带偏好修订号；视图的手势跟随这份副本。
       this.feedback = KeyboardSession.shared.feedbackSettings();
+      // 带进这个编辑框的组字，要等它的属性说明是否接受预上屏文字后才知道拼写写不写得进输入框。
+      this.compositionInField = KeyboardSession.shared.compositionInField();
       this.applyEditorFace();
       this.applyAutomaticCase();
       this.syncCloudClipboardEditor();
@@ -845,6 +857,7 @@ struct KeyboardView {
       this.candidatePage = state.page;
       this.candidatePageCount = state.pageCount;
       this.phrasePrefix = state.phrasePrefix;
+      this.compositionInField = state.compositionInField;
       this.spellings = state.spellings;
       this.nineKeySingleCharacter = state.nineKeySingleCharacter;
       this.nineKeyStrokes = state.nineKeyStrokes;
@@ -853,7 +866,7 @@ struct KeyboardView {
       this.engineScheme = state.scheme;
       this.candidateListOpen = state.candidateListOpen;
       this.japanese = state.scheme === JAPANESE_SCHEME && !state.english
-        && this.scheme.touchKeyboardLayout === 'nine_key';
+        && KeyboardScheme.isNineKeyLayout(this.scheme.touchKeyboardLayout);
       this.shuangpinProfile = state.shuangpinProfile;
       this.localMode = state.localMode;
       this.diagnostic = state.diagnostic;
@@ -924,6 +937,7 @@ struct KeyboardView {
   }
 
   aboutToDisappear(): void {
+    display.off('change', this.displayChanged);
     KeyboardSession.shared.onChanged = undefined;
     KeyboardSession.shared.onClipboardHistoryChanged = undefined;
     KeyboardSession.shared.onVoiceInputChanged = undefined;
@@ -1021,7 +1035,7 @@ struct KeyboardView {
   }
 
   /**
-   * 字母键平时画小写，与设计稿、Android 和 iOS 一致；只有下一键真的会输入大写时才画大写（`typesUppercase`）。
+   * 中文模式下中文方案的字母键面画大写，与 Android 和 iOS 一致，输入的仍是小写拼写；英文模式和日语罗马字平时画小写，只有下一键真的会输入大写时才画大写（`typesUppercase`）。规则在 `LetterKeyFacePolicy.displaysUppercase`。
    */
   private letterFace(letter: string): string {
     if (this.koreanFace()) {
@@ -1029,9 +1043,11 @@ struct KeyboardView {
     }
     if (this.vietnameseFace() || this.tibetanFace()) {
       // 越南语和藏文（威利转写区分大小写）的字母按 Shift 给出的大小写输入，所以键面显示那个大小写，和英文一样。
-      return LetterKeyFacePolicy.face(letter, false, false, this.caseMode !== LetterCaseMode.LOWERCASE);
+      return LetterKeyFacePolicy.face(letter, false, false, false, this.caseMode !== LetterCaseMode.LOWERCASE);
     }
-    return LetterKeyFacePolicy.face(letter, !this.english, this.localMode !== 'none', this.typesUppercase());
+    // 日语罗马字读键盘自己选的方案，和 `koreanFace` 同理：引擎还没回报方案时键面也要画对。
+    return LetterKeyFacePolicy.face(letter, !this.english, this.scheme.engineScheme === 'japanese',
+      this.localMode !== 'none', this.typesUppercase());
   }
 
   /**
@@ -2121,7 +2137,9 @@ struct KeyboardView {
       this.english = KeyboardSession.shared.toggleLanguage();
     }
     this.scheme = candidate;
-    this.nineKey = candidate.touchKeyboardLayout === 'nine_key';
+    this.nineKey = KeyboardScheme.isNineKeyLayout(candidate.touchKeyboardLayout);
+    this.nineKeyShuangpinFaces = candidate.preferenceId === 'nine_key_shuangpin'
+      ? KeyboardSession.shared.nineKeyShuangpinFaces().slice() : [];
     this.fourteenKey = this.offersFourteenKey(candidate);
     // The kana grid belongs to the scheme, not to what the Engine last reported: the Engine only
     // says so once something has been typed, and the face has to change before that.
@@ -2227,7 +2245,7 @@ struct KeyboardView {
    */
   private applyEditorFace(): void {
     const fullFace: boolean = KeyboardSession.shared.prefersFullFace();
-    const grid: boolean = this.scheme.touchKeyboardLayout === 'nine_key' && !fullFace;
+    const grid: boolean = KeyboardScheme.isNineKeyLayout(this.scheme.touchKeyboardLayout) && !fullFace;
     // 14 键同理：地址、密码这些编辑框画整块 26 键，离开后回到 14 键。
     const fourteen: boolean = this.offersFourteenKey(this.scheme) && !fullFace;
     if (grid === this.nineKey && fourteen === this.fourteenKey) {
@@ -2337,7 +2355,7 @@ struct KeyboardView {
       this.settings.enabledSchemes.includes(candidate.preferenceId)
       // A grid is a way of getting twenty-six letters out of nine keys, which is a problem only a
       // touch screen has. On a machine with a physical keyboard every letter already has a key.
-      && !(KeyboardFormFactor.isDesktop() && (candidate.touchKeyboardLayout === 'nine_key'
+      && !(KeyboardFormFactor.isDesktop() && (KeyboardScheme.isNineKeyLayout(candidate.touchKeyboardLayout)
         || candidate.touchKeyboardLayout === 'fourteen_key')));
   }
 
@@ -2734,7 +2752,9 @@ struct KeyboardView {
     this.applySkins();
     this.wubiProfile = this.settings.wubiProfile;
     this.scheme = this.enabledScheme();
-    this.nineKey = this.scheme.touchKeyboardLayout === 'nine_key';
+    this.nineKey = KeyboardScheme.isNineKeyLayout(this.scheme.touchKeyboardLayout);
+    this.nineKeyShuangpinFaces = this.scheme.preferenceId === 'nine_key_shuangpin'
+      ? KeyboardSession.shared.nineKeyShuangpinFaces().slice() : [];
     this.fourteenKey = this.offersFourteenKey(this.scheme);
     this.japanese = this.scheme.engineScheme === 'japanese' && this.nineKey;
     KeyboardSession.shared.setKeyGrid(this.keyGrid());
@@ -2909,6 +2929,8 @@ struct KeyboardView {
       case 'nine_key':
       case 'fourteen_key':
         return '全拼';
+      case 'nine_key_shuangpin':
+        return '九键双拼';
       case 'xiaohe':
         return '双拼 · 小鹤';
       case 'ziranma':
@@ -3000,10 +3022,10 @@ struct KeyboardView {
       && KeyboardSession.shared.glossRows() > 0;
   }
 
-  /** The composition as 「候选栏预编辑」 lets it be seen; see CandidatePreeditStylePolicy. */
+  /** 画出来的组字，见 CandidatePreeditStylePolicy：2in1 的候选窗口照「候选窗口预编辑」；手机没有这个设置，拼写写在输入框里时候选栏不画读音，写不进去（14 键、日语、不接受预上屏文字的编辑框）时照旧画。 */
   private visibleComposition(): VisibleComposition {
-    return CandidatePreeditStylePolicy.visible(this.settings.candidateShowPreedit, this.phrasePrefix, this.editing,
-      this.localMode);
+    return CandidatePreeditStylePolicy.visible(KeyboardFormFactor.isDesktop()
+      ? this.settings.candidateShowPreedit : !this.compositionInField, this.phrasePrefix, this.editing, this.localMode);
   }
 
   /** One candidate row without the reserved gloss line; see KeyboardMetrics.candidateRowHeightVp. */
@@ -3889,7 +3911,7 @@ struct KeyboardView {
               .fontFamily(this.candidateFontFamily())
               .maxLines(1)
           } else {
-            // 「候选栏预编辑：不显示」：这一行保留位置但不显示拼写，不过短语中已选定的部分和本地模式的触发符仍会显示。
+            // 拼写写在输入框里：这一行保留位置但不画拼写，候选不会因此上下移动；短语中已选定的部分和本地模式的触发符仍会显示。
             Text(this.visibleComposition().text)
               .fontSize(PREEDIT_FONT_SIZE)
               .letterSpacing(PREEDIT_LETTER_SPACING)
@@ -4230,7 +4252,8 @@ struct KeyboardView {
         ForEach(this.symbols ? NineKeyLayout.digits() : NineKeyLayout.touchRows(), (row: NineKey[]) => {
           Row({ space: this.keySpacing() }) {
             ForEach(row, (key: NineKey) => {
-              if (!this.symbols && NineKeyLayout.holdOptions(key).length > 0) {
+              if (!this.symbols && !this.nineKeyShuangpinFaceActive()
+                && NineKeyLayout.holdOptions(key).length > 0) {
                 this.nineKeyHoldKey(key);
               } else {
                 this.flexibleKey(this.nineKeyKeyOptions(key));
@@ -4308,6 +4331,11 @@ struct KeyboardView {
   private typeNineKeyZero(): void {
     if (this.symbols) {
       this.typeNineKeyDigit('0');
+      return;
+    }
+    if (this.nineKeyShuangpinFaceActive()) {
+      KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey('0'));
+      KeyboardSession.shared.press('0'.charCodeAt(0), false);
       return;
     }
     KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey('0'));
@@ -4484,7 +4512,8 @@ struct KeyboardView {
         ForEach(this.symbols ? NineKeyLayout.digits() : NineKeyLayout.rows(), (row: NineKey[]) => {
           Row({ space: this.keySpacing() }) {
             ForEach(row, (key: NineKey) => {
-              if (!this.symbols && NineKeyLayout.holdOptions(key).length > 0) {
+              if (!this.symbols && !this.nineKeyShuangpinFaceActive()
+                && NineKeyLayout.holdOptions(key).length > 0) {
                 this.nineKeyHoldKey(key);
               } else {
                 this.flexibleKey(this.nineKeyKeyOptions(key));
@@ -4521,9 +4550,14 @@ struct KeyboardView {
   }
 
   private nineKeyKeyOptions(key: NineKey): KeyOptions {
+    const shuangpin: boolean = this.nineKeyShuangpinFaceActive();
+    const input: string = shuangpin && (key.input === '@' || key.input === "'") ? '1' : key.input;
+    const face: NineKeyShuangpinFace | null = shuangpin
+      ? nineKeyShuangpinFace(this.nineKeyShuangpinFaces, input) : null;
     return {
-      face: this.symbols ? key.label : this.nineKeyFaceOf(key),
-      label: this.symbols ? KeyAccessibilityPolicy.symbol(key.label) : this.nineKeyLabel(key),
+      face: this.symbols ? key.label : (face === null ? this.nineKeyFaceOf(key) : nineKeyShuangpinLabel(face)),
+      label: this.symbols ? KeyAccessibilityPolicy.symbol(key.label)
+        : (face === null ? this.nineKeyLabel(key) : nineKeyShuangpinLabel(face).replace(/\n/g, '，')),
       // 触屏网格：字母格 17fp、字重 500，数字用旁边 0 键的 22fp。
       size: !this.touchDesign() ? KeyboardMetrics.SMALL_KEY_FONT_SIZE
         : (this.symbols ? TOUCH_LETTER_FONT_SIZE : NINE_KEY_FONT_SIZE),
@@ -4534,6 +4568,11 @@ struct KeyboardView {
       // its own digit row, rather than handing it to the Engine as a candidate position.
       action: this.symbols
         ? () => this.typeNineKeyDigit(key.input)
+        : shuangpin
+        ? () => {
+          KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(input));
+          KeyboardSession.shared.press(input.charCodeAt(0), false);
+        }
         : NineKeyLayout.showsQuickMarks(key)
         ? () => {
           KeyboardSession.shared.recordKey(KeyIdPolicy.nineKey(key.input));
@@ -4544,6 +4583,11 @@ struct KeyboardView {
           KeyboardSession.shared.press(key.input.charCodeAt(0), false);
         }
     };
+  }
+
+  private nineKeyShuangpinFaceActive(): boolean {
+    return this.scheme.preferenceId === 'nine_key_shuangpin'
+      && !this.symbols && !this.english && this.localMode === 'none';
   }
 
   @Builder
@@ -4777,14 +4821,38 @@ struct KeyboardView {
     }
   }
 
+  /** 设计底行是否以 符 打头、不放逗号句号（`KeyboardScheme.designRowLeadsWithSymbolPanel`）：26 键一族的字母层。 */
+  private designSymbolPanelRow(): boolean {
+    return KeyboardScheme.designRowLeadsWithSymbolPanel(
+      SchemeCompositionPolicy.selectedRulesScheme(this.scheme.engineScheme, this.english, this.localMode),
+      this.drawsFourteenKey(), this.symbols);
+  }
+
   /**
-   * 设计稿的底行，按宽度份额分配：123 1.25 | ， 1 | space 4 | 。 1 | 中 1.05 | return 1.9，即 Android 的 `KeyboardActionRow.designEntries`。中/英键放在回车左边，与经典底行的位置一致。
+   * 设计稿的底行，按宽度份额分配：123 1.25 | ， 1 | space 4 | 。 1 | 中 1.05 | return 1.9，即 Android 的 `KeyboardActionRow.designEntries`。中/英键放在回车左边，与经典底行的位置一致。26 键一族的字母层与九键一样换成 符 1.05 | 123 1.25 | space 4 | 中 1.05 | return 1.9（`designSymbolPanelRow`）；14 键、大千注音保留逗号句号。
    *
    * 功能键文字 15fp、字重 500。逗号保留长按弹出「常用标点」列表；句号是新加的。回车键始终使用操作色。
    */
   @Builder
   designActionRow() {
     Row({ space: this.keySpacing() }) {
+      if (this.designSymbolPanelRow()) {
+        // 与 中/英 同宽，和九键底行的 符 一样打开符号面板，按键记作同一个符号键。
+        this.fixedKey({
+          face: '符',
+          label: KeyAccessibilityPolicy.symbolPanel(),
+          size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+          fontWeight: FUNCTION_LABEL_WEIGHT,
+          emphasized: false,
+          special: true,
+          width: 0,
+          share: LANGUAGE_SHARE,
+          action: () => {
+            KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_SYMBOL);
+            this.openSymbolSurface();
+          }
+        });
+      }
       // 长按 123 直接打开符号面板，不必再经过 #+= 层；符号层里这个键是返回，长按不做事。
       Column() {
         this.fixedKey({
@@ -4801,33 +4869,37 @@ struct KeyboardView {
       .layoutWeight(LAYER_SHARE)
       .height('100%')
       .gesture(LongPressGesture().onAction(() => this.openSymbolsFromLayerKey()))
-      Column() {
+      if (!this.designSymbolPanelRow()) {
+        Column() {
+          this.fixedKey({
+            face: this.chinesePunctuationFaces() ? '，' : ',',
+            label: KeyAccessibilityPolicy.punctuation(),
+            size: TOUCH_LETTER_FONT_SIZE,
+            emphasized: false,
+            width: '100%',
+            action: () => this.typeComma()
+          });
+        }
+        .layoutWeight(PUNCTUATION_SHARE)
+        .height('100%')
+        .gesture(LongPressGesture().onAction(() => {
+          this.managing = -1;
+          this.brackets = false;
+          this.punctuation = true;
+        }))
+      }
+      this.spaceKey(true, SPACE_SHARE);
+      if (!this.designSymbolPanelRow()) {
         this.fixedKey({
-          face: this.chinesePunctuationFaces() ? '，' : ',',
-          label: KeyAccessibilityPolicy.punctuation(),
+          face: this.chinesePunctuationFaces() ? '。' : '.',
+          label: KeyAccessibilityPolicy.period(),
           size: TOUCH_LETTER_FONT_SIZE,
           emphasized: false,
-          width: '100%',
-          action: () => this.typeComma()
+          width: 0,
+          share: PUNCTUATION_SHARE,
+          action: () => this.typePeriod()
         });
       }
-      .layoutWeight(PUNCTUATION_SHARE)
-      .height('100%')
-      .gesture(LongPressGesture().onAction(() => {
-        this.managing = -1;
-        this.brackets = false;
-        this.punctuation = true;
-      }))
-      this.spaceKey(true, SPACE_SHARE);
-      this.fixedKey({
-        face: this.chinesePunctuationFaces() ? '。' : '.',
-        label: KeyAccessibilityPolicy.period(),
-        size: TOUCH_LETTER_FONT_SIZE,
-        emphasized: false,
-        width: 0,
-        share: PUNCTUATION_SHARE,
-        action: () => this.typePeriod()
-      });
       this.fixedKey({
         face: this.languageFace(),
         label: KeyAccessibilityPolicy.language(),
@@ -6617,12 +6689,30 @@ struct KeyboardView {
     return entries;
   }
 
+  /** 按屏幕此刻的宽高（转屏后两者互换）判断是不是手机横屏。 */
+  private readOrientation(): void {
+    const screen: display.Display = display.getDefaultDisplaySync();
+    this.phoneLandscape = KeyboardFormFactorPolicy.phoneLandscape(screen.width / screen.densityPixels,
+      screen.height / screen.densityPixels);
+  }
+
+  /** 功能面板和方案选择的行数和行距（`FunctionPanelPolicy.pickerGrid`）；是否放得下按有圆点算。 */
+  private tileGrid(): PickerGrid {
+    return FunctionPanelPolicy.pickerGrid(this.phoneLandscape, this.surfaceHeight(), TILE_MIN_ROW_VP,
+      TILE_TOP_PADDING_VP + PANEL_DOTS_ROOM_VP + PANEL_BOTTOM_PADDING_VP);
+  }
+
+  private tilePageSize(): number {
+    return FunctionPanelPolicy.COLUMNS * this.tileGrid().rows;
+  }
+
   /** 皮肤选择器的行高：两行预览，多于一页时再加圆点，在按键让出的高度内。 */
-  /** 功能面板和方案选择每行的高度：两行填满面板去掉上下留白、行距和圆点后的高度，至少 `TILE_MIN_ROW_VP`。磁贴在行内居中。 */
+  /** 功能面板和方案选择每行的高度：各行填满面板去掉上下留白、行距和圆点后的高度，至少 `TILE_MIN_ROW_VP`。磁贴在行内居中。 */
   private tileRowHeight(count: number): number {
-    const dots: number = count > FunctionPanelPolicy.PAGE_SIZE ? PANEL_DOTS_ROOM_VP : 0;
-    return Math.max(TILE_MIN_ROW_VP, Math.floor((this.surfaceHeight() - TILE_TOP_PADDING_VP - TILE_ROWS_GAP_VP
-      - dots - PANEL_BOTTOM_PADDING_VP) / 2));
+    const grid: PickerGrid = this.tileGrid();
+    const dots: number = count > this.tilePageSize() ? PANEL_DOTS_ROOM_VP : 0;
+    return Math.max(TILE_MIN_ROW_VP, Math.floor((this.surfaceHeight() - TILE_TOP_PADDING_VP
+      - (grid.rows - 1) * grid.rowsGap - dots - PANEL_BOTTOM_PADDING_VP) / grid.rows));
   }
 
   private skinRowHeight(pageCount: number): number {
@@ -6659,9 +6749,9 @@ struct KeyboardView {
       if (this.surface === SURFACE_SCHEME) {
         PagedTiles({
           count: this.schemePickerEntries().length,
-          pageSize: FunctionPanelPolicy.PAGE_SIZE,
+          pageSize: this.tilePageSize(),
           rowHeight: this.tileRowHeight(this.schemePickerEntries().length),
-          rowsGap: TILE_ROWS_GAP_VP,
+          rowsGap: this.tileGrid().rowsGap,
           topPadding: TILE_TOP_PADDING_VP,
           accent: this.skin.toggleForeground,
           hair: this.skin.hair,
@@ -7606,9 +7696,9 @@ struct KeyboardView {
       } else {
         PagedTiles({
           count: FunctionPanelPolicy.items().length,
-          pageSize: FunctionPanelPolicy.PAGE_SIZE,
+          pageSize: this.tilePageSize(),
           rowHeight: this.tileRowHeight(FunctionPanelPolicy.items().length),
-          rowsGap: TILE_ROWS_GAP_VP,
+          rowsGap: this.tileGrid().rowsGap,
           topPadding: TILE_TOP_PADDING_VP,
           resetToken: this.panelResetToken,
           accent: this.skin.toggleForeground,

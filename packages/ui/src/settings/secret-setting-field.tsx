@@ -7,6 +7,7 @@ export interface SecretSettingFieldProps {
   inputLabel?: string;
   description?: ReactNode;
   value: string;
+  placeholder?: string;
   disabled?: boolean;
   onChange: (value: string) => void;
 }
@@ -17,6 +18,7 @@ export function SecretSettingField({
   inputLabel,
   description,
   value,
+  placeholder,
   disabled,
   onChange,
 }: SecretSettingFieldProps) {
@@ -25,6 +27,7 @@ export function SecretSettingField({
       <SecretInput
         label={inputLabel ?? String(label)}
         value={value}
+        placeholder={placeholder}
         disabled={disabled}
         onChange={onChange}
       />

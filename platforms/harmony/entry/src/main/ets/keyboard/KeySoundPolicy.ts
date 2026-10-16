@@ -1,7 +1,7 @@
 /**
- * What the 2in1 key sounds, typing melody, commit and achievement sounds play, decided without a device.
+ * 决定 2in1 的按键音、打字旋律、上屏音和成就音播放什么，不依赖设备。
  *
- * The desktop hosts play through host-api's player (`crates/host-api/src/key_sound`), which HarmonyOS does not link; this host plays the same packs through SoundPool instead. Which pack answers which event, how a melody steps and when it starts over are that player's rules (`Selection::of`, `sounds_for`, `Melody::step`), ported here so the two cannot hear different things in the same preferences. Validating a pack is not ported: `msime_client_key_sound_pack` answers with the files client-core's validation accepted.
+ * 桌面宿主通过 host-api 的播放器（`crates/host-api/src/key_sound`）播放，HarmonyOS 不链接它，本宿主改用 SoundPool 播放同样的包。哪个包回应哪个事件、旋律怎样步进以及何时从头开始，都是那个播放器的规则（`Selection::of`、`sounds_for`、`Melody::step`），移植到这里，使两边在相同偏好下不会听到不同的声音。包的校验没有移植：`msime_client_key_sound_pack` 回答的就是通过 client-services 校验的文件。
  */
 
 import { AudioVolumePolicy } from "./AudioVolumePolicy";
@@ -391,7 +391,7 @@ export class KeySoundPolicy {
   }
 
   /**
-   * Whether this host plays a sample: WAV only, which it decodes natively under the pack bound, both from the header and while decoding, before SoundPool sees the result. Anything else is Ogg, which only SoundPool could decode, whole and with nothing bounding how long the decoded sound is, so an Ogg sample stays silent here. The extension is the one client-core checked against the header bytes.
+   * 本宿主是否播放某个采样：只播 WAV，由本宿主在包的上限内原生解码，在 SoundPool 拿到结果之前，从文件头和解码过程中都按这个上限检查。其余的都是 Ogg，只有 SoundPool 能解码，而且是整份解码，解码后的声音有多长没有任何上限，所以 Ogg 采样在这里保持静音。扩展名是 client-services 对照文件头字节核对过的那个。
    */
   static isWav(file: string): boolean {
     return file.toLowerCase().endsWith(".wav");

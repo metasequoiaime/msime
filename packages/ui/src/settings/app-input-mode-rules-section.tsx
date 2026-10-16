@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import type { AppInputModeRule } from "../index";
 import { Row, Select } from "../core/platform-controls";
 import { errorCode } from "../core/error-code";
 import { ActionButton } from "./action-button";
@@ -9,6 +8,8 @@ import {
   maxAppInputModeRules,
   normalizeAppInputModeRuleId,
   sortedAppInputModeRules,
+  type AppInputModeRule,
+  type PickedApplication,
   type AppInputModeRuleProblem,
 } from "./app-input-mode-rules";
 import { SettingsGroupNote } from "./settings-group-note";
@@ -16,11 +17,7 @@ import { SettingsRowStack } from "./settings-row-stack";
 import { SettingsWarning } from "./settings-warning";
 import { useAsyncGeneration } from "./use-async-generation";
 
-/** 宿主选中的应用：`id` 是规则用的标识（macOS 的 Bundle ID，Windows 的程序文件名），`name` 是给人看的名称。 */
-export interface PickedApplication {
-  id: string;
-  name: string;
-}
+export type { PickedApplication } from "./app-input-mode-rules";
 
 export interface AppInputModeRulesSectionProps {
   value?: Record<string, AppInputModeRule>;

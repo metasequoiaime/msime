@@ -23,9 +23,9 @@ from pathlib import Path
 # is exactly what a defect looks like from the outside.
 NOT_APPLICABLE = {
     "settings_theme": "the settings application's own appearance; the input method has no window to theme",
-    "touch_key_spacing_tenths": "the touch keyboard",
-    "touch_row_spacing_tenths": "the touch keyboard",
-    "touch_keyboard_height_adjustment": "the touch keyboard",
+    "touch_key_spacing_tenths": "the touch keyboard; the macOS screen keyboard panel draws the default spacing whatever is stored, and the page offers no slider (`touch_keyboard_spacing` is false)",
+    "touch_row_spacing_tenths": "the touch keyboard; the macOS screen keyboard panel draws the default spacing whatever is stored, and the page offers no slider (`touch_keyboard_spacing` is false)",
+    "touch_keyboard_height_adjustment": "the touch keyboard and the Windows panel window; the macOS screen keyboard window has a fixed height, and the page offers no slider (`touch_keyboard_height` is false)",
     "touch_voice_shortcut": "the touch keyboard",
     "touch_number_keypad_order": "the touch keyboard's nine-key digit layer",
     "touch_twenty_six_key_number_layout": "the touch keyboard's 26-key digit layer",

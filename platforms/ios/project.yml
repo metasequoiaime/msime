@@ -322,7 +322,7 @@ targets:
       - path: SharedUI
       - path: SharedResources/KeyboardBrand.png
         buildPhase: resources
-      # AIEndpointPolicyTests 逐条跑的跨平台用例，权威实现是 crates/client-core/src/ai/endpoint.rs。
+      # AIEndpointPolicyTests 逐条跑的跨平台用例，权威实现是 crates/client-providers/src/ai/endpoint.rs。
       - path: ../../shared/contracts/ai-endpoint/cases.json
         buildPhase: resources
     settings:

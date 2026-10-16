@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { SelectRow } from "./select-row";
-import { surfaceThemeOptions, type SurfaceTheme } from "./surface-theme-select";
+import { surfaceThemeOptions } from "./surface-theme-select";
+import type { SurfaceTheme } from "./theme-preferences";
 
 export interface SurfaceThemeRowProps {
   title: string;

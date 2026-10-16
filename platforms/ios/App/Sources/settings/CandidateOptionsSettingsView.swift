@@ -25,9 +25,7 @@ struct CandidateOptionsSettingsView: View {
   @State private var fontFamily = CandidateFontPreference.defaultFamily
   @State private var englishFamily: String?
   @State private var fontFamilies: [String] = []
-  @State private var preeditStyle = CandidatePreeditStyle.pinyin.rawValue
   @State private var shuangpinRaw = true
-  @State private var inlinePreedit = InlinePreeditPreference.style
   @State private var saveFailed = false
   /// A docked iPad keyboard has room for larger candidates than a phone strip; the keyboard applies the same limits when it draws.
   private let tablet = UIDevice.current.userInterfaceIdiom == .pad
@@ -79,16 +77,6 @@ struct CandidateOptionsSettingsView: View {
         }
 
         DesignGroup(title: "预编辑") {
-          DesignSelectRow(title: "行内预编辑", subtitle: "把正在拼写的编码也写进输入框",
-                          options: InlinePreeditPreference.Style.allCases.map { DesignOption(title: $0.title, value: $0) },
-                          selection: Binding(get: { inlinePreedit }, set: { inlinePreedit = $0; InlinePreeditPreference.style = $0 }),
-                          sheetTitle: "行内预编辑", identifier: "inlinePreedit")
-          DesignDivider()
-          DesignSelectRow(title: "候选栏预编辑", subtitle: "候选栏上是否显示正在拼写的编码",
-                          options: CandidatePreeditStyle.allCases.map { DesignOption(title: $0.title, value: $0.rawValue) },
-                          selection: storedTop(CandidatePreeditStyle.key, $preeditStyle),
-                          sheetTitle: "候选栏预编辑", identifier: "candidatePreeditStyle")
-          DesignDivider()
           DesignToggleRow(title: "双拼显示原始按键", subtitle: "关闭后显示按键对应的完整拼音",
                           isOn: storedTop("shuangpin_preedit_uses_raw", $shuangpinRaw))
             .accessibilityIdentifier("shuangpinPreeditUsesRaw")
@@ -217,7 +205,6 @@ struct CandidateOptionsSettingsView: View {
     fontFamily = preferences[CandidateFontPreference.familyKey] as? String ?? CandidateFontPreference.defaultFamily
     englishFamily = (preferences[CandidateFontPreference.englishFamilyKey] as? String).flatMap { $0.isEmpty ? nil : $0 }
     fontFamilies = CandidateFontPreference.families(in: preferences)
-    preeditStyle = CandidatePreeditStyle(in: preferences).rawValue
     shuangpinRaw = preferences["shuangpin_preedit_uses_raw"] as? Bool ?? true
     wordCharacter = (preferences["word_character"] as? [String: Any])?["enabled"] as? Bool ?? wordCharacter
   }

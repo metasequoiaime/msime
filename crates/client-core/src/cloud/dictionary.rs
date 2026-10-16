@@ -38,7 +38,8 @@ pub struct DictionaryChange {
 
 pub const MAX_IMPORT_BYTES: usize = 64 * 1024;
 
-pub(crate) fn kind_path(kind: DictionaryKind) -> &'static str {
+#[doc(hidden)]
+pub fn kind_path(kind: DictionaryKind) -> &'static str {
     match kind {
         DictionaryKind::Pinyin => "pinyin",
         DictionaryKind::Wubi => "wubi",

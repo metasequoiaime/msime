@@ -16,10 +16,10 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
- * AndroidLocalSettings 不碰 org.json 的部分：默认值、取值校验、写入前的拒绝、读不到时回到默认值、原子写，以及参与同步的键与 client-core 的 `ANDROID_LOCAL_SETTINGS` 逐项一致（键名、类型、可选值、整数范围）。check-host 的 android.jar 里 org.json 只是抛 `Stub!` 的桩，编码与解码留给设备上的设置页与同步。
+ * AndroidLocalSettings 不碰 org.json 的部分：默认值、取值校验、写入前的拒绝、读不到时回到默认值、原子写，以及参与同步的键与 client-services 的 `ANDROID_LOCAL_SETTINGS` 逐项一致（键名、类型、可选值、整数范围）。check-host 的 android.jar 里 org.json 只是抛 `Stub!` 的桩，编码与解码留给设备上的设置页与同步。
  */
 public final class AndroidLocalSettingsSmoke {
-    private static final String SYNC_SOURCE = "crates/client-core/src/account/settings_sync.rs";
+    private static final String SYNC_SOURCE = "crates/client-services/src/account/settings_sync.rs";
 
     private static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
@@ -309,7 +309,7 @@ public final class AndroidLocalSettingsSmoke {
         }
     }
 
-    /** client-core 校验 `android_local` 用的表与这里的同步键逐项一致。 */
+    /** client-services 校验 `android_local` 用的表与这里的同步键逐项一致。 */
     private static void syncedKeysMatchClientCore() throws IOException {
         String source = new String(Files.readAllBytes(repoRoot().resolve(SYNC_SOURCE)), StandardCharsets.UTF_8);
         int start = source.indexOf("const ANDROID_LOCAL_SETTINGS");

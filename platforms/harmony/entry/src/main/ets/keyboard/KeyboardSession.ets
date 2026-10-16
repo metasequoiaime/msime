@@ -24,6 +24,7 @@ import {
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { AppEdition } from './AppEdition';
 import { KeyboardScheme, KeyGrid, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
+import { NineKeyShuangpinFace, normalizedNineKeyShuangpinProfile } from './input/NineKeyShuangpinKeypad';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { EditEchoLedger } from './input/EditEchoLedger';
 import { JapaneseSpacePolicy } from './input/JapaneseSpacePolicy';
@@ -337,10 +338,11 @@ export interface ClipboardHistoryMutation {
 
 // The local emoji catalog lives in msime-others.db beside the dictionaries, so the query carries the
 // resource directory rather than going through a session.
-/** `{prefix,limit}` as the shared ABI reads it; the prefix is ASCII letters and the limit 1..32. */
+/** 共享查询的前缀和条数；手机通过 `correction` 明确请求原文及唯一纠错。 */
 interface EnglishCompletionRequest {
   prefix: string;
   limit: number;
+  correction?: boolean;
 }
 
 interface EmojiQuery {
@@ -558,6 +560,8 @@ export interface KeyboardState {
   readonly editingCaret: number;
   /** The already-chosen part of a phrase leading `editing`, which the preedit style never hides. */
   readonly phrasePrefix: string;
+  /** 手机上拼写正写在输入框里，候选栏不画读音；见 `KeyboardSession.compositionInField`。 */
+  readonly compositionInField: boolean;
   readonly spellings: string[];
   readonly scheme: number;
   readonly shuangpinProfile: string;
@@ -613,6 +617,22 @@ interface ViewResponse {
   ok: boolean;
   value: EngineView;
   error: string;
+}
+
+interface NineKeyShuangpinRawFace {
+  key?: string;
+  initials?: string[];
+  finals?: string[];
+  zero_initial?: boolean;
+}
+
+interface NineKeyShuangpinRawLayout {
+  keys?: NineKeyShuangpinRawFace[];
+}
+
+interface NineKeyShuangpinLayoutReply {
+  ok: boolean;
+  value?: NineKeyShuangpinRawLayout;
 }
 
 interface CreateResponse {
@@ -787,6 +807,8 @@ interface PreparedPreferences {
   /** Read-only English word completions while typing directly in English. Defaults to on. */
   english_suggestions?: boolean;
   shuangpin_profile: string;
+  nine_key_shuangpin_profile?: string;
+  nine_key_shuangpin_custom_profile?: Object;
   /** `wubi86` 或 `wubi98`；旧文档里没有这个键，按 86 版。引擎自己从转交的整份文档里读它选表，这里只用来给五笔方案起名。 */
   wubi_profile?: string;
   touch_keyboard_layout: string;
@@ -1045,7 +1067,7 @@ interface DictionaryCollectionsFlushResponse {
   error?: string;
 }
 
-/** 命名词库接受的操作，与 client-core 的 `DictionaryCollectionsAction` 一致；别的一律在桥上拒绝。 */
+/** 命名词库接受的操作，与 client-services 的 `DictionaryCollectionsAction` 一致；别的一律在桥上拒绝。 */
 const DICTIONARY_COLLECTION_OPERATIONS: string[] = [
   'load', 'create', 'rename', 'delete', 'set_enabled', 'add_words', 'remove_words', 'import',
   'install_community', 'queue_words', 'flush',
@@ -1136,6 +1158,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   // Which application the mode belongs to. Windows and macOS both keep this per application by
   // default; this host used to keep one mode for every editor it was ever attached to.
   private englishSuggestionsEnabled: boolean = true;
+  private englishCorrectionRejectedPrefix: string = '';
   // The completion list currently on the strip, the prefix it was asked for, and a counter that
   // makes every earlier answer stale. A reply that arrives after the word moved on is discarded.
   private englishSuggestions: string[] = [];
@@ -1168,6 +1191,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private capsLock: boolean = false;
   // 网格也归引擎管：九键下它决定一个 2 是什么意思，14 键下它把一组字母解成拼音，都要先告诉它网格开着。取值见 `KeyGrid`。
   private keyGrid: number = KeyGrid.NONE;
+  private nineKeyShuangpinRequest: string = '';
+  private nineKeyShuangpinFaceCache: NineKeyShuangpinFace[] = [];
   // 还没读到 Engine 的视图时按本版本的默认方案算（full 是全拼）。
   private schemeName: string = AppEdition.current().defaultScheme;
   private profileName: string = 'xiaohe';
@@ -1249,7 +1274,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
-    shuangpinKeyHints: true
+    shuangpinKeyHints: false
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1519,7 +1544,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       rowSpacingTenths: KeyboardGeometry.rowSpacing(preferences.touch_row_spacing_tenths),
       heightAdjustment:
         KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
-      shuangpinKeyHints: preferences.touch_shuangpin_key_hints !== false
+      shuangpinKeyHints: preferences.touch_shuangpin_key_hints === true
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(
@@ -1882,6 +1907,38 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.appearance;
   }
 
+  /** 当前九键双拼方案的键面。设置或偏好改变后请求串改变才重新解析，避免每次重绘都跨 NAPI。 */
+  nineKeyShuangpinFaces(): readonly NineKeyShuangpinFace[] {
+    const preferences: PreparedPreferences | undefined = this.preparedPreferences;
+    const profile: string = normalizedNineKeyShuangpinProfile(
+      preferences?.nine_key_shuangpin_profile);
+    const table: Object | undefined = profile === 'custom'
+      ? preferences?.nine_key_shuangpin_custom_profile : undefined;
+    const request: string = JSON.stringify(table === undefined ? { profile } : { profile, table });
+    if (request === this.nineKeyShuangpinRequest) return this.nineKeyShuangpinFaceCache;
+    this.nineKeyShuangpinRequest = request;
+    this.nineKeyShuangpinFaceCache = [];
+    try {
+      const reply: NineKeyShuangpinLayoutReply = JSON.parse(
+        client.nineKeyShuangpinLayout(request)) as NineKeyShuangpinLayoutReply;
+      if (reply.ok !== true || reply.value === undefined) {
+        return this.nineKeyShuangpinFaceCache;
+      }
+      const keys: NineKeyShuangpinRawFace[] = reply.value.keys ?? [];
+      this.nineKeyShuangpinFaceCache = keys.filter((key: NineKeyShuangpinRawFace): boolean =>
+        typeof key.key === 'string' && Array.isArray(key.initials) &&
+        Array.isArray(key.finals)).map((key: NineKeyShuangpinRawFace): NineKeyShuangpinFace => ({
+          key: key.key as string,
+          initials: key.initials as string[],
+          finals: key.finals as string[],
+          zeroInitial: key.zero_initial === true
+        }));
+    } catch (error) {
+      KeyboardLog.error(`nine-key shuangpin layout unavailable: ${describeError(error)}`);
+    }
+    return this.nineKeyShuangpinFaceCache;
+  }
+
   /**
    * 全局主题在某一模式下的键盘配色：自定义主题带有自定义设计时用该设计，否则用解析出的配色，再否则用季节配色，最后用原生令牌。
    *
@@ -2211,11 +2268,13 @@ export class KeyboardSession implements HardwareKeyTarget {
    * on their behalf would drop a capital they asked for.
    */
   capitalizes(): boolean {
-    return this.englishMode && this.capitalization !== CapitalizationMode.NONE;
+    return this.englishMode && !this.englishCorrectionEnabled()
+      && this.capitalization !== CapitalizationMode.NONE;
   }
 
   shouldShiftNextLetter(): boolean {
-    if (!this.englishMode || this.capitalization === CapitalizationMode.NONE) {
+    if (!this.englishMode || this.englishCorrectionEnabled()
+        || this.capitalization === CapitalizationMode.NONE) {
       return false;
     }
     if (this.capitalization === CapitalizationMode.ALL_CHARACTERS) {
@@ -2940,6 +2999,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
+    this.clearEnglishSuggestions();
     const editorGeneration: number = ++this.editorGeneration;
     const attributeGeneration: number = ++this.attributeGeneration;
     this.ownEdits.clear();
@@ -3182,7 +3242,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   private insertEditorText(text: string): void {
     const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
     if (inputClient === undefined) return;
-    if (this.previewText.length > 0 || this.commitSynchronously) {
+    if (this.previewText.length > 0 || this.commitSynchronously || this.englishCorrectionEnabled()) {
       // The insertion takes the preview text's place. It has to land before the next preview update, which is synchronous, and an asynchronous insert gives no such order.
       try {
         this.insertEditorTextSync(text);
@@ -3221,6 +3281,14 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
+  /** 手机上拼写此刻是否写在输入框里，候选栏因此不画读音；见 InlinePreeditPolicy.hidesStripReading。 */
+  compositionInField(): boolean {
+    const view: EngineView | undefined = this.lastView;
+    return view !== undefined && InlinePreeditPolicy.hidesStripReading(KeyboardFormFactor.isDesktop(),
+      this.previewText, SchemeCompositionPolicy.drawsPreedit(
+        SchemeCompositionPolicy.rulesScheme(view.scheme, view.dedicated_english, view.local_mode)));
+  }
+
   /**
    * Bring the editor's preview text in line with the composition the Engine last reported.
    *
@@ -3229,11 +3297,14 @@ export class KeyboardSession implements HardwareKeyTarget {
   private syncPreview(): void {
     const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
     const view: EngineView | undefined = this.lastView;
-    // 拼写一栏传的是候选条画出来的那一串：多数方案就是 editing_text，笔画方案是笔画字形，文档里不出现键入的字母。
+    // 拼写一栏传的是候选条画出来的那一串：多数方案就是 editing_text，笔画方案是笔画字形，文档里不出现键入的字母。分词一栏是拼音分词形式，全拼九键是读音而不是按下的数字。
+    const rulesScheme: number = view === undefined ? -1
+      : SchemeCompositionPolicy.rulesScheme(view.scheme, view.dedicated_english, view.local_mode);
     const wanted: string = view === undefined ? '' : InlinePreeditPolicy.text(this.inlinePreeditStyle,
-      KeyboardFormFactor.isDesktop(), this.previewSupported, KeyboardSession.drawnReading(view), view.preedit,
-      view.phrase_prefix ?? '', SchemeCompositionPolicy.drawsPreedit(SchemeCompositionPolicy.rulesScheme(
-        view.scheme, view.dedicated_english, view.local_mode)));
+      KeyboardFormFactor.isDesktop(), this.previewSupported, KeyboardSession.drawnReading(view),
+      SchemeCompositionPolicy.fieldSpelling(rulesScheme, view.editing_text, view.preedit, view.nine_key_reading ?? ''),
+      view.phrase_prefix ?? '', SchemeCompositionPolicy.drawsPreedit(rulesScheme),
+      SchemeCompositionPolicy.keepsReadingOnStrip(rulesScheme, this.keyGrid === KeyGrid.FOURTEEN_KEY));
     if (inputClient === undefined || wanted === this.previewText) return;
     const shown: string = this.previewText;
     try {
@@ -3391,6 +3462,10 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Whether the key did anything. The touch keyboard ignores the answer; the hardware path hands a declined letter back to the application. */
   press(ascii: number, shift: boolean): boolean {
+    if (this.commitEnglishBoundary(String.fromCharCode(ascii))) {
+      this.tapFeedback();
+      return true;
+    }
     // Checked before the repeat arming is cleared: the space that converts is the key immediately
     // after the mark, so this is the one press where both armings are live at once.
     if (this.convertPunctuationSpace(ascii)) {
@@ -3478,6 +3553,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Route an ASCII punctuation key through the shared editor-context policy. */
   punctuation(ascii: number): void {
     if (this.handle === 0 || this.inputClient === undefined) return;
+    if (!this.punctuationLockedChinese()
+        && this.commitEnglishBoundary(String.fromCharCode(ascii))) return;
     let preceding: number = 0;
     try {
       // Harmony's getForwardSync returns the bounded text immediately before the cursor.
@@ -4119,6 +4196,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         editing: (view.phrase_prefix ?? '') + reading,
         editingCaret: KeyboardSession.drawnCaret(view, reading) + (view.phrase_prefix ?? '').length,
         phrasePrefix: view.phrase_prefix ?? '',
+        compositionInField: this.compositionInField(),
         spellings: view.nine_key_spellings,
         scheme: view.scheme,
         shuangpinProfile: view.shuangpin_profile,
@@ -4179,6 +4257,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       candidates: entries, editing: (view.phrase_prefix ?? '') + reading,
       editingCaret: KeyboardSession.drawnCaret(view, reading) + (view.phrase_prefix ?? '').length,
       phrasePrefix: view.phrase_prefix ?? '',
+      compositionInField: this.compositionInField(),
       spellings: view.nine_key_spellings,
       scheme: view.scheme, shuangpinProfile: view.shuangpin_profile, localMode: view.local_mode,
       english: view.dedicated_english, diagnostic: this.diagnostic,
@@ -4242,6 +4321,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       candidates: entries,
       editing: view?.editing_text ?? this.editing,
       editingCaret: view?.caret_position ?? this.editingCaret, phrasePrefix: '', spellings: [],
+      compositionInField: this.compositionInField(),
       scheme: view?.scheme ?? this.scheme, shuangpinProfile: view?.shuangpin_profile ?? this.profileName,
       localMode: view?.local_mode ?? this.localMode,
       english: view?.dedicated_english ?? this.englishMode, diagnostic: this.diagnostic,
@@ -4403,7 +4483,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`AI query unavailable: ${describeError(error)}`);
       return false;
     }
-    // 描述符由 client-core 按同一规则生成，这里在发出前再拦一次：http 只能发往本机或局域网，Token 不明文经过互联网。
+    // 描述符由 client-providers 按同一规则生成，这里在发出前再拦一次：http 只能发往本机或局域网，Token 不明文经过互联网。
     if (typeof descriptor.url !== 'string' || !AiEndpointPolicy.allowed(descriptor.url)) return false;
     const request = http.createHttp();
     installNoRedirectGuard(request);
@@ -5955,6 +6035,7 @@ export class KeyboardSession implements HardwareKeyTarget {
    * and not the rest.
    */
   insert(text: string): void {
+    if (this.commitEnglishBoundary(text)) return;
     if (this.inputClient !== undefined) {
       const widened: string | null = FullWidthInputPolicy.output(text, this.fullWidth);
       const output: string = this.asTraditional(widened === null ? text : widened);
@@ -5974,12 +6055,15 @@ export class KeyboardSession implements HardwareKeyTarget {
    */
   private refreshEnglishSuggestions(): void {
     if (!this.englishSuggestionsEnabled || !this.englishMode || this.composing()
-        || this.inputClient === undefined || this.resourceDirectory.length === 0) {
+        || this.inputClient === undefined || this.resourceDirectory.length === 0
+        || EditorPolicy.prefersLatin(this.traits) || !EditorPolicy.useEngine(this.traits)) {
       this.clearEnglishSuggestions();
       return;
     }
     const prefix: string = this.englishWordBeforeCursor();
-    if (!EnglishSuggestionPolicy.suggestible(prefix)) {
+    if (prefix !== this.englishCorrectionRejectedPrefix) this.englishCorrectionRejectedPrefix = '';
+    const correction: boolean = this.englishCorrectionEnabled();
+    if (!EnglishSuggestionPolicy.suggestible(prefix, correction)) {
       this.clearEnglishSuggestions();
       return;
     }
@@ -5988,7 +6072,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     const epoch: number = ++this.englishSuggestionEpoch;
     this.englishSuggestionRequested = prefix;
-    const request: EnglishCompletionRequest = { prefix: prefix, limit: EnglishSuggestionPolicy.LIMIT };
+    const request: EnglishCompletionRequest = {
+      prefix: prefix, limit: correction ? 2 : EnglishSuggestionPolicy.LIMIT, correction: correction
+    };
     const resources: string = this.resourceDirectory;
     // A promise rather than a direct call: the lookup opens a packaged dictionary, and the keyboard
     // has to keep drawing while it happens.
@@ -6015,6 +6101,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   private clearEnglishSuggestions(): void {
+    this.englishCorrectionRejectedPrefix = '';
     this.englishSuggestionEpoch++;
     this.englishSuggestionRequested = '';
     if (this.englishSuggestions.length === 0 && this.englishSuggestionPrefix.length === 0) {
@@ -6064,6 +6151,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       EnglishSuggestionPolicy.startedCapitalized(typed));
     if (replacement === null) {
       this.clearEnglishSuggestions();
+      this.englishCorrectionRejectedPrefix = typed;
       return;
     }
     try {
@@ -6075,6 +6163,48 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     this.insert(replacement.insert);
     this.clearEnglishSuggestions();
+  }
+
+  private englishCorrectionEnabled(): boolean {
+    return !KeyboardFormFactor.isDesktop() && this.englishMode && this.englishSuggestionsEnabled
+      && !this.englishCandidates && this.keyGrid !== KeyGrid.NINE_KEY
+      && this.keyGrid !== KeyGrid.NINE_KEY_SHUANGPIN && !this.composing()
+      && EditorPolicy.useEngine(this.traits) && !EditorPolicy.prefersLatin(this.traits);
+  }
+
+  /** 边界键必须以编辑器当前词为准，不能拿旧候选删除光标旁边的其他文字。 */
+  private commitEnglishBoundary(boundary: string): boolean {
+    if (!this.englishCorrectionEnabled() || boundary.length !== 1
+        || ' ,.!?:;'.indexOf(boundary) < 0 || this.inputClient === undefined) return false;
+    if (boundary !== ' ' && this.punctuationLockedChinese()) return false;
+    const typed: string = this.englishWordBeforeCursor();
+    if (typed.length === 0) return false;
+    let candidate: string = typed;
+    if (typed !== this.englishCorrectionRejectedPrefix && this.resourceDirectory.length > 0) {
+      try {
+        const request: EnglishCompletionRequest = { prefix: typed, limit: 2, correction: true };
+        const result: EnglishCompletions | null = EnglishSuggestionPolicy.decode(
+          client.englishCompletions(JSON.stringify(request), this.resourceDirectory));
+        if (result !== null && result.prefix === typed && result.items.length === 2
+            && result.items[0] === typed) candidate = result.items[1];
+      } catch (error) {
+        // 可选纠错查询失败时仍然输入原文和边界，不记录实际文字。
+      }
+    }
+    if (typed !== this.englishWordBeforeCursor()) return false;
+    const replacement: EnglishReplacement | null = EnglishSuggestionPolicy.replacement(
+      typed, candidate, EnglishSuggestionPolicy.startedCapitalized(typed));
+    const suffix: string = boundary === ' ' ? ' ' : boundary + ' ';
+    try {
+      if (replacement !== null) this.deleteEditorBackwardSync(replacement.deleteCount);
+      const output: string = (replacement === null ? '' : replacement.insert) + suffix;
+      this.insertEditorTextSync(output);
+      this.recordTypingStatistics(suffix, this.typingSource());
+    } catch (error) {
+      // 编辑器可能已断开；不再次输入同一边界，避免部分写入后重复。
+    }
+    this.clearEnglishSuggestions();
+    return true;
   }
 
   /** The five switches as the policy reads them; an older document keeps the shared defaults. */

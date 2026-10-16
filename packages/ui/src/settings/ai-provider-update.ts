@@ -1,7 +1,7 @@
-import { AI_PROVIDER_OPTIONS } from "./ai-provider-options";
+import { AI_PROVIDER_OPTIONS, type AiProviderCatalogEntry } from "./ai-provider-options";
 import type { AiAssistantPreferences } from "../index";
 
-export type AiProviderPreset = { id: string; endpoint: string; model: string };
+export type AiProviderPreset = Pick<AiProviderCatalogEntry, "id" | "endpoint" | "model">;
 export type AiProviderPreferences = { provider: string; endpoint: string; model: string };
 
 export function updateAiProvider<T extends AiProviderPreferences>(

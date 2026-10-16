@@ -1,7 +1,9 @@
+import type { ProviderDefaults } from "../core/provider-preset";
+
 export type TokenMap = Record<string, string>;
 
 export function known(
-  table: Record<string, { endpoint: string; model: string }>,
+  table: Record<string, Pick<ProviderDefaults, "endpoint" | "model">>,
   field: "endpoint" | "model",
 ): string[] {
   return Object.values(table)

@@ -78,12 +78,12 @@ const SHUANGPIN_PROFILES = ["xiaohe", "ziranma", "shoudao", "microsoft"];
 const WUBI_PROFILES = ["wubi86", "wubi98"];
 const FREQUENCY_MODES = ["disabled", "pin", "halve", "linear", "promote"];
 // 下载时认得的 `touch_keyboard_layout` 取值；不在这里的取值（更新的版本加的布局）只跳过这个键，不拒绝整份文档。
-const LAYOUTS = ["twenty_six_key", "nine_key", "handwriting", "fourteen_key"];
+const LAYOUTS = ["twenty_six_key", "nine_key", "nine_key_shuangpin", "handwriting", "fourteen_key"];
 /** 共享偏好 `quote_style`、`bracket_style` 的取值；文档里没有这两个键时是第一个。 */
 const QUOTE_STYLES = ["curly", "corner", "corner_when_traditional"];
 const BRACKET_STYLES = ["solid", "hollow"];
 // 本版上传的布局。全拼 14 键先不上传：旧版鸿蒙读到 `fourteen_key` 会拒收整份文档，而上传是把本机的键盖在云端快照上，省略这个键等于保留云端原值；写成 `twenty_six_key` 则会把同账号的其他设备切回 26 键。
-const UPLOADED_LAYOUTS = ["twenty_six_key", "nine_key", "handwriting"];
+const UPLOADED_LAYOUTS = ["twenty_six_key", "nine_key", "nine_key_shuangpin", "handwriting"];
 // The seven global theme ids the shared layer accepts; any other id, a retired skin id included, is refused rather than mapped.
 const GLOBAL_THEMES = ["system", "shuishan", "light", "paper", "night", "ink", "custom"];
 // What a custom theme may be drawn over: the platform tokens or a built-in theme, never `custom` itself.
@@ -452,10 +452,10 @@ export function localAccountPreferences(
       TWENTY_SIX_KEY_NUMBER_LAYOUTS,
       "row",
     ),
-    // 26 键双拼的键位提示，缺省是开；账号字段表收录这个键之前上传时会被滤掉。
+    // 26 键双拼的键位提示，缺省是关；账号字段表收录这个键之前上传时会被滤掉。
     "platform.harmony.shuangpin_key_hints": flag(
       member(preferences, "touch_shuangpin_key_hints"),
-      true,
+      false,
     ),
     "platform.harmony.sound_enabled": feedback.soundEnabled,
     "platform.harmony.haptics_enabled": feedback.hapticsEnabled,
@@ -628,7 +628,7 @@ export function applyAccountPreferences(
   if (smartPunctuation !== null) preferences.smart_punctuation = smartPunctuation;
   const pairedPunctuation = reader.boolean("input.paired_punctuation");
   if (pairedPunctuation !== null) preferences.paired_punctuation = pairedPunctuation;
-  // 不认得的样式（更新的版本加的）只跳过这个键，与 client-core 的设置同步一致。
+  // 不认得的样式（更新的版本加的）只跳过这个键，与 client-services 的设置同步一致。
   const quoteStyle = reader.text("input.quote_style");
   if (quoteStyle !== null && QUOTE_STYLES.includes(quoteStyle))
     preferences.quote_style = quoteStyle;

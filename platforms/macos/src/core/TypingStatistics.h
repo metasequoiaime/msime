@@ -99,7 +99,7 @@ constexpr bool ShouldCountPassthroughCharacter(char16_t ch, bool control, bool c
     return true;
 }
 
-// The key heatmap id for a macOS virtual key code (`NSEvent.keyCode`, the Carbon kVK_* constants), or an empty view for a key the heatmap has no id for. kVK codes name physical positions, so a key counts in the same place whatever the active layout (AZERTY, Dvorak, Shuangpin keymaps) makes it type. The ids are the W3C `KeyboardEvent.code` names that crates/client-core typing_statistics.rs KEY_IDS accepts; one id outside that list rejects the whole batch, so keys without a whitelisted name (F13-F20, keypad =, the JIS keypad comma, volume keys) return empty rather than a guess. Help sits where Insert is on PC keyboards and is reported as Insert, the way browsers do. The JIS かな and 英数 keys are Lang1 and Lang2.
+// The key heatmap id for a macOS virtual key code (`NSEvent.keyCode`, the Carbon kVK_* constants), or an empty view for a key the heatmap has no id for. kVK codes name physical positions, so a key counts in the same place whatever the active layout (AZERTY, Dvorak, Shuangpin keymaps) makes it type. The ids are the W3C `KeyboardEvent.code` names that crates/client-services typing_statistics.rs KEY_IDS accepts; one id outside that list rejects the whole batch, so keys without a whitelisted name (F13-F20, keypad =, the JIS keypad comma, volume keys) return empty rather than a guess. Help sits where Insert is on PC keyboards and is reported as Insert, the way browsers do. The JIS かな and 英数 keys are Lang1 and Lang2.
 constexpr std::string_view KeyIdForVirtualKeyCode(unsigned short keyCode) {
     switch (keyCode) {
     case 0x00: return "KeyA";

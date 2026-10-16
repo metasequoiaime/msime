@@ -22,7 +22,7 @@ struct ClipboardHistorySettingsView: View {
         }
         .accessibilityIdentifier("clipboardHistorySavePaste")
       } footer: {
-        Text("键盘工具面板里的“剪贴板历史”保存的内容也在这里。记录只保存在本机，最多 50 条，固定的不会被新记录挤掉。")
+        Text("键盘工具面板里的“剪贴板历史”保存的内容也在这里。记录只保存在本机，最多 200 条，固定的不会被新记录挤掉。")
       }
       .designRow()
 

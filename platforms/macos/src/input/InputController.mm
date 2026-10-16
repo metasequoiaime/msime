@@ -1174,8 +1174,6 @@ static NSImage *MSIMECandidateLogoImage() {
     // Otherwise the next repeat falls through to the client and starts
     // deleting document text even though the user never released the key.
     BOOL _backspaceHoldArmed;
-    // 连续按住 Shift 输入大写时，前一个入口字母已经交给应用；下一枚大写字母不能再次打开快捷模式。
-    BOOL _uppercasePassthroughPending;
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
     // 上一次排版时这种明暗画的皮肤包，空串表示没有画包；外观变化后画的包不同了就要重新排版。
@@ -5923,13 +5921,6 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         return YES;
     }
     if (event.type != NSEventTypeKeyDown) return NO;
-    const NSEventModifierFlags competingForUppercase = NSEventModifierFlagControl | NSEventModifierFlagOption |
-        NSEventModifierFlagCommand;
-    const BOOL plainUppercaseKey = event.characters.length == 1 &&
-        [[NSCharacterSet uppercaseLetterCharacterSet] characterIsMember:[event.characters characterAtIndex:0]] &&
-        (event.modifierFlags & NSEventModifierFlagShift) &&
-        !(event.modifierFlags & competingForUppercase);
-    if (!plainUppercaseKey) _uppercasePassthroughPending = NO;
     [_appearance lockActiveInputMode];
     if (event.keyCode == 51) {
         const BOOL compositionActive = [_view[@"editing_text"] length] || [_view[@"candidates"] count] ||
@@ -6454,14 +6445,6 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     else if (event.characters.length == 1 && [event.characters characterAtIndex:0] <= 127) {
         const BOOL shift = (event.modifierFlags & NSEventModifierFlagShift) != 0;
         unichar typed = [event.characters characterAtIndex:0];
-        if (_uppercasePassthroughPending && plainUppercaseKey &&
-            ![_view[@"editing_text"] length] && ![_view[@"candidates"] count]) {
-            NSString *text = event.characters;
-            [(id<MSIMETextClient>)sender insertText:text replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
-            MSIMERecordTypingStatistics(_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"], text,
-                                        MSIMEResolveTypingSource(_view, _view, MSIMEStatisticsHostOptions(_session), _appearance.englishMode));
-            return YES;
-        }
         if (MSIMESchemeTrait(_view, msime::mac::scheme::FoldsLetterCase)) typed = (unichar)msime::mac::KoreanKeyLetter((char)typed, shift);
         _punctuationKeyInFlight = MSIMEASCIIPunctuation(typed) ? typed : 0;
         transition = [_session typeASCII:(uint8_t)typed shift:shift error:nil];
@@ -6482,8 +6465,6 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (!finished) return NO;
         [self apply:finished];
     }
-    if (plainUppercaseKey && ![_view[@"editing_text"] length] && ![_view[@"candidates"] count])
-        _uppercasePassthroughPending = YES;
     // A scheme that does not widen (`widens_full_width`: Korean, Vietnamese) writes half-width digits and punctuation whatever the width switch says, as host-api does for the Engine's own commits.
     if (!(MSIMESchemeRulesApply(_view) && !msime::mac::scheme::WidensFullWidth(MSIMEViewScheme(_view))) && _appearance.runtimeFullWidthInput && [_view[@"editing_text"] isKindOfClass:NSString.class] &&
         ![_view[@"editing_text"] length] && event.characters.length == 1 &&

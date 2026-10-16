@@ -199,7 +199,7 @@ const plugins: PluginClient = {
   remove: (kind, id) => invoke<void>("remove_plugin_pack", { kind, id }),
   loadMentions: () => invoke<MentionEntry[]>("load_plugin_mentions"),
   saveMentions: (entries) => invoke<void>("save_plugin_mentions", { entries }),
-  // 脚本插件的授权：设置应用经 client-core 的 `script_grants` 写入。页面只在宿主声明了 `script_plugins` 时调用。
+  // 脚本插件的授权：设置应用经 client-services 的 `script_grants` 写入。页面只在宿主声明了 `script_plugins` 时调用。
   scriptGrants: () => invoke<ScriptGrantsResult>("script_grants"),
   setScriptGrant: (id, hash, enabled, granted) =>
     invoke<ScriptGrantsResult>("set_script_grant", { id, hash, enabled, granted }),
@@ -290,7 +290,7 @@ const client: SettingsClient = {
     list: () => invoke<AppNotice[]>("notices_list"),
     dismiss: (id) => invoke<void>("notice_dismiss", { id }),
   },
-  // 与其他宿主一样，发布列表由 Rust（`msime_client_core::update_check`）读取和比较。
+  // 与其他宿主一样，发布列表由 Rust（`msime_client_services::update_check`）读取和比较。
   checkUpdate: (request) => invoke<UpdateCheckResult>("update_check", request),
   openThirdPartyLicenses: () => invoke("open_third_party_licenses"),
   loadMacosShuangpinKeymap: () => invoke<boolean>("load_macos_shuangpin_keymap"),

@@ -2,9 +2,8 @@ import type { ReactNode } from "react";
 import type { Preferences } from "../index";
 import { GroupList } from "../core/platform-controls";
 import { CustomTranslationSection } from "./custom-translation-section";
+import type { CustomTranslationPreferences } from "./translation-credential-preferences";
 import { customTranslationKeyIssue, translationEndpointIssue } from "./translation-validation";
-
-type CustomTranslationPreferences = NonNullable<Preferences["custom_translation"]>;
 
 export interface CustomTranslationSettingsSectionProps {
   grouped?: boolean;

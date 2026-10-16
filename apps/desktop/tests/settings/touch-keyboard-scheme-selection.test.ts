@@ -101,6 +101,7 @@ test("the helper exposes the complete stable scheme order", () => {
     "stroke",
     "zhuyin_nine_key",
     "fourteen_key",
+    "nine_key_shuangpin",
   ]);
   // 高情商回复是键盘工具栏上的工具，不再是输入方案。
   expect(allTouchKeyboardSchemes as string[]).not.toContain("thoughtful_reply");
@@ -213,7 +214,7 @@ test("selecting Japanese from Vietnamese keeps the remembered Chinese scheme", (
 });
 
 test("Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke are appended after Korean and are opt-in", () => {
-  expect(allTouchKeyboardSchemes).toHaveLength(18);
+  expect(allTouchKeyboardSchemes).toHaveLength(19);
   expect(allTouchKeyboardSchemes.slice(10)).toEqual([
     "korean",
     "cantonese",
@@ -223,6 +224,7 @@ test("Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke are appended after Korea
     "stroke",
     "zhuyin_nine_key",
     "fourteen_key",
+    "nine_key_shuangpin",
   ]);
   expect(defaultTouchKeyboardSchemes).toEqual(allTouchKeyboardSchemes.slice(0, 11));
   // 没有列表的文档出自默认值改成只有中文之前的版本，按那时的默认列表回退（client-core 的 `LEGACY_DEFAULT_ENABLED`），日语和韩语不会在升级后消失。
@@ -457,4 +459,24 @@ test("a custom shuangpin profile shows on the Xiaohe keyboard", () => {
       last_chinese_scheme: "shuangpin",
     }),
   ).toBe("xiaohe");
+});
+
+test("九键双拼默认关闭，启用后写入全拼方案与独立布局并可回读", () => {
+  expect(defaultTouchKeyboardSchemes).not.toContain("nine_key_shuangpin");
+  const next = selectHomeTouchKeyboardScheme(preferences, "nine_key_shuangpin");
+  expect(next.scheme).toBe("quanpin");
+  expect(next.last_chinese_scheme).toBe("quanpin");
+  expect(next.touch_keyboard_layout).toBe("nine_key_shuangpin");
+  expect(next.touch_keyboard_schemes).toEqual({
+    enabled: ["quanpin", "xiaohe", "wubi", "nine_key_shuangpin"],
+    selected: "nine_key_shuangpin",
+  });
+  expect(touchKeyboardSchemeTitle(next)).toBe("九键双拼");
+  expect(
+    inferredTouchKeyboardScheme({
+      ...next,
+      touch_keyboard_schemes: { enabled: next.touch_keyboard_schemes!.enabled },
+    }),
+  ).toBe("nine_key_shuangpin");
+  expect(selectTouchKeyboardScheme(next, "quanpin").touch_keyboard_layout).toBe("twenty_six_key");
 });

@@ -329,7 +329,11 @@ constexpr std::uint32_t DedicatedEnglishChanged = 29;
 constexpr std::uint32_t SecondThirdCandidateChanged = 30;
 // 引号与方头括号样式（偏好 `quote_style`、`bracket_style`，Server 已按繁体输出开关解析 `corner_when_traditional`）。载荷 "q<0|1>b<0|1>"：q1 时 TIP 的 '\'' 出「」、'"' 出『』，b1 时 '[' ']' 出〖〗。旧版 TIP 丢弃这个帧，照旧出弯引号和实心括号。
 constexpr std::uint32_t PunctuationMarksChanged = 31;
-constexpr std::uint32_t MaxKnown = PunctuationMarksChanged;
+// 五笔快捷选词：载荷为开关 0/1 和两个 ASCII 标点。TIP 作为字符交给共享会话，候选不足时由原标点路径处理。
+constexpr std::uint32_t WubiCandidateSelectionChanged = 32;
+// 已协商的无上屏候选选择，按 candidate_continuation_pipe.h 分帧传输。
+constexpr std::uint32_t CandidateContinuation = 33;
+constexpr std::uint32_t MaxKnown = CandidateContinuation;
 // Source compatibility for the Server's historical spellings.
 constexpr std::uint32_t SwitchToEn = SwitchToEnglish;
 constexpr std::uint32_t SwitchToCn = SwitchToChinese;

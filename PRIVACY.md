@@ -44,7 +44,7 @@ https://inputtools.google.com/request?text=ni%20hao&itc=zh-t-i0-pinyin&num=1&ie=
 
 ### 候选翻译（默认不联网）
 
-`candidate_translations` 默认 `true`，支持腾讯机器翻译（`https://tmt.tencentcloudapi.com`）、小牛翻译（`https://api.niutrans.com/v2/text/translate`）和自定义端点。三者都要求你在设置里填入自己的 API 凭据，默认全为空字符串——**没有凭据就不会发出请求**，开关为真也一样。发送内容是待翻译的候选词。代码在 `crates/client-core/src/credential/translation.rs`。自定义端点的主机名恰好是 `api.deepl.com` 或 `api-free.deepl.com`（https、默认端口）时，按 DeepL v2 格式带上你填的密钥发给 DeepL：密钥以 `:fx` 结尾的发往 `https://api-free.deepl.com/v2/translate`，其余发往 `https://api.deepl.com/v2/translate`，与你填的是两个 DeepL 主机中的哪一个无关；这种地址没有密钥时不发。其他自定义端点原样使用你填的地址。请求由 `crates/client-core/src/translation.rs` 的 `custom_translation_request` 构造，Linux provider（`platforms/linux/scripts/msime-linux-online-provider`）照写的一份由 `shared/contracts/custom-translation/cases.json` 的共享用例约束。
+`candidate_translations` 默认 `true`，支持腾讯机器翻译（`https://tmt.tencentcloudapi.com`）、小牛翻译（`https://api.niutrans.com/v2/text/translate`）和自定义端点。三者都要求你在设置里填入自己的 API 凭据，默认全为空字符串——**没有凭据就不会发出请求**，开关为真也一样。发送内容是待翻译的候选词。代码在 `crates/client-providers/src/credential/translation.rs`。自定义端点的主机名恰好是 `api.deepl.com` 或 `api-free.deepl.com`（https、默认端口）时，按 DeepL v2 格式带上你填的密钥发给 DeepL：密钥以 `:fx` 结尾的发往 `https://api-free.deepl.com/v2/translate`，其余发往 `https://api.deepl.com/v2/translate`，与你填的是两个 DeepL 主机中的哪一个无关；这种地址没有密钥时不发。其他自定义端点原样使用你填的地址。请求由 `crates/client-core/src/translation.rs` 的 `custom_translation_request` 构造，Linux provider（`platforms/linux/scripts/msime-linux-online-provider`）照写的一份由 `shared/contracts/custom-translation/cases.json` 的共享用例约束。
 
 Android 也支持这三种服务（含按主机名识别的 DeepL），在「设置 → 输入 → 翻译 → 翻译服务」里选择和填写凭据。选了它们之后，键盘把当前一页的中文候选词直接发给你配置的第三方服务翻译，不经过水杉服务器，候选词按该服务自己的数据政策处理：每页最多 10 个词，每个不超过 40 字，跳过表情和颜文字候选；腾讯每批最多 9 个词，小牛和自定义每个词单独请求一次；设置了第二目标语言时，每种语言各请求一次。离线释义查得到的语言仍然先用离线释义，但请求不因此省掉。自定义端点在 Android 上只接受 https，或指向本机（`localhost`、`127.0.0.1`、`[::1]`）的 http，局域网 http 不接受。同一设置下已经回答过的词（包括回答「没有译文」的）不会重复请求；失败时同一个词 30 秒内不再请求，整个服务连不上时 30 秒内不再发任何请求。凭据只保存在本机的设置文件里，不随设置同步上传，也不写进日志。代码在 `platforms/android/java/app/msime/android/candidate/UserTranslationClient.java` 和 `TranslationHttpTransport.java`。
 
@@ -59,9 +59,9 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 - `local`：设备上的识别模型，`asr_model_path` 是一个绝对路径，指向设置页下载的 sherpa-onnx 模型目录（包含 `msime-model.json`）。不需要 Token，也没有端点。
 - `system`：调用操作系统自带的识别（macOS / iOS / HarmonyOS），数据流向由操作系统决定。macOS 与 iOS 26 起使用 SpeechAnalyzer（设备端）；更早的系统在识别器支持时设置 `requiresOnDeviceRecognition`，不支持时由系统决定是否上传。
 
-选择云端服务时，发送的是录制的音频。代码在 `crates/client-core/src/credential/asr.rs`，服务选择逻辑在 `crates/client-core/src/preferences.rs`。
+选择云端服务时，发送的是录制的音频。代码在 `crates/client-providers/src/credential/asr.rs`，服务选择逻辑在 `crates/client-core/src/preferences.rs`。
 
-**本地模型**全程在设备上运行：录音、识别结果和热词都不离开设备，识别期间不发出任何网络请求。macOS 与 Linux 的输入法进程不自己加载模型，而是拉起本机的 `msime-voice-local` 辅助进程，经标准输入输出交换音频和文本（协议见 `shared/voice/README.md`），不经过网络套接字；Windows 在本机的 `msime-client-server` 进程内识别，Android、iOS 与 HarmonyOS 在应用进程内识别。热词取自你的个人词库（只取用户自己添加的拼音词条），在本机交给识别器，或在识别后于本机做近音替换（`crates/client-core/src/voice/hotwords.rs`）。
+**本地模型**全程在设备上运行：录音、识别结果和热词都不离开设备，识别期间不发出任何网络请求。macOS 与 Linux 的输入法进程不自己加载模型，而是拉起本机的 `msime-voice-local` 辅助进程，经标准输入输出交换音频和文本（协议见 `shared/voice/README.md`），不经过网络套接字；Windows 在本机的 `msime-client-server` 进程内识别，Android、iOS 与 HarmonyOS 在应用进程内识别。热词取自你的个人词库（只取用户自己添加的拼音词条），在本机交给识别器，或在识别后于本机做近音替换（`crates/client-providers/src/voice/hotwords.rs`）。
 
 唯一的联网发生在**下载模型**时，且只在你在设置页点「下载」后发生。用「从文件导入」安装时完全不联网：选中的本地文件只在本机按长度和 SHA-256 校验后解压进模型目录；设置页里每个文件的下载链接用系统浏览器打开，输入法本身不发请求（Android 的 full 与拼音版在打开「离线识别」而本机还没有语音运行库时会下载它，见[资源与更新下载](#资源与更新下载)）：
 
@@ -71,7 +71,7 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 | 发送内容 | 对模型归档的 HTTPS GET 请求，User-Agent 为 `msime/<版本号>`，不携带任何输入内容、音频、账号或设备标识 |
 | 需要凭据 | 否 |
 | 偏好字段 | `voice_input.asr_model_mirror`，默认空字符串，表示直接访问 GitHub |
-| 代码 | `crates/client-core/src/voice/local_models.rs`；地址、长度和 SHA-256 固定在 `resources/local-asr-models.json` |
+| 代码 | `crates/client-providers/src/voice/local_models.rs`；地址、长度和 SHA-256 固定在 `resources/local-asr-models.json` |
 
 镜像必须是 `https://` 地址，请求 URL 是镜像前缀加上原始 GitHub 地址，所以**镜像运营方能看到你的 IP 和你下载的是哪个模型**。下载内容按目录里固定的 SHA-256 校验，镜像无法替换文件；校验不过的下载会被丢弃。重定向离开 HTTPS 时请求被拒绝。模型装好之后，识别不再需要网络。
 
@@ -81,11 +81,11 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 
 ### AI 联想（自带端点与密钥）
 
-配置完整才会发起请求，发送内容是当前查询。默认值按平台不同：Windows 与 macOS 跟随来源模板，`ai_assistant.enabled` 默认开启，并预填 DeepSeek 的接口（`https://api.deepseek.com/chat/completions`）与模型（`deepseek-v4-flash`）；Token 默认为空，`chat_completion_http_request`（`crates/client-core/src/ai.rs`）在没有可用密钥时拒绝构造请求，因此不会发出任何请求。其余宿主默认关闭，接口为空，需要显式启用并自己填写。端点可以改成任意服务，代码对它做校验：必须是 http/https、不得内嵌用户名密码、长度不超过 2048、不含控制字符（`apps/desktop/src-tauri/src/ai.rs`）。常见的 DeepSeek、OpenAI、Groq、SiliconFlow、OpenRouter、EveryAPI 只是文档和测试里出现的示例，仓库不预置任何一家的密钥。
+配置完整才会发起请求，发送内容是当前查询。默认值按平台不同：Windows 与 macOS 跟随来源模板，`ai_assistant.enabled` 默认开启，并预填 DeepSeek 的接口（`https://api.deepseek.com/chat/completions`）与模型（`deepseek-v4-flash`）；Token 默认为空，`chat_completion_http_request`（`crates/client-providers/src/ai.rs`）在没有可用密钥时拒绝构造请求，因此不会发出任何请求。其余宿主默认关闭，接口为空，需要显式启用并自己填写。端点可以改成任意服务，代码对它做校验：必须是 http/https、不得内嵌用户名密码、长度不超过 2048、不含控制字符（`apps/desktop/src-tauri/src/ai.rs`）。常见的 DeepSeek、OpenAI、Groq、SiliconFlow、OpenRouter、EveryAPI 只是文档和测试里出现的示例，仓库不预置任何一家的密钥。
 
 ### 账号与同步（需要登录）
 
-`https://api.msime.app`，定义在 `crates/client-core/src/account.rs` 的 `ACCOUNT_ORIGIN`。普通账号不登录不发生。
+`https://api.msime.app`，定义在 `crates/client-services/src/account.rs` 的 `ACCOUNT_ORIGIN`。普通账号不登录不发生。
 
 匿名账号在六个平台上都是安装后自动注册的：本机随机生成一个标识（`msime-` 加 16 位）和一个 48 位口令，先保存在本机，再向 `/v1/auth/challenges` 与 `/v1/auth/login` 换取令牌。只发送这两个随机值，不含输入内容、设备信息或系统账号。网络失败不影响输入，下次启动重试；已有登录或匿名会话时只读本机文件，不再发请求。各平台的时机：
 
@@ -95,7 +95,7 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 - Android：应用首次打开时（`AccountIdentity.register`），已存有匿名会话（即使已过期）就不发请求，存于应用私有存储。
 - HarmonyOS：应用首次启动或键盘首次加载时，存于应用的 `files/state` 目录。
 
-Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审核)之外，不用这个账号发送任何内容。候选翻译在你选择了「水杉账号」时才发送，见[候选翻译](#候选翻译默认不联网)；Android 浏览社区皮肤与词库目录时，也会带上匿名账号的令牌（`platforms/android/java/app/msime/android/community/CommunityCatalog.java`），取不到照常列出目录。凭据的存放：iOS 用 Keychain（`crates/tauri-mobile-platform/ios/Sources/MobilePlatformPlugin.swift`），Android 用 Keystore 加密后落盘；macOS、Windows 与 Linux 桌面端存在当前用户私有的 `account-session.json` 里（`crates/client-core/src/account/file_storage.rs`），只有本人可读写，不加密。
+Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审核)之外，不用这个账号发送任何内容。候选翻译在你选择了「水杉账号」时才发送，见[候选翻译](#候选翻译默认不联网)；Android 浏览社区皮肤与词库目录时，也会带上匿名账号的令牌（`platforms/android/java/app/msime/android/community/CommunityCatalog.java`），取不到照常列出目录。凭据的存放：iOS 用 Keychain（`crates/tauri-mobile-platform/ios/Sources/MobilePlatformPlugin.swift`），Android 用 Keystore 加密后落盘；macOS、Windows 与 Linux 桌面端存在当前用户私有的 `account-session.json` 里（`crates/client-services/src/account/file_storage.rs`），只有本人可读写，不加密。
 
 ### 云剪贴板（需要登录或自建中继）
 
@@ -106,7 +106,7 @@ Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审
 - **服务端仍然看得到的**：条目数量、写入时间、是否置顶、写入设备的名称、两条内容是否相同（用于去重），以及每台设备的名称、公钥和登记时间。
 - **本机密钥放在哪里**：与账号凭据放在一起——iOS 钥匙串、Android 用 Keystore 加密后落盘、HarmonyOS 应用私有目录、macOS/Windows/Linux 当前用户私有的 `cloud-clipboard-keystore` 文件；退出登录时与凭据一起删除。同一台设备上的输入法和设置应用共用这一份，所以在服务端只算一台设备。
 
-- **改走自建中继**：Linux 设置页「剪贴板」和 Android「我的 → 云剪贴板」页的「云剪贴板同步方式」可以选「自建中继」，填中继地址和管理员发的令牌（偏好字段 `cloud_clipboard_relay`）。选了以后，云剪贴板的请求只发往你填的地址、带中继令牌，不再经过 `api.msime.app`，也不需要登录水杉账号；加密和设备批准都和上面一样，上面说的元数据留在你的中继上（中继不记录写入设备的名称）。地址只接受 `https://`（`http://` 只用于本机回环地址），证书必须是公网可信的。令牌和语音、翻译服务的凭据一样明文存在本机的设置文件里，不随设置文件导出、不随账号同步，诊断快照里换成 `<redacted>`。本机密钥另存为当前用户私有的 `cloud-clipboard-relay-keystore`（桌面端与账号会话同一目录；Android 在应用私有的 `no_backup/cloud-clipboard-relay/` 下，和账号那份一样用 AndroidKeyStore 里不能导出的密钥加密，不进云备份，也不随设备间迁移带走），退出水杉账号不删除它，换了中继地址或令牌后不再使用旧的那份。Android 上配置了中继时，设置页和键盘的「云端」都只连中继，账号页不再为显示条数去问水杉账号；还不能经中继收发的页面（Android、iOS 的 Tauri 设置页和云剪贴板面板）直接拒绝，不改走水杉账号。协议和参考实现见 [`docs/cloud-clipboard-relay.md`](docs/cloud-clipboard-relay.md)，客户端在 `crates/client-core/src/clipboard_relay.rs`。
+- **改走自建中继**：Linux 设置页「剪贴板」和 Android「我的 → 云剪贴板」页的「云剪贴板同步方式」可以选「自建中继」，填中继地址和管理员发的令牌（偏好字段 `cloud_clipboard_relay`）。选了以后，云剪贴板的请求只发往你填的地址、带中继令牌，不再经过 `api.msime.app`，也不需要登录水杉账号；加密和设备批准都和上面一样，上面说的元数据留在你的中继上（中继不记录写入设备的名称）。地址只接受 `https://`（`http://` 只用于本机回环地址），证书必须是公网可信的。令牌和语音、翻译服务的凭据一样明文存在本机的设置文件里，不随设置文件导出、不随账号同步，诊断快照里换成 `<redacted>`。本机密钥另存为当前用户私有的 `cloud-clipboard-relay-keystore`（桌面端与账号会话同一目录；Android 在应用私有的 `no_backup/cloud-clipboard-relay/` 下，和账号那份一样用 AndroidKeyStore 里不能导出的密钥加密，不进云备份，也不随设备间迁移带走），退出水杉账号不删除它，换了中继地址或令牌后不再使用旧的那份。Android 上配置了中继时，设置页和键盘的「云端」都只连中继，账号页不再为显示条数去问水杉账号；还不能经中继收发的页面（Android、iOS 的 Tauri 设置页和云剪贴板面板）直接拒绝，不改走水杉账号。协议和参考实现见 [`docs/cloud-clipboard-relay.md`](docs/cloud-clipboard-relay.md)，客户端在 `crates/client-services/src/clipboard_relay.rs`。
 
 - **只上传你明确选择的文字**：在云剪贴板面板里输入或粘贴后点上传，或者在本地剪贴板历史的某一条上点「发到云剪贴板」。复制时不会自动上传到云端。（Android 在你开启本机剪贴板历史后会自动把复制的文字记在本机，见下文「默认值」，这些记录同样不会上传；你在键盘里把某一条「添加到常用语」后，它就成了一条常用语，开着常用语同步时会随常用语一起同步。）
 - **只在打开面板时读取**：设置页、键盘里的「云端」栏和 macOS 输入法菜单里的「云剪贴板…」在打开和点刷新时各拉取一次列表，没有轮询或推送。
@@ -134,7 +134,7 @@ Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审
 | 需要凭据 | 否 |
 | 偏好字段 | 沿用 `voice_input.asr_model_mirror`，默认空字符串，表示直接访问 GitHub；下载失败时资源包那一行和手写面板都提供「设置下载镜像」 |
 | 存放位置 | 偏好目录下的 `resource-packs/<资源包>/`：macOS 是 `~/Library/Application Support/app.msime.macos/resource-packs/`，Windows 是输入法服务的数据目录，Linux 是运行时选项记录的状态目录，Android 是应用私有目录 `files/bootstrap/state/resource-packs/`（没下完的部分留在同一目录下的 `.partial-<资源包>/`，下次接着下载）；许可证文本放在数据旁边 |
-| 代码 | `crates/client-core/src/resource_packs.rs`、`apps/desktop/src-tauri/src/platform/desktop/desktop_resource_packs.rs`，Android 经 `crates/host-api/src/ffi/pack_downloads.rs` 调用同一份实现；地址、长度和 SHA-256 固定在 `resources/desktop-dictionary.lock.json`、`resources/language-dictionaries.lock.json`、`resources/offline-glosses.lock.json`、`resources/voice-runtime.lock.json` 与 `resources/voice-runtime-android.lock.json`（语音运行库归档和从中取出的两个库）、`resources/handwriting-model.lock.json` 和 `resources/settled-model.lock.json` |
+| 代码 | `crates/client-providers/src/resource_packs.rs`、`apps/desktop/src-tauri/src/platform/desktop/desktop_resource_packs.rs`，Android 经 `crates/host-api/src/ffi/pack_downloads.rs` 调用同一份实现；地址、长度和 SHA-256 固定在 `resources/desktop-dictionary.lock.json`、`resources/language-dictionaries.lock.json`、`resources/offline-glosses.lock.json`、`resources/voice-runtime.lock.json` 与 `resources/voice-runtime-android.lock.json`（语音运行库归档和从中取出的两个库）、`resources/handwriting-model.lock.json` 和 `resources/settled-model.lock.json` |
 
 镜像规则和下面本地语音模型的相同：必须是 `https://` 地址，镜像运营方能看到你的 IP 和你下载的是哪个资源包，但下载内容按固定的 SHA-256 校验，镜像无法替换文件，校验不过就换下一个来源。不需要这些功能就不会发生这些请求；缺少资源包时对应的方案或手写面板显示为不可用，桌面神经联想保持现有候选；Android 上缺少的语言不出现在键盘里，离线释义只有英文，本地语音识别不可用，中文输入不受影响。
 
@@ -142,7 +142,7 @@ Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模
 
 ### 使用统计与崩溃上报（默认开启，可关闭）
 
-六个平台都通过同一份共享实现向 `https://api.msime.app/v1/telemetry/events` POST 事件：`crates/client-core/src/telemetry.rs`（队列、安装 id、事件规则、发送与重试），原生宿主经 `crates/host-api` 的 `msime_client_telemetry_{begin,end,record_crash,flush,clear}`（`crates/host-api/src/ffi/reporting.rs`，声明在 `crates/host-api/include/msime_client.h`）调用它。**事件里没有任何输入内容、候选、剪贴板、账号标识或硬件信息**。
+六个平台都通过同一份共享实现向 `https://api.msime.app/v1/telemetry/events` POST 事件：`crates/client-services/src/telemetry.rs`（队列、安装 id、事件规则、发送与重试），原生宿主经 `crates/host-api` 的 `msime_client_telemetry_{begin,end,record_crash,flush,clear}`（`crates/host-api/src/ffi/reporting.rs`，声明在 `crates/host-api/include/msime_client.h`）调用它。**事件里没有任何输入内容、候选、剪贴板、账号标识或硬件信息**。
 
 | | |
 | --- | --- |
@@ -172,7 +172,7 @@ Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模
 
 ### 服务公告
 
-设置窗口或 App 首页打开时，向 `GET https://api.msime.app/v1/notices?channel=app&platform=<平台>` 拉取一次公告列表，不带凭据，也不带安装 id；服务端缓存一分钟，客户端最快一分钟问一次，输入法进程从不在后台拉取。共享实现在 `crates/client-core/src/notices.rs`。拉取的地方：
+设置窗口或 App 首页打开时，向 `GET https://api.msime.app/v1/notices?channel=app&platform=<平台>` 拉取一次公告列表，不带凭据，也不带安装 id；服务端缓存一分钟，客户端最快一分钟问一次，输入法进程从不在后台拉取。共享实现在 `crates/client-services/src/notices.rs`。拉取的地方：
 
 - Windows、macOS、Linux 的共享设置窗口，以及 Tauri 版 Android/iOS 设置（`apps/desktop/src-tauri/src/notices.rs`，在设置页挂载时读取一次）；缓存与已关闭的 id（最多 200 个）存在共享状态目录的 `notices.json`。
 - iOS App 的「设置」首页打开或回到前台时（`platforms/ios/SharedUI/core/AppNotices.swift`），存在 `Application Support/MSIME/notices`；键盘不拉取。
@@ -183,7 +183,7 @@ Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模
 
 ### 社区举报与审核
 
-社区里看别人发布的皮肤、候选窗口皮肤、插件、词库和回复模板时，每一项都有「举报」入口。只有你选择理由并提交时，才会向 `POST https://api.msime.app/v1/community/reports` 发送 `{kind, item_id, reason, detail}`：`reason` 是固定的六个理由之一（侵权/抄袭、色情低俗、违法违规、垃圾广告、恶意插件、其他），`detail` 是你自己填写的可选说明（最多 1000 字）。请求带账号令牌，已登录用登录账号，否则用本机匿名账号。共享实现在 `crates/client-core/src/community/report.rs`。
+社区里看别人发布的皮肤、候选窗口皮肤、插件、词库和回复模板时，每一项都有「举报」入口。只有你选择理由并提交时，才会向 `POST https://api.msime.app/v1/community/reports` 发送 `{kind, item_id, reason, detail}`：`reason` 是固定的六个理由之一（侵权/抄袭、色情低俗、违法违规、垃圾广告、恶意插件、其他），`detail` 是你自己填写的可选说明（最多 1000 字）。请求带账号令牌，已登录用登录账号，否则用本机匿名账号。共享实现在 `crates/client-services/src/community/report.rs`。
 
 社区采用先发布后审核：发布的内容立即公开，管理员可以下架。查看「我的作品」或自己作品详情时，请求带 `fields=moderation`，只用来在被下架的作品上显示「已下架」；不会显示下架理由，也没有待审核状态。
 
@@ -199,7 +199,7 @@ Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模
 
 没有第三方统计、用户行为分析或崩溃上报 SDK：Sentry、Mixpanel、Amplitude、Crashlytics、Google Analytics 及其等价物既不在依赖里，也不在代码里。全仓库唯一的上报路径是上面那条自己实现的[使用统计与崩溃上报](#使用统计与崩溃上报默认开启可关闭)。下面的命令命中的文件应当只有这几类：
 
-- 共享实现与 C ABI：`crates/client-core/src/telemetry.rs`、`crates/client-core/src/telemetry/tests.rs`、`crates/client-core/src/lib.rs`、`crates/client-core/src/account/client.rs`（发送用的 HTTP 客户端）、`crates/client-core/src/notices.rs`（文档注释里提到它）、`crates/client-core/src/preferences.rs`（`usage_reporting` 开关）、`crates/host-api/include/msime_client.h`、`crates/host-api/src/ffi/reporting.rs`、`crates/host-api/src/tests.rs`。
+- 共享实现与 C ABI：`crates/client-services/src/telemetry.rs`、`crates/client-services/src/telemetry/tests.rs`、`crates/client-services/src/lib.rs`、`crates/client-services/Cargo.toml`（crate 描述）、`crates/client-services/src/account/client.rs`（发送用的 HTTP 客户端）、`crates/client-services/src/notices.rs`（文档注释里提到它）、`crates/client-core/src/preferences.rs`（`usage_reporting` 开关）、`crates/host-api/include/msime_client.h`、`crates/host-api/src/ffi/reporting.rs`、`crates/host-api/src/tests.rs`。
 - 设置页开关：`packages/ui/src/index.tsx`、`packages/ui/src/settings/telemetry-section.tsx`、`packages/ui/src/settings/about-settings-actions.ts`、`packages/ui/src/settings/pages/about-page.tsx`、`apps/desktop/tests/settings/settings.test.tsx`。
 - Windows 与 Linux：`platforms/common/Telemetry.{h,cpp}`、`platforms/common/tests/telemetry.cpp`、`platforms/windows/CMakeLists.txt`、`platforms/windows/settings/main.cpp`、`platforms/windows/src/entrypoints/server_main.cpp`、`platforms/linux/CMakeLists.txt`、`platforms/linux/README.md`、`platforms/linux/fcitx5/CMakeLists.txt`、`platforms/linux/fcitx5/FcitxEngine.cpp`、`platforms/linux/src/entrypoints/ibus_main.cpp`、`platforms/linux/tests/core/ibus_startup_telemetry.py`。
 - Apple：`platforms/macos/src/core/UsageReporting.{h,mm}`、`platforms/ios/SharedUI/core/UsageReporting.swift`、`platforms/ios/tests/core/UsageReportingTests.swift`。

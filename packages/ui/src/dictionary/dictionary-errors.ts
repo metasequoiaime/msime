@@ -1,4 +1,5 @@
 import { errorCode } from "../core/error-code";
+import { asciiLowercase } from "../core/text";
 import type { LocalDictionaryKind } from "./dictionary-file";
 
 export function dictionaryErrorMessage(
@@ -60,8 +61,8 @@ function invalidDictionaryEntryMessage(kind?: string): string {
 
 export function dictionaryKeyMatches(kind: string, key: string, query: string): boolean {
   if (!query) return true;
-  const fold = (text: string) => text.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
-  const code = (text: string) => (kind === "pinyin" ? fold(text).replace(/[' ]/g, "") : fold(text));
+  const code = (text: string) =>
+    kind === "pinyin" ? asciiLowercase(text).replace(/[' ]/g, "") : asciiLowercase(text);
   return code(kind === "pinyin" ? key : key.trim()).startsWith(code(query));
 }
 

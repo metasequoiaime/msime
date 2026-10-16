@@ -38,20 +38,15 @@ final class OwnEditEchoWindowTests: XCTestCase {
 
   // MARK: - 控制器
 
-  private var savedInlineStyle: Any?
   private var savedScheme: ChineseInputScheme?
 
   override func setUp() {
     super.setUp()
     enableAllInputSchemes()
     savedScheme = InputSchemePreference.scheme
-    // 行内预编辑关闭（默认）：组字不写进宿主，敲字母本身不改文档。
-    savedInlineStyle = InlinePreeditPreference.defaults.object(forKey: InlinePreeditPreference.styleKey)
-    InlinePreeditPreference.style = .off
   }
 
   override func tearDown() {
-    InlinePreeditPreference.defaults.set(savedInlineStyle, forKey: InlinePreeditPreference.styleKey)
     if let savedScheme { InputSchemePreference.scheme = savedScheme }
     super.tearDown()
   }
@@ -88,7 +83,8 @@ final class OwnEditEchoWindowTests: XCTestCase {
     try press("字母 N", in: controller)
     try press("字母 I", in: controller)
     XCTAssertNotEqual(try preedit(controller), idle)
-    // 键盘还没改过文档，这对回调只能来自宿主：组字照旧结束。
+    // 拼写写进输入框是键盘自己的改动；过了它的回声窗口，这对回调只能来自宿主：组字照旧结束。
+    RunLoop.current.run(until: Date().addingTimeInterval(OwnEditEchoWindow.duration + 0.1))
     controller.textWillChange(nil)
     XCTAssertEqual(try preedit(controller), idle)
   }

@@ -30,8 +30,7 @@ private enum IOSVoiceDoubaoFrame {
   case serviceError
 }
 
-/// Bounded WebSocket transport for one completed iOS PCM16 recording. Wire
-/// frames and response decompression stay in client-core through its C ABI.
+/// 有上限的 WebSocket 传输，负责一段录完的 iOS PCM16 录音。线上帧的编码和响应解压仍在 client-providers 里，经 host-api 的 C ABI 调用。
 final class IOSVoiceDoubaoTransport: NSObject, URLSessionWebSocketDelegate,
     URLSessionTaskDelegate {
   private static let pcmChunkBytes = 6_400

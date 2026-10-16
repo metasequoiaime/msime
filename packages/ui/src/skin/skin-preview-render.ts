@@ -3,7 +3,7 @@ import { previewSamples } from "./skin-candidate-preview";
 import type { ExternalSkin } from "./external-skins";
 import { skinImageUrl, type SkinImageReader } from "./skin-image";
 
-/** The community's preview limit (`MAX_PREVIEW_BYTES` in client-core). */
+/** 社区的预览图大小上限（client-services 中的 `MAX_PREVIEW_BYTES`）。 */
 const previewLimit = 256 * 1024;
 /** Pixels per dip, so the gallery's cards stay sharp on a high-density screen. */
 const scale = 2;

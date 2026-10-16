@@ -2659,7 +2659,9 @@ static void TestJapaneseConversionKeys(MSIMEAppearancePreferences *appearance) {
     assert(session.lastCommand != MSIME_COMMIT_READING);
 }
 
-static void TestConsecutiveUppercaseDoesNotOpenShortcut(MSIMEAppearancePreferences *appearance) {
+// #7616：连续按住 Shift 打大写时，只有这一串的第一枚字母能进快捷模式，规则在共享引擎里（`crates/engine/src/session/tests.rs`）。
+// 宿主这一侧的第二枚因此必须原样交给应用：既不能自己插进去，也不能留下组字。
+static void TestConsecutiveUppercaseGoesToTheClient(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutClient *client = [ShortcutClient new];
     ShortcutSession *session = [ShortcutSession new];
@@ -2674,9 +2676,9 @@ static void TestConsecutiveUppercaseDoesNotOpenShortcut(MSIMEAppearancePreferenc
 
     assert(![controller handleEvent:LayoutKey(46, @"M", NSEventModifierFlagShift) client:client]);
     NSUInteger asciiCalls = session.asciiCalls;
-    assert([controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
-    assert(session.asciiCalls == asciiCalls);
-    assert([client.insertions.lastObject isEqualToString:@"R"]);
+    assert(![controller handleEvent:LayoutKey(15, @"R", NSEventModifierFlagShift) client:client]);
+    assert(session.asciiCalls == asciiCalls + 1);
+    assert(client.insertions.count == 0);
 }
 
 static void TestGlossSensePage(MSIMEAppearancePreferences *appearance) {
@@ -11700,7 +11702,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestMixedInputPreferences(); }
         @autoreleasepool { TestCharacterSetShortcut(); }
         @autoreleasepool { TestDedicatedEnglish(appearance); }
-        @autoreleasepool { TestConsecutiveUppercaseDoesNotOpenShortcut(appearance); }
+        @autoreleasepool { TestConsecutiveUppercaseGoesToTheClient(appearance); }
         @autoreleasepool { TestSystemInputModeReport(appearance); }
         @autoreleasepool { TestOptInSchemeModes(); }
         @autoreleasepool { TestKeymap(defaults, appearance); }

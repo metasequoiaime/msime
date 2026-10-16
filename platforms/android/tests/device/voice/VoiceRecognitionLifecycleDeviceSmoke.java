@@ -19,6 +19,7 @@ public final class VoiceRecognitionLifecycleDeviceSmoke extends Instrumentation 
     private volatile int created;
     private volatile int resumed;
     private volatile Activity voiceActivity;
+    private final java.util.List<Integer> diagnosticCodes = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
@@ -83,6 +84,23 @@ public final class VoiceRecognitionLifecycleDeviceSmoke extends Instrumentation 
                 "app.msime.android.VoiceRecognitionActivity")
                 .putExtra("app.msime.android.voice.REQUEST_ID", requestId)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            android.os.ResultReceiver diagnostics = new android.os.ResultReceiver(
+                    new android.os.Handler(android.os.Looper.getMainLooper())) {
+                @Override protected void onReceiveResult(int code, Bundle payload) {
+                    if (payload != null) violation = "Voice diagnostic contains a payload";
+                    diagnosticCodes.add(code);
+                }
+            };
+            // 经 Parcel 强制走 Binder 回传，覆盖真实进程间传递的整数事件契约。
+            android.os.Parcel parcel = android.os.Parcel.obtain();
+            try {
+                diagnostics.writeToParcel(parcel, 0);
+                parcel.setDataPosition(0);
+                intent.putExtra("app.msime.android.voice.DIAGNOSTICS",
+                    android.os.ResultReceiver.CREATOR.createFromParcel(parcel));
+            } finally {
+                parcel.recycle();
+            }
             // 恢复前停止会在 onCreate 内结束窗口；异步启动避免 startActivitySync 等待一个不会恢复的窗口。
             runOnMainSync(() -> getTargetContext().startActivity(intent));
             long deadline = SystemClock.uptimeMillis() + 10000;
@@ -100,6 +118,12 @@ public final class VoiceRecognitionLifecycleDeviceSmoke extends Instrumentation 
                 throw new AssertionError("Voice request did not finish");
             if (Boolean.TRUE.equals(voiceActivity.getClass().getMethod("isRequestActive", String.class)
                     .invoke(null, requestId))) throw new AssertionError("Finished request remains active");
+            Class<?> kinds = getTargetContext().getClassLoader().loadClass("app.msime.android.DiagnosticEventKind");
+            Object engine = kinds.getMethod("fromWire", String.class).invoke(null, "voice_engine_platform");
+            Object failure = kinds.getMethod("fromWire", String.class).invoke(null, "voice_failure_permission");
+            java.util.List<Integer> expected = scenario.equals("stop-before-resume") ? java.util.List.of()
+                : java.util.List.of(((Enum<?>) engine).ordinal(), ((Enum<?>) failure).ordinal());
+            if (!diagnosticCodes.equals(expected)) throw new AssertionError("Unexpected diagnostic sequence");
             result.putString("stream", "MSIME_VOICE_LIFECYCLE_PASSED: " + scenario + "\n");
             passed = true;
         } catch (Exception | AssertionError error) {

@@ -13,7 +13,7 @@ public final class EmailSuffixPolicy {
     /** 最多看光标前多少个字符；也是调用方向编辑器要上文时的长度。 */
     public static final int MAX_CONTEXT = 64;
 
-    /** 常用邮箱后缀：国内常用的在前，然后是海外的。符号面板「网络」分类和候选栏用同一份、同一个顺序。 */
+    /** 常用邮箱后缀：国内常用的在前，然后是海外的。符号面板「网络」分类和候选栏用同一份、同一个顺序。引擎网址模式的邮箱补全（`crates/engine/src/local/url.rs` 的 `EMAIL_SUFFIXES`）也是这一份，`scripts/test-email-suffixes.py` 核对两边一致。 */
     public static final List<String> SUFFIXES = List.of(
         "@qq.com", "@163.com", "@126.com", "@foxmail.com", "@139.com", "@189.cn", "@aliyun.com",
         "@gmail.com", "@outlook.com", "@hotmail.com", "@live.com", "@icloud.com", "@yahoo.com",

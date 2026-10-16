@@ -1,5 +1,13 @@
-import type { AppInputModeRule } from "../index";
-import { utf8ByteLength } from "../core/text";
+import { asciiLowercase, utf8ByteLength } from "../core/text";
+
+/** 对应 `client-core::preferences::AppInputModeRule`。 */
+export type AppInputModeRule = "chinese" | "english";
+
+/** 宿主选中的应用：`id` 是规则用的标识（macOS 的 Bundle ID，Windows 的程序文件名），`name` 是给人看的名称。 */
+export interface PickedApplication {
+  id: string;
+  name: string;
+}
 
 /** 与 `client-core::preferences` 的 `MAX_APP_INPUT_MODE_RULES`、`MAX_APP_INPUT_MODE_RULE_ID_BYTES` 一致。 */
 export const maxAppInputModeRules = 32;
@@ -54,8 +62,4 @@ export function sortedAppInputModeRules(
   return Object.entries(rules ?? {}).sort(([left], [right]) =>
     left < right ? -1 : left > right ? 1 : 0,
   );
-}
-
-function asciiLowercase(value: string): string {
-  return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }

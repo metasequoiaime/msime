@@ -255,13 +255,13 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         ).read_text()
         shared = (ROOT / "crates/host-api/src/ffi/host.rs").read_text()
         header = (ROOT / "crates/host-api/include/msime_client.h").read_text()
-        client_core = (ROOT / "crates/client-core/src/voice/provider.rs").read_text()
+        client_core = (ROOT / "crates/client-providers/src/voice/provider.rs").read_text()
         shell = (ROOT / "apps/desktop/src-tauri/src/voice.rs").read_text()
 
         # One resolver, in the shared crate, reached two ways.
         self.assertIn("pub fn mobile_voice_provider_configuration(", client_core)
         self.assertIn("pub fn mobile_voice_polish_configuration(", client_core)
-        self.assertIn("use msime_client_core::voice::provider::{", shell)
+        self.assertIn("use msime_client_providers::voice::provider::{", shell)
         self.assertIn("msime_client_mobile_voice_configuration", shared)
         self.assertIn("msime_client_mobile_voice_configuration", header)
 

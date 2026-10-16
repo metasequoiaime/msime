@@ -110,11 +110,11 @@ public final class CloudClipboardPanelPolicySmoke {
         // #5905：顶行居中的「已存条数/上限」。
         check(CloudClipboardPanelPolicy.limit(Tab.LOCAL) == ClipboardHistoryPolicy.LIMIT, "the local limit is the shared store's");
         check(CloudClipboardPanelPolicy.limit(Tab.CLOUD) == CloudClipboardApi.MAX_ITEMS, "the cloud limit is the service's");
-        check("0/50".equals(CloudClipboardPanelPolicy.countLabel(Tab.LOCAL, 0)), "an empty local history reads 0/50");
-        check("10/50".equals(CloudClipboardPanelPolicy.countLabel(Tab.LOCAL, 10)), "ten local entries read 10/50");
-        check("50/50".equals(CloudClipboardPanelPolicy.countLabel(Tab.LOCAL, 50)), "a full local history reads 50/50");
+        check("0/200".equals(CloudClipboardPanelPolicy.countLabel(Tab.LOCAL, 0)), "an empty local history reads 0/200");
+        check("10/200".equals(CloudClipboardPanelPolicy.countLabel(Tab.LOCAL, 10)), "ten local entries read 10/200");
+        check("200/200".equals(CloudClipboardPanelPolicy.countLabel(Tab.LOCAL, 200)), "a full local history reads 200/200");
         check(CloudClipboardPanelPolicy.countLabel(Tab.LOCAL, null).isEmpty(), "an unreadable or disabled local history shows no count");
-        check("本机已存 10 条，最多 50 条".equals(CloudClipboardPanelPolicy.countDescription(Tab.LOCAL, 10)),
+        check("本机已存 10 条，最多 200 条".equals(CloudClipboardPanelPolicy.countDescription(Tab.LOCAL, 10)),
             "the screen reader hears what the count means");
         check(CloudClipboardPanelPolicy.countDescription(Tab.LOCAL, null).isEmpty(), "no count, nothing to announce");
         Integer cloudReady = CloudClipboardPanelPolicy.cloudCount(Status.READY, 3);

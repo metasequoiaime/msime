@@ -12,10 +12,18 @@ text = SOURCE.read_text()
 if "ENGLISH_COMPLETION_RESOURCES_LIMIT = 4 * 1024" not in text:
     raise SystemExit("English completion resource limit is missing")
 
-method = re.search(
-    r"public static String englishCompletions\(.*?\n    \}", text, re.DOTALL
-)
-if not method or "resourcesBytes.length > ENGLISH_COMPLETION_RESOURCES_LIMIT" not in method.group(0):
-    raise SystemExit("English completions must reject oversized resources before JNI")
+for name, correction in (("englishCompletions", "false"), ("englishCorrections", "true")):
+    method = re.search(rf"public static String {name}\(.*?\n    \}}", text, re.DOTALL)
+    if not method or f"englishCandidates(prefix, resources, {correction})" not in method.group(0):
+        raise SystemExit(f"{name} must use the bounded English query")
+
+method = re.search(r"private static String englishCandidates\(.*?\n    \}", text, re.DOTALL)
+if not method:
+    raise SystemExit("Bounded English query is missing")
+body = method.group(0)
+guard = body.find("resourcesBytes.length > ENGLISH_COMPLETION_RESOURCES_LIMIT")
+call = body.find("englishCompletionsRaw(requestBytes, resourcesBytes)")
+if guard < 0 or call < guard:
+    raise SystemExit("English queries must reject oversized resources before JNI")
 
 print("Android English completion resources are bounded before JNI")

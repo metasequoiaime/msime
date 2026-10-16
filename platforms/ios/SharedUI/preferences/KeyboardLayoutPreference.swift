@@ -79,17 +79,17 @@ enum KeyboardLayoutPreference {
     if let voice = preferences["touch_voice_shortcut"] as? Bool { voiceShortcutEnabled = voice }
   }
 
-  /// 「双拼键位提示」：双拼方案的 26 键在字母键底部画这个键代表的声母和韵母。共享文档里是 `touch_shuangpin_key_hints`，缺省为开；键盘从 App Group 镜像读。
+  /// 「双拼键位提示」：双拼方案的 26 键在字母键底部画这个键代表的声母和韵母。共享文档里是 `touch_shuangpin_key_hints`，缺省为关；键盘从 App Group 镜像读。
   static let shuangpinKeyHintsDocumentKey = "touch_shuangpin_key_hints"
   static let shuangpinKeyHintsKey = "keyboard.shuangpin.keyHints"
 
-  /// 文档里缺这一项或不是布尔值时按开，与 client-core 的默认值一致。
+  /// 文档里缺这一项或不是布尔值时按关，与 client-core 的默认值一致。
   static func sharedShuangpinKeyHints(in preferences: [String: Any]?) -> Bool {
-    preferences?[shuangpinKeyHintsDocumentKey] as? Bool ?? true
+    preferences?[shuangpinKeyHintsDocumentKey] as? Bool ?? false
   }
 
   static var shuangpinKeyHints: Bool {
-    get { defaults.object(forKey: shuangpinKeyHintsKey) as? Bool ?? true }
+    get { defaults.object(forKey: shuangpinKeyHintsKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: shuangpinKeyHintsKey) }
   }
 

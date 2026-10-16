@@ -6,7 +6,7 @@ Status: implemented
 
 #6829：用户想用自己的 DeepL API 密钥（Free 或 Pro）做候选词翻译。「自定义」翻译服务只会说 DeepLX 的协议：所有宿主都发 `Authorization: Bearer <key>`，正文的 `text` 是单个字符串。DeepL 官方 API 要求 `Authorization: DeepL-Auth-Key <key>`、`text` 为字符串数组，于是把 DeepL 地址填进「自定义」只会得到 403，设置页提示「服务未返回有效译文」。解析回复不是问题：`translations[0].text` 早就能读。
 
-请求在五处各自拼：`crates/host-api/src/ffi/translation.rs` 的运行时描述器（Windows、macOS、iOS、鸿蒙键盘都发它）、`crates/client-core/src/credential/translation.rs` 的设置页连接测试（Windows、macOS 的 Tauri 设置页）、Linux 的 Python provider、鸿蒙设置页自己的连接测试。
+请求在五处各自拼：`crates/host-api/src/ffi/translation.rs` 的运行时描述器（Windows、macOS、iOS、鸿蒙键盘都发它）、`crates/client-providers/src/credential/translation.rs` 的设置页连接测试（Windows、macOS 的 Tauri 设置页）、Linux 的 Python provider、鸿蒙设置页自己的连接测试。
 
 ## Decision
 

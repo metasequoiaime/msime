@@ -3,7 +3,7 @@
 
 std has no implementation of `File::lock` on Android: it fails outright rather than blocking, so
 anything that locks a file with it works on every desktop and simulator and then refuses on a
-handset. `crates/client-core/src/file_lock.rs` is the one place that knows this and reaches for
+handset. `crates/client-base/src/file_lock.rs` is the one place that knows this and reaches for
 rustix's flock on that target; every other caller is supposed to go through it.
 
 `host-api`'s clipboard migration lock did not. Every shared clipboard operation on Android failed on
@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OWNER = ROOT / "crates/client-core/src/file_lock.rs"
+OWNER = ROOT / "crates/client-base/src/file_lock.rs"
 SEARCHED = ["crates", "apps", "platforms"]
 
 # The file-locking half of the std API. `lock`/`try_lock` are shared with `Mutex`; the two

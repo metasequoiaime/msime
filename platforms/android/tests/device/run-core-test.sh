@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cargo runner for the complete client-core unit suite on the dedicated AVD.
+# 专用 AVD 上的 cargo runner：build-core-test.sh 跑 cargo test 时，cargo 把 client-base、client-core、client-providers、client-services 的每个单测程序分别交给它，在设备上整套运行。
 set -euo pipefail
 [[ $# == 1 && -f "$1" ]] || { echo "Expected one Cargo test binary; filters are not supported" >&2; exit 1; }
 android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}

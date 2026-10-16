@@ -1,6 +1,7 @@
 import { Select } from "../core/platform-controls";
+import type { SurfaceTheme } from "./theme-preferences";
 
-export type SurfaceTheme = "follow" | "dark" | "light";
+export type { SurfaceTheme } from "./theme-preferences";
 
 const surfaceThemeLabels: Record<SurfaceTheme, string> = {
   follow: "跟随颜色模式",

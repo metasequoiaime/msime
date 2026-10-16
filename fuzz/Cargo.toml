@@ -19,6 +19,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 msime-client-core = { path = "../crates/client-core" }
+msime-client-services = { path = "../crates/client-services" }
 msime-host-api = { path = "../crates/host-api" }
 # 与根 workspace 同一个版本：engine 链接的是同一份 libsqlite3-sys，两个版本不能同时链进一个程序。
 rusqlite = { version = "0.40", features = ["bundled"] }

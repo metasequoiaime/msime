@@ -17,6 +17,7 @@
 #include "FanyUtils.h"
 #include "FanyLog.h"
 #include "../../common/SecondThirdCandidatePolicy.h"
+#include "../../common/WubiCandidateSelectionPolicy.h"
 
 //////////////////////////////////////////////////////////////////////
 //
@@ -284,6 +285,17 @@ Exit:
 //     State of Text Processor Engine.
 //----------------------------------------------------------------------------
 
+msime::tsf::KeyCompositionState CCompositionProcessorEngine::GetKeyCompositionState() const
+{
+    msime::tsf::KeyCompositionState legacy;
+    if (_keystrokeBuffer.Get() && _keystrokeBuffer.GetLength() > 0)
+        legacy.rawInput.assign(_keystrokeBuffer.Get(), _keystrokeBuffer.GetLength());
+    legacy.caret = _caretPosition;
+    legacy.unicodeMode = IsUnicodeModeComposition() != FALSE;
+    legacy.urlMode = _urlMode;
+    return msime::tsf::ReadKeyCompositionState(_hostEngineAdapter.get(), std::move(legacy), FanyUtils::string_to_wstring);
+}
+
 BOOL CCompositionProcessorEngine::IsUnicodeModeComposition() const
 {
     return _keystrokeBuffer.GetLength() > 0 && _keystrokeBuffer.Get() && _keystrokeBuffer.Get()[0] == L'U';
@@ -379,7 +391,8 @@ void CCompositionProcessorEngine::RemoveVirtualKey(DWORD_PTR dwIndex)
     }
 
     _keystrokeBuffer.Set(_keystrokeBuffer.Get(), srgKeystrokeBufLen - 1);
-    _urlMode = Global::UrlModeAfterDeletion(_urlMode, _keystrokeBuffer.Get(), _keystrokeBuffer.GetLength(), removed);
+    _urlMode = Global::UrlModeAfterDeletion(_urlMode, _keystrokeBuffer.Get(), _keystrokeBuffer.GetLength(), removed,
+                                            dwIndex == _keystrokeBuffer.GetLength());
     if (_caretPosition > dwIndex)
     {
         --_caretPosition;
@@ -2161,9 +2174,24 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
         pKeyState->Function = FUNCTION_NONE;
     }
 
+    const auto composition = GetKeyCompositionState();
+
     if (candidateMode == CANDIDATE_ORIGINAL)
     {
         fComposing = FALSE;
+    }
+
+    // 按字符送入共享会话，选择与标点回退由同一份候选视图决定，不预先把键改成数字。
+    if (pwch && msime::windows::wubi_candidate_character(
+            Global::WubiCandidateKeys.load(std::memory_order_relaxed),
+            static_cast<wchar_t>(Global::InputModeIndicator.load(std::memory_order_relaxed)),
+            Global::DedicatedEnglish.active(GetTickCount64()), *pwch))
+    {
+        if (pKeyState) {
+            pKeyState->Category = CATEGORY_COMPOSING;
+            pKeyState->Function = FUNCTION_INPUT;
+        }
+        return TRUE;
     }
 
     // 排在音节分隔符前面：打开「二三候选」后，组字中的 '\'' 选第三个候选而不是分隔音节。网址模式和 V 模式拼写的符号、微软双拼的韵母 ing 仍是输入，由 IsSecondThirdCandidateKey 排除。
@@ -2177,7 +2205,7 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
         return TRUE;
     }
 
-    if (IsManualPinyinSeparatorInComposition(pwch ? *pwch : 0, fComposing, candidateMode, _keystrokeBuffer.GetLength()))
+    if (IsManualPinyinSeparatorInComposition(pwch ? *pwch : 0, fComposing, candidateMode, composition.rawInput.size()))
     {
         if (pKeyState)
         {
@@ -2187,8 +2215,8 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
         return TRUE;
     }
 
-    // U-mode: bare digits compose hex; Shift+1..9 selects candidates.
-    if (IsUnicodeModeComposition() && uCode >= L'0' && uCode <= L'9')
+    // U 模式：裸数字输入十六进制，Shift+1..9 选候选。
+    if (composition.unicodeMode && uCode >= L'0' && uCode <= L'9')
     {
         const bool shift_down = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
         const bool ctrl_down = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
@@ -2210,7 +2238,7 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
         }
         return TRUE;
     }
-    if (IsUnicodeModeComposition() && _keystrokeBuffer.GetLength() == 1 && uCode == VK_OEM_PLUS && pwch &&
+    if (composition.unicodeMode && composition.rawInput.size() == 1 && uCode == VK_OEM_PLUS && pwch &&
         *pwch == L'+')
     {
         if (pKeyState)
@@ -2220,8 +2248,9 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
         }
         return TRUE;
     }
-    // V-mode: its digits and operators compose, ahead of the paging and punctuation meanings of '-', '+', '.' and '/'; a digit key printing anything else selects. Ctrl and Alt chords never reach here.
-    if (IsExpressionModeComposition())
+    // V 模式的数字和运算符优先作为输入；打印其他字符的数字键选词，Ctrl、Alt 组合键不会到这里。
+    if (Global::IsExpressionModeComposition(composition.rawInput.c_str(), composition.rawInput.size(),
+                                            Global::ExpressionModeEnabled.load(std::memory_order_relaxed)))
     {
         switch (Global::ClassifyModeKey(Global::ExpressionSpellingSymbols, uCode, pwch ? *pwch : 0))
         {
@@ -2246,7 +2275,7 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
     // 网址模式：触发词后的 `.`、`:` 打开它，之后网址的数字和符号都是输入，排在 '-'、'='、','、'.'、'[' 和 ']' 的翻页、标点和数字选词之前；打出其他字符的数字键选词。
     const bool detectsUrls =
         msime::windows::scheme::DetectsUrls(Global::InputModeScheme.load(std::memory_order_relaxed));
-    if (_urlMode)
+    if (composition.urlMode)
     {
         switch (Global::ClassifyModeKey(Global::UrlSpellingSymbols, uCode, pwch ? *pwch : 0))
         {
@@ -2268,7 +2297,7 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
             break;
         }
     }
-    else if (Global::OpensUrlMode(_keystrokeBuffer.Get(), _keystrokeBuffer.GetLength(), _caretPosition,
+    else if (Global::OpensUrlMode(composition.rawInput.c_str(), composition.rawInput.size(), composition.caret,
                                   pwch ? *pwch : 0, detectsUrls, Global::DedicatedEnglish.active(GetTickCount64())))
     {
         if (pKeyState)
@@ -2290,7 +2319,7 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
     }
 
     if (IsJapaneseMinusEqualPunctuationKey(uCode, pwch ? *pwch : 0, fComposing, candidateMode,
-                                           _keystrokeBuffer.GetLength()))
+                                           composition.rawInput.size()))
     {
         if (pKeyState)
         {
@@ -2311,7 +2340,7 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
         (isMinusEqualPagingKey || isCommaPeriodPagingKey || isBracketPagingKey || uCode == VK_TAB ||
          uCode == VK_PRIOR || uCode == VK_NEXT || uCode == VK_UP || uCode == VK_DOWN))
     {
-        if (IsUnicodeModeComposition() && _keystrokeBuffer.GetLength() == 1 && uCode == VK_OEM_PLUS && pwch &&
+        if (composition.unicodeMode && composition.rawInput.size() == 1 && uCode == VK_OEM_PLUS && pwch &&
             *pwch == L'+')
         {
             if (pKeyState)
@@ -2341,11 +2370,11 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
 
     bool isMicrosoftShuangpinIngKey = false;
     if (Global::MicrosoftShuangpinEnabled.load(std::memory_order_relaxed) && uCode == VK_OEM_1 && pwch &&
-        *pwch == L';' && _keystrokeBuffer.GetLength() > 0 && _keystrokeBuffer.Get())
+        *pwch == L';' && composition.rawInput.size() > 0)
     {
-        const DWORD_PTR caret = min(_caretPosition, _keystrokeBuffer.GetLength());
+        const DWORD_PTR caret = min(composition.caret, composition.rawInput.size());
         DWORD_PTR chunkLength = 0;
-        for (DWORD_PTR index = caret; index > 0 && _keystrokeBuffer.Get()[index - 1] != L'\''; --index)
+        for (DWORD_PTR index = caret; index > 0 && composition.rawInput[index - 1] != L'\''; --index)
         {
             ++chunkLength;
         }
@@ -2378,7 +2407,7 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
             return TRUE;
         }
         else if ((IsWildcard() && IsWildcardChar(*pwch) && !IsDisableWildcardAtFirst()) ||
-                 (IsWildcard() && IsWildcardChar(*pwch) && IsDisableWildcardAtFirst() && _keystrokeBuffer.GetLength()))
+                 (IsWildcard() && IsWildcardChar(*pwch) && IsDisableWildcardAtFirst() && composition.rawInput.size()))
         {
             if (pKeyState)
             {

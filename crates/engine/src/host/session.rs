@@ -691,20 +691,13 @@ impl Session {
         Ok(())
     }
 
-    /// The letters as typed, learned as nothing. The engine's own raw commit learns the word itself in dedicated English, so that mode takes the preedit and cancels instead, stripping the trigger letter of a temporary mode the way `InputSession` does (bridge.cpp:1320-1331).
+    /// The letters as typed, learned as nothing. The engine's own raw commit learns the word itself in dedicated English, so that mode takes the preedit and cancels instead (bridge.cpp:1320-1331). 上屏的就是预编辑原文，本地模式的入口字母也在内，和 `InputSession` 一致。
     fn commit_raw_without_learning(&mut self) -> EngineResult {
         let before = self.inner.snapshot();
         if !before.dedicated_english {
             return result_for(self.inner.command(crate::types::Command::CommitRaw));
         }
-        let mut raw = before.preedit;
-        if matches!(
-            before.local_mode,
-            LocalInputMode::TemporaryEnglish | LocalInputMode::TemporaryJapanese
-        ) && !raw.is_empty()
-        {
-            raw.remove(0);
-        }
+        let raw = before.preedit;
         self.inner.command(crate::types::Command::Cancel);
         result_for(KeyResult::committed(raw))
     }
@@ -733,11 +726,13 @@ impl Session {
                 || (chinese_scheme && !complete_pure_pinyin));
         let mut result = self.inner.command(crate::types::Command::CommitRaw);
         if let Some(commit) = result.commit.as_deref().filter(|_| should_learn) {
-            if !commit.is_empty() {
+            // 进词库的词去掉临时模式的入口字母：回车上屏的原文带它，词库里不该有（#7616）。只有入口字母时正文为空，那就没有词可学（旧实现上屏空串，同样不学）。
+            let text = before.local_mode.without_entry_marker(commit);
+            if !text.is_empty() {
                 let word = if before.local_mode == LocalInputMode::TemporaryJapanese {
-                    temporary_japanese_word(commit)
+                    temporary_japanese_word(text)
                 } else {
-                    commit.to_owned()
+                    text.to_owned()
                 };
                 let paths = runtime_paths(&self.options);
                 // The commit already happened; a word that could not be learned is reported beside it rather than undoing it.

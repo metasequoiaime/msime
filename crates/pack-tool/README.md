@@ -7,7 +7,7 @@ cargo build -p msime-pack-tool --bin msime-pack
 target/debug/msime-pack validate [--builtin] <pack folder or .zip>...
 ```
 
-Every rule lives in `msime_client_core::plugins`; the tool calls `plugins::validate`, which stages the pack the way `plugins::import` does (copying a folder, or extracting a `.zip` under the same member, size and layout bounds) and runs the same checks, without a plugins directory and without installing anything. A change to a rule therefore needs no change here.
+Every rule lives in `msime_client_services::plugins`; the tool calls `plugins::validate`, which stages the pack the way `plugins::import` does (copying a folder, or extracting a `.zip` under the same member, size and layout bounds) and runs the same checks, without a plugins directory and without installing anything. A change to a rule therefore needs no change here.
 
 It prints one line per pack, in the order given:
 

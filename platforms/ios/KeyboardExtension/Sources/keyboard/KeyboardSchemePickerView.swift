@@ -1,13 +1,12 @@
 import UIKit
 
-/// 键盘里的输入方式选择面板（输入方式）：列出可用的方案，英文排在第三位，排成横向分页、带页码圆点的方框字形网格，手机每页 4 × 2，iPad 键盘每页 6 × 2，布局与功能面板相同。
+/// 键盘里的输入方式选择面板（输入方式）：列出可用的方案，英文排在第三位，排成横向分页、带页码圆点的方框字形网格，手机竖屏每页 4 × 3、横屏 4 × 2，iPad 键盘每页 6 × 3（`KeyboardPagedGridView.pickerRows`），布局与功能面板相同。
 ///
 /// 在键盘里它以 `showsHeader: false` 在工具栏下方打开：没有「返回」和「键盘设置」按钮，背景透明，透出键盘自己的背景。带标题栏时保留全屏覆盖的形式，两个按钮放在皮肤背景上。传入 `onAddLanguage` 时末尾多一个「添加语言」格子。
 final class KeyboardSchemePickerView: UIView {
   private static let topMargin: CGFloat = 10
   private static let bottomMargin: CGFloat = 4
   private static let headerHeight: CGFloat = 44
-  private static let rowGap: CGFloat = 16
   private static let columnGap: CGFloat = 4
 
   private let skin = KeyboardTheme.current
@@ -16,16 +15,17 @@ final class KeyboardSchemePickerView: UIView {
 
   /// - Parameter shuangpinProfile: 共享文档里的 `shuangpin_profile`，面板里的双拼只列这一种（见 `InputSchemePreference.pickerSchemes`）；nil 按小鹤。
   init(selected: ChineseInputScheme, isChineseMode: Bool = true, showsHeader: Bool = true,
-       formFactor: KeyboardFormFactor = .phone, shuangpinProfile: String? = nil,
+       formFactor: KeyboardFormFactor = .phone, landscape: Bool = false, shuangpinProfile: String? = nil,
        onSelect: @escaping (ChineseInputScheme) -> Void,
        onSelectEnglish: (() -> Void)? = nil,
        onSettings: (() -> Void)? = nil,
        onAddLanguage: (() -> Void)? = nil,
        onClose: @escaping () -> Void) {
     let tablet = formFactor == .tablet
+    let rows = KeyboardPagedGridView.pickerRows(formFactor: formFactor, landscape: landscape)
     grid = KeyboardPagedGridView(
-      columns: tablet ? 6 : 4, rows: 2, rowHeight: KeyboardSchemeTileView.height,
-      rowGap: Self.rowGap, columnGap: Self.columnGap, sidePadding: tablet ? 48 : 4)
+      columns: tablet ? 6 : 4, rows: rows, rowHeight: KeyboardSchemeTileView.height,
+      rowGap: KeyboardPagedGridView.pickerRowGap(rows: rows), columnGap: Self.columnGap, sidePadding: tablet ? 48 : 4)
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardSchemePicker"
     accessibilityLabel = "输入方式"
@@ -43,6 +43,7 @@ final class KeyboardSchemePickerView: UIView {
       switch scheme {
       case .quanpin: glyph = "拼"; badge = "26"
       case .nineKey: glyph = "拼"; badge = "9"
+      case .nineKeyShuangpin: glyph = "双"; badge = "9"
       case .shuangpin: glyph = "鹤"; badge = "双"
       case .ziranma: glyph = "自"; badge = "双"
       case .microsoft: glyph = "微"; badge = "双"

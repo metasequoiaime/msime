@@ -34,20 +34,22 @@ export function CloudClipboardRelaySection({
   const configured = savedUrl !== "";
   const [mode, setMode] = useState<SyncMode>(configured ? "relay" : "account");
   const [url, setUrl] = useState(savedUrl);
-  const [token, setToken] = useState(savedToken);
+  // 已保存的令牌不回填到输入框；留空表示沿用它，避免设置页在点击「显示」时暴露凭据。
+  const [token, setToken] = useState("");
 
   // 另一个窗口或恢复默认改了已保存的配置时，跟着它走。
   useEffect(() => {
     setMode(savedUrl ? "relay" : "account");
     setUrl(savedUrl);
-    setToken(savedToken);
+    setToken("");
   }, [savedUrl, savedToken]);
 
   const trimmedUrl = url.trim();
   const trimmedToken = token.trim();
   const urlIssue = cloudClipboardRelayUrlIssue(trimmedUrl);
-  const tokenIssue = cloudClipboardRelayTokenIssue(trimmedToken);
-  const changed = trimmedUrl !== savedUrl || trimmedToken !== savedToken;
+  const tokenIssue = trimmedToken || !savedToken ? cloudClipboardRelayTokenIssue(trimmedToken) : "";
+  const tokenForSave = trimmedToken || savedToken;
+  const changed = trimmedUrl !== savedUrl || (trimmedToken !== "" && trimmedToken !== savedToken);
 
   return (
     <GroupList title="云剪贴板同步方式">
@@ -81,6 +83,7 @@ export function CloudClipboardRelaySection({
             label="中继令牌"
             description="由中继管理员生成，每个令牌对应中继上一份独立的云剪贴板。令牌只存在本机的设置里，不会随设置文件导出或账号同步。"
             value={token}
+            placeholder={savedToken ? "留空以保留已保存的令牌" : undefined}
             disabled={disabled}
             onChange={setToken}
           />
@@ -92,7 +95,7 @@ export function CloudClipboardRelaySection({
               <ActionButton
                 label="保存中继设置"
                 disabled={disabled || !changed || Boolean(urlIssue || tokenIssue)}
-                action={() => onChange({ url: trimmedUrl, token: trimmedToken })}
+                action={() => onChange({ url: trimmedUrl, token: tokenForSave })}
               />
             </SettingsManagerActions>
           </SettingsManagerBlock>

@@ -26,7 +26,7 @@ afterEach(() => {
 const TOKEN = "synthetic-relay-token-0001";
 
 test("relay addresses follow the Rust rule: https, or http only to loopback, with no query, fragment or userinfo", () => {
-  // 与 crates/client-core/src/clipboard_relay_tests.rs 的用例一一对应。
+  // 与 crates/client-services/src/clipboard_relay_tests.rs 的用例一一对应。
   for (const [url, valid] of [
     ["https://relay.example.test", true],
     ["https://relay.example.test:8443/msime/", true],
@@ -187,6 +187,43 @@ test("the clipboard page saves a checked relay and switches back to the account"
   saveSettingsNow();
   await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
   expect("cloud_clipboard_relay" in save.mock.calls[1][1]).toBe(false);
+});
+
+test("does not echo a saved relay token and keeps it when only the address changes", async () => {
+  const save = vi.fn(async (revision: number, preferences: Preferences) =>
+    snapshot(preferences, revision + 1),
+  );
+  render(
+    <SettingsPage
+      initialPage="tools"
+      client={{
+        load: vi.fn().mockResolvedValue(
+          snapshot({
+            ...base,
+            cloud_clipboard_relay: { url: "https://relay.example.test/old", token: TOKEN },
+          }),
+        ),
+        save,
+        cloudClipboardRelay: true,
+      }}
+    />,
+  );
+  await settingsFormReady();
+
+  const token = screen.getByLabelText("中继令牌") as HTMLInputElement;
+  expect(token.value).toBe("");
+  fireEvent.change(screen.getByRole("textbox", { name: "中继地址" }), {
+    target: { value: "https://relay.example.test/new" },
+  });
+  const saveButton = screen.getByRole("button", { name: "保存中继设置" }) as HTMLButtonElement;
+  expect(saveButton.disabled).toBe(false);
+  fireEvent.click(saveButton);
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  expect(save.mock.calls[0][1].cloud_clipboard_relay).toEqual({
+    url: "https://relay.example.test/new",
+    token: TOKEN,
+  });
 });
 
 test("hosts that cannot route through a relay do not offer it", async () => {

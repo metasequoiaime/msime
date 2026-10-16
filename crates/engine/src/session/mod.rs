@@ -507,8 +507,9 @@ impl Session {
             candidate_answers_key: candidates
                 .iter()
                 .map(|item| {
-                    // AI 占位行不回答按键：重排模型不能把它提到前面。
+                    // AI 占位行和网址补全不回答按键：重排模型不能把它们提到前面。
                     item.source != CandidateSource::AiPending
+                        && !input.is_url_completion(item)
                         && input.selection_completes_composition(item)
                 })
                 .collect(),

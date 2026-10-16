@@ -44,7 +44,7 @@ const markdown = new MarkdownIt({ html: false, linkify: false, breaks: true }).d
   "image",
   "link",
 ]);
-// Mirrors the client-core byte and message limits used by the chat service.
+// 与聊天服务使用的 client-services 字节数和消息条数上限保持一致。
 
 export function ChatPage({
   client,

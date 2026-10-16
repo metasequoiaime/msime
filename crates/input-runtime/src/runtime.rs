@@ -97,6 +97,8 @@ pub struct Runtime<E: InputEngine = Session> {
     ///
     /// *什么*算这种码由 Engine 判定（[`EngineSnapshot::wubi_unique_four_code`]）；提交它是宿主的事，因为提交要跨过平台自己的组字边界。只有用户要求时才关：关了以后词和其他候选一样留在候选列表里，由空格或数字键选走。
     pub(crate) wubi_auto_commit_unique: bool,
+    pub(crate) wubi_candidate_selection:
+        msime_client_core::preferences::WubiCandidateSelectionPreferences,
     /// Whether the host draws a half-composed phrase itself instead of having it committed.
     ///
     /// Picking a candidate that consumes only part of the input leaves the Engine composing the
@@ -611,6 +613,55 @@ impl<E: InputEngine> Runtime<E> {
         self.wubi_auto_commit_unique = enabled;
     }
 
+    /// 选词字符是宿主编排状态，切换配置无需等待 Engine 重建。
+    pub fn set_wubi_candidate_selection(
+        &mut self,
+        settings: msime_client_core::preferences::WubiCandidateSelectionPreferences,
+    ) {
+        self.wubi_candidate_selection = settings;
+    }
+
+    pub fn wubi_candidate_selection(
+        &self,
+    ) -> &msime_client_core::preferences::WubiCandidateSelectionPreferences {
+        &self.wubi_candidate_selection
+    }
+
+    /// 将已解码的五笔选词字符转成当前页的候选动作，供统计与生命周期共用。
+    pub fn candidate_shortcut(&self, action: Action) -> Action {
+        if !self.focused {
+            return action;
+        }
+        self.wubi_candidate_shortcut(&action)
+            .map(Action::Select)
+            .unwrap_or(action)
+    }
+
+    fn wubi_candidate_shortcut(&self, action: &Action) -> Option<CandidateId> {
+        if !self.snapshot_valid
+            || self.cached.scheme != SchemeType::Wubi as u8
+            || self.cached.dedicated_english
+            || self.cached.local_mode != "none"
+            || self.cached.editing_text.is_empty()
+        {
+            return None;
+        }
+        let value = match action {
+            Action::Character { value, .. }
+            | Action::Punctuation(value)
+            | Action::PunctuationAscii(value) => *value,
+            _ => return None,
+        };
+        let slot = self.wubi_candidate_selection.slot(value)?;
+        let start = (self.highlighted / self.page_size) * self.page_size;
+        let index = start + slot;
+        (slot < self.page_size && index < self.visible_len()).then_some(CandidateId {
+            session: self.session,
+            generation: self.generation,
+            index,
+        })
+    }
+
     pub fn wubi_auto_commit_unique(&self) -> bool {
         self.wubi_auto_commit_unique
     }
@@ -698,6 +749,7 @@ impl<E: InputEngine> Runtime<E> {
             punctuation_marks: PunctuationMarks::default(),
             touch_keyboard_layout,
             wubi_auto_commit_unique: true,
+            wubi_candidate_selection: Default::default(),
             phrase_preedit: false,
             phrase_prefix: String::new(),
             phrase_selections: Vec::new(),
@@ -2274,6 +2326,8 @@ impl<E: InputEngine> Runtime<E> {
         if !self.focused && !matches!(&action, Action::ResetCache) {
             return Ok(self.transition(empty_result(false)));
         }
+        // 只在当前页有目标候选时接管；否则继续原标点路径，不能像越界数字键那样吞掉。
+        let action = self.candidate_shortcut(action);
         if let Action::SelectAnyCandidate(id) = &action {
             if id.session != self.session
                 || id.generation != self.generation

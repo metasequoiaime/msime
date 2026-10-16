@@ -19,8 +19,7 @@ struct CandidateSkin {
   std::string base;
 };
 
-// 外部皮肤 id 的可用字符，与共享层 skin::catalog 的 safe_id 同一条规则。宿主不放宽
-// 它：目录里的 id 会被拼进属性名和菜单项标识。
+// 外部皮肤 id 的可用字符，与共享层 text 模块的 safe_id 同一条规则。宿主不放宽它：目录里的 id 会被拼进属性名和菜单项标识。
 inline bool safe_skin_id(std::string_view id) {
   if (id.empty() || id.size() > 64) return false;
   const auto first = static_cast<unsigned char>(id.front());

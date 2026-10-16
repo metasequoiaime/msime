@@ -277,7 +277,7 @@ final class GlideTypingTests: XCTestCase {
     // 抬手：这一笔经会话变成全拼组字。
     glide.onEnded(Self.stroke("nihao", in: frames), frames)
     let preedit = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "preeditButton" } as? UIButton)
-    XCTAssertEqual(preedit.configuration?.title?.filter(\.isLetter), "nihao")
+    XCTAssertEqual(preedit.accessibilityValue?.filter(\.isLetter), "nihao")
   }
 
   func testNewFingersHitTheKeyAreaItselfWhileAGlideRuns() throws {

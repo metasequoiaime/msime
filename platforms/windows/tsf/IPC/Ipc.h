@@ -180,6 +180,8 @@ inline std::atomic_bool PairedPunctuationEnabled{true};
 inline std::atomic_bool MicrosoftShuangpinEnabled{false};
 // 组字时 ';' 和 '\'' 选第二、第三个候选。Server 用 SecondThirdCandidateChanged 推送之前保持关闭，两个键照常是标点。
 inline std::atomic_bool SecondThirdCandidateEnabled{false};
+// 两个选词字符及开关在一份原子快照里，未收到配置时保持关闭。
+inline std::atomic_uint32_t WubiCandidateKeys{0};
 // 引号与方头括号样式，Server 用 PunctuationMarksChanged 推送之前是弯引号、实心括号。GetPunctuation 按它们换字（PairedPunctuationHostPolicy.h 的 StyledPunctuation）。
 inline std::atomic_bool CornerQuotes{false};
 inline std::atomic_bool HollowBrackets{false};

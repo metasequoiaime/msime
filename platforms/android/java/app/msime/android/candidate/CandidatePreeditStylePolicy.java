@@ -1,24 +1,15 @@
 package app.msime.android;
 
 /**
- * Whether the candidate strip shows what is being spelled.
+ * 候选栏上画不画正在拼写的内容，以及写进输入框的是哪一段拼写。
  *
- * <p>The shared setting is 「候选栏预编辑」 on a touch host, with two values: `pinyin` draws the
- * segmented reading above the candidates, `empty` leaves that line without it. On a phone the strip
- * is the only place a composition is visible at all, so this is a real choice rather than a
- * cosmetic one — some users want the row back for candidates.
+ * <p>拼写作为组字写进输入框（与 Apple 自带键盘和 Gboard 一样），候选栏就不再重复画它：读音行只剩页码和提示，候选不随拼写变长而变化。这是固定的行为，不再读共享偏好 `candidate_preedit_style`，也不提供开关。只有拼写类方案（全拼、双拼、五笔、粤拼，与 iOS `hasSpellingCaret` 同一组）这样做：日语读音、韩语音节这类就地组字的方案和笔画字形照常画在候选栏上；全拼 14 键的组字是组码字母（`bugao`），不写进输入框，读音仍画在候选栏上；编辑器截短了组字、整段组字只能留在键盘上时也照常画。
  *
- * <p>Two things that share that line are deliberately **not** governed by it.
+ * <p>有两样东西不归这里管。
  *
- * <p>The already-chosen part of a phrase stays visible. The runtime keeps it out of the document at
- * this host's request (`phrase_preedit`) precisely so the user can keep spelling the rest; hiding it
- * here would leave characters the user has already picked neither in the document nor on screen,
- * which is the state `scripts/test-phrase-preedit-hosts.py` exists to prevent.
+ * <p>正在拼的词里已经选中的那一段留在候选栏上。运行时按这个宿主的请求（`phrase_preedit`）把它留在组字里，正是为了让用户接着拼后半截；不画它的话，用户已经选中的字既不在文档里也不在屏幕上，`scripts/test-phrase-preedit-hosts.py` 防的就是这种状态。
  *
- * <p>A local input mode's name — 表情, 颜文字, 日期时间 and the rest — stays too. It is a label
- * saying which mode is running, not the text being composed, and removing it would leave the user
- * in a mode with nothing on screen to say so. What the mode is composing beyond its trigger is
- * preedit like any other, and does follow the setting.
+ * <p>本地输入模式的名字（表情、颜文字、日期时间等）也留着。它说明正在哪个模式里，不是正在拼写的内容，去掉它用户就看不出自己在一个模式里。模式在触发键之后拼写的内容和其他拼写一样不画。
  */
 public final class CandidatePreeditStylePolicy {
     public static final String PINYIN = "pinyin";
@@ -26,24 +17,43 @@ public final class CandidatePreeditStylePolicy {
 
     private CandidatePreeditStylePolicy() {}
 
-    /** The stored value, with anything unrecognised reading as the shared default. */
-    public static String style(String value) {
-        return EMPTY.equals(value) ? EMPTY : PINYIN;
+    /** 拼写写进输入框、候选栏不再画它的方案：全拼（含九键、九键双拼）、双拼、五笔和粤拼。 */
+    public static boolean writesSpelling(int scheme) {
+        return scheme == InputSchemeTraits.QUANPIN || scheme == InputSchemeTraits.SHUANGPIN
+            || scheme == InputSchemeTraits.WUBI || scheme == InputSchemeTraits.CANTONESE;
     }
 
-    /** Whether the strip draws the composition at all. */
+    /**
+     * 候选栏的样式：拼写类方案的拼写已经写在输入框里时为 {@link #EMPTY}，其余为 {@link #PINYIN}。
+     *
+     * @param spellingInEditor 这一刻的组字确实写在了输入框里（不是 14 键，编辑器也没有把它截掉）
+     */
+    public static String style(int scheme, boolean spellingInEditor) {
+        return writesSpelling(scheme) && spellingInEditor ? EMPTY : PINYIN;
+    }
+
+    /** 候选栏画不画组字。 */
     public static boolean showsComposition(String style) {
         return !EMPTY.equals(style);
     }
 
     /**
-     * The composed text to put on the strip: what was being spelled, or nothing.
+     * 画在候选栏上的组字：正在拼写的内容，或者什么也不画。
      *
-     * @param modeName true when the text is a local mode's own name rather than composed input
+     * @param modeName 为真时这段文字是本地模式自己的名字，而不是拼写
      */
     public static String composedText(String style, String text, boolean modeName) {
         if (text == null) return "";
         if (modeName || showsComposition(style)) return text;
         return "";
+    }
+
+    /**
+     * 写进输入框的拼写（不含已选的那一段）。九键和九键双拼（{@code keyGrid}）的 `editing_text` 和 `preedit` 是按下的数字（64426），写的是引擎给的拼音读音 `nine_key_reading`（ni'hao），与候选栏原来画的读音是同一段；只有引擎没给读音时才退回 `preedit`。其余写 `preedit`（双拼按「双拼预编辑」可以是 ni'hao），它为空时退回 `editing_text`。
+     */
+    public static String inlineSpelling(boolean keyGrid, String nineKeyReading, String preedit, String editingText) {
+        if (keyGrid && nineKeyReading != null && !nineKeyReading.isEmpty()) return nineKeyReading;
+        if (preedit != null && !preedit.isEmpty()) return preedit;
+        return editingText == null ? "" : editingText;
     }
 }

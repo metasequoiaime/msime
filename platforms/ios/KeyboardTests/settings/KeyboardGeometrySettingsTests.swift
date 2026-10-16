@@ -133,14 +133,14 @@ final class KeyboardGeometrySettingsTests: XCTestCase {
     XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 30)
   }
 
-  /// 「双拼键位提示」缺省为开：旧文档没有这个键、或者值不是布尔时都按开；保存只写这一项，文档接受了才更新 App Group 镜像。
-  func testShuangpinKeyHintsDefaultOnAndAreSavedAsOneDocumentField() throws {
-    XCTAssertTrue(KeyboardLayoutPreference.sharedShuangpinKeyHints(in: nil))
-    XCTAssertTrue(KeyboardLayoutPreference.sharedShuangpinKeyHints(in: [:]))
-    XCTAssertTrue(KeyboardLayoutPreference.sharedShuangpinKeyHints(in: ["touch_shuangpin_key_hints": "off"]))
+  /// 「双拼键位提示」缺省为关：旧文档没有这个键、或者值不是布尔时都按关；保存只写这一项，文档接受了才更新 App Group 镜像。
+  func testShuangpinKeyHintsDefaultOffAndAreSavedAsOneDocumentField() throws {
+    XCTAssertFalse(KeyboardLayoutPreference.sharedShuangpinKeyHints(in: nil))
+    XCTAssertFalse(KeyboardLayoutPreference.sharedShuangpinKeyHints(in: [:]))
+    XCTAssertFalse(KeyboardLayoutPreference.sharedShuangpinKeyHints(in: ["touch_shuangpin_key_hints": "off"]))
     XCTAssertFalse(KeyboardLayoutPreference.sharedShuangpinKeyHints(in: ["touch_shuangpin_key_hints": false]))
     KeyboardLayoutPreference.defaults.removeObject(forKey: KeyboardLayoutPreference.shuangpinKeyHintsKey)
-    XCTAssertTrue(KeyboardLayoutPreference.shuangpinKeyHints, "the App Group mirror also starts on")
+    XCTAssertFalse(KeyboardLayoutPreference.shuangpinKeyHints, "the App Group mirror also starts off")
 
     _ = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertTrue(KeyboardLayoutPreference.saveGeometry(heightAdjustment: 12, stateRoot: state))

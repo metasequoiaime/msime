@@ -286,8 +286,8 @@ set(MSIME_VOICE_CUE_RESOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../windows/installer/assets/audios/end.mp3")
 target_sources(MSIMEClientInputMethod PRIVATE ${MSIME_VOICE_CUE_RESOURCES})
 set_source_files_properties(${MSIME_VOICE_CUE_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/audios")
-# The built-in sound packs, synthesized by scripts/generate_sound_packs.py, one folder per pack under Resources/sound-packs: the directory the input method and the settings page name to client-core as the built-in pack root. Beside EngineResources rather than in it, because that directory has to hold exactly what the dictionary lock pins.
-# Every folder there is staged, so a pack the generator adds ships without being named here too.
+# 内置音效包由 scripts/generate_sound_packs.py 合成，每个包一个文件夹，放在 Resources/sound-packs 下：输入法和设置页把这个目录作为内置包根目录告诉 client-services。放在 EngineResources 旁边而不是里面，因为那个目录必须恰好只装词库锁所固定的内容。
+# 那里的每个文件夹都会被暂存，所以生成器新增的包不必在这里再点一次名就会随之发布。
 file(GLOB MSIME_SOUND_PACK_DIRECTORIES LIST_DIRECTORIES true CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/sound-packs/*")
 foreach(MSIME_SOUND_PACK_DIRECTORY ${MSIME_SOUND_PACK_DIRECTORIES})
   if(NOT IS_DIRECTORY "${MSIME_SOUND_PACK_DIRECTORY}")
@@ -839,7 +839,7 @@ add_executable(ai-settings-snapshot-test tests/settings/AISettingsSnapshotTest.m
 target_compile_options(ai-settings-snapshot-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(ai-settings-snapshot-test PRIVATE "-framework Foundation")
 add_test(NAME ai-settings-snapshot COMMAND ai-settings-snapshot-test)
-# AI 接口地址策略逐条跑 shared/contracts/ai-endpoint/cases.json，与 client-core 的权威实现对照。
+# AI 接口地址策略逐条跑 shared/contracts/ai-endpoint/cases.json，与 client-providers 的权威实现对照。
 add_executable(ai-endpoint-policy-test tests/settings/AIEndpointPolicyTest.mm)
 target_compile_options(ai-endpoint-policy-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(ai-endpoint-policy-test PRIVATE "-framework Foundation")
@@ -1245,7 +1245,7 @@ foreach(msime_target IN LISTS MSIME_DIRECTORY_TARGETS)
   endforeach()
 endforeach()
 
-# CandidateSkin.cpp reads external skin manifests through SkinManifestBridge.mm, which calls the shared client-core loader in the Rust host library. Every target compiling the one needs the other and apple-client, so this loop keeps them together instead of a hand-kept list that a new consumer could miss.
+# CandidateSkin.cpp 通过 SkinManifestBridge.mm 读取外部皮肤清单，后者调用 Rust 宿主库里共享的 client-services 加载器。编译其中一个文件的每个目标都需要另一个文件和 apple-client，所以由这个循环把它们绑在一起，而不是手工维护一份新使用方可能漏掉的列表。
 set_source_files_properties(src/candidate/SkinManifestBridge.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 get_property(MSIME_SKIN_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(msime_target IN LISTS MSIME_SKIN_TARGETS)

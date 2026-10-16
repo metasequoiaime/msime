@@ -12,7 +12,7 @@ import { useResolvedCandidateFonts, type FontFamilyResolver } from "./resolved-c
 import { SettingsPreviewBlock } from "../settings/settings-preview-block";
 import { SkinPreviewStage } from "../skin/skin-preview-stage";
 import { SkinPreviewSurface } from "../skin/skin-preview-surface";
-import { defaultHelpcode } from "../settings/pages/helpcode-page";
+import { defaultHelpcode } from "../settings/helpcode-preferences";
 import {
   candidateSkinFor,
   customCandidateStyle,

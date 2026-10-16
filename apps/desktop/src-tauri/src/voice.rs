@@ -25,7 +25,7 @@ pub(crate) struct VoiceRecognitionResult {
 // 润色配置只有 Android 的语音面板读；iOS 和测试构建只用到提供方配置。
 #[cfg(any(target_os = "ios", target_os = "android", test))]
 #[cfg_attr(not(target_os = "android"), allow(unused_imports))]
-pub(crate) use msime_client_core::voice::provider::{
+pub(crate) use msime_client_providers::voice::provider::{
     mobile_voice_polish_configuration, mobile_voice_provider_configuration,
 };
 
@@ -158,7 +158,7 @@ pub(crate) const PROVIDER_OPTIONS_BUDGET: usize = 16_384 - 512;
 /// The user's dictionary words for a mobile `local` session; none for a network provider, whose request may not carry them.
 #[cfg(any(target_os = "ios", target_os = "android"))]
 fn mobile_session_hotwords(
-    configuration: &msime_client_core::voice::provider::MobileVoiceProviderConfiguration,
+    configuration: &msime_client_providers::voice::provider::MobileVoiceProviderConfiguration,
     dictionary: &DictionaryHostOptions,
 ) -> Vec<msime_tauri_mobile_platform::MobileVoiceHotword> {
     if configuration.provider != "local" {
@@ -203,7 +203,7 @@ pub(crate) async fn recognize_voice(
     let _ = (&runtime, &store);
     #[cfg(not(any(unix, windows)))]
     let _ = (&app, &runtime, &store, &dictionary);
-    if !msime_client_core::voice::is_valid_request_id(&request.request_id)
+    if !msime_client_providers::voice::is_valid_request_id(&request.request_id)
         || request.language.is_empty()
         || request.language.len() > 64
         || msime_client_core::has_disallowed_control_with_options(&request.language, false)

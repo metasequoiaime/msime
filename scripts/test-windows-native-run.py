@@ -70,6 +70,13 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     "candidate/cloud_candidate_worker.cpp": (["src/candidate/CloudCandidateWorker.cpp"], True),
     "candidate/ai_candidate_worker.cpp": (["src/candidate/AiCandidateWorker.cpp"], True),
     "candidate/translation_worker.cpp": (["src/candidate/TranslationWorker.cpp"], True),
+    "core/candidate_continuation_pipe.cpp": (["src/ipc/ReplyCodec.cpp"], False),
+    # 两份真实引擎会话通过外部候选选择继续组字。
+    "input/candidate_continuation.cpp": (
+        ["src/ipc/ReplyComposer.cpp", "src/ipc/ReplyCodec.cpp", "src/ipc/ServerSession.cpp",
+         "src/input/ChineseTextConversion.cpp", "tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"],
+        True,
+    ),
     # Ctrl+Enter translation commit, through the reply composer against a real Engine session.
     "input/candidate_translation_commit.cpp": (
         [
@@ -139,6 +146,8 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     # struct out.
     "tsf/input/raw_commit.cpp": (["tsf/EngineResponse.cpp"], False),
     "tsf/input/host_composition.cpp": (["tsf/EngineResponse.cpp"], False),
+    # 按键分类快照读取宿主视图，需要链接同一个 JSON 解析器。
+    "tsf/input/key_composition_state.cpp": (["tsf/EngineResponse.cpp"], False),
     "tsf/input/engine_response.cpp": (["tsf/EngineResponse.cpp"], False),
 }
 COMPANION_LIBRARIES = ["-lcurl", "-lsqlite3"]

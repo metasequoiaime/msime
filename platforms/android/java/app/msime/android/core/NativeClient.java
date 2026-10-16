@@ -203,13 +203,24 @@ public final class NativeClient {
             throw new IllegalArgumentException("Invalid candidate gloss request", error);
         }
     }
-    /** Reads bounded English completions from the packaged dictionary. Call on a worker. */
+    /** 在工作线程读取固定英文词库的有界补全。 */
     public static String englishCompletions(String prefix, String resources) {
+        return englishCandidates(prefix, resources, false);
+    }
+
+    /** 共享引擎返回原文第一行及可选的唯一纠错，不改变输入会话。 */
+    public static String englishCorrections(String prefix, String resources) {
+        return englishCandidates(prefix, resources, true);
+    }
+
+    private static String englishCandidates(String prefix, String resources, boolean correction) {
         if (prefix == null || prefix.isEmpty() || prefix.length() > 128
-                || !prefix.chars().allMatch(TextPolicy::isAsciiLetter))
+                || !prefix.chars().allMatch(value -> TextPolicy.isAsciiLetter(value)
+                    || (correction && value == '\'')))
             throw new IllegalArgumentException("Invalid English completion prefix");
         try {
-            JSONObject request = new JSONObject().put("prefix", prefix).put("limit", 12);
+            JSONObject request = new JSONObject().put("prefix", prefix).put("limit", correction ? 2 : 12)
+                .put("correction", correction);
             byte[] requestBytes = request.toString().getBytes(StandardCharsets.UTF_8);
             byte[] resourcesBytes = resources.getBytes(StandardCharsets.UTF_8);
             if (resourcesBytes.length > ENGLISH_COMPLETION_RESOURCES_LIMIT)

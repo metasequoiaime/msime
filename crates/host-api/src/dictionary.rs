@@ -4,9 +4,9 @@ use super::{
     edit_personal_dictionary, invalid_dictionary_entry, require_dictionary_kind, response,
     DictionaryAccess, HostOptions, DICTIONARY_REQUEST_LIMIT,
 };
-use msime_client_core::dictionary::import::{dictionary_row_matches, PageSelector};
-use msime_client_core::dictionary::is_han_character;
-use msime_client_core::dictionary::personal::{
+use msime_client_services::dictionary::import::{dictionary_row_matches, PageSelector};
+use msime_client_services::dictionary::is_han_character;
+use msime_client_services::dictionary::personal::{
     PersonalDictionaryError, PersonalDictionaryStore, PersonalWord, PersonalWordApplied,
     PersonalWordKind, PersonalWordRequestStatus,
 };
@@ -403,7 +403,7 @@ pub unsafe extern "C" fn msime_client_dictionary_validate(
             .map_err(|_| "invalid dictionary entry".to_owned())?;
         let normalized = Entry::try_from(normalized)?;
         if matches!(normalized.kind, Kind::QuickPhrase)
-            && !msime_client_core::dictionary::quick_phrase_code_is_well_formed(&normalized.key)
+            && !msime_client_services::dictionary::quick_phrase_code_is_well_formed(&normalized.key)
         {
             return Err(invalid_dictionary_entry(
                 "code contains characters this dictionary does not accept",
@@ -458,7 +458,7 @@ const SCEL_TEXT_REQUEST_LIMIT: usize = scel_base64_limit() + 4096;
 
 /// 细胞词库上限（`MAX_SCEL_BYTES`）经 base64 编码后的长度。
 const fn scel_base64_limit() -> usize {
-    msime_client_core::dictionary::scel::MAX_SCEL_BYTES.div_ceil(3) * 4
+    msime_client_services::dictionary::scel::MAX_SCEL_BYTES.div_ceil(3) * 4
 }
 
 /// 把一个搜狗细胞词库（`.scel`）转成标准 TSV 文本，不碰任何词库状态，也不需要宿主选项。
@@ -495,7 +495,7 @@ struct ScelTextRequest {
 /// [`msime_client_dictionary_scel_text`] 的 Rust 入口，Tauri 外壳直接调用；错误是同一组稳定错误码。
 pub fn scel_text_json(bytes_base64: &str) -> Result<serde_json::Value, &'static str> {
     use base64::Engine as _;
-    use msime_client_core::dictionary::scel::{self, ScelError};
+    use msime_client_services::dictionary::scel::{self, ScelError};
     if bytes_base64.len() > scel_base64_limit() {
         return Err("dictionary_too_large");
     }
@@ -615,7 +615,7 @@ fn queued_import(
             lines
         })
         .unwrap_or_default();
-    let mut report = report.unwrap_or(msime_client_core::dictionary::import::ImportReport {
+    let mut report = report.unwrap_or(msime_client_services::dictionary::import::ImportReport {
         entries: Vec::new(),
         failed: 0,
         first_failures: Vec::new(),
@@ -807,7 +807,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                 return Err("dictionary import rejected".into());
             }
             let mut report =
-                report.unwrap_or(msime_client_core::dictionary::import::ImportReport {
+                report.unwrap_or(msime_client_services::dictionary::import::ImportReport {
                     entries: Vec::new(),
                     failed: 0,
                     first_failures: Vec::new(),
@@ -1411,18 +1411,20 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
                     request.kind.map(personal_to_kind),
                     &request.query,
                 )?;
-                Ok(msime_client_core::dictionary::personal::PersonalWordPage {
-                    entries: entries
-                        .into_iter()
-                        .map(|entry| PersonalWord {
-                            kind: personal_kind(entry.kind.into()),
-                            key: entry.key,
-                            value: entry.value,
-                            weight: entry.weight,
-                        })
-                        .collect(),
-                    has_more,
-                })
+                Ok(
+                    msime_client_services::dictionary::personal::PersonalWordPage {
+                        entries: entries
+                            .into_iter()
+                            .map(|entry| PersonalWord {
+                                kind: personal_kind(entry.kind.into()),
+                                key: entry.key,
+                                value: entry.value,
+                                weight: entry.weight,
+                            })
+                            .collect(),
+                        has_more,
+                    },
+                )
             },
         )
         .map_err(personal_dictionary_error)?;
@@ -1434,7 +1436,7 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
     }))
 }
 
-/// The request id prefix `msime_client_core::dictionary::collections` gives what it queues.
+/// `msime_client_services::dictionary::collections` 给它排队的请求所加的 id 前缀。
 const COLLECTION_REQUEST_PREFIX: &str = "collections-";
 
 /// Identities of the user's own rows (`user_inserted`), the ones a dictionary collection must neither overwrite nor later remove. A store the Engine cannot read answers empty, so the addition is written as it was before this check existed.
@@ -1625,7 +1627,7 @@ fn replacement_for_engine(entry: Entry) -> Result<Entry, String> {
     validate_entry(&entry)?;
     // `validate_entry` also checks the previous row, which may be a stored quick phrase whose code has a digit; new input follows the reference's letters-only rule.
     if matches!(entry.kind, Kind::QuickPhrase)
-        && !msime_client_core::dictionary::quick_phrase_code_is_well_formed(&entry.key)
+        && !msime_client_services::dictionary::quick_phrase_code_is_well_formed(&entry.key)
     {
         return Err(invalid_dictionary_entry(
             "code contains characters this dictionary does not accept",
@@ -1652,14 +1654,18 @@ fn validate_entry_up_to(entry: &Entry, max_weight: i64) -> Result<(), String> {
         Kind::English => 64,
     };
     let key_valid = match entry.kind {
-        Kind::Pinyin => msime_client_core::dictionary::pinyin_code_is_well_formed(&entry.key, true),
+        Kind::Pinyin => {
+            msime_client_services::dictionary::pinyin_code_is_well_formed(&entry.key, true)
+        }
         Kind::Wubi | Kind::Wubi98 => {
-            msime_client_core::dictionary::wubi_code_is_well_formed(&entry.key)
+            msime_client_services::dictionary::wubi_code_is_well_formed(&entry.key)
         }
         Kind::QuickPhrase => {
-            msime_client_core::dictionary::quick_phrase_transport_code_is_well_formed(&entry.key)
+            msime_client_services::dictionary::quick_phrase_transport_code_is_well_formed(
+                &entry.key,
+            )
         }
-        Kind::English => msime_client_core::dictionary::english_code_is_well_formed(&entry.key),
+        Kind::English => msime_client_services::dictionary::english_code_is_well_formed(&entry.key),
     };
     let allowed_controls: &[char] = if matches!(entry.kind, Kind::QuickPhrase) {
         &['\n', '\t']
@@ -1700,9 +1706,9 @@ fn full_pinyin_key(key: &str, value: &str) -> Option<String> {
     .filter(|normalized| !normalized.is_empty())
 }
 
-impl From<&Kind> for msime_client_core::dictionary::import::ImportKind {
+impl From<&Kind> for msime_client_services::dictionary::import::ImportKind {
     fn from(kind: &Kind) -> Self {
-        use msime_client_core::dictionary::import::ImportKind;
+        use msime_client_services::dictionary::import::ImportKind;
         match kind {
             Kind::Pinyin => ImportKind::Pinyin,
             Kind::Wubi => ImportKind::Wubi,
@@ -1716,7 +1722,7 @@ impl From<&Kind> for msime_client_core::dictionary::import::ImportKind {
 /// Entries ready for the Engine, plus what the shared parser skipped.
 type ParsedImport = (
     Vec<DictionaryEntry>,
-    msime_client_core::dictionary::import::ImportReport,
+    msime_client_services::dictionary::import::ImportReport,
 );
 
 /// Parse a submitted dictionary file through the shared parser. Unusable rows
@@ -1728,7 +1734,7 @@ fn parse_import(
     text: &str,
     engine_options: Option<&msime_engine::host::EngineOptions>,
 ) -> Result<ParsedImport, String> {
-    let mut report = msime_client_core::dictionary::import::parse(
+    let mut report = msime_client_services::dictionary::import::parse(
         kind.into(),
         format,
         text,
@@ -1742,9 +1748,9 @@ fn parse_import(
                 report.failed += 1;
                 if report.first_failures.len() < 5 {
                     report.first_failures.push(
-                        msime_client_core::dictionary::import::ImportFailure {
+                        msime_client_services::dictionary::import::ImportFailure {
                             line: entry.line,
-                            issue: msime_client_core::dictionary::import::ImportIssue::Pinyin,
+                            issue: msime_client_services::dictionary::import::ImportIssue::Pinyin,
                         },
                     );
                 }

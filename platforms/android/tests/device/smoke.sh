@@ -126,6 +126,9 @@ if [[ "$diagnostics" == true ]]; then
   result=$(run_instrumentation app.msime.android.test/app.msime.android.test.DiagnosticsBundleDeviceSmoke)
   printf '%s\n' "$result"
   [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Diagnostics bundle acceptance failed" >&2; exit 1; }
+  result=$(run_instrumentation app.msime.android.test/app.msime.android.test.VoiceDiagnosticsPrivacyDeviceSmoke)
+  printf '%s\n' "$result"
+  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Voice diagnostics privacy acceptance failed" >&2; exit 1; }
   bash platforms/android/tests/device/diagnostics-export-directory.sh "$serial"
 fi
 # 三万条以上的码表也要经应用沙箱的 JNI 和真实 Engine 验证，API 28 的核心套件同样执行。
@@ -142,9 +145,12 @@ skipped_suites=()
 for entry in \
     "CandidatePanelDeviceSmoke|Candidate panel acceptance failed" \
     "MoreToolsDeviceSmoke|More tools acceptance failed" \
+    "ToolbarEdgesDeviceSmoke|Toolbar fixed edges acceptance failed" \
+    "ToolbarScrollDeviceSmoke|Toolbar swipe acceptance failed" \
     "EmojiPickerDeviceSmoke|Emoji picker acceptance failed" \
     "PairedPunctuationDeviceSmoke|Paired punctuation acceptance failed" \
     "LetterHintPunctuationDeviceSmoke|Letter hint punctuation acceptance failed" \
+    "SuperscriptShortcutDeviceSmoke|Superscript shortcut acceptance failed" \
     "PreferencesDeviceSmoke|Preferences acceptance failed" \
     "ThemeModeDeviceSmoke|Theme mode acceptance failed" \
     "LanguageNumberKeySwapDeviceSmoke|Language/number key swap acceptance failed" \
@@ -153,7 +159,9 @@ for entry in \
     "FuzzyPinyinDeviceSmoke|Fuzzy pinyin acceptance failed" \
     "CandidateGlossDeviceSmoke|Candidate gloss acceptance failed" \
     "InitialKeyboardRowDeviceSmoke|Initial keyboard row acceptance failed" \
+    "NineKeyNumericLayoutDeviceSmoke|Nine-key numeric layout acceptance failed" \
     "NineKeyEnglishDeviceSmoke|Nine-key English acceptance failed" \
+    "EnglishCorrectionDeviceSmoke|Mobile English correction acceptance failed" \
     "NineKeyPanelDeviceSmoke|Nine-key panel acceptance failed" \
     "FourteenKeyDeviceSmoke|Fourteen-key acceptance failed" \
     "NineKeyShuangpinDeviceSmoke|Nine-key shuangpin acceptance failed" \
@@ -166,6 +174,7 @@ for entry in \
     "NumberRowDeviceSmoke|Number row acceptance failed" \
     "EmptyEditorBackspaceDeviceSmoke|Empty editor backspace acceptance failed" \
     "ClipboardImageDeviceSmoke|Clipboard image acceptance failed" \
+    "TextEditRecentClipboardDeviceSmoke|Text edit recent clipboard acceptance failed" \
     "CaretCandidatesDeviceSmoke|Caret candidates acceptance failed" \
     "HardwareTranslationDeviceSmoke|Hardware Ctrl+Enter translation acceptance failed" \
     "AiPlaceholderDeviceSmoke|AI placeholder acceptance failed" \

@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 /// 行内预编辑 keeps the host's marked text equal to the composition, and context reads look past it.
 final class InlineCompositionTests: XCTestCase {
@@ -16,23 +17,6 @@ final class InlineCompositionTests: XCTestCase {
     // A host that does not report the marked text before the caret is left as it is.
     XCTAssertEqual(InlineCompositionPolicy.contextBefore("你好，", marked: "ni"), "你好，")
     XCTAssertNil(InlineCompositionPolicy.contextBefore(nil, marked: "ni"))
-  }
-
-  func testTheStyleIsOffUntilChosenAndTheOldSwitchReadsAsPinyin() {
-    let defaults = InlinePreeditPreference.defaults
-    let keys = [InlinePreeditPreference.key, InlinePreeditPreference.styleKey]
-    let previous = keys.map { defaults.object(forKey: $0) }
-    defer { for (key, value) in zip(keys, previous) { defaults.set(value, forKey: key) } }
-    keys.forEach(defaults.removeObject(forKey:))
-    XCTAssertEqual(InlinePreeditPreference.style, .off)
-    XCTAssertFalse(InlinePreeditPreference.isEnabled)
-    defaults.set(true, forKey: InlinePreeditPreference.key)
-    XCTAssertEqual(InlinePreeditPreference.style, .pinyin)
-    InlinePreeditPreference.style = .raw
-    XCTAssertEqual(defaults.string(forKey: InlinePreeditPreference.styleKey), "raw")
-    XCTAssertEqual(InlinePreeditPreference.style, .raw)
-    InlinePreeditPreference.style = .off
-    XCTAssertFalse(InlinePreeditPreference.isEnabled)
   }
 
   func testEachStyleWritesItsOwnFormOfTheComposition() {
@@ -58,5 +42,65 @@ final class InlineCompositionTests: XCTestCase {
                                                       editingText: "nihao", japaneseReading: nil), "")
     XCTAssertEqual(InlineCompositionPolicy.markedText(inPlace: false, style: .raw, phrasePrefix: "", preedit: "ni'hao",
                                                       editingText: "nihao", japaneseReading: nil), "nihao")
+  }
+}
+
+/// 拼写固定写进输入框（拼音分词），候选栏不再画读音：候选从行首开始，按键时不左右移动；九键写进去的是拼音，不是数字键。
+@MainActor
+final class InlineCompositionDefaultTests: XCTestCase {
+  private var savedScheme: ChineseInputScheme?
+
+  override func setUp() {
+    super.setUp()
+    enableAllInputSchemes()
+    savedScheme = InputSchemePreference.scheme
+  }
+
+  override func tearDown() {
+    if let savedScheme { InputSchemePreference.scheme = savedScheme }
+    super.tearDown()
+  }
+
+  private func controller(_ scheme: ChineseInputScheme) -> KeyboardViewController {
+    InputSchemePreference.scheme = scheme
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    return controller
+  }
+
+  private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
+
+  private func view(_ identifier: String, in controller: KeyboardViewController) throws -> UIView {
+    try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == identifier }, identifier)
+  }
+
+  private func tap(_ predicate: (UIView) -> Bool, in controller: KeyboardViewController) throws {
+    try XCTUnwrap(descendants(controller.view).first(where: predicate) as? UIButton).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+  }
+
+  func testQuanpinMarksThePinyinAndKeepsTheFirstCandidateInPlace() throws {
+    let controller = controller(.quanpin)
+    var firstCandidateX: [CGFloat] = []
+    for letter in ["N", "I", "H", "A", "O"] {
+      try tap({ $0.accessibilityLabel == "字母 \(letter)" }, in: controller)
+      XCTAssertTrue(try view("preeditButton", in: controller).isHidden, "the strip draws no reading after \(letter)")
+      let chip = try view("candidate-1", in: controller)
+      firstCandidateX.append(chip.convert(chip.bounds, to: controller.view).minX)
+    }
+    XCTAssertEqual(controller.inlineMarkedText.replacingOccurrences(of: "'", with: ""), "nihao")
+    XCTAssertEqual(Set(firstCandidateX).count, 1, "the first candidate moved: \(firstCandidateX)")
+  }
+
+  func testNineKeyMarksPinyinRatherThanDigits() throws {
+    let controller = controller(.nineKey)
+    for digit in [6, 4] { try tap({ $0.accessibilityIdentifier == "nineKey\(digit)" }, in: controller) }
+    let marked = controller.inlineMarkedText
+    XCTAssertFalse(marked.isEmpty)
+    XCTAssertFalse(marked.contains { $0.isNumber }, marked)
+    XCTAssertTrue(try view("preeditButton", in: controller).isHidden)
   }
 }

@@ -11,14 +11,14 @@ public final class KeyboardLayoutSmoke {
         check(letters.get(0).equals(List.of("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")));
         check(letters.get(2).equals(List.of("z", "x", "c", "v", "b", "n", "m")));
 
-        // 键发出什么和键面画什么分开回答：发给 Engine 的一律是小写字母；新设计里中文模式键面也画小写，英文 Shift 才画大写。
+        // 键发出什么和键面画什么分开回答：发给 Engine 的一律是小写字母；中文模式键面画大写，英文平时画小写、Shift 才画大写。
         for (List<String> row : letters) {
             for (String key : row) {
+                String upper = key.toUpperCase(java.util.Locale.ROOT);
                 check(key.equals(key.toLowerCase(java.util.Locale.ROOT)));
-                check(LetterKeyFacePolicy.face(key, true, false, false).equals(key));
-                check(LetterKeyFacePolicy.face(key, false, false, true)
-                    .equals(key.toUpperCase(java.util.Locale.ROOT)));
-                check(LetterKeyFacePolicy.face(key, false, false, false).equals(key));
+                check(LetterKeyFacePolicy.face(key, true, false, false, false).equals(upper));
+                check(LetterKeyFacePolicy.face(key, false, false, false, true).equals(upper));
+                check(LetterKeyFacePolicy.face(key, false, false, false, false).equals(key));
             }
         }
 

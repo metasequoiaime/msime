@@ -168,7 +168,7 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
   expect(screen.queryByRole("region", { name: "候选栏预览" })).toBeNull();
   expect(screen.getByRole("slider", { name: "候选字号" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "预编辑字号" })).toBeTruthy();
-  expect(screen.getByRole("combobox", { name: "候选栏预编辑" })).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "候选栏预编辑" })).toBeNull();
   expect(screen.queryByText("候选窗口预览")).toBeNull();
   expect(screen.queryByRole("combobox", { name: "候选窗口预编辑" })).toBeNull();
 

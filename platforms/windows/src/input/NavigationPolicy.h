@@ -26,6 +26,10 @@ struct NavigationAction {
 };
 // 共享偏好的 `second_third_candidate`：整个对象缺省（关闭时不写进文档）为关闭，缺字段时取 client-core 的默认值。键位名不认识时拒绝整份偏好，和以词定字一样，不会悄悄换成别的键。
 inline bool preference_second_third_candidate(const nlohmann::json &preferences) {
+  // 五笔专用规则必须保留少候选时的标点回退，不能再走通用二三候选的吞键路径。
+  if (preferences.value("scheme", std::string{}) == "wubi" &&
+      preferences.value("wubi_candidate_selection", nlohmann::json::object()).value("enabled", false))
+    return false;
   if (!preferences.contains("second_third_candidate"))
     return false;
   const auto &value = preferences.at("second_third_candidate");

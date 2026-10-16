@@ -12,40 +12,53 @@ public final class EditorBridge {
     }
     private boolean composing;
     public boolean apply(Sink sink, String commit, String editing) {
-        sink.begin();
+        if (!begin(sink)) return false;
         try {
-            if (commit != null) {
-                if (!sink.commit(commit)) return false;
-                composing = false;
+            try {
+                if (commit != null) {
+                    if (!sink.commit(commit)) return false;
+                    composing = false;
+                }
+                if (!editing.isEmpty()) {
+                    if (!sink.compose(editing)) return false;
+                    composing = true;
+                } else if (composing) {
+                    if (!sink.compose("")) return false;
+                    composing = false;
+                    if (!sink.finish()) return false;
+                }
+                return true;
+            } catch (RuntimeException disconnected) {
+                // 输入框可能在一次跨进程调用之间失去焦点；把断开的连接当作本次编辑失败。
+                return false;
             }
-            if (!editing.isEmpty()) {
-                if (!sink.compose(editing)) return false;
-                composing = true;
-            } else if (composing) {
-                if (!sink.compose("")) return false;
-                composing = false;
-                if (!sink.finish()) return false;
-            }
-            return true;
-        } finally { sink.end(); }
+        } finally { end(sink); }
     }
     /** External selection/focus changes must not delete an editor's new selection. */
-    public void abandon(Sink sink) { composing = false; sink.finish(); }
+    public void abandon(Sink sink) {
+        composing = false;
+        try { sink.finish(); }
+        catch (RuntimeException disconnected) { /* 连接已断开时没有组字可结束。 */ }
+    }
 
     /**
      * Removes the marked composition instead of leaving it in the document, for a composition that is not text the user wrote: Stroke marks its stroke glyphs (一丨丿丶乛＊), and `commits_on_blur` is false, so finishing the region would write those glyphs as real characters. The editor's new selection is put back where the user moved it, shifted left by the removed text when it lies after the region. Without a reported region (composingStart < 0) the region is still removed, which leaves the caret where the composition was rather than corrupting the text.
      */
     public void discard(Sink sink, int composingStart, int composingEnd, int selectionStart, int selectionEnd) {
         composing = false;
-        sink.begin();
+        if (!begin(sink)) return;
         try {
-            sink.compose("");
-            sink.finish();
-            if (composingStart >= 0 && composingEnd >= composingStart) {
-                sink.select(shifted(selectionStart, composingStart, composingEnd),
-                    shifted(selectionEnd, composingStart, composingEnd));
+            try {
+                sink.compose("");
+                sink.finish();
+                if (composingStart >= 0 && composingEnd >= composingStart) {
+                    sink.select(shifted(selectionStart, composingStart, composingEnd),
+                        shifted(selectionEnd, composingStart, composingEnd));
+                }
+            } catch (RuntimeException disconnected) {
+                // 失去焦点后清理组字只是尽力而为，不能让输入法进程随编辑器一起退出。
             }
-        } finally { sink.end(); }
+        } finally { end(sink); }
     }
 
     /**
@@ -60,13 +73,17 @@ public final class EditorBridge {
             return;
         }
         composing = false;
-        sink.begin();
+        if (!begin(sink)) return;
         try {
-            sink.compose(settled);
-            sink.finish();
-            sink.select(resettled(selectionStart, composingStart, composingEnd, settled.length()),
-                resettled(selectionEnd, composingStart, composingEnd, settled.length()));
-        } finally { sink.end(); }
+            try {
+                sink.compose(settled);
+                sink.finish();
+                sink.select(resettled(selectionStart, composingStart, composingEnd, settled.length()),
+                    resettled(selectionEnd, composingStart, composingEnd, settled.length()));
+            } catch (RuntimeException disconnected) {
+                // 失去焦点后结束组字只是尽力而为，不能让输入法进程随编辑器一起退出。
+            }
+        } finally { end(sink); }
     }
 
     /** [start, end) 换成长度为 {@code length} 的文字之后，选区端点落在哪里。 */
@@ -78,6 +95,20 @@ public final class EditorBridge {
 
     /** Removes the marked composition where the caret still is: the session ends with nothing moved, so there is no selection to restore. */
     public void discard(Sink sink) { discard(sink, -1, -1, -1, -1); }
+
+    private static boolean begin(Sink sink) {
+        try {
+            sink.begin();
+            return true;
+        } catch (RuntimeException disconnected) {
+            return false;
+        }
+    }
+
+    private static void end(Sink sink) {
+        try { sink.end(); }
+        catch (RuntimeException disconnected) { /* 连接已断开时批量编辑无法再结束。 */ }
+    }
 
     /** Where a selection offset lands once [start, end) has been removed. */
     static int shifted(int offset, int start, int end) {
