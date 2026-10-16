@@ -341,10 +341,25 @@ export {
 export { useMacosSettings, type UseMacosSettingsOptions } from "./settings/use-macos-settings";
 export {
   MacosInputModeEntriesSection,
+  type MacosInputModeEntriesSectionProps,
+} from "./settings/macos-input-mode-entries-section";
+export {
   macosInputModeEntries,
   macosInputModeEntriesFor,
+  macosInputModeProductName,
+  missingMacosInputModeEntries,
+  groupMacosInputModeEntries,
+  INPUT_MODE_RECHECK_MS,
+  INPUT_MODE_RECHECK_WINDOW_MS,
+  type MacosInputModeEntry,
+  type MacosInputModeGroup,
   type MacosInputModesClient,
-} from "./settings/macos-input-mode-entries-section";
+} from "./settings/macos-input-modes";
+export {
+  useMacosInputModes,
+  type UseMacosInputModesOptions,
+  type MacosInputModesState,
+} from "./settings/use-macos-input-modes";
 export { useWindowState, type UseWindowStateOptions } from "./settings/use-window-state";
 export {
   useSettingsWindowInteractions,

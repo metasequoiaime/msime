@@ -3,10 +3,8 @@ import type { InputScheme } from "../core/input-scheme";
 import type { Preferences } from "../core/preferences-model";
 import { GroupList, MoreOptions } from "../core/platform-controls";
 import { InputModeSection } from "./input-mode-section";
-import {
-  MacosInputModeEntriesSection,
-  type MacosInputModesClient,
-} from "./macos-input-mode-entries-section";
+import { MacosInputModeEntriesSection } from "./macos-input-mode-entries-section";
+import type { MacosInputModesClient } from "./macos-input-modes";
 import {
   InputSchemeDetailsSection,
   type ShuangpinProfile,

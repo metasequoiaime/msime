@@ -16,7 +16,7 @@ import type { ResourcePackClient } from "../settings/resource-packs";
 import type { DictionaryClient, DictionaryManifest } from "../dictionary/dictionary-contracts";
 import type { InputSourceStartupStatus } from "../settings/input-source-startup-model";
 import type { NoticesClient } from "../settings/notice-banner";
-import type { MacosInputModesClient } from "../settings/macos-input-mode-entries-section";
+import type { MacosInputModesClient } from "../settings/macos-input-modes";
 import type { FontCatalogReader } from "../candidate/font-catalog";
 import type { ResolveThemeRequest, ResolvedTheme } from "../theme/global-theme";
 import type { AiSkinClient, CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";

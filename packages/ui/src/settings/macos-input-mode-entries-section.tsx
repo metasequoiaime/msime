@@ -1,122 +1,19 @@
-import type { EditionInfo } from "../core/host-capabilities";
-import type { InputScheme } from "../core/input-scheme";
-import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 
 import { Row } from "../core/platform-controls";
-import { subscribeToWindowFocus } from "../core/window-focus";
-import { useInterval } from "../core/use-interval";
 import { ActionButton } from "./action-button";
-import { useAsyncGeneration } from "./use-async-generation";
+import { macosInputModeProductName, type MacosInputModeGroup } from "./macos-input-modes";
+import { useMacosInputModes, type UseMacosInputModesOptions } from "./use-macos-input-modes";
 
-/** macOS 输入法列表的读取与系统设置入口，见 `SettingsClient.macosInputModes`。 */
-export interface MacosInputModesClient {
-  /** 用户已经加入输入法列表的本输入法模式（完整标识符）；读不到列表时为 `null`。 */
-  enabled(): Promise<string[] | null>;
-  /** 打开系统设置里添加输入法的那一页。 */
-  openSettings(): Promise<void>;
-}
+export {
+  macosInputModeEntries,
+  macosInputModeEntriesFor,
+  INPUT_MODE_RECHECK_MS,
+  INPUT_MODE_RECHECK_WINDOW_MS,
+  type MacosInputModesClient,
+} from "./macos-input-modes";
 
-/** 一个菜单栏入口：输入法菜单里显示的名字、它属于哪个方案（`null` 表示不随方案出现），以及系统设置「添加」对话框把它归在哪个语言下。 */
-interface ModeEntry {
-  mode: string;
-  name: string;
-  scheme: InputScheme | null;
-  language: string;
-}
-
-/** 顺序与输入法菜单一致，名字与 `platforms/macos/resources/*.lproj/InfoPlist.strings` 一致，语言对应 Info.plist.in 里各模式的 `TISIntendedLanguage`。 */
-export const macosInputModeEntries: readonly ModeEntry[] = [
-  { mode: "Hans", name: "水杉输入法 · 中", scheme: null, language: "简体中文" },
-  { mode: "Shuangpin", name: "水杉输入法 · 双", scheme: "shuangpin", language: "简体中文" },
-  { mode: "Wubi", name: "水杉输入法 · 五", scheme: "wubi", language: "简体中文" },
-  { mode: "Cantonese", name: "水杉输入法 · 粤", scheme: "cantonese", language: "粤语" },
-  { mode: "Zhuyin", name: "水杉输入法 · 注", scheme: "zhuyin", language: "繁体中文" },
-  { mode: "Japanese", name: "水杉输入法 · 日", scheme: "japanese", language: "日语" },
-  { mode: "Korean", name: "水杉输入法 · 韩", scheme: "korean", language: "韩语" },
-  { mode: "Vietnamese", name: "水杉输入法 · 越", scheme: "vietnamese", language: "越南语" },
-  { mode: "Tibetan", name: "水杉输入法 · 藏", scheme: "tibetan", language: "藏语" },
-  { mode: "Stroke", name: "水杉输入法 · 笔", scheme: "stroke", language: "简体中文" },
-  { mode: "Roman", name: "水杉输入法 · 英", scheme: null, language: "简体中文" },
-];
-
-const fullName = "水杉输入法";
-
-/**
- * 本版本的菜单栏入口，与 `platforms/macos/scripts/edition_bundle.py` 生成的 Info.plist 一致：本版本的方案对应的模式加上「英」，主模式 `Hans` 总在。版本不含全拼时，`Hans` 显示默认方案的字（五笔版是「五」，日文版是「日」），默认方案自己的模式不再单列；默认方案不在「简体中文」下时（日文、越南文、藏文版），`Hans` 和「英」都登记在那个方案的语言下。名字的前缀是版本的产品名。full（`edition` 缺省）就是上面这张表。
- */
-export function macosInputModeEntriesFor(edition?: EditionInfo): readonly ModeEntry[] {
-  if (!edition) return macosInputModeEntries;
-  const name = edition.display_name ?? fullName;
-  const primary = edition.input_schemes.includes("quanpin")
-    ? null
-    : (macosInputModeEntries.find((entry) => entry.scheme === edition.default_scheme) ?? null);
-  return macosInputModeEntries.flatMap((entry) => {
-    if (primary && entry.mode === primary.mode) return [];
-    if (entry.scheme !== null && !edition.input_schemes.includes(entry.scheme)) return [];
-    const source = entry.mode === "Hans" && primary ? primary : entry;
-    const language =
-      (entry.mode === "Hans" || entry.mode === "Roman") && primary
-        ? primary.language
-        : entry.language;
-    return [{ ...entry, name: source.name.replace(fullName, name), language }];
-  });
-}
-
-/** 点了「打开键盘设置」之后多久内反复读取列表：用户在系统设置里添加时，设置窗口不一定会重新获得焦点。 */
-export const INPUT_MODE_RECHECK_MS = 3000;
-export const INPUT_MODE_RECHECK_WINDOW_MS = 120_000;
-
-/** 读取输入法列表：窗口重新获得焦点时读一次，点过「打开键盘设置」后的两分钟里每 3 秒读一次。 */
-function useEnabledInputModes(client: MacosInputModesClient | undefined) {
-  const [enabled, setEnabled] = useState<readonly string[] | null>(null);
-  const [watchingUntil, setWatchingUntil] = useState(0);
-  const request = useAsyncGeneration(client);
-  const refresh = useCallback(async () => {
-    if (!client) return;
-    const current = ++request.current;
-    const value = await client.enabled().catch(() => null);
-    if (current === request.current) setEnabled(value);
-  }, [client]);
-
-  useEffect(() => {
-    if (!client || typeof window === "undefined") {
-      request.current++;
-      setEnabled(null);
-      return;
-    }
-    refresh();
-    const stopFocus = subscribeToWindowFocus(refresh);
-    return () => {
-      request.current++;
-      stopFocus();
-    };
-  }, [client, refresh]);
-
-  useInterval(
-    () => {
-      if (Date.now() >= watchingUntil) {
-        setWatchingUntil(0);
-        return;
-      }
-      void refresh();
-    },
-    watchingUntil ? INPUT_MODE_RECHECK_MS : null,
-  );
-
-  const watch = useCallback(() => setWatchingUntil(Date.now() + INPUT_MODE_RECHECK_WINDOW_MS), []);
-  return { enabled, watch } as const;
-}
-
-export interface MacosInputModeEntriesSectionProps {
-  client?: MacosInputModesClient;
-  /** 当前（草稿里）的输入方案：它的入口还没加入时，这一行先说它。 */
-  scheme: InputScheme;
-  /** 宿主提供的方案；没提供的方案（例如没装词库的粤拼、注音、笔画）不列出它的入口。 */
-  inputSchemes: readonly InputScheme[];
-  /** 运行中的版本（`HostCapabilities.edition`），不是 full 时才有：入口和名字按版本来，见 `macosInputModeEntriesFor`。 */
-  edition?: EditionInfo;
-  onError: (message: string) => void;
-}
+export interface MacosInputModeEntriesSectionProps extends UseMacosInputModesOptions {}
 
 /**
  * 「菜单栏入口」：列出还没加入输入法列表的模式，告诉用户在系统设置里去哪个语言下添加。
@@ -132,20 +29,18 @@ export function MacosInputModeEntriesSection({
   edition,
   onError,
 }: MacosInputModeEntriesSectionProps) {
-  const { enabled, watch } = useEnabledInputModes(client);
-  if (!client || !enabled) return null;
-  const offered = macosInputModeEntriesFor(edition).filter(
-    (entry) => entry.scheme === null || inputSchemes.includes(entry.scheme),
-  );
-  // 列表里只有本版本输入法的模式（设置应用按本版本的 bundle id 筛过），模式标识符是 bundle id 加「.」和模式名，所以按结尾认。
-  const missing = offered.filter(
-    (entry) => !enabled.some((identifier) => identifier.endsWith(`.${entry.mode}`)),
-  );
-  const current = missing.find((entry) => entry.scheme === scheme);
+  const { enabled, missing, current, groups, opening, openSettings } = useMacosInputModes({
+    client,
+    scheme,
+    inputSchemes,
+    edition,
+    onError,
+  });
+  if (!enabled) return null;
 
   let description: ReactNode;
   if (missing.length === 0) {
-    description = `输入法菜单里已经有${edition?.display_name ?? fullName}的全部入口。`;
+    description = `输入法菜单里已经有${edition?.display_name ?? macosInputModeProductName}的全部入口。`;
   } else {
     description = (
       <>
@@ -154,36 +49,35 @@ export function MacosInputModeEntriesSection({
             ? `菜单栏里还没有「${current.name}」，到「${current.language}」下添加后才能从菜单栏切过去。`
             : `还有 ${missing.length} 个入口没加进输入法菜单。`}
         </span>
-        <MissingEntries entries={missing} />
+        <MissingEntries groups={groups} count={missing.length} />
       </>
     );
   }
 
-  const openSettings = () => {
-    watch();
-    return client
-      .openSettings()
-      .catch(() =>
-        onError("无法打开系统设置，请手动前往「系统设置 › 键盘 › 文字输入 › 输入法」。"),
-      );
-  };
-
   return (
     <Row title="菜单栏入口" description={description}>
       {missing.length > 0 && (
-        <ActionButton action={openSettings} className="secondary" label="打开键盘设置" />
+        <ActionButton
+          action={openSettings}
+          disabled={opening}
+          className="secondary"
+          label="打开键盘设置"
+        />
       )}
     </Row>
   );
 }
 
 /** 还没加入的入口默认收起，展开后先说怎么添加，再按系统设置「添加」对话框里的语言分组，每组一行：语言在前，入口名排在后面，顺序与输入法菜单一致。全版本缺的入口可以有八九个，平铺开来会把这一行撑成一大段，而大多数人只用其中一两个。展开状态放在 React 里（`aria-expanded` 的按钮加 `hidden`），不用 `<details>`：装好的设置应用里曾看到它一打开就是展开的，原因没查清，React 状态的行为可以在测试里点按钮核对。 */
-function MissingEntries({ entries }: { entries: readonly ModeEntry[] }) {
+function MissingEntries({
+  groups,
+  count,
+}: {
+  groups: readonly MacosInputModeGroup[];
+  count: number;
+}) {
   const [open, setOpen] = useState(false);
   const listId = useId();
-  const groups = new Map<string, ModeEntry[]>();
-  for (const entry of entries)
-    groups.set(entry.language, [...(groups.get(entry.language) ?? []), entry]);
   return (
     <>
       <button
@@ -193,7 +87,7 @@ function MissingEntries({ entries }: { entries: readonly ModeEntry[] }) {
         onClick={() => setOpen(!open)}
         className="mt-1 inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 [font:inherit] [color:var(--p-accent-text)]"
       >
-        {open ? "收起" : `查看怎么添加和全部 ${entries.length} 个入口`}
+        {open ? "收起" : `查看怎么添加和全部 ${count} 个入口`}
         <span
           aria-hidden="true"
           className={`transition-transform motion-reduce:transition-none ${open ? "-rotate-90" : "rotate-90"}`}
@@ -208,11 +102,11 @@ function MissingEntries({ entries }: { entries: readonly ModeEntry[] }) {
           }
         </span>
         <span role="list" aria-label="还没加入的入口" className="mt-2 flex flex-col gap-1.5">
-          {[...groups].map(([language, members]) => (
+          {groups.map(({ language, entries }) => (
             <span key={language} role="listitem" className="flex items-start gap-1.5">
               <span className="w-16 shrink-0 py-0.5">{language}</span>
               <span className="flex flex-wrap gap-1.5">
-                {members.map((entry) => (
+                {entries.map((entry) => (
                   <span
                     key={entry.mode}
                     className="rounded-[var(--p-seg-item-r)] bg-[var(--p-seg-bg)] px-2 py-0.5 whitespace-nowrap [color:var(--p-text)]"

@@ -292,3 +292,62 @@ test("an edition names its missing entry by the edition's name", async () => {
   expect(await missingGroups()).toEqual([["简体中文", ["水杉五笔 · 五"]]]);
   expect(screen.queryByText(/水杉输入法/)).toBeNull();
 });
+
+test("更换客户端后先隐藏上一份入口列表，等待当前客户端回答", async () => {
+  let resolve!: (value: string[] | null) => void;
+  const next = client(null);
+  next.enabled.mockImplementation(() => new Promise((yes) => (resolve = yes)));
+  const props = {
+    scheme: "quanpin" as const,
+    inputSchemes: ["quanpin"] as const,
+    onError: vi.fn(),
+  };
+  const view = render(
+    <MacosInputModeEntriesSection
+      {...props}
+      client={client([prefix + "Hans", prefix + "Roman"])}
+    />,
+  );
+  expect(await screen.findByText("输入法菜单里已经有水杉输入法的全部入口。")).toBeTruthy();
+  view.rerender(<MacosInputModeEntriesSection {...props} client={next} />);
+  expect(screen.queryByText("输入法菜单里已经有水杉输入法的全部入口。")).toBeNull();
+  await act(async () => resolve([prefix + "Hans"]));
+  expect(await screen.findByText(/还有 1 个入口/)).toBeTruthy();
+});
+
+test("更换客户端后停止上一份打开系统设置的轮询窗口", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const previous = client([prefix + "Hans"]);
+  const current = client([prefix + "Hans"]);
+  const props = {
+    scheme: "quanpin" as const,
+    inputSchemes: ["quanpin"] as const,
+    onError: vi.fn(),
+  };
+  const view = render(<MacosInputModeEntriesSection {...props} client={previous} />);
+  fireEvent.click(await screen.findByRole("button", { name: "打开键盘设置" }));
+  view.rerender(<MacosInputModeEntriesSection {...props} client={current} />);
+  await vi.waitFor(() => expect(current.enabled).toHaveBeenCalledTimes(1));
+  await act(async () => vi.advanceTimersByTimeAsync(3000));
+  expect(current.enabled).toHaveBeenCalledTimes(1);
+});
+
+test("卸载后打开系统设置的旧失败不再调用展示错误回调", async () => {
+  let reject!: (error: unknown) => void;
+  const onError = vi.fn();
+  const view = render(
+    <MacosInputModeEntriesSection
+      client={client(
+        [prefix + "Hans"],
+        vi.fn(() => new Promise<void>((_, no) => (reject = no))),
+      )}
+      scheme="quanpin"
+      inputSchemes={["quanpin"]}
+      onError={onError}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "打开键盘设置" }));
+  view.unmount();
+  await act(async () => reject(new Error("合成旧窗口错误")));
+  expect(onError).not.toHaveBeenCalled();
+});
