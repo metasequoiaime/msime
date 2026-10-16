@@ -1522,8 +1522,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         minusEqual: preferences.navigation?.minus_equal ?? true,
         commaPeriod: preferences.navigation?.comma_period ?? true,
         brackets: preferences.navigation?.brackets ?? false,
-        tab: preferences.navigation?.tab ?? true,
-        pageUpDown: preferences.navigation?.page_up_down ?? true,
+        // Tab 和 PageUp/PageDown 两组翻页键固定开启，不读存着的值：组字时关掉的绑定被 HardwareKeyRouter 判为 IGNORED 吃掉，并不会还给应用，关掉只让键失效。韩文汉字 / 注音列表原本会把关掉的键交还应用，固定开启后在列表里也翻页。设置页也不再给这两组的开关（HostCapabilities.tab_page_paging_switches）。
+        tab: true,
+        pageUpDown: true,
         mouseWheel: preferences.navigation?.mouse_wheel ?? false,
         arrows: preferences.navigation?.arrows ?? true
       },
