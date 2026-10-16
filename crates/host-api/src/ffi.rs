@@ -210,6 +210,7 @@ pub(crate) fn keyboard_reranker(
 }
 
 pub mod account;
+pub mod ai_skin;
 pub mod android_data;
 pub mod candidates;
 pub mod cloud_dictionary;

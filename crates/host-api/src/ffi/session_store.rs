@@ -1,4 +1,4 @@
-//! 宿主注入的会话存储：`msime_client_session_store_register` 收下宿主的 load、save、remove、lock、unlock、release 回调，建好这个 store 的登录会话、匿名会话和社区服务，之后 `msime_client_account`、`msime_client_community`、`msime_client_account_cloud_clipboard` 和 `msime_client_account_access_token` 带 `session_store` 就经它们走，不带时仍按 `directory` 读写会话文件，行为不变。回调的契约见头文件 `msime_client_session_store` 的注释；编解码、校验和加锁顺序在 client-services 的 `account::host_storage`。
+//! 宿主注入的会话存储：`msime_client_session_store_register` 收下宿主的 load、save、remove、lock、unlock、release 回调，建好这个 store 的登录会话、匿名会话、社区服务和 AI 皮肤服务，之后 `msime_client_account`、`msime_client_community`、`msime_client_account_cloud_clipboard`、`msime_client_account_access_token`、`msime_client_cloud_dictionary` 和 AI 皮肤的两个入口带 `session_store` 就经它们走，不带时仍按 `directory` 读写会话文件，行为不变。回调的契约见头文件 `msime_client_session_store` 的注释；编解码、校验和加锁顺序在 client-services 的 `account::host_storage`。
 //!
 //! 注册表里每个 store 一个条目，注册时一次建好全部对象，请求路径只查不插：`unregister` 之后不会有调用把会话重新插回去。条目最后一个引用释放时调用宿主的 `release`，那时本模块不持有任何锁。
 //!
@@ -10,8 +10,8 @@ use crate::*;
 use msime_client_services::account::{
     valid_client_agent, AccountError, AccountSessionFileLayout, AccountSessionStorage,
     BackendAccountClient, BackendAccountSession, FileAccountSessionStorage, HostSessionSlot,
-    HostSessionStorage, HostStoreLocks, SavedAccountSession, SessionStoreBackend, SessionStoreItem,
-    WriteOutcome,
+    HostSessionStorage, HostStoreLocks, LockedAnonymousSessionStorage, SavedAccountSession,
+    SessionStoreBackend, SessionStoreItem, WriteOutcome,
 };
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -149,9 +149,10 @@ impl Drop for CallbackBackend {
     }
 }
 
-/// 会话对象用的存储：按 `directory` 的会话文件，或宿主注入的存储。
+/// 会话对象用的存储：按 `directory` 的会话文件（登录会话 `account-session.json`、匿名会话 `anonymous-session.json`），或宿主注入的存储。
 pub(super) enum SessionStorage {
     File(FileAccountSessionStorage),
+    AnonymousFile(LockedAnonymousSessionStorage),
     Host(HostSessionStorage),
 }
 
@@ -159,6 +160,7 @@ impl AccountSessionStorage for SessionStorage {
     fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
         match self {
             Self::File(storage) => storage.load(),
+            Self::AnonymousFile(storage) => storage.load(),
             Self::Host(storage) => storage.load(),
         }
     }
@@ -166,6 +168,7 @@ impl AccountSessionStorage for SessionStorage {
     fn save(&self, session: &SavedAccountSession) -> Result<(), AccountError> {
         match self {
             Self::File(storage) => storage.save(session),
+            Self::AnonymousFile(storage) => storage.save(session),
             Self::Host(storage) => storage.save(session),
         }
     }
@@ -173,6 +176,7 @@ impl AccountSessionStorage for SessionStorage {
     fn clear(&self) -> Result<(), AccountError> {
         match self {
             Self::File(storage) => storage.clear(),
+            Self::AnonymousFile(storage) => storage.clear(),
             Self::Host(storage) => storage.clear(),
         }
     }
@@ -180,6 +184,7 @@ impl AccountSessionStorage for SessionStorage {
     fn load_clipboard_keystore(&self) -> Result<Option<String>, AccountError> {
         match self {
             Self::File(storage) => storage.load_clipboard_keystore(),
+            Self::AnonymousFile(storage) => storage.load_clipboard_keystore(),
             Self::Host(storage) => storage.load_clipboard_keystore(),
         }
     }
@@ -187,6 +192,7 @@ impl AccountSessionStorage for SessionStorage {
     fn save_clipboard_keystore(&self, value: &str) -> Result<(), AccountError> {
         match self {
             Self::File(storage) => storage.save_clipboard_keystore(value),
+            Self::AnonymousFile(storage) => storage.save_clipboard_keystore(value),
             Self::Host(storage) => storage.save_clipboard_keystore(value),
         }
     }
@@ -194,6 +200,7 @@ impl AccountSessionStorage for SessionStorage {
     fn shared_across_processes(&self) -> bool {
         match self {
             Self::File(storage) => storage.shared_across_processes(),
+            Self::AnonymousFile(storage) => storage.shared_across_processes(),
             Self::Host(storage) => storage.shared_across_processes(),
         }
     }
@@ -204,17 +211,19 @@ impl AccountSessionStorage for SessionStorage {
     ) -> Result<T, AccountError> {
         match self {
             Self::File(storage) => storage.with_refresh_lock(body),
+            Self::AnonymousFile(storage) => storage.with_refresh_lock(body),
             Self::Host(storage) => storage.with_refresh_lock(body),
         }
     }
 }
 
-/// 一个注册的 store：注册时一次建好，请求只读。账号、匿名和社区共用一个 HTTP 客户端。
+/// 一个注册的 store：注册时一次建好，请求只读。账号、匿名、社区和 AI 皮肤共用一个 HTTP 客户端。
 pub(super) struct StoreEntry {
     pub(super) backend: Arc<CallbackBackend>,
     pub(super) account: Arc<Session>,
     pub(super) anonymous: Arc<Session>,
     pub(super) community: Arc<Services>,
+    pub(super) ai_skin: Arc<super::ai_skin::AiSkinService>,
 }
 
 static STORES: OnceLock<Mutex<HashMap<u64, Arc<StoreEntry>>>> = OnceLock::new();
@@ -319,6 +328,10 @@ fn register(store: SessionStoreV1) -> Result<Value, String> {
         client.clone(),
         storage(HostSessionSlot::Anonymous),
     ));
+    let ai_skin = Arc::new(super::ai_skin::AiSkinService::new(
+        client.clone(),
+        Arc::clone(&account),
+    ));
     let community = Arc::new(Services::new(client, Arc::clone(&account)));
     stores().insert(
         id,
@@ -327,6 +340,7 @@ fn register(store: SessionStoreV1) -> Result<Value, String> {
             account,
             anonymous,
             community,
+            ai_skin,
         }),
     );
     Ok(json!({ "session_store": id }))

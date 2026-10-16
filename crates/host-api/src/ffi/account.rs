@@ -4,6 +4,8 @@
 //!
 //! 请求带 `session_store` 而不带 `directory` 时，会话在宿主注入的存储里（[`super::session_store`]），会话对象是注册时建好的那一个。
 //!
+//! #8201 新增的操作（对话、释义、常用语、我的设备、云端数据、反馈、诊断上传）在 [`crate::account_ops`]；它们失败时还可能带 `retry_after_seconds`。登录账号优先、退回匿名账号的几项，按目录时用同一目录里的 `anonymous-session.json`（每个目录一个会话对象，刷新时与登录会话共用 `account-refresh.lock`），注入时用该 store 的匿名会话。
+//!
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
 use super::session_store::{session_source, SessionStorage, Source};
@@ -20,8 +22,9 @@ use msime_client_services::account::settings_sync::{
 use msime_client_services::account::{
     adopt_legacy_account_session, ensure_anonymous_account, ensure_anonymous_account_in,
     AccountError, AccountPreferences, AccountSessionFileLayout, BackendAccountClient,
-    BackendAccountSession, FileAccountSessionStorage,
+    BackendAccountSession, FileAccountSessionStorage, LockedAnonymousSessionStorage,
 };
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 /// 请求的上限：应用云端设置时请求里带着整份云端设置文档（其中可能有 Android 的自定义键盘皮肤库，最多 768 KiB），与 Android 的设置同步导出一样给 4 MiB；目录各最多 16 KiB。
 const MAX_REQUEST_BYTES: usize = 4 * 1024 * 1024;
@@ -31,6 +34,9 @@ pub(super) type Session = BackendAccountSession<BackendAccountClient, SessionSto
 
 /// 每个会话目录一个会话对象。只在取对象时持锁，账号调用本身在锁外进行。
 static ACCOUNT_SESSIONS: OnceLock<Mutex<HashMap<PathBuf, Arc<Session>>>> = OnceLock::new();
+
+/// 每个会话目录一个匿名会话对象（同一目录的 `anonymous-session.json`），给登录账号优先、退回匿名账号的新操作用。
+static ANONYMOUS_SESSIONS: OnceLock<Mutex<HashMap<PathBuf, Arc<Session>>>> = OnceLock::new();
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -44,7 +50,15 @@ struct AccountRequest {
     /// `msime_client_session_store_register` 给的 id；与 `directory` 恰好给一个。
     #[serde(default)]
     session_store: Option<u64>,
-    action: AccountAction,
+    action: Action,
+}
+
+/// 已有的操作（[`AccountAction`]）或 #8201 新增的（[`crate::account_ops::Operation`]）。两者都按 `operation` 区分、都拒绝未知字段，名字不重复，所以先试前者、不是它再试后者。
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Action {
+    Account(AccountAction),
+    Extended(crate::account_ops::Operation),
 }
 
 /// Tauri 的 `account_*` 命令，名字去掉前缀；`choose_avatar` 的文件对话框由宿主自己弹，这里只收选好的路径。`preferences_*` 是 Windows 的设置同步，偏好目录由宿主传入（共享应用用的是它自己的偏好存储）。
@@ -114,6 +128,70 @@ pub(super) fn session_for(
     ));
     sessions.insert(directory.to_path_buf(), Arc::clone(&session));
     Ok(session)
+}
+
+/// 目录里匿名会话的对象，第一次用到时建立。
+pub(super) fn anonymous_session_for(directory: &Path) -> Result<Arc<Session>, AccountError> {
+    let sessions = ANONYMOUS_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut sessions = sessions.lock().map_err(|_| AccountError::Unavailable)?;
+    if let Some(session) = sessions.get(directory) {
+        return Ok(Arc::clone(session));
+    }
+    let session = Arc::new(BackendAccountSession::new(
+        BackendAccountClient::new()?,
+        SessionStorage::AnonymousFile(LockedAnonymousSessionStorage::new(directory)),
+    ));
+    sessions.insert(directory.to_path_buf(), Arc::clone(&session));
+    Ok(session)
+}
+
+/// `msime_client_account` 的一次失败：错误码，以及新操作里服务端给了 `Retry-After` 时的秒数。已有操作的失败没有后者，响应与以前相同。
+pub(super) struct Failure {
+    pub(super) code: String,
+    pub(super) retry_after_seconds: Option<u64>,
+}
+
+impl From<String> for Failure {
+    fn from(code: String) -> Self {
+        Self {
+            code,
+            retry_after_seconds: None,
+        }
+    }
+}
+
+impl From<crate::account_ops::OperationFailure> for Failure {
+    fn from(failure: crate::account_ops::OperationFailure) -> Self {
+        Self {
+            code: failure.code.to_owned(),
+            retry_after_seconds: failure.retry_after_seconds,
+        }
+    }
+}
+
+impl From<msime_client_services::account::AccountFailure> for Failure {
+    fn from(failure: msime_client_services::account::AccountFailure) -> Self {
+        crate::account_ops::OperationFailure::from(failure).into()
+    }
+}
+
+/// 与 crate 的 `response` 相同，失败时多一个可选的 `retry_after_seconds`：`{"ok":false,"error":code,"retry_after_seconds":N}`，只在已知时出现。
+pub(super) fn account_failure_response(
+    operation: impl FnOnce() -> Result<Value, Failure>,
+) -> *mut c_char {
+    let value = match catch_unwind(AssertUnwindSafe(operation)) {
+        Ok(Ok(value)) => json!({ "ok": true, "value": value }),
+        Ok(Err(Failure {
+            code,
+            retry_after_seconds: Some(seconds),
+        })) => json!({ "ok": false, "error": code, "retry_after_seconds": seconds }),
+        Ok(Err(Failure { code, .. })) => json!({ "ok": false, "error": code }),
+        Err(_) => json!({ "ok": false, "error": "internal runtime failure" }),
+    };
+    // JSON 会转义 NUL，这里不会有内部的 NUL。
+    CString::new(value.to_string())
+        .expect("JSON contains no NUL")
+        .into_raw()
 }
 
 fn value<T: Serialize>(value: T) -> Result<Value, AccountError> {
@@ -251,8 +329,8 @@ fn absolute_directory(value: &str) -> Result<&Path, String> {
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize) -> *mut c_char {
-    response(|| {
-        let invalid = || AccountError::Invalid.code().to_owned();
+    account_failure_response(|| {
+        let invalid = || Failure::from(AccountError::Invalid.code().to_owned());
         // SAFETY: forwarded from the documented caller contract.
         let request: AccountRequest = unsafe {
             with_bounded_bytes(
@@ -260,10 +338,10 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
                 length,
                 MAX_REQUEST_BYTES,
                 "account_invalid",
-                |bytes| serde_json::from_slice(bytes).map_err(|_| invalid()),
+                |bytes| serde_json::from_slice(bytes).map_err(|_| "account_invalid".to_owned()),
             )?
         };
-        let code = |error: AccountError| error.code().to_owned();
+        let code = |error: AccountError| Failure::from(error.code().to_owned());
         let source = session_source(
             request.directory.as_deref(),
             request.legacy_directory.is_some(),
@@ -278,22 +356,39 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
                     .as_deref()
                     .map(absolute_directory)
                     .transpose()?;
-                if matches!(request.action, AccountAction::EnsureAnonymous) {
+                if matches!(
+                    request.action,
+                    Action::Account(AccountAction::EnsureAnonymous)
+                ) {
                     return ensure_anonymous_account(directory)
                         .map(|()| Value::Bool(true))
                         .map_err(code);
                 }
                 let session = session_for(directory, legacy).map_err(code)?;
-                run(&session, request.action)
-            }
-            Source::Store(entry) => {
-                if matches!(request.action, AccountAction::EnsureAnonymous) {
-                    return ensure_anonymous_account_in(&entry.anonymous, entry.backend.as_ref())
-                        .map(|()| Value::Bool(true))
-                        .map_err(code);
+                match request.action {
+                    Action::Account(action) => run(&session, action).map_err(Failure::from),
+                    Action::Extended(operation) => crate::account_ops::run(
+                        &session,
+                        || anonymous_session_for(directory),
+                        operation,
+                    )
+                    .map_err(Failure::from),
                 }
-                run(&entry.account, request.action)
             }
+            Source::Store(entry) => match request.action {
+                Action::Account(AccountAction::EnsureAnonymous) => {
+                    ensure_anonymous_account_in(&entry.anonymous, entry.backend.as_ref())
+                        .map(|()| Value::Bool(true))
+                        .map_err(code)
+                }
+                Action::Account(action) => run(&entry.account, action).map_err(Failure::from),
+                Action::Extended(operation) => crate::account_ops::run(
+                    &entry.account,
+                    || Ok(Arc::clone(&entry.anonymous)),
+                    operation,
+                )
+                .map_err(Failure::from),
+            },
         }
     })
 }
@@ -599,6 +694,41 @@ mod tests {
             assert!(!directory.exists());
             unregister(id);
         }
+
+        #[test]
+        fn new_operations_pick_the_stores_sessions() {
+            let store = leaked_store();
+            let id = registered(store, SHARED, 0);
+            // 两个会话都没有：只用登录账号的、登录优先退回匿名的都在取令牌时结束。
+            for operation in [
+                json!({ "operation": "phrases_load" }),
+                json!({ "operation": "translate", "texts": ["词"], "source_lang": "zh", "target_lang": "en" }),
+            ] {
+                assert_eq!(
+                    store_action(id, operation.clone()),
+                    json!({ "ok": false, "error": "account_unauthorized" }),
+                    "{operation}"
+                );
+            }
+            // 上传诊断时的账号已经不是 store 里的任何一个：报错，不退回另一个账号，也不联网。
+            put(store, 1, session_bytes("synthetic-user", 'a', true));
+            put(store, 3, session_bytes("synthetic-anonymous", 'c', true));
+            for operation in [
+                "diagnostics_state",
+                "diagnostics_regenerate_token",
+                "diagnostics_delete",
+            ] {
+                assert_eq!(
+                    store_action(
+                        id,
+                        json!({ "operation": operation, "user_id": "someone-else" })
+                    ),
+                    json!({ "ok": false, "error": "account_identity_changed" }),
+                    "{operation}"
+                );
+            }
+            unregister(id);
+        }
     }
 
     #[test]
@@ -807,5 +937,135 @@ mod tests {
             json!({ "ok": false, "error": "account_cancelled" })
         );
         assert!(!preferences.join("preferences.json").exists());
+    }
+
+    #[test]
+    fn new_operations_check_requests_and_the_account_before_the_network() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("account");
+        // 匿名会话与登录会话在同一个目录里；目录本身要存在才读得了匿名会话，与 `msime_client_account_access_token` 相同。
+        std::fs::create_dir(&directory).unwrap();
+        let unauthorized = json!({ "ok": false, "error": "account_unauthorized" });
+        for operation in [
+            json!({ "operation": "chat_models" }),
+            json!({ "operation": "chat", "messages": [{ "role": "user", "content": "你好" }], "model": "synthetic-model" }),
+            json!({ "operation": "phrases_load" }),
+            json!({ "operation": "sessions_list" }),
+            json!({ "operation": "session_revoke", "id": "0".repeat(64) }),
+            json!({ "operation": "data_summary" }),
+            json!({ "operation": "data_delete", "sections": ["voice"] }),
+            // 没有登录也没有匿名会话。
+            json!({ "operation": "translate", "texts": ["词"], "source_lang": "zh", "target_lang": "en" }),
+            json!({ "operation": "feedback", "type": "bug", "text": "合成反馈", "platform": "windows", "app_version": "0.9.0", "edition": "full" }),
+        ] {
+            assert_eq!(
+                action(&directory, operation.clone()),
+                unauthorized,
+                "{operation}"
+            );
+        }
+        let invalid = json!({ "ok": false, "error": "account_invalid" });
+        for operation in [
+            json!({ "operation": "phrases_save", "revision": 0, "phrases": [{ "id": "a", "text": "", "group": "", "position": 0 }] }),
+            json!({ "operation": "data_delete", "sections": [] }),
+            json!({ "operation": "data_export", "destination": "relative.zip" }),
+            json!({ "operation": "session_revoke", "id": "short" }),
+            json!({ "operation": "translate", "texts": [], "source_lang": "zh", "target_lang": "en" }),
+            json!({ "operation": "translate", "texts": ["词"], "source_lang": "zh", "target_lang": "en", "extra": 1 }),
+            json!({ "operation": "diagnostics_state", "user_id": "" }),
+        ] {
+            assert_eq!(
+                action(&directory, operation.clone()),
+                invalid,
+                "{operation}"
+            );
+        }
+        let full = "a".repeat(8192);
+        assert_eq!(
+            action(
+                &directory,
+                json!({ "operation": "translate", "texts": vec![full; 32], "source_lang": "zh", "target_lang": "en" })
+            ),
+            json!({ "ok": false, "error": "account_too_large" })
+        );
+        // 登录着，但诊断快照是另一个账号上传的。
+        save_session(&directory);
+        assert_eq!(
+            action(
+                &directory,
+                json!({ "operation": "diagnostics_delete", "user_id": "someone-else" })
+            ),
+            json!({ "ok": false, "error": "account_identity_changed" })
+        );
+        assert!(!directory
+            .join(msime_client_services::account::ANONYMOUS_SESSION_FILE)
+            .exists());
+    }
+
+    fn gloss(request: Value) -> Value {
+        let bytes = request.to_string();
+        // SAFETY: 缓冲区在调用期间有效，返回的字符串在下面释放。
+        unsafe {
+            let raw = crate::msime_client_account_gloss(bytes.as_ptr(), bytes.len());
+            let text = CStr::from_ptr(raw).to_str().unwrap().to_owned();
+            msime_client_string_free(raw);
+            serde_json::from_str(&text).unwrap()
+        }
+    }
+
+    #[test]
+    fn the_gloss_request_and_parse_halves_follow_translate() {
+        let request = gloss(
+            json!({ "operation": "request", "texts": ["水杉", "输入法"], "source_lang": "zh", "target_lang": "ja" }),
+        );
+        assert_eq!(request["value"]["method"], "POST");
+        assert_eq!(request["value"]["path"], "/v1/translate");
+        let body: Value = serde_json::from_str(request["value"]["body"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            body,
+            json!({ "texts": ["水杉", "输入法"], "source_lang": "ZH", "target_lang": "JA" })
+        );
+        assert_eq!(
+            gloss(json!({
+                "operation": "parse",
+                "texts": ["水杉", "输入法"],
+                "status": 200,
+                "body": json!({ "code": 200, "data": ["メタセコイア\n", "输入法"] }).to_string(),
+            })),
+            json!({ "ok": true, "value": { "translations": ["メタセコイア", null] } })
+        );
+        assert_eq!(
+            gloss(json!({
+                "operation": "parse",
+                "texts": ["水杉"],
+                "status": 429,
+                "body": r#"{"error":{"code":"rate_limit_exceeded","message":"rate_limit_exceeded"}}"#,
+                "retry_after": "60",
+            })),
+            json!({ "ok": false, "error": "account_rate_limited", "retry_after_seconds": 60 })
+        );
+        assert_eq!(
+            gloss(
+                json!({ "operation": "parse", "texts": ["水杉"], "status": 200, "body": "{\"code\":\"200\",\"data\":[\"x\"]}" })
+            ),
+            json!({ "ok": false, "error": "account_unavailable" })
+        );
+        assert_eq!(
+            gloss(
+                json!({ "operation": "request", "texts": ["词"], "source_lang": "zh_CN", "target_lang": "en" })
+            ),
+            json!({ "ok": false, "error": "account_invalid" })
+        );
+        let full = "a".repeat(8192);
+        assert_eq!(
+            gloss(
+                json!({ "operation": "request", "texts": vec![full; 32], "source_lang": "zh", "target_lang": "en" })
+            ),
+            json!({ "ok": false, "error": "account_too_large" })
+        );
+        assert_eq!(
+            gloss(json!({ "operation": "send" })),
+            json!({ "ok": false, "error": "account_invalid" })
+        );
     }
 }

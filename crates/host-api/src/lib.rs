@@ -69,6 +69,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 #[cfg(unix)]
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+/// `msime_client_account` 在 #8201 新增的操作。
+mod account_ops;
 mod bounded_file;
 mod chinese_english_spacing;
 mod dictionary;

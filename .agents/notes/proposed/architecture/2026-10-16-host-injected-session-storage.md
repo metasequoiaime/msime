@@ -51,6 +51,14 @@ Status: proposed
 
 云词库分发器与 Windows 完整备份（`msime_client_cloud_dictionary`，完整备份依赖 engine，所以放在 host-api 而不是 issue 写的 client-services）、iOS 设置映射、`msime_client_account` 的新操作（translate、phrases、sessions、user data、feedback、诊断上传、chat）、社区键盘皮肤、AI 皮肤生成与任务轮询、多分类同步编排。它们都经同一套 `session_store` 字段选会话。
 
+### 新接口的错误形状与校验
+
+- 新增的账号操作（`chat`、`translate`、`phrases_*`、`sessions_list`、`session_revoke`、`data_*`、`feedback`、`diagnostics_*`）返回 client-services 的 `AccountFailure`：在 `AccountError` 之外带着 HTTP 状态码、服务端错误码和 `Retry-After` 的整数秒。`AccountError` 一个变体都不加，已有操作的错误码不变：它在 Tauri 的社区命令等处被穷举匹配，把 403 `recent_login_required` 从 `Forbidden` 里分出来会改掉现有 `delete` 返回的 `account_unauthorized`。新码 `account_recent_login_required`、`account_too_large`、`account_not_found`、`account_identity_changed` 和 C 响应里的 `retry_after_seconds` 只出现在新操作上。
+- 请求按 msime-cloud `origin/main` 的规则在本地完整校验，并对序列化后的请求体做整包预检：走 64 KiB `decode` 的接口超限时服务端回的是 400 `invalid_json`，分不出是哪条规则，所以 `translate`、`chat`、`msime_client_account_gloss` 在本地先报 `account_too_large`。诊断上传对服务端的每条拒绝规则做截断或替换而不只是检查，因为服务端只要有一处不合规就拒绝整份。
+- 令牌来源：只认登录账号的、登录优先退回匿名账号的、绑定到上传时 `user_id` 的三类，后者对不上时报错，never 退回另一个账号（否则匿名上传后再登录，删除会删到登录账号那份、匿名那份连同 MCP 令牌还活 7 天）。
+- 服务端响应的结构体不拒绝未知字段。AI 皮肤的 `RawSkinJob` 曾带 `deny_unknown_fields`，msime-cloud 在 2026-10-01 给 202 响应加了 `expires_at` 以后每次创建插画任务都解析失败；回放当前形状的本地测试抓不到服务端以后再加的字段。
+- AI 皮肤生成的进度回调在调用线程上依次调用：出图线程只经通道报告完成。与头文件里其他进度回调的约定一致，JNI 和 NAPI 胶水可以直接用调用线程的 env；出图线程遇到 401 时仍可能在 Rust 的线程上调用存储回调，按上面的「任意线程」处理。
+
 ## Related notes
 
 - [原生设置窗口账号页用到的 C 接口](../../implemented/architecture/2026-10-11-windows-settings-account-host-api.md)：部分重叠。那篇定下了 `msime_client_account` 每个 `directory` 一个会话对象、Google 登录与取消用同一对象；这里沿用它，并给同一个导出加上 `session_store`，目录模式的行为不变。
@@ -59,6 +67,10 @@ Status: proposed
 - [旧账号会话迁移不覆盖新登录](../../implemented/bug-fix/2026-10-13-account-session-migration-no-clobber.md)：无关；匿名身份的「不存在才写」沿用的是同一种 no-clobber 思路，但那篇只管目录间的会话迁移。
 
 ## Alternatives considered
+
+- **给 `AccountError` 加 `RecentLoginRequired`、`TooLarge` 等变体** — 最强的理由：只有一个错误类型，新旧接口共用一套映射，宿主不用分辨两种形状。否掉：现有调用方对它穷举匹配，新变体要么改掉已有操作返回的码（`delete` 遇到需要最近登录时从 `account_unauthorized` 变成别的），要么在每个匹配点各写一份兼容分支；`Retry-After` 的秒数也放不进一个无数据的枚举。
+- **新接口的请求不在本地完整校验，交给服务端拒绝** — 最强的理由：规则只在服务端写一份，服务端放宽时客户端不用跟着改。否掉：64 KiB 整包超限时服务端只回 `invalid_json`，诊断上传任何一处不合规都整份被拒，用户看到的只是「不可用」；本地截断或预检能给出可操作的码。服务端放宽的那天，本地规则跟着改是一次小改动。
+- **AI 皮肤的进度回调留在出图线程上** — 最强的理由：不用多一条通道，Tauri 现在就是这样 emit 事件的。否掉：C 宿主的进度回调一律在调用线程上，JNI 胶水要缓存 `JavaVM` 并 attach/detach，NAPI 没法从别的线程直接调 JS；三个线程并发回调还要宿主自己串行化。
 
 - **Rust 自己读写钥匙串和 KeyStore** — 最强的理由：宿主一行回调都不用写，没有跨线程回调和 JNI attach 的麻烦，存储逻辑也只有一份。否掉：要引入 `security-framework`、`keyring` 一类第三方 crate，仓库负责人已定不加；钥匙串的 access group、App Group 的 entitlement 和 AndroidKeyStore 的密钥别名都是各宿主自己的配置，Android 上还得从 Rust 反向调 Java，复杂度只是换了个地方。
 - **所有平台都改用目录模式（明文 JSON 文件）** — 最强的理由：`FileAccountSessionStorage` 已经存在、已有测试和跨进程锁，不需要任何新 ABI。否掉：iOS 和 Android 的令牌会从钥匙串、KeyStore 加密存储落到明文文件，平台现有的安全保证变弱。鸿蒙例外：它的会话本来就在 ArkTS 管的文件里，C 回调在 Rust 线程上触发、没法直接调 ArkTS，改用 threadsafe function 阻塞等结果又会在调用方是 JS 线程上的同步 napi 函数时死锁，所以鸿蒙走目录模式。
@@ -72,6 +84,7 @@ Status: proposed
 
 - `cargo test -p msime-client-services` 覆盖：两种布局的读写、清除登录会话时连密钥串一起删、超长或解不开的文档是 `Storage`、置 SHARED 时在同一线程上成对加解锁（含 panic）、同一线程嵌套加锁被拒、匿名身份「已存在」时重读并采用先发布的那份、`shared_access_token_in` 带 `expected_user_id` 时不退回另一个账号、`client_agent` 的形状校验与发出的 User-Agent。
 - `cargo test -p msime-host-api` 覆盖：`msime_client_session_store` 在 64 位目标上是 80 字节、各字段偏移与头文件一致；非法描述符不接管 `context`、不调用 `release`；`release` 等最后一个进行中的调用结束才调用且只调用一次；四个入口在注入模式下的 status、forget、取令牌、缓存与每次重读、补登录 ID 时持宿主锁、`directory`/`session_store` 恰好一个的校验。
+- 新接口：client-services 的测试覆盖 `AccountFailure::code()` 的映射顺序与 `Retry-After`、释义的整包预检与逐项置空、常用语按服务端规则的校验、「我的设备」保留 `web` 和空串、反馈的截图尺寸只读头部、诊断上传按服务端规则重建（事件种类、崩溃时间、配置快照的层数和条目、2 MiB 先截最旧的事件），以及用 loopback 假服务器回放服务端真实的 202 `{id,state,expires_at}` 和 failed `{id,state,artwork:null,reason}`（修复前这条测试失败）；host-api 的测试用假后端覆盖三类令牌来源、401 只在同一账号内重试一次、撤销当前会话改走退出、绑定账号对不上时是 `account_identity_changed`，C 层覆盖不联网的校验与 `retry_after_seconds` 的形状。
 - 带 `directory` 的现有测试全部照旧通过；`shared/backend` 的 `swift test` 和 `platforms/macos/scripts/test_backend_account_swift.sh` 通过。
 - 第二阶段：iOS、macOS、Android 改调注入接口后，Swift 和 Java 里的会话刷新、匿名注册和账号接口实现删除；HarmonyOS 与 Linux 改用目录模式。
 

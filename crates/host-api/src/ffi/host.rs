@@ -1269,7 +1269,7 @@ pub unsafe extern "C" fn msime_client_custom_skin_library(
 /// for a log into a Chinese dialog.
 fn custom_skin_library_code(
     error: msime_client_services::skin::custom_library::CustomSkinLibraryError,
-) -> String {
+) -> &'static str {
     use msime_client_services::skin::custom_library::CustomSkinLibraryError as Failure;
     match error {
         Failure::Full => "community_skin_library_full",
@@ -1279,7 +1279,6 @@ fn custom_skin_library_code(
         Failure::Json(_) | Failure::Invalid => "community_skin_library_format",
         Failure::Io(_) => "community_storage",
     }
-    .to_owned()
 }
 
 #[derive(Debug, Deserialize)]
@@ -1329,28 +1328,43 @@ pub unsafe extern "C" fn msime_client_community_skin_install(
         }
         let id = msime_client_core::uuid::Uuid::parse_str(&request.id)
             .map_err(|_| "community_invalid")?;
-        let library = msime_client_services::skin::custom_library::CustomSkinLibraryStore::new(
-            &request.directory,
-        );
-        let trials = msime_client_services::skin::keyboard_trial::KeyboardSkinTrialStore::new(
-            &request.directory,
-            std::sync::Arc::new(msime_client_core::preferences::PreferencesStore::new(
-                &request.directory,
-            )),
-        );
-        let (trial, _) = trials
-            .begin(&request.name, request.design.clone())
-            .map_err(keyboard_skin_trial_code)?;
-        let skin = match library.import_download(id, &request.name, request.design) {
-            Ok(skin) => skin,
-            Err(error) => {
-                let _ = trials.finish(trial.id, false);
-                return Err(custom_skin_library_code(error));
-            }
-        };
-        serde_json::to_value(CommunitySkinInstallResponse { skin, trial })
-            .map_err(|_| "community_storage".into())
+        install_downloaded_keyboard_skin(
+            Path::new(&request.directory),
+            id,
+            &request.name,
+            request.design,
+        )
+        .map_err(Into::into)
     })
+}
+
+/// 把下载好的社区键盘皮肤装上：先开始试用、再导入皮肤库，导入失败就结束试用、不保留，返回 `{skin, trial}`。`directory` 是状态根目录的绝对路径。`msime_client_community_skin_install` 和 `msime_client_community` 的 `keyboard_skin_install` 共用它；错误是 `keyboard_skin_trial_code` 和 `custom_skin_library_code` 的码。
+pub(super) fn install_downloaded_keyboard_skin(
+    directory: &Path,
+    id: msime_client_core::uuid::Uuid,
+    name: &str,
+    design: msime_client_core::preferences::TouchKeyboardSkinDesign,
+) -> Result<Value, &'static str> {
+    let library =
+        msime_client_services::skin::custom_library::CustomSkinLibraryStore::new(directory);
+    let trials = msime_client_services::skin::keyboard_trial::KeyboardSkinTrialStore::new(
+        directory,
+        std::sync::Arc::new(msime_client_core::preferences::PreferencesStore::new(
+            directory,
+        )),
+    );
+    let (trial, _) = trials
+        .begin(name, design.clone())
+        .map_err(keyboard_skin_trial_code)?;
+    let skin = match library.import_download(id, name, design) {
+        Ok(skin) => skin,
+        Err(error) => {
+            let _ = trials.finish(trial.id, false);
+            return Err(custom_skin_library_code(error));
+        }
+    };
+    serde_json::to_value(CommunitySkinInstallResponse { skin, trial })
+        .map_err(|_| "community_storage")
 }
 
 #[derive(Debug, Deserialize)]
@@ -1414,13 +1428,12 @@ pub unsafe extern "C" fn msime_client_keyboard_skin_trial(
 
 fn keyboard_skin_trial_code(
     error: msime_client_services::skin::keyboard_trial::KeyboardSkinTrialError,
-) -> String {
+) -> &'static str {
     use msime_client_services::skin::keyboard_trial::KeyboardSkinTrialError as Failure;
     match error {
         Failure::Io(_) | Failure::Preferences(_) => "community_storage",
         Failure::Json(_) | Failure::Invalid => "community_trial_format",
     }
-    .to_owned()
 }
 
 #[derive(Debug, Deserialize)]
