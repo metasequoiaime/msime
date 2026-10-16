@@ -66,7 +66,7 @@ pub fn gate(
     if !state.enabled {
         return Err(SkipReason::Disabled);
     }
-    if state.not_before_ms.is_some_and(|at| now_ms < at) {
+    if state.backoff_until(now_ms).is_some() {
         return Err(SkipReason::Backoff);
     }
     let forced = trigger.forced() || choice.is_some();

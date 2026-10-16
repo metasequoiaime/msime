@@ -223,7 +223,7 @@ pub(crate) fn status_value(state: &SyncState, now_ms: u64) -> Value {
         "sections": sections,
         "last_attempt_ms": state.last_attempt_ms,
         "last_synced_ms": state.last_synced_ms,
-        "not_before_ms": state.not_before_ms,
+        "not_before_ms": state.backoff_until(now_ms),
         "pending_choice": state.pending_choice,
         "running": state.lease_active(now_ms),
         "failure": state.failure,
@@ -319,7 +319,7 @@ pub(crate) struct AndroidLegacy {
     cloud_sync_status: Value,
 }
 
-/// `import_legacy`：只在还没有任何进度时导入，保留游标和待上传标记，免得迁移以后又弹首次选择。
+/// `import_legacy`：只在还没有任何进度、而且没有绑定别的账号时导入（见 [`SyncState::accepts_import`]），保留游标和待上传标记，免得迁移以后又弹首次选择。
 pub(crate) fn import_legacy(
     store: &SyncStateStore,
     ios_v1: Option<Value>,
@@ -334,7 +334,7 @@ pub(crate) fn import_legacy(
     let (imported, state) = store
         .update(|state| {
             let adopted = match imported {
-                Some(imported) if state.is_pristine() => {
+                Some(imported) if state.accepts_import(&imported) => {
                     state.adopt(imported);
                     true
                 }

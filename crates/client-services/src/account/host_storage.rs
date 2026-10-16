@@ -448,10 +448,25 @@ pub(super) mod tests {
             .unwrap()
             .insert(SessionStoreItem::Account, b"not json".to_vec());
         assert_eq!(account.load().err(), Some(AccountError::Storage));
-        backend.items.lock().unwrap().insert(
-            SessionStoreItem::Account,
-            vec![b' '; SessionStoreItem::Account.capacity() + 1],
+        // 一份能解码的会话用空格补到上限：正好上限时照常能读，多一个字节时只有长度检查能拦下它。
+        let mut padded =
+            encode_session(AccountSessionFileLayout::Native, &synthetic_session()).unwrap();
+        padded.resize(SessionStoreItem::Account.capacity(), b' ');
+        backend
+            .items
+            .lock()
+            .unwrap()
+            .insert(SessionStoreItem::Account, padded.clone());
+        assert_eq!(
+            account.load().unwrap().map(|saved| saved.tokens.user),
+            Some(synthetic_session().tokens.user)
         );
+        padded.push(b' ');
+        backend
+            .items
+            .lock()
+            .unwrap()
+            .insert(SessionStoreItem::Account, padded);
         assert_eq!(account.load().err(), Some(AccountError::Storage));
     }
 

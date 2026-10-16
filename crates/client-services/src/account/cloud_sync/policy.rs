@@ -18,6 +18,8 @@ pub const DIRTY_DEBOUNCE_MS: u64 = 30 * 1000;
 pub const MAX_CONFLICT_RETRIES: u32 = 2;
 /// 一轮同步的租约有效期：超过它还没有提交，别的进程可以开始新的一轮。
 pub const LEASE_MS: u64 = 180 * 1000;
+/// 服务端 `Retry-After` 退避的上限，与遥测（`telemetry.rs` 的 `MAX_RETRY_AFTER`）相同：更长的按这么长记，离现在比这更远的 `not_before_ms`（时钟往回拨以后）不再挡，手动同步最多被挡这么久。
+pub const MAX_BACKOFF_MS: u64 = 24 * 60 * 60 * 1000;
 /// 设备本地且涉及隐私、无论如何都不上传也不应用的设置，按键名里的片段识别。
 pub const LOCAL_ONLY_FRAGMENTS: [&str; 4] = [
     "incognito",

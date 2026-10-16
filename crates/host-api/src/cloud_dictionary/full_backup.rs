@@ -452,12 +452,12 @@ pub fn export_to_file<A: AccountApi, S: AccountSessionStorage>(
     state: &CloudDictionaryState,
     destination: &Path,
 ) -> Result<Value, &'static str> {
-    // 保存位置不可用时在下载之前就拒绝，不白下载一整份快照。
+    // 保存位置不可用（上级目录不存在、不是目录或经过符号链接）时在下载之前就拒绝，不白下载一整份快照。
     let valid_destination = destination.is_absolute()
         && destination.file_name().is_some()
-        && destination
-            .parent()
-            .is_some_and(|parent| msime_path_trust::reject_symlinked_components(parent).is_ok());
+        && destination.parent().is_some_and(|parent| {
+            msime_path_trust::reject_symlinked_components(parent).is_ok() && parent.is_dir()
+        });
     if !valid_destination {
         return Err(AccountError::Invalid.code());
     }
@@ -883,6 +883,51 @@ mod tests {
             export_to_file(&session, &state, Path::new("relative.ndjson")),
             Err("account_invalid")
         );
+    }
+
+    #[test]
+    fn a_missing_save_location_is_refused_before_downloading() {
+        let (session, calls, state, directory) = fixture();
+        let destination = directory.path().join("missing").join("backup.ndjson");
+        assert_eq!(
+            export_to_file(&session, &state, &destination),
+            Err("account_invalid")
+        );
+        let file = directory.path().join("file");
+        std::fs::write(&file, "合成").unwrap();
+        assert_eq!(
+            export_to_file(&session, &state, &file.join("backup.ndjson")),
+            Err("account_invalid")
+        );
+        assert!(calls.lock().unwrap().is_empty());
+        assert!(!directory.path().join("missing").exists());
+    }
+
+    #[test]
+    fn a_copy_left_beside_the_save_location_by_a_killed_export_is_removed_next_time() {
+        let (session, _calls, state, directory) = fixture();
+        let stale = directory.path().join(".msime-export-synthetic-stale");
+        let fresh = directory.path().join(".msime-export-synthetic-fresh");
+        let unrelated = directory.path().join("synthetic-stale.ndjson");
+        for path in [&stale, &fresh, &unrelated] {
+            std::fs::write(path, "合成词库明文\n").unwrap();
+        }
+        let two_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
+        for path in [&stale, &unrelated] {
+            std::fs::File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_modified(two_hours_ago)
+                .unwrap();
+        }
+        let destination = directory.path().join("backup.ndjson");
+        export_to_file(&session, &state, &destination).unwrap();
+        assert_eq!(std::fs::read_to_string(&destination).unwrap(), snapshot());
+        // 只删超过一小时没动过的、自己前缀的那份；可能还在复制的新文件和别的文件都留着。
+        assert!(!stale.exists());
+        assert!(fresh.exists());
+        assert!(unrelated.exists());
     }
 
     #[test]

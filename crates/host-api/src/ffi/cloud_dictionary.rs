@@ -108,11 +108,7 @@ fn run(call: CloudDictionaryCall) -> Result<Value, String> {
     match &call.action {
         Action::File(action) => validate_file_action(action)?,
         Action::Shared(request) => {
-            crate::cloud_dictionary::validate_cloud_request(request).map_err(|_| invalid())?;
-            if dictionary_account::handled_by_account(request) {
-                needs_snapshot_directory = false;
-            }
-            // 文本版的备份与恢复在 C 上不可用，用带 `_file` 的那三条。
+            // 文本版的备份与恢复在 C 上不可用，用带 `_file` 的那三条；参数合不合法都一样，所以在校验之前就答。
             if matches!(
                 request,
                 CloudDictionaryRequest::SnapshotExport
@@ -120,6 +116,10 @@ fn run(call: CloudDictionaryCall) -> Result<Value, String> {
                     | CloudDictionaryRequest::SnapshotRestore { .. }
             ) {
                 return Err("snapshot_unavailable".to_owned());
+            }
+            crate::cloud_dictionary::validate_cloud_request(request).map_err(|_| invalid())?;
+            if dictionary_account::handled_by_account(request) {
+                needs_snapshot_directory = false;
             }
             needs_options = matches!(
                 request,
@@ -266,6 +266,9 @@ mod tests {
             json!({ "operation": "snapshot_export" }),
             json!({ "operation": "snapshot_restore_preview", "text": "{\"type\":\"header\"}\n" }),
             json!({ "operation": "snapshot_restore", "text": "{\"type\":\"header\"}\n", "expected_sha256": "a".repeat(64), "revision": 0 }),
+            // 参数不合法时也一样：这三条在 C 上本来就不可用。
+            json!({ "operation": "snapshot_restore_preview", "text": "" }),
+            json!({ "operation": "snapshot_restore", "text": "\u{0}", "expected_sha256": "x", "revision": -1 }),
         ] {
             assert_eq!(
                 error(call(

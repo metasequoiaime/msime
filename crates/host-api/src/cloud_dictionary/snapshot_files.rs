@@ -10,9 +10,14 @@ use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 use std::sync::Mutex;
+use std::time::{Duration, SystemTime};
 
 /// 原生快照检查接受的最大字节数，与 `inspect_snapshot_json` 相同。
 pub const MAX_SNAPSHOT_BYTES: usize = 512 * 1024 * 1024;
+/// [`copy_snapshot_file`] 写在保存位置旁边的临时文件的前缀。
+const EXPORT_COPY_PREFIX: &str = ".msime-export-";
+/// 保存位置旁边的临时文件超过这么久没有改动，就是上次复制到一半时进程被杀留下的。正在复制的那份一直在写，修改时间总是新的。
+const STALE_EXPORT_COPY_AGE: Duration = Duration::from_secs(60 * 60);
 
 /// 在账户代次锁内发布预览，避免退出登录后旧下载重新写入预览表。返回被这次发布替换掉的预览，调用方删掉它们的文件。
 pub fn publish_snapshot_preview<A, S, V>(
@@ -89,16 +94,25 @@ pub fn read_snapshot_file(path: &Path) -> io::Result<String> {
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "snapshot is not UTF-8"))
 }
 
-/// 把临时目录里校验过的快照复制到宿主选的保存位置 `destination`：先在目标旁边写完并同步一个私有的临时文件，再换入目标路径，中途任何一步失败，目标上原有的文件都原样保留。源文件经不跟随符号链接的句柄读，最多 [`MAX_SNAPSHOT_BYTES`]；目标的各级上级目录不能是符号链接（受信任的系统别名除外），目标本身是符号链接时替换链接本身，不跟随它。临时目录和保存位置可能在不同的卷上，所以是复制而不是改名。
+/// 把临时目录里校验过的快照复制到宿主选的保存位置 `destination`：先在目标旁边写完并同步一个私有的临时文件，再换入目标路径，中途任何一步失败，目标上原有的文件都原样保留。进程在复制中途被杀时，目标旁边会留下一份 `.msime-export-*`，里面是整份云词库的明文；它在宿主选的目录里，启动时清理的 `snapshot_directory` 碰不到它，所以每次往一个目录复制之前，先删掉这个目录里超过一小时没有改动的那些。源文件经不跟随符号链接的句柄读，最多 [`MAX_SNAPSHOT_BYTES`]；目标的各级上级目录不能是符号链接（受信任的系统别名除外），目标本身是符号链接时替换链接本身，不跟随它。临时目录和保存位置可能在不同的卷上，所以是复制而不是改名。
 pub fn copy_snapshot_file(source: &Path, destination: &Path) -> io::Result<()> {
     let parent = destination
         .parent()
         .filter(|parent| parent.is_absolute())
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "destination has no parent"))?;
     msime_path_trust::reject_symlinked_components(parent)?;
+    // 清理失败不影响这次复制：留下的文件下次再删。
+    let now = SystemTime::now();
+    let _ = remove_entries(parent, |name, metadata| {
+        name.starts_with(EXPORT_COPY_PREFIX)
+            && metadata.modified().is_ok_and(|modified| {
+                now.duration_since(modified)
+                    .is_ok_and(|age| age >= STALE_EXPORT_COPY_AGE)
+            })
+    });
     let input = file_lock::open_private_file_in(source)?;
     let mut temporary = tempfile::Builder::new()
-        .prefix(".msime-export-")
+        .prefix(EXPORT_COPY_PREFIX)
         .tempfile_in(parent)?;
     let copied = io::copy(
         &mut io::Read::take(input, MAX_SNAPSHOT_BYTES as u64 + 1),
@@ -129,21 +143,25 @@ pub fn remove_snapshot_file(path: &Path) -> io::Result<()> {
 
 /// 删掉上次运行留下的预览下载（`download-*.ndjson`）。目录本身是符号链接时什么也不删。列目录和删除都经同一个已打开的目录句柄。
 pub fn cleanup_stale_snapshot_previews(directory: &Path) -> io::Result<()> {
-    remove_entries(directory, |name| {
+    remove_entries(directory, |name, _| {
         name.starts_with("download-") && name.ends_with(".ndjson")
     })
 }
 
 /// 删掉上次运行被打断时留下的导出、恢复中转文件（`export-*.ndjson`、`restore-*.ndjson`）和原子写入没来得及换入的临时文件（Windows 上的 `.tmp*`，Unix 上的 `.msime-private-*`）。导出的中转文件是用户整份云词库的明文，不能一直留着。
 pub fn cleanup_stale_scratch_files(directory: &Path) -> io::Result<()> {
-    remove_entries(directory, |name| {
+    remove_entries(directory, |name, _| {
         ((name.starts_with("export-") || name.starts_with("restore-")) && name.ends_with(".ndjson"))
             || name.starts_with(".tmp")
             || name.starts_with(".msime-private-")
     })
 }
 
-fn remove_entries(directory: &Path, matches: impl Fn(&str) -> bool) -> io::Result<()> {
+/// 删掉 `directory` 里名字和元数据满足 `matches` 的普通文件。
+fn remove_entries(
+    directory: &Path,
+    matches: impl Fn(&str, &std::fs::Metadata) -> bool,
+) -> io::Result<()> {
     let opened = match file_lock::open_private_directory(directory) {
         Ok(opened) => opened,
         Err(_) if msime_path_trust::reject_symlinked_components(directory).is_err() => {
@@ -155,13 +173,10 @@ fn remove_entries(directory: &Path, matches: impl Fn(&str) -> bool) -> io::Resul
         let Some(text) = name.to_str() else {
             continue;
         };
-        if !matches(text) {
-            continue;
-        }
         // 只删普通文件，同名的目录或符号链接留着；删除本身经已打开的目录句柄，不会删到别处。
-        let regular = std::fs::symlink_metadata(directory.join(&name))
-            .is_ok_and(|metadata| metadata.file_type().is_file());
-        if regular {
+        let remove = std::fs::symlink_metadata(directory.join(&name))
+            .is_ok_and(|metadata| metadata.file_type().is_file() && matches(text, &metadata));
+        if remove {
             let _ = file_lock::remove_private_file_at(&opened, &name);
         }
     }

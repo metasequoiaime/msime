@@ -724,6 +724,56 @@ mod tests {
         }
 
         #[test]
+        fn the_host_lock_and_save_codes_reach_the_caller_as_account_codes() {
+            // 补登录 ID 要持 ACCOUNT 锁再写回，不联网；锁和写入的返回码原样映射到 C 的错误码。
+            for (lock, save, expected) in [
+                (Some(1), None, "account_unavailable"),
+                (Some(2), None, "account_storage"),
+                (Some(-1), None, "account_storage"),
+                (None, Some(1), "account_storage"),
+                (None, Some(-1), "account_storage"),
+            ] {
+                let store = leaked_store();
+                let id = registered(store, SHARED, 0);
+                put(store, 1, session_bytes("synthetic-user", 'a', false));
+                *store.lock_result.lock().unwrap() = lock;
+                *store.save_result.lock().unwrap() = save;
+                assert_eq!(
+                    access_token(json!({ "session_store": id })),
+                    json!({ "ok": false, "error": expected }),
+                    "lock {lock:?} save {save:?}"
+                );
+                // 拿到锁的那次才解锁，而且恰好一次。
+                let locks = store.locks.lock().unwrap().clone();
+                assert_eq!(locks.len(), usize::from(lock.is_none()));
+                assert_eq!(*store.unlocks.lock().unwrap(), locks);
+                unregister(id);
+            }
+        }
+
+        #[test]
+        fn a_callback_that_reenters_the_same_store_is_refused_with_account_unavailable() {
+            let store = leaked_store();
+            let id = registered(store, SHARED, 0);
+            put(store, 1, session_bytes("synthetic-user", 'a', false));
+            let nested = Arc::new(Mutex::new(None));
+            let seen = Arc::clone(&nested);
+            *store.on_lock.lock().unwrap() = Some(Box::new(move || {
+                *seen.lock().unwrap() = Some(access_token(json!({ "session_store": id })));
+            }));
+            let outer = access_token(json!({ "session_store": id }));
+            assert_eq!(outer["value"]["access_token"], "a".repeat(64), "{outer}");
+            // 回调里的那次在同一线程上又要这个 store 的锁：不调宿主的 lock、不死锁，直接报错。
+            assert_eq!(
+                nested.lock().unwrap().take(),
+                Some(json!({ "ok": false, "error": "account_unavailable" }))
+            );
+            assert_eq!(store.locks.lock().unwrap().len(), 1);
+            assert_eq!(store.unlocks.lock().unwrap().len(), 1);
+            unregister(id);
+        }
+
+        #[test]
         fn every_entry_needs_exactly_one_session_source() {
             let store = leaked_store();
             let id = registered(store, 0, 0);

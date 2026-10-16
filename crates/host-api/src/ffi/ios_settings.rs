@@ -364,6 +364,19 @@ mod tests {
             )["error"],
             "account_invalid"
         );
+        // 应用不带字段表，与头文件写的相同：多带 schema 是不合法的请求，不是被忽略。
+        assert_eq!(
+            apply_call(
+                json!({ "preferences_directory": directory.path(), "cloud": cloud, "step": "plan", "ios_native": native(), "schema": schema(&["input.schema"]) })
+            )["error"],
+            "account_invalid"
+        );
+        assert_eq!(
+            apply_call(
+                json!({ "preferences_directory": directory.path(), "cloud": cloud, "step": "plan", "ios_native": native() })
+            )["ok"],
+            true
+        );
         let bad = json!({ "revision": 1, "settings": { "input.character_set": "klingon" } });
         assert_eq!(
             apply_call(

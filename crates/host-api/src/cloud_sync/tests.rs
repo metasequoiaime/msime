@@ -905,6 +905,55 @@ fn retry_after_backs_off_even_a_manual_run() {
 }
 
 #[test]
+fn a_huge_retry_after_blocks_a_manual_run_for_at_most_a_day() {
+    let fixture = Fixture::new();
+    synced_phrases(&fixture, &["一"]);
+    fixture.local.add_phrase("二");
+    fixture.api.fail(
+        "put_phrases",
+        AccountFailure::from_http_response(
+            429,
+            br#"{"error":{"code":"rate_limit_exceeded"}}"#,
+            Some("31536000"),
+        ),
+    );
+    let limited = fixture.run(Trigger::Manual, None, phrases_only(), NOW + 10_000);
+    assert_eq!(
+        limited["sections"]["phrases"]["outcome"], "failed",
+        "{limited}"
+    );
+    let cap = NOW + 10_000 + policy::MAX_BACKOFF_MS;
+    assert_eq!(fixture.state().not_before_ms, Some(cap));
+    assert_eq!(limited["status"]["not_before_ms"], cap);
+    let blocked = fixture.run(Trigger::Manual, None, phrases_only(), cap - 1);
+    assert_eq!(blocked["reason"], "backoff");
+    let retried = fixture.run(Trigger::Manual, None, phrases_only(), cap);
+    assert_eq!(
+        retried["sections"]["phrases"]["outcome"], "synced",
+        "{retried}"
+    );
+    assert_eq!(fixture.state().not_before_ms, None);
+}
+
+#[test]
+fn a_backoff_recorded_before_the_clock_went_back_does_not_block() {
+    let fixture = Fixture::new();
+    synced_phrases(&fixture, &["一"]);
+    fixture.local.add_phrase("二");
+    // 时钟比现在快一年时收到的 429：记下的退避离纠正后的时间一年多。
+    fixture
+        .store
+        .update(|state| state.not_before_ms = Some(NOW + 365 * 24 * 3_600_000))
+        .unwrap();
+    let status = status(&fixture.session, &fixture.store, NOW + 10_000).unwrap();
+    assert_eq!(status["not_before_ms"], Value::Null);
+    let run = fixture.run(Trigger::Manual, None, phrases_only(), NOW + 10_000);
+    assert_eq!(run["sections"]["phrases"]["outcome"], "synced", "{run}");
+    assert_eq!(fixture.state().not_before_ms, None);
+    assert_eq!(fixture.api.cloud_texts(), ["一", "二"]);
+}
+
+#[test]
 fn host_writes_wait_for_commit_and_a_second_run_waits_for_the_lease() {
     let fixture = Fixture::new();
     fixture.api.cloud().preferences = AccountPreferences {
@@ -1619,6 +1668,31 @@ fn an_unfinished_merge_keeps_the_cursor_and_the_choice_for_the_next_round() {
         assert_eq!(again["sections"]["dictionary"]["reason"], reason, "{again}");
         assert_eq!(fixture.api.cloud().snapshot_uploads, 0);
     }
+}
+
+#[test]
+fn legacy_state_is_imported_after_status_bound_the_same_account() {
+    let fixture = Fixture::new();
+    // 宿主先读了一次状态：对账把登录的账号写进来了，开关没开、没有游标。
+    let before = status(&fixture.session, &fixture.store, NOW).unwrap();
+    assert_eq!(before["account_id"], USER);
+    let ios = |account: &str| {
+        json!({
+            "version": 1,
+            "enabled": true,
+            "accountID": account,
+            "cursors": { "settings": "4", "phrases": "2" },
+            "generations": {},
+            "cleans": {},
+        })
+    };
+    let other = import_legacy(&fixture.store, Some(ios("synthetic-other")), None, NOW).unwrap();
+    assert_eq!(other["imported"], false);
+    let imported = import_legacy(&fixture.store, Some(ios(USER)), None, NOW).unwrap();
+    assert_eq!(imported["imported"], true, "{imported}");
+    let status = status(&fixture.session, &fixture.store, NOW).unwrap();
+    assert_eq!(status["enabled"], true);
+    assert_eq!(status["sections"]["settings"]["cursor"], 4);
 }
 
 #[test]

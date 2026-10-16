@@ -1,7 +1,7 @@
 //! 状态机的穷举测试：把分类、游标、标记、基线、记下的清空、选择、云端和本机的情况全部组合一遍，用一个模拟的驱动跑到底，检查几条不变式；再单独覆盖冲突重试、云端被清空、`use_cloud` 遇空云端和词库的几条规则。
 
 use super::*;
-use crate::account::cloud_sync::policy::{LEASE_MS, THROTTLE_MS};
+use crate::account::cloud_sync::policy::{LEASE_MS, MAX_BACKOFF_MS, THROTTLE_MS};
 
 #[derive(Debug, Default)]
 struct Trace {
@@ -750,6 +750,14 @@ fn the_gate_needs_an_account_respects_backoff_throttle_and_the_lease() {
         check(&state, now, Trigger::Manual, None),
         Err(SkipReason::Backoff)
     );
+    state.not_before_ms = Some(now + MAX_BACKOFF_MS);
+    assert_eq!(
+        check(&state, now, Trigger::Manual, None),
+        Err(SkipReason::Backoff)
+    );
+    // 离现在超过一天的退避是时钟往回拨以前记下的，不再挡。
+    state.not_before_ms = Some(now + MAX_BACKOFF_MS + 1);
+    assert_eq!(check(&state, now, Trigger::Manual, None), Ok(()));
     state.not_before_ms = Some(now);
     assert_eq!(check(&state, now, Trigger::Manual, None), Ok(()));
     state.begin_run("u", now, None);

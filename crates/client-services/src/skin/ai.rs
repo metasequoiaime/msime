@@ -26,6 +26,7 @@ const MAX_ARTWORK_RESPONSE_BYTES: usize = 12 * 1024 * 1024;
 const MAX_ARTWORK_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ARTWORK_SECONDS: u64 = 200;
 
+/// 一张插画。拒绝未知字段，因为 `msime_client_ai_skin_plan` 的 `artwork` 用它解析宿主交来的插画；服务端任务响应里的插画先按不拒绝未知字段的 `RawArtwork` 解析再换成它。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AiSkinArtwork {
@@ -279,11 +280,31 @@ struct RawSkinJob {
     id: String,
     state: String,
     #[serde(default)]
-    artwork: Option<AiSkinArtwork>,
+    artwork: Option<RawArtwork>,
     #[serde(default)]
     reason: Option<String>,
     #[serde(default)]
     expires_at: Option<String>,
+}
+
+/// 任务响应里的插画，字段与 [`AiSkinArtwork`] 相同；同 [`RawSkinJob`]，服务端以后在 `artwork` 里加字段时不能让每个成功的任务都解析失败。
+#[derive(Clone, Debug, Deserialize)]
+struct RawArtwork {
+    b64_json: String,
+    mime_type: String,
+    width: u32,
+    height: u32,
+}
+
+impl From<RawArtwork> for AiSkinArtwork {
+    fn from(raw: RawArtwork) -> Self {
+        Self {
+            b64_json: raw.b64_json,
+            mime_type: raw.mime_type,
+            width: raw.width,
+            height: raw.height,
+        }
+    }
 }
 
 fn validate_job(job: RawSkinJob) -> Result<AiSkinJob, AccountError> {
@@ -292,13 +313,14 @@ fn validate_job(job: RawSkinJob) -> Result<AiSkinJob, AccountError> {
     {
         return Err(AccountError::Unavailable);
     }
-    if let Some(artwork) = &job.artwork {
+    let artwork = job.artwork.map(AiSkinArtwork::from);
+    if let Some(artwork) = &artwork {
         validate_artwork(artwork).map_err(|_| AccountError::Unavailable)?;
     }
     Ok(AiSkinJob {
         id: job.id,
         state: job.state,
-        artwork: job.artwork,
+        artwork,
         reason: job
             .reason
             .filter(|reason| crate::text::is_bounded_text(reason, MAX_JOB_REASON_BYTES)),
@@ -1234,6 +1256,20 @@ mod tests {
         .unwrap();
         let running = client.get_skin_artwork(&id, &token(b'a')).unwrap();
         assert_eq!((running.reason, running.expires_at), (None, None));
+
+        // 成功的任务带插画；服务端以后在 artwork 里加的字段不让任务解析失败。
+        let mut served = serde_json::to_value(artwork()).unwrap();
+        served["revised_prompt"] = serde_json::json!("合成的改写提示词");
+        let client = BackendAccountClient::loopback(&serve(
+            "200 OK",
+            serde_json::json!({ "id": id, "state": "succeeded", "artwork": served }).to_string(),
+        ))
+        .unwrap();
+        let succeeded = client.get_skin_artwork(&id, &token(b'a')).unwrap();
+        assert_eq!(succeeded.state, "succeeded");
+        assert_eq!(succeeded.artwork, Some(artwork()));
+        // 宿主交来的插画仍然拒绝未知字段。
+        assert!(serde_json::from_value::<AiSkinArtwork>(served).is_err());
     }
 
     #[test]

@@ -4,7 +4,7 @@
 //!
 //! 一轮里要交给宿主写的值没有写完之前，要提交的进度放在旁边的 `pending.json`（上限 4 MiB，iOS 的设置文档可能带着 800 KB 的自定义键盘皮肤），提交时一起读出。
 
-use super::policy::{Choice, Mode, Section, LEASE_MS};
+use super::policy::{Choice, Mode, Section, LEASE_MS, MAX_BACKOFF_MS};
 use crate::account::AccountPreferences;
 use crate::file_lock;
 use serde::{Deserialize, Serialize};
@@ -296,6 +296,12 @@ impl SyncState {
             .any(|section| self.sections.get(*section).dirty())
     }
 
+    /// 还在服务端要求的退避里时返回退避到的时间。离现在超过 [`MAX_BACKOFF_MS`] 的按已过期处理：那是时钟往回拨以前记下的，不能一直挡住同步。
+    pub fn backoff_until(&self, now_ms: u64) -> Option<u64> {
+        self.not_before_ms
+            .filter(|at| now_ms < *at && *at - now_ms <= MAX_BACKOFF_MS)
+    }
+
     /// 有没有一个还没过期的租约。时钟往回拨时按已过期处理，免得一直被挡住。
     pub fn lease_active(&self, now_ms: u64) -> bool {
         self.run
@@ -377,8 +383,8 @@ impl SyncState {
             self.failure = progress.failure.clone();
         }
         if let Some(not_before) = progress.not_before_ms {
-            self.not_before_ms = Some(not_before);
-        } else if self.not_before_ms.is_some_and(|at| at <= now_ms) {
+            self.not_before_ms = Some(not_before.min(now_ms.saturating_add(MAX_BACKOFF_MS)));
+        } else if self.backoff_until(now_ms).is_none() {
             self.not_before_ms = None;
         }
         if let Some(trimmed) = progress.skins_trimmed {
@@ -397,10 +403,10 @@ impl SyncState {
         self.bump();
     }
 
-    /// 还没有任何进度：没有绑定账号、没有打开、没有游标。只有这时才导入旧版本的状态。
-    pub fn is_pristine(&self) -> bool {
+    /// 能不能用 `imported` 这份旧版本的状态替换现在的：还没有任何进度（没有打开、没有游标），而且没有绑定账号或绑定的就是旧状态里的账号。宿主在导入之前先调过 `status`、`run` 或 `set_enabled` 时，对账已经把登录的账号写进来了，这时仍然要能导入，否则迁移以后又会弹首次选择；开关没打开过就不会跑过同步，没有别的进度要保留。
+    pub fn accepts_import(&self, imported: &SyncState) -> bool {
         !self.enabled
-            && self.account_id.is_empty()
+            && (self.account_id.is_empty() || self.account_id == imported.account_id)
             && Section::ALL
                 .iter()
                 .all(|section| self.sections.get(*section).cursor.is_none())

@@ -126,7 +126,6 @@ impl From<AccountProfile> for ProfileResponse {
     }
 }
 
-/// 设置同步卡片读到的字段表：Windows 的共享应用和原生设置窗口、iOS、Android 都返回这个形状。
 /// 对话可用的一个模型。
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -162,6 +161,7 @@ pub struct ChatResponse {
     pub content: String,
 }
 
+/// 设置同步卡片读到的字段表：Windows 的共享应用和原生设置窗口、iOS、Android 都返回这个形状。
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreferenceSchemaResponse {

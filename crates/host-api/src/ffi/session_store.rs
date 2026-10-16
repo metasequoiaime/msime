@@ -396,8 +396,14 @@ pub(crate) mod tests {
         pub(crate) locks: Mutex<Vec<(u32, u64, std::thread::ThreadId)>>,
         pub(crate) unlocks: Mutex<Vec<(u32, u64, std::thread::ThreadId)>>,
         pub(crate) releases: AtomicUsize,
-        /// 这一项的 load 返回比 capacity 大的长度。
+        /// 这一项的 load 把存着的字节用空格补满 capacity，再返回比 capacity 大一的长度：缓冲区里是一份能解码的会话，只有长度检查能拦下它。
         pub(crate) oversized: Mutex<Option<u32>>,
+        /// 不为 None 时 save 不写入、直接返回这个值。
+        pub(crate) save_result: Mutex<Option<i32>>,
+        /// 不为 None 时 lock 不加锁、直接返回这个值。
+        pub(crate) lock_result: Mutex<Option<i32>>,
+        /// lock 回调开头调用一次，用来模拟违反契约、在回调里重入 `msime_client_*` 的宿主。
+        pub(crate) on_lock: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     }
 
     fn context(context: *mut c_void) -> &'static TestStore {
@@ -414,6 +420,10 @@ pub(crate) mod tests {
         let store = context(store);
         store.loads.fetch_add(1, Ordering::SeqCst);
         if *store.oversized.lock().unwrap() == Some(item) {
+            let mut padded = store.items.lock().unwrap().get(&item).cloned().unwrap();
+            padded.resize(capacity, b' ');
+            // SAFETY: Rust 给的缓冲区可写 capacity 字节，`padded` 正好这么长。
+            unsafe { std::ptr::copy_nonoverlapping(padded.as_ptr(), buffer, capacity) };
             return capacity as isize + 1;
         }
         match store.items.lock().unwrap().get(&item) {
@@ -435,6 +445,9 @@ pub(crate) mod tests {
     ) -> i32 {
         let store = context(store);
         store.saves.lock().unwrap().push(item);
+        if let Some(code) = *store.save_result.lock().unwrap() {
+            return code;
+        }
         let mut items = store.items.lock().unwrap();
         if item == 4 && items.contains_key(&item) {
             return 1;
@@ -460,6 +473,13 @@ pub(crate) mod tests {
     ) -> i32 {
         assert_eq!(timeout_ms, 20_000);
         let store = context(store);
+        let reenter = store.on_lock.lock().unwrap().take();
+        if let Some(reenter) = reenter {
+            reenter();
+        }
+        if let Some(code) = *store.lock_result.lock().unwrap() {
+            return code;
+        }
         let mut locks = store.locks.lock().unwrap();
         let value = 1_000 + locks.len() as u64;
         locks.push((item, value, std::thread::current().id()));
@@ -638,9 +658,83 @@ pub(crate) mod tests {
     fn a_load_longer_than_the_buffer_is_a_storage_error() {
         let store = leaked_store();
         let id = registered(store, 0, 0);
-        *store.oversized.lock().unwrap() = Some(1);
         let entry = lookup(id).unwrap();
+        // 对照：用空格补满整个缓冲区的会话照常能读，下面的失败只来自长度。
+        let mut padded = session_bytes("synthetic-user", 'a', true);
+        padded.resize(SessionStoreItem::Account.capacity(), b' ');
+        store.items.lock().unwrap().insert(1, padded);
+        assert_eq!(
+            entry.backend.read(
+                SessionStoreItem::Account,
+                SessionStoreItem::Account.capacity()
+            ),
+            Ok(Some(store.items.lock().unwrap()[&1].clone()))
+        );
+        *store.oversized.lock().unwrap() = Some(1);
+        assert_eq!(
+            entry.backend.read(
+                SessionStoreItem::Account,
+                SessionStoreItem::Account.capacity()
+            ),
+            Err(AccountError::Storage)
+        );
         assert_eq!(entry.account.status(), Err(AccountError::Storage));
+        drop(entry);
+        unregister(id);
+    }
+
+    #[test]
+    fn the_raw_return_codes_of_save_remove_and_lock_map_to_account_errors() {
+        let store = leaked_store();
+        let id = registered(store, SESSION_STORE_SHARED, 0);
+        let entry = lookup(id).unwrap();
+        let backend = &entry.backend;
+        let timeout = Duration::from_secs(20);
+
+        // save：0 是写入；1 只对匿名身份是「已存在」，之后重读到的是另一方写的那份；其余是失败。
+        assert_eq!(
+            backend.write(SessionStoreItem::AnonymousIdentity, b"ours"),
+            Ok(WriteOutcome::Written)
+        );
+        store.items.lock().unwrap().insert(4, b"theirs".to_vec());
+        assert_eq!(
+            backend.write(SessionStoreItem::AnonymousIdentity, b"ours"),
+            Ok(WriteOutcome::AlreadyExists)
+        );
+        assert_eq!(
+            backend.read(SessionStoreItem::AnonymousIdentity, 65_536),
+            Ok(Some(b"theirs".to_vec()))
+        );
+        for (code, item) in [
+            (1, SessionStoreItem::Account),
+            (1, SessionStoreItem::ClipboardKeystore),
+            (1, SessionStoreItem::Anonymous),
+            (2, SessionStoreItem::AnonymousIdentity),
+            (-1, SessionStoreItem::Account),
+        ] {
+            *store.save_result.lock().unwrap() = Some(code);
+            assert_eq!(
+                backend.write(item, b"x"),
+                Err(AccountError::Storage),
+                "save {code} {item:?}"
+            );
+        }
+        *store.save_result.lock().unwrap() = None;
+
+        // lock：0 是持有，1 是超时（与拿不到 account-refresh.lock 相同），其余是失败。
+        assert_eq!(backend.lock(SessionStoreItem::Account, timeout), Ok(1_000));
+        for (code, expected) in [
+            (1, AccountError::Unavailable),
+            (2, AccountError::Storage),
+            (-1, AccountError::Storage),
+        ] {
+            *store.lock_result.lock().unwrap() = Some(code);
+            assert_eq!(
+                backend.lock(SessionStoreItem::Anonymous, timeout),
+                Err(expected),
+                "lock {code}"
+            );
+        }
         drop(entry);
         unregister(id);
     }

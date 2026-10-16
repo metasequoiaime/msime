@@ -377,12 +377,48 @@ fn android_preferences_are_imported_and_a_stale_status_is_ignored() {
 fn adopting_an_import_keeps_the_generations_increasing() {
     let mut state = SyncState::default();
     state.bump();
-    assert!(state.is_pristine());
-    let version = state.state_version;
     let mut imported = bound("u");
     imported.sections.settings.cursor = Some(1);
-    state.adopt(imported);
+    assert!(state.accepts_import(&imported));
+    let version = state.state_version;
+    state.adopt(imported.clone());
     assert_eq!(state.account_id, "u");
     assert!(state.state_version > version);
-    assert!(!state.is_pristine());
+    assert!(!state.accepts_import(&imported));
+}
+
+#[test]
+fn an_import_is_accepted_after_the_same_account_was_bound_but_never_synced() {
+    let imported = bound("u");
+    // 宿主先调过 status 或 run：对账把登录的账号写进来了，开关没开、没有游标。
+    let mut state = bound("u");
+    assert!(state.accepts_import(&imported));
+    assert!(!bound("v").accepts_import(&imported));
+    state.set_enabled(false).unwrap();
+    assert!(state.accepts_import(&imported));
+    state.set_enabled(true).unwrap();
+    assert!(!state.accepts_import(&imported));
+    let mut synced = bound("u");
+    synced.sections.phrases.cursor = Some(3);
+    assert!(!synced.accepts_import(&imported));
+}
+
+#[test]
+fn a_backoff_never_lasts_longer_than_a_day() {
+    let mut state = bound("a");
+    state.begin_run("a", 1_000, None);
+    state.finish_round(
+        &RoundProgress {
+            not_before_ms: Some(u64::MAX),
+            ..RoundProgress::default()
+        },
+        1_000,
+    );
+    assert_eq!(state.not_before_ms, Some(1_000 + MAX_BACKOFF_MS));
+    assert_eq!(state.backoff_until(1_000), Some(1_000 + MAX_BACKOFF_MS));
+    // 时钟往回拨以后，离现在超过一天的退避不再挡，下一轮提交时清掉。
+    assert_eq!(state.backoff_until(0), None);
+    state.begin_run("a", 0, None);
+    state.finish_round(&RoundProgress::default(), 0);
+    assert_eq!(state.not_before_ms, None);
 }
