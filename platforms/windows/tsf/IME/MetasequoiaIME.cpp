@@ -1892,7 +1892,8 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
         if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::CommitCurCandidate ||
             buf.msg_type == Global::DataToTsfWorkerThreadMsgType::CommitCandidateAndContinue ||
             buf.msg_type == Global::DataToTsfWorkerThreadMsgType::InsertText ||
-            buf.msg_type == Global::DataToTsfWorkerThreadMsgType::CancelVoiceComposition)
+            buf.msg_type == Global::DataToTsfWorkerThreadMsgType::CancelVoiceComposition ||
+            buf.msg_type == FanyImeWorkerReplyType::UiLessCandidatesChanged)
         {
             bool hasTerminator = false;
             for (const wchar_t ch : buf.data)
@@ -2209,6 +2210,10 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
             {
                 PostMessage(ownerWindow, WM_ApplyPunctuationLock, 0, 0);
             }
+        }
+        else if (buf.msg_type == FanyImeWorkerReplyType::UiLessCandidatesChanged)
+        {
+            pIME->_PostServerTextDelivery(WM_ApplyUiLessCandidates, buf.data);
         }
         else if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::CapsLockChanged)
         {
@@ -2824,6 +2829,9 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
     case WM_CandidateContinuationFailed:
         pIME->_ConsumeCandidateContinuationFailure();
         break;
+    case WM_ApplyCapsLockEdge:
+        pIME->_ApplyCapsLockEdge((GetKeyState(VK_CAPITAL) & 0x0001) != 0);
+        break;
     case WM_CandidateContinuation:
         pIME->_DispatchServerText(wParam, FUNCTION_CANDIDATE_CONTINUATION);
         break;
@@ -2925,6 +2933,18 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         }
         break;
     }
+    case WM_ApplyUiLessCandidates: {
+        CMetasequoiaIME::WorkerCandidateCommit request;
+        if (!pIME->_TakeServerCandidateCommit(static_cast<UINT>(wParam), request) ||
+            !pIME->_IsFocusSessionCurrent(request.focusToken) ||
+            !pIME->_IsCompositionEpochCurrent(request.compositionEpoch))
+            break;
+        auto *presenter = pIME->_pCandidateListUIPresenter;
+        if (Global::IsUiLessMode() && presenter && !presenter->_IsAsyncCleanupPending() &&
+            presenter->_ApplyUiLessPayload(FanyImeUiLessPage::Parse(request.text)))
+            presenter->_NotifyUiLessHost();
+        break;
+    }
     case WM_AsyncServerCandidateKey: {
         CMetasequoiaIME::AsyncKeyRequest request;
         if (!pIME->_TakeAsyncKeyRequest(WM_AsyncServerCandidateKey, static_cast<UINT>(wParam), request))
@@ -2952,6 +2972,17 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
             {
                 MarkNamedpipeSessionDirtyForOwner(pIME);
             }
+            break;
+        }
+
+        if (receivedData->msg_type == Global::DataFromServerMsgType::UiLessComposition)
+        {
+            // 翻页和移高亮的回复就是游戏要重读的新页，不能只当成确认而丢弃。
+            auto *presenter = pIME->_pCandidateListUIPresenter;
+            if (Global::IsUiLessMode() && presenter && !presenter->_IsAsyncCleanupPending() &&
+                presenter->_ApplyUiLessPayload(FanyImeUiLessPage::Parse(receivedData->candidate_string)))
+                presenter->_NotifyUiLessHost();
+            pIME->_CompleteDeferredKeyReplay(request.deferredReplayToken);
             break;
         }
 
@@ -2985,9 +3016,7 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         {
             pIME->_CompleteDeferredKeyReplay(request.deferredReplayToken);
         }
-        // Navigation responses are acknowledgements only. The Server owns and
-        // refreshes candidate paging/selection state, so TSF must not apply the
-        // same movement to its presenter a second time.
+        // 普通宿主的导航回复只是确认；UI-less 的新页已在上面应用，不重复移动。
         break;
     }
     case WM_AsyncNumberCandidateCommit: {

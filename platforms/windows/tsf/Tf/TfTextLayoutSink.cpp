@@ -7,6 +7,8 @@
 #include <fmt/xchar.h>
 #include "../Utils/PerfTimer.h"
 
+#include "../Global/CandidateOverlayHostPolicy.h"
+
 POINT GetPhysicalTextAnchor(_In_ ITfContextView *pContextView, _In_ const RECT &textExtent)
 {
     POINT anchor = {textExtent.left, textExtent.bottom};
@@ -14,6 +16,13 @@ POINT GetPhysicalTextAnchor(_In_ ITfContextView *pContextView, _In_ const RECT &
     if (SUCCEEDED(pContextView->GetWnd(&hostWindow)) && hostWindow)
     {
         hostWindow = GetAncestor(hostWindow, GA_ROOT);
+        MONITORINFO monitorInfo{sizeof(monitorInfo)};
+        if (hostWindow && Global::IsCandidatePinnedTopLeftProcess(Global::current_process_name) &&
+            GetMonitorInfoW(MonitorFromWindow(hostWindow, MONITOR_DEFAULTTONEAREST), &monitorInfo))
+        {
+            // 工作区已经是物理像素，直接返回，不能再按游戏的逻辑 DPI 转换一次。
+            return {monitorInfo.rcWork.left, monitorInfo.rcWork.top};
+        }
         POINT physicalAnchor = anchor;
         if (hostWindow && LogicalToPhysicalPointForPerMonitorDPI(hostWindow, &physicalAnchor))
         {

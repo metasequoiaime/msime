@@ -70,6 +70,7 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     "candidate/cloud_candidate_worker.cpp": (["src/candidate/CloudCandidateWorker.cpp"], True),
     "candidate/ai_candidate_worker.cpp": (["src/candidate/AiCandidateWorker.cpp"], True),
     "candidate/translation_worker.cpp": (["src/candidate/TranslationWorker.cpp"], True),
+    "core/uiless_candidates.cpp": (["src/ipc/ReplyCodec.cpp"], False),
     "core/candidate_continuation_pipe.cpp": (["src/ipc/ReplyCodec.cpp"], False),
     # 两份真实引擎会话通过外部候选选择继续组字。
     "input/candidate_continuation.cpp": (

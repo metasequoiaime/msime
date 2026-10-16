@@ -215,7 +215,8 @@ int main() {
       require(marks("", "", true) == L"q0b0");
       require(marks("semantic", "round", true) == L"q0b0");
     }
-    require(FanyImeWorkerReplyType::WubiCandidateSelectionChanged == FanyImeWorkerReplyType::MaxKnown);
+    require(FanyImeWorkerReplyType::WubiCandidateSelectionChanged <
+            FanyImeWorkerReplyType::MaxKnown);
 
     // Caps Lock travels on its own frame rather than in the configuration set:
     // the Server owns the indicator because the TIP only sampled GetKeyState at

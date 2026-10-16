@@ -71,6 +71,10 @@ Windows 上有一类游戏以 `TF_TMF_UIELEMENTENABLEDONLY`（UILess）激活 TS
 - WinUI 设置「候选窗口」页的「游戏」组：总开关加「总是显示候选窗口的程序」「从不显示候选窗口的程序」两张列表。写入前按 `platforms/windows/settings/GameProcessList.h` 规范化（去首尾空白、ASCII 小写）并校验，不合法时就地说明原因、不写入文档，因为 `Save` 失败只会显示一句笼统的提示。
 - MCP 的偏好白名单有一个布尔 `game_candidate_overlay`，只读写总开关，不碰两张表。React 设置页只加了类型，没有控件。
 
+### UI-less 游戏的候选同步
+
+真正由宿主画候选的游戏（英雄联盟、三角洲行动等）沿用 UI-less，不强制叠加。它们的翻页回复与后台候选更新共用带代次的载荷，见[游戏 UI-less 候选同步与 IMM 状态](../bug-fix/2026-10-16-windows-game-uiless-and-imm.md)。同篇记录基岩版的固定物理锚点和 Caps Lock 延后采样；不改变本篇的 Source 2 登记身份与独占全屏边界。
+
 ### 不在这里做的
 
 - 非游戏会话在独占全屏下的抑制、几何全屏下 `INVALID_Y` 超时兜底：见 [非游戏会话的独占抑制与全屏兜底](../../proposed/feature/2026-10-08-windows-non-game-exclusive-fullscreen-suppression.md)，要等全屏优化（FSO）实测。

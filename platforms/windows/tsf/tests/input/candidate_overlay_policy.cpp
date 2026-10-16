@@ -35,6 +35,9 @@ bool Force(std::wstring_view process, const Global::CandidateOverlayFacts &facts
 
 int main()
 {
+    require(Global::IsCandidatePinnedTopLeftProcess(L"MINECRAFT.Windows.EXE"), "基岩版固定锚点不区分大小写");
+    require(!Global::IsCandidatePinnedTopLeftProcess(L"javaw.exe"), "Java 版不套用基岩版定位");
+    require(!Global::IsCandidatePinnedTopLeftProcess(L"notepad.exe"), "普通宿主仍用文本位置");
     require(Global::ProcessBaseName(L"C:\\Games\\dota 2 beta\\game\\bin\\win64\\dota2.exe") == L"dota2.exe",
             "the basename follows the last backslash");
     require(Global::ProcessBaseName(L"D:/Games/Terraria/Terraria.exe") == L"Terraria.exe",

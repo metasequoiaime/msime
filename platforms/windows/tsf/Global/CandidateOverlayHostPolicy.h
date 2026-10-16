@@ -44,6 +44,12 @@ inline bool IsSameProcessName(std::wstring_view left, std::wstring_view right)
                                 static_cast<int>(right.size()), TRUE) == CSTR_EQUAL;
 }
 
+// 基岩版在首键与组字后给出的 extent 分别落在右下角和系统组合窗，不能作为聊天框位置。
+inline bool IsCandidatePinnedTopLeftProcess(std::wstring_view process)
+{
+    return IsSameProcessName(process, L"Minecraft.Windows.exe");
+}
+
 inline bool ContainsProcessName(const std::vector<std::wstring> &names, std::wstring_view process)
 {
     for (const auto &name : names)

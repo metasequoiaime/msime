@@ -57,6 +57,20 @@ Windows 原生界面验收入口是 `tests/tools/settings_ui.ps1`：通过真实
 
 上架之后的安装方式：`winget install Metasequoia.MetasequoiaIME`；`scoop bucket add msime https://github.com/metasequoiaime/scoop-bucket` 后 `scoop install msime`；`choco install msime`。各仓库的发布步骤（winget-pkgs PR、Scoop bucket、`choco push`）见 [packaging/README.md](packaging/README.md#发布步骤)。
 
+## 游戏兼容范围
+
+下表记录代码里的适配点，不代表完整的游戏支持清单，也不代表这些游戏已在本仓真机验收。
+
+| 游戏或宿主 | 已有适配 | 限制与验收范围 |
+| --- | --- | --- |
+| CS2、Dota 2 | 忽略虚假的 UI-less 自绘声明，由水杉显示候选；无效锚点兜底；CS2 的签名 TIP 部署到系统目录 | 独占全屏仍抑制外部候选窗，建议无边框窗口；没有移植来源的登记名称切换 |
+| 三角洲行动等由宿主绘制候选的 UI-less 游戏 | 翻页、移高亮回复更新宿主页，云候选、AI 候选与静止重排后推送新页，按候选代次拒绝乱序旧页 | 不依赖进程白名单；尚未在真实游戏中验收 |
+| 英雄联盟 | 保留游戏自绘候选，并同步后台候选更新，避免显示列表与上屏列表错位 | 游戏内效果尚未验收 |
+| 我的世界基岩版（`Minecraft.Windows.exe`） | 首键与组字布局的文本锚点统一到游戏所在显示器工作区左上角 | 系统默认组合小框不在本次处理范围；尚未游戏内验收 |
+| 我的世界 Java 版、基岩版等 IMM 宿主 | Caps Lock 等按键消息处理完再读实际锁定状态，更新语言栏并保留单按切换语言 | 合成 TSF/IMM 时序测试覆盖；不等于游戏实测 |
+
+来源为 `msime-windows` [#925](https://github.com/metasequoiaime/msime-windows/pull/925)、[#932](https://github.com/metasequoiaime/msime-windows/pull/932)、[#933](https://github.com/metasequoiaime/msime-windows/pull/933)。Rust 版不使用来源的 HTML 共享内存候选页；同步回复与推送共用 `shared/contracts/uiless_page.h`。固定来源提交、没有直接搬运的部分与验证依据见[移植笔记](../../.agents/notes/implemented/bug-fix/2026-10-16-windows-game-uiless-and-imm.md)。
+
 ## 原生界面渲染与皮肤
 
 候选窗、悬浮工具条、托盘菜单和 `msimeui` 的面板 demo 都通过 `msimeui` 的 Direct2D 设备资源绘制，本仓库不引入第二套 D2D 路径。几何与配色从已发布 Windows 呈现器移植：`CandidateCardSize.h` 提供卡片尺寸、行矩形与命中测试的唯一来源，`CandidatePalette.h` 解析皮肤清单里的 CSS 颜色子集（三位/六位/八位十六进制、`rgb()`/`rgba()`、`transparent`），无法表示的写法保留内置 token 而不是渲染出不可见窗口。候选卡片用 DirectWrite 实测预编辑与每个候选的宽度后合成尺寸，工作区一半封顶两个轴；绘制和命中读同一份 metrics，点击不会落到渲染器没画的行上。固定候选只在未高亮时使用 accent；进入高亮行后，候选正文、辅助码和翻译整体改用选中行正文颜色。

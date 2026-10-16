@@ -333,7 +333,9 @@ constexpr std::uint32_t PunctuationMarksChanged = 31;
 constexpr std::uint32_t WubiCandidateSelectionChanged = 32;
 // 已协商的无上屏候选选择，按 candidate_continuation_pipe.h 分帧传输。
 constexpr std::uint32_t CandidateContinuation = 33;
-constexpr std::uint32_t MaxKnown = CandidateContinuation;
+// UI-less 宿主的后台候选页更新，载荷见 uiless_page.h。35 沿用来源仓库，34 留空。
+constexpr std::uint32_t UiLessCandidatesChanged = 35;
+constexpr std::uint32_t MaxKnown = UiLessCandidatesChanged;
 // Source compatibility for the Server's historical spellings.
 constexpr std::uint32_t SwitchToEn = SwitchToEnglish;
 constexpr std::uint32_t SwitchToCn = SwitchToChinese;

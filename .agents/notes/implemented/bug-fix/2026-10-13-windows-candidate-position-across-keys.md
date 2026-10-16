@@ -26,6 +26,8 @@ TIP 只往游戏会话的按键包里写坐标（`Ipc.cpp` 在协商到 GameHost
 - **收益**：组字过程中候选窗不再在按键之后闪到屏幕左上角；宿主报了 INVALID_Y 的那段时间卡片保持隐藏，不会被下一个按键顶出来。
 - **代价与已知上限**：一个租约里第二次组字的第一个按键，卡片先出现在上一次组字最后报的位置，Show/Move 到达后移到新位置（以前是先到左上角）。新租约的第一个按键仍可能闪一下 (100,100)。没有在真机上用高速截屏确认闪烁消失。
 
+基岩版首键与组字后的 extent 持续互相矛盾，不属于短暂默认位置问题；按进程固定物理锚点的补充见[游戏 UI-less 候选同步与 IMM 状态](2026-10-16-windows-game-uiless-and-imm.md)。
+
 ## Verification
 
 - `platforms/windows/tests/ui/candidate_mailbox.cpp`（随 `windows-session-smoke` 运行）：Move 之后的按键投递沿用 Move 的位置；Move 报 INVALID_Y 之后的按键投递仍是 INVALID_Y；带 GameHost 位的按键包照用包里的坐标。改动前第一条断言失败（`x` 是 100）。

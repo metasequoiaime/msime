@@ -42,6 +42,7 @@ SessionController::SessionController(
                     result.lease, result.query, result.body);
                 if (view) {
                   candidates_.online(result.lease, *view);
+                  push_uiless_candidates(result.lease, *view);
                   if (auto query = state.translation_query(result.lease))
                     (void)translations_.submit(result.lease, std::move(*query));
                 }
@@ -71,6 +72,7 @@ SessionController::SessionController(
                   view = state.resolve_ai_candidates(result.lease, result.query);
                 if (view) {
                   candidates_.online(result.lease, *view);
+                  push_uiless_candidates(result.lease, *view);
                   // AI insertion changes the visible candidate generation just
                   // like cloud insertion. Re-query translations for the new
                   // page immediately so the AI row and its neighbors do not
@@ -117,6 +119,7 @@ SessionController::SessionController(
           {[this](const FocusLease &lease, const PendingReply &reply,
                   const FanyImeNamedpipeData &packet) {
              candidates_.delivered(lease, reply, packet);
+             uiless_candidates_.delivered(lease, reply, packet);
              if (presentation_.delivered)
                presentation_.delivered(lease, reply, packet);
            },
@@ -762,10 +765,27 @@ void SessionController::stop() {
   if (control_.joinable())
     control_.join();
 }
-/// How long a composition stands still before the settled model ranks it.
-///
-/// Shorter than the half second the cloud path waits, because this pass is
-/// local and it changes what the user is reading rather than annotating it.
+void SessionController::push_uiless_candidates(const FocusLease &lease,
+                                               const nlohmann::json &view) {
+  const auto frame = uiless_candidates_.updated(lease, view);
+  if (!frame || stopping_)
+    return;
+  bool failed = frame->empty();
+  if (!failed)
+    focus_.with_active(lease, [&] {
+      if (!stopping_ && transport_.current(lease.transport))
+        failed =
+            transport_.send(lease.transport, FanyImePipeRole::ToTsfWorkerThread,
+                            *frame) != KeyEventSendResult::Sent;
+    });
+  // 不确定是否送达时关闭这一连接，让客户端重建一致的候选页，不能继续按旧页选词。
+  if (failed) {
+    focus_.invalidate(lease.transport);
+    transport_.close(lease.transport);
+  }
+}
+
+// 静止 150 毫秒后重排：本地模型比云候选等待更短，不挤进连续按键之间。
 constexpr auto kSettledRerankDelay = std::chrono::milliseconds(150);
 
 void SessionController::run_settled_rerank() {
@@ -781,8 +801,10 @@ void SessionController::run_settled_rerank() {
     (void)input_.submit([this, lease](InputState &state) {
       if (stopping_ || !transport_.current(lease.transport))
         return;
-      if (auto view = state.rerank_settled(lease))
+      if (auto view = state.rerank_settled(lease)) {
         candidates_.online(lease, *view);
+        push_uiless_candidates(lease, *view);
+      }
     });
   } catch (...) {
     // A reranking pass must never stop the input queue.
