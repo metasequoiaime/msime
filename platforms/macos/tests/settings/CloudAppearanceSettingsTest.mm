@@ -42,9 +42,10 @@ int main() {
       }
     }
     assert(MSIMEApplyCloudAppearance(initial, defaults));
-    for (NSString *key in @[@"autocorrect", @"helpcode", @"chinese_punctuation", @"input_mode_shortcut", @"floating_toolbar", @"candidate_learning", @"wubi_auto_commit_unique"])
+    // 智能标点和重复标点转中文默认开，与共享默认相同。
+    for (NSString *key in @[@"autocorrect", @"helpcode", @"chinese_punctuation", @"smart_punctuation", @"smart_punctuation_repeat", @"input_mode_shortcut", @"floating_toolbar", @"candidate_learning", @"wubi_auto_commit_unique"])
       assert([initial[[@"platform.macos." stringByAppendingString:key]] isEqual:@YES]);
-    for (NSString *key in @[@"english_input_mode", @"full_width_input", @"smart_punctuation", @"smart_punctuation_repeat", @"traditional_chinese_output", @"shuangpin_keymap"])
+    for (NSString *key in @[@"english_input_mode", @"full_width_input", @"traditional_chinese_output", @"shuangpin_keymap"])
       assert([initial[[@"platform.macos." stringByAppendingString:key]] isEqual:@NO]);
     [defaults setObject:@"japanese" forKey:@"MSIMEClientInputScheme"];
     NSDictionary *japaneseNativeSnapshot = MSIMECloudAppearanceSnapshot(defaults);

@@ -61,7 +61,7 @@ inline std::optional<ModePatch> mode_patch(std::wstring_view mode) {
   return std::nullopt;
 }
 
-// 用户切换「智能标点」时一起写成同一个值的三个键。数字后直出和字母后直出是智能标点真正起作用的两半（TIP 的 ResolvePunctuation 要总开关开着、且所在一侧的直出也开着才输出 ASCII），Windows 上三者默认都是关，只写总开关时打开了也不起作用。打开页面、切换别的开关都不碰两半。
+// 用户切换「智能标点」时一起写成同一个值的三个键。数字后直出和字母后直出是智能标点真正起作用的两半（TIP 的 ResolvePunctuation 要总开关开着、且所在一侧的直出也开着才输出 ASCII），三者默认都是开；用户单独关过两半之后，只写总开关时再打开也不起作用。打开页面、切换别的开关都不碰两半。
 inline constexpr std::array<std::wstring_view, 3> smart_punctuation_keys{
     L"smart_punctuation", L"smart_punctuation_direct_digit", L"smart_punctuation_direct_letter"};
 
@@ -74,6 +74,6 @@ inline bool smart_punctuation_inert(bool smart, bool direct_digit, bool direct_l
 }
 
 inline constexpr std::wstring_view smart_punctuation_inert_description =
-    L"中文标点模式下，字母或数字后的 , . : 自动使用英文标点。数字后直出和字母后直出都已关闭，这一条暂不生效，可在「更多选项」里打开，或关掉再打开智能标点";
+    L"中文标点模式下，字母或数字后的 , . : 自动使用英文标点。数字后直出和字母后直出都已关闭，这一条暂不生效，打开下面其中一项，或关掉再打开智能标点";
 
 } // namespace msime::settings::punctuation

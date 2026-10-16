@@ -1595,6 +1595,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     // 这个键只写共享文档、不再写 defaults，所以导出要取宿主真正在用的值，而不是 defaults 里的旧值。
     snapshot[@"platform.macos.wubi_auto_commit_unique"] = @(self.wubiAutoCommitUnique);
     snapshot[@"platform.macos.chinese_punctuation"] = @(self.chinesePunctuation);
+    // 智能标点的权威值在共享文档里：macOS 上旧文档存着的旧默认 false 在读入时一次性改成了开，defaults 里却可能还是以前写下的关，导出那份旧值会让一份新快照把迁移冲掉。
+    snapshot[@"platform.macos.smart_punctuation"] = @(self.smartPunctuation);
+    snapshot[@"platform.macos.smart_punctuation_repeat"] = @(self.smartPunctuationRepeatToChinese);
     snapshot[@"platform.macos.traditional_chinese_output"] = @(self.traditionalOutput);
     snapshot[@"platform.macos.candidate_learning"] = @(self.candidateLearningEnabled);
     snapshot[@"platform.macos.floating_toolbar"] = @(self.floatingToolbarEnabled);
@@ -2221,11 +2224,12 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (BOOL)traditionalOutput { return _sharedTraditionalOutput ? _sharedTraditionalOutput.boolValue : [_defaults boolForKey:TraditionalKey]; }
 - (BOOL)fullWidthInput { return _sharedFullWidthInput ? _sharedFullWidthInput.boolValue : [_defaults boolForKey:FullWidthKey]; }
 - (BOOL)chinesePunctuation { if (_sharedChinesePunctuation) return _sharedChinesePunctuation.boolValue; return [_defaults objectForKey:ChinesePunctuationKey] == nil ? YES : [_defaults boolForKey:ChinesePunctuationKey]; }
-- (BOOL)smartPunctuation { return _sharedSmartPunctuation ? _sharedSmartPunctuation.boolValue : ([_defaults objectForKey:SmartPunctuationKey] == nil ? NO : [_defaults boolForKey:SmartPunctuationKey]); }
+// 智能标点和重复标点转中文默认开，与 client-core 的 smart_punctuation_default 相同；共享文档总带着这两个键（旧文档里的旧默认 false 在读入时已一次性改过来），这里的回退只在文档载入之前起作用。
+- (BOOL)smartPunctuation { return _sharedSmartPunctuation ? _sharedSmartPunctuation.boolValue : ([_defaults objectForKey:SmartPunctuationKey] == nil ? YES : [_defaults boolForKey:SmartPunctuationKey]); }
 - (void)setSmartPunctuation:(BOOL)value { _sharedSmartPunctuation = nil; [_defaults setBool:value forKey:SmartPunctuationKey]; [self preferencesChanged]; }
-- (BOOL)smartPunctuationRepeatToChinese { return _sharedSmartPunctuationRepeatToChinese ? _sharedSmartPunctuationRepeatToChinese.boolValue : ([_defaults objectForKey:SmartPunctuationRepeatToChineseKey] == nil ? NO : [_defaults boolForKey:SmartPunctuationRepeatToChineseKey]); }
+- (BOOL)smartPunctuationRepeatToChinese { return _sharedSmartPunctuationRepeatToChinese ? _sharedSmartPunctuationRepeatToChinese.boolValue : ([_defaults objectForKey:SmartPunctuationRepeatToChineseKey] == nil ? YES : [_defaults boolForKey:SmartPunctuationRepeatToChineseKey]); }
 - (void)setSmartPunctuationRepeatToChinese:(BOOL)value { _sharedSmartPunctuationRepeatToChinese = nil; [_defaults setBool:value forKey:SmartPunctuationRepeatToChineseKey]; [self preferencesChanged]; }
-// Off unless asked for, matching the Windows baseline and the shared default.
+// 空格转换默认关，与共享默认相同：它改写的是用户已经看着落下去的字符，又没有反悔手势。
 - (BOOL)smartPunctuationSpaceConvert { return _sharedSmartPunctuationSpaceConvert ? _sharedSmartPunctuationSpaceConvert.boolValue : [_defaults boolForKey:SmartPunctuationSpaceConvertKey]; }
 - (void)setSmartPunctuationSpaceConvert:(BOOL)value { _sharedSmartPunctuationSpaceConvert = nil; [_defaults setBool:value forKey:SmartPunctuationSpaceConvertKey]; [self preferencesChanged]; }
 // 共享文档的值优先；文档还没有这一项时读升级前留在 defaults 里的选择。

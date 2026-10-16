@@ -201,8 +201,8 @@ int main() {
         NSString *suite = [@"msime.smart.space." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-        // The whole family is off in the source, so both the parent switch and the space rewrite have to be asked for before anything rewrites text.
-        assert(!appearance.smartPunctuation && !appearance.smartPunctuationSpaceConvert);
+        // 智能标点默认开，空格转换默认关：它改写的是用户已经看着落下去的字符，要用户自己打开。
+        assert(appearance.smartPunctuation && !appearance.smartPunctuationSpaceConvert);
 
         SpaceConvertController *controller = [SpaceConvertController alloc];
         [controller setValue:appearance forKey:@"appearance"];

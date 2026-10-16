@@ -73,6 +73,8 @@ export type Preferences = PunctuationPreferences &
     word_character?: WordCharacterPreferences;
     /** 组字时 `;` 选第二个候选、`'` 选第三个。关闭时不写进文档；目前只有 Windows 接入，本页不显示这一项。 */
     second_third_candidate?: { enabled: boolean; keys: "semicolon_quote" };
+    /** 退格在剩余拼写即将删空时回退最近一次选词；缺省为开启。 */
+    backspace_reverts_selection?: boolean;
     navigation?: NavigationPreferences;
     keybindings?: KeybindingPreferences;
     scheme: InputScheme;

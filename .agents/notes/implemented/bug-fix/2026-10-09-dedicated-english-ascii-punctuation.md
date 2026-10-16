@@ -41,7 +41,7 @@ Android（`MSIMEInputService.punctuation`）和鸿蒙（`KeyboardSession.punctua
 ## Verification
 
 - `dedicated_english_caret_rejects_nonletters_without_releasing_the_key` 与 `dedicated_english_caret_does_not_turn_rejected_keys_into_candidate_picks` 使用真实引擎和合成输入。旧实现分别因数字返回未处理、字符键 `1` 提交整词 `synthetic` 失败；回归覆盖非字母被消费且不提交、光标与候选不变、合法字母插入和随后显式选词。
-- 光标编辑修复在 macOS 上运行 `cargo test -p msime-engine -p msime-host-api -p msime-input-runtime --locked`：3,210 项通过，38 项按既有设置忽略，包含全部 31 项 golden 基准；未做系统输入框或设备验收。
+- 光标编辑修复在 macOS 上运行 `cargo test -p msime-engine -p msime-host-api -p msime-input-runtime --locked`：整合 `develop` 的 `9a1331b14` 后 3,217 项通过，39 项按既有设置忽略，包含全部 31 项 golden 基准；未做系统输入框或设备验收。
 - 光标编辑修复通过 `cargo clippy -p msime-engine -p msime-host-api -p msime-input-runtime --all-targets --locked -- -D warnings`、`cargo fmt --all -- --check`、`git diff --check` 和 `pnpm run verify-notes`。
 - 光标编辑修复通过 `bash scripts/verify-local.sh --quick`：包含 Rust workspace、Android target、wasm target、Android 宿主 Java、macOS 原生宿主及共享 Apple 桥接层；Linux 因缺 Docker、Windows 因缺 MinGW、HarmonyOS 真打包因缺完整前置环境跳过，桌面 Tauri 检查因缺其声明的产物跳过。
 - `crates/engine/src/session/tests.rs` 的 `dedicated_english_writes_ascii_punctuation_unless_locked_to_chinese` 覆盖：组字中、空闲、lock 1、lock 2、回到中文模式。

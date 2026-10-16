@@ -2541,6 +2541,89 @@ fn a_segment_backspace_with_nothing_before_the_caret_drops_the_selection() {
     assert_eq!(edited.view.phrase_prefix, "海滩");
 }
 
+#[test]
+fn backspace_can_keep_every_selected_piece_until_spelling_is_deleted() {
+    let mut runtime = phrase_runtime("woshi", vec![2]);
+    runtime.engine.words = vec!["我".into()];
+    runtime.refresh().unwrap();
+    runtime.set_backspace_reverts_selection(false);
+    let id = runtime.view().candidates[0].id;
+    runtime.dispatch(Action::Select(id)).unwrap();
+    for expected in ["sh", "s"] {
+        let edited = runtime
+            .dispatch(Action::Command(Command::Backspace))
+            .unwrap();
+        assert_eq!(edited.view.phrase_prefix, "我");
+        assert_eq!(edited.view.editing_text, expected);
+        assert_eq!(edited.commit, None);
+        assert_eq!(runtime.facts.retracted, None);
+    }
+    let ended = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert_eq!(ended.commit.as_deref(), Some("我"));
+    assert!(ended.handled);
+    assert!(ended.view.phrase_prefix.is_empty());
+    assert!(ended.view.editing_text.is_empty());
+    let next = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert_eq!(next.commit, None);
+    assert!(runtime.phrase_selections.is_empty());
+
+    let mut runtime = phrase_runtime("haitanpaobux", vec![6, 5]);
+    runtime.set_backspace_reverts_selection(false);
+    let id = runtime.view().candidates[0].id;
+    runtime.dispatch(Action::Select(id)).unwrap();
+    let id = runtime.view().candidates[1].id;
+    runtime.dispatch(Action::Select(id)).unwrap();
+    let ended = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert_eq!(ended.commit.as_deref(), Some("海滩跑步"));
+    assert!(ended.view.phrase_prefix.is_empty());
+}
+
+#[test]
+fn backspace_selection_preference_changes_live_without_losing_history() {
+    let mut runtime = phrase_runtime("haitanpa", vec![6]);
+    let id = runtime.view().candidates[0].id;
+    runtime.dispatch(Action::Select(id)).unwrap();
+    runtime.set_backspace_reverts_selection(false);
+    let edited = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert_eq!(edited.view.phrase_prefix, "海滩");
+    assert_eq!(edited.view.editing_text, "p");
+    runtime.set_backspace_reverts_selection(true);
+    let restored = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert!(restored.view.phrase_prefix.is_empty());
+    assert_eq!(restored.view.editing_text, "haitan");
+    assert_eq!(restored.commit, None);
+}
+
+#[test]
+fn disabling_selection_retreat_keeps_cancel_and_segment_delete_rules() {
+    for cancel in [false, true] {
+        let mut runtime = phrase_runtime("haitanpaobu", vec![6]);
+        runtime.set_backspace_reverts_selection(false);
+        let id = runtime.view().candidates[0].id;
+        runtime.dispatch(Action::Select(id)).unwrap();
+        let ended = if cancel {
+            runtime.dispatch(Action::Command(Command::Cancel)).unwrap()
+        } else {
+            runtime.dispatch(Action::SegmentBackspace).unwrap();
+            runtime.dispatch(Action::SegmentBackspace).unwrap()
+        };
+        assert!(ended.handled);
+        assert_eq!(ended.commit, None);
+        assert!(ended.view.phrase_prefix.is_empty());
+        assert!(ended.view.editing_text.is_empty());
+    }
+}
+
 fn type_key(runtime: &mut Runtime<Fixture>) -> Transition {
     runtime
         .dispatch(Action::Character {

@@ -378,9 +378,9 @@ final class TypingStatisticsTests: XCTestCase {
     // 分隔格 1 不带字母，所以胜出的是带字母的格子里按得最多的那个。
     XCTAssertEqual(heatmap.busiestLetterKey(nineKey: true), "Nine4")
     XCTAssertNil(TypingKeyHeatmap(counts: [:]).busiestLetterKey(nineKey: false))
-    // 九键键盘的侧边键在九键热力图上有自己的位置，所以不列在其他键里；26 键热力图上没有它们，就列出来。
+    // 九键侧栏标点在九键热力图上有自己的位置，所以不列在其他键里；26 键热力图上没有它，就列出来。句点只在九键数字层的右列，两块都不画。
     let sides = TypingKeyHeatmap(counts: ["Period": 3, TypingKeyID.punctuation: 2, "Comma": 1])
-    XCTAssertEqual(sides.others(nineKey: true).map(\.id), ["Comma"])
+    XCTAssertEqual(sides.others(nineKey: true).map(\.id), ["Period", "Comma"])
     XCTAssertEqual(sides.others(nineKey: false).map(\.id), ["Period", "SoftPunctuation", "Comma"])
   }
 }

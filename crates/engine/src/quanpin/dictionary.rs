@@ -914,7 +914,7 @@ impl QuanpinDictionary {
                 let longer = self.longer_phrase_candidates(partial_segmentation, partial);
                 if !longer.is_empty() {
                     if exact_rows < self.first_page_rows.get() {
-                        rows.sort_by_key(|item| std::cmp::Reverse(item.weight));
+                        // `query_database` 和 `segment_row_cache` 都保持词典按权重降序的顺序；这里的页只来自这条路径，不能再被其它来源打乱，所以无需为长词合并重新排序。
                         let lead = usize::from(
                             rows.first()
                                 .is_some_and(|item| item.canonical_pinyin == partial_segmentation),

@@ -6,6 +6,19 @@ import {
   keyLabel,
   scopedKeyCounts,
 } from "@msime/ui";
+import {
+  phoneHeatmapCount,
+  phoneHeatmapOthers,
+  phoneHeatmapRows,
+  phoneHeatmapSharedCodes,
+  type PhoneHeatmapLayout,
+} from "../../../../packages/ui/src/settings/keyboard-heatmap";
+// 直接读 HarmonyOS 键盘自己的布局表和键位 id，鸿蒙键盘改了九键网格或计数 id 时这里跟着变红，热力图不会再悄悄过时。
+import { NineKeyLayout } from "../../../../platforms/harmony/entry/src/main/ets/keyboard/input/NineKeyLayout";
+import {
+  KEY_IDS,
+  KeyIdPolicy,
+} from "../../../../platforms/harmony/entry/src/main/ets/keyboard/KeyIdPolicy";
 
 const dailyKeys = {
   "2026-09-29": { KeyA: 2, Space: 1 },
@@ -144,4 +157,95 @@ test("shade levels match the calendar heatmap's scale", () => {
   expect(keyHeatLevel(26, 100)).toBe(2);
   expect(keyHeatLevel(75, 100)).toBe(3);
   expect(keyHeatLevel(100, 100)).toBe(4);
+});
+
+// ---- HarmonyOS 手机统计概览的按键热力图 ----
+
+const phoneRow = (layout: PhoneHeatmapLayout, index: number) =>
+  phoneHeatmapRows[layout][index].map((key) => [key.label, key.code ?? null, key.weight]);
+
+test("the phone's 26-key heatmap is the HarmonyOS touch keyboard in Chinese 全拼", () => {
+  // `KeyboardView.ets`：中文模式字母键面大写，第二行两端各缩进半键，全拼的 Shift 位是「分词」（按下记 `'` 的键），底行是 `designActionRow`。
+  expect(phoneRow("full", 0)).toEqual(
+    [..."QWERTYUIOP"].map((letter) => [letter, `Key${letter}`, 1]),
+  );
+  expect(phoneRow("full", 1)).toEqual([
+    ["", null, 0.5],
+    ...[..."ASDFGHJKL"].map((letter) => [letter, `Key${letter}`, 1]),
+    ["", null, 0.5],
+  ]);
+  expect(phoneRow("full", 2)).toEqual([
+    ["分词", "Quote", 1.4],
+    ...[..."ZXCVBNM"].map((letter) => [letter, `Key${letter}`, 1]),
+    ["⌫", "Backspace", 1.4],
+  ]);
+  expect(phoneRow("full", 3)).toEqual([
+    ["符", "SoftSymbol", 1.05],
+    ["123", "SoftLayer", 1.25],
+    ["空格", "Space", 4],
+    ["中", "SoftLanguage", 1.05],
+    ["↵", "Enter", 1.9],
+  ]);
+  expect(phoneHeatmapRows.full).toHaveLength(4);
+  // 分词格只算 `Quote`；英文模式下同一键位的 ⇧ 记 `ShiftLeft`，不并进这一格。
+  const separator = phoneHeatmapRows.full[2][0];
+  expect(separator.also).toBeUndefined();
+  expect(phoneHeatmapCount({ Quote: 3, ShiftLeft: 2 }, separator)).toBe(3);
+});
+
+test("the phone's 9-key heatmap is the HarmonyOS touch grid and its action row", () => {
+  // 网格与 `NineKeyLayout.touchRows()` 同序，每格记 `KeyIdPolicy.nineKey(input)`；两侧列宽 1.15、每格 2（`NINE_KEY_SIDE_SHARE`、`NINE_KEY_GRID_SHARE` / 3）。
+  const grid = NineKeyLayout.touchRows();
+  const side = NineKeyLayout.sideMarks();
+  const right = [
+    ["⌫", "Backspace"],
+    ["分词", KeyIdPolicy.character(NineKeyLayout.separator().input)],
+    ["！", "SoftPunctuation"],
+  ];
+  const fullWidth: Record<string, string> = { ",": "，", ".": "。", "?": "？" };
+  grid.forEach((cells, index) => {
+    expect(phoneRow("nine", index)).toEqual([
+      [fullWidth[side[index]], "SoftPunctuation", 1.15],
+      ...cells.map((cell) => [cell.label, KeyIdPolicy.nineKey(cell.input), 2]),
+      [...right[index], 1.15],
+    ]);
+  });
+  expect(NineKeyLayout.closingMark()).toBe("!");
+  const faces: Record<string, [string, string]> = {
+    symbol_panel: ["符", "SoftSymbol"],
+    layer_toggle: ["123", "SoftLayer"],
+    space: ["空格", "Space"],
+    language: ["中", "SoftLanguage"],
+    return: ["↵", "Enter"],
+  };
+  expect(phoneRow("nine", 3)).toEqual(
+    NineKeyLayout.actionRow(false).map((action) => [...faces[action.kind], action.weight]),
+  );
+  expect(phoneHeatmapRows.nine).toHaveLength(4);
+  // 九键已经没有 0 键，字母层也没有它。
+  expect(phoneHeatmapRows.nine.flat().some((key) => key.code === "Nine0")).toBe(false);
+});
+
+test("every key the phone heatmap draws is an id the HarmonyOS keyboard records", () => {
+  for (const layout of ["full", "nine"] as const)
+    for (const key of phoneHeatmapRows[layout].flat())
+      for (const code of [key.code ?? [], key.also ?? []].flat()) expect(KEY_IDS).toContain(code);
+});
+
+test("keys pressed but not drawn on the shown phone keyboard are listed as other keys", () => {
+  const counts = { KeyQ: 4, Quote: 2, Digit1: 3, SoftEmoji: 1, Nine2: 5, ShiftLeft: 1 };
+  expect(phoneHeatmapOthers(counts, "full").map((key) => [key.code, key.count])).toEqual([
+    ["Nine2", 5],
+    ["Digit1", 3],
+    ["ShiftLeft", 1],
+    ["SoftEmoji", 1],
+  ]);
+  expect(phoneHeatmapOthers(counts, "nine").map((key) => key.code)).toEqual([
+    "KeyQ",
+    "Digit1",
+    "ShiftLeft",
+    "SoftEmoji",
+  ]);
+  expect(phoneHeatmapSharedCodes("nine")).toEqual(new Set(["SoftPunctuation"]));
+  expect(phoneHeatmapSharedCodes("full").size).toBe(0);
 });

@@ -111,6 +111,8 @@ pub struct Runtime<E: InputEngine = Session> {
     /// Off by default because a host that does not draw [`View::phrase_prefix`] would show nothing
     /// at all for that piece. Each host turns it on as it learns to draw it.
     pub(crate) phrase_preedit: bool,
+    /// 普通退格在拼写末尾是否回退已选词段；分段删除不受此开关影响。
+    pub(crate) backspace_reverts_selection: bool,
     /// The piece already chosen for the phrase being composed, held back from the document.
     ///
     /// Non-empty while the Engine is still composing, and in one case after its reading is gone: a segment Backspace (Ctrl+Backspace) that empties a reading whose phrase still has a selection to take back leaves the phrase in the composition, as the reference's `keep_creating_word_after_empty_raw` does. A host must therefore count a non-empty [`View::phrase_prefix`] as a composition, alongside the reading and the candidates.
@@ -565,6 +567,11 @@ impl<E: InputEngine> Runtime<E> {
         self.wubi_auto_commit_unique = enabled;
     }
 
+    /// 只影响下一次退格，不清空已选词段或历史，也不重建 Engine。
+    pub fn set_backspace_reverts_selection(&mut self, enabled: bool) {
+        self.backspace_reverts_selection = enabled;
+    }
+
     /// 选词字符是宿主编排状态，切换配置无需等待 Engine 重建。
     pub fn set_wubi_candidate_selection(
         &mut self,
@@ -703,6 +710,7 @@ impl<E: InputEngine> Runtime<E> {
             wubi_auto_commit_unique: true,
             wubi_candidate_selection: Default::default(),
             phrase_preedit: false,
+            backspace_reverts_selection: true,
             phrase_prefix: String::new(),
             phrase_selections: Vec::new(),
             facts: DispatchFacts::default(),
@@ -1465,28 +1473,10 @@ impl<E: InputEngine> Runtime<E> {
         self.engine.set_rescoring_context(&self.ai_context);
     }
 
-    /// Take the last selection of a phrase-in-progress back, when the key asks for it.
-    ///
-    /// Two rules, both the reference's (`ShouldRetreatCreatingWordSelection` and
-    /// `ShouldDropCreatingWordSegment` in its `input_key_policy.h`), and both about the same
-    /// situation: the user has picked a candidate that covered part of the input, is looking at the
-    /// piece it produced, and wants it back.
-    ///
-    /// - Backspace with at most one character of reading left, the caret at its end: the key would
-    ///   otherwise delete that character and end the composition, taking the chosen piece with it.
-    ///   Instead the newest selection is undone - its reading comes back and the held phrase
-    ///   returns to what it was before it - so the user can pick again.
-    /// - Segment Backspace (Ctrl+Backspace) with nothing before the caret: the reading this key
-    ///   deletes by units has already been emptied, so it deletes the selection itself. Its reading
-    ///   is *not* restored: the user asked to remove the segment, not to edit its spelling.
-    ///
-    /// Returns `None` for every other key, which then runs as usual.
-    ///
-    /// The reference also requires a client that negotiated `CompositionRestore` and a host that is
-    /// not UILess, because its TSF side has to rebuild the composition from a reply it may not
-    /// understand. Here that condition is `phrase_preedit`: a host only turns it on once it draws
-    /// the held phrase from the view, and the view is how every host here learns the composition
-    /// changed.
+    /// 回退暂存词段：普通退格在拼写末尾剩零或一个字符时恢复最近一次选词；
+    /// `backspace_reverts_selection` 关闭时直接交给引擎删除拼写，删空后由现有收尾逻辑上屏已选文字。
+    /// 分段退格在光标前没有拼写时丢掉最近词段，不恢复读音，不受此开关影响。
+    /// 只有启用 `phrase_preedit`、宿主能显示暂存词段时才处理；其他动作照常交给引擎。
     fn retreat_phrase_selection(
         &mut self,
         action: &Action,
@@ -1498,7 +1488,10 @@ impl<E: InputEngine> Runtime<E> {
         let caret = self.cached.caret_position;
         let restore = match action {
             Action::Command(Command::Backspace) => {
-                if reading.chars().count() > 1 || caret != reading.len() {
+                if !self.backspace_reverts_selection
+                    || reading.chars().count() > 1
+                    || caret != reading.len()
+                {
                     return Ok(None);
                 }
                 true
@@ -1547,17 +1540,11 @@ impl<E: InputEngine> Runtime<E> {
         Ok(Some(self.transition(empty_result(true))))
     }
 
-    /// Keep a chosen piece of a phrase out of the document until the phrase is done.
-    ///
-    /// Three things can happen to what the Engine hands back:
-    ///
-    /// - it picked a candidate and is still composing the rest, so the piece is held;
-    /// - something ended the composition and committed, so the held pieces lead that commit - the
-    ///   reference does the same on Enter, which commits `word_for_creating_word` together with the
-    ///   remaining raw input;
-    /// - the reading is gone with nothing committed. A cancel means the user threw the whole thing away, so the held pieces go with it. A segment Backspace (`keep_empty`) that emptied the reading while a selection can still be taken back keeps the phrase in the composition, as the reference's `keep_creating_word_after_empty_raw` does: the next Backspace puts the last reading back and the next Ctrl+Backspace deletes the last chosen piece, both in [`Runtime::retreat_phrase_selection`]. Anything else commits what is held rather than dropping letters the user chose. A plain Backspace only empties the reading here with nothing to go back to - a selection that can be taken back takes that key first - and the reference ends the word in that case too.
-    ///
-    /// When the held phrase is all there is to send or throw away, the key acted on the composition, so it counts as handled: an Enter or Space the Engine does not want with an empty reading must not also reach the application.
+    /// 暂存只消耗部分拼写的选词结果，等整段组字完成后一次上屏。
+    /// 仍在组字时把刚选的词放进 `phrase_prefix`；有最终提交时把前缀接在它前面。
+    /// 拼写删空而没有提交时，取消丢掉前缀；分段编辑在仍有可回退历史时保留前缀；
+    /// 其余动作上屏前缀，避免丢掉已选文字。普通退格关闭回退时也走这条删空收尾路径。
+    /// 只剩暂存词段时，提交或丢弃它都算处理了按键，防止回车、空格再穿透到应用。
     fn hold_phrase_progress(
         &mut self,
         picked: bool,

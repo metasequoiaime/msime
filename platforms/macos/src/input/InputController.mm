@@ -1544,29 +1544,53 @@ static NSImage *MSIMECandidateLogoImage() {
     return YES;
 }
 
+// 智能标点每次判断记一行（诊断日志开着时），下一份「智能标点没生效」的报告才看得出卡在哪一步。只写是否在组字、影子和前一个字符的来源与类别（数字、字母、其他 ASCII、非 ASCII、没有）以及判断结果，按的是哪个键和字符本身都不写：诊断日志不记按键和输入内容（DiagnosticLog.h）。
+static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
+    if (!scalar) return "none";
+    if (scalar >= '0' && scalar <= '9') return "digit";
+    if (scalar < 0x80 && MSIMEASCIIAlphanumeric((unichar)scalar)) return "letter";
+    return scalar < 0x80 ? "ascii" : "non_ascii";
+}
+
+- (void)logSmartPunctuationComposing:(BOOL)composing source:(const char *)source preceding:(uint32_t)preceding
+                            decision:(const char *)decision {
+    if (!msime_macos_diagnostic_enabled()) return;
+    msime_macos_diagnostic_writef(
+        "[smart-punctuation] composing=%d shadow=%s preceding=%s:%s decision=%s", composing ? 1 : 0,
+        _smartPunctuationShadowValid ? MSIMESmartPunctuationScalarClass(_smartPunctuationShadow) : "invalid", source,
+        MSIMESmartPunctuationScalarClass(preceding), decision);
+}
+
 - (BOOL)handleSmartPunctuation:(NSEvent *)event client:(id<MSIMETextClient>)client {
     if (event.characters.length != 1 ||
         (event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand)))
         return NO;
     const unichar character = [event.characters characterAtIndex:0];
     if (!MSIMESmartPunctuationSpaceKey(character)) return NO;
+    const BOOL hasComposition = [_view[@"editing_text"] length] ||
+        ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]);
     // Korean and Vietnamese marks are ASCII already, and the repeat gesture that would turn them Chinese never arms there: the key goes to the Engine, which writes the mark after the open composition or leaves it to the application. Zhuyin's marks are bopomofo keys or its Shift overlay, which the Engine writes in any state, so the contextual ASCII route below never takes them either.
     if (![self schemeUsesChinesePunctuation] || MSIMEViewScheme(_view) == msime::mac::scheme::Zhuyin) {
         [self resetSmartPunctuationState];
+        if (MSIMESmartPunctuationKey(character))
+            [self logSmartPunctuationComposing:hasComposition source:"unread" preceding:0 decision:"scheme"];
         return NO;
     }
     if (!_appearance.smartPunctuation) {
         [self resetSmartPunctuationState];
         [self clearSmartPunctuationSpaceConversion];
         [self clearSmartPunctuationSpaceRevert];
+        if (MSIMESmartPunctuationKey(character))
+            [self logSmartPunctuationComposing:hasComposition source:"unread" preceding:0 decision:"off"];
         return NO;
     }
-    const BOOL hasComposition = [_view[@"editing_text"] length] ||
-        ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]);
     const BOOL gestures = [self schemeAllowsSmartPunctuationGestures];
     if (!MSIMESmartPunctuationKey(character)) return NO;
     // Expression mode's decimal point is part of the number being typed, not a mark to convert.
-    if (MSIMESpellingSymbol(_view, character)) return NO;
+    if (MSIMESpellingSymbol(_view, character)) {
+        [self logSmartPunctuationComposing:hasComposition source:"unread" preceding:0 decision:"spelling"];
+        return NO;
+    }
     if (!_appearance.smartPunctuationRepeatToChinese) {
         _lastSmartPunctuation = 0;
         _smartPunctuationRejected = NO;
@@ -1582,6 +1606,7 @@ static NSImage *MSIMECandidateLogoImage() {
             const NSRange selected = [client respondsToSelector:@selector(selectedRange)] ? [client selectedRange] : NSMakeRange(NSNotFound, 0);
             const NSUInteger length = expected.length;
             if (selected.location != NSNotFound && selected.location >= length) {
+                [self logSmartPunctuationComposing:NO source:"document" preceding:preceding decision:"repeat_to_chinese"];
                 [client insertText:chinese replacementRange:NSMakeRange(selected.location - length, length)];
                 [self noteSmartPunctuationShadow:[chinese characterAtIndex:chinese.length - 1]];
                 [self resetSmartPunctuationState];
@@ -1591,12 +1616,14 @@ static NSImage *MSIMECandidateLogoImage() {
                    [self rewriteUnreadablePreceding:[expected characterAtIndex:0] with:[chinese characterAtIndex:0] client:client]) {
             // Nothing to read back: the shadow vouches for the ASCII mark just committed, and posted events replace it. Without the posting permission this falls through and the Engine types the Chinese mark after it, as the reference did before its SendInput rewrite.
             [self resetSmartPunctuationState];
+            [self logSmartPunctuationComposing:NO source:"shadow" preceding:[expected characterAtIndex:0] decision:"repeat_to_chinese_posted"];
             return YES;
         }
     }
     if (_lastSmartPunctuation && _lastSmartPunctuation != character) [self resetSmartPunctuationState];
     const BOOL rejected = _smartPunctuationRejected && _rejectedSmartPunctuation == character;
     uint32_t preceding = 0;
+    const char *source = hasComposition ? "candidate" : rejected ? "unread" : _smartPunctuationShadowValid ? "shadow" : "document";
     if (hasComposition) {
         for (NSDictionary *candidate in _view[@"candidates"]) {
             if (![candidate isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(candidate[@"highlighted"])) continue;
@@ -1613,27 +1640,37 @@ static NSImage *MSIMECandidateLogoImage() {
         NSDictionary *transition = hasComposition
             ? [_session punctuationASCII:(uint8_t)character error:nil]
             : [_session punctuation:(uint8_t)character preceding:preceding error:nil];
-        if (!transition) { _punctuationKeyInFlight = 0; return NO; }
-        if (hasComposition) {
+        if (!transition) {
+            _punctuationKeyInFlight = 0;
+            [self logSmartPunctuationComposing:hasComposition source:source preceding:preceding decision:"session_error"];
+            return NO;
+        }
+        // 默认武装连按改中文手势；只有 Engine 把键交回、而中文标点其实没开（或标点锁定为英文）时不武装，那里没有要改回的中文标点。
+        BOOL arm = YES;
+        if (hasComposition || MSIMEStrictBoolean(transition[@"handled"])) {
             NSString *commit = transition[@"commit"];
-            if (_appearance.runtimeFullWidthInput && [commit isKindOfClass:NSString.class] && commit.length && [commit characterAtIndex:commit.length - 1] == character) {
-                NSMutableDictionary *converted = [transition mutableCopy];
-                converted[@"commit"] = [[commit substringToIndex:commit.length - 1] stringByAppendingString:MSIMEFullWidthSmartMark(character, YES)];
-                transition = converted;
-            }
-            [self apply:transition];
-        } else if (MSIMEStrictBoolean(transition[@"handled"])) {
-            NSString *commit = transition[@"commit"];
-            if (_appearance.runtimeFullWidthInput && [commit isKindOfClass:NSString.class] && commit.length &&
-                [commit characterAtIndex:commit.length - 1] == character) {
+            const BOOL endsWithASCII = [commit isKindOfClass:NSString.class] && commit.length && [commit characterAtIndex:commit.length - 1] == character;
+            [self logSmartPunctuationComposing:hasComposition source:source preceding:preceding
+                                      decision:hasComposition || endsWithASCII ? "ascii" : "engine_commit"];
+            if (_appearance.runtimeFullWidthInput && endsWithASCII) {
                 NSMutableDictionary *converted = [transition mutableCopy];
                 converted[@"commit"] = [[commit substringToIndex:commit.length - 1] stringByAppendingString:MSIMEFullWidthSmartMark(character, YES)];
                 transition = converted;
             }
             [self apply:transition];
         } else {
-            _punctuationKeyInFlight = 0;
-            return NO;
+            // 没有组字时 ASCII 路线不提交：Engine 把键交回宿主（见 msime_client.h 的 msime_client_punctuation_ascii），字面标点要宿主自己写，iOS 和鸿蒙都是这样做的。这里以前返回 NO，键就落到后面不看前文的 typeASCII: 普通标点路线，Engine 照常写出中文标点，于是数字或字母后面的 , . : 在任何方案、任何应用里都成了中文标点（`0.10.1` 打成 `0。10。1`）。现在和组字中一样经 apply: 写出，影子随这次上屏记下，全角开着时写全角形式。
+            // Engine 交回键也可能是因为中文标点没开或标点锁定为英文：那时打出来的本来就是 ASCII，连按不该改成中文（Linux 宿主的 keptAscii 是同一个条件）。
+            arm = [_appearance.punctuationLock isEqual:@"follow"] && _appearance.runtimeChinesePunctuation;
+            [self logSmartPunctuationComposing:NO source:source preceding:preceding decision:arm ? "ascii_literal" : "ascii_literal_unarmed"];
+            NSMutableDictionary *literal = [transition mutableCopy];
+            literal[@"handled"] = @YES;
+            literal[@"commit"] = MSIMEFullWidthSmartMark(character, _appearance.runtimeFullWidthInput);
+            [self apply:literal];
+        }
+        if (!arm) {
+            [self resetSmartPunctuationState];
+            return YES;
         }
         _lastSmartPunctuation = character;
         _lastSmartPunctuationTime = NSProcessInfo.processInfo.systemUptime;
@@ -1643,6 +1680,7 @@ static NSImage *MSIMECandidateLogoImage() {
         return YES;
     }
     if (rejected) [self resetSmartPunctuationState];
+    [self logSmartPunctuationComposing:hasComposition source:source preceding:preceding decision:rejected ? "rejected" : "engine"];
     // Falling through means the Engine takes the key and commits the Chinese mark; the typeASCII route in handleEvent: notes that commit so a space arriving next can take it back, and the conversion re-reads the document before touching anything.
     return NO;
 }

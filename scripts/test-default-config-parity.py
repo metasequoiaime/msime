@@ -235,16 +235,16 @@ print(
     f"{len(shared_fuzzy_rule_ids)} rules"
 )
 
-# Smart punctuation rewrites a character the user already saw land, so the source ships all five switches off. The installed TOML is only a template — the running host reads the shared preferences document — so the two have to be checked against each other rather than assumed to agree. macOS ports the same desktop product and follows it; the other hosts keep what they have shipped.
+# 智能标点在所有平台上默认开（`0.10.1` 不会变成 `0。10。1`），句末是数字时靠重复标点转中文换回「。」；空格转换改写的是用户已经看着落下去的字符、又没有反悔手势，保持关。来源的安装模板五个开关全关，本仓的模板与共享默认一起改成开，见 `.agents/notes/implemented/feature/2026-10-16-smart-punctuation-default-on.md`。安装的 TOML 只是模板，运行中的宿主读共享偏好文档，所以两边要对照检查，不能假定一致。
 smart_punctuation_default = re.search(
     r"fn smart_punctuation_default\(\) -> bool \{\s*(.+?)\s*\}",
     core_source,
     re.DOTALL,
 )
 assert smart_punctuation_default, "smart_punctuation_default was not found"
-assert smart_punctuation_default.group(1) == '!cfg!(any(windows, target_os = "macos"))', (
-    "the shared first-run default for smart punctuation must be off on Windows and macOS "
-    f"and unchanged elsewhere, not: {smart_punctuation_default.group(1)}"
+assert smart_punctuation_default.group(1) == "true", (
+    "the shared first-run default for smart punctuation must be on on every host, not: "
+    f"{smart_punctuation_default.group(1)}"
 )
 
 windows_smart_punctuation = {
@@ -256,22 +256,33 @@ assert len(windows_smart_punctuation) == 5, (
     "the Windows template must ship all five smart-punctuation switches: "
     f"{sorted(windows_smart_punctuation)}"
 )
-assert not any(windows_smart_punctuation.values()), (
-    "Windows smart-punctuation switches must default to off: "
-    f"{sorted(key for key, value in windows_smart_punctuation.items() if value)}"
+expected_windows_smart_punctuation = {
+    "smart_punctuation": True,
+    "smart_punctuation_repeat_to_chinese": True,
+    "smart_punctuation_space_convert": False,
+    "smart_punctuation_direct_digit": True,
+    "smart_punctuation_direct_letter": True,
+}
+assert windows_smart_punctuation == expected_windows_smart_punctuation, (
+    "the Windows template must ship smart punctuation on and the space rewrite off: "
+    f"{windows_smart_punctuation}"
 )
-# The space rewrite has no equivalent in the reference and changes a character the user already saw land, so it is off until asked for. The two halves of 智能标点 follow the parent instead: the reference has one switch there and this page shows its description verbatim - ASCII after a letter or a digit - so halves that were off on their own left the parent on and doing nothing. Following the parent keeps a fresh Windows or macOS profile with the whole family off, which is what the template above ships and what this check exists for.
 assert re.search(
     r"#\[serde\(default\)\]\s*pub smart_punctuation_space_convert: bool", core_source
 ), "smart_punctuation_space_convert must default to off on every host, matching the template"
-for field in ("smart_punctuation_direct_digit", "smart_punctuation_direct_letter"):
+for field in (
+    "smart_punctuation",
+    "smart_punctuation_repeat",
+    "smart_punctuation_direct_digit",
+    "smart_punctuation_direct_letter",
+):
     assert re.search(
         rf'#\[serde\(default = "smart_punctuation_default"\)\]\s*(?:///[^\n]*\n\s*)*pub {field}: bool',
         core_source,
-    ), f"{field} must follow the 智能标点 default, which is off on Windows and macOS"
+    ), f"{field} must follow the 智能标点 default, which is on on every host"
 
 print(
-    "Windows and macOS smart punctuation is off on a fresh profile, as the template ships: "
+    "smart punctuation is on on a fresh profile everywhere, as the Windows template ships: "
     f"{len(windows_smart_punctuation)} switches"
 )
 

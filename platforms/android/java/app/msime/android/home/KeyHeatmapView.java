@@ -13,43 +13,28 @@ import android.view.View;
 import androidx.annotation.Nullable;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.ColorPolicy;
-import app.msime.android.KeyPressIds;
+import app.msime.android.KeyHeatmapLayout;
+import app.msime.android.KeyHeatmapLayout.Key;
 import app.msime.android.MapPolicy;
 import app.msime.android.R;
 import app.msime.android.TypingStatisticsSummary;
 import app.msime.android.ViewPolicy;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * 按键页的迷你键盘热力图：26 键或 9 键布局，每个键按它占全部按键的比例分 5 档填 `?attr/msHeat0`…`msHeat4`，键面写键名和百分数；图下左边是「字母键最常按 N · 9.6%」，右边是「少 □□□□□ 多」图例。
+ * 按键页的迷你键盘热力图：竖屏默认设置下的中文全拼 26 键或拼音九键，键序、宽度、键面和每个键记的 id 都来自 {@link KeyHeatmapLayout}（它直接读触屏键盘的布局常量），每个键按它占全部按键的比例分 5 档填 `?attr/msHeat0`…`msHeat4`，键面写键名和百分数；图下左边是「字母键最常按 N · 9.6%」，右边是「少 □□□□□ 多」图例。
  *
  * <p>分档按画出来的键里最多的那个算（同 {@link HeatmapView#level}），百分数按这段时间的全部按键算，所以实体键盘的 Tab、F1 这类没画出来的键也算在分母里，键面上的数字和存储里的口径一致。
+ *
+ * <p>九键左栏的「，。？」和右列的「！」都记 `SoftPunctuation`，存储分不出按的是哪一个：这几个键涂同一档颜色，哪个键上都不印百分数（{@link KeyHeatmapLayout#sharedIds}），只印在一个键上会被读成那个键自己的占比。「重输」按了不计数，画成 0 次那一档、不印百分数。
  */
 public final class KeyHeatmapView extends View {
-    /** 一个画出来的键：键 id、宽度权重和键面。 */
-    private record Key(String id, float weight, String face) {}
-
-    private static final List<List<Key>> SOFT = List.of(
-        row("KeyQ", "KeyW", "KeyE", "KeyR", "KeyT", "KeyY", "KeyU", "KeyI", "KeyO", "KeyP"),
-        List.of(new Key(null, .5f, ""), k("KeyA"), k("KeyS"), k("KeyD"), k("KeyF"), k("KeyG"),
-            k("KeyH"), k("KeyJ"), k("KeyK"), k("KeyL"), new Key(null, .5f, "")),
-        List.of(new Key("ShiftLeft", 1.5f, "⇧"), k("KeyZ"), k("KeyX"), k("KeyC"), k("KeyV"),
-            k("KeyB"), k("KeyN"), k("KeyM"), new Key("Backspace", 1.5f, "⌫")),
-        // 底行与触屏 26 键一致：符 | 123 | 空格 | 中 | 回车，没有逗号和句号键。
-        List.of(new Key("SoftSymbol", 1f, "符"), new Key("SoftLayer", 1.25f, "123"),
-            new Key("Space", 4.25f, "空格"), new Key("SoftLanguage", 1f, "中"), new Key("Enter", 1.5f, "↵")));
-
-    private static final List<List<Key>> NINE = List.of(
-        List.of(new Key("Comma", 1f, "，"), new Key("Nine1", 1.4f, "@#"), new Key("Nine2", 1.4f, "ABC"),
-            new Key("Nine3", 1.4f, "DEF"), new Key("Backspace", 1f, "⌫")),
-        List.of(new Key("Period", 1f, "。"), new Key("Nine4", 1.4f, "GHI"), new Key("Nine5", 1.4f, "JKL"),
-            new Key("Nine6", 1.4f, "MNO"), new Key("SoftSymbol", 1f, "符")),
-        List.of(new Key("SoftPunctuation", 1f, "标点"), new Key("Nine7", 1.4f, "PQRS"),
-            new Key("Nine8", 1.4f, "TUV"), new Key("Nine9", 1.4f, "WXYZ"), new Key("Nine0", 1f, "0")),
-        List.of(new Key("SoftLayer", 1f, "123"), new Key("Space", 2.8f, "空格"),
-            new Key("SoftLanguage", 1f, "中"), new Key("Enter", 1.4f, "↵")));
+    private static final List<List<Key>> SOFT = KeyHeatmapLayout.SOFT;
+    private static final List<List<Key>> NINE = KeyHeatmapLayout.NINE;
+    private static final Set<String> SOFT_SHARED = KeyHeatmapLayout.sharedIds(SOFT);
+    private static final Set<String> NINE_SHARED = KeyHeatmapLayout.sharedIds(NINE);
 
     private static final int[] HEAT = {R.attr.msHeat0, R.attr.msHeat1, R.attr.msHeat2, R.attr.msHeat3,
         R.attr.msHeat4};
@@ -78,16 +63,6 @@ public final class KeyHeatmapView extends View {
         share.setTextAlign(Paint.Align.CENTER);
         ViewPolicy.setTextSizeSp(share, context, 9);
         ViewPolicy.setTextSizeSp(caption, context, 12);
-    }
-
-    private static Key k(String id) {
-        return new Key(id, 1f, KeyPressIds.label(id));
-    }
-
-    private static List<Key> row(String... ids) {
-        List<Key> keys = new ArrayList<>(ids.length);
-        for (String id : ids) keys.add(k(id));
-        return List.copyOf(keys);
     }
 
     /** 这段时间每个键的按键次数。 */
@@ -123,16 +98,29 @@ public final class KeyHeatmapView extends View {
 
     private List<List<Key>> layout() { return nine ? NINE : SOFT; }
 
+    /** 一个键的按键次数：它记过的每个 id 相加；不计数的键是 0。 */
+    private long value(Key key) {
+        long sum = 0;
+        for (String id : key.ids()) sum += BoundsPolicy.nonNegative(counts.getOrDefault(id, 0L));
+        return sum;
+    }
+
+    private static boolean containsAny(Set<String> set, List<String> ids) {
+        for (String id : ids) if (set.contains(id)) return true;
+        return false;
+    }
+
     /** 图下左边那句：26 键说字母键里最常按的，9 键说带字母的格子里最常按的。 */
     private String headline() {
         Key best = null;
         long most = 0;
         for (List<Key> row : layout()) {
             for (Key key : row) {
-                if (key.id() == null) continue;
-                boolean candidate = nine ? key.id().startsWith("Nine") && !"Nine0".equals(key.id())
-                    && !"Nine1".equals(key.id()) : key.id().startsWith("Key");
-                long value = counts.getOrDefault(key.id(), 0L);
+                if (key.ids().isEmpty()) continue;
+                String id = key.ids().get(0);
+                boolean candidate = nine ? id.startsWith("Nine") && !"Nine0".equals(id)
+                    && !"Nine1".equals(id) : id.startsWith("Key");
+                long value = value(key);
                 if (candidate && value > most) {
                     best = key;
                     most = value;
@@ -163,36 +151,27 @@ public final class KeyHeatmapView extends View {
         float radius = DimensionPolicy.pixels(context, 6);
         long peak = 0;
         for (List<Key> row : layout()) {
-            for (Key key : row) {
-                if (key.id() != null) peak = BoundsPolicy.atLeast(peak, counts.getOrDefault(key.id(), 0L));
-            }
+            for (Key key : row) peak = BoundsPolicy.atLeast(peak, value(key));
         }
         int text = ThemeColorPolicy.text(context);
         int sub = ThemeColorPolicy.subText(context);
         int onAccent = ThemeColorPolicy.onAccent(context);
         float width = getWidth();
         List<List<Key>> rows = layout();
+        Set<String> shared = nine ? NINE_SHARED : SOFT_SHARED;
         for (int r = 0; r < rows.size(); r++) {
             List<Key> row = rows.get(r);
             float weights = 0;
-            int keys = 0;
-            for (Key key : row) {
-                weights += key.weight();
-                if (key.id() != null) keys++;
-            }
-            float unit = (width - gap * (keys - 1)) / weights;
+            for (Key key : row) weights += key.weight();
+            // 和键盘的 LinearLayout 一样，每一行按份额铺满整行。
+            float unit = (width - gap * (row.size() - 1)) / weights;
             float x = 0;
             float top = r * (height + gap);
-            boolean drawn = false;
-            for (Key key : row) {
+            for (int index = 0; index < row.size(); index++) {
+                Key key = row.get(index);
                 float keyWidth = unit * key.weight();
-                if (key.id() == null) {
-                    x += keyWidth;
-                    continue;
-                }
-                if (drawn) x += gap;
-                drawn = true;
-                long value = counts.getOrDefault(key.id(), 0L);
+                if (index > 0) x += gap;
+                long value = value(key);
                 int level = HeatmapView.level(value, peak);
                 fill.setColor(ThemeColorPolicy.color(context, HEAT[level]));
                 box.set(x, top, x + keyWidth, top + height);
@@ -202,7 +181,7 @@ public final class KeyHeatmapView extends View {
                 share.setColor(level >= 3 ? ColorPolicy.withAlpha(onAccent, .85f) : sub);
                 float centre = x + keyWidth / 2;
                 canvas.drawText(key.face(), centre, top + height / 2 + DimensionPolicy.pixels(context, 1), face);
-                if (total > 0) {
+                if (total > 0 && !key.ids().isEmpty() && !containsAny(shared, key.ids())) {
                     String percent = TypingStatisticsSummary.percentTenths(value / (double) total) + "%";
                     canvas.drawText(percent, centre, top + height - DimensionPolicy.pixels(context, 6), share);
                 }

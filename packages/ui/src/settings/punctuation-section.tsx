@@ -51,7 +51,7 @@ export function CharacterWidthRow({
   );
 }
 
-/** 桌面和 Android、iOS 共用的「标点」分组。主流程只留四行：「标点」选择（合并了「中文标点」开关和「固定标点」）、引号样式、智能标点、成对标点；方头括号样式、智能标点的四个细分开关和大写锁定标点收进「更多选项」。细分开关只在智能标点打开时才起作用（数字后、字母后直出见 `punctuation::route`，重复和空格转换见 macOS `InputController` 的智能标点分支），所以总开关关着时它们变灰，值保留不动。 */
+/** 桌面和 Android、iOS 共用的「标点」分组。主流程只留三行：「标点」选择（合并了「中文标点」开关和「固定标点」）、引号样式、成对标点；方头括号样式、智能标点总开关和它的四个细分开关、大写锁定标点收进「更多选项」。智能标点默认开（数字后的 `.` 直接出英文），用户不必先找到它才得到这个行为，所以总开关也不占主流程，和细分开关挨在一起。细分开关只在智能标点打开时才起作用（数字后、字母后直出见 `punctuation::route`，重复和空格转换见 macOS `InputController` 的智能标点分支），所以总开关关着时它们变灰，值保留不动。 */
 export function PunctuationSection({
   preferences,
   showCharacterWidth,
@@ -64,7 +64,6 @@ export function PunctuationSection({
       <PunctuationModeRow preferences={preferences} onChange={onChange} />
       <QuoteStyleRow preferences={preferences} onChange={onChange} />
       {showCharacterWidth && <CharacterWidthRow preferences={preferences} onChange={onChange} />}
-      <SmartPunctuationRow preferences={preferences} onChange={onChange} />
       <PunctuationSwitchRow
         preference={pairedPunctuation[0]}
         title={pairedPunctuation[1]}
@@ -74,6 +73,7 @@ export function PunctuationSection({
       />
       <MoreOptions>
         <BracketStyleRow preferences={preferences} onChange={onChange} />
+        <SmartPunctuationRow preferences={preferences} onChange={onChange} />
         {smartPunctuationRefinements.map(([key, label, description]) => (
           <PunctuationSwitchRow
             key={key}
@@ -135,7 +135,7 @@ function SmartPunctuationRow({
       title={smartPunctuation[1]}
       description={
         inert
-          ? `${smartPunctuation[2]}。数字后直出和字母后直出都已关闭，这一条暂不生效，可在「更多选项」里打开，或关掉再打开智能标点`
+          ? `${smartPunctuation[2]}。数字后直出和字母后直出都已关闭，这一条暂不生效，打开下面其中一项，或关掉再打开智能标点`
           : smartPunctuation[2]
       }
       checked={state.smart_punctuation}
@@ -236,7 +236,7 @@ export function BracketStyleRow({
   );
 }
 
-/** HarmonyOS 手机「表达」页的「标点」分组，遵循设计稿和 Android 的 `ExpressionPage`：「使用英文标点」（显示为 `chinese_punctuation` 的反值）、「自动补全成对标点」和「智能标点」，引号与方头括号样式、智能标点的细分选项和「固定标点」收在「更多选项」下，不丢失任何生效中的设置。 */
+/** HarmonyOS 手机「表达」页的「标点」分组，遵循设计稿和 Android 的 `ExpressionPage`：「使用英文标点」（显示为 `chinese_punctuation` 的反值）和「自动补全成对标点」；引号与方头括号样式、智能标点（默认开，与桌面一样收进折叠区）和它的细分选项、「固定标点」收在「更多选项」下，不丢失任何生效中的设置。 */
 export function PhonePunctuationSection({
   preferences,
   onChange,
@@ -255,10 +255,10 @@ export function PhonePunctuationSection({
         preferences={preferences}
         onChange={onChange}
       />
-      <SmartPunctuationRow preferences={preferences} onChange={onChange} />
       <MoreOptions>
         <QuoteStyleRow preferences={preferences} onChange={onChange} />
         <BracketStyleRow preferences={preferences} onChange={onChange} />
+        <SmartPunctuationRow preferences={preferences} onChange={onChange} />
         {smartPunctuationRefinements.map(([key, label, description]) => (
           <PunctuationSwitchRow
             key={key}

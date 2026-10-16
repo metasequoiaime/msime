@@ -49,11 +49,7 @@ pub struct PunctuationContext {
     pub has_composition: bool,
     pub chinese_punctuation: bool,
     pub smart_punctuation: bool,
-    /// Keep `,` `.` `:` as ASCII after a digit, and after a letter. Two
-    /// switches rather than one, because a version number and an English
-    /// sentence want different answers - and both are off on the Windows
-    /// baseline, so a host that ignored them was converting for users who had
-    /// asked for neither.
+    /// 数字后、字母后的 `,` `.` `:` 保留 ASCII。拆成两个开关，是因为版本号和英文句子要的答案可能不同；两者都跟着智能标点默认开，用户可以单独关掉一半，宿主不能无视它们。
     pub direct_digit: bool,
     pub direct_letter: bool,
     pub lock: PunctuationLock,
@@ -342,27 +338,51 @@ mod tests {
 
     #[test]
     fn the_shipped_defaults_do_what_the_switch_says_they_do() {
-        // The page shows the reference's own sentence under 智能标点: ASCII after a letter or a
-        // digit. The reference has one switch; this has three, and the two halves used to be off,
-        // so on every host where the parent defaults on the switch was on and the sentence was
-        // false. This reads the defaults rather than the fixture above, which sets all three.
+        // 智能标点在所有平台上默认开：只看默认偏好（不用上面把三个开关都设好的夹具），数字后的 `,` `.` `:` 都走 ASCII，`0.10.1` 不会变成 `0。10。1`；字母后同样；中文、空格或没有前文时仍归 Engine 出中文标点。
         let defaults = crate::preferences::Preferences::default();
-        let mut value = context(b',', Some('1'));
-        value.smart_punctuation = defaults.smart_punctuation;
-        value.direct_digit = defaults.smart_punctuation_direct_digit;
-        value.direct_letter = defaults.smart_punctuation_direct_letter;
-        let expected = if defaults.smart_punctuation {
-            PunctuationRoute::Ascii
-        } else {
-            // Windows ships the parent off, and the halves follow it.
-            PunctuationRoute::Engine
+        let shipped = |character: u8, preceding: Option<char>| {
+            let mut value = context(character, preceding);
+            value.chinese_punctuation = defaults.chinese_punctuation;
+            value.smart_punctuation = defaults.smart_punctuation;
+            value.direct_digit = defaults.smart_punctuation_direct_digit;
+            value.direct_letter = defaults.smart_punctuation_direct_letter;
+            value.lock = defaults.punctuation_lock;
+            value.caps_lock_ascii = false;
+            value
         };
-        assert_eq!(route(value), expected);
-        let mut letter = value;
-        letter.preceding = Some('a');
-        assert_eq!(route(letter), expected);
+        for character in *b",.:" {
+            assert_eq!(
+                route(shipped(character, Some('1'))),
+                PunctuationRoute::Ascii
+            );
+            assert_eq!(
+                route(shipped(character, Some('a'))),
+                PunctuationRoute::Ascii
+            );
+            for preceding in [Some('计'), Some(' '), Some('。'), None] {
+                assert_eq!(
+                    route(shipped(character, preceding)),
+                    PunctuationRoute::Engine,
+                    "{} after {preceding:?}",
+                    character as char
+                );
+            }
+        }
+        // 重复标点转中文同样默认开：数字后上屏了 ASCII 句点，两秒内再按一次就换回「。」。
+        let armed = arm_repeat(b'.', ".", 1_000, 7);
+        let again = RepeatContext {
+            ascii: b'.',
+            preceding: Some('.'),
+            timestamp_ms: 1_500,
+            editor_generation: 7,
+            smart_punctuation: defaults.smart_punctuation,
+            repeat_enabled: defaults.smart_punctuation_repeat,
+            has_composition: false,
+            candidate_count: 0,
+        };
+        assert_eq!(should_replace_repeat(armed, again), Some('。'));
         // Turning the parent off still silences both halves, whatever they say.
-        let mut parent_off = value;
+        let mut parent_off = shipped(b',', Some('1'));
         parent_off.smart_punctuation = false;
         parent_off.direct_digit = true;
         parent_off.direct_letter = true;

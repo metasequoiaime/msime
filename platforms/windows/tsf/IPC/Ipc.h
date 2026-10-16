@@ -168,8 +168,7 @@ inline bool IsPunctuationLocked()
 }
 
 inline std::atomic_bool PagingCommaPeriodEnabled{false};
-// Opt-in: keep the safe disabled state until the Server sends persisted
-// settings, including during a transient worker reconnect.
+// 在 Server 送来已存的设置之前（包括 worker 短暂重连期间）保持关：智能标点虽然默认开，但用户可能关掉了它，没拿到设置就改写标点会违背用户的选择；Server 一连上就按偏好文档发来真实的值。
 inline std::atomic_bool SmartPunctuationEnabled{false};
 inline std::atomic_bool SmartPunctuationRepeatToChineseEnabled{false};
 inline std::atomic_bool SmartPunctuationSpaceConvertEnabled{false};
