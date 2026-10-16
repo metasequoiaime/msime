@@ -106,7 +106,18 @@ fn perform(request: CloudSyncRequest) -> Result<Value, String> {
     let action = match request.action {
         Action::MarkDirty { section } => return cloud_sync::mark_dirty(&store, section),
         Action::ImportLegacy { ios_v1, android } => {
-            return cloud_sync::import_legacy(&store, ios_v1, android, now)
+            let snapshot_queue = request
+                .snapshot_queue_directory
+                .as_deref()
+                .map(absolute)
+                .transpose()?;
+            return cloud_sync::import_legacy(
+                &store,
+                ios_v1,
+                android,
+                snapshot_queue.as_deref(),
+                now,
+            );
         }
         action => action,
     };

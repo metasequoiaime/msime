@@ -336,16 +336,18 @@ pub(crate) struct AndroidLegacy {
     cloud_sync_status: Value,
 }
 
-/// `import_legacy`：只在还没有任何进度、而且没有绑定别的账号时导入（见 [`SyncState::accepts_import`]），保留游标和待上传标记，免得迁移以后又弹首次选择。
+/// `import_legacy`：只在还没有任何进度、而且没有绑定别的账号时导入（见 [`SyncState::accepts_import`]），保留游标和待上传标记，免得迁移以后又弹首次选择。Android 的词库游标还要对照快照激活队列 `snapshot_queue`，见 [`android_dictionary_activation`]。
 pub(crate) fn import_legacy(
     store: &SyncStateStore,
     ios_v1: Option<Value>,
     android: Option<AndroidLegacy>,
+    snapshot_queue: Option<&Path>,
     now_ms: u64,
 ) -> Result<Value, String> {
     let imported = match (ios_v1, android) {
         (Some(record), None) => import_ios_v1(&record),
-        (None, Some(android)) => import_android(&android.sync_v1, &android.cloud_sync_status),
+        (None, Some(android)) => import_android(&android.sync_v1, &android.cloud_sync_status)
+            .map(|state| android_dictionary_activation(state, snapshot_queue)),
         _ => return Err(INVALID.to_owned()),
     };
     let (imported, state) = store
@@ -361,6 +363,26 @@ pub(crate) fn import_legacy(
         })
         .map_err(storage)?;
     Ok(json!({ "imported": imported, "status": status_value(&state, now_ms) }))
+}
+
+/// 旧的 Android `CloudSync` 下载词库时先把快照交给激活队列，同时就把游标记成云端的修订号。那份快照要是没有激活就结束了（本机词库变了而冲突、失败或被取消），本机缺着游标以前的云端词，导入的游标却说已经同步到那里：第一轮本机有标记、云端没变时会整份上传，用没收到云端词的本机词库替换云端。所以队列里还有这个账号没应用的请求时，把它记成等激活的快照（`activation`），第一轮按等激活或没激活处理，改按合并补上云端的词，不上传。读不出队列、或者宿主没给队列目录时不知道有没有这样的请求，词库游标不导入，词库下一轮按首次同步处理（会问用户），不冒整份覆盖云端的险。
+fn android_dictionary_activation(mut state: SyncState, snapshot_queue: Option<&Path>) -> SyncState {
+    if state.sections.dictionary.cursor.is_none() {
+        return state;
+    }
+    let queued = snapshot_queue
+        .and_then(|directory| DictionarySnapshotQueue::new(directory).ok())
+        .and_then(|queue| queue.read().ok());
+    let Some(queued) = queued else {
+        state.sections.dictionary.cursor = None;
+        return state;
+    };
+    if let Some(request) = queued.request.filter(|request| {
+        request.account_id == state.account_id && request.status != SnapshotRequestStatus::Applied
+    }) {
+        state.sections.dictionary.activation = Some(request.id.to_string());
+    }
+    state
 }
 
 /// `run` 的参数。

@@ -1909,9 +1909,16 @@ fn legacy_state_is_imported_after_status_bound_the_same_account() {
             "cleans": {},
         })
     };
-    let other = import_legacy(&fixture.store, Some(ios("synthetic-other")), None, NOW).unwrap();
+    let other = import_legacy(
+        &fixture.store,
+        Some(ios("synthetic-other")),
+        None,
+        None,
+        NOW,
+    )
+    .unwrap();
     assert_eq!(other["imported"], false);
-    let imported = import_legacy(&fixture.store, Some(ios(USER)), None, NOW).unwrap();
+    let imported = import_legacy(&fixture.store, Some(ios(USER)), None, None, NOW).unwrap();
     assert_eq!(imported["imported"], true, "{imported}");
     let status = status(&fixture.session, &fixture.store, NOW).unwrap();
     assert_eq!(status["enabled"], true);
@@ -1930,16 +1937,16 @@ fn legacy_state_never_turns_sync_back_on_after_the_user_turned_it_off() {
     });
     // 导入以后用户关掉同步，下次启动宿主又带来同一份旧状态。
     let fixture = Fixture::new();
-    let imported = import_legacy(&fixture.store, Some(ios.clone()), None, NOW).unwrap();
+    let imported = import_legacy(&fixture.store, Some(ios.clone()), None, None, NOW).unwrap();
     assert_eq!(imported["imported"], true, "{imported}");
     assert_eq!(imported["status"]["enabled"], true);
     set_enabled(&fixture.session, &fixture.store, false, NOW + 1).unwrap();
-    let again = import_legacy(&fixture.store, Some(ios.clone()), None, NOW + 2).unwrap();
+    let again = import_legacy(&fixture.store, Some(ios.clone()), None, None, NOW + 2).unwrap();
     assert_eq!(again["imported"], false, "{again}");
     assert_eq!(again["status"]["enabled"], false);
     // 退出再登录同一个账号也不再导入。
     sign_out(&fixture.store, &fixture.local, NOW + 3).unwrap();
-    let signed_out = import_legacy(&fixture.store, Some(ios.clone()), None, NOW + 4).unwrap();
+    let signed_out = import_legacy(&fixture.store, Some(ios.clone()), None, None, NOW + 4).unwrap();
     assert_eq!(signed_out["imported"], false, "{signed_out}");
     assert_eq!(
         status(&fixture.session, &fixture.store, NOW + 5).unwrap()["enabled"],
@@ -1950,12 +1957,94 @@ fn legacy_state_never_turns_sync_back_on_after_the_user_turned_it_off() {
     status(&fixture.session, &fixture.store, NOW).unwrap();
     set_enabled(&fixture.session, &fixture.store, true, NOW + 1).unwrap();
     set_enabled(&fixture.session, &fixture.store, false, NOW + 2).unwrap();
-    let late = import_legacy(&fixture.store, Some(ios), None, NOW + 3).unwrap();
+    let late = import_legacy(&fixture.store, Some(ios), None, None, NOW + 3).unwrap();
     assert_eq!(late["imported"], false, "{late}");
     assert_eq!(
         status(&fixture.session, &fixture.store, NOW + 4).unwrap()["enabled"],
         false
     );
+}
+
+#[test]
+fn a_legacy_android_snapshot_that_never_activated_is_merged_instead_of_uploaded() {
+    use msime_client_core::cloud::snapshot_queue::local_version;
+    use sha2::{Digest, Sha256};
+    let dictionary = Capabilities {
+        dictionary: true,
+        ..Capabilities::default()
+    };
+    let android = |cursor: &str| AndroidLegacy {
+        sync_v1: json!({
+            "enabled": true,
+            "account_id": USER,
+            "login_kind": "email",
+            "binding_generation": 1,
+            "cursor_dictionary": cursor,
+            "gen_dictionary": 2,
+            "clean_dictionary": 1,
+        }),
+        cloud_sync_status: Value::Null,
+    };
+    // 旧的 Android 最后一轮下载了云端修订号 4 的快照，游标记成 4；激活时本机词库已经变了，请求以冲突结束。
+    let fixture = Fixture::new();
+    let queue_directory = fixture.state_directory.join("queue");
+    let queue = DictionarySnapshotQueue::new(queue_directory.clone()).unwrap();
+    let published = local_version(None, &"0".repeat(64)).unwrap();
+    queue.publish_local_version(&published).unwrap();
+    let file = fixture.state_directory.join("download.ndjson");
+    std::fs::write(&file, "synthetic snapshot\n").unwrap();
+    let sha256 = hex::encode(Sha256::digest(std::fs::read(&file).unwrap()));
+    let request = queue.enqueue(&file, USER, 4, &published, &sha256).unwrap();
+    {
+        let lease = queue.acquire_worker_lease().unwrap();
+        assert!(queue.claim(&lease, USER).unwrap().is_some());
+        let typed = local_version(None, &"1".repeat(64)).unwrap();
+        let applied = queue
+            .complete(request, &lease, &typed, false, USER, || {
+                unreachable!("a conflicting request is not applied")
+            })
+            .unwrap();
+        assert!(!applied);
+    }
+    let imported = import_legacy(
+        &fixture.store,
+        None,
+        Some(android("4")),
+        Some(&queue_directory),
+        NOW,
+    )
+    .unwrap();
+    assert_eq!(imported["imported"], true, "{imported}");
+    let state = fixture.state();
+    assert_eq!(state.sections.dictionary.cursor, Some(4));
+    assert_eq!(
+        state.sections.dictionary.activation,
+        Some(request.to_string())
+    );
+    // 第一轮：云端相对游标没变、本机有标记。那份快照没激活，本机缺着云端的词：改按合并补上，不整份上传。
+    fixture.local.local().words = true;
+    fixture.api.cloud().dictionary_revision = 4;
+    let merged = fixture.run(Trigger::Manual, None, dictionary, NOW + 60_000);
+    assert_eq!(
+        merged["sections"]["dictionary"]["outcome"], "synced",
+        "{merged}"
+    );
+    assert_eq!(fixture.local.local().merged, 1);
+    assert_eq!(fixture.api.cloud().snapshot_uploads, 0);
+
+    // 没给队列目录：不知道有没有没激活的快照，词库游标不导入，下一轮词库按首次同步处理。
+    let fixture = Fixture::new();
+    import_legacy(&fixture.store, None, Some(android("4")), None, NOW).unwrap();
+    let state = fixture.state();
+    assert!(state.enabled);
+    assert_eq!(state.sections.dictionary.cursor, None);
+    // 队列里没有没应用的请求：游标照常导入，不记等激活的快照。
+    let fixture = Fixture::new();
+    let empty = fixture.state_directory.join("empty-queue");
+    import_legacy(&fixture.store, None, Some(android("4")), Some(&empty), NOW).unwrap();
+    let state = fixture.state();
+    assert_eq!(state.sections.dictionary.cursor, Some(4));
+    assert_eq!(state.sections.dictionary.activation, None);
 }
 
 #[test]
@@ -1969,14 +2058,14 @@ fn legacy_state_is_imported_once() {
         "generations": { "phrases": 1 },
         "cleans": {},
     });
-    let imported = import_legacy(&fixture.store, Some(ios.clone()), None, NOW).unwrap();
+    let imported = import_legacy(&fixture.store, Some(ios.clone()), None, None, NOW).unwrap();
     assert_eq!(imported["imported"], true);
     assert_eq!(imported["status"]["sections"]["settings"]["cursor"], 4);
     assert_eq!(imported["status"]["sections"]["phrases"]["dirty"], true);
-    let again = import_legacy(&fixture.store, Some(ios), None, NOW).unwrap();
+    let again = import_legacy(&fixture.store, Some(ios), None, None, NOW).unwrap();
     assert_eq!(again["imported"], false);
     assert_eq!(
-        import_legacy(&fixture.store, None, None, NOW),
+        import_legacy(&fixture.store, None, None, None, NOW),
         Err(INVALID.to_owned())
     );
     // 导入以后照常对齐账号：会话还是这个账号，进度留着。

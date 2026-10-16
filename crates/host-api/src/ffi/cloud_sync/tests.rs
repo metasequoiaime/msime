@@ -148,6 +148,7 @@ fn malformed_requests_are_cloud_sync_invalid() {
         ),
         json!({ "directory": paths.account, "state_directory": paths.state, "action": run }),
         request(&paths, json!({ "operation": "import_legacy" })),
+        json!({ "state_directory": paths.state, "snapshot_queue_directory": "relative", "action": { "operation": "import_legacy", "ios_v1": { "version": 1 } } }),
     ];
     for request in invalid {
         assert_eq!(call(request.clone())["error"], INVALID, "{request}");
