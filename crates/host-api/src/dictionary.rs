@@ -1,8 +1,8 @@
 //! Native management requests. The native caller owns and authorizes all paths.
 
 use super::{
-    edit_personal_dictionary, invalid_dictionary_entry, require_dictionary_kind, response,
-    validate_personal_dictionary_edit, DictionaryAccess, HostOptions, DICTIONARY_REQUEST_LIMIT,
+    edit_personal_dictionary, edit_personal_dictionary_with_access, invalid_dictionary_entry,
+    require_dictionary_kind, response, DictionaryAccess, HostOptions, DICTIONARY_REQUEST_LIMIT,
 };
 use msime_client_services::dictionary::import::{dictionary_row_matches, PageSelector};
 use msime_client_services::dictionary::is_han_character;
@@ -1377,8 +1377,8 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
         .ok_or("personal dictionary shared directory unavailable")?;
     let store = PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary"));
     let options = options.into_engine_options();
-    // 忙碌是整批的可重试状态，不能进入逐词回调，把仍在等待的词标成 Failed。
-    let _access = DictionaryAccess::try_maintenance(
+    // 整个有界同步期间都持有维护租约。活动会话时保留 Pending，让调用方在会话销毁后重试。
+    let access = DictionaryAccess::try_maintenance(
         Path::new(&options.user_data),
         Path::new(&options.dictionaries),
     )
@@ -1400,23 +1400,14 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
                         }
                     }
                 }
-                validate_personal_dictionary_edit(
-                    &options,
-                    previous.as_ref(),
-                    replacement.as_ref(),
-                )?;
-                if queued.id.is_empty() {
-                    return Err("dictionary request id required".into());
-                }
-                // 整批已经持有维护租约，直接进入同一份 Engine 编辑实现。
-                msime_engine::host::dictionary_edit(
+                edit_personal_dictionary_with_access(
+                    &access,
                     &options,
                     previous.as_ref(),
                     replacement.as_ref(),
                     &queued.id,
                 )
                 .map(|()| PersonalWordApplied::Written)
-                .map_err(|_| "dictionary edit rejected".to_owned())
             },
             |request| {
                 let (entries, has_more) = user_entries_page(

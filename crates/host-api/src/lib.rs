@@ -2410,30 +2410,40 @@ pub fn edit_personal_dictionary(
     replacement: Option<&msime_engine::host::DictionaryEntry>,
     request_id: &str,
 ) -> Result<(), String> {
-    validate_personal_dictionary_edit(options, previous, replacement)?;
-    let _access = DictionaryAccess::try_maintenance(
+    validate_personal_dictionary_edit(options, previous, replacement, request_id)?;
+    let access = DictionaryAccess::try_maintenance(
         std::path::Path::new(&options.user_data),
         std::path::Path::new(&options.dictionaries),
     )
     .map_err(|_| "dictionary access unavailable")?
     .ok_or("dictionary maintenance busy")?;
-    if request_id.is_empty() {
-        return Err("dictionary request id required".into());
-    }
+    edit_personal_dictionary_with_access(&access, options, previous, replacement, request_id)
+}
+
+/// 在调用方持有维护租约时校验并应用一个词条改动。
+/// 租约按借用传入，让有界批次共用一个独占窗口，不必为每个待处理词条重新取锁。
+pub(crate) fn edit_personal_dictionary_with_access(
+    _access: &DictionaryAccess,
+    options: &EngineOptions,
+    previous: Option<&msime_engine::host::DictionaryEntry>,
+    replacement: Option<&msime_engine::host::DictionaryEntry>,
+    request_id: &str,
+) -> Result<(), String> {
+    validate_personal_dictionary_edit(options, previous, replacement, request_id)?;
     msime_engine::host::dictionary_edit(options, previous, replacement, request_id)
         .map_err(|_| "dictionary edit rejected".into())
 }
 
-// 调用方已经持有维护租约时复用同一套校验，不能再次申请独占锁。
 fn validate_personal_dictionary_edit(
     options: &EngineOptions,
     previous: Option<&msime_engine::host::DictionaryEntry>,
     replacement: Option<&msime_engine::host::DictionaryEntry>,
+    request_id: &str,
 ) -> Result<(), String> {
     for entry in previous.iter().chain(replacement.iter()) {
         require_dictionary_kind(options, entry.kind)?;
     }
-    // 原词条来自列表，学习可能已把权重提高到新词条上限以上。
+    // The previous row is one the list returned, whose weight learning may have lifted past the ceiling a new entry is held to.
     for entry in previous.iter() {
         msime_engine::host::dictionary_validate_previous(entry)
             .map_err(|error| invalid_dictionary_entry(&error.to_string()))?;
@@ -2441,6 +2451,9 @@ fn validate_personal_dictionary_edit(
     for entry in replacement.iter() {
         msime_engine::host::dictionary_validate(entry)
             .map_err(|error| invalid_dictionary_entry(&error.to_string()))?;
+    }
+    if request_id.is_empty() {
+        return Err("dictionary request id required".into());
     }
     Ok(())
 }
