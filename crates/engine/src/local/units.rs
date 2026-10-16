@@ -1,4 +1,4 @@
-//! `V` mode unit conversion: a number followed by a unit and, optionally, the unit to convert it to (`3jin'g`, `3jintog`, `5kmmi`, `100cf`, `1mu`). The letters are matched against a closed alias table of pinyin and abbreviations; only an input the table spells completely is converted, and what reaches rink-core is a query this module assembles from the table's own unit names and the typed digits, never the typed text itself. Anything else is left to the expression path.
+//! `V` 模式单位换算：数值后接源单位及可选的目标单位（`3jin'g`、`3jintog`、`5kmmi`、`-10cf`、`1mu`）。单位字母必须完整匹配拼音和缩写白名单；传给 rink-core 的查询由表内单位名称与经过校验的带符号十进制数值拼成。其余输入交给算式路径。
 //!
 //! The 市制 units are added to rink's definitions here: rink's own `catty`, `liang` and `li` are the older or Japanese measures, not the ones in use in mainland China. Temperature is computed directly, because its scales differ by an offset as well as a factor and a plain ratio of units would be wrong.
 //!
@@ -17,7 +17,7 @@ use super::expression::{format_number, RESULT_LIMIT};
 const SHIZHI_DEFINITIONS: &str =
     "shijin 500 g\nshiliang 50 g\nshimu 10000|15 m^2\nshili 500 m\nshichi 1|3 m\nshicun 1|30 m\n";
 
-/// Digits in the number in front of a unit; more than this is not a measurement anyone types.
+/// 单位前数值部分的字节上限，包含小数点，不包含可选的前缀符号。
 const NUMBER_LIMIT: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,20 +158,25 @@ fn context() -> Option<&'static Context> {
         .as_ref()
 }
 
-/// Rows for an input the alias table spells as `NUMBER UNIT [to|'] [UNIT]`, or `None` when it does not, so the caller can try the expression path. Each row is at most `TEXT_UTF16_LIMIT` UTF-16 units; at most `RESULT_LIMIT` are returned.
+/// 将符合 `[+|-] NUMBER UNIT [to|'] [UNIT]` 的输入转换为候选，否则返回 `None` 以继续算式路径。每行不超过 `TEXT_UTF16_LIMIT` 个 UTF-16 单元，最多返回 `RESULT_LIMIT` 行。
 pub fn query_units(code: &str) -> Option<Vec<String>> {
-    let number_end = code
+    let unsigned = code
+        .strip_prefix('-')
+        .or_else(|| code.strip_prefix('+'))
+        .unwrap_or(code);
+    let number_end = unsigned
         .bytes()
         .position(|byte| !(byte.is_ascii_digit() || byte == b'.'))?;
-    let (number, letters) = code.split_at(number_end);
-    if number.is_empty()
-        || number.len() > NUMBER_LIMIT
-        || number.starts_with('.')
-        || number.ends_with('.')
-        || number.matches('.').count() > 1
+    let magnitude = &unsigned[..number_end];
+    if magnitude.is_empty()
+        || magnitude.len() > NUMBER_LIMIT
+        || magnitude.starts_with('.')
+        || magnitude.ends_with('.')
+        || magnitude.matches('.').count() > 1
     {
         return None;
     }
+    let (number, letters) = code.split_at(code.len() - unsigned.len() + number_end);
     let value: f64 = number.parse().ok()?;
     let (source, target) = parse_units(letters)?;
     let mut rows: Vec<String> = Vec::with_capacity(result_capacity(source, target));
@@ -281,7 +286,7 @@ fn result_capacity(source: &Unit, target: Option<&Unit>) -> usize {
     targets.min(RESULT_LIMIT)
 }
 
-/// `value` of `source` in `target`. `number` is the typed digits, which go into the rink query as written so a decimal stays exact.
+/// 把源单位的 `value` 转成目标单位。`number` 保留经过校验的数值和可选前缀符号，原样交给 Rink 以保持十进制精度。
 fn convert(number: &str, value: f64, source: &Unit, target: &Unit) -> Option<f64> {
     if source.quantity == Quantity::Temperature {
         let kelvin = match source.label {
@@ -297,7 +302,7 @@ fn convert(number: &str, value: f64, source: &Unit, target: &Unit) -> Option<f64
         return converted.is_finite().then_some(converted);
     }
     let context = context()?;
-    // The query is built from the table's unit names and the validated digits only.
+    // 查询只拼接表内单位名称和经过校验、最多带一个前缀符号的数值。
     let query = format!("({number} {}) / ({})", source.rink, target.rink);
     let mut tokens = text_query::TokenIterator::new(&query).peekable();
     let parsed = text_query::parse_query(&mut tokens);
@@ -340,6 +345,30 @@ mod tests {
         assert_eq!(rows("100cf"), ["212℉", "212", "100℃=212℉"]);
         assert_eq!(rows("32f'c")[0], "0℃");
         assert_eq!(rows("0c'k")[0], "273.15K");
+    }
+
+    #[test]
+    fn signed_unit_measurements_are_converted() {
+        assert_eq!(rows("-10cf"), ["14℉", "14", "-10℃=14℉"]);
+        assert_eq!(rows("-40f'c"), ["-40℃", "-40", "-40℉=-40℃"]);
+        assert_eq!(rows("+10cf"), ["50℉", "50", "+10℃=50℉"]);
+        assert_eq!(rows("-0.5kg'g"), ["-500克", "-500", "-0.5千克=-500克"]);
+        assert_eq!(rows("+0.5kg'g"), ["500克", "500", "+0.5千克=500克"]);
+        assert_eq!(rows("-10c"), ["14℉", "263.15K"]);
+    }
+
+    #[test]
+    fn signed_unit_measurements_keep_numeric_syntax_and_limits() {
+        for sign in ["-", "+"] {
+            assert!(query_units(&format!("{sign}1234567890123456cf")).is_some());
+            assert!(query_units(&format!("{sign}12345678901234567cf")).is_none());
+        }
+        for code in [
+            "-cf", "+cf", "--1cf", "+-1cf", "-+1cf", "++1cf", "1-2cf", "1+2cf", "-.5cf", "+.5cf",
+            "-1.cf", "+1.cf", "-1.2.3cf", "-1e2cf", "-1kg'm",
+        ] {
+            assert_eq!(query_units(code), None, "{code}");
+        }
     }
 
     #[test]

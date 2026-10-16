@@ -192,7 +192,7 @@ func backendClipboardKeystoreValue(_ data: Data) -> String? {
 }
 
 #if os(macOS)
-/// The macOS account session: `account-session.json` in the input method's Application Support directory, read and written by this process and by the settings app (`FileAccountSessionStorage` in `crates/client-core`). Both take `account-refresh.lock` beside it around every write, so neither refreshes from a refresh token the other has already spent; the server revokes the session when one comes back. Owner-only, and never followed through a symlink.
+/// macOS 的账号会话：输入法 Application Support 目录下的 `account-session.json`，由本进程和设置应用（`crates/client-services` 中的 `FileAccountSessionStorage`）读写。双方每次写入前后都持有旁边的 `account-refresh.lock`，因此谁都不会用对方已经用掉的刷新令牌去刷新；一旦有已用过的令牌被交回，服务端会吊销该会话。仅属主可访问，且从不跟随符号链接。
 struct BackendDesktopSessionFile: BackendSessionStorage {
   static let fileName = "account-session.json"
   static let maximumBytes = 64 * 1024

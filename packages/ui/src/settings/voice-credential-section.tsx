@@ -24,11 +24,9 @@ export interface VoiceCredentialStatus {
   voiceInvalid: boolean;
 }
 
-export interface VoiceCredentialInput {
-  token: string;
-  appKey: string;
-  endpoint?: string;
-}
+import type { ProviderCredentialInput } from "./provider-credential-input";
+
+export type VoiceCredentialInput = ProviderCredentialInput;
 
 export interface VoiceCredentialSaveInput {
   kind: VoiceCredentialSectionKind;

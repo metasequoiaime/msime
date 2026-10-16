@@ -6,7 +6,7 @@ Status: implemented
 
 原生设置窗口接下来要把语音页做成原生页。共享语音页在 Windows 上要的宿主能力有三样：「录音设备」分组里的「刷新设备」（Tauri 的 `list_voice_capture_devices`），识别服务和语音润色的「测试配置」（Tauri 的 `test_api_credential`，`voice.asr` 是豆包时走 WebSocket，其余整句上传服务走 HTTP，`voice.polish` 发一次最短的对话），和本地模型的列出、安装、取消、删除。窗口只能经 `msime_client.h` 的 C 接口调 Rust。
 
-查下来，后两样已经在：在线翻译那一步把「测试配置」收进了 `msime_client_core::credential::test_service`，Tauri（Windows、macOS）和 `msime_client_test_api_credential` 调的是同一个函数，里面就是 `credential::asr::test`、`credential::doubao::test` 和 `credential::probe::test_chat`；本地模型有 `msime_client_voice_local_models`、`_install`、`_cancel`、`_remove`，和 Tauri 一样调 `msime_client_core::voice::local_models`。缺的只有列录音设备：`msime_host_api::voice_capture_devices` 是 Rust 函数，没有 C 导出，而且 `{backend,id,label}` 的形状是 Tauri 命令里自己拼的。
+查下来，后两样已经在：在线翻译那一步把「测试配置」收进了 `msime_client_providers::credential::test_service`，Tauri（Windows、macOS）和 `msime_client_test_api_credential` 调的是同一个函数，里面就是 `credential::asr::test`、`credential::doubao::test` 和 `credential::probe::test_chat`；本地模型有 `msime_client_voice_local_models`、`_install`、`_cancel`、`_remove`，和 Tauri 一样调 `msime_client_providers::voice::local_models`。缺的只有列录音设备：`msime_host_api::voice_capture_devices` 是 Rust 函数，没有 C 导出，而且 `{backend,id,label}` 的形状是 Tauri 命令里自己拼的。
 
 ## Decision
 

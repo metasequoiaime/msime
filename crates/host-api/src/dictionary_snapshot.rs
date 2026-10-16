@@ -1,9 +1,6 @@
 //! Native-only snapshot preparation. Staged paths stay private until a future
 //! activation transaction can own publication and session coordination.
 use super::{response, DictionaryAccess, HostOptions, HOST_OPTIONS_DOCUMENT_LIMIT};
-use msime_client_core::account::{
-    AccountDictionarySnapshotRestore, AccountError, BackendAccountClient,
-};
 use msime_client_core::cloud::snapshot_queue::{
     local_version, local_version_digest, DictionarySnapshotQueue, SnapshotQueueError,
 };
@@ -12,6 +9,9 @@ use msime_client_core::cloud::snapshot_validation::{
     required_text as snapshot_text, valid_timestamp as snapshot_timestamp,
 };
 use msime_client_core::resources::{ResourceSet, ResourceStore};
+use msime_client_services::account::{
+    AccountDictionarySnapshotRestore, AccountError, BackendAccountClient,
+};
 use msime_engine::host::{
     dictionary_state_revision, stage_dictionary_state, EngineOptions, Session, SnapshotReadError,
 };

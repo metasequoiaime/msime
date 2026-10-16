@@ -1,6 +1,6 @@
 //! 「中英文之间加空格」：一次上屏的文本里，汉字与 ASCII 字母、数字相邻处插入一个半角空格，语义同 rime-ice 的 `cn_en_spacer.lua`（#7172）。两次上屏之间不加。
 
-use msime_client_core::dictionary::is_han_character;
+use msime_client_services::dictionary::is_han_character;
 use msime_engine::SchemeType;
 use msime_input_runtime::OutputContext;
 

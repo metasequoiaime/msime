@@ -5,8 +5,8 @@
 // 集成测试各自是独立的 crate，库根上的豁免管不到这里。理由同库根：这个测试直接驱动 C ABI。
 #![allow(unsafe_code)]
 
-use msime_client_core::plugins::EffectStyle;
 use msime_client_core::preferences::{DefaultImeMode, Preferences};
+use msime_client_services::plugins::EffectStyle;
 use msime_host_api::lifecycle::{
     derive, replay, Call, CommitSample, Context, InputClass, PageSample, Sample, FEEDBACK,
     KEY_POINTER, KEY_REPEAT, TRAIT_FULLSCREEN, TRAIT_KNOWN, TRAIT_SECURE,

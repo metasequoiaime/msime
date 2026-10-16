@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 表达：输入的文字如何输出，对应 Android 的 `ExpressionPage`。标点分组放三个日常标点开关，其余规则在标点页，点一行就到；智能分组放整句联想和英文联想；常用语打开键盘常用语面板发送的那些短语。
 ///
-/// 标点开关和整句联想只存在于共享偏好文档中，键盘会话读的也是它，所以本页直接读写这份文档；键盘下次出现时会把改动交给它正在运行的会话。英文联想是键盘每次按键都会读的 App Group 开关（`EnglishSuggestionsPreference`）。设计稿里的英文自动纠正没有共享键，所以这一行和 Android 一样是英文联想；设计稿里的发现短语没有放进来，因为 iOS 还不能安装社区短语包。
+/// 标点开关和整句联想读写共享偏好文档，键盘下次出现时应用。英文联想沿用 App Group 开关（`EnglishSuggestionsPreference`），控制原文及唯一纠错候选和空格默认纠错；不增加第二个开关。
 struct ExpressionSettingsView: View {
   @AppStorage(EnglishSuggestionsPreference.enabledKey, store: EnglishSuggestionsPreference.defaults)
   private var englishSuggestions = true
@@ -47,7 +47,7 @@ struct ExpressionSettingsView: View {
                           sheetTitle: "整句联想", sheetMessage: Self.sentenceSubtitle,
                           identifier: "sentenceAssociationPicker")
           DesignDivider()
-          DesignToggleRow(title: "英文联想", subtitle: "输入英文时在候选栏给出单词", isOn: $englishSuggestions)
+          DesignToggleRow(title: "英文联想", subtitle: "保留原文并提供纠错，空格默认采用纠错结果", isOn: $englishSuggestions)
             .accessibilityIdentifier("englishSuggestionsToggle")
         }
 

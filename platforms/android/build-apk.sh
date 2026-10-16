@@ -87,6 +87,8 @@ cargo run --quiet -p msime-client-core --example verify_resources --locked -- ${
 mkdir -p "$assets/native-notices"
 cp -R target/android/notices/. "$assets/native-notices/"
 cp LICENSE "$assets/client-LICENSE.txt"
+# 组合表情只提取上游短语，必须与 BSD 版权通知一同分发。
+cp shared/emoji-combinations/emoji-combinations*.txt "$assets/"
 # 辅助码表不在词库发布里，由仓库自带在 resources/helpcodes。Bootstrap 把它们解到资源目录下的 helpcodes/，Engine 从那里读（crates/engine/src/assets.rs 列出七个文件），安装包每次变化都会替换它们。
 mkdir -p "$assets/helpcodes"
 for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt wubi86_helpcode.txt; do
@@ -179,11 +181,17 @@ unsigned="$gradle_dir/app/build/outputs/apk/$edition/release/app-$edition-releas
 source "$repo_root/platforms/android/scripts/signing.sh"
 output="$repo_root/target/android/$apk_name.apk"
 aligned="$repo_root/target/android/$apk_name-aligned.apk"
-"$tools_dir/zipalign" -P 16 4 "$unsigned" "$aligned"
+"$tools_dir/zipalign" -f -P 16 4 "$unsigned" "$aligned"
 "$tools_dir/apksigner" sign "${android_signing[@]}" --out "$output" "$aligned"
 "$tools_dir/apksigner" verify --verbose --print-certs "$output"
 "$tools_dir/zipalign" -c -P 16 4 "$output"
 # The package is only worth shipping if it carries each dictionary staged above, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than the lock pins for this edition).
+# 数据与许可通知都必须进入最终包，避免资源暂存与打包入口漂移。
+for name in emoji-combinations.txt emoji-combinations-NOTICE.txt; do
+  unzip -p "$output" "assets/$name" | cmp - "shared/emoji-combinations/$name" || {
+    echo "Combination emoji asset differs or is missing: $name" >&2; exit 1;
+  }
+done
 apk_entries=$(unzip -Z1 "$output")
 for pair in $language_pairs; do
   [ -f "$assets/language-dictionaries/${pair%%:*}" ] || continue

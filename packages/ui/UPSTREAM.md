@@ -32,7 +32,7 @@ The utilities category and eight local-mode toggles follow `src/partials/tools-s
 
 ## Built-in themes
 
-The dedicated skin category follows the layout of `src/partials/skin.html` at the same pinned commit, but its cards are the global themes of `crates/client-core/src/skin/theme.rs` (`Preferences.global_theme`), not the upstream Fluent/WeChat/Graphite/Willow skins, which were removed together with their palette and decoration rules. The compact candidate previews are CSS adaptations for the React settings page, coloured from the theme catalog.
+The dedicated skin category follows the layout of `src/partials/skin.html` at the same pinned commit, but its cards are the global themes of `crates/client-core/src/theme.rs` (`Preferences.global_theme`), not the upstream Fluent/WeChat/Graphite/Willow skins, which were removed together with their palette and decoration rules. The compact candidate previews are CSS adaptations for the React settings page, coloured from the theme catalog.
 
 The light/dark preview switch of `src/modules/skin.ts` at `04a8df56f86312474a069f4335a1b58da7afaa9e` is kept for the `system` card only, the one theme whose appearance follows the platform. Preview state is UI-only, separate from the saved theme selection.
 

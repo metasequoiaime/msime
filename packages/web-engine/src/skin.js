@@ -1,6 +1,6 @@
-// 候选框皮肤的模型：把内置皮肤 ID 或皮肤对象解析成候选条要画的颜色、几何和 CSS 自定义属性。这是 `crates/client-core/src/skin/theme.rs` 的 `resolve()` 在网页上的移植，逐条照着设置页的镜像 `packages/ui/src/theme/global-theme.ts`（`normalizedColor`、`customCandidatePalette`、`candidatePaletteStyle`）和 `packages/ui/src/skin/external-skins.tsx`（`dimension`、`decorationImage`、`skinGeometryStyle`、`drawnPackagePalette`）写成；`apps/desktop/tests/candidate/custom-theme-parity.json` 由 Rust 测试写出，test/skin.test.mjs 用它核对这里的结果与 `resolve()` 一致。
+// 候选框皮肤的模型：把内置皮肤 ID 或皮肤对象解析成候选条要画的颜色、几何和 CSS 自定义属性。这是 `crates/client-services/src/skin/theme.rs` 的 `resolve()` 在网页上的移植，逐条照着设置页的镜像 `packages/ui/src/theme/global-theme.ts`（`normalizedColor`、`customCandidatePalette`、`candidatePaletteStyle`）和 `packages/ui/src/skin/external-skins.tsx`（`dimension`、`decorationImage`、`skinGeometryStyle`、`drawnPackagePalette`）写成；`apps/desktop/tests/candidate/custom-theme-parity.json` 由 Rust 测试写出，test/skin.test.mjs 用它核对这里的结果与 `resolve()` 一致。
 //
-// 内置配色表 `./theme-catalog.js` 不是手写的副本：它由 `packages/web-engine/tools/theme-catalog.mjs` 从 `packages/ui/src/theme/theme-catalog.json`（Rust 主题表的网页副本）和 `crates/client-core/src/skin/catalog/windows_looks.rs`（msime-windows 内置外观，没有网页副本）生成。scripts/build-web-engine.sh 构建 npm 包时生成一份放在本文件旁边；在仓库里直接对 src/ 运行时，先跑 `node packages/web-engine/tools/theme-catalog.mjs` 生成 `src/theme-catalog.js`（被 git 忽略），test/skin.test.mjs 每次运行前会自动重新生成。
+// 内置配色表 `./theme-catalog.js` 不是手写的副本：它由 `packages/web-engine/tools/theme-catalog.mjs` 从 `packages/ui/src/theme/theme-catalog.json`（Rust 主题表的网页副本）和 `crates/client-services/src/skin/catalog/windows_looks.rs`（msime-windows 内置外观，没有网页副本）生成。scripts/build-web-engine.sh 构建 npm 包时生成一份放在本文件旁边；在仓库里直接对 src/ 运行时，先跑 `node packages/web-engine/tools/theme-catalog.mjs` 生成 `src/theme-catalog.js`（被 git 忽略），test/skin.test.mjs 每次运行前会自动重新生成。
 import { plainWindowsLooks, themes, windowsLooks } from "./theme-catalog.js";
 
 const LAYOUTS = ["horizontal", "vertical"];
@@ -78,7 +78,7 @@ function withAlpha(color, alpha) {
   return `${color.slice(0, 7)}${alpha}`;
 }
 
-/** `ai::readable_text`：`background` 上看得清的黑或白，按相对亮度在同一处分界，透明度不计。 */
+/** `theme::readable_text`：`background` 上看得清的黑或白，按相对亮度在同一处分界，透明度不计。 */
 function readableText(background) {
   const channel = (offset) => {
     const value = parseInt(background.slice(offset, offset + 2), 16) / 255;

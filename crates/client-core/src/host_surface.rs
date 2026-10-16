@@ -281,6 +281,10 @@ pub struct HostCapabilities {
     pub fixed_candidate_layout: Option<crate::preferences::CandidateLayout>,
     /// The touch keyboard reads `touch_toolbar` to choose the buttons on the row above its keys. iOS 与 Android 的键盘读它；其他宿主上这些开关什么也不会隐藏。
     pub touch_toolbar_components: bool,
+    /// 宿主按 `touch_keyboard_height_adjustment` 改变屏幕键盘的高度，设置页才给出「键盘高度」滑块。Android、iOS 和 HarmonyOS 的键盘按它加减键盘高度，Windows 的 Tauri 键盘面板按它定窗口高度（`panel_window.rs` 的 `windows_panel_height`）；macOS 和 Linux 的键盘窗口高度是固定的，滑块在那里只会让设置页的预览变高，实际键盘不变。
+    pub touch_keyboard_height: bool,
+    /// 宿主的屏幕键盘按 `touch_key_spacing_tenths` 和 `touch_row_spacing_tenths` 画键距和行距，设置页才给出两个间距滑块、在预览上拖动调间距和「恢复默认」。macOS 不提供：鼠标操作的键盘面板用不着触屏的间距微调，键盘面板固定用默认的 6.0 / 7.0 dp，不再读存下的值。
+    pub touch_keyboard_spacing: bool,
     /// The host applies a separate family for Latin text in the candidate panel.
     /// A host whose renderer resolves one family list per glyph, or which draws
     /// Latin from its own font, can honour this; one with a single typeface for
@@ -687,6 +691,16 @@ impl HostCapabilities {
                 .then_some(crate::preferences::CandidateLayout::Horizontal),
             // The iOS shortcut bar is the touch counterpart of the Windows floating toolbar, and its buttons follow the same kind of per-component switches. Android 的原生键盘工具栏也按 `touch_toolbar` 选按钮。
             touch_toolbar_components: matches!(platform, HostPlatform::Ios | HostPlatform::Android),
+            // Tauri 键盘面板只在 Windows 上按这一项定窗口高度；macOS 的面板和原生回退面板高度固定，Linux 同样没有接上。
+            touch_keyboard_height: matches!(
+                platform,
+                HostPlatform::Windows
+                    | HostPlatform::Android
+                    | HostPlatform::Ios
+                    | HostPlatform::Harmony
+            ),
+            // 只有 macOS 把间距固定成默认值；Windows 与 Linux 的 Tauri 键盘面板和触屏键盘照旧读用户的间距。
+            touch_keyboard_spacing: platform != HostPlatform::Macos,
             // Linux keeps AI credentials in the provider service's owner-only
             // configuration file and passes only non-sensitive options over its
             // socket. Every other host holds the token itself.
@@ -699,7 +713,7 @@ impl HostCapabilities {
             wordbook_packs: platform.is_desktop(),
             // Windows 和 Linux 桌面的符号面板是 Tauri 层的表情面板（`load_emoji_catalog`），Linux 的 Fcitx5 菜单和 macOS 的原生表情与符号面板另外读同一批插件组。HarmonyOS 在自己的设置投影里按形态打开；Android 和 iOS 没有接入。
             symbol_set_packs: platform.is_desktop(),
-            // 三个桌面平台的输入法进程在启动时打开脚本插件（`msime_client_scripts_enable`），授权由设置应用经 client-core 的 `script_grants` 写入，授权页写明同一用户下的其他程序能伪造授权。Windows 的授权页在原生设置应用里（经 host-api 的 `msime_client_plugins`），共享设置页在 Windows 上也照样显示这一组。移动端没有脚本插件。各宿主接入生命周期核心（`msime_client_set_lifecycle`）之前，会话不满足运行条件，授权写下了也不会运行。
+            // 三个桌面平台的输入法进程在启动时打开脚本插件（`msime_client_scripts_enable`），授权由设置应用经 client-services 的 `script_grants` 写入，授权页写明同一用户下的其他程序能伪造授权。Windows 的授权页在原生设置应用里（经 host-api 的 `msime_client_plugins`），共享设置页在 Windows 上也照样显示这一组。移动端没有脚本插件。各宿主接入生命周期核心（`msime_client_set_lifecycle`）之前，会话不满足运行条件，授权写下了也不会运行。
             script_plugins: platform.is_desktop(),
             // The three desktop hosts play the packs, route V, / and @ by the Engine's spelling symbols and stream music while they are the active input method. HarmonyOS claims key sounds, music and the triggers per form factor in its own settings projection (2in1 only); the phone and tablet hosts wire none of them. A switch with nothing behind it reads as a setting being ignored, so each host flips here only in the change that wires it.
             // Android 的按键音由 IME 进程的 SoundPool 播放（与本项同一波接入），所以 Android 也声明；手机和平板上的 HarmonyOS 与 iOS 仍未接入。

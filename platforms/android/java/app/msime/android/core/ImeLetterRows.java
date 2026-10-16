@@ -463,8 +463,9 @@ final class ImeLetterRows {
                 || s.displayedTouchLayout(s.view) != builtLetterLayout
                 || splitStale() || numberRowStale()
                 || builtSplit && microsoftTenKeys() != builtMicrosoftTenKeys) return false;
-        // 与 rebuildKeyRows 通用分支里算键面的三项相同；中英和本地模式变了也只影响键面。
+        // 与 rebuildKeyRows 通用分支里算键面的四项相同；中英和本地模式变了也只影响键面。
         boolean chineseMode = !s.dedicatedEnglish && !s.letterCaseSchemeActive();
+        boolean japanese = s.japaneseSchemeActive();
         boolean localMode = s.view != null
             && !"none".equals(JsonPolicy.strictStringOrEmpty(s.view.opt("local_mode")));
         boolean shifted = s.letterCase.usesUppercase();
@@ -472,7 +473,7 @@ final class ImeLetterRows {
             String input = s.shuangpinKeyInputs.get(index);
             if (";".equals(input)) continue;
             Button key = s.shuangpinKeyButtons.get(index);
-            key.setText(LetterKeyFacePolicy.face(input, chineseMode, localMode, shifted));
+            key.setText(LetterKeyFacePolicy.face(input, chineseMode, japanese, localMode, shifted));
             key.setContentDescription(LetterKeyFacePolicy.accessibilityLabel(
                 input, chineseMode, localMode, shifted));
         }
@@ -584,8 +585,9 @@ final class ImeLetterRows {
             s.imeStyler.applyKeyboardGeometry();
             return;
         }
-        // 越南语字母和藏文的威利转写字母按敲下的大小写写入，所以键面像英文键一样显示大小写，而不是中文键盘的大写键面。
+        // 越南语字母和藏文的威利转写字母按敲下的大小写写入，所以键面像英文键一样显示大小写，而不是中文键盘的大写键面；日语罗马字也不画大写键面，见 LetterKeyFacePolicy.displaysUppercase。
         boolean chineseMode = !s.dedicatedEnglish && !s.letterCaseSchemeActive();
+        boolean japanese = s.japaneseSchemeActive();
         boolean localMode = s.view != null
             && !"none".equals(JsonPolicy.strictStringOrEmpty(s.view.opt("local_mode")));
         boolean shifted = s.letterCase.usesUppercase();
@@ -619,7 +621,7 @@ final class ImeLetterRows {
                 ? ChineseSymbolFaces.face(key, s.sendsChinesePunctuation(), s.punctuationMarks())
                 : koreanKeycaps ? KoreanKeyboardLayout.face(key, shifted)
                 : zhuyinKeycaps ? ZhuyinKeyboardLayout.face(key)
-                : LetterKeyFacePolicy.face(key, chineseMode, localMode, shifted);
+                : LetterKeyFacePolicy.face(key, chineseMode, japanese, localMode, shifted);
             Button keyButton;
             if (zhuyinKeycaps) {
                 // 键面只显示注音符号；type() 仍发送大千 ASCII 键，由引擎组音与转换。
@@ -890,6 +892,7 @@ final class ImeLetterRows {
                 KeyboardTypographyPolicy.setKeyTextSize(key, firstRow ? 20 : 18);
                 if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
                 if (text.length() == 1) s.keyId(key, KeyPressIds.forCharacter(text.charAt(0)));
+                bindSuperscriptShortcut(key, text);
                 return key;
             }
             case LAYER_TOGGLE -> {
@@ -949,5 +952,53 @@ final class ImeLetterRows {
         if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
         return key;
+    }
+
+    /** 123 / #+= 层的叹号：上滑输入 0，长按选择上标或下标 0；轻点仍输入叹号。 */
+    private void bindSuperscriptShortcut(Button key, String text) {
+        if (!SuperscriptShortcutPolicy.applies(text)) return;
+        key.setContentDescription(text + "；上滑输入 0；长按选择上标 ⁰ 或下标 ₀");
+        key.setOnLongClickListener(ignored -> {
+            s.imeLayoutRows.showSuperscriptOptions(key);
+            return true;
+        });
+        final float[] downY = new float[1];
+        final boolean[] swiped = new boolean[1];
+        key.setOnTouchListener((view, event) -> {
+            switch (event.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN -> {
+                    downY[0] = DimensionPolicy.fromPixels(s, event.getY());
+                    swiped[0] = false;
+                    return false;
+                }
+                case android.view.MotionEvent.ACTION_MOVE -> {
+                    if (!swiped[0] && SuperscriptShortcutPolicy.swipedUp(downY[0],
+                            DimensionPolicy.fromPixels(s, event.getY()))) {
+                        swiped[0] = true;
+                        key.cancelLongPress();
+                        android.view.MotionEvent cancel = android.view.MotionEvent.obtain(event);
+                        cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
+                        key.onTouchEvent(cancel);
+                        cancel.recycle();
+                    }
+                    return swiped[0];
+                }
+                case android.view.MotionEvent.ACTION_UP -> {
+                    if (!swiped[0]) return false;
+                    swiped[0] = false;
+                    key.setPressed(false);
+                    s.imeKeyFeedback.playFeedback(key);
+                    s.countKey(key);
+                    s.imeLayoutRows.commitNineKeyLiteral(SuperscriptShortcutPolicy.ZERO);
+                    return true;
+                }
+                case android.view.MotionEvent.ACTION_CANCEL -> {
+                    swiped[0] = false;
+                    key.setPressed(false);
+                    return false;
+                }
+                default -> { return swiped[0]; }
+            }
+        });
     }
 }

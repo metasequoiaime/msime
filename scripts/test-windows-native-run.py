@@ -70,6 +70,13 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     "candidate/cloud_candidate_worker.cpp": (["src/candidate/CloudCandidateWorker.cpp"], True),
     "candidate/ai_candidate_worker.cpp": (["src/candidate/AiCandidateWorker.cpp"], True),
     "candidate/translation_worker.cpp": (["src/candidate/TranslationWorker.cpp"], True),
+    "core/candidate_continuation_pipe.cpp": (["src/ipc/ReplyCodec.cpp"], False),
+    # 两份真实引擎会话通过外部候选选择继续组字。
+    "input/candidate_continuation.cpp": (
+        ["src/ipc/ReplyComposer.cpp", "src/ipc/ReplyCodec.cpp", "src/ipc/ServerSession.cpp",
+         "src/input/ChineseTextConversion.cpp", "tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"],
+        True,
+    ),
     # Ctrl+Enter translation commit, through the reply composer against a real Engine session.
     "input/candidate_translation_commit.cpp": (
         [
@@ -139,6 +146,8 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     # struct out.
     "tsf/input/raw_commit.cpp": (["tsf/EngineResponse.cpp"], False),
     "tsf/input/host_composition.cpp": (["tsf/EngineResponse.cpp"], False),
+    # 按键分类快照读取宿主视图，需要链接同一个 JSON 解析器。
+    "tsf/input/key_composition_state.cpp": (["tsf/EngineResponse.cpp"], False),
     "tsf/input/engine_response.cpp": (["tsf/EngineResponse.cpp"], False),
 }
 COMPANION_LIBRARIES = ["-lcurl", "-lsqlite3"]
@@ -286,6 +295,11 @@ def build(
     companions = companion_flags(relative)
     if companions is None:
         return None, ""
+    environment = os.environ.copy()
+    if sys.platform == "darwin":
+        # 这些 Windows 策略测试在当前主机运行，不继承 macOS 产品的最低系统版本。
+        # 例如浮点 `to_chars` 在 macOS 13.3 才可用，产品的 13.0 目标不应限制宿主测试。
+        environment.pop("MACOSX_DEPLOYMENT_TARGET", None)
     # Compiling is CPU-bound and safe to do many at once.
     compiled = subprocess.run(
         # -fdeclspec: these sources are written for MSVC, and a `__declspec(dllexport)` on a
@@ -298,6 +312,7 @@ def build(
         [compiler(), "-std=c++17", "-w", "-fdeclspec", *flags, "-o", str(binary), str(source), *companions],
         capture_output=True,
         text=True,
+        env=environment,
     )
     if compiled.returncode == 0:
         return binary, ""

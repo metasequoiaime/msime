@@ -10,9 +10,9 @@ FOUNDATION_EXPORT BOOL MSIMELocalVoiceModelDirectory(NSString * _Nullable path);
 // The msime-voice-local helper this process spawns: MSIME_VOICE_LOCAL_HELPER when set (tests point it at a build tree), otherwise the copy bundled beside the input method's executable in Contents/MacOS. Nil when neither is an executable file.
 FOUNDATION_EXPORT NSString * _Nullable MSIMELocalVoiceHelperPath(void);
 
-// On-device streaming recognition through the msime-voice-local helper process (shared/voice/LocalAsrHelper.cpp). The input method runs inside every app that takes text, so the speech model and the sherpa-onnx runtime live in the helper, never in this process; one helper serves every request and exits by itself once idle.
+// 通过 msime-voice-local 辅助进程（shared/voice/LocalAsrHelper.cpp）进行本机流式识别。输入法运行在每个接受文字输入的应用里，所以语音模型和 sherpa-onnx 运行时都放在辅助进程里，从不放进本进程；一个辅助进程服务所有请求，空闲后自行退出。
 //
-// Options are the controller's voice query: `asr_model_path` must be an installed model directory and `language` is passed through. `hostOptions` are the session's host options, used to read the user's dictionary words as hotwords: given to the model for models that take them natively, and applied to the final text through client-core's pinyin correction for models whose manifest says `"hotwords": "pinyin"`. Single use; callbacks run on main.
+// `options` 是控制器的语音查询：`asr_model_path` 必须是已安装的模型目录，`language` 原样透传。`hostOptions` 是会话的宿主选项，用来读取用户的词库词作为热词：对原生支持热词的模型直接交给模型，对清单写明 `"hotwords": "pinyin"` 的模型则经 client-providers 的拼音纠错作用到最终文本上。只能使用一次；回调在主线程上执行。
 @interface MSIMELocalVoiceRequest : NSObject <MSIMEStreamingVoiceRequest>
 - (nullable instancetype)initWithOptions:(NSDictionary *)options
                              hostOptions:(nullable NSDictionary *)hostOptions

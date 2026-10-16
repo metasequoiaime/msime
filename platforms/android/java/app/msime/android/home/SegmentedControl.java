@@ -65,7 +65,7 @@ public final class SegmentedControl extends LinearLayout {
                     super.onInitializeAccessibilityNodeInfo(host, info);
                     info.setClassName(RadioButton.class.getName());
                     info.setCheckable(true);
-                    info.setChecked(index == SegmentedControl.this.selected);
+                    androidx.core.view.accessibility.AccessibilityNodeInfoCompat.wrap(info).setChecked(index == SegmentedControl.this.selected);
                 }
             });
             LayoutParams params = fill

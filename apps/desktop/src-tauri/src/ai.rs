@@ -1,19 +1,13 @@
-//! The bring-your-own-endpoint AI assistant's two settings-page requests: the
-//! model listing and the one-shot polish test.
+//! 自带接入点的 AI 助手在设置页上的两个请求：列出模型，以及一次性的润色测试。
 //!
-//! The validation, the requests and the response parsing live in client-core's
-//! `ai::settings`, which the native Windows settings window reaches through
-//! `msime_client_ai_models` and `msime_client_ai_test`; these commands only move
-//! the blocking call off the async runtime and turn its error into a code.
+//! 校验、请求和响应解析都在 client-providers 的 `ai::settings` 里，原生 Windows 设置窗口经 `msime_client_ai_models` 和 `msime_client_ai_test` 调用它们；这些命令只把阻塞调用移出异步运行时，并把它的错误转成错误码。
 //!
-//! Only the two desktop hosts that expose it build this. Android and iOS answer
-//! the same two commands from their own platform modules, because those requests
-//! go out through the platform's HTTP stack rather than reqwest.
+//! 只有提供这项功能的两个桌面宿主编译这个模块。Android 和 iOS 在各自的平台模块里应答同样的两个命令，因为那些请求走平台自己的 HTTP 栈，而不是 reqwest。
 
 #[cfg(not(target_os = "linux"))]
 use crate::CommandError;
 #[cfg(not(target_os = "linux"))]
-use msime_client_core::ai::settings::AiSettingsError;
+use msime_client_providers::ai::settings::AiSettingsError;
 
 #[cfg(not(target_os = "linux"))]
 fn command_error(error: AiSettingsError) -> CommandError {
@@ -32,7 +26,7 @@ pub(crate) async fn ai_models(
     token: String,
 ) -> Result<Vec<String>, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
-        msime_client_core::ai::settings::fetch_models(&endpoint, &token).map_err(command_error)
+        msime_client_providers::ai::settings::fetch_models(&endpoint, &token).map_err(command_error)
     })
     .await
     .map_err(|_| command_error(AiSettingsError::ModelsUnavailable))?
@@ -48,7 +42,7 @@ pub(crate) async fn ai_test(
     text: String,
 ) -> Result<String, CommandError> {
     tauri::async_runtime::spawn_blocking(move || {
-        msime_client_core::ai::settings::test_polish(&endpoint, &model, &prompt, &token, &text)
+        msime_client_providers::ai::settings::test_polish(&endpoint, &model, &prompt, &token, &text)
             .map_err(command_error)
     })
     .await

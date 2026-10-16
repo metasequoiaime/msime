@@ -15,6 +15,7 @@ struct PipeRegistry::Endpoint {
   std::unique_ptr<PipeConnection> connection;
   std::shared_ptr<PipePeer> peer;
   uint64_t generation = 0;
+  uint32_t capabilities = 0;
   HANDLE cancel = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   std::mutex read_mutex;
   ~Endpoint() {
@@ -89,6 +90,7 @@ void PipeRegistry::retire(uint64_t id, const std::shared_ptr<Client> &client) {
 PipeTicket PipeRegistry::ticket(uint64_t id, const Client &client) {
   PipeTicket result;
   result.client = id;
+  if (client.endpoints[0]) result.capabilities = client.endpoints[0]->capabilities;
   for (size_t i = 0; i < 3; ++i)
     if (client.endpoints[i])
       result.generations[i] = client.endpoints[i]->generation;
@@ -98,7 +100,7 @@ bool PipeRegistry::current(const PipeTicket &value, const Client &client) {
   if (client.retired || !client.endpoints[0] || !client.endpoints[1] ||
       !client.endpoints[2])
     return false;
-  return ticket(value.client, client).generations == value.generations;
+  return same_ticket(ticket(value.client, client), value);
 }
 PipeRegistration
 PipeRegistry::register_reverse(std::unique_ptr<PipeConnection> connection,
@@ -217,6 +219,7 @@ PipeRegistry::register_main(std::unique_ptr<PipeConnection> connection,
   }
   endpoint->connection = std::move(connection);
   endpoint->peer = reply->peer;
+  endpoint->capabilities = handshake.protocol.capabilities;
   client->clear(0);
   client->endpoints[0] = std::move(endpoint);
   result.ticket = ticket(hello.client_id, *client);

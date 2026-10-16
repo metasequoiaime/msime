@@ -1,6 +1,7 @@
-import type { AiAssistantPreferences } from "../index";
-
-type AiCredentialPreferences = Pick<AiAssistantPreferences, "provider" | "endpoint" | "model">;
+import type {
+  AiCredentialPreferences,
+  AiCredentialTestPreferences,
+} from "./ai-credential-preferences";
 
 /** Configuration sent to the Linux provider when checking the AI settings. */
 export function aiProviderCredentialTestConfig(
@@ -26,7 +27,7 @@ export function aiServiceCredentialTestConfig(
 
 /** Whether the shared AI settings are incomplete for a provider test. */
 export function aiCredentialTestDisabled(
-  ai: Pick<AiAssistantPreferences, "enabled" | "model">,
+  ai: AiCredentialTestPreferences,
   origin: string | null,
 ): boolean {
   return !ai.enabled || !origin || !ai.model.trim();
@@ -34,7 +35,7 @@ export function aiCredentialTestDisabled(
 
 /** Whether the shared AI settings are incomplete for a remote service test. */
 export function aiServiceCredentialTestDisabled(
-  ai: Pick<AiAssistantPreferences, "enabled" | "model">,
+  ai: AiCredentialTestPreferences,
   origin: string | null,
   token: string,
 ): boolean {

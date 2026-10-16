@@ -49,14 +49,14 @@ jobs:
           while IFS= read -r path; do
             [[ -z "$path" ]] && continue
             case "$path" in
-              # 打包输入：打包脚本、Tauri 的 macOS 资源声明、核心词库和三个资源包的锁、决定暂存与下载的 client-core 代码和示例、发布工作流和这个文件。scripts/test-macos-package-resources.py 核对这份清单覆盖了每个打包输入。
+              # 打包输入：打包脚本、Tauri 的 macOS 资源声明、核心词库和三个资源包的锁、决定暂存与下载的 client-core、client-providers 代码和示例、发布工作流和这个文件。scripts/test-macos-package-resources.py 核对这份清单覆盖了每个打包输入。
               platforms/macos/package-release.sh|platforms/macos/stage-resources.sh|apps/desktop/src-tauri/tauri.macos.conf.json)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "打包脚本改动: $path"; exit 0 ;;
               resources/desktop-dictionary.lock.json|resources/language-dictionaries.lock.json|resources/handwriting-model.lock.json|resources/offline-glosses.lock.json)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源锁改动: $path"; exit 0 ;;
-              crates/client-core/src/resources.rs|crates/client-core/src/resource_packs.rs|crates/client-core/src/voice/local_models.rs)
+              crates/client-core/src/resources.rs|crates/client-providers/src/resource_packs.rs|crates/client-providers/src/voice/local_models.rs)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源代码改动: $path"; exit 0 ;;
-              crates/client-core/examples/install_resources.rs|crates/client-core/examples/verify_resources.rs|crates/client-core/examples/install_resource_pack.rs)
+              crates/client-core/examples/install_resources.rs|crates/client-core/examples/verify_resources.rs|crates/client-providers/examples/install_resource_pack.rs)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源示例改动: $path"; exit 0 ;;
               .github/workflows/release-macos.yml|.github/workflows/ci-macos-package.yml)
                 echo "package=true" >> "$GITHUB_OUTPUT"; echo "工作流改动: $path"; exit 0 ;;
@@ -108,7 +108,7 @@ jobs:
         run: python3 scripts/test-macos-package-resources.py
       # 与 App 运行时同一个安装器、同一组 URL 和 SHA-256：macOS 会下载的四个资源包都要能装上，发布出去的 App 才能补齐它们。离线释义和语音运行库只给 Android 按需下载，不在这里装。
       - name: Install every macOS on-demand resource pack
-        run: cargo run --quiet --locked -p msime-client-core --example install_resource_pack -- "$RUNNER_TEMP/resource-pack-check" japanese language-dictionaries handwriting settled-model
+        run: cargo run --quiet --locked -p msime-client-providers --example install_resource_pack -- "$RUNNER_TEMP/resource-pack-check" japanese language-dictionaries handwriting settled-model
 
   package:
     name: Unsigned universal package
@@ -172,7 +172,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the package
         if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-macos-package-${{ github.run_id }}
           path: ${{ runner.temp }}/dist/

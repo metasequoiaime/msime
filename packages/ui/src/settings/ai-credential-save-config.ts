@@ -1,6 +1,4 @@
-import type { AiAssistantPreferences } from "../index";
-
-type AiCredentialPreferences = Pick<AiAssistantPreferences, "provider" | "endpoint" | "model">;
+import type { AiCredentialPreferences } from "./ai-credential-preferences";
 
 /** Builds the Linux provider credential payload while preserving stored tokens on blank input. */
 export function aiCredentialSaveConfig(

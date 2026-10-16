@@ -11,6 +11,11 @@ options:
 settings:
   base:
     SWIFT_VERSION: 5.0
+    ALWAYS_SEARCH_USER_PATHS: NO
+    # 本工程没有 AppIntents，跳过不适用的元数据提取任务。
+    LM_SKIP_METADATA_EXTRACTION: YES
+    # 语音框架已签名且保留其分发二进制，不再让 Xcode 尝试剥离。
+    COPY_PHASE_STRIP: NO
     DEVELOPMENT_TEAM: LXCL4Z68GU
     MARKETING_VERSION: 0.52.0
     CURRENT_PROJECT_VERSION: 1
@@ -322,7 +327,7 @@ targets:
       - path: SharedUI
       - path: SharedResources/KeyboardBrand.png
         buildPhase: resources
-      # AIEndpointPolicyTests 逐条跑的跨平台用例，权威实现是 crates/client-core/src/ai/endpoint.rs。
+      # AIEndpointPolicyTests 逐条跑的跨平台用例，权威实现是 crates/client-providers/src/ai/endpoint.rs。
       - path: ../../shared/contracts/ai-endpoint/cases.json
         buildPhase: resources
     settings:

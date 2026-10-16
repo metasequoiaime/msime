@@ -44,19 +44,23 @@ pub fn is_custom_schema(schema: &str) -> bool {
     custom_schema_stem(schema).is_some()
 }
 
-/// Return the table path for an available custom schema.
+/// 查找可用的自定义表：优先精确小写扩展名，再按字典序尝试其余大小写变体。
 pub fn custom_helpcode_path(resources: &Path, schema: &str) -> Option<PathBuf> {
     let stem = custom_schema_stem(schema)?;
     let directory = custom_helpcode_directory(resources);
     crate::storage::reject_symlink(&directory).ok()?;
-    let path = directory.join(format!("{stem}.txt"));
-    let metadata = std::fs::symlink_metadata(&path).ok()?;
-    metadata.file_type().is_file().then_some(path)
+    let mut path = directory.join(format!("{stem}.txt"));
+    for extension in ["txt", "TXT", "TXt", "TxT", "Txt", "tXT", "tXt", "txT"] {
+        path.set_extension(extension);
+        if std::fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_file()) {
+            return Some(path);
+        }
+    }
+    None
 }
 
-/// Discover regular `.txt` files in `helpcodes/custom` and read their optional display metadata.
-/// Missing or unreadable directories produce an empty list, matching the Engine's optional asset
-/// semantics. Results are ordered by file stem for stable settings UI presentation.
+/// 列出 `helpcodes/custom` 下扩展名不分大小写的普通 `.txt` 表并读取显示元数据。
+/// 缺失或不可读的目录返回空列表；按主干排序，同一主干优先小写 `.txt`，否则取扩展名字典序最小的文件。
 pub fn list_custom_helpcode_schemas(resources: &Path) -> Vec<CustomHelpcodeSchema> {
     let directory = custom_helpcode_directory(resources);
     if crate::storage::reject_symlink(&directory).is_err() {
@@ -65,7 +69,7 @@ pub fn list_custom_helpcode_schemas(resources: &Path) -> Vec<CustomHelpcodeSchem
     let Ok(entries) = std::fs::read_dir(directory) else {
         return Vec::new();
     };
-    let mut result = entries
+    let mut paths = entries
         .filter_map(Result::ok)
         .filter_map(|entry| {
             let path = entry.path();
@@ -77,6 +81,22 @@ pub fn list_custom_helpcode_schemas(resources: &Path) -> Vec<CustomHelpcodeSchem
             {
                 return None;
             }
+            Some(path)
+        })
+        .collect::<Vec<_>>();
+    paths.sort_by(|left, right| {
+        left.file_stem()
+            .cmp(&right.file_stem())
+            .then_with(|| {
+                (left.extension() != Some(std::ffi::OsStr::new("txt")))
+                    .cmp(&(right.extension() != Some(std::ffi::OsStr::new("txt"))))
+            })
+            .then_with(|| left.file_name().cmp(&right.file_name()))
+    });
+    paths.dedup_by(|left, right| left.file_stem() == right.file_stem());
+    paths
+        .into_iter()
+        .filter_map(|path| {
             let file_stem = path.file_stem()?.to_str()?.to_owned();
             let schema = format!("custom/{file_stem}");
             custom_schema_stem(&schema)?;
@@ -88,9 +108,7 @@ pub fn list_custom_helpcode_schemas(resources: &Path) -> Vec<CustomHelpcodeSchem
                 name_en,
             })
         })
-        .collect::<Vec<_>>();
-    result.sort_by(|left, right| left.file_stem.cmp(&right.file_stem));
-    result
+        .collect()
 }
 
 fn read_display_names(path: &Path) -> (String, String) {
@@ -108,7 +126,8 @@ fn read_display_names(path: &Path) -> (String, String) {
 }
 
 /// 码表开头注释里的显示名：`# name:` 和 `# name_en:`（冒号也可以是全角），遇到第一行非空、非注释的内容就停；没有时为空字符串。开头的 BOM、行尾的 `\r` 和两端的空格、制表符都不算进名字。
-pub(crate) fn display_names(text: &str) -> (String, String) {
+#[doc(hidden)]
+pub fn display_names(text: &str) -> (String, String) {
     let mut name = String::new();
     let mut name_en = String::new();
     for (index, raw_line) in text.lines().enumerate() {
@@ -181,6 +200,53 @@ mod tests {
     }
 
     #[test]
+    fn discovered_extension_variants_resolve_to_readable_tables() {
+        let resources = tempfile::tempdir().unwrap();
+        let directory = custom_helpcode_directory(resources.path());
+        fs::create_dir_all(&directory).unwrap();
+        for (index, extension) in ["txt", "txT", "tXt", "tXT", "Txt", "TxT", "TXt", "TXT"]
+            .into_iter()
+            .enumerate()
+        {
+            let stem = format!("synthetic{index}");
+            let contents = format!("# name: {stem}\n你=ab\n");
+            fs::write(directory.join(format!("{stem}.{extension}")), &contents).unwrap();
+            let path = custom_helpcode_path(resources.path(), &format!("custom/{stem}"))
+                .unwrap_or_else(|| panic!("{extension} was listed but could not be resolved"));
+            assert_eq!(fs::read_to_string(path).unwrap(), contents);
+        }
+        assert_eq!(list_custom_helpcode_schemas(resources.path()).len(), 8);
+    }
+
+    #[test]
+    fn extension_variants_have_one_deterministic_catalog_entry() {
+        let resources = tempfile::tempdir().unwrap();
+        let directory = custom_helpcode_directory(resources.path());
+        fs::create_dir_all(&directory).unwrap();
+        let canonical = directory.join("synthetic.txt");
+        let upper = directory.join("synthetic.TXT");
+        fs::write(&canonical, "# name: canonical\n你=ab\n").unwrap();
+        fs::write(&upper, "# name: uppercase\n你=cd\n").unwrap();
+        if fs::read(&canonical).unwrap() == fs::read(&upper).unwrap() {
+            return;
+        }
+        let names = || {
+            list_custom_helpcode_schemas(resources.path())
+                .into_iter()
+                .map(|schema| (schema.schema, schema.name))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(), [("custom/synthetic".into(), "canonical".into())]);
+        fs::remove_file(canonical).unwrap();
+        fs::write(directory.join("synthetic.TxT"), "# name: mixed\n你=ef\n").unwrap();
+        assert_eq!(names(), [("custom/synthetic".into(), "uppercase".into())]);
+        assert_eq!(
+            custom_helpcode_path(resources.path(), "custom/synthetic"),
+            Some(upper)
+        );
+    }
+
+    #[test]
     fn rejects_custom_schema_path_escape() {
         for schema in [
             "custom/",
@@ -243,9 +309,13 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let external = outside.path().join("mine.txt");
         fs::write(&external, "你=ab\n").unwrap();
-        symlink(&external, directory.join("mine.txt")).unwrap();
-
-        assert_eq!(custom_helpcode_path(resources.path(), "custom/mine"), None);
+        for extension in ["txt", "TXT", "tXt"] {
+            let path = directory.join(format!("mine.{extension}"));
+            symlink(&external, &path).unwrap();
+            assert_eq!(custom_helpcode_path(resources.path(), "custom/mine"), None);
+            assert!(list_custom_helpcode_schemas(resources.path()).is_empty());
+            fs::remove_file(path).unwrap();
+        }
     }
 
     #[cfg(unix)]

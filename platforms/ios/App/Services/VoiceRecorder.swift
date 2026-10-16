@@ -86,7 +86,7 @@ final class VoiceRecorder: ObservableObject {
     defer { isPreparing = false }
     let session = AVAudioSession.sharedInstance()
     let allowed = await withCheckedContinuation { continuation in
-      session.requestRecordPermission { continuation.resume(returning: $0) }
+      AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
     }
     try Task.checkCancellation()
     guard allowed else { throw ServiceFailure(message: "请在系统设置中允许水杉使用麦克风。") }

@@ -8,7 +8,7 @@ public final class EmojiCatalogModelSmoke {
             .map(EmojiCatalogModel.Category::group).toList();
         check(groups.equals(List.of("Smileys and emotion", "People and body",
             "Animals and nature", "Food and drink", "Travel and places", "Activities",
-            "Objects", "Symbols", "Flags")), "Unicode group order");
+            "Objects", "Symbols", "Flags", "Symbol emoticons")), "Unicode group order");
         List<String> icons = new ArrayList<>(EmojiCatalogModel.categories().stream()
             .map(EmojiCatalogModel.Category::icon).toList());
         icons.add(EmojiCatalogModel.RECENTS.icon());

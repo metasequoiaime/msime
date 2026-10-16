@@ -372,7 +372,7 @@ public final class AboutPage extends DetailPage {
                 for (String file : files) found.add("native-notices/" + abis[0] + "/" + file);
             }
         }
-        for (String fixed : new String[] {"client-LICENSE.txt", "helpcodes/NOTICE.md", "helpcodes/NOTICE-jiajia.md",
+        for (String fixed : new String[] {"client-LICENSE.txt", "emoji-combinations-NOTICE.txt", "helpcodes/NOTICE.md", "helpcodes/NOTICE-jiajia.md",
                 "helpcodes/NOTICE-wubi86.md", "offline-glosses/offline-glosses-NOTICE.txt"}) {
             if (exists(assets, fixed)) found.add(fixed);
         }

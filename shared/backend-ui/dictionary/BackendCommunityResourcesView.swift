@@ -84,8 +84,8 @@ struct BackendCommunityResourcesView: View {
       }
     }
     .task { load() }
-    .onChange(of: kind) { _ in load() }
-    .onChange(of: scope) { _ in load() }
+    .onCompatibleChange(of: kind) { _ in load() }
+    .onCompatibleChange(of: scope) { _ in load() }
     .onDisappear { pending?.cancel(); items = []; selected = nil; search = "" }
     .sheet(item: $selected, onDismiss: { load() }) { item in
       CommunityResourceDetailView(initial: item,
@@ -295,8 +295,8 @@ private struct BackendCommunityResourceEditor: View {
       }.disabled(busy)
     }
     .onAppear { if let existing { id = existing.id; name = existing.name; description = existing.description; prompt = existing.content.prompt ?? ""; entries = existing.content.entries ?? [] } }
-    .onChange(of: sourceKind) { _ in source = nil }
-    .onChange(of: sourceSearch) { _ in source = nil }
+    .onCompatibleChange(of: sourceKind) { _ in source = nil }
+    .onCompatibleChange(of: sourceSearch) { _ in source = nil }
     .onDisappear { pending?.cancel(); source = nil; entries = []; prompt = ""; name = ""; description = ""; sourceSearch = "" }
   }
   private func query(offset: Int) {
@@ -422,6 +422,17 @@ struct CommunityCloudImportButton: View {
       do { try await action() }
       catch is CancellationError { preview = nil; confirming = false }
       catch { if !Task.isCancelled { message = error.localizedDescription } }
+    }
+  }
+}
+
+private extension View {
+  /// iOS 使用新观察接口，macOS 13 继续使用其支持的单参数接口。
+  @ViewBuilder func onCompatibleChange<Value: Equatable>(of value: Value, perform action: @escaping (Value) -> Void) -> some View {
+    if #available(iOS 17, macOS 14, *) {
+      onChange(of: value) { _, next in action(next) }
+    } else {
+      onChange(of: value, perform: action)
     }
   }
 }

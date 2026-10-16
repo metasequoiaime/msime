@@ -3185,7 +3185,7 @@ int main(int argc, char **argv) {
             "Candidate numeric label missing");
     require(seen.second_candidate_color == 0x123456,
             "Candidate text color attribute missing");
-    // A picked selection colour carries black or white text by its luminance (client-core skin/theme.rs), so the dark fixture fill gives white.
+    // 自选的选中色按亮度配黑字或白字（client-core 的 `theme.rs`），所以夹具里的深色填充得到白字。
     require(seen.first_candidate_color == 0xffffff,
             "Highlighted candidate text is not readable on the picked selection colour");
     require(seen.first_candidate_background == 0x204060,

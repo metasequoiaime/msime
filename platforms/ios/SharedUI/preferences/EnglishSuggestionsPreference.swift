@@ -1,6 +1,6 @@
 import Foundation
 
-/// 英文输入时是否在候选栏提示常用单词。
+/// 普通英文是否显示原文和唯一纠错，并在空格或标点边界采用纠错。
 enum EnglishSuggestionsPreference {
   static let enabledKey = "english.suggestions"
 

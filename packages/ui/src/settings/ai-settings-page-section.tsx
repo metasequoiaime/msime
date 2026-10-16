@@ -12,8 +12,9 @@ import { ActionRow } from "./action-row";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
 import { SettingsGroupBlock } from "./settings-group-block";
 import { SettingsManagerBlock } from "./settings-manager-block";
+import type { AiProviderOption } from "./ai-provider-options";
 
-export type AiProviderOption = { id: string; title: string };
+export type { AiProviderOption } from "./ai-provider-options";
 
 export interface AiSettingsPageSectionProps {
   /** AI 服务的接口地址是否有效；无效时「更多选项」首次显示就展开，因为凭据要等接口地址填对才能用。 */

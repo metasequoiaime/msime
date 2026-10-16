@@ -2,10 +2,10 @@
 //!
 //! 这些操作只经过账号会话：列表、目录、增删改、导入导出、候选调频和固定排位。函数对会话的后端和存储泛型，各宿主把自己 `AccountState` 持有的会话传进来，测试则用合成的后端驱动它。完整快照（下载预览、备份、恢复、应用到本机）要落盘，还要宿主自己的存储和输入法配合，由各宿主分别实现，这里对它们返回 `None`。
 
-use msime_client_core::account::{
+use msime_client_core::cloud::dictionary::DictionaryKind;
+use msime_client_services::account::{
     AccountApi, AccountCandidateQuery, AccountSessionStorage, BackendAccountSession,
 };
-use msime_client_core::cloud::dictionary::DictionaryKind;
 use msime_host_api::cloud_dictionary::CloudDictionaryRequest;
 use serde_json::Value;
 use std::sync::Arc;

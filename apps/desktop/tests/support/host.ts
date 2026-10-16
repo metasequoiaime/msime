@@ -51,6 +51,9 @@ export function testHost(
     helpcode_shift_entry: android || harmony,
     skin_directory_import: false,
     touch_toolbar_components: false,
+    // 与 client-core 一致：macOS 和 Linux 的键盘窗口高度固定，macOS 的间距固定成默认值。
+    touch_keyboard_height: !macos && !linux,
+    touch_keyboard_spacing: !macos,
     shuangpin_preedit: macos,
     shuangpin_keymap_hint: macos || platform === "windows",
     maintenance_shortcuts: false,

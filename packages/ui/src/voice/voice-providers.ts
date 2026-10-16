@@ -26,13 +26,9 @@ import {
   siliconFlowChatEndpoint,
   siliconFlowTextDocumentationUrl,
 } from "../core/provider-resources";
+import type { ProviderDefaults } from "../core/provider-preset";
 
-export type ProviderDefaults = {
-  endpoint: string;
-  model: string;
-  models?: readonly string[];
-  documentation?: string;
-};
+export type { ProviderDefaults } from "../core/provider-preset";
 
 /** ASR providers that use the shared service credential and test configuration. */
 export const ASR_SERVICE_PROVIDER_IDS: readonly string[] = [

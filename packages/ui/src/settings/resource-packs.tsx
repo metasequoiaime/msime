@@ -16,10 +16,10 @@ import {
   localModelStageLabel,
 } from "../voice/local-model-helpers";
 
-/** 按需下载的资源包 id，与 `msime_client_core::resource_packs::ResourcePack::id` 一致。 */
+/** 按需下载的资源包 id，与 `msime_client_providers::resource_packs::ResourcePack::id` 一致。 */
 export type ResourcePackId = "japanese" | "language-dictionaries" | "handwriting" | "settled-model";
 
-/** 宿主报告的资源包状态，即 `msime_client_core::resource_packs::ResourcePackStatus`。`outdated` 表示已下载的文件字节（名字、SHA-256、长度）与当前锁文件不一致：输入法不再使用这份旧文件，要重新下载。只换了下载地址、字节没变的资源包仍是 `installed`。 */
+/** 宿主报告的资源包状态，即 `msime_client_providers::resource_packs::ResourcePackStatus`。`outdated` 表示已下载的文件字节（名字、SHA-256、长度）与当前锁文件不一致：输入法不再使用这份旧文件，要重新下载。只换了下载地址、字节没变的资源包仍是 `installed`。 */
 export type ResourcePackStatus = {
   id: ResourcePackId;
   state: "missing" | "installed" | "outdated";

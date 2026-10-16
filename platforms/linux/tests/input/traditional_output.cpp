@@ -4,7 +4,7 @@
 #include <string>
 
 int main() {
-  // Phrase-level OpenCC s2t, the same pairs crates/client-core/src/chinese_conversion.rs pins. Character-by-character conversion (the former ICU Simplified-Traditional transliterator) gets the one-to-many characters wrong, e.g. 头发 -> 頭發.
+  // Phrase-level OpenCC s2t, the same pairs crates/client-base/src/chinese_conversion.rs pins. Character-by-character conversion (the former ICU Simplified-Traditional transliterator) gets the one-to-many characters wrong, e.g. 头发 -> 頭發.
   assert(msime_linux_simplified_to_traditional("头发") == "頭髮");
   assert(msime_linux_simplified_to_traditional("发展") == "發展");
   assert(msime_linux_simplified_to_traditional("干面") == "乾麪");

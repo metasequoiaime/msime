@@ -1155,7 +1155,7 @@ fn wubi_candidate_shortcuts_follow_the_presented_order_and_visible_page_size() {
 #[test]
 fn wubi_candidate_shortcuts_keep_punctuation_when_disabled_or_target_is_missing() {
     for count in [0, 1, 2, 3, 4] {
-        for key in [b';', b'\''] {
+        for key in *b";'" {
             let mut enabled = wubi_shortcut_runtime(count);
             let mut plain = wubi_shortcut_runtime(count);
             plain.set_wubi_candidate_selection(Default::default());

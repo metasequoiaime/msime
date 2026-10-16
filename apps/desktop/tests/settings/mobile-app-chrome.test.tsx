@@ -106,7 +106,7 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
   expect(screen.getByRole("group", { name: "面板快捷键" })).toBeTruthy();
   expect(screen.getByRole("switch", { name: "数字键选词" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
-  selectSettingsTab("候选翻译");
+  selectSettingsTab("候选释义");
   expect(screen.getByRole("combobox", { name: "候选词翻译第二种语言" })).toBeTruthy();
 
   cleanup();
@@ -140,10 +140,11 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
   expect(within(phoneSettings).queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
   expect(within(phoneSettings).queryByRole("button", { name: "快捷键" })).toBeNull();
   expect(within(phoneSettings).queryByRole("button", { name: "外接键盘快捷键" })).toBeNull();
-  // 手机把候选翻译放在 输入 页的 翻译 分组里。
+  // 手机把候选翻译放在 输入 页的 翻译 分组里，只显示一种候选翻译，没有第二种语言。
   fireEvent.click(within(phoneSettings).getByRole("button", { name: "输入" }));
-  selectSettingsTab("候选翻译");
-  expect(screen.getByRole("combobox", { name: "候选词翻译第二种语言" })).toBeTruthy();
+  selectSettingsTab("候选释义");
+  expect(screen.getByRole("combobox", { name: "候选词翻译目标语言" })).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "候选词翻译第二种语言" })).toBeNull();
 });
 
 test("Harmony appearance names only the surfaces the form factor actually has", async () => {
@@ -642,27 +643,21 @@ test("a HarmonyOS phone titles the 设置, 统计 and 我的 roots", async () =>
   expect(untitled.parentElement?.className).toContain("max-phone:sr-only");
 });
 
-// 「对话」是标签页的根页面：鸿蒙手机照设计稿给它加大标题，但不滑入、不带返回按钮；其他触屏宿主也不再有回到「AI 辅助」的返回链接。
-test("the 对话 tab is a titled tab root with no way back to AI 辅助", async () => {
+// 对话是有标题和返回按钮的二级页。
+test("AI chat keeps a secondary title and way back", async () => {
   const chat = {
     models: vi.fn().mockResolvedValue({ data: [], defaultModel: "" }),
     complete: vi.fn(),
   };
-  renderSettings("harmony", {}, undefined, { chat });
+  renderSettings("harmony", {}, "ai", { chat });
   await settingsFormReady();
-  const bar = screen.getByRole("navigation", { name: "主要功能" });
-  fireEvent.click(within(bar).getByRole("button", { name: "对话" }));
+  fireEvent.click(await screen.findByRole("button", { name: /^AI 对话/ }));
   const title = await screen.findByRole("heading", { level: 1, name: "AI 对话" });
   expect(title.parentElement?.className).not.toContain("max-phone:sr-only");
-  expect(screen.queryByRole("button", { name: "返回" })).toBeNull();
-  cleanup();
-
-  renderSettings("android", {}, "chat", { chat });
-  await screen.findByRole("region", { name: "AI 对话" });
-  expect(screen.queryByRole("button", { name: "返回AI 辅助" })).toBeNull();
+  expect(screen.getByRole("button", { name: "返回" })).toBeTruthy();
   expect(
     within(screen.getByRole("navigation", { name: "主要功能" }))
-      .getByRole("button", { name: "对话" })
+      .getByRole("button", { name: "设置" })
       .getAttribute("aria-current"),
   ).toBe("page");
 });

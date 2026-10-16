@@ -1,9 +1,10 @@
+import { NativeCleanup } from './NativeCleanup';
 /**
- * Key sounds, the typing melody, commit and achievement sounds on a 2in1, played through SoundPool.
+ * 2in1 设备上的按键音、打字旋律、上屏音和成就音，经 SoundPool 播放。
  *
- * The desktop hosts play these through host-api, which does not link an audio stack on HarmonyOS, so this host plays the same packs itself. What a pack holds comes from `msime_client_key_sound_pack`, which answers with the files client-core's validation accepted; which of them an event plays is `KeySoundPolicy`, the desktop player's rules. A WAV sample is decoded natively (`keySoundRenderNotes`, miniaudio) under the pack's length bound and written back out once per pitch it is played at, so SoundPool only ever decodes files this host wrote, and a melody's notes are pitched the way the desktop pitches them. An Ogg sample stays silent: nothing here decodes Vorbis, and SoundPool would decode it whole with nothing bounding its length.
+ * 桌面宿主经 host-api 播放这些声音，而 host-api 在 HarmonyOS 上不链接音频栈，所以本宿主自己播放同样的包。包里有什么来自 `msime_client_key_sound_pack`，它应答的是通过 client-services 校验的文件；某个事件播放其中哪一个由 `KeySoundPolicy` 决定，规则与桌面播放器相同。WAV 采样在包的时长上限内由原生代码（`keySoundRenderNotes`，miniaudio）解码，并按播放用到的每个音高各写出一份，因此 SoundPool 只会解码本宿主自己写出的文件，旋律的音高也与桌面的处理方式一致。Ogg 采样保持静音：这里没有任何东西解码 Vorbis，而 SoundPool 会把它整个解码，没有任何长度限制。
  *
- * Nothing is created until a sound is switched on, and nothing here can stop a key from typing. A pack that will not load says so once and stays silent; SoundPool failing to play turns the sounds off until the settings change. The pool mixes with whatever else is playing rather than pausing it: SoundPool plays short sounds in mixing mode for the music stream usage, unlike the voice recording's CONCURRENCY_PAUSE_OTHERS session.
+ * 在打开某种声音之前什么都不创建，这里的任何东西都不会阻止按键输入。加载不了的包只报告一次，然后保持静音；SoundPool 播放失败则把声音关掉，直到设置发生变化。声音池与正在播放的其他声音混音，而不是暂停它们：SoundPool 以音乐流用途、混音模式播放短音，这与语音录音使用的 `CONCURRENCY_PAUSE_OTHERS` 会话不同。
  */
 import audio from '@ohos.multimedia.audio';
 import media from '@ohos.multimedia.media';
@@ -154,7 +155,7 @@ export class KeySoundPlayer {
     this.loadingCues.clear();
     this.completed.clear();
     this.loading.forEach((file: fs.File): void => {
-      fs.closeSync(file);
+      NativeCleanup.close(file);
     });
     this.loading.clear();
     this.keys = null;
@@ -219,62 +220,67 @@ export class KeySoundPlayer {
   }
 
   private async load(generation: number): Promise<void> {
-    if (generation !== this.generation) {
-      this.clearGeneration(generation);
-      return;
-    }
-    // Stamped before the packs are read, so a change while they are read is seen by the next recheck rather than missed.
-    const manifests: string[] = this.manifestPaths();
-    this.manifests = manifests;
-    this.stamp = KeySoundPlayer.stampOf(manifests);
-    const keys: KeySoundPackFiles | null =
-      this.selection.pack === null ? null : this.packFiles(this.selection.pack);
-    const melody: KeySoundPackFiles | null =
-      this.selection.melodyPack === null ? null : this.packFiles(this.selection.melodyPack);
-    if ((this.selection.pack !== null && keys === null)
-      || (this.selection.melodyPack !== null && melody === null)) {
-      return;
-    }
-    if (melody !== null && melody.sequence === null) {
-      KeyboardLog.error(`sound pack ${melody.id}: not a melody`);
-      return;
-    }
-    const pool: media.SoundPool = await media.createSoundPool(POOL_STREAMS, {
-      usage: audio.StreamUsage.STREAM_USAGE_MUSIC, rendererFlags: 0
-    });
-    if (generation !== this.generation) {
-      pool.release().catch((error: Object): void => {
-        KeyboardLog.error(`key sound pool would not release: ${describeError(error)}`);
-      });
-      return;
-    }
-    this.pool = pool;
-    this.keys = keys;
-    this.melody = melody;
-    pool.on('loadComplete', (sound: number): void => {
-      if (generation === this.generation) {
-        this.completed.add(sound);
-        this.settle(sound);
-      }
-    });
-    // A sample the pool cannot decode is reported here; it costs that one sound, not the others. A play that fails is what turns the sounds off.
-    pool.on('error', (error: Object): void => {
-      if (generation === this.generation) {
-        KeyboardLog.error(`key sound pool error: ${describeError(error)}`);
-      }
-    });
-    const requests: KeySoundSampleRequest[] = KeySoundPolicy.samples(keys, melody,
-      this.selection.tierSound ? TypingEffectPolicy.tierSemitones() : []);
-    const bound: KeySoundPackFiles | null = keys !== null ? keys : melody;
-    const maxMillis: number = bound === null ? 0 : bound.max_sample_millis;
-    for (let index: number = 0; index < requests.length; index++) {
-      const directory: string = `${this.cacheRoot}/${generation}/${index}`;
-      fs.mkdirSync(directory, true);
-      await this.prepare(generation, pool, requests[index], directory, maxMillis);
+    try {
       if (generation !== this.generation) {
         this.clearGeneration(generation);
         return;
       }
+      // 读取音效包前先记录检查时间，让读取期间的变更能在下一轮被发现。
+      const manifests: string[] = this.manifestPaths();
+      this.manifests = manifests;
+      this.stamp = KeySoundPlayer.stampOf(manifests);
+      const keys: KeySoundPackFiles | null =
+        this.selection.pack === null ? null : this.packFiles(this.selection.pack);
+      const melody: KeySoundPackFiles | null =
+        this.selection.melodyPack === null ? null : this.packFiles(this.selection.melodyPack);
+      if ((this.selection.pack !== null && keys === null)
+        || (this.selection.melodyPack !== null && melody === null)) {
+        return;
+      }
+      if (melody !== null && melody.sequence === null) {
+        KeyboardLog.error(`sound pack ${melody.id}: not a melody`);
+        return;
+      }
+      const pool: media.SoundPool = await media.createSoundPool(POOL_STREAMS, {
+        usage: audio.StreamUsage.STREAM_USAGE_MUSIC, rendererFlags: 0
+      });
+      if (generation !== this.generation) {
+        pool.release().catch((error: Object): void => {
+          KeyboardLog.error(`key sound pool would not release: ${describeError(error)}`);
+        });
+        return;
+      }
+      this.pool = pool;
+      this.keys = keys;
+      this.melody = melody;
+      pool.on('loadComplete', (sound: number): void => {
+        if (generation === this.generation) {
+          this.completed.add(sound);
+          this.settle(sound);
+        }
+      });
+      // 单个样本解码失败只影响该音效；仅在播放失败时停用音效。
+      pool.on('error', (error: Object): void => {
+        if (generation === this.generation) {
+          KeyboardLog.error(`key sound pool error: ${describeError(error)}`);
+        }
+      });
+      const requests: KeySoundSampleRequest[] = KeySoundPolicy.samples(keys, melody,
+        this.selection.tierSound ? TypingEffectPolicy.tierSemitones() : []);
+      const bound: KeySoundPackFiles | null = keys !== null ? keys : melody;
+      const maxMillis: number = bound === null ? 0 : bound.max_sample_millis;
+      for (let index: number = 0; index < requests.length; index++) {
+        const directory: string = `${this.cacheRoot}/${generation}/${index}`;
+        fs.mkdirSync(directory, true);
+        await this.prepare(generation, pool, requests[index], directory, maxMillis);
+        if (generation !== this.generation) {
+          this.clearGeneration(generation);
+          return;
+        }
+      }
+    } catch (error) {
+      KeyboardLog.error('keyboard.KeySoundPlayer.load failed');
+      throw error as Error;
     }
   }
 
@@ -345,45 +351,55 @@ export class KeySoundPlayer {
 
   /** Open a rendered note and bind the descriptor to the path produced by the renderer. */
   private static openVerified(path: string): fs.File {
-    const pathStat: fs.Stat = fs.lstatSync(path);
-    if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
-      throw new Error('rendered sound is not a regular file');
-    }
-    let file: fs.File | undefined = undefined;
     try {
-      file = fs.openSync(path, fs.OpenMode.READ_ONLY);
-      const opened: fs.Stat = fs.statSync(file.fd);
-      if (!opened.isFile() || opened.ino !== pathStat.ino) {
-        throw new Error('rendered sound changed while opening');
+      const pathStat: fs.Stat = fs.lstatSync(path);
+      if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
+        throw new Error('rendered sound is not a regular file');
       }
-      return file;
+      let file: fs.File | undefined = undefined;
+      try {
+        file = fs.openSync(path, fs.OpenMode.READ_ONLY);
+        const opened: fs.Stat = fs.statSync(file.fd);
+        if (!opened.isFile() || opened.ino !== pathStat.ino) {
+          throw new Error('rendered sound changed while opening');
+        }
+        return file;
+      } catch (error) {
+        if (file !== undefined) NativeCleanup.close(file);
+        // ArkTS 只允许抛 Error（arkts-limited-throw）；原样抛出同一个对象，调用方仍能读到它的错误码。
+        throw error as Error;
+      }
     } catch (error) {
-      if (file !== undefined) fs.closeSync(file);
-      // ArkTS 只允许抛 Error（arkts-limited-throw）；原样抛出同一个对象，调用方仍能读到它的错误码。
+      KeyboardLog.error('keyboard.KeySoundPlayer.openVerified failed');
       throw error as Error;
     }
   }
 
   private async loadFile(generation: number, pool: media.SoundPool, path: string,
     cues: string[]): Promise<void> {
-    const file: fs.File = KeySoundPlayer.openVerified(path);
-    let sound: number = 0;
-    let loaded: boolean = false;
     try {
-      sound = await pool.load(file.fd, 0, fs.statSync(file.fd).size);
-      loaded = true;
-    } finally {
-      if (!loaded) {
-        fs.closeSync(file);
+      const file: fs.File = KeySoundPlayer.openVerified(path);
+      let sound: number = 0;
+      let loaded: boolean = false;
+      try {
+        sound = await pool.load(file.fd, 0, fs.statSync(file.fd).size);
+        loaded = true;
+      } finally {
+        if (!loaded) {
+          NativeCleanup.close(file);
+        }
       }
+      if (generation !== this.generation) {
+        NativeCleanup.close(file);
+        return;
+      }
+      this.loading.set(sound, file);
+      this.loadingCues.set(sound, cues);
+      this.settle(sound);
+    } catch (error) {
+      KeyboardLog.error('keyboard.KeySoundPlayer.loadFile failed');
+      throw error as Error;
     }
-    if (generation !== this.generation) {
-      fs.closeSync(file);
-      return;
-    }
-    this.loading.set(sound, file);
-    this.loadingCues.set(sound, cues);
-    this.settle(sound);
   }
 
   /** Publish a sound once SoundPool has both named it and finished loading it, and let its descriptor go. */
@@ -399,7 +415,7 @@ export class KeySoundPlayer {
     this.loadingCues.delete(sound);
     this.loading.delete(sound);
     this.completed.delete(sound);
-    fs.closeSync(file);
+    NativeCleanup.close(file);
   }
 
   /** Rendered notes belong to one load; the next load, or none, starts from an empty directory. */

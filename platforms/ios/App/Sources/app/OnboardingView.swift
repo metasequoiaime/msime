@@ -443,14 +443,6 @@ struct InputSettingsView: View {
                       identifier: "candidateTranslationPrimaryPicker")
         .disabled(!glossOn).opacity(glossOn ? 1 : 0.5)
       DesignDivider()
-      DesignSelectRow(title: "第二种语言",
-                      options: [DesignOption(title: "不显示", value: -1)]
-                        + languages.indices.filter { $0 != habits.primaryLanguage }
-                          .map { DesignOption(title: languages[$0].title, value: $0) },
-                      selection: habit(\.secondaryLanguage), sheetTitle: "第二种语言",
-                      identifier: "candidateTranslationSecondaryPicker")
-        .disabled(!glossOn).opacity(glossOn ? 1 : 0.5)
-      DesignDivider()
       navRow("翻译服务", subtitle: "联网翻译需要在这里选择服务", identifier: "translationProviderLink") {
         TranslationProviderSettingsView()
       }

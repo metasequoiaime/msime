@@ -1,11 +1,11 @@
-//! Pack audio decoded by symphonia under the pack bounds.
+//! 在包的上限内用 symphonia 解码包里的音频。
 //!
-//! client-core checked each file's size, extension and header bytes when it validated the pack; the length is only known here. A sample is refused when its header declares more than `MAX_SAMPLE_MILLIS`, when decoding runs past that bound whatever the header said, and when what came out is empty or out of range, so a file that lies about its length costs at most one sample's worth of memory. A track has to declare a length within `MAX_TRACK_SECONDS` before it plays, and stops at that length while it streams.
+//! client-services 校验包时已经检查过每个文件的大小、扩展名和头部字节；时长只有到这里才知道。以下情况样本会被拒绝：头部声明的时长超过 `MAX_SAMPLE_MILLIS`；不管头部怎么说，解码超过了这个上限；解出来的内容为空或超出范围。所以一个谎报时长的文件最多只占用一个样本的内存。音轨必须先声明一个在 `MAX_TRACK_SECONDS` 以内的时长才会播放，流式播放时到这个时长就停。
 
 use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
 use kira::sound::streaming::Decoder;
 use kira::Frame;
-use msime_client_core::plugins::{music_pack, sound_pack};
+use msime_client_services::plugins::{music_pack, sound_pack};
 use std::convert::Infallible;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;

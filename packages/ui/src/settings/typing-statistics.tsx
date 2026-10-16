@@ -1060,7 +1060,7 @@ function StatisticsHourlyBars({
  * On iOS the keyboard extension cannot reach the shared App Group container without Full Access,
  * so there the prerequisite is named rather than the typing.
  *
- * iOS 上统计文件存在也不能说明键盘写过：在 app 里开启记录时 `client-core` 的 `set_enabled` 会无条件写出统计文件，而没有完全访问的键盘什么都不记，计数一直是零。app 读不到键盘是否有完全访问，所以计数为零时也先提醒这一项，再说其他可能。
+ * iOS 上统计文件存在也不能说明键盘写过：在 app 里开启记录时 `client-services` 的 `set_enabled` 会无条件写出统计文件，而没有完全访问的键盘什么都不记，计数一直是零。app 读不到键盘是否有完全访问，所以计数为零时也先提醒这一项，再说其他可能。
  */
 export function availabilityNotice(
   statistics: Pick<TypingStatistics, "enabled" | "total">,

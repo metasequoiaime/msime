@@ -6,7 +6,7 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 
 ## 范围与基线
 
-迁移的目标是 MSIME-Apple 的完整功能，而不是能编译的子集。公共业务放共享层、公共管理界面放 Tauri；输入算法与组合状态仍归 C++ Engine；平台特性按 HarmonyOS 自身的机制适配，不照搬来源的实现形态。
+迁移的目标是 MSIME-Apple 的完整功能，而不是能编译的子集。公共业务放共享层、公共管理界面放共享 React 设置页（打成 rawfile 由 ArkWeb 加载）；输入算法与组合状态归 Rust 引擎 `crates/engine`；平台特性按 HarmonyOS 自身的机制适配，不照搬来源的实现形态。
 
 比对在固定对象上进行，便于复核：
 
@@ -49,6 +49,8 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 | 纯字面量中只出现在键盘侧（`KeyboardExtension` / `SharedUI`） | 125 |
 
 **这个比率本身没有意义，得说清楚为什么。** iOS 那条轴的未命中是 161/1666，因为 iOS 直接复用同一份 Tauri 页，文案是同一批字符串；鸿蒙的键盘界面是自己的 ArkTS，设置页虽然共用但说明文字由不同的人分别写过，所以措辞不同是常态而不是异常。抽样 30 条应用侧未命中逐条核对，全部是已实现功能的不同措辞（云词库、社区、皮肤编辑器、AI 皮肤、对话、个人词库）。
+
+> 2026-10-15 补注：上段用「iOS 直接复用同一份 Tauri 页」解释 iOS 那条轴的低未命中率，这个前提对发布的 iOS App 不成立。按 2026-10-15 定下的设置界面归属（见[设置界面按平台归属](ARCHITECTURE.md#设置界面按平台归属)），发布的 iOS App 是原生 SwiftUI（`platforms/ios/App/Sources/`），App、`SharedUI` 和键盘扩展里都没有 WebView，不含 Tauri 页，设置功能的原生实现都在那个目录里；iOS 那条轴把一部分未命中归为「Tauri 页以不同表述覆盖」，是按共享页面归的类（见 [ios-parity.md](ios-parity.md) 九条比对轴后的补注），所以两条轴的比率不能直接拿来互相比较。鸿蒙这边不受影响，它的设置页确实是共享 React 页。
 
 这条轴的价值不在比率，而在于**它会指出哪些「节」在目标里完全没有对应概念**。它指出的一处是词库页的「词库信息」：来源 `FeatureSettingsViews` 在词库页写明装的是哪套词库——规格、上游提交、以及它随应用更新而不单独下载。数据本来就在设备上（随应用安装的词库带着一份清单，鸿蒙已经把它作为引擎资源暂存），缺的只是一条读出来的路。那一节加在共享页而不是鸿蒙自己的界面里：每个能回答这个问题的宿主都该显示它。
 
@@ -133,5 +135,7 @@ ArkTS 本身也有一道：`tsc`、逻辑套件、设置包构建全绿并不代
 ## 系统集成
 
 鸿蒙宿主作为系统输入法完整可用，装机运行的验收记录与复现步骤在 [platforms/harmony/README.md](../platforms/harmony/README.md)：系统接受本输入法并拉起扩展进程；`ArkTS → NAPI → Rust → C++ Engine` 整条链打通；共享 React 界面逐页渲染（欢迎流程、首页、词库页、账号页、社区页）；键盘在本应用和第三方应用里各验证过一次输入——`nihao` → 候选 `你好` → 上屏；回车键分别读作「前往」和「搜索」，都取自各自编辑器声明的动作，组合进行中变为「选定」；词库页显示的规格与提交号与锁文件一致。2-in-1 形态上安装、启用、切换为当前输入法同样验证通过，那是硬件键盘相关功能（模式和弦、语音快捷键、维护和弦）的目标形态。
+
+> 2026-10-15 补注：上段的 `ArkTS → NAPI → Rust → C++ Engine` 是验收当时的链路。2026-09-30 起引擎换成纯 Rust 的 `crates/engine`（见 [platforms/harmony/README.md](../platforms/harmony/README.md)），现在的链路是 ArkTS 经 NAPI（`platforms/harmony/native/client_napi.cpp`）到 `crates/host-api`，再到 `crates/input-runtime` 和 `crates/engine`，仓库里已经没有 C++ Engine。
 
 也记下一个只有设备会告诉你的操作事实：`ime -e <bundle>` 默认进 `BASIC_MODE`，而那个模式下框架不会创建面板、扩展的 ArkTS 完全不运行，且没有任何错误提示；必须 `-f`。

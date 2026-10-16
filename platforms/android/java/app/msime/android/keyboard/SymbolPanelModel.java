@@ -136,7 +136,7 @@ public final class SymbolPanelModel {
         return Math.min(category.columns(), Math.max(2, measured));
     }
 
-    /** 左列的全部分类：第一个是「常用」，内容就是 `recents`（最近点的在前），然后是写死的分类，最后是 Engine 目录里的分类。 */
+    /** 底栏的全部分类：第一个是「常用」，内容就是 `recents`（最近点的在前），然后是写死的分类，最后是 Engine 目录里的分类。 */
     public static List<Category> categories(List<String> recents) {
         ArrayList<Category> values = new ArrayList<>(FIXED_CATEGORIES.size() + 1);
         values.add(new Category(RECENTS_TITLE, normalizeRecents(recents)));
@@ -226,5 +226,4 @@ public final class SymbolPanelModel {
             && TextPolicy.withinCodePoints(symbol, MAX_SYMBOL_CODE_POINTS);
     }
 
-    public static boolean closesAfterInsert(boolean locked) { return !locked; }
 }

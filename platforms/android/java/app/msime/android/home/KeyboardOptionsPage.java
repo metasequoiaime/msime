@@ -168,7 +168,7 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         gestures.toggle("滑动输入符号", "在字母键上滑动，输入角标符号；长按字母键始终可以输入", swipeSymbols,
             checked -> saveLocalSetting(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS, checked));
         String swipeDirection = settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
-        GroupCard.Row directionRow = gestures.nav("滑动方向", null,
+        GroupCard.Row directionRow = gestures.nav("滑动方向", "选择在字母键上滑动输入角标符号的方向；关闭滑动输入符号后不生效",
             swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection));
         directionRow.setEnabled(swipeSymbols);
         // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。
@@ -178,10 +178,11 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
             nineKeySwipeRow[0] = gestures.nav("九键滑动输入数字", "拼音九键上沿选定方向滑动输入键上的数字，往反方向滑动弹出数字和字母",
                 nineKeySwipeLabel(nineKeySwipe), () -> pickNineKeySwipe(nineKeySwipe, nineKeySwipeRow[0]));
             // 九键单独的判定距离（#6208）：键高，快速连打时手指往上带一下就会被当成上滑；26 键的「滑动输入符号」阈值不受影响。
-            GroupCard.Row distanceRow = gestures.slider("九键滑动距离", NineKeySwipePolicy.MIN_THRESHOLD_DP,
-                NineKeySwipePolicy.MAX_THRESHOLD_DP, NineKeySwipePolicy.THRESHOLD_STEP_DP,
-                settings.integer(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE), value -> value + " dp",
-                value -> saveLocalSetting(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE, value));
+            GroupCard.Row distanceRow = gestures.slider("九键滑动距离",
+                "手指移动超过这个距离才会触发；距离越大越不容易把快速连打误判成滑动",
+                NineKeySwipePolicy.MIN_THRESHOLD_DP, NineKeySwipePolicy.MAX_THRESHOLD_DP,
+                NineKeySwipePolicy.THRESHOLD_STEP_DP, settings.integer(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE),
+                value -> value + " dp", value -> saveLocalSetting(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE, value));
             distanceRow.setEnabled(!NineKeySwipePolicy.OFF.equals(nineKeySwipe));
         }
         gestures.toggle("滑行输入", "在 26 键上连续滑过拼音的字母，抬手出词；在键上稍作停留可确认经过的键",

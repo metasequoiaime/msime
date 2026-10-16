@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { ProviderPresetSection, type ProviderPreset } from "./provider-preset-section";
+import { ProviderPresetSection } from "./provider-preset-section";
+import type { ProviderPreset } from "../core/provider-preset";
 
 export interface ProviderPresetControlFactory {
   (label: string, preset: ProviderPreset | undefined, className?: string): ReactNode;

@@ -7,6 +7,7 @@
 #include "Compartment.h"
 #include "Define.h"
 #include "../EngineSessionAdapter.h"
+#include "../KeyCompositionState.h"
 #include <memory>
 
 class CCompositionProcessorEngine
@@ -46,6 +47,8 @@ class CCompositionProcessorEngine
                                              _Out_opt_ _KEYSTROKE_STATE *pKeyState);
 
     BOOL AddVirtualKey(WCHAR wch);
+    // 宿主拥有组字时按其视图分类；旧路径才读键击缓冲，不改动任一会话。
+    msime::tsf::KeyCompositionState GetKeyCompositionState() const;
     // The host Engine bridge is introduced behind this accessor so individual
     // TSF paths can migrate without duplicating composition algorithms.
     msime::tsf::EngineSessionAdapter *GetHostEngineAdapter() const noexcept

@@ -110,7 +110,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
         int quote = styleIndex(QUOTE_STYLES, values.optString("quote_style", QUOTE_STYLES[0]));
         punctuation.nav("引号样式", QUOTE_STYLE_DESCRIPTION, QUOTE_STYLE_LABELS[quote],
             () -> pickStyle("引号样式", QUOTE_STYLE_DESCRIPTION, "quote_style", QUOTE_STYLES,
-                QUOTE_STYLE_LABELS, quote));
+                QUOTE_STYLE_LABELS, quote), true);
         int bracket = styleIndex(BRACKET_STYLES, values.optString("bracket_style", BRACKET_STYLES[0]));
         punctuation.nav("方头括号样式", BRACKET_STYLE_DESCRIPTION, BRACKET_STYLE_LABELS[bracket],
             () -> pickStyle("方头括号样式", BRACKET_STYLE_DESCRIPTION, "bracket_style", BRACKET_STYLES,

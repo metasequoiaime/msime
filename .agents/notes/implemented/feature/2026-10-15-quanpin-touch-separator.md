@@ -41,6 +41,13 @@ Android、iOS 与 HarmonyOS 的中文全拼 26 键字母页在原 Shift 位置�
 - Android：`check-host.sh` 231 项 JVM 冒烟通过；完整原生宿主 APK 构建通过；API 35 专用模拟器上空闲连点、连续三次 xi → 分词 → an 并上屏「西安」、英文大写、中文恢复及密码框 Shift 均通过。原有辅助码及辅助码关闭的 Shift 大写组合回归改为键盘修饰事件并通过。
 - iOS：150 项键盘、iPad 布局和皮肤 XCTest 通过；新增 iPad 双侧键帽断言另行通过。iPhone 17 / iOS 27 专用模拟器中，实际系统键盘扩展的真实编辑器验收通过：空闲无输出、分词上屏「西安」、英文大写 A、中文恢复。首次扩展尚未切入的 UI 测试被跳过，不计为通过；重跑后为 1 项实际执行、0 跳过、0 失败。
 - HarmonyOS：纯逻辑套件、`ohpm install` 及 `hvigorw assembleHap` 通过；HarmonyOS 6.0.2(22) 专用模拟器的实际编辑器通过空闲无输出、xi → 分词 → an、选择「西安」上屏、英文 Shift 大写组合及切回中文提交 A 并恢复分词。冷启动未附着编辑器的尝试不算通过；重新启动宿主并获得新的编辑器连接后完成了验收。
-- `verify-local.sh --quick` 与 `verify-notes` 通过。三端原生库复用同仓库 #7834 工作区已构建的产物；已比对 crates、清单、锁与原生桥源码一致，本次重新构建宿主，未重新编译三端 Rust 库。
+上述完整功能验收来自首次实现。同步 `0427465a2f` 后，三端 Rust 原生库均从当前合并源码重新编译，不再复用其他工作树的库；这一轮覆盖如下：
+
+- Android：完整 APK 构建、签名、ABI 与 16 KB 对齐通过；独立 API 35 模拟器的 `smoke.sh --core` 通过，包含打字、繁简、密码框、辅助码导入、对话导航和剪贴板保存生命周期。分词专项首次在启动阶段未找到合成编辑器，同期系统记录焦点事件超时的 ANR；该次不计通过。重启专用模拟器中的产品进程后，分词、辅助码 Shift 与辅助码关闭后的 Shift 字母三项均实际通过；未修改断言或超时。
+- iOS：模拟器原生库重编，XcodeGen 工程无额外差异；全拼分词、九键分词、英文 Shift 与双拼辅助码四项 XCTest 实际执行、零失败。
+- HarmonyOS：暂存资源、设置页及语音 HAR 后重编 arm64 原生库，NAPI 链接与 ELF 检查通过；`ohpm install` 和 `hvigorw assembleHap --no-daemon` 通过。本轮只构建未签名 HAP，未做设备验收。
+- `verify-notes` 与 `MSIME_VERIFY_ALL=1 bash scripts/verify-local.sh --quick` 通过，涵盖 Windows 本机 151 项测试、x64 完整交叉链接、Windows GNU 桌面检查、macOS 原生构建、Apple 桥接层及 x86_64/i686 管道协议。Linux 因 Docker 不可用跳过；首轮 x86 语法检查因交叉构建配置尚未生成跳过，后续同步门禁补查。
+
+iOS 空闲候选入口提供本地模式菜单时，`accessibilityValue` 按既有契约为 `nil`。空闲分词用例直接比较点按前后的可选读屏值，保留 `nil` 本身的契约；真实 `xi` → 分词 → `an` 的组字断言仍要求非空 `xi'an`。这覆盖 CI 与本地的本地模式开关不同导致的夹具失败，不改生产读屏语义。
 
 物理设备、iPad 系统键盘扩展的真实横屏分离和按键统计落盘未覆盖；本次不改变 Engine 的分词算法与大写字母接收规则。

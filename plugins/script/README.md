@@ -66,7 +66,7 @@ plugins/script/
 - 插件 crate 没有任何依赖；不要加。
 - `memory_pages` 写模块实际需要的最小页数（构建脚本会打印，例如 `memory 2/2 pages`）：64 KiB 的栈占第一页，静态数据从第二页开始。
 - 包里最多 16 个文件，说明文件（`.txt`、`.md`）每个不超过 64 KiB，文件名只用 ASCII 字母、数字、`_`、`-` 和 `.`。
-- 带第三方数据的插件把许可证原文放进 `pack/`：`Unicode-License-V3.txt` 复制自 `resources/licenses/Unicode-License-V3.txt`，`OpenCC-LICENSE.txt` 复制自 `crates/client-core/data/opencc/LICENSE`，组装时逐字节核对。`NOTICE.txt` 写明数据来源、版本和生成器。
+- 带第三方数据的插件把许可证原文放进 `pack/`：`Unicode-License-V3.txt` 复制自 `resources/licenses/Unicode-License-V3.txt`，`OpenCC-LICENSE.txt` 复制自 `crates/client-base/data/opencc/LICENSE`，组装时逐字节核对。`NOTICE.txt` 写明数据来源、版本和生成器。
 - 许可证义务由组装脚本按模块实际编进的数据核对（`tools/assemble.py` 的 `EMBEDDED_DATA`）：它顺着 `#[path]` 找到 crate 的全部源文件，收集 `include_bytes!` 的文件。编进 `data/common-chars.bin` 的包必须带 `Unicode-License-V3.txt` 和 `OpenCC-LICENSE.txt`，`license` 含 `Unicode-3.0` 和 `Apache-2.0`，`NOTICE.txt` 原文包含 `data/common-chars-NOTICE.txt`；编进 `traditional-glyph/data/s2t.bin` 的必须带 `OpenCC-LICENSE.txt`、`license` 含 `Apache-2.0`。每个包都要有 `LICENSE.txt`、`license` 含 `MIT`。新的数据文件先在 `EMBEDDED_DATA` 里登记义务，否则组装失败。
 - 插件代码用 MIT，全文在 `plugins/script/LICENSE`，每个包的 `pack/LICENSE.txt` 是它的副本；仓库其余部分是 GPL-3.0-only，这个目录和模板是写明的例外（README 的「许可证」一节）。生成数据的来源和许可证写在 docs/third-party.md 的「脚本插件合集」一节。
 

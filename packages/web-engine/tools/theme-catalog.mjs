@@ -1,7 +1,7 @@
 // 生成 SDK 的内置皮肤表 `theme-catalog.js`，供 src/skin.js 导入。SDK 没有自己的配色副本，两张表都在构建时从唯一来源读出：
 //
-// - 五个全局主题（以及没有配色的 `system`、`custom`）来自 `packages/ui/src/theme/theme-catalog.json`，即 `crates/client-core/src/skin/theme.rs` 的 `catalog()` 序列化出的网页副本，Rust 测试 `web_catalog_copy_matches_the_catalog` 保证两者一致。
-// - msime-windows 的内置外观（`wechat`、`graphite` 等）没有网页副本，只在 `crates/client-core/src/skin/catalog/windows_looks.rs` 的 `WINDOWS_LOOKS` 常量里，这里直接解析那张表。解析很严格：外观数、每个外观的字段、每个颜色都要对得上，`WINDOWS_LOOK_IDS` 里除没有配色的 `fluent` 外都要有表，否则直接报错，构建失败，不会悄悄生成一张缺了东西的表。
+// - 五个全局主题（以及没有配色的 `system`、`custom`）来自 `packages/ui/src/theme/theme-catalog.json`，即 `crates/client-services/src/skin/theme.rs` 的 `catalog()` 序列化出的网页副本，Rust 测试 `web_catalog_copy_matches_the_catalog` 保证两者一致。
+// - msime-windows 的内置外观（`wechat`、`graphite` 等）没有网页副本，只在 `crates/client-services/src/skin/catalog/windows_looks.rs` 的 `WINDOWS_LOOKS` 常量里，这里直接解析那张表。解析很严格：外观数、每个外观的字段、每个颜色都要对得上，`WINDOWS_LOOK_IDS` 里除没有配色的 `fluent` 外都要有表，否则直接报错，构建失败，不会悄悄生成一张缺了东西的表。
 //
 // 用法：`node packages/web-engine/tools/theme-catalog.mjs [输出文件]`，默认写到 `packages/web-engine/src/theme-catalog.js`（已被 packages/web-engine/.gitignore 忽略，直接对源码跑的测试和示例用它）。scripts/build-web-engine.sh 把它写进 npm 包；test/skin.test.mjs 每次运行前重新生成，所以测试读到的永远是当前的来源。
 import { readFileSync, writeFileSync } from "node:fs";
@@ -13,7 +13,7 @@ export const repoRoot = resolve(here, "../../..");
 export const defaultOutput = resolve(here, "../src/theme-catalog.js");
 
 const CATALOG = "packages/ui/src/theme/theme-catalog.json";
-const WINDOWS_LOOKS = "crates/client-core/src/skin/catalog/windows_looks.rs";
+const WINDOWS_LOOKS = "crates/client-services/src/skin/catalog/windows_looks.rs";
 const COLOR = /^#[0-9A-F]{6}([0-9A-F]{2})?$/;
 const PALETTE_SLOTS = ["surface", "border", "text", "number", "secondary", "accent", "selected", "selected_text", "selected_number", "hover"];
 const LOOK_SLOTS = ["surface", "border", "text", "number", "accent", "selected", "hover"];

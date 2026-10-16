@@ -1,19 +1,18 @@
 import Foundation
 
-/// 英文候选是补全,不是上屏:文档里已经有敲进去的那几个字母了,选中一个候选意味着把它们换成整词。
+/// 文档里保留真实按键；接受共享引擎给出的纠错时，只替换光标前这一词。
 enum EnglishSuggestionPolicy {
   struct Replacement: Equatable {
     let deleteCount: Int
     let insert: String
   }
 
-  /// Read Latin letters from the cursor backwards, normalizing full-width forms for the packaged
-  /// English dictionary. Unicode letters such as Han or kana must be boundaries.
+  /// 从光标向前读字母及词内撇号，全角字母规范成 ASCII；汉字、假名等是边界。
   static func currentWord(before context: String) -> String {
     var letters: [Character] = []
     for character in context.reversed() {
       let normalized: Character?
-      if character.isASCII && character.isLetter {
+      if character == "'" || (character.isASCII && character.isLetter) {
         normalized = character
       } else if character.unicodeScalars.count == 1,
                 let scalar = character.unicodeScalars.first,

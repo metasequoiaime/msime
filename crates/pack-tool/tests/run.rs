@@ -839,7 +839,7 @@ fn hash_prints_the_content_hash_the_grants_bind() {
     let (pack, _) = pack_and_fixture(files.path(), COMMIT_THEN_RETRACT);
     let (status, out, err) = invoke(&[Path::new("hash"), &pack]);
     assert_eq!((status, err.as_str()), (EXIT_OK, ""));
-    let expected = msime_client_core::plugins::script_pack::content_hash(
+    let expected = msime_client_services::plugins::script_pack::content_hash(
         PACK_MANIFEST.as_bytes(),
         &binary_module(),
     );

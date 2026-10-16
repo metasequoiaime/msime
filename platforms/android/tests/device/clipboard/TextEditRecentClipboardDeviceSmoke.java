@@ -14,13 +14,13 @@ import java.util.function.Predicate;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** #8104：在真实编辑器里操作面板的全选、复制和剪切，检查顶部预览与返回键。 */
+/** #8104、#8175：在真实编辑器里检查选择状态、全选复制剪切、顶部预览与返回键。 */
 public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
     private static final String TEXT = "synthetic-copy-alpha";
     private static final String PREVIEW = "粘贴最近复制的内容：" + TEXT;
 
     @Override protected String successDescription() {
-        return "copy/cut preview in text edit panel, paste, stable bounds, return and disabled suggestions";
+        return "selection mode label, selection extension, copy/cut preview, paste, stable bounds, return and disabled suggestions";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -48,6 +48,15 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
             stage = "prepare editor before opening panel";
             openPanel();
             Rect before = bounds(awaitStableBounds(described("文本编辑面板")));
+            stage = "selection label follows selection mode";
+            click("选择模式");
+            await(described("取消选择").and(node -> equalsText("取消选择", node.getText()) && node.isSelected()));
+            click("光标左移");
+            await(field("msime-test-plain").and(node -> node.getTextSelectionStart() != node.getTextSelectionEnd()));
+            click("取消选择");
+            await(described("选择模式").and(node -> equalsText("选择", node.getText()) && !node.isSelected()));
+            click("光标右移");
+            await(field("msime-test-plain").and(node -> node.getTextSelectionStart() == node.getTextSelectionEnd()));
             stage = "select all using panel";
             click("全选");
             stage = "copy using panel";

@@ -53,9 +53,9 @@ int main(int argc, char **argv) {
     expect(sink, "_JapaneseEnterCommitsCandidate(capturedModifiers)", true, "Enter asks whether the conversion is running");
     expect(sink, "_candidateMode == CANDIDATE_ORIGINAL || japaneseCandidateEnter", true, "the candidate Enter carries CandidateActive to the Server");
     expect_before(sink, "const bool japaneseCandidateEnter", "WriteDataToNamedPipe(Global::Keycode", "the Enter route is decided before the key is sent");
-    // 排队中的空格不能让投影以为组字已经结束，否则紧跟着的空格或回车会被漏给应用。
+    // 日语空格的初始投影保留组字；实际 Fallback 上屏后的尾键归属由延迟分类行为回归验证。
     expect_before(sink, "msime::windows::scheme::Japanese)\n        {\n            break;\n        }",
-                  "commits and ends the composition rather than merely opening a list.\n        clearComposition();",
+                  "        clearComposition();\n        break;\n    case FUNCTION_CANCEL:",
                   "a queued Japanese Space keeps the projected composition instead of clearing it");
 
     const std::string composer = read(root + "/../src/ipc/ReplyComposer.cpp");

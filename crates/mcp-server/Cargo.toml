@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 msime-client-core = { path = "../client-core" }
+msime-client-services = { path = "../client-services" }
 msime-host-api = { path = "../host-api" }
 # client: the command line calls the server in process, as an MCP client would.
 rmcp = { version = "3.4.1", default-features = false, features = ["server", "client", "macros", "transport-io"] }

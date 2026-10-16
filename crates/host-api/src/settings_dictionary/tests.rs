@@ -1,6 +1,6 @@
 use super::*;
 use msime_client_core::cloud::dictionary::MAX_IMPORT_BYTES;
-use msime_client_core::dictionary::import::{ImportEntry, ImportIssue, MAX_ENTRIES};
+use msime_client_services::dictionary::import::{ImportEntry, ImportIssue, MAX_ENTRIES};
 use std::collections::{BTreeSet, HashSet};
 
 /// The host's `import` operation as far as batching can see it: the 64 KiB request bound, the shared parser with its row and byte limits, one Engine receipt per row that makes a replayed request a no-op, and the whole-request refusal when the Engine takes none of the rows.

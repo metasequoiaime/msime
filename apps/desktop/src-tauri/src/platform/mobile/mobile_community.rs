@@ -2,24 +2,24 @@
 //!
 //! Both targets used to carry their own copy of these commands, identical apart from the account storage type the services authenticate through. The services live in [`MobileCommunityState`], which each target's setup manages next to its own account state; the session they share is the target's account session.
 
-use msime_client_core::account::{AccountError, BackendAccountClient, BackendAccountSession};
-use msime_client_core::community::report::{
+use msime_client_core::preferences::TouchKeyboardSkinDesign;
+use msime_client_services::account::{AccountError, BackendAccountClient, BackendAccountSession};
+use msime_client_services::community::report::{
     BackendCommunityReportService, CommunityReport, CommunityReportKind, CommunityReportReason,
 };
-use msime_client_core::community::resource::CommunityResource;
-use msime_client_core::community::resource_library::{
+use msime_client_services::community::resource::CommunityResource;
+use msime_client_services::community::resource_library::{
     CommunityResourceLibraryError, CommunityResourceLibraryStore,
 };
-use msime_client_core::preferences::TouchKeyboardSkinDesign;
-use msime_client_core::skin::ai::{AiSkinError, AiSkinProposal, BackendAiSkinService};
-use msime_client_core::skin::category::SkinCategory;
-use msime_client_core::skin::community::{
+use msime_client_services::skin::ai::{AiSkinError, AiSkinProposal, BackendAiSkinService};
+use msime_client_services::skin::category::SkinCategory;
+use msime_client_services::skin::community::{
     BackendCommunitySkinService, CommunitySkin, CommunitySkinPage,
 };
-use msime_client_core::skin::custom_library::{
+use msime_client_services::skin::custom_library::{
     CustomSkinLibraryError, CustomSkinLibraryStore, SavedTouchKeyboardSkin,
 };
-use msime_client_core::skin::keyboard_trial::{
+use msime_client_services::skin::keyboard_trial::{
     KeyboardSkinTrial, KeyboardSkinTrialError, KeyboardSkinTrialStore,
 };
 use serde::Serialize;

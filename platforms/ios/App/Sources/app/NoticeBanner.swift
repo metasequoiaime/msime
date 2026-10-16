@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 在应用首页顶部以可关闭卡片显示的通知，样式同 设置 页的分组卡片。首页在出现或应用回到前台时加载列表（AppNotices.load）；client-core 每分钟最多向服务器请求一次。
+/// 在应用首页顶部以可关闭卡片显示的通知，样式同 设置 页的分组卡片。首页在出现或应用回到前台时加载列表（AppNotices.load）；client-services 每分钟最多向服务器请求一次。
 struct NoticeBanner: View {
   let notice: AppNotice
   let dismiss: () -> Void

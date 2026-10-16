@@ -225,7 +225,7 @@ pub fn is_secure_endpoint(endpoint: &str) -> bool {
     if !crate::text::is_bounded_text(endpoint, 2048) {
         return false;
     }
-    let Ok(url) = reqwest::Url::parse(endpoint) else {
+    let Ok(url) = url::Url::parse(endpoint) else {
         return false;
     };
     match url.scheme() {
@@ -261,7 +261,7 @@ pub fn endpoint_issue(endpoint: &str) -> &'static str {
     {
         return "接口地址不能包含控制字符。";
     }
-    let Ok(url) = reqwest::Url::parse(endpoint) else {
+    let Ok(url) = url::Url::parse(endpoint) else {
         return "请填写以 http:// 或 https:// 开头的完整接口地址。";
     };
     // `new URL` 的 username、password、hash 和 hostname 为空字符串时不算有。
@@ -294,7 +294,7 @@ pub struct CustomTranslationRequest {
 
 /// 地址是否指向 DeepL 官方 API：https、默认端口，主机名恰好是 `api.deepl.com` 或 `api-free.deepl.com`。只看主机名，不看路径：自建 DeepLX 也提供 `/v2/translate`，按路径识别会改掉这些用户现有的请求格式。
 pub fn is_deepl_api_endpoint(endpoint: &str) -> bool {
-    let Ok(url) = reqwest::Url::parse(endpoint) else {
+    let Ok(url) = url::Url::parse(endpoint) else {
         return false;
     };
     // `Url` 会把写明的 443 当作默认端口去掉，所以 `port()` 为空即默认端口。
@@ -448,9 +448,13 @@ fn value_as_text(value: &Value) -> Option<String> {
         .map(str::to_owned)
         .or_else(|| {
             value.as_object().and_then(|object| {
-                ["text", "translation", "data"]
-                    .iter()
-                    .find_map(|key| object.get(*key).and_then(Value::as_str).map(str::to_owned))
+                ["text", "translation", "data"].iter().find_map(|key| {
+                    object
+                        .get(*key)
+                        .and_then(Value::as_str)
+                        .filter(|text| !text.is_empty())
+                        .map(str::to_owned)
+                })
             })
         })
         .filter(|text| !text.is_empty())
@@ -580,6 +584,70 @@ mod tests {
             parse_translation_response(r#"{"data":"first","translation":"second"}"#).as_deref(),
             Some("first")
         );
+    }
+
+    #[test]
+    fn translation_object_fallback_skips_empty_text_aliases() {
+        for value in [
+            serde_json::json!({"text":"", "translation":"synthetic"}),
+            serde_json::json!({"text":"", "data":"synthetic"}),
+            serde_json::json!({"translation":"", "data":"synthetic"}),
+            serde_json::json!({"text":"", "translation":"", "data":"synthetic"}),
+        ] {
+            for mut document in [
+                serde_json::json!({"data":value}),
+                serde_json::json!({"translation":value}),
+                serde_json::json!({"result":[value]}),
+                serde_json::json!({"translations":[value]}),
+            ] {
+                for code in [
+                    Value::Null,
+                    serde_json::json!(200),
+                    serde_json::json!("200"),
+                ] {
+                    if !code.is_null() {
+                        document["code"] = code;
+                    }
+                    let response = document.to_string();
+                    assert!(!translation_response_failed(&response), "{response}");
+                    assert_eq!(
+                        parse_translation_response(&response).as_deref(),
+                        Some("synthetic"),
+                        "{response}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn translation_object_fallback_preserves_priority_and_empty_answers() {
+        for (response, expected) in [
+            (
+                r#"{"data":{"text":"first","translation":"second","data":"third"}}"#,
+                Some("first"),
+            ),
+            (
+                r#"{"data":{"text":"","translation":"second","data":"third"}}"#,
+                Some("second"),
+            ),
+            (r#"{"data":{"text":"","translation":"","data":""}}"#, None),
+            (r#"{"data":[{"text":""},{"translation":"second"}]}"#, None),
+            (
+                r#"{"error":"synthetic failure","data":{"text":"","translation":"second"}}"#,
+                None,
+            ),
+            (
+                r#"{"code":500,"data":{"text":"","translation":"second"}}"#,
+                None,
+            ),
+        ] {
+            assert_eq!(
+                parse_translation_response(response).as_deref(),
+                expected,
+                "{response}"
+            );
+        }
     }
 
     #[test]

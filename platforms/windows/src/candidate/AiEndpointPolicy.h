@@ -1,8 +1,8 @@
 #pragma once
 
-// AI 辅助接口地址的传输策略，与 crates/client-core/src/ai/endpoint.rs 一致：https 不限主机；http 只能指向本机或局域网（回环、RFC 1918、100.64.0.0/10、169.254.0.0/16、fe80::/10、fc00::/7、`.local`），公网主机必须走 https，API Token 不能明文经过互联网。这里不做 DNS 解析，除 `localhost` 和 `.local` 以外的域名一律按公网处理。用例在 shared/contracts/ai-endpoint/cases.json，windows-ai-endpoint-policy 逐条跑。
+// AI 辅助接口地址的传输策略，与 crates/client-providers/src/ai/endpoint.rs 一致：https 不限主机；http 只能指向本机或局域网（回环、RFC 1918、100.64.0.0/10、169.254.0.0/16、fe80::/10、fc00::/7、`.local`），公网主机必须走 https，API Token 不能明文经过互联网。这里不做 DNS 解析，除 `localhost` 和 `.local` 以外的域名一律按公网处理。用例在 shared/contracts/ai-endpoint/cases.json，windows-ai-endpoint-policy 逐条跑。
 //
-// 请求描述里的地址是用户填写的原文，client-core 已经按 WHATWG 规则检查过；这里是发请求前的第二道关，只认规范写法。非常规写法（十六进制、省略段或带前导零的 IPv4）一律不当作局域网地址：它们在 curl 和系统解析器里可能被解释成另一个地址。
+// 请求描述里的地址是用户填写的原文，client-providers 已经按 WHATWG 规则检查过；这里是发请求前的第二道关，只认规范写法。非常规写法（十六进制、省略段或带前导零的 IPv4）一律不当作局域网地址：它们在 curl 和系统解析器里可能被解释成另一个地址。
 
 #include <algorithm>
 #include <cctype>

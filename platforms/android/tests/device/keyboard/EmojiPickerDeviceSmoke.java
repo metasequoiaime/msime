@@ -1,17 +1,21 @@
 package app.msime.android.test;
 
 import android.content.Intent;
+import android.graphics.Rect;
 import android.os.SystemClock;
+import android.view.InputDevice;
+import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.util.function.Predicate;
 
-/** Device-only acceptance for the dedicated, paged Apple-style emoji browser. */
+/** 表情面板的分类布局、真实滑动、分页和上屏设备验收。 */
 public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "composition order, category pages, insertion, deletion, recents and restart";
+        return "category width, horizontal gestures, vertical pages, insertion, deletion, recents and restart";
     }
 
     @Override protected void runChecks() throws Exception {
+        restartIme();
         openEditor();
         stage = "emoji composition";
         tap(key("n"));
@@ -28,6 +32,17 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         await(description("表情面板"));
         stage = "emoji panel stays inside the keyboard";
         assertPanelBelowEditor();
+        stage = "emoji categories use the former ABC space";
+        AccessibilityNodeInfo panel = await(description("表情面板"));
+        if (find(panel, node -> equalsText("ABC", node.getText())) != null)
+            throw new AssertionError("Emoji panel still contains the duplicate ABC return key");
+        Rect panelBounds = new Rect();
+        Rect categoryBounds = new Rect();
+        panel.getBoundsInScreen(panelBounds);
+        await(description("表情分类")).getBoundsInScreen(categoryBounds);
+        int chromeWidth = Math.round(90 * getTargetContext().getResources().getDisplayMetrics().density);
+        if (categoryBounds.width() < panelBounds.width() - chromeWidth)
+            throw new AssertionError("Emoji categories did not receive the freed return-key width");
 
         stage = "emoji category navigation";
         tap(description("表情分类 笑脸"));
@@ -45,6 +60,42 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         int firstPage = emojiCountOf(grid);
         if (!grid.isScrollable()) throw new AssertionError("Emoji grid was not scrollable");
 
+        stage = "horizontal category gestures do not insert emoji";
+        String beforeSwipe = await(field("msime-test-plain")).getText().toString();
+        swipe(-1, false);
+        await(description("表情分类 人物").and(AccessibilityNodeInfo::isSelected));
+        await(emojiCount(value -> value > 0));
+        assertEditorText(beforeSwipe);
+        swipe(1, false);
+        await(description("表情分类 笑脸").and(AccessibilityNodeInfo::isSelected));
+        await(emojiCount(value -> value > 0));
+        assertEditorText(beforeSwipe);
+        stage = "first category and recents boundary";
+        boolean hasRecents = find(await(description("表情面板")), description("表情分类 最近")) != null;
+        String firstCategory = hasRecents ? "最近" : "笑脸";
+        swipe(1, false);
+        await(description("表情分类 " + firstCategory).and(AccessibilityNodeInfo::isSelected));
+        swipe(1, false);
+        await(description("表情分类 " + firstCategory).and(AccessibilityNodeInfo::isSelected));
+        assertEditorText(beforeSwipe);
+        tap(description("表情分类 笑脸"));
+        stage = "cancelled horizontal gesture keeps category";
+        swipe(-1, false, true);
+        await(description("表情分类 笑脸").and(AccessibilityNodeInfo::isSelected));
+        assertEditorText(beforeSwipe);
+        stage = "last category does not wrap";
+        tap(description("表情分类 旗帜"));
+        await(description("表情分类 旗帜").and(AccessibilityNodeInfo::isSelected));
+        swipe(-1, false);
+        await(description("表情分类 旗帜").and(AccessibilityNodeInfo::isSelected));
+        assertEditorText(beforeSwipe);
+        tap(description("表情分类 笑脸"));
+        await(emojiCount(value -> value > 0));
+        stage = "vertical gesture keeps the selected category";
+        swipe(-1, true);
+        await(description("表情分类 笑脸").and(AccessibilityNodeInfo::isSelected));
+        assertEditorText(beforeSwipe);
+
         stage = "emoji page advance";
         for (int attempt = 0; attempt < 8; attempt++) {
             grid = await(description("表情网格；每行八个"));
@@ -56,7 +107,7 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         stage = "emoji insertion";
         tap(description("按键 表情 😀"));
         stage = "emoji panel return";
-        tap(description("返回键盘"));
+        tap(description("表情"));
         await(description("表情").and(AccessibilityNodeInfo::isClickable));
         AccessibilityNodeInfo editor = await(field("msime-test-plain").and(node ->
             node.getText() != null && node.getText().toString().endsWith("😀")
@@ -87,6 +138,37 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         await(description("按键 表情 😀").and(AccessibilityNodeInfo::isClickable));
         tap(description("返回键盘"));
         await(key("n").and(AccessibilityNodeInfo::isClickable));
+    }
+
+    private void assertEditorText(String expected) throws Exception {
+        await(field("msime-test-plain").and(node -> equalsText(expected, node.getText())));
+    }
+
+    /** 在网格内注入完整触摸轨迹，横划经过表情按钮，检查父容器确实取消点击。 */
+    private void swipe(int direction, boolean vertical) throws Exception {
+        swipe(direction, vertical, false);
+    }
+
+    private void swipe(int direction, boolean vertical, boolean cancel) throws Exception {
+        Rect grid = new Rect();
+        await(description("表情网格；每行八个")).getBoundsInScreen(grid);
+        float startX = vertical ? grid.centerX() : grid.left + grid.width() * (direction < 0 ? .8f : .2f);
+        float startY = vertical ? grid.top + grid.height() * .8f : grid.centerY();
+        float endX = vertical ? startX : grid.left + grid.width() * (direction < 0 ? .2f : .8f);
+        float endY = vertical ? grid.top + grid.height() * .2f : startY;
+        long downTime = SystemClock.uptimeMillis();
+        for (int step = 0; step <= 12; step++) {
+            int action = step == 0 ? MotionEvent.ACTION_DOWN : step == 12
+                ? (cancel ? MotionEvent.ACTION_CANCEL : MotionEvent.ACTION_UP) : MotionEvent.ACTION_MOVE;
+            float fraction = step / 12f;
+            MotionEvent event = MotionEvent.obtain(downTime, downTime + step * 20, action,
+                startX + (endX - startX) * fraction, startY + (endY - startY) * fraction, 0);
+            event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+            try {
+                if (!automation.injectInputEvent(event, true)) throw new AssertionError("Emoji gesture injection failed");
+            } finally { event.recycle(); }
+        }
+        SystemClock.sleep(300);
     }
 
     /** 表情面板覆盖整屏的回归：面板顶边必须在输入框底边之下，即仍在键盘窗口里。 */

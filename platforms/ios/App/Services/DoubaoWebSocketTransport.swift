@@ -32,7 +32,7 @@ struct DoubaoHandshake {
   }
 }
 
-/// iOS host-side WebSocket lifecycle for the injected client-core voice transport.
+/// iOS 宿主侧的 WebSocket 生命周期，供注入的 client-providers 语音传输使用。
 final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate, DoubaoVoiceTransport {
   enum Failure: Error { case notConnected, closed }
 

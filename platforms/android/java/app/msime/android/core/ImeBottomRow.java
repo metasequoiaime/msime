@@ -13,7 +13,7 @@ import app.msime.android.KeyboardGeometry;
 import android.widget.LinearLayout;
 
 /**
- * 键盘底行：按 {@link KeyboardActionRow#designEntries} 排布 123 | ， | 空格 | 。 | 中 | ↵（拼音九键和笔画键盘是 符 | 123 | 空格 | 中 | ↵；地球键只在系统允许切换输入法时插在 123 之后），空格键的长按语音与拖动移光标，回车键始终 accent 填充。
+ * 键盘底行：按 {@link KeyboardActionRow#designEntries} 排布 123 | ， | 空格 | 。 | 中 | ↵（14 键、手写和大千注音；26 键一族、拼音九键和笔画键盘是 符 | 123 | 空格 | 中 | ↵；地球键只在系统允许切换输入法时插在 123 之后），空格键的长按语音与拖动移光标，回车键始终 accent 填充。
  *
  * <p>空格与回车换成画图标的 {@link SpaceKeyFace} / {@link KeyboardIconKey}：SVC 建的原按钮留作点击的执行者（它带着计数、反馈与动作），新键点一下就让原按钮 performClick，所以 SVC 里的动作不必搬动；节点 text 照旧由 SVC 设置（「空格」、「换行/确认/…」）。
  */
@@ -21,6 +21,8 @@ final class ImeBottomRow {
     private final MSIMEInputService s;
     /** 底行的句号键（新设计里逗号右侧那个）；第一次排布时建。 */
     private Button periodButton;
+    /** 九键数字层的唯一 0，普通层不挂载。 */
+    private Button zeroButton;
     /** 分离式键盘右半边内侧的第二个空格键；第一次分离时建，换了一套控件（onCreateInputView）时作废重建。 */
     private SpaceKeyFace splitSpace;
 
@@ -288,9 +290,19 @@ final class ImeBottomRow {
             case GLOBE -> s.globeButton;
             case COMMA -> s.quickPunctuationButton;
             case SPACE -> s.spaceButton;
+            case ZERO -> zeroButton();
             case PERIOD -> periodButton();
             case RETURN -> s.enterButton;
         };
+    }
+
+    private Button zeroButton() {
+        if (zeroButton == null) {
+            zeroButton = s.keyId(s.nineKeyGridKey("0", "数字 0",
+                () -> s.imeLayoutRows.commitNineKeyLiteral("0")), "Nine0");
+            KeyboardTypographyPolicy.setFittedKeyTextSize(zeroButton, 14, 22);
+        }
+        return zeroButton;
     }
 
     /** 底行句号键：中文标点模式画「。」，否则「.」；发出的都是 `.`，由 Engine 按标点模式转换。 */
@@ -308,13 +320,7 @@ final class ImeBottomRow {
             && ImeLetterRows.drawsDesignLayer(s.imeLetterRows.drawnTouchLayout());
     }
 
-    /**
-     * Lay the bottom row out for the surface on screen.
-     *
-     * <p>Every control here is a long-lived field with its own listeners and state, so the row is
-     * re-parented rather than rebuilt: a fresh set of buttons each time would drop the space key's
-     * cursor gesture and the delete key's repeat.
-     */
+    /** 按当前键面重挂常驻按键，保留空格手势与删除连按的状态和监听器。 */
     void updateActionRow() {
         if (s.actionRow == null) return;
         ensureFaces();
@@ -333,7 +339,10 @@ final class ImeBottomRow {
             // type('.') 没有会话时也会直接上屏字面句点（密码框等），与旁边的逗号键一致。
             ViewPolicy.setEnabled(periodButton, s.connection != null);
         }
-        if (s.spaceButton instanceof SpaceKeyFace face) face.setSchemeLabel(spaceLabel());
+        boolean nineKeyDigits = layout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT
+            && s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
+        if (s.spaceButton instanceof SpaceKeyFace face)
+            face.setSchemeLabel(nineKeyDigits ? "" : spaceLabel());
         syncSplitSpace();
         if (s.globeButton != null) s.globeButton.setContentDescription("切换输入法");
         // Every keystroke reaches render(), and re-parenting eight keys under the pressed one is a
@@ -341,10 +350,10 @@ final class ImeBottomRow {
         // 分离时空格拆成两半、空隙按可见键居中，所以常用标点键显示与否也会改变排布。
         boolean split = !ownBottom && s.splitKeyboardDrawn();
         boolean swapLanguageNumber = s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
-        String signature = layout + ":" + globe + ":" + ownBottom + ":" + split + ":" + swapLanguageNumber
+        String signature = layout + ":" + globe + ":" + ownBottom + ":" + split + ":" + swapLanguageNumber + ":" + nineKeyDigits
             + (split && s.quickPunctuationButton != null ? ":" + s.quickPunctuationButton.getVisibility() : "");
         java.util.List<KeyboardActionRow.DesignEntry> entries = ownBottom ? java.util.List.of()
-            : KeyboardActionRow.designEntries(layout, globe, swapLanguageNumber);
+            : KeyboardActionRow.designEntries(layout, globe, swapLanguageNumber, nineKeyDigits);
         // Visibility is re-asserted every time: the reply surface hides this row and restores it
         // without the surface itself having changed.
         ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());
@@ -366,7 +375,7 @@ final class ImeBottomRow {
             if (key.getParent() instanceof android.view.ViewGroup parent) parent.removeView(key);
             KeyboardKeyRole role = switch (entry.slot()) {
                 case RETURN -> returnKeyRole();
-                case SPACE, COMMA, PERIOD -> KeyboardKeyRole.KEY;
+                case SPACE, ZERO, COMMA, PERIOD -> KeyboardKeyRole.KEY;
                 default -> KeyboardKeyRole.ACCENT;
             };
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(role);

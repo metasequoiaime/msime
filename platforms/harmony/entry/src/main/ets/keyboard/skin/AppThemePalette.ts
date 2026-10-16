@@ -1,7 +1,7 @@
 /**
  * 应用主题（水杉四季 / 春芽 / 夏荫 / 秋杉 / 冬雪）在键盘上绘制时用到的颜色，按设计稿的 `color-mix` 公式（全平台 UI.dc.html 中的 `kbBase` 和 `logoBg` / `logoCirc`）从季节种子色推导而来。
  *
- * 种子色本身来自 `msime_client_resolve_app_theme`（crates/client-core/src/skin/app_theme.rs），季节规则和种子表都归它管，这里不保存任何一份副本。本文件负责的是设计稿在种子色之上计算出的展示层：`system` 键盘的背景、字母键和功能键，以及两种 logo 颜色。它移植自 platforms/android/java/app/msime/android/settings/AppThemePalette.java，两个宿主的取整方式一致，得出的颜色也一致。
+ * 种子色本身来自 `msime_client_resolve_app_theme`（crates/client-services/src/skin/app_theme.rs），季节规则和种子表都归它管，这里不保存任何一份副本。本文件负责的是设计稿在种子色之上计算出的展示层：`system` 键盘的背景、字母键和功能键，以及两种 logo 颜色。它移植自 platforms/android/java/app/msime/android/settings/AppThemePalette.java，两个宿主的取整方式一致，得出的颜色也一致。
  *
  * 这里所有颜色都是 ArkUI 顺序（`#RRGGBB`，或 alpha 在前的 `#AARRGGBB`），与经过 GlobalTheme 解析之后的其他颜色相同。
  */
@@ -127,7 +127,7 @@ export class AppThemePalette {
   }
 
   /**
-   * 填充了 `accent` 的元素上的文字和图标颜色，遵循共享层的规则（crates/client-core/src/skin/app_theme.rs 的 `colors`）：浅色模式为白色，深色模式为强调色与黑色按 25% 混合，因为深色模式下的浅强调色上放白色达不到对比度要求（在 #5FBF84 上约 2.3:1）。解析出的种子已经以 `on_accent` 带上这个值；这里用于没有解析出季节时的平台强调色。
+   * 填充了 `accent` 的元素上的文字和图标颜色，遵循共享层的规则（crates/client-services/src/skin/app_theme.rs 的 `colors`）：浅色模式为白色，深色模式为强调色与黑色按 25% 混合，因为深色模式下的浅强调色上放白色达不到对比度要求（在 #5FBF84 上约 2.3:1）。解析出的种子已经以 `on_accent` 带上这个值；这里用于没有解析出季节时的平台强调色。
    */
   static onAccent(accent: string, dark: boolean): string {
     return dark ? AppThemePalette.mix(accent, DARK_ON_ACCENT_ACCENT_PERCENT, BLACK) : WHITE;

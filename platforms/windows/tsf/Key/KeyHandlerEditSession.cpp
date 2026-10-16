@@ -75,7 +75,7 @@ STDAPI CKeyHandlerEditSession::DoEditSession(TfEditCookie ec)
         return S_FALSE;
     }
 
-    HRESULT hResult = S_OK;
+    HRESULT hResult = _KeyState.Function == FUNCTION_CANDIDATE_CONTINUATION ? E_FAIL : S_OK;
     PerfTimer doEditSessionTimer;
     LARGE_INTEGER freq, nowQpc;
     QueryPerformanceFrequency(&freq);
@@ -94,6 +94,7 @@ STDAPI CKeyHandlerEditSession::DoEditSession(TfEditCookie ec)
         KeyHandlerEditSessionDTO keyHandlerEditSessioDTO(ec, _pContext, _uCode, _wch, _KeyState.Function, _requestId,
                                                          _prefetchedText,
                                                          MapVirtualKeyW(_uCode, MAPVK_VK_TO_VSC));
+        keyHandlerEditSessioDTO.deferredReplayToken = _deferredReplayToken;
         hResult = pKeyStateCategory->KeyStateHandler(_KeyState.Function, keyHandlerEditSessioDTO);
         deferredReplayCompletion.applied = hResult == S_OK;
 
@@ -103,6 +104,11 @@ STDAPI CKeyHandlerEditSession::DoEditSession(TfEditCookie ec)
     {
         pKeyStateCategoryFactory->Release();
     }
+
+    if (_KeyState.Function == FUNCTION_CANDIDATE_CONTINUATION && hResult != S_OK &&
+        _pTextService->_IsFocusSessionCurrent(_focusToken, _pContext) &&
+        _pTextService->_IsCompositionEpochCurrent(_expectedCompositionEpoch))
+        MarkNamedpipeSessionDirtyForOwner(_pTextService);
 
     if (isLocalReset)
     {

@@ -135,6 +135,10 @@ fi
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.HelpcodeImportDeviceSmoke)
 printf '%s\n' "$result"
 [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Helpcode import acceptance failed" >&2; exit 1; }
+# 导航必须在原生宿主中验收，包含异步刷新后全部设置不重新出现状态卡。
+result=$(run_instrumentation app.msime.android.test/app.msime.android.test.ChatNavigationDeviceSmoke)
+printf '%s\n' "$result"
+[[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Native chat navigation acceptance failed" >&2; exit 1; }
 if [[ "$core" == true ]]; then
   bash platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
   echo "Dedicated Android AVD: install, resource setup, core typing and clipboard save lifecycle acceptance passed"
@@ -145,9 +149,14 @@ skipped_suites=()
 for entry in \
     "CandidatePanelDeviceSmoke|Candidate panel acceptance failed" \
     "MoreToolsDeviceSmoke|More tools acceptance failed" \
+    "ToolbarEdgesDeviceSmoke|Toolbar fixed edges acceptance failed" \
+    "ToolbarScrollDeviceSmoke|Toolbar swipe acceptance failed" \
     "EmojiPickerDeviceSmoke|Emoji picker acceptance failed" \
+    "EmojiCombinationLayoutDeviceSmoke|Combination emoji layout acceptance failed" \
+    "EmojiCombinationDeviceSmoke|Combination emoji input acceptance failed" \
     "PairedPunctuationDeviceSmoke|Paired punctuation acceptance failed" \
     "LetterHintPunctuationDeviceSmoke|Letter hint punctuation acceptance failed" \
+    "SuperscriptShortcutDeviceSmoke|Superscript shortcut acceptance failed" \
     "PreferencesDeviceSmoke|Preferences acceptance failed" \
     "ThemeModeDeviceSmoke|Theme mode acceptance failed" \
     "LanguageNumberKeySwapDeviceSmoke|Language/number key swap acceptance failed" \
@@ -156,7 +165,9 @@ for entry in \
     "FuzzyPinyinDeviceSmoke|Fuzzy pinyin acceptance failed" \
     "CandidateGlossDeviceSmoke|Candidate gloss acceptance failed" \
     "InitialKeyboardRowDeviceSmoke|Initial keyboard row acceptance failed" \
+    "NineKeyNumericLayoutDeviceSmoke|Nine-key numeric layout acceptance failed" \
     "NineKeyEnglishDeviceSmoke|Nine-key English acceptance failed" \
+    "EnglishCorrectionDeviceSmoke|Mobile English correction acceptance failed" \
     "NineKeyPanelDeviceSmoke|Nine-key panel acceptance failed" \
     "QuanpinSeparatorDeviceSmoke|Quanpin separator acceptance failed" \
     "FourteenKeyDeviceSmoke|Fourteen-key acceptance failed" \

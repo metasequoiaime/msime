@@ -59,5 +59,5 @@ char *msime_client_account_access_token(const uint8_t *request, size_t length);
 ## Verification
 
 - `apps/desktop/src-tauri/src/platform/desktop/desktop_cloud_dictionary.rs` 的测试用合成后端驱动账号分发、备份导出（不带 `fileSha256` / `engineRecords`）、恢复的校验和比对、macOS 专有操作的拒绝、状态目录推导和轮询节流；`desktop_account.rs` 的测试锁住旧会话文件的搬迁规则。
-- `crates/client-core/src/account/anonymous.rs` 的 `the_input_method_token_prefers_the_signed_in_account_over_the_anonymous_one` 锁住令牌选择顺序和退出后的回退，`concurrent_input_method_calls_refresh_the_anonymous_session_only_once` 锁住并发取令牌时匿名会话只刷新一次。
+- `crates/client-services/src/account/anonymous.rs` 的 `the_input_method_token_prefers_the_signed_in_account_over_the_anonymous_one` 锁住令牌选择顺序和退出后的回退，`concurrent_input_method_calls_refresh_the_anonymous_session_only_once` 锁住并发取令牌时匿名会话只刷新一次。
 - `apps/desktop/tests/core/desktop-host-services.test.ts`、`tests/input/mobile-host-capabilities.test.ts`、`tests/community/community-resources.test.tsx`、`tests/account/account-page.test.tsx` 锁住 Windows 客户端调用的命令、快照能力位、无皮肤画廊的社区首页、无回复键盘时的详情页和账号页入口。

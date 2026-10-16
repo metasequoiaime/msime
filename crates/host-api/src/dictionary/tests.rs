@@ -911,10 +911,12 @@ fn a_mobile_store_holding_a_digit_quick_phrase_still_exports_it() {
         .synchronize(
             |_| Ok(()),
             |_| {
-                Ok(msime_client_core::dictionary::personal::PersonalWordPage {
-                    entries: vec![legacy.clone()],
-                    has_more: false,
-                })
+                Ok(
+                    msime_client_services::dictionary::personal::PersonalWordPage {
+                        entries: vec![legacy.clone()],
+                        has_more: false,
+                    },
+                )
             },
         )
         .unwrap();
@@ -957,9 +959,7 @@ fn malformed_and_oversized_requests_are_redacted() {
 
 #[test]
 fn import_maps_shared_entries_onto_the_requested_engine_kind() {
-    // Row semantics are covered exhaustively in
-    // client-core::dictionary_import, which is unit-testable without the
-    // Engine. This asserts only the mapping this module is responsible for.
+    // 行的语义由 client-services 的 `dictionary::import` 完整覆盖，那里不需要 Engine 就能单测；这里只断言本模块负责的那层映射。
     let (standard, report) = parse_import(
         &Kind::Pinyin,
         "standard",
@@ -1006,7 +1006,7 @@ fn engine_backed_pinyin_import_resolves_lengths_and_reports_invalid_rows() {
     assert_eq!(report.first_failures[0].line, 2);
     assert_eq!(
         report.first_failures[0].issue,
-        msime_client_core::dictionary::import::ImportIssue::Pinyin
+        msime_client_services::dictionary::import::ImportIssue::Pinyin
     );
 
     let (wubi, _) = parse_import(&Kind::Wubi, "windows", "wq\t你好\t9\n", Some(&options)).unwrap();
