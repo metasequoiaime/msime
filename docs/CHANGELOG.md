@@ -39,6 +39,7 @@
 - 韩语组字时按 Option+Return（或小键盘 Enter）把正在组合的音节转换成汉字；只有单独的辅音或元音时这个键被吞掉，不上屏也不换行。
 - Sparkle 自动更新；`platforms/macos/scripts/install.sh` 完成重签名、原子替换与失败回滚，`platforms/macos/scripts/check_input_source.swift` 核查输入源注册。
 - 首次安装窗口：本机从未装过输入法时，设置应用先以一个小的安装窗口打开（图标、名称、「立即安装」），点击后按钮变成进度条，装好后「进入设置」恢复设置页窗口；已装过的机器不出现这个窗口，启动时照旧静默刷新。
+- 本机匿名账号的会话不会再因并发刷新被吊销：此前同一份 `anonymous-session.json` 有两个会话对象（候选释义等共用的 `BackendAnonymousAccount.session` 和账号窗口默认另建的一个），刷新都不加锁，可能先后用同一枚已轮换的刷新令牌去刷新，服务端随后吊销整个匿名会话。现在账号窗口沿用同一个会话对象，刷新时持 App Group 下的 `backend-account-refresh.lock`（与 iOS 相同，跨进程也互斥），并每次重新读存储。Swift 改写会话（刷新、更新资料）时也不再丢掉 Rust 写下的 `email` 和 `avatar_url`。
 
 #### Windows
 

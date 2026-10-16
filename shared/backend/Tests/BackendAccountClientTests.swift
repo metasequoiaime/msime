@@ -287,6 +287,26 @@ final class BackendAccountClientTests: XCTestCase {
     XCTAssertEqual(renamed.preferredDisplayName, "我的昵称")
   }
 
+  /// Rust's `AccountUser` writes `email` and `avatar_url` into the same stored session; a Swift rewrite must keep them, and must not invent them for an older document.
+  func testUserKeepsOptionalEmailAndAvatarAcrossARewrite() throws {
+    let full = Data(#"{"id":"synthetic-user","display_name":"","created_at":"2026-01-01T00:00:00Z","email":"person@example.test","avatar_url":"https://media.msime.app/avatars/synthetic.jpg"}"#.utf8)
+    let user = try JSONDecoder().decode(BackendAccountClient.User.self, from: full)
+    XCTAssertEqual(user.email, "person@example.test")
+    XCTAssertEqual(user.avatar_url, "https://media.msime.app/avatars/synthetic.jpg")
+    let rewritten = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(user)) as? [String: Any])
+    XCTAssertEqual(rewritten["email"] as? String, "person@example.test")
+    XCTAssertEqual(rewritten["avatar_url"] as? String, "https://media.msime.app/avatars/synthetic.jpg")
+
+    let old = Data(#"{"id":"synthetic-user","display_name":"","created_at":"2026-01-01T00:00:00Z"}"#.utf8)
+    let older = try JSONDecoder().decode(BackendAccountClient.User.self, from: old)
+    XCTAssertNil(older.email)
+    XCTAssertNil(older.avatar_url)
+    let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(older)) as? [String: Any])
+    XCTAssertNil(encoded["email"])
+    XCTAssertNil(encoded["avatar_url"])
+    XCTAssertEqual(Set(encoded.keys), ["id", "display_name", "created_at"])
+  }
+
   private func client() -> BackendAccountClient {
     let config = URLSessionConfiguration.ephemeral
     config.protocolClasses = [AccountProtocol.self]

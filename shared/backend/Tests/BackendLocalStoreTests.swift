@@ -185,4 +185,18 @@ final class BackendLocalStoreTests: XCTestCase {
       .write(to: directory.appendingPathComponent("session.json"))
     XCTAssertThrowsError(try BackendLocalStore(fileName: "session.json", directory: directory).load())
   }
+
+  func testSavedSessionKeepsTheEmailAndAvatarOfItsUser() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-user-test-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = BackendLocalStore(fileName: "session.json", directory: directory)
+    let user = BackendAccountClient.User(id: "synthetic-user", display_name: "", created_at: "2026-09-26",
+      email: "person@example.test", avatar_url: "https://media.msime.app/avatars/synthetic.jpg")
+    let tokens = BackendAccountClient.Tokens(access_token: String(repeating: "a", count: 64),
+      refresh_token: String(repeating: "b", count: 64), token_type: "Bearer", expires_in: 900, user: user)
+    try store.save(BackendSavedSession(tokens: tokens, expiresAt: Date().addingTimeInterval(900)))
+    let loaded = try XCTUnwrap(try store.load())
+    XCTAssertEqual(loaded.tokens.user.email, "person@example.test")
+    XCTAssertEqual(loaded.tokens.user.avatar_url, "https://media.msime.app/avatars/synthetic.jpg")
+  }
 }
