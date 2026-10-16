@@ -8938,9 +8938,11 @@ public final class MSIMEInputService extends InputMethodService {
         // 中文标点开关在 123 / #+= 层上切换了（工具面板、设置页、Ctrl + .）：这一层的标点按新状态重画。
         // 设置页开关了「数字行」：按新状态重建。
         // 拼音九键和九键双拼之间换了、或九键双拼换了表：同一个触屏布局，按新键面重建。
+        // 借用的数字九宫格上切了中/英：触屏布局没变，也要换回对应的键面。
         if (imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()
                 || imeLetterRows.layerPunctuationStale() || imeLetterRows.numberRowStale()
-                || imeLayoutRows.shuangpinStale() || imeLetterRows.languageNumberSwapStale())
+                || imeLayoutRows.shuangpinStale() || imeLetterRows.languageNumberSwapStale()
+                || imeLetterRows.numberPadStale())
             imeLetterRows.rebuildKeyRows();
         updateSymbolKeyFaces();
         updateLetterCornerHints();
@@ -9220,7 +9222,9 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (layerButton != null) {
             boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
-            layerButton.setText(KeyboardActionRow.layerTitle(displayedTouchLayout(view), symbols));
+            int layerLayout = displayedTouchLayout(view);
+            layerButton.setText(KeyboardActionRow.layerTitle(layerLayout, symbols,
+                symbols && imeLetterRows.numberPadDrawn(layerLayout)));
             layerButton.setContentDescription(KeyboardActionRow.layerDescription(symbols));
         }
         if (symbolPanelButton != null) {

@@ -86,6 +86,13 @@ public final class KeyboardActionRow {
         return touchLayout == KeyboardLayout.ZHUYIN_LAYOUT ? 1f : 1.6f;
     }
 
+    /** 借用数字九宫格时返回键按中文习惯印「拼音」（与 123 层的 {@link KeyboardLayout#lettersKeyTitle} 一致），专属键面仍印各自的短名。 */
+    public static String layerTitle(int touchLayout, boolean symbols, boolean chineseNumberPad) {
+        String title = layerTitle(touchLayout, symbols);
+        return chineseNumberPad && (touchLayout == KeyboardLayout.STANDARD_TOUCH_LAYOUT
+            || touchLayout == KeyboardLayout.HANDWRITING_LAYOUT) ? KeyboardLayout.lettersKeyTitle(true) : title;
+    }
+
     /** The face the layer key prints for the surface it switches. */
     public static String layerTitle(int touchLayout, boolean symbols) {
         if (!symbols) return "123";

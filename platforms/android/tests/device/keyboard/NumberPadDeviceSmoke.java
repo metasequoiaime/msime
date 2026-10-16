@@ -35,7 +35,7 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
             // 使用专用 AVD 的合成偏好和统计，不读写用户输入，也不继承自定义侧栏。
             publish(local, "{\"version\":1,\"settings\":{}}".getBytes(StandardCharsets.UTF_8));
             publish(statistics, "{\"enabled\":true,\"days\":{}}".getBytes(StandardCharsets.UTF_8));
-            long digitOnes = 0, nineOnes = 0;
+            long digitOnes = 0, nineOnes = 0, digitZeros = 0, nineZeros = 0;
             for (String[] layout : new String[][] {
                     {"quanpin", "quanpin", "twenty_six_key"},
                     {"xiaohe", "shuangpin", "twenty_six_key"},
@@ -112,11 +112,17 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                     await(key("#+="));
                 }
                 // 保留同一份累计文档，避免清空文件与旧服务的异步刷盘争用；每轮检查精确增量。
-                if (layout[0].equals("nine_key")) nineOnes++;
-                else digitOnes += layout[0].equals("quanpin") ? (fullwidth ? 3 : 4) : 1;
+                if (layout[0].equals("nine_key")) {
+                    nineOnes++;
+                    nineZeros++;
+                } else {
+                    digitOnes += layout[0].equals("quanpin") ? (fullwidth ? 3 : 4) : 1;
+                    // 底行常驻的 0 跟随当前键面登记，借用数字页不能记成 Nine0。
+                    digitZeros += layout[0].equals("quanpin") ? 3 : 1;
+                }
                 stage = layout[0] + " ordinary versus nine-key statistics";
                 shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
-                awaitKeyStatistics(statistics, digitOnes, nineOnes);
+                awaitKeyStatistics(statistics, digitOnes, nineOnes, digitZeros, nineZeros);
             }
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
@@ -181,19 +187,24 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
         return false;
     }
 
-    private void awaitKeyStatistics(File file, long expectedDigits, long expectedNine) throws Exception {
+    private void awaitKeyStatistics(File file, long expectedDigits, long expectedNine,
+            long expectedDigitZeros, long expectedNineZeros) throws Exception {
         long deadline = SystemClock.uptimeMillis() + 15000;
         do {
             JSONObject days = new JSONObject(read(file)).optJSONObject("dailyKeys");
-            long digits = 0, nine = 0;
+            long digits = 0, nine = 0, digitZeros = 0, nineZeros = 0;
             if (days != null) for (var iterator = days.keys(); iterator.hasNext();) {
                 JSONObject keys = days.getJSONObject(iterator.next());
                 digits += keys.optLong("Digit1");
                 nine += keys.optLong("Nine1");
+                digitZeros += keys.optLong("Digit0");
+                nineZeros += keys.optLong("Nine0");
             }
-            if (digits > expectedDigits || nine > expectedNine)
+            if (digits > expectedDigits || nine > expectedNine
+                    || digitZeros > expectedDigitZeros || nineZeros > expectedNineZeros)
                 throw new AssertionError("Number pad counted the wrong layout's keys");
-            if (digits == expectedDigits && nine == expectedNine) return;
+            if (digits == expectedDigits && nine == expectedNine
+                    && digitZeros == expectedDigitZeros && nineZeros == expectedNineZeros) return;
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("Number pad key statistics were not flushed");

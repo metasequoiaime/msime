@@ -1,3 +1,4 @@
+import app.msime.android.InputSchemeTraits;
 import app.msime.android.KeyboardLayout;
 import app.msime.android.LetterKeyFacePolicy;
 import java.util.List;
@@ -15,6 +16,14 @@ public final class KeyboardLayoutSmoke {
             check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, layout, true, false));
         check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, 0, false, false));
         check(!KeyboardLayout.drawsNumberPad(KeyboardLayout.Layer.SYMBOLS, 0, true, true));
+        // 日文罗马字同样画 26 键，但 123 保留自己的符号层，与 iOS、HarmonyOS 一致。
+        check(!KeyboardLayout.numberPadLanguage(InputSchemeTraits.JAPANESE, false));
+        check(!KeyboardLayout.numberPadLanguage(InputSchemeTraits.VIETNAMESE, false));
+        check(!KeyboardLayout.numberPadLanguage(InputSchemeTraits.TIBETAN, false));
+        check(!KeyboardLayout.numberPadLanguage(InputSchemeTraits.QUANPIN, true));
+        for (int scheme : new int[] {InputSchemeTraits.QUANPIN, InputSchemeTraits.SHUANGPIN, InputSchemeTraits.WUBI,
+                InputSchemeTraits.CANTONESE, InputSchemeTraits.ZHUYIN, InputSchemeTraits.STROKE, -1})
+            check(KeyboardLayout.numberPadLanguage(scheme, false));
         List<List<String>> letters = KeyboardLayout.rows(KeyboardLayout.Layer.LETTERS);
         check(letters.size() == 3);
         check(letters.get(0).equals(List.of("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")));

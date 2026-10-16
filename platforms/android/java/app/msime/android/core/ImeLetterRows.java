@@ -47,7 +47,12 @@ final class ImeLetterRows {
     boolean numberPadDrawn(int layout) {
         boolean local = !"none".equals(InputViewValuePolicy.textOr(s.view, "local_mode", "none"));
         return !moreSymbols && KeyboardLayout.drawsNumberPad(s.keyboardLayer, layout,
-            !s.dedicatedEnglish && !s.letterCaseSchemeActive(), local);
+            KeyboardLayout.numberPadLanguage(InputViewValuePolicy.scheme(s.view, -1), s.dedicatedEnglish), local);
+    }
+
+    /** 键行是否按另一种数字页状态建成：在借用的数字页上切中/英、退出本地模式等不改变触屏布局，也要换回原键面。 */
+    boolean numberPadStale() {
+        return s.keyRows != null && builtNumberPad != numberPadDrawn();
     }
 
     /** 数字页的扩展符号入口，返回 123 后仍回到数字九宫格。 */
@@ -499,6 +504,7 @@ final class ImeLetterRows {
     }
 
     private boolean builtLanguageNumberSwap;
+    private boolean builtNumberPad;
 
     boolean languageNumberSwapStale() {
         return builtLanguageNumberSwap != s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
@@ -527,6 +533,7 @@ final class ImeLetterRows {
         secondRowLeadingIndent = null;
         secondRowTrailingIndent = null;
         if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS) moreSymbols = false;
+        builtNumberPad = numberPadDrawn();
         s.imeLayoutRows.hideJapaneseFlickPreview();
         s.deactivateHandwriting();
         s.symbolKeyButtons.clear();

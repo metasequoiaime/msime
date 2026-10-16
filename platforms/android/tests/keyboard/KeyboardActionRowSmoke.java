@@ -258,6 +258,14 @@ public final class KeyboardActionRowSmoke {
             "the digit page returns to 26 keys");
         check("九键".equals(KeyboardActionRow.layerTitle(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true)),
             "the digit page returns to the grid the user picked");
+        check("拼音".equals(KeyboardActionRow.layerTitle(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, true))
+                && "拼音".equals(KeyboardActionRow.layerTitle(KeyboardLayout.HANDWRITING_LAYOUT, true, true)),
+            "a borrowed Chinese number pad returns by the Chinese letters title");
+        check("九键".equals(KeyboardActionRow.layerTitle(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true, true))
+                && "14键".equals(KeyboardActionRow.layerTitle(KeyboardLayout.FOURTEEN_KEY_LAYOUT, true, true))
+                && "ABC".equals(KeyboardActionRow.layerTitle(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, false))
+                && "123".equals(KeyboardActionRow.layerTitle(KeyboardLayout.STANDARD_TOUCH_LAYOUT, false, false)),
+            "named faces keep their own return title");
         check("14键".equals(KeyboardActionRow.layerTitle(KeyboardLayout.FOURTEEN_KEY_LAYOUT, true)),
             "the fourteen-key keyboard returns from its digit page by name");
         check("123".equals(KeyboardActionRow.layerTitle(KeyboardLayout.KOREAN_LAYOUT, false))

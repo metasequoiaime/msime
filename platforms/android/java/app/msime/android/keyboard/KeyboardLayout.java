@@ -53,6 +53,11 @@ public final class KeyboardLayout {
             || layout == STROKE_LAYOUT || layout == ZHUYIN_NINE_KEY_LAYOUT);
     }
 
+    /** 数字九宫格只属于中文方案：日文罗马字、越南语、藏文等独立语言与 iOS、HarmonyOS 一样保留各自的符号层；视图还没给出方案时沿用中文默认。 */
+    public static boolean numberPadLanguage(int scheme, boolean english) {
+        return !english && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.isChinese(scheme));
+    }
+
     /**
      * 这一刻要不要在字母上方画数字行（#6022）：设置打开、在字母层、画的是标准 26 键一族或韩文两套式，并且窗口够高。九键、笔画、手写、日文假名网格和注音（大千的数字本身是注音键，注音 9 键是网格）都不画；123 / #+= 层也不画，它第一行本来就是数字；窗口低于 {@link #NUMBER_ROW_MIN_WINDOW_HEIGHT_DP}（横屏手机）时也不画，存着的设置不变，转回竖屏自动回来。
      *
