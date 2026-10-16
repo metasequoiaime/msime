@@ -282,7 +282,7 @@ private struct MainTabView: View {
         }.frame(width: 0, height: 0))
         .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(AppNavigation.Tab.settings)
       NavigationStack { CommunityHomeView() }.id(navigation.communityRoot)
-        .tabItem { Label("社区", systemImage: "person.3.fill") }.tag(AppNavigation.Tab.community)
+        .tabItem { Label("社区", systemImage: "globe.asia.australia.fill") }.tag(AppNavigation.Tab.community)
       NavigationStack { TypingStatisticsView() }
         .tabItem { Label("统计", systemImage: "chart.bar.fill") }.tag(AppNavigation.Tab.statistics)
       NavigationStack { AccountSettingsView() }

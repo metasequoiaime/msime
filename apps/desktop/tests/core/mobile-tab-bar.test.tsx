@@ -83,7 +83,7 @@ test("the phone tab bar is four tabs, each an icon over a word", async () => {
   // 鸿蒙画设计里的 Fluent 图标，是 24px 的 `currentColor` SVG，所以选中时取强调色。
   expect(icons.map((icon) => icon!.getAttribute("data-tab-icon"))).toEqual([
     "settings",
-    "people_community",
+    "globe",
     "data_bar_vertical",
     "person",
   ]);

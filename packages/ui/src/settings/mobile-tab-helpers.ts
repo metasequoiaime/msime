@@ -16,8 +16,8 @@ export function mobileTabIcon(id: string, icon: string): string {
 /** HarmonyOS 手机为每个底部标签页绘制的 Fluent 图标。 */
 export function harmonyTabIcon(id: string): FluentIconName | undefined {
   if (id === "home") return "settings";
-  // 与「我的」里「我发布的皮肤」那一行同一个字形。
-  if (id === "community") return "people_community";
+  // 地球与设置、统计、我的三个字形一样宽；people_community 三人并排明显更宽，仍留给「我的」里「我发布的皮肤」那一行。
+  if (id === "community") return "globe";
   if (id === "typing-statistics") return "data_bar_vertical";
   if (id === "account") return "person";
   return undefined;

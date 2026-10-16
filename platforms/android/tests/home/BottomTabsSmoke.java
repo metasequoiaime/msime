@@ -55,8 +55,8 @@ public final class BottomTabsSmoke {
         // 第二格是社区：标题、图标和根页。
         String menuSource = read(root, MENU);
         String strings = read(root, STRINGS);
-        check(menuSource.contains("<item android:id=\"@+id/tab_community\" android:icon=\"@drawable/ic_ms_groups\" android:title=\"@string/tab_community\" />"),
-            "the second bottom item uses the groups icon and the tab_community title");
+        check(menuSource.contains("<item android:id=\"@+id/tab_community\" android:icon=\"@drawable/ic_ms_public\" android:title=\"@string/tab_community\" />"),
+            "the second bottom item uses the narrow globe icon and the tab_community title");
         check(strings.contains("<string name=\"tab_community\">社区</string>"), "tab_community is titled 社区");
         check(!strings.contains("name=\"tab_skins\"") && !strings.contains("name=\"tab_allsettings\""),
             "the skin and all-settings tab titles are gone");

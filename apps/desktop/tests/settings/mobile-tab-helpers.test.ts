@@ -16,10 +16,10 @@ test("maps the settings tab icon and compact labels", () => {
   expect(mobileTabTitle("community", "社区")).toBe("社区");
 });
 
-// 第二格是「社区」：HarmonyOS 画的是「我的」里「我发布的皮肤」那一行同一个社区字形；遮罩图标沿用页面注册表里社区页的图标。皮肤页回到「设置」下面，标签栏上没有它，页名仍叫「皮肤」。
+// 第二格是「社区」：HarmonyOS 画地球字形，与另外三格一样宽；遮罩图标沿用页面注册表里社区页的图标。皮肤页回到「设置」下面，标签栏上没有它，页名仍叫「皮肤」。
 test("names the 社区 tab and draws the community glyph", () => {
-  expect(harmonyTabIcon("community")).toBe("people_community");
-  expect(fluentIconPaths.people_community).toBeDefined();
+  expect(harmonyTabIcon("community")).toBe("globe");
+  expect(fluentIconPaths.globe).toBeDefined();
   expect(mobilePageTitle("skin", "主题")).toBe("皮肤");
   expect(harmonyTabIcon("skin")).toBeUndefined();
   // 「全部设置」标签已去掉，`more` 不再有标签名或图标。

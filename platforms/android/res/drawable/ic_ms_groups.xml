@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Material Symbols「groups」（Apache 2.0），设计稿用于底部导航「社区」。默认着次要文字色，使用处可以另行着色。 -->
+<!-- Material Symbols「groups」（Apache 2.0），用于「我的 → 社区作品」；底部导航「社区」已换成更窄的 public（`ic_ms_public`）。默认着次要文字色，使用处可以另行着色。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
