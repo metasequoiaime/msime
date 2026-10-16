@@ -375,8 +375,7 @@ export class HarmonyAccountTransport implements AccountTransport {
       }
       const headers: HttpHeaders = { Accept: 'application/json', 'Content-Type': 'application/json' };
       if (token !== undefined) headers.Authorization = `Bearer ${token}`;
-      // Only the read side takes the caller's budget. Connecting is connecting on every endpoint, and
-      // a chat request to an unreachable host should still fail in seconds rather than in two minutes.
+      // 调用方的时间预算只用于读取；连接不可达主机时仍应在数秒内失败，而非等待两分钟。
       const options = noRedirectOptions({
         method: this.method(method),
         header: headers,

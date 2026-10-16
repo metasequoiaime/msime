@@ -195,8 +195,7 @@ class HarmonyTransport extends HarmonyAccountTransport {
       let endResolve: (() => void) | undefined = undefined;
       const ended: Promise<void> = new Promise<void>((resolve: () => void): void => {
         endResolve = resolve;
-        // `requestInStream` returns the status code; `dataEnd` is the SDK's explicit statement that
-        // the streamed body is complete. Waiting for both keeps the file open through the last chunk.
+        // `requestInStream` 返回状态码，`dataEnd` 表示流式正文完成；等待两者后再关闭文件，确保最后一块也写入。
         request.on('dataEnd', (): void => resolve());
       });
       installNoRedirectGuard(request, (): void => {
@@ -212,7 +211,7 @@ class HarmonyTransport extends HarmonyAccountTransport {
       });
       request.on('dataReceive', (chunk: ArrayBuffer): void => {
         const view: Uint8Array = new Uint8Array(chunk);
-        // The file is opened before the request starts streaming, but the closure cannot see that narrowing.
+        // 文件在开始接收流之前打开，但闭包内仍需单独收窄句柄类型。
         if (failed || handle === undefined || bytes + view.byteLength > maximumBytes || view.includes(0)) {
           failed = true;
           return;
@@ -229,8 +228,7 @@ class HarmonyTransport extends HarmonyAccountTransport {
         }
       });
       try {
-        // Open the destination inside the guarded region: if the picker URI or parent directory is
-        // unavailable, the request created above still needs to be destroyed.
+        // 在受保护的范围内打开目标文件：选择器 URI 或父目录不可用时，仍须销毁已创建的请求。
         handle = this.openSafeDestination(destination);
         const status: number = await request.requestInStream(`${ACCOUNT_ORIGIN}${path}`, options);
         await ended;

@@ -97,7 +97,7 @@ export class HarmonyLocalAsrRecognizer {
       recognizer.postMessage(request);
       this.requestPosted = true;
       if (this.finishing) {
-        // Released while the hotwords were still being read: nothing was recorded, so the session ends at once.
+        // 热词读取期间已被释放，尚未录音，直接结束会话。
         this.postFinish(id);
         return;
       }
@@ -180,7 +180,7 @@ export class HarmonyLocalAsrRecognizer {
   private sendAudio(id: number, data: ArrayBuffer): void {
     try {
       if (id !== this.sessionId || this.finishing || this.worker === undefined) return;
-      // The capturer may reuse its buffer, so a copy is what crosses to the worker, and it is transferred rather than copied again.
+      // 采集器可能复用缓冲区，先复制再把副本转移给工作线程，避免再次复制。
       const copy: ArrayBuffer = data.slice(0);
       const request: LocalAsrRequest = {
         type: 'audio', id: id, directory: '', root: '', language: '', hotwords: [], threads: 0, pcm: copy

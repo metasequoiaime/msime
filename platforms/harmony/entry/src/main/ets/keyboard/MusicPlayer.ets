@@ -282,7 +282,7 @@ export class MusicPlayer {
         MusicPlayer.dispose(player, undefined);
         return;
       }
-      // Held before the file is opened, so a track that cannot be opened lets this player go with the failure it reports.
+      // 打开文件前先持有播放器，以便文件打开失败时随错误一起释放。
       this.player = player;
       this.opening = false;
       const file: fs.File = MusicPlayer.openVerified(pack.tracks[index]);
@@ -304,12 +304,12 @@ export class MusicPlayer {
           player.setVolume(MusicPolicy.gain(this.settings));
           this.update();
         } else if (state === 'playing' || state === 'paused') {
-          // The session may have changed its mind while a play() or pause() was in flight; playback is brought to what it says now.
+          // `play()` 或 `pause()` 执行期间会话状态可能改变，完成后按最新状态同步播放。
           if (this.transport.settled(state)) {
             this.update();
           }
         } else if (state === 'stopped') {
-          // Another app took the audio focus and the system stopped this player. Letting it go frees its descriptor at once; the track is opened afresh on the next activation rather than now, so music does not take the focus straight back.
+          // 其他应用抢占音频焦点后立即释放播放器及描述符；下次激活时再打开曲目，避免立刻抢回焦点。
           this.release();
         } else if (state === 'completed') {
           this.advance(player);

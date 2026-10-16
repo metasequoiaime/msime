@@ -328,7 +328,7 @@ export class HarmonyTelemetry {
           try {
             if (fs.accessSync(staging)) fs.unlinkSync(staging);
           } catch {
-            // A failed telemetry write leaves at most its uniquely named staging file.
+            // 遥测写入失败时，最多留下以唯一名称创建的暂存文件。
           }
         }
       }

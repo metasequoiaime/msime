@@ -225,7 +225,7 @@ export class KeySoundPlayer {
         this.clearGeneration(generation);
         return;
       }
-      // Stamped before the packs are read, so a change while they are read is seen by the next recheck rather than missed.
+      // 读取音效包前先记录检查时间，让读取期间的变更能在下一轮被发现。
       const manifests: string[] = this.manifestPaths();
       this.manifests = manifests;
       this.stamp = KeySoundPlayer.stampOf(manifests);
@@ -259,7 +259,7 @@ export class KeySoundPlayer {
           this.settle(sound);
         }
       });
-      // A sample the pool cannot decode is reported here; it costs that one sound, not the others. A play that fails is what turns the sounds off.
+      // 单个样本解码失败只影响该音效；仅在播放失败时停用音效。
       pool.on('error', (error: Object): void => {
         if (generation === this.generation) {
           KeyboardLog.error(`key sound pool error: ${describeError(error)}`);

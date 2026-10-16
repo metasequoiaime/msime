@@ -5531,7 +5531,7 @@ export class KeyboardSession implements HardwareKeyTarget {
           try {
             if (fs.accessSync(staging)) fs.unlinkSync(staging);
           } catch {
-            // A failed private write may leave only its uniquely named staging file.
+            // 私有文件写入失败时，最多留下以唯一名称创建的暂存文件。
           }
         }
       }
@@ -5675,9 +5675,7 @@ export class KeyboardSession implements HardwareKeyTarget {
           }
         }
         this.writeCommonPhrasesMarker(marker, seeded);
-        // Seeding is deliberately a sequence of independently locked native operations. The settings
-        // process may edit the document between them, so do not return the last add response as if it
-        // were the complete current list; publish a fresh locked snapshot instead.
+        // 初始化依次执行各自加锁的原生操作；设置进程可能在操作间修改文档，因此重新加锁读取快照，不把最后一次添加的响应当作完整列表。
         document = KeyboardSession.commonPhrasesDocument(
           await KeyboardSession.commonPhrasesCall(directory, { operation: 'load' }));
       }
