@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-进度监听交给 `trackAsyncSubscription` 持有句柄，沿用其正常卸载、迟到注册释放和拒绝处理。组件继续直接调用宿主注册，事件仍由 `useAsyncGeneration(client, requestId)` 和 `requestRef` 一起判断归属，取消先使本地请求失效。生成、保存、发布和 UI 保持原样。
+进度监听交给 `trackAsyncSubscription` 持有句柄，沿用其正常卸载、迟到注册释放和拒绝处理。[AI 抽卡状态](2026-10-17-ai-skin-generation-state.md)的领域 hook 直接调用宿主注册，事件由服务会话与请求 ID 的代次和 `requestRef` 一起判断归属，取消先使本地请求失效。公共工具只管理订阅句柄，不接管抽卡状态。
 
 ## Existing notes audit
 
@@ -17,7 +17,7 @@ Status: implemented
 ## Alternatives considered
 
 - 只在原链尾加 `catch`。最强理由是修复缺陷的改动最少，生命周期不动；但句柄保存与迟到释放仍复制公共工具的完整实现，后续维护要继续同步。
-- 新建 AI 专用进度订阅 hook。最强理由是同时封装事件过滤与清理；但请求标识和取消由组件管理，其他进度客户端用资源 ID 而非请求 ID。现有公共清理工具覆盖真正相同的句柄生命周期，无需再造抽象。
+- 新建 AI 专用进度订阅 hook。最强理由是同时封装事件过滤与清理；但请求标识和取消由抽卡流程管理，其他进度客户端用资源 ID 而非请求 ID。现有公共清理工具覆盖真正相同的句柄生命周期，无需再造抽象。
 
 ## Verification
 

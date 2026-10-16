@@ -1,24 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { ControlledCheckbox } from "../core/controlled-checkbox";
-import { errorCode } from "../core/error-code";
 import { StatusMessage } from "../core/status-message";
 import { ActionButton } from "../core/action-button";
-import { trackAsyncSubscription } from "../core/async-subscription";
 import { fullScreenColumn, fullScreenSurface } from "../core/full-screen-style";
-import { randomRequestId } from "../core/random-id";
-import { aiSkinMessage, libraryError } from "./touch-keyboard-skin-errors";
-import { createAiSkinPrompt } from "./touch-keyboard-skin-ai";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
-import { boundTouchSkinArtwork } from "./touch-skin-images";
-import {
-  updateSavedTouchKeyboardSkinName,
-  type AiSkinClient,
-  type AiSkinProposal,
-  type CustomSkinLibraryClient,
-  type SavedTouchKeyboardSkin,
-  type TouchKeyboardSkinDesign,
-} from "./touch-keyboard-skin-design";
-import type { CommunitySkinClient } from "../community/community-skin-model";
+import type { TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
+import { useAiSkinGeneration, type UseAiSkinGenerationOptions } from "./use-ai-skin-generation";
 import {
   communitySkinCategories,
   communitySkinCategoryLabels,
@@ -27,8 +14,13 @@ import {
 import * as doc from "../settings/document-style";
 import * as community from "../community/community-style";
 import { SettingsPageHeader } from "../settings/settings-page-header";
-import { useAsyncGeneration } from "../settings/use-async-generation";
-import { useMountedRef } from "../settings/use-mounted-ref";
+
+export interface AiSkinGenerationProps extends UseAiSkinGenerationOptions {
+  fullScreen?: boolean;
+  useLabel?: string;
+  onUse: (design: TouchKeyboardSkinDesign) => void;
+  onClose: () => void;
+}
 
 /**
  * AI 皮肤抽卡：每次抽三款皮肤，每款都可以使用、保存到「我的皮肤」或发布。编辑器以对话框形式在页面上打开它。`fullScreen` 则把它呈现为独立视图，标题前带返回按钮，手机皮肤网格里的 AI 磁贴就是这样打开它的。`useLabel` 是把方案交给 `onUse` 的那个按钮的名称。
@@ -41,171 +33,34 @@ export function AiSkinGeneration({
   useLabel = "使用并继续编辑",
   onUse,
   onClose,
-}: {
-  client: AiSkinClient;
-  library: CustomSkinLibraryClient;
-  communitySkins?: CommunitySkinClient;
-  fullScreen?: boolean;
-  useLabel?: string;
-  onUse: (design: TouchKeyboardSkinDesign) => void;
-  onClose: () => void;
-}) {
-  const [proposals, setProposals] = useState<AiSkinProposal[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [completed, setCompleted] = useState(0);
-  const [message, setMessage] = useState("");
-  const [requestId, setRequestId] = useState("");
-  const [saved, setSaved] = useState<Record<string, SavedTouchKeyboardSkin>>({});
-  const [publishing, setPublishing] = useState<SavedTouchKeyboardSkin | null>(null);
-  const [publishDescription, setPublishDescription] = useState("");
-  const [publishAgreed, setPublishAgreed] = useState(false);
-  const [publishCategory, setPublishCategory] = useState<CommunitySkinCategory>("other");
-  const [publishBusy, setPublishBusy] = useState(false);
-  const publishRunning = useRef(false);
+}: AiSkinGenerationProps) {
+  const {
+    proposals,
+    busy,
+    completed,
+    message,
+    saved,
+    publishing,
+    publishDescription,
+    publishAgreed,
+    publishCategory,
+    publishBusy,
+    generate,
+    cancelGeneration,
+    save,
+    beginPublish,
+    publish,
+    changePublishName,
+    setPublishDescription,
+    setPublishAgreed,
+    setPublishCategory,
+    closePublish,
+  } = useAiSkinGeneration({ client, library, communitySkins });
   const surface = useRef<HTMLElement>(null);
   // 全屏视图叠在皮肤页上，共用外壳的滚动容器：不滚回顶部的话，它会停在皮肤页原来的滚动位置，标题和返回按钮都在屏幕外。
   useLayoutEffect(() => {
     if (fullScreen) surface.current?.scrollIntoView?.({ block: "start" });
   }, [fullScreen]);
-  const generateRunning = useRef(false);
-  const saveRunning = useRef(false);
-  const requestRef = useRef("");
-  const mounted = useMountedRef();
-  const progressGeneration = useAsyncGeneration(client, requestId);
-
-  useEffect(() => {
-    const generation = progressGeneration.current;
-    requestRef.current = requestId;
-    if (!client.onProgress) return;
-    return trackAsyncSubscription(
-      client.onProgress((progress) => {
-        if (generation === progressGeneration.current && progress.requestId === requestRef.current)
-          setCompleted(progress.completed);
-      }),
-      () => generation === progressGeneration.current,
-    );
-  }, [client, progressGeneration, requestId]);
-
-  useEffect(
-    () => () => {
-      if (requestRef.current) void client.cancel(requestRef.current).catch(() => undefined);
-    },
-    [client],
-  );
-
-  const cancelGeneration = () => {
-    const id = requestRef.current;
-    if (!id) return;
-    // 先使本地请求代次失效；服务端取消可能在生成结果之后才返回，迟到的结果不能重新出现在页面上。
-    requestRef.current = "";
-    setRequestId("");
-    generateRunning.current = false;
-    setBusy(false);
-    setMessage("已取消生成");
-    void client.cancel(id).catch(() => undefined);
-  };
-
-  const generate = async () => {
-    if (busy || generateRunning.current) return;
-    generateRunning.current = true;
-    const id = randomRequestId("ai-skin");
-    requestRef.current = id;
-    setRequestId(id);
-    setBusy(true);
-    setCompleted(0);
-    setMessage("");
-    try {
-      const result = await client.generate(id, createAiSkinPrompt());
-      const prepared = await Promise.all(
-        result.map(async (proposal) => ({
-          ...proposal,
-          design: {
-            ...proposal.design,
-            photo: await boundTouchSkinArtwork(proposal.artwork),
-            photoShade: 0.08,
-            photoPosition: 0.5,
-            keyOpacity: 0.92,
-            pattern: 0 as const,
-          },
-        })),
-      );
-      if (!mounted.current || requestRef.current !== id) return;
-      setProposals(prepared);
-    } catch (error) {
-      if (requestRef.current === id && errorCode(error) !== "ai_skin_cancelled")
-        if (mounted.current) setMessage(aiSkinMessage(error));
-    } finally {
-      if (requestRef.current === id) {
-        generateRunning.current = false;
-        requestRef.current = "";
-        if (mounted.current) setBusy(false);
-      }
-    }
-  };
-
-  const save = async (proposal: AiSkinProposal): Promise<SavedTouchKeyboardSkin | null> => {
-    const existing = saved[proposal.name];
-    if (existing || saveRunning.current) return existing ?? null;
-    saveRunning.current = true;
-    try {
-      const current = await library.load();
-      if (current.length >= 12) throw { code: "custom_skin_full" };
-      let name = proposal.name;
-      let suffix = 2;
-      while (current.some((item) => item.name === name)) {
-        name = `${proposal.name.slice(0, 26)} ${suffix}`;
-        suffix += 1;
-      }
-      const next = await library.mutate({ operation: "create", name, design: proposal.design });
-      const item = next.find((value) => value.name === name);
-      if (!item) throw new Error("skin was not saved");
-      if (!mounted.current) return null;
-      setSaved((currentSaved) => ({ ...currentSaved, [proposal.name]: item }));
-      setMessage("已保存到“我的皮肤”。");
-      return item;
-    } catch (error) {
-      if (mounted.current) setMessage(libraryError(error));
-      return null;
-    } finally {
-      saveRunning.current = false;
-    }
-  };
-
-  const publish = async () => {
-    if (!publishing || !communitySkins || !publishAgreed || publishBusy || publishRunning.current)
-      return;
-    const name = publishing.name.trim();
-    const description = publishDescription.trim();
-    if (!name || name.length > 32 || description.length > 280) {
-      setMessage("请填写有效的名称和设计说明。");
-      return;
-    }
-    publishRunning.current = true;
-    setPublishBusy(true);
-    try {
-      await communitySkins.publish(
-        publishing.id,
-        name,
-        description,
-        publishing.design,
-        publishCategory,
-      );
-      if (!mounted.current) return;
-      setPublishing(null);
-      setPublishDescription("");
-      setPublishAgreed(false);
-      setPublishCategory("other");
-      setMessage("已发布到社区。");
-    } catch (error) {
-      const code = errorCode(error);
-      if (mounted.current)
-        setMessage(code ? `发布失败：${code}` : "暂时无法发布皮肤，请稍后重试。");
-    } finally {
-      publishRunning.current = false;
-      if (mounted.current) setPublishBusy(false);
-    }
-  };
-
   return (
     <div className={fullScreen ? fullScreenSurface : community.backdrop}>
       <section
@@ -269,7 +124,7 @@ export function AiSkinGeneration({
         {message && <StatusMessage role="status">{message}</StatusMessage>}
         <div className={doc.cardList}>
           {proposals.map((proposal) => {
-            const item = saved[proposal.name];
+            const item = saved.get(proposal);
             return (
               <article className={doc.card} key={proposal.name}>
                 <h3>{proposal.name}</h3>
@@ -294,13 +149,7 @@ export function AiSkinGeneration({
                   />
                   {communitySkins && (
                     <ActionButton
-                      action={async () => {
-                        const value = await save(proposal);
-                        if (value) {
-                          setPublishing(value);
-                          setPublishDescription(proposal.description);
-                        }
-                      }}
+                      action={() => beginPublish(proposal)}
                       className="secondary"
                       label="发布到社区"
                     />
@@ -319,13 +168,7 @@ export function AiSkinGeneration({
                 aria-label="AI 皮肤名称"
                 value={publishing.name}
                 maxLength={32}
-                onChange={(event) =>
-                  setPublishing((current) =>
-                    current
-                      ? updateSavedTouchKeyboardSkinName(current, event.target.value)
-                      : current,
-                  )
-                }
+                onChange={(event) => changePublishName(event.target.value)}
               />
             </label>
             <label>
@@ -366,7 +209,7 @@ export function AiSkinGeneration({
               label="公开发布"
             />
             <ActionButton
-              action={() => setPublishing(null)}
+              action={closePublish}
               className="secondary"
               disabled={publishBusy}
               label="取消"

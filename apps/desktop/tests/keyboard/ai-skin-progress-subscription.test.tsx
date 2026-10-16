@@ -82,6 +82,10 @@ test("old clients cannot update progress and their late registrations are releas
   fireEvent.click(screen.getByRole("button", { name: "抽三张皮肤" }));
   const requestId = old.client.generate.mock.calls[0][0];
   mounted.rerender(view(current.client));
+  expect(screen.queryByRole("status")).toBeNull();
+  expect(old.client.cancel).toHaveBeenCalledWith(requestId);
+  fireEvent.click(screen.getByRole("button", { name: "抽三张皮肤" }));
+  const currentId = current.client.generate.mock.calls[0][0];
 
   await act(async () => {
     for (const registration of old.registrations) {
@@ -92,7 +96,9 @@ test("old clients cannot update progress and their late registrations are releas
   for (const registration of old.registrations) expect(registration.stop).toHaveBeenCalledOnce();
   expect(screen.getByRole("status").textContent).toContain("0/3");
 
-  act(() => current.registrations[0].listener({ requestId, completed: 2 }));
+  act(() => current.registrations.at(-1)!.listener({ requestId, completed: 2 }));
+  expect(screen.getByRole("status").textContent).toContain("0/3");
+  act(() => current.registrations.at(-1)!.listener({ requestId: currentId, completed: 2 }));
   expect(screen.getByRole("status").textContent).toContain("2/3");
 });
 

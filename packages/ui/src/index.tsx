@@ -402,6 +402,12 @@ export {
   useVoiceInputSettings,
   type UseVoiceInputSettingsOptions,
 } from "./settings/use-voice-input-settings";
+export { AiSkinGeneration, type AiSkinGenerationProps } from "./keyboard/ai-skin-generation";
+export {
+  useAiSkinGeneration,
+  type UseAiSkinGenerationOptions,
+  type AiSkinGenerationState,
+} from "./keyboard/use-ai-skin-generation";
 export type {
   AiSkinClient,
   AiSkinProposal,
