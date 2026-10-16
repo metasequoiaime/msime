@@ -43,13 +43,13 @@ Status: implemented
 - 原 PR 的共享设置双拼选项断言包含第五个内置方案；Linux 与 macOS 保存与重新加载由两项独立设置用例覆盖。
 - 完整共享 UI 套件重新运行，651 个文件、3727 项测试全部通过。
 - `cargo test -p msime-client-core -p msime-host-api -p msime-engine` 通过：client-core 380 项、host-api 636 项、engine 2167 项（33 项忽略）及 engine golden 31 项均通过。
-- 桌面补齐后，云词典校验 5 项、统计存储与指标 78 项 Rust 测试通过；Windows 可在 macOS 上执行的 151 项原生测试通过，覆盖名称、键位提示、来源映射和统计展示。共享统计页 30 项测试、前端类型检查与构建、定向 lint 和格式检查通过。Windows WinUI 编译和真实 TSF 编辑器输入仍需 Windows 环境验收，不能由本机 C++ 测试代替。
+- 桌面补齐后，云词典校验 5 项、统计存储与指标 78 项 Rust 测试通过；Windows 可在 macOS 上执行的 151 项原生测试通过，覆盖名称、键位提示、来源映射和统计展示。共享统计页 30 项测试、前端类型检查与构建、定向 lint 和格式检查通过。CI 的 Windows WinUI 原生设置编译与页面冒烟检查、完整 GNU 交叉编译已通过；真实 TSF 编辑器输入仍需系统验收，不能由本机 C++ 测试或编译代替。
 - macOS 原生构建通过；`shortcut`、`shuangpin-keymap-input`、`typing-statistics` 与 `desktop-dictionary-provider` 四项 ctest 通过，覆盖五方案保存重读、两种外观的键位图、真实 C ABI 统计写入及合成云词典请求。
 - 共享 Swift 候选请求 8 项测试通过，包含智能 ABC 经公开客户端 API 到达合成后端的回归；client-core 与 client-services 的 `cargo clippy --all-targets --locked -- -D warnings` 通过。
 - Linux 原生构建门禁 87 项、IBus 原生 ctest 81 项和完整 IBus D-Bus 共享运行时验收通过；真实 daemon 的智能 ABC 三组编码上屏、切回全拼及崩溃恢复通过。
 - `check-container.sh <固定资源目录>` 完整通过：安装与卸载、词库和剪贴板、GTK3 X11、Qt5/Qt6 X11、GTK Wayland、Qt5/Qt6 Wayland 及 IBus portal 的系统编辑器验收均运行。
 - Fcitx5 完整原生上下文、独立智能 ABC 状态栏选择与保存、AI、真实 daemon 前端、GTK 与 IBus GTK 编辑器共 6 项验收通过。独立用例既检查标签和落盘，也经真实按键上屏「你好」并轮换回小鹤。
 - 系统验收夹具同步现有契约：语音合成回包补齐 `ok: true`；Fcitx5 测试显式开启译文并结束大写串后测快捷模式；IBus 用 Ctrl+左右测试逐字母编辑，临时模式回车保留入口字母。均未修改相应生产行为。
-- 最终 `bash scripts/verify-local.sh --quick`、`pnpm run verify-notes` 和差异检查通过；HarmonyOS 真打包因缺少 staged 依赖明确跳过；本次 Windows 完整交叉编译因其他运行占用依赖锁跳过，pipe-only 的 x86_64 与 i686 交叉编译通过。
+- 本地 `bash scripts/verify-local.sh --quick` 有一轮通过，`pnpm run verify-notes` 与差异检查通过；HarmonyOS 真打包因缺少 staged 依赖明确跳过。该轮 Windows 完整交叉编译因其他运行占用依赖锁跳过，pipe-only 的 x86_64 与 i686 交叉编译通过。同步原 PR 最新 head 后的 quick 重跑遇到磁盘耗尽和 Docker socket 消失，Linux 容器、Windows 交叉编译、macOS Rust 库及 pipe-only 阶段失败；已清理本 worktree 的约 1.8 GiB Rust 生成产物。相同生产代码的 CI 已通过 Linux 原生宿主、Windows 完整交叉编译及 WinUI 设置编译与页面冒烟、macOS arm64 原生构建与测试。
 
 - PR 与新版 `develop` 合并检查时，手机候选翻译缩为单目标语言使 `lowercaseTrimmed` 调用数从 7 减到 6，旧契约测试误报。契约改为逐文件确认复用共享策略，并保留拒绝嵌套调用的约束；当前分支、新版 `develop` 的单目标实现及错误嵌套反例均已验证，不改变 Android 产品行为。
