@@ -1001,6 +1001,14 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.authenticated(|api, token| api.delete_clipboard(id, token))
     }
 
+    pub fn pin_clipboard(&self, id: &str, pinned: bool) -> Result<(), AccountError> {
+        self.authenticated(|api, token| api.pin_clipboard(id, pinned, token))
+    }
+
+    pub fn set_clipboard_retention(&self, days: u32) -> Result<(), AccountError> {
+        self.authenticated(|api, token| api.set_clipboard_retention(days, token))
+    }
+
     pub fn dictionary(
         &self,
         kind: DictionaryKind,

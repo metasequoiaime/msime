@@ -69,7 +69,7 @@ pub fn validate_request(request: &Value) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// 中继分支接受的动作：[`validate_request`] 的九个，再加上只在中继分支里有的 `pin {id, pinned}`、`set_retention {days}`（0、1、7、30）和 `clear`。账号分支不接受这三个，账号路径的行为因此不变；原生的 Android、iOS 和 macOS 界面已经有置顶、保留期和清空，改走中继时靠它们保持对等。
+/// 中继分支接受的动作：[`validate_request`] 的九个，再加上 `pin {id, pinned}`（`id` 是 64 位小写十六进制）、`set_retention {days}`（0、1、7、30）和 `clear`。原生的 Android、iOS 和 macOS 界面有置顶、保留期和清空，走中继和走账号的 C 入口时都靠它们保持对等，C 入口 `msime_client_account_cloud_clipboard` 因此也按这一份校验（[`validate_account_request`]）。[`validate_request`] 本身不收这三个：Linux provider 和 Tauri 外壳按它判断一个动作能不能经账号或 provider 答，桌面 Tauri 把它不收的动作只交给中继，这两处的行为不变。
 pub fn validate_relay_request(request: &Value) -> Result<(), &'static str> {
     const INVALID: &str = "invalid cloud clipboard request";
     match request.get("operation").and_then(Value::as_str) {
@@ -93,6 +93,11 @@ pub fn validate_relay_request(request: &Value) -> Result<(), &'static str> {
         Some("clear") => Ok(()),
         _ => validate_request(request),
     }
+}
+
+/// `msime_client_account_cloud_clipboard` 接受的动作，与 [`validate_relay_request`] 相同：除 [`validate_request`] 的九个，还有平台账号路径本来就有的置顶、保留期和清空（Swift `BackendClipboardClient`、Android `CloudClipboardApi`）。由 [`account_request`] 答。
+pub fn validate_account_request(request: &Value) -> Result<(), &'static str> {
+    validate_relay_request(request)
 }
 
 /// 偏好目录里配置的中继；没有配置时为 `None`。偏好读不了时是 `storage`，配置不合规时是 `relay_not_configured`。不联网。
@@ -190,7 +195,7 @@ fn relay_value<T: serde::Serialize>(result: Result<T, RelayError>) -> Result<Val
     serde_json::to_value(value).map_err(|_| RelayError::Unavailable.code())
 }
 
-/// One cloud clipboard action answered through the account session: the `list`, `set_enabled`, `add` and `delete` the 云剪贴板 panel sends, plus the device management of end-to-end encryption (`devices`, `approve`, `reject`, `remove`, `reset`, see `docs/cloud-clipboard-e2e.md`). Blocks on the network, so callers run it off their UI thread. The Tauri shells pass the session their `AccountState` holds; the native Windows settings window (`msime_client_account_cloud_clipboard`) passes one over the signed-in session file the shell writes. An action that is not one of these, or lacks its field, is `invalid_cloud_clipboard` and never reaches the backend; a failed call is the account error's code, `account_unauthorized` when no one is signed in, or the driver's code (for example `clipboard_device_pending`).
+/// One cloud clipboard action answered through the account session: the `list`, `set_enabled`, `add` and `delete` the 云剪贴板 panel sends, the device management of end-to-end encryption (`devices`, `approve`, `reject`, `remove`, `reset`, see `docs/cloud-clipboard-e2e.md`), and the `pin {id, pinned}`, `set_retention {days}` and `clear` the native Android, iOS and macOS pages use. `pin` and `clear` answer `{}`, `set_retention` answers `{retention_days}`, the same shapes as [`relay_request`]; `clear` deletes every entry and leaves the switch alone. Blocks on the network, so callers run it off their UI thread. The Tauri shells pass the session their `AccountState` holds; the native Windows settings window (`msime_client_account_cloud_clipboard`) passes one over the signed-in session file the shell writes. An action that is not one of these, or lacks its field, is `invalid_cloud_clipboard` and never reaches the backend; a failed call is the account error's code, `account_unauthorized` when no one is signed in, or the driver's code (for example `clipboard_device_pending`).
 pub fn account_request<A: AccountApi, S: AccountSessionStorage>(
     session: &BackendAccountSession<A, S>,
     action: &Value,
@@ -235,6 +240,37 @@ pub fn account_request<A: AccountApi, S: AccountSessionStorage>(
         "reject" => clipboard_value(session.reject_clipboard_device(field("device_id")?)),
         "remove" => clipboard_value(session.remove_clipboard_device(field("device_id")?)),
         "reset" => clipboard_value(session.reset_clipboard()),
+        "pin" => {
+            let pinned = action
+                .get("pinned")
+                .and_then(Value::as_bool)
+                .ok_or(INVALID)?;
+            let id = field("id")?;
+            // 条目编号是 64 位小写十六进制，形状不对的不取令牌、不联网。
+            if !is_lower_hex(id, 64) {
+                return Err(INVALID);
+            }
+            session
+                .pin_clipboard(id, pinned)
+                .map(|()| json!({}))
+                .map_err(|error| error.code())
+        }
+        "set_retention" => {
+            let days = action
+                .get("days")
+                .and_then(Value::as_u64)
+                .and_then(|days| u32::try_from(days).ok())
+                .filter(|days| RETENTION_DAYS.contains(days))
+                .ok_or(INVALID)?;
+            session
+                .set_clipboard_retention(days)
+                .map(|()| json!({ "retention_days": days }))
+                .map_err(|error| error.code())
+        }
+        "clear" => session
+            .delete_clipboard(None)
+            .map(|()| json!({}))
+            .map_err(|error| error.code()),
         _ => Err(INVALID),
     }
 }
@@ -291,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn pin_retention_and_clear_are_relay_only() {
+    fn pin_retention_and_clear_are_for_the_relay_and_the_account_entry_only() {
         let id = "0123456789abcdef".repeat(4);
         for action in [
             json!({"operation":"pin","id":id,"pinned":true}),
@@ -300,6 +336,8 @@ mod tests {
             json!({"operation":"clear"}),
         ] {
             assert!(validate_relay_request(&action).is_ok(), "{action}");
+            assert!(validate_account_request(&action).is_ok(), "{action}");
+            // Linux provider 和 Tauri 外壳仍按这一份判断，不收这三个。
             assert!(validate_request(&action).is_err(), "{action}");
         }
         for action in [
@@ -312,6 +350,7 @@ mod tests {
             json!({"operation":"unknown"}),
         ] {
             assert!(validate_relay_request(&action).is_err(), "{action}");
+            assert!(validate_account_request(&action).is_err(), "{action}");
         }
         // 共用的九个动作在中继分支里照样接受。
         assert!(validate_relay_request(&json!({"operation":"list","search":""})).is_ok());
@@ -474,6 +513,19 @@ mod tests {
                 self.record(format!("delete:{}", id.unwrap_or("*")), token);
                 Ok(())
             }
+            fn pin_clipboard(
+                &self,
+                id: &str,
+                pinned: bool,
+                token: &str,
+            ) -> Result<(), AccountError> {
+                self.record(format!("pin:{id}:{pinned}"), token);
+                Ok(())
+            }
+            fn set_clipboard_retention(&self, days: u32, token: &str) -> Result<(), AccountError> {
+                self.record(format!("retention:{days}"), token);
+                Ok(())
+            }
         }
 
         struct MemoryStorage(Option<SavedAccountSession>);
@@ -565,15 +617,50 @@ mod tests {
                 ),
                 Ok(json!({ "enabled": true }))
             );
+            let id = "0123456789abcdef".repeat(4);
+            assert_eq!(
+                account_request(
+                    &session,
+                    &json!({ "operation": "pin", "id": id, "pinned": true })
+                ),
+                Ok(json!({}))
+            );
+            assert_eq!(
+                account_request(
+                    &session,
+                    &json!({ "operation": "pin", "id": id, "pinned": false })
+                ),
+                Ok(json!({}))
+            );
+            for days in [0, 1, 7, 30] {
+                assert_eq!(
+                    account_request(
+                        &session,
+                        &json!({ "operation": "set_retention", "days": days })
+                    ),
+                    Ok(json!({ "retention_days": days }))
+                );
+            }
+            assert_eq!(
+                account_request(&session, &json!({ "operation": "clear" })),
+                Ok(json!({}))
+            );
             assert_eq!(
                 *calls.lock().unwrap(),
                 [
-                    "GET /v1/users/me/clipboard/keys",
-                    "GET /v1/users/me/clipboard/keys",
-                    "GET /v1/users/me/clipboard/keys",
-                    "GET /v1/users/me/clipboard/keys",
-                    "delete:synthetic-1",
-                    "set_enabled:true"
+                    "GET /v1/users/me/clipboard/keys".to_owned(),
+                    "GET /v1/users/me/clipboard/keys".to_owned(),
+                    "GET /v1/users/me/clipboard/keys".to_owned(),
+                    "GET /v1/users/me/clipboard/keys".to_owned(),
+                    "delete:synthetic-1".to_owned(),
+                    "set_enabled:true".to_owned(),
+                    format!("pin:{id}:true"),
+                    format!("pin:{id}:false"),
+                    "retention:0".to_owned(),
+                    "retention:1".to_owned(),
+                    "retention:7".to_owned(),
+                    "retention:30".to_owned(),
+                    "delete:*".to_owned(),
                 ]
             );
         }
@@ -585,17 +672,41 @@ mod tests {
                 account_request(&session, &json!({ "operation": "add", "text": "合成上传" })),
                 Err("account_unauthorized")
             );
-            let (session, signed_in_calls) = self::session(signed_in());
             for action in [
-                json!({}),
                 json!({ "operation": "clear" }),
-                json!({ "operation": "add" }),
-                json!({ "operation": "approve" }),
-                json!({ "operation": "set_enabled", "enabled": "yes" }),
+                json!({ "operation": "set_retention", "days": 7 }),
+                json!({ "operation": "pin", "id": "0123456789abcdef".repeat(4), "pinned": true }),
             ] {
                 assert_eq!(
                     account_request(&session, &action),
-                    Err("invalid_cloud_clipboard")
+                    Err("account_unauthorized"),
+                    "{action}"
+                );
+            }
+            let (session, signed_in_calls) = self::session(signed_in());
+            let id = "0123456789abcdef".repeat(4);
+            for action in [
+                json!({}),
+                json!({ "operation": "unknown" }),
+                json!({ "operation": "add" }),
+                json!({ "operation": "approve" }),
+                json!({ "operation": "set_enabled", "enabled": "yes" }),
+                json!({ "operation": "pin", "id": id }),
+                json!({ "operation": "pin", "id": id, "pinned": "yes" }),
+                json!({ "operation": "pin", "pinned": true }),
+                json!({ "operation": "pin", "id": id.to_uppercase(), "pinned": true }),
+                json!({ "operation": "pin", "id": "entry-1", "pinned": true }),
+                json!({ "operation": "set_retention" }),
+                json!({ "operation": "set_retention", "days": 3 }),
+                json!({ "operation": "set_retention", "days": -1 }),
+                json!({ "operation": "set_retention", "days": 7.5 }),
+                json!({ "operation": "set_retention", "days": "7" }),
+                json!({ "operation": "set_retention", "days": 4_294_967_303_u64 }),
+            ] {
+                assert_eq!(
+                    account_request(&session, &action),
+                    Err("invalid_cloud_clipboard"),
+                    "{action}"
                 );
             }
             assert!(calls.lock().unwrap().is_empty());

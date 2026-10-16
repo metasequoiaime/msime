@@ -98,6 +98,21 @@ pub trait AccountApi: Send + Sync + 'static {
         Err(AccountError::Unavailable)
     }
 
+    /// `PUT /v1/users/me/clipboard/{id}/pin {"pinned"}`：置顶或取消置顶一条条目。`id` 是 64 位小写十六进制；别人的或已经不在的条目服务端回 404。
+    fn pin_clipboard(
+        &self,
+        _id: &str,
+        _pinned: bool,
+        _access_token: &str,
+    ) -> Result<(), AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    /// `PUT /v1/users/me/clipboard/retention {"days"}`：设置保留天数，取 [`crate::clipboard_relay::RETENTION_DAYS`] 中的一个，0 表示一直保留；不改同步开关。
+    fn set_clipboard_retention(&self, _days: u32, _access_token: &str) -> Result<(), AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
     fn dictionary(
         &self,
         _kind: DictionaryKind,

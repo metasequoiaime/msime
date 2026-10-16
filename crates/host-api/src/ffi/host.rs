@@ -2049,7 +2049,7 @@ pub unsafe extern "C" fn msime_client_account_cloud_clipboard(
                 return Err(INVALID.into());
             }
         }
-        crate::cloud_clipboard::validate_request(&request.action).map_err(|_| INVALID)?;
+        crate::cloud_clipboard::validate_account_request(&request.action).map_err(|_| INVALID)?;
         match source {
             super::session_store::Source::Directory(directory) => {
                 let client =

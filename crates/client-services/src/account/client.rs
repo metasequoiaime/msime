@@ -506,6 +506,47 @@ impl BackendAccountClient {
         self.empty::<()>(Method::DELETE, &path, Some(access_token), None)
     }
 
+    /// 置顶或取消置顶一条云剪贴板条目（见 [`AccountApi::pin_clipboard`]）。`id` 不是 64 位小写十六进制时不联网，答 `Invalid`。
+    pub fn pin_clipboard(
+        &self,
+        id: &str,
+        pinned: bool,
+        access_token: &str,
+    ) -> Result<(), AccountError> {
+        #[derive(Serialize)]
+        struct Body {
+            pinned: bool,
+        }
+        validate_clipboard_id(id)?;
+        self.empty(
+            Method::PUT,
+            &format!("{CLIPBOARD_PATH}/{id}/pin"),
+            Some(access_token),
+            Some(&Body { pinned }),
+        )
+    }
+
+    /// 设置云剪贴板的保留天数（见 [`AccountApi::set_clipboard_retention`]）。不在 [`crate::clipboard_relay::RETENTION_DAYS`] 里的天数不联网，答 `Invalid`。
+    pub fn set_clipboard_retention(
+        &self,
+        days: u32,
+        access_token: &str,
+    ) -> Result<(), AccountError> {
+        #[derive(Serialize)]
+        struct Body {
+            days: u32,
+        }
+        if !crate::clipboard_relay::RETENTION_DAYS.contains(&days) {
+            return Err(AccountError::Invalid);
+        }
+        self.empty(
+            Method::PUT,
+            &format!("{CLIPBOARD_PATH}/retention"),
+            Some(access_token),
+            Some(&Body { days }),
+        )
+    }
+
     pub fn dictionary(
         &self,
         kind: DictionaryKind,
@@ -1616,6 +1657,19 @@ impl AccountApi for BackendAccountClient {
 
     fn delete_clipboard(&self, id: Option<&str>, access_token: &str) -> Result<(), AccountError> {
         self.delete_clipboard(id, access_token)
+    }
+
+    fn pin_clipboard(
+        &self,
+        id: &str,
+        pinned: bool,
+        access_token: &str,
+    ) -> Result<(), AccountError> {
+        self.pin_clipboard(id, pinned, access_token)
+    }
+
+    fn set_clipboard_retention(&self, days: u32, access_token: &str) -> Result<(), AccountError> {
+        self.set_clipboard_retention(days, access_token)
     }
 
     fn dictionary(

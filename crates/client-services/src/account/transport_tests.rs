@@ -279,6 +279,64 @@ fn data_summary_and_delete_follow_the_server_contract() {
     );
 }
 
+#[test]
+fn clipboard_pin_retention_and_clear_follow_the_server_contract() {
+    let id = "0123456789abcdef".repeat(4);
+    // msime-cloud `clipboard.go`：置顶和保留期成功时回 204，清空也是 204；置顶的条目不在时回 404 `not_found`。
+    let (origin, received) = serve(vec![
+        http("204 No Content", &[], b""),
+        http("204 No Content", &[], b""),
+        http("204 No Content", &[], b""),
+        error_response("404 Not Found", "not_found", &[]),
+    ]);
+    let client = client(&origin);
+    client.pin_clipboard(&id, true, &token('a')).unwrap();
+    let sent = received.recv().unwrap();
+    assert_eq!(
+        sent.line(),
+        format!("PUT /v1/users/me/clipboard/{id}/pin HTTP/1.1")
+    );
+    assert_eq!(
+        sent.header("authorization"),
+        Some(format!("Bearer {}", token('a')).as_str())
+    );
+    assert_eq!(sent.json(), json!({ "pinned": true }));
+    client.set_clipboard_retention(0, &token('a')).unwrap();
+    let sent = received.recv().unwrap();
+    assert_eq!(sent.line(), "PUT /v1/users/me/clipboard/retention HTTP/1.1");
+    assert_eq!(sent.json(), json!({ "days": 0 }));
+    client.delete_clipboard(None, &token('a')).unwrap();
+    let sent = received.recv().unwrap();
+    assert_eq!(sent.line(), "DELETE /v1/users/me/clipboard HTTP/1.1");
+    assert!(sent.body.is_empty());
+    assert_eq!(
+        client.pin_clipboard(&id, false, &token('a')).unwrap_err(),
+        AccountError::NotFound
+    );
+    assert_eq!(received.recv().unwrap().json(), json!({ "pinned": false }));
+    // 本地就拒绝的编号和天数不发请求：假服务器的四个响应已经用完，真发出去会是 `Unavailable`。
+    for bad in [
+        id.to_uppercase(),
+        id[..63].to_owned(),
+        "../retention".to_owned(),
+    ] {
+        assert_eq!(
+            client.pin_clipboard(&bad, true, &token('a')).unwrap_err(),
+            AccountError::Invalid,
+            "{bad}"
+        );
+    }
+    for days in [2, 3, 31, 365] {
+        assert_eq!(
+            client
+                .set_clipboard_retention(days, &token('a'))
+                .unwrap_err(),
+            AccountError::Invalid,
+            "{days}"
+        );
+    }
+}
+
 fn zip_bytes() -> Vec<u8> {
     let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     archive

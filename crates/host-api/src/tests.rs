@@ -1033,21 +1033,32 @@ fn account_cloud_clipboard_refuses_without_a_signed_in_session_or_a_valid_action
         read(unsafe { msime_client_account_cloud_clipboard(body.as_ptr(), body.len()) })
     };
     // No account-session.json: every action stops at the session, before the network.
+    let id = "0123456789abcdef".repeat(4);
     for action in [
         json!({ "operation": "list", "search": "" }),
         json!({ "operation": "add", "text": "synthetic upload" }),
+        json!({ "operation": "pin", "id": id, "pinned": true }),
+        json!({ "operation": "set_retention", "days": 7 }),
+        json!({ "operation": "clear" }),
     ] {
-        let result = call(action);
-        assert_eq!(result["ok"], false);
-        assert_eq!(result["error"], "account_unauthorized");
+        let result = call(action.clone());
+        assert_eq!(result["ok"], false, "{action}");
+        assert_eq!(result["error"], "account_unauthorized", "{action}");
     }
     for action in [
         json!({ "operation": "add", "text": "" }),
         json!({ "operation": "add", "text": "界".repeat(4001) }),
-        json!({ "operation": "clear" }),
+        json!({ "operation": "pin", "id": "entry-1", "pinned": true }),
+        json!({ "operation": "pin", "id": id }),
+        json!({ "operation": "set_retention", "days": 3 }),
+        json!({ "operation": "unknown" }),
         json!({}),
     ] {
-        assert_eq!(call(action)["error"], "invalid_cloud_clipboard");
+        assert_eq!(
+            call(action.clone())["error"],
+            "invalid_cloud_clipboard",
+            "{action}"
+        );
     }
     assert!(!directory.path().join("account-session.json").exists());
 }
@@ -1122,7 +1133,7 @@ fn relay_cloud_clipboard_checks_its_input_and_the_configured_relay_before_the_ne
         call(request(json!({ "operation": "clear" })))["error"],
         "relay_unavailable"
     );
-    // 中继的三个新动作只在中继入口里有，账号入口照旧拒绝。
+    // 账号入口也收这三个动作：这个目录里没有登录会话，停在会话上，不联网。
     let account = serde_json::to_vec(&json!({
         "directory": keystore_path,
         "action": { "operation": "set_retention", "days": 7 },
@@ -1131,7 +1142,7 @@ fn relay_cloud_clipboard_checks_its_input_and_the_configured_relay_before_the_ne
     assert_eq!(
         read(unsafe { msime_client_account_cloud_clipboard(account.as_ptr(), account.len()) })
             ["error"],
-        "invalid_cloud_clipboard"
+        "account_unauthorized"
     );
 }
 
