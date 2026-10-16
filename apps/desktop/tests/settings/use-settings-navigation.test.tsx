@@ -228,11 +228,11 @@ test("替换设置页路由时只清除新状态的旧面板字段", () => {
   window.history.replaceState(current, "");
   const length = window.history.length;
   const { result } = renderHook(() => useNavigationProbe("home"));
-  act(() => result.current.selectPage("community", true));
+  act(() => result.current.selectPage("input", true));
   expect(window.history.state).toEqual({
     host: "synthetic-host",
     msimeSettings: true,
-    page: "community",
+    page: "input",
     tab: "home",
   });
   expect(window.history.length).toBe(length);
