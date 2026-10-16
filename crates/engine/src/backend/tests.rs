@@ -61,6 +61,50 @@ fn run(request: Value, resources: &Path) -> Value {
 }
 
 #[test]
+fn annotation_returns_verified_whole_word_shuangpin_keys() {
+    let resources = resources();
+    assert_eq!(
+        run(
+            json!({"operation":"annotate","text":"测试"}),
+            resources.path()
+        ),
+        json!({"code":"ce'shi","word":"测试"})
+    );
+    for (name, expected) in [
+        ("xiaohe", "ce'ui"),
+        ("ziranma", "ce'ui"),
+        ("shoudao", "ce'ei"),
+        ("microsoft", "ce'ui"),
+        ("smart_abc", "ce'vi"),
+    ] {
+        let response = run(
+            json!({"operation":"annotate","text":"测试","scheme":"shuangpin","profile":name}),
+            resources.path(),
+        );
+        assert_eq!(
+            response,
+            json!({"code":expected.replace('\'',""),"segmented_code":expected,"word":"测试","pinyin":"ce'shi","scheme":"shuangpin","profile":name})
+        );
+    }
+    for fields in [
+        json!({"scheme":"wubi"}),
+        json!({"scheme":"shuangpin","profile":"unknown"}),
+        json!({"scheme":"shuangpin","profile":"custom"}),
+        json!({"scheme":"shuangpin","profile":3}),
+    ] {
+        let mut request = json!({"operation":"annotate","text":"测试"});
+        request
+            .as_object_mut()
+            .unwrap()
+            .extend(fields.as_object().unwrap().clone());
+        assert_eq!(
+            run(request, resources.path()),
+            json!({"error":"invalid_request"})
+        );
+    }
+}
+
+#[test]
 fn listed_pinyin_batch_matches_exact_code_and_word() {
     let resources = resources();
     let response = run(
