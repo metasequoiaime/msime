@@ -312,19 +312,17 @@ class CDeferredApplicationTextEditSession : public CEditSessionBase
 {
   public:
     CDeferredApplicationTextEditSession(CMetasequoiaIME *pTextService, ITfContext *pContext, WCHAR wch,
-                                        uint64_t focusToken, uint64_t focusGeneration, uint64_t replayToken)
+                                        uint64_t focusToken, uint64_t focusGeneration, uint64_t replayToken,
+                                        HWND foregroundWindow)
         : CEditSessionBase(pTextService, pContext), _wch(wch), _focusToken(focusToken),
-          _focusGeneration(focusGeneration), _replayToken(replayToken)
+          _focusGeneration(focusGeneration), _replayToken(replayToken), _foregroundWindow(foregroundWindow)
     {
     }
 
     STDMETHODIMP DoEditSession(TfEditCookie ec) override
     {
-        const bool replayCurrent =
-            _pTextService->_IsDeferredKeyReplayCurrent(_replayToken, _focusGeneration, _pContext);
-        const bool fallbackActive = _pTextService->_IsServerUnavailableFallbackActive();
-        const bool focusCurrent = _pTextService->_IsFocusSessionCurrent(_focusToken, _pContext);
-        if (!replayCurrent || (!fallbackActive && !focusCurrent))
+        if (!_pTextService->_IsDeferredApplicationTextCurrent(
+                _replayToken, _focusGeneration, _pContext, _foregroundWindow, _focusToken))
         {
             _pTextService->_RetryDeferredKeyReplay(_replayToken);
             return S_FALSE;
@@ -336,6 +334,14 @@ class CDeferredApplicationTextEditSession : public CEditSessionBase
         HRESULT hr = _pContext->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &selection, &fetched);
         if (SUCCEEDED(hr) && fetched == 1 && selection.range)
         {
+            // GetSelection 也会重入；写入前再次核验原槽与前台，失效后不能回退成应用插字。
+            if (!_pTextService->_IsDeferredApplicationTextCurrent(
+                _replayToken, _focusGeneration, _pContext, _foregroundWindow, _focusToken))
+            {
+                selection.range->Release();
+                _pTextService->_RetryDeferredKeyReplay(_replayToken);
+                return S_FALSE;
+            }
             hr = selection.range->SetText(ec, 0, &_wch, 1);
             if (SUCCEEDED(hr))
             {
@@ -369,6 +375,7 @@ class CDeferredApplicationTextEditSession : public CEditSessionBase
     uint64_t _focusToken;
     uint64_t _focusGeneration;
     uint64_t _replayToken;
+    HWND _foregroundWindow;
 };
 
 } // namespace
@@ -577,7 +584,8 @@ HRESULT CMetasequoiaIME::_RequestDeferredApplicationTextEditSession(_In_ ITfCont
     }
 
     CDeferredApplicationTextEditSession *editSession = new (std::nothrow) CDeferredApplicationTextEditSession(
-        this, pContext, wch, expectedFocusToken, expectedFocusGeneration, deferredReplayToken);
+        this, pContext, wch, expectedFocusToken, expectedFocusGeneration, deferredReplayToken,
+        _deferredKeyInFlight.foregroundWindow);
     if (editSession == nullptr)
     {
         _RetryDeferredKeyReplay(deferredReplayToken);

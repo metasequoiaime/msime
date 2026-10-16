@@ -173,14 +173,13 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
         shadow.candidateActive = shadow.inputLength > 0;
         break;
     case FUNCTION_CONVERT:
-        // 日语的空格是「変換」：Server 开始或步进转换时组字留着（Global/JapaneseConversionPolicy.h），所以投影里的组字不清空，排在它后面的空格和回车仍按组字中分类，不会因为投影以为组字已经结束而把它们漏给应用。连打几次空格翻候选正是排队最常见的时候；投影作废改读实际状态也不行，那时前面排队的字母可能还没处理，实际组字比投影还短。只有唯一候选是 Fallback 时空格才上屏，这种少见情形里排在它后面的空格仍按组字中的空格处理，没有组字可转换，结果是这个空格被吞掉而不是打进文档。
+        // 日语空格通常保留组字。选择结果未定时后续普通键只捕获原文，执行时读取真实状态；唯一 Fallback 上屏后的空格因此交回应用。
         if (code == VK_SPACE &&
             Global::InputModeScheme.load(std::memory_order_relaxed) == msime::windows::scheme::Japanese)
         {
             break;
         }
-        // This TIP routes Space+Convert to WM_AsyncFinalizeCandidate, which
-        // commits and ends the composition rather than merely opening a list.
+        // 普通空格走候选完成；补全或部分选词是否继续组字，要到执行后才能确定。
         clearComposition();
         break;
     case FUNCTION_CANCEL:
@@ -1434,6 +1433,19 @@ void CMetasequoiaIME::_EnsureDeferredKeyProjection()
 
 void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keyState, WCHAR wch, UINT code)
 {
+    // 选择可能只补全网址或钉住一段；结果出来前不能固定后续键的归属。
+    switch (keyState.Function)
+    {
+    case FUNCTION_SELECT_BY_NUMBER:
+    case FUNCTION_CONVERT:
+    case FUNCTION_FINALIZE_CANDIDATELIST:
+    case FUNCTION_FINALIZE_CANDIDATELISTForVKReturn:
+    case FUNCTION_KOREAN_HANJA_KEY:
+        _deferredKeyClassificationPending = true;
+        break;
+    default:
+        break;
+    }
     _EnsureDeferredKeyProjection();
     DeferredShadowState shadow;
     shadow.imeOpen = _deferredProjectedImeOpen;
@@ -1620,7 +1632,7 @@ void CMetasequoiaIME::_ArmDeferredRecoveryForTransport(_In_opt_ ITfContext *pCon
 bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wParam, LPARAM lParam,
                                                _In_opt_ const WCHAR *translatedWch, _In_opt_ const UINT *modifiersDown,
                                                _Out_ WCHAR *classifiedWch, _Out_ UINT *classifiedCode,
-                                               _Out_ _KEYSTROKE_STATE *keyState)
+                                               _Out_ _KEYSTROKE_STATE *keyState, _In_opt_ const DeferredKeyDown *replayedKey)
 {
     if (pContext == nullptr || classifiedWch == nullptr || classifiedCode == nullptr || keyState == nullptr ||
         _pCompositionProcessorEngine == nullptr || _pThreadMgr == nullptr)
@@ -1628,16 +1640,29 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         return false;
     }
 
+    const bool useProjection = replayedKey == nullptr && _deferredKeyProjectionValid;
+    const bool capsLockOn = replayedKey ? replayedKey->capsLockOn : (GetKeyState(VK_CAPITAL) & 1) != 0;
+    const bool windowsKeyDown = replayedKey ? replayedKey->windowsKeyDown :
+        (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 || (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
     *classifiedWch = translatedWch ? *translatedWch : ConvertVKey(static_cast<UINT>(wParam));
     *classifiedCode = VKeyFromVKPacketAndWchar(static_cast<UINT>(wParam), *classifiedWch);
     keyState->Category = CATEGORY_NONE;
     keyState->Function = FUNCTION_NONE;
 
-    // AltGr reads as Ctrl+Alt; a character it types is input, not a shortcut (AltGr+0 is '@' on AZERTY).
+    // AltGr 的 Ctrl+Alt 组合在产生字符时按输入处理（例如 AZERTY 的 AltGr+0 产生 @）。
     const UINT capturedModifiers =
         Global::CharacterModifiers(modifiersDown ? *modifiersDown : CaptureIpcModifiers(), *classifiedWch,
                                    *classifiedCode);
-    const bool projectedImeOpen = _deferredKeyProjectionValid
+    if (!replayedKey && (_deferredKeyClassificationPending || _HasPendingApplicationKeyReplay()) && (capturedModifiers & 0b110u) == 0 &&
+        !windowsKeyDown && !IsBareModifierKey(*classifiedCode) && !_IsKeyboardDisabled())
+    {
+        const bool printable = *classifiedWch != L'\0' && std::iswprint(static_cast<wint_t>(*classifiedWch)) != 0;
+        const bool plainEditingKey = (capturedModifiers & 1u) == 0 &&
+            (msime::tsf::is_korean_caret_or_edit_key(*classifiedCode) ||
+             *classifiedCode == VK_BACK || *classifiedCode == VK_ESCAPE);
+        if (printable || plainEditingKey) return true;
+    }
+    const bool projectedImeOpen = useProjection
                                       ? _deferredProjectedImeOpen
                                       : _pCompositionProcessorEngine->GetIMEMode(_pThreadMgr, _tfClientId) != FALSE;
     if (projectedImeOpen && !_serverUnavailableFallbackActive && !_IsKeyboardDisabled() &&
@@ -1666,7 +1691,7 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
 
     // 候选列表开着：和 _IsKeyEaten 一样不只看 CANDIDATE_ORIGINAL，普通组字的增量候选也算。排队按键看投影里还有没有组字，首个投影从当前拥有组字的会话读取。
     const bool projectedCandidateListOpen =
-        _deferredKeyProjectionValid ? (_deferredProjectedInputLength > 0 || _deferredProjectedCandidateActive)
+        useProjection ? (_deferredProjectedInputLength > 0 || _deferredProjectedCandidateActive)
                                     : (_candidateMode != CANDIDATE_NONE);
     // 释义列快捷键，条件和 _IsKeyEaten 里的相同。
     if (projectedImeOpen && !_IsKeyboardDisabled() && projectedCandidateListOpen &&
@@ -1686,12 +1711,11 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         return true;
     }
 
-    // Segment edits are the only Ctrl chords claimed while a projected
-    // composition is live; all other modifier combinations belong to the host.
-    const bool projectedCompositionActive = _deferredKeyProjectionValid
+    // 只有段落编辑快捷键依赖组字状态，其余修饰键组合交给应用。
+    const bool projectedCompositionActive = useProjection
                                                 ? (_deferredProjectedInputLength > 0 ||
                                                    _deferredProjectedCandidateActive)
-                                                : (_pCompositionProcessorEngine->GetVirtualKeyLength() > 0 ||
+                                                : (!_pCompositionProcessorEngine->GetKeyCompositionState().rawInput.empty() ||
                                                    _candidateMode != CANDIDATE_NONE);
     const KEYSTROKE_FUNCTION segmentEdit = SegmentEditFunction(*classifiedCode, capturedModifiers);
     if (segmentEdit != FUNCTION_NONE && !_IsKeyboardDisabled() && projectedCompositionActive)
@@ -1700,14 +1724,13 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         keyState->Function = segmentEdit;
         return true;
     }
-    if ((capturedModifiers & 0b00000110) != 0 || (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 ||
-        (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0 || IsBareModifierKey(*classifiedCode) || _IsKeyboardDisabled())
+    if ((capturedModifiers & 0b00000110) != 0 || windowsKeyDown || IsBareModifierKey(*classifiedCode) || _IsKeyboardDisabled())
     {
         return false;
     }
 
     DeferredShadowState shadow;
-    if (_deferredKeyProjectionValid)
+    if (useProjection)
     {
         shadow.imeOpen = _deferredProjectedImeOpen;
         shadow.punctuationOpen = _deferredProjectedPunctuationOpen;
@@ -1817,7 +1840,7 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         return setKeyState(CATEGORY_COMPOSING, FUNCTION_INPUT);
     }
 
-    // 与 _IsKeyEaten（CCompositionProcessorEngine::IsSecondThirdCandidateKey）相同：打开「二三候选」后，组字中的 ';' 和 '\'' 是数字选词，排在音节分隔符和标点前面；网址模式和 V 模式拼写的符号、微软双拼的韵母 ing 仍是输入。Ctrl 和 Alt 组合键在上面已经交给应用。是否在组字和光标前的字母取自排队按键的投影，与下面的数字键相同；宿主会话拥有组字时投影从空开始，这是数字键同样有的限制（.agents/notes/implemented/bug-fix/2026-10-10-second-third-candidate-tip-slot.md）。
+    // 与 _IsKeyEaten（CCompositionProcessorEngine::IsSecondThirdCandidateKey）相同：打开「二三候选」后，组字中的 ';' 和 '\'' 是数字选词，排在音节分隔符和标点前面；网址模式和 V 模式拼写的符号、微软双拼的韵母 ing 仍是输入。Ctrl 和 Alt 组合键在上面已经交给应用。组字和光标前的字母来自队列投影，选择结果未定后的重分类则读取宿主当前快照，与下面的数字键相同。
     if (shadow.imeOpen && shadow.inputLength > 0 && Global::SecondThirdCandidateEnabled.load(std::memory_order_relaxed) &&
         msime::windows::second_third_candidate_slot(*classifiedCode, *classifiedWch))
     {
@@ -1861,11 +1884,10 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
             const size_t chunkStart = separator == std::wstring::npos ? 0 : separator + 1;
             isInputKey = (caret - chunkStart) % 2 == 1;
         }
-        if (shadow.inputLength == 0 && (GetKeyState(VK_CAPITAL) & 0x0001) != 0 && *classifiedWch >= L'A' &&
+        if (shadow.inputLength == 0 && capsLockOn && *classifiedWch >= L'A' &&
             *classifiedWch <= L'Z' && *classifiedCode >= L'A' && *classifiedCode <= L'Z')
         {
-            // Match the normal fresh-composition path: CapsLock uppercase at
-            // the beginning belongs to the application.
+            // 与普通首键路径一致：Caps Lock 打出的开头大写字母交给应用。
             isInputKey = false;
         }
         // Match the normal path: "/" and "@" open their modes on an empty composition.
@@ -2345,8 +2367,14 @@ bool CMetasequoiaIME::_QueueDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wP
     key.keyState = keyState;
     key.focusGeneration = _deferredKeyFocusGeneration;
     key.queuedAtMs = GetTickCount64();
+    key.needsClassification = (_deferredKeyClassificationPending || _HasPendingApplicationKeyReplay()) &&
+        keyState.Category == CATEGORY_NONE && keyState.Function == FUNCTION_NONE;
+    key.capsLockOn = (GetKeyState(VK_CAPITAL) & 1) != 0;
+    key.windowsKeyDown = (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 || (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
+    key.foregroundWindow = GetForegroundWindow();
+    if (key.needsClassification) _deferredKeyClassificationPending = true;
     _deferredKeyDowns.push_back(key);
-    if (key.kind == DeferredKeyDown::Kind::KeyDown)
+    if (key.kind == DeferredKeyDown::Kind::KeyDown && !key.needsClassification)
     {
         _ApplyDeferredKeyProjection(keyState, translatedWch,
                                     VKeyFromVKPacketAndWchar(static_cast<UINT>(wParam), translatedWch));
@@ -2382,6 +2410,7 @@ bool CMetasequoiaIME::_QueueDeferredPreservedKey(_In_ ITfContext *pContext, REFG
 void CMetasequoiaIME::_ClearDeferredKeyDowns()
 {
     _ClearApplicationKeyReplay();
+    _deferredKeyClassificationPending = false;
     _backspaceHoldArmed = false;
     const size_t queuedCount = _deferredKeyDowns.size();
     const bool hadInFlight = _hasDeferredKeyInFlight;
@@ -2470,6 +2499,7 @@ void CMetasequoiaIME::_CompleteDeferredKeyReplay(uint64_t replayToken)
         // checkpoint is dormant (not a barrier) until a transport reset needs
         // to rebuild the composition.
         _deferredKeyProjectionValid = false;
+        _deferredKeyClassificationPending = false;
         _deferredProjectedInputLength = 0;
         _deferredProjectedRawInput.clear();
         _deferredProjectedCaret = 0;
@@ -2649,6 +2679,70 @@ void CMetasequoiaIME::_TryLeaveServerUnavailableFallback()
     }
 }
 
+bool CMetasequoiaIME::_ResolveDeferredKeyClassification(uint64_t replayToken)
+{
+    if (!_hasDeferredKeyInFlight || _deferredKeyReplayToken != replayToken) return false;
+    if (!_deferredKeyInFlight.needsClassification) return true;
+    // 焦点查询与 compartment 读取会进入 COM；保留本地副本，重入清队列后不再写回旧槽。
+    const DeferredKeyDown captured = _deferredKeyInFlight;
+    ITfContext *context = captured.context;
+    context->AddRef();
+    const auto current = [this, &captured, context, replayToken]() {
+        return _IsDeferredKeyReplayCurrent(replayToken, captured.focusGeneration, context);
+    };
+    const bool initiallyEnabled = _pCompositionProcessorEngine && _pThreadMgr && !_IsKeyboardDisabled();
+    bool ownerCurrent = _IsDeferredKeyOwnerCurrent(context, captured.focusGeneration, captured.foregroundWindow);
+    if (!current()) { context->Release(); return false; }
+    if (!ownerCurrent || !initiallyEnabled)
+    {
+        context->Release();
+        if (current()) _ClearDeferredKeyDowns();
+        return false;
+    }
+    WCHAR wch = captured.translatedWch;
+    UINT code = 0;
+    _KEYSTROKE_STATE state = {};
+    (void)_ClassifyDeferredKeyDown(context, captured.wParam, captured.lParam, &captured.translatedWch,
+                                  &captured.modifiersDown, &wch, &code, &state, &captured);
+    const bool enabled = _pCompositionProcessorEngine && _pThreadMgr && !_IsKeyboardDisabled();
+    const uint64_t focusToken = _CaptureFocusSessionToken();
+    const bool ready = _serverUnavailableFallbackActive || _IsFocusSessionCurrent(focusToken, context);
+    ownerCurrent = _IsDeferredKeyOwnerCurrent(context, captured.focusGeneration, captured.foregroundWindow);
+    context->Release();
+    if (!current()) return false;
+    if (!ownerCurrent || !enabled || _localSessionResetPending.load(std::memory_order_acquire) ||
+        GetForegroundWindow() != captured.foregroundWindow)
+    {
+        _ClearDeferredKeyDowns();
+        return false;
+    }
+    if (!ready || (!_serverUnavailableFallbackActive && !_IsFocusSessionCurrent(focusToken)))
+    {
+        _RetryDeferredKeyReplay(replayToken);
+        return false;
+    }
+    DeferredKeyDown::Kind kind = DeferredKeyDown::Kind::KeyDown;
+    if (state.Category == CATEGORY_NONE && state.Function == FUNCTION_NONE)
+    {
+        // 编辑键保留系统语义；可打印字符沿用原有 TSF 直接写字路径。
+        if (msime::tsf::is_korean_caret_or_edit_key(code) || code == VK_BACK || code == VK_ESCAPE)
+            kind = DeferredKeyDown::Kind::ApplicationKey;
+        else if (wch != L'\0' && std::iswprint(static_cast<wint_t>(wch)) != 0)
+            kind = DeferredKeyDown::Kind::ApplicationText;
+        else
+        {
+            _ClearDeferredKeyDowns();
+            return false;
+        }
+    }
+    _deferredKeyInFlight.kind = kind;
+    _deferredKeyInFlight.translatedWch = wch;
+    _deferredKeyInFlight.keyState = state;
+    // 重试复用本次决定；恢复检查点的强制 INPUT/MOVE 从不经过此分类。
+    _deferredKeyInFlight.needsClassification = false;
+    return true;
+}
+
 void CMetasequoiaIME::_DrainOneDeferredKeyDown()
 {
     _deferredKeyDrainPosted = false;
@@ -2712,7 +2806,17 @@ void CMetasequoiaIME::_DrainOneDeferredKeyDown()
         return;
     }
 
+    if (!_ResolveDeferredKeyClassification(replayToken)) return;
     BOOL eaten = FALSE;
+    if (key.kind == DeferredKeyDown::Kind::ApplicationKey)
+    {
+        if (_QueueKoreanSyllableKeyReplay(VKeyFromVKPacketAndWchar(static_cast<UINT>(key.wParam), key.translatedWch),
+                                         key.context, replayToken))
+            _CompleteDeferredKeyReplay(replayToken);
+        else
+            _RetryDeferredKeyReplay(replayToken);
+        return;
+    }
     if (key.kind == DeferredKeyDown::Kind::ApplicationText)
     {
         (void)_RequestDeferredApplicationTextEditSession(key.context, key.translatedWch, focusToken,
