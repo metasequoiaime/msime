@@ -23,7 +23,7 @@ export interface VoiceHotkeysSectionProps {
   values: Partial<Record<VoiceHotkeyKey, boolean>>;
   /** 一次改动可能同时写几个键：换按住录音的组合键时三个一起写。 */
   onChange: (patch: Partial<Record<VoiceHotkeyKey, boolean>>) => void;
-  /** 宿主读空格锁定（`voice_space_lock_switch`）。macOS 把它固定为开，不给开关。 */
+  /** 宿主读空格锁定（`voice_space_lock_switch`）。macOS、Windows、Linux、HarmonyOS 把它固定为开，不给开关。 */
   spaceLock?: boolean;
 }
 

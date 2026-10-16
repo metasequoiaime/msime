@@ -70,6 +70,20 @@ test("voice credential test configs share Linux and remote defaults", () => {
   });
 });
 
+test("Doubao credential test checks an empty resource ID as the seedasr default the hosts record with", () => {
+  for (const asr_resource_id of [undefined, "", "  "]) {
+    expect(
+      asrServiceCredentialTestConfig({ ...voiceInput, asr_resource_id }, "api_key").resource_id,
+    ).toBe("volc.seedasr.sauc.duration");
+  }
+  expect(
+    asrServiceCredentialTestConfig(
+      { ...voiceInput, asr_resource_id: " volc.bigasr.sauc.duration " },
+      "api_key",
+    ).resource_id,
+  ).toBe("volc.bigasr.sauc.duration");
+});
+
 test("local ASR credential test names the model directory the provider checks", () => {
   const modelPath = "/synthetic/voice-models/synthetic-model";
   const localConfig = (asr_model_path: string) =>

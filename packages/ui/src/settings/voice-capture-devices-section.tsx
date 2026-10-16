@@ -57,10 +57,11 @@ export function VoiceCaptureDevicesSection({
           read={readDevices}
           active={active}
           device={device}
-          // 与宿主的 MSIMEVoiceCaptureBackendSupported 一样不分大小写。
+          // 与宿主的 MSIMEVoiceCaptureBackendSupported、Windows 的 VoiceCaptureSelection、HarmonyOS 的 VoiceCaptureDevicePolicy 一样不分大小写。
           backendSupported={
             backend === "" || backendOptions.some(([value]) => value === backend.toLowerCase())
           }
+          fallsBackToDefault={harmony}
           choose={onBackendChange}
         />
       </GroupList>

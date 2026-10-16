@@ -297,8 +297,15 @@ test("the voice page keeps the common rows and folds the service into its own vi
   const row = screen.getByRole("button", { name: "服务配置" });
   expect(row.textContent).toContain("未填写完整");
 
+  // Windows 的宿主把空格锁定固定为开，不给开关。
+  expect(screen.queryByRole("switch", { name: "长按录音时按空格锁定" })).toBeNull();
+
   const view = openVoiceServiceConfig();
-  expect(titles(view)).toEqual(["识别服务", "识别结果", "文本润色", "提示音", "录音设备"]);
+  // Windows 只认提示音总开关，也只有一种录音方式：子视图里没有「提示音」组，录音设备只有一个「麦克风」下拉。
+  expect(titles(view)).toEqual(["识别服务", "识别结果", "文本润色", "录音设备"]);
+  expect(within(view).queryByLabelText("开始录音提示音")).toBeNull();
+  expect(within(view).queryByLabelText("录音后端")).toBeNull();
+  expect(within(view).getByRole("combobox", { name: "麦克风" })).toBeTruthy();
   expect(screen.queryByRole("switch", { name: "启用语音输入" })).toBeNull();
   // 豆包的识别选项和资源 ID 收在「更多选项」里，检查按钮是这一组的最后一项。
   const service = within(view).getByRole("region", { name: "识别服务" });

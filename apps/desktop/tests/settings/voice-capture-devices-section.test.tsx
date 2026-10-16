@@ -9,44 +9,89 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// 只有 Linux 的语音服务真有几种录音后端可选（`voice_capture_backends`），后端选择和手填设备名只在那里出现。
 test("forwards backend and microphone edits", () => {
   const onBackendChange = vi.fn();
   const onDeviceChange = vi.fn();
   render(
     <VoiceCaptureDevicesSection
-      windows
+      windows={false}
       harmony={false}
+      linux
       backend=""
       device=""
-      backendOptions={[["windows", "Windows Audio"]]}
+      backendOptions={[["pulse", "PulseAudio"]]}
       readDevices={vi.fn().mockResolvedValue([])}
       onBackendChange={onBackendChange}
       onDeviceChange={onDeviceChange}
     />,
   );
 
-  fireEvent.change(screen.getByLabelText("录音后端"), { target: { value: "windows" } });
+  fireEvent.change(screen.getByLabelText("录音后端"), { target: { value: "pulse" } });
   fireEvent.change(screen.getByLabelText("麦克风设备"), { target: { value: "synthetic-device" } });
 
-  expect(onBackendChange).toHaveBeenCalledWith("windows", "");
+  expect(onBackendChange).toHaveBeenCalledWith("pulse", "");
   expect(onDeviceChange).toHaveBeenCalledWith("synthetic-device");
 });
 
-test("uses platform-specific microphone guidance", () => {
+// Linux 的后端选择与 IBus、Fcitx5 和桌面语音面板的转发（`VoiceProviderOptions.h`、`voice.rs`）一样区分大小写：语音服务只认小写的后端名，存着的 `Pulse` 不会被转发，页面上也就写它不可用，不能显示成选中了 PulseAudio。
+test("marks a stored backend with the wrong case unavailable on Linux, as the forwarders drop it", () => {
   render(
     <VoiceCaptureDevicesSection
       windows={false}
-      harmony
-      backend="harmony"
-      device=""
-      backendOptions={[["harmony", "HarmonyOS 音频"]]}
+      harmony={false}
+      linux
+      backend={"Pulse" as VoiceCaptureBackend}
+      device="synthetic-device"
+      backendOptions={[["pulse", "PulseAudio"]]}
       readDevices={vi.fn().mockResolvedValue([])}
       onBackendChange={vi.fn()}
       onDeviceChange={vi.fn()}
     />,
   );
 
-  expect(screen.getByText(/设备类型与地址/)).toBeTruthy();
+  const select = screen.getByLabelText<HTMLSelectElement>("录音后端");
+  expect(select.value).toBe("Pulse");
+  expect(within(select).getByRole("option", { name: "Pulse（此平台不可用）" })).toBeTruthy();
+});
+
+// HarmonyOS 选中的麦克风拔掉后宿主改用系统默认设备照常录音（HarmonyVoiceCaptureDevices），不能照搬 macOS、Windows 的「拔掉后无法录音」。
+test("uses platform-specific microphone guidance", () => {
+  const props = {
+    backends: false,
+    backend: "harmony" as const,
+    device: "",
+    readDevices: vi.fn().mockResolvedValue([]),
+    onBackendChange: vi.fn(),
+    onDeviceChange: vi.fn(),
+  };
+  const { rerender } = render(
+    <VoiceCaptureDevicesSection
+      {...props}
+      windows={false}
+      harmony
+      backendOptions={[
+        ["auto", "自动选择"],
+        ["harmony", "HarmonyOS 音频"],
+      ]}
+    />,
+  );
+  expect(screen.getByText(/拔掉后改用系统默认设备/)).toBeTruthy();
+  expect(screen.getByText(/系统语音识别由服务自行取音/)).toBeTruthy();
+  expect(screen.queryByText(/拔掉后无法录音/)).toBeNull();
+  rerender(
+    <VoiceCaptureDevicesSection
+      {...props}
+      backend="windows"
+      windows
+      harmony={false}
+      backendOptions={[
+        ["auto", "自动选择"],
+        ["windows", "Windows Audio"],
+      ]}
+    />,
+  );
+  expect(screen.getByText(/拔掉后无法录音/)).toBeTruthy();
 });
 
 test("ignores a second device refresh while the first is pending", async () => {

@@ -135,6 +135,12 @@ test("voice shortcuts for a physical keyboard are listed on a 2in1 and not on a 
   renderSettings({ page: "voice", preferences, mobile: false, voiceHotkeys: true });
   await settingsFormReady();
   expect(screen.getByText("语音快捷键")).toBeTruthy();
+  // 2in1 的实体键盘把空格锁定固定为开（KeyboardSession 不再读存下的值），选了长按的组合键也不给开关。
+  expect((screen.getByRole("combobox", { name: "长按录音" }) as HTMLSelectElement).value).toBe(
+    "hotkey_ralt",
+  );
+  expect(screen.queryByRole("switch", { name: "长按录音时按空格锁定" })).toBeNull();
+  expect(screen.getByText(/按住期间按空格锁定录音/)).toBeTruthy();
 });
 
 test("the phone voice page puts language and punctuation first and the service below", async () => {
@@ -248,7 +254,10 @@ test("the phone voice page keeps service details behind 服务配置", async () 
 
   const dialog = openServiceConfig();
   expect(within(dialog).getByLabelText("Doubao API Key")).toBeTruthy();
-  expect(within(dialog).getByRole("switch", { name: "开始录音提示音" })).toBeTruthy();
+  // HarmonyOS 只认提示音总开关，子视图不再画开始、结束提示音。
+  expect(within(dialog).queryByRole("switch", { name: "开始录音提示音" })).toBeNull();
+  expect(within(dialog).queryByRole("switch", { name: "结束录音提示音" })).toBeNull();
+  expect(within(dialog).queryByRole("region", { name: "提示音" })).toBeNull();
   expect(within(dialog).getByRole("region", { name: "录音设备" })).toBeTruthy();
   fireEvent.click(within(dialog).getByRole("button", { name: "返回" }));
   expect(await screen.findByRole("button", { name: "服务配置" })).toBeTruthy();
@@ -325,18 +334,22 @@ test("the phone voice page lays credentials and devices out as rows of their gro
   // API Key 原本是旧的 `label.section-header` 字段，放在分组里缺了行的内边距，贴着卡片左边。
   expect(within(service).getByText("Doubao API Key").hasAttribute("data-row-title")).toBe(true);
   expect(within(service).getByLabelText("Doubao API Key")).toBeTruthy();
+  // HarmonyOS 只有一种录音方式：一个「麦克风」选择行，打开子视图时自动读取设备，不再有刷新按钮和「可用录音设备」。
   const devices = screen.getByRole("region", { name: "录音设备" });
-  expect(within(devices).getByText("读取录音设备").hasAttribute("data-row-title")).toBe(true);
-  expect(within(devices).getByRole("button", { name: "刷新设备" })).toBeTruthy();
+  expect(within(devices).queryByRole("button", { name: "刷新设备" })).toBeNull();
+  expect(within(devices).queryByText("可用录音设备")).toBeNull();
   expect(
     within(devices)
       .getAllByRole("button")
       .some(
         (button) =>
           button.getAttribute("aria-haspopup") === "dialog" &&
-          button.querySelector("[data-row-title]")?.textContent === "可用录音设备",
+          button.querySelector("[data-row-title]")?.textContent === "麦克风",
       ),
   ).toBe(true);
+  // 选中的麦克风拔掉后 HarmonyOS 改用系统默认设备，说明照实写，不说「无法录音」。
+  expect(within(devices).getByText(/拔掉后改用系统默认设备/)).toBeTruthy();
+  expect(within(devices).queryByText(/拔掉后无法录音/)).toBeNull();
 });
 
 test("the settings scroller contains the hidden controls behind picker rows", async () => {
