@@ -680,7 +680,7 @@ test("a community page without the skin gallery offers only its dictionary and r
   expect(openCommunity.mock.calls).toEqual([["published-dictionary"], ["saved-reply"]]);
 });
 
-test("logged-in mobile accounts expose direct cloud dictionary and clipboard entries", async () => {
+test("a logged-in desktop account opens the cloud clipboard, and leaves the cloud dictionary to the 词库 page", async () => {
   const openCloudDictionary = vi.fn();
   const openCloudClipboard = vi.fn();
   const client = account({ status: vi.fn().mockResolvedValue({ user }) });
@@ -691,10 +691,85 @@ test("logged-in mobile accounts expose direct cloud dictionary and clipboard ent
       onOpenCloudClipboard={openCloudClipboard}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "云词库" }));
-  fireEvent.click(screen.getByRole("button", { name: "云剪贴板" }));
-  expect(openCloudDictionary).toHaveBeenCalledTimes(1);
+  fireEvent.click(await screen.findByRole("button", { name: "云剪贴板" }));
   expect(openCloudClipboard).toHaveBeenCalledTimes(1);
+  // 桌面的云词库入口只在「词库」页（不登录也看得到），账号页不再列出第二个。
+  expect(screen.queryByRole("button", { name: "云词库" })).toBeNull();
+  expect(openCloudDictionary).not.toHaveBeenCalled();
+
+  cleanup();
+  // macOS 不在设置里打开云剪贴板：「云端」组因此整组不出现。
+  render(<AccountPage client={client} onOpenCloudDictionary={openCloudDictionary} />);
+  await screen.findByRole("button", { name: "编辑个人资料" });
+  expect(screen.queryByRole("region", { name: "云端" })).toBeNull();
+  expect(screen.queryByText("云端")).toBeNull();
+});
+
+test("the signed-out page offers the recovery actions only when something went wrong", async () => {
+  render(<AccountPage client={account()} />);
+  await screen.findByRole("button", { name: "邮箱登录" });
+  expect(screen.queryByRole("button", { name: "刷新登录方式" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "清除失效登录状态" })).toBeNull();
+
+  cleanup();
+  // 登录方式没读到：只在进入本页时读一次，所以要给重试。
+  const providers = vi
+    .fn()
+    .mockRejectedValueOnce({ code: "account_network" })
+    .mockResolvedValue({ email: true, phone: false });
+  render(<AccountPage client={account({ providers })} />);
+  fireEvent.click(await screen.findByRole("button", { name: "刷新登录方式" }));
+  await screen.findByRole("button", { name: "邮箱登录" });
+  expect(screen.queryByRole("button", { name: "刷新登录方式" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "清除失效登录状态" })).toBeNull();
+
+  cleanup();
+  // 读不出本机保存的登录状态：给「清除失效登录状态」，清掉以后它就不再出现。
+  const clearExpired = vi.fn().mockResolvedValue(undefined);
+  render(
+    <AccountPage
+      client={account({
+        status: vi.fn().mockRejectedValue({ code: "account_storage" }),
+        clearExpired,
+      })}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "清除失效登录状态" }));
+  await waitFor(() => expect(clearExpired).toHaveBeenCalledOnce());
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "清除失效登录状态" })).toBeNull(),
+  );
+});
+
+test("a successful sign-in after an unreadable session drops the stale clear action", async () => {
+  // 进页面时读不出登录状态，随后登录成功：登录状态显然可读，退出登录后不应再给「清除失效登录状态」。
+  const client = account({
+    status: vi.fn().mockRejectedValue({ code: "account_storage" }),
+    providers: vi.fn().mockResolvedValue({ email: true, phone: false }),
+  });
+  render(<AccountPage client={client} />);
+  expect(await screen.findByRole("button", { name: "清除失效登录状态" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "邮箱登录" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "邮箱地址" }), {
+    target: { value: "fixture@example.test" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "获取验证码" }));
+  fireEvent.change(await screen.findByRole("textbox", { name: "6 位验证码" }), {
+    target: { value: "123456" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "登录" }));
+  await screen.findByRole("button", { name: "编辑个人资料" });
+  fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
+  await waitFor(() => expect(client.logout).toHaveBeenCalledWith(false));
+  await screen.findByRole("button", { name: "邮箱登录" });
+  expect(screen.queryByRole("button", { name: "清除失效登录状态" })).toBeNull();
+});
+
+test("the desktop sign-in copy promises settings sync only where the host syncs settings", async () => {
+  render(<AccountPage client={account()} />);
+  expect(
+    await screen.findByText("登录后在设备之间同步词库，还可以发布你的候选窗口皮肤"),
+  ).toBeTruthy();
 });
 
 test("mobile accounts expose about and desktop download actions while signed out", async () => {

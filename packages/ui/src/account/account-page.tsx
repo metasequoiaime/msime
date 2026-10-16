@@ -858,6 +858,7 @@ function AccountDetailsPage({
   onOpenLocalDesigns?: () => void;
   onOpenCommunity?: (destination: AccountCommunityDestination) => void;
   communityHasSkins?: boolean;
+  /** 触屏宿主的「我的」里打开云词库。桌面的云词库入口在「词库」页，账号页不再列出。 */
   onOpenCloudDictionary?: () => void;
   onOpenCloudClipboard?: () => void;
   onOpenAbout?: () => void;
@@ -876,6 +877,8 @@ function AccountDetailsPage({
   const [notice, setNotice] = useState("");
   const [providers, setProviders] = useState<AccountProviders>({ email: false, phone: false });
   const [user, setUser] = useState<AccountUser | null>(null);
+  // 读不出本机保存的登录状态（`status()` 失败，例如登录状态文件坏了）。只有这时才给「清除失效登录状态」，平常未登录时它只是噪音。
+  const [sessionUnreadable, setSessionUnreadable] = useState(false);
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   const [name, setName] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
@@ -917,6 +920,7 @@ function AccountDetailsPage({
     onProvidersChange: setProviders,
     onClearedExpired: () => {
       clearSession();
+      setSessionUnreadable(false);
       setNotice("已清除失效登录状态。");
     },
   });
@@ -973,6 +977,11 @@ function AccountDetailsPage({
     },
   });
 
+  // 登录成功（任何一种方式）或者读出了已登录的用户，说明保存的登录状态是可读的，之前那次读不出来的结论作废；否则退出登录后又会冒出「清除失效登录状态」。
+  useEffect(() => {
+    if (user) setSessionUnreadable(false);
+  }, [user]);
+
   const loadProfile = async (generation = clientGeneration.current) => {
     const value = await client.profile();
     if (mounted.current && generation === clientGeneration.current) applyProfile(value);
@@ -986,6 +995,7 @@ function AccountDetailsPage({
       if (available.status === "fulfilled") setProviders(available.value);
       else if (!isAccountCancellation(available.reason)) setError(accountMessage(available.reason));
       if (status.status === "fulfilled") {
+        setSessionUnreadable(false);
         const nextUser = status.value.user ?? null;
         setUser(nextUser);
         if (nextUser) {
@@ -1003,7 +1013,10 @@ function AccountDetailsPage({
           }
         }
       } else {
-        if (!isAccountCancellation(status.reason)) setError(accountMessage(status.reason));
+        if (!isAccountCancellation(status.reason)) {
+          setError(accountMessage(status.reason));
+          setSessionUnreadable(true);
+        }
       }
       if (mounted.current && generation === clientGeneration.current) setLoading(false);
     });
@@ -1461,7 +1474,10 @@ function AccountDetailsPage({
                   ? "我们会发送一个 6 位验证码完成登录"
                   : mobile
                     ? "登录，分享你的键盘设计"
-                    : "登录后在设备之间同步设置和词库，还可以发布你的候选窗口皮肤"}
+                    : // 设置同步只接在 Windows 的账号会话上（`settingsSync`），别的桌面不许诺同步设置。
+                      client.settingsSync
+                      ? "登录后在设备之间同步设置和词库，还可以发布你的候选窗口皮肤"
+                      : "登录后在设备之间同步词库，还可以发布你的候选窗口皮肤"}
               </p>
             </div>
           </div>
@@ -1511,20 +1527,27 @@ function AccountDetailsPage({
                   </p>
                 )}
               </div>
-              <div className={account.signInFooter}>
-                <ActionButton
-                  action={refreshProviders}
-                  className={account.link}
-                  disabled={busy}
-                  label="刷新登录方式"
-                />
-                <ActionButton
-                  action={clearExpired}
-                  className={account.link}
-                  disabled={busy}
-                  label="清除失效登录状态"
-                />
-              </div>
+              {/* 两个恢复动作只在出了问题时出现：登录方式只在进入本页时读一次，读失败或一个都没有时（上面那句「请稍后重试」）才给「刷新登录方式」；读不出本机登录状态时才给「清除失效登录状态」。 */}
+              {(enabledProviders === 0 || sessionUnreadable) && (
+                <div className={account.signInFooter}>
+                  {enabledProviders === 0 && (
+                    <ActionButton
+                      action={refreshProviders}
+                      className={account.link}
+                      disabled={busy}
+                      label="刷新登录方式"
+                    />
+                  )}
+                  {sessionUnreadable && (
+                    <ActionButton
+                      action={clearExpired}
+                      className={account.link}
+                      disabled={busy}
+                      label="清除失效登录状态"
+                    />
+                  )}
+                </div>
+              )}
             </>
           ) : (
             <div className={account.signInBody}>
@@ -1641,14 +1664,10 @@ function AccountDetailsPage({
       {user && !mobile && client.settingsSync && (
         <SettingsSyncCard client={client.settingsSync} userId={user.id} />
       )}
-      {user && !mobile && (onOpenCloudDictionary || onOpenCloudClipboard) && (
+      {/* 桌面的云词库入口只在「词库」页：那里不登录也看得到，这里不再放第二个。macOS 不在设置里打开云剪贴板（要输入法提供输入会话），这一组在 macOS 上因此整组不出现。 */}
+      {user && !mobile && onOpenCloudClipboard && (
         <GroupList title="云端">
-          {onOpenCloudDictionary && (
-            <MeRow title="云词库" disabled={busy} onClick={onOpenCloudDictionary} />
-          )}
-          {onOpenCloudClipboard && (
-            <MeRow title="云剪贴板" disabled={busy} onClick={onOpenCloudClipboard} />
-          )}
+          <MeRow title="云剪贴板" disabled={busy} onClick={onOpenCloudClipboard} />
         </GroupList>
       )}
       {!mobile && (onOpenLocalDesigns || (user && (openPublishedSkins || onOpenCommunity))) && (
