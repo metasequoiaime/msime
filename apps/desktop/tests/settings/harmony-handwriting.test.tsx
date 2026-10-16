@@ -36,22 +36,22 @@ function renderSettings(platform: string, host: Record<string, unknown> = {}) {
   );
 }
 
-// 手机从触屏首页的根页行进入它；2in1 从侧边栏进入。
+// 手机从触屏首页的根页行进入它；2in1 的手写并进了屏幕键盘页，从侧边栏的「屏幕键盘与手写」进入。
 async function handwritingPage(mobile = true) {
   await settingsFormReady();
   const { fireEvent } = await import("@testing-library/react");
   if (mobile) {
     const home = screen.getByRole("region", { name: "首页" });
     fireEvent.click(within(home).getByRole("button", { name: "手写输入" }));
-  } else {
-    const list = screen.getByRole("navigation", { name: "设置分类" });
-    const row = [...list.querySelectorAll("button")].find(
-      (item) => item.textContent?.trim() === "手写输入",
-    );
-    if (!row) throw new Error("no row for 手写输入");
-    fireEvent.click(row);
+    return screen.getByRole("group", { name: "手写输入" });
   }
-  return screen.getByRole("group", { name: "手写输入" });
+  const list = screen.getByRole("navigation", { name: "设置分类" });
+  const row = [...list.querySelectorAll("button")].find(
+    (item) => item.textContent?.trim() === "屏幕键盘与手写",
+  );
+  if (!row) throw new Error("no row for 屏幕键盘与手写");
+  fireEvent.click(row);
+  return screen.getByRole("group", { name: "屏幕键盘与手写" });
 }
 
 // HarmonyOS reaches handwriting by switching the keyboard's input scheme, the way the other
@@ -73,16 +73,15 @@ test("the 2in1 route to the scheme picker is spelled out", async () => {
   // could follow on that form factor.
   renderSettings("harmony", { mobile_settings: false, panel_windows: true });
   const page = await handwritingPage(false);
-  expect(within(page).getByText(/屏幕键盘/)).toBeTruthy();
+  expect(within(page).getByText(/先从悬浮工具栏打开屏幕键盘/)).toBeTruthy();
 });
 
 test("a desktop host still gets the launch button", async () => {
-  // The branch this adds must not take the desktop path with it: Windows and Linux do open a
-  // handwriting panel from the settings window.
+  // The branch this adds must not take the desktop path with it: Windows and Linux do open a handwriting panel from the settings window, on the merged 屏幕键盘与手写 page.
   renderSettings("windows");
   const { fireEvent } = await import("@testing-library/react");
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "手写输入" }));
-  const page = screen.getByRole("group", { name: "手写输入" });
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘与手写" }));
+  const page = screen.getByRole("group", { name: "屏幕键盘与手写" });
   expect(within(page).getByText("打开手写识别板")).toBeTruthy();
 });

@@ -339,8 +339,8 @@ PY
 )"
 fi
 rm -rf "$tauri_bundle_dir"
-# No APPLE_SIGNING_IDENTITY: Tauri would sign the nested input method again without its entitlements. The outer app is signed below instead. tauri.macos.conf.json is merged automatically on macOS and is what embeds EngineResources and the input method.
-env -u APPLE_SIGNING_IDENTITY -u APPLE_CERTIFICATE \
+# No APPLE_SIGNING_IDENTITY: Tauri would sign the nested input method again without its entitlements. The outer app is signed below instead. tauri.macos.conf.json is merged automatically on macOS and is what embeds EngineResources and the input method. MSIME_PLATFORM_BUILD=1 passes apps/desktop/scripts/require-platform-build.mjs in case the Tauri CLI runs beforeBuildCommand here.
+env -u APPLE_SIGNING_IDENTITY -u APPLE_CERTIFICATE MSIME_PLATFORM_BUILD=1 \
   pnpm --filter @msime/desktop exec tauri bundle --bundles app --config "$bundle_config"
 app="$(only "$tauri_bundle_dir"/*.app)"
 app_name="$(basename "$app")"

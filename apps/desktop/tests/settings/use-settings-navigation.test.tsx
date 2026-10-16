@@ -3,6 +3,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { useRef, useState } from "react";
 import type { SettingsPageId } from "../../../../packages/ui/src/settings/settings-page-registry";
+import { pushMobileSettingsState } from "../../../../packages/ui/src/settings/mobile-navigation";
 import { useSettingsNavigation } from "../../../../packages/ui/src/settings/use-settings-navigation";
 
 afterEach(() => {
@@ -119,4 +120,53 @@ test("an aliased page id opens the page that now carries it", () => {
   act(() => result.current.selectPage("voice"));
   rerender({ initialPage: "handwriting", route: { page: "handwriting", nonce: 1 } });
   expect(result.current.page).toBe("screen-keyboard");
+});
+
+test("初始化设置历史时保留宿主字段和面板状态", () => {
+  const current = Object.freeze({ host: "synthetic-host", panel: "voice" });
+  window.history.replaceState(current, "");
+  renderHook(() => useNavigationProbe("home"));
+  expect(window.history.state).toEqual({
+    host: "synthetic-host",
+    panel: "voice",
+    msimeSettings: true,
+    page: "home",
+    tab: "home",
+  });
+  expect(current).toEqual({ host: "synthetic-host", panel: "voice" });
+});
+
+test("替换设置页路由时只清除新状态的旧面板字段", () => {
+  const current = Object.freeze({
+    host: "synthetic-host",
+    panel: "voice",
+    msimeSettings: true,
+    page: "home",
+    tab: "home",
+  });
+  window.history.replaceState(current, "");
+  const length = window.history.length;
+  const { result } = renderHook(() => useNavigationProbe("home"));
+  act(() => result.current.selectPage("community", true));
+  expect(window.history.state).toEqual({
+    host: "synthetic-host",
+    msimeSettings: true,
+    page: "community",
+    tab: "home",
+  });
+  expect(window.history.length).toBe(length);
+  expect(current.panel).toBe("voice");
+});
+
+test("嵌套设置路由推入新历史并保留宿主页面字段", () => {
+  window.history.replaceState({ host: "synthetic-host", page: "input" }, "");
+  const length = window.history.length;
+  pushMobileSettingsState({ panel: "voice" });
+  expect(window.history.state).toEqual({
+    host: "synthetic-host",
+    page: "input",
+    panel: "voice",
+    msimeSettings: true,
+  });
+  expect(window.history.length).toBe(length + 1);
 });

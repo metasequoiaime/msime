@@ -1223,36 +1223,47 @@ impl NineKeySession {
                 continue;
             }
             let full_len = self.locked.len() + path.len();
-            for mut candidate in dictionary.query(&key, &key, 0, self.fuzzy) {
-                if self.single_character_only && is_han_phrase(&candidate.word) {
-                    continue;
+            let accepts_reading = |word: &str, pinyin: &str, canonical: &str, fuzzy: bool| {
+                if self.single_character_only && is_han_phrase(word) {
+                    return false;
                 }
-                let canonical = take_candidate_canonical_pinyin(&mut candidate);
-                // A row with more syllables than the path is a completion past the typed digits.
-                if canonical.matches('\'').count() >= full_len {
-                    continue;
-                }
-                let matched = if candidate.fuzzy {
-                    candidate.pinyin.as_str()
+                let canonical = if canonical.is_empty() {
+                    pinyin
                 } else {
-                    canonical.as_str()
+                    canonical
                 };
-                let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits) else {
-                    continue;
-                };
+                // 多出音节的行是越过本条路径的补全，不参与这条读法。
+                if canonical.matches('\'').count() >= full_len {
+                    return false;
+                }
+                let matched = if fuzzy { pinyin } else { canonical };
                 if !agrees_with_locked(matched, &locked_key) {
-                    continue;
+                    return false;
                 }
                 if let Some(letter) = initial {
-                    // 模糊音可能从别的声母读到这一行（`zi` 读出 `zhi`），所以对照它实际匹配的拼写。
+                    // 模糊音按实际匹配的拼写核对已选声母。
                     let next = matched
                         .split('\'')
                         .nth(self.locked.len())
                         .and_then(|syllable| syllable.as_bytes().first());
                     if next != Some(&letter) {
-                        continue;
+                        return false;
                     }
                 }
+                true
+            };
+            for mut candidate in dictionary.query_filtered(&key, &key, self.fuzzy, accepts_reading)
+            {
+                let canonical = take_candidate_canonical_pinyin(&mut candidate);
+                let matched = if candidate.fuzzy {
+                    candidate.pinyin.as_str()
+                } else {
+                    canonical.as_str()
+                };
+                // 组码覆盖只算一次；九键双拼的既有实现会申请临时编码。
+                let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits) else {
+                    continue;
+                };
                 candidate.pinyin.clear();
                 candidate.pinyin.push_str(&self.digits[..covered]);
                 candidate.canonical_pinyin = canonical;
@@ -3005,6 +3016,9 @@ impl SyllablePrior {
         self.syllables.get(syllable).copied().unwrap_or(0.0)
     }
 }
+
+#[cfg(test)]
+mod filter_projection_tests;
 
 #[cfg(test)]
 mod cached_rank_tests;

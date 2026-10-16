@@ -59,7 +59,7 @@ export const floatingToolbarSizes: readonly FloatingToolbarSize[] = [
   { percent: 175, scale_percent: 150, font_size: 28 },
 ];
 
-/** 存下的缩放和图标尺寸对应的那一档；在 Windows 原生设置页或旧版本里单独调过、凑不成任何一档时返回 undefined，页面照实显示「自定义」而不改写存储。 */
+/** 存下的缩放和图标尺寸对应的那一档；以前在 Windows 原生设置页或旧版本里单独调过、凑不成任何一档时返回 undefined，页面照实显示「自定义」而不改写存储。 */
 export function floatingToolbarSize(
   preferences: Pick<FloatingToolbarPreferences, "scale_percent" | "font_size">,
 ): FloatingToolbarSize | undefined {

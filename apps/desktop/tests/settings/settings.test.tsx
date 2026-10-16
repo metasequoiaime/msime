@@ -3362,7 +3362,7 @@ test("dictionary manager pages through entries instead of loading the whole dict
   fireEvent.change(await screen.findByLabelText("本地词库类型"), { target: { value: "pinyin" } });
   fireEvent.click(screen.getByRole("button", { name: "查询" }));
   expect(await screen.findByText("第 1–100 条，后面还有结果")).toBeDefined();
-  // This case selected 全拼, so that is the kind the host is asked for.
+  // This case selected 拼音, so that is the kind the host is asked for.
   expect(list).toHaveBeenCalledWith(0, 100, "pinyin", "");
   // The first page must not be followed by a second request on its own.
   expect(list).toHaveBeenCalledTimes(1);
@@ -5973,8 +5973,8 @@ test("Linux keeps the spacing sliders but drops the height that its keyboard win
   await answerConfirm("cancel");
 });
 
-// Windows 的共享设置页与原生设置窗口一样分成「屏幕键盘」和「手写输入」两页，高度和间距都在。
-test("Windows keeps the screen keyboard and handwriting pages apart with every size control", async () => {
+// Windows 的手写页也只有一个打开按钮，与原生设置窗口一样并进「屏幕键盘与手写」；Windows 有触屏设备，高度和间距都在。
+test("Windows folds handwriting into the screen keyboard page and keeps every size control", async () => {
   render(
     <SettingsPage
       client={{
@@ -5987,13 +5987,12 @@ test("Windows keeps the screen keyboard and handwriting pages apart with every s
     />,
   );
   await settingsReady();
-  expect(screen.getByRole("button", { name: "手写输入" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "屏幕键盘与手写" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘" }));
-  const page = await screen.findByRole("group", { name: "屏幕键盘" });
+  expect(screen.queryByRole("button", { name: "手写输入" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘与手写" }));
+  const page = await screen.findByRole("group", { name: "屏幕键盘与手写" });
   for (const slider of ["键盘高度", "按键间距", "行间距"])
     expect(within(page).getByRole("slider", { name: slider })).toBeTruthy();
-  expect(within(page).queryByText("打开手写识别板")).toBeNull();
+  expect(within(page).getByText("打开手写识别板")).toBeTruthy();
   // Windows 不是 touch_toolbar_components 的宿主，说明不再提工具栏按钮。
   expect(within(page).getByText("高度、间距和顶部语音入口回到默认")).toBeTruthy();
 });
@@ -6589,7 +6588,7 @@ test("the sidebar follows the six titled navigation groups", async () => {
   expect(groups).toEqual([
     ["输入", "标点与翻译", "快捷键", "词库"],
     ["主题", "候选窗口", "悬浮工具栏"],
-    ["屏幕键盘", "语音输入", "手写输入"],
+    ["屏幕键盘与手写", "语音输入"],
     ["剪贴板", "AI 辅助"],
     ["维护与诊断", "帮助与反馈", "关于"],
   ]);
@@ -7099,6 +7098,12 @@ const referenceSections: {
   },
 ];
 
+// 桌面宿主（Windows 和 macOS 都是）把「屏幕键盘」和「手写输入」并成一页「屏幕键盘与手写」，两张表项都在那一页上找。
+const mergedPages: Record<string, string> = {
+  屏幕键盘: "屏幕键盘与手写",
+  手写输入: "屏幕键盘与手写",
+};
+
 test.each(referenceSections)(
   "the $page page still carries the reference window's sections",
   async ({ button, via, group, titles }) => {
@@ -7138,11 +7143,12 @@ test.each(referenceSections)(
     );
     await settingsReady();
     if (via) fireEvent.click(screen.getByRole("button", { name: via }));
-    fireEvent.click(screen.getByRole("button", { name: button }));
+    const pageName = mergedPages[button] ?? button;
+    fireEvent.click(screen.getByRole("button", { name: pageName }));
     if (button === "输入" && group === "辅助码") selectSettingsTab("进阶");
     const page = group
       ? await screen.findByRole("region", { name: group })
-      : await screen.findByRole("group", { name: button });
+      : await screen.findByRole("group", { name: pageName });
     const present = sectionTitles(page);
     expect(titles.filter((title) => !present.includes(title))).toEqual([]);
   },
@@ -7198,11 +7204,6 @@ const macosHostCapabilities = testHost({
   surface_themes_follow: true,
 });
 
-const macosMergedPages: Record<string, string> = {
-  屏幕键盘: "屏幕键盘与手写",
-  手写输入: "屏幕键盘与手写",
-};
-
 const macosAbsentSections: Record<string, string> = {
   // The Windows font row carries this note; macOS applies the family without a restart, and its
   // font controls are the shared three (main, supplementary, English) rather than Windows' pair.
@@ -7252,8 +7253,7 @@ test.each(referenceSections)(
     );
     await settingsReady();
     if (via) fireEvent.click(screen.getByRole("button", { name: via }));
-    // macOS 把「屏幕键盘」和「手写输入」并成一页「屏幕键盘与手写」，两张表项都在那一页上找。
-    const pageName = macosMergedPages[button] ?? button;
+    const pageName = mergedPages[button] ?? button;
     fireEvent.click(screen.getByRole("button", { name: pageName }));
     if (button === "输入" && group === "辅助码") selectSettingsTab("进阶");
     const page = group

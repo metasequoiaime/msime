@@ -41,6 +41,7 @@ $previousTarget = $env:CARGO_TARGET_DIR
 $previousDebug = $env:CARGO_PROFILE_RELEASE_DEBUG
 $previousArm64Flags = $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS
 $previousVersion = $env:MSIME_VERSION
+$previousPlatformBuild = $env:MSIME_PLATFORM_BUILD
 Push-Location $RepoRoot
 try {
     $env:CARGO_TARGET_DIR = Join-Path $RepoRoot 'target'
@@ -70,6 +71,8 @@ try {
             [IO.File]::WriteAllText($versionConfig, (@{ version = $TargetVersion } | ConvertTo-Json -Compress))
             $desktopBuild += @('--config', $versionConfig)
         }
+        # apps/desktop/scripts/require-platform-build.mjs refuses a Tauri build that no platform script asked for.
+        $env:MSIME_PLATFORM_BUILD = '1'
         Invoke-RustBuild pnpm $desktopBuild
         Invoke-RustBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime-desktop.exe'), (Join-Path $output 'MSIME.exe'))
         $desktopPdb = Get-SinglePdb $release @('msime_desktop.pdb', 'msime-desktop.pdb') 'Tauri desktop'
@@ -80,5 +83,6 @@ try {
     $env:CARGO_PROFILE_RELEASE_DEBUG = $previousDebug
     $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS = $previousArm64Flags
     $env:MSIME_VERSION = $previousVersion
+    $env:MSIME_PLATFORM_BUILD = $previousPlatformBuild
     Pop-Location
 }

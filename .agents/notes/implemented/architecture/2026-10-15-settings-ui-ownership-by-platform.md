@@ -19,7 +19,7 @@ Status: implemented
 | macOS | 共享 React 设置页 | 输入法菜单以 `--route=settings:<类别>` 拉起 Tauri 设置应用 `app.msime.macos`（`platforms/macos/src/core/DesktopSettingsLauncher.h`） |
 | Linux | 共享 React 设置页 | IBus 与 Fcitx5 调 `msime-linux-settings`，由它启动 Tauri 外壳（`platforms/linux/data/msime-linux-settings.in`）；没有原生设置界面 |
 | HarmonyOS | 共享 React 设置页 | 不经过 Tauri：`stage-settings.sh` 把 `apps/harmony` 构建成 `rawfile/settings/index.html`，`pages/Settings.ets` 用 ArkWeb 加载，ArkTS 一侧只做原生桥，经 NAPI 调 Rust |
-| Windows | 原生 WinUI 3 | `msime-client-settings.exe` 绘制全部 18 页；托盘、开始菜单和不带面板的请求都打开它（`platforms/windows/src/system/ShellSurfaces.h`） |
+| Windows | 原生 WinUI 3 | `msime-client-settings.exe` 绘制全部 17 页；托盘、开始菜单和不带面板的请求都打开它（`platforms/windows/src/system/ShellSurfaces.h`） |
 | iOS | 原生 SwiftUI | `platforms/ios/App/Sources/`，App 里没有 WebView |
 | Android | 原生 Java | 发布 APK 的 `home/`，另有 `settings/`、`account/`、`community/`、`statistics/`；React 只在不发布的 Tauri 合包里 |
 

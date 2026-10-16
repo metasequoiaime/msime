@@ -32,7 +32,8 @@ import {
 import { TouchKeyboardSchemesSection } from "./touch-keyboard-schemes-section";
 import { LanguageCard } from "./language-card";
 import { WubiSection } from "./wubi-section";
-import { WubiCodeLookupSection, type WubiCodeLookupClient } from "./wubi-code-lookup-section";
+import { WubiCodeLookupSection } from "./wubi-code-lookup-section";
+import type { WubiCodeLookupClient } from "../dictionary/dictionary-contracts";
 import { ResourcePackRow, resourcePackForScheme, type ResourcePacks } from "./resource-packs";
 
 export interface InputSchemeSettingsContentProps {
