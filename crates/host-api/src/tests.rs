@@ -3370,6 +3370,94 @@ fn the_repeat_gesture_arms_except_in_schemes_that_write_no_chinese_marks() {
 }
 
 #[test]
+fn the_repeat_gesture_rechecks_the_scheme_after_a_preferences_update() {
+    use msime_engine::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
+    for (scheme, ordinal, replaces) in [
+        (InputScheme::Quanpin, 0, true),
+        (InputScheme::Shuangpin, 1, true),
+        (InputScheme::Wubi, 2, true),
+        (InputScheme::Japanese, 3, true),
+        (InputScheme::Korean, 4, false),
+        (InputScheme::Zhuyin, 6, false),
+        (InputScheme::Vietnamese, 7, false),
+        (InputScheme::Tibetan, 8, false),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut preferences = chinese_preferences();
+        for name in [
+            "resources",
+            "user",
+            "cache",
+            "dictionaries",
+            "language-dictionaries",
+        ] {
+            std::fs::create_dir_all(dir.path().join(name)).unwrap();
+        }
+        let language_dictionaries = dir.path().join("language-dictionaries");
+        // 装入合成注音词库，保证切换后实际运行注音，而不是回退全拼。
+        let database =
+            rusqlite::Connection::open(language_dictionaries.join("msime-zhuyin.db")).unwrap();
+        database.execute_batch(SCHEMA).unwrap();
+        database
+            .execute(
+                "INSERT INTO metadata VALUES (?1, ?2)",
+                (METADATA_FORMAT_VERSION, FORMAT_VERSION.to_string()),
+            )
+            .unwrap();
+        database.execute_batch("INSERT INTO syllables VALUES ('ㄋㄧˇ'); INSERT INTO entries VALUES ('ㄋㄧˇ','你',1000);").unwrap();
+        drop(database);
+        let mut options = empty_host_options(dir.path());
+        options["preferences"] = serde_json::to_value(&preferences).unwrap();
+        options["language_dictionaries"] = json!(language_dictionaries);
+        let options = options.to_string();
+        // 安全：选项缓冲区在调用期间保持有效。
+        let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+        assert_eq!(created["ok"], true, "{created}");
+        let handle = created["value"]["session"].as_u64().unwrap();
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        let punctuation = read(msime_client_punctuation_with_context(
+            handle,
+            b'.',
+            u32::from('1'),
+        ));
+        assert_eq!(punctuation["value"]["handled"], false);
+        // 全拼将数字后的句点交给宿主按 ASCII 上屏，再保存重复按键快照。
+        let arm = json!({
+            "ascii": b'.', "commit": ".", "timestamp_ms": 1_000,
+            "editor_generation": 1, "auto_closed_pair": false
+        })
+        .to_string();
+        // 安全：请求缓冲区在调用期间保持有效。
+        let armed =
+            read(unsafe { msime_client_smart_punctuation_arm(handle, arm.as_ptr(), arm.len()) });
+        assert_eq!(armed["value"]["repeat"]["committed"], ".");
+
+        preferences.scheme = scheme;
+        let updated = update(handle, 1, &preferences);
+        assert_eq!(updated["ok"], true);
+        assert_eq!(updated["value"]["deferred"], false);
+        assert_eq!(updated["value"]["view"]["scheme"], ordinal);
+
+        let decide = json!({
+            "character": b'.', "preceding": ".", "timestamp_ms": 1_100,
+            "editor_generation": 1, "repeat": armed["value"]["repeat"], "space": null
+        })
+        .to_string();
+        // 安全：请求缓冲区在调用期间保持有效。
+        let decided = read(unsafe {
+            msime_client_smart_punctuation_decide(handle, decide.as_ptr(), decide.len())
+        });
+        assert_eq!(decided["ok"], true);
+        assert_eq!(
+            decided["value"]["replace_with"],
+            if replaces { json!("。") } else { Value::Null },
+            "{scheme:?}"
+        );
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    }
+}
+
+#[test]
 fn japanese_candidates_ask_for_no_translation() {
     // Only the schemes that show glosses (`SchemeType::shows_glosses`) plan a translation query; Japanese candidates never carry one. Quanpin under the same preferences is the positive control, so the gate tested here is the scheme predicate and nothing earlier. Quanpin types a Unicode code point because the test host installs no dictionary.
     let cases: [(InputScheme, &[u8], bool); 2] = [
