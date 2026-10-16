@@ -1038,8 +1038,59 @@ int candidateThemeHint() {
   return 0;
 }
 #endif
+// 不需要词库的真实上下文回归，普通 Linux 构建门禁也必须执行。
+int cloudClipboardResultFencing() {
+  char temporary[] = "/tmp/msime-fcitx-cloud-route-XXXXXX";
+  const auto *directory = mkdtemp(temporary);
+  require(directory != nullptr, "创建合成云剪贴板测试目录");
+  for (const auto *name : {"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR"})
+    setenv(name, directory, 1);
+  {
+    char program[] = "msime-cloud-route-test";
+    char disabled[] = "--disable=all";
+    char *args[] = {program, disabled, nullptr};
+    fcitx::Instance instance(2, args);
+    instance.initialize();
+    FixtureContext ic(instance.inputContextManager());
+    ic.focusIn();
+    FcitxState state(ic, nullptr, instance.eventLoop(), false);
+    state.options_path_ = directory;
+    state.updateCloudClipboardPreferences();
+    {
+      // 中继空间或偏好目录变化后，即使旧请求已经完成，也不能采用旧条目。
+      for (const auto &relay : {
+               Json{{"url", "https://relay.example.test/one"}, {"token", "synthetic-one"}},
+               Json{{"url", "https://relay.example.test/one"}, {"token", "synthetic-two"}},
+               Json{{"url", "https://relay.example.test/two"}, {"token", "synthetic-two"}}}) {
+        const auto generationBefore = state.cloud_clipboard_generation_;
+        state.cloud_clipboard_items_ = Json::array({Json{{"text", "旧空间合成条目"}}});
+        std::promise<Json> completed;
+        state.cloud_clipboard_job_ = completed.get_future().share();
+        completed.set_value(Json{{"enabled", true}, {"items", state.cloud_clipboard_items_},
+            {"_socket", state.cloud_clipboard_socket_}, {"_directory", state.options_path_},
+            {"_generation", generationBefore}});
+        state.preferences_["cloud_clipboard_relay"] = relay;
+        state.refreshCloudClipboard();
+        require(state.cloud_clipboard_generation_ > generationBefore &&
+                    state.cloud_clipboard_items_.empty() && !state.cloud_clipboard_job_.valid(),
+                "切换中继地址或令牌使旧空间列表和已完成请求失效");
+      }
+      const auto generationBefore = state.cloud_clipboard_generation_;
+      state.cloud_clipboard_items_ = Json::array({Json{{"text", "旧目录合成条目"}}});
+      state.options_path_ = (std::filesystem::path(directory) / "other-preferences").string();
+      state.refreshCloudClipboard();
+      require(state.cloud_clipboard_generation_ > generationBefore && state.cloud_clipboard_items_.empty(),
+              "切换偏好目录使缓存列表失效");
+    }
+  }
+  std::filesystem::remove_all(directory);
+  std::cout << "Fcitx5 云剪贴板旧结果失效回归通过\n";
+  return 0;
+}
+
 int main(int argc, char **argv) {
   try {
+    if (argc == 2 && std::string(argv[1]) == "--cloud-clipboard") return cloudClipboardResultFencing();
     if (argc == 2 && std::string(argv[1]) == "--theme-priority") return candidateThemePriority();
 #ifdef MSIME_FCITX5_HINT_FONT
     if (argc == 2 && std::string(argv[1]) == "--theme-hint") return candidateThemeHint();
@@ -2881,37 +2932,6 @@ int main(int argc, char **argv) {
       release.set_value();
       std::ofstream(path) << options.dump();
       state->refreshProviderSockets();
-    }
-    {
-      // 中继空间或偏好目录变化后，即使旧请求已经完成，也不能采用旧条目。
-      const auto previousRelay = state->preferences_.value("cloud_clipboard_relay", Json::object());
-      const auto previousDirectory = state->options_path_;
-      for (const auto &relay : {
-               Json{{"url", "https://relay.example.test/one"}, {"token", "synthetic-one"}},
-               Json{{"url", "https://relay.example.test/one"}, {"token", "synthetic-two"}},
-               Json{{"url", "https://relay.example.test/two"}, {"token", "synthetic-two"}}}) {
-        const auto generationBefore = state->cloud_clipboard_generation_;
-        state->cloud_clipboard_items_ = Json::array({Json{{"text", "旧空间合成条目"}}});
-        std::promise<Json> completed;
-        state->cloud_clipboard_job_ = completed.get_future().share();
-        completed.set_value(Json{{"enabled", true}, {"items", state->cloud_clipboard_items_},
-            {"_socket", state->cloud_clipboard_socket_}, {"_directory", state->options_path_},
-            {"_generation", generationBefore}});
-        state->preferences_["cloud_clipboard_relay"] = relay;
-        state->refreshCloudClipboard();
-        require(state->cloud_clipboard_generation_ > generationBefore &&
-                    state->cloud_clipboard_items_.empty() && !state->cloud_clipboard_job_.valid(),
-                "切换中继地址或令牌使旧空间列表和已完成请求失效");
-      }
-      const auto generationBefore = state->cloud_clipboard_generation_;
-      state->cloud_clipboard_items_ = Json::array({Json{{"text", "旧目录合成条目"}}});
-      state->options_path_ = (std::filesystem::path(directory) / "other-preferences").string();
-      state->refreshCloudClipboard();
-      require(state->cloud_clipboard_generation_ > generationBefore && state->cloud_clipboard_items_.empty(),
-              "切换偏好目录使缓存列表失效");
-      state->preferences_["cloud_clipboard_relay"] = previousRelay;
-      state->options_path_ = previousDirectory;
-      state->refreshCloudClipboard();
     }
     if (ai) {
       require(onlineQuery.value("ai_eligible", false), "AI query eligible");
