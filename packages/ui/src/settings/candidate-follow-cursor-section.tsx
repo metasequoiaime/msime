@@ -5,7 +5,7 @@ export interface CandidateFollowCursorSectionProps {
   onChange: (value: boolean) => void;
 }
 
-/** 候选窗口定位开关，供提供该设置的宿主使用：「候选窗口」页「布局」组中的一行。 */
+/** 候选窗口定位开关，供提供该设置的宿主使用：「候选窗口」页「更多选项」里的一行。 */
 export function CandidateFollowCursorSection({
   value,
   onChange,

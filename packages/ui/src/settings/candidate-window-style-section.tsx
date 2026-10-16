@@ -41,15 +41,27 @@ export interface CandidateFontPresetRowProps {
   preferences: Pick<CandidateFontPreferences, "candidate_font_family" | "candidate_fallback_fonts">;
   platform: HostPlatform | undefined;
   onChange: (patch: Partial<Preferences>) => void;
+  /** 用户点了「自定义…」：字体还停在某个预设上时也选中这一项，好让页面亮出字体框。 */
+  custom?: boolean;
+  /** 给了它，预设后面就多一项「自定义…」：选它只回报 `true`、不改字体，选回预设时回报 `false`。没有它时（HarmonyOS 手机的「更多选项」）字体框一直在下面，不需要这一项。 */
+  onCustomChange?: (custom: boolean) => void;
 }
 
-/** 「候选字体」预设行，「候选窗口」页「字体与大小」组的第一行。 */
+/** 「候选字体」预设行，「候选窗口」页主流程里字体那一行。 */
 export function CandidateFontPresetRow({
   preferences,
   platform,
   onChange,
+  custom = false,
+  onCustomChange,
 }: CandidateFontPresetRowProps) {
   const preset = currentCandidateFontPreset(preferences, platform);
+  const presets: { value: CandidateFontPresetId | "custom"; label: string; disabled?: boolean }[] =
+    candidateFontPresets.map((entry) => ({
+      value: entry.id,
+      label: entry.label,
+      disabled: !candidateFontPresetAvailable(entry.id, platform),
+    }));
   return (
     <SegmentedRow
       title="候选字体"
@@ -60,14 +72,15 @@ export function CandidateFontPresetRow({
             ? "Windows 没有自带圆体"
             : undefined
       }
-      options={candidateFontPresets.map((entry) => ({
-        value: entry.id,
-        label: entry.label,
-        disabled: !candidateFontPresetAvailable(entry.id, platform),
-      }))}
-      value={preset ?? "custom"}
+      options={onCustomChange ? [...presets, { value: "custom", label: "自定义…" }] : presets}
+      value={preset === null || (custom && onCustomChange) ? "custom" : preset}
       onChange={(id) => {
-        if (id !== "custom") onChange(candidateFontPresetPatch(id, platform, preferences));
+        if (id === "custom") {
+          onCustomChange?.(true);
+          return;
+        }
+        onCustomChange?.(false);
+        onChange(candidateFontPresetPatch(id, platform, preferences));
       }}
     />
   );
@@ -120,21 +133,33 @@ function followedCardPadding(platform: HostPlatform | undefined): number {
   return platform === "macos" ? 4 : 2;
 }
 
-/** 「候选窗口」页的「窗口样式」组：窗口的不透明度、圆角和内边距。颜色和明暗只在「主题」页编辑，本页在这一组末尾链接过去。 */
+/** 「窗口样式」组：窗口的不透明度、圆角和内边距，HarmonyOS 手机的「候选栏」页在宿主声明支持时用它。颜色和明暗只在「主题」页编辑。 */
 export function CandidateWindowStyleSection({
+  children,
+  ...rows
+}: CandidateWindowStyleSectionProps) {
+  return (
+    <GroupList title="窗口样式">
+      <CandidateWindowStyleRows {...rows} />
+      {children}
+    </GroupList>
+  );
+}
+
+/** 不透明度、圆角和内边距这几行本身，不带组：桌面「候选窗口」页把它们放进「更多选项」。 */
+export function CandidateWindowStyleRows({
   preferences,
   platform,
   showOpacity,
   showCornerRadius,
   showPadding = false,
   onChange,
-  children,
-}: CandidateWindowStyleSectionProps) {
+}: Omit<CandidateWindowStyleSectionProps, "children">) {
   const opacity = candidateOpacityPercent(preferences.candidate_opacity_percent);
   const radius = candidateCornerRadius(preferences.candidate_corner_radius);
   const padding = candidateCardPadding(preferences.candidate_padding);
   return (
-    <GroupList title="窗口样式">
+    <>
       {showOpacity && (
         <SliderRow
           title="不透明度"
@@ -203,7 +228,6 @@ export function CandidateWindowStyleSection({
           </span>
         </Row>
       )}
-      {children}
-    </GroupList>
+    </>
   );
 }
