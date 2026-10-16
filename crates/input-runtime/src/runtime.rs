@@ -726,12 +726,14 @@ impl<E: InputEngine> Runtime<E> {
         })
     }
 
-    /// Hold a half-composed phrase in the composition instead of committing its parts.
+    /// 将尚未完成的词段暂存在组字区，等整段完成后再上屏。
     ///
-    /// The host promises to draw [`View::phrase_prefix`] ahead of the editing text; see the field
-    /// for why this is the host's call. Turning it off while a phrase is held commits what is held,
-    /// because the alternative is dropping text the user already chose.
+    /// 宿主保证在编辑文字前绘制 [`View::phrase_prefix`]；由宿主决定的原因见该字段。
+    /// 重复设置同一状态保留组词与撤回历史；关闭时返回暂存文字，避免丢掉已选词段。
     pub fn set_phrase_preedit(&mut self, enabled: bool) -> Option<String> {
+        if self.phrase_preedit == enabled {
+            return None;
+        }
         self.phrase_preedit = enabled;
         if enabled || self.phrase_prefix.is_empty() {
             self.phrase_selections.clear();

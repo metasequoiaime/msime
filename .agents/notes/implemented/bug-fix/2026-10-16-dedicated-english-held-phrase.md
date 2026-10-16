@@ -34,3 +34,5 @@ Status: implemented
 ## 历史笔记检索
 
 按 `set_dedicated_english`、专用英文、切换、暂存、`phrase_prefix` 和 `phrase_preedit` 检索活跃笔记。[桌面生命周期](../../implemented/architecture/2026-10-11-desktop-lifecycle-core.md)持有专用英文切换丢弃组字与旁路事件规则，[Windows 托盘模式](../../implemented/feature/2026-10-10-windows-tray-menu-mac-parity.md)持有托盘在组字中拒绝切换的约束；两者继续保留，本篇补 runtime 暂存状态的收尾。[触屏就地组字](../../implemented/feature/2026-10-15-touch-composition-in-field.md)、英文标点、英文前缀借用和日文读音笔记不持有这次状态清理。`docs/windows-parity.md` 的“切换语言是否清空组字”明确已有 `SetEnglishInputMode` 加 `ClearState` 契约，未覆盖 runtime 的已选词段。
+
+相关能力 setter 的无变化调用规则见[词段暂存幂等性](../../implemented/bug-fix/2026-10-16-phrase-preedit-idempotence.md)。

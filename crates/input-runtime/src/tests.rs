@@ -2542,6 +2542,60 @@ fn a_segment_backspace_with_nothing_before_the_caret_drops_the_selection() {
 }
 
 #[test]
+fn enabling_phrase_preedit_again_preserves_selection_retreat() {
+    let mut runtime = phrase_runtime("haitanp", vec![6]);
+    let id = runtime.view().candidates[0].id;
+    let held = runtime.dispatch(Action::Select(id)).unwrap();
+    assert_eq!(held.view.phrase_prefix, "海滩");
+    assert_eq!(held.view.editing_text, "p");
+
+    assert_eq!(runtime.set_phrase_preedit(true), None);
+    let back = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert_eq!(back.commit, None);
+    assert!(back.view.phrase_prefix.is_empty());
+    assert_eq!(back.view.editing_text, "haitan");
+}
+
+#[test]
+fn enabling_phrase_preedit_again_preserves_phrase_after_segment_backspace() {
+    let mut runtime = phrase_runtime("haitanpaobu", vec![6]);
+    let id = runtime.view().candidates[0].id;
+    runtime.dispatch(Action::Select(id)).unwrap();
+
+    assert_eq!(runtime.set_phrase_preedit(true), None);
+    let kept = runtime.dispatch(Action::SegmentBackspace).unwrap();
+    assert_eq!(kept.commit, None);
+    assert_eq!(kept.view.phrase_prefix, "海滩");
+    assert!(kept.view.editing_text.is_empty());
+
+    let back = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert_eq!(back.commit, None);
+    assert!(back.view.phrase_prefix.is_empty());
+    assert_eq!(back.view.editing_text, "haitan");
+}
+
+#[test]
+fn toggling_phrase_preedit_flushes_each_selection_only_once() {
+    let mut runtime = phrase_runtime("haitanp", vec![6]);
+    let id = runtime.view().candidates[0].id;
+    runtime.dispatch(Action::Select(id)).unwrap();
+
+    assert_eq!(runtime.set_phrase_preedit(false).as_deref(), Some("海滩"));
+    assert_eq!(runtime.set_phrase_preedit(false), None);
+    assert_eq!(runtime.set_phrase_preedit(true), None);
+    let back = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert_eq!(back.commit, None);
+    assert!(back.view.phrase_prefix.is_empty());
+    assert!(back.view.editing_text.is_empty());
+}
+
+#[test]
 fn backspace_can_keep_every_selected_piece_until_spelling_is_deleted() {
     let mut runtime = phrase_runtime("woshi", vec![2]);
     runtime.engine.words = vec!["我".into()];

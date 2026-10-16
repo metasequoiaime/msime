@@ -36,3 +36,5 @@ Windows 当前 `EngineSessionAdapter` 和 `ServerSession` 使用准备好的 opt
 ## Consequences
 
 收益是所有启用共享暂存词段的宿主遵循同一删除规则，不需要重复学习已选文字。代价是关闭开关后，剩余拼写删空就结束组字并上屏已选词段，不能再用退格恢复它的原拼写。Windows 仍有独立状态路径，尚未接入本开关；界面入口本身不证明实机可用，必须分开记录共享逻辑、编译和设备验证。
+
+相关能力 setter 的无变化调用规则见[词段暂存幂等性](../../implemented/bug-fix/2026-10-16-phrase-preedit-idempotence.md)。
