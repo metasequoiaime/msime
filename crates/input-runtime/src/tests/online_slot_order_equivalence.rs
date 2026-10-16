@@ -1,10 +1,15 @@
 use super::*;
 
-/// 和 `check` 的 Runtime 同一个每页候选数。
-const PAGE_SIZE: u8 = 5;
+/// 对照的每页候选数：5，和偏好默认的 6。
+const PAGE_SIZES: [u8; 2] = [5, 6];
 
 // 参考实现按组依次追加下标，避免用生产代码的新座位偏移公式作为预期。AI 行不进分组（#6888）：其余行有云候选时按组排，没有时保持原顺序；第一条 AI 行再插进第一页最后一格（不足一页时接在其余行之后），其余 AI 行接在最后。
-fn reference_order(sources: &[u8], positions: &[u8], single_kana: bool) -> Vec<usize> {
+fn reference_order(
+    sources: &[u8],
+    positions: &[u8],
+    single_kana: bool,
+    page_size: u8,
+) -> Vec<usize> {
     if sources.len() < 2 || !sources.iter().any(|source| matches!(source, 2 | 3 | 12)) {
         return (0..sources.len()).collect();
     }
@@ -79,7 +84,7 @@ fn reference_order(sources: &[u8], positions: &[u8], single_kana: bool) -> Vec<u
         order
     };
     if let Some(&first) = ai.first() {
-        let seat = usize::from(PAGE_SIZE - 1).max(1).min(order.len());
+        let seat = usize::from(page_size - 1).max(1).min(order.len());
         order.insert(seat, first);
     }
     order.extend(ai.iter().skip(1).copied());
@@ -87,8 +92,14 @@ fn reference_order(sources: &[u8], positions: &[u8], single_kana: bool) -> Vec<u
 }
 
 fn check(sources: Vec<u8>, positions: Vec<u8>, single_kana: bool) {
+    for page_size in PAGE_SIZES {
+        check_page(sources.clone(), positions.clone(), single_kana, page_size);
+    }
+}
+
+fn check_page(sources: Vec<u8>, positions: Vec<u8>, single_kana: bool, page_size: u8) {
     let rows = sources.len();
-    let expected = reference_order(&sources, &positions, single_kana);
+    let expected = reference_order(&sources, &positions, single_kana, page_size);
     let mut runtime = Runtime::new(
         Fixture {
             words: (0..rows).map(|index| format!("合成候选{index}")).collect(),
@@ -108,7 +119,7 @@ fn check(sources: Vec<u8>, positions: Vec<u8>, single_kana: bool) {
             },
             ..Fixture::default()
         },
-        PAGE_SIZE,
+        page_size,
     )
     .unwrap();
     runtime.refresh().unwrap();
