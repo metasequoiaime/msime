@@ -44,6 +44,7 @@ Status: implemented
 - 完整共享 UI 套件重新运行，651 个文件、3727 项测试全部通过。
 - `cargo test -p msime-client-core -p msime-host-api -p msime-engine` 通过：client-core 380 项、host-api 636 项、engine 2167 项（33 项忽略）及 engine golden 31 项均通过。
 - 桌面补齐后，云词典校验 5 项、统计存储与指标 78 项 Rust 测试通过；Windows 可在 macOS 上执行的 151 项原生测试通过，覆盖名称、键位提示、来源映射和统计展示。共享统计页 30 项测试、前端类型检查与构建、定向 lint 和格式检查通过。Windows WinUI 编译和真实 TSF 编辑器输入仍需 Windows 环境验收，不能由本机 C++ 测试代替。
+- macOS 原生构建通过；`shortcut`、`shuangpin-keymap-input`、`typing-statistics` 与 `desktop-dictionary-provider` 四项 ctest 通过，覆盖五方案保存重读、两种外观的键位图、真实 C ABI 统计写入及合成云词典请求。
 - 共享 Swift 候选请求 8 项测试通过，包含智能 ABC 经公开客户端 API 到达合成后端的回归；client-core 与 client-services 的 `cargo clippy --all-targets --locked -- -D warnings` 通过。
 - Linux 原生构建门禁 87 项、IBus 原生 ctest 81 项和完整 IBus D-Bus 共享运行时验收通过；真实 daemon 的智能 ABC 三组编码上屏、切回全拼及崩溃恢复通过。
 - `check-container.sh <固定资源目录>` 完整通过：安装与卸载、词库和剪贴板、GTK3 X11、Qt5/Qt6 X11、GTK Wayland、Qt5/Qt6 Wayland 及 IBus portal 的系统编辑器验收均运行。
