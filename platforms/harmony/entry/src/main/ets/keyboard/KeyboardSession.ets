@@ -62,6 +62,7 @@ import {
 } from './TypingEffectPolicy';
 import { EnglishCompletions, EnglishReplacement, EnglishSuggestionPolicy }
   from './input/EnglishSuggestionPolicy';
+import { EmailSuffixMatch, EmailSuffixPolicy, EmailSuffixReplacement } from './input/EmailSuffixPolicy';
 import { ImeModeScopePolicy } from './input/ImeModeScopePolicy';
 import { ModeBindings, DEFAULT_MODE_BINDINGS } from './InputModeRouting';
 import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
@@ -1165,6 +1166,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private englishSuggestionPrefix: string = '';
   private englishSuggestionEpoch: number = 0;
   private englishSuggestionRequested: string = '';
+  // 候选栏上正在给的邮箱后缀，以及它们接上的那个 `@` 之后已打的域名；没有时为 null。
+  private emailSuffixMatch: EmailSuffixMatch | null = null;
   // The Windows voice shortcuts, which only a machine with a hardware keyboard can press.
   private voiceHotkeys: VoiceHotkeyPolicy = new VoiceHotkeyPolicy();
   // Whether the recognizer is running. The view owns it and says so; the shortcuts need to know,
@@ -1298,6 +1301,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   onClipboardHistoryChanged: ((enabled: boolean) => void) | undefined = undefined;
   /** Read-only English completions for the strip: the prefix they answer and the words offered. */
   onEnglishSuggestions: ((prefix: string, items: string[]) => void) | undefined = undefined;
+  /** 候选栏上的邮箱后缀，没有时是空数组；见 `EmailSuffixPolicy`。 */
+  onEmailSuffixes: ((suffixes: string[]) => void) | undefined = undefined;
   /** What a voice shortcut asked for, for the view that owns the recognizer. */
   onVoiceHotkey: ((action: VoiceHotkeyAction) => void) | undefined = undefined;
   /** The view removes the voice surface immediately when shared voice input is turned off. */
@@ -3016,6 +3021,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
     this.clearEnglishSuggestions();
+    this.clearEmailSuffixes();
     const editorGeneration: number = ++this.editorGeneration;
     const attributeGeneration: number = ++this.attributeGeneration;
     this.ownEdits.clear();
@@ -3067,6 +3073,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       // A composition carried into this editor was rendered before its attribute said whether it takes preview text.
       this.syncPreview();
+      // 属性到达前不读上文（还不知道是不是密码框），到达时补读一次：焦点进入一个已经以 `xxx@` 结尾的输入框也能给出后缀。
+      this.refreshEmailSuffixes();
       if (this.onEditorChanged !== undefined) {
         this.onEditorChanged();
       }
@@ -3111,6 +3119,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.ownEdits.clear();
     this.modeScope.deactivate();
     this.clearEnglishSuggestions();
+    this.clearEmailSuffixes();
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
@@ -3238,6 +3247,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     // composition. Commit what the user typed before the Engine's state can drift from the editor.
     this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
     this.clearEnglishSuggestions();
+    this.refreshEmailSuffixes();
     this.clearSmartPunctuationRepeat();
     this.clearSmartPunctuationSpace();
     if (this.onEditorChanged !== undefined) {
@@ -3249,6 +3259,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   editorSelectionChanged(): void {
     this.invalidateReplyContext();
     this.clearEnglishSuggestions();
+    // 与 Android 在 `onUpdateSelection` 里重新匹配相同：无论 `@` 从哪里上屏（字母键、符号层、符面板、九键常用标点、引擎上屏），编辑器随后都会回报一次选区变化。
+    this.refreshEmailSuffixes();
     if (this.onEditorChanged !== undefined) {
       this.onEditorChanged();
     }
@@ -4244,6 +4256,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     // Every typed letter and every backspace arrives here, which is the one place that sees the
     // editor change in direct English as well as in a composition.
     this.refreshEnglishSuggestions();
+    // 组字开始时收起后缀（候选栏归引擎），结束时按上屏后的上文重新匹配。
+    this.refreshEmailSuffixes();
   }
 
   private publishCurrentCandidates(): void {
@@ -6077,6 +6091,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.insertEditorText(output);
       this.recordTypingStatistics(output, this.typingSource());
       this.refreshEnglishSuggestions();
+      this.refreshEmailSuffixes();
     }
   }
 
@@ -6198,6 +6213,75 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     this.insert(replacement.insert);
     this.clearEnglishSuggestions();
+  }
+
+  /**
+   * 光标前打到 `xxx@` 时给出邮箱后缀，在任何输入框里都给（Android 原来只在邮箱输入框里给）。
+   *
+   * 上文只在内存里匹配一次，不记录、不保存；密码框和属性尚未到达的输入框不读。结果变了才通知视图。
+   */
+  private refreshEmailSuffixes(): void {
+    let next: EmailSuffixMatch | null = null;
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (inputClient !== undefined && EmailSuffixPolicy.readsContext(KeyboardFormFactor.isDesktop(),
+      this.editorAttributesKnown, this.traits.password, this.composing())) {
+      try {
+        next = EmailSuffixPolicy.match(inputClient.getForwardSync(EmailSuffixPolicy.MAX_CONTEXT));
+      } catch (error) {
+        // 上文读不到时不给后缀；不记录读到或没读到的文字。
+        next = null;
+      }
+    }
+    if (EmailSuffixPolicy.same(next, this.emailSuffixMatch)) return;
+    this.emailSuffixMatch = next;
+    this.publishEmailSuffixes();
+  }
+
+  private clearEmailSuffixes(): void {
+    if (this.emailSuffixMatch === null) return;
+    this.emailSuffixMatch = null;
+    this.publishEmailSuffixes();
+  }
+
+  private publishEmailSuffixes(): void {
+    if (this.onEmailSuffixes !== undefined) {
+      const match: EmailSuffixMatch | null = this.emailSuffixMatch;
+      this.onEmailSuffixes(match === null ? [] : match.suffixes.slice());
+    }
+  }
+
+  /**
+   * 补全邮箱后缀：按点下这一刻的上文重新匹配，删掉已经打的域名，上屏完整后缀（ASCII，不随全角或繁体转换）。上文已经变了、对不上这个后缀时只收起。
+   */
+  useEmailSuffix(index: number): void {
+    const shown: EmailSuffixMatch | null = this.emailSuffixMatch;
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (shown === null || index < 0 || index >= shown.suffixes.length || inputClient === undefined
+        || !EmailSuffixPolicy.readsContext(KeyboardFormFactor.isDesktop(), this.editorAttributesKnown,
+          this.traits.password, this.composing())) {
+      this.clearEmailSuffixes();
+      return;
+    }
+    const suffix: string = shown.suffixes[index];
+    let replacement: EmailSuffixReplacement | null = null;
+    try {
+      replacement = EmailSuffixPolicy.replacement(
+        EmailSuffixPolicy.match(inputClient.getForwardSync(EmailSuffixPolicy.MAX_CONTEXT)), suffix);
+    } catch (error) {
+      replacement = null;
+    }
+    if (replacement !== null) {
+      try {
+        if (replacement.deleteCount > 0) this.deleteEditorBackwardSync(replacement.deleteCount);
+        this.insertEditorTextSync(replacement.insert);
+        this.recordTypingStatistics(replacement.insert, this.typingSource());
+      } catch (error) {
+        KeyboardLog.error(`email suffix completion unavailable: ${describeError(error)}`);
+      }
+    }
+    // 补全后上文以完整后缀结尾，不再匹配；编辑器随后的选区回报也会再匹配一次。
+    this.clearEmailSuffixes();
+    this.refreshEnglishSuggestions();
   }
 
   private englishCorrectionEnabled(): boolean {

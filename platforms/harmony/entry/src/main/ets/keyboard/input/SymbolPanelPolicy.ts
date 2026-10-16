@@ -1,4 +1,5 @@
 import { KeyboardGeometry } from "../KeyboardGeometry";
+import { EMAIL_SUFFIXES } from "./EmailSuffixPolicy";
 
 /** The independent symbol keyboard, separate from the Unicode emoji catalog. */
 export interface SymbolPanelCategory {
@@ -269,8 +270,8 @@ const CATEGORIES: SymbolPanelCategory[] = [
       ".net",
       ".org",
       ".io",
-      "@qq.com",
-      "@gmail.com",
+      // 网址片段之后接全部常用邮箱后缀，与 Android、iOS 的「网络」和候选栏给的后缀是同一份。
+      ...EMAIL_SUFFIXES,
     ],
   },
 ];

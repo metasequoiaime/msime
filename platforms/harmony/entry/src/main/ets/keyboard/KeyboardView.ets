@@ -461,6 +461,8 @@ struct KeyboardView {
   @State candidateListOpen: boolean = false;
   /** Read-only English completions for the word being typed; empty whenever one is not. */
   @State englishSuggestions: string[] = [];
+  /** 光标前打到 `xxx@` 时给出的邮箱后缀，先于英文补全显示；没有时为空。 */
+  @State emailSuffixes: string[] = [];
   @State shuangpinProfile: string = 'xiaohe';
   @State localMode: string = 'none';
   @State diagnostic: string = '';
@@ -760,6 +762,9 @@ struct KeyboardView {
     };
     KeyboardSession.shared.onEnglishSuggestions = (prefix: string, items: string[]): void => {
       this.englishSuggestions = items;
+    };
+    KeyboardSession.shared.onEmailSuffixes = (suffixes: string[]): void => {
+      this.emailSuffixes = suffixes;
     };
     KeyboardSession.shared.onVoiceHotkey = (action: VoiceHotkeyAction): void => {
       // The panel has to be on screen before recording starts, or the first thing the user sees of
@@ -3234,7 +3239,8 @@ struct KeyboardView {
   private stripIdle(): boolean {
     return !KeyboardFormFactor.isDesktop() && this.editing.length === 0
       && this.diagnostic.length === 0 && this.candidates.length === 0
-      && this.englishSuggestions.length === 0 && !this.showsHandwritingCandidates()
+      && this.englishSuggestions.length === 0 && this.emailSuffixes.length === 0
+      && !this.showsHandwritingCandidates()
       && this.nineKeyQuickMarks.length === 0;
   }
 
@@ -3985,6 +3991,9 @@ struct KeyboardView {
           .width('100%')
           .height(CHIP_HEIGHT_VP)
           .align(Alignment.Start)
+        } else if (this.emailSuffixes.length > 0) {
+          // 光标前打到 `xxx@`：后缀先于英文补全，`@` 之后接着打的域名也会被英文补全当成单词。
+          this.chipLane(3)
         } else if (this.englishSuggestions.length > 0) {
           // 直接英文输入没有组合，所以通道上只有补全。
           this.chipLane(1)
@@ -4122,13 +4131,14 @@ struct KeyboardView {
   }
 
   /**
-   * 用于非 Engine 候选的普通胶囊通道：手写结果（`kind` 0），通过识别器选择；英文补全（`kind` 1），是对正在输入的单词的只读建议；九键 1 键的常用标点（`kind` 2），点选后按标点键的路线输入。列表在这里读取而不是传入，这样通道随列表变化而更新。
+   * 用于非 Engine 候选的普通胶囊通道：手写结果（`kind` 0），通过识别器选择；英文补全（`kind` 1），是对正在输入的单词的只读建议；九键 1 键的常用标点（`kind` 2），点选后按标点键的路线输入；邮箱后缀（`kind` 3），点选后补全光标前的邮箱。列表在这里读取而不是传入，这样通道随列表变化而更新。
    */
   @Builder
   chipLane(kind: number) {
     Scroll() {
       Row() {
         ForEach(kind === 0 ? this.handwritingCandidates : kind === 1 ? this.englishSuggestions
+          : kind === 3 ? this.emailSuffixes
           : this.nineKeyQuickMarks.map((mark: PunctuationEntry): string => mark.face), (item: string, index: number) => {
           Text(item)
             .fontSize(this.chipFontSize())
@@ -4150,12 +4160,15 @@ struct KeyboardView {
             })
             .accessibilityText(kind === 0 ? `手写候选：${item}`
               : kind === 1 ? KeyAccessibilityPolicy.englishSuggestion(index + 1, item)
+              : kind === 3 ? KeyAccessibilityPolicy.emailSuffix(index + 1, item)
               : KeyAccessibilityPolicy.symbol(item))
             .onClick(() => {
               if (kind === 0) {
                 this.chooseHandwriting(item);
               } else if (kind === 1) {
                 KeyboardSession.shared.useEnglishSuggestion(index);
+              } else if (kind === 3) {
+                KeyboardSession.shared.useEmailSuffix(index);
               } else {
                 this.chooseNineKeyQuickMark(index);
               }

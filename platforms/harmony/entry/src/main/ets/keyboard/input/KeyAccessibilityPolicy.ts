@@ -153,6 +153,11 @@ export class KeyAccessibilityPolicy {
     return `英文补全 ${number}：${word}`;
   }
 
+  /** 候选栏里的邮箱后缀，与 Android 的无障碍描述相同。 */
+  static emailSuffix(number: number, suffix: string): string {
+    return `邮箱后缀 ${number}：${suffix}`;
+  }
+
   /**
    * 九键拼音栏的一项。引擎在拼音之后还给出下一个数字键上的大写字母（选它只限定下一个音节的首字母）和数字本身（选它直接上屏这个数字），三种读法不同，读屏要说清按下去会发生什么。
    */

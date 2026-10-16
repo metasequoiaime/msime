@@ -207,6 +207,11 @@ import {
   EnglishReplacement,
   EnglishSuggestionPolicy,
 } from "../entry/src/main/ets/keyboard/input/EnglishSuggestionPolicy";
+import {
+  EMAIL_SUFFIXES,
+  EmailSuffixMatch,
+  EmailSuffixPolicy,
+} from "../entry/src/main/ets/keyboard/input/EmailSuffixPolicy";
 import { ImeModeScopePolicy } from "../entry/src/main/ets/keyboard/input/ImeModeScopePolicy";
 import {
   HARMONY_CAPTURE_BACKEND,
@@ -1643,7 +1648,7 @@ group("SymbolPanelPolicy", () => {
     "the symbol panel keeps its stable category order",
   );
   check(
-    symbolCategories.map((category) => category.symbols.length).join(",") === "30,79,40,50,30",
+    symbolCategories.map((category) => category.symbols.length).join(",") === "30,79,40,50,48",
     "the complete committed symbol catalog is present",
   );
   check(
@@ -1984,6 +1989,10 @@ group("every tool in the shortcut bar has a name", () => {
   check(
     KeyAccessibilityPolicy.englishSuggestion(2, "hello") === "英文补全 2：hello",
     "english completions get a spoken candidate label",
+  );
+  check(
+    KeyAccessibilityPolicy.emailSuffix(2, "@163.com") === "邮箱后缀 2：@163.com",
+    "邮箱后缀与 Android 读法相同",
   );
   check(
     KeyAccessibilityPolicy.spelling("ni hao") === "选择拼音 ni hao",
@@ -6897,6 +6906,109 @@ group("the word being completed is read backwards from the caret", () => {
     EnglishSuggestionPolicy.currentWord("a".repeat(129)) === "",
     "one letter beyond the limit is refused rather than querying its trailing suffix",
   );
+});
+
+// 与 Android 的 EmailSuffixPolicySmoke 逐条相同（#6147），另加宿主何时读上文。
+group("光标前打到 xxx@ 时给出邮箱后缀", () => {
+  const all: string[] = EMAIL_SUFFIXES;
+  check(all.length === 20 && new Set(all).size === all.length, "twenty distinct suffixes");
+  check(
+    all.slice(0, 7).join(" ") ===
+      "@qq.com @163.com @126.com @foxmail.com @139.com @189.cn @aliyun.com",
+    "domestic suffixes come first",
+  );
+  for (const suffix of all) {
+    check(
+      suffix.startsWith("@") && suffix.indexOf("@", 1) < 0 && suffix === suffix.toLowerCase(),
+      `${suffix} is one lowercase @domain`,
+    );
+  }
+
+  const bare: EmailSuffixMatch | null = EmailSuffixPolicy.match("abc@");
+  check(
+    bare !== null && bare.typedDomain === "" && bare.suffixes.join(" ") === all.join(" "),
+    "abc@ offers every suffix",
+  );
+  const digit: EmailSuffixMatch | null = EmailSuffixPolicy.match("abc@1");
+  check(
+    digit !== null && digit.suffixes.join(" ") === "@163.com @126.com @139.com @189.cn",
+    "abc@1 narrows to the numeric domains",
+  );
+  const yahoo: EmailSuffixMatch | null = EmailSuffixPolicy.match("abc@yahoo.c");
+  check(
+    yahoo !== null && yahoo.suffixes.join(" ") === "@yahoo.com @yahoo.co.jp",
+    "abc@yahoo.c offers both",
+  );
+  const gm: EmailSuffixMatch | null = EmailSuffixPolicy.match("abc@gm");
+  check(
+    gm !== null && gm.suffixes.join(" ") === "@gmail.com @gmx.com",
+    "abc@gm offers gmail and gmx",
+  );
+  const upper: EmailSuffixMatch | null = EmailSuffixPolicy.match("Abc@GMa");
+  check(
+    upper !== null && upper.typedDomain === "GMa" && upper.suffixes.join(" ") === "@gmail.com",
+    "typed domains match without case",
+  );
+  check(EmailSuffixPolicy.match("abc@163.com") === null, "a finished suffix offers nothing");
+  check(EmailSuffixPolicy.match("abc@example.org") === null, "an unknown domain offers nothing");
+  check(EmailSuffixPolicy.match("a.b_c+d-e%f@") !== null, "the local part may carry ._%+-");
+  const last: EmailSuffixMatch | null = EmailSuffixPolicy.match("x@y@");
+  check(last !== null && last.typedDomain === "", "the last @ counts");
+  check(
+    EmailSuffixPolicy.match("我的邮箱 hi@") !== null,
+    "only the characters next to @ need to be ASCII",
+  );
+
+  check(EmailSuffixPolicy.match("@") === null, "a lone @ is not an address");
+  check(EmailSuffixPolicy.match("微信@") === null, "a Chinese mention is not an address");
+  check(EmailSuffixPolicy.match("a b @") === null, "a space before @ is not an address");
+  check(EmailSuffixPolicy.match("a@@") === null, "@@ is not an address");
+  check(EmailSuffixPolicy.match("abc\uff20") === null, "a full-width ＠ does not count");
+  check(EmailSuffixPolicy.match("abc@ ") === null, "the caret must sit right after the domain");
+  check(
+    EmailSuffixPolicy.match("") === null && EmailSuffixPolicy.match(null) === null,
+    "no text, no suffixes",
+  );
+  check(EmailSuffixPolicy.MAX_CONTEXT === 64, "上文长度与 Android 的 MAX_CONTEXT 相同");
+
+  const fresh = EmailSuffixPolicy.replacement(bare, "@163.com");
+  check(
+    fresh !== null && fresh.deleteCount === 0 && fresh.insert === "163.com",
+    "abc@ completes to abc@163.com",
+  );
+  const partial = EmailSuffixPolicy.replacement(upper, "@gmail.com");
+  check(
+    partial !== null && partial.deleteCount === 3 && partial.insert === "gmail.com",
+    "a typed GMa is replaced by the lowercase domain",
+  );
+  check(
+    EmailSuffixPolicy.replacement(digit, "@gmail.com") === null,
+    "a suffix outside the match is refused",
+  );
+  check(EmailSuffixPolicy.replacement(null, "@163.com") === null, "no match, no replacement");
+
+  check(
+    EmailSuffixPolicy.same(EmailSuffixPolicy.match("a@1"), EmailSuffixPolicy.match("bc@1")),
+    "同样的已打域名和后缀不重画",
+  );
+  check(!EmailSuffixPolicy.same(bare, digit), "后缀范围变了要重画");
+  check(
+    !EmailSuffixPolicy.same(bare, null) && EmailSuffixPolicy.same(null, null),
+    "出现和收起要重画",
+  );
+  check(
+    !EmailSuffixPolicy.same(EmailSuffixPolicy.match("a@G"), EmailSuffixPolicy.match("a@g")),
+    "已打域名的大小写不同，补全时删的仍是同样长度，但按原样比较",
+  );
+
+  check(EmailSuffixPolicy.readsContext(false, true, false, false), "普通输入框里读上文");
+  check(!EmailSuffixPolicy.readsContext(false, true, true, false), "密码框里不读上文");
+  check(
+    !EmailSuffixPolicy.readsContext(false, false, false, false),
+    "属性到达前不读，那时还不知道是不是密码框",
+  );
+  check(!EmailSuffixPolicy.readsContext(false, true, false, true), "组字时候选栏归引擎");
+  check(!EmailSuffixPolicy.readsContext(true, true, false, false), "2in1 的候选窗没有地方画后缀");
 });
 
 group("a prefix is only queried when it could mean something", () => {
