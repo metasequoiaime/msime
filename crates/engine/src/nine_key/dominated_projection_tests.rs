@@ -407,7 +407,8 @@ fn dominated_rows_are_rejected_before_field_copies() {
     let (_, new_count) = count(|| after.refresh());
     assert_session(&after, &before);
     eprintln!("完整热刷新申请：{old_count} → {new_count}");
-    assert_eq!(new_count + 1038, old_count, "重复前缀行不能先复制再丢弃");
+    // 新路径同时复用首候选读音行缓冲，比冻结实现再少一次分配。
+    assert_eq!(new_count + 1039, old_count, "重复前缀行不能先复制再丢弃");
 }
 
 #[test]

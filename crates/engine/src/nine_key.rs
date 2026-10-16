@@ -1490,7 +1490,9 @@ impl NineKeySession {
                 }
             }
         }
-        self.reading = self.reading_for(candidates.first());
+        let mut reading = std::mem::take(&mut self.reading);
+        self.write_reading(candidates.first(), &mut reading);
+        self.reading = reading;
         self.candidates = candidates;
         let remaining = remaining_digits(&self.digits, locked_length);
         if remaining.is_empty() {
@@ -1776,34 +1778,50 @@ impl NineKeySession {
     }
 
     /// 读音行：首行的拼音截到它覆盖的那几个键，后面接上没覆盖的键码和切分，例如 `94'26` 上的 西安 是 `xi'an`，`942` 上的 遗产 是 `yi'c`。首行不是从拼音读出来的（英文词、emoji、日期时间行）或者没有首行时为空；14 键的首行是英文词时是这个词覆盖已打键数的那段小写字母，一键一个字母，没有歧义。
+    #[cfg(test)]
     fn reading_for(&self, front: Option<&WordItem>) -> String {
+        let mut reading = String::new();
+        self.write_reading(front, &mut reading);
+        reading
+    }
+
+    fn write_reading(&self, front: Option<&WordItem>, reading: &mut String) {
+        reading.clear();
         let Some(front) = front else {
-            return String::new();
+            return;
         };
         // A fuzzy row was matched through another spelling (知 under `94` as zi), so its canonical letters do not line up one per typed digit.
         if front.fuzzy {
-            return String::new();
+            return;
         }
         if front.source == CandidateSource::EnglishDictionary && self.grid == KeyGrid::FourteenKey {
             // 英文行的 `pinyin` 是小写的查询键（`word_matches_digits` 保证全是字母）；九键不给英文读音，与按数字判断时相同。
             let typed = front.pinyin.len().min(self.digits.len());
-            return front.pinyin[..typed].to_ascii_lowercase();
+            for byte in front.pinyin[..typed].bytes() {
+                reading.push(char::from(byte.to_ascii_lowercase()));
+            }
+            return;
         }
         // 只有从拼音读出来的行（词库行、整句）才有可显示的读音：按来源正向判定，不看 `pinyin` 的字节形状，因为 14 键的组码和英文词一样都是小写字母。
         if front.canonical_pinyin.is_empty() || !reads_pinyin(front.source) {
-            return String::new();
+            return;
         }
         // 简拼行一个数字一个音节，读音行显示每个音节的首字母（`m't`），而不是全拼的前几个字母（`me`）。
         if is_initials_row(front) {
-            return front
-                .canonical_pinyin
-                .split('\'')
-                .filter_map(|syllable| syllable.get(..1))
-                .collect::<Vec<_>>()
-                .join("'");
+            let mut first = true;
+            for syllable in front.canonical_pinyin.split('\'') {
+                let Some(letter) = syllable.get(..1) else {
+                    continue;
+                };
+                if !first {
+                    reading.push('\'');
+                }
+                reading.push_str(letter);
+                first = false;
+            }
+            return;
         }
         let covered = front.pinyin.len();
-        let mut reading = String::new();
         if let KeyGrid::NineKeyShuangpin(table) = self.grid {
             // 一个音节两位；只覆盖了一位的那个音节显示它的声母（零声母音节显示首字母）：`8146` 上没打完的 中国 是 `zhong'g`。
             let mut digits = covered;
@@ -1834,11 +1852,11 @@ impl NineKeySession {
                 reading.push(character);
             }
         }
-        let reading = reading.trim_end_matches('\'').to_string();
+        let trimmed_len = reading.trim_end_matches('\'').len();
+        reading.truncate(trimmed_len);
         if reading.is_empty() {
-            return String::new();
+            return;
         }
-        let mut reading = reading;
         let mut start = covered.min(self.digits.len());
         if start < self.digits.len() {
             reading.push('\'');
@@ -1851,7 +1869,6 @@ impl NineKeySession {
             }
             reading.push_str(&self.digits[start..]);
         }
-        reading
     }
 
     /// `unanswered`：拼音一行候选都没有，英文词就是整个答案，和英文模式一样不受混输开关和最短前缀限制；锁定了拼音时仍不给。
@@ -4102,6 +4119,18 @@ mod tests {
             allocations <= 149,
             "candidate pinyin normalization allocated {allocations} buffers"
         );
+    }
+
+    #[test]
+    fn refresh_reuses_reading_storage() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        session.digits = "64426".into();
+        session.refresh();
+
+        let (_, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| session.refresh());
+        assert!(allocations < 601, "九键读音热刷新分配了 {allocations} 次");
     }
 
     #[test]
