@@ -1,4 +1,4 @@
-import type { ChatMessage } from "./chat-page";
+import type { ChatMessage } from "./chat-model";
 import { utf8ByteLength } from "../core/text";
 
 const MAX_CHAT_MESSAGES = 14;

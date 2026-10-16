@@ -1,4 +1,4 @@
-import type { ChatMessage } from "./chat-page";
+import type { ChatMessage } from "./chat-model";
 import { boundedHistory } from "./chat-history";
 
 /**

@@ -29,7 +29,7 @@ import type {
   McpServerStatus,
 } from "../settings/mcp-connect";
 import type { AccountClient, AppIconClient } from "../account/account-model";
-import type { ChatClient } from "../chat/chat-page";
+import type { ChatClient } from "../chat/chat-model";
 import type { HomePageActions } from "../keyboard/home-page";
 import type { PluginClient } from "../settings/plugin-types";
 import type { CustomHelpcodeSchema } from "../settings/helpcode-preferences";

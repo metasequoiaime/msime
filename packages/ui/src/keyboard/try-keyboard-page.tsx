@@ -1,6 +1,6 @@
 import { SendStopButton } from "../core/send-stop-button";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { ChatClient, ChatMessage } from "../chat/chat-page";
+import type { ChatClient, ChatMessage } from "../chat/chat-model";
 import { chatRequest } from "../chat/chat-prompt";
 import { resizeChatComposer } from "../chat/chat-composer-size";
 import { chatError } from "../chat/chat-errors";

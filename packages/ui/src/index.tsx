@@ -580,13 +580,8 @@ export {
   subscribeToWindowResume,
   type WindowFocusListener,
 } from "./core/window-focus";
-export {
-  ChatPage,
-  type ChatClient,
-  type ChatMessage,
-  type ChatModel,
-  type ChatModels,
-} from "./chat/chat-page";
+export { ChatPage } from "./chat/chat-page";
+export type { ChatClient, ChatMessage, ChatModel, ChatModels } from "./chat/chat-model";
 export { CHAT_SYSTEM_PROMPT } from "./chat/chat-prompt";
 export { HomePage, type HomePageActions } from "./keyboard/home-page";
 export { openKeyboardSwitchGuide } from "./keyboard/keyboard-switch-guide";

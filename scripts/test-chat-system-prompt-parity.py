@@ -18,9 +18,10 @@ COPIES = [
     ("Android", "platforms/android/java/app/msime/android/home/ChatFragment.java", r'private static final String SYSTEM_PROMPT =\s*"((?:[^"\\]|\\.)*)";'),
     ("iOS", "platforms/ios/App/Sources/keyboard/KeyboardChatHistoryPolicy.swift", r'static let systemPrompt = "((?:[^"\\]|\\.)*)"'),
 ]
-# Each chat page and the call that puts the prompt into its request.
+# 检查页面确实委托公共会话，且各请求构造者都带上提示词。
 SENDERS = [
-    ("shared AI 对话 page", "packages/ui/src/chat/chat-page.tsx", "chatRequest(history)"),
+    ("shared AI 对话 page", "packages/ui/src/chat/chat-page.tsx", "useChatConversation({ client, onLogin, active })"),
+    ("shared AI 对话 conversation", "packages/ui/src/chat/use-chat-conversation.ts", "chatRequest(history)"),
     ("shared try-keyboard page", "packages/ui/src/keyboard/try-keyboard-page.tsx", "chatRequest(conversation)"),
     ("shared request builder", "packages/ui/src/chat/chat-prompt.ts", '{ role: "system", content: CHAT_SYSTEM_PROMPT }'),
     ("Android chat page", "platforms/android/java/app/msime/android/home/ChatFragment.java", 'new BackendAccount.ChatMessage("system", SYSTEM_PROMPT)'),

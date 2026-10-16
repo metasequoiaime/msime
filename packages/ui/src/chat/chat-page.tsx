@@ -2,49 +2,27 @@ import { SendStopButton } from "../core/send-stop-button";
 import MarkdownIt from "markdown-it";
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
-import { errorCode } from "../core/error-code";
 import { ActionButton } from "../core/action-button";
 import * as chat from "./chat-style";
-import { chatMessageByteLength, MAX_MESSAGE_BYTES } from "./chat-history";
+import type { ChatClient } from "./chat-model";
+import { useChatConversation } from "./use-chat-conversation";
 import { resizeChatComposer } from "./chat-composer-size";
-import { chatRequest } from "./chat-prompt";
-import { chatError } from "./chat-errors";
-import { useAsyncGeneration } from "../settings/use-async-generation";
 import { useDebouncedCallback } from "../core/use-debounced-callback";
 import { useTimeout } from "../core/use-timeout";
 import { useHostAction } from "../core/use-host-action";
-import { useMountedRef } from "../settings/use-mounted-ref";
 import {
   makeDefaultAction,
   useImeSetupState,
   type SetupActions,
 } from "../keyboard/setup-status-card";
 
-export type ChatMessage = {
-  role: "user" | "assistant" | "system";
-  content: string;
-};
-
-export type ChatModel = { id: string };
-
-export type ChatModels = {
-  data: ChatModel[];
-  defaultModel: string;
-};
-
-export interface ChatClient {
-  models(): Promise<ChatModels>;
-  complete(messages: ChatMessage[], model: string): Promise<string>;
-}
-
-type DisplayMessage = ChatMessage & { id: number };
+export type { ChatMessage, ChatModel, ChatModels, ChatClient } from "./chat-model";
 
 // 触屏上 AI 的回复按 Markdown 画，和「试用键盘」一样；关掉 HTML、图片和链接：设置页跑在 WebView 里，点链接会把整个设置页导航走。
 const markdown = new MarkdownIt({ html: false, linkify: false, breaks: true }).disable([
   "image",
   "link",
 ]);
-// 与聊天服务使用的 client-services 字节数和消息条数上限保持一致。
 
 export function ChatPage({
   client,
@@ -70,128 +48,32 @@ export function ChatPage({
   /** A host with no hardware keyboard: the chord still works if one is attached, but naming it is noise. */
   touch?: boolean;
 }) {
-  const [catalog, setCatalog] = useState<ChatModels | null>(null);
-  const [selectedModel, setSelectedModel] = useState("");
-  const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  const {
+    catalog,
+    selectedModel,
+    messages,
+    draft,
+    setDraft,
+    loadingModels,
+    sending,
+    error,
+    loginNeeded,
+    loadModels,
+    send,
+    retry,
+    cancel,
+    clear,
+  } = useChatConversation({ client, onLogin, active });
   const { confirm, confirmation } = useConfirm();
-  const [draft, setDraft] = useState("");
-  const [loadingModels, setLoadingModels] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
-  const [loginNeeded, setLoginNeeded] = useState(false);
-  const generation = useAsyncGeneration(client);
-  const modelGeneration = useAsyncGeneration(client);
-  const mounted = useMountedRef();
-  const sendingRef = useRef(false);
-  const modelsRunning = useRef(false);
-  const nextMessageId = useRef(1);
   const composer = useRef<HTMLTextAreaElement>(null);
   const [composerFocused, setComposerFocused] = useState(false);
   const setupState = useImeSetupState(setup?.setup);
-
-  const loadModels = async () => {
-    if (!mounted.current || modelsRunning.current) return;
-    modelsRunning.current = true;
-    const current = modelGeneration.current;
-    setLoadingModels(true);
-    setError("");
-    setLoginNeeded(false);
-    try {
-      const value = await client.models();
-      if (!mounted.current || modelGeneration.current !== current) return;
-      setCatalog(value);
-      // 产品上不让用户选模型：固定用服务端的默认模型，它失败时由服务端换备用模型重试。
-      setSelectedModel(value.defaultModel);
-    } catch (cause) {
-      if (!mounted.current || modelGeneration.current !== current) return;
-      const unauthorized = errorCode(cause) === "account_unauthorized";
-      setLoginNeeded(unauthorized);
-      setError(chatError(cause));
-    } finally {
-      if (modelGeneration.current === current) modelsRunning.current = false;
-      if (mounted.current && modelGeneration.current === current) setLoadingModels(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadModels();
-    return () => {
-      sendingRef.current = false;
-      modelsRunning.current = false;
-    };
-  }, [client]);
-
-  useEffect(() => {
-    if (active) void loadModels();
-  }, [active]);
 
   useEffect(() => {
     if (focusRequest) composer.current?.focus();
   }, [focusRequest]);
 
   useTimeout(() => composer.current?.focus(), autoFocus ? 0 : null);
-
-  const requestReply = async (history: DisplayMessage[]) => {
-    if (sending || sendingRef.current || !selectedModel) return;
-    const version = ++generation.current;
-    sendingRef.current = true;
-    setSending(true);
-    setError("");
-    try {
-      const reply = await client.complete(chatRequest(history), selectedModel);
-      if (generation.current !== version) return;
-      setMessages((current) => [
-        ...current,
-        { id: nextMessageId.current++, role: "assistant", content: reply },
-      ]);
-    } catch (cause) {
-      if (generation.current !== version) return;
-      const unauthorized = errorCode(cause) === "account_unauthorized";
-      setLoginNeeded(unauthorized);
-      setError(chatError(cause));
-    } finally {
-      if (generation.current === version) {
-        sendingRef.current = false;
-        setSending(false);
-      }
-    }
-  };
-
-  const send = () => {
-    const content = draft.trim();
-    if (!content || sending) return;
-    if (loginNeeded) {
-      onLogin?.();
-      return;
-    }
-    if (!selectedModel) return;
-    // Refused before it joins the conversation; otherwise every retry would resend it and fail.
-    if (chatMessageByteLength(content) > MAX_MESSAGE_BYTES) {
-      setError("消息过长，请精简后再发送。");
-      return;
-    }
-    const next = [...messages, { id: nextMessageId.current++, role: "user" as const, content }];
-    setMessages(next);
-    setDraft("");
-    void requestReply(next);
-  };
-
-  const retry = () => {
-    if (sending || !selectedModel || messages.at(-1)?.role !== "user") return;
-    void requestReply(messages);
-  };
-
-  const cancel = () => {
-    generation.current += 1;
-    sendingRef.current = false;
-    setSending(false);
-  };
-
-  const clear = () => {
-    cancel();
-    setMessages([]);
-    setError("");
-  };
 
   const resizeField = () => {
     resizeChatComposer(composer.current);
