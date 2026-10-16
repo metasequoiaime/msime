@@ -1502,8 +1502,7 @@ impl NineKeySession {
                 self.spellings = undo.choices.clone();
             }
         } else {
-            let choices = self.key_choices(remaining);
-            self.spellings.extend(choices);
+            self.append_key_choices(locked_length);
         }
     }
 
@@ -1718,6 +1717,28 @@ impl NineKeySession {
     }
 
     /// 左列末尾的按键选项：下一个数字键上能起头一个音节的字母（大写，和同形的音节 `o`、`a`、`e` 区分开），再是这个数字本身。数字只在没有锁定时给：前面锁定的音节还没上屏。
+    fn append_key_choices(&mut self, locked_length: usize) {
+        let remaining = remaining_digits(&self.digits, locked_length);
+        let Some(&digit) = remaining.as_bytes().first() else {
+            return;
+        };
+        let table = self.grid.spelling_table();
+        let letters = self.grid.letters(digit);
+        let raw_key = self.locked.is_empty() && self.grid.offers_raw_key();
+        self.spellings.reserve(letters.len() + usize::from(raw_key));
+        for letter in letters
+            .bytes()
+            .filter(|&letter| table.starts_syllable(letter))
+        {
+            self.spellings
+                .push(char::from(letter.to_ascii_uppercase()).to_string());
+        }
+        if raw_key {
+            self.spellings.push(char::from(digit).to_string());
+        }
+    }
+
+    #[cfg(test)]
     fn key_choices(&self, remaining: &str) -> Vec<String> {
         let Some(&digit) = remaining.as_bytes().first() else {
             return Vec::new();
@@ -4154,6 +4175,27 @@ mod tests {
         assert!(
             allocations <= 149,
             "candidate pinyin normalization allocated {allocations} buffers"
+        );
+    }
+
+    #[test]
+    fn refresh_appends_key_choices_without_a_temporary_vector() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        session.digits = "64".into();
+        session.refresh();
+        let (_, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| session.refresh());
+        let spellings = session.snapshot().nine_key_spellings;
+        assert!(spellings.ends_with(
+            &["o", "M", "N", "O", "6"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        ));
+        assert!(
+            allocations <= 110,
+            "key choices refresh allocations: {allocations}"
         );
     }
 
