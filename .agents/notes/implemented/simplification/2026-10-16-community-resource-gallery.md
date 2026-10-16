@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`use-community-resource-gallery.ts` 持有原有状态与动作，客户端只要求 `list`、`detail`、`apply`、`save` 和可选 `storeReply`。页面持有桌面与 Harmony 的显示分支并委托 hook，资源卡片与鸿蒙资源行由[公共展示组件](2026-10-16-community-resource-cards.md)持有，公开 `CommunityResourcesPageProps`。保留搜索草稿和已提交查询分离、分页去重、失败后的分页处理、列表代次、移动历史记录、添加同步锁和会话标记及原提示；发布成功先关闭编辑器再刷新。
+`use-community-resource-gallery.ts` 持有原有状态与动作，客户端只要求 `list`、`detail`、`apply`、`save` 和可选 `storeReply`。页面持有桌面与 Harmony 的显示分支并委托 hook，资源卡片与鸿蒙资源行由[公共展示组件](2026-10-16-community-resource-cards.md)持有，公开 `CommunityResourcesPageProps`。皮肤与资源的首页组合及分类控件由[社区首页](2026-10-16-community-home.md)持有，不属于资源图库状态。保留搜索草稿和已提交查询分离、分页去重、失败后的分页处理、列表代次、移动历史记录、添加同步锁和会话标记及原提示；发布成功先关闭编辑器再刷新。
 
 ## 旧笔记归属
 

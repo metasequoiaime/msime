@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-原生设置窗口里除了输入工具面板以外，最后一处会拉起共享 Tauri 应用的地方是「账号与同步」页的「我的内容」：「我发布的词库」「我发布的回复模板」「收藏的词库」「收藏的回复模板」四行都用 `MSIME.exe --route=settings:community` 打开共享应用的社区页。共享路由带不了要打开哪个列表，四行都落在社区首页，按钮上的「在社区中打开」也不是共享页的文案。整项工作要求设置窗口不再为任何设置页拉起共享应用，只留下屏幕键盘、手写、云词库、云剪贴板这些输入工具面板。共享应用在 Windows 上的社区页是 `community-page.tsx` 只有 `resources` 时的 `CommunityHomePage`：「词库」「回复模板」两个分类，各是一个 `CommunityResourcesPage`（`community-resources.tsx`）。`msime_client_community` 已经有 `resource_*` 七个操作和 `report`（见 [原生设置窗口社区页的 C 接口](../architecture/2026-10-11-windows-settings-community-host-api.md)），本机词库的导入有 `msime_client_settings_dictionary`。
+原生设置窗口里除了输入工具面板以外，最后一处会拉起共享 Tauri 应用的地方是「账号与同步」页的「我的内容」：「我发布的词库」「我发布的回复模板」「收藏的词库」「收藏的回复模板」四行都用 `MSIME.exe --route=settings:community` 打开共享应用的社区页。共享路由带不了要打开哪个列表，四行都落在社区首页，按钮上的「在社区中打开」也不是共享页的文案。整项工作要求设置窗口不再为任何设置页拉起共享应用，只留下屏幕键盘、手写、云词库、云剪贴板这些输入工具面板。共享应用在 Windows 上的社区页是 `community-page.tsx` 只有 `resources` 时的 `CommunityHomePage`（`community-home-page.tsx`）：「词库」「回复模板」两个分类，各是一个 `CommunityResourcesPage`（`community-resources.tsx`）。`msime_client_community` 已经有 `resource_*` 七个操作和 `report`（见 [原生设置窗口社区页的 C 接口](../architecture/2026-10-11-windows-settings-community-host-api.md)），本机词库的导入有 `msime_client_settings_dictionary`。
 
 ## Decision
 
@@ -14,6 +14,8 @@ Status: implemented
 - 「发布作品」和「编辑并发布新版本」是 `ContentDialog`，照 `ResourceEditor`：作品名称、作品说明、权利确认（新版本不要）；回复模板是最多 2000 字的提示词，词库是类型、编码、词语、权重和「添加词条」，下面是待发布的词条和「移除」。与共享表单一样主按钮一直能按，按下时才校验，不合规则时在对话框顶上说明。发布 id 打开时定下（新作品随机，新版本沿用原来的），改名称或说明不换。成功后关上；新作品从第一页重读图库，新版本重读详情。
 - 规则和文案放进 `CommunityPageModel.h`：`resourceMessage`、分类和范围、`communityDestinationView` 的四行、图库标题和说明、卡片的图标字和收藏一行、词条类型、`addEntry` 的规则（`Number(weight)` 按 JavaScript 的写法解析，再要求是非负的安全整数）、`submit` 的校验和 `importCommunityDictionary` 的分组，由 `tests/ui/community_page_model.cpp` 核对。
 - `shell_links::community` 删掉，`all` 只剩五个面板；导航测试改成要求每个 `shell_links` 都是面板、不是设置页。README 写明这一页和剩下的面板。
+
+共享首页组合与受控分类控件的模块归属见[社区首页](../../implemented/simplification/2026-10-16-community-home.md)，原生分类与范围规则保持。
 
 ## Alternatives considered
 
@@ -26,7 +28,7 @@ Status: implemented
 
 - 设置窗口里会拉起共享应用的只剩输入工具面板：屏幕键盘、语音输入、手写、云词库和云剪贴板。`PageHost::Shell` 和 `build_shell_page` 仍在，但没有任何页用它们。
 - 有意与共享页不同的几处：卡片固定大小，长名称和说明截断；分类和范围是分段控件，不是按钮组和窄屏菜单；返回「账号与同步」是本窗口加的，共享应用里回去靠侧栏。
-- 共享的 `community-resources.tsx`、`community-helpers.ts` 的 `resourceMessage` 或 `community-destination.ts` 改了，要同步 `CommunityPageModel.h` 和 `main.cpp`。
+- 共享的 `community-resources.tsx`、`community-home-page.tsx`、`community-category-tabs.tsx`、`community-helpers.ts` 的 `resourceMessage` 或 `community-destination.ts` 改了，要同步 `CommunityPageModel.h` 和 `main.cpp`。
 
 ## Verification
 

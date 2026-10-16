@@ -10,12 +10,9 @@ vi.mock("../../../../packages/ui/src/community/community-skins", () => ({
   ),
 }));
 
-vi.mock("../../../../packages/ui/src/community/community-resources", () => ({
+vi.mock("../../../../packages/ui/src/community/community-home-page", () => ({
   CommunityHomePage: (props: Record<string, unknown>) => (
     <div data-testid="home-page">{JSON.stringify(props)}</div>
-  ),
-  CommunityResourcesPage: (props: Record<string, unknown>) => (
-    <div data-testid="resources-page">{JSON.stringify(props)}</div>
   ),
 }));
 
