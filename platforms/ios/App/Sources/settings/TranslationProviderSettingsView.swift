@@ -75,6 +75,12 @@ struct TranslationProviderSettingsView: View {
           Text("兼容 DeepLX 的 POST 接口，或 DeepL 官方 API 地址（https://api-free.deepl.com/v2/translate 或 https://api.deepl.com/v2/translate）配 DeepL 的 Auth Key；使用 DeepL 时候选词会发送到 DeepL，按 DeepL 的数据政策处理。iOS 只允许 HTTPS 地址，HTTP 地址保存后不会被调用。")
         }
         .designRow()
+      case .ai:
+        Section {
+          Text("候选翻译复用「AI 助手」页中的配置；请在那里修改服务商、接口地址、模型和凭据。")
+            .foregroundStyle(.secondary)
+        }
+        .designRow()
       }
       Section {
         if credentialsIncomplete {

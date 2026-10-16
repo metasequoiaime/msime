@@ -2353,10 +2353,16 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     BOOL niuTrans = [config isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(config[@"enabled"]);
     if (!niuTrans) config = query[@"custom_translation"];
     BOOL custom = !niuTrans && [config isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(config[@"enabled"]);
-    if (!niuTrans && !custom) config = query[@"tencent_tmt"];
-    BOOL tencent = !niuTrans && !custom && [config isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(config[@"enabled"]);
-    if (!tencent) config = query[@"ai_assistant"];
-    BOOL ai = !niuTrans && !custom && !tencent && [config isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(config[@"enabled"]);
+    BOOL tencent = NO;
+    if (!niuTrans && !custom) {
+        config = query[@"tencent_tmt"];
+        tencent = [config isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(config[@"enabled"]);
+    }
+    BOOL ai = NO;
+    if (!niuTrans && !custom && !tencent) {
+        config = query[@"ai_assistant"];
+        ai = [config isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(config[@"enabled"]);
+    }
     if (![config isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(config[@"enabled"])) return nil;
     // A preference snapshot can be pending in Engine while the composition is active.
     if ((niuTrans && _niuTransConfig && ![_niuTransConfig isEqual:config]) ||

@@ -3,7 +3,10 @@ import CoreFoundation
 
 /// Where candidate glosses come from: nowhere online (the default), a service the user signed up for with their own credentials, or the 水杉 account's translation API. The three provider objects live in the shared preference document (`niutrans`, `custom_translation`, `tencent_tmt`) so the choice follows the same precedence as the other hosts: NiuTrans first, then the custom endpoint, then Tencent TMT when both of its secrets are usable. The account is used only when the user explicitly chose it (`translation_account`) and none of their own services applies; it is never a fallback. A chosen provider that is not usable yields no online glosses at all rather than sending the words somewhere the user did not pick.
 enum TranslationProvider: String, CaseIterable, Sendable {
-  case off, account, niutrans, tencent, custom
+  case off, account, niutrans, tencent, custom, ai
+
+  // AI 翻译复用单独的 ai_assistant 设置；它不是本页可以选择或保存的服务。
+  static let allCases: [TranslationProvider] = [.off, .account, .niutrans, .tencent, .custom]
   var title: String {
     switch self {
     case .off: "不使用在线翻译"
@@ -11,6 +14,7 @@ enum TranslationProvider: String, CaseIterable, Sendable {
     case .niutrans: "小牛翻译"
     case .tencent: "腾讯云机器翻译"
     case .custom: "自定义接口（DeepLX 或 DeepL API）"
+    case .ai: "AI 助手配置"
     }
   }
 }
