@@ -181,6 +181,8 @@ final class ImeTextEditPanel {
     private void renderState() {
         Button select = buttons.get(TextEditPanelModel.Action.SELECT);
         if (select == null) return;
+        select.setText(selecting ? "取消选择" : "选择");
+        select.setContentDescription(selecting ? "取消选择" : "选择模式");
         ViewPolicy.setSelected(select, selecting);
         select.setActivated(selecting);
         if (android.os.Build.VERSION.SDK_INT >= 30)

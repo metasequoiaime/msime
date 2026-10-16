@@ -496,6 +496,49 @@ UINT NextApplicationKeyReplayMarker()
 constexpr ULONGLONG kApplicationKeyReplayWaitMs = 2000;
 } // namespace
 
+bool CMetasequoiaIME::_IsDeferredKeyOwnerCurrent(ITfContext *context, uint64_t focusGeneration,
+                                                   HWND foregroundWindow) const
+{
+    const auto localCurrent = [this, context, focusGeneration, foregroundWindow]() {
+        return context && _pThreadMgr && focusGeneration == _deferredKeyFocusGeneration &&
+               !_localSessionResetPending.load(std::memory_order_acquire) && foregroundWindow &&
+               GetForegroundWindow() == foregroundWindow;
+    };
+    if (!localCurrent()) return false;
+    // 离线没有 worker Ready 令牌，仍须核验真实线程焦点与顶层 context；document focus 本身不代表前台。
+    ITfThreadMgr *threadMgr = _pThreadMgr;
+    threadMgr->AddRef();
+    BOOL threadFocused = FALSE;
+    ITfDocumentMgr *documentMgr = nullptr;
+    ITfContext *topContext = nullptr;
+    bool matches = false;
+    if (SUCCEEDED(threadMgr->IsThreadFocus(&threadFocused)) && threadFocused &&
+        SUCCEEDED(threadMgr->GetFocus(&documentMgr)) && documentMgr &&
+        SUCCEEDED(documentMgr->GetTop(&topContext)) && topContext)
+        matches = topContext == context;
+    matches = matches && SUCCEEDED(threadMgr->IsThreadFocus(&threadFocused)) && threadFocused;
+    if (topContext) topContext->Release();
+    if (documentMgr) documentMgr->Release();
+    // 释放引用也可能重入；最后再次核验本地身份。
+    threadMgr->Release();
+    return matches && _pThreadMgr == threadMgr && localCurrent();
+}
+
+bool CMetasequoiaIME::_IsDeferredApplicationTextCurrent(uint64_t replayToken, uint64_t focusGeneration,
+                                                           ITfContext *context, HWND foregroundWindow,
+                                                           uint64_t focusToken)
+{
+    if (!_IsDeferredKeyReplayCurrent(replayToken, focusGeneration, context)) return false;
+    const bool enabled = !_IsKeyboardDisabled();
+    const bool ready = _serverUnavailableFallbackActive || _IsFocusSessionCurrent(focusToken, context);
+    const bool ownerCurrent = _IsDeferredKeyOwnerCurrent(context, focusGeneration, foregroundWindow);
+    // COM 查询可能清掉或替换槽，最后只读本地身份与在线 Ready 令牌。
+    return enabled && ready && ownerCurrent && !_localSessionResetPending.load(std::memory_order_acquire) &&
+        GetForegroundWindow() == foregroundWindow &&
+        _IsDeferredKeyReplayCurrent(replayToken, focusGeneration, context) &&
+        (_serverUnavailableFallbackActive || _IsFocusSessionCurrent(focusToken));
+}
+
 bool CMetasequoiaIME::_HasPendingApplicationKeyReplay() const
 {
     return _applicationKeyReplay.marker != 0 &&
@@ -514,23 +557,24 @@ void CMetasequoiaIME::_ClearApplicationKeyReplay()
         release.type = INPUT_KEYBOARD;
         release.ki.wVk = static_cast<WORD>(cancelled.virtualKey);
         release.ki.dwFlags = KEYEVENTF_KEYUP;
-        if (cancelled.virtualKey != VK_TAB && cancelled.virtualKey != VK_RETURN)
+        if (cancelled.virtualKey != VK_TAB && cancelled.virtualKey != VK_RETURN &&
+            cancelled.virtualKey != VK_BACK && cancelled.virtualKey != VK_ESCAPE)
             release.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
         release.ki.dwExtraInfo = cancelled.marker;
         (void)SendInput(1, &release, sizeof(INPUT));
     }
 }
 
-void CMetasequoiaIME::_QueueKoreanSyllableKeyReplay(UINT virtualKey, ITfContext *context, uint64_t replayToken)
+bool CMetasequoiaIME::_QueueKoreanSyllableKeyReplay(UINT virtualKey, ITfContext *context, uint64_t replayToken)
 {
-    if (!_msgWndHandle || !msime::tsf::is_korean_caret_or_edit_key(virtualKey) ||
+    if (!_msgWndHandle || !(msime::tsf::is_korean_caret_or_edit_key(virtualKey) || virtualKey == VK_BACK || virtualKey == VK_ESCAPE) ||
         !_IsDeferredKeyReplayCurrent(replayToken, _deferredKeyFocusGeneration, context) ||
         _HasPendingApplicationKeyReplay())
-        return;
+        return false;
     const uint64_t focusToken = _CaptureFocusSessionToken();
-    if (!focusToken) return;
+    if (!focusToken && !_serverUnavailableFallbackActive) return false;
     const UINT marker = NextApplicationKeyReplayMarker();
-    if (!marker) return;
+    if (!marker) return false;
     _ClearApplicationKeyReplay();
     context->AddRef();
     _applicationKeyReplay.context = context;
@@ -538,9 +582,12 @@ void CMetasequoiaIME::_QueueKoreanSyllableKeyReplay(UINT virtualKey, ITfContext 
     _applicationKeyReplay.virtualKey = virtualKey;
     _applicationKeyReplay.focusToken = focusToken;
     _applicationKeyReplay.focusGeneration = _deferredKeyFocusGeneration;
+    _applicationKeyReplay.foregroundWindow = _deferredKeyInFlight.foregroundWindow
+        ? _deferredKeyInFlight.foregroundWindow : GetForegroundWindow();
     _applicationKeyReplay.deadline = GetTickCount64() + kApplicationKeyReplayWaitMs;
     // 投递失败仍保留屏障，由已有 UI 定时器尝试发送；这里不能同步进入应用按键处理。
     (void)PostMessage(_msgWndHandle, WM_ReplayKoreanSyllableKey, static_cast<WPARAM>(marker), 0);
+    return true;
 }
 
 void CMetasequoiaIME::_RunKoreanSyllableKeyReplay(UINT marker)
@@ -548,11 +595,16 @@ void CMetasequoiaIME::_RunKoreanSyllableKeyReplay(UINT marker)
     if (!marker || marker != _applicationKeyReplay.marker || !_HasPendingApplicationKeyReplay()) return;
     ITfContext *context = _applicationKeyReplay.context;
     context->AddRef();
-    const bool ownerCurrent = _IsFocusSessionCurrent(_applicationKeyReplay.focusToken, context);
+    const auto captured = _applicationKeyReplay;
+    const bool ready = _serverUnavailableFallbackActive || _IsFocusSessionCurrent(captured.focusToken, context);
+    const bool ownerCurrent = _IsDeferredKeyOwnerCurrent(context, captured.focusGeneration, captured.foregroundWindow);
     context->Release();
     // 查询焦点可能重入 COM，再次检查槽身份。
     if (marker != _applicationKeyReplay.marker) return;
-    if (!ownerCurrent || _applicationKeyReplay.focusGeneration != _deferredKeyFocusGeneration ||
+    if (!ready || !ownerCurrent || _localSessionResetPending.load(std::memory_order_acquire) ||
+        GetForegroundWindow() != captured.foregroundWindow ||
+        (!_serverUnavailableFallbackActive && !_IsFocusSessionCurrent(captured.focusToken)) ||
+        _applicationKeyReplay.focusGeneration != _deferredKeyFocusGeneration ||
         GetTickCount64() >= _applicationKeyReplay.deadline)
     {
         _ClearApplicationKeyReplay();
@@ -563,7 +615,8 @@ void CMetasequoiaIME::_RunKoreanSyllableKeyReplay(UINT marker)
     INPUT inputs[2] = {};
     inputs[0].type = INPUT_KEYBOARD;
     inputs[0].ki.wVk = static_cast<WORD>(_applicationKeyReplay.virtualKey);
-    if (_applicationKeyReplay.virtualKey != VK_TAB && _applicationKeyReplay.virtualKey != VK_RETURN)
+    if (_applicationKeyReplay.virtualKey != VK_TAB && _applicationKeyReplay.virtualKey != VK_RETURN &&
+        _applicationKeyReplay.virtualKey != VK_BACK && _applicationKeyReplay.virtualKey != VK_ESCAPE)
         inputs[0].ki.dwFlags = KEYEVENTF_EXTENDEDKEY;
     inputs[0].ki.dwExtraInfo = marker;
     inputs[1] = inputs[0];
@@ -600,9 +653,14 @@ bool CMetasequoiaIME::_ObserveApplicationKeyReplay(ITfContext *context, UINT vir
         return false;
     }
     context->AddRef();
-    const bool ownerCurrent = _IsFocusSessionCurrent(_applicationKeyReplay.focusToken, context);
+    const auto captured = _applicationKeyReplay;
+    const bool ready = _serverUnavailableFallbackActive || _IsFocusSessionCurrent(captured.focusToken, context);
+    const bool ownerCurrent = _IsDeferredKeyOwnerCurrent(context, captured.focusGeneration, captured.foregroundWindow);
     context->Release();
-    if (!ownerCurrent || marker != _applicationKeyReplay.marker ||
+    if (!ready || !ownerCurrent || _localSessionResetPending.load(std::memory_order_acquire) ||
+        GetForegroundWindow() != captured.foregroundWindow ||
+        (!_serverUnavailableFallbackActive && !_IsFocusSessionCurrent(captured.focusToken)) ||
+        marker != _applicationKeyReplay.marker ||
         _applicationKeyReplay.focusGeneration != _deferredKeyFocusGeneration) return false;
     // Test 是查询而非应用处理完成；只能投递后续 drain，让当前按下先返回给应用。已确认身份保留到下次回放或 clear，兼容重复 probe。
     if (!_applicationKeyReplay.downObserved)

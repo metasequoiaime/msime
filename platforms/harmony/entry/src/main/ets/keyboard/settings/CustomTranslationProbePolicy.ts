@@ -24,7 +24,7 @@ export interface CustomTranslationProbeDescriptor {
 /**
  * 鸿蒙设置页「测试自定义翻译配置」里不碰网络和 NAPI 的部分，从 Settings.ets 拆出来，放进 node 单测（platforms/harmony/tests/custom-translation-probe.test.ts）。
  *
- * 请求本身由共享描述器构造，这里只决定交给它什么、怎么认出 DeepL，以及失败时说什么。DeepL 的失败提示与 crates/client-providers/src/credential/translation.rs 的 `deepl_failure_message` 逐字相同（Tauri 设置页显示的是那一份）；鸿蒙设置页拿不到那个函数，scripts/test-harmony-custom-translation-probe.py 逐字核对两边。
+ * 请求本身由共享描述器构造，这里只决定交给它什么、怎么认出 DeepL，以及失败时说什么。DeepL 的失败提示与 crates/client-core/src/credential/translation.rs 的 `deepl_failure_message` 逐字相同（Tauri 设置页显示的是那一份）；鸿蒙设置页拿不到那个函数，scripts/test-harmony-custom-translation-probe.py 逐字核对两边。
  */
 export class CustomTranslationProbePolicy {
   /** 共享构造给 DeepL 官方 API 写的鉴权头前缀；DeepLX 格式写的是 `Bearer`。 */
