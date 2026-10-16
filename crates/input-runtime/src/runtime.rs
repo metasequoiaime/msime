@@ -116,6 +116,8 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) phrase_preedit: bool,
     /// 普通退格在拼写末尾是否回退已选词段；分段删除不受此开关影响。
     pub(crate) backspace_reverts_selection: bool,
+    /// 左右方向键在光标已经停在输入串端点、编辑器动不了它时改成移动候选高亮（偏好 `navigation.left_right`）。和 `backspace_reverts_selection` 一样是宿主状态：判断在 runtime 里做，宿主只照常发光标命令。
+    pub(crate) left_right_navigation: bool,
     /// The piece already chosen for the phrase being composed, held back from the document.
     ///
     /// Non-empty while the Engine is still composing, and in one case after its reading is gone: a segment Backspace (Ctrl+Backspace) that empties a reading whose phrase still has a selection to take back leaves the phrase in the composition, as the reference's `keep_creating_word_after_empty_raw` does. A host must therefore count a non-empty [`View::phrase_prefix`] as a composition, alongside the reading and the candidates.
@@ -575,6 +577,11 @@ impl<E: InputEngine> Runtime<E> {
         self.backspace_reverts_selection = enabled;
     }
 
+    /// 左右键的候选回退（`navigation.left_right`）：只影响左右键这一次怎么解释，不动组字状态，也不重建 Engine。
+    pub fn set_left_right_navigation(&mut self, enabled: bool) {
+        self.left_right_navigation = enabled;
+    }
+
     /// 选词字符是宿主编排状态，切换配置无需等待 Engine 重建。
     pub fn set_wubi_candidate_selection(
         &mut self,
@@ -622,6 +629,47 @@ impl<E: InputEngine> Runtime<E> {
             generation: self.generation,
             index,
         })
+    }
+
+    /// 左右键的候选回退（`navigation.left_right`）：不带修饰键的左右键在宿主那里先是编辑输入串的光标命令，
+    /// 光标已经停在要移动的那一端、引擎动不了它的时候，这一次按键换成移动候选高亮，与 ↑/↓ 落在同一段代码上
+    /// （[`Action::PreviousCandidate`] / [`Action::NextCandidate`]）。
+    ///
+    /// 只在当前页有候选时接管，与 `candidate_shortcut` 同理：没有候选可移时左右键照旧交给引擎，
+    /// 于是仍被吞掉，不会作为应用的按键落进文档。
+    ///
+    /// 整句改字和已经打开的候选列表都不在这里接管。改字期间左右键移的是改字的光标，它不在输入串里
+    /// （`caret_position` 停在末尾），交给引擎才对；打开的列表（韩文汉字、注音）本来就有自己的左右键规则，
+    /// 各宿主也先一步把四个方向键都归给高亮。本地模式的光标起点在前缀字母之后，这里按 0 判左端：
+    /// 那一个位置上左右键仍然什么都不做。
+    fn caret_edge_candidate_shortcut(&self, action: Action) -> Action {
+        if !self.left_right_navigation
+            || !self.snapshot_valid
+            || self.visible_len() == 0
+            || self.cached.candidate_list_open
+            || !self.cached.conversion.is_empty()
+        {
+            return action;
+        }
+        let backwards = match action {
+            Action::Command(Command::MoveLeft | Command::ConversionLeft) => true,
+            Action::Command(Command::MoveRight | Command::ConversionRight) => false,
+            _ => return action,
+        };
+        let caret = self.cached.caret_position;
+        let at_edge = if backwards {
+            caret == 0
+        } else {
+            caret >= self.cached.editing_text.len()
+        };
+        if !at_edge {
+            return action;
+        }
+        if backwards {
+            Action::PreviousCandidate
+        } else {
+            Action::NextCandidate
+        }
     }
 
     pub fn wubi_auto_commit_unique(&self) -> bool {
@@ -716,6 +764,7 @@ impl<E: InputEngine> Runtime<E> {
             wubi_candidate_selection: Default::default(),
             phrase_preedit: false,
             backspace_reverts_selection: true,
+            left_right_navigation: false,
             phrase_prefix: String::new(),
             phrase_selections: Vec::new(),
             facts: DispatchFacts::default(),
@@ -2306,6 +2355,8 @@ impl<E: InputEngine> Runtime<E> {
         }
         // 只在当前页有目标候选时接管；否则继续原标点路径，不能像越界数字键那样吞掉。
         let action = self.candidate_shortcut(action);
+        // 左右键先编辑输入串，光标已经停在这一端时这一次按键才是移动候选（偏好 `navigation.left_right`）。
+        let action = self.caret_edge_candidate_shortcut(action);
         if let Action::SelectAnyCandidate(id) = &action {
             if id.session != self.session
                 || id.generation != self.generation

@@ -2249,6 +2249,9 @@ impl InputEngine for PhraseEngine {
     }
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError> {
         match command {
+            // 与真引擎的字母光标一致：每次移一个字符，到两端就停住（这里没有本地模式的前缀字母）。
+            Command::MoveLeft => self.caret = self.caret.saturating_sub(1),
+            Command::MoveRight => self.caret = (self.caret + 1).min(self.reading.len()),
             Command::MoveHome => self.caret = 0,
             Command::MoveEnd => self.caret = self.reading.len(),
             Command::Backspace => {
@@ -2359,6 +2362,55 @@ fn phrase_runtime(reading: &str, consumes: Vec<usize>) -> Runtime<PhraseEngine> 
             .unwrap();
     }
     runtime
+}
+
+/// `navigation.left_right`：左右键先编辑输入串，光标已经停在要移动的那一端时，这一次按键才换成移动
+/// 候选高亮，与 ↑/↓ 走同一段代码。关着时两个键都还是普通光标命令。
+#[test]
+fn left_right_edits_the_input_string_before_it_moves_the_highlight() {
+    let highlighted = |view: &View| {
+        view.candidates
+            .iter()
+            .position(|candidate| candidate.highlighted)
+    };
+    let mut runtime = phrase_runtime("nihaoma", Vec::new());
+
+    // 关着时右键在输入串末尾什么也不做，高亮留在首选。
+    let closed = runtime
+        .dispatch(Action::Command(Command::MoveRight))
+        .unwrap()
+        .view;
+    assert_eq!(closed.caret_position, 7);
+    assert_eq!(highlighted(&closed), Some(0));
+
+    // 打开后同一个键移到下一个候选：光标已经没有可编辑的位置了。
+    runtime.set_left_right_navigation(true);
+    let next = runtime
+        .dispatch(Action::Command(Command::MoveRight))
+        .unwrap()
+        .view;
+    assert_eq!(highlighted(&next), Some(1));
+    assert_eq!(next.caret_position, 7);
+    assert_eq!(next.editing_text, "nihaoma");
+
+    // 左键还有可编辑的位置，仍然是编辑输入串，高亮不动。
+    let edited = runtime
+        .dispatch(Action::Command(Command::MoveLeft))
+        .unwrap()
+        .view;
+    assert_eq!(edited.caret_position, 6);
+    assert_eq!(highlighted(&edited), Some(1));
+
+    // 光标回到起点以后左键才移高亮。
+    runtime
+        .dispatch(Action::Command(Command::MoveHome))
+        .unwrap();
+    let previous = runtime
+        .dispatch(Action::Command(Command::MoveLeft))
+        .unwrap()
+        .view;
+    assert_eq!(highlighted(&previous), Some(0));
+    assert_eq!(previous.caret_position, 0);
 }
 
 #[test]

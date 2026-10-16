@@ -1531,6 +1531,42 @@ fn backspace_selection_preference_reaches_real_sessions_and_live_updates() {
     }
 }
 
+/// `navigation.left_right` 是共享偏好但由 runtime 解释：新建会话时读一次，之后每次偏好更新也跟着走，宿主的按键路由一行都不用改。
+/// 打开后右键在输入串末尾换成下一个候选，关着时同一个键什么也不做。
+#[test]
+fn left_right_navigation_preference_reaches_real_sessions_and_live_updates() {
+    let root = tempfile::tempdir().unwrap();
+    let mut preferences = chinese_preferences();
+    let handle = test_host_with_pinyin_fixture(root.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    type_letters(handle, b"nihao");
+    let highlighted = |view: &Value| {
+        view["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|candidate| candidate["highlighted"] == true)
+            .map(|candidate| candidate["text"].as_str().unwrap().to_owned())
+    };
+
+    // 关着时右键已经停在输入串末尾：光标不动，高亮留在首选。
+    let closed = read(msime_client_command(handle, 5));
+    assert_eq!(closed["ok"], true, "{closed}");
+    assert_eq!(closed["value"]["view"]["caret_position"], 5, "{closed}");
+    assert_eq!(closed["value"]["view"]["editing_text"], "nihao", "{closed}");
+    let first = highlighted(&closed["value"]["view"]);
+    assert!(first.is_some(), "{closed}");
+
+    // 偏好生效后同一个键换成下一个候选，输入串一个字都没变。
+    preferences.navigation.left_right = true;
+    assert_eq!(update(handle, 1, &preferences)["ok"], true);
+    let next = read(msime_client_command(handle, 5));
+    assert_ne!(highlighted(&next["value"]["view"]), first, "{next}");
+    assert_eq!(next["value"]["view"]["caret_position"], 5, "{next}");
+    assert_eq!(next["value"]["view"]["editing_text"], "nihao", "{next}");
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn wubi_candidate_selection_updates_while_engine_preferences_are_deferred() {
     let root = tempfile::tempdir().unwrap();
