@@ -7169,9 +7169,9 @@ void FcitxState::showInputModeHud() {
   }
   // 两个提示各补一半：面板那个由合成器按光标矩形定位，跟着输入点走，但只能显示文字；
   // 自绘徽章带得了 logo，却只能用屏幕坐标固定在一个角上。两者同时发是所有者的选择。
-  // Sized by the shared floating toolbar preferences and coloured by the resolved theme, both read at every switch so a settings change shows at the next one.
+  // A fixed size of its own (the toolbar size is not offered on Linux) and the resolved theme's colours, read at every switch so a theme change shows at the next one.
   const msime::linux_host::ModeBadgeStyle style{
-      msime::linux_host::mode_badge_metrics(preferences_),
+      msime::linux_host::ModeBadgeMetrics{},
       msime::linux_host::floating_surface_colors(
           fcitx_mode_badge_theme(preferences_, system_dark_, candidate_skin_document_))};
   if (mode_badge_ && mode_badge_->show(label, MSIME_MODE_BADGE_ICON, style)) scheduleModeBadgeHide();
