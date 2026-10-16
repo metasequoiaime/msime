@@ -71,7 +71,8 @@ def main() -> int:
         path = HOME / name
         source = path.read_text(encoding="utf-8")
         class_name = path.stem
-        if f"public final class {class_name} extends ReloadingDetailPage" not in source:
+        # 键盘页可由专用工具栏入口继承；是否 final 不改变共享生命周期合同。
+        if not re.search(rf"public (?:final )?class {class_name} extends ReloadingDetailPage\b", source):
             errors.append(f"{path}: 未继承 ReloadingDetailPage")
         if duplicate.search(source):
             errors.append(f"{path}: 仍在重复维护内容列生命周期")

@@ -56,7 +56,9 @@ final class ImeToolbar {
         shortcutButtons = new Button[] {s.emojiShortcutButton, s.phraseShortcutButton,
             s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton,
             s.textEditShortcutButton};
+        for (Button button : shortcutButtons) bindEditor(button);
         for (Button button : new Button[] {s.moreButton, dismissButton}) {
+            bindEditor(button);
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(s.pixels(44), s.pixels(44));
             params.setMarginStart(s.pixels(1));
@@ -84,6 +86,20 @@ final class ImeToolbar {
             if (retired.getParent() instanceof LinearLayout parent) parent.removeView(retired);
             ViewPolicy.hide(retired);
         }
+    }
+
+    /** 长按由框架消费，不再触发该按钮原来的短按动作。 */
+    private void bindEditor(Button button) {
+        button.setOnLongClickListener(view -> {
+            s.imeKeyFeedback.playFeedback(view);
+            openEditor();
+            return true;
+        });
+    }
+
+    void openEditor() {
+        s.closeMoreTools();
+        s.openHostPage("TOOLBAR_EDITOR");
     }
 
     /** 只移动已有视图，保留按钮原来的回调、触摸区域、无障碍身份与面板激活态。 */

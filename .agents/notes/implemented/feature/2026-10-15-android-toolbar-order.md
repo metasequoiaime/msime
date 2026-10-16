@@ -6,7 +6,9 @@ Status: implemented
 
 #7832 希望工具栏按个人习惯排序，并在重新打开或重启输入法后保留。Android 的七个可选工具按钮只有显隐开关，设置预览和实际工具栏各自使用固定顺序。
 
-已检索 proposed、implemented、rejected 中的 touch_toolbar、工具栏顺序和自定义工具栏。[共享工具栏分组](../../implemented/simplification/2026-10-15-touch-keyboard-toolbar.md) 与共享开关归属相邻但不持有原生排序；[Android 启动状态](../../implemented/bug-fix/2026-10-08-android-toolbar-startup-state.md) 要求首帧使用实时状态，沿用决定。本片只处理 Android 排序，iOS、HarmonyOS 保留后续覆盖；#7639 的长按/菜单进入编辑与额外工具显隐独立处理。
+#7639 要求长按工具栏按钮和功能菜单都能进入编辑。只有设置页提供排序、显隐时，用户仍需离开输入框后逐层寻找，键盘上的两个入口都未接线。
+
+已检索 proposed、implemented、rejected 中的 touch_toolbar、工具栏顺序和自定义工具栏。[共享工具栏分组](../../implemented/simplification/2026-10-15-touch-keyboard-toolbar.md) 与共享开关归属相邻但不持有原生排序；[Android 启动状态](../../implemented/bug-fix/2026-10-08-android-toolbar-startup-state.md) 要求首帧使用实时状态，沿用决定。本片处理 Android 排序以及 #7639 的长按、菜单编辑入口，iOS、HarmonyOS 排序保留后续覆盖。
 
 ## Decision
 
@@ -14,10 +16,14 @@ Status: implemented
 
 设置的「键盘工具栏」提供「按钮顺序」，用独立的上移/下移按钮调整草稿，保存后生效，取消不落盘，支持恢复默认。实际工具栏只重排已有按钮，不根据位置重建动作；隐藏工具保留位置，重新显示后回原位。
 
+长按工具栏的工具、品牌或收起按钮，或在品牌菜单点击「编辑工具栏」，都经原生宿主深链进入 `ToolbarEditorPage`。该入口复用 `KeyboardOptionsPage` 的显示开关、预览、排序和保存逻辑，首次显示「工具栏」分类，不在输入法进程中另写一套设置。它使用独立页面身份，避免宿主已打开键盘布局页时被同页去重吞掉。详情基类仅提供首次分类选择，旋转和进程恢复仍保留用户选择，重新加载设置也不重置分类。长按被消费，松手不再执行原短按动作；菜单入口不受工具栏显隐影响。
+
 ## Alternatives considered
 
 - **在共享 touch_toolbar 对象增加顺序字段**：多个平台可复用并可随整份配置携带。但七项中常用语、输入方式、浮动键盘、文本编辑在 Android 本地独立管理，其他宿主的入口集合不同；仅为 Android 此片扩展共享契约会造成其他宿主看似支持、实际不消费，因此先采用本机已有存储。
 - **根据当前位置重建按钮与回调**：一次生成即可得到排列。但按钮还承载面板激活态、按键身份和无障碍标签；移动已有对象可直接维持绑定和触摸区域，避免位置与动作耦合。
+
+- **在键盘内增加另一套编辑面板**：无需离开输入框即可调整，但必须重复处理共享与 Android 本地两种设置、异步保存和失败恢复。宿主已有可用编辑控件，因此两个快捷入口直接复用它们，并用独立页面身份保证导航到达。
 
 - **仍让整行滚动，仅缩小图标或按钮**：结构改动少且能在部分宽度下容纳更多入口。但工具数量、算式胶囊和单手窄屏都会改变总宽度，无法保证两端完整可点；两端必须在滚动容器之外。
 
@@ -35,6 +41,13 @@ Status: implemented
 - `ToolbarScrollDeviceSmoke` 在真实编辑器输入合成算式 `12*12`，开启七项工具，用系统触摸注入横划和反向横划；工具实际移动、两端位置不变且没有误输入。API 35 上物理点按末尾文本编辑、品牌菜单和收起键，验证对应面板、返回和键盘隐藏；API 28 上验证横划与物理收起，不验证其系统无障碍树不暴露的工具面板，沿用已有核心套件的覆盖边界。
 - API 35 的核心安装/词库准备/输入/剪贴板生命周期、`MoreToolsDeviceSmoke`、`KeyboardHeightDeviceSmoke`、`TextEditRecentClipboardDeviceSmoke` 均通过。API 28 的通用核心套件仍在 `limited composition typing` 失败，旧包对照同名失败；本片没有将其记为通过。
 - Java/API 检查及 236 项 JVM 冒烟、Gradle `assembleFullRelease`、设备测试 APK 构建、quick、笔记门禁及 `git diff --check` 通过。布局只改 Java，APK 重新编译 Java 并签名，复用 #8094 工作树已验收的生成 `jniLibs` 和 `host-assets`，没有复制其源码或声称重建原生库。
+
+#7639 的验证：
+
+- 当前分支重建 Rust、JNI 和原生宿主 full APK，使用发布式按需下载配置；只复用经过锁校验的词库资源，没有复用其他分支的原生库。宿主检查通过 237 项 JVM 冒烟、139 个设备套件源文件编译、JNI 目标语法和 Java/API、清单、资源契约。
+- API 35 专用模拟器的 `ToolbarEditorDeviceSmoke` 通过：已有普通键盘设置页时，真实长按品牌和皮肤按钮分别跳到工具栏分类；品牌功能菜单的「编辑工具栏」同样可达，排序弹窗可取消。测试通过真实系统长按、产品无障碍按钮和原生页面运行，不把静态回调绑定当作点击验收。测试选择器曾误把排序弹窗的行标题当作动作按钮，按实际无障碍按钮身份修正后通过。
+- API 35 通用设备脚本通过核心输入、词库准备、菜单、工具栏两端与滑动、表情、标点、手势及偏好切换，随后在 `LanguageNumberKeySwapDeviceSmoke` 的 `zhuyin_nine_key selected layout` 失败。这次 APK 没有打入按需语言词库，脚本却直接指定注音布局，未先安装所需词库；未把本轮通用套件记为全通过。
+- 新专项接入 `smoke.sh` 核心路径，后续 API 28 与 35 的设备门禁都会运行；API 28 仅检查其系统支持的真实长按与原生页，菜单入口由 API 35 覆盖。API 28 核心设备脚本通过整套安装、词库准备、输入、十万条辅助码导入和剪贴板保存生命周期；新增真实品牌/皮肤长按、编辑页和排序取消也通过。完整 `MSIME_VERIFY_ALL=1 bash scripts/verify-local.sh --quick` 通过，包含 402 个 Windows x86 源码语法检查、163 项本机原生测试、Rust 工作区、Android/wasm 目标、Java 宿主、Windows x64 宿主与 GNU 桌面外壳、macOS 原生宿主、Apple 桥和两种架构的通信协议构建。Linux 因无 Docker、HarmonyOS 因工作树缺少打包前置条件跳过；macOS 桌面外壳因缺少装配资源未纳入 Rust 工作区检查。旧生命周期契约错误地要求键盘页必须是 `final`，已允许专用入口继承，同时保留继承关系和原有生命周期检查；首次完整门禁在该项失败，修正后整套重跑通过。
 
 ## Consequences
 

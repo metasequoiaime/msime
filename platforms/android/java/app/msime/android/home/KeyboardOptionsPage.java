@@ -45,7 +45,7 @@ import org.json.JSONObject;
  *
  * <p>键盘与本页读同一批存储：按键间距、行间距、双拼键位提示和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_shuangpin_key_hints`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–160 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
  */
-public final class KeyboardOptionsPage extends ReloadingDetailPage {
+public class KeyboardOptionsPage extends ReloadingDetailPage {
     @Override protected java.util.List<String> sectionTitles() {
         return java.util.List.of("布局", "反馈", "手势", "工具栏", "剪贴板");
     }

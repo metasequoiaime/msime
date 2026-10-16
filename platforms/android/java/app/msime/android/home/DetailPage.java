@@ -54,6 +54,9 @@ public abstract class DetailPage extends HomeTabFragment {
     /** 页面显式声明分类顺序；空列表表示没有分类导航。 */
     protected List<String> sectionTitles() { return List.of(); }
 
+    /** 专用入口首次打开时显示的分类；旋转和进程恢复仍使用用户已选的分类。 */
+    protected String initialSection() { return ""; }
+
     /** 分类内容列独立控制可见性，组内原有的禁用、隐藏与异步状态不受切换影响。 */
     protected final LinearLayout sectionColumn(LinearLayout parent, String title) {
         if (!sectionTitles().contains(title)) throw new IllegalArgumentException("Unknown detail section: " + title);
@@ -69,7 +72,7 @@ public abstract class DetailPage extends HomeTabFragment {
 
     @Override public void onCreate(@Nullable Bundle state) {
         super.onCreate(state);
-        if (state != null) section = state.getString("detail-section", "");
+        section = state == null ? initialSection() : state.getString("detail-section", initialSection());
         if (!sectionTitles().contains(section) && !sectionTitles().isEmpty()) section = sectionTitles().get(0);
     }
 

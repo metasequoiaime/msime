@@ -133,6 +133,9 @@ final class ImeFunctionPanel {
             case SETTINGS -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.SETTINGS, () -> host(null), null),
                 FunctionPanelView.State.NONE, true);
+            case TOOLBAR_EDITOR -> add(entries, states, enabled,
+                icon(item, KeyboardIconPaths.Icon.SETTINGS, s.imeToolbar::openEditor, null),
+                FunctionPanelView.State.NONE, true);
             case KEY_SOUND -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.KEY_SOUND, s::toggleSoundFromMoreTools, null),
                 toggle(s.soundEnabled), true);
