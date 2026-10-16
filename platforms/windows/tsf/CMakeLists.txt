@@ -71,6 +71,17 @@ add_executable(msime-tsf-character-result-test tests/input/character_result.cpp)
 target_compile_features(msime-tsf-character-result-test PRIVATE cxx_std_17)
 target_include_directories(msime-tsf-character-result-test PRIVATE ../../../crates/host-api/include)
 add_test(NAME msime-tsf-character-result COMMAND msime-tsf-character-result-test)
+find_package(Threads REQUIRED)
+add_executable(msime-tsf-async-snapshot-cache-test tests/runtime/async_snapshot_cache.cpp)
+target_compile_features(msime-tsf-async-snapshot-cache-test PRIVATE cxx_std_17)
+target_link_libraries(msime-tsf-async-snapshot-cache-test PRIVATE Threads::Threads)
+if(MSVC)
+  target_compile_options(msime-tsf-async-snapshot-cache-test PRIVATE /UNDEBUG /W4 /WX /utf-8)
+else()
+  target_compile_options(msime-tsf-async-snapshot-cache-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+endif()
+add_test(NAME msime-tsf-async-snapshot-cache COMMAND msime-tsf-async-snapshot-cache-test)
+set_tests_properties(msime-tsf-async-snapshot-cache PROPERTIES TIMEOUT 20)
 add_executable(msime-tsf-host-focus-test tests/runtime/host_focus.cpp)
 target_compile_features(msime-tsf-host-focus-test PRIVATE cxx_std_17)
 add_test(NAME msime-tsf-host-focus COMMAND msime-tsf-host-focus-test)
@@ -219,6 +230,17 @@ add_test(NAME msime-tsf-smart-punctuation-focus-wiring COMMAND msime-tsf-smart-p
 if(NOT WIN32)
   return()
 endif()
+add_executable(msime-tsf-host-configuration-test tests/runtime/host_configuration.cpp HostConfiguration.cpp)
+target_compile_features(msime-tsf-host-configuration-test PRIVATE cxx_std_17)
+target_include_directories(msime-tsf-host-configuration-test PRIVATE ../../../crates/host-api/include)
+target_link_libraries(msime-tsf-host-configuration-test PRIVATE Threads::Threads nlohmann_json::nlohmann_json)
+if(MSVC)
+  target_compile_options(msime-tsf-host-configuration-test PRIVATE /UNDEBUG /W4 /WX /utf-8)
+else()
+  target_compile_options(msime-tsf-host-configuration-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+endif()
+add_test(NAME msime-tsf-host-configuration COMMAND msime-tsf-host-configuration-test)
+set_tests_properties(msime-tsf-host-configuration PROPERTIES TIMEOUT 20)
 add_executable(msime-tsf-class-factory-test tests/runtime/class_factory.cpp)
 target_compile_features(msime-tsf-class-factory-test PRIVATE cxx_std_17)
 target_link_libraries(msime-tsf-class-factory-test PRIVATE ole32)
@@ -268,7 +290,9 @@ add_library(msime-tsf SHARED
   Utils/CommonUtils.cpp Utils/FanyUtils.cpp
   DllMain.cpp Server.cpp
   EngineSessionAdapter.cpp EngineSessionAdapter.h EngineResponse.cpp
-  HostOptionsPaths.cpp HostOptionsPaths.h PreparedHostOptions.cpp
+  HostOptionsPaths.cpp
+  HostConfiguration.cpp HostConfiguration.h AsyncSnapshotCache.h
+  HostOptionsPaths.h PreparedHostOptions.cpp
   IME/MetasequoiaIME.rc
   IME/MetasequoiaIME.def
 )
