@@ -86,3 +86,8 @@ Status: implemented
 `CARGO_BUILD_JOBS=4 MSIME_BUILD_JOBS=4 MSIME_VERIFY_ALL=1 bash scripts/verify-local.sh --quick` 退出 0，含仓库契约、笔记、Rust workspace、Android/WASM、Android Java、macOS 原生宿主和共享 Apple bridge。Windows 可移植测试 155 通过，2 项宿主差异排除、66 项需要 Windows。Linux Docker、完整 Windows 交叉、HarmonyOS 真工程及 pipe-only 缺前置而跳过；不是设备验收。
 
 整合固定 `origin/develop` 的 `4be938fc0874f2dbff184e73bed6065307c4f179` 后，两 crate 全量测试复验退出 0：引擎 2214、golden 31、运行时 295，失败 0、忽略 36。无冲突整合；正式旧新质量与 ABBA 的基线仍为前述 `92058b68`，不将整合后的其他行为变化算作本片收益。
+
+
+## Allocation test isolation
+
+[九键分配隔离](2026-10-17-nine-key-allocation-isolation.md)在两个精确预算测试外增加单目标子进程，排除其他并行测试推进日志与个人模型 generation 的干扰。完整原测试体、冷热形状和全部预算保留；子进程内部受控失效仍报红，不改本篇生产决定。

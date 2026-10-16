@@ -2,6 +2,9 @@ use super::*;
 use crate::ime::personal_rerank::allocations::count;
 use crate::quanpin::fixture::Fixture;
 
+#[path = "isolated_test.rs"]
+mod isolation;
+
 // 固定 92058b68c2eda173906abb9ace0723836fc661eb 的完整刷新，只改名、扩大测试可见性和移除注释。
 impl NineKeySession {
     pub(super) fn before_dominated_refresh(&mut self) {
@@ -393,6 +396,17 @@ fn fixture() -> Fixture {
 
 #[test]
 fn dominated_rows_are_rejected_before_field_copies() {
+    isolation::run(
+        concat!(
+            module_path!(),
+            "::dominated_rows_are_rejected_before_field_copies"
+        ),
+        assert_dominated_rows_are_rejected_before_field_copies,
+    )
+    .unwrap();
+}
+
+fn assert_dominated_rows_are_rejected_before_field_copies() {
     let fixture = fixture();
     for index in 0..32 {
         fixture.insert("ni", &format!("合成前缀{index}😀"), 50 - index);
@@ -413,6 +427,17 @@ fn dominated_rows_are_rejected_before_field_copies() {
 
 #[test]
 fn dominated_projection_matches_frozen_refresh_across_grids_and_locks() {
+    isolation::run(
+        concat!(
+            module_path!(),
+            "::dominated_projection_matches_frozen_refresh_across_grids_and_locks"
+        ),
+        assert_dominated_projection_matches_frozen_refresh_across_grids_and_locks,
+    )
+    .unwrap();
+}
+
+fn assert_dominated_projection_matches_frozen_refresh_across_grids_and_locks() {
     let fixture = fixture();
     for (key, weight) in [
         ("ni", 100),
