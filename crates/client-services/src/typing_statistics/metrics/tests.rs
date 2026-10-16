@@ -255,6 +255,23 @@ fn hours_take_the_last_week_and_the_peak_may_wrap_midnight() {
 }
 
 #[test]
+fn smart_abc_counts_toward_shuangpin_achievements() {
+    let mut statistics = enabled();
+    add_day(
+        &mut statistics,
+        "2026-10-05",
+        (10_000, 0, 0),
+        "smart_abc",
+        None,
+        &[],
+    );
+    let summary = summarize(&statistics, "2026-10-05", &SummaryInputs::default());
+    let badge = achievement(&summary, "shuangpin_10k");
+    assert_eq!(badge.current, 10_000);
+    assert!(badge.unlocked_day.is_some());
+}
+
+#[test]
 fn badges_unlock_on_their_thresholds() {
     let mut statistics = enabled();
     add_day(

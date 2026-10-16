@@ -62,6 +62,8 @@ void hint_follows_the_view() {
   require(shuangpin_keymap_hint(other)->profile == "xiaohe");
   // 自定义方案没有按名字取得到的键位表，不显示，免得按小鹤标错键。
   other = view("ni");
+  other["shuangpin_profile"] = "smart_abc";
+  require(shuangpin_keymap_hint(other)->profile == "smart_abc");
   other["shuangpin_profile"] = "custom";
   require(!shuangpin_keymap_hint(other));
   require(!shuangpin_keymap_hint(nlohmann::json::array()));
