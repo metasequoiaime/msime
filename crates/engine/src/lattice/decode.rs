@@ -439,24 +439,46 @@ pub(super) fn decode_graph(
     options: &LatticeOptions<'_>,
     extra: Option<&Graph>,
 ) -> Vec<SentencePath> {
+    // 常见预算与非末列一致，单独实例化以保留展开循环的固定束宽。
+    if options.nbest > options.beam {
+        decode_graph_with_terminal::<true>(graph, options, extra)
+    } else {
+        decode_graph_with_terminal::<false>(graph, options, extra)
+    }
+}
+
+fn decode_graph_with_terminal<const WIDE_TERMINAL: bool>(
+    graph: &Graph,
+    options: &LatticeOptions<'_>,
+    extra: Option<&Graph>,
+) -> Vec<SentencePath> {
     let n = graph.len();
     let personal = active_personal(options);
     let bigram_table = options.bigram.as_ref();
     let bigram = options.bigram.as_deref();
     let mut memo = options.bigram_memo.map(RefCell::borrow_mut);
     let capacities = column_capacities(graph, extra, options.beam);
-    let stream_capacity = options.beam.saturating_add(1);
-    // 只有预扫描确认会超过束宽的非末列才流式保留堆；状态随列保存，不增加每次解码的堆分配。
+    let terminal_limit = if WIDE_TERMINAL {
+        options.beam.max(options.nbest)
+    } else {
+        options.beam
+    };
+    // 各列先按入列上界决定是否流式选择；末列使用最终结果预算。
     let mut columns: Vec<BeamColumn<'_>> = capacities
         .into_iter()
         .enumerate()
-        .map(|(position, capacity)| BeamColumn {
-            hyps: Vec::with_capacity(if position < n && capacity > stream_capacity {
-                stream_capacity
+        .map(|(position, capacity)| {
+            let limit = if WIDE_TERMINAL && position == n {
+                terminal_limit
             } else {
-                capacity
-            }),
-            streamed: position < n && capacity > stream_capacity,
+                options.beam
+            };
+            let stream_capacity = limit.saturating_add(1);
+            let streamed = limit != 0 && capacity > stream_capacity;
+            BeamColumn {
+                hyps: Vec::with_capacity(if streamed { stream_capacity } else { capacity }),
+                streamed,
+            }
         })
         .collect();
     columns[0].hyps.push(Hyp {
@@ -558,12 +580,12 @@ pub(super) fn decode_graph(
                 };
                 let target = &mut ahead[edge.end - pos - 1];
                 if target.streamed {
-                    cxx_sort::push_partial(
-                        &mut target.hyps,
-                        options.beam,
-                        next,
-                        &mut scores_higher,
-                    );
+                    let limit = if WIDE_TERMINAL && edge.end == n {
+                        terminal_limit
+                    } else {
+                        options.beam
+                    };
+                    cxx_sort::push_partial(&mut target.hyps, limit, next, &mut scores_higher);
                 } else {
                     target.hyps.push(next);
                 }
@@ -571,12 +593,17 @@ pub(super) fn decode_graph(
         }
     }
 
-    // The loop only prunes columns [0, n), so the terminal column still holds every hypothesis that reached the end. Nothing traces back through it, so truncating it cannot break traceback.
-    let mut last = std::mem::take(&mut columns[n].hyps);
+    // 末列不再被后续路径回溯；先完成同一堆选择，再沿用原最终排序。
+    let terminal = &mut columns[n];
+    let mut last = std::mem::take(&mut terminal.hyps);
     if last.is_empty() {
         return Vec::new();
     }
-    keep_beam(&mut last, options.beam.max(options.nbest));
+    if terminal.streamed {
+        cxx_sort::finish_partial(&mut last, terminal_limit, &mut scores_higher);
+    } else {
+        keep_beam(&mut last, terminal_limit);
+    }
     cxx_sort::sort(&mut last, &mut scores_higher);
     let take = options.nbest.min(last.len());
 
@@ -1551,3 +1578,7 @@ mod stream_tests;
 #[cfg(test)]
 #[path = "decode_materialization_tests.rs"]
 mod materialization_tests;
+
+#[cfg(test)]
+#[path = "decode_terminal_tests.rs"]
+mod terminal_tests;
