@@ -2,7 +2,7 @@
 import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
 
 afterEach(() => {
@@ -50,23 +50,28 @@ function renderSettings(platform: string, skins: unknown = communitySkins()) {
   );
 }
 
-// 触屏宿主没有「社区」标签页：皮肤页的「在线皮肤」在本页上打开完整的社区皮肤图库，压一条带 `communityGallery` 的历史记录，返回关掉图库而不是离开皮肤页。
-test("a mobile host opens the full skin gallery on the theme page itself", async () => {
+// 皮肤页的「在线皮肤」切到底部「社区」标签的「皮肤」分类，不在皮肤页上盖一层图库；返回回到皮肤页。这个宿主只有皮肤图库，社区页只有这一类，不画分类标签。
+test("a mobile host's 浏览更多皮肤 switches to the 社区 tab", async () => {
   renderSettings("android");
   await settingsFormReady();
 
   fireEvent.click(screen.getByRole("button", { name: "浏览更多皮肤" }));
-  const gallery = await screen.findByRole("dialog", { name: "社区皮肤" });
-  expect(within(gallery).getByRole("search")).toBeTruthy();
-  expect(window.history.state).toMatchObject({
-    page: "skin",
-    communityGallery: { category: "skin", scope: "", initialMine: false },
-  });
-  expect(screen.getByRole("heading", { level: 1, name: "皮肤" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: "社区" })).toBeTruthy();
+  expect(screen.queryByRole("dialog", { name: "社区皮肤" })).toBeNull();
+  expect(screen.queryByRole("tablist", { name: "社区分类" })).toBeNull();
+  expect(screen.getByRole("search")).toBeTruthy();
+  const bar = screen.getByRole("navigation", { name: "主要功能" });
+  expect(within(bar).getByRole("button", { name: "社区" }).getAttribute("aria-current")).toBe(
+    "page",
+  );
+  expect(window.history.state).toMatchObject({ page: "community", tab: "community" });
+  expect(window.history.state.communityGallery).toBeUndefined();
 
-  fireEvent.click(within(gallery).getByRole("button", { name: "返回" }));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "社区皮肤" })).toBeNull());
-  expect(screen.getByRole("heading", { level: 1, name: "皮肤" })).toBeTruthy();
+  window.history.back();
+  expect(await screen.findByRole("heading", { level: 1, name: "皮肤" })).toBeTruthy();
+  expect(within(bar).getByRole("button", { name: "设置" }).getAttribute("aria-current")).toBe(
+    "page",
+  );
 });
 
 test("iOS carries the same entry", async () => {

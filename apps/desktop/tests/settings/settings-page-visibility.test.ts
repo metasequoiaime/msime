@@ -8,7 +8,6 @@ import {
 
 const pages: SettingsPageId[] = [
   "home",
-  "more",
   "appearance",
   "dictionary",
   "input",
@@ -43,7 +42,6 @@ test("keeps standalone pages out of the shared form", () => {
           "vocabulary",
           "account",
           "chat",
-          "more",
           "community",
           "try-keyboard",
         ].includes(page),

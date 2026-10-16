@@ -60,8 +60,8 @@ function mount(
   );
 }
 
-/** 三个触屏宿主共用的四个主入口。 */
-const tabs = ["设置", "全部设置", "统计", "我的"];
+/** 三个触屏宿主共用的四个主入口：第二格是社区。 */
+const tabs = ["设置", "社区", "统计", "我的"];
 
 /** 「设置」根页，把每个没有自己标签页的页面列成一行。 */
 const root = () => screen.getByRole("region", { name: "首页" });
@@ -83,7 +83,7 @@ test("the phone tab bar is four tabs, each an icon over a word", async () => {
   // 鸿蒙画设计里的 Fluent 图标，是 24px 的 `currentColor` SVG，所以选中时取强调色。
   expect(icons.map((icon) => icon!.getAttribute("data-tab-icon"))).toEqual([
     "settings",
-    "grid",
+    "people_community",
     "data_bar_vertical",
     "person",
   ]);
@@ -126,22 +126,40 @@ test("every page the sidebar reaches is reachable on a phone", async () => {
   expect(stranded).toEqual([]);
 });
 
-// 全部设置按导航组列出二级页面，排除已有独立标签或我的入口的分组。
-test("the 全部设置 list is grouped under the navigation group titles", async () => {
-  mount("more");
+// 「社区」标签的根页是社区页：点它直接打开，标签高亮，没有返回按钮；「设置」根页不列社区那一行。
+test("the 社区 tab opens the community page as its root", async () => {
+  mount();
+  await settingsFormReady();
+  expect(rootRowTitles()).not.toContain("社区");
 
-  const list = await screen.findByRole("region", { name: "全部设置" });
-  const groups = within(list)
-    .getAllByRole("group")
-    .map((group) => ({
-      title: group.getAttribute("aria-labelledby")
-        ? document.getElementById(group.getAttribute("aria-labelledby")!)?.textContent
-        : undefined,
-      pages: [...group.querySelectorAll("strong")].map((item) => item.textContent),
-    }));
-  expect(groups.map((group) => group.title)).toEqual(["打字", "外观", "键盘、语音与手写", "工具"]);
-  expect(groups[0].pages[0]).toBe("输入");
-  expect(within(list).getByRole("group", { name: "打字" })).toBeTruthy();
+  const bar = screen.getByRole("navigation", { name: "主要功能" });
+  fireEvent.click(within(bar).getByRole("button", { name: "社区" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "社区" })).toBeTruthy();
+  expect(within(bar).getByRole("button", { name: "社区" }).getAttribute("aria-current")).toBe(
+    "page",
+  );
+  expect(within(bar).getByRole("button", { name: "设置" }).getAttribute("aria-current")).toBeNull();
+  expect(screen.queryByRole("button", { name: "返回" })).toBeNull();
+  expect(window.history.state).toEqual(
+    expect.objectContaining({ page: "community", tab: "community" }),
+  );
+});
+
+// 皮肤页回到「设置」根页的列表里，从那里推入：「设置」保持高亮，标题前带返回按钮，返回回到「设置」根页。
+test("the 设置 list holds 皮肤 again and pushes the skin page", async () => {
+  mount();
+  await settingsFormReady();
+  expect(rootRowTitles()).toContain("皮肤");
+
+  openRootRow("皮肤");
+  expect(await screen.findByRole("heading", { level: 1, name: "皮肤" })).toBeTruthy();
+  const bar = screen.getByRole("navigation", { name: "主要功能" });
+  expect(within(bar).getByRole("button", { name: "设置" }).getAttribute("aria-current")).toBe(
+    "page",
+  );
+  expect(window.history.state).toEqual(expect.objectContaining({ page: "skin", tab: "home" }));
+  fireEvent.click(screen.getByRole("button", { name: "返回" }));
+  expect(await screen.findByRole("region", { name: "首页" })).toBeTruthy();
 });
 
 // Drilling into a page that has no tab does not leave the bar blank: the page was reached from the
@@ -308,14 +326,14 @@ test("the desktop AI 辅助 page keeps its row into the chat", async () => {
 test("tapping the tab you are on goes back to its first page", async () => {
   mount();
   await settingsFormReady();
-  openRootRow("皮肤");
-  expect(await screen.findByRole("heading", { level: 1, name: "皮肤" })).toBeTruthy();
+  openRootRow("输入");
+  expect(await screen.findByRole("heading", { level: 1, name: "输入" })).toBeTruthy();
   const bar = () => screen.getByRole("navigation", { name: "主要功能" });
 
   fireEvent.click(within(bar()).getByRole("button", { name: "统计" }));
   expect(await screen.findByRole("heading", { level: 1, name: "统计" })).toBeTruthy();
   fireEvent.click(within(bar()).getByRole("button", { name: "设置" }));
-  expect(await screen.findByRole("heading", { level: 1, name: "皮肤" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: "输入" })).toBeTruthy();
 
   fireEvent.click(within(bar()).getByRole("button", { name: "设置" }));
   expect(await screen.findByRole("region", { name: "首页" })).toBeTruthy();
@@ -325,8 +343,8 @@ test("tapping the tab you are on goes back to its first page", async () => {
 test("a scrolled sub-page keeps its way back in the collapsed title bar", async () => {
   mount();
   await settingsFormReady();
-  openRootRow("皮肤");
-  await screen.findByRole("heading", { level: 1, name: "皮肤" });
+  openRootRow("输入");
+  await screen.findByRole("heading", { level: 1, name: "输入" });
   expect(screen.getAllByRole("button", { name: "返回" })).toHaveLength(1);
 
   const content = document.getElementById("settings-content")!;
@@ -338,18 +356,22 @@ test("a scrolled sub-page keeps its way back in the collapsed title bar", async 
   expect(await screen.findByRole("region", { name: "首页" })).toBeTruthy();
 });
 
-// 全部设置的二级页保留来源，切换标签后回到该标签原来的页面。
-test("全部设置 owns the secondary pages opened from its list", async () => {
-  mount("more");
-  const more = await screen.findByRole("region", { name: "全部设置" });
-  fireEvent.click(within(more).getByRole("button", { name: /^输入/ }));
-  expect(await screen.findByRole("heading", { level: 1, name: "输入" })).toBeTruthy();
+// 设置页里指向皮肤页的链接（键盘页的「屏幕键盘外观」）把皮肤页压在「设置」的栈上，返回回到键盘页。
+test("a link to the skin page from a 设置 page stays on the 设置 tab", async () => {
+  mount("screen-keyboard", "android");
+  await settingsFormReady();
   const bar = screen.getByRole("navigation", { name: "主要功能" });
-  expect(within(bar).getByRole("button", { name: "全部设置" }).getAttribute("aria-current")).toBe(
+  expect(within(bar).getByRole("button", { name: "设置" }).getAttribute("aria-current")).toBe(
     "page",
   );
-  fireEvent.click(within(bar).getByRole("button", { name: "设置" }));
-  expect(await screen.findByRole("region", { name: "首页" })).toBeTruthy();
-  fireEvent.click(within(bar).getByRole("button", { name: "全部设置" }));
-  expect(await screen.findByRole("heading", { level: 1, name: "输入" })).toBeTruthy();
+
+  fireEvent.click(await screen.findByRole("button", { name: /^屏幕键盘外观/ }));
+  expect(await screen.findByRole("heading", { level: 1, name: "皮肤" })).toBeTruthy();
+  expect(within(bar).getByRole("button", { name: "设置" }).getAttribute("aria-current")).toBe(
+    "page",
+  );
+  expect(window.history.state).toEqual(expect.objectContaining({ page: "skin", tab: "home" }));
+
+  window.history.back();
+  expect(await screen.findByRole("heading", { level: 1, name: "键盘" })).toBeTruthy();
 });

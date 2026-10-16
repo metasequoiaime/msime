@@ -671,18 +671,23 @@ test("AI chat keeps a secondary title and way back", async () => {
   ).toBe("page");
 });
 
-// 设计稿把手机页面叫作 皮肤、表达、开发者选项 和 反馈，桌面侧栏则叫 主题、标点与翻译、维护与诊断 和 帮助与反馈。
+// 设计稿把手机页面叫作 皮肤、表达、开发者选项 和 反馈，桌面侧栏则叫 主题、标点与翻译、维护与诊断 和 帮助与反馈。皮肤在「设置」的列表里；底部第二格是「社区」，不是皮肤。
 test("a touch host uses the design's page names", async () => {
-  renderSettings("harmony", {}, "expression");
+  renderSettings("harmony", {}, "expression", {
+    communitySkins: { list: vi.fn().mockResolvedValue({ skins: [], has_more: false }) },
+  });
   await settingsFormReady();
   expect(screen.getByRole("heading", { level: 1, name: "表达" })).toBeTruthy();
   const sidebar = screen.getByRole("navigation", { name: "设置分类" });
   for (const name of ["皮肤", "表达", "反馈"]) {
     expect(within(sidebar).getByRole("button", { name })).toBeTruthy();
   }
-  for (const name of ["主题", "标点与翻译", "帮助与反馈", "首页"]) {
+  for (const name of ["主题", "标点与翻译", "帮助与反馈", "首页", "社区"]) {
     expect(within(sidebar).queryByRole("button", { name })).toBeNull();
   }
+  const bar = screen.getByRole("navigation", { name: "主要功能" });
+  expect(within(bar).getByRole("button", { name: "社区" })).toBeTruthy();
+  expect(within(bar).queryByRole("button", { name: "皮肤" })).toBeNull();
 });
 
 // 推入标签页的页面在标题前放设计稿里的圆形返回按钮，取代回到上级页面的文字链接；标签页根页面没有这个按钮。它和边缘滑动一样沿 WebView 历史返回。

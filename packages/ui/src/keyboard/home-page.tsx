@@ -1,11 +1,9 @@
-import { useId, useState, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
-import { groupTitle } from "../core/platform-controls-style";
 import { globalThemeTitle, keyboardThemeId, themeEntry } from "../theme/global-theme";
 import { useCandidatePreviewTheme } from "../candidate/candidate-preview-theme";
 import { ActionButton } from "../core/action-button";
-import { FluentIcon } from "../core/fluent-icons";
-import { NavGroup, NavRow } from "../core/platform-controls";
+import { NavGroup } from "../core/platform-controls";
 import type { ImeSetupClient } from "../core/host-contracts";
 import type { Preferences } from "../core/preferences-model";
 import type { SurfaceTheme } from "../settings/theme-preferences";
@@ -32,12 +30,6 @@ const cardNote = "mt-1";
 // what lets the note beside it ellipsise instead of pushing the chevron off the edge.
 const rowBody = "min-w-0 flex-1";
 const rowChevron = "shrink-0 grow-0 basis-auto text-lg text-muted";
-// The pages that have no tab of their own are one grouped list, not a stack of separate cards:
-// thirteen floating cards is thirteen shadows and a screenful of gaps, and the source draws this as
-// a single inset list with a hairline between the rows.
-const listGroup = "overflow-hidden rounded-[14px] border border-edge bg-card shadow-card";
-const listRow =
-  "press-spring flex w-full items-center gap-3 px-3.5 py-[11px] text-left text-[15px] text-body hover:bg-raised active:opacity-[0.88] motion-reduce:transition-none not-first:border-t not-first:border-edge";
 
 const quickTile =
   "press-spring flex min-w-0 flex-col items-start gap-[5px] rounded-[11px] border border-edge bg-subtle p-3 text-left text-body hover:border-edge-strong hover:bg-raised active:scale-[0.96] active:opacity-[0.88] motion-reduce:transition-none max-tight:px-2 max-tight:py-2.5";
@@ -47,13 +39,6 @@ const quickTitle = "text-[13px] font-semibold";
 const quickNote =
   "m-0 w-full overflow-hidden text-ellipsis whitespace-nowrap max-tight:text-[11px]";
 
-/**
- * A settings page that has no tab of its own.
- *
- * The phone bar holds the source's four tabs and nothing more, so every other page has to be
- * reachable from inside one of them. They land here, at the foot of the 键盘 tab, the same way the
- * source keeps them inside its own 键盘 tab rather than growing the bar.
- */
 // 快捷方式格子上的图标块。桌面端保留六种浅色，因为在更宽的网格里，颜色是一眼区分格子的方式；触屏首页已经没有格子，它的页面是「设置」根页的行。
 function QuickIcon({ desktopClass, glyph }: { desktopClass: string; glyph: string }) {
   return (
@@ -73,18 +58,6 @@ function RowIcon({ glyph, chip = false }: { glyph: string; chip?: boolean }) {
       {glyph}
     </span>
   );
-}
-
-export interface MoreSettingsPage {
-  id: string;
-  title: string;
-  icon: string;
-}
-
-/** 「全部设置」里的一组页面；`title` 是导航组名，为空时不显示组名。 */
-export interface MoreSettingsGroup {
-  title?: string;
-  pages: readonly MoreSettingsPage[];
 }
 
 export interface HomePageActions {
@@ -236,18 +209,7 @@ function TouchHomePage({
       ) : (
         <>
           <SetupStatusCard actions={actions} preferences={preferences} onTry={tryKeyboard} />
-          {rootPages ? (
-            <RootSettingsList groups={groups} onOpenPage={onOpenPage} />
-          ) : (
-            // 外壳没有说明自己有哪些页面时，这些页面仍能通过「全部设置」列表到达。
-            <NavGroup>
-              <NavRow
-                icon={<FluentIcon name="settings" size={20} />}
-                title="全部设置"
-                onClick={() => onOpenPage("more")}
-              />
-            </NavGroup>
-          )}
+          <RootSettingsList groups={groups} onOpenPage={onOpenPage} />
         </>
       )}
     </section>
@@ -395,16 +357,6 @@ function DesktopHomePage({
           </span>
         </button>
       )}
-      <button type="button" className={rowCard} onClick={() => onOpenPage("more")}>
-        <RowIcon glyph="⚙" />
-        <span className={rowBody}>
-          <strong className={cardTitle}>全部设置</strong>
-          <small className={cardNote}>打字、外观、语音与词库</small>
-        </span>
-        <span className={rowChevron} aria-hidden="true">
-          ›
-        </span>
-      </button>
       <div className="flex flex-wrap gap-[9px]">
         {actions?.openEmojiPanel && (
           <ActionButton
@@ -436,76 +388,5 @@ function DesktopHomePage({
         )}
       </div>
     </section>
-  );
-}
-
-/**
- * 没有独立标签的设置页。
- *
- * 从「键盘」标签进入，而不是在标签栏里加第五格：来源应用的标签栏只有四格，其余页面都在第一个标签下一层。每组画成一张带分隔线的列表，而不是每页一张卡片。
- *
- * 每组列表上方显示导航的组名（与桌面侧栏同一份 `settingsNavGroups`），手机上只剩一项的组也能看出它属于哪一类。
- */
-export function MoreSettingsPage({
-  groups,
-  onOpenPage,
-}: {
-  /** 导航分组，每组画成组名下的一张列表。 */
-  groups: readonly MoreSettingsGroup[];
-  onOpenPage: (page: string) => void;
-}) {
-  return (
-    <section className="flex flex-col gap-3" aria-label="全部设置">
-      {groups.map((group) => (
-        <MoreSettingsGroupList key={group.pages[0]?.id} group={group} onOpenPage={onOpenPage} />
-      ))}
-    </section>
-  );
-}
-
-function MoreSettingsGroupList({
-  group,
-  onOpenPage,
-}: {
-  group: MoreSettingsGroup;
-  onOpenPage: (page: string) => void;
-}) {
-  const titleId = useId();
-  return (
-    <div
-      className="flex flex-col gap-[var(--p-g-title-gap)]"
-      role={group.title ? "group" : undefined}
-      aria-labelledby={group.title ? titleId : undefined}
-    >
-      {group.title && (
-        <h3 id={titleId} className={groupTitle}>
-          {group.title}
-        </h3>
-      )}
-      <div className={listGroup}>
-        {group.pages.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={listRow}
-            onClick={() => onOpenPage(item.id)}
-          >
-            {/* 页面图标画的是浅色，亮色主题下和桌面侧栏一样反转成深色。 */}
-            <img
-              src={item.icon}
-              alt=""
-              aria-hidden="true"
-              className="size-[20px] shrink-0 light-theme:[filter:invert(1)_brightness(0.25)]"
-            />
-            <span className={rowBody}>
-              <strong className="block font-medium">{item.title}</strong>
-            </span>
-            <span className={rowChevron} aria-hidden="true">
-              ›
-            </span>
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }

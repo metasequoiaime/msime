@@ -58,5 +58,6 @@ export function useSettingsTabs<T extends string>(
     ) : (
       children
     );
-  return { tabList, panel, selected };
+  // `select` 让外壳从页面之外切换分类，例如功能页上的「浏览更多词库」打开「社区」标签的「词库」。
+  return { tabList, panel, selected, select: setSelection };
 }

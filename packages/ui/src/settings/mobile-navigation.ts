@@ -34,7 +34,6 @@ export function splitMobilePages<T extends { id: string }>(
   });
   const secondary = availablePages.filter(
     (item) =>
-      item.id !== "more" &&
       !mobilePrimaryPageIds.includes(item.id as MobilePrimaryPageId) &&
       !hiddenPageIds.includes(item.id),
   );

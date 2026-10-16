@@ -59,7 +59,7 @@ export function ChatPage({
   client: ChatClient;
   onLogin?: () => void;
   autoFocus?: boolean;
-  /** 触屏上对话是常驻的底部标签，切走时页面只是隐藏。每次重新显示都重读模型列表，在「我的」里登录或退出后回来，看到的就是新账号的状态；对话记录保留。 */
+  /** 触屏上对话页第一次打开后一直挂着，离开时页面只是隐藏。每次重新显示都重读模型列表，在「我的」里登录或退出后回来，看到的就是新账号的状态；对话记录保留。 */
   active?: boolean;
   /** 触屏输入框获得或失去焦点：外壳在打字时把底部标签栏让开，键盘上方只留输入栏。 */
   onComposerFocusChange?: (focused: boolean) => void;

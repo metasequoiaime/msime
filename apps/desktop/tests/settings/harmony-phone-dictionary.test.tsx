@@ -546,7 +546,7 @@ test.each(["成功", "失败"])(
   },
 );
 
-// 「发现词库」只列前几个，最后一行打开本页上的完整社区词库图库；在图库里添加的词库，关掉图库时读进「已安装」。
+// 「发现词库」只列前几个，最后一行经 `openCommunityGallery` 去完整的社区词库（外壳把它切到底部「社区」标签的「词库」分类）；本页上开着的词库图库（「我的」里的作品与收藏）关掉时，在里面添加的词库读进「已安装」。
 test("发现词库 ends with 浏览更多词库, and closing the gallery reads the dictionaries again", async () => {
   const { collections, openCommunityGallery, showGallery } = setup();
   const discover = group("发现词库");

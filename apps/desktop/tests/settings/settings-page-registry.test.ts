@@ -36,7 +36,6 @@ test("keeps the current settings route registry in navigation order", () => {
     "mcp",
     "privacy",
     "try-keyboard",
-    "more",
   ]);
 });
 

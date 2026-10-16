@@ -5,7 +5,6 @@ const formExcludedPages: readonly SettingsPageId[] = [
   "vocabulary",
   "account",
   "chat",
-  "more",
   "community",
   "try-keyboard",
 ];

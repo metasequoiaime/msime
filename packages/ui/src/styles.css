@@ -2381,7 +2381,7 @@
     --p-nav-selected-bg: rgba(0, 0, 0, 0.05);
   }
 
-  /* HarmonyOS 手机的标签页（对话、统计、我的；外壳用 `data-tab-page` 标记）列表比设置子页面更紧凑：行高 48px、左右边距 14px，分组标题缩进 4px、距分组 7px。 */
+  /* HarmonyOS 手机的标签页（统计、我的；外壳用 `data-tab-page` 标记）列表比设置子页面更紧凑：行高 48px、左右边距 14px，分组标题缩进 4px、距分组 7px。 */
   [data-platform="harmony"] [data-tab-page] {
     --p-row-h: 48px;
     --p-row-pad: 8px 14px;

@@ -269,7 +269,7 @@ export function DictionarySettingsPage() {
           />
         </GroupList>
       )}
-      {/* 触屏宿主没有「社区」页，社区词库从这里进入，完整图库在本页上打开。 */}
+      {/* 触屏宿主的社区词库也从这里进入：「浏览更多词库」切到底部「社区」标签的「词库」分类。 */}
       {mobilePlatform && client.communityResources && (
         <GroupList title="社区词库">
           <ActionRow

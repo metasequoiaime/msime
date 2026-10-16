@@ -131,7 +131,9 @@ import { useTouchKeyboardSchemeSelection } from "./settings/use-touch-keyboard-s
 import { useSettingsDestinationActions } from "./settings/use-settings-destination-actions";
 import {
   communityGalleryPage,
+  communityTabCategories,
   useCommunityGallerySubview,
+  type CommunityGalleryView,
 } from "./settings/use-community-gallery-subview";
 import { CommunityGallerySubview } from "./settings/community-gallery-subview";
 import { useMacosSettings } from "./settings/use-macos-settings";
@@ -412,7 +414,7 @@ import * as settings from "./settings/settings-style";
 import { FluentIcon } from "./core/fluent-icons";
 import { AccountPage, type AccountCommunityDestination } from "./account/account-page";
 import { ChatPage } from "./chat/chat-page";
-import { HomePage, MoreSettingsPage } from "./keyboard/home-page";
+import { HomePage } from "./keyboard/home-page";
 import {
   ScreenKeyboardLayoutContext,
   screenKeyboardLayoutFor,
@@ -456,6 +458,7 @@ import { logo } from "./settings/settings-options";
 import { CommunitySkinsPage } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
 import type { CommunityResource } from "./community/community-resource-model";
+import { CommunityResourcesPage } from "./community/community-resources";
 import { CommunityPluginsPage } from "./community/community-plugins";
 import * as communityStyle from "./community/community-style";
 import { CommunityPage } from "./community/community-page";
@@ -584,12 +587,7 @@ export {
   type ChatModels,
 } from "./chat/chat-page";
 export { CHAT_SYSTEM_PROMPT } from "./chat/chat-prompt";
-export {
-  HomePage,
-  MoreSettingsPage,
-  type HomePageActions,
-  type MoreSettingsGroup,
-} from "./keyboard/home-page";
+export { HomePage, type HomePageActions } from "./keyboard/home-page";
 export { openKeyboardSwitchGuide } from "./keyboard/keyboard-switch-guide";
 export {
   WelcomeFlowPage,
@@ -1881,7 +1879,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const mobileInitialTab = mobileTabForPage(page);
   const mobileLastPageByTab = useRef<Record<MobilePrimaryPageId, SettingsPageId>>({
     home: mobileInitialTab === "home" ? page : "home",
-    more: mobileInitialTab === "more" ? page : "more",
+    community: mobileInitialTab === "community" ? page : "community",
     "typing-statistics": mobileInitialTab === "typing-statistics" ? page : "typing-statistics",
     account: mobileInitialTab === "account" ? page : "account",
   });
@@ -2274,7 +2272,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     mobilePageTitle,
     desktopPageTitle: (id, title) => desktopPageTitle(id, title, client.host?.platform),
   });
-  // 子页面在导航里点亮它的上级页面，并提供回到上级的入口；标签页的根页面没有上级。触屏宿主上「AI 对话」同样是「AI 辅助」的子页面。
+  // 子页面在导航里点亮它的上级页面，并提供回到上级的入口。触屏宿主上「AI 对话」和桌面一样是「AI 辅助」的子页面；底部标签页（设置、社区、统计、我的）的根页面没有上级。
   // 桌面上子页的上级如果并进了别的页（「帮助」的上级「帮助与反馈」在「关于」里），点亮的是承载它的那一页。
   const navigationPage: SettingsPageId =
     mobilePlatform && mobilePrimaryPageIds.includes(page as MobilePrimaryPageId)
@@ -2302,18 +2300,49 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     settingsPlatform === "harmony" ? [] : ["home", "typing-statistics", "account"];
   // 设计稿里从一个页面内部打开另一个页面的行，例如「词库」上的「背单词」。
   const pageEntry = (id: SettingsPageId) => availablePages.find((item) => item.id === id);
-  const { communityGallery, openCommunityGallery, closeCommunityGallery } =
-    useCommunityGallerySubview({
-      mobile: mobilePlatform,
-      page,
-      selectPage,
-      hasSkins: Boolean(client.communitySkins),
-    });
+  const {
+    communityGallery,
+    openCommunityGallery: openCommunityGallerySubview,
+    closeCommunityGallery,
+  } = useCommunityGallerySubview({
+    mobile: mobilePlatform,
+    page,
+    selectPage,
+    hasSkins: Boolean(client.communitySkins),
+  });
+  // 触屏「社区」标签根页顶部的「皮肤 / 词库」分类，只给宿主有社区服务的那几类；只有一类时不画分类标签。选择放在页面模型里而不是社区页里：功能页上的「浏览更多」要从外面切到对应分类，离开「社区」标签再回来也还是上次的分类。
+  const communityTabChoices = communityTabCategories.filter((tab) =>
+    tab.id === "skin" ? Boolean(client.communitySkins) : Boolean(client.communityResources),
+  );
+  const communityTabs = useSettingsTabs(
+    communityTabChoices.length > 0 ? communityTabChoices : communityTabCategories,
+    "社区分类",
+    mobilePlatform && communityTabChoices.length > 1,
+  );
+  const communityTabShown =
+    mobilePlatform && availablePages.some((item) => item.id === "community");
+  // 浏览整类皮肤或词库的入口（皮肤页的「在线皮肤」、词库页的「浏览更多词库」等）切到「社区」标签的对应分类，不再在功能页上盖一层图库；「我的」里的作品与收藏、回复模板仍在功能页上打开完整图库。
+  const openCommunityGallery = (view: CommunityGalleryView) => {
+    const category =
+      view.category === "skin" && !client.communitySkins ? "dictionary" : view.category;
+    if (
+      communityTabShown &&
+      category !== "reply" &&
+      view.scope === "" &&
+      !view.initialMine &&
+      communityTabChoices.some((tab) => tab.id === category)
+    ) {
+      communityTabs.select(category);
+      selectPage("community");
+      return;
+    }
+    openCommunityGallerySubview(view);
+  };
   const { openCommunity, openLocalDesigns } = useSettingsDestinationActions({
     selectPage,
     setShowTouchSkinEditor,
     setCommunityDestination,
-    // 触屏宿主没有「社区」页，去社区的入口（「我的」里的社区作品各行、皮肤页的「在线皮肤」）都在对应功能页里打开完整图库。
+    // 触屏宿主去社区的入口按类别去「社区」标签，或在功能页里打开完整图库（见上面的 `openCommunityGallery`）；桌面去「社区」页。
     openCommunityGallery: mobilePlatform ? openCommunityGallery : undefined,
   });
   const {
@@ -2608,6 +2637,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     communityGallery,
     openCommunityGallery,
     closeCommunityGallery,
+    communityTabs,
   };
 }
 
@@ -2699,6 +2729,7 @@ function SettingsShell(props: SettingsPageProps) {
     initialCommunityMine,
     communityGallery,
     closeCommunityGallery,
+    communityTabs,
     currentAppVersion,
   } = model;
   // 对话页第一次打开后就一直挂着（见下方渲染处），切走只隐藏。
@@ -2820,7 +2851,7 @@ function SettingsShell(props: SettingsPageProps) {
     macShell || settingsPlatform === "hm2" || ipadShell || (winShell && !titlebarShown);
   const sidebarBrandShown = !mobilePlatform && !titlebarShown;
   const navNeedle = navQuery.trim().toLocaleLowerCase();
-  // iPad 的标签栏已有全部设置、统计和我的；`settingsPageProjections` 在手机和 iPad 上都不把这几个标签页列进侧栏，这里不必再过滤一次。
+  // iPad 的标签栏已有社区、统计和我的；`settingsPageProjections` 在手机和 iPad 上都不把这几个标签页列进侧栏，这里不必再过滤一次。
   const shownSidebarGroups = navNeedle
     ? sidebarGroups
         .map((group) => ({
@@ -2986,8 +3017,12 @@ function SettingsShell(props: SettingsPageProps) {
             <div
               ref={pageColumnRef}
               className={`${settings.contentColumn} ${pushedPage ? "animate-ms-push-in motion-reduce:animate-none" : ""} ${contentFills ? "flex min-h-0 flex-1 flex-col" : ""}`}
-              // 统计 和 我的 使用更紧凑的标签页列表，样式表依据这个属性区分。
-              data-tab-page={harmonyPhone && tabRootPage && page !== "home" ? "" : undefined}
+              // 统计 和 我的 使用更紧凑的标签页列表，样式表依据这个属性区分。社区虽是标签页的根页，内容是和皮肤页「社区」分类同样的图库而不是设置列表，保持图库原来的版式。
+              data-tab-page={
+                harmonyPhone && tabRootPage && page !== "home" && page !== "community"
+                  ? ""
+                  : undefined
+              }
             >
               {/* 三个标签页一打开都是已经表明自身的内容（标题行、资料卡、一排数字），源应用不在它们上面印页面标题。标题是隐藏而不是去掉：它为 `main` 提供名称。 */}
               {parentPage && !harmonyPhone && (
@@ -3075,19 +3110,6 @@ function SettingsShell(props: SettingsPageProps) {
                   }
                 />
               )}
-              {page === "more" && (
-                <MoreSettingsPage
-                  groups={mobileSecondaryGroups.map((group) => ({
-                    title: group.title,
-                    pages: group.pages.map((item) => ({
-                      id: item.id,
-                      title: item.title,
-                      icon: item.icon,
-                    })),
-                  }))}
-                  onOpenPage={onOpenPage}
-                />
-              )}
               {(client.account || client.appIcon) && page === "account" && (
                 <AccountPage
                   client={client.account}
@@ -3171,7 +3193,7 @@ function SettingsShell(props: SettingsPageProps) {
                   />
                 </div>
               )}
-              {page === "community" && (
+              {page === "community" && !mobilePlatform && (
                 <CommunityPage
                   destinationKey={communityDestination}
                   skins={client.communitySkins}
@@ -3190,6 +3212,43 @@ function SettingsShell(props: SettingsPageProps) {
                   onSkinApplied={recordCommunitySkin}
                   look={harmonyPlatform && mobilePlatform ? "harmony" : undefined}
                 />
+              )}
+              {/* 触屏的「社区」标签根页：顶部「皮肤 / 词库」分类，每类是完整的社区图库（搜索、分类、详情、获取或添加、举报、发布都在里面），只挂载选中的那一类。和皮肤页的「社区」分类一样画在设置表单之外：图库自带搜索和发布表单，嵌在设置的 <form> 里会被 WebView 当成外层表单提交。详情的历史记录留在这一页，返回先关详情。 */}
+              {page === "community" && mobilePlatform && communityTabs.tabList}
+              {page === "community" && mobilePlatform && (
+                <div className={communityTabs.tabList ? "mt-6" : undefined}>
+                  {communityTabs.selected === "skin" &&
+                    client.communitySkins &&
+                    communityTabs.panel(
+                      "skin",
+                      <CommunitySkinsPage
+                        client={client.communitySkins}
+                        theme={keyboardPreviewTheme}
+                        localSkinLibrary={client.customSkinLibrary}
+                        mobile
+                        onLogin={openAccountLogin}
+                        look={harmonyPlatform ? "harmony" : undefined}
+                        preferences={draft}
+                        // 「使用」和皮肤页的网格一样先进入草稿，再由表单的自动保存写入。
+                        onApplyPreferences={setDraft}
+                        onSkinApplied={recordCommunitySkin}
+                        historyPage="community"
+                      />,
+                    )}
+                  {communityTabs.selected === "dictionary" &&
+                    client.communityResources &&
+                    communityTabs.panel(
+                      "dictionary",
+                      <CommunityResourcesPage
+                        client={client.communityResources}
+                        kind="dictionary"
+                        localDictionary={communityLocalDictionary}
+                        mobile
+                        look={harmonyPlatform ? "harmony" : undefined}
+                        historyPage="community"
+                      />,
+                    )}
+                </div>
               )}
               {/* 触屏宿主在功能页里打开的完整社区图库。画在设置表单之外：图库自带搜索和发布表单，嵌在设置的 <form> 里会被 WebView 当成外层表单提交。 */}
               {communityGallery && page === communityGalleryPage(communityGallery.category) && (

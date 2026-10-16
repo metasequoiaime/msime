@@ -121,31 +121,23 @@ test("projects mobile pages into tabs, grouped settings, and sidebar sections", 
   });
 
   expect(mobile.availablePages.find((page) => page.id === "appearance")?.title).toBe("候选栏");
-  // 原来「社区」的第二格换成了 AI 对话。
-  expect(mobile.mobilePrimaryPages.map((page) => page.id)).toEqual([
-    "home",
-    "more",
-    "typing-statistics",
-    "account",
+  // 底部是 设置 / 社区 / 统计 / 我的：第二格是社区页，「全部设置」已去掉。
+  expect(mobile.mobilePrimaryPages.map((page) => [page.id, page.title])).toEqual([
+    ["home", "设置"],
+    ["community", "社区"],
+    ["typing-statistics", "统计"],
+    ["account", "我的"],
   ]);
-  // 触屏宿主即使有社区客户端也没有「社区」页：社区内容列在皮肤、词库、AI 辅助这些功能页里。
-  expect(mobile.availablePages.map((page) => page.id)).not.toContain("community");
+  expect(mobile.availablePages.map((page) => page.id)).toContain("community");
   const listed = mobile.mobileSecondaryGroups.flatMap((group) =>
     group.pages.map((page) => page.id),
   );
-  for (const id of [
-    "home",
-    "more",
-    "chat",
-    "community",
-    "typing-statistics",
-    "account",
-    "shortcuts",
-  ]) {
+  // 社区有自己的标签页，「设置」列表不重复列它；皮肤页回到「设置」列表的「外观」组。
+  for (const id of ["home", "chat", "community", "typing-statistics", "account", "shortcuts"]) {
     expect(listed).not.toContain(id);
   }
   expect(listed).not.toContain("floating-toolbar");
-  // 有账号页的宿主在「我的」里放了关于和帮助与反馈，「全部设置」不再重复列出。
+  // 有账号页的宿主在「我的」里放了关于和帮助与反馈，「设置」列表不再重复列出。
   expect(listed).not.toContain("about");
   expect(listed).not.toContain("feedback");
   expect(groupIds(mobile.mobileSecondaryGroups)).toEqual([
@@ -158,30 +150,53 @@ test("projects mobile pages into tabs, grouped settings, and sidebar sections", 
   expect(mobile.sidebarGroups[0].pages.map((page) => page.id)).toEqual(["home"]);
   expect(mobile.sidebarGroups.map((group) => group.title)).toContain("键盘、语音与手写");
   expect(mobile.sidebarGroups.map((group) => group.title)).not.toContain("更多输入方式");
-  expect(mobile.sidebarGroups.flatMap((group) => group.pages.map((page) => page.id))).not.toContain(
-    "more",
+  expect(mobile.sidebarGroups.flatMap((group) => group.pages.map((page) => page.id))).toContain(
+    "skin",
   );
+  expect(mobile.availablePages.map((page) => page.id)).not.toContain("more");
 });
 
-// 没有对话客户端的触屏宿主没有「对话」这一格，标签栏只剩三格，而不是留一个打不开的标签页。
-test("a touch host without a chat client has no 对话 tab", () => {
+// 桌面侧栏照旧在「外观」组里列出皮肤（主题）页，触屏的标签页调整不影响它。
+test("the desktop sidebar keeps the skin entry", () => {
+  const desktop = project();
+  expect(groupIds(desktop.sidebarGroups)).toContainEqual({
+    title: "外观",
+    ids: ["skin", "appearance", "floating-toolbar"],
+  });
+  expect(desktop.availablePages.find((page) => page.id === "skin")?.title).toBe("主题");
+});
+
+// AI 对话是「AI 辅助」的二级页，不占标签：没有对话客户端的触屏宿主底部仍是同样的四格。
+test("a touch host without a chat client keeps the same four tabs", () => {
   const mobile = project({ mobilePlatform: true, hasChat: false });
   expect(mobile.mobilePrimaryPages.map((page) => page.id)).toEqual([
     "home",
-    "more",
+    "community",
     "typing-statistics",
     "account",
   ]);
 });
 
-// iPad 与手机同样 mobilePlatform 为真：标签栏上的对话、统计、我的不在侧栏里重复出现，侧栏只在首页之后列出分组；触屏宿主没有「社区」页，侧栏里也没有它。
+// 没有社区服务（既没有皮肤图库也没有词库图库）的触屏宿主没有「社区」这一格，而不是留一个打不开的标签页。
+test("a touch host without a community client has no 社区 tab", () => {
+  const mobile = project({ mobilePlatform: true, hasCommunity: false });
+  expect(mobile.mobilePrimaryPages.map((page) => page.id)).toEqual([
+    "home",
+    "typing-statistics",
+    "account",
+  ]);
+  expect(mobile.availablePages.map((page) => page.id)).not.toContain("community");
+});
+
+// iPad 与手机同样 mobilePlatform 为真：标签栏上的社区、统计、我的不在侧栏里重复出现，侧栏只在首页之后列出分组；皮肤页照常在「外观」组里。
 test("keeps the tab pages out of the iPad sidebar", () => {
   const ipad = project({ mobilePlatform: true });
   const sidebar = ipad.sidebarGroups.flatMap((group) => group.pages.map((page) => page.id));
   expect(sidebar[0]).toBe("home");
-  for (const id of ["more", "chat", "community", "typing-statistics", "account"]) {
+  for (const id of ["chat", "community", "typing-statistics", "account"]) {
     expect(sidebar).not.toContain(id);
   }
+  expect(sidebar).toContain("skin");
 });
 
 test("places the 插件 page in 工具 and drops it where the host does not back it", () => {
@@ -210,7 +225,7 @@ test("places the 插件 page in 工具 and drops it where the host does not back
   ).not.toContain("plugins");
 });
 
-// 日文、越南文和藏文版没有手写（版本表 features.handwriting 为 false）：桌面侧栏和手机「全部设置」都不列出手写页，同组的其他页照旧。
+// 日文、越南文和藏文版没有手写（版本表 features.handwriting 为 false）：桌面侧栏和手机「设置」列表都不列出手写页，同组的其他页照旧。
 test("drops the 手写输入 page from an edition without handwriting", () => {
   const desktop = project({ hasHandwriting: false });
   expect(desktop.availablePages.map((page) => page.id)).not.toContain("handwriting");

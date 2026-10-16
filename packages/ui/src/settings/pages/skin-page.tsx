@@ -259,7 +259,7 @@ export function SkinSettingsPage({
           importsSkin={importsSkin}
         />
       )}
-      {/* 桌面宿主在本页顶部的「社区皮肤」标签里浏览候选窗口皮肤，并从上面各自的卡片发布；这一行在手机上打开本页的完整键盘皮肤图库（触屏宿主的 `openCommunity` 不去「社区」页）。 */}
+      {/* 桌面宿主在本页顶部的「社区皮肤」标签里浏览候选窗口皮肤，并从上面各自的卡片发布；这一行在手机上切到底部「社区」标签的「皮肤」分类，那里是完整的键盘皮肤图库。 */}
       {mobilePlatform && client.communitySkins && (
         <ActionRow
           title="在线皮肤"

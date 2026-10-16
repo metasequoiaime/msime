@@ -342,7 +342,7 @@ export const collapsedTitle = (shown: boolean) =>
 // ---- the phone tab bar ----
 
 /*
- * 触屏宿主的底部标签栏（设置、全部设置、统计、我的），手机宽度以下显示，iPad 上在任何宽度都显示在分栏下方。各列按标签个数均分；AI 对话作为二级页面，不影响主入口数量。iOS 和 iPadOS 把它浮在离开屏幕边缘的玻璃胶囊里；Android 是 Material 3 的 80px 导航栏；HarmonyOS 是平铺的 76px 栏。底部留出各自的手势区域。
+ * 触屏宿主的底部标签栏（设置、社区、统计、我的），手机宽度以下显示，iPad 上在任何宽度都显示在分栏下方。各列按标签个数均分；AI 对话作为二级页面，不影响主入口数量。iOS 和 iPadOS 把它浮在离开屏幕边缘的玻璃胶囊里；Android 是 Material 3 的 80px 导航栏；HarmonyOS 是平铺的 76px 栏。底部留出各自的手势区域。
  */
 export const mobileTabBar =
   "hidden max-phone:order-2 max-phone:grid max-phone:shrink-0 max-phone:grid-flow-col max-phone:auto-cols-fr ios:mx-5 ios:mb-[max(0.5rem,env(safe-area-inset-bottom,0px))] ios:rounded-full ios:bg-[rgba(40,40,42,0.78)] ios:p-[5px] ios:shadow-[0_0_0_0.5px_rgba(255,255,255,0.12),0_8px_24px_rgba(0,0,0,0.5)] ios:backdrop-blur-[20px] ios:backdrop-saturate-[1.8] ios:light-theme:bg-[rgba(255,255,255,0.78)] ios:light-theme:shadow-[0_0_0_0.5px_rgba(0,0,0,0.06),0_8px_24px_rgba(0,0,0,0.12)] android:min-h-20 android:bg-[#1d201d] android:pt-3 android:pb-[env(safe-area-inset-bottom,0px)] android:light-theme:bg-[#ebefe7] harmony:min-h-[76px] harmony:bg-[#141414] harmony:pt-2 harmony:pb-[env(safe-area-inset-bottom,0px)] harmony:light-theme:bg-[#f1f3f5] ipad:col-span-2 ipad:row-start-2 ipad:mx-5 ipad:mb-[max(0.5rem,env(safe-area-inset-bottom,0px))] ipad:grid ipad:grid-flow-col ipad:auto-cols-fr ipad:rounded-full ipad:bg-[rgba(40,40,42,0.78)] ipad:p-[5px] ipad:shadow-[0_0_0_0.5px_rgba(255,255,255,0.12),0_8px_24px_rgba(0,0,0,0.5)] ipad:backdrop-blur-[20px] ipad:backdrop-saturate-[1.8] ipad:light-theme:bg-[rgba(255,255,255,0.78)] ipad:light-theme:shadow-[0_0_0_0.5px_rgba(0,0,0,0.06),0_8px_24px_rgba(0,0,0,0.12)]";
