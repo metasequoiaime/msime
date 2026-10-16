@@ -252,6 +252,9 @@ fn settings_sync_round_trips_every_exported_key() {
         learning: false,
         chinese_punctuation: false,
         smart_punctuation: !Preferences::default().smart_punctuation,
+        // 智能标点的值和本机不同，应用时两半跟着写成同一个值。
+        smart_punctuation_direct_digit: !Preferences::default().smart_punctuation,
+        smart_punctuation_direct_letter: !Preferences::default().smart_punctuation,
         paired_punctuation: !Preferences::default().paired_punctuation,
         quote_style: crate::preferences::QuoteStyle::CornerWhenTraditional,
         bracket_style: crate::preferences::BracketStyle::Hollow,
@@ -962,6 +965,43 @@ fn settings_sync_desktop_apply_changes_only_the_shared_input_settings() {
     let applied = apply_desktop_settings(&local, &document(settings), &schema).unwrap();
     assert_eq!(applied.preferences.scheme, local.scheme);
     assert_eq!(applied.skipped, ["input.schema"]);
+}
+
+/// 别的设备改了智能标点时，本机的数字后、字母后直出两半跟着写成同一个值，否则智能标点开着却不起作用。
+#[test]
+fn settings_sync_smart_punctuation_change_writes_both_halves() {
+    for enabled in [true, false] {
+        let local = Preferences {
+            smart_punctuation: !enabled,
+            smart_punctuation_direct_digit: !enabled,
+            smart_punctuation_direct_letter: !enabled,
+            ..Preferences::default()
+        };
+        let exported = export_desktop_settings(&Preferences {
+            smart_punctuation: enabled,
+            ..local.clone()
+        });
+        let applied = apply_desktop_settings(&local, &document(exported), &full_schema()).unwrap();
+        assert_eq!(applied.preferences.smart_punctuation, enabled);
+        assert_eq!(applied.preferences.smart_punctuation_direct_digit, enabled);
+        assert_eq!(applied.preferences.smart_punctuation_direct_letter, enabled);
+        assert!(applied.skipped.is_empty());
+    }
+}
+
+/// 云端的智能标点和本机相同时，本机单独调过的一半保持原样，同步不会每次都把它冲掉。
+#[test]
+fn settings_sync_unchanged_smart_punctuation_leaves_the_halves_alone() {
+    let local = Preferences {
+        smart_punctuation: true,
+        smart_punctuation_direct_digit: true,
+        smart_punctuation_direct_letter: false,
+        ..Preferences::default()
+    };
+    let exported = export_desktop_settings(&local);
+    let applied = apply_desktop_settings(&local, &document(exported), &full_schema()).unwrap();
+    assert_eq!(applied.preferences, local);
+    assert!(applied.skipped.is_empty());
 }
 
 /// 引号和方头括号样式按偏好文档里的写法上传，三种引号样式都能读回来。
