@@ -53,6 +53,13 @@ int main() {
             voice_missing_token_message);
     REQUIRE(voice_start_verdict({true, true, "t", "wss://synthetic", "", ""}).message ==
             voice_doubao_start_message);
+    // 读配置时空资源 ID 已经回退到 seedasr，与设置页的测试按钮一致，所以留空的豆包配置照常开始录音。
+    REQUIRE(doubao_resource_id("") == voice_doubao_default_resource_id);
+    REQUIRE(doubao_resource_id(" \t ") == "volc.seedasr.sauc.duration");
+    REQUIRE(doubao_resource_id(" volc.bigasr.sauc.duration ") == "volc.bigasr.sauc.duration");
+    const auto fallback = doubao_resource_id("");
+    REQUIRE(voice_start_verdict({true, true, "t", "wss://synthetic", "", fallback}).check ==
+            VoiceStartCheck::Ready);
     REQUIRE(voice_start_verdict({true, true, "t", "", "", "r"}).message ==
             voice_doubao_start_message);
     REQUIRE(voice_start_verdict({true, false, "t", "", "m", ""}).message ==

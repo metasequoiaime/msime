@@ -1,3 +1,4 @@
+import { createMobileSettingsHistoryState } from "./mobile-history-state";
 import {
   mobilePrimaryPageIds,
   requestedPage as resolveRequestedPage,
@@ -45,15 +46,8 @@ export function requestedPage(value: string | undefined): SettingsPageId {
   return resolveRequestedPage(value, pages, "input");
 }
 
-/** Push a nested mobile settings route while preserving the host's existing history state. */
+/** 推入嵌套的移动设置路由，保留宿主已有的历史状态。 */
 export function pushMobileSettingsState(state: Record<string, unknown>): void {
   const current = window.history.state;
-  window.history.pushState(
-    {
-      ...(current && typeof current === "object" ? current : {}),
-      msimeSettings: true,
-      ...state,
-    },
-    "",
-  );
+  window.history.pushState(createMobileSettingsHistoryState(current, state), "");
 }

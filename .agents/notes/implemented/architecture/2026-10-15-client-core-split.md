@@ -18,7 +18,7 @@ Status: implemented
 
 | crate（路径） | 模块 |
 |---|---|
-| `msime-client-base`（`crates/client-base`） | storage、file_lock、bounded_io、text（含 `safe_id`）、calendar、chinese_conversion、`data/opencc/` |
+| `msime-client-base`（`crates/client-base`） | storage、file_lock、bounded_io、text（含 `safe_id`）、calendar、chinese_conversion（OpenCC 输入由 `resources/opencc.lock.json` 固定到 msime-dictionary） |
 | `msime-client-core`（`crates/client-core`，包名不变） | preferences、edition、host_surface、settings_document、punctuation、helpcode、clipboard、translation、endpoint、resources、cloud、panels、candidate_document、theme；examples 下的 install_resources、verify_resources；`tests/candidate_*.rs`；保留 `pub use uuid` |
 | `msime-client-services`（`crates/client-services`） | account、community、telemetry、notices、update_check、diagnostics、clipboard_relay、skin、plugins、dictionary、vocabulary、common_phrases、typing_statistics；`tests/fixtures/plugin-packs` |
 | `msime-client-providers`（`crates/client-providers`） | voice、credential、ai、resource_packs；`examples/install_resource_pack.rs`；`tests/voice_wire_interop.rs` |
@@ -88,3 +88,5 @@ core 那组模块（含 base）里 must 没有任何对 services、providers 模
 - `cargo tree -p msime-client-core -e normal -i reqwest` 和 `-i tokio` 为空，`cargo tree -p msime-backend-engine -e normal -i reqwest` 为空。
 - `git check-attr -a crates/client-services/tests/fixtures/plugin-packs/valid/wordbook-basic/words.tsv` 报告 `text: unset` 和 `whitespace: unset`，即 `-text -whitespace` 仍对搬过去的 fixture 生效。
 - 仓库里（不算 `target/` 和 `.agents/notes/archived/`）没有指向已搬走文件的 `crates/client-core/...` 路径。
+
+OpenCC 数据的跨仓归属与构建期获取见 [OpenCC 数据迁入词库仓](2026-10-16-opencc-dictionary-repository.md)。本篇的 client crate 分层决定保持不变。

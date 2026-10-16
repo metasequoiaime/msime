@@ -70,7 +70,8 @@ export function asrServiceCredentialTestConfig(
       ? {
           auth_mode: doubaoAuthMode,
           app_id: doubaoAuthMode === "legacy" ? (voiceInput.asr_app_key ?? "") : "",
-          resource_id: voiceInput.asr_resource_id ?? "volc.seedasr.sauc.duration",
+          // 留空（包括用户清空输入框存下的 ""）时按 seedasr 检查，与各宿主录音时的回退一致（client-providers `voice/provider.rs`、macOS `DoubaoVoiceRequest`、Windows `doubao_resource_id`、HarmonyOS `DoubaoCredentialPolicy.resourceId`）；以前只回退缺省的键，存着 "" 时检查报配置无效，录音却照常用 seedasr。
+          resource_id: voiceInput.asr_resource_id?.trim() || "volc.seedasr.sauc.duration",
           doubao_enable_itn: voiceInput.doubao_enable_itn !== false,
           doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
           doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,

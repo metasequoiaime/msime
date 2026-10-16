@@ -24,6 +24,7 @@ Status: implemented
 ## Consequences
 
 - 原生窗口不再为屏幕键盘设置拉起共享应用；打开屏幕键盘面板仍然拉起。
+- [精简悬浮工具栏、屏幕键盘和手写输入三页](../simplification/2026-10-16-toolbar-keyboard-handwriting-settings-prune.md)的各平台跟进之后，这一页在提供手写的版本里叫「屏幕键盘与手写」，「工具栏」和「外观」之间多一组「手写识别板」（原来的「手写输入」页）；「恢复默认」的说明和确认框只说「高度、间距和顶部语音入口」，删掉的五个键不变。
 - 键位、配色常量和设计字段的读法写死在 `main.cpp`，`screen-keyboard-preview.tsx`、`keyboard-layouts.ts` 或 `keyboard-shape.ts` 改了要同步改这里。
 - 键盘设计的投影（`shadow`）没有画：WinUI 的形状没有现成的模糊阴影，用合成层给每个键加阴影代价太大。底纹在背景的 8 单位圆角外也会画出来，共享预览会把它裁成圆角。在 Windows 上只有从手机同步来的自定义主题才带键盘设计，这两处影响有限。
 

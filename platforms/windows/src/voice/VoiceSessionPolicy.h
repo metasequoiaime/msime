@@ -73,6 +73,19 @@ inline constexpr std::string_view voice_local_runtime_message =
 inline constexpr std::string_view voice_local_model_unusable_message =
     "本地语音模型不可用，请在“语音输入”设置中重新下载。";
 
+// 豆包资源 ID 留空时用的值，与 client-providers 的录音解析（`voice/provider.rs`）、macOS 的 DoubaoVoiceRequest 以及设置页「测试豆包识别配置」发出的值（原生页 `doubao_test_resource_id`、共享页 `asrServiceCredentialTestConfig`）一致。以前这里不回退：存储里没有这个键时测试按 seedasr 通过，录音却报「无法启动豆包流式语音识别」。
+inline constexpr std::string_view voice_doubao_default_resource_id = "volc.seedasr.sauc.duration";
+
+// 存着的豆包资源 ID：去掉首尾空白，为空时用 voice_doubao_default_resource_id。
+inline std::string doubao_resource_id(std::string_view stored) {
+  constexpr std::string_view blank = " \t\r\n";
+  const auto first = stored.find_first_not_of(blank);
+  if (first == std::string_view::npos)
+    return std::string(voice_doubao_default_resource_id);
+  const auto last = stored.find_last_not_of(blank);
+  return std::string(stored.substr(first, last - first + 1));
+}
+
 // The configuration a recording needs before anything is opened.
 struct VoiceStartConfig {
   bool enabled = true;

@@ -1,4 +1,4 @@
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import type { DiagnosticLogPreferences } from "./diagnostic-logs-section";
 
 export type DiagnosticLogPreferencesSource = Pick<Preferences, "diagnostic_log">;

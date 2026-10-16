@@ -51,6 +51,7 @@
 #include "VoiceControllerListener.h"
 #include "VoiceHotkey.h"
 #include "VoiceInputSession.h"
+#include "VoiceSessionPolicy.h"
 #include "WatchdogPolicy.h"
 #include "Telemetry.h"
 #include "TelemetryConsent.h"
@@ -1244,15 +1245,14 @@ int wmain(int argc, wchar_t **argv) {
           VoiceInputConfig next;
           next.capture = voice_capture_selection(input);
           next.enabled = input.value("enabled", true);
-          next.start_sound = input.value("start_sound", true);
-          next.end_sound = input.value("end_sound", true);
+          // 开始、结束提示音只跟总开关 sound_enabled：设置页不再给这两个开关（`voice_cue_switches` 为 false），存下的值不再读，start_sound、end_sound 保持默认的 true。
           next.sound_enabled = input.value("sound_enabled", true);
           next.mute_system_audio = input.value("mute_system_audio", false);
           next.hotkey_ralt = input.value("hotkey_ralt", true);
           next.hotkey_ctrl_f9 = input.value("hotkey_ctrl_f9", true);
           next.hotkey_ctrl_win = input.value("hotkey_ctrl_win", false);
           next.hotkey_rctrl_ralt = input.value("hotkey_rctrl_ralt", false);
-          next.hotkey_hold_space_lock = input.value("hotkey_hold_space_lock", true);
+          // 空格锁定固定为开（hotkey_hold_space_lock 保持默认的 true）：空格只在按住录音组合键期间才被拦下，平常打字不受影响，设置页也不再给这个开关（`voice_space_lock_switch`）。
           next.stream_inline_preedit = input.value("stream_inline_preedit", true);
           next.commit_mode = input.value("commit_mode", std::string{"tsf"});
           next.endpoint = input.value("asr_endpoint", std::string{});
@@ -1266,7 +1266,7 @@ int wmain(int argc, wchar_t **argv) {
                                       next.asr_provider);
           next.app_key = input.value("asr_app_key", std::string{});
           next.doubao_auth_mode = input.value("doubao_auth_mode", std::string{});
-          next.resource_id = input.value("asr_resource_id", std::string{});
+          next.resource_id = doubao_resource_id(input.value("asr_resource_id", std::string{}));
           next.enable_itn = input.value("doubao_enable_itn", true);
           next.enable_punc = input.value("doubao_enable_punc", true);
           next.enable_ddc = input.value("doubao_enable_ddc", false);

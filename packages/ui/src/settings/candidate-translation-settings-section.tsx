@@ -6,6 +6,7 @@ import {
 import { OnDeviceTranslationNotice } from "./on-device-translation-notice";
 import {
   TranslationServiceSelectorSection,
+  type TranslationOfflineFallback,
   type TranslationProvider,
 } from "./translation-service-selector-section";
 import { SettingsGroupBlock } from "./settings-group-block";
@@ -19,7 +20,7 @@ export interface CandidateTranslationSettingsSectionProps extends CandidateTrans
   translationProvider?: TranslationProvider;
   showAccountProvider?: boolean;
   /** 见 `TranslationServiceSelectorSectionProps.offlineFallback`。 */
-  offlineFallback?: boolean;
+  offlineFallback?: TranslationOfflineFallback;
   onTranslationProviderChange?: (provider: TranslationProvider) => void;
 }
 
@@ -32,7 +33,7 @@ export function CandidateTranslationSettingsSection({
   showTranslationService = false,
   translationProvider = "none",
   showAccountProvider = false,
-  offlineFallback = false,
+  offlineFallback,
   onTranslationProviderChange,
   ...options
 }: CandidateTranslationSettingsSectionProps) {

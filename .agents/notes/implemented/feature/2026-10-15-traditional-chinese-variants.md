@@ -10,7 +10,7 @@ Status: implemented
 
 **偏好**：`Preferences::traditional_chinese_variant`，类型 `chinese_conversion::TraditionalVariant`，序列化为配置名 `"s2t"`、`"s2tw"`、`"s2twp"`，默认 `s2t`，默认时不写进文档（`Preferences` 带 `deny_unknown_fields`，旧版本读不了这个键）。`traditional_chinese_output` 保持布尔开关不变：工具栏、托盘菜单、Ctrl+Shift+F 和账号同步的 `input.character_set` 都只翻转它，变体在开关之外单独存，切回繁体时还是原来的变体。
 
-**转换**：`convert_to_traditional(text, variant)`，`simplified_to_traditional` 是它的 `s2t` 特例。臺灣两种配置照搬 OpenCC 的 `s2tw.json`、`s2twp.json`：规范化之后先按 `STPhrases` 与地区词组的并集做最大正向匹配分段（命中的词组各成一段，连续未命中的字并成一段），每段先做 `s2t`，再在同一段内做第二遍：`s2tw` 查 `TWVariantsPhrases` → `TWVariants`，`s2twp` 在前面加 `TWPhrases`，组内先命中的词典优先（`short_circuit`）。第二遍 never 跨段——这是 OpenCC 的行为，跨段实现会在少数词组边界上与 OpenCC 不同。三份臺灣词典取自已固定的同一个 OpenCC 提交，原样放在 `crates/client-base/data/opencc/`，第一次用到臺灣变体时才解析。整次转换只申请输出和逐段暂存两块缓冲，与分段数无关。
+**转换**：`convert_to_traditional(text, variant)`，`simplified_to_traditional` 是它的 `s2t` 特例。臺灣两种配置照搬 OpenCC 的 `s2tw.json`、`s2twp.json`：规范化之后先按 `STPhrases` 与地区词组的并集做最大正向匹配分段（命中的词组各成一段，连续未命中的字并成一段），每段先做 `s2t`，再在同一段内做第二遍：`s2tw` 查 `TWVariantsPhrases` → `TWVariants`，`s2twp` 在前面加 `TWPhrases`，组内先命中的词典优先（`short_circuit`）。第二遍 never 跨段——这是 OpenCC 的行为，跨段实现会在少数词组边界上与 OpenCC 不同。三份臺灣词典取自已固定的同一个 OpenCC 提交，原样放在 msime-dictionary 的 `sources/opencc/`，由本仓 `resources/opencc.lock.json` 固定并在构建期获取（见[跨仓决策](../architecture/2026-10-16-opencc-dictionary-repository.md)），第一次用到臺灣变体时才解析。整次转换只申请输出和逐段暂存两块缓冲，与分段数无关。
 
 **C 接口**：`msime_client_convert_to_traditional(text, length, variant)`，`variant` 0/1/2 对应三个配置名，未知编号返回 NULL（调用方保留原文）。旧的 `msime_client_simplified_to_traditional` 保留，等于 variant 0。宿主读偏好时把配置名换成编号存进会话状态，`platforms/common/ChineseTextConversion.h` 的 `traditional_variant_code` 是这条换算的唯一 C++ 实现，认不出的名字按 `s2t`。
 

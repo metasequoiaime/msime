@@ -9,7 +9,7 @@ import {
   defaultTouchKeyboardSkinDesign,
   type TouchKeyboardSkinDesign,
 } from "../keyboard/touch-keyboard-skin-design";
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import type { SurfaceTheme, ThemeMode } from "./theme-preferences";
 
 export interface SettingsThemePreferences {

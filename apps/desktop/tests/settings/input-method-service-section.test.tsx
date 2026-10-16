@@ -8,9 +8,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("service section exposes restart and macOS install actions", () => {
-  const restart = vi.fn(async () => {});
-  const install = vi.fn(async () => {});
+test("macOS offers one 修复输入源, which brings the bundled source up to date and then registers it", async () => {
+  const calls: string[] = [];
+  const restart = vi.fn(async () => {
+    calls.push("register");
+  });
+  const install = vi.fn(async () => {
+    calls.push("install");
+  });
   render(
     <InputMethodServiceSection
       visible
@@ -21,12 +26,62 @@ test("service section exposes restart and macOS install actions", () => {
     />,
   );
 
-  expect(
-    screen.getByText("重新注册并启用已安装的水杉输入源；当前输入法进程继续按系统生命周期运行。"),
-  ).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "重新注册" }));
-  fireEvent.click(screen.getByRole("button", { name: "安装 / 更新" }));
+  expect(screen.getByText("修复输入源")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "重新注册" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "安装 / 更新" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "修复" }));
+  expect(await screen.findByText("输入源已修复。")).toBeTruthy();
+  expect(calls).toEqual(["install", "register"]);
+});
+
+test("macOS repair only registers when there is no bundled source to install", async () => {
+  const restart = vi.fn(async () => {});
+  render(<InputMethodServiceSection visible macos linux={false} restartInputMethod={restart} />);
+  fireEvent.click(screen.getByRole("button", { name: "修复" }));
+  expect(await screen.findByText("输入源已修复。")).toBeTruthy();
   expect(restart).toHaveBeenCalledOnce();
+});
+
+test("a failed install still re-registers the installed source, then reports the failure", async () => {
+  // 安装失败（随附的 bundle 坏了、复制或登记新版本失败）不能挡住重新登记：原来单独的「重新注册」能修好的情况照样修，安装失败在注册之后报出来。
+  const calls: string[] = [];
+  const restart = vi.fn(async () => {
+    calls.push("register");
+  });
+  const install = vi.fn(async () => {
+    calls.push("install");
+    throw { code: "unavailable" };
+  });
+  render(
+    <InputMethodServiceSection
+      visible
+      macos
+      linux={false}
+      restartInputMethod={restart}
+      installInputSource={install}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "修复" }));
+  expect(await screen.findByText(/修复输入源失败/)).toBeTruthy();
+  expect(calls).toEqual(["install", "register"]);
+});
+
+test("a failed registration fails the repair", async () => {
+  const restart = vi.fn(async () => {
+    throw { code: "unavailable" };
+  });
+  const install = vi.fn(async () => {});
+  render(
+    <InputMethodServiceSection
+      visible
+      macos
+      linux={false}
+      restartInputMethod={restart}
+      installInputSource={install}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "修复" }));
+  expect(await screen.findByText(/修复输入源失败/)).toBeTruthy();
   expect(install).toHaveBeenCalledOnce();
 });
 

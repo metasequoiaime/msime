@@ -71,6 +71,10 @@ export interface HostCapabilities {
   fixed_candidate_page_size?: number;
   /** 宿主能排的最大每页候选数：macOS、Linux、Android 为 10（第十个用 0 键选），其余为 9。 */
   max_candidate_page_size?: number;
+  /** 宿主固定使用的 AI 联想候选数量（macOS 为 3）；有它时设置页不显示「候选数量」，宿主也不读文档里存的值。 */
+  fixed_ai_candidate_limit?: number;
+  /** 宿主固定使用的打字效果强度（macOS 为 50）；有它时设置页不显示「效果强度」，宿主也不读文档里存的值。 */
+  fixed_effect_intensity?: number;
   /** 宿主只支持一种候选排列时固定为此值，不提供选择。 */
   fixed_candidate_layout?: "horizontal" | "vertical";
   /** 触屏键盘按 `touch_toolbar` 选择工具栏按钮。 */
@@ -90,6 +94,12 @@ export interface HostCapabilities {
   voice_provider_settings: boolean;
   /** 宿主绘制临时识别文字，因此流式预编辑开关会生效。 */
   voice_stream_preedit: boolean;
+  /** 宿主读 `voice_input.hotkey_hold_space_lock`，所以给出空格锁定开关。macOS、Windows、Linux、HarmonyOS 固定为开，报 false；只有 Android、iOS 报 true；缺省按 true。 */
+  voice_space_lock_switch?: boolean;
+  /** 宿主分别读开始、结束提示音，所以在总开关之外给出这两个开关。macOS、Windows、Linux、HarmonyOS 只认总开关，报 false；只有 Android、iOS 报 true；缺省按 true。 */
+  voice_cue_switches?: boolean;
+  /** 宿主有不止一种录音后端，所以给出「录音后端」和手填设备名。只有 Linux 报 true；macOS、Windows、HarmonyOS 各只有一种录音方式，报 false，设置页只给「麦克风」下拉；缺省按 true。 */
+  voice_capture_backends?: boolean;
   /** 宿主向运行时报告字符宽度，因此全角输入能够生效。 */
   character_width: boolean;
   ai_provider_credentials: boolean;
@@ -124,6 +134,10 @@ export interface HostCapabilities {
   shift_letter_entry_switch?: boolean;
   /** 宿主处理 Ctrl+Shift+J 在中文和日语之间切换（Windows 和 Linux）。本版本还要同时提供中文方案和日语，设置页才显示它的开关。 */
   japanese_toggle_shortcut?: boolean;
+  /** 宿主读 `navigation.tab` 和 `navigation.page_up_down`，设置页给出这两组翻页键的开关。macOS、Windows 和 HarmonyOS 为假：关掉只会让键在组字时被吃掉，两组固定开启。缺省（早于这一项的宿主）按读处理。 */
+  tab_page_paging_switches?: boolean;
+  /** 宿主读 `mixed_input.minimum_prefix`，设置页给出「触发字符数」。macOS、Windows 和 Linux 为假：固定为 5。缺省按读处理。 */
+  mixed_input_minimum_prefix?: boolean;
   /** 背单词书目列出单词本插件（`pack-<插件 id>` 词书）。 */
   wordbook_packs: boolean;
   /** 符号面板显示已安装的符号集插件。 */

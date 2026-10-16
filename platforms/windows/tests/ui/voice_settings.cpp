@@ -91,6 +91,53 @@ int main() {
   check(doubao_stream_endpoint_id(asr_default(L"doubao", true)) == L"async",
         "the default is bidirectional");
   check(doubao_stream_endpoint_id(L"wss://example.invalid") == L"custom", "anything else is custom");
+  // 地址为空时宿主用默认的双向流式地址，下拉照实显示它，不显示成自定义。
+  check(doubao_stream_endpoint_id(L"") == L"async" && doubao_stream_endpoint_id(L"  ") == L"async",
+        "an empty address is the default bidirectional stream");
+
+  // 「更多选项」在用户改过接口地址或资源 ID 时打开就展开。
+  check(!asr_advanced_changed(L"doubao", L"", L"") &&
+            !asr_advanced_changed(L"doubao", asr_default(L"doubao", true), L"volc.seedasr.sauc.duration"),
+        "factory Doubao settings stay folded");
+  check(asr_advanced_changed(L"doubao", L"wss://example.invalid", L""), "a custom address unfolds");
+  check(asr_advanced_changed(L"doubao", L"", L"volc.bigasr.sauc.duration"),
+        "a changed resource ID unfolds");
+  check(!asr_advanced_changed(L"openai", L"", L"volc.bigasr.sauc.duration") &&
+            !asr_advanced_changed(L"openai", asr_default(L"openai", true), L"") &&
+            asr_advanced_changed(L"openai", L"https://example.invalid/v1", L""),
+        "only Doubao reads the resource ID; other services compare their own default address");
+
+  // 「测试豆包识别配置」的资源 ID 与 Server 录音时一样回退到出厂值。
+  check(doubao_test_resource_id(L"") == L"volc.seedasr.sauc.duration" &&
+            doubao_test_resource_id(L" \t") == L"volc.seedasr.sauc.duration",
+        "an empty resource ID is checked as the seedasr default");
+  check(doubao_test_resource_id(L" volc.bigasr.sauc.duration ") == L"volc.bigasr.sauc.duration",
+        "a stored resource ID is checked trimmed");
+
+  // 长按录音：三个组合键合成一个选择。
+  check(selected_hold_key({}) == L"hotkey_ralt", "nothing stored is the factory right Alt");
+  check(selected_hold_key({{L"hotkey_ralt", false}}) == no_hold_key,
+        "right Alt off with the others missing is 不使用, since the others default to off");
+  check(selected_hold_key({{L"hotkey_ralt", true}, {L"hotkey_ctrl_win", true}}) == L"hotkey_ralt",
+        "several on show the first, without rewriting the others");
+  check(selected_hold_key({{L"hotkey_ralt", false}, {L"hotkey_rctrl_ralt", false},
+                           {L"hotkey_ctrl_win", true}}) == L"hotkey_ctrl_win",
+        "Ctrl+Win alone");
+  const auto patch = hold_key_patch(L"hotkey_rctrl_ralt");
+  check(patch[0] == std::pair<std::wstring_view, bool>{L"hotkey_ralt", false} &&
+            patch[1] == std::pair<std::wstring_view, bool>{L"hotkey_rctrl_ralt", true} &&
+            patch[2] == std::pair<std::wstring_view, bool>{L"hotkey_ctrl_win", false},
+        "choosing a chord writes all three keys");
+  const auto none = hold_key_patch(no_hold_key);
+  check(!none[0].second && !none[1].second && !none[2].second, "不使用 turns all three off");
+
+  // 「麦克风」下拉：空、auto、windows 是这台主机的后端，不分大小写；别的平台的后端显示成系统默认设备。
+  check(capture_backend_supported(L"") && capture_backend_supported(L"auto") &&
+            capture_backend_supported(L"Windows") && capture_backend_supported(L"AUTO"),
+        "this host's backends ignore case");
+  check(!capture_backend_supported(L"pulse") && !capture_backend_supported(L"macos") &&
+            !capture_backend_supported(L"harmony"),
+        "foreign backends are not this host's");
 
   // 令牌标签与测试按钮。
   check(asr_token_label(L"doubao", doubao_auth_mode(L"")) == L"Doubao API Key" &&

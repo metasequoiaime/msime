@@ -537,9 +537,11 @@ pub fn hiragana_to_romaji(kana: &str) -> String {
     let mut rest = hiragana.as_ref();
     while let Some(character) = rest.chars().next() {
         if let Some(after) = rest.strip_prefix(SOKUON) {
-            // A sokuon doubles the next kana's consonant; before a vowel or at the end it has to be spelled out.
+            // 促音重复下一个假名的首辅音；`nn` 已表示ん，遇到 `n`、元音或结尾时必须显式写成 `xtsu`。
             match romaji_at(after).and_then(|(_, next)| next.bytes().next()) {
-                Some(first) if is_consonant(first) => romaji.push(char::from(first)),
+                Some(first) if is_consonant(first) && first != b'n' => {
+                    romaji.push(char::from(first))
+                }
                 _ => romaji.push_str("xtsu"),
             }
             rest = after;
@@ -834,6 +836,26 @@ mod tests {
             );
         }
         assert_eq!(hiragana_to_romaji("かんな"), "kannna");
+    }
+
+    #[test]
+    fn sokuon_before_n_preserves_both_kana_on_round_trip() {
+        for reading in [
+            "っな",
+            "っに",
+            "っぬ",
+            "っね",
+            "っの",
+            "っにゃ",
+            "っん",
+            "んっな",
+        ] {
+            let romaji = hiragana_to_romaji(reading);
+            let conversion = convert_romaji(&romaji);
+            assert_eq!(conversion.hiragana, reading, "{reading} -> {romaji}");
+            assert!(conversion.pending.is_empty(), "{reading} -> {romaji}");
+        }
+        assert_eq!(hiragana_to_romaji("ッナ"), "xtsuna");
     }
 
     #[test]

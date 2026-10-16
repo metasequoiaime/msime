@@ -2,6 +2,7 @@
 import { afterEach, expect, test } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { PanelShortcutsSection } from "@msime/ui";
+import { PanelShortcutRow } from "../../../../packages/ui/src/settings/panel-shortcuts-section";
 
 afterEach(cleanup);
 
@@ -18,4 +19,12 @@ test("panel shortcut section explains HarmonyOS physical keyboard usage", () => 
 
   expect(screen.getByText("连接实体键盘后，在输入状态下可用 Super 组合键打开面板。")).toBeTruthy();
   expect(screen.getByText("Ctrl+Shift+Super+K")).toBeTruthy();
+});
+
+test("the 按键速查 row carries the same chord and note", () => {
+  render(<PanelShortcutRow macos harmony={false} />);
+
+  expect(screen.getByText("打开屏幕键盘")).toBeTruthy();
+  expect(screen.getByText("Ctrl+Shift+Command+K")).toBeTruthy();
+  expect(screen.getByText("可从当前输入上下文使用 Command 组合键打开面板。")).toBeTruthy();
 });

@@ -203,6 +203,9 @@ final class KeyboardFormFactorTests: XCTestCase {
     XCTAssertEqual(rightShift.superview, z.superview)
     XCTAssertGreaterThan(frame(rightShift, in: tablet).minX, try frame(key("letterRowPeriodKey", in: tablet), in: tablet).maxX)
     for shift in [leftShift, rightShift] {
+      XCTAssertEqual(shift.configuration?.title, "分词")
+      XCTAssertNil(shift.configuration?.image)
+      XCTAssertEqual(shift.accessibilityLabel, "拼音分词")
       XCTAssertEqual(shift.bounds.width, z.bounds.width * TabletLetterLayout.shiftWeight, accuracy: 0.5)
     }
 

@@ -51,6 +51,9 @@ preference_navigation(const nlohmann::json &preferences) {
                 value.at("arrows").get<bool>(),
                 value.value("mouse_wheel", false)};
   }
+  // Tab 和 PageUp/PageDown 两组翻页键固定开启，不读存着的值：候选窗显示或组字时 TIP 总把这几个键交给 Server，关掉的绑定在 navigation_action 里只回答 Ignored，键被吃掉，并不会还给应用。设置页也不再给这两组的开关（HostCapabilities.tab_page_paging_switches）。开发者预览的 key_bindings（PreviewConfig.h）是显式指定的快照，不经过这里。
+  bindings.tab = true;
+  bindings.page_up_down = true;
   bindings.second_third_candidate = preference_second_third_candidate(preferences);
   return bindings;
 }

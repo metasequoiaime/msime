@@ -96,18 +96,20 @@ test("标点与翻译按功能拆分，方向键与 Home、End 同步焦点和�
   expect(within(gloss).getByRole("switch", { name: /^候选词翻译/ })).toBeTruthy();
 });
 
-test("语音能力过滤标签，润色切换保留未保存的输入框", async () => {
+// 语音页不再分标签：主页面只留常用几项，其余收在「服务配置」子视图里。子视图来回切换时两边都保持挂载，润色里没保存的输入照旧留着。
+test("语音页用服务配置子视图代替标签，来回切换保留未保存的输入框", async () => {
   await mount("voice");
-  const tabs = screen.getByRole("tablist", { name: "语音输入设置分类" });
-  expect(within(tabs).queryByRole("tab", { name: "录音设备" })).toBeNull();
+  expect(screen.queryByRole("tablist", { name: "语音输入设置分类" })).toBeNull();
   expect(screen.queryByRole("region", { name: "文本润色" })).toBeNull();
-  fireEvent.click(within(tabs).getByRole("tab", { name: "润色" }));
+  // 这个宿主列不出录音设备，子视图里也没有这一组。
+  fireEvent.click(screen.getByRole("button", { name: "服务配置" }));
+  expect(screen.queryByRole("region", { name: "录音设备" })).toBeNull();
   const polish = screen.getByRole("region", { name: "文本润色" });
   fireEvent.click(within(polish).getByRole("switch", { name: "启用文本润色" }));
   const provider = within(polish).getByLabelText("文本润色服务提供商");
-  fireEvent.click(within(tabs).getByRole("tab", { name: "录音与结果" }));
+  fireEvent.click(screen.getByRole("button", { name: "返回" }));
   expect(screen.getByRole("region", { name: "录音行为" })).toBeTruthy();
-  fireEvent.click(within(tabs).getByRole("tab", { name: "润色" }));
+  fireEvent.click(screen.getByRole("button", { name: "服务配置" }));
   expect(
     within(screen.getByRole("region", { name: "文本润色" })).getByLabelText("文本润色服务提供商"),
   ).toBe(provider);

@@ -49,6 +49,8 @@ nix fmt                      # nixfmt
 
 几个包的源码都只放 Cargo 用得到的部分（`default.nix` 里的 `cargoSources`），别的平台改动不触发重编。`msime-host-api` 和 `msime-mcp` 只取 `apps/desktop/src-tauri` 的 Cargo 清单和 `.rs`；`msime-desktop` 另外要图标、Tauri 配置与权限声明，不要 `gen/` 下的 Android 与 Xcode 工程。
 
+OpenCC 内嵌表由 `opencc-inputs.nix` 读取 `resources/opencc.lock.json`，在固定输出下载阶段获取并校验。三个 Rust 包都带 Python，并通过 `MSIME_OPENCC_SOURCE_DIR` 与 `MSIME_OPENCC_OFFLINE=1` 把准备好的输入交给构建脚本；Cargo 所在的沙箱不联网。
+
 `msime-desktop` 的步骤与 `platforms/linux/package-container.sh` 相同：
 
 1. 前端：`pnpm --filter @msime/desktop exec vite build`。包的 `build` 脚本还会先跑 `tsc --noEmit`（连同测试），它不影响产物，交给 `verify-local.sh`；所以源码里也不放 `apps/desktop/tests`，改测试不必重编。

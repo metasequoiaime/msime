@@ -18,20 +18,25 @@ static NSString *const MSIMEVoicePolishDefaultProvider = @"deepseek";
 static NSString *const MSIMEVoicePolishDefaultEndpoint = @"https://api.deepseek.com/chat/completions";
 static NSString *const MSIMEVoicePolishDefaultModel = @"deepseek-v4-flash";
 
-static inline BOOL MSIMEVoiceCueEnabled(NSUserDefaults *defaults, BOOL start) {
-    NSString *key = start ? @"MSIMEClientVoiceStartSound" : @"MSIMEClientVoiceEndSound";
-    return ([defaults objectForKey:@"MSIMEClientVoiceSoundEnabled"] == nil ||
-            [defaults boolForKey:@"MSIMEClientVoiceSoundEnabled"]) &&
-           ([defaults objectForKey:key] == nil || [defaults boolForKey:key]);
+// 开始和结束提示音只看总开关 `sound_enabled`。设置页在 macOS 上只给这一个开关（`voice_cue_switches` 为 false），所以不再读存下的 `start_sound`、`end_sound`：以前单独关掉其中一个的人会重新听到它，这是有意的，不留一个看不见却仍然生效的值。
+static inline BOOL MSIMEVoiceCuesEnabled(NSUserDefaults *defaults) {
+    return [defaults objectForKey:@"MSIMEClientVoiceSoundEnabled"] == nil ||
+        [defaults boolForKey:@"MSIMEClientVoiceSoundEnabled"];
 }
 
-// macOS always records through CoreAudio. Keep the shared backend explicit so
-// a setting synced from another desktop is never silently reinterpreted here.
+// macOS 只经 CoreAudio 录音，`""`、`auto`、`macos` 效果相同。
 static inline BOOL MSIMEVoiceCaptureBackendSupported(id backend) {
     if (backend == nil) return YES;
     if (![backend isKindOfClass:NSString.class]) return NO;
     return ![(NSString *)backend length] ||
         [@[@"auto", @"macos"] containsObject:[(NSString *)backend lowercaseString]];
+}
+
+// 录音用的麦克风：存下的 CoreAudio UID，空串或 nil 是系统默认设备。存着别的平台写下的后端（比如 Linux 的 `pulse`）时，它的设备名也是那个平台的，这里当作系统默认设备，照常录音而不是拒绝录音；设置页同样把它显示成系统默认设备。存储不改写，用户在设置页重新选择时才写入。
+static inline NSString *MSIMEVoiceCaptureDeviceUID(NSUserDefaults *defaults) {
+    if (!MSIMEVoiceCaptureBackendSupported([defaults objectForKey:@"MSIMEClientVoiceCaptureBackend"]))
+        return nil;
+    return [defaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
 }
 
 // Token maps are user preferences, not arbitrary JSON. Keep only string
@@ -121,8 +126,6 @@ static inline NSDictionary *MSIMEVoicePreferencesFromDefaults(NSUserDefaults *de
     NSDictionary *booleans = @{
         @"enabled": @"MSIMEClientVoiceEnabled",
         @"sound_enabled": @"MSIMEClientVoiceSoundEnabled",
-        @"start_sound": @"MSIMEClientVoiceStartSound",
-        @"end_sound": @"MSIMEClientVoiceEndSound",
         @"mute_system_audio": @"MSIMEClientVoiceMuteSystemAudio",
         @"stream_inline_preedit": @"MSIMEClientVoiceStreamInlinePreedit",
         @"polish_enabled": @"MSIMEClientVoicePolish",
@@ -131,7 +134,6 @@ static inline NSDictionary *MSIMEVoicePreferencesFromDefaults(NSUserDefaults *de
         @"doubao_enable_punc": @"MSIMEClientVoiceDoubaoEnablePunctuation",
         @"doubao_enable_ddc": @"MSIMEClientVoiceDoubaoEnableDDC",
         @"hotkey_ctrl_f9": @"MSIMEClientVoiceHotkeyCtrlF9",
-        @"hotkey_hold_space_lock": @"MSIMEClientVoiceHotkeyHoldSpace",
         @"hotkey_ralt": @"MSIMEClientVoiceHotkeyRightAlt",
         @"hotkey_rctrl_ralt": @"MSIMEClientVoiceHotkeyCtrlOption",
         @"hotkey_ctrl_win": @"MSIMEClientVoiceHotkeyCtrlCommand"
@@ -184,16 +186,16 @@ static inline BOOL MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
             }
         }
     }
+    // `start_sound`、`end_sound` 和 `hotkey_hold_space_lock` 在 macOS 上固定（只读提示音总开关，空格锁定恒为开），不再搬进本机设置，也不从本机设置写回共享文档。
     NSDictionary *booleans = @{
         @"enabled": @"Enabled",
-        @"start_sound": @"StartSound", @"end_sound": @"EndSound",
         @"sound_enabled": @"SoundEnabled", @"mute_system_audio": @"MuteSystemAudio",
         @"stream_inline_preedit": @"StreamInlinePreedit", @"polish_enabled": @"Polish",
         @"polish_text": @"PolishText",
         @"doubao_enable_itn": @"DoubaoEnableITN",
         @"doubao_enable_punc": @"DoubaoEnablePunctuation",
         @"doubao_enable_ddc": @"DoubaoEnableDDC",
-        @"hotkey_ctrl_f9": @"HotkeyCtrlF9", @"hotkey_hold_space_lock": @"HotkeyHoldSpace",
+        @"hotkey_ctrl_f9": @"HotkeyCtrlF9",
         @"hotkey_ralt": @"HotkeyRightAlt",
         @"hotkey_rctrl_ralt": @"HotkeyCtrlOption",
         // The shared Windows modifier is Command on macOS.

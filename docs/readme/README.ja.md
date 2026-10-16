@@ -88,10 +88,9 @@ cargo clippy -p msime-client-base -p msime-client-core -p msime-client-providers
 pnpm install --frozen-lockfile
 pnpm --filter @msime/desktop test
 pnpm build
-pnpm tauri dev
 ```
 
-デスクトップのビルドには [Tauri のプラットフォーム依存関係](https://tauri.app/start/prerequisites/)が必要です。`pnpm tauri build --debug --no-bundle` はパッケージングしない開発用バイナリをビルドします。ユーザー向けのインストールパッケージは、各プラットフォーム独自のパッケージングチェーンが出力します——macOS の CMake bundle、Windows の `platforms/windows/installer/msime_setup.iss`、Linux の CPack（`-DMSIME_ENABLE_PACKAGING=ON`）、Android の `platforms/android/build-apk.sh`、HarmonyOS の `hvigorw assembleHap`、iOS の Xcode プロジェクト。通常のブラウザでは、ローカル設定にアクセスできない旨の案内のみを表示し、保存の成功を装うことはしません。
+デスクトップのビルドには [Tauri のプラットフォーム依存関係](https://tauri.app/start/prerequisites/)が必要です。`pnpm tauri build` や `pnpm tauri dev` を直接実行しないでください。Tauri プロジェクトはネイティブホストが起動する共通コンポーネントにすぎず、`apps/desktop/scripts/require-platform-build.mjs` がエラーで拒否します。ビルドの入口は各プラットフォームの `platforms/<os>` です。ユーザー向けのインストールパッケージは、各プラットフォーム独自のパッケージングチェーンが出力します——macOS の CMake bundle、Windows の `platforms/windows/installer/msime_setup.iss`、Linux の CPack（`-DMSIME_ENABLE_PACKAGING=ON`）、Android の `platforms/android/build-apk.sh`、HarmonyOS の `hvigorw assembleHap`、iOS の Xcode プロジェクト。通常のブラウザでは、ローカル設定にアクセスできない旨の案内のみを表示し、保存の成功を装うことはしません。
 
 デスクトップ設定のアプリ識別子と既定のアプリデータディレクトリは、プラットフォームごとに命名されています：macOS は `app.msime.macos`、Windows は `app.msime.windows`、Linux は `app.msime.linux` です。設定はその中の `preferences.json` に保存されます。絶対パスを指定する環境変数 `MSIME_CLIENT_STATE_DIR` で、隔離された開発用ディレクトリを指すこともできます。macOS のネイティブホストは同じ設定を読み込み、現在の変換が終わった後に更新を適用します。複数の設定ウィンドウが同時に保存した場合は revision によって競合を検出し、ユーザーが明示的に再読み込みしたうえで上書きするかどうかを決める必要があります。
 

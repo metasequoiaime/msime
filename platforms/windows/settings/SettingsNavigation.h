@@ -24,8 +24,8 @@ struct Page {
 
 inline constexpr std::size_t page_group_count = 6;
 
-// 侧栏，顺序和分组与共享设置 UI 的 `settingsNavGroups`（`packages/ui/src/settings/settings-page-registry.ts`）一致：打字、外观、更多输入方式、工具、账号、支持。打字排在外观之前，因为打字会反复调整，外观通常只设一次。分组标题在 `main.cpp` 里。
-inline constexpr std::array<Page, 18> pages{{
+// 侧栏，顺序和分组与共享设置 UI 的 `settingsNavGroups`（`packages/ui/src/settings/settings-page-registry.ts`）一致：打字、外观、更多输入方式、工具、账号、支持。打字排在外观之前，因为打字会反复调整，外观通常只设一次。分组标题在 `main.cpp` 里。「手写输入」没有单独的页面：Windows 的手写设置只有一个打开面板的按钮，与共享设置 UI 的 `settingsPageProjections`（`handwritingOnScreenKeyboardPage`）一样并进「屏幕键盘」页，那一页在提供手写的版本里叫「屏幕键盘与手写」。
+inline constexpr std::array<Page, 17> pages{{
     {"typing", 0, PageHost::Native, {}},
     {"expression", 0, PageHost::Native, {}},
     {"shortcuts", 0, PageHost::Native, {}},
@@ -35,7 +35,6 @@ inline constexpr std::array<Page, 18> pages{{
     {"toolbar", 1, PageHost::Native, {}},
     {"osk", 2, PageHost::Native, {}},
     {"voice", 2, PageHost::Native, {}},
-    {"hand", 2, PageHost::Native, {}},
     {"clip", 3, PageHost::Native, {}},
     {"stats", 3, PageHost::Native, {}},
     {"plugins", 3, PageHost::Native, {}},
@@ -81,7 +80,7 @@ inline constexpr std::array<RouteAlias, 22> route_aliases{{
     {"vocabulary", "lexicon"},
     {"skin", "themes"},
     {"screen-keyboard", "osk"},
-    {"handwriting", "hand"},
+    {"handwriting", "osk"},
     {"voice", "voice"},
     {"ai", "ai"},
     {"tools", "clip"},
@@ -110,15 +109,11 @@ constexpr std::string_view page_for_route(std::string_view route) {
   return default_page;
 }
 
-// 本次构建是否提供这个页面。手写识别器只认汉字，不提供手写的版本（日文、越南文和藏文版的 `MSIME_EDITION_HANDWRITING` 为 0）没有「手写输入」页，其他页面每个版本都有。版本的开关由调用方传进来，这个头文件因此不依赖版本宏，主机上的单元测试也能把两种答案都查到。
-constexpr bool page_offered(std::string_view id, bool handwriting) {
-  return id != "hand" || handwriting;
-}
-
-// 传入的路由在本次构建里打开的页面：与 `page_for_route` 相同，只是本版本不提供的页面改为打开默认页。
+// 传入的路由在本次构建里打开的页面：与 `page_for_route` 相同，只是手写识别器只认汉字，不提供手写的版本（日文、越南文和藏文版的 `MSIME_EDITION_HANDWRITING` 为 0）没有手写可设置，`handwriting` 改为打开默认页，与共享设置 UI 只在有手写时才把 `handwriting` 别名到屏幕键盘页一致。每个页面每个版本都有。版本的开关由调用方传进来，这个头文件因此不依赖版本宏，主机上的单元测试也能把两种答案都查到。
 constexpr std::string_view offered_page_for_route(std::string_view route, bool handwriting) {
-  const auto page = page_for_route(route);
-  return page_offered(page, handwriting) ? page : default_page;
+  if (route == "handwriting" && !handwriting)
+    return default_page;
+  return page_for_route(route);
 }
 
 } // namespace msime::settings

@@ -9,9 +9,9 @@ export interface VoiceStreamPreeditSectionProps {
 export function VoiceStreamPreeditSection({ enabled, onChange }: VoiceStreamPreeditSectionProps) {
   return (
     <SwitchRow
-      title="流式预编辑"
+      title="边说边显示"
       description="识别服务支持时显示实时识别片段"
-      aria-label="流式预编辑"
+      aria-label="边说边显示"
       checked={enabled}
       onChange={onChange}
     />

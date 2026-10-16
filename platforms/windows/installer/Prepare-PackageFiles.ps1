@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$TargetVersion = '0.0.1',
+    [string]$TargetVersion = (Get-Content -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'version.txt') -TotalCount 1).Trim(),
     # This script lives in platforms/windows/installer; resolve the repository
     # root rather than treating platforms/windows as the repository.
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))),

@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import {
+  openVoiceServiceConfig,
+  selectSettingsTab,
+  settingsFormReady,
+  saveSettingsNow,
+} from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -28,6 +33,7 @@ import {
   type CustomSkinLibraryAction,
   type FloatingToolbarPreferences,
   type HostCapabilities,
+  type Preferences,
   type SavedTouchKeyboardSkin,
   type SettingsClient,
   type UpdateCheckResult,
@@ -79,12 +85,16 @@ test("macOS voice shortcuts use native key names and space-lock semantics", asyn
     />,
   );
   await settingsReady();
-  selectSettingsTab("快捷键");
-  await screen.findByRole("switch", { name: "按住右 Option 录音" });
-  expect(screen.getByRole("switch", { name: "按住右 Control+右 Option 录音" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "按住 Control+Command 录音" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "空格锁定语音" })).toBeTruthy();
-  expect(screen.queryByRole("switch", { name: "Ctrl+Win 切换语音" })).toBeNull();
+  // 三个按住录音的组合键是一个选择；macOS 把空格锁定固定为开，不给开关。
+  const hold = await screen.findByRole("combobox", { name: "按住录音" });
+  expect(
+    within(hold)
+      .getAllByRole("option")
+      .map((option) => option.textContent),
+  ).toEqual(["右 Option", "右 Control+右 Option", "Control+Command", "不使用"]);
+  expect(screen.queryByRole("switch", { name: "空格锁定语音" })).toBeNull();
+  expect(screen.getByLabelText("Ctrl+F9 切换语音")).toBeTruthy();
+  expect(screen.queryByRole("option", { name: "Ctrl+Win" })).toBeNull();
   expect(screen.getByText(/首次授权后请重新按键/)).toBeTruthy();
 });
 
@@ -101,14 +111,16 @@ test("Windows voice shortcuts describe hold-to-record, the right Ctrl chord and 
     />,
   );
   await settingsReady();
-  selectSettingsTab("快捷键");
-  await screen.findByRole("switch", { name: "长按右 Alt 录音" });
-  expect(screen.getByRole("switch", { name: "长按右 Ctrl+右 Alt 录音" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "长按 Ctrl+Win 录音" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "长按录音时按空格锁定" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "Ctrl+F9 切换语音" })).toBeTruthy();
-  expect(screen.queryByRole("switch", { name: "Ctrl+右 Alt 切换语音" })).toBeNull();
-  expect(screen.queryByRole("switch", { name: "右 Alt 切换语音" })).toBeNull();
+  const hold = await screen.findByRole("combobox", { name: "长按录音" });
+  expect(
+    within(hold)
+      .getAllByRole("option")
+      .map((option) => option.textContent),
+  ).toEqual(["右 Alt", "右 Ctrl+右 Alt", "Ctrl+Win", "不使用"]);
+  // Windows 的 TSF 宿主把空格锁定固定为开（`voice_space_lock_switch` 为 false），不给开关；说明里照旧写着按空格锁定。
+  expect(screen.queryByRole("switch", { name: "长按录音时按空格锁定" })).toBeNull();
+  expect(screen.getByLabelText("Ctrl+F9 切换语音")).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "切换语音" })).toBeNull();
   expect(screen.getByText(/按住期间按空格锁定录音/)).toBeTruthy();
 });
 
@@ -125,19 +137,13 @@ test("Linux voice shortcuts describe hold-to-record like Windows and keep Ctrl+F
     />,
   );
   await settingsReady();
-  selectSettingsTab("快捷键");
-  await screen.findByRole("switch", { name: "长按右 Alt 录音" });
-  expect(screen.getByRole("switch", { name: "长按右 Ctrl+右 Alt 录音" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "长按 Ctrl+Win 录音" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "长按录音时按空格锁定" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "Ctrl+F9 切换语音" })).toBeTruthy();
-  for (const toggle of [
-    "右 Alt 切换语音",
-    "Ctrl+右 Alt 切换语音",
-    "Ctrl+Win 切换语音",
-    "空格锁定语音",
-  ])
-    expect(screen.queryByRole("switch", { name: toggle })).toBeNull();
+  const hold = await screen.findByRole("combobox", { name: "长按录音" });
+  expect(within(hold).getByRole("option", { name: "右 Ctrl+右 Alt" })).toBeTruthy();
+  // IBus 和 Fcitx5 都把空格锁定固定为开，不给开关。
+  expect(screen.queryByRole("switch", { name: "长按录音时按空格锁定" })).toBeNull();
+  expect(screen.getByLabelText("Ctrl+F9 切换语音")).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "切换语音" })).toBeNull();
+  expect(screen.queryByRole("switch", { name: "空格锁定语音" })).toBeNull();
   expect(screen.getByText(/长按快捷键录音，松开结束/)).toBeTruthy();
   expect(screen.getByText(/没有 provider 时快捷键不会拦截编辑器输入/)).toBeTruthy();
   expect(screen.queryByText(/切换语音录音/)).toBeNull();
@@ -1266,13 +1272,20 @@ test("voice settings persist under the shared voice_input contract", async () =>
   })) as HTMLInputElement;
   expect(enabled.checked).toBe(true);
   fireEvent.click(enabled);
+  // 识别语言会同步到云端：先在还显示这一行的服务下改掉它，再确认换成豆包后改过的值照样保存。
+  fireEvent.change(screen.getByRole("combobox", { name: "识别服务" }), {
+    target: { value: "openai" },
+  });
+  fireEvent.change(screen.getByLabelText("识别语言"), { target: { value: "en-US" } });
   fireEvent.change(screen.getByRole("combobox", { name: "识别服务" }), {
     target: { value: "doubao" },
   });
+  // 豆包的识别请求不读识别语言，选豆包时不画这一行，存的语言原样保留。
+  expect(screen.queryByLabelText("识别语言")).toBeNull();
+  openVoiceServiceConfig();
   fireEvent.change(screen.getByRole("combobox", { name: "豆包鉴权方式" }), {
     target: { value: "legacy" },
   });
-  fireEvent.change(screen.getByLabelText("识别语言"), { target: { value: "en-US" } });
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(client.save).toHaveBeenCalledWith(7, {
@@ -1307,6 +1320,7 @@ test("voice settings default to the single API Key mode", async () => {
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  fireEvent.click(await screen.findByRole("button", { name: "服务配置" }));
   const authMode = (await screen.findByRole("combobox", {
     name: "豆包鉴权方式",
   })) as HTMLSelectElement;
@@ -1332,15 +1346,16 @@ test("voice capture backend choices follow the host platform", async () => {
       />,
     );
     await settingsReady();
-    selectSettingsTab("录音设备");
-    const select = (await screen.findByRole("combobox", { name: "录音后端" })) as HTMLSelectElement;
-    const values = Array.from(select.options).map((option) => option.value);
+    fireEvent.click(await screen.findByRole("button", { name: "服务配置" }));
+    const select = screen.queryByRole("combobox", { name: "录音后端" }) as HTMLSelectElement | null;
+    const values = select ? Array.from(select.options).map((option) => option.value) : null;
     mounted.unmount();
     return values;
   };
   expect(await options("linux")).toEqual(["", "auto", "pulse", "pipewire", "alsa"]);
-  expect(await options("macos")).toEqual(["", "auto", "macos"]);
-  expect(await options("windows")).toEqual(["", "auto", "windows"]);
+  // macOS（CoreAudio）和 Windows 各只有一种录音方式，不给后端选择，只有一个「麦克风」下拉。
+  expect(await options("windows")).toBeNull();
+  expect(await options("macos")).toBeNull();
 });
 
 test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
@@ -1509,17 +1524,13 @@ test("a provider-credential host runs the AI service controls without a token", 
   expect(screen.queryByLabelText("AI API Token")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
   await screen.findByText("已获取 2 个可用模型。");
-  fireEvent.change(screen.getByLabelText("AI 测试输入"), { target: { value: "fixture input" } });
-  fireEvent.click(screen.getByRole("button", { name: "发送并润色" }));
-  await screen.findByText("fixture-polished");
   // An empty token goes out because there is none to send; the provider ignores
   // it and authenticates from its own configuration.
   expect(fetchModels.mock.calls[0][0]).toMatchObject({ provider: "deepseek", token: "" });
-  expect(testAi.mock.calls[0][0]).toMatchObject({
-    provider: "deepseek",
-    text: "fixture input",
-    token: "",
-  });
+  // Linux 是桌面：这份配置只给拼音联想用，润色测试测不出用户实际得到的结果，已经撤掉。
+  expect(screen.queryByLabelText("AI 测试输入")).toBeNull();
+  expect(screen.queryByRole("button", { name: "发送并润色" })).toBeNull();
+  expect(testAi).not.toHaveBeenCalled();
   cleanup();
 });
 
@@ -1727,7 +1738,7 @@ test("frequency values above the upstream dropdown range remain visible", async 
     ...initial,
     preferences: {
       ...initial.preferences,
-      frequency: { mode: "halve", trigger_count: 10, linear_step: 7 },
+      frequency: { mode: "linear", trigger_count: 10, linear_step: 7 },
     },
   };
   const client: SettingsClient = {
@@ -1787,29 +1798,39 @@ test("frequency modes, threshold and step persist independently", async () => {
   });
 });
 
-test("frequency settings remain editable independently of learning and mode", async () => {
+test("frequency rows appear only while learning is on and their mode reads them", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn() };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  selectSettingsTab("进阶");
   selectSettingsTab("候选与联想");
   const learning = (await screen.findByRole("switch", {
     name: /学习选词习惯/,
   })) as HTMLInputElement;
   selectSettingsTab("进阶");
-  const mode = screen.getByRole("combobox", { name: "调频方式" });
-  const trigger = screen.getByRole("combobox", { name: "触发频次(第几次上屏触发)" });
-  const step = screen.getByRole("combobox", { name: "线性调频步长" });
-  fireEvent.change(mode, { target: { value: "linear" } });
+  // 缺省的一次置前读触发频次，不读步长。
+  expect(screen.getByRole("combobox", { name: "触发频次(第几次上屏触发)" })).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "线性调频步长" })).toBeNull();
+  fireEvent.change(screen.getByRole("combobox", { name: "调频方式" }), {
+    target: { value: "linear" },
+  });
+  expect(screen.getByRole("combobox", { name: "线性调频步长" })).toBeTruthy();
+  // 不学习选词习惯时调频不起作用，整组藏起来；重新打开后原样出现。
   selectSettingsTab("候选与联想");
   fireEvent.click(learning);
   selectSettingsTab("进阶");
-  expect(mode).toBeDefined();
-  expect(trigger).toBeDefined();
-  expect(step).toBeDefined();
-  fireEvent.change(mode, { target: { value: "disabled" } });
-  expect(mode.textContent).toContain("关闭");
+  expect(screen.queryByRole("combobox", { name: "调频方式" })).toBeNull();
+  selectSettingsTab("候选与联想");
+  fireEvent.click(learning);
+  selectSettingsTab("进阶");
+  expect((screen.getByRole("combobox", { name: "调频方式" }) as HTMLSelectElement).value).toBe(
+    "linear",
+  );
+  fireEvent.change(screen.getByRole("combobox", { name: "调频方式" }), {
+    target: { value: "disabled" },
+  });
+  expect(screen.queryByRole("combobox", { name: "触发频次(第几次上屏触发)" })).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "线性调频步长" })).toBeNull();
 });
 
 test("word-to-character and paging disable each other while preserving the chosen keys", async () => {
@@ -1825,16 +1846,19 @@ test("word-to-character and paging disable each other while preserving the chose
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   selectSettingsTab("选词与翻页");
-  const word = (await screen.findByRole("switch", { name: /以词定字/ })) as HTMLInputElement;
+  // 以词定字是一个「关闭 / [ / ] / - / =」选择；翻页方式是复选框，同名的键组用角色区分。
+  const off = (await screen.findByRole("radio", { name: "关闭" })) as HTMLInputElement;
+  const brackets = screen.getByRole("radio", { name: "[ / ]" }) as HTMLInputElement;
   const minus = screen.getByRole("radio", { name: "- / =" }) as HTMLInputElement;
-  expect(word.checked).toBe(true);
+  expect(brackets.checked).toBe(true);
   expect(minus.disabled).toBe(true);
-  fireEvent.click(word);
   // 翻页方式和以词定字同在输入页「选词与翻页」组，在一处勾选会同屏改掉另一处。
   fireEvent.click(screen.getByRole("checkbox", { name: "[ / ]" }));
-  expect(word.checked).toBe(false);
-  fireEvent.click(word);
-  expect((screen.getByRole("checkbox", { name: "[ / ]" }) as HTMLInputElement).checked).toBe(false);
+  expect(off.checked).toBe(true);
+  expect(brackets.disabled).toBe(true);
+  fireEvent.click(screen.getByRole("checkbox", { name: "[ / ]" }));
+  expect(brackets.disabled).toBe(false);
+  expect(off.checked).toBe(true);
   fireEvent.click(screen.getByRole("checkbox", { name: "- / =" }));
   expect(minus.disabled).toBe(false);
   fireEvent.click(minus);
@@ -2061,7 +2085,9 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
   render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
-  expect(await screen.findByText("候选操作")).toBeDefined();
+  // 参考行收在「按键速查」里；没有数字键选词开关的宿主不再画只剩说明的「候选操作」组。
+  expect(await screen.findByText("按键速查")).toBeDefined();
+  expect(screen.queryByText("候选操作")).toBeNull();
   expect(screen.getAllByText("- / =").length).toBeGreaterThan(0);
   // 开着的几组翻页键合在同一行里，不再各占一行同名的「向前 / 向后翻页」。
   expect(screen.getAllByText("向前 / 向后翻页")).toHaveLength(1);
@@ -2147,9 +2173,9 @@ test("the macOS shortcuts page omits the maintenance chords and 维护与诊断 
   expect(screen.queryByText("输入上下文维护快捷键")).toBeNull();
   expect(screen.queryByText("Ctrl+Shift+Option+T")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
-  fireEvent.click(screen.getByRole("button", { name: "重新注册" }));
+  fireEvent.click(screen.getByRole("button", { name: "修复" }));
   await waitFor(() => expect(restartInputMethod).toHaveBeenCalledOnce());
-  expect(await screen.findByText("已重新注册输入源。")).toBeDefined();
+  expect(await screen.findByText("输入源已修复。")).toBeDefined();
 });
 
 test("Linux restart copy covers both input method frameworks", async () => {
@@ -2176,24 +2202,31 @@ test("Linux restart copy covers both input method frameworks", async () => {
   expect(await screen.findByText("已请求重启输入法服务。")).toBeDefined();
 });
 
-test("macOS service page exposes installation separately from re-registration", async () => {
+test("the macOS service page repairs the input source in one action: install, then register", async () => {
   const installInputSource = vi.fn().mockResolvedValue(undefined);
+  const restartInputMethod = vi.fn().mockResolvedValue(undefined);
   render(
     <SettingsPage
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        restartInputMethod: vi.fn().mockResolvedValue(undefined),
+        restartInputMethod,
         installInputSource,
         host: testHost({ platform: "macos", restart_input_method: true, panel_windows: true }),
       }}
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
-  expect(await screen.findByText("安装或更新水杉输入源")).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "安装 / 更新" }));
-  await waitFor(() => expect(installInputSource).toHaveBeenCalledOnce());
-  expect(await screen.findByText("输入源已安装并注册。")).toBeDefined();
+  expect(await screen.findByText("修复输入源")).toBeDefined();
+  expect(screen.queryByText("安装或更新水杉输入源")).toBeNull();
+  expect(screen.queryByRole("button", { name: "重新注册" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "修复" }));
+  await waitFor(() => expect(restartInputMethod).toHaveBeenCalledOnce());
+  expect(installInputSource).toHaveBeenCalledOnce();
+  expect(installInputSource.mock.invocationCallOrder[0]).toBeLessThan(
+    restartInputMethod.mock.invocationCallOrder[0],
+  );
+  expect(await screen.findByText("输入源已修复。")).toBeDefined();
 });
 
 test("macOS reports the start-time input method refresh and a source that still needs enabling", async () => {
@@ -2299,7 +2332,7 @@ test("macOS stays quiet when the input method is current and enabled, and points
     />,
   );
   const banner = await screen.findByRole("alert", { name: "水杉输入法安装状态" });
-  expect(within(banner).getByText(/点「安装 \/ 更新」重试/)).toBeDefined();
+  expect(within(banner).getByText(/点「修复」重试/)).toBeDefined();
   expect(within(banner).queryByRole("button", { name: "打开键盘设置" })).toBeNull();
 });
 
@@ -2471,7 +2504,15 @@ test("macOS 维护与诊断 page exposes reversible uninstall with explicit data
   expect(within(about).queryByText("卸载水杉输入法")).toBeNull();
   const groupTitles = (scope: HTMLElement) =>
     [...scope.querySelectorAll("[data-group-title]")].map((node) => node.textContent);
-  expect(groupTitles(about)).toEqual(["版本与更新", "系统信息", "许可与隐私"]);
+  // 桌面上「帮助与反馈」并进「关于」，几组接在「版本与更新」后面。
+  expect(groupTitles(about)).toEqual([
+    "版本与更新",
+    "帮助",
+    "提交可复现的问题",
+    "反馈与交流",
+    "系统信息",
+    "许可与隐私",
+  ]);
   fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   const developer = await screen.findByRole("group", { name: "维护与诊断" });
   expect(await within(developer).findByText("卸载水杉输入法")).toBeDefined();
@@ -2812,14 +2853,59 @@ test("clipboard history reloads when its page opens while an earlier list is pen
   expect(screen.queryByText("synthetic stale")).toBeNull();
 });
 
-test("clipboard history ignores an initial list that finishes after a manual sync", async () => {
-  const initialList = deferred<Array<{ text: string; timestampMs: number; pinned: boolean }>>();
-  const list = vi.fn().mockImplementation(() => initialList.promise);
+/** 剪贴板历史从关到开并保存：保存回执里开关是开的，「剪贴板」页据此自动同步一次系统剪贴板。 */
+function clipboardHistoryOffClient(clipboard: NonNullable<SettingsClient["clipboard"]>) {
+  const save = vi.fn(async (revision: number, preferences: Preferences) => ({
+    ...initial,
+    revision: revision + 1,
+    preferences,
+  }));
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue({
+      ...initial,
+      preferences: { ...initial.preferences, clipboard_history: false },
+    }),
+    save,
+    clipboard,
+  };
+  return { client, save };
+}
+
+async function turnClipboardHistoryOnAndSave(save: ReturnType<typeof vi.fn>) {
+  fireEvent.click(screen.getByRole("switch", { name: "剪贴板历史" }));
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalled());
+}
+
+test("turning clipboard history on and saving syncs the system clipboard once, and there is no sync button", async () => {
+  const list = vi.fn().mockResolvedValue([]);
   const sync = vi
     .fn()
     .mockResolvedValue([
       { text: "synthetic synced", timestampMs: 1_789_000_000_000, pinned: false },
     ]);
+  const { client, save } = clipboardHistoryOffClient({ list, sync, clear: vi.fn() });
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  expect(screen.queryByRole("button", { name: "从系统剪贴板同步" })).toBeNull();
+  // 只打开开关、还没保存时不同步：宿主读的是保存后的开关。
+  fireEvent.click(screen.getByRole("switch", { name: "剪贴板历史" }));
+  expect(sync).not.toHaveBeenCalled();
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  expect(await screen.findByText("synthetic synced")).toBeDefined();
+  expect(sync).toHaveBeenCalledTimes(1);
+  // 之后离开再回来不会再同步。
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  expect(sync).toHaveBeenCalledTimes(1);
+});
+
+test("opening the page with clipboard history already on does not sync", async () => {
+  const list = vi.fn().mockResolvedValue([]);
+  const sync = vi.fn().mockResolvedValue([]);
   const snapshot = { ...initial, preferences: { ...initial.preferences, clipboard_history: true } };
   render(
     <SettingsPage
@@ -2833,7 +2919,23 @@ test("clipboard history ignores an initial list that finishes after a manual syn
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
   await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
-  fireEvent.click(screen.getByRole("button", { name: "从系统剪贴板同步" }));
+  expect(sync).not.toHaveBeenCalled();
+});
+
+test("clipboard history ignores a list that finishes after the sync turning it on ran", async () => {
+  const initialList = deferred<Array<{ text: string; timestampMs: number; pinned: boolean }>>();
+  const list = vi.fn().mockImplementation(() => initialList.promise);
+  const sync = vi
+    .fn()
+    .mockResolvedValue([
+      { text: "synthetic synced", timestampMs: 1_789_000_000_000, pinned: false },
+    ]);
+  const { client, save } = clipboardHistoryOffClient({ list, sync, clear: vi.fn() });
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  await turnClipboardHistoryOnAndSave(save);
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
   expect(await screen.findByText("synthetic synced")).toBeDefined();
 
   await act(async () =>
@@ -2845,7 +2947,7 @@ test("clipboard history ignores an initial list that finishes after a manual syn
   expect(screen.queryByText("synthetic stale")).toBeNull();
 });
 
-test("clipboard history waits for a sync before accepting deletion", async () => {
+test("clipboard history waits for the sync turning it on before accepting deletion", async () => {
   const pendingSync = deferred<Array<{ text: string; timestampMs: number; pinned: boolean }>>();
   const entry = { text: "synthetic record", timestampMs: 1_789_000_000_000, pinned: false };
   let entries = [entry];
@@ -2853,22 +2955,19 @@ test("clipboard history waits for a sync before accepting deletion", async () =>
   const remove = vi.fn().mockImplementation(async () => {
     entries = [];
   });
-  const snapshot = { ...initial, preferences: { ...initial.preferences, clipboard_history: true } };
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(snapshot),
-        save: vi.fn(),
-        clipboard: { list, sync: () => pendingSync.promise, remove, clear: vi.fn() },
-      }}
-    />,
-  );
+  const { client, save } = clipboardHistoryOffClient({
+    list,
+    sync: () => pendingSync.promise,
+    remove,
+    clear: vi.fn(),
+  });
+  render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  await turnClipboardHistoryOnAndSave(save);
   const row = (await screen.findByText(entry.text)).closest(
     "[data-clipboard-entry-row]",
   ) as HTMLElement;
-  fireEvent.click(screen.getByRole("button", { name: "从系统剪贴板同步" }));
   const deleteButton = within(row).getByRole("button", {
     name: "删除剪贴板记录",
   }) as HTMLButtonElement;
@@ -2929,31 +3028,24 @@ test("clipboard history applies a sync that finishes after leaving and reopening
   const oldEntry = { text: "synthetic old", timestampMs: 1_788_000_000_000, pinned: false };
   const newEntry = { text: "synthetic new", timestampMs: 1_789_000_000_000, pinned: false };
   const list = vi.fn().mockResolvedValue([oldEntry]);
-  const snapshot = { ...initial, preferences: { ...initial.preferences, clipboard_history: true } };
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(snapshot),
-        save: vi.fn(),
-        clipboard: {
-          list,
-          sync: () => pendingSync.promise,
-          clear: vi.fn().mockResolvedValue(undefined),
-        },
-      }}
-    />,
-  );
+  const { client, save } = clipboardHistoryOffClient({
+    list,
+    sync: () => pendingSync.promise,
+    clear: vi.fn().mockResolvedValue(undefined),
+  });
+  render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
+  await turnClipboardHistoryOnAndSave(save);
   expect(await screen.findByText(oldEntry.text)).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "从系统剪贴板同步" }));
 
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
   await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
-  expect(
-    (screen.getByRole("button", { name: "从系统剪贴板同步" }) as HTMLButtonElement).disabled,
-  ).toBe(true);
+  // 同步还没回来，开关保持不可用。
+  expect((screen.getByRole("switch", { name: "剪贴板历史" }) as HTMLInputElement).disabled).toBe(
+    true,
+  );
 
   await act(async () => pendingSync.resolve([newEntry]));
   expect(screen.getByText(newEntry.text)).toBeDefined();
@@ -3347,7 +3439,7 @@ test("dictionary manager pages through entries instead of loading the whole dict
   fireEvent.change(await screen.findByLabelText("本地词库类型"), { target: { value: "pinyin" } });
   fireEvent.click(screen.getByRole("button", { name: "查询" }));
   expect(await screen.findByText("第 1–100 条，后面还有结果")).toBeDefined();
-  // This case selected 全拼, so that is the kind the host is asked for.
+  // This case selected 拼音, so that is the kind the host is asked for.
   expect(list).toHaveBeenCalledWith(0, 100, "pinyin", "");
   // The first page must not be followed by a second request on its own.
   expect(list).toHaveBeenCalledTimes(1);
@@ -4272,7 +4364,9 @@ test("desktop hosts keep the chord wording for local modes and 以词定字", as
   render(<SettingsPage initialPage="input" client={client} />);
   const input = await screen.findByRole("group", { name: "输入" }, { timeout: 3000 });
   expect(within(input).getByText(/中文模式下按 Shift\+K/)).toBeTruthy();
-  expect(within(input).getByText("以词定字快捷键")).toBeTruthy();
+  // 以词定字和它的键组合成一个选择：关闭、[ / ]、- / =。
+  expect(within(input).getByText(/按所选键组的左键上屏/)).toBeTruthy();
+  expect(within(input).getByRole("radio", { name: "关闭", hidden: true })).toBeTruthy();
 });
 
 test("a mobile host without the candidate palette switch shows neither the switch nor the hint", async () => {
@@ -4435,19 +4529,24 @@ test("candidate appearance settings persist and use Windows baseline defaults", 
   });
 });
 
-test("macOS exposes the shuangpin preedit presentation and persists the expanded pinyin choice", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+test("macOS shows the shuangpin preedit in the 双拼 details and persists the expanded pinyin choice", async () => {
+  const shuangpin: Snapshot = {
     ...initial,
+    preferences: { ...initial.preferences, scheme: "shuangpin" },
+  };
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...shuangpin,
     revision: 8,
     preferences,
   }));
   const client: SettingsClient = {
-    load: vi.fn().mockResolvedValue(initial),
+    load: vi.fn().mockResolvedValue(shuangpin),
     save,
     host: testHost({ platform: "macos" }),
   };
-  render(<SettingsPage initialPage="appearance" client={client} />);
+  render(<SettingsPage initialPage="input" client={client} />);
   await settingsReady();
+  selectSettingsTab("方案");
   const preedit = (await screen.findByRole("combobox", {
     name: "双拼预编辑",
   })) as HTMLSelectElement;
@@ -4456,9 +4555,52 @@ test("macOS exposes the shuangpin preedit presentation and persists the expanded
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(save).toHaveBeenCalledWith(7, {
-    ...initial.preferences,
+    ...shuangpin.preferences,
     shuangpin_preedit_uses_raw: false,
   });
+  // 「候选窗口」页的预编辑各行不再画它，每项偏好只有一个入口。那几行收在页面的「更多选项」里，所以带上 hidden。
+  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
+  const appearance = screen.getByRole("group", { name: "候选窗口" });
+  expect(
+    within(appearance).getByRole("combobox", { name: "候选窗口预编辑", hidden: true }),
+  ).toBeTruthy();
+  expect(
+    within(appearance).queryByRole("combobox", { name: "双拼预编辑", hidden: true }),
+  ).toBeNull();
+});
+
+// 鸿蒙二合一不是手机布局（mobile_settings 为 false），却有触屏方案：方案组不画双拼各行，双拼预编辑必须留在候选窗口页，否则两个页面都找不到它。
+test("the HarmonyOS 2-in-1 keeps the shuangpin preedit on exactly one page", async () => {
+  const shuangpin: Snapshot = {
+    ...initial,
+    preferences: { ...initial.preferences, scheme: "shuangpin" },
+  };
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: async () => shuangpin,
+        save: vi.fn(),
+        touchKeyboardSchemes: true,
+        host: testHost({ platform: "harmony", mobile_settings: false, shuangpin_preedit: true }),
+      }}
+    />,
+  );
+  await settingsReady();
+  selectSettingsTab("方案");
+  expect(
+    within(screen.getByRole("group", { name: "输入" })).queryByRole("combobox", {
+      name: "双拼预编辑",
+    }),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
+  expect(
+    within(screen.getByRole("group", { name: "候选窗口" })).getByRole("combobox", {
+      name: "双拼预编辑",
+      hidden: true,
+    }),
+  ).toBeTruthy();
+  expect(screen.getAllByRole("combobox", { name: "双拼预编辑", hidden: true })).toHaveLength(1);
 });
 
 test("font family controls validate drafts and save Unicode without touching the fallback list", async () => {
@@ -5908,8 +6050,8 @@ test("Linux keeps the spacing sliders but drops the height that its keyboard win
   await answerConfirm("cancel");
 });
 
-// Windows 的共享设置页与原生设置窗口一样分成「屏幕键盘」和「手写输入」两页，高度和间距都在。
-test("Windows keeps the screen keyboard and handwriting pages apart with every size control", async () => {
+// Windows 的手写页也只有一个打开按钮，与原生设置窗口一样并进「屏幕键盘与手写」；Windows 有触屏设备，高度和间距都在。
+test("Windows folds handwriting into the screen keyboard page and keeps every size control", async () => {
   render(
     <SettingsPage
       client={{
@@ -5922,13 +6064,12 @@ test("Windows keeps the screen keyboard and handwriting pages apart with every s
     />,
   );
   await settingsReady();
-  expect(screen.getByRole("button", { name: "手写输入" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "屏幕键盘与手写" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘" }));
-  const page = await screen.findByRole("group", { name: "屏幕键盘" });
+  expect(screen.queryByRole("button", { name: "手写输入" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "屏幕键盘与手写" }));
+  const page = await screen.findByRole("group", { name: "屏幕键盘与手写" });
   for (const slider of ["键盘高度", "按键间距", "行间距"])
     expect(within(page).getByRole("slider", { name: slider })).toBeTruthy();
-  expect(within(page).queryByText("打开手写识别板")).toBeNull();
+  expect(within(page).getByText("打开手写识别板")).toBeTruthy();
   // Windows 不是 touch_toolbar_components 的宿主，说明不再提工具栏按钮。
   expect(within(page).getByText("高度、间距和顶部语音入口回到默认")).toBeTruthy();
 });
@@ -6211,7 +6352,7 @@ test("help, about and feedback pages expose their Windows content and actions", 
   render(<SettingsPage client={client} />);
   await settingsReady();
 
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   expect(await screen.findByText("快速上手")).toBeDefined();
   expect(screen.getByText(/Win \+ Space/)).toBeDefined();
@@ -6227,7 +6368,7 @@ test("help, about and feedback pages expose their Windows content and actions", 
     ),
   );
 
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByText("GitHub Issues")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "复制群号" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledWith("829919142"));
@@ -6246,7 +6387,7 @@ test("Linux help quick start covers both Fcitx5 and IBus", async () => {
   render(<SettingsPage client={client} />);
   await settingsReady();
 
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   const intro = await screen.findByText(/Linux 桌面环境下的中文输入法/);
   expect(intro.textContent).toContain("Fcitx5");
@@ -6272,7 +6413,7 @@ test("Linux help network section says what goes online and where credentials liv
   render(<SettingsPage client={client} />);
   await settingsReady();
 
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   const network = await screen.findByText(/日常拼音输入无需联网/);
   const text = network.textContent ?? "";
@@ -6436,7 +6577,7 @@ test("macOS support pages use client project and privacy links", async () => {
   fireEvent.click(screen.getByRole("button", { name: "第三方组件许可" }));
   await waitFor(() => expect(openThirdPartyLicenses).toHaveBeenCalledOnce());
 
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.change(screen.getByRole("combobox", { name: "反馈类型" }), {
     target: { value: "候选词不对" },
   });
@@ -6467,7 +6608,7 @@ test("macOS and iOS help pages use their native host instructions", async () => 
       }}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   // 帮助 is an entry on the 反馈 page, which is only drawn once the settings have loaded.
   fireEvent.click(await screen.findByRole("button", { name: "帮助" }));
   // macOS answers the three questions as term/description rows, not prose, so the page carries the
@@ -6524,9 +6665,9 @@ test("the sidebar follows the six titled navigation groups", async () => {
   expect(groups).toEqual([
     ["输入", "标点与翻译", "快捷键", "词库"],
     ["主题", "候选窗口", "悬浮工具栏"],
-    ["屏幕键盘", "语音输入", "手写输入"],
+    ["屏幕键盘与手写", "语音输入"],
     ["剪贴板", "AI 辅助"],
-    ["维护与诊断", "帮助与反馈", "关于"],
+    ["维护与诊断", "关于"],
   ]);
   // 组名对辅助技术可见；没有账号客户端时「账号」组整组消失，桌面也不再有「社区」入口。
   expect(
@@ -6677,7 +6818,7 @@ test("the feedback report leads with the release and the scheme", async () => {
     />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(await screen.findByRole("button", { name: "复制报告" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledOnce());
   const report = copyText.mock.calls[0][0] as string;
@@ -6700,7 +6841,7 @@ test("a host that cannot name its release still reports something", async () => 
     />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(await screen.findByRole("button", { name: "复制报告" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledOnce());
   const report = copyText.mock.calls[0][0] as string;
@@ -6952,8 +7093,7 @@ const referenceSections: {
       "语音输入",
       // 来源：ASR API。
       "识别服务",
-      // 来源的「豆包识别选项」一节并进了「识别服务配置」组，紧接豆包自己的设置；这里钉组名和其中一行。
-      "识别服务配置",
+      // 来源的「豆包识别选项」一节并进了「服务配置」子视图的「识别服务」组，收在豆包自己的设置后面的「更多选项」里；这里钉其中一行。
       "数字格式化",
       // 来源：文本润色 API。组名不带 provider 字样。
       "文本润色",
@@ -7012,9 +7152,9 @@ const referenceSections: {
       // 来源：中英文切换。简繁切换在来源是并列的一节，这里是这一节里的一行，且键名按平台
       // 改写（Control 对 Ctrl），所以不在这里钉。
       "输入模式切换",
-      "候选操作",
-      // 来源：全局快捷键。
-      "面板快捷键",
+      // 来源的「候选操作」和「全局快捷键」两节都是只读的按键说明，这里合进一个收起的「按键速查」组；能改的数字键选词开关仍在「候选操作」组，只有提供它的宿主才有那一组。
+      "按键速查",
+      "打开屏幕键盘",
     ],
   },
   {
@@ -7029,10 +7169,16 @@ const referenceSections: {
   {
     page: "help",
     button: "帮助",
-    via: "帮助与反馈",
+    via: "关于",
     titles: ["快速上手", "基本功能"],
   },
 ];
+
+// 桌面宿主（Windows 和 macOS 都是）把「屏幕键盘」和「手写输入」并成一页「屏幕键盘与手写」，两张表项都在那一页上找。
+const mergedPages: Record<string, string> = {
+  屏幕键盘: "屏幕键盘与手写",
+  手写输入: "屏幕键盘与手写",
+};
 
 test.each(referenceSections)(
   "the $page page still carries the reference window's sections",
@@ -7073,11 +7219,12 @@ test.each(referenceSections)(
     );
     await settingsReady();
     if (via) fireEvent.click(screen.getByRole("button", { name: via }));
-    fireEvent.click(screen.getByRole("button", { name: button }));
+    const pageName = mergedPages[button] ?? button;
+    fireEvent.click(screen.getByRole("button", { name: pageName }));
     if (button === "输入" && group === "辅助码") selectSettingsTab("进阶");
     const page = group
       ? await screen.findByRole("region", { name: group })
-      : await screen.findByRole("group", { name: button });
+      : await screen.findByRole("group", { name: pageName });
     const present = sectionTitles(page);
     expect(titles.filter((title) => !present.includes(title))).toEqual([]);
   },
@@ -7126,14 +7273,12 @@ const macosHostCapabilities = testHost({
   voice_commit_mode: true,
   shuangpin_preedit: true,
   candidate_english_font: true,
+  // macOS 把 Tab、PageUp/PageDown 两组翻页键和中英混输的触发字符数固定下来。
+  tab_page_paging_switches: false,
+  mixed_input_minimum_prefix: false,
   // 设置窗口、工具栏、菜单和各面板一律跟随颜色模式。
   surface_themes_follow: true,
 });
-
-const macosMergedPages: Record<string, string> = {
-  屏幕键盘: "屏幕键盘与手写",
-  手写输入: "屏幕键盘与手写",
-};
 
 const macosAbsentSections: Record<string, string> = {
   // The Windows font row carries this note; macOS applies the family without a restart, and its
@@ -7184,8 +7329,7 @@ test.each(referenceSections)(
     );
     await settingsReady();
     if (via) fireEvent.click(screen.getByRole("button", { name: via }));
-    // macOS 把「屏幕键盘」和「手写输入」并成一页「屏幕键盘与手写」，两张表项都在那一页上找。
-    const pageName = macosMergedPages[button] ?? button;
+    const pageName = mergedPages[button] ?? button;
     fireEvent.click(screen.getByRole("button", { name: pageName }));
     if (button === "输入" && group === "辅助码") selectSettingsTab("进阶");
     const page = group
@@ -7222,8 +7366,9 @@ test.each([
     <SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), host }} />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
-  const page = await screen.findByRole("group", { name: "帮助与反馈" });
+  // 桌面上「帮助与反馈」并进了「关于」。
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  const page = await screen.findByRole("group", { name: "关于" });
   for (const channel of ["GitHub Issues", "QQ 交流群", "Telegram 群组"]) {
     expect(within(page).getByText(channel)).toBeTruthy();
   }
@@ -7246,14 +7391,73 @@ test("the feedback page opens with 帮助 and links the report to 诊断日志",
     />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
-  const page = await screen.findByRole("group", { name: "帮助与反馈" });
+  // 桌面上「帮助与反馈」并进了「关于」。
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  const page = await screen.findByRole("group", { name: "关于" });
   const help = within(page).getByRole("button", { name: "帮助" });
   const kind = within(page).getByRole("combobox", { name: "反馈类型" });
   expect(help.compareDocumentPosition(kind) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(within(page).queryByText("提交问题时建议附上")).toBeNull();
   fireEvent.click(within(page).getByRole("button", { name: "诊断日志" }));
   expect(await screen.findByRole("heading", { name: "维护与诊断" })).toBeDefined();
+});
+
+test("on the desktop 帮助与反馈 lives in 关于: its route opens 关于 and 帮助 returns there", async () => {
+  render(
+    <SettingsPage
+      initialPage="feedback"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        copyText: vi.fn(),
+        host: testHost({ platform: "macos" }),
+      }}
+    />,
+  );
+  const page = await screen.findByRole("group", { name: "关于" });
+  expect(screen.queryByRole("group", { name: "帮助与反馈" })).toBeNull();
+  expect(within(page).getByRole("button", { name: "复制报告" })).toBeTruthy();
+  expect(within(page).getByText("GitHub Issues")).toBeTruthy();
+  const sidebar = screen.getByRole("navigation", { name: "设置分类" });
+  expect(within(sidebar).queryByRole("button", { name: "帮助与反馈" })).toBeNull();
+  fireEvent.click(within(page).getByRole("button", { name: "帮助" }));
+  expect(await screen.findByRole("group", { name: "开始输入" })).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "返回关于" }));
+  expect(await screen.findByRole("group", { name: "关于" })).toBeTruthy();
+});
+
+test("the account page is called 账号 on macOS and keeps 账号与同步 where settings sync", async () => {
+  const accountClient = {
+    status: vi.fn().mockResolvedValue({ user: null }),
+    providers: vi.fn().mockResolvedValue({ email: true, phone: false }),
+    requestCode: vi.fn(),
+    login: vi.fn(),
+    profile: vi.fn(),
+    rename: vi.fn(),
+    logout: vi.fn(),
+    deleteAccount: vi.fn(),
+    clearExpired: vi.fn(),
+  };
+  for (const [platform, title] of [
+    ["macos", "账号"],
+    ["windows", "账号与同步"],
+  ] as const) {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          account: accountClient,
+          host: testHost({ platform }),
+        }}
+      />,
+    );
+    await settingsReady();
+    const sidebar = screen.getByRole("navigation", { name: "设置分类" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: title }));
+    expect(await screen.findByRole("heading", { name: title })).toBeTruthy();
+    cleanup();
+  }
 });
 
 test("the feedback page has no 诊断日志 link where 维护与诊断 has no logs", async () => {
@@ -7436,6 +7640,9 @@ const optionHosts: [string, HostCapabilities][] = [
       ime_mode_scope: true,
       mode_switch_shortcuts: true,
       panel_shortcuts: true,
+      // Windows 和 macOS 一样固定 Tab、PageUp/PageDown 和中英混输的触发字符数。
+      tab_page_paging_switches: false,
+      mixed_input_minimum_prefix: false,
     }),
   ],
   // The same lists, asked of macOS. A choice that exists on one host and not the other is a
@@ -7444,13 +7651,42 @@ const optionHosts: [string, HostCapabilities][] = [
   ["macos", macosHostCapabilities],
 ];
 
+/** 各宿主固定下来、不再给控件的选项。 */
+const fixedOptions: Record<string, Record<string, string>> = {
+  macos: { 触发字符数: "桌面宿主固定为 5（HostCapabilities.mixed_input_minimum_prefix）" },
+  windows: { 触发字符数: "桌面宿主固定为 5（HostCapabilities.mixed_input_minimum_prefix）" },
+};
+
+test.each([
+  ["macos", macosHostCapabilities],
+  ["windows", testHost({ platform: "windows", mixed_input_minimum_prefix: false })],
+  ["linux", testHost({ platform: "linux", mixed_input_minimum_prefix: false })],
+] as const)("%s offers no 触发字符数, which it fixes at five", async (_platform, host) => {
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host,
+      }}
+    />,
+  );
+  await settingsReady();
+  selectSettingsTab("候选与联想");
+  expect(await screen.findByRole("switch", { name: /^中英混输/ })).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "触发字符数" })).toBeNull();
+});
+
 test.each(
   referenceOptions.flatMap((entry) =>
     optionHosts
       .map(([platform, host]) => ({ ...entry, platform, host }))
-      // macOS 不给的那几行在上面的小节表里按 `macosAbsentSections` 核对过不出现。
+      // macOS 不给的那几行在上面的小节表里按 `macosAbsentSections` 核对过不出现；各宿主固定下来的几项（`fixedOptions`）也不在页面上。
       .filter(
-        ({ control, host }) => !(host.surface_themes_follow && control in macosAbsentSections),
+        ({ control, host, platform }) =>
+          !(host.surface_themes_follow && control in macosAbsentSections) &&
+          !(control in (fixedOptions[platform] ?? {})),
       ),
   ),
 )(
@@ -7482,8 +7718,17 @@ test.each(
               ? "方案"
               : "进阶",
       );
+      // 双拼方案只在双拼下出现，线性调频步长只在线性调频下出现。
+      if (control === "双拼方案")
+        fireEvent.click(await screen.findByRole("radio", { name: "双拼" }));
+      if (control === "线性调频步长")
+        fireEvent.change(await screen.findByRole("combobox", { name: "调频方式" }), {
+          target: { value: "linear" },
+        });
     }
-    if (button === "语音输入" && control === "润色方案") selectSettingsTab("润色");
+    // 润色收在语音页的「服务配置」子视图里。
+    if (button === "语音输入" && control === "润色方案")
+      fireEvent.click(await screen.findByRole("button", { name: "服务配置" }));
     if (expand) fireEvent.click(await screen.findByRole("switch", { name: expand }));
     if (role === "radiogroup") {
       const group = await screen.findByRole("radiogroup", { name: control });
@@ -7535,7 +7780,7 @@ test.each(optionHosts)(
       "输入模式",
       "输入方案",
       "双拼方案",
-      // 五笔方案只在五笔下显示，日语只有一个方案、只在日语下显示，但都仍在页面里。
+      // 双拼方案只在双拼下显示，五笔方案只在五笔下显示，日语只有一个方案、只在日语下显示，但都仍在页面里。
       "五笔方案",
       "日语方案",
       "默认中英文",
@@ -7582,11 +7827,12 @@ test.each(optionHosts)(
       "跟随光标",
       "预编辑字号",
       "候选窗口预编辑",
-      "双拼预编辑",
       "行内预编辑",
     ];
     const ordered = present.filter((text) => expected.includes(text));
     expect(ordered).toEqual(expected);
+    // 双拼预编辑在「输入 › 方案」的双拼详情里。
+    expect(present).not.toContain("双拼预编辑");
     // 每项偏好只有一个入口：主题和颜色选择器不在这里重复。
     expect(within(appearance).queryByRole("combobox", { name: "主题" })).toBeNull();
     expect(appearance.querySelector('input[type="color"]')).toBeNull();
@@ -7789,9 +8035,10 @@ test("中英混输 sits on the input page's 候选与联想 group, not on 标点
   expect(within(expression).queryByRole("switch", { name: /^中英混输/ })).toBeNull();
 });
 
-test("macOS enables the shuangpin profile menu only under shuangpin", async () => {
+test("rarely changed candidate and output rows sit in each group's 更多选项", async () => {
   render(
     <SettingsPage
+      initialPage="input"
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
@@ -7800,31 +8047,105 @@ test("macOS enables the shuangpin profile menu only under shuangpin", async () =
     />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  // The fixture is quanpin, so the choice would change nothing yet.
-  const menu = (await screen.findByRole("combobox", { name: "双拼方案" })) as HTMLSelectElement;
-  expect(menu.disabled).toBe(true);
-  fireEvent.click(screen.getByRole("radio", { name: "双拼" }));
-  expect(menu.disabled).toBe(false);
-  fireEvent.click(screen.getByRole("radio", { name: "全拼" }));
-  expect(menu.disabled).toBe(true);
+  selectSettingsTab("候选与联想");
+  const candidates = screen.getByRole("region", { name: "候选与联想" });
+  const candidatesFold = candidates.querySelector("details") as HTMLDetailsElement;
+  expect(candidatesFold.open).toBe(false);
+  for (const name of [/^中英混输/, /^emoji 混输/, /^学习选词习惯/]) {
+    expect(candidatesFold.contains(within(candidates).getByRole("switch", { name }))).toBe(false);
+  }
+  for (const name of [/^符号混输/, /^颜文字混输/, /^日文混输/, /^只出单字/, /^本地整句联想/]) {
+    expect(candidatesFold.contains(within(candidates).getByRole("switch", { name }))).toBe(true);
+  }
+  selectSettingsTab("输出");
+  const output = screen.getByRole("region", { name: "输出" });
+  const outputFold = output.querySelector("details") as HTMLDetailsElement;
+  expect(outputFold.contains(within(output).getByText("全角输入"))).toBe(true);
 });
 
-test("other hosts keep the shuangpin profile menu editable", async () => {
+// Windows 和 macOS 一样：关掉的 Tab、PageUp/PageDown 在组字时被吃掉，不会还给应用，所以两组固定开启。
+test.each(["macos", "windows"] as const)(
+  "%s fixes Tab and PageUp/PageDown paging: no switches, and the reference still lists them",
+  async (platform) => {
+    const stored: Snapshot = {
+      ...initial,
+      preferences: {
+        ...initial.preferences,
+        navigation: {
+          minus_equal: true,
+          comma_period: true,
+          brackets: false,
+          tab: false,
+          page_up_down: false,
+          arrows: true,
+        },
+      },
+    };
+    render(
+      <SettingsPage
+        initialPage="input"
+        client={{
+          load: vi.fn().mockResolvedValue(stored),
+          save: vi.fn(),
+          host: testHost({ platform, tab_page_paging_switches: false }),
+        }}
+      />,
+    );
+    await settingsReady();
+    selectSettingsTab("选词与翻页");
+    expect(await screen.findByRole("checkbox", { name: "- / =" })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "Shift+Tab / Tab" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "PageUp / PageDown" })).toBeNull();
+    // 速查列出实际生效的翻页键，不看文档里存的关。
+    fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+    const reference = screen.getByRole("region", { name: "按键速查" });
+    expect(within(reference).getByText("Shift+Tab / Tab")).toBeTruthy();
+    expect(within(reference).getByText("Page Up / Page Down")).toBeTruthy();
+  },
+);
+
+// Linux 的 fcitx5 对关掉的 Tab、PageUp/PageDown 结束组字并把键还给应用，开关有实际作用，照旧列出。
+test("Linux keeps the Tab and PageUp/PageDown paging switches", async () => {
   render(
     <SettingsPage
+      initialPage="input"
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: testHost({ platform: "windows" }),
+        host: testHost({ platform: "linux", tab_page_paging_switches: true }),
       }}
     />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  const menu = (await screen.findByRole("combobox", { name: "双拼方案" })) as HTMLSelectElement;
-  expect(menu.disabled).toBe(false);
+  selectSettingsTab("选词与翻页");
+  expect(await screen.findByRole("checkbox", { name: "Shift+Tab / Tab" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "PageUp / PageDown" })).toBeTruthy();
 });
+
+test.each(["macos", "windows", "linux"] as const)(
+  "the shuangpin profile menu shows only under shuangpin on %s",
+  async (platform) => {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: testHost({ platform }),
+        }}
+      />,
+    );
+    await settingsReady();
+    fireEvent.click(screen.getByRole("button", { name: "输入" }));
+    // 夹具是全拼，选了也不起作用，所以这一行藏起来而不是灰着显示。
+    await screen.findByRole("radio", { name: "双拼" });
+    expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "双拼" }));
+    const menu = screen.getByRole("combobox", { name: "双拼方案" }) as HTMLSelectElement;
+    expect(menu.disabled).toBe(false);
+    fireEvent.click(screen.getByRole("radio", { name: "全拼" }));
+    expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
+  },
+);
 
 test("macOS sidebar uses the same six groups", async () => {
   render(
@@ -7847,7 +8168,7 @@ test("macOS sidebar uses the same six groups", async () => {
     // 手写页在 macOS 上只有一个打开按钮，并进屏幕键盘页。
     ["屏幕键盘与手写", "语音输入"],
     ["剪贴板", "AI 辅助"],
-    ["维护与诊断", "帮助与反馈", "关于"],
+    ["维护与诊断", "关于"],
   ]);
 });
 
@@ -8151,7 +8472,11 @@ test("macOS opens handwriting for copying while input-session panels use the nat
   await waitFor(() => expect(client.openHandwriting).toHaveBeenCalledTimes(1));
 
   fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
-  expect(await screen.findByText(/请从输入法菜单中的「云剪贴板…」打开/)).toBeDefined();
+  // 「云剪贴板」组在 macOS 上没有控件，整组撤掉；去哪里打开的那句说明挪进一直显示的「剪贴板」组。
+  const note = await screen.findByText(/请从输入法菜单中的「云剪贴板…」打开/);
+  const tools = screen.getByRole("group", { name: "剪贴板" });
+  expect(within(tools).getByRole("region", { name: "剪贴板" }).contains(note)).toBe(true);
+  expect(within(tools).queryByRole("region", { name: "云剪贴板" })).toBeNull();
   expect(screen.queryByRole("button", { name: "打开云剪贴板" })).toBeNull();
   // The cloud dictionary only manages words, so it needs no input session and opens from 词库 like on every other desktop.
   expect(screen.queryByRole("button", { name: "打开云词库" })).toBeNull();
@@ -8834,7 +9159,7 @@ test("saves a shuangpin profile and retains it when switching schemes", async ()
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   await screen.findByRole("radio", { name: "全拼" });
-  expect(screen.getByRole("combobox", { name: "双拼方案" })).toBeDefined();
+  expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
   fireEvent.click(screen.getByRole("radio", { name: "双拼" }));
   const profile = screen.getByRole("combobox", { name: "双拼方案" }) as HTMLSelectElement;
   fireEvent.change(profile, { target: { value: "microsoft" } });
@@ -8846,9 +9171,11 @@ test("saves a shuangpin profile and retains it when switching schemes", async ()
     last_chinese_scheme: "shuangpin",
     shuangpin_profile: "microsoft",
   });
+  // 换回全拼时这一行藏起来，选过的方案留着，再换回双拼时原样出现。
   fireEvent.click(screen.getByRole("radio", { name: "全拼" }));
-  expect(screen.getByRole("combobox", { name: "双拼方案" })).toBeDefined();
-  expect(profile.textContent).toContain("微软双拼");
+  expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
+  fireEvent.click(screen.getByRole("radio", { name: "双拼" }));
+  expect(profile.value).toBe("microsoft");
 });
 
 test("saves the 98 Wubi profile chosen under Wubi", async () => {
@@ -8899,7 +9226,9 @@ test.each([
   await screen.findByRole("radio", { name: label });
   fireEvent.click(screen.getByRole("radio", { name: "日文" }));
   expect(screen.queryByRole("radio", { name: label })).toBeNull();
-  expect((screen.getByRole("radio", { name: "罗马音" }) as HTMLInputElement).checked).toBe(true);
+  // 日语只有一个方案，用一行说明代替只有一项的选择器。
+  const romaji = () => screen.getByText(/^罗马音：/);
+  expect(romaji().closest("[hidden]")).toBeNull();
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(stored.preferences.scheme).toBe("japanese");
@@ -8908,10 +9237,11 @@ test.each([
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  await screen.findByRole("radio", { name: "罗马音" });
+  await screen.findByRole("radio", { name: "中文" });
+  expect(romaji().closest("[hidden]")).toBeNull();
   fireEvent.click(screen.getByRole("radio", { name: "中文" }));
   expect((screen.getByRole("radio", { name: label }) as HTMLInputElement).checked).toBe(true);
-  expect(screen.queryByRole("radio", { name: "罗马音" })).toBeNull();
+  expect(romaji().closest("[hidden]")).not.toBeNull();
 });
 
 test("saves edited preferences against the loaded revision", async () => {
@@ -9733,15 +10063,35 @@ test("the AI page is grouped like the other pages", async () => {
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
   expect(page.querySelector(".section")).toBeNull();
-  expect(pageGroupTitles(page)).toEqual(["服务", "联想", "提示词", "测试工具"]);
+  // 桌面没有「测试工具」（润色测试只在 iOS、Android 上保留），提示词收进「服务」的「更多选项」。
+  expect(pageGroupTitles(page)).toEqual(["服务", "联想"]);
   const endpoint = within(page).getByLabelText("AI 接口地址");
   const more = endpoint.closest("details");
   expect(more).not.toBeNull();
   expect(more!.open).toBe(false);
   expect(within(page).getByRole("region", { name: "联想" }).textContent).toContain("候选数量");
-  expect((within(page).getByLabelText("自定义提示词二") as HTMLTextAreaElement).value).toBe(
-    "second",
+  const prompt = within(page).getByLabelText("AI 联想自定义提示词") as HTMLTextAreaElement;
+  expect(prompt.value).toBe("second");
+  expect(prompt.closest("details")).toBe(more);
+  expect(within(more!).getByRole("button", { name: "获取模型列表" })).toBeTruthy();
+  expect(within(page).queryByRole("button", { name: "发送并润色" })).toBeNull();
+});
+
+test("the macOS AI page has no candidate count, which the host fixes at three", async () => {
+  render(
+    <SettingsPage
+      initialPage="ai"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        aiAssistant: { fetchModels: vi.fn(), test: vi.fn() },
+        host: testHost({ platform: "macos" }),
+      }}
+    />,
   );
-  expect(within(page).queryByLabelText("自定义提示词一")).toBeNull();
-  expect(within(page).queryByLabelText("自定义提示词三")).toBeNull();
+  await settingsReady();
+  const page = screen.getByRole("group", { name: "AI 辅助" });
+  expect(pageGroupTitles(page)).toEqual(["服务"]);
+  expect(within(page).queryByLabelText("AI 候选数量")).toBeNull();
+  expect(within(page).queryByRole("button", { name: "发送并润色" })).toBeNull();
 });

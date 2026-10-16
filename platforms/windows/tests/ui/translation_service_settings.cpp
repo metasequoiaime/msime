@@ -12,7 +12,8 @@ void check(bool condition, const char *what) {
   }
 }
 TranslationServiceChoice choice(bool account, bool niutrans, bool custom, bool tencent,
-                                std::wstring id = L"", std::wstring key = L"") {
+                                std::wstring id = L"", std::wstring key = L"",
+                                bool tencent_chosen = false) {
   TranslationServiceChoice value;
   value.account = account;
   value.niutrans = niutrans;
@@ -20,14 +21,21 @@ TranslationServiceChoice choice(bool account, bool niutrans, bool custom, bool t
   value.tencent = tencent;
   value.tencent_secret_id = std::move(id);
   value.tencent_secret_key = std::move(key);
+  value.tencent_chosen = tencent_chosen;
   return value;
 }
 } // namespace
 
 int main() {
-  // 新装：腾讯云默认开着，没有凭据。
-  check(translation_provider(choice(false, false, false, true)) == L"tencent",
-        "the default is Tencent");
+  // 新装：腾讯云默认开着，没有凭据。Server 不会请求它，所以显示成 none；用户在窗口里选了腾讯云才显示腾讯云。
+  check(translation_provider(choice(false, false, false, true)) == L"none",
+        "the unconfigured default Tencent reads as none");
+  check(translation_provider(choice(false, false, false, true, L"", L"", true)) == L"tencent",
+        "Tencent picked in this window shows even without secrets");
+  check(translation_provider(choice(false, false, false, true, L"AKID1", L"key")) == L"tencent",
+        "configured Tencent shows without being picked");
+  check(translation_provider(choice(false, false, false, false, L"", L"", true)) == L"none",
+        "a stale pick does not revive a disabled Tencent");
   check(translation_provider(choice(true, false, false, true)) == L"account",
         "Tencent without secrets does not hide the account");
   check(translation_provider(choice(true, false, false, true, L"AKID1", L"key")) == L"tencent",
@@ -40,7 +48,7 @@ int main() {
         "NiuTrans comes before custom and Tencent");
   check(translation_provider(choice(false, false, true, true)) == L"custom",
         "custom comes before Tencent");
-  check(translation_provider(choice(false, false, false, false)) == L"none", "nothing is 关闭");
+  check(translation_provider(choice(false, false, false, false)) == L"none", "nothing is none");
 
   check(!tencent_secret_configured(L"  　"), "whitespace is not configured");
   check(!tencent_secret_configured(L" FAKESECRET_x "), "FAKESECRET_ is not configured");

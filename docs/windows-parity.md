@@ -225,7 +225,7 @@
 
 - 中英文切换：切换后光标旁的「中」「英」徽标（`input_mode_hud`，同时向读屏软件播报「中文输入」「英文输入」）；应用例外 `app_input_mode_rules` 升为共享偏好，Windows 按进程基名、macOS 按 bundle id，同一张表；Alt+Shift+H 切换全半角。
 - 组字：双拼键位提示浮窗（`shuangpin_keymap_hint` 升为共享偏好）、双拼预编辑设置项、成对标点补全覆盖「」和全角｛｝及符号候选、日语方案的空格「変換」与回车上屏停在的候选。
-- 标点样式（2026-10-13）：共享偏好 `quote_style`（弯引号、直角引号、繁体输出时用直角引号）与 `bracket_style`（实心、空心）。Server 按偏好算出生效样式，经 Worker 帧 `PunctuationMarksChanged`（31，载荷 `q<0|1>b<0|1>`）推给 TIP，TIP 的 `GetPunctuation` 按它换字，成对补全、跨过、改回前引号和空格转换都认「」『』〖〗。原生设置页「标点」组在「中文标点」之后有这两项。
+- 标点样式（2026-10-13）：共享偏好 `quote_style`（弯引号、直角引号、繁体输出时用直角引号）与 `bracket_style`（实心、空心）。Server 按偏好算出生效样式，经 Worker 帧 `PunctuationMarksChanged`（31，载荷 `q<0|1>b<0|1>`）推给 TIP，TIP 的 `GetPunctuation` 按它换字，成对补全、跨过、改回前引号和空格转换都认「」『』〖〗。原生设置页「标点」组在「标点」选择之后是引号样式，方头括号样式收在组内的「更多选项」里。
 - 候选窗：‹ › 箭头不再受滚轮开关牵连，滚轮开关即时生效；`show_app_logo`；第二种释义语言每种一行；横排预留释义高度；英文 IPA 与日文罗马字读音（罗马字来自微软日语输入法的 IFELanguage）；整句逐词拆解；悬停提示；Alt/Ctrl+数字与 Tab 按列上屏释义；「水杉账号」候选释义。
 - 悬浮工具栏与托盘：切换输入方案、手写、语音三个可选按钮；设置按钮右键的实用菜单（含隐藏工具栏）；语言按钮按方案画「双」「五」；悬停提示；logo 关掉时换成握把；10 秒无键盘输入自动隐藏（钩子看不到的注入按键和发往提权窗口的按键，只要经过 Server 也会唤醒）；拖动位置跨重启保留；共享应用不在时表情退回系统字符面板（Win+.）、屏幕键盘退回 `osk.exe`。托盘补上繁体输出、英文候选模式、带当前编辑器的云剪贴板、主题子菜单、标点锁定时禁用中文标点，并能用键盘操作。任务栏语言栏图标按方案画一个字。候选窗、工具栏和托盘卡片有 UI Automation 元素树，读屏能读能执行。
 - 打字特效：光标处的火花浮层、Power Mode 抖动、特效包的多色与粒子数、候选窗不在时的特效；交给应用的键也出按键音、计入连击。
@@ -667,7 +667,7 @@ macOS 缺后半条。`ShouldRoutePhysicalCandidateDigit` 明确把 Unicode 模�
 
 候选管理菜单不改。来源的桌面右键菜单是 置顶 / 固定排位→第 1–5 位 + 取消固定 / 删除；本仓是 优先显示 / 第 1–5 位 / 取消固定 / 删除词条…，把悬停子菜单摊平（触屏上没有悬停），措辞则与 iOS、Android 一致。`platforms/android/README.md` 写明这套顺序与措辞对齐的是 Apple 来源的长按菜单，三个触屏平台共用。HarmonyOS 是触屏平台，改成 Windows 的说法会破坏三端一致并推翻既有决定。「删除词条…」的省略号也有意义：本仓这一项 `confirmationRequired` 为真，来源那条不是。
 
-悬浮工具栏已齐。来源设置页里的 6 个组件 id 与标签（character_set / emoji / fullwidth / punctuation / screen_keyboard / settings）与本仓 `floatingToolbarComponents` 完全一致。来源的「中英文切换」是始终显示项，本仓的中/英按钮由 `english_mode` 控制、可以关掉，所以共享设置页不再画锁定的「始终显示」一行，`english_mode` 那一项直接叫「中英文切换」（与 Windows 原生设置页同名）。来源的缩放和图标尺寸两节在共享设置页合成一个「工具栏大小」（75%–175%，175% 写成 150% 缩放加 28 的图标，最大尺寸与来源相同），Windows 原生设置页仍按来源分成两节。
+悬浮工具栏已齐。来源设置页里的 6 个组件 id 与标签（character_set / emoji / fullwidth / punctuation / screen_keyboard / settings）与本仓 `floatingToolbarComponents` 完全一致。来源的「中英文切换」是始终显示项，本仓的中/英按钮由 `english_mode` 控制、可以关掉，所以共享设置页不再画锁定的「始终显示」一行，`english_mode` 那一项直接叫「中英文切换」（与 Windows 原生设置页同名）。来源的缩放和图标尺寸两节在共享设置页合成一个「工具栏大小」（75%–175%，175% 写成 150% 缩放加 28 的图标，最大尺寸与来源相同），Windows 原生设置页的「尺寸」组也合成同一个「工具栏大小」（档位在 `platforms/windows/settings/FloatingToolbarSizeModel.h`），以前分开调出、凑不成一档的组合显示为灰着的「自定义」，不被改写。
 
 组件**默认值**有一处刻意不跟：`emoji` 在共享层默认关（与 `handwriting`、`voice`、`screen_keyboard` 一起），来源默认开。id、标签和顺序不变，只是新配置拿到的是精简工具栏。Windows 不受影响——`platforms/windows/installer/config.default.toml` 逐项显式写出每个组件（`floating_toolbar_emoji = true`），镜像来源自己的默认配置，共享默认值轮不到生效；变的是不带出厂配置的宿主（macOS、HarmonyOS）。理由与升级代价见下面《工具栏可选按钮改为默认关》。
 
@@ -1014,6 +1014,8 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 **已移植两项，都是取值不变、只改可见文字：**
 
 固定标点（来源 `4f074779` + `38da1e77`）。来源先补回误删的「始终使用中文标点」，再把那对互斥开关改成单选组。本仓**早就**是单值控件——`punctuation_lock` 的三个取值一直在一个下拉里，来源这两步走到的形状这边一开始就是——差的只有文案，四处全部改用来源说法（固定标点 / 跟随中英文状态 / 始终使用中文标点 / 始终使用英文标点），并补上来源那句「切换中英文时的标点形态，三者互斥」。控件保持下拉：来源换 radio 是为了从两个开关表达一个值，这边从来就是一个值，相邻每个单值设置也都是下拉。macOS 原生备用窗的同一控件一并改名，否则同一平台上两个窗口对同一个偏好用两个名字。
+
+后注（2026-10-16）：Windows 原生设置页已不再单列「固定标点」。「中文标点」开关和「固定标点」合成同一个四项的「标点」选择（中文标点 / 英文标点 / 始终中文标点（英文模式也用）/ 始终英文标点），推导和写回规则在 `platforms/windows/settings/PunctuationSettings.h`，与共享页的 `punctuation-preferences.ts` 相同；`punctuation_lock` 的取值和 TIP 的行为不变。背景见 `.agents/notes/implemented/simplification/2026-10-16-expression-page-prune.md` 的「各平台跟进」。
 
 日语方案「罗马字」→「罗马音」（来源 `eb512885`），含下面那句说明。来源只改了这一处：实用功能页 R 模式的说明里它自己仍写「按日语罗马字处理」，所以本仓对应那句不动——这类「来源只改了一半」的地方要照着它改一半，否则下次对照会以为是本仓漂移。
 
@@ -2086,7 +2088,7 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 叫法：「主题模式」改为「颜色模式」，各界面主题的「跟随全局」改为「跟随颜色模式」，「覆盖主题模式」与「预览跟随主题模式」改为「覆盖颜色模式」，候选窗口主题与悬浮工具栏主题的说明写出各自只影响哪个界面；「关于」页的「数据与隐私」改「许可与隐私」、「开源许可」改「开源许可协议」、「版本发布记录」改「历史版本」；连接 AI 助手说明里的「候选框皮肤」改「候选窗口皮肤」；安装器 `config.default.toml` 的注释同步改为「颜色模式」。
 - 证据：`windows-settings-navigation` 覆盖新的侧栏、路由表与跳转目标，本机用 clang 编译运行通过。`main.cpp` 依赖 WinUI 3，本机没有编译，只能交给 Windows CI。
 
-> 2026-10-15 补注：本节记录 2026-10-02 的状态，其中跳共享应用的设置路由（`settings:skin`、`settings:tools`、`settings:input`）已被 2026-10-11 合并的 #7129（`feat/windows-native-settings`，合并提交 04c6af6e96）取代：Windows 设置窗口现在原生绘制全部 18 页，不再有交给共享应用的设置页，只有 5 个面板仍拉起 `MSIME.exe`（`platforms/windows/settings/SettingsNavigation.h` 的 `pages` 与 `shell_links`）。现状以 `platforms/windows/settings/README.md` 为准。
+> 2026-10-15 补注：本节记录 2026-10-02 的状态，其中跳共享应用的设置路由（`settings:skin`、`settings:tools`、`settings:input`）已被 2026-10-11 合并的 #7129（`feat/windows-native-settings`，合并提交 04c6af6e96）取代：Windows 设置窗口现在原生绘制全部 17 页，不再有交给共享应用的设置页，只有 5 个面板仍拉起 `MSIME.exe`（`platforms/windows/settings/SettingsNavigation.h` 的 `pages` 与 `shell_links`）。现状以 `platforms/windows/settings/README.md` 为准。
 
 ### Windows：使用上报改走共享上报器，默认开启（2026-10-02）
 

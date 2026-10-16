@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { Preferences, SettingsClient, VoiceInputPreferences } from "../index";
+import type { SettingsClient, VoiceInputPreferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 import { LocalModelManager, localModelInUse } from "../voice/local-models";
 import { MoreOptions } from "../core/platform-controls";
 import { VoiceModelMirrorRow } from "./voice-model-mirror-section";

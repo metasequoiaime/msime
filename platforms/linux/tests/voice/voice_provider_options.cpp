@@ -40,6 +40,24 @@ int main() {
   assert(!options.contains("sound_enabled"));
   assert(options.at("hotkey_hold_space_lock") == true);
 
+  // 开始、结束提示音不再转发，只转发总开关；服务没收到这两项时按缺省都播放。
+  options = voice_provider_options(Json{{"voice_input", {{"sound_enabled", true}, {"start_sound", false}, {"end_sound", false}}}});
+  assert(options.at("sound_enabled") == true);
+  assert(!options.contains("start_sound"));
+  assert(!options.contains("end_sound"));
+
+  // 别的平台写下的录音后端连同它的设备一起不转发，服务改用自己的录音设置；它认识的后端照常转发。
+  for (const char *foreign : {"macos", "windows", "harmony", "Pulse"}) {
+    options = voice_provider_options(Json{{"voice_input", {{"capture_backend", foreign}, {"capture_device", "uid-usb"}}}});
+    assert(!options.contains("capture_backend"));
+    assert(!options.contains("capture_device"));
+  }
+  for (const char *supported : {"", "auto", "pulse", "pipewire", "alsa"}) {
+    options = voice_provider_options(Json{{"voice_input", {{"capture_backend", supported}, {"capture_device", "alsa_input.synthetic"}}}});
+    assert(options.at("capture_backend") == supported);
+    assert(options.at("capture_device") == "alsa_input.synthetic");
+  }
+
   // An oversized prompt is refused rather than truncated.
   bool refused = false;
   try {

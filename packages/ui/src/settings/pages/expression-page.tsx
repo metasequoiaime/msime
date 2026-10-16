@@ -142,6 +142,7 @@ export function ExpressionSettingsPage() {
                 available={candidateTranslations}
                 provider={translationProvider}
                 showAccountProvider={translation.candidate.showAccountProvider ?? false}
+                offlineFallback={translation.candidate.offlineFallback}
                 onChange={setTranslationProvider}
               />
               {/* 这一组已经整体收在「更多选项」里，腾讯云地域不再套第二层。 */}

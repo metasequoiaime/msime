@@ -1,24 +1,20 @@
 /**
- * Which of the four recording-behaviour switches apply to a given moment.
+ * 录音行为的几个开关在某一刻是否生效。
  *
- * `sound_enabled` is the master the settings page shows above the other two: 语音提示音, then 开始
- * 录音提示音 and 结束录音提示音 under it. Turning the master off silences both regardless of what
- * they say, which is the shape the page implies and the one the other hosts forward.
+ * 提示音只认总开关 `sound_enabled`（设置页的「提示音」）：开始、结束提示音都跟着它。存下的 `start_sound`、`end_sound` 不再读，设置页也不再给这两个开关（`voice_cue_switches` 为 false），与 macOS、Windows 一致；以前单独关掉其中一个的人会重新听到它，这是有意的，不留一个看不见却仍然生效的值。
  *
- * The three sound switches default to on and quietening others defaults to off, matching the shared
- * schema. An absent field is an older document rather than a choice, so it takes the default rather
- * than the safest-looking value.
+ * 提示音默认开，静音其他声音默认关，与共享 schema 一致。字段缺失说明是旧文档而不是用户的选择，所以取默认值，而不是看起来最安全的值。
  */
 import { HttpAsrConfigurationPolicy } from "./HttpAsrConfigurationPolicy";
 import { VoiceInputConfiguration } from "./VoiceInputConfiguration";
 
 export class VoiceRecordingBehaviourPolicy {
   static playsStartTone(voice: VoiceInputConfiguration): boolean {
-    return VoiceRecordingBehaviourPolicy.sounds(voice) && voice.start_sound !== false;
+    return VoiceRecordingBehaviourPolicy.sounds(voice);
   }
 
   static playsEndTone(voice: VoiceInputConfiguration): boolean {
-    return VoiceRecordingBehaviourPolicy.sounds(voice) && voice.end_sound !== false;
+    return VoiceRecordingBehaviourPolicy.sounds(voice);
   }
 
   /**

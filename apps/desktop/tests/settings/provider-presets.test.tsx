@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { selectSettingsTab, settingsFormReady } from "../support/settings-form";
+import { openVoiceServiceConfig, settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -122,6 +122,8 @@ test("自定义 has neither preset models nor an integration page", async () => 
 test("the recognition provider carries the same presets and link", async () => {
   const openExternalUrl = vi.fn(async () => {});
   await openPage("语音输入", openExternalUrl, "windows");
+  // 识别模型和接入说明都在「服务配置」子视图里，模型收在「更多选项」中。
+  openVoiceServiceConfig();
 
   const models = screen.getByLabelText("识别模型") as HTMLSelectElement;
   expect(optionValues(models)).toEqual(["whisper-large-v3-turbo", "whisper-large-v3", ""]);
@@ -134,8 +136,7 @@ test("the recognition provider carries the same presets and link", async () => {
   expect(openExternalUrl).toHaveBeenCalledWith("https://console.groq.com/docs/speech-to-text");
 });
 
-// Doubao publishes an integration page but no OpenAI-style model catalogue, so
-// its model is a plain field next to the link.
+// Doubao publishes an integration page but no OpenAI-style model catalogue. 它的识别请求也不读 `asr_model`，所以不画识别模型，只留接入说明。
 test("a provider without preset models still links to its integration page", async () => {
   const openExternalUrl = vi.fn(async () => {});
   await openPage("语音输入", openExternalUrl, "windows");
@@ -143,7 +144,8 @@ test("a provider without preset models still links to its integration page", asy
   fireEvent.change(screen.getByRole("combobox", { name: "识别服务" }), {
     target: { value: "doubao" },
   });
-  expect(screen.getByLabelText("识别模型").tagName).toBe("INPUT");
+  openVoiceServiceConfig();
+  expect(screen.queryByLabelText("识别模型")).toBeNull();
   expect(screen.getByRole("button", { name: "识别服务接入说明与 API Key" })).toBeTruthy();
 });
 
@@ -153,7 +155,7 @@ test("voice polish carries the same presets and link", async () => {
   const openExternalUrl = vi.fn(async () => {});
   await openPage("语音输入", openExternalUrl, "windows");
 
-  selectSettingsTab("润色");
+  openVoiceServiceConfig();
   const models = screen.getByLabelText("文本润色模型") as HTMLSelectElement;
   expect(optionValues(models)).toEqual(["deepseek-v4-flash", "deepseek-v4-pro", ""]);
 

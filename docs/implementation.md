@@ -18,7 +18,7 @@
 
 | crate | 职责 |
 | --- | --- |
-| `msime-client-base` | 客户端最底层、不联网的本地能力：`storage`、`file_lock`、`bounded_io`、`text`、`calendar`、`chinese_conversion`（含 `data/opencc/`）。client-core 用 `use`/`pub use` 把它们接回原来的路径，`msime-backend-engine` 只依赖这一层。 |
+| `msime-client-base` | 客户端最底层、不联网的本地能力：`storage`、`file_lock`、`bounded_io`、`text`、`calendar`、`chinese_conversion`（构建输入由 `resources/opencc.lock.json` 从 msime-dictionary 固定）。client-core 用 `use`/`pub use` 把它们接回原来的路径，`msime-backend-engine` 只依赖这一层。 |
 | `msime-client-core` | 宿主无关的客户端核心：`preferences`、`edition`、`host_surface`、`settings_document`、`theme`、`punctuation`、`helpcode`、`clipboard`、`translation`、`cloud`、`resources`、`panels`、`candidate_document`。不带网络栈，`msime-input-runtime` 只依赖它。与另外三个 client crate 一样不依赖 Tauri、React、Engine 或任何平台 API。 |
 | `msime-client-services` | 账号与用户内容，依赖 client-core：`account`、`community`、`telemetry`、`notices`、`update_check`、`diagnostics`、`clipboard_relay`、`skin`、`plugins`、`dictionary`、`vocabulary`、`common_phrases`、`typing_statistics`。 |
 | `msime-client-providers` | 语音与外部服务，依赖 client-core，与 client-services 互不引用：`voice`、`credential`、`ai`、`resource_packs`。 |
@@ -105,7 +105,7 @@ InputMethodKit 宿主，产物 bundle 名为 `水杉输入法.app`，`CFBundleId
 
 输入源菜单收敛为工具入口加两条出口——中英文、英文候选模式，繁体输出、全角、中文标点、显示译文四个勾选项，输入方案与主题两个子菜单，悬浮工具栏，加表情面板、云剪贴板、屏幕键盘、手写、语音，最后是「水杉输入法设置…」和「关于水杉输入法…」。「云剪贴板…」是和表情面板同类的工具：它带着当前输入会话打开共享面板，点选条目直接上屏，安全输入期间不打开。所有管理页（候选、账号、云剪贴板的开关与清空、皮肤目录）统一进设置窗口，不在菜单里各开一条路；设置窗口优先启动共享 Tauri 页面，bundle 不可用时回退到原生视图。
 
-原生实现的能力包括：候选面板（定位、分页、hover、翻页按钮、行宽测量、位置迟滞）、四套内置皮肤与外部 `skin.toml` 皮肤包、候选注释与翻译、云候选、语音（豆包 WSS、HTTP provider、波形面板、录音设备、润色、提示音）、手写、屏幕键盘、表情/颜文字/符号/剪贴板面板、悬浮工具栏、中英模式 HUD、双拼键位提示、打字统计、诊断日志、Sparkle 自动更新。发布安装来自 DMG（`platforms/macos/package-release.sh`）：设置应用内嵌 `水杉输入法.app`，每次启动都在后台比较随附与已安装 bundle 的版本，未安装时安装、随附的更新时替换，从不降级，只在打包好的应用里进行（开发运行与输入法拉起的面板进程跳过）；设置页的「安装 / 更新」是不比较版本的强制重装。两者走同一条路径：staging 目录里完整复制、原子替换到 `~/Library/Input Methods`，再启动已安装 bundle 的 `--register-input-source` 登记并启用自身，注册失败时回滚到旧安装（没有旧安装时保留新 bundle 等下次登录），不静默切换当前输入源。开发者路径是 `platforms/macos/scripts/install.sh`：用本机 Developer ID 重签、原子替换、失败回滚，并拒绝含受限 entitlement 的签名。卸载默认只把 bundle 移入废纸篓、保留词库与学习记录，用户明确勾选才一并清除状态目录、偏好域和语音密钥。
+原生实现的能力包括：候选面板（定位、分页、hover、翻页按钮、行宽测量、位置迟滞）、四套内置皮肤与外部 `skin.toml` 皮肤包、候选注释与翻译、云候选、语音（豆包 WSS、HTTP provider、波形面板、录音设备、润色、提示音）、手写、屏幕键盘、表情/颜文字/符号/剪贴板面板、悬浮工具栏、中英模式 HUD、双拼键位提示、打字统计、诊断日志、Sparkle 自动更新。发布安装来自 DMG（`platforms/macos/package-release.sh`）：设置应用内嵌 `水杉输入法.app`，每次启动都在后台比较随附与已安装 bundle 的版本，未安装时安装、随附的更新时替换，从不降级，只在打包好的应用里进行（开发运行与输入法拉起的面板进程跳过）；设置页的「修复输入源」按同样的版本规则补装，再以 `--reregister-input-source` 重新登记。两者走同一条路径：staging 目录里完整复制、原子替换到 `~/Library/Input Methods`，再启动已安装 bundle 的 `--register-input-source` 登记并启用自身，注册失败时回滚到旧安装（没有旧安装时保留新 bundle 等下次登录），不静默切换当前输入源。开发者路径是 `platforms/macos/scripts/install.sh`：用本机 Developer ID 重签、原子替换、失败回滚，并拒绝含受限 entitlement 的签名。卸载默认只把 bundle 移入废纸篓、保留词库与学习记录，用户明确勾选才一并清除状态目录、偏好域和语音密钥。
 
 ### iOS
 

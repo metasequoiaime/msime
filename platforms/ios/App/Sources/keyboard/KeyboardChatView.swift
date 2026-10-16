@@ -103,7 +103,7 @@ final class KeyboardChatModel: ObservableObject {
 }
 
 struct KeyboardTryoutView: View {
-  /// 「对话」标签页上叫「对话」；引导页和皮肤试用里仍叫「试用键盘」。
+  /// 从设置打开的 AI 对话二级页叫「AI 对话」；引导页和皮肤试用里仍叫「试用键盘」。
   var title = "试用键盘"
   var focusOnAppear = false
   /// `AppNavigation.chatFocusRequest`：与上次出现时不同，说明是从「试用键盘」过来的，出现时把焦点放进输入框。

@@ -1,5 +1,5 @@
 import type { InputScheme } from "../core/input-scheme";
-import { LinkRow } from "../core/platform-controls";
+import { LinkRow, Row } from "../core/platform-controls";
 
 import { resolveVietnamesePreferences, type VietnamesePreferences } from "./vietnamese-preferences";
 import {
@@ -15,6 +15,7 @@ import {
 import { SelectRow } from "./select-row";
 import { SwitchRow } from "./switch-row";
 import { SegmentedRow } from "./segmented-row";
+import { PreeditStyleRow } from "./preedit-style-row";
 
 export type InputSchemeDetailsScheme = InputScheme;
 export type ShuangpinProfile =
@@ -62,17 +63,20 @@ export interface InputSchemeDetailsSectionProps {
   shuangpinProfile: ShuangpinProfile;
   /** 缺省为 86 五笔。 */
   wubiProfile?: WubiProfile;
-  macos: boolean;
   hasTouchKeyboardSchemes: boolean;
   /** 触屏宿主启用了五笔键盘：触屏只有一个五笔键盘，86 还是 98 仍在这里选。 */
   touchKeyboardHasWubi?: boolean;
   /** 「输入时显示双拼键位提示」的当前值；宿主不画双拼键位图时不传，这一行不出现。 */
   shuangpinKeymapHint?: boolean;
+  /** 「双拼预编辑」的当前样式（保留原始按键或显示拼音分词）；宿主不画双拼预编辑（`HostCapabilities.shuangpin_preedit` 为假）或在触屏宿主上时不传，这一行不出现。 */
+  shuangpinPreedit?: "raw" | "pinyin";
   onShuangpinProfileChange: (profile: ShuangpinProfile) => void;
   /** 宿主能校验自定义双拼表时传入，打开自定义双拼的编辑页。有它时方案里多一项「自定义双拼」：选它先打开编辑页，在那里保存一张能用的表才切过去，与 MCP 不让选一张不能用的表相同；已经是自定义双拼时下面多一行「编辑自定义键位」。 */
   onEditCustomShuangpin?: () => void;
   onWubiProfileChange?: (profile: WubiProfile) => void;
   onShuangpinKeymapHintChange?: (enabled: boolean) => void;
+  /** 选了双拼预编辑的样式：`true` 为保留原始按键，写进共享偏好 `shuangpin_preedit_uses_raw`。 */
+  onShuangpinPreeditChange?: (usesRaw: boolean) => void;
   /** The document's Vietnamese options; absent means the defaults, Telex with modern tone placement. */
   vietnamese?: VietnamesePreferences;
   onVietnameseChange?: (vietnamese: VietnamesePreferences) => void;
@@ -93,14 +97,15 @@ export function InputSchemeDetailsSection({
   scheme,
   shuangpinProfile,
   wubiProfile = "wubi86",
-  macos,
   hasTouchKeyboardSchemes,
   touchKeyboardHasWubi = false,
   shuangpinKeymapHint,
+  shuangpinPreedit,
   onShuangpinProfileChange,
   onEditCustomShuangpin,
   onWubiProfileChange,
   onShuangpinKeymapHintChange,
+  onShuangpinPreeditChange,
   vietnamese,
   onVietnameseChange,
 }: InputSchemeDetailsSectionProps) {
@@ -118,13 +123,27 @@ export function InputSchemeDetailsSection({
     resolveVietnamesePreferences(vietnamese);
   const changeVietnamese = (patch: VietnamesePreferences) =>
     onVietnameseChange?.({ input_method: inputMethod, tone_style: toneStyle, ...patch });
+  // 双拼的各行只在双拼方案下出现：其他方案下它们改不了正在用的方案，原先灰着显示的双拼方案也只是多出来的一行。
+  const hideShuangpinRows = hideChineseSchemeOptions || scheme !== "shuangpin";
+  // 日语、韩语、粤拼、注音、笔画和藏文各只有一个方案，没有可选的东西，只在对应方案下用一行说明它怎么打。
+  const schemeNote = (
+    shown: InputSchemeDetailsScheme,
+    title: string,
+    options: readonly { label: string }[],
+    description: string,
+  ) => (
+    <Row
+      title={title}
+      description={`${options[0].label}：${description}`}
+      hidden={hasTouchKeyboardSchemes || scheme !== shown}
+    />
+  );
 
   return (
     <>
       <SelectRow
         title="双拼方案"
-        hidden={hideChineseSchemeOptions}
-        disabled={macos && scheme !== "shuangpin"}
+        hidden={hideShuangpinRows}
         value={shuangpinProfile}
         onChange={(event) => {
           const profile = event.target.value as ShuangpinProfile;
@@ -135,7 +154,7 @@ export function InputSchemeDetailsSection({
         {shuangpinProfileOptions(Boolean(onEditCustomShuangpin), shuangpinProfile)}
       </SelectRow>
       {onEditCustomShuangpin && shuangpinProfile === "custom" && (
-        <div hidden={hideChineseSchemeOptions}>
+        <div hidden={hideShuangpinRows}>
           <LinkRow
             title="编辑自定义键位"
             description="改键、导入或导出这张双拼表。"
@@ -147,9 +166,19 @@ export function InputSchemeDetailsSection({
         <SwitchRow
           title="输入时显示双拼键位提示"
           description="双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。"
-          hidden={hasTouchKeyboardSchemes || scheme !== "shuangpin"}
+          hidden={hideShuangpinRows}
           checked={shuangpinKeymapHint}
           onChange={onShuangpinKeymapHintChange ?? (() => {})}
+        />
+      )}
+      {/* 双拼预编辑以前在「候选窗口」页，对所有人显示，说明却写着只在双拼下生效；放到这里只在双拼方案下出现。 */}
+      {shuangpinPreedit !== undefined && !hideShuangpinRows && (
+        <PreeditStyleRow
+          title="双拼预编辑"
+          description="保留原始双拼按键，或显示展开后的拼音分词。"
+          mode="shuangpin"
+          value={shuangpinPreedit}
+          onChange={(value) => onShuangpinPreeditChange?.(value === "raw")}
         />
       )}
       {/* 五笔方案在 86 与 98 码表之间切换，个人词条和学习记录按版本分开存；触屏宿主没有方案选择器，启用了五笔键盘时也在这里选。 */}
@@ -161,47 +190,21 @@ export function InputSchemeDetailsSection({
       >
         {wubiProfileOptions()}
       </SelectRow>
-      {/* 日语、韩语各只有一个方案，选择器改不了任何东西，只在对应方案下作为说明出现。 */}
-      <SegmentedRow
-        title="日语方案"
-        description="直接输入罗马音，提供平假名、片假名及日语词库候选"
-        hidden={hasTouchKeyboardSchemes || scheme !== "japanese"}
-        options={japaneseInputSchemeOptions}
-        value="romaji"
-        onChange={() => {}}
-      />
-      <SegmentedRow
-        title="韩语方案"
-        description="按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角"
-        hidden={hasTouchKeyboardSchemes || scheme !== "korean"}
-        options={koreanInputSchemeOptions}
-        value="dubeolsik"
-        onChange={() => {}}
-      />
-      <SegmentedRow
-        title="粤拼方案"
-        description={cantoneseDescription}
-        hidden={hasTouchKeyboardSchemes || scheme !== "cantonese"}
-        options={cantoneseInputSchemeOptions}
-        value="jyutping"
-        onChange={() => {}}
-      />
-      <SegmentedRow
-        title="注音键盘"
-        description={zhuyinDescription}
-        hidden={hasTouchKeyboardSchemes || scheme !== "zhuyin"}
-        options={zhuyinLayoutOptions}
-        value="dachen"
-        onChange={() => {}}
-      />
-      <SegmentedRow
-        title="笔画方案"
-        description={strokeDescription}
-        hidden={hasTouchKeyboardSchemes || scheme !== "stroke"}
-        options={strokeLayoutOptions}
-        value="hspnz"
-        onChange={() => {}}
-      />
+      {schemeNote(
+        "japanese",
+        "日语方案",
+        japaneseInputSchemeOptions,
+        "直接输入罗马音，提供平假名、片假名及日语词库候选",
+      )}
+      {schemeNote(
+        "korean",
+        "韩语方案",
+        koreanInputSchemeOptions,
+        "按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角",
+      )}
+      {schemeNote("cantonese", "粤拼方案", cantoneseInputSchemeOptions, cantoneseDescription)}
+      {schemeNote("zhuyin", "注音键盘", zhuyinLayoutOptions, zhuyinDescription)}
+      {schemeNote("stroke", "笔画方案", strokeLayoutOptions, strokeDescription)}
       <SegmentedRow
         title="越南语方案"
         description={vietnameseDescription}
@@ -218,14 +221,7 @@ export function InputSchemeDetailsSection({
         value={toneStyle}
         onChange={(tone_style) => changeVietnamese({ tone_style })}
       />
-      <SegmentedRow
-        title="藏文方案"
-        description={tibetanDescription}
-        hidden={hasTouchKeyboardSchemes || scheme !== "tibetan"}
-        options={tibetanInputSchemeOptions}
-        value="ewts"
-        onChange={() => {}}
-      />
+      {schemeNote("tibetan", "藏文方案", tibetanInputSchemeOptions, tibetanDescription)}
     </>
   );
 }

@@ -16,7 +16,7 @@ int main() {
         NSDictionary *original = @{@"ai_assistant": originalAI, @"learning": @YES};
         NSDictionary *edits = @{
             @"enabled": @NO, @"provider": @"deepseek", @"model": @"new-model",
-            @"endpoint": @"https://synthetic.invalid/chat", @"candidate_limit": @7,
+            @"endpoint": @"https://synthetic.invalid/chat",
             @"prompt_custom_1": @"new-one",
             @"prompt_custom_2": @"new-two", @"prompt_custom_3": @"new-three"
         };
@@ -29,6 +29,9 @@ int main() {
         assert([original[@"ai_assistant"][@"model"] isEqual:@"old-model"]);
         NSDictionary *unowned = MSIMEAISettingsMerge(original, @{@"token": @"must-not-overwrite"});
         assert([unowned isEqual:original]);
+        // 候选数量不归这个窗口管（macOS 固定为 3），即使传进来也不写。
+        NSDictionary *limit = MSIMEAISettingsMerge(original, @{@"candidate_limit": @7});
+        assert([limit isEqual:original]);
         assert([MSIMEAISettingsMerge(@{}, edits)[@"ai_assistant"] isEqual:edits]);
     }
 }

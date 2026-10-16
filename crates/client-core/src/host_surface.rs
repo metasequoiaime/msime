@@ -51,6 +51,26 @@ impl HostPlatform {
         }
     }
 
+    /// 这个宿主是否读偏好里的中英混输触发字符数，见 `HostCapabilities::mixed_input_minimum_prefix`。只有触屏宿主（Android、iOS、HarmonyOS）读：九键、十四键上触发字符数是按键次数，在玻璃上多打几个字母的代价更大，Android 也是应用户要求才加的这一项。三个桌面宿主（macOS、Windows、Linux）不读，固定用 [`crate::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX`]。
+    pub fn reads_mixed_input_minimum_prefix(self) -> bool {
+        matches!(
+            self,
+            HostPlatform::Android | HostPlatform::Ios | HostPlatform::Harmony
+        )
+    }
+
+    /// 这个宿主固定使用的 AI 联想候选数量，不读 `ai_assistant.candidate_limit`；`None` 表示按偏好。见 `HostCapabilities::fixed_ai_candidate_limit`。
+    pub fn fixed_ai_candidate_limit(self) -> Option<u8> {
+        // macOS 的 AI 座位只坐一行，同一批多出来的回答排到候选列表末尾，数量改了几乎看不出差别，所以固定为默认值 3，设置页不再给这一项。
+        (self == HostPlatform::Macos).then_some(3)
+    }
+
+    /// 这个宿主固定使用的打字效果强度（0-100），不读 `plugins.effect_intensity`；`None` 表示按偏好。特效包自带的强度不受影响。见 `HostCapabilities::fixed_effect_intensity`。
+    pub fn fixed_effect_intensity(self) -> Option<u8> {
+        // macOS 的三种样式（闪光、火花、Power Mode）本身就是强度的粗调，特效包也会换掉强度，所以强度固定为默认值 50。
+        (self == HostPlatform::Macos).then_some(50)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             HostPlatform::Windows => "windows",
@@ -255,6 +275,12 @@ pub struct HostCapabilities {
     /// somewhere to put one. A host without that surface would be offering a switch whose only
     /// effect is on a display it does not have.
     pub voice_stream_preedit: bool,
+    /// 宿主读 `voice_input.hotkey_hold_space_lock`，设置页才给出「长按录音时按空格锁定」开关。macOS、Windows、Linux（IBus、Fcitx5）和 HarmonyOS 把它固定为开：空格只在按住录音组合键期间才被拦下，平常打字不受影响，这些宿主不再读存下的 false。只有 Android、iOS 还读它。
+    pub voice_space_lock_switch: bool,
+    /// 宿主分别读开始、结束提示音（`voice_input.start_sound`、`end_sound`），设置页才在总开关之外给出这两个开关。macOS、Windows、HarmonyOS 只读总开关 `sound_enabled`，Linux 的转发方不再把这两项交给语音服务，服务按自己的缺省（都响）播放；只有 Android、iOS 还读它们。
+    pub voice_cue_switches: bool,
+    /// 宿主有不止一种录音后端可选，设置页才给出「录音后端」和手填的设备名。macOS（CoreAudio）、Windows、HarmonyOS 各只有一种录音方式，`""`、`auto` 和本平台名效果相同，设置页只给一个「麦克风」下拉，第一项是系统默认设备。Linux 的语音服务在 PulseAudio、PipeWire、ALSA 之间真有得选，设备名也要手填，所以保留。
+    pub voice_capture_backends: bool,
     /// The host shows read-only English word completions while typing directly
     /// in English, governed by the shared `english_suggestions` preference. iOS
     /// offers the same surface but keeps its switch in the native App Group
@@ -278,6 +304,12 @@ pub struct HostCapabilities {
     pub fixed_candidate_page_size: Option<u8>,
     /// 宿主能画、能用数字键选的每页候选数上限，共享文档里更大的值在这个宿主上按它截断，设置页也只给到它。macOS、Linux 和 Android 的实体键盘用 0 键选第十个，上限是 `MAX_CANDIDATE_PAGE_SIZE`（10）；Windows 的 TSF 只把 1–9 当作选词键、候选窗口也只排得下九个，iOS 固定九个，鸿蒙没有这项设置、实体键盘也只认 1–9，这三个宿主是 9。
     pub max_candidate_page_size: u8,
+    /// 宿主固定使用的 AI 联想候选数量（`HostPlatform::fixed_ai_candidate_limit`），这时设置页不显示「候选数量」，宿主也不读文档里存的值。按偏好的宿主没有这一项。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_ai_candidate_limit: Option<u8>,
+    /// 宿主固定使用的打字效果强度（`HostPlatform::fixed_effect_intensity`），这时设置页不显示「效果强度」，宿主也不读文档里存的值。按偏好的宿主没有这一项。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_effect_intensity: Option<u8>,
     /// The one candidate layout the host draws, when it offers no choice. The iOS candidate strip is a horizontal row above the keys, so an external skin is adopted there only for its horizontal layout; the skin page has to judge compatibility by that rather than by the shared setting, which defaults to vertical. Absent on a host that follows the setting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fixed_candidate_layout: Option<crate::preferences::CandidateLayout>,
@@ -334,6 +366,17 @@ pub struct HostCapabilities {
     pub shift_letter_entry_switch: bool,
     /// 宿主实现了「Ctrl+Shift+J 在中文和日语之间切换」（`KeybindingPreferences::toggle_japanese_ctrl_shift_j`）：实体键盘在中文状态按下时，从中文方案切到日语方案，或从日语等外语方案回到 `last_chinese_scheme`。设置页还要看本版本是否同时提供中文方案和日语，才显示这个开关。
     pub japanese_toggle_shortcut: bool,
+    /// 宿主读 `navigation.tab` 和 `navigation.page_up_down`，设置页给出「Shift+Tab / Tab」和「PageUp / PageDown」两组翻页键的开关。只在关掉确实把键还给应用的宿主上为真：
+    ///
+    /// - macOS 不读，两组固定开启：候选窗显示时，关掉的 Tab 和 PageUp/PageDown 照样被输入法占着（`InputController.mm` 返回已处理），关掉只让它们什么也不做。候选窗没显示时 Tab 一律交给应用；关掉的 PageUp/PageDown 原本也直接交给应用（先结束失焦上屏的组字），固定开启后先作为翻页命令交给会话，会话不处理才交给应用。
+    /// - Windows 不读，两组固定开启（`NavigationPolicy.h` 的 `preference_navigation`）：候选窗显示或组字时 TIP 总把这几个键交给 Server，关掉的绑定由 `navigation_action` 回答 `NavigationReply::Ignored`，键被吃掉，不会还给应用。
+    /// - HarmonyOS 不读，两组固定开启（`KeyboardSession.ets`）：组字时关掉的绑定被 `HardwareKeyRouter` 判为 `IGNORED` 并消费掉，同样只是让键失效。
+    /// - Linux 照旧读：fcitx5 对关掉的绑定结束组字并把键还给应用（`FcitxEngine.cpp`），开关有实际作用。Android 和 iOS 也照旧读。
+    ///
+    /// 这两项不进账号同步，固定下来不会让别的设备同步来的值在固定的宿主上看不见却生效。
+    pub tab_page_paging_switches: bool,
+    /// 宿主读 `mixed_input.minimum_prefix`，设置页给出「触发字符数」。三个桌面宿主不读，固定为默认的 5（[`HostPlatform::reads_mixed_input_minimum_prefix`]）：调低会让常见简拼被英文词抢走首选，不喜欢英文候选的人有「中英混输」开关。这一项不进账号同步。
+    pub mixed_input_minimum_prefix: bool,
     /// The operating system release, as the machine reports it, for the feedback
     /// page to attach. Not a platform assumption like the flags above -- the host
     /// fills it in after `for_platform`, the way `system_fonts` is filled in --
@@ -684,6 +727,13 @@ impl HostCapabilities {
             ),
             voice_provider_settings: true,
             voice_stream_preedit: !matches!(platform, HostPlatform::Android | HostPlatform::Ios),
+            // 空格锁定和提示音细分只有 Android、iOS 还读存下的值；录音后端只有 Linux 真有得选（见各字段说明）。
+            voice_space_lock_switch: matches!(platform, HostPlatform::Android | HostPlatform::Ios),
+            voice_cue_switches: matches!(platform, HostPlatform::Android | HostPlatform::Ios),
+            voice_capture_backends: !matches!(
+                platform,
+                HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Harmony
+            ),
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             // Android, HarmonyOS and the iOS keyboard extension share one gesture: Shift during a quanpin or shuangpin composition hands the next letter to the Engine as a helper code. The desktop hosts append the code to a finished spelling instead of marking it.
             helpcode_shift_entry: matches!(
@@ -694,6 +744,8 @@ impl HostCapabilities {
             skin_directory_import: matches!(platform, HostPlatform::Harmony | HostPlatform::Ios),
             fixed_candidate_page_size: (platform == HostPlatform::Ios).then_some(9),
             max_candidate_page_size: platform.max_candidate_page_size(),
+            fixed_ai_candidate_limit: platform.fixed_ai_candidate_limit(),
+            fixed_effect_intensity: platform.fixed_effect_intensity(),
             fixed_candidate_layout: (platform == HostPlatform::Ios)
                 .then_some(crate::preferences::CandidateLayout::Horizontal),
             // The iOS shortcut bar is the touch counterpart of the Windows floating toolbar, and its buttons follow the same kind of per-component switches. Android 的原生键盘工具栏也按 `touch_toolbar` 选按钮。
@@ -739,6 +791,12 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Windows | HostPlatform::Linux
             ),
+            // macOS（`AppearancePreferences.mm` 的 `-navigationEnabled:`）、Windows（`NavigationPolicy.h` 的 `preference_navigation`）和 HarmonyOS（`KeyboardSession.ets`）把 Tab 和 PageUp/PageDown 两组翻页键固定为开，其余宿主照旧读偏好。
+            tab_page_paging_switches: !matches!(
+                platform,
+                HostPlatform::Macos | HostPlatform::Windows | HostPlatform::Harmony
+            ),
+            mixed_input_minimum_prefix: platform.reads_mixed_input_minimum_prefix(),
             os_version: None,
             arch: None,
             kernel_version: None,

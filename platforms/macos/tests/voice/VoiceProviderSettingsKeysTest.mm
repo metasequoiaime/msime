@@ -190,6 +190,40 @@ static void TestUnsetPolishServiceFallsBackToTheSharedDefault()
     [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
 }
 
+// A foreign capture backend (a Linux `pulse` copied over) makes the host record from the system default device, so the window shows 自动 and picking a microphone there claims the backend for macOS; otherwise the picked UID would be ignored along with the foreign backend.
+static void TestForeignCaptureBackendReadsAsAutomaticAndPickingClaimsIt()
+{
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSDictionary *oldArguments = [defaults volatileDomainForName:NSArgumentDomain];
+    [defaults setVolatileDomain:@{
+        @"MSIMEClientVoiceCaptureBackend":@"pulse",
+        @"MSIMEClientVoiceCaptureDevice":@"alsa_input.usb-mic"
+    } forName:NSArgumentDomain];
+    assert([MetasequoiaVoiceProviderSettings loadSettings].captureDevice.length == 0);
+    [defaults setVolatileDomain:@{
+        @"MSIMEClientVoiceCaptureBackend":@"MacOS",
+        @"MSIMEClientVoiceCaptureDevice":@"BuiltInMicrophoneDevice"
+    } forName:NSArgumentDomain];
+    assert([[MetasequoiaVoiceProviderSettings loadSettings].captureDevice isEqual:@"BuiltInMicrophoneDevice"]);
+    [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
+
+    BOOL writeDevice = NO;
+    assert([MSIMEVoiceProviderCaptureBackendForSaving(@"pulse", @"AppleUSBAudioEngine:mic", &writeDevice) isEqual:@"macos"]);
+    assert(writeDevice);
+    writeDevice = YES;
+    assert(MSIMEVoiceProviderCaptureBackendForSaving(@"pulse", @"", &writeDevice) == nil);
+    assert(!writeDevice && "an untouched 自动 leaves the foreign backend and device as stored");
+    for (id supported in @[ [NSNull null], @"", @"auto", @"macos" ]) {
+        id backend = supported == [NSNull null] ? nil : supported;
+        writeDevice = NO;
+        assert(MSIMEVoiceProviderCaptureBackendForSaving(backend, @"AppleUSBAudioEngine:mic", &writeDevice) == nil);
+        assert(writeDevice);
+        writeDevice = NO;
+        assert(MSIMEVoiceProviderCaptureBackendForSaving(backend, @"", &writeDevice) == nil);
+        assert(writeDevice);
+    }
+}
+
 static void TestEveryRuntimeProviderIsEditable()
 {
     NSArray *providers = MSIMEVoiceASRProviderIDs();
@@ -254,6 +288,7 @@ int main()
         TestProviderWindowRestoresTheMatchingDraft();
         TestLoadUsesTheSelectedProviderSlots();
         TestUnsetPolishServiceFallsBackToTheSharedDefault();
+        TestForeignCaptureBackendReadsAsAutomaticAndPickingClaimsIt();
         TestEveryRuntimeProviderIsEditable();
         TestNativeSettingsEntryUsesTheProviderWindowContract();
     }

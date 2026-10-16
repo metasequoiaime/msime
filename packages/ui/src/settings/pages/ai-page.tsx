@@ -12,6 +12,7 @@ export function AiSettingsPage() {
     iosPlatform,
     windowsPlatform,
     macosPlatform,
+    showAiCandidateLimit,
     busy,
     page,
     aiModels,
@@ -66,6 +67,7 @@ export function AiSettingsPage() {
       macosPlatform={macosPlatform}
       iosPlatform={iosPlatform}
       androidPlatform={androidPlatform}
+      candidateLimitShown={showAiCandidateLimit}
       providerCredentials={providerCredentials}
       storedAiCredential={storedAiCredential}
       aiCredentialInput={aiCredentialInput}

@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "repository": "https://github.com/metasequoiaime/msime-dictionary",
+  "commit": "232e6dad2fbe788ad8adeb24bfa801ee1ec02c84",
+  "upstream": {
+    "repository": "https://github.com/BYVoid/OpenCC.git",
+    "commit": "26753884f1984add422f3b0249ccee8613deaff6"
+  },
+  "files": [
+    {
+      "path": "sources/opencc/CJK_Compatibility_Ideographs.txt",
+      "size": 39074,
+      "sha256": "663cc10b7de7c7cee3ff9df1ee963977d6c26c00b23f8fe670fab481283ed4f9"
+    },
+    {
+      "path": "sources/opencc/LICENSE",
+      "size": 9165,
+      "sha256": "b534e465949558eec2597b04f5092b5e161236a68dfbfd04d547592ac3964308"
+    },
+    {
+      "path": "sources/opencc/STCharacters.txt",
+      "size": 36026,
+      "sha256": "a0ca1601c70648cf48b33c3c6210ccbecc5c7eead4b4c3daf76587ba2c03582b"
+    },
+    {
+      "path": "sources/opencc/STPhrases.txt",
+      "size": 1007834,
+      "sha256": "f6eab5e5c6dd7640597878d3dfc6599ee1279d2bc91561eadd8e114194e2925a"
+    },
+    {
+      "path": "sources/opencc/STPhrases_GeneratedFromRegionalPhrases.txt",
+      "size": 15717,
+      "sha256": "9ab40618a9b162cca6dae9ec6767a8c4669017a20b2d6da5f94b7a7f99d09170"
+    },
+    {
+      "path": "sources/opencc/TWPhrases.txt",
+      "size": 19429,
+      "sha256": "bcb435b744ee3e522beb9b18fcc5486a36ed4763c6aa642ce18112fb5d604e31"
+    },
+    {
+      "path": "sources/opencc/TWVariants.txt",
+      "size": 986,
+      "sha256": "e187278e119c427ca561180ac5da5b20e9f8681190458f35c327ce499e95a6a5"
+    },
+    {
+      "path": "sources/opencc/TWVariantsPhrases.txt",
+      "size": 1107,
+      "sha256": "36df033675a2e9152927fa8419f0732a061cb4909c5060f25a5cfc9b08ffff06"
+    }
+  ]
+}

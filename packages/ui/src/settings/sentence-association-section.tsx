@@ -27,7 +27,26 @@ export interface SentenceAssociationSectionProps {
   onChange: (value: SentenceAssociationPreferences) => void;
 }
 
-/** 本地整句联想与神经联想两个开关：输入页「候选与联想」组里的两行。 */
+export interface SentenceWordLatticeRowProps {
+  value: SentenceAssociationPreferences | undefined;
+  onChange: (value: SentenceAssociationPreferences) => void;
+}
+
+/** 「本地整句联想」开关。关掉会去掉整句候选，几乎没人该动它，所以输入页把它收进「候选与联想」组的「更多选项」，不和神经联想排在一起。 */
+export function SentenceWordLatticeRow({ value, onChange }: SentenceWordLatticeRowProps) {
+  // 词网格开关的显示状态与宿主形态无关。
+  const { wordLatticeChecked } = sentenceAssociationControlState(value, { mobile: false });
+  return (
+    <SwitchRow
+      title="本地整句联想"
+      description="把词库组合出的整句加入候选；关闭后仍保留单词候选。"
+      checked={wordLatticeChecked}
+      onChange={(checked) => onChange({ ...value, word_lattice: checked })}
+    />
+  );
+}
+
+/** 神经联想开关（桌面还带模型下载行）：输入页「候选与联想」组里的一行；「本地整句联想」见 `SentenceWordLatticeRow`。 */
 export function SentenceAssociationSection({
   value,
   mobile,
@@ -46,12 +65,6 @@ export function SentenceAssociationSection({
       : "使用神经模型重排整句候选；没有模型时保持现有候选。";
   return (
     <>
-      <SwitchRow
-        title="本地整句联想"
-        description="把词库组合出的整句加入候选；关闭后仍保留单词候选。"
-        checked={state.wordLatticeChecked}
-        onChange={(checked) => onChange({ ...value, word_lattice: checked })}
-      />
       {state.neuralVisible && (
         <SwitchRow
           title={mobile ? "键盘神经联想" : "桌面神经联想"}

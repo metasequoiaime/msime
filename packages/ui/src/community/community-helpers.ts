@@ -1,7 +1,7 @@
 import { errorCode } from "../core/error-code";
 import { runAsyncAction } from "../core/async-action";
 import { pluginErrorMessage } from "../settings/plugins-section";
-import type { CommunityResourceKind, CommunityResourceScope } from "./community-resources";
+import type { CommunityResourceKind, CommunityResourceScope } from "./community-resource-model";
 
 export type Identified = { id: string };
 

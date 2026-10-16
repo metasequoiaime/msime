@@ -8,6 +8,13 @@ import {
   personalDictionaryExportName,
   personalDictionaryExportPayload,
 } from "@msime/ui";
+import { dictionaryKindLabel } from "../../../../packages/ui/src/dictionary/dictionary-export";
+import { localDictionaryKinds } from "../../../../packages/ui/src/dictionary/dictionary-kinds";
+
+test("the pinyin dictionary is named 拼音 in the local dictionary controls", () => {
+  expect(localDictionaryKinds.find(([kind]) => kind === "pinyin")?.[1]).toBe("拼音");
+  expect(dictionaryKindLabel("pinyin")).toBe("拼音");
+});
 
 test("each dictionary kind exports under its own shipped name", () => {
   expect(dictionaryExportName("pinyin")).toBe("水杉IME-拼音用户词库.txt");

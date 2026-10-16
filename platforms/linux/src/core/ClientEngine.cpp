@@ -24,6 +24,7 @@
 #include "ViewComposition.h"
 #include "ReplacedProgram.h"
 #include "SmartPunctuationSpace.h"
+#include "SmartPunctuationChoice.h"
 #include "SpellingSymbols.h"
 #include "PreparePaths.h"
 #include "LocalModeSwitches.h"
@@ -510,6 +511,7 @@ struct State {
   bool voice_hotkey_ralt = true;
   bool voice_hotkey_ctrl_win = false;
   bool voice_hotkey_rctrl_ralt = false;
+  // 空格锁定固定为开，不读存下的 `hotkey_hold_space_lock`：空格只在按住录音组合键期间才被拦下，平常打字不受影响，设置页也不再给这个开关（`voice_space_lock_switch`）。
   bool voice_hotkey_hold_space_lock = true;
   bool voice_hotkey_ctrl_f9 = true;
   // The lock state as the last key event reported it; IBus sends no event of its own when it changes.
@@ -805,8 +807,6 @@ struct State {
     voice_hotkey_ralt = voice_preferences.value("hotkey_ralt", true);
     voice_hotkey_ctrl_win = voice_preferences.value("hotkey_ctrl_win", false);
     voice_hotkey_rctrl_ralt = voice_preferences.value("hotkey_rctrl_ralt", false);
-    voice_hotkey_hold_space_lock =
-        voice_preferences.value("hotkey_hold_space_lock", true);
     voice_hotkey_ctrl_f9 = voice_preferences.value("hotkey_ctrl_f9", true);
     const auto keybindings = preferences.value("keybindings", Json::object());
     mode_ctrl_space_enabled = keybindings.value("switch_language_ctrl_space", true);
@@ -1072,7 +1072,6 @@ struct State {
     voice_hotkey_ralt = voice.value("hotkey_ralt", true);
     voice_hotkey_ctrl_win = voice.value("hotkey_ctrl_win", false);
     voice_hotkey_rctrl_ralt = voice.value("hotkey_rctrl_ralt", false);
-    voice_hotkey_hold_space_lock = voice.value("hotkey_hold_space_lock", true);
     voice_hotkey_ctrl_f9 = voice.value("hotkey_ctrl_f9", true);
     const auto keybindings = preferences.value("keybindings", Json::object());
     mode_ctrl_space_enabled = keybindings.value("switch_language_ctrl_space", true);
@@ -8006,7 +8005,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             snapshot["preferences"]["wubi_auto_commit_unique"] = request.value;
             break;
           case MenuPreference::SmartPunctuation:
-            snapshot["preferences"]["smart_punctuation"] = request.value;
+            // 连同数字后、字母后直出一起写，与设置页相同（SmartPunctuationChoice.h）。
+            msime::linux_host::apply_smart_punctuation_choice(snapshot["preferences"], request.value.get<bool>());
             break;
           case MenuPreference::SmartPunctuationRepeat:
             snapshot["preferences"]["smart_punctuation_repeat"] = request.value;

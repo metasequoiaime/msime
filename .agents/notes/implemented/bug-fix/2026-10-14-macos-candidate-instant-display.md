@@ -10,6 +10,8 @@ Status: implemented
 
 macOS 的 `InputController` 与兼容 `CandidatePanel` 同步显示、隐藏和切换选中项，并关闭 AppKit 窗口动画。皮肤动画数据仍能解析和同步，但 macOS 不执行它；其他平台保留各自行为。显示始终使用完整透明度，不再维护动画代次、缩放或迟到回调。
 
+本决定被[只播放清单写出的动效](../feature/2026-10-16-macos-candidate-declared-motion.md)部分取代：皮肤包在 `[animation]` 里显式写出的预设重新在 macOS 播放，动画只加在图层上，退场在独立的退场窗里进行。下面这些仍然成立：显示、隐藏和选中状态同步变化；窗口始终完整不透明；不画包、内置主题和省略 `[animation]` 的 v2 包即时显隐。
+
 本决定部分取代[皮肤 v2 动画契约](../architecture/2026-10-13-candidate-skin-v2-motion-contract.md)的 macOS 映射；该笔记的共享格式和其他平台决定仍成立。[原生宿主生命周期](../architecture/2026-10-13-candidate-skin-v2-native-host-lifecycle.md)与动画策略无关，保留其构建边界。
 
 ## Alternatives considered

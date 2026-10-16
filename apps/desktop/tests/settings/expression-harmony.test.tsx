@@ -192,7 +192,15 @@ test("使用英文标点 is the inverse of chinese_punctuation", () => {
 
 describe("the HarmonyOS phone 表达 page", () => {
   test("shows the design's 标点 and 智能 groups and drops the 高情商回复 card", async () => {
-    await mountPhone();
+    // 填好密钥的腾讯云，凭据组才会出现（没有可用密钥的默认腾讯云显示成「不使用在线服务」，见下面的用例）。
+    await mountPhone({
+      tencent_tmt: {
+        enabled: true,
+        secret_id: "AKIDsynthetic",
+        secret_key: "synthetic-key",
+        region: "ap-guangzhou",
+      },
+    });
     expect(screen.getByRole("group", { name: "表达" })).toBeTruthy();
     const punctuation = group("标点");
     expect(
@@ -208,7 +216,7 @@ describe("the HarmonyOS phone 表达 page", () => {
     expect(screen.queryByRole("region", { name: "高情商回复" })).toBeNull();
     expect(screen.queryByRole("region", { name: "候选词翻译" })).toBeNull();
     expect(screen.queryByRole("region", { name: "多语言与释义" })).toBeNull();
-    // 翻译服务仍可访问，收在「更多选项」下；默认的腾讯云凭据里的地域不再另套一层「更多选项」。
+    // 翻译服务仍可访问，收在「更多选项」下；腾讯云凭据里的地域不再另套一层「更多选项」。
     expect(within(group("翻译服务")).getByText("更多选项")).toBeTruthy();
     expect(within(group("翻译服务")).getByLabelText("腾讯云地域").closest("details")).toBe(
       within(group("翻译服务")).getByText("更多选项").closest("details"),
@@ -243,14 +251,16 @@ describe("the HarmonyOS phone 表达 page", () => {
     fireEvent.click(within(service).getByText("更多选项"));
     fireEvent.click(within(service).getByRole("button", { name: /^翻译服务/ }));
     const sheet = screen.getByRole("dialog", { name: "翻译服务" });
+    // 鸿蒙没有系统翻译，但离线词库照样出释义，所以 none 叫「不使用在线服务」，不叫「关闭」。
     for (const provider of [
-      "关闭",
+      "不使用在线服务",
       "腾讯云机器翻译",
       "小牛翻译（NiuTrans）",
       "自定义（DeepLX 或 DeepL API）",
     ]) {
       expect(within(sheet).getByRole("button", { name: provider })).toBeTruthy();
     }
+    expect(within(sheet).queryByRole("button", { name: "关闭" })).toBeNull();
     // 腾讯云默认启用，所以选小牛翻译才是一次真正的切换。
     fireEvent.click(within(sheet).getByRole("button", { name: "小牛翻译（NiuTrans）" }));
     const saved = await saveAndRead(save, 0);
@@ -259,6 +269,26 @@ describe("the HarmonyOS phone 表达 page", () => {
     expect(within(service).getByRole("button", { name: /^翻译服务/ }).textContent).toContain(
       "小牛翻译（NiuTrans）",
     );
+  });
+
+  test("the unconfigured default Tencent reads as 不使用在线服务 until the user picks Tencent", async () => {
+    // 鸿蒙的密钥存在偏好里，没有可用密钥时 host-api 不把腾讯云放进查询，TranslationPolicy 也就不会请求它。
+    await mountPhone();
+    const service = group("翻译服务");
+    fireEvent.click(within(service).getByText("更多选项"));
+    const row = () => within(service).getByRole("button", { name: /^翻译服务/ });
+    expect(row().textContent).toContain("不使用在线服务");
+    expect(within(service).queryByLabelText("腾讯云 SecretId")).toBeNull();
+    fireEvent.click(row());
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "翻译服务" })).getByRole("button", {
+        name: "腾讯云机器翻译",
+      }),
+    );
+    expect(row().textContent).toContain("腾讯云机器翻译");
+    expect(within(service).getByLabelText("腾讯云 SecretId")).toBeTruthy();
+    // 缺凭据的警告照实说：不请求在线翻译，而不是没有任何结果。
+    expect(within(service).getByText(/填好之前不会请求在线翻译/)).toBeTruthy();
   });
 
   test("an edition without the keyboard model offers no 增强", async () => {

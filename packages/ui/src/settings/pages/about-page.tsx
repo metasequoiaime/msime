@@ -7,6 +7,7 @@ import { TelemetryRow, TelemetrySection } from "../telemetry-section";
 import { AboutHeroSection, HarmonyAboutHero } from "../about-hero-section";
 import { createAboutSettingsActions } from "../about-settings-actions";
 import { OtherPlatformDownloadRows } from "./download-page";
+import { FeedbackSections } from "./feedback-page";
 import { ActionButton } from "../action-button";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { androidPrivacyUrl, downloadMirrorPrefix, privacyUrl } from "../app-resources";
@@ -17,7 +18,7 @@ import { schemeTitle } from "../label-helpers";
 /** 当前运行的版本已是最新时 `useUpdateCheck` 报告的内容。 */
 const latestStatus = "已是最新版本";
 
-/** 设置表单的「关于」页：品牌头部、「版本与更新」（含原「其他平台下载」页的几行）、「系统信息」（反馈问题时一键复制，#6644）和「许可与隐私」。卸载在「维护与诊断」。HarmonyOS（手机与 2in1）按新设计换成带版本行和检查更新胶囊的页首、「法律信息」组和单独的「隐私」组。 */
+/** 设置表单的「关于」页：品牌头部、「版本与更新」（含原「其他平台下载」页的几行）、桌面上并进来的「帮助与反馈」（帮助入口、问题报告和反馈渠道，见 `desktopMergedPages`）、「系统信息」（反馈问题时一键复制，#6644）和「许可与隐私」。卸载在「维护与诊断」。HarmonyOS（手机与 2in1）按新设计换成带版本行和检查更新胶囊的页首、「法律信息」组和单独的「隐私」组。 */
 export function AboutSettingsPage() {
   const {
     client,
@@ -100,6 +101,8 @@ export function AboutSettingsPage() {
             <OtherPlatformDownloadRows />
           </GroupList>
         )}
+        {/* 2in1 是桌面形态，「帮助与反馈」同样并进这一页；手机保留单独的「反馈」页。 */}
+        {!mobilePlatform && <FeedbackSections />}
         <GroupList title="法律信息">
           <Row title="隐私政策">
             <ActionButton
@@ -154,6 +157,8 @@ export function AboutSettingsPage() {
         {updateResult}
         <OtherPlatformDownloadRows />
       </GroupList>
+      {/* 桌面上「帮助与反馈」并进这一页（`desktopMergedPages`）；触屏宿主从「我的」打开单独的反馈页。 */}
+      {!mobilePlatform && <FeedbackSections />}
       <SystemInfoSection
         appVersion={currentAppVersion}
         host={host}

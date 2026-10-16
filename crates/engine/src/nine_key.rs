@@ -1223,36 +1223,47 @@ impl NineKeySession {
                 continue;
             }
             let full_len = self.locked.len() + path.len();
-            for mut candidate in dictionary.query(&key, &key, 0, self.fuzzy) {
-                if self.single_character_only && is_han_phrase(&candidate.word) {
-                    continue;
+            let accepts_reading = |word: &str, pinyin: &str, canonical: &str, fuzzy: bool| {
+                if self.single_character_only && is_han_phrase(word) {
+                    return false;
                 }
-                let canonical = take_candidate_canonical_pinyin(&mut candidate);
-                // A row with more syllables than the path is a completion past the typed digits.
-                if canonical.matches('\'').count() >= full_len {
-                    continue;
-                }
-                let matched = if candidate.fuzzy {
-                    candidate.pinyin.as_str()
+                let canonical = if canonical.is_empty() {
+                    pinyin
                 } else {
-                    canonical.as_str()
+                    canonical
                 };
-                let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits) else {
-                    continue;
-                };
+                // 多出音节的行是越过本条路径的补全，不参与这条读法。
+                if canonical.matches('\'').count() >= full_len {
+                    return false;
+                }
+                let matched = if fuzzy { pinyin } else { canonical };
                 if !agrees_with_locked(matched, &locked_key) {
-                    continue;
+                    return false;
                 }
                 if let Some(letter) = initial {
-                    // 模糊音可能从别的声母读到这一行（`zi` 读出 `zhi`），所以对照它实际匹配的拼写。
+                    // 模糊音按实际匹配的拼写核对已选声母。
                     let next = matched
                         .split('\'')
                         .nth(self.locked.len())
                         .and_then(|syllable| syllable.as_bytes().first());
                     if next != Some(&letter) {
-                        continue;
+                        return false;
                     }
                 }
+                true
+            };
+            for mut candidate in dictionary.query_filtered(&key, &key, self.fuzzy, accepts_reading)
+            {
+                let canonical = take_candidate_canonical_pinyin(&mut candidate);
+                let matched = if candidate.fuzzy {
+                    candidate.pinyin.as_str()
+                } else {
+                    canonical.as_str()
+                };
+                // 组码覆盖只算一次；九键双拼的既有实现会申请临时编码。
+                let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits) else {
+                    continue;
+                };
                 candidate.pinyin.clear();
                 candidate.pinyin.push_str(&self.digits[..covered]);
                 candidate.canonical_pinyin = canonical;
@@ -2368,12 +2379,17 @@ fn initials_for_digit(grid: KeyGrid, digit: u8) -> impl Iterator<Item = u8> {
 
 /// 每个数字当一个音节的首字母时能拼出的全部简拼（`68` → mt、nt、ot）；多于 `limit` 个，或有数字不是 2-9 时为 `None`。
 fn initials_codes(grid: KeyGrid, digits: &str, limit: usize) -> Option<Vec<String>> {
-    let mut codes = vec![String::with_capacity(digits.len())];
+    // 先检查完整展开的预算，拒绝时不创建任何中间前缀。
+    let mut total = 1usize;
     for digit in digits.bytes() {
         let count = initials_for_digit(grid, digit).count();
-        if count == 0 || codes.len().saturating_mul(count) > limit {
+        total = total.saturating_mul(count);
+        if count == 0 || total > limit {
             return None;
         }
+    }
+    let mut codes = vec![String::with_capacity(digits.len())];
+    for digit in digits.bytes() {
         codes = codes
             .iter()
             .flat_map(|code| {
@@ -3007,7 +3023,13 @@ impl SyllablePrior {
 }
 
 #[cfg(test)]
+mod filter_projection_tests;
+
+#[cfg(test)]
 mod cached_rank_tests;
+
+#[cfg(test)]
+mod initials_code_tests;
 
 #[cfg(test)]
 mod path_chain_tests;

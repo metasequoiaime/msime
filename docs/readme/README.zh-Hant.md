@@ -88,10 +88,9 @@ cargo clippy -p msime-client-base -p msime-client-core -p msime-client-providers
 pnpm install --frozen-lockfile
 pnpm --filter @msime/desktop test
 pnpm build
-pnpm tauri dev
 ```
 
-桌面建置需要 [Tauri 平台相依套件](https://tauri.app/start/prerequisites/)。`pnpm tauri build --debug --no-bundle` 建置不打包的開發用二進位檔；面向使用者的安裝套件由各平台自己的打包流程產出——macOS 的 CMake bundle、Windows 的 `platforms/windows/installer/msime_setup.iss`、Linux 的 CPack（`-DMSIME_ENABLE_PACKAGING=ON`）、Android 的 `platforms/android/build-apk.sh`、HarmonyOS 的 `hvigorw assembleHap`、iOS 的 Xcode 專案。一般瀏覽器中只顯示無法存取本機設定的提示，不模擬儲存成功。
+桌面建置需要 [Tauri 平台相依套件](https://tauri.app/start/prerequisites/)。不要直接執行 `pnpm tauri build` 或 `pnpm tauri dev`：Tauri 專案只是原生宿主啟動的共用元件，`apps/desktop/scripts/require-platform-build.mjs` 會直接報錯拒絕，建置入口是各平台的 `platforms/<os>`；面向使用者的安裝套件由各平台自己的打包流程產出——macOS 的 CMake bundle、Windows 的 `platforms/windows/installer/msime_setup.iss`、Linux 的 CPack（`-DMSIME_ENABLE_PACKAGING=ON`）、Android 的 `platforms/android/build-apk.sh`、HarmonyOS 的 `hvigorw assembleHap`、iOS 的 Xcode 專案。一般瀏覽器中只顯示無法存取本機設定的提示，不模擬儲存成功。
 
 桌面設定的應用程式識別碼和預設應用程式資料目錄按平台命名：macOS 是 `app.msime.macos`，Windows 是 `app.msime.windows`，Linux 是 `app.msime.linux`。偏好設定儲存在其中的 `preferences.json`。也可用絕對路徑環境變數 `MSIME_CLIENT_STATE_DIR` 指向隔離的開發目錄。macOS 原生宿主讀取同一份設定，並在目前組詞結束後套用更新；多個設定視窗同時儲存時透過 revision 偵測衝突，使用者須明確重新讀取後再決定是否覆寫。
 

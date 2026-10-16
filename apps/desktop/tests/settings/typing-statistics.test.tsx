@@ -361,23 +361,17 @@ test("a late statistics response is ignored after the page unmounts", async () =
   await Promise.resolve();
 });
 
-test("marks the desktop statistics refresh action busy", async () => {
-  let finish!: (value: TypingStatisticsStatus) => void;
-  const load = vi
-    .fn()
-    .mockResolvedValueOnce(status())
-    .mockImplementationOnce(
-      () => new Promise<TypingStatisticsStatus>((resolve) => (finish = resolve)),
-    );
-  render(<TypingStatisticsPage client={{ load, setEnabled: vi.fn(), reset: vi.fn() }} />);
+test("the desktop page has no manual refresh: it rereads on its own", async () => {
+  render(
+    <TypingStatisticsPage
+      client={{ load: vi.fn().mockResolvedValue(status()), setEnabled: vi.fn(), reset: vi.fn() }}
+    />,
+  );
 
   await screen.findByLabelText("当前范围输入字符数");
-  fireEvent.click(screen.getByRole("button", { name: "刷新统计" }));
-
-  const button = screen.getByRole("button", { name: "处理中…" });
-  expect(button.getAttribute("aria-busy")).toBe("true");
-  expect((button as HTMLButtonElement).disabled).toBe(true);
-  finish(status());
+  // 页面每 5 秒自动重读一次，窗口回到前台时也会重读，按钮只是早几秒，已经撤掉。
+  expect(screen.queryByRole("button", { name: "刷新统计" })).toBeNull();
+  expect(screen.getByRole("button", { name: "清空统计" })).toBeTruthy();
 });
 
 test("marks the mobile statistics menu refresh action busy", async () => {
@@ -422,19 +416,15 @@ test("opens the statistics data directory", async () => {
 
 test("marks the statistics data directory action busy", async () => {
   let finish!: (value: TypingStatisticsStatus) => void;
-  const load = vi
-    .fn()
-    .mockResolvedValueOnce(status())
-    .mockImplementationOnce(
-      () => new Promise<TypingStatisticsStatus>((resolve) => (finish = resolve)),
-    );
+  const load = vi.fn().mockResolvedValue(status());
   const openDirectory = vi.fn().mockResolvedValue(undefined);
-  render(
-    <TypingStatisticsPage client={{ load, setEnabled: vi.fn(), reset: vi.fn(), openDirectory }} />,
+  const setEnabled = vi.fn(
+    () => new Promise<TypingStatisticsStatus>((resolve) => (finish = resolve)),
   );
+  render(<TypingStatisticsPage client={{ load, setEnabled, reset: vi.fn(), openDirectory }} />);
 
   await screen.findByLabelText("当前范围输入字符数");
-  fireEvent.click(screen.getByRole("button", { name: "刷新统计" }));
+  fireEvent.click(screen.getByLabelText("记录打字统计"));
 
   const button = screen.getByRole("button", { name: "打开数据目录" });
   expect(button.getAttribute("aria-busy")).toBe("true");

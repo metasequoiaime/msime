@@ -64,6 +64,10 @@ export function testHost(
     fullwidth_chord: macos,
     voice_provider_settings: !android,
     voice_stream_preedit: !android,
+    // 空格锁定和提示音细分只有 Android、iOS 还读存下的值，录音后端只有 Linux 有得选，与 `HostCapabilities::for_platform` 一致。
+    voice_space_lock_switch: android || platform === "ios",
+    voice_cue_switches: android || platform === "ios",
+    voice_capture_backends: !(macos || platform === "windows" || harmony),
     character_width: !mobile,
     ai_provider_credentials: linux,
     voice_commit_mode: !android && !linux,
@@ -74,6 +78,8 @@ export function testHost(
     wordbook_packs: false,
     symbol_set_packs: false,
     input_schemes: ["quanpin", "shuangpin", "wubi", "japanese", "korean"],
+    // macOS 固定 AI 候选数量和打字效果强度（`HostPlatform::fixed_*`），其他宿主没有这两项。
+    ...(macos ? { fixed_ai_candidate_limit: 3, fixed_effect_intensity: 50 } : {}),
     ...fields,
     platform,
   };

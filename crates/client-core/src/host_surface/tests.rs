@@ -714,6 +714,30 @@ fn voice_commit_mode_is_offered_only_where_a_host_chooses_between_paths() {
     }
 }
 
+/// 空格锁定和开始、结束提示音的细分只有 Android、iOS 还读存下的值；录音后端只有 Linux 有得选。macOS、Windows、HarmonyOS 只给一个「麦克风」下拉。
+#[test]
+fn only_mobile_reads_space_lock_and_cue_split_and_only_linux_picks_capture_backend() {
+    for (platform, space_lock, cues, backends) in [
+        (HostPlatform::Macos, false, false, false),
+        (HostPlatform::Windows, false, false, false),
+        (HostPlatform::Linux, false, false, true),
+        (HostPlatform::Harmony, false, false, false),
+        (HostPlatform::Android, true, true, true),
+        (HostPlatform::Ios, true, true, true),
+    ] {
+        let capabilities = HostCapabilities::for_platform(platform);
+        assert_eq!(
+            capabilities.voice_space_lock_switch, space_lock,
+            "{platform:?} space lock"
+        );
+        assert_eq!(capabilities.voice_cue_switches, cues, "{platform:?} cues");
+        assert_eq!(
+            capabilities.voice_capture_backends, backends,
+            "{platform:?} capture backends"
+        );
+    }
+}
+
 /// Only the hosts that wire them claim sound packs, the `/` and `@` modes, music and typing effects.
 #[test]
 fn plugin_surfaces_are_claimed_only_by_the_hosts_that_wire_them() {
@@ -804,6 +828,36 @@ fn candidate_window_style_is_offered_where_the_host_draws_the_card() {
     assert_eq!(flags(HostPlatform::Harmony), (false, true, true));
     assert_eq!(flags(HostPlatform::Android), (false, false, false));
     assert_eq!(flags(HostPlatform::Ios), (false, false, false));
+}
+
+/// macOS、Windows 和 HarmonyOS 把 Tab、PageUp/PageDown 两组翻页键固定为开（关掉只让键失效，不会还给应用），Linux 和 Android、iOS 照旧读偏好并显示开关。三个桌面宿主把中英混输的触发字符数固定为默认值，触屏宿主照旧读。
+#[test]
+fn hosts_fix_the_tab_page_paging_keys_and_the_mixed_input_prefix() {
+    // (宿主, 读 Tab/PageUp 开关, 读触发字符数)
+    for (platform, reads_paging, reads_prefix) in [
+        (HostPlatform::Windows, false, false),
+        (HostPlatform::Macos, false, false),
+        (HostPlatform::Linux, true, false),
+        (HostPlatform::Harmony, false, true),
+        (HostPlatform::Android, true, true),
+        (HostPlatform::Ios, true, true),
+    ] {
+        let host = HostCapabilities::for_platform(platform);
+        assert_eq!(host.tab_page_paging_switches, reads_paging, "{platform:?}");
+        assert_eq!(
+            host.mixed_input_minimum_prefix, reads_prefix,
+            "{platform:?}"
+        );
+        assert_eq!(
+            platform.reads_mixed_input_minimum_prefix(),
+            reads_prefix,
+            "{platform:?}"
+        );
+    }
+    assert_eq!(
+        crate::preferences::MixedInputPreferences::default().minimum_prefix,
+        crate::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX
+    );
 }
 
 /// 卡片内边距目前只有 macOS 候选窗读，其他宿主不显示这个滑块（#7316）。
@@ -961,5 +1015,39 @@ fn editions_without_a_chinese_scheme_offer_no_handwriting_or_offline_glosses() {
         let edition = capabilities.edition.unwrap();
         assert!(edition.handwriting, "{id}");
         assert!(edition.offline_glosses, "{id}");
+    }
+}
+
+#[test]
+fn macos_fixes_ai_candidate_limit_and_effect_intensity_at_their_defaults() {
+    // macOS 不再给「候选数量」和「效果强度」，宿主固定用默认值；固定的值必须正好是新档案的默认值，否则没改过的人升级后也会变。
+    let macos = HostCapabilities::for_platform(HostPlatform::Macos);
+    assert_eq!(
+        macos.fixed_ai_candidate_limit,
+        Some(crate::preferences::AiAssistantPreferences::default().candidate_limit)
+    );
+    assert_eq!(
+        macos.fixed_effect_intensity,
+        Some(crate::preferences::PluginPreferences::default().effect_intensity)
+    );
+    let json = serde_json::to_value(&macos).unwrap();
+    assert_eq!(json["fixed_ai_candidate_limit"], 3);
+    assert_eq!(json["fixed_effect_intensity"], 50);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        let host = HostCapabilities::for_platform(platform);
+        assert_eq!(host.fixed_ai_candidate_limit, None);
+        assert_eq!(host.fixed_effect_intensity, None);
+        assert_eq!(platform.fixed_ai_candidate_limit(), None);
+        assert_eq!(platform.fixed_effect_intensity(), None);
+        // 按偏好的宿主不写这两个键，旧版本设置页读到的能力文档不变。
+        let json = serde_json::to_value(&host).unwrap();
+        assert!(json.get("fixed_ai_candidate_limit").is_none());
+        assert!(json.get("fixed_effect_intensity").is_none());
     }
 }

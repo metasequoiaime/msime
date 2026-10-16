@@ -593,7 +593,7 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
   if (system)
     if (const auto problem = system_asr_start_problem(config.language))
       return refuse(*problem);
-  // 这台主机打不开的设备选择（别的平台写下的后端或设备 id）就是所选麦克风不可用。
+  // 这台主机打不开的设备 id（带控制字符或超长）就是所选麦克风不可用。别的平台写下的后端在读配置时已经连同设备一起当作系统默认设备（voice_capture_selection），不会走到这里。
   if (!config.capture.supported())
     return refuse(voice_microphone_device_message);
   bool expected = false;

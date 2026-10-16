@@ -109,6 +109,29 @@ pub use ffi::*;
 fn host_page_size(requested: u8) -> u8 {
     requested.min(ffi::host::compiled_platform().max_candidate_page_size())
 }
+
+/// 会话实际用的中英混输触发字符数：本库编译到的平台不读这一项时（macOS、Windows 和 Linux 三个桌面宿主，`HostPlatform::reads_mixed_input_minimum_prefix`）固定为默认值，文档里存的数不起作用，设置页也不再给出这一行。
+fn host_english_minimum_prefix(stored: u8) -> u8 {
+    english_minimum_prefix_for(ffi::host::compiled_platform(), stored)
+}
+
+fn english_minimum_prefix_for(
+    platform: msime_client_core::host_surface::HostPlatform,
+    stored: u8,
+) -> u8 {
+    if platform.reads_mixed_input_minimum_prefix() {
+        stored
+    } else {
+        msime_client_core::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX
+    }
+}
+
+/// 会话实际用的 AI 联想候选数量：本库编译到的平台固定了这个数（`HostPlatform::fixed_ai_candidate_limit`，macOS）时用固定值，不读偏好里存的值；否则用偏好。座位配置、在线查询和请求描述都从这里取，`chat_completion_http_request` 要求请求和配置里的数量一致。
+fn host_ai_candidate_limit(stored: u8) -> u8 {
+    ffi::host::compiled_platform()
+        .fixed_ai_candidate_limit()
+        .unwrap_or(stored)
+}
 mod doubao_auth;
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
 mod handwriting_cells;
@@ -449,7 +472,7 @@ impl HostSession {
             provider: ai.provider.clone(),
             model: ai.model.clone(),
             endpoint: ai.endpoint.clone(),
-            candidate_limit: ai.candidate_limit,
+            candidate_limit: host_ai_candidate_limit(ai.candidate_limit),
             prompt_id: ai.prompt_id.clone(),
             prompt_custom_1: ai.prompt_custom_1.clone(),
             prompt_custom_2: ai.prompt_custom_2.clone(),
@@ -625,7 +648,8 @@ impl HostSession {
         options.frequency_trigger_count = preferences.frequency.trigger_count;
         options.frequency_linear_step = preferences.frequency.linear_step;
         options.mixed_english = preferences.mixed_input.english;
-        options.english_minimum_prefix = preferences.mixed_input.minimum_prefix;
+        options.english_minimum_prefix =
+            host_english_minimum_prefix(preferences.mixed_input.minimum_prefix);
         options.mixed_emoji = preferences.mixed_input.emoji;
         options.mixed_kaomoji = preferences.mixed_input.kaomoji;
         options.mixed_symbols = preferences.mixed_input.symbols;
@@ -1679,7 +1703,9 @@ impl HostOptions {
             frequency_trigger_count: self.preferences.frequency.trigger_count,
             frequency_linear_step: self.preferences.frequency.linear_step,
             mixed_english: self.preferences.mixed_input.english,
-            english_minimum_prefix: self.preferences.mixed_input.minimum_prefix,
+            english_minimum_prefix: host_english_minimum_prefix(
+                self.preferences.mixed_input.minimum_prefix,
+            ),
             mixed_emoji: self.preferences.mixed_input.emoji,
             mixed_kaomoji: self.preferences.mixed_input.kaomoji,
             mixed_symbols: self.preferences.mixed_input.symbols,

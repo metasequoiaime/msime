@@ -1,4 +1,4 @@
-import type { Preferences } from "../index";
+import type { Preferences } from "../core/preferences-model";
 
 /** Applies host-specific defaults before preferences reach the appearance settings panel. */
 export function appearanceSettingsPreferences(draft: Preferences, windows: boolean): Preferences {
