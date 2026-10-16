@@ -10,6 +10,8 @@ Issue #7767 希望用户在正式版之间能下载新提交的可安装构建�
 
 总包与分卷布局已由[nightly 直接分发原生安装文件](../simplification/2026-10-15-nightly-native-downloads.md)取代；本文保留六平台共用构建链及此前归档选择的依据。
 
+六平台全成功才更新的条件由[按平台更新并保留失败平台的上次成功包](2026-10-16-nightly-partial-platform-updates.md)取代。下文全成功后统一替换的流程记录最初实现，不再作为现行发布前提；共用发布构建链继续有效。
+
 为六个正式平台的 release workflow 增加 `workflow_call` 入口，保留原有 `workflow_dispatch`。新增的 nightly workflow 按定时任务或手动触发并行调用 Android、iOS、macOS、Linux、HarmonyOS、Windows 六条现有发布链，统一传入只构建、不创建平台 release 的参数；六个平台都成功后，下载各自的 workflow artifacts，按平台打成一个滚动的 `nightly` GitHub prerelease。iOS nightly 复用现有的签名与外部 TestFlight 流程，上传到外部测试组并提交 Apple 审核；其余平台不使用正式发布密钥或签名服务。
 
 为支持非发布构建，Android 只在 `publish=true` 时强制发布密钥，Windows 只在发布时调用 SignPath，macOS 只在发布时导入 Developer ID 和公证凭据。macOS 这一项已由[macOS nightly 用 Developer ID 签名并公证](2026-10-15-macos-nightly-notarized.md)取代：ad-hoc 的 DMG 注册不了输入法，nightly 的 macOS 下载因此没法用。三个桌面发布 workflow 的官方插件 artifact 改用平台专属名称，避免六个 reusable workflow 在同一个 nightly run 中互相覆盖。iOS 构建号使用 2020 年起的 UTC 秒数，两条入口共用发布并发组，避免各 workflow 独立的 run_number 产生重复编号。
