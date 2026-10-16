@@ -1061,10 +1061,9 @@ struct State {
     wubi_auto_commit_unique = wubi_auto_commit_unique_override.value_or(
         preferences.value("wubi_auto_commit_unique", true));
     const auto voice = preferences.value("voice_input", Json::object());
-    // The voice overlay's mode from voice_theme by its own rule, its colours from the theme the candidate window resolves (as the floating toolbar takes them), so the bar matches the panel's theme; a fixed-appearance theme overrides the mode.
+    // 语音浮层的明暗跟随颜色模式（各界面一律跟随，存下的 voice_theme 不再读），颜色取候选窗解析出的主题（与悬浮工具栏取法相同），所以浮层与面板同一套主题；固定明暗的主题照样盖过它。
     const auto voice_theme = theme_in_mode(
-        display_preferences, !msime_voice_overlay_light_theme(preferences.value("voice_theme", "follow"),
-                                                              preferences.value("theme", "dark"), system_dark));
+        display_preferences, !msime_voice_overlay_light_theme("follow", preferences.value("theme", "dark"), system_dark));
     wave_overlay.light_theme = !voice_theme.dark;
     wave_overlay.palette = msime::linux_host::floating_surface_colors(voice_theme);
     voice_enabled = voice.value("enabled", true);

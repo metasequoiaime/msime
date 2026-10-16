@@ -215,17 +215,17 @@ void modeBadgeTheme() {
   const auto dark = [](const Json &preferences, bool system_dark) {
     return fcitx_mode_badge_theme(preferences, system_dark, Json()).dark;
   };
-  // toolbar_theme "follow" defers to the global mode, whose "system" follows the desktop, so a light desktop gets a light badge.
-  require(!dark(Json{{"toolbar_theme", "follow"}, {"theme", "system"}}, false), "follow on a light desktop gives a light badge");
-  require(dark(Json{{"toolbar_theme", "follow"}, {"theme", "system"}}, true), "follow on a dark desktop gives a dark badge");
-  require(dark(Json{{"toolbar_theme", "follow"}, {"theme", "dark"}}, false), "follow defers to a dark global theme");
-  // An explicit toolbar mode wins over the global mode and over the candidate mode.
-  require(!dark(Json{{"toolbar_theme", "light"}, {"theme", "dark"}, {"candidate_theme", "dark"}}, true),
-          "an explicit light toolbar theme wins");
-  require(dark(Json{{"toolbar_theme", "dark"}, {"theme", "light"}, {"candidate_theme", "light"}}, false),
-          "an explicit dark toolbar theme wins");
+  // 角标跟随颜色模式：全局的 "system" 跟随桌面，浅色桌面得到浅色角标。
+  require(!dark(Json{{"theme", "system"}}, false), "system on a light desktop gives a light badge");
+  require(dark(Json{{"theme", "system"}}, true), "system on a dark desktop gives a dark badge");
+  require(dark(Json{{"theme", "dark"}}, false), "the badge follows a dark colour mode");
+  // 存下的 toolbar_theme 不再起作用（各界面一律跟随颜色模式），候选窗的明暗也不参与。
+  require(dark(Json{{"toolbar_theme", "light"}, {"theme", "dark"}, {"candidate_theme", "light"}}, false),
+          "a stored light toolbar theme is ignored");
+  require(!dark(Json{{"toolbar_theme", "dark"}, {"theme", "light"}, {"candidate_theme", "dark"}}, true),
+          "a stored dark toolbar theme is ignored");
   require(!dark(Json{{"toolbar_theme", "follow"}, {"theme", "system"}, {"candidate_theme", "dark"}}, false),
-          "the candidate mode does not colour the badge when toolbar_theme is present");
+          "the candidate mode does not colour the badge");
   // A global theme with a fixed appearance draws the panel in it, so the badge follows it too.
   require(dark(Json{{"global_theme", "ink"}, {"toolbar_theme", "light"}}, false), "a dark global theme gives a dark badge");
   require(!dark(Json{{"global_theme", "paper"}, {"toolbar_theme", "dark"}}, true), "a light global theme gives a light badge");
@@ -240,6 +240,11 @@ void modeBadgeTheme() {
   // The voice overlay resolves the same theme in its own mode.
   const auto voice = resolveVoiceOverlayTheme(Json{{"global_theme", "ink"}, {"voice_theme", "light"}}, false, Json());
   require(voice.dark, "a fixed-appearance theme overrides the voice overlay's mode too");
+  // 语音浮层同样跟随颜色模式，存下的 voice_theme 被忽略。
+  require(!resolveVoiceOverlayTheme(Json{{"voice_theme", "dark"}, {"theme", "light"}}, true, Json()).dark,
+          "a stored dark voice theme is ignored");
+  require(resolveVoiceOverlayTheme(Json{{"voice_theme", "light"}, {"theme", "dark"}}, false, Json()).dark,
+          "a stored light voice theme is ignored");
 }
 // classicui's options belong to every input method, so the first takeover records what it replaced for msime-linux-setup --unregister, and a later write keeps that value while the option still holds MSIME's. Runs against a scratch XDG_STATE_HOME before the resource fixture; the fixture instance does not load classicui, so this drives the recording step the addon's writes go through.
 void classicuiTakeoverRecord() {
