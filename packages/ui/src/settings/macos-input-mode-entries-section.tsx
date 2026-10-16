@@ -1,5 +1,7 @@
+import type { EditionInfo } from "../core/host-capabilities";
+import type { InputScheme } from "../core/input-scheme";
 import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
-import type { EditionInfo, InputScheme } from "../index";
+
 import { Row } from "../core/platform-controls";
 import { subscribeToWindowFocus } from "../core/window-focus";
 import { useInterval } from "../core/use-interval";

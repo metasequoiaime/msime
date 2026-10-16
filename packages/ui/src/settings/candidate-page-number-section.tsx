@@ -1,4 +1,5 @@
-import type { HostPlatform } from "../index";
+import type { HostPlatform } from "../core/host-capabilities";
+
 import { SwitchRow } from "./switch-row";
 
 export interface CandidatePageNumberSectionProps {

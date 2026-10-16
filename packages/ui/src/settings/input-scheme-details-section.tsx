@@ -1,5 +1,6 @@
+import type { InputScheme } from "../core/input-scheme";
 import { LinkRow } from "../core/platform-controls";
-import type { InputScheme } from "../index";
+
 import { resolveVietnamesePreferences, type VietnamesePreferences } from "./vietnamese-preferences";
 import {
   cantoneseInputSchemeOptions,
