@@ -38,7 +38,7 @@ NSString *const kDecorationFramesKey = @"msime-decoration-frames";
 constexpr CGFloat kFloatDistance = 3.0;
 constexpr CGFloat kSwayRadians = 3.0 * M_PI / 180.0;
 constexpr CGFloat kBreatheScale = 1.03;
-constexpr CGFloat kBounceHeight = 4.0;
+constexpr CGFloat kBounceHeight = 3.5;
 // 与共享加载器的 MAX_ANIMATION_FRAMES 一致；加载器已经拒绝了更多帧的包，这里只是不信任文件。
 constexpr size_t kMaxDecorationFrames = 120;
 

@@ -218,6 +218,7 @@ attachInput(textarea, engine, {
 ```
 
 - 颜色接受 `#RGB`、`#RRGGBB`、`#RRGGBBAA`、`rgb()`、`rgba()` 和 `transparent`，读不懂的颜色当没写，由 `base` 补上；越界的尺寸当 0。
+- 桌面 `SkinSummary` 里的 `decorationMotion`、`decorationMotionPeriodMs` 和 `decorationFrames`（装饰图的待机动效和帧数）可以原样传入，网页引擎不播放待机动效；装饰图是 APNG 时由浏览器自己逐帧播放。
 - 图片可以是 `http:`、`https:`、`blob:`、`data:image/*` 或相对地址（按页面地址解析），其他地址（如 `javascript:`）和含引号、括号、空白的地址一律丢弃；`data:image/*` 里的括号和单引号（`encodeURIComponent` 写出的 SVG 常带）会换成百分号编码，图片不变。图片加载失败时只是不画它。
 - 皮肤不支持当前的布局或明暗时，和桌面端一样只画 `base`。`base` 是全局主题时，皮肤固定画在那个主题的明暗下。
 - `base` 是 `system`（或不写）时，皮肤没写的颜色用上面 `system` 那一行说的平台默认配色补；高亮候选的文字和序号同桌面端画普通的 `text`、`number`。

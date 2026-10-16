@@ -3,6 +3,7 @@
 #import "../../src/candidate/CandidateSkinAppearance.h"
 #import "../../src/candidate/CandidateTypography.h"
 #import <ImageIO/ImageIO.h>
+#import <QuartzCore/QuartzCore.h>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>

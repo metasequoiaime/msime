@@ -271,6 +271,10 @@ export interface MsimeSkin {
   preview?: string | null;
   /** 装饰图对齐，默认 right。 */
   decorationAlign?: "left" | "center" | "right";
+  /** 桌面 `SkinSummary` 里装饰图的待机动效和帧数。网页引擎接受这几个键但不播放待机动效；装饰图是 APNG 时由浏览器自己逐帧播放。 */
+  decorationMotion?: "none" | "float" | "sway" | "breathe" | "bounce";
+  decorationMotionPeriodMs?: number;
+  decorationFrames?: number;
   /** 候选框背景图；opacity 默认 1，夹到 0 到 1。 */
   background?: { image?: string; fit?: "cover" | "contain" | "stretch"; opacity?: number } | null;
   candidate?: { dark?: MsimeSkinPalette; light?: MsimeSkinPalette };
