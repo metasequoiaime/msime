@@ -1678,49 +1678,49 @@ static void TestMixedInputPreferences() {
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *preferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     // Emoji mixed-input starts on like the source's `emoji_mixed_input = true`; kaomoji starts off.
-    assert(preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 5 &&
-           preferences.mixedEmojiInput && !preferences.mixedKaomojiInput);
+    assert(preferences.mixedEnglishInput && preferences.mixedEmojiInput && !preferences.mixedKaomojiInput);
     // Symbol mixed input starts on; like client-core, the merged object only carries `symbols` once it is off.
     assert(preferences.mixedSymbolInput);
+    // 触发字符数在 macOS 上固定为 5（host-api 不读它），窗口里没有它的控件，合并结果也不带 `minimum_prefix`，文档原有的值按键合并保留。
     NSDictionary *initial = [preferences sharedPreferencesByMerging:@{}][@"mixed_input"];
-    assert([initial[@"english"] isEqual:@YES] && [initial[@"minimum_prefix"] isEqual:@5] &&
+    assert([initial[@"english"] isEqual:@YES] && initial[@"minimum_prefix"] == nil &&
            [initial[@"emoji"] isEqual:@YES] && [initial[@"kaomoji"] isEqual:@NO] && initial[@"symbols"] == nil);
     [preferences applySharedInputPreferences:@{ @"mixed_input": @{
         @"english": @NO, @"minimum_prefix": @7, @"emoji": @YES, @"kaomoji": @YES, @"symbols": @NO } }];
-    assert(!preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 7 &&
-           preferences.mixedEmojiInput && preferences.mixedKaomojiInput && !preferences.mixedSymbolInput);
+    assert(!preferences.mixedEnglishInput && preferences.mixedEmojiInput && preferences.mixedKaomojiInput &&
+           !preferences.mixedSymbolInput);
+    assert([preferences sharedPreferencesByMerging:@{}][@"mixed_input"][@"minimum_prefix"] == nil);
+    // 合并进一份完整文档时整个 `mixed_input` 被替换，文档原有的触发字符数要带过来：client-core 里它是必填字段，丢了整份文档就读不回来。
+    NSDictionary *storedMixedInput = @{ @"mixed_input": @{ @"english": @YES, @"minimum_prefix": @7 } };
+    assert([[preferences sharedPreferencesByMerging:storedMixedInput][@"mixed_input"][@"minimum_prefix"] isEqual:@7]);
     assert([defaults objectForKey:@"MSIMEClientMixedInput"] == nil);
     [preferences applySharedInputPreferences:@{ @"mixed_input": @{
         @"english": @1, @"minimum_prefix": @9, @"emoji": @"true", @"kaomoji": NSNull.null, @"symbols": @"true" } }];
-    assert(!preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 7 &&
-           preferences.mixedEmojiInput && preferences.mixedKaomojiInput && !preferences.mixedSymbolInput);
+    assert(!preferences.mixedEnglishInput && preferences.mixedEmojiInput && preferences.mixedKaomojiInput &&
+           !preferences.mixedSymbolInput);
+    assert(MSIMEFindPreferenceControl(preferences.window.contentView, NSSelectorFromString(@"mixedEnglishPrefixChanged:")) == nil);
     NSButton *english = (id)PreferenceControl(preferences, @selector(mixedEnglishChanged:));
-    NSPopUpButton *prefix = (id)PreferenceControl(preferences, @selector(mixedEnglishPrefixChanged:));
     NSButton *emoji = (id)PreferenceControl(preferences, @selector(mixedEmojiChanged:));
     NSButton *kaomoji = (id)PreferenceControl(preferences, @selector(mixedKaomojiChanged:));
     NSButton *symbols = (id)PreferenceControl(preferences, @selector(mixedSymbolChanged:));
-    assert(english.state == NSControlStateValueOff && prefix.indexOfSelectedItem == 6 && !prefix.enabled &&
-           emoji.state == NSControlStateValueOn && kaomoji.state == NSControlStateValueOn &&
-           symbols.state == NSControlStateValueOff);
+    assert(english.state == NSControlStateValueOff && emoji.state == NSControlStateValueOn &&
+           kaomoji.state == NSControlStateValueOn && symbols.state == NSControlStateValueOff);
     english.state = NSControlStateValueOn;
     [NSApp sendAction:english.action to:english.target from:english];
-    [prefix selectItemAtIndex:4];
-    [NSApp sendAction:prefix.action to:prefix.target from:prefix];
     emoji.state = NSControlStateValueOff;
     [NSApp sendAction:emoji.action to:emoji.target from:emoji];
     kaomoji.state = NSControlStateValueOff;
     [NSApp sendAction:kaomoji.action to:kaomoji.target from:kaomoji];
-    assert(preferences.mixedEnglishInput && preferences.mixedEnglishMinimumPrefix == 5 &&
-           !preferences.mixedEmojiInput && !preferences.mixedKaomojiInput && prefix.enabled);
+    assert(preferences.mixedEnglishInput && !preferences.mixedEmojiInput && !preferences.mixedKaomojiInput);
     // Turned off in the shared page, symbol mixed input stays off after the other switches change here: the object is rewritten whole.
     assert(!preferences.mixedSymbolInput);
     NSDictionary *edited = [preferences sharedPreferencesByMerging:@{}][@"mixed_input"];
-    assert(([edited isEqual:@{ @"english": @YES, @"minimum_prefix": @5, @"emoji": @NO, @"kaomoji": @NO, @"symbols": @NO }]));
+    assert(([edited isEqual:@{ @"english": @YES, @"emoji": @NO, @"kaomoji": @NO, @"symbols": @NO }]));
     assert([defaults dictionaryForKey:@"MSIMEClientMixedInput"] != nil);
     // An explicitly stored NO for emoji survives reopening instead of falling back to the on default.
     MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-    assert(reopened.mixedEnglishInput && reopened.mixedEnglishMinimumPrefix == 5 &&
-           !reopened.mixedEmojiInput && !reopened.mixedKaomojiInput && !reopened.mixedSymbolInput);
+    assert(reopened.mixedEnglishInput && !reopened.mixedEmojiInput && !reopened.mixedKaomojiInput &&
+           !reopened.mixedSymbolInput);
     assert([[reopened sharedPreferencesByMerging:@{}][@"mixed_input"][@"emoji"] isEqual:@NO]);
     // Turning symbols back on here drops the key again; a shared object without the key reads as on.
     symbols.state = NSControlStateValueOn;
@@ -5790,11 +5790,6 @@ static void TestRealSessionComposition() {
     assert([controller handleEvent:KeypadKey(125, @"\uF701", NSEventModifierFlagFunction | NSEventModifierFlagNumericPad, NO) client:client]);
     assert([currentView()[@"candidates"][1][@"highlighted"] isEqual:@YES]);
     prefs.vertical = savedVertical;
-    // With its paging binding off Page Down is swallowed while the list is on screen, as it is for any candidate list, instead of writing the syllable out for the application.
-    [prefs setNavigation:@"page_up_down" enabled:NO];
-    assert([controller handleEvent:KeypadKey(121, @"\uF72D", NSEventModifierFlagFunction, NO) client:client]);
-    assert(MSIMECandidateListOpen(currentView()) && [client.marked isEqual:@"한"] && client.insertions.count == 3);
-    [prefs setNavigation:@"page_up_down" enabled:YES];
 
     // Escape closes the list and keeps the syllable composing; the trigger reopens it, and a second press closes it again.
     assert([controller handleEvent:escape client:client]);
@@ -11444,12 +11439,9 @@ int main(int argc, char **argv) {
         // Paging is routed by physical key code, not by the glyph the layout produces, so comma and period
         // need theirs - 43 and 47. With 0 they could only ever fall through to ASCII, which is what the
         // disabled half of this loop asserts, so both halves were passing for the same wrong reason.
-        // The last element is what the key does once its shortcut is off, which is not the same for all of them: comma and period are ordinary characters and go to the Engine, while Tab, Page Up/Page Down and Up/Down are navigation keys that Windows routes to the server whenever candidates are showing (CompositionProcessorEngine.cpp), where a disabled one gets NavigationIgnored - so with the panel up they are consumed with no command at all, neither a page move nor FINISH_COMPOSITION, and the composition stays.
+        // 最后一项是快捷键关掉后这个键做什么，各键不一样：逗号和句号是普通字符，交给 Engine；上下方向键是导航键，Windows 在候选显示时一律把它们交给 Server（CompositionProcessorEngine.cpp），关掉的键得到 NavigationIgnored，所以面板显示时它们被吞掉，既不翻页也不发 FINISH_COMPOSITION，组字保持不变。Tab 和 Page Up / Page Down 在 macOS 上固定开启，文档里存的关不起作用，下面单独断言。
         for (NSArray *entry in @[@[@"comma_period", @",", @43, @(MSIME_PREVIOUS_PAGE), @1],
                                  @[@"comma_period", @".", @47, @(MSIME_NEXT_PAGE), @1],
-                                 @[@"tab", @"\t", @48, @(MSIME_NEXT_PAGE), @0],
-                                 @[@"page_up_down", @"", @116, @(MSIME_PREVIOUS_PAGE), @0],
-                                 @[@"page_up_down", @"", @121, @(MSIME_NEXT_PAGE), @0],
                                  @[@"arrows", @"", @126, @(MSIME_PREVIOUS_CANDIDATE), @0],
                                  @[@"arrows", @"", @125, @(MSIME_NEXT_CANDIDATE), @0]]) {
             for (NSNumber *enabled in @[@NO, @YES]) {
@@ -11472,12 +11464,18 @@ int main(int argc, char **argv) {
         layoutPanel.requestedVisible = YES;
         NSEvent *reverseTab = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift timestamp:0 windowNumber:0 context:nil characters:@"\t" charactersIgnoringModifiers:@"\t" isARepeat:NO keyCode:48];
         assert([controller handleEvent:reverseTab client:client] && session.lastCommand == MSIME_PREVIOUS_PAGE);
-        // Shift+Tab with tab paging off is eaten while the panel is up, like plain Tab above.
-        [appearance applySharedCandidatePreferences:@{@"navigation": @{@"tab": @NO}}];
-        layoutPanel.requestedVisible = YES;
-        session.lastCommand = UINT32_MAX;
-        session.asciiCalls = 0;
-        assert([controller handleEvent:reverseTab client:client] && session.lastCommand == UINT32_MAX && session.asciiCalls == 0);
+        // 文档里存着 Tab 和 Page Up / Page Down 翻页为关时，它们照样翻页：macOS 固定开启这两组键。
+        [appearance applySharedCandidatePreferences:@{@"navigation": @{@"tab": @NO, @"page_up_down": @NO}}];
+        for (NSArray *entry in @[@[@"\t", @48, @0, @(MSIME_NEXT_PAGE)],
+                                 @[@"\t", @48, @(NSEventModifierFlagShift), @(MSIME_PREVIOUS_PAGE)],
+                                 @[@"", @116, @0, @(MSIME_PREVIOUS_PAGE)],
+                                 @[@"", @121, @0, @(MSIME_NEXT_PAGE)]]) {
+            layoutPanel.requestedVisible = YES;
+            appearance.vertical = YES;
+            session.lastCommand = UINT32_MAX;
+            NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:(NSEventModifierFlags)[entry[2] unsignedIntegerValue] timestamp:0 windowNumber:0 context:nil characters:entry[0] charactersIgnoringModifiers:entry[0] isARepeat:NO keyCode:[entry[1] unsignedShortValue]];
+            assert([controller handleEvent:event client:client] && session.lastCommand == [entry[3] unsignedIntValue]);
+        }
         // With no candidates showing (an invalid caret, no screen) Tab and Shift+Tab go back to the application whatever navigation.tab says. A composition still on the line is finished first, for every scheme and not only a Korean syllable, so the key does not move focus away from marked text left dangling in the old field; with nothing composed the session is not touched at all.
         NSEvent *plainTab = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"\t" charactersIgnoringModifiers:@"\t" isARepeat:NO keyCode:48];
         NSDictionary *hiddenComposition = @{@"session": @73, @"generation": @74, @"focused": @YES, @"editing_text": @"synthetic", @"scheme": @0, @"local_mode": @"none",

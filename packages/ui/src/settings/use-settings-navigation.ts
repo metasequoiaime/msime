@@ -1,3 +1,4 @@
+import { createMobileSettingsHistoryState } from "./mobile-history-state";
 import {
   useEffect,
   useRef,
@@ -77,12 +78,10 @@ export function useSettingsNavigation({
     setPage(next);
     if (mobilePlatform && typeof window !== "undefined") {
       const current = window.history.state;
-      const state = {
-        ...(current && typeof current === "object" ? current : {}),
-        msimeSettings: true,
+      const state = createMobileSettingsHistoryState(current, {
         page: next,
         tab: owner,
-      } as Record<string, unknown>;
+      });
       delete state.panel;
       if (replace) window.history.replaceState(state, "");
       else window.history.pushState(state, "");
@@ -111,12 +110,10 @@ export function useSettingsNavigation({
     const current = window.history.state;
     if (!current || current.msimeSettings !== true) {
       window.history.replaceState(
-        {
-          ...(current && typeof current === "object" ? current : {}),
-          msimeSettings: true,
+        createMobileSettingsHistoryState(current, {
           page,
           tab: mobileActiveTab,
-        },
+        }),
         "",
       );
     }

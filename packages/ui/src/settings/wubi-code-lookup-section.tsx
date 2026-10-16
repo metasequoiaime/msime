@@ -8,26 +8,16 @@ import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import * as settings from "./settings-style";
 import { SettingsTextareaField } from "./settings-textarea-field";
-
-/** 一段文字（一个字或整段词）在两张五笔码表里的编码，各自短码在前；码表里没有时为空数组。 */
-export interface WubiTextCodes {
-  text: string;
-  wubi86: string[];
-  wubi98: string[];
-}
-
-/** 词库请求 `wubi_codes` 的回答（host-api `wubi_codes_json`）。 */
-export interface WubiCodeLookup {
-  /** 整段文字作为一个词的编码；整段不是 2 到 16 个汉字或两张表都没有它时为 null。 */
-  phrase: WubiTextCodes | null;
-  /** 文字里每个不同的汉字，按第一次出现的顺序。 */
-  characters: WubiTextCodes[];
-  /** 不同的汉字太多，后面的没有列出。 */
-  truncated: boolean;
-}
-
-/** 宿主的查码入口：把文字交给词库请求 `wubi_codes`。 */
-export type WubiCodeLookupClient = (text: string) => Promise<WubiCodeLookup>;
+import type {
+  WubiTextCodes,
+  WubiCodeLookup,
+  WubiCodeLookupClient,
+} from "../dictionary/dictionary-contracts";
+export type {
+  WubiTextCodes,
+  WubiCodeLookup,
+  WubiCodeLookupClient,
+} from "../dictionary/dictionary-contracts";
 
 /** 输入框最多收的字符数。宿主拒绝超过 4096 字节的文字，一千个汉字（扩展区的字每个 4 字节）也在这之内。 */
 export const WUBI_CODE_LOOKUP_MAX_LENGTH = 1000;

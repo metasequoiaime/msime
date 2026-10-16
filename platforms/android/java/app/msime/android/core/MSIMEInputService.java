@@ -515,6 +515,7 @@ public final class MSIMEInputService extends InputMethodService {
     private int translationConsumedKeyCode = -1;
     private String defaultImeMode = "chinese";
     private String imeModeScope = "app";
+    private boolean liveInputModePreferencesLoaded;
     private String currentEditorPackage = "";
     private InputModeStore inputModeStore;
     /** Mirrors the runtime's own character width; the toolbar card and the chord move it. */
@@ -839,12 +840,16 @@ public final class MSIMEInputService extends InputMethodService {
             || keybindings.optBoolean("toggle_fullwidth_option_shift_h", true);
         hardwareLanguageCtrl = keybindings != null
             && keybindings.optBoolean("switch_language_ctrl", false);
-        defaultImeMode = preferences != null
-            && "english".equals(InputViewValuePolicy.textOr(preferences, "default_ime_mode", "chinese"))
-            ? "english" : "chinese";
-        imeModeScope = preferences != null
-            && "global".equals(InputViewValuePolicy.textOr(preferences, "ime_mode_scope", "app"))
-            ? "global" : "app";
+        // 进框会重读首次准备的旧副本；已有实时模式偏好时保留默认值和记忆范围，避免换框后查错记忆。
+        if (live || !liveInputModePreferencesLoaded) {
+            defaultImeMode = preferences != null
+                && "english".equals(InputViewValuePolicy.textOr(preferences, "default_ime_mode", "chinese"))
+                ? "english" : "chinese";
+            imeModeScope = preferences != null
+                && "global".equals(InputViewValuePolicy.textOr(preferences, "ime_mode_scope", "app"))
+                ? "global" : "app";
+            if (live) liveInputModePreferencesLoaded = true;
+        }
         KeyboardScheme engineScheme = SchemePreferences.storedScheme(preferences, edition);
         SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
         alignEngineSchemeWithSelection(preferences, engineScheme, schemeConfiguration);
@@ -2695,6 +2700,7 @@ public final class MSIMEInputService extends InputMethodService {
         hardwareLanguageCtrl = nextLanguageCtrl;
         defaultImeMode = nextDefaultImeMode;
         imeModeScope = nextImeModeScope;
+        liveInputModePreferencesLoaded = true;
         JSONObject nextView = result.getJSONObject("view");
         // 引号与方头括号样式变了也重建键行：符号键、字母提示和 123 层的键面都跟着它画。
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(nextView)

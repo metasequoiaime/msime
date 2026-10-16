@@ -392,3 +392,21 @@ test("the Japanese toggle needs both a Chinese scheme and Japanese in the editio
   expect(offersJapaneseToggle(host({ edition: edition(["japanese"]) }))).toBe(false);
   expect(offersJapaneseToggle(host({ edition: edition(["japanese", "korean"]) }))).toBe(false);
 });
+
+test("a document without the Control+Shift+F key shows the switch on, as client-core defaults it", () => {
+  const { toggle_character_set_ctrl_shift_f: _omitted, ...withoutCharacterSet } = keybindings;
+  render(
+    <InputModeShortcutsSection
+      keybindings={withoutCharacterSet as typeof keybindings}
+      onChange={vi.fn()}
+      showModeSwitchShortcuts
+      macos
+      showFullwidthChord={false}
+      windows={false}
+    />,
+  );
+  expect(
+    (screen.getByRole("switch", { name: "Control+Shift+F 切换繁体输出" }) as HTMLInputElement)
+      .checked,
+  ).toBe(true);
+});

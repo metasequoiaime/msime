@@ -124,6 +124,10 @@ export interface HostCapabilities {
   shift_letter_entry_switch?: boolean;
   /** 宿主处理 Ctrl+Shift+J 在中文和日语之间切换（Windows 和 Linux）。本版本还要同时提供中文方案和日语，设置页才显示它的开关。 */
   japanese_toggle_shortcut?: boolean;
+  /** 宿主读 `navigation.tab` 和 `navigation.page_up_down`，设置页给出这两组翻页键的开关。macOS 为假：两组固定开启。缺省（早于这一项的宿主）按读处理。 */
+  tab_page_paging_switches?: boolean;
+  /** 宿主读 `mixed_input.minimum_prefix`，设置页给出「触发字符数」。macOS 为假：固定为 5。缺省按读处理。 */
+  mixed_input_minimum_prefix?: boolean;
   /** 背单词书目列出单词本插件（`pack-<插件 id>` 词书）。 */
   wordbook_packs: boolean;
   /** 符号面板显示已安装的符号集插件。 */

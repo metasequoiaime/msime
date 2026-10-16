@@ -100,3 +100,24 @@ test("a single paging key group stays at the trailing edge like the other rows",
   expect(pagingRow().querySelector("kbd")).toBeNull();
   expect(screen.getByText("- / =").tagName).toBe("KBD");
 });
+
+test("desktop folds the reference rows into 按键速查 and drops an empty 候选操作 group", () => {
+  render(
+    <CandidateShortcutsSection
+      navigation={navigation}
+      numberRowSelection
+      showNumberRowSelection={false}
+      mobile={false}
+      onNumberRowSelectionChange={vi.fn()}
+      extraReference={<span>额外的参考行</span>}
+    />,
+  );
+  expect(screen.queryByText("候选操作")).toBeNull();
+  const reference = screen.getByRole("region", { name: "按键速查" });
+  // 收在「更多选项」折叠区里，展开前不占地方。
+  const fold = reference.querySelector("details");
+  expect(fold).not.toBeNull();
+  expect(fold?.open).toBe(false);
+  expect(fold?.textContent).toContain("Home / End");
+  expect(fold?.textContent).toContain("额外的参考行");
+});

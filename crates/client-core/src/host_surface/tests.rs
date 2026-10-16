@@ -806,6 +806,33 @@ fn candidate_window_style_is_offered_where_the_host_draws_the_card() {
     assert_eq!(flags(HostPlatform::Ios), (false, false, false));
 }
 
+/// macOS 把 Tab、PageUp/PageDown 两组翻页键固定为开，中英混输的触发字符数固定为默认值；其他宿主照旧读偏好并显示开关。
+#[test]
+fn macos_fixes_the_tab_page_paging_keys_and_the_mixed_input_prefix() {
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Macos,
+        HostPlatform::Linux,
+        HostPlatform::Harmony,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+    ] {
+        let host = HostCapabilities::for_platform(platform);
+        let reads = platform != HostPlatform::Macos;
+        assert_eq!(host.tab_page_paging_switches, reads, "{platform:?}");
+        assert_eq!(host.mixed_input_minimum_prefix, reads, "{platform:?}");
+        assert_eq!(
+            platform.reads_mixed_input_minimum_prefix(),
+            reads,
+            "{platform:?}"
+        );
+    }
+    assert_eq!(
+        crate::preferences::MixedInputPreferences::default().minimum_prefix,
+        crate::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX
+    );
+}
+
 /// 卡片内边距目前只有 macOS 候选窗读，其他宿主不显示这个滑块（#7316）。
 #[test]
 fn only_macos_offers_the_candidate_padding() {

@@ -109,6 +109,22 @@ pub use ffi::*;
 fn host_page_size(requested: u8) -> u8 {
     requested.min(ffi::host::compiled_platform().max_candidate_page_size())
 }
+
+/// 会话实际用的中英混输触发字符数：本库编译到的平台不读这一项时（macOS，`HostPlatform::reads_mixed_input_minimum_prefix`）固定为默认值，文档里存的数不起作用，设置页也不再给出这一行。
+fn host_english_minimum_prefix(stored: u8) -> u8 {
+    english_minimum_prefix_for(ffi::host::compiled_platform(), stored)
+}
+
+fn english_minimum_prefix_for(
+    platform: msime_client_core::host_surface::HostPlatform,
+    stored: u8,
+) -> u8 {
+    if platform.reads_mixed_input_minimum_prefix() {
+        stored
+    } else {
+        msime_client_core::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX
+    }
+}
 mod doubao_auth;
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
 mod handwriting_cells;
@@ -625,7 +641,8 @@ impl HostSession {
         options.frequency_trigger_count = preferences.frequency.trigger_count;
         options.frequency_linear_step = preferences.frequency.linear_step;
         options.mixed_english = preferences.mixed_input.english;
-        options.english_minimum_prefix = preferences.mixed_input.minimum_prefix;
+        options.english_minimum_prefix =
+            host_english_minimum_prefix(preferences.mixed_input.minimum_prefix);
         options.mixed_emoji = preferences.mixed_input.emoji;
         options.mixed_kaomoji = preferences.mixed_input.kaomoji;
         options.mixed_symbols = preferences.mixed_input.symbols;
@@ -1679,7 +1696,9 @@ impl HostOptions {
             frequency_trigger_count: self.preferences.frequency.trigger_count,
             frequency_linear_step: self.preferences.frequency.linear_step,
             mixed_english: self.preferences.mixed_input.english,
-            english_minimum_prefix: self.preferences.mixed_input.minimum_prefix,
+            english_minimum_prefix: host_english_minimum_prefix(
+                self.preferences.mixed_input.minimum_prefix,
+            ),
             mixed_emoji: self.preferences.mixed_input.emoji,
             mixed_kaomoji: self.preferences.mixed_input.kaomoji,
             mixed_symbols: self.preferences.mixed_input.symbols,

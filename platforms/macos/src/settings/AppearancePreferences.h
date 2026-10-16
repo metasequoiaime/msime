@@ -141,7 +141,6 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic) BOOL pairedPunctuation;
 @property(nonatomic, copy) NSString *punctuationLock;
 @property(nonatomic) BOOL mixedEnglishInput;
-@property(nonatomic) NSInteger mixedEnglishMinimumPrefix;
 @property(nonatomic) BOOL mixedEmojiInput;
 @property(nonatomic) BOOL mixedKaomojiInput;
 /// 符号混输（共享偏好 `mixed_input.symbols`），默认开；共享文档只在关掉时才有这个键。

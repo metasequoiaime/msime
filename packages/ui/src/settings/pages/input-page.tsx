@@ -11,7 +11,10 @@ import { AppInputModeRulesSection } from "../app-input-mode-rules-section";
 import { LocalModesSection } from "../local-modes-section";
 import { CharacterWidthRow } from "../punctuation-section";
 import { FuzzyPinyinSection } from "../fuzzy-pinyin-section";
-import { SentenceAssociationSection } from "../sentence-association-section";
+import {
+  SentenceAssociationSection,
+  SentenceWordLatticeRow,
+} from "../sentence-association-section";
 import { MobileEnglishSuggestionsRow } from "../mobile-keyboard-feedback-section";
 import { HelpcodeSettingsGroup } from "./helpcode-page";
 import { createUtilitiesSettingsActions } from "../utilities-settings-actions";
@@ -26,6 +29,7 @@ import { CandidateEnglishGlossSection } from "../candidate-english-gloss-section
 import { ShuangpinCustomEditor } from "../shuangpin-custom-editor";
 import type { ShuangpinCustomProfileClient } from "../shuangpin-custom-profile";
 import { inputTabs } from "../input-tabs";
+import { preeditControlState } from "../preedit-preferences";
 
 /** 输入设置页。 */
 export function InputSettingsPage() {
@@ -54,6 +58,9 @@ export function InputSettingsPage() {
     page,
     macosShuangpinKeymap,
     showShuangpinKeymapHint,
+    showShuangpinPreedit,
+    showTabPagePagingSwitches,
+    showMixedInputMinimumPrefix,
     wordCharacter,
     frequency,
     fuzzyPinyin,
@@ -129,9 +136,9 @@ export function InputSettingsPage() {
       packs={helpcodePacks}
       mobile={mobilePlatform}
       showShiftEntry={showHelpcodeShiftEntry}
-      // 当前方案所属那一族的辅助码，选法与 Android 的 `pickHelpcode` 一致：双拼 方案用 双拼，其他用 全拼。
+      // 当前方案所属那一族的辅助码，选法与 Android 的 `pickHelpcode` 一致：双拼 方案用 双拼，其他用 全拼。鸿蒙手机和桌面只摆出这一族，iOS 和 Android 照旧两族直列。
       activeFamily={
-        harmonyPhone
+        harmonyPhone || !mobilePlatform
           ? draft.scheme === "shuangpin"
             ? "shuangpin_helpcode"
             : "quanpin_helpcode"
@@ -177,6 +184,12 @@ export function InputSettingsPage() {
               ? (draft.shuangpin_keymap_hint ??
                 (macosPlatform ? macosShuangpinKeymap : undefined) ??
                 false)
+              : undefined
+          }
+          // 双拼预编辑放在方案组的双拼详情里，只在双拼方案下出现。有触屏方案的宿主（含鸿蒙二合一）方案组不画双拼各行，那里仍在候选窗口/候选栏页设置它；条件与候选窗口页一致。
+          shuangpinPreedit={
+            showShuangpinPreedit && !client.touchKeyboardSchemes
+              ? preeditControlState(draft).shuangpinStyle
               : undefined
           }
           macosInputModes={client.macosInputModes}
@@ -289,6 +302,7 @@ export function InputSettingsPage() {
         }
         mixedInput={mixedInput}
         onMixedInputChange={(mixed_input) => onPreferencesChange({ mixed_input })}
+        showMixedInputMinimumPrefix={showMixedInputMinimumPrefix}
         temporaryJapanese={temporaryJapanese}
         paging={
           !harmonyPhone && (
@@ -296,6 +310,7 @@ export function InputSettingsPage() {
               navigation={navigation}
               wordCharacter={wordCharacter}
               linux={linuxPlatform}
+              tabPageSwitches={showTabPagePagingSwitches}
               onChange={(next) => onPreferencesChange(pagingPreferencesPatch(wordCharacter, next))}
             />
           )
@@ -307,6 +322,15 @@ export function InputSettingsPage() {
               mobile={mobilePlatform}
               neuralKeyboard={neuralKeyboard}
               resourcePacks={resourcePacks}
+              onChange={(sentence_association) => onPreferencesChange({ sentence_association })}
+            />
+          )
+        }
+        candidatesMore={
+          // 鸿蒙手机的整句联想在「表达」页。
+          !harmonyPhone && (
+            <SentenceWordLatticeRow
+              value={draft.sentence_association}
               onChange={(sentence_association) => onPreferencesChange({ sentence_association })}
             />
           )
@@ -323,7 +347,7 @@ export function InputSettingsPage() {
             />
           )
         }
-        outputExtra={
+        outputMore={
           showCharacterWidth ? (
             <CharacterWidthRow preferences={draft} onChange={onPreferencesChange} />
           ) : null
@@ -338,18 +362,18 @@ export function InputSettingsPage() {
               translationService={translationProvider !== "none"}
               temporaryJapanese={temporaryJapanese}
               shiftLetterEntrySwitch={host?.shift_letter_entry_switch ?? false}
+              // 临时日语只是一个快捷模式，不为它自动下载 60 多 MB 的词库，由用户手动下载；下载行跟在 R 模式那一行后面，不再单占一组。当前方案是日文时方案组里已有同一行，这里不再重复。
+              temporaryJapaneseExtra={
+                temporaryJapanese &&
+                localModes.temporary_japanese &&
+                draft.scheme !== "japanese" &&
+                japanesePack &&
+                japanesePack.state !== "installed" && (
+                  <ResourcePackRow packs={resourcePacks} id="japanese" note="临时日语需要它" />
+                )
+              }
               onChange={onLocalModesChange}
             />
-            {/* 临时日语只是一个快捷模式，不为它自动下载 60 多 MB 的词库，由用户手动下载。当前方案是日文时方案组里已有同一行，这里不再重复。 */}
-            {temporaryJapanese &&
-              localModes.temporary_japanese &&
-              draft.scheme !== "japanese" &&
-              japanesePack &&
-              japanesePack.state !== "installed" && (
-                <GroupList title="临时日语词库">
-                  <ResourcePackRow packs={resourcePacks} id="japanese" note="临时日语需要它" />
-                </GroupList>
-              )}
             {!harmonyPhone && client.fuzzyPinyin && (
               <GroupList title="模糊音">{fuzzyPinyinSection("section")}</GroupList>
             )}

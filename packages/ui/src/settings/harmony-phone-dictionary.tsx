@@ -34,7 +34,7 @@ import {
   readScelFile,
   type DictionaryEntry,
 } from "../dictionary/dictionary-file";
-import type { DictionaryClient } from "../index";
+import type { DictionaryClient } from "../dictionary/dictionary-contracts";
 import { pushMobileSettingsState } from "./mobile-navigation";
 import { useMobilePopState } from "./use-mobile-pop-state";
 import { useSettingsForm } from "./settings-form-context";

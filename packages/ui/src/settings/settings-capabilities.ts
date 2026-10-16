@@ -76,6 +76,9 @@ export function settingsCapabilities({
     ? host.maintenance_shortcuts || host.panel_windows
     : true;
   const showFullwidthChord = host ? host.fullwidth_chord : false;
+  // macOS 把 Tab、PageUp/PageDown 两组翻页键和中英混输的触发字符数固定下来，不再给开关；没有宿主或宿主没写这两项时照旧显示。
+  const showTabPagePagingSwitches = host?.tab_page_paging_switches ?? true;
+  const showMixedInputMinimumPrefix = host?.mixed_input_minimum_prefix ?? true;
   const clientHostedPlatform =
     windows || linux || android || macos || harmony || host?.platform === "ios";
   const desktopPanels = host ? host.panel_windows : true;
@@ -135,6 +138,8 @@ export function settingsCapabilities({
     showVoiceCaptureDevices,
     showDesktopMaintenanceShortcuts,
     showFullwidthChord,
+    showTabPagePagingSwitches,
+    showMixedInputMinimumPrefix,
     clientHostedPlatform,
     desktopPanels,
     showVoiceHotkeys,

@@ -25,6 +25,8 @@ export interface CandidateShortcutsSectionProps {
   onRestoreDefaults?: () => void;
   /** HarmonyOS 手机的「翻页」分组内容（外接键盘翻页键），排在「候选」和「按键速查」之间。 */
   paging?: ReactNode;
+  /** 接在候选参考行之后、一起收进「按键速查」的其他只读行（面板快捷键）。 */
+  extraReference?: ReactNode;
 }
 
 /** 设计稿中的行内按钮：胶囊形，使用平台的按钮 token，13px 文字。 */
@@ -42,6 +44,7 @@ export function CandidateShortcutsSection({
   harmonyPhone = false,
   onRestoreDefaults,
   paging,
+  extraReference,
 }: CandidateShortcutsSectionProps) {
   const numberRowSwitch = showNumberRowSelection && (
     <SwitchRow
@@ -84,12 +87,22 @@ export function CandidateShortcutsSection({
       </>
     );
   }
+  // 参考行不是设置，却占了这一页的大半；和鸿蒙手机一样收进「按键速查」。翻页键和以词定字在输入页设置，这里只列出它们现在用哪些键。
   return (
-    <GroupList title="候选操作">
-      <SettingsGroupNote>输入和选取候选词时使用</SettingsGroupNote>
-      {numberRowSwitch}
-      {reference}
-    </GroupList>
+    <>
+      {numberRowSwitch && (
+        <GroupList title="候选操作">
+          <SettingsGroupNote>输入和选取候选词时使用</SettingsGroupNote>
+          {numberRowSwitch}
+        </GroupList>
+      )}
+      <GroupList title="按键速查">
+        <MoreOptions>
+          {reference}
+          {extraReference}
+        </MoreOptions>
+      </GroupList>
+    </>
   );
 }
 

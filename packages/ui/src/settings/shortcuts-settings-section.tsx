@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { InputModeShortcutPreferences } from "./input-mode-shortcuts-section";
 import { InputModeShortcutsSection } from "./input-mode-shortcuts-section";
 import { CandidateShortcutsSection } from "./candidate-shortcuts-section";
-import { PanelShortcutsSection } from "./panel-shortcuts-section";
+import { PanelShortcutRow, PanelShortcutsSection } from "./panel-shortcuts-section";
 import { ShortcutsIntroSection } from "./shortcuts-intro-section";
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
@@ -39,7 +39,7 @@ export interface ShortcutsSettingsSectionProps {
   onRestorePaging?: () => void;
 }
 
-/** 桌面和触屏宿主共用的快捷键页：输入模式切换、候选操作速查、面板快捷键。中英文切换提示在输入页，重启与重新注册输入法在「维护与诊断」页。HarmonyOS 手机上是「外接键盘快捷键」：没有页首说明，「通用」「候选」「翻页」三组加一个可展开的「按键速查」，页末一行可以把这些一起恢复默认。 */
+/** 桌面和触屏宿主共用的快捷键页：输入模式切换，以及收在「按键速查」里的候选操作和面板快捷键。中英文切换提示在输入页，重启与重新注册输入法在「维护与诊断」页。HarmonyOS 手机上是「外接键盘快捷键」：没有页首说明，「通用」「候选」「翻页」三组加一个可展开的「按键速查」，页末一行可以把这些一起恢复默认。 */
 export function ShortcutsSettingsSection({
   disabled,
   hidden,
@@ -98,8 +98,17 @@ export function ShortcutsSettingsSection({
         harmonyPhone={harmonyPhone}
         onRestoreDefaults={harmonyPhone ? restoreDefaults : undefined}
         paging={harmonyPhone ? paging : undefined}
+        extraReference={
+          !harmonyPhone &&
+          showPanelShortcuts && <PanelShortcutRow macos={macos} harmony={harmony} />
+        }
       />
-      <PanelShortcutsSection visible={showPanelShortcuts} macos={macos} harmony={harmony} />
+      {/* 鸿蒙手机照旧单列一组；其他宿主把这一行并进「按键速查」。 */}
+      <PanelShortcutsSection
+        visible={harmonyPhone && showPanelShortcuts}
+        macos={macos}
+        harmony={harmony}
+      />
     </SettingsPageFieldset>
   );
 }
