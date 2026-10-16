@@ -21,6 +21,8 @@
 @property(copy) void (^speechPermission)(BOOL);
 @property BOOL failCapture;
 @property(copy) void (^permission)(BOOL);
+// 最近一次采集用的麦克风 UID，nil 是系统默认设备。
+@property(copy) NSString *captureDevice;
 @end
 @implementation LiveCaptureFixture
 - (NSTimeInterval)recordedDuration { return self.capturedSeconds; }
@@ -32,7 +34,7 @@
     (void)language; (void)error; self.transcript = handler; return YES;
 }
 - (BOOL)startMicrophoneCapture:(MSIMEVoiceAudioBuffer)handler deviceUID:(NSString *)device error:(NSError **)error {
-    (void)device; (void)error; self.bufferHandler = handler; return !self.failCapture;
+    (void)error; self.captureDevice = device; self.bufferHandler = handler; return !self.failCapture;
 }
 - (void)stopMicrophoneCapture { ++self.captureStops; }
 - (void)stopTranscription { ++self.transcriptionStops; }
@@ -244,15 +246,15 @@ int main(int argc, char **) {
             assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
             return 0;
         }
+        // 别的平台写下的录音后端不再让录音被拒绝：连同它的设备一起当作系统默认设备，交给采集的设备为 nil。
         voiceArguments[@"MSIMEClientVoiceCaptureBackend"] = @"windows";
+        voiceArguments[@"MSIMEClientVoiceCaptureDevice"] = @"wasapi:fixture";
         [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
-        [controller toggleVoiceInput:nil];
-        assert(!capture.active && presentation.failure == MSIMEVoiceFailureCapture);
-        assert(capture.captureStops == 0 && capture.transcriptionStops == 0);
+        [controller toggleVoiceInput:nil]; assert(capture.active && !capture.captureDevice);
+        assert(presentation.failure != MSIMEVoiceFailureCapture);
         voiceArguments[@"MSIMEClientVoiceCaptureBackend"] = @"macos";
+        [voiceArguments removeObjectForKey:@"MSIMEClientVoiceCaptureDevice"];
         [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
-        [presentation dismissFailure];
-        [controller toggleVoiceInput:nil]; assert(capture.active);
         assert(cues.starts == 1 && cues.stops == 0);
         MSIMEVoiceAudioBuffer oldMeter = capture.bufferHandler;
         oldMeter(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
@@ -404,8 +406,9 @@ int main(int argc, char **) {
             const auto starts = cues.starts, stops = cues.stops;
             [controller toggleVoiceInput:nil]; assert(capture.active);
             [controller cancelLiveVoiceInput]; [controller cancelLiveVoiceInput];
-            assert(cues.starts == starts + (master.boolValue && start.boolValue));
-            assert(cues.stops == stops + (master.boolValue && end.boolValue));
+            // macOS 只读总开关：开始、结束提示音各自存下的值不再起作用。
+            assert(cues.starts == starts + master.boolValue);
+            assert(cues.stops == stops + master.boolValue);
         }
         MSIMEInputController *builder = [MSIMEInputController alloc];
         assert((![builder makeLiveVoicePolishRequest:@{@"polish_enabled": @NO, @"polish_token": @"fixture-only"}]));

@@ -336,7 +336,6 @@ static NSString *const VoiceSoundKey = @"MSIMEClientVoiceSoundEnabled";
 static NSString *const VoiceMuteSystemAudioKey = @"MSIMEClientVoiceMuteSystemAudio";
 static NSString *const VoiceStreamInlinePreeditKey = @"MSIMEClientVoiceStreamInlinePreedit";
 static NSString *const VoiceHotkeyCtrlF9Key = @"MSIMEClientVoiceHotkeyCtrlF9";
-static NSString *const VoiceHotkeyHoldSpaceKey = @"MSIMEClientVoiceHotkeyHoldSpace";
 static NSString *const VoiceHotkeyRightAltKey = @"MSIMEClientVoiceHotkeyRightAlt";
 static NSString *const VoiceHotkeyCtrlCommandKey = @"MSIMEClientVoiceHotkeyCtrlCommand";
 static NSString *const VoiceHotkeyCtrlOptionKey = @"MSIMEClientVoiceHotkeyCtrlOption";
@@ -554,7 +553,6 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             VoiceMuteSystemAudioKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceMuteSystemAudio); },
             VoiceStreamInlinePreeditKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceStreamInlinePreedit); },
             VoiceHotkeyCtrlF9Key : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceHotkeyCtrlF9); },
-            VoiceHotkeyHoldSpaceKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceHotkeyHoldSpace); },
             VoiceHotkeyRightAltKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceHotkeyRightAlt); },
             VoiceHotkeyCtrlCommandKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceHotkeyCtrlCommand); },
             VoiceHotkeyCtrlOptionKey : ^id(MSIMEAppearancePreferences *p) { return @(p.voiceHotkeyCtrlOption); },
@@ -1169,7 +1167,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSSwitch *_voiceHotkeyRightAltToggle;
     NSSwitch *_voiceHotkeyCtrlCommandToggle;
     NSSwitch *_voiceHotkeyCtrlOptionToggle;
-    NSSwitch *_voiceHotkeyHoldSpaceToggle;
     NSSwitch *_wubiMixedPinyinToggle;
     NSSwitch *_toolbarToggle;
     NSSwitch *_transpositionToggle;
@@ -2504,13 +2501,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     [_defaults setBool:value forKey:VoiceHotkeyCtrlF9Key];
     [self preferencesChanged];
 }
-- (BOOL)voiceHotkeyHoldSpace {
-    return [_defaults objectForKey:VoiceHotkeyHoldSpaceKey] == nil || [_defaults boolForKey:VoiceHotkeyHoldSpaceKey];
-}
-- (void)setVoiceHotkeyHoldSpace:(BOOL)value {
-    [_defaults setBool:value forKey:VoiceHotkeyHoldSpaceKey];
-    [self preferencesChanged];
-}
 // The three modifier holds are off unless they were asked for, which is what MSIMEVoiceHoldShortcut is handed in InputController: a modifier combination that starts recording on its own is not something to turn on for a user who never asked for it.
 - (BOOL)voiceHotkeyRightAlt { return [_defaults boolForKey:VoiceHotkeyRightAltKey]; }
 - (void)setVoiceHotkeyRightAlt:(BOOL)value {
@@ -3108,7 +3098,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _voiceHotkeyRightAltToggle.state = self.voiceHotkeyRightAlt ? NSControlStateValueOn : NSControlStateValueOff;
     _voiceHotkeyCtrlCommandToggle.state = self.voiceHotkeyCtrlCommand ? NSControlStateValueOn : NSControlStateValueOff;
     _voiceHotkeyCtrlOptionToggle.state = self.voiceHotkeyCtrlOption ? NSControlStateValueOn : NSControlStateValueOff;
-    _voiceHotkeyHoldSpaceToggle.state = self.voiceHotkeyHoldSpace ? NSControlStateValueOn : NSControlStateValueOff;
     _traditionalOutputToggle.state = self.traditionalOutput ? NSControlStateValueOn : NSControlStateValueOff;
     _keymapToggle.state = self.shuangpinKeymap ? NSControlStateValueOn : NSControlStateValueOff;
     _wubiToggle.state = self.wubiAutoCommitUnique ? NSControlStateValueOn : NSControlStateValueOff;
@@ -3287,9 +3276,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         @[ @(voice), @[_voiceLanguageButton, _voiceSoundToggle, _voiceMuteSystemAudioToggle,
                        _voiceStreamInlinePreeditToggle, _voiceHotkeyCtrlF9Toggle, _voiceHotkeyRightAltToggle,
                        _voiceHotkeyCtrlCommandToggle, _voiceHotkeyCtrlOptionToggle] ],
-        // The space lock is read by MSIMEVoiceHoldShortcut only while one of the three modifier holds is down; Control + F9 is a press handled by its own monitor and never reaches it.
-        @[ @(voice && (self.voiceHotkeyRightAlt || self.voiceHotkeyCtrlCommand || self.voiceHotkeyCtrlOption)),
-           @[_voiceHotkeyHoldSpaceToggle] ],
         // 以词定字 cannot be turned on for a key group that paging holds. The popup beneath it stays
         // live even so — it is the way off the contested group, and greying it out would leave the
         // pair with no way out at all.
@@ -3640,8 +3626,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         MSIMESettingSwitch(self, @selector(voiceHotkeyCtrlCommandChanged:), @"按住 Control + Command 说话");
     _voiceHotkeyCtrlOptionToggle =
         MSIMESettingSwitch(self, @selector(voiceHotkeyCtrlOptionChanged:), @"按住右 Control + Option 说话");
-    _voiceHotkeyHoldSpaceToggle =
-        MSIMESettingSwitch(self, @selector(voiceHotkeyHoldSpaceChanged:), @"按住说话时按空格锁定录音");
     _traditionalOutputToggle = MSIMESettingSwitch(self, @selector(traditionalOutputChanged:), @"简繁输入");
     _keymapToggle = MSIMESettingSwitch(self, @selector(keymapChanged:), @"输入时显示双拼键位提示");
     _wubiToggle = MSIMESettingSwitch(self, @selector(wubiChanged:), @"五笔四码唯一候选自动上屏");
@@ -4281,11 +4265,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
                      aka:@[@"听写"]],
         [self settingRow:@"按住右 Option 说话" control:_voiceHotkeyRightAltToggle aka:@[@"听写"]],
         [self settingRow:@"按住 Control + Command 说话" control:_voiceHotkeyCtrlCommandToggle aka:@[@"听写"]],
+        // 按住说话时按空格锁定录音在 macOS 上固定为开（InputController 不再读存下的值），这里不再给开关。
         [self settingRow:@"按住右 Control + Option 说话" control:_voiceHotkeyCtrlOptionToggle aka:@[@"听写"]],
-        [self settingRow:@"按住说话时按空格锁定录音"
-                  detail:@"锁定后松开按键录音继续，再按一次结束键才停止。"
-                 control:_voiceHotkeyHoldSpaceToggle
-                     aka:@[@"听写"]],
     ], 0.0);
     switchingCard.accessibilityLabel = @"输入状态切换卡片";
     // Switching between Chinese and English is what this page is opened for; the paging matrix is
@@ -4301,7 +4282,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
                        keys:@[InputModeShortcutKey, ShiftTapShortcutKey, ControlTapShortcutKey, CapsLockTapShortcutKey,
                               ControlOptionSpaceShortcutKey, CharacterSetShortcutKey, FullWidthShortcutKey,
                               VoiceHotkeyCtrlF9Key, VoiceHotkeyRightAltKey, VoiceHotkeyCtrlCommandKey,
-                              VoiceHotkeyCtrlOptionKey, VoiceHotkeyHoldSpaceKey]],
+                              VoiceHotkeyCtrlOptionKey]],
         switchingCard,
         [self sectionHeader:@"候选翻页与选字" keys:@[PageShortcutKey, NavigationKey, WordCharacterKey]],
         pagingCard,
@@ -4961,7 +4942,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)voiceHotkeyRightAltChanged:(NSSwitch *)sender { self.voiceHotkeyRightAlt = sender.state == NSControlStateValueOn; }
 - (void)voiceHotkeyCtrlCommandChanged:(NSSwitch *)sender { self.voiceHotkeyCtrlCommand = sender.state == NSControlStateValueOn; }
 - (void)voiceHotkeyCtrlOptionChanged:(NSSwitch *)sender { self.voiceHotkeyCtrlOption = sender.state == NSControlStateValueOn; }
-- (void)voiceHotkeyHoldSpaceChanged:(NSSwitch *)sender { self.voiceHotkeyHoldSpace = sender.state == NSControlStateValueOn; }
 - (void)traditionalOutputChanged:(NSSwitch *)sender { self.traditionalOutput = sender.state == NSControlStateValueOn; }
 - (void)keymapChanged:(NSSwitch *)sender { self.shuangpinKeymap = sender.state == NSControlStateValueOn; }
 - (void)wubiChanged:(NSSwitch *)sender { self.wubiAutoCommitUnique = sender.state == NSControlStateValueOn; }

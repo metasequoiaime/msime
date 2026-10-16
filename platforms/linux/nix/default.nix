@@ -30,6 +30,9 @@ let
       (root + "/Cargo.toml")
       (root + "/Cargo.lock")
       (root + "/crates")
+      (root + "/scripts/fetch_opencc.py")
+      (root + "/scripts/download_retry.py")
+      (root + "/resources/licenses/OpenCC-Apache-2.0.txt")
       (pkgs.lib.fileset.difference (root + "/resources") (
         pkgs.lib.fileset.unions [
           (root + "/resources/eval")
@@ -45,9 +48,11 @@ let
     inherit craneLib cargoSources;
   };
 
-  msime-host-api = pkgs.callPackage ./host-api.nix rustArgs;
-  msime-mcp = pkgs.callPackage ./mcp.nix rustArgs;
-  msime-desktop = pkgs.callPackage ./desktop.nix rustArgs;
+  openccInputs = pkgs.callPackage ./opencc-inputs.nix { };
+  openccRustArgs = rustArgs // { inherit openccInputs; };
+  msime-host-api = pkgs.callPackage ./host-api.nix openccRustArgs;
+  msime-mcp = pkgs.callPackage ./mcp.nix openccRustArgs;
+  msime-desktop = pkgs.callPackage ./desktop.nix openccRustArgs;
   # 前端构建要较新的 nixpkgs 才有的这几个包。经 overlay 或模块时用的是使用方自己的 nixpkgs，没有它们
   # 就不带设置窗口，而不是让原本能用的 programs.msime 求值失败。packages 里照样列着 msime-desktop：
   # overlay 的属性名不能取决于 final 里有什么，否则无限递归；它是惰性的，只在被取用时才失败。

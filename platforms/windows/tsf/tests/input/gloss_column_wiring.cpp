@@ -77,8 +77,8 @@ int main(int argc, char **argv) {
     // 宿主会话拥有组字时数字在 _HandleCandidateWorker 里选词：先读 Server 的回复，CommitExactText 时上屏释义，不向宿主会话选词。
     const std::string worker = between(presenter, "HRESULT CMetasequoiaIME::_HandleCandidateWorker(", "\n}\n");
     expect_before(worker, "TryReadDataFromServerPipeWithTimeout(requestId, /*abortTransportOnTimeout=*/false)",
-                  "host->select(displayed._EngineGeneration", "the host digit path reads the Server's reply before selecting");
-    expect_before(worker, "Global::DataFromServerMsgType::CommitExactText", "host->select(displayed._EngineGeneration",
+                  "_SelectHighlightedHostCandidate(ec, pContext)", "the host digit path reads the Server's reply before selecting");
+    expect_before(worker, "Global::DataFromServerMsgType::CommitExactText", "_SelectHighlightedHostCandidate(ec, pContext)",
                   "an exact-text reply is committed instead of the host candidate");
     expect(worker, "return _CommitServerExactText(ec, pContext, exactText);", true, "the host digit path commits the gloss");
     // 空格、回车和非宿主会话的数字走 _HandleCandidateFinalize，同一个上屏函数。

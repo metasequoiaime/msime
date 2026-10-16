@@ -28,7 +28,7 @@ DEFAULT_MEMORY_PAGES = 16
 LICENSE_COPIES = {
     "LICENSE.txt": ROOT / "plugins/script/LICENSE",
     "Unicode-License-V3.txt": ROOT / "resources/licenses/Unicode-License-V3.txt",
-    "OpenCC-LICENSE.txt": ROOT / "crates/client-base/data/opencc/LICENSE",
+    "OpenCC-LICENSE.txt": ROOT / "resources/licenses/OpenCC-Apache-2.0.txt",
 }
 # 插件代码自己的许可证，每个包都要带。
 CODE_LICENSE = ("LICENSE.txt", "MIT")

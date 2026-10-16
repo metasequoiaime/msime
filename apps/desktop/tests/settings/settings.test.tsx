@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { selectSettingsTab, settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import {
+  openVoiceServiceConfig,
+  selectSettingsTab,
+  settingsFormReady,
+  saveSettingsNow,
+} from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -79,12 +84,16 @@ test("macOS voice shortcuts use native key names and space-lock semantics", asyn
     />,
   );
   await settingsReady();
-  selectSettingsTab("快捷键");
-  await screen.findByRole("switch", { name: "按住右 Option 录音" });
-  expect(screen.getByRole("switch", { name: "按住右 Control+右 Option 录音" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "按住 Control+Command 录音" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "空格锁定语音" })).toBeTruthy();
-  expect(screen.queryByRole("switch", { name: "Ctrl+Win 切换语音" })).toBeNull();
+  // 三个按住录音的组合键是一个选择；macOS 把空格锁定固定为开，不给开关。
+  const hold = await screen.findByRole("combobox", { name: "按住录音" });
+  expect(
+    within(hold)
+      .getAllByRole("option")
+      .map((option) => option.textContent),
+  ).toEqual(["右 Option", "右 Control+右 Option", "Control+Command", "不使用"]);
+  expect(screen.queryByRole("switch", { name: "空格锁定语音" })).toBeNull();
+  expect(screen.getByLabelText("Ctrl+F9 切换语音")).toBeTruthy();
+  expect(screen.queryByRole("option", { name: "Ctrl+Win" })).toBeNull();
   expect(screen.getByText(/首次授权后请重新按键/)).toBeTruthy();
 });
 
@@ -101,14 +110,15 @@ test("Windows voice shortcuts describe hold-to-record, the right Ctrl chord and 
     />,
   );
   await settingsReady();
-  selectSettingsTab("快捷键");
-  await screen.findByRole("switch", { name: "长按右 Alt 录音" });
-  expect(screen.getByRole("switch", { name: "长按右 Ctrl+右 Alt 录音" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "长按 Ctrl+Win 录音" })).toBeTruthy();
+  const hold = await screen.findByRole("combobox", { name: "长按录音" });
+  expect(
+    within(hold)
+      .getAllByRole("option")
+      .map((option) => option.textContent),
+  ).toEqual(["右 Alt", "右 Ctrl+右 Alt", "Ctrl+Win", "不使用"]);
   expect(screen.getByRole("switch", { name: "长按录音时按空格锁定" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "Ctrl+F9 切换语音" })).toBeTruthy();
-  expect(screen.queryByRole("switch", { name: "Ctrl+右 Alt 切换语音" })).toBeNull();
-  expect(screen.queryByRole("switch", { name: "右 Alt 切换语音" })).toBeNull();
+  expect(screen.getByLabelText("Ctrl+F9 切换语音")).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "切换语音" })).toBeNull();
   expect(screen.getByText(/按住期间按空格锁定录音/)).toBeTruthy();
 });
 
@@ -125,19 +135,12 @@ test("Linux voice shortcuts describe hold-to-record like Windows and keep Ctrl+F
     />,
   );
   await settingsReady();
-  selectSettingsTab("快捷键");
-  await screen.findByRole("switch", { name: "长按右 Alt 录音" });
-  expect(screen.getByRole("switch", { name: "长按右 Ctrl+右 Alt 录音" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "长按 Ctrl+Win 录音" })).toBeTruthy();
+  const hold = await screen.findByRole("combobox", { name: "长按录音" });
+  expect(within(hold).getByRole("option", { name: "右 Ctrl+右 Alt" })).toBeTruthy();
   expect(screen.getByRole("switch", { name: "长按录音时按空格锁定" })).toBeTruthy();
-  expect(screen.getByRole("switch", { name: "Ctrl+F9 切换语音" })).toBeTruthy();
-  for (const toggle of [
-    "右 Alt 切换语音",
-    "Ctrl+右 Alt 切换语音",
-    "Ctrl+Win 切换语音",
-    "空格锁定语音",
-  ])
-    expect(screen.queryByRole("switch", { name: toggle })).toBeNull();
+  expect(screen.getByLabelText("Ctrl+F9 切换语音")).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "切换语音" })).toBeNull();
+  expect(screen.queryByRole("switch", { name: "空格锁定语音" })).toBeNull();
   expect(screen.getByText(/长按快捷键录音，松开结束/)).toBeTruthy();
   expect(screen.getByText(/没有 provider 时快捷键不会拦截编辑器输入/)).toBeTruthy();
   expect(screen.queryByText(/切换语音录音/)).toBeNull();
@@ -1266,13 +1269,20 @@ test("voice settings persist under the shared voice_input contract", async () =>
   })) as HTMLInputElement;
   expect(enabled.checked).toBe(true);
   fireEvent.click(enabled);
+  // 识别语言会同步到云端：先在还显示这一行的服务下改掉它，再确认换成豆包后改过的值照样保存。
+  fireEvent.change(screen.getByRole("combobox", { name: "识别服务" }), {
+    target: { value: "openai" },
+  });
+  fireEvent.change(screen.getByLabelText("识别语言"), { target: { value: "en-US" } });
   fireEvent.change(screen.getByRole("combobox", { name: "识别服务" }), {
     target: { value: "doubao" },
   });
+  // 豆包的识别请求不读识别语言，选豆包时不画这一行，存的语言原样保留。
+  expect(screen.queryByLabelText("识别语言")).toBeNull();
+  openVoiceServiceConfig();
   fireEvent.change(screen.getByRole("combobox", { name: "豆包鉴权方式" }), {
     target: { value: "legacy" },
   });
-  fireEvent.change(screen.getByLabelText("识别语言"), { target: { value: "en-US" } });
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(client.save).toHaveBeenCalledWith(7, {
@@ -1307,6 +1317,7 @@ test("voice settings default to the single API Key mode", async () => {
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  fireEvent.click(await screen.findByRole("button", { name: "服务配置" }));
   const authMode = (await screen.findByRole("combobox", {
     name: "豆包鉴权方式",
   })) as HTMLSelectElement;
@@ -1332,15 +1343,16 @@ test("voice capture backend choices follow the host platform", async () => {
       />,
     );
     await settingsReady();
-    selectSettingsTab("录音设备");
-    const select = (await screen.findByRole("combobox", { name: "录音后端" })) as HTMLSelectElement;
-    const values = Array.from(select.options).map((option) => option.value);
+    fireEvent.click(await screen.findByRole("button", { name: "服务配置" }));
+    const select = screen.queryByRole("combobox", { name: "录音后端" }) as HTMLSelectElement | null;
+    const values = select ? Array.from(select.options).map((option) => option.value) : null;
     mounted.unmount();
     return values;
   };
   expect(await options("linux")).toEqual(["", "auto", "pulse", "pipewire", "alsa"]);
-  expect(await options("macos")).toEqual(["", "auto", "macos"]);
   expect(await options("windows")).toEqual(["", "auto", "windows"]);
+  // macOS 只经 CoreAudio 录音，不给后端选择，只有一个「麦克风」下拉。
+  expect(await options("macos")).toBeNull();
 });
 
 test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
@@ -7016,8 +7028,7 @@ const referenceSections: {
       "语音输入",
       // 来源：ASR API。
       "识别服务",
-      // 来源的「豆包识别选项」一节并进了「识别服务配置」组，紧接豆包自己的设置；这里钉组名和其中一行。
-      "识别服务配置",
+      // 来源的「豆包识别选项」一节并进了「服务配置」子视图的「识别服务」组，收在豆包自己的设置后面的「更多选项」里；这里钉其中一行。
       "数字格式化",
       // 来源：文本润色 API。组名不带 provider 字样。
       "文本润色",
@@ -7590,7 +7601,9 @@ test.each(
           target: { value: "linear" },
         });
     }
-    if (button === "语音输入" && control === "润色方案") selectSettingsTab("润色");
+    // 润色收在语音页的「服务配置」子视图里。
+    if (button === "语音输入" && control === "润色方案")
+      fireEvent.click(await screen.findByRole("button", { name: "服务配置" }));
     if (expand) fireEvent.click(await screen.findByRole("switch", { name: expand }));
     if (role === "radiogroup") {
       const group = await screen.findByRole("radiogroup", { name: control });

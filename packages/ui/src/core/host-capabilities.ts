@@ -90,6 +90,12 @@ export interface HostCapabilities {
   voice_provider_settings: boolean;
   /** 宿主绘制临时识别文字，因此流式预编辑开关会生效。 */
   voice_stream_preedit: boolean;
+  /** 宿主读 `voice_input.hotkey_hold_space_lock`，所以给出空格锁定开关。macOS 固定为开，报 false；缺省按 true。 */
+  voice_space_lock_switch?: boolean;
+  /** 宿主分别读开始、结束提示音，所以在总开关之外给出这两个开关。macOS 只读总开关，报 false；缺省按 true。 */
+  voice_cue_switches?: boolean;
+  /** 宿主有不止一种录音后端，所以给出「录音后端」和手填设备名。macOS 只用 CoreAudio，报 false，设置页只给「麦克风」下拉；缺省按 true。 */
+  voice_capture_backends?: boolean;
   /** 宿主向运行时报告字符宽度，因此全角输入能够生效。 */
   character_width: boolean;
   ai_provider_credentials: boolean;

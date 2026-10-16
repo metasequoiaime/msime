@@ -263,6 +263,12 @@ pub struct HostCapabilities {
     /// somewhere to put one. A host without that surface would be offering a switch whose only
     /// effect is on a display it does not have.
     pub voice_stream_preedit: bool,
+    /// 宿主读 `voice_input.hotkey_hold_space_lock`，设置页才给出「长按录音时按空格锁定」开关。macOS 把它固定为开：空格只在按住录音组合键期间才被拦下，平常打字不受影响，宿主不再读存下的 false。
+    pub voice_space_lock_switch: bool,
+    /// 宿主分别读开始、结束提示音（`voice_input.start_sound`、`end_sound`），设置页才在总开关之外给出这两个开关。macOS 只读总开关 `sound_enabled`。
+    pub voice_cue_switches: bool,
+    /// 宿主有不止一种录音后端可选，设置页才给出「录音后端」和手填的设备名。macOS 只经 CoreAudio 录音，`""`、`auto`、`macos` 效果相同，设置页只给一个「麦克风」下拉，第一项是系统默认设备。
+    pub voice_capture_backends: bool,
     /// The host shows read-only English word completions while typing directly
     /// in English, governed by the shared `english_suggestions` preference. iOS
     /// offers the same surface but keeps its switch in the native App Group
@@ -703,6 +709,10 @@ impl HostCapabilities {
             ),
             voice_provider_settings: true,
             voice_stream_preedit: !matches!(platform, HostPlatform::Android | HostPlatform::Ios),
+            // 这三项只有 macOS 收掉（见各字段说明）；其他宿主照旧读存下的值，Windows 的对齐另行跟进。
+            voice_space_lock_switch: platform != HostPlatform::Macos,
+            voice_cue_switches: platform != HostPlatform::Macos,
+            voice_capture_backends: platform != HostPlatform::Macos,
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             // Android, HarmonyOS and the iOS keyboard extension share one gesture: Shift during a quanpin or shuangpin composition hands the next letter to the Engine as a helper code. The desktop hosts append the code to a finished spelling instead of marking it.
             helpcode_shift_entry: matches!(

@@ -86,7 +86,7 @@ jobs:
               LICENSE|resources/licenses/*|resources/helpcodes/ENGINE-NOTICE.md|resources/helpcodes/NOTICE.md)
                 web=true ;;
               # 拆字表编进每个平台的引擎，它的两份锁变了，提交的表就过期了。
-              shared/*|crates/*|packages/*|apps/*|scripts/*|.github/workflows/ci-platforms.yml|resources/chaizi.lock.json|resources/character-glosses.lock.json)
+              shared/*|crates/*|packages/*|apps/*|scripts/*|.github/workflows/ci-platforms.yml|resources/chaizi.lock.json|resources/character-glosses.lock.json|resources/opencc.lock.json)
                 shared=true ;;
               # The workspace manifests, the toolchain pin and the JS workspace: a Dependabot bump touches only these.
               Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|.nvmrc)

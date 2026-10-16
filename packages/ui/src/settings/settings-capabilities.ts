@@ -55,6 +55,10 @@ export function settingsCapabilities({
   const showVoiceCommitMode = host ? host.voice_commit_mode : true;
   const showVoiceProviderSettings = host ? host.voice_provider_settings : true;
   const showVoiceStreamPreedit = host ? host.voice_stream_preedit : true;
+  // 宿主没有报这三项时（旧宿主、网页预览）照旧给出控件；只有明确报 false 的宿主（macOS）把值固定下来。
+  const showVoiceSpaceLockSwitch = host?.voice_space_lock_switch !== false;
+  const showVoiceCueSwitches = host?.voice_cue_switches !== false;
+  const showVoiceCaptureBackends = host?.voice_capture_backends !== false;
   const showCandidateRowColors = host ? host.candidate_row_colors : true;
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
   const showCandidateBorderColor = host ? host.candidate_border_color : true;
@@ -123,6 +127,9 @@ export function settingsCapabilities({
     showVoiceCommitMode,
     showVoiceProviderSettings,
     showVoiceStreamPreedit,
+    showVoiceSpaceLockSwitch,
+    showVoiceCueSwitches,
+    showVoiceCaptureBackends,
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,

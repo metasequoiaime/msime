@@ -714,6 +714,27 @@ fn voice_commit_mode_is_offered_only_where_a_host_chooses_between_paths() {
     }
 }
 
+/// macOS 把空格锁定固定为开、只读提示音总开关、只经 CoreAudio 录音，所以只有它不给这三组控件；其他宿主照旧读存下的值。
+#[test]
+fn macos_alone_fixes_space_lock_cue_split_and_capture_backend() {
+    let macos = HostCapabilities::for_platform(HostPlatform::Macos);
+    assert!(!macos.voice_space_lock_switch);
+    assert!(!macos.voice_cue_switches);
+    assert!(!macos.voice_capture_backends);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        let capabilities = HostCapabilities::for_platform(platform);
+        assert!(capabilities.voice_space_lock_switch);
+        assert!(capabilities.voice_cue_switches);
+        assert!(capabilities.voice_capture_backends);
+    }
+}
+
 /// Only the hosts that wire them claim sound packs, the `/` and `@` modes, music and typing effects.
 #[test]
 fn plugin_surfaces_are_claimed_only_by_the_hosts_that_wire_them() {

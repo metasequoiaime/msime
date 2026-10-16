@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
+import {
+  settingsFormReady,
+  saveSettingsNow,
+  openVoiceServiceConfig,
+} from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
@@ -587,7 +591,12 @@ test("the voice page keeps the local models in the service group with the mirror
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
 
-  const service = await screen.findByRole("region", { name: "识别服务配置" });
+  // 本地模型连同下载镜像和手填目录都在「服务配置」子视图的「识别服务」组里；主页面那一行写着选没选模型。
+  expect((await screen.findByRole("button", { name: "服务配置" })).textContent).toContain(
+    "未选模型",
+  );
+  openVoiceServiceConfig();
+  const service = screen.getByRole("region", { name: "识别服务" });
   expect(within(service).getByRole("group", { name: "本地识别模型" })).toBeTruthy();
   const more = within(service).getByText("更多选项").closest("details");
   expect(more).not.toBeNull();
@@ -617,6 +626,7 @@ test("the settings page picks a model and a mirror into the saved preferences", 
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  fireEvent.click(await screen.findByRole("button", { name: "服务配置" }));
 
   const card = within(await screen.findByRole("listitem", { name: "快速整句" }));
   fireEvent.click(card.getByRole("button", { name: "使用" }));
@@ -632,6 +642,7 @@ test("the settings page picks a model and a mirror into the saved preferences", 
   const saved = save.mock.calls.at(-1)?.[1]?.voice_input;
   expect(saved?.asr_model_path).toBe(sense.path);
   expect(saved?.asr_model_mirror).toBe("https://ghproxy.example.com");
+  fireEvent.click(screen.getByRole("button", { name: "返回" }));
   expect(
     (screen.getByRole("option", { name: "本地模型（离线）" }) as HTMLOptionElement).disabled,
   ).toBe(false);

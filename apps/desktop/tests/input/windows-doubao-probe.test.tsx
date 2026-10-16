@@ -43,6 +43,8 @@ test.each(
       }}
     />,
   );
+  // 检查按钮在「服务配置」子视图里，识别服务的配置都收在那里。
+  fireEvent.click(await screen.findByRole("button", { name: "服务配置" }));
   const button = await screen.findByRole("button", { name: "测试豆包识别配置" });
   expect((button as HTMLButtonElement).disabled).toBe(true);
   expect(probe).not.toHaveBeenCalled();

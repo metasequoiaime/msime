@@ -1,6 +1,6 @@
 package app.msime.android;
 
-/** Validation shared by Java entry points that pass opaque native pointers. */
+/** Java 只传递 JNI 登记的正整数身份；原生指针不跨过这层边界。 */
 public final class NativeHandlePolicy {
     private NativeHandlePolicy() {}
 

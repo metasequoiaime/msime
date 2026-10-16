@@ -1,9 +1,9 @@
 import { useLayoutEffect, useRef } from "react";
-import {
-  CommunityResourcesPage,
-  type CommunityLocalDictionaryClient,
-  type CommunityResourceClient,
-} from "../community/community-resources";
+import { CommunityResourcesPage } from "../community/community-resources";
+import type {
+  CommunityLocalDictionaryClient,
+  CommunityResourceClient,
+} from "../community/community-resource-model";
 import { CommunitySkinsPage, type CommunitySkinClient } from "../community/community-skins";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import { fullScreenColumn, fullScreenSurface } from "../core/full-screen-style";

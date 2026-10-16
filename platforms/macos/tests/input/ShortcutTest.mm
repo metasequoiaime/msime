@@ -6433,10 +6433,31 @@ static void TestInputModePolicy() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// 按住录音的三个组合键在这些测试期间关掉、测试后恢复。空格锁定在 macOS 上固定为开（不再读 `MSIMEClientVoiceHotkeyHoldSpace`），组合键开着时按住修饰键再按空格会被当作锁定录音，拦下 Control+Option+Space 等快捷键；只有关掉组合键才能把语音快捷键隔离出去。
+static NSArray<NSString *> *MSIMETestVoiceHoldKeys() {
+    return @[@"MSIMEClientVoiceHotkeyRightAlt", @"MSIMEClientVoiceHotkeyCtrlOption", @"MSIMEClientVoiceHotkeyCtrlCommand"];
+}
+
+static NSDictionary<NSString *, id> *MSIMEDisableVoiceHoldKeys(NSUserDefaults *defaults) {
+    NSMutableDictionary<NSString *, id> *previous = [NSMutableDictionary dictionary];
+    for (NSString *key in MSIMETestVoiceHoldKeys()) {
+        id value = [defaults objectForKey:key];
+        if (value) previous[key] = value;
+        [defaults setBool:NO forKey:key];
+    }
+    return previous;
+}
+
+static void MSIMERestoreVoiceHoldKeys(NSUserDefaults *defaults, NSDictionary<NSString *, id> *previous) {
+    for (NSString *key in MSIMETestVoiceHoldKeys()) {
+        if (previous[key]) [defaults setObject:previous[key] forKey:key];
+        else [defaults removeObjectForKey:key];
+    }
+}
+
 static void TestControlOptionSpace() {
     NSUserDefaults *standardDefaults = NSUserDefaults.standardUserDefaults;
-    id previousHoldSpace = [standardDefaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
-    [standardDefaults setBool:NO forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
+    NSDictionary *previousHoldKeys = MSIMEDisableVoiceHoldKeys(standardDefaults);
     NSString *suite = [@"msime.control-option-space." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
@@ -6523,8 +6544,7 @@ static void TestControlOptionSpace() {
     prefs.controlOptionSpaceShortcut = NO;
     assert(![[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults] controlOptionSpaceShortcut]);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
-    if (previousHoldSpace) [standardDefaults setObject:previousHoldSpace forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
-    else [standardDefaults removeObjectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
+    MSIMERestoreVoiceHoldKeys(standardDefaults, previousHoldKeys);
 }
 
 static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
@@ -10028,8 +10048,7 @@ int main(int argc, char **argv) {
             return 0;
         }
         NSUserDefaults *standardDefaults = NSUserDefaults.standardUserDefaults;
-        id previousVoiceHoldSpace = [standardDefaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
-        [standardDefaults setBool:NO forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
+        NSDictionary *previousVoiceHoldKeys = MSIMEDisableVoiceHoldKeys(standardDefaults);
         @autoreleasepool { TestSessionUnavailableIsReported(); }
         @autoreleasepool { TestCloudCandidateScheduling(); }
         @autoreleasepool { TestCloudCandidateRetryAfterRejectedResponse(); }
@@ -11755,8 +11774,7 @@ int main(int argc, char **argv) {
         assert(missingKeyFontCalls > 0);
         [NSUserDefaults.standardUserDefaults removeObjectForKey:@"MSIMEClientPinnedCandidates"];
         MSIMERemoveTestPreferenceSuite(defaults, suite);
-        if (previousVoiceHoldSpace) [standardDefaults setObject:previousVoiceHoldSpace forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
-        else [standardDefaults removeObjectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
+        MSIMERestoreVoiceHoldKeys(standardDefaults, previousVoiceHoldKeys);
     }
     return 0;
 }

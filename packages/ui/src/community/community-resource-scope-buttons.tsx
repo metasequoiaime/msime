@@ -3,7 +3,8 @@ import { resourceScopeTitle } from "./community-helpers";
 import * as style from "./community-style";
 import { ActionButton } from "../core/action-button";
 
-export type CommunityResourceScope = "" | "mine" | "saved";
+import type { CommunityResourceScope } from "./community-resource-model";
+export type { CommunityResourceScope } from "./community-resource-model";
 
 export interface CommunityResourceScopeButtonsProps {
   resourceLabel: string;

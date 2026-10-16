@@ -95,7 +95,7 @@ export function VoiceCredentialSection({
       {doubao && (
         <SettingField
           label="流式接口"
-          description="整句流式边录边传、说完返回整句，服务方称准确率更高并推荐用于输入法；双向流式返回增量结果，流式预编辑刷新更频繁。选择后写入下方接口地址，保存凭据后生效；地址留空时语音服务使用双向流式。"
+          description="整句流式边录边传、说完返回整句，服务方称准确率更高并推荐用于输入法；双向流式返回增量结果，边说边显示刷新更频繁。选择后写入下方接口地址，保存凭据后生效；地址留空时语音服务使用双向流式。"
         >
           <DoubaoStreamEndpointSelect
             endpoint={streamEndpoint}

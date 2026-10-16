@@ -365,12 +365,20 @@ int main() {
         capture.failStart = YES;
         assert(![controller startHTTPVoiceInputWithOptions:@{}] && !audioEvents.count && !outputMuted);
         capture.failStart = NO;
-        // Without a start cue the mute follows the start of capture directly.
-        [defaults setVolatileDomain:@{@"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @NO, @"MSIMEClientVoiceEndSound": @YES, @"MSIMEClientVoiceMuteSystemAudio": @YES} forName:NSArgumentDomain];
+        // Without a start cue the mute follows the start of capture directly. macOS 只读提示音总开关，单独关掉开始提示音不再起作用，所以这里关总开关。
+        [defaults setVolatileDomain:@{@"MSIMEClientVoiceSoundEnabled": @NO, @"MSIMEClientVoiceStartSound": @YES, @"MSIMEClientVoiceEndSound": @YES, @"MSIMEClientVoiceMuteSystemAudio": @YES} forName:NSArgumentDomain];
         assert([controller startHTTPVoiceInputWithOptions:@{}]);
         assert([audioEvents isEqual:@[@"mute"]] && outputMuted);
         [controller cancelHTTPVoiceInput];
-        assert([audioEvents isEqual:(@[@"mute", @"unmute", @"stop"])] && !outputMuted);
+        assert([audioEvents isEqual:(@[@"mute", @"unmute"])] && !outputMuted);
+        // 存下的开始提示音为 false 时照样响：这个值在 macOS 上已不再读。
+        [audioEvents removeAllObjects];
+        [defaults setVolatileDomain:@{@"MSIMEClientVoiceSoundEnabled": @YES, @"MSIMEClientVoiceStartSound": @NO, @"MSIMEClientVoiceEndSound": @NO, @"MSIMEClientVoiceMuteSystemAudio": @YES} forName:NSArgumentDomain];
+        assert([controller startHTTPVoiceInputWithOptions:@{}]);
+        assert([audioEvents isEqual:@[@"start"]] && !outputMuted && ordered.startCompletion);
+        ordered.startCompletion();
+        [controller cancelHTTPVoiceInput];
+        assert([audioEvents isEqual:(@[@"start", @"mute", @"unmute", @"stop"])] && !outputMuted);
         [defaults setVolatileDomain:oldArguments forName:NSArgumentDomain];
     }
 }

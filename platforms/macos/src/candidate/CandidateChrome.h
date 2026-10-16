@@ -5,6 +5,7 @@
 #include "CandidateItemLayout.h"
 #include "CandidateSkin.h"
 #import "CandidatePronunciation.h"
+#import "CandidateMotion.h"
 // Drawing adapted from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
 static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
 // A reading is quieter than the gloss it follows, relative to the gloss colour.
@@ -144,7 +145,7 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     return gloss.length ? [NSString stringWithFormat:@"%@\n%@", gloss, scriptAnnotation] : scriptAnnotation;
 }
 
-@interface MSIMECandidateButton : NSButton
+@interface MSIMECandidateButton : NSButton <MSIMECandidateSelectionFillHost>
 @property(nonatomic, copy) NSDictionary *candidateID;
 @property(nonatomic, strong) NSFont *numberFont;
 @property(nonatomic) BOOL candidateHighlighted;
@@ -180,6 +181,8 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
 @property(nonatomic) CGFloat selectionLeftInset;
 // candidate_scale_percent as a factor, for the lengths the row draws itself: the text insets and the selection bar. Zero draws at 100%.
 @property(nonatomic) CGFloat chromeScale;
+// 选中动效期间高亮底色由 MSIMECandidateMotion 的图层画，行只画文字和选中条。
+@property(nonatomic) BOOL selectionFillDetached;
 // 右键才构建操作菜单，普通输入不创建菜单树。
 @property(nonatomic, copy) NSMenu *(^candidateMenuProvider)(void);
 @end
@@ -245,7 +248,7 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     (void)dirtyRect;
     NSRectClip(self.bounds);
     const CGFloat scale = self.chromeScale > 0.0 ? self.chromeScale : 1.0;
-    NSColor *background = self.candidateHighlighted ? self.fillColor
+    NSColor *background = self.candidateHighlighted ? (self.selectionFillDetached ? nil : self.fillColor)
                                                      : (self.candidateHovered ? self.hoverColor : nil);
     if (background != nil && background.alphaComponent > 0.01)
     {

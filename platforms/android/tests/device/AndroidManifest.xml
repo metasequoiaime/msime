@@ -96,4 +96,5 @@
     <instrumentation android:name="app.msime.android.test.ToolbarScrollDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.EmojiCombinationLayoutDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.EmojiCombinationDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.LocalSpeechHandleDeviceSmoke" android:targetPackage="app.msime.android" />
 </manifest>

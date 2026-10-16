@@ -182,12 +182,11 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic) BOOL voiceSoundEnabled;
 @property(nonatomic) BOOL voiceMuteSystemAudio;
 @property(nonatomic) BOOL voiceStreamInlinePreedit;
-/// The four ways of starting dictation and the one that locks a held shortcut down. Control + F9 is a press, the other three are holds; 按住时按空格锁定录音 applies to whichever hold is in use.
+/// The four ways of starting dictation. Control + F9 is a press, the other three are holds. 按住时按空格锁定录音在 macOS 上固定为开，不再是偏好。
 @property(nonatomic) BOOL voiceHotkeyCtrlF9;
 @property(nonatomic) BOOL voiceHotkeyRightAlt;
 @property(nonatomic) BOOL voiceHotkeyCtrlCommand;
 @property(nonatomic) BOOL voiceHotkeyCtrlOption;
-@property(nonatomic) BOOL voiceHotkeyHoldSpace;
 @property(nonatomic) BOOL floatingToolbarEnabled;
 /// The 中/英 button. It is a component like the eight below it; it had no accessor at all, so the
 /// only value the merge could publish for it was a constant.

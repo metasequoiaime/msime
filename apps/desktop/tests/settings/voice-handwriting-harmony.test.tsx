@@ -417,8 +417,14 @@ test("the 2-in-1 keeps the desktop voice page", async () => {
   });
   await settingsFormReady();
   expect(screen.getByText("HarmonyOS 输入法语音")).toBeTruthy();
-  expect(screen.queryByText("自动添加标点")).toBeNull();
+  // 桌面语音页和手机一样把豆包的标点开关放在「识别」组里，密钥和接口收进「服务配置」子视图。
+  expect(screen.getByRole("switch", { name: "自动添加标点" })).toBeTruthy();
+  expect(screen.queryByRole("textbox", { name: "Doubao API Key" })).toBeNull();
+  // 豆包没填凭据时 HarmonyOS 改用系统识别，识别语言照旧有用，所以 2in1 上不随豆包隐藏；状态也按键盘的同一套判断写。
   expect((screen.getByLabelText("识别语言") as HTMLInputElement).tagName).toBe("INPUT");
+  expect(screen.getByRole("button", { name: "服务配置" }).textContent).toContain(
+    "未填写，暂用系统识别",
+  );
 });
 
 // ---- 手写输入 ----

@@ -82,7 +82,13 @@ class Handler(BaseHTTPRequestHandler):
             assert self.headers.get("X-Api-Key") == (None if legacy else "fixture-token")
             assert self.headers.get("X-Api-App-Key") == ("stale-fixture-app" if legacy else None)
             assert self.headers.get("X-Api-Access-Key") == ("fixture-token" if legacy else None)
-            assert self.headers["X-Api-Resource-Id"] == "volc.bigasr.sauc.duration"
+            # /trimmed 两条写明了旧的 bigasr 资源；其余不写资源 ID，用与 client-providers 一致的默认值 seedasr。
+            expected_resource = (
+                "volc.bigasr.sauc.duration"
+                if self.path in ("/trimmed", "/trimmed-legacy")
+                else "volc.seedasr.sauc.duration"
+            )
+            assert self.headers["X-Api-Resource-Id"] == expected_resource
             assert len(self.headers["X-Api-Request-Id"]) == 36
             accept = base64.b64encode(hashlib.sha1((self.headers["Sec-WebSocket-Key"] +
                 "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
