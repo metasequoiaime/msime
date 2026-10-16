@@ -36,5 +36,5 @@ Status: implemented
 ## Verification
 
 - #8175：`check-host.sh` 通过；Gradle 原生宿主 `assembleFullRelease` 通过。Java 改动重新编译，测试包复用 #8094 已验收的原生库和 staged 词库，不把这轮表述为 Rust 原生库重建。
-- `TextEditRecentClipboardDeviceSmoke` 在 API 28、API 35 专用模拟器通过：开启后显示并播报「取消选择」，方向键延伸 EditText 选区；关闭后恢复「选择」，下一次方向键只移动光标。原有复制、剪切、粘贴、顶部预览和返回键验收同时通过。
+- `TextEditRecentClipboardDeviceSmoke` 在 API 28、API 35 专用模拟器通过：开启后键面及无障碍描述为「取消选择」，方向键延伸 EditText 选区；关闭后恢复「选择」，下一次方向键只移动光标。原有复制、剪切、粘贴、顶部预览和返回键验收同时通过。
 - `bash scripts/verify-local.sh --quick`、`pnpm run verify-notes` 与差异检查通过。
