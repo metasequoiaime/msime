@@ -449,6 +449,7 @@ public final class MSIMEInputService extends InputMethodService {
     QuickDeleteOverlay quickDeleteOverlay;
     /** 文本编辑面板（方向键、选择、全选、复制、剪切、粘贴），见 {@link ImeTextEditPanel}。 */
     LinearLayout textEditPanel;
+    LinearLayout shortcutToolbar;
     LinearLayout shortcutBar;
     HorizontalScrollView shortcutScroll;
     final java.util.List<Button> symbolKeyButtons = new java.util.ArrayList<>(30);
@@ -3585,8 +3586,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (candidateHeader != null) ViewPolicy.setFixedHeight(candidateHeader, readingRow);
         // 空闲时的工具栏和组词时的读音行 + 候选行占同一个位置，两者同高，打字时键盘才不会变高。空闲时读音行若在显示常驻的模式标签（直接输入、准备中），它已经占了读音行那一截，工具栏只取候选行的高度，总高不变。
         boolean idleHeader = ViewPolicy.isVisible(candidateHeader);
-        if (shortcutScroll != null)
-            ViewPolicy.setFixedHeight(shortcutScroll, (idleHeader ? 0 : readingRow) + pixels(line));
+        if (shortcutToolbar != null)
+            ViewPolicy.setFixedHeight(shortcutToolbar, (idleHeader ? 0 : readingRow) + pixels(line));
         // 「最近复制」占的是工具栏那一行的位置，同高，出现和消失时键盘不跳。
         if (recentClipRow != null)
             ViewPolicy.setFixedHeight(recentClipRow, (idleHeader ? 0 : readingRow) + pixels(line));
@@ -7908,7 +7909,7 @@ public final class MSIMEInputService extends InputMethodService {
         diagnosticView.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         ViewPolicy.hide(diagnosticView);
         candidateRegion.addView(diagnosticView, LayoutPolicy.matchWidthWrapParams());
-        candidateRegion.addView(shortcutScroll, LayoutPolicy.matchWidthHeightPx(
+        candidateRegion.addView(shortcutToolbar, LayoutPolicy.matchWidthHeightPx(
             pixels(KeyboardGeometry.DESIGN_TOOLBAR_ROW_HEIGHT_DP)));
         imeToolbar.addRecentClipRow(candidateRegion);
         nineKeySpellings = LayoutPolicy.row(this);
@@ -9081,8 +9082,8 @@ public final class MSIMEInputService extends InputMethodService {
         main.removeCallbacks(recentClipExpiry);
         boolean recentShown = recent != null || recentImage;
         if (recentShown) main.postDelayed(recentClipExpiry, recentClip.remainingMs(nowMs) + 50);
-        if (shortcutScroll != null)
-            ViewPolicy.setVisible(shortcutScroll, toolbarRow && !recentShown);
+        if (shortcutToolbar != null)
+            ViewPolicy.setVisible(shortcutToolbar, toolbarRow && !recentShown);
         if (candidateLine != null)
             ViewPolicy.setVisible(candidateLine, !heightMode && !idle && !hasDiagnostic);
         if (!ViewPolicy.isVisible(replyKeyboard))
