@@ -14,6 +14,9 @@ public final class BottomPaddingSettingsDeviceSmoke extends DeviceSmoke {
         return "native bottom padding slider range, save and reopen persistence";
     }
     @Override protected void runChecks() throws Exception {
+        android.accessibilityservice.AccessibilityServiceInfo info = automation.getServiceInfo();
+        info.flags |= android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
+        automation.setServiceInfo(info);
         File file = new File(getTargetContext().getFilesDir(), "bootstrap/state/android-settings.json");
         byte[] original = file.exists() ? Files.readAllBytes(file.toPath()) : null;
         try {
@@ -51,6 +54,26 @@ public final class BottomPaddingSettingsDeviceSmoke extends DeviceSmoke {
         }
     }
     private void openSettings() throws Exception {
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android/app.msime.android.home.HomeActivity --es msime_open_page KEYBOARD_OPTIONS");
+        // 全新安装先走开屏和引导；通过真实按钮跳过，再重发被引导遮住的页面请求。
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        do {
+            dropStaleNodes();
+            AccessibilityNodeInfo root = automation.getRootInActiveWindow();
+            AccessibilityNodeInfo skip = find(root,
+                node -> "app.msime.android:id/onboarding_skip".equals(node.getViewIdResourceName()));
+            if (skip != null) {
+                check(skip.performAction(AccessibilityNodeInfo.ACTION_CLICK), "onboarding skip did not respond");
+                SystemClock.sleep(500);
+                break;
+            }
+            AccessibilityNodeInfo intro = find(root,
+                node -> "app.msime.android:id/home_intro".equals(node.getViewIdResourceName()));
+            if (intro != null && intro.isClickable()) intro.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+            else if (find(root, node -> equalsText("app.msime.android", node.getPackageName())
+                    && node.isScrollable()) != null) break;
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android/app.msime.android.home.HomeActivity --es msime_open_page KEYBOARD_OPTIONS");
         SystemClock.sleep(500);
     }
