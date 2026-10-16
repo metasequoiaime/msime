@@ -1,4 +1,4 @@
-import type { SettingsClient } from "../index";
+import type { SettingsClient } from "../core/settings-client";
 import { settingsCapabilities } from "./settings-capabilities";
 import { settingsPlatformContext } from "./settings-platform-context";
 

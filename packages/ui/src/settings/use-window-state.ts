@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { SettingsClient } from "../index";
+import type { SettingsClient } from "../core/settings-client";
 import { trackAsyncSubscription } from "../core/async-subscription";
 import { useMountedRef } from "./use-mounted-ref";
 import { useAsyncGeneration } from "./use-async-generation";

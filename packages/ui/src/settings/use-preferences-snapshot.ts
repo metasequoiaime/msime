@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { trackAsyncSubscription } from "../core/async-subscription";
-import type { SettingsClient } from "../index";
+import type { SettingsClient } from "../core/settings-client";
 import type { Snapshot } from "../core/preferences-model";
 import { useAsyncGeneration } from "./use-async-generation";
 
