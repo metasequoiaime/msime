@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+`WubiProfile` 同样归入纯 `wubi-preferences.ts`，输入方案详情保留原路径类型转导出；查码结果组件直接依赖纯模型，公共包入口的类型保持兼容。
+
 由无 React 依赖的 `settings/wubi-preferences.ts` 持有三项类型和 `wubiControlState`。公共 `Preferences` 组合叶子契约，原控件接口扩展叶子类型，保留原名、导入路径和声明合并能力。控件只消费有效状态，仍逐字段写回。
 
 混输缺键时使用调用方传入的版本缺省（未传则关），剩余编码和四码唯一自动上屏缺键时为开。显式布尔值始终优先；读取只投影，不补写文档。五笔码表版本不在这三个开关的契约内。

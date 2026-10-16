@@ -1,3 +1,4 @@
+import type { WubiProfile } from "./wubi-preferences";
 import type { InputScheme } from "../core/input-scheme";
 import { LinkRow, Row } from "../core/platform-controls";
 
@@ -25,7 +26,7 @@ export type ShuangpinProfile =
   | "microsoft"
   | "smart_abc"
   | "custom";
-export type WubiProfile = "wubi86" | "wubi98";
+export type { WubiProfile } from "./wubi-preferences";
 
 /**
  * 双拼方案的选项。这里和下面的五笔方案都写成返回 Fragment 的普通函数，鸿蒙手机的 `SelectRow` 才能从中读出面板选项。

@@ -1,3 +1,5 @@
+export type WubiProfile = "wubi86" | "wubi98";
+
 export type WubiCandidateSelectionPreferences = {
   enabled: boolean;
   second_key: string;

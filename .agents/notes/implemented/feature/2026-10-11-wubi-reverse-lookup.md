@@ -37,7 +37,9 @@ TypeScript 的 `WubiTextCodes`、`WubiCodeLookup` 和 `WubiCodeLookupClient` 归
 
 共享设置页的输入文字一变化，就作废尚未完成的查码请求，清掉旧结果和错误，并允许对新文字立即查码；过期请求即使晚于新请求返回也不再回写。否则用户把「你好」改成「世界」后，会继续看到「你好」的编码，旧请求未结束时还无法查询新文字。
 
-查码的忙碌状态、同步防重复点击和卸载保护复用 `useAsyncActionRunner(setError, undefined, lookup)`；编辑文字通过 runner 的 `invalidate` 立即作废请求，更换宿主查码入口同样解除旧请求的占用。旧成功、失败和收尾都不能覆盖当前请求。输入页按词库客户端及其 `wubiCodes` 方法缓存绑定回调，保留方法的接收者；修改其他设置不会产生新的查码 owner。码表列的高亮只影响展示，不作废请求。此处与[双拼编辑器的共享守卫](../simplification/2026-10-14-shuangpin-custom-editor-generation.md)使用同一公共操作生命周期，不另建一套查码专用异步接口。
+公共 `useWubiCodeLookup`（`settings/use-wubi-code-lookup.ts`）持有文字、结果、错误和查询动作；独立使用时也拒绝空白查询，但把有效查询的原文原样交给宿主。查码的忙碌状态、同步防重复点击和卸载保护复用 `useAsyncActionRunner(setError, undefined, lookup)`；编辑文字通过 runner 的 `invalidate` 立即作废请求，更换宿主查码入口同样解除旧请求的占用。旧成功、失败和收尾都不能覆盖当前请求。输入页按词库客户端及其 `wubiCodes` 方法缓存绑定回调，保留方法的接收者；修改其他设置不会产生新的查码 owner。码表列的高亮只影响展示，不作废请求。
+
+更换 `lookup` 时清掉上一客户端已完成的结果和错误，保留文字且不自动查询。`WubiCodeLookupResults`（`settings/wubi-code-lookup-results.tsx`）独立持有词在前的表格、缺码、空结果和截断提示；入口控件只组合公共 hook 和结果组件。两者及其选项、状态与 props 从包入口公开。此处与[双拼编辑器的共享守卫](../simplification/2026-10-14-shuangpin-custom-editor-generation.md)使用同一公共操作生命周期，不另建一套查码专用异步接口。
 
 页面只经 `DictionaryClient.wubiCodes` 拿结果；宿主没有提供它时整组不画。各宿主的接法：
 
@@ -59,6 +61,8 @@ iOS 原生页同样用 `WubiLookupRequestState` 管理输入、请求身份和�
 
 ## Alternatives considered
 
+- **只公开整个查码组**：接入最短，已有整页回归也能验证交互；但查询状态与结果表格无法分别复用。独立 hook 与受控结果组件保留原接口和排法，避免其他共享宿主复制状态和表格。
+
 - **继续维护查码自己的 `busy` 和数字代次**：编辑文字时作废请求的逻辑很直接；但它没有覆盖宿主更换和卸载，状态更新也无法阻止同一轮重复点击。共享 runner 已提供这些规则，并允许通过 `invalidate` 保留编辑即作废的边界，因此删除本地副本。
 
 - **新增一个 `LocalInputMode`（像 `R` 临时日文那样切换方案）**：最强的理由是隔离得干净，预编辑可以显示成独立的模式，选词和学习各走本地模式那一套，不碰五笔组字的代码。没有采用：`LocalInputMode` 的名字是跨进程契约，六个宿主都有各自的模式标签、打字统计和中文输出策略按名字分支（Linux `CandidateLocalModeLabels.h`、Android `LocalInputMode.java`、Harmony `LocalInputMode.ts` 等），新增一个值要在每个宿主补一遍；本地模式的选择总是整段上屏，也就没法选走一部分拼音再接着反查。留在五笔组字里，宿主侧一行都不用改，现有的编码提示规则直接生效。
@@ -72,9 +76,12 @@ iOS 原生页同样用 `WubiLookupRequestState` 管理输入、请求身份和�
 - 混输关闭的五笔用户按 `z` 加拼音就能看到候选和它们的五笔编码，跟随所选的 86/98 码表；混输打开的用户行为不变。
 - 代价：混输关闭时，五笔里单独按 `z` 不再原样输入 `z`，而是开始一个反查组字。反查的预编辑显示键入的原文（`znihao`），没有拼音分词。反查不支持撇号分隔，这一点与混输相同。
 - 反查的拼音候选按拼音词库原有的顺序排列，不受个人学习影响，也不留下学习记录。
-- iOS 和 Android 的产品设置里各有一个原生的「五笔查码」页（见上文两条），文字和排法照共享设置页，改一处要同时改三处：`wubi-code-lookup-section.tsx`、`WubiCodeLookupPolicy.java`、`WubiCodeLookup.swift`。Windows 经 WinUI「输入」页的一行跳到共享应用里查。
+- 公共查询状态与结果展示可以独立复用，代价是维护两个新增公共接口。客户端更换只清展示状态，不改变已发出请求的宿主执行；旧请求不能更新当前界面。
+- iOS 和 Android 的产品设置里各有一个原生的「五笔查码」页（见上文两条），文字和排法照共享设置页，改一处要同时改三处：`wubi-code-lookup-section.tsx` 与 `wubi-code-lookup-results.tsx`、`WubiCodeLookupPolicy.java`、`WubiCodeLookup.swift`。Windows 经 WinUI「输入」页的一行跳到共享应用里查。
 
 ## Verification
+
+- 公共抽取：`wubi-code-lookup-state.test.tsx` 独立调用 hook 与结果组件，覆盖空白拒绝、原文保留、StrictMode 同批防重、编辑后的旧成功/失败/收尾隔离、失败清除、客户端更换与空结果/缺码/截断展示。`wubi-code-lookup-section.test.tsx` 的客户端更换回归先在旧实现下失败，修复后复跑，并保留输入页的真实接线回归。验证范围仍是共享前端，不改变宿主查码协议。
 
 - `cargo test -p msime-engine --lib`：`wubi::scheme` 新增三条（开头 `z` 引导、反查上限 32 与四个字母不是完整码、中间 `z` 仍拒绝、退格离开；不允许时 `z` 被滤掉；宿主编辑整段保留反查原文），`host::tests` 新增六条：反查附码且单字是全码、跟随 98 码表、进入与离开（退格、取消、离开后五笔码照常）、混输里没有 `z` 反查、选走一部分后剩余拼音仍在反查且回车只上屏拼音、反查不学习（并以混输里同样的选择会写日志作对照，证明测得到学习）。不学习那条在去掉 `learn_candidate` 的判断后失败。另有 `a_multi_pick_in_the_pinyin_lookup_creates_no_phrase`：打开学习，在反查里分两次选出码表没有的 `你号`，用户日志里没有这个新词；混输里同样分两次选会造出它，作为对照。去掉 `commit_selection` 里 `!self.engine.wubi_pinyin_lookup_active()` 那个条件后这一条失败。
 - `cargo test -p msime-engine --test golden`：更新后的三个场景与其余场景全部通过。

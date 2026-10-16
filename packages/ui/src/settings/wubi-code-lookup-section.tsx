@@ -1,18 +1,14 @@
-import { useState } from "react";
-import { useAsyncActionRunner } from "../core/use-async-action";
 import { GroupList } from "../core/platform-controls";
 import { StatusMessage } from "../core/status-message";
 import { ActionButton } from "./action-button";
-import type { WubiProfile } from "./input-scheme-details-section";
+import type { WubiProfile } from "./wubi-preferences";
+import { useWubiCodeLookup } from "./use-wubi-code-lookup";
+import { WubiCodeLookupResults } from "./wubi-code-lookup-results";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import * as settings from "./settings-style";
 import { SettingsTextareaField } from "./settings-textarea-field";
-import type {
-  WubiTextCodes,
-  WubiCodeLookup,
-  WubiCodeLookupClient,
-} from "../dictionary/dictionary-contracts";
+import type { WubiCodeLookupClient } from "../dictionary/dictionary-contracts";
 export type {
   WubiTextCodes,
   WubiCodeLookup,
@@ -29,38 +25,8 @@ export interface WubiCodeLookupSectionProps {
 }
 
 /** 五笔查码：输入或粘贴汉字，列出每个字（以及整段词）的 86 和 98 五笔编码。没有字根拆分：仓库里没有授权清楚的拆分数据。 */
-export function WubiCodeLookupSection({ lookup, profile = "wubi86" }: WubiCodeLookupSectionProps) {
-  const [text, setText] = useState("");
-  const [result, setResult] = useState<WubiCodeLookup | null>(null);
-  const [error, setError] = useState("");
-  const { busy, invalidate, run } = useAsyncActionRunner(setError, undefined, lookup);
-  const edit = (value: string) => {
-    invalidate();
-    setText(value);
-    setResult(null);
-    setError("");
-  };
-  const search = () =>
-    run(
-      async (isCurrent) => {
-        const answer = await lookup(text);
-        if (isCurrent()) setResult(answer);
-      },
-      {
-        formatError: () => "查码失败，请稍后重试。",
-        onError: () => setResult(null),
-      },
-    );
-
-  const columns: [WubiProfile, string][] = [
-    ["wubi86", "86 五笔"],
-    ["wubi98", "98 五笔"],
-  ];
-  const codes = (item: WubiTextCodes, column: WubiProfile) => {
-    const list = column === "wubi98" ? item.wubi98 : item.wubi86;
-    return list.length > 0 ? list.join(" ") : "—";
-  };
-  const rows = result ? [...(result.phrase ? [result.phrase] : []), ...result.characters] : [];
+export function WubiCodeLookupSection({ lookup, profile }: WubiCodeLookupSectionProps) {
+  const { text, result, error, canSearch, edit, search } = useWubiCodeLookup({ lookup });
 
   return (
     <GroupList title="五笔查码">
@@ -76,48 +42,10 @@ export function WubiCodeLookupSection({ lookup, profile = "wubi86" }: WubiCodeLo
           onChange={edit}
         />
         <SettingsManagerActions>
-          <ActionButton action={search} disabled={busy || !text.trim()} label="查码" />
+          <ActionButton action={search} disabled={!canSearch} label="查码" />
         </SettingsManagerActions>
         {error && <StatusMessage role="alert">{error}</StatusMessage>}
-        {result && rows.length === 0 && (
-          <StatusMessage role="status">没有可以查的汉字。</StatusMessage>
-        )}
-        {rows.length > 0 && (
-          <div className="overflow-x-auto">
-            <table
-              aria-label="五笔编码"
-              className="w-full border-collapse text-sm [&_td]:border-t [&_td]:border-edge [&_td]:px-2 [&_td]:py-1.5 [&_td]:text-left [&_th]:px-2 [&_th]:pb-1.5 [&_th]:text-left [&_th]:font-medium [&_th]:text-muted"
-            >
-              <thead>
-                <tr>
-                  <th scope="col">文字</th>
-                  {columns.map(([column, title]) => (
-                    <th scope="col" key={column}>
-                      {column === profile ? `${title}（当前）` : title}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((item, index) => (
-                  <tr key={`${index}-${item.text}`}>
-                    <td className="text-body">{item.text}</td>
-                    {columns.map(([column]) => (
-                      <td key={column} className="font-mono">
-                        {codes(item, column)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {result?.truncated && (
-          <StatusMessage role="status">
-            字太多，只列出了前 {result.characters.length} 个不同的字。
-          </StatusMessage>
-        )}
+        <WubiCodeLookupResults result={result} profile={profile} />
       </SettingsManagerBlock>
     </GroupList>
   );

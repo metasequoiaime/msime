@@ -937,6 +937,15 @@ export {
   type WubiCodeLookupSectionProps,
 } from "./settings/wubi-code-lookup-section";
 export {
+  useWubiCodeLookup,
+  type UseWubiCodeLookupOptions,
+  type WubiCodeLookupState,
+} from "./settings/use-wubi-code-lookup";
+export {
+  WubiCodeLookupResults,
+  type WubiCodeLookupResultsProps,
+} from "./settings/wubi-code-lookup-results";
+export {
   InputModeSection,
   type InputModeScheme,
   type InputModeSectionProps,

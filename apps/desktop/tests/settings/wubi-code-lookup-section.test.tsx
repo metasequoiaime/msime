@@ -282,3 +282,20 @@ test("输入页修改其他五笔设置不作废当前宿主的查码请求，�
   expect(within(group).getByRole("table", { name: "五笔编码" })).toBeTruthy();
   expect(button.disabled).toBe(false);
 });
+
+test.each(["结果", "错误"])("更换查码客户端立即清除上一客户端的%s并保留文字", async (state) => {
+  const lookup = vi.fn();
+  if (state === "结果") lookup.mockResolvedValue(answer);
+  else lookup.mockRejectedValue(new Error("合成查码失败"));
+  const view = render(<WubiCodeLookupSection lookup={lookup} />);
+  fireEvent.change(screen.getByLabelText("要查五笔编码的文字"), { target: { value: "你好" } });
+  fireEvent.click(screen.getByRole("button", { name: "查码" }));
+  if (state === "结果") await screen.findByRole("table", { name: "五笔编码" });
+  else await screen.findByRole("alert");
+  const next = vi.fn().mockResolvedValue({ phrase: null, characters: [], truncated: false });
+  view.rerender(<WubiCodeLookupSection lookup={next} />);
+  expect(screen.queryByRole("table", { name: "五笔编码" })).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect((screen.getByLabelText("要查五笔编码的文字") as HTMLTextAreaElement).value).toBe("你好");
+  expect(next).not.toHaveBeenCalled();
+});
