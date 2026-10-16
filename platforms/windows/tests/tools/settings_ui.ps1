@@ -99,6 +99,58 @@ function Open-Page($window, [string]$page) {
     if (-not $title) { throw "Page did not change to $page" }
     if (Find-ById $content 'settings-load-error') { throw 'Synthetic preferences were rejected by the real host' }
 }
+function Wait-WubiControl($window, [string]$id) {
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $content = Find-ById $window 'settings-content'
+        $control = if ($content) { Find-ById $content $id } else { $null }
+        if ($control -and $control.Current.IsEnabled) { return $control }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Missing enabled Wubi control: $id"
+}
+function Assert-WubiCandidateSelection($window) {
+    $toggle = Wait-WubiControl $window 'wubi-candidate-selection'
+    $pattern = $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+    if ($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::Off) { throw 'Wubi shortcuts must default to off' }
+    $pattern.Toggle()
+    $second = Wait-WubiControl $window 'wubi-second-candidate-key'
+    $third = Wait-WubiControl $window 'wubi-third-candidate-key'
+    $secondValue = $second.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+    $thirdValue = $third.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+    if ($secondValue.Current.Value -ne ';' -or $thirdValue.Current.Value -ne "'") { throw 'Wubi shortcut defaults are incorrect' }
+    $path = Join-Path $state 'preferences.json'
+    $beforeEdit = [IO.File]::ReadAllText($path)
+    # 交换键位的中间状态会重复；只有按保存时才能成对进入共享偏好库。
+    $secondValue.SetValue("'")
+    $thirdValue.SetValue(';')
+    if ([IO.File]::ReadAllText($path) -ne $beforeEdit) { throw 'Editing Wubi shortcuts saved an intermediate pair' }
+    $save = Wait-WubiControl $window 'wubi-save-candidate-keys'
+    $save.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $keys = $saved.preferences.wubi_candidate_selection
+    } while (($keys.second_key -ne "'" -or $keys.third_key -ne ';') -and [DateTime]::UtcNow -lt $deadline)
+    if (-not $keys.enabled -or $keys.second_key -ne "'" -or $keys.third_key -ne ';') { throw 'Wubi shortcut pair was not saved together' }
+    Open-Page $window 'expression'
+    Open-Page $window 'typing'
+    $second = Wait-WubiControl $window 'wubi-second-candidate-key'
+    $third = Wait-WubiControl $window 'wubi-third-candidate-key'
+    if ($second.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value -ne "'" -or
+        $third.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value -ne ';') { throw 'Wubi shortcut controls did not reload saved keys' }
+    $toggle = Wait-WubiControl $window 'wubi-candidate-selection'
+    $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $keys = $saved.preferences.wubi_candidate_selection
+    } while ($keys.enabled -and [DateTime]::UtcNow -lt $deadline)
+    if ($keys.enabled -or $keys.second_key -ne "'" -or $keys.third_key -ne ';') { throw 'Disabling Wubi shortcuts lost custom keys' }
+    Write-Host 'Wubi shortcut toggle, atomic swap, reload and retained keys passed'
+}
 function Set-CandidateMore($window, [bool]$expanded) {
     # 候选窗口页是一列，进阶各行收在「更多选项」里。页面重绘后 UIA 树可能稍晚恢复；等待目标而非固定延时。
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -268,6 +320,7 @@ try {
             Start-Sleep -Milliseconds 500
             Save-Window $window "$theme-scheme-$scheme.png"
             Write-Host "$theme $scheme selected and saved"
+            if ($scheme -eq 'wubi') { Assert-WubiCandidateSelection $window }
             if ($scheme -ne 'quanpin') {
                 Open-Page $window 'toolbar'
                 $expected = if ($scheme -eq 'shuangpin') { '双' } else { '五' }

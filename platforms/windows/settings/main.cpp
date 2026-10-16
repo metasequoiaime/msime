@@ -11310,6 +11310,7 @@ private:
       bool_row(scheme_options_group, 0xE8CB, L"候选显示剩余编码",
                L"在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。",
                L"wubi_code_hint", true);
+      build_wubi_candidate_selection(scheme_options_group);
       bool_row(scheme_options_group, 0xE8CB, L"四码唯一候选自动上屏",
                L"五笔输入达到四码且只有一个候选时，自动提交该候选。关闭后这个词留在候选列表里，用空格或数字键选它。",
                L"wubi_auto_commit_unique", true);
@@ -11327,6 +11328,75 @@ private:
       if (edition_offers_scheme(L"shuangpin") && scheme == L"shuangpin")
         helpcode_rows(helpcode, L"双拼", L"shuangpin", true, L"lantian", true);
     }
+  }
+
+  void build_wubi_candidate_selection(StackPanel const &group) {
+    const bool enabled = document_.Boolean(L"wubi_candidate_selection.enabled", false);
+    auto toggle = toggle_control(L"五笔快捷选词", enabled, [this](bool on) {
+      change([&](PreferencesDocument &doc) {
+        doc.SetBoolean(L"wubi_candidate_selection.enabled", on);
+      }, true);
+    });
+    A11y::SetAutomationId(toggle, L"wubi-candidate-selection");
+    add_row(group, 0xE8C1, L"五笔快捷选词",
+            L"组字时用两个标点选当前页第 2、3 候选；候选不足时仍输入标点。", toggle);
+    if (!enabled)
+      return;
+
+    const auto second_key = document_.String(L"wubi_candidate_selection.second_key", L";");
+    const auto third_key = document_.String(L"wubi_candidate_selection.third_key", L"'");
+    TextBox second;
+    TextBox third;
+    for (auto const &field : {second, third}) {
+      field.Width(80);
+      field.MaxLength(1);
+      field.IsSpellCheckEnabled(false);
+      field.IsTextPredictionEnabled(false);
+      field.IsEnabled(loaded_);
+    }
+    second.Text(hstring(second_key));
+    third.Text(hstring(third_key));
+    A11y::SetName(second, L"五笔第 2 候选键");
+    A11y::SetName(third, L"五笔第 3 候选键");
+    A11y::SetAutomationId(second, L"wubi-second-candidate-key");
+    A11y::SetAutomationId(third, L"wubi-third-candidate-key");
+    add_row(group, 0xE8C1, L"第 2 候选键", L"", second);
+    add_row(group, 0xE8C1, L"第 3 候选键", L"", third);
+
+    Button save;
+    save.Content(box_value(L"保存选词键"));
+    save.IsEnabled(false);
+    A11y::SetName(save, L"保存五笔选词键");
+    A11y::SetAutomationId(save, L"wubi-save-candidate-keys");
+    // 两个字符一起交给共享偏好库校验和保存，允许交换键位，编辑中的值不进入文档。
+    save.Click([this, weak_second = make_weak(second), weak_third = make_weak(third)](
+                   Inspectable const &, RoutedEventArgs const &) {
+      const auto second_field = weak_second.get();
+      const auto third_field = weak_third.get();
+      if (!second_field || !third_field)
+        return;
+      const std::wstring second_value = second_field.Text().c_str();
+      const std::wstring third_value = third_field.Text().c_str();
+      change([&](PreferencesDocument &doc) {
+        doc.SetString(L"wubi_candidate_selection.second_key", second_value);
+        doc.SetString(L"wubi_candidate_selection.third_key", third_value);
+      }, true);
+    });
+    const auto edited = [weak_second = make_weak(second), weak_third = make_weak(third),
+                         weak_save = make_weak(save), second_key, third_key,
+                         loaded = loaded_](Inspectable const &, TextChangedEventArgs const &) {
+      const auto second_field = weak_second.get();
+      const auto third_field = weak_third.get();
+      const auto button = weak_save.get();
+      if (second_field && third_field && button)
+        button.IsEnabled(loaded && (std::wstring_view(second_field.Text()) != second_key ||
+                                    std::wstring_view(third_field.Text()) != third_key));
+    };
+    second.TextChanged(edited);
+    third.TextChanged(edited);
+    add_row(group, 0xE8C1, L"自定义选词键",
+            L"使用两个不同的英文标点；请选择未用于翻页或以词定字的键。改完后一起保存。",
+            save);
   }
 
   // 设置按任务归页，搜索索引随所属页面一起建立。

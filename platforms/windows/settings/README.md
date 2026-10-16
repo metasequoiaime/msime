@@ -32,7 +32,9 @@
 
 「输入」页的辅助码方案下拉框和共享设置的 `HelpcodeSettingsGroup`（`packages/ui/src/settings/pages/helpcode-page.tsx`）规则相同，辅助码插件也在这里选，不跳共享应用。选项依次是内置方案、资源目录 `helpcodes/custom` 里的自定义码表（`custom/<文件名>`，由 `msime_client_helpcode_schemas` 读宿主选项的 `resources`，名字是「中文名 (英文名)」）和已安装的辅助码表插件（「插件名（插件）」，取自 `msime_client_plugins` 的 `catalog` 中种类为 `helpcode` 的包）。选插件只写 `plugins.helpcode_pack_quanpin` / `helpcode_pack_shuangpin`，输入引擎用它替换内置方案；选内置或自定义方案时同时清空插件。已选的插件不在了显示为「id（插件，未找到）」，资源目录读不到时已选的自定义码表也留在列表里。自定义码表只读一次，插件每次进入「输入」页重读，都在工作线程上读。本版本提供全拼或双拼之一就显示这一组，两族都列出（共享页的 `editionUsesHelpcode`）；「在候选窗口中显示…辅助码」不随开关变灰；Windows 不是 Shift 输入辅助码的宿主（`helpcode_shift_entry` 为 false），所以没有共享页那段 Shift 说明。
 
-选用五笔时，「输入」页在输入方案组后面有「五笔查码」组，与共享设置的 `WubiCodeLookupSection`（`packages/ui/src/settings/wubi-code-lookup-section.tsx`）相同：输入或粘贴汉字（最多 1000 个字符）后「查码」，经 `msime_client_settings_dictionary` 发只读的词库请求 `wubi_codes`，在工作线程上查；结果表列出整段文字作为一个词和每个不同汉字的 86、98 五笔编码（简码在前，码表里没有时写 —），当前选用的码表标「（当前）」，字太多时说明只列出了前多少个。
+选用五笔时，「输入方案」页的「当前方案选项」提供「五笔快捷选词」（`wubi_candidate_selection`，默认关闭）：开启后默认用 `;` / `'` 选择当前页第 2、3 候选，候选不足时仍输入标点。两个候选键可改为不同的英文标点，按「保存选词键」一起保存；共享偏好库校验标点、重复与翻页/以词定字冲突，拒绝时恢复已保存设置并提示。关闭后保留自定义键位；「按键」页的通用「二三候选」是另一项设置。
+
+选用五笔时，「输入方案」页在方案选项后面有「五笔查码」组，与共享设置的 `WubiCodeLookupSection`（`packages/ui/src/settings/wubi-code-lookup-section.tsx`）相同：输入或粘贴汉字（最多 1000 个字符）后「查码」，经 `msime_client_settings_dictionary` 发只读的词库请求 `wubi_codes`，在工作线程上查；结果表列出整段文字作为一个词和每个不同汉字的 86、98 五笔编码（简码在前，码表里没有时写 —），当前选用的码表标「（当前）」，字太多时说明只列出了前多少个。
 
 `--route=settings:<id>` 指定打开的页面，可以是共享路由的设置分类 id（`appearance`、`dictionary`、`about` 等，映射见 `route_aliases`），也可以是本窗口的页面 id；其他值打开默认的「输入」页。
 

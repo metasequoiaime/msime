@@ -12,6 +12,8 @@ Status: implemented
 
 共享 React、iOS 活跃会话和 host-api 各宿主的按键路由按同一偏好接入；Windows TIP 增加配置帧以把自定义字符送入共享会话。Android、HarmonyOS 和其他宿主交给共享 JSON/host-api 路由，候选不足时保留原标点。Windows TIP 与 Server 的归类必须一致，不能仅把 Server 标点回包当作数字选词。旧通用二三候选设置的历史行为独立保留。
 
+Windows 原生设置在五笔方案的「当前方案选项」里提供「五笔快捷选词」开关，默认关闭。开启后显示第 2、3 候选键，编辑中的两个字符只留在控件里，按「保存选词键」时成对写入同一份偏好，以便交换键位而不经过重复字符的中间状态。单字符输入框只限制长度；标点、重复字符及翻页/以词定字冲突仍由共享 Rust 偏好库拒绝，失败时沿用原生设置已有的重新读取与错误提示，不复制一份校验规则。关闭开关保留自定义字符，下次开启继续使用。原有「按键」页的通用二三候选不代表这个五笔专用选项。
+
 ## Alternatives considered
 
 - 扩展旧通用开关能复用 Windows 推送，但会改变其他方案及候选不足时的既有行为，也无法给其他宿主自动补上输入路径。
@@ -29,6 +31,10 @@ Status: implemented
 ## Verification
 
 `msime-client-core` 1,475 项、`msime-input-runtime` 292 项、`msime-host-api` 634 项单测通过；新增五笔快捷键回归覆盖当前页、展示顺序、缺候选标点回退、非五笔/英文/快捷模式、实时配置和偏好校验。共享 UI 类型检查及 7 项五笔设置测试通过。Windows x64 MinGW 全量构建与 `windows-tsf-config-frames` 目标编译通过；Linux/macOS 本机不能执行 MinGW Windows ELF 测试，未将其称作 Windows 运行时验收。`pnpm run verify-notes` 与 `git diff --check` 通过。
+
+Windows 原生设置的补齐由 `tests/tools/settings_ui.ps1` 在独立合成状态下通过真实控件检查默认关闭、开启后的默认键、交换键位时不写中间态、成对保存、离开再进入后的回显，以及关闭后仍保留自定义键位。该脚本由 Windows native settings CI 运行；本机 quick 与远端原生界面结果在本次 PR 中分别记录，不把界面用例当成 TSF 在编辑器里的按键验收。
+
+原生设置补齐后的本地 `scripts/verify-local.sh --quick` 通过：155 项本机 Windows 宿主测试、契约、Rust 工作区、Windows x64 原生链接、GNU 桌面检查、共享 Apple 桥接及 x64/i686 管道编译。起始 i686 语法阶段因首次没有 x64 缓存跳过，其他平台按范围跳过；本机没有运行 WinUI 窗口，用例实际执行结果由本次 PR 的 Windows CI 记录。
 
 ## Related notes
 
