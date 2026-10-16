@@ -124,7 +124,7 @@ public abstract class DetailPage extends HomeTabFragment {
             if (focus != null) {
                 focus.clearFocus();
                 androidx.core.view.WindowInsetsControllerCompat controller =
-                    androidx.core.view.ViewCompat.getWindowInsetsController(focus);
+                    androidx.core.view.WindowCompat.getInsetsController(requireActivity().getWindow(), focus);
                 if (controller != null) controller.hide(androidx.core.view.WindowInsetsCompat.Type.ime());
             }
             updateSections(requireView().findViewById(R.id.ms_detail_column));

@@ -250,7 +250,21 @@ fn capabilities_describe_each_host() {
     assert!(macos.candidate_font_controls);
     assert!(macos.candidate_row_colors);
     assert!(macos.candidate_selection_appearance);
-    assert!(macos.candidate_border_color);
+    // macOS 的编号色和边框色固定跟随主题，宿主不读这两个槽位，设置页也不给取色器；其他宿主照旧。
+    assert!(!macos.candidate_border_color && !macos.candidate_number_color);
+    // macOS 上只有候选窗口还能单独设明暗，其余界面一律跟随颜色模式。
+    assert!(macos.surface_themes_follow);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        let host = HostCapabilities::for_platform(platform);
+        assert!(host.candidate_number_color && host.candidate_border_color);
+        assert!(!host.surface_themes_follow);
+    }
     assert!(macos.candidate_follow_cursor);
     assert!(macos.panel_shortcuts);
     assert!(macos.app_logo);

@@ -1,4 +1,4 @@
-//! Profile tables, verbatim from `shuangpin_profile.cpp` (schemes-lang.md §1.2), and the accepted syllable set (§1.3): the intact set plus `eng`, minus the historical exclusions; `yo` is accepted in every profile.
+//! 双拼键位表：前四张沿用 `shuangpin_profile.cpp`（schemes-lang.md §1.2）；智能 ABC 的公开键位定义见对应笔记。音节集合沿用 §1.3，补 `eng`、排除历史例外，各方案均接受 `yo`。
 
 use std::collections::HashSet;
 use std::sync::OnceLock;
@@ -235,6 +235,61 @@ static MICROSOFT: ShuangpinProfile = ShuangpinProfile {
     ],
 };
 
+// 智能 ABC 的公开键位对应关系；来源与固定提交见智能 ABC 双拼笔记。
+static SMART_ABC: ShuangpinProfile = ShuangpinProfile {
+    kind: ShuangpinProfileKind::SmartAbc,
+    initials: &[("zh", "a"), ("ch", "e"), ("sh", "v")],
+    zero_initials: &[
+        ("a", "oa"),
+        ("ai", "ol"),
+        ("an", "oj"),
+        ("ang", "oh"),
+        ("ao", "ok"),
+        ("e", "oe"),
+        ("ei", "oq"),
+        ("en", "of"),
+        ("eng", "og"),
+        ("er", "or"),
+        ("o", "oo"),
+        ("ou", "ob"),
+    ],
+    finals: &[
+        ("a", "a"),
+        ("o", "o"),
+        ("e", "e"),
+        ("i", "i"),
+        ("u", "u"),
+        ("v", "v"),
+        ("ai", "l"),
+        ("ei", "q"),
+        ("ui", "m"),
+        ("ao", "k"),
+        ("ou", "b"),
+        ("iu", "r"),
+        ("ie", "x"),
+        ("ve", "m"),
+        ("ue", "m"),
+        ("an", "j"),
+        ("en", "f"),
+        ("in", "c"),
+        ("un", "n"),
+        ("ang", "h"),
+        ("eng", "g"),
+        ("ing", "y"),
+        ("ong", "s"),
+        ("ia", "d"),
+        ("ua", "d"),
+        ("uo", "o"),
+        ("uai", "c"),
+        ("ian", "w"),
+        ("uan", "p"),
+        ("iao", "z"),
+        ("iang", "t"),
+        ("uang", "t"),
+        ("iong", "s"),
+    ],
+};
+
 impl ShuangpinProfile {
     /// 有韵母放在 `;` 上，或零声母编码以 `;` 结尾。这时方案在奇数长度的片段之后接受 `;`，宿主把 `;` 当字母键送进来（`EngineSnapshot::microsoft_shuangpin`）。
     pub fn uses_semicolon_key(&self) -> bool {
@@ -258,6 +313,7 @@ pub fn profile(kind: ShuangpinProfileKind) -> Option<&'static ShuangpinProfile> 
         ShuangpinProfileKind::Ziranma => Some(&ZIRANMA),
         ShuangpinProfileKind::Shoudao => Some(&SHOUDAO),
         ShuangpinProfileKind::Microsoft => Some(&MICROSOFT),
+        ShuangpinProfileKind::SmartAbc => Some(&SMART_ABC),
         ShuangpinProfileKind::Custom => None,
     }
 }
@@ -291,12 +347,56 @@ mod tests {
     }
 
     #[test]
+    fn smart_abc_uses_its_initials_finals_and_zero_initial_codes() {
+        let source = ShuangpinProfileKind::from_name("smart_abc")
+            .and_then(profile)
+            .expect("智能 ABC 应有内置键位表");
+        for (code, syllable) in [
+            ("ai", "zhi"),
+            ("ei", "chi"),
+            ("vi", "shi"),
+            ("vk", "shao"),
+            ("ap", "zhuan"),
+            ("et", "chuang"),
+            ("jy", "jing"),
+            ("nw", "nian"),
+            ("nz", "niao"),
+            ("lc", "lin"),
+            ("hc", "huai"),
+            ("lm", "lve"),
+            ("vm", "shui"),
+            ("xm", "xue"),
+            ("lr", "liu"),
+            ("oa", "a"),
+            ("ol", "ai"),
+            ("oj", "an"),
+            ("oh", "ang"),
+            ("ok", "ao"),
+            ("oe", "e"),
+            ("oq", "ei"),
+            ("of", "en"),
+            ("og", "eng"),
+            ("or", "er"),
+            ("oo", "o"),
+            ("ob", "ou"),
+        ] {
+            assert_eq!(
+                super::super::utils::cvt_single_sp_to_pinyin(code, source),
+                syllable,
+                "{code}"
+            );
+        }
+        assert!(!source.uses_semicolon_key());
+    }
+
+    #[test]
     fn profiles_select_by_kind() {
         for kind in [
             ShuangpinProfileKind::Xiaohe,
             ShuangpinProfileKind::Ziranma,
             ShuangpinProfileKind::Shoudao,
             ShuangpinProfileKind::Microsoft,
+            ShuangpinProfileKind::SmartAbc,
         ] {
             let selected = profile(kind).unwrap();
             assert_eq!(selected.kind, kind);

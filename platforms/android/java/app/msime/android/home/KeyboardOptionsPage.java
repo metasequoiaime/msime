@@ -1,5 +1,7 @@
 package app.msime.android.home;
 
+import app.msime.android.KeyboardBottomBarPolicy;
+
 import app.msime.android.DimensionPolicy;
 
 import app.msime.android.ThemeColorPolicy;
@@ -148,9 +150,13 @@ public final class KeyboardOptionsPage extends ReloadingDetailPage {
         layout.toggle("键盘底栏", "仅在全面屏手势导航下生效：键盘下方加一条栏，左边切换输入法、右边剪贴板，中间左右滑动移动光标，同时把按键抬离屏幕底边",
             settings.bool(AndroidLocalSettings.BOTTOM_BAR),
             checked -> saveLocalSetting(AndroidLocalSettings.BOTTOM_BAR, checked));
-        layout.toggle("底部留白", "键盘下方多留一段空白，把回车、空格等最下一行的键抬离屏幕底边，减少误触；键盘底栏出现时不再另加",
+        layout.toggle("底部留白", "在键区下方保留指定高度，不改变按键大小；键盘底栏的高度计入留白，避免重复叠加",
             settings.bool(AndroidLocalSettings.BOTTOM_PADDING),
             checked -> saveLocalSetting(AndroidLocalSettings.BOTTOM_PADDING, checked));
+        layout.slider("底部留白高度", KeyboardBottomBarPolicy.MIN_PADDING_DP,
+            KeyboardBottomBarPolicy.MAX_PADDING_DP, 1,
+            settings.integer(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT), value -> value + " dp",
+            value -> saveLocalSetting(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT, value));
 
         GroupCard feedback = GroupCard.add(sectionColumn(target, "反馈"), "按键反馈");
         KeyboardFeedbackStore.Settings local = state.feedback();

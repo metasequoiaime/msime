@@ -433,7 +433,7 @@ std::optional<UiSelectionFrames> ui_continued_selection(std::string_view payload
 }
 EncodedReply uiless_reply(uint64_t request, std::string_view display,
                           const std::vector<std::string> &page,
-                          size_t highlighted) {
+                          size_t highlighted, uint64_t generation) {
   if (contains_delimiter(display) || page.size() > 9 ||
       (page.empty() ? highlighted != 0 : highlighted >= page.size()))
     return failed(ReplyError::InvalidFields);
@@ -458,6 +458,20 @@ EncodedReply uiless_reply(uint64_t request, std::string_view display,
   }
   payload += '\t';
   payload += std::to_string(highlighted);
+  if (generation) {
+    payload += '\t';
+    payload += std::to_string(generation);
+  }
   return text_reply(request, FanyImeReplyType::UiLessComposition, payload);
+}
+std::optional<std::vector<uint8_t>>
+uiless_candidates_bytes(std::string_view display,
+                        const std::vector<std::string> &page,
+                        size_t highlighted, uint64_t generation) {
+  const auto encoded = uiless_reply(1, display, page, highlighted, generation);
+  if (!encoded)
+    return std::nullopt;
+  return worker_from_text(FanyImeWorkerReplyType::UiLessCandidatesChanged,
+                          encoded);
 }
 } // namespace msime::windows

@@ -1,4 +1,5 @@
-import type { InputScheme } from "../index";
+import type { InputScheme } from "../core/input-scheme";
+
 import { SegmentedRow } from "./segmented-row";
 import {
   chineseOutputForm,

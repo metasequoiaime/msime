@@ -96,7 +96,12 @@ import {
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./input/window-state";
 import { discoverFontReader } from "./candidate/system-font-client";
-import { DesktopKeyboard, useHostPlatform } from "./input/desktop-keyboard";
+import {
+  DesktopKeyboard,
+  panelSurfaceTheme,
+  useHostPlatform,
+  usePanelHost,
+} from "./input/desktop-keyboard";
 import { DesktopHandwriting } from "./input/desktop-handwriting";
 import { DesktopCloudDictionary } from "./dictionary/desktop-cloud-dictionary";
 import { testDesktopApiCredential } from "./account/credential-test-client";
@@ -488,18 +493,21 @@ function DesktopPanelTheme({
   surface,
   children,
 }: {
-  preferences: Pick<SettingsClient, "load" | "onPreferencesChanged">;
+  preferences: Pick<SettingsClient, "load" | "onPreferencesChanged" | "host">;
   surface: "handwriting" | "voice" | "emoji";
   children: (theme: "dark" | "light") => ReactNode;
 }) {
   const snapshot = usePreferencesSnapshot(preferences);
+  const host = usePanelHost(preferences.host);
   const surfaceTheme =
     surface === "handwriting"
       ? snapshot?.preferences.handwriting_theme
       : surface === "voice"
         ? snapshot?.preferences.voice_theme
         : snapshot?.preferences.emoji_theme;
-  return children(useCandidatePreviewTheme(snapshot?.preferences.theme, surfaceTheme));
+  return children(
+    useCandidatePreviewTheme(snapshot?.preferences.theme, panelSurfaceTheme(host, surfaceTheme)),
+  );
 }
 // The host reports what it supports; outside Tauri (the browser preview) there is no host.
 async function discoverHostCapabilities(): Promise<HostCapabilities | null> {

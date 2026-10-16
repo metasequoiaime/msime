@@ -26,8 +26,8 @@ public final class HostDeepLink {
     public static final String ARG_EXTERNAL = "msime_external";
 
     public static final int TAB_SETTINGS = 0;
-    /** 「对话」tab（AI 对话）。这一格原先是「社区」，社区内容并进各功能页以后换成了对话，下标不变，其他 tab 的取值也不变；以前发出的下标 1 现在打开对话，要打开某一类社区作品的完整列表用页面名 `COMMUNITY`。 */
-    public static final int TAB_CHAT = 1;
+    /** 「全部设置」tab；下标保持兼容，AI 对话从设置页进入二级页面。 */
+    public static final int TAB_ALL_SETTINGS = 1;
     public static final int TAB_STATISTICS = 2;
     public static final int TAB_ACCOUNT = 3;
     /** 没有给 tab 或给了不认识的值。 */

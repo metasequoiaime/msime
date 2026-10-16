@@ -53,6 +53,7 @@ HOST_DIFFERENCES = {
 
 # Sources whose `main` takes an argument the build system supplies.
 ARGUMENTS = {
+    "input/host_online_candidates.cpp": ["platforms/windows/tests/input/fixtures/msime-pinyin-online.db"],
     "core/installer_launch.cpp": ["platforms/windows/installer/msime_setup.iss"],
     "input/zhuyin_keys.cpp": ["platforms/windows/tests/input/fixtures/msime-zhuyin.db"],
     "input/stroke_keys.cpp": ["platforms/windows/tests/input/fixtures/msime-stroke.db"],
@@ -70,8 +71,12 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     "candidate/cloud_candidate_worker.cpp": (["src/candidate/CloudCandidateWorker.cpp"], True),
     "candidate/ai_candidate_worker.cpp": (["src/candidate/AiCandidateWorker.cpp"], True),
     "candidate/translation_worker.cpp": (["src/candidate/TranslationWorker.cpp"], True),
+    "core/uiless_candidates.cpp": (["src/ipc/ReplyCodec.cpp"], False),
     "core/candidate_continuation_pipe.cpp": (["src/ipc/ReplyCodec.cpp"], False),
     # 两份真实引擎会话通过外部候选选择继续组字。
+    "input/host_online_candidates.cpp": (
+        ["src/ipc/ServerSession.cpp", "src/input/ChineseTextConversion.cpp", "tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"], True,
+    ),
     "input/candidate_continuation.cpp": (
         ["src/ipc/ReplyComposer.cpp", "src/ipc/ReplyCodec.cpp", "src/ipc/ServerSession.cpp",
          "src/input/ChineseTextConversion.cpp", "tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"],
@@ -155,6 +160,8 @@ COMPANION_FRAMEWORKS = [
     "CoreFoundation",
     "CoreText",
     "CoreGraphics",
+    "CoreAudio",
+    "AudioToolbox",
     "Security",
     "SystemConfiguration",
 ]
@@ -295,6 +302,11 @@ def build(
     companions = companion_flags(relative)
     if companions is None:
         return None, ""
+    environment = os.environ.copy()
+    if sys.platform == "darwin":
+        # 这些 Windows 策略测试在当前主机运行，不继承 macOS 产品的最低系统版本。
+        # 例如浮点 `to_chars` 在 macOS 13.3 才可用，产品的 13.0 目标不应限制宿主测试。
+        environment.pop("MACOSX_DEPLOYMENT_TARGET", None)
     # Compiling is CPU-bound and safe to do many at once.
     compiled = subprocess.run(
         # -fdeclspec: these sources are written for MSVC, and a `__declspec(dllexport)` on a
@@ -307,6 +319,7 @@ def build(
         [compiler(), "-std=c++17", "-w", "-fdeclspec", *flags, "-o", str(binary), str(source), *companions],
         capture_output=True,
         text=True,
+        env=environment,
     )
     if compiled.returncode == 0:
         return binary, ""

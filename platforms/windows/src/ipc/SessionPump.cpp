@@ -1,5 +1,6 @@
 #include "SessionPump.h"
 #include "InternalEventFlags.h"
+#include "ipc_negotiation.h"
 
 namespace msime::windows {
 SessionPump::SessionPump(MainTransport &transport, InputQueue &input,
@@ -202,7 +203,14 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
           return PumpResult::WriteFailed;
       }
       if (reply->encoded) {
-        const auto bytes = wire_bytes(*reply->encoded);
+        // 本地 TIP 的 UI-less 候选用本地身份；只回送导航意图，不能用 Server 页面替换它。
+        const bool local_navigation = reply->host_navigation &&
+            (ticket.capabilities & FanyImeProtocol::HostOnlineCandidates) &&
+            (packet->modifiers_down & FanyImePipeFlags::UiLess) &&
+            !(packet->modifiers_down & FanyImePipeFlags::ServerUiLessCandidates);
+        const auto encoded = local_navigation ? navigation_reply(reply->source.request_id, *reply->host_navigation)
+                                              : *reply->encoded;
+        const auto bytes = wire_bytes(encoded);
         if (!bytes)
           return PumpResult::DispatchFailed;
         bool sent = false;

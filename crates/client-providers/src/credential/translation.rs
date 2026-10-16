@@ -199,6 +199,18 @@ mod tests {
             "endpoint":"https://fixture.invalid/translate", "api_key":""})
     }
     #[test]
+    fn translation_object_fallback_passes_the_connection_probe() {
+        for body in [
+            r#"{"data":{"text":"","translation":"synthetic"}}"#,
+            r#"{"code":200,"result":[{"text":"","data":"synthetic"}]}"#,
+            r#"{"translations":[{"text":"","translation":"synthetic"}]}"#,
+        ] {
+            let result = test("translation.custom", &config(), 0, &Fake(200, body));
+            assert!(result.ok, "{body}: {}", result.message);
+        }
+    }
+
+    #[test]
     fn translation_probe_request_signatures_and_payloads() {
         let timestamp = 1_700_000_000_000;
         let tencent = request("translation.tencent", &config(), timestamp).unwrap();

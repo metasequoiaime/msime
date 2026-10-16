@@ -177,39 +177,49 @@ export class SharedStateMirror {
   }
 
   private static fingerprintOf(entry: MirrorEntry, path: string): string {
-    let stat: fs.Stat;
     try {
-      stat = fs.lstatSync(path);
-    } catch {
+      let stat: fs.Stat;
+      try {
+        stat = fs.lstatSync(path);
+      } catch {
+        return ABSENT_FINGERPRINT;
+      }
+      if (stat.isSymbolicLink()) return ABSENT_FINGERPRINT;
+      if (entry.kind === 'directory') {
+        if (!stat.isDirectory()) return ABSENT_FINGERPRINT;
+        const files: ListedFile[] = [];
+        SharedStateMirror.listFiles(path, '', files);
+        return SharedStateMirrorPolicy.directoryFingerprint(files);
+      }
+      if (!stat.isFile()) return ABSENT_FINGERPRINT;
+      const text: string | null = SharedStateMirror.readText(path);
+      if (text === null) return ABSENT_FINGERPRINT;
+      return entry.kind === 'preferences' ? SharedStateMirrorPolicy.preferencesFingerprint(text)
+        : SharedStateMirrorPolicy.fingerprintText(text);
+    } catch (error) {
+      KeyboardLog.error('keyboard.SharedStateMirror.fingerprintOf failed');
       return ABSENT_FINGERPRINT;
     }
-    if (stat.isSymbolicLink()) return ABSENT_FINGERPRINT;
-    if (entry.kind === 'directory') {
-      if (!stat.isDirectory()) return ABSENT_FINGERPRINT;
-      const files: ListedFile[] = [];
-      SharedStateMirror.listFiles(path, '', files);
-      return SharedStateMirrorPolicy.directoryFingerprint(files);
-    }
-    if (!stat.isFile()) return ABSENT_FINGERPRINT;
-    const text: string | null = SharedStateMirror.readText(path);
-    if (text === null) return ABSENT_FINGERPRINT;
-    return entry.kind === 'preferences' ? SharedStateMirrorPolicy.preferencesFingerprint(text)
-      : SharedStateMirrorPolicy.fingerprintText(text);
   }
 
   /** `root` 下的每个普通文件。锁文件和暂存文件不算内容，跳过，否则对方一读一加锁指纹就变。 */
   private static listFiles(root: string, relative: string, into: ListedFile[]): void {
-    const directory: string = relative.length === 0 ? root : `${root}/${relative}`;
-    for (const name of fs.listFileSync(directory)) {
-      if (SharedStateMirror.transient(name)) continue;
-      const path: string = relative.length === 0 ? name : `${relative}/${name}`;
-      const stat: fs.Stat = fs.lstatSync(`${root}/${path}`);
-      if (stat.isSymbolicLink()) continue;
-      if (stat.isDirectory()) {
-        SharedStateMirror.listFiles(root, path, into);
-      } else if (stat.isFile()) {
-        into.push({ path: path, size: stat.size, mtime: stat.mtime });
+    try {
+      const directory: string = relative.length === 0 ? root : `${root}/${relative}`;
+      for (const name of fs.listFileSync(directory)) {
+        if (SharedStateMirror.transient(name)) continue;
+        const path: string = relative.length === 0 ? name : `${relative}/${name}`;
+        const stat: fs.Stat = fs.lstatSync(`${root}/${path}`);
+        if (stat.isSymbolicLink()) continue;
+        if (stat.isDirectory()) {
+          SharedStateMirror.listFiles(root, path, into);
+        } else if (stat.isFile()) {
+          into.push({ path: path, size: stat.size, mtime: stat.mtime });
+        }
       }
+    } catch (error) {
+      KeyboardLog.error('keyboard.SharedStateMirror.listFiles failed');
+      throw error as Error;
     }
   }
 
@@ -219,78 +229,98 @@ export class SharedStateMirror {
   }
 
   private static copy(directory: boolean, source: string, destination: string): void {
-    let stat: fs.Stat | null = null;
     try {
-      stat = fs.lstatSync(source);
-    } catch {
-      stat = null;
-    }
-    if (stat === null || stat.isSymbolicLink() || (directory ? !stat.isDirectory() : !stat.isFile())) {
-      SharedStateMirror.remove(destination);
-      return;
-    }
-    SharedStateMirror.ensureParent(destination);
-    const staging: string = `${destination}.${util.generateRandomUUID(false)}.staging`;
-    if (!directory) {
+      let stat: fs.Stat | null = null;
       try {
-        fs.copyFileSync(source, staging);
-        fs.renameSync(staging, destination);
-      } finally {
-        try {
-          if (fs.accessSync(staging)) fs.unlinkSync(staging);
-        } catch {
-          // 只会留下这个唯一命名的暂存文件。
-        }
-      }
-      return;
-    }
-    try {
-      SharedStateMirror.copyTree(source, staging);
-      StagedResources.replaceDirectory(staging, destination);
-    } catch (error) {
-      try {
-        if (fs.accessSync(staging)) StagedResources.removeDirectory(staging);
+        stat = fs.lstatSync(source);
       } catch {
-        // 保留下面抛出的那个错误。
+        stat = null;
       }
+      if (stat === null || stat.isSymbolicLink() || (directory ? !stat.isDirectory() : !stat.isFile())) {
+        SharedStateMirror.remove(destination);
+        return;
+      }
+      SharedStateMirror.ensureParent(destination);
+      const staging: string = `${destination}.${util.generateRandomUUID(false)}.staging`;
+      if (!directory) {
+        try {
+          fs.copyFileSync(source, staging);
+          fs.renameSync(staging, destination);
+        } finally {
+          try {
+            if (fs.accessSync(staging)) fs.unlinkSync(staging);
+          } catch {
+            // 只会留下这个唯一命名的暂存文件。
+          }
+        }
+        return;
+      }
+      try {
+        SharedStateMirror.copyTree(source, staging);
+        StagedResources.replaceDirectory(staging, destination);
+      } catch (error) {
+        try {
+          if (fs.accessSync(staging)) StagedResources.removeDirectory(staging);
+        } catch {
+          // 保留下面抛出的那个错误。
+        }
+        throw error as Error;
+      }
+    } catch (error) {
+      KeyboardLog.error('keyboard.SharedStateMirror.copy failed');
       throw error as Error;
     }
   }
 
   private static copyTree(source: string, destination: string): void {
-    fs.mkdirSync(destination, true);
-    for (const name of fs.listFileSync(source)) {
-      if (SharedStateMirror.transient(name)) continue;
-      const from: string = `${source}/${name}`;
-      const to: string = `${destination}/${name}`;
-      const stat: fs.Stat = fs.lstatSync(from);
-      if (stat.isSymbolicLink()) continue;
-      if (stat.isDirectory()) {
-        SharedStateMirror.copyTree(from, to);
-      } else if (stat.isFile()) {
-        fs.copyFileSync(from, to);
+    try {
+      fs.mkdirSync(destination, true);
+      for (const name of fs.listFileSync(source)) {
+        if (SharedStateMirror.transient(name)) continue;
+        const from: string = `${source}/${name}`;
+        const to: string = `${destination}/${name}`;
+        const stat: fs.Stat = fs.lstatSync(from);
+        if (stat.isSymbolicLink()) continue;
+        if (stat.isDirectory()) {
+          SharedStateMirror.copyTree(from, to);
+        } else if (stat.isFile()) {
+          fs.copyFileSync(from, to);
+        }
       }
+    } catch (error) {
+      KeyboardLog.error('keyboard.SharedStateMirror.copyTree failed');
+      throw error as Error;
     }
   }
 
   private static remove(path: string): void {
-    let stat: fs.Stat;
     try {
-      stat = fs.lstatSync(path);
-    } catch {
-      return;
-    }
-    if (stat.isDirectory() && !stat.isSymbolicLink()) {
-      StagedResources.removeDirectory(path);
-    } else {
-      fs.unlinkSync(path);
+      let stat: fs.Stat;
+      try {
+        stat = fs.lstatSync(path);
+      } catch {
+        return;
+      }
+      if (stat.isDirectory() && !stat.isSymbolicLink()) {
+        StagedResources.removeDirectory(path);
+      } else {
+        fs.unlinkSync(path);
+      }
+    } catch (error) {
+      KeyboardLog.error('keyboard.SharedStateMirror.remove failed');
+      throw error as Error;
     }
   }
 
   private static ensureParent(path: string): void {
-    const parent: string = path.substring(0, path.lastIndexOf('/'));
-    if (parent.length > 0 && !fs.accessSync(parent)) {
-      fs.mkdirSync(parent, true);
+    try {
+      const parent: string = path.substring(0, path.lastIndexOf('/'));
+      if (parent.length > 0 && !fs.accessSync(parent)) {
+        fs.mkdirSync(parent, true);
+      }
+    } catch (error) {
+      KeyboardLog.error('keyboard.SharedStateMirror.ensureParent failed');
+      throw error as Error;
     }
   }
 
@@ -305,23 +335,28 @@ export class SharedStateMirror {
   }
 
   private static writeText(path: string, text: string): void {
-    SharedStateMirror.ensureParent(path);
-    const staging: string = `${path}.${util.generateRandomUUID(false)}.tmp`;
     try {
-      const handle: fs.File = fs.openSync(staging,
-        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      SharedStateMirror.ensureParent(path);
+      const staging: string = `${path}.${util.generateRandomUUID(false)}.tmp`;
       try {
-        fs.writeSync(handle.fd, text);
+        const handle: fs.File = fs.openSync(staging,
+          fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+        try {
+          fs.writeSync(handle.fd, text);
+        } finally {
+          fs.closeSync(handle);
+        }
+        fs.renameSync(staging, path);
       } finally {
-        fs.closeSync(handle);
+        try {
+          if (fs.accessSync(staging)) fs.unlinkSync(staging);
+        } catch {
+          // 只会留下这个唯一命名的暂存文件。
+        }
       }
-      fs.renameSync(staging, path);
-    } finally {
-      try {
-        if (fs.accessSync(staging)) fs.unlinkSync(staging);
-      } catch {
-        // 只会留下这个唯一命名的暂存文件。
-      }
+    } catch (error) {
+      KeyboardLog.error('keyboard.SharedStateMirror.writeText failed');
+      throw error as Error;
     }
   }
 }

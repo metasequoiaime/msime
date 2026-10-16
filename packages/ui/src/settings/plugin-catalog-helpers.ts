@@ -1,4 +1,5 @@
-import type { InputScheme } from "../index";
+import type { InputScheme } from "../core/input-scheme";
+
 import { schemeTitle } from "./label-helpers";
 import type { EffectStyle, PluginPreferences } from "./plugin-preferences";
 import type { PluginKind, PluginPackage } from "./plugin-types";

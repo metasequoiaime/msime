@@ -47,8 +47,10 @@ export class CustomTranslationProbePolicy {
   /** 按共享描述器的鉴权头认出 DeepL，不在这里再写一份主机名判断。 */
   static isDeepL(descriptor: CustomTranslationProbeDescriptor): boolean {
     const authorization: string | undefined = descriptor.headers["Authorization"];
-    return authorization !== undefined
-      && authorization.startsWith(CustomTranslationProbePolicy.DEEPL_AUTHORIZATION_PREFIX);
+    return (
+      authorization !== undefined &&
+      authorization.startsWith(CustomTranslationProbePolicy.DEEPL_AUTHORIZATION_PREFIX)
+    );
   }
 
   /** 实际发出的请求头：描述器的全部请求头，另加 `Accept`。返回新对象，不改描述器。 */
@@ -63,14 +65,19 @@ export class CustomTranslationProbePolicy {
 
   /** 状态码是 2xx、正文是字符串且不超过上限时，才交给共享解析。 */
   static acceptsResponse(status: number, result: Object | string | undefined): boolean {
-    return status >= 200 && status < 300 && typeof result === "string"
-      && utf8Length(result) <= CustomTranslationProbePolicy.MAX_RESPONSE_BYTES;
+    return (
+      status >= 200 &&
+      status < 300 &&
+      typeof result === "string" &&
+      utf8Length(result) <= CustomTranslationProbePolicy.MAX_RESPONSE_BYTES
+    );
   }
 
   /** 没拿到译文时的提示。DeepL 按状态码区分常见错误，只用状态码，不转述服务端正文；其他服务一律是笼统的提示。 */
   static failureMessage(deepl: boolean, status: number): string {
     if (!deepl) return CustomTranslationProbePolicy.GENERIC_FAILURE;
-    if (status === 403) return "测试失败：DeepL 拒绝了这个 API Key（HTTP 403），请检查密钥是否正确、是否已停用。";
+    if (status === 403)
+      return "测试失败：DeepL 拒绝了这个 API Key（HTTP 403），请检查密钥是否正确、是否已停用。";
     if (status === 456) return "测试失败：DeepL API 的字符额度已用完（HTTP 456）。";
     if (status === 429) return "测试失败：DeepL 请求过于频繁（HTTP 429），请稍后再试。";
     return "测试失败：DeepL 未返回有效译文，请检查 API Key 和网络。";

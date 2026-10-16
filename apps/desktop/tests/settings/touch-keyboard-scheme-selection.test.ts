@@ -439,17 +439,17 @@ test("the Stroke keypad keeps its own title under either layout", () => {
   }
 });
 
-test("a custom shuangpin profile shows on the Xiaohe keyboard", () => {
+test.each(["custom", "smart_abc"] as const)("%s shows on the Xiaohe keyboard", (profile) => {
   const custom: Preferences = {
     ...preferences,
     scheme: "shuangpin",
-    shuangpin_profile: "custom",
+    shuangpin_profile: profile,
     touch_keyboard_schemes: { enabled: ["quanpin", "xiaohe"] },
   };
 
   expect(inferredTouchKeyboardScheme(custom)).toBe("xiaohe");
   expect(touchKeyboardSchemeTitle({ ...custom, touch_keyboard_schemes: undefined })).toBe(
-    "自定义双拼",
+    profile === "custom" ? "自定义双拼" : "智能 ABC 双拼",
   );
   // 先离开双拼再回来：记住的中文方案是双拼时，同样落在小鹤的键盘上。
   expect(

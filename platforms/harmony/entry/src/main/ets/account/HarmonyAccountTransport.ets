@@ -1,3 +1,4 @@
+import { NativeCleanup } from '../keyboard/NativeCleanup';
 import http from '@ohos.net.http';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
@@ -68,25 +69,30 @@ export class FileSessionStore implements AccountSessionStore {
    * The service rotates refresh tokens and revokes the session when a spent one is presented, so the settings application and the keyboard extension must never refresh at the same time or from a stale read. Every refresh in either process happens inside this lock, after `AccountCloudBridge` has re-read the session file. The lock is per open file, so two bridges in one process exclude each other too, and the kernel releases it if the holder dies.
    */
   async exclusive<T>(body: () => Promise<T>): Promise<T> {
-    if (!this.prepareDirectory() || this.isSymbolicLink(this.lockFile)) {
-      throw new Error('account_storage');
-    }
-    const lock: fs.File = fs.openSync(this.lockFile, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE);
     try {
-      const pathStat: fs.Stat = fs.lstatSync(this.lockFile);
-      const opened: fs.Stat = fs.statSync(lock.fd);
-      if (pathStat.isSymbolicLink() || !pathStat.isFile()
-        || !opened.isFile() || opened.ino !== pathStat.ino) {
+      if (!this.prepareDirectory() || this.isSymbolicLink(this.lockFile)) {
         throw new Error('account_storage');
       }
-      await lock.lock(true);
+      const lock: fs.File = fs.openSync(this.lockFile, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE);
       try {
-        return await body();
+        const pathStat: fs.Stat = fs.lstatSync(this.lockFile);
+        const opened: fs.Stat = fs.statSync(lock.fd);
+        if (pathStat.isSymbolicLink() || !pathStat.isFile()
+          || !opened.isFile() || opened.ino !== pathStat.ino) {
+          throw new Error('account_storage');
+        }
+        await lock.lock(true);
+        try {
+          return await body();
+        } finally {
+          lock.unlock();
+        }
       } finally {
-        lock.unlock();
+        fs.closeSync(lock);
       }
-    } finally {
-      fs.closeSync(lock);
+    } catch (error) {
+      KeyboardLog.error('account.HarmonyAccountTransport.exclusive failed');
+      throw error as Error;
     }
   }
 
@@ -102,32 +108,37 @@ export class FileSessionStore implements AccountSessionStore {
       const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
       const count: number = fs.readSync(handle.fd, buffer);
       if (count !== stat.size) return null;
-      return util.TextDecoder.create('utf-8').decode(new Uint8Array(buffer, 0, count));
+      return util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(buffer, 0, count));
     } catch {
       return null;
     } finally {
-      if (handle !== null) fs.closeSync(handle);
+      if (handle !== null) NativeCleanup.close(handle);
     }
   }
 
   save(value: string): void {
-    if (!sessionFitsStorage(value) || !this.prepareDirectory() || this.isSymbolicLink(this.file)) {
-      throw new Error('account_storage');
-    }
-    const staging: string = `${this.file}.${util.generateRandomUUID(false)}.tmp`;
-    let renamed: boolean = false;
     try {
-      const handle = fs.openSync(staging, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-      try {
-        const written: number = fs.writeSync(handle.fd, value);
-        if (!sessionWriteComplete(value, written)) throw new Error('account_storage');
-      } finally {
-        fs.closeSync(handle);
+      if (!sessionFitsStorage(value) || !this.prepareDirectory() || this.isSymbolicLink(this.file)) {
+        throw new Error('account_storage');
       }
-      fs.renameSync(staging, this.file);
-      renamed = true;
-    } finally {
-      if (!renamed) this.discard(staging);
+      const staging: string = `${this.file}.${util.generateRandomUUID(false)}.tmp`;
+      let renamed: boolean = false;
+      try {
+        const handle = fs.openSync(staging, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+        try {
+          const written: number = fs.writeSync(handle.fd, value);
+          if (!sessionWriteComplete(value, written)) throw new Error('account_storage');
+        } finally {
+          fs.closeSync(handle);
+        }
+        fs.renameSync(staging, this.file);
+        renamed = true;
+      } finally {
+        if (!renamed) this.discard(staging);
+      }
+    } catch (error) {
+      KeyboardLog.error('account.HarmonyAccountTransport.save failed');
+      throw error as Error;
     }
   }
 
@@ -188,7 +199,12 @@ export class AnonymousSessionStore implements AccountSessionStore {
   }
 
   async exclusive<T>(body: () => Promise<T>): Promise<T> {
-    return await this.file.exclusive<T>(body);
+    try {
+      return await this.file.exclusive<T>(body);
+    } catch (error) {
+      KeyboardLog.error('account.HarmonyAccountTransport.exclusive failed');
+      throw error as Error;
+    }
   }
 
   load(): string | null {
@@ -197,11 +213,16 @@ export class AnonymousSessionStore implements AccountSessionStore {
   }
 
   save(value: string): void {
-    const saved: string | null = anonymousSessionForStorage(value, Date.now());
-    if (saved === null) {
-      throw new Error('account_storage');
+    try {
+      const saved: string | null = anonymousSessionForStorage(value, Date.now());
+      if (saved === null) {
+        throw new Error('account_storage');
+      }
+      this.file.save(saved);
+    } catch (error) {
+      KeyboardLog.error('account.HarmonyAccountTransport.save failed');
+      throw error as Error;
     }
-    this.file.save(saved);
   }
 
   clear(): void {
@@ -341,45 +362,49 @@ export class HarmonyAccountTransport implements AccountTransport {
 
   private async attemptRequest(method: string, path: string, token?: string, body?: Object,
     timeoutMs?: number, requestTag?: string): Promise<AccountTransportResponse> {
-    const request = http.createHttp();
-    installNoRedirectGuard(request);
-    if (requestTag !== undefined && requestTag.length > 0) {
-      let requests: Set<http.HttpRequest> | undefined = this.activeRequests.get(requestTag);
-      if (requests === undefined) {
-        requests = new Set<http.HttpRequest>();
-        this.activeRequests.set(requestTag, requests);
-      }
-      requests.add(request);
-    }
-    const headers: HttpHeaders = { Accept: 'application/json', 'Content-Type': 'application/json' };
-    if (token !== undefined) headers.Authorization = `Bearer ${token}`;
-    // Only the read side takes the caller's budget. Connecting is connecting on every endpoint, and
-    // a chat request to an unreachable host should still fail in seconds rather than in two minutes.
-    const options = noRedirectOptions({
-      method: this.method(method),
-      header: headers,
-      connectTimeout: 30000,
-      readTimeout: timeoutMs === undefined ? 30000 : timeoutMs,
-      extraData: body === undefined ? undefined : JSON.stringify(body)
-    });
     try {
-      const response = await request.request(`${ACCOUNT_ORIGIN}${path}`, options);
-      if (path.startsWith('/v1/auth/') && response.responseCode >= 400) {
-        // 登录失败到页面上只剩一个映射后的 account_* 码，500 和网络错误都成了 account_unavailable。这里留下状态和后端自己的错误码，便于定位；只记形如 invalid_credentials 的码，不记正文、令牌或凭据。
-        KeyboardLog.warn(`account ${method} ${path.split('?')[0]} -> ${response.responseCode} ${backendErrorCode(response.result)}`);
-      }
-      return {
-        status: response.responseCode,
-        body: typeof response.result === 'string' ? response.result : '',
-        contentLength: responseContentLength(response.header)
-      };
-    } finally {
+      const request = http.createHttp();
+      installNoRedirectGuard(request);
       if (requestTag !== undefined && requestTag.length > 0) {
-        const requests: Set<http.HttpRequest> | undefined = this.activeRequests.get(requestTag);
-        requests?.delete(request);
-        if (requests !== undefined && requests.size === 0) this.activeRequests.delete(requestTag);
+        let requests: Set<http.HttpRequest> | undefined = this.activeRequests.get(requestTag);
+        if (requests === undefined) {
+          requests = new Set<http.HttpRequest>();
+          this.activeRequests.set(requestTag, requests);
+        }
+        requests.add(request);
       }
-      request.destroy();
+      const headers: HttpHeaders = { Accept: 'application/json', 'Content-Type': 'application/json' };
+      if (token !== undefined) headers.Authorization = `Bearer ${token}`;
+      // 调用方的时间预算只用于读取；连接不可达主机时仍应在数秒内失败，而非等待两分钟。
+      const options = noRedirectOptions({
+        method: this.method(method),
+        header: headers,
+        connectTimeout: 30000,
+        readTimeout: timeoutMs === undefined ? 30000 : timeoutMs,
+        extraData: body === undefined ? undefined : JSON.stringify(body)
+      });
+      try {
+        const response = await request.request(`${ACCOUNT_ORIGIN}${path}`, options);
+        if (path.startsWith('/v1/auth/') && response.responseCode >= 400) {
+          // 登录失败到页面上只剩一个映射后的 account_* 码，500 和网络错误都成了 account_unavailable。这里留下状态和后端自己的错误码，便于定位；只记形如 invalid_credentials 的码，不记正文、令牌或凭据。
+          KeyboardLog.warn(`account ${method} ${path.split('?')[0]} -> ${response.responseCode} ${backendErrorCode(response.result)}`);
+        }
+        return {
+          status: response.responseCode,
+          body: typeof response.result === 'string' ? response.result : '',
+          contentLength: responseContentLength(response.header)
+        };
+      } finally {
+        if (requestTag !== undefined && requestTag.length > 0) {
+          const requests: Set<http.HttpRequest> | undefined = this.activeRequests.get(requestTag);
+          requests?.delete(request);
+          if (requests !== undefined && requests.size === 0) this.activeRequests.delete(requestTag);
+        }
+        request.destroy();
+      }
+    } catch (error) {
+      KeyboardLog.error('account.HarmonyAccountTransport.attemptRequest failed');
+      throw error as Error;
     }
   }
 

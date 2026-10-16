@@ -2468,6 +2468,7 @@ pub enum ShuangpinProfile {
     Ziranma,
     Shoudao,
     Microsoft,
+    SmartAbc,
     /// 用户自己的键位表，见 `Preferences::shuangpin_custom_profile`。
     Custom,
 }

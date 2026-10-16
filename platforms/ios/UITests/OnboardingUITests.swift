@@ -34,7 +34,8 @@ final class OnboardingUITests: XCTestCase {
       let installed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: download)
       XCTAssertEqual(XCTWaiter.wait(for: [installed], timeout: 240), .completed, "语言词库下载应完成")
     }
-    app.tabBars.buttons["对话"].tap()
+    reachSettingsLink("keyboardTryoutLink", in: app)
+    settingsEntry("keyboardTryoutLink", in: app).tap()
     let field = app.textFields["keyboardTryoutField"]
     XCTAssertTrue(field.waitForExistence(timeout: 10))
     field.tap()
@@ -433,9 +434,9 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["AI 设置"].waitForExistence(timeout: 5))
     reachSettingsLink("keyboardTryoutLink", in: app)
     settingsEntry("keyboardTryoutLink", in: app).tap()
-    // 试用键盘的页面就是「对话」标签页。
-    XCTAssertTrue(app.navigationBars["对话"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.tabBars.buttons["对话"].isSelected)
+    // 试用键盘打开 AI 对话二级页，仍属于设置标签。
+    XCTAssertTrue(app.navigationBars["AI 对话"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.tabBars.buttons["设置"].isSelected)
     XCTAssertTrue(app.textFields["keyboardTryoutField"].exists)
     reachSettingsLink("inputSettingsLink", in: app)
     settingsEntry("inputSettingsLink", in: app).tap()
@@ -583,20 +584,37 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testChatIsSecondaryAndReturnsToSettings() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "--keyboard-chat-ui-fixture"]
+    app.launch()
+    XCTAssertTrue(app.tabBars.buttons["全部设置"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.tabBars.buttons["对话"].exists)
+    reachSettingsLink("keyboardTryoutLink", in: app)
+    settingsEntry("keyboardTryoutLink", in: app).tap()
+    XCTAssertTrue(app.navigationBars["AI 对话"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.textFields["keyboardTryoutField"].exists)
+    let dismissKeyboard = app.buttons["dismissKeyboardButton"]
+    if dismissKeyboard.waitForExistence(timeout: 5) && dismissKeyboard.isHittable { dismissKeyboard.tap() }
+    XCTAssertTrue(app.tabBars.buttons["设置"].isSelected)
+    app.navigationBars.buttons.matching(identifier: "设置").firstMatch.tap()
+    XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["keyboardTryoutLink"].exists)
+  }
+
+  @MainActor
   func testMainTabsKeepIndependentNavigation() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     XCTAssertTrue(app.tabBars.buttons["设置"].isSelected)
     app.buttons["inputSettingsLink"].tap()
-    // 原来「社区」那一格换成了「对话」，社区作品列在各个功能页里。
     XCTAssertEqual(app.tabBars.buttons.count, 4)
-    XCTAssertFalse(app.tabBars.buttons["社区"].exists)
-    app.tabBars.buttons["对话"].tap()
-    XCTAssertTrue(app.navigationBars["对话"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.textFields["keyboardTryoutField"].exists)
-    // 直接点标签栏进来不弹键盘；只有设置里的「试用键盘」会把焦点放进输入框。
-    XCTAssertNotEqual(app.textFields["keyboardTryoutField"].value(forKey: "hasKeyboardFocus") as? Bool, true)
+    XCTAssertFalse(app.tabBars.buttons["对话"].exists)
+    app.tabBars.buttons["全部设置"].tap()
+    XCTAssertTrue(app.navigationBars["全部设置"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["keyboardTryoutLink"].exists)
     app.tabBars.buttons["统计"].tap()
     XCTAssertTrue(app.navigationBars["统计"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["statisticsTab-0"].exists)

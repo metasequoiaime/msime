@@ -17,6 +17,8 @@ export interface CandidateColorsSectionProps {
   showRowColors: boolean;
   showSelectionAppearance: boolean;
   showBorderColor: boolean;
+  /** 宿主读用户选的编号色时显示「候选编号颜色」（`HostCapabilities.candidate_number_color`，缺省为显示）。macOS 的编号色固定跟随主题，不给这一行。 */
+  showNumberColor?: boolean;
   linux: boolean;
   /** Sets or clears one slot. The settings model's `onCandidateColorChange` also selects the custom theme when a colour is chosen (see THEME_CONTRACT). */
   onChange: (key: CandidateColorKey, value: string | null) => void;
@@ -79,6 +81,7 @@ export function CandidateColorsSection({
   showRowColors,
   showSelectionAppearance,
   showBorderColor,
+  showNumberColor = true,
   linux,
   onChange,
 }: CandidateColorsSectionProps) {
@@ -102,15 +105,17 @@ export function CandidateColorsSection({
         fallback={light ? "#1a1a1a" : "#e9e8e8"}
         onChange={onChange}
       />
-      <CandidateColorRow
-        title="候选编号颜色"
-        slot="number"
-        value={preferences.number}
-        fallback={light ? "#5f6368" : "#bdc1c6"}
-        onChange={onChange}
-        resetLabel="候选编号颜色跟随主题"
-        description={linux ? linuxFcitxClassicColorNote : undefined}
-      />
+      {showNumberColor && (
+        <CandidateColorRow
+          title="候选编号颜色"
+          slot="number"
+          value={preferences.number}
+          fallback={light ? "#5f6368" : "#bdc1c6"}
+          onChange={onChange}
+          resetLabel="候选编号颜色跟随主题"
+          description={linux ? linuxFcitxClassicColorNote : undefined}
+        />
+      )}
       {showRowColors ? (
         <>
           <CandidateColorRow

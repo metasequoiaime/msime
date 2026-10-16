@@ -103,3 +103,5 @@ powershell -NoProfile -File platforms/windows/tests/tools/settings_ui.ps1 `
 ```
 
 脚本不注册输入法，不修改现有用户偏好；页面运行验收仍不能替代 TSF 在真实编辑器里的输入验证。
+
+「候选窗口 → 游戏」另有 CS2 / Dota 2 原生候选兼容按钮：默认关闭，启用后系统登记名称变为「拼音输入法」，关闭恢复当前 edition 的产品名。它需要 UAC 授权和重启游戏，作用于本 edition 的两份 TSF profile，并由注册流程在升级时保留、卸载时清除。它不写共享偏好；失败恢复原名称，详见[决策笔记](../../../.agents/notes/implemented/feature/2026-10-16-windows-source2-profile-and-local-online.md)。

@@ -23,22 +23,31 @@ def checksum(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def platform_files(source, platform, limit=ASSET_LIMIT):
+    files = sorted(path for path in (source / platform).rglob("*")
+                   if path.is_file() and path.name.endswith(PLATFORM_SUFFIXES[platform]))
+    if not files:
+        raise ValueError(f"缺少平台分发文件：{platform}")
+    names = set()
+    for path in files:
+        if path.name in names:
+            raise ValueError(f"分发文件重名，禁止覆盖：{path.name}")
+        if path.stat().st_size > limit:
+            raise ValueError(f"分发文件超出附件大小限制，禁止发布：{path.name}")
+        names.add(path.name)
+    return files
+
+
 def package(source, output, source_sha, limit=ASSET_LIMIT):
     if limit < 1:
         raise ValueError("附件大小上限必须为正数")
     if output.exists() and any(output.iterdir()):
         raise ValueError("输出目录必须为空，避免上传上一次的产物")
     selected = {}
-    for platform, suffixes in PLATFORM_SUFFIXES.items():
-        files = sorted(path for path in (source / platform).rglob("*")
-                       if path.is_file() and path.name.endswith(suffixes))
-        if not files:
-            raise ValueError(f"缺少平台分发文件：{platform}")
-        for path in files:
+    for platform in PLATFORM_SUFFIXES:
+        for path in platform_files(source, platform, limit):
             if path.name in selected:
                 raise ValueError(f"分发文件重名，禁止覆盖：{path.name}")
-            if path.stat().st_size > limit:
-                raise ValueError(f"分发文件超出附件大小限制，禁止发布：{path.name}")
             selected[path.name] = path
     output.mkdir(parents=True, exist_ok=True)
     for name, path in selected.items():

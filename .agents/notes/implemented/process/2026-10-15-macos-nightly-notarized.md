@@ -27,7 +27,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：nightly 的 macOS DMG 与正式版一样，下载、拖进应用程序、打开一次就能打字；任何 `publish: false` 的手动构建也产出可安装的包，恢复到 nightly 接入前的行为。
-- **代价**：每晚六个版本的 DMG 都要等 Apple 公证，macOS nightly 变长，`release-macos` 并发组被占用的时间随之变长；公证服务故障会让当晚 nightly 整体不更新（六平台任一失败都不更新滚动 Release）。如果公证排队频繁拖过 job 的 120 分钟超时，或 Apple 对公证次数设限，就要重访：例如只公证 full 版本，其余版本在 README 里说明。
+- **代价**：每晚六个版本的 DMG 都要等 Apple 公证，macOS nightly 变长，`release-macos` 并发组被占用的时间随之变长；按[平台独立更新策略](2026-10-16-nightly-partial-platform-updates.md)，公证服务故障只让 macOS 保留上次成功包，其余成功平台继续更新。最初六平台任一失败都会阻止整个滚动 Release，该条件已被取代。如果公证排队频繁拖过 job 的 120 分钟超时，或 Apple 对公证次数设限，就要重访：例如只公证 full 版本，其余版本在 README 里说明。
 
 ## Verification
 

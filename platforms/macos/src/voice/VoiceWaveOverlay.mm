@@ -313,10 +313,8 @@ static NSFont *VoiceStatusFont() { return [NSFont systemFontOfSize:kStatusFontSi
 }
 - (BOOL)isLightTheme { return _view.lightTheme; }
 - (void)applyThemePreferences:(NSDictionary *)preferences {
-    id surface = preferences[@"voice_theme"];
-    id global = preferences[@"theme"];
-    id resolved = ([surface isKindOfClass:NSString.class] &&
-                   ([surface isEqual:@"dark"] || [surface isEqual:@"light"])) ? surface : global;
+    // macOS 的语音输入弹出条一律跟随颜色模式，不读它单独的明暗设置。
+    id resolved = preferences[@"theme"];
     _followsSystemAppearance = resolved == nil || [resolved isEqual:@"system"];
     if ([resolved isEqual:@"light"])
         self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];

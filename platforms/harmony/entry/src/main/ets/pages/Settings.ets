@@ -1,10 +1,12 @@
+import { NativeCleanup } from '../keyboard/NativeCleanup';
 import web_webview from '@ohos.web.webview';
 import common from '@ohos.app.ability.common';
 import client, { DoubaoFrameResult } from 'libmsimeclient.so';
 import pasteboard from '@ohos.pasteboard';
 import Want from '@ohos.app.ability.Want';
 import bundleManager from '@ohos.bundle.bundleManager';
-import font from '@ohos.font';
+import { UIContext } from '@ohos.arkui.UIContext';
+import { InputMethodListDialog } from '@ohos.inputMethodList';
 import deviceInfo from '@ohos.deviceInfo';
 import http from '@ohos.net.http';
 import { installNoRedirectGuard } from '../network/HarmonyHttpSecurity';
@@ -566,8 +568,15 @@ interface DoubaoStartRequest {
 @Component
 struct Settings {
   private controller: web_webview.WebviewController = new web_webview.WebviewController();
-  private context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+  private context: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
   private bridge: SettingsBridge = new SettingsBridge();
+  private inputMethodDialog: CustomDialogController = new CustomDialogController({
+    builder: InputMethodListDialog(),
+    onWillDismiss: (action: DismissDialogAction): void => {
+      action.dismiss();
+      this.bridge.refreshSetupState();
+    }
+  });
   // Notices from the MSIME service that the user has not dismissed, newest first; the card shows the first.
   @State notices: NoticeItem[] = [];
   private noticeController: web_webview.WebviewController = new web_webview.WebviewController();
@@ -585,6 +594,8 @@ struct Settings {
 
   aboutToAppear(): void {
     this.bridge.attach(this.context);
+    this.bridge.uiContext = this.getUIContext();
+    this.bridge.onInputMethodPicker = (): void => this.inputMethodDialog.open();
     this.bridge.useWebview(this.controller);
     this.bridge.onNoticeHold = (held: boolean): void => {
       this.noticeHeld = held;
@@ -840,6 +851,8 @@ struct Settings {
  * arrives at the page as the refusal rather than as an exception thrown across the bridge.
  */
 class SettingsBridge {
+  uiContext: UIContext | undefined = undefined;
+  onInputMethodPicker: (() => void) | undefined = undefined;
   private stateDirectory: string = '';
   private sharedSandboxAvailable: boolean = false;
   // 与键盘交换状态的共享沙箱镜像，拿不到共享目录时为 null；`sharedPublishTimer` 合并短时间内的多次改动，只发布一次。
@@ -1045,7 +1058,11 @@ class SettingsBridge {
     let picked: string[] = [];
     try {
       const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
-      options.selectMode = picker.DocumentSelectMode.FOLDER;
+      if (canIUse('SystemCapability.FileManagement.UserFileService.FolderSelection')) {
+        options.selectMode = picker.DocumentSelectMode.FOLDER;
+      } else {
+        throw new Error('folder_selection_unavailable');
+      }
       options.maxSelectNumber = 1;
       picked = await new picker.DocumentViewPicker(this.context).select(options);
     } catch (error) {
@@ -1306,8 +1323,11 @@ class SettingsBridge {
       return LocalVoiceModelPolicy.rewrite(
         await client.voiceLocalModelRemove(JSON.stringify(request)));
     }
-    if (!fs.accessSync(root)) {
-      fs.mkdirSync(root, true);
+    try {
+      if (!fs.accessSync(root)) fs.mkdirSync(root, true);
+    } catch {
+      KeyboardLog.error('voice model storage unavailable');
+      return LocalVoiceModelPolicy.refusal('local_model_failed');
     }
     if (action.operation === 'import') {
       this.voiceImportsPending.add(id);
@@ -1332,74 +1352,81 @@ class SettingsBridge {
    * 选择器给的是原生库打不开的文档 URI，所以先把文件复制进私有缓存目录，用固定的序号作文件名，再把这些路径交给和下载同一个 `msime_client_voice_local_model_install`（带 `files`），由 client-providers 按长度和 SHA-256 认文件、校验、解压并发布，和其他宿主完全相同。长度和目录里任何一个需要的文件都对不上的选择不复制。缓存副本不论成败都在安装结束后删掉。用户关掉选择器时回答 null，不算失败。
    */
   private async importVoiceModel(root: string, id: string): Promise<string> {
-    const context: common.UIAbilityContext | undefined = this.context;
-    if (context === undefined) {
-      return LocalVoiceModelPolicy.refusal('local_model_failed');
-    }
-    let picked: string[] = [];
     try {
-      const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
-      options.selectMode = picker.DocumentSelectMode.FILE;
-      options.maxSelectNumber = MAX_VOICE_MODEL_IMPORT_PICKS;
-      picked = await new picker.DocumentViewPicker(context).select(options);
-    } catch (error) {
-      KeyboardLog.error(`voice model picker refused: ${describeError(error)}`);
-      return LocalVoiceModelPolicy.refusal('local_model_failed');
-    }
-    if (picked.length === 0) {
-      return JSON.stringify({ ok: true, value: null, error: '' });
-    }
-    if (this.voiceImportsCancelled.has(id)) {
-      return LocalVoiceModelPolicy.refusal('local_model_cancelled');
-    }
-    const listRequest: LocalVoiceModelRequest = { root: root };
-    const sizes: number[] = LocalVoiceModelPolicy.importSizes(
-      client.voiceLocalModels(JSON.stringify(listRequest)), id);
-    const importRoot: string = `${context.cacheDir}/voice-model-import`;
-    const staging: string = `${importRoot}/${util.generateRandomUUID(false)}`;
-    try {
-      if (!this.safeDirectory(context.cacheDir)) {
-        return LocalVoiceModelPolicy.refusal('local_model_io');
+      const context: common.UIAbilityContext | undefined = this.context;
+      if (context === undefined) {
+        return LocalVoiceModelPolicy.refusal('local_model_failed');
       }
-      if (!fs.accessSync(importRoot)) fs.mkdirSync(importRoot, true);
-      if (!this.safeDirectory(importRoot)) {
-        return LocalVoiceModelPolicy.refusal('local_model_io');
-      }
-      fs.mkdirSync(staging, true);
-      if (!this.safeDirectory(staging)) {
-        return LocalVoiceModelPolicy.refusal('local_model_io');
-      }
-      const files: string[] = [];
-      for (const uri of picked) {
-        if (this.voiceImportsCancelled.has(id)) {
-          return LocalVoiceModelPolicy.refusal('local_model_cancelled');
+      let picked: string[] = [];
+      try {
+        const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+        if (canIUse('SystemCapability.FileManagement.UserFileService.FolderSelection')) {
+          options.selectMode = picker.DocumentSelectMode.FILE;
         }
-        const file: fs.File = fs.openSync(uri, fs.OpenMode.READ_ONLY);
-        try {
-          const opened: fs.Stat = fs.statSync(file.fd);
-          if (!opened.isFile() || !sizes.includes(opened.size)) {
-            continue;
-          }
-          const copy: string = `${staging}/${files.length}`;
-          await fs.copyFile(file.fd, copy);
-          files.push(copy);
-        } finally {
-          fs.closeSync(file);
-        }
+        options.maxSelectNumber = MAX_VOICE_MODEL_IMPORT_PICKS;
+        picked = await new picker.DocumentViewPicker(context).select(options);
+      } catch (error) {
+        KeyboardLog.error(`voice model picker refused: ${describeError(error)}`);
+        return LocalVoiceModelPolicy.refusal('local_model_failed');
+      }
+      if (picked.length === 0) {
+        return JSON.stringify({ ok: true, value: null, error: '' });
       }
       if (this.voiceImportsCancelled.has(id)) {
         return LocalVoiceModelPolicy.refusal('local_model_cancelled');
       }
-      const request: LocalVoiceModelRequest = { root: root, id: id, files: files };
-      const reply: string = await client.voiceLocalModelInstall(JSON.stringify(request),
-        (progress: string): void => this.deliverVoiceModelProgress(progress));
-      return LocalVoiceModelPolicy.installReply(reply);
-    } finally {
+      const listRequest: LocalVoiceModelRequest = { root: root };
+      const sizes: number[] = LocalVoiceModelPolicy.importSizes(
+        client.voiceLocalModels(JSON.stringify(listRequest)), id);
+      const importRoot: string = `${context.cacheDir}/voice-model-import`;
+      const staging: string = `${importRoot}/${util.generateRandomUUID(false)}`;
       try {
-        StagedResources.removeDirectory(staging);
-      } catch (error) {
-        KeyboardLog.error(`voice model import staging not removed: ${describeError(error)}`);
+        if (!this.safeDirectory(context.cacheDir)) {
+          return LocalVoiceModelPolicy.refusal('local_model_io');
+        }
+        if (!fs.accessSync(importRoot)) fs.mkdirSync(importRoot, true);
+        if (!this.safeDirectory(importRoot)) {
+          return LocalVoiceModelPolicy.refusal('local_model_io');
+        }
+        fs.mkdirSync(staging, true);
+        if (!this.safeDirectory(staging)) {
+          return LocalVoiceModelPolicy.refusal('local_model_io');
+        }
+        const files: string[] = [];
+        for (const uri of picked) {
+          if (this.voiceImportsCancelled.has(id)) {
+            return LocalVoiceModelPolicy.refusal('local_model_cancelled');
+          }
+          const file: fs.File = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+          try {
+            const opened: fs.Stat = fs.statSync(file.fd);
+            if (!opened.isFile() || !sizes.includes(opened.size)) {
+              continue;
+            }
+            const copy: string = `${staging}/${files.length}`;
+            await fs.copyFile(file.fd, copy);
+            files.push(copy);
+          } finally {
+            fs.closeSync(file);
+          }
+        }
+        if (this.voiceImportsCancelled.has(id)) {
+          return LocalVoiceModelPolicy.refusal('local_model_cancelled');
+        }
+        const request: LocalVoiceModelRequest = { root: root, id: id, files: files };
+        const reply: string = await client.voiceLocalModelInstall(JSON.stringify(request),
+          (progress: string): void => this.deliverVoiceModelProgress(progress));
+        return LocalVoiceModelPolicy.installReply(reply);
+      } finally {
+        try {
+          StagedResources.removeDirectory(staging);
+        } catch (error) {
+          KeyboardLog.error(`voice model import staging not removed: ${describeError(error)}`);
+        }
       }
+    } catch (error) {
+      KeyboardLog.error('pages.Settings.importVoiceModel failed');
+      throw error as Error;
     }
   }
 
@@ -1476,7 +1503,11 @@ class SettingsBridge {
     let picked: string[] = [];
     try {
       const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
-      options.selectMode = folder ? picker.DocumentSelectMode.FOLDER : picker.DocumentSelectMode.FILE;
+      if (canIUse('SystemCapability.FileManagement.UserFileService.FolderSelection')) {
+        options.selectMode = folder ? picker.DocumentSelectMode.FOLDER : picker.DocumentSelectMode.FILE;
+      } else if (folder) {
+        throw new Error('folder_selection_unavailable');
+      }
       options.maxSelectNumber = 1;
       if (!folder) {
         options.fileSuffixFilters = ['插件|.zip'];
@@ -1555,38 +1586,43 @@ class SettingsBridge {
    * Copy the top level of a picked pack folder to `destination`, or answer why it cannot be a pack without copying anything. Every entry is looked at before the first byte is copied, and the look stops at the first entry that rules the folder out: a subfolder, a link, or more files or bytes than any pack may hold.
    */
   private async copyPluginFolder(picked: string, destination: string): Promise<PluginImportRefusal | null> {
-    const scan: PluginFolderScan = new PluginFolderScan();
-    for (const name of fs.listFileSync(picked)) {
-      if (PluginImportPolicy.hidden(name)) {
-        continue;
-      }
-      const stat: fs.Stat = fs.lstatSync(`${picked}/${name}`);
-      const kind: PickedEntryKind = stat.isSymbolicLink() ? PickedEntryKind.LINK
-        : stat.isDirectory() ? PickedEntryKind.DIRECTORY
-        : stat.isFile() ? PickedEntryKind.FILE : PickedEntryKind.OTHER;
-      const refusal: PluginImportRefusal | null = scan.take(name, kind, stat.size);
-      if (refusal !== null) {
-        return refusal;
-      }
-    }
-    fs.mkdirSync(destination);
-    for (const name of scan.files) {
-      const sourcePath: string = `${picked}/${name}`;
-      const destinationPath: string = `${destination}/${name}`;
-      const file: fs.File = fs.openSync(sourcePath, fs.OpenMode.READ_ONLY);
-      try {
-        const pathStat: fs.Stat = fs.lstatSync(sourcePath);
-        const opened: fs.Stat = fs.statSync(file.fd);
-        if (pathStat.isSymbolicLink() || !pathStat.isFile()
-          || !opened.isFile() || opened.ino !== pathStat.ino) {
-          return { ok: false, error: 'plugin_invalid', detail: `${name} 文件发生变化` };
+    try {
+      const scan: PluginFolderScan = new PluginFolderScan();
+      for (const name of fs.listFileSync(picked)) {
+        if (PluginImportPolicy.hidden(name)) {
+          continue;
         }
-        await fs.copyFile(file.fd, destinationPath);
-      } finally {
-        fs.closeSync(file);
+        const stat: fs.Stat = fs.lstatSync(`${picked}/${name}`);
+        const kind: PickedEntryKind = stat.isSymbolicLink() ? PickedEntryKind.LINK
+          : stat.isDirectory() ? PickedEntryKind.DIRECTORY
+          : stat.isFile() ? PickedEntryKind.FILE : PickedEntryKind.OTHER;
+        const refusal: PluginImportRefusal | null = scan.take(name, kind, stat.size);
+        if (refusal !== null) {
+          return refusal;
+        }
       }
+      fs.mkdirSync(destination);
+      for (const name of scan.files) {
+        const sourcePath: string = `${picked}/${name}`;
+        const destinationPath: string = `${destination}/${name}`;
+        const file: fs.File = fs.openSync(sourcePath, fs.OpenMode.READ_ONLY);
+        try {
+          const pathStat: fs.Stat = fs.lstatSync(sourcePath);
+          const opened: fs.Stat = fs.statSync(file.fd);
+          if (pathStat.isSymbolicLink() || !pathStat.isFile()
+            || !opened.isFile() || opened.ino !== pathStat.ino) {
+            return { ok: false, error: 'plugin_invalid', detail: `${name} 文件发生变化` };
+          }
+          await fs.copyFile(file.fd, destinationPath);
+        } finally {
+          fs.closeSync(file);
+        }
+      }
+      return null;
+    } catch (error) {
+      KeyboardLog.error('pages.Settings.copyPluginFolder failed');
+      throw error as Error;
     }
-    return null;
   }
 
   /** The shared settings page uses the same validated catalog as desktop presenters. */
@@ -1854,9 +1890,14 @@ class SettingsBridge {
    */
   /** Whether an input scheme's dictionary, if it needs one, is in the staged language-dictionaries directory. */
   private languageDictionaryInstalled(scheme: string): boolean {
-    const file: string | null = KeyboardScheme.languageDictionary(scheme);
-    return file === null
-      || (this.context !== undefined && fs.accessSync(`${this.context.filesDir}/language-dictionaries/${file}`));
+    try {
+      const file: string | null = KeyboardScheme.languageDictionary(scheme);
+      return file === null
+        || (this.context !== undefined && fs.accessSync(`${this.context.filesDir}/language-dictionaries/${file}`));
+    } catch (error) {
+      KeyboardLog.error('pages.Settings.languageDictionaryInstalled failed');
+      return false;
+    }
   }
 
   hostCapabilities(): string {
@@ -2668,7 +2709,7 @@ class SettingsBridge {
           start.request.corpus = { boosting_table_id: boostingTableId } as DoubaoCorpus;
         }
         const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
-        const startPayload: ArrayBuffer = encoder.encode(JSON.stringify(start)).buffer as ArrayBuffer;
+        const startPayload: ArrayBuffer = encoder.encodeInto(JSON.stringify(start)).buffer as ArrayBuffer;
         const audioPayload: ArrayBuffer = new Uint8Array(32000).buffer as ArrayBuffer;
         const startFrame: ArrayBuffer = client.doubaoEncodeFrame(1, 1, 1, startPayload);
         const finalFrame: ArrayBuffer = client.doubaoEncodeFrame(2, 3, -2, audioPayload);
@@ -2688,8 +2729,8 @@ class SettingsBridge {
   private silentMultipart(boundary: string, model: string): ArrayBuffer {
     const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
     const wav: Uint8Array = this.silentWav();
-    const prefix: Uint8Array = encoder.encode(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="credential-test.wav"\r\nContent-Type: audio/wav\r\n\r\n`);
-    const modelPart: Uint8Array = encoder.encode(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n--${boundary}--\r\n`);
+    const prefix: Uint8Array = encoder.encodeInto(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="credential-test.wav"\r\nContent-Type: audio/wav\r\n\r\n`);
+    const modelPart: Uint8Array = encoder.encodeInto(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n--${boundary}--\r\n`);
     const output: ArrayBuffer = new ArrayBuffer(prefix.length + wav.length + modelPart.length);
     const bytes: Uint8Array = new Uint8Array(output);
     bytes.set(prefix, 0);
@@ -2718,7 +2759,7 @@ class SettingsBridge {
 
   private writeAscii(bytes: Uint8Array, offset: number, value: string): void {
     const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
-    bytes.set(encoder.encode(value), offset);
+    bytes.set(encoder.encodeInto(value), offset);
   }
 
   private writeU16(bytes: Uint8Array, offset: number, value: number): void {
@@ -2865,7 +2906,8 @@ class SettingsBridge {
    */
   listFontFamilies(): string {
     try {
-      const families: string[] = font.getSystemFontList().filter((name: string): boolean =>
+      if (this.uiContext === undefined) throw new Error('settings UI context unavailable');
+      const families: string[] = this.uiContext.getFont().getSystemFontList().filter((name: string): boolean =>
         name.length > 0 && name.length <= 128 && !/[\u0000-\u001f\u007f]/.test(name));
       return JSON.stringify({ ok: true, value: families, error: '' } as FontFamilyReply);
     } catch (error) {
@@ -3061,11 +3103,13 @@ class SettingsBridge {
    */
   showInputMethodPicker(): string {
     // 选择器是覆盖在本窗口上的对话框，所以窗口可能始终不离开前台，激活时的重新读取不会运行。在选择器返回时以及系统键盘变化事件上重新读取，「设为默认」这一步才能往前推进。
-    inputMethod.getSetting().showOptionalInputMethods().then((shown: boolean): void => {
-      this.refreshSetupState();
-    }).catch((error: Object): void => {
+    try {
+      if (this.onInputMethodPicker === undefined) throw new Error('settings picker unavailable');
+      this.onInputMethodPicker();
+    } catch (error) {
       KeyboardLog.error(`keyboard picker would not open: ${describeError(error)}`);
-    });
+      return JSON.stringify({ ok: false, value: false, ready: true, error: '无法打开输入法选择器' } as OnboardingReply);
+    }
     return JSON.stringify({ ok: true, value: true, ready: true, error: '' } as OnboardingReply);
   }
 
@@ -3263,13 +3307,13 @@ class SettingsBridge {
       if (count !== stat.size) {
         return null;
       }
-      return util.TextDecoder.create('utf-8').decode(new Uint8Array(buffer, 0, count));
+      return util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(buffer, 0, count));
     } catch {
       // 从未写过的文件是常见情况，不是错误。
       return null;
     } finally {
       if (handle !== null) {
-        fs.closeSync(handle);
+        NativeCleanup.close(handle);
       }
     }
   }

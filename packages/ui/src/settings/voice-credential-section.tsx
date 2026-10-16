@@ -1,3 +1,8 @@
+import type {
+  ProviderCredentialClient,
+  VoiceCredentialKind,
+  VoiceProviderCredential,
+} from "../core/provider-credential-contracts";
 import { findDoubaoStreamEndpoint } from "../voice/voice-providers";
 import { CredentialActions } from "./credential-actions";
 import { type CredentialStatusMessageValue } from "./credential-status-message";
@@ -8,15 +13,9 @@ import { SettingField } from "./setting-field";
 import { SettingSectionTitle } from "./setting-section-title";
 import { SettingsManagerBlock } from "./settings-manager-block";
 
-export type VoiceCredentialSectionKind = "asr" | "polish";
+export type VoiceCredentialSectionKind = VoiceCredentialKind;
 
-export interface VoiceCredentialEntry {
-  provider: string;
-  model: string;
-  endpoint: string;
-  resourceId: string | null;
-  authMode: string | null;
-}
+export type VoiceCredentialEntry = VoiceProviderCredential;
 
 export interface VoiceCredentialStatus {
   voiceAsr: readonly VoiceCredentialEntry[];
@@ -28,16 +27,7 @@ import type { ProviderCredentialInput } from "./provider-credential-input";
 
 export type VoiceCredentialInput = ProviderCredentialInput;
 
-export interface VoiceCredentialSaveInput {
-  kind: VoiceCredentialSectionKind;
-  provider: string;
-  endpoint: string;
-  model: string;
-  token?: string;
-  appKey?: string;
-  resourceId: string;
-  authMode: string;
-}
+export type VoiceCredentialSaveInput = Parameters<ProviderCredentialClient["saveVoice"]>[0];
 
 export type VoiceCredentialMessage = CredentialStatusMessageValue;
 

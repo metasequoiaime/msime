@@ -40,8 +40,11 @@ SessionController::SessionController(
                   return;
                 auto view = state.apply_cloud_response(
                     result.lease, result.query, result.body);
+                // Server 已缓存相同答案时可能没有视图变化，TIP 仍须自行判定这次原始回答。
+                push_host_candidates(result.lease, 0, result.query, result.body);
                 if (view) {
                   candidates_.online(result.lease, *view);
+                  push_uiless_candidates(result.lease, *view);
                   if (auto query = state.translation_query(result.lease))
                     (void)translations_.submit(result.lease, std::move(*query));
                 }
@@ -60,7 +63,7 @@ SessionController::SessionController(
                 // array its apply entry point documents.
                 nlohmann::json candidates = nlohmann::json::array();
                 for (auto &text : result.candidates)
-                  candidates.push_back(std::move(text));
+                  candidates.push_back(text);
                 auto view = result.candidates.empty()
                                 ? std::optional<nlohmann::json>{}
                                 : state.apply_ai_candidates(
@@ -69,8 +72,10 @@ SessionController::SessionController(
                 // 回答为空、失败或被拒：AI 座位上的占位行换成「—」，后面的候选不挪位（#6888）。
                 if (!view)
                   view = state.resolve_ai_candidates(result.lease, result.query);
+                push_host_candidates(result.lease, 1, result.query, candidates);
                 if (view) {
                   candidates_.online(result.lease, *view);
+                  push_uiless_candidates(result.lease, *view);
                   // AI insertion changes the visible candidate generation just
                   // like cloud insertion. Re-query translations for the new
                   // page immediately so the AI row and its neighbors do not
@@ -117,6 +122,8 @@ SessionController::SessionController(
           {[this](const FocusLease &lease, const PendingReply &reply,
                   const FanyImeNamedpipeData &packet) {
              candidates_.delivered(lease, reply, packet);
+             uiless_candidates_.delivered(lease, reply, packet);
+             host_candidates_.delivered(lease, reply, packet);
              if (presentation_.delivered)
                presentation_.delivered(lease, reply, packet);
            },
@@ -762,10 +769,62 @@ void SessionController::stop() {
   if (control_.joinable())
     control_.join();
 }
-/// How long a composition stands still before the settled model ranks it.
-///
-/// Shorter than the half second the cloud path waits, because this pass is
-/// local and it changes what the user is reading rather than annotating it.
+void SessionController::push_host_candidates(const FocusLease &lease, unsigned operation,
+                                             const std::string &query, const nlohmann::json &result) {
+  const auto payload = host_candidates_.update(lease, operation, query, result);
+  if (!payload || stopping_) return;
+  if (++host_candidates_transaction_ == 0) ++host_candidates_transaction_;
+  const auto frames = FanyImeCandidateContinuationPipe::Encode(*payload, host_candidates_transaction_,
+      FanyImeWorkerReplyType::HostOnlineCandidates, HostOnlinePayloadLimit);
+  if (!frames) return;
+  bool failed = false;
+  try {
+    focus_.with_active(lease, [&] {
+      if (stopping_ || !transport_.current(lease.transport)) return;
+      // 持有焦点锁直到整组送完；每个分帧仍是独立的命名管道消息。
+      for (const auto &frame : *frames) {
+        std::vector<uint8_t> bytes;
+        bytes.reserve(sizeof(frame));
+        for (size_t n = 0; n < 4; ++n) bytes.push_back(static_cast<uint8_t>(frame.msg_type >> (8 * n)));
+        for (const auto c : frame.data) {
+          bytes.push_back(static_cast<uint8_t>(c));
+          bytes.push_back(static_cast<uint8_t>(static_cast<uint16_t>(c) >> 8));
+        }
+        if (transport_.send(lease.transport, FanyImePipeRole::ToTsfWorkerThread, bytes) != KeyEventSendResult::Sent) {
+          failed = true;
+          break;
+        }
+      }
+    });
+  } catch (...) { failed = true; }
+  if (failed) { focus_.invalidate(lease.transport); transport_.close(lease.transport); }
+}
+
+void SessionController::push_uiless_candidates(const FocusLease &lease,
+                                               const nlohmann::json &view) {
+  const auto frame = uiless_candidates_.updated(lease, view);
+  if (!frame || stopping_)
+    return;
+  bool failed = false;
+  try {
+    focus_.with_active(lease, [&] {
+      if (!stopping_ && transport_.current(lease.transport))
+        failed =
+            frame->empty() ||
+            transport_.send(lease.transport, FanyImePipeRole::ToTsfWorkerThread,
+                            *frame) != KeyEventSendResult::Sent;
+    });
+  } catch (...) {
+    failed = true;
+  }
+  // 不确定是否送达时关闭这一连接，让客户端重建一致的候选页，不能继续按旧页选词。
+  if (failed) {
+    focus_.invalidate(lease.transport);
+    transport_.close(lease.transport);
+  }
+}
+
+// 静止 150 毫秒后重排：本地模型比云候选等待更短，不挤进连续按键之间。
 constexpr auto kSettledRerankDelay = std::chrono::milliseconds(150);
 
 void SessionController::run_settled_rerank() {
@@ -781,8 +840,11 @@ void SessionController::run_settled_rerank() {
     (void)input_.submit([this, lease](InputState &state) {
       if (stopping_ || !transport_.current(lease.transport))
         return;
-      if (auto view = state.rerank_settled(lease))
+      if (auto view = state.rerank_settled(lease)) {
         candidates_.online(lease, *view);
+        push_uiless_candidates(lease, *view);
+        push_host_candidates(lease, 2, {}, nullptr);
+      }
     });
   } catch (...) {
     // A reranking pass must never stop the input queue.

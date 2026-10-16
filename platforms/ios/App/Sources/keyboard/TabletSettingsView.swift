@@ -30,9 +30,20 @@ struct TabletSettingsView: View {
       sidebar
         .navigationSplitViewColumnWidth(320)
     } detail: {
-      // A fresh stack per section, so switching sections never leaves a page from the previous one on top.
+      // 每个分组重建导航栈，切换后不留下上一分组的子页面。
       NavigationStack {
-        detail(selection ?? .page(.input))
+        Group {
+          if navigation.settingsChat {
+            KeyboardTryoutView(title: "AI 对话", focusRequest: navigation.chatFocusRequest)
+              .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                  Button("返回") { navigation.settingsChat = false }
+                }
+              }
+          } else {
+            detail(selection ?? .page(.input))
+          }
+        }
           .frame(maxWidth: 720)
           .frame(maxWidth: .infinity)
           .designCanvasBackground()
@@ -46,7 +57,8 @@ struct TabletSettingsView: View {
       scheme = InputSchemePreference.scheme
       show(router.settingsPage)
     }
-    .onChange(of: scenePhase) { if $0 == .active { scheme = InputSchemePreference.scheme } }
+    .onChange(of: scenePhase) { if scenePhase == .active { scheme = InputSchemePreference.scheme } }
+    .onChange(of: navigation.tabletSettingsSelection) { navigation.settingsChat = false }
     .onChange(of: router.settingsPage) { _, page in show(page) }
   }
 

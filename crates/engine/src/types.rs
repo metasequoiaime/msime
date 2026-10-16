@@ -590,7 +590,7 @@ impl Default for SchemeSet {
     }
 }
 
-/// Double-pinyin keyboard profile. The ordinal is the host ABI value (`EngineOptions::shuangpin_profile`).
+/// 双拼键位方案，序号是宿主 ABI 值（`EngineOptions::shuangpin_profile`），新增方案只追加。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(u8)]
 pub enum ShuangpinProfileKind {
@@ -601,6 +601,7 @@ pub enum ShuangpinProfileKind {
     Microsoft = 3,
     /// 用户自定义的键位，表在 [`ShuangpinCustomTable`] 里（`EngineOptions::shuangpin_custom_profile`、`SessionOptions::shuangpin_custom_profile`），没有内置的表。
     Custom = 4,
+    SmartAbc = 5,
 }
 
 impl ShuangpinProfileKind {
@@ -611,6 +612,7 @@ impl ShuangpinProfileKind {
             2 => Self::Shoudao,
             3 => Self::Microsoft,
             4 => Self::Custom,
+            5 => Self::SmartAbc,
             _ => return None,
         })
     }
@@ -623,6 +625,7 @@ impl ShuangpinProfileKind {
             "shoudao" => Self::Shoudao,
             "microsoft" => Self::Microsoft,
             "custom" => Self::Custom,
+            "smart_abc" => Self::SmartAbc,
             _ => return None,
         })
     }
@@ -634,6 +637,7 @@ impl ShuangpinProfileKind {
             Self::Shoudao => "shoudao",
             Self::Microsoft => "microsoft",
             Self::Custom => "custom",
+            Self::SmartAbc => "smart_abc",
         }
     }
 }

@@ -246,9 +246,8 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags, pid_t targetPID) {
 }
 - (BOOL)canBecomeKeyWindow { return NO; }
 - (void)applyThemePreferences:(NSDictionary *)preferences {
-    id surface = preferences[@"screen_keyboard_theme"];
-    id global = preferences[@"theme"];
-    id resolved = ([surface isEqual:@"dark"] || [surface isEqual:@"light"]) ? surface : global;
+    // macOS 的屏幕键盘一律跟随颜色模式，不读它单独的明暗设置。
+    id resolved = preferences[@"theme"];
     if ([resolved isEqual:@"light"]) self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
     else if (resolved == nil || [resolved isEqual:@"system"]) self.appearance = nil;
     else self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
