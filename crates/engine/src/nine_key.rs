@@ -1537,9 +1537,11 @@ impl NineKeySession {
                     .flatten()
                     .map(|item| SentencePath {
                         sentence: item.word.clone(),
-                        key: item.canonical_pinyin.clone(),
+                        // 重排器只读取词面和静态分；规范读法和词段不会参与模型评分，
+                        // 也不会在重排后回到候选行，因此不必为临时路径复制它们。
+                        key: String::new(),
                         log_prob: comparable_weight(item) as f64 / 1000.0,
-                        words: item.sentence_words.clone(),
+                        words: Vec::new(),
                         typo_edges: 0,
                     })
                     .collect();
