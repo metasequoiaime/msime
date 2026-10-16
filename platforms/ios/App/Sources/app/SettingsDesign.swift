@@ -143,12 +143,12 @@ struct SettingsCardRow: View {
   let page: SettingsPage
   let value: String?
   let isLast: Bool
+  /// 所在标签页的导航状态（见 `SettingsView.Stack`）。导航栈用 `navigationDestination(item:)` 呈现它，状态保存在视图树之外，app 因新的 app 主题或季节重建内容时页面会恢复。
+  @Binding var selection: SettingsPage?
   @Environment(\.displayScale) private var displayScale
-  @EnvironmentObject private var router: SettingsRouter
 
   var body: some View {
-    // 通过 router 推入，设置 导航栈用 `navigationDestination(item:)` 呈现它，所以打开的页面保存在视图树之外，app 因新的 app 主题或季节重建内容时页面会恢复。
-    Button { router.settingsPage = page } label: {
+    Button { selection = page } label: {
       HStack(spacing: 12) {
         Image(systemName: page.symbol).font(.system(size: 20)).foregroundStyle(MetasequoiaTheme.sub)
           .frame(width: 29, height: 29).accessibilityHidden(true)

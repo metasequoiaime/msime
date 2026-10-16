@@ -199,7 +199,7 @@ scope_classify() {
       package.json | pnpm-lock.yaml | pnpm-workspace.yaml | vite.config.ts | .gitignore | .gitattributes | \
       CMakeLists.txt | */CMakeLists.txt | *.cmake | shared/* | platforms/common/* | \
       crates/path-trust/* | crates/client-base/* | crates/client-core/* | crates/client-providers/* | crates/client-services/* | crates/engine/* | crates/input-runtime/* | crates/host-api/* | \
-      resources/components/* | resources/editions/* | scripts/editions.py)
+      resources/components/* | resources/editions/* | resources/opencc.lock.json | scripts/fetch_opencc.py | scripts/download_retry.py | scripts/editions.py)
       echo all ;;
     crates/engine-wasm/*) echo wasm ;;
     # No platform phase reads .github: the contract checks that parse release workflows always run, and the workflow lint below is the only phase it reaches.

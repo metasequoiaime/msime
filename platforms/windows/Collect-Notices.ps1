@@ -35,7 +35,7 @@ foreach ($notice in @(
     @('resources/licenses/ewts-MIT.txt', 'ewts crate behind the Tibetan scheme in the host library, emgyrz/ewts-rs 0.1.3, MIT OR Apache-2.0 used under MIT'),
     @('platforms/windows/third_party/miniaudio/LICENSE', 'miniaudio (Server microphone capture and cue sounds)'),
     @('shared/voice/third_party/cppcodec/LICENSE', 'cppcodec 0.2, header-only, Base64 for Alibaba Cloud Bailian speech requests, tplgy/cppcodec, MIT'),
-    @('crates/client-base/data/opencc/LICENSE', 'OpenCC dictionaries, BYVoid/OpenCC @ 26753884f1984add422f3b0249ccee8613deaff6'),
+    @('resources/licenses/OpenCC-Apache-2.0.txt', 'OpenCC dictionaries, BYVoid/OpenCC @ 26753884f1984add422f3b0249ccee8613deaff6'),
     @('plugins/script/LICENSE', 'Official script plugin uuid in server\plugin-packs, this project''s own code under MIT rather than GPL-3.0; the pack carries the same text as LICENSE.txt'),
     @('plugins/phrase_table/LICENSE', 'Official phrase table latex-symbols in server\plugin-packs, this project''s own data under MIT rather than GPL-3.0; the pack carries the same text as LICENSE.txt'))) {
     $relative = $notice[0]

@@ -41,6 +41,7 @@
 #include "../settings/PreferenceLoadState.h"
 #include "../settings/PreferenceSnapshotMerge.h"
 #import "../candidate/CandidateChrome.h"
+#import "../candidate/CandidateMotion.h"
 #import "../core/WindowPresentation.h"
 #import "../candidate/CandidateTypography.h"
 #import "../candidate/CandidateTextMetrics.h"
@@ -1178,8 +1179,16 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _skinShowsSelectedBar;
     // 上一次排版时这种明暗画的皮肤包，空串表示没有画包；外观变化后画的包不同了就要重新排版。
     std::string _renderedCandidateSkin;
+    // 上一次排版时皮肤包写了的动效；收起时按它决定退场。
+    msime::mac::SkinAnimation _renderedCandidateAnimation;
     // The rendered skin's accent, which the glow selection preset shines in.
+    NSColor *_renderedCandidateAccent;
     // The highlighted row's slot plus one when the panel was last shown, 0 for none. Compared by slot rather than candidate identity so typing, which brings new candidates under the same highlight, does not replay the selection preset.
+    NSUInteger _animatedHighlightSlot;
+    // 记下 _animatedHighlightSlot 时的输入串和页码；换了的话高亮是 Engine 放回去的，不是用户移过去的。
+    NSString *_animatedHighlightContext;
+    // 候选窗的进场、退场和选中动效，第一次显示候选窗时创建。
+    MSIMECandidateMotion *_candidateMotion;
     BOOL _rerenderingForCandidateSkin;
     CGFloat _tallestVerticalCandidateHeight;
     NSInteger _armedGlossColumn;
@@ -4808,6 +4817,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     [_session closeWithError:nil];
     _session = nil;
     _focusPending = YES;
+    [_candidateMotion stop];
     [_panel orderOut:nil];
     [[MSIMEInputController dictionarySessionHolders] removeObject:self];
 }
@@ -6955,16 +6965,42 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     MSIMECandidatePanelOwner = self;
 }
 
-// 候选窗同步显隐，避免快速输入等待皮肤动画或被迟到的关闭回调收起。
+// 候选窗同步显隐：_panel.isVisible 立即是新状态，键盘和指针路由从不等动画。皮肤包写了的动效只加在图层上，见 MSIMECandidateMotion。
 - (void)hideCandidatePanel:(const char *)reason {
     if (msime_macos_diagnostic_enabled() && _panel.isVisible) msime_macos_diagnostic_writef("candidate hide reason=%s", reason);
-    [_panel orderOut:nil];
+    _animatedHighlightSlot = 0;
+    _animatedHighlightContext = nil;
+    // 只有普通收起（上屏、取消、切到英文）可以播退场；失焦、会话替换、光标无效等立即收起，不在屏幕上留旧候选文字。
+    const BOOL allowExit = strcmp(reason, "empty") == 0 || strcmp(reason, "english_mode") == 0;
+    if (_candidateMotion) [_candidateMotion hidePanel:_panel animation:_renderedCandidateAnimation allowExit:allowExit];
+    else [_panel orderOut:nil];
 }
 
 - (void)showCandidatePanel {
-    _panel.animationBehavior = NSWindowAnimationBehaviorNone;
-    _panel.alphaValue = 1.0;
-    [_panel orderFrontRegardless];
+    if (!_candidateMotion) _candidateMotion = [MSIMECandidateMotion new];
+    NSMutableArray<NSView *> *rows = [NSMutableArray array];
+    for (NSView *subview in _panel.contentView.subviews)
+        if ([subview isKindOfClass:MSIMECandidateButton.class] && subview.tag >= 0) [rows addObject:subview];
+    [_candidateMotion showPanel:_panel animation:_renderedCandidateAnimation rows:rows];
+}
+
+// 高亮在同一个输入串的同一页里换了格位时（方向键、Tab、网格里移动），按皮肤的选中预设装饰新高亮行；高亮本身已经随这一帧同步画好。打字或翻页时 Engine 把高亮放回第一格，那不是选中，不播，与 CandidatePanel 只在 selectCandidateWithIdentifier: 时装饰一致。
+- (void)decorateCandidateSelection:(BOOL)panelWasVisible {
+    MSIMECandidateButton *highlighted = nil;
+    for (NSView *subview in _panel.contentView.subviews)
+        if ([subview isKindOfClass:MSIMECandidateButton.class] && subview.tag >= 0 && ((MSIMECandidateButton *)subview).candidateHighlighted) {
+            highlighted = (MSIMECandidateButton *)subview;
+            break;
+        }
+    const NSUInteger slot = highlighted ? (NSUInteger)highlighted.tag + 1 : 0;
+    const NSUInteger previous = _animatedHighlightSlot;
+    _animatedHighlightSlot = slot;
+    NSString *context = [NSString stringWithFormat:@"%@\n%@", _view[@"editing_text"], _view[@"page"]];
+    const BOOL sameContext = [_animatedHighlightContext isEqualToString:context];
+    _animatedHighlightContext = context;
+    if (!panelWasVisible || !sameContext || previous == 0 || slot == 0 || slot == previous) return;
+    [_candidateMotion decorateSelectionOfRow:highlighted fill:highlighted.fillColor cornerRadius:highlighted.cornerRadius
+                                      accent:_renderedCandidateAccent animation:_renderedCandidateAnimation];
 }
 
 // The candidate window, created on first use. Its wheel pages the Engine's candidates, or scrolls the expanded grid while that is open.
@@ -7102,6 +7138,8 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     const auto tokens = skin.tokens;
     _skinShowsSelectedBar = tokens.showSelectedBar;
     _renderedCandidateSkin = skin.candidateSkin;
+    _renderedCandidateAnimation = skin.animation;
+    _renderedCandidateAccent = SkinColor(tokens.accent);
     NSImage *decorationImage = [_appearance decorationImageForDark:skinDark];
     const CGFloat scale = MSIMECandidateScale(_appearance);
     const CGFloat inset = msime::mac::CandidateInset(tokens);
@@ -7245,6 +7283,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     const BOOL wasVisible = _panel.isVisible;
     [self claimCandidatePanel];
     [self showCandidatePanel];
+    [self decorateCandidateSelection:wasVisible];
     [self announceHighlightedCandidate:wasVisible];
     if (timed)
         msime_macos_diagnostic_writef("candidate-frame show expanded rows=%lu visible_rows=%lu candidates=%lu size=(%.0f,%.0f) origin=(%.0f,%.0f) flipped=%d build_ms=%.3f",
@@ -7296,6 +7335,8 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     const auto geometry = skin.tokens;
     _skinShowsSelectedBar = geometry.showSelectedBar;
     _renderedCandidateSkin = skin.candidateSkin;
+    _renderedCandidateAnimation = skin.animation;
+    _renderedCandidateAccent = SkinColor(geometry.accent);
     // 装饰图取这种明暗画的那个包的，两个槽位可以是两个包。
     NSImage *decorationImage = [_appearance decorationImageForDark:skinDark];
     const CGFloat scale = MSIMECandidateScale(_appearance);
@@ -7498,6 +7539,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     const BOOL wasVisible = _panel.isVisible;
     [self claimCandidatePanel];
     [self showCandidatePanel];
+    [self decorateCandidateSelection:wasVisible];
     [self announceHighlightedCandidate:wasVisible];
     // Geometry and counts only, the macOS form of the source's candidate-frame/candidate-position audit: flipped=1 means the window went above the caret for lack of room below.
     if (timed)

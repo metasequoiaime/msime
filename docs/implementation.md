@@ -18,7 +18,7 @@
 
 | crate | 职责 |
 | --- | --- |
-| `msime-client-base` | 客户端最底层、不联网的本地能力：`storage`、`file_lock`、`bounded_io`、`text`、`calendar`、`chinese_conversion`（含 `data/opencc/`）。client-core 用 `use`/`pub use` 把它们接回原来的路径，`msime-backend-engine` 只依赖这一层。 |
+| `msime-client-base` | 客户端最底层、不联网的本地能力：`storage`、`file_lock`、`bounded_io`、`text`、`calendar`、`chinese_conversion`（构建输入由 `resources/opencc.lock.json` 从 msime-dictionary 固定）。client-core 用 `use`/`pub use` 把它们接回原来的路径，`msime-backend-engine` 只依赖这一层。 |
 | `msime-client-core` | 宿主无关的客户端核心：`preferences`、`edition`、`host_surface`、`settings_document`、`theme`、`punctuation`、`helpcode`、`clipboard`、`translation`、`cloud`、`resources`、`panels`、`candidate_document`。不带网络栈，`msime-input-runtime` 只依赖它。与另外三个 client crate 一样不依赖 Tauri、React、Engine 或任何平台 API。 |
 | `msime-client-services` | 账号与用户内容，依赖 client-core：`account`、`community`、`telemetry`、`notices`、`update_check`、`diagnostics`、`clipboard_relay`、`skin`、`plugins`、`dictionary`、`vocabulary`、`common_phrases`、`typing_statistics`。 |
 | `msime-client-providers` | 语音与外部服务，依赖 client-core，与 client-services 互不引用：`voice`、`credential`、`ai`、`resource_packs`。 |
