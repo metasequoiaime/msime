@@ -4803,6 +4803,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     playInputClick()
     showsSymbols.toggle()
     updateKeyboardLayout()
+    // 全拼的分词键只在字母层成立；数字页上的输入会把它按符号层重画成 ⇧，回到字母层时要按字母层重画。
+    updateLetterCaseControls()
   }
 
   private var quickPunctuationSymbols: [String] {

@@ -1510,6 +1510,27 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(right.configuration?.title, "分词")
   }
 
+  /// 数字页上的输入会刷新大小写控件，此时分词键藏在字母层后面；返回字母层必须按字母层重画，不能留下 ⇧。
+  func testQuanpinSeparatorSurvivesTypingOnTheNumberPad() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    let toggle = try button("layoutToggleButton", in: controller)
+    let separators = [try button("shiftButton", in: controller), try button("rightShiftButton", in: controller)]
+    toggle.sendActions(for: .primaryActionTriggered)
+    try button("nineKey1", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("nineKeyZero", in: controller).sendActions(for: .primaryActionTriggered)
+    toggle.sendActions(for: .primaryActionTriggered)
+    for separator in separators {
+      XCTAssertEqual(separator.configuration?.title, "分词")
+      XCTAssertNil(separator.configuration?.image)
+      XCTAssertEqual(separator.accessibilityLabel, "拼音分词")
+    }
+  }
+
   func testShiftIsDiscoverableAndSwitchesToEnglishCapitalization() throws {
     let previous = InputSchemePreference.scheme
     InputSchemePreference.scheme = .shuangpin
