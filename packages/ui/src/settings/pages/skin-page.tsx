@@ -33,9 +33,9 @@ import { AiSkinGeneration } from "../../keyboard/ai-skin-generation";
 import { TouchKeyboardSkinEditor } from "../../keyboard/touch-keyboard-skin-editor";
 import type { SavedTouchKeyboardSkin } from "../../keyboard/touch-keyboard-skin-design";
 import { communitySkinMessage } from "../../community/community-helpers";
-import { GroupList, NavRow } from "../../core/platform-controls";
+import { GroupList, MoreOptions, NavRow } from "../../core/platform-controls";
 import { CandidateColorsSection } from "../candidate-colors-section";
-import { ThemeSettingsSection } from "../theme-settings-section";
+import { CandidateThemeRow, ThemeSettingsSection } from "../theme-settings-section";
 import { ScreenKeyboardSkinsSection } from "../screen-keyboard-skins-section";
 import { useSettingsForm } from "../settings-form-context";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
@@ -75,10 +75,13 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
     globalTheme,
     themeMode,
     customColors,
+    previewCustomTheme,
     onCandidateColorChange,
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
+    showCandidateNumberColor,
+    surfaceThemesFollow,
     showFloatingToolbar,
     desktopPanels,
     keyboardPreviewTheme,
@@ -236,12 +239,26 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
     <GroupList title="明暗">
       <SegmentedRow
         title="颜色模式"
-        description="设置窗口和各界面的默认明暗模式"
+        // 各界面一律跟随颜色模式的宿主上它不再是可被各界面覆盖的默认值，而是除候选窗口以外所有界面的明暗。
+        description={
+          surfaceThemesFollow
+            ? "设置窗口和各界面的明暗模式；候选窗口可在下面单独设置"
+            : "设置窗口和各界面的默认明暗模式"
+        }
         aria-label="颜色模式"
         options={themeModeOptions}
         value={themeMode}
         onChange={(theme) => onPreferencesChange({ theme })}
       />
+      {/* 各界面一律跟随颜色模式的宿主（macOS）只剩候选窗口还能单独设明暗，放在颜色模式下面，主题页因此没有「高级」组。 */}
+      {surfaceThemesFollow && (
+        <CandidateThemeRow
+          mobile={mobilePlatform}
+          linux={linuxPlatform}
+          value={draft.candidate_theme}
+          onChange={(candidate_theme) => onPreferencesChange({ candidate_theme })}
+        />
+      )}
     </GroupList>
   );
   const moreSkins = (
@@ -284,16 +301,20 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
         />
       )}
       {/* 候选颜色取色器作用于候选窗的配色。手机的触屏候选栏画的是键盘皮肤的颜色：Android 不读解析出的候选配色，HarmonyOS 手机的候选栏也取键盘调色板（只有 2in1 的候选窗用候选配色，见 KeyboardView.ets `candidateColors`），只有 iOS 在打开上面的「候选栏使用主题配色」后才读它们。所以手机上只在那个开关打开时显示取色器，其余时候它们改了也看不到效果；桌面和 HarmonyOS 2in1 照旧显示。选颜色会让主题变成自定义，叠在当时屏幕上的主题之上（见 `onCandidateColorChange`）。 */}
+      {/* 取色器收在「自定义配色」折叠区里：内置主题和皮肤包已经定好配色，多数人不需要逐个调。悬停色也在里面，系统底色上不会自动推出悬停色，深色自定义表面只能靠它看清悬停。 */}
       {(!mobilePlatform || mobileKeyboardFeedback?.candidatePaletteFollowsDesktop === true) && (
-        <CandidateColorsSection
-          preferences={customColors}
-          previewTheme={candidatePreviewTheme}
-          showRowColors={showCandidateRowColors}
-          showSelectionAppearance={showCandidateSelectionAppearance}
-          showBorderColor={showCandidateBorderColor}
-          linux={linuxPlatform}
-          onChange={onCandidateColorChange}
-        />
+        <MoreOptions title="自定义配色">
+          <CandidateColorsSection
+            preferences={customColors}
+            previewTheme={candidatePreviewTheme}
+            showRowColors={showCandidateRowColors}
+            showSelectionAppearance={showCandidateSelectionAppearance}
+            showBorderColor={showCandidateBorderColor}
+            showNumberColor={showCandidateNumberColor}
+            linux={linuxPlatform}
+            onChange={onCandidateColorChange}
+          />
+        </MoreOptions>
       )}
       {client.customTouchKeyboardSkins && (
         <ScreenKeyboardSkinsSection
@@ -324,8 +345,8 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
       )}
     </GroupList>
   );
-  // 每个界面仍可在颜色模式之上单独指定浅色或深色；设计把这些收在主题页的「高级」下。
-  const advanced = (
+  // 每个界面仍可在颜色模式之上单独指定浅色或深色；设计把这些收在主题页的「高级」下。各界面一律跟随颜色模式的宿主不给这一组，候选窗口那一行在「明暗」组里。
+  const advanced = !surfaceThemesFollow && (
     <ThemeSettingsSection
       preferences={draft}
       mobile={mobilePlatform}
@@ -482,8 +503,8 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                       style={{
                         ...(id === "custom"
                           ? customCandidateStyle(
-                              draft.custom_theme?.base,
-                              draft.custom_theme?.candidate_colors,
+                              previewCustomTheme?.base,
+                              previewCustomTheme?.candidate_colors,
                             )
                           : themeCandidateStyle(id)),
                         // 用户设的窗口圆角和不透明度对每个主题都生效，卡片照实际候选窗画，与 macOS 原生设置页的预览一致。

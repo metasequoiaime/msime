@@ -48,7 +48,10 @@ import type { AppInputModeRule, PickedApplication } from "./settings/app-input-m
 import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
 import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences";
 import { clipboardHistoryEnabled } from "./settings/clipboard-history-preferences";
-import { settingsThemePreferences } from "./settings/settings-theme-preferences";
+import {
+  hostDrawnCustomTheme,
+  settingsThemePreferences,
+} from "./settings/settings-theme-preferences";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import type { ResourcePackClient } from "./settings/resource-packs";
@@ -1765,10 +1768,14 @@ export interface HostCapabilities {
   traditional_chinese_variants?: boolean;
   /** 宿主按 `expand_candidates` 让横排候选窗按 ↓ 展开成多行候选网格（目前只有 macOS）。 */
   expand_candidates?: boolean;
+  /** 宿主画的各个界面一律跟随颜色模式，不读 `settings_theme` 等各界面的单独明暗，只有候选窗口仍读 `candidate_theme`（目前只有 macOS）。 */
+  surface_themes_follow?: boolean;
   candidate_row_colors: boolean;
   candidate_selection_appearance: boolean;
-  /** 宿主用边框颜色给候选窗描边。Linux 由 Fcitx5 的 classicui 主题描边，没有 hover 状态；IBus 面板描不了，运行中的 IBus 宿主以 `candidate_panel_limit: "ibus_panel"` 说明。 */
+  /** 宿主按用户选的边框色给候选窗描边。Linux 由 Fcitx5 的 classicui 主题描边，没有 hover 状态；IBus 面板描不了，运行中的 IBus 宿主以 `candidate_panel_limit: "ibus_panel"` 说明。macOS 的边框色固定跟随主题，不读用户选的值。 */
   candidate_border_color: boolean;
+  /** 宿主按用户选的编号色画候选编号。macOS 的编号色固定跟随主题（选了文字颜色时由它推出），不读用户选的值；缺省按读取处理。 */
+  candidate_number_color?: boolean;
   /** The host draws its own floating candidate window and scales its font and geometry by `candidate_scale_percent`. */
   candidate_window_scale: boolean;
   /** The host lowers the alpha of the candidate card fill, border and skin background by `candidate_opacity_percent`, keeping text opaque. */
@@ -2484,6 +2491,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
+    showCandidateNumberColor,
+    surfaceThemesFollow,
     showCandidateFollowCursor,
     showCandidateWindowScale,
     showCandidateWindowOpacity,
@@ -2868,7 +2877,13 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
   const floatingToolbar = floatingToolbarPreferences(draft);
   const { themeMode, settingsTheme, globalTheme, customColors, customTouchKeyboardSkin } =
-    settingsThemePreferences(draft, host?.platform);
+    settingsThemePreferences(draft, host?.platform, surfaceThemesFollow);
+  // 预览画的自定义主题只含宿主会读的槽位：macOS 不读编号色和边框色，存下的旧值不能在预览里画出来。只给预览用，不写回草稿。
+  const previewCustomTheme = hostDrawnCustomTheme(
+    draft?.custom_theme,
+    showCandidateNumberColor,
+    showCandidateBorderColor,
+  );
   const dark = useSettingsTheme(themeMode, settingsTheme);
   // 两种 HarmonyOS 外观都用用户的应用主题（水杉四季或某个固定季节）着色；每种外观取哪些 token 由 `appThemeStyle` 决定。
   const resolvedAppTheme = useResolvedAppTheme(
@@ -2881,8 +2896,15 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     dark,
   );
   const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
-  const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.toolbar_theme);
-  const keyboardPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.screen_keyboard_theme);
+  // 各界面一律跟随颜色模式的宿主不读工具栏和屏幕键盘的单独明暗，预览也照颜色模式画。
+  const toolbarPreviewTheme = useCandidatePreviewTheme(
+    themeMode,
+    surfaceThemesFollow ? undefined : draft?.toolbar_theme,
+  );
+  const keyboardPreviewTheme = useCandidatePreviewTheme(
+    themeMode,
+    surfaceThemesFollow ? undefined : draft?.screen_keyboard_theme,
+  );
   // A picker colour is part of the custom theme, so choosing one selects that theme; clearing one leaves the selection alone. Choosing one while another theme is selected customizes that theme: it becomes the custom theme's base, and a package, whose own base would replace it, is dropped.
   // A custom theme without a keyboard design draws its base's keyboard, so the custom keyboard card is selected only when the theme carries one.
   const customKeyboardSelected = globalTheme === "custom" && Boolean(draft?.custom_theme?.keyboard);
@@ -3040,6 +3062,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
+    showCandidateNumberColor,
+    surfaceThemesFollow,
     showCandidateFollowCursor,
     showCandidateWindowScale,
     showCandidateWindowOpacity,
@@ -3244,6 +3268,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     keyboardPreviewTheme,
     globalTheme,
     customColors,
+    previewCustomTheme,
     customTouchKeyboardSkin,
     onCandidateColorChange,
     onCustomKeyboardChange,

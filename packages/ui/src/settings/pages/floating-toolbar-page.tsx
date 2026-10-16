@@ -29,8 +29,10 @@ export function FloatingToolbarSettingsPage() {
     floatingToolbar,
     toolbarPreviewTheme,
     globalTheme,
+    previewCustomTheme,
     linuxPlatform,
     selectPage,
+    surfaceThemesFollow,
   } = useSettingsForm();
   const { onChange: onToolbarChange } = createFloatingToolbarSettingsActions({
     setDraft,
@@ -66,8 +68,8 @@ export function FloatingToolbarSettingsPage() {
               style={
                 globalTheme === "custom"
                   ? customCandidateStyle(
-                      draft.custom_theme?.base,
-                      draft.custom_theme?.candidate_colors,
+                      previewCustomTheme?.base,
+                      previewCustomTheme?.candidate_colors,
                     )
                   : themeCandidateStyle(globalTheme)
               }
@@ -137,10 +139,14 @@ export function FloatingToolbarSettingsPage() {
               ))}
             </SelectRow>
           )}
-          {/* Linux 宿主不读 toolbar_theme，「主题」页没有工具栏一行可指，所以这条链接和整个「尺寸」组一起只在非 Linux 宿主上出现。 */}
+          {/* Linux 宿主不读 toolbar_theme，「主题」页没有工具栏一行可指，所以这条链接和整个「尺寸」组一起只在非 Linux 宿主上出现。各界面一律跟随颜色模式的宿主（`surfaceThemesFollow`，目前是 macOS）也没有工具栏一行，工具栏跟随「主题」页的颜色模式和主题，链接照样指向「主题」页，描述照实说。 */}
           <LinkRow
             title="颜色与明暗"
-            description="悬浮工具栏的明暗在「主题」页设置"
+            description={
+              surfaceThemesFollow
+                ? "悬浮工具栏跟随「主题」页的颜色模式和主题"
+                : "悬浮工具栏的明暗在「主题」页设置"
+            }
             onClick={() => selectPage("skin")}
           />
         </GroupList>

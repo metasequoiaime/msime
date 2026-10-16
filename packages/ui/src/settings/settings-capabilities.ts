@@ -58,6 +58,10 @@ export function settingsCapabilities({
   const showCandidateRowColors = host ? host.candidate_row_colors : true;
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
   const showCandidateBorderColor = host ? host.candidate_border_color : true;
+  // 缺省（宿主还没报告这一项）按读取处理，与加这一项之前一样给出取色器。
+  const showCandidateNumberColor = host ? host.candidate_number_color !== false : true;
+  // 宿主让各界面一律跟随颜色模式时，主题页只留候选窗口的单独明暗，设置窗口和各面板也不再读其余几项。
+  const surfaceThemesFollow = host?.surface_themes_follow === true;
   const showCandidateFollowCursor = host ? host.candidate_follow_cursor : false;
   const showCandidateWindowScale = host ? host.candidate_window_scale : true;
   const showCandidateWindowOpacity = host ? host.candidate_window_opacity : true;
@@ -119,6 +123,8 @@ export function settingsCapabilities({
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
+    showCandidateNumberColor,
+    surfaceThemesFollow,
     showCandidateFollowCursor,
     showCandidateWindowScale,
     showCandidateWindowOpacity,

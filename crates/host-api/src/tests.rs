@@ -737,6 +737,12 @@ fn host_capability_boundary_describes_each_platform() {
     assert_eq!(macos["value"]["expand_candidates"], true);
     assert_eq!(windows["value"]["expand_candidates"], false);
     assert_eq!(linux["value"]["expand_candidates"], false);
+    // macOS 的各界面一律跟随颜色模式，编号色和边框色跟随主题，设置页按这三项收起对应的控件。
+    assert_eq!(macos["value"]["surface_themes_follow"], true);
+    assert_eq!(macos["value"]["candidate_number_color"], false);
+    assert_eq!(macos["value"]["candidate_border_color"], false);
+    assert_eq!(windows["value"]["surface_themes_follow"], false);
+    assert_eq!(windows["value"]["candidate_number_color"], true);
 
     let android = capabilities("android");
     assert_eq!(android["value"]["panel_windows"], false);
