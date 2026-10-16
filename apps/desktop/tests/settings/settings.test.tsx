@@ -1521,17 +1521,13 @@ test("a provider-credential host runs the AI service controls without a token", 
   expect(screen.queryByLabelText("AI API Token")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
   await screen.findByText("已获取 2 个可用模型。");
-  fireEvent.change(screen.getByLabelText("AI 测试输入"), { target: { value: "fixture input" } });
-  fireEvent.click(screen.getByRole("button", { name: "发送并润色" }));
-  await screen.findByText("fixture-polished");
   // An empty token goes out because there is none to send; the provider ignores
   // it and authenticates from its own configuration.
   expect(fetchModels.mock.calls[0][0]).toMatchObject({ provider: "deepseek", token: "" });
-  expect(testAi.mock.calls[0][0]).toMatchObject({
-    provider: "deepseek",
-    text: "fixture input",
-    token: "",
-  });
+  // Linux 是桌面：这份配置只给拼音联想用，润色测试测不出用户实际得到的结果，已经撤掉。
+  expect(screen.queryByLabelText("AI 测试输入")).toBeNull();
+  expect(screen.queryByRole("button", { name: "发送并润色" })).toBeNull();
+  expect(testAi).not.toHaveBeenCalled();
   cleanup();
 });
 
@@ -9904,15 +9900,35 @@ test("the AI page is grouped like the other pages", async () => {
   await settingsReady();
   const page = screen.getByRole("group", { name: "AI 辅助" });
   expect(page.querySelector(".section")).toBeNull();
-  expect(pageGroupTitles(page)).toEqual(["服务", "联想", "提示词", "测试工具"]);
+  // 桌面没有「测试工具」（润色测试只在 iOS、Android 上保留），提示词收进「服务」的「更多选项」。
+  expect(pageGroupTitles(page)).toEqual(["服务", "联想"]);
   const endpoint = within(page).getByLabelText("AI 接口地址");
   const more = endpoint.closest("details");
   expect(more).not.toBeNull();
   expect(more!.open).toBe(false);
   expect(within(page).getByRole("region", { name: "联想" }).textContent).toContain("候选数量");
-  expect((within(page).getByLabelText("自定义提示词二") as HTMLTextAreaElement).value).toBe(
-    "second",
+  const prompt = within(page).getByLabelText("AI 联想自定义提示词") as HTMLTextAreaElement;
+  expect(prompt.value).toBe("second");
+  expect(prompt.closest("details")).toBe(more);
+  expect(within(more!).getByRole("button", { name: "获取模型列表" })).toBeTruthy();
+  expect(within(page).queryByRole("button", { name: "发送并润色" })).toBeNull();
+});
+
+test("the macOS AI page has no candidate count, which the host fixes at three", async () => {
+  render(
+    <SettingsPage
+      initialPage="ai"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        aiAssistant: { fetchModels: vi.fn(), test: vi.fn() },
+        host: testHost({ platform: "macos" }),
+      }}
+    />,
   );
-  expect(within(page).queryByLabelText("自定义提示词一")).toBeNull();
-  expect(within(page).queryByLabelText("自定义提示词三")).toBeNull();
+  await settingsReady();
+  const page = screen.getByRole("group", { name: "AI 辅助" });
+  expect(pageGroupTitles(page)).toEqual(["服务"]);
+  expect(within(page).queryByLabelText("AI 候选数量")).toBeNull();
+  expect(within(page).queryByRole("button", { name: "发送并润色" })).toBeNull();
 });

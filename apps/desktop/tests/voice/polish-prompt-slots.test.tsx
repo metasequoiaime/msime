@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
-import { settingsFormReady } from "../support/settings-form";
+import { saveSettingsNow, settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   POLISH_PRESETS,
   POLISH_PRESET_IDS,
@@ -11,6 +11,7 @@ import {
   polishPromptFor,
   polishSlotField,
   polishPresetPrompt,
+  type Preferences,
   type Snapshot,
 } from "@msime/ui";
 
@@ -114,24 +115,54 @@ test("a preset prompt is read-only and editing a custom slot saves to that slot"
   expect((screen.getByLabelText("润色提示词") as HTMLTextAreaElement).value).toBe("第三个方案");
 });
 
-test("the AI prompt slot selector is no longer Linux-only", async () => {
+test("the AI page edits the active prompt slot inside 更多选项, without a slot selector", async () => {
+  const save = vi.fn(async (_revision: number, preferences: Preferences) => ({
+    ...snapshot,
+    revision: snapshot.revision + 1,
+    preferences,
+  }));
   render(
     <SettingsPage
       client={{
-        load: async () => snapshot,
-        save: vi.fn(),
+        load: async () => ({
+          ...snapshot,
+          preferences: {
+            ...snapshot.preferences,
+            ai_assistant: {
+              enabled: true,
+              provider: "deepseek",
+              model: "deepseek-v4-flash",
+              endpoint: "https://api.deepseek.com/chat/completions",
+              candidate_limit: 3,
+              prompt_id: "custom_2",
+              prompt_custom_1: "",
+              prompt_custom_2: "第二个方案",
+              prompt_custom_3: "",
+            },
+          },
+        }),
+        save,
         host: testHost({ platform: "windows" }),
       }}
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
-  // Windows users could author three custom prompts but had no control that
-  // would ever select one, so prompt_id stayed at whatever it was.
-  const slot = await screen.findByLabelText("AI 联想提示词方案");
-  fireEvent.change(slot, { target: { value: "custom_2" } });
-  expect((slot as HTMLSelectElement).value).toBe("custom_2");
-  expect(screen.queryByText("兼容提示词")).toBeNull();
-  expect(screen.queryByText(/Android 只发送选中文字/)).toBeNull();
+  const page = screen.getByRole("group", { name: "AI 辅助" });
+  // 三个槽位的切换没人用，只剩一个文本框，绑在当前槽位上；`prompt_id` 和其他槽位原样保留。
+  expect(within(page).queryByLabelText("AI 联想提示词方案")).toBeNull();
+  const prompt = within(page).getByLabelText("AI 联想自定义提示词") as HTMLTextAreaElement;
+  expect(prompt.value).toBe("第二个方案");
+  expect(prompt.closest("details")).not.toBeNull();
+  // 说明照实说：填写会整个替换内置提示词，不是「额外」追加。
+  expect(within(page).getByText(/整个替换内置提示词，不是追加/)).toBeTruthy();
+  expect(within(page).getByText(/当前使用的是槽位二/)).toBeTruthy();
+  expect(within(page).queryByText(/额外提示词/)).toBeNull();
+  fireEvent.change(prompt, { target: { value: "改过的方案" } });
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  const saved = save.mock.calls.at(-1)?.[1].ai_assistant;
+  expect(saved?.prompt_id).toBe("custom_2");
+  expect(saved?.prompt_custom_2).toBe("改过的方案");
+  expect(saved?.prompt_custom_1 ?? "").toBe("");
 });
