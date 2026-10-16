@@ -45,7 +45,7 @@ use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
 use super::series::{
-    append_unique_words, fold_reading, mark_autocorrect_candidates,
+    append_unique_words, fold_reading, mark_autocorrect_candidates, merge_alternative_rows,
     merge_alternative_segmentations, resolve_series_query, series_cache_key, SeriesResolution,
     ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT, AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES,
     LONGER_PHRASE_LIMIT, MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
@@ -734,7 +734,7 @@ impl QuanpinDictionary {
         result
     }
 
-    /// The database half of `merge_alternative_segmentations` (QD:888-945); `series` has the promotion and union rule.
+    /// `merge_alternative_segmentations` 的词典查询部分（QD:888-945），升位与合并规则在 `series`。
     fn merge_alternatives(
         &mut self,
         raw: &str,
@@ -750,7 +750,16 @@ impl QuanpinDictionary {
         if rows.is_empty() {
             return result;
         }
-        let primary_full = self.query_single_path(raw, primary_segmentation, primary_segments);
+        let cache_key = path_cache_key(raw, primary_segmentation);
+        let primary_full = if let Some(primary_full) = self.cache.get_ref_by(cache_key) {
+            Cow::Borrowed(primary_full.as_slice())
+        } else {
+            Cow::Owned(self.query_single_path_miss(
+                cache_key,
+                primary_segmentation,
+                primary_segments,
+            ))
+        };
         let alternative_full = rows
             .into_iter()
             .map(|row| {
@@ -763,7 +772,12 @@ impl QuanpinDictionary {
                 )
             })
             .collect();
-        merge_alternative_segmentations(result, primary_full, alternative_full)
+        match primary_full {
+            Cow::Borrowed(rows) => {
+                merge_alternative_rows(result, rows.iter().cloned(), alternative_full)
+            }
+            Cow::Owned(rows) => merge_alternative_segmentations(result, rows, alternative_full),
+        }
     }
 
     fn append_query_rows(result: &mut Vec<WordItem>, rows: Vec<WordItem>) {
@@ -1644,3 +1658,6 @@ mod fuzzy_input_borrow_tests;
 #[cfg(test)]
 #[path = "dictionary/prefix_row_stream_tests.rs"]
 mod prefix_row_stream_tests;
+
+#[cfg(test)]
+mod alternative_row_stream_tests;
