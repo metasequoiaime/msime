@@ -1378,7 +1378,8 @@ STDAPI CMetasequoiaIME::OnSetFocus(BOOL fForeground)
 bool CMetasequoiaIME::_HasDeferredKeyBarrier() const
 {
     if (_localSessionResetPending.load(std::memory_order_acquire) || _focusResetPending || _activationRequired ||
-        _deferredKeyProjectionValid || !_deferredKeyDowns.empty() || _hasDeferredKeyInFlight)
+        _deferredKeyProjectionValid || !_deferredKeyDowns.empty() || _hasDeferredKeyInFlight ||
+        _HasPendingApplicationKeyReplay())
     {
         return true;
     }
@@ -1519,9 +1520,17 @@ bool CMetasequoiaIME::_RefreshDeferredRecoveryPrefix(_In_ ITfContext *pContext)
         return false;
     }
 
-    CStringRange &raw = _pCompositionProcessorEngine->GetKeystrokeBuffer();
-    const size_t rawLength = static_cast<size_t>(raw.GetLength());
-    const size_t caret = min(rawLength, static_cast<size_t>(_pCompositionProcessorEngine->GetCaretPosition()));
+    // 与 _RequestLocalSessionReset 一致：这些方案的现有组字会在 reset 时上屏，不能再入队重放。
+    if (msime::windows::scheme::CommitsOnBlur(Global::InputModeScheme.load(std::memory_order_relaxed)))
+    {
+        return true;
+    }
+
+    // 宿主拥有组字时旧键击缓冲可能为空；恢复检查点与按键分类读取同一份当前快照。
+    const auto composition = _pCompositionProcessorEngine->GetKeyCompositionState();
+    const auto &raw = composition.rawInput;
+    const size_t rawLength = raw.size();
+    const size_t caret = min(rawLength, composition.caret);
     const size_t moveLeftCount = rawLength - caret;
     if (rawLength + moveLeftCount > MAX_DEFERRED_KEY_DOWN_COUNT)
     {
@@ -1530,7 +1539,7 @@ bool CMetasequoiaIME::_RefreshDeferredRecoveryPrefix(_In_ ITfContext *pContext)
 
     for (size_t index = 0; index < rawLength; ++index)
     {
-        const WCHAR wch = raw.Get()[index];
+        const WCHAR wch = raw[index];
         const SHORT virtualKey = VkKeyScanW(wch);
         DeferredKeyDown recoveryKey;
         recoveryKey.kind = DeferredKeyDown::Kind::KeyDown;
@@ -2199,6 +2208,12 @@ STDAPI CMetasequoiaIME::OnTestKeyDown(ITfContext *pContext, WPARAM wParam, LPARA
     {
         return E_INVALIDARG;
     }
+    const ULONG_PTR replayMarker = static_cast<ULONG_PTR>(GetMessageExtraInfo());
+    if (IsApplicationKeyReplayExtraInfo(replayMarker))
+    {
+        *pIsEaten = _ObserveApplicationKeyReplay(pContext, static_cast<UINT>(wParam), replayMarker) ? FALSE : TRUE;
+        return S_OK;
+    }
     if (IsSelfGeneratedSendInputExtraInfo(static_cast<ULONG_PTR>(GetMessageExtraInfo())))
     {
         *pIsEaten = FALSE;
@@ -2366,6 +2381,7 @@ bool CMetasequoiaIME::_QueueDeferredPreservedKey(_In_ ITfContext *pContext, REFG
 
 void CMetasequoiaIME::_ClearDeferredKeyDowns()
 {
+    _ClearApplicationKeyReplay();
     _backspaceHoldArmed = false;
     const size_t queuedCount = _deferredKeyDowns.size();
     const bool hadInFlight = _hasDeferredKeyInFlight;
@@ -2508,7 +2524,8 @@ void CMetasequoiaIME::_CompleteDeferredKeyReplay(uint64_t replayToken)
         }
         else
         {
-            clearAppliedPrefix();
+            // 选择可能补全网址或只钉住一段，仍有组字时不能丢掉恢复前缀；完整上屏后快照为空，会自然清掉旧检查点。
+            (void)_RefreshDeferredRecoveryPrefix(context);
         }
     }
     else if (_deferredKeyInFlight.kind == DeferredKeyDown::Kind::PreservedKey && _pCompositionProcessorEngine &&
@@ -2600,17 +2617,18 @@ void CMetasequoiaIME::_RetryDeferredKeyReplay(uint64_t replayToken)
     }
 }
 
-void CMetasequoiaIME::_ScheduleDeferredKeyDownDrain()
+void CMetasequoiaIME::_ScheduleDeferredKeyDownDrain(bool allowSyncFallback)
 {
-    if (!_deferredKeyDowns.empty() && !_hasDeferredKeyInFlight && !_deferredKeyDrainPosted && _msgWndHandle &&
+    if (!_deferredKeyDowns.empty() && !_hasDeferredKeyInFlight && !_HasPendingApplicationKeyReplay() &&
+        !_deferredKeyDrainPosted && _msgWndHandle &&
         IsWindow(_msgWndHandle))
     {
         _deferredKeyDrainPosted = true;
         if (!PostMessage(_msgWndHandle, WM_DrainDeferredKeyDown, 0, 0))
         {
-            // The owner window is thread-affine. A synchronous fallback keeps
-            // a transient queue-post failure from stranding an eaten key.
-            SendMessage(_msgWndHandle, WM_DrainDeferredKeyDown, 0, 0);
+            // key sink 确认回放时，必须先返回应用处理当前键；投递失败由已有 UI 定时器重试。
+            _deferredKeyDrainPosted = false;
+            if (allowSyncFallback) SendMessage(_msgWndHandle, WM_DrainDeferredKeyDown, 0, 0);
         }
     }
 }
@@ -2634,7 +2652,8 @@ void CMetasequoiaIME::_TryLeaveServerUnavailableFallback()
 void CMetasequoiaIME::_DrainOneDeferredKeyDown()
 {
     _deferredKeyDrainPosted = false;
-    if (_hasDeferredKeyInFlight || _deferredKeyDowns.empty() || !Global::g_connected)
+    if (_hasDeferredKeyInFlight || _HasPendingApplicationKeyReplay() || _deferredKeyDowns.empty() ||
+        !Global::g_connected)
     {
         return;
     }
@@ -2791,6 +2810,12 @@ STDAPI CMetasequoiaIME::OnKeyDown(ITfContext *pContext, WPARAM wParam, LPARAM lP
     if (pContext == nullptr || pIsEaten == nullptr)
     {
         return E_INVALIDARG;
+    }
+    const ULONG_PTR replayMarker = static_cast<ULONG_PTR>(GetMessageExtraInfo());
+    if (IsApplicationKeyReplayExtraInfo(replayMarker))
+    {
+        *pIsEaten = _ObserveApplicationKeyReplay(pContext, static_cast<UINT>(wParam), replayMarker) ? FALSE : TRUE;
+        return S_OK;
     }
     if (IsSelfGeneratedSendInputExtraInfo(static_cast<ULONG_PTR>(GetMessageExtraInfo())))
     {

@@ -157,7 +157,9 @@ for entry in \
     "FuzzyPinyinDeviceSmoke|Fuzzy pinyin acceptance failed" \
     "CandidateGlossDeviceSmoke|Candidate gloss acceptance failed" \
     "InitialKeyboardRowDeviceSmoke|Initial keyboard row acceptance failed" \
+    "NineKeyNumericLayoutDeviceSmoke|Nine-key numeric layout acceptance failed" \
     "NineKeyEnglishDeviceSmoke|Nine-key English acceptance failed" \
+    "EnglishCorrectionDeviceSmoke|Mobile English correction acceptance failed" \
     "NineKeyPanelDeviceSmoke|Nine-key panel acceptance failed" \
     "FourteenKeyDeviceSmoke|Fourteen-key acceptance failed" \
     "NineKeyShuangpinDeviceSmoke|Nine-key shuangpin acceptance failed" \

@@ -343,10 +343,9 @@ public final class AccountFragment extends HomeTabFragment {
     private void showIcons() {
         Context context = requireContext();
         AppIconStyle current = AppIcons.selected(context);
-        OptionSheet sheet = new OptionSheet(context, "App 图标",
-            "切换时桌面图标会短暂消失再出现，这是系统在重建启动项");
+        AppIconSheet sheet = new AppIconSheet(context);
         for (AppIconStyle style : AppIconStyle.all()) {
-            sheet.option(style.title() + " · " + style.description(), style == current, () -> {
+            sheet.option(style, style == current, () -> {
                 boolean changed = AppIcons.select(context, style);
                 MsToast.show(context, changed
                     ? "已切换为「" + style.title() + "」，桌面图标稍后更新"

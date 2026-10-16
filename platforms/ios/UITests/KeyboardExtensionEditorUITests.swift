@@ -172,6 +172,52 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
         + "\(globe.exists) keys=[\(buttons)]")
   }
 
+  /// 在系统加载的扩展里点按英文按键，校验原文、默认纠错和明确拒绝纠错。
+  func testEnglishCorrectionCommitsThroughTheHostDocument() throws {
+    let app = XCUIApplication()
+    let field = try focusedTryoutKeyboard(app, toolbarTest: true)
+    app.buttons["schemeButton"].tap()
+    let quanpin = app.buttons["schemeCard-quanpin"]
+    XCTAssertTrue(quanpin.waitForExistence(timeout: 5))
+    quanpin.tap()
+    let language = app.buttons["bottomLanguageKey"]
+    if language.label == "切换到英文输入" { language.tap() }
+    XCTAssertEqual(language.value as? String, "英文输入")
+    var committed = (field.value as? String) ?? ""
+    if committed == "输入消息，试试键盘" { committed = "" }
+    for (raw, corrected) in [("whatisthat", "what is that"), ("langiage", "language"),
+                             ("imchinese", "I'm Chinese"), ("speskebglish", "speak English"),
+                             ("hello", "hello"), ("thx", "thx")] {
+      for letter in raw { app.buttons["字母 \(String(letter).uppercased())"].tap() }
+      XCTAssertEqual(field.value as? String, committed + raw, "按键必须先按原文输入")
+      let original = app.buttons["candidate-1"]
+      XCTAssertTrue(original.waitForExistence(timeout: 5))
+      XCTAssertTrue(original.label.contains(raw))
+      if raw != corrected {
+        XCTAssertTrue(app.buttons["candidate-2"].label.contains(corrected))
+      } else {
+        XCTAssertFalse(app.buttons["candidate-2"].exists, "正确词不提供普通前缀补全")
+      }
+      app.buttons["spaceKey"].tap()
+      committed += corrected + " "
+      XCTAssertEqual(field.value as? String, committed)
+    }
+    for letter in "languge" { app.buttons["字母 \(String(letter).uppercased())"].tap() }
+    app.buttons["candidate-1"].tap()
+    app.buttons["spaceKey"].tap()
+    XCTAssertEqual(field.value as? String, committed + "languge ", "点原文后空格不能重新纠错")
+    committed += "languge "
+    for letter in "languge" { app.buttons["字母 \(String(letter).uppercased())"].tap() }
+    app.buttons["bottomPeriodKey"].tap()
+    committed += "language. "
+    XCTAssertEqual(field.value as? String, committed, "标点紧随纠错词，随后追加 ASCII 空格")
+    app.buttons["shiftButton"].tap()
+    app.buttons["大写 L"].tap()
+    for letter in "anguaage" { app.buttons["字母 \(String(letter).uppercased())"].tap() }
+    app.buttons["spaceKey"].tap()
+    XCTAssertEqual(field.value as? String, committed + "Language ", "手动首字母大写必须保留")
+  }
+
   /// 从系统键盘真实点按工具栏，确认每次只打开或关闭一次面板。
   func testToolbarTapsTogglePanelsInHostEditor() throws {
     let app = XCUIApplication()

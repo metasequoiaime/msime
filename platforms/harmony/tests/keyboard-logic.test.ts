@@ -3127,6 +3127,37 @@ group("九键外框底行：符 | 123 | 空格 | 中 | 回车，数字层把 符
   );
 });
 
+group("26 键底行与九键一样：符 | 123 | 空格 | 中 | 回车；14 键和大千注音保留逗号句号", () => {
+  const leads = (
+    scheme: string,
+    english: boolean,
+    fourteenKey: boolean,
+    symbols: boolean,
+  ): boolean =>
+    KeyboardScheme.designRowLeadsWithSymbolPanel(
+      SchemeCompositionPolicy.selectedRulesScheme(scheme, english, "none"),
+      KeyboardScheme.usesFourteenKeyFace(fourteenKey, english, "none"),
+      symbols,
+    );
+  for (const scheme of ["quanpin", "shuangpin", "wubi", "korean", "vietnamese", "tibetan"]) {
+    check(leads(scheme, false, false, false), `${scheme} 的 26 键字母层以 符 打头`);
+    check(leads(scheme, true, false, false), `${scheme} 切到英文仍以 符 打头`);
+    check(!leads(scheme, false, false, true), `${scheme} 的符号行不带 符`);
+  }
+  check(!leads("quanpin", false, true, false), "14 键第三行已有 符，底行保留逗号句号");
+  check(leads("quanpin", true, true, false), "14 键切到英文画 26 键，底行以 符 打头");
+  check(!leads("zhuyin", false, false, false), "大千注音保留逗号句号");
+  check(leads("zhuyin", true, false, false), "注音切到英文画 26 键，底行以 符 打头");
+  check(
+    KeyboardScheme.designRowLeadsWithSymbolPanel(
+      SchemeCompositionPolicy.selectedRulesScheme("zhuyin", false, "unicode"),
+      false,
+      false,
+    ),
+    "本地模式画 26 键，底行以 符 打头",
+  );
+});
+
 console.log("NumberSymbolLayout");
 
 function texts(row: LayerKey[]): string {
@@ -6649,6 +6680,7 @@ group("the word being completed is read backwards from the caret", () => {
     "with nothing before it the word is all of it",
   );
   check(EnglishSuggestionPolicy.currentWord("hello ") === "", "a space ends the word");
+  check(EnglishSuggestionPolicy.currentWord("say you're") === "you're", "撇号保留在整词内");
   check(EnglishSuggestionPolicy.currentWord("say,hel") === "hel", "so does punctuation");
   check(
     EnglishSuggestionPolicy.currentWord("\uff48\uff45\uff4c") === "hel",
@@ -6680,6 +6712,9 @@ group("a prefix is only queried when it could mean something", () => {
   );
   check(EnglishSuggestionPolicy.suggestible("") === false, "and none matches nothing");
   check(EnglishSuggestionPolicy.suggestible("he1") === false, "a digit is not part of a word");
+  check(EnglishSuggestionPolicy.suggestible("i", true), "手机可查询单字母固有大小写");
+  check(EnglishSuggestionPolicy.suggestible("you're", true), "手机允许完整的撇号形式");
+  check(!EnglishSuggestionPolicy.suggestible("you're"), "旧补全仍只接受字母前缀");
 });
 
 group("accepting a completion replaces exactly what was typed", () => {

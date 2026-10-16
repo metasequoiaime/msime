@@ -15781,3 +15781,71 @@ fn space_convert_turns_corner_quotes_and_hollow_brackets_back_to_ascii() {
     }
     read(msime_client_destroy(handle));
 }
+
+#[test]
+fn mobile_english_correction_request_preserves_raw_and_the_session() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    let path = resources.join("msime-english.db");
+    msime_engine::ensure_english_schema(&path).unwrap();
+    rusqlite::Connection::open(&path).unwrap().execute_batch(
+        "INSERT INTO english_words VALUES('language','language',5000000000),('speak','speak',4000000000),('english','English',4000000000),('what','what',5000000000),('is','is',5000000000),('that','that',5000000000);"
+    ).unwrap();
+    let handle = test_host(root.path());
+    let before = read(msime_client_view(handle))["value"].clone();
+    let call = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        let resources = resources.to_str().unwrap().as_bytes();
+        read(unsafe {
+            msime_client_english_completions_request(
+                request.as_ptr(),
+                request.len(),
+                resources.as_ptr(),
+                resources.len(),
+            )
+        })
+    };
+    for (raw, correction) in [
+        ("whatisthat", "what is that"),
+        ("languaage", "language"),
+        ("languge", "language"),
+        ("langiage", "language"),
+        ("imchinese", "I'm Chinese"),
+        ("speskebglish", "speak English"),
+        ("i", "I"),
+        ("i'm", "I'm"),
+        ("youre", "you're"),
+        ("hes", "he's"),
+    ] {
+        let response = call(json!({"prefix": raw, "limit": 2, "correction": true}));
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["value"]["prefix"], raw);
+        assert_eq!(response["value"]["items"], json!([raw, correction]));
+    }
+    for raw in [
+        "language",
+        "omg",
+        "thx",
+        "you're",
+        "i''m",
+        "abcdefghijklmnopqrstuvwxyzabcdefg",
+    ] {
+        assert_eq!(
+            call(json!({"prefix":raw,"limit":32,"correction":true}))["value"]["items"],
+            json!([raw])
+        );
+    }
+    assert_eq!(
+        call(json!({"prefix":"languaage","limit":1,"correction":true}))["value"]["items"],
+        json!(["languaage"])
+    );
+    assert_eq!(call(json!({"prefix":"i'm","limit":2}))["ok"], false);
+    assert_eq!(
+        call(json!({"prefix":"he!","limit":2,"correction":true}))["ok"],
+        false
+    );
+    assert_eq!(read(msime_client_view(handle))["value"], before);
+    assert!(!path.with_extension("db-journal").exists());
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}

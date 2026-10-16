@@ -218,6 +218,7 @@ public final class MSIMEInputService extends InputMethodService {
     // Gates only the account network path (fetch, apply, reserved rows); candidateTranslationsEnabled stays the display gate for translations a candidate already carries.
     private boolean candidateTranslationAccount;
     private boolean englishSuggestionsEnabled = true;
+    private String englishCorrectionRejectedPrefix = "";
     private java.util.List<String> candidateTranslationTargets = java.util.List.of("en");
     private CandidateTranslationStore candidateTranslationStore;
     private long candidateTranslationBindingEpoch;
@@ -2822,10 +2823,14 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private boolean englishSuggestionsActive() {
-        return directEnglishActive() && englishSuggestionsEnabled;
+        return directEnglishActive() && englishSuggestionsEnabled
+            && EditorPolicy.useEngine(editorInputType) && !EditorPolicy.prefersLatin(editorInputType)
+            && !EditorPolicy.password(editorInputType)
+            && (editorInputType & android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) == 0;
     }
 
     private void clearEnglishSuggestions() {
+        englishCorrectionRejectedPrefix = "";
         englishSuggestionEpoch++;
         englishSuggestionRequestedEpoch = -1;
         englishSuggestionRequestedPrefix = "";
@@ -2853,8 +2858,8 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         String prefix = englishWordBeforeCursor();
-        if (prefix.length() < 2 || !prefix.chars().allMatch(value ->
-                value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z')) {
+        if (prefix.isEmpty() || !prefix.chars().allMatch(value ->
+                TextPolicy.isAsciiLetter(value) || value == '\'')) {
             if (!englishSuggestions.isEmpty() || !englishSuggestionPrefix.isEmpty()) {
                 clearEnglishSuggestions();
                 render();
@@ -2863,7 +2868,9 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (prefix.equals(englishSuggestionRequestedPrefix)
                 && englishSuggestionRequestedEpoch == englishSuggestionEpoch) return;
+        boolean rejected = prefix.equals(englishCorrectionRejectedPrefix);
         clearEnglishSuggestions();
+        if (rejected) englishCorrectionRejectedPrefix = prefix;
         englishSuggestionPrefix = prefix;
         long epoch = englishSuggestionEpoch;
         String resources = candidateGlossResources;
@@ -2873,7 +2880,7 @@ public final class MSIMEInputService extends InputMethodService {
             englishSuggestionWorker.execute(() -> {
                 try {
                     EnglishSuggestionModel.Result result = EnglishSuggestionModel.decode(
-                        NativeClient.englishCompletions(prefix, resources));
+                        NativeClient.englishCorrections(prefix, resources));
                     main.post(() -> applyEnglishSuggestions(epoch, prefix, result));
                 } catch (Exception | LinkageError ignored) {
                     // Completion failures are optional display state and never block input.
@@ -2908,6 +2915,7 @@ public final class MSIMEInputService extends InputMethodService {
             typed, candidate, startedCapitalized);
         if (replacement == null) {
             clearEnglishSuggestions();
+            englishCorrectionRejectedPrefix = typed;
             render();
             return;
         }
@@ -3889,11 +3897,47 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    private void commitEnglishLiteral(int value) {
+    void commitEnglishLiteral(int value) {
         if (connection == null || value < 32 || value > 126) return;
+        if (englishSuggestionsActive() && " ,.!?:;".indexOf(value) >= 0
+                && commitEnglishBoundary((char) value)) return;
         if (englishNineKeyActive() && session != 0) command(2);
         commitText(fullWidthOutput(String.valueOf((char) value)));
         if (directEnglishActive()) refreshEnglishSuggestions();
+    }
+
+    private boolean commitEnglishBoundary(char boundary) {
+        String typed = englishWordBeforeCursor();
+        if (typed.isEmpty()) return false;
+        String candidate = typed;
+        if (!typed.equals(englishCorrectionRejectedPrefix) && !candidateGlossResources.isEmpty()) {
+            try {
+                EnglishSuggestionModel.Result result = EnglishSuggestionModel.decode(
+                    NativeClient.englishCorrections(typed, candidateGlossResources));
+                if (result != null && typed.equals(result.prefix()) && result.items().size() == 2
+                        && typed.equals(result.items().get(0)))
+                    candidate = result.items().get(1);
+            } catch (Exception | LinkageError ignored) {
+                // 词库查询失败时保留已经输入的文字，边界键仍然照常输入。
+            }
+        }
+        String suffix = boundary == ' ' ? " " : String.valueOf(boundary) + " ";
+        EnglishSuggestionPolicy.Replacement replacement = EnglishSuggestionPolicy.replacement(
+            typed, candidate, !typed.isEmpty() && TextPolicy.isUpperCase(typed.charAt(0)));
+        InputConnection target = connection;
+        if (target == null || !typed.equals(englishWordBeforeCursor())
+                || !InputConnectionGuard.beginBatchEdit(target)) return false;
+        boolean committed;
+        try {
+            if (replacement != null && !deleteBeforeCursor(replacement.deleteCount())) return false;
+            String word = replacement == null ? "" : fullWidthOutput(replacement.insert());
+            committed = commitText(word + suffix);
+        } finally {
+            InputConnectionGuard.endBatchEdit(target);
+        }
+        clearEnglishSuggestions();
+        render();
+        return committed;
     }
 
     void space() {
@@ -4256,7 +4300,8 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         CharSequence context = null;
-        boolean automaticEnabled = localSettings.bool(AndroidLocalSettings.AUTO_CAPITALIZATION);
+        boolean automaticEnabled = localSettings.bool(AndroidLocalSettings.AUTO_CAPITALIZATION)
+            && !englishSuggestionsActive();
         if (automaticEnabled && connection != null) {
             try {
                 context = connection.getTextBeforeCursor(CAPITALIZATION_CONTEXT_LIMIT, 0);
@@ -4774,6 +4819,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         // 迟到的回报可能只是输入法自己上一次写入的回声（例如上屏之后用户已经按下了下一个键），那不是光标移动，不能把新开始的组字取消掉；对不上任何预期的才按原来的规则处理。
         boolean ownEcho = selectionEcho.acknowledge(newStart, newEnd, composingStart, composingEnd);
+        if (!ownEcho && selectionChanged) englishCorrectionRejectedPrefix = "";
         // 用户自己移了光标（或应用改了文字），之前补上的后半个不再是「下一个要跨过的」。
         if (!ownEcho && selectionChanged) pairedPunctuationStack.clear();
         if (!ownEcho && session != 0 && view != null && !InputViewValuePolicy.editingText(view).isEmpty()
@@ -9137,7 +9183,7 @@ public final class MSIMEInputService extends InputMethodService {
             layerButton.setContentDescription(KeyboardActionRow.layerDescription(symbols));
         }
         if (symbolPanelButton != null) {
-            // 这个键只出现在拼音九键和笔画键盘的底行；拼音九键的数字键面也画这一行，在那里同样能打开面板。
+            // 这个键出现在 26 键一族、拼音九键和笔画键盘的底行；拼音九键的数字键面也画这一行，在那里同样能打开面板。
             ViewPolicy.setEnabled(symbolPanelButton, session != 0 && connection != null);
             symbolPanelButton.setContentDescription("打开符号面板");
         }

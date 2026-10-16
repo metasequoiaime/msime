@@ -80,8 +80,14 @@ public final class GroupCard {
     /** 导航行：行尾是当前值和 ›，点了进下一页或打开选择面板。`action` 为 null 时整行禁用。 */
     public Row nav(CharSequence title, @Nullable CharSequence subtitle, @Nullable CharSequence value,
             @Nullable Runnable action) {
+        return nav(title, subtitle, value, action, false);
+    }
+
+    /** 导航行的值纵向放在标题和说明下面，适合说明较长的设置。 */
+    public Row nav(CharSequence title, @Nullable CharSequence subtitle, @Nullable CharSequence value,
+            @Nullable Runnable action, boolean stackValue) {
         Row row = new Row(this, title, subtitle, false);
-        row.value = trailingValue(row, value);
+        row.value = trailingValue(row, value, stackValue);
         ImageView chevron = ImageViewPolicy.chevron(context, ThemeColorPolicy.subText(context));
         LinearLayout.LayoutParams params = LayoutPolicy.squareParams(context, Ui.CHEVRON_SIZE);
         params.setMarginStart(DimensionPolicy.pixels(context, 6));
@@ -93,7 +99,7 @@ public final class GroupCard {
     /** 值行：只显示，行尾是值，不能点。 */
     public Row value(CharSequence title, @Nullable CharSequence subtitle, @Nullable CharSequence value) {
         Row row = new Row(this, title, subtitle, false);
-        row.value = trailingValue(row, value);
+        row.value = trailingValue(row, value, false);
         return add(row);
     }
 
@@ -133,7 +139,13 @@ public final class GroupCard {
      */
     public Row slider(CharSequence title, int min, int max, int step, int value,
             IntFunction<CharSequence> label, IntConsumer onCommit) {
-        Row row = new Row(this, title, null, false);
+        return slider(title, null, min, max, step, value, label, onCommit);
+    }
+
+    /** 带说明的滑块行；说明显示在标题下面，不会和滑块挤在同一行。 */
+    public Row slider(CharSequence title, @Nullable CharSequence subtitle, int min, int max, int step, int value,
+            IntFunction<CharSequence> label, IntConsumer onCommit) {
+        Row row = new Row(this, title, subtitle, false);
         MsSlider control = new MsSlider(context);
         control.setRange(min, max, step);
         control.setValue(value);
@@ -210,10 +222,13 @@ public final class GroupCard {
         card.addView(rule, params);
     }
 
-    private TextView trailingValue(Row row, @Nullable CharSequence value) {
+    private TextView trailingValue(Row row, @Nullable CharSequence value, boolean stack) {
         TextView text = ViewPolicy.trailingValue(context, "", Ui.TEXT_ROW_TITLE, ThemeColorPolicy.subText(context));
-        LinearLayout.LayoutParams params = LayoutPolicy.rowGapParams(context, Ui.ROW_GAP);
-        row.view.addView(text, params);
+        LinearLayout.LayoutParams params = stack ? LayoutPolicy.wrapParams()
+            : LayoutPolicy.rowGapParams(context, Ui.ROW_GAP);
+        if (stack) params.topMargin = DimensionPolicy.pixels(context, 4);
+        if (stack) row.texts.addView(text, params);
+        else row.view.addView(text, params);
         ViewPolicy.setTextAndVisibility(text, value);
         return text;
     }
@@ -223,6 +238,7 @@ public final class GroupCard {
         private final LinearLayout view;
         private final TextView title;
         private final TextView subtitle;
+        private final LinearLayout texts;
         @Nullable private TextView value;
         @Nullable private MsSwitch toggle;
         @Nullable private MsSlider slider;
@@ -239,7 +255,7 @@ public final class GroupCard {
             ViewPolicy.setRowMinimumHeight(owner.context, view);
             ViewPolicy.setRowPadding(owner.context, view);
 
-            LinearLayout texts = LayoutPolicy.column(context);
+            texts = LayoutPolicy.column(context);
             title = ViewPolicy.styledLabel(context, titleText, Ui.TEXT_ROW_TITLE, 400, ThemeColorPolicy.text(context));
             texts.addView(title);
             subtitle = ViewPolicy.styledLabel(context, subtitleText, Ui.TEXT_ROW_SUBTITLE, 400, ThemeColorPolicy.subText(context));

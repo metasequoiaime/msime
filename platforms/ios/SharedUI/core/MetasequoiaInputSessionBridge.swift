@@ -84,6 +84,11 @@ private func msimeClientAllCandidates(_ session: UInt64) -> UnsafeMutablePointer
 private func msimeClientEnglishCompletions(
   _ session: UInt64, _ prefix: UnsafePointer<MSIMEByte>?, _ prefixLength: UInt, _ limit: UInt
 ) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_english_completions_request")
+private func msimeClientEnglishCompletionsRequest(
+  _ request: UnsafePointer<MSIMEByte>?, _ requestLength: UInt,
+  _ resources: UnsafePointer<MSIMEByte>?, _ resourcesLength: UInt
+) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_candidate_gloss_request")
 private func msimeClientCandidateGlossRequest(
   _ request: UnsafePointer<MSIMEByte>?, _ requestLength: UInt,
@@ -860,6 +865,27 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     } catch {
       return []
     }
+  }
+
+  /// 从共享引擎读取原文和唯一纠错；查询不改变键盘组字，也不学习当前词。
+  func englishCorrections(forPrefix prefix: String) -> [String] {
+    guard handle != 0, !prefix.isEmpty, prefix.utf8.count <= 128,
+          let resources = options["resources"] as? String,
+          NSString(string: resources).isAbsolutePath else { return [] }
+    do {
+      let request = try JSONSerialization.data(withJSONObject: ["prefix": prefix, "limit": 2, "correction": true])
+      let resourceData = Data(resources.utf8)
+      let response = try request.withUnsafeBytes { requestBytes in
+        try resourceData.withUnsafeBytes { resourceBytes in
+          try Self.decode(msimeClientEnglishCompletionsRequest(
+            requestBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(request.count),
+            resourceBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(resourceData.count)))
+        }
+      }
+      guard let value = response as? [String: Any], value["prefix"] as? String == prefix,
+            let items = value["items"] as? [String], items.first == prefix, items.count <= 2 else { return [] }
+      return items
+    } catch { return [] }
   }
 
   func candidateGlossResources() -> String? {

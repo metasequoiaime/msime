@@ -1,4 +1,5 @@
 #include "ReplyComposer.h"
+#include "CandidateContinuation.h"
 #include "CandidateTranslationPolicy.h"
 #include "TranslationDisplay.h"
 #include "GlossColumnPolicy.h"
@@ -594,7 +595,7 @@ void ReplyComposer::confirm_delivery(uint64_t client, uint64_t epoch,
 }
 std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &session,
     uint64_t expected_session, uint64_t generation, size_t index,
-    uint64_t translation_page) {
+    uint64_t translation_page, bool continuation_supported) {
   if (pending_ || !session.input_enabled()) return std::nullopt;
   traditional_output_ = traditional_projection(session);
   const auto view = session.view();
@@ -634,11 +635,14 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
     return pending_;
   }
   bool found = false;
+  std::string selected_candidate;
   for (const auto &candidate : view.at("candidates")) {
     const auto &id = candidate.at("id");
     if (id.at("session") == expected_session &&
-        id.at("generation") == generation && id.at("index") == index)
+        id.at("generation") == generation && id.at("index") == index) {
       found = true;
+      selected_candidate = candidate.at("text").get<std::string>();
+    }
   }
   if (!found)
     return std::nullopt;
@@ -654,8 +658,15 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
   next.source = {client_, epoch_, 0, true, std::move(transition)};
   next.next_prefix = prefix_;
   next.traditional_output = traditional_output_;
-  if (delta.empty())
-    next.ui_selection = ui_rejected_selection();
+  if (delta.empty()) {
+    if (continuation_supported && next.source.transition.value("handled", false)) {
+      const auto transaction = static_cast<uint16_t>(generation) == 0 ? uint16_t{1} : static_cast<uint16_t>(generation);
+      next.ui_selection = ui_continued_selection(candidate_continuation_request(
+          view, selected_candidate, next.source.transition.at("view")), transaction);
+    } else {
+      next.ui_selection = ui_rejected_selection();
+    }
+  }
   else if (raw.empty()) {
     next.ui_selection = ui_complete_selection(prefix_ + output_delta);
     next.next_prefix.clear();

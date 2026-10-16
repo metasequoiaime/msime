@@ -569,10 +569,11 @@ char *msime_client_pronunciation_request(const uint8_t *request, size_t request_
  * JSON request: {generation,texts:[...]}, at most 64 texts. Only all-Han texts of 2 to 32 characters are considered; each is cut left to right by longest match (up to 8 characters) against character-glosses/zh-en.db (single characters first) and word-glosses/zh-en.db beside resources, and each piece shows the first phrase of its gloss: "我 I · 喜欢 to like · 你 you". A text with fewer than two glossed pieces or more than eight pieces is omitted. The response is {generation,breakdowns:[{text,breakdown}]}; with neither table installed it is empty, not an error. May run on a worker thread. */
 char *msime_client_gloss_breakdown_request(const uint8_t *request, size_t request_length,
                                            const uint8_t *resources, size_t resources_length);
-/* Query the packaged English dictionary without creating a session.
- * JSON request: {prefix,limit}; prefix is an ASCII-letter word fragment and
- * limit is 1..32. The response echoes prefix and returns {items:[...]}.
- * Resources must be an absolute generation directory. */
+/* 查询固定英文词库，不创建或改变输入会话。
+ * JSON 请求：{prefix,limit,correction?:false}；limit 为 1..32，响应为 {prefix,items:[...]}。
+ * 缺省按原有方式补全 ASCII 字母前缀；correction:true 时接受字母与撇号，第一行始终原文，最多附加一行纠错。
+ * 纠错仅处理不超过 32 字节的输入，33..128 字节原样返回；缺词库也保留原文。
+ * resources 必须是资源分代目录的绝对路径；词库只读，检索结果可以缓存，可在工作线程调用。 */
 char *msime_client_english_completions_request(const uint8_t *request,
                                                size_t request_length,
                                                const uint8_t *resources,

@@ -871,12 +871,10 @@ pub unsafe extern "C" fn msime_client_gloss_breakdown_request(
     })
 }
 
-/// Query copied prefixes against the packaged English dictionary. This does not
-/// create or mutate an Engine session and is suitable for a host worker thread.
+/// 查询固定英文词库；`correction: true` 时返回原文与唯一纠错。此接口不创建或改变输入会话，可在宿主工作线程调用。
 ///
 /// # Safety
-/// The request and resources pointers must point to readable buffers of the supplied lengths.
-/// Neither buffer is retained after the call returns.
+/// 请求与资源指针须在所给长度内可读；函数返回后不保留缓冲区。
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_english_completions_request(
     request: *const u8,
@@ -889,6 +887,8 @@ pub unsafe extern "C" fn msime_client_english_completions_request(
     struct Request {
         prefix: String,
         limit: u8,
+        #[serde(default)]
+        correction: bool,
     }
     response(|| {
         if request.is_null()
@@ -904,7 +904,10 @@ pub unsafe extern "C" fn msime_client_english_completions_request(
         if !(1..=32).contains(&request.limit)
             || request.prefix.is_empty()
             || request.prefix.len() > 128
-            || !msime_client_core::is_ascii_alphabetic(&request.prefix)
+            || !request
+                .prefix
+                .bytes()
+                .all(|byte| byte.is_ascii_alphabetic() || (request.correction && byte == b'\''))
         {
             return Err("invalid English completion prefix".into());
         }
@@ -914,11 +917,16 @@ pub unsafe extern "C" fn msime_client_english_completions_request(
         if !Path::new(resources).is_absolute() {
             return Err("resources path must be absolute".into());
         }
-        let items = msime_engine::host::english_completions(
-            resources,
-            &request.prefix,
-            usize::from(request.limit),
-        )
+        let items = if request.correction {
+            msime_engine::host::english_corrections(resources, &request.prefix)
+                .map(|items| items.into_iter().take(usize::from(request.limit)).collect())
+        } else {
+            msime_engine::host::english_completions(
+                resources,
+                &request.prefix,
+                usize::from(request.limit),
+            )
+        }
         .map_err(|_| "English completion dictionary unavailable")?;
         Ok(json!({"prefix": request.prefix, "items": items}))
     })

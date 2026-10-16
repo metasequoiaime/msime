@@ -338,10 +338,11 @@ export interface ClipboardHistoryMutation {
 
 // The local emoji catalog lives in msime-others.db beside the dictionaries, so the query carries the
 // resource directory rather than going through a session.
-/** `{prefix,limit}` as the shared ABI reads it; the prefix is ASCII letters and the limit 1..32. */
+/** 共享查询的前缀和条数；手机通过 `correction` 明确请求原文及唯一纠错。 */
 interface EnglishCompletionRequest {
   prefix: string;
   limit: number;
+  correction?: boolean;
 }
 
 interface EmojiQuery {
@@ -625,9 +626,13 @@ interface NineKeyShuangpinRawFace {
   zero_initial?: boolean;
 }
 
+interface NineKeyShuangpinRawLayout {
+  keys?: NineKeyShuangpinRawFace[];
+}
+
 interface NineKeyShuangpinLayoutReply {
   ok: boolean;
-  value?: { keys?: NineKeyShuangpinRawFace[] };
+  value?: NineKeyShuangpinRawLayout;
 }
 
 interface CreateResponse {
@@ -1153,6 +1158,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   // Which application the mode belongs to. Windows and macOS both keep this per application by
   // default; this host used to keep one mode for every editor it was ever attached to.
   private englishSuggestionsEnabled: boolean = true;
+  private englishCorrectionRejectedPrefix: string = '';
   // The completion list currently on the strip, the prefix it was asked for, and a counter that
   // makes every earlier answer stale. A reply that arrives after the word moved on is discarded.
   private englishSuggestions: string[] = [];
@@ -2262,11 +2268,13 @@ export class KeyboardSession implements HardwareKeyTarget {
    * on their behalf would drop a capital they asked for.
    */
   capitalizes(): boolean {
-    return this.englishMode && this.capitalization !== CapitalizationMode.NONE;
+    return this.englishMode && !this.englishCorrectionEnabled()
+      && this.capitalization !== CapitalizationMode.NONE;
   }
 
   shouldShiftNextLetter(): boolean {
-    if (!this.englishMode || this.capitalization === CapitalizationMode.NONE) {
+    if (!this.englishMode || this.englishCorrectionEnabled()
+        || this.capitalization === CapitalizationMode.NONE) {
       return false;
     }
     if (this.capitalization === CapitalizationMode.ALL_CHARACTERS) {
@@ -2991,6 +2999,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
+    this.clearEnglishSuggestions();
     const editorGeneration: number = ++this.editorGeneration;
     const attributeGeneration: number = ++this.attributeGeneration;
     this.ownEdits.clear();
@@ -3233,7 +3242,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   private insertEditorText(text: string): void {
     const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
     if (inputClient === undefined) return;
-    if (this.previewText.length > 0 || this.commitSynchronously) {
+    if (this.previewText.length > 0 || this.commitSynchronously || this.englishCorrectionEnabled()) {
       // The insertion takes the preview text's place. It has to land before the next preview update, which is synchronous, and an asynchronous insert gives no such order.
       try {
         this.insertEditorTextSync(text);
@@ -3453,6 +3462,10 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Whether the key did anything. The touch keyboard ignores the answer; the hardware path hands a declined letter back to the application. */
   press(ascii: number, shift: boolean): boolean {
+    if (this.commitEnglishBoundary(String.fromCharCode(ascii))) {
+      this.tapFeedback();
+      return true;
+    }
     // Checked before the repeat arming is cleared: the space that converts is the key immediately
     // after the mark, so this is the one press where both armings are live at once.
     if (this.convertPunctuationSpace(ascii)) {
@@ -3540,6 +3553,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Route an ASCII punctuation key through the shared editor-context policy. */
   punctuation(ascii: number): void {
     if (this.handle === 0 || this.inputClient === undefined) return;
+    if (!this.punctuationLockedChinese()
+        && this.commitEnglishBoundary(String.fromCharCode(ascii))) return;
     let preceding: number = 0;
     try {
       // Harmony's getForwardSync returns the bounded text immediately before the cursor.
@@ -6020,6 +6035,7 @@ export class KeyboardSession implements HardwareKeyTarget {
    * and not the rest.
    */
   insert(text: string): void {
+    if (this.commitEnglishBoundary(text)) return;
     if (this.inputClient !== undefined) {
       const widened: string | null = FullWidthInputPolicy.output(text, this.fullWidth);
       const output: string = this.asTraditional(widened === null ? text : widened);
@@ -6039,12 +6055,15 @@ export class KeyboardSession implements HardwareKeyTarget {
    */
   private refreshEnglishSuggestions(): void {
     if (!this.englishSuggestionsEnabled || !this.englishMode || this.composing()
-        || this.inputClient === undefined || this.resourceDirectory.length === 0) {
+        || this.inputClient === undefined || this.resourceDirectory.length === 0
+        || EditorPolicy.prefersLatin(this.traits) || !EditorPolicy.useEngine(this.traits)) {
       this.clearEnglishSuggestions();
       return;
     }
     const prefix: string = this.englishWordBeforeCursor();
-    if (!EnglishSuggestionPolicy.suggestible(prefix)) {
+    if (prefix !== this.englishCorrectionRejectedPrefix) this.englishCorrectionRejectedPrefix = '';
+    const correction: boolean = this.englishCorrectionEnabled();
+    if (!EnglishSuggestionPolicy.suggestible(prefix, correction)) {
       this.clearEnglishSuggestions();
       return;
     }
@@ -6053,7 +6072,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     const epoch: number = ++this.englishSuggestionEpoch;
     this.englishSuggestionRequested = prefix;
-    const request: EnglishCompletionRequest = { prefix: prefix, limit: EnglishSuggestionPolicy.LIMIT };
+    const request: EnglishCompletionRequest = {
+      prefix: prefix, limit: correction ? 2 : EnglishSuggestionPolicy.LIMIT, correction: correction
+    };
     const resources: string = this.resourceDirectory;
     // A promise rather than a direct call: the lookup opens a packaged dictionary, and the keyboard
     // has to keep drawing while it happens.
@@ -6080,6 +6101,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   private clearEnglishSuggestions(): void {
+    this.englishCorrectionRejectedPrefix = '';
     this.englishSuggestionEpoch++;
     this.englishSuggestionRequested = '';
     if (this.englishSuggestions.length === 0 && this.englishSuggestionPrefix.length === 0) {
@@ -6129,6 +6151,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       EnglishSuggestionPolicy.startedCapitalized(typed));
     if (replacement === null) {
       this.clearEnglishSuggestions();
+      this.englishCorrectionRejectedPrefix = typed;
       return;
     }
     try {
@@ -6140,6 +6163,48 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     this.insert(replacement.insert);
     this.clearEnglishSuggestions();
+  }
+
+  private englishCorrectionEnabled(): boolean {
+    return !KeyboardFormFactor.isDesktop() && this.englishMode && this.englishSuggestionsEnabled
+      && !this.englishCandidates && this.keyGrid !== KeyGrid.NINE_KEY
+      && this.keyGrid !== KeyGrid.NINE_KEY_SHUANGPIN && !this.composing()
+      && EditorPolicy.useEngine(this.traits) && !EditorPolicy.prefersLatin(this.traits);
+  }
+
+  /** 边界键必须以编辑器当前词为准，不能拿旧候选删除光标旁边的其他文字。 */
+  private commitEnglishBoundary(boundary: string): boolean {
+    if (!this.englishCorrectionEnabled() || boundary.length !== 1
+        || ' ,.!?:;'.indexOf(boundary) < 0 || this.inputClient === undefined) return false;
+    if (boundary !== ' ' && this.punctuationLockedChinese()) return false;
+    const typed: string = this.englishWordBeforeCursor();
+    if (typed.length === 0) return false;
+    let candidate: string = typed;
+    if (typed !== this.englishCorrectionRejectedPrefix && this.resourceDirectory.length > 0) {
+      try {
+        const request: EnglishCompletionRequest = { prefix: typed, limit: 2, correction: true };
+        const result: EnglishCompletions | null = EnglishSuggestionPolicy.decode(
+          client.englishCompletions(JSON.stringify(request), this.resourceDirectory));
+        if (result !== null && result.prefix === typed && result.items.length === 2
+            && result.items[0] === typed) candidate = result.items[1];
+      } catch (error) {
+        // 可选纠错查询失败时仍然输入原文和边界，不记录实际文字。
+      }
+    }
+    if (typed !== this.englishWordBeforeCursor()) return false;
+    const replacement: EnglishReplacement | null = EnglishSuggestionPolicy.replacement(
+      typed, candidate, EnglishSuggestionPolicy.startedCapitalized(typed));
+    const suffix: string = boundary === ' ' ? ' ' : boundary + ' ';
+    try {
+      if (replacement !== null) this.deleteEditorBackwardSync(replacement.deleteCount);
+      const output: string = (replacement === null ? '' : replacement.insert) + suffix;
+      this.insertEditorTextSync(output);
+      this.recordTypingStatistics(suffix, this.typingSource());
+    } catch (error) {
+      // 编辑器可能已断开；不再次输入同一边界，避免部分写入后重复。
+    }
+    this.clearEnglishSuggestions();
+    return true;
   }
 
   /** The five switches as the policy reads them; an older document keeps the shared defaults. */
