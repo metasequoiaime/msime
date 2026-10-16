@@ -1,5 +1,6 @@
+import type { InputScheme } from "../core/input-scheme";
 import type { Dispatch, SetStateAction } from "react";
-import type { InputScheme } from "../index";
+
 import { GroupList } from "../core/platform-controls";
 import { schemeTableModeNote } from "./plugin-catalog-helpers";
 import { PluginViewHeader } from "./plugin-view-header";

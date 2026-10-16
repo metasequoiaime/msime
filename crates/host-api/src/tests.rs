@@ -737,6 +737,12 @@ fn host_capability_boundary_describes_each_platform() {
     assert_eq!(macos["value"]["expand_candidates"], true);
     assert_eq!(windows["value"]["expand_candidates"], false);
     assert_eq!(linux["value"]["expand_candidates"], false);
+    // macOS 的各界面一律跟随颜色模式，编号色和边框色跟随主题，设置页按这三项收起对应的控件。
+    assert_eq!(macos["value"]["surface_themes_follow"], true);
+    assert_eq!(macos["value"]["candidate_number_color"], false);
+    assert_eq!(macos["value"]["candidate_border_color"], false);
+    assert_eq!(windows["value"]["surface_themes_follow"], false);
+    assert_eq!(windows["value"]["candidate_number_color"], true);
 
     let android = capabilities("android");
     assert_eq!(android["value"]["panel_windows"], false);
@@ -1227,7 +1233,9 @@ fn mixed_input_changes_defer_until_composition_ends() {
         let sessions = sessions.borrow();
         let options = &sessions[&handle].options;
         assert!(!options.mixed_english);
-        assert_eq!(options.english_minimum_prefix, 8);
+        // macOS 不读文档里的触发字符数，固定为默认的 5；其他宿主照文档。
+        let expected_prefix = if cfg!(target_os = "macos") { 5 } else { 8 };
+        assert_eq!(options.english_minimum_prefix, expected_prefix);
         assert!(options.mixed_emoji && options.mixed_kaomoji);
         assert!(options.mixed_japanese);
         assert!(!options.mixed_symbols);
@@ -1236,6 +1244,24 @@ fn mixed_input_changes_defer_until_composition_ends() {
     assert_eq!(update(handle, 2, &preferences)["ok"], false);
     read(msime_client_destroy(handle));
 }
+/// 不读触发字符数的宿主（macOS）一律拿默认的 5，其他宿主照文档里存的数。
+#[test]
+fn english_minimum_prefix_is_fixed_where_the_host_does_not_read_it() {
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert_eq!(english_minimum_prefix_for(platform, 2), 2, "{platform:?}");
+        assert_eq!(english_minimum_prefix_for(platform, 8), 8, "{platform:?}");
+    }
+    for stored in 1..=8 {
+        assert_eq!(english_minimum_prefix_for(HostPlatform::Macos, stored), 5);
+    }
+}
+
 #[test]
 fn frequency_changes_wait_for_composition_and_reject_invalid_updates() {
     use msime_client_core::preferences::{FrequencyMode, FrequencyPreferences};
@@ -1719,6 +1745,7 @@ fn builtin_shuangpin_tables_are_valid_custom_profiles() {
         ShuangpinProfile::Ziranma,
         ShuangpinProfile::Shoudao,
         ShuangpinProfile::Microsoft,
+        ShuangpinProfile::SmartAbc,
     ] {
         let table = builtin_shuangpin_custom_profile(profile).unwrap();
         assert_eq!(
@@ -3554,6 +3581,22 @@ fn custom_helpcode_schemas_reach_native_presenters_without_the_settings_shell() 
         read(unsafe { msime_client_helpcode_schemas(std::ptr::null(), 0) })["ok"],
         false
     );
+}
+
+#[test]
+fn discovered_custom_helpcode_extensions_are_loadable_by_the_engine() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path().join("resources");
+    let custom = resources.join("helpcodes/custom");
+    std::fs::create_dir_all(&custom).unwrap();
+    std::fs::write(custom.join("synthetic.TXT"), "# name: uppercase\n你=ab\n").unwrap();
+    let path = resources.to_str().unwrap();
+    let catalog = read(unsafe { msime_client_helpcode_schemas(path.as_ptr(), path.len()) });
+    assert_eq!(catalog["ok"], true);
+    assert_eq!(catalog["value"].as_array().unwrap().len(), 1);
+    let schema = catalog["value"][0]["schema"].as_str().unwrap();
+    let loaded = msime_engine::host::load_helpcode_keymap(&resources, schema).unwrap();
+    assert_eq!(loaded.code("你"), Some("ab"));
 }
 
 #[test]
@@ -5942,7 +5985,7 @@ fn translation_queries_use_latest_preferences_without_resetting_composition() {
     );
     assert_eq!(secondary_gloss["value"]["english_gloss"], true);
 
-    // 离线英文释义关着、只开候选翻译时：用户目录照旧带上，存成功的英文翻译；英文目标下整句候选仍要逐词拆解（和 macOS currentGlossRequest 一样不要求离线释义开着），所以带 gloss_breakdown 和拆解表所在的资源目录。
+    // 离线英文释义关着、只开候选翻译时：用户目录照旧带上，存成功的英文翻译。整句候选不再逐词拆解，所以不带 gloss_breakdown；读音和离线释义都没开，资源目录也不带。
     preferences.candidate_english_gloss = false;
     preferences.translation_target_language =
         msime_client_core::preferences::TranslationTargetLanguage::En;
@@ -5951,11 +5994,11 @@ fn translation_queries_use_latest_preferences_without_resetting_composition() {
     update(handle, 9, &preferences);
     let online = read(msime_client_translation_query(handle));
     assert_eq!(online["value"]["english_gloss"], false);
-    assert_eq!(online["value"]["gloss_breakdown"], true);
-    assert!(online["value"]["resources"].is_string());
+    assert!(online["value"].get("gloss_breakdown").is_none());
+    assert!(online["value"]["resources"].is_null());
     assert!(online["value"]["user_data"].is_string());
 
-    // 目标语言里没有英文时没有拆解，资源目录也不带。
+    // 目标语言里没有英文时资源目录同样不带。
     preferences.translation_target_language =
         msime_client_core::preferences::TranslationTargetLanguage::Ja;
     preferences.translation_secondary_language = None;
@@ -6698,6 +6741,52 @@ fn shuangpin_preedit_mode_is_applied_after_composition() {
     let restored = read(msime_client_character(handle, b'k', false));
     assert_eq!(restored["value"]["view"]["preedit"], before["preedit"]);
     msime_client_destroy(handle);
+}
+
+#[test]
+fn smart_abc_profile_commits_and_defers_switching_until_composition_finishes() {
+    let dir = tempfile::tempdir().unwrap();
+    let smart_abc = Preferences {
+        scheme: InputScheme::Shuangpin,
+        shuangpin_profile: ShuangpinProfile::SmartAbc,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), smart_abc.clone());
+    read(msime_client_focus(handle, true));
+    assert_eq!(
+        read(msime_client_view(handle))["value"]["shuangpin_profile"],
+        "smart_abc"
+    );
+    SESSIONS.with(|sessions| assert_eq!(sessions.borrow()[&handle].options.shuangpin_profile, 5));
+    for character in b"nihk" {
+        assert_eq!(
+            read(msime_client_character(handle, *character, false))["ok"],
+            true
+        );
+    }
+    let xiaohe = Preferences {
+        shuangpin_profile: ShuangpinProfile::Xiaohe,
+        ..smart_abc.clone()
+    };
+    assert_eq!(update(handle, 1, &xiaohe)["value"]["deferred"], true);
+    assert_eq!(
+        read(msime_client_command(handle, 1))["value"]["commit"],
+        "本地"
+    );
+    assert_eq!(update(handle, 1, &xiaohe)["value"]["deferred"], false);
+    assert_eq!(
+        read(msime_client_view(handle))["value"]["shuangpin_profile"],
+        "xiaohe"
+    );
+    assert_eq!(update(handle, 2, &smart_abc)["value"]["deferred"], false);
+    for character in b"agfu" {
+        read(msime_client_character(handle, *character, false));
+    }
+    assert_eq!(
+        read(msime_client_command(handle, 1))["value"]["commit"],
+        "政府"
+    );
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
 #[test]
@@ -8629,6 +8718,33 @@ fn custom_translation_http_bridge_speaks_deepl_to_official_endpoints() {
     ] {
         assert!(parse(body)["value"].is_null());
         assert!(unsafe { msime_client_custom_translation_reply_failed(body.as_ptr(), body.len()) });
+    }
+}
+
+#[test]
+fn translation_object_fallback_reaches_the_custom_response_bridge() {
+    for (body, expected) in [
+        (
+            r#"{"data":{"text":"","translation":"synthetic"}}"#,
+            "synthetic",
+        ),
+        (
+            r#"{"code":200,"result":[{"text":"","data":"  synthetic\ntranslation  "}]}"#,
+            "synthetic translation",
+        ),
+        (
+            r#"{"translations":[{"text":"","translation":"synthetic translation"}]}"#,
+            "synthetic translation",
+        ),
+    ] {
+        assert!(!unsafe {
+            msime_client_custom_translation_reply_failed(body.as_ptr(), body.len())
+        });
+        let parsed = read(unsafe {
+            msime_client_parse_custom_translation_response(body.as_ptr(), body.len())
+        });
+        assert_eq!(parsed["ok"], true);
+        assert_eq!(parsed["value"], expected, "{body}");
     }
 }
 
@@ -12327,6 +12443,24 @@ fn voice_hotword_correction_rewrites_homophones() {
 }
 
 #[test]
+fn voice_hotword_correction_preserves_an_exact_dictionary_word() {
+    let request = json!({
+        "text": "名天和铭天",
+        "hotwords": [
+            {"text": "明天", "pinyin": "ming tian"},
+            {"text": "名天", "pinyin": "ming tian"}
+        ]
+    })
+    .to_string();
+    let corrected =
+        read(unsafe { msime_client_voice_hotword_correct(request.as_ptr(), request.len()) });
+    assert_eq!(
+        corrected,
+        json!({"ok": true, "value": {"text": "名天和明天"}})
+    );
+}
+
+#[test]
 fn voice_hotword_correction_rejects_unbounded_work() {
     let hotwords = (0..1_001)
         .map(|_| json!({"text": "明天", "pinyin": "ming tian"}))
@@ -15827,6 +15961,13 @@ fn mobile_english_correction_request_preserves_raw_and_the_session() {
         "language",
         "omg",
         "thx",
+        "IM",
+        "I'M",
+        "I'VE",
+        "ENGLISH",
+        "CHINESE",
+        "eNglish",
+        "yOuRe",
         "you're",
         "i''m",
         "abcdefghijklmnopqrstuvwxyzabcdefg",

@@ -594,6 +594,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidLoad() {
     super.viewDidLoad()
+    registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitHorizontalSizeClass.self]) {
+      (controller: KeyboardViewController, previous: UITraitCollection) in controller.refreshTraits(previous)
+    }
     // 先读数再做别的：与 `sessionMemory` 之差是 `session` 之后声明的存储属性和 `loadView` 的开销，与下面 `keyboard_built` 之差是建键盘界面的开销。
     let loadedMemory = DiagnosticLog.MemorySample.current()
     translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
@@ -711,7 +714,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     synchronizeInputSchemePreference()
     synchronizeChineseOutputPreference()
     applyLearningPreferences()
-    synchronizeTranslationRoute()
+    _ = synchronizeTranslationRoute()
     glideTypingEnabled = KeyboardLayoutPreference.glideTyping
     // The Tauri settings app writes the shared PreferencesStore rather than the
     // legacy App Group UserDefaults used by the old SwiftUI settings page.
@@ -2366,8 +2369,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let row = makeRow()
     if includesShift {
       let button = makeIconKey(Self.shiftIcon, accessibilityLabel: "大写") { [weak self] in
-        self?.countKeyPress(TypingKeyID.shift)
-        self?.toggleLetterCase()
+        self?.handleLetterShift(keyID: TypingKeyID.shift)
       }
       button.accessibilityIdentifier = "shiftButton"
       shiftButton = button
@@ -2425,8 +2427,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       // iPad 键盘在 ，。 之后的第二个 ⇧，手机在这个位置是 ⌫。两个 Shift 是同一个键。
       let rightShift = makeIconKey(Self.shiftIcon, accessibilityLabel: "大写") { [weak self] in
-        self?.countKeyPress(TypingKeyID.shiftRight)
-        self?.toggleLetterCase()
+        self?.handleLetterShift(keyID: TypingKeyID.shiftRight)
       }
       rightShift.accessibilityIdentifier = "rightShiftButton"
       rightShift.isHidden = true
@@ -3451,6 +3452,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateAutomaticCapitalization()
   }
 
+  /// 仅替换中文全拼字母页，密码框、本地模式和其他方案保留大小写。
+  private var usesQuanpinSeparator: Bool {
+    inputScheme == .quanpin && isChineseMode && !showsSymbols && !isInLocalMode
+      && !isCredentialField && !session.initializationFailed
+  }
+
+  private func handleLetterShift(keyID: String) {
+    if usesQuanpinSeparator {
+      countKeyPress(TypingKeyID.character("'"))
+      if hasComposition { handleCharacter("'") }
+      else { playInputClick() }
+      return
+    }
+    countKeyPress(keyID)
+    toggleLetterCase()
+  }
+
   private func toggleLetterCase() {
     // 韩语的 Shift 是布局自己的 Shift：选出 ㅃ ㅉ ㄸ ㄲ ㅆ ㅒ ㅖ，而不是切到英文。越南语和藏文的 Shift 与英文一样给出大写字母。
     if isChineseMode && !helpcodeCompositionEligible && !typesKorean && !typesCasedLetters {
@@ -3570,8 +3588,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       button.accessibilityValue = hint
     }
 
-    // iPad 键盘第三排两端各有一个 ⇧，两者显示同样的状态。
+    // iPad 键盘第三排两端各有一个 ⇧，全拼分词时两个位置都就地更新。
     for button in [shiftButton, rightShiftButton].compactMap({ $0 }) {
+      if usesQuanpinSeparator {
+        button.accessibilityLabel = "拼音分词"
+        button.accessibilityValue = nil
+        button.accessibilityHint = "分隔当前组合中的拼音音节"
+        continue
+      }
       switch letterCaseState {
       case .lowercase:
         button.accessibilityLabel = korean ? "双辅音" : isChineseMode && !casedLetters ? "切换到英文大写" : "大写"
@@ -3592,10 +3616,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 设计稿的 ⇧ 及其带下划线的大写锁定样式，画法与 Android 的 `styleShiftKey` 一致：关闭时用功能键底色、图标为按键颜色；打开时（单次或锁定）用字母键底色、图标为强调色。皮肤处理会给所有功能键套上关闭时的颜色；它调用的 `updateSchemeButton` 再经 `updateLetterCaseControls` 重新设置这两个键的样式。
   private func styleShiftKeys() {
     let skin = KeyboardTheme.current
-    let on = letterCaseState != .lowercase
+    let separator = usesQuanpinSeparator
+    let on = !separator && letterCaseState != .lowercase
     for button in [shiftButton, rightShiftButton].compactMap({ $0 }) {
       guard var configuration = button.configuration else { continue }
-      configuration.image = letterCaseState == .capsLock ? Self.capsLockIcon : Self.shiftIcon
+      configuration.image = separator ? nil : (letterCaseState == .capsLock ? Self.capsLockIcon : Self.shiftIcon)
+      configuration.title = separator ? "分词" : nil
+      configuration.titleTextAttributesTransformer = Self.functionLabelTransformer
       configuration.background.backgroundColor = on ? skin.keyBackground : skin.functionKeyBackground
       configuration.baseForegroundColor = on ? skin.accent : skin.keyForeground
       button.configuration = configuration
@@ -7175,26 +7202,25 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     renderCandidateStrip()
   }
 
-  override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-    super.traitCollectionDidChange(previousTraitCollection)
+  private func refreshTraits(_ previousTraitCollection: UITraitCollection) {
     if isViewLoaded, actionRow != nil,
-       previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle {
+       previousTraitCollection.userInterfaceStyle != traitCollection.userInterfaceStyle {
       // 明暗变了，实际生效的主题可能跟着变：所选主题属于另一种明暗时换成跟随系统，切回来时换回所选主题。
       KeyboardTheme.reload(session.sharedPreferences, dark: drawsDark)
       applyKeyboardSkin()
       // 键盘的明暗变了，表情面板是否与它一致也要重新判断。
       if let emojiPicker { applyEmojiPickerAppearance(emojiPicker) }
     }
-    // Docking or undocking the iPad keyboard changes the width class, and with it the form factor.
+    // iPad 键盘停靠状态变化会改变宽度类别，需要重新计算布局。
     if isViewLoaded, actionRow != nil,
-       previousTraitCollection?.horizontalSizeClass != traitCollection.horizontalSizeClass {
+       previousTraitCollection.horizontalSizeClass != traitCollection.horizontalSizeClass {
       updateKeyboardLayoutIfNeeded()
-      // The form factor also sets how large a synced candidate size may be drawn.
+      // 设备形态也决定同步的候选字号上限。
       applyCandidateGlossLayout()
     }
   }
 
-  /// iPad 旋转时 size class 不变，traitCollectionDidChange 不会被叫到；转完再核对一次分离式键盘（viewDidLayoutSubviews 通常已经处理过）。
+  /// iPad 旋转时 size class 不变，trait 观察器不会被叫到；转完再核对一次分离式键盘（viewDidLayoutSubviews 通常已经处理过）。
   override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
     super.viewWillTransition(to: size, with: coordinator)
     coordinator.animate(alongsideTransition: nil) { [weak self] _ in

@@ -145,5 +145,9 @@ EncodedReply partial_selection(uint64_t request, std::string_view remaining_raw,
                                std::string_view display_preedit);
 EncodedReply uiless_reply(uint64_t request, std::string_view display_preedit,
                           const std::vector<std::string> &page,
-                          size_t highlighted);
+                          size_t highlighted, uint64_t generation = 0);
+std::optional<std::vector<uint8_t>>
+uiless_candidates_bytes(std::string_view display_preedit,
+                        const std::vector<std::string> &page,
+                        size_t highlighted, uint64_t generation);
 } // namespace msime::windows

@@ -39,7 +39,7 @@ import SwiftUI
     }
   }
 
-  /// The mode the emoji panel is drawn in (`emoji_theme`, then `theme`), or the system's when neither names one.
+  /// 表情面板画成哪种明暗：取颜色模式 `theme`（macOS 的表情面板没有单独的明暗设置），它没指定明暗时跟随系统。
   static func appearance(for scheme: ColorScheme?) -> NSAppearance? {
     switch scheme {
     case .light: NSAppearance(named: .aqua)

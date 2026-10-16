@@ -1,9 +1,10 @@
+import type { InputScheme } from "../core/input-scheme";
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import type { ReactNode } from "react";
-import type { InputScheme } from "../index";
+
 import { GroupList, Row } from "../core/platform-controls";
 import {
   MAX_COMMAND_TABLES,

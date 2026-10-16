@@ -250,7 +250,6 @@ test("on the HarmonyOS phone the shared option lists fill the sheet", () => {
           scheme="quanpin"
           shuangpinProfile="xiaohe"
           wubiProfile="wubi98"
-          macos={false}
           hasTouchKeyboardSchemes
           touchKeyboardHasWubi
           onShuangpinProfileChange={vi.fn()}

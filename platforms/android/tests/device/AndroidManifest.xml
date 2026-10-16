@@ -2,6 +2,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <instrumentation android:name="app.msime.android.test.VoiceRecognitionLifecycleDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.SyntheticSpeechSetup" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.QuanpinSeparatorDeviceSmoke" android:targetPackage="app.msime.android" />
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
     <instrumentation android:name="app.msime.android.test.HostIconPreparation" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.DiagnosticsBundleDeviceSmoke" android:targetPackage="app.msime.android" />
@@ -20,6 +21,7 @@
     <instrumentation android:name="app.msime.android.test.PinyinClipboardEditLifecycleDeviceSmoke" android:targetPackage="app.msime.android.pinyin" />
     <instrumentation android:name="app.msime.android.test.DeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.CandidatePanelDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.ChatNavigationDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.CopyDeviceInfoDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.MoreToolsDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.EmojiPickerDeviceSmoke" android:targetPackage="app.msime.android.test" />
@@ -31,6 +33,8 @@
     <instrumentation android:name="app.msime.android.test.ThemeModeDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.LanguageNumberKeySwapDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.KeyboardHeightDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.BottomPaddingHeightDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.BottomPaddingSettingsDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.FuzzyPinyinDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.CandidateGlossDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.NineKeyNumericLayoutDeviceSmoke" android:targetPackage="app.msime.android" />
@@ -66,8 +70,10 @@
     <instrumentation android:name="app.msime.android.test.EmptyEditorBackspaceDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.HelpcodeImportDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.SymbolPanelLayoutDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.CompositionBatchDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.BatchCompositionDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <application android:label="MSIME Editor Fixture" android:allowBackup="false">
+        <activity android:name="app.msime.android.test.BatchEditorActivity" android:exported="true" />
         <!-- 系统文档选择器可见的合成目录；产品必须通过选择器取得跨 UID 授权。 -->
         <provider android:name="app.msime.android.test.DiagnosticDocumentsProvider"
             android:authorities="app.msime.android.test.diagnostic-documents" android:exported="true"
@@ -81,7 +87,6 @@
         <service android:name="app.msime.android.test.SyntheticSpeechService" android:enabled="false" android:exported="true" android:permission="android.permission.BIND_SPEECH_RECOGNITION_SERVICE">
             <intent-filter><action android:name="android.speech.RecognitionService" /></intent-filter>
         </service>
-        <activity android:name="app.msime.android.test.BatchEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
         <activity android:name="app.msime.android.test.QuoteEditorActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <!-- 明暗验收保留合成编辑器的焦点和输入连接，只让输入法收到系统配置变化。 -->
         <activity android:name="app.msime.android.test.EditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" android:configChanges="uiMode" />
@@ -91,4 +96,7 @@
     </application>
     <instrumentation android:name="app.msime.android.test.ToolbarEdgesDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.ToolbarScrollDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.EmojiCombinationLayoutDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.EmojiCombinationDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.LocalSpeechHandleDeviceSmoke" android:targetPackage="app.msime.android" />
 </manifest>

@@ -51,6 +51,11 @@ impl HostPlatform {
         }
     }
 
+    /// 这个宿主是否读偏好里的中英混输触发字符数，见 `HostCapabilities::mixed_input_minimum_prefix`。不读的宿主（macOS）固定用 [`crate::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX`]。
+    pub fn reads_mixed_input_minimum_prefix(self) -> bool {
+        self != HostPlatform::Macos
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             HostPlatform::Windows => "windows",
@@ -194,8 +199,10 @@ pub struct HostCapabilities {
     pub candidate_row_colors: bool,
     /// The host can apply candidate accent, selection, hover and border appearance.
     pub candidate_selection_appearance: bool,
-    /// The host outlines the candidate panel in the border colour. Separate from `candidate_selection_appearance` because Linux draws the border (the Fcitx5 classic UI theme carries it) while neither Linux panel has a hover state.
+    /// 宿主按用户在自定义主题里选的边框色（`custom_theme.candidate_colors.border`）给候选窗描边。与 `candidate_selection_appearance` 分开，因为 Linux 画边框（Fcitx5 classicui 主题带边框色）而两个 Linux 面板都没有悬停状态。macOS 不读这个槽位：边框是 1pt 的发丝线，一律跟随主题和皮肤，设置页不给取色器。
     pub candidate_border_color: bool,
+    /// 宿主按用户在自定义主题里选的编号色（`custom_theme.candidate_colors.number`）画候选编号。macOS 不读这个槽位：选了文字颜色时编号色由它推出，否则跟随主题和皮肤，设置页不给取色器。
+    pub candidate_number_color: bool,
     /// 宿主应用 `candidate_scale_percent` 调整候选显示。自绘浮动窗口缩放字体和几何尺寸；桌面面板可以缩放自己拥有的字体描述。
     pub candidate_window_scale: bool,
     /// The host can lower the alpha of its candidate card fill, border and skin background by `candidate_opacity_percent` while keeping text opaque. A panel the desktop draws, or a strip that is part of an opaque keyboard, cannot.
@@ -253,6 +260,12 @@ pub struct HostCapabilities {
     /// somewhere to put one. A host without that surface would be offering a switch whose only
     /// effect is on a display it does not have.
     pub voice_stream_preedit: bool,
+    /// 宿主读 `voice_input.hotkey_hold_space_lock`，设置页才给出「长按录音时按空格锁定」开关。macOS 把它固定为开：空格只在按住录音组合键期间才被拦下，平常打字不受影响，宿主不再读存下的 false。
+    pub voice_space_lock_switch: bool,
+    /// 宿主分别读开始、结束提示音（`voice_input.start_sound`、`end_sound`），设置页才在总开关之外给出这两个开关。macOS 只读总开关 `sound_enabled`。
+    pub voice_cue_switches: bool,
+    /// 宿主有不止一种录音后端可选，设置页才给出「录音后端」和手填的设备名。macOS 只经 CoreAudio 录音，`""`、`auto`、`macos` 效果相同，设置页只给一个「麦克风」下拉，第一项是系统默认设备。
+    pub voice_capture_backends: bool,
     /// The host shows read-only English word completions while typing directly
     /// in English, governed by the shared `english_suggestions` preference. iOS
     /// offers the same surface but keeps its switch in the native App Group
@@ -305,6 +318,8 @@ pub struct HostCapabilities {
     pub input_mode_status_item: bool,
     /// 宿主按 `expand_candidates` 让横排候选窗按 ↓ 展开成多行候选网格。目前只有 macOS 实现；其他桌面宿主接上之前不提供这个开关，免得设置页存下一个宿主不理会的值。
     pub expand_candidates: bool,
+    /// 宿主画的各个界面（设置窗口、屏幕键盘、悬浮工具栏与中英文提示、菜单、表情面板、手写识别板、语音输入弹出条）一律跟随颜色模式，不读 `settings_theme`、`screen_keyboard_theme`、`toolbar_theme`、`menu_theme`、`emoji_theme`、`handwriting_theme`、`voice_theme`，设置页也不给这几行；候选窗口仍按 `candidate_theme` 单独设明暗。目前只有 macOS：固定明暗的内置主题本来就会盖过工具栏和菜单的单独设置，单给一个界面定明暗的需求由「夜」「墨」这类主题满足。
+    pub surface_themes_follow: bool,
     /// The host can run a 背单词 review session — that is, it has wired the shared vocabulary
     /// entry point and can reach the review store.
     pub vocabulary_review: bool,
@@ -330,6 +345,10 @@ pub struct HostCapabilities {
     pub shift_letter_entry_switch: bool,
     /// 宿主实现了「Ctrl+Shift+J 在中文和日语之间切换」（`KeybindingPreferences::toggle_japanese_ctrl_shift_j`）：实体键盘在中文状态按下时，从中文方案切到日语方案，或从日语等外语方案回到 `last_chinese_scheme`。设置页还要看本版本是否同时提供中文方案和日语，才显示这个开关。
     pub japanese_toggle_shortcut: bool,
+    /// 宿主读 `navigation.tab` 和 `navigation.page_up_down`，设置页给出「Shift+Tab / Tab」和「PageUp / PageDown」两组翻页键的开关。macOS 不读，两组固定开启：候选窗显示时，关掉的 Tab 和 PageUp/PageDown 照样被输入法占着（`InputController.mm` 返回已处理），关掉只让它们什么也不做，并不会把键还给应用。候选窗没显示时 Tab 一律交给应用；关掉的 PageUp/PageDown 原本也直接交给应用（先结束失焦上屏的组字），固定开启后先作为翻页命令交给会话，会话不处理才交给应用。这两项不进账号同步，固定下来不会让别的设备同步来的值在 Mac 上看不见却生效。
+    pub tab_page_paging_switches: bool,
+    /// 宿主读 `mixed_input.minimum_prefix`，设置页给出「触发字符数」。macOS 不读，固定为默认的 5（[`HostPlatform::reads_mixed_input_minimum_prefix`]）：调低会让常见简拼被英文词抢走首选，不喜欢英文候选的人有「中英混输」开关。这一项不进账号同步。
+    pub mixed_input_minimum_prefix: bool,
     /// The operating system release, as the machine reports it, for the feedback
     /// page to attach. Not a platform assumption like the flags above -- the host
     /// fills it in after `for_platform`, the way `system_fonts` is filled in --
@@ -589,16 +608,17 @@ impl HostCapabilities {
                     | HostPlatform::Android
                     | HostPlatform::Ios
             ),
-            // Linux 上只有 Fcitx5 的 classicui 主题画边框和圆角（下面的 `candidate_corner_radius` 同理）；IBus 面板画不了，运行中的 IBus 宿主经 `candidate_panel_limit`（`CandidatePanelLimit::IbusPanel`）让设置页说明这一点，能力位本身仍按平台给。
+            // Linux 上只有 Fcitx5 的 classicui 主题画边框和圆角（下面的 `candidate_corner_radius` 同理）；IBus 面板画不了，运行中的 IBus 宿主经 `candidate_panel_limit`（`CandidatePanelLimit::IbusPanel`）让设置页说明这一点，能力位本身仍按平台给。macOS 的边框色固定跟随主题和皮肤，宿主不读用户选的边框色。
             candidate_border_color: matches!(
                 platform,
                 HostPlatform::Windows
-                    | HostPlatform::Macos
                     | HostPlatform::Harmony
                     | HostPlatform::Android
                     | HostPlatform::Ios
                     | HostPlatform::Linux
             ),
+            // macOS 的编号色固定跟随主题和皮肤（选了文字颜色时由文字颜色推出），宿主不读用户选的编号色；其余宿主照旧。
+            candidate_number_color: platform != HostPlatform::Macos,
             // Windows 和 macOS 自绘候选浮窗并缩放全部几何尺寸。Linux 的桌面面板拥有卡片几何，但可以缩放唯一的 Pango 字体描述，这正是高 DPI 面板需要的部分。鸿蒙只随字号调整，iOS 和 Android 绘制键盘候选条，所以两者都不提供此控件。
             candidate_window_scale: matches!(
                 platform,
@@ -642,6 +662,8 @@ impl HostCapabilities {
             input_mode_status_item: matches!(platform, HostPlatform::Macos),
             // 展开候选网格目前只有 macOS 的候选窗画（#7307）。Windows 和 Linux 的桌面候选窗以后可以接同一个偏好；触屏键盘本来就有自己的展开面板。
             expand_candidates: matches!(platform, HostPlatform::Macos),
+            // 只有 macOS 让工具栏、菜单和各面板一律跟随颜色模式；Windows 原生设置页和其他宿主仍提供各界面的单独明暗。
+            surface_themes_follow: platform == HostPlatform::Macos,
             // Windows chooses between TSF, SendInput and a paste; macOS between system events and its input session. The Linux hosts commit through the IBus or Fcitx5 input context, the desktop voice panel hands its text to the active host the way every panel does, and the voice provider only recognizes, so a stored mode would change nothing there. A keyboard extension commits through its input client and has nothing to choose between either.
             voice_commit_mode: matches!(platform, HostPlatform::Windows | HostPlatform::Macos),
             // The Linux hosts write the snapshot's `preedit` into the IBus and
@@ -677,6 +699,10 @@ impl HostCapabilities {
             ),
             voice_provider_settings: true,
             voice_stream_preedit: !matches!(platform, HostPlatform::Android | HostPlatform::Ios),
+            // 这三项只有 macOS 收掉（见各字段说明）；其他宿主照旧读存下的值，Windows 的对齐另行跟进。
+            voice_space_lock_switch: platform != HostPlatform::Macos,
+            voice_cue_switches: platform != HostPlatform::Macos,
+            voice_capture_backends: platform != HostPlatform::Macos,
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             // Android, HarmonyOS and the iOS keyboard extension share one gesture: Shift during a quanpin or shuangpin composition hands the next letter to the Engine as a helper code. The desktop hosts append the code to a finished spelling instead of marking it.
             helpcode_shift_entry: matches!(
@@ -732,6 +758,9 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Windows | HostPlatform::Linux
             ),
+            // macOS 的输入法把 Tab 和 PageUp/PageDown 两组翻页键固定为开（`AppearancePreferences.mm` 的 `-navigationEnabled:`），其余宿主照旧读偏好。
+            tab_page_paging_switches: platform != HostPlatform::Macos,
+            mixed_input_minimum_prefix: platform.reads_mixed_input_minimum_prefix(),
             os_version: None,
             arch: None,
             kernel_version: None,

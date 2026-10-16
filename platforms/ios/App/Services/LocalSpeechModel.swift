@@ -280,7 +280,7 @@ struct LocalSpeechModelImportFile: Decodable, Equatable, Hashable {
 enum LocalSpeechModelLocation {
   /// `Application Support/voice-models` in the app's own container. The keyboard extension never loads a model (its memory limit is far below one), so the models stay out of the App Group.
   static func root(fileManager: FileManager = .default) throws -> URL {
-    var root = try fileManager.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+    let root = try fileManager.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
       .appendingPathComponent("voice-models", isDirectory: true)
     guard !rejectsSymlinkAncestors(root) else { throw CocoaError(.fileWriteNoPermission) }
     try fileManager.createDirectory(at: root, withIntermediateDirectories: true)

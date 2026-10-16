@@ -1,4 +1,5 @@
-import type { Preferences, ProviderCredentialStatus, SettingsClient } from "../index";
+import type { ProviderCredentialStatus } from "../core/provider-credential-contracts";
+import type { Preferences, SettingsClient } from "../index";
 import type { useProviderCredentials } from "./use-provider-credentials";
 import {
   customTranslationCredentialTestConfig,
@@ -103,6 +104,7 @@ export function createTranslationProviderSettings({
         !customTranslation.enabled &&
         !tencentSecretConfigured(tencentTranslation.secret_id) &&
         !tencentSecretConfigured(tencentTranslation.secret_key),
+      offlineFallback: macos,
       status: providerCredentials
         ? {
             tencent: providerCredentials.tencent,

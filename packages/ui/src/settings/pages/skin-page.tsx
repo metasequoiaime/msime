@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { themeModeOptions } from "../theme-mode-options";
 import * as settings from "../settings-style";
 import { SettingsGroupBlock } from "../settings-group-block";
@@ -32,10 +32,9 @@ import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
 import { AiSkinGeneration } from "../../keyboard/ai-skin-generation";
 import { TouchKeyboardSkinEditor } from "../../keyboard/touch-keyboard-skin-editor";
 import type { SavedTouchKeyboardSkin } from "../../keyboard/touch-keyboard-skin-design";
-import { communitySkinMessage } from "../../community/community-helpers";
-import { GroupList, NavRow } from "../../core/platform-controls";
+import { GroupList, MoreOptions } from "../../core/platform-controls";
 import { CandidateColorsSection } from "../candidate-colors-section";
-import { ThemeSettingsSection } from "../theme-settings-section";
+import { CandidateThemeRow, ThemeSettingsSection } from "../theme-settings-section";
 import { ScreenKeyboardSkinsSection } from "../screen-keyboard-skins-section";
 import { useSettingsForm } from "../settings-form-context";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
@@ -48,14 +47,21 @@ import { createSettingsDraftActions } from "../settings-draft-actions";
 import { ActionRow } from "../action-row";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { SettingsExternalMeta } from "../settings-external-meta";
-import { SkinGrid } from "../skin-grid";
+import { SkinGrid, type SkinGridTab } from "../skin-grid";
 import { mobilePageTitle } from "../mobile-tab-helpers";
 import { pushMobileSettingsState } from "../mobile-navigation";
 import { useMobilePopState } from "../use-mobile-pop-state";
 import { useAsyncGeneration } from "../use-async-generation";
 
-/** 设置表单的「主题」页（路由 id `skin`，手机上叫「皮肤」）：全局主题、自定义主题的组成，以及各界面的单独设置。`hidden` 让它在桌面外壳以「社区皮肤」标签页顶替时保持挂载。鸿蒙手机上主题是一组键盘缩略图网格，点按即应用，网格下方「浏览更多皮肤」打开完整的社区皮肤图库。 */
-export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
+/** 设置表单的「主题」页（路由 id `skin`，手机上叫「皮肤」）：全局主题、自定义主题的组成，以及各界面的单独设置。`hidden` 让它在桌面外壳以「社区皮肤」标签页顶替时保持挂载。鸿蒙手机上主题按顶部的「内置 / 我的 / 社区」分成键盘缩略图网格，点按即应用；标签栏和「社区」的完整图库由设置外壳画在表单之外，这里只画前两个分类的网格（`tabs`）。 */
+export function SkinSettingsPage({
+  hidden = false,
+  tabs,
+}: {
+  hidden?: boolean;
+  /** 设置外壳里的皮肤分类标签（只在鸿蒙手机上启用）：把一个分类的内容包成对应的标签面板，没选中的分类随之隐藏。 */
+  tabs: { panel: (tab: SkinGridTab, children: ReactNode) => ReactNode };
+}) {
   const {
     client,
     linuxPlatform,
@@ -75,10 +81,13 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
     globalTheme,
     themeMode,
     customColors,
+    previewCustomTheme,
     onCandidateColorChange,
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
+    showCandidateNumberColor,
+    surfaceThemesFollow,
     showFloatingToolbar,
     desktopPanels,
     keyboardPreviewTheme,
@@ -91,7 +100,6 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
     openCommunity,
     openAccountLogin,
     communityGallery,
-    openCommunityGallery,
   } = useSettingsForm();
   const { onCustomThemeChange, onPreferencesChange } = createSettingsDraftActions({ setDraft });
   // The package offered to the candidate-skin community from its card; the dialog is drawn outside the fieldset so a settings save in flight does not disable it.
@@ -155,7 +163,7 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
   // 从网格的 AI 图块打开的「AI 皮肤抽卡」是 WebView 返回栈上单独的一个视图，所以系统返回手势能关掉它。
   const { aiSkins, customSkinLibrary } = client;
   const [aiOpen, setAiOpen] = useState(false);
-  // 网格里列出皮肤库的设计（在社区图库获取的皮肤也存在这里）。每次回到网格都重读：从别的标签页回来，或从编辑器、AI 抽卡、社区图库这几个子视图返回，刚获取或刚保存的皮肤就能出现。
+  // 「我的」里列出皮肤库的设计（在社区获取的皮肤也存在这里）。每次回到网格都重读：从「社区」分类或别的标签页回来，或从编辑器、AI 抽卡、社区图库这几个子视图返回，刚获取或刚保存的皮肤就能出现。
   const [savedDesigns, setSavedDesigns] = useState<SavedTouchKeyboardSkin[]>([]);
   const galleryOpen = communityGallery?.category === "skin";
   const gridVisible = phoneGrid && shown && !showTouchSkinEditor && !aiOpen && !galleryOpen;
@@ -173,47 +181,6 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
       },
     );
   }, [gridVisible, customSkinLibrary, savedDesignsGeneration]);
-  // 社区的第一页也列在网格里，点一下就获取并换上，与 Android 键盘皮肤面板一致；更多的在网格下方「浏览更多皮肤」打开的完整图库里。离线或服务不可用时只是没有这几张卡片。
-  const { communitySkins } = client;
-  const [communityList, setCommunityList] = useState<SavedTouchKeyboardSkin[]>([]);
-  const [communityNotice, setCommunityNotice] = useState("");
-  const taking = useRef(false);
-  const communityListGeneration = useAsyncGeneration(gridVisible, communitySkins);
-  useEffect(() => {
-    if (!gridVisible || !communitySkins) return;
-    const current = communityListGeneration.current;
-    communitySkins.list(0, "", false, null).then(
-      (page) => {
-        if (communityListGeneration.current === current)
-          setCommunityList(page.skins.map(({ id, name, design }) => ({ id, name, design })));
-      },
-      () => {
-        if (communityListGeneration.current === current) setCommunityList([]);
-      },
-    );
-  }, [gridVisible, communitySkins, communityListGeneration]);
-  /** 点社区皮肤：和社区页的「获取」一样下载（服务器计入一次下载，设计以社区 id 存进皮肤库），结束试用但不保留，再经表单换上，与「使用」相同。 */
-  const takeCommunitySkin = async (skin: SavedTouchKeyboardSkin): Promise<boolean> => {
-    if (!communitySkins || taking.current) return false;
-    taking.current = true;
-    setCommunityNotice("");
-    try {
-      const result = await communitySkins.download(skin.id, skin.name);
-      await communitySkins.finishTrial(result.trial.id, false);
-      setSavedDesigns((items) => [
-        ...items.filter((item) => item.id.toLowerCase() !== result.skin.id.toLowerCase()),
-        result.skin,
-      ]);
-      onCustomKeyboardChange(result.skin.design);
-      return true;
-    } catch (failure) {
-      // 例如未登录、皮肤库已满十二个设计，`communitySkinMessage` 会写明。
-      setCommunityNotice(communitySkinMessage(failure));
-      return false;
-    } finally {
-      taking.current = false;
-    }
-  };
   // 鸿蒙手机上「设计我的皮肤」同样是返回栈上的一个视图，不在这页里就地展开。从「我的 → 我的设计」进来时没有这一条记录，编辑器直接打开；返回离开这页时记录里没有它，编辑器随之关上，下次进来不会再自己打开。
   useMobilePopState(phoneGrid, (event) => {
     setAiOpen(event.state?.skinSubpage === "ai");
@@ -232,16 +199,53 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
     if (window.history.state?.skinSubpage === "editor") window.history.back();
     else setShowTouchSkinEditor(false);
   };
+  // 「内置」和「我的」两个分类的网格共用同一组卡片数据，选中状态按全部卡片判断。
+  const gridProps = {
+    themes: themeCatalog,
+    globalTheme,
+    customTheme: draft.custom_theme,
+    packages,
+    customDesign: client.customTouchKeyboardSkins
+      ? {
+          design: customTouchKeyboardSkin,
+          selected: customKeyboardSelected,
+          // 卡片画的是编辑器里的设计，所以选中它就保存那个设计，与「自定义主题」下的「我的皮肤」卡片一致。
+          onSelect: () => onCustomKeyboardChange(customTouchKeyboardSkin),
+          // 这页没有「更多选项」，选中后再点一次就是「设计我的皮肤」的入口。
+          onEdit: openEditor,
+        }
+      : undefined,
+    savedDesigns,
+    onSelectSavedDesign: client.customTouchKeyboardSkins ? onCustomKeyboardChange : undefined,
+    keyboardTheme: keyboardPreviewTheme,
+    onApply: onPreferencesChange,
+    onApplied: (id: string) => void client.typingStatistics?.recordSkin?.(id),
+    onOpenAi: aiSkins && customSkinLibrary ? openAi : undefined,
+  };
   const colourMode = (
     <GroupList title="明暗">
       <SegmentedRow
         title="颜色模式"
-        description="设置窗口和各界面的默认明暗模式"
+        // 各界面一律跟随颜色模式的宿主上它不再是可被各界面覆盖的默认值，而是除候选窗口以外所有界面的明暗。
+        description={
+          surfaceThemesFollow
+            ? "设置窗口和各界面的明暗模式；候选窗口可在下面单独设置"
+            : "设置窗口和各界面的默认明暗模式"
+        }
         aria-label="颜色模式"
         options={themeModeOptions}
         value={themeMode}
         onChange={(theme) => onPreferencesChange({ theme })}
       />
+      {/* 各界面一律跟随颜色模式的宿主（macOS）只剩候选窗口还能单独设明暗，放在颜色模式下面，主题页因此没有「高级」组。 */}
+      {surfaceThemesFollow && (
+        <CandidateThemeRow
+          mobile={mobilePlatform}
+          linux={linuxPlatform}
+          value={draft.candidate_theme}
+          onChange={(candidate_theme) => onPreferencesChange({ candidate_theme })}
+        />
+      )}
     </GroupList>
   );
   const moreSkins = (
@@ -284,16 +288,20 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
         />
       )}
       {/* 候选颜色取色器作用于候选窗的配色。手机的触屏候选栏画的是键盘皮肤的颜色：Android 不读解析出的候选配色，HarmonyOS 手机的候选栏也取键盘调色板（只有 2in1 的候选窗用候选配色，见 KeyboardView.ets `candidateColors`），只有 iOS 在打开上面的「候选栏使用主题配色」后才读它们。所以手机上只在那个开关打开时显示取色器，其余时候它们改了也看不到效果；桌面和 HarmonyOS 2in1 照旧显示。选颜色会让主题变成自定义，叠在当时屏幕上的主题之上（见 `onCandidateColorChange`）。 */}
+      {/* 取色器收在「自定义配色」折叠区里：内置主题和皮肤包已经定好配色，多数人不需要逐个调。悬停色也在里面，系统底色上不会自动推出悬停色，深色自定义表面只能靠它看清悬停。 */}
       {(!mobilePlatform || mobileKeyboardFeedback?.candidatePaletteFollowsDesktop === true) && (
-        <CandidateColorsSection
-          preferences={customColors}
-          previewTheme={candidatePreviewTheme}
-          showRowColors={showCandidateRowColors}
-          showSelectionAppearance={showCandidateSelectionAppearance}
-          showBorderColor={showCandidateBorderColor}
-          linux={linuxPlatform}
-          onChange={onCandidateColorChange}
-        />
+        <MoreOptions title="自定义配色">
+          <CandidateColorsSection
+            preferences={customColors}
+            previewTheme={candidatePreviewTheme}
+            showRowColors={showCandidateRowColors}
+            showSelectionAppearance={showCandidateSelectionAppearance}
+            showBorderColor={showCandidateBorderColor}
+            showNumberColor={showCandidateNumberColor}
+            linux={linuxPlatform}
+            onChange={onCandidateColorChange}
+          />
+        </MoreOptions>
       )}
       {client.customTouchKeyboardSkins && (
         <ScreenKeyboardSkinsSection
@@ -324,8 +332,8 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
       )}
     </GroupList>
   );
-  // 每个界面仍可在颜色模式之上单独指定浅色或深色；设计把这些收在主题页的「高级」下。
-  const advanced = (
+  // 每个界面仍可在颜色模式之上单独指定浅色或深色；设计把这些收在主题页的「高级」下。各界面一律跟随颜色模式的宿主不给这一组，候选窗口那一行在「明暗」组里。
+  const advanced = !surfaceThemesFollow && (
     <ThemeSettingsSection
       preferences={draft}
       mobile={mobilePlatform}
@@ -346,51 +354,19 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
         )}
         {phoneGrid ? (
           <>
-            <SkinGrid
-              themes={themeCatalog}
-              globalTheme={globalTheme}
-              customTheme={draft.custom_theme}
-              packages={packages}
-              customDesign={
-                client.customTouchKeyboardSkins
-                  ? {
-                      design: customTouchKeyboardSkin,
-                      selected: customKeyboardSelected,
-                      // 卡片画的是编辑器里的设计，所以选中它就保存那个设计，与「自定义主题」下的「我的皮肤」卡片一致。
-                      onSelect: () => onCustomKeyboardChange(customTouchKeyboardSkin),
-                      // 这页没有「更多选项」，选中后再点一次就是「设计我的皮肤」的入口。
-                      onEdit: openEditor,
-                    }
-                  : undefined
-              }
-              savedDesigns={savedDesigns}
-              onSelectSavedDesign={
-                client.customTouchKeyboardSkins ? onCustomKeyboardChange : undefined
-              }
-              communitySkins={communityList}
-              onSelectCommunitySkin={
-                client.customTouchKeyboardSkins && communitySkins ? takeCommunitySkin : undefined
-              }
-              keyboardTheme={keyboardPreviewTheme}
-              onApply={onPreferencesChange}
-              onApplied={(id) => void client.typingStatistics?.recordSkin?.(id)}
-              onOpenAi={aiSkins && customSkinLibrary ? openAi : undefined}
-            />
-            {communityNotice && (
-              <SettingsExternalMeta role="status">{communityNotice}</SettingsExternalMeta>
-            )}
-            {/* 设计里这页没有设置行，只有网格。颜色模式和各界面的明暗覆盖不提供；社区第一页的皮肤直接列在网格里，网格下方的「浏览更多皮肤」打开完整的社区皮肤图库（搜索、分类、详情、发布和我的作品都在里面）；我的皮肤是网格里的卡片，选中后再点一次打开编辑器（`onEdit`），「我的 → 我的设计」也能进入。 */}
-            {client.communitySkins && (
-              <GroupList>
-                <NavRow
-                  variant="me"
-                  title="浏览更多皮肤"
-                  description="搜索、分类浏览社区皮肤，也可以发布自己的设计"
-                  onClick={() =>
-                    openCommunityGallery({ category: "skin", scope: "", initialMine: false })
-                  }
-                />
-              </GroupList>
+            {/* 设计里这页没有设置行，只有分类网格。颜色模式和各界面的明暗覆盖不提供；我的皮肤是「我的」里的卡片，选中后再点一次打开编辑器（`onEdit`），「我的 → 我的设计」也能进入。 */}
+            {tabs.panel("builtin", <SkinGrid section="builtin" {...gridProps} />)}
+            {tabs.panel(
+              "mine",
+              <>
+                <SkinGrid section="mine" {...gridProps} />
+                {/* 皮肤库里还没有设计时说明去哪里获取，与 Android 皮肤页「我的」的空状态一致。 */}
+                {savedDesigns.length === 0 && (
+                  <SettingsExternalMeta>
+                    还没有保存的皮肤。可到社区获取喜欢的皮肤。
+                  </SettingsExternalMeta>
+                )}
+              </>,
             )}
           </>
         ) : (
@@ -482,8 +458,8 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                       style={{
                         ...(id === "custom"
                           ? customCandidateStyle(
-                              draft.custom_theme?.base,
-                              draft.custom_theme?.candidate_colors,
+                              previewCustomTheme?.base,
+                              previewCustomTheme?.candidate_colors,
                             )
                           : themeCandidateStyle(id)),
                         // 用户设的窗口圆角和不透明度对每个主题都生效，卡片照实际候选窗画，与 macOS 原生设置页的预览一致。

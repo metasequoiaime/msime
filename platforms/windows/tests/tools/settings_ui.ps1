@@ -41,7 +41,7 @@ New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 $outputPath = (Resolve-Path -LiteralPath $OutputDirectory).Path
 $state = Join-Path ([IO.Path]::GetTempPath()) ('msime-settings-ui-' + [Guid]::NewGuid())
 $oldState = $env:MSIME_CLIENT_STATE_DIR
-$pages = @('typing', 'expression', 'shortcuts', 'lexicon', 'themes', 'candidate', 'toolbar', 'osk', 'voice', 'hand', 'clip', 'stats', 'plugins', 'ai', 'account', 'dev', 'feedback', 'about')
+$pages = @('typing', 'expression', 'shortcuts', 'lexicon', 'themes', 'candidate', 'toolbar', 'osk', 'voice', 'clip', 'stats', 'plugins', 'ai', 'account', 'dev', 'feedback', 'about')
 $process = $null
 function Find-ById($parent, [string]$id) {
     $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, $id)
@@ -204,6 +204,19 @@ try {
                     $actionBounds = $more.Current.BoundingRectangle
                     if ($textBounds.Width -lt 180 -or $textBounds.Right -gt $actionBounds.Left) { throw 'Clipboard actions crowded out the text preview' }
                     if ($actionBounds.Right -gt $content.Current.BoundingRectangle.Right) { throw 'Clipboard actions overflow the content column' }
+                }
+                if ($page -eq 'osk') {
+                    # 完整版提供手写：「手写输入」并进了这一页；「恢复默认」的说明只提这一页看得到的几项，不再提工具栏按钮。
+                    foreach ($name in @('打开手写识别板', '高度、间距和顶部语音入口回到默认')) {
+                        if (-not (Find-ByName $content $name)) { throw "Screen keyboard page is missing: $name" }
+                    }
+                }
+                if ($page -eq 'toolbar') {
+                    # 缩放和图标尺寸合成一个「工具栏大小」。
+                    if (-not (Find-ByName $content '工具栏大小')) { throw 'Toolbar size select is missing' }
+                    foreach ($name in @('工具栏缩放', '图标尺寸')) {
+                        if (Find-ByName $content $name) { throw "Toolbar page still offers $name apart" }
+                    }
                 }
                 Save-Window $window "$theme-$width-$page.png"
                 Write-Host "$theme $width $page rendered"

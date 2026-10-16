@@ -1,5 +1,5 @@
-/** 内置的四种双拼方案；`custom` 用的是偏好里的 `shuangpin_custom_profile`。 */
-export type BuiltinShuangpinProfile = "xiaohe" | "ziranma" | "shoudao" | "microsoft";
+/** 内置双拼方案；`custom` 用的是偏好里的 `shuangpin_custom_profile`。 */
+export type BuiltinShuangpinProfile = "xiaohe" | "ziranma" | "shoudao" | "microsoft" | "smart_abc";
 
 /**
  * 自定义双拼方案的键位表，与 client-core 的 `ShuangpinCustomProfile` 一一对应：`initials` 只放 `zh` `ch` `sh`，`finals` 放 33 个韵母，`zero_initials` 放 12 个零声母音节的两键编码；键是小写字母或 `;`，`ü` 写作 `v`。导入导出的 JSON 也是这个形状，与 MCP 的 `update_preferences` 相同。
@@ -88,6 +88,7 @@ export const builtinShuangpinProfiles: readonly [BuiltinShuangpinProfile, string
   ["ziranma", "自然码双拼"],
   ["shoudao", "首道双拼"],
   ["microsoft", "微软双拼"],
+  ["smart_abc", "智能 ABC 双拼"],
 ];
 
 const partTitles: Record<ShuangpinCustomTablePart, string> = {

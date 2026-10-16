@@ -125,7 +125,7 @@ public final class GroupCard {
                 super.onInitializeAccessibilityNodeInfo(host, info);
                 info.setClassName(Switch.class.getName());
                 info.setCheckable(true);
-                info.setChecked(control.isChecked());
+                androidx.core.view.accessibility.AccessibilityNodeInfoCompat.wrap(info).setChecked(control.isChecked());
             }
         });
         return add(row);

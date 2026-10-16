@@ -5,6 +5,7 @@
 #include "CandidateItemLayout.h"
 #include "CandidateSkin.h"
 #import "CandidatePronunciation.h"
+#import "CandidateMotion.h"
 // Drawing adapted from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
 static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
 // A reading is quieter than the gloss it follows, relative to the gloss colour.
@@ -144,7 +145,7 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     return gloss.length ? [NSString stringWithFormat:@"%@\n%@", gloss, scriptAnnotation] : scriptAnnotation;
 }
 
-@interface MSIMECandidateButton : NSButton
+@interface MSIMECandidateButton : NSButton <MSIMECandidateSelectionFillHost>
 @property(nonatomic, copy) NSDictionary *candidateID;
 @property(nonatomic, strong) NSFont *numberFont;
 @property(nonatomic) BOOL candidateHighlighted;
@@ -154,8 +155,6 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
 @property(nonatomic, copy) NSString *translation;
 // How each gloss line is read, "\n"-joined parallel to translation. Drawn after its line and never part of what a gloss column commits.
 @property(nonatomic, copy) NSString *pronunciation;
-// A sentence's word-by-word English ("我 I · 喜欢 to like · 你 you"), drawn on its own line after the gloss lines; never a column.
-@property(nonatomic, copy) NSString *breakdown;
 @property(nonatomic, strong) NSFont *translationFont;
 @property(nonatomic, copy) NSColor *translationColor;
 @property(nonatomic) BOOL translationBelow;
@@ -182,6 +181,8 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
 @property(nonatomic) CGFloat selectionLeftInset;
 // candidate_scale_percent as a factor, for the lengths the row draws itself: the text insets and the selection bar. Zero draws at 100%.
 @property(nonatomic) CGFloat chromeScale;
+// 选中动效期间高亮底色由 MSIMECandidateMotion 的图层画，行只画文字和选中条。
+@property(nonatomic) BOOL selectionFillDetached;
 // 右键才构建操作菜单，普通输入不创建菜单树。
 @property(nonatomic, copy) NSMenu *(^candidateMenuProvider)(void);
 @end
@@ -247,7 +248,7 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     (void)dirtyRect;
     NSRectClip(self.bounds);
     const CGFloat scale = self.chromeScale > 0.0 ? self.chromeScale : 1.0;
-    NSColor *background = self.candidateHighlighted ? self.fillColor
+    NSColor *background = self.candidateHighlighted ? (self.selectionFillDetached ? nil : self.fillColor)
                                                      : (self.candidateHovered ? self.hoverColor : nil);
     if (background != nil && background.alphaComponent > 0.01)
     {
@@ -297,8 +298,8 @@ static inline NSString *MSIMECandidateGlossWithScriptAnnotation(NSString *gloss,
     NSMutableArray<NSValue *> *readingRanges = [NSMutableArray array];
     NSMutableArray<NSNumber *> *glossLineStarts = [NSMutableArray array];
     // What is measured and drawn; self.translation stays the committable gloss.
-    NSString *glossDisplay = self.translation.length || self.breakdown.length
-        ? MSIMECandidateGlossDisplay(self.translation, self.pronunciation, self.breakdown, readingRanges, glossLineStarts)
+    NSString *glossDisplay = self.translation.length
+        ? MSIMECandidateGlossDisplay(self.translation, self.pronunciation, readingRanges, glossLineStarts)
         : @"";
     NSString *scriptAnnotation = self.scriptAnnotation ?: @"";
     NSString *translation = MSIMECandidateGlossWithScriptAnnotation(MSIMECandidateGlossRun(glossReading, glossDisplay), scriptAnnotation);

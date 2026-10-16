@@ -1,11 +1,9 @@
 import * as settings from "./settings-style";
 import { ActionButton } from "./action-button";
 
-export interface DictionaryFailureNotice {
-  request_id: string;
-  label: string;
-  error: string;
-}
+import type { DictionaryFailure } from "../dictionary/dictionary-contracts";
+
+export type DictionaryFailureNotice = DictionaryFailure;
 
 export interface DictionaryFailuresNoticeProps {
   failures: readonly DictionaryFailureNotice[];

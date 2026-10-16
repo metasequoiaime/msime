@@ -515,6 +515,7 @@ public final class MSIMEInputService extends InputMethodService {
     private int translationConsumedKeyCode = -1;
     private String defaultImeMode = "chinese";
     private String imeModeScope = "app";
+    private boolean liveInputModePreferencesLoaded;
     private String currentEditorPackage = "";
     private InputModeStore inputModeStore;
     /** Mirrors the runtime's own character width; the toolbar card and the chord move it. */
@@ -742,6 +743,7 @@ public final class MSIMEInputService extends InputMethodService {
     final ExecutorService emojiWorker = Executors.newSingleThreadExecutor();
     // 只在 `emojiWorker` 线程上使用（表情目录和符号面板的符号目录都在那条线程上读）；`hasGlyph` 会走系统字体回退链，能判断当前设备能否画出某个表情或符号。
     final Paint emojiGlyphPaint = new Paint();
+    private java.util.List<EmojiCatalogModel.Item> emojiCombinationItems;
     final ExecutorService cloudClipboardWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService candidateGlossWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
@@ -838,12 +840,16 @@ public final class MSIMEInputService extends InputMethodService {
             || keybindings.optBoolean("toggle_fullwidth_option_shift_h", true);
         hardwareLanguageCtrl = keybindings != null
             && keybindings.optBoolean("switch_language_ctrl", false);
-        defaultImeMode = preferences != null
-            && "english".equals(InputViewValuePolicy.textOr(preferences, "default_ime_mode", "chinese"))
-            ? "english" : "chinese";
-        imeModeScope = preferences != null
-            && "global".equals(InputViewValuePolicy.textOr(preferences, "ime_mode_scope", "app"))
-            ? "global" : "app";
+        // 进框会重读首次准备的旧副本；已有实时模式偏好时保留默认值和记忆范围，避免换框后查错记忆。
+        if (live || !liveInputModePreferencesLoaded) {
+            defaultImeMode = preferences != null
+                && "english".equals(InputViewValuePolicy.textOr(preferences, "default_ime_mode", "chinese"))
+                ? "english" : "chinese";
+            imeModeScope = preferences != null
+                && "global".equals(InputViewValuePolicy.textOr(preferences, "ime_mode_scope", "app"))
+                ? "global" : "app";
+            if (live) liveInputModePreferencesLoaded = true;
+        }
         KeyboardScheme engineScheme = SchemePreferences.storedScheme(preferences, edition);
         SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
         alignEngineSchemeWithSelection(preferences, engineScheme, schemeConfiguration);
@@ -964,6 +970,7 @@ public final class MSIMEInputService extends InputMethodService {
     private EditorBridge.Sink sink(TypingSource source) {
         final InputConnection target = connection;
         return new EditorBridge.Sink() {
+            private String pendingComposition;
             public void begin() { target.beginBatchEdit(); }
             public boolean commit(String text) {
                 editorCompositionSuppressed = false;
@@ -980,7 +987,8 @@ public final class MSIMEInputService extends InputMethodService {
                 if (text.isEmpty()) {
                     if (editorCompositionSuppressed) return true;
                     boolean cleared = target.setComposingText(text, 1);
-                    if (!cleared) selectionEcho.invalidate();
+                    if (cleared) selectionEcho.compose(0);
+                    else selectionEcho.invalidate();
                     return cleared;
                 }
                 if (editorCompositionSuppressed) return true;
@@ -989,8 +997,38 @@ public final class MSIMEInputService extends InputMethodService {
                     selectionEcho.invalidate();
                     return false;
                 }
+                pendingComposition = text;
                 selectionEcho.compose(text.length());
                 return true;
+            }
+            public boolean verify() {
+                if (pendingComposition == null) return true;
+                // Compose 等编辑器在 endBatchEdit 才应用写入；批量内读回的可能是上一拍快照。
+                CharSequence before;
+                try { before = target.getTextBeforeCursor(pendingComposition.length(), 0); }
+                catch (RuntimeException error) { before = null; }
+                int actualLength = CompositionTextPolicy.composingLength(before, pendingComposition);
+                if (actualLength < 0 || actualLength == pendingComposition.length()) return true;
+                // 截短批次的回声可能先于清理回声到达，且 LengthFilter 可能已移除组字标记。
+                selectionEcho.compose(actualLength);
+                selectionEcho.expect();
+                selectionEcho.finish();
+                selectionEcho.expect();
+                target.beginBatchEdit();
+                try {
+                    // 空 setComposingText 无法删除已失去标记的前缀，按实际长度清理。
+                    if (!target.finishComposingText()
+                            || (actualLength > 0 && !target.deleteSurroundingText(actualLength, 0))) {
+                        selectionEcho.invalidate();
+                        return false;
+                    }
+                    selectionEcho.deleteBefore(actualLength);
+                    editorCompositionSuppressed = true;
+                    return true;
+                } finally {
+                    target.endBatchEdit();
+                    selectionEcho.expect();
+                }
             }
             public boolean finish() {
                 boolean finished = target.finishComposingText();
@@ -1010,44 +1048,6 @@ public final class MSIMEInputService extends InputMethodService {
                 selectionEcho.expect();
             }
         };
-    }
-
-    /** 批量结束后才验证组字：Compose 在批内读取时仍可能返回写入前的快照。 */
-    private boolean applyEditorUpdate(String commit, String composing) {
-        final InputConnection target = connection;
-        if (target == null) return true;
-        if (!bridge.apply(sink(typingSource()), commit, composing)) return false;
-        if (composing.isEmpty() || editorCompositionSuppressed) return true;
-        CharSequence before = InputConnectionGuard.textBeforeCursor(target, composing.length());
-        int actualLength = CompositionTextPolicy.composingLength(before, composing);
-        if (actualLength < 0 || actualLength == composing.length()) return true;
-
-        // 第一批已经结束，编辑器可能先回报截短后的选区；过滤器可能保留或移除组字标记。
-        selectionEcho.compose(actualLength);
-        selectionEcho.expect();
-        selectionEcho.finish();
-        selectionEcho.expect();
-        if (!InputConnectionGuard.beginBatchEdit(target)) {
-            selectionEcho.invalidate();
-            return false;
-        }
-        try {
-            // 空 setComposingText 无法删除已被过滤器转成普通文字的前缀，只删这次读回的实际长度。
-            if (!target.finishComposingText()
-                    || (actualLength > 0 && !target.deleteSurroundingText(actualLength, 0))) {
-                selectionEcho.invalidate();
-                return false;
-            }
-            editorCompositionSuppressed = true;
-            selectionEcho.deleteBefore(actualLength);
-            return true;
-        } catch (RuntimeException disconnected) {
-            selectionEcho.invalidate();
-            return false;
-        } finally {
-            InputConnectionGuard.endBatchEdit(target);
-            selectionEcho.expect();
-        }
     }
 
     private TypingSource typingSource() {
@@ -2369,15 +2369,11 @@ public final class MSIMEInputService extends InputMethodService {
         userTranslationAppliedGeneration = -1L;
     }
 
+    /** 只取主目标语言：触屏键盘不显示第二种候选翻译（见 {@link CandidateTranslationPolicy#MAX_TARGETS}）。 */
     private java.util.List<String> translationTargetsFrom(JSONObject preferences) {
         String primary = preferences == null ? "en"
             : InputViewValuePolicy.textOr(preferences, "translation_target_language", "en");
-        String secondary = "";
-        if (preferences != null) {
-            Object value = preferences.opt("translation_secondary_language");
-            if (value instanceof String) secondary = (String) value;
-        }
-        return CandidateTranslationPolicy.targets(primary, secondary);
+        return CandidateTranslationPolicy.targets(primary);
     }
 
     private void applyWubiCodeHintPreference(JSONObject preferences) {
@@ -2704,6 +2700,7 @@ public final class MSIMEInputService extends InputMethodService {
         hardwareLanguageCtrl = nextLanguageCtrl;
         defaultImeMode = nextDefaultImeMode;
         imeModeScope = nextImeModeScope;
+        liveInputModePreferencesLoaded = true;
         JSONObject nextView = result.getJSONObject("view");
         // 引号与方头括号样式变了也重建键行：符号键、字母提示和 123 层的键面都跟着它画。
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(nextView)
@@ -2776,7 +2773,8 @@ public final class MSIMEInputService extends InputMethodService {
             commit = chineseOutput(commit, result.optJSONObject("commit_context"));
         }
         String composing = composingText(next, next.getString("editing_text"), true);
-        if (!applyEditorUpdate(commit, composing)) {
+        if (connection != null
+                && !bridge.apply(sink(typingSource()), commit, composing)) {
             throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
         }
         view = next;
@@ -4132,6 +4130,14 @@ public final class MSIMEInputService extends InputMethodService {
             getResources().getConfiguration().screenHeightDp);
     }
 
+    /** 分词键只服务于已就绪的中文全拼组合，密码框和本地直输保留 Shift。 */
+    boolean usesQuanpinSeparator() {
+        return KeyboardLayout.usesQuanpinSeparator(selectedScheme == KeyboardScheme.QUANPIN,
+            session != 0 && view != null && !dedicatedEnglish && !EditorPolicy.password(editorInputType),
+            keyboardLayer, displayedTouchLayout(view),
+            view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"));
+    }
+
     /** 输入方式和功能面板此刻每页的行数和行距（{@link PagedTileGrid#pickerGrid}）：手机横屏两行，其余在当前键盘高度和行距下放得下就三行。 */
     PagedTileGrid.PickerGrid pickerGrid(float rowHeightDp, float chromeDp) {
         Configuration configuration = getResources().getConfiguration();
@@ -5482,12 +5488,24 @@ public final class MSIMEInputService extends InputMethodService {
         emojiWorker.execute(() -> {
             EmojiCatalogModel.Page page = null;
             try {
-                page = EmojiCatalogModel.renderable(decodeEmojiPage(
-                    NativeClient.emojiCatalog(query, resources), offset, category),
-                    emojiGlyphPaint::hasGlyph);
+                if (EmojiCombinationCatalog.GROUP.equals(category.group())) {
+                    if (emojiCombinationItems == null) {
+                        try (java.io.InputStream input = getAssets().open(EmojiCombinationCatalog.ASSET)) {
+                            emojiCombinationItems = EmojiCombinationCatalog.decode(new String(
+                                HttpBodyPolicy.readRequired(input, EmojiCombinationCatalog.MAX_BYTES),
+                                java.nio.charset.StandardCharsets.UTF_8));
+                        }
+                    }
+                    // 组合短语包含多个字形，不能用整串 hasGlyph 的「单字形」判断过滤。
+                    page = EmojiCombinationCatalog.page(emojiCombinationItems, offset, EmojiCatalogModel.PAGE_SIZE);
+                } else {
+                    page = EmojiCatalogModel.renderable(decodeEmojiPage(
+                        NativeClient.emojiCatalog(query, resources), offset, category),
+                        emojiGlyphPaint::hasGlyph);
+                }
             }
-            catch (JSONException | RuntimeException | LinkageError ignored) {
-                // The UI reports a sanitized catalog error; never expose resource paths or rows.
+            catch (java.io.IOException | JSONException | RuntimeException | LinkageError ignored) {
+                // 界面只显示目录加载失败，不暴露资源路径或条目。
             }
             EmojiCatalogModel.Page result = page;
             main.post(() -> {
@@ -7032,7 +7050,9 @@ public final class MSIMEInputService extends InputMethodService {
             if (!apply(result)) {
                 imeDebugOverlay.showDiagnostic("当前候选不支持此操作");
             } else if (keyboardRoot != null) {
-                keyboardRoot.announceForAccessibility(action.announcement());
+                // 候选操作结果属于可见状态，由已有的 polite live region 播报。
+                imeDebugOverlay.showMessage(action.announcement());
+                render();
             }
         } catch (JSONException | LinkageError error) { fail(error); }
     }
@@ -8019,6 +8039,10 @@ public final class MSIMEInputService extends InputMethodService {
         // toolbar, and what the action row keeps is whatever KeyboardActionRow lists for the surface.
         LinearLayout controls = LayoutPolicy.row(this);
         shiftButton = button(controls, "⇧", () -> {
+            if (usesQuanpinSeparator()) {
+                if (hasEngineComposition()) character('\'');
+                return;
+            }
             // 韩语键面上 Shift 是双辅音那一排，不是切到英文的入口；越南语和藏文里它是字母大小写。
             if (!dedicatedEnglish && session != 0 && !helpcodeCompositionEligible()
                     && !letterCompositionActive()) {
@@ -9231,15 +9255,17 @@ public final class MSIMEInputService extends InputMethodService {
                 || shiftLayout == JAPANESE_NINE_KEY_LAYOUT;
             ViewPolicy.setVisible(shiftButton, KeyboardLayout.carriesLetterCase(shiftLayout)
                 || (!keepsOwnGrid && keyboardLayer != KeyboardLayout.Layer.LETTERS));
-            shiftButton.setText(letterCase.keyText());
-            ViewPolicy.setSelected(shiftButton, letterCase.usesUppercase());
-            shiftButton.setActivated(letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK);
+            boolean separator = usesQuanpinSeparator();
+            imeLetterRows.updateShiftKeyIdentity(separator);
+            shiftButton.setText(separator ? "分词" : letterCase.keyText());
+            ViewPolicy.setSelected(shiftButton, !separator && letterCase.usesUppercase());
+            shiftButton.setActivated(!separator && letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK);
             // The final applySkin() traversal styles this attached button once.
-            String caseLabel = shiftLayout == KeyboardLayout.KOREAN_LAYOUT
+            String caseLabel = separator ? "拼音分词" : shiftLayout == KeyboardLayout.KOREAN_LAYOUT
                 ? KoreanKeyboardLayout.SHIFT_LABEL
                 : letterCase.accessibilityLabel(dedicatedEnglish || session == 0
                     || letterCaseSchemeActive());
-            String caseValue = letterCase.accessibilityValue();
+            String caseValue = separator ? "分隔拼音音节" : letterCase.accessibilityValue();
             shiftButton.setContentDescription(Build.VERSION.SDK_INT >= 30
                 ? caseLabel : caseLabel + "，" + caseValue);
             if (Build.VERSION.SDK_INT >= 30) shiftButton.setStateDescription(caseValue);

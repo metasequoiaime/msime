@@ -20,6 +20,7 @@
 #include <limits>
 #include <string>
 #include <unistd.h>
+#include <unordered_map>
 
 struct SnapshotReader {
     explicit SnapshotReader(const std::string &path)
@@ -887,9 +888,16 @@ void throw_state(JNIEnv *env, const char *message) {
     if (type) env->ThrowNew(type, message);
 }
 
-LocalSpeech *speech(jlong handle) {
+// Android 的堆指针可能带最高字节标记；Java 只持有正整数身份，不接收地址。
+std::mutex speech_handles_mutex;
+std::unordered_map<jlong, std::shared_ptr<LocalSpeech>> speech_handles;
+jlong next_speech_handle = 1;
+
+std::shared_ptr<LocalSpeech> speech(jlong handle) {
     if (handle <= 0) return nullptr;
-    return reinterpret_cast<LocalSpeech *>(static_cast<intptr_t>(handle));
+    std::lock_guard<std::mutex> lock(speech_handles_mutex);
+    const auto found = speech_handles.find(handle);
+    return found == speech_handles.end() ? nullptr : found->second;
 }
 
 // 先按头文件写明的上限检查长度：超限的请求在取得本地视图之前就交给宿主以空请求拒绝，避免 GetByteArrayElements 复制一份超大数组。
@@ -1232,12 +1240,26 @@ JNIEXPORT void JNICALL Java_app_msime_android_NativeClient_localSpeechRuntimeRaw
 JNIEXPORT jboolean JNICALL Java_app_msime_android_NativeClient_localSpeechAvailableRaw(JNIEnv *, jclass) {
     return msime::voice::sherpa_runtime_available() ? JNI_TRUE : JNI_FALSE;
 }
-JNIEXPORT jlong JNICALL Java_app_msime_android_NativeClient_localSpeechCreateRaw(JNIEnv *, jclass) {
-    return static_cast<jlong>(reinterpret_cast<intptr_t>(new LocalSpeech()));
+JNIEXPORT jlong JNICALL Java_app_msime_android_NativeClient_localSpeechCreateRaw(JNIEnv *env, jclass) {
+    try {
+        auto state = std::make_shared<LocalSpeech>();
+        std::lock_guard<std::mutex> lock(speech_handles_mutex);
+        if (next_speech_handle == std::numeric_limits<jlong>::max()) {
+            throw_state(env, "local speech handles exhausted");
+            return 0;
+        }
+        const jlong handle = next_speech_handle;
+        speech_handles.emplace(handle, std::move(state));
+        ++next_speech_handle;
+        return handle;
+    } catch (const std::exception &) {
+        throw_state(env, "local speech session could not be created");
+        return 0;
+    }
 }
 // Loads the model (seconds on a phone the first time; cached afterwards) and opens the session. Hotwords arrive newline-separated. Returns null on success, else a message for logs.
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechStartRaw(JNIEnv *env, jclass, jlong handle, jbyteArray model, jbyteArray language, jbyteArray hotwords, jint threads) {
-    LocalSpeech *state = speech(handle);
+    auto state = speech(handle);
     if (!state || state->session) return bytes_of(env, "invalid local speech session");
     std::string model_text;
     std::string language_text;
@@ -1261,7 +1283,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechStar
     try {
         state->session = std::make_unique<msime::voice::LocalAsrSession>(
             options,
-            [state](const std::string &text) {
+            [state = state.get()](const std::string &text) {
                 std::lock_guard<std::mutex> lock(state->partial_mutex);
                 state->partial = text;
                 state->partial_changed = true;
@@ -1274,7 +1296,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechStar
 }
 // Feeds 16 kHz mono PCM16. Returns the whole transcript so far when it changed, else null. Throws IllegalStateException when the session was cancelled or the recognizer failed.
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechAcceptRaw(JNIEnv *env, jclass, jlong handle, jshortArray pcm, jint count) {
-    LocalSpeech *state = speech(handle);
+    auto state = speech(handle);
     if (!state || !state->session || !pcm || count < 0 || count > kLocalSpeechChunkLimit
             || count > env->GetArrayLength(pcm)) {
         throw_state(env, "invalid local speech input");
@@ -1297,7 +1319,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechAcce
     return bytes_of(env, state->partial);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechFinishRaw(JNIEnv *env, jclass, jlong handle) {
-    LocalSpeech *state = speech(handle);
+    auto state = speech(handle);
     if (!state || !state->session) {
         throw_state(env, "invalid local speech session");
         return nullptr;
@@ -1311,10 +1333,18 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechFini
 }
 // Any thread: a decode in progress on the worker stops at its next check.
 JNIEXPORT void JNICALL Java_app_msime_android_NativeClient_localSpeechCancelRaw(JNIEnv *, jclass, jlong handle) {
-    if (LocalSpeech *state = speech(handle)) state->cancelled->store(true);
+    if (auto state = speech(handle)) state->cancelled->store(true);
 }
 JNIEXPORT void JNICALL Java_app_msime_android_NativeClient_localSpeechDestroyRaw(JNIEnv *, jclass, jlong handle) {
-    if (handle > 0) delete speech(handle);
+    std::shared_ptr<LocalSpeech> state;
+    {
+        std::lock_guard<std::mutex> lock(speech_handles_mutex);
+        const auto found = speech_handles.find(handle);
+        if (found == speech_handles.end()) return;
+        state = std::move(found->second);
+        speech_handles.erase(found);
+    }
+    // 模型和会话在锁外析构；已经进入 JNI 的调用持有自己的引用。
 }
 // Drops models no session has used for `idleMillis`; 0 drops every model not in use. Returns how many were dropped.
 JNIEXPORT jint JNICALL Java_app_msime_android_NativeClient_localSpeechReleaseRaw(JNIEnv *, jclass, jlong idleMillis) {

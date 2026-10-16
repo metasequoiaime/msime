@@ -2,6 +2,8 @@ import SwiftUI
 
 struct SkinCommunityView: View {
   var onlyMine = false
+  /// 嵌在皮肤页「社区」分类里时为 true：不设自己的导航标题，沿用皮肤页的「皮肤」；发布按钮照常放在导航栏右侧。
+  var embedded = false
   private var visibleSkins: [CommunitySkin] { onlyMine ? skins.filter(\.owned) : skins }
   @State private var skins: [CommunitySkin] = []
   @State private var more = false
@@ -23,16 +25,15 @@ struct SkinCommunityView: View {
   @State private var taking: Set<String> = []
   @State private var takeTasks: [String: Task<Void, Never>] = [:]
   @State private var takeGeneration = OperationGeneration()
-  // 两个键都只用来重绘胶囊按钮：主题决定键盘上是否显示自定义设计，设计决定显示哪一个。
+  // 只用来重绘胶囊按钮：主题决定键盘上是否显示自定义设计。
   @AppStorage(GlobalThemePreference.key, store: KeyboardFeedbackPreference.defaults) private var globalTheme = GlobalThemeCatalog.systemId
-  @AppStorage(CustomKeyboardSkinStore.key, store: KeyboardFeedbackPreference.defaults) private var storedDesign: Data?
+  /// 键盘当前绘制的设计；键盘绘制内置主题时为 nil。设计存在带点的键 `customKeyboardSkin.v1` 下，`@AppStorage` 收不到它的变化：键盘已经在用一款设计时换上另一款，主题键也不变，胶囊按钮就停在「使用」。所以画廊显示时、主题变化时和「使用」之后都重新读取。
+  @State private var activeDesign: CustomKeyboardSkin?
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   private let api = SkinCommunityAPI.shared
 
-  /// 键盘当前绘制的设计；键盘绘制内置主题时为 nil。
-  private var activeDesign: CustomKeyboardSkin? {
-    guard globalTheme == GlobalThemeCatalog.customId, storedDesign != nil else { return nil }
-    return CustomKeyboardSkinStore.stored
+  private func refreshActiveDesign() {
+    activeDesign = GlobalThemePreference.selected == GlobalThemeCatalog.customId ? CustomKeyboardSkinStore.stored : nil
   }
 
   private var gallery: some View {
@@ -58,7 +59,8 @@ struct SkinCommunityView: View {
       }.communityPageContent(regular: regular)
     }
     .background(MetasequoiaTheme.canvas)
-    .onAppear { request.appear(); library = CustomSkinLibrary.designs }
+    .onAppear { request.appear(); library = CustomSkinLibrary.designs; refreshActiveDesign() }
+    .onChange(of: globalTheme) { refreshActiveDesign() }
   }
 
   private func state(of skin: CommunitySkin, active: CustomKeyboardSkin?) -> CommunitySkinCard.PillState {
@@ -72,6 +74,7 @@ struct SkinCommunityView: View {
     if let saved = CommunitySkinInstall.saved(skin, in: library) {
       guard saved.design != activeDesign else { return }
       if CommunitySkinInstall.apply(saved.design) {
+        refreshActiveDesign()
         TypingStatisticsExtras.recordSkin(saved.id.uuidString)
         ToastCenter.shared.show("已换上「\(skin.name)」")
       }
@@ -124,6 +127,10 @@ struct SkinCommunityView: View {
       .accessibilityAddTraits(selected ? [.isSelected] : [])
   }
   var body: some View {
+    if embedded { page } else { page.navigationTitle(onlyMine ? "我发布的皮肤" : "皮肤社区").navigationBarTitleDisplayMode(.inline) }
+  }
+
+  private var page: some View {
     gallery
     .toolbar {
       ToolbarItem(placement: .navigationBarTrailing) {
@@ -132,8 +139,6 @@ struct SkinCommunityView: View {
         }.accessibilityLabel("发布我的设计").accessibilityIdentifier("publishCommunitySkin")
       }
     }
-    .navigationTitle(onlyMine ? "我发布的皮肤" : "皮肤社区")
-    .navigationBarTitleDisplayMode(.inline)
     .refreshable {
       do { try await load() }
       catch is CancellationError { }
@@ -146,7 +151,7 @@ struct SkinCommunityView: View {
       signedIn = state
       startLoad()
     }
-    .onChange(of: signedIn) { _ in startLoad() }
+    .onChange(of: signedIn) { startLoad() }
     .sheet(isPresented: $showPublish) { CommunityPublishView { startLoad() } }
     .sheet(isPresented: $showAccount, onDismiss: {
       let id = accountGeneration.begin()
@@ -471,7 +476,7 @@ struct CommunityPublishView: View {
               .foregroundStyle(.secondary)
           } else {
             Picker("我的皮肤", selection: $selected) { ForEach(library) { Text($0.name).tag($0.id) } }
-              .onChange(of: selected) { id in name = library.first { $0.id == id }?.name ?? ""; publicationID = UUID().uuidString.lowercased() }
+              .onChange(of: selected) { _, id in name = library.first { $0.id == id }?.name ?? ""; publicationID = UUID().uuidString.lowercased() }
             if let design { CommunityDesignPreview(design: design) }
           }
           if selectedSkinID == nil {
@@ -488,8 +493,8 @@ struct CommunityPublishView: View {
           Text("选择已保存的设计")
         }
         Section("发布信息") {
-          TextField("皮肤名称（最多 32 字）", text: $name).onChange(of: name) { name = String($0.prefix(32)); publicationID = UUID().uuidString.lowercased() }
-          TextField("设计说明（最多 280 字）", text: $description).onChange(of: description) { description = String($0.prefix(280)); publicationID = UUID().uuidString.lowercased() }
+          TextField("皮肤名称（最多 32 字）", text: $name).onChange(of: name) { _, newValue in name = String(newValue.prefix(32)); publicationID = UUID().uuidString.lowercased() }
+          TextField("设计说明（最多 280 字）", text: $description).onChange(of: description) { _, value in description = String(value.prefix(280)); publicationID = UUID().uuidString.lowercased() }
           // 分类不计入请求摘要，修改分类不需要换新的发布 id。
           Picker("分类", selection: $category) {
             ForEach(CommunitySkinCategory.allCases) { Text($0.label).tag($0) }

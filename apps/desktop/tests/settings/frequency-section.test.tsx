@@ -31,7 +31,7 @@ test("frequency section updates each preference independently", () => {
 test("frequency section keeps persisted values above the standard option range", () => {
   render(
     <FrequencySection
-      preferences={{ mode: "halve", trigger_count: 10, linear_step: 7 }}
+      preferences={{ mode: "linear", trigger_count: 10, linear_step: 7 }}
       onChange={vi.fn()}
     />,
   );
@@ -40,4 +40,34 @@ test("frequency section keeps persisted values above the standard option range",
     "10",
   );
   expect(screen.getByRole("combobox", { name: "线性调频步长" }).textContent).toContain("7");
+});
+
+test("each frequency row appears only where it has an effect", () => {
+  const { rerender } = render(
+    <FrequencySection preferences={{ ...preferences, mode: "linear" }} onChange={vi.fn()} />,
+  );
+  expect(screen.getByRole("combobox", { name: "线性调频步长" })).toBeTruthy();
+
+  // 步长只有线性调频读。
+  rerender(<FrequencySection preferences={{ ...preferences, mode: "halve" }} onChange={vi.fn()} />);
+  expect(screen.getByRole("combobox", { name: "触发频次(第几次上屏触发)" })).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "线性调频步长" })).toBeNull();
+
+  // 调频关闭时触发频次也不起作用。
+  rerender(
+    <FrequencySection preferences={{ ...preferences, mode: "disabled" }} onChange={vi.fn()} />,
+  );
+  expect(screen.getByRole("combobox", { name: "调频方式" })).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "触发频次(第几次上屏触发)" })).toBeNull();
+
+  // 不学习选词习惯时整组都不画，存着的值不动。
+  rerender(
+    <FrequencySection
+      preferences={{ ...preferences, mode: "linear" }}
+      learning={false}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.queryByText("拼音方案调频")).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "调频方式" })).toBeNull();
 });

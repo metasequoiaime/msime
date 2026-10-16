@@ -507,7 +507,6 @@ test("the 自定义双拼 option follows the host's ability to edit it", () => {
     <InputSchemeDetailsSection
       scheme="shuangpin"
       shuangpinProfile="xiaohe"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={onShuangpinProfileChange}
     />,
@@ -522,7 +521,6 @@ test("the 自定义双拼 option follows the host's ability to edit it", () => {
     <InputSchemeDetailsSection
       scheme="shuangpin"
       shuangpinProfile="custom"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={onShuangpinProfileChange}
     />,
@@ -538,7 +536,6 @@ test("the 自定义双拼 option follows the host's ability to edit it", () => {
     <InputSchemeDetailsSection
       scheme="shuangpin"
       shuangpinProfile="xiaohe"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={onShuangpinProfileChange}
       onEditCustomShuangpin={onEditCustomShuangpin}
@@ -552,7 +549,6 @@ test("the 自定义双拼 option follows the host's ability to edit it", () => {
     <InputSchemeDetailsSection
       scheme="shuangpin"
       shuangpinProfile="custom"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={onShuangpinProfileChange}
       onEditCustomShuangpin={onEditCustomShuangpin}
@@ -576,6 +572,38 @@ function snapshot(preferences: Partial<Snapshot["preferences"]> = {}): Snapshot 
     },
   };
 }
+
+test.each(["linux", "macos"] as const)(
+  "%s settings save and reload the built-in Smart ABC profile without a custom table",
+  async (platform) => {
+    let saved = snapshot();
+    const save = vi.fn(async (_revision: number, preferences: Snapshot["preferences"]) => {
+      saved = { ...saved, revision: 4, preferences };
+      return saved;
+    });
+    const client = { load: async () => saved, save, host: testHost({ platform }) };
+    const first = render(<SettingsPage client={client} />);
+    await settingsFormReady();
+    fireEvent.click(screen.getByRole("button", { name: "输入" }));
+    fireEvent.change(await screen.findByRole("combobox", { name: "双拼方案" }), {
+      target: { value: "smart_abc" },
+    });
+    saveSettingsNow();
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(
+        3,
+        expect.objectContaining({ shuangpin_profile: "smart_abc" }),
+      ),
+    );
+    first.unmount();
+    render(<SettingsPage client={client} />);
+    await settingsFormReady();
+    fireEvent.click(screen.getByRole("button", { name: "输入" }));
+    expect(
+      ((await screen.findByRole("combobox", { name: "双拼方案" })) as HTMLSelectElement).value,
+    ).toBe("smart_abc");
+  },
+);
 
 test("the input page saves only a usable table and switches to it", async () => {
   const shuangpin = fakeClient();

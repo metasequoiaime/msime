@@ -1,6 +1,6 @@
 import { SettingsGroupNote } from "./settings-group-note";
 
-/** Linux 宿主不画悬浮工具栏窗口，「悬浮工具栏」页首用这段说明代替预览：工具栏在 IBus 与 Fcitx5 下是输入法菜单里的「工具栏」子菜单，「工具栏大小」没有对应的面。`buttons` 为假时宿主没有按钮勾选项，只提显示开关。`gnomeShell` 是宿主报告 GNOME Shell 面板（`candidate_panel_limit` 为 `gnome_shell`，只有 IBus 宿主会报）的情形：IBus 在那里只发布输入模式和设置两项，没有工具栏子菜单，这一页的设置都不生效，所以照实说，不再说开关仍然生效。 */
+/** Linux 宿主不画悬浮工具栏窗口，「悬浮工具栏」页首用这段说明代替预览：工具栏在 IBus 与 Fcitx5 下是输入法菜单里的「工具栏」子菜单，「工具栏大小」没有对应的面；Fcitx5 的中英文切换提示有自己的固定大小（`platforms/linux/src/overlay/ModeBadgeStyle.h`），也不读共享文档里的工具栏大小，所以说明写「工具栏大小不适用」是照实。`buttons` 为假时宿主没有按钮勾选项，只提显示开关。`gnomeShell` 是宿主报告 GNOME Shell 面板（`candidate_panel_limit` 为 `gnome_shell`，只有 IBus 宿主会报）的情形：IBus 在那里只发布输入模式和设置两项，没有工具栏子菜单，这一页的设置都不生效，所以照实说，不再说开关仍然生效。 */
 export function FloatingToolbarPlatformNotice({
   buttons = true,
   gnomeShell = false,

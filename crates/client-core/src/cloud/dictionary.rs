@@ -125,7 +125,10 @@ pub fn valid_candidate_query(
             "pinyin" | "jianpin" | "wubi" | "wubi98" | "quick" | "english"
         )
         && matches!(scheme, "pinyin" | "shuangpin")
-        && matches!(profile, "xiaohe" | "ziranma" | "microsoft" | "shoudao")
+        && matches!(
+            profile,
+            "xiaohe" | "ziranma" | "microsoft" | "shoudao" | "smart_abc"
+        )
         && (1..=100).contains(&limit)
 }
 
@@ -136,6 +139,24 @@ pub fn valid_candidate_value(code: &str, word: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn smart_abc_candidate_queries_are_valid_and_unknown_profiles_are_rejected() {
+        assert!(valid_candidate_query(
+            "nihk",
+            "pinyin",
+            "shuangpin",
+            "smart_abc",
+            100
+        ));
+        assert!(!valid_candidate_query(
+            "nihk",
+            "pinyin",
+            "shuangpin",
+            "unknown",
+            100
+        ));
+    }
 
     #[test]
     fn validates_dictionary_values() {

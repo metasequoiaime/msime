@@ -11,7 +11,7 @@ namespace msime::linux_host {
 class ModeBadgeSurface {
  public:
   virtual ~ModeBadgeSurface() = default;
-  // style carries the size (floating_toolbar.font_size, scale_percent) and the resolved theme palette; each show re-measures, so a preference change applies at the next switch.
+  // style carries the badge's fixed size and the resolved theme palette; each show re-measures, so a theme change applies at the next switch.
   virtual bool show(const std::string &text, const std::string &icon_path, const ModeBadgeStyle &style) = 0;
   virtual void hide() = 0;
 

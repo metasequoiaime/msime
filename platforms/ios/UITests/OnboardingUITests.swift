@@ -34,7 +34,8 @@ final class OnboardingUITests: XCTestCase {
       let installed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: download)
       XCTAssertEqual(XCTWaiter.wait(for: [installed], timeout: 240), .completed, "语言词库下载应完成")
     }
-    app.tabBars.buttons["对话"].tap()
+    reachSettingsLink("keyboardTryoutLink", in: app)
+    settingsEntry("keyboardTryoutLink", in: app).tap()
     let field = app.textFields["keyboardTryoutField"]
     XCTAssertTrue(field.waitForExistence(timeout: 10))
     field.tap()
@@ -296,6 +297,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "-aiSkinPreview"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
+    app.buttons["skinTab-1"].tap()
     tapRevealed("customSkinEditorLink", in: app)
     app.buttons["openAISkinDesigner"].tap()
     XCTAssertTrue(app.navigationBars["AI 皮肤抽卡"].waitForExistence(timeout: 5))
@@ -374,8 +376,8 @@ final class OnboardingUITests: XCTestCase {
     back(to: "设置")
     reachSettingsLink("skinSettingsLink", in: app)
     settingsEntry("skinSettingsLink", in: app).tap()
-    tapRevealed("skinCommunityLink", in: app)
-    XCTAssertTrue(app.navigationBars["皮肤社区"].waitForExistence(timeout: 5))
+    app.buttons["skinTab-2"].tap()
+    XCTAssertTrue(app.buttons["publishCommunitySkin"].waitForExistence(timeout: 5))
     app.buttons["publishCommunitySkin"].tap()
     XCTAssertTrue(app.navigationBars["发布皮肤"].waitForExistence(timeout: 5))
   }
@@ -388,7 +390,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertFalse(app.buttons["keyboardGuideLink"].exists)
     XCTAssertFalse(app.buttons["aboutSettingsLink"].exists)
     app.buttons["skinSettingsLink"].tap()
-    tapRevealed("skinCommunityLink", in: app)
+    app.buttons["skinTab-2"].tap()
     let card = app.buttons["communitySkinCard-20000000-0000-4000-8000-000000000001"]
     XCTAssertTrue(card.waitForExistence(timeout: 5)); card.tap()
     app.buttons["downloadCommunitySkin"].tap()
@@ -433,9 +435,9 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["AI 设置"].waitForExistence(timeout: 5))
     reachSettingsLink("keyboardTryoutLink", in: app)
     settingsEntry("keyboardTryoutLink", in: app).tap()
-    // 试用键盘的页面就是「对话」标签页。
-    XCTAssertTrue(app.navigationBars["对话"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.tabBars.buttons["对话"].isSelected)
+    // 试用键盘打开 AI 对话二级页，仍属于设置标签。
+    XCTAssertTrue(app.navigationBars["AI 对话"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.tabBars.buttons["设置"].isSelected)
     XCTAssertTrue(app.textFields["keyboardTryoutField"].exists)
     reachSettingsLink("inputSettingsLink", in: app)
     settingsEntry("inputSettingsLink", in: app).tap()
@@ -583,20 +585,37 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
+  func testChatIsSecondaryAndReturnsToSettings() {
+    continueAfterFailure = false
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "--keyboard-chat-ui-fixture"]
+    app.launch()
+    XCTAssertTrue(app.tabBars.buttons["全部设置"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.tabBars.buttons["对话"].exists)
+    reachSettingsLink("keyboardTryoutLink", in: app)
+    settingsEntry("keyboardTryoutLink", in: app).tap()
+    XCTAssertTrue(app.navigationBars["AI 对话"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.textFields["keyboardTryoutField"].exists)
+    let dismissKeyboard = app.buttons["dismissKeyboardButton"]
+    if dismissKeyboard.waitForExistence(timeout: 5) && dismissKeyboard.isHittable { dismissKeyboard.tap() }
+    XCTAssertTrue(app.tabBars.buttons["设置"].isSelected)
+    app.navigationBars.buttons.matching(identifier: "设置").firstMatch.tap()
+    XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["keyboardTryoutLink"].exists)
+  }
+
+  @MainActor
   func testMainTabsKeepIndependentNavigation() {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     XCTAssertTrue(app.tabBars.buttons["设置"].isSelected)
     app.buttons["inputSettingsLink"].tap()
-    // 原来「社区」那一格换成了「对话」，社区作品列在各个功能页里。
     XCTAssertEqual(app.tabBars.buttons.count, 4)
-    XCTAssertFalse(app.tabBars.buttons["社区"].exists)
-    app.tabBars.buttons["对话"].tap()
-    XCTAssertTrue(app.navigationBars["对话"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.textFields["keyboardTryoutField"].exists)
-    // 直接点标签栏进来不弹键盘；只有设置里的「试用键盘」会把焦点放进输入框。
-    XCTAssertNotEqual(app.textFields["keyboardTryoutField"].value(forKey: "hasKeyboardFocus") as? Bool, true)
+    XCTAssertFalse(app.tabBars.buttons["对话"].exists)
+    app.tabBars.buttons["全部设置"].tap()
+    XCTAssertTrue(app.navigationBars["全部设置"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["keyboardTryoutLink"].exists)
     app.tabBars.buttons["统计"].tap()
     XCTAssertTrue(app.navigationBars["统计"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["statisticsTab-0"].exists)
@@ -615,31 +634,46 @@ final class OnboardingUITests: XCTestCase {
   }
 
   @MainActor
-  func testSkinPageAppliesCommunitySkinAndBrowsesMore() {
+  func testSkinPageTabsTakeCommunitySkinIntoMine() {
     let app = XCUIApplication()
-    // 点社区皮肤会存一款进皮肤库；先清空，免得之前失败的用例占满十二个槽位。
+    // 获取社区皮肤会存一款进皮肤库；先清空，免得之前失败的用例占满十二个槽位。
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "-communityPreview", "--reset-custom-skins-for-ui-tests"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
     XCTAssertTrue(app.navigationBars["皮肤"].waitForExistence(timeout: 5))
-    // 社区皮肤紧跟在主题网格后面，点一下就领取并换上。
-    let tile = app.buttons["communitySkinTile-20000000-0000-4000-8000-000000000001"]
-    reveal(tile, in: app)
-    XCTAssertEqual(tile.value as? String, "未选择")
-    tile.tap()
-    XCTAssertTrue(wait(tile, until: "value == '已选择'"), "the community skin was not applied: \(tile.debugDescription)")
-    let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "皮肤页的社区皮肤"; shot.lifetime = .deleteOnSuccess; add(shot)
-    // 「浏览更多皮肤」在本页的导航栈里推入完整的皮肤社区，不切换标签页。
-    tapRevealed("skinCommunityLink", in: app)
-    XCTAssertTrue(app.navigationBars["皮肤社区"].waitForExistence(timeout: 5))
+    // 默认停在「内置」：只有目录主题，AI 卡片和设计器入口在「我的」。
+    XCTAssertTrue(app.buttons["skin_system"].waitForExistence(timeout: 5))
+    // 先换回跟随系统：之前的用例可能把这款社区皮肤留在键盘上，那样获取后直接就是「使用中」。
+    app.buttons["skin_system"].tap()
+    XCTAssertEqual(app.buttons["skin_system"].value as? String, "已选择")
+    XCTAssertFalse(app.buttons["aiSkinDesignTile"].exists)
+    XCTAssertFalse(app.buttons["customSkinEditorLink"].exists)
+    app.buttons["skinTab-1"].tap()
+    XCTAssertTrue(app.buttons["aiSkinDesignTile"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["savedSkinsEmpty"].exists)
+    XCTAssertFalse(app.buttons["skin_system"].exists)
+    // 「社区」就地显示完整的皮肤社区，标题仍是「皮肤」，不推入新页面也不切换底部标签。
+    app.buttons["skinTab-2"].tap()
+    let take = app.buttons["communitySkinAction-20000000-0000-4000-8000-000000000001"]
+    XCTAssertTrue(take.waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["皮肤"].exists)
     XCTAssertTrue(app.tabBars.buttons["设置"].isSelected)
-    XCTAssertTrue(app.buttons["communitySkinCard-20000000-0000-4000-8000-000000000001"].waitForExistence(timeout: 5))
-    // 刚换上的那款显示「使用中」，不再是可以点的胶囊按钮；另一款还没领取。
-    XCTAssertFalse(app.buttons["communitySkinAction-20000000-0000-4000-8000-000000000001"].exists)
+    XCTAssertTrue(app.buttons["publishCommunitySkin"].exists)
+    take.tap()
+    XCTAssertTrue(wait(take, until: "label BEGINSWITH '使用，'"), "the community skin was not taken: \(take.debugDescription)")
+    take.tap()
+    // 换上的那款显示「使用中」，不再是可以点的胶囊按钮；另一款还没领取。
+    XCTAssertTrue(take.waitForNonExistence(timeout: 5))
     XCTAssertTrue(app.buttons["communitySkinAction-20000000-0000-4000-8000-000000000002"].exists)
-    app.navigationBars.buttons.firstMatch.tap()
-    XCTAssertTrue(app.navigationBars["皮肤"].waitForExistence(timeout: 5))
+    // 刚获取的皮肤出现在「我的」，并且是键盘正在用的那款。
+    app.buttons["skinTab-1"].tap()
+    let saved = app.buttons["savedSkinTile-20000000-0000-4000-8000-000000000001"]
+    XCTAssertTrue(saved.waitForExistence(timeout: 5))
+    XCTAssertEqual(saved.value as? String, "已选择")
+    XCTAssertFalse(app.staticTexts["savedSkinsEmpty"].exists)
+    let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "皮肤页的我的分类"; shot.lifetime = .deleteOnSuccess; add(shot)
     // 换回跟随系统，不把社区皮肤留给后面的用例。
+    app.buttons["skinTab-0"].tap()
     reveal(app.buttons["skin_system"], in: app)
     app.buttons["skin_system"].tap()
     XCTAssertEqual(app.buttons["skin_system"].value as? String, "已选择")
@@ -1123,6 +1157,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "-aiSkinPreview", "-skinGenerationSlowFixture"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
+    app.buttons["skinTab-1"].tap()
     tapRevealed("customSkinEditorLink", in: app)
     app.buttons["openAISkinDesigner"].tap()
     XCTAssertTrue(app.buttons["generateAISkins"].waitForExistence(timeout: 5))
@@ -1141,6 +1176,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
+    app.buttons["skinTab-1"].tap()
     tapRevealed("customSkinEditorLink", in: app)
     app.buttons["skinEditorTemplates"].tap()
     let gallery = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app.tables.firstMatch
@@ -1171,6 +1207,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     func openEditor() {
       app.buttons["skinSettingsLink"].tap()
+      app.buttons["skinTab-1"].tap()
       tapRevealed("customSkinEditorLink", in: app)
       app.buttons["skinEditorTab_按键"].tap()
     }
@@ -1237,6 +1274,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "--reset-custom-skins-for-ui-tests"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
+    app.buttons["skinTab-1"].tap()
     tapRevealed("customSkinEditorLink", in: app)
     app.buttons["skinEditorTemplates"].tap()
     app.buttons["skinTemplate_紫夜星光"].tap()
@@ -1261,6 +1299,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
+    app.buttons["skinTab-1"].tap()
     tapRevealed("customSkinEditorLink", in: app)
     app.buttons["skinEditorTools"].tap(); app.buttons["我的皮肤"].tap()
     XCTAssertTrue(app.buttons["savedSkin_" + name].exists)
@@ -1300,6 +1339,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
+    app.buttons["skinTab-1"].tap()
     tapRevealed("customSkinEditorLink", in: app)
     let preview = app.otherElements["fullKeyboardSkinPreview"]
     XCTAssertTrue(preview.waitForExistence(timeout: 5))
@@ -1331,6 +1371,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
+    app.buttons["skinTab-1"].tap()
     tapRevealed("customSkinEditorLink", in: app)
     XCUIDevice.shared.orientation = .landscapeLeft
     defer { XCUIDevice.shared.orientation = .portrait }
@@ -1572,11 +1613,15 @@ final class OnboardingUITests: XCTestCase {
     light.name = "皮肤网格"
     light.lifetime = .deleteOnSuccess
     add(light)
-    // 网格以 AI 卡片结尾，点开是一句话设计器。
+    // 「我的」以 AI 卡片开头，点开是一句话设计器。
+    app.buttons["skinTab-1"].tap()
     tapRevealed("aiSkinDesignTile", in: app)
     XCTAssertTrue(app.navigationBars["AI 设计皮肤"].waitForExistence(timeout: 5))
     app.navigationBars.buttons.element(boundBy: 0).tap()
-    // 外观选择器移到了网格下方的独立页面。
+    // 返回后仍停在「我的」：页面打开期间记住所选分类。
+    XCTAssertTrue(app.buttons["aiSkinDesignTile"].waitForExistence(timeout: 5))
+    // 外观选择器是「内置」网格下方的独立页面。
+    app.buttons["skinTab-0"].tap()
     tapRevealed("skinAppearanceLink", in: app)
     XCTAssertTrue(app.navigationBars["明暗与候选颜色"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.descendants(matching: .any)["globalTheme"].exists)

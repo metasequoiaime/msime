@@ -165,6 +165,13 @@ public final class AndroidLocalSettingsSmoke {
         check(fresh.bool(AndroidLocalSettings.BOTTOM_BAR), "bottom bar on by default");
         // 底部留白（#6392）：默认关，老用户的键盘高度不变；只在本机。
         check(!fresh.bool(AndroidLocalSettings.BOTTOM_PADDING), "bottom padding off by default");
+        check(fresh.integer(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT) == 40,
+            "legacy enabled padding retains forty dp");
+        AndroidLocalSettings.Spec paddingHeight = AndroidLocalSettings.spec(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT);
+        check(Integer.valueOf(0).equals(paddingHeight.accept(0))
+            && Integer.valueOf(160).equals(paddingHeight.accept(160))
+            && paddingHeight.accept(-1) == null && paddingHeight.accept(161) == null,
+            "padding target is bounded independently of key height");
         // 「加高底行」（#6354）已移除，底行默认就和键行同高：不再是一个设置项，存着的旧值读取时丢掉。
         check(!AndroidLocalSettings.specs().containsKey("platform.android.tall_bottom_row"), "tall bottom row is no longer a setting");
         AndroidLocalSettings.Spec floatingX = AndroidLocalSettings.spec(AndroidLocalSettings.FLOATING_KEYBOARD_X);
@@ -197,7 +204,7 @@ public final class AndroidLocalSettingsSmoke {
                 AndroidLocalSettings.FLOATING_KEYBOARD_X, AndroidLocalSettings.FLOATING_KEYBOARD_Y,
                 AndroidLocalSettings.HARDWARE_CARET_CANDIDATES,
                 AndroidLocalSettings.TOOLBAR_FLOATING, AndroidLocalSettings.TOOLBAR_TEXT_EDIT, AndroidLocalSettings.BOTTOM_BAR, AndroidLocalSettings.BOTTOM_PADDING,
-                AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY,
+                AndroidLocalSettings.BOTTOM_PADDING_HEIGHT, AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY,
                 AndroidLocalSettings.DEVELOPER_LOG_LEVEL, AndroidLocalSettings.DEVELOPER_INPUT_LOG,
                 AndroidLocalSettings.MCP_RETENTION, AndroidLocalSettings.MCP_INPUT_EVENTS}) {
             check(!synced.containsKey(local), local + " never syncs");

@@ -1,6 +1,6 @@
 import toolbarMarkup from "../upstream/skin-toolbar-preview.html?raw";
 import { useEffect, useRef, type CSSProperties } from "react";
-import type { FloatingToolbarPreferences } from "../index";
+import type { FloatingToolbarPreferences } from "../settings/floating-toolbar-preferences";
 
 /** Build-time, script-free upstream sample; never accepts runtime HTML. */
 export function SkinToolbarPreview({ preferences }: { preferences?: FloatingToolbarPreferences }) {

@@ -82,18 +82,14 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 /// The 候选字体 preset: 0 默认, 1 宋体, 2 黑体, 3 楷体, 4 圆体, read back from `fontFamily`, or -1 for a family none of them writes. Setting one writes the preset's family for this host into `fontFamily` and puts all of its families, the other platforms' names included, at the front of `fallbackFonts`; 默认 restores the shared default pair.
 @property(nonatomic) NSInteger candidateFontPreset;
 @property(nonatomic, copy) NSString *candidateTextColor;
-/// The six other candidate pickers of `custom_theme.candidate_colors`, as the same 「#rrggbb」 strings, or nil while the theme's own colour is in use. Setting one selects the custom theme (a theme that was on screen becomes its base); setting nil clears only that slot. The candidate window draws with -resolvedSkinForDark:, which already has them applied.
-@property(nonatomic, copy) NSString *candidateNumberColor;
+/// `custom_theme.candidate_colors` 里的其余候选取色器，同样是「#rrggbb」字符串，用主题自己的颜色时为 nil。设置任何一个都会选中自定义主题（正在显示的主题成为它的底）；设为 nil 只清掉这一个槽位。候选窗用 -resolvedSkinForDark: 画，那里已经套用了它们。编号色和边框色不在其中：macOS 上它们固定跟随主题和皮肤。
 @property(nonatomic, copy) NSString *candidateAccentColor;
 @property(nonatomic, copy) NSString *candidateSelectedColor;
 @property(nonatomic, copy) NSString *candidateHoverColor;
 @property(nonatomic, copy) NSString *candidateSurfaceColor;
-@property(nonatomic, copy) NSString *candidateBorderColor;
-/// The light/dark choice: system, dark or light for the whole client, and follow, dark or light for
-/// the candidate window and the floating toolbar, each of which may override the global one.
+/// 明暗选择：整个客户端取 system、dark 或 light；候选窗口取 follow、dark 或 light，可以覆盖全局那一项。悬浮工具栏、菜单和各面板一律跟随颜色模式。
 @property(nonatomic, copy) NSString *themeMode;
 @property(nonatomic, copy) NSString *candidateTheme;
-@property(nonatomic, copy) NSString *toolbarTheme;
 /// The global theme: system, shuishan, light, paper, night, ink or custom (the ids of msime_client_theme_catalog). An id outside the catalog is ignored when set and reads as system.
 @property(nonatomic, copy) NSString *globalTheme;
 /// `custom_theme.base`: system or a built-in theme id, the palette the custom theme starts from.
@@ -145,7 +141,6 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic) BOOL pairedPunctuation;
 @property(nonatomic, copy) NSString *punctuationLock;
 @property(nonatomic) BOOL mixedEnglishInput;
-@property(nonatomic) NSInteger mixedEnglishMinimumPrefix;
 @property(nonatomic) BOOL mixedEmojiInput;
 @property(nonatomic) BOOL mixedKaomojiInput;
 /// 符号混输（共享偏好 `mixed_input.symbols`），默认开；共享文档只在关掉时才有这个键。
@@ -187,12 +182,11 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic) BOOL voiceSoundEnabled;
 @property(nonatomic) BOOL voiceMuteSystemAudio;
 @property(nonatomic) BOOL voiceStreamInlinePreedit;
-/// The four ways of starting dictation and the one that locks a held shortcut down. Control + F9 is a press, the other three are holds; 按住时按空格锁定录音 applies to whichever hold is in use.
+/// The four ways of starting dictation. Control + F9 is a press, the other three are holds. 按住时按空格锁定录音在 macOS 上固定为开，不再是偏好。
 @property(nonatomic) BOOL voiceHotkeyCtrlF9;
 @property(nonatomic) BOOL voiceHotkeyRightAlt;
 @property(nonatomic) BOOL voiceHotkeyCtrlCommand;
 @property(nonatomic) BOOL voiceHotkeyCtrlOption;
-@property(nonatomic) BOOL voiceHotkeyHoldSpace;
 @property(nonatomic) BOOL floatingToolbarEnabled;
 /// The 中/英 button. It is a component like the eight below it; it had no accessor at all, so the
 /// only value the merge could publish for it was a constant.

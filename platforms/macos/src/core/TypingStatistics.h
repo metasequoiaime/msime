@@ -32,6 +32,7 @@ enum class TypingSource {
     Reply,
     Voice,
     Unknown,
+    SmartAbc,
 };
 
 constexpr std::string_view TypingSourceId(TypingSource source) {
@@ -42,6 +43,7 @@ constexpr std::string_view TypingSourceId(TypingSource source) {
     case TypingSource::Ziranma: return "ziranma";
     case TypingSource::Microsoft: return "microsoft";
     case TypingSource::Shoudao: return "shoudao";
+    case TypingSource::SmartAbc: return "smart_abc";
     case TypingSource::Wubi: return "wubi";
     case TypingSource::Japanese: return "japanese";
     case TypingSource::Korean: return "korean";
@@ -75,6 +77,7 @@ constexpr TypingSource ResolveTypingSource(int scheme, bool nineKey,
         if (shuangpinProfile == "ziranma") return TypingSource::Ziranma;
         if (shuangpinProfile == "microsoft") return TypingSource::Microsoft;
         if (shuangpinProfile == "shoudao") return TypingSource::Shoudao;
+        if (shuangpinProfile == "smart_abc") return TypingSource::SmartAbc;
         return TypingSource::Shuangpin;
     case 2: return TypingSource::Wubi;
     case 3: return TypingSource::Japanese;

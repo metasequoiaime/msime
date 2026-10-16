@@ -147,20 +147,23 @@ export function LinkRow({
   );
 }
 
-/** 「更多选项」折叠区：放在组内，收起不常改的进阶项（下载镜像、手动目录、接口地址之类）。展开后各行接在折叠标题下面，分隔线与组内其他行一致。名字固定为「更多选项」，不另起「高级」之类的叫法。 */
+/** 「更多选项」折叠区：放在组内，收起不常改的进阶项（下载镜像、手动目录、接口地址之类）。展开后各行接在折叠标题下面，分隔线与组内其他行一致。名字默认为「更多选项」，不另起「高级」之类的笼统叫法；只有里面是同一类具体东西时才用 `title` 写出它是什么（例如主题页的「自定义配色」）。 */
 export function MoreOptions({
   defaultOpen = false,
+  title = "更多选项",
   children,
 }: {
   /** 首次显示时是否展开，例如里面的值无效、别的控件因此不能用时。只在挂载时读一次，之后由用户自己展开收起，不会因为值变对了就突然收起。 */
   defaultOpen?: boolean;
+  /** 折叠标题，缺省为「更多选项」。 */
+  title?: string;
   children: ReactNode;
 }) {
   const [open] = useState(defaultOpen);
   return (
     <details className={style.moreOptions} open={open}>
       <summary className={style.moreOptionsSummary}>
-        <span className={style.rowTitle}>更多选项</span>
+        <span className={style.rowTitle}>{title}</span>
         <span className={style.moreOptionsMarker} aria-hidden="true">
           ›
         </span>

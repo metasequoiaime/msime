@@ -148,3 +148,26 @@ test("helper-code settings offer installed helpcode packs per scheme", () => {
     }),
   });
 });
+
+test("desktop shows the active family's three rows and folds the other family", () => {
+  render(
+    <HelpcodeSettingsPage
+      value={{}}
+      mobile={false}
+      showShiftEntry={false}
+      activeFamily="shuangpin_helpcode"
+      onChange={vi.fn()}
+    />,
+  );
+  const fold = document.querySelector("details");
+  expect(fold).not.toBeNull();
+  for (const name of ["双拼辅助码", "在候选窗口中显示双拼辅助码"]) {
+    expect(fold?.contains(screen.getByRole("switch", { name }))).toBe(false);
+  }
+  expect(fold?.contains(screen.getByRole("combobox", { name: "双拼辅助码方案" }))).toBe(false);
+  // 另一族对当前方案不起作用，收进「更多选项」但仍可改。
+  for (const name of ["全拼辅助码", "在候选窗口中显示全拼辅助码"]) {
+    expect(fold?.contains(screen.getByRole("switch", { name }))).toBe(true);
+  }
+  expect(fold?.contains(screen.getByRole("combobox", { name: "全拼辅助码方案" }))).toBe(true);
+});

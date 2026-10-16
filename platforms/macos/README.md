@@ -151,11 +151,11 @@ SwiftUI 设置同步覆盖 28 个当前宿主偏好：全局主题、自定义�
 
 ## 双拼与五笔
 
-双拼键位提示面板迁自固定 Apple `ShuangpinKeymapPanel.h/.mm`，候选设置中提供开关，默认关闭，保存在共享偏好 `shuangpin_keymap_hint`（与 Windows 共用）；文档还没有这一项时沿用升级前存在宿主偏好 `MSIMEClientShuangpinKeymap` 里的选择，并在下一次保存时写进文档。开启后仅在有效会话、双拼组词和有效光标时显示；上屏/取消、失活、英文模式或关闭设置时隐藏。保留 620×203 点布局、四套 Engine 权威键位、微软分号键、零声母说明、末尾字母/分号高亮、明暗配色与可访问文本。面板不接受鼠标事件，以非激活浮动窗口显示；位置按上游规则为候选保留间距，避让屏幕边缘。
+双拼键位提示面板迁自固定 Apple `ShuangpinKeymapPanel.h/.mm`，候选设置中提供开关，默认关闭，保存在共享偏好 `shuangpin_keymap_hint`（与 Windows 共用）；文档还没有这一项时沿用升级前存在宿主偏好 `MSIMEClientShuangpinKeymap` 里的选择，并在下一次保存时写进文档。开启后仅在有效会话、双拼组词和有效光标时显示；上屏/取消、失活、英文模式或关闭设置时隐藏。保留 620×203 点布局、五套 Engine 权威键位、微软分号键、零声母说明、末尾字母/分号高亮、明暗配色与可访问文本。面板不接受鼠标事件，以非激活浮动窗口显示；位置按上游规则为候选保留间距，避让屏幕边缘。
 
 五笔四码唯一候选自动上屏是共享偏好 `wubi_auto_commit_unique`，默认开启；原生外观面板仍经 `MSIMEClientWubiAutoCommitUnique` 读写，值随共享偏好文档合并进 Engine。提交判定在共享 `crates/input-runtime`：仅当 Engine 明确报告原生五笔候选、四码恰好一个候选且本次按键为小写字母时提交；拼音回退、其他方案、非四码或多候选均不提交。该判断完全依赖 Engine 快照元数据，不从候选文本猜测。
 
-共享 JSON 视图新增 `shuangpin_profile`（实际生效的 xiaohe/ziranma/shoudao/microsoft），不使用尚未应用的偏好绘图；字段缺失时隐藏提示。Rust 测试覆盖四方案元数据和组词期间延迟切换，原生测试覆盖四方案×两外观离屏绘制、设置保存、微软键位、高亮/可访问文本、边界定位以及显示/隐藏条件。检查了微软亮色、小鹤暗色合成图；字体测量按 macOS 系统字体进行，不宣称与 Windows 逐像素一致。
+共享 JSON 视图新增 `shuangpin_profile`（实际生效的 xiaohe/ziranma/shoudao/microsoft/smart_abc），不使用尚未应用的偏好绘图；字段缺失时隐藏提示。Rust 测试覆盖五方案元数据和组词期间延迟切换，原生测试覆盖五方案×两外观离屏绘制、设置保存、微软键位、高亮/可访问文本、边界定位以及显示/隐藏条件。检查了微软亮色、小鹤暗色合成图；字体测量按 macOS 系统字体进行，不宣称与 Windows 逐像素一致。
 
 ## 全角输入
 
@@ -199,7 +199,7 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 
 ## 候选学习与跟随光标
 
-候选设置还提供候选窗口跟随光标开关，以及候选学习与拼音调频：关闭跟随后，在一次组合期间锁定首次有效光标位置；切换输入会话、结束组合或重新开启跟随时重新定位。学习开关以及关闭、置顶、折半、线性、置前五种调频模式，触发次数和线性步长均为 1–10。值保存在宿主偏好域，并按共享 `candidate_follow_cursor`、`learning` / `frequency` 快照合并；输入会话仍由共享 host-api 在组合结束后延迟应用，Engine 继续负责学习数据和调频算法。旧快照缺少这些字段时保持默认值，不改写原文件。Emoji SwiftUI 面板消费共享 `emoji_theme`：显式深色/浅色覆盖全局，`follow` 继承全局，系统主题保持 `nil` 让 SwiftUI/AppKit 自然跟随；旧快照未提供该字段时沿用全局主题。
+候选设置还提供候选窗口跟随光标开关，以及候选学习与拼音调频：关闭跟随后，在一次组合期间锁定首次有效光标位置；切换输入会话、结束组合或重新开启跟随时重新定位。学习开关以及关闭、置顶、折半、线性、置前五种调频模式，触发次数和线性步长均为 1–10。值保存在宿主偏好域，并按共享 `candidate_follow_cursor`、`learning` / `frequency` 快照合并；输入会话仍由共享 host-api 在组合结束后延迟应用，Engine 继续负责学习数据和调频算法。旧快照缺少这些字段时保持默认值，不改写原文件。Emoji SwiftUI 面板只按共享的颜色模式 `theme` 着色，系统主题保持 `nil` 让 SwiftUI/AppKit 自然跟随；macOS 不读 `emoji_theme`，设置页也不给这一行（HostCapabilities 的 `surface_themes_follow`）。
 
 ## 云候选的首次同意
 
@@ -207,7 +207,7 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 
 ## 语音输入
 
-原生语音波形面板消费共享 `voice_theme`：显式 `dark`/`light` 覆盖全局主题，`follow` 继承全局，全局主题为 `system` 时使用 `NSPanel.appearance = nil` 并让 AppKit 重绘跟随系统。波形、状态文字、转写预览和确认/取消按钮同步切换明暗 palette；主题热更新只改变展示，不取消录音、识别或润色请求。`voice-wave-overlay` CTest 覆盖四种解析路径、系统外观回退和原有动作/转写边界。
+原生语音波形面板只按共享的颜色模式 `theme` 着色（macOS 不读 `voice_theme`，见 `surface_themes_follow`），颜色模式为 `system` 时使用 `NSPanel.appearance = nil` 并让 AppKit 重绘跟随系统。波形、状态文字、转写预览和确认/取消按钮同步切换明暗 palette；主题热更新只改变展示，不取消录音、识别或润色请求。`voice-wave-overlay` CTest 覆盖颜色模式的解析、单独设置被忽略、系统外观回退和原有动作/转写边界。
 
 语音设置的原生备用窗口提供 CoreAudio 录音设备选择：只列出有输入流且有稳定 UID 的设备，将当前系统默认置顶，按名称/UID 稳定排序；保存 UID 而非易变的序号或显示名，设备暂时不可用时保留选择并让下一次录音明确失败，不静默切换麦克风。空选择使用系统默认设备。共享 `capture_device` 与该 UID 双向同步；`voice-capture-device` CTest 覆盖输入设备过滤、默认排序、UID 缺失和失败路径。Tauri 设置页通过 `list_voice_capture_devices` 提供刷新列表。
 
@@ -225,7 +225,7 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 
 ## 菜单主题
 
-原生输入源主菜单和候选右键菜单共同消费共享 `menu_theme`：显式 `dark`/`light` 覆盖全局主题，`follow` 继承全局，`system` 交给 AppKit；菜单每次创建时读取最近一次偏好快照，不改变候选动作或输入会话状态。
+原生输入源主菜单和候选右键菜单只按共享的颜色模式 `theme` 着色（macOS 不读 `menu_theme`，见 `surface_themes_follow`），`system` 交给 AppKit，固定明暗的全局主题把菜单钉在那种明暗；菜单每次创建时读取最近一次偏好快照，不改变候选动作或输入会话状态。
 
 ## 标点
 

@@ -250,7 +250,21 @@ fn capabilities_describe_each_host() {
     assert!(macos.candidate_font_controls);
     assert!(macos.candidate_row_colors);
     assert!(macos.candidate_selection_appearance);
-    assert!(macos.candidate_border_color);
+    // macOS 的编号色和边框色固定跟随主题，宿主不读这两个槽位，设置页也不给取色器；其他宿主照旧。
+    assert!(!macos.candidate_border_color && !macos.candidate_number_color);
+    // macOS 上只有候选窗口还能单独设明暗，其余界面一律跟随颜色模式。
+    assert!(macos.surface_themes_follow);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        let host = HostCapabilities::for_platform(platform);
+        assert!(host.candidate_number_color && host.candidate_border_color);
+        assert!(!host.surface_themes_follow);
+    }
     assert!(macos.candidate_follow_cursor);
     assert!(macos.panel_shortcuts);
     assert!(macos.app_logo);
@@ -700,6 +714,27 @@ fn voice_commit_mode_is_offered_only_where_a_host_chooses_between_paths() {
     }
 }
 
+/// macOS 把空格锁定固定为开、只读提示音总开关、只经 CoreAudio 录音，所以只有它不给这三组控件；其他宿主照旧读存下的值。
+#[test]
+fn macos_alone_fixes_space_lock_cue_split_and_capture_backend() {
+    let macos = HostCapabilities::for_platform(HostPlatform::Macos);
+    assert!(!macos.voice_space_lock_switch);
+    assert!(!macos.voice_cue_switches);
+    assert!(!macos.voice_capture_backends);
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        let capabilities = HostCapabilities::for_platform(platform);
+        assert!(capabilities.voice_space_lock_switch);
+        assert!(capabilities.voice_cue_switches);
+        assert!(capabilities.voice_capture_backends);
+    }
+}
+
 /// Only the hosts that wire them claim sound packs, the `/` and `@` modes, music and typing effects.
 #[test]
 fn plugin_surfaces_are_claimed_only_by_the_hosts_that_wire_them() {
@@ -790,6 +825,33 @@ fn candidate_window_style_is_offered_where_the_host_draws_the_card() {
     assert_eq!(flags(HostPlatform::Harmony), (false, true, true));
     assert_eq!(flags(HostPlatform::Android), (false, false, false));
     assert_eq!(flags(HostPlatform::Ios), (false, false, false));
+}
+
+/// macOS 把 Tab、PageUp/PageDown 两组翻页键固定为开，中英混输的触发字符数固定为默认值；其他宿主照旧读偏好并显示开关。
+#[test]
+fn macos_fixes_the_tab_page_paging_keys_and_the_mixed_input_prefix() {
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Macos,
+        HostPlatform::Linux,
+        HostPlatform::Harmony,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+    ] {
+        let host = HostCapabilities::for_platform(platform);
+        let reads = platform != HostPlatform::Macos;
+        assert_eq!(host.tab_page_paging_switches, reads, "{platform:?}");
+        assert_eq!(host.mixed_input_minimum_prefix, reads, "{platform:?}");
+        assert_eq!(
+            platform.reads_mixed_input_minimum_prefix(),
+            reads,
+            "{platform:?}"
+        );
+    }
+    assert_eq!(
+        crate::preferences::MixedInputPreferences::default().minimum_prefix,
+        crate::preferences::DEFAULT_MIXED_INPUT_MINIMUM_PREFIX
+    );
 }
 
 /// 卡片内边距目前只有 macOS 候选窗读，其他宿主不显示这个滑块（#7316）。

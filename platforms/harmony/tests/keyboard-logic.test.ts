@@ -1265,6 +1265,59 @@ group("merges translation rows without unbounded display growth", () => {
   check(entries[0].translation === "hello / greeting", "oversized glosses are ignored");
 });
 
+group("touch keyboards request only the primary translation language", () => {
+  // 手机上只显示一种候选翻译：偏好里配了第二种语言，共享查询会照样带上它，触屏键盘不请求它、不查它的离线词典，候选栏也只预留一行。
+  const query: TranslationQuery = {
+    generation: 4,
+    target_language: "ja",
+    target_languages: ["ja", "en"],
+    candidates: [{ text: "你好", source: 0 }],
+    english_gloss: true,
+    offline_gloss_languages: ["ja", "de"],
+  };
+  TranslationPolicy.keepPrimaryOnly(query);
+  check(
+    TranslationPolicy.targets(query).join(",") === "ja",
+    "the secondary language is not requested",
+  );
+  check(
+    TranslationPolicy.offlineTargets(query).join(",") === "ja",
+    "only the primary language's offline dictionary is read",
+  );
+  check(!query.english_gloss, "an English secondary language draws no offline English gloss");
+  const english: TranslationQuery = {
+    generation: 5,
+    target_language: "en",
+    target_languages: ["en", "fr"],
+    candidates: [{ text: "你好", source: 0 }],
+    english_gloss: true,
+    offline_gloss_languages: ["fr"],
+  };
+  TranslationPolicy.keepPrimaryOnly(english);
+  check(
+    TranslationPolicy.targets(english).join(",") === "en" &&
+      english.english_gloss &&
+      TranslationPolicy.offlineTargets(english).length === 0,
+    "an English primary keeps its offline gloss and drops the secondary dictionary",
+  );
+  const providers = {
+    customEnabled: true,
+    customEndpoint: "https://translate.example/api",
+    niuTransEnabled: false,
+    niuTransAppId: "",
+    niuTransApiKey: "",
+    tencentEnabled: false,
+    tencentSecretId: "",
+    tencentSecretKey: "",
+  };
+  check(
+    CandidateGlossLayoutPolicy.rows(true, TranslationPolicy.targets(query), true, providers, [
+      "ja",
+    ]) === 1,
+    "a configured secondary language reserves no second gloss row",
+  );
+});
+
 group("offline dictionaries fill only what the user's own translator left", () => {
   const query: TranslationQuery = {
     generation: 3,
@@ -19989,3 +20042,33 @@ group("the punctuation styles travel with the account settings", () => {
   check(unknown.preferences.quote_style === "corner", "an unknown style skips only its key");
   check(unknown.preferences.learning === false, "and the rest still applies");
 });
+
+// 同样的字母页只有中文全拼触屏显示分词，英文、本地模式与 2in1 仍能切换大小写。
+{
+  check(
+    KeyboardScheme.usesQuanpinSeparator(KeyboardScheme.QUANPIN, true, false, false, "none"),
+    "全拼触屏显示分词",
+  );
+  for (const scheme of [
+    KeyboardScheme.QUANPIN_NINE_KEY,
+    KeyboardScheme.XIAOHE,
+    KeyboardScheme.WUBI,
+  ]) {
+    check(
+      !KeyboardScheme.usesQuanpinSeparator(scheme, true, false, false, "none"),
+      "其他方案保留原键",
+    );
+  }
+  for (const [touch, english, symbols, local] of [
+    [false, false, false, "none"],
+    [true, true, false, "none"],
+    [true, false, true, "none"],
+    [true, false, false, "calculator"],
+  ] as [boolean, boolean, boolean, string][]) {
+    check(
+      !KeyboardScheme.usesQuanpinSeparator(KeyboardScheme.QUANPIN, touch, english, symbols, local),
+      "非中文全拼字母页不显示分词",
+    );
+  }
+  check(KeyIdPolicy.character("'") === "Quote", "分词统计属于 Quote");
+}

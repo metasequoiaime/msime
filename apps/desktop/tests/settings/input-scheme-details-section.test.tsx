@@ -8,32 +8,87 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("changes the Shuangpin profile and disables it outside Shuangpin on macOS", () => {
+// 用不到的方案行留在页面里、只是藏起来（换方案时原样出现），所以按是否在 `hidden` 之下判断它显示与否。
+function shown(text: string | RegExp): boolean {
+  return screen.getByText(text).closest("[hidden]") === null;
+}
+
+test("the Shuangpin profile is hidden outside Shuangpin and changes under it", () => {
   const onShuangpinProfileChange = vi.fn();
   const { rerender } = render(
     <InputSchemeDetailsSection
       scheme="quanpin"
       shuangpinProfile="xiaohe"
-      macos
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={onShuangpinProfileChange}
     />,
   );
 
-  const profile = screen.getByRole("combobox", { name: "双拼方案" }) as HTMLSelectElement;
-  expect(profile.disabled).toBe(true);
+  // 全拼、五笔下不再灰着显示，而是藏起来；切到双拼时原样出现。
+  expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
+  rerender(
+    <InputSchemeDetailsSection
+      scheme="wubi"
+      shuangpinProfile="xiaohe"
+      hasTouchKeyboardSchemes={false}
+      onShuangpinProfileChange={onShuangpinProfileChange}
+    />,
+  );
+  expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
 
   rerender(
     <InputSchemeDetailsSection
       scheme="shuangpin"
       shuangpinProfile="xiaohe"
-      macos
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={onShuangpinProfileChange}
     />,
   );
+  const profile = screen.getByRole("combobox", { name: "双拼方案" }) as HTMLSelectElement;
+  expect(profile.disabled).toBe(false);
   fireEvent.change(profile, { target: { value: "ziranma" } });
   expect(onShuangpinProfileChange).toHaveBeenCalledWith("ziranma");
+});
+
+test("双拼预编辑 sits in the Shuangpin details and appears only under Shuangpin", () => {
+  const onShuangpinPreeditChange = vi.fn();
+  const { rerender } = render(
+    <InputSchemeDetailsSection
+      scheme="shuangpin"
+      shuangpinProfile="xiaohe"
+      hasTouchKeyboardSchemes={false}
+      shuangpinPreedit="raw"
+      onShuangpinProfileChange={vi.fn()}
+      onShuangpinPreeditChange={onShuangpinPreeditChange}
+    />,
+  );
+  const preedit = screen.getByLabelText("双拼预编辑") as HTMLSelectElement;
+  expect(preedit.value).toBe("raw");
+  fireEvent.change(preedit, { target: { value: "pinyin" } });
+  expect(onShuangpinPreeditChange).toHaveBeenCalledWith(false);
+
+  for (const scheme of ["quanpin", "wubi", "japanese"] as const) {
+    rerender(
+      <InputSchemeDetailsSection
+        scheme={scheme}
+        shuangpinProfile="xiaohe"
+        hasTouchKeyboardSchemes={false}
+        shuangpinPreedit="raw"
+        onShuangpinProfileChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByLabelText("双拼预编辑")).toBeNull();
+  }
+  // 宿主不画双拼预编辑时不传，这一行不出现。
+  rerender(
+    <InputSchemeDetailsSection
+      scheme="shuangpin"
+      shuangpinProfile="xiaohe"
+      hasTouchKeyboardSchemes={false}
+      onShuangpinProfileChange={vi.fn()}
+    />,
+  );
+  expect(screen.queryByLabelText("双拼预编辑")).toBeNull();
 });
 
 test("updates the Shuangpin keymap toggle when provided", () => {
@@ -42,7 +97,6 @@ test("updates the Shuangpin keymap toggle when provided", () => {
     <InputSchemeDetailsSection
       scheme="shuangpin"
       shuangpinProfile="xiaohe"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       shuangpinKeymapHint={false}
       onShuangpinProfileChange={vi.fn()}
@@ -59,7 +113,6 @@ test("leaves the Shuangpin keymap toggle out when the host draws no keymap", () 
     <InputSchemeDetailsSection
       scheme="shuangpin"
       shuangpinProfile="xiaohe"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={vi.fn()}
     />,
@@ -73,13 +126,15 @@ test("shows only the Japanese scheme details in Japanese mode", () => {
     <InputSchemeDetailsSection
       scheme="japanese"
       shuangpinProfile="xiaohe"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={vi.fn()}
     />,
   );
 
-  expect(screen.getByRole("radiogroup", { name: "日语方案" })).toBeTruthy();
+  // 只有一个方案，所以是一行说明，没有选择器。
+  expect(shown("日语方案")).toBe(true);
+  expect(shown(/^罗马音：直接输入罗马音/)).toBe(true);
+  expect(screen.queryByRole("radiogroup")).toBeNull();
   expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "五笔方案" })).toBeNull();
 });
@@ -89,14 +144,14 @@ test("shows only the Korean scheme details in Korean mode", () => {
     <InputSchemeDetailsSection
       scheme="korean"
       shuangpinProfile="xiaohe"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={vi.fn()}
     />,
   );
 
-  expect(screen.getByRole("radiogroup", { name: "韩语方案" })).toBeTruthy();
-  expect(screen.queryByRole("radiogroup", { name: "日语方案" })).toBeNull();
+  expect(shown(/^两套式：按两套式（두벌식）键位输入韩文字母/)).toBe(true);
+  expect(screen.queryByRole("radiogroup")).toBeNull();
+  expect(shown(/^罗马音：/)).toBe(false);
   expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "五笔方案" })).toBeNull();
 });
@@ -107,19 +162,19 @@ test.each([
   ["stroke", "笔画方案", "横竖撇点折"],
   ["tibetan", "藏文方案", "威利转写"],
 ] as const)(
-  "%s shows its read-only scheme row and no pinyin or Wubi rows",
+  "%s describes its only scheme as text and shows no pinyin or Wubi rows",
   (scheme, title, label) => {
     render(
       <InputSchemeDetailsSection
         scheme={scheme}
         shuangpinProfile="xiaohe"
-        macos
         hasTouchKeyboardSchemes={false}
         onShuangpinProfileChange={vi.fn()}
       />,
     );
-    expect(screen.getAllByText(title).length).toBeGreaterThanOrEqual(1);
-    expect((screen.getByRole("radio", { name: label }) as HTMLInputElement).checked).toBe(true);
+    expect(shown(title)).toBe(true);
+    expect(shown(new RegExp(`^${label}：`))).toBe(true);
+    expect(screen.queryByRole("radio")).toBeNull();
     expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
     expect(screen.queryByRole("combobox", { name: "五笔方案" })).toBeNull();
     expect(screen.queryByRole("radio", { name: "Telex" })).toBeNull();
@@ -131,37 +186,32 @@ test("the 笔画方案 row appears only under Stroke and never on touch hosts", 
     <InputSchemeDetailsSection
       scheme="quanpin"
       shuangpinProfile="xiaohe"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={vi.fn()}
     />,
   );
-  expect(screen.queryByRole("radiogroup", { name: "笔画方案" })).toBeNull();
+  expect(shown("笔画方案")).toBe(false);
 
   rerender(
     <InputSchemeDetailsSection
       scheme="stroke"
       shuangpinProfile="xiaohe"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={vi.fn()}
     />,
   );
-  expect(screen.getByRole("radiogroup", { name: "笔画方案" })).toBeTruthy();
-  expect(
-    screen.getByText(/按 h s p n z 依次输入横、竖、撇、点、折，x 代替不确定的一笔/),
-  ).toBeTruthy();
+  expect(shown("笔画方案")).toBe(true);
+  expect(shown(/按 h s p n z 依次输入横、竖、撇、点、折，x 代替不确定的一笔/)).toBe(true);
 
   rerender(
     <InputSchemeDetailsSection
       scheme="stroke"
       shuangpinProfile="xiaohe"
-      macos={false}
       hasTouchKeyboardSchemes
       onShuangpinProfileChange={vi.fn()}
     />,
   );
-  expect(screen.queryByRole("radiogroup", { name: "笔画方案" })).toBeNull();
+  expect(shown("笔画方案")).toBe(false);
 });
 
 test("Vietnamese input method and tone placement are live controls", () => {
@@ -170,7 +220,6 @@ test("Vietnamese input method and tone placement are live controls", () => {
     <InputSchemeDetailsSection
       scheme="vietnamese"
       shuangpinProfile="xiaohe"
-      macos
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={vi.fn()}
       onVietnameseChange={onVietnameseChange}
@@ -196,7 +245,6 @@ test("Vietnamese controls show the document's options", () => {
     <InputSchemeDetailsSection
       scheme="vietnamese"
       shuangpinProfile="xiaohe"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       vietnamese={{ input_method: "vni", tone_style: "classic" }}
       onShuangpinProfileChange={vi.fn()}
@@ -211,7 +259,6 @@ test("Tibetan describes its syllable keys and shows no Vietnamese rows", () => {
     <InputSchemeDetailsSection
       scheme="tibetan"
       shuangpinProfile="xiaohe"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={vi.fn()}
     />,
@@ -227,7 +274,6 @@ test("changes the Wubi profile between 86 and 98 under Wubi", () => {
       scheme="wubi"
       shuangpinProfile="xiaohe"
       wubiProfile="wubi86"
-      macos={false}
       hasTouchKeyboardSchemes={false}
       onShuangpinProfileChange={vi.fn()}
       onWubiProfileChange={onWubiProfileChange}
@@ -249,7 +295,6 @@ test("touch hosts show the Wubi profile only while the Wubi keyboard is enabled"
       scheme="quanpin"
       shuangpinProfile="xiaohe"
       wubiProfile="wubi98"
-      macos={false}
       hasTouchKeyboardSchemes
       touchKeyboardHasWubi
       onShuangpinProfileChange={vi.fn()}
@@ -263,7 +308,6 @@ test("touch hosts show the Wubi profile only while the Wubi keyboard is enabled"
     <InputSchemeDetailsSection
       scheme="wubi"
       shuangpinProfile="xiaohe"
-      macos={false}
       hasTouchKeyboardSchemes
       onShuangpinProfileChange={vi.fn()}
     />,

@@ -1,3 +1,4 @@
+import { NativeCleanup } from './NativeCleanup';
 /**
  * 二合一设备上的背景音乐，经 AVPlayer 流式播放。
  *
@@ -210,21 +211,26 @@ export class MusicPlayer {
 
   /** Open a validated pack track and bind the descriptor to the path checked above. */
   private static openVerified(path: string): fs.File {
-    const pathStat: fs.Stat = fs.lstatSync(path);
-    if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
-      throw new Error('music track is not a regular file');
-    }
-    let file: fs.File | undefined = undefined;
     try {
-      file = fs.openSync(path, fs.OpenMode.READ_ONLY);
-      const opened: fs.Stat = fs.statSync(file.fd);
-      if (!opened.isFile() || opened.ino !== pathStat.ino) {
-        throw new Error('music track changed while opening');
+      const pathStat: fs.Stat = fs.lstatSync(path);
+      if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
+        throw new Error('music track is not a regular file');
       }
-      return file;
+      let file: fs.File | undefined = undefined;
+      try {
+        file = fs.openSync(path, fs.OpenMode.READ_ONLY);
+        const opened: fs.Stat = fs.statSync(file.fd);
+        if (!opened.isFile() || opened.ino !== pathStat.ino) {
+          throw new Error('music track changed while opening');
+        }
+        return file;
+      } catch (error) {
+        if (file !== undefined) NativeCleanup.close(file);
+        // ArkTS 只允许抛 Error（arkts-limited-throw）；原样抛出同一个对象，调用方仍能读到它的错误码。
+        throw error as Error;
+      }
     } catch (error) {
-      if (file !== undefined) fs.closeSync(file);
-      // ArkTS 只允许抛 Error（arkts-limited-throw）；原样抛出同一个对象，调用方仍能读到它的错误码。
+      KeyboardLog.error('keyboard.MusicPlayer.openVerified failed');
       throw error as Error;
     }
   }
@@ -259,7 +265,7 @@ export class MusicPlayer {
         });
       }
       if (file !== undefined) {
-        fs.closeSync(file);
+        NativeCleanup.close(file);
       }
     }
     if (MusicPolicy.metadataResultApplies(generation, this.generation)) {
@@ -270,55 +276,60 @@ export class MusicPlayer {
 
   /** Hand one track to a new AVPlayer. It plays once prepared if music may play then; `update` plays it later otherwise. */
   private async open(generation: number, pack: MusicPackTracks, index: number): Promise<void> {
-    const player: media.AVPlayer = await media.createAVPlayer();
-    if (generation !== this.generation) {
-      MusicPlayer.dispose(player, undefined);
-      return;
-    }
-    // Held before the file is opened, so a track that cannot be opened lets this player go with the failure it reports.
-    this.player = player;
-    this.opening = false;
-    const file: fs.File = MusicPlayer.openVerified(pack.tracks[index]);
-    this.file = file;
-    const maxTrackSeconds: number = pack.max_track_seconds;
-    player.on('stateChange', (state: media.AVPlayerState): void => {
-      if (player !== this.player) {
+    try {
+      const player: media.AVPlayer = await media.createAVPlayer();
+      if (generation !== this.generation) {
+        MusicPlayer.dispose(player, undefined);
         return;
       }
-      if (state === 'initialized') {
-        const renderer: audio.AudioRendererInfo = {
-          usage: audio.StreamUsage.STREAM_USAGE_MUSIC, rendererFlags: 0
-        };
-        player.audioRendererInfo = renderer;
-        player.prepare().catch((error: Object): void => {
-          this.fail(player, error);
-        });
-      } else if (state === 'prepared') {
-        player.setVolume(MusicPolicy.gain(this.settings));
-        this.update();
-      } else if (state === 'playing' || state === 'paused') {
-        // The session may have changed its mind while a play() or pause() was in flight; playback is brought to what it says now.
-        if (this.transport.settled(state)) {
-          this.update();
+      // 打开文件前先持有播放器，以便文件打开失败时随错误一起释放。
+      this.player = player;
+      this.opening = false;
+      const file: fs.File = MusicPlayer.openVerified(pack.tracks[index]);
+      this.file = file;
+      const maxTrackSeconds: number = pack.max_track_seconds;
+      player.on('stateChange', (state: media.AVPlayerState): void => {
+        if (player !== this.player) {
+          return;
         }
-      } else if (state === 'stopped') {
-        // Another app took the audio focus and the system stopped this player. Letting it go frees its descriptor at once; the track is opened afresh on the next activation rather than now, so music does not take the focus straight back.
-        this.release();
-      } else if (state === 'completed') {
-        this.advance(player);
-      }
-    });
-    player.on('timeUpdate', (position: number): void => {
-      if (player === this.player && MusicPolicy.overran(position, maxTrackSeconds)) {
-        KeyboardLog.error('music track ran past the pack bound; playing the next');
-        this.advance(player);
-      }
-    });
-    player.on('error', (error: Object): void => {
-      this.fail(player, error);
-    });
-    const descriptor: media.AVFileDescriptor = { fd: file.fd };
-    player.fdSrc = descriptor;
+        if (state === 'initialized') {
+          const renderer: audio.AudioRendererInfo = {
+            usage: audio.StreamUsage.STREAM_USAGE_MUSIC, rendererFlags: 0
+          };
+          player.audioRendererInfo = renderer;
+          player.prepare().catch((error: Object): void => {
+            this.fail(player, error);
+          });
+        } else if (state === 'prepared') {
+          player.setVolume(MusicPolicy.gain(this.settings));
+          this.update();
+        } else if (state === 'playing' || state === 'paused') {
+          // `play()` 或 `pause()` 执行期间会话状态可能改变，完成后按最新状态同步播放。
+          if (this.transport.settled(state)) {
+            this.update();
+          }
+        } else if (state === 'stopped') {
+          // 其他应用抢占音频焦点后立即释放播放器及描述符；下次激活时再打开曲目，避免立刻抢回焦点。
+          this.release();
+        } else if (state === 'completed') {
+          this.advance(player);
+        }
+      });
+      player.on('timeUpdate', (position: number): void => {
+        if (player === this.player && MusicPolicy.overran(position, maxTrackSeconds)) {
+          KeyboardLog.error('music track ran past the pack bound; playing the next');
+          this.advance(player);
+        }
+      });
+      player.on('error', (error: Object): void => {
+        this.fail(player, error);
+      });
+      const descriptor: media.AVFileDescriptor = { fd: file.fd };
+      player.fdSrc = descriptor;
+    } catch (error) {
+      KeyboardLog.error('keyboard.MusicPlayer.open failed');
+      throw error as Error;
+    }
   }
 
   /** The track ended, or ran past the bound: the next one, starting over after the last. */
@@ -362,14 +373,19 @@ export class MusicPlayer {
 
   /** Release a player, then close the descriptor it was reading, if it had one. */
   private static dispose(player: media.AVPlayer, file: fs.File | undefined): void {
-    const close = (): void => {
-      if (file !== undefined) {
-        fs.closeSync(file);
-      }
-    };
-    player.release().then(close, (error: Object): void => {
-      KeyboardLog.error(`music player would not release: ${describeError(error)}`);
-      close();
-    });
+    try {
+      const close = (): void => {
+        if (file !== undefined) {
+          NativeCleanup.close(file);
+        }
+      };
+      player.release().then(close, (error: Object): void => {
+        KeyboardLog.error(`music player would not release: ${describeError(error)}`);
+        close();
+      });
+    } catch (error) {
+      KeyboardLog.error('keyboard.MusicPlayer.dispose failed');
+      if (file !== undefined) NativeCleanup.close(file);
+    }
   }
 }

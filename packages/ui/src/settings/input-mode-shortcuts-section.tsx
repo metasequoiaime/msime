@@ -8,6 +8,7 @@ import {
   type LanguageSwitchChoice,
 } from "./input-mode-shortcuts-model";
 import type { KeybindingPreferences } from "./keybinding-preferences";
+import { defaultKeybindings } from "./keybinding-defaults";
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsRowStack } from "./settings-row-stack";
 import { InputModeHudSection } from "./input-mode-hud-section";
@@ -108,9 +109,13 @@ export function InputModeShortcutsSection({
             onChange={(checked) => onChange({ toggle_japanese_ctrl_shift_j: checked })}
           />
         )}
+        {/* 缺键时按开显示，与 client-core 的默认值一致。 */}
         <SwitchRow
           title={characterSetLabel}
-          checked={keybindings.toggle_character_set_ctrl_shift_f ?? false}
+          checked={
+            keybindings.toggle_character_set_ctrl_shift_f ??
+            defaultKeybindings.toggle_character_set_ctrl_shift_f
+          }
           onChange={(checked) => onChange({ toggle_character_set_ctrl_shift_f: checked })}
         />
         {macos && showInputModeHUD && (

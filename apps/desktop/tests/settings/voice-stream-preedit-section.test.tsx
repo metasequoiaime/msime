@@ -12,7 +12,7 @@ test("forwards the streaming preedit toggle", () => {
   const onChange = vi.fn();
   render(<VoiceStreamPreeditSection enabled onChange={onChange} />);
 
-  fireEvent.click(screen.getByLabelText("流式预编辑"));
+  fireEvent.click(screen.getByLabelText("边说边显示"));
 
   expect(onChange).toHaveBeenCalledWith(false);
   expect(screen.getByText(/识别服务支持时显示实时识别片段/)).toBeTruthy();

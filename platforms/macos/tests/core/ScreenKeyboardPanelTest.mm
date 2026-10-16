@@ -61,10 +61,11 @@ int main() {
         assert(panel.appearance == nil);
         [panel applyThemePreferences:@{@"theme": @"light"}];
         assert([panel.appearance.name isEqualToString:NSAppearanceNameAqua]);
+        // macOS 的屏幕键盘只看颜色模式，它单独的明暗设置不读。
         [panel applyThemePreferences:@{@"theme": @"light", @"screen_keyboard_theme": @"dark"}];
-        assert([panel.appearance.name isEqualToString:NSAppearanceNameDarkAqua]);
-        [panel applyThemePreferences:@{@"theme": @"dark", @"screen_keyboard_theme": @"light", @"toolbar_theme": @"dark"}];
         assert([panel.appearance.name isEqualToString:NSAppearanceNameAqua]);
+        [panel applyThemePreferences:@{@"theme": @"dark", @"screen_keyboard_theme": @"light", @"toolbar_theme": @"light"}];
+        assert([panel.appearance.name isEqualToString:NSAppearanceNameDarkAqua]);
         [panel applyThemePreferences:@{@"theme": @"system", @"screen_keyboard_theme": @"follow"}];
         assert(panel.appearance == nil && !panel.visible);
         assert((panel.styleMask & NSWindowStyleMaskNonactivatingPanel) != 0);

@@ -89,7 +89,6 @@ import {
   CloudClipboardSendOutcome, CloudClipboardState
 } from './clipboard/CloudClipboardPolicy';
 import { CloudClipboardBoundListing } from './clipboard/CloudClipboardClient';
-import componentSnapshot from '@ohos.arkui.componentSnapshot';
 import { image } from '@kit.ImageKit';
 import { textRecognition } from '@kit.CoreVisionKit';
 import {
@@ -1246,7 +1245,9 @@ struct KeyboardView {
     const automatic: boolean = this.letterCase.isAutomatic();
     const shifted: boolean = KeyboardSession.shared.entersHelpcode(held)
       || (this.english && held);
-    KeyboardSession.shared.press(letter.charCodeAt(0), shifted);
+    // 英文组合按实际字符保留大小写，Shift 标志本身不会把小写 ASCII 改为大写。
+    const input: string = this.english && held ? letter.toUpperCase() : letter;
+    KeyboardSession.shared.press(input.charCodeAt(0), shifted);
     // A one-shot Shift is spent by the letter that follows it; Caps Lock is not. Neither is an
     // automatic Shift: it is not spent but recomputed from the text, which the change this press
     // just caused has already done. Clearing it here would give a capitals-only field one capital.
@@ -4708,6 +4709,24 @@ struct KeyboardView {
     KeyboardSession.shared.pressGridKey(key.input.charCodeAt(0));
   }
 
+  private usesQuanpinSeparator(): boolean {
+    return KeyboardScheme.usesQuanpinSeparator(this.scheme, this.touchDesign(),
+      this.english, this.symbols, this.localMode);
+  }
+
+  private tapLetterShift(): void {
+    if (this.usesQuanpinSeparator()) {
+      KeyboardSession.shared.recordKey(KeyIdPolicy.character("'"));
+      if (KeyboardSession.shared.composing()) {
+        KeyboardSession.shared.press("'".charCodeAt(0), false);
+      }
+      return;
+    }
+    KeyboardSession.shared.recordKey(KeyIdPolicy.SHIFT);
+    this.letterCase.toggle(Date.now());
+    this.caseMode = this.letterCase.mode();
+  }
+
   /** 第三行左端键：组字中送分词符 '，空闲时打开符号面板（Android `ImeLayoutRows.symbolKey`）。 */
   private tapFourteenKeySeparator(): void {
     // 一个键一个键位 id：不论组字与否都记作符号键，与 Android、iOS 的 14 键相同。
@@ -6093,7 +6112,7 @@ struct KeyboardView {
     }
     this.handwritingBusy = true;
     this.handwritingNotice = '正在识别…';
-    componentSnapshot.get(HANDWRITING_CANVAS_ID, (error: Object, pixelMap: image.PixelMap): void => {
+    this.getUIContext().getComponentSnapshot().get(HANDWRITING_CANVAS_ID, (error: Object, pixelMap: image.PixelMap): void => {
       // Testing the error object itself took this branch on every successful snapshot, so every
       // stroke answered 无法读取手写画布 and nothing was ever recognised.
       if (BusinessErrorPolicy.failed(error)) {
@@ -6691,9 +6710,14 @@ struct KeyboardView {
 
   /** 按屏幕此刻的宽高（转屏后两者互换）判断是不是手机横屏。 */
   private readOrientation(): void {
-    const screen: display.Display = display.getDefaultDisplaySync();
-    this.phoneLandscape = KeyboardFormFactorPolicy.phoneLandscape(screen.width / screen.densityPixels,
-      screen.height / screen.densityPixels);
+    try {
+      const screen: display.Display = display.getDefaultDisplaySync();
+      this.phoneLandscape = KeyboardFormFactorPolicy.phoneLandscape(screen.width / screen.densityPixels,
+        screen.height / screen.densityPixels);
+    } catch {
+      // 显示服务暂不可用时保留上次方向，等待下一次窗口布局通知。
+      KeyboardLog.error('keyboard orientation unavailable');
+    }
   }
 
   /** 功能面板和方案选择的行数和行距（`FunctionPanelPolicy.pickerGrid`）；是否放得下按有圆点算。 */
@@ -9168,21 +9192,18 @@ struct KeyboardView {
           if (!this.symbols) {
             // 触屏上开启的 Shift 用字母键的填充色加强调色箭头，与设计稿一致；2in1 屏幕键盘仍用操作色填充。
             this.fixedKey({
-              face: this.caseMode === LetterCaseMode.CAPS_LOCK ? '⇪' : '⇧',
-              label: this.letterCase.accessibilityLabel(this.english),
-              size: KeyboardMetrics.KEY_FONT_SIZE,
+              face: this.usesQuanpinSeparator() ? '分词'
+                : (this.caseMode === LetterCaseMode.CAPS_LOCK ? '⇪' : '⇧'),
+              label: this.usesQuanpinSeparator() ? '拼音分词' : this.letterCase.accessibilityLabel(this.english),
+              size: this.usesQuanpinSeparator() ? 14 : KeyboardMetrics.KEY_FONT_SIZE,
               emphasized: !this.touchDesign() && this.caseMode !== LetterCaseMode.LOWERCASE,
-              special: !(this.touchDesign() && this.caseMode !== LetterCaseMode.LOWERCASE),
+              special: this.usesQuanpinSeparator() || !(this.touchDesign() && this.caseMode !== LetterCaseMode.LOWERCASE),
               width: KeyboardMetrics.MODIFIER_WIDTH_VP,
               share: this.touchDesign() ? LETTER_EDGE_SHARE : 0,
-              icon: !this.touchDesign() ? ''
+              icon: !this.touchDesign() || this.usesQuanpinSeparator() ? ''
                 : (this.caseMode === LetterCaseMode.CAPS_LOCK ? KeyboardIconPaths.CAPS_LOCK : KeyboardIconPaths.SHIFT),
-              accentIcon: this.touchDesign() && this.caseMode !== LetterCaseMode.LOWERCASE,
-              action: () => {
-                KeyboardSession.shared.recordKey(KeyIdPolicy.SHIFT);
-                this.letterCase.toggle(Date.now());
-                this.caseMode = this.letterCase.mode();
-              }
+              accentIcon: !this.usesQuanpinSeparator() && this.touchDesign() && this.caseMode !== LetterCaseMode.LOWERCASE,
+              action: () => this.tapLetterShift()
             });
           }
           ForEach(this.symbols ? SYMBOL_ROWS[2] : LETTER_ROWS[2], (key: string) => {

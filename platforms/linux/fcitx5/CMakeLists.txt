@@ -271,6 +271,8 @@ if(BUILD_TESTING)
   if(MSIME_FCITX5_TEST_RESOURCES)
     add_test(NAME fcitx5-native-context
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}")
+    add_test(NAME fcitx5-native-smart-abc
+      COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --smart-abc)
     add_test(NAME fcitx5-native-ai
       COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}" --ai)
     add_test(NAME fcitx5-local-mode-shortcuts

@@ -164,10 +164,11 @@ BOOL ParseResponse(NSData *message, DoubaoResponse *response) {
     request.timeoutInterval = 10;
     request.cachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
     // 所有宿主上的探测鉴权和录音鉴权都由同一套 client-providers 策略负责。这个适配层只把敏感的 ABI 结果转换成 `NSURLRequest`。
+    // 资源 ID 为空时用的默认值与 client-providers（voice/provider.rs）、设置页和 Windows 一致：volc.seedasr.sauc.duration。以前这里回退到 volc.bigasr.sauc.duration，设置页的「测试」用前者通过、实际录音却用后者，只开通了前者的 Key 会测试通过而录音失败。
     NSData *authInput = [NSJSONSerialization dataWithJSONObject:@{
         @"auth_mode":snapshot[@"doubao_auth_mode"] ?: @"", @"app_id":snapshot[@"asr_app_key"] ?: @"",
         @"token":snapshot[@"asr_token"] ?: @"", @"resource_id":[snapshot[@"asr_resource_id"] length]
-            ? snapshot[@"asr_resource_id"] : @"volc.bigasr.sauc.duration"} options:0 error:nil];
+            ? snapshot[@"asr_resource_id"] : @"volc.seedasr.sauc.duration"} options:0 error:nil];
     auto authRaw = msime::host_api::own_string(
         msime_client_doubao_auth_headers(static_cast<const uint8_t *>(authInput.bytes), authInput.length));
     id auth = authRaw ? [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:authRaw.get()

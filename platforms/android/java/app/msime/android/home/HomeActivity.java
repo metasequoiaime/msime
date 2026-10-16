@@ -37,7 +37,7 @@ import app.msime.android.ViewPolicy;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 /**
- * 宿主主界面：底部四个 tab（设置、对话、统计、我的）共用一个 Fragment 容器，详情页压在同一个容器里。第二格原先是「社区」，社区内容并进了皮肤、词库、表达和 AI 几个功能页（各页末尾的「浏览更多…」压入 {@link CommunityFragment} 的完整列表），这一格换成了 AI 对话（{@link ChatFragment}）。
+ * 宿主主界面的四个入口为设置、全部设置、统计和我的；AI 对话通过设置导航栈打开二级页面。
  *
  * First-run dictionary preparation is started from here, because this is the launcher and there is
  * nowhere else the user reliably arrives. It never enables or selects the input method on their
@@ -63,7 +63,7 @@ public final class HomeActivity extends AppCompatActivity {
     private static final long INTRO_FADE_MILLIS = 260;
     /** 按 `HostDeepLink.TAB_*` 下标排的底部导航项，顺序与 `res/menu/bottom_tabs.xml` 相同（`tests/home/BottomTabsSmoke.java` 核对）。 */
     private static final int[] TAB_IDS = {
-        R.id.tab_settings, R.id.tab_chat, R.id.tab_statistics, R.id.tab_account,
+        R.id.tab_settings, R.id.tab_allsettings, R.id.tab_statistics, R.id.tab_account,
     };
 
     private BottomNavigationView tabs;
@@ -449,11 +449,17 @@ public final class HomeActivity extends AppCompatActivity {
     }
 
     /**
-     * 切到「对话」tab 并弹出键盘，设置首页状态卡上的「试用键盘」用它：试用键盘就是在对话页的输入框里打字。直接点底部那一格进来不弹键盘。
+     * 打开 AI 对话二级页并弹出键盘，供设置首页的「试用键盘」使用。
      */
     void openChat() {
-        openTab(R.id.tab_chat);
-        if (getSupportFragmentManager().findFragmentByTag(tag(R.id.tab_chat)) instanceof ChatFragment chat) chat.focusInput();
+        openChatSecondary(true);
+    }
+
+    void openChatSecondary(boolean focus) {
+        SettingsNavigator.open(this, PageId.CHAT, null);
+        if (focus && SettingsNavigator.visibleIn(getSupportFragmentManager()) instanceof ChatFragment chat) {
+            chat.focusInput();
+        }
     }
 
     /** 打开某一类社区作品的完整列表。社区 tab 撤掉以后，它是压在设置 tab 上的一页（见 {@link CommunityFragment#browse}）。 */
@@ -527,7 +533,7 @@ public final class HomeActivity extends AppCompatActivity {
     }
 
     private Fragment create(int itemId) {
-        if (itemId == R.id.tab_chat) return new ChatFragment();
+        if (itemId == R.id.tab_allsettings) return KeyboardFragment.allSettings();
         if (itemId == R.id.tab_statistics) return new StatisticsFragment();
         if (itemId == R.id.tab_account) return new AccountFragment();
         return new KeyboardFragment();

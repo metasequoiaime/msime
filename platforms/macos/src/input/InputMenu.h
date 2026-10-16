@@ -11,15 +11,11 @@ inline NSMenuItem *CreateInputModeItem(NSString *title, SEL action, id target, B
     return item;
 }
 
-/// Match the Windows menu surface precedence: explicit menu theme, then the
-/// global theme, with a nil appearance delegating system mode to AppKit.
+/// 菜单按颜色模式（`theme`）着色，`system` 时交给 AppKit 跟随系统。macOS 的菜单没有单独的明暗设置；固定明暗的主题由 InputController 把 `theme` 钉住再交过来。
 inline void ApplyMetasequoiaMenuTheme(NSMenu *menu, NSDictionary *preferences)
 {
     if (menu == nil) return;
-    id surface = preferences[@"menu_theme"];
-    id global = preferences[@"theme"];
-    id resolved = ([surface isKindOfClass:NSString.class] &&
-                   ([surface isEqual:@"dark"] || [surface isEqual:@"light"])) ? surface : global;
+    id resolved = preferences[@"theme"];
     if ([resolved isEqual:@"light"])
         menu.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
     else if ([resolved isEqual:@"system"])

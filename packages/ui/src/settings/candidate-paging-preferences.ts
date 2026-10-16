@@ -24,6 +24,14 @@ export const defaultNavigation: NavigationPreferences = {
   arrows: true,
 };
 
+/** 宿主把 Tab、PageUp/PageDown 两组翻页键固定为开时（`HostCapabilities.tab_page_paging_switches` 为假，macOS），速查按实际生效的样子列出它们，不看文档里存的值。 */
+export function effectiveNavigation(
+  navigation: NavigationPreferences,
+  tabPageSwitches: boolean,
+): NavigationPreferences {
+  return tabPageSwitches ? navigation : { ...navigation, tab: true, page_up_down: true };
+}
+
 export type CandidatePagingChange = {
   navigation: NavigationPreferences;
   wordCharacter: WordCharacterPreferences;
@@ -73,6 +81,26 @@ export function wordCharacterEnabledChange(
   return {
     wordCharacter: { ...wordCharacter, enabled },
     navigation: enabled ? { ...navigation, [wordCharacter.keys]: false } : navigation,
+  };
+}
+
+/** 合并后的「以词定字」单选的取值：关闭，或用哪组键。 */
+export type WordCharacterChoice = "off" | WordCharacterPreferences["keys"];
+
+export function wordCharacterChoice(wordCharacter: WordCharacterPreferences): WordCharacterChoice {
+  return wordCharacter.enabled ? wordCharacter.keys : "off";
+}
+
+/** 选「关闭」只关掉以词定字，记着的键组不动，下次打开还是它；选一组键就打开并换成这组键。被翻页占用的键组在控件里不能选，所以这里不改翻页偏好。 */
+export function wordCharacterChoiceChange(
+  wordCharacter: WordCharacterPreferences,
+  navigation: NavigationPreferences,
+  choice: WordCharacterChoice,
+): CandidatePagingChange {
+  return {
+    wordCharacter:
+      choice === "off" ? { ...wordCharacter, enabled: false } : { enabled: true, keys: choice },
+    navigation,
   };
 }
 

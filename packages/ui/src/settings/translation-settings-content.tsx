@@ -48,6 +48,7 @@ export function TranslationSettingsContent({
                     available={candidate.enabled}
                     provider={candidate.translationProvider ?? "none"}
                     showAccountProvider={candidate.showAccountProvider ?? false}
+                    offlineFallback={candidate.offlineFallback ?? false}
                     onChange={candidate.onTranslationProviderChange}
                   />
                 </GroupList>

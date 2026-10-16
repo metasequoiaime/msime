@@ -178,12 +178,6 @@ final class ImeBottomBar {
             DimensionPolicy.fromPixels(s, navigationBottom));
     }
 
-    /** 「底部留白」此刻垫不垫（{@link KeyboardBottomBarPolicy#paddingShown}）；`barShown` 是这一次 {@link #shown} 的结果。 */
-    private boolean paddingShown(boolean barShown) {
-        return KeyboardBottomBarPolicy.paddingShown(s.localSettings.bool(AndroidLocalSettings.BOTTOM_PADDING),
-            barShown, s.floatingDrawn(), s.hardwareKeysCollapsed(), phoneLandscape());
-    }
-
     private boolean phoneLandscape() {
         Configuration configuration = s.getResources().getConfiguration();
         return configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -206,7 +200,7 @@ final class ImeBottomBar {
     }
 
     /**
-     * 按当前状态给键盘列套底部内边距并摆放底栏：浮动（以及候选栏跟随光标）时四边都不留；停靠时留出系统栏，底栏画着时底部再加上底栏和它下面让出的手势区，底栏不画而「底部留白」开着时再加一段同高的空白。insets 变化和每次 render 都调用，状态没变时不触发重新布局。
+     * 按当前状态给键盘列套底部内边距并摆放底栏：浮动（以及候选栏跟随光标）时四边都不留；停靠时留出系统栏，底栏画着时底部再加上底栏和它下面让出的手势区，再补足用户选择的留白高度。insets 变化和每次 render 都调用，状态没变时不触发重新布局。
      *
      * @param keyboard 键盘的竖向一列
      */
@@ -226,10 +220,12 @@ final class ImeBottomBar {
                 bar.setLayoutParams(params);
             }
             bottom = margin + s.pixels(KeyboardBottomBarPolicy.BAR_HEIGHT_DP);
-        } else if (paddingShown(false)) {
-            // 底部留白：键盘列的底部内边距里多出一段空白，覆盖面板同样按这段内边距让出底边。
-            bottom += s.pixels(KeyboardBottomBarPolicy.BAR_HEIGHT_DP);
         }
+        // 底栏计入目标高度，额外空白只抬高键区，覆盖面板同样让出这段内边距。
+        bottom += s.pixels(KeyboardBottomBarPolicy.extraPaddingDp(
+            s.localSettings.bool(AndroidLocalSettings.BOTTOM_PADDING),
+            s.localSettings.integer(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT), shown,
+            s.floatingDrawn(), s.hardwareKeysCollapsed(), phoneLandscape()));
         if (bar != null) ViewPolicy.setVisibleIfChanged(bar, shown);
         ViewPolicy.setPaddingIfChanged(keyboard, insets.left, insets.top, insets.right, bottom);
     }

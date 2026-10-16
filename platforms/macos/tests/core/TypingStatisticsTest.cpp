@@ -24,6 +24,8 @@ int main() {
     assert(ResolveTypingSource(1, false, false, "none", "ziranma") == TypingSource::Ziranma);
     assert(ResolveTypingSource(1, false, false, "none", "microsoft") == TypingSource::Microsoft);
     assert(ResolveTypingSource(1, false, false, "none", "shoudao") == TypingSource::Shoudao);
+    assert(ResolveTypingSource(1, false, false, "none", "smart_abc") == TypingSource::SmartAbc);
+    assert(msime::mac::TypingSourceId(TypingSource::SmartAbc) == "smart_abc");
     assert(ResolveTypingSource(2, false, false, "none", "xiaohe") == TypingSource::Wubi);
     assert(ResolveTypingSource(3, false, false, "none", "xiaohe") == TypingSource::Japanese);
     assert(ResolveTypingSource(4, false, false, "none", "xiaohe") == TypingSource::Korean);
@@ -78,15 +80,15 @@ int main() {
     // The id ResolveTypingSource gives Korean commits is one the shared store accepts.
     const auto korean = call(directory, "{\"operation\":\"record\",\"text\":\"한글\",\"source\":\"korean\",\"day\":\"2026-09-15\"}");
     assert(korean.find("\"recorded\":2") != std::string::npos);
-    // 它给粤拼、注音、越南文、藏文和笔画上屏的标识，共享存储同样接受。
-    for (const char *source : {"cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"}) {
+    // 智能 ABC 和其它方案的上屏标识都能由共享存储接受。
+    for (const char *source : {"cantonese", "zhuyin", "vietnamese", "tibetan", "stroke", "smart_abc"}) {
         const std::string action = std::string("{\"operation\":\"record\",\"text\":\"字\",\"source\":\"") + source + "\",\"day\":\"2026-09-15\"}";
         const auto recorded = call(directory, action.c_str());
         assert(recorded.find("\"recorded\":1") != std::string::npos);
     }
     const auto loaded = call(directory, "{\"operation\":\"load\"}");
-    assert(loaded.find("\"total\":10") != std::string::npos);
-    for (const char *source : {"\"cantonese\":1", "\"zhuyin\":1", "\"vietnamese\":1", "\"tibetan\":1", "\"stroke\":1"})
+    assert(loaded.find("\"total\":11") != std::string::npos);
+    for (const char *source : {"\"cantonese\":1", "\"zhuyin\":1", "\"vietnamese\":1", "\"tibetan\":1", "\"stroke\":1", "\"smart_abc\":1"})
         assert(loaded.find(source) != std::string::npos);
     assert(loaded.find("合成🌲") == std::string::npos);
     std::filesystem::remove_all(directory);

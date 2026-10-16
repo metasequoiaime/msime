@@ -1,3 +1,6 @@
+import type { InputScheme, ChineseScheme } from "./core/input-scheme";
+import type { HostCapabilities } from "./core/host-capabilities";
+import type { ProviderCredentialClient } from "./core/provider-credential-contracts";
 import type { PreeditPreferences } from "./settings/preedit-preferences";
 import type {
   CandidateFontPreferences,
@@ -7,6 +10,8 @@ import type {
 import type { PunctuationPreferences } from "./settings/punctuation-preferences";
 import type { KeybindingPreferences } from "./settings/keybinding-preferences";
 import type { WubiPreferences } from "./settings/wubi-preferences";
+import type { VietnamesePreferences } from "./settings/vietnamese-preferences";
+import type { FloatingToolbarPreferences } from "./settings/floating-toolbar-preferences";
 import type { DictionaryCollectionsClient } from "./dictionary/dictionary-collections";
 import type { TraditionalChineseVariant } from "./settings/chinese-output-preferences";
 import type {
@@ -47,20 +52,17 @@ import type { AppInputModeRule, PickedApplication } from "./settings/app-input-m
 import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
 import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences";
 import { clipboardHistoryEnabled } from "./settings/clipboard-history-preferences";
-import { settingsThemePreferences } from "./settings/settings-theme-preferences";
+import {
+  hostDrawnCustomTheme,
+  settingsThemePreferences,
+} from "./settings/settings-theme-preferences";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import type { ResourcePackClient } from "./settings/resource-packs";
-import type { WubiCodeLookup } from "./settings/wubi-code-lookup-section";
 import type { CloudClipboardRelayPreferences } from "./settings/cloud-clipboard-relay-preferences";
 import type { VoiceInputPreferences } from "./settings/voice-input-preferences";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import {
-  type DictionaryEntry,
-  type LocalDictionaryFormat,
-  type LocalDictionaryKind,
-  type ScelText,
-} from "./dictionary/dictionary-file";
+import type { DictionaryClient, DictionaryManifest } from "./dictionary/dictionary-contracts";
 export type {
   DictionaryEntry,
   DictionaryPageFormat,
@@ -476,6 +478,8 @@ import { DeveloperSettingsPage } from "./settings/pages/developer-page";
 import { DictionarySettingsPage } from "./settings/pages/dictionary-page";
 import { AppearanceSettingsPage } from "./settings/pages/appearance-page";
 import { SkinSettingsPage } from "./settings/pages/skin-page";
+import { skinGridTabs } from "./settings/skin-grid";
+import { useSettingsTabs } from "./settings/use-settings-tabs";
 import { FloatingToolbarSettingsPage } from "./settings/pages/floating-toolbar-page";
 import { ScreenKeyboardSettingsPage } from "./settings/pages/screen-keyboard-page";
 import { ShortcutSettingsPage } from "./settings/pages/shortcuts-page";
@@ -509,9 +513,12 @@ import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";
 import { defaultTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";
 import { logo } from "./settings/settings-options";
-import type { CommunitySkinClient } from "./community/community-skins";
+import { CommunitySkinsPage, type CommunitySkinClient } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
-import type { CommunityResource, CommunityResourceClient } from "./community/community-resources";
+import type {
+  CommunityResource,
+  CommunityResourceClient,
+} from "./community/community-resource-model";
 import type { CandidateSkinCommunityClient } from "./community/community-candidate-skins";
 import { CommunityPluginsPage, type CommunityPluginClient } from "./community/community-plugins";
 import * as communityStyle from "./community/community-style";
@@ -744,7 +751,9 @@ export { PunctuationSection, type PunctuationPreferences } from "./settings/punc
 export { punctuationControlState } from "./settings/punctuation-preferences";
 export {
   MixedInputSection,
+  MixedInputMoreRows,
   defaultMixedInput,
+  mixedInputDefaultsFor,
   type MixedInputPreferences,
 } from "./settings/mixed-input-section";
 export {
@@ -971,10 +980,7 @@ export { wubiControlState } from "./settings/wubi-preferences";
 export {
   WubiCodeLookupSection,
   WUBI_CODE_LOOKUP_MAX_LENGTH,
-  type WubiCodeLookup,
-  type WubiCodeLookupClient,
   type WubiCodeLookupSectionProps,
-  type WubiTextCodes,
 } from "./settings/wubi-code-lookup-section";
 export {
   InputModeSection,
@@ -1181,6 +1187,8 @@ export {
 export {
   VoiceRecordingBehaviorSection,
   type VoiceRecordingBehaviorSectionProps,
+  VoiceCueSwitchesSection,
+  type VoiceCueSwitchesSectionProps,
 } from "./settings/voice-recording-behavior-section";
 export {
   VoiceModelMirrorRow,
@@ -1380,19 +1388,18 @@ export {
   type CommunityDestinationScope,
   type CommunityDestinationView,
 } from "./community/community-destination";
-export {
-  CommunityHomePage,
-  CommunityResourcesPage,
-  type CommunityLocalDictionaryClient,
-  type CommunityResource,
-  type CommunityResourceApplication,
-  type CommunityResourceClient,
-  type CommunityResourceContent,
-  type CommunityResourceKind,
-  type CommunityResourcePage,
-  type CommunityResourceScope,
-  type CommunitySharedWord,
-} from "./community/community-resources";
+export { CommunityHomePage, CommunityResourcesPage } from "./community/community-resources";
+export type {
+  CommunityLocalDictionaryClient,
+  CommunityResource,
+  CommunityResourceApplication,
+  CommunityResourceClient,
+  CommunityResourceContent,
+  CommunityResourceKind,
+  CommunityResourcePage,
+  CommunityResourceScope,
+  CommunitySharedWord,
+} from "./community/community-resource-model";
 export {
   CommunityCandidateSkinsPage,
   candidateSkinCategories,
@@ -1707,183 +1714,15 @@ export {
 } from "./settings/resource-packs";
 
 export type { KeybindingPreferences } from "./settings/keybinding-preferences";
-export type HostPlatform = "windows" | "macos" | "linux" | "android" | "ios" | "harmony";
-/** Mirrors `client-core::preferences::InputScheme`. */
-export type InputScheme =
-  | "quanpin"
-  | "shuangpin"
-  | "wubi"
-  | "japanese"
-  | "korean"
-  | "cantonese"
-  | "zhuyin"
-  | "vietnamese"
-  | "tibetan"
-  | "stroke";
-/** 对应 `client-core::preferences::ChineseScheme`：选日文、韩文、越南文或藏文后要回到的中文方案。 */
-export type ChineseScheme = "quanpin" | "shuangpin" | "wubi" | "cantonese" | "zhuyin" | "stroke";
-/** Mirrors `client-core::preferences::VietnamesePreferences`. Absent from a document left at its defaults: Telex with modern tone placement. */
-export type VietnamesePreferences = {
-  input_method?: "telex" | "vni";
-  tone_style?: "modern" | "classic";
-};
-/** Mirrors `client-core::host_surface::HostCapabilities`. */
-export interface HostCapabilities {
-  platform: HostPlatform;
-  /** HarmonyOS input-method extensions and the settings ability share files only when the signed HAP has a data-group id. */
-  harmony_shared_sandbox?: boolean;
-  /** Whether settings use the phone navigation and touch-oriented surface. */
-  mobile_settings: boolean;
-  restart_input_method: boolean;
-  panel_windows: boolean;
-  ime_mode_scope: boolean;
-  /** 宿主按 `app_input_mode_rules` 给指定应用定起始中英文模式（macOS 和 Windows）。 */
-  app_input_mode_rules?: boolean;
-  typing_statistics: boolean;
-  /** The host has wired the shared 背单词 entry point. */
-  vocabulary_review: boolean;
-  fuzzy_pinyin: boolean;
-  system_fonts: boolean;
-  window_chrome: boolean;
-  floating_toolbar: boolean;
-  floating_toolbar_appearance: boolean;
-  floating_toolbar_components: boolean;
-  /** The toolbar carries a handwriting panel button, which only this client's macOS toolbar does. */
-  floating_toolbar_handwriting: boolean;
-  /** The toolbar carries a voice input button, for the same reason. */
-  floating_toolbar_voice: boolean;
-  /** 工具栏带切换输入方案的按钮（目前只有 macOS）。 */
-  floating_toolbar_input_scheme: boolean;
-  mode_switch_shortcuts: boolean;
-  panel_shortcuts: boolean;
-  number_row_selection: boolean;
-  /** The host answers the voice recording shortcuts from an attached hardware keyboard without having desktop panel windows (a HarmonyOS phone), so the page offers their switches there too. */
-  voice_hotkeys?: boolean;
-  voice_capture_devices: boolean;
-  candidate_font_controls: boolean;
-  candidate_preedit_font: boolean;
-  candidate_page_number: boolean;
-  /** 宿主按 `show_app_logo` 显示或隐藏候选窗和悬浮工具栏左端的水杉 logo（macOS 和 Windows）。 */
-  app_logo?: boolean;
-  /** 宿主按 `traditional_chinese_variant` 选 OpenCC 的 s2t、s2tw 或 s2twp 做繁体转换（目前只有 Linux）；没有时设置页只给简体和繁体。 */
-  traditional_chinese_variants?: boolean;
-  /** 宿主按 `expand_candidates` 让横排候选窗按 ↓ 展开成多行候选网格（目前只有 macOS）。 */
-  expand_candidates?: boolean;
-  candidate_row_colors: boolean;
-  candidate_selection_appearance: boolean;
-  /** 宿主用边框颜色给候选窗描边。Linux 由 Fcitx5 的 classicui 主题描边，没有 hover 状态；IBus 面板描不了，运行中的 IBus 宿主以 `candidate_panel_limit: "ibus_panel"` 说明。 */
-  candidate_border_color: boolean;
-  /** The host draws its own floating candidate window and scales its font and geometry by `candidate_scale_percent`. */
-  candidate_window_scale: boolean;
-  /** The host lowers the alpha of the candidate card fill, border and skin background by `candidate_opacity_percent`, keeping text opaque. */
-  candidate_window_opacity: boolean;
-  /** The host rounds its candidate card by `candidate_corner_radius`, ahead of the skin package's radius. */
-  candidate_corner_radius: boolean;
-  /** The host insets its candidates from the card's edge by `candidate_padding`, ahead of the skin package's padding. Only macOS so far. */
-  candidate_padding: boolean;
-  candidate_follow_cursor: boolean;
-  input_mode_hud: boolean;
-  /** 宿主在系统菜单栏放一个常驻状态项显示当前输入模式。只有 macOS 提供：Windows 有托盘语言栏，Linux 有输入法面板，触屏键盘的键面已显示模式。 */
-  input_mode_status_item: boolean;
-  candidate_english_font: boolean;
-  english_suggestions: boolean;
-  helpcode_shift_entry: boolean;
-  skin_directory_import: boolean;
-  /** The one candidate page size the host draws; set when the host offers no choice. */
-  fixed_candidate_page_size?: number;
-  /** 宿主能排的最大每页候选数：macOS、Linux、Android 为 10（第十个用 0 键选），其余为 9。 */
-  max_candidate_page_size?: number;
-  /** The one candidate layout the host draws; set when the host offers no choice. */
-  fixed_candidate_layout?: "horizontal" | "vertical";
-  /** The touch keyboard picks its toolbar buttons from `touch_toolbar`. */
-  touch_toolbar_components: boolean;
-  /** 宿主按 `touch_keyboard_height_adjustment` 改变屏幕键盘的高度（Windows 与触屏宿主）；macOS 和 Linux 的键盘窗口高度固定，不给「键盘高度」滑块。缺省按提供处理。 */
-  touch_keyboard_height?: boolean;
-  /** 宿主的屏幕键盘按 `touch_key_spacing_tenths` / `touch_row_spacing_tenths` 画间距；macOS 为 false，键盘面板固定用默认间距，设置页不给间距滑块、拖动调间距和「恢复默认」。缺省按提供处理。 */
-  touch_keyboard_spacing?: boolean;
-  shuangpin_preedit: boolean;
-  /** 宿主在双拼组字时按 `shuangpin_keymap_hint` 在候选窗旁画键位图（macOS 和 Windows）。 */
-  shuangpin_keymap_hint?: boolean;
-  /** The host routes the Ctrl+Shift+Alt maintenance chords. */
-  maintenance_shortcuts: boolean;
-  /** The host reserves Option/Alt+Shift+H for the character width. */
-  fullwidth_chord: boolean;
-  /** The host runs the configured transcription provider, so its controls have an effect. */
-  voice_provider_settings: boolean;
-  /** The host draws interim recognition text, so the streaming-preedit switch has an effect. */
-  voice_stream_preedit: boolean;
-  /** The host tells the runtime its character width, so 全角输入 has something to act on. */
-  character_width: boolean;
-  ai_provider_credentials: boolean;
-  voice_commit_mode: boolean;
-  /** The OS release the host is running on, for the feedback page to attach. */
-  os_version?: string;
-  /** The CPU architecture the host was built for (Rust's `std::env::consts::ARCH`, e.g. `x86_64`, `aarch64`); the update check picks this machine's Linux package by it. */
-  arch?: string;
-  /** 内核版本（Linux 的 `/proc/sys/kernel/osrelease`），「关于」页系统信息用；宿主读不到时缺省。 */
-  kernel_version?: string;
-  /** 桌面会话（Linux 的 `XDG_CURRENT_DESKTOP` 与 `XDG_SESSION_TYPE`，如 `ubuntu:GNOME (wayland)`）。 */
-  desktop_session?: string;
-  /** 水杉实际挂在哪个输入法框架上（Linux 的 `IBus` / `Fcitx5`），取自运行中的宿主写的状态。 */
-  input_method_framework?: string;
-  /** 设备型号（Linux 的 DMI 厂商与产品名）。 */
-  device_model?: string;
-  /** 运行中的 Linux 宿主报告的、画候选列表的桌面面板为什么不理会候选字体、颜色和皮肤；面板全都照办时缺省。`ibus_panel` 是部分不生效：IBus 面板接收字体和颜色，不接收圆角、边框颜色和皮肤的装饰图。 */
-  candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel" | "ibus_panel";
-  /** The host plays the sound packs in `plugins`: key sounds, the melody, the commit sound and the achievement jingle. */
-  key_sound: boolean;
-  /** The host routes the V, / and @ modes: it hands / and @ to the runtime, keeps digits as input while a mode spells with them, and loads the command tables and the @ name list. */
-  plugin_triggers: boolean;
-  /** The host streams the selected music pack while it is the active input method. */
-  music: boolean;
-  /** The host draws the typing effects and the combo count `msime_client_typing_effect` answers with. */
-  typing_effects: boolean;
-  /** 宿主向会话报告大写锁定状态，「大写锁定时使用英文标点」在这里有效（目前只有 macOS）。 */
-  caps_lock_punctuation?: boolean;
-  /** 宿主能分辨 Caps Lock 的轻点和长按并撤回大写锁定，「单按 Caps Lock 切换中英文」在这里有效（三个桌面宿主）。 */
-  caps_lock_language_switch?: boolean;
-  /** 快捷模式只从实体键盘的 Shift+字母进入，「Shift+字母进入快捷模式」总开关在这里有意义（三个桌面宿主）。 */
-  shift_letter_entry_switch?: boolean;
-  /** 宿主处理 Ctrl+Shift+J 在中文和日语之间切换（Windows 和 Linux）。本版本还要同时提供中文方案和日语，设置页才显示它的开关。 */
-  japanese_toggle_shortcut?: boolean;
-  /** 背单词书目列出单词本插件（`pack-<插件 id>` 词书）。 */
-  wordbook_packs: boolean;
-  /** 符号面板显示已安装的符号集插件。 */
-  symbol_set_packs: boolean;
-  /** 插件页显示「脚本插件（实验）」分组和授权页（macOS 和 Linux 的宿主）。 */
-  script_plugins?: boolean;
-  /** The input schemes this host offers; the others are shown disabled. */
-  input_schemes: InputScheme[];
-  /** 运行中的版本，不是 full 时才有。缺省就是 full：所有方案都属于本版本，`input_schemes` 之外的方案只是这个宿主暂不支持，显示为禁用；有它时，`edition.input_schemes` 之外的方案在本版本里不存在，设置页直接不列出。 */
-  edition?: EditionInfo;
-}
-
-/** Mirrors `client-core::host_surface::EditionInfo`. */
-export interface EditionInfo {
-  id: string;
-  /** 版本的中文产品名，例如「水杉五笔」。缺省时按 full 的「水杉输入法」。 */
-  display_name?: string;
-  /** 本版本提供的方案，顺序与全部方案的顺序一致。 */
-  input_schemes: InputScheme[];
-  /** 本版本的默认方案，偏好里的方案不可用时 host-api 回退到它。 */
-  default_scheme: InputScheme;
-  /** 本版本是否带临时日文。 */
-  temporary_japanese: boolean;
-  /** 本版本是否带键盘神经联想用的模型。不带时触屏宿主不列出神经联想开关；桌面的神经联想用另一份模型，不归这一项管。 */
-  neural_keyboard: boolean;
-  /** 本版本是否带非英文目标语言的离线候选释义。它们按中文候选查，所以只有提供中文方案的版本带。 */
-  offline_glosses: boolean;
-  /** 本版本是否提供手写。手写模型只认汉字，不提供中文方案的版本（日文、越南文和藏文版）没有手写：设置页不列出手写页，宿主也不打开手写面板、不下载模型。 */
-  handwriting: boolean;
-  /** 本版本里五笔混拼的默认值。 */
-  wubi_mixed_pinyin_default: boolean;
-}
+export type { HostPlatform, HostCapabilities, EditionInfo } from "./core/host-capabilities";
+export type { InputScheme, ChineseScheme } from "./core/input-scheme";
 
 export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 
 export type { SentenceAssociationPreferences } from "./settings/sentence-association-preferences";
 export type { VoiceInputPreferences } from "./settings/voice-input-preferences";
 export type { AiAssistantPreferences } from "./settings/ai-assistant-preferences";
+export type { VietnamesePreferences } from "./settings/vietnamese-preferences";
 
 export type Preferences = PunctuationPreferences &
   PreeditPreferences &
@@ -2005,62 +1844,13 @@ export type Preferences = PunctuationPreferences &
     /** Sound packs, music and command tables; the document leaves it out while every value is the default. */
     plugins?: PluginPreferences;
   };
-/** What the Linux online provider holds, never the secrets themselves. */
-export type ProviderCredentialStatus = {
-  ai: { provider: string; endpoint: string; model: string }[];
-  /** The AI file exists but the provider refuses it, so no AI provider works until it is repaired. */
-  aiInvalid: boolean;
-  tencent: { region: string } | null;
-  tencentInvalid: boolean;
-  voiceAsr: VoiceProviderCredential[];
-  voicePolish: VoiceProviderCredential[];
-  /** The voice file exists but the provider refuses it, so voice input does not start until it is repaired. */
-  voiceInvalid: boolean;
-};
-/** A stored voice entry; empty `model` / `endpoint` mean the provider's defaults. */
-export type VoiceProviderCredential = {
-  provider: string;
-  model: string;
-  endpoint: string;
-  resourceId: string | null;
-  authMode: string | null;
-};
-export type VoiceCredentialKind = "asr" | "polish";
-export type VoiceCredentialSaveResult = {
-  status: ProviderCredentialStatus;
-  /** Whether the user service manager accepted the voice socket change; the file is saved either way. */
-  serviceUpdated: boolean;
-};
-/**
- * The Linux host's owner-only credential files for the online provider service. A secret passed as undefined keeps the stored one, so an endpoint, model or region can change without pasting the key again.
- */
-export type ProviderCredentialClient = {
-  status(): Promise<ProviderCredentialStatus>;
-  saveAi(credential: {
-    provider: string;
-    endpoint: string;
-    model: string;
-    token?: string;
-  }): Promise<ProviderCredentialStatus>;
-  clearAi(provider: string): Promise<ProviderCredentialStatus>;
-  saveTencent(credential: {
-    secretId?: string;
-    secretKey?: string;
-    region: string;
-  }): Promise<ProviderCredentialStatus>;
-  clearTencent(): Promise<ProviderCredentialStatus>;
-  saveVoice(credential: {
-    kind: VoiceCredentialKind;
-    provider: string;
-    endpoint: string;
-    model: string;
-    token?: string;
-    appKey?: string;
-    resourceId: string;
-    authMode: string;
-  }): Promise<VoiceCredentialSaveResult>;
-  clearVoice(kind: VoiceCredentialKind, provider: string): Promise<VoiceCredentialSaveResult>;
-};
+export type {
+  ProviderCredentialStatus,
+  VoiceProviderCredential,
+  VoiceCredentialKind,
+  VoiceCredentialSaveResult,
+  ProviderCredentialClient,
+} from "./core/provider-credential-contracts";
 export type AiAssistantClient = {
   // `provider` is for the hosts whose provider service holds the credential: it
   // is what that service checks its private configuration against. The hosts that
@@ -2109,68 +1899,15 @@ export type Snapshot = {
   preferences: Preferences;
   candidate_skin_catalog?: ExternalSkinCatalog;
 };
-export type DictionaryFailure = { request_id: string; label: string; error: string };
-/** 对应 `client-services::dictionary::import` 的导入响应。 */
-export interface DictionaryImportResult {
-  applied: number;
-  /** Rows examined and skipped. */
-  failed: number;
-  /** Rows beyond the per-file cap were not examined. */
-  truncated?: boolean;
-  /** The file was read with its two columns the other way round from the format chosen. */
-  swapped?: boolean;
-  first_failures?: { line: number; issue: string }[];
-}
-/** What the packaged dictionary is: the specification it was built to, and where it came from. */
-export type DictionaryManifest = { profile: string; sourceCommit: string };
-
-export interface DictionaryClient {
-  list(
-    offset: number,
-    limit: number,
-    kind?: LocalDictionaryKind,
-    query?: string,
-  ): Promise<{
-    entries: DictionaryEntry[];
-    has_more: boolean;
-    pending_count?: number;
-    failed_requests?: DictionaryFailure[];
-    snapshot_error?: string | null;
-    page_offset?: number;
-    requested_page_offset?: number;
-  }>;
-  edit(
-    previous: DictionaryEntry | null,
-    replacement: DictionaryEntry | null,
-    request_id: string,
-  ): Promise<void>;
-  import?(
-    kind: LocalDictionaryKind,
-    format: LocalDictionaryFormat,
-    text: string,
-    request_id: string,
-  ): Promise<DictionaryImportResult>;
-  /** 页面为 `import` 读取的文件字节上限。只有把一次导入整份作为一个请求发给宿主、不分批的客户端才设它（`UNBATCHED_DICTIONARY_FILE_BYTES`）；页面据此只送细胞词库转出文本的开头（`leadingImportRows`）。 */
-  maxImportFileBytes?: number;
-  /** 把搜狗细胞词库（`.scel` 的 base64）转成标准 TSV 文本；页面再以 `standard` 交给 `import`。宿主提供它时，拼音词库的文件格式里多一项细胞词库。 */
-  scelText?(bytesBase64: string): Promise<ScelText>;
-  importPersonal?(
-    text: string,
-    request_id: string,
-  ): Promise<{ queued: boolean; pending_count: number }>;
-  export?(
-    kind: LocalDictionaryKind,
-    format: Exclude<LocalDictionaryFormat, "rime" | "hans">,
-    offset: number,
-    limit: number,
-  ): Promise<{ text: string; has_more: boolean }>;
-  retry?(request_id: string): Promise<void>;
-  dismissFailure?(request_id: string): Promise<void>;
-  /** 一种词库的词条总数，含内置词条；手机「词库」页的「拼音词库」行显示它。 */
-  count?(kind: LocalDictionaryKind): Promise<number>;
-  /** 五笔查码（词库请求 `wubi_codes`，只读）：`text` 里每个汉字和整段词的 86、98 五笔编码。宿主提供它时，五笔的设置下面出现「五笔查码」。 */
-  wubiCodes?(text: string): Promise<WubiCodeLookup>;
-}
+export type {
+  DictionaryClient,
+  DictionaryFailure,
+  DictionaryImportResult,
+  DictionaryManifest,
+  WubiTextCodes,
+  WubiCodeLookup,
+  WubiCodeLookupClient,
+} from "./dictionary/dictionary-contracts";
 export { dictionaryKindKeyHint } from "./settings/pages/dictionary-page";
 export type {
   DictionaryCollection,
@@ -2182,22 +1919,7 @@ export type {
   DictionaryCollectionsClient,
 } from "./dictionary/dictionary-collections";
 
-export type FloatingToolbarPreferences = {
-  enabled: boolean;
-  english_mode: boolean;
-  /** 切换输入方案的按钮。 */
-  input_scheme: boolean;
-  fullwidth: boolean;
-  punctuation: boolean;
-  character_set: boolean;
-  emoji: boolean;
-  handwriting: boolean;
-  screen_keyboard: boolean;
-  voice: boolean;
-  settings: boolean;
-  scale_percent: 75 | 100 | 125 | 150;
-  font_size: 16 | 18 | 20 | 22 | 24 | 26 | 28;
-};
+export type { FloatingToolbarPreferences } from "./settings/floating-toolbar-preferences";
 export { InputSourceStartupNotice } from "./settings/input-source-startup-notice";
 /** macOS 设置宿主启动时对内嵌输入法的安装与启用状态。 */
 export type { InputSourceStartupStatus } from "./settings/input-source-startup-model";
@@ -2484,9 +2206,14 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showVoiceCommitMode,
     showVoiceProviderSettings,
     showVoiceStreamPreedit,
+    showVoiceSpaceLockSwitch,
+    showVoiceCueSwitches,
+    showVoiceCaptureBackends,
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
+    showCandidateNumberColor,
+    surfaceThemesFollow,
     showCandidateFollowCursor,
     showCandidateWindowScale,
     showCandidateWindowOpacity,
@@ -2496,6 +2223,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showInputModeStatusItem,
     showVoiceCaptureDevices,
     showFullwidthChord,
+    showTabPagePagingSwitches,
+    showMixedInputMinimumPrefix,
     clientHostedPlatform,
     desktopPanels,
     showVoiceHotkeys,
@@ -2580,7 +2309,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const mobileInitialTab = mobileTabForPage(page);
   const mobileLastPageByTab = useRef<Record<MobilePrimaryPageId, SettingsPageId>>({
     home: mobileInitialTab === "home" ? page : "home",
-    chat: mobileInitialTab === "chat" ? page : "chat",
+    more: mobileInitialTab === "more" ? page : "more",
     "typing-statistics": mobileInitialTab === "typing-statistics" ? page : "typing-statistics",
     account: mobileInitialTab === "account" ? page : "account",
   });
@@ -2799,7 +2528,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     candidateEnglishGloss,
     englishSuggestions,
     inputModeHUD,
-  } = settingsInputPreferences(draft);
+  } = settingsInputPreferences(draft, client.host?.platform);
   const touchKeyboardSchemes = draft?.touch_keyboard_schemes ?? {
     enabled: defaultTouchKeyboardSchemes,
   };
@@ -2871,7 +2600,13 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
   const floatingToolbar = floatingToolbarPreferences(draft);
   const { themeMode, settingsTheme, globalTheme, customColors, customTouchKeyboardSkin } =
-    settingsThemePreferences(draft, host?.platform);
+    settingsThemePreferences(draft, host?.platform, surfaceThemesFollow);
+  // 预览画的自定义主题只含宿主会读的槽位：macOS 不读编号色和边框色，存下的旧值不能在预览里画出来。只给预览用，不写回草稿。
+  const previewCustomTheme = hostDrawnCustomTheme(
+    draft?.custom_theme,
+    showCandidateNumberColor,
+    showCandidateBorderColor,
+  );
   const dark = useSettingsTheme(themeMode, settingsTheme);
   // 两种 HarmonyOS 外观都用用户的应用主题（水杉四季或某个固定季节）着色；每种外观取哪些 token 由 `appThemeStyle` 决定。
   const resolvedAppTheme = useResolvedAppTheme(
@@ -2884,8 +2619,15 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     dark,
   );
   const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
-  const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.toolbar_theme);
-  const keyboardPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.screen_keyboard_theme);
+  // 各界面一律跟随颜色模式的宿主不读工具栏和屏幕键盘的单独明暗，预览也照颜色模式画。
+  const toolbarPreviewTheme = useCandidatePreviewTheme(
+    themeMode,
+    surfaceThemesFollow ? undefined : draft?.toolbar_theme,
+  );
+  const keyboardPreviewTheme = useCandidatePreviewTheme(
+    themeMode,
+    surfaceThemesFollow ? undefined : draft?.screen_keyboard_theme,
+  );
   // A picker colour is part of the custom theme, so choosing one selects that theme; clearing one leaves the selection alone. Choosing one while another theme is selected customizes that theme: it becomes the custom theme's base, and a package, whose own base would replace it, is dropped.
   // A custom theme without a keyboard design draws its base's keyboard, so the custom keyboard card is selected only when the theme carries one.
   const customKeyboardSelected = globalTheme === "custom" && Boolean(draft?.custom_theme?.keyboard);
@@ -2951,8 +2693,9 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
         showTypingEffects),
     // full 不带版本信息，手写一直都在。
     hasHandwriting: client.host?.edition?.handwriting ?? true,
-    // macOS 和 Linux 桌面的手写页只有一个打开按钮，并进屏幕键盘页；Windows 的共享设置页跟原生设置窗口一样分成两页。
-    handwritingOnScreenKeyboardPage: macosPlatform || linuxPlatform,
+    // 桌面上的手写页只有一个打开按钮（HarmonyOS 2-in-1 是一段说明），并进屏幕键盘页；Windows 的原生设置窗口也并成了一页（`SettingsNavigation.h`）。触屏宿主的手写页另有内容，投影本身就不并。
+    handwritingOnScreenKeyboardPage:
+      macosPlatform || linuxPlatform || windowsPlatform || harmonyPlatform,
     mobileHiddenPageIds,
     mobilePageTitle,
   });
@@ -3040,9 +2783,14 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showVoiceCommitMode,
     showVoiceProviderSettings,
     showVoiceStreamPreedit,
+    showVoiceSpaceLockSwitch,
+    showVoiceCueSwitches,
+    showVoiceCaptureBackends,
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
+    showCandidateNumberColor,
+    surfaceThemesFollow,
     showCandidateFollowCursor,
     showCandidateWindowScale,
     showCandidateWindowOpacity,
@@ -3052,6 +2800,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showInputModeStatusItem,
     showVoiceCaptureDevices,
     showFullwidthChord,
+    showTabPagePagingSwitches,
+    showMixedInputMinimumPrefix,
     fullwidthChord,
     clientHostedPlatform,
     platformLicenseUrl,
@@ -3247,6 +2997,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     keyboardPreviewTheme,
     globalTheme,
     customColors,
+    previewCustomTheme,
     customTouchKeyboardSkin,
     onCandidateColorChange,
     onCustomKeyboardChange,
@@ -3371,8 +3122,6 @@ function SettingsShell(props: SettingsPageProps) {
   } = model;
   // 对话页第一次打开后就一直挂着（见下方渲染处），切走只隐藏。
   const [chatMounted, setChatMounted] = useState(page === "chat");
-  // 对话页的输入框正在打字：底部标签栏让开，键盘上方只留输入栏，和常见的聊天应用一样。
-  const [chatTyping, setChatTyping] = useState(false);
   // 首页「试用键盘」切到对话页时加一，对话页随即聚焦输入框、弹出键盘；点底部标签进来不加，不弹键盘。
   const [chatFocusRequest, setChatFocusRequest] = useState(0);
   useEffect(() => {
@@ -3412,6 +3161,14 @@ function SettingsShell(props: SettingsPageProps) {
   const recordCommunitySkin = (id: string) => {
     void client.typingStatistics?.recordSkin?.(id);
   };
+  // HarmonyOS 手机的皮肤页与 Android 皮肤页一样在顶部分「内置 / 我的 / 社区」。「社区」是完整的社区皮肤图库，自带搜索和发布表单，所以和桌面的「社区皮肤」一样画在设置表单之外，标签的选择也就放在这里；前两个分类的网格由皮肤页自己画。没有社区服务的宿主不给「社区」。
+  const skinTabs = useSettingsTabs(
+    skinGridTabs.filter((tab) => tab.id !== "community" || Boolean(client.communitySkins)),
+    "皮肤分类",
+    harmonyPlatform && mobilePlatform,
+  );
+  const phoneSkinCommunityShown =
+    page === "skin" && Boolean(client.communitySkins) && skinTabs.selected === "community";
   const { onOpenPage } = createSettingsPageSelection({ selectPage });
   const statusActions = createSettingsStatusActions({
     recoverPreferences,
@@ -3453,7 +3210,8 @@ function SettingsShell(props: SettingsPageProps) {
   const pageTitle = availablePages.find((item) => item.id === page)?.title ?? "输入";
   // A community gallery stands in for the page's own settings, so the form's page-level actions do not apply while it is shown.
   const skinCommunityShown =
-    page === "skin" && Boolean(client.communityCandidateSkins) && skinView === "community";
+    (page === "skin" && Boolean(client.communityCandidateSkins) && skinView === "community") ||
+    phoneSkinCommunityShown;
   const pluginCommunityShown =
     page === "plugins" && Boolean(client.communityPlugins) && pluginView === "community";
   // 子页面（「词库」下的「背单词」、「帮助与反馈」下的「帮助」，桌面上还有「AI 辅助」下的「AI 对话」）在返回时写出父页面的名字。
@@ -3551,7 +3309,7 @@ function SettingsShell(props: SettingsPageProps) {
         )}
         <div className={settings.body} data-settings-body="">
           {/* A bottom tab bar. `order-2` seats it below the content while the DOM keeps it ahead, so assistive technology and keyboard focus still reach the navigation first, and the bottom padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
-          {mobilePlatform && !fillsContent && !(page === "chat" && chatTyping) && (
+          {mobilePlatform && !fillsContent && (
             <MobileSettingsTabs
               tabs={mobilePrimaryPages}
               activeTab={mobileActiveTab}
@@ -3816,14 +3574,13 @@ function SettingsShell(props: SettingsPageProps) {
                   appVersion={currentAppVersion}
                 />
               )}
-              {/* 触屏上「对话」是常驻的底部标签：第一次打开后一直挂着，切到别的标签只是隐藏，对话记录和进行中的回复都不丢；点标签进来不弹键盘，点输入框或从首页「试用键盘」进来才弹，与 Android 的对话标签一致。 */}
+              {/* 触屏上 AI 对话从「AI 辅助」二级页进入：第一次打开后一直挂着，切换标签只是隐藏，对话记录和进行中的回复都不丢。 */}
               {client.chat && (page === "chat" || (mobilePlatform && chatMounted)) && (
                 <div className={page === "chat" ? "contents" : undefined} hidden={page !== "chat"}>
                   <ChatPage
                     client={client.chat}
                     touch={mobilePlatform}
                     active={page === "chat"}
-                    onComposerFocusChange={setChatTyping}
                     focusRequest={chatFocusRequest}
                     setup={client.home}
                     onLogin={openAccountLogin}
@@ -3914,7 +3671,29 @@ function SettingsShell(props: SettingsPageProps) {
                   </button>
                 </div>
               )}
-              {skinCommunityShown && (
+              {page === "skin" && skinTabs.tabList}
+              {phoneSkinCommunityShown && client.communitySkins && (
+                <div className="mt-6">
+                  {skinTabs.panel(
+                    "community",
+                    <CommunitySkinsPage
+                      client={client.communitySkins}
+                      theme={keyboardPreviewTheme}
+                      localSkinLibrary={client.customSkinLibrary}
+                      mobile
+                      onLogin={openAccountLogin}
+                      look="harmony"
+                      preferences={draft}
+                      // 「使用」和网格里的卡片一样先进入草稿，再由表单的自动保存写入。
+                      onApplyPreferences={setDraft}
+                      onSkinApplied={recordCommunitySkin}
+                      // 详情的历史记录留在皮肤页上，返回先关详情、再离开这一页。
+                      historyPage="skin"
+                    />,
+                  )}
+                </div>
+              )}
+              {skinCommunityShown && client.communityCandidateSkins && (
                 <div className="mt-4">
                   <CommunityPage
                     candidateSkins={client.communityCandidateSkins}
@@ -3963,7 +3742,7 @@ function SettingsShell(props: SettingsPageProps) {
               {draft && isSettingsFormPage(page) && (
                 <SettingsFormFrame showReload={false} busy={busy}>
                   <SettingsFormContext.Provider value={{ ...model, draft }}>
-                    <SkinSettingsPage hidden={skinCommunityShown} />
+                    <SkinSettingsPage hidden={skinCommunityShown} tabs={skinTabs} />
                     <AppearanceSettingsPage />
                     <FloatingToolbarSettingsPage />
                     <InputSettingsPage />

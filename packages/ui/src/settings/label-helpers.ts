@@ -1,4 +1,4 @@
-import type { InputScheme } from "../index";
+import type { InputScheme } from "../core/input-scheme";
 
 export function platformOsName(platform: string): string {
   switch (platform) {

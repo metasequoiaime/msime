@@ -29,7 +29,7 @@ pub(crate) use msime_client_providers::voice::provider::{
     mobile_voice_polish_configuration, mobile_voice_provider_configuration,
 };
 
-#[cfg(any(unix, windows))]
+#[cfg(all(any(unix, windows), not(mobile)))]
 #[derive(serde::Serialize, Clone)]
 pub(crate) struct VoiceRecognitionUpdate {
     pub(crate) text: String,
@@ -173,6 +173,7 @@ fn mobile_session_hotwords(
         .collect()
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 pub(crate) fn refresh_voice_preferences(
     mut document: Value,
     store: &PreferencesStore,
@@ -218,10 +219,7 @@ pub(crate) async fn recognize_voice(
     }
     #[cfg(target_os = "android")]
     {
-        let platform = app
-            .state::<AndroidVoicePlatform<tauri::Wry>>()
-            .inner()
-            .clone();
+        let platform = app.state::<AndroidVoicePlatform<tauri::Wry>>().inner();
         // A configured transcription provider is used when there is one, and its absence is not an
         // error: this host has a platform recognizer that works with no account at all, and that
         // stays the default. `unsupported_voice` is what an unset or unknown provider produces, and
@@ -285,7 +283,7 @@ pub(crate) async fn recognize_voice(
             .map_err(|_| HostActionError {
                 code: "unavailable",
             })?;
-        return Ok(VoiceRecognitionResult { text });
+        Ok(VoiceRecognitionResult { text })
     }
     #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
     {

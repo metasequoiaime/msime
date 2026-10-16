@@ -41,6 +41,7 @@
 #include "../settings/PreferenceLoadState.h"
 #include "../settings/PreferenceSnapshotMerge.h"
 #import "../candidate/CandidateChrome.h"
+#import "../candidate/CandidateMotion.h"
 #import "../core/WindowPresentation.h"
 #import "../candidate/CandidateTypography.h"
 #import "../candidate/CandidateTextMetrics.h"
@@ -1178,8 +1179,16 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _skinShowsSelectedBar;
     // 上一次排版时这种明暗画的皮肤包，空串表示没有画包；外观变化后画的包不同了就要重新排版。
     std::string _renderedCandidateSkin;
+    // 上一次排版时皮肤包写了的动效；收起时按它决定退场。
+    msime::mac::SkinAnimation _renderedCandidateAnimation;
     // The rendered skin's accent, which the glow selection preset shines in.
+    NSColor *_renderedCandidateAccent;
     // The highlighted row's slot plus one when the panel was last shown, 0 for none. Compared by slot rather than candidate identity so typing, which brings new candidates under the same highlight, does not replay the selection preset.
+    NSUInteger _animatedHighlightSlot;
+    // 记下 _animatedHighlightSlot 时的输入串和页码；换了的话高亮是 Engine 放回去的，不是用户移过去的。
+    NSString *_animatedHighlightContext;
+    // 候选窗的进场、退场和选中动效，第一次显示候选窗时创建。
+    MSIMECandidateMotion *_candidateMotion;
     BOOL _rerenderingForCandidateSkin;
     CGFloat _tallestVerticalCandidateHeight;
     NSInteger _armedGlossColumn;
@@ -1282,11 +1291,6 @@ static NSImage *MSIMECandidateLogoImage() {
     NSMutableDictionary<NSString *, NSString *> *_englishPronunciations;
     NSMutableSet<NSString *> *_pronunciationPending;
     NSMutableDictionary<NSString *, NSString *> *_romajiCache;
-    // Sentences no dictionary has whole: their word-by-word breakdown from the shared tables (text -> line, "" for
-    // none). Keyed by text, it outlives a composition; the pending set keeps a text from being asked twice while an
-    // answer is on its way.
-    NSMutableDictionary<NSString *, NSString *> *_breakdowns;
-    NSMutableSet<NSString *> *_breakdownPending;
     MSIMECustomTranslationBatch *_customBatch;
     NSMutableArray<MSIMECustomTranslationBatch *> *_customBatches;
     // Batches whose page went away while a paid request was in flight. They are held here until that request lands, so its answer still reaches the cache and the glossary (Windows' cloud worker caches before its staleness check, cloud_translation.cpp); a batch deallocated early would cancel it.
@@ -3548,14 +3552,14 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     NSDictionary *view = [_session setCharacterWidthFull:_appearance.runtimeFullWidthInput error:nil];
     if (view) [self apply:@{@"view":view}];
 }
-// The menus take the global theme's mode as the toolbar does (THEME_CONTRACT §6): a theme that fixes its own mode fixes theirs over menu_theme and the interface theme, which still decide for `system` and a custom theme over it. NSMenu has no palette of its own to recolour, so the mode is what a theme can reach.
+// 菜单和工具栏一样取全局主题的明暗（THEME_CONTRACT §6）：固定明暗的主题盖过颜色模式，`system` 和以它为底的自定义主题仍由颜色模式决定。NSMenu 没有可以重新着色的调色板，主题能影响的只有明暗。macOS 的菜单没有单独的明暗设置，所以钉住的是交给 ApplyMetasequoiaMenuTheme 的 `theme`。
 - (NSDictionary *)resolvedMenuThemePreferences {
     NSDictionary *preferences = _menuThemePreferences ?: @{};
     if (!_appearance) return preferences;
     const auto fixed = [_appearance fixedThemeMode];
     if (!fixed) return preferences;
     NSMutableDictionary *pinned = [preferences mutableCopy];
-    pinned[@"menu_theme"] = *fixed ? @"dark" : @"light";
+    pinned[@"theme"] = *fixed ? @"dark" : @"light";
     return pinned;
 }
 // 「输入方案」子菜单：输入法菜单和悬浮工具栏的切换输入方案按钮用的是同一份。`currentTitle` 带回正在用的方案的名字，没有打勾的项时为 nil。
@@ -4177,13 +4181,13 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     // Windows plays the start cue and only then mutes other audio. The macOS mute is device-wide and would swallow the cue, so it waits for the cue to finish; any restore before then cancels it.
     void (^mute)(void) = nil;
     if (MSIMEVoiceMuteSystemAudioEnabled(defaults)) mute = [_voiceAudioMuter deferredMute];
-    if (MSIMEVoiceCueEnabled(defaults, YES)) [_voiceCuePlayer playStartCueThen:mute];
+    if (MSIMEVoiceCuesEnabled(defaults)) [_voiceCuePlayer playStartCueThen:mute];
     else if (mute) mute();
 }
 - (void)voiceCaptureDidEnd {
     if (!_voiceCueRecording) return;
     _voiceCueRecording = NO;
-    if (MSIMEVoiceCueEnabled(NSUserDefaults.standardUserDefaults, NO)) [_voiceCuePlayer playStopCue];
+    if (MSIMEVoiceCuesEnabled(NSUserDefaults.standardUserDefaults)) [_voiceCuePlayer playStopCue];
 }
 - (NSScreen *)voiceInputScreen {
     if (!_activeClient) return nil;
@@ -4287,7 +4291,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         } error:nil]) return;
         [controller applyDoubaoFinalText:text request:liveRequest];
     } error:&error]) { [self reportVoiceFailure:MSIMEVoiceFailureProvider detail:MSIMEVoiceFailureDetail(error)]; return NO; }
-    NSString *device = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
+    NSString *device = MSIMEVoiceCaptureDeviceUID(NSUserDefaults.standardUserDefaults);
     if (![_voiceService startPCMStreaming:^(NSData *pcm, NSError *failure) {
         id<MSIMEStreamingVoiceRequest> liveRequest = weakRequest;
         if (!liveRequest) return;
@@ -4360,7 +4364,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
             controller->_voiceGeneration != controller->_httpVoiceGeneration || !controller->_voiceService.active) return;
         [controller->_voiceOverlay setProcessing:YES];
     };
-    NSString *device = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
+    NSString *device = MSIMEVoiceCaptureDeviceUID(NSUserDefaults.standardUserDefaults);
     const NSUInteger sampleLimit = request.sampleLimit;
     if (![_voiceService startPCMRecording:^(AVAudioPCMBuffer *buffer) {
         const float level = MSIMEVoiceInputLevel(buffer);
@@ -4634,10 +4638,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         MSIMEInputController *controller = weakSelf;
         if (!controller || !controller->_session) return;
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-        if (!MSIMEVoiceCaptureBackendSupported([defaults objectForKey:@"MSIMEClientVoiceCaptureBackend"])) {
-            [controller reportVoiceFailure:MSIMEVoiceFailureCapture];
-            return;
-        }
+        // 存着别的平台的录音后端时不再拒绝录音：MSIMEVoiceCaptureDeviceUID 把它当作系统默认设备。
         NSError *error = nil;
         if (![controller->_voiceService startWithSession:controller->_session generation:&controller->_voiceGeneration error:&error]) { [controller reportVoiceFailure:MSIMEVoiceFailureSession]; return; }
         [controller->_voiceOverlay setListening:YES];
@@ -4673,7 +4674,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         if (![controller->_voiceService startTranscriptionWithLanguage:language textHandler:^(NSString *text, BOOL final) {
             [weakSelf applyLiveVoiceText:text final:final token:token];
         } error:&error]) { [controller reportVoiceFailure:MSIMEVoiceFailureProvider]; return; }
-        NSString *deviceUID = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceCaptureDevice"];
+        NSString *deviceUID = MSIMEVoiceCaptureDeviceUID(NSUserDefaults.standardUserDefaults);
         if (![controller->_voiceService startMicrophoneCapture:^(AVAudioPCMBuffer *buffer) {
             const float level = MSIMEVoiceInputLevel(buffer);
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -4816,6 +4817,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     [_session closeWithError:nil];
     _session = nil;
     _focusPending = YES;
+    [_candidateMotion stop];
     [_panel orderOut:nil];
     [[MSIMEInputController dictionarySessionHolders] removeObject:self];
 }
@@ -5385,11 +5387,11 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if ([shared respondsToSelector:@selector(applyHandwritingPreferences:)])
         [shared performSelector:@selector(applyHandwritingPreferences:) withObject:preferences];
     [[MSIMEScreenKeyboardPanel sharedPanel] applyThemePreferences:preferences];
-    // The global theme arrives with the rest of the document, so the toolbar takes the palette resolved from it here as well as on activation. A theme with a mode of its own fixes the toolbar's mode as it fixes the candidate window's.
+    // 全局主题随文档其余部分一起到达，所以工具栏除了在激活时，在这里也取由它解析出的调色板。自带明暗的主题像钉住候选窗一样钉住工具栏的明暗。工具栏和中英文提示在 macOS 上没有单独的明暗设置，只看 `theme`，所以钉住的就是它。
     NSDictionary *toolbarThemePreferences = preferences;
     if (const auto fixed = [_appearance fixedThemeMode]) {
         NSMutableDictionary *pinned = [preferences mutableCopy];
-        pinned[@"toolbar_theme"] = *fixed ? @"dark" : @"light";
+        pinned[@"theme"] = *fixed ? @"dark" : @"light";
         toolbarThemePreferences = pinned;
     }
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
@@ -5901,7 +5903,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyRightAlt"] != NO,
         [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlCommand"] != NO,
         [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyCtrlOption"] != NO,
-        [voiceDefaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"] == nil || [voiceDefaults boolForKey:@"MSIMEClientVoiceHotkeyHoldSpace"]
+        // 空格锁定固定为开：空格只在按住录音组合键期间才被拦下，平常打字不受影响。设置页不再给这个开关（`voice_space_lock_switch`），存下的 false 也不再读。
+        true
     }, _voiceService.active) : MSIMEVoiceHoldShortcut::Result{};
     if (voiceShortcut.consumed || voiceShortcut.action != MSIMEVoiceHoldShortcut::Action::None) _modifierTap.reset();
     // MSIME-Windows shows the overlay's cancel and confirm buttons once the hold is locked (ControlCommand::Lock).
@@ -6714,76 +6717,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [self synchronizeCustomTranslations];
     [self synchronizeAITranslations];
     [self synchronizePronunciation];
-    [self synchronizeGlossBreakdowns];
     if (!nested) [self invalidateServiceSnapshots];
-}
-
-// A candidate is a sentence to break down when it is 2 to 32 Han characters, the shared rule of
-// msime_client_gloss_breakdown_request.
-static BOOL MSIMESentenceCandidateText(NSString *text) {
-    if (![text isKindOfClass:NSString.class]) return NO;
-    NSUInteger count = 0;
-    BOOL han = YES;
-    for (NSUInteger index = 0; index < text.length && han;) {
-        const NSRange range = [text rangeOfComposedCharacterSequenceAtIndex:index];
-        UTF32Char character = 0;
-        [text getBytes:&character maxLength:sizeof(character) usedLength:NULL encoding:NSUTF32LittleEndianStringEncoding
-               options:0 range:range remainingRange:NULL];
-        han = (character >= 0x3400 && character <= 0x4DBF) || (character >= 0x4E00 && character <= 0x9FFF) ||
-              (character >= 0xF900 && character <= 0xFAFF) || (character >= 0x20000 && character <= 0x2FA1F);
-        ++count;
-        index = NSMaxRange(range);
-    }
-    return han && count >= 2 && count <= 32;
-}
-
-// The word-by-word line under `candidate`, or empty while glosses are off or it has none.
-- (NSString *)breakdownForCandidate:(NSDictionary *)candidate {
-    if (!_glossRequest || ![candidate[@"text"] isKindOfClass:NSString.class]) return @"";
-    return _breakdowns[candidate[@"text"]] ?: @"";
-}
-
-// Asks the shared tables for the breakdown of every sentence on the page not yet known, then redraws. Answers are
-// keyed by text and cached, an empty string meaning the tables have none.
-- (void)synchronizeGlossBreakdowns {
-    NSDictionary *request = [self currentGlossRequest];
-    if (!request) return;
-    NSString *resources = [_session.hostOptions[@"resources"] copy];
-    if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath) return;
-    if (!_breakdowns || _breakdowns.count > 4096) _breakdowns = [NSMutableDictionary dictionary];
-    if (!_breakdownPending) _breakdownPending = [NSMutableSet set];
-    NSMutableOrderedSet<NSString *> *sentences = [NSMutableOrderedSet orderedSet];
-    for (NSDictionary *candidate in request[@"candidates"])
-        if (MSIMESentenceCandidateText(candidate[@"text"])) [sentences addObject:candidate[@"text"]];
-    NSMutableArray<NSString *> *missing = [NSMutableArray array];
-    for (NSString *text in sentences)
-        if (!_breakdowns[text] && ![_breakdownPending containsObject:text]) [missing addObject:text];
-    if (!missing.count) return;
-    [_breakdownPending addObjectsFromArray:missing];
-    if (!_pronunciationQueue) {
-        _pronunciationQueue = [NSOperationQueue new];
-        _pronunciationQueue.maxConcurrentOperationCount = 1;
-        _pronunciationQueue.qualityOfService = NSQualityOfServiceUtility;
-    }
-    NSDictionary *ask = @{@"generation": [self serviceSnapshotQuery][@"generation"] ?: @0, @"texts": [missing copy]};
-    NSArray<NSString *> *asked = [missing copy];
-    __weak MSIMEInputController *weakSelf = self;
-    [_pronunciationQueue addOperationWithBlock:^{
-        NSDictionary *result = [MSIMEClientSession glossBreakdownRequest:ask resources:resources error:nil];
-        NSMutableDictionary<NSString *, NSString *> *answered = [NSMutableDictionary dictionary];
-        for (NSDictionary *entry in [result[@"breakdowns"] isKindOfClass:NSArray.class] ? result[@"breakdowns"] : @[])
-            if ([entry[@"text"] isKindOfClass:NSString.class] && [entry[@"breakdown"] isKindOfClass:NSString.class])
-                answered[entry[@"text"]] = entry[@"breakdown"];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            MSIMEInputController *current = weakSelf;
-            if (!current) return;
-            for (NSString *text in asked) {
-                current->_breakdowns[text] = answered[text] ?: @"";
-                [current->_breakdownPending removeObject:text];
-            }
-            if (current->_activeClient && answered.count) [current renderCandidates];
-        });
-    }];
 }
 
 // How the gloss lines of `candidate` are read, "\n"-joined parallel to them; empty while the switch is off or nothing is known.
@@ -6907,9 +6841,8 @@ static BOOL MSIMESentenceCandidateText(NSString *text) {
         [scriptAnnotations addObject:scriptAnnotation];
         // 按画出来的样子量：读音和插件注释都算进释义行，行的宽高才和按钮画的释义行一致。
         NSString *pronunciation = [self pronunciationForCandidate:candidate];
-        NSString *breakdown = [self breakdownForCandidate:candidate];
-        [translations addObject:MSIMECandidateGlossWithScriptAnnotation(pronunciation.length || breakdown.length
-            ? MSIMECandidateGlossRun(reading, MSIMECandidateGlossDisplay(CandidateTranslation(candidate), pronunciation, breakdown, nil, nil))
+        [translations addObject:MSIMECandidateGlossWithScriptAnnotation(pronunciation.length
+            ? MSIMECandidateGlossRun(reading, MSIMECandidateGlossDisplay(CandidateTranslation(candidate), pronunciation, nil, nil))
             : gloss, scriptAnnotation)];
         NSString *tip = MSIMECandidateGlossWithScriptAnnotation(gloss, scriptAnnotation);
         [tooltips addObject:tip.length ? [NSString stringWithFormat:@"%@\n%@", hanjaReadings ? text : display, tip] : display];
@@ -7032,16 +6965,42 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     MSIMECandidatePanelOwner = self;
 }
 
-// 候选窗同步显隐，避免快速输入等待皮肤动画或被迟到的关闭回调收起。
+// 候选窗同步显隐：_panel.isVisible 立即是新状态，键盘和指针路由从不等动画。皮肤包写了的动效只加在图层上，见 MSIMECandidateMotion。
 - (void)hideCandidatePanel:(const char *)reason {
     if (msime_macos_diagnostic_enabled() && _panel.isVisible) msime_macos_diagnostic_writef("candidate hide reason=%s", reason);
-    [_panel orderOut:nil];
+    _animatedHighlightSlot = 0;
+    _animatedHighlightContext = nil;
+    // 只有普通收起（上屏、取消、切到英文）可以播退场；失焦、会话替换、光标无效等立即收起，不在屏幕上留旧候选文字。
+    const BOOL allowExit = strcmp(reason, "empty") == 0 || strcmp(reason, "english_mode") == 0;
+    if (_candidateMotion) [_candidateMotion hidePanel:_panel animation:_renderedCandidateAnimation allowExit:allowExit];
+    else [_panel orderOut:nil];
 }
 
 - (void)showCandidatePanel {
-    _panel.animationBehavior = NSWindowAnimationBehaviorNone;
-    _panel.alphaValue = 1.0;
-    [_panel orderFrontRegardless];
+    if (!_candidateMotion) _candidateMotion = [MSIMECandidateMotion new];
+    NSMutableArray<NSView *> *rows = [NSMutableArray array];
+    for (NSView *subview in _panel.contentView.subviews)
+        if ([subview isKindOfClass:MSIMECandidateButton.class] && subview.tag >= 0) [rows addObject:subview];
+    [_candidateMotion showPanel:_panel animation:_renderedCandidateAnimation rows:rows];
+}
+
+// 高亮在同一个输入串的同一页里换了格位时（方向键、Tab、网格里移动），按皮肤的选中预设装饰新高亮行；高亮本身已经随这一帧同步画好。打字或翻页时 Engine 把高亮放回第一格，那不是选中，不播，与 CandidatePanel 只在 selectCandidateWithIdentifier: 时装饰一致。
+- (void)decorateCandidateSelection:(BOOL)panelWasVisible {
+    MSIMECandidateButton *highlighted = nil;
+    for (NSView *subview in _panel.contentView.subviews)
+        if ([subview isKindOfClass:MSIMECandidateButton.class] && subview.tag >= 0 && ((MSIMECandidateButton *)subview).candidateHighlighted) {
+            highlighted = (MSIMECandidateButton *)subview;
+            break;
+        }
+    const NSUInteger slot = highlighted ? (NSUInteger)highlighted.tag + 1 : 0;
+    const NSUInteger previous = _animatedHighlightSlot;
+    _animatedHighlightSlot = slot;
+    NSString *context = [NSString stringWithFormat:@"%@\n%@", _view[@"editing_text"], _view[@"page"]];
+    const BOOL sameContext = [_animatedHighlightContext isEqualToString:context];
+    _animatedHighlightContext = context;
+    if (!panelWasVisible || !sameContext || previous == 0 || slot == 0 || slot == previous) return;
+    [_candidateMotion decorateSelectionOfRow:highlighted fill:highlighted.fillColor cornerRadius:highlighted.cornerRadius
+                                      accent:_renderedCandidateAccent animation:_renderedCandidateAnimation];
 }
 
 // The candidate window, created on first use. Its wheel pages the Engine's candidates, or scrolls the expanded grid while that is open.
@@ -7121,13 +7080,12 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     button.glossReading = geometry.readings[slot];
     button.scriptAnnotation = scriptAnnotation;
     button.pronunciation = [self pronunciationForCandidate:candidate];
-    button.breakdown = [self breakdownForCandidate:candidate];
     button.armedGlossColumn = _armedGlossColumn;
     button.translationFont = glossFont;
     button.itemLayout = row.item;
     button.hasItemLayout = YES;
     button.contentLeft = geometry.contentLeft;
-    button.translationBelow = MSIMECandidateGlossRun(button.glossReading, button.translation).length || button.breakdown.length || scriptAnnotation.length ? row.item.translation.below : !vertical;
+    button.translationBelow = MSIMECandidateGlossRun(button.glossReading, button.translation).length || scriptAnnotation.length ? row.item.translation.below : !vertical;
     button.toolTip = geometry.tooltips[slot];
     button.bordered = NO;
     button.candidateHighlighted = MSIMEStrictBoolean(candidate[@"highlighted"]);
@@ -7180,6 +7138,8 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     const auto tokens = skin.tokens;
     _skinShowsSelectedBar = tokens.showSelectedBar;
     _renderedCandidateSkin = skin.candidateSkin;
+    _renderedCandidateAnimation = skin.animation;
+    _renderedCandidateAccent = SkinColor(tokens.accent);
     NSImage *decorationImage = [_appearance decorationImageForDark:skinDark];
     const CGFloat scale = MSIMECandidateScale(_appearance);
     const CGFloat inset = msime::mac::CandidateInset(tokens);
@@ -7323,6 +7283,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     const BOOL wasVisible = _panel.isVisible;
     [self claimCandidatePanel];
     [self showCandidatePanel];
+    [self decorateCandidateSelection:wasVisible];
     [self announceHighlightedCandidate:wasVisible];
     if (timed)
         msime_macos_diagnostic_writef("candidate-frame show expanded rows=%lu visible_rows=%lu candidates=%lu size=(%.0f,%.0f) origin=(%.0f,%.0f) flipped=%d build_ms=%.3f",
@@ -7374,6 +7335,8 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     const auto geometry = skin.tokens;
     _skinShowsSelectedBar = geometry.showSelectedBar;
     _renderedCandidateSkin = skin.candidateSkin;
+    _renderedCandidateAnimation = skin.animation;
+    _renderedCandidateAccent = SkinColor(geometry.accent);
     // 装饰图取这种明暗画的那个包的，两个槽位可以是两个包。
     NSImage *decorationImage = [_appearance decorationImageForDark:skinDark];
     const CGFloat scale = MSIMECandidateScale(_appearance);
@@ -7576,6 +7539,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     const BOOL wasVisible = _panel.isVisible;
     [self claimCandidatePanel];
     [self showCandidatePanel];
+    [self decorateCandidateSelection:wasVisible];
     [self announceHighlightedCandidate:wasVisible];
     // Geometry and counts only, the macOS form of the source's candidate-frame/candidate-position audit: flipped=1 means the window went above the caret for lack of room below.
     if (timed)

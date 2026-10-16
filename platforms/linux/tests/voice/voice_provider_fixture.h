@@ -51,13 +51,13 @@ private:
     std::deque<Pending> pending;
     while (!stopped_) {
       if (!pending.empty() && release_partial.exchange(false)) {
-        const auto response = nlohmann::json{{"type", "partial"}, {"text", "测试😀"},
+        const auto response = nlohmann::json{{"ok", true}, {"type", "partial"}, {"text", "测试😀"},
                                               {"generation", pending.front().generation}}.dump() + "\n";
         send(pending.front().socket, response.data(), response.size(), MSG_NOSIGNAL);
       }
 
       if (!pending.empty() && release_final.exchange(false)) {
-        const auto response = nlohmann::json{{"type", "final"}, {"text", "synthetic voice"},
+        const auto response = nlohmann::json{{"ok", true}, {"type", "final"}, {"text", "synthetic voice"},
                                               {"generation", pending.front().generation}}.dump() + "\n";
         send(pending.front().socket, response.data(), response.size(), MSG_NOSIGNAL);
         close(pending.front().socket);

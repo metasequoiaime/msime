@@ -35,7 +35,7 @@ def rust_messages(source: str) -> dict[str, str]:
 
 def harmony_messages(source: str) -> dict[str, str]:
     body = block(source, "static failureMessage(deepl: boolean, status: number): string {", "\n  }\n")
-    messages = {code: text for code, text in re.findall(r'if \(status === (\d{3})\) return "([^"]+)";', body)}
+    messages = {code: text for code, text in re.findall(r'if \(status === (\d{3})\)\s+return "([^"]+)";', body)}
     returns = re.findall(r'^    return "([^"]+)";$', body, re.MULTILINE)
     if returns:
         messages["other"] = returns[-1]

@@ -1,4 +1,4 @@
-import type { HostCapabilities, HostPlatform } from "../index";
+import type { HostCapabilities, HostPlatform } from "../core/host-capabilities";
 
 export interface SettingsPlatformContext {
   host?: HostCapabilities;

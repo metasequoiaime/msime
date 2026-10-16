@@ -402,11 +402,12 @@ mod tests {
     use crate::shuangpin::utils::cvt_single_sp_to_pinyin;
     use crate::types::SchemeKey;
 
-    const BUILTIN: [ShuangpinProfileKind; 4] = [
+    const BUILTIN: [ShuangpinProfileKind; 5] = [
         ShuangpinProfileKind::Xiaohe,
         ShuangpinProfileKind::Ziranma,
         ShuangpinProfileKind::Shoudao,
         ShuangpinProfileKind::Microsoft,
+        ShuangpinProfileKind::SmartAbc,
     ];
 
     fn owned(pairs: &[(&str, &str)]) -> Vec<(String, String)> {

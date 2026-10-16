@@ -28,7 +28,7 @@ import SwiftUI
     assert(rgb(panel.backgroundColor, in: .aqua) == MacEmojiPalette(light: true).background)
     assert(rgb(panel.backgroundColor, in: .darkAqua) == MacEmojiPalette(light: false).background)
     assert(rgb(label?.textColor, in: .darkAqua) == MacEmojiPalette(light: false).text)
-    MacEmojiAppearance.shared.apply(["emoji_theme": "dark", "theme": "light"])
+    MacEmojiAppearance.shared.apply(["theme": "dark"])
     let notice = MacEmojiDeliveryNotice()
     notice.show()
     let shown = NSApp.windows.compactMap { $0 as? MacEmojiDeliveryNotice.Panel }.first { $0.isVisible }

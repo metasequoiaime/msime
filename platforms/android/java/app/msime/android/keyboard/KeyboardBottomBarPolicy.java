@@ -10,6 +10,10 @@ package app.msime.android;
 public final class KeyboardBottomBarPolicy {
     /** 底栏可点的那一截高度。 */
     public static final int BAR_HEIGHT_DP = 40;
+    /** 独立留白的取值范围；默认与原来固定留白一致。 */
+    public static final int MIN_PADDING_DP = 0;
+    public static final int MAX_PADDING_DP = 160;
+    public static final int DEFAULT_PADDING_DP = BAR_HEIGHT_DP;
     /** 导航栏底边低于这个高度才算手势导航的细条；三键导航是 48 dp，手势条常见 16–24 dp。 */
     public static final int THIN_NAVIGATION_MAX_DP = 32;
 
@@ -44,7 +48,15 @@ public final class KeyboardBottomBarPolicy {
      */
     public static boolean paddingShown(boolean enabled, boolean barShown, boolean floating, boolean keysCollapsed,
             boolean phoneLandscape) {
-        return enabled && !barShown && !floating && !keysCollapsed && !phoneLandscape;
+        return extraPaddingDp(enabled, DEFAULT_PADDING_DP, barShown, floating, keysCollapsed, phoneLandscape) > 0;
+    }
+
+    /** 目标留白包含底栏已有的高度；额外空白放在键区与底栏之间，不移动底栏按钮。 */
+    public static int extraPaddingDp(boolean enabled, int heightDp, boolean barShown, boolean floating,
+            boolean keysCollapsed, boolean phoneLandscape) {
+        if (!enabled || floating || keysCollapsed || phoneLandscape) return 0;
+        int height = BoundsPolicy.bounded(heightDp, MIN_PADDING_DP, MAX_PADDING_DP);
+        return Math.max(0, height - (barShown ? BAR_HEIGHT_DP : 0));
     }
 
     /**

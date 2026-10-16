@@ -2217,6 +2217,21 @@ void CMetasequoiaIME::_NoteFieldTraitsForServer()
                                                          CurrentProcessIsElevated()));
 }
 
+void CMetasequoiaIME::_ApplyCapsLockEdge(bool enabled)
+{
+    Global::CapsLockEnabled.store(enabled, std::memory_order_relaxed);
+    _RequestLanguageBarCapsIconRefresh();
+    _ArmCapsLockTap(!enabled);
+}
+
+// IMM 宿主可能只回调 TestKeyDown，而且此时切换已经生效；等按键消息处理完再读真实值。
+void CMetasequoiaIME::_QueueCapsLockEdge()
+{
+    if (_msgWndHandle && PostMessage(_msgWndHandle, WM_ApplyCapsLockEdge, 0, 0))
+        return;
+    _ApplyCapsLockEdge((GetKeyState(VK_CAPITAL) & 0x0001) == 0);
+}
+
 //+---------------------------------------------------------------------------
 //
 // ITfKeyEventSink::OnTestKeyDown
@@ -2243,13 +2258,10 @@ STDAPI CMetasequoiaIME::OnTestKeyDown(ITfContext *pContext, WPARAM wParam, LPARA
     }
     // Ahead of the backspace-hold, Shift and hotkey returns below, each of which would otherwise hide a real press.
     _NoteKeyPressStatistics(wParam, lParam);
-    // Only the first press toggles; auto-repeat would flip the prediction back.
+    // 只有第一次按下切换状态，长按产生的重复消息不重新武装轻点。
     if (wParam == VK_CAPITAL && !IsAutoRepeat(lParam))
     {
-        const bool lockWasOn = (GetKeyState(VK_CAPITAL) & 0x0001) != 0;
-        Global::CapsLockEnabled.store(!lockWasOn, std::memory_order_relaxed);
-        _RequestLanguageBarCapsIconRefresh();
-        _ArmCapsLockTap(lockWasOn);
+        _QueueCapsLockEdge();
     }
     PerfTimer onTestKeyDownTimer;
     Global::UpdateModifiers(wParam, lParam);

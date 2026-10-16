@@ -1,8 +1,8 @@
 import type {
   ProviderCredentialStatus,
   VoiceCredentialKind,
-  VoiceInputPreferences,
-} from "../index";
+} from "../core/provider-credential-contracts";
+import type { VoiceInputPreferences } from "../index";
 import { VoiceCredentialSection, type VoiceCredentialSaveInput } from "./voice-credential-section";
 import type { VoiceCredentialBindings } from "./use-provider-credentials";
 

@@ -4,6 +4,7 @@ import {
   usePreferencesSnapshot,
   type PanelClient,
   type SettingsClient,
+  type SurfaceTheme,
   type TouchKeyboardSkinDesign,
   keyboardThemeId,
 } from "@msime/ui";
@@ -14,13 +15,17 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 
 type ThemeClient = Pick<SettingsClient, "load" | "onPreferencesChanged" | "host">;
 
-/** 面板窗口读到的宿主能力：客户端已经知道的那份，否则是外壳报告的那份。键盘面板要用其中的平台和 `touch_keyboard_spacing`。 */
-type PanelHost = { platform: string; touch_keyboard_spacing?: boolean };
+/** 面板窗口读到的宿主能力：客户端已经知道的那份，否则是外壳报告的那份。键盘面板要用其中的平台和 `touch_keyboard_spacing`，各面板还要用 `surface_themes_follow` 决定读不读自己的单独明暗。 */
+type PanelHost = {
+  platform: string;
+  touch_keyboard_spacing?: boolean;
+  surface_themes_follow?: boolean;
+};
 
 /** `resolved` 为 false 表示还在等外壳报告宿主能力；报告失败或不在 Tauri 里时 `host` 为 undefined、`resolved` 为 true。 */
-type PanelHostState = { host?: PanelHost; resolved: boolean };
+export type PanelHostState = { host?: PanelHost; resolved: boolean };
 
-function usePanelHost(host: SettingsClient["host"]): PanelHostState {
+export function usePanelHost(host: SettingsClient["host"]): PanelHostState {
   const [state, setState] = useState<PanelHostState>({
     host,
     resolved: Boolean(host?.platform),
@@ -57,6 +62,14 @@ export function useHostPlatform(host: SettingsClient["host"]): string | undefine
   return usePanelHost(host).host?.platform;
 }
 
+/** 面板实际按哪一项单独明暗着色：各界面一律跟随颜色模式的宿主（`surface_themes_follow`，目前是 macOS）不读存下的值，与原生面板一致。宿主能力还没读到时也先只按颜色模式画，免得 macOS 面板在答复到来前闪一下已经砍掉的单独明暗；确定没有宿主（浏览器预览，或外壳没答上来）时照旧套用。 */
+export function panelSurfaceTheme(
+  { host, resolved }: PanelHostState,
+  surface: SurfaceTheme | undefined,
+): SurfaceTheme | undefined {
+  return !resolved || host?.surface_themes_follow === true ? undefined : surface;
+}
+
 export function DesktopKeyboard({
   client,
   preferences,
@@ -64,12 +77,13 @@ export function DesktopKeyboard({
   client: PanelClient;
   preferences: ThemeClient;
 }) {
-  const { host: panelHost, resolved: hostResolved } = usePanelHost(preferences.host);
+  const panelHostState = usePanelHost(preferences.host);
+  const { host: panelHost, resolved: hostResolved } = panelHostState;
   const platform = panelHost?.platform;
   const snapshot = usePreferencesSnapshot(preferences, true);
   const theme = useCandidatePreviewTheme(
     snapshot?.preferences.theme,
-    snapshot?.preferences.screen_keyboard_theme,
+    panelSurfaceTheme(panelHostState, snapshot?.preferences.screen_keyboard_theme),
   );
   const layout =
     snapshot?.preferences.touch_keyboard_layout === "nine_key" ? "nine_key" : "twenty_six_key";

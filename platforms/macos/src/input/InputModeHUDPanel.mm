@@ -146,9 +146,8 @@ NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSize, NSRect visible
 }
 
 - (void)applyThemePreferences:(NSDictionary *)preferences {
-    id surface = preferences[@"toolbar_theme"];
-    id global = preferences[@"theme"];
-    id resolved = ([surface isEqual:@"dark"] || [surface isEqual:@"light"]) ? surface : global;
+    // 与悬浮工具栏同一条规则：只看 `theme`，固定明暗的主题由 InputController 钉住。
+    id resolved = preferences[@"theme"];
     if ([resolved isEqual:@"light"]) self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
     else if (resolved == nil || [resolved isEqual:@"system"]) self.appearance = nil;
     else self.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];

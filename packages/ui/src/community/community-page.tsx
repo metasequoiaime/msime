@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
-import {
-  CommunityHomePage,
-  type CommunityLocalDictionaryClient,
-  type CommunityResourceClient,
-  type CommunityResourceKind,
-  type CommunityResourceScope,
-} from "./community-resources";
+import { CommunityHomePage } from "./community-resources";
+import type {
+  CommunityLocalDictionaryClient,
+  CommunityResourceClient,
+  CommunityResourceKind,
+  CommunityResourceScope,
+} from "./community-resource-model";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
 import {
   CommunityCandidateSkinsPage,

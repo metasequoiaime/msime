@@ -100,6 +100,8 @@ public final class AndroidLocalSettings {
     public static final String BOTTOM_BAR = "platform.android.bottom_bar";
     /** 键区下面垫一段不可点的空白（{@link KeyboardBottomBarPolicy#paddingShown}），把回车等底行键抬离屏幕底边（#6392），默认关。和键盘底栏一样与设备的导航方式有关，同步字段表里也没有这个键，只在本机。 */
     public static final String BOTTOM_PADDING = "platform.android.bottom_padding";
+    /** 底部留白目标高度（dp），独立于按键高度，只在本机保存。 */
+    public static final String BOTTOM_PADDING_HEIGHT = "platform.android.bottom_padding_height";
     public static final String DEVELOPER_DEBUG_OVERLAY = "platform.android.developer.debug_overlay";
     public static final String DEVELOPER_LOG_LEVEL = "platform.android.developer.log_level";
     /** 「记录输入日志」：只记时间和事件种类，不记按键内容、文本和候选。 */
@@ -221,6 +223,8 @@ public final class AndroidLocalSettings {
             ToolbarOrderPolicy::normalize);
         bool(BOTTOM_BAR, true, false);
         bool(BOTTOM_PADDING, false, false);
+        integer(BOTTOM_PADDING_HEIGHT, KeyboardBottomBarPolicy.DEFAULT_PADDING_DP, false,
+            KeyboardBottomBarPolicy.MIN_PADDING_DP, KeyboardBottomBarPolicy.MAX_PADDING_DP, 1);
         bool(DEVELOPER_DEBUG_OVERLAY, false, false);
         choice(DEVELOPER_LOG_LEVEL, "warn", false, "error", "warn", "info", "debug");
         bool(DEVELOPER_INPUT_LOG, false, false);

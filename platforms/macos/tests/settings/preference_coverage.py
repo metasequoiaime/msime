@@ -23,6 +23,13 @@ from pathlib import Path
 # is exactly what a defect looks like from the outside.
 NOT_APPLICABLE = {
     "settings_theme": "the settings application's own appearance; the input method has no window to theme",
+    # macOS 的这些界面一律跟随颜色模式（HostCapabilities 的 surface_themes_follow），设置页不给这几行；固定明暗的主题由 InputController 钉住传给面板的 `theme`。
+    "toolbar_theme": "the floating toolbar and the mode badge follow the colour mode on macOS (surface_themes_follow)",
+    "menu_theme": "the input menu and the candidate context menu follow the colour mode on macOS (surface_themes_follow)",
+    "screen_keyboard_theme": "the screen keyboard follows the colour mode on macOS (surface_themes_follow)",
+    "emoji_theme": "the emoji panel follows the colour mode on macOS (surface_themes_follow)",
+    "handwriting_theme": "the handwriting panel follows the colour mode on macOS (surface_themes_follow)",
+    "voice_theme": "the voice overlay follows the colour mode on macOS (surface_themes_follow)",
     "touch_key_spacing_tenths": "the touch keyboard; the macOS screen keyboard panel draws the default spacing whatever is stored, and the page offers no slider (`touch_keyboard_spacing` is false)",
     "touch_row_spacing_tenths": "the touch keyboard; the macOS screen keyboard panel draws the default spacing whatever is stored, and the page offers no slider (`touch_keyboard_spacing` is false)",
     "touch_keyboard_height_adjustment": "the touch keyboard and the Windows panel window; the macOS screen keyboard window has a fixed height, and the page offers no slider (`touch_keyboard_height` is false)",

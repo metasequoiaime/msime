@@ -41,7 +41,7 @@ Windows 平台的实现源码在 `src/` 下；`tsf/`、`msimeui/`、`tests/`、`
 
 设置布局参照 macOS 原生宿主：窗口初始 1000 × 760 DIP，最小 800 × 560 DIP；侧栏保留一个设置项搜索入口，正文用功能组卡片和标签／控件两列布局，窄行把控件移到说明下方。「输入方案」逐项选择方案，仅展示当前方案的专属选项；「输入习惯」从标点开始，「按键」从中英文切换开始。账号使用并排身份信息和分组登录表单，皮肤卡片与复选框按可用宽度自动排列；皮肤选择位于完整实时预览之前。候选窗口采用「布局／字体大小／窗口样式／预编辑」四个页内标签，搜索会切到结果所属标签；字体和自定义候选配色在对应标签中管理。状态栏的效果预览跟随按钮、尺寸和主题，并显示实际 DIP 大小。词库列表按编码、词条、权重和操作分列。
 
-Windows 原生界面验收入口是 `tests/tools/settings_ui.ps1`：通过真实 host-api DLL 生成完整默认配置，在独立合成状态中遍历 18 页的浅深色、800／1000 宽窗口并截图，另外切换双拼、五笔、全拼并核对持久化，遍历候选窗口的四个标签、搜索主字体定位到字体标签，切换工具栏语音组件并核对保存与预览尺寸一起变化。截图须同时检查页面对应关系和实际像素；本机 MinGW quick 门禁不编译 WinUI，也不能代替 Windows 上的运行验收。
+Windows 原生界面验收入口是 `tests/tools/settings_ui.ps1`：通过真实 host-api DLL 生成完整默认配置，在独立合成状态中遍历 17 页的浅深色、800／1000 宽窗口并截图，另外切换双拼、五笔、全拼并核对持久化，遍历候选窗口的四个标签、搜索主字体定位到字体标签，切换工具栏语音组件并核对保存与预览尺寸一起变化。截图须同时检查页面对应关系和实际像素；本机 MinGW quick 门禁不编译 WinUI，也不能代替 Windows 上的运行验收。
 
 ### `panels/` 是什么
 
@@ -56,6 +56,20 @@ Windows 原生界面验收入口是 `tests/tools/settings_ui.ps1`：通过真实
 `packaging/` 下是 winget（`Metasequoia.MetasequoiaIME`）、Scoop（`msime`）与 Chocolatey（`msime`）的包定义模板和渲染脚本 `packaging/render.py`。三个包都只静默运行发布页上 full 的 Inno Setup 安装包，不另编二进制；包描述和主页 `https://github.com/metasequoiaime/msime` 与 Linux 各发行版的定义一致。包管理器只能指向签过名的安装包：`release-windows.yml` 先行发布的安装包未签名，其 uiAccess Server 无法启动，所以 `render.py` 拒绝没有有效 Authenticode 签名的安装包；维护者把 SimplySign 签名的安装包替换到发布上之后，手动触发 `package-definitions-windows.yml` 渲染并上传构建产物 `msime-package-definitions-windows-<版本>`（含 `.nupkg`），不向任何外部仓库推送。`scripts/test-windows-package-managers.py`（由 `scripts/run-checks.sh` 自动运行）核对模板里的安装包事实与 `installer/msime_setup.iss`、`installer/editions.iss` 和发布流程一致。
 
 上架之后的安装方式：`winget install Metasequoia.MetasequoiaIME`；`scoop bucket add msime https://github.com/metasequoiaime/scoop-bucket` 后 `scoop install msime`；`choco install msime`。各仓库的发布步骤（winget-pkgs PR、Scoop bucket、`choco push`）见 [packaging/README.md](packaging/README.md#发布步骤)。
+
+## 游戏兼容范围
+
+下表记录代码里的适配点，不代表完整的游戏支持清单，也不代表这些游戏已在本仓真机验收。
+
+| 游戏或宿主 | 已有适配 | 限制与验收范围 |
+| --- | --- | --- |
+| CS2、Dota 2 | 忽略虚假的 UI-less 自绘声明，由水杉显示候选；无效锚点兜底；CS2 的签名 TIP 部署到系统目录 | 设置页可选兼容名称「拼音输入法」让游戏自绘，关闭恢复本版本名称；需要管理员权限和重启游戏，实际全屏效果未验收 |
+| 三角洲行动等由宿主绘制候选的 UI-less 游戏 | 旧管道路径的翻页、移高亮回复更新宿主页，云候选、AI 候选与静止重排后推送新页，按候选代次拒绝乱序旧页 | 有效 TIP 会话接收原始查询绑定的异步操作，刷新自己的候选与身份；旧管道仍使用页面同步；尚未在真实游戏中验收 |
+| 英雄联盟 | 保留游戏自绘候选；本地 TIP 与旧管道均补后台更新，导航在实际拥有候选的会话中执行 | 游戏内显示、选词与加载效果尚未验收，不能据代码适配宣称完整支持 |
+| 我的世界基岩版（`Minecraft.Windows.exe`） | 首键与组字布局的文本锚点统一到游戏所在显示器工作区左上角 | 系统默认组合小框不在本次处理范围；尚未游戏内验收 |
+| 我的世界 Java 版、基岩版等 IMM 宿主 | Caps Lock 等按键消息处理完再读实际锁定状态，更新语言栏并保留单按切换语言 | 合成 TSF/IMM 时序测试覆盖；不等于游戏实测 |
+
+来源为 `msime-windows` [#925](https://github.com/metasequoiaime/msime-windows/pull/925)、[#932](https://github.com/metasequoiaime/msime-windows/pull/932)、[#933](https://github.com/metasequoiaime/msime-windows/pull/933)。Rust 版不使用来源的 HTML 共享内存候选页；同步回复与推送共用 `shared/contracts/uiless_page.h`。本地会话、兼容登记名称及其恢复流程见[补齐笔记](../../.agents/notes/implemented/feature/2026-10-16-windows-source2-profile-and-local-online.md)。固定来源提交、没有直接搬运的部分与验证依据见[移植笔记](../../.agents/notes/implemented/bug-fix/2026-10-16-windows-game-uiless-and-imm.md)。
 
 ## 原生界面渲染与皮肤
 

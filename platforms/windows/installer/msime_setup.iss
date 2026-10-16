@@ -973,10 +973,17 @@ begin
   );
 end;
 
+{ 已装的 TIP 加载在每个正用着本输入法的程序里，包括安装向导自己的窗口：它发现 Server 不在，就按注册表里的路径重新拉起 Server（tsf/IME/MetasequoiaIME.cpp 的 LaunchServerIfNeeded），Server 再拉起看门狗。停掉的 Server 于是在 [Files] 替换文件时又被启动，打开 resources 下的词库，删除或覆盖它们以错误 32（文件被另一进程占用）失败。TIP 拉起 Server 前先创建启动互斥量 Local\MetasequoiaImeServer.Launch<后缀>，已存在（ERROR_ALREADY_EXISTS）或打不开（ERROR_ACCESS_DENIED，安装器是高完整性）时都当作别人正在拉起而不再启动。这里在停进程之前建好它，Inno 持有到安装器退出，整个替换文件的过程 TIP 都拉不起 Server。要拦的是已经装着的旧 TIP，所以只能用它已经认的这个名字，不能靠改 TSF。Local\ 只覆盖安装器所在的会话。 }
+procedure HoldServerLaunchGate;
+begin
+  CreateMutex('Local\MetasequoiaImeServer.Launch{#MyEditionNameSuffix}');
+end;
+
 procedure StopImeProcesses;
 var
   ServerDir: String;
 begin
+  HoldServerLaunchGate;
   ServerDir := ExpandConstant('{commonpf64}\{#MyEditionInstallDir}\server');
   { Watchdog 必须先停，否则它可能在升级或卸载期间重新启动 Server。}
   StopProcessesUnder(ServerDir, 'MetasequoiaImeWatchdog');
@@ -1423,6 +1430,8 @@ begin
   else if CurUninstallStep = usPostUninstall then
   begin
     { Both TSF DLLs have been unregistered by now. DllUnregisterServer removes the language profile but, like the SampleIME code it came from, never calls ITfInputProcessorProfiles::Unregister, so the TIP key and its category entries stay behind; remove them from both registry views. }
+    { 只在卸载清掉本版本的兼容名称记录，升级重新注册时保留。 }
+    RegDeleteValue(HKLM64, '{#MyEditionRegistryKey}', 'GameCompatProfileName');
     RegDeleteKeyIncludingSubkeys(HKLM64, '{#MyTipKey}');
     RegDeleteKeyIncludingSubkeys(HKLM32, '{#MyTipKey}');
     TryDeleteTree(ExpandConstant(

@@ -31,9 +31,9 @@ inline bool shuangpin_keymap_preference(const nlohmann::json &preferences) {
   return value != preferences.end() && value->is_boolean() && value->get<bool>();
 }
 
-// 四个方案的名字，与 Engine 的 profile.name() 相同；不认识的名字按小鹤处理，和 macOS 的 NormalizeShuangpinSchema 一致。
+// 五个内置方案的名字，与 Engine 的 profile.name() 相同；不认识的名字按小鹤处理，和 macOS 的 NormalizeShuangpinSchema 一致。
 inline std::string_view normalize_shuangpin_profile(std::string_view name) {
-  for (const std::string_view known : {"xiaohe", "ziranma", "shoudao", "microsoft"})
+  for (const std::string_view known : {"xiaohe", "ziranma", "shoudao", "microsoft", "smart_abc"})
     if (name == known)
       return known;
   return "xiaohe";

@@ -16,6 +16,7 @@ platforms/android/tests/device/keyboard/PairedPunctuationDeviceSmoke.java
 platforms/android/tests/device/keyboard/LetterHintPunctuationDeviceSmoke.java
 platforms/android/tests/device/keyboard/SuperscriptShortcutDeviceSmoke.java
 platforms/android/tests/device/keyboard/ChineseHelpcodeDeviceSmoke.java
+platforms/android/tests/device/keyboard/QuanpinSeparatorDeviceSmoke.java
 platforms/android/tests/device/keyboard/ChineseHelpcodeOffDeviceSmoke.java
 platforms/android/tests/device/keyboard/MicrosoftShuangpinDeviceSmoke.java
 platforms/android/tests/device/keyboard/EmailSuffixDeviceSmoke.java
@@ -28,6 +29,8 @@ platforms/android/tests/device/settings/PreferencesDeviceSmoke.java
 platforms/android/tests/device/settings/WubiLookupDeviceSmoke.java
 platforms/android/tests/device/keyboard/ThemeModeDeviceSmoke.java
 platforms/android/tests/device/keyboard/KeyboardHeightDeviceSmoke.java
+platforms/android/tests/device/keyboard/BottomPaddingHeightDeviceSmoke.java
+platforms/android/tests/device/settings/BottomPaddingSettingsDeviceSmoke.java
 platforms/android/tests/device/keyboard/FuzzyPinyinDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidateGlossDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyEnglishDeviceSmoke.java
@@ -137,6 +140,12 @@ platforms/android/tests/device/clipboard/TextEditRecentClipboardDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyNumericLayoutDeviceSmoke.java
 platforms/android/tests/device/keyboard/ToolbarEdgesDeviceSmoke.java
 platforms/android/tests/device/keyboard/ToolbarScrollDeviceSmoke.java
+platforms/android/tests/device/settings/ChatNavigationDeviceSmoke.java
+platforms/android/tests/device/keyboard/EmojiCombinationLayoutDeviceSmoke.java
+platforms/android/tests/device/keyboard/EmojiCombinationDeviceSmoke.java
+
+platforms/android/tests/device/keyboard/CompositionBatchDeviceSmoke.java
+platforms/android/tests/device/voice/LocalSpeechHandleDeviceSmoke.java
 
 platforms/android/tests/device/core/BatchEditorActivity.java
 platforms/android/tests/device/keyboard/BatchCompositionDeviceSmoke.java

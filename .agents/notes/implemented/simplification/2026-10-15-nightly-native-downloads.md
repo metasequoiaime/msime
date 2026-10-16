@@ -8,6 +8,8 @@ nightly 用户需要安装对应平台的产品，原先将全部平台再打成
 
 ## Decision
 
+本文的全部平台成功前提已由[按平台更新 nightly](../process/2026-10-16-nightly-partial-platform-updates.md)取代；原生文件布局与 TestFlight 分发方式继续有效，下面的齐全校验描述原始实现。
+
 `package-nightly.py` 按平台只选原生分发文件，直接平铺到 Release：Android 的 APK、macOS 的 DMG、Windows 的 EXE、Linux 的 DEB/RPM、HarmonyOS 的 HAP。保留各平台现有全量、拼音、五笔等版本，用户直接下载自己的版本。总包、平台外层压缩包、分卷、源码、调试符号和内部校验文件均不再发布。
 
 iOS 继续采用用户已选定的外部 TestFlight 分发，沿用既有签名上传、测试组交付及审核提交流程。模拟器 `.app` 归档只保留在 Actions artifacts，nightly 汇总不再下载或上传该归档，也不将其当作手机安装包。TestFlight 构建不能靠重命名为 IPA 实现任意设备安装。
@@ -16,7 +18,7 @@ Release 正文复用 `README.txt` 的安装说明，明确 iOS 应通过外部 T
 
 保留一份 `SHA256SUMS`，直接校验 Release 中的原生文件。选中的平台必须有分发文件；重名、残留输出和单文件超限都在替换旧 nightly 前拒绝。六个平台的构建和各自已有验收仍须全部成功，iOS 分发成功仍是汇总发布前提。
 
-本决定部分取代[六平台 nightly 构建笔记](../process/2026-10-14-six-platform-nightly-builds.md)的总包、平台归档及分卷选择，六平台共用发布链、同一源提交和全部成功后发布的要求继续有效。历史笔记检索只命中该篇，其余决定没有重叠。
+本决定部分取代[六平台 nightly 构建笔记](../process/2026-10-14-six-platform-nightly-builds.md)的总包、平台归档及分卷选择。六平台共用发布链继续有效；同一源提交和全部成功后发布是最初的要求，现已由上述按平台更新决定取代。历史笔记检索只命中该篇，其余决定没有重叠。
 
 ## Alternatives considered
 

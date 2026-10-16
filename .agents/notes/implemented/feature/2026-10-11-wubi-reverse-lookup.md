@@ -22,6 +22,8 @@ Status: implemented
 
 另一半是「已经有汉字，想知道它怎么打」。`msime_engine::host::wubi_code_lookup`（实现在 `crates/engine/src/wubi/lookup.rs`）给一段文字列出每个不同汉字在 `wubi86` 和 `wubi98` 两张表里的全部编码，短码在前（你 → `wq`、`wqiy`），整段是 2 到 16 个汉字时再把整段当一个词查一次。它读会话用的同一份五笔码表（`wubi_database` 选出的文件），所以用户自己加的五笔词也查得到；一次最多 64 个不同汉字，超出时标 `truncated`。
 
+TypeScript 的 `WubiTextCodes`、`WubiCodeLookup` 和 `WubiCodeLookupClient` 归入 `dictionary/dictionary-contracts.ts`，旧查码组件和包入口保留导出，见[公共词库契约](../../implemented/simplification/2026-10-16-dictionary-contracts.md)。
+
 宿主经已有的词库请求入口拿到它：`dictionary_request_json` 新增只读操作 `{operation:"wubi_codes",text}`，`personal_dictionary_request_json` 给出同样的回答。
 
 - **走词库请求，不另开 C 接口**：设置页在每个宿主上都已经有一条词库请求通路——桌面和 iOS 的 Tauri 命令 `dictionary_request`、Android 的个人词库队列入口、HarmonyOS 设置页的 `dictionary` 桥方法（经 `KeyboardSession.dictionary` 到 `msime_client_dictionary`）。新操作沿着它们走，不需要给 C ABI、JNI、NAPI 或 Harmony 的 `registerJavaScriptProxy` 方法表加任何东西。Harmony 的 `DictionaryMaintenancePolicy` 把不认识的操作当作只读，所以查码在组字时也能用、不会停掉键盘会话。

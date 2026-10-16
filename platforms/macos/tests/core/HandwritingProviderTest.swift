@@ -14,10 +14,11 @@ import SwiftUI
   @MainActor static func main() throws {
     let appearance = MacHandwritingAppearance()
     assert(appearance.colorScheme == nil)
+    // macOS 的手写识别板只看颜色模式，它单独的明暗设置不读。
     appearance.apply(["theme": "light", "handwriting_theme": "dark"])
-    assert(appearance.colorScheme == .dark)
-    appearance.apply(["theme": "dark", "handwriting_theme": "light"])
     assert(appearance.colorScheme == .light)
+    appearance.apply(["theme": "dark", "handwriting_theme": "light"])
+    assert(appearance.colorScheme == .dark)
     appearance.apply(["theme": "dark", "handwriting_theme": "follow"])
     assert(appearance.colorScheme == .dark)
     appearance.apply(["theme": "system", "handwriting_theme": "follow"])
