@@ -391,16 +391,41 @@ fn adopting_an_import_keeps_the_generations_increasing() {
 fn an_import_is_accepted_after_the_same_account_was_bound_but_never_synced() {
     let imported = bound("u");
     // 宿主先调过 status 或 run：对账把登录的账号写进来了，开关没开、没有游标。
-    let mut state = bound("u");
+    let state = bound("u");
     assert!(state.accepts_import(&imported));
     assert!(!bound("v").accepts_import(&imported));
-    state.set_enabled(false).unwrap();
-    assert!(state.accepts_import(&imported));
-    state.set_enabled(true).unwrap();
-    assert!(!state.accepts_import(&imported));
     let mut synced = bound("u");
     synced.sections.phrases.cursor = Some(3);
     assert!(!synced.accepts_import(&imported));
+}
+
+#[test]
+fn an_import_is_refused_once_the_user_switched_sync_or_an_import_was_adopted() {
+    let mut imported = bound("u");
+    imported.set_enabled(true).unwrap();
+    imported.import_closed = false;
+    // 打开过、第一轮还在等选择就关掉：状态与从没打开过一样（关着、没有游标），但不能再导入。
+    let mut toggled = bound("u");
+    toggled.set_enabled(true).unwrap();
+    toggled.set_enabled(false).unwrap();
+    assert!(!toggled.accepts_import(&imported));
+    // 只关过一次也是用户自己定的。
+    let mut disabled = bound("u");
+    disabled.set_enabled(false).unwrap();
+    assert!(!disabled.accepts_import(&imported));
+    // 导入以后关掉：下次启动宿主再带同一份旧状态来，开关不会被改回打开。
+    let mut adopted = bound("u");
+    adopted.adopt(imported.clone());
+    assert!(adopted.enabled);
+    adopted.set_enabled(false).unwrap();
+    assert!(!adopted.accepts_import(&imported));
+    // 退出和换账号都不重新开放导入。
+    let mut signed_out = SyncState::default();
+    signed_out.adopt(imported.clone());
+    signed_out.reset("");
+    assert!(!signed_out.accepts_import(&imported));
+    signed_out.reconcile(Some("u"));
+    assert!(!signed_out.accepts_import(&imported));
 }
 
 #[test]

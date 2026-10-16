@@ -1728,6 +1728,46 @@ fn legacy_state_is_imported_after_status_bound_the_same_account() {
 }
 
 #[test]
+fn legacy_state_never_turns_sync_back_on_after_the_user_turned_it_off() {
+    let ios = json!({
+        "version": 1,
+        "enabled": true,
+        "accountID": USER,
+        "cursors": {},
+        "generations": {},
+        "cleans": {},
+    });
+    // 导入以后用户关掉同步，下次启动宿主又带来同一份旧状态。
+    let fixture = Fixture::new();
+    let imported = import_legacy(&fixture.store, Some(ios.clone()), None, NOW).unwrap();
+    assert_eq!(imported["imported"], true, "{imported}");
+    assert_eq!(imported["status"]["enabled"], true);
+    set_enabled(&fixture.session, &fixture.store, false, NOW + 1).unwrap();
+    let again = import_legacy(&fixture.store, Some(ios.clone()), None, NOW + 2).unwrap();
+    assert_eq!(again["imported"], false, "{again}");
+    assert_eq!(again["status"]["enabled"], false);
+    // 退出再登录同一个账号也不再导入。
+    sign_out(&fixture.store, &fixture.local, NOW + 3).unwrap();
+    let signed_out = import_legacy(&fixture.store, Some(ios.clone()), None, NOW + 4).unwrap();
+    assert_eq!(signed_out["imported"], false, "{signed_out}");
+    assert_eq!(
+        status(&fixture.session, &fixture.store, NOW + 5).unwrap()["enabled"],
+        false
+    );
+    // 先在新界面打开、还没跑完第一轮就关掉，然后才导入。
+    let fixture = Fixture::new();
+    status(&fixture.session, &fixture.store, NOW).unwrap();
+    set_enabled(&fixture.session, &fixture.store, true, NOW + 1).unwrap();
+    set_enabled(&fixture.session, &fixture.store, false, NOW + 2).unwrap();
+    let late = import_legacy(&fixture.store, Some(ios), None, NOW + 3).unwrap();
+    assert_eq!(late["imported"], false, "{late}");
+    assert_eq!(
+        status(&fixture.session, &fixture.store, NOW + 4).unwrap()["enabled"],
+        false
+    );
+}
+
+#[test]
 fn legacy_state_is_imported_once() {
     let fixture = Fixture::new();
     let ios = json!({

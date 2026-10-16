@@ -208,6 +208,8 @@ pub struct SyncState {
     pub run: Option<RunLease>,
     pub failure: Option<SyncFailure>,
     pub notices: Notices,
+    /// 不再接受旧版本状态的导入：已经导入过一次，或者用户自己打开、关闭过同步。换账号和退出（[`SyncState::reset`]）都不清它，旧状态还留在宿主的存储里、每次启动都会再带来，导入一旦关上就不能再把用户关掉的同步改回打开。
+    pub import_closed: bool,
 }
 
 impl Default for SyncState {
@@ -227,6 +229,7 @@ impl Default for SyncState {
             run: None,
             failure: None,
             notices: Notices::default(),
+            import_closed: false,
         }
     }
 }
@@ -241,14 +244,16 @@ impl SyncState {
         self.state_version = self.state_version.wrapping_add(1);
     }
 
-    /// 清空全部进度并关闭开关，`binding_generation` 加一，`state_version` 继续往上数：进行中的那一轮因此一定提交不了。
+    /// 清空全部进度并关闭开关，`binding_generation` 加一，`state_version` 继续往上数：进行中的那一轮因此一定提交不了。`import_closed` 保留。
     pub fn reset(&mut self, account_id: &str) {
         let binding = self.binding_generation.wrapping_add(1);
         let version = self.state_version;
+        let import_closed = self.import_closed;
         *self = Self {
             account_id: account_id.to_owned(),
             binding_generation: binding,
             state_version: version,
+            import_closed,
             ..Self::default()
         };
         self.bump();
@@ -264,12 +269,13 @@ impl SyncState {
         true
     }
 
-    /// 打开或关闭同步；关闭时保留游标，重新打开后增量继续。打开时把全部分类标成待上传。没有绑定账号时不能打开。
+    /// 打开或关闭同步；关闭时保留游标，重新打开后增量继续。打开时把全部分类标成待上传。没有绑定账号时不能打开。开关是用户自己定的，此后不再导入旧状态。
     pub fn set_enabled(&mut self, enabled: bool) -> Result<(), NotSignedIn> {
         if enabled && self.account_id.is_empty() {
             return Err(NotSignedIn);
         }
         self.enabled = enabled;
+        self.import_closed = true;
         if enabled {
             for section in Section::ALL {
                 let state = self.sections.get_mut(section);
@@ -403,9 +409,10 @@ impl SyncState {
         self.bump();
     }
 
-    /// 能不能用 `imported` 这份旧版本的状态替换现在的：还没有任何进度（没有打开、没有游标），而且没有绑定账号或绑定的就是旧状态里的账号。宿主在导入之前先调过 `status`、`run` 或 `set_enabled` 时，对账已经把登录的账号写进来了，这时仍然要能导入，否则迁移以后又会弹首次选择；开关没打开过就不会跑过同步，没有别的进度要保留。
+    /// 能不能用 `imported` 这份旧版本的状态替换现在的：没有导入过、用户也没有开关过同步（`import_closed`），没有打开、没有游标，而且没有绑定账号或绑定的就是旧状态里的账号。宿主在导入之前先调过 `status` 或 `run` 时，对账已经把登录的账号写进来了，这时仍然要能导入，否则迁移以后又会弹首次选择；用户没开关过同步就不会跑过同步，没有别的进度要保留。只看「现在关着」不够：用户打开过再关掉、或者导入以后又关掉时状态也是这样，再导入一次会把旧状态里的开关改回打开。
     pub fn accepts_import(&self, imported: &SyncState) -> bool {
-        !self.enabled
+        !self.import_closed
+            && !self.enabled
             && (self.account_id.is_empty() || self.account_id == imported.account_id)
             && Section::ALL
                 .iter()
@@ -766,13 +773,14 @@ pub fn import_android(sync: &serde_json::Value, status: &serde_json::Value) -> O
 }
 
 impl SyncState {
-    /// 用导入的旧状态替换这一份全新的状态：两个代次继续往上数。
+    /// 用导入的旧状态替换这一份全新的状态：两个代次继续往上数，此后不再导入。
     pub fn adopt(&mut self, imported: SyncState) {
         let binding = self.binding_generation.wrapping_add(1);
         let version = self.state_version;
         *self = SyncState {
             binding_generation: binding,
             state_version: version,
+            import_closed: true,
             ..imported
         };
         self.bump();
