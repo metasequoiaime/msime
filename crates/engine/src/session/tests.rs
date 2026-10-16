@@ -5504,6 +5504,107 @@ fn local_modes_never_ask_for_online_candidates() {
 }
 
 #[test]
+fn translate_command_inserts_word_separators_at_the_caret() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (text, caret, expected) in [
+        ("fyhelloworld", 8, "hello world"),
+        ("fanyihelloworld", 11, "hello world"),
+        ("translatehelloworld", 15, "hello world"),
+        ("fyab", 4, "a b"),
+        ("fyhelloworld'", 8, "hello world"),
+    ] {
+        for punctuation in [false, true] {
+            let mut session = generated_modes_session(&fixture);
+            session.character(b'/', false);
+            type_text(&mut session, text);
+            session.set_caret(Some(caret));
+            assert!(session.takes_local_separator(), "{text} at {caret}");
+
+            let result = if punctuation {
+                session.punctuation(b'\'')
+            } else {
+                session.character(b'\'', false)
+            };
+
+            assert!(result.handled, "{result:?}");
+            assert!(result.commit.is_none(), "{result:?}");
+            let mut raw = format!("/{text}");
+            raw.insert(caret, '\'');
+            assert_eq!(session.snapshot().preedit, raw);
+            assert_eq!(session.snapshot().caret_position, caret + 1);
+            assert_eq!(session.command_translation_query().unwrap().text, expected);
+            assert_eq!(words(&session), [expected]);
+            session.command(Command::Backspace);
+            assert_eq!(session.snapshot().preedit, format!("/{text}"));
+            assert_eq!(session.snapshot().caret_position, caret);
+        }
+    }
+}
+
+#[test]
+fn translate_command_checks_the_caret_before_accepting_a_separator() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (text, caret) in [
+        ("fyhello", 1),
+        ("fyhello", 2),
+        ("fyhello", 3),
+        ("fanyihello", 6),
+        ("translatehello", 10),
+        ("fyhello'world", 9),
+    ] {
+        let mut session = generated_modes_session(&fixture);
+        session.character(b'/', false);
+        type_text(&mut session, text);
+        session.set_caret(Some(caret));
+        assert!(!session.takes_local_separator(), "{text} at {caret}");
+        let before = session.snapshot();
+        assert!(!session.character(b'\'', false).handled);
+        assert_eq!(session.snapshot(), before);
+    }
+}
+
+#[test]
+fn translate_command_preserves_separator_insertion_limits() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for punctuation in [false, true] {
+        let mut session = generated_modes_session(&fixture);
+        session.character(b'/', false);
+        type_text(&mut session, "fyhello'world");
+        session.set_caret(Some(8));
+        let before = session.snapshot();
+        let result = if punctuation {
+            session.punctuation(b'\'')
+        } else {
+            session.character(b'\'', false)
+        };
+        assert!(result.handled && result.commit.is_none(), "{result:?}");
+        assert_eq!(session.snapshot(), before);
+
+        session.command(Command::Cancel);
+        session.character(b'/', false);
+        type_text(&mut session, "fyhello");
+        while session.snapshot().preedit.len() < crate::local::GENERATED_MODE_INPUT_LIMIT {
+            assert!(session.character(b'a', false).handled);
+        }
+        session.set_caret(Some(8));
+        let before = session.snapshot();
+        assert!(!session.character(b'\'', false).handled);
+        assert_eq!(session.snapshot(), before);
+    }
+
+    for (entry, text, caret) in [(b'@', "fyhello", 4), (b'/', "sighello", 5)] {
+        let mut session = generated_modes_session(&fixture);
+        session.character(entry, false);
+        type_text(&mut session, text);
+        session.set_caret(Some(caret));
+        assert!(!session.takes_local_separator());
+        let before = session.snapshot();
+        assert!(!session.character(b'\'', false).handled);
+        assert_eq!(session.snapshot(), before);
+    }
+}
+
+#[test]
 fn the_translate_command_asks_for_its_english_and_commits_the_answer() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = generated_modes_session(&fixture);

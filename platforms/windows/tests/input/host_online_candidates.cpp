@@ -135,14 +135,17 @@ int main(int argc, char **argv) {
     tip.capture_online_request(++request);
     require(tip.online_query(&raw, &error), "current query available");
     const auto nextQuery = json::parse(raw).at("value");
+    require(nextQuery.is_object(), "fresh AI query is an object");
+    require(tip.view(&raw, &error), "view before empty AI answer available");
+    const auto beforeEmpty = json::parse(raw).at("value");
     changed = {{"version", 1}, {"request", request}, {"operation", 1}, {"query", nextQuery}, {"candidates", json::array()}};
-    require(tip.apply_online_update(changed.dump()), "empty AI answer resolves placeholder");
+    // 内核不再预留 AI 占位行；空回答与兼容的 resolve 调用都不改视图或代次。
+    require(!tip.apply_online_update(changed.dump()), "empty AI answer changes no candidates");
     require(tip.view(&raw, &error), "resolved view available");
-    bool unavailable = false;
     view = json::parse(raw).at("value");
+    require(view == beforeEmpty, "empty AI answer preserves the complete local view");
     for (const auto &item : view.at("candidates"))
-        if (item.at("source") == 12 && item.at("text") == "—") unavailable = true;
-    require(unavailable, "AI placeholder becomes unavailable without selecting text");
+        require(item.at("source") != 12, "AI no longer reserves placeholder rows");
     packet.modifiers_down = 0; relay.delivered(lease, reply, packet);
     require(!relay.update(lease, 1, *query, answers), "ordinary host receives no relay");
     packet.modifiers_down = FanyImePipeFlags::UiLess | FanyImePipeFlags::ServerUiLessCandidates;

@@ -437,7 +437,8 @@ impl InputSession {
                 }
                 self.local_preedit.len() < GENERATED_MODE_INPUT_LIMIT
                     && (value.is_ascii_lowercase()
-                        || (value == b'\'' && self.command_takes_word_separator()))
+                        || (value == b'\''
+                            && self.command_takes_word_separator(self.local_preedit.len())))
             }
             LocalInputMode::Url => {
                 // 网址不收的符号（`"` `<` `|` 等）和空格结束网址：交还 runtime，由它先上屏网址再处理这个键。
@@ -1124,13 +1125,13 @@ impl InputSession {
         text[..caret].last().is_some_and(u8::is_ascii_lowercase) && !text.contains(&b'\'')
     }
 
-    /// Whether an apostrophe now is a separator of the expression or command mode (`3jin'g`, `/fyhello'world`) rather than punctuation that ends it.
+    /// 当前光标处的撇号是否分隔本地模式的单位、单词或部件，而非结束组字的标点。
     pub fn takes_local_separator(&self) -> bool {
         match self.local_mode {
             LocalInputMode::Expression => {
                 self.expression_takes_unit_separator(self.caret_position())
             }
-            LocalInputMode::Command => self.command_takes_word_separator(),
+            LocalInputMode::Command => self.command_takes_word_separator(self.caret_position()),
             LocalInputMode::Chaizi => self.chaizi_takes_symbol(b'\'', self.caret_position()),
             _ => false,
         }
@@ -1160,12 +1161,12 @@ impl InputSession {
         }
     }
 
-    /// One apostrophe after each word of `/fy` separates it from the next.
-    fn command_takes_word_separator(&self) -> bool {
+    /// 翻译命令只在光标前已有触发词和单词字母时接受分词撇号。
+    pub(super) fn command_takes_word_separator(&self, caret: usize) -> bool {
         self.local_mode == LocalInputMode::Command
             && self
                 .local_preedit
-                .get(1..)
+                .get(1..caret)
                 .is_some_and(crate::local::command::takes_word_separator)
     }
 

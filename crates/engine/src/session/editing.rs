@@ -180,7 +180,8 @@ impl InputSession {
                                 .contains(&value));
                 }
                 LocalInputMode::Command | LocalInputMode::Mention => {
-                    accepted = text.len() < GENERATED_MODE_INPUT_LIMIT && lower;
+                    accepted = text.len() < GENERATED_MODE_INPUT_LIMIT
+                        && (lower || (value == b'\'' && self.command_takes_word_separator(caret)));
                 }
                 // 与 `handle_local_character` 同一组规则：收字母，`'` 不能插在入口字母 `C` 之后（连续的 `'` 由下面的通用检查吞掉），`;` 只在微软双拼补完奇数长度的片段时收。
                 LocalInputMode::Chaizi => {
