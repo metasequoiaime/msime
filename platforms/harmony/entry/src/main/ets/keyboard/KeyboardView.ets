@@ -6690,9 +6690,14 @@ struct KeyboardView {
 
   /** 按屏幕此刻的宽高（转屏后两者互换）判断是不是手机横屏。 */
   private readOrientation(): void {
-    const screen: display.Display = display.getDefaultDisplaySync();
-    this.phoneLandscape = KeyboardFormFactorPolicy.phoneLandscape(screen.width / screen.densityPixels,
-      screen.height / screen.densityPixels);
+    try {
+      const screen: display.Display = display.getDefaultDisplaySync();
+      this.phoneLandscape = KeyboardFormFactorPolicy.phoneLandscape(screen.width / screen.densityPixels,
+        screen.height / screen.densityPixels);
+    } catch {
+      // 显示服务暂不可用时保留上次方向，等待下一次窗口布局通知。
+      KeyboardLog.error('keyboard orientation unavailable');
+    }
   }
 
   /** 功能面板和方案选择的行数和行距（`FunctionPanelPolicy.pickerGrid`）；是否放得下按有圆点算。 */
