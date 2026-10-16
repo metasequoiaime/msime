@@ -12,7 +12,7 @@ const TRIGGERS: [(&str, &str); 4] = [("www", "."), ("http", ":"), ("https", ":")
 /// 把组字转成邮箱的键：组字原文由 ASCII 字母、数字组成（`is_email_local_part`）时，按下它进入网址模式写邮箱。
 const EMAIL_KEY: char = '@';
 
-/// 常用邮箱后缀，国内常用的在前，然后是海外的。与 Android 的 `EmailSuffixPolicy.SUFFIXES` 是同一份、同一个顺序，`scripts/test-email-suffixes.py` 核对两边一致。
+/// 常用邮箱后缀，国内常用的在前，然后是海外的。与 Android、iOS、鸿蒙宿主各自的后缀表（任何输入框里打到 `xxx@` 时候选栏给出）是同一份、同一个顺序，`scripts/test-email-suffixes.py` 核对四处一致。
 pub const EMAIL_SUFFIXES: [&str; 20] = [
     "@qq.com",
     "@163.com",
