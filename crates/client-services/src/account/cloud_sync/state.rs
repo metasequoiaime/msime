@@ -553,6 +553,9 @@ pub struct PendingCommit {
     /// iOS：要在提交时按宿主实际保存下来的键盘设置应用到共享偏好的那份设置文档。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settings_document: Option<AccountPreferences>,
+    /// iOS：这一轮读本机时共享偏好的修订号。提交时按它比较并交换，读本机以后另一个进程里用户改了设置时不拿这一轮的结果覆盖它；带着 `settings_document` 却没有它（更早的版本写下的）时这一轮按冲突作废。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings_revision: Option<u64>,
     /// 这一轮各类用的模式，只给状态展示。
     #[serde(default)]
     pub modes: BTreeMap<Section, Mode>,

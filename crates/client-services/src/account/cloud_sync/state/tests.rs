@@ -215,6 +215,7 @@ fn the_snapshot_waiting_for_activation_is_recorded_kept_and_cleared() {
         run_id: "run".into(),
         progress: round(ActivationChange::Clear),
         settings_document: None,
+        settings_revision: None,
         modes: BTreeMap::new(),
     };
     let encoded = serde_json::to_vec(&pending).unwrap();
@@ -278,6 +279,7 @@ fn pending_progress_round_trips_and_is_not_written_when_the_change_fails() {
                 run_id: "run".into(),
                 progress: RoundProgress::default(),
                 settings_document: Some(document.clone()),
+                settings_revision: Some(7),
                 modes: [(Section::Settings, Mode::Download)].into(),
             });
             Ok::<_, ()>(())
@@ -299,6 +301,7 @@ fn pending_progress_round_trips_and_is_not_written_when_the_change_fails() {
     assert_eq!(state.account_id, "a");
     let pending = pending.unwrap();
     assert_eq!(pending.settings_document, Some(document));
+    assert_eq!(pending.settings_revision, Some(7));
     assert_eq!(pending.modes[&Section::Settings], Mode::Download);
     store.update_always(|_, pending| *pending = None).unwrap();
     assert!(!store.directory().join("pending.json").exists());

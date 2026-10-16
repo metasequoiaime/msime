@@ -429,10 +429,14 @@ impl SyncLocal for FakeLocal {
         &self,
         document: &AccountPreferences,
         saved_native: &IosKeyboardPreferences,
+        read_revision: u64,
     ) -> Result<(), String> {
         let mut local = self.local();
         if let Some(code) = local.commit_failure.take() {
             return Err(code);
+        }
+        if local.settings_revision != read_revision {
+            return Err("conflict".to_owned());
         }
         local
             .committed
@@ -2599,11 +2603,99 @@ fn the_ios_mapping_defers_shared_preferences_until_the_keyboard_settings_are_sav
         serde_json::to_value(&requested).unwrap()["inputScheme"],
         "wubi"
     );
-    local.commit_settings(&wubi, &requested).unwrap();
+    local
+        .commit_settings(&wubi, &requested, local.export_settings().unwrap().revision)
+        .unwrap();
     let saved = PreferencesStore::new(directory.path()).load().unwrap();
     let saved = serde_json::to_value(saved).unwrap();
     assert_eq!(saved["preferences"]["scheme"], "wubi");
     assert_eq!(saved["preferences"]["wubi_profile"], "wubi98");
+}
+
+#[test]
+fn committing_ios_settings_never_overwrites_a_change_made_after_they_were_read() {
+    use msime_client_core::preferences::{FrequencyMode, InputScheme};
+    let directory = tempfile::tempdir().unwrap();
+    let local = host_local(
+        directory.path(),
+        HostInputs {
+            ios_native: Some(native()),
+            ..HostInputs::default()
+        },
+    );
+    let exported = local.export_settings().unwrap();
+    assert_eq!(exported.settings["input.frequency_mode"], string("promote"));
+    let fields = schema(&[
+        ("input.schema", "string"),
+        ("input.wubi_schema", "string"),
+        ("input.frequency_mode", "string"),
+    ]);
+    // 合并出来的文档：方案用云端的五笔，词频方式是读本机时的值。
+    let wubi = AccountPreferences {
+        revision: 3,
+        settings: [
+            ("input.schema".to_owned(), string("wubi")),
+            ("input.wubi_schema".to_owned(), string("wubi98")),
+            ("input.frequency_mode".to_owned(), string("promote")),
+        ]
+        .into(),
+    };
+    let applied = local
+        .apply_settings(&wubi, &fields, exported.revision)
+        .unwrap();
+    assert!(applied.deferred);
+    let requested = applied.writes.ios_native.unwrap();
+    // 宿主写键盘设置的时候，用户在应用的设置页里把词频方式改成了不调频。
+    let store = PreferencesStore::new(directory.path());
+    let current = store.load().unwrap();
+    let mut edited = current.preferences.clone();
+    edited.frequency.mode = FrequencyMode::Disabled;
+    store.save(current.revision, edited).unwrap();
+    assert_eq!(
+        local
+            .commit_settings(&wubi, &requested, exported.revision)
+            .err(),
+        Some("conflict".to_owned())
+    );
+    let kept = store.load().unwrap().preferences;
+    assert_eq!(kept.frequency.mode, FrequencyMode::Disabled);
+    assert_ne!(kept.scheme, InputScheme::Wubi);
+}
+
+#[test]
+fn an_ios_commit_after_a_local_settings_change_is_voided() {
+    let fixture = Fixture::new();
+    fixture.api.cloud().preferences = AccountPreferences {
+        revision: 2,
+        settings: [("input.schema".to_owned(), string("wubi"))].into(),
+    };
+    fixture.local.local().defer = Some(native());
+    fixture.enable();
+    let capabilities = Capabilities {
+        settings: true,
+        ..Capabilities::default()
+    };
+    let pending = fixture.run(Trigger::Choice, Some(Choice::UseCloud), capabilities, NOW);
+    assert_eq!(pending["outcome"], "pending_commit", "{pending}");
+    let run_id = pending["run_id"].as_str().unwrap().to_owned();
+    // 宿主写键盘设置的时候，另一个进程里用户改了共享偏好。
+    fixture.local.local().settings_revision += 1;
+    assert_eq!(
+        commit(
+            &fixture.session,
+            &fixture.store,
+            &fixture.local,
+            &run_id,
+            Some(&native()),
+            NOW + 1,
+        ),
+        Err("conflict".to_owned())
+    );
+    assert!(fixture.local.local().committed.is_empty());
+    let state = fixture.state();
+    assert!(state.run.is_none());
+    assert_eq!(state.sections.settings.cursor, None);
+    assert!(state.sections.settings.dirty());
 }
 
 #[test]

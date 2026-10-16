@@ -166,11 +166,12 @@ pub(crate) trait SyncLocal {
         schema: &AccountPreferenceSchema,
         read_revision: u64,
     ) -> Result<SettingsApplied, String>;
-    /// iOS 的第二步：按宿主实际保存下来的键盘设置把文档应用到共享偏好。失败是 `conflict` 或 `storage`。
+    /// iOS 的第二步：按宿主实际保存下来的键盘设置把文档应用到共享偏好。`read_revision` 与 [`Self::apply_settings`] 的相同，是这一轮读本机时共享偏好的修订号：读本机以后（中间隔着联网和宿主写键盘设置）共享偏好被别处改过时什么都不写，返回 `conflict`。失败是 `conflict` 或 `storage`。
     fn commit_settings(
         &self,
         document: &AccountPreferences,
         saved_native: &IosKeyboardPreferences,
+        read_revision: u64,
     ) -> Result<(), String>;
     fn phrases(&self) -> Result<Vec<LocalPhrase>, String>;
     /// 把本机改成 `target`，返回本机收不下的正文的摘要。
@@ -487,7 +488,8 @@ struct SettingsData {
     /// 这一轮没有动皮肤库的原因：本机或云端的皮肤库读不懂，云端的那份原样留着。
     skins_skipped: Option<&'static str>,
     writes: HostWrites,
-    deferred: Option<AccountPreferences>,
+    /// iOS：留到提交时再写共享偏好的设置文档，和这一轮读本机时共享偏好的修订号。
+    deferred: Option<(AccountPreferences, u64)>,
 }
 
 struct PhrasesData {
@@ -676,7 +678,7 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                 })? {
                     Ok(applied) => {
                         if applied.deferred {
-                            data.deferred = Some(document);
+                            data.deferred = Some((document, read_revision));
                         }
                         data.writes.absorb(applied.writes);
                         Event::Written { revision }
@@ -1524,10 +1526,12 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
             "status": status_value(&state, now_ms),
         }));
     }
+    let (settings_document, settings_revision) = deferred.unzip();
     let pending = PendingCommit {
         run_id: run_id.to_owned(),
         progress,
-        settings_document: deferred,
+        settings_document,
+        settings_revision,
         modes,
     };
     let result = store
@@ -1604,7 +1608,12 @@ pub(crate) fn commit<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
                 let Some(saved) = saved_native else {
                     return Err(INVALID.to_owned());
                 };
-                if let Err(code) = local.commit_settings(document, saved) {
+                // 没有读本机时的修订号（更早的版本写下的待提交进度）就没法比较并交换：按冲突作废，下一轮重来。
+                let applied = current
+                    .settings_revision
+                    .ok_or_else(|| "conflict".to_owned())
+                    .and_then(|revision| local.commit_settings(document, saved, revision));
+                if let Err(code) = applied {
                     state.release(run_id);
                     *pending = None;
                     return Err(code);
@@ -1909,17 +1918,22 @@ impl SyncLocal for HostLocal {
         &self,
         document: &AccountPreferences,
         saved_native: &IosKeyboardPreferences,
+        read_revision: u64,
     ) -> Result<(), String> {
         let store = self.store();
         let mut document = document.clone();
         filter_downloaded_account_settings(Some(store.edition()), &mut document.settings);
         let plan = IosPreferencePlan::from_cloud(&document).map_err(|_| "storage".to_owned())?;
         let local = store.load().map_err(|_| "storage".to_owned())?;
+        // 与 `apply_settings` 一样按读本机时的修订号比较并交换：这份文档是按那时的本机值合并出来的，期间用户在别处改的设置不能被它盖回去。
+        if local.revision != read_revision {
+            return Err(preferences_error(PreferencesError::Conflict));
+        }
         let mut next = local.preferences.clone();
         plan.apply_shared(saved_native, &mut next)
             .map_err(|_| "storage".to_owned())?;
         store
-            .save(local.revision, next)
+            .save(read_revision, next)
             .map(|_| ())
             .map_err(preferences_error)
     }
