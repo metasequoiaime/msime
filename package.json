@@ -1,7 +1,7 @@
 {
   "name": "msime-client",
   "private": true,
-  "packageManager": "pnpm@11.5.2",
+  "type": "module",
   "scripts": {
     "dev": "pnpm --filter @msime/desktop dev",
     "build": "pnpm --filter @msime/desktop build",
@@ -20,5 +20,6 @@
   },
   "devDependencies": {
     "vite-plus": "1.0.0"
-  }
+  },
+  "packageManager": "pnpm@11.5.2"
 }

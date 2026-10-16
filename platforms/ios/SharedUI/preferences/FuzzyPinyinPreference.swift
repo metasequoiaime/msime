@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 enum FuzzyPinyinPreference {
-  static let ruleIDs = ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l", "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang"]
+  nonisolated static let ruleIDs = ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l", "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang"]
   static let documentKey = "fuzzy_pinyin"
 
   /// The document's `fuzzy_pinyin` object, which the settings app, the shared Tauri settings page and the keyboard all read.

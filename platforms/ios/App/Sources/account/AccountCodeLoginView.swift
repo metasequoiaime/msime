@@ -253,7 +253,7 @@ struct CodeLoginView: View {
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .accessibilityIdentifier("backendCodeTarget")
-            .onChange(of: target) { _ in challenge = nil; code = "" }
+            .onChange(of: target) { challenge = nil; code = "" }
           TimelineView(.periodic(from: .now, by: 1)) { timeline in
             let seconds = VerificationCodePolicy.remainingSeconds(until: resendAt, now: timeline.date)
             Button(seconds == 0 ? "获取验证码" : "\(seconds) 秒后可重新发送") {
@@ -291,7 +291,7 @@ struct CodeLoginView: View {
       .navigationTitle(channel.title)
       .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { ViewRequestTask.cancel(task: $pending); dismiss() } } }
     }
-    .onChange(of: model.user?.id) { userID in if userID != nil { dismiss() } }
+    .onChange(of: model.user?.id) { _, userID in if userID != nil { dismiss() } }
     .onDisappear {
       ViewRequestTask.cancel(task: $pending)
       model.invalidate()

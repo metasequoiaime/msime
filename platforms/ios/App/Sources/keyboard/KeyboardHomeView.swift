@@ -55,7 +55,7 @@ struct SettingsView: View {
     .navigationDestination(item: Binding(get: { navigation.tab == .settings ? router.settingsPage : nil },
       set: { if navigation.tab == .settings { router.settingsPage = $0 } })) { $0.destination }
     .onAppear { refresh() }
-    .onChange(of: scenePhase) { if $0 == .active { refresh(); Task { await loadNotices() } } }
+    .onChange(of: scenePhase) { _, phase in if phase == .active { refresh(); Task { await loadNotices() } } }
     .task { await loadNotices() }
     .tint(MetasequoiaTheme.accent)
   }

@@ -83,10 +83,12 @@ export default defineConfig({
     // Nothing is fetched, so nothing may be left out of the one file that is read.
     assetsInlineLimit: Number.MAX_SAFE_INTEGER,
     cssCodeSplit: false,
+    // resource:// 页面必须将脚本、样式和图标打入单文件，预算以未压缩产物计。
+    chunkSizeWarningLimit: 2048,
     rollupOptions: {
       output: {
         format: "iife",
-        inlineDynamicImports: true,
+        codeSplitting: false,
         entryFileNames: "settings.js",
         assetFileNames: "settings.[ext]",
       },

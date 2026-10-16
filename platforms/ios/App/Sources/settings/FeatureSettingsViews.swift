@@ -374,7 +374,7 @@ struct ServiceSettingsView: View {
         Section {
           Toggle("在键盘中启用 AI", isOn: $keyboardAIEnabled)
             .accessibilityIdentifier("keyboardAIEnabled")
-            .onChange(of: keyboardAIEnabled) { enabled in
+            .onChange(of: keyboardAIEnabled) { _, enabled in
               if !enabled {
                 do { try KeyboardAIService.disable() } catch { status = error.localizedDescription }
                 publishAICandidates()
@@ -387,11 +387,11 @@ struct ServiceSettingsView: View {
           Section {
             Toggle("候选栏 AI 候选", isOn: $aiCandidatesEnabled)
               .accessibilityIdentifier("aiCandidatesEnabled")
-              .onChange(of: aiCandidatesEnabled) { _ in publishAICandidates() }
+              .onChange(of: aiCandidatesEnabled) { publishAICandidates() }
             if aiCandidatesEnabled {
               Stepper("候选数量：\(aiCandidateLimit)", value: $aiCandidateLimit, in: AICandidatePreference.limits)
                 .accessibilityIdentifier("aiCandidateLimit")
-                .onChange(of: aiCandidateLimit) { _ in publishAICandidates() }
+                .onChange(of: aiCandidateLimit) { publishAICandidates() }
               NavigationLink("提示词") { AICandidatePromptView() }
                 .accessibilityIdentifier("aiCandidatePrompt")
             }
@@ -539,12 +539,12 @@ struct ServiceSettingsView: View {
         if kind == .voice, let provider = VoiceProviderPreset(rawValue: id) { selectVoiceProvider(provider) }
       }
     }
-    .onChange(of: configuration.endpoint) { _ in fetchedModels = nil; modelStatus = "" }
-    .onChange(of: voiceSettings) { _ in
+    .onChange(of: configuration.endpoint) { fetchedModels = nil; modelStatus = "" }
+    .onChange(of: voiceSettings) {
       guard kind == .voice else { return }
       voiceSettingsSaveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { voiceSettings.write(into: &$0) }
     }
-    .onChange(of: recorder.isRecording) { recording in
+    .onChange(of: recorder.isRecording) { _, recording in
       // Also covers the recorder stopping itself at the 60-second limit.
       if !recording && voiceSettings.soundEnabled && voiceSettings.endSound { VoiceCue.playEnd() }
     }
@@ -554,7 +554,7 @@ struct ServiceSettingsView: View {
     }
     .onAppear { request.appear() }
     .onDisappear { request.disappear(); cancelAndClear() }
-    .onChange(of: scenePhase) { phase in
+    .onChange(of: scenePhase) { _, phase in
       if phase == .background { cancelAndClear() }
       if phase == .active && kind == .voice { refreshVoiceTransfer() }
     }
@@ -1240,7 +1240,7 @@ private struct AICandidatePromptView: View {
 
 /// The system recording cues. Haptics accompany them so the cue still registers with the ringer off.
 private enum VoiceCue {
-  static func playStart() async {
+  @MainActor static func playStart() async {
     UIImpactFeedbackGenerator(style: .light).impactOccurred()
     await withCheckedContinuation { continuation in
       AudioServicesPlaySystemSoundWithCompletion(1113) { continuation.resume() }

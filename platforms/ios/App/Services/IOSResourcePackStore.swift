@@ -37,7 +37,7 @@ final class IOSResourcePackStore: ObservableObject {
   }
 
   func reload() {
-    Task {
+    Task { [self] in
       let result = await Task.detached { Result { try IOSResourcePacks.list() } }.value
       switch result {
       case .success(let listed):
@@ -70,9 +70,9 @@ final class IOSResourcePackStore: ObservableObject {
     meteredRequest = nil
     guard !available(id), statuses[id]?.running != true else { return }
     statuses[id] = Status(phase: "download")
-    Task {
-      let result = await Task.detached {
-        Result {
+    Task { [self] in
+      let result = await Task.detached { [weak self] in
+        Result { [weak self] in
           try IOSResourcePacks.install(id) { [weak self] phase, done, total in
             let percentage = total == 0 ? 0 : Int(min(100, Double(done) / Double(total) * 100))
             Task { @MainActor in

@@ -23,6 +23,7 @@ use tauri::Manager;
 #[cfg(not(mobile))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
+#[cfg(any(not(mobile), test))]
 pub(crate) fn panel_accepts_focus(label: &str) -> bool {
     label != "keyboard-panel"
 }

@@ -267,7 +267,7 @@ public final class AccountFragment extends HomeTabFragment {
                 super.onInitializeAccessibilityNodeInfo(host, info);
                 info.setClassName(Switch.class.getName());
                 info.setCheckable(true);
-                info.setChecked(toggle.isChecked());
+                androidx.core.view.accessibility.AccessibilityNodeInfoCompat.wrap(info).setChecked(toggle.isChecked());
             }
         });
         if (real) {
