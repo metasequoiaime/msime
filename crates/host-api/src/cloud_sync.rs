@@ -1,6 +1,6 @@
 //! 多分类自动云同步的驱动：按 client-services 的状态机（`account::cloud_sync::machine`）一步一步执行，联网用宿主那一份会话（令牌刷新、代次防护都是会话自己的），本机写入用 `PreferencesStore`、`CommonPhrasesStore`、词库导出和快照队列。词库导出和激活要用 Engine，所以驱动放在 host-api。C 入口是 `ffi::cloud_sync` 的 `msime_client_cloud_sync`。
 //!
-//! 一轮的顺序：在状态锁里对齐账号、判断要不要跑并写下租约；先把参与的分类都读一遍（云端和本机），有分类首次同步而云端有数据（或云端被清空）又没有选择时整轮停下问用户；否则逐类执行，一类失败不挡其他类。联网的每一步都落在开始那一轮的登录上（`authenticated_as`），本机写入都在 `with_generation` 的闭包里做，闭包里只写本地文件，不联网、不取别的会话的令牌。游标、清标记和基线只在提交时推进；交给宿主写的值（iOS 的键盘设置、Android 的按键反馈、本地设置、皮肤库、要认领的示例常用语）写完之前，进度放在 `pending.json`，宿主写完调 `commit`。
+//! 一轮的顺序：在状态锁里对齐账号、判断要不要跑并写下租约；先把参与的分类都读一遍（云端和本机），有分类首次同步而云端有数据（或云端被清空）又没有选择时整轮停下问用户；否则逐类执行，一类失败不挡其他类。联网的每一步都落在开始那一轮的登录上（`authenticated_as`），本机写入都在 `with_generation` 的闭包里做，闭包里只写本地文件，不联网、不取别的会话的令牌。游标、清标记和基线只在提交时推进；交给宿主写的值（iOS 的键盘设置、Android 和鸿蒙的按键反馈、Android 的本地设置、皮肤库、要认领的示例常用语）写完之前，进度放在 `pending.json`，宿主写完调 `commit`。
 //!
 //! 写成对 [`AccountApi`]、[`AccountSessionStorage`] 和 [`SyncLocal`] 泛型的函数，测试用假的后端和内存里的本机驱动。
 
@@ -23,6 +23,9 @@ use msime_client_services::account::cloud_sync::state::{
     import_android, import_ios_v1, ActivationChange, BaseChange, OutcomeKind, PendingCommit,
     RoundProgress, RunLease, SectionBase, SectionOutcome, SectionProgress, SyncFailure, SyncState,
     SyncStateStore,
+};
+use msime_client_services::account::harmony_settings::{
+    apply_harmony_settings, export_harmony_settings,
 };
 use msime_client_services::account::ios_settings::{local_account_preferences, IosPreferencePlan};
 use msime_client_services::account::settings_sync::{
@@ -61,13 +64,15 @@ pub(crate) struct Capabilities {
     pub(crate) dictionary: bool,
 }
 
-/// 宿主保管、Rust 读不到的本机值。带 `ios_native` 时设置按 iOS 映射，否则按 Android 映射。
+/// 宿主保管、Rust 读不到的本机值。带 `ios_native` 时设置按 iOS 映射，`harmony` 为真时按鸿蒙映射，否则按 Android 映射。
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct HostInputs {
     /// iOS：App Group 里当前的键盘设置。
     pub(crate) ios_native: Option<IosKeyboardPreferences>,
-    /// Android：当前的按键反馈。
+    /// 鸿蒙：设置按 `platform.harmony.*` 映射，按键反馈仍放在 `feedback`；不能与 `ios_native`、`android_local`、`custom_keyboard_skins` 同时给。
+    pub(crate) harmony: bool,
+    /// Android 和鸿蒙：当前的按键反馈。
     pub(crate) feedback: Option<HostKeyboardFeedback>,
     /// Android：本地设置文件里参与同步的值，按同步键给出。
     pub(crate) android_local: Option<BTreeMap<String, AccountPreferenceValue>>,
@@ -1600,6 +1605,9 @@ impl SyncLocal for HostLocal {
                 &snapshot.preferences,
                 snapshot.preferences.custom_theme.keyboard.as_ref(),
             ),
+            None if self.inputs.harmony => {
+                export_harmony_settings(&snapshot.preferences, self.inputs.feedback.as_ref())
+            }
             None => export_android_settings(&snapshot.preferences, self.inputs.feedback.as_ref())
                 .map(|mut settings| {
                     if let Some(local) = &self.inputs.android_local {
@@ -1612,10 +1620,8 @@ impl SyncLocal for HostLocal {
         filter_uploaded_account_settings(Some(store.edition()), &mut settings);
         Ok(LocalSettings {
             settings,
-            skins: self
-                .inputs
-                .ios_native
-                .is_none()
+            // 皮肤库的字段只有 Android 有。
+            skins: (self.inputs.ios_native.is_none() && !self.inputs.harmony)
                 .then(|| self.inputs.custom_keyboard_skins.clone())
                 .flatten(),
         })
@@ -1657,6 +1663,28 @@ impl SyncLocal for HostLocal {
             });
         }
         let local = store.load().map_err(|_| "settings_storage".to_owned())?;
+        if self.inputs.harmony {
+            let applied = apply_harmony_settings(
+                &local.preferences,
+                &document,
+                schema,
+                self.inputs.feedback.clone(),
+            )
+            .map_err(invalid)?;
+            if applied.preferences != local.preferences {
+                store
+                    .save(local.revision, applied.preferences)
+                    .map_err(|_| "settings_storage".to_owned())?;
+            }
+            let mut writes = HostWrites::default();
+            if applied.feedback.is_some() && applied.feedback != self.inputs.feedback {
+                writes.feedback = applied.feedback;
+            }
+            return Ok(SettingsApplied {
+                writes,
+                deferred: false,
+            });
+        }
         let applied = apply_android_settings(
             &local.preferences,
             &document,

@@ -1752,6 +1752,81 @@ fn the_android_mapping_exports_and_applies_through_shared_preferences() {
 }
 
 #[test]
+fn the_harmony_mapping_uses_its_own_namespace_over_shared_preferences() {
+    use msime_client_services::account::harmony_settings::HARMONY_FEEDBACK_KEYS;
+    let directory = tempfile::tempdir().unwrap();
+    let feedback = HostKeyboardFeedback {
+        sound_enabled: true,
+        haptics_enabled: true,
+        haptic_strength: "medium".into(),
+    };
+    let local = host_local(
+        directory.path(),
+        HostInputs {
+            harmony: true,
+            feedback: Some(feedback.clone()),
+            ..HostInputs::default()
+        },
+    );
+    let exported = local.export_settings().unwrap();
+    assert_eq!(exported.settings["input.schema"], string("quanpin"));
+    assert_eq!(
+        exported.settings[HARMONY_FEEDBACK_KEYS[0]],
+        AccountPreferenceValue::Boolean(true)
+    );
+    assert_eq!(
+        exported.settings["platform.harmony.keyboard_layout"],
+        string("twenty_six_key")
+    );
+    assert!(exported
+        .settings
+        .keys()
+        .all(|key| !key.starts_with("platform.android.")));
+    assert!(exported.skins.is_none());
+    let fields = schema(&[
+        ("input.schema", "string"),
+        ("platform.harmony.keyboard_layout", "string"),
+        ("platform.android.keyboard_layout", "string"),
+        (HARMONY_FEEDBACK_KEYS[0], "boolean"),
+    ]);
+    let document = AccountPreferences {
+        revision: 3,
+        settings: [
+            ("input.schema".to_owned(), string("wubi")),
+            (
+                "platform.android.keyboard_layout".to_owned(),
+                string("handwriting"),
+            ),
+            (
+                HARMONY_FEEDBACK_KEYS[0].to_owned(),
+                AccountPreferenceValue::Boolean(false),
+            ),
+        ]
+        .into(),
+    };
+    let applied = local.apply_settings(&document, &fields).unwrap();
+    assert!(!applied.deferred);
+    assert_eq!(
+        applied.writes,
+        HostWrites {
+            feedback: Some(HostKeyboardFeedback {
+                sound_enabled: false,
+                ..feedback
+            }),
+            ..HostWrites::default()
+        }
+    );
+    let saved = PreferencesStore::new(directory.path()).load().unwrap();
+    let saved = serde_json::to_value(saved).unwrap();
+    assert_eq!(saved["preferences"]["scheme"], "wubi");
+    // Android 的布局键不归鸿蒙。
+    assert_eq!(
+        saved["preferences"]["touch_keyboard_layout"],
+        "twenty_six_key"
+    );
+}
+
+#[test]
 fn the_ios_mapping_defers_shared_preferences_until_the_keyboard_settings_are_saved() {
     let directory = tempfile::tempdir().unwrap();
     let local = host_local(

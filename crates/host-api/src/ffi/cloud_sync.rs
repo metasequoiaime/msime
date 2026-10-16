@@ -168,6 +168,12 @@ fn perform(request: CloudSyncRequest) -> Result<Value, String> {
                 || capabilities.dictionary
                     && (request.options.is_none() || snapshot_queue.is_none())
                 || capabilities.skins_library && !capabilities.settings
+                // 鸿蒙的映射没有 iOS 的键盘设置、Android 的本地设置文件和皮肤库这几样。
+                || host_inputs.harmony
+                    && (host_inputs.ios_native.is_some()
+                        || host_inputs.android_local.is_some()
+                        || host_inputs.custom_keyboard_skins.is_some()
+                        || capabilities.skins_library)
             {
                 return Err(invalid());
             }

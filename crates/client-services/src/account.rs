@@ -636,6 +636,8 @@ mod devices;
 mod feedback;
 mod file_storage;
 mod google;
+/// 账号设置文档与鸿蒙宿主之间的映射（`platform.harmony.*`），C 接口和自动云同步共用。
+pub mod harmony_settings;
 /// 宿主注入的会话存储（钥匙串、App Group、AndroidKeyStore），C 接口的 `msime_client_session_store_register` 经它接进来。
 mod host_storage;
 /// 账号设置文档与 iOS 键盘设置（App Group）之间的映射，Tauri iOS 和 C 接口共用。

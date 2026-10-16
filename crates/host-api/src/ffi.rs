@@ -218,6 +218,7 @@ pub mod cloud_sync;
 pub mod community;
 pub mod credentials;
 pub mod google;
+pub mod harmony_settings;
 pub mod host;
 pub mod input;
 pub mod ios_settings;

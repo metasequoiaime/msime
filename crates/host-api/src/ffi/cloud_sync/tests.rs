@@ -77,6 +77,24 @@ fn request(paths: &Paths, action: Value) -> Value {
     })
 }
 
+/// 一份合规的 iOS 键盘设置，字段同 `msime_client_account_ios_settings_export` 的 `ios_native`。
+fn ios_native() -> Value {
+    json!({
+        "inputScheme": "quanpin",
+        "traditionalChineseOutput": false,
+        "soundEnabled": true,
+        "hapticsEnabled": false,
+        "hapticStrength": "medium",
+        "englishSuggestions": true,
+        "candidatePaletteFollowsDesktop": false,
+        "inlinePreedit": false,
+        "hapticsAvailable": true,
+        "dictionaryLearning": true,
+        "globalTheme": "shuishan",
+        "customKeyboardSkin": null,
+    })
+}
+
 #[test]
 fn malformed_requests_are_cloud_sync_invalid() {
     let paths = paths();
@@ -111,6 +129,22 @@ fn malformed_requests_are_cloud_sync_invalid() {
         request(
             &paths,
             json!({ "operation": "run", "trigger": "manual", "capabilities": { "phrases": true }, "host_inputs": { "unknown": 1 } }),
+        ),
+        request(
+            &paths,
+            json!({ "operation": "run", "trigger": "manual", "capabilities": { "settings": true }, "host_inputs": { "harmony": true, "ios_native": ios_native() } }),
+        ),
+        request(
+            &paths,
+            json!({ "operation": "run", "trigger": "manual", "capabilities": { "settings": true }, "host_inputs": { "harmony": true, "android_local": {} } }),
+        ),
+        request(
+            &paths,
+            json!({ "operation": "run", "trigger": "manual", "capabilities": { "settings": true }, "host_inputs": { "harmony": true, "custom_keyboard_skins": "[]" } }),
+        ),
+        request(
+            &paths,
+            json!({ "operation": "run", "trigger": "manual", "capabilities": { "settings": true, "skins_library": true }, "host_inputs": { "harmony": true } }),
         ),
         json!({ "directory": paths.account, "state_directory": paths.state, "action": run }),
         request(&paths, json!({ "operation": "import_legacy" })),
