@@ -2,6 +2,8 @@
 
 Status: implemented
 
+本篇「不提供登记名称兼容」的选择由[可选 Source 2 登记名称与本地异步候选](./2026-10-16-windows-source2-profile-and-local-online.md)部分取代；强制叠加窗与用户规则仍然保留。
+
 ## Problem
 
 Windows 上有一类游戏以 `TF_TMF_UIELEMENTENABLEDONLY`（UILess）激活 TSF，等于告诉输入法「候选由我自己画」，实际却什么都不画：SDL2 在 UILess 下对 `ITfUIElementMgr::BeginUIElement` 一律回 `pbShow=FALSE`，自己的 `IME_Present` 只有一行 FIXME；Dota 2 也是这样。TIP 按约定把 UILess 报给 Server（ClientActivated 的 keycode），Server 锁存后抑制候选窗，用户在这些游戏里打中文只能盲选。
@@ -70,6 +72,10 @@ Windows 上有一类游戏以 `TF_TMF_UIELEMENTENABLEDONLY`（UILess）激活 TS
 - `Preferences::game_compatibility`（`GameCompatibilityPreferences`，`crates/client-core/src/preferences.rs`）：`candidate_overlay` 默认 true，`overlay_processes` 与 `excluded_processes` 默认空，等于默认值时不写进文档。条目必须是不超过 64 个字符、以 `.exe` 结尾（ASCII 不分大小写）、不含 `\ / : * ? " < > |` 和控制字符的基名；两张表合计不超过 32 条，合在一起按 `to_ascii_lowercase()` 不重复，和 WinUI 设置页 `GameProcessList.h` 的折叠规则一致。违规时 `validate()` 返回 `InvalidGameCompatibility`，Tauri 映射为 `game_compatibility_invalid`。
 - WinUI 设置「候选窗口」页的「游戏」组：总开关加「总是显示候选窗口的程序」「从不显示候选窗口的程序」两张列表。写入前按 `platforms/windows/settings/GameProcessList.h` 规范化（去首尾空白、ASCII 小写）并校验，不合法时就地说明原因、不写入文档，因为 `Save` 失败只会显示一句笼统的提示。
 - MCP 的偏好白名单有一个布尔 `game_candidate_overlay`，只读写总开关，不碰两张表。React 设置页只加了类型，没有控件。
+
+### UI-less 游戏的候选同步
+
+真正由宿主画候选的游戏（英雄联盟、三角洲行动等）沿用 UI-less，不强制叠加。它们的翻页回复与后台候选更新共用带代次的载荷，见[游戏 UI-less 候选同步与 IMM 状态](../bug-fix/2026-10-16-windows-game-uiless-and-imm.md)。同篇记录基岩版的固定物理锚点和 Caps Lock 延后采样；不改变本篇的 Source 2 登记身份与独占全屏边界。
 
 ### 不在这里做的
 

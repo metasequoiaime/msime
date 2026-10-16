@@ -75,7 +75,9 @@ STDAPI CKeyHandlerEditSession::DoEditSession(TfEditCookie ec)
         return S_FALSE;
     }
 
-    HRESULT hResult = _KeyState.Function == FUNCTION_CANDIDATE_CONTINUATION ? E_FAIL : S_OK;
+    const bool serverCandidateOperation = _KeyState.Function == FUNCTION_CANDIDATE_CONTINUATION ||
+                                          _KeyState.Function == FUNCTION_HOST_ONLINE_CANDIDATES;
+    HRESULT hResult = serverCandidateOperation ? E_FAIL : S_OK;
     PerfTimer doEditSessionTimer;
     LARGE_INTEGER freq, nowQpc;
     QueryPerformanceFrequency(&freq);
@@ -105,11 +107,17 @@ STDAPI CKeyHandlerEditSession::DoEditSession(TfEditCookie ec)
         pKeyStateCategoryFactory->Release();
     }
 
-    if (_KeyState.Function == FUNCTION_CANDIDATE_CONTINUATION && hResult != S_OK &&
+    if (serverCandidateOperation && hResult != S_OK &&
         _pTextService->_IsFocusSessionCurrent(_focusToken, _pContext) &&
         _pTextService->_IsCompositionEpochCurrent(_expectedCompositionEpoch))
         MarkNamedpipeSessionDirtyForOwner(_pTextService);
 
+    if (hResult == S_OK && Global::IsUiLessMode() && _requestId != FANY_IME_NO_REQUEST_ID && _requestId != 0)
+    {
+        auto *engine = _pTextService->GetCompositionProcessorEngine();
+        auto *host = engine ? engine->GetHostEngineAdapter() : nullptr;
+        if (host && host->valid()) host->capture_online_request(_requestId);
+    }
     if (isLocalReset)
     {
         _pTextService->_CompleteLocalSessionReset(_localResetToken);

@@ -894,14 +894,13 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     [self reloadPreview];
 }
 
-/// Dark where the toolbar itself would be dark: a theme with a fixed mode decides, then 悬浮工具栏主题, 颜色模式 decides where that is 跟随颜色模式, and where neither names an appearance the panel follows the system — as this view does, being in a window that follows the system too. It is MetasequoiaFloatingToolbarPanel -applyThemePreferences: read back.
+/// 工具栏本身画成深色时这里就是深色：固定明暗的主题说了算，其次是颜色模式（macOS 上工具栏没有单独的明暗设置），两者都没指定明暗时跟随系统，与这个同样跟随系统的窗口里的本视图一致。它就是把 MetasequoiaFloatingToolbarPanel -applyThemePreferences: 的判断反过来读一遍。
 - (BOOL)previewUsesDark
 {
     // A theme with a mode of its own draws the toolbar in that mode, as InputController tells the panel.
     if (self.preferences != nil)
         if (const auto fixed = [self.preferences fixedThemeMode]) return *fixed;
-    NSString *surface = self.preferences.toolbarTheme;
-    NSString *resolved = [surface isEqual:@"dark"] || [surface isEqual:@"light"] ? surface : self.preferences.themeMode;
+    NSString *resolved = self.preferences.themeMode;
     if ([resolved isEqual:@"dark"]) return YES;
     if ([resolved isEqual:@"light"]) return NO;
     NSString *match = [self.effectiveAppearance

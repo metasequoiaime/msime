@@ -7,11 +7,9 @@ import Vision
   @Published private(set) var colorScheme: ColorScheme?
 
   func apply(_ preferences: NSDictionary) {
-    let surface = preferences["handwriting_theme"] as? String
-    let global = preferences["theme"] as? String
-    let resolved = (surface == "dark" || surface == "light") ? surface : global
+    // macOS 的手写识别板一律跟随颜色模式，不读它单独的明暗设置。
     let next: ColorScheme?
-    switch resolved {
+    switch preferences["theme"] as? String {
     case "light": next = .light
     case "system": next = nil
     case "dark": next = .dark

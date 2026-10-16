@@ -60,6 +60,8 @@ void hint_follows_the_view() {
   other = view("ni");
   other["shuangpin_profile"] = "unknown";
   require(shuangpin_keymap_hint(other)->profile == "xiaohe");
+  other["shuangpin_profile"] = "smart_abc";
+  require(shuangpin_keymap_hint(other)->profile == "smart_abc");
   // 自定义方案没有按名字取得到的键位表，不显示，免得按小鹤标错键。
   other = view("ni");
   other["shuangpin_profile"] = "custom";

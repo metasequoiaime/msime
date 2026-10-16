@@ -59,6 +59,7 @@ struct PendingReply {
   };
   std::optional<SegmentRestore> segment_restore;
   bool restoring_segment = false;
+  std::optional<NavigationReply> host_navigation = std::nullopt;
 };
 // One instance per authenticated client activation, on the Server input queue.
 // prefix is transport presentation state: text already selected by Engine but

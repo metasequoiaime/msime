@@ -1,3 +1,7 @@
+import type {
+  ProviderCredentialStatus,
+  VoiceCredentialKind,
+} from "../core/provider-credential-contracts";
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { fullScreenColumn, fullScreenSurface } from "../core/full-screen-style";
 import { pushMobileSettingsState } from "./mobile-navigation";
@@ -5,13 +9,7 @@ import { useMobilePopState } from "./use-mobile-pop-state";
 import * as settings from "./settings-style";
 import { SettingsPageHeader } from "./settings-page-header";
 import { SettingsGroupBlock } from "./settings-group-block";
-import type {
-  Preferences,
-  ProviderCredentialStatus,
-  SettingsClient,
-  VoiceInputPreferences,
-  VoiceCredentialKind,
-} from "../index";
+import type { Preferences, SettingsClient, VoiceInputPreferences } from "../index";
 import { isVoicePolishEnabled } from "./voice-input-defaults";
 import { asrProviderUpdate, isAsrServiceProvider } from "../voice/voice-providers";
 import { VoiceInputBasicsSection } from "./voice-input-basics-section";

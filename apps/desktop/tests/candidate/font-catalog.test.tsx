@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
 import { normalizeFontCatalog } from "../../../../packages/ui/src/candidate/font-catalog";
+import { testHost } from "../support/host";
 afterEach(cleanup);
 const initial: Snapshot = {
   format_version: 1,
@@ -30,7 +31,8 @@ test("search loads once and selects with keyboard without saving", async () => {
       client={{ load: async () => initial, save, listFontFamilies }}
     />,
   );
-  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
+  // 字体框在「候选字体」选「自定义…」后才出现。
+  fireEvent.click(await screen.findByRole("radio", { name: "自定义…" }));
   const primary = await screen.findByLabelText("主字体");
   expect(listFontFamilies).not.toHaveBeenCalled();
   fireEvent.focus(primary);
@@ -60,7 +62,8 @@ test("late results from a replaced reader cannot reappear", async () => {
   const view = render(
     <SettingsPage initialPage="appearance" client={{ ...client, listFontFamilies: old }} />,
   );
-  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
+  // 字体框在「候选字体」选「自定义…」后才出现。
+  fireEvent.click(await screen.findByRole("radio", { name: "自定义…" }));
   fireEvent.focus(await screen.findByLabelText("主字体"));
   expect(screen.getByText("正在读取字体列表。")).toBeDefined();
   const next = vi.fn().mockResolvedValue(["New font"]);
@@ -82,7 +85,8 @@ test("failed catalog retries while allowing manual font entry", async () => {
       client={{ load: async () => initial, save: vi.fn(), listFontFamilies }}
     />,
   );
-  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
+  // 字体框在「候选字体」选「自定义…」后才出现。
+  fireEvent.click(await screen.findByRole("radio", { name: "自定义…" }));
   const input = await screen.findByLabelText("主字体");
   fireEvent.focus(input);
   await screen.findByText(/读取字体列表失败/);
@@ -102,7 +106,8 @@ test("disables the font catalog refresh while loading", async () => {
       client={{ load: async () => initial, save: vi.fn(), listFontFamilies }}
     />,
   );
-  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
+  // 字体框在「候选字体」选「自定义…」后才出现。
+  fireEvent.click(await screen.findByRole("radio", { name: "自定义…" }));
   const input = await screen.findByLabelText("主字体");
   fireEvent.focus(input);
   await screen.findByText("正在读取字体列表。");
@@ -123,7 +128,8 @@ test("large catalogs bound visible options without losing searchable entries", a
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("tab", { name: "字体与大小" }));
+  // 字体框在「候选字体」选「自定义…」后才出现。
+  fireEvent.click(await screen.findByRole("radio", { name: "自定义…" }));
   const input = await screen.findByLabelText("主字体");
   fireEvent.focus(input);
   await screen.findByText("显示前 100 项，请输入名称缩小范围。");
@@ -131,4 +137,33 @@ test("large catalogs bound visible options without losing searchable entries", a
   expect(within(list).getAllByRole("option")).toHaveLength(100);
   fireEvent.change(input, { target: { value: "Font100" } });
   expect(within(list).getAllByRole("option")).toHaveLength(1);
+});
+
+// 主字体框收起时（选着预设），「更多选项」里的英文字体框自己带着读取状态和刷新按钮，读取失败后仍能重试。
+test("the English font field carries the catalog status and refresh while the main field is hidden", async () => {
+  const listFontFamilies = vi
+    .fn()
+    .mockRejectedValueOnce(Error("synthetic failure"))
+    .mockResolvedValue(["Alpha"]);
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        listFontFamilies,
+        host: testHost({ platform: "macos", candidate_font_controls: true }),
+      }}
+    />,
+  );
+  const english = await screen.findByLabelText("英文字体");
+  expect(screen.queryByLabelText("主字体")).toBeNull();
+  // 读取状态和刷新不再单独占一行。
+  expect(screen.queryByText("系统字体列表")).toBeNull();
+  fireEvent.focus(english);
+  await screen.findByText(/读取字体列表失败/);
+  fireEvent.click(screen.getByRole("button", { name: "刷新字体列表" }));
+  await waitFor(() => expect(listFontFamilies).toHaveBeenCalledTimes(2));
+  fireEvent.focus(english);
+  await screen.findByRole("option", { name: "Alpha" });
 });

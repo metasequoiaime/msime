@@ -25,6 +25,9 @@ constexpr std::uint32_t FieldTraits = 1u << 6;
 constexpr std::uint32_t JapaneseToggleShortcut = 1u << 7;
 // 可选：TIP 能在自己的宿主会话里执行外部候选窗发来的继续组字选择。
 constexpr std::uint32_t CandidateContinuation = 1u << 8;
+// 可选：TIP 以 ServerUiLessCandidates 明确请求旧管道路径的后台候选页。
+constexpr std::uint32_t UiLessCandidates = 1u << 9;
+constexpr std::uint32_t HostOnlineCandidates = 1u << 10;
 constexpr std::uint32_t Capabilities = RequestIds | FocusEpochs | FramedVoice;
 constexpr std::uint32_t RequiredCapabilities = RequestIds | FocusEpochs;
 

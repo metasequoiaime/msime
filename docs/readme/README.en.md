@@ -88,10 +88,9 @@ cargo clippy -p msime-client-base -p msime-client-core -p msime-client-providers
 pnpm install --frozen-lockfile
 pnpm --filter @msime/desktop test
 pnpm build
-pnpm tauri dev
 ```
 
-Desktop builds require the [Tauri platform prerequisites](https://tauri.app/start/prerequisites/). `pnpm tauri build --debug --no-bundle` builds an unbundled development binary; user-facing installers are produced by each platform's own packaging chain — the CMake bundle on macOS, `platforms/windows/installer/msime_setup.iss` on Windows, CPack (`-DMSIME_ENABLE_PACKAGING=ON`) on Linux, `platforms/android/build-apk.sh` on Android, `hvigorw assembleHap` on HarmonyOS, and the Xcode project on iOS. In an ordinary browser, only a notice that local configuration cannot be accessed is shown; a successful save is not simulated.
+Desktop builds require the [Tauri platform prerequisites](https://tauri.app/start/prerequisites/). Do not run `pnpm tauri build` or `pnpm tauri dev` directly: the Tauri project is a shared component the native host launches, `apps/desktop/scripts/require-platform-build.mjs` refuses it with an error, and the build entry is each platform's `platforms/<os>`; user-facing installers are produced by each platform's own packaging chain — the CMake bundle on macOS, `platforms/windows/installer/msime_setup.iss` on Windows, CPack (`-DMSIME_ENABLE_PACKAGING=ON`) on Linux, `platforms/android/build-apk.sh` on Android, `hvigorw assembleHap` on HarmonyOS, and the Xcode project on iOS. In an ordinary browser, only a notice that local configuration cannot be accessed is shown; a successful save is not simulated.
 
 The application identifier and default app data directory of the desktop settings are named per platform: `app.msime.macos` on macOS, `app.msime.windows` on Windows and `app.msime.linux` on Linux. Preferences are stored in `preferences.json` inside that directory. The environment variable `MSIME_CLIENT_STATE_DIR`, set to an absolute path, can also point to an isolated development directory. The macOS native host reads the same configuration and applies updates after the current composition ends; when several settings windows save at the same time, conflicts are detected through a revision, and the user must explicitly reload before deciding whether to overwrite.
 

@@ -204,7 +204,7 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
   expect(screen.getByRole("button", { name: "悬浮工具栏" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
   expect(screen.getByRole("region", { name: "候选窗口预览" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("tab", { name: "预编辑" }));
+  // 预编辑各行在「候选窗口」页的「更多选项」里，不再有「预编辑」标签。
   expect(screen.getByRole("combobox", { name: "候选窗口预编辑" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "主题" }));
   expect(screen.getByRole("combobox", { name: "候选窗口主题" })).toBeTruthy();

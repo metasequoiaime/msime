@@ -50,7 +50,8 @@ EncodedReply uiless_composition(uint64_t request, const std::string &display,
   }
   if (!candidates.empty() && !found_highlight)
     throw std::logic_error("Missing candidate highlight");
-  return uiless_reply(request, display, candidates, highlighted);
+  return uiless_reply(request, display, candidates, highlighted,
+                      view.value("generation", uint64_t{0}));
 }
 // 参考实现的 CandidateTextForOutput：不论简繁开关怎样，日文方案的假名和汉字都不经过简转繁表。韩文、越南文和藏文也不是中文文字，粤拼和注音本来就是繁体，笔画按词库存储的字形原样上屏（scheme::ScriptConversionApplies）。开关本身不变，所以离开这些方案后繁体输出恢复。
 bool traditional_projection(const ServerSession &session) {
@@ -91,6 +92,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
   // failing to compile.
   PendingReply next;
   next.source = result;
+  next.host_navigation = navigation_for(path);
   next.next_prefix = prefix_;
   next.traditional_output = traditional_output_;
   const auto invalid = [&] {

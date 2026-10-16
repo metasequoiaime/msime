@@ -33,6 +33,8 @@
     <instrumentation android:name="app.msime.android.test.ThemeModeDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.LanguageNumberKeySwapDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.KeyboardHeightDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.BottomPaddingHeightDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.BottomPaddingSettingsDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.FuzzyPinyinDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.CandidateGlossDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.NineKeyNumericLayoutDeviceSmoke" android:targetPackage="app.msime.android" />
@@ -68,6 +70,7 @@
     <instrumentation android:name="app.msime.android.test.EmptyEditorBackspaceDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.HelpcodeImportDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.SymbolPanelLayoutDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.CompositionBatchDeviceSmoke" android:targetPackage="app.msime.android" />
     <application android:label="MSIME Editor Fixture" android:allowBackup="false">
         <!-- 系统文档选择器可见的合成目录；产品必须通过选择器取得跨 UID 授权。 -->
         <provider android:name="app.msime.android.test.DiagnosticDocumentsProvider"

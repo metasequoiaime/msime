@@ -1,6 +1,6 @@
 package app.msime.android;
 
-/** Ordered composition writes, independent of Android so the contract is JVM-testable. */
+/** 按顺序写入组字，不依赖 Android，便于在 JVM 上验证契约。 */
 public final class EditorBridge {
     public interface Sink {
         void begin();
@@ -9,30 +9,36 @@ public final class EditorBridge {
         boolean finish();
         boolean select(int start, int end);
         void end();
+        /** 批量编辑结束后才能读回实际文字；验证或回退拒写时向调用方报告失败。 */
+        default boolean verify() { return true; }
     }
     private boolean composing;
     public boolean apply(Sink sink, String commit, String editing) {
         if (!begin(sink)) return false;
-        try {
-            try {
-                if (commit != null) {
-                    if (!sink.commit(commit)) return false;
-                    composing = false;
-                }
-                if (!editing.isEmpty()) {
-                    if (!sink.compose(editing)) return false;
-                    composing = true;
-                } else if (composing) {
-                    if (!sink.compose("")) return false;
-                    composing = false;
-                    if (!sink.finish()) return false;
-                }
-                return true;
-            } catch (RuntimeException disconnected) {
-                // 输入框可能在一次跨进程调用之间失去焦点；把断开的连接当作本次编辑失败。
-                return false;
-            }
-        } finally { end(sink); }
+        boolean written;
+        boolean ended;
+        try { written = applyWrites(sink, commit, editing); }
+        catch (RuntimeException disconnected) { written = false; }
+        finally { ended = end(sink); }
+        if (!written || !ended) return false;
+        try { return sink.verify(); }
+        catch (RuntimeException disconnected) { return false; }
+    }
+
+    private boolean applyWrites(Sink sink, String commit, String editing) {
+        if (commit != null) {
+            if (!sink.commit(commit)) return false;
+            composing = false;
+        }
+        if (!editing.isEmpty()) {
+            if (!sink.compose(editing)) return false;
+            composing = true;
+        } else if (composing) {
+            if (!sink.compose("")) return false;
+            composing = false;
+            if (!sink.finish()) return false;
+        }
+        return true;
     }
     /** External selection/focus changes must not delete an editor's new selection. */
     public void abandon(Sink sink) {
@@ -105,9 +111,9 @@ public final class EditorBridge {
         }
     }
 
-    private static void end(Sink sink) {
-        try { sink.end(); }
-        catch (RuntimeException disconnected) { /* 连接已断开时批量编辑无法再结束。 */ }
+    private static boolean end(Sink sink) {
+        try { sink.end(); return true; }
+        catch (RuntimeException disconnected) { return false; }
     }
 
     /** Where a selection offset lands once [start, end) has been removed. */

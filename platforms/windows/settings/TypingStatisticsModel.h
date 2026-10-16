@@ -800,12 +800,13 @@ inline std::vector<Slice> source_slices(Breakdown const &breakdown) {
     const wchar_t *title;
     const wchar_t *symbol;
   };
-  static constexpr std::array<Source, 21> sources{{{"quanpin", L"全拼 26 键", L"全"},
+  static constexpr std::array<Source, 22> sources{{{"quanpin", L"全拼 26 键", L"全"},
                                                    {"nineKey", L"全拼 9 键", L"9"},
                                                    {"shuangpin", L"小鹤双拼", L"鹤"},
                                                    {"ziranma", L"自然码双拼", L"自"},
                                                    {"microsoft", L"微软双拼", L"微"},
                                                    {"shoudao", L"首道双拼", L"首"},
+                                                   {"smart_abc", L"智能 ABC 双拼", L"智"},
                                                    {"wubi", L"五笔", L"五"},
                                                    {"japanese", L"日语", L"日"},
                                                    {"korean", L"韩语", L"韩"},
@@ -833,7 +834,7 @@ inline std::vector<Slice> language_slices(Breakdown const &breakdown) {
   auto source = [&breakdown](const char *id) { return value_of(breakdown.sources, id); };
   return {
       {"chinese", L"中文模式",
-       sum_values(breakdown.sources, {"quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi",
+       sum_values(breakdown.sources, {"quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "smart_abc", "wubi",
                                       "cantonese", "zhuyin", "stroke"}),
        chart_palette[0], L"中"},
       {"japanese", L"日语模式", source("japanese"), chart_palette[4], L"日"},

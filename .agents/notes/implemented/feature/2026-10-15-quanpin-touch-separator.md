@@ -48,6 +48,8 @@ Android、iOS 与 HarmonyOS 的中文全拼 26 键字母页在原 Shift 位置�
 - HarmonyOS：暂存资源、设置页及语音 HAR 后重编 arm64 原生库，NAPI 链接与 ELF 检查通过；`ohpm install` 和 `hvigorw assembleHap --no-daemon` 通过。本轮只构建未签名 HAP，未做设备验收。
 - `verify-notes` 与 `MSIME_VERIFY_ALL=1 bash scripts/verify-local.sh --quick` 通过，涵盖 Windows 本机 151 项测试、x64 完整交叉链接、Windows GNU 桌面检查、macOS 原生构建、Apple 桥接层及 x86_64/i686 管道协议。Linux 因 Docker 不可用跳过；首轮 x86 语法检查因交叉构建配置尚未生成跳过，后续同步门禁补查。
 
+随后自动合入 `435aa8c515`，保留主线的组字批量回读、底部留白与面板布局。Android Rust/JNI 与完整 APK 再次从该合并源码重建，独立 API 35 模拟器的核心验收和上述三项专项均通过，无需重试；最终 `MSIME_VERIFY_ALL=1 bash scripts/verify-local.sh --quick` 通过，补齐 401 个源文件的 i686 语法检查、162 项本机测试、x64 完整交叉链接和 macOS 桌面 Rust 检查；macOS、Apple 桥接与双架构管道协议同样通过。首轮 x86 检查读到旧的 CMake 注册夹具，重新配置后整轮重跑通过，未更改生产逻辑或测试断言来适配旧产物。Linux 仍因 Docker 不可用跳过。iOS 键盘和 HarmonyOS 宿主源码在这次追加合并中未变，前述平台证据仍对应 `0427465a2f` 的合并结果。
+
 iOS 空闲候选入口提供本地模式菜单时，`accessibilityValue` 按既有契约为 `nil`。空闲分词用例直接比较点按前后的可选读屏值，保留 `nil` 本身的契约；真实 `xi` → 分词 → `an` 的组字断言仍要求非空 `xi'an`。这覆盖 CI 与本地的本地模式开关不同导致的夹具失败，不改生产读屏语义。
 
 物理设备、iPad 系统键盘扩展的真实横屏分离和按键统计落盘未覆盖；本次不改变 Engine 的分词算法与大写字母接收规则。

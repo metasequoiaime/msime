@@ -1,4 +1,6 @@
-import type { EditionInfo, InputScheme, Preferences } from "../index";
+import type { EditionInfo } from "../core/host-capabilities";
+import type { InputScheme } from "../core/input-scheme";
+import type { Preferences } from "../index";
 import { GroupList, MoreOptions } from "../core/platform-controls";
 import { InputModeSection } from "./input-mode-section";
 import {

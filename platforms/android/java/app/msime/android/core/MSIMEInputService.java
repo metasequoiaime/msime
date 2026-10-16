@@ -965,6 +965,7 @@ public final class MSIMEInputService extends InputMethodService {
     private EditorBridge.Sink sink(TypingSource source) {
         final InputConnection target = connection;
         return new EditorBridge.Sink() {
+            private String pendingComposition;
             public void begin() { target.beginBatchEdit(); }
             public boolean commit(String text) {
                 editorCompositionSuppressed = false;
@@ -981,7 +982,8 @@ public final class MSIMEInputService extends InputMethodService {
                 if (text.isEmpty()) {
                     if (editorCompositionSuppressed) return true;
                     boolean cleared = target.setComposingText(text, 1);
-                    if (!cleared) selectionEcho.invalidate();
+                    if (cleared) selectionEcho.compose(0);
+                    else selectionEcho.invalidate();
                     return cleared;
                 }
                 if (editorCompositionSuppressed) return true;
@@ -990,25 +992,38 @@ public final class MSIMEInputService extends InputMethodService {
                     selectionEcho.invalidate();
                     return false;
                 }
+                pendingComposition = text;
+                selectionEcho.compose(text.length());
+                return true;
+            }
+            public boolean verify() {
+                if (pendingComposition == null) return true;
+                // Compose 等编辑器在 endBatchEdit 才应用写入；批量内读回的可能是上一拍快照。
                 CharSequence before;
-                try { before = target.getTextBeforeCursor(text.length(), 0); }
+                try { before = target.getTextBeforeCursor(pendingComposition.length(), 0); }
                 catch (RuntimeException error) { before = null; }
-                int actualLength = CompositionTextPolicy.composingLength(before, text);
-                if (actualLength >= 0 && actualLength < text.length()) {
-                    // LengthFilter 截短后可能连组字标记也丢掉；空 setComposingText 无法删掉已变成普通文字的前缀。
-                    // 先结束标记，再按读回的实际长度删除光标前缀，之后只在键盘上保留整段组字。
+                int actualLength = CompositionTextPolicy.composingLength(before, pendingComposition);
+                if (actualLength < 0 || actualLength == pendingComposition.length()) return true;
+                // 截短批次的回声可能先于清理回声到达，且 LengthFilter 可能已移除组字标记。
+                selectionEcho.compose(actualLength);
+                selectionEcho.expect();
+                selectionEcho.finish();
+                selectionEcho.expect();
+                target.beginBatchEdit();
+                try {
+                    // 空 setComposingText 无法删除已失去标记的前缀，按实际长度清理。
                     if (!target.finishComposingText()
                             || (actualLength > 0 && !target.deleteSurroundingText(actualLength, 0))) {
                         selectionEcho.invalidate();
                         return false;
                     }
+                    selectionEcho.deleteBefore(actualLength);
                     editorCompositionSuppressed = true;
-                    selectionEcho.compose(0);
-                    selectionEcho.finish();
                     return true;
+                } finally {
+                    target.endBatchEdit();
+                    selectionEcho.expect();
                 }
-                selectionEcho.compose(text.length());
-                return true;
             }
             public boolean finish() {
                 boolean finished = target.finishComposingText();

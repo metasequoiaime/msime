@@ -208,6 +208,7 @@ mod tests {
             ShuangpinProfileKind::Ziranma,
             ShuangpinProfileKind::Shoudao,
             ShuangpinProfileKind::Microsoft,
+            ShuangpinProfileKind::SmartAbc,
         ] {
             let selected = profile(kind).unwrap();
             for &first in CODE_KEYS {

@@ -117,6 +117,8 @@ pub enum TypingSource {
     Ziranma,
     Microsoft,
     Shoudao,
+    #[serde(rename = "smart_abc")]
+    SmartAbc,
     Wubi,
     Japanese,
     Korean,
@@ -144,6 +146,7 @@ impl TypingSource {
             Self::Ziranma => "ziranma",
             Self::Microsoft => "microsoft",
             Self::Shoudao => "shoudao",
+            Self::SmartAbc => "smart_abc",
             Self::Wubi => "wubi",
             Self::Japanese => "japanese",
             Self::Korean => "korean",

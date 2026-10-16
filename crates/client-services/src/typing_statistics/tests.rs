@@ -73,6 +73,24 @@ fn records_graphemes_categories_and_sources_without_text() {
 }
 
 #[test]
+fn smart_abc_commits_roundtrip_under_their_own_source() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(directory.path());
+    store.set_enabled(true).unwrap();
+    let source: TypingSource = serde_json::from_str("\"smart_abc\"").unwrap();
+    assert_eq!(source, TypingSource::SmartAbc);
+    assert_eq!(serde_json::to_string(&source).unwrap(), "\"smart_abc\"");
+    assert_eq!(
+        store.record("合成", source, "2026-10-16", Some(9)).unwrap(),
+        2
+    );
+    let value = store.load().unwrap();
+    assert_eq!(value.detail.sources["smart_abc"], 2);
+    assert!(!value.detail.sources.contains_key("shuangpin"));
+    assert_eq!(value.daily_details["2026-10-16"].sources["smart_abc"], 2);
+}
+
+#[test]
 fn korean_commits_count_under_their_own_source() {
     let directory = tempfile::tempdir().unwrap();
     let store = TypingStatisticsStore::new(directory.path());

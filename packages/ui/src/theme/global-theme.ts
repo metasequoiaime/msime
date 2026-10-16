@@ -1,10 +1,11 @@
+import type { HostPlatform } from "../core/host-capabilities";
 /**
  * 设置页看到的全局主题契约。权威的主题表在 `crates/client-core/src/theme.rs`；`theme-catalog.json` 是 `crates/client-services/src/skin/theme.rs` 的 `catalog()` 序列化出的副本，由 Rust 测试 `web_catalog_copy_matches_the_catalog` 核对两者一致，所以设置页在每个宿主上都能同步画出主题选择器和预览，包括桥接层没有主题调用的宿主。
  *
  * Every colour is `#RRGGBB` or `#RRGGBBAA` (uppercase, alpha last). A `null` slot means "the host's own platform token", never "transparent".
  */
 import type { CSSProperties } from "react";
-import type { HostPlatform } from "../index";
+
 import type { TouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-design";
 import { candidateTextColor } from "../candidate/candidate-text-color";
 import { relativeLuminance } from "../core/color";
