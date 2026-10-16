@@ -5072,6 +5072,99 @@ fn expression_mode_keeps_an_unfinished_input_as_raw_text_and_bounds_it() {
 }
 
 #[test]
+fn expression_mode_inserts_unit_letters_at_the_caret() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = generated_modes_session(&fixture);
+    session.character(b'V', true);
+    type_text(&mut session, "3g");
+    session.set_caret(Some(2));
+
+    let result = session.character(b'k', false);
+
+    assert!(result.handled, "{result:?}");
+    assert!(result.commit.is_none(), "{result:?}");
+    assert_eq!(session.snapshot().preedit, "V3kg");
+    assert_eq!(session.snapshot().caret_position, 3);
+    assert!(words(&session).contains(&"3000克".to_owned()));
+    session.command(Command::Backspace);
+    assert_eq!(session.snapshot().preedit, "V3g");
+    assert_eq!(session.snapshot().caret_position, 2);
+}
+
+#[test]
+fn expression_mode_inserts_a_unit_separator_at_the_caret() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (text, caret, raw, expected) in [
+        ("3jinkg", 5, "V3jin'kg", ["1.5千克", "1.5", "3斤=1.5千克"]),
+        ("3kgjin", 4, "V3kg'jin", ["6斤", "6", "3千克=6斤"]),
+        ("3gkg", 3, "V3g'kg", ["0.003千克", "0.003", "3克=0.003千克"]),
+    ] {
+        for punctuation in [false, true] {
+            let mut session = generated_modes_session(&fixture);
+            session.character(b'V', true);
+            type_text(&mut session, text);
+            session.set_caret(Some(caret));
+            assert!(session.takes_local_separator());
+
+            let result = if punctuation {
+                session.punctuation(b'\'')
+            } else {
+                session.character(b'\'', false)
+            };
+
+            assert!(result.handled, "{result:?}");
+            assert!(result.commit.is_none(), "{result:?}");
+            assert_eq!(session.snapshot().preedit, raw);
+            assert_eq!(session.snapshot().caret_position, caret + 1);
+            assert_eq!(words(&session), expected);
+            assert!(!session.takes_local_separator());
+            let before = session.snapshot();
+            assert!(!session.character(b'\'', false).handled);
+            assert_eq!(session.snapshot(), before);
+            assert_eq!(session.select(2).commit.as_deref(), Some(expected[2]));
+        }
+    }
+}
+
+#[test]
+fn expression_mode_does_not_accept_a_unit_letter_before_the_number_at_the_caret() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = generated_modes_session(&fixture);
+    for (text, caret) in [("3g", 1), ("-3g", 2)] {
+        session.character(b'V', true);
+        type_text(&mut session, text);
+        session.set_caret(Some(caret));
+        let before = session.snapshot();
+
+        let result = session.character(b'k', false);
+
+        assert!(!result.handled, "{result:?}");
+        assert_eq!(session.snapshot(), before);
+        assert!(!session.takes_local_separator());
+        session.command(Command::Cancel);
+    }
+}
+
+#[test]
+fn expression_mode_limits_unit_insertions_at_the_caret() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = generated_modes_session(&fixture);
+    session.character(b'V', true);
+    type_text(&mut session, "3g");
+    while session.snapshot().preedit.len() < crate::local::GENERATED_MODE_INPUT_LIMIT {
+        assert!(session.character(b'g', false).handled);
+    }
+    session.set_caret(Some(3));
+    let before = session.snapshot();
+    for value in *b"k'" {
+        let result = session.character(value, false);
+        assert!(!result.handled);
+        assert!(result.commit.is_none());
+        assert_eq!(session.snapshot(), before);
+    }
+}
+
+#[test]
 fn expression_mode_needs_a_pinyin_scheme_and_an_empty_composition() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = generated_modes_session(&fixture);

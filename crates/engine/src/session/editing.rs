@@ -171,11 +171,13 @@ impl InputSession {
                 LocalInputMode::SuperJianpin | LocalInputMode::TemporaryEnglish => {}
                 LocalInputMode::Expression => {
                     accepted = text.len() < GENERATED_MODE_INPUT_LIMIT
-                        && self
-                            .local_mode
-                            .spelling_symbols()
-                            .as_bytes()
-                            .contains(&value);
+                        && (self.expression_takes_unit_letter(value, caret)
+                            || (value == b'\'' && self.expression_takes_unit_separator(caret))
+                            || self
+                                .local_mode
+                                .spelling_symbols()
+                                .as_bytes()
+                                .contains(&value));
                 }
                 LocalInputMode::Command | LocalInputMode::Mention => {
                     accepted = text.len() < GENERATED_MODE_INPUT_LIMIT && lower;

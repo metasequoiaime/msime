@@ -423,10 +423,11 @@ impl InputSession {
                 value.is_ascii_hexdigit() || (value == b'+' && self.local_preedit == "U")
             }
             LocalInputMode::Expression => {
-                // A unit (`3jin'g`) follows a number, so letters are taken only once a digit is in, and one apostrophe only right after a letter; the spelling symbols, which tell a host what to send as a character, stay digits and operators.
-                let unit_letter = value.is_ascii_lowercase()
-                    && self.local_preedit.bytes().any(|byte| byte.is_ascii_digit());
-                let unit_separator = value == b'\'' && self.expression_takes_unit_separator();
+                // 单位字母只在数字后接收；唯一的撇号分隔单位与目标，必须紧跟单位字母。宿主的拼写符号仍只含数字与运算符。
+                let unit_letter =
+                    self.expression_takes_unit_letter(value, self.local_preedit.len());
+                let unit_separator = value == b'\''
+                    && self.expression_takes_unit_separator(self.local_preedit.len());
                 self.local_preedit.len() < GENERATED_MODE_INPUT_LIMIT
                     && (unit_letter
                         || unit_separator
@@ -1116,16 +1117,25 @@ impl InputSession {
             && !self.is_all_complete_pure_pinyin()
     }
 
-    /// One apostrophe, right after a unit letter, splits `3jin'g` into the unit and its target.
-    fn expression_takes_unit_separator(&self) -> bool {
-        let preedit = self.local_preedit.as_bytes();
-        preedit.last().is_some_and(u8::is_ascii_lowercase) && !preedit.contains(&b'\'')
+    /// 数值已经出现后，表达式才收单位小写字母；光标插入与末尾输入共用这条规则。
+    pub(super) fn expression_takes_unit_letter(&self, value: u8, caret: usize) -> bool {
+        let text = self.local_preedit.as_bytes();
+        value.is_ascii_lowercase() && text[..caret.min(text.len())].iter().any(u8::is_ascii_digit)
+    }
+
+    /// 数值单位与目标之间的单个撇号只能插在单位字母后，且整段尚无其他撇号。
+    pub(super) fn expression_takes_unit_separator(&self, caret: usize) -> bool {
+        let text = self.local_preedit.as_bytes();
+        let caret = caret.min(text.len());
+        text[..caret].last().is_some_and(u8::is_ascii_lowercase) && !text.contains(&b'\'')
     }
 
     /// Whether an apostrophe now is a separator of the expression or command mode (`3jin'g`, `/fyhello'world`) rather than punctuation that ends it.
     pub fn takes_local_separator(&self) -> bool {
         match self.local_mode {
-            LocalInputMode::Expression => self.expression_takes_unit_separator(),
+            LocalInputMode::Expression => {
+                self.expression_takes_unit_separator(self.caret_position())
+            }
             LocalInputMode::Command => self.command_takes_word_separator(),
             LocalInputMode::Chaizi => self.chaizi_takes_symbol(b'\'', self.caret_position()),
             _ => false,
