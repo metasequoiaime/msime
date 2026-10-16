@@ -168,6 +168,7 @@ fn finishing_a_round_advances_only_what_the_round_saw() {
             base: BaseChange::Set(SectionBase::Texts(["ab".repeat(32)].into())),
             unheld: Some(vec!["cd".repeat(32)]),
             cleared: Some(false),
+            activation: ActivationChange::Keep,
             outcome: SectionOutcome::new(OutcomeKind::Synced, None),
         },
     );
@@ -184,6 +185,46 @@ fn finishing_a_round_advances_only_what_the_round_saw() {
     assert_eq!(state.pending_choice, None);
     assert!(state.run.is_none());
     assert!(!state.lease_matches(&lease.id, "a"));
+}
+
+#[test]
+fn the_snapshot_waiting_for_activation_is_recorded_kept_and_cleared() {
+    let (_directory, store) = store();
+    let mut state = bound("a");
+    let round = |change: ActivationChange| {
+        let mut progress = RoundProgress::default();
+        progress.sections.insert(
+            Section::Dictionary,
+            SectionProgress {
+                activation: change,
+                ..SectionProgress::outcome(SectionOutcome::new(OutcomeKind::Synced, None))
+            },
+        );
+        progress
+    };
+    state.finish_round(&round(ActivationChange::Set("request-1".into())), 1_000);
+    assert_eq!(
+        state.sections.dictionary.activation.as_deref(),
+        Some("request-1")
+    );
+    // 状态文件和待提交进度都要带着它往返。
+    store.update(|stored| *stored = state.clone()).unwrap();
+    assert_eq!(store.read().unwrap(), state);
+    let pending = PendingCommit {
+        run_id: "run".into(),
+        progress: round(ActivationChange::Clear),
+        settings_document: None,
+        modes: BTreeMap::new(),
+    };
+    let encoded = serde_json::to_vec(&pending).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<PendingCommit>(&encoded).unwrap(),
+        pending
+    );
+    state.finish_round(&round(ActivationChange::Keep), 2_000);
+    assert!(state.sections.dictionary.activation.is_some());
+    state.finish_round(&pending.progress, 3_000);
+    assert_eq!(state.sections.dictionary.activation, None);
 }
 
 #[test]

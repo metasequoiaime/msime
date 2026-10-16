@@ -6,7 +6,7 @@
 
 use crate::dictionary_request_json;
 use crate::dictionary_snapshot::inspect_snapshot_json;
-use msime_client_core::cloud::snapshot_queue::DictionarySnapshotQueue;
+use msime_client_core::cloud::snapshot_queue::{DictionarySnapshotQueue, SnapshotRequestStatus};
 use msime_client_core::edition::{
     filter_downloaded_account_settings, filter_uploaded_account_settings,
 };
@@ -14,14 +14,15 @@ use msime_client_core::ios_keyboard::IosKeyboardPreferences;
 use msime_client_core::preferences::{PreferencesError, PreferencesStore};
 use msime_client_services::account::cloud_sync::machine::{
     gate, ChoiceReason, CloudProbe, Event, HttpFailure, LocalProbe, SectionCommit, SectionInput,
-    SectionMachine, Step, Trigger, WriteTarget,
+    SectionMachine, SnapshotActivation, Step, Trigger, WriteTarget,
 };
 use msime_client_services::account::cloud_sync::policy::{
     self, Choice, LocalPhrase, Mode, Section, StatusLine,
 };
 use msime_client_services::account::cloud_sync::state::{
-    import_android, import_ios_v1, BaseChange, OutcomeKind, PendingCommit, RoundProgress, RunLease,
-    SectionBase, SectionOutcome, SectionProgress, SyncFailure, SyncState, SyncStateStore,
+    import_android, import_ios_v1, ActivationChange, BaseChange, OutcomeKind, PendingCommit,
+    RoundProgress, RunLease, SectionBase, SectionOutcome, SectionProgress, SyncFailure, SyncState,
+    SyncStateStore,
 };
 use msime_client_services::account::ios_settings::{local_account_preferences, IosPreferencePlan};
 use msime_client_services::account::settings_sync::{
@@ -42,7 +43,7 @@ use msime_client_services::dictionary::personal::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 pub(crate) const INVALID: &str = "cloud_sync_invalid";
@@ -127,8 +128,8 @@ pub(crate) struct DictionaryLocal {
     pub(crate) has_words: bool,
     /// 个人词库导入队列里还没被键盘应用的请求数。
     pub(crate) pending: usize,
-    /// 激活队列里还有下载下来、键盘还没激活的云端快照。
-    pub(crate) snapshot_pending: bool,
+    /// 下载下来的云端快照：激活队列里还有在等激活的（`Waiting`），或者状态里记着的那份没激活就结束了（`Lost`）。
+    pub(crate) activation: SnapshotActivation,
 }
 
 /// 驱动用到的本机读写。错误是稳定的原因码（`settings_storage`、`phrases_storage`、`dictionary_storage` 等）。
@@ -152,14 +153,16 @@ pub(crate) trait SyncLocal {
         local: &[LocalPhrase],
         target: &[AccountPhrase],
     ) -> Result<BTreeSet<String>, String>;
-    fn dictionary(&self) -> Result<DictionaryLocal, String>;
+    /// `awaited` 是状态里记着的、下载以后交给激活队列的请求 id。
+    fn dictionary(&self, awaited: Option<&str>) -> Result<DictionaryLocal, String>;
     fn export_dictionary(&self, destination: &Path) -> Result<(), String>;
+    /// 把下载到的快照交给激活队列，返回请求 id。
     fn replace_dictionary(
         &self,
         snapshot: &Path,
         account_id: &str,
         revision: i64,
-    ) -> Result<(), String>;
+    ) -> Result<String, String>;
     fn merge_dictionary(&self, snapshot: &Path) -> Result<(), String>;
     fn cancel_dictionary(&self, account_id: &str) -> Result<(), String>;
     /// 校验下载到的快照（与激活队列用的同一套规则），返回它的修订号。
@@ -441,6 +444,8 @@ struct PhrasesData {
 
 struct DictionaryData {
     probe: Option<AccountDictionaryProbe>,
+    /// 这一轮下载后交给激活队列的请求 id。
+    enqueued: Option<String>,
 }
 
 /// 云端文档里会写回本机、也会被上传的部分：去掉隐私键和字段表外的键。
@@ -552,6 +557,7 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                         has_data,
                         content_dirty: false,
                         upload_blocked: false,
+                        activation: SnapshotActivation::Idle,
                     })
                 }
                 Err(reason) => Event::LocalFailed { reason },
@@ -682,6 +688,7 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                             &unheld,
                         ),
                         upload_blocked: false,
+                        activation: SnapshotActivation::Idle,
                     };
                     data.local = Some(local);
                     Event::LocalRead(probe)
@@ -772,6 +779,7 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
         };
         let context = &self.context;
         let cursor = self.state.sections.dictionary.cursor;
+        let awaited = self.state.sections.dictionary.activation.as_deref();
         let event = match slot.step.clone() {
             Step::Fetch => {
                 let after = cursor.unwrap_or(0);
@@ -797,11 +805,15 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                     }
                 }
             }
-            Step::ReadLocal => match context.local.dictionary() {
+            Step::ReadLocal => match context.local.dictionary(awaited) {
                 Ok(local) => Event::LocalRead(LocalProbe {
                     has_data: local.has_words,
                     content_dirty: false,
-                    upload_blocked: policy::upload_blocked(local.pending, local.snapshot_pending),
+                    upload_blocked: policy::upload_blocked(
+                        local.pending,
+                        local.activation == SnapshotActivation::Waiting,
+                    ),
+                    activation: local.activation,
                 }),
                 Err(reason) => Event::LocalFailed { reason },
             },
@@ -844,12 +856,18 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                             let user = context.user;
                             let written = context.locally(|| match target {
                                 WriteTarget::MergeIntoLocal => {
-                                    context.local.merge_dictionary(&file)
+                                    context.local.merge_dictionary(&file).map(|()| None)
                                 }
-                                _ => context.local.replace_dictionary(&file, user, revision),
+                                _ => context
+                                    .local
+                                    .replace_dictionary(&file, user, revision)
+                                    .map(Some),
                             })?;
                             match written {
-                                Ok(()) => Event::Written { revision },
+                                Ok(enqueued) => {
+                                    data.enqueued = enqueued;
+                                    Event::Written { revision }
+                                }
                                 Err(reason) => Event::LocalFailed { reason },
                             }
                         }
@@ -859,7 +877,14 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                 event
             }
             Step::Commit(commit) => {
-                slot.progress = Some(committed(slot, commit, BaseChange::Keep, None));
+                let mut progress = committed(slot, commit, BaseChange::Keep, None);
+                // 下载以后记下交给激活队列的请求，下一轮据此知道它激活了没有。
+                progress.activation = match (commit.mode, &data.enqueued) {
+                    (Mode::Download, Some(id)) => ActivationChange::Set(id.clone()),
+                    _ if commit.clear_activation => ActivationChange::Clear,
+                    _ => ActivationChange::Keep,
+                };
+                slot.progress = Some(progress);
                 return Ok(advance(slot, None));
             }
             Step::NeedsChoice(_) | Step::Done(_) => return Ok(false),
@@ -906,6 +931,7 @@ fn committed(
         base,
         unheld,
         cleared: commit.reset_cleared.then_some(false),
+        activation: ActivationChange::Keep,
         outcome: SectionOutcome::new(OutcomeKind::Synced, None),
     }
 }
@@ -1094,7 +1120,13 @@ pub(crate) fn run<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
     }
     if capabilities.dictionary {
         let slot = round.slot(Section::Dictionary, choice);
-        round.dictionary = Some((slot, DictionaryData { probe: None }));
+        round.dictionary = Some((
+            slot,
+            DictionaryData {
+                probe: None,
+                enqueued: None,
+            },
+        ));
     }
     let sections = [Section::Settings, Section::Phrases, Section::Dictionary];
     let outcome = (|| -> Result<(), Abort> {
@@ -1210,7 +1242,7 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
                 failed = true;
                 keep_choice |= section == Section::Dictionary
                     && dictionary_needs_choice
-                    && outcome.reason.as_deref() == Some(MERGE_PENDING);
+                    && outcome.reason.as_deref().is_some_and(merge_unfinished);
                 if progress.failure.is_none() {
                     progress.failure = Some(failure_record(section, &slot, &outcome));
                 }
@@ -1459,13 +1491,42 @@ impl HostLocal {
     }
 }
 
-/// 云端快照里的词没有一次排进本机导入队列：剩下的下一轮接着排。
+/// 云端快照里的词还没有全部进本机：有排着等键盘应用的，或者这一轮排不下的，下一轮接着合并。
 const MERGE_PENDING: &str = "dictionary_merge_pending";
+/// 云端有本机导入不了的词：本机新词的规则不收（例如旧版本留下的带数字的快捷短语编码），或者键盘应用时拒绝了（例如本机方案不读主词库，存不了中文词）。这些词不在本机，上传就会把它们从云端删掉，所以这一类不推进、不上传。
+const MERGE_REJECTED: &str = "dictionary_merge_rejected";
+/// 云端的词被导入队列里别的失败请求挡住：用户自己的修改没保存成功、占着同一个词或占满了队列，又没有排着的请求能腾出位置，要用户在个人词库里处理。
+const MERGE_BLOCKED: &str = "dictionary_merge_blocked";
+/// 合并排进导入队列的请求 id 前缀，与 Android 的 `cloud-merge-` 相同。
+const MERGE_REQUEST_PREFIX: &str = "cloud-merge-";
+/// 键盘应用导入请求时的暂时失败，排一次就能过：`edit_personal_dictionary` 拿不到独占维护权（还有会话开着）或打不开词库目录。
+const TRANSIENT_APPLY_FAILURES: [&str; 2] = [
+    "dictionary maintenance busy",
+    "dictionary access unavailable",
+];
+/// 新词的权重上限，与 Engine `user_dictionary::personal::MAX_ENTRY_WEIGHT` 相同（那个模块不公开）。
+const MAX_IMPORT_WEIGHT: i64 = 100_000_000;
 
-/// 快照里的一个词换成导入队列里的写法；种类不认识或不合规时为 `None`。
-fn personal_word(word: &policy::Word) -> Option<PersonalWord> {
+/// 合并没做完的那几个原因：游标不推进，首次同步的选择留给下一轮。
+fn merge_unfinished(reason: &str) -> bool {
+    matches!(reason, MERGE_PENDING | MERGE_REJECTED | MERGE_BLOCKED)
+}
+
+/// 快照里的一个词在本机的身份，本机导出的词和云端的词都这样算，两边才对得上；种类不认识时为 `None`。
+fn stored_identity(word: &policy::Word) -> Option<String> {
     let kind = policy::personal_kind(&word.kind)?;
-    crate::dictionary::personal_import_word(kind, &word.key, &word.value, word.weight)
+    crate::dictionary::personal_stored_identity(kind, &word.key, &word.value)
+}
+
+/// 云端的一个词换成导入请求。权重收进新词的范围 1..=[`MAX_IMPORT_WEIGHT`]：英文学习会把词的权重抬过上限，服务端也收 0，这样的词照样导进来，只是权重被收紧；编码和词按新词的规则校验，不合规时为 `None`。
+fn import_word(word: &policy::Word) -> Option<PersonalWord> {
+    let kind = policy::personal_kind(&word.kind)?;
+    crate::dictionary::personal_import_word(
+        kind,
+        &word.key,
+        &word.value,
+        word.weight.clamp(1, MAX_IMPORT_WEIGHT),
+    )
 }
 
 /// 云端皮肤库里的每个设计宿主都已经有了（上传时裁剪、重排过的库就是这样）：不用交给宿主再导入一遍。宿主导入时按 id 和更新时间合并，不会删掉本机多出来的设计。
@@ -1695,7 +1756,7 @@ impl SyncLocal for HostLocal {
         Ok(unheld)
     }
 
-    fn dictionary(&self) -> Result<DictionaryLocal, String> {
+    fn dictionary(&self, awaited: Option<&str>) -> Result<DictionaryLocal, String> {
         let count = self.dictionary_call(json!({ "operation": "count", "user_only": true }))?;
         let pending = self
             .personal_store()?
@@ -1703,19 +1764,40 @@ impl SyncLocal for HostLocal {
             .map_err(|_| "dictionary_storage".to_owned())?
             .pending_count();
         // 没有激活队列目录的宿主不会下载快照，也就没有等激活的。
-        let snapshot_pending = match self.snapshot_queue {
-            None => false,
-            Some(_) => self
-                .queue()?
-                .read()
-                .map_err(|_| "dictionary_storage".to_owned())?
-                .request
-                .is_some_and(|request| request.status.active()),
+        let activation = match self.snapshot_queue {
+            None => SnapshotActivation::Idle,
+            Some(_) => {
+                let queue = self
+                    .queue()?
+                    .read()
+                    .map_err(|_| "dictionary_storage".to_owned())?;
+                let request = queue.request.as_ref();
+                if request.is_some_and(|request| request.status.active()) {
+                    SnapshotActivation::Waiting
+                } else {
+                    match awaited {
+                        None => SnapshotActivation::Idle,
+                        // 激活成功时队列把本机版本换成以这个请求 id 为代次的版本，之后键盘发布的版本也沿用它；宿主读过终态（`acknowledge`）以后请求本身不在了，只能看这一条。
+                        Some(id)
+                            if request.is_some_and(|request| {
+                                request.id.to_string() == id
+                                    && request.status == SnapshotRequestStatus::Applied
+                            }) || queue
+                                .local_version
+                                .as_deref()
+                                .is_some_and(|version| version.split(':').nth(1) == Some(id)) =>
+                        {
+                            SnapshotActivation::Idle
+                        }
+                        Some(_) => SnapshotActivation::Lost,
+                    }
+                }
+            }
         };
         Ok(DictionaryLocal {
             has_words: count.get("count").and_then(Value::as_u64).unwrap_or(0) > 0,
             pending,
-            snapshot_pending,
+            activation,
         })
     }
 
@@ -1733,7 +1815,7 @@ impl SyncLocal for HostLocal {
         snapshot: &Path,
         account_id: &str,
         revision: i64,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
         let queue = self.queue()?;
         // 键盘还没发布过本机词库版本时没法激活，留到下一轮。
         let local_version = queue
@@ -1752,11 +1834,13 @@ impl SyncLocal for HostLocal {
             .ok_or_else(|| "dictionary_invalid".to_owned())?;
         queue
             .enqueue(snapshot, account_id, revision, &local_version, &sha256)
-            .map(|_| ())
+            .map(|id| id.to_string())
             .map_err(|_| "dictionary_storage".to_owned())
     }
 
+    /// 把云端快照的词并进本机：本机还没有的词排进个人词库导入队列，等键盘应用。只有云端的每个词都已经在本机（或者本机排着删除、改掉它）时才算合并完，返回 `Ok`；否则这一类以 [`MERGE_PENDING`]、[`MERGE_REJECTED`] 或 [`MERGE_BLOCKED`] 失败，游标不推进、不标待上传，下一轮云端相对游标仍然有改动，走的还是合并，重新下载、接着排。合并完以后才会整份上传，所以没进本机的云端词不会被本机快照从云端删掉。
     fn merge_dictionary(&self, snapshot: &Path) -> Result<(), String> {
+        let storage = |_| "dictionary_storage".to_owned();
         let cloud = snapshot_words(snapshot)?;
         // 本机已经有的词不再排队：队列一次最多容纳 `PERSONAL_IMPORT_BATCH` 个没应用完的请求，云端的词多于这个数时要分几轮排进去，每一轮都得跳过前几轮已经被键盘应用的词，才能往后推进。
         let local_file = snapshot.with_file_name("merge-local.ndjson");
@@ -1764,47 +1848,99 @@ impl SyncLocal for HostLocal {
             .export_dictionary(&local_file)
             .and_then(|()| snapshot_words(&local_file));
         let _ = std::fs::remove_file(&local_file);
-        let held: HashSet<String> = local?
-            .iter()
-            .filter_map(personal_word)
-            .map(|word| word.identity())
-            .collect();
+        let held: HashSet<String> = local?.iter().filter_map(stored_identity).collect();
         let store = self.personal_store()?;
-        let state = store.read().map_err(|_| "dictionary_storage".to_owned())?;
-        // 队列里还没应用的请求（排着的或键盘拒掉的）已经碰过的词也跳过：排着的会由键盘写进去；被拒的再排一次还会被拒，而且同一个词有失败的请求时队列不收；本机排着删除的词按本机的删除算。
+        let state = store.read().map_err(storage)?;
         let waiting: Vec<&PersonalWordRequest> = state
             .requests
             .iter()
             .filter(|request| request.status != PersonalWordRequestStatus::Applied)
             .collect();
-        let mut seen: HashSet<String> = waiting
+        // 本机排着删除或改掉的词按本机的改动算。
+        let edited: HashSet<String> = waiting
             .iter()
-            .flat_map(|request| request.previous.iter().chain(request.replacement.iter()))
+            .filter_map(|request| request.previous.as_ref())
             .map(PersonalWord::identity)
-            .chain(held)
             .collect();
-        // 不合规的词跳过，与 Android 的 `queueWords` 相同；同一个词在快照里出现多次只排一次（导入请求里有重复会整批被拒）。
-        let mut words: Vec<PersonalWord> = cloud
+        let queued: HashMap<String, &PersonalWordRequest> = waiting
             .iter()
-            .filter_map(personal_word)
-            .filter(|word| seen.insert(word.identity()))
+            .filter_map(|request| {
+                request
+                    .replacement
+                    .as_ref()
+                    .map(|word| (word.identity(), *request))
+            })
             .collect();
+        let mut seen = HashSet::new();
+        let mut words: Vec<PersonalWord> = Vec::new();
+        let mut retry = Vec::new();
+        let (mut unfinished, mut rejected, mut blocked) = (false, false, false);
+        for word in &cloud {
+            let Some(identity) = stored_identity(word) else {
+                rejected = true;
+                continue;
+            };
+            if held.contains(&identity) || edited.contains(&identity) || !seen.insert(identity) {
+                continue;
+            }
+            let Some(import) = import_word(word) else {
+                rejected = true;
+                continue;
+            };
+            match queued.get(&import.identity()) {
+                // 排着的会由键盘写进去，写进去以后下一轮就在本机了。
+                Some(request) if request.status == PersonalWordRequestStatus::Pending => {
+                    unfinished = true;
+                }
+                // 用户自己的修改没保存成功、占着同一个词：队列不收这个词，要用户处理。
+                Some(request) if !request.id.starts_with(MERGE_REQUEST_PREFIX) => blocked = true,
+                // 这一类之前排的请求被键盘拒了：暂时的失败重排一次，别的再排还会被拒。
+                Some(request)
+                    if request
+                        .error
+                        .as_deref()
+                        .is_some_and(|error| TRANSIENT_APPLY_FAILURES.contains(&error)) =>
+                {
+                    retry.push(request.id.clone());
+                }
+                Some(_) => rejected = true,
+                None => words.push(import),
+            }
+        }
+        for id in &retry {
+            match store.retry(id) {
+                // 冲突说明同一个词已经有排着的请求。
+                Ok(()) | Err(PersonalDictionaryError::Conflict) => unfinished = true,
+                Err(_) => return Err("dictionary_storage".to_owned()),
+            }
+        }
         let room = policy::PERSONAL_IMPORT_BATCH.saturating_sub(waiting.len());
         let left_over = words.len() > room;
         words.truncate(room);
         if !words.is_empty() {
-            let id = format!("cloud-merge-{}", msime_client_core::uuid::Uuid::new_v4());
+            unfinished = true;
+            let id = format!(
+                "{MERGE_REQUEST_PREFIX}{}",
+                msime_client_core::uuid::Uuid::new_v4()
+            );
             match store.enqueue_import(words, id) {
                 Ok(()) => {}
                 // 排队和读状态之间别处也排了词：这一轮先停下，下一轮接着排。
                 Err(
                     PersonalDictionaryError::TooManyRequests | PersonalDictionaryError::Conflict,
-                ) => return Err(MERGE_PENDING.to_owned()),
+                ) => {}
                 Err(_) => return Err("dictionary_storage".to_owned()),
             }
         }
-        // 还有词没排进去：这一类按失败结束，游标不推进、不标待上传。下一轮云端相对游标仍然有改动，走的还是合并而不是上传，重新下载、接着排，所以没排进去的词不会被本机快照从云端覆盖掉；排完以后要等队列清空（`upload_blocked`）才上传。
-        if left_over {
+        // 队列被失败的请求占满，又没有排着的请求会被键盘应用、腾出位置：等下去也排不进去。
+        blocked |= left_over && !unfinished && state.pending_count() == 0;
+        if rejected {
+            return Err(MERGE_REJECTED.to_owned());
+        }
+        if blocked {
+            return Err(MERGE_BLOCKED.to_owned());
+        }
+        if unfinished || left_over {
             return Err(MERGE_PENDING.to_owned());
         }
         Ok(())

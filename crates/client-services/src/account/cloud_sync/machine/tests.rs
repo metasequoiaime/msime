@@ -116,6 +116,7 @@ fn local(has_data: bool) -> LocalProbe {
         has_data,
         content_dirty: false,
         upload_blocked: false,
+        activation: SnapshotActivation::Idle,
     }
 }
 
@@ -126,6 +127,11 @@ fn every_combination_finishes_and_keeps_the_invariants() {
     let choices = [None, Some(Choice::Merge), Some(Choice::UseCloud)];
     let revisions = [0, 5, 7];
     let flags = [false, true];
+    let activations = [
+        SnapshotActivation::Idle,
+        SnapshotActivation::Waiting,
+        SnapshotActivation::Lost,
+    ];
     let mut runs = 0;
     for section in sections {
         for cursor in cursors {
@@ -138,7 +144,13 @@ fn every_combination_finishes_and_keeps_the_invariants() {
                                     for reset_and_empty in flags {
                                         for local_data in flags {
                                             for content_dirty in flags {
-                                                for blocked in flags {
+                                                for (blocked, activation) in
+                                                    flags.into_iter().flat_map(|blocked| {
+                                                        activations.into_iter().map(
+                                                            move |activation| (blocked, activation),
+                                                        )
+                                                    })
+                                                {
                                                     let input = SectionInput {
                                                         section,
                                                         cursor,
@@ -155,7 +167,11 @@ fn every_combination_finishes_and_keeps_the_invariants() {
                                                     let local = LocalProbe {
                                                         has_data: local_data,
                                                         content_dirty,
-                                                        upload_blocked: blocked,
+                                                        // 等激活时驱动一定也报上传受阻。
+                                                        upload_blocked: blocked
+                                                            || activation
+                                                                == SnapshotActivation::Waiting,
+                                                        activation,
                                                     };
                                                     check(input, cloud, local);
                                                     runs += 1;
@@ -171,7 +187,7 @@ fn every_combination_finishes_and_keeps_the_invariants() {
             }
         }
     }
-    assert_eq!(runs, 3 * 2 * 2 * 2 * 2 * 3 * 3 * 2 * 2 * 2 * 2 * 2);
+    assert_eq!(runs, 3 * 2 * 2 * 2 * 2 * 3 * 3 * 2 * 2 * 2 * 2 * 2 * 3);
 }
 
 fn check(input: SectionInput, cloud: CloudProbe, local: LocalProbe) {
@@ -214,6 +230,25 @@ fn check(input: SectionInput, cloud: CloudProbe, local: LocalProbe) {
     if dictionary && local.upload_blocked {
         assert!(trace.puts.is_empty(), "{context}");
     }
+    // 下载的快照还在等激活：哪一边都不写。
+    if dictionary && local.activation == SnapshotActivation::Waiting {
+        assert!(
+            trace.puts.is_empty() && trace.writes.is_empty(),
+            "{context}"
+        );
+    }
+    // 下载的快照没激活就结束了（下载过，所以一定有游标）：不上传，增量时一定把云端的词补进本机（本机没词时重新下载）。
+    if dictionary && local.activation == SnapshotActivation::Lost && input.cursor.is_some() {
+        assert!(trace.puts.is_empty(), "{context}");
+        if !first {
+            let expected = if local.has_data {
+                WriteTarget::MergeIntoLocal
+            } else {
+                WriteTarget::Cloud
+            };
+            assert_eq!(trace.writes, [expected], "{context}");
+        }
+    }
     // 用云端替换本机时，云端为空、本机有数据只可能出在没有基线的增量下载上（旧版本导入的状态），首次和云端被清空的路径都不会。
     if !dictionary
         && trace.writes.contains(&WriteTarget::Cloud)
@@ -231,13 +266,17 @@ fn check(input: SectionInput, cloud: CloudProbe, local: LocalProbe) {
         assert!(!trace.writes.contains(&WriteTarget::Cloud), "{context}");
     }
     // 增量的模式表。
-    if !first {
+    if !first && !(dictionary && local.activation == SnapshotActivation::Lost) {
         let expected = incremental(changed, input.dirty || local.content_dirty);
         let mode = commit.map(|commit| commit.mode);
         match trace.outcome().map(|outcome| outcome.outcome) {
-            Some(OutcomeKind::Skipped) => {
-                assert!(dictionary && expected == Mode::Upload && local.upload_blocked)
-            }
+            Some(OutcomeKind::Skipped) => assert!(
+                dictionary
+                    && (expected == Mode::Upload && local.upload_blocked
+                        || expected != Mode::None
+                            && local.activation == SnapshotActivation::Waiting),
+                "{context}"
+            ),
             _ => assert_eq!(mode, Some(expected), "{context}"),
         }
     }
@@ -257,6 +296,14 @@ fn check(input: SectionInput, cloud: CloudProbe, local: LocalProbe) {
             assert_eq!(
                 commit.mark_dirty,
                 dictionary && commit.mode == Mode::Merge,
+                "{context}"
+            );
+            // 等激活的记录只在下载（改记新的）和还在等的时候留着。
+            assert_eq!(
+                commit.clear_activation,
+                dictionary
+                    && commit.mode != Mode::Download
+                    && local.activation != SnapshotActivation::Waiting,
                 "{context}"
             );
         }
@@ -502,6 +549,58 @@ fn dictionary_rules() {
     );
     let commit = trace.commit.unwrap();
     assert_eq!((commit.cursor, commit.clear_dirty), (5, true));
+}
+
+#[test]
+fn a_downloaded_snapshot_that_never_activated_is_merged_instead_of_uploaded() {
+    // 下载过快照、游标已经是它的修订号；本机有改动、云端没变，本来该上传。
+    let mut dirty = input(Section::Dictionary, Some(4));
+    dirty.dirty = true;
+    let mut lost = local(true);
+    lost.activation = SnapshotActivation::Lost;
+    let trace = drive(dirty, cloud(4, true), lost, Vec::new(), cloud(4, true));
+    assert!(trace.puts.is_empty());
+    assert_eq!(trace.writes, [WriteTarget::MergeIntoLocal]);
+    let commit = trace.commit.unwrap();
+    assert_eq!(commit.mode, Mode::Merge);
+    assert!(commit.mark_dirty && commit.clear_activation && !commit.clear_dirty);
+    // 两边都没变也要补：本机缺着下载时的那些词。本机没有词时再下载一次。
+    let mut empty = local(false);
+    empty.activation = SnapshotActivation::Lost;
+    let trace = drive(
+        input(Section::Dictionary, Some(4)),
+        cloud(4, true),
+        empty,
+        Vec::new(),
+        cloud(4, true),
+    );
+    assert_eq!(trace.writes, [WriteTarget::Cloud]);
+    assert!(!trace.commit.unwrap().clear_activation);
+    // 还在等激活：云端又变了也不下载、不合并。
+    let mut waiting = local(true);
+    waiting.activation = SnapshotActivation::Waiting;
+    waiting.upload_blocked = true;
+    let trace = drive(
+        input(Section::Dictionary, Some(4)),
+        cloud(6, true),
+        waiting,
+        Vec::new(),
+        cloud(6, true),
+    );
+    assert!(trace.writes.is_empty() && trace.puts.is_empty());
+    assert_eq!(
+        trace.outcome().unwrap(),
+        &SectionOutcome::new(OutcomeKind::Skipped, Some("dictionary_pending"))
+    );
+    // 两边都没变时照常提交游标，记着的快照留着。
+    let trace = drive(
+        input(Section::Dictionary, Some(4)),
+        cloud(4, true),
+        waiting,
+        Vec::new(),
+        cloud(4, true),
+    );
+    assert!(!trace.commit.unwrap().clear_activation);
 }
 
 #[test]

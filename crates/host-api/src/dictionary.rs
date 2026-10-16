@@ -322,6 +322,29 @@ pub(crate) fn personal_import_word(
     Some(word)
 }
 
+/// 一个已经存着的词在个人词库里的身份（权重不参与）：编码按 Engine 对已存词的规则规范（`dictionary_validate_previous`，权重不设上限，英文学习抬过上限的词也认得），规范不了时用原样的写法。云同步合并时用它比较云端的词和本机导出的词，与 [`personal_import_word`] 排进队列的词的身份一致。种类不认识时为 `None`。
+pub(crate) fn personal_stored_identity(kind: &str, key: &str, value: &str) -> Option<String> {
+    let kind: PersonalWordKind = serde_json::from_value(json!(kind)).ok()?;
+    let word = PersonalWord {
+        kind,
+        key: key.to_owned(),
+        value: value.to_owned(),
+        weight: 1,
+    };
+    Some(
+        match msime_engine::host::dictionary_validate_previous(&personal_engine_entry(&word)) {
+            Ok(entry) => PersonalWord {
+                kind: personal_kind(entry.kind),
+                key: entry.key,
+                value: entry.value,
+                weight: 1,
+            }
+            .identity(),
+            Err(_) => word.identity(),
+        },
+    )
+}
+
 /// Native management requests return only redacted errors.
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.

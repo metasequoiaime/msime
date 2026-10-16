@@ -107,14 +107,27 @@ pub struct CloudProbe {
     pub reset_and_empty: bool,
 }
 
+/// 只对词库：下载下来交给激活队列的云端快照现在怎样了。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SnapshotActivation {
+    /// 没有在等的快照，或者等的那份已经激活。
+    Idle,
+    /// 激活队列里有快照还在等键盘激活：这一类这一轮不写任何一边。
+    Waiting,
+    /// 等的那份没有激活就结束了（本机版本变了而冲突、快照不合规、准备失败或被取消）：游标已经是快照的修订号，本机却没有那些词。这一轮按合并处理，把云端的词并进本机，不能上传，否则本机这份没激活过的词库会整份覆盖云端。
+    Lost,
+}
+
 /// 读到的本机情况。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LocalProbe {
     pub has_data: bool,
     /// 按内容判断本机自基线以来改过（只有常用语这样判断）。
     pub content_dirty: bool,
-    /// 只对词库：导入队列里还有键盘没应用的词，现在不能上传。
+    /// 只对词库：导入队列里还有键盘没应用的词，或者下载的快照还在等激活，现在不能上传。
     pub upload_blocked: bool,
+    /// 只对词库：下载的云端快照激活了没有；其他分类总是 `Idle`。
+    pub activation: SnapshotActivation,
 }
 
 /// 一次联网失败。
@@ -180,6 +193,8 @@ pub struct SectionCommit {
     pub mark_dirty: bool,
     /// 清掉「云端被清空，等用户选择」。
     pub reset_cleared: bool,
+    /// 只对词库：清掉记着的等激活的快照（它已经激活，或者这一轮已经按合并补上了云端的词）。下载时驱动改记这一轮交给激活队列的请求。
+    pub clear_activation: bool,
     pub mode: Mode,
 }
 
@@ -218,6 +233,7 @@ pub struct SectionMachine {
     input: SectionInput,
     phase: Phase,
     probe: Option<CloudProbe>,
+    local: Option<LocalProbe>,
     mode: Mode,
     awaiting_choice: bool,
     retries: u32,
@@ -231,6 +247,7 @@ impl SectionMachine {
             input,
             phase: Phase::Start,
             probe: None,
+            local: None,
             mode: Mode::None,
             awaiting_choice: false,
             retries: 0,
@@ -307,6 +324,14 @@ impl SectionMachine {
         };
         self.awaiting_choice = input.cleared || cleared_now;
         if input.cursor.is_some() && !self.awaiting_choice {
+            // 下载的快照没有激活：本机缺着游标以前的云端改动，不管两边有没有新改动都要把云端的词补进本机；本机没有词时再下载一次。
+            if self.dictionary() && local.activation == SnapshotActivation::Lost {
+                return Ok(if local.has_data {
+                    Mode::Merge
+                } else {
+                    Mode::Download
+                });
+            }
             return Ok(incremental(changed, input.dirty || local.content_dirty));
         }
         let ask = if self.awaiting_choice {
@@ -338,12 +363,16 @@ impl SectionMachine {
     fn commit(&mut self, cursor: i64) -> Step {
         self.phase = Phase::Committing;
         let dictionary = self.dictionary();
+        let waiting = self
+            .local
+            .is_some_and(|local| local.activation == SnapshotActivation::Waiting);
         Step::Commit(SectionCommit {
             cursor,
             // 词库下载后保留标记：激活时本机版本若已变，请求会作废，标记是本机改动还要上传的唯一信号（与 Android 相同）。
             clear_dirty: !(dictionary && matches!(self.mode, Mode::Download | Mode::Merge)),
             mark_dirty: dictionary && self.mode == Mode::Merge,
             reset_cleared: self.awaiting_choice,
+            clear_activation: dictionary && self.mode != Mode::Download && !waiting,
             mode: self.mode,
         })
     }
@@ -352,6 +381,10 @@ impl SectionMachine {
         let revision = self.probe.map_or(0, |probe| probe.revision);
         match self.mode {
             Mode::None => self.commit(revision),
+            // 快照还在等激活：下载会被激活队列拒绝，合并排进去的词和激活谁先谁后也说不准，上传更不行，这一轮什么都不写。
+            _ if self.dictionary() && local.activation == SnapshotActivation::Waiting => {
+                self.done(OutcomeKind::Skipped, Some("dictionary_pending"))
+            }
             Mode::Download => {
                 self.phase = Phase::Writing;
                 Step::WriteLocal(WriteTarget::Cloud)
@@ -396,6 +429,7 @@ impl SectionMachine {
                 Step::Fetch
             }
             (Phase::Reading, Some(Event::LocalRead(local))) => {
+                self.local = Some(local);
                 let cloud = self.probe.expect("probe is set before reading local");
                 match self.decide(cloud, local) {
                     Ok(mode) => {

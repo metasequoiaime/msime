@@ -160,7 +160,7 @@ pub fn dictionary_first_run(
     }
 }
 
-/// 上传本机快照之前，个人词库队列里不能还有没被键盘应用的词，否则导出会漏掉它们、上传后云端也跟着丢；下载下来的云端快照还在激活队列里等键盘激活（`snapshot_pending`）时也不能上传，否则导出的是激活前的旧词库，会把云端整份换成它（Android 只看个人词库队列，Rust 以这里为准）。
+/// 上传本机快照之前，个人词库队列里不能还有没被键盘应用的词，否则导出会漏掉它们、上传后云端也跟着丢；下载下来的云端快照还在激活队列里等键盘激活（`snapshot_pending`）时也不能上传，否则导出的是激活前的旧词库，会把云端整份换成它（Android 只看个人词库队列，Rust 以这里为准）。快照没激活就结束了的情况不在这里挡，状态机改按合并处理（`machine::SnapshotActivation::Lost`）。
 pub fn upload_blocked(pending_queue_count: usize, snapshot_pending: bool) -> bool {
     pending_queue_count > 0 || snapshot_pending
 }
@@ -630,6 +630,10 @@ pub fn local_message(reason: &str) -> &'static str {
         "phrases_storage" => "常用语同步失败，稍后自动重试",
         "dictionary_storage" => "词库同步失败，稍后自动重试",
         "dictionary_merge_pending" => "云端的词还在排队导入本机，用过键盘以后会接着同步",
+        "dictionary_merge_rejected" => {
+            "云端词库里有本机导入不了的词，为了不从云端删掉它们，词库暂停同步"
+        }
+        "dictionary_merge_blocked" => "个人词库里有没保存成功的修改，处理以后词库才会接着同步",
         _ => "同步失败，稍后自动重试",
     }
 }

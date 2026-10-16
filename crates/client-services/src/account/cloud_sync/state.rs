@@ -42,6 +42,9 @@ pub struct SectionState {
     /// 云端被清空了，等用户选择合并或使用云端；选择之前这一类按首次处理。
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub cleared: bool,
+    /// 只对词库：下载下来交给激活队列、还没确认激活的云端快照的请求 id。游标在下载时就记成了快照的修订号，这份快照最后没有激活（冲突、失败、取消）时，下一轮靠它知道本机缺着那些词，改按合并处理而不是上传。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activation: Option<String>,
     /// 最近一轮这一类的结果。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_outcome: Option<SectionOutcome>,
@@ -360,6 +363,11 @@ impl SyncState {
             if let Some(cleared) = change.cleared {
                 state.cleared = cleared;
             }
+            match &change.activation {
+                ActivationChange::Keep => {}
+                ActivationChange::Clear => state.activation = None,
+                ActivationChange::Set(id) => state.activation = Some(id.clone()),
+            }
             state.last_outcome = Some(change.outcome.clone());
         }
         if progress.synced {
@@ -416,6 +424,9 @@ pub struct SectionProgress {
     pub unheld: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cleared: Option<bool>,
+    /// 只对词库：等激活的快照要不要改记。
+    #[serde(default)]
+    pub activation: ActivationChange,
     pub outcome: SectionOutcome,
 }
 
@@ -428,6 +439,7 @@ impl SectionProgress {
             base: BaseChange::Keep,
             unheld: None,
             cleared: None,
+            activation: ActivationChange::Keep,
             outcome,
         }
     }
@@ -440,6 +452,17 @@ pub enum BaseChange {
     Keep,
     Clear,
     Set(SectionBase),
+}
+
+/// 等激活的快照怎么改记。
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivationChange {
+    #[default]
+    Keep,
+    Clear,
+    /// 这一轮交给激活队列的请求 id。
+    Set(String),
 }
 
 /// 一轮要提交的全部进度。
