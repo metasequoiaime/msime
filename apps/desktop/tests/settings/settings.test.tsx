@@ -4481,14 +4481,14 @@ test("macOS shows the shuangpin preedit in the 双拼 details and persists the e
     ...shuangpin.preferences,
     shuangpin_preedit_uses_raw: false,
   });
-  // 「候选窗口」页的预编辑组不再画它，每项偏好只有一个入口。
+  // 「候选窗口」页的预编辑各行不再画它，每项偏好只有一个入口。那几行收在页面的「更多选项」里，所以带上 hidden。
   fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
-  fireEvent.click(screen.getByRole("tab", { name: "预编辑" }));
-  expect(screen.getByRole("combobox", { name: "候选窗口预编辑" })).toBeTruthy();
+  const appearance = screen.getByRole("group", { name: "候选窗口" });
   expect(
-    within(screen.getByRole("group", { name: "候选窗口" })).queryByRole("combobox", {
-      name: "双拼预编辑",
-    }),
+    within(appearance).getByRole("combobox", { name: "候选窗口预编辑", hidden: true }),
+  ).toBeTruthy();
+  expect(
+    within(appearance).queryByRole("combobox", { name: "双拼预编辑", hidden: true }),
   ).toBeNull();
 });
 
@@ -4517,10 +4517,10 @@ test("the HarmonyOS 2-in-1 keeps the shuangpin preedit on exactly one page", asy
     }),
   ).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
-  fireEvent.click(screen.getByRole("tab", { name: "预编辑" }));
   expect(
     within(screen.getByRole("group", { name: "候选窗口" })).getByRole("combobox", {
       name: "双拼预编辑",
+      hidden: true,
     }),
   ).toBeTruthy();
   expect(screen.getAllByRole("combobox", { name: "双拼预编辑", hidden: true })).toHaveLength(1);
