@@ -8,6 +8,7 @@ import type { PunctuationPreferences } from "./settings/punctuation-preferences"
 import type { KeybindingPreferences } from "./settings/keybinding-preferences";
 import type { WubiPreferences } from "./settings/wubi-preferences";
 import type { VietnamesePreferences } from "./settings/vietnamese-preferences";
+import type { FloatingToolbarPreferences } from "./settings/floating-toolbar-preferences";
 import type { DictionaryCollectionsClient } from "./dictionary/dictionary-collections";
 import type { TraditionalChineseVariant } from "./settings/chinese-output-preferences";
 import type {
@@ -2179,22 +2180,7 @@ export type {
   DictionaryCollectionsClient,
 } from "./dictionary/dictionary-collections";
 
-export type FloatingToolbarPreferences = {
-  enabled: boolean;
-  english_mode: boolean;
-  /** 切换输入方案的按钮。 */
-  input_scheme: boolean;
-  fullwidth: boolean;
-  punctuation: boolean;
-  character_set: boolean;
-  emoji: boolean;
-  handwriting: boolean;
-  screen_keyboard: boolean;
-  voice: boolean;
-  settings: boolean;
-  scale_percent: 75 | 100 | 125 | 150;
-  font_size: 16 | 18 | 20 | 22 | 24 | 26 | 28;
-};
+export type { FloatingToolbarPreferences } from "./settings/floating-toolbar-preferences";
 export { InputSourceStartupNotice } from "./settings/input-source-startup-notice";
 /** macOS 设置宿主启动时对内嵌输入法的安装与启用状态。 */
 export type { InputSourceStartupStatus } from "./settings/input-source-startup-model";

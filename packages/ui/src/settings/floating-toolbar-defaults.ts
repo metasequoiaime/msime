@@ -1,4 +1,4 @@
-import type { FloatingToolbarPreferences } from "../index";
+import type { FloatingToolbarPreferences } from "./floating-toolbar-preferences";
 
 /** Mirrors FloatingToolbarPreferences::default() in client-core. */
 export const defaultFloatingToolbar: FloatingToolbarPreferences = {
