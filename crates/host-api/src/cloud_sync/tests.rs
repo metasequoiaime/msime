@@ -318,6 +318,10 @@ impl AccountApi for FakeApi {
 #[derive(Default)]
 struct Local {
     settings: BTreeMap<String, AccountPreferenceValue>,
+    /// 本机设置的修订号，像共享偏好那样每写一次加一。
+    settings_revision: u64,
+    /// 下一次写回设置之前，另一个进程里用户改了这一项（读本机和写回之间的修改）。
+    edit_before_apply: Option<(String, AccountPreferenceValue)>,
     skins: Option<String>,
     applied: Vec<AccountPreferences>,
     /// iOS：应用设置时要改键盘设置，共享偏好留到提交时。
@@ -387,14 +391,23 @@ impl SyncLocal for FakeLocal {
         Ok(LocalSettings {
             settings: local.settings.clone(),
             skins: local.skins.clone(),
+            revision: local.settings_revision,
         })
     }
     fn apply_settings(
         &self,
         document: &AccountPreferences,
         _: &AccountPreferenceSchema,
+        read_revision: u64,
     ) -> Result<SettingsApplied, String> {
         let mut local = self.local();
+        if let Some((key, value)) = local.edit_before_apply.take() {
+            local.settings.insert(key, value);
+            local.settings_revision += 1;
+        }
+        if local.settings_revision != read_revision {
+            return Err(SETTINGS_CHANGED.to_owned());
+        }
         local.applied.push(document.clone());
         if let Some(native) = local.defer.clone() {
             return Ok(SettingsApplied {
@@ -406,6 +419,7 @@ impl SyncLocal for FakeLocal {
             });
         }
         local.settings = document.settings.clone();
+        local.settings_revision += 1;
         Ok(SettingsApplied {
             writes: HostWrites::default(),
             deferred: false,
@@ -815,6 +829,63 @@ fn a_cloud_cleared_after_another_section_wrote_keeps_its_progress_and_asks_next_
     assert_eq!(asked["outcome"], "needs_choice", "{asked}");
     assert_eq!(asked["reason"], "cloud_cleared");
     assert_eq!(fixture.local.texts(), ["甲", "乙"]);
+}
+
+#[test]
+fn a_setting_changed_elsewhere_during_the_round_is_merged_next_round_rather_than_overwritten() {
+    let capabilities = Capabilities {
+        settings: true,
+        ..Capabilities::default()
+    };
+    let fixture = Fixture::new();
+    fixture.local.local().settings = [("input.schema".to_owned(), string("quanpin"))].into();
+    fixture.enable();
+    let first = fixture.run(Trigger::Enable, None, capabilities, NOW);
+    assert_eq!(
+        first["sections"]["settings"]["outcome"], "synced",
+        "{first}"
+    );
+    let before = fixture.state().sections.settings.clone();
+    assert_eq!(before.cursor, Some(1));
+    // 别的设备改了主题；这一轮下载期间，另一个进程里用户把方案改成了五笔。
+    {
+        let mut cloud = fixture.api.cloud();
+        cloud.preferences.revision = 2;
+        cloud
+            .preferences
+            .settings
+            .insert("platform.android.theme".to_owned(), string("ink"));
+    }
+    fixture.local.local().edit_before_apply = Some(("input.schema".to_owned(), string("wubi")));
+    let raced = fixture.run(Trigger::Manual, None, capabilities, NOW + 60_000);
+    assert_eq!(
+        raced["sections"]["settings"]["reason"], SETTINGS_CHANGED,
+        "{raced}"
+    );
+    assert_eq!(
+        fixture.local.local().settings.get("input.schema"),
+        Some(&string("wubi"))
+    );
+    let state = fixture.state();
+    assert_eq!(state.sections.settings.cursor, before.cursor);
+    assert_eq!(state.sections.settings.base, before.base);
+    assert!(state.sections.settings.dirty());
+    assert_eq!(state.failure, None);
+    // 下一轮按三方合并：用户的五笔和云端的主题都留下。
+    let merged = fixture.run(Trigger::Manual, None, capabilities, NOW + 120_000);
+    assert_eq!(
+        merged["sections"]["settings"]["outcome"], "synced",
+        "{merged}"
+    );
+    let cloud = fixture.api.cloud().preferences.clone();
+    assert_eq!(cloud.settings.get("input.schema"), Some(&string("wubi")));
+    assert_eq!(
+        cloud.settings.get("platform.android.theme"),
+        Some(&string("ink"))
+    );
+    let local = fixture.local.local().settings.clone();
+    assert_eq!(local.get("input.schema"), Some(&string("wubi")));
+    assert_eq!(local.get("platform.android.theme"), Some(&string("ink")));
 }
 
 fn store_mark(fixture: &Fixture, section: Section) {
@@ -2265,7 +2336,13 @@ fn the_android_mapping_exports_and_applies_through_shared_preferences() {
         ]
         .into(),
     };
-    let applied = local.apply_settings(&document, &fields).unwrap();
+    let applied = local
+        .apply_settings(
+            &document,
+            &fields,
+            local.export_settings().unwrap().revision,
+        )
+        .unwrap();
     assert!(!applied.deferred);
     // 按键反馈是宿主的值：交给宿主写；共享偏好已经存好。
     assert_eq!(
@@ -2279,6 +2356,42 @@ fn the_android_mapping_exports_and_applies_through_shared_preferences() {
         local.export_settings().unwrap().settings["input.schema"],
         string("wubi")
     );
+}
+
+#[test]
+fn writing_settings_back_never_overwrites_a_change_made_after_they_were_read() {
+    use msime_client_core::preferences::InputScheme;
+    let directory = tempfile::tempdir().unwrap();
+    let local = host_local(directory.path(), HostInputs::default());
+    let exported = local.export_settings().unwrap();
+    assert_eq!(exported.settings["input.schema"], string("quanpin"));
+    // 读本机和写回之间，另一个进程里用户把方案改成了双拼。
+    let store = PreferencesStore::new(directory.path());
+    let current = store.load().unwrap();
+    let mut edited = current.preferences.clone();
+    edited.scheme = InputScheme::Shuangpin;
+    store.save(current.revision, edited).unwrap();
+    let fields = schema(&[("input.schema", "string")]);
+    let document = AccountPreferences {
+        revision: 3,
+        settings: [("input.schema".to_owned(), string("wubi"))].into(),
+    };
+    assert_eq!(
+        local
+            .apply_settings(&document, &fields, exported.revision)
+            .err(),
+        Some(SETTINGS_CHANGED.to_owned())
+    );
+    assert_eq!(
+        store.load().unwrap().preferences.scheme,
+        InputScheme::Shuangpin
+    );
+    // 按刚读到的修订号照常写回。
+    let fresh = local.export_settings().unwrap();
+    local
+        .apply_settings(&document, &fields, fresh.revision)
+        .unwrap();
+    assert_eq!(store.load().unwrap().preferences.scheme, InputScheme::Wubi);
 }
 
 #[test]
@@ -2334,7 +2447,13 @@ fn the_harmony_mapping_uses_its_own_namespace_over_shared_preferences() {
         ]
         .into(),
     };
-    let applied = local.apply_settings(&document, &fields).unwrap();
+    let applied = local
+        .apply_settings(
+            &document,
+            &fields,
+            local.export_settings().unwrap().revision,
+        )
+        .unwrap();
     assert!(!applied.deferred);
     assert_eq!(
         applied.writes,
@@ -2458,7 +2577,9 @@ fn the_ios_mapping_defers_shared_preferences_until_the_keyboard_settings_are_sav
         revision: 2,
         settings: [("input.schema".to_owned(), string("shuangpin"))].into(),
     };
-    let applied = local.apply_settings(&same, &fields).unwrap();
+    let applied = local
+        .apply_settings(&same, &fields, local.export_settings().unwrap().revision)
+        .unwrap();
     assert!(!applied.deferred && applied.writes.is_empty());
     // 要换方案：先交给宿主写键盘设置，提交时再按实际保存的值写共享偏好。
     let wubi = AccountPreferences {
@@ -2469,7 +2590,9 @@ fn the_ios_mapping_defers_shared_preferences_until_the_keyboard_settings_are_sav
         ]
         .into(),
     };
-    let applied = local.apply_settings(&wubi, &fields).unwrap();
+    let applied = local
+        .apply_settings(&wubi, &fields, local.export_settings().unwrap().revision)
+        .unwrap();
     assert!(applied.deferred);
     let requested = applied.writes.ios_native.unwrap();
     assert_eq!(

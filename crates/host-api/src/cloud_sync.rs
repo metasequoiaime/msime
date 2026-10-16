@@ -119,6 +119,8 @@ impl HostWrites {
 pub(crate) struct LocalSettings {
     pub(crate) settings: BTreeMap<String, AccountPreferenceValue>,
     pub(crate) skins: Option<String>,
+    /// 导出时共享偏好的修订号：写回时按它比较并交换，期间被别处改过就不覆盖。
+    pub(crate) revision: u64,
 }
 
 /// 应用一份设置文档的结果。
@@ -157,10 +159,12 @@ impl From<String> for MergeStop {
 /// 驱动用到的本机读写。错误是稳定的原因码（`settings_storage`、`phrases_storage`、`dictionary_storage` 等）。
 pub(crate) trait SyncLocal {
     fn export_settings(&self) -> Result<LocalSettings, String>;
+    /// 把云端文档应用到本机。`read_revision` 是这一轮读本机时（[`Self::export_settings`]）共享偏好的修订号：共享偏好在这之后被别处改过时什么都不写，返回 [`SETTINGS_CHANGED`]。
     fn apply_settings(
         &self,
         document: &AccountPreferences,
         schema: &AccountPreferenceSchema,
+        read_revision: u64,
     ) -> Result<SettingsApplied, String>;
     /// iOS 的第二步：按宿主实际保存下来的键盘设置把文档应用到共享偏好。失败是 `conflict` 或 `storage`。
     fn commit_settings(
@@ -664,7 +668,12 @@ impl<A: AccountApi, S: AccountSessionStorage, L: SyncLocal> Round<'_, A, S, L> {
                     document.settings.remove(policy::SKINS_KEY);
                 }
                 let revision = document.revision;
-                match context.locally(|| context.local.apply_settings(&document, &schema))? {
+                let read_revision = data.local.as_ref().expect("local is read first").revision;
+                match context.locally(|| {
+                    context
+                        .local
+                        .apply_settings(&document, &schema, read_revision)
+                })? {
                     Ok(applied) => {
                         if applied.deferred {
                             data.deferred = Some(document);
@@ -1003,6 +1012,9 @@ fn committed(
         outcome: SectionOutcome::new(OutcomeKind::Synced, None),
     }
 }
+
+/// 共享偏好在这一轮读本机以后被别处改过（另一个进程里用户改了设置）：不拿云端的值覆盖它，这一类这一轮跳过、再标一次待上传，游标和基线不动，下一轮按三方合并。
+pub(crate) const SETTINGS_CHANGED: &str = "settings_changed";
 
 /// 本机的皮肤库（宿主给的 `custom_keyboard_skins`）不是 JSON 数组。
 const LOCAL_SKINS_UNREADABLE: &str = "skins_library_unreadable";
@@ -1345,11 +1357,17 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
     }
     let mut failed = false;
     for (section, slot) in slots {
-        let outcome = slot
+        let mut outcome = slot
             .machine
             .outcome()
             .cloned()
             .unwrap_or_else(|| SectionOutcome::new(OutcomeKind::Skipped, Some("not_run")));
+        // 写回本机时共享偏好已经被别处改过：不算失败，这一类跳过、再标一次待上传，游标和基线不动，下一轮按三方合并，不丢那次修改。
+        let local_changed = outcome.outcome == OutcomeKind::Failed
+            && outcome.reason.as_deref() == Some(SETTINGS_CHANGED);
+        if local_changed {
+            outcome = SectionOutcome::new(OutcomeKind::Skipped, Some(SETTINGS_CHANGED));
+        }
         modes.insert(section, slot.machine.mode());
         match outcome.outcome {
             OutcomeKind::NeedsChoice => {
@@ -1430,9 +1448,13 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
                 progress.sections.insert(section, change);
             }
             OutcomeKind::Skipped => {
-                progress
-                    .sections
-                    .insert(section, SectionProgress::outcome(outcome.clone()));
+                progress.sections.insert(
+                    section,
+                    SectionProgress {
+                        mark_dirty: local_changed,
+                        ..SectionProgress::outcome(outcome.clone())
+                    },
+                );
             }
         }
         outcomes.insert(section, outcome);
@@ -1453,10 +1475,11 @@ fn finish<A: AccountApi, S: AccountSessionStorage, L: SyncLocal>(
                     policy::prompt_due(now_ms, state.prompted_at_ms, trigger.forced());
                 // 别的分类这一轮什么都没写：只留下问选择的和读云端就失败的（失败原因和退避照样记下）。
                 progress.sections.retain(|_, change| {
-                    matches!(
-                        change.outcome.outcome,
-                        OutcomeKind::NeedsChoice | OutcomeKind::Failed
-                    )
+                    change.mark_dirty
+                        || matches!(
+                            change.outcome.outcome,
+                            OutcomeKind::NeedsChoice | OutcomeKind::Failed
+                        )
                 });
                 progress.skins_trimmed = None;
                 state.finish_round(&progress, now_ms);
@@ -1782,6 +1805,7 @@ impl SyncLocal for HostLocal {
             skins: (self.inputs.ios_native.is_none() && !self.inputs.harmony)
                 .then(|| self.inputs.custom_keyboard_skins.clone())
                 .flatten(),
+            revision: snapshot.revision,
         })
     }
 
@@ -1789,11 +1813,22 @@ impl SyncLocal for HostLocal {
         &self,
         document: &AccountPreferences,
         schema: &AccountPreferenceSchema,
+        read_revision: u64,
     ) -> Result<SettingsApplied, String> {
         let store = self.store();
         let mut document = document.clone();
         filter_downloaded_account_settings(Some(store.edition()), &mut document.settings);
         let invalid = |_| "settings_storage".to_owned();
+        // 按这一轮读本机时的修订号比较并交换：读本机到现在（中间隔着一次联网）另一个进程里用户改了设置时，不能用基于旧值算出的结果覆盖它。
+        let local = store.load().map_err(|_| "settings_storage".to_owned())?;
+        if local.revision != read_revision {
+            return Err(SETTINGS_CHANGED.to_owned());
+        }
+        let save = |preferences| match store.save(read_revision, preferences) {
+            Ok(_) => Ok(()),
+            Err(PreferencesError::Conflict) => Err(SETTINGS_CHANGED.to_owned()),
+            Err(_) => Err("settings_storage".to_owned()),
+        };
         if let Some(current) = &self.inputs.ios_native {
             let plan = IosPreferencePlan::from_cloud(&document).map_err(invalid)?;
             let requested = plan.requested_native(current).map_err(invalid)?;
@@ -1807,20 +1842,16 @@ impl SyncLocal for HostLocal {
                 });
             }
             // 键盘设置不用变：共享偏好现在就应用。
-            let local = store.load().map_err(|_| "settings_storage".to_owned())?;
             let mut next = local.preferences.clone();
             plan.apply_shared(current, &mut next).map_err(invalid)?;
             if next != local.preferences {
-                store
-                    .save(local.revision, next)
-                    .map_err(|_| "settings_storage".to_owned())?;
+                save(next)?;
             }
             return Ok(SettingsApplied {
                 writes: HostWrites::default(),
                 deferred: false,
             });
         }
-        let local = store.load().map_err(|_| "settings_storage".to_owned())?;
         if self.inputs.harmony {
             let applied = apply_harmony_settings(
                 &local.preferences,
@@ -1830,9 +1861,7 @@ impl SyncLocal for HostLocal {
             )
             .map_err(invalid)?;
             if applied.preferences != local.preferences {
-                store
-                    .save(local.revision, applied.preferences)
-                    .map_err(|_| "settings_storage".to_owned())?;
+                save(applied.preferences)?;
             }
             let mut writes = HostWrites::default();
             if applied.feedback.is_some() && applied.feedback != self.inputs.feedback {
@@ -1851,9 +1880,7 @@ impl SyncLocal for HostLocal {
         )
         .map_err(invalid)?;
         if applied.preferences != local.preferences {
-            store
-                .save(local.revision, applied.preferences)
-                .map_err(|_| "settings_storage".to_owned())?;
+            save(applied.preferences)?;
         }
         let mut writes = HostWrites::default();
         if applied.feedback.is_some() && applied.feedback != self.inputs.feedback {
